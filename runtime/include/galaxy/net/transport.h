@@ -106,6 +106,9 @@ public:
     [[nodiscard]] virtual std::chrono::milliseconds ping(PeerId peer) const noexcept = 0;
     // The port a host listens on.
     [[nodiscard]] virtual std::uint16_t port() const noexcept = 0;
+    // A host's: who the member is beyond this lobby, what bans and moderators are kept by (sm64coopdx's get_id_str:
+    // the direct transport's is the member's IP address). Empty when unknown.
+    [[nodiscard]] virtual std::string peer_identity(PeerId peer) const = 0;
 
 protected:
     TransportCallbacks callbacks_;

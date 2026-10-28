@@ -21,6 +21,8 @@ public:
     [[nodiscard]] std::uint16_t port() const noexcept;
     // "1.2.3.4:7777" or "[::1]:7777"; an IPv4 address mapped into IPv6 shows as IPv4.
     [[nodiscard]] std::string to_string() const;
+    // The host alone, "1.2.3.4" or "::1" (an IPv4 address mapped into IPv6 shows as IPv4).
+    [[nodiscard]] std::string host_text() const;
 
     // The bytes as the system takes them (a sockaddr).
     [[nodiscard]] const void* data() const noexcept { return bytes_.data(); }

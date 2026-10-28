@@ -163,7 +163,8 @@ add_executable(nebula_native_host host/host_main.cpp
     ../runtime/src/mods.cpp ../runtime/src/mod_xml.cpp ../runtime/src/virtual_disc.cpp ../runtime/src/atomic_file.cpp
     ../runtime/src/crash_report.cpp ../runtime/src/discord_presence.cpp ../runtime/src/coop_menu.cpp
     ../runtime/src/coop_saves.cpp ../runtime/src/coop_mods.cpp ../runtime/src/coop_session.cpp
-    ../runtime/src/coop_snapshot.cpp ../runtime/src/coop_chat.cpp ../runtime/src/coop_world.cpp
+    ../runtime/src/coop_snapshot.cpp ../runtime/src/coop_chat.cpp ../runtime/src/coop_commands.cpp
+    ../runtime/src/coop_world.cpp
     ../runtime/src/runtime_settings.cpp ../runtime/src/input_bindings.cpp ../runtime/src/net/udp.cpp
     ../runtime/src/net/link.cpp ../runtime/src/net/direct_transport.cpp)
 if(WIN32)

@@ -41,6 +41,7 @@ public:
     [[nodiscard]] PeerId owner() const noexcept override { return owner_; }
     [[nodiscard]] std::chrono::milliseconds ping(PeerId peer) const noexcept override;
     [[nodiscard]] std::uint16_t port() const noexcept override { return socket_.local_port(); }
+    [[nodiscard]] std::string peer_identity(PeerId peer) const override;
     // The lobby's members, this one included.
     [[nodiscard]] std::vector<PeerId> members() const;
 

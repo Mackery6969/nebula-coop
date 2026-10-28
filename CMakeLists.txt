@@ -107,6 +107,7 @@ add_library(galaxy_net STATIC
     runtime/src/coop_mods.cpp
     runtime/src/coop_session.cpp
     runtime/src/coop_chat.cpp
+    runtime/src/coop_commands.cpp
     runtime/src/coop_snapshot.cpp
     runtime/src/coop_world.cpp)
 target_link_libraries(galaxy_net PUBLIC galaxy_runtime_abi galaxy_atomic_file ws2_32)
