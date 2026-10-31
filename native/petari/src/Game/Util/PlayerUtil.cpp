@@ -19,7 +19,6 @@
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
-#include <JSystem/JMath/F32.hpp>
 
 namespace MR {
     bool isOnGroundPlayer() {
