@@ -1,28 +1,29 @@
 #pragma once
 
+#include "Game/System/GameThreads.hpp"
 #include "JSystem/JAudio2/JASCallback.hpp"
 
 typedef s32 (*DriverCallback)(void*);
 
 namespace JASDriver {
-    void setDSPLevel(f32);
-    u16 getChannelLevel_dsp();
+    void setOutputLevel(f32);
+    f32 getChannelGain();
     f32 getChannelLevel();
-    f32 getDSPLevel();
+    f32 getOutputLevel();
     void setOutputMode(u32);
     u32 getOutputMode();
     void waitSubFrame();
+    extern GameEvent sSubFrameDone;
     int rejectCallback(DriverCallback, void*);
-    bool registerDspSyncCallback(DriverCallback, void*);
+    bool registerSyncCallback(DriverCallback, void*);
     bool registerSubFrameCallback(DriverCallback, void*);
     void subframeCallback();
-    void DSPSyncCallback();
-    void updateDacCallback();
+    void syncCallback();
+    void updateFrameCallback();
 
-    extern JASCallbackMgr sDspSyncCallback;
+    extern JASCallbackMgr sSyncCallback;
     extern JASCallbackMgr sSubFrameCallback;
     extern JASCallbackMgr sUpdateDacCallback;
-    extern u16 MAX_MIXERLEVEL;
     extern u32 JAS_SYSTEM_OUTPUT_MODE;
 };  // namespace JASDriver
 

@@ -12,7 +12,7 @@
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
 #include "Game/Util/FixedPosition.hpp"
-#include "Game/Util/GamePadUtil.hpp"
+#include "Game/Util/PlayerInputUtil.hpp"
 #include "Game/Util/JMapInfo.hpp"
 #include "Game/Util/JMapUtil.hpp"
 #include "Game/Util/JointUtil.hpp"
@@ -25,17 +25,7 @@
 #include "Game/Util/StarPointerUtil.hpp"
 #include <JSystem/JGeometry/TMatrix.hpp>
 #include <JSystem/JGeometry/TVec.hpp>
-#include <revolution/mtx.h>
-#include <revolution/types.h>
-
-void StringSpider_FORCE_MATCH_SDATA2() {
-    (void)1.0f;
-    (void)0.0f;
-    (void)0.5f;
-    (void)3.0f;
-    MR::pi();
-    (void)2.0f;
-}
+#include <nebula_math.h>
 
 namespace {
     // hPointerPunchAddVel
@@ -595,7 +585,7 @@ void StringSpider::exeSpinned() {
 
     TQuat4f v14;
     v14.setRotate(TVec3f(0, 1, 0), (-0.6f * nerveRateMinus));
-    PSQUATMultiply(_A0, v14, _A0);
+    NebulaQuatMultiply(_A0, v14, _A0);
     calcPosture(0.25f, false);
 
     if (MR::isGreaterStep(this, 480)) {
@@ -648,8 +638,8 @@ void StringSpider::exeDpdGripped() {
         }
     }
 
-    s32 channel = WPAD_CHAN0;
-    if (!MR::testCorePadButtonA(channel = *MR::getStarPointerLastPointedPort(this))) {
+    s32 channel = PLAYER_1;
+    if (!MR::isHeldJump(channel = *MR::getStarPointerLastPointedPort(this))) {
         setNerve(GET_NERVE(StringSpider, HostTypeNrvSearch));
     } else {
         calcPosture(0.25f, false);

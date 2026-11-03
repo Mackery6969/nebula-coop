@@ -1,8 +1,9 @@
 #include "Game/LiveActor/ShadowVolumeCylinder.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
-#include <revolution/gx.h>
+#include <NebulaGpu.h>
 
 namespace {
     const f32 sModelScale = 100.0f;
@@ -37,6 +38,6 @@ void ShadowVolumeCylinder::loadModelDrawMtx() const {
 
     TVec3f scale(radius, calcBaseDropLength() / ::sModelScale, radius);
     MR::preScaleMtx(mtx, scale);
-    PSMTXConcat(MR::getCameraViewMtx(), mtx, mtx);
-    GXLoadPosMtxImm(mtx, 0);
+    NebulaMtxConcat(MR::getCameraViewMtx(), mtx, mtx);
+    J3DNativeShape::setPosition(0, mtx);
 }

@@ -1,16 +1,16 @@
 #pragma once
 
-#ifdef TARGET_PC
 #include "Game/Util/Color.hpp"
 #include <JSystem/JGeometry/TVec.hpp>
-#include <revolution.h>
+#include <NebulaGpu.h>
+#include <nebula_math.h>
 
 class LiveActor;
 struct ActorLightInfo;
 struct PointLightInfo;
 
 // Nebula: the game's lights for the renderer's ray tracer (__NebulaGameLight, NEBULA_LIGHT_* in nebula_game_api.h),
-// from the objects that own them rather than from the GX light registers.
+// from the objects that own them.
 namespace GameLightSignal {
     // LightDirector's construction: a new scene, before its actors are made.
     void sceneStart();
@@ -28,4 +28,3 @@ namespace GameLightSignal {
     // LightFunction::loadActorLightInfo: world-fixed lights far out (key lights of areas).
     void actorLight(const ActorLightInfo* pInfo);
 };  // namespace GameLightSignal
-#endif

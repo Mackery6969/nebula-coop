@@ -1,6 +1,5 @@
 #pragma once
 
-#ifdef TARGET_PC
 #include "Game/Screen/LayoutActor.hpp"
 #include <JSystem/JGeometry/TVec.hpp>
 
@@ -43,4 +42,3 @@ private:
     /* 0x20 */ NebulaSelectPlayersParts* mParts;
     /* 0x24 */ bool mScene;
 };
-#endif

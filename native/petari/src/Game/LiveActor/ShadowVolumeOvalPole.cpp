@@ -1,18 +1,14 @@
 #include "Game/LiveActor/ShadowVolumeOvalPole.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
-#include <revolution/gx.h>
+#include <NebulaGpu.h>
 
 namespace {
     const f32 sModelScale = 100.0f;
 };  // namespace
-
-void ShadowVolumeOvalPole_FORCE_MATCH_SDATA2() {
-    1.0f;
-    0.0f;
-}
 
 ShadowVolumeOvalPole::~ShadowVolumeOvalPole() {
 }
@@ -79,8 +75,8 @@ void ShadowVolumeOvalPole::loadModelDrawMtx() const {
     mtx.setXDir(side);
     mtx.setYDir(up);
     mtx.setZDir(front);
-    PSMTXConcat(MR::getCameraViewMtx(), mtx, mtx);
-    GXLoadPosMtxImm(mtx, 0);
+    NebulaMtxConcat(MR::getCameraViewMtx(), mtx, mtx);
+    J3DNativeShape::setPosition(0, mtx);
 }
 
 void ShadowVolumeOvalPole::setSize(const TVec3f& rSize) {

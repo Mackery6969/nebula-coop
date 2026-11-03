@@ -161,8 +161,18 @@ int main() {
     galaxy::load_runtime_settings_from_file();
     passed &= expect(
         galaxy::get_runtime_settings().input_mode ==
-            galaxy::RuntimeInputMode::Auto,
-        "missing settings default to auto");
+            galaxy::RuntimeInputMode::KeyboardMouse,
+        "missing settings default to keyboard and mouse");
+    using Mode = galaxy::RuntimeInputMode;
+    static_assert(!galaxy::input_missing(Mode::KeyboardMouse, false, false, false));
+    static_assert(galaxy::input_missing(Mode::Controller, false, true, true));
+    static_assert(!galaxy::input_missing(Mode::Controller, true, false, false));
+    static_assert(galaxy::input_missing(Mode::RealWiimote, true, false, true));
+    static_assert(!galaxy::input_missing(Mode::RealWiimote, false, true, false));
+    static_assert(galaxy::input_missing(Mode::Auto, false, false, false));
+    static_assert(!galaxy::input_missing(Mode::Auto, true, false, false));
+    static_assert(!galaxy::input_missing(Mode::Auto, false, true, false));
+    static_assert(!galaxy::input_missing(Mode::Auto, false, false, true));
 
     write_text(settings_path, "input_mode=auto\ncontrols_version=2\n");
     galaxy::load_runtime_settings_from_file();
@@ -175,8 +185,8 @@ int main() {
     galaxy::load_runtime_settings_from_file();
     passed &= expect(
         galaxy::get_runtime_settings().input_mode ==
-            galaxy::RuntimeInputMode::Auto,
-        "a version-1 file's keyboard_mouse migrates to auto");
+            galaxy::RuntimeInputMode::KeyboardMouse,
+        "a version-1 file keeps keyboard_mouse");
 
     write_text(settings_path, "input_mode=keyboard_mouse\ncontrols_version=2\n");
     galaxy::load_runtime_settings_from_file();
@@ -307,13 +317,14 @@ int main() {
         "direct audio-setting writes clamp or repair invalid gains");
 
     galaxy::RuntimeSettings controller_settings = audio_only;
+    const galaxy::RuntimeInputModeState before_controller = galaxy::get_runtime_input_mode_state();
     controller_settings.input_mode = galaxy::RuntimeInputMode::Controller;
     galaxy::set_runtime_settings(controller_settings);
     const galaxy::RuntimeInputModeState after_controller =
         galaxy::get_runtime_input_mode_state();
     passed &= expect(
         after_controller.mode == galaxy::RuntimeInputMode::Controller &&
-            after_controller.generation == generation_origin.generation + 1u &&
+            after_controller.generation == before_controller.generation + 1u &&
             galaxy::get_runtime_settings().input_mode == after_controller.mode,
         "actual input-mode change advances one coherent generation");
 
@@ -483,9 +494,9 @@ int main() {
     galaxy::set_runtime_settings(invalid_mode);
     const auto sanitized_mode = galaxy::get_runtime_input_mode_state();
     passed &= expect(
-        sanitized_mode.mode == galaxy::RuntimeInputMode::Auto &&
+        sanitized_mode.mode == galaxy::RuntimeInputMode::KeyboardMouse &&
             sanitized_mode.generation == before_failed_load.generation + 1u,
-        "invalid direct input mode becomes one coherent auto transition");
+        "invalid direct input mode becomes one coherent keyboard and mouse transition");
     galaxy::set_runtime_settings(invalid_mode);
     passed &= expect(
         galaxy::get_runtime_input_mode_state().generation == sanitized_mode.generation,
@@ -585,8 +596,13 @@ int main() {
     passed &= expect(galaxy::get_runtime_settings().language == GameLanguage::Spanish, "a language name in any case loads");
     write_text(settings_path, "language=german\n");
     galaxy::load_runtime_settings_from_file();
-    passed &= expect(galaxy::get_runtime_settings().language == GameLanguage::English,
-                     "a language the disc does not carry starts the game in English");
+    passed &= expect(galaxy::get_runtime_settings().language == GameLanguage::German, "German loads");
+    write_text(settings_path, "language=klingon\n");
+    galaxy::load_runtime_settings_from_file();
+    passed &= expect(galaxy::get_runtime_settings().language == GameLanguage::Auto, "a language the game has not is Auto");
+    write_text(settings_path, "text_speed=2\n");
+    galaxy::load_runtime_settings_from_file();
+    passed &= expect(galaxy::get_runtime_settings().language == GameLanguage::Auto, "no language set is Auto");
     _putenv_s("GALAXY_LANGUAGE", "french");
     galaxy::load_runtime_settings_from_file();
     passed &= expect(galaxy::get_runtime_settings().language == GameLanguage::French, "language has an environment override");
@@ -596,10 +612,10 @@ int main() {
             read_text(settings_path).find("language=french") != std::string::npos,
         "language is saved with the other settings");
     galaxy::RuntimeSettings odd = galaxy::get_runtime_settings();
-    odd.language = static_cast<GameLanguage>(2);
+    odd.language = static_cast<GameLanguage>(9);
     galaxy::set_runtime_settings(odd);
-    passed &= expect(galaxy::get_runtime_settings().language == GameLanguage::English,
-                     "a language code outside the three is replaced by English");
+    passed &= expect(galaxy::get_runtime_settings().language == GameLanguage::Auto,
+                     "a language code the game has not is replaced by Auto");
 
     // The game's first question fixes the language for the session.
     GameLanguage running{};
@@ -659,6 +675,37 @@ int main() {
                          endpoint("host:12a", nullptr, 0u) && endpoint(":7777", nullptr, 0u) &&
                          endpoint("", nullptr, 0u) && endpoint("[::1", nullptr, 0u),
                      "malformed co-op addresses are refused");
+
+    // Each release's disc offers its own languages; a language it has not plays as Auto does.
+    const std::string europe[] = {"EuEnglish", "EuGerman", "EuFrench", "EuSpanish", "EuItalian", "HomeButton2"};
+    galaxy::set_disc_languages(europe);
+    passed &= expect(galaxy::game_language_on_disc(GameLanguage::German) &&
+                         galaxy::game_language_on_disc(GameLanguage::Italian) &&
+                         !galaxy::game_language_on_disc(GameLanguage::Dutch) &&
+                         !galaxy::game_language_on_disc(GameLanguage::Japanese) &&
+                         !galaxy::game_language_on_disc(GameLanguage::Auto),
+                     "Europe's disc offers its five languages");
+    passed &= expect(galaxy::game_language_resolved(GameLanguage::Italian) == GameLanguage::Italian,
+                     "a language on the disc plays as chosen");
+    passed &= expect(galaxy::game_language_on_disc(galaxy::game_language_resolved(GameLanguage::Dutch)) &&
+                         galaxy::game_language_resolved(GameLanguage::Dutch) ==
+                             galaxy::game_language_resolved(GameLanguage::Auto),
+                     "a language not on the disc plays as Auto does, in one the disc has");
+    const std::string japan[] = {"JpJapanese"};
+    galaxy::set_disc_languages(japan);
+    passed &= expect(galaxy::game_language_resolved(GameLanguage::Auto) == GameLanguage::Japanese &&
+                         galaxy::game_language_resolved(GameLanguage::English) == GameLanguage::Japanese,
+                     "Japan's disc plays in Japanese whatever is chosen");
+    const std::string usa[] = {"UsEnglish", "UsFrench", "UsSpanish"};
+    galaxy::set_disc_languages(usa);
+    passed &= expect(galaxy::game_language_resolved(GameLanguage::French) == GameLanguage::French &&
+                         galaxy::game_language_on_disc(galaxy::game_language_resolved(GameLanguage::German)),
+                     "North America's disc plays its languages, and German as Auto does");
+    write_text(settings_path, "language=auto\n");
+    galaxy::load_runtime_settings_from_file();
+    passed &= expect(galaxy::save_runtime_settings_to_file() &&
+                         read_text(settings_path).find("language=auto") != std::string::npos,
+                     "Auto is saved as auto");
 
     std::filesystem::remove_all(root);
 

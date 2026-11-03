@@ -11,12 +11,11 @@
 #include "nw4r/lyt/util.h"
 #include "nw4r/lyt/window.h"
 #include "nw4r/ut/Rect.h"
-#include <revolution/mem/allocator.h>
 
 namespace {
     using namespace nw4r;
     using namespace nw4r::lyt;
-    void SetTagProcessorImpl(Pane* pPane, ut::TagProcessorBase< wchar_t >* pTagProcessor) {
+    void SetTagProcessorImpl(Pane* pPane, ut::TagProcessorBase< char16_t >* pTagProcessor) {
         if (TextBox* pTextBox = ut::DynamicCast< TextBox* >(pPane)) {
             pTextBox->SetTagProcessor(pTagProcessor);
         }
@@ -30,31 +29,8 @@ namespace {
 namespace nw4r {
     namespace lyt {
         namespace {
-            bool IsIncludeAnimationGroupRef(GroupContainer* pGroupContainer, const AnimationGroupRef* const groupRefs, u16 bindGroupNum,
-                                            bool bDescendingBind, Pane* pTargetPane) {
-                for (u16 grpIdx = 0; grpIdx < bindGroupNum; ++grpIdx) {
-                    Group* const pGroup = pGroupContainer->FindGroupByName(groupRefs[grpIdx].GetName());
-                    PaneLinkList& paneList = pGroup->GetPaneList();
-                    for (PaneLinkList::Iterator it = paneList.GetBeginIter(); it != paneList.GetEndIter(); ++it) {
-                        if (it->mTarget == pTargetPane) {
-                            return true;
-                        }
-
-                        if (bDescendingBind) {
-                            for (Pane* pParentPane = pTargetPane->GetParent(); pParentPane; pParentPane = pParentPane->GetParent()) {
-                                if (it->mTarget == pParentPane) {
-                                    return true;
-                                }
-                            }
-                        }
-                    }
-                }
-
-                return false;
-            }
         };  // namespace
 
-        MEMAllocator* Layout::mspAllocator = nullptr;
 
         Layout::Layout() : mpRootPane(nullptr), mpGroupContainer(nullptr), mLayoutSize(0.0f, 0.0f), _20(0) {
         }
@@ -320,7 +296,7 @@ namespace nw4r {
             return ut::Rect(0.0f, 0.0f, mLayoutSize.width, mLayoutSize.height);
         }
 
-        void Layout::SetTagProcessor(ut::TagProcessorBase< wchar_t >* pTagProcessor) {
+        void Layout::SetTagProcessor(ut::TagProcessorBase< char16_t >* pTagProcessor) {
             SetTagProcessorImpl(mpRootPane, pTagProcessor);
         }
         Pane* Layout::BuildPaneObj(s32 kind, const void* dataPtr, const ResBlockSet& resBlockSet) {

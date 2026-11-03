@@ -3,12 +3,12 @@
 
 namespace {
     inline f32 JPASinShort(s16 v) {
-        const std::pair< f32, f32 >* p = &JMath::sSinCosTable.table[static_cast< u16 >(v) >> 2];
+        const JMath::Pair< f32, f32 >* p = &JMath::sSinCosTable.table[static_cast< u16 >(v) >> 2];
         return p->a1;
     }
 
     inline f32 JPACosShort(s16 v) {
-        const std::pair< f32, f32 >* p = &JMath::sSinCosTable.table[static_cast< u16 >(v) >> 2];
+        const JMath::Pair< f32, f32 >* p = &JMath::sSinCosTable.table[static_cast< u16 >(v) >> 2];
         return p->b1;
     }
 }
@@ -105,7 +105,7 @@ void JPASetRMtxSTVecfromMtx(f32 const (*param_0)[4], f32 (*param_1)[4], JGeometr
     param_2->y = aTStack_54.length();
     aTStack_54.set< f32 >(param_0[0][2], param_0[1][2], param_0[2][2]);
     param_2->z = aTStack_54.length();
-    PSMTXIdentity(param_1);
+    NebulaMtxIdentity(param_1);
     if (param_2->x != 0.0f) {
         f32 fVar5 = 1.0f / param_2->x;
         param_1[0][0] = param_0[0][0] * fVar5;
@@ -130,7 +130,7 @@ void JPASetRMtxSTVecfromMtx(f32 const (*param_0)[4], f32 (*param_1)[4], JGeometr
     param_3->set< f32 >(param_0[0][3], param_0[1][3], param_0[2][3]);
 }
 
-f32 JPACalcKeyAnmValue(f32 param_0, u16 param_1, NEBULA_BE(f32) const* param_2) {
+f32 JPACalcKeyAnmValue(f32 param_0, u16 param_1, f32 const* param_2) {
     if (param_0 < param_2[0]) {
         return param_2[1];
     }

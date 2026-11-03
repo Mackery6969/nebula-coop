@@ -1,4 +1,5 @@
 #include "Game/System/AudSystemWrapper.hpp"
+#include "Game/System/GameThreads.hpp"
 #include "Game/AudioLib/AudMeNameConverter.hpp"
 #include "Game/AudioLib/AudMicWrap.hpp"
 #include "Game/AudioLib/AudSceneMgr.hpp"
@@ -8,16 +9,15 @@
 #include "Game/AudioLib/CSSoundNameConverter.hpp"
 #include "Game/Util/FileUtil.hpp"
 #include "Game/Util/SingletonHolder.hpp"
-#include <JSystem/JKernel/JKRDvdRipper.hpp>
-#include <JSystem/JKernel/JKRExpHeap.hpp>
-#include <JSystem/JKernel/JKRMemArchive.hpp>
-#include <JSystem/JKernel/JKRSolidHeap.hpp>
+
+#include "Game/System/NebulaArena.hpp"
+#include "Game/System/AssetFolder.hpp"
 
 namespace AudRhythmWrap {
     void rhythmProc();
 };  // namespace AudRhythmWrap
 
-AudSystemWrapper::AudSystemWrapper(JKRSolidHeap* pSolidHeap, JKRHeap* pHeap) {
+AudSystemWrapper::AudSystemWrapper(NebulaArena* pSolidHeap, NebulaArena* pHeap) {
     volatile AudSystemWrapper* self = this;
 
     self->mIsResetDone = false;
@@ -32,11 +32,11 @@ AudSystemWrapper::AudSystemWrapper(JKRSolidHeap* pSolidHeap, JKRHeap* pHeap) {
     self->mSpkRes = nullptr;
     self->_28 = false;
     self->mDisableReset = false;
-    mSpkHeap = JKRExpHeap::create(AudSpeakerWrap::getRequiredHeapSize(), pSolidHeap, false);
+    mSpkHeap = NebulaArena::create(pSolidHeap);
 }
 
 void AudSystemWrapper::requestResourceForInitialize() {
-    MR::loadAsyncToMainRAM(sAudioResFile, nullptr, mHeap, JKRDvdRipper::ALLOC_DIRECTION_BACKWARD);
+    MR::loadAsyncToMainRAM(sAudioResFile, nullptr, mHeap, GameAssets::ALLOC_DIRECTION_BACKWARD);
     MR::mountAsyncArchive(sJaiSeqArc, mSolidHeap);
     MR::mountAsyncArchive(sJaiChordArc, mSolidHeap);
     MR::mountAsyncArchive(sJaiMeArc, mSolidHeap);
@@ -48,7 +48,7 @@ void AudSystemWrapper::createAudioSystem() {
     receiveResourceForInitialize();
 
     if (mIsResetDone) {
-        OSSuspendThread(OSGetCurrentThread());
+        return;
     }
 
     mDisableReset = true;

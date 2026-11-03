@@ -17,7 +17,7 @@ namespace {
 };  // namespace
 
 ShadowControllerHolder::ShadowControllerHolder() : NameObj("\211\145\212\307\227\235" /* 影管理 */), _C(), _18(), _24() {
-    mFarClip = 4000.0f;
+    mFarClip = 1000000.0f;  // as far as the camera sees
     _C.init(0x500);
     _18.init(0x400);
     MR::connectToScene(this, MR::MovementType_ShadowControllerHolder, MR::CalcAnimType_None, MR::DrawBufferType_None, MR::DrawType_None);
@@ -203,7 +203,7 @@ void ShadowController::getDropPos(TVec3f* pOut) const {
         pOut->set(*mDropPos);
     } else {
         if (_1C) {
-            PSMTXMultVec(_1C, (const Vec*)&_30, (Vec*)pOut);
+            NebulaMtxMultVec(_1C, (const Vec*)&_30, (Vec*)pOut);
         } else {
             pOut->set(_30);
         }

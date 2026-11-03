@@ -32,7 +32,7 @@ void MarioActor::entryWallWalkMode(const TVec3f& position, const TVec3f& normal)
         TVec3f front(mMario->mHeadVec);
         mMario->setGravityVec(gravity);
         mMario->setHeadVec(-gravity);
-        mMario->setFrontVecKeepUp(front, 1UL);
+        mMario->setFrontVecKeepUp(front, 1u);
         setBlendMtxTimer(2);
         _38C = 5;
         mMario->mMovementStates._38 = false;
@@ -73,8 +73,8 @@ bool Mario::beeMarioOnAir() {
                 MR::normalizeOrZero(&mJumpVec);
                 if (!MR::vecBlendSphere(mJumpVec, mFrontVec, &mJumpVec, mActor->getConst().getTable()->mBeeSpeedRotateRatio)) {
                     Mtx rotation;
-                    PSMTXRotAxisRad(rotation, &mHeadVec, 0.1f);
-                    PSMTXMultVecSR(rotation, &mJumpVec, &mJumpVec);
+                    NebulaMtxRotAxisRad(rotation, &mHeadVec, 0.1f);
+                    NebulaMtxMultVecSR(rotation, &mJumpVec, &mJumpVec);
                 }
 
                 mJumpVec.setLength(speed);

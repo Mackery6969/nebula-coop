@@ -1,6 +1,7 @@
 #pragma once
 
-#include <revolution.h>
+#include <NebulaGpu.h>
+#include <nebula_math.h>
 
 namespace MR {
     /// @brief A contiguous space-efficient array of bits.
@@ -28,9 +29,9 @@ namespace MR {
 
     private:
         /// @brief The pointer to the array of bytes.
-        /* 0x0 */ u8* mArray;
+        u8* mArray;
 
         /// @brief The number of bits.
-        /* 0x4 */ s32 mArraySize;
+        s32 mArraySize;
     };
 };  // namespace MR

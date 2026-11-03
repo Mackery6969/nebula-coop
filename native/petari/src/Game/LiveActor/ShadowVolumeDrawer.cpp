@@ -1,4 +1,5 @@
 #include "Game/LiveActor/ShadowVolumeDrawer.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/Util/DrawUtil.hpp"
@@ -81,19 +82,19 @@ bool ShadowVolumeDrawer::isDraw() const {
 void ShadowVolumeDrawer::draw() const {
     if (isDraw()) {
         loadModelDrawMtx();
-        GXColor shapeColor = reinterpret_cast< GXColor& >(::sShapeColor);
-        GXSetTevColor(GX_TEVREG0, shapeColor);
-        GXSetColorUpdate(0);
-        GXSetDstAlpha(0, 0);
-        GXSetCullMode(GX_CULL_FRONT);
-        GXSetBlendMode(GX_BM_BLEND, GX_BL_ONE, GX_BL_ONE, GX_LO_COPY);
+        NebulaColor8 shapeColor = reinterpret_cast< NebulaColor8& >(::sShapeColor);
+        MR::setShadowVolumeColor(shapeColor);
+        J3DPass::writeColor(false);
+        J3DPass::constantAlpha(false, 0);
+        J3DPass::cull(NEBULA_CULL_FRONT);
+        J3DPass::blend(NEBULA_FACTOR_ONE, NEBULA_FACTOR_ONE);
         drawShape();
-        GXSetCullMode(GX_CULL_BACK);
-        GXSetBlendMode(GX_BM_SUBTRACT, GX_BL_ZERO, GX_BL_ZERO, GX_LO_COPY);
+        J3DPass::cull(NEBULA_CULL_BACK);
+        J3DPass::subtractBlend();
         drawShape();
-        GXSetCullMode(GX_CULL_NONE);
-        GXSetColorUpdate(1);
-        GXSetDstAlpha(1, 0);
+        J3DPass::cull(NEBULA_CULL_NONE);
+        J3DPass::writeColor(true);
+        J3DPass::constantAlpha(true, 0);
     }
 }
 

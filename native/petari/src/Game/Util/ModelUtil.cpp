@@ -1,4 +1,5 @@
 #include "Game/Util/ModelUtil.hpp"
+#include "Game/System/GameThreads.hpp"
 #include "Game/Animation/XanimePlayer.hpp"
 #include "Game/Animation/XanimeResource.hpp"
 #include "Game/LiveActor/LiveActor.hpp"
@@ -9,25 +10,20 @@
 #include "Game/Util.hpp"
 #include <JSystem/J3DGraphAnimator/J3DJoint.hpp>
 #include <cstdio>
+#include <nebula_cooked_material.h>
 
 namespace {
     inline bool isUseLightChanNo(J3DMaterial* pMaterial, int channel, int index) {
-        u16 channelID = pMaterial->mColorBlock->getColorChan(channel)->mColorChanID;
-        if (((channelID >> 1) & 0x1) == 0) {
+        const J3DColorChan* pChan = pMaterial->mColorBlock->getColorChan(channel);
+        if (pChan->getEnable() == 0) {
             return false;
         }
 
-        u8 useLightChan = (channelID >> 2 & 0xF | channelID >> 7 & 0xF0);
-        return useLightChan & (1 << index);
+        return pChan->getLightMask() & (1 << index);
     }
 };  // namespace
 
 namespace MR {
-
-    void FORCE_MATCH_FUNCTION_ORDER1() {
-        J3DTevBlock* block;
-        block->getTevKColor(1);
-    }
 
     XanimePlayer* newXanimePlayer(const ResourceHolder* pModelResourceHolder, const char* pChar, const ResourceHolder* pUnused, J3DMdlFlag mdlFlag,
                                   XanimeResourceTable* pAnimeResourceTable) {
@@ -76,9 +72,9 @@ namespace MR {
     }
 
     void calcJ3DModel(LiveActor* pActor) {
-        OSLockMutex(&MR::MutexHolder< 0 >::sMutex);
+        (MR::MutexHolder< 0 >::sMutex).lock();
         getJ3DModel(pActor)->calc();
-        OSUnlockMutex(&MR::MutexHolder< 0 >::sMutex);
+        (MR::MutexHolder< 0 >::sMutex).unlock();
     }
 
     J3DModelData* getJ3DModelData(const LiveActor* pActor) {
@@ -150,8 +146,8 @@ namespace MR {
         return pModelData->getMaterialName()->getName(idx);
     }
 
-    void updateModelDiffDL(LiveActor* pActor) {
-        pActor->mModelManager->updateDL(true);
+    void updateModelDiffMaterials(LiveActor* pActor) {
+        pActor->mModelManager->updateList(true);
     }
 
     bool isEnvelope(J3DMaterial* pMaterial) {
@@ -178,7 +174,7 @@ namespace MR {
 
     void calcFogStartEnd(TVec3f vec, f32 f1, f32* pFogStart, f32* pFogEnd) {
         Vec multVec;
-        PSMTXMultVec(j3dSys.mViewMtx, vec, &multVec);
+        NebulaMtxMultVec(j3dSys.mViewMtx, vec, &multVec);
 
         f32 flt = -multVec.z;
         if (f1 == 0.0f) {
@@ -199,15 +195,10 @@ namespace MR {
     }
 
     bool isUseTex(J3DMaterial* pMaterial, u16 a2) {
-        for (u32 idx = 0; idx < 8; idx++) {
-            if (pMaterial->getTexNo(idx) != a2) {
-                continue;
-            }
-
-            for (u32 stage = 0; stage < pMaterial->getTevStageNum(); stage++) {
-                if (pMaterial->getTevBlock()->getTevOrder(stage)->mTexMap == idx) {
-                    return true;
-                }
+        const NebulaCookedMaterial* pCooked = pMaterial->mNativeMaterial;
+        for (u32 idx = 0; pCooked != nullptr && idx < 8; idx++) {
+            if (pMaterial->getTexNo(idx) == a2 && (pCooked->used_maps & (1u << idx)) != 0) {
+                return true;
             }
         }
 
@@ -227,23 +218,9 @@ namespace MR {
     }
 
     bool isUseTexMtx(J3DMaterial* pMaterial, u32 idx) {
-        J3DTexMtx* texMtx = pMaterial->mTexGenBlock->getTexMtx(idx);
-
-        if (texMtx != nullptr) {
-            for (u32 stage = 0; stage < pMaterial->getTevStageNum(); stage++) {
-                if (pMaterial->getTevBlock()->getTevOrder(stage)->mTexCoord == idx) {
-                    return true;
-                }
-            }
-
-            for (u32 stage = 0; stage < pMaterial->getIndBlock()->getIndTexStageNum(); stage++) {
-                if (pMaterial->getIndBlock()->getIndTexOrder(stage)->mCoord == idx) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
+        const NebulaCookedMaterial* pCooked = pMaterial->mNativeMaterial;
+        return pMaterial->mTexGenBlock->getTexMtx(idx) != nullptr && pCooked != nullptr &&
+               (pCooked->used_coords & (1u << idx)) != 0;
     }
 
     bool isExistEffectTexMtx(J3DModelData* pModelData) {
@@ -296,15 +273,8 @@ namespace MR {
         return false;
     }
 
-    inline void setShapeVcdVatCmdSelf(J3DShape* pShape) {
-        void* vcdVatCmd = pShape->getVcdVatCmd();
-        u8* arr = new (0x20) u8[J3DShape::kVcdVatDLSize];
-        copyMemory(arr, vcdVatCmd, J3DShape::kVcdVatDLSize);
-        pShape->setVcdVatCmd(arr);
-    }
-
     void initEnvelopeAndEnvMapOrProjMapModelData(J3DModelData* pModelData) {
-        bool doSort = false;
+
 
         for (int i = 0; i < pModelData->getMaterialNum(); i++) {
             J3DMaterial* material = pModelData->getMaterialNodePointer(i);
@@ -319,27 +289,18 @@ namespace MR {
             }
 
             J3DShape* shape = material->getShape();
-            setShapeVcdVatCmdSelf(shape);
-            doSort = true;
             if (isUseEnvMap) {
                 shape->setTexMtxLoadType(0x2000);
             }
 
             for (u32 idx = 0; idx < 8; idx++) {
                 J3DTexCoord* texCoord = material->getTexCoord(idx);
-                GXAttr attr = static_cast< GXAttr >(idx + 1);
                 if (texCoord->getTexGenSrc() == 1) {
-                    shape->addTexMtxIndexInDL(attr, 30);
-                    shape->addTexMtxIndexInVcd(attr);
+                    shape->addTexMtxIndex(idx, 30);
                 } else if (texCoord->getTexGenSrc() == 0) {
-                    shape->addTexMtxIndexInDL(attr, 0);
-                    shape->addTexMtxIndexInVcd(attr);
+                    shape->addTexMtxIndex(idx, 0);
                 }
             }
-        }
-
-        if (doSort) {
-            pModelData->mShapeTable.sortVcdVatCmd();
         }
     }
 
@@ -409,10 +370,6 @@ namespace MR {
         return copyJointAnimation(getJ3DModel(pCopyTo), getJ3DModel(pCopyFrom));
     }
 
-    void syncJointAnimation(LiveActor* pActor1, const LiveActor* pActor2) {
-        getJ3DModel(pActor1)->mMtxBuffer = getJ3DModel(pActor2)->getMtxBuffer();
-    }
-
     void syncMaterialAnimation(J3DModel* pModel1, J3DModel* pModel2) {
         u16 materialNum = pModel1->getModelData()->getMaterialNum();
         u16 i;
@@ -424,7 +381,7 @@ namespace MR {
             for (j = 0; j < materialNum; j++) {
                 J3DShapePacket* shapePacketModel1 = pModel1->getShapePacket(j);
                 if (shapePacketModel1->getShape()->getMaterial()->getIndex() == idx) {
-                    shapePacketModel1->setDisplayListObj(shapePacketModel2->getDisplayListObj());
+                    shapePacketModel1->setSnapshot(shapePacketModel2->getSnapshot());
                     break;
                 }
             }
@@ -433,11 +390,6 @@ namespace MR {
 
     void syncMaterialAnimation(LiveActor* pActor1, const LiveActor* pActor2) {
         return syncMaterialAnimation(getJ3DModel(pActor1), getJ3DModel(pActor2));
-    }
-
-    void FORCE_FUNCTION_ORDER2() {
-        J3DMaterial* mat;
-        ::isUseLightChanNo(mat, 1, 1);
     }
 
     void getLightNum(J3DMaterial* pMaterial, s32* pChan1, s32* pChan2, s32* pChan3, s32* pChan4) {
@@ -486,35 +438,6 @@ namespace MR {
         }
 
         return maxNum;
-    }
-
-    void downFracVtx(J3DModelData* pModelData) {
-        u32 vtxNum = pModelData->getVtxNum();
-        GXVtxAttrFmtList* vtxAttrFmtList = pModelData->getVertexData().getVtxAttrFmtList();
-        while (vtxAttrFmtList->attr != GX_VA_NULL) {
-            if (vtxAttrFmtList->attr == GX_VA_POS) {
-                if (vtxAttrFmtList->frac == 0) {
-                    return;
-                }
-
-                vtxAttrFmtList->frac--;
-                break;
-            }
-
-            vtxAttrFmtList++;
-        }
-
-        // The model's positions, big-endian (GX reads them).
-        NEBULA_BE(s16)* vertexPosArray = static_cast< NEBULA_BE(s16)* >(pModelData->getVertexData().getVtxPosArray());
-        for (u32 i = 0; i < vtxNum * 3; i++) {
-            vertexPosArray[i] >>= 1;
-        }
-
-        DCStoreRange(vertexPosArray, vtxNum * 6);
-
-        for (u32 i = 0; i < pModelData->getShapeTable()->getShapeNum(); i++) {
-            pModelData->getShapeTable()->getShapeNodePointer(i)->makeVcdVatCmd();
-        }
     }
 
     void calcModelBoundingBox(TBox3f* pOut, const LiveActor* pActor) {
@@ -577,31 +500,30 @@ namespace MR {
             MR::isEqualString(pChar, "BoneMario") || MR::isEqualString(pChar, "BoneLuigi") || MR::isEqualString(pChar, "SearchLightCone") ||
             strstr(pChar, "FlexibleSphere") || strstr(pChar, "FlexibleSandPlanetParts") || MR::isEqualString(pChar, "ScaleDownRelayPlanet") ||
             MR::isEqualString(pChar, "GhostMario") || MR::isEqualString(pChar, "GhostLuigi") || MR::isEqualString(pChar, "Koura")) {
-            OSLockMutex(&MR::MutexHolder< 0 >::sMutex);
+            (MR::MutexHolder< 0 >::sMutex).lock();
             newModel = static_cast< J3DModel* >(new J3DModelX(modelData, mdlFlag, 1));
-            OSUnlockMutex(&MR::MutexHolder< 0 >::sMutex);
+            (MR::MutexHolder< 0 >::sMutex).unlock();
         } else {
-            OSLockMutex(&MR::MutexHolder< 0 >::sMutex);
+            (MR::MutexHolder< 0 >::sMutex).lock();
             newModel = new J3DModel(modelData, mdlFlag, 1);
-            OSUnlockMutex(&MR::MutexHolder< 0 >::sMutex);
+            (MR::MutexHolder< 0 >::sMutex).unlock();
         }
 
         initJ3DShapePacketUserData(newModel);
         Mtx mtx;
-        PSMTXIdentity(mtx);
+        NebulaMtxIdentity(mtx);
         newModel->unlock();
-        OSLockMutex(&MR::MutexHolder< 0 >::sMutex);
-        PSMTXCopy(mtx, j3dSys.mViewMtx);
+        (MR::MutexHolder< 0 >::sMutex).lock();
+        NebulaMtxCopy(mtx, j3dSys.mViewMtx);
         newModel->calc();
         newModel->calcMaterial();
         newModel->viewCalc();
         newModel->viewCalc();
-        OSUnlockMutex(&MR::MutexHolder< 0 >::sMutex);
+        (MR::MutexHolder< 0 >::sMutex).unlock();
         if (modelData->getModelDataType() == 0) {
-            ProhibitSchedulerAndInterrupts prohibit(false);
-            OSLockMutex(&MR::MutexHolder< 0 >::sMutex);
-            newModel->makeDL();
-            OSUnlockMutex(&MR::MutexHolder< 0 >::sMutex);
+            (MR::MutexHolder< 0 >::sMutex).lock();
+            newModel->makeMesh();
+            (MR::MutexHolder< 0 >::sMutex).unlock();
         }
 
         newModel->lock();
@@ -610,35 +532,26 @@ namespace MR {
 
     bool isExistCollisionResource(const LiveActor* pActor, const char* pName) {
         char buff[0x80];
-        snprintf(buff, sizeof(buff), "%s.kcl", pName);
+        nebula_snprintf(buff, sizeof(buff), "%s.kcl", pName);
         return getResourceHolder(pActor)->mFileInfoTable->findFileInfo(buff) != nullptr;
     }
 
     bool isExistModel(const char* pName) {
         char buff[0x100];
-        snprintf(buff, sizeof(buff), "/ObjectData/%s.arc", pName);
+        nebula_snprintf(buff, sizeof(buff), "/ObjectData/%s.arc", pName);
         return isFileExist(buff, false);
     }
 
     bool isExistSubModel(const char* pModelName, const char* pSubModelName) {
         char buff[0x100];
-        snprintf(buff, sizeof(buff), "%s%s", pModelName, pSubModelName);
+        nebula_snprintf(buff, sizeof(buff), "%s%s", pModelName, pSubModelName);
         return isExistModel(buff);
     }
 
     J3DModelData* getJ3DModelData(const char* pName) {
         char buff[0x100];
-        snprintf(buff, sizeof(buff), "%s.arc", pName);
+        nebula_snprintf(buff, sizeof(buff), "%s.arc", pName);
         return static_cast< J3DModelData* >(createAndAddResourceHolder(buff)->mModelResTable->getRes(pName));
     }
 
-    bool isUseFur(const J3DModelData* pModelData) {
-        for (u16 i = 0; i < pModelData->getMaterialNum(); i++) {
-            if (strstr(pModelData->getMaterialName()->getName(i), "Fur")) {
-                return true;
-            }
-        }
-
-        return false;
-    }
 };  // namespace MR

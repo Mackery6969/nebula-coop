@@ -1,6 +1,7 @@
 #pragma once
 
-#include <revolution.h>
+#include <NebulaGpu.h>
+#include <nebula_math.h>
 
 class CameraParamChunkHolder;
 
@@ -14,8 +15,8 @@ public:
     void scanStartPos();
     void scanArea();
 
-    /* 0x0 */ CameraParamChunkHolder* mChunkHolder;
-    /* 0x4 */ const char* mName;
-    /* 0x8 */ s32 _8;
-    /* 0xC */ u8 mCodes[0x100];
+    CameraParamChunkHolder* mChunkHolder;
+    const char* mName;
+    s32 _8;
+    u8 mCodes[0x100];
 };

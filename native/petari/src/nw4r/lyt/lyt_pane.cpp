@@ -1,7 +1,7 @@
 #include "nw4r/lyt/animation.h"
-#ifdef TARGET_PC
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
 #include "Game/Util/MotionSignal.hpp"
-#endif
 #include "nw4r/lyt/common.h"
 #include "nw4r/lyt/drawInfo.h"
 #include "nw4r/lyt/layout.h"
@@ -31,7 +31,6 @@ namespace nw4r {
             }
         }  // namespace detail
 
-#ifdef TARGET_PC
         // A pane made in code (Nebula's own panes, Picture(const TexMap&)): at the origin, unscaled, visible.
         Pane::Pane() {
             Init();
@@ -47,7 +46,6 @@ namespace nw4r {
             mFlag = 0;
             SetVisible(true);
         }
-#endif
 
         Pane::Pane(const res::Pane* pRes) {
             Init();
@@ -201,18 +199,18 @@ namespace nw4r {
                 scale.y *= rInfo.GetLocationAdjustScale().y;
             }
 
-            PSMTXScale(mtx2, scale.x, scale.y, 1.0f);
+            NebulaMtxScale(mtx2, scale.x, scale.y, 1.0f);
 
-            PSMTXRotRad(rotateMtx, 'x', NW4R_MATH_DEG_TO_RAD(mRotate.x));
-            PSMTXConcat(rotateMtx, mtx2, mtx1);
+            NebulaMtxRotRad(rotateMtx, 'x', NW4R_MATH_DEG_TO_RAD(mRotate.x));
+            NebulaMtxConcat(rotateMtx, mtx2, mtx1);
 
-            PSMTXRotRad(rotateMtx, 'y', NW4R_MATH_DEG_TO_RAD(mRotate.y));
-            PSMTXConcat(rotateMtx, mtx1, mtx2);
+            NebulaMtxRotRad(rotateMtx, 'y', NW4R_MATH_DEG_TO_RAD(mRotate.y));
+            NebulaMtxConcat(rotateMtx, mtx1, mtx2);
 
-            PSMTXRotRad(rotateMtx, 'z', NW4R_MATH_DEG_TO_RAD(mRotate.z));
-            PSMTXConcat(rotateMtx, mtx2, mtx1);
+            NebulaMtxRotRad(rotateMtx, 'z', NW4R_MATH_DEG_TO_RAD(mRotate.z));
+            NebulaMtxConcat(rotateMtx, mtx2, mtx1);
 
-            PSMTXTransApply(mtx1, mMtx, mTranslate.x, mTranslate.y, mTranslate.z);
+            NebulaMtxTransApply(mtx1, mMtx, mTranslate.x, mTranslate.y, mTranslate.z);
 
             if (mpParent != NULL) {
                 math::MTX34Mult(&mGlbMtx, &mpParent->mGlbMtx, &mMtx);
@@ -258,9 +256,7 @@ namespace nw4r {
                 return;
             }
 
-#ifdef TARGET_PC
             MotionSignal::layoutPane(this);
-#endif
             DrawSelf(rInfo);
             for (PaneList::Iterator it = mChildList.GetBeginIter(); it != mChildList.GetEndIter(); ++it) {
                 it->Draw(rInfo);
@@ -368,8 +364,8 @@ namespace nw4r {
                 pMtx = &mGlbMtx;
             }
 
-            GXLoadPosMtxImm(*pMtx, GX_PNMTX0);
-            GXSetCurrentMtx(GX_PNMTX0);
+            J3DNativeShape::setPosition(0, *pMtx);
+            J3DPass::positionMatrix(0);
         }
 
         const math::VEC2 Pane::GetVtxPos() const {

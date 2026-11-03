@@ -1,13 +1,14 @@
 #include "Game/Screen/NebulaPlayerList.hpp"
+#include "nebula_module.h"
+#include "Game/System/NebulaHost.hpp"
 
-#ifdef TARGET_PC
 #include "Game/Screen/GameSceneLayoutHolder.hpp"
 #include "Game/Screen/LayoutManager.hpp"
 #include "Game/Screen/NebulaAchievementBoard.hpp"
 #include "Game/Screen/NebulaPaneKit.hpp"
 #include "Game/Screen/NebulaUi.hpp"
 #include "Game/System/NebulaText.hpp"
-#include "Game/Util/GamePadUtil.hpp"
+#include "Game/Util/PlayerInputUtil.hpp"
 #include "Game/Util/LayoutUtil.hpp"
 #include "Game/Util/MessageUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
@@ -18,8 +19,6 @@
 #include <nw4r/lyt/pane.h>
 #include <nw4r/lyt/textBox.h>
 #include <nw4r/lyt/window.h>
-#include <revolution/os.h>
-#include <revolution/wpad.h>
 
 using namespace NebulaUi;
 
@@ -78,33 +77,33 @@ namespace {
         f32 mPlaceWidth;
     };
 
-    wchar_t* appendAscii(wchar_t* pDst, wchar_t* pEnd, const char* pSrc) {
+    char16_t* appendAscii(char16_t* pDst, char16_t* pEnd, const char* pSrc) {
         while (pSrc != nullptr && *pSrc != 0 && pDst + 1 < pEnd) {
-            *pDst++ = static_cast< wchar_t >(static_cast< u8 >(*pSrc++));
+            *pDst++ = static_cast< char16_t >(static_cast< u8 >(*pSrc++));
         }
         *pDst = 0;
         return pDst;
     }
 
     // The game's own message, when the disc has it.
-    const wchar_t* gameMessage(const char* pFormat, const char* pStage, s32 scenario) {
+    const char16_t* gameMessage(const char* pFormat, const char* pStage, s32 scenario) {
         char id[96];
-        snprintf(id, sizeof(id), pFormat, pStage, scenario);
+        nebula_snprintf(id, sizeof(id), pFormat, pStage, scenario);
         return MR::isExistGameMessage(id) ? MR::getGameMessageDirect(id) : nullptr;
     }
 
     // Where a player plays in the game's own words: the galaxy, then its star when one was chosen.
-    void writePlace(wchar_t* pDst, s32 capacity, const NebulaCoopListPlayer& rPlayer) {
-        wchar_t* const pEnd = pDst + capacity;
+    void writePlace(char16_t* pDst, s32 capacity, const NebulaCoopListPlayer& rPlayer) {
+        char16_t* const pEnd = pDst + capacity;
         if (rPlayer.stage[0] == 0) {
             NebulaText::get(pDst, capacity, "PlayerListArriving");
             return;
         }
-        const wchar_t* pGalaxy = gameMessage("GalaxyName_%s", rPlayer.stage, 0);
-        wchar_t* p = pGalaxy != nullptr ? append(pDst, pEnd, pGalaxy) : appendAscii(pDst, pEnd, rPlayer.stage);
-        const wchar_t* pStar = rPlayer.scenario > 0 ? gameMessage("ScenarioName_%s%d", rPlayer.stage, rPlayer.scenario) : nullptr;
+        const char16_t* pGalaxy = gameMessage("GalaxyName_%s", rPlayer.stage, 0);
+        char16_t* p = pGalaxy != nullptr ? append(pDst, pEnd, pGalaxy) : appendAscii(pDst, pEnd, rPlayer.stage);
+        const char16_t* pStar = rPlayer.scenario > 0 ? gameMessage("ScenarioName_%s%d", rPlayer.stage, rPlayer.scenario) : nullptr;
         if (pStar != nullptr) {
-            p = append(p, pEnd, L" - ");
+            p = append(p, pEnd, u" - ");
             append(p, pEnd, pStar);
         }
     }
@@ -159,9 +158,9 @@ namespace {
             }
             changed = true;
             Row& rRow = p->mRows[i];
-            wchar_t text[160];
+            char16_t text[160];
             char number[12];
-            snprintf(number, sizeof(number), "%u", rPlayer.number);
+            nebula_snprintf(number, sizeof(number), "%u", rPlayer.number);
             appendAscii(text, text + 12, number);
             setText(rRow.mNumber, text);
             appendAscii(text, text + 40, rPlayer.name);
@@ -180,7 +179,7 @@ namespace {
             setTextColor(rRow.mPlace, placeColor, placeColor);
             // The Personal Star Counter: a Power Star and how many they got here, as sm64coopdx's list shows them.
             char stars[12];
-            snprintf(stars, sizeof(stars), "%u", rPlayer.stars > 9999u ? 9999u : rPlayer.stars);
+            nebula_snprintf(stars, sizeof(stars), "%u", rPlayer.stars > 9999u ? 9999u : rPlayer.stars);
             appendAscii(MR::addPictureFontTag(text, cGlyphPowerStar), text + 16, stars);
             setText(rRow.mStars, text);
             setTextColor(rRow.mStars, rPlayer.stars != 0 ? cWhite : cDimText, rPlayer.stars != 0 ? cWhite : cDimText);
@@ -199,9 +198,9 @@ namespace {
             p->mShown[i].ping_ms = ~0u;  // written by writePings
         }
         if (changed) {
-            wchar_t text[24];
+            char16_t text[24];
             char count[24];
-            snprintf(count, sizeof(count), "%d/%u", p->mCount, p->mRoomSize);
+            nebula_snprintf(count, sizeof(count), "%d/%u", p->mCount, p->mRoomSize);
             appendAscii(text, text + 24, count);
             setText(p->mRoomText, text);
             f32 width, height;
@@ -226,10 +225,10 @@ namespace {
             }
             p->mShown[i].ping_ms = ms;
             Row& rRow = p->mRows[i];
-            wchar_t text[16] = {0};
+            char16_t text[16] = {0};
             if (ms != 0) {
                 char ping[16];
-                snprintf(ping, sizeof(ping), "%u ms", ms > 9999u ? 9999u : ms);
+                nebula_snprintf(ping, sizeof(ping), "%u ms", ms > 9999u ? 9999u : ms);
                 appendAscii(text, text + 16, ping);
             }
             setText(rRow.mPing, text);
@@ -316,7 +315,7 @@ void NebulaPlayerList::init(const JMapInfoIter& rIter) {
     new (&p->mWindow) NebulaPaneKit();
     Pane* pRoot = pManager->mLayout->mpRootPane;
     if (pRoot == nullptr || !p->mText.init(pManager->mLayoutHolder)) {
-        OSReport("NebulaPlayerList: no InformationWindow layout\n");
+        nebula_log("NebulaPlayerList: no InformationWindow layout\n");
         return;
     }
     p->mWindow.init(MR::createAndAddLayoutHolder("SysInfoWindowMini.arc"));
@@ -337,7 +336,7 @@ void NebulaPlayerList::init(const JMapInfoIter& rIter) {
         return;
     }
     paint(p->mPanel, cPanelFill, cPanelRing);
-    wchar_t title[48];
+    char16_t title[48];
     NebulaText::get(title, 48, "PlayerListTitle");
     setText(p->mTitle, title);
     setTextStyle(p->mTitle, cTitleSize, cWhite, cWhite, 3);
@@ -348,24 +347,24 @@ void NebulaPlayerList::init(const JMapInfoIter& rIter) {
     for (s32 i = 0; i < cRowsMax; i++) {
         Row& rRow = p->mRows[i];
         char name[17];
-        snprintf(name, sizeof(name), "NbPlRow%d", i);
+        nebula_snprintf(name, sizeof(name), "NbPlRow%d", i);
         rRow.mRoot = makeGroup(p->mRoot, name);
         if (rRow.mRoot == nullptr) {
             return;
         }
-        snprintf(name, sizeof(name), "NbPlFrm%d", i);
+        nebula_snprintf(name, sizeof(name), "NbPlFrm%d", i);
         rRow.mFrame = makeWindow(kits, rRow.mRoot, name);
-        snprintf(name, sizeof(name), "NbPlNum%d", i);
+        nebula_snprintf(name, sizeof(name), "NbPlNum%d", i);
         rRow.mNumber = makeText(kits, rRow.mRoot, name, 12);
-        snprintf(name, sizeof(name), "NbPlName%d", i);
+        nebula_snprintf(name, sizeof(name), "NbPlName%d", i);
         rRow.mName = makeText(kits, rRow.mRoot, name, 40);
-        snprintf(name, sizeof(name), "NbPlTag%d", i);
+        nebula_snprintf(name, sizeof(name), "NbPlTag%d", i);
         rRow.mTag = makeText(kits, rRow.mRoot, name, 32);
-        snprintf(name, sizeof(name), "NbPlPlace%d", i);
+        nebula_snprintf(name, sizeof(name), "NbPlPlace%d", i);
         rRow.mPlace = makeText(kits, rRow.mRoot, name, 160);
-        snprintf(name, sizeof(name), "NbPlStar%d", i);
+        nebula_snprintf(name, sizeof(name), "NbPlStar%d", i);
         rRow.mStars = makeText(kits, rRow.mRoot, name, 16);
-        snprintf(name, sizeof(name), "NbPlPing%d", i);
+        nebula_snprintf(name, sizeof(name), "NbPlPing%d", i);
         rRow.mPing = makeText(kits, rRow.mRoot, name, 16);
         if (rRow.mFrame == nullptr || rRow.mNumber == nullptr || rRow.mName == nullptr || rRow.mTag == nullptr ||
             rRow.mPlace == nullptr || rRow.mStars == nullptr || rRow.mPing == nullptr) {
@@ -408,16 +407,16 @@ void NebulaPlayerList::control() {
     // Held: Tab from the host (none while Nebula's settings menu takes the keyboard), or the Wii Remote's Minus, the
     // controller's Share (Back, Select, View) unless the player bound it elsewhere, which in a room doesn't pause
     // (PauseButtonCheckerInGame). Not Minus while the achievement board, which changes tabs with it, is open.
-    const bool tab = (static_cast< u32 >(__NebulaCoopMenu(NEBULA_COOP_MENU_KEYS)) & NEBULA_COOP_KEY_TAB) != 0;
+    const bool tab = (static_cast< u32 >(NebulaHost::coopMenu(NEBULA_COOP_MENU_KEYS)) & NEBULA_COOP_KEY_TAB) != 0;
     const NebulaAchievementBoard* pBoard = MR::getGameSceneLayoutHolder()->mAchievementBoard;
-    const bool minus = MR::testCorePadButtonMinus(WPAD_CHAN0) && (pBoard == nullptr || !pBoard->isOpen());
+    const bool minus = MR::isHeldMap(0) && (pBoard == nullptr || !pBoard->isOpen());
     const bool held = tab || minus;
 
     // Only in a room: the host's list each frame while it shows (how many, where each plays, their round trips).
     bool shown = false;
     if (held || p->mFade > 0) {
         u32 roomSize = 0;
-        const u32 count = __NebulaCoopList(p->mPlayers, cRowsMax, &roomSize);
+        const u32 count = NebulaHost::coopList(p->mPlayers, cRowsMax, &roomSize);
         p->mCount = static_cast< s32 >(count > static_cast< u32 >(cRowsMax) ? cRowsMax : count);
         p->mRoomSize = roomSize;
         shown = held && p->mCount > 0;
@@ -448,4 +447,3 @@ void NebulaPlayerList::control() {
     p->mRoot->mAlpha = toAlpha(t);
     p->mRoot->mTranslate = nw4r::math::VEC3(0.0f, (1.0f - t) * cDrop, 0.0f);
 }
-#endif

@@ -4,9 +4,7 @@
 
 class CoinCounter;
 class MarioMeter;
-#ifdef TARGET_PC
 class NebulaStarCounter;
-#endif
 class PlayerLeft;
 class StarCounter;
 class StarPieceCounter;
@@ -36,17 +34,15 @@ public:
     void exePlayerMoving();
     void exePlayerNotMoving();
 
-    /* 0x20 */ s32 mPlayerNotMovingFrame;
-    /* 0x24 */ bool _24;
-    /* 0x28 */ CoinCounter* mCoinCounter;
-    /* 0x2C */ StarPieceCounter* mStarPieceCounter;
-    /* 0x30 */ PlayerLeft* mPlayerLeft;
-    /* 0x34 */ StarCounter* mStarCounter;
-    /* 0x38 */ MarioMeter* mHPMeter;
-#ifdef TARGET_PC
+    s32 mPlayerNotMovingFrame;
+    bool _24;
+    CoinCounter* mCoinCounter;
+    StarPieceCounter* mStarPieceCounter;
+    PlayerLeft* mPlayerLeft;
+    StarCounter* mStarCounter;
+    MarioMeter* mHPMeter;
     // The Personal Star Counter's two under the save's star counter (this room's, every star's): shown and hidden
     // with it.
     NebulaStarCounter* mRoomStarCounter;
     NebulaStarCounter* mAllTimeStarCounter;
-#endif
 };

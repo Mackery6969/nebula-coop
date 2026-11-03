@@ -1,6 +1,5 @@
 #pragma once
 
-#ifdef TARGET_PC
 #include "Game/Screen/LayoutActor.hpp"
 
 class CountUpPaneRumbler;
@@ -44,4 +43,3 @@ private:
     /* 0x2C */ CountUpPaneRumbler* mPaneRumbler;
     /* 0x30 */ NebulaStarCounterTint* mTint;
 };
-#endif

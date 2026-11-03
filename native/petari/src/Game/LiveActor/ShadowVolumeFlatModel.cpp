@@ -1,4 +1,5 @@
 #include "Game/LiveActor/ShadowVolumeFlatModel.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/ModelUtil.hpp"
@@ -51,15 +52,15 @@ void ShadowVolumeFlatModel::loadModelDrawMtx() const {
         MR::preScaleMtx(rootMtx, controller->getHost()->mScale);
     }
 
-    PSMTXConcat(MR::getCameraViewMtx(), rootMtx, rootMtx);
-    GXLoadPosMtxImm(rootMtx, mRootDrawMtxIndex);
+    NebulaMtxConcat(MR::getCameraViewMtx(), rootMtx, rootMtx);
+    J3DNativeShape::setPosition(mRootDrawMtxIndex / 3, rootMtx);
     calcDropJoint(&dropMtx, displacement);
     if (controller->isFollowHostScale()) {
         MR::preScaleMtx(dropMtx, controller->getHost()->mScale);
     }
 
-    PSMTXConcat(MR::getCameraViewMtx(), dropMtx, dropMtx);
-    GXLoadPosMtxImm(dropMtx, mDropDrawMtxIndex);
+    NebulaMtxConcat(MR::getCameraViewMtx(), dropMtx, dropMtx);
+    J3DNativeShape::setPosition(mDropDrawMtxIndex / 3, dropMtx);
 }
 
 void ShadowVolumeFlatModel::calcRootJoint(TPos3f* pMtx, const TVec3f& rDisplacement) const {

@@ -379,7 +379,7 @@ bool write_next_join(const fs::path& file, const NextJoin& join) {
     const std::vector<std::uint8_t>& bytes = out.bytes();
     std::error_code error;
     fs::create_directories(file.parent_path(), error);
-    return io::write_text_file_atomically(
+    return io::write_file_atomically(
         file, std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()));
 }
 

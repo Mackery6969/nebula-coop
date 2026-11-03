@@ -10,6 +10,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$Deps,
     [Parameter(Mandatory = $true)][string]$Work,
+    [Parameter(Mandatory = $true)][string]$HostTools,
     [string]$SeedTool = "",
     [string]$Signing = "",
     [string]$Abis = "arm64-v8a,x86_64"
@@ -26,6 +27,7 @@ $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
 $cmakeDir = Join-Path $vs "Common7\IDE\CommonExtensions\Microsoft\CMake"
 $env:PATH = "$cmakeDir\CMake\bin;$cmakeDir\Ninja;$env:PATH"
 $depsSlash = $Deps -replace '\\', '/'
+$hostToolsSlash = $HostTools -replace '\\', '/'
 New-Item -ItemType Directory -Force $Work | Out-Null
 
 # A step's output to a UTF-8 log; its errors shown and the build stopped when it fails. Tools write progress to
@@ -51,13 +53,13 @@ foreach ($abi in $Abis -split ",") {
     $module = "$Work/module-$abi" -replace '\\', '/'
     Invoke-Logged "$Work\module-$abi.log" {
         cmake -G Ninja -S "$root/native" -B $module "-DCMAKE_TOOLCHAIN_FILE=$toolchain" "-DANDROID_ABI=$abi" `
-            "-DANDROID_PLATFORM=android-31" -DCMAKE_BUILD_TYPE=Release "-DNEBULA_PETARI_DIR=$root/native/petari"
+            "-DANDROID_PLATFORM=android-31" -DCMAKE_BUILD_TYPE=Release "-DNEBULA_PETARI_DIR=$root/native/petari" -DNEBULA_RELEASE=ON
         if ($LASTEXITCODE -eq 0) { cmake --build $module --target smg_game }
     }
     $hostBuild = "$Work/host-$abi" -replace '\\', '/'
     Invoke-Logged "$Work\host-$abi.log" {
         cmake -G Ninja -S "$root/platform/sdl" -B $hostBuild "-DCMAKE_TOOLCHAIN_FILE=$toolchain" "-DANDROID_ABI=$abi" `
-            "-DANDROID_PLATFORM=android-31" -DCMAKE_BUILD_TYPE=Release "-DNEBULA_DEPS=$depsSlash"
+            "-DANDROID_PLATFORM=android-31" -DCMAKE_BUILD_TYPE=Release "-DNEBULA_DEPS=$depsSlash" "-DNEBULA_HOST_TOOLS=$hostToolsSlash" -DNEBULA_RELEASE=ON
         if ($LASTEXITCODE -eq 0) { cmake --build $hostBuild --target main }
     }
     $upper = ($triple -replace '-', '_').ToUpper()
@@ -67,6 +69,13 @@ foreach ($abi in $Abis -split ",") {
     Set-Item "env:CXX_$lower" "$llvm\${triple}31-clang++.cmd"
     Set-Item "env:AR_$lower" "$llvm\llvm-ar.exe"
     $env:CARGO_TARGET_DIR = "$Work\cargo"
+    # Source paths the library keeps (panic messages, the C its crates build) name no build machine's folders.
+    $cargoHome = if ($env:CARGO_HOME) { $env:CARGO_HOME } else { Join-Path $env:USERPROFILE ".cargo" }
+    $rustupHome = if ($env:RUSTUP_HOME) { $env:RUSTUP_HOME } else { Join-Path $env:USERPROFILE ".rustup" }
+    $remaps = @(@($cargoHome, "cargo"), @($rustupHome, "rustup"), @($root, "nebula"))
+    $env:CARGO_ENCODED_RUSTFLAGS = ($remaps | ForEach-Object { "--remap-path-prefix=$($_[0])=$($_[1])" }) -join [char]0x1f
+    Set-Item "env:CFLAGS_$lower" (($remaps | ForEach-Object {
+        "-ffile-prefix-map=$($_[0])=$($_[1]) -ffile-prefix-map=$($_[0] -replace '\\', '/')=$($_[1])" }) -join " ")
     Invoke-Logged "$Work\import-$abi.log" {
         Push-Location $root
         try { cargo build --release --locked -p nebula-import --lib --target $triple } finally { Pop-Location }
@@ -124,7 +133,7 @@ $properties = @("-Pnebula.sdlDir=$Deps\SDL3-3.4.18", "-Pnebula.jniDir=$jni", "-P
 if ($Signing -ne "") { $properties += "-Pnebula.signing=$Signing" }
 Push-Location $android
 try {
-    Invoke-Logged "$Work\gradle.log" { & .\gradlew.bat --no-daemon assembleRelease @properties }
+    Invoke-Logged "$Work\gradle.log" { & .\gradlew.bat --no-daemon assembleRelease "-PnebulaAbis=$Abis" @properties }
 } finally { Pop-Location }
 $apk = Join-Path $android "app\build\outputs\apk\release\app-release.apk"
 Copy-Item $apk (Join-Path $Work "Nebula.apk") -Force

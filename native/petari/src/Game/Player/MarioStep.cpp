@@ -8,7 +8,7 @@
 #include "Game/Util/MapUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
-#include <revolution/mtx.h>
+#include <nebula_math.h>
 
 void Mario::checkStep() {
     if (mMovementStates.jumping) {
@@ -39,11 +39,6 @@ void Mario::checkStep() {
         return;
     }
 
-#if VERSION == RMGK01
-    if (isPlayerModeHopper()) {
-        return;
-    }
-#endif
 
     if (isDamaging()) {
         return;
@@ -85,8 +80,8 @@ void Mario::checkStep() {
             }
         } else if (MR::abs(frontDot) < 1.0471976f) {
             Mtx rotMtx;
-            PSMTXRotAxisRad(rotMtx, &mSideVec, frontDot);
-            PSMTXMultVec(rotMtx, &mVelocity, &mVelocity);
+            NebulaMtxRotAxisRad(rotMtx, &mSideVec, frontDot);
+            NebulaMtxMultVec(rotMtx, &mVelocity, &mVelocity);
         }
 
         return;

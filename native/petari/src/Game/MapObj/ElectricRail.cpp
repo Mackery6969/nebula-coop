@@ -1,4 +1,7 @@
 #include "Game/MapObj/ElectricRail.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
 #include "Game/AudioLib/AudAnmSoundObject.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/LiveActor/ShadowVolumeDrawer.hpp"
@@ -15,7 +18,6 @@
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/RailUtil.hpp"
-#include "Game/Util/SchedulerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 
 namespace {
@@ -87,47 +89,27 @@ void ElectricRailSeparator::setup(const TVec3f& rVec1, const TVec3f& rVec2, cons
 }
 
 ElectricRailShadowDrawer::ElectricRailShadowDrawer(const LiveActor* pActor, ElectricRailSeparator* pSeparator, s32 count)
-    : ShadowVolumeDrawer("\211\145\225\140\211\346[\223\144\214\202\203\214\201\133\203\213\203\173\203\212\203\205\201\133\203\200]" /* 影描画[電撃レールボリューム] */), mHost(pActor), mDisplayListBuffer(), mDisplayListBufferSize() {
-    MR::ProhibitSchedulerAndInterrupts pScheduler = MR::ProhibitSchedulerAndInterrupts(false);
-    mDisplayListBufferSize = 0;
-
-    mDisplayListBufferSize += ElectricRailFunction::calcDisplayListSize(12, count * 4 + 2);
-    mDisplayListBufferSize += ElectricRailFunction::calcDisplayListSize(12, count * 2);
-    mDisplayListBufferSize += ElectricRailFunction::calcDisplayListSize(12, count * 2);
-
-    mDisplayListBuffer = new (32) u8[mDisplayListBufferSize];
-
-    GDLObj pObj;
-    GDInitGDLObj(&pObj, mDisplayListBuffer, mDisplayListBufferSize);
-    __GDCurrentDL = &pObj;
-
-    drawShadowVolumeShape(pSeparator, count);
-
-    GDPadCurr32();
-
-    mDisplayListBufferSize = pObj.ptr - pObj.start;
-
-    DCStoreRange(mDisplayListBuffer, mDisplayListBufferSize);
+    : ShadowVolumeDrawer("\211\145\225\140\211\346[\223\144\214\202\203\214\201\133\203\213\203\173\203\212\203\205\201\133\203\200]" /* 影描画[電撃レールボリューム] */), mHost(pActor) {
+    mMesh.init(0, count * 8 + 2);
+    drawShadowVolumeShape(mMesh, pSeparator, count);
+    mMesh.send();
 }
 
 void ElectricRailShadowDrawer::loadModelDrawMtx() const {
-    GXLoadPosMtxImm(MR::getCameraViewMtx(), GX_PNMTX0);
-    GXSetCurrentMtx(GX_PNMTX0);
-    GXClearVtxDesc();
-    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_CLR_RGBA, GX_RGBA6, 0);
+    J3DNativeShape::setPosition(0, MR::getCameraViewMtx());
+    J3DPass::positionMatrix(0);
 }
 
 void ElectricRailShadowDrawer::drawShape() const {
-    GXCallDisplayList(mDisplayListBuffer, mDisplayListBufferSize);
+    mMesh.draw();
 }
 
 bool ElectricRailShadowDrawer::isDraw() const {
     return MR::isValidDraw(mHost);
 }
 
-void ElectricRailShadowDrawer::drawShadowVolumeShape(ElectricRailSeparator* pSeparator, s32 val) const {
-    GDBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, val * 4 + 2);
+void ElectricRailShadowDrawer::drawShadowVolumeShape(NativeMesh& rMesh, ElectricRailSeparator* pSeparator, s32 val) const {
+    rMesh.begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, val * 4 + 2);
 
     ElectricRailSeparator* separator;
     TVec3f vec24, vec30, vec3C, vec48;
@@ -143,8 +125,10 @@ void ElectricRailShadowDrawer::drawShadowVolumeShape(ElectricRailSeparator* pSep
 
         vec30.add(vec24, vec48);
 
-        GDPosition3f32(vec24.x, vec24.y, vec24.z);
-        GDPosition3f32(vec30.x, vec30.y, vec30.z);
+        rMesh.position(vec24.x, vec24.y, vec24.z);
+        rMesh.corner();
+        rMesh.position(vec30.x, vec30.y, vec30.z);
+        rMesh.corner();
     }
 
     for (s32 i = 0; i < val; i++) {
@@ -158,8 +142,10 @@ void ElectricRailShadowDrawer::drawShadowVolumeShape(ElectricRailSeparator* pSep
 
         vec30.add(vec24, vec48);
 
-        GDPosition3f32(vec24.x, vec24.y, vec24.z);
-        GDPosition3f32(vec30.x, vec30.y, vec30.z);
+        rMesh.position(vec24.x, vec24.y, vec24.z);
+        rMesh.corner();
+        rMesh.position(vec30.x, vec30.y, vec30.z);
+        rMesh.corner();
     }
 
     vec3C.scale(20.0f, pSeparator->mSide);
@@ -170,10 +156,12 @@ void ElectricRailShadowDrawer::drawShadowVolumeShape(ElectricRailSeparator* pSep
 
     vec30.add(vec24, vec48);
 
-    GDPosition3f32(vec24.x, vec24.y, vec24.z);
-    GDPosition3f32(vec30.x, vec30.y, vec30.z);
+    rMesh.position(vec24.x, vec24.y, vec24.z);
+    rMesh.corner();
+    rMesh.position(vec30.x, vec30.y, vec30.z);
+    rMesh.corner();
 
-    GDBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, val * 2);
+    rMesh.begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, val * 2);
 
     for (s32 i = 0; i < val; i++) {
         separator = &pSeparator[i];
@@ -184,11 +172,13 @@ void ElectricRailShadowDrawer::drawShadowVolumeShape(ElectricRailSeparator* pSep
 
         vec30.sub(separator->_0, vec3C);
 
-        GDPosition3f32(vec24.x, vec24.y, vec24.z);
-        GDPosition3f32(vec30.x, vec30.y, vec30.z);
+        rMesh.position(vec24.x, vec24.y, vec24.z);
+        rMesh.corner();
+        rMesh.position(vec30.x, vec30.y, vec30.z);
+        rMesh.corner();
     }
 
-    GDBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, val * 2);
+    rMesh.begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, val * 2);
 
     for (s32 i = 0; i < val; i++) {
         separator = &pSeparator[val - i - 1];
@@ -203,15 +193,15 @@ void ElectricRailShadowDrawer::drawShadowVolumeShape(ElectricRailSeparator* pSep
         vec30.sub(separator->_0, vec3C);
         vec30.add(vec30, vec48);
 
-        GDPosition3f32(vec24.x, vec24.y, vec24.z);
-        GDPosition3f32(vec30.x, vec30.y, vec30.z);
+        rMesh.position(vec24.x, vec24.y, vec24.z);
+        rMesh.corner();
+        rMesh.position(vec30.x, vec30.y, vec30.z);
+        rMesh.corner();
     }
-
-    GDEnd();
 }
 
 ElectricRail::ElectricRail(const char* name)
-    : LiveActor(name), mPoints(), mPointCount(), _94(), mSeparators(), mSeparatorCount(), mDisplayListBuffer(), mDisplayListSize(), mRailHeight(1),
+    : LiveActor(name), mPoints(), mPointCount(), _94(), mSeparators(), mSeparatorCount(), mRailHeight(1),
       mEaseIn(30.0f), mShadowDrawer(), mIsCalcGravity() {
 }
 
@@ -241,7 +231,7 @@ void ElectricRail::init(const JMapInfoIter& rIter) {
 
     initPoints();
     initSeparators();
-    initDisplayList();
+    initMesh();
     initShadow(rIter);
     initSound(4, 1);
 
@@ -289,9 +279,9 @@ void ElectricRail::draw() const {
     }
 
     if (isNerve(GET_NERVE(ElectricRail, ElectricRailNrvWait))) {
-        GXCallDisplayList(mDisplayListBuffer, mDisplayListSize);
+        mMesh.draw();
     } else {
-        drawRailGX(mEaseIn);
+        drawRail(mEaseIn);
     }
 }
 
@@ -452,35 +442,23 @@ void ElectricRail::initSeparators() {
     MR::moveCoordToStartPos(this);
 }
 
-void ElectricRail::initDisplayList() {
-    MR::ProhibitSchedulerAndInterrupts prohibitScheduler(0);
-
-    mDisplayListSize = ElectricRailFunction::calcDisplayListSize(20, mSeparatorCount * 4 * mRailHeight);
-
-    mDisplayListBuffer = new (32) u8[mDisplayListSize];
-
-    GDLObj obj;
-    GDInitGDLObj(&obj, mDisplayListBuffer, mDisplayListSize);
-    __GDCurrentDL = &obj;
-
-    drawPlane(30.0, 30.0, -30.0, -30.0);
-    drawPlane(-30.0, 30.0, 30.0, -30.0);
-    GDPadCurr32();
-
-    mDisplayListSize = obj.ptr - obj.start;
-    DCStoreRange(mDisplayListBuffer, mDisplayListSize);
+void ElectricRail::initMesh() {
+    mMesh.init(NEBULA_SHAPE_TEXCOORD0, mSeparatorCount * 4 * mRailHeight);
+    drawPlane(mMesh, 30.0, 30.0, -30.0, -30.0);
+    drawPlane(mMesh, -30.0, 30.0, 30.0, -30.0);
+    mMesh.send();
 }
 
-void ElectricRail::drawRailGX(f32 a1) const {
+void ElectricRail::drawRail(f32 a1) const {
     drawPlaneGX(a1, a1, -a1, -a1);
     drawPlaneGX(-a1, a1, a1, -a1);
 }
 
-void ElectricRail::drawPlane(f32 a1, f32 a2, f32 a3, f32 a4) const {
+void ElectricRail::drawPlane(NativeMesh& rMesh, f32 a1, f32 a2, f32 a3, f32 a4) const {
     const TVec3f* pUp;
 
     for (s32 i = 0; i < mRailHeight; i++) {
-        GDBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, 2 * mSeparatorCount);
+        rMesh.begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, 2 * mSeparatorCount);
 
         for (s32 j = 0; j < mSeparatorCount; j++) {
             ElectricRailSeparator* s = &mSeparators[j];
@@ -493,17 +471,15 @@ void ElectricRail::drawPlane(f32 a1, f32 a2, f32 a3, f32 a4) const {
             v20.scale(100.0f * i);
             v21.add(v21, v20);
 
-            GDPosition3f32(((v21.x + (s->mSide.x * a1)) + (pUp->x * a2)), ((v21.y + (s->mSide.y * a1)) + (pUp->y * a2)),
+            rMesh.position(((v21.x + (s->mSide.x * a1)) + (pUp->x * a2)), ((v21.y + (s->mSide.y * a1)) + (pUp->y * a2)),
                            ((v21.z + (s->mSide.z * a1)) + (pUp->z * a2)));
+            rMesh.texCoord(0, v15, 0.0f);
+            rMesh.corner();
 
-            GDWrite_f32(v15);
-            GDWrite_f32(0.0f);
-
-            GDPosition3f32(((v21.x + (s->mSide.x * a3)) + (pUp->x * a4)), ((v21.y + (s->mSide.y * a3)) + (pUp->y * a4)),
+            rMesh.position(((v21.x + (s->mSide.x * a3)) + (pUp->x * a4)), ((v21.y + (s->mSide.y * a3)) + (pUp->y * a4)),
                            ((v21.z + (s->mSide.z * a3)) + (pUp->z * a4)));
-
-            GDWrite_f32(v15);
-            GDWrite_f32(1.0f);
+            rMesh.texCoord(0, v15, 1.0f);
+            rMesh.corner();
         }
     }
 }
@@ -512,7 +488,7 @@ void ElectricRail::drawPlaneGX(f32 a1, f32 a2, f32 a3, f32 a4) const {
     const TVec3f* pUp;
 
     for (s32 i = 0; i < mRailHeight; i++) {
-        GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, 2 * mSeparatorCount);
+        J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, 2 * mSeparatorCount, NEBULA_SHAPE_TEXCOORD0);
 
         for (s32 j = 0; j < mSeparatorCount; j++) {
             ElectricRailSeparator* s = &mSeparators[j];
@@ -524,17 +500,15 @@ void ElectricRail::drawPlaneGX(f32 a1, f32 a2, f32 a3, f32 a4) const {
             v20.scale(100.0f * i);
             v21.add(v21, v20);
 
-            GXPosition3f32(((v21.x + (s->mSide.x * a1)) + (pUp->x * a2)), ((v21.y + (s->mSide.y * a1)) + (pUp->y * a2)),
+            J3DNativeDraw::position(((v21.x + (s->mSide.x * a1)) + (pUp->x * a2)), ((v21.y + (s->mSide.y * a1)) + (pUp->y * a2)),
                            ((v21.z + (s->mSide.z * a1)) + (pUp->z * a2)));
 
-            GXCmd1f32(v15);
-            GXCmd1f32(0.0f);
+            J3DNativeDraw::texCoord(v15, 0.0f);
 
-            GXPosition3f32(((v21.x + (s->mSide.x * a3)) + (pUp->x * a4)), ((v21.y + (s->mSide.y * a3)) + (pUp->y * a4)),
+            J3DNativeDraw::position(((v21.x + (s->mSide.x * a3)) + (pUp->x * a4)), ((v21.y + (s->mSide.y * a3)) + (pUp->y * a4)),
                            ((v21.z + (s->mSide.z * a3)) + (pUp->z * a4)));
 
-            GXCmd1f32(v15);
-            GXCmd1f32(1.0f);
+            J3DNativeDraw::texCoord(v15, 1.0f);
         }
     }
 }

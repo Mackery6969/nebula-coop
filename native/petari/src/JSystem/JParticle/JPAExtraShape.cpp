@@ -1,9 +1,7 @@
-#define OS_F32_TO_U8_DEFER_INLINE
 #include "JSystem/JParticle/JPAExtraShape.hpp"
 #include "JSystem/JMath/JMATrigonometric.hpp"
 #include "JSystem/JParticle/JPAEmitter.hpp"
 #include "JSystem/JParticle/JPAParticle.hpp"
-#include <revolution/os.h>
 
 void JPACalcScaleX(JPAEmitterWorkData* work, JPABaseParticle* ptcl) {
     JPAExtraShape* esp = work->mpRes->getEsp();
@@ -28,7 +26,6 @@ void JPACalcScaleY(JPAEmitterWorkData* work, JPABaseParticle* ptcl) {
 }
 
 void JPACalcScaleCopy(JPAEmitterWorkData* work, JPABaseParticle* ptcl) {
-    JPAExtraShape* esp = work->mpRes->getEsp();
     ptcl->mParticleScaleY = ptcl->mParticleScaleX;
 }
 
@@ -39,26 +36,28 @@ void JPACalcScaleAnmNormal(JPAEmitterWorkData* work, JPABaseParticle* ptcl) {
 void JPACalcScaleAnmRepeatX(JPAEmitterWorkData* work, JPABaseParticle* ptcl) {
     JPAExtraShape* esp = work->mpRes->getEsp();
     s16 cycle = esp->getScaleAnmCycleX();
-    work->mScaleAnm = (ptcl->mAge % cycle) / static_cast< f32 >(cycle);
+    work->mScaleAnm = (cycle != 0 ? ptcl->mAge % cycle : ptcl->mAge) / static_cast< f32 >(cycle);
 }
 
 void JPACalcScaleAnmRepeatY(JPAEmitterWorkData* work, JPABaseParticle* ptcl) {
     JPAExtraShape* esp = work->mpRes->getEsp();
     s16 cycle = esp->getScaleAnmCycleY();
-    work->mScaleAnm = (ptcl->mAge % cycle) / static_cast< f32 >(cycle);
+    work->mScaleAnm = (cycle != 0 ? ptcl->mAge % cycle : ptcl->mAge) / static_cast< f32 >(cycle);
 }
 
 void JPACalcScaleAnmReverseX(JPAEmitterWorkData* work, JPABaseParticle* ptcl) {
     JPAExtraShape* esp = work->mpRes->getEsp();
-    f32 cycle = (ptcl->mAge / esp->getScaleAnmCycleX()) & 1;
-    f32 base = (ptcl->mAge % esp->getScaleAnmCycleX()) / (f32)esp->getScaleAnmCycleX();
+    const s16 period = esp->getScaleAnmCycleX();
+    f32 cycle = (period != 0 ? ptcl->mAge / period : ptcl->mAge < 0 ? -1 : 0) & 1;
+    f32 base = (period != 0 ? ptcl->mAge % period : ptcl->mAge) / (f32)period;
     work->mScaleAnm = base + (cycle * (1.0f - base * 2.0f));
 }
 
 void JPACalcScaleAnmReverseY(JPAEmitterWorkData* work, JPABaseParticle* ptcl) {
     JPAExtraShape* esp = work->mpRes->getEsp();
-    f32 cycle = (ptcl->mAge / esp->getScaleAnmCycleY()) & 1;
-    f32 base = (ptcl->mAge % esp->getScaleAnmCycleY()) / (f32)esp->getScaleAnmCycleY();
+    const s16 period = esp->getScaleAnmCycleY();
+    f32 cycle = (period != 0 ? ptcl->mAge / period : ptcl->mAge < 0 ? -1 : 0) & 1;
+    f32 base = (period != 0 ? ptcl->mAge % period : ptcl->mAge) / (f32)period;
     work->mScaleAnm = base + (cycle * (1.0f - base * 2.0f));
 }
 
@@ -72,7 +71,7 @@ void JPACalcAlphaAnm(JPAEmitterWorkData* work, JPABaseParticle* ptcl) {
     } else {
         alpha = 255.0f * esp->getAlphaBaseValue();
     }
-    OSf32tou8(&alpha, &ptcl->mPrmColorAlphaAnm);
+    ptcl->mPrmColorAlphaAnm = nebula_f32_to_u8(alpha);
 }
 
 void JPACalcAlphaFlickAnm(JPAEmitterWorkData* work, JPABaseParticle* ptcl) {
@@ -88,7 +87,7 @@ void JPACalcAlphaFlickAnm(JPAEmitterWorkData* work, JPABaseParticle* ptcl) {
     s32 theta = ptcl->mAlphaWaveRandom * ptcl->mAge * 16384.0f * (1.0f - esp->getAlphaFreq());
     f32 wave = JMASSin(theta);
     alpha *= (1.0f + esp->getAlphaAmp() * (wave - 1.0f) * 0.5f) * 255.0f;
-    OSf32tou8(&alpha, &ptcl->mPrmColorAlphaAnm);
+    ptcl->mPrmColorAlphaAnm = nebula_f32_to_u8(alpha);
 }
 
 JPAExtraShape::JPAExtraShape(u8 const* data) {
@@ -115,6 +114,3 @@ void JPAExtraShape::init() {
     }
 }
 
-static void OSf32tou8(f32* f, u8* out) {
-    *out = __OSf32tou8(*f);
-}

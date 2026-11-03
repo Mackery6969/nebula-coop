@@ -1,5 +1,6 @@
-#ifdef TARGET_PC
 #include "Game/Player/NebulaRemotePlayer.hpp"
+#include "nebula_module.h"
+#include "Game/System/NebulaHost.hpp"
 #include "Game/Animation/XanimeCore.hpp"
 #include "Game/Animation/XanimePlayer.hpp"
 #include "Game/LiveActor/ModelManager.hpp"
@@ -24,7 +25,6 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include <cstdio>
 #include <cstring>
-#include <revolution/os.h>
 
 namespace {
     // Copies of each character a scene keeps: one for each other player a room of 16 may have.
@@ -123,7 +123,7 @@ void NebulaRemotePlayer::tryCreate() {
     sSceneFrames = 0;
     sHistoryNum = 0;
     u32 roomSize = 0;
-    __NebulaCoopList(nullptr, 0, &roomSize);
+    NebulaHost::coopList(nullptr, 0, &roomSize);
     if (roomSize < 2) {
         return;
     }
@@ -140,7 +140,7 @@ void NebulaRemotePlayer::tryCreate() {
         pCopy->initWithoutIter();
         sCopies[sCopyNum++] = pCopy;
     }
-    OSReport("[coop] %d copies for the other players\n", sCopyNum);
+    nebula_log("[coop] %d copies for the other players\n", sCopyNum);
 }
 
 s32 NebulaRemotePlayer::getCopyNum() {
@@ -160,7 +160,7 @@ void NebulaRemotePlayer::updateAll() {
     if (sCopyNum == 0) {
         return;
     }
-    __NebulaCoopRules(&sRules);
+    NebulaHost::coopRules(&sRules);
     if (sSceneFrames < cContactAfter) {
         sSceneFrames++;
     }
@@ -169,7 +169,7 @@ void NebulaRemotePlayer::updateAll() {
         recordLocal(pMario);
     }
     NebulaCoopRemotePlayer remote[cMaxPerCharacter * 2];
-    u32 remoteNum = __NebulaCoopRemote(remote, cMaxPerCharacter * 2);
+    u32 remoteNum = NebulaHost::coopRemote(remote, cMaxPerCharacter * 2);
     if (remoteNum > static_cast< u32 >(cMaxPerCharacter * 2)) {
         remoteNum = cMaxPerCharacter * 2;
     }
@@ -264,7 +264,7 @@ void NebulaRemotePlayer::show(const NebulaCoopRemotePlayer& rRemote) {
     } else if (mShownFrames < cContactAfter) {
         mShownFrames++;
     }
-    snprintf(mName, sizeof(mName), "%s", rRemote.name);
+    nebula_snprintf(mName, sizeof(mName), "%s", rRemote.name);
     mState = rRemote.player;
     mState.group[sizeof(mState.group) - 1] = '\0';
     mState.animation[sizeof(mState.animation) - 1] = '\0';
@@ -303,8 +303,8 @@ void NebulaRemotePlayer::control() {
     }
     // A new animation as the snapshot names it: its group, else (Mario's code played a bck of its own) the bck.
     if (strcmp(mGroup, mState.group) != 0 || strcmp(mBck, mState.animation) != 0) {
-        snprintf(mGroup, sizeof(mGroup), "%s", mState.group);
-        snprintf(mBck, sizeof(mBck), "%s", mState.animation);
+        nebula_snprintf(mGroup, sizeof(mGroup), "%s", mState.group);
+        nebula_snprintf(mBck, sizeof(mBck), "%s", mState.animation);
         if (mGroup[0] != '\0') {
             mXanimePlayer->changeAnimation(mGroup);
         }
@@ -435,9 +435,8 @@ void NebulaRemotePlayer::draw() const {
     }
     J3DModelX* pModel = reinterpret_cast< J3DModelX* >(MR::getJ3DModel(this));
     pModel->viewCalc2();
-    GXInvalidateVtxCache();
     pModel->mFlags.clear();
-    pModel->setDynamicDL(nullptr, 0);
+    pModel->setDynamicList(nullptr);
+    pModel->setDrawView(0);
     pModel->directDraw(nullptr);
 }
-#endif

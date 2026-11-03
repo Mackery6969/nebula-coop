@@ -1,5 +1,6 @@
-#ifdef TARGET_PC
 #include "Game/System/NebulaCoopWorld.hpp"
+#include "nebula_module.h"
+#include "Game/System/NebulaHost.hpp"
 #include "Game/System/NebulaCoopDemos.hpp"
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/MapObj/Coin.hpp"
@@ -18,7 +19,6 @@
 #include <cstdio>
 #include <cstring>
 #include <nebula_game_api.h>
-#include <revolution/os.h>
 
 namespace {
     enum Kind {
@@ -160,9 +160,9 @@ namespace {
         event.value = value;
         event.scenario = scenario;
         if (pName != nullptr) {
-            snprintf(event.name, sizeof(event.name), "%s", pName);
+            nebula_snprintf(event.name, sizeof(event.name), "%s", pName);
         }
-        __NebulaCoopWorldReport(&event);
+        NebulaHost::coopWorldReport(&event);
     }
 
     // Gone, as the server says: dead without its drops, its sound or its effect, its dead switch on as the game's
@@ -210,7 +210,7 @@ namespace {
         if (rEvent.kind == NEBULA_COOP_WORLD_STAR) {
             if (pHolder->mAllGalaxyStorage->isExistAccessor(rEvent.name, rEvent.scenario) &&
                 !pHolder->hasPowerStar(rEvent.name, rEvent.scenario)) {
-                OSReport("[coop] the room's star: %s %d\n", rEvent.name, static_cast< int >(rEvent.scenario));
+                nebula_log("[coop] the room's star: %s %d\n", rEvent.name, static_cast< int >(rEvent.scenario));
                 pHolder->setPowerStar(rEvent.name, rEvent.scenario, true);
                 NebulaCoopDemos::noticeRoomStar(rEvent.name, rEvent.scenario);
             }
@@ -230,7 +230,7 @@ namespace {
     void takeFromServer() {
         NebulaCoopWorldEvent events[cTakePerCall];
         for (u32 call = 0; call < cTakeCalls; call++) {
-            const u32 count = __NebulaCoopWorldTake(events, cTakePerCall);
+            const u32 count = NebulaHost::coopWorldTake(events, cTakePerCall);
             const u32 used = count < cTakePerCall ? count : cTakePerCall;
             for (u32 i = 0; i < used; i++) {
                 events[i].name[sizeof(events[i].name) - 1] = '\0';
@@ -261,7 +261,7 @@ namespace NebulaCoopWorld {
         sPlaced = false;
         sFrames = 0;
         u32 roomSize = 0;
-        __NebulaCoopList(nullptr, 0, &roomSize);
+        NebulaHost::coopList(nullptr, 0, &roomSize);
         sInRoom = roomSize != 0;
         NebulaCoopDemos::startScene(sInRoom);
     }
@@ -302,7 +302,7 @@ namespace NebulaCoopWorld {
             sEntries[i].mAlive = !MR::isDead(sEntries[i].mActor);
         }
         sPlaced = true;
-        OSReport("[coop] the instance follows %d placed things\n", sEntryNum);
+        nebula_log("[coop] the instance follows %d placed things\n", sEntryNum);
         report(NEBULA_COOP_WORLD_ENTER, 0, 0, MR::getCurrentScenarioNo(), MR::getCurrentStageName());
     }
 
@@ -374,4 +374,3 @@ namespace NebulaCoopWorld {
         }
     }
 };  // namespace NebulaCoopWorld
-#endif
