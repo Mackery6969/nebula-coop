@@ -43,6 +43,9 @@ public:
     void createAndAddZone(const SwitchIdInfo& rInfo);
     ZoneSwitch* getZoneSwitch(const SwitchIdInfo& rInfo);
     ZoneSwitch* findZoneSwitchFromTable(const SwitchIdInfo& rInfo);
+    // Online co-op: a zone's switches by its id, none when the scene has no switch there.
+    ZoneSwitch* nebulaFindZone(s32 zoneId);
+    friend class StageSwitchFunction;
 
 private:
     MR::Vector< MR::FixedArray< ContainerSwitch, 20 > > mSwitches;
@@ -55,6 +58,10 @@ public:
     static void onSwitchBySwitchIdInfo(const SwitchIdInfo& rInfo);
     static void offSwitchBySwitchIdInfo(const SwitchIdInfo& rInfo);
     static bool isOnSwitchBySwitchIdInfo(const SwitchIdInfo& rInfo);
+    // Online co-op (NebulaCoopWorld): a switch's id across games (its zone << 16 | its number, the zone 0xffff for
+    // the global ones), and setting one by it.
+    static u32 nebulaSwitchId(const SwitchIdInfo& rInfo);
+    static void nebulaSetSwitch(u32 id, bool on);
 };
 
 class StageSwitchCtrl {

@@ -137,6 +137,7 @@ GameScene::GameScene()
 }
 
 GameScene::~GameScene() {
+    NebulaCoopWorld::endScene();
     MR::destroySceneMessage();
     NPCFunction::deleteNPCData();
     MR::onStarPointerSceneOut();

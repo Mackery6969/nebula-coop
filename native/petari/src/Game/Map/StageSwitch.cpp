@@ -2,6 +2,7 @@
 #include "Game/System/NebulaArena.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/Util/JMapIdInfo.hpp"
+#include "Game/System/NebulaCoopWorld.hpp"
 
 ZoneSwitch::ZoneSwitch() : mFlags(nullptr), mWords(0) {
 }
@@ -197,6 +198,8 @@ void StageSwitchFunction::onSwitchBySwitchIdInfo(const SwitchIdInfo& rIdInfo) {
 
     if (!pZoneSwitch->get(switchNo)) {
         pZoneSwitch->set(switchNo, true);
+        // Online co-op: the instance's switches are its players' together.
+        NebulaCoopWorld::noteSwitch(nebulaSwitchId(rIdInfo), true);
     }
 }
 
@@ -206,7 +209,34 @@ void StageSwitchFunction::offSwitchBySwitchIdInfo(const SwitchIdInfo& rIdInfo) {
 
     if (pZoneSwitch->get(switchNo)) {
         pZoneSwitch->set(switchNo, false);
+        NebulaCoopWorld::noteSwitch(nebulaSwitchId(rIdInfo), false);
     }
+}
+
+u32 StageSwitchFunction::nebulaSwitchId(const SwitchIdInfo& rIdInfo) {
+    const u32 zone = rIdInfo.mIsGlobal ? 0xffffu : static_cast< u32 >(rIdInfo.mIDInfo->mZoneID) & 0xffffu;
+    return zone << 16 | (static_cast< u32 >(rIdInfo.getSwitchNo()) & 0xffffu);
+}
+
+void StageSwitchFunction::nebulaSetSwitch(u32 id, bool on) {
+    const u32 switchNo = id & 0xffffu;
+    if (switchNo >= 128) {
+        return;
+    }
+    StageSwitchContainer* pContainer = ::getStageSwitchContainer();
+    ZoneSwitch* pZoneSwitch = (id >> 16) == 0xffffu ? pContainer->mGlobalSwitches : pContainer->nebulaFindZone(static_cast< s32 >(id >> 16));
+    if (pZoneSwitch != nullptr) {
+        pZoneSwitch->set(static_cast< int >(switchNo), on);
+    }
+}
+
+ZoneSwitch* StageSwitchContainer::nebulaFindZone(s32 zoneId) {
+    for (int i = 0; i < mSwitches.size(); i++) {
+        if (mSwitches[i].mZoneId == zoneId) {
+            return mSwitches[i].mSwitch;
+        }
+    }
+    return nullptr;
 }
 
 bool StageSwitchFunction::isOnSwitchBySwitchIdInfo(const SwitchIdInfo& rIdInfo) {

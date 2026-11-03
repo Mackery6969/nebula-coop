@@ -51,7 +51,8 @@ What's left to turn Nebula into an online co-op mod like sm64coopdx. The reasoni
 
 ## Later (Phases 3 and 4)
 
-- [ ] Shared enemies and objects
+- [x] Shared enemies and objects: hits (squashes play everywhere), enemies' movement, switches, blocks, enemies' coins
+- [ ] Bosses' movement and hits from thrown things shared
 - [ ] Bosses and story demos with several players
 - [ ] Dedicated server (the game with no window)
 
