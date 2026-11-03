@@ -666,7 +666,9 @@ unsigned runtime_draft_changes(RuntimeSettings* live) {
     const RuntimeSettings& d = s_runtime_draft;
     const RuntimeSettings& b = s_runtime_base;
     // A setting added to RuntimeSettings is drafted here too: these bindings stop compiling until it is.
-    [[maybe_unused]] const auto& [mode, audio, text_speed, language, discord_status, button_icons, coop] = d;
+    // coop_bans and coop_moderators aren't the menu's (the room's /permban and /moderator keep them): never drafted.
+    [[maybe_unused]] const auto& [mode, audio, text_speed, language, discord_status, button_icons, coop, coop_bans,
+                                  coop_moderators] = d;
     [[maybe_unused]] const auto& [master, music, sfx, voice, ambience, cutscene, wiimote_speaker] = d.audio;
     RuntimeSettings scratch{};
     RuntimeSettings& out = live != nullptr ? *live : scratch;
