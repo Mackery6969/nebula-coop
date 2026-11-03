@@ -97,6 +97,10 @@ void PlacementInfoOrdered::initPlacement() {
             for (link = pSet->mList.mHead; link != nullptr; link = link->mNextLink) {
                 const JMapInfoIter& rIter = static_cast< Index* >(link->mValue)->getInfoIter();
                 MR::setCurrentPlacementZoneId(MR::getPlacedZoneId(rIter));
+#ifdef TARGET_PC
+                // Online co-op: the actors it makes as it is placed are its parts.
+                NebulaCoopWorld::beginPlacement();
+#endif
                 pObj = creator(pName);
                 MR::initLiveActorSystemInfo(rIter);
                 pObj->init(rIter);

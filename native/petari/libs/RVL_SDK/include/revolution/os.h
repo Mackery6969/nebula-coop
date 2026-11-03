@@ -100,6 +100,11 @@ s32 __NebulaAchievement(const char* id, u16* name, u32 capacity);
 s32 __NebulaAchievementDate(const char* id);
 // An achievement another player unlocked in the room's save, for its pop-up (NebulaHostServices::coop_achievement_take).
 s32 __NebulaCoopAchievementTake(char* id, u32 capacity);
+// The online co-op room's shared objects: the ones the local game moves, and the others' (NebulaHostServices::
+// coop_objects_report and coop_objects_take).
+struct NebulaCoopObjectState;
+void __NebulaCoopObjectsReport(const struct NebulaCoopObjectState* states, u32 count);
+u32 __NebulaCoopObjectsTake(struct NebulaCoopObjectState* states, u32 capacity);
 void __NebulaStatAdd(const char* name, u64 delta);
 u64 __NebulaStatGet(const char* name);
 // Nebula's settings menu (NebulaHostServices::settings_view and settings_input).

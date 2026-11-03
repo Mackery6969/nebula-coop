@@ -4,9 +4,11 @@
 #include <revolution/types.h>
 
 class GameDataHolder;
+class HitSensor;
 class JMapInfoIter;
 class LiveActor;
 class NameObj;
+class Nerve;
 
 // Online co-op's shared world (docs/COOP_PLAN.md "Shared world state"): the server decides it, the game reports what
 // its own play did and applies what it is told, as sm64coopdx syncs its levels.
@@ -20,7 +22,44 @@ class NameObj;
 //
 // The save: Power Stars and event flags the game gets, and event values it sets, are reported (GameDataHolder); the
 // session's are applied as they come, and again after each scene starts, for whatever the game doesn't have.
+//
+// Shared objects (docs/COOP_PLAN.md "Shared objects", sm64coopdx's sync objects), with keys for every placed actor and
+// the actors each one makes as it is placed (a boss's parts, a group's members):
+// - Hits. The local Mario's attack on one of them (a stomp, a spin, a ground pound, a kick) is played again in each
+//   other game in the instance from his copy there, so the thing reacts in every game: a Goomba squashed with its
+//   animation, a box broken, a switch pressed, a boss hurt.
+// - Movement. Each plain enemy is moved by one game, its owner: the player nearest it, the host settling who. The
+//   others' copies follow its nerve (their own AI doesn't change it), where it is, how fast it goes and how its model
+//   is turned. A player who hits an enemy takes it over.
+// - Switches. A stage switch turned in one game is turned in the others in the instance; the instance's record keeps
+//   them for players coming later. Switches an area turns while the player is in it stay each player's.
+// - Coins an enemy drops are keyed by the enemy, so one taken counts for everyone and is gone everywhere.
 namespace NebulaCoopWorld {
+    // Whether the game is in a room's scene with its objects followed: the hooks below do nothing otherwise.
+    extern bool sObjectsActive;
+    // GameScene's end: its actors go, nothing is followed until the next scene.
+    void endScene();
+    // PlacementInfoOrdered, before making a placed object: the actors made until notePlaced are its parts.
+    void beginPlacement();
+    // LiveActor's constructor: an actor made (one of the placed object's parts while it is being placed).
+    void noteMade(LiveActor* pActor);
+    // HitSensor::receiveMessage: a message to an actor, delivered here, the local Mario's hits on followed things
+    // noted for the others.
+    bool deliverMessage(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    // LiveActor::setNerve: whether the actor may change its nerve now (an enemy another game moves follows that game's).
+    bool allowNerve(LiveActor* pActor, const Nerve* pNerve);
+    // LiveActor::movement's end and calcAnmMtx after calcAndSetBaseMtx: an enemy another game moves is put where that
+    // game has it, turned as there.
+    void afterMovement(LiveActor* pActor);
+    void afterBaseMtx(LiveActor* pActor);
+    // StageSwitchFunction: a switch turned (its zone << 16 | number, the zone 0xffff for global ones).
+    void noteSwitch(u32 id, bool on);
+    // Around switches that follow the local player alone (an area turning one while he is in it).
+    void beginLocalSwitches();
+    void endLocalSwitches();
+    // CoinHolder::appearCoin: a coin `pHost` let out (an enemy's drop).
+    void noteCoinDrop(const NameObj* pHost, LiveActor* pCoin);
+
     // GameScene::init, before the stage's actors are placed: the last scene's things are forgotten, and whether
     // this scene is in a room.
     void startScene();

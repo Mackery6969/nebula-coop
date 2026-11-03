@@ -30,6 +30,9 @@ public:
     // The copies this scene has (shown or not), for their nametags (NebulaNametags).
     static s32 getCopyNum();
     static const NebulaRemotePlayer* getCopy(s32 index);
+    // Shared objects (NebulaCoopWorld): the sensor another player's hit is played again from here, the copy of player
+    // `number` (where it stands now), none when nobody shows them.
+    static HitSensor* getHitSender(u32 number);
     // Where its name goes: above its head, along its up.
     TVec3f getNametagPos() const;
     // Nothing touches the local Mario now: dead, in a demo, bound to something (a Launch Star, a bubble...), a Boo,

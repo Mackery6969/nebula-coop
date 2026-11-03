@@ -367,8 +367,34 @@ and tells the players it concerns. It follows sm64coopdx's rules, with Galaxy's 
   pop-up (game API 43's `coop_achievement_take`); the goal met later in that player's own game shows nothing again.
   Achievements are the host process's, not the game's: a scene start doesn't give them again. The headless host keeps
   none.
-- **Later (Phase 3).** Objects' movement and state (enemies walking, platforms, switches) and which player each enemy
-  targets: sync objects as sm64coopdx's `sync_object.c`, each owned by the server.
+
+## Shared objects
+
+As sm64coopdx's sync objects (`sync_object.c`), on top of the shared world's keys: every actor placed from the stage's
+files has a key from its placement, and the actors it makes as it is placed (a boss's parts, a group's members) get
+keys from it and their order. Messages 40-42 of `galaxy/coop_world.h`, game API 44's `coop_objects_report` and
+`coop_objects_take`, `NEBULA_COOP_WORLD_HIT` and `NEBULA_COOP_WORLD_SWITCH`.
+
+| What | How | As sm64coopdx |
+|---|---|---|
+| A hit (stomp, spin, ground pound, kick, upper punch, freeze, star power) | The local Mario's hit on a followed thing is played again in each other game in the instance, sent from his copy there, so the thing runs the same reaction: a Goomba squashed with its animation, a block broken, a boss hurt. Things a hit kills stay until their death has played | `packet_object.c`'s interactions |
+| An enemy's movement | One game moves each plain enemy: its owner, the nearest player, the host settling who. The others' copies follow its nerve (their own AI doesn't change it), place, speed and turn, eased; far off they snap | `sync_object` owners and `so->behavior` |
+| A stage switch | Turned in one game, turned in the others in the instance; the instance's record keeps them, given to a player entering it before it is ready | `packet_level_*`, the respawn info |
+| An enemy's coins | Keyed by the enemy and their order, so one taken is gone for everyone and counts for all | spawned objects' sync ids |
+
+- **Who owns an enemy.** The host takes a claim when the enemy has no owner, the claim is its owner's, its owner has
+  been silent for half a second, the claimant is a quarter nearer, or the claimant hit it. Owners send their enemies
+  15 times a second while they move (3 times still), unreliably, only enemies within 6000 units; the host
+  sends a taken claim on to the others in the instance. A player leaving gives up what they owned.
+- **Nerves.** A nerve's id is a hash of its class and name (`NEW_NERVE`), the same in every build; a nerve another
+  game sends is used only on an actor of the class it belongs to.
+- **Local switches.** Switches an area turns while the local player is in it (`SwitchArea` with a player condition,
+  `ClipFieldSwitch`) stay each player's; a switch that turns back and forth more than four times in two seconds (a
+  timer's) is made each player's for the scene, so it doesn't flood the room.
+- **Not yet.** Hits from things other than Mario himself (a fireball, a thrown shell, a star bit) aren't played again,
+  so bosses hurt by thrown things (Kaliente's coconuts, Kingfin's shells) can differ between games. Bosses get the
+  shared hits but not shared movement; platforms on their own timers stay each game's (switch-driven ones are shared).
+  Enemies don't yet target the nearest player in every game (Phase 3's second item).
 
 ## Phases
 
@@ -442,12 +468,15 @@ Each phase ships on its own and leaves the game playable.
       ([Shared world state](#shared-world-state)).
 - [x] [Player collisions](#player-collisions): non-solid, solid and friendly fire, knockback strength and PvP mode,
       with lag compensation.
-- [ ] Remote players stomp, spin and touch objects. Hits are sent as events to the client that owns the object.
+- [x] Remote players stomp, spin and touch objects: each hit is played again in every game in the instance
+      ([Shared objects](#shared-objects)).
 
 ### Phase 3: shared enemies and objects
 
-- [ ] Per-object packets on top of Phase 2's placement keys (`NebulaCoopWorld`), each object owned by the server.
-      Begin with simple enemies (Goomba/Kuribo, Octoomba), then platforms and switches.
+- [x] Per-object packets on top of Phase 2's placement keys (`NebulaCoopWorld`), each enemy owned by its nearest
+      player with the host settling who: enemies' movement and deaths, hits on anything placed (blocks, bosses and
+      their parts), switches, enemies' coins ([Shared objects](#shared-objects)).
+- [ ] Bosses' movement, and hits from thrown things (fireballs, shells, star bits).
 - [ ] Each enemy targets the *nearest* player instead of `MR::getPlayerPos`. This is where the call-site inventory
       gets used: route `MR::getPlayer*` through a "player relevant to this actor" helper, one subsystem at a time.
 

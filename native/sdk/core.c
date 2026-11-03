@@ -143,6 +143,14 @@ s32 __NebulaCoopAchievementTake(char* id, u32 capacity) {
     return sHost->coop_achievement_take(sHost->user, id, capacity);
 }
 
+void __NebulaCoopObjectsReport(const struct NebulaCoopObjectState* states, u32 count) {
+    sHost->coop_objects_report(sHost->user, states, count);
+}
+
+u32 __NebulaCoopObjectsTake(struct NebulaCoopObjectState* states, u32 capacity) {
+    return sHost->coop_objects_take(sHost->user, states, capacity);
+}
+
 void __NebulaStatAdd(const char* name, u64 delta) {
     sHost->stat_add(sHost->user, name, delta);
 }

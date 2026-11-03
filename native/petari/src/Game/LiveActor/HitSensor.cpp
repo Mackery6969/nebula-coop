@@ -1,6 +1,9 @@
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/LiveActor/SensorHitChecker.hpp"
+#ifdef TARGET_PC
+#include "Game/System/NebulaCoopWorld.hpp"
+#endif
 
 HitSensor::HitSensor(u32 type, u16 groupSize, f32 radius, LiveActor* pHost)
     : mType(type), mPosition(0.0f, 0.0f, 0.0f), mRadius(radius), mSensorCount(0), mGroupSize(groupSize), mSensors(nullptr), mSensorGroup(nullptr),
@@ -17,6 +20,12 @@ HitSensor::HitSensor(u32 type, u16 groupSize, f32 radius, LiveActor* pHost)
 }
 
 bool HitSensor::receiveMessage(u32 msg, HitSensor* pSender) {
+#ifdef TARGET_PC
+    // Online co-op: the local Mario's hits on shared things reach the other players' games too.
+    if (NebulaCoopWorld::sObjectsActive) {
+        return NebulaCoopWorld::deliverMessage(msg, pSender, this);
+    }
+#endif
     return mHost->receiveMessage(msg, pSender, this);
 }
 
