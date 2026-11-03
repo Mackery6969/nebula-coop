@@ -1,15 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Mii files of every console as Wii Mii records (mii_formats.h).
 //
-// Layouts: the Wii's record from the game's own RVLFaceLib (RFLi_Endian.h bit positions); the 3DS/Wii U record
+// Layouts: the Wii's record from the game's own MiiLib (MII_Endian.h bit positions); the 3DS/Wii U record
 // (Ver3StoreData), the Switch's CharInfo, CoreData and StoreData from MiiPort's structure patterns (Genwald, ISC) and
 // 3dbrew; Mii Studio's and Mii Creator's from MiiJS (Stewared, ISC). The Switch's colour and glasses tables are the
 // Switch's own downgrade to the 3DS's (MiiPort); the 3DS parts the Wii lacks take MiiJS's nearest Wii part (its own
 // visual choices: no console converts that way). THIRD-PARTY-NOTICES.md carries both notices.
 
 #include "galaxy/mii_formats.h"
-
-#include "galaxy/wii_device_data.h"
 
 #include <algorithm>
 #include <array>
@@ -37,6 +35,9 @@ constexpr std::size_t kRemoteBlock = 0x2F0;
 constexpr u32 kRemoteMagic = 0x524E4344;  // "RNCD"
 constexpr u32 kCflMagic = 0x43464F47;     // "CFOG": the 3DS's CFL_DB.dat
 constexpr u32 kFflMagic = 0x46464F43;     // "FFOC": the Wii U's FFL_ODB.dat
+constexpr u32 kRflMagic = 0x524E4F44;     // "RNOD": the Wii's RFL_DB.dat
+constexpr std::size_t kRflDatabase = 0x1F1E0;
+constexpr std::size_t kRflFirstRecord = 0x04;
 
 u8 byte(std::span<const std::byte> b, std::size_t at) { return static_cast<u8>(b[at]); }
 u16 le16(std::span<const std::byte> b, std::size_t at) { return static_cast<u16>(byte(b, at) | byte(b, at + 1) << 8); }
@@ -44,7 +45,7 @@ u16 be16(std::span<const std::byte> b, std::size_t at) { return static_cast<u16>
 u32 be32(std::span<const std::byte> b, std::size_t at) { return static_cast<u32>(be16(b, at)) << 16 | be16(b, at + 2); }
 
 // The Wii record's fields: bit position from the record's first bit, most significant first in each big-endian
-// 16-bit unit, and width (RVLFaceLib RFLi_Endian.h).
+// 16-bit unit, and width (MiiLib MII_Endian.h).
 struct WiiField {
     u16 pos;
     u8 len;
@@ -189,8 +190,8 @@ MiiRecord wii_from_modern(ModernMii m) {
     if (m.mouth_type > 23u) m.mouth_type = lookup(kWiiMouthForVer3, m.mouth_type - 24u);
 
     MiiRecord r{};
-    // A placeholder create ID (a fresh one is made on import): its type bits, special or not (RVLFaceLib
-    // RFLi_CREATE_ID_MASK_NOT_SPECIAL; MiiJS: 100 normal, 010 special).
+    // A placeholder create ID (a fresh one is made on import): its type bits, special or not (MiiLib
+    // MII_CREATE_ID_MASK_NOT_SPECIAL; MiiJS: 100 normal, 010 special).
     r[0x18] = static_cast<std::byte>(m.special ? 0x40u : 0x80u);
     for (std::size_t i = 0; i < 10u; ++i) {
         r[0x02 + 2 * i] = static_cast<std::byte>(m.name[i] >> 8u);
@@ -633,11 +634,16 @@ bool hex_text(std::span<const std::byte> b, std::vector<std::byte>& out) {
     return true;
 }
 
+// CRC-16 (XMODEM: polynomial 0x1021, no initial value) of a Mii file's record, as its trailing two bytes store it.
 std::uint16_t xmodem(std::span<const std::byte> block) {
-    std::vector<std::byte> bytes(block.begin(), block.end());
-    bytes.push_back(std::byte{0});
-    bytes.push_back(std::byte{0});
-    return rfl_crc(bytes);
+    std::uint16_t crc = 0;
+    for (const std::byte b : block) {
+        crc = static_cast<std::uint16_t>(crc ^ static_cast<std::uint8_t>(b) << 8);
+        for (int bit = 0; bit < 8; ++bit) {
+            crc = static_cast<std::uint16_t>((crc & 0x8000u) != 0 ? (crc << 1) ^ 0x1021u : crc << 1);
+        }
+    }
+    return crc;
 }
 
 bool has_id(std::span<const std::byte> record) {
@@ -671,8 +677,8 @@ MiiFileContents read_bytes(std::span<const std::byte> b, std::string_view extens
     const bool ds = extension == "ncd" || extension == "nsd";
     const u32 magic = b.size() >= 4u ? be32(b, 0) : 0u;
     ModernMii m;
-    if (b.size() == kRflDatabaseSize && magic == kRflOfficialMagic) {
-        wii(0x04, kMiiDatabaseSlots, kWiiRecord, "Wii Mii database (RFL_DB.dat)");
+    if (b.size() == kRflDatabase && magic == kRflMagic) {
+        wii(kRflFirstRecord, kMiiLibrarySlots, kWiiRecord, "Wii Mii database (RFL_DB.dat)");
     } else if (b.size() == kRemoteBlock && magic == kRemoteMagic) {
         wii(0x08, 10u, kWiiRecord, "Wii Remote Mii data");
     } else if (magic == kCflMagic) {
@@ -722,6 +728,119 @@ MiiFileContents read_bytes(std::span<const std::byte> b, std::string_view extens
 }
 
 }  // namespace
+
+namespace {
+
+u32 get_bits(const MiiRecord& r, WiiField f) {
+    const std::size_t unit = (f.pos >> 4u) * 2u;
+    const u32 shift = 16u - (f.pos & 15u) - f.len;
+    const u32 word = static_cast<u32>(r[unit]) << 8u | static_cast<u32>(r[unit + 1u]);
+    return (word >> shift) & ((1u << f.len) - 1u);
+}
+
+constexpr std::size_t kName = 0x02, kHeight = 0x16, kBuild = 0x17, kCreateIdAt = 0x18, kCreator = 0x36;
+
+}  // namespace
+
+std::vector<std::pair<unsigned, MiiRecord>> read_wii_mii_database(std::span<const std::byte> bytes) {
+    std::vector<std::pair<unsigned, MiiRecord>> out;
+    if (bytes.size() != kRflDatabase || be32(bytes, 0) != kRflMagic) {
+        return out;
+    }
+    for (unsigned slot = 0; slot < kMiiLibrarySlots; ++slot) {
+        const auto record = bytes.subspan(kRflFirstRecord + slot * kWiiRecord, kWiiRecord);
+        if (has_id(record)) {
+            MiiRecord r{};
+            std::copy(record.begin(), record.end(), r.begin());
+            out.emplace_back(slot, r);
+        }
+    }
+    return out;
+}
+
+MiiFields decode_wii_mii(const MiiRecord& r) noexcept {
+    MiiFields m;
+    const auto get = [&r](WiiField f) { return static_cast<u8>(get_bits(r, f)); };
+    m.sex = get(kSex);
+    m.birth_month = get(kBirthMonth);
+    m.birth_day = get(kBirthDay);
+    m.favorite_color = get(kFavoriteColor);
+    m.favorite = get(kFavorite);
+    m.local_only = get(kLocalOnly);
+    m.height = static_cast<u8>(r[kHeight]);
+    m.build = static_cast<u8>(r[kBuild]);
+    m.face_type = get(kFaceType);
+    m.face_color = get(kFaceColor);
+    m.face_texture = get(kFaceTex);
+    m.hair_type = get(kHairType);
+    m.hair_color = get(kHairColor);
+    m.hair_flip = get(kHairFlip);
+    m.eye_type = get(kEyeType);
+    m.eye_color = get(kEyeColor);
+    m.eye_scale = get(kEyeScale);
+    m.eye_rotate = get(kEyeRotate);
+    m.eye_x = get(kEyeX);
+    m.eye_y = get(kEyeY);
+    m.eyebrow_type = get(kEyebrowType);
+    m.eyebrow_color = get(kEyebrowColor);
+    m.eyebrow_scale = get(kEyebrowScale);
+    m.eyebrow_rotate = get(kEyebrowRotate);
+    m.eyebrow_x = get(kEyebrowX);
+    m.eyebrow_y = get(kEyebrowY);
+    m.nose_type = get(kNoseType);
+    m.nose_scale = get(kNoseScale);
+    m.nose_y = get(kNoseY);
+    m.mouth_type = get(kMouthType);
+    m.mouth_color = get(kMouthColor);
+    m.mouth_scale = get(kMouthScale);
+    m.mouth_y = get(kMouthY);
+    m.mustache = get(kMustacheType);
+    m.beard_type = get(kBeardType);
+    m.beard_color = get(kBeardColor);
+    m.beard_scale = get(kBeardScale);
+    m.beard_y = get(kBeardY);
+    m.glass_type = get(kGlassType);
+    m.glass_color = get(kGlassColor);
+    m.glass_scale = get(kGlassScale);
+    m.glass_y = get(kGlassY);
+    m.mole_type = get(kMoleType);
+    m.mole_scale = get(kMoleScale);
+    m.mole_x = get(kMoleX);
+    m.mole_y = get(kMoleY);
+    for (std::size_t i = 0; i < 10; ++i) {
+        m.name[i] = static_cast<u16>(static_cast<u16>(r[kName + 2 * i]) << 8 | static_cast<u16>(r[kName + 2 * i + 1]));
+        m.creator[i] =
+            static_cast<u16>(static_cast<u16>(r[kCreator + 2 * i]) << 8 | static_cast<u16>(r[kCreator + 2 * i + 1]));
+    }
+    for (std::size_t i = 0; i < 8; ++i) {
+        m.create_id[i] = static_cast<u8>(r[kCreateIdAt + i]);
+    }
+    return m;
+}
+
+void fix_wii_mii(MiiRecord& r) noexcept {
+    static constexpr std::array<u8, 13> kDayMax{0, 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    const u32 month = get_bits(r, kBirthMonth);
+    const u32 day = get_bits(r, kBirthDay);
+    if ((month == 0) != (day == 0) || month > 12 || day > kDayMax[month]) {
+        set_bits(r, kBirthMonth, 0);
+        set_bits(r, kBirthDay, 0);
+    }
+    // A special Mii (its create ID's first bit clear) stays on this console.
+    if ((static_cast<u8>(r[kCreateIdAt]) & 0x80u) == 0u) {
+        set_bits(r, kLocalOnly, 1);
+    }
+    if (get_bits(r, kFavoriteColor) >= 12u) {
+        set_bits(r, kFavoriteColor, 0);
+    }
+    if (r[kName] == std::byte{0} && r[kName + 1] == std::byte{0}) {
+        static constexpr char kNoName[] = "no name";
+        for (std::size_t i = 0; kNoName[i] != '\0'; ++i) {
+            r[kName + 2 * i] = std::byte{0};
+            r[kName + 2 * i + 1] = static_cast<std::byte>(kNoName[i]);
+        }
+    }
+}
 
 bool mii_placeholder_id(const MiiRecord& r) noexcept {
     const u32 mii = static_cast<u32>(r[0x18]) << 24u | static_cast<u32>(r[0x19]) << 16u |

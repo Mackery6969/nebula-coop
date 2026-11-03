@@ -1,4 +1,8 @@
 #include "Game/Ride/SpaceCocoon.hpp"
+#include "Game/Util/NativeShader.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
 #include "Game/Camera/CameraTargetArg.hpp"
 #include "Game/Camera/CameraTargetMtx.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
@@ -14,7 +18,7 @@
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/DemoUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/GamePadUtil.hpp"
+#include "Game/Util/PlayerInputUtil.hpp"
 #include "Game/Util/JMapUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
@@ -23,24 +27,8 @@
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
 #include <JSystem/JUtility/JUTTexture.hpp>
-#include <revolution/gx/GXCull.h>
-#include <revolution/gx/GXEnum.h>
-#include <revolution/gx/GXGeometry.h>
-#include <revolution/gx/GXLighting.h>
-#include <revolution/gx/GXPixel.h>
-#include <revolution/gx/GXTev.h>
-#include <revolution/gx/GXTransform.h>
-#include <revolution/gx/GXVert.h>
-#include <revolution/mtx.h>
-#include <revolution/wpad.h>
-
-void SpaceCocoon_FORCE_MATCH_SDATA2() {
-    (void)1.0f;
-    (void)0.0f;
-    (void)3.0f;
-    (void)-1.0f;
-    (void)2.0f;
-}
+#include <nebula_math.h>
+#include "Game/System/NebulaInput.hpp"
 
 namespace {
     static const s32 sAimAnimInterpole = 10;
@@ -55,7 +43,6 @@ namespace {
     static const f32 sDistanceBindInvalid = 300.0f;
     static const s32 sTouchTimerMax = 20;
     static const s32 sStepFreeInvalidMin = 5;
-    static const f32 sPlayerDistanceToHang = 100.0f;
     static const f32 sDistanceMax = 500.0f;
     static const f32 sFollowRate = 0.03f;
     static const f32 sAimDistanceMin = 100.0f;
@@ -160,7 +147,6 @@ void SpaceCocoon::init(const JMapInfoIter& rIter) {
         spawnPos.scale((mNumPoints - idx) * delta);
         spawnPos.add(mBasePos);
 
-        f32 f = MR::getEaseInValue(static_cast< f32 >(idx) / mNumPoints, 0.0f, 1.0f, 1.0f);
 
         f32 thickness = 1.0f;
         if ((mNumPoints - 1) - idx < ::sWidthBottomPointNum) {
@@ -190,7 +176,7 @@ void SpaceCocoon::init(const JMapInfoIter& rIter) {
     MR::initMultiActorCamera(this, rIter, &mCameraInfo, "\221\137\202\242\222\206" /* 狙い中 */);    // "aim"
     MR::initMultiActorCamera(this, rIter, &mCameraInfo, "\215\125\214\202\222\206" /* 攻撃中 */);    // "attack"
 
-    mTexture = new JUTTexture(MR::loadTexFromArc("SpaceCocoon.arc", "SpaceCocoon.bti"), 0);
+    mTexture = new JUTTexture(MR::loadTexFromArc("SpaceCocoon.arc", "SpaceCocoon.bti"));
     makeActorAppeared();
 }
 
@@ -242,7 +228,7 @@ void SpaceCocoon::exeFreeInvalid() {
 void SpaceCocoon::exeBindLand() {
     if (MR::isFirstStep(this)) {
         if (!isKinopioAttached()) {
-            MR::startBckPlayer("CocoonLand", 1L);
+            MR::startBckPlayer("CocoonLand", 1);
             MR::startMultiActorCameraTargetOther(this, mCameraInfo, "\203\105\203\106\203\103\203\147" /* ウェイト */, CameraTargetArg(mCameraTargetMtx));
             MR::startSound(mRider, "SE_PV_CATCH");
         } else {
@@ -309,7 +295,7 @@ void SpaceCocoon::exeBindAim() {
 
         MR::startSound(this, "SE_OJ_SPACE_COCOON_DRAG_ST");
 
-        if (mPadChannel == WPAD_CHAN1) {
+        if (mPadChannel == PLAYER_2) {
             MR::startCSSound2P("CS_DPD_HIT", nullptr);
         }
     }
@@ -451,8 +437,8 @@ bool SpaceCocoon::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pRecei
         mCameraTargetMtx->mMatrix.set(mTopMtx);
         mCameraTargetMtx->mMatrix.setTrans(mPosition);
         MR::invalidateHitSensor(this, "Bind");
-        if (MR::isStarPointerInScreen(WPAD_CHAN0)) {
-            MR::calcStarPointerPosOnPlane(&mPointerPos, mPosition, mUp, WPAD_CHAN0, false);
+        if (MR::isStarPointerInScreen(PLAYER_1)) {
+            MR::calcStarPointerPosOnPlane(&mPointerPos, mPosition, mUp, PLAYER_1, false);
         }
         setNerve(GET_NERVE(SpaceCocoon, SpaceCocoonNrvBindLand));
         return true;
@@ -478,20 +464,20 @@ bool SpaceCocoon::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pRecei
 
 bool SpaceCocoon::updateBindWait() {
     if (MR::getPlayerPos()->distance(mPosition) < ::sDistanceBindCancel && (!isKinopioAttached() || MR::isOnGroundPlayer())) {
-        if (MR::isStarPointerPointing(this, WPAD_CHAN0, true, "\216\343" /* 弱 */)) {
+        if (MR::isStarPointerPointing(this, PLAYER_1, true, "\216\343" /* 弱 */)) {
             MR::requestStarPointerModeBlueStarReady(this);
         }
 
         bool set;
-        if (MR::isStarPointerPointing(this, WPAD_CHAN0, true, "\216\343" /* 弱 */) && MR::testCorePadTriggerA(WPAD_CHAN0) &&
-            MR::tryStartStarPointerCommandStream(this, &mPosition, WPAD_CHAN0, false)) {
+        if (MR::isStarPointerPointing(this, PLAYER_1, true, "\216\343" /* 弱 */) && MR::isPressedJump(PLAYER_1) &&
+            MR::tryStartStarPointerCommandStream(this, &mPosition, PLAYER_1, false)) {
             set = true;
         } else {
             set = false;
         }
 
         if (set) {
-            mPadChannel = WPAD_CHAN0;
+            mPadChannel = PLAYER_1;
         }
 
         if (mPadChannel >= 0) {
@@ -532,10 +518,6 @@ bool SpaceCocoon::updateSpringPoint() {
 
 void SpaceCocoon::updateHang() {
     f32 dist = mPosition.distance(mNeutralPos);
-
-    if (MR::isStarPointerInScreen(mPadChannel) && ::sPlayerDistanceToHang > dist) {
-        f32 dummy = 0.0f;
-    }
 
     if (dist >= ::sAimRumbleDistanceStrong) {
         MR::startLevelSound(this, "SE_OJ_LV_SPACE_COCOON_DRAG3");
@@ -658,10 +640,10 @@ bool SpaceCocoon::tryTouch() {
     }
 
     s32 touchChannel = -1;
-    if (::tryTouchPointer(this, WPAD_CHAN0)) {
-        touchChannel = WPAD_CHAN0;
-    } else if (::tryTouchPointer(this, WPAD_CHAN1)) {
-        touchChannel = WPAD_CHAN1;
+    if (::tryTouchPointer(this, PLAYER_1)) {
+        touchChannel = PLAYER_1;
+    } else if (::tryTouchPointer(this, PLAYER_2)) {
+        touchChannel = PLAYER_2;
     }
 
     if (touchChannel >= 0) {
@@ -684,7 +666,7 @@ bool SpaceCocoon::tryTouch() {
 }
 
 bool SpaceCocoon::tryRelease() {
-    if (MR::testCorePadButtonA(mPadChannel)) {
+    if (MR::isHeldJump(mPadChannel)) {
         return false;
     }
 
@@ -839,13 +821,13 @@ namespace {
         side.scale(thickness);
         front.scale(thickness);
 
-        GXPosition3f32(rPos.x + side.x * x1 + front.x * y1, rPos.y + side.y * x1 + front.y * y1, rPos.z + side.z * x1 + front.z * y1);
-        GXColor1u32(color1);
-        GXTexCoord2f32(texX1, texY);
+        J3DNativeDraw::position(rPos.x + side.x * x1 + front.x * y1, rPos.y + side.y * x1 + front.y * y1, rPos.z + side.z * x1 + front.z * y1);
+        J3DNativeDraw::color(color1);
+        J3DNativeDraw::texCoord(texX1, texY);
 
-        GXPosition3f32(rPos.x + side.x * x2 + front.x * y2, rPos.y + side.y * x2 + front.y * y2, rPos.z + side.z * x2 + front.z * y2);
-        GXColor1u32(color2);
-        GXTexCoord2f32(texX2, texY);
+        J3DNativeDraw::position(rPos.x + side.x * x2 + front.x * y2, rPos.y + side.y * x2 + front.y * y2, rPos.z + side.z * x2 + front.z * y2);
+        J3DNativeDraw::color(color2);
+        J3DNativeDraw::texCoord(texX2, texY);
     }
 };  // namespace
 
@@ -853,7 +835,7 @@ void SpaceCocoon::drawPlane(f32 x1, f32 y1, f32 x2, f32 y2, Color8 color1, Color
     s32 numPoints = mNumPoints + 2;
     f32 delta = 1.0f / numPoints;
 
-    GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, numPoints * 2);
+    J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, numPoints * 2, NEBULA_SHAPE_COLOR0 | NEBULA_SHAPE_TEXCOORD0);
     {
         ::drawPoints(mCocoonPos, mSide, mFront, ::sWidthBottom, x1, y1, x2, y2, color1, color2, texX1, texX2, 0.0f);
 
@@ -866,44 +848,19 @@ void SpaceCocoon::drawPlane(f32 x1, f32 y1, f32 x2, f32 y2, Color8 color1, Color
 
         ::drawPoints(mBasePos, mSide, mFront, ::sWidthTop, x1, y1, x2, y2, color1, color2, texX1, texX2, 1.0f);
     }
-    GXEnd();
 }
 
 void SpaceCocoon::initDraw() const {
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_POS_XYZ, GX_RGBA8, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_POS_XYZ, GX_F32, 0);
-
-    GXClearVtxDesc();
-    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
-
-    GXLoadPosMtxImm(MR::getCameraViewMtx(), 0);
-    GXSetCurrentMtx(0);
-
-    GXSetNumChans(1);
-    GXSetChanCtrl(GX_COLOR0A0, GX_DISABLE, GX_SRC_VTX, GX_SRC_VTX, 0, GX_DF_NONE, GX_AF_NONE);
-    GXSetChanCtrl(GX_COLOR1A1, GX_DISABLE, GX_SRC_REG, GX_SRC_REG, 0, GX_DF_NONE, GX_AF_NONE);
-    GXSetChanMatColor(GX_COLOR0A0, (GXColor){0xFF, 0x00, 0x00, 0xFF});
-
-    GXSetNumTexGens(1);
-    GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, 60, GX_FALSE, 125);
-    mTexture->load(GX_TEXMAP0);
-
-    GXSetNumIndStages(0);
-
-    GXSetNumTevStages(1);
-    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
-    GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_TEXC, GX_CC_RASC, GX_CC_ZERO);
-    GXSetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_KONST, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-
-    GXSetBlendMode(GX_BM_BLEND, GX_BL_ONE, GX_BL_ZERO, GX_LO_NOOP);
-    GXSetAlphaCompare(GX_GREATER, 0, GX_AOP_OR, GX_GREATER, 0);
-
-    GXSetZMode(GX_ENABLE, GX_LEQUAL, GX_ENABLE);
-    GXSetZCompLoc(GX_ENABLE);
-    GXSetCullMode(GX_CULL_BACK);
+    J3DNativeShape::setPosition(0, MR::getCameraViewMtx());
+    // runtime/src/render/materials/tex_modulate.hlsl: the texture times the vertex colour, opaque; drawn where
+    // the alpha is above 0, depth tested and written, back faces culled.
+    NebulaNativeMaterial material;
+    NativeShader::init(material, NEBULA_SHADER_TEX_MODULATE, NativeShader::BLEND_OPAQUE, NEBULA_COMPARE_LEQUAL, true,
+                       NEBULA_CULL_BACK);
+    material.early_depth = 1;
+    material.constants[0] = 1.0f;
+    material.constants[1] = 1.0f;
+    NativeShader::setTexture(material, 0, mTexture);
+    NativeShader::send(material);
+    J3DNativeShape::setCurrentIdentity();
 }

@@ -8,37 +8,22 @@
 #include "Game/Util/SingletonHolder.hpp"
 #include "Game/Util/StringUtil.hpp"
 #include "Game/Util/SystemUtil.hpp"
-#include <revolution/gd/GDBase.h>
 
-namespace {
-    class GDCurrentRestorer {
-    public:
-        GDCurrentRestorer() : mObj(__GDCurrentDL) {
-        }
-
-        ~GDCurrentRestorer() {
-            __GDCurrentDL = mObj;
-        }
-
-    private:
-        /* 0x0 */ GDLObj* mObj;
-    };
-};  // namespace
 
 ResourceHolderManager::ResourceHolderManager() {
     mResourceArray.clear();
 }
 
-ResourceHolder* ResourceHolderManager::createAndAdd(const char* pArcName, JKRHeap*) {
-    return createAndAddInner(pArcName, MR::makeObjectArchiveFileName, startCreateResourceHolderOnMainThread)->mResourceHolder;
+ResourceHolder* ResourceHolderManager::createAndAdd(const char* pArcName, NebulaArena*) {
+    return createAndAddInner(pArcName, MR::makeObjectArchiveFileName, startCreateResourceHolder)->mResourceHolder;
 }
 
 ResourceHolder* ResourceHolderManager::createAndAddStationed(const char* pParam1) {
     return createAndAddInnerStationed(pParam1, &ResourceHolderManager::createResourceHolder)->mResourceHolder;
 }
 
-LayoutHolder* ResourceHolderManager::createAndAddLayoutHolder(const char* pParam1, JKRHeap*) {
-    return createAndAddInner(pParam1, MR::makeLayoutArchiveFileName, startCreateLayoutHolderOnMainThread)->mLayoutHolder;
+LayoutHolder* ResourceHolderManager::createAndAddLayoutHolder(const char* pParam1, NebulaArena*) {
+    return createAndAddInner(pParam1, MR::makeLayoutArchiveFileName, startCreateLayoutHolder)->mLayoutHolder;
 }
 
 LayoutHolder* ResourceHolderManager::createAndAddLayoutHolderStationed(const char* pParam1) {
@@ -53,13 +38,13 @@ LayoutHolder* ResourceHolderManager::createAndAddLayoutHolderRawData(const char*
     return add(pParam1, args)->mLayoutHolder;
 }
 
-void ResourceHolderManager::removeIfIsEqualHeap(JKRHeap* pHeap) {
+void ResourceHolderManager::removeIfIsEqualHeap(NebulaArena* pHeap) {
     if (pHeap == nullptr) {
         return;
     }
 
     for (ResourceHolderManagerName2Resource* pIter = mResourceArray.begin(); pIter != mResourceArray.end(); pIter++) {
-        if (pIter->mHeap != pHeap && MR::getHeapNapa(pIter->mHeap) != pHeap && MR::getHeapGDDR3(pIter->mHeap) != pHeap) {
+        if (pIter->mHeap != pHeap) {
             continue;
         }
 
@@ -85,14 +70,14 @@ void ResourceHolderManager::removeIfIsEqualHeap(JKRHeap* pHeap) {
     }
 }
 
-void ResourceHolderManager::startCreateResourceHolderOnMainThread(const char* pParam1, CreateResourceHolderArgs* pArgs) {
-    MR::startFunctionAsyncExecuteOnMainThread(MR::Functor(SingletonHolder< ResourceHolderManager >::get(), &ResourceHolderManager::createResourceHolder, pParam1, pArgs),
-                                              pParam1);
+// Made by the thread that asks: every game thread holds the world while it runs, so nothing else is in the middle of
+// anything. (Handing each to the main thread cost a frame per archive.)
+void ResourceHolderManager::startCreateResourceHolder(const char* pParam1, CreateResourceHolderArgs* pArgs) {
+    SingletonHolder< ResourceHolderManager >::get()->createResourceHolder(pParam1, pArgs);
 }
 
-void ResourceHolderManager::startCreateLayoutHolderOnMainThread(const char* pParam1, CreateResourceHolderArgs* pArgs) {
-    MR::startFunctionAsyncExecuteOnMainThread(MR::Functor(SingletonHolder< ResourceHolderManager >::get(), &ResourceHolderManager::createLayoutHolder, pParam1, pArgs),
-                                              pParam1);
+void ResourceHolderManager::startCreateLayoutHolder(const char* pParam1, CreateResourceHolderArgs* pArgs) {
+    SingletonHolder< ResourceHolderManager >::get()->createLayoutHolder(pParam1, pArgs);
 }
 
 ResourceHolderManagerName2Resource* ResourceHolderManager::createAndAddInner(const char* pArcName,
@@ -113,7 +98,6 @@ ResourceHolderManagerName2Resource* ResourceHolderManager::createAndAddInner(con
     CreateResourceHolderArgs args = CreateResourceHolderArgs();
 
     (*pParam3)(archivePath, &args);
-    MR::waitForEndFunctionAsyncExecute(archivePath);
 
     return add(archivePath, args);
 }
@@ -121,7 +105,7 @@ ResourceHolderManagerName2Resource* ResourceHolderManager::createAndAddInner(con
 ResourceHolderManagerName2Resource* ResourceHolderManager::createAndAddInnerStationed(const char* pParam1, FuncPtrC pParam2) {
     CreateResourceHolderArgs args = CreateResourceHolderArgs();
 
-    MR::startFunctionAsyncExecuteOnMainThread(MR::Functor(this, pParam2, pParam1, &args), pParam1);
+    (this->*pParam2)(pParam1, &args);
 
     ResourceHolderManagerName2Resource* pName2Resource = add(pParam1, args);
 
@@ -129,8 +113,7 @@ ResourceHolderManagerName2Resource* ResourceHolderManager::createAndAddInnerStat
 }
 
 void ResourceHolderManager::createResourceHolder(const char* pParam1, CreateResourceHolderArgs* pArgs) {
-    ::GDCurrentRestorer gdRestorer = ::GDCurrentRestorer();
-    JKRArchive* pArchive;
+    AssetFolder* pArchive;
 
     MR::getMountedArchiveAndHeap(pParam1, &pArchive, &pArgs->mHeap);
     MR::CurrentHeapRestorer heapRestorer(pArgs->mHeap);
@@ -139,8 +122,7 @@ void ResourceHolderManager::createResourceHolder(const char* pParam1, CreateReso
 }
 
 void ResourceHolderManager::createLayoutHolder(const char* pParam1, CreateResourceHolderArgs* pArgs) {
-    ::GDCurrentRestorer gdRestorer = ::GDCurrentRestorer();
-    JKRArchive* pArchive;
+    AssetFolder* pArchive;
 
     MR::getMountedArchiveAndHeap(pParam1, &pArchive, &pArgs->mHeap);
     MR::CurrentHeapRestorer heapRestorer(pArgs->mHeap);

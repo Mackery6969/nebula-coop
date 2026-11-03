@@ -1,4 +1,6 @@
 #include "Game/MapObj/DashRing.hpp"
+#include "Game/Util/NativeShader.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/DirectDraw.hpp"
@@ -10,27 +12,6 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "JSystem/JGeometry/TVec.hpp"
-
-void DashRing_FORCE_MATCH_SDATA2() {
-    (void)1.0f;
-    (void)0.0f;
-    (void)0.5f;
-    (void)1000.0f;
-    (void)2.5f;
-    (void)100.0f;
-    (void)0.001f;
-    (void)20.0f;
-    (void)200.0f;
-    (void)300.0f;
-    (void)0.03f;
-    (void)2000.0f;
-    (void)15.0f;
-    (void)0.1f;
-    (void)TWO_PI;
-    (void)(1.0f / 64.0f);
-    (void)(TWO_PI / 64.0f);
-    (void)30.0f;
-}
 
 DashRing::~DashRing() {
 }
@@ -230,7 +211,7 @@ void DashRing::calcAndSetBaseMtx() {
     if (mDoLoop) {
         TPos3f pos;
         MR::makeMtxFrontSidePos(&pos, mAxis, mSubAxis, mPosition);
-        PSMTXCopy(pos, getBaseMtx());
+        NebulaMtxCopy(pos, getBaseMtx());
     }
 }
 
@@ -240,7 +221,7 @@ void DashRing::calcAxis() {
     Mtx mtxTR;
     MR::makeMtxTR(mtxTR, 0.0f, 0.0f, 0.0f, mRotation.x, mRotation.y, mRotation.z);
 
-    PSMTXMultVec(mtxTR, &axis, &axis);
+    NebulaMtxMultVec(mtxTR, &axis, &axis);
     mAxis = axis;
 
     calcSubAxis();
@@ -289,11 +270,12 @@ void DashRing::draw() const {
     f32 segmentLength = (f2 * JMath::TAngleConstant_< f32 >::RADIAN_DEG360()) / 64.0f;
 
     TPos3f rotMtx;
-    PSMTXRotAxisRad(rotMtx, axis, TWO_PI / 64.0f);
+    NebulaMtxRotAxisRad(rotMtx, axis, TWO_PI / 64.0f);
 
-    TDDraw::setup(0, 1, 0);
-
-    GXSetZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
+    NebulaNativeMaterial material;
+    TDDraw::setupNative(&material, 0, 1, 0);
+    NativeShader::setDepth(material, true, NEBULA_COMPARE_LEQUAL, false);
+    NativeShader::send(material);
 
     for (u32 idx = 0; idx <= 64; idx++) {
         TVec3f vecB0 = mPosition + subAxis * f2;
@@ -303,6 +285,6 @@ void DashRing::draw() const {
 
         TDDraw::drawCylinder(vecB0 - crossVec * segmentLength * 0.5f, crossVec * segmentLength, mScale.y * f1 * 30.0f, 0x00808060, 0x00808080, 0x10);
 
-        PSMTXMultVec(rotMtx, subAxis, subAxis);
+        NebulaMtxMultVec(rotMtx, subAxis, subAxis);
     }
 }

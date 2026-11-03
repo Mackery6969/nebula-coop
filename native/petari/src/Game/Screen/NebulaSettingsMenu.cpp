@@ -1,6 +1,10 @@
+#include "Game/Util/TextString.hpp"
 #include "Game/Screen/NebulaSettingsMenu.hpp"
+#include "Game/System/GameSystemFunction.hpp"
+#include <JSystem/JUtility/JUTNativeLog.hpp>
 
-#ifdef TARGET_PC
+#include "Game/AudioLib/AudSystem.hpp"
+#include "Game/AudioLib/AudWrap.hpp"
 #include "Game/Screen/LayoutActor.hpp"
 #include "Game/Screen/LayoutCoreUtil.hpp"
 #include "Game/Screen/LayoutManager.hpp"
@@ -10,18 +14,21 @@
 #include "Game/Screen/NebulaUi.hpp"
 #include "Game/System/NebulaCutsceneSkip.hpp"
 #include "Game/System/NebulaText.hpp"
-#include "Game/Util/GamePadUtil.hpp"
+#include "Game/Util/PlayerInputUtil.hpp"
+#include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/LayoutUtil.hpp"
 #include "Game/Util/SceneUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
+#include "Game/Util/StringUtil.hpp"
+#include "Game/Screen/NebulaHomeMenu.hpp"
 #include <cstdio>
 #include <cstring>
 #include <nebula_game_api.h>
 #include <nw4r/lyt/layout.h>
-#include <revolution/os.h>
-#include <revolution/wpad.h>
-#include <wstring.h>
+#include "Game/System/NebulaInput.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
+#include "Game/System/NebulaHost.hpp"
 
 using namespace NebulaUi;
 
@@ -95,16 +102,16 @@ namespace {
     const u32 cText = 0x4A5274FF;
     const u32 cSubText = 0x737B9AFF;
     const u32 cAccent = 0x2F6FD0FF;
-    const u32 cDisabled = 0x9AA2BCFF;
-    const u32 cWarning = 0xC8402EFF;
+    const u32 cDisabled = NEBULA_RGBA(0x9A, 0xA2, 0xBC, 0xFF);
+    const u32 cWarning = NEBULA_RGBA(0xC8, 0x40, 0x2E, 0xFF);
     const u32 cHighlightFill = 0xFFFFFFFF;
     const u32 cFrameFill = 0xFFFFFFB4;   // a row's frame
     const u32 cFrameFixed = 0xFFFFFF5A;  // a row that only shows something
-    const u32 cFrameRing = 0xC6D3EBFF;
+    const u32 cFrameRing = NEBULA_RGBA(0xC6, 0xD3, 0xEB, 0xFF);
     const u32 cHighlightRing = 0x7EC8F4FF;
     const u32 cRule = 0xB4C2DEFF;
     const u32 cTrack = 0x4A527428;
-    const u32 cSliderTrack = 0xCBD6EBFF;
+    const u32 cSliderTrack = NEBULA_RGBA(0xCB, 0xD6, 0xEB, 0xFF);
     const u32 cSliderFill = 0x6FA6EAFF;
     const u32 cRowButtonFill = 0xE4F6FFFF;  // a row's own button: its face, its ring, the edge under it
     const u32 cRowButtonRing = 0x5CC4F0FF;
@@ -155,6 +162,14 @@ namespace {
          {"SettingsChoiceRestart", "SettingsChoiceLater", nullptr},
          {NEBULA_SETTINGS_APPLY, NEBULA_SETTINGS_CLOSE, 0},
          {KeyApply, KeyBack, 0}},
+        {NEBULA_SETTINGS_STATUS_RT_RESTART_ASK, "SettingsRtRestartAsk", "SettingsRtRestartAsk", 2,
+         {"SettingsChoiceRestart", "SettingsChoiceLater", nullptr},
+         {NEBULA_SETTINGS_APPLY, NEBULA_SETTINGS_CLOSE, 0},
+         {KeyApply, KeyBack, 0}},
+        {NEBULA_SETTINGS_STATUS_DIAGNOSTICS_ASK, "SettingsDiagnosticsAsk", "SettingsDiagnosticsAsk", 2,
+         {"SettingsChoiceRestart", "SettingsChoiceNotNow", nullptr},
+         {NEBULA_SETTINGS_APPLY, NEBULA_SETTINGS_CLOSE, 0},
+         {KeyApply, KeyBack, 0}},
         // Its text follows the halves (fillTexts).
         {NEBULA_SETTINGS_STATUS_JOYCON, "SettingsJoyConPress", "SettingsJoyConPress", 1,
          {"SettingsBack", nullptr, nullptr},
@@ -174,7 +189,12 @@ namespace {
 
     // The HOME Menu (the host's NEBULA_HBM_VIEW): its rows top to bottom, then "are you sure?" about the choice it asks
     // about (1 leave, 2 reset), answered no or yes as the game's own questions are.
-    const char* const cHomeRows[] = {"HomeMenuReturn", "HomeMenuReset", "QuitToDesktop"};
+#if defined(__ANDROID__)
+    const char* const cQuitRow = "Quit";  // no desktop to quit to
+#else
+    const char* const cQuitRow = "QuitToDesktop";
+#endif
+    const char* const cHomeRows[] = {"HomeMenuReturn", "HomeMenuReset", cQuitRow};
     const char* const cHomeAnswers[] = {"HomeMenuNo", "HomeMenuYes"};
     const s32 cHomeRowNum = sizeof(cHomeRows) / sizeof(cHomeRows[0]);
     const s32 cHomeAnswerNum = sizeof(cHomeAnswers) / sizeof(cHomeAnswers[0]);
@@ -191,7 +211,7 @@ namespace {
         // A row of buttons: their words in the played language, those unavailable (a bit each), and where each was
         // drawn (its centre and width).
         s32 mButtonCount;
-        wchar_t mButtonWords[cRowButtonsMax][24];
+        char16_t mButtonWords[cRowButtonsMax][24];
         u32 mButtonsOff;
         u32 mButtonsVersion;  // changes with the words
         f32 mButtonX[cRowButtonsMax];
@@ -232,13 +252,14 @@ namespace {
         f32 mInkY[2];
         nw4r::math::VEC2 mLabelScales[2];
         bool mGlyph;  // mWord is the D-pad
+        bool mKeyIcon;  // mWord is the keyboard's keys (NebulaIcons::keyCode)
         f32 mSize;    // the size of the text it stands with
         f32 mWidth;
     };
 
     // A controller's button: its label, its fill and its label's colour.
     struct PadButton {
-        const wchar_t* mLabel;
+        const char16_t* mLabel;
         u32 mFill;
         u32 mInk;
     };
@@ -248,13 +269,13 @@ namespace {
     // PlayStation controller's by place): Xbox's in their colours, the others white with the window's ink; then the
     // shoulders, which turn the pages.
     const PadButton cPadFaces[3][4] = {
-        {{L"A", 0x5FA83CFF, 0xFFFFFFFF}, {L"B", 0xD8443AFF, 0xFFFFFFFF}, {L"X", 0x3C78D8FF, 0xFFFFFFFF}, {L"Y", 0xE6B422FF, 0x3A3A3AFF}},
-        {{L"A", 0xFFFFFFFF, cText}, {L"B", 0xFFFFFFFF, cText}, {L"X", 0xFFFFFFFF, cText}, {L"Y", 0xFFFFFFFF, cText}},
-        {{L"\u00D7", 0xFFFFFFFF, cText}, {L"\u25CB", 0xFFFFFFFF, cText}, {L"\u25A1", 0xFFFFFFFF, cText}, {L"\u25B3", 0xFFFFFFFF, cText}},
+        {{u"A", 0x5FA83CFF, 0xFFFFFFFF}, {u"B", NEBULA_RGBA(0xD8, 0x44, 0x3A, 0xFF), 0xFFFFFFFF}, {u"X", 0x3C78D8FF, 0xFFFFFFFF}, {u"Y", 0xE6B422FF, 0x3A3A3AFF}},
+        {{u"A", 0xFFFFFFFF, cText}, {u"B", 0xFFFFFFFF, cText}, {u"X", 0xFFFFFFFF, cText}, {u"Y", 0xFFFFFFFF, cText}},
+        {{u"\u00D7", 0xFFFFFFFF, cText}, {u"\u25CB", 0xFFFFFFFF, cText}, {u"\u25A1", 0xFFFFFFFF, cText}, {u"\u25B3", 0xFFFFFFFF, cText}},
     };
-    const wchar_t* const cPadShoulders[3][2] = {{L"LB", L"RB"}, {L"L", L"R"}, {L"L1", L"R1"}};
+    const char16_t* const cPadShoulders[3][2] = {{u"LB", u"RB"}, {u"u", u"R"}, {u"L1", u"R1"}};
     // The controllers' Back button, which resets the main menu's settings: a pill as the shoulders are.
-    const wchar_t* const cPadBack[3] = {L"View", L"\u2212", L"Create"};
+    const char16_t* const cPadBack[3] = {u"View", u"−", u"Create"};
     const PadButton cShoulders[3] = {{nullptr, 0x45474EFF, 0xFFFFFFFF}, {nullptr, 0xFFFFFFFF, cText}, {nullptr, 0xFFFFFFFF, cText}};
     const u32 cBadgeRing = 0xB4C2DEFF;  // round a white badge, as the window's rules
 
@@ -273,7 +294,7 @@ namespace {
     };
 
     // UTF-8 (the host's text) as the game's 16-bit text.
-    void fromUtf8(wchar_t* pDst, s32 capacity, const char* pSrc) {
+    void fromUtf8(char16_t* pDst, s32 capacity, const char* pSrc) {
         s32 length = 0;
         const u8* p = reinterpret_cast< const u8* >(pSrc);
         while (*p != 0 && length + 1 < capacity) {
@@ -285,24 +306,24 @@ namespace {
                 c = ((c & 0x1F) << 6) | (p[0] & 0x3F);
                 p += 1;
             }
-            pDst[length++] = static_cast< wchar_t >(c);
+            pDst[length++] = static_cast< char16_t >(c);
         }
         pDst[length] = 0;
     }
 
     // `pPattern` with each {0} to {3} as that argument and {n} as the first.
-    void expand(wchar_t* pDst, s32 capacity, const wchar_t* pPattern, const wchar_t* const* ppArgs, s32 argCount) {
+    void expand(char16_t* pDst, s32 capacity, const char16_t* pPattern, const char16_t* const* ppArgs, s32 argCount) {
         s32 length = 0;
-        for (const wchar_t* s = pPattern; *s != 0 && length + 1 < capacity; s++) {
+        for (const char16_t* s = pPattern; *s != 0 && length + 1 < capacity; s++) {
             s32 index = -1;
-            if (s[0] == L'{' && s[1] != 0 && s[2] == L'}') {
-                index = s[1] == L'n' ? 0 : s[1] >= L'0' && s[1] <= L'3' ? s[1] - L'0' : -1;
+            if (s[0] == u'{' && s[1] != 0 && s[2] == u'}') {
+                index = s[1] == u'n' ? 0 : s[1] >= u'0' && s[1] <= u'3' ? s[1] - u'0' : -1;
             }
             if (index < 0) {
                 pDst[length++] = *s;
                 continue;
             }
-            for (const wchar_t* p = index < argCount ? ppArgs[index] : L""; *p != 0 && length + 1 < capacity; p++) {
+            for (const char16_t* p = index < argCount ? ppArgs[index] : u""; *p != 0 && length + 1 < capacity; p++) {
                 pDst[length++] = *p;
             }
             s += 2;
@@ -311,18 +332,18 @@ namespace {
     }
 
     // NebulaText's `pId` with its {n} or {0}... as the arguments.
-    void getExpanded(wchar_t* pDst, s32 capacity, const char* pId, const wchar_t* const* ppArgs, s32 argCount) {
-        wchar_t pattern[256];
+    __attribute__((noinline)) void getExpanded(char16_t* pDst, s32 capacity, const char* pId, const char16_t* const* ppArgs, s32 argCount) {
+        char16_t pattern[256];
         NebulaText::get(pattern, 256, pId);
         expand(pDst, capacity, pattern, ppArgs, argCount);
     }
 
     // A line too long in a language written without spaces (Japanese, Chinese), in two: between the characters at its
     // middle, moved on past closing punctuation, which never starts a line. False when it has a break already.
-    bool breakUnspaced(wchar_t* pText, s32 capacity) {
+    bool breakUnspaced(char16_t* pText, s32 capacity) {
         s32 length = 0;
         while (pText[length] != 0) {
-            if (pText[length] == L'\n') {
+            if (pText[length] == u'\n') {
                 return false;
             }
             length++;
@@ -331,10 +352,10 @@ namespace {
             return false;
         }
         s32 at = 0;
-        static const wchar_t cClosing[] = L"\u3001\u3002\uFF0C\uFF0E\uFF01\uFF1F\uFF09\u300D\u300F)!?.,";
+        static const char16_t cClosing[] = u"\u3001\u3002\uFF0C\uFF0E\uFF01\uFF1F\uFF09\u300D\u300F)!?.,";
         at = length / 2;
-        const auto closing = [](wchar_t c) {
-            for (const wchar_t* p = cClosing; *p != 0; p++) {
+        const auto closing = [](char16_t c) {
+            for (const char16_t* p = cClosing; *p != 0; p++) {
                 if (*p == c) {
                     return true;
                 }
@@ -347,27 +368,27 @@ namespace {
         for (s32 i = length; i >= at; i--) {
             pText[i + 1] = pText[i];
         }
-        pText[at] = L'\n';
+        pText[at] = u'\n';
         return true;
     }
 
     // NebulaText's `pId` with {n} as `number`.
-    void getNumbered(wchar_t* pDst, s32 capacity, const char* pId, s32 number) {
+    void getNumbered(char16_t* pDst, s32 capacity, const char* pId, s32 number) {
         char digits[16];
-        snprintf(digits, sizeof(digits), "%d", static_cast< int >(number));
-        wchar_t wide[16];
+        nebula_snprintf(digits, sizeof(digits), "%d", static_cast< int >(number));
+        char16_t wide[16];
         fromUtf8(wide, 16, digits);
-        const wchar_t* const args[] = {wide};
+        const char16_t* const args[] = {wide};
         getExpanded(pDst, capacity, pId, args, 1);
     }
 
     // A host text's entry in the played language: its NebulaText id is "S." and the text with each space as _ and each
     // number as #, and the entry names the numbers {0} to {3} in their order ("S.#_FPS" = "{0} FPS"). False when the
     // table has none.
-    bool lookUp(wchar_t* pDst, s32 capacity, const char* pText) {
+    __attribute__((noinline)) bool lookUp(char16_t* pDst, s32 capacity, const char* pText) {
         char id[160] = "S.";
         s32 idLength = 2;
-        wchar_t numbers[4][16];
+        char16_t numbers[4][16];
         s32 numberCount = 0;
         for (const char* p = pText; *p != 0 && idLength + 2 < static_cast< s32 >(sizeof(id));) {
             if (*p < '0' || *p > '9') {
@@ -378,7 +399,7 @@ namespace {
             s32 length = 0;
             while ((*p >= '0' && *p <= '9') || (*p == '.' && p[1] >= '0' && p[1] <= '9')) {
                 if (numberCount < 4 && length + 1 < 16) {
-                    numbers[numberCount][length++] = static_cast< wchar_t >(*p);
+                    numbers[numberCount][length++] = static_cast< char16_t >(*p);
                 }
                 p++;
             }
@@ -391,18 +412,18 @@ namespace {
         if (!NebulaText::has(id)) {
             return false;
         }
-        const wchar_t* const args[] = {numbers[0], numbers[1], numbers[2], numbers[3]};
+        const char16_t* const args[] = {numbers[0], numbers[1], numbers[2], numbers[3]};
         getExpanded(pDst, capacity, id, args, numberCount);
         return true;
     }
 
     // `pText`'s first `length` letters (no space at their end) and an ellipsis.
-    void shorten(wchar_t* pDst, s32 capacity, const wchar_t* pText, s32 length) {
+    void shorten(char16_t* pDst, s32 capacity, const char16_t* pText, s32 length) {
         s32 i = 0;
         for (; i < length && pText[i] != 0 && i + 2 < capacity; i++) {
             pDst[i] = pText[i];
         }
-        while (i > 0 && pDst[i - 1] == L' ') {
+        while (i > 0 && pDst[i - 1] == u' ') {
             i--;
         }
         pDst[i++] = 0x2026;
@@ -410,10 +431,10 @@ namespace {
     }
 
     // A sentence's first letter as a capital (the Latin letters the game's font has; other scripts have none).
-    void capitalize(wchar_t* pText) {
-        const wchar_t c = pText[0];
-        if ((c >= L'a' && c <= L'z') || (c >= 0xE0 && c <= 0xFE && c != 0xF7)) {
-            pText[0] = static_cast< wchar_t >(c - 0x20);
+    void capitalize(char16_t* pText) {
+        const char16_t c = pText[0];
+        if ((c >= u'a' && c <= u'z') || (c >= 0xE0 && c <= 0xFE && c != 0xF7)) {
+            pText[0] = static_cast< char16_t >(c - 0x20);
         }
     }
 
@@ -421,7 +442,7 @@ namespace {
     // a closing "(...)" and those inside it, then its sentences, the words before ": " and after it, a list's items
     // ("8X (OFF WITH DLSS / FSR 3)", "RIIVOLUTION, FILES. TEXT: ENGLISH"), joined as the language joins them. A name
     // only whole (the keyboard's "Keyboard and mouse"); words the table does not have as the host gives them.
-    void translate(wchar_t* pDst, s32 capacity, const char* pText, bool name) {
+    __attribute__((noinline)) void translate(char16_t* pDst, s32 capacity, const char* pText, bool name) {
         pDst[0] = 0;
         if (pText == nullptr || pText[0] == 0 || lookUp(pDst, capacity, pText)) {
             return;
@@ -453,17 +474,17 @@ namespace {
             const s32 secondStart = static_cast< s32 >(pAt - pText) + 2;
             char first[192];
             char second[192];
-            snprintf(first, sizeof(first), "%.*s", static_cast< int >(firstLength), pText);
-            snprintf(second, sizeof(second), "%.*s", static_cast< int >(secondEnd - secondStart), pText + secondStart);
-            wchar_t firstText[192];
-            wchar_t secondText[192];
+            nebula_snprintf(first, sizeof(first), "%.*s", static_cast< int >(firstLength), pText);
+            nebula_snprintf(second, sizeof(second), "%.*s", static_cast< int >(secondEnd - secondStart), pText + secondStart);
+            char16_t firstText[192];
+            char16_t secondText[192];
             translate(firstText, 192, first, false);
             translate(secondText, 192, second, false);
             if (i == 1) {
                 capitalize(firstText);
                 capitalize(secondText);
             }
-            const wchar_t* const args[] = {firstText, secondText};
+            const char16_t* const args[] = {firstText, secondText};
             getExpanded(pDst, capacity, cJoins[i], args, 2);
             return;
         }
@@ -472,7 +493,7 @@ namespace {
 
     // A host text as a whole line or value: translated, its first letter a capital unless it is a name ("on" inside
     // "(off with MSAA)" stays small).
-    void translateLine(wchar_t* pDst, s32 capacity, const char* pText, bool name) {
+    void translateLine(char16_t* pDst, s32 capacity, const char* pText, bool name) {
         translate(pDst, capacity, pText, name);
         if (!name) {
             capitalize(pDst);
@@ -480,9 +501,9 @@ namespace {
     }
 
     // The keyboard's key for `key`, in the played language; `controls`: the bindings page's own (Space applies).
-    void getKeyName(wchar_t* pDst, s32 capacity, s32 key, bool controls) {
+    void getKeyName(char16_t* pDst, s32 capacity, s32 key, bool controls) {
         if (key == KeyChange) {
-            append(pDst, pDst + capacity, L"\u2190\u2192");
+            append(pDst, pDst + capacity, u"\u2190\u2192");
             return;
         }
         static const char* const cKeys[KeyNum] = {"KeyEnter", "KeyBackspace", "KeyEscape", "KeyTab", nullptr, "KeyEnter", "KeySpace",
@@ -511,16 +532,16 @@ namespace {
     bool makeKeyCap(const Kits& rKits, Pane* pParent, KeyCap* pCap, const char* pName, f32 size) {
         char name[17];
         pCap->mSize = size;
-        snprintf(name, sizeof(name), "%sK", pName);
+        nebula_snprintf(name, sizeof(name), "%sK", pName);
         pCap->mWord = makeText(rKits, pParent, name, 16);
         if (pCap->mWord == nullptr) {
             return false;
         }
         setTextStyle(pCap->mWord, size, cAccent, cAccent, 4);
         for (s32 i = 0; i < 2; i++) {
-            snprintf(name, sizeof(name), "%sB%d", pName, static_cast< int >(i));
+            nebula_snprintf(name, sizeof(name), "%sB%d", pName, static_cast< int >(i));
             pCap->mBadges[i] = makeWindow(rKits, pParent, name);
-            snprintf(name, sizeof(name), "%sL%d", pName, static_cast< int >(i));
+            nebula_snprintf(name, sizeof(name), "%sL%d", pName, static_cast< int >(i));
             pCap->mLabels[i] = makeText(rKits, pParent, name, 4);
             if (pCap->mBadges[i] == nullptr || pCap->mLabels[i] == nullptr) {
                 return false;
@@ -532,16 +553,43 @@ namespace {
         return true;
     }
 
-    // `key` (KeyApply...; -1 none) as `input` (NEBULA_SETTINGS_INPUT_*) shows it.
+    // The keyboard's key for `key` (NEBULA_KEY_*); `controls`: the bindings page's own (Space applies). Changing: the
+    // left arrow (the right one beside it).
+    s32 keyboardKey(s32 key, bool controls) {
+        static const s32 cKeys[KeyNum] = {NEBULA_KEY_ENTER, NEBULA_KEY_BACKSPACE, NEBULA_KEY_ESCAPE, NEBULA_KEY_TAB,
+                                          NEBULA_KEY_LEFT,  NEBULA_KEY_ENTER,     NEBULA_KEY_SPACE};
+        return key == KeyApply && controls ? NEBULA_KEY_SPACE : cKeys[key];
+    }
+
+    // `key` (KeyApply...; -1 none) as `input` (NEBULA_SETTINGS_INPUT_*) shows it: the keyboard's as its keys' icons
+    // (as the game's icons draw them; its name in words while the icons cannot be drawn), a controller's as its buttons.
     void fillKeyCap(KeyCap& rCap, s32 key, u32 input, bool controls) {
         f32 height = 0.0f;
         const bool pad = input >= NEBULA_SETTINGS_INPUT_XBOX && input <= NEBULA_SETTINGS_INPUT_PLAYSTATION;
         rCap.mBadgeCount = 0;
         rCap.mWidth = 0.0f;
         rCap.mGlyph = false;
+        rCap.mKeyIcon = false;
         rCap.mWord->SetVisible(key >= 0 && (!pad || key == KeyChange));
-        if (key >= 0 && !pad) {
-            wchar_t text[64] = {0};
+        const u16 keyIcon = key >= 0 && !pad ? NebulaIcons::keyCode(keyboardKey(key, controls)) : 0;
+        if (keyIcon != 0) {
+            const f32 glyphSize = rCap.mSize * 1.3f;
+            setGlyph(rCap.mWord, keyIcon, glyphSize);
+            s32 glyphs = 1;
+            if (key == KeyChange) {
+                // Left and right, side by side.
+                char16_t text[16] = {0};
+                MR::addPictureFontTag(MR::addPictureFontTag(text, keyIcon), NebulaIcons::keyCode(NEBULA_KEY_RIGHT));
+                setText(rCap.mWord, text);
+                glyphs = 2;
+            }
+            setTextColor(rCap.mWord, 0xFFFFFFFF, 0xFFFFFFFF);
+            rCap.mGlyph = true;
+            rCap.mKeyIcon = true;
+            rCap.mWidth = glyphFontSize(rCap.mWord, glyphSize).width * glyphs;
+            rCap.mWord->mSize = nw4r::lyt::Size(rCap.mWidth + glyphSize, glyphSize * 2.0f);
+        } else if (key >= 0 && !pad) {
+            char16_t text[64] = {0};
             getKeyName(text, 64, key, controls);
             setTextStyle(rCap.mWord, rCap.mSize, cAccent, cAccent, 4);
             setText(rCap.mWord, text);
@@ -592,7 +640,10 @@ namespace {
     void placeKeyCap(KeyCap& rCap, f32 left, f32 y) {
         if (rCap.mBadgeCount == 0) {
             rCap.mWord->mTranslate = nw4r::math::VEC3(left + rCap.mWidth * 0.5f,
-                                                      rCap.mGlyph ? glyphCentre(y, rCap.mSize * 1.3f) : textCentre(y, rCap.mSize), 0.0f);
+                                                      rCap.mKeyIcon ? y - cKeyGlyphDrop * rCap.mSize * 1.3f
+                                                      : rCap.mGlyph ? glyphCentre(y, rCap.mSize * 1.3f)
+                                                                    : textCentre(y, rCap.mSize),
+                                                      0.0f);
             return;
         }
         const f32 diameter = rCap.mSize * cBadgeScale;
@@ -718,7 +769,7 @@ private:
     void readHomePointer(f32 x, f32 y);
     void clickRow(const NebulaSettingsView& rView, s32 row);
     void dragSlider(const NebulaSettingsView& rView, f32 x);
-    RowChip& useRowChip(s32 index, s32 row, s32 button, u32 version, const wchar_t* pWord);
+    RowChip& useRowChip(s32 index, s32 row, s32 button, u32 version, const char16_t* pWord);
     void placeChip(Chip& rChip, f32 x, f32 y, f32 width, f32 height, bool focused);
     void placeRowBox(RowChip& rPooled, f32 x, f32 y, f32 width, f32 height, f32 radius, bool focused, bool off);
     void placeButton(Button& rButton, f32 x, f32 y, f32 width);
@@ -782,7 +833,7 @@ private:
     Window* mTrack;
     Window* mThumb;
     TextBox* mStatus;
-    wchar_t mStatusText[256];  // the line under the page, whole
+    char16_t mStatusText[256];  // the line under the page, whole
     f32 mStatusWidth;          // as shown
     f32 mStatusRoom;           // the room it was fitted to
     Hint mHints[cHintsMax];
@@ -800,6 +851,7 @@ private:
     s32 mJoyConBits;     // the Pair Joy-Con screen's status_number this frame (NEBULA_JOYCON_*)
     f32 mQuestionInk;    // the question text's height from its first capitals' tops to its last baseline
 
+    NebulaSettingsView mRead;   // the host's view this step
     NebulaSettingsView mShown;  // the host's view as drawn
     f32 mOpen;                  // 0 away, 1 in place
     bool mClosing;
@@ -865,7 +917,7 @@ namespace {
     // the Wii Remote), where the settings menu's come from the host.
     void readMainMenuPad(const NebulaSettingsView& rView) {
         // Tab and Escape, which the Wii Remote has no button for, from the host: pressed as they go down.
-        const u32 keys = static_cast< u32 >(__NebulaCoopMenu(NEBULA_COOP_MENU_KEYS));
+        const u32 keys = static_cast< u32 >(NebulaHost::coopMenu(NEBULA_COOP_MENU_KEYS));
         const u32 keysPressed = keys & ~sMainMenuKeys;
         sMainMenuKeys = keys;
         if (!sMainMenuReading) {
@@ -879,22 +931,22 @@ namespace {
             sScreen->takeFromPointer();
         }
         if (press == NebulaMenuFocus::Direction_Up) {
-            __NebulaSettingsInput(NEBULA_SETTINGS_MOVE, -1);
+            NebulaHost::settingsInput(NEBULA_SETTINGS_MOVE, -1);
         } else if (press == NebulaMenuFocus::Direction_Down) {
-            __NebulaSettingsInput(NEBULA_SETTINGS_MOVE, 1);
+            NebulaHost::settingsInput(NEBULA_SETTINGS_MOVE, 1);
         } else if (press == NebulaMenuFocus::Direction_Left) {
-            __NebulaSettingsInput(NEBULA_SETTINGS_CHANGE, -1);
+            NebulaHost::settingsInput(NEBULA_SETTINGS_CHANGE, -1);
         } else if (press == NebulaMenuFocus::Direction_Right) {
-            __NebulaSettingsInput(NEBULA_SETTINGS_CHANGE, 1);
-        } else if ((keysPressed & NEBULA_COOP_KEY_TAB) != 0 || MR::testCorePadTriggerMinus(WPAD_CHAN0)) {
+            NebulaHost::settingsInput(NEBULA_SETTINGS_CHANGE, 1);
+        } else if ((keysPressed & NEBULA_COOP_KEY_TAB) != 0 || MR::isPressedMap(0)) {
             // Tab, a controller's Back (View, Minus, Create): the selected setting back to its default.
-            __NebulaSettingsInput(NEBULA_SETTINGS_REVERT, 0);
-        } else if (MR::testCorePadTriggerA(WPAD_CHAN0) && !sScreen->isPointerOnItem()) {
-            __NebulaSettingsInput(NEBULA_SETTINGS_PRESS, static_cast< s32 >(rView.selected_button));
+            NebulaHost::settingsInput(NEBULA_SETTINGS_REVERT, 0);
+        } else if (MR::isPressedJump(0) && !sScreen->isPointerOnItem()) {
+            NebulaHost::settingsInput(NEBULA_SETTINGS_PRESS, static_cast< s32 >(rView.selected_button));
         }
-        if ((keysPressed & NEBULA_COOP_KEY_ESCAPE) != 0 || MR::testCorePadTriggerB(WPAD_CHAN0)) {
+        if ((keysPressed & NEBULA_COOP_KEY_ESCAPE) != 0 || MR::isPressedFire(0)) {
             // A page under the main one (Host) back to it.
-            __NebulaSettingsInput(NEBULA_SETTINGS_CLOSE, 0);
+            NebulaHost::settingsInput(NEBULA_SETTINGS_CLOSE, 0);
         }
     }
 };  // namespace
@@ -959,7 +1011,7 @@ void NebulaSettingsScreen::init(const JMapInfoIter& rIter) {
     memcpy(pManager->mLayoutName, cLayoutName, sizeof(cLayoutName));
     mBuilt = build();
     if (!mBuilt) {
-        OSReport("NebulaSettingsMenu: a layout or pane is missing\n");
+        JUTNativeLog("NebulaSettingsMenu: a layout or pane is missing\n");
     }
     kill();
 }
@@ -1007,7 +1059,7 @@ bool NebulaSettingsScreen::build() {
     setTextStyle(mTitle, cTitleSize, cText, cText, 3);
     for (s32 i = 0; i < NEBULA_SETTINGS_PAGES; i++) {
         char name[16];
-        snprintf(name, sizeof(name), "NsTab%d", static_cast< int >(i));
+        nebula_snprintf(name, sizeof(name), "NsTab%d", static_cast< int >(i));
         if (!makeChip(mKits, mPage, &mTabs[i], name, false, cTabSize, cButtonText)) {
             return false;
         }
@@ -1015,11 +1067,11 @@ bool NebulaSettingsScreen::build() {
 
     for (s32 i = 0; i < 2; i++) {
         char name[16];
-        snprintf(name, sizeof(name), "NsModPanel%d", static_cast< int >(i));
+        nebula_snprintf(name, sizeof(name), "NsModPanel%d", static_cast< int >(i));
         mModPanels[i] = makeWindow(mKits, mPage, name);
-        snprintf(name, sizeof(name), "NsModTitle%d", static_cast< int >(i));
+        nebula_snprintf(name, sizeof(name), "NsModTitle%d", static_cast< int >(i));
         mModTitles[i] = makeText(mKits, mPage, name, 64);
-        snprintf(name, sizeof(name), "NsModEmpty%d", static_cast< int >(i));
+        nebula_snprintf(name, sizeof(name), "NsModEmpty%d", static_cast< int >(i));
         mModEmpty[i] = makeText(mKits, mPage, name, 96);
         if (mModPanels[i] == nullptr || mModTitles[i] == nullptr || mModEmpty[i] == nullptr) {
             return false;
@@ -1037,22 +1089,22 @@ bool NebulaSettingsScreen::build() {
     for (s32 i = 0; i < cRowsMax; i++) {
         char name[16];
         Row& rRow = mRows[i];
-        snprintf(name, sizeof(name), "NsRow%d", static_cast< int >(i));
+        nebula_snprintf(name, sizeof(name), "NsRow%d", static_cast< int >(i));
         rRow.mRoot = makeGroup(mList, name);
         if (rRow.mRoot == nullptr) {
             return false;
         }
-        snprintf(name, sizeof(name), "NsFrame%d", static_cast< int >(i));
+        nebula_snprintf(name, sizeof(name), "NsFrame%d", static_cast< int >(i));
         rRow.mFrame = makeWindow(mKits, rRow.mRoot, name);
-        snprintf(name, sizeof(name), "NsRule%d", static_cast< int >(i));
+        nebula_snprintf(name, sizeof(name), "NsRule%d", static_cast< int >(i));
         rRow.mRule = makeWindow(mKits, rRow.mRoot, name);
-        snprintf(name, sizeof(name), "NsLabel%d", static_cast< int >(i));
+        nebula_snprintf(name, sizeof(name), "NsLabel%d", static_cast< int >(i));
         rRow.mLabel = makeText(mKits, rRow.mRoot, name, 96);
-        snprintf(name, sizeof(name), "NsValue%d", static_cast< int >(i));
+        nebula_snprintf(name, sizeof(name), "NsValue%d", static_cast< int >(i));
         rRow.mValue = makeText(mKits, rRow.mRoot, name, 128);
-        snprintf(name, sizeof(name), "NsTrack%d", static_cast< int >(i));
+        nebula_snprintf(name, sizeof(name), "NsTrack%d", static_cast< int >(i));
         rRow.mSliderTrack = makeWindow(mKits, rRow.mRoot, name);
-        snprintf(name, sizeof(name), "NsFill%d", static_cast< int >(i));
+        nebula_snprintf(name, sizeof(name), "NsFill%d", static_cast< int >(i));
         rRow.mSliderFill = makeWindow(mKits, rRow.mRoot, name);
         if (rRow.mFrame == nullptr || rRow.mRule == nullptr || rRow.mLabel == nullptr || rRow.mValue == nullptr ||
             rRow.mSliderTrack == nullptr || rRow.mSliderFill == nullptr) {
@@ -1064,15 +1116,15 @@ bool NebulaSettingsScreen::build() {
     }
     for (s32 i = 0; i < cRowChipsMax; i++) {
         char name[16];
-        snprintf(name, sizeof(name), "NsRowBtn%d", static_cast< int >(i));
+        nebula_snprintf(name, sizeof(name), "NsRowBtn%d", static_cast< int >(i));
         RowChip& rPooled = mRowChips[i];
         if (!makeChip(mKits, mList, &rPooled.mChip, name, false, cRowButtonSize, cButtonText)) {
             return false;
         }
         // The box behind the word.
-        snprintf(name, sizeof(name), "NsRowBtnE%d", static_cast< int >(i));
+        nebula_snprintf(name, sizeof(name), "NsRowBtnE%d", static_cast< int >(i));
         rPooled.mEdge = makeWindow(mKits, rPooled.mChip.mRoot, name);
-        snprintf(name, sizeof(name), "NsRowBtnF%d", static_cast< int >(i));
+        nebula_snprintf(name, sizeof(name), "NsRowBtnF%d", static_cast< int >(i));
         rPooled.mFace = makeWindow(mKits, rPooled.mChip.mRoot, name);
         if (rPooled.mEdge == nullptr || rPooled.mFace == nullptr) {
             return false;
@@ -1091,7 +1143,7 @@ bool NebulaSettingsScreen::build() {
     paint(mDropLine, cAccent, cAccent);
     for (s32 i = 0; i < cRowButtonsMax; i++) {
         char name[16];
-        snprintf(name, sizeof(name), "NsModBtn%d", static_cast< int >(i));
+        nebula_snprintf(name, sizeof(name), "NsModBtn%d", static_cast< int >(i));
         if (!makeChip(mKits, mPage, &mModButtons[i], name, false, cButtonSize, cButtonText)) {
             return false;
         }
@@ -1108,11 +1160,11 @@ bool NebulaSettingsScreen::build() {
     setTextStyle(mStatus, cFooterSize, cSubText, cSubText, 3);
     for (s32 i = 0; i < cHintsMax; i++) {
         char name[16];
-        snprintf(name, sizeof(name), "NsHint%d", static_cast< int >(i));
+        nebula_snprintf(name, sizeof(name), "NsHint%d", static_cast< int >(i));
         if (!makeKeyCap(mKits, mPage, &mHints[i].mKey, name, cFooterSize)) {
             return false;
         }
-        snprintf(name, sizeof(name), "NsHintW%d", static_cast< int >(i));
+        nebula_snprintf(name, sizeof(name), "NsHintW%d", static_cast< int >(i));
         mHints[i].mWord = makeText(mKits, mPage, name, 48);
         if (mHints[i].mWord == nullptr) {
             return false;
@@ -1146,7 +1198,7 @@ bool NebulaSettingsScreen::build() {
     setTextStyle(mQuestionText, cTextSize + 1.0f, cText, cText, 4);
     for (s32 i = 0; i < ChoiceNum; i++) {
         char name[16];
-        snprintf(name, sizeof(name), "NsChoice%d", static_cast< int >(i));
+        nebula_snprintf(name, sizeof(name), "NsChoice%d", static_cast< int >(i));
         if (!makeButton(mQuestion, &mChoices[i], name)) {
             return false;
         }
@@ -1157,13 +1209,13 @@ bool NebulaSettingsScreen::build() {
     }
     for (s32 half = 0; half < 2; half++) {
         char name[16];
-        snprintf(name, sizeof(name), "NsJc%dL", static_cast< int >(half));
+        nebula_snprintf(name, sizeof(name), "NsJc%dL", static_cast< int >(half));
         mHalves[half].mLetter = makeText(mKits, mJoyCon, name, 4);
         if (mHalves[half].mLetter == nullptr) {
             return false;
         }
         setTextStyle(mHalves[half].mLetter, cTextSize, cText, cText, 4);
-        setText(mHalves[half].mLetter, half == 0 ? L"L" : L"R");
+        setText(mHalves[half].mLetter, half == 0 ? u"u" : u"R");
         mHalves[half].mMap = nullptr;
         mHalves[half].mPresses = -1;
     }
@@ -1207,7 +1259,7 @@ void NebulaSettingsScreen::arrange() {
 }
 
 void NebulaSettingsScreen::fillButton(Button& rButton, const char* pWordId) {
-    wchar_t text[64];
+    char16_t text[64];
     f32 height = 0.0f;
     NebulaText::get(text, 64, pWordId);
     setText(rButton.mChip.mText, text);
@@ -1216,8 +1268,8 @@ void NebulaSettingsScreen::fillButton(Button& rButton, const char* pWordId) {
 
 // The texts in the played language, again for whatever changed from `pShown` (all of them when it is null): the page
 // names, the rows, the line under the page, the hints and the question.
-void NebulaSettingsScreen::fillTexts(const NebulaSettingsView& rView, const NebulaSettingsView* pShown) {
-    wchar_t text[256];
+__attribute__((noinline)) void NebulaSettingsScreen::fillTexts(const NebulaSettingsView& rView, const NebulaSettingsView* pShown) {
+    char16_t text[256];
     f32 width = 0.0f;
     f32 height = 0.0f;
     if (pShown == nullptr) {
@@ -1262,8 +1314,8 @@ void NebulaSettingsScreen::fillTexts(const NebulaSettingsView& rView, const Nebu
         if (modOn) {
             // Its place before its name, as the launcher's list numbers it.
             char digits[16];
-            snprintf(digits, sizeof(digits), "%d   ", static_cast< int >(onPlace));
-            wchar_t name[128];
+            nebula_snprintf(digits, sizeof(digits), "%d   ", static_cast< int >(onPlace));
+            char16_t name[128];
             append(name, name + 128, text);
             fromUtf8(text, 16, digits);
             append(text + strlen(digits), text + 256, name);
@@ -1289,7 +1341,7 @@ void NebulaSettingsScreen::fillTexts(const NebulaSettingsView& rView, const Nebu
                 }
                 char word[32];
                 const s32 length = pEnd != nullptr ? static_cast< s32 >(pEnd - pWord) : static_cast< s32 >(strlen(pWord));
-                snprintf(word, sizeof(word), "%.*s", static_cast< int >(length), pWord);
+                nebula_snprintf(word, sizeof(word), "%.*s", static_cast< int >(length), pWord);
                 translateLine(rRow.mButtonWords[rRow.mButtonCount++], 24, word, false);
                 pWord = pEnd != nullptr ? pEnd + 1 : pWord + length;
             }
@@ -1298,12 +1350,15 @@ void NebulaSettingsScreen::fillTexts(const NebulaSettingsView& rView, const Nebu
         if (heading) {
             continue;
         }
-        const u32 valueColor = (rData.flags & (NEBULA_SETTINGS_ROW_CHANGES | NEBULA_SETTINGS_ROW_TEXT)) != 0 ? cText : cDisabled;
+        // A binding whose input another control shares is red: both act together.
+        const u32 valueColor = (rData.flags & NEBULA_SETTINGS_ROW_SHARED) != 0 ? cWarning
+                               : (rData.flags & (NEBULA_SETTINGS_ROW_CHANGES | NEBULA_SETTINGS_ROW_TEXT)) != 0 ? cText
+                                                                                                             : cDisabled;
         translateLine(text, 192, rData.value, (rData.flags & NEBULA_SETTINGS_ROW_NAME) != 0);
         if ((rData.flags & NEBULA_SETTINGS_ROW_ACTIVE) != 0) {
-            wchar_t inUse[48] = L"  ";
+            char16_t inUse[48] = u"  ";
             NebulaText::get(inUse + 2, 46, "SettingsInUse");
-            append(text + wcslen(text), text + 191, inUse);
+            append(text + MR::textLength(text), text + 191, inUse);
         }
         setText(rRow.mValue, text);
         // Between its arrows, centred; else at the row's end.
@@ -1451,8 +1506,8 @@ void NebulaSettingsScreen::fillTexts(const NebulaSettingsView& rView, const Nebu
     measure(mQuestionText, 4000.0f, &width, &height);
     if (width > room) {
         bool spaced = false;
-        for (const wchar_t* p = text; *p != 0; p++) {
-            spaced = spaced || *p == L' ';
+        for (const char16_t* p = text; *p != 0; p++) {
+            spaced = spaced || *p == u' ';
         }
         if (spaced) {
             wrapWords(mQuestionText, text, room, &width, &height);
@@ -1500,7 +1555,7 @@ void NebulaSettingsScreen::setQuestion(s32 question) {
 void NebulaSettingsScreen::fillHome(s32 homeView) {
     const s32 asking = homeView >> 8 & 0xFF;
     if (mHomeView < 0 || asking != (mHomeView >> 8 & 0xFF)) {
-        wchar_t text[256];
+        char16_t text[256];
         f32 width = 0.0f;
         f32 height = 0.0f;
         if (asking == 0) {
@@ -1508,8 +1563,8 @@ void NebulaSettingsScreen::fillHome(s32 homeView) {
             setTextSize(mQuestionText, cTitleSize);
         } else {
             // The question, then what it costs.
-            wchar_t* pEnd = text + NebulaText::get(text, 256, asking == 1 ? "QuitQuestion" : "ResetQuestion");
-            pEnd = append(pEnd, text + 256, L"\n");
+            char16_t* pEnd = text + NebulaText::get(text, 256, asking == 1 ? "QuitQuestion" : "ResetQuestion");
+            pEnd = append(pEnd, text + 256, u"\n");
             NebulaText::get(pEnd, static_cast< s32 >(text + 256 - pEnd), "UnsavedLost");
             setTextSize(mQuestionText, cTextSize + 1.0f);
         }
@@ -1548,7 +1603,7 @@ void NebulaSettingsScreen::readPointer(const NebulaSettingsView& rView) {
     mHoverButton = nullptr;
     mHoverModButton = -1;
     // A binding that waits for an input takes the mouse's buttons itself, wherever the pointer is.
-    if (!MR::isStarPointerInScreen(WPAD_CHAN0) || rView.status == NEBULA_SETTINGS_STATUS_CAPTURE_KEY ||
+    if (!MR::isPointerInScreen(PLAYER_1) || rView.status == NEBULA_SETTINGS_STATUS_CAPTURE_KEY ||
         rView.status == NEBULA_SETTINGS_STATUS_CAPTURE_PAD) {
         mDragRow = -1;
         mDragging = false;
@@ -1558,7 +1613,11 @@ void NebulaSettingsScreen::readPointer(const NebulaSettingsView& rView) {
         mSliderRow = -1;
         return;
     }
-    TVec2f screen = MR::getStarPointerScreenPositionOrEdge(WPAD_CHAN0);
+    // The player's pointer as StarPointerController maps it to the screen.
+    TVec2f screen;
+    MR::getPointerPastPos(&screen, 0, PLAYER_1);
+    screen.x = (screen.x + 1.0f) * MR::getScreenWidth() * 0.5f;
+    screen.y = (screen.y + 1.0f) * static_cast< s32 >(NebulaFrameClock::cScreenUnitsDown) * 0.5f;
     TVec2f layout;
     MR::convertScreenPosToLayoutPos(&layout, screen);
     const f32 x = layout.x / mScaleX;
@@ -1627,18 +1686,18 @@ void NebulaSettingsScreen::readPointer(const NebulaSettingsView& rView) {
 
     // A slider held down follows the pointer along it; an arrow held down steps again and again, stopping at the end.
     if (mSliderRow >= 0) {
-        if (MR::testCorePadButtonA(WPAD_CHAN0)) {
+        if (MR::isHeldJump(PLAYER_1)) {
             dragSlider(rView, x);
             return;
         }
         mSliderRow = -1;
     }
     if (mHeldArrow != 0) {
-        if (MR::testCorePadButtonA(WPAD_CHAN0)) {
+        if (MR::isHeldJump(PLAYER_1)) {
             mHeldFrames++;
             if (mHoverArrow == mHeldArrow && mHoverRow == static_cast< s32 >(rView.selected) && mHeldFrames >= cRepeatDelay &&
                 (mHeldFrames - cRepeatDelay) % cRepeatEvery == 0) {
-                __NebulaSettingsInput(NEBULA_SETTINGS_CHANGE, mHeldArrow);
+                NebulaHost::settingsInput(NEBULA_SETTINGS_CHANGE, mHeldArrow);
             }
             return;
         }
@@ -1646,12 +1705,12 @@ void NebulaSettingsScreen::readPointer(const NebulaSettingsView& rView) {
     }
     if (mPointerMode && mHoverRow >= 0 && mHoverRow != static_cast< s32 >(rView.selected)) {
         mPointerRow = mHoverRow;
-        __NebulaSettingsInput(NEBULA_SETTINGS_SELECT_ROW, mHoverRow);
+        NebulaHost::settingsInput(NEBULA_SETTINGS_SELECT_ROW, mHoverRow);
     }
-    // The list held down: moved, it is dragged (as the Wii's lists, by pointing and holding A); let go where it was
+    // The list held down: moved, it is dragged (by pointing and holding A); let go where it was
     // pressed, the row there is clicked.
     if (mPressing) {
-        if (MR::testCorePadButtonA(WPAD_CHAN0)) {
+        if (MR::isHeldJump(PLAYER_1)) {
             if (!mScrollDrag && __builtin_fabsf(y - mPressY) > cDragStart) {
                 mScrollDrag = true;
             }
@@ -1669,20 +1728,20 @@ void NebulaSettingsScreen::readPointer(const NebulaSettingsView& rView) {
         mScrollDrag = false;
         return;
     }
-    if (!MR::testCorePadTriggerA(WPAD_CHAN0)) {
+    if (!MR::isPressedJump(PLAYER_1)) {
         return;
     }
     if (mHoverButton != nullptr) {
-        __NebulaSettingsInput(mHoverButton->mAction, 0);
+        NebulaHost::settingsInput(mHoverButton->mAction, 0);
     } else if (mHoverTab >= 0) {
-        __NebulaSettingsInput(NEBULA_SETTINGS_SELECT_PAGE, mHoverTab);
+        NebulaHost::settingsInput(NEBULA_SETTINGS_SELECT_PAGE, mHoverTab);
     } else if (mHoverRow >= 0 && (mHoverArrow != 0 || mHoverSlider)) {
         // An arrow steps the setting at once, going round at its ends; a slider takes the step under the pointer.
         mPointerMode = true;
         mPointerRow = mHoverRow;
-        __NebulaSettingsInput(NEBULA_SETTINGS_SELECT_ROW, mHoverRow);
+        NebulaHost::settingsInput(NEBULA_SETTINGS_SELECT_ROW, mHoverRow);
         if (mHoverArrow != 0) {
-            __NebulaSettingsInput(NEBULA_SETTINGS_CHANGE, mHoverArrow * 2);
+            NebulaHost::settingsInput(NEBULA_SETTINGS_CHANGE, mHoverArrow * 2);
             mHeldArrow = mHoverArrow;
             mHeldFrames = 0;
         } else {
@@ -1709,11 +1768,11 @@ void NebulaSettingsScreen::clickRow(const NebulaSettingsView& rView, s32 row) {
     mPointerRow = row;
     if ((hasButtons(pData) && (mHoverRowButton >= 0 || rRow.mButtonCount == 1)) || (pData->flags & NEBULA_SETTINGS_ROW_TEXT) != 0) {
         // A text row is edited (or kept, clicked while edited) as A does.
-        __NebulaSettingsInput(NEBULA_SETTINGS_SELECT_ROW, row);
-        __NebulaSettingsInput(NEBULA_SETTINGS_PRESS, mHoverRowButton >= 0 ? mHoverRowButton : 0);
+        NebulaHost::settingsInput(NEBULA_SETTINGS_SELECT_ROW, row);
+        NebulaHost::settingsInput(NEBULA_SETTINGS_PRESS, mHoverRowButton >= 0 ? mHoverRowButton : 0);
     } else if ((pData->flags & NEBULA_SETTINGS_ROW_CHANGES) != 0 && !hasSlider(*pData)) {
-        __NebulaSettingsInput(NEBULA_SETTINGS_SELECT_ROW, row);
-        __NebulaSettingsInput(NEBULA_SETTINGS_CHANGE, hasArrows(*pData) ? 2 : 1);
+        NebulaHost::settingsInput(NEBULA_SETTINGS_SELECT_ROW, row);
+        NebulaHost::settingsInput(NEBULA_SETTINGS_CHANGE, hasArrows(*pData) ? 2 : 1);
     }
 }
 
@@ -1732,10 +1791,10 @@ void NebulaSettingsScreen::dragSlider(const NebulaSettingsView& rView, f32 x) {
     const s32 step = static_cast< s32 >(clamp((x - rRow.mSliderLeft) / length, 0.0f, 1.0f) * pData->slider_steps + 0.5f);
     const bool selected = mSliderRow == static_cast< s32 >(rView.selected);
     if (!selected) {
-        __NebulaSettingsInput(NEBULA_SETTINGS_SELECT_ROW, mSliderRow);
+        NebulaHost::settingsInput(NEBULA_SETTINGS_SELECT_ROW, mSliderRow);
     }
     if (!selected || step != static_cast< s32 >(pData->slider_at)) {
-        __NebulaSettingsInput(NEBULA_SETTINGS_SET_VALUE, step);
+        NebulaHost::settingsInput(NEBULA_SETTINGS_SET_VALUE, step);
     }
 }
 
@@ -1779,7 +1838,7 @@ void NebulaSettingsScreen::readModsPointer(const NebulaSettingsView& rView, f32 
             const s32 place = static_cast< s32 >((mModItemsTop - y + mModScroll[mDropList]) / cModHeight + 0.5f);
             mDropPlace = place < 0 ? 0 : place > mModCounts[mDropList] ? mModCounts[mDropList] : place;
         }
-        if (!MR::testCorePadButtonA(WPAD_CHAN0)) {
+        if (!MR::isHeldJump(PLAYER_1)) {
             // Let go: into the list under the pointer at the line's place (counted without the mod itself).
             if (mDragging && mDropList >= 0 && index >= 0 && index < cRowsMax) {
                 s32 place = mDropPlace;
@@ -1787,8 +1846,8 @@ void NebulaSettingsScreen::readModsPointer(const NebulaSettingsView& rView, f32 
                     place--;
                 }
                 if (mDropList != mItemList[index] || place != mItemPlace[index]) {
-                    __NebulaSettingsInput(NEBULA_SETTINGS_SELECT_ROW, mDragRow);
-                    __NebulaSettingsInput(NEBULA_SETTINGS_MOVE_MOD, (mDropList + 1) << 16 | place);
+                    NebulaHost::settingsInput(NEBULA_SETTINGS_SELECT_ROW, mDragRow);
+                    NebulaHost::settingsInput(NEBULA_SETTINGS_MOVE_MOD, (mDropList + 1) << 16 | place);
                     MR::startSystemSE("SE_SY_SELECT_PAUSE_ITEM");
                 }
             }
@@ -1798,17 +1857,17 @@ void NebulaSettingsScreen::readModsPointer(const NebulaSettingsView& rView, f32 
         }
         return;
     }
-    if (!MR::testCorePadTriggerA(WPAD_CHAN0)) {
+    if (!MR::isPressedJump(PLAYER_1)) {
         return;
     }
     if (mHoverModButton >= 0 && mModButtonsRow >= 0) {
-        __NebulaSettingsInput(NEBULA_SETTINGS_SELECT_ROW, mModButtonsRow);
-        __NebulaSettingsInput(NEBULA_SETTINGS_PRESS, mHoverModButton);
+        NebulaHost::settingsInput(NEBULA_SETTINGS_SELECT_ROW, mModButtonsRow);
+        NebulaHost::settingsInput(NEBULA_SETTINGS_PRESS, mHoverModButton);
     } else if (hovered >= 0) {
         // Held down: dragged once it moves.
         mPointerMode = true;
         mPointerRow = hovered;
-        __NebulaSettingsInput(NEBULA_SETTINGS_SELECT_ROW, hovered);
+        NebulaHost::settingsInput(NEBULA_SETTINGS_SELECT_ROW, hovered);
         mDragRow = hovered;
         mDragFromX = x;
         mDragFromY = y;
@@ -1830,10 +1889,10 @@ void NebulaSettingsScreen::readHomePointer(f32 x, f32 y) {
         return;
     }
     if (mPointerMode && hovered != (mHomeView & 0xFF)) {
-        __NebulaHomeMenu(NEBULA_HBM_POINT, hovered);
+        NebulaHomeMenu::point(hovered);
     }
-    if (MR::testCorePadTriggerA(WPAD_CHAN0)) {
-        __NebulaHomeMenu(NEBULA_HBM_CHOOSE, hovered);
+    if (MR::isPressedJump(PLAYER_1)) {
+        NebulaHomeMenu::choose(hovered);
     }
 }
 
@@ -1848,9 +1907,9 @@ void NebulaSettingsScreen::fitStatus(f32 room) {
         return;
     }
     // The longest start that fits with its ellipsis.
-    wchar_t cut[256];
+    char16_t cut[256];
     s32 fits = 0;
-    s32 longest = static_cast< s32 >(wcslen(mStatusText)) - 1;
+    s32 longest = static_cast< s32 >(MR::textLength(mStatusText)) - 1;
     while (fits < longest) {
         const s32 length = (fits + longest + 1) / 2;
         shorten(cut, 256, mStatusText, length);
@@ -2043,7 +2102,7 @@ void NebulaSettingsScreen::placeMods(const NebulaSettingsView& rView) {
         const bool none = l == 1 && mModCounts[0] == 0 && mModCounts[1] == 0;
         mModEmpty[l]->SetVisible(none);
         if (none) {
-            wchar_t text[128];
+            char16_t text[128];
             f32 width = 0.0f;
             f32 height = 0.0f;
             NebulaText::get(text, 128, "SettingsModsNone");
@@ -2103,7 +2162,7 @@ void NebulaSettingsScreen::placeMods(const NebulaSettingsView& rView) {
 
 // The pool's button `index` as row `row`'s `button` (ChipLess... for a setting's own), its word set when it was
 // another's.
-RowChip& NebulaSettingsScreen::useRowChip(s32 index, s32 row, s32 button, u32 version, const wchar_t* pWord) {
+RowChip& NebulaSettingsScreen::useRowChip(s32 index, s32 row, s32 button, u32 version, const char16_t* pWord) {
     RowChip& rPooled = mRowChips[index];
     Chip& rChip = rPooled.mChip;
     if (rPooled.mRow != row || rPooled.mButton != button || rPooled.mVersion != version) {
@@ -2144,7 +2203,7 @@ void NebulaSettingsScreen::placeRowButtons(const NebulaSettingsView& rView) {
             // The ▲ turned to point back or on, its ink centred on the button whatever the glyph's own margins: turned
             // a quarter (90 back, -90 on), its ink's offset turns with it.
             const s32 button = a == 0 ? ChipLess : ChipMore;
-            RowChip& rPooled = useRowChip(next++, i, button, 0, L"\u25B2");
+            RowChip& rPooled = useRowChip(next++, i, button, 0, u"\u25B2");
             const s32 direction = a == 0 ? -1 : 1;
             const bool focused = !asking && ((row == mHoverRow && mHoverArrow == direction) ||
                                              (row == static_cast< s32 >(rView.selected) && mHeldArrow == direction));
@@ -2155,7 +2214,7 @@ void NebulaSettingsScreen::placeRowButtons(const NebulaSettingsView& rView) {
             rPooled.mChip.mText->mTranslate = nw4r::math::VEC3(turn * dy, -turn * dx, 0.0f);
         }
         if (rRow.mSliderRight > rRow.mSliderLeft && next < cRowChipsMax) {
-            RowChip& rPooled = useRowChip(next++, i, ChipKnob, 0, L"");
+            RowChip& rPooled = useRowChip(next++, i, ChipKnob, 0, u"");
             const f32 at = static_cast< f32 >(rData.slider_at) / static_cast< f32 >(rData.slider_steps > 0 ? rData.slider_steps : 1);
             const bool focused = !asking && (row == mSliderRow || (row == mHoverRow && mHoverSlider));
             placeRowBox(rPooled, rRow.mSliderLeft + (rRow.mSliderRight - rRow.mSliderLeft) * at, y, cKnobSize, cKnobSize, cKnobSize * 0.5f,
@@ -2481,7 +2540,7 @@ void NebulaSettingsScreen::placeJoyCon(f32 top) {
         }
         if (rHalf.mPicture == nullptr) {
             char name[16];
-            snprintf(name, sizeof(name), "NsJc%dP", static_cast< int >(half));
+            nebula_snprintf(name, sizeof(name), "NsJc%dP", static_cast< int >(half));
             rHalf.mPicture = makePicture(mJoyCon, name, pMap);
             if (rHalf.mPicture == nullptr) {
                 continue;
@@ -2511,10 +2570,10 @@ void NebulaSettingsScreen::placeJoyCon(f32 top) {
 // The Pair Joy-Con pictures at the 2D layer's density, painted for about `budgetMicros` this frame; that density in
 // pixels per menu unit.
 void NebulaSettingsScreen::paintJoyCon(u32 budgetMicros, f32* pPixelsX, f32* pPixelsY) const {
-    const u32 scale = __NebulaLayer2DScale();
-    const f32 layer = scale != 0u ? static_cast< f32 >(scale) : 3.0f;
-    *pPixelsX = 640.0f * layer / mWidth;
-    *pPixelsY = 456.0f * layer / mHeight;
+    const u32 lines = NebulaHost::layer2DLines();
+    const f32 height = lines != 0u ? static_cast< f32 >(lines) : 1368.0f;
+    *pPixelsX = height * NebulaFrameClock::display().content_aspect / mWidth;
+    *pPixelsY = height / mHeight;
     NebulaIcons::setJoyConDensity(*pPixelsX * cJoyConUnit, *pPixelsY * cJoyConUnit);
     (void)NebulaIcons::paintJoyConAhead(budgetMicros);
 }
@@ -2623,7 +2682,7 @@ void NebulaSettingsScreen::step(const NebulaSettingsView& rView, s32 homeView) {
     }
     // The Pair Joy-Con screen's halves change with every press: its picture follows them each frame, its text only what
     // it says (which halves are here, paired).
-    NebulaSettingsView view;
+    NebulaSettingsView& view = mRead;
     memcpy(&view, &rView, sizeof(view));
     mJoyConBits = view.status == NEBULA_SETTINGS_STATUS_JOYCON ? view.status_number : 0;
     if (view.status == NEBULA_SETTINGS_STATUS_JOYCON) {
@@ -2705,16 +2764,17 @@ namespace NebulaSettingsMenu {
         if (sScreen == nullptr || !sScreen->isBuilt()) {
             return;
         }
-        __NebulaSettingsView(&sView);
-        // Not before a file is chosen (the logos, the title, the file select): asked for there, it closes at once. The
-        // main menu shows there, and so do the settings its Options opens.
+        NebulaHost::settingsView(&sView);
+        // Not before a file is chosen (the logos, the title, the file select): asked for there, it closes at once, unless
+        // the input mode has nothing to play with: the menu is how another is chosen. The main menu shows there, and so
+        // do the settings its Options opens.
         const bool mainMenu = sView.kind == NEBULA_SETTINGS_KIND_MAIN_MENU;
-        if (sView.open && !sScreen->isShown() && !mainMenu && !sMainMenuActive &&
+        if (sView.open && !sScreen->isShown() && !mainMenu && !sMainMenuActive && !GameSystemFunction::isOccurredSystemWarning() &&
             (MR::isEqualSceneName("Logo") || MR::isEqualSceneName("Title") || MR::isStageFileSelect())) {
-            __NebulaSettingsInput(NEBULA_SETTINGS_CLOSE, 0);
+            NebulaHost::settingsInput(NEBULA_SETTINGS_CLOSE, 0);
             sView.open = 0;
         }
-        sScreen->step(sView, __NebulaHomeMenu(NEBULA_HBM_VIEW, 1));
+        sScreen->step(sView, NebulaHomeMenu::view());
         if (mainMenu && sView.open && sScreen->isOpenFully() && !sScreen->isHome()) {
             readMainMenuPad(sView);
         } else {
@@ -2752,11 +2812,10 @@ namespace NebulaSettingsMenu {
     }
 
     void requestOpen() {
-        __NebulaSettingsInput(NEBULA_SETTINGS_OPEN, 0);
+        NebulaHost::settingsInput(NEBULA_SETTINGS_OPEN, 0);
     }
 
     void setMainMenuActive(bool active) {
         sMainMenuActive = active;
     }
 };  // namespace NebulaSettingsMenu
-#endif

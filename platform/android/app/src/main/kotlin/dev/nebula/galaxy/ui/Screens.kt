@@ -150,19 +150,12 @@ private fun WelcomeScreen(onChoose: () -> Unit) {
         GlassCard(Modifier.fillMaxWidth()) {
             Step(1, "Choose your disc image", "The copy you made of your own Wii disc: ISO, RVZ, WIA, WBFS, CISO or GCZ.")
             Gap(18.dp)
-            Step(2, "Nebula sets the game up", "It copies the game into its own storage (about 3.4 GB). The disc image is only read.")
+            Step(2, "Nebula sets the game up", "It copies the game into its own storage (about 3.9 GB). The disc image is only read.")
             Gap(18.dp)
             Step(3, "Play", "With the touch controls, or a controller.")
         }
         Gap(28.dp)
         PrimaryAction("Choose disc image", Icons.Rounded.FolderOpen, onChoose, Modifier.fillMaxWidth())
-        Gap(20.dp)
-        Text(
-            "Nebula contains no Nintendo code or data.",
-            style = MaterialTheme.typography.bodySmall,
-            color = Night.TextFaint,
-            textAlign = TextAlign.Center,
-        )
     }
 }
 
@@ -252,7 +245,7 @@ private fun DiscScreen(model: LauncherModel, onChoose: () -> Unit) {
                 Gap(12.dp)
                 Text("This disc image can't be used", style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
                 Gap(8.dp)
-                Lead(identity.message.ifEmpty { "It is not the North American Super Mario Galaxy (RMGE01)." })
+                Lead(identity.message.ifEmpty { "It is not Super Mario Galaxy for North America, Europe or Japan." })
                 Gap(28.dp)
                 PrimaryAction("Choose another", Icons.Rounded.FolderOpen, onChoose, Modifier.fillMaxWidth())
             }
@@ -355,7 +348,7 @@ private fun HomeScreen(model: LauncherModel, onPlay: () -> Unit) {
                 PrimaryAction("Play", Icons.Rounded.PlayArrow, onPlay, Modifier.fillMaxWidth(), tall = true)
                 Gap(20.dp)
                 GlassCard(Modifier.fillMaxWidth(), padding = androidx.compose.foundation.layout.PaddingValues(vertical = 6.dp)) {
-                    NavigationRow(Icons.Rounded.Tune, "Settings", "Graphics, touch controls, storage") { model.screen = Screen.Settings }
+                    NavigationRow(Icons.Rounded.Tune, "Settings", "Touch controls, storage") { model.screen = Screen.Settings }
                     HorizontalDivider(color = Night.GlassEdge, modifier = Modifier.padding(horizontal = 20.dp))
                     NavigationRow(Icons.Rounded.Info, "About Nebula", "Version ${BuildConfig.VERSION_NAME}, licenses") { model.screen = Screen.About }
                 }
@@ -428,95 +421,11 @@ private fun controllerNames(): List<String> = InputDevice.getDeviceIds().toList(
 @Composable
 private fun SettingsScreen(model: LauncherModel, onChoose: () -> Unit, onShareLog: () -> Unit) {
     var confirmRemove by remember { mutableStateOf(false) }
-    val graphics = model.graphics
     val controls = model.controls
     Column(Modifier.fillMaxSize()) {
         TopBar("Settings") { model.back() }
         Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), contentAlignment = Alignment.TopCenter) {
             Column(Modifier.widthIn(max = 680.dp).fillMaxWidth().padding(bottom = 32.dp)) {
-                SectionTitle("Graphics")
-                GlassCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp), padding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp)) {
-                    Text(
-                        "Internal resolution",
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.padding(start = 20.dp, top = 10.dp, end = 20.dp),
-                    )
-                    Text(
-                        "Sharper pictures take more power. Takes effect the next time the game starts.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Night.TextDim,
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
-                    )
-                    for (scale in 1..GraphicsSettings.MAX_SCALE) {
-                        ChoiceRow(
-                            "${scale}×" + if (scale == 1) " (the Wii's)" else "",
-                            "${640 * scale} × ${528 * scale}",
-                            !graphics.matchScreen && graphics.scale == scale,
-                        ) { model.updateGraphics(graphics.copy(scale = scale, matchScreen = false)) }
-                    }
-                    ChoiceRow("Match the screen", "The smallest that covers this display", graphics.matchScreen) {
-                        model.updateGraphics(graphics.copy(matchScreen = true))
-                    }
-                    SwitchRow("Menus and HUD at the screen's resolution", "Sharp text at any internal resolution",
-                        graphics.hudAtScreen) {
-                        model.updateGraphics(graphics.copy(hudAtScreen = it))
-                    }
-                    val refresh = LocalView.current.display?.let { DisplayRate.fastestMode(it).refreshRate.roundToInt() } ?: 60
-                    if (refresh > 61) {
-                        HorizontalDivider(color = Night.GlassEdge, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
-                        Text(
-                            "Frame rate",
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.padding(start = 20.dp, top = 10.dp, end = 20.dp),
-                        )
-                        ChoiceRow("60 fps", "The game's own rate", !graphics.displayRate) {
-                            model.updateGraphics(graphics.copy(displayRate = false))
-                        }
-                        ChoiceRow("$refresh fps", "Frames in between are drawn from the game's motion. More power.", graphics.displayRate) {
-                            model.updateGraphics(graphics.copy(displayRate = true))
-                        }
-                    }
-                    HorizontalDivider(color = Night.GlassEdge, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
-                    Text(
-                        "Anti-aliasing",
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.padding(start = 20.dp, top = 10.dp, end = 20.dp),
-                    )
-                    val msaa = graphics.msaa > 1
-                    ChoiceRow("Off", null, graphics.aa == "off" && !msaa) {
-                        model.updateGraphics(graphics.copy(aa = "off", msaa = 1))
-                    }
-                    ChoiceRow("FXAA", "Lightest", graphics.aa == "fxaa" && !msaa) {
-                        model.updateGraphics(graphics.copy(aa = "fxaa", msaa = 1))
-                    }
-                    ChoiceRow("SMAA", "Cleaner edges", graphics.aa == "smaa" && !msaa) {
-                        model.updateGraphics(graphics.copy(aa = "smaa", msaa = 1))
-                    }
-                    ChoiceRow("MSAA 2x", "Geometry edges sampled twice. More power.", graphics.msaa == 2) {
-                        model.updateGraphics(graphics.copy(aa = "off", msaa = 2))
-                    }
-                    ChoiceRow("MSAA 4x", "Smoothest geometry edges. Most power.", graphics.msaa == 4) {
-                        model.updateGraphics(graphics.copy(aa = "off", msaa = 4))
-                    }
-                    HorizontalDivider(color = Night.GlassEdge, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
-                    Text(
-                        "Enlarging to the screen",
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.padding(start = 20.dp, top = 10.dp, end = 20.dp),
-                    )
-                    ChoiceRow("Bilinear", null, !graphics.fsr) { model.updateGraphics(graphics.copy(fsr = false)) }
-                    ChoiceRow("FSR 1", "Sharper edges when enlarging", graphics.fsr) {
-                        model.updateGraphics(graphics.copy(fsr = true))
-                    }
-                    SliderRow("Sharpening", graphics.sharpness / 100f, 0f..1f, { "${(it * 100).roundToInt()}%" }) {
-                        model.updateGraphics(graphics.copy(sharpness = (it * 100).roundToInt()))
-                    }
-                    HorizontalDivider(color = Night.GlassEdge, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
-                    SwitchRow("VSync", "Frames wait for the display. Off lowers latency.", graphics.vsync) {
-                        model.updateGraphics(graphics.copy(vsync = it))
-                    }
-                }
-
                 SectionTitle("Touch controls")
                 GlassCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp), padding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp)) {
                     ChoiceRow("Automatic", "Hidden while a controller is used; touch the screen to bring them back", controls.mode == "auto") {
@@ -588,7 +497,7 @@ private fun AboutScreen(model: LauncherModel) {
             Gap(20.dp)
             Lead(
                 "Nebula runs Super Mario Galaxy natively: the game's code is Petari's decompilation, compiled for this " +
-                    "device, drawing with Vulkan. It contains no Nintendo code or data. The game's files come from " +
+                    "device, drawing with Vulkan. The game's files come from " +
                     "your own disc. Nebula is not affiliated with or endorsed by Nintendo.",
             )
             Gap(24.dp)

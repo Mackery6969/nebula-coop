@@ -1,28 +1,21 @@
 #pragma once
 
-#include <JSystem/J2DGraph/J2DOrthoGraph.hpp>
+#include <JSystem/JGeometry/TMatrix.hpp>
 #include <JSystem/JGeometry/TVec.hpp>
-#include <revolution/gx.h>
+#include <NebulaGpu.h>
 
 class J3DModelData;
 class J3DModel;
 class J3DMaterial;
 class JUTTexture;
 
-class J2DOrthoGraphSimple : public J2DOrthoGraph {
-public:
-    J2DOrthoGraphSimple();
-
-    virtual ~J2DOrthoGraphSimple() {
-    }
-
-    virtual void setPort();
-};
 
 namespace MR {
+    void setupScreen2D();
+    void drawScreenColor(const NebulaColor8& rColor);
+    void drawScreenPicture(const JUTTexture& rTexture);
     void drawInit();
     void reinitGX();
-    void resetTextureCacheSize();
     void loadViewMtxFor2DModel();
     void drawInitFor2DModel();
     void setDefaultViewportAndScissor();
@@ -31,10 +24,13 @@ namespace MR {
     void clearZBuffer();
     void clearAlphaBuffer(u8);
     void clearAlphaBuffer(u8, const TVec2f&, const TVec2f&);
-    void fillScreenSetup(const GXColor&);
+    void fillScreenSetup(const NebulaColor8&);
     void fillScreenArea(const TVec2s&, const TVec2s&);
-    void fillScreen(const GXColor&);
+    void fillScreen(const NebulaColor8&);
     void setupShadowVolumeDraw();
+    // The volume draws' colour (runtime/src/render/materials/flat_color.hlsl), their blending, depth, culling and
+    // writes as the drawing state has them (each pass sets them).
+    void setShadowVolumeColor(const NebulaColor8& rColor);
     void drawSimpleModel(J3DModelData*);
     void fillSilhouetteColor();
     const JUTTexture* getMarioShadowTex();
@@ -43,7 +39,8 @@ namespace MR {
     void setMarioShadowTex(const JUTTexture*);
     void setMarioShadowVec(const TVec3f&);
     void loadTexProjectionMtx(u32);
-    void nonFilteredCapture(JUTTexture*, s16, s16);
+    // The camera's projection to screen texture coordinates (s, t, q from a world position) loadTexProjectionMtx loads.
+    void calcTexProjectionMtx(TPos3f*);
     void simpleDraw(J3DModel*, J3DMaterial*);
     void activateGameSceneDraw3D();
     void deactivateGameSceneDraw3D();

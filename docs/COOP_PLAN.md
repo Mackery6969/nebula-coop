@@ -438,7 +438,7 @@ Each phase ships on its own and leaves the game playable.
       (see [Mods](#mods-the-rooms-not-the-players)).
 - [x] [Chat](#chat), keyboard only; controllers read it.
 - [x] The [Personal Star Counter](#personal-star-counter): each player's stars this room and all time, on the HUD and
-      in the player list (API version 41); a built-in mod the host turns on for the room, off by default (API 44).
+      in the player list (API version 41); a built-in mod the host turns on for the room, off by default (API 118).
 
 ### Phase 2: same world
 

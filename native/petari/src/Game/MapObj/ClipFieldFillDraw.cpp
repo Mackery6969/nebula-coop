@@ -1,4 +1,8 @@
 #include "Game/MapObj/ClipFieldFillDraw.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeView.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/Screen/ScreenAlphaCapture.hpp"
@@ -8,9 +12,12 @@
 #include "Game/Util/JMapUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/ScreenUtil.hpp"
+#include <JSystem/JUtility/JUTTexture.hpp>
+#include "Game/Util/NativeShader.hpp"
+#include <nebula_game_api.h>
 
 ClipFieldFillDraw::ClipFieldFillDraw(const char* pName)
-    : NameObj(pName), mFillBlendMode(GX_BM_BLEND), mFillSrcFactor(GX_BL_SRCALPHA), mFillDstFactor(GX_BL_ONE), mFillLogicOp(GX_LO_NOOP),
+    : NameObj(pName), mFillBlendOp(NEBULA_BLEND_ADD), mFillSrcFactor(NEBULA_FACTOR_SRC_ALPHA), mFillDstFactor(NEBULA_FACTOR_ONE),
       _1C(255, 230, 80, 200), _20(255, 255, 255, 255), _24(), _25() {
     MR::connectToScene(this, MR::MovementType_None, MR::CalcAnimType_None, MR::DrawBufferType_None, MR::DrawType_ClipFieldFillDraw);
     MR::createScreenAlphaSceneObj(1, 1.0f);
@@ -23,103 +30,77 @@ void ClipFieldFillDraw::init(const JMapInfoIter& rIter) {
 }
 
 void ClipFieldFillDraw::setModeSubColor() {
-    mFillBlendMode = GX_BM_SUBTRACT;
-    mFillDstFactor = GX_BL_ONE;
-    mFillSrcFactor = GX_BL_ONE;
-    mFillLogicOp = GX_LO_NOOP;
+    mFillBlendOp = NEBULA_BLEND_SUBTRACT;
+    mFillDstFactor = NEBULA_FACTOR_ONE;
+    mFillSrcFactor = NEBULA_FACTOR_ONE;
 }
 
 void ClipFieldFillDraw::setUpFillScreen() const {
     Mtx44 projectionMtx;
-    C_MTXOrtho(projectionMtx, 0.0f, MR::getScreenHeight(), 0.0f, MR::getScreenWidth(), -1.0f, 1.0f);
-    GXSetProjection(projectionMtx, GX_ORTHOGRAPHIC);
+    NebulaMtxOrtho(projectionMtx, 0.0f, MR::getScreenHeight(), 0.0f, MR::getScreenWidth(), -1.0f, 1.0f);
+    J3DNativeView::setOrthographic(projectionMtx);
 
     TMtx34f posMtx;
     posMtx.identity();
-    GXLoadPosMtxImm((MtxPtr)&posMtx, GX_PNMTX0);
-    GXSetCurrentMtx(GX_PNMTX0);
+    J3DNativeShape::setPosition(0, (MtxPtr)&posMtx);
+    J3DPass::positionMatrix(0);
 
-    GXClearVtxDesc();
-    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XY, GX_U16, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_POS_XYZ, GX_F32, 0);
-    GXSetNumChans(1);
-    GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_REG, GX_SRC_REG, GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
-    GXSetChanCtrl(GX_COLOR1A1, GX_FALSE, GX_SRC_REG, GX_SRC_REG, GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
-    GXSetNumTexGens(1);
-    GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY, GX_FALSE, GX_PTIDENTITY);
-    GXSetNumTevStages(1);
-    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR_NULL);
-    GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_C0, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO);
-    GXSetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-
-    GXTevAlphaArg alphaA;
-    GXTevAlphaArg alphaB;
-
-    if (_25) {
-        alphaA = GX_CA_TEXA;
-        alphaB = GX_CA_KONST;
-    } else {
-        alphaA = GX_CA_KONST;
-        alphaB = GX_CA_TEXA;
-    }
-
-    GXSetTevKColor(GX_KCOLOR0, Color8(0, 0, 0, 1));
-    GXSetTevKAlphaSel(GX_TEVSTAGE0, GX_TEV_KASEL_K0_A);
-    GXSetTevAlphaIn(GX_TEVSTAGE0, alphaA, alphaB, GX_CA_A0, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_COMP_RGB8_GT, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetAlphaCompare(GX_GREATER, 0, GX_AOP_AND, GX_ALWAYS, 0);
-    GXSetZMode(GX_TRUE, GX_ALWAYS, GX_FALSE);
-    GXSetZCompLoc(GX_FALSE);
-    GXSetCullMode(GX_CULL_BACK);
-    GXSetDither(GX_FALSE);
-    GXSetColorUpdate(GX_TRUE);
-    GXSetAlphaUpdate(GX_FALSE);
-    GXSetBlendMode(mFillBlendMode, mFillSrcFactor, mFillDstFactor, mFillLogicOp);
+    J3DPass::writeColor(true);
+    J3DPass::writeAlpha(false);
 }
 
-void ClipFieldFillDraw::sendFillScreen(GXColor color) const {
-    GXSetTevColor(GX_TEVREG0, color);
+void ClipFieldFillDraw::sendFillScreen(NebulaColor8 color) const {
+    // runtime/src/render/materials/clip_fill.hlsl: the colour where the screen alpha mask is set (_25: or clear),
+    // drawn where its alpha is above zero, depth neither tested nor written, back faces culled.
+    NebulaNativeMaterial material;
+    NativeShader::init(material, NEBULA_SHADER_CLIP_FILL, NativeShader::BLEND_OPAQUE, NEBULA_COMPARE_ALWAYS, false,
+                       NEBULA_CULL_BACK);
+    material.blend_op = mFillBlendOp;
+    material.blend_src = mFillSrcFactor;
+    material.blend_dst = mFillDstFactor;
+    NativeShader::setColor(material, 0, color.r, color.g, color.b, color.a);
+    material.constants[4] = _25 ? 1.0f : 0.0f;
+    NativeShader::setTexture(material, 0, MR::getScreenAlphaTexture(1));
+    NativeShader::send(material);
+    J3DNativeShape::setCurrentIdentity();
 
-    GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, 4);
+    J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, 4, NEBULA_SHAPE_TEXCOORD0);
     {
         u16 screenWidth = MR::getScreenWidth();
         u16 screenHeight = MR::getScreenHeight();
 
-        GXPosition2u16(0, 0);
-        GXTexCoord2f32(0.0f, 0.0f);
+        J3DNativeDraw::position(0.0f, 0.0f, 0.0f);
+        J3DNativeDraw::texCoord(0.0f, 0.0f);
 
-        GXPosition2u16(screenWidth, 0);
-        GXTexCoord2f32(1.0f, 0.0f);
+        J3DNativeDraw::position(static_cast< f32 >(static_cast< u16 >(screenWidth)), 0.0f, 0.0f);
+        J3DNativeDraw::texCoord(1.0f, 0.0f);
 
-        GXPosition2u16(0, screenHeight);
-        GXTexCoord2f32(0.0f, 1.0f);
+        J3DNativeDraw::position(0.0f, static_cast< f32 >(static_cast< u16 >(screenHeight)), 0.0f);
+        J3DNativeDraw::texCoord(0.0f, 1.0f);
 
-        GXPosition2u16(screenWidth, screenHeight);
-        GXTexCoord2f32(1.0f, 1.0f);
+        J3DNativeDraw::position(static_cast< f32 >(static_cast< u16 >(screenWidth)), static_cast< f32 >(static_cast< u16 >(screenHeight)), 0.0f);
+        J3DNativeDraw::texCoord(1.0f, 1.0f);
     }
-
-    GXEnd();
 }
 
 void ClipFieldFillDraw::draw() const {
-    MR::loadScreenAlphaTexture(1, GX_TEXMAP0);
     setUpFillScreen();
     sendFillScreen(_1C);
     MR::loadViewMtx();
     MR::loadProjectionMtx();
-    GXSetZScaleOffset(1.0f, 0.0f);
+    J3DNativeView::setZScaleOffset(1.0f, 0.0f);
     MR::clearAlphaBuffer(0);
     MR::loadViewMtx();
     MR::loadProjectionMtx();
-    GXSetAlphaUpdate(GX_FALSE);
-    GXSetColorUpdate(GX_TRUE);
+    J3DPass::writeAlpha(false);
+    J3DPass::writeColor(true);
 
     if (_24) {
-        TDDraw::setup(0, 1, 0);
-        GXSetCullMode(GX_CULL_FRONT);
-        GXSetZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
+        NebulaNativeMaterial material;
+        TDDraw::setupNative(&material, 0, 1, 0);
+        material.cull = NEBULA_CULL_FRONT;
+        NativeShader::setDepth(material, true, NEBULA_COMPARE_LEQUAL, false);
+        NativeShader::send(material);
     }
 }
 

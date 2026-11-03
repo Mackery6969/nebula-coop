@@ -57,7 +57,6 @@ GameSceneLayoutHolder::GameSceneLayoutHolder()
     mYesNoLayout = new YesNoLayout();
     mYesNoLayout->initWithoutIter();
 
-#ifdef TARGET_PC
     mAchievementToast = new NebulaAchievementToast();
     mAchievementToast->initWithoutIter();
     mCoopChat = new NebulaCoopChat();
@@ -71,7 +70,6 @@ GameSceneLayoutHolder::GameSceneLayoutHolder()
         mAchievementBoard = new NebulaAchievementBoard();
         mAchievementBoard->initWithoutIter();
     }
-#endif
 }
 
 void GameSceneLayoutHolder::createPurpleCoinCounter() {

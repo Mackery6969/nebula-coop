@@ -1,4 +1,6 @@
 #include "Game/Scene/ScenarioSelectScene.hpp"
+#include "Game/System/GameThreads.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeView.hpp>
 #include "Game/Camera/CameraContext.hpp"
 #include "Game/Effect/EffectSystem.hpp"
 #include "Game/Effect/EffectSystemUtil.hpp"
@@ -15,7 +17,6 @@
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
 #include "Game/Util/SystemUtil.hpp"
-#include <revolution/gx/GXEnum.h>
 #include <JSystem/J3DGraphBase/J3DDrawBuffer.hpp>
 #include <JSystem/J3DGraphBase/J3DSys.hpp>
 
@@ -40,13 +41,7 @@ namespace {
     }
 
     bool tryResumeInitializeThread() {
-        const char* thread = "\203\126\201\133\203\223\217\211\212\372\211\273" /* シーン初期化 */;
-        if (MR::isSuspendedAsyncExecuteThread(thread)) {
-            MR::resumeAsyncExecuteThread(thread);
-            return true;
-        }
-
-        return false;
+        return MR::tryResumeSceneInitialize();
     }
 };  // namespace
 
@@ -105,10 +100,8 @@ void ScenarioSelectScene::calcAnim() {
     bool res = isExecForeground() && _28 == 0;
 
     if (res) {
-#ifdef TARGET_PC
         // The scene builds its perspective once, at boot: follow the picture's aspect as it changes.
         mCameraContext->updateProjectionMtx();
-#endif
         mScenarioLayout->calcAnim();
         mCinemaFrame->calcAnim();
         MR::Effect::movementEffectNormal(mEffectSystem);
@@ -120,12 +113,12 @@ void ScenarioSelectScene::calcViewAndEntry() {
     bool res = isExecForeground() && _28 == 0;
 
     if (res) {
-        OSLockMutex(&MR::MutexHolder< 0 >::sMutex);
+        (MR::MutexHolder< 0 >::sMutex).lock();
         setupCameraMtx();
         j3dSys.mDrawBuffer[0] = _20;
         j3dSys.mDrawBuffer[1] = _24;
         mScenarioLayout->calcViewAndEntryStarModel();
-        OSUnlockMutex(&MR::MutexHolder< 0 >::sMutex);
+        (MR::MutexHolder< 0 >::sMutex).unlock();
     }
 }
 
@@ -133,7 +126,7 @@ void ScenarioSelectScene::draw() const {
     bool res = isExecForeground() && _28 == 0;
 
     if (res) {
-        OSLockMutex(&MR::MutexHolder< 0 >::sMutex);
+        (MR::MutexHolder< 0 >::sMutex).lock();
         setupCameraMtx();
         j3dSys.drawInit();
         j3dSys.mDrawMode = 3;
@@ -142,7 +135,7 @@ void ScenarioSelectScene::draw() const {
         j3dSys.mDrawMode = 4;
         _24->draw();
         _24->frameInit();
-        OSUnlockMutex(&MR::MutexHolder< 0 >::sMutex);
+        (MR::MutexHolder< 0 >::sMutex).unlock();
         MR::Effect::drawEffect3D(mEffectSystem, mCameraContext->getViewMtx());
         mScenarioLayout->draw();
         MR::Effect::drawEffect2D(mEffectSystem);
@@ -211,8 +204,8 @@ bool ScenarioSelectScene::isResetEnd() const {
 }
 
 void ScenarioSelectScene::setupCameraMtx() const {
-    PSMTXCopy(mCameraContext->getViewMtx(), j3dSys.mViewMtx);
-    GXSetProjection(mCameraContext->mProjection, GX_PERSPECTIVE);
+    NebulaMtxCopy(mCameraContext->getViewMtx(), j3dSys.mViewMtx);
+    J3DNativeView::setPerspective(mCameraContext->mProjection);
 }
 
 bool ScenarioSelectScene::trySetCurrentScenarioNo() const {

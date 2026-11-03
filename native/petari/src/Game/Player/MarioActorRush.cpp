@@ -1,7 +1,5 @@
 #include "Game/LiveActor/HitSensor.hpp"
-#ifdef TARGET_PC
 #include <nebula_game_api.h>
-#endif
 #include "Game/Map/HitInfo.hpp"
 #include "Game/MapObj/CollectCounter.hpp"
 #include "Game/Player/MarioActor.hpp"
@@ -15,10 +13,7 @@
 #include "Game/Player/RushEndInfo.hpp"
 #include "Game/Screen/GameSceneLayoutHolder.hpp"
 #include "Game/Util.hpp"
-
-void MarioActorRush_FORCE_MATCH_SDATA2() {
-    (void)0.001f;
-}
+#include "Game/System/NebulaHost.hpp"
 
 void MarioActor::settingRush() {
     rushDropThrowMemoSensor();
@@ -201,9 +196,7 @@ void MarioActor::endRush(const RushEndInfo* pInfo) {
     bool launched = false;
     if (_924 && (!pInfo->_1C || _924->mHost == pInfo->_1C)) {
         _934 = false;
-#ifdef TARGET_PC
-        __NebulaGameContext(NEBULA_CONTEXT_TILT_SECTION, 0);
-#endif
+        NebulaHost::gameContext(NEBULA_CONTEXT_TILT_SECTION, 0);
         _935 = true;
         mMario->stopJump();
         s32 mode = pInfo->_4;
@@ -312,7 +305,7 @@ void MarioActor::endRush(const RushEndInfo* pInfo) {
         if (!_3D0) {
             TPos3f base;
             TVec3f front;
-            PSMTXConcat(getBaseMtx(), _E3C, base);
+            NebulaMtxConcat(getBaseMtx(), _E3C, base);
             front.set< f32 >(base[0][2], base[1][2], base[2][2]);
             mMario->setFrontVecKeepUp(front);
         } else {
@@ -320,7 +313,7 @@ void MarioActor::endRush(const RushEndInfo* pInfo) {
             TVec3f front;
             TVec3f side;
             TVec3f up;
-            PSMTXConcat(getBaseMtx(), _E3C, base);
+            NebulaMtxConcat(getBaseMtx(), _E3C, base);
             front.set< f32 >(base[0][2], base[1][2], base[2][2]);
             up.set< f32 >(base[0][1], base[1][1], base[2][1]);
             side.set< f32 >(base[0][0], base[1][0], base[2][0]);

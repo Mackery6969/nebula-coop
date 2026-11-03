@@ -1,5 +1,6 @@
-#ifdef TARGET_PC
 #include "Game/System/NebulaCoopDemos.hpp"
+#include "nebula_module.h"
+#include "Game/System/NebulaHost.hpp"
 #include "Game/MapObj/PowerStar.hpp"
 #include "Game/MapObj/PowerStarHolder.hpp"
 #include "Game/NPC/EventDirector.hpp"
@@ -12,7 +13,6 @@
 #include <cstdio>
 #include <cstring>
 #include <nebula_game_api.h>
-#include <revolution/os.h>
 
 namespace {
     // A Power Star the room gave the current save, not yet taken by this player: its galaxy (by hash) and number.
@@ -125,7 +125,7 @@ namespace NebulaCoopDemos {
         event.kind = NEBULA_COOP_WORLD_STAR_GOT;
         event.scenario = starId;
         event.value = isGrand ? NEBULA_COOP_STAR_GRAND : 0u;
-        __NebulaCoopWorldReport(&event);
+        NebulaHost::coopWorldReport(&event);
     }
 
     void applyStarGot(s32 starId, bool isGrand) {
@@ -133,12 +133,12 @@ namespace NebulaCoopDemos {
             return;
         }
         if (isGrand) {
-            OSReport("[coop] another player took Grand Star %d here: this player goes along\n", static_cast< int >(starId));
+            nebula_log("[coop] another player took Grand Star %d here: this player goes along\n", static_cast< int >(starId));
             sPullStar = starId;
-            snprintf(sPullStage, sizeof(sPullStage), "%s", MR::getCurrentStageName());
+            nebula_snprintf(sPullStage, sizeof(sPullStage), "%s", MR::getCurrentStageName());
             sPullScenario = MR::getCurrentScenarioNo();
         } else if (starId < 64) {
-            OSReport("[coop] another player took star %d here\n", static_cast< int >(starId));
+            nebula_log("[coop] another player took star %d here\n", static_cast< int >(starId));
             sTakenStars |= 1ull << starId;
         }
     }
@@ -176,10 +176,9 @@ namespace NebulaCoopDemos {
         // star, this player's first.
         GameDataHolder* pStart = GameDataFunction::getSceneStartGameDataHolder();
         if (pStart != nullptr && pStart != GameDataFunction::getCurrentGameDataHolder()) {
-            OSReport("[coop] %s star %d, the room's, is this player's first\n", pClearedStageName,
+            nebula_log("[coop] %s star %d, the room's, is this player's first\n", pClearedStageName,
                      static_cast< int >(clearedStarId));
             pStart->setPowerStar(pClearedStageName, clearedStarId, false);
         }
     }
 };  // namespace NebulaCoopDemos
-#endif

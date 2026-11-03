@@ -53,7 +53,8 @@ try {
     # Cargo reports progress on stderr.
     $ErrorActionPreference = 'Continue'
     try {
-        & $cargo build --release --locked -p nebula-import --bin nebula-import `
+        # The program (Setup's import and cook) and the library (the game cooks mods' files with it).
+        & $cargo build --release --locked -p nebula-import --bin nebula-import --lib `
             --config "target.x86_64-pc-windows-msvc.rustflags=['-C','target-feature=+crt-static']"
         if ($LASTEXITCODE -ne 0) { throw "cargo failed with exit code $LASTEXITCODE" }
     } finally {
@@ -62,6 +63,7 @@ try {
     }
     $targetDir = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $repo 'target' }
     $importer = Join-Path $targetDir 'release\nebula-import.exe'
+    $cooker = Join-Path $targetDir 'release\nebula_import.dll'
 
     $publicKey = (Get-Content -LiteralPath (Join-Path $installer 'release-public-key.xml') -Raw).Trim()
     $buildInfoPath = Join-Path $work 'BuildInfo.cs'
@@ -80,27 +82,29 @@ namespace Nebula
 
     $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
     $common = @(Get-ChildItem (Join-Path $installer 'src\Common\*.cs') | ForEach-Object FullName) + $buildInfoPath
+    $textTable = "/resource:$(Join-Path $repo 'localization\NebulaText.tsv'),NebulaText.tsv"
     $references = @('/r:System.Web.Extensions.dll', '/r:System.IO.Compression.dll', '/r:System.IO.Compression.FileSystem.dll',
         '/r:System.Windows.Forms.dll', '/r:System.Drawing.dll', '/r:System.Core.dll')
     $manifestFile = Join-Path $installer 'app.manifest'
     $iconFile = Join-Path $installer 'assets\nebula.ico'
     $launcherSources = @(Get-ChildItem (Join-Path $installer 'src\Launcher\*.cs') | ForEach-Object FullName)
     $launcher = Join-Path $work 'Nebula.exe'
-    Invoke-Checked $csc (@('/nologo', '/target:winexe', '/platform:x64', '/optimize+', "/win32manifest:$manifestFile", "/win32icon:$iconFile", "/out:$launcher") + $references + $common + $launcherSources)
+    Invoke-Checked $csc (@('/nologo', '/target:winexe', '/platform:x64', '/optimize+', "/win32manifest:$manifestFile", "/win32icon:$iconFile", "/out:$launcher") + $references + $textTable + $common + $launcherSources)
     # The same program; it always opens the settings.
     $settingsApp = Join-Path $work 'NebulaSettings.exe'
-    Invoke-Checked $csc (@('/nologo', '/target:winexe', '/platform:x64', '/optimize+', '/define:NEBULA_SETTINGS_APP', "/win32manifest:$manifestFile", "/win32icon:$iconFile", "/out:$settingsApp") + $references + $common + $launcherSources)
+    Invoke-Checked $csc (@('/nologo', '/target:winexe', '/platform:x64', '/optimize+', '/define:NEBULA_SETTINGS_APP', "/win32manifest:$manifestFile", "/win32icon:$iconFile", "/out:$settingsApp") + $references + $textTable + $common + $launcherSources)
 
     $resources = [ordered]@{
         'NebulaNative.exe' = (Join-Path $Bin 'NebulaNative.exe'); 'smg_game.dll' = (Join-Path $Bin 'smg_game.dll')
         'material-names.tsv' = (Join-Path $Bin 'tables\material-names.tsv'); 'rt-materials.tsv' = (Join-Path $Bin 'tables\rt-materials.tsv')
         'rt-suns.tsv' = (Join-Path $Bin 'tables\rt-suns.tsv')
         'Nebula.exe' = $launcher; 'NebulaSettings.exe' = $settingsApp; 'nebula-import.exe' = $importer
+        'nebula_import.dll' = $cooker
         'LICENSE' = (Join-Path $repo 'LICENSE'); 'THIRD-PARTY-NOTICES.md' = (Join-Path $repo 'THIRD-PARTY-NOTICES.md'); 'README.md' = (Join-Path $repo 'README.md')
     }
     $resourceArgs = @($resources.GetEnumerator() | ForEach-Object { "/resource:$($_.Value),$($_.Key)" })
     $setup = Join-Path $OutputDirectory $SetupName
-    Invoke-Checked $csc (@('/nologo', '/target:winexe', '/platform:x64', '/optimize+', "/win32manifest:$manifestFile", "/win32icon:$iconFile", "/out:$setup") + $references + $resourceArgs + $common +
+    Invoke-Checked $csc (@('/nologo', '/target:winexe', '/platform:x64', '/optimize+', "/win32manifest:$manifestFile", "/win32icon:$iconFile", "/out:$setup") + $references + $textTable + $resourceArgs + $common +
         @(Get-ChildItem (Join-Path $installer 'src\Setup\*.cs') | ForEach-Object FullName))
     $hash = (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
     Write-Host "$SetupName $Version ($commit) $hash"

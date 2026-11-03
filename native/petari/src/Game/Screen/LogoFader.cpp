@@ -1,4 +1,5 @@
 #include "Game/Screen/LogoFader.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util/DrawUtil.hpp"
 #include "Game/Util/LayoutUtil.hpp"
@@ -20,10 +21,10 @@ LogoFader::LogoFader(const char* pName) : LayoutActor(pName, true), _20(true), m
 
 void LogoFader::draw() const {
     if (mRate > RATE_MIN) {
-        GXSetColorUpdate(GX_TRUE);
-        GXSetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_NOOP);
+        J3DPass::writeColor(true);
+        J3DPass::blend(NEBULA_FACTOR_SRC_ALPHA, NEBULA_FACTOR_INV_SRC_ALPHA);
 
-        GXColor fillColor = {0, 0, 0, (s32)(mRate * 255.0f)};
+        NebulaColor8 fillColor = {0, 0, 0, (s32)(mRate * 255.0f)};
         MR::fillScreen(fillColor);
     }
 }

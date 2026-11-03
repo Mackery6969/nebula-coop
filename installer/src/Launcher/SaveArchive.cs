@@ -35,33 +35,42 @@ namespace Nebula.Launcher
             return (uint)(bytes[offset] << 24 | bytes[offset + 1] << 16 | bytes[offset + 2] << 8 | bytes[offset + 3]);
         }
 
+        private static uint Le32(byte[] bytes, int offset)
+        {
+            return (uint)(bytes[offset + 3] << 24 | bytes[offset + 2] << 16 | bytes[offset + 1] << 8 | bytes[offset]);
+        }
+
         /// <summary>The header word: the 16-bit sum of the words after it and the sum of their complements.</summary>
-        public static uint GameDataChecksum(byte[] bytes)
+        public static uint GameDataChecksum(byte[] bytes, bool big = true)
         {
             ushort sum = 0, inverse = 0;
             for (int offset = 4; offset < GameDataSize; offset += 2)
             {
-                var word = (ushort)(bytes[offset] << 8 | bytes[offset + 1]);
+                var word = big ? (ushort)(bytes[offset] << 8 | bytes[offset + 1]) : (ushort)(bytes[offset + 1] << 8 | bytes[offset]);
                 sum += word;
                 inverse += (ushort)~word;
             }
             return (uint)sum << 16 | inverse;
         }
 
+        /// <summary>A save of version 2 (big-endian, as on the Wii) or 3 (little-endian, as the native game writes).</summary>
         public static bool IsGameData(byte[] bytes)
         {
-            if (bytes == null || bytes.Length != GameDataSize || Be32(bytes, 4) != 2 || Be32(bytes, 8) != 19 ||
-                Be32(bytes, 12) != GameDataSize)
+            if (bytes == null || bytes.Length != GameDataSize) return false;
+            bool big = Be32(bytes, 4) == 2;
+            if (!big && Le32(bytes, 4) != 3) return false;
+            Func<byte[], int, uint> word = big ? (Func<byte[], int, uint>)Be32 : Le32;
+            if (word(bytes, 8) != 19 || word(bytes, 12) != GameDataSize)
                 return false;
             for (int i = 0; i < GameDataNames.Length; i++)
             {
                 int info = 0x10 + i * 0x10, length = 0;
                 while (length < 12 && bytes[info + length] != 0) length++;
                 if (length == 12 || Encoding.ASCII.GetString(bytes, info, length) != GameDataNames[i] ||
-                    Be32(bytes, info + 12) != GameDataOffsets[i])
+                    word(bytes, info + 12) != GameDataOffsets[i])
                     return false;
             }
-            return Be32(bytes, 0) == GameDataChecksum(bytes);
+            return word(bytes, 0) == GameDataChecksum(bytes, big);
         }
 
         public static bool IsBanner(byte[] bytes)
@@ -109,29 +118,48 @@ namespace Nebula.Launcher
     }
 
     /// <summary>
-    /// Export and import of the saves folder (the runtime's NAND root). An export holds the files the game reads and
+    /// Export and import of the saves folder (the game's save folder). An export holds the files the game reads and
     /// the folders above them, each with its NTFS streams (galaxy.isfs.meta holds the ISFS metadata) as separate zip
     /// entries, so an imported export is the same tree. /tmp is left out: it only holds files a save stages.
     /// Archive layout: nebula-saves.json (items with sizes and SHA-256), saves/&lt;path&gt;, streams/&lt;path&gt;/&lt;stream&gt;.
     /// </summary>
     internal static class SaveArchive
     {
+        /// <summary>The releases' save titles, as their game ids in hex: North America's (RMGE), Europe's (RMGP), Japan's
+        /// (RMGJ). Each keeps its own save, as on the Wii.</summary>
+        internal static readonly string[] Titles = { "524d4745", "524d4750", "524d474a" };
+
         public const string GameDataPath = "title/00010000/524d4745/data/GameData.bin";
         public const string BannerPath = "title/00010000/524d4745/data/banner.bin";
         public const string MiiDatabasePath = "shared2/menu/FaceLib/RFL_DB.dat";
 
+        internal static string GameDataPathOf(string title) { return "title/00010000/" + title + "/data/GameData.bin"; }
+        internal static string BannerPathOf(string title) { return "title/00010000/" + title + "/data/banner.bin"; }
+
+        /// <summary>The save title of a game id ("RMGP01": 524d4750); North America's for any other.</summary>
+        internal static string TitleOf(string gameId)
+        {
+            if (gameId == null || gameId.Length < 4) return Titles[0];
+            string title = string.Concat(gameId.Substring(0, 4).Select(c => ((int)c).ToString("x2", CultureInfo.InvariantCulture)));
+            return Titles.Contains(title) ? title : Titles[0];
+        }
+
         // Parents first.
-        internal static readonly string[] Folders =
+        internal static readonly string[] Folders = new[]
         {
             "", "shared2", "shared2/menu", "shared2/menu/FaceLib", "shared2/sys", "title", "title/00000001",
-            "title/00000001/00000002", "title/00000001/00000002/data", "title/00010000", "title/00010000/524d4745",
-            "title/00010000/524d4745/data",
-        };
-        internal static readonly string[] Files =
-        {
-            GameDataPath, BannerPath, MiiDatabasePath, "shared2/sys/SYSCONF", "title/00000001/00000002/data/setting.txt",
-            "title/00000001/00000002/data/play_rec.dat",
-        };
+            "title/00000001/00000002", "title/00000001/00000002/data", "title/00010000",
+        }.Concat(Titles.SelectMany(t => new[] { "title/00010000/" + t, "title/00010000/" + t + "/data" })).ToArray();
+        internal static readonly string[] Files = Titles.SelectMany(t => new[] { GameDataPathOf(t), BannerPathOf(t) })
+            .Concat(new[]
+            {
+                MiiDatabasePath, "shared2/sys/SYSCONF", "title/00000001/00000002/data/setting.txt",
+                "title/00000001/00000002/data/play_rec.dat",
+            }).ToArray();
+
+        /// <summary>The save title a loose GameData.bin (a folder or zip that holds it alone) is imported into: the
+        /// installed disc's (the settings set it from game.pak).</summary>
+        internal static string LooseTitle = Titles[0];
 
         private const string ManifestEntry = "nebula-saves.json";
         private const string FormatName = "nebula-saves";
@@ -148,16 +176,17 @@ namespace Nebula.Launcher
         /// <summary>Writes Nebula-Saves-yyyyMMdd-HHmmss.zip into <paramref name="folder"/> and returns its path.</summary>
         public static string Export(string folder)
         {
-            if (GameIsRunning()) throw new InvalidOperationException("Close the game before exporting saves.");
+            if (GameIsRunning()) throw new InvalidOperationException(NebulaText.Of("Close the game before exporting saves."));
             string root = NebulaPaths.Saves;
             List<SaveItem> items = Directory.Exists(root) ? ReadTree(FileUtil.FinalPath(root)) : new List<SaveItem>();
-            SaveItem save = items.FirstOrDefault(i => !i.IsFolder && i.Path == GameDataPath);
-            if (save == null) throw new InvalidOperationException("There are no saves to export yet.");
-            if (!SaveFormat.IsGameData(save.Data)) throw new InvalidDataException("GameData.bin is not a valid Super Mario Galaxy save.");
+            List<SaveItem> games = GameSaves(items);
+            if (games.Count == 0) throw new InvalidOperationException(NebulaText.Of("There are no saves to export yet."));
+            if (games.Any(save => !SaveFormat.IsGameData(save.Data)))
+                throw new InvalidDataException("GameData.bin is not a valid Super Mario Galaxy save.");
             if (items.Any(i => i.Streams.Keys.Any(s => s != "galaxy.isfs.meta" && s.StartsWith("galaxy.", StringComparison.Ordinal))) ||
                 Directory.EnumerateFileSystemEntries(FileUtil.FinalPath(root), "*", SearchOption.AllDirectories)
                     .Any(p => p.IndexOf(".__galaxy_isfs_", StringComparison.OrdinalIgnoreCase) >= 0))
-                throw new InvalidOperationException("A save was interrupted. Start and close the game once, then export again.");
+                throw new InvalidOperationException(NebulaText.Of("A save was interrupted. Start and close the game once, then export again."));
 
             string stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
             string path = Path.Combine(folder, "Nebula-Saves-" + stamp + ".zip");
@@ -167,7 +196,7 @@ namespace Nebula.Launcher
             try
             {
                 WriteArchive(partial, items);
-                if (!Same(items, ReadArchive(partial))) throw new IOException("The written archive does not match the saves.");
+                if (!Same(items, ReadArchive(partial))) throw new IOException(NebulaText.Of("The written archive does not match the saves."));
                 File.Move(partial, path);
             }
             finally
@@ -231,14 +260,16 @@ namespace Nebula.Launcher
         /// </summary>
         public static string Import(string source, Func<bool> confirmReplace)
         {
-            if (GameIsRunning()) throw new InvalidOperationException("Close the game before importing saves.");
+            if (GameIsRunning()) throw new InvalidOperationException(NebulaText.Of("Close the game before importing saves."));
             List<SaveItem> items = ReadSource(source);
             var notes = new List<string>();
-            SaveItem save = items.FirstOrDefault(i => !i.IsFolder && i.Path == GameDataPath);
-            if (save == null) throw new InvalidDataException("No Super Mario Galaxy save (GameData.bin) was found.");
-            if (!SaveFormat.IsGameData(save.Data)) throw new InvalidDataException("GameData.bin is not a valid Super Mario Galaxy save.");
-            LeaveOutInvalid(items, BannerPath, SaveFormat.IsBanner, "The save banner (banner.bin) is not valid and was left out.", notes);
-            LeaveOutInvalid(items, MiiDatabasePath, SaveFormat.IsMiiDatabase, "The Mii data (RFL_DB.dat) is not valid and was left out.", notes);
+            List<SaveItem> games = GameSaves(items);
+            if (games.Count == 0) throw new InvalidDataException("No Super Mario Galaxy save (GameData.bin) was found.");
+            if (games.Any(save => !SaveFormat.IsGameData(save.Data)))
+                throw new InvalidDataException("GameData.bin is not a valid Super Mario Galaxy save.");
+            foreach (string title in Titles)
+                LeaveOutInvalid(items, BannerPathOf(title), SaveFormat.IsBanner, "The save banner (banner.bin) is not valid and was left out.", notes);
+            LeaveOutInvalid(items, MiiDatabasePath, SaveFormat.IsMiiDatabase, NebulaText.Of("The Mii data (RFL_DB.dat) is not valid and was left out."), notes);
             items = WithFolders(items);
 
             string saves = Path.GetFullPath(NebulaPaths.Saves);
@@ -250,9 +281,9 @@ namespace Nebula.Launcher
             {
                 Stage(staging, items);
                 if (!Same(items, ReadWholeTree(staging)))
-                    throw new IOException("The staged saves do not match the source; nothing was changed.");
-                if (confirmReplace != null && File.Exists(HostPath(target, GameDataPath)) && !confirmReplace()) return null;
-                if (GameIsRunning()) throw new InvalidOperationException("Close the game before importing saves.");
+                    throw new IOException(NebulaText.Of("The staged saves do not match the source; nothing was changed."));
+                if (confirmReplace != null && Titles.Any(t => File.Exists(HostPath(target, GameDataPathOf(t)))) && !confirmReplace()) return null;
+                if (GameIsRunning()) throw new InvalidOperationException(NebulaText.Of("Close the game before importing saves."));
                 backup = Replace(target, staging);
             }
             finally
@@ -261,10 +292,16 @@ namespace Nebula.Launcher
                 catch (IOException) { }
                 catch (UnauthorizedAccessException) { }
             }
-            var message = new StringBuilder("Saves imported from " + Path.GetFileName(source.TrimEnd('\\', '/')) + ".");
+            var message = new StringBuilder(NebulaText.Of("Saves imported from {0}.", Path.GetFileName(source.TrimEnd('\\', '/'))));
             foreach (string note in notes) message.Append("\r\n").Append(note);
-            if (backup != null) message.Append("\r\nThe previous saves are in ").Append(backup).Append('.');
+            if (backup != null) message.Append("\r\n").Append(NebulaText.Of("The previous saves are in {0}.", backup));
             return message.ToString();
+        }
+
+        /// <summary>The releases' saves (GameData.bin) among <paramref name="items"/>.</summary>
+        private static List<SaveItem> GameSaves(List<SaveItem> items)
+        {
+            return items.Where(i => !i.IsFolder && Titles.Any(t => i.Path == GameDataPathOf(t))).ToList();
         }
 
         private static void LeaveOutInvalid(List<SaveItem> items, string path, Func<byte[], bool> valid, string note, List<string> notes)
@@ -348,7 +385,7 @@ namespace Nebula.Launcher
                 if (File.Exists(Path.Combine(root, ManifestEntry))) return ReadExport(FolderReader(root));
                 return ReadFolder(root);
             }
-            if (!File.Exists(source)) throw new FileNotFoundException("The file was not found.", source);
+            if (!File.Exists(source)) throw new FileNotFoundException(NebulaText.Of("The file was not found."), source);
             return ReadArchive(source);
         }
 
@@ -360,14 +397,14 @@ namespace Nebula.Launcher
             {
                 string host = HostPath(root, folder);
                 if (!Directory.Exists(host)) continue;
-                if (folder.Length != 0 && FileUtil.IsReparsePoint(host)) throw new IOException("Linked folders are not supported: " + host);
+                if (folder.Length != 0 && FileUtil.IsReparsePoint(host)) throw new IOException(NebulaText.Of("Linked folders are not supported: {0}", host));
                 items.Add(ReadItem(host, folder, true));
             }
             foreach (string file in Files)
             {
                 string host = HostPath(root, file);
                 if (!File.Exists(host)) continue;
-                if (FileUtil.IsReparsePoint(host)) throw new IOException("Linked files are not supported: " + host);
+                if (FileUtil.IsReparsePoint(host)) throw new IOException(NebulaText.Of("Linked files are not supported: {0}", host));
                 items.Add(ReadItem(host, file, false));
             }
             return items;
@@ -389,7 +426,7 @@ namespace Nebula.Launcher
             var item = new SaveItem { Path = path, IsFolder = folder };
             if (!folder)
             {
-                if (new FileInfo(host).Length > MaximumFileBytes) throw new InvalidDataException(host + " is too large for a save file.");
+                if (new FileInfo(host).Length > MaximumFileBytes) throw new InvalidDataException(NebulaText.Of("{0} is too large for a save file.", host));
                 item.Data = File.ReadAllBytes(host);
             }
             foreach (var stream in FileUtil.ReadNamedStreams(host, MaximumStreamBytes)) item.Streams[stream.Key] = stream.Value;
@@ -404,13 +441,13 @@ namespace Nebula.Launcher
         {
             foreach (string candidate in new[] { root, Path.Combine(root, "saves"), Path.Combine(root, "save-data"), Path.Combine(root, "nand") })
             {
-                if (File.Exists(HostPath(candidate, GameDataPath))) return ReadTree(FileUtil.FinalPath(candidate));
+                if (Titles.Any(t => File.Exists(HostPath(candidate, GameDataPathOf(t))))) return ReadTree(FileUtil.FinalPath(candidate));
             }
             string save = Path.Combine(root, "GameData.bin");
-            if (!File.Exists(save)) throw new InvalidDataException("This folder does not contain a Super Mario Galaxy save.");
-            var items = new List<SaveItem> { ReadItem(save, GameDataPath, false) };
+            if (!File.Exists(save)) throw new InvalidDataException(NebulaText.Of("This folder does not contain a Super Mario Galaxy save."));
+            var items = new List<SaveItem> { ReadItem(save, GameDataPathOf(LooseTitle), false) };
             string banner = Path.Combine(root, "banner.bin");
-            if (File.Exists(banner)) items.Add(ReadItem(banner, BannerPath, false));
+            if (File.Exists(banner)) items.Add(ReadItem(banner, BannerPathOf(LooseTitle), false));
             return items;
         }
 
@@ -419,7 +456,7 @@ namespace Nebula.Launcher
         {
             ZipArchive archive;
             try { archive = ZipFile.OpenRead(path); }
-            catch (InvalidDataException error) { throw new InvalidDataException("This is not a zip archive, or the archive is damaged.", error); }
+            catch (InvalidDataException error) { throw new InvalidDataException(NebulaText.Of("This is not a zip archive, or the archive is damaged."), error); }
             try
             {
                 using (archive)
@@ -429,7 +466,7 @@ namespace Nebula.Launcher
                     {
                         string name = entry.FullName.Replace('\\', '/');
                         if (name.EndsWith("/", StringComparison.Ordinal)) continue;
-                        if (entries.ContainsKey(name)) throw new InvalidDataException("The archive holds " + name + " twice.");
+                        if (entries.ContainsKey(name)) throw new InvalidDataException(NebulaText.Of("The archive holds {0} twice.", name));
                         entries.Add(name, entry);
                     }
                     Func<string, int, byte[]> read = delegate(string name, int maximumBytes)
@@ -443,13 +480,13 @@ namespace Nebula.Launcher
             catch (InvalidDataException) { throw; }
             catch (FileNotFoundException) { throw; }
             catch (DirectoryNotFoundException) { throw; }
-            catch (IOException error) { throw new InvalidDataException("The archive is damaged.", error); }
-            catch (NotSupportedException error) { throw new InvalidDataException("The archive is damaged.", error); }
+            catch (IOException error) { throw new InvalidDataException(NebulaText.Of("The archive is damaged."), error); }
+            catch (NotSupportedException error) { throw new InvalidDataException(NebulaText.Of("The archive is damaged."), error); }
         }
 
         private static byte[] ReadEntry(ZipArchiveEntry entry, int maximumBytes)
         {
-            if (entry.Length > maximumBytes) throw new InvalidDataException(entry.FullName + " is too large for a save file.");
+            if (entry.Length > maximumBytes) throw new InvalidDataException(NebulaText.Of("{0} is too large for a save file.", entry.FullName));
             using (var memory = new MemoryStream())
             {
                 try
@@ -462,8 +499,8 @@ namespace Nebula.Launcher
                             memory.Write(buffer, 0, read);
                     }
                 }
-                catch (InvalidDataException error) { throw new InvalidDataException("The archive is damaged.", error); }
-                if (memory.Length != entry.Length) throw new InvalidDataException("The archive is damaged.");
+                catch (InvalidDataException error) { throw new InvalidDataException(NebulaText.Of("The archive is damaged."), error); }
+                if (memory.Length != entry.Length) throw new InvalidDataException(NebulaText.Of("The archive is damaged."));
                 return memory.ToArray();
             }
         }
@@ -474,7 +511,7 @@ namespace Nebula.Launcher
             {
                 string file = Path.Combine(root, name.Replace('/', '\\'));
                 if (!File.Exists(file)) return null;
-                if (new FileInfo(file).Length > maximumBytes) throw new InvalidDataException(name + " is too large for a save file.");
+                if (new FileInfo(file).Length > maximumBytes) throw new InvalidDataException(NebulaText.Of("{0} is too large for a save file.", name));
                 return File.ReadAllBytes(file);
             };
         }
@@ -485,22 +522,22 @@ namespace Nebula.Launcher
             {
                 Dictionary<string, object> manifest;
                 try { manifest = Json.Parse(Encoding.UTF8.GetString(read(ManifestEntry, MaximumFileBytes))); }
-                catch (ArgumentException) { throw new InvalidDataException("The archive is damaged."); }
+                catch (ArgumentException) { throw new InvalidDataException(NebulaText.Of("The archive is damaged.")); }
                 if (Json.Str(manifest, "format") != FormatName) throw new InvalidDataException("This is not a Nebula saves archive.");
                 long version = Json.Long(manifest, "version");
-                if (version > FormatVersion) throw new InvalidDataException("This archive needs a newer version of Nebula.");
+                if (version > FormatVersion) throw new InvalidDataException(NebulaText.Of("This archive needs a newer version of Nebula."));
                 IList listed = Json.List(manifest, "items");
-                if (version != FormatVersion || listed == null) throw new InvalidDataException("The archive is damaged.");
+                if (version != FormatVersion || listed == null) throw new InvalidDataException(NebulaText.Of("The archive is damaged."));
                 var items = new List<SaveItem>();
                 foreach (object entry in listed)
                 {
                     var record = entry as Dictionary<string, object>;
                     string type = Json.Str(record, "type");
-                    if (record == null || (type != "folder" && type != "file")) throw new InvalidDataException("The archive is damaged.");
+                    if (record == null || (type != "folder" && type != "file")) throw new InvalidDataException(NebulaText.Of("The archive is damaged."));
                     bool folder = type == "folder";
                     string path = Canonical(Json.Str(record, "path"), folder);
                     if (path == null) continue; // a path this version does not keep
-                    if (items.Any(i => i.IsFolder == folder && i.Path == path)) throw new InvalidDataException("The archive is damaged.");
+                    if (items.Any(i => i.IsFolder == folder && i.Path == path)) throw new InvalidDataException(NebulaText.Of("The archive is damaged."));
                     var item = new SaveItem { Path = path, IsFolder = folder };
                     if (!folder) item.Data = ReadVerified(read, DataEntry(path), record, MaximumFileBytes);
                     IList streams = Json.List(record, "streams") ?? new object[0];
@@ -508,25 +545,25 @@ namespace Nebula.Launcher
                     {
                         var stream = value as Dictionary<string, object>;
                         string name = Json.Str(stream, "name");
-                        if (stream == null || !IsStreamName(name) || item.Streams.ContainsKey(name)) throw new InvalidDataException("The archive is damaged.");
+                        if (stream == null || !IsStreamName(name) || item.Streams.ContainsKey(name)) throw new InvalidDataException(NebulaText.Of("The archive is damaged."));
                         item.Streams[name] = ReadVerified(read, StreamEntry(path, name), stream, MaximumStreamBytes);
                     }
                     items.Add(item);
                 }
                 return items;
             }
-            catch (FormatException) { throw new InvalidDataException("The archive is damaged."); }
-            catch (InvalidCastException) { throw new InvalidDataException("The archive is damaged."); }
-            catch (OverflowException) { throw new InvalidDataException("The archive is damaged."); }
+            catch (FormatException) { throw new InvalidDataException(NebulaText.Of("The archive is damaged.")); }
+            catch (InvalidCastException) { throw new InvalidDataException(NebulaText.Of("The archive is damaged.")); }
+            catch (OverflowException) { throw new InvalidDataException(NebulaText.Of("The archive is damaged.")); }
         }
 
         private static byte[] ReadVerified(Func<string, int, byte[]> read, string name, Dictionary<string, object> record, int maximumBytes)
         {
             byte[] bytes = read(name, maximumBytes);
-            if (bytes == null) throw new InvalidDataException("The archive is damaged: " + name + " is missing.");
+            if (bytes == null) throw new InvalidDataException(NebulaText.Of("The archive is damaged: {0} is missing.", name));
             if (Json.Long(record, "size") != bytes.Length ||
                 !string.Equals(Json.Str(record, "sha256"), FileUtil.Sha256Bytes(bytes), StringComparison.OrdinalIgnoreCase))
-                throw new InvalidDataException("The archive is damaged: " + name + " does not match its checksum.");
+                throw new InvalidDataException(NebulaText.Of("The archive is damaged: {0} does not match its checksum.", name));
             return bytes;
         }
 
@@ -536,10 +573,14 @@ namespace Nebula.Launcher
             string prefix = null;
             foreach (string name in names)
             {
-                if (!name.EndsWith(GameDataPath, StringComparison.OrdinalIgnoreCase)) continue;
-                string head = name.Substring(0, name.Length - GameDataPath.Length);
-                if ((head.Length == 0 || head.EndsWith("/", StringComparison.Ordinal)) && (prefix == null || head.Length < prefix.Length))
-                    prefix = head;
+                foreach (string title in Titles)
+                {
+                    string path = GameDataPathOf(title);
+                    if (!name.EndsWith(path, StringComparison.OrdinalIgnoreCase)) continue;
+                    string head = name.Substring(0, name.Length - path.Length);
+                    if ((head.Length == 0 || head.EndsWith("/", StringComparison.Ordinal)) && (prefix == null || head.Length < prefix.Length))
+                        prefix = head;
+                }
             }
             var items = new List<SaveItem>();
             if (prefix != null)
@@ -554,10 +595,10 @@ namespace Nebula.Launcher
             string save = names.Where(n => n.Equals("GameData.bin", StringComparison.OrdinalIgnoreCase) ||
                                            n.EndsWith("/GameData.bin", StringComparison.OrdinalIgnoreCase))
                                .OrderBy(n => n.Length).FirstOrDefault();
-            if (save == null) throw new InvalidDataException("This archive does not contain a Super Mario Galaxy save.");
-            items.Add(new SaveItem { Path = GameDataPath, Data = read(save, MaximumFileBytes) });
+            if (save == null) throw new InvalidDataException(NebulaText.Of("This archive does not contain a Super Mario Galaxy save."));
+            items.Add(new SaveItem { Path = GameDataPathOf(LooseTitle), Data = read(save, MaximumFileBytes) });
             byte[] banner = read(save.Substring(0, save.Length - "GameData.bin".Length) + "banner.bin", MaximumFileBytes);
-            if (banner != null) items.Add(new SaveItem { Path = BannerPath, Data = banner });
+            if (banner != null) items.Add(new SaveItem { Path = BannerPathOf(LooseTitle), Data = banner });
             return items;
         }
 

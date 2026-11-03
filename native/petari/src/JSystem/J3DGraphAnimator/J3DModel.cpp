@@ -6,9 +6,7 @@
 
 void J3DModel::initialize() {
     mModelData = NULL;
-#ifdef TARGET_PC
     mMotionEpoch = 0;
-#endif
     mFlags = 0;
     mDiffFlag = 0;
     mCalcCallBack = NULL;
@@ -18,17 +16,13 @@ void J3DModel::initialize() {
     mBaseScale.y = 1.0f;
     mBaseScale.z = 1.0f;
 
-    PSMTXIdentity(mBaseTransformMtx);
-    PSMTXIdentity(mInternalView);
+    NebulaMtxIdentity(mBaseTransformMtx);
+    NebulaMtxIdentity(mInternalView);
 
     mMtxBuffer = NULL;
     mMatPacket = NULL;
     mShapePacket = NULL;
-    mDeformData = NULL;
-    mSkinDeform = NULL;
-    mVtxColorCalc = NULL;
     mUnkCalc1 = NULL;
-    mUnkCalc2 = NULL;
 }
 
 s32 J3DModel::entryModelData(J3DModelData* pModelData, u32 mdlFlags, u32 mtxNum) {
@@ -61,23 +55,14 @@ s32 J3DModel::entryModelData(J3DModelData* pModelData, u32 mdlFlags, u32 mtxNum)
     if (mdlFlags & J3DMdlFlag_UseDefaultJ3D) {
         onFlag(J3DMdlFlag_UseDefaultJ3D);
     }
-    if (mdlFlags & J3DMdlFlag_EnableLOD) {
-        onFlag(J3DMdlFlag_EnableLOD);
+    if (mdlFlags & J3DMdlFlag_UseSharedSnapshot) {
+        onFlag(J3DMdlFlag_UseSharedSnapshot);
     }
-    if (mdlFlags & J3DMdlFlag_UseSharedDL) {
-        onFlag(J3DMdlFlag_UseSharedDL);
+    if (mdlFlags & J3DMdlFlag_UseSingleSnapshot) {
+        onFlag(J3DMdlFlag_UseSingleSnapshot);
     }
-    if (mdlFlags & J3DMdlFlag_UseSingleDL) {
-        onFlag(J3DMdlFlag_UseSingleDL);
-    }
-    if (mdlFlags & J3DMdlFlag_DifferedDLBuffer) {
-        onFlag(J3DMdlFlag_DifferedDLBuffer);
-    }
-    if (mdlFlags & J3DMdlFlag_SkinPosCpu) {
-        onFlag(J3DMdlFlag_SkinPosCpu);
-    }
-    if (mdlFlags & J3DMdlFlag_SkinNrmCpu) {
-        onFlag(J3DMdlFlag_SkinNrmCpu);
+    if (mdlFlags & J3DMdlFlag_DifferedSnapshots) {
+        onFlag(J3DMdlFlag_DifferedSnapshots);
     }
 
     return kJ3DError_Success;
@@ -117,42 +102,37 @@ s32 J3DModel::createMatPacket(J3DModelData* pModelData, u32 mdlFlags) {
             matPacket->lock();
         }
 
-        if (mdlFlags & J3DMdlFlag_DifferedDLBuffer) {
-            J3DDisplayListObj* dlobj = materialNode->getSharedDisplayListObj();
-            matPacket->setDisplayListObj(dlobj);
+        if (mdlFlags & J3DMdlFlag_DifferedSnapshots) {
+            J3DMaterialSnapshot* dlobj = materialNode->getSharedSnapshot();
+            matPacket->setSnapshot(dlobj);
         } else {
             if (pModelData->getModelDataType() == 1) {
-                if (mdlFlags & J3DMdlFlag_UseSingleDL) {
-                    matPacket->mpDisplayListObj = materialNode->getSharedDisplayListObj();
-                    matPacket->setDisplayListObj(matPacket->mpDisplayListObj);
+                if (mdlFlags & J3DMdlFlag_UseSingleSnapshot) {
+                    matPacket->mpSnapshot = materialNode->getSharedSnapshot();
+                    matPacket->setSnapshot(matPacket->mpSnapshot);
                 } else {
-                    J3DDisplayListObj* dlobj = materialNode->getSharedDisplayListObj();
-                    s32 ret = dlobj->single_To_Double();
-                    if (ret != kJ3DError_Success) {
-                        return ret;
-                    }
+                    J3DMaterialSnapshot* dlobj = materialNode->getSharedSnapshot();
 
-                    matPacket->setDisplayListObj(dlobj);
+                    matPacket->setSnapshot(dlobj);
                 }
-            } else if (mdlFlags & J3DMdlFlag_UseSharedDL) {
-                if (mdlFlags & J3DMdlFlag_UseSingleDL) {
-                    materialNode->newSingleSharedDisplayList(materialNode->countDLSize());
+            } else if (mdlFlags & J3DMdlFlag_UseSharedSnapshot) {
+                if (mdlFlags & J3DMdlFlag_UseSingleSnapshot) {
+                    materialNode->newSharedSnapshot();
 
-                    J3DDisplayListObj* dlobj = materialNode->getSharedDisplayListObj();
-                    matPacket->setDisplayListObj(dlobj);
+                    J3DMaterialSnapshot* dlobj = materialNode->getSharedSnapshot();
+                    matPacket->setSnapshot(dlobj);
                 } else {
-                    materialNode->newSharedDisplayList(materialNode->countDLSize());
+                    materialNode->newSharedSnapshot();
 
-                    J3DDisplayListObj* dlobj = materialNode->getSharedDisplayListObj();
-                    dlobj->single_To_Double();
+                    J3DMaterialSnapshot* dlobj = materialNode->getSharedSnapshot();
 
-                    matPacket->setDisplayListObj(dlobj);
+                    matPacket->setSnapshot(dlobj);
                 }
             } else {
-                if (mdlFlags & J3DMdlFlag_UseSingleDL) {
-                    matPacket->newSingleDisplayList(materialNode->countDLSize());
+                if (mdlFlags & J3DMdlFlag_UseSingleSnapshot) {
+                    matPacket->newSnapshot();
                 } else {
-                    matPacket->newDisplayList(materialNode->countDLSize());
+                    matPacket->newSnapshot();
                 }
             }
         }
@@ -175,31 +155,19 @@ void J3DModel::unlock() {
     }
 }
 
-void J3DModel::makeDL() {
+void J3DModel::makeMesh() {
     j3dSys.setModel(this);
     j3dSys.setTexture(mModelData->getTexture());
 
     u16 matNum = mModelData->getMaterialNum();
     for (u16 i = 0; i < matNum; i++) {
         j3dSys.setMatPacket(&mMatPacket[i]);
-        mModelData->getMaterialNodePointer(i)->makeDisplayList();
+        mModelData->getMaterialNodePointer(i)->makeSnapshot();
     }
 }
 
 void J3DModel::calcMaterial() {
     j3dSys.setModel(this);
-
-    if (checkFlag(J3DMdlFlag_SkinPosCpu)) {
-        j3dSys.onFlag(4);
-    } else {
-        j3dSys.offFlag(4);
-    }
-
-    if (checkFlag(J3DMdlFlag_SkinNrmCpu)) {
-        j3dSys.onFlag(8);
-    } else {
-        j3dSys.offFlag(8);
-    }
 
     mModelData->syncJ3DSysFlags();
     j3dSys.setTexture(mModelData->getTexture());
@@ -253,7 +221,7 @@ void J3DModel::calcAnmMtx() {
 }
 
 void J3DModel::calcWeightEnvelopeMtx() {
-    if (getModelData()->getWEvlpMtxNum() != 0 && !checkFlag(J3DMdlFlag_EnableLOD)) {
+    if (getModelData()->getWEvlpMtxNum() != 0) {
         if (!getModelData()->checkFlag(0x100)) {
             mMtxBuffer->calcWeightEnvelopeMtx();
         }
@@ -268,34 +236,10 @@ void J3DModel::update() {
 void J3DModel::calc() {
     j3dSys.setModel(this);
 
-    if (checkFlag(J3DMdlFlag_SkinPosCpu)) {
-        j3dSys.onFlag(J3DSysFlag_SkinPosCpu);
-    } else {
-        j3dSys.offFlag(J3DSysFlag_SkinPosCpu);
-    }
-
-    if (checkFlag(J3DMdlFlag_SkinNrmCpu)) {
-        j3dSys.onFlag(J3DSysFlag_SkinNrmCpu);
-    } else {
-        j3dSys.offFlag(J3DSysFlag_SkinNrmCpu);
-    }
-
     mModelData->syncJ3DSysFlags();
     mVertexBuffer.setCurrentVtxPos(mVertexBuffer.mVtxPosArray[0]);
     mVertexBuffer.setCurrentVtxNrm(mVertexBuffer.mVtxNrmArray[0]);
     mVertexBuffer.setCurrentVtxCol(mVertexBuffer.mVtxColArray[0]);
-
-    if (mUnkCalc2 != NULL) {
-        mUnkCalc2->calc(mModelData);
-    }
-
-    if (mDeformData != NULL) {
-        mDeformData->deform(this);
-    }
-
-    if (mVtxColorCalc != NULL) {
-        mVtxColorCalc->calc(this);
-    }
 
     if (mUnkCalc1 != NULL) {
         mUnkCalc1->calc(this);
@@ -304,10 +248,6 @@ void J3DModel::calc() {
     calcAnmMtx();
     calcWeightEnvelopeMtx();
 
-    if (mSkinDeform != NULL) {
-        mSkinDeform->deform(this);
-    }
-
     if (mCalcCallBack != NULL) {
         mCalcCallBack(this, 0);
     }
@@ -315,18 +255,6 @@ void J3DModel::calc() {
 
 void J3DModel::entry() {
     j3dSys.setModel(this);
-
-    if (checkFlag(J3DMdlFlag_SkinPosCpu)) {
-        j3dSys.onFlag(J3DSysFlag_SkinPosCpu);
-    } else {
-        j3dSys.offFlag(J3DSysFlag_SkinPosCpu);
-    }
-
-    if (checkFlag(J3DMdlFlag_SkinNrmCpu)) {
-        j3dSys.onFlag(J3DSysFlag_SkinNrmCpu);
-    } else {
-        j3dSys.offFlag(J3DSysFlag_SkinNrmCpu);
-    }
 
     mModelData->syncJ3DSysFlags();
     j3dSys.setTexture(mModelData->getTexture());
@@ -347,27 +275,11 @@ void J3DModel::viewCalc() {
         if (getMtxCalcMode() == 2) {
             J3DCalcViewBaseMtx(j3dSys.getViewMtx(), mBaseScale, mBaseTransformMtx, (MtxPtr)&mInternalView);
         }
-    } else if (isCpuSkinningOn()) {
-        if (getMtxCalcMode() == 2) {
-            J3DCalcViewBaseMtx(j3dSys.getViewMtx(), mBaseScale, mBaseTransformMtx, (MtxPtr)&mInternalView);
-        }
-    } else if (checkFlag(J3DMdlFlag_SkinPosCpu)) {
-        mMtxBuffer->calcDrawMtx(getMtxCalcMode(), mBaseScale, mBaseTransformMtx);
-        calcNrmMtx();
-        calcBumpMtx();
-        DCStoreRangeNoSync(getDrawMtxPtr(), mModelData->getDrawMtxNum() * sizeof(Mtx));
-        DCStoreRange(getNrmMtxPtr(), mModelData->getDrawMtxNum() * sizeof(Mtx33));
-    } else if (checkFlag(J3DMdlFlag_SkinNrmCpu)) {
-        mMtxBuffer->calcDrawMtx(getMtxCalcMode(), mBaseScale, mBaseTransformMtx);
-        calcBBoardMtx();
-        DCStoreRange(getDrawMtxPtr(), mModelData->getDrawMtxNum() * sizeof(Mtx));
     } else {
         mMtxBuffer->calcDrawMtx(getMtxCalcMode(), mBaseScale, mBaseTransformMtx);
         calcNrmMtx();
         calcBBoardMtx();
         calcBumpMtx();
-        DCStoreRangeNoSync(getDrawMtxPtr(), mModelData->getDrawMtxNum() * sizeof(Mtx));
-        DCStoreRange(getNrmMtxPtr(), mModelData->getDrawMtxNum() * sizeof(Mtx33));
     }
 
     prepareShapePackets();
@@ -382,7 +294,6 @@ void J3DModel::calcBumpMtx() {
             J3DMaterial* material = getModelData()->getMaterialNodePointer(i);
             if (material->getNBTScale()->mbHasScale == TRUE) {
                 material->getShape()->calcNBTScale(*material->getNBTScale()->getScale(), getNrmMtxPtr(), getBumpMtxPtr(bumpMtxIdx));
-                DCStoreRange(getBumpMtxPtr(bumpMtxIdx), mModelData->getDrawMtxNum() * sizeof(Mtx33));
                 bumpMtxIdx++;
             }
         }
@@ -399,7 +310,6 @@ void J3DModel::prepareShapePackets() {
     u16 shapeNum = mModelData->getShapeNum();
 
     for (u16 i = 0; i < shapeNum; i++) {
-        J3DShape* shapeNode = mModelData->getShapeNodePointer(i);
         J3DShapePacket* shapePacket = &mShapePacket[i];
         shapePacket->setMtxBuffer(mMtxBuffer);
 

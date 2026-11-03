@@ -1,4 +1,7 @@
 #include "Game/Map/OceanBowl.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
 #include "Game/Map/OceanBowlBloomDrawer.hpp"
 #include "Game/Map/OceanBowlPoint.hpp"
 #include "Game/Map/WaterAreaHolder.hpp"
@@ -13,6 +16,7 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/ScreenUtil.hpp"
 #include "JSystem/JUtility/JUTTexture.hpp"
+#include "Game/Util/NativeShader.hpp"
 
 // These are from the debug symbol map
 namespace {
@@ -33,8 +37,8 @@ namespace {
     const f32 sClippingDistance = 1000.0f;
     const f32 sPointIntervalHalf = ::sPointInterval / 2.0f;
 
-    static GXColor sOceanBowlTevReg0 = {40, 40, 40, 20};
-    static GXColor sOceanBowlTevReg1 = {200, 230, 210, 255};
+    static NebulaColor8 sOceanBowlTevReg0 = {40, 40, 40, 20};
+    static NebulaColor8 sOceanBowlTevReg1 = {200, 230, 210, 255};
     static u8 sOceanBowlBloomTevReg0V = 95;
     static u8 sOceanBowlBloomTevReg1V = 50;
 };  // namespace
@@ -61,9 +65,9 @@ void OceanBowl::init(const JMapInfoIter& rIter) {
     initPoints();
     WaterAreaFunction::entryOceanBowl(this);
 
-    mWaterTex = new JUTTexture(MR::loadTexFromArc("WaterWave.arc", "Water.bti"), 0);
-    mWaterIndirectTex = new JUTTexture(MR::loadTexFromArc("WaterWave.arc", "WaterIndirect.bti"), 0);
-    mMaskTex = new JUTTexture(MR::loadTexFromArc("WaterWave.arc", "Mask.bti"), 0);
+    mWaterTex = new JUTTexture(MR::loadTexFromArc("WaterWave.arc", "Water.bti"));
+    mWaterIndirectTex = new JUTTexture(MR::loadTexFromArc("WaterWave.arc", "WaterIndirect.bti"));
+    mMaskTex = new JUTTexture(MR::loadTexFromArc("WaterWave.arc", "Mask.bti"));
 
     mBloomDrawer = new OceanBowlBloomDrawer(this);
     mBloomDrawer->initWithoutIter();
@@ -81,10 +85,6 @@ bool OceanBowl::isInWater(const TVec3f& rPos) const {
     return !(mUp.dot(rPos - mPosition) > 0.0f);
 }
 
-// only way I could get it to match.
-// TODO remove me
-#pragma push
-#pragma opt_propagation off
 bool OceanBowl::calcWaterInfo(const TVec3f& rPos, const TVec3f& rGravity, WaterInfo* pInfo) const {
     const TVec3f* pPosition = &mPosition;
     f32 B0 = mRadius;
@@ -137,7 +137,6 @@ bool OceanBowl::calcWaterInfo(const TVec3f& rPos, const TVec3f& rGravity, WaterI
 
     return true;
 }
-#pragma pop
 
 void OceanBowl::movement() {
     const TVec3f* pPosition = &getPoint(12, 12)->mPosition;
@@ -192,10 +191,10 @@ void OceanBowl::initPoints() {
         }
     }
 
-    mVtxTex0Array = new (0x20) NEBULA_BE(f32)[24 * 25 * 4];
-    mVtxTex1Array = new (0x20) NEBULA_BE(f32)[24 * 25 * 4];
-    mVtxTex2Array = new (0x20) NEBULA_BE(f32)[24 * 25 * 4];
-    mVtxTex3Array = new (0x20) NEBULA_BE(f32)[24 * 25 * 4];
+    mVtxTex0Array = new (0x20) f32[24 * 25 * 4];
+    mVtxTex1Array = new (0x20) f32[24 * 25 * 4];
+    mVtxTex2Array = new (0x20) f32[24 * 25 * 4];
+    mVtxTex3Array = new (0x20) f32[24 * 25 * 4];
 
     s32 index = 0;
 
@@ -365,202 +364,95 @@ void OceanBowl::draw() const {
     u16 even = 0;
     u16 odd = 1;
     for (s32 x = 0; x < 24; x++) {
-        GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, 50);
+        // Texture coordinates 0-3 are entries of the bowl's arrays (two floats each), the vertex's index in all four.
+        J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, 50,
+                             NEBULA_SHAPE_COLOR0 | NEBULA_SHAPE_TEXCOORD0 | NEBULA_SHAPE_TEXCOORD0 << 1 |
+                                 NEBULA_SHAPE_TEXCOORD0 << 2 | NEBULA_SHAPE_TEXCOORD0 << 3);
 
         for (s32 y = 0; y < 25; y++) {
             OceanBowlPoint* pPoint = getPoint(x + 1, y);
             OceanBowlPoint* pPoint2 = getPoint(x, y);
 
-            GXPosition3f32(pPoint->mVertexPosition.x, pPoint->mVertexPosition.y, pPoint->mVertexPosition.z);
-            GXColor4u8(255, 255, 255, getPoint(x + 1, y)->mAlpha);
-            GXTexCoord2s16(even, even);
-            GXTexCoord2s16(even, even);
+            J3DNativeDraw::position(pPoint->mVertexPosition.x, pPoint->mVertexPosition.y, pPoint->mVertexPosition.z);
+            J3DNativeDraw::color(255, 255, 255, getPoint(x + 1, y)->mAlpha);
+            J3DNativeDraw::texCoord(mVtxTex0Array[2 * even], mVtxTex0Array[2 * even + 1]);
+            J3DNativeDraw::texCoord(mVtxTex1Array[2 * even], mVtxTex1Array[2 * even + 1]);
+            J3DNativeDraw::texCoord(mVtxTex2Array[2 * even], mVtxTex2Array[2 * even + 1]);
+            J3DNativeDraw::texCoord(mVtxTex3Array[2 * even], mVtxTex3Array[2 * even + 1]);
 
-            GXPosition3f32(pPoint2->mVertexPosition.x, pPoint2->mVertexPosition.y, pPoint2->mVertexPosition.z);
-            GXColor4u8(255, 255, 255, getPoint(x, y)->mAlpha);
-            GXTexCoord2s16(odd, odd);
-            GXTexCoord2s16(odd, odd);
+            J3DNativeDraw::position(pPoint2->mVertexPosition.x, pPoint2->mVertexPosition.y, pPoint2->mVertexPosition.z);
+            J3DNativeDraw::color(255, 255, 255, getPoint(x, y)->mAlpha);
+            J3DNativeDraw::texCoord(mVtxTex0Array[2 * odd], mVtxTex0Array[2 * odd + 1]);
+            J3DNativeDraw::texCoord(mVtxTex1Array[2 * odd], mVtxTex1Array[2 * odd + 1]);
+            J3DNativeDraw::texCoord(mVtxTex2Array[2 * odd], mVtxTex2Array[2 * odd + 1]);
+            J3DNativeDraw::texCoord(mVtxTex3Array[2 * odd], mVtxTex3Array[2 * odd + 1]);
 
             even += 2;
             odd += 2;
         }
-
-        GXEnd();
     }
 }
 
 void OceanBowl::loadMaterial() const {
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX1, GX_TEX_ST, GX_F32, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX2, GX_TEX_ST, GX_F32, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX3, GX_TEX_ST, GX_F32, 0);
-    GXClearVtxDesc();
-    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_TEX0, GX_INDEX16);
-    GXSetVtxDesc(GX_VA_TEX1, GX_INDEX16);
-    GXSetVtxDesc(GX_VA_TEX2, GX_INDEX16);
-    GXSetVtxDesc(GX_VA_TEX3, GX_INDEX16);
-    GXSetArray(GX_VA_TEX0, mVtxTex0Array, 8);
-    GXSetArray(GX_VA_TEX1, mVtxTex1Array, 8);
-    GXSetArray(GX_VA_TEX2, mVtxTex2Array, 8);
-    GXSetArray(GX_VA_TEX3, mVtxTex3Array, 8);
-    GXLoadPosMtxImm(MR::getCameraViewMtx(), 0);
-    GXSetCurrentMtx(0);
-    GXSetNumChans(1);
-    GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_VTX, GX_SRC_VTX, 0, GX_DF_NONE, GX_AF_NONE);
-    GXSetNumTexGens(5);
-    GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_TEXMTX0, GX_FALSE, GX_PTIDENTITY);
-    GXSetTexCoordGen2(GX_TEXCOORD1, GX_TG_MTX2x4, GX_TG_TEX1, GX_TEXMTX1, GX_FALSE, GX_PTIDENTITY);
-    GXSetTexCoordGen2(GX_TEXCOORD2, GX_TG_MTX2x4, GX_TG_TEX2, GX_TEXMTX2, GX_FALSE, GX_PTIDENTITY);
-    GXSetTexCoordGen2(GX_TEXCOORD3, GX_TG_MTX3x4, GX_TG_POS, GX_TEXMTX3, GX_FALSE, GX_PTIDENTITY);
-    GXSetTexCoordGen2(GX_TEXCOORD4, GX_TG_MTX3x4, GX_TG_TEX3, GX_TEXMTX4, GX_FALSE, GX_PTIDENTITY);
-    GXSetTexCoordGen2(GX_TEXCOORD4, GX_TG_MTX2x4, GX_TG_TEX3, GX_TEXMTX4, GX_TRUE, GX_PTIDENTITY);
-
-    TMtx34f mat;
-    mat.identity();
-    mat[0][2] = mTexU0;
-    mat[1][2] = mTexV0;
-    GXLoadTexMtxImm(mat, GX_TEXMTX0, GX_MTX2x4);
-    mat[0][2] = mTexU1;
-    mat[1][2] = mTexV1;
-    GXLoadTexMtxImm(mat, GX_TEXMTX1, GX_MTX2x4);
-    mat[0][2] = mTexU2;
-    mat[1][2] = mTexV2;
-    GXLoadTexMtxImm(mat, GX_TEXMTX2, GX_MTX2x4);
-    f32 a = (getPoint(0, 0)->mVertexPosition.x - MR::getPlayerPos()->x) + 2400.0f;
-    f32 b = (getPoint(0, 0)->mVertexPosition.z - MR::getPlayerPos()->z) + 2400.0f;
-    f32 c = a / 4800.0f;
-    f32 d = b / 4800.0f;
-    mat[0][2] = d;
-    mat[1][2] = c;
-    GXLoadTexMtxImm(mat, GX_TEXMTX4, GX_MTX2x4);
-    MR::loadTexProjectionMtx(39);
-    mWaterTex->load(GX_TEXMAP0);
-    JUTTexture screentex(MR::getScreenResTIMG(), 0);
-    screentex.load(GX_TEXMAP1);
-    mWaterIndirectTex->load(GX_TEXMAP2);
-    mMaskTex->load(GX_TEXMAP3);
-    MR::resetTextureCacheSize();
-    if (MR::isCameraInWater()) {
-        GXSetNumIndStages(0);
-    } else {
-        GXSetNumIndStages(1);
-        GXSetIndTexOrder(GX_INDTEXSTAGE0, GX_TEXCOORD2, GX_TEXMAP2);
-        GXSetTevIndWarp(GX_TEVSTAGE3, GX_INDTEXSTAGE0, 1, 0, GX_ITM_0);
-        f32 indmtx[2][3];
-        indmtx[0][0] = ::sIndirectScale;
-        indmtx[0][1] = 0.0f;
-        indmtx[0][2] = 0.0f;
-        indmtx[1][0] = 0.0f;
-        indmtx[1][1] = ::sIndirectScale;
-        indmtx[1][2] = 0.0f;
-
-        GXSetIndTexMtx(GX_ITM_0, indmtx, 0);
+    // runtime/src/render/materials/ocean_bowl.hlsl: the water (texture 0) and, above water, the screen behind (texture
+    // 1) warped by the indirect texture (texture 2); alpha the vertex alpha times the shore mask (texture 3). Blended by
+    // its alpha (added under water), depth tested, not written.
+    J3DNativeShape::setPosition(0, MR::getCameraViewMtx());
+    J3DNativeShape::setCurrentIdentity();
+    const bool inWater = MR::isCameraInWater();
+    JUTTexture screenTexture(MR::getScreenResTIMG());
+    NebulaNativeMaterial material;
+    NativeShader::init(material, NEBULA_SHADER_OCEAN_BOWL,
+                       inWater ? NativeShader::BLEND_ADD_ALPHA : NativeShader::BLEND_ALPHA, NEBULA_COMPARE_LEQUAL,
+                       false, NEBULA_CULL_NONE);
+    NativeShader::setColor(material, 0, ::sOceanBowlTevReg0.r, ::sOceanBowlTevReg0.g, ::sOceanBowlTevReg0.b,
+                           ::sOceanBowlTevReg0.a);
+    NativeShader::setColor(material, 4, ::sOceanBowlTevReg1.r, ::sOceanBowlTevReg1.g, ::sOceanBowlTevReg1.b,
+                           ::sOceanBowlTevReg1.a);
+    material.constants[8] = mTexU0;
+    material.constants[9] = mTexV0;
+    material.constants[10] = mTexU1;
+    material.constants[11] = mTexV1;
+    material.constants[12] = mTexU2;
+    material.constants[13] = mTexV2;
+    // The shore mask follows the player: its offset from the bowl's first point, over the mask's 4800 units.
+    material.constants[14] = ((getPoint(0, 0)->mVertexPosition.z - MR::getPlayerPos()->z) + 2400.0f) / 4800.0f;
+    material.constants[15] = ((getPoint(0, 0)->mVertexPosition.x - MR::getPlayerPos()->x) + 2400.0f) / 4800.0f;
+    TPos3f screen;
+    MR::calcTexProjectionMtx(&screen);
+    for (u32 row = 0; row < 3; row++) {
+        for (u32 column = 0; column < 4; column++) {
+            material.constants[16 + row * 4 + column] = screen.mMtx[row][column];
+        }
     }
-
-    if (MR::isCameraInWater()) {
-        GXSetNumTevStages(3);
-    } else {
-        GXSetNumTevStages(4);
-    }
-
-    GXSetTevColor(GX_TEVREG0, ::sOceanBowlTevReg0);
-    GXSetTevColor(GX_TEVREG1, ::sOceanBowlTevReg1);
-
-    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR_NULL);
-    GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_TEXC, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO);
-    GXSetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_TEXA, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
-
-    GXSetTevOrder(GX_TEVSTAGE1, GX_TEXCOORD1, GX_TEXMAP0, GX_COLOR_NULL);
-    GXSetTevColorIn(GX_TEVSTAGE1, GX_CC_ZERO, GX_CC_TEXC, GX_CC_CPREV, GX_CC_ZERO);
-    GXSetTevColorOp(GX_TEVSTAGE1, GX_TEV_ADD, GX_TB_ZERO, GX_CS_DIVIDE_2, GX_FALSE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE1, GX_CA_ZERO, GX_CA_TEXA, GX_CA_APREV, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE1, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_2, GX_FALSE, GX_TEVPREV);
-
-    GXSetTevOrder(GX_TEVSTAGE2, GX_TEXCOORD4, GX_TEXMAP3, GX_COLOR0A0);
-    GXSetTevColorIn(GX_TEVSTAGE2, GX_CC_CPREV, GX_CC_A0, GX_CC_C0, GX_CC_CPREV);
-    GXSetTevColorOp(GX_TEVSTAGE2, GX_TEV_COMP_R8_EQ, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE2, GX_CA_ZERO, GX_CA_RASA, GX_CA_TEXA, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE2, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
-
-    if (!MR::isCameraInWater()) {
-        GXSetTevOrder(GX_TEVSTAGE3, GX_TEXCOORD3, GX_TEXMAP1, GX_COLOR_NULL);
-        GXSetTevColorIn(GX_TEVSTAGE3, GX_CC_ZERO, GX_CC_TEXC, GX_CC_C1, GX_CC_CPREV);
-        GXSetTevColorOp(GX_TEVSTAGE3, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-        GXSetTevAlphaIn(GX_TEVSTAGE3, GX_CA_APREV, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
-        GXSetTevAlphaOp(GX_TEVSTAGE3, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
-    }
-
-    if (MR::isCameraInWater()) {
-        GXSetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_ONE, GX_LO_NOOP);
-    } else {
-        GXSetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_NOOP);
-    }
-
-    GXSetAlphaCompare(GX_GREATER, 0, GX_AOP_OR, GX_GREATER, 0);
-    GXSetZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
-    GXSetZCompLoc(GX_TRUE);
-    GXSetCullMode(GX_CULL_NONE);
-    GXSetClipMode(GX_CLIP_ENABLE);
+    material.constants[28] = ::sIndirectScale / screenTexture.getWidth();
+    material.constants[29] = ::sIndirectScale / screenTexture.getHeight();
+    material.constants[30] = inWater ? 0.0f : 1.0f;
+    NativeShader::setTexture(material, 0, mWaterTex);
+    NativeShader::setTexture(material, 1, &screenTexture);
+    NativeShader::setTexture(material, 2, mWaterIndirectTex);
+    NativeShader::setTexture(material, 3, mMaskTex);
+    NativeShader::send(material);
 }
 
 void OceanBowl::loadMaterialBloom() const {
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX1, GX_TEX_ST, GX_F32, 0);
-    GXClearVtxDesc();
-    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_TEX0, GX_INDEX16);
-    GXSetVtxDesc(GX_VA_TEX1, GX_INDEX16);
-    GXSetArray(GX_VA_TEX0, mVtxTex0Array, 8);
-    GXSetArray(GX_VA_TEX1, mVtxTex1Array, 8);
-    GXLoadPosMtxImm(MR::getCameraViewMtx(), 0);
-    GXSetCurrentMtx(0);
-    GXSetNumChans(1);
-    GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_VTX, GX_SRC_VTX, 0, GX_DF_NONE, GX_AF_NONE);
-    GXSetNumTexGens(2);
-    GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_TEXMTX0, GX_FALSE, GX_PTIDENTITY);
-    GXSetTexCoordGen2(GX_TEXCOORD1, GX_TG_MTX2x4, GX_TG_TEX1, GX_TEXMTX1, GX_FALSE, GX_PTIDENTITY);
-
-    TMtx34f mat;
-    mat.identity();
-    mat[0][2] = mTexU0;
-    mat[1][2] = mTexV0;
-    GXLoadTexMtxImm(mat, GX_TEXMTX0, GX_MTX2x4);
-    mat[0][2] = mTexU1;
-    mat[1][2] = mTexV1;
-    GXLoadTexMtxImm(mat, GX_TEXMTX1, GX_MTX2x4);
-    mWaterTex->load(GX_TEXMAP0);
-    GXSetNumIndStages(0);
-    GXSetNumTevStages(2);
-    Color8 c0 = Color8(::sOceanBowlBloomTevReg0V, ::sOceanBowlBloomTevReg0V, ::sOceanBowlBloomTevReg0V, 255);
-    Color8 c1 = Color8(::sOceanBowlBloomTevReg1V, ::sOceanBowlBloomTevReg1V, ::sOceanBowlBloomTevReg1V, 255);
-    GXSetTevColor(GX_TEVREG0, c0);
-    GXSetTevColor(GX_TEVREG1, c1);
-
-    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
-    GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_TEXC, GX_CC_C0, GX_CC_C1);
-    GXSetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_TEXA, GX_CA_RASA, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-
-    GXSetTevOrder(GX_TEVSTAGE1, GX_TEXCOORD1, GX_TEXMAP0, GX_COLOR0A0);
-    GXSetTevColorIn(GX_TEVSTAGE1, GX_CC_ZERO, GX_CC_TEXC, GX_CC_C0, GX_CC_CPREV);
-    GXSetTevColorOp(GX_TEVSTAGE1, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE1, GX_CA_ZERO, GX_CA_TEXA, GX_CA_RASA, GX_CA_APREV);
-    GXSetTevAlphaOp(GX_TEVSTAGE1, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-
-    GXSetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_NOOP);
-    GXSetAlphaCompare(GX_GREATER, 0, GX_AOP_OR, GX_GREATER, 0);
-    GXSetZMode(GX_TRUE, GX_LEQUAL, GX_TRUE);
-    GXSetZCompLoc(GX_TRUE);
-    GXSetCullMode(GX_CULL_NONE);
-    GXSetClipMode(GX_CLIP_ENABLE);
+    // runtime/src/render/materials/ocean_bowl_bloom.hlsl: the water texture at its two scrolls times the grey c0 over
+    // the grey c1, alpha the texture's by the vertex alpha at both; blended by its alpha where above zero, depth
+    // tested and written before texturing, no culling.
+    J3DNativeShape::setPosition(0, MR::getCameraViewMtx());
+    J3DNativeShape::setCurrentIdentity();
+    NebulaNativeMaterial material;
+    NativeShader::init(material, NEBULA_SHADER_OCEAN_BOWL_BLOOM, NativeShader::BLEND_ALPHA, NEBULA_COMPARE_LEQUAL, true,
+                       NEBULA_CULL_NONE);
+    material.early_depth = 1;
+    NativeShader::setColor(material, 0, ::sOceanBowlBloomTevReg0V, ::sOceanBowlBloomTevReg0V, ::sOceanBowlBloomTevReg0V,
+                           255);
+    NativeShader::setColor(material, 4, ::sOceanBowlBloomTevReg1V, ::sOceanBowlBloomTevReg1V, ::sOceanBowlBloomTevReg1V,
+                           255);
+    material.constants[8] = mTexU0;
+    material.constants[9] = mTexV0;
+    material.constants[10] = mTexU1;
+    material.constants[11] = mTexV1;
+    NativeShader::setTexture(material, 0, mWaterTex);
+    NativeShader::send(material);
 }

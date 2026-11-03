@@ -1,6 +1,7 @@
 #include "Game/Screen/NebulaSelectPlayers.hpp"
+#include "nebula_module.h"
+#include "Game/System/NebulaHost.hpp"
 
-#ifdef TARGET_PC
 #include "Game/Screen/LayoutManager.hpp"
 #include "Game/Screen/NebulaPaneKit.hpp"
 #include "Game/Screen/NebulaUi.hpp"
@@ -14,7 +15,6 @@
 #include <nw4r/lyt/pane.h>
 #include <nw4r/lyt/textBox.h>
 #include <nw4r/lyt/window.h>
-#include <revolution/os.h>
 
 using namespace NebulaUi;
 
@@ -58,10 +58,10 @@ namespace {
         s32 mFade;  // 0 hidden to cFadeFrames shown
     };
 
-    void toWide(wchar_t* pDst, s32 capacity, const char* pSrc) {
+    void toWide(char16_t* pDst, s32 capacity, const char* pSrc) {
         s32 i = 0;
         for (; i < capacity - 1 && pSrc[i] != 0; i++) {
-            pDst[i] = static_cast< wchar_t >(static_cast< u8 >(pSrc[i]));
+            pDst[i] = static_cast< char16_t >(static_cast< u8 >(pSrc[i]));
         }
         pDst[i] = 0;
     }
@@ -120,7 +120,7 @@ namespace {
             if (i >= named) {
                 continue;
             }
-            wchar_t text[32];
+            char16_t text[32];
             toWide(text, 32, pInside[i]->name);
             setText(pName, text);
             const u32 color = (pInside[i]->flags & NEBULA_COOP_LIST_LUIGI) != 0 ? cLuigi : cMario;
@@ -135,8 +135,8 @@ namespace {
         rTag.mMore->SetVisible(more != 0);
         if (more != 0) {
             char count[12];
-            snprintf(count, sizeof(count), "+%u", more);
-            wchar_t text[12];
+            nebula_snprintf(count, sizeof(count), "+%u", more);
+            char16_t text[12];
             toWide(text, 12, count);
             setText(rTag.mMore, text);
             f32 moreWidth;
@@ -175,7 +175,7 @@ void NebulaSelectPlayers::init(const JMapInfoIter& rIter) {
     new (&p->mWindow) NebulaPaneKit();
     Pane* pRoot = pManager->mLayout->mpRootPane;
     if (pRoot == nullptr || !p->mText.init(pManager->mLayoutHolder)) {
-        OSReport("NebulaSelectPlayers: no InformationWindow layout\n");
+        nebula_log("NebulaSelectPlayers: no InformationWindow layout\n");
         return;
     }
     p->mWindow.init(MR::createAndAddLayoutHolder("SysInfoWindowMini.arc"));
@@ -192,20 +192,20 @@ void NebulaSelectPlayers::init(const JMapInfoIter& rIter) {
     for (s32 i = 0; i < cSpotsMax; i++) {
         Tag& rTag = p->mTags[i];
         char name[17];
-        snprintf(name, sizeof(name), "NbSel%d", i);
+        nebula_snprintf(name, sizeof(name), "NbSel%d", i);
         rTag.mRoot = makeGroup(p->mRoot, name);
         if (rTag.mRoot == nullptr) {
             return;
         }
-        snprintf(name, sizeof(name), "NbSelFrm%d", i);
+        nebula_snprintf(name, sizeof(name), "NbSelFrm%d", i);
         rTag.mFrame = makeWindow(kits, rTag.mRoot, name);
-        snprintf(name, sizeof(name), "NbSelLine%d", i);
+        nebula_snprintf(name, sizeof(name), "NbSelLine%d", i);
         rTag.mLine = makeGroup(rTag.mRoot, name);
-        snprintf(name, sizeof(name), "NbSelMore%d", i);
+        nebula_snprintf(name, sizeof(name), "NbSelMore%d", i);
         rTag.mMore = rTag.mLine != nullptr ? makeText(kits, rTag.mLine, name, 12) : nullptr;
         bool made = rTag.mFrame != nullptr && rTag.mMore != nullptr;
         for (s32 j = 0; made && j < cNamesMax; j++) {
-            snprintf(name, sizeof(name), "NbSelName%d_%d", i, j);
+            nebula_snprintf(name, sizeof(name), "NbSelName%d_%d", i, j);
             rTag.mNames[j] = makeText(kits, rTag.mLine, name, 32);
             made = rTag.mNames[j] != nullptr;
             if (made) {
@@ -235,7 +235,7 @@ void NebulaSelectPlayers::request(s32 spot, const char* pStage, s32 scenario, f3
     Tag& rTag = mParts->mTags[spot];
     // Another place on this spot: its names from nothing, not the last one's fading.
     if (strcmp(rTag.mStage, pStage) != 0 || rTag.mScenario != scenario) {
-        snprintf(rTag.mStage, sizeof(rTag.mStage), "%s", pStage);
+        nebula_snprintf(rTag.mStage, sizeof(rTag.mStage), "%s", pStage);
         rTag.mScenario = scenario;
         rTag.mFade = 0;
         memset(rTag.mShown, 0, sizeof(rTag.mShown));
@@ -288,7 +288,7 @@ void NebulaSelectPlayers::control() {
         return;
     }
     u32 roomSize = 0;
-    const u32 count = __NebulaCoopList(p->mPlayers, cPlayersMax, &roomSize);
+    const u32 count = NebulaHost::coopList(p->mPlayers, cPlayersMax, &roomSize);
     p->mCount = static_cast< s32 >(count > static_cast< u32 >(cPlayersMax) ? cPlayersMax : count);
 
     f32 scaleX, width, height;
@@ -314,4 +314,3 @@ void NebulaSelectPlayers::control() {
         rTag.mRoot->mAlpha = toAlpha(easeOut(static_cast< f32 >(rTag.mFade) / cFadeFrames));
     }
 }
-#endif
