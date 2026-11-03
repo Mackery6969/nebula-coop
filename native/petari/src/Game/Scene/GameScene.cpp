@@ -73,6 +73,7 @@
 #include "Game/Player/MarioActor.hpp"
 #include "Game/Player/NebulaRemotePlayer.hpp"
 #include "Game/Util/ModelUtil.hpp"
+#include "Game/Animation/XanimeCore.hpp"
 #include "Game/Animation/XanimePlayer.hpp"
 #include "Game/Player/MarioAnimator.hpp"
 #include "Game/Player/MarioHolder.hpp"
@@ -277,11 +278,20 @@ namespace {
                 player.track_weights[i] = pXanime->mWeights[i];
             }
         }
-        // The model's turn: its base matrix's Z (front) and Y (up) columns.
+        // The model's turn: its base matrix's Z (front) and Y (up) columns, with the turn MarioActor::calcAndSetBaseMtx
+        // gives his root joint on top (Mario::createCorrectionMtx: a quick turn round, or the matrix of what holds
+        // him), which the others' copies have no joint correction of their own for.
         MtxPtr pBase = MR::getJ3DModel(const_cast< MarioActor* >(pActor))->getBaseTRMtx();
+        Mtx turn;
+        NebulaMtxCopy(pBase, turn);
+        if (XanimePlayer* pXanime = pActor->mMarioAnim->mXanimePlayer) {
+            if (MtxPtr pCorrection = pXanime->getCore()->getJointTransform(0)->_64) {
+                NebulaMtxConcat(pBase, pCorrection, turn);
+            }
+        }
         for (u32 i = 0; i < 3; i++) {
-            player.front[i] = pBase[i][2];
-            player.up[i] = pBase[i][1];
+            player.front[i] = turn[i][2];
+            player.up[i] = turn[i][1];
         }
         player.health = pActor->mHealth;
         player.mode = pActor->mPlayerMode;

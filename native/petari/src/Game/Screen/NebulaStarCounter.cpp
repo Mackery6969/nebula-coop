@@ -138,6 +138,10 @@ s32 NebulaStarCounter::getCount() const {
     return count > static_cast< u64 >(cCountMax) ? cCountMax : static_cast< s32 >(count);
 }
 
+bool NebulaStarCounter::isWanted() const {
+    return NebulaHost::option(NEBULA_OPTION_STAR_COUNTER) != 0;
+}
+
 f32 NebulaStarCounter::getLineStep() const {
     // The tallest picture or text of the layout (the star, or the number), from layout units to the screen's.
     f32 tallest = 0.0f;
@@ -162,8 +166,8 @@ f32 NebulaStarCounter::getLineStep() const {
 
 void NebulaStarCounter::appear() {
     mCount = getCount();
-    if (mCount < 0) {
-        // The room's count outside a room.
+    if (mCount < 0 || !isWanted()) {
+        // The room's count outside a room, or the room doesn't play the mod.
         kill();
         return;
     }
@@ -204,6 +208,12 @@ void NebulaStarCounter::exeAppear() {
 }
 
 void NebulaStarCounter::exeWait() {
+    // Turned off while shown: out at once rather than with the save's counter. Asked once a second (the host's
+    // settings are a copy each time).
+    if (getNerveStep() % 60 == 0 && !isWanted()) {
+        disappear();
+        return;
+    }
     const s32 count = getCount();
     if (count < mCount) {
         // A new room starts from none.

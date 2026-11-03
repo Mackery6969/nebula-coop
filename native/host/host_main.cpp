@@ -2480,13 +2480,25 @@ int32_t svc_coop_menu(void*, uint32_t what) {
     }
 }
 
+// The room's built-in Personal Star Counter mod (the Host page's Mods, the Online tab): the room's as the host set it,
+// else this player's as they last hosted.
+bool coop_star_counter_on() {
+    const galaxy::coop::SessionState state = gCoopSession.state();
+    if (state == galaxy::coop::SessionState::Hosting || state == galaxy::coop::SessionState::Joined) {
+        return gCoopSession.room().star_counter;
+    }
+    return galaxy::get_runtime_settings().coop.star_counter;
+}
+
 // The player list (Tab or the controller's Share held): the room's players by number, each one's place and round trip.
 uint32_t svc_coop_list(void*, NebulaCoopListPlayer* players, uint32_t capacity, uint32_t* room_size) {
     if (room_size != nullptr) *room_size = 0u;
     const galaxy::coop::SessionState state = gCoopSession.state();
     if (state != galaxy::coop::SessionState::Hosting && state != galaxy::coop::SessionState::Joined) return 0u;
     const std::vector<galaxy::coop::SessionPlayer> list = gCoopSession.players();
-    if (room_size != nullptr) *room_size = gCoopSession.room().max_players;
+    const galaxy::RuntimeCoopSettings room = gCoopSession.room();
+    if (room_size != nullptr) *room_size = room.max_players;
+    const bool stars = room.star_counter;
     const std::size_t count = std::min<std::size_t>(list.size(), players != nullptr ? capacity : 0u);
     for (std::size_t i = 0; i < count; ++i) {
         const galaxy::coop::SessionPlayer& from = list[i];
@@ -2499,7 +2511,8 @@ uint32_t svc_coop_list(void*, NebulaCoopListPlayer* players, uint32_t capacity, 
         to.ping_ms = from.ping_ms;
         to.stars = from.stars;
         to.flags = (from.character == galaxy::CoopCharacter::Luigi ? NEBULA_COOP_LIST_LUIGI : 0u) |
-                   (from.host ? NEBULA_COOP_LIST_HOST : 0u) | (from.local ? NEBULA_COOP_LIST_YOU : 0u);
+                   (from.host ? NEBULA_COOP_LIST_HOST : 0u) | (from.local ? NEBULA_COOP_LIST_YOU : 0u) |
+                   (stars ? NEBULA_COOP_LIST_STARS : 0u);
     }
     return static_cast<uint32_t>(list.size());
 }
@@ -4075,6 +4088,8 @@ uint32_t svc_option(void*, uint32_t what) {
 #else
         return 0;
 #endif
+    case NEBULA_OPTION_STAR_COUNTER:
+        return coop_star_counter_on() ? 1u : 0u;
     case NEBULA_OPTION_RT_PREPARATION:
     case NEBULA_OPTION_RT_PREPARE_PROGRESS:
         // The ray tracer is parked (no shaders to prepare): the game's preparation screen never shows.
