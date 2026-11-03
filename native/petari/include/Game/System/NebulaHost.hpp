@@ -101,8 +101,8 @@ namespace NebulaHost {
     }
     // Online co-op (docs/COOP_PLAN.md): the local player once per game scene frame, the main menu
     // (NEBULA_COOP_MENU_*), the chat, the room's players and the other players in this instance, the shared world's
-    // events, the local player's Power Stars in the room, the room's collision rules and the achievements other
-    // players unlocked in the room's save.
+    // events, the local player's Power Stars in the room, the room's collision rules, the achievements other
+    // players unlocked in the room's save and the shared objects' states.
     inline void coopPlayer(const NebulaCoopPlayer* pPlayer) {
         nebula_host()->coop_player(nebula_host()->user, pPlayer);
     }
@@ -141,5 +141,15 @@ namespace NebulaHost {
 
     inline s32 coopAchievementTake(char* pId, u32 capacity) {
         return nebula_host()->coop_achievement_take(nebula_host()->user, pId, capacity);
+    }
+
+    // Shared objects (docs/COOP_PLAN.md "Shared objects"): the states of the enemies this game moves, and the ones
+    // the other players' games move.
+    inline void coopObjectsReport(const NebulaCoopObjectState* pStates, u32 count) {
+        nebula_host()->coop_objects_report(nebula_host()->user, pStates, count);
+    }
+
+    inline u32 coopObjectsTake(NebulaCoopObjectState* pStates, u32 capacity) {
+        return nebula_host()->coop_objects_take(nebula_host()->user, pStates, capacity);
     }
 }  // namespace NebulaHost

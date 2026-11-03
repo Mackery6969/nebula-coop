@@ -23,7 +23,7 @@ extern "C" {
 #define NEBULA_GAME_API __attribute__((visibility("default")))
 #endif
 
-#define NEBULA_GAME_API_VERSION 118u
+#define NEBULA_GAME_API_VERSION 119u
 
 /* Viewports, scissors, clears, target sizes and picture points count this many units across a frame on each axis. */
 #define NEBULA_FRAME_UNITS 65536.0f
@@ -615,13 +615,22 @@ enum {
      are the host's game's. The host gives the whole save again after each ENTER, for the game to apply what it lacks.
    - NEBULA_COOP_WORLD_STAR_GOT (both ways): a player took a star in the instance, `scenario` the star and `value`
      NEBULA_COOP_STAR_*, as sm64coopdx's collect_star reaches the level. The others there are told (API 42,
-     docs/COOP_PLAN.md "Cutscenes and transitions"). */
+     docs/COOP_PLAN.md "Cutscenes and transitions").
+   - NEBULA_COOP_WORLD_HIT (both ways, API 119, docs/COOP_PLAN.md "Shared objects"): the local player hit a placed
+     object (`object` its key, `value` the game's message, ACTMES_*, `scenario` which of its sensors). Each other game
+     in the instance plays it again from that player's copy (`player` their number), so the object reacts in every
+     game as in the hitter's: a Goomba squashed, a box broken, a boss hurt.
+   - NEBULA_COOP_WORLD_SWITCH (both ways, API 119): a stage switch turned (`object` its zone << 16 | its number, the
+     zone 0xffff for the stage's global ones; `value` 1 on, 0 off). The instance's record keeps them; a player
+     entering gets them before READY. */
 typedef struct NebulaCoopWorldEvent {
     uint32_t kind;     /* NEBULA_COOP_WORLD_* */
-    uint32_t object;   /* GONE */
-    uint32_t value;    /* GONE: NEBULA_COOP_GONE_*; VALUE: the value; STAR_GOT: NEBULA_COOP_STAR_* */
-    int32_t scenario;  /* ENTER, STAR and STAR_GOT */
+    uint32_t object;   /* GONE, HIT, SWITCH */
+    uint32_t value;    /* GONE: NEBULA_COOP_GONE_*; VALUE: the value; STAR_GOT: NEBULA_COOP_STAR_*; HIT: the message;
+                          SWITCH: on */
+    int32_t scenario;  /* ENTER, STAR and STAR_GOT; HIT: the sensor */
     char name[48];     /* ENTER and STAR: the stage; FLAG and VALUE: the name (Shift JIS) */
+    uint32_t player;   /* HIT (taken): who hit it, their number */
 } NebulaCoopWorldEvent;
 
 enum {
@@ -632,6 +641,8 @@ enum {
     NEBULA_COOP_WORLD_FLAG,
     NEBULA_COOP_WORLD_VALUE,
     NEBULA_COOP_WORLD_STAR_GOT,
+    NEBULA_COOP_WORLD_HIT,
+    NEBULA_COOP_WORLD_SWITCH,
 };
 
 enum {
@@ -641,6 +652,27 @@ enum {
 enum {
     NEBULA_COOP_GONE_COIN = 1u << 0,   /* a coin a player took: it counts for everyone in the instance */
     NEBULA_COOP_GONE_PURPLE = 1u << 1, /* a purple coin a player took: the same, toward the 100 */
+};
+
+/* Online co-op's shared objects (coop_objects_report and coop_objects_take, docs/COOP_PLAN.md "Shared objects"),
+   sm64coopdx's sync objects: each placed enemy is moved by one game at a time, its owner (the game of the player
+   nearest it, the host settling who), and the others' copies of it follow: the state it runs (its nerve and the
+   nerve's step), where it is and how fast it goes, how its model is turned. */
+typedef struct NebulaCoopObjectState {
+    uint32_t object;      /* its placement key (NEBULA_COOP_WORLD_GONE's) */
+    uint32_t nerve;       /* its nerve's id (the nerve's class and name hashed, the same in every game), 0 none */
+    uint32_t step;        /* the nerve's step */
+    uint32_t flags;       /* NEBULA_COOP_OBJECT_* */
+    float position[3];
+    float velocity[3];    /* world units per frame */
+    float rotation[4];    /* its model's turn, a quaternion x y z w */
+    float distance;       /* how far its owner's player is from it */
+    uint32_t player;      /* (taken) its owner, their number */
+} NebulaCoopObjectState;
+
+enum {
+    NEBULA_COOP_OBJECT_HIT_CLAIM = 1u << 0, /* its owner's player just hit it: theirs whatever the distance */
+    NEBULA_COOP_OBJECT_HIT_NERVE = 1u << 1, /* its nerve began with a hit: the others get it from NEBULA_COOP_WORLD_HIT */
 };
 
 /* Nebula options the game follows (option). */
@@ -1383,6 +1415,12 @@ typedef struct NebulaHostServices {
        its pop-up: 1 with its id (galaxy::achievements', at most `capacity` bytes into `id`), 0 when none waits.
        Called on the simulation thread. */
     int (*coop_achievement_take)(void* user, char* id, uint32_t capacity);
+    /* Online co-op's shared objects (NebulaCoopObjectState, API 119): the objects the local game moves this frame
+       (the host lets it or not), and the others' as they came, the latest of each, at most `capacity` into `states`
+       (how many there are; the rest wait for the next call). Nothing outside a room. Called on the simulation
+       thread. */
+    void (*coop_objects_report)(void* user, const NebulaCoopObjectState* states, uint32_t count);
+    uint32_t (*coop_objects_take)(void* user, NebulaCoopObjectState* states, uint32_t capacity);
 } NebulaHostServices;
 
 
