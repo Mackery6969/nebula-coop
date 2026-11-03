@@ -18,6 +18,9 @@
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
+#ifdef TARGET_PC
+#include "Game/Screen/NebulaSelectPlayers.hpp"
+#endif
 
 namespace {
     const char* const cStarPaneName[] = {"Star1", "Star2", "Star3", "Star4", "Star5", "Star6", "Star7"};
@@ -42,6 +45,9 @@ namespace {
     const f32 cSkyScale = 10.0f;
     const s32 cCometWarningWaitFrame = 15;
     const s32 cCometWarningFrame = 180;
+#ifdef TARGET_PC
+    const f32 cCoopPlayersDrop = 50.0f;  // online co-op's names under a star: below its pointing circle's middle
+#endif
 };  // namespace
 
 namespace {
@@ -76,6 +82,9 @@ ScenarioSelectLayout::ScenarioSelectLayout(EffectSystem* pEffectSystem, const Ca
       mCameraContext(pCameraContext), mNewTextFollowPos(0.0f, 0.0f), mNewGreenTextFollowPos(0.0f, 0.0f), mStarTopFollowPos(0.0f, 0.0f), mBackButton(),
       mMarioPaneFollowPos(0.0f, 0.0f), mMarioPaneName(), _A4(), _A8(-1) {
     mEffectHostMtx.identity();
+#ifdef TARGET_PC
+    mCoopPlayers = nullptr;
+#endif
 
     for (u32 i = 0; i < ARRAY_SIZE(mQuestionPane); i++) {
         mQuestionPane[i].zero();
@@ -124,6 +133,11 @@ void ScenarioSelectLayout::init(const JMapInfoIter& rIter) {
 
     mBackButton = new BackButton("\226\337\202\351\203\173\203\136\203\223" /* 戻るボタン */, false);
     mBackButton->initWithoutIter();
+
+#ifdef TARGET_PC
+    mCoopPlayers = new NebulaSelectPlayers(false);
+    mCoopPlayers->initWithoutIter();
+#endif
 
     #if (VERSION == RMGJ01 || VERSION == RMGE01)
     MR::hidePaneRecursive(this, "CometAppear");
@@ -247,6 +261,9 @@ void ScenarioSelectLayout::movement() {
 
     mScenarioSky->movement();
     mBackButton->movement();
+#ifdef TARGET_PC
+    mCoopPlayers->movement();
+#endif
 }
 
 void ScenarioSelectLayout::calcAnim() {
@@ -258,10 +275,16 @@ void ScenarioSelectLayout::calcAnim() {
 
     mScenarioSky->calcAnim();
     mBackButton->calcAnim();
+#ifdef TARGET_PC
+    mCoopPlayers->calcAnim();
+#endif
 }
 
 void ScenarioSelectLayout::draw() const {
     LayoutActor::draw();
+#ifdef TARGET_PC
+    mCoopPlayers->draw();
+#endif
     mBackButton->draw();
 }
 
@@ -311,6 +334,20 @@ void ScenarioSelectLayout::control() {
     }
 
     MR::copyPaneTrans(&mMarioPaneFollowPos, this, mMarioPaneName);
+
+#ifdef TARGET_PC
+    // Online co-op: the other players in each star shown, under it, as sm64coopdx's act select puts their heads over
+    // the acts they play. Until a star is chosen.
+    if (isNerve(GET_NERVE(ScenarioSelectLayout, ScenarioSelectLayoutNrvAppear)) ||
+        isNerve(GET_NERVE(ScenarioSelectLayout, ScenarioSelectLayoutNrvWaitScenarioSelect))) {
+        for (s32 i = 0; i < 7; i++) {
+            if (!mStar[i]->_30) {
+                mCoopPlayers->showAtPane(i, MR::getCurrentStageName(), mStar[i]->mScenarioNo, MR::getPane(this, ::cStarPaneName[i]),
+                                         ::cCoopPlayersDrop);
+            }
+        }
+    }
+#endif
 }
 
 void ScenarioSelectLayout::updateSelectedScenario() {

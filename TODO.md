@@ -5,7 +5,8 @@ What's left to turn Nebula into an online co-op mod like sm64coopdx. The reasoni
 
 ## Main menu and saves (Phase 0.5)
 
-- [x] Main menu in place of the title and file select, over the file select's space backdrop
+- [x] Main menu in place of the file select, over the file select's space backdrop
+- [x] The title screen before the main menu, once as Nebula starts (not when coming back from a room)
 - [x] Pointer, D-pad, stick, A and B work on the menu
 - [x] Host page: pick a save (left and right, or New save), Erase, room settings, Host and Back
 - [x] Unlimited saves, each a folder under `coop_saves/`; the old save's files converted once
@@ -43,7 +44,7 @@ What's left to turn Nebula into an online co-op mod like sm64coopdx. The reasoni
 - [x] The server decides everything except the visuals: save, collectibles, objects, enemies
 - [x] Cutscenes and transitions as sm64coopdx has them: each player's own, a Grand Star takes everyone in its
       mission along, and a star the room gave returns as its first when the player takes it, so nobody gets stuck
-- [ ] An achievement unlocked in a save is every player's who plays in it
+- [x] An achievement unlocked in a save is every player's who plays in it
 - [x] Player collisions with sm64coopdx's options (non-solid, solid, friendly fire, knockback, PvP mode)
 
 ## Later (Phases 3 and 4)

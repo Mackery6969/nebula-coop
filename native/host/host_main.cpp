@@ -1693,8 +1693,11 @@ void svc_presence(void*, const uint16_t* galaxy, const uint16_t* star, int32_t p
     galaxy::discord::set_activity(activity);
 }
 
-// An achievement the save data meets: unlocked once (achievements.ini), with its English name. The game names it in
-// the played language itself (NebulaText). The headless host keeps no achievements.
+void report_coop_achievement(const char* id);
+
+// An achievement the save data meets: unlocked once (achievements.ini), with its English name, and in a room the
+// save's for every player in it. The game names it in the played language itself (NebulaText). The headless host
+// keeps no achievements.
 int svc_achievement(void*, const char* id, uint16_t* name, uint32_t capacity) {
 #if !defined(NEBULA_HOST_RENDERER)
     (void)id, (void)name, (void)capacity;
@@ -1708,6 +1711,7 @@ int svc_achievement(void*, const char* id, uint16_t* name, uint32_t capacity) {
     }
     if (name != nullptr && capacity != 0u) name[i] = 0u;
     log_line("achievement:", info->name);
+    report_coop_achievement(id);
     return 1;
 #endif
 }
@@ -1820,6 +1824,35 @@ std::chrono::steady_clock::time_point gCoopSnapshotSent{};
 // reports to and is told from (coop_world_report, coop_world_take).
 galaxy::coop::World gCoopWorld;
 
+// Achievements another player unlocked in the room's save, now this player's too, for the game's pop-ups
+// (coop_achievement_take), in order.
+std::deque<std::string> gCoopAchievementsWaiting;
+
+// This player's game unlocked an achievement: in a room, the save's, so the host keeps it and tells every player.
+void report_coop_achievement(const char* id) {
+#if defined(NEBULA_HOST_RENDERER)
+    const std::int64_t when = galaxy::achievements::unlocked_time(id);
+    gCoopWorld.report_save({galaxy::coop::SaveKind::Achievement, id, 0, static_cast<std::uint32_t>(when)});
+#else
+    (void)id;
+#endif
+}
+
+// The room's achievements as they come (each scene frame): one this player's save doesn't have yet is unlocked on the
+// day it was unlocked in the room, and waits for its pop-up.
+void take_coop_achievements() {
+    for (const galaxy::coop::SaveChange& change : gCoopWorld.take_achievements()) {
+#if defined(NEBULA_HOST_RENDERER)
+        const galaxy::achievements::Info* info = galaxy::achievements::find(change.name);
+        if (info == nullptr || !galaxy::achievements::unlock_at(change.name, change.value)) continue;
+        log_line("achievement (the room's):", info->name);
+        gCoopAchievementsWaiting.push_back(change.name);
+#else
+        (void)change;
+#endif
+    }
+}
+
 // The others' snapshots as they come (on the session's thread), and the world's messages. Set before hosting or
 // joining.
 void listen_coop_snapshots() {
@@ -1871,9 +1904,13 @@ std::string take_coop_notice() {
     return std::exchange(gCoopNotice, {});
 }
 
-// The host's save as a joiner gets it: the played save folder's files (the game's GameData.bin and the rest), read
-// as they join, and the user file it plays.
+// The host's save as a joiner gets it: the played save folder's files (the game's GameData.bin and the rest, and the
+// save's achievements), read as they join, and the user file it plays.
 galaxy::coop::RoomSave coop_room_save() {
+#if defined(NEBULA_HOST_RENDERER)
+    // The achievements unlocked a moment ago, in the file too.
+    galaxy::achievements::flush();
+#endif
     galaxy::coop::RoomSave save;
     save.file = gCoopSaveFile;
     fs::path folder;
@@ -1887,8 +1924,8 @@ galaxy::coop::RoomSave coop_room_save() {
     for (const fs::directory_entry& entry : fs::directory_iterator(folder, error)) {
         if (!entry.is_regular_file(error)) continue;
         const std::string name = entry.path().filename().string();
-        // Nebula's own files stay the host's.
-        if (name == "save.ini" || name == "achievements.ini") continue;
+        // The save's name and when it was played stay the host's; its achievements are every player's.
+        if (name == "save.ini") continue;
         std::ifstream in(entry.path(), std::ios::binary);
         std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
         total += bytes.size();
@@ -2024,11 +2061,13 @@ void note_coop_place() {
 }
 
 // What happened in the room since the last call, on the game's thread: logged, and a room that ended while playing
-// takes the player back to the main menu. The host's room settings (the Online page's) reach the others.
+// takes the player back to the main menu. The host's room settings (the Online page's) and the player's name (Options'
+// PLAYER page's) reach the others as they change.
 void pump_coop_session() {
     note_coop_place();
     if (!gCoopSession.active()) {
         if (gCoopWorld.active()) gCoopWorld.stop();
+        gCoopAchievementsWaiting.clear();
         return;
     }
     // A join connecting from the main menu: its events are poll_coop_join's (Joined above all, which plays the save).
@@ -2037,9 +2076,12 @@ void pump_coop_session() {
     if (state == galaxy::coop::SessionState::Hosting || state == galaxy::coop::SessionState::Joined) {
         send_coop_snapshot();
         gCoopWorld.update();
+        take_coop_achievements();
     }
 #if defined(NEBULA_HOST_RENDERER)
-    if (gCoopSession.is_host()) gCoopSession.set_room(galaxy::get_runtime_settings().coop);
+    const galaxy::RuntimeCoopSettings settings = galaxy::get_runtime_settings().coop;
+    if (gCoopSession.is_host()) gCoopSession.set_room(settings);
+    gCoopSession.set_name(settings.player_name);
 #endif
     using Kind = galaxy::coop::SessionEvent::Kind;
     bool changed = false;
@@ -2196,10 +2238,13 @@ bool poll_coop_join() {
             gCoopSaveFolder = folder;
         }
         gCoopSaveFile = save->file;
+#if defined(NEBULA_HOST_RENDERER)
+        // The save's achievements (its achievements.ini came with it), before the room's start coming.
+        galaxy::achievements::set_file(folder / "achievements.ini");
+#endif
         gCoopWorld.start();
         gCoopLuigi.store(gCoopMenu.room().character == galaxy::CoopCharacter::Luigi, std::memory_order_relaxed);
 #if defined(NEBULA_HOST_RENDERER)
-        galaxy::achievements::set_file(folder / "achievements.ini");
         galaxy::gx::set_coop_in_game(true);
 #endif
         std::fprintf(stderr, "[coop] joined: the host's save (file %u, %zu file(s)), %zu player(s)\n", save->file,
@@ -2560,6 +2605,13 @@ int32_t svc_coop_menu(void*, uint32_t what) {
         return 0;
     case NEBULA_COOP_MENU_CHARACTER: return gCoopLuigi.load(std::memory_order_relaxed) ? 1 : 0;
     case NEBULA_COOP_MENU_JOINED: return gCoopSession.active() && !gCoopSession.is_host() ? 1 : 0;
+    case NEBULA_COOP_MENU_TITLE: {
+        // The title once, as Nebula starts; not in front of a room the menu starts by itself as it opens.
+        static bool shown = false;
+        if (std::exchange(shown, true)) return 0;
+        const bool starting = gCoopAutoStart != CoopAutoStart::None || (gCoopSaves && gCoopSaves->has_next_start());
+        return starting ? 0 : 1;
+    }
     case NEBULA_COOP_MENU_POLL:
         // What the player changed is kept as they change it, a text once kept.
         if (!gCoopMenu.editing()) keep_coop_settings();
@@ -2694,6 +2746,14 @@ int32_t svc_coop_star_count(void*) {
     const galaxy::coop::SessionState state = gCoopSession.state();
     if (state != galaxy::coop::SessionState::Hosting && state != galaxy::coop::SessionState::Joined) return -1;
     return static_cast<int32_t>(gCoopSession.stars());
+}
+
+// An achievement another player unlocked in the room's save, for its pop-up: 1 with its id, 0 when none waits.
+int svc_coop_achievement_take(void*, char* id, uint32_t capacity) {
+    if (gCoopAchievementsWaiting.empty() || id == nullptr || capacity == 0u) return 0;
+    std::snprintf(id, capacity, "%s", gCoopAchievementsWaiting.front().c_str());
+    gCoopAchievementsWaiting.pop_front();
+    return 1;
 }
 
 // The other players in this player's instance, for their copies: as they were kSnapshotDelay ago, by number. Who
@@ -4617,6 +4677,7 @@ int main(int argc, char** argv) {
     services.coop_world_take = svc_coop_world_take;
     services.coop_star_count = svc_coop_star_count;
     services.coop_rules = svc_coop_rules;
+    services.coop_achievement_take = svc_coop_achievement_take;
 #if defined(NEBULA_HOST_RENDERER)
     // The display configuration (GALAXY_RENDER_CONFIG_PATH in tests), loaded before the window; the settings overlay
     // reads its frame art from the game files.

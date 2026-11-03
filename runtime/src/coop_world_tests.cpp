@@ -42,11 +42,15 @@ void test_bytes() {
     const std::vector<SaveChange> changes{{SaveKind::Star, "EggStarGalaxy", 3, 0u},
                                           {SaveKind::Flag, "\x83\x60\x83\x52", 0, 0u},
                                           {SaveKind::Value, "Comet1Status", 0, 7u},
-                                          {SaveKind::Star, "", 1, 0u}};
+                                          {SaveKind::Star, "", 1, 0u},
+                                          {SaveKind::Achievement, "first_star", 0, 1793145600u},
+                                          {SaveKind::Achievement, "../first_star", 0, 1u}};
     const std::optional<std::vector<SaveChange>> saved = decode_save_changes(encode_save_changes(changes));
-    expect(saved && saved->size() == 3u, "save changes round trip, the bad one dropped");
+    expect(saved && saved->size() == 4u, "save changes round trip, the bad ones dropped");
     expect(saved && (*saved)[0].scenario == 3 && (*saved)[1].name == "\x83\x60\x83\x52" && (*saved)[2].value == 7u,
            "with their stars, Shift JIS names and values");
+    expect(saved && saved->size() == 4u && (*saved)[3].name == "first_star" && (*saved)[3].value == 1793145600u,
+           "and an achievement with when it was unlocked");
     std::vector<std::uint8_t> cut = encode_gone(gone);
     cut.pop_back();
     expect(!decode_gone(cut), "a cut list is dropped");
@@ -91,6 +95,11 @@ void test_authority() {
     expect(world.save_changes().size() == 3u && world.save_changes()[2].value == 4u,
            "the record keeps a value's latest only");
     expect(!world.save({SaveKind::Star, "EggStarGalaxy", 0, 0u}, true), "no star 0");
+
+    expect(world.save({SaveKind::Achievement, "first_star", 0, 100u}, false), "a joiner's achievement is the save's");
+    expect(!world.save({SaveKind::Achievement, "first_star", 0, 200u}, true), "once, whoever unlocks it again");
+    expect(world.save_changes().back().value == 100u, "on the day it was first unlocked");
+    expect(!world.save({SaveKind::Achievement, "", 0, 1u}, true), "no achievement without an id");
 }
 
 bool wait_for(const std::function<bool()>& done, std::chrono::milliseconds limit = 10000ms) {
@@ -102,13 +111,15 @@ bool wait_for(const std::function<bool()>& done, std::chrono::milliseconds limit
     return done();
 }
 
-// What a player's game has been told: things gone, whether the record ended, the save.
+// What a player's game has been told: things gone, whether the record ended, the save; and the achievements its
+// runtime was given.
 struct Game {
     World world;
     std::vector<Gone> gone;
     bool ready = false;
     std::vector<SaveChange> save;
     std::vector<StarGot> stars;
+    std::vector<SaveChange> achievements;
 
     void pump() {
         for (const WorldEvent& event : world.take()) {
@@ -117,6 +128,13 @@ struct Game {
             if (event.kind == WorldEvent::Kind::Save) save.push_back(event.save);
             if (event.kind == WorldEvent::Kind::StarGot) stars.push_back(event.star);
         }
+        for (const SaveChange& change : world.take_achievements()) achievements.push_back(change);
+    }
+    bool got(const std::string& id) const {
+        for (const SaveChange& had : achievements) {
+            if (had.name == id) return true;
+        }
+        return false;
     }
     void enter(const Instance& instance) {
         gone.clear();
@@ -272,6 +290,40 @@ void test_session_world() {
            "a star counts for who got it, and everyone hears");
     expect(host_session.stars() == 1u && mario.stars() == 0u && stars_of(host_session, "MARIO") == 0,
            "a star the room already had counts for nobody");
+
+    // Achievements: a joiner's is the save's, for the host's runtime and every player's; the host's too. The game
+    // isn't told them (its runtime is), and a scene start doesn't give them again.
+    at_luigi.world.report_save({SaveKind::Achievement, "luigi_play", 0, 1000u});
+    at_host.world.report_save({SaveKind::Achievement, "first_star", 0, 2000u});
+    at_mario.world.report_save({SaveKind::Achievement, "luigi_play", 0, 3000u});
+    expect(wait_for([&] {
+               pump_all();
+               return at_host.got("luigi_play") && at_mario.got("luigi_play") && at_luigi.got("luigi_play") &&
+                      at_mario.got("first_star") && at_luigi.got("first_star");
+           }),
+           "an achievement unlocked by anyone reaches everyone");
+    std::this_thread::sleep_for(100ms);
+    pump_all();
+    for (const Game* game : {&at_host, &at_mario, &at_luigi}) {
+        int luigi_play = 0;
+        for (const SaveChange& change : game->achievements) {
+            if (change.name != "luigi_play") continue;
+            ++luigi_play;
+            expect(change.value == 1000u, "on the day the first player unlocked it");
+        }
+        expect(luigi_play == 1, "once, though a second player unlocked it too");
+        for (const SaveChange& change : game->save) {
+            expect(change.kind != SaveKind::Achievement, "the game isn't told achievements");
+        }
+    }
+    at_mario.achievements.clear();
+    at_mario.enter(kEgg1);
+    expect(wait_for([&] {
+               pump_all();
+               return at_mario.ready;
+           }),
+           "a scene starts over");
+    expect(at_mario.achievements.empty(), "and isn't given the achievements again");
 
     // Mario leaves the room: the host forgets him, and his instance keeps the host in it.
     mario.leave();

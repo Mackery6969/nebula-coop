@@ -38,7 +38,7 @@
 namespace galaxy::coop {
 
 // The session's own protocol (its messages, below the transport's): a different one refuses the join.
-inline constexpr std::uint16_t kSessionProtocol = 5u;
+inline constexpr std::uint16_t kSessionProtocol = 6u;
 // The first message type a feature may use with send() and on_message(); below are the session's.
 inline constexpr std::uint8_t kFirstFeatureMessage = 32u;
 // The host's save, sent at a join: this many bytes at most.
@@ -188,6 +188,10 @@ public:
     // Where this player plays (the player list's galaxy and star), told to everyone as it changes. Kept while there
     // is no room too: a room opened or joined later starts with it.
     void set_place(const std::string& stage, int scenario);
+    // This player's name (Options' PLAYER page's, cleaned as at a join), told to everyone as it changes: their player
+    // list, nametags and chat show it from then on, as sm64coopdx's player settings do. Nothing outside a room; the
+    // character stays the one played since the join.
+    void set_name(const std::string& name);
     // The host: `player` got a Power Star new to the room's save (the shared world settled it): their count goes up
     // and everyone is told. Nothing for a joiner or outside a room; each room starts from 0.
     void credit_star(net::PeerId player);

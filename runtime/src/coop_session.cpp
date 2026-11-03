@@ -33,7 +33,8 @@ enum Message : std::uint8_t {
     kModRequest = 8,    // joiner: a piece of a room mod's file: the mod, the file, where, how long
     kModPiece = 9,      // host: the mod, the file, where, then the bytes
     kPlayerStars = 10,  // host, to everyone: a player and the Power Stars they got in this room
-    kRemovePlayer = 11, // a moderator, to the host: remove a player (how: a Removal, Kick or Ban; who)
+    kPlayerName = 11,   // joiner, to the host: its new name (the host tells everyone with kPlayerInfo)
+    kRemovePlayer = 12, // a moderator, to the host: remove a player (how: a Removal, Kick or Ban; who)
 };
 
 // A joiner that doesn't ask to be let in this soon is removed; a join that isn't let in this soon fails.
@@ -273,11 +274,7 @@ struct Session::State {
         if (total > kMaxSaveBytes || room_save.files.size() > kMaxSaveFiles) room_save.files.clear();
 
         // Everyone already in hears of the new player, then the new player gets the room.
-        ByteWriter info;
-        write_player(info, joined);
-        for (const SessionPlayer& other : players) {
-            if (!other.local) send(other.id, kPlayerInfo, info);
-        }
+        send_info(joined);
         players.push_back(joined);
         std::sort(players.begin(), players.end(), [](const auto& a, const auto& b) { return a.index < b.index; });
 
@@ -315,15 +312,6 @@ struct Session::State {
         // The transport tells the player, and the others hear them leave (peer_left).
         transport->unpeer(peer);
         return true;
-    }
-
-    // A host's: a player's info again (it changed), to everyone in the room.
-    void send_info(const SessionPlayer& changed) {
-        ByteWriter info;
-        write_player(info, changed);
-        for (const SessionPlayer& other : players) {
-            if (!other.local) send(other.id, kPlayerInfo, info);
-        }
     }
 
     // A moderator's ask to remove a player: only a moderator's, and never the host.
@@ -618,6 +606,25 @@ struct Session::State {
         counted->stars = got;
     }
 
+    // A player's info (its name above all) to everyone else in the room: a renamed joiner gets its own back, its name
+    // as the host cleaned it.
+    void send_info(const SessionPlayer& changed) {
+        ByteWriter info;
+        write_player(info, changed);
+        for (const SessionPlayer& other : players) {
+            if (!other.local) send(other.id, kPlayerInfo, info);
+        }
+    }
+
+    // A host's: a joiner renamed itself.
+    void host_receive_name(PeerId from, ByteReader& in) {
+        const std::string got = clean_name(in.str(256u));
+        SessionPlayer* renamed = player(from);
+        if (!in.ok() || renamed == nullptr || renamed->local || renamed->name == got) return;
+        renamed->name = got;
+        send_info(*renamed);
+    }
+
     void receive(PeerId from, Channel channel, std::span<const std::uint8_t> data) {
         ByteReader in(data);
         const std::uint8_t type = in.u8();
@@ -642,6 +649,7 @@ struct Session::State {
         if (host) {
             if (type == kJoinRequest) host_receive_join(from, in);
             if (type == kModRequest) host_send_piece(from, in);
+            if (type == kPlayerName && state == SessionState::Hosting) host_receive_name(from, in);
             if (type == kRemovePlayer) host_receive_remove(from, in);
             return;
         }
@@ -922,6 +930,23 @@ void Session::set_place(const std::string& stage, int scenario) {
         }
     }
     state_->send_place();
+}
+
+void Session::set_name(const std::string& name) {
+    const std::lock_guard<std::recursive_mutex> lock(lock_);
+    if (state_->state != SessionState::Hosting && state_->state != SessionState::Joined) return;
+    const std::string clean = clean_name(name);
+    auto& list = state_->players;
+    const auto self = std::find_if(list.begin(), list.end(), [](const auto& p) { return p.local; });
+    if (self == list.end() || self->name == clean) return;
+    self->name = clean;
+    if (state_->state == SessionState::Hosting) {
+        state_->send_info(*self);
+        return;
+    }
+    ByteWriter body;
+    body.str(clean);
+    state_->send(state_->transport->owner(), kPlayerName, body);
 }
 
 void Session::credit_star(net::PeerId player) {

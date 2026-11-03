@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <span>
 #include <string_view>
@@ -22,7 +23,12 @@ struct Info {
 // True when `id` is in the catalogue and was not unlocked yet; it is then unlocked, and written to the file in the
 // background (several unlocked together, once).
 bool unlock(std::string_view id);
+// The same, unlocked at `when` (seconds since 1970, UTC) rather than now: another player's unlock in the co-op save,
+// on the day it was unlocked there.
+bool unlock_at(std::string_view id, std::int64_t when);
 [[nodiscard]] bool unlocked(std::string_view id);
+// When it was unlocked, in seconds since 1970 (UTC); 0 when locked or unlocked at a time that cannot be read.
+[[nodiscard]] std::int64_t unlocked_time(std::string_view id);
 // The day it was unlocked, in the player's time zone: year * 10000 + month * 100 + day; 0 when locked; 1 when
 // unlocked on a day that cannot be read.
 [[nodiscard]] int unlocked_date(std::string_view id);

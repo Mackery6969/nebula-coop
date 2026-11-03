@@ -536,6 +536,28 @@ void test_session() {
     expect(std::all_of(seen.begin(), seen.end(), [](const SessionPlayer& p) { return !p.local || p.ping_ms == 0u; }),
            "and this player has no round trip of its own");
 
+    // A player's new name (Options' PLAYER page) reaches everyone as it changes, cleaned as at a join.
+    const auto name_of = [](const Session& session, unsigned index) {
+        for (const SessionPlayer& player : session.players()) {
+            if (player.index == index) return player.name;
+        }
+        return std::string("none");
+    };
+    joiner.set_name("LUIGI\x01 NUMBER ONE FAN FOREVER");
+    expect(name_of(joiner, 1u) == "LUIGI NUMBER ONE FAN", "a renamed player sees its new name at once");
+    host_session.set_name("");
+    expect(wait_for([&] {
+               return name_of(host_session, 1u) == "LUIGI NUMBER ONE FAN" &&
+                      name_of(third, 1u) == "LUIGI NUMBER ONE FAN" && name_of(joiner, 1u) == "LUIGI NUMBER ONE FAN" &&
+                      name_of(joiner, 0u) == "PLAYER" && name_of(third, 0u) == "PLAYER";
+           }),
+           "a joiner's and the host's new names reach everyone");
+    expect(place_of(third, 1u) == "EggStarGalaxy/2" && name_of(third, 2u) == "THIRD",
+           "keeping their place, and the others' names");
+    host_session.set_name("HOSTY");
+    expect(wait_for([&] { return name_of(joiner, 0u) == "HOSTY" && name_of(third, 0u) == "HOSTY"; }),
+           "and changes again");
+
     // Each player's Power Stars this room (the Personal Star Counter): the host counts them and tells everyone.
     const auto stars_of = [](const Session& session, unsigned index) {
         for (const SessionPlayer& player : session.players()) {
@@ -591,6 +613,7 @@ void test_session() {
            "and gets everyone's place with the room");
     expect(stars_of(late, 0u) == 1 && stars_of(late, 1u) == 2 && late.stars() == 0u,
            "and everyone's stars, starting from none itself");
+    expect(name_of(late, 0u) == "HOSTY" && name_of(late, 1u) == "LUIGI NUMBER ONE FAN", "and everyone's names as now");
     late.leave();
     expect(wait_for([&] { return host_session.players().size() == 2u; }), "and leaves");
     host_session.leave();

@@ -157,6 +157,11 @@ std::string SaveStore::take_next_start() {
     return find(id) ? id : std::string();
 }
 
+bool SaveStore::has_next_start() const {
+    std::error_code error;
+    return fs::exists(root_ / kNextStartFile, error);
+}
+
 bool SaveStore::convert(const std::filesystem::path& nand_data, unsigned files,
                         const std::filesystem::path& achievements) {
     if (converted()) return false;

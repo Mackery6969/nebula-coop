@@ -23,7 +23,7 @@ extern "C" {
 #define NEBULA_GAME_API __attribute__((visibility("default")))
 #endif
 
-#define NEBULA_GAME_API_VERSION 42u
+#define NEBULA_GAME_API_VERSION 43u
 
 /* A physical range of the game's memory and where it is in the host process: what the GPU's addresses resolve to. */
 typedef struct NebulaGameMemoryRegion {
@@ -478,8 +478,8 @@ enum {
     NEBULA_SETTINGS_KIND_MAIN_MENU,    /* the online co-op main menu (coop_menu), over the running file select */
 };
 
-/* The online co-op main menu (coop_menu, docs/COOP_PLAN.md "Main menu"), which replaces the title and the file
-   select. NEBULA_COOP_MENU_OPEN shows it (settings_view then sends it, `kind` NEBULA_SETTINGS_KIND_MAIN_MENU, and
+/* The online co-op main menu (coop_menu, docs/COOP_PLAN.md "Main menu"), which replaces the file select, after the
+   title. NEBULA_COOP_MENU_OPEN shows it (settings_view then sends it, `kind` NEBULA_SETTINGS_KIND_MAIN_MENU, and
    settings_input drives it); NEBULA_COOP_MENU_POLL returns the player's choice once (NEBULA_COOP_MENU_*), and
    NEBULA_COOP_MENU_CLOSE hides it.
    NEBULA_COOP_MENU_OLD_FILES, as the menu first opens: the user files the save data holds, bit i (from bit 8 of
@@ -489,7 +489,9 @@ enum {
    for (NEBULA_COOP_KEY_*), outside Nebula's settings menu and the main menu's text rows.
    NEBULA_COOP_MENU_CHARACTER: 1 when the player plays Luigi (Options' PLAYER page's character as Host played), else 0;
    MR::isPlayerLuigi follows it in every save. NEBULA_COOP_MENU_JOINED: 1 when the player joined another's room, so
-   the save played is the host's (the pause menu's Quit then doesn't write it), else 0. */
+   the save played is the host's (the pause menu's Quit then doesn't write it), else 0. NEBULA_COOP_MENU_TITLE, as the
+   file select starts: 1 when the game's title shows before the menu (once, as Nebula starts), 0 when the menu opens at
+   once (back from a room, or when the menu starts one itself: --host, --join, a restart for the room's mods). */
 enum {
     NEBULA_COOP_MENU_OPEN = 1,
     NEBULA_COOP_MENU_POLL,
@@ -499,6 +501,7 @@ enum {
     NEBULA_COOP_MENU_KEYS,
     NEBULA_COOP_MENU_CHARACTER,
     NEBULA_COOP_MENU_JOINED,
+    NEBULA_COOP_MENU_TITLE,
 };
 enum {
     NEBULA_COOP_KEY_TAB = 1u << 0,    /* the main menu's reset (as the controller's Back, the Wii Remote's Minus) */
@@ -734,6 +737,10 @@ typedef struct NebulaHostServices {
     /* The room's player collision options (NebulaCoopRules): non-solid outside a room. Called on the simulation
        thread, each game scene frame. */
     void (*coop_rules)(void* user, NebulaCoopRules* rules);
+    /* Online co-op: an achievement another player unlocked in the room's save (achievement then says 0 for it), for
+       its pop-up: 1 with its id (galaxy::achievements', at most `capacity` bytes into `id`), 0 when none waits.
+       Called on the simulation thread. */
+    int (*coop_achievement_take)(void* user, char* id, uint32_t capacity);
 } NebulaHostServices;
 
 enum {

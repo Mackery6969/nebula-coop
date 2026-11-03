@@ -139,6 +139,10 @@ s32 __NebulaAchievementDate(const char* id) {
     return sHost->achievement_date(sHost->user, id);
 }
 
+s32 __NebulaCoopAchievementTake(char* id, u32 capacity) {
+    return sHost->coop_achievement_take(sHost->user, id, capacity);
+}
+
 void __NebulaStatAdd(const char* name, u64 delta) {
     sHost->stat_add(sHost->user, name, delta);
 }

@@ -10,6 +10,7 @@
 #include <iomanip>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -94,6 +95,33 @@ void load_locked(State& s) {
     }
 }
 
+// A time as the file keeps it: ISO 8601, UTC.
+std::string format_utc(std::time_t time) {
+    std::tm utc{};
+#if defined(_WIN32)
+    gmtime_s(&utc, &time);
+#else
+    gmtime_r(&time, &utc);
+#endif
+    char text[32];
+    std::strftime(text, sizeof(text), "%Y-%m-%dT%H:%M:%SZ", &utc);
+    return text;
+}
+
+std::optional<std::time_t> parse_utc(const std::string& text) {
+    std::tm utc{};
+    std::istringstream in(text);
+    in >> std::get_time(&utc, "%Y-%m-%dT%H:%M:%SZ");
+    if (in.fail()) return std::nullopt;
+#if defined(_WIN32)
+    const std::time_t time = _mkgmtime(&utc);
+#else
+    const std::time_t time = timegm(&utc);
+#endif
+    if (time == static_cast<std::time_t>(-1)) return std::nullopt;
+    return time;
+}
+
 void write_waiting() {
     State& s = state();
     const std::lock_guard<std::mutex> io(s.io);
@@ -137,22 +165,18 @@ const Info* find(std::string_view id) noexcept {
 }
 
 bool unlock(std::string_view id) {
+    const std::time_t now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    return unlock_at(id, static_cast<std::int64_t>(now));
+}
+
+bool unlock_at(std::string_view id, std::int64_t when) {
     if (find(id) == nullptr) return false;
     State& s = state();
     {
         const std::lock_guard<std::mutex> lock(s.mutex);
         load_locked(s);
         if (s.unlocked.count(std::string(id)) != 0u) return false;
-        const std::time_t now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-        std::tm utc{};
-#if defined(_WIN32)
-        gmtime_s(&utc, &now);
-#else
-        gmtime_r(&now, &utc);
-#endif
-        char when[32];
-        std::strftime(when, sizeof(when), "%Y-%m-%dT%H:%M:%SZ", &utc);
-        s.unlocked[std::string(id)] = when;
+        s.unlocked[std::string(id)] = format_utc(static_cast<std::time_t>(when));
         s.dirty = true;
         if (!s.writer) {
             s.writer = true;
@@ -170,7 +194,7 @@ bool unlocked(std::string_view id) {
     return s.unlocked.count(std::string(id)) != 0u;
 }
 
-int unlocked_date(std::string_view id) {
+std::int64_t unlocked_time(std::string_view id) {
     std::string when;
     {
         State& s = state();
@@ -180,21 +204,18 @@ int unlocked_date(std::string_view id) {
         if (it == s.unlocked.end()) return 0;
         when = it->second;
     }
-    // Unlocked on a day that cannot be read (an edited file): 1, still unlocked.
-    std::tm utc{};
-    std::istringstream in(when);
-    in >> std::get_time(&utc, "%Y-%m-%dT%H:%M:%SZ");
-    if (in.fail()) return 1;
-#if defined(_WIN32)
-    const std::time_t time = _mkgmtime(&utc);
-#else
-    const std::time_t time = timegm(&utc);
-#endif
+    return static_cast<std::int64_t>(parse_utc(when).value_or(0));
+}
+
+int unlocked_date(std::string_view id) {
+    if (!unlocked(id)) return 0;
+    // Unlocked at a time that cannot be read (an edited file): 1, still unlocked.
+    const std::time_t time = static_cast<std::time_t>(unlocked_time(id));
     std::tm local{};
 #if defined(_WIN32)
-    if (time == static_cast<std::time_t>(-1) || localtime_s(&local, &time) != 0) return 1;
+    if (time <= 0 || localtime_s(&local, &time) != 0) return 1;
 #else
-    if (time == static_cast<std::time_t>(-1) || localtime_r(&time, &local) == nullptr) return 1;
+    if (time <= 0 || localtime_r(&time, &local) == nullptr) return 1;
 #endif
     return (local.tm_year + 1900) * 10000 + (local.tm_mon + 1) * 100 + local.tm_mday;
 }
