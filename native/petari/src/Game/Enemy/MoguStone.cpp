@@ -12,7 +12,7 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include <JSystem/JGeometry/TMatrix.hpp>
-#include <revolution/mtx.h>
+#include <nebula_math.h>
 
 namespace {
     const static f32 hAddHeight = 200.0f;
@@ -115,7 +115,7 @@ void MoguStone::startThrowLevelSound() {
 void MoguStone::exeThrow() {
     startThrowLevelSound();
     doBehavior();
-    PSQUATMultiply(&_A0, &_90, &_90);
+    NebulaQuatMultiply(&_A0, &_90, &_90);
     _90.normalize();
 
     if (MR::isBinded(this)) {
@@ -131,7 +131,7 @@ void MoguStone::exeThrow() {
 }
 
 void MoguStone::exeFall() {
-    PSQUATMultiply(&_A0, &_90, &_90);
+    NebulaQuatMultiply(&_A0, &_90, &_90);
     _90.normalize();
     MR::applyVelocityDampAndGravity(this, 2.0f, 0.8f, 0.98f, 0.98f, 1.0f);
 

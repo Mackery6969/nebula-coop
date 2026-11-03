@@ -1,86 +1,67 @@
 #include "nw4r/lyt/common.h"
+#include <JSystem/J3DGraphBase/J3DNativeTexture.hpp>
 #include "nw4r/lyt/texMap.h"
-#include <revolution/gx/GXEnum.h>
-#include <revolution/gx/GXGet.h>
-#include <revolution/gx/GXStruct.h>
-#include <revolution/tpl.h>
+#include <NebulaGpuTypes.h>
+#include <string.h>
 
 namespace nw4r {
     namespace lyt {
-        void TexMap::Get(_GXTexObj* pTexObj) const {
-            if (detail::IsCITexelFormat(GetTexelFormat())) {
-                u32 tlutName = GXGetTexObjTlut(pTexObj);
-                GXInitTexObjCI(pTexObj, mImage, mWidth, mHeight, GXCITexFmt(GetTexelFormat()), GetWrapModeS(), GetWrapModeT(), IsMipMap(), tlutName);
-            } else {
-                GXInitTexObj(pTexObj, mImage, mWidth, mHeight, GetTexelFormat(), GetWrapModeS(), GetWrapModeT(), IsMipMap());
+        void TexMap::Get(J3DNativeTexObj* pTexObj) const {
+            J3DNativeTexture::init(pTexObj, mImage, mWidth, mHeight, GetWrapModeS(), GetWrapModeT());
+            J3DNativeTexture::setFilter(pTexObj, GetMinFilter(), GetMagFilter(), GetMinLOD(), GetMaxLOD(), GetLODBias(),
+                                        IsEdgeLODEnable(), GetAnisotropy());
+        }
+
+        void TexMap::Set(const J3DNativeTexObj& texObj) {
+            mImage = const_cast< void* >(texObj.mImage);
+            SetSize(texObj.mWidth, texObj.mHeight);
+            SetTexelFormat(TEXEL_I4);
+            SetWrapMode(texObj.mWrapS, texObj.mWrapT);
+            SetMipMap(false);
+            SetFilter(texObj.mMinFilter, texObj.mMagFilter);
+            SetLOD(texObj.mMinLod, texObj.mMaxLod);
+            SetLODBias(texObj.mLodBias);
+            SetBiasClampEnable(false);
+            SetEdgeLODEnable(texObj.mEdgeLod != 0);
+            mBits.anisotropy = texObj.mMaxAniso;
+        }
+
+        namespace {
+            u32 read32(const u8* pAt) {
+                u32 value;
+                memcpy(&value, pAt, sizeof(value));
+                return value;
             }
 
-            GXInitTexObjLOD(pTexObj, GetMinFilter(), GetMagFilter(), GetMinLOD(), GetMaxLOD(), GetLODBias(), IsBiasClampEnable(), IsEdgeLODEnable(),
-                            GetAnisotropy());
-        }
+            u16 read16(const u8* pAt) {
+                u16 value;
+                memcpy(&value, pAt, sizeof(value));
+                return value;
+            }
+        }  // namespace
 
-        void TexMap::Get(_GXTlutObj* pTlutObj) const {
-            GXInitTlutObj(pTlutObj, GetPalette(), GetPaletteFormat(), GetPaletteEntryNum());
-        }
+        // A cooked TPL file (nebula-import): big-endian fields, offsets from the file's start. Its header holds the
+        // version, the image count and the descriptor table; a descriptor names an image header, whose data is the
+        // image's texture record (nebula_cooked_texture.h; a colour-indexed image has its palette applied). Read in
+        // place: nothing is relocated.
+        void TexMap::ReplaceImage(const void* pTplFile, u32 id) {
+            const u8* const file = static_cast< const u8* >(pTplFile);
+            const u32 cVersion = 2142000;
+            if (read32(file) != cVersion) {
+                NEBULA_PANIC("invalid version number for texture palette (the importer cooks it to host order)");
+            }
+            const u32 count = read32(file + 4);
+            const u8* const descriptor = file + read32(file + 8) + (id % count) * 8;
 
-        void TexMap::Set(const GXTexObj& texObj) {
-            void* image;
-            u16 width, height;
-            GXTexFmt format;
-            GXTexWrapMode wrapS, wrapT;
-            GXBool mipmap;
-
-            GXGetTexObjAll(&texObj, &image, &width, &height, &format, &wrapS, &wrapT, &mipmap);
-
+            const u8* const header = file + read32(descriptor);
+            const u16 height = read16(header);
+            const u16 width = read16(header + 2);
+            const u32 format = read32(header + 4);
+            void* const image = const_cast< u8* >(file + read32(header + 8));
             mImage = image;
+            J3DNativeTexture::registerRecord(image);
             SetSize(width, height);
             mBits.textureFormat = format;
-            SetWrapMode(wrapS, wrapT);
-            SetMipMap(mipmap);
-
-            GXTexFilter minFilter, magFilter;
-            f32 minLOD, maxLOD, lodBias;
-            GXBool biasCLampEnable, edgeLODEnable;
-            GXAnisotropy aniso;
-            GXGetTexObjLODAll(&texObj, &minFilter, &magFilter, &minLOD, &maxLOD, &lodBias, &biasCLampEnable, &edgeLODEnable, &aniso);
-
-            SetFilter(minFilter, magFilter);
-            SetLOD(minLOD, maxLOD);
-            SetLODBias(lodBias);
-            SetBiasClampEnable(biasCLampEnable);
-            SetEdgeLODEnable(edgeLODEnable);
-            mBits.anisotropy = aniso;
-        }
-
-        void TexMap::ReplaceImage(const TPLDescriptor* pTPLDesc) {
-            const TPLHeader& header = *pTPLDesc->textureHeader;
-            mImage = header.data;
-            SetSize(header.width, header.height);
-            SetTexelFormat(GXTexFmt(u32(header.format)));
-
-            if (const TPLClutHeader* const pClut = pTPLDesc->CLUTHeader) {
-                SetPalette(pClut->data);
-                SetPaletteFormat(pClut->format);
-                SetPaletteEntryNum(pClut->numEntries);
-            } else {
-                SetPalette(nullptr);
-                SetPaletteFormat(GXTlutFmt(0));
-                SetPaletteEntryNum(0);
-            }
-        }
-
-        void TexMap::ReplaceImage(TPLPalette* p, u32 id) {
-#ifdef TARGET_PC
-            // Natively TPLBind itself tells a bound palette from one still in file form: the console's test, a
-            // descriptor pointer below MEM1 (an offset), does not hold for host addresses.
-            TPLBind(p);
-#else
-            if (reinterpret_cast< u32 >(p->descriptorArray) < 0x80000000) {
-                TPLBind(p);
-            }
-#endif
-
-            ReplaceImage(TPLGet(p, id));
         }
     };  // namespace lyt
 };  // namespace nw4r

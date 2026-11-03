@@ -1,4 +1,8 @@
 #include "Game/Map/WaterRoad.hpp"
+#include "Game/Util/NativeShader.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
 #include "Game/AudioLib/AudSoundObject.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/LiveActor.hpp"
@@ -11,7 +15,7 @@
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/DemoUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/GamePadUtil.hpp"
+#include "Game/Util/PlayerInputUtil.hpp"
 #include "Game/Util/JMapUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
@@ -22,20 +26,8 @@
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include <JSystem/JUtility/JUTTexture.hpp>
-#include <revolution/gd/GDBase.h>
-#include <revolution/gx/GXEnum.h>
-#include <revolution/gx/GXGeometry.h>
-#include <revolution/gx/GXLighting.h>
-#include <revolution/gx/GXStruct.h>
-#include <revolution/gx/GXTransform.h>
-#include <revolution/gx/GXVert.h>
-#include <revolution/wpad.h>
-
-void WaterRoad_DUMMY() {
-    TVec3f a, b;
-    a.sub(b);
-    TVec3f c(1.0f);
-}
+#include <NebulaGpuTypes.h>
+#include "Game/System/NebulaInput.hpp"
 
 namespace {
     static const f32 sRiderSpeedMin = 100.0f;
@@ -69,8 +61,8 @@ namespace {
     static const f32 sDistanceToLow = 10000.0f;
     static const f32 sTexSpeedU2 = 0.0f;
 
-    static GXColor sTevColor1 = {0x28, 0x28, 0x28, 0x14};
-    static GXColor sTevColor2 = {0x55, 0x96, 0xBE, 0xFF};
+    static NebulaColor8 sTevColor1 = {0x28, 0x28, 0x28, 0x14};
+    static NebulaColor8 sTevColor2 = {0x55, 0x96, 0xBE, 0xFF};
 
     inline s32 calcNumDrawLinePoints(WaterRoad* pRoad, f32 dotPointCreate) {
         MR::moveCoordToStartPos(pRoad);
@@ -108,35 +100,11 @@ namespace NrvWaterRoad {
 };  // namespace NrvWaterRoad
 
 WaterRoadModelInfo::WaterRoadModelInfo(WaterRoad* pRoad, bool isLow)
-    : mIsLow(isLow), mNumPoints(), mNumLinePoints(), mNumLoopPoints(12), mPoints(), mNormals(), mRailCoords(), mDispListLength(), mDispList() {
+    : mIsLow(isLow), mNumPoints(), mNumLinePoints(), mNumLoopPoints(12), mPoints(), mNormals(), mRailCoords(),
+      mRoad(pRoad) {
     initPoints(pRoad);
-    initDisplayList();
+    initMesh();
 }
-
-#ifdef TARGET_PC
-namespace {
-    // GX reads vertex arrays in the console's byte order: big-endian copies of the CPU's arrays.
-    BEData< TVec3f >* makeGpuPositions(const TVec3f* pSrc, u32 num) {
-        BEData< TVec3f >* pDst = new (32) BEData< TVec3f >[num];
-        for (u32 i = 0; i < num; i++) {
-            pDst[i].x = pSrc[i].x;
-            pDst[i].y = pSrc[i].y;
-            pDst[i].z = pSrc[i].z;
-        }
-        return pDst;
-    }
-
-    BEData< TVec3s >* makeGpuNormals(const TVec3s* pSrc, u32 num) {
-        BEData< TVec3s >* pDst = new (32) BEData< TVec3s >[num];
-        for (u32 i = 0; i < num; i++) {
-            pDst[i].x = pSrc[i].x;
-            pDst[i].y = pSrc[i].y;
-            pDst[i].z = pSrc[i].z;
-        }
-        return pDst;
-    }
-}  // namespace
-#endif
 
 void WaterRoadModelInfo::initPoints(WaterRoad* pRoad) {
     f32 dotPointCreate;
@@ -198,31 +166,31 @@ void WaterRoadModelInfo::initPoints(WaterRoad* pRoad) {
         front.set(MR::getRailDirection(pRoad));
     }
 
-#ifdef TARGET_PC
-    mGpuPoints = makeGpuPositions(mPoints, mNumPoints);
-    mGpuNormals = makeGpuNormals(mNormals, mNumPoints);
-#endif
 }
 
-void WaterRoadModelInfo::initDisplayList() {
-    MR::ProhibitSchedulerAndInterrupts scheduler(false);
-
-    u32 GDDataSize =
-        (((((mIsLow ? sizeof(f32) * 4 : sizeof(f32) * 6) + sizeof(u16) * 2) * 2) * mNumLinePoints) + sizeof(u8) + sizeof(u16)) * mNumLoopPoints;
-
-    u32 length = ((GDDataSize / 32) + 2) * 32;
-    mDispList = new (0x20) u8[length];
-    DCInvalidateRange(mDispList, length);
-    GDLObj obj;
-    GDInitGDLObj(&obj, mDispList, length);
-    GDSetCurrent(&obj);
+void WaterRoadModelInfo::initMesh() {
+    u32 attributes = NEBULA_SHAPE_NORMAL | NEBULA_SHAPE_TEXCOORD0 | NEBULA_SHAPE_TEXCOORD0 << 1;
+    if (!mIsLow) {
+        attributes |= NEBULA_SHAPE_TEXCOORD0 << 2;
+    }
+    mMesh.init(attributes, 2 * mNumLinePoints * mNumLoopPoints);
+    mMesh.useArray(NativeMesh::SLOT_POSITION, mPoints);
+    mMesh.useArray(NativeMesh::SLOT_NORMAL, mNormals);
+    NativeMesh::sendArray(mPoints, NEBULA_SHAPE_ARRAY_POSITION, mNumPoints, mPoints);
+    // The normals are 1.14 fixed point.
+    f32* pNormals = new f32[3 * mNumPoints];
+    for (s32 i = 0; i < mNumPoints; i++) {
+        pNormals[3 * i] = mNormals[i].x / 16384.0f;
+        pNormals[3 * i + 1] = mNormals[i].y / 16384.0f;
+        pNormals[3 * i + 2] = mNormals[i].z / 16384.0f;
+    }
+    NativeMesh::sendArray(mNormals, NEBULA_SHAPE_ARRAY_NORMAL, mNumPoints, pNormals);
+    delete[] pNormals;
     sendGD();
-    GDPadCurr32();
-    mDispListLength = GDGetGDLObjOffset(&obj);
-    DCStoreRange(mDispList, length);
+    mMesh.send();
 }
 
-void WaterRoadModelInfo::sendGD() const {
+void WaterRoadModelInfo::sendGD() {
     f32 texU0A = 0.0f;
     f32 texU0B = ::sTexRateU0;
     f32 texU1A = 0.0f;
@@ -237,8 +205,7 @@ void WaterRoadModelInfo::sendGD() const {
         }
 
         u16 numPoints = mNumLinePoints * 2;
-        GDWrite_u8(GX_TRIANGLESTRIP);
-        GDWrite_u16(numPoints);
+        mMesh.begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, numPoints);
 
         for (s32 lineIdx = 0; lineIdx < mNumLinePoints; lineIdx++) {
             f32 texV0 = mRailCoords[lineIdx] * ::sTexRateV0;
@@ -248,27 +215,23 @@ void WaterRoadModelInfo::sendGD() const {
             u16 pointIdx = calcPointIndex(lineIdx, loopIdx);
             u16 nextIdx = calcPointIndex(lineIdx, nextLoopIdx);
 
-            GDWrite_u16(pointIdx);
-            GDWrite_u16(pointIdx);
-            GDWrite_f32(texU0A);
-            GDWrite_f32(texV0);
-            GDWrite_f32(texU1A);
-            GDWrite_f32(texV1);
+            mMesh.index(NativeMesh::SLOT_POSITION, pointIdx);
+            mMesh.index(NativeMesh::SLOT_NORMAL, pointIdx);
+            mMesh.texCoord(0, texU0A, texV0);
+            mMesh.texCoord(1, texU1A, texV1);
             if (!mIsLow) {
-                GDWrite_f32(texU2A);
-                GDWrite_f32(texV2);
+                mMesh.texCoord(2, texU2A, texV2);
             }
+            mMesh.corner();
 
-            GDWrite_u16(nextIdx);
-            GDWrite_u16(nextIdx);
-            GDWrite_f32(texU0B);
-            GDWrite_f32(texV0);
-            GDWrite_f32(texU1B);
-            GDWrite_f32(texV1);
+            mMesh.index(NativeMesh::SLOT_POSITION, nextIdx);
+            mMesh.index(NativeMesh::SLOT_NORMAL, nextIdx);
+            mMesh.texCoord(0, texU0B, texV0);
+            mMesh.texCoord(1, texU1B, texV1);
             if (!mIsLow) {
-                GDWrite_f32(texU2B);
-                GDWrite_f32(texV2);
+                mMesh.texCoord(2, texU2B, texV2);
             }
+            mMesh.corner();
         }
 
         texU0A = texU0B;
@@ -287,17 +250,11 @@ void WaterRoadModelInfo::drawGD() const {
         loadMaterialHigh(nullptr);
     }
 
-    GXCallDisplayList(mDispList, mDispListLength);
+    mMesh.draw();
 }
 
 void WaterRoadModelInfo::drawDirect(const WaterRoad* pRoad) const {
     loadMaterialHigh(pRoad);
-    GXClearVtxDesc();
-    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_NRM, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_TEX1, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_TEX2, GX_DIRECT);
 
     s32 pointNum = calcDemoDrawPointNum(pRoad);
     u16 numPoints = pointNum * 2;
@@ -318,7 +275,7 @@ void WaterRoadModelInfo::drawDirect(const WaterRoad* pRoad) const {
             nextLoopIdx = 0;
         }
 
-        GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, numPoints);
+        J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, numPoints, NEBULA_SHAPE_NORMAL | NEBULA_SHAPE_TEXCOORD0 | NEBULA_SHAPE_TEXCOORD0 << 1 | NEBULA_SHAPE_TEXCOORD0 << 2);
 
         for (s32 lineIdx = 0; lineIdx < pointNum; lineIdx++) {
             f32 texV0 = mRailCoords[lineIdx] * ::sTexRateV0;
@@ -331,17 +288,17 @@ void WaterRoadModelInfo::drawDirect(const WaterRoad* pRoad) const {
             const TVec3s& normA = mNormals[calcPointIndex(lineIdx, loopIdx)];
             const TVec3s& normB = mNormals[calcPointIndex(lineIdx, nextLoopIdx)];
 
-            GXPosition3f32(pointA.x, pointA.y, pointA.z);
-            GXPosition3s16(normA.x, normA.y, normA.z);
-            GXTexCoord2f32(texU0A, texV0);
-            GXTexCoord2f32(texU1A, texV1);
-            GXTexCoord2f32(texU2A, texV2);
+            J3DNativeDraw::position(pointA.x, pointA.y, pointA.z);
+            J3DNativeDraw::normal(normA.x / 16384.0f, normA.y / 16384.0f, normA.z / 16384.0f);
+            J3DNativeDraw::texCoord(texU0A, texV0);
+            J3DNativeDraw::texCoord(texU1A, texV1);
+            J3DNativeDraw::texCoord(texU2A, texV2);
 
-            GXPosition3f32(pointB.x, pointB.y, pointB.z);
-            GXPosition3s16(normB.x, normB.y, normB.z);
-            GXTexCoord2f32(texU0B, texV0);
-            GXTexCoord2f32(texU1B, texV1);
-            GXTexCoord2f32(texU2B, texV2);
+            J3DNativeDraw::position(pointB.x, pointB.y, pointB.z);
+            J3DNativeDraw::normal(normB.x / 16384.0f, normB.y / 16384.0f, normB.z / 16384.0f);
+            J3DNativeDraw::texCoord(texU0B, texV0);
+            J3DNativeDraw::texCoord(texU1B, texV1);
+            J3DNativeDraw::texCoord(texU2B, texV2);
         }
 
         if (pointNum < mNumLinePoints) {
@@ -375,17 +332,17 @@ void WaterRoadModelInfo::drawDirect(const WaterRoad* pRoad) const {
             f32 texV1 = MR::getRailCoord(pRoad) * ::sTexRateV1;
             f32 texV2 = MR::getRailCoord(pRoad) * ::sTexRateV2;
 
-            GXPosition3f32(vA.x, vA.y, vA.z);
-            GXPosition3s16(nA.x, nA.y, nA.z);
-            GXTexCoord2f32(texU0A, texV0);
-            GXTexCoord2f32(texU1A, texV1);
-            GXTexCoord2f32(texU2A, texV2);
+            J3DNativeDraw::position(vA.x, vA.y, vA.z);
+            J3DNativeDraw::normal(nA.x / 16384.0f, nA.y / 16384.0f, nA.z / 16384.0f);
+            J3DNativeDraw::texCoord(texU0A, texV0);
+            J3DNativeDraw::texCoord(texU1A, texV1);
+            J3DNativeDraw::texCoord(texU2A, texV2);
 
-            GXPosition3f32(vB.x, vB.y, vB.z);
-            GXPosition3s16(nB.x, nB.y, nB.z);
-            GXTexCoord2f32(texU0B, texV0);
-            GXTexCoord2f32(texU1B, texV1);
-            GXTexCoord2f32(texU2B, texV2);
+            J3DNativeDraw::position(vB.x, vB.y, vB.z);
+            J3DNativeDraw::normal(nB.x / 16384.0f, nB.y / 16384.0f, nB.z / 16384.0f);
+            J3DNativeDraw::texCoord(texU0B, texV0);
+            J3DNativeDraw::texCoord(texU1B, texV1);
+            J3DNativeDraw::texCoord(texU2B, texV2);
         }
 
         texU0A = texU0B;
@@ -407,188 +364,61 @@ s32 WaterRoadModelInfo::calcDemoDrawPointNum(const WaterRoad* pRoad) const {
     return mNumLinePoints;
 }
 
+namespace {
+    // The environment map's matrix: the camera's rotation then the map's half scale and centre.
+    void setEnvMatrix(u32 place) {
+        TPos3f pos;
+        pos.identity();
+        pos.set(MR::getCameraViewMtx());
+        pos.zeroTrans();
+        static Mtx qMtx2 = {{0.5f, 0.0f, 0.0f, 0.5f}, {0.0f, -0.5f, 0.0f, 0.5f}, {0.0f, 0.0f, 1.0f, 0.0f}};
+        MR::multMtx(pos.mMtx, qMtx2, pos.mMtx);
+        J3DNativeShape::setTexture(place, pos.mMtx, 2);
+    }
+
+    // runtime/src/render/materials/water_road.hlsl at high or low detail: blended by alpha where above zero, depth
+    // tested and written, no culling.
+    void sendRoadMaterial(const WaterRoad* pRoad, bool high, u8 alpha) {
+        JUTTexture screen(MR::getScreenResTIMG());
+        NebulaNativeMaterial material;
+        NativeShader::init(material, NEBULA_SHADER_WATER_ROAD, NativeShader::BLEND_ALPHA, NEBULA_COMPARE_LEQUAL, true,
+                           NEBULA_CULL_NONE);
+        NativeShader::setColor(material, 0, ::sTevColor1.r, ::sTevColor1.g, ::sTevColor1.b, ::sTevColor1.a);
+        NativeShader::setColor(material, 4, ::sTevColor2.r, ::sTevColor2.g, ::sTevColor2.b, ::sTevColor2.a);
+        material.constants[8] = high ? 1.0f : 0.0f;
+        material.constants[9] = ::sIndirectScale;
+        material.constants[10] = alpha / 255.0f;
+        material.constants[12] = static_cast< f32 >(screen.getWidth());
+        material.constants[13] = static_cast< f32 >(screen.getHeight());
+        NativeShader::setTexture(material, 0, pRoad->mTexture);
+        if (high) {
+            NativeShader::setTexture(material, 1, pRoad->mIndirect);
+        }
+        NativeShader::setTexture(material, 2, &screen);
+        NativeShader::setTexture(material, 3, pRoad->mEnvMap);
+        NativeShader::send(material);
+        static const u8 kHigh[8] = {0, 1, 2, 3,
+                                    4, J3DNativeShape::kIdentityTexture, J3DNativeShape::kIdentityTexture, J3DNativeShape::kIdentityTexture};
+        static const u8 kLow[8] = {0, 1, 2, 3,
+                                   J3DNativeShape::kIdentityTexture, J3DNativeShape::kIdentityTexture, J3DNativeShape::kIdentityTexture, J3DNativeShape::kIdentityTexture};
+        J3DNativeShape::setCurrent(0, high ? kHigh : kLow);
+    }
+}  // namespace
+
 void WaterRoadModelInfo::loadMaterialHigh(const WaterRoad* pRoad) const {
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_NRM, GX_POS_XY, GX_S16, 16);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_POS_XYZ, GX_F32, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX1, GX_POS_XYZ, GX_F32, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX2, GX_POS_XYZ, GX_F32, 0);
-    GXClearVtxDesc();
-    GXSetVtxDesc(GX_VA_POS, GX_INDEX16);
-    GXSetVtxDesc(GX_VA_NRM, GX_INDEX16);
-    GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_TEX1, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_TEX2, GX_DIRECT);
-#ifdef TARGET_PC
-    GXSetArray(GX_VA_POS, mGpuPoints, sizeof(TVec3f));
-    GXSetArray(GX_VA_NRM, mGpuNormals, sizeof(TVec3s));
-#else
-    GXSetArray(GX_VA_POS, mPoints, sizeof(TVec3f));
-    GXSetArray(GX_VA_NRM, mNormals, sizeof(TVec3s));
-#endif
-    GXLoadPosMtxImm(MR::getCameraViewMtx(), 0);
-    GXLoadNrmMtxImm(MR::getCameraViewMtx(), 0);
-    GXSetCurrentMtx(0);
-    GXSetNumChans(0);
-    GXSetNumTexGens(5);
-    GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, 0x1E, 0, 0x7D);
-    GXSetTexCoordGen2(GX_TEXCOORD1, GX_TG_MTX2x4, GX_TG_TEX1, 0x21, 0, 0x7D);
-    GXSetTexCoordGen2(GX_TEXCOORD2, GX_TG_MTX2x4, GX_TG_TEX2, 0x24, 0, 0x7D);
-    GXSetTexCoordGen2(GX_TEXCOORD3, GX_TG_MTX3x4, GX_TG_POS, 0x27, 0, 0x7D);
-    GXSetTexCoordGen2(GX_TEXCOORD4, GX_TG_MTX2x4, GX_TG_NRM, 0x2A, 0, 0x7D);
+    J3DNativeShape::setPosition(0, MR::getCameraViewMtx());
+    J3DNativeShape::setNormal(0, MR::getCameraViewMtx());
     MR::loadTexProjectionMtx(0x27);
-
-    TPos3f pos;
-    pos.identity();
-    pos.set(MR::getCameraViewMtx());
-    pos.zeroTrans();
-
-    TPos3f mtx;
-    mtx.identity();
-    mtx.scale(1.0f);
-
-    static Mtx qMtx2 = {0.5f, 0.0f, 0.0f, 0.5f, 0.0f, -0.5f, 0.0f, 0.5f, 0.0f, 0.0f, 1.0f, 0.0f};
-
-    MR::multMtx(pos.mMtx, mtx, pos.mMtx);
-    MR::multMtx(pos.mMtx, qMtx2, pos.mMtx);
-    GXLoadTexMtxImm(pos.mMtx, 0x2A, GX_MTX2x4);
-    GXSetNumIndStages(1);
-    GXSetIndTexOrder(GX_INDTEXSTAGE0, GX_TEXCOORD2, GX_TEXMAP1);
-    GXSetTevIndWarp(GX_TEVSTAGE3, GX_INDTEXSTAGE0, GX_TRUE, GX_FALSE, GX_ITM_0);
-
-    f32 indirectScale = ::sIndirectScale;
-
-    Mtx23 indMtx;
-    indMtx[0][1] = 0.0f;
-    indMtx[0][0] = indirectScale;
-    indMtx[0][2] = 0.0f;
-    indMtx[1][0] = 0.0f;
-    indMtx[1][1] = indirectScale;
-    indMtx[1][2] = 0.0f;
-
-    GXSetIndTexMtx(GX_ITM_0, indMtx, 0);
-    GXSetNumTevStages(5);
-
-    GXSetTevColor(GX_TEVREG0, ::sTevColor1);
-    GXSetTevColor(GX_TEVREG1, ::sTevColor2);
-
-    if (pRoad != nullptr) {
-        GXSetTevColor(GX_TEVREG2, Color8(0xFF, 0xFF, 0xFF, pRoad->mAlpha));
-    }
-
-    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR_NULL);
-    GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_TEXC, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO);
-    GXSetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
-    GXSetTevOrder(GX_TEVSTAGE1, GX_TEXCOORD1, GX_TEXMAP0, GX_COLOR_NULL);
-    GXSetTevColorIn(GX_TEVSTAGE1, GX_CC_ZERO, GX_CC_TEXC, GX_CC_CPREV, GX_CC_ZERO);
-    GXSetTevColorOp(GX_TEVSTAGE1, GX_TEV_ADD, GX_TB_ZERO, GX_CS_DIVIDE_2, GX_FALSE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE1, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE1, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_2, GX_FALSE, GX_TEVPREV);
-    GXSetTevOrder(GX_TEVSTAGE2, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR_NULL);
-    GXSetTevColorIn(GX_TEVSTAGE2, GX_CC_CPREV, GX_CC_A0, GX_CC_C0, GX_CC_CPREV);
-    GXSetTevColorOp(GX_TEVSTAGE2, GX_TEV_COMP_R8_EQ, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE2, GX_CA_KONST, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE2, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
-    GXSetTevOrder(GX_TEVSTAGE3, GX_TEXCOORD3, GX_TEXMAP2, GX_COLOR_NULL);
-    GXSetTevColorIn(GX_TEVSTAGE3, GX_CC_ZERO, GX_CC_TEXC, GX_CC_C1, GX_CC_CPREV);
-    GXSetTevColorOp(GX_TEVSTAGE3, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE3, GX_CA_APREV, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE3, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
-    GXSetTevOrder(GX_TEVSTAGE4, GX_TEXCOORD4, GX_TEXMAP3, GX_COLOR_NULL);
-    GXSetTevColorIn(GX_TEVSTAGE4, GX_CC_TEXC, GX_CC_ZERO, GX_CC_ZERO, GX_CC_CPREV);
-    GXSetTevColorOp(GX_TEVSTAGE4, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-
-    if (pRoad == nullptr || pRoad->mAlpha == 0xFF) {
-        GXSetTevAlphaIn(GX_TEVSTAGE4, GX_CA_KONST, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
-    } else {
-        GXSetTevAlphaIn(GX_TEVSTAGE4, GX_CA_A2, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
-    }
-
-    GXSetTevAlphaOp(GX_TEVSTAGE4, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_NOOP);
-    GXSetAlphaCompare(GX_GREATER, 0, GX_AOP_OR, GX_GREATER, 0);
-    GXSetZMode(GX_TRUE, GX_LEQUAL, GX_TRUE);
-    GXSetZCompLoc(GX_TRUE);
-    GXSetCullMode(GX_CULL_NONE);
-    GXSetClipMode(GX_CLIP_ENABLE);
+    setEnvMatrix(4);
+    sendRoadMaterial(mRoad, true, pRoad != nullptr ? pRoad->mAlpha : 0xFF);
 }
 
 void WaterRoadModelInfo::loadMaterialLow() const {
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_NRM, GX_POS_XY, GX_S16, 0x10);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_POS_XYZ, GX_F32, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX1, GX_POS_XYZ, GX_F32, 0);
-    GXClearVtxDesc();
-    GXSetVtxDesc(GX_VA_POS, GX_INDEX16);
-    GXSetVtxDesc(GX_VA_NRM, GX_INDEX16);
-    GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_TEX1, GX_DIRECT);
-#ifdef TARGET_PC
-    GXSetArray(GX_VA_POS, mGpuPoints, sizeof(TVec3f));
-    GXSetArray(GX_VA_NRM, mGpuNormals, sizeof(TVec3s));
-#else
-    GXSetArray(GX_VA_POS, mPoints, sizeof(TVec3f));
-    GXSetArray(GX_VA_NRM, mNormals, sizeof(TVec3s));
-#endif
-    GXLoadPosMtxImm(MR::getCameraViewMtx(), 0);
-    GXLoadNrmMtxImm(MR::getCameraViewMtx(), 0);
-    GXSetCurrentMtx(0);
-    GXSetNumChans(0);
-    GXSetNumTexGens(4);
-    GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, 0x1E, GX_FALSE, 0x7D);
-    GXSetTexCoordGen2(GX_TEXCOORD1, GX_TG_MTX2x4, GX_TG_TEX1, 0x21, GX_FALSE, 0x7D);
-    GXSetTexCoordGen2(GX_TEXCOORD2, GX_TG_MTX3x4, GX_TG_POS, 0x24, GX_FALSE, 0x7D);
-    GXSetTexCoordGen2(GX_TEXCOORD3, GX_TG_MTX2x4, GX_TG_NRM, 0x27, GX_FALSE, 0x7D);
-
+    J3DNativeShape::setPosition(0, MR::getCameraViewMtx());
+    J3DNativeShape::setNormal(0, MR::getCameraViewMtx());
     MR::loadTexProjectionMtx(0x24);
-
-    TPos3f pos;
-    pos.identity();
-    pos.set(MR::getCameraViewMtx());
-    pos.zeroTrans();
-
-    TPos3f mtx;
-    mtx.identity();
-    mtx.scale(1.0f);
-
-    static Mtx qMtx2 = {0.5f, 0.0f, 0.0f, 0.5f, 0.0f, -0.5f, 0.0f, 0.5f, 0.0f, 0.0f, 1.0f, 0.0f};
-
-    MR::multMtx(pos.mMtx, mtx, pos.mMtx);
-    MR::multMtx(pos.mMtx, qMtx2, pos.mMtx);
-    GXLoadTexMtxImm(pos.mMtx, 0x27, GX_MTX2x4);
-
-    GXSetNumIndStages(0);
-    GXSetNumTevStages(4);
-    GXSetTevColor(GX_TEVREG0, ::sTevColor1);
-    GXSetTevColor(GX_TEVREG1, ::sTevColor2);
-    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR_NULL);
-    GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_TEXC, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO);
-    GXSetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
-    GXSetTevOrder(GX_TEVSTAGE1, GX_TEXCOORD1, GX_TEXMAP0, GX_COLOR_NULL);
-    GXSetTevColorIn(GX_TEVSTAGE1, GX_CC_ZERO, GX_CC_TEXC, GX_CC_CPREV, GX_CC_ZERO);
-    GXSetTevColorOp(GX_TEVSTAGE1, GX_TEV_ADD, GX_TB_ZERO, GX_CS_DIVIDE_2, GX_FALSE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE1, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE1, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_2, GX_FALSE, GX_TEVPREV);
-    GXSetTevOrder(GX_TEVSTAGE2, GX_TEXCOORD2, GX_TEXMAP2, GX_COLOR_NULL);
-    GXSetTevColorIn(GX_TEVSTAGE2, GX_CC_ZERO, GX_CC_TEXC, GX_CC_C1, GX_CC_CPREV);
-    GXSetTevColorOp(GX_TEVSTAGE2, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE2, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE2, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
-    GXSetTevOrder(GX_TEVSTAGE3, GX_TEXCOORD3, GX_TEXMAP3, GX_COLOR_NULL);
-    GXSetTevColorIn(GX_TEVSTAGE3, GX_CC_TEXC, GX_CC_ZERO, GX_CC_ZERO, GX_CC_CPREV);
-    GXSetTevColorOp(GX_TEVSTAGE3, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE3, GX_CA_KONST, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE3, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_NOOP);
-    GXSetAlphaCompare(GX_GREATER, 0, GX_AOP_OR, GX_GREATER, 0);
-    GXSetZMode(GX_TRUE, GX_LEQUAL, GX_TRUE);
-    GXSetZCompLoc(GX_TRUE);
-    GXSetCullMode(GX_CULL_NONE);
-    GXSetClipMode(GX_CLIP_ENABLE);
+    setEnvMatrix(3);
+    sendRoadMaterial(mRoad, false, 0xFF);
 }
 
 WaterRoad::WaterRoad(const char* pName)
@@ -629,9 +459,9 @@ void WaterRoad::init(const JMapInfoIter& rIter) {
     MR::setEffectHostMtx(this, "Top", mBaseMtx);
     MR::setEffectHostMtx(this, "End", mBaseMtx);
 
-    mTexture = new JUTTexture(MR::loadTexFromArc("WaterWave.arc", "Water.bti"), 0);
-    mIndirect = new JUTTexture(MR::loadTexFromArc("WaterWave.arc", "WaterIndirect.bti"), 0);
-    mEnvMap = new JUTTexture(MR::loadTexFromArc("WaterWave.arc", "EnvMap.bti"), 0);
+    mTexture = new JUTTexture(MR::loadTexFromArc("WaterWave.arc", "Water.bti"));
+    mIndirect = new JUTTexture(MR::loadTexFromArc("WaterWave.arc", "WaterIndirect.bti"));
+    mEnvMap = new JUTTexture(MR::loadTexFromArc("WaterWave.arc", "EnvMap.bti"));
 
     initSound(3, false);
     mSoundObj = new AudSoundObject(&mCamRailNearestPos, 4, MR::getCurrentHeap());
@@ -690,7 +520,7 @@ void WaterRoad::exeRideStart() {
         return;
     }
 
-    if (MR::isCorePadSwing(WPAD_CHAN0)) {
+    if (MR::isMainSpin(PLAYER_1)) {
         setNerve(GET_NERVE(WaterRoad, WaterRoadNrvRideSpin));
         return;
     }
@@ -709,7 +539,7 @@ void WaterRoad::exeRideWait() {
         return;
     }
 
-    if (MR::isCorePadSwing(WPAD_CHAN0)) {
+    if (MR::isMainSpin(PLAYER_1)) {
         setNerve(GET_NERVE(WaterRoad, WaterRoadNrvRideSpin));
     }
 }
@@ -748,7 +578,7 @@ void WaterRoad::exeDemoGrowUp() {
         MR::emitEffect(this, "Top");
         MR::startSound(this, "SE_OJ_WATER_ROAD_GROW_START");
         MR::shakeCameraStrong();
-        MR::tryRumblePadVeryStrong(this, WPAD_CHAN0);
+        MR::tryRumblePadVeryStrong(this, PLAYER_1);
     }
 
     updateDemo(MR::calcDemoPartStepRate("\203\105\203\110\201\133\203\136\201\133\203\215\201\133\203\150\220\254\222\267" /* ウォーターロード成長 */));
@@ -779,7 +609,6 @@ void WaterRoad::exeDisappear() {
 }
 
 void WaterRoad::movement() {
-    // https://decomp.me/scratch/6VOUU
 
     if (!MR::isValidMovement(this)) {
         return;
@@ -879,21 +708,16 @@ void WaterRoad::draw() const {
     mtx.identity();
     mtx[0][2] = mTexUV0.x;
     mtx[1][2] = mTexUV0.y;
-    GXLoadTexMtxImm(mtx, 0x1E, GX_MTX2x4);
+    J3DNativeShape::setTexture(0, mtx, 2);
     mtx[0][2] = mTexUV1.x;
     mtx[1][2] = mTexUV1.y;
-    GXLoadTexMtxImm(mtx, 0x21, GX_MTX2x4);
+    J3DNativeShape::setTexture(1, mtx, 2);
 
-    mTexture->load(GX_TEXMAP0);
-    JUTTexture screenTex(MR::getScreenResTIMG(), 0);
-    screenTex.load(GX_TEXMAP2);
-    mEnvMap->load(GX_TEXMAP3);
 
     if (isNerve(GET_NERVE(WaterRoad, WaterRoadNrvDemoGrowUp)) || isNerve(GET_NERVE(WaterRoad, WaterRoadNrvDemoWaitEnd))) {
-        mIndirect->load(GX_TEXMAP1);
         mtx[0][2] = mTexUV2.x;
         mtx[1][2] = mTexUV2.y;
-        GXLoadTexMtxImm(mtx, 0x24, GX_MTX2x4);
+        J3DNativeShape::setTexture(2, mtx, 2);
         mModelInfoHigh->drawDirect(this);
         return;
     }
@@ -906,10 +730,9 @@ void WaterRoad::draw() const {
     if (MR::getPlayerPos()->distance(boundedPos) > ::sDistanceToLow) {
         mModelInfoLow->drawGD();
     } else {
-        mIndirect->load(GX_TEXMAP1);
         mtx[0][2] = mTexUV2.x;
         mtx[1][2] = mTexUV2.y;
-        GXLoadTexMtxImm(mtx, 0x24, GX_MTX2x4);
+        J3DNativeShape::setTexture(2, mtx, 2);
         mModelInfoHigh->drawGD();
     }
 }

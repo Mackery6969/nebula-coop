@@ -1,4 +1,7 @@
 #include "Game/MapObj/GCaptureRibbon.hpp"
+#include "Game/Util/NativeShader.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
 #include "Game/LiveActor/ActorLightCtrl.hpp"
 #include "Game/Util/DirectDraw.hpp"
 #include "Game/Util/JMapInfo.hpp"
@@ -7,11 +10,6 @@
 #include "Game/Util/ObjUtil.hpp"
 #include <JSystem/JGeometry/TVec.hpp>
 #include <JSystem/JUtility/JUTTexture.hpp>
-#include <revolution/gx/GXEnum.h>
-#include <revolution/gx/GXGeometry.h>
-#include <revolution/gx/GXPixel.h>
-#include <revolution/gx/GXVert.h>
-#include <revolution/types.h>
 
 GCaptureRibbon::GCaptureRibbon(const char* pName) : LiveActor(pName), mTexture(), _990(), _994() {
 }
@@ -19,40 +17,40 @@ GCaptureRibbon::GCaptureRibbon(const char* pName) : LiveActor(pName), mTexture()
 void GCaptureRibbon::draw() const {
     if (_990 >= 2) {
         TDDraw::cameraInit3D();
-        TDDraw::setup(1, 2, 0);
+        NebulaNativeMaterial material;
+        TDDraw::setupNative(&material, 1, 2, 0);
         f32 width = calcLineWidth();
-        mTexture->load(GX_TEXMAP0);
-        GXSetZMode(true, GX_LEQUAL, false);
+        NativeShader::setTexture(material, 0, mTexture);
+        NativeShader::setDepth(material, true, NEBULA_COMPARE_LEQUAL, false);
+        NativeShader::send(material);
 
-        GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, 2 * _990);
+        J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, 2 * _990, NEBULA_SHAPE_TEXCOORD0);
         {
             for (s32 i = 0; i < _990; i++) {
                 f32 v2 = i / (_990 - 1.0f);
 
                 TVec3f v1 = _690[i] * width;
 
-                GXPosition3f32(v1.x + _90[i].x, v1.y + _90[i].y, v1.z + _90[i].z);
-                GXTexCoord2f32(0.0f, v2);
-                GXPosition3f32(_90[i].x - v1.x, _90[i].y - v1.y, _90[i].z - v1.z);
-                GXTexCoord2f32(1.0f, v2);
+                J3DNativeDraw::position(v1.x + _90[i].x, v1.y + _90[i].y, v1.z + _90[i].z);
+                J3DNativeDraw::texCoord(0.0f, v2);
+                J3DNativeDraw::position(_90[i].x - v1.x, _90[i].y - v1.y, _90[i].z - v1.z);
+                J3DNativeDraw::texCoord(1.0f, v2);
             }
         }
-        GXEnd();
 
-        GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, 2 * _990);
+        J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, 2 * _990, NEBULA_SHAPE_TEXCOORD0);
         {
             for (s32 j = 0; j < _990; j++) {
                 f32 v2 = j / (_990 - 1.0f);
 
                 TVec3f v1 = _390[j] * width;
 
-                GXPosition3f32(v1.x + _90[j].x, v1.y + _90[j].y, v1.z + _90[j].z);
-                GXTexCoord2f32(0.0f, v2);
-                GXPosition3f32(_90[j].x - v1.x, _90[j].y - v1.y, _90[j].z - v1.z);
-                GXTexCoord2f32(1.0f, v2);
+                J3DNativeDraw::position(v1.x + _90[j].x, v1.y + _90[j].y, v1.z + _90[j].z);
+                J3DNativeDraw::texCoord(0.0f, v2);
+                J3DNativeDraw::position(_90[j].x - v1.x, _90[j].y - v1.y, _90[j].z - v1.z);
+                J3DNativeDraw::texCoord(1.0f, v2);
             }
         }
-        GXEnd();
     }
 }
 
@@ -120,7 +118,7 @@ GCaptureRibbon::~GCaptureRibbon() {
 }
 
 void GCaptureRibbon::init(const JMapInfoIter& rIter) {
-    mTexture = new JUTTexture(MR::loadTexFromArc("GCaptureRibbon.arc", "GCaptureRibbon.bti"), 0);
+    mTexture = new JUTTexture(MR::loadTexFromArc("GCaptureRibbon.arc", "GCaptureRibbon.bti"));
     MR::invalidateClipping(this);
     makeActorAppeared();
 }

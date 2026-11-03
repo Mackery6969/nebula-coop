@@ -1,6 +1,7 @@
 #pragma once
 
-#include <revolution.h>
+#include <NebulaGpu.h>
+#include <nebula_math.h>
 
 class J3DMaterial;
 class J3DShapePacket;
@@ -11,21 +12,23 @@ public:
     ShapePacketUserData();
 
     void init(J3DMaterial* pMaterial);
-    void callDL() const;
+    // The texture coordinates and current matrices its material generates differently, for the next draw.
+    void load() const;
     void loadTexMtx(J3DMaterial* pMaterial, int slot, u16 index) const;
 
     struct TexMtxInfo {
-        TexMtxInfo() : mType(), mPostMtx(GX_PTIDENTITY) {
+        TexMtxInfo() : mType(), mPostMtx(J3D_PTIDENTITY) {
         }
 
-        /* 0x00 */ s32 mType;
-        /* 0x04 */ u32 mPostMtx;
+        s32 mType;
+        u32 mPostMtx;
     };
 
-    /* 0x00 */ TexMtxInfo mTexMtxInfo[8];
-    /* 0x40 */ u32 mTexGenNum;
-    /* 0x44 */ u32 mDisplayListSize;
-    /* 0x48 */ u8* mDisplayList;
+    TexMtxInfo mTexMtxInfo[8];
+    u32 mTexGenNum;
+    bool mEnvMap;
+    u8 mTexGenType[8];
+    u8 mTexGenSource[8];
 };
 
 namespace MR {

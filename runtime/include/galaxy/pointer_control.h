@@ -1,17 +1,19 @@
 #pragma once
 
 // One Wii Remote pointer for every host source: the mouse (absolute), pointer
-// keys and the right stick (velocity), and the gyro (rotation). Whichever source
-// moved last owns the pointer; another source takes it over only after the owner
-// has been still for kPointerHandoffUs, so a resting stick or a controller lying
-// on the desk never fights a moving mouse and the reverse.
+// keys and the right stick (velocity), the gyro (rotation) and a touchpad (a
+// finger's travel). Whichever source moved last owns the pointer; another source
+// takes it over only after the owner has been still for kPointerHandoffUs, so a
+// resting stick or a controller lying on the desk never fights a moving mouse and
+// the reverse. A finger moving on a touchpad takes it at once: the hand holding the
+// controller turns it a little all the time.
 
 #include <array>
 #include <cstdint>
 
 namespace galaxy::input {
 
-enum class PointerSource : std::uint8_t { None, Mouse, Keys, Stick, Gyro };
+enum class PointerSource : std::uint8_t { None, Mouse, Keys, Stick, Gyro, Touch };
 
 inline constexpr std::uint64_t kPointerHandoffUs = 250'000;
 
@@ -20,6 +22,7 @@ struct PointerActivity {
     bool keys = false;
     bool stick = false;
     bool gyro = false;
+    bool touch = false;
 };
 
 struct PointerOwner {
@@ -120,7 +123,7 @@ inline constexpr std::uint32_t kStarPointerModeCount = 26;
 enum class PlayContext : std::uint8_t { Menu, Play };
 [[nodiscard]] PlayContext play_context_from_star_pointer_mode(std::uint32_t mode) noexcept;
 
-// The jump/back button: Wii A while the player controls Mario, Wii B in menus.
+// The jump/back button: the game's A while the player controls Mario, its B in menus.
 // The choice is made when the button goes down and kept until it is released,
 // so a menu opening mid-press never turns a held jump into a back press.
 struct JumpBackLatch {

@@ -1,8 +1,9 @@
 #pragma once
 
+#include "Game/System/NebulaAtomic.hpp"
+
 #include "Game/Screen/LayoutActor.hpp"
 
-class TriggerChecker;
 class ValueControl;
 
 class GameSystemResetAndPowerProcess : public LayoutActor {
@@ -10,9 +11,7 @@ public:
     enum ResetOperation {
         ResetOperation_ApplicationReset,
         ResetOperation_Restart,
-        ResetOperation_ReturnToMenu,
-        ResetOperation_ShutdownSystem,
-        ResetOperation_RebootSystem,
+        ResetOperation_Quit,
     };
 
     /// @brief Creates a new `GameSystemResetAndPowerProcess`.
@@ -24,30 +23,23 @@ public:
     virtual void draw() const;
     virtual void control();
 
-    bool isActive() const NO_INLINE;
+    bool isActive() const;
     void setResetOperationApplicationReset();
-    void setResetOperationReturnToMenu();
+    void setResetOperationQuit();
     void requestReset(bool);
-    void requestGoWiiMenu(bool);
-    void notifyCheckDiskResult(bool);
-    void exePolling();
+    void requestQuitGame(bool);
+    void exeIdle();
     void exeWaitResetPermitted();
     void exePrepareReset();
     void exeReset();
     void exeWaitPrepareFadein();
     void exeFadein();
     void exitApplication();
-    bool tryPermitReset() NO_INLINE;
-    bool tryAcceptPowerOff();
+    bool tryPermitReset();
     bool isResetAcceptAudio() const;
-    static void handleOSPowerCallback();
-    static void handleCheckDiskAsync(s32, DVDCommandBlock*);
 
-    /* 0x20 */ TriggerChecker* mResetTriggerChecker;
-    /* 0x24 */ ValueControl* mFadeinoutControl;
-    /* 0x28 */ DVDCommandBlock mCommandBlock;
-    /* 0x58 */ volatile s32 mResetOperation;
-    /* 0x5C */ bool _5C;
-    /* 0x5D */ volatile bool mIsValidPowerOff;
-    /* 0x5E */ bool _5E;
+    ValueControl* mFadeinoutControl;
+    NebulaAtomic< s32 > mResetOperation;
+    bool _5C;
+    bool _5E;
 };

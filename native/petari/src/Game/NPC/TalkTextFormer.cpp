@@ -8,9 +8,10 @@
 #include "Game/Util/LayoutUtil.hpp"
 #include "Game/Util/MessageUtil.hpp"
 #include <nw4r/lyt/textBox.h>
+#include "Game/System/NebulaHost.hpp"
 
 namespace {
-    nw4r::lyt::TextBox* getTextBoxPane(LayoutActor* pActor, const char* pPaneName) NO_INLINE {
+    nw4r::lyt::TextBox* getTextBoxPane(LayoutActor* pActor, const char* pPaneName) {
         nw4r::lyt::Pane* pPane = MR::getPane(pActor, pPaneName);
         const nw4r::ut::detail::RuntimeTypeInfo* pTypeInfo = &nw4r::lyt::TextBox::typeInfo;
         nw4r::lyt::TextBox* pTextBox;
@@ -23,7 +24,6 @@ namespace {
         return pTextBox;
     }
 
-#ifdef TARGET_PC
     // The first text box at or under the pane (a balloon's Text00 holds its text and the text's shadow).
     nw4r::lyt::TextBox* findTextBox(LayoutActor* pActor, const char* pPaneName) {
         nw4r::lyt::TextBox* pTextBox = getTextBoxPane(pActor, pPaneName);
@@ -39,25 +39,12 @@ namespace {
         }
         return nullptr;
     }
-#endif
 };  // namespace
 
 namespace MR {
-#if (VERSION == RMGJ01 || VERSION == RMGE01 || VERSION == RMGP01)
     inline f32 getLanguageRate() {
         return getLanguage() == 0x10 ? 1.0f : 1.25f;
     }
-#else
-    inline f32 getLanguageRate() {
-        f32 rate = 1.25f;
-        if (getLanguage() == 0x10) {
-            rate = 1.0f;
-        } else if (getLanguage() == 0x37) {
-            rate = 0.75f;
-        }
-        return rate;
-    }
-#endif
 
     void initTagProcessorRecursive(LayoutActor* pActor, const char* pPaneName, s32 mode) {
         nw4r::lyt::TextBox* pTextBox = ::getTextBoxPane(pActor, pPaneName);
@@ -125,14 +112,12 @@ namespace MR {
 TalkTextFormer::TalkTextFormer(LayoutActor* pActor, const char* pPaneName) : mHostActor(pActor), mMsg(), _8(), mPaneName(pPaneName) {
 }
 
-void TalkTextFormer::formMessage(const wchar_t* pMessage, s32 mode) {
+void TalkTextFormer::formMessage(const char16_t* pMessage, s32 mode) {
     mMsg = pMessage;
     _8 = mode;
-#ifdef TARGET_PC
     if (NebulaText::isTalk(pMessage)) {
         NebulaText::fitTalk(pMessage, ::findTextBox(mHostActor, mPaneName));
     }
-#endif
 
     MR::setTextBoxMessageRecursive(mHostActor, mPaneName, mMsg);
     MR::initTagProcessorRecursive(mHostActor, mPaneName, _8);
@@ -149,7 +134,7 @@ void TalkTextFormer::setArg(const CustomTagArg& rTag, s32 argIndex) {
 }
 
 bool TalkTextFormer::nextPage() {
-    const wchar_t* pMessage = MR::getNextMessagePage(mMsg);
+    const char16_t* pMessage = MR::getNextMessagePage(mMsg);
     if (pMessage != nullptr) {
         mMsg = pMessage;
         formMessage(pMessage, _8);
@@ -171,17 +156,15 @@ void TalkTextFormer::updateTalking() {
     MR::nextStepTagProcessorRecursive(mHostActor, mPaneName);
 }
 
-#ifdef TARGET_PC
 // Nebula's text speed (NEBULA_OPTION_TEXT_SPEED): 1 to 3 steps a frame, 4 the whole page at once, its pauses included.
 // A skipped cutscene's pages come whole.
 void TalkTextFormer::updateTalkingAtTextSpeed() {
     updateTalking();
-    const u32 speed = NebulaCutsceneSkip::isSkipping() ? 4 : __NebulaOption(NEBULA_OPTION_TEXT_SPEED);
+    const u32 speed = NebulaCutsceneSkip::isSkipping() ? 4 : NebulaHost::option(NEBULA_OPTION_TEXT_SPEED);
     for (u32 extra = speed >= 4 ? 0x2000 : speed - 1; extra != 0 && !isTextAppearedAll(); extra--) {
         updateTalking();
     }
 }
-#endif
 
 bool TalkTextFormer::isTextAppearedAll() const {
     if (_8 == 2) {

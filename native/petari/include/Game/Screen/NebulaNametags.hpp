@@ -1,6 +1,5 @@
 #pragma once
 
-#ifdef TARGET_PC
 #include "Game/Screen/LayoutActor.hpp"
 
 struct NebulaNametagsParts;
@@ -19,4 +18,3 @@ public:
 private:
     /* 0x20 */ NebulaNametagsParts* mParts;
 };
-#endif

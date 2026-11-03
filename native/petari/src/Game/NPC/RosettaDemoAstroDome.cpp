@@ -1,8 +1,6 @@
 #include "Game/NPC/RosettaDemoAstroDome.hpp"
-#ifdef TARGET_PC
 #include "Game/System/NebulaCutsceneSkip.hpp"
 #include <nebula_game_api.h>
-#endif
 #include "Game/Demo/DemoFunction.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/NPC/Rosetta.hpp"
@@ -11,13 +9,12 @@
 #include "Game/Screen/IconAButton.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/DemoUtil.hpp"
-#include "Game/Util/GamePadUtil.hpp"
+#include "Game/Util/PlayerInputUtil.hpp"
 #include "Game/Util/LayoutUtil.hpp"
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include <cstdio>
 
-// TODO: this file is not linkable yet due to a mismatch in .data related to TalkMessageFunc
 
 namespace NrvRosettaDemoAstroDomeExplain {
     NEW_NERVE(RosettaDemoAstroDomeExplainNrvExplainDemo, RosettaDemoAstroDomeExplain, Demo);
@@ -62,7 +59,7 @@ void RosettaMonologue::appear() {
     MR::startPaneAnim(this, "TalkBalloon", "WinFadeIn", 0);
 
     char messageId[256];
-    snprintf(messageId, sizeof(messageId), "RosettaMonologue%03d", mMessageNo);
+    nebula_snprintf(messageId, sizeof(messageId), "RosettaMonologue%03d", mMessageNo);
     mTextFormer.formMessage(MR::getGameMessageDirect(messageId), 1);
 }
 
@@ -85,12 +82,8 @@ void RosettaMonologue::control() {
         return;
     }
 
-#ifdef TARGET_PC
     // Nebula's text speed, for Rosalina's storybook too.
     mTextFormer.updateTalkingAtTextSpeed();
-#else
-    mTextFormer.updateTalking();
-#endif
 
     if (!mTextFormer.isTextAppearedAll()) {
         return;
@@ -102,12 +95,8 @@ void RosettaMonologue::control() {
 
     MR::setLayoutPosAtPaneTrans(mIconAButton, this, "AButtonPosition");
 
-#ifdef TARGET_PC
     // A skipped reading turns each page as soon as it is up.
-    if (!MR::testCorePadTriggerA(WPAD_CHAN0) && !NebulaCutsceneSkip::isSkipping()) {
-#else
-    if (!MR::testCorePadTriggerA(WPAD_CHAN0)) {
-#endif
+    if (!MR::isPressedJump(PLAYER_1) && !NebulaCutsceneSkip::isSkipping()) {
         return;
     }
 
@@ -122,12 +111,12 @@ void RosettaMonologue::control() {
 
     if (mMessageNo == 4) {
         MR::startSystemSE("SE_SY_TALK_OK");
-        MR::startCSSound("CS_CLICK_CLOSE", nullptr, WPAD_CHAN0);
+        MR::startCSSound("CS_CLICK_CLOSE", nullptr, PLAYER_1);
     } else {
         MR::startSystemSE("SE_SY_TALK_FOCUS_ITEM");
 
         char messageId[256];
-        snprintf(messageId, sizeof(messageId), "RosettaMonologue%03d", mMessageNo);
+        nebula_snprintf(messageId, sizeof(messageId), "RosettaMonologue%03d", mMessageNo);
 
         mTextFormer.formMessage(MR::getGameMessageDirect(messageId), 1);
     }

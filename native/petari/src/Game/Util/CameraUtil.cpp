@@ -1,4 +1,5 @@
 #include "Game/Util/CameraUtil.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeView.hpp>
 #include "Game/Camera/CameraAnim.hpp"
 #include "Game/Camera/CameraCalc.hpp"
 #include "Game/Camera/CameraContext.hpp"
@@ -20,29 +21,6 @@
 #include <JSystem/J3DGraphBase/J3DSys.hpp>
 #include <cstdio>
 
-// TODO: mismatch in .data order likely due to a stripped function containing "CAM_TYPE_DPD"
-
-void CameraUtil_FORCE_MATCH_SDATA2() {
-    (void)1.0f;
-    (void)0.0f;
-    (void)0.5f;
-    (void)-1.0f;
-    (void)MR::pi();
-}
-
-void CameraUtil_DUMMY() {
-    TVec4f a(1.0f, 0.0f, 0.0f, 0.0f);
-    TVec3f b;
-    TVec3f c = -b;
-    f32 f1 = MR::tan(1.0f);
-    c = b;
-    TVec3f e = b - c;
-
-    TPos3f m;
-    m.getXDir(b);
-    m.getYDir(b);
-    m.getZDir(b);
-}
 
 namespace {
     static const char* sLauncherCameraName = "\221\345\226\103" /* 大砲 */;
@@ -142,11 +120,11 @@ namespace MR {
     }
 
     void loadProjectionMtx() {
-        GXSetProjection(::getCameraContext()->mProjection, (GXProjectionType) nullptr);
+        J3DNativeView::setPerspective(::getCameraContext()->mProjection);
     }
 
     void loadViewMtx() {
-        PSMTXCopy(::getCameraContext()->getViewMtx(), j3dSys.mViewMtx);
+        NebulaMtxCopy(::getCameraContext()->getViewMtx(), j3dSys.mViewMtx);
     }
 
     const TPos3f& getCameraViewMtx() {
@@ -337,12 +315,7 @@ namespace MR {
         CameraParamChunkEvent* chunk = getCameraDirector()->getEventParameter(pCamInfo->mZoneID, pAnimName);
         if (chunk != nullptr) {
             chunk->setCameraType("CAM_TYPE_ANIM", getCameraDirector()->mHolder);
-            CameraGeneralParam* param = chunk->mGeneralParam;
-#ifdef TARGET_PC
             chunk->mGeneralParam->mAnimData = reinterpret_cast< u8* >(pAnimData);
-#else
-            chunk->mGeneralParam->mNum1 = reinterpret_cast< s32 >(pAnimData);
-#endif
             chunk->mGeneralParam->mDist = 1.0f;
             chunk->getGeneralParam()->mNum2 = CameraAnim::getAnimFrame(reinterpret_cast< u8* >(pAnimData));
             chunk->_64 = true;
@@ -520,10 +493,11 @@ namespace MR {
 namespace {
     char* createRegisterName(const NameObj* pNameObj, u32 id) {
         char buff[256];
-        snprintf(buff, 256, "%s-%d", pNameObj->getName(), id);
+        nebula_snprintf(buff, 256, "%s-%d", pNameObj->getName(), id);
 
-        char* out = new char[strlen(buff) + 1];
-        strcpy(out, buff);
+        const size_t size = strlen(buff) + 1;
+        char* out = new char[size];
+        memcpy(out, buff, size);
         return out;
     }
 };  // namespace
@@ -718,6 +692,3 @@ namespace MR {
     }
 };  // namespace MR
 
-void CameraUtil_DUMMY2() {
-    TVec2f d(1.0f, 0.0f);
-}

@@ -1,6 +1,5 @@
 #pragma once
 
-#ifdef TARGET_PC
 #include "Game/Screen/LayoutActor.hpp"
 
 struct NebulaCoopChatParts;
@@ -24,4 +23,3 @@ public:
 private:
     NebulaCoopChatParts* mParts;
 };
-#endif

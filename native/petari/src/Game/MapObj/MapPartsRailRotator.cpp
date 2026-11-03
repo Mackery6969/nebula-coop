@@ -5,11 +5,6 @@
 #include "Game/Util/MapPartsUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 
-void MapPartsRailRotator_FORCE_MATCH_SDATA2() {
-    (void)0.01745329238474369f;
-    (void)0.009999999776482582f;
-}
-
 namespace NrvMapPartsRailRotator {
     NEW_NERVE(HostTypeWait, MapPartsRailRotator, Wait);
     NEW_NERVE(HostTypeRotateAtPoint, MapPartsRailRotator, Rotate);
@@ -87,7 +82,7 @@ void MapPartsRailRotator::rotateBetweenPoints(s32 point, f32 time) {
 
 void MapPartsRailRotator::updateHostRotateMtx() {
     if (mHostRotateMtx != nullptr) {
-        PSMTXCopy(mHostRotateMtx, _2C.toMtxPtr());
+        NebulaMtxCopy(mHostRotateMtx, _2C.toMtxPtr());
     } else if (mHost->getBaseMtx() != nullptr) {
         _2C.set(mHost->getBaseMtx());
         _2C.zeroTrans();

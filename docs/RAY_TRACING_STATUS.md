@@ -15,8 +15,8 @@ Nothing is pushed. This file is the hand-off: what exists, what was measured, wh
   partial hit shading, screen memory, probe or average; analytic highlights; virtual-image reprojection.
 - Emitters: glow sprites and material-table rows become lights (`GlowEmitCS`, `AuthoredEmitCS`, `EmitMergeCS`),
   clustered in 120-unit cells, matched across frames by identity (material x cell).
-- Material table: `rt-materials.tsv` (texture-hash keyed, 3,653 rows; current version g28 in
-  `D:/NebulaWork/agents/lights/g28`, not in the repo). Stage rows; `untextured` stage rows; tokens include
+- Material table: `rt-materials.tsv` (texture-hash keyed; shipped beside the executable, kept outside the repository
+  with the game data it describes). Stage rows; `untextured` stage rows; tokens include
   `emitter`, `emissive-area`, `tint`, `strip`, `star`, `mirror`.
 - Reference path tracer (`GALAXY_RT_REFERENCE=1`, `_BOUNCES`, `_EXPOSURE`, `_FROM`): one path per sample per
   frame, every bounce shaded from the scene in linear light, averaged in float32 while the camera holds still.
@@ -98,8 +98,8 @@ glass, emissive (glowing things light nothing), lamps, particles, metals, glitte
 
 ## How to run the tests again
 
-- Hidden sessions: `D:/NebulaWork/agents/rt-20261016/run/run.ps1` (-Label -Stops -Package -First -Last -Every
-  -Seconds -Frames -Efb -More -Plain), one at a time under `D:/NebulaWork/agents/motion/tools/runlock.ps1`.
+- Hidden sessions: the game started with a hidden window, private saves and settings, and the test switches below
+  (a galaxy tour, teleports, present snapshots), one session at a time.
 - Views: plaza = tour `GALAXY_TEST_GRAND_STARS=6;GALAXY_TEST_TELEPORT=3100,700,1150,900/...` presents 6600-6660;
   garden = `GALAXY_TEST_TELEPORT=3200.7,392,1050.6,900`, presents 3900-3960.
 - Views of single terms: `GALAXY_RT_VIEW` 2 sun, 3 sky and bounce, 4 lamps and glows, 7 contact occlusion;

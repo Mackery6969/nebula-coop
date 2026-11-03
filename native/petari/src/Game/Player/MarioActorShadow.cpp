@@ -1,4 +1,5 @@
 #include "Game/LiveActor/HitSensor.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
 #include "Game/Map/HitInfo.hpp"
 #include "Game/Player/J3DModelX.hpp"
 #include "Game/Player/JetTurtleShadow.hpp"
@@ -19,18 +20,6 @@
 #include "Game/Util/MtxUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include <JSystem/J3DGraphBase/J3DSys.hpp>
-
-void MarioActorShadow_FORCE_MATCH_SDATA2() {
-    (void)1.0f;
-    (void)0.0f;
-    (void)0.5f;
-    (void)-1.0f;
-    (void)500.0f;
-    (void)0.75f;
-    (void)1000.0f;
-    (void)4503599627370496.0;
-    (void)4503601774854144.0;
-}
 
 void MarioActor::initShadow() {
     _A08 = 1;
@@ -56,9 +45,9 @@ void MarioActor::initShadow() {
 void MarioActor::calcViewReflectionModel() {
     J3DModelX* pModel = getJ3DModel();
     TPos3f matrix;
-    PSMTXCopy(getJ3DModel()->getBaseTRMtx(), matrix.toMtxPtr());
+    NebulaMtxCopy(getJ3DModel()->getBaseTRMtx(), matrix.toMtxPtr());
     TPos3f offset;
-    PSMTXIdentity(offset.toMtxPtr());
+    NebulaMtxIdentity(offset.toMtxPtr());
     f32 factor;
     f32 distance = 10.0f;
     if (isAnimationRun("\203\136\201\133\203\223\203\127\203\203\203\223\203\166" /* ターンジャンプ */)) {
@@ -83,8 +72,8 @@ void MarioActor::calcViewReflectionModel() {
         TVec3f root;
         getRealPos("All_Root", &root);
         TVec3f translation(mPosition - root);
-        PSMTXTrans(offset.toMtxPtr(), translation.x, translation.y, translation.z);
-        updateReflectAlphaDL(_A09);
+        NebulaMtxTrans(offset.toMtxPtr(), translation.x, translation.y, translation.z);
+        updateReflectAlphaList(_A09);
         break;
     }
     case 3: {
@@ -132,7 +121,7 @@ void MarioActor::calcViewReflectionModel() {
             _A25++;
         }
 
-        updateSimpleAlphaDL(_A25);
+        updateSimpleAlphaList(_A25);
         _B18 = position;
         break;
     }
@@ -183,24 +172,24 @@ void MarioActor::calcViewReflectionModel() {
             _A24++;
         }
 
-        updateSimpleAlphaDL(_A24);
+        updateSimpleAlphaList(_A24);
         _B18 = position;
         break;
     }
     }
 
     matrix.setTrans(position);
-    PSMTXCopy(matrix.toMtxPtr(), _E0C.toMtxPtr());
+    NebulaMtxCopy(matrix.toMtxPtr(), _E0C.toMtxPtr());
     if (getCarrySensor() != nullptr) {
         TPos3f carry;
-        PSMTXConcat(_BC8.mMtx, MR::getJointMtx(getCarrySensor()->mHost, 0), carry.toMtxPtr());
-        PSMTXConcat(_E0C.toMtxPtr(), carry.toMtxPtr(), _E0C.toMtxPtr());
+        NebulaMtxConcat(_BC8.mMtx, MR::getJointMtx(getCarrySensor()->mHost, 0), carry.toMtxPtr());
+        NebulaMtxConcat(_E0C.toMtxPtr(), carry.toMtxPtr(), _E0C.toMtxPtr());
         _9A0->calcType0(_E0C.toMtxPtr());
     }
 
-    PSMTXConcat(_BC8.mMtx, offset.toMtxPtr(), offset.toMtxPtr());
-    PSMTXConcat(matrix.toMtxPtr(), offset.toMtxPtr(), matrix.toMtxPtr());
-    PSMTXConcat(j3dSys.mViewMtx, matrix.toMtxPtr(), j3dSys.mViewMtx);
+    NebulaMtxConcat(_BC8.mMtx, offset.toMtxPtr(), offset.toMtxPtr());
+    NebulaMtxConcat(matrix.toMtxPtr(), offset.toMtxPtr(), matrix.toMtxPtr());
+    NebulaMtxConcat(j3dSys.mViewMtx, matrix.toMtxPtr(), j3dSys.mViewMtx);
     pModel->viewCalc3(3, nullptr);
     MR::loadViewMtx();
 }
@@ -273,7 +262,7 @@ void MarioActor::calcViewWallShadowModel() {
     MR::normalizeOrZero(&normal);
     J3DModelX* pModel = getJ3DModel();
     J3DModelX* pSimple = getSimpleModel();
-    PSMTXCopy(pModel->getBaseTRMtx(), pSimple->getBaseTRMtx());
+    NebulaMtxCopy(pModel->getBaseTRMtx(), pSimple->getBaseTRMtx());
     TPos3f& matrix = *reinterpret_cast< TPos3f* >(pSimple->getBaseTRMtx());
     TVec3f x;
     matrix.getXDir(x);
@@ -291,7 +280,7 @@ void MarioActor::calcViewWallShadowModel() {
     MR::vecKillElement(mPosition - position, getGravityVec(), &horizontal);
     TVec3f translation = mPosition + normal * (10.0f + horizontal.length());
     MR::setMtxTrans(matrix.toMtxPtr(), translation.x, translation.y, translation.z);
-    PSMTXConcat(matrix.toMtxPtr(), _BC8.mMtx, matrix.toMtxPtr());
+    NebulaMtxConcat(matrix.toMtxPtr(), _BC8.mMtx, matrix.toMtxPtr());
     pSimple->viewCalcRef(3, pModel);
     _A0C = 1;
 }
@@ -328,9 +317,9 @@ void MarioActor::drawShadow() const {
 
     J3DModelX* pSimple = getSimpleModel();
     TPos3f matrix;
-    PSMTXScale(matrix.toMtxPtr(), mScale.x, mScale.y, mScale.z);
-    PSMTXConcat(matrix.toMtxPtr(), _BC8.mMtx, matrix.toMtxPtr());
-    PSMTXConcat(getJ3DModel()->getBaseTRMtx(), matrix.toMtxPtr(), pSimple->getBaseTRMtx());
+    NebulaMtxScale(matrix.toMtxPtr(), mScale.x, mScale.y, mScale.z);
+    NebulaMtxConcat(matrix.toMtxPtr(), _BC8.mMtx, matrix.toMtxPtr());
+    NebulaMtxConcat(getJ3DModel()->getBaseTRMtx(), matrix.toMtxPtr(), pSimple->getBaseTRMtx());
     _214->calcView(pSimple, 2, getJ3DModel());
     if (mMario->mSinkTimer > 180) {
         return;
@@ -351,7 +340,6 @@ void MarioActor::drawShadow() const {
     }
 
     _214->drawAndCaptureTex(pSimple, mPosition);
-    _214->clearAlphaBuffer();
     if (mBeeWallWalk) {
         _214->_307 = 0;
     } else {
@@ -422,7 +410,7 @@ void MarioActor::calcViewSilhouetteModel() {
     J3DModelX* pSimple = getSimpleModel();
     TVec3f direction(mPosition - mCamPos);
     MR::normalizeOrZero(&direction);
-    PSMTXCopy(pModel->getBaseTRMtx(), pSimple->getBaseTRMtx());
+    NebulaMtxCopy(pModel->getBaseTRMtx(), pSimple->getBaseTRMtx());
     TPos3f& matrix = *reinterpret_cast< TPos3f* >(pSimple->getBaseTRMtx());
     TVec3f x;
     matrix.getXDir(x);
@@ -446,7 +434,7 @@ void MarioActor::calcViewSilhouetteModel() {
     }
 
     MR::setMtxTrans(matrix.toMtxPtr(), translation.x, translation.y, translation.z);
-    PSMTXConcat(matrix.toMtxPtr(), _BC8.mMtx, matrix.toMtxPtr());
+    NebulaMtxConcat(matrix.toMtxPtr(), _BC8.mMtx, matrix.toMtxPtr());
     pSimple->viewCalcRef(1, pModel);
 }
 
@@ -510,8 +498,8 @@ void MarioActor::calcViewBlurModel() {
     if (_A6E == 2) {
         for (u32 i = 0; i < 8; i++) {
             for (u32 j = 0; j < getModelData()->getDrawMtxNum(); j++) {
-                PSMTXCopy(pModel->getDrawMtx(j), _A70[i][j]);
-                PSMTXCopy(pModel->getDrawMtx(j), _A90[i][j]);
+                NebulaMtxCopy(pModel->getDrawMtx(j), _A70[i][j]);
+                NebulaMtxCopy(pModel->getDrawMtx(j), _A90[i][j]);
             }
         }
 
@@ -520,7 +508,7 @@ void MarioActor::calcViewBlurModel() {
     } else if (_37C % 3 == 0) {
         _B12 = (_B12 + 1) & 7;
         for (u32 j = 0; j < getModelData()->getDrawMtxNum(); j++) {
-            PSMTXCopy(pModel->getDrawMtx(j), mBlurMatrices[1 - _B10][_B12][j]);
+            NebulaMtxCopy(pModel->getDrawMtx(j), mBlurMatrices[1 - _B10][_B12][j]);
         }
     }
 
@@ -588,7 +576,7 @@ void MarioActor::drawSilhouette() const {
     pModel->mFlags._1C = true;
     pModel->directDraw(nullptr);
     pModel->mFlags._1C = false;
-    GXSetAlphaUpdate(GX_TRUE);
-    GXSetColorUpdate(GX_TRUE);
-    GXSetDstAlpha(GX_TRUE, 0);
+    J3DPass::writeAlpha(true);
+    J3DPass::writeColor(true);
+    J3DPass::constantAlpha(true, 0);
 }

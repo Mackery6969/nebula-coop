@@ -1,4 +1,6 @@
 #include "Game/NPC/MiiFacePartsHolder.hpp"
+#include "MiiNative.h"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/NPC/MiiDatabase.hpp"
 #include "Game/NPC/MiiFaceParts.hpp"
@@ -13,25 +15,22 @@
 #include "Game/Util/MemoryUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SystemUtil.hpp"
-#include <JSystem/JKernel/JKRMemArchive.hpp>
-#include <JSystem/JKernel/JKRSolidHeap.hpp>
+#include "Game/System/AssetFolder.hpp"
+#include "Game/System/NebulaArena.hpp"
 
-MiiFacePartsHolder::MiiFacePartsHolder(int partsNumMax) : LiveActorGroup("Mii\212\347\203\202\203\146\203\213\225\333\216\235" /* Mii顔モデル保持 */, partsNumMax), JKRDisposer(), mRFLWorkBuffer(), _34() {
+MiiFacePartsHolder::MiiFacePartsHolder(int partsNumMax) : LiveActorGroup("Mii\212\347\203\202\203\146\203\213\225\333\216\235" /* Mii顔モデル保持 */, partsNumMax), JKRDisposer(), _34() {
 }
 
 MiiFacePartsHolder::~MiiFacePartsHolder() {
-    RFLExit();
-    delete[] mRFLWorkBuffer;
+    MiiExit();
     delete _34;
 }
 
 void MiiFacePartsHolder::init(const JMapInfoIter& rIter) {
-    mRFLWorkBuffer = new (MR::getSceneHeapGDDR3(), 32) u8[RFLGetWorkSize(false)];
-
-    JKRMemArchive* pArchive = MR::receiveArchive("/ObjectData/MiiFaceDatabase.arc");
+    AssetFolder* pArchive = MR::receiveArchive("/ObjectData/MiiFaceDatabase.arc");
     void* pResBuffer = pArchive->getResource("/RFL_Res.dat");
     u32 resSize = pArchive->getResSize(pResBuffer);
-    _38 = RFLInitResAsync(mRFLWorkBuffer, pResBuffer, resSize, false);
+    _38 = MiiInitRes(pResBuffer, resSize, false);
 
     MR::connectToScene(this, MR::MovementType_None, MR::CalcAnimType_NPC, MR::DrawBufferType_None, MR::DrawType_MiiFacePartsHolder);
     MR::connectToScene(MR::createDrawAdaptor("Mii\203\202\203\146\203\213\215\304\215\354\220\254" /* Miiモデル再作成 */, MR::Functor(this, &MiiFacePartsHolder::reinitCharModel)), MR::MovementType_None,
@@ -79,23 +78,7 @@ void MiiFacePartsHolder::draw() const {
 void MiiFacePartsHolder::reinitCharModel() {
     MiiFaceParts* pParts;
 
-    if (_38 == RFLErrcode_Busy) {
-        RFLErrcode err = RFLGetAsyncStatus();
-
-        if (err == RFLErrcode_Busy) {
-            return;
-        }
-
-        _38 = err;
-
-        if (err == RFLErrcode_NANDCommandfail) {
-            _3C = RFLGetLastReason();
-
-            GameSequenceFunction::tryNANDErrorSequence(_3C);
-        }
-    }
-
-    if (_38 == RFLErrcode_Success) {
+    if (_38 == MiiErrcode_Success) {
         for (int i = 0; i < getObjNum(); i++) {
             pParts = static_cast< MiiFaceParts* >(getActor(i));
 
@@ -125,7 +108,7 @@ bool MiiFacePartsHolder::isInitEnd() const {
 }
 
 bool MiiFacePartsHolder::isError() const {
-    return _38 != RFLErrcode_Success && _38 != RFLErrcode_Busy;
+    return _38 != MiiErrcode_Success;
 }
 
 MiiFaceParts* MiiFacePartsHolder::createPartsFromReceipe(const char* pName, const MiiFaceRecipe& rRecipe) {
@@ -141,10 +124,10 @@ MiiFaceParts* MiiFacePartsHolder::createPartsFromReceipe(const char* pName, cons
 }
 
 MiiFaceParts* MiiFacePartsHolder::createPartsFromDefault(const char* pName, u16 miiIndex) {
-    return createPartsFromReceipe(pName, MiiFaceRecipe(RFLDataSource_Default, miiIndex, RFLResolution_256, RFLExpFlag_Normal | RFLExpFlag_Blink));
+    return createPartsFromReceipe(pName, MiiFaceRecipe(MiiDataSource_Default, miiIndex, MiiResolution_256, MiiExpFlag_Normal | MiiExpFlag_Blink));
 }
 
-void MiiFacePartsHolder::drawEachActor(DrawPartsFuncPtr pDrawFunc, const RFLDrawCoreSetting* pSetting) const {
+void MiiFacePartsHolder::drawEachActor(DrawPartsFuncPtr pDrawFunc, const MiiDrawCoreSetting* pSetting) const {
     MiiFaceParts* pParts;
 
     for (int i = 0; i < getObjNum(); i++) {
@@ -159,88 +142,34 @@ void MiiFacePartsHolder::drawEachActor(DrawPartsFuncPtr pDrawFunc, const RFLDraw
 }
 
 void MiiFacePartsHolder::drawExtra() const {
-    RFLDrawCoreSetting setting;
-    setting.txcGenNum = 1;
-    setting.txcID = GX_TEXCOORD0;
-    setting.texMapID = GX_TEXMAP0;
-    setting.tevStageNum = 3;
-    setting.tevSwapTable = GX_TEV_SWAP0;
-    setting.tevKColorID = GX_KCOLOR0;
-    setting.tevOutRegID = GX_TEVPREV;
-    setting.posNrmMtxID = GX_PNMTX0;
+    MiiDrawCoreSetting setting;
+    setting.matrix = 0;
     setting.reverseCulling = 0;
 
-    RFLLoadVertexSetting(&setting);
-    RFLLoadMaterialSetting(&setting);
     MR::loadLight(1);
     setTevOpa();
-    GXSetZCompLoc(GX_TRUE);
-    GXSetAlphaCompare(GX_NEQUAL, 255, GX_AOP_AND, GX_ALWAYS, GX_LO_CLEAR);
-    GXSetBlendMode(GX_BM_BLEND, GX_BL_ONE, GX_BL_ZERO, GX_LO_COPY);
+    J3DPass::alphaTest(NEBULA_COMPARE_NEQUAL, 255);
+    J3DPass::blend(NEBULA_FACTOR_ONE, NEBULA_FACTOR_ZERO);
     drawEachActor(&MiiFaceParts::drawOpa, &setting);
     setTevXlu();
-    GXSetAlphaCompare(GX_GREATER, 0, GX_AOP_OR, GX_NEVER, 0);
-    GXSetZCompLoc(GX_FALSE);
-    GXSetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_COPY);
+    J3DPass::alphaTest(NEBULA_COMPARE_GREATER, 0);
+    J3DPass::blend(NEBULA_FACTOR_SRC_ALPHA, NEBULA_FACTOR_INV_SRC_ALPHA);
     drawEachActor(&MiiFaceParts::drawXlu, &setting);
 }
 
-namespace {
-    static const GXColorS10 sTevColor0 = {0, 0, 0, -89};
-    const GXColorS10 sTevColor1 = {0, 0, 0, 246};
-};  // namespace
-
+// The game's Mii NPC stages after each part (runtime/src/render/materials/mii_face.hlsl chains 2 and 3): the colour lit
+// by lights 0 and 1 (clamped diffuse, no attenuation) over the material grey 165 and ambient 128; the opaque pass adds
+// the rim from the alpha channel lit by light 2 (signed diffuse) and draws where the alpha is not 255.
 void MiiFacePartsHolder::setTevOpa() const {
-    GXColorS10 color0 = sTevColor0;
-    GXSetTevColorS10(GX_TEVREG0, color0);
-    GXColorS10 color1 = sTevColor1;
-    GXSetTevColorS10(GX_TEVREG1, color1);
-    GXSetTevDirect(GX_TEVSTAGE1);
-    GXSetTevOrder(GX_TEVSTAGE1, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
-    GXSetTevKAlphaSel(GX_TEVSTAGE1, GX_TEV_KASEL_1_4);
-    GXSetTevColorIn(GX_TEVSTAGE1, GX_CC_C1, GX_CC_CPREV, GX_CC_RASC, GX_CC_C0);
-    GXSetTevColorOp(GX_TEVSTAGE1, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE1, GX_CA_A1, GX_CA_KONST, GX_CA_RASA, GX_CA_A0);
-    GXSetTevAlphaOp(GX_TEVSTAGE1, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetTevDirect(GX_TEVSTAGE2);
-    GXSetTevOrder(GX_TEVSTAGE2, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
-    GXSetTevKAlphaSel(GX_TEVSTAGE2, GX_TEV_KASEL_1_4);
-    GXSetTevColorIn(GX_TEVSTAGE2, GX_CC_ZERO, GX_CC_RASC, GX_CC_APREV, GX_CC_CPREV);
-    GXSetTevColorOp(GX_TEVSTAGE2, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_2, GX_TRUE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE2, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_KONST);
-    GXSetTevAlphaOp(GX_TEVSTAGE2, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_2, GX_TRUE, GX_TEVPREV);
-    GXColor material = {165, 165, 165, 255};
-    GXColor ambient = {128, 128, 128, 128};
-    GXSetNumChans(1);
-    GXSetChanCtrl(GX_COLOR0, GX_TRUE, GX_SRC_REG, GX_SRC_REG, GX_LIGHT0 | GX_LIGHT1, GX_DF_CLAMP, GX_AF_NONE);
-    GXSetChanCtrl(GX_ALPHA0, GX_TRUE, GX_SRC_REG, GX_SRC_REG, GX_LIGHT2, GX_DF_SIGN, GX_AF_NONE);
-    GXSetChanAmbColor(GX_COLOR0A0, ambient);
-    GXSetChanMatColor(GX_COLOR0A0, material);
-    GXSetZMode(GX_TRUE, GX_LEQUAL, GX_TRUE);
+    const NebulaColor8 material = {165, 165, 165, 255};
+    const NebulaColor8 ambient = {128, 128, 128, 128};
+    Mii_NativeChain(MII_I_NATIVE_CHAIN_NPC_OPA, J3D_LIGHT0 | J3D_LIGHT1, J3D_DF_CLAMP, J3D_AF_NONE, ambient, material, 1);
+    J3DPass::depth(true, NEBULA_COMPARE_LEQUAL, true);
 }
 
 void MiiFacePartsHolder::setTevXlu() const {
-    GXColorS10 color0 = sTevColor0;
-    GXSetTevColorS10(GX_TEVREG0, color0);
-    GXColorS10 color1 = sTevColor1;
-    GXSetTevColorS10(GX_TEVREG1, color1);
-    GXSetTevDirect(GX_TEVSTAGE1);
-    GXSetTevOrder(GX_TEVSTAGE1, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
-    GXSetTevColorIn(GX_TEVSTAGE1, GX_CC_C1, GX_CC_CPREV, GX_CC_RASC, GX_CC_C0);
-    GXSetTevColorOp(GX_TEVSTAGE1, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE1, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_APREV);
-    GXSetTevAlphaOp(GX_TEVSTAGE1, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetTevDirect(GX_TEVSTAGE2);
-    GXSetTevOrder(GX_TEVSTAGE2, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR_NULL);
-    GXSetTevColorIn(GX_TEVSTAGE2, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO, GX_CC_CPREV);
-    GXSetTevColorOp(GX_TEVSTAGE2, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_2, GX_TRUE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE2, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_APREV);
-    GXSetTevAlphaOp(GX_TEVSTAGE2, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXColor material = {165, 165, 165, 255};
-    GXColor ambient = {128, 128, 128, 128};
-    GXSetNumChans(1);
-    GXSetChanCtrl(GX_COLOR0, GX_TRUE, GX_SRC_REG, GX_SRC_REG, GX_LIGHT0 | GX_LIGHT1, GX_DF_CLAMP, GX_AF_NONE);
-    GXSetChanAmbColor(GX_COLOR0A0, ambient);
-    GXSetChanMatColor(GX_COLOR0A0, material);
-    GXSetZMode(GX_TRUE, GX_LEQUAL, GX_TRUE);
+    const NebulaColor8 material = {165, 165, 165, 255};
+    const NebulaColor8 ambient = {128, 128, 128, 128};
+    Mii_NativeChain(MII_I_NATIVE_CHAIN_NPC_XLU, J3D_LIGHT0 | J3D_LIGHT1, J3D_DF_CLAMP, J3D_AF_NONE, ambient, material, 0);
+    J3DPass::depth(true, NEBULA_COMPARE_LEQUAL, true);
 }

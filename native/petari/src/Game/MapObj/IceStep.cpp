@@ -12,11 +12,6 @@ namespace NrvIceStep {
     NEW_NERVE(IceStepNrvHit, IceStep, Hit);
 };  // namespace NrvIceStep
 
-void IceStep_FORCE_MATCH_SDATA2() {
-    (void)90.0f;
-    (void)0.2f;
-}
-
 IceStep::IceStep(const char* pName) : LiveActor(pName) {
 }
 
@@ -36,7 +31,7 @@ void IceStep::init(const JMapInfoIter& rIter) {
     initHitSensor(1);
     MR::addHitSensorMapObj(this, "body", 8, radius, TVec3f(0.0f, radius, 0.0f));
 
-    PSMTXIdentity(_8C);
+    NebulaMtxIdentity(_8C);
 
     MR::initCollisionParts(this, "IceStep", getSensor("body"), nullptr);
 

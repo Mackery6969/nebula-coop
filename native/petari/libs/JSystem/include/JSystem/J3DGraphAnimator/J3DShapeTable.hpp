@@ -1,7 +1,6 @@
 #pragma once
 
 #include "JSystem/J3DGraphBase/J3DShape.hpp"
-#include <revolution/types.h>
 
 class JUTNameTab;
 
@@ -16,7 +15,6 @@ public:
     void hide();
     void show();
     void initShapeNodes(J3DDrawMtxData*, J3DVertexData*);
-    void sortVcdVatCmd();
 
     virtual ~J3DShapeTable() {
     }
@@ -31,7 +29,7 @@ public:
 private:
     friend class J3DModelLoader;
 
-    /* 0x4 */ u16 mShapeNum;
-    /* 0x8 */ J3DShape** mShapeNodePointer;
-    /* 0xC */ JUTNameTab* mShapeName;
-};  // Size: 0x10
+    u16 mShapeNum;
+    J3DShape** mShapeNodePointer;
+    JUTNameTab* mShapeName;
+};
