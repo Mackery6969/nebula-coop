@@ -11,9 +11,7 @@
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
-#ifdef TARGET_PC
 #include "Game/Player/NebulaCoopBubble.hpp"
-#endif
 
 void MarioActor::initBlackHoleOut() {
     mPosRelativeToBlackHole = mPosition - mBlackHolePosition;
@@ -34,8 +32,8 @@ void MarioActor::initBlackHoleOut() {
     f32 flt = MR::vecKillElement(mCamPos - mPosition, mCamDirZ, &killed);
     flt *= mConst->getTable()->mBlackHoleFirstRadius;
 
-    PSMTXRotAxisRad(rotation, &rotateAxis, atan(flt / mag));
-    PSMTXMultVec(rotation, &mPosRelativeToBlackHole, &mBlackHoleRotateAxis);
+    NebulaMtxRotAxisRad(rotation, &rotateAxis, atan(flt / mag));
+    NebulaMtxMultVec(rotation, &mPosRelativeToBlackHole, &mBlackHoleRotateAxis);
     MR::normalizeOrZero(&mBlackHoleRotateAxis);
 
     damageDropThrowMemoSensor();
@@ -43,12 +41,10 @@ void MarioActor::initBlackHoleOut() {
 }
 
 void MarioActor::exeGameOverBlackHole2() {
-#ifdef TARGET_PC
     // Online co-op: with another player alive here, the miss becomes a bubble (sm64coopdx's bubble on death).
     if (MR::isFirstStep(this) && NebulaCoopBubble::tryStart(this)) {
         return;
     }
-#endif
     if (MR::isFirstStep(this)) {
         MR::setCubeBgmChangeInvalid();
         MR::clearBgmQueue();
@@ -102,8 +98,8 @@ void MarioActor::exeGameOverBlackHole2() {
     }
 
     Mtx rotationMatrix;
-    PSMTXRotAxisRad(rotationMatrix, &mBlackHoleRotateAxis, angle);
-    PSMTXMultVec(rotationMatrix, &mPosRelativeToBlackHole, &mPosRelativeToBlackHole);
+    NebulaMtxRotAxisRad(rotationMatrix, &mBlackHoleRotateAxis, angle);
+    NebulaMtxMultVec(rotationMatrix, &mPosRelativeToBlackHole, &mPosRelativeToBlackHole);
 
     MR::vecBlendSphere(mBlackHoleRotateAxis, -mCamDirZ, &mBlackHoleRotateAxis, 0.01f);
 

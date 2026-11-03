@@ -1,7 +1,8 @@
 #pragma once
 
 #include <JSystem/JGeometry.hpp>
-#include <revolution.h>
+#include <NebulaGpu.h>
+#include <nebula_math.h>
 
 class LiveActor;
 
@@ -12,11 +13,11 @@ public:
     void decideNextTargetPos(const LiveActor*);
     bool isReachedTarget(const LiveActor*, f32);
 
-    void setCenter(const TVec3f& rPos) NO_INLINE {
+    void setCenter(const TVec3f& rPos) {
         mCenter.set(rPos);
     }
 
-    /* 0x00 */ f32 mRadius;
-    /* 0x04 */ TVec3f mCenter;
-    /* 0x10 */ TVec3f mTarget;
+    f32 mRadius;
+    TVec3f mCenter;
+    TVec3f mTarget;
 };

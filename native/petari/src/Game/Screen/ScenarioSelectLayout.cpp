@@ -1,4 +1,6 @@
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Screen/ScenarioSelectLayout.hpp"
+#include "Game/System/NebulaRegion.hpp"
 #include "Game/Camera/CameraContext.hpp"
 #include "Game/Effect/MultiEmitter.hpp"
 #include "Game/LiveActor/Nerve.hpp"
@@ -9,7 +11,7 @@
 #include "Game/System/GameDataConst.hpp"
 #include "Game/Util/EffectUtil.hpp"
 #include "Game/Util/EventUtil.hpp"
-#include "Game/Util/GamePadUtil.hpp"
+#include "Game/Util/PlayerInputUtil.hpp"
 #include "Game/Util/LayoutUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/MessageUtil.hpp"
@@ -18,9 +20,7 @@
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
-#ifdef TARGET_PC
 #include "Game/Screen/NebulaSelectPlayers.hpp"
-#endif
 
 namespace {
     const char* const cStarPaneName[] = {"Star1", "Star2", "Star3", "Star4", "Star5", "Star6", "Star7"};
@@ -45,9 +45,7 @@ namespace {
     const f32 cSkyScale = 10.0f;
     const s32 cCometWarningWaitFrame = 15;
     const s32 cCometWarningFrame = 180;
-#ifdef TARGET_PC
     const f32 cCoopPlayersDrop = 50.0f;  // online co-op's names under a star: below its pointing circle's middle
-#endif
 };  // namespace
 
 namespace {
@@ -82,9 +80,7 @@ ScenarioSelectLayout::ScenarioSelectLayout(EffectSystem* pEffectSystem, const Ca
       mCameraContext(pCameraContext), mNewTextFollowPos(0.0f, 0.0f), mNewGreenTextFollowPos(0.0f, 0.0f), mStarTopFollowPos(0.0f, 0.0f), mBackButton(),
       mMarioPaneFollowPos(0.0f, 0.0f), mMarioPaneName(), _A4(), _A8(-1) {
     mEffectHostMtx.identity();
-#ifdef TARGET_PC
     mCoopPlayers = nullptr;
-#endif
 
     for (u32 i = 0; i < ARRAY_SIZE(mQuestionPane); i++) {
         mQuestionPane[i].zero();
@@ -134,14 +130,12 @@ void ScenarioSelectLayout::init(const JMapInfoIter& rIter) {
     mBackButton = new BackButton("\226\337\202\351\203\173\203\136\203\223" /* 戻るボタン */, false);
     mBackButton->initWithoutIter();
 
-#ifdef TARGET_PC
     mCoopPlayers = new NebulaSelectPlayers(false);
     mCoopPlayers->initWithoutIter();
-#endif
 
-    #if (VERSION == RMGJ01 || VERSION == RMGE01)
-    MR::hidePaneRecursive(this, "CometAppear");
-    #endif
+    if (!NebulaRegion::isPal()) {
+        MR::hidePaneRecursive(this, "CometAppear");
+    }
 
     initNerve(GET_NERVE(ScenarioSelectLayout, ScenarioSelectLayoutNrvAppearStar));
 }
@@ -225,9 +219,9 @@ void ScenarioSelectLayout::appear() {
     mScenarioSky->appear();
     MultiScene::startBtk(mScenarioSky, "ScenarioSelectSky");
 
-#if (VERSION == RMGP01 || VERSION == RMGK01)
-    MR::hidePaneRecursive(this, "CometAppear");
-#endif
+    if (NebulaRegion::isPal()) {
+        MR::hidePaneRecursive(this, "CometAppear");
+    }
 
     mSelectedScenarioNo = -1;
     _24 = 0;
@@ -261,9 +255,7 @@ void ScenarioSelectLayout::movement() {
 
     mScenarioSky->movement();
     mBackButton->movement();
-#ifdef TARGET_PC
     mCoopPlayers->movement();
-#endif
 }
 
 void ScenarioSelectLayout::calcAnim() {
@@ -275,16 +267,12 @@ void ScenarioSelectLayout::calcAnim() {
 
     mScenarioSky->calcAnim();
     mBackButton->calcAnim();
-#ifdef TARGET_PC
     mCoopPlayers->calcAnim();
-#endif
 }
 
 void ScenarioSelectLayout::draw() const {
     LayoutActor::draw();
-#ifdef TARGET_PC
     mCoopPlayers->draw();
-#endif
     mBackButton->draw();
 }
 
@@ -335,7 +323,6 @@ void ScenarioSelectLayout::control() {
 
     MR::copyPaneTrans(&mMarioPaneFollowPos, this, mMarioPaneName);
 
-#ifdef TARGET_PC
     // Online co-op: the other players in each star shown, under it, as sm64coopdx's act select puts their heads over
     // the acts they play. Until a star is chosen.
     if (isNerve(GET_NERVE(ScenarioSelectLayout, ScenarioSelectLayoutNrvAppear)) ||
@@ -347,7 +334,6 @@ void ScenarioSelectLayout::control() {
             }
         }
     }
-#endif
 }
 
 void ScenarioSelectLayout::updateSelectedScenario() {
@@ -407,7 +393,7 @@ void ScenarioSelectLayout::fadeInText() {
 
     if (isPlacedCoin) {
         const s32 bestScore = MR::getCoinBestScore(stageName, mSelectedScenarioNo);
-        MR::setTextBoxFormatRecursive(this, "ShaCoinNum", L"%03d", bestScore);
+        MR::setTextBoxFormatRecursive(this, "ShaCoinNum", u"%03d", bestScore);
     } else {
         MR::setPaneAnimFrameAndStop(this, "BestScore", 0.0f, 0);
     }
@@ -415,7 +401,7 @@ void ScenarioSelectLayout::fadeInText() {
     MR::startPaneAnim(this, "BestTime", "SelectIn", 0);
 
     if (::isCurrentStageRaceComplete(mSelectedScenarioNo)) {
-        wchar_t bestTime[16];
+        char16_t bestTime[16];
         MR::makeRaceBestTimeString(bestTime, RaceManagerFunction::getRaceId(stageName, mSelectedScenarioNo));
         MR::setTextBoxMessageRecursive(this, "ShaTime", bestTime);
     } else {
@@ -425,7 +411,6 @@ void ScenarioSelectLayout::fadeInText() {
 }
 
 void ScenarioSelectLayout::fadeOutText() {
-    const char* stageName = MR::getCurrentStageName();
 
     _A4 = 1;
 
@@ -446,7 +431,7 @@ bool ScenarioSelectLayout::trySelect() {
             return true;
         }
 
-        if (!MR::isStarPointerInScreen(WPAD_CHAN0)) {
+        if (!MR::isStarPointerInScreen(PLAYER_1)) {
             for (s32 i = 0; i < 7; i++) {
                 if (mStar[i]->_30) {
                     continue;
@@ -484,7 +469,7 @@ ScenarioSelectStar* ScenarioSelectLayout::getSelectedStar() const {
 
 void ScenarioSelectLayout::calcWorldPositionFromScreenPos(TVec3f* pWorldPos, const TVec2f& rScreenPos, f32 depth) const {
     f32 fovy = mCameraContext->getFovy() * (PI / 180.0f);
-    f32 height = static_cast< s32 >(JUTVideo::getManager()->getEfbHeight());
+    f32 height = static_cast< s32 >(NebulaFrameClock::cScreenUnitsDown);
     f32 focalLength = (height * 0.5f) / MR::tan(fovy * 0.5f);
     f32 distance;
 
@@ -606,7 +591,7 @@ bool ScenarioSelectLayout::tryCancel() {
         return true;
     }
 
-    if (MR::testCorePadTriggerB(WPAD_CHAN0)) {
+    if (MR::isPressedFire(PLAYER_1)) {
         MR::startSystemSE("SE_SY_GALAXY_DECIDE_CANCEL");
         mBackButton->disappear();
         setNerve(GET_NERVE(ScenarioSelectLayout, ScenarioSelectLayoutNrvCancel));

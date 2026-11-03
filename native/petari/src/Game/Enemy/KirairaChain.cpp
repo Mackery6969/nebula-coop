@@ -1,4 +1,5 @@
 #include "Game/Enemy/KirairaChain.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
 #include "Game/LiveActor/ModelObj.hpp"
 #include "Game/LiveActor/SimpleJ3DModelDrawer.hpp"
 #include "Game/Ride/SwingRopePoint.hpp"
@@ -97,10 +98,10 @@ void KirairaChain::draw() const {
 
         mtx.setTrans(point->mPosition);
 
-        PSMTXConcat(MR::getCameraViewMtx(), mtx, mtx);
-        GXLoadPosMtxImm(mtx, GX_PNMTX0);
-        GXLoadNrmMtxImm(mtx, GX_PNMTX0);
-        GXCallDisplayList(mModelDrawer->mShapeDraw->getDisplayList(), mModelDrawer->mShapeDraw->getDisplayListSize());
+        NebulaMtxConcat(MR::getCameraViewMtx(), mtx, mtx);
+        J3DNativeShape::setPosition(0, mtx);
+        J3DNativeShape::setNormal(0, mtx);
+        mModelDrawer->mShapeDraw->draw();
     }
 }
 
@@ -191,11 +192,11 @@ void KirairaChain::updatePoints() {
 
 void KirairaChain::control() {
     if (mAccelTimer <= 0) {
-        mAccelPointIdx = MR::getRandom(0L, mPointCount - 1);
+        mAccelPointIdx = MR::getRandom(0, mPointCount - 1);
         if (MR::isExistRail(mHost)) {
-            mAccelTimer = MR::getRandom(3L, 10L);
+            mAccelTimer = MR::getRandom(3, 10);
         } else {
-            mAccelTimer = MR::getRandom(5L, 10L);
+            mAccelTimer = MR::getRandom(5, 10);
         }
 
         mAccel.set< f32 >(MR::getRandom(-0.3f, 0.3f), MR::getRandom(-0.3f, 0.3f), MR::getRandom(-0.3f, 0.3f));

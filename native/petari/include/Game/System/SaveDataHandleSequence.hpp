@@ -1,12 +1,12 @@
 #pragma once
 
 #include "Game/System/NerveExecutor.hpp"
+#include "Game/System/SaveRequest.hpp"
 
 class GameDataHolder;
-class NANDErrorSequence;
+class SaveErrorSequence;
 class SaveDataHandler;
 class SaveIcon;
-class SysConfigFile;
 class SysInfoWindow;
 class UserFile;
 
@@ -30,7 +30,6 @@ public:
     void startSave(bool, bool);
     void startSaveBackup(bool, bool);
     void startSaveAll();
-#ifdef TARGET_PC
     // The caller opens a system window when the save is done (the pause menu's question): the done message hands the
     // screen dim to it (SysInfoWindow::setDimHandOver). Until the next start.
     void setWindowFollows(bool follows) {
@@ -38,12 +37,10 @@ public:
     }
     // startPreLoad from a new console's save data: a missing file leaves none of the last one read.
     void startReload();
-#endif
-    void startSaveTotalMailSize();
     void startLoad(int, bool);
     void storeMiiOrIconId(int, const void*, const u32*);
     void storeCopyUserFile(int, int);
-    bool tryNANDErrorSequence(s32);
+    bool tryUnrecoverableError(SaveRequest::Result);
     bool isActive() const;
     bool isPermitToReset() const;
     void prepareReset();
@@ -64,15 +61,14 @@ public:
     void exeSaveAllWithoutWindow();
     void exePreLoad();
     void exePreLoadDone();
+    void tryNextSaveCopy();
     void exeNoSaveConfirmRemind();
     void exeErrorHandling();
     GameDataHolder* getHolder();
-    SysConfigFile* getSysConfigFile();
     UserFile* getCurrentUserFile();
     UserFile* getBackupUserFile();
     void restoreUserFileConfigData(UserFile*, int);
     void restoreUserFileGameData(UserFile*, int, bool);
-    void restoreSysConfigFile(SysConfigFile*);
     bool trySave();
     bool trySaveWindowDisappear(bool*, const Nerve*);
     bool trySaveWithoutWindow(bool*, const Nerve*);
@@ -83,29 +79,26 @@ public:
     bool executeSaveFinish(bool*, const Nerve*);
     void syncNoSaveFlagsFromErrorSequence();
 
-    /* 0x08 */ SysConfigFile* mSysConfigFile;
-    /* 0x0C */ UserFile* mCurrentUserFile;
-    /* 0x10 */ UserFile* mBackupUserFile;
-    /* 0x14 */ SaveDataHandler* mSaveDataHandler;
-    /* 0x18 */ NANDErrorSequence* mNANDErrorSequence;
-    /* 0x1C */ SysInfoWindow* mSysInfoWindowConfirm;
-    /* 0x20 */ SysInfoWindow* mSysInfoWindowSave;
-    /* 0x24 */ s32 _24;
-    /* 0x28 */ bool mIsConfirmRemind;
-    /* 0x29 */ bool mIsSaveAndQuitMsg;
-    /* 0x2A */ bool _2A;
-    /* 0x2B */ bool _2B;
-    /* 0x2C */ bool _2C;
-    /* 0x30 */ UserFile* mWorkUserFile;
-    /* 0x34 */ const Nerve* mNerveForError;
-    /* 0x38 */ u8* mTempBuffer;
-    /* 0x3C */ MR::FunctorBase* mOnSaveSuccessFunc;
-    /* 0x40 */ MR::FunctorBase* mJustBeforeSaveFunc;
-    /* 0x44 */ SaveIcon* mSaveIcon;
-#ifdef TARGET_PC
+    UserFile* mCurrentUserFile;
+    UserFile* mBackupUserFile;
+    SaveDataHandler* mSaveDataHandler;
+    SaveErrorSequence* mSaveErrorSequence;
+    SysInfoWindow* mSysInfoWindowConfirm;
+    SysInfoWindow* mSysInfoWindowSave;
+    s32 _24;
+    bool mIsConfirmRemind;
+    bool mIsSaveAndQuitMsg;
+    bool _2A;
+    bool _2B;
+    bool _2C;
+    UserFile* mWorkUserFile;
+    const Nerve* mNerveForError;
+    u8* mTempBuffer;
+    MR::FunctorBase* mOnSaveSuccessFunc;
+    MR::FunctorBase* mJustBeforeSaveFunc;
+    SaveIcon* mSaveIcon;
     bool mWindowFollows;
-    // A new console's files, never changed: what startReload starts from.
-    SysConfigFile* mNewSysConfigFile;
+    int mSaveCopyLoading = 0;
+    // A new console's user file, never changed: what startReload starts from.
     UserFile* mNewUserFile;
-#endif
 };

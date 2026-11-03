@@ -8,13 +8,11 @@ class InformationMessage;
 class MarioMeter;
 class MarioSubMeter;
 class MissLayout;
-#ifdef TARGET_PC
 class NebulaAchievementBoard;
 class NebulaAchievementToast;
 class NebulaCoopChat;
 class NebulaPlayerList;
 class NebulaNametags;
-#endif
 class NoteCounter;
 class OneUpBoard;
 class PurpleCoinCounter;
@@ -45,20 +43,19 @@ public:
     void deactivateDefaultGameLayout();
     void invalidateStatusLayout();
 
-    /* 0x0C */ CameraInfo* mCameraInfo;
-    /* 0x10 */ InformationMessage* mInformationMessage;
-    /* 0x14 */ MarioMeter* mMarioMeter;
-    /* 0x18 */ MarioSubMeter* mMarioSubMeter;
-    /* 0x1C */ MissLayout* mMissLayout;
-    /* 0x20 */ NoteCounter* mNoteCounter;
-    /* 0x24 */ OneUpBoard* mOneUpBoard;
-    /* 0x28 */ YesNoLayout* mYesNoLayout;
-    /* 0x2C */ PurpleCoinCounter* mPurpleCoinCounter;
-    /* 0x30 */ bool _30;
-    /* 0x31 */ bool _31;
-    /* 0x34 */ CounterLayoutController* mCounterLayoutCtrl;
-    /* 0x38 */ bool mIsActiveDefaultGameLayout;
-#ifdef TARGET_PC
+    CameraInfo* mCameraInfo;
+    InformationMessage* mInformationMessage;
+    MarioMeter* mMarioMeter;
+    MarioSubMeter* mMarioSubMeter;
+    MissLayout* mMissLayout;
+    NoteCounter* mNoteCounter;
+    OneUpBoard* mOneUpBoard;
+    YesNoLayout* mYesNoLayout;
+    PurpleCoinCounter* mPurpleCoinCounter;
+    bool _30;
+    bool _31;
+    CounterLayoutController* mCounterLayoutCtrl;
+    bool mIsActiveDefaultGameLayout;
     // Nebula's achievement pop-up: GameScene runs and draws it (only in play, above everything else in 2D).
     NebulaAchievementToast* mAchievementToast;
     // Nebula's achievement board, in the Observatory (its Luma opens it); null elsewhere.
@@ -68,7 +65,6 @@ public:
     // Online co-op's player list (Tab or the controller's Share held): GameScene runs and draws it over everything.
     NebulaPlayerList* mPlayerList;
     NebulaNametags* mNametags;
-#endif
 };
 
 namespace MR {

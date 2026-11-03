@@ -1,5 +1,4 @@
 #include "Game/System/GameSequenceFunction.hpp"
-#include "Game/NWC24/NWC24Messenger.hpp"
 #include "Game/System/FindingLuigiEventScheduler.hpp"
 #include "Game/System/GalaxyCometScheduler.hpp"
 #include "Game/System/GameDataConst.hpp"
@@ -18,11 +17,11 @@
 #include "Game/Util/StringUtil.hpp"
 
 namespace {
-    GameSequenceProgress* getGameSequenceProgress() NO_INLINE {
+    GameSequenceProgress* getGameSequenceProgress() {
         return SingletonHolder< GameSystem >::get()->mSequenceDirector->mGameSequenceProgress;
     }
 
-    SaveDataHandleSequence* getSaveDataHandleSequence() NO_INLINE {
+    SaveDataHandleSequence* getSaveDataHandleSequence() {
         return SingletonHolder< GameSystem >::get()->mSequenceDirector->mSaveDataHandleSequence;
     }
 
@@ -30,9 +29,6 @@ namespace {
         return SingletonHolder< GameSystem >::get()->mSequenceDirector->mGameDataTemporaryInGalaxy;
     }
 
-    NWC24Messenger* getNWC24Messenger() NO_INLINE {
-        return SingletonHolder< GameSystem >::get()->mSequenceDirector->mNWC24Messenger;
-    }
 };  // namespace
 
 namespace GameSequenceFunction {
@@ -202,9 +198,6 @@ namespace GameSequenceFunction {
         ::getSaveDataHandleSequence()->startPreLoad();
     }
 
-    void startTotalMailSizeSaveSequence() {
-        ::getSaveDataHandleSequence()->startSaveTotalMailSize();
-    }
 
     void startGameDataLoadSequence(int userFileIndex, bool isPlayerMario) {
         ::getSaveDataHandleSequence()->startLoad(userFileIndex, isPlayerMario);
@@ -256,25 +249,13 @@ namespace GameSequenceFunction {
         ::getSaveDataHandleSequence()->restoreUserFile(pUserFile, userFileIndex, isPlayerMario);
     }
 
-    void tryNANDErrorSequence(s32 code) {
-        ::getSaveDataHandleSequence()->tryNANDErrorSequence(code);
-    }
 
-    void reserveUserName(const wchar_t* pUserName) {
+    void reserveUserName(const char16_t* pUserName) {
         ::getSaveDataHandleSequence()->getCurrentUserFile()->setUserName(pUserName);
     }
 
-    void requestPrepareResetNWC24() {
-        ::getNWC24Messenger()->prepareReset();
-    }
 
-    bool isEnableToResetNWC24() {
-        return !::getNWC24Messenger()->isRunning();
-    }
 
-    void resetNWC24() {
-        ::getNWC24Messenger()->reset();
-    }
 
     void storeSceneStartGameDataHolder() {
         if (!GameDataFunction::isPassedStoryEvent("\203\140\203\122\203\113\203\103\203\150\203\146\203\202\217\111\227\271" /* チコガイドデモ終了 */) || GameDataFunction::hasGrandStar(1)) {
@@ -300,7 +281,6 @@ namespace GameSequenceFunction {
             ::getSaveDataHandleSequence()->startSave(isConfirmRemind, isSaveAndQuitMsg);
         }
     }
-#ifdef TARGET_PC
 
     void startReloadSaveDataSequence() {
         ::getSaveDataHandleSequence()->startReload();
@@ -309,5 +289,4 @@ namespace GameSequenceFunction {
     void setGameDataSaveWindowFollows() {
         ::getSaveDataHandleSequence()->setWindowFollows(true);
     }
-#endif
 };  // namespace GameSequenceFunction

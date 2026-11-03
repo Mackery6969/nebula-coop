@@ -6,9 +6,7 @@
 #include "Game/LiveActor/PartsModel.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/Util.hpp"
-#ifdef TARGET_PC
 #include "Game/Player/NebulaCoopBubble.hpp"
-#endif
 
 namespace NrvEarthenPipe {
     NEW_NERVE(EarthenPipeNrvWait, EarthenPipe, Wait);
@@ -103,14 +101,14 @@ void EarthenPipe::init(const JMapInfoIter& rIter) {
     TPos3f v24;
     v24.identity();
     MR::makeMtxUpFrontPos(&v24, _98, v23, _8C);
-    PSMTXCopy(v24, mTopJointMtx);
+    NebulaMtxCopy(v24, mTopJointMtx);
     _BC.setInline(v24);
     TVec3f v22(_8C);
     TVec3f v21(_98);
     v21.scale(50.0f);
     v22.sub(v21);
     v24.setTrans(v22);
-    PSMTXCopy(v24, mBottomJointMtx);
+    NebulaMtxCopy(v24, mBottomJointMtx);
     MR::setBaseTRMtx(this, mTopJointMtx);
     MR::connectToSceneMapObjNoCalcAnimStrongLight(this);
 
@@ -268,10 +266,8 @@ void EarthenPipe::exePlayerIn() {
     }
 
     if (MR::isBckStopped(mHostActor) && !MR::isPlayerDead()) {
-#ifdef TARGET_PC
         // Online co-op: through a warp pipe the player is in another part of the stage, as far as bubbles go.
         NebulaCoopBubble::noticePipeWarp(_8C, _B0->_8C);
-#endif
         _F0.setInline(_B0->getBaseMtx());
         if (_B0->tryShowUp()) {
             setNerve(GET_NERVE(EarthenPipe, EarthenPipeNrvTargetPipeShowUp));
@@ -314,7 +310,7 @@ void EarthenPipe::exePlayerOut() {
 
         MR::startSound(mHostActor, "SE_PM_JUMP_M");
         MR::startSound(mHostActor, "SE_PV_JUMP_JOY");
-        MR::startBckPlayer("EarthenPipeJump", 0L);
+        MR::startBckPlayer("EarthenPipeJump", 0);
         MR::endBindAndPlayerForceWeakGravityJumpInputOff(this, v4);
         mHostActor = nullptr;
         _B0->tryHideDown();
@@ -334,7 +330,7 @@ inline bool isNear(const LiveActor* actor) {
 }
 
 void EarthenPipe::exeInvalid() {
-    if (MR::isGreaterStep(this, 30) && MR::isOnGroundPlayer() || mPipeMode == 4 && isNear(this) || MR::isPlayerSwimming() && isNear(this)) {
+    if ((MR::isGreaterStep(this, 30) && MR::isOnGroundPlayer()) || (mPipeMode == 4 && isNear(this)) || (MR::isPlayerSwimming() && isNear(this))) {
         MR::validateClipping(this);
         MR::validateHitSensors(this);
         setNerve(GET_NERVE(EarthenPipe, EarthenPipeNrvWait));

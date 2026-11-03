@@ -1,4 +1,3 @@
-#ifdef TARGET_PC
 #include "Game/Player/NebulaCoopBubble.hpp"
 #include "Game/Player/Mario.hpp"
 #include "Game/Player/MarioActor.hpp"
@@ -8,17 +7,18 @@
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
 #include "Game/Util/EventUtil.hpp"
-#include "Game/Util/GamePadUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ModelUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
+#include "Game/Util/PlayerInputUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#include "Game/System/NebulaHost.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
 #include <nebula_game_api.h>
-#include <revolution/os.h>
+#include "nebula_module.h"
 
 namespace {
     // A body's middle above its feet (NebulaRemotePlayer's), where the bubble is.
@@ -76,7 +76,7 @@ namespace {
 
     bool isBubbleOn() {
         NebulaCoopRules rules = {};
-        __NebulaCoopRules(&rules);
+        NebulaHost::coopRules(&rules);
         return rules.bubble != 0;
     }
 
@@ -127,7 +127,7 @@ namespace {
         MR::onBind(pActor);
         MR::validateHitSensors(pActor);
         pActor->mMario->mDamage->_16 = cInvincibleFrames;
-        OSReport("[coop] out of the bubble\n");
+        nebula_log("[coop] out of the bubble\n");
     }
 
     // Nobody left to let the player out: the miss after all. It takes a life itself, so the bubble's comes back.
@@ -143,7 +143,7 @@ namespace {
         MR::onBind(pActor);
         MR::validateHitSensors(pActor);
         pActor->setNerve(GET_NERVE(MarioActor, MarioActorNrvGameOver));
-        OSReport("[coop] nobody to fly to: the bubble ends in a miss\n");
+        nebula_log("[coop] nobody to fly to: the bubble ends in a miss\n");
     }
 };  // namespace
 
@@ -255,7 +255,7 @@ bool NebulaCoopBubble::tryStart(MarioActor* pActor) {
     sVelocity.zero();
     sLocal->follow(getCenter(pActor));
     MR::startSound(sLocal, "SE_OJ_AIR_BUBBLE_BREAK");
-    OSReport("[coop] in a bubble (%d lives left)\n", MR::getPlayerLeft());
+    nebula_log("[coop] in a bubble (%d lives left)\n", MR::getPlayerLeft());
     return true;
 }
 
@@ -280,12 +280,12 @@ void NebulaCoopBubble::updateLocal(MarioActor* pActor) {
         sAlone = 0;
     }
 
-    // Flown where the camera looks: the stick across and ahead, A up and Z down, eased (sm64coopdx's 0.9 and 0.1).
-    TVec3f want = MR::getCamXdir() * MR::getSubPadStickX(WPAD_CHAN0) + MR::getCamZdir() * MR::getSubPadStickY(WPAD_CHAN0);
-    if (MR::testCorePadButtonA(WPAD_CHAN0)) {
+    // Flown where the camera looks: the stick across and ahead, jump (A) up and crouch (Z) down, eased (sm64coopdx's 0.9 and 0.1).
+    TVec3f want = MR::getCamXdir() * MR::getPlayerStickX() + MR::getCamZdir() * MR::getPlayerStickY();
+    if (MR::getPlayerHeldJump()) {
         want += MR::getCamYdir();
     }
-    if (MR::testSubPadButtonZ(WPAD_CHAN0)) {
+    if (MR::getPlayerHeldCrouch()) {
         want -= MR::getCamYdir();
     }
     if (want.length() > 1.0f) {
@@ -331,4 +331,3 @@ void NebulaCoopBubble::noticePipeWarp(const TVec3f& rEntrance, const TVec3f& rEx
 void NebulaCoopBubble::noticeGameOverDemo() {
     sGameOverDemo = true;
 }
-#endif

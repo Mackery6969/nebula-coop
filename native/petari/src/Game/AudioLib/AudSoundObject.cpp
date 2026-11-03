@@ -1,4 +1,5 @@
 #include "Game/AudioLib/AudSoundObject.hpp"
+#include "Game/System/GameThreads.hpp"
 #include "Game/AudioLib/AudEffector.hpp"
 #include "Game/AudioLib/AudSoundId.hpp"
 #include "Game/AudioLib/AudSoundInfo.hpp"
@@ -8,11 +9,7 @@
 #include <JSystem/JAudio2/JAISound.hpp>
 #include <JSystem/JGadget/hashcode.hpp>
 
-void AudSoundObject_FORCE_MATCH_SDATA2() {
-    f32 f1 = 1.0f;
-}
-
-AudSoundObject::AudSoundObject(TVec3f* pPos, u8 numHandles, JKRHeap* pHeap)
+AudSoundObject::AudSoundObject(TVec3f* pPos, u8 numHandles, NebulaArena* pHeap)
     : JAUSoundObject(pPos, numHandles, pHeap), JKRDisposer(), mSeVersion(0), mMapCode(0), mMapCodeExtra(0), mHashDatas(nullptr), mNumSounds(0) {
     mNumHandles = numHandles;
     if (mNumHandles > 0) {
@@ -45,15 +42,15 @@ bool AudSoundObject::writePort(JAISoundHandle* pHandle, u32 port, u16 value) {
         return false;
     }
 
-    BOOL en = OSDisableInterrupts();
+    BOOL en = GameThreads::excludeAudio();
 
     JASTrack* track = pHandle->getSound()->getTrack();
     if (track != nullptr) {
         track->writePort(port, value);
-        OSRestoreInterrupts(en);
+        GameThreads::restoreAudio(en);
         return true;
     }
-    OSRestoreInterrupts(en);
+    GameThreads::restoreAudio(en);
     return false;
 }
 

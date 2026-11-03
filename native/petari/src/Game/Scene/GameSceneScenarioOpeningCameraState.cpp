@@ -5,7 +5,7 @@
 #include "Game/Screen/ScenarioTitle.hpp"
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/EventUtil.hpp"
-#include "Game/Util/GamePadUtil.hpp"
+#include "Game/Util/PlayerInputUtil.hpp"
 #include "Game/Util/NerveUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
@@ -43,7 +43,7 @@ void GameSceneScenarioOpeningCameraState::start() {
     MR::forceOpenWipeFade();
     MR::forceToFrameCinemaFrame();
     MR::startStageBGM("BGM_START_DEMO", false);
-    PSMTXCopy(MR::getPlayerBaseMtx(), mBaseMtx);
+    NebulaMtxCopy(MR::getPlayerBaseMtx(), mBaseMtx);
 
     TVec3f namePos;
 

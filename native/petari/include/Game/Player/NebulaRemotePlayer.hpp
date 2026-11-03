@@ -1,6 +1,5 @@
 #pragma once
 
-#ifdef TARGET_PC
 #include "Game/LiveActor/LiveActor.hpp"
 #include <nebula_game_api.h>
 
@@ -66,4 +65,3 @@ public:
     bool mSolid;      // its sensor is on
     NebulaBubble* mBubble;  // round them while they're in a bubble (NebulaCoopBubble)
 };
-#endif

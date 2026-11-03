@@ -1,45 +1,34 @@
 #include "Game/System/PauseButtonCheckerInGame.hpp"
-#include "Game/Util/GamePadUtil.hpp"
-#ifdef TARGET_PC
-#include <revolution/os.h>
-#endif
+#include "Game/Util/PlayerInputUtil.hpp"
+#include "Game/System/NebulaHost.hpp"
 
 namespace {
-    static const s32 sHoldCounterMax = 12;
 };  // namespace
 
 PauseButtonCheckerInGame::PauseButtonCheckerInGame()
     : mPlusHoldFrame(0), mMinusHoldFrame(0)
-#ifdef TARGET_PC
       ,
       mPlusUsed(false), mMinusUsed(false)
-#endif
 {
 }
 
 void PauseButtonCheckerInGame::update() {
-    if (MR::testCorePadButtonPlus(WPAD_CHAN0)) {
+    if (MR::isHeldPause(PLAYER_1)) {
         mPlusHoldFrame++;
     } else {
         mPlusHoldFrame = 0;
-#ifdef TARGET_PC
         mPlusUsed = false;
-#endif
     }
 
-    if (MR::testCorePadButtonMinus(WPAD_CHAN0)) {
+    if (MR::isHeldMap(PLAYER_1)) {
         mMinusHoldFrame++;
     } else {
         mMinusHoldFrame = 0;
-#ifdef TARGET_PC
         mMinusUsed = false;
-#endif
     }
 }
 
-#ifdef TARGET_PC
-// A press pauses the first frame it is permitted: a tap is enough (the console waited for 12 frames of holding, longer
-// than a quick press), and a press made while A or B is held pauses once they are let go.
+// A press pauses the first frame it is permitted: a tap is enough, and a press made while A or B is held pauses once they are let go.
 bool PauseButtonCheckerInGame::isPermitToPlusPause() const {
     if (mPlusHoldFrame == 0 || mPlusUsed || !isPermitToPause()) {
         return false;
@@ -56,7 +45,7 @@ bool PauseButtonCheckerInGame::isPermitToMinusPause() const {
     }
     // In an online co-op room Minus (a controller's Share) holds the player list (NebulaPlayerList) instead: Plus
     // pauses.
-    if (__NebulaCoopList(nullptr, 0, nullptr) != 0) {
+    if (NebulaHost::coopList(nullptr, 0, nullptr) != 0) {
         return false;
     }
     mPlusUsed = true;
@@ -64,21 +53,7 @@ bool PauseButtonCheckerInGame::isPermitToMinusPause() const {
     return true;
 }
 
-// Not while A or B is held. The console also waited for the remote to be still, which drops a press made while the
-// controller moves (a gyro pointer, a hand in motion).
+// Not while A or B is held.
 bool PauseButtonCheckerInGame::isPermitToPause() const {
-    return !MR::testCorePadButtonA(WPAD_CHAN0) && !MR::testCorePadButtonB(WPAD_CHAN0);
+    return !MR::isHeldJump(PLAYER_1) && !MR::isHeldFire(PLAYER_1);
 }
-#else
-bool PauseButtonCheckerInGame::isPermitToPlusPause() const {
-    return isPermitToPause() && mPlusHoldFrame == ::sHoldCounterMax;
-}
-
-bool PauseButtonCheckerInGame::isPermitToMinusPause() const {
-    return isPermitToPause() && mMinusHoldFrame == ::sHoldCounterMax;
-}
-
-bool PauseButtonCheckerInGame::isPermitToPause() const {
-    return !MR::isOperatingWPad(WPAD_CHAN0);
-}
-#endif

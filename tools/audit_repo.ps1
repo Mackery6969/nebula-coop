@@ -10,7 +10,7 @@ $ForbiddenExtensions = @(
     ".iso", ".rso", ".rvz", ".szs", ".thp", ".wad", ".wbfs", ".wia",
     ".bin", ".pak", ".nds", ".sel", ".brres", ".bmg", ".rarc"
 )
-# The Android build's shader seed: pipeline keys (hashes of GX state) the PC's galaxy tour captured, no game data.
+# The Android build's shader seed: pipeline keys (hashes of pipeline state) the PC's galaxy tour captured, no game data.
 $AllowedBinaries = @(
     "platform/android/vk_seed_keys.bin"
 )
@@ -55,6 +55,11 @@ foreach ($RelativePath in $TrackedFiles) {
     # The shader-cache seed is Nebula-generated DXBC (docs/CONTENT_POLICY.md).
     if ($RelativePath -like 'installer/shadercache-seed/*') {
         if ($File.Length -gt 16MB) { $Failures.Add("Shader-cache seed larger than 16 MiB: $($File.FullName)") }
+        continue
+    }
+    # The game module's PGO profile (native/pgo, NEBULA_PGO): clang's merged counters for Nebula's own code.
+    if ($RelativePath -eq 'native/pgo/game.profdata') {
+        if ($File.Length -gt 16MB) { $Failures.Add("PGO profile larger than 16 MiB: $($File.FullName)") }
         continue
     }
     if ($File.Extension.ToLowerInvariant() -in $ForbiddenExtensions -and

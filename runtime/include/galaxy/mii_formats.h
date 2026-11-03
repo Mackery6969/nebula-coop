@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// Mii files of every console as the Wii's own Mii records (RFLiCharData): the Wii's (.mii, .rcd, .mae, .miigx, .rsd,
+// Mii files of every console as the Wii's own Mii records (MiiCharData): the Wii's (.mii, .rcd, .mae, .miigx, .rsd,
 // its RFL_DB.dat, a Wii Remote's Mii block), the DS's (.ncd, .nsd), the 3DS's and Wii U's (.cfcd, .cfsd, .ffcd, .ffsd,
 // their CFL_DB.dat and FFL_ODB.dat), the Switch's (.charinfo, .nfsd, .nfcd), Mii Studio's (its data and the obfuscated
 // code, as bytes, hex text or a studio.mii.nintendo.com link) and Mii Creator's (.miic). A newer console's Mii takes
@@ -8,6 +8,8 @@
 
 #include "galaxy/mii_import.h"
 
+#include <array>
+#include <cstdint>
 #include <span>
 #include <string>
 #include <string_view>
@@ -27,5 +29,14 @@ struct MiiFileContents {
 
 // A create ID no console made (all of its time or console bits zero: tools write 80000000 00000000).
 [[nodiscard]] bool mii_placeholder_id(const MiiRecord& record) noexcept;
+
+// A Wii Mii database (RFL_DB.dat): the Mii in each of its slots that holds one; none when the bytes are not one.
+[[nodiscard]] std::vector<std::pair<unsigned, MiiRecord>> read_wii_mii_database(std::span<const std::byte> bytes);
+
+// A Wii Mii record's fields as numbers (its bitfields, names in host byte order, create ID as stored).
+[[nodiscard]] MiiFields decode_wii_mii(const MiiRecord& record) noexcept;
+// What the console fixes before it keeps a Mii: a birthday it does not take cleared, a special Mii kept local, a
+// favourite colour out of range reset, no name "no name".
+void fix_wii_mii(MiiRecord& record) noexcept;
 
 }  // namespace galaxy::host

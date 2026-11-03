@@ -1,6 +1,7 @@
 #include "Game/Screen/NebulaStarCounter.hpp"
+#include "nebula_module.h"
+#include "Game/System/NebulaHost.hpp"
 
-#ifdef TARGET_PC
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Screen/CountUpPaneRumbler.hpp"
 #include "Game/Screen/CounterLayoutAppearer.hpp"
@@ -15,7 +16,6 @@
 #include <nw4r/lyt/pane.h>
 #include <nw4r/lyt/picture.h>
 #include <nw4r/lyt/textBox.h>
-#include <revolution/os.h>
 
 namespace {
     // sm64coopdx's mod's colours: red for this room's stars, green for every star.
@@ -120,9 +120,9 @@ void NebulaStarCounter::init(const JMapInfoIter& rIter) {
     static bool sReported = false;
     if (!sReported) {
         sReported = true;
-        OSReport("NebulaStarCounter: %d of StarCounter's panes tinted\n", mTint->mNum);
+        nebula_log("NebulaStarCounter: %d of StarCounter's panes tinted\n", mTint->mNum);
         for (s32 i = 0; i < mTint->mNum; i++) {
-            OSReport("  %s (%s)\n", mTint->mEntries[i].mPane->mName, mTint->mEntries[i].mText ? "text" : "picture");
+            nebula_log("  %s (%s)\n", mTint->mEntries[i].mPane->mName, mTint->mEntries[i].mText ? "text" : "picture");
         }
     }
 
@@ -132,7 +132,7 @@ void NebulaStarCounter::init(const JMapInfoIter& rIter) {
 
 s32 NebulaStarCounter::getCount() const {
     if (mKind == Kind_Room) {
-        return __NebulaCoopStarCount();
+        return NebulaHost::coopStarCount();
     }
     const u64 count = NebulaAchievements::getStat(NebulaStat_PowerStars);
     return count > static_cast< u64 >(cCountMax) ? cCountMax : static_cast< s32 >(count);
@@ -168,7 +168,7 @@ void NebulaStarCounter::appear() {
         return;
     }
     // Under the save's counter: the room's first, then the all-time one (first when there is no room).
-    const s32 slot = mKind == Kind_Room || __NebulaCoopStarCount() < 0 ? 1 : 2;
+    const s32 slot = mKind == Kind_Room || NebulaHost::coopStarCount() < 0 ? 1 : 2;
     mLayoutAppearer->appear(TVec2f(0.0f, getLineStep() * slot));
     mPaneRumbler->reset();
     MR::startAnim(this, "Wait", 1);
@@ -237,4 +237,3 @@ void NebulaStarCounter::exeDisappear() {
         kill();
     }
 }
-#endif

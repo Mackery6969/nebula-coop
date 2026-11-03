@@ -356,7 +356,7 @@ the Online tab (Bubble on Death, `coop_bubble_death`, on by default), sent with 
   its life given back, since the miss takes one.
 - **Who decides.** The bubbled player's own game, as sm64coopdx: no message. The snapshot says it
   (`NEBULA_COOP_PLAYER_BUBBLED`, with `DEAD` and `INTANGIBLE`) and its part, and the others draw the bubble round its
-  copy, bursting as it's let out (game API 44, session protocol 6).
+  copy, bursting as it's let out (game API 120, session protocol 6).
 - Not yet: Mario keeps a power-up form in the bubble (a miss would have taken it), and doesn't turn to face where he
   flies.
 

@@ -1,6 +1,5 @@
 #pragma once
 
-#ifdef TARGET_PC
 #include "Game/LiveActor/LiveActor.hpp"
 
 class MarioActor;
@@ -56,4 +55,3 @@ namespace NebulaCoopBubble {
     // The scene's miss demo started (a death that didn't pass through MarioActor's miss states first): no bubble now.
     void noticeGameOverDemo();
 };  // namespace NebulaCoopBubble
-#endif

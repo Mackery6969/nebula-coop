@@ -2,6 +2,7 @@
 
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/LiveActor/ShadowVolumeDrawer.hpp"
+#include "Game/Util/NativeMesh.hpp"
 
 class ElectricRailPoint : public LiveActor {
 public:
@@ -11,8 +12,8 @@ public:
     virtual void init(const JMapInfoIter&);
     virtual void attackSensor(HitSensor*, HitSensor*);
 
-    /* 0x8C */ bool mHasShadow;
-    /* 0x8D */ bool mIsActive;
+    bool mHasShadow;
+    bool mIsActive;
 };
 
 class ElectricRailSeparator {
@@ -21,11 +22,11 @@ public:
 
     void setup(const TVec3f&, const TVec3f&, const TVec3f&);
 
-    /* 0x00 */ TVec3f _0;
-    /* 0x0C */ TVec3f mSide;
-    /* 0x18 */ TVec3f mUp;
-    /* 0x24 */ TVec3f mFront;
-    /* 0x30 */ TVec3f _30;
+    TVec3f _0;
+    TVec3f mSide;
+    TVec3f mUp;
+    TVec3f mFront;
+    TVec3f _30;
 };
 
 class ElectricRailShadowDrawer : public ShadowVolumeDrawer {
@@ -36,11 +37,11 @@ public:
     virtual void drawShape() const;
     virtual bool isDraw() const;
 
-    void drawShadowVolumeShape(ElectricRailSeparator*, s32) const;
+    void drawShadowVolumeShape(NativeMesh&, ElectricRailSeparator*, s32) const;
 
-    /* 0x1C */ const LiveActor* mHost;
-    /* 0x20 */ void* mDisplayListBuffer;
-    /* 0x24 */ u32 mDisplayListBufferSize;
+    const LiveActor* mHost;
+    // The shadow volume as the renderer draws it.
+    NativeMesh mMesh;
 };
 
 class ElectricRail : public LiveActor {
@@ -59,9 +60,9 @@ public:
     void initSensor();
     void initPoints();
     void initSeparators();
-    void initDisplayList();
-    void drawRailGX(f32) const;
-    void drawPlane(f32, f32, f32, f32) const;
+    void initMesh();
+    void drawRail(f32) const;
+    void drawPlane(NativeMesh&, f32, f32, f32, f32) const;
     void drawPlaneGX(f32, f32, f32, f32) const;
     void initShadow(const JMapInfoIter&);
     void updateHitSensorPos();
@@ -71,15 +72,15 @@ public:
     void exeWait();
     void exeDisappeared();
 
-    /* 0x8C */ ElectricRailPoint* mPoints;
-    /* 0x90 */ s32 mPointCount;
-    /* 0x94 */ TVec3f* _94;
-    /* 0x98 */ ElectricRailSeparator* mSeparators;
-    /* 0x9C */ s32 mSeparatorCount;
-    /* 0xA0 */ void* mDisplayListBuffer;
-    /* 0xA4 */ u32 mDisplayListSize;
-    /* 0xA8 */ s32 mRailHeight;  // Obj_arg0
-    /* 0xAC */ f32 mEaseIn;
-    /* 0xB0 */ ElectricRailShadowDrawer* mShadowDrawer;
-    /* 0xB4 */ bool mIsCalcGravity;  // Obj_arg4
+    ElectricRailPoint* mPoints;
+    s32 mPointCount;
+    TVec3f* _94;
+    ElectricRailSeparator* mSeparators;
+    s32 mSeparatorCount;
+    // The rail as the renderer draws it while it waits.
+    NativeMesh mMesh;
+    s32 mRailHeight;  // Obj_arg0
+    f32 mEaseIn;
+    ElectricRailShadowDrawer* mShadowDrawer;
+    bool mIsCalcGravity;  // Obj_arg4
 };

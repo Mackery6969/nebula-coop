@@ -1,12 +1,8 @@
 #include "Game/MapObj/CrystalSwitch.hpp"
+#include <JSystem/JUtility/JUTNativeLog.hpp>
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util.hpp"
-#include "revolution/os.h"
-
-void FORCE_MATCH_INIT_STRING() {
-    OSReport("Wait");
-}
 
 /* Note -- this file was compiled super early on in the game's life, so it was compiled under -O2 where the release build is -O4,p. Keep this in mind!
  */
