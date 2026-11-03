@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <span>
 #include <string>
+#include <vector>
 #include <string_view>
 
 namespace galaxy {
@@ -123,6 +124,11 @@ struct RuntimeSettings {
     // Co-star mode: with two controllers attached, the second plays player 2.
     bool co_star = false;
     RuntimeCoopSettings coop{};
+    // Who is banned from, and who is a moderator of, every co-op room this player hosts (sm64coopdx's ban and
+    // moderator lists; /permban and /moderator add to them): the players' IP addresses. Not the Host page's: the
+    // room's commands keep them.
+    std::vector<std::string> coop_bans;
+    std::vector<std::string> coop_moderators;
 
     friend bool operator==(const RuntimeSettings&, const RuntimeSettings&) = default;
 };

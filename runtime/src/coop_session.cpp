@@ -34,6 +34,7 @@ enum Message : std::uint8_t {
     kModPiece = 9,      // host: the mod, the file, where, then the bytes
     kPlayerStars = 10,  // host, to everyone: a player and the Power Stars they got in this room
     kPlayerName = 11,   // joiner, to the host: its new name (the host tells everyone with kPlayerInfo)
+    kRemovePlayer = 12, // a moderator, to the host: remove a player (how: a Removal, Kick or Ban; who)
 };
 
 // A joiner that doesn't ask to be let in this soon is removed; a join that isn't let in this soon fails.
@@ -92,7 +93,7 @@ void write_player(ByteWriter& out, const SessionPlayer& player) {
         .u8(static_cast<std::uint8_t>(player.index))
         .str(player.name)
         .u8(static_cast<std::uint8_t>(player.character))
-        .u8(player.host ? 1u : 0u)
+        .u8((player.host ? 1u : 0u) | (player.moderator ? 2u : 0u))
         .str(player.stage)
         .u8(static_cast<std::uint8_t>(std::clamp(player.scenario, 0, 255)))
         .u16(static_cast<std::uint16_t>(std::min(player.stars, kStarsLimit)));
@@ -104,7 +105,9 @@ SessionPlayer read_player(ByteReader& in) {
     player.index = in.u8();
     player.name = in.str(kPlayerNameLimit);
     player.character = in.u8() == 1u ? CoopCharacter::Luigi : CoopCharacter::Mario;
-    player.host = in.u8() != 0u;
+    const unsigned flags = in.u8();
+    player.host = (flags & 1u) != 0u;
+    player.moderator = (flags & 2u) != 0u;
     player.stage = clean_stage(in.str(256u));
     player.scenario = in.u8();
     player.stars = in.u16();
@@ -165,6 +168,8 @@ struct Session::State {
     };
     std::optional<Download> download;
     std::optional<std::vector<SharedMod>> room_mods;
+    // A host's: who is banned while this room is open (peer identities; HostConfig::bans are for every room).
+    std::vector<std::string> room_bans;
     // Where this player plays (set_place), for its entry in a room opened or joined later.
     std::string stage;
     int scenario = 0;
@@ -196,6 +201,7 @@ struct Session::State {
         serving.close();
         serving_path.clear();
         download.reset();
+        room_bans.clear();
         event(kind, {}, std::move(why));
     }
 
@@ -210,6 +216,11 @@ struct Session::State {
     void host_receive_join(PeerId from, ByteReader& in) {
         if (player(from) != nullptr || refused.count(from) != 0u) return;
         if (downloading.count(from) != 0u) return;
+        const std::string identity = transport->peer_identity(from);
+        if (banned(identity)) {
+            refuse(from, "YOU ARE BANNED FROM THIS ROOM");
+            return;
+        }
         const std::uint16_t protocol = in.u16();
         const std::string version = in.str(128u);
         const std::string name = clean_name(in.str(256u));
@@ -257,6 +268,7 @@ struct Session::State {
             ++index;
         }
         SessionPlayer joined{from, index, name, character, false, false, {}, 0, 0u};
+        joined.moderator = listed(host_config.moderators, identity);
         waiting.erase(from);
 
         RoomSave room_save;
@@ -279,6 +291,41 @@ struct Session::State {
         for (const SessionPlayer& player : players) write_player(accept, player);
         send(from, kJoinAccept, accept);
         event(SessionEvent::Kind::PlayerJoined, name);
+    }
+
+    static bool listed(const std::vector<std::string>& list, const std::string& identity) {
+        return !identity.empty() && std::find(list.begin(), list.end(), identity) != list.end();
+    }
+
+    bool banned(const std::string& identity) const {
+        return listed(room_bans, identity) || listed(host_config.bans, identity);
+    }
+
+    // A host's: `peer` out of the room as `how` says (banned by who they are). False when it is no other player.
+    bool host_remove(PeerId peer, Removal how) {
+        const SessionPlayer* removed = player(peer);
+        if (removed == nullptr || removed->local) return false;
+        const std::string identity = transport->peer_identity(peer);
+        if (how != Removal::Kick && !identity.empty()) {
+            if (!listed(room_bans, identity)) room_bans.push_back(identity);
+            if (how == Removal::PermanentBan && !listed(host_config.bans, identity)) {
+                host_config.bans.push_back(identity);
+                event(SessionEvent::Kind::KeepBan, removed->name, identity);
+            }
+        }
+        // The transport tells the player, and the others hear them leave (peer_left).
+        transport->unpeer(peer);
+        return true;
+    }
+
+    // A moderator's ask to remove a player: only a moderator's, and never the host.
+    void host_receive_remove(PeerId from, ByteReader& in) {
+        const unsigned how = in.u8();
+        const PeerId target = in.u64();
+        const SessionPlayer* sender = player(from);
+        if (!in.ok() || sender == nullptr || !sender->moderator || target == from) return;
+        if (how != static_cast<unsigned>(Removal::Kick) && how != static_cast<unsigned>(Removal::Ban)) return;
+        host_remove(target, static_cast<Removal>(how));
     }
 
     // A piece of a room mod's file for a joiner getting them.
@@ -522,6 +569,9 @@ struct Session::State {
         state = SessionState::Joined;
         send_place();
         event(SessionEvent::Kind::Joined);
+        for (const SessionPlayer& player : players) {
+            if (player.local && player.moderator) event(SessionEvent::Kind::Moderator);
+        }
     }
 
     // This player's place to everyone in the room (a host's members still joining get it with the room).
@@ -604,6 +654,7 @@ struct Session::State {
             if (type == kJoinRequest) host_receive_join(from, in);
             if (type == kModRequest) host_send_piece(from, in);
             if (type == kPlayerName && state == SessionState::Hosting) host_receive_name(from, in);
+            if (type == kRemovePlayer) host_receive_remove(from, in);
             return;
         }
         if (from != transport->owner()) return;
@@ -629,7 +680,9 @@ struct Session::State {
                 joined.stage = known->stage;
                 joined.scenario = known->scenario;
                 joined.stars = known->stars;
+                const bool made_moderator = joined.local && joined.moderator && !known->moderator;
                 *known = joined;
+                if (made_moderator) event(SessionEvent::Kind::Moderator);
                 return;
             }
             players.push_back(joined);
@@ -918,6 +971,45 @@ unsigned Session::stars() const {
         if (player.local) return player.stars;
     }
     return 0u;
+}
+
+bool Session::remove_player(net::PeerId player, Removal how) {
+    const std::lock_guard<std::recursive_mutex> lock(lock_);
+    if (state_->state == SessionState::Hosting) return state_->host_remove(player, how);
+    if (state_->state != SessionState::Joined || how == Removal::PermanentBan) return false;
+    const SessionPlayer* removed = state_->player(player);
+    if (removed == nullptr || removed->local || removed->host) return false;
+    const auto self = std::find_if(state_->players.begin(), state_->players.end(), [](const auto& p) { return p.local; });
+    if (self == state_->players.end() || !self->moderator) return false;
+    ByteWriter body;
+    body.u8(static_cast<std::uint8_t>(how)).u64(player);
+    return state_->send(state_->transport->owner(), kRemovePlayer, body);
+}
+
+bool Session::make_moderator(net::PeerId player) {
+    const std::lock_guard<std::recursive_mutex> lock(lock_);
+    if (state_->state != SessionState::Hosting) return false;
+    SessionPlayer* made = state_->player(player);
+    if (made == nullptr || made->local) return false;
+    if (!made->moderator) {
+        made->moderator = true;
+        state_->send_info(*made);
+    }
+    const std::string identity = state_->transport->peer_identity(player);
+    if (!identity.empty() && !State::listed(state_->host_config.moderators, identity)) {
+        state_->host_config.moderators.push_back(identity);
+        state_->event(SessionEvent::Kind::KeepModerator, made->name, identity);
+    }
+    return true;
+}
+
+bool Session::is_moderator() const {
+    const std::lock_guard<std::recursive_mutex> lock(lock_);
+    if (state_->state != SessionState::Hosting && state_->state != SessionState::Joined) return false;
+    for (const SessionPlayer& player : state_->players) {
+        if (player.local) return player.moderator;
+    }
+    return false;
 }
 
 std::vector<SessionEvent> Session::take_events() {

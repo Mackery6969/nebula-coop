@@ -13,6 +13,10 @@
 // (galaxy/coop_mods.h) and the room's mods. A joiner playing other mods isn't let in yet: the host sends the room's
 // list, the joiner downloads the ones it lacks from the host (before it is a player, so nobody sees it), and the
 // session ends with ModsReady for Nebula to start again with those mods and join once more.
+//
+// The host removes players as sm64coopdx's /kick, /ban and /permban do (galaxy/coop_commands.h), and makes moderators
+// who may kick and ban too. Bans and moderators go by who a player is beyond the room (the transport's peer_identity:
+// an IP address), so they hold when the player joins again.
 #pragma once
 
 #include "galaxy/coop_mods.h"
@@ -54,6 +58,15 @@ struct SessionPlayer {
     unsigned stars = 0u;
     // The round trip to them (to the host, for a joiner's view of the others), 0 for this player or when unknown.
     unsigned ping_ms = 0u;
+    // The host made them a moderator (make_moderator): they may kick and ban.
+    bool moderator = false;
+};
+
+// How the host removes a player (remove_player), as sm64coopdx's /kick, /ban and /permban.
+enum class Removal : std::uint8_t {
+    Kick,          // out of the room; they may join again
+    Ban,           // and refused while this room is open
+    PermanentBan,  // and refused in every room this player hosts (kept: KeepBan)
 };
 
 // A file of the save the room plays (its folder's GameData.bin...), by name.
@@ -87,6 +100,11 @@ struct SessionEvent {
         DownloadingMods,  // a joiner gets the room's mods it lacks (text: their ids); download_progress() says how far
         ModsReady,     // a joiner has all the room's mods (take_room_mods()); the session ended, for Nebula to start
                        // again with them and join again
+        KeepBan,       // the host: `name` is banned from every room it hosts; keep text (who they are) with the
+                       // others (HostConfig::bans)
+        KeepModerator, // the host: `name` is made a moderator of every room it hosts; keep text likewise
+                       // (HostConfig::moderators)
+        Moderator,     // this player: the host made it a moderator
     };
     Kind kind = Kind::Hosting;
     std::string name;
@@ -103,6 +121,10 @@ struct HostConfig {
     std::function<RoomSave()> save;
     DiscInfo disc;                 // joiners with another are refused
     std::vector<SharedMod> mods;   // the room's mods, with their files and folders: joiners get the ones they lack
+    // Who is refused, and who is a moderator, in every room this player hosts (peer identities, kept with the
+    // player's settings).
+    std::vector<std::string> bans;
+    std::vector<std::string> moderators;
 };
 
 struct JoinConfig {
@@ -175,6 +197,13 @@ public:
     void credit_star(net::PeerId player);
     // This player's Power Stars in this room (0 outside one).
     [[nodiscard]] unsigned stars() const;
+    // Removes `player` from the room: the host does it, a moderator asks the host to (a Kick or a Ban, not a
+    // PermanentBan). False when this player may not, or `player` is no one else in the room (or is the host).
+    bool remove_player(net::PeerId player, Removal how);
+    // The host makes `player` a moderator, of every room it hosts (KeepModerator). False when it can't.
+    bool make_moderator(net::PeerId player);
+    // This player is a moderator of the room.
+    [[nodiscard]] bool is_moderator() const;
 
     [[nodiscard]] std::vector<SessionEvent> take_events();
     // Once, after Joined: the host's save.

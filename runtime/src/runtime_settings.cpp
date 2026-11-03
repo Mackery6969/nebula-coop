@@ -27,6 +27,8 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
@@ -57,6 +59,38 @@ std::string sanitize_coop_text(std::string_view text, std::size_t limit = kCoopT
         return {};
     }
     return out.substr(begin, out.find_last_not_of(' ') - begin + 1u);
+}
+
+// The most entries a kept co-op list (coop_bans, coop_moderators) holds, and an entry's longest (an IPv6 address).
+constexpr std::size_t kCoopListLimit = 256u;
+constexpr std::size_t kCoopListEntryLimit = 64u;
+
+// A kept co-op list: addresses (hex digits, '.' and ':'), each once.
+std::vector<std::string> sanitize_coop_list(const std::vector<std::string>& list) {
+    std::vector<std::string> out;
+    for (const std::string& entry : list) {
+        if (out.size() >= kCoopListLimit) break;
+        const bool address = !entry.empty() && entry.size() <= kCoopListEntryLimit &&
+                             std::all_of(entry.begin(), entry.end(), [](char ch) {
+                                 return std::isxdigit(static_cast<unsigned char>(ch)) != 0 || ch == '.' || ch == ':';
+                             });
+        if (address && std::find(out.begin(), out.end(), entry) == out.end()) out.push_back(entry);
+    }
+    return out;
+}
+
+// "a,b,c": its entries.
+std::vector<std::string> split_coop_list(std::string_view text) {
+    std::vector<std::string> out;
+    while (!text.empty()) {
+        const std::size_t comma = text.find(',');
+        std::string entry(text.substr(0, comma));
+        std::erase(entry, ' ');
+        out.push_back(std::move(entry));
+        if (comma == std::string_view::npos) break;
+        text.remove_prefix(comma + 1u);
+    }
+    return out;
 }
 
 // A port, 1 to 65535, in decimal digits only.
@@ -122,6 +156,8 @@ RuntimeSettings sanitize_settings(RuntimeSettings settings) {
         settings.coop.character = CoopCharacter::Mario;
     }
     settings.coop.join_address = sanitize_coop_text(settings.coop.join_address, kCoopAddressLimit);
+    settings.coop_bans = sanitize_coop_list(settings.coop_bans);
+    settings.coop_moderators = sanitize_coop_list(settings.coop_moderators);
     return settings;
 }
 
@@ -260,6 +296,10 @@ void apply_kv(RuntimeSettings& settings, const char* key, const char* value) {
         for (const CoopPvpMode mode : {CoopPvpMode::Classic, CoopPvpMode::Revamped}) {
             if (::galaxy::text_iequal(value, coop_pvp_mode_key(mode))) settings.coop.pvp_mode = mode;
         }
+    } else if (std::strcmp(key, "coop_bans") == 0) {
+        settings.coop_bans = split_coop_list(value);
+    } else if (std::strcmp(key, "coop_moderators") == 0) {
+        settings.coop_moderators = split_coop_list(value);
     }
 }
 
@@ -616,6 +656,13 @@ bool save_runtime_settings_to_file() {
         if (settings.coop.cheats != defaults.cheats) contents << "coop_cheats=" << (settings.coop.cheats ? 1 : 0) << '\n';
         if (settings.coop.star_counter != defaults.star_counter) {
             contents << "coop_star_counter=" << (settings.coop.star_counter ? 1 : 0) << '\n';
+        }
+        for (const auto& [key, list] : {std::pair{"coop_bans", &settings.coop_bans},
+                                        std::pair{"coop_moderators", &settings.coop_moderators}}) {
+            if (list->empty()) continue;
+            contents << key << '=';
+            for (std::size_t i = 0; i < list->size(); ++i) contents << (i == 0u ? "" : ",") << (*list)[i];
+            contents << '\n';
         }
         contents << input::format_controls_settings(input::get_controls_config());
         if (!contents) {

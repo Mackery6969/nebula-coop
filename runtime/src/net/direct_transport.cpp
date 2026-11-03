@@ -112,6 +112,14 @@ std::chrono::milliseconds DirectTransport::ping(PeerId peer) const noexcept {
     return std::chrono::milliseconds(0);
 }
 
+std::string DirectTransport::peer_identity(PeerId peer) const {
+    if (!host_) return {};
+    for (const auto& remote : remotes_) {
+        if (remote->id == peer) return remote->address.host_text();
+    }
+    return {};
+}
+
 void DirectTransport::send_raw(const Address& to, std::uint8_t type, std::span<const std::uint8_t> body) {
     if (loss_ > 0.0 && std::uniform_real_distribution<double>(0.0, 1.0)(random_) < loss_) return;
     std::array<std::uint8_t, kMaxDatagram + 32u> datagram{};

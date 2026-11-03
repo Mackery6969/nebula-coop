@@ -1603,13 +1603,15 @@ unsigned gCoopSaveFile = 1u;  // the user file the played save plays
 // The character the played save plays as (NEBULA_COOP_MENU_CHARACTER): Options' PLAYER page's, as Host left the menu.
 std::atomic<bool> gCoopLuigi{false};
 
-// The room's chat (galaxy/coop_chat.h), over the session below (which goes first, its thread giving the chat lines).
+// The room's chat (galaxy/coop_chat.h), over the session below (which goes first, its thread giving the chat lines),
+// and its commands (galaxy/coop_commands.h).
 galaxy::coop::Chat gCoopChat;
 // Online play (galaxy/coop_session.h): the room this player hosts or joined. Host opens it as its save starts; Join
 // connects from the main menu and plays the host's save once let in; the pause menu's Quit (back at the main menu)
 // leaves it.
 galaxy::coop::Session gCoopSession;
 void keep_coop_settings();
+void keep_coop_list(bool ban, const std::string& identity);
 // The game as online play compares it: a player with another is refused, as is one with another disc
 // (gCoopDisc); one playing other mods gets the room's (galaxy/coop_mods.h).
 const std::string kCoopGameVersion = "nebula-api-" + std::to_string(NEBULA_GAME_API_VERSION);
@@ -1911,6 +1913,9 @@ void pump_coop_session() {
             changed = true;
             break;
         case Kind::RoomChanged: changed = true; break;
+        case Kind::Moderator: gCoopChat.say("CoopCmdModeratorGranted"); break;
+        case Kind::KeepBan:
+        case Kind::KeepModerator: keep_coop_list(event.kind == Kind::KeepBan, event.text); break;
         case Kind::Closed:
             std::fprintf(stderr, "[coop] the room ended: %s\n", event.text.empty() ? "left" : event.text.c_str());
             gCoopChat.clear();
@@ -1969,6 +1974,8 @@ bool open_coop_room() {
     config.save = coop_room_save;
     config.disc = gCoopDisc;
     config.mods = coop_session_mods();
+    config.bans = galaxy::get_runtime_settings().coop_bans;
+    config.moderators = galaxy::get_runtime_settings().coop_moderators;
     listen_coop_snapshots();
     if (!gCoopSession.host(std::move(config))) {
         std::fprintf(stderr, "[coop] the room could not open on port %u\n", static_cast<unsigned>(gCoopMenu.room().port));
@@ -2062,6 +2069,8 @@ bool poll_coop_join() {
         std::fprintf(stderr, "[coop] joined: the host's save (file %u, %zu file(s)), %zu player(s)\n", save->file,
                      save->files.size(), gCoopSession.players().size());
         gCoopMenu.finish_join("JOINED! LOADING THE HOST'S SAVE...");
+        // A moderator the host kept is one again (the rest of this join's events went with Joined).
+        if (gCoopSession.is_moderator()) gCoopChat.say("CoopCmdModeratorGranted");
         note_coop_room();
         return true;
     }
@@ -2100,6 +2109,16 @@ void keep_coop_settings() {
     galaxy::set_runtime_settings(settings);
     (void)galaxy::save_runtime_settings_to_file();
 #endif
+}
+
+// /permban and /moderator: who they named, kept with the player's settings for every room it hosts.
+void keep_coop_list(bool ban, const std::string& identity) {
+    galaxy::RuntimeSettings settings = galaxy::get_runtime_settings();
+    std::vector<std::string>& list = ban ? settings.coop_bans : settings.coop_moderators;
+    if (identity.empty() || std::find(list.begin(), list.end(), identity) != list.end()) return;
+    list.push_back(identity);
+    galaxy::set_runtime_settings(settings);
+    (void)galaxy::save_runtime_settings_to_file();
 }
 
 // The mods folder's mods for the Host page: mods.ini's on and off (the room last hosted), the ones on in their order.
@@ -2354,6 +2373,7 @@ void svc_coop_chat(void*, NebulaCoopChatView* view) {
         switch (shown.line.kind) {
         case galaxy::coop::ChatLine::Kind::Joined: line.kind = NEBULA_COOP_CHAT_JOINED; break;
         case galaxy::coop::ChatLine::Kind::Left: line.kind = NEBULA_COOP_CHAT_LEFT; break;
+        case galaxy::coop::ChatLine::Kind::Notice: line.kind = NEBULA_COOP_CHAT_NOTICE; break;
         default: line.kind = NEBULA_COOP_CHAT_MESSAGE; break;
         }
         line.character = shown.line.character == galaxy::CoopCharacter::Luigi ? 1u : 0u;
@@ -2489,6 +2509,35 @@ bool coop_star_counter_on() {
         return gCoopSession.room().star_counter;
     }
     return galaxy::get_runtime_settings().coop.star_counter;
+}
+
+// /psc [on|off] (sm64coopdx's Personal Star Counter mod's command): the host turns the counter on or off for the whole
+// room, as the Host page's Mods does, and keeps it for the rooms it hosts later. Without a word, it flips it.
+void add_coop_star_counter_command() {
+    galaxy::coop::ChatCommand psc;
+    psc.name = "psc";
+    psc.help = "CoopCmdPscHelp";
+    psc.options = {"on", "off"};
+    psc.shown = [] { return gCoopSession.is_host(); };
+    psc.run = [](std::string_view words) {
+        if (!gCoopSession.is_host()) {
+            gCoopChat.say("CoopCmdHostOnly");
+            return true;
+        }
+        galaxy::RuntimeSettings settings = galaxy::get_runtime_settings();
+        std::string word(words);
+        for (char& c : word) c = c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
+        if (!word.empty() && word != "on" && word != "off") return false;
+        const bool on = word.empty() ? !coop_star_counter_on() : word == "on";
+        settings.coop.star_counter = on;
+        galaxy::set_runtime_settings(settings);
+        (void)galaxy::save_runtime_settings_to_file();
+        // The room's now, not at the session's next pump: the players' lists show it at once.
+        gCoopSession.set_room(settings.coop);
+        gCoopChat.say(on ? "CoopCmdPscOn" : "CoopCmdPscOff");
+        return true;
+    };
+    (void)gCoopChat.commands().add(std::move(psc));
 }
 
 // The player list (Tab or the controller's Share held): the room's players by number, each one's place and round trip.
@@ -5310,6 +5359,8 @@ int main(int argc, char** argv) {
     services.coop_menu = svc_coop_menu;
     services.coop_chat = svc_coop_chat;
     gCoopChat.attach(gCoopSession);
+    galaxy::coop::add_room_commands(gCoopChat, gCoopSession);
+    add_coop_star_counter_command();
     services.coop_list = svc_coop_list;
     services.coop_remote = svc_coop_remote;
     services.coop_world_report = svc_coop_world_report;

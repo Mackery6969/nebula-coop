@@ -265,6 +265,40 @@ at most 100 characters), so its sender's name is the session's and can't be fake
 seconds are dropped. The window layers send T to it while the host allows it (a room's game with no menu over it), and
 the game draws what `coop_chat` gives it (`NebulaCoopChat`, the game's window and message font).
 
+### Chat commands
+
+sm64coopdx's chat commands (its `chat_commands.c` and its mods' `hook_chat_command`). A line starting with `/` runs a
+command on the player's own game instead of going to the room; what it says shows in the chat for that player alone,
+in pale yellow, in the played language (`CoopCmd...` in `localization/NebulaText.tsv`). `/help` (or `/?`, or `/`
+alone) lists the commands the player may use now, and an unknown one says so. Tab completes a command's name, its
+options and the room's players' names (each Tab the next match), and a player's name in a message.
+
+| Command | Who | What |
+|---|---|---|
+| `/players` | everyone | every player in the room by number (the host is 0) |
+| `/kick NAME\|NUMBER` | the host, a moderator | removes the player from the room; they may join again |
+| `/ban NAME\|NUMBER` | the host, a moderator | removes them and refuses them while this room is open |
+| `/permban NAME\|NUMBER` | the host | removes them and refuses them in every room this player hosts |
+| `/moderator NAME\|NUMBER` | the host | lets them `/kick` and `/ban`, in every room this player hosts |
+| `/confirm` | whoever was asked | the four above ask first; `/confirm` does it, any other line drops the question |
+
+- **Who a player is.** Bans and moderators go by the player's IP address (the transport's `peer_identity`, as
+  sm64coopdx's `get_id_str`), so they hold when the player joins again under another name. On one machine (or behind
+  one router's address) a ban bans everyone there, as in sm64coopdx.
+- **Kept.** `/permban` and `/moderator` keep the address in `runtime_settings.ini` (`coop_bans`, `coop_moderators`),
+  given to the session as the room opens. A banned player is refused at the join ("YOU ARE BANNED FROM THIS ROOM"),
+  and a kept moderator is one again as they join.
+- **Messages.** The host does every removal (the transport's `unpeer`; the player is told "THE HOST REMOVED YOU FROM
+  THE ROOM"). A moderator's `/kick` and `/ban` ask the host with the session's message 12, which the host checks
+  against its own list of moderators. Who is a moderator travels with the player's info (session protocol 7).
+- **Adding one.** A feature registers its own command, as a sm64coopdx mod does: `Chat::commands().add(name,
+  description, handler)` (`galaxy/coop_commands.h`); a `[On|Off]` in the description are the options Tab offers.
+  Nebula's mods (Riivolution patches, files) run no code, so the commands are Nebula's own features': the Personal
+  Star Counter's host-only `/psc [on|off]` (the host's `host_main.cpp`) turns the room's counter on or off, as the Host
+  page's Mods does, and keeps it for the rooms it hosts later.
+- **The game.** The host's `coop_chat` gives a command's words as `NEBULA_COOP_CHAT_NOTICE` lines (game API 121):
+  a `CoopCmd...` text id with `{name}` filled in, or words as they are.
+
 ## Personal Star Counter
 
 sm64coopdx's Personal Star Counter mod (`personal-starcount-ex.lua`), built in. Galaxy's HUD shows the save's Power
@@ -502,6 +536,8 @@ Each phase ships on its own and leaves the game playable.
 - [x] Version, disc and mods check as a player joins: another version or disc is refused; other mods get the room's
       (see [Mods](#mods-the-rooms-not-the-players)).
 - [x] [Chat](#chat), keyboard only; controllers read it.
+- [x] [Chat commands](#chat-commands) as sm64coopdx's: `/help`, `/players`, `/kick`, `/ban`, `/permban`,
+      `/moderator`, `/confirm`, Tab completion, and commands features add (API version 121).
 - [x] The [Personal Star Counter](#personal-star-counter): each player's stars this room and all time, on the HUD and
       in the player list (API version 41); a built-in mod the host turns on for the room, off by default (API 118).
 
