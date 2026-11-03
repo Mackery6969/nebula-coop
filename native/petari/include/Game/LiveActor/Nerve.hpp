@@ -11,15 +11,12 @@ public:
     /// @brief Executes after the last iteration of a state before it executes another state.
     /// @param pSpine The spine that contains the host LiveActor to execute the state for.
     virtual void executeOnEnd(Spine* pSpine) const;
-#ifdef TARGET_PC
     /// @brief Online co-op (docs/COOP_PLAN.md "Shared objects"): the nerve's id, its executor's class and its name
     /// hashed, the same in every player's game (0 for none), and its executor's class alone.
     virtual u32 nebulaId() const { return 0; }
     virtual u32 nebulaClass() const { return 0; }
-#endif
 };
 
-#ifdef TARGET_PC
 // Online co-op: every nerve by its id, for another game's object state to name one (NebulaCoopObjects).
 namespace NebulaNerves {
     constexpr u32 hash(const char* pText, u32 hash = 2166136261u) {
@@ -40,10 +37,6 @@ namespace NebulaNerves {
     }
 #define NEBULA_NERVE_ADD(name, parent_class)                                                                                                         \
     inline const bool name##NebulaAdded = NebulaNerves::add(&name::sInstance, NebulaNerves::hash(#parent_class "::" #name));
-#else
-#define NEBULA_NERVE_ID(name, parent_class)
-#define NEBULA_NERVE_ADD(name, parent_class)
-#endif
 
 #define NEW_NERVE(name, parent_class, executor_name)                                                                                                 \
     class name : public Nerve {                                                                                                                      \

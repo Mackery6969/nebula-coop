@@ -3,15 +3,7 @@
 #include "Game/MapObj/Coin.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/Util.hpp"
-#ifdef TARGET_PC
 #include "Game/System/NebulaCoopWorld.hpp"
-#endif
-
-void CoinHolder_FORCE_MATCH() {
-    TVec3f vector(0.0f, 0.0f, 0.0f);
-    (void)-vector;
-    (void)0.001f;
-}
 
 namespace {
     static const s32 sCoinNumMax = 512;
@@ -41,9 +33,7 @@ bool CoinHolder::hopCoin(const NameObj* pObj, const TVec3f& rPosition, const TVe
     if (coin != nullptr) {
         coin->setHostInfo(hostInfo);
         coin->appearHop(rPosition, rDirection);
-#ifdef TARGET_PC
         NebulaCoopWorld::noteCoinDrop(pObj, coin);
-#endif
         return true;
     }
 
@@ -189,10 +179,8 @@ bool CoinHolder::appearCoin(const NameObj* pObj, const TVec3f& rPosition, const 
         pCoin->setHostInfo(pHostInfo);
         pCoin->appearMove(rPosition, velocity, life, cannotTime);
         appeared = true;
-#ifdef TARGET_PC
         // Online co-op: an enemy's drop, the same coin in every game.
         NebulaCoopWorld::noteCoinDrop(pObj, pCoin);
-#endif
     }
 
     if (!MR::isGalaxyDarkCometAppearInCurrentStage() && appeared) {

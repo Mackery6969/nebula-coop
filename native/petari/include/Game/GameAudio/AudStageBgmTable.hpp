@@ -1,6 +1,7 @@
 #pragma once
 
-#include <revolution.h>
+#include <NebulaGpu.h>
+#include <nebula_math.h>
 
 namespace AudStageBgmTable {
     u32 getBgmId(const char*, s32);

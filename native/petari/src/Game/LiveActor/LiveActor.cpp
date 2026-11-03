@@ -1,8 +1,6 @@
 #include "Game/LiveActor/LiveActor.hpp"
-#ifdef TARGET_PC
 #include "Game/System/NebulaCoopWorld.hpp"
 #include "Game/Util/MotionSignal.hpp"
-#endif
 #include "Game/AudioLib/AudAnmSoundObject.hpp"
 #include "Game/LiveActor/ActorAnimKeeper.hpp"
 #include "Game/LiveActor/ActorLightCtrl.hpp"
@@ -34,10 +32,8 @@ LiveActor::LiveActor(const char* pName)
       mSoundObject(), mShadowControllerList(), mCollisionParts(), mStageSwitchCtrl(), mStarPointerTarget(), mActorLightCtrl(), mCameraCtrl() {
     MR::getAllLiveActorGroup()->registerActor(this);
     MR::getClippingDirector()->registerActor(this);
-#ifdef TARGET_PC
     // Online co-op: one of the parts a placed object makes, keyed as every game makes it.
     NebulaCoopWorld::noteMade(this);
-#endif
 }
 
 void LiveActor::init(const JMapInfoIter& rIter) {
@@ -82,9 +78,7 @@ void LiveActor::kill() {
 }
 
 void LiveActor::makeActorDead() {
-#ifdef TARGET_PC
     MotionSignal::died(this);
-#endif
     mVelocity.zero();
 
     MR::clearHitSensors(this);
@@ -106,6 +100,7 @@ void LiveActor::makeActorDead() {
     }
 
     mFlag.mIsDead = true;
+    mFlag.mIsDrawnClipped = false;
 
     MR::removeFromClippingTarget(this);
     MR::disconnectToSceneTemporarily(this);
@@ -161,12 +156,10 @@ void LiveActor::movement() {
         MR::updateLightCtrl(this);
     }
 
-#ifdef TARGET_PC
     // Online co-op: an enemy another player's game moves goes where that game has it.
     if (NebulaCoopWorld::sObjectsActive) {
         NebulaCoopWorld::afterMovement(this);
     }
-#endif
     MR::tryUpdateHitSensorsAll(this);
     MR::actorSoundMovement(this);
     MR::requestCalcActorShadow(this);
@@ -177,6 +170,7 @@ void LiveActor::calcAnim() {
         return;
     }
 
+    mFlag.mHasPose = true;
     calcAnmMtx();
 
     if (mCollisionParts == nullptr) {
@@ -193,12 +187,10 @@ void LiveActor::calcAnmMtx() {
 
     MR::getJ3DModel(this)->setBaseScale(mScale);
     calcAndSetBaseMtx();
-#ifdef TARGET_PC
     // Online co-op: turned as the game moving it has it.
     if (NebulaCoopWorld::sObjectsActive) {
         NebulaCoopWorld::afterBaseMtx(this);
     }
-#endif
     mModelManager->calcAnim();
 }
 
@@ -275,12 +267,10 @@ MtxPtr LiveActor::getTakingMtx() const {
 }
 
 void LiveActor::setNerve(const Nerve* pNerve) {
-#ifdef TARGET_PC
     // Online co-op: an enemy another player's game moves takes that game's nerves, not its own AI's.
     if (NebulaCoopWorld::sObjectsActive && !NebulaCoopWorld::allowNerve(this, pNerve)) {
         return;
     }
-#endif
     mSpine->setNerve(pNerve);
 }
 
@@ -308,18 +298,26 @@ MtxPtr LiveActor::getBaseMtx() const {
     return nullptr;
 }
 
+LiveActor::ClipScope LiveActor::sClipScope = LiveActor::ClipScope_All;
+
 void LiveActor::startClipped() {
     mFlag.mIsClipped = true;
 
-    if (getSensorKeeper() != nullptr) {
-        mSensorKeeper->invalidateBySystem();
+    if (sClipScope != ClipScope_Seen) {
+        if (getSensorKeeper() != nullptr) {
+            mSensorKeeper->invalidateBySystem();
+        }
+
+        MR::disconnectToSceneTemporarily(this);
+    }
+
+    if (sClipScope == ClipScope_Run) {
+        return;
     }
 
     if (mEffectKeeper != nullptr) {
         mEffectKeeper->stopEmitterOnClipped();
     }
-
-    MR::disconnectToSceneTemporarily(this);
 
     if (MR::isNoEntryDrawBuffer(this)) {
         return;
@@ -329,24 +327,47 @@ void LiveActor::startClipped() {
 }
 
 void LiveActor::endClipped() {
-    mFlag.mIsClipped = false;
+    if (sClipScope == ClipScope_All) {
+        mFlag.mIsDrawnClipped = false;
+    }
 
-    if (getSensorKeeper() != nullptr) {
-        mSensorKeeper->validateBySystem();
-        MR::updateHitSensorsAll(this);
+    if (sClipScope != ClipScope_Seen) {
+        mFlag.mIsClipped = false;
+
+        if (getSensorKeeper() != nullptr) {
+            mSensorKeeper->validateBySystem();
+            MR::updateHitSensorsAll(this);
+        }
+
+        MR::connectToSceneTemporarily(this);
+    }
+
+    if (sClipScope == ClipScope_Run) {
+        return;
     }
 
     if (mEffectKeeper != nullptr) {
         mEffectKeeper->playEmitterOffClipped();
     }
 
-    MR::connectToSceneTemporarily(this);
-
     if (MR::isNoEntryDrawBuffer(this)) {
         return;
     }
 
     MR::connectToDrawTemporarily(this);
+}
+
+// The model as its actor would show it standing still, for an actor seen before it has run: its place and its light.
+// Only the base class's own code: an actor's calcAndSetBaseMtx may read what its control sets.
+void LiveActor::prepareDrawClipped() {
+    if (!mFlag.mHasPose && mModelManager != nullptr) {
+        LiveActor::calcAndSetBaseMtx();
+        MR::calcJ3DModel(this);
+    }
+
+    if (mActorLightCtrl != nullptr) {
+        MR::updateLightCtrlDirect(this);
+    }
 }
 
 void LiveActor::initModelManagerWithAnm(const char* pModelName, const char* pAnimName, bool a3) {

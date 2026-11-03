@@ -1,14 +1,10 @@
-#ifdef TARGET_PC
 #include <nebula_game_api.h>
-#include <revolution/os.h>
-#endif
 #include "Game/NPC/KinopioAstro.hpp"
 #include "Game/Demo/AstroDemoFunction.hpp"
 #include "Game/Demo/DemoFunction.hpp"
 #include "Game/LiveActor/PartsModel.hpp"
 #include "Game/NPC/NPCActorItem.hpp"
 #include "Game/NPC/TalkMessageFunc.hpp"
-#include "Game/NWC24/ReceiverTagMail.hpp"
 #include "Game/NameObj/NameObjArchiveListCollector.hpp"
 #include "Game/Screen/GameSceneLayoutHolder.hpp"
 #include "Game/Screen/LuigiLetter.hpp"
@@ -25,30 +21,15 @@
 #include "Game/Util/RailUtil.hpp"
 #include "Game/Util/SceneUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#include "Game/System/NebulaHost.hpp"
 
 namespace {
     const s32 sMessangerOneUpNum = 5;
     const s32 sMessangerOneUpExNum = 20;
 
-    // The larger supply's 1-ups (a mod may change them: NEBULA_PATCH_MESSENGER_EX_ONE_UPS).
-    s32 messengerOneUpExNum() {
-#ifdef TARGET_PC
-        u32 count = ::sMessangerOneUpExNum;
-        __NebulaCodePatch(NEBULA_PATCH_MESSENGER_EX_ONE_UPS, &count);
-        return static_cast< s32 >(count);
-#else
-        return ::sMessangerOneUpExNum;
-#endif
-    }
     const f32 sMessangerTalkDistance = 3000.0f;
     const f32 sGotMailSePlayAreaRadius = 1500.0f;
-    const char* sStaffLetterID = "StaffFinalLetter_000";
-    const char* sSenderID = "WiiMessageTitle";
 };  // namespace
-
-u32 JKRArchive::getExpandedResSize(const void* pResource) const {
-    return getResSize(pResource);
-}
 
 void KinopioAstro::makeArchiveList(NameObjArchiveListCollector* pCollector, const JMapInfoIter& rIter) {
     NPCActorItem item("Kinopio");
@@ -82,7 +63,7 @@ void KinopioAstro::makeArchiveList(NameObjArchiveListCollector* pCollector, cons
 }
 
 KinopioAstro::KinopioAstro(const char* pName)
-    : Kinopio(pName), mLuigiLetter(), mPeachLetter(), mLetterIconTalkCtrl(), _194(), _195(), mIsPlayerLuigi(), _197(), _198(), _19C() {
+    : Kinopio(pName), mLuigiLetter(), mPeachLetter(), mLetterIconTalkCtrl(), _194(), _195(), mIsPlayerLuigi() {
 }
 
 bool KinopioAstro::dispLetter(LayoutActor* pLayout) const {
@@ -99,14 +80,6 @@ bool KinopioAstro::dispLetter(LayoutActor* pLayout) const {
 }
 
 bool KinopioAstro::isDispLetterIcon() const {
-    if (_198 != nullptr) {
-        if (MR::isStageStatePowerStarAppeared() && !_197) {
-            return true;
-        }
-
-        return false;
-    }
-
     return _195 || _194;
 }
 
@@ -115,26 +88,8 @@ void KinopioAstro::createLetterIcon(const JMapInfoIter& rIter) {
     MR::setDistanceToTalk(mLetterIconTalkCtrl, ::sMessangerTalkDistance);
 }
 
-bool KinopioAstro::sendLetter() {
-    if (!_197) {
-        u32 size;
-        const char* pImage = MR::isPlayerLuigi() ? "AllCompleteImage2.bin" : "AllCompleteImage1.bin";
-
-        size = _19C->mArchive->getExpandedResSize(_19C->mArchive->getResource(pImage));
-#if (VERSION == RMGJ01 || VERSION == RMGE01 || VERSION == RMGP01 || VERSION == RMGP01)
-        _198->send(reinterpret_cast< u8* >(_19C->mFileInfoTable->getRes(pImage)), size);
-#elif (VERSION == RMGK01)
-        _198->send(reinterpret_cast< u8* >(_19C->mFileInfoTable->getRes(pImage)), size, false);
-#endif
-        _197 = true;
-    }
-
-    _198->update();
-    return _198->isDone();
-}
-
 bool KinopioAstro::branchFunc(u32) {
-    return !_198->isError();
+    return true;
 }
 
 bool KinopioAstro::eventFunc(u32 letterEvent) {
@@ -156,11 +111,11 @@ bool KinopioAstro::eventFunc(u32 letterEvent) {
         return false;
     } else if (letterEvent == LetterEvent_PeachLetter1Ups) {
         if (mIsPlayerLuigi) {
-            for (s32 i = 0; i < messengerOneUpExNum(); i++) {
+            for (s32 i = 0; i < ::sMessangerOneUpExNum; i++) {
                 MR::incPlayerLeft();
             }
 
-            MR::getGameSceneLayoutHolder()->requestOneUp(messengerOneUpExNum());
+            MR::getGameSceneLayoutHolder()->requestOneUp(::sMessangerOneUpExNum);
             MR::startSystemSE("SE_SY_5UP");
         } else {
             for (s32 i = 0; i < ::sMessangerOneUpNum; i++) {
@@ -174,18 +129,7 @@ bool KinopioAstro::eventFunc(u32 letterEvent) {
         return true;
     } else if (letterEvent == LetterEvent_3) {
         return true;
-    } else if (letterEvent == LetterEvent_SendLetter) {
-        return sendLetter();
     }
-#if (VERSION == RMGK01)
-    else if (letterEvent == LetterEvent_OnMsgLedPattern) {
-        MR::onMsgLedPattern();
-        return true;
-    } else if (letterEvent == LetterEvent_OffMsgLedPattern) {
-        MR::offMsgLedPattern();
-        return true;
-    }
-#endif
 
     return true;
 }
@@ -208,9 +152,7 @@ void KinopioAstro::init(const JMapInfoIter& rIter) {
     }
 
     if (MR::isEqualStageName("PeachCastleFinalGalaxy")) {
-        _198 = new ReceiverTagMail("StaffLetter", ::sStaffLetterID, ::sSenderID);
-        _19C = MR::createAndAddResourceHolder("AllCompleteImage.arc");
-        createLetterIcon(rIter);
+        // No message board (B-31, Q5), no letter from the staff.
         return;
     }
 
@@ -235,14 +177,9 @@ void KinopioAstro::init(const JMapInfoIter& rIter) {
             if (MR::isLuigiLeftSupply()) {
                 mIsPlayerLuigi = true;
             }
-#ifdef TARGET_PC
-            if (__NebulaCodePatch(NEBULA_PATCH_MESSENGER_ALWAYS_EX, nullptr)) {
-                mIsPlayerLuigi = true;
-            }
-#endif
 
             if (mIsPlayerLuigi) {
-                MR::setMessageArg(mMsgCtrl, messengerOneUpExNum());
+                MR::setMessageArg(mMsgCtrl, ::sMessangerOneUpExNum);
             } else {
                 MR::setMessageArg(mMsgCtrl, ::sMessangerOneUpNum);
             }

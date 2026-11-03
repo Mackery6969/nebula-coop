@@ -1,6 +1,6 @@
 #define JGEOMETRY_VEC3_ZERO_NOINLINE
 #include "JSystem/JParticle/JPAFieldBlock.hpp"
-#include "JSystem/JKernel/JKRHeap.hpp"
+#include "Game/System/NebulaArena.hpp"
 #include "JSystem/JParticle/JPAEmitter.hpp"
 #include "JSystem/JParticle/JPAParticle.hpp"
 
@@ -39,7 +39,7 @@ void JPAFieldGravity::prepare(JPAEmitterWorkData* work, JPAFieldBlock* block) {
     if (block->checkStatus(2)) {
         mAccel.scale(block->getMag(), block->getDir());
     } else {
-        PSMTXMultVecSR(work->mRotationMtx, &block->getDir(), &mAccel);
+        NebulaMtxMultVecSR(work->mRotationMtx, &block->getDir(), &mAccel);
         mAccel.scale(block->getMag());
     }
 }
@@ -60,7 +60,7 @@ void JPAFieldAir::calc(JPAEmitterWorkData* work, JPAFieldBlock* block, JPABasePa
 
 void JPAFieldMagnet::prepare(JPAEmitterWorkData* work, JPAFieldBlock* block) {
     mDir.sub(block->getPos(), work->mEmitterPos);
-    PSMTXMultVecSR(work->mRotationMtx, &mDir, &mDir);
+    NebulaMtxMultVecSR(work->mRotationMtx, &mDir, &mDir);
 }
 
 void JPAFieldMagnet::calc(JPAEmitterWorkData* work, JPAFieldBlock* block, JPABaseParticle* ptcl) {
@@ -71,7 +71,7 @@ void JPAFieldMagnet::calc(JPAEmitterWorkData* work, JPAFieldBlock* block, JPABas
 
 void JPAFieldNewton::prepare(JPAEmitterWorkData* work, JPAFieldBlock* block) {
     mDir.sub(block->getPos(), work->mEmitterPos);
-    PSMTXMultVecSR(work->mRotationMtx, &mDir, &mDir);
+    NebulaMtxMultVecSR(work->mRotationMtx, &mDir, &mDir);
     mCutoff = block->getVal1() * block->getVal1();
 }
 
@@ -130,17 +130,16 @@ void JPAFieldSpin::calc(JPAEmitterWorkData* work, JPAFieldBlock* block, JPABaseP
     mtx[2][2] = field_0x28.z;
     mtx[0][3] = mtx[1][3] = mtx[2][3] = 0.0f;
     Vec vec;
-    PSMTXMultVecSR(mtx, &ptcl->mLocalPosition, &vec);
+    NebulaMtxMultVecSR(mtx, &ptcl->mLocalPosition, &vec);
     mAccel.set< f32 >(vec.x - ptcl->mLocalPosition.x, vec.y - ptcl->mLocalPosition.y, vec.z - ptcl->mLocalPosition.z);
     calcAffect(block, ptcl);
 }
 
-JPAFieldBlock::JPAFieldBlock(u8 const* data, JKRHeap* heap) : mpData((const JPAFieldBlockData*)data) {
+JPAFieldBlock::JPAFieldBlock(u8 const* data, NebulaArena* heap) : mpData((const JPAFieldBlockData*)data) {
     init(heap);
 }
 
-// https://decomp.me/scratch/5AuZW
-void JPAFieldBlock::init(JKRHeap* heap) {
+void JPAFieldBlock::init(NebulaArena* heap) {
     mFadeInRate = getFadeInTime() - getEnTime();
     if (mFadeInRate == 0.0f) {
         mFadeInRate = 1.0f;

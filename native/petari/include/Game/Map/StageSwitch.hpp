@@ -6,25 +6,17 @@
 class JMapIdInfo;
 class JMapInfoIter;
 
-class BitFlag128 {
-public:
-    BitFlag128() {
-        u32* pFlag = mFlags;
-
-        do {
-            *pFlag++ = 0;
-        } while (pFlag < &mFlags[4]);
-    }
-
-    bool get(int idx) const;
-    void set(int bitIndex, bool setTrue);
-
-    /* 0x0 */ u32 mFlags[4];
-};
-
-class ZoneSwitch : public BitFlag128 {
+// A zone's switches, as many as its numbers reach: off until set.
+class ZoneSwitch {
 public:
     ZoneSwitch();
+
+    bool get(int index) const;
+    void set(int index, bool isOn);
+
+private:
+    u32* mFlags;
+    u32 mWords;
 };
 
 class SwitchIdInfo {
@@ -33,15 +25,15 @@ public:
 
     s32 getSwitchNo() const;
 
-    /* 0x0 */ JMapIdInfo* mIDInfo;
-    /* 0x4 */ bool mIsGlobal;
+    JMapIdInfo* mIDInfo;
+    bool mIsGlobal;
 };
 
 class StageSwitchContainer : public NameObj {
 public:
     struct ContainerSwitch {
-        /* 0x0 */ s32 mZoneId;
-        /* 0x4 */ ZoneSwitch* mSwitch;
+        s32 mZoneId;
+        ZoneSwitch* mSwitch;
     };
 
     StageSwitchContainer();
@@ -51,15 +43,13 @@ public:
     void createAndAddZone(const SwitchIdInfo& rInfo);
     ZoneSwitch* getZoneSwitch(const SwitchIdInfo& rInfo);
     ZoneSwitch* findZoneSwitchFromTable(const SwitchIdInfo& rInfo);
-#ifdef TARGET_PC
     // Online co-op: a zone's switches by its id, none when the scene has no switch there.
     ZoneSwitch* nebulaFindZone(s32 zoneId);
     friend class StageSwitchFunction;
-#endif
 
 private:
-    /* 0x0C */ MR::Vector< MR::FixedArray< ContainerSwitch, 20 > > mSwitches;
-    /* 0xB0 */ ZoneSwitch* mGlobalSwitches;
+    MR::Vector< MR::FixedArray< ContainerSwitch, 20 > > mSwitches;
+    ZoneSwitch* mGlobalSwitches;
 };
 
 class StageSwitchFunction {
@@ -68,12 +58,10 @@ public:
     static void onSwitchBySwitchIdInfo(const SwitchIdInfo& rInfo);
     static void offSwitchBySwitchIdInfo(const SwitchIdInfo& rInfo);
     static bool isOnSwitchBySwitchIdInfo(const SwitchIdInfo& rInfo);
-#ifdef TARGET_PC
     // Online co-op (NebulaCoopWorld): a switch's id across games (its zone << 16 | its number, the zone 0xffff for
     // the global ones), and setting one by it.
     static u32 nebulaSwitchId(const SwitchIdInfo& rInfo);
     static void nebulaSetSwitch(u32 id, bool on);
-#endif
 };
 
 class StageSwitchCtrl {
@@ -96,10 +84,10 @@ public:
     bool isOnAllSwitchAfterB(int idx) const;
     bool isOnAnyOneSwitchAfterB(int idx) const;
 
-    /* 0x0 */ SwitchIdInfo* mSwitchA;
-    /* 0x4 */ SwitchIdInfo* mSwitchB;
-    /* 0x8 */ SwitchIdInfo* mSwitchAppear;
-    /* 0xC */ SwitchIdInfo* mSwitchDead;
+    SwitchIdInfo* mSwitchA;
+    SwitchIdInfo* mSwitchB;
+    SwitchIdInfo* mSwitchAppear;
+    SwitchIdInfo* mSwitchDead;
 };
 
 namespace MR {

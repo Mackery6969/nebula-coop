@@ -1,7 +1,8 @@
 #include "JSystem/JAudio2/JASBasicWaveBank.hpp"
+#include "Game/System/GameThreads.hpp"
 #include "JSystem/JAudio2/JASCalc.hpp"
 #include "JSystem/JAudio2/JASMutex.hpp"
-#include "JSystem/JKernel/JKRHeap.hpp"
+#include "Game/System/NebulaArena.hpp"
 #include <stdint.h>
 
 JASBasicWaveBank::JASBasicWaveBank() {
@@ -9,7 +10,7 @@ JASBasicWaveBank::JASBasicWaveBank() {
     mHandleCount = 0;
     mWaveGroupArray = nullptr;
     mGroupCount = 0;
-    OSInitMutex(&mMutex);
+    mMutex.init();
 }
 
 JASBasicWaveBank::~JASBasicWaveBank() {
@@ -29,7 +30,7 @@ JASBasicWaveBank::TWaveGroup* JASBasicWaveBank::getWaveGroup(u32 param_0) {
     return mWaveGroupArray[param_0];
 }
 
-void JASBasicWaveBank::setGroupCount(u32 param_0, JKRHeap* heap) {
+void JASBasicWaveBank::setGroupCount(u32 param_0, NebulaArena* heap) {
     for (int i = 0; i < mGroupCount; i++) {
         delete mWaveGroupArray[i];
     }
@@ -42,7 +43,7 @@ void JASBasicWaveBank::setGroupCount(u32 param_0, JKRHeap* heap) {
     }
 }
 
-void JASBasicWaveBank::setWaveTableSize(u32 count, JKRHeap* heap) {
+void JASBasicWaveBank::setWaveTableSize(u32 count, NebulaArena* heap) {
     delete[] mWaveTable;
     mWaveTable = new (heap, 0) TWaveInfo*[count];
     JASCalc::bzero(mWaveTable, sizeof(TWaveHandle*) * count);
@@ -66,7 +67,7 @@ void JASBasicWaveBank::incWaveTable(JASBasicWaveBank::TWaveGroup const* pWaveGro
             entry->mPrev = info;
         }
 
-        entry = info;
+        __atomic_store_n(&entry, info, __ATOMIC_RELEASE);
     }
 }
 
@@ -99,11 +100,9 @@ JASWaveHandle* JASBasicWaveBank::getWaveHandle(u32 waveId) const {
         return nullptr;
     }
 
-    if (mWaveTable[waveId] == nullptr) {
-        return nullptr;
-    }
-
-    return &mWaveTable[waveId]->mWaveHandle;
+    // Published by the load thread with the release in incWaveTable.
+    TWaveInfo* const info = __atomic_load_n(&mWaveTable[waveId], __ATOMIC_ACQUIRE);
+    return info != nullptr ? &info->mWaveHandle : nullptr;
 }
 
 JASBasicWaveBank::TWaveGroup::TWaveGroup(JASBasicWaveBank* pBank) {
@@ -116,13 +115,13 @@ JASBasicWaveBank::TWaveGroup::~TWaveGroup() {
     delete[] mCtrlWaveArray;
 }
 
-void JASBasicWaveBank::TWaveGroup::setWaveCount(u32 count, JKRHeap* heap) {
+void JASBasicWaveBank::TWaveGroup::setWaveCount(u32 count, NebulaArena* heap) {
     delete[] mCtrlWaveArray;
     mWaveCount = (u16)count;
     mCtrlWaveArray = new (heap, 0) TWaveInfo[count];
 
     for (int i = 0; i < count; i++) {
-        mCtrlWaveArray[i].mWaveHandle.mHeap = &mHeap;
+        mCtrlWaveArray[i].mWaveHandle.mArc = this;
         mCtrlWaveArray[i].mWaveHandle.mWaveInfo._24 = &_48;
     }
 }
@@ -141,11 +140,15 @@ void JASBasicWaveBank::TWaveGroup::onEraseDone() {
     mBank->decWaveTable(this);
 }
 
-int JASBasicWaveBank::TWaveHandle::getWavePtr() const {
-    void* base = mHeap->getBase();
-    if (base == 0) {
-        return 0;
+const u8* JASBasicWaveBank::TWaveHandle::getWaveLimit() const {
+    return mArc->getData() + mArc->getFileSize();
+}
+
+const u8* JASBasicWaveBank::TWaveHandle::getWavePtr() const {
+    const u8* base = mArc->getData();
+    if (base == nullptr) {
+        return nullptr;
     }
 
-    return (intptr_t)base + mWaveInfo.mAWStartOffs;
+    return base + mWaveInfo.mAWStartOffs;
 }

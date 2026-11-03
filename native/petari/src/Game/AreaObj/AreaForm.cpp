@@ -1,12 +1,6 @@
 #include "Game/AreaObj/AreaForm.hpp"
 #include "Game/Util.hpp"
 
-void AreaForm_FORCE_MATCH_SDATA2() {
-    (void)57.295780181884766f;
-    (void)1000.0f;
-    (void)500.0f;
-}
-
 AreaFormCube::AreaFormCube(int a1) {
     _8 = a1;
     mTranslation.x = 0.0f;
@@ -189,7 +183,7 @@ void AreaFormBowl::calcUpVec(const TVec3f& rPos) {
 
     Mtx mtx;
     MR::makeMtxTR(mtx, 0.0f, 0.0f, 0.0f, rPos.x, rPos.y, rPos.z);
-    PSMTXMultVec(mtx, (const Vec*)&up, (Vec*)&up);
+    NebulaMtxMultVec(mtx, (const Vec*)&up, (Vec*)&up);
     mUp = up;
 }
 
@@ -257,11 +251,11 @@ void AreaFormCylinder::calcDir(const TVec3f& rRotation) {
     mRotation.z = 0.0f;
 
     MtxPtr mtx_x = MR::tmpMtxRotXDeg(rRotation.x);
-    PSMTXMultVec(mtx_x, (const Vec*)&mRotation, (Vec*)&mRotation);
+    NebulaMtxMultVec(mtx_x, (const Vec*)&mRotation, (Vec*)&mRotation);
     MtxPtr mtx_y = MR::tmpMtxRotYDeg(rRotation.y);
-    PSMTXMultVec(mtx_y, (const Vec*)&mRotation, (Vec*)&mRotation);
+    NebulaMtxMultVec(mtx_y, (const Vec*)&mRotation, (Vec*)&mRotation);
     MtxPtr mtx_z = MR::tmpMtxRotZDeg(rRotation.z);
-    PSMTXMultVec(mtx_z, (const Vec*)&mRotation, (Vec*)&mRotation);
+    NebulaMtxMultVec(mtx_z, (const Vec*)&mRotation, (Vec*)&mRotation);
     mRotation.normalize();
 }
 
@@ -281,7 +275,7 @@ void AreaFormSphere::init(const JMapInfoIter& rIter) {
 
     Mtx mtx;
     MR::makeMtxTR(mtx, 0.0f, 0.0f, 0.0f, rotation.x, rotation.y, rotation.z);
-    PSMTXMultVec(mtx, (const Vec*)&up, (Vec*)&up);
+    NebulaMtxMultVec(mtx, (const Vec*)&up, (Vec*)&up);
     mUp = up;
 }
 

@@ -3,7 +3,6 @@
 void Nerve::executeOnEnd(Spine* pSpine) const {
 }
 
-#ifdef TARGET_PC
 namespace {
     // Every nerve by its id: an open table, filled during static initialization (zeroed before any of it runs). The
     // game has some 3,700 nerves.
@@ -53,4 +52,3 @@ namespace NebulaNerves {
         return nullptr;
     }
 };  // namespace NebulaNerves
-#endif

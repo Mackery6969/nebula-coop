@@ -1,7 +1,8 @@
 #pragma once
 
 #include "Game/Util/JMapInfo.hpp"
-#include <revolution.h>
+#include <NebulaGpu.h>
+#include <nebula_math.h>
 
 class JMapIdInfo {
 public:
@@ -13,7 +14,7 @@ public:
 
     void initialize(s32, const JMapInfoIter&);
 
-    void operator=(const JMapIdInfo& rhs) NO_INLINE {
+    void operator=(const JMapIdInfo& rhs) {
         _0 = rhs._0;
         mZoneID = rhs.mZoneID;
     }

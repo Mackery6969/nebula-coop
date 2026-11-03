@@ -10,6 +10,8 @@
 #include <JSystem/JAudio2/JASWaveArcLoader.hpp>
 #include <JSystem/JSupport/JSupport.hpp>
 #include <cstring>
+#include "Game/System/GameAssets.hpp"
+#include <nebula_format.h>
 
 JASChannel* JASBank::noteOn(JASBank const* pBank, int progNo, u8 pitch, u8 velocity, u16 priority, JASChannel::Callback pCallback,
                             void* pChannelMgr) {
@@ -41,7 +43,7 @@ JASChannel* JASBank::noteOn(JASBank const* pBank, int progNo, u8 pitch, u8 veloc
         return nullptr;
     }
 
-    int wavePtr = waveHandle->getWavePtr();
+    const u8* wavePtr = waveHandle->getWavePtr();
     if (!wavePtr) {
         return nullptr;
     }
@@ -54,9 +56,10 @@ JASChannel* JASBank::noteOn(JASBank const* pBank, int progNo, u8 pitch, u8 veloc
     channel->setPriority(priority);
     channel->mWaveInfo = *waveInfo;
     channel->mWavePtr = wavePtr;
+    channel->mWaveLimit = waveHandle->getWaveLimit();
     channel->mChannelType = params.mChannelType;
     channel->setBankDisposeID(pBank);
-    channel->setInitPitch(params.mPitch * (waveInfo->mSampleRate / JASDriver::getDacRate()));
+    channel->setInitPitch(params.mPitch * (waveInfo->mSampleRate / JASDriver::getSoundRate()));
     if (params._24 == 0) {
         channel->setKey(pitch - waveInfo->mBaseKey);
     }
@@ -104,7 +107,7 @@ JASChannel* JASTrack::channelStart(JASTrack::TChannelMgr* pChannelMgr, u32 pitch
                 return nullptr;
             }
 
-            int wavePtr = waveHandle->getWavePtr();
+            const u8* wavePtr = waveHandle->getWavePtr();
             if (!wavePtr) {
                 return nullptr;
             }
@@ -135,18 +138,11 @@ void JASWaveArc::setFileName(const char* pName) {
     size_t length = strlen(currentDir);
     length = length + strlen(pName);
     char* path = new (JASKernel::getSystemHeap(), -4) char[length + 1];
-    strcpy(path, currentDir);
-    strcat(path, pName);
-    path[length] = '\0';
+    nebula_snprintf(path, length + 1, "%s%s", currentDir, pName);
 
-    #if (VERSION == RMGJ01 || VERSION == RMGE01 || VERSION == RMGP01)
     const char* fileName = path;
-    #else
-    char fileName[256];
-    MR::makeFileNameConsideringLanguage(fileName, sizeof(fileName), path);
-    #endif
 
-    int entryNum = DVDConvertPathToEntrynum(fileName);
+    int entryNum = GameAssets::find(fileName);
     delete[] path;
     if (entryNum < 0) {
         return;
@@ -154,7 +150,7 @@ void JASWaveArc::setFileName(const char* pName) {
     setEntryNum(entryNum);
 }
 
-bool JASWaveArc::load(JASHeap* pHeap) {
+bool JASWaveArc::load() {
     if (mEntryNum < 0) {
         return false;
     }
@@ -164,13 +160,6 @@ bool JASWaveArc::load(JASHeap* pHeap) {
         return false;
     }
 
-    if (pHeap == nullptr) {
-        pHeap = JASWaveArcLoader::getRootHeap();
-    }
-
-    if (mHeap.alloc(pHeap, mFileLength) == false) {
-        return false;
-    }
     return sendLoadCmd();
 }
 

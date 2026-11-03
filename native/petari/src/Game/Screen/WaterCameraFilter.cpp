@@ -1,4 +1,9 @@
 #include "Game/Screen/WaterCameraFilter.hpp"
+#include "JSystem/J3DGraphBase/J3DNativeTarget.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeView.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Map/WaterAreaHolder.hpp"
 #include "Game/Scene/SceneFunction.hpp"
@@ -13,14 +18,34 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/ScreenUtil.hpp"
 #include <JSystem/JGeometry/TMatrix.hpp>
-#include <JSystem/JKernel/JKRSolidHeap.hpp>
+#include "Game/System/NebulaArena.hpp"
 #include <JSystem/JUtility/JUTTexture.hpp>
-#include <JSystem/JUtility/JUTVideo.hpp>
-#include <revolution/gx/GXBump.h>
-#include <revolution/gx/GXEnum.h>
-#include <revolution/gx/GXRegs.h>
-#include <revolution/gx/GXStruct.h>
-#include <revolution/gx/GXTransform.h>
+#include <NebulaGpuTypes.h>
+#include "Game/Util/NativeShader.hpp"
+#include <nebula_game_api.h>
+
+namespace {
+    // runtime/src/render/materials/water_camera.hlsl: the screen (texture 1) warped by the filter texture (texture 0,
+    // turned by `rFilterMtx`) 0.05 screen texels per indirect step, less the water's colour; blended by the filter's
+    // alpha where above zero, depth neither tested nor written.
+    void sendFilterMaterial(JUTTexture* pFilter, JUTTexture* pScreen, const TMtx34f& rFilterMtx, const Color8& rWater) {
+        NebulaNativeMaterial material;
+        NativeShader::init(material, NEBULA_SHADER_WATER_CAMERA, NativeShader::BLEND_OPAQUE, NEBULA_COMPARE_ALWAYS, false,
+                           NEBULA_CULL_NONE);
+        material.alpha_write = 1;
+        NativeShader::setColor(material, 0, rWater.r, rWater.g, rWater.b, rWater.a);
+        for (u32 row = 0; row < 2; row++) {
+            for (u32 column = 0; column < 4; column++) {
+                material.constants[4 + row * 4 + column] = rFilterMtx.mMtx[row][column];
+            }
+        }
+        material.constants[12] = 0.05f / pScreen->getWidth();
+        material.constants[13] = 0.05f / pScreen->getHeight();
+        NativeShader::setTexture(material, 0, pFilter);
+        NativeShader::setTexture(material, 1, pScreen);
+        NativeShader::send(material);
+    }
+}  // namespace
 
 namespace NrvWaterCameraFilter {
     NEW_NERVE(WaterCameraFilterNrvAir, WaterCameraFilter, Air);
@@ -30,8 +55,8 @@ namespace NrvWaterCameraFilter {
 };  // namespace NrvWaterCameraFilter
 
 namespace {
-    s32 getFrameBufferWidth() {
-        return MR::getFrameBufferWidth();
+    s32 getScreenUnitsAcross() {
+        return MR::getScreenUnitsAcross();
     }
 
     s32 getScreenHeight() {
@@ -39,7 +64,7 @@ namespace {
     }
 };  // namespace
 
-static GXColor sDefaultColor;
+static NebulaColor8 sDefaultColor;
 
 WaterCameraFilter::WaterCameraFilter()
     : LiveActor("\220\205\222\206\203\112\203\201\203\211\203\164\203\102\203\213\203\136\201\133" /* 水中カメラフィルター */), mWaterAlpha(), mWavePhase(), mWaterColor(::sDefaultColor), mScreenTex(), mFilterTex() {
@@ -50,20 +75,14 @@ void WaterCameraFilter::init(const JMapInfoIter& rIter) {
     MR::invalidateClipping(this);
     initNerve(GET_NERVE(WaterCameraFilter, WaterCameraFilterNrvAir));
     initScreenTex();
-    JUTTexture* pFilterTex = new JUTTexture(MR::loadTexFromArc("WaterCameraFilter.arc", "WaterCameraFilter.bti"), 0);
+    JUTTexture* pFilterTex = new JUTTexture(MR::loadTexFromArc("WaterCameraFilter.arc", "WaterCameraFilter.bti"));
     mFilterTex = pFilterTex;
     makeActorAppeared();
 }
 
-namespace {
-    s32 getScreenTexHeight() {
-        return MR::getScreenHeight();
-    }
-};  // namespace
-
 void WaterCameraFilter::initScreenTex() {
-    MR::CurrentHeapRestorer restorer(MR::getSceneHeapGDDR3());
-    mScreenTex = new JUTTexture(::getFrameBufferWidth(), ::getScreenHeight(), GX_TF_RGB565);
+    MR::CurrentHeapRestorer restorer(MR::getSceneHeap());
+    mScreenTex = new JUTTexture(::getScreenUnitsAcross(), ::getScreenHeight());
 }
 
 void WaterCameraFilter::exeAirToWater() {
@@ -90,7 +109,7 @@ void WaterCameraFilter::exeWaterToAir() {
     }
 }
 
-static GXColor sWaterColor = {0x32, 0x32, 0, 0};
+static NebulaColor8 sWaterColor = {0x32, 0x32, 0, 0};
 
 void WaterCameraFilter::control() {
     if (MR::isCameraInWater()) {
@@ -102,7 +121,7 @@ void WaterCameraFilter::control() {
 
         f32 depth = MR::clamp(WaterAreaFunction::getCameraWaterDepth(), 0.0f, 3000.0f);
         Color8 color(MR::lerp(::sDefaultColor, ::sWaterColor, depth / 3000.0f));
-        mWaterColor.mGXColor = color.mGXColor;
+        mWaterColor.mRGBA = color.mRGBA;
     }
 }
 
@@ -111,10 +130,7 @@ void WaterCameraFilter::draw() const {
         return;
     }
 
-    GXRenderModeObj* pRenderMode = JUTVideo::getManager()->getRenderMode();
-    GXSetCopyFilter(GX_FALSE, pRenderMode->sample_pattern, GX_FALSE, pRenderMode->vfilter);
-    mScreenTex->capture(0, 0, GX_TF_RGB565, false, 0);
-    GXSetCopyFilter(GX_FALSE, pRenderMode->sample_pattern, GX_TRUE, pRenderMode->vfilter);
+    J3DNativeTarget::take(mScreenTex->mImage);
     loadMaterial();
     TVec2f pos;
     pos.x = 0.0f;
@@ -128,54 +144,40 @@ void WaterCameraFilter::draw() const {
     f32 centerU = 1.0f - pos.x;
     f32 centerV = 1.0f - pos.y;
 
-    GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, 4);
+    J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, 4, NEBULA_SHAPE_TEXCOORD0 | NEBULA_SHAPE_TEXCOORD0 << 1);
     {
-        GXPosition2u16(0, 0);
-        GXTexCoord2f32(centerU - halfSize, centerV - halfSize);
-        GXTexCoord2f32(0.0f, 0.0f);
+        J3DNativeDraw::position(0.0f, 0.0f, 0.0f);
+        J3DNativeDraw::texCoord(centerU - halfSize, centerV - halfSize);
+        J3DNativeDraw::texCoord(0.0f, 0.0f);
 
-        GXPosition2u16(MR::getFrameBufferWidth(), 0);
-        GXTexCoord2f32(centerU + halfSize, centerV - halfSize);
-        GXTexCoord2f32(1.0f, 0.0f);
+        J3DNativeDraw::position(static_cast< f32 >(static_cast< u16 >(MR::getScreenUnitsAcross())), 0.0f, 0.0f);
+        J3DNativeDraw::texCoord(centerU + halfSize, centerV - halfSize);
+        J3DNativeDraw::texCoord(1.0f, 0.0f);
 
-        GXPosition2u16(0, MR::getScreenHeight());
-        GXTexCoord2f32(centerU - halfSize, centerV + halfSize);
-        GXTexCoord2f32(0.0f, 1.0f);
+        J3DNativeDraw::position(0.0f, static_cast< f32 >(static_cast< u16 >(MR::getScreenHeight())), 0.0f);
+        J3DNativeDraw::texCoord(centerU - halfSize, centerV + halfSize);
+        J3DNativeDraw::texCoord(0.0f, 1.0f);
 
         s32 height = MR::getScreenHeight();
-        GXPosition2u16(MR::getFrameBufferWidth(), height);
-        GXTexCoord2f32(centerU + halfSize, centerV + halfSize);
-        GXTexCoord2f32(1.0f, 1.0f);
+        J3DNativeDraw::position(static_cast< f32 >(static_cast< u16 >(MR::getScreenUnitsAcross())), static_cast< f32 >(static_cast< u16 >(height)), 0.0f);
+        J3DNativeDraw::texCoord(centerU + halfSize, centerV + halfSize);
+        J3DNativeDraw::texCoord(1.0f, 1.0f);
     }
 
-    GXEnd();
-
+    J3DPass::writeAlpha(false);
     MR::loadProjectionMtx();
     MR::loadViewMtx();
 }
 
 void WaterCameraFilter::loadMaterial() const {
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XY, GX_U16, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX1, GX_TEX_ST, GX_F32, 0);
-    GXClearVtxDesc();
-    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_TEX1, GX_DIRECT);
     Mtx44 projection;
     s32 height = MR::getScreenHeight();
-    C_MTXOrtho(projection, 0.0f, height, 0.0f, MR::getFrameBufferWidth(), -10000.0f, 10000.0f);
-    GXSetProjection(projection, GX_ORTHOGRAPHIC);
+    NebulaMtxOrtho(projection, 0.0f, height, 0.0f, MR::getScreenUnitsAcross(), -10000.0f, 10000.0f);
+    J3DNativeView::setOrthographic(projection);
     TMtx34f modelView;
     modelView.identity();
-    GXLoadPosMtxImm(modelView, 0);
-    GXSetCurrentMtx(0);
-    GXSetNumChans(1);
-    GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_REG, GX_SRC_REG, 0, GX_DF_NONE, GX_AF_NONE);
-    GXSetChanCtrl(GX_COLOR1A1, GX_FALSE, GX_SRC_REG, GX_SRC_REG, 0, GX_DF_NONE, GX_AF_NONE);
-    GXSetNumTexGens(2);
-    GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX3x4, GX_TG_TEX0, 0x1E, 0, 0x7D);
-    GXSetTexCoordGen2(GX_TEXCOORD1, GX_TG_MTX3x4, GX_TG_TEX1, 0x3C, 0, 0x7D);
+    J3DNativeShape::setPosition(0, modelView);
+    J3DPass::positionMatrix(0);
     TVec2f screenPos;
     screenPos.x = 0.0f;
     screenPos.y = 0.0f;
@@ -195,33 +197,8 @@ void WaterCameraFilter::loadMaterial() const {
     MR::multMtx(textureMtx, translation, rotation);
     translation.setTrans(TVec3f(0.5f, 0.5f, 0.0f));
     MR::multMtx(textureMtx, textureMtx, translation);
-    GXLoadTexMtxImm(textureMtx, 0x1E, GX_MTX3x4);
-    mFilterTex->load(GX_TEXMAP0);
-    mScreenTex->load(GX_TEXMAP1);
-    GXSetNumIndStages(1);
-    GXSetIndTexOrder(GX_INDTEXSTAGE0, GX_TEXCOORD0, GX_TEXMAP0);
-    GXSetTevIndWarp(GX_TEVSTAGE0, GX_INDTEXSTAGE0, 1, 0, GX_ITM_0);
-    f32 ind[2][3];
-    ind[0][0] = 0.05f;
-    ind[0][1] = 0.0f;
-    ind[0][2] = 0.0f;
-    ind[1][0] = 0.0f;
-    ind[1][1] = 0.05f;
-    ind[1][2] = 0.0f;
-    GXSetIndTexMtx(GX_ITM_0, ind, 0);
-    GXSetTevColor(GX_TEVREG0, Color8(mWaterColor.r, mWaterColor.g, mWaterColor.b, (s32)(mWaterAlpha)));
-    GXSetNumTevStages(1);
-    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD1, GX_TEXMAP1, GX_COLOR_NULL);
-    GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_C0, GX_CC_ZERO, GX_CC_ZERO, GX_CC_TEXC);
-    GXSetTevColorOp(GX_TEVSTAGE0, GX_TEV_SUB, GX_TB_ZERO, GX_CS_SCALE_1, 1, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_A0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, 1, GX_TEVPREV);
-    GXSetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_NOOP);
-    GXSetAlphaCompare(GX_GREATER, 0, GX_AOP_OR, GX_GREATER, 0);
-    GXSetZMode(0, GX_ALWAYS, 0);
-    GXSetZCompLoc(0);
-    GXSetCullMode(GX_CULL_NONE);
-    GXSetClipMode(GX_CLIP_ENABLE);
+    sendFilterMaterial(mFilterTex, mScreenTex, textureMtx,
+                       Color8(mWaterColor.r, mWaterColor.g, mWaterColor.b, (s32)(mWaterAlpha)));
 }
 
 void WaterCameraFilter::exeWater() {

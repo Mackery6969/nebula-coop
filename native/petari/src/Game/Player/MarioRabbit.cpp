@@ -28,7 +28,7 @@ MarioRabbit::MarioRabbit(MarioActor* pActor) : MarioState(pActor, MarioStatus_Ra
     _68 = 0;
     _69 = 0;
     _2A = 0;
-    PSMTXIdentity(_2C);
+    NebulaMtxIdentity(_2C);
     _5C.set(1.0f, 0.0f, 0.0f);
     _6A = 0;
 }
@@ -172,7 +172,7 @@ bool MarioRabbit::update() {
                 getPlayer()->mMovementStates.jumping = false;
             }
 
-            startPadVib(1UL);
+            startPadVib(1u);
             playEffect("\213\244\222\312\222\205\222\156\225\201\222\312" /* 共通着地普通 */);
             if (!_28) {
                 playSound("\203\172\203\142\203\160\201\133\222\265\202\313\225\324\202\350" /* ホッパー跳ね返り */);
@@ -281,7 +281,7 @@ bool MarioRabbit::update() {
         angle = -angle;
     }
 
-    PSMTXCopy(MR::tmpMtxRotXRad(angle), _2C);
+    NebulaMtxCopy(MR::tmpMtxRotXRad(angle), _2C);
     if (MR::abs(angle) >= 1.0471976f) {
         MR::vecBlendSphere(_5C, getFrontVec(), &_5C, 0.2f);
     } else {

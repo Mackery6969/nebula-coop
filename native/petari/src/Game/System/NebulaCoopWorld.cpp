@@ -1,5 +1,6 @@
-#ifdef TARGET_PC
 #include "Game/System/NebulaCoopWorld.hpp"
+#include "nebula_module.h"
+#include "Game/System/NebulaHost.hpp"
 #include "Game/System/NebulaCoopDemos.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/HitSensorInfo.hpp"
@@ -31,7 +32,6 @@
 #include <cstdio>
 #include <cstring>
 #include <nebula_game_api.h>
-#include <revolution/os.h>
 
 namespace {
     enum Kind {
@@ -190,7 +190,7 @@ namespace {
             pFlip->mCount = 0;
         }
         if (++pFlip->mCount > cMaxFlips) {
-            OSReport("[coop] switch %08x turns by itself: each player's own\n", id);
+            nebula_log("[coop] switch %08x turns by itself: each player's own\n", id);
             pFlip->mLocal = true;
             return false;
         }
@@ -398,9 +398,9 @@ namespace {
         event.value = value;
         event.scenario = scenario;
         if (pName != nullptr) {
-            snprintf(event.name, sizeof(event.name), "%s", pName);
+            nebula_snprintf(event.name, sizeof(event.name), "%s", pName);
         }
-        __NebulaCoopWorldReport(&event);
+        NebulaHost::coopWorldReport(&event);
     }
 
     // Gone, as the server says: dead without its drops, its sound or its effect, its dead switch on as the game's
@@ -545,7 +545,7 @@ namespace {
         if (rEvent.kind == NEBULA_COOP_WORLD_STAR) {
             if (pHolder->mAllGalaxyStorage->isExistAccessor(rEvent.name, rEvent.scenario) &&
                 !pHolder->hasPowerStar(rEvent.name, rEvent.scenario)) {
-                OSReport("[coop] the room's star: %s %d\n", rEvent.name, static_cast< int >(rEvent.scenario));
+                nebula_log("[coop] the room's star: %s %d\n", rEvent.name, static_cast< int >(rEvent.scenario));
                 pHolder->setPowerStar(rEvent.name, rEvent.scenario, true);
                 NebulaCoopDemos::noticeRoomStar(rEvent.name, rEvent.scenario);
             }
@@ -563,9 +563,10 @@ namespace {
     }
 
     void takeFromServer() {
-        NebulaCoopWorldEvent events[cTakePerCall];
+        // Static: the module links without __chkstk, so no frame may need a stack probe.
+        static NebulaCoopWorldEvent events[cTakePerCall];
         for (u32 call = 0; call < cTakeCalls; call++) {
-            const u32 count = __NebulaCoopWorldTake(events, cTakePerCall);
+            const u32 count = NebulaHost::coopWorldTake(events, cTakePerCall);
             const u32 used = count < cTakePerCall ? count : cTakePerCall;
             for (u32 i = 0; i < used; i++) {
                 events[i].name[sizeof(events[i].name) - 1] = '\0';
@@ -693,9 +694,10 @@ namespace {
     }
 
     void takeStates() {
-        NebulaCoopObjectState states[64];
+        // Static: the module links without __chkstk, so no frame may need a stack probe.
+        static NebulaCoopObjectState states[64];
         for (u32 call = 0; call < 16; call++) {
-            const u32 count = __NebulaCoopObjectsTake(states, 64);
+            const u32 count = NebulaHost::coopObjectsTake(states, 64);
             const u32 used = count < 64 ? count : 64;
             for (u32 i = 0; i < used; i++) {
                 applyState(states[i]);
@@ -737,7 +739,8 @@ namespace {
         if (sMotionNum == 0 || sSelf == 0) {
             return;
         }
-        NebulaCoopObjectState states[64];
+        // Static: the module links without __chkstk, so no frame may need a stack probe.
+        static NebulaCoopObjectState states[64];
         u32 stateNum = 0;
         const TVec3f* pMarioPos = sMario != nullptr ? &sMario->mPosition : nullptr;
         for (s32 i = 0; i < sMotionNum; i++) {
@@ -797,7 +800,7 @@ namespace {
             rMotion.mSendIn = moved ? cSendMoving : cSendStill;
         }
         if (stateNum > 0) {
-            __NebulaCoopObjectsReport(states, stateNum);
+            NebulaHost::coopObjectsReport(states, stateNum);
         }
     }
 
@@ -846,11 +849,11 @@ namespace NebulaCoopWorld {
         sSelf = 0;
         sMario = nullptr;
         u32 roomSize = 0;
-        __NebulaCoopList(nullptr, 0, &roomSize);
+        NebulaHost::coopList(nullptr, 0, &roomSize);
         sInRoom = roomSize != 0;
         if (sInRoom) {
-            NebulaCoopListPlayer players[16];
-            const u32 count = __NebulaCoopList(players, 16, &roomSize);
+            static NebulaCoopListPlayer players[16];
+            const u32 count = NebulaHost::coopList(players, 16, &roomSize);
             for (u32 i = 0; i < count && i < 16; i++) {
                 if ((players[i].flags & NEBULA_COOP_LIST_YOU) != 0) {
                     sSelf = players[i].number;
@@ -927,7 +930,7 @@ namespace NebulaCoopWorld {
         }
         sPlaced = true;
         sObjectsActive = true;
-        OSReport("[coop] the instance follows %d placed things, %d of them moving\n", sEntryNum, sMotionNum);
+        nebula_log("[coop] the instance follows %d placed things, %d of them moving\n", sEntryNum, sMotionNum);
         report(NEBULA_COOP_WORLD_ENTER, 0, 0, MR::getCurrentScenarioNo(), MR::getCurrentStageName());
     }
 
@@ -1187,4 +1190,3 @@ namespace NebulaCoopWorld {
         }
     }
 };  // namespace NebulaCoopWorld
-#endif

@@ -1,6 +1,6 @@
 #include "Game/System/NebulaCutsceneSkip.hpp"
+#include <JSystem/JUtility/JUTNativeLog.hpp>
 
-#ifdef TARGET_PC
 #include "Game/AudioLib/AudSystem.hpp"
 #include "Game/AudioLib/AudWrap.hpp"
 #include "Game/Demo/DemoDirector.hpp"
@@ -15,7 +15,7 @@
 #include "Game/System/GameSystemSceneController.hpp"
 #include "Game/System/NebulaText.hpp"
 #include "Game/Util/DemoUtil.hpp"
-#include "Game/Util/GamePadUtil.hpp"
+#include "Game/Util/PlayerInputUtil.hpp"
 #include "Game/Util/JMapIdInfo.hpp"
 #include "Game/Util/LayoutUtil.hpp"
 #include "Game/Util/SceneUtil.hpp"
@@ -23,7 +23,7 @@
 #include "Game/Util/SingletonHolder.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
 #include <cstring>
-#include <revolution/os.h>
+#include "Game/System/NebulaClock.hpp"
 
 namespace {
     enum State {
@@ -79,8 +79,8 @@ namespace {
     s32 sSteps = 0;
     s32 sFadeFrames = 0;
     s32 sFrameSteps = 0;
-    OSTick sFrameStart = 0;
-    OSTime sSkipStart = 0;
+    s64 sFrameStart = 0;  // NebulaClock
+    s64 sSkipStart = 0;
 
     bool isGameSceneRunning() {
         GameSystem* pSystem = SingletonHolder< GameSystem >::get();
@@ -163,7 +163,7 @@ namespace {
         const bool isScene = isGameSceneRunning();
         const DemoDirector* pDirector = isScene ? getActiveDemo() : nullptr;
         const DemoExecutor* pExecutor = pDirector != nullptr ? getExecutor(pDirector) : nullptr;
-        OSReport("cutscene skip: %s (%s%s%s%s)\n", pWhat, MR::isActiveMoviePlayer() ? "movie" : "",
+        JUTNativeLog("cutscene skip: %s (%s%s%s%s)\n", pWhat, MR::isActiveMoviePlayer() ? "movie" : "",
                  isScene && GameSceneFunction::isExecScenarioOpeningCamera() ? "opening camera" : "",
                  pExecutor != nullptr && pExecutor->mSheetName != nullptr ? pExecutor->mSheetName : "",
                  pExecutor == nullptr && pDirector != nullptr && pDirector->_2C != nullptr ? pDirector->_2C->mName : "");
@@ -190,8 +190,8 @@ namespace {
 
     // The question in the played language (NebulaText; the game's own Yes and No answer it), its lines broken as
     // the game's messages are (its text boxes do not wrap).
-    const wchar_t* promptText() {
-        static wchar_t question[128];
+    const char16_t* promptText() {
+        static char16_t question[128];
         NebulaText::get(question, 128, "SkipCutsceneQuestion");
         return question;
     }
@@ -219,7 +219,7 @@ namespace {
         MR::openSystemWipeFade();
         mute(false);
         silenceSe(false);
-        OSReport("cutscene skip: done after %d steps (%s)\n", sSteps, pWhy);
+        JUTNativeLog("cutscene skip: done after %d steps (%s)\n", sSteps, pWhy);
     }
 };  // namespace
 
@@ -237,10 +237,10 @@ namespace NebulaCutsceneSkip {
 
         switch (sState) {
         case State_Idle: {
-            if (!MR::testCorePadButtonPlus(WPAD_CHAN0)) {
+            if (!MR::isHeldPause(PLAYER_1)) {
                 sNeedRelease = false;
             }
-            if (sNeedRelease || !MR::testCorePadTriggerPlus(WPAD_CHAN0)) {
+            if (sNeedRelease || !MR::isPressedPause(PLAYER_1)) {
                 break;
             }
             sNeedRelease = true;
@@ -260,9 +260,9 @@ namespace NebulaCutsceneSkip {
         }
         case State_Prompt:
             // + again answers No.
-            if (!MR::testCorePadButtonPlus(WPAD_CHAN0)) {
+            if (!MR::isHeldPause(PLAYER_1)) {
                 sNeedRelease = false;
-            } else if (!sNeedRelease && MR::testCorePadTriggerPlus(WPAD_CHAN0)) {
+            } else if (!sNeedRelease && MR::isPressedPause(PLAYER_1)) {
                 sNeedRelease = true;
                 sWindow->decideNo();
             }
@@ -279,7 +279,7 @@ namespace NebulaCutsceneSkip {
             if (!sWindow->isSelectedYes() || !isSkippableNow()) {
                 sState = State_Idle;
                 mute(false);
-                OSReport("cutscene skip: declined\n");
+                JUTNativeLog("cutscene skip: declined\n");
                 break;
             }
             sState = State_FadeOut;
@@ -301,7 +301,7 @@ namespace NebulaCutsceneSkip {
             sStallSteps = 0;
             sMovieSkip = MR::isActiveMoviePlayer();
             sSkipDemo = !sMovieSkip;
-            sSkipStart = OSGetTime();
+            sSkipStart = NebulaClock::nowNs();
             silenceSe(true);
             report("skipping");
             break;
@@ -314,7 +314,7 @@ namespace NebulaCutsceneSkip {
                 pEnd = "the scene ended";
             } else if (GameSequenceFunction::isActiveSaveDataHandleSequence()) {
                 pEnd = "a save";
-            } else if (OSTicksToMicroseconds(OSGetTime() - sSkipStart) >= cSkipMaxMicros) {
+            } else if ((NebulaClock::nowNs() - sSkipStart) / 1000 >= cSkipMaxMicros) {
                 pEnd = "time";
             } else if (sSkipDemo && isStalled()) {
                 pEnd = "waits on the player";
@@ -351,10 +351,10 @@ namespace NebulaCutsceneSkip {
             return false;
         }
         if (sFrameSteps == 0) {
-            sFrameStart = OSGetTick();
+            sFrameStart = NebulaClock::nowNs();
         }
         if (sFrameSteps >= cStepsPerFrameMax ||
-            OSTicksToMicroseconds(OSDiffTick(OSGetTick(), sFrameStart)) >= cStepBudgetMicros) {
+            (NebulaClock::nowNs() - sFrameStart) / 1000 >= cStepBudgetMicros) {
             sFrameSteps = 0;
             return false;
         }
@@ -380,4 +380,3 @@ namespace NebulaCutsceneSkip {
         }
     }
 };  // namespace NebulaCutsceneSkip
-#endif

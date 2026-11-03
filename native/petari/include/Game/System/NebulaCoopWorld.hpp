@@ -1,7 +1,5 @@
 #pragma once
 
-#ifdef TARGET_PC
-#include <revolution/types.h>
 
 class GameDataHolder;
 class HitSensor;
@@ -78,4 +76,3 @@ namespace NebulaCoopWorld {
     void noticeEventFlag(const GameDataHolder* pHolder, const char* pName);
     void noticeEventValue(const GameDataHolder* pHolder, const char* pName, u16 value);
 };  // namespace NebulaCoopWorld
-#endif

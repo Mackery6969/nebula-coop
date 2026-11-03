@@ -1,31 +1,39 @@
 #include "Game/Map/StageSwitch.hpp"
+#include "Game/System/NebulaArena.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/Util/JMapIdInfo.hpp"
-#ifdef TARGET_PC
 #include "Game/System/NebulaCoopWorld.hpp"
-#endif
 
-bool BitFlag128::get(int index) const {
-    u32 flags = mFlags[index / 32];
-    u32 mask = 1 << (index % 32);
-
-    return (flags & static_cast< u32 >(mask)) == mask;
+ZoneSwitch::ZoneSwitch() : mFlags(nullptr), mWords(0) {
 }
 
-void BitFlag128::set(int bitIndex, bool isOn) {
-    u32 byteIndex = bitIndex / 32;
-    u32& flag = mFlags[byteIndex];
+bool ZoneSwitch::get(int index) const {
+    const u32 word = static_cast< u32 >(index) / 32;
+    return word < mWords && (mFlags[word] & (1u << (index % 32))) != 0;
+}
+
+void ZoneSwitch::set(int index, bool isOn) {
+    const u32 word = static_cast< u32 >(index) / 32;
+    if (word >= mWords) {
+        if (!isOn) {
+            return;
+        }
+
+        // In this switch's own arena: whichever is current now may go first.
+        const u32 words = word + 4;
+        u32* const pFlags = new (NebulaArena::findFromRoot(this), 0) u32[words];
+        for (u32 i = 0; i < words; i++) {
+            pFlags[i] = i < mWords ? mFlags[i] : 0;
+        }
+        delete[] mFlags;
+        mFlags = pFlags;
+        mWords = words;
+    }
 
     if (isOn) {
-        flag |= (1U << (bitIndex % 32));
+        mFlags[word] |= 1u << (index % 32);
     } else {
-        flag &= ~(1U << (bitIndex % 32));
-    }
-}
-
-ZoneSwitch::ZoneSwitch() : BitFlag128() {
-    for (s32 i = 0; i < 128; i++) {
-        set(i, false);
+        mFlags[word] &= ~(1u << (index % 32));
     }
 }
 
@@ -190,10 +198,8 @@ void StageSwitchFunction::onSwitchBySwitchIdInfo(const SwitchIdInfo& rIdInfo) {
 
     if (!pZoneSwitch->get(switchNo)) {
         pZoneSwitch->set(switchNo, true);
-#ifdef TARGET_PC
         // Online co-op: the instance's switches are its players' together.
         NebulaCoopWorld::noteSwitch(nebulaSwitchId(rIdInfo), true);
-#endif
     }
 }
 
@@ -203,13 +209,10 @@ void StageSwitchFunction::offSwitchBySwitchIdInfo(const SwitchIdInfo& rIdInfo) {
 
     if (pZoneSwitch->get(switchNo)) {
         pZoneSwitch->set(switchNo, false);
-#ifdef TARGET_PC
         NebulaCoopWorld::noteSwitch(nebulaSwitchId(rIdInfo), false);
-#endif
     }
 }
 
-#ifdef TARGET_PC
 u32 StageSwitchFunction::nebulaSwitchId(const SwitchIdInfo& rIdInfo) {
     const u32 zone = rIdInfo.mIsGlobal ? 0xffffu : static_cast< u32 >(rIdInfo.mIDInfo->mZoneID) & 0xffffu;
     return zone << 16 | (static_cast< u32 >(rIdInfo.getSwitchNo()) & 0xffffu);
@@ -235,7 +238,6 @@ ZoneSwitch* StageSwitchContainer::nebulaFindZone(s32 zoneId) {
     }
     return nullptr;
 }
-#endif
 
 bool StageSwitchFunction::isOnSwitchBySwitchIdInfo(const SwitchIdInfo& rIdInfo) {
     s32 switchNo = rIdInfo.getSwitchNo();
@@ -262,6 +264,3 @@ StageSwitchCtrl::StageSwitchCtrl(const JMapInfoIter& rIter) : mSwitchA(), mSwitc
     mSwitchDead = StageSwitchFunction::createSwitchIdInfo("SW_DEAD", rIter, false);
 }
 
-bool StageSwitch_FORCE_MATCH(const JMapInfoIter& rIter, const char* pKey, s32* pValue) {
-    return rIter.getValue(pKey, pValue);
-}

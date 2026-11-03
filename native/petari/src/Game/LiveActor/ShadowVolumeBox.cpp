@@ -1,13 +1,11 @@
 #include "Game/LiveActor/ShadowVolumeBox.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/LiveActor/ShadowController.hpp"
 #include "Game/LiveActor/ShadowDrawer.hpp"
 #include "Game/Util/CameraUtil.hpp"
-
-void ShadowVolumeBox_FORCE_MATCH_SDATA2() {
-    f32 f1 = 0.0f;
-    f32 f2 = 0.5f;
-}
 
 ShadowVolumeBox::ShadowVolumeBox() : ShadowVolumeDrawer("\211\145\225\140\211\346[\203\173\203\212\203\205\201\133\203\200\203\173\203\142\203\116\203\130]" /* 影描画[ボリュームボックス] */), mSize(100.0f, 100.0f, 100.0f) {
     for (u32 idx = 0; idx < ARRAY_SIZE(mPoints); idx++) {
@@ -20,11 +18,8 @@ void ShadowVolumeBox::setSize(const TVec3f& rSize) {
 }
 
 void ShadowVolumeBox::loadModelDrawMtx() const {
-    GXLoadPosMtxImm(MR::getCameraViewMtx(), 0);
-    GXSetCurrentMtx(0);
-    GXClearVtxDesc();
-    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+    J3DNativeShape::setPosition(0, MR::getCameraViewMtx());
+    J3DPass::positionMatrix(0);
     makeVertexBuffer();
 }
 
@@ -137,7 +132,7 @@ void ShadowVolumeBox::makeVertexBuffer() const {
 }
 
 void ShadowVolumeBox::drawShape() const {
-    GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, 14);
+    J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, 14, 0);
     {
         TDDraw::sendPoint(mPoints[0]);
         TDDraw::sendPoint(mPoints[1]);
@@ -155,9 +150,8 @@ void ShadowVolumeBox::drawShape() const {
         TDDraw::sendPoint(mPoints[1]);
     }
 
-    GXEnd();
 
-    GXBegin(GX_TRIANGLEFAN, GX_VTXFMT0, 8);
+    J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_FAN, 8, 0);
     {
         TDDraw::sendPoint(mPoints[12]);
         TDDraw::sendPoint(mPoints[0]);
@@ -169,9 +163,8 @@ void ShadowVolumeBox::drawShape() const {
         TDDraw::sendPoint(mPoints[0]);
     }
 
-    GXEnd();
 
-    GXBegin(GX_TRIANGLEFAN, GX_VTXFMT0, 8);
+    J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_FAN, 8, 0);
     {
         TDDraw::sendPoint(mPoints[13]);
         TDDraw::sendPoint(mPoints[1]);
@@ -182,6 +175,4 @@ void ShadowVolumeBox::drawShape() const {
         TDDraw::sendPoint(mPoints[3]);
         TDDraw::sendPoint(mPoints[1]);
     }
-
-    GXEnd();
 }

@@ -1,4 +1,7 @@
 #include "Game/MapObj/SpiderThread.hpp"
+#include "Game/Util/NativeShader.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/SpiderThreadHangInfo.hpp"
@@ -17,7 +20,10 @@
 #include "Game/Util/StarPointerUtil.hpp"
 #include <JSystem/JGeometry/TMatrix.hpp>
 #include <JSystem/JUtility/JUTTexture.hpp>
-#include <revolution/gx/GXBump.h>
+#include <nebula_game_api.h>
+#include <cstring>
+
+extern "C" const NebulaHostServices* nebula_host(void);
 
 namespace {
     const CutPointEntry sCutPointNoTable[] = {{0, 3}, {1, 1}, {2, 0}, {4, 3}, {6, 1}, {6, 4}};
@@ -78,8 +84,8 @@ void SpiderThread::initThread(const TVec3f& rPos) {
     initMainThreads();
     MR::invalidateClipping(this);
 
-    mThreadTexture = new JUTTexture(MR::loadTexFromArc("SpiderThread.arc", "SpiderThread.bti"), 0);
-    mIndirectTexture = new JUTTexture(MR::loadTexFromArc("SpiderThread.arc", "Indirect.bti"), 0);
+    mThreadTexture = new JUTTexture(MR::loadTexFromArc("SpiderThread.arc", "SpiderThread.bti"));
+    mIndirectTexture = new JUTTexture(MR::loadTexFromArc("SpiderThread.arc", "Indirect.bti"));
 
     mHangInfos = new SpiderThreadHangInfo*[::sHangActorNumMax];
     for (s32 idx = 0; idx < ::sHangActorNumMax; idx++) {
@@ -98,8 +104,8 @@ void SpiderThread::movement() {
     mWindCtrl->update();
     updatePointerInfo();
     updateHangedPoint();
-    tryTouchPoint(WPAD_CHAN0);
-    tryTouchPoint(WPAD_CHAN1);
+    tryTouchPoint(PLAYER_1);
+    tryTouchPoint(PLAYER_2);
 
     mMainPoint->updateVelocity();
     for (s32 idx = 0; idx < mNumRadialLines; idx++) {
@@ -227,7 +233,7 @@ void SpiderThread::initMainThreads() {
 
         // connect points
         SpiderThreadMainPoint* point = getMainRadialLine(radialIdx)->getPoint(0);
-        SpiderThreadMainPoint* nextPoint;
+        SpiderThreadMainPoint* nextPoint = nullptr;
         connectMainPoint(point, mMainPoint, true);
         for (s32 idx = 0; idx < ::sMainRadialLinePointNum - 1; idx++) {
             nextPoint = getMainRadialLine(radialIdx)->getPoint(idx + 1);
@@ -361,56 +367,22 @@ SpiderThreadHangInfo* SpiderThread::findHangInfo(LiveActor* pActor) const {
 }
 
 void SpiderThread::initDraw() const {
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_POS_XYZ, GX_RGBA8, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_POS_XYZ, GX_F32, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX1, GX_POS_XYZ, GX_F32, 0);
-
-    GXClearVtxDesc();
-    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_TEX1, GX_DIRECT);
-
-    GXLoadPosMtxImm(MR::getCameraViewMtx(), 0);
-    GXSetCurrentMtx(0);
-
-    GXSetNumChans(1);
-    GXSetChanCtrl(GX_COLOR0A0, GX_DISABLE, GX_SRC_VTX, GX_SRC_VTX, 0, GX_DF_NONE, GX_AF_NONE);
-    GXSetChanCtrl(GX_COLOR1A1, GX_DISABLE, GX_SRC_REG, GX_SRC_REG, 0, GX_DF_NONE, GX_AF_NONE);
-
-    GXSetNumTexGens(2);
-    GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX3x4, GX_TG_TEX0, 60, GX_FALSE, 125);
-    GXSetTexCoordGen2(GX_TEXCOORD1, GX_TG_MTX3x4, GX_TG_TEX1, 60, GX_FALSE, 125);
-    mThreadTexture->load(GX_TEXMAP0);
-    mIndirectTexture->load(GX_TEXMAP1);
-
-    GXSetNumIndStages(1);
-    GXSetIndTexOrder(GX_INDTEXSTAGE0, GX_TEXCOORD1, GX_TEXMAP1);
-    GXSetTevIndWarp(GX_TEVSTAGE0, GX_INDTEXSTAGE0, GX_TRUE, GX_FALSE, GX_ITM_0);
-
-    Mtx23 mtx;
-    mtx[0][0] = ::sIndirectScaleX;
-    mtx[0][1] = 0.0;
-    mtx[0][2] = 0.0;
-    mtx[1][0] = 0.0;
-    mtx[1][1] = ::sIndirectScaleY;
-    mtx[1][2] = 0.0;
-    GXSetIndTexMtx(GX_ITM_0, mtx, 0);
-
-    GXSetNumTevStages(1);
-    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
-    GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_RASC, GX_CC_TEXC, GX_CC_ZERO);
-    GXSetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_TEXA, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
-
-    GXSetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_NOOP);
-    GXSetAlphaCompare(GX_GREATER, 0, GX_AOP_OR, GX_GREATER, 0);
-
-    GXSetZMode(GX_ENABLE, GX_LEQUAL, GX_DISABLE);
-    GXSetZCompLoc(GX_DISABLE);
-    GXSetCullMode(GX_CULL_NONE);
+    J3DNativeShape::setPosition(0, MR::getCameraViewMtx());
+    J3DPass::positionMatrix(0);
+    // runtime/src/render/materials/spider_thread.hlsl: the thread (texture 0) times the vertex colour, its lookup moved
+    // by the indirect texture (1) at sIndirectScaleX/Y thread texels a step; blended by its alpha where above zero,
+    // depth tested and not written, no culling.
+    NebulaNativeMaterial material;
+    NativeShader::init(material, NEBULA_SHADER_SPIDER_THREAD, NativeShader::BLEND_ALPHA, NEBULA_COMPARE_LEQUAL, false,
+                       NEBULA_CULL_NONE);
+    material.constants[0] = ::sIndirectScaleX;
+    material.constants[1] = ::sIndirectScaleY;
+    material.constants[2] = static_cast< f32 >(mThreadTexture->getWidth());
+    material.constants[3] = static_cast< f32 >(mThreadTexture->getHeight());
+    NativeShader::setTexture(material, 0, mThreadTexture);
+    NativeShader::setTexture(material, 1, mIndirectTexture);
+    NativeShader::send(material);
+    J3DNativeShape::setCurrentIdentity();
 }
 
 namespace {

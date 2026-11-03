@@ -1,4 +1,5 @@
 #include "Game/NPC/TalkDirector.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeView.hpp>
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/NPC/TalkBalloon.hpp"
@@ -22,9 +23,8 @@
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
 #include "Game/Util/TalkUtil.hpp"
-#include <JSystem/JUtility/JUTVideo.hpp>
+#include "Game/System/NebulaFrameClock.hpp"
 #include <cstdio>
-#include <revolution/gx/GXGet.h>
 
 namespace {
     TalkDirector* getTalkDirector() {
@@ -44,30 +44,34 @@ namespace NrvTalkDirector {
     NEW_NERVE(TalkDirectorNrvTerm, TalkDirector, Term);
 };  // namespace NrvTalkDirector
 
-TalkPeekZ::TalkPeekZ() : mDrawSync(DrawSyncManager::sInstance->setCallback(4, 1, this)) {
+TalkPeekZ::TalkPeekZ() {
 }
 
 void TalkPeekZ::setDrawSyncToken() {
-    GXGetProjectionv(&_20);
-    GXGetViewportv(&_3C);
-    _8 = 0;
-    DrawSyncManager::sInstance->pushBreakPoint();
-    GXSetDrawSync(mDrawSync);
-}
+    J3DNativeView::getProjectionv(&_20);
+    J3DNativeView::getViewportv(&_3C);
 
-void TalkPeekZ::drawSyncCallback(u16 arg) {
-    if (!MR::isInRange(mScreenPos.x, 0.0f, MR::getScreenWidth() - 1) ||
-        !MR::isInRange(mScreenPos.y, 0.0f, JUTVideo::getManager()->getEfbHeight() - 1)) {
-        return;
+    // The depth at the balloon's point asked last; then the picture drawn so far, at its point now.
+    NebulaScreenProbe probe;
+    _8 = 0.0f;
+    if (J3DNativeView::screenProbeResults(cReadbackChannel, &probe, 1) == 1 && probe.x >= 0.0f) {
+        _8 = probe.value;
+        TDDraw::invProject(&_14, TVec3f(probe.user_x, probe.user_y, _8), const_cast< MtxPtr >(MR::getCameraViewMtx().mMtx), &_20,
+                           &_3C, true);
     }
 
-    TVec2f pos;
-    MR::convertScreenPosToFrameBufferPos(&pos, mScreenPos);
-
-    GXPeekZ((s32)(pos.x), (s32)(pos.y), &_8);
-
-    TDDraw::invProject(&_14, TVec3f(mScreenPos.x, mScreenPos.y, static_cast< f32 >(_8)), const_cast< MtxPtr >(MR::getCameraViewMtx().mMtx), &_20,
-                       &_3C, false);
+    probe.x = -1.0f;
+    probe.y = -1.0f;
+    probe.user_x = mScreenPos.x;
+    probe.user_y = mScreenPos.y;
+    if (MR::isInRange(mScreenPos.x, 0.0f, MR::getScreenWidth() - 1) &&
+        MR::isInRange(mScreenPos.y, 0.0f, NebulaFrameClock::cScreenUnitsDown - 1)) {
+        TVec2f pos;
+        MR::convertScreenPosToCanvasPos(&pos, mScreenPos);
+        probe.x = pos.x;
+        probe.y = pos.y;
+    }
+    J3DNativeView::probeScreen(cReadbackChannel, NEBULA_SCREEN_PROBE_DEPTH, &probe, 1);
 }
 
 TalkDirector::TalkDirector(const char* pName)
@@ -351,10 +355,10 @@ void TalkDirector::appearYesNoSelector(const TalkMessageCtrl* pCtrl) const {
     const char* branchID = pCtrl->getBranchID();
 
     char buffYes[256];
-    snprintf(buffYes, sizeof(buffYes), "Select_%s_Yes", branchID);
+    nebula_snprintf(buffYes, sizeof(buffYes), "Select_%s_Yes", branchID);
 
     char buffNo[256];
-    snprintf(buffNo, sizeof(buffNo), "Select_%s_No", branchID);
+    nebula_snprintf(buffNo, sizeof(buffNo), "Select_%s_No", branchID);
 
     if (pCtrl->isSelectYesNo()) {
         MR::resetYesNoSelectorSE();

@@ -1,7 +1,8 @@
 #pragma once
 
 #include <JSystem/JGeometry.hpp>
-#include <revolution.h>
+#include <NebulaGpu.h>
+#include <nebula_math.h>
 
 class RailGraphNode {
 public:

@@ -2,13 +2,7 @@
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/ClipAreaHolder.hpp"
 #include "Game/Util.hpp"
-#ifdef TARGET_PC
 #include "Game/System/NebulaCoopWorld.hpp"
-#endif
-
-void ClipFieldSwitch_FORCE_MATCH_SDATA2() {
-    (void)1000.0f;
-}
 
 ClipFieldSwitch::~ClipFieldSwitch() {
 }
@@ -17,7 +11,6 @@ ClipFieldSwitch::ClipFieldSwitch(const char* pName) : LiveActor(pName) {
 }
 
 void ClipFieldSwitch::control() {
-#ifdef TARGET_PC
     // Online co-op: it follows where the local player is, so its switches are his alone.
     NebulaCoopWorld::beginLocalSwitches();
     controlSwitches();
@@ -25,7 +18,6 @@ void ClipFieldSwitch::control() {
 }
 
 void ClipFieldSwitch::controlSwitches() {
-#endif
     mPosition = *MR::getPlayerPos();
 
     if (MR::isInClipArea(*MR::getPlayerPos(), 5.0f)) {
