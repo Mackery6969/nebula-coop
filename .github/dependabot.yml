@@ -17,3 +17,8 @@ updates:
     groups:
       gradle-minor-and-patch:
         update-types: ["minor", "patch"]
+    ignore:
+      # core-ktx 1.19 needs compileSdk 37 (checkReleaseAarMetadata fails on 36); drop this when app/build.gradle.kts
+      # moves to compileSdk 37.
+      - dependency-name: "androidx.core:core-ktx"
+        versions: [">= 1.19"]
