@@ -177,12 +177,14 @@ namespace {
             setText(rRow.mPlace, text);
             const u32 placeColor = rPlayer.stage[0] != 0 ? cSubText : cDimText;
             setTextColor(rRow.mPlace, placeColor, placeColor);
-            // The Personal Star Counter: a Power Star and how many they got here, as sm64coopdx's list shows them.
+            // The Personal Star Counter: a Power Star and how many they got here, as sm64coopdx's list shows them; only
+            // while the room plays the mod.
             char stars[12];
             nebula_snprintf(stars, sizeof(stars), "%u", rPlayer.stars > 9999u ? 9999u : rPlayer.stars);
             appendAscii(MR::addPictureFontTag(text, cGlyphPowerStar), text + 16, stars);
             setText(rRow.mStars, text);
             setTextColor(rRow.mStars, rPlayer.stars != 0 ? cWhite : cDimText, rPlayer.stars != 0 ? cWhite : cDimText);
+            rRow.mStars->SetVisible((rPlayer.flags & NEBULA_COOP_LIST_STARS) != 0);
 
             f32 width, height;
             rRow.mPlace->mScale = nw4r::math::VEC2(1.0f, 1.0f);
@@ -286,7 +288,8 @@ namespace {
             rRow.mPing->mTranslate = nw4r::math::VEC3(pingRight, textCentre(0.0f, cSmallSize), 0.0f);
             const f32 starsRight = pingRight - cPingWidth - cColumnGap;
             rRow.mStars->mTranslate = nw4r::math::VEC3(starsRight, textCentre(0.0f, cSmallSize), 0.0f);
-            const f32 placeRight = starsRight - cStarsWidth - cColumnGap;
+            // Without the room's Personal Star Counter the place takes the stars' column.
+            const f32 placeRight = rRow.mStars->IsVisible() ? starsRight - cStarsWidth - cColumnGap : starsRight;
             const f32 room = placeRight - (x + cColumnGap);
             const f32 squeeze = rRow.mPlaceWidth > room && rRow.mPlaceWidth > 0.0f ? (room > 0.0f ? room : 0.0f) / rRow.mPlaceWidth : 1.0f;
             rRow.mPlace->mScale = nw4r::math::VEC2(squeeze, 1.0f);

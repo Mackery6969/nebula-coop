@@ -41,7 +41,8 @@ void WalkerStateFindPlayer::exeFind() {
     }
 
     WalkerStateFunction::calcPassiveMovement(getHost(), mStateParam);
-    MR::turnDirectionToTargetUseGroundNormalDegree(getHost(), mDirection, *MR::getPlayerPos(), mFindPlayerParam->mTurnMaxRateDegree);
+    // Co-op: the nearest player, not always the local Mario.
+    MR::turnDirectionToTargetUseGroundNormalDegree(getHost(), mDirection, *MR::getNearestPlayerPos(getHost()), mFindPlayerParam->mTurnMaxRateDegree);
 
     if (MR::isStep(this, mFindPlayerParam->mJumpStartStep)) {
         setNerve(GET_NERVE(WalkerStateFindPlayer, WalkerStateFindPlayerNrvFindJumpStart));

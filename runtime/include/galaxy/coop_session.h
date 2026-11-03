@@ -34,7 +34,7 @@
 namespace galaxy::coop {
 
 // The session's own protocol (its messages, below the transport's): a different one refuses the join.
-inline constexpr std::uint16_t kSessionProtocol = 6u;
+inline constexpr std::uint16_t kSessionProtocol = 7u;
 // The first message type a feature may use with send() and on_message(); below are the session's.
 inline constexpr std::uint8_t kFirstFeatureMessage = 32u;
 // The host's save, sent at a join: this many bytes at most.

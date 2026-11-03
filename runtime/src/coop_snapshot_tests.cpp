@@ -91,9 +91,18 @@ void test_blend() {
     expect(near(half.frame, 5.0f), "the same animation's frame along the way");
     to.group = "jump";
     to.frame = 2.0f;
-    expect(galaxy::coop::blend_snapshots(from, to, 0.5f).group == "jump" &&
-               near(galaxy::coop::blend_snapshots(from, to, 0.5f).frame, 2.0f),
-           "another animation: the later one's, from its own frame");
+    const PlayerSnapshot early = galaxy::coop::blend_snapshots(from, to, 0.25f, 4.0f);
+    expect(early.group == "run" && near(early.frame, 1.0f),
+           "another animation, nearer the earlier one: the earlier's, moved on at its speed");
+    const PlayerSnapshot late = galaxy::coop::blend_snapshots(from, to, 0.75f, 4.0f);
+    expect(late.group == "jump" && near(late.frame, 1.0f) && late.sequence == to.sequence,
+           "another animation, nearer the later one: the later's, from a frame before its own");
+    PlayerSnapshot looped = at(3u, 0.0f);
+    looped.frame = 58.0f;
+    PlayerSnapshot round = at(4u, 0.0f);
+    round.frame = 1.0f;
+    expect(near(galaxy::coop::blend_snapshots(looped, round, 0.25f, 4.0f).frame, 59.0f),
+           "round a loop: moved on past its end, not back through it");
 }
 
 void test_remote_players() {

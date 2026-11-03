@@ -91,6 +91,9 @@ struct RuntimeCoopSettings {
     bool bubble_death = true;
     // The room's cheats (the Online tab's Cheats): off, they do nothing for anyone in it.
     bool cheats = false;
+    // The room's built-in Personal Star Counter mod (the Host page's Mods, the Online tab): each player's stars on the
+    // HUD and in the player list. Off by default.
+    bool star_counter = false;
 
     friend bool operator==(const RuntimeCoopSettings&, const RuntimeCoopSettings&) = default;
 };

@@ -85,9 +85,15 @@ void listen_snapshots(Session& session, RemotePlayers& players);
 // a joiner's upload stays one snapshot however many share its instance. False when not in a room.
 bool send_snapshot(Session& session, const PlayerSnapshot& snapshot);
 
-// Between two snapshots of the same player: positions and directions along the way, angles the short way round, the
-// animation the later one's (its frame moved along when both play the same).
-[[nodiscard]] PlayerSnapshot blend_snapshots(const PlayerSnapshot& from, const PlayerSnapshot& to, float t);
+// The game's frames a second: an animation's frame moves on by its speed in each.
+inline constexpr float kGameFramesPerSecond = 60.0f;
+
+// Between two snapshots of the same player, `frames` game frames apart: positions and directions along the way, angles
+// the short way round, the animation and flags the nearer one's. Its frame is along the way when both play the same
+// one without looping round in between; otherwise the nearer one's, moved on (or back) at its speed, past a loop's end
+// where it loops (the game wraps it).
+[[nodiscard]] PlayerSnapshot blend_snapshots(const PlayerSnapshot& from, const PlayerSnapshot& to, float t,
+                                             float frames = 2.0f);
 
 struct RemotePlayer {
     net::PeerId id = net::kNoPeer;
