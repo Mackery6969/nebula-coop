@@ -2500,13 +2500,54 @@ int32_t svc_coop_menu(void*, uint32_t what) {
     }
 }
 
+// The room's built-in Personal Star Counter mod (the Host page's Mods, the Online tab): the room's as the host set it,
+// else this player's as they last hosted.
+bool coop_star_counter_on() {
+    const galaxy::coop::SessionState state = gCoopSession.state();
+    if (state == galaxy::coop::SessionState::Hosting || state == galaxy::coop::SessionState::Joined) {
+        return gCoopSession.room().star_counter;
+    }
+    return galaxy::get_runtime_settings().coop.star_counter;
+}
+
+// /psc [on|off] (sm64coopdx's Personal Star Counter mod's command): the host turns the counter on or off for the whole
+// room, as the Host page's Mods does, and keeps it for the rooms it hosts later. Without a word, it flips it.
+void add_coop_star_counter_command() {
+    galaxy::coop::ChatCommand psc;
+    psc.name = "psc";
+    psc.help = "CoopCmdPscHelp";
+    psc.options = {"on", "off"};
+    psc.shown = [] { return gCoopSession.is_host(); };
+    psc.run = [](std::string_view words) {
+        if (!gCoopSession.is_host()) {
+            gCoopChat.say("CoopCmdHostOnly");
+            return true;
+        }
+        galaxy::RuntimeSettings settings = galaxy::get_runtime_settings();
+        std::string word(words);
+        for (char& c : word) c = c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
+        if (!word.empty() && word != "on" && word != "off") return false;
+        const bool on = word.empty() ? !coop_star_counter_on() : word == "on";
+        settings.coop.star_counter = on;
+        galaxy::set_runtime_settings(settings);
+        (void)galaxy::save_runtime_settings_to_file();
+        // The room's now, not at the session's next pump: the players' lists show it at once.
+        gCoopSession.set_room(settings.coop);
+        gCoopChat.say(on ? "CoopCmdPscOn" : "CoopCmdPscOff");
+        return true;
+    };
+    (void)gCoopChat.commands().add(std::move(psc));
+}
+
 // The player list (Tab or the controller's Share held): the room's players by number, each one's place and round trip.
 uint32_t svc_coop_list(void*, NebulaCoopListPlayer* players, uint32_t capacity, uint32_t* room_size) {
     if (room_size != nullptr) *room_size = 0u;
     const galaxy::coop::SessionState state = gCoopSession.state();
     if (state != galaxy::coop::SessionState::Hosting && state != galaxy::coop::SessionState::Joined) return 0u;
     const std::vector<galaxy::coop::SessionPlayer> list = gCoopSession.players();
-    if (room_size != nullptr) *room_size = gCoopSession.room().max_players;
+    const galaxy::RuntimeCoopSettings room = gCoopSession.room();
+    if (room_size != nullptr) *room_size = room.max_players;
+    const bool stars = room.star_counter;
     const std::size_t count = std::min<std::size_t>(list.size(), players != nullptr ? capacity : 0u);
     for (std::size_t i = 0; i < count; ++i) {
         const galaxy::coop::SessionPlayer& from = list[i];
@@ -2519,7 +2560,8 @@ uint32_t svc_coop_list(void*, NebulaCoopListPlayer* players, uint32_t capacity, 
         to.ping_ms = from.ping_ms;
         to.stars = from.stars;
         to.flags = (from.character == galaxy::CoopCharacter::Luigi ? NEBULA_COOP_LIST_LUIGI : 0u) |
-                   (from.host ? NEBULA_COOP_LIST_HOST : 0u) | (from.local ? NEBULA_COOP_LIST_YOU : 0u);
+                   (from.host ? NEBULA_COOP_LIST_HOST : 0u) | (from.local ? NEBULA_COOP_LIST_YOU : 0u) |
+                   (stars ? NEBULA_COOP_LIST_STARS : 0u);
     }
     return static_cast<uint32_t>(list.size());
 }
@@ -4029,6 +4071,8 @@ uint32_t svc_option(void*, uint32_t what) {
 #else
         return 0;
 #endif
+    case NEBULA_OPTION_STAR_COUNTER:
+        return coop_star_counter_on() ? 1u : 0u;
     case NEBULA_OPTION_RT_PREPARATION:
     case NEBULA_OPTION_RT_PREPARE_PROGRESS:
         // The ray tracer is parked (no shaders to prepare): the game's preparation screen never shows.
@@ -5247,6 +5291,7 @@ int main(int argc, char** argv) {
     services.coop_chat = svc_coop_chat;
     gCoopChat.attach(gCoopSession);
     galaxy::coop::add_room_commands(gCoopChat, gCoopSession);
+    add_coop_star_counter_command();
     services.coop_list = svc_coop_list;
     services.coop_remote = svc_coop_remote;
     services.coop_world_report = svc_coop_world_report;

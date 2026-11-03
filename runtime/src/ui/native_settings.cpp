@@ -2661,6 +2661,12 @@ std::vector<SettingsRow> online_page(const RuntimeSettings& runtime) {
                         s_runtime_draft.coop.cheats = !s_runtime_draft.coop.cheats;
                     },
                     "ON: EVERYONE IN THE ROOM MAY USE THE CHEATS BELOW, ONCE APPLIED. OFF: THEY DO NOTHING"});
+    rows.push_back({"PERSONAL STAR COUNTER", coop.star_counter ? std::string("ON") : std::string("OFF"),
+                    [](RenderConfig&, int delta) {
+                        if (delta == 0) return;
+                        s_runtime_draft.coop.star_counter = !s_runtime_draft.coop.star_counter;
+                    },
+                    "THE BUILT-IN MOD: EVERYONE'S STARS IN THIS ROOM (RED) AND EVER (GREEN), AND IN THE PLAYER LIST"});
 
     // A player who joined: the room's rows show the host's settings, unchanged.
     if (status.joined) {

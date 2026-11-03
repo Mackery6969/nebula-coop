@@ -185,7 +185,8 @@ How a join goes (`galaxy/coop_mods.h`, `galaxy/coop_session.h`), as sm64coopdx's
 
 Nebula's in-game settings menu (F1, the pause menu's Settings) keeps its pages, but ADVANCED becomes **ONLINE**:
 
-- **Room.** The session's settings: Player Interaction, Knockback Strength, PvP Mode, Cheats and the player list.
+- **Room.** The session's settings: Player Interaction, Knockback Strength, PvP Mode, Cheats, the built-in Personal
+  Star Counter and the player list.
   The host changes them for everyone, like sm64coopdx's in-game host settings; other players see them.
 - **No Leave game.** The way out of an online game is the game's own: the pause menu's Quit (in the Observatory, or
   before it opens) returns to the main menu, and back there the session ends (the host closes the room, a joiner
@@ -211,18 +212,30 @@ packets. It has no physics or state machine of its own. It collides with the loc
 
 - **Snapshots** (`galaxy/coop_snapshot.h`). Each player sends its own (the game's `coop_player` report) 30 times a
   second on the unreliable channel, as the session's message 32, to the players in its instance (a joiner's through
-  the host, which passes it on as message 33). It holds the instance, the position, the model's facing and up (its base matrix, the true turn on any planet),
+  the host, which passes it on as message 33). It holds the instance, the position, the model's facing and up (its
+  base matrix with the turn Mario's root joint gets on top, as in a quick turn round: the true turn on any planet),
   gravity, velocity, and the animation: its group as Mario's `XanimePlayer` names it, the bck, the frame, the speed
   and the group's track weights (walking into running). An older snapshot than the last is dropped.
 - **Drawn 100 ms behind.** The host keeps the last second of each player's snapshots and gives the game
   (`coop_remote`, each scene frame) the others in its own instance as they were 100 ms ago, between the two snapshots
-  either side: one lost snapshot doesn't show. A player not heard from for a second isn't drawn.
+  either side: one lost snapshot doesn't show. The animation and what the player does are the nearer snapshot's; the
+  frame is along the way while both play the same animation, else the nearer one's moved on at its speed (also round
+  a loop's end, which the game wraps). A player not heard from for a second isn't drawn.
 - **The copies** (`NebulaRemotePlayer`, `native/petari/src/Game/Player`). As a scene starts in a room, it makes one
   copy of Mario and one of Luigi for each other player the room may have (15 of each at most). Each is Mario's or
   Luigi's own model (the other character's loads into the scene) with Mario's animations, played as `GhostPlayer`
   plays the cosmic ghost's. Each player keeps their copy while they stay; unused copies are hidden.
+- **Animation.** A copy plays the animation itself at the player's speed and eases onto the snapshot's frame (a
+  quarter of the way each frame; it jumps there when more than 6 frames off, as the animation starts or starts again),
+  so it runs smoothly between snapshots and through its loops rather than stepping with each one.
+- **Lit as the local Mario.** Each copy has its own light (the player light of the light area it stands in, as
+  `MarioActor`'s is his), the same tint over its materials (the light's ambient colour, a white material) and
+  the stage's fog on its materials, so it looks as the local Mario does standing there.
+- **Effects.** A copy plays Mario's spin effects (the spin light; the ice, fire and Bee spins) on its own joints as
+  its spin animation starts and ends, as `MarioAnimator`'s callbacks play them on him. Only those are registered on a
+  copy, not all of Mario's.
 - **Not yet:** the power-up forms (Bee, Boo, Fire...: the copy is the plain model), the upper-body animations
-  (holding a shell), sounds and effects. The copies share the model with a local player of the same character, so a
+  (holding a shell), sounds and the other effects. The copies share the model with a local player of the same character, so a
   form's colours on the local player can show on them.
 
 - **Nametags.** Each remote player's name over their head, in the game's font, hidden when they're behind a wall or
@@ -236,7 +249,7 @@ packets. It has no physics or state machine of its own. It collides with the loc
   (the session's own message, sent with the room to who joins later), so the list has every player's place before
   remote players exist; the game names the galaxy and star in the played language (`NebulaPlayerList`,
   `coop_list`). The round trip to each player shows beside them, and the Power Stars they got in the room before it
-  ([Personal Star Counter](#personal-star-counter)).
+  while the room plays the [Personal Star Counter](#personal-star-counter).
 
 ## Chat
 
@@ -280,7 +293,8 @@ options and the room's players' names (each Tab the next match), and a player's 
 - **Adding one.** A feature registers its own command, as a sm64coopdx mod does: `Chat::commands().add(name,
   description, handler)` (`galaxy/coop_commands.h`); a `[On|Off]` in the description are the options Tab offers.
   Nebula's mods (Riivolution patches, files) run no code, so the commands are Nebula's own features': the Personal
-  Star Counter's `/psc` comes with its room setting.
+  Star Counter's host-only `/psc [on|off]` (the host's `host_main.cpp`) turns the room's counter on or off, as the Host
+  page's Mods does, and keeps it for the rooms it hosts later.
 - **The game.** The host's `coop_chat` gives a command's words as `NEBULA_COOP_CHAT_NOTICE` lines (game API 121):
   a `CoopCmd...` text id with `{name}` filled in, or words as they are.
 
@@ -293,6 +307,14 @@ with it, the same layout with the star tinted as the mod's (`NebulaStarCounter`,
 - **Red: this room's.** The Power Stars this player got since they hosted or joined. Only in a room.
 - **Green: every one.** All the Power Stars this player ever got, kept across saves with Nebula's other all-time
   counts (`power_stars` in `stats.ini`); the achievement board's stats page lists it too.
+
+It's a mod, as in sm64coopdx: a room plays it only when its host turns it on, and it's off by default. Being built
+in, it has nothing to download and needs no restart: it's the last row of the Host page's Mods (and counts with the
+mods on there), and the Online tab's Room has it too, so the host can turn it on or off during a game. It's a room
+setting (`coop_star_counter=1` in `runtime_settings.ini`), sent with the room's other settings, so every player has
+the host's. The game asks with `NEBULA_OPTION_STAR_COUNTER` as the counters come in and once a second while they
+show, so they go at once when the host turns it off; the player list shows the stars only while it's on
+(`NEBULA_COOP_LIST_STARS`).
 
 As in the mod, a star counts only when it's new to the save (the mod counts when the save's star count goes up), so a
 star the room already has counts for nobody again; a Grand Star counts too. The host counts them, as it decides the
@@ -464,7 +486,7 @@ Each phase ships on its own and leaves the game playable.
 - [x] [Chat commands](#chat-commands) as sm64coopdx's: `/help`, `/players`, `/kick`, `/ban`, `/permban`,
       `/moderator`, `/confirm`, Tab completion, and commands features add (API version 121).
 - [x] The [Personal Star Counter](#personal-star-counter): each player's stars this room and all time, on the HUD and
-      in the player list (API version 41).
+      in the player list (API version 41); a built-in mod the host turns on for the room, off by default (API 118).
 
 ### Phase 2: same world
 

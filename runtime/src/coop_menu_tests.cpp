@@ -366,7 +366,7 @@ void test_mods() {
     menu.select_row(9u);
     menu.press(0u);
     galaxy::coop::MenuView view = menu.view();
-    expect(view.pages[0] == "MODS" && view.rows.size() == 5u && view.rows[0].label == "Textures" &&
+    expect(view.pages[0] == "MODS" && view.rows.size() == 6u && view.rows[0].label == "Textures" &&
                view.rows[0].value == "ON (1)" && view.rows[1].value == "ON (2)" && view.rows[2].value == "OFF" &&
                view.rows[0].label_name,
            "the mods page: the ones on first, numbered");
@@ -387,7 +387,24 @@ void test_mods() {
     expect(menu.view().pages[0] == "HOST" && menu.view().selected == 9u && menu.view().rows[9].value == "1 ON",
            "B: back to the Host page, its mods kept");
     menu.press(0u);
+    view = menu.view();
+    expect(view.rows[4].label == "PERSONAL STAR COUNTER" && view.rows[4].value == "OFF" && !view.rows[4].label_name &&
+               !menu.room().star_counter,
+           "the built-in Personal Star Counter after the folder's mods, off");
     menu.select_row(4u);
+    menu.press(0u);
+    expect(menu.view().rows[4].value == "ON" && menu.room().star_counter && menu.view().rows[3].label == "Zed",
+           "pressed: on for the room, the folder's mods as they were");
+    menu.change(-1);
+    menu.change(1);
+    expect(menu.room().star_counter, "left and right turn it over");
+    menu.back();
+    expect(menu.view().rows[9].value == "2 ON", "the Host page counts it with the mods on");
+    menu.press(0u);
+    menu.select_row(4u);
+    menu.reset();
+    expect(!menu.room().star_counter, "Tab turns it off");
+    menu.select_row(5u);
     menu.press(0u);
     expect(menu.view().pages[0] == "HOST" && menu.mods_changed(), "Done: back too");
 
@@ -396,7 +413,12 @@ void test_mods() {
     none.press(0u);
     none.select_row(9u);
     none.press(0u);
-    expect(none.view().rows.size() == 2u && none.view().rows[0].label == "NO MODS YET", "no mods to pick");
+    expect(none.view().rows.size() == 3u && none.view().rows[0].label == "NO MODS YET" &&
+               none.view().rows[1].label == "PERSONAL STAR COUNTER",
+           "no mods to pick but the built-in one");
+    none.select_row(1u);
+    none.press(0u);
+    expect(none.room().star_counter, "it turns on without folder mods");
 }
 }  // namespace
 
