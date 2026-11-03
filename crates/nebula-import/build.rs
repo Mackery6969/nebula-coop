@@ -39,12 +39,12 @@ pub const FINGERPRINT: &str = "{semver}+{commit}";
 
 fn get_commit_hash() -> String {
     run_cmd("git", &["rev-parse", "--short=7", "HEAD"])
-        .unwrap_or_else(|_| "unknown".to_string())
+        .unwrap_or("unknown".to_string())
 }
 
 fn get_commit_date() -> String {
     run_cmd("git", &["log", "-1", "--format=%Y-%m-%d"])
-        .unwrap_or_else(|_| "unknown".to_string())
+        .unwrap_or("unknown".to_string())
 }
 
 fn run_cmd(cmd: &str, args: &[&str]) -> Option<String> {
