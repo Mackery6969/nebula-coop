@@ -330,6 +330,47 @@ namespace {
         return value < most ? value : most;
     }
 
+    // The pop-ups queued since `queuedBefore`, when there are several: one for them all.
+    void mergeBatch(s32 queuedBefore) {
+        const s32 unlocked = sQueued - queuedBefore;
+        if (unlocked < cBatchMin) {
+            return;
+        }
+        sQueued = queuedBefore;
+        Waiting& rWaiting = sQueue[sQueued++];
+        wchar_t pattern[cNameLength];
+        NebulaText::get(pattern, cNameLength, "AchievementsUnlocked");
+        char digits[8];
+        snprintf(digits, sizeof(digits), "%d", unlocked);
+        s32 length = 0;
+        for (const wchar_t* q = pattern; *q != 0 && length + 1 < cNameLength; q++) {
+            if (q[0] == L'{' && q[1] == L'n' && q[2] == L'}') {
+                for (const char* d = digits; *d != 0 && length + 1 < cNameLength; d++) {
+                    rWaiting.mName[length++] = static_cast< wchar_t >(*d);
+                }
+                q += 2;
+            } else {
+                rWaiting.mName[length++] = *q;
+            }
+        }
+        rWaiting.mName[length] = 0;
+        rWaiting.mIcon = &cIconCrown;
+    }
+
+    // Online co-op: what another player unlocked in the room's save is every player's, with its pop-up here too. The
+    // host has it unlocked already, so the goal met here later shows nothing again.
+    void takeShared() {
+        const s32 queuedBefore = sQueued;
+        char id[32];
+        while (sQueued < cQueueMax && __NebulaCoopAchievementTake(id, sizeof(id)) != 0) {
+            if (const Entry* pEntry = findEntry(id)) {
+                enqueue(*pEntry);
+                OSReport("achievement (the room's): %s\n", id);
+            }
+        }
+        mergeBatch(queuedBefore);
+    }
+
     // Lives and Star Bits change mid-stage; checked at each stage start and once a second.
     void checkCounters() {
         const s32 starBits = GameDataFunction::getStockedStarPieceNum();
@@ -404,28 +445,7 @@ namespace NebulaAchievements {
         sUpdateFrames = 0;
 
         // Several at once (a save from before Nebula's achievements, imported or updated): one pop-up for them all.
-        const s32 unlocked = sQueued - queuedBefore;
-        if (unlocked >= cBatchMin) {
-            sQueued = queuedBefore;
-            Waiting& rWaiting = sQueue[sQueued++];
-            wchar_t pattern[cNameLength];
-            NebulaText::get(pattern, cNameLength, "AchievementsUnlocked");
-            char digits[8];
-            snprintf(digits, sizeof(digits), "%d", unlocked);
-            s32 length = 0;
-            for (const wchar_t* q = pattern; *q != 0 && length + 1 < cNameLength; q++) {
-                if (q[0] == L'{' && q[1] == L'n' && q[2] == L'}') {
-                    for (const char* d = digits; *d != 0 && length + 1 < cNameLength; d++) {
-                        rWaiting.mName[length++] = static_cast< wchar_t >(*d);
-                    }
-                    q += 2;
-                } else {
-                    rWaiting.mName[length++] = *q;
-                }
-            }
-            rWaiting.mName[length] = 0;
-            rWaiting.mIcon = &cIconCrown;
-        }
+        mergeBatch(queuedBefore);
     }
 
     void update() {
@@ -437,6 +457,7 @@ namespace NebulaAchievements {
         if (++sStatFlushFrames >= cStatFlushFrames) {
             flushStats();
         }
+        takeShared();
         if (++sUpdateFrames < 60) {
             return;
         }

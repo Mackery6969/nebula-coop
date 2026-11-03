@@ -85,16 +85,23 @@ don't. The Comet Observatory (and the other hub/demo stages) is an instance too,
   alone, while one with company finds them as the others left them.
 - **Free movement.** Nobody is pulled along to another galaxy. Each player picks galaxies and stars from their own
   dome and star select, and leaves an instance by finishing, dying out or exiting.
+- **Who is where.** The dome's galaxy select names the other players in each galaxy under its miniature, and the star
+  select names those on each star under it (`NebulaSelectPlayers`, from `coop_list`), as sm64coopdx's act select puts
+  a player's head over the act they play. Up to three names in their character's colour, then how many more.
 - **Zones.** A galaxy's zones are loaded into the same scene, so the whole galaxy is one instance, with no
   sub-instance per zone or planet.
 
 ## Main menu
 
-The title screen and the file select go. In their place is a co-op main menu like sm64coopdx's (its
-`djui_panel_main.c`, `djui_panel_host.c`, `djui_panel_join_direct.c`), over the file select's space backdrop.
+The file select goes. In its place is a co-op main menu like sm64coopdx's (its `djui_panel_main.c`,
+`djui_panel_host.c`, `djui_panel_join_direct.c`), over the file select's space backdrop. The title screen stays in
+front of it, as its own screen.
 
-- **Where.** The `FileSelect` stage stays for its backdrop and music, but its `FileSelector` skips the title
-  (`exeTitle`) and the six file bubbles and shows the menu instead. Boot goes from the logos straight to it.
+- **Where.** The `FileSelect` stage stays for its backdrop and music, but its `FileSelector` skips the six file
+  bubbles and shows the menu instead. Boot goes from the logos to the game's title (`exeTitle`: its logo, music and
+  Press A and B), then to the menu, without the Mii windows. The title shows once, as Nebula starts (game API 43's
+  `NEBULA_COOP_MENU_TITLE`): back from a room the menu opens at once, and so does a menu that starts a room by itself
+  (`--host`, `--join`, a restart for the room's mods).
 - **The game's look.** It keeps Super Mario Galaxy's feel: the file select's space backdrop and music, and the
   game's own windows, buttons and font. The menu's window fills the screen as the settings menu's does (the title
   logo above it took too much room).
@@ -121,7 +128,8 @@ The title screen and the file select go. In their place is a co-op main menu lik
   made first when new. A new save plays user file 1. On the first start, the old `GameData.bin`'s used files
   become saves of their own (`FILE 1`, `FILE 3`, ...), each playing its old file; the old folder stays as it was.
 - **Achievements: the save's.** Each save keeps its own `achievements.ini`; an achievement unlocked in a save is
-  every player's who plays in it. The old shared `achievements.ini` is copied into each converted save.
+  every player's who plays in it ([Shared world state](#shared-world-state)). The old shared `achievements.ini` is
+  copied into each converted save.
 - **Character: the player's, not the save's.** `MR::isPlayerLuigi()` (today `!isDataMario()`, the save's half)
   follows Options' PLAYER page's character (`coop_character`, `mario` or `luigi`) instead, so the same save plays as
   either. Remote players show each player's own character (`NEBULA_COOP_PLAYER_LUIGI`).
@@ -137,7 +145,7 @@ The title screen and the file select go. In their place is a co-op main menu lik
   the settings menu's screen and turns the remote's buttons into its input, so it works with whatever controls the
   player has on every platform.
 
-Order: first the menu shell (Main, Host with a save file, Options, Quit) replacing the title and file select, so the
+Order: first the menu shell (Main, Host with a save file, Options, Quit) replacing the file select, so the
 game plays as before through it; then text rows, the Player page and the Host page's server rows; then Join with
 Phase 1.
 
@@ -347,6 +355,7 @@ and tells the players it concerns. It follows sm64coopdx's rules, with Galaxy's 
 | A plain enemy defeated | Gone for everyone in the instance, its dead switch turned on in each game (a star waiting on it appears for all), without its drops | an object's death in `packet_object.c`, kept by `packet_level_respawn_info` |
 | A Power Star got, an event flag on | The session's save, for every player | `packet_collect_star`, `packet_save_set_flag` |
 | An event value set (comets, the like) | The host's game's are the session's, for every player; each joiner's stay its own | |
+| An achievement unlocked | The save's: kept in the host's `achievements.ini` on the day it was first unlocked, and every player's, each with its pop-up | |
 
 - **What is followed.** The things placed from the stage's files that these name: coins and purple coins, alone or in
   rail and circle groups; star bits alone or in groups; 1-Up and Life Mushrooms and Rainbow Stars; the plain enemies
@@ -360,6 +369,13 @@ and tells the players it concerns. It follows sm64coopdx's rules, with Galaxy's 
   the session's changes, which the server keeps; each scene start gives them all to the game again, which applies
   what it lacks (a scene started over may have dropped what came during it). The host's save on disk is written as its
   game saves.
+- **Achievements.** A joiner gets the save's `achievements.ini` with the rest of the save as it joins, so the board
+  shows what the save has and nothing pops up for it. While the room plays, an achievement any player's game unlocks
+  goes to the server as a save change (`SaveKind::Achievement`, with when); the server keeps the first and tells every
+  player. Each player's host unlocks it in its copy of the save's achievements on that day, and the game shows its
+  pop-up (game API 43's `coop_achievement_take`); the goal met later in that player's own game shows nothing again.
+  Achievements are the host process's, not the game's: a scene start doesn't give them again. The headless host keeps
+  none.
 - **Later (Phase 3).** Objects' movement and state (enemies walking, platforms, switches) and which player each enemy
   targets: sync objects as sm64coopdx's `sync_object.c`, each owned by the server.
 
@@ -385,8 +401,9 @@ Each phase ships on its own and leaves the game playable.
 
 ### Phase 0.5: main menu
 
-- [x] The [main menu](#main-menu) shell replaces the title screen and the file select: Main, Host, Options, Quit,
-      over the file select's space backdrop, with the pointer, D-pad, stick, A and B.
+- [x] The [main menu](#main-menu) shell replaces the file select: Main, Host, Options, Quit, over the file
+      select's space backdrop, with the pointer, D-pad, stick, A and B.
+- [x] The title screen before the main menu, as its own screen, once as Nebula starts.
 - [x] Saves: any number, each a folder of its own, with its own achievements; New and Erase on the Host page; the
       existing `GameData.bin` converted; Rename on the Host page.
 - [x] The Host page: the save, max players, Player Interaction, Knockback Strength, PvP Mode and Cheats
@@ -429,6 +446,7 @@ Each phase ships on its own and leaves the game playable.
       the instance along, a Power Star taken shows as had for the others, and a star the room gave returns as its first.
 - [x] Instances: each client reports its stage and scenario, sees only players in its own instance (snapshots go
       only there), and a player entering an occupied instance gets its state from the server.
+- [x] The galaxy select and the star select show who plays in each galaxy and star ([Instances](#instances-one-per-galaxy-and-mission)).
 - [x] Collectibles, defeated enemies, Power Stars and save flags sync, with the host authoritative
       ([Shared world state](#shared-world-state)).
 - [x] [Player collisions](#player-collisions): non-solid, solid and friendly fire, knockback strength and PvP mode,
@@ -471,6 +489,9 @@ tests in `runtime/src/net/net_tests.cpp`:
   first: see [Mods](#mods-the-rooms-not-the-players)); the host answers with the player's number, the room's
   settings, its save (sm64coopdx's `packet_join` and `packet_save_file`) and who is playing, and tells everyone else.
   The joiner plays the host's save from `coop_joined/` under the NAND folder, so their own saves stay untouched.
+  A player who renames themselves on Options' PLAYER page while in a room tells it at once (a joiner's new name goes
+  to the host as the session's message 11, and the host passes it on to everyone), so the player list, nametags and
+  new chat lines show it, as sm64coopdx's player settings do. The character stays the one they joined with.
   Later features send their own message types with `Session::send` and `Session::on_message`.
 
 ## Licensing

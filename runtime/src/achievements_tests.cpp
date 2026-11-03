@@ -76,6 +76,25 @@ int main() {
     ach::set_path_for_tests(path);
     expect(ach::unlocked("no_miss_120") && ach::unlocked("coins999"), "read back after the batch");
 
+    // Another player's unlock (online co-op): on the day it was unlocked in the room's save.
+    ach::set_path_for_tests(path);
+    {
+        std::ofstream out(path, std::ios::trunc);
+    }
+    ach::set_path_for_tests(path);
+    expect(ach::unlock_at("luigi_play", 1767225600), "an unlock at a given time is new");  // 2026-01-01 00:00 UTC
+    expect(ach::unlocked_time("luigi_play") == 1767225600, "and keeps that time");
+    expect(!ach::unlock_at("luigi_play", 1767312000) && ach::unlocked_time("luigi_play") == 1767225600,
+           "unlocked again later: the first time stays");
+    expect(!ach::unlock_at("nonsense", 1767225600), "an unknown id does not unlock at a time either");
+    expect(ach::unlocked_time("hidden") == 0, "a locked one has no time");
+    {
+        const int date = ach::unlocked_date("luigi_play");
+        expect(date == 20251231 || date == 20260101 || date == 20260102, "its day, in the player's time zone");
+    }
+    ach::set_path_for_tests(path);
+    expect(ach::unlocked_time("luigi_play") == 1767225600, "the time is kept across sessions");
+
     // An entry whose day cannot be read is unlocked all the same.
     {
         std::ofstream out(path, std::ios::trunc);
@@ -83,6 +102,7 @@ int main() {
     }
     ach::set_path_for_tests(path);
     expect(ach::unlocked("comets") && ach::unlocked_date("comets") == 1, "unlocked on an unreadable day: 1");
+    expect(ach::unlocked_time("comets") == 0, "with no time");
 
     std::filesystem::remove(path);
     if (s_failures == 0) std::printf("achievements: all passed\n");

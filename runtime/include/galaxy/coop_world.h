@@ -1,7 +1,7 @@
 // Online co-op's shared world (docs/COOP_PLAN.md "Instances" and "Shared world state"): the server decides
 // everything but the visuals. Each instance (a stage and its scenario, sm64coopdx's level and act) has a record of
 // the placed things gone from it (coins and star bits taken, items picked up, enemies defeated), and the session has
-// one save (Power Stars, event flags, event values). A player reports what its own game did; the host settles it
+// one save (Power Stars, event flags, event values, achievements). A player reports what its own game did; the host settles it
 // (first come wins, a thing gone stays gone) and tells the players it concerns: the instance's for what is gone, the
 // room for the save. A player whose scene starts gets the instance's record first (sm64coopdx's
 // packet_level_area_request / packet_level_area_inform); an instance nobody else is in starts fresh from the stage
@@ -60,6 +60,9 @@ enum class SaveKind : std::uint8_t {
     Star = 1,   // a Power Star: name the galaxy, scenario the star
     Flag = 2,   // an event flag on
     Value = 3,  // an event value: name, value
+    // An achievement unlocked in the save (galaxy::achievements' id as name; value when, in seconds since 1970 UTC):
+    // every player's who plays it. The first unlock's time is the save's.
+    Achievement = 4,
 };
 
 struct SaveChange {
@@ -97,9 +100,9 @@ public:
     // A player took a star (its get demo began): the other players in its instance, to tell (sm64coopdx's
     // collect_star reaching the level). Nobody for a player in no instance.
     [[nodiscard]] std::vector<Player> star_got(Player player) const;
-    // A change to the session's save: true when it is news (a star or flag not had yet, a value changed), now in
-    // save_changes() for everyone. Event values are the host's game's alone (`from_host`): each player's game keeps
-    // its own count of misses, comets and the like, and the host's is the session's.
+    // A change to the session's save: true when it is news (a star, flag or achievement not had yet, a value
+    // changed), now in save_changes() for everyone. Event values are the host's game's alone (`from_host`): each
+    // player's game keeps its own count of misses, comets and the like, and the host's is the session's.
     bool save(const SaveChange& change, bool from_host);
 
     [[nodiscard]] const std::vector<SaveChange>& save_changes() const { return save_; }
@@ -159,6 +162,10 @@ public:
     // The game's player took a star in the instance it entered: the others there are told.
     void report_star(const StarGot& star);
     [[nodiscard]] std::vector<WorldEvent> take();
+    // The session's achievements as they come (Achievement save changes, which the game isn't told through take):
+    // for the host's runtime to keep in the save's achievements.ini, a joiner's in its copy. Each scene start doesn't
+    // give them again; a joiner gets the session's once, as it is let in.
+    [[nodiscard]] std::vector<SaveChange> take_achievements();
 
     [[nodiscard]] bool active() const;
     // The host's record (tests).
@@ -185,6 +192,7 @@ private:
     std::vector<SaveChange> save_;       // the session's save as this player knows it
     std::optional<Instance> entered_;    // the instance the game last entered
     std::vector<WorldEvent> events_;     // for the game
+    std::vector<SaveChange> achievements_;  // for the runtime (take_achievements)
     std::vector<net::PeerId> members_;   // the host's players at the last update
     // Each scene this player enters is counted (a joiner's), and a host keeps each player's: what comes for or from
     // an earlier scene is dropped.

@@ -271,8 +271,13 @@ bool FileSelector::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pRece
     if (MR::isMsgAutoRushBegin(msg) && isNerve(GET_NERVE(FileSelector, FileSelectorNrvWaitBind))) {
         MR::hidePlayer();
 #ifdef TARGET_PC
-        // Online co-op: the main menu in place of the title and the files (docs/COOP_PLAN.md, "Main menu").
-        setNerve(GET_NERVE(FileSelector, FileSelectorNrvCoopMenu));
+        // Online co-op: the main menu in place of the files (docs/COOP_PLAN.md, "Main menu"), after the title as Nebula
+        // starts; back from a room, the menu at once.
+        if (__NebulaCoopMenu(NEBULA_COOP_MENU_TITLE) == 1) {
+            setNerve(GET_NERVE(FileSelector, FileSelectorNrvTitle));
+        } else {
+            setNerve(GET_NERVE(FileSelector, FileSelectorNrvCoopMenu));
+        }
 #else
         setNerve(GET_NERVE(FileSelector, FileSelectorNrvTitle));
 #endif
@@ -1207,6 +1212,10 @@ void FileSelector::exeTitle() {
         return;
     }
 
+#ifdef TARGET_PC
+    // Online co-op: the main menu, which waits for the Mii data itself when a save starts.
+    setNerve(GET_NERVE(FileSelector, FileSelectorNrvCoopMenu));
+#else
     if (::getMiiFacePartsHolder()->isInitEnd()) {
         if (::getMiiFacePartsHolder()->isError()) {
             setNerve(GET_NERVE(FileSelector, FileSelectorNrvRFLError));
@@ -1216,6 +1225,7 @@ void FileSelector::exeTitle() {
     } else {
         setNerve(GET_NERVE(FileSelector, FileSelectorNrvRFLWait));
     }
+#endif
 }
 
 void FileSelector::exeTitleEnd() {

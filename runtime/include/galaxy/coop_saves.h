@@ -42,6 +42,7 @@ public:
     // the folder until taken once.
     bool set_next_start(std::string_view id);
     [[nodiscard]] std::string take_next_start();
+    [[nodiscard]] bool has_next_start() const;
 
     // Once per install: one save per user file the old saves have (bit i of `files`: file i + 1), each a copy of
     // `nand_data` and of `achievements` (the old achievements.ini, shared by every file then) when it exists. True

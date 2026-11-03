@@ -47,10 +47,12 @@ enum NebulaStat {
 };
 
 // Nebula's achievements (galaxy::achievements has the catalogue): each stage start checks every goal against the save
-// data and asks the host to unlock what is met; a newly unlocked one waits for its pop-up (NebulaAchievementToast).
+// data and asks the host to unlock what is met; a newly unlocked one waits for its pop-up (NebulaAchievementToast). In
+// online co-op the save's achievements are every player's: one another player unlocks pops up here too.
 namespace NebulaAchievements {
     void evaluate();  // GameScene::start
-    void update();    // GameScene::update: the goals that change mid-stage (lives, Star Bits), once a second
+    void update();    // GameScene::update: the goals that change mid-stage (lives, Star Bits), once a second; the room's
+                      // unlocks, each frame
 
     // The oldest unlocked achievement not yet shown: its name in the played language and its icon; null when none
     // waits.

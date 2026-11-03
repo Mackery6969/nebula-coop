@@ -63,7 +63,8 @@ void test_saves(const fs::path& scratch) {
     expect(!store.find("save9"), "a missing save isn't found");
     expect(store.rename("save1", "  My Save  ") && store.find("save1")->name == "My Save", "renamed, trimmed");
     expect(!store.rename("save1", "   ") && store.find("save1")->name == "My Save", "never to nothing");
-    expect(store.take_next_start().empty(), "no save waits for the next start");
+    expect(store.take_next_start().empty() && !store.has_next_start(), "no save waits for the next start");
+    expect(store.set_next_start("save1") && store.has_next_start(), "a save waits for the next start");
     expect(store.set_next_start("save1") && store.take_next_start() == "save1" && store.take_next_start().empty(),
            "the next start's save, taken once");
 

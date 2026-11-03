@@ -39,8 +39,18 @@ bool valid_change(const SaveChange& change) {
     case SaveKind::Star: return plain_stage(change.name) && !change.name.empty() && change.scenario > 0 && change.scenario < 256;
     case SaveKind::Flag: return plain_name(change.name);
     case SaveKind::Value: return plain_name(change.name) && change.value <= 0xffffu;
+    case SaveKind::Achievement: return plain_stage(change.name) && !change.name.empty();
     }
     return false;
+}
+
+// The save's entry `change` updates rather than adds: a value's latest and an achievement's first unlock are kept by
+// name alone.
+bool same_entry(const SaveChange& had, const SaveChange& change) {
+    if (change.kind == SaveKind::Value || change.kind == SaveKind::Achievement) {
+        return had.kind == change.kind && had.name == change.name;
+    }
+    return had == change;
 }
 
 void write_instance(ByteWriter& out, const Instance& instance) {
@@ -80,6 +90,7 @@ void write_changes(ByteWriter& out, std::span<const SaveChange> changes) {
         out.u8(static_cast<std::uint8_t>(change.kind)).str(change.name);
         if (change.kind == SaveKind::Star) out.u8(static_cast<std::uint8_t>(change.scenario));
         if (change.kind == SaveKind::Value) out.u16(static_cast<std::uint16_t>(change.value));
+        if (change.kind == SaveKind::Achievement) out.u32(change.value);
     }
 }
 
@@ -92,7 +103,8 @@ std::optional<std::vector<SaveChange>> read_changes(ByteReader& in) {
         change.name = in.str(256u);
         if (kind == static_cast<unsigned>(SaveKind::Star)) change.scenario = in.u8();
         if (kind == static_cast<unsigned>(SaveKind::Value)) change.value = in.u16();
-        if (kind < 1u || kind > 3u) return std::nullopt;
+        if (kind == static_cast<unsigned>(SaveKind::Achievement)) change.value = in.u32();
+        if (kind < 1u || kind > 4u) return std::nullopt;
         change.kind = static_cast<SaveKind>(kind);
         if (in.ok() && valid_change(change)) changes.push_back(std::move(change));
     }
@@ -238,19 +250,14 @@ std::vector<WorldAuthority::Player> WorldAuthority::star_got(Player player) cons
 
 bool WorldAuthority::save(const SaveChange& change, bool from_host) {
     if (!valid_change(change)) return false;
-    if (change.kind == SaveKind::Value) {
-        if (!from_host) return false;
-        const auto it = std::find_if(save_.begin(), save_.end(), [&change](const SaveChange& had) {
-            return had.kind == SaveKind::Value && had.name == change.name;
-        });
-        if (it != save_.end()) {
-            if (it->value == change.value) return false;
-            // The latest value only, kept in its place: the record doesn't grow as a value changes.
-            it->value = change.value;
-            return true;
-        }
-    } else if (std::find(save_.begin(), save_.end(), change) != save_.end()) {
-        return false;
+    if (change.kind == SaveKind::Value && !from_host) return false;
+    const auto it = std::find_if(save_.begin(), save_.end(),
+                                 [&change](const SaveChange& had) { return same_entry(had, change); });
+    if (it != save_.end()) {
+        if (change.kind != SaveKind::Value || it->value == change.value) return false;
+        // The latest value only, kept in its place: the record doesn't grow as a value changes.
+        it->value = change.value;
+        return true;
     }
     if (save_.size() >= kMaxSaveChanges) return false;
     save_.push_back(change);
@@ -374,6 +381,7 @@ void World::start() {
         save_.clear();
         entered_.reset();
         events_.clear();
+        achievements_.clear();
         epochs_.clear();
         members_.clear();
         epoch_ = 0u;
@@ -390,6 +398,7 @@ void World::stop() {
     save_.clear();
     entered_.reset();
     events_.clear();
+    achievements_.clear();
     epochs_.clear();
     members_.clear();
 }
@@ -439,7 +448,9 @@ void World::enter(const Instance& instance) {
         events_.erase(std::remove_if(events_.begin(), events_.end(),
                                      [](const WorldEvent& event) { return event.kind != WorldEvent::Kind::Save; }),
                       events_.end());
-        for (const SaveChange& change : save_) push({WorldEvent::Kind::Save, {}, change});
+        for (const SaveChange& change : save_) {
+            if (change.kind != SaveKind::Achievement) push({WorldEvent::Kind::Save, {}, change});
+        }
         if (host_) {
             for (const Gone& thing : authority_.enter(self, instance)) push({WorldEvent::Kind::Gone, thing, {}});
             push({WorldEvent::Kind::Ready, {}, {}});
@@ -528,6 +539,11 @@ std::vector<WorldEvent> World::take() {
     return std::exchange(events_, {});
 }
 
+std::vector<SaveChange> World::take_achievements() {
+    const std::lock_guard<std::recursive_mutex> lock(lock_);
+    return std::exchange(achievements_, {});
+}
+
 bool World::active() const {
     const std::lock_guard<std::recursive_mutex> lock(lock_);
     return active_;
@@ -550,15 +566,10 @@ void World::push(WorldEvent event) {
 }
 
 void World::remember_save(const SaveChange& change) {
-    if (change.kind == SaveKind::Value) {
-        const auto it = std::find_if(save_.begin(), save_.end(), [&change](const SaveChange& had) {
-            return had.kind == SaveKind::Value && had.name == change.name;
-        });
-        if (it != save_.end()) {
-            it->value = change.value;
-            return;
-        }
-    } else if (std::find(save_.begin(), save_.end(), change) != save_.end()) {
+    const auto it = std::find_if(save_.begin(), save_.end(),
+                                 [&change](const SaveChange& had) { return same_entry(had, change); });
+    if (it != save_.end()) {
+        if (change.kind == SaveKind::Value) it->value = change.value;
         return;
     }
     if (save_.size() < kMaxSaveChanges) save_.push_back(change);
@@ -566,7 +577,11 @@ void World::remember_save(const SaveChange& change) {
 
 void World::push_save(const SaveChange& change) {
     remember_save(change);
-    push({WorldEvent::Kind::Save, {}, change});
+    if (change.kind != SaveKind::Achievement) {
+        push({WorldEvent::Kind::Save, {}, change});
+    } else if (achievements_.size() < kMaxSaveChanges) {
+        achievements_.push_back(change);
+    }
 }
 
 // On the session's thread, the world's lock held: a joiner's claims settled, the others in its instance told.
