@@ -2,11 +2,6 @@
 #include "Game/Map/BezierRail.hpp"
 #include <JSystem/JMath/JMath.hpp>
 
-void RailPart_DUMMY() {
-    TVec3f a, b;
-    a.set(b);
-}
-
 RailPart::RailPart() : mRailPartLinear(nullptr), mRailPartBezier(nullptr) {
 }
 
@@ -76,7 +71,7 @@ void LinearRailPart::set(const TVec3f& rPoint1, const TVec3f& rPoint2) {
     mStart = rPoint1;
     mCtrlDegree1 = rPoint2;
     mCtrlDegree1 -= rPoint1;
-    mLength = C_VECMag(&mCtrlDegree1);
+    mLength = NebulaVecMagXYZ(&mCtrlDegree1);
 }
 
 f32 LinearRailPart::getNearestParam(const register TVec3f& rPos, f32 t) const {

@@ -1,7 +1,8 @@
 #pragma once
 
-#include <revolution.h>
-#include <revolution/wenc.h>
+#include <NebulaGpu.h>
+#include <nebula_math.h>
+#include "Game/System/GameThreads.hpp"
 
 class SpkMixingBuffer;
 
@@ -28,7 +29,6 @@ struct SpeakerInfo {
 
     bool mIsConnected;
     bool mIsPlaying;
-    WENCInfo mWENCInfo;
     bool mIsUpdated;
     bool mIsMuted;
     u32 mState;
@@ -48,9 +48,7 @@ namespace SpkSpeakerCtrl {
     void connect(s32);
     void disconnect(s32);
     void setSpeakerOn(s32);
-    void setSpeakerOnCallback(s32, s32);
     void setSpeakerPlay(s32);
-    void startPlayCallback(s32, s32);
     void setSpeakerOff(s32);
     void retryConnection(s32);
     void reconnect(s32);
@@ -58,7 +56,7 @@ namespace SpkSpeakerCtrl {
     void reconnectProcess(s32);
     void initReconnect(s32);
     void continuousUsingProcess(s32);
-    void updateSpeaker(OSAlarm*, OSContext*);
+    void updateSpeaker();
     bool isEnable(s32);
     void extensionProcess(s32, s32);
     f32 getDeviceVolume(s32);

@@ -101,7 +101,7 @@ void SpringWaterFloaterSpot::control() {
 
     TVec3f vec20;
     TVec3f vec14(0.0f, -70.0f + _A4, 0.0f);
-    PSMTXMultVec(_CC, vec14, vec20);
+    NebulaMtxMultVec(_CC, vec14, vec20);
     _CC.setTrans(vec20);
 }
 
@@ -187,14 +187,14 @@ void SpringWaterFloaterSpot::exeFloatEnd() {
 
         MR::startSound(this, "SE_OJ_SPR_FLOATER_FLOAT_ED");
 
-        mFloatTimer = MR::getRandom(60l, 120l);
+        mFloatTimer = MR::getRandom(60, 120);
     }
 
     mFloatTimer--;
 
     if (mFloatTimer <= 0) {
         MR::startSound(this, "SE_OJ_SPR_FLOATER_RIPPLE");
-        mFloatTimer = MR::getRandom(60l, 120l);
+        mFloatTimer = MR::getRandom(60, 120);
     }
 
     if (isNeedsForBound()) {

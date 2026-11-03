@@ -1,4 +1,7 @@
 #include "Game/MapObj/ElectricRailHolder.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
+#include "JSystem/J3DGraphBase/J3DNativeMaterial.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/ModelObj.hpp"
 #include "Game/MapObj/ElectricRailMoving.hpp"
@@ -12,10 +15,6 @@
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/RailUtil.hpp"
 
-void ElectricRailHolder_FORCE_MATCH_SDATA2() {
-    (void)30.0f;
-}
-
 namespace {
     const f32 cHitSensorRadius = 30.0f;
 
@@ -23,7 +22,7 @@ namespace {
         return MR::getSceneObj< ElectricRailHolder >(SceneObj_ElectricRailHolder);
     }
 
-    bool isNearRail(const LiveActor* pActor, const HitSensor* pSensor, TVec3f* pRailPos, TVec3f* pRailDir) NO_INLINE {
+    bool isNearRail(const LiveActor* pActor, const HitSensor* pSensor, TVec3f* pRailPos, TVec3f* pRailDir) {
         TVec3f railPos;
         f32 coord = MR::calcNearestRailPos(&railPos, pActor, pSensor->mPosition);
 
@@ -78,10 +77,10 @@ void ElectricRailHolder::draw() const {
         }
 
         J3DMatPacket* pPacket = pItem->mMatPacket;
-        pItem->mMatPacket->callDL();
+        J3DNativeMaterial::send(pItem->mMatPacket->getMaterial(), pItem->mMatPacket->mpTexture, pItem->mMatPacket->getSnapshot());
 
-        if (pPacket->mpShapePacket->mpDisplayListObj != nullptr) {
-            pPacket->mpShapePacket->mpDisplayListObj->callDL();
+        if (pPacket->mpShapePacket->mpSnapshot != nullptr) {
+            J3DNativeMaterial::sendDiffered(pPacket->mpShapePacket->mpSnapshot);
         }
 
         pItem->mHost->draw();
@@ -136,14 +135,9 @@ void ElectricRailHolder::control() {
 }
 
 void ElectricRailHolder::initDraw() const {
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_CLR_RGBA, GX_RGBA6, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_CLR_RGBA, GX_RGBA6, 0);
-    GXClearVtxDesc();
-    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
-    GXLoadPosMtxImm(MR::getCameraViewMtx(), GX_PNMTX0);
-    GXSetCurrentMtx(GX_PNMTX0);
-    GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, 30, GX_FALSE, 125);
+    J3DNativeShape::setPosition(0, MR::getCameraViewMtx());
+    J3DPass::positionMatrix(0);
+    J3DPass::textureMatrix(0, 0);
 }
 
 void ElectricRailFunction::registerRail(const LiveActor* pActor, ElectricRailType railType) {
@@ -161,10 +155,6 @@ bool ElectricRailFunction::isTouchRail(const HitSensor* pSensor, TVec3f* pVec1, 
 
 f32 ElectricRailFunction::getHitSensorRadius() {
     return ::cHitSensorRadius;
-}
-
-u32 ElectricRailFunction::calcDisplayListSize(u32 size, s32 count) {
-    return (((size * count + 3) / 32) + 2) * 32;
 }
 
 void ElectricRailHolder::init(const JMapInfoIter& rIter) {

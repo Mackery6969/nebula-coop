@@ -1,4 +1,8 @@
 #include "Game/Map/WaterPlant.hpp"
+#include "Game/Util/NativeShader.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/Util.hpp"
@@ -6,10 +10,29 @@
 #include <JSystem/J3DGraphAnimator/J3DAnimation.hpp>
 #include <JSystem/JGeometry/TUtil.hpp>
 #include <JSystem/JUtility/JUTTexture.hpp>
+#include <nebula_game_api.h>
+#include <cstring>
+
+extern "C" const NebulaHostServices* nebula_host(void);
 
 namespace {
-    // A GX array, in the console's byte order.
-    NEBULA_BE(f32) gxArray[] = {0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.2f, 1.0f, 0.2f, 0.0f, 0.5f, 1.0f, 0.5f, 0.0f, 1.0f, 1.0f, 1.0f};
+    // runtime/src/render/materials/water_plant.hlsl: the plant texture where its alpha is above 50, blended by it,
+    // depth tested and written, no culling, fogged linearly toward the water's blue between `fogStart` and `fogEnd`.
+    void sendPlantMaterial(JUTTexture* pTexture, f32 fogStart, f32 fogEnd) {
+        NebulaNativeMaterial material;
+        NativeShader::init(material, NEBULA_SHADER_WATER_PLANT, NativeShader::BLEND_ALPHA, NEBULA_COMPARE_LEQUAL, true,
+                           NEBULA_CULL_NONE);
+        material.constants[0] = fogStart;
+        material.constants[1] = fogEnd;
+        NativeShader::setColor(material, 4, 0x32, 0x32, 0x96, 0xFF);
+        NativeShader::setTexture(material, 0, pTexture);
+        NativeShader::send(material);
+        J3DNativeShape::setCurrentIdentity();
+    }
+}  // namespace
+namespace {
+    // Texture coordinates.
+    f32 cTexCoords[] = {0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.2f, 1.0f, 0.2f, 0.0f, 0.5f, 1.0f, 0.5f, 0.0f, 1.0f, 1.0f, 1.0f};
     static f32 sHeightTable[] = {150.0f, 200.0f, 300.0f, 250.0f};
     static TVec3f sDrawVec(1.0f, 0.0f, 0.0f);
     static f32 sSwingSpeed = 0.03f;
@@ -76,10 +99,6 @@ void WaterPlant::initAfterPlacement() {
 }
 
 // TODO remove me
-#pragma push
-#pragma opt_common_subs off
-#pragma opt_prelinearize off
-#pragma opt_rebuildconditionals off
 void WaterPlant::movement() {
     if (mIsSpin) {
         s32 count = 0;
@@ -115,7 +134,7 @@ void WaterPlant::movement() {
         }
     }
 
-    if (!MR::isCorePadSwing(WPAD_CHAN0)) {
+    if (!MR::isMainSpin(PLAYER_1)) {
         return;
     }
 
@@ -154,7 +173,6 @@ void WaterPlant::movement() {
         mIsSpin = true;
     }
 }
-#pragma pop
 
 void WaterPlant::draw() const {
     if (!MR::isValidDraw(this)) {
@@ -246,24 +264,24 @@ void WaterPlant::drawDirect() const {
 
         f32 drawOffsetX = mHalfWidth * ::sDrawVec.x;
         f32 drawOffsetZ = mHalfWidth * ::sDrawVec.z;
-        GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, 8);
-        GXPosition3f32(drawVec3.x - drawOffsetX, drawVec3.y, drawVec3.z - drawOffsetZ);
-        GXPosition1x8(0);
-        GXPosition3f32(drawVec3.x + drawOffsetX, drawVec3.y, drawVec3.z + drawOffsetZ);
-        GXPosition1x8(1);
-        GXPosition3f32(drawVec2.x - drawOffsetX, drawVec2.y, drawVec2.z - drawOffsetZ);
-        GXPosition1x8(2);
-        GXPosition3f32(drawVec2.x + drawOffsetX, drawVec2.y, drawVec2.z + drawOffsetZ);
-        GXPosition1x8(3);
-        GXPosition3f32(drawVec1.x - drawOffsetX, drawVec1.y, drawVec1.z - drawOffsetZ);
-        GXPosition1x8(4);
-        GXPosition3f32(drawVec1.x + drawOffsetX, drawVec1.y, drawVec1.z + drawOffsetZ);
-        GXPosition1x8(5);
-        GXPosition3f32(position->x - drawOffsetX, position->y, position->z - drawOffsetZ);
-        GXPosition1x8(6);
-        GXPosition3f32(position->x + drawOffsetX, position->y, position->z + drawOffsetZ);
-        GXPosition1x8(7);
-        GXEnd();
+        // Each vertex's texture coordinate is its entry of ::cTexCoords.
+        J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, 8, NEBULA_SHAPE_TEXCOORD0);
+        J3DNativeDraw::position(drawVec3.x - drawOffsetX, drawVec3.y, drawVec3.z - drawOffsetZ);
+        J3DNativeDraw::texCoord(::cTexCoords[2 * 0], ::cTexCoords[2 * 0 + 1]);
+        J3DNativeDraw::position(drawVec3.x + drawOffsetX, drawVec3.y, drawVec3.z + drawOffsetZ);
+        J3DNativeDraw::texCoord(::cTexCoords[2 * 1], ::cTexCoords[2 * 1 + 1]);
+        J3DNativeDraw::position(drawVec2.x - drawOffsetX, drawVec2.y, drawVec2.z - drawOffsetZ);
+        J3DNativeDraw::texCoord(::cTexCoords[2 * 2], ::cTexCoords[2 * 2 + 1]);
+        J3DNativeDraw::position(drawVec2.x + drawOffsetX, drawVec2.y, drawVec2.z + drawOffsetZ);
+        J3DNativeDraw::texCoord(::cTexCoords[2 * 3], ::cTexCoords[2 * 3 + 1]);
+        J3DNativeDraw::position(drawVec1.x - drawOffsetX, drawVec1.y, drawVec1.z - drawOffsetZ);
+        J3DNativeDraw::texCoord(::cTexCoords[2 * 4], ::cTexCoords[2 * 4 + 1]);
+        J3DNativeDraw::position(drawVec1.x + drawOffsetX, drawVec1.y, drawVec1.z + drawOffsetZ);
+        J3DNativeDraw::texCoord(::cTexCoords[2 * 5], ::cTexCoords[2 * 5 + 1]);
+        J3DNativeDraw::position(position->x - drawOffsetX, position->y, position->z - drawOffsetZ);
+        J3DNativeDraw::texCoord(::cTexCoords[2 * 6], ::cTexCoords[2 * 6 + 1]);
+        J3DNativeDraw::position(position->x + drawOffsetX, position->y, position->z + drawOffsetZ);
+        J3DNativeDraw::texCoord(::cTexCoords[2 * 7], ::cTexCoords[2 * 7 + 1]);
     }
 }
 
@@ -271,10 +289,10 @@ WaterPlantDrawInit::WaterPlantDrawInit()
     : NameObj("\220\205\221\220\202\314\225\140\211\346\217\211\212\372\211\273" /* 水草の描画初期化 */), mAngleOffset(), mSwingPosTable(), mPlantATex(), mPlantBTex(), mPlantCTex(), mPlantDTex() {
     MR::connectToScene(this, MR::MovementType_MapObj, -1, -1, -1);
 
-    mPlantATex = new JUTTexture(MR::loadTexFromArc("WaterPlant.arc", "WaterPlantA.bti"), nullptr);
-    mPlantBTex = new JUTTexture(MR::loadTexFromArc("WaterPlant.arc", "WaterPlantB.bti"), nullptr);
-    mPlantCTex = new JUTTexture(MR::loadTexFromArc("WaterPlant.arc", "WaterPlantC.bti"), nullptr);
-    mPlantDTex = new JUTTexture(MR::loadTexFromArc("WaterPlant.arc", "WaterPlantD.bti"), nullptr);
+    mPlantATex = new JUTTexture(MR::loadTexFromArc("WaterPlant.arc", "WaterPlantA.bti"));
+    mPlantBTex = new JUTTexture(MR::loadTexFromArc("WaterPlant.arc", "WaterPlantB.bti"));
+    mPlantCTex = new JUTTexture(MR::loadTexFromArc("WaterPlant.arc", "WaterPlantC.bti"));
+    mPlantDTex = new JUTTexture(MR::loadTexFromArc("WaterPlant.arc", "WaterPlantD.bti"));
 
     MR::registerPreDrawFunction(MR::Functor(this, &WaterPlantDrawInit::initDraw), MR::DrawType_WaterPlant);
 
@@ -308,28 +326,14 @@ void WaterPlantDrawInit::movement() {
     }
 
     TPos3f inverseViewMtx;
-    PSMTXInverse(MR::getCameraViewMtx(), inverseViewMtx);
+    NebulaMtxInverse(MR::getCameraViewMtx(), inverseViewMtx);
     // normal getXDir call here reverses float load order
     ::sDrawVec.set< f32 >(inverseViewMtx[0][0], inverseViewMtx[1][0], inverseViewMtx[2][0]);
 }
 
 void WaterPlantDrawInit::loadTex(int tex) {
-    if (tex == 1) {
-        mPlantBTex->load(GX_TEXMAP0);
-        return;
-    }
-
-    if (tex == 2) {
-        mPlantCTex->load(GX_TEXMAP0);
-        return;
-    }
-
-    if (tex == 3) {
-        mPlantDTex->load(GX_TEXMAP0);
-        return;
-    }
-
-    mPlantATex->load(GX_TEXMAP0);
+    JUTTexture* pTexture = tex == 1 ? mPlantBTex : tex == 2 ? mPlantCTex : tex == 3 ? mPlantDTex : mPlantATex;
+    sendPlantMaterial(pTexture, ::sFogStartZ, ::sFogEndZ);
 }
 
 void WaterPlantDrawInit::updateSwingPos() {
@@ -341,35 +345,8 @@ void WaterPlantDrawInit::updateSwingPos() {
     }
 }
 
-#pragma push
-#pragma opt_propagation off
 void WaterPlantDrawInit::initDraw() const {
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_POS_XYZ, GX_F32, 0);
-    GXClearVtxDesc();
-    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_TEX0, GX_INDEX8);
-    GXSetArray(GX_VA_TEX0, &::gxArray, sizeof(TVec2f));
-    GXLoadPosMtxImm(MR::getCameraViewMtx(), 0);
-    GXSetCurrentMtx(0);
-    GXSetNumChans(1);
-    GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_VTX, GX_SRC_VTX, 0, GX_DF_NONE, GX_AF_NONE);
-    GXSetChanCtrl(GX_COLOR1A1, GX_FALSE, GX_SRC_REG, GX_SRC_REG, 0, GX_DF_NONE, GX_AF_NONE);
-    GXSetNumTexGens(1);
-    GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, 60, GX_FALSE, 125);
-    GXSetNumTevStages(1);
-    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR_NULL);
-    GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_TEXC, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO);
-    GXSetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_TEXA, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_NOOP);
-    GXSetAlphaCompare(GX_GREATER, 50, GX_AOP_OR, GX_GREATER, 50);
-    GXSetZMode(GX_TRUE, GX_LEQUAL, GX_TRUE);
-    GXSetZCompLoc(GX_FALSE);
-    GXSetCullMode(GX_CULL_NONE);
-
-    static const GXColor fogColor = {0x32, 0x32, 0x96, 0xFF};
-    GXSetFog(GX_FOG_LIN, ::sFogStartZ, ::sFogEndZ, MR::getNearZ(), MR::getFarZ(), fogColor);
+    J3DNativeShape::setPosition(0, MR::getCameraViewMtx());
+    J3DPass::positionMatrix(0);
+    sendPlantMaterial(mPlantATex, ::sFogStartZ, ::sFogEndZ);
 }
-#pragma pop

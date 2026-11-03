@@ -1,7 +1,5 @@
 #include "Game/System/GameDataHolder.hpp"
-#ifdef TARGET_PC
 #include "Game/System/NebulaCoopWorld.hpp"
-#endif
 #include "Game/System/GameDataGalaxyStorage.hpp"
 #include "Game/System/GameDataPlayerStatus.hpp"
 #include "Game/System/GameEventFlagChecker.hpp"
@@ -33,7 +31,7 @@ GameDataHolder::GameDataHolder(const UserFile* pUserFile)
     mStarPieceAlmsStorage = new StarPieceAlmsStorage();
 
     mMapInfo = new JMapInfo();
-    mMapInfo->attach(cStoryProgressTable);
+    mMapInfo->attach(NebulaDataTables::getStoryProgressTable());
 
     mChunkHolder = new BinaryDataChunkHolder(4096, 6);
     mChunkHolder->addChunk(mPlayerStatus);
@@ -45,7 +43,7 @@ GameDataHolder::GameDataHolder(const UserFile* pUserFile)
 
     resetAllData();
 
-    snprintf(mName, sizeof(mName), "mario1");
+    nebula_snprintf(mName, sizeof(mName), "mario1");
 }
 
 bool GameDataHolder::isDataMario() const {
@@ -75,16 +73,12 @@ bool GameDataHolder::isOnGameEventFlag(const char* pFlagName) const {
 }
 
 void GameDataHolder::tryOnGameEventFlag(const char* pFlagName) {
-#ifdef TARGET_PC
     const bool wasOn = mEventFlagChecker->isOn(pFlagName);
-#endif
     mEventFlagChecker->tryOn(pFlagName);
-#ifdef TARGET_PC
     // Online co-op: the session's save is every player's.
     if (!wasOn && mEventFlagChecker->isOn(pFlagName)) {
         NebulaCoopWorld::noticeEventFlag(this, pFlagName);
     }
-#endif
 }
 
 s32 GameDataHolder::getGameEventValue(const char* pName) const {
@@ -94,15 +88,11 @@ s32 GameDataHolder::getGameEventValue(const char* pName) const {
 }
 
 void GameDataHolder::setGameEventValue(const char* pName, u16 value) {
-#ifdef TARGET_PC
     const bool changed = mEventValueChecker->getValue(pName) != value;
-#endif
     mEventValueChecker->setValue(pName, value);
-#ifdef TARGET_PC
     if (changed) {
         NebulaCoopWorld::noticeEventValue(this, pName, value);
     }
-#endif
 }
 
 bool GameDataHolder::isOnGameEventValueForBit(const char* pName, int bit) const {
@@ -129,7 +119,7 @@ s32 GameDataHolder::getPictureBookChapterCanRead() const {
 
     for (u32 idx = 0; idx < sizeof(::cPictureBookChapterSuffix) - 1; idx++) {
         char name[32];
-        snprintf(name, sizeof(name), "PictureBook%c", ::cPictureBookChapterSuffix[idx]);
+        nebula_snprintf(name, sizeof(name), "PictureBook%c", ::cPictureBookChapterSuffix[idx]);
 
         if (!isOnGameEventFlag(name)) {
             break;
@@ -151,21 +141,21 @@ void GameDataHolder::setPictureBookChapterAlreadyRead(int value) {
 
 void GameDataHolder::setRaceBestTime(const char* pName, u32 value) {
     char hiName[48];
-    snprintf(hiName, sizeof(hiName), "%s/hi", pName);
+    nebula_snprintf(hiName, sizeof(hiName), "%s/hi", pName);
     setGameEventValue(hiName, value >> 16);
 
     char loName[48];
-    snprintf(loName, sizeof(loName), "%s/lo", pName);
+    nebula_snprintf(loName, sizeof(loName), "%s/lo", pName);
     setGameEventValue(loName, value);
 }
 
 u32 GameDataHolder::getRaceBestTime(const char* pName) const {
     char hiName[48];
-    snprintf(hiName, sizeof(hiName), "%s/hi", pName);
+    nebula_snprintf(hiName, sizeof(hiName), "%s/hi", pName);
     u32 hiValue = mEventValueChecker->getValue(hiName);
 
     char loName[48];
-    snprintf(loName, sizeof(loName), "%s/lo", pName);
+    nebula_snprintf(loName, sizeof(loName), "%s/lo", pName);
     u32 loValue = mEventValueChecker->getValue(loName);
 
     return hiValue << 16 | loValue;
@@ -173,7 +163,7 @@ u32 GameDataHolder::getRaceBestTime(const char* pName) const {
 
 void GameDataHolder::addMissPoint(int points) {
     u32 value = mEventValueChecker->getValue("MissPointForLetter");
-    u32 newValue = MR::clamp(value + points, 0l, 20l);
+    u32 newValue = MR::clamp(value + points, 0, 20);
 
     setGameEventValue("MissPointForLetter", newValue);
 }
@@ -202,21 +192,17 @@ bool GameDataHolder::hasPowerStar(const char* pGalaxyName, s32 scenarioNum) cons
 
 bool GameDataHolder::hasGrandStar(int index) const {
     char name[32];
-    snprintf(name, sizeof(name), "SpecialStarGrand%1d", index);
+    nebula_snprintf(name, sizeof(name), "SpecialStarGrand%1d", index);
 
     return isOnGameEventFlag(name);
 }
 
 void GameDataHolder::setPowerStar(const char* pGalaxyName, s32 scenarioNum, bool set) {
-#ifdef TARGET_PC
     const bool isNew = set && !hasPowerStar(pGalaxyName, scenarioNum);
-#endif
     makeGalaxyScenarioAccessor(pGalaxyName, scenarioNum).setPowerStarFlag(set);
-#ifdef TARGET_PC
     if (isNew) {
         NebulaCoopWorld::noticePowerStar(this, pGalaxyName, scenarioNum);
     }
-#endif
 }
 
 s32 GameDataHolder::getPowerStarNumOwned(const char* pGalaxyName) const {
@@ -253,7 +239,7 @@ void GameDataHolder::onGalaxyScenarioFlagAlreadyVisited(const char* pGalaxyName,
 
 bool GameDataHolder::isAppearGalaxy(const char* pGalaxyName) const {
     char name[64];
-    snprintf(name, sizeof(name), "Appear%s", pGalaxyName);
+    nebula_snprintf(name, sizeof(name), "Appear%s", pGalaxyName);
 
     if (!GameEventFlagTable::isExist(name)) {
         return true;
@@ -340,6 +326,6 @@ u32 GameDataHolder::makeFileBinary(u8* pData, u32 a2) {
 }
 
 bool GameDataHolder::loadFromFileBinary(const char* pName, const u8* pData, u32 dataSize) {
-    snprintf(mName, sizeof(mName), "%s", pName);
+    nebula_snprintf(mName, sizeof(mName), "%s", pName);
     return mChunkHolder->loadFromFileBinary(pData, dataSize);
 }

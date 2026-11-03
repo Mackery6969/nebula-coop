@@ -11,8 +11,8 @@ namespace Nebula.Launcher
     /// <summary>
     /// The update offer at each start: a newer release on GitHub is offered before the game starts; offline, or when
     /// GitHub does not answer within a few seconds, the game starts without a word. Update downloads the release's
-    /// Setup, checks its signature and runs it, which installs the release and starts the game. "Don't ask again"
-    /// applies only to "Not now"; the launcher's Advanced tab turns the offer back on.
+    /// Setup, checks its signature and runs it, which installs the release and starts the game. NebulaText.Of("Don't ask again")
+    /// applies only to NebulaText.Of("Not now"); the launcher's Advanced tab turns the offer back on.
     /// </summary>
     internal static class UpdateCheck
     {
@@ -31,6 +31,7 @@ namespace Nebula.Launcher
             }
             catch (Exception) { return false; }
             if (release == null) return false;
+            bool prepareRayTracing;
             using (var prompt = new UpdatePromptForm(release))
             {
                 if (prompt.ShowDialog() != DialogResult.Yes)
@@ -42,6 +43,7 @@ namespace Nebula.Launcher
                     }
                     return false;
                 }
+                prepareRayTracing = prompt.PrepareRayTracing;
             }
             string setup;
             using (var download = new UpdateDownloadForm(release, new InstallLayout(session.Root).Staging))
@@ -49,6 +51,7 @@ namespace Nebula.Launcher
                 if (download.ShowDialog() != DialogResult.OK) return false;
                 setup = download.SetupPath;
             }
+            if (prepareRayTracing) RayTracingPreparation.Request();
             Process.Start(new ProcessStartInfo(setup, "--apply-update --launch --root " + ProcessRunner.Quote(session.Root))
             {
                 UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(setup)
@@ -59,9 +62,10 @@ namespace Nebula.Launcher
 
     internal sealed class UpdatePromptForm : Form
     {
-        private readonly CheckBox dontAsk = new CheckBox();
+        private readonly CheckBox dontAsk = new CheckBox(), prepare = new CheckBox();
 
         public bool DontAskAgain { get { return dontAsk.Checked; } }
+        public bool PrepareRayTracing { get { return prepare.Checked; } }
 
         // Update never turns the offer off, whatever the box says; Not now keeps the box.
         internal void Choose(bool update)
@@ -73,7 +77,7 @@ namespace Nebula.Launcher
 
         public UpdatePromptForm(ReleaseInfo release)
         {
-            Text = "Nebula update";
+            Text = NebulaText.Of("Nebula update");
             Font = new Font("Segoe UI", 9.5f);
             AutoScaleMode = AutoScaleMode.None;
             ClientSize = new Size(520, 290);
@@ -85,22 +89,31 @@ namespace Nebula.Launcher
 
             Controls.Add(new Label
             {
-                Text = "Nebula " + release.Version + " is available",
+                Text = NebulaText.Of("Nebula {0} is available", release.Version),
                 Font = new Font("Segoe UI", 11f, FontStyle.Bold), Location = new Point(16, 14), Size = new Size(488, 26)
             });
-            string notes = release.Notes.Length > 1500 ? release.Notes.Substring(0, 1500) + "…" : release.Notes;
+            bool offerRayTracing = RayTracingPreparation.Offered();
+            string notes = ReleaseNotes.Plain(release.Notes, 1500);
             Controls.Add(new TextBox
             {
-                Text = notes.Replace("\r\n", "\n").Replace("\n", "\r\n"), Multiline = true, ReadOnly = true,
-                ScrollBars = ScrollBars.Vertical, Location = new Point(16, 46), Size = new Size(488, 190), TabStop = false
+                Text = notes, Multiline = true, ReadOnly = true,
+                ScrollBars = ScrollBars.Vertical, Location = new Point(16, 46), Size = new Size(488, offerRayTracing ? 162 : 190),
+                TabStop = false
             });
-            dontAsk.Text = "Don't ask again";
+            if (offerRayTracing)
+            {
+                prepare.Text = NebulaText.Of("Prepare ray tracing shaders");
+                prepare.Location = new Point(16, 218);
+                prepare.Size = new Size(488, 24);
+                Controls.Add(prepare);
+            }
+            dontAsk.Text = NebulaText.Of("Don't ask again");
             dontAsk.Location = new Point(16, 250);
             dontAsk.Size = new Size(200, 24);
             Controls.Add(dontAsk);
-            var update = new Button { Text = "Update", Location = new Point(300, 246), Size = new Size(100, 32) };
+            var update = new Button { Text = NebulaText.Of("Update"), Location = new Point(300, 246), Size = new Size(100, 32) };
             update.Click += delegate { Choose(true); };
-            var later = new Button { Text = "Not now", Location = new Point(404, 246), Size = new Size(100, 32) };
+            var later = new Button { Text = NebulaText.Of("Not now"), Location = new Point(404, 246), Size = new Size(100, 32) };
             later.Click += delegate { Choose(false); };
             Controls.Add(update);
             Controls.Add(later);
@@ -126,7 +139,7 @@ namespace Nebula.Launcher
         {
             this.release = release;
             this.folder = folder;
-            Text = "Nebula update";
+            Text = NebulaText.Of("Nebula update");
             Font = new Font("Segoe UI", 9.5f);
             AutoScaleMode = AutoScaleMode.None;
             ClientSize = new Size(440, 130);
@@ -135,13 +148,13 @@ namespace Nebula.Launcher
             MinimizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
             TopMost = true;
-            status.Text = "Downloading Nebula " + release.Version;
+            status.Text = NebulaText.Of("Downloading Nebula {0}", release.Version);
             status.Location = new Point(16, 14);
             status.Size = new Size(408, 22);
             bar.Location = new Point(16, 44);
             bar.Size = new Size(408, 22);
             bar.Maximum = 1000;
-            var stop = new Button { Text = "Cancel", Location = new Point(324, 84), Size = new Size(100, 32) };
+            var stop = new Button { Text = NebulaText.Of("Cancel"), Location = new Point(324, 84), Size = new Size(100, 32) };
             stop.Click += delegate { cancel.Cancel(); };
             Controls.Add(status);
             Controls.Add(bar);
@@ -172,8 +185,8 @@ namespace Nebula.Launcher
                     BeginInvoke((Action)delegate
                     {
                         if (!canceled)
-                            MessageBox.Show(this, "Couldn't download the update.\r\n\r\n" + error.Message,
-                                "Nebula update", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                            MessageBox.Show(this, NebulaText.Of("Couldn't download the update.") + "\r\n\r\n" + error.Message,
+                                NebulaText.Of("Nebula update"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
                         DialogResult = DialogResult.Cancel;
                         Close();
                     });

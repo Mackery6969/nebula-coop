@@ -29,16 +29,7 @@
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
 
-void PowerStar_FORCE_MATCH_SDATA2() {
-    (void)1.0f;
-    (void)0.0f;
-    (void)0.5f;
-    (void)3.0f;
-    (void)MR::pi();
-    (void)2.0f;
-}
-
-const GXColor lightColor[] = {
+const NebulaColor8 lightColor[] = {
     {0x96, 0x96, 0x32, 0}, {0x32, 0x32, 0x96, 0}, {0x32, 0x96, 0x32, 0}, {0x96, 0x32, 0x32, 0}, {0x64, 0x64, 0x64, 0},
 };
 
@@ -159,7 +150,6 @@ void PowerStar::init(const JMapInfoIter& rIter) {
 void PowerStar::initAfterPlacement() {
 }
 
-#ifdef TARGET_PC
 void PowerStar::showAsHad() {
     mColorFrame = 4;
     if (mIsGrandStar) {
@@ -170,7 +160,6 @@ void PowerStar::showAsHad() {
         ::setupColor(mPowerStarModelObj, true, 4);
     }
 }
-#endif
 
 void PowerStar::appear() {
     LiveActor::appear();
@@ -724,7 +713,7 @@ void PowerStar::exeAppearDemoKoopa() {
     }
 
     if (MR::isStep(this, 1)) {
-        MR::startBckPlayer(MR::isStageKoopaVs3() ? "DemoKoopaGrandStarVs3" : "DemoKoopaGrandStar", 0L);
+        MR::startBckPlayer(MR::isStageKoopaVs3() ? "DemoKoopaGrandStarVs3" : "DemoKoopaGrandStar", 0);
     }
 
     if (MR::isStageKoopaVs3()) {
@@ -838,7 +827,7 @@ void PowerStar::exeStageClearDemo() {
 
         MR::hideModelIfShown(this);
 
-        MR::startBckPlayer(mIsGrandStar ? "GrandStarGet" : "PowerStarGet", 0L);
+        MR::startBckPlayer(mIsGrandStar ? "GrandStarGet" : "PowerStarGet", 0);
 
         mBaseMtx.setTrans(mPosition);
 

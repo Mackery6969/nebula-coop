@@ -1,7 +1,5 @@
 #pragma once
 
-#ifdef TARGET_PC
-#include <revolution/types.h>
 
 // Online co-op's cutscenes and transitions (docs/COOP_PLAN.md "Cutscenes and transitions"), as sm64coopdx has them:
 // each player's demos are its own and stop nobody else, and the save's progress reaches everyone without its
@@ -28,4 +26,3 @@ namespace NebulaCoopDemos {
     // and the player now took is left out of it, so the result's demos are the star's first.
     void beforeStageResult(const char* pClearedStageName, s32 clearedStarId);
 };  // namespace NebulaCoopDemos
-#endif

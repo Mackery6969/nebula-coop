@@ -10,6 +10,7 @@
 #define NOMINMAX
 #endif
 #include <Windows.h>
+#include <atomic>
 
 #include <cstddef>
 #include <cstdio>
@@ -28,11 +29,29 @@ inline void name_current_thread(const wchar_t* name) noexcept {
                  static_cast<unsigned long>(GetCurrentThreadId()));
 }
 
+// Background work (the shape builder): the calling thread runs where the game's and the renderer's threads leave a
+// core idle.
+inline void lower_current_thread_priority() noexcept {
+    (void)SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_LOWEST);
+}
+
 // Request execution-speed QoS for the process and calling thread, and retain
 // the process's timer-resolution requests when Windows supports that policy.
 // This does not select a core or override thermal/power limits. The timer flag
 // requires a newer OS than execution-speed control, so retry the older policy
 // if the combined request is rejected. Unsupported OS versions may reject both.
+// timeBeginPeriod(1) while held; repeated calls with the same value do nothing.
+inline void hold_high_resolution_timer(bool hold) noexcept {
+    static std::atomic<bool> held{false};
+    if (held.exchange(hold, std::memory_order_acq_rel) == hold) return;
+    if (HMODULE winmm = LoadLibraryW(L"winmm.dll")) {
+        using PeriodFn = UINT(WINAPI*)(UINT);
+        if (auto call = reinterpret_cast<PeriodFn>(GetProcAddress(winmm, hold ? "timeBeginPeriod" : "timeEndPeriod"))) {
+            (void)call(1);
+        }
+    }
+}
+
 inline void opt_out_of_power_throttling_process() noexcept {
     PROCESS_POWER_THROTTLING_STATE state{};
     state.Version = PROCESS_POWER_THROTTLING_CURRENT_VERSION;
@@ -137,6 +156,13 @@ inline unsigned pin_current_thread_to_performance_cores() noexcept {
 }  // namespace galaxy::host
 #else
 #include <pthread.h>
+#if defined(__APPLE__)
+#include <pthread/qos.h>
+#else
+#include <sys/resource.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#endif
 
 #include <cstddef>
 
@@ -155,5 +181,14 @@ inline void name_current_thread(const wchar_t* name) noexcept {
 }
 inline void opt_out_of_power_throttling_process() noexcept {}
 inline unsigned pin_current_thread_to_performance_cores() noexcept { return 0u; }
+// Background work (the shape builder): the calling thread runs where the game's and the renderer's threads leave a
+// core idle.
+inline void lower_current_thread_priority() noexcept {
+#if defined(__APPLE__)
+    (void)pthread_set_qos_class_self_np(QOS_CLASS_UTILITY, 0);
+#else
+    (void)setpriority(PRIO_PROCESS, static_cast<id_t>(syscall(SYS_gettid)), 10);
+#endif
+}
 }  // namespace galaxy::host
 #endif

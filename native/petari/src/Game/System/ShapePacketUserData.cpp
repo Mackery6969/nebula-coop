@@ -1,69 +1,55 @@
 #include "Game/System/ShapePacketUserData.hpp"
+#include "JSystem/J3DGraphBase/J3DNativeShape.hpp"
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/ModelUtil.hpp"
-#include "Game/Util/SchedulerUtil.hpp"
 #include "JSystem/J3DGraphAnimator/J3DModel.hpp"
 #include "JSystem/J3DGraphAnimator/J3DModelData.hpp"
 #include "JSystem/J3DGraphBase/J3DMaterial.hpp"
 #include "JSystem/J3DGraphBase/J3DShape.hpp"
 #include "JSystem/J3DGraphBase/J3DSys.hpp"
 #include "JSystem/J3DGraphBase/J3DTexture.hpp"
-#include "JSystem/JKernel/JKRHeap.hpp"
-#include <revolution/gd.h>
-#include <revolution/gd/GDTransform.h>
+#include "Game/System/NebulaArena.hpp"
 
-ShapePacketUserData::ShapePacketUserData() : mTexGenNum(), mDisplayListSize(), mDisplayList() {
+ShapePacketUserData::ShapePacketUserData() : mTexGenNum(), mEnvMap(), mTexGenType(), mTexGenSource() {
 }
 
 void ShapePacketUserData::init(J3DMaterial* pMaterial) {
-    MR::ProhibitSchedulerAndInterrupts prohibit(false);
     const bool isEnvMap = MR::isUseTexMtxEnvMap(pMaterial);
-    u32 size = isEnvMap ? 0x20 : 0;
+    mEnvMap = isEnvMap;
     mTexGenNum = pMaterial->getTexGenNum();
     for (u32 i = 0; i < mTexGenNum; i++) {
         J3DTexCoord* pTexCoord = pMaterial->getTexCoord(i);
-        if (pTexCoord->getTexGenSrc() == GX_TG_POS) {
+        if (pTexCoord->getTexGenSrc() == J3D_TG_POS) {
             mTexMtxInfo[i].mType = 1;
-            mTexMtxInfo[i].mPostMtx = GX_PTTEXMTX0 + i * 3;
-            size += 0x20;
-        } else if (pTexCoord->getTexGenSrc() == GX_TG_NRM) {
+            mTexMtxInfo[i].mPostMtx = J3D_PTTEXMTX0 + i * 3;
+        } else if (pTexCoord->getTexGenSrc() == J3D_TG_NRM) {
             mTexMtxInfo[i].mType = 2;
-            mTexMtxInfo[i].mPostMtx = GX_PTTEXMTX0 + i * 3;
-            size += 0x20;
-        } else if (isEnvMap && pTexCoord->getTexGenMtx() != GX_IDENTITY) {
+            mTexMtxInfo[i].mPostMtx = J3D_PTTEXMTX0 + i * 3;
+        } else if (isEnvMap && pTexCoord->getTexGenMtx() != J3D_IDENTITY) {
             mTexMtxInfo[i].mType = 3;
-            mTexMtxInfo[i].mPostMtx = GX_PTTEXMTX0 + i * 3;
-            size += 0x20;
+            mTexMtxInfo[i].mPostMtx = J3D_PTTEXMTX0 + i * 3;
         } else {
             mTexMtxInfo[i].mType = 0;
-            mTexMtxInfo[i].mPostMtx = GX_PTIDENTITY;
+            mTexMtxInfo[i].mPostMtx = J3D_PTIDENTITY;
         }
-    }
-
-    mDisplayList = new (32) u8[size + 0x40];
-    DCInvalidateRange(mDisplayList, size + 0x40);
-    GDLObj displayList;
-    GDInitGDLObj(&displayList, mDisplayList, size + 0x40);
-    GDSetCurrent(&displayList);
-    if (isEnvMap) {
-        GDSetCurrentMtx(0, GX_IDENTITY, GX_IDENTITY, GX_IDENTITY, GX_IDENTITY, GX_IDENTITY, GX_IDENTITY, GX_IDENTITY, GX_IDENTITY);
     }
 
     for (u32 i = 0; i < mTexGenNum; i++) {
-        if (mTexMtxInfo[i].mType != 0) {
-            J3DTexCoord* pTexCoord = pMaterial->getTexCoord(i);
-            GDSetTexCoordGen(static_cast< GXTexCoordID >(i), static_cast< GXTexGenType >(pTexCoord->getTexGenType()),
-                             static_cast< GXTexGenSrc >(pTexCoord->getTexGenSrc()), GX_FALSE, mTexMtxInfo[i].mPostMtx);
-        }
+        J3DTexCoord* pTexCoord = pMaterial->getTexCoord(i);
+        mTexGenType[i] = pTexCoord->getTexGenType();
+        mTexGenSource[i] = pTexCoord->getTexGenSrc();
     }
-
-    GDPadCurr32();
-    mDisplayListSize = GDGetGDLObjOffset(&displayList);
-    DCStoreRange(mDisplayList, size + 0x40);
 }
 
-void ShapePacketUserData::callDL() const {
-    GXCallDisplayList(mDisplayList, mDisplayListSize);
+void ShapePacketUserData::load() const {
+    if (mEnvMap) {
+        J3DNativeShape::setCurrentIdentity();
+    }
+    for (u32 i = 0; i < mTexGenNum; i++) {
+        if (mTexMtxInfo[i].mType != 0) {
+            J3DNativeShape::setTexGen(i, mTexGenType[i], mTexGenSource[i], false, static_cast< u8 >(mTexMtxInfo[i].mPostMtx));
+        }
+    }
 }
 
 void ShapePacketUserData::loadTexMtx(J3DMaterial* pMaterial, int slot, u16 index) const {
@@ -73,12 +59,12 @@ void ShapePacketUserData::loadTexMtx(J3DMaterial* pMaterial, int slot, u16 index
             if (mTexMtxInfo[i].mType == 2) {
                 mtx.set(j3dSys.getModelDrawMtx(index));
                 mtx.setTrans(0.0f, 0.0f, 0.0f);
-                GXLoadTexMtxImm(mtx, GX_TEXMTX0 + slot * 3, static_cast< GXTexMtxType >(pMaterial->getTexCoord(i)->getTexGenType()));
+                J3DNativeShape::setTexture(slot, mtx, pMaterial->getTexCoord(i)->getTexGenType() == J3D_MTX2x4 ? 2 : 3);
             }
 
             J3DTexMtx* const pTexMtx = pMaterial->getTexMtx(i);
             pTexMtx->calcPostTexMtx(MR::getCameraInvViewMtx());
-            GXLoadTexMtxImm(pTexMtx->getMtx(), mTexMtxInfo[i].mPostMtx, GX_MTX3x4);
+            J3DNativeShape::setPostTexture((mTexMtxInfo[i].mPostMtx - J3D_PTTEXMTX0) / 3, pTexMtx->getMtx());
         }
     }
 }
