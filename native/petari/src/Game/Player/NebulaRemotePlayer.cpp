@@ -208,6 +208,23 @@ const NebulaRemotePlayer* NebulaRemotePlayer::getCopy(s32 index) {
     return index >= 0 && index < sCopyNum ? sCopies[index] : nullptr;
 }
 
+HitSensor* NebulaRemotePlayer::getHitSender(u32 number) {
+    for (s32 i = 0; i < sCopyNum; i++) {
+        NebulaRemotePlayer* pCopy = sCopies[i];
+        if (number == 0 || pCopy->mNumber != number || MR::isDead(pCopy)) {
+            continue;
+        }
+        HitSensor* pSensor = pCopy->getSensor("body");
+        if (pSensor == nullptr) {
+            return nullptr;
+        }
+        // Its body's middle, where the copy stands now (a sensor off isn't moved with it).
+        pSensor->mPosition.set(pCopy->mPosition + pCopy->mUp * cBodyCenter);
+        return pSensor;
+    }
+    return nullptr;
+}
+
 TVec3f NebulaRemotePlayer::getNametagPos() const {
     // Mario stands about 160 tall: the name a little over his cap.
     return TVec3f(mPosition.x + mUp.x * 200.0f, mPosition.y + mUp.y * 200.0f, mPosition.z + mUp.z * 200.0f);

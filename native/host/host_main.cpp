@@ -2520,6 +2520,8 @@ uint32_t svc_coop_list(void*, NebulaCoopListPlayer* players, uint32_t capacity, 
 
 // What the game is told and hasn't taken yet (coop_world_take), in order.
 std::deque<galaxy::coop::WorldEvent> gCoopWorldWaiting;
+// The others' objects' states as they came, the game's next to take (coop_objects_take).
+std::deque<galaxy::coop::ObjectState> gCoopStatesWaiting;
 
 // The shared world: what the game's play did (galaxy::coop::World settles it, or sends it to the host to).
 void svc_coop_world_report(void*, const NebulaCoopWorldEvent* event) {
@@ -2532,6 +2534,7 @@ void svc_coop_world_report(void*, const NebulaCoopWorldEvent* event) {
         std::fprintf(stderr, "[coop] world: %s, scenario %d placed\n", copy.name, static_cast<int>(copy.scenario));
         // Nothing waiting from the last scene is for this one (the save comes again whole).
         gCoopWorldWaiting.clear();
+        gCoopStatesWaiting.clear();
         gCoopWorld.enter({copy.name, copy.scenario});
         return;
     case NEBULA_COOP_WORLD_GONE: gCoopWorld.report_gone({copy.object, copy.value}); return;
@@ -2541,6 +2544,12 @@ void svc_coop_world_report(void*, const NebulaCoopWorldEvent* event) {
     case NEBULA_COOP_WORLD_STAR_GOT:
         gCoopWorld.report_star({copy.scenario, (copy.value & NEBULA_COOP_STAR_GRAND) != 0u});
         return;
+    case NEBULA_COOP_WORLD_HIT:
+        if (copy.value > 0xffffu || copy.scenario < 0 || copy.scenario > 255) return;
+        gCoopWorld.report_hit({copy.object, static_cast<std::uint16_t>(copy.value),
+                               static_cast<std::uint8_t>(copy.scenario), 0u});
+        return;
+    case NEBULA_COOP_WORLD_SWITCH: gCoopWorld.report_switch({copy.object, copy.value != 0u}); return;
     default: return;
     }
 }
@@ -2569,6 +2578,16 @@ uint32_t svc_coop_world_take(void*, NebulaCoopWorldEvent* events, uint32_t capac
             to.kind = NEBULA_COOP_WORLD_STAR_GOT;
             to.scenario = from.star.star;
             to.value = from.star.grand ? NEBULA_COOP_STAR_GRAND : 0u;
+        } else if (from.kind == Kind::Hit) {
+            to.kind = NEBULA_COOP_WORLD_HIT;
+            to.object = from.hit.object;
+            to.value = from.hit.message;
+            to.scenario = from.hit.sensor;
+            to.player = from.hit.player;
+        } else if (from.kind == Kind::Switch) {
+            to.kind = NEBULA_COOP_WORLD_SWITCH;
+            to.object = from.change.id;
+            to.value = from.change.on ? 1u : 0u;
         } else {
             using galaxy::coop::SaveKind;
             to.kind = from.save.kind == SaveKind::Star   ? NEBULA_COOP_WORLD_STAR
@@ -2578,6 +2597,53 @@ uint32_t svc_coop_world_take(void*, NebulaCoopWorldEvent* events, uint32_t capac
             to.value = from.save.value;
             std::snprintf(to.name, sizeof(to.name), "%s", from.save.name.c_str());
         }
+        waiting.pop_front();
+    }
+    return count;
+}
+
+// Shared objects (galaxy::coop::ObjectState): the ones this game moves this frame, which the host lets it or not.
+void svc_coop_objects_report(void*, const NebulaCoopObjectState* states, uint32_t count) {
+    if (states == nullptr || count == 0u || !gCoopWorld.active()) return;
+    std::vector<galaxy::coop::ObjectState> report;
+    report.reserve(std::min<uint32_t>(count, 512u));
+    for (uint32_t i = 0; i < count && i < 512u; ++i) {
+        const NebulaCoopObjectState& from = states[i];
+        galaxy::coop::ObjectState& to = report.emplace_back();
+        to.object = from.object;
+        to.nerve = from.nerve;
+        to.step = static_cast<std::uint16_t>(std::min<uint32_t>(from.step, 0xffffu));
+        to.flags = static_cast<std::uint8_t>(from.flags & (galaxy::coop::kObjectHitClaim | galaxy::coop::kObjectHitNerve));
+        std::copy(std::begin(from.position), std::end(from.position), to.position.begin());
+        std::copy(std::begin(from.velocity), std::end(from.velocity), to.velocity.begin());
+        std::copy(std::begin(from.rotation), std::end(from.rotation), to.rotation.begin());
+        to.distance = from.distance;
+    }
+    gCoopWorld.report_states(report);
+}
+
+// The others' objects as they came (the latest of each): what the game can't take this call waits for the next.
+uint32_t svc_coop_objects_take(void*, NebulaCoopObjectState* states, uint32_t capacity) {
+    std::deque<galaxy::coop::ObjectState>& waiting = gCoopStatesWaiting;
+    if (!gCoopWorld.active()) {
+        waiting.clear();
+        return 0u;
+    }
+    for (const galaxy::coop::ObjectState& state : gCoopWorld.take_states()) waiting.push_back(state);
+    uint32_t count = 0u;
+    while (states != nullptr && count < capacity && !waiting.empty()) {
+        const galaxy::coop::ObjectState& from = waiting.front();
+        NebulaCoopObjectState& to = states[count++];
+        to = {};
+        to.object = from.object;
+        to.nerve = from.nerve;
+        to.step = from.step;
+        to.flags = from.flags;
+        std::copy(from.position.begin(), from.position.end(), to.position);
+        std::copy(from.velocity.begin(), from.velocity.end(), to.velocity);
+        std::copy(from.rotation.begin(), from.rotation.end(), to.rotation);
+        to.distance = from.distance;
+        to.player = from.player;
         waiting.pop_front();
     }
     return count;
@@ -5251,6 +5317,8 @@ int main(int argc, char** argv) {
     services.coop_star_count = svc_coop_star_count;
     services.coop_rules = svc_coop_rules;
     services.coop_achievement_take = svc_coop_achievement_take;
+    services.coop_objects_report = svc_coop_objects_report;
+    services.coop_objects_take = svc_coop_objects_take;
 #if defined(NEBULA_HOST_RENDERER)
     // The display configuration (GALAXY_RENDER_CONFIG_PATH in tests), loaded before the window; the settings overlay
     // reads its frame art from the game files.

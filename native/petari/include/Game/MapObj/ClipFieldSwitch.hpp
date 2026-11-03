@@ -9,4 +9,5 @@ public:
     virtual ~ClipFieldSwitch();
     virtual void init(const JMapInfoIter&);
     virtual void control();
+    void controlSwitches();
 };
