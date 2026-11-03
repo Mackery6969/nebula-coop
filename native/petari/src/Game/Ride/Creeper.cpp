@@ -1,4 +1,8 @@
 #include "Game/Ride/Creeper.hpp"
+#include "Game/Util/NativeShader.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/LiveActor/PartsModel.hpp"
 #include "Game/Scene/SceneFunction.hpp"
@@ -8,7 +12,7 @@
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/Color.hpp"
 #include "Game/Util/DemoUtil.hpp"
-#include "Game/Util/GamePadUtil.hpp"
+#include "Game/Util/PlayerInputUtil.hpp"
 #include "Game/Util/JMapUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
@@ -18,9 +22,8 @@
 #include "Game/Util/RailUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include <JSystem/JUtility/JUTTexture.hpp>
-#include <revolution/gx/GXVert.h>
-#include <revolution/mtx.h>
-#include <revolution/wpad.h>
+#include <nebula_math.h>
+#include "Game/System/NebulaInput.hpp"
 
 namespace NrvCreeper {
     NEW_NERVE(CreeperNrvFree, Creeper, Free);
@@ -165,7 +168,7 @@ void Creeper::init(const JMapInfoIter& rIter) {
 
     initSound(4, false);
 
-    mTexture = new JUTTexture(MR::loadTexFromArc("Creeper.arc", "Stalk.bti"), 0);
+    mTexture = new JUTTexture(MR::loadTexFromArc("Creeper.arc", "Stalk.bti"));
 
     mFlowerModel = MR::createPartsModelNoSilhouettedMapObj(this, "\211\324\201\151\202\302\202\351\211\324\201\152" /* 花（つる花） */, "CreeperFlower", mTopMtx.toMtxPtr());
     mLeafModel = MR::createPartsModelNoSilhouettedMapObj(this, "\227\164\201\151\202\302\202\351\211\324\201\152" /* 葉（つる花） */, "CreeperLeaf", nullptr);
@@ -192,7 +195,7 @@ void Creeper::exeHangStart() {
         MR::startBckPlayer("GrowPlantCatch", ::sAnimInterpoleFrame);
     }
 
-    if (!updateHangUp(::sHangStartRotateSpeed) && MR::isPadSwing(WPAD_CHAN0)) {
+    if (!updateHangUp(::sHangStartRotateSpeed) && MR::isSpin(PLAYER_1)) {
         setNerve(GET_NERVE(Creeper, CreeperNrvHangUp));
     }
 }
@@ -202,9 +205,9 @@ void Creeper::exeHangUp() {
         MR::startBckPlayer("GrowPlantHangUp", ::sAnimInterpoleFrame);
     }
 
-    if (!updateHangUp(mHangSpeed * ::sHangRotateSpeedRate) && MR::isPadSwing(WPAD_CHAN0)) {
+    if (!updateHangUp(mHangSpeed * ::sHangRotateSpeedRate) && MR::isSpin(PLAYER_1)) {
         mHangSpeed += ::sHangUpAccel;
-        MR::tryRumblePadMiddle(this, WPAD_CHAN0);
+        MR::tryRumblePadMiddle(this, PLAYER_1);
     }
 }
 
@@ -306,7 +309,7 @@ bool Creeper::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver)
             setNerve(GET_NERVE(Creeper, CreeperNrvHangDown));
         }
 
-        MR::tryRumblePadMiddle(this, WPAD_CHAN0);
+        MR::tryRumblePadMiddle(this, PLAYER_1);
 
         MR::startMultiActorCameraNoTarget(this, mCameraInfo, "\222\315\202\334\202\350" /* 掴まり */);
         return true;
@@ -358,16 +361,16 @@ void Creeper::bendPoints() {
 }
 
 bool Creeper::tryHangUp() {
-    if (MR::isPadSwing(WPAD_CHAN0)) {
-        // BUG: doubly-reversed logic: should be checking WPAD_CHAN1 and accel are swapped
-        if (MR::isPadSwing(WPAD_CHAN0)) {
+    if (MR::isSpin(PLAYER_1)) {
+        // BUG: doubly-reversed logic: should be checking PLAYER_2 and accel are swapped
+        if (MR::isSpin(PLAYER_1)) {
             mHangSpeed = ::sHangUpAccel;
         } else {
             mHangSpeed = ::sHangUpAccel2P;
         }
 
         MR::reverseRailDirection(this);
-        MR::tryRumblePadMiddle(this, WPAD_CHAN0);
+        MR::tryRumblePadMiddle(this, PLAYER_1);
         setNerve(GET_NERVE(Creeper, CreeperNrvHangUp));
         return true;
     }
@@ -415,9 +418,9 @@ bool Creeper::tryJump() {
 }
 
 bool Creeper::updateHangUp(f32 rotateSpeed) {
-    if (MR::isPadSwing(WPAD_CHAN0)) {
+    if (MR::isSpin(PLAYER_1)) {
         mHangSpeed += ::sHangUpAccel;
-        MR::tryRumblePadMiddle(this, WPAD_CHAN0);
+        MR::tryRumblePadMiddle(this, PLAYER_1);
     }
 
     if (MR::isFirstStep(this) && mHangSpeed >= 5.0f) {
@@ -466,9 +469,9 @@ void Creeper::calcAndGetCurrentInfo(TVec3f* pPosition, TVec3f* pUp) const {
 
 namespace {
     void sendVertex(const TVec3f& rPos, const TVec3f& rSide, const TVec3f& rFront, f32 x, f32 y, u32 color, f32 texX, f32 texY) {
-        GXPosition3f32(rPos.x + rSide.x * x + rFront.x * y, rPos.y + rSide.y * x + rFront.y * y, rPos.z + rSide.z * x + rFront.z * y);
-        GXColor1u32(color);
-        GXTexCoord2f32(texX, texY);
+        J3DNativeDraw::position(rPos.x + rSide.x * x + rFront.x * y, rPos.y + rSide.y * x + rFront.y * y, rPos.z + rSide.z * x + rFront.z * y);
+        J3DNativeDraw::color(color);
+        J3DNativeDraw::texCoord(texX, texY);
     }
 
     void drawPolygon(const TVec3f& rPos, const TVec3f& rSide, const TVec3f& rFront, f32 x1, f32 y1, f32 x2, f32 y2, u32 color1, u32 color2,
@@ -487,62 +490,38 @@ void Creeper::draw() const {
 
     f32 delta = 1.0f / (mNumPoints - 1);
 
-    GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, mNumPoints * 2);
+    J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, mNumPoints * 2, NEBULA_SHAPE_COLOR0 | NEBULA_SHAPE_TEXCOORD0);
     for (s32 i = 0; i < mNumPoints; i++) {
         ::drawPolygon(mPoints[i]->getPosition(), mPoints[i]->getSide(), mPoints[i]->getFront(), ::sDrawWidthX, -::sDrawWidthZ, 0.0f, ::sDrawWidthZ,
                       ::sColorPlusX, ::sColorPlusZ, delta * ((mNumPoints - 1) - i));
     }
-    GXEnd();
 
-    GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, mNumPoints * 2);
+    J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, mNumPoints * 2, NEBULA_SHAPE_COLOR0 | NEBULA_SHAPE_TEXCOORD0);
     for (s32 i = 0; i < mNumPoints; i++) {
         ::drawPolygon(mPoints[i]->getPosition(), mPoints[i]->getSide(), mPoints[i]->getFront(), 0.0f, ::sDrawWidthZ, -::sDrawWidthX, -::sDrawWidthZ,
                       ::sColorPlusZ, ::sColorMinusX, delta * ((mNumPoints - 1) - i));
     }
-    GXEnd();
 
-    GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, mNumPoints * 2);
+    J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, mNumPoints * 2, NEBULA_SHAPE_COLOR0 | NEBULA_SHAPE_TEXCOORD0);
     for (s32 i = 0; i < mNumPoints; i++) {
         ::drawPolygon(mPoints[i]->getPosition(), mPoints[i]->getSide(), mPoints[i]->getFront(), -::sDrawWidthX, -::sDrawWidthZ, ::sDrawWidthX,
                       -::sDrawWidthZ, ::sColorMinusX, ::sColorPlusX, delta * ((mNumPoints - 1) - i));
     }
-    GXEnd();
 }
 
 void Creeper::loadMaterial() const {
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_POS_XYZ, GX_RGBA8, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_POS_XYZ, GX_F32, 0);
-
-    GXClearVtxDesc();
-    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
-
-    GXLoadPosMtxImm(MR::getCameraViewMtx(), 0);
-    GXSetCurrentMtx(0);
-
-    GXSetNumChans(1);
-    GXSetChanCtrl(GX_COLOR0A0, GX_DISABLE, GX_SRC_VTX, GX_SRC_VTX, 0, GX_DF_NONE, GX_AF_NONE);
-    GXSetChanCtrl(GX_COLOR1A1, GX_DISABLE, GX_SRC_REG, GX_SRC_REG, 0, GX_DF_NONE, GX_AF_NONE);
-
-    GXSetNumTexGens(1);
-    GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, 60, GX_FALSE, 125);
-    mTexture->load(GX_TEXMAP0);
-
-    GXSetNumTevStages(1);
-    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
-    GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_TEXC, GX_CC_RASC, GX_CC_ZERO);
-    GXSetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_TEXA, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-
-    GXSetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_NOOP);
-    GXSetAlphaCompare(GX_GREATER, 0, GX_AOP_AND, GX_GREATER, 0);
-
-    GXSetZMode(GX_ENABLE, GX_LEQUAL, GX_ENABLE);
-    GXSetZCompLoc(GX_ENABLE);
-    GXSetCullMode(GX_CULL_BACK);
+    J3DNativeShape::setPosition(0, MR::getCameraViewMtx());
+    // runtime/src/render/materials/tex_modulate.hlsl: the texture times the vertex colour, its alpha the texture's; drawn where
+    // the alpha is above 0, depth tested and written, back faces culled.
+    NebulaNativeMaterial material;
+    NativeShader::init(material, NEBULA_SHADER_TEX_MODULATE, NativeShader::BLEND_ALPHA, NEBULA_COMPARE_LEQUAL, true,
+                       NEBULA_CULL_BACK);
+    material.early_depth = 1;
+    material.constants[0] = 1.0f;
+    material.constants[1] = 0.0f;
+    NativeShader::setTexture(material, 0, mTexture);
+    NativeShader::send(material);
+    J3DNativeShape::setCurrentIdentity();
 }
 
 Creeper::~Creeper() {

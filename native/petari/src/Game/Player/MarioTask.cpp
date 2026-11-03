@@ -3,8 +3,7 @@
 #include "Game/Player/MarioActor.hpp"
 #include "Game/Player/MarioState.hpp"
 #include "Game/Util/MathUtil.hpp"
-#include <revolution/mtx.h>
-#include <revolution/types.h>
+#include <nebula_math.h>
 
 static const f32 sOne = 1.0f;
 static const f32 sZero = 0.0f;
@@ -276,8 +275,8 @@ bool Mario::taskOnHipDropSlide(u32 flags) {
     }
 
     Mtx rot;
-    PSMTXRotAxisRad(rot, &_A58, sHipDropSlideRot);
-    PSMTXMultVecSR(rot, &dir, &dir);
+    NebulaMtxRotAxisRad(rot, &_A58, sHipDropSlideRot);
+    NebulaMtxMultVecSR(rot, &dir, &dir);
     dir.setLength(_A64);
     dir -= dirCopy;
     dir.setLength(sHipDropSlideLen);

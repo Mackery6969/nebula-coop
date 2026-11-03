@@ -23,14 +23,12 @@ public:
     void exeActivePauseMenu();
     void exeActivePowerStarList();
     void exeSceneInformation();
-#ifdef TARGET_PC
     bool isActive() const;
     // The world needs the screen (a miss, a demo): the menu closed at once if it is only choosing (true); a question,
     // save or letter up finishes first (false).
     bool closeForWorld();
-#endif
 
-    /* 0x20 */ MenuType mMenuType;
-    /* 0x24 */ PauseMenu* mPauseMenu;
-    /* 0x28 */ MR::FunctorBase* mWindowMenuFunc;
+    MenuType mMenuType;
+    PauseMenu* mPauseMenu;
+    MR::FunctorBase* mWindowMenuFunc;
 };

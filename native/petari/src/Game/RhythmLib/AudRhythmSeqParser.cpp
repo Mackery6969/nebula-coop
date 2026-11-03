@@ -1,11 +1,11 @@
 #include "Game/RhythmLib/AudRhythmSeqParser.hpp"
 #include "Game/RhythmLib/AudChordInfo.hpp"
 #include "Game/RhythmLib/AudMeTrackCallback.hpp"
-#include <JSystem/JAudio2/JASCriticalSection.hpp>
+#include "Game/System/GameThreads.hpp"
 #include <JSystem/JAudio2/JASSeqCtrl.hpp>
 #include <JSystem/JAudio2/JASSeqParser.hpp>
 #include <JSystem/JAudio2/JASTrack.hpp>
-#include <revolution/os/OSTime.h>
+#include "Game/System/NebulaClock.hpp"
 
 AudRhythmSeqParser::AudRhythmSeqParser()
     : JASSeqParser(), mTempo(120.0f), mModifiedTempo(120.0f), mChordId(), mScaleId(), mTempoAdjuster(), mCallDepth(), _1A4(), mIsUsed(true),
@@ -134,7 +134,7 @@ s32 AudRhythmSeqParser::parse(JASTrack* pTrack) {
 }
 
 bool AudRhythmSeqParser::checkNoteOn(u32 channel, u32& rPitch, u32& rVelocity, u32& rNoteOff, s64& rTime, bool setOff) {
-    JASCriticalSection crit;
+    GameAudioExclusion crit;
 
     if (!mNoteInfo[channel].mIsOn) {
         return false;
@@ -171,12 +171,12 @@ bool AudRhythmSeqParser::checkNoteOnKey(u32 key, u32& rVelocity, u32& rNoteOff, 
 }
 
 f32 AudRhythmSeqParser::getTempo() const {
-    JASCriticalSection crit;
+    GameAudioExclusion crit;
     return mTempo;
 }
 
 f32 AudRhythmSeqParser::getModifiedTempo() const {
-    JASCriticalSection crit;
+    GameAudioExclusion crit;
     return mModifiedTempo;
 }
 
@@ -214,7 +214,6 @@ u8 AudRhythmSeqParser::getScaleNumberData(JASTrack* pTrack) {
 
 s32 AudRhythmSeqParser::getNextNoteOff(JASTrack* pTrack, u32 channel) {
     // TODO: is this actually written with a goto?
-    // Possible FAKEMATCH
 
     JASSeqCtrl* ctrl = pTrack->getSeqCtrl();
     u32 peekOff = ctrl->getOffset();
@@ -227,7 +226,7 @@ s32 AudRhythmSeqParser::getNextNoteOff(JASTrack* pTrack, u32 channel) {
         if ((data & 0x80) == 0) {
             u8 ctrlFlags = ctrl->readByte();
             data = ctrlFlags & 7;
-            u8 velocity = ctrl->readByte();
+            ctrl->readByte();
 
             if (data == channel) {
                 goto foundNote;
@@ -369,7 +368,7 @@ void AudRhythmSeqParser::initNoteInfo(u32 channel) {
 }
 
 void AudRhythmSeqParser::init() {
-    JASCriticalSection crit;
+    GameAudioExclusion crit;
     mIsActive = false;
     for (u32 i = 0; i < MAX_CHANNELS; i++) {
         initNoteInfo(i);
@@ -380,7 +379,7 @@ void AudRhythmSeqParser::init() {
 }
 
 void AudRhythmSeqParser::activate() {
-    JASCriticalSection crit;
+    GameAudioExclusion crit;
     mIsActive = true;
 }
 
@@ -389,7 +388,7 @@ void AudRhythmSeqParser::setNoteInfo(u32 channel, u32 pitch, u32 velocity, u32 n
     mNoteInfo[channel].mNoteOff = noteOff;
     mNoteInfo[channel].mPitch = pitch;
     mNoteInfo[channel].mVelocity = velocity;
-    mNoteInfo[channel].mTime = OSGetTime();
+    mNoteInfo[channel].mTime = NebulaClock::nowNs();
 }
 
 bool AudRhythmSeqParser::registChordNumToInfo() {

@@ -1,4 +1,7 @@
 #include "Game/LiveActor/ShadowVolumeLine.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/DirectDraw.hpp"
 #include "Game/Util/MathUtil.hpp"
@@ -11,11 +14,8 @@ ShadowVolumeLine::ShadowVolumeLine() : ShadowVolumeDrawer("\211\145\225\140\211\
 }
 
 void ShadowVolumeLine::loadModelDrawMtx() const {
-    GXLoadPosMtxImm(MR::getCameraViewMtx(), 0);
-    GXSetCurrentMtx(0);
-    GXClearVtxDesc();
-    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+    J3DNativeShape::setPosition(0, MR::getCameraViewMtx());
+    J3DPass::positionMatrix(0);
 }
 
 void ShadowVolumeLine::drawShape() const {
@@ -61,21 +61,19 @@ void ShadowVolumeLine::drawShape() const {
     points[6].scaleAdd(toLength, toDrop, points[4]);
     points[7].scaleAdd(toLength, toDrop, points[5]);
 
-    GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+    J3DNativeDraw::begin(NEBULA_PRIMITIVE_QUADS, 4, 0);
     TDDraw::sendPoint(points[1]);
     TDDraw::sendPoint(points[5]);
     TDDraw::sendPoint(points[7]);
     TDDraw::sendPoint(points[3]);
-    GXEnd();
 
-    GXBegin(GX_QUADS, GX_VTXFMT0, 4);
+    J3DNativeDraw::begin(NEBULA_PRIMITIVE_QUADS, 4, 0);
     TDDraw::sendPoint(points[0]);
     TDDraw::sendPoint(points[2]);
     TDDraw::sendPoint(points[6]);
     TDDraw::sendPoint(points[4]);
-    GXEnd();
 
-    GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, 10);
+    J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, 10, 0);
     TDDraw::sendPoint(points[0]);
     TDDraw::sendPoint(points[1]);
     TDDraw::sendPoint(points[2]);
@@ -86,7 +84,6 @@ void ShadowVolumeLine::drawShape() const {
     TDDraw::sendPoint(points[5]);
     TDDraw::sendPoint(points[0]);
     TDDraw::sendPoint(points[1]);
-    GXEnd();
 }
 
 void ShadowVolumeLine::setFromShadowController(const ShadowController* pController) {

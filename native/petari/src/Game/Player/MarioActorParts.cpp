@@ -130,8 +130,6 @@ void MarioActor::updateTornado() {
     mTornadoMario->setTrHeight(mPosition, mMario->mFrontVec, mMario->_54C, _240);
 }
 
-#pragma push
-#pragma global_optimizer off
 void MarioActor::updateTakingPosition() {
     if (_480) {
         const HitSensor* sensor = _424;
@@ -173,14 +171,14 @@ void MarioActor::updateTakingPosition() {
             landing |= terminated;
             updateAnimation = landing;
         } else {
-            f32 frame;
+            f32 frame = 0.0f;
             if (_B92 == -1)
                 frame = mMarioAnim->getUpperFrame();
             if (_B92 == -2)
                 frame = mMarioAnim->getFrame();
-            PSMTXConcat(getBaseMtx(), _E3C.toMtxPtr(), base);
+            NebulaMtxConcat(getBaseMtx(), _E3C.toMtxPtr(), base);
             J3DModel* model = MR::getJ3DModel(mNullAnimation);
-            PSMTXCopy(base, model->getBaseTRMtx());
+            NebulaMtxCopy(base, model->getBaseTRMtx());
             if (mNullAnimation->getFramePos(frame, &position, &rotation)) {
                 clearNullAnimation(-3);
                 if (_424)
@@ -223,8 +221,8 @@ void MarioActor::updateTakingPosition() {
         }
         TVec3f position;
         mNullAnimation->getLastPos(&position);
-        PSMTXMultVec(_E3C.toMtxPtr(), &position, &position);
-        PSMTXMultVec(getBaseMtx(), &position, &position);
+        NebulaMtxMultVec(_E3C.toMtxPtr(), &position, &position);
+        NebulaMtxMultVec(getBaseMtx(), &position, &position);
         f32 offset = 10.0f * (mMario->mWalkSpeed * mMario->mWalkSpeed);
         offset *= JMASinRadian(_490);
         _490 += MR::getRandom(0.1f, 1.0f);
@@ -235,10 +233,9 @@ void MarioActor::updateTakingPosition() {
         carryRotation = _438[0] + rotation;
     }
 }
-#pragma pop
 
 const HitSensor* MarioActor::getCarrySensor() const {
-    if (_468 == nullptr) {
+    if (_468 == 0) {
         return nullptr;
     }
 
@@ -511,7 +508,7 @@ void MarioActor::updateBaseMtxTeresa(MtxPtr mtx) {
     f32 angle = mConst->getTable()->mTeresaAngleDown;
     if (_9AC > 0.0f)
         angle = mConst->getTable()->mTeresaAngleUp;
-    PSMTXConcat(mtx, MR::tmpMtxRotXRad(_9AC * angle), mtx);
+    NebulaMtxConcat(mtx, MR::tmpMtxRotXRad(_9AC * angle), mtx);
 }
 
 bool MarioActor::finalizeFreezeModel() {

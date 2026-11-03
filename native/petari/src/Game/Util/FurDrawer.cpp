@@ -1,51 +1,54 @@
 #include "Game/Util/FurDrawer.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeTexture.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
 #include "Game/LiveActor/MaterialCtrl.hpp"
 #include "Game/Util/DirectDraw.hpp"
+#include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/FurParam.hpp"
 #include "Game/Util/MathUtil.hpp"
-#include <JSystem/JKernel/JKRHeap.hpp>
+#include "Game/Util/ModelUtil.hpp"
+#include "Game/Util/NativeShader.hpp"
+#include "Game/System/NebulaArena.hpp"
 #include <JSystem/JUtility/JUTTexture.hpp>
 #include <cmath>
+#include <cstring>
 
 FurDrawer::FurDrawer(u32 numLayers, ResTIMG* pBody, ResTIMG* pIndirect)
     : mBodyTexture(), mFurTexture(), mIndirectTexture(), mNumLayers(numLayers), mLength(3.0f, 1.0f), mIndirect(0.2f, 1.5f), mBrightness(40.0f, 4.5f),
-      mAlpha(210.0f, 1.8f), mFurUVScale(1.0f), mBodyUVScale(1.0f), mColorBlend(0.0f, 1.0f), mCullMode(GX_CULL_BACK), mMatIntensity(255),
+      mAlpha(210.0f, 1.8f), mFurUVScale(1.0f), mBodyUVScale(1.0f), mColorBlend(0.0f, 1.0f), mCullMode(J3D_CULL_BACK), mMatIntensity(255),
       mAmbIntensity(50), mUseIndirect(1), mZCompLoc(), mZWrite(), mAdditive(), mAlphaRef(32) {
-    mBodyTexture = new JUTTexture(pBody, 0);
+    mBodyTexture = new JUTTexture(pBody);
 
     if (mIndirectTexture) {
-        mIndirectTexture = new JUTTexture(pIndirect, 0);
+        mIndirectTexture = new JUTTexture(pIndirect);
         mUseIndirect = 1;
     } else {
         mUseIndirect = 0;
     }
 
-    u32 size = GXGetTexBufferSize(32, 32, GX_TF_IA8, GX_FALSE, 1);
+    u32 size = J3DNativeTexture::linearSize(NEBULA_TEXTURE_LINEAR_LA8, 32, 32, 1);
     ResTIMG* pImage = reinterpret_cast< ResTIMG* >(new (32) u8[size + sizeof(ResTIMG)]);
-    pImage->mFormat = GX_TF_IA8;
     pImage->mWidth = 32;
     pImage->mHeight = 32;
-    pImage->mWrapS = GX_REPEAT;
-    pImage->mWrapT = GX_REPEAT;
-    pImage->mPaletteName = GX_TLUT0;
-    pImage->mPaletteFormat = GX_TL_IA8;
-    pImage->mPaletteNum = 0;
-    pImage->mPaletteDataOffset = 0;
+    pImage->mWrapS = NEBULA_WRAP_REPEAT;
+    pImage->mWrapT = NEBULA_WRAP_REPEAT;
+    pImage->mImage = nullptr;
     pImage->mMipmap = false;
     pImage->mDoEdgeLod = false;
     pImage->mBiasClamp = false;
-    pImage->mMaxAnisotropy = GX_ANISO_1;
-    pImage->mMinType = GX_LINEAR;
-    pImage->mMagType = GX_LINEAR;
+    pImage->mMaxAnisotropy = 0;
+    pImage->mMinType = NEBULA_FILTER_LINEAR;
+    pImage->mMagType = NEBULA_FILTER_LINEAR;
     pImage->mMinLod = 0;
     pImage->mMaxLod = 0;
     pImage->mImageNum = 1;
     pImage->mLodBias = 0;
     pImage->mImageDataOffset = sizeof(ResTIMG);
-    mFurTexture = new JUTTexture(pImage, 0);
+    mFurTexture = new JUTTexture(pImage);
     mUseDensityMap = 0;
-    PSMTXIdentity(mFurTexMtx);
-    PSMTXIdentity(mIndirectTexMtx);
+    NebulaMtxIdentity(mFurTexMtx);
+    NebulaMtxIdentity(mIndirectTexMtx);
     mMixFog = 0;
     mFogPosition.x = mFogPosition.y = mFogPosition.z = 0.0f;
     mFogWidth = 0.0f;
@@ -70,13 +73,24 @@ FurDrawer::FurDrawer(u32 numLayers, ResTIMG* pBody, ResTIMG* pIndirect)
 }
 
 void FurDrawer::update() {
-    PSMTXScale(mFurTexMtx, mFurUVScale, mFurUVScale, 1.0f);
+    NebulaMtxScale(mFurTexMtx, mFurUVScale, mFurUVScale, 1.0f);
 }
 
 f32 FurDrawer::CLayerParam::calcValue(s32 layer, s32 numLayers) const {
     f32 t = pow(f32(layer + 1) / numLayers, mCurve);
     return mRoot + t * (mTip - mRoot);
 }
+
+namespace {
+    // The fur's native material (runtime/src/render/materials/fur.hlsl) as setupMaterial set it; each shell sends it
+    // with its own brightness, alphas and indirect scale.
+    NebulaNativeMaterial sMaterial;
+
+    void setChannelColor(f32* pOut, u8 intensity) {
+        pOut[0] = pOut[1] = pOut[2] = intensity / 255.0f;
+        pOut[3] = 1.0f;
+    }
+}  // namespace
 
 void FurDrawer::setupMaterial(DynamicFurParam* pParam) const {
     bool useSpecular = false;
@@ -86,150 +100,95 @@ void FurDrawer::setupMaterial(DynamicFurParam* pParam) const {
         useSpecular = true;
     }
 
-    GXSetCoPlanar(GX_FALSE);
-    GXSetCullMode(static_cast< GXCullMode >(mCullMode));
+    NativeShader::init(sMaterial, NEBULA_SHADER_FUR, mAdditive ? NativeShader::BLEND_ADD_ALPHA : NativeShader::BLEND_ALPHA,
+                       NEBULA_COMPARE_LEQUAL, mZWrite != 0,
+                       mCullMode == J3D_CULL_BACK ? NEBULA_CULL_BACK : mCullMode == J3D_CULL_FRONT ? NEBULA_CULL_FRONT
+                       : mCullMode == J3D_CULL_ALL ? NEBULA_CULL_BACK : NEBULA_CULL_NONE);
+    sMaterial.early_depth = mZCompLoc != 0 ? 1 : 0;
+    sMaterial.color_write = 1;
+    sMaterial.alpha_write = 0;
 
-    if (mAdditive) {
-        GXSetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_ONE, GX_LO_CLEAR);
-    } else {
-        GXSetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
-    }
-
-    GXSetZMode(GX_TRUE, GX_LEQUAL, mZWrite);
-    GXSetColorUpdate(GX_TRUE);
-    GXSetAlphaUpdate(GX_FALSE);
-    GXSetAlphaCompare(GX_GREATER, mAlphaRef, GX_AOP_OR, GX_GREATER, mAlphaRef);
-    GXSetZCompLoc(mZCompLoc);
-    GXSetTevDirect(GX_TEVSTAGE0);
-    GXSetNumTevStages(2);
-    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
-    GXSetTevKColorSel(GX_TEVSTAGE0, GX_TEV_KCSEL_K3_R);
-    GXSetTevKAlphaSel(GX_TEVSTAGE0, GX_TEV_KASEL_K3_G);
-    GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_TEXC, GX_CC_RASC, GX_CC_KONST);
-    GXSetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_KONST);
-    GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetTevKColorSel(GX_TEVSTAGE1, GX_TEV_KCSEL_K3);
-    GXSetTevKAlphaSel(GX_TEVSTAGE1, GX_TEV_KASEL_K3_B);
-
-    if (useSpecular) {
-        GXSetTevOrder(GX_TEVSTAGE1, GX_TEXCOORD1, GX_TEXMAP1, GX_COLOR1A1);
-        GXSetTevColorIn(GX_TEVSTAGE1, GX_CC_C2, GX_CC_CPREV, GX_CC_TEXC, GX_CC_RASC);
-    } else {
-        GXSetTevOrder(GX_TEVSTAGE1, GX_TEXCOORD1, GX_TEXMAP1, GX_COLOR_NULL);
-        GXSetTevColorIn(GX_TEVSTAGE1, GX_CC_C2, GX_CC_CPREV, GX_CC_TEXC, GX_CC_ZERO);
-    }
-
-    GXSetTevColorOp(GX_TEVSTAGE1, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_2, GX_TRUE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE1, GX_CA_ZERO, GX_CA_TEXA, GX_CA_APREV, GX_CA_KONST);
-    GXSetTevAlphaOp(GX_TEVSTAGE1, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-
-    if (mUseIndirect) {
-        GXSetNumIndStages(1);
-        GXSetTevIndirect(GX_TEVSTAGE1, GX_INDTEXSTAGE0, GX_ITF_8, GX_ITB_STU, GX_ITM_0, GX_ITW_OFF, GX_ITW_OFF, GX_FALSE, GX_FALSE, GX_ITBA_OFF);
-    } else {
-        GXSetNumIndStages(0);
-        GXSetTevDirect(GX_TEVSTAGE1);
-    }
-
+    // The fog (start, end, near, far; colour; type): the fog control's, or TDDraw's mixed fog (linear over the
+    // sphere around the fog position, colour 0xFF000080), or none.
+    f32* pFog = sMaterial.constants + 32;
     if (pParam->mFogCtrl) {
-        const J3DFogInfo& fog = pParam->mFogCtrl->mFogInfo;
-        GXSetFog(static_cast< GXFogType >(fog.mType), fog.mStartZ, fog.mEndZ, fog.mNearZ, fog.mFarZ, fog.mColor);
+        const J3DFogInfo& rFog = pParam->mFogCtrl->mFogInfo;
+        pFog[0] = rFog.mStartZ;
+        pFog[1] = rFog.mEndZ;
+        pFog[2] = rFog.mNearZ;
+        pFog[3] = rFog.mFarZ;
+        pFog[4] = rFog.mColor.r / 255.0f;
+        pFog[5] = rFog.mColor.g / 255.0f;
+        pFog[6] = rFog.mColor.b / 255.0f;
+        pFog[7] = rFog.mType;
     } else if (mMixFog) {
-        TDDraw::mixFogColor(mFogPosition, mFogWidth, 0xFF000080);
+        MR::calcFogStartEnd(mFogPosition, mFogWidth, &pFog[0], &pFog[1]);
+        pFog[2] = MR::getNearZ();
+        pFog[3] = MR::getFarZ();
+        pFog[4] = 1.0f;
+        pFog[5] = 0.0f;
+        pFog[6] = 0.0f;
+        pFog[7] = J3D_FOG_PERSP_LIN;
     } else {
-        GXColor color = {0, 0, 0, 0};
-        GXSetFog(GX_FOG_NONE, 0.0f, 0.0f, 0.0f, 0.0f, color);
-        GXSetFogRangeAdj(GX_FALSE, 0, nullptr);
+        pFog[7] = J3D_FOG_NONE;
     }
 
     Mtx bodyMtx;
     Mtx furMtx;
     Mtx indirectMtx;
-    PSMTXCopy(mFurTexMtx, furMtx);
+    NebulaMtxCopy(mFurTexMtx, furMtx);
 
     if (mUseIndirect) {
-        PSMTXCopy(mIndirectTexMtx, indirectMtx);
+        NebulaMtxCopy(mIndirectTexMtx, indirectMtx);
     } else {
-        PSMTXIdentity(indirectMtx);
+        NebulaMtxIdentity(indirectMtx);
     }
 
-    PSMTXScale(bodyMtx, mBodyUVScale, mBodyUVScale, 1.0f);
-    GXLoadTexMtxImm(bodyMtx, GX_TEXMTX0, GX_MTX2x4);
-    GXLoadTexMtxImm(furMtx, GX_TEXMTX1, GX_MTX2x4);
+    NebulaMtxScale(bodyMtx, mBodyUVScale, mBodyUVScale, 1.0f);
+    J3DNativeShape::setTexture(0, bodyMtx, 2);
+    J3DNativeShape::setTexture(1, furMtx, 2);
 
     if (mUseIndirect) {
-        GXLoadTexMtxImm(indirectMtx, GX_TEXMTX2, GX_MTX2x4);
-        GXSetNumTexGens(3);
-        GXSetIndTexOrder(GX_INDTEXSTAGE0, GX_TEXCOORD2, GX_TEXMAP2);
-        GXSetIndTexCoordScale(GX_INDTEXSTAGE0, GX_ITS_1, GX_ITS_1);
-        GXSetTexCoordGen2(GX_TEXCOORD2, GX_TG_MTX2x4, GX_TG_TEX0, GX_TEXMTX2, GX_FALSE, GX_PTIDENTITY);
-    } else {
-        GXSetNumTexGens(2);
+        J3DNativeShape::setTexture(2, indirectMtx, 2);
     }
 
-    GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_TEXMTX0, GX_FALSE, GX_PTIDENTITY);
-    GXSetTexCoordGen2(GX_TEXCOORD1, GX_TG_MTX2x4, GX_TG_TEX0, GX_TEXMTX1, GX_FALSE, GX_PTIDENTITY);
-    GXSetClipMode(GX_CLIP_DISABLE);
 
+    u32 sources;
+    u32 mask0 = 0;
+    u32 mask1 = 0;
     if (pLight) {
-        u8 numChans = 1;
-        GXSetChanCtrl(GX_ALPHA0, GX_FALSE, GX_SRC_REG, GX_SRC_REG, GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
-        GXSetChanCtrl(GX_COLOR0, GX_TRUE, static_cast< GXColorSrc >(pLight->mColorSource & 1),
-                      static_cast< GXColorSrc >((pLight->mColorSource >> 1) & 1), pLight->mLightMask, GX_DF_CLAMP, GX_AF_NONE);
-
+        // The ambient source then material source per channel (1 the vertex).
+        sources = (pLight->mColorSource & 1) | (((pLight->mColorSource >> 1) & 1) << 1);
+        mask0 = pLight->mLightMask;
         if (useSpecular) {
-            GXSetChanCtrl(GX_COLOR1, GX_TRUE, static_cast< GXColorSrc >((pLight->mColorSource >> 2) & 1),
-                          static_cast< GXColorSrc >((pLight->mColorSource >> 3) & 1), pLight->mSpecularLightMask, GX_DF_NONE, GX_AF_SPEC);
-            GXSetChanCtrl(GX_ALPHA1, GX_FALSE, GX_SRC_REG, GX_SRC_REG, GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
-            numChans = 2;
-        } else {
-            GXSetChanCtrl(GX_COLOR1A1, GX_FALSE, GX_SRC_REG, GX_SRC_REG, GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
+            sources |= (((pLight->mColorSource >> 2) & 1) << 2) | (((pLight->mColorSource >> 3) & 1) << 3);
+            mask1 = pLight->mSpecularLightMask;
         }
-
-        GXColor matColor = {0, 0, 0, 255};
-        matColor.r = pLight->mMatIntensity;
-        matColor.g = pLight->mMatIntensity;
-        matColor.b = pLight->mMatIntensity;
-        GXColor ambColor = {0, 0, 0, 255};
-        ambColor.r = pLight->mAmbIntensity;
-        ambColor.g = pLight->mAmbIntensity;
-        ambColor.b = pLight->mAmbIntensity;
-        GXSetChanMatColor(GX_COLOR0A0, matColor);
-        GXSetChanAmbColor(GX_COLOR0A0, ambColor);
-        GXColor specularMatColor = {0, 0, 0, 255};
-        specularMatColor.r = pLight->mSpecularMatIntensity;
-        specularMatColor.g = pLight->mSpecularMatIntensity;
-        specularMatColor.b = pLight->mSpecularMatIntensity;
-        GXColor specularAmbColor = {0, 0, 0, 255};
-        specularAmbColor.r = pLight->mSpecularAmbIntensity;
-        specularAmbColor.g = pLight->mSpecularAmbIntensity;
-        specularAmbColor.b = pLight->mSpecularAmbIntensity;
-        GXSetChanMatColor(GX_COLOR1A1, specularMatColor);
-        GXSetChanAmbColor(GX_COLOR1A1, specularAmbColor);
-        GXSetNumChans(numChans);
+        setChannelColor(sMaterial.constants + 0, pLight->mMatIntensity);
+        setChannelColor(sMaterial.constants + 4, pLight->mAmbIntensity);
+        setChannelColor(sMaterial.constants + 8, pLight->mSpecularMatIntensity);
+        setChannelColor(sMaterial.constants + 12, pLight->mSpecularAmbIntensity);
     } else {
-        GXSetChanCtrl(GX_COLOR0, GX_TRUE, GX_SRC_VTX, GX_SRC_VTX, GX_LIGHT_NULL, GX_DF_CLAMP, GX_AF_NONE);
-        GXSetChanCtrl(GX_ALPHA0, GX_FALSE, GX_SRC_REG, GX_SRC_REG, GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
-        GXSetChanCtrl(GX_COLOR1A1, GX_FALSE, GX_SRC_REG, GX_SRC_REG, GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
-        GXColor matColor = {0, 0, 0, 255};
-        matColor.r = mMatIntensity;
-        matColor.g = mMatIntensity;
-        matColor.b = mMatIntensity;
-        GXColor ambColor = {0, 0, 0, 255};
-        ambColor.r = mAmbIntensity;
-        ambColor.g = mAmbIntensity;
-        ambColor.b = mAmbIntensity;
-        GXSetChanMatColor(GX_COLOR0A0, matColor);
-        GXSetChanAmbColor(GX_COLOR0A0, ambColor);
-        GXSetNumChans(1);
+        // Channel 0 lit by no lights with both colours from the vertex.
+        sources = 3;
+        setChannelColor(sMaterial.constants + 0, mMatIntensity);
+        setChannelColor(sMaterial.constants + 4, mAmbIntensity);
+        setChannelColor(sMaterial.constants + 8, 0);
+        setChannelColor(sMaterial.constants + 12, 0);
     }
+    sMaterial.constants[24] = static_cast< f32 >(mask0);
+    sMaterial.constants[25] = static_cast< f32 >(mask1);
+    sMaterial.constants[26] = static_cast< f32 >(sources);
+    sMaterial.constants[27] = static_cast< f32 >((useSpecular ? 1 : 0) | (mUseIndirect ? 2 : 0));
+    sMaterial.constants[29] = mAlphaRef;
+    sMaterial.constants[30] = static_cast< f32 >(mFurTexture->getWidth());
+    sMaterial.constants[31] = static_cast< f32 >(mFurTexture->getHeight());
 
-    mBodyTexture->load(GX_TEXMAP0);
-    mFurTexture->load(GX_TEXMAP1);
+    NativeShader::setTexture(sMaterial, 0, mBodyTexture);
+    NativeShader::setTexture(sMaterial, 1, mFurTexture);
 
     if (mUseIndirect && mIndirectTexture) {
-        mIndirectTexture->load(GX_TEXMAP2);
+        NativeShader::setTexture(sMaterial, 2, mIndirectTexture);
     }
 }
 
@@ -237,43 +196,27 @@ void FurDrawer::setupLayerMaterial(s32 layer) const {
     f32 alpha = mBrightness.calcValue(layer, mNumLayers);
     f32 brightness = mAlpha.calcValue(mNumLayers - layer - 1, mNumLayers);
     f32 blend = mColorBlend.calcValue(mNumLayers - layer - 1, mNumLayers);
-    GXColor kColor;
-    kColor.r = (s32)(alpha);
-    kColor.g = (s32)(brightness);
-    kColor.b = (s32)(blend);
-    kColor.a = 255;
-    GXSetTevKColor(GX_KCOLOR3, kColor);
-    GXColor color;
-    color.r = mColor.r;
-    color.g = mColor.g;
-    color.b = mColor.b;
-    color.a = 255;
-    GXSetTevColor(GX_TEVREG2, color);
-
-    if (mUseIndirect) {
-        f32 scale = mIndirect.calcValue(layer, mNumLayers);
-        f32 mtx[2][3];
-        mtx[0][0] = scale;
-        mtx[0][1] = 0.0f;
-        mtx[0][2] = 0.0f;
-        mtx[1][0] = 0.0f;
-        mtx[1][1] = scale;
-        mtx[1][2] = 0.0f;
-        GXSetIndTexMtx(GX_ITM_0, mtx, 0);
-    }
+    // constant colour 3 as the shell's (8-bit channels).
+    sMaterial.constants[16] = static_cast< u8 >((s32)(alpha)) / 255.0f;
+    sMaterial.constants[17] = static_cast< u8 >((s32)(brightness)) / 255.0f;
+    sMaterial.constants[18] = static_cast< u8 >((s32)(blend)) / 255.0f;
+    sMaterial.constants[19] = 1.0f;
+    NativeShader::setColor(sMaterial, 20, mColor.r, mColor.g, mColor.b, 255);
+    sMaterial.constants[28] = mUseIndirect ? mIndirect.calcValue(layer, mNumLayers) : 0.0f;
+    NativeShader::send(sMaterial);
 }
 
 void FurDrawer::createFurMap() {
     u32 count;
-    // IA8 texels for GX, in the console's byte order.
-    NEBULA_BE(u16)* pPixels;
+    // LA8 texels in rows (NEBULA_TEXTURE_LINEAR_LA8): intensity, then alpha. Each strand is written at its place in the rows.
+    u8* pTexels = mFurTexture->mImage;
     u32 width = mFurTexture->getTexInfo()->mWidth;
     u32 height = mFurTexture->getTexInfo()->mHeight;
-    pPixels = reinterpret_cast< NEBULA_BE(u16)* >(mFurTexture->mImage);
     count = height * width;
 
     for (u32 i = 0; i < count; i++) {
-        pPixels[i] = 255;
+        pTexels[2 * i] = 255;
+        pTexels[2 * i + 1] = 0;
     }
 
     for (u32 type = 0; type < 4; type++) {
@@ -291,9 +234,18 @@ void FurDrawer::createFurMap() {
                 x = s32(width) - 1;
             }
 
-            pPixels[x + width * y] = (u16((s32)(255.0f * mThickness[type])) << 8) | u16(255 - mLengthMap[type]);
+            const u32 index = x + width * y;
+            const u32 tilesAcross = (width + 3) / 4;
+            const u32 tile = index >> 4;
+            const u32 texelX = (tile % tilesAcross) * 4 + (index & 3);
+            const u32 texelY = (tile / tilesAcross) * 4 + ((index >> 2) & 3);
+            if (texelX < width && texelY < height) {
+                u8* pTexel = pTexels + 2 * (texelX + width * texelY);
+                pTexel[0] = static_cast< u8 >(255 - mLengthMap[type]);
+                pTexel[1] = static_cast< u8 >(static_cast< s32 >(255.0f * mThickness[type]));
+            }
         }
     }
 
-    DCStoreRange(pPixels, count * sizeof(u16));
+    J3DNativeTexture::registerLinear(pTexels, NEBULA_TEXTURE_LINEAR_LA8, width, height, 1);
 }

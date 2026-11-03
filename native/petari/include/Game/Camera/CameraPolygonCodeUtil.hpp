@@ -1,6 +1,7 @@
 #pragma once
 
-#include <revolution.h>
+#include <NebulaGpu.h>
+#include <nebula_math.h>
 
 namespace MR {
     void initCameraCodeCollection(const char*, s32);

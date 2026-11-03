@@ -1,7 +1,4 @@
-#ifdef TARGET_PC
 #include <nebula_game_api.h>
-#include <revolution/os.h>
-#endif
 #include "Game/MapObj/FlipPanel.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/LiveActorGroupArray.hpp"
@@ -10,11 +7,7 @@
 #include "Game/MapObj/MapObjActorInitInfo.hpp"
 #include "Game/Util.hpp"
 #include <JSystem/JMath/JMath.hpp>
-
-void FlipPanel_FORCE_MATCH_SDATA2() {
-    (void)MR::epsilon();
-    (void)-25.0f;
-}
+#include "Game/System/NebulaHost.hpp"
 
 namespace NrvFlipPanel {
     NEW_NERVE(FlipPanelNrvFrontLand, FlipPanel, FrontLand);
@@ -56,13 +49,7 @@ void FlipPanel::init(const JMapInfoIter& rIter) {
     initialize(rIter, info);
     mIsReverse = isObjectName("FlipPanelReverse");
     mDelegator = MR::createJointDelegatorWithNullChildFunc(this, &FlipPanel::calcJointMove, "Panel");
-#ifdef TARGET_PC
-    u32 groupSize = 0x20;
-    __NebulaCodePatch(NEBULA_PATCH_FLIP_PANEL_GROUP, &groupSize);
-    mFlipPanelGroup = MR::joinToGroupArray(this, rIter, 0, groupSize);
-#else
     mFlipPanelGroup = MR::joinToGroupArray(this, rIter, 0, 0x20);
-#endif
     MR::invalidateClipping(this);
     MR::startBck(this, "PanelB");
     f32 frameMax = MR::getBckFrameMax(this);
@@ -83,19 +70,15 @@ void FlipPanel::exeFrontLand() {
             MapObjActorUtil::appearBloomModel(this);
             ModelObj* bloomModel = mBloomModel;
             u32 frameMax = MR::getBrkFrameMax(bloomModel);
-#ifdef TARGET_PC
-            // The frame count is 0 until the bloom animation starts: the console's divwu gives 0 there (no trap).
-            u32 val = __nebula_divwu(::sBloomSyncStep, frameMax);
-#else
-            u32 val = ::sBloomSyncStep / frameMax;
-#endif
+            // The frame count is 0 until the bloom animation starts: the step itself is then the frame.
+            u32 val = frameMax != 0 ? ::sBloomSyncStep / frameMax : 0;
             frameMax = ::sBloomSyncStep - (val)*frameMax;
             MR::setBrkFrame(bloomModel, frameMax);
         } else {
             MapObjActorUtil::killBloomModel(this);
         }
 
-        MR::tryRumblePadMiddle(this, WPAD_CHAN0);
+        MR::tryRumblePadMiddle(this, PLAYER_1);
         MR::startSound(this, "SE_OJ_FLIP_PANEL_CHANGE");
 
         if (_CD) {
@@ -119,17 +102,13 @@ void FlipPanel::exeBackLand() {
             MapObjActorUtil::appearBloomModel(this);
             ModelObj* bloomModel = mBloomModel;
             u32 frameMax = MR::getBrkFrameMax(bloomModel);
-#ifdef TARGET_PC
-            // The frame count is 0 until the bloom animation starts: the console's divwu gives 0 there (no trap).
-            u32 val = __nebula_divwu(::sBloomSyncStep, frameMax);
-#else
-            u32 val = ::sBloomSyncStep / frameMax;
-#endif
+            // The frame count is 0 until the bloom animation starts: the step itself is then the frame.
+            u32 val = frameMax != 0 ? ::sBloomSyncStep / frameMax : 0;
             frameMax = ::sBloomSyncStep - (val)*frameMax;
             MR::setBrkFrame(bloomModel, frameMax);
         }
 
-        MR::tryRumblePadMiddle(this, WPAD_CHAN0);
+        MR::tryRumblePadMiddle(this, PLAYER_1);
         MR::startSound(this, "SE_OJ_FLIP_PANEL_CHANGE");
 
         if (!_CD) {
@@ -199,12 +178,8 @@ void FlipPanel::endClipped() {
     if (MR::getBrkCtrl(mBloomModel)) {
         ModelObj* bloomModel = mBloomModel;
         u32 frameMax = MR::getBrkFrameMax(bloomModel);
-#ifdef TARGET_PC
-        // The frame count is 0 until the bloom animation starts: the console's divwu gives 0 there (no trap).
-        u32 val = __nebula_divwu(::sBloomSyncStep, frameMax);
-#else
-        u32 val = ::sBloomSyncStep / frameMax;
-#endif
+        // The frame count is 0 until the bloom animation starts: the step itself is then the frame.
+        u32 val = frameMax != 0 ? ::sBloomSyncStep / frameMax : 0;
         frameMax = ::sBloomSyncStep - (val)*frameMax;
         MR::setBrkFrame(bloomModel, frameMax);
     }
@@ -300,13 +275,7 @@ void FlipPanelObserver::init(const JMapInfoIter& rIter) {
     initHitSensor(1);
     MR::addBodyMessageSensorMapObj(this);
     MR::invalidateClipping(this);
-#ifdef TARGET_PC
-    u32 groupSize = 0x20;
-    __NebulaCodePatch(NEBULA_PATCH_FLIP_PANEL_OBSERVER_GROUP, &groupSize);
-    _8C = MR::joinToGroupArray(this, rIter, 0, groupSize);
-#else
     _8C = MR::joinToGroupArray(this, rIter, 0, 0x20);
-#endif
     MR::useStageSwitchWriteA(this, rIter);
     initSound(2, false);
     MR::getJMapInfoArg7NoInit(rIter, &mPowerStarId);

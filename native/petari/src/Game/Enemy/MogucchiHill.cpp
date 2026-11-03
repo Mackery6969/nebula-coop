@@ -9,17 +9,6 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 
-void MogucchiHill_FORCE_MATCH_SDATA2() {
-    (void)0.0f;
-    (void)0.5f;
-    (void)120.0f;
-    (void)90000.0f;
-    (void)100.0f;
-    (void)150.0f;
-    (void)0.6f;
-    (void)(1.0f - 0.6f);
-}
-
 namespace {
     static const char* sPieceModelTable[] = {
         "MogucchiHillA",
@@ -222,7 +211,7 @@ bool MogucchiHillPiece::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitS
     }
 
     if (MR::isMsgPlayerHipDrop(msg)) {
-        MR::tryRumblePadWeak(this, WPAD_CHAN0);
+        MR::tryRumblePadWeak(this, PLAYER_1);
         MR::startSound(this, "SE_EM_MOGHILL_BREAK");
         destroy();
 
@@ -230,7 +219,7 @@ bool MogucchiHillPiece::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitS
     }
 
     if (MR::isMsgPlayerTrample(msg)) {
-        MR::tryRumblePadWeak(this, WPAD_CHAN0);
+        MR::tryRumblePadWeak(this, PLAYER_1);
         MR::startSound(this, "SE_EM_MOGHILL_BREAK");
         destroy();
 
@@ -244,7 +233,7 @@ bool MogucchiHillPiece::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitS
     }
 
     if (isHitAll) {
-        MR::tryRumblePadMiddle(this, WPAD_CHAN0);
+        MR::tryRumblePadMiddle(this, PLAYER_1);
         MR::startSound(this, "SE_EM_MOGHILL_BREAK");
         mHost->killPieces(this);
 
@@ -267,14 +256,14 @@ bool MogucchiHillPiece::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSe
         return false;
     }
 
-    MR::tryRumblePadWeak(this, WPAD_CHAN0);
+    MR::tryRumblePadWeak(this, PLAYER_1);
     MR::startSound(this, "SE_EM_MOGHILL_BREAK_SOFT");
     destroy();
 
     return true;
 }
 
-bool MogucchiHillPiece::isTargetGoingAway(HitSensor* pSender, HitSensor* pReceiver) const NO_INLINE {
+bool MogucchiHillPiece::isTargetGoingAway(HitSensor* pSender, HitSensor* pReceiver) const {
     TVec3f toReceiver = pReceiver->mPosition - pSender->mPosition;
 
     return toReceiver.dot(pReceiver->mHost->mVelocity) >= 0.0f;
@@ -328,7 +317,7 @@ void MogucchiHill::killPieces(MogucchiHillPiece* pIter) {
     s32 index = pIter - _90 - 2;
 
     for (s32 i = 0; i < 3; i++) {
-        index = (index + _94 + 1) % _94;
+        index = _94 != 0 ? (index + _94 + 1) % _94 : index + 1;
 
         if (MR::isDead(&_90[index])) {
             continue;
@@ -443,12 +432,12 @@ void MogucchiHill::appearPiece() {
         s32 count = _94;
         s32 index = _98;
         _CC = false;
-        _98 = (index + count + 1) % count;
+        _98 = count != 0 ? (index + count + 1) % count : index + 1;
     }
 }
 
 void MogucchiHill::killPieceOverAppear() {
-    s32 index = (_94 + (_98 - mAppearNum)) % _94;
+    s32 index = _94 != 0 ? (_94 + (_98 - mAppearNum)) % _94 : _98 - mAppearNum;
 
     _90[index].crumble();
 }
@@ -461,7 +450,7 @@ void MogucchiHill::killPieceIfAlive() {
     _90[_98].kill();
 }
 
-f32 MogucchiHill::getDistanceFromReserveMtx() const NO_INLINE {
+f32 MogucchiHill::getDistanceFromReserveMtx() const {
     TVec3f trans;
     mReserveMtx.getTrans(trans);
 

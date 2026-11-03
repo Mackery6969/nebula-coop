@@ -1,4 +1,7 @@
 #include "Game/MapObj/SpinDriverPathDrawer.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
 #include "Game/MapObj/SpinDriverShootPath.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
@@ -10,36 +13,37 @@
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/RailUtil.hpp"
 #include <JSystem/JUtility/JUTTexture.hpp>
+#include "Game/Util/NativeShader.hpp"
+#include <nebula_game_api.h>
 
 namespace {
-    inline u32 packPathColor(const TVec3f& rColor, const f32& rAlpha) {
-#ifdef TARGET_PC
-        // The console's 0xRRGGBBAA word (its bytes stored r, g, b, a).
-        return (u32)(u8)static_cast< s32 >(255.0f * MR::abs(rColor.x)) << 24 | (u32)(u8)static_cast< s32 >(255.0f * MR::abs(rColor.y)) << 16 |
-               (u32)(u8)static_cast< s32 >(255.0f * MR::abs(rColor.z)) << 8 | (u32)(u8)static_cast< s32 >(255.0f * MR::abs(rAlpha));
-#else
-        u32 result = 0;
-        reinterpret_cast< u8* >(&result)[0] = static_cast< s32 >(255.0f * MR::abs(rColor.x));
-        reinterpret_cast< u8* >(&result)[1] = static_cast< s32 >(255.0f * MR::abs(rColor.y));
-        reinterpret_cast< u8* >(&result)[2] = static_cast< s32 >(255.0f * MR::abs(rColor.z));
-        reinterpret_cast< u8* >(&result)[3] = static_cast< s32 >(255.0f * MR::abs(rAlpha));
-        return result;
-#endif
+    // runtime/src/render/materials/spin_driver_path.hlsl: the path's colour texture (0) at its alpha times the mask's
+    // (1), through texture matrices 0 and 1; added by source alpha where above zero, depth tested and not written, no
+    // culling.
+    void sendPathMaterial(JUTTexture* pColor, JUTTexture* pMask) {
+        NebulaNativeMaterial material;
+        NativeShader::init(material, NEBULA_SHADER_SPIN_DRIVER_PATH, NativeShader::BLEND_ADD_ALPHA, NEBULA_COMPARE_LEQUAL,
+                           false, NEBULA_CULL_NONE);
+        NativeShader::setTexture(material, 0, pColor);
+        NativeShader::setTexture(material, 1, pMask);
+        NativeShader::send(material);
+        static const u8 kPlaces[8] = {0, 1, J3DNativeShape::kIdentityTexture, J3DNativeShape::kIdentityTexture,
+                                      J3DNativeShape::kIdentityTexture, J3DNativeShape::kIdentityTexture, J3DNativeShape::kIdentityTexture, J3DNativeShape::kIdentityTexture};
+        J3DNativeShape::setCurrent(0, kPlaces);
     }
+}  // namespace
 
-    static const f32 sDrawMinInterval = 0.0f;
-    static const f32 sDrawCurveLimit = 0.0f;
-    static const f32 sLineWidth = 0.0f;
+namespace {
 };  // namespace
 
 SpinDriverPathDrawInit::SpinDriverPathDrawInit()
     : NameObj("\203\130\203\163\203\223\203\150\203\211\203\103\203\157\201\133\203\214\201\133\203\213\225\140\211\346\217\211\212\372\211\273" /* スピンドライバーレール描画初期化 */), mOrangeTexture(), mGreenTexture(), mPinkTexture(), mMaskTexture(), mIsPathAtOpa() {
     MR::registerPreDrawFunction(MR::Functor(this, &SpinDriverPathDrawInit::initDraw), MR::DrawType_SpinDriverPathDrawer);
 
-    mOrangeTexture = new JUTTexture(MR::loadTexFromArc("SpinDriverPath.arc", "NormalColor.bti"), 0);
-    mGreenTexture = new JUTTexture(MR::loadTexFromArc("SpinDriverPath.arc", "Green.bti"), 0);
-    mPinkTexture = new JUTTexture(MR::loadTexFromArc("SpinDriverPath.arc", "Pink.bti"), 0);
-    mMaskTexture = new JUTTexture(MR::loadTexFromArc("SpinDriverPath.arc", "Mask.bti"), 0);
+    mOrangeTexture = new JUTTexture(MR::loadTexFromArc("SpinDriverPath.arc", "NormalColor.bti"));
+    mGreenTexture = new JUTTexture(MR::loadTexFromArc("SpinDriverPath.arc", "Green.bti"));
+    mPinkTexture = new JUTTexture(MR::loadTexFromArc("SpinDriverPath.arc", "Pink.bti"));
+    mMaskTexture = new JUTTexture(MR::loadTexFromArc("SpinDriverPath.arc", "Mask.bti"));
 }
 
 SpinDriverPathDrawer::SpinDriverPathDrawer(SpinDriverShootPath* pShootPath)
@@ -51,47 +55,25 @@ SpinDriverPathDrawer::SpinDriverPathDrawer(SpinDriverShootPath* pShootPath)
 void SpinDriverPathDrawInit::initDraw() {
     TDDraw::cameraInit3D();
 
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_POS_XYZ, GX_F32, 0);
-    GXClearVtxDesc();
-    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
-    GXLoadPosMtxImm(MR::getCameraViewMtx(), 0);
-    GXSetCurrentMtx(0);
-    GXSetNumChans(0);
-    GXSetNumTexGens(2);
-    GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, 30, GX_FALSE, 125);
-    GXSetTexCoordGen2(GX_TEXCOORD1, GX_TG_MTX2x4, GX_TG_TEX0, 33, GX_FALSE, 125);
-    GXSetNumTevStages(2);
-    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR_NULL);
-    GXSetTevOp(GX_TEVSTAGE0, GX_REPLACE);
-    GXSetTevOrder(GX_TEVSTAGE1, GX_TEXCOORD1, GX_TEXMAP1, GX_COLOR_NULL);
-    GXSetTevColorIn(GX_TEVSTAGE1, GX_CC_CPREV, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO);
-    GXSetTevColorOp(GX_TEVSTAGE1, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE1, GX_CA_ZERO, GX_CA_APREV, GX_CA_TEXA, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE1, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_ONE, GX_LO_CLEAR);
-    GXSetAlphaCompare(GX_GREATER, 0, GX_AOP_OR, GX_GREATER, 0);
-    GXSetZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
-    GXSetZCompLoc(GX_TRUE);
-    GXSetCullMode(GX_CULL_NONE);
-    GXSetClipMode(GX_CLIP_ENABLE);
-    GXSetFog(GX_FOG_NONE, 0.0f, 0.0f, 0.0f, 0.0f, Color8(0));
-    GXSetFogRangeAdj(GX_FALSE, 0, nullptr);
-    mMaskTexture->load(GX_TEXMAP1);
+    J3DNativeShape::setPosition(0, MR::getCameraViewMtx());
+    J3DPass::positionMatrix(0);
+    sendPathMaterial(mOrangeTexture, mMaskTexture);
 }
 
 namespace MR {
     void setSpinDriverPathColorNormal() {
-        MR::getSceneObj< SpinDriverPathDrawInit >(SceneObj_SpinDriverPathDrawInit)->mOrangeTexture->load(GX_TEXMAP0);
+        SpinDriverPathDrawInit* pInit = MR::getSceneObj< SpinDriverPathDrawInit >(SceneObj_SpinDriverPathDrawInit);
+        sendPathMaterial(pInit->mOrangeTexture, pInit->mMaskTexture);
     }
 
     void setSpinDriverPathColorGreen() {
-        MR::getSceneObj< SpinDriverPathDrawInit >(SceneObj_SpinDriverPathDrawInit)->mGreenTexture->load(GX_TEXMAP0);
+        SpinDriverPathDrawInit* pInit = MR::getSceneObj< SpinDriverPathDrawInit >(SceneObj_SpinDriverPathDrawInit);
+        sendPathMaterial(pInit->mGreenTexture, pInit->mMaskTexture);
     }
 
     void setSpinDriverPathColorPink() {
-        MR::getSceneObj< SpinDriverPathDrawInit >(SceneObj_SpinDriverPathDrawInit)->mPinkTexture->load(GX_TEXMAP0);
+        SpinDriverPathDrawInit* pInit = MR::getSceneObj< SpinDriverPathDrawInit >(SceneObj_SpinDriverPathDrawInit);
+        sendPathMaterial(pInit->mPinkTexture, pInit->mMaskTexture);
     }
 
     bool isDrawSpinDriverPathAtOpa() {
@@ -318,23 +300,15 @@ void SpinDriverPathDrawer::draw() const {
     mtx[1][1] = -maskSteps;
     mtx[1][3] = 0.5f + maskSteps * drawCode;
 
-    GXLoadTexMtxImm(mtx, 33, GX_MTX2x4);
+    J3DNativeShape::setTexture(1, mtx, 2);
 
     mtx.identity();
     mtx[1][1] = 1.0f / mFadeScale;
     mtx[1][3] = 1.0f - drawBaseCode * mtx[1][1];
 
-    GXLoadTexMtxImm(mtx, 30, GX_MTX2x4);
+    J3DNativeShape::setTexture(0, mtx, 2);
 
     for (u32 i = 1; i < mPositionCount; i++) {
-        f32 alpha;
-        f32 green;
-        alpha = 2.0f * _9C[i] - 1.0f;
-        green = 1.0f - _9C[i];
-        const f32 square = alpha * alpha;
-        alpha = square * square;
-        u32 color = ::packPathColor(TVec3f(1.0f, green, 0.0f), 1.0f - alpha);
-
         TVec3f prev90(_90[i - 1]), curr90(_90[i]);
         TVec3f prev94(_94[i - 1] * 100.0f), curr94(_94[i] * 100.0f);
         TVec3f prev98(_98[i - 1] * 100.0f), curr98(_98[i] * 100.0f);
@@ -342,7 +316,7 @@ void SpinDriverPathDrawer::draw() const {
         f32 prevVal = _9C[i - 1];
         f32 val = _9C[i];
 
-        GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, 6);
+        J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, 6, NEBULA_SHAPE_TEXCOORD0);
 
         sendPoint(prev90 - prev98, 0.0f, prevVal);
         sendPoint(curr90 - curr98, 0.0f, val);
@@ -351,7 +325,7 @@ void SpinDriverPathDrawer::draw() const {
         sendPoint(prev90 + prev98, 1.0f, prevVal);
         sendPoint(curr90 + curr98, 1.0f, val);
 
-        GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, 6);
+        J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, 6, NEBULA_SHAPE_TEXCOORD0);
 
         sendPoint(prev90 - prev94, 0.0f, prevVal);
         sendPoint(curr90 - curr94, 0.0f, val);
@@ -363,9 +337,6 @@ void SpinDriverPathDrawer::draw() const {
 }
 
 void SpinDriverPathDrawer::sendPoint(const TVec3f& rA1, f32 a2, f32 a3) const {
-    GXWGFifo.f32 = rA1.x;
-    GXWGFifo.f32 = rA1.y;
-    GXWGFifo.f32 = rA1.z;
-    GXWGFifo.f32 = a2;
-    GXWGFifo.f32 = a3;
+    J3DNativeDraw::position(rA1.x, rA1.y, rA1.z);
+    J3DNativeDraw::texCoord(a2, a3);
 }

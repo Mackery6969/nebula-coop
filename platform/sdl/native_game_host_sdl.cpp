@@ -1,28 +1,26 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// The native game's host services on SDL3 platforms (native_host.h): the game's sound through SDL's audio stream,
-// the virtual Wii Remote from the on-screen controls, the finger on the picture, keys and gamepads (with the same
-// bindings and tuning as Windows), vibration, and the device data the game reads.
+// The native game's host services on SDL3 platforms (native_host.h, native_audio.h): the game's sound through SDL's
+// audio stream, player 1's input from the on-screen controls, the finger on the picture, keys and gamepads (with the
+// same bindings and tuning as Windows), vibration, and the device data the game reads.
 
+#include "galaxy/render_api.h"
 #include "sdl_host.h"
 
 #include "galaxy/content_viewport.h"
-#include "galaxy/controller_roster.h"
 #include "galaxy/input_bindings.h"
-#include "galaxy/jaudio_host_mixer.h"
-#include "galaxy/native_host.h"
+#include "galaxy/audio_mixer.h"
+#include "galaxy/native_audio.h"
+#include "galaxy/game_paths.h"
 #include "galaxy/native_input.h"
-#include "galaxy/native_settings_pad.h"
 #include "galaxy/platform_time.h"
 #include "galaxy/pointer_control.h"
 #include "galaxy/runtime_settings.h"
 #include "galaxy/tilt.h"
-#include "galaxy/wii_device_data.h"
 
 #include <SDL3/SDL.h>
 
 #include <algorithm>
 #include <array>
-#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <sstream>
@@ -37,121 +35,16 @@ namespace in = galaxy::input;
 constexpr std::uint64_t kTouchPointerHoldMs = 1500;
 // A pad or key pointer at rest hides after this long, as the Wii's does when the remote points away.
 constexpr std::uint64_t kStickPointerHoldMs = 3000;
-// A tap in a menu is A for this many reports (100 a second), as long as a finger's press, once the pointer has rested
-// where the finger touched this long: the game takes A on what the pointer is over, which it finds a few frames
-// after the pointer arrives, and reads the remote once a frame (a shorter press can fall between two reads).
-constexpr std::uint8_t kTapPressReports = 10;
-constexpr std::uint64_t kTapHoverMs = 200;
+// A tap in a menu is A, counted in the game's frames so it lands at any frame rate: the game takes A on what the pointer
+// is over, which it finds some frames after the pointer arrives (InputPointer wants five valid samples, then the menu
+// its hover), and reads the remote once a frame.
+constexpr std::uint64_t kTapHoverFrames = 8;
+constexpr std::uint64_t kTapPressFrames = 3;
+// An on-screen button's press reaches the game for at least this many of its frames, however quick the finger.
+constexpr std::uint64_t kTouchPressFrames = 3;
+// The game's star pointer mode on the title (StarPointerMode_Title): its prompt asks for A and B, so the controls stay.
+constexpr std::int32_t kStarPointerModeTitle = 4;
 constexpr float kTriggerThreshold = 96.0f / 255.0f;  // the Windows host's XInput trigger threshold
-
-// Nebula's settings menu (native_settings_sdl.cpp): whether it shows, and where its keys go (install_native_settings_pad_hooks).
-std::atomic<NativeSettingsVisibleProvider> g_settings_visible{nullptr};
-std::atomic<NativeSettingsKeySink> g_settings_key_sink{nullptr};
-
-// The CONTROLS page's binding capture: 0 idle, else 1 + scheme with the pad's slot above it; the result is
-// (1 << 16) | kind << 8 | code (as native_host.cpp's).
-std::atomic<std::uint32_t> g_capture_armed{0u};
-std::atomic<std::uint32_t> g_capture_result{0u};
-// The device that last gave input, for the CONTROLS page: (scheme << 8) | slot.
-constexpr std::uint32_t kLastInputNone = 0xFFFFFFFFu;
-constexpr std::uint32_t kLastInputKeyboard = 0xFFFFFFFEu;
-std::atomic<std::uint32_t> g_last_input{kLastInputNone};
-
-constexpr in::ControlScheme capture_scheme_of(std::uint32_t armed) noexcept {
-    return static_cast<in::ControlScheme>(std::max<std::uint32_t>(armed & 0xffu, 1u) - 1u);
-}
-
-// A first new press on the armed pad completes a capture; the menu hears of it through its key sink.
-bool service_binding_capture(const sdl::InputState& state) {
-    static in::PadSample s_baseline{};
-    static std::uint32_t s_baseline_for = 0u;
-    const std::uint32_t armed = g_capture_armed.load(std::memory_order_acquire);
-    if (armed == 0u) {
-        s_baseline_for = 0u;
-        return false;
-    }
-    const in::ControlScheme scheme = capture_scheme_of(armed);
-    const auto slot = static_cast<std::uint8_t>(armed >> 8u);
-    const in::PadSample* match = nullptr;
-    for (std::size_t i = 0; i < sdl::kMaxPads; ++i) {
-        if (state.pads[i].connected && state.pads[i].scheme == scheme && (slot == in::kKeyboardSlot || slot == i)) {
-            match = &state.pads[i];
-            break;
-        }
-    }
-    if (match == nullptr) {
-        return false;
-    }
-    if (s_baseline_for != armed) {
-        s_baseline = *match;
-        s_baseline_for = armed;
-        return false;
-    }
-    const auto source = in::detect_pad_capture(s_baseline, *match);
-    s_baseline = *match;
-    std::uint32_t expected = armed;
-    if (!source || !g_capture_armed.compare_exchange_strong(expected, 0u, std::memory_order_acq_rel)) {
-        return false;
-    }
-    g_capture_result.store(0x10000u | (static_cast<std::uint32_t>(source->kind) << 8u) | source->code,
-                           std::memory_order_release);
-    s_baseline_for = 0u;
-    if (const NativeSettingsKeySink sink = g_settings_key_sink.load(std::memory_order_acquire)) {
-        sink(kBindingCaptureKey);
-    }
-    return true;
-}
-
-// The pads drive the settings menu while it shows (native_settings_pad.h), and the game sees them neutral; a capture
-// keeps them from both.
-void route_settings_pads(sdl::InputState& state, bool capture_finished) {
-    static in::NativeSettingsPadState s_pad{};
-    static std::uint16_t s_capture_hold = 0u;
-    const NativeSettingsVisibleProvider visible = g_settings_visible.load(std::memory_order_acquire);
-    const NativeSettingsKeySink sink = g_settings_key_sink.load(std::memory_order_acquire);
-    std::uint16_t word = 0u;
-    float stick_x = 0.0f;
-    float stick_y = 0.0f;
-    bool any = false;
-    for (const in::PadSample& pad : state.pads) {
-        if (!pad.connected) continue;
-        any = true;
-        word = static_cast<std::uint16_t>(word | in::settings_pad_buttons(pad.scheme, pad.buttons));
-        if (std::fabs(pad.axes[0]) > std::fabs(stick_x)) stick_x = pad.axes[0];
-        if (std::fabs(pad.axes[1]) > std::fabs(stick_y)) stick_y = pad.axes[1];
-    }
-    const auto neutral_all = [&state] {
-        for (in::PadSample& pad : state.pads) {
-            pad.buttons = 0u;
-            pad.axes = {};
-        }
-    };
-    if (capture_finished || g_capture_armed.load(std::memory_order_acquire) != 0u) {
-        s_capture_hold = word;
-        neutral_all();
-        return;
-    }
-    s_capture_hold = static_cast<std::uint16_t>(s_capture_hold & word);
-    word = static_cast<std::uint16_t>(word & ~s_capture_hold);
-    if (!any || visible == nullptr || sink == nullptr) {
-        return;
-    }
-    const in::NativeSettingsPadStep step =
-        in::native_settings_pad_step(s_pad, word, stick_x, stick_y, visible(), galaxy::steady_ms());
-    for (std::size_t i = 0; i < step.key_count; ++i) {
-        sink(step.keys[i]);
-    }
-    if (step.game_neutral || s_capture_hold != 0u) {
-        neutral_all();
-        return;
-    }
-    for (in::PadSample& pad : state.pads) {
-        if (!pad.connected) continue;
-        const std::uint16_t own = in::settings_pad_buttons(pad.scheme, pad.buttons);
-        pad.buttons = in::unified_from_settings_pad(pad.scheme, static_cast<std::uint16_t>(own & step.game_buttons),
-                                                    pad.buttons);
-    }
-}
 
 const in::ControlsConfig& live_controls() {
     static in::ControlsConfig config = in::get_controls_config();
@@ -166,28 +59,28 @@ const in::ControlsConfig& live_controls() {
 // The on-screen controls as the bindings' output.
 in::LogicalInput touch_logic(const sdl::InputState& state) {
     in::LogicalInput logic{};
-    const auto press = [&logic](in::WiiTarget target) { logic.pressed |= in::wii_target_bit(target); };
+    const auto press = [&logic](in::GameInput target) { logic.pressed |= in::game_input_bit(target); };
     const std::uint32_t b = state.touch_buttons;
-    if (b & sdl::kTouchA) press(in::WiiTarget::A);
-    if (b & sdl::kTouchB) press(in::WiiTarget::B);
-    if (b & sdl::kTouchZ) press(in::WiiTarget::Z);
-    if (b & sdl::kTouchC) press(in::WiiTarget::C);
-    if (b & sdl::kTouchShake) press(in::WiiTarget::Shake);
-    if (b & sdl::kTouchMinus) press(in::WiiTarget::Minus);
-    if (b & sdl::kTouchPlus) press(in::WiiTarget::Plus);
-    if (b & sdl::kTouchHome) press(in::WiiTarget::Home);
-    if (b & sdl::kTouchOne) press(in::WiiTarget::One);
-    if (b & sdl::kTouchTwo) press(in::WiiTarget::Two);
-    if (b & sdl::kTouchUp) press(in::WiiTarget::DpadUp);
-    if (b & sdl::kTouchDown) press(in::WiiTarget::DpadDown);
-    if (b & sdl::kTouchLeft) press(in::WiiTarget::DpadLeft);
-    if (b & sdl::kTouchRight) press(in::WiiTarget::DpadRight);
+    if (b & sdl::kTouchA) press(in::GameInput::A);
+    if (b & sdl::kTouchB) press(in::GameInput::B);
+    if (b & sdl::kTouchZ) press(in::GameInput::Z);
+    if (b & sdl::kTouchC) press(in::GameInput::C);
+    if (b & sdl::kTouchShake) press(in::GameInput::Shake);
+    if (b & sdl::kTouchMinus) press(in::GameInput::Minus);
+    if (b & sdl::kTouchPlus) press(in::GameInput::Plus);
+    if (b & sdl::kTouchHome) press(in::GameInput::Home);
+    if (b & sdl::kTouchOne) press(in::GameInput::One);
+    if (b & sdl::kTouchTwo) press(in::GameInput::Two);
+    if (b & sdl::kTouchUp) press(in::GameInput::DpadUp);
+    if (b & sdl::kTouchDown) press(in::GameInput::DpadDown);
+    if (b & sdl::kTouchLeft) press(in::GameInput::DpadLeft);
+    if (b & sdl::kTouchRight) press(in::GameInput::DpadRight);
     logic.stick_x = state.touch_stick_x;
     logic.stick_y = state.touch_stick_y;
     return logic;
 }
 
-// A point in window pixels as the pointer (KPAD's -1..1, y down), through the rectangle the picture was last drawn in.
+// A point in window pixels as the pointer (-1..1 across the picture, y down), through the rectangle the picture was last drawn in.
 bool project_window_point(const sdl::InputState& state, float x, float y, float& out_x, float& out_y) {
     const auto content = galaxy::g_presentation_content.read();
     if (!content || content->surface_width != state.window_width || content->surface_height != state.window_height) {
@@ -195,7 +88,7 @@ bool project_window_point(const sdl::InputState& state, float x, float y, float&
     }
     const in::NativeMousePointerProjection projection = in::project_native_mouse_pointer({
         state.window_focused, true, true, static_cast<int>(x), static_cast<int>(y), state.window_width,
-        state.window_height, content->viewport, 1.0f, 1.0f});
+        state.window_height, content->viewport});
     if (!projection.visible) {
         return false;
     }
@@ -209,38 +102,56 @@ float g_rumble_strength = 1.0f;
 
 }  // namespace
 
-in::WiimoteInputSnapshot native_game_wiimote_snapshot(std::uint64_t, bool ir_enabled,
-                                                      std::int32_t star_pointer_mode, std::uint8_t tilt_section) {
-    const in::PlayContext context =
-        star_pointer_mode >= 0 && static_cast<std::uint32_t>(star_pointer_mode) < in::kStarPointerModeCount
+in::PlayerInput native_game_input(std::uint64_t frame, std::int32_t star_pointer_mode, std::uint8_t tilt_section) {
+    // A menu that takes the screen takes the keys and pads on the window thread. The game draws it under its own
+    // pointer, so the finger and the mouse still reach the game, as the mouse does on Windows.
+    const bool captured = galaxy::render::native_window_input_captured();
+    const in::PlayContext context = captured ? in::PlayContext::Menu
+        : star_pointer_mode >= 0 && static_cast<std::uint32_t>(star_pointer_mode) < in::kStarPointerModeCount
         ? in::play_context_from_star_pointer_mode(static_cast<std::uint32_t>(star_pointer_mode))
         : in::PlayContext::Play;
-    sdl::set_menu_context(context == in::PlayContext::Menu);
+    sdl::set_menu_context(context == in::PlayContext::Menu && (captured || star_pointer_mode != kStarPointerModeTitle));
     const in::tilt::Section section = tilt_section == 1u ? in::tilt::Section::StarBall
         : tilt_section == 2u ? in::tilt::Section::Ray
         : in::tilt::Section::None;
-    sdl::InputState state = sdl::input_state();
-    const in::ControlsConfig& config = live_controls();
-    in::WiimoteInputSnapshot snapshot{};
-
-    // The device in use, for the CONTROLS page; then the settings menu and a binding capture take what they need.
-    for (std::size_t i = 0; i < sdl::kMaxPads; ++i) {
-        const in::PadSample& pad = state.pads[i];
-        if (pad.connected && (pad.buttons != 0u || std::fabs(pad.axes[0]) + std::fabs(pad.axes[1]) > 0.5f)) {
-            g_last_input.store(static_cast<std::uint32_t>(pad.scheme) << 8u | static_cast<std::uint32_t>(i),
-                               std::memory_order_relaxed);
+    sdl::InputState state = sdl::take_input_state();
+    static std::array<std::uint64_t, 32> s_touch_press_end{};
+    for (std::uint32_t bit = 0; bit < s_touch_press_end.size(); ++bit) {
+        if (captured) {
+            s_touch_press_end[bit] = 0u;  // a press that opened the menu does not outlast it
+        } else if ((state.touch_buttons & (1u << bit)) != 0u) {
+            if (s_touch_press_end[bit] <= frame) {
+                s_touch_press_end[bit] = frame + kTouchPressFrames;
+            }
+        } else if (frame < s_touch_press_end[bit]) {
+            state.touch_buttons |= 1u << bit;
         }
     }
-    route_settings_pads(state, service_binding_capture(state));
-    const NativeSettingsVisibleProvider settings_visible = g_settings_visible.load(std::memory_order_acquire);
-    if (settings_visible != nullptr && settings_visible()) {
+    if (captured) {
+        const auto mouse = state.keys.mouse;
         state.keys = {};
+        state.keys.mouse = mouse;
+        state.touch_buttons = 0u;
+        state.touch_stick_x = 0.0f;
+        state.touch_stick_y = 0.0f;
+        for (std::size_t i = 0; i < sdl::kMaxPads; ++i) {
+            state.pads[i] = {};
+            state.motion[i] = {};
+        }
     }
+    const in::ControlsConfig& config = live_controls();
+    in::PlayerInput snapshot{};
 
     // Gamepads: the bindings and tuning of each one's scheme, as on Windows.
     static std::array<std::uint32_t, sdl::kMaxPads> s_previous{};
     in::LogicalInput pads{};
     float pad_pointer_speed = 0.0f;
+    float motion_x = 0.0f;
+    float motion_y = 0.0f;  // down positive, as the pointer's
+    bool shake_remote = false;
+    bool shake_nunchuk = false;
+    const in::tilt::Vec3* controller_up = nullptr;
+    const std::uint64_t motion_now_us = galaxy::steady_ms() * 1000u;
     for (std::size_t i = 0; i < sdl::kMaxPads; ++i) {
         in::PadSample sample = state.pads[i];
         if (!sample.connected) {
@@ -248,6 +159,22 @@ in::WiimoteInputSnapshot native_game_wiimote_snapshot(std::uint64_t, bool ir_ena
             continue;
         }
         const in::SchemeTuning& tuning = config.tune(sample.scheme);
+        const sdl::PadMotion& motion = state.motion[i];
+        if (tuning.gyro_pointer && motion.imu_live) {
+            motion_x += motion.gyro_x;
+            motion_y -= tuning.invert_pointer_y ? -motion.gyro_y : motion.gyro_y;
+        }
+        if (tuning.touch_pointer && motion.touch_live) {
+            motion_x += motion.touch_dx * 2.0f * tuning.touch_sensitivity;
+            motion_y += (tuning.invert_pointer_y ? -motion.touch_dy : motion.touch_dy) * 2.0f * tuning.touch_sensitivity;
+        }
+        if (motion.shake_until_us != 0u && motion_now_us < motion.shake_until_us) {
+            shake_remote = shake_remote || tuning.motion_shake == in::MotionShake::Remote;
+            shake_nunchuk = shake_nunchuk || tuning.motion_shake == in::MotionShake::Nunchuk;
+        }
+        if (controller_up == nullptr && motion.gravity_valid) {
+            controller_up = &motion.gravity;
+        }
         const in::StickVector left = in::apply_radial_deadzone(sample.axes[0], sample.axes[1], tuning.stick_deadzone);
         const in::StickVector right =
             in::apply_radial_deadzone(sample.axes[2], sample.axes[3], tuning.pointer_deadzone);
@@ -274,26 +201,27 @@ in::WiimoteInputSnapshot native_game_wiimote_snapshot(std::uint64_t, bool ir_ena
         keys.pointer_y = -keys.pointer_y;
     }
     const in::LogicalInput logic = in::merge_logical_input(in::merge_logical_input(pads, keys), touch_logic(state));
-    const auto held = [&logic](in::WiiTarget target) { return logic.held(target); };
+    const auto held = [&logic](in::GameInput target) { return logic.held(target); };
 
-    snapshot.buttons.left = held(in::WiiTarget::DpadLeft);
-    snapshot.buttons.right = held(in::WiiTarget::DpadRight);
-    snapshot.buttons.down = held(in::WiiTarget::DpadDown);
-    snapshot.buttons.up = held(in::WiiTarget::DpadUp);
-    snapshot.buttons.plus = held(in::WiiTarget::Plus);
-    snapshot.buttons.minus = held(in::WiiTarget::Minus);
-    snapshot.buttons.one = held(in::WiiTarget::One);
-    snapshot.buttons.two = held(in::WiiTarget::Two);
-    snapshot.buttons.home = held(in::WiiTarget::Home);
+    snapshot.buttons.left = held(in::GameInput::DpadLeft);
+    snapshot.buttons.right = held(in::GameInput::DpadRight);
+    snapshot.buttons.down = held(in::GameInput::DpadDown);
+    snapshot.buttons.up = held(in::GameInput::DpadUp);
+    snapshot.buttons.plus = held(in::GameInput::Plus);
+    snapshot.buttons.minus = held(in::GameInput::Minus);
+    snapshot.buttons.one = held(in::GameInput::One);
+    snapshot.buttons.two = held(in::GameInput::Two);
+    snapshot.buttons.home = held(in::GameInput::Home);
     // A controller's B: jump while Mario is under control, back in menus.
     static in::JumpBackLatch s_jump_back{};
-    const in::JumpBackLatch::Output jump_back = s_jump_back.update(held(in::WiiTarget::JumpBack), context);
-    snapshot.buttons.a = held(in::WiiTarget::A) || jump_back.a;
-    snapshot.buttons.b = held(in::WiiTarget::B) || jump_back.b;
-    snapshot.nunchuk.stick_x = in::native_stick_axis_byte(logic.stick_x, 0x15, 0x7b, 0xe0);
-    snapshot.nunchuk.stick_y = in::native_stick_axis_byte(logic.stick_y, 0x1d, 0x81, 0xe6);
-    snapshot.nunchuk.c = held(in::WiiTarget::C);
-    snapshot.nunchuk.z = held(in::WiiTarget::Z);
+    const in::JumpBackLatch::Output jump_back = s_jump_back.update(held(in::GameInput::JumpBack), context);
+    snapshot.buttons.a = held(in::GameInput::A) || jump_back.a;
+    snapshot.buttons.b = held(in::GameInput::B) || jump_back.b;
+    const in::StickValue stick = in::nunchuk_stick(logic.stick_x, logic.stick_y);
+    snapshot.stick_x = stick.x;
+    snapshot.stick_y = stick.y;
+    snapshot.buttons.c = held(in::GameInput::C);
+    snapshot.buttons.z = held(in::GameInput::Z);
 
     // The pointer: the finger (or mouse) on the picture where it is; a stick or keys move it at their speed.
     static float s_pointer_x = 0.0f;
@@ -324,10 +252,19 @@ in::WiimoteInputSnapshot native_game_wiimote_snapshot(std::uint64_t, bool ir_ena
         s_pointer_ms = now;
         s_hold_ms = kStickPointerHoldMs;
     }
+    if (motion_x != 0.0f || motion_y != 0.0f) {
+        s_pointer_x = std::clamp(s_pointer_x + motion_x, -1.0f, 1.0f);
+        s_pointer_y = std::clamp(s_pointer_y + motion_y, -1.0f, 1.0f);
+        s_pointer_ms = now;
+        s_hold_ms = kStickPointerHoldMs;
+    }
     // A tap in a menu points there and presses A.
     static std::uint64_t s_taps = state.taps;
-    static std::uint8_t s_tap_reports = 0;
-    static std::uint64_t s_tap_due_ms = 0;  // 0: no press waiting
+    static bool s_tap_waiting = false;
+    static std::uint64_t s_tap_due_frame = 0;
+    static std::uint64_t s_tap_press_end_frame = 0;
+    static bool s_pointer_shown = false;
+    static std::uint64_t s_pointer_shown_frame = 0;  // since when the game has had the pointer
     if (state.taps != s_taps) {
         s_taps = state.taps;
         if (context == in::PlayContext::Menu && project_window_point(state, state.tap_x, state.tap_y, x, y)) {
@@ -335,31 +272,41 @@ in::WiimoteInputSnapshot native_game_wiimote_snapshot(std::uint64_t, bool ir_ena
             s_pointer_y = y;
             s_pointer_ms = now;
             s_hold_ms = kTouchPointerHoldMs;
-            s_tap_due_ms = std::max(now, state.tap_down_ms + kTapHoverMs);
+            if (!s_pointer_shown) {
+                s_pointer_shown_frame = frame;
+            }
+            s_tap_waiting = true;
+            s_tap_due_frame = s_pointer_shown_frame + kTapHoverFrames;
         }
     }
-    if (s_tap_due_ms != 0 && now >= s_tap_due_ms) {
-        s_tap_due_ms = 0;
-        s_tap_reports = kTapPressReports;
+    if (s_tap_waiting && frame >= s_tap_due_frame) {
+        s_tap_waiting = false;
+        s_tap_press_end_frame = frame + kTapPressFrames;
     }
-    if (s_tap_reports != 0) {
+    const bool tap_pressing = frame < s_tap_press_end_frame;
+    if (tap_pressing) {
         snapshot.buttons.a = true;
-        --s_tap_reports;
+    }
+    // The pointer stays until the press has landed, however slowly the frames come.
+    if (s_tap_waiting || tap_pressing) {
+        s_pointer_ms = now;
     }
     const bool pointer_active = s_pointer_ms != 0 && now - s_pointer_ms <= s_hold_ms;
-    in::publish_wiimote_ir_dots(snapshot, s_pointer_x, s_pointer_y, pointer_active && ir_enabled);
+    if (pointer_active && !s_pointer_shown) {
+        s_pointer_shown_frame = frame;
+    }
+    s_pointer_shown = pointer_active;
+    in::set_pointer(snapshot, s_pointer_x, s_pointer_y, pointer_active);
 
     // Tilt sections steer with the stick.
     static in::tilt::Tilt s_tilt{};
-    const in::tilt::Tilt::Output tilt = s_tilt.update(section, nullptr, logic.stick_x, logic.stick_y, false);
+    const in::tilt::Tilt::Output tilt = s_tilt.update(section, controller_up, logic.stick_x, logic.stick_y, false);
     if (tilt.active) {
-        const in::tilt::Counts counts = in::tilt::accel_counts(tilt.game);
-        snapshot.accel.x = counts.x;
-        snapshot.accel.y = counts.y;
-        snapshot.accel.z = counts.z;
+        snapshot.gravity = tilt.game;
     }
-    snapshot.shake = held(in::WiiTarget::Shake);
-    snapshot.nunchuk_shake = held(in::WiiTarget::NunchukShake);
+    snapshot.pointer_on = snapshot.pointer_on && in::remote_faces_screen(snapshot.gravity);
+    snapshot.shake = held(in::GameInput::Shake) || shake_remote;
+    snapshot.nunchuk_shake = held(in::GameInput::NunchukShake) || shake_nunchuk;
     return snapshot;
 }
 
@@ -367,17 +314,6 @@ void native_game_rumble(bool motor_on, std::int32_t) noexcept {
     if (g_rumble_pad != 0) {
         sdl::rumble(g_rumble_pad, motor_on ? g_rumble_strength : 0.0f);
     }
-}
-
-void native_game_wiimote_calibration(std::uint8_t (&eeprom)[0x2A], std::uint8_t (&nunchuk_calibration)[32]) {
-    const auto bytes = create_virtual_wiimote_eeprom();
-    std::memcpy(eeprom, bytes.data(), sizeof(eeprom));
-    const auto registers = create_virtual_nunchuk_registers(true);
-    std::memcpy(nunchuk_calibration, registers.data() + 0x20u, sizeof(nunchuk_calibration));
-}
-
-std::vector<std::byte> native_game_empty_mii_database() {
-    return create_empty_rfl_database();
 }
 
 GamePaths locate_game(const std::filesystem::path& input) {
@@ -388,205 +324,8 @@ GamePaths locate_game(const std::filesystem::path& input) {
 void install_host_pointer_provider(HostPointerProvider) noexcept {}
 void install_host_pointer_transition_provider(HostPointerTransitionProvider) noexcept {}
 void install_native_keyboard_capture_provider(NativeKeyboardCaptureProvider) noexcept {}
-void install_native_settings_pad_hooks(NativeSettingsVisibleProvider visible, NativeSettingsKeySink sink) noexcept {
-    g_settings_visible.store(visible, std::memory_order_release);
-    g_settings_key_sink.store(sink, std::memory_order_release);
-}
-
-// The CONTROLS page's controllers: SDL's gamepads, each in its slot.
-std::size_t connected_controllers(std::span<input::ControllerInfo> out) noexcept {
-    const sdl::InputState state = sdl::input_state();
-    std::size_t count = 0;
-    for (std::size_t i = 0; i < sdl::kMaxPads && count < out.size(); ++i) {
-        if (!state.pads[i].connected) continue;
-        input::ControllerInfo& info = out[count++];
-        info = {};
-        info.scheme = state.pads[i].scheme;
-        info.slot = static_cast<std::uint8_t>(i);
-        info.model = input::control_scheme_label(state.pads[i].scheme);
-    }
-    return count;
-}
-
-bool controller_present_now() noexcept {
-    std::array<input::ControllerInfo, sdl::kMaxPads> pads{};
-    return connected_controllers(pads) != 0u;
-}
-
-std::optional<input::DeviceKey> last_input_device() noexcept {
-    const std::uint32_t key = g_last_input.load(std::memory_order_relaxed);
-    if (key == kLastInputNone) return std::nullopt;
-    if (key == kLastInputKeyboard) return input::DeviceKey{input::ControlScheme::Keyboard, input::kKeyboardSlot};
-    return input::DeviceKey{static_cast<input::ControlScheme>((key >> 8u) & 0xffu), static_cast<std::uint8_t>(key & 0xffu)};
-}
-
-void note_keyboard_input() noexcept {
-    g_last_input.store(kLastInputKeyboard, std::memory_order_relaxed);
-}
-
-void arm_controller_binding_capture(input::ControlScheme scheme, std::uint8_t slot) noexcept {
-    g_capture_result.store(0u, std::memory_order_release);
-    g_capture_armed.store((static_cast<std::uint32_t>(slot) << 8u) | (1u + static_cast<std::uint32_t>(scheme)),
-                          std::memory_order_release);
-}
-
-void cancel_controller_binding_capture() noexcept {
-    g_capture_armed.store(0u, std::memory_order_release);
-}
-
-std::optional<input::InputSource> take_controller_binding_capture() noexcept {
-    const std::uint32_t result = g_capture_result.exchange(0u, std::memory_order_acq_rel);
-    if ((result & 0x10000u) == 0u) {
-        return std::nullopt;
-    }
-    return input::InputSource{static_cast<input::SourceKind>((result >> 8u) & 0xffu),
-                              static_cast<std::uint8_t>(result & 0xffu)};
-}
+void install_native_settings_pad_hooks(NativeSettingsVisibleProvider, NativeSettingsKeySink) noexcept {}
 void set_env_flag_cache_enabled(bool) noexcept {}
-// The Wii's own button icons: this host doesn't tell controller families apart yet (native_host.cpp does on Windows).
-input::ButtonIconSpec button_icons(bool) noexcept {
-    return {};
-}
 
-// Sound: the JAudio DSP program on the game's command words, its blocks through an SDL audio stream.
-struct NativeGameAudio::State {
-    JAudioHostMixer mixer;
-    SDL_AudioStream* stream = nullptr;
-    std::uint32_t rate = 0;
-    std::size_t block_bytes = 0;
-    std::vector<std::int16_t> frames;
-};
-
-NativeGameAudio::NativeGameAudio() : state_(std::make_unique<State>()) {}
-
-NativeGameAudio::~NativeGameAudio() {
-    if (state_ && state_->stream != nullptr) {
-        SDL_DestroyAudioStream(state_->stream);
-    }
-}
-
-namespace {
-// An address's bytes in the native game's regions.
-std::byte* native_game_resolve(void* user, std::uint32_t address, std::uint32_t size) {
-    const auto& memory = *static_cast<const GuestMemory*>(user);
-    const GuestMemoryFastRegion& fast = memory.fast_regions[address >> 28u];
-    const std::uint32_t offset = address & 0x0FFF'FFFFu;
-    if (fast.host_base != nullptr && offset <= fast.size && size <= fast.size - offset) {
-        return fast.host_base + offset;
-    }
-    for (std::uint32_t i = 0; i < memory.region_count; ++i) {
-        const GuestMemoryRegion& region = memory.regions[i];
-        if (address - region.guest_base < region.size && size <= region.size - (address - region.guest_base)) {
-            return region.host_base + (address - region.guest_base);
-        }
-    }
-    return nullptr;
-}
-}  // namespace
-
-bool NativeGameAudio::dsp_command(const std::uint32_t* words, std::uint32_t count, const GuestMemory& memory) {
-    const JAudioGuestMemory guest{const_cast<GuestMemory*>(&memory), &native_game_resolve};
-    JAudioHostMixer& mixer = state_->mixer;
-    const auto word = [&](std::uint32_t index) { return index < count ? words[index] : 0u; };
-    if (count == 0u) {
-        return mixer.release_halt(words[0], guest);
-    }
-    switch (words[0] >> 24u) {
-    case 0x81u:
-        if (count >= 5u) {
-            mixer.setup(words[0], word(1u), word(2u), word(3u), word(4u), guest);
-        } else {
-            mixer.note_ignored_command();
-        }
-        break;
-    case 0x8Eu:
-        mixer.set_varam(word(1u));
-        break;
-    case 0x82u: {
-        // The volume categories, once an audio frame (master applies to the stream's output).
-        const galaxy::RuntimeAudioSettings audio = galaxy::get_runtime_settings().audio;
-        mixer.set_bus_gains({1.0f, audio.music, audio.voice, audio.sfx, audio.ambience, audio.cutscene});
-        mixer.sync_frame(words[0], word(1u), word(2u), word(3u), word(4u), guest);
-        break;
-    }
-    default:
-        mixer.note_ignored_command();
-        break;
-    }
-    return false;
-}
-
-void NativeGameAudio::set_channel_owner(std::uint32_t (*owner)(std::uint32_t, std::uint32_t*)) {
-    state_->mixer.set_owner_resolver(owner);
-}
-
-bool NativeGameAudio::play(std::span<const std::byte> block, std::uint32_t sample_rate) {
-    State& s = *state_;
-    if (s.stream == nullptr || s.rate != sample_rate) {
-        const SDL_AudioSpec spec{SDL_AUDIO_S16, 2, static_cast<int>(sample_rate)};
-        if (s.stream == nullptr) {
-            s.stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, nullptr, nullptr);
-            if (s.stream == nullptr) {
-                std::fprintf(stderr, "[audio] no output: %s\n", SDL_GetError());
-                return false;
-            }
-            SDL_ResumeAudioStreamDevice(s.stream);
-        } else {
-            SDL_SetAudioStreamFormat(s.stream, &spec, nullptr);
-        }
-        s.rate = sample_rate;
-    }
-    // The AI's frames: right then left, big-endian; the stream's: left then right, native order.
-    const std::size_t count = block.size() / 4u;
-    s.frames.resize(count * 2u);
-    const auto* bytes = reinterpret_cast<const std::uint8_t*>(block.data());
-    for (std::size_t i = 0; i < count; ++i) {
-        const auto right = static_cast<std::int16_t>((bytes[i * 4u] << 8) | bytes[i * 4u + 1u]);
-        const auto left = static_cast<std::int16_t>((bytes[i * 4u + 2u] << 8) | bytes[i * 4u + 3u]);
-        s.frames[i * 2u] = left;
-        s.frames[i * 2u + 1u] = right;
-    }
-    s.block_bytes = count * 4u;
-    return SDL_PutAudioStreamData(s.stream, s.frames.data(), static_cast<int>(count * 4u));
-}
-
-unsigned NativeGameAudio::queued_blocks() const {
-    const State& s = *state_;
-    if (s.stream == nullptr || s.block_bytes == 0) {
-        return 0u;
-    }
-    const int queued = SDL_GetAudioStreamQueued(s.stream);
-    return queued > 0 ? static_cast<unsigned>(static_cast<std::size_t>(queued) / s.block_bytes) : 0u;
-}
-
-// SDL's stream plays silence when it runs dry and starts again with the next data: four blocks (70 ms at the game's
-// 17.5 ms blocks) absorb the device's period and the game's mixing time.
-unsigned NativeGameAudio::target_blocks() const {
-    return 4u;
-}
-
-bool NativeGameAudio::output_available() const {
-    return state_->stream != nullptr;
-}
-
-void NativeGameAudio::set_paused(bool paused) {
-    if (state_->stream != nullptr) {
-        (void)(paused ? SDL_PauseAudioStreamDevice(state_->stream) : SDL_ResumeAudioStreamDevice(state_->stream));
-    }
-}
-
-std::string NativeGameAudio::stats_line() const {
-    const JAudioHostMixerStats& s = state_->mixer.stats();
-    std::ostringstream line;
-    line << "setups=" << s.setups << " frames=" << s.frames << " subframes=" << s.subframes
-         << " channel-renders=" << s.channel_renders << " adpcm-blocks=" << s.adpcm_blocks << " pcm=" << s.pcm_renders
-         << " streams=" << s.stream_renders << " oscillators=" << s.oscillator_renders << " fir=" << s.fir_renders
-         << " iir=" << s.iir_renders << " auto-mixer=" << s.auto_mixer_renders
-         << " fx-line-subframes=" << s.fx_line_subframes << " unresolved=" << s.unresolved_reads
-         << " unsupported-osc=" << s.unsupported_oscillators << " ignored=" << s.ignored_commands
-         << " stray=" << s.stray_releases << " varam=0x" << std::hex << state_->mixer.varam() << std::dec
-         << " mix-ms=" << s.mix_ns / 1000000u;
-    return line.str();
-}
 
 }  // namespace galaxy::host

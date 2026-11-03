@@ -6,25 +6,6 @@
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
 
-void MarioSkate_FORCE_MATCH_SDATA2() {
-    (void)20.0f;
-    (void)50.0f;
-    (void)1.25f;
-    (void)1.5f;
-    (void)1.2f;
-    (void)0.04f;
-    (void)0.1f;
-    (void)-0.1f;
-    (void)-0.3926991f;
-    (void)0.3926991f;
-    (void)-0.5235988f;
-    (void)0.5235988f;
-    (void)0.8f;
-    (void)0.9f;
-    (void)0.95f;
-    (void)0.05f;
-}
-
 bool Mario::isSkatableFloor() const {
     if (_960 == CollisionFloorCode_Ice) {
         return true;
@@ -54,11 +35,11 @@ bool MarioSkate::postureCtrl(MtxPtr pMtx) {
     getPlayer()->postureCtrl(pMtx);
     f32 rotation = _20;
     rotation *= 3.1415927f;
-    PSMTXConcat(pMtx, MR::tmpMtxRotYRad(rotation), pMtx);
-    PSMTXConcat(pMtx, MR::tmpMtxRotZRad(_24), pMtx);
+    NebulaMtxConcat(pMtx, MR::tmpMtxRotYRad(rotation), pMtx);
+    NebulaMtxConcat(pMtx, MR::tmpMtxRotZRad(_24), pMtx);
     Mtx direction;
     getPlayer()->createDirectionMtx(direction);
-    PSMTXConcat(direction, pMtx, pMtx);
+    NebulaMtxConcat(direction, pMtx, pMtx);
     return true;
 }
 

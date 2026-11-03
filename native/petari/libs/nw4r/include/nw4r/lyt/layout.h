@@ -6,7 +6,6 @@
 #include "nw4r/ut/LinkList.h"
 #include <cstddef>
 #include <new>
-#include <revolution/mem.h>
 
 namespace nw4r {
     namespace ut {
@@ -35,19 +34,16 @@ namespace nw4r {
             ORIGINTYPE_MAX
         };
 
-#if defined(__MWERKS__) || defined(TARGET_PC)
         typedef ut::LinkList< AnimTransform, offsetof(AnimTransform, mLink) > AnimTransformList;
-#else
-        typedef ut::LinkList< AnimTransform, 0 > AnimTransformList;
-#endif
 
         class Layout {
         public:
             Layout();
 
-            static void* AllocMemory(u32 size) { return MEMAllocFromAllocator(mspAllocator, size); }
+            // From the game's current heap.
+            static void* AllocMemory(u32 size) { return new u8[size]; }
 
-            static void FreeMemory(void* mem) { MEMFreeToAllocator(mspAllocator, mem); }
+            static void FreeMemory(void* mem) { delete[] static_cast< u8* >(mem); }
 
             virtual ~Layout();
             virtual bool Build(const void*, ResourceAccessor*);
@@ -61,15 +57,13 @@ namespace nw4r {
             virtual void CalculateMtx(const DrawInfo&);
             virtual void Draw(const DrawInfo&);
             virtual void Animate(u32);
-            virtual void SetTagProcessor(ut::TagProcessorBase< wchar_t >*);
+            virtual void SetTagProcessor(ut::TagProcessorBase< char16_t >*);
 
             const ut::Rect GetLayoutRect() const;
 
             static Pane* BuildPaneObj(s32, const void*, const ResBlockSet&);
 
             GroupContainer* GetGroupContainer() const { return mpGroupContainer; }
-
-            static MEMAllocator* mspAllocator;
 
             template < typename T >
             static T* NewObj();

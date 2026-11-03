@@ -1,16 +1,17 @@
 #pragma once
 
-#include <revolution/os/OSMutex.h>
+#include "Game/System/GameThreads.hpp"
+#include "Game/System/GameThreads.hpp"
 
 class JASMutexLock {
 public:
-    inline JASMutexLock(OSMutex* mutex) {
+    inline JASMutexLock(GameMutex* mutex) {
         mMutex = mutex;
-        OSLockMutex(mMutex);
+        mMutex->lock();
     }
     inline ~JASMutexLock() {
-        OSUnlockMutex(mMutex);
+        mMutex->unlock();
     }
 
-    /* 0x0 */ OSMutex* mMutex;
+    GameMutex* mMutex;
 };

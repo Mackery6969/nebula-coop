@@ -25,31 +25,6 @@ MarioAnimator::MarioAnimator(MarioActor* pActor) : MarioModule(pActor) {
     init();
 }
 
-void MarioAnimator_FORCE_MATCH_SDATA2() {
-    (void)79.0f;
-    (void)59.0f;
-    (void)0.00100000005f;
-    (void)0.899999976f;
-    (void)0.100000001f;
-    (void)0.949999988f;
-    (void)0.0500000007f;
-    (void)0.25f;
-    (void)0.970000029f;
-    (void)0.0299999993f;
-    (void)10.0f;
-    (void)1.41421294f;
-    (void)6.28318548f;
-    (void)30.0f;
-    (void)-2607.59448f;
-    (void)2607.59448f;
-    (void)0.699999988f;
-    (void)60.0f;
-    (void)5.0f;
-    (void)-0.707000017f;
-    (void)0.707000017f;
-    (void)-0.5f;
-}
-
 void MarioAnimator::init() {
     XanimeSwapTable* luigiAnimations = nullptr;
     if (gIsLuigi) {
@@ -69,9 +44,9 @@ void MarioAnimator::init() {
     _20 = 0.0f;
     _24 = 1.0f;
 
-    PSMTXIdentity(_28.toMtxPtr());
-    PSMTXIdentity(_7C.toMtxPtr());
-    PSMTXIdentity(_AC.toMtxPtr());
+    NebulaMtxIdentity(_28.toMtxPtr());
+    NebulaMtxIdentity(_7C.toMtxPtr());
+    NebulaMtxIdentity(_AC.toMtxPtr());
 
     _58 = 0.0f;
     _5C = 0.0f;
@@ -102,7 +77,7 @@ void MarioAnimator::init() {
     changeDefaultUpper("\212\356\226\173" /* 基本 */);
     mXanimePlayerUpper->changeAnimation("\212\356\226\173" /* 基本 */);
     mXanimePlayerUpper->mCore->shareJointTransform(mXanimePlayer->mCore);
-    PSMTXCopy(MR::tmpMtxRotYRad(PI), _DC.toMtxPtr());
+    NebulaMtxCopy(MR::tmpMtxRotYRad(PI), _DC.toMtxPtr());
 }
 
 bool MarioAnimator::isAnimationStop() const {
@@ -619,7 +594,7 @@ void MarioAnimator::setTilt() {
 }
 
 void MarioAnimator::resetTilt() {
-    PSMTXIdentity(_28.toMtxPtr());
+    NebulaMtxIdentity(_28.toMtxPtr());
     _58 = 0.0f;
     _5C = 0.0f;
     _60.zero();
@@ -700,7 +675,7 @@ void MarioAnimator::setHoming() {
         jt->_64 = _7C.toMtxPtr();
     } else {
         Mtx identMtx;
-        PSMTXIdentity(identMtx);
+        NebulaMtxIdentity(identMtx);
         MR::blendMtx(_7C.toMtxPtr(), identMtx, 0.1f, _7C.toMtxPtr());
     }
 
@@ -943,8 +918,6 @@ u16 MarioAnimator::getUpperJointID() const {
 
 const char* jname_chest = "Spine1";
 
-#pragma push
-#pragma opt_propagation off
 void MarioAnimator::updateJointRumble() {
     u32 timer = _74;
     if (timer == 0) {
@@ -990,9 +963,9 @@ void MarioAnimator::updateJointRumble() {
             hipRot = getFrontVec().dot(dir) > 0.707f ? hipRot : 0.9f * _118;
         }
 
-        PSMTXRotRad(_AC.toMtxPtr(), 'Z', hipRot);
+        NebulaMtxRotRad(_AC.toMtxPtr(), 'Z', hipRot);
     } else {
-        PSMTXIdentity(_AC.toMtxPtr());
+        NebulaMtxIdentity(_AC.toMtxPtr());
     }
 
     _118 = hipRot;
@@ -1001,7 +974,6 @@ void MarioAnimator::updateJointRumble() {
     XjointTransform* hipJt = core->getJointTransform(static_cast< u16 >(MR::getJointIndex(mActor, "Spine2")));
     hipJt->_64 = _AC.toMtxPtr();
 }
-#pragma pop
 
 void MarioAnimator::addRumblePower(f32 power, u32 time) {
     if (_70 < power) {
@@ -1012,7 +984,7 @@ void MarioAnimator::addRumblePower(f32 power, u32 time) {
 }
 
 void MarioAnimator::setUpperRotateY(f32 angle) {
-    PSMTXRotRad(_AC.toMtxPtr(), 'X', angle);
+    NebulaMtxRotRad(_AC.toMtxPtr(), 'X', angle);
     XanimeCore* core = mXanimePlayer->mCore;
     XjointTransform* jt = core->getJointTransform(static_cast< u16 >(MR::getJointIndex(mActor, "Spine2")));
     jt->_64 = _AC.toMtxPtr();
@@ -1147,7 +1119,7 @@ void MarioAnimator::switchMirrorMode() {
 
         Mtx invBase;
         MtxPtr base = mActor->getBaseMtx();
-        PSMTXInverse(base, invBase);
+        NebulaMtxInverse(base, invBase);
         MR::multMtx(_DC, invBase, MR::tmpMtxRotYRad(PI));
 
         base = mActor->getBaseMtx();

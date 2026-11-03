@@ -3,7 +3,6 @@
 class GameDataHolder;
 class GameDataTemporaryInGalaxy;
 class GameSequenceProgress;
-class NWC24Messenger;
 class SaveDataHandleSequence;
 
 class GameSequenceDirector {
@@ -19,8 +18,7 @@ public:
     void executeOnSaveSuccess();
     void executeJustBeforeSave();
 
-    /* 0x00 */ GameDataTemporaryInGalaxy* mGameDataTemporaryInGalaxy;
-    /* 0x04 */ GameSequenceProgress* mGameSequenceProgress;
-    /* 0x08 */ SaveDataHandleSequence* mSaveDataHandleSequence;
-    /* 0x0C */ NWC24Messenger* mNWC24Messenger;
+    GameDataTemporaryInGalaxy* mGameDataTemporaryInGalaxy;
+    GameSequenceProgress* mGameSequenceProgress;
+    SaveDataHandleSequence* mSaveDataHandleSequence;
 };

@@ -1,7 +1,4 @@
-#ifdef TARGET_PC
 #include <nebula_game_api.h>
-#include <revolution/os.h>
-#endif
 #include "Game/Util/SequenceUtil.hpp"
 #include "Game/Scene/GameSceneFunction.hpp"
 #include "Game/System/GalaxyMoveArgument.hpp"
@@ -15,6 +12,7 @@
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/SingletonHolder.hpp"
 #include "Game/Util/SystemUtil.hpp"
+#include "Game/System/NebulaHost.hpp"
 
 namespace MR {
     void requestChangeScene(const char* pName) {
@@ -47,11 +45,6 @@ namespace MR {
         argument._C = pSceneController->getCurrentSelectedScenarioNo();
 
         GameSequenceFunction::requestGalaxyMove(argument);
-#ifdef TARGET_PC
-        if (u32 pieces = 0; __NebulaCodePatch(NEBULA_PATCH_MISS_STAR_PIECES, &pieces)) {
-            GameDataFunction::addStarPiece(static_cast< s32 >(pieces));
-        }
-#endif
     }
 
     void requestChangeStageInGameMoving(const char* pStageName, s32 scenarioNo, const JMapIdInfo& rInfo) {

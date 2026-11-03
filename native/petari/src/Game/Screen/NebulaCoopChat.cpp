@@ -1,6 +1,7 @@
 #include "Game/Screen/NebulaCoopChat.hpp"
+#include "nebula_module.h"
+#include "Game/System/NebulaHost.hpp"
 
-#ifdef TARGET_PC
 #include "Game/Screen/LayoutManager.hpp"
 #include "Game/Screen/NebulaPaneKit.hpp"
 #include "Game/Screen/NebulaUi.hpp"
@@ -14,7 +15,6 @@
 #include <nw4r/lyt/pane.h>
 #include <nw4r/lyt/textBox.h>
 #include <nw4r/lyt/window.h>
-#include <revolution/os.h>
 
 namespace {
     using namespace NebulaUi;
@@ -59,24 +59,24 @@ namespace {
         f32 mHeight;
     };
 
-    void toWide(wchar_t* pDst, s32 capacity, const char* pSrc) {
+    void toWide(char16_t* pDst, s32 capacity, const char* pSrc) {
         s32 n = 0;
         while (pSrc[n] != 0 && n < capacity - 1) {
-            pDst[n] = static_cast< wchar_t >(static_cast< unsigned char >(pSrc[n]));
+            pDst[n] = static_cast< char16_t >(static_cast< unsigned char >(pSrc[n]));
             n++;
         }
         pDst[n] = 0;
     }
 
     // NebulaText's `pId` with {name} as `pName`.
-    void fillName(wchar_t* pDst, s32 capacity, const char* pId, const wchar_t* pName) {
-        wchar_t pattern[cTextLength];
+    void fillName(char16_t* pDst, s32 capacity, const char* pId, const char16_t* pName) {
+        char16_t pattern[cTextLength];
         NebulaText::get(pattern, cTextLength, pId);
-        wchar_t* p = pDst;
-        wchar_t* pEnd = pDst + capacity;
+        char16_t* p = pDst;
+        char16_t* pEnd = pDst + capacity;
         *p = 0;
-        for (const wchar_t* s = pattern; *s != 0;) {
-            if (s[0] == L'{' && s[1] == L'n' && s[2] == L'a' && s[3] == L'm' && s[4] == L'e' && s[5] == L'}') {
+        for (const char16_t* s = pattern; *s != 0;) {
+            if (s[0] == u'{' && s[1] == u'n' && s[2] == u'a' && s[3] == u'm' && s[4] == u'e' && s[5] == u'}') {
                 p = append(p, pEnd, pName);
                 s += 6;
                 continue;
@@ -90,7 +90,7 @@ namespace {
     }
 
     // The width `pString` takes in `pText` (its font and size), on one line.
-    f32 widthOf(TextBox* pText, const wchar_t* pString) {
+    f32 widthOf(TextBox* pText, const char16_t* pString) {
         setText(pText, pString);
         f32 width, height;
         measure(pText, 4000.0f, &width, &height);
@@ -136,7 +136,7 @@ void NebulaCoopChat::init(const JMapInfoIter& rIter) {
     NebulaCoopChatParts* p = new NebulaCoopChatParts();
     Pane* pLayoutRoot = pManager->mLayout->mpRootPane;
     if (pLayoutRoot == nullptr || !p->mText.init(pManager->mLayoutHolder)) {
-        OSReport("NebulaCoopChat: no InformationWindow layout\n");
+        nebula_log("NebulaCoopChat: no InformationWindow layout\n");
         delete p;
         return;
     }
@@ -156,17 +156,17 @@ void NebulaCoopChat::init(const JMapInfoIter& rIter) {
     char name[16];
     for (s32 i = 0; i < NEBULA_COOP_CHAT_LINES; i++) {
         Row& rRow = p->mRows[i];
-        snprintf(name, sizeof(name), "NcRow%d", static_cast< int >(i));
+        nebula_snprintf(name, sizeof(name), "NcRow%d", static_cast< int >(i));
         rRow.mGroup = makeGroup(p->mRoot, name);
         if (rRow.mGroup == nullptr) {
             delete p;
             return;
         }
-        snprintf(name, sizeof(name), "NcStrip%d", static_cast< int >(i));
+        nebula_snprintf(name, sizeof(name), "NcStrip%d", static_cast< int >(i));
         rRow.mStrip = makeWindow(kits, rRow.mGroup, name);
-        snprintf(name, sizeof(name), "NcName%d", static_cast< int >(i));
+        nebula_snprintf(name, sizeof(name), "NcName%d", static_cast< int >(i));
         rRow.mName = makeText(kits, rRow.mGroup, name, 32);
-        snprintf(name, sizeof(name), "NcText%d", static_cast< int >(i));
+        nebula_snprintf(name, sizeof(name), "NcText%d", static_cast< int >(i));
         rRow.mText = makeText(kits, rRow.mGroup, name, cTextLength);
         if (rRow.mStrip == nullptr || rRow.mName == nullptr || rRow.mText == nullptr) {
             delete p;
@@ -197,8 +197,8 @@ void NebulaCoopChat::init(const JMapInfoIter& rIter) {
     setTextStyle(p->mInputText, cTextSize, cWhite, cWhite, 0);
     setTextStyle(p->mCursor, cTextSize, cGold, cGold, 0);
     f32 width;
-    p->mCursorWidth = widthOf(p->mCursor, L"|");
-    p->mMarkWidth = widthOf(p->mInputMark, L">");
+    p->mCursorWidth = widthOf(p->mCursor, u"|");
+    p->mMarkWidth = widthOf(p->mInputMark, u">");
     measure(p->mInputMark, 4000.0f, &width, &p->mLineHeight);
     p->mInput->SetVisible(false);
 
@@ -225,7 +225,7 @@ void NebulaCoopChat::control() {
         return;
     }
     NebulaCoopChatView& rView = p->mView;
-    __NebulaCoopChat(&rView);
+    NebulaHost::coopChat(&rView);
     const u32 count = rView.line_count < NEBULA_COOP_CHAT_LINES ? rView.line_count : NEBULA_COOP_CHAT_LINES;
     p->mShown = count > 0 || rView.typing != 0;
     if (!p->mShown) {
@@ -250,7 +250,7 @@ void NebulaCoopChat::control() {
     const bool typing = rView.typing != 0;
     if (typing && (!p->mTyping || reshaped || rView.input_serial != p->mInputSerial)) {
         rView.input[NEBULA_COOP_CHAT_TEXT - 1] = 0;
-        wchar_t text[NEBULA_COOP_CHAT_TEXT];
+        char16_t text[NEBULA_COOP_CHAT_TEXT];
         toWide(text, NEBULA_COOP_CHAT_TEXT, rView.input);
         s32 length = 0;
         while (text[length] != 0) {
@@ -258,7 +258,7 @@ void NebulaCoopChat::control() {
         }
         const s32 cursor = static_cast< s32 >(rView.cursor) < length ? static_cast< s32 >(rView.cursor) : length;
         const f32 room = limit - p->mMarkWidth - cNameGap - p->mCursorWidth;
-        wchar_t shown[NEBULA_COOP_CHAT_TEXT];
+        char16_t shown[NEBULA_COOP_CHAT_TEXT];
         s32 start = 0;
         s32 end = length;
         for (;;) {
@@ -277,7 +277,7 @@ void NebulaCoopChat::control() {
             }
         }
         // The cursor after the letters before it.
-        wchar_t before[NEBULA_COOP_CHAT_TEXT];
+        char16_t before[NEBULA_COOP_CHAT_TEXT];
         s32 n = 0;
         for (s32 i = start; i < cursor; i++) {
             before[n++] = text[i];
@@ -285,8 +285,8 @@ void NebulaCoopChat::control() {
         before[n] = 0;
         p->mCursorX = n > 0 ? widthOf(p->mInputText, before) : 0.0f;
         widthOf(p->mInputText, shown);
-        setText(p->mInputMark, L">");
-        setText(p->mCursor, L"|");
+        setText(p->mInputMark, u">");
+        setText(p->mCursor, u"|");
         p->mInputSerial = rView.input_serial;
         p->mBlink = 0;
     }
@@ -319,20 +319,20 @@ void NebulaCoopChat::control() {
         if (rRow.mId != rLine.id || reshaped) {
             rLine.name[sizeof(rLine.name) - 1] = 0;
             rLine.text[sizeof(rLine.text) - 1] = 0;
-            wchar_t name[32];
+            char16_t name[32];
             toWide(name, 32, rLine.name);
             f32 nameWidth = 0.0f;
             f32 nameHeight = 0.0f;
             f32 textWidth, textHeight;
             if (rLine.kind == NEBULA_COOP_CHAT_MESSAGE) {
-                wchar_t label[36];
-                append(append(label, label + 36, name), label + 36, L":");
+                char16_t label[36];
+                append(append(label, label + 36, name), label + 36, u":");
                 setText(rRow.mName, label);
                 measure(rRow.mName, 4000.0f, &nameWidth, &nameHeight);
                 const u32 colour = rLine.character == 1 ? cLuigi : cMario;
                 setTextColor(rRow.mName, colour, colour);
                 rRow.mName->SetVisible(true);
-                wchar_t text[NEBULA_COOP_CHAT_TEXT];
+                char16_t text[NEBULA_COOP_CHAT_TEXT];
                 toWide(text, NEBULA_COOP_CHAT_TEXT, rLine.text);
                 f32 room = limit - nameWidth - cNameGap;
                 room = room < cWordsLeast ? cWordsLeast : room;
@@ -342,7 +342,7 @@ void NebulaCoopChat::control() {
             } else if (rLine.kind == NEBULA_COOP_CHAT_NOTICE) {
                 // A command's words: its text in the played language when the host names one, else as it came.
                 rRow.mName->SetVisible(false);
-                wchar_t text[cTextLength];
+                char16_t text[cTextLength];
                 if (strncmp(rLine.text, "CoopCmd", 7) == 0 && NebulaText::has(rLine.text)) {
                     fillName(text, cTextLength, rLine.text, name);
                 } else {
@@ -353,7 +353,7 @@ void NebulaCoopChat::control() {
                 rRow.mWidth = textWidth;
             } else {
                 rRow.mName->SetVisible(false);
-                wchar_t text[cTextLength];
+                char16_t text[cTextLength];
                 fillName(text, cTextLength, rLine.kind == NEBULA_COOP_CHAT_JOINED ? "CoopChatJoined" : "CoopChatLeft", name);
                 setTextColor(rRow.mText, cNotice, cNotice);
                 wrapWords(rRow.mText, text, limit, &textWidth, &textHeight);
@@ -378,4 +378,3 @@ void NebulaCoopChat::control() {
         bottom += h + cGap;
     }
 }
-#endif

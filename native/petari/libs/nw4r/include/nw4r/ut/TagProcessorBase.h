@@ -1,7 +1,8 @@
 #pragma once
 
 #include "nw4r/ut/Rect.h"
-#include <revolution.h>
+#include <NebulaGpu.h>
+#include <nebula_math.h>
 
 namespace nw4r {
     namespace ut {

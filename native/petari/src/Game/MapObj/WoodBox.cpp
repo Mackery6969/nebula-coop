@@ -11,7 +11,6 @@
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
-#include "revolution/types.h"
 
 namespace NrvWoodBox {
     NEW_NERVE(WoodBoxNrvWait, WoodBox, Wait);
@@ -56,7 +55,7 @@ void WoodBox::init(const JMapInfoIter& rIter) {
     }
 
     calcAndSetBaseMtx();
-    PSMTXCopy(getBaseMtx(), mBaseMtx);
+    NebulaMtxCopy(getBaseMtx(), mBaseMtx);
     ;
     MR::addTransMtx(mBaseMtx, TVec3f(0.0f, 100.0f, 0.0f));
 
@@ -250,7 +249,7 @@ void WoodBox::exeHit() {
             TVec3f upVec;
             MR::calcUpVec(&upVec, this);
             Mtx spawnMtx;
-            PSMTXCopy(getBaseMtx(), spawnMtx);
+            NebulaMtxCopy(getBaseMtx(), spawnMtx);
 
             MR::addTransMtx(spawnMtx, upVec * 50.0f);
 

@@ -3,7 +3,7 @@
 #include "Game/Util/ModelUtil.hpp"
 #include <JSystem/J3DGraphAnimator/J3DModel.hpp>
 #include <JSystem/JGeometry/TMatrix.hpp>
-#include <revolution/mtx.h>
+#include <nebula_math.h>
 
 ModelHolder::ModelHolder(const char* pName, bool b) : LiveActor(pName) {
     initModelManagerWithAnm(pName, nullptr, b);
@@ -13,7 +13,7 @@ ModelHolder::ModelHolder(const char* pName, bool b) : LiveActor(pName) {
 
 void ModelHolder::updateMtx(MtxPtr mtxPtr) {
     J3DModel* model = MR::getJ3DModel(this);
-    PSMTXCopy(mtxPtr, model->mBaseTransformMtx);
+    NebulaMtxCopy(mtxPtr, model->mBaseTransformMtx);
     model->calc();      // 0x10
     model->viewCalc();  // 0x1C
 }

@@ -5,12 +5,6 @@
 #include "Game/Util/MtxUtil.hpp"
 #include "math_types.hpp"
 
-void FORCE_ADD() {
-    TVec3f vec;
-    TVec3f vec2;
-    vec + vec2;
-}
-
 void Mario::stick2DadjustGround(f32& rX, f32& rY) {
     if (isStageCameraRotate2D()) {
         return;
@@ -26,9 +20,9 @@ void Mario::stick2DadjustGround(f32& rX, f32& rY) {
     mUp2D.set(0.0f, 1.0f, 0.0f);
     mNormal2D.set(0.0f, 0.0f, -1.0f);
 
-    PSMTXMultVecSR(_F4, mSide2D, mSide2D);
-    PSMTXMultVecSR(_F4, mNormal2D, mNormal2D);
-    PSMTXMultVecSR(_F4, mUp2D, mUp2D);
+    NebulaMtxMultVecSR(_F4, mSide2D, mSide2D);
+    NebulaMtxMultVecSR(_F4, mNormal2D, mNormal2D);
+    NebulaMtxMultVecSR(_F4, mUp2D, mUp2D);
 
     _6A0 = mNormal2D;
 
@@ -58,7 +52,7 @@ void Mario::stick2DadjustGround(f32& rX, f32& rY) {
             return;
         }
 
-        PSMTXMultVecSR(MR::tmpMtxRotZRad(-MR::diffAngleSignedHorizontal(_67C, _660, _6A0)), stickDir2D, stickDir2D);
+        NebulaMtxMultVecSR(MR::tmpMtxRotZRad(-MR::diffAngleSignedHorizontal(_67C, _660, _6A0)), stickDir2D, stickDir2D);
         rX = stickDir2D.x;
         rY = stickDir2D.y;
         return;

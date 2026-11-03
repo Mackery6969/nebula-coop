@@ -1,8 +1,5 @@
 
-#ifdef TARGET_PC
 #include <nebula_game_api.h>
-#include <revolution/os.h>
-#endif
 #include "Game/Enemy/BegomanSpring.hpp"
 #include "Game/Enemy/BegomanBaby.hpp"
 #include "Game/Enemy/BegomanSpringHead.hpp"
@@ -29,6 +26,7 @@
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
 #include <JSystem/JMath/JMATrigonometric.hpp>
+#include "Game/System/NebulaHost.hpp"
 
 namespace NrvBegomanSpring {
     NEW_NERVE_ONEND(HostTypeNrvNoCalcWait, BegomanSpring, NoCalcWait, NoCalcWait);
@@ -236,11 +234,7 @@ void BegomanSpring::control() {
         }
     }
 
-#ifdef TARGET_PC
-    if (!__NebulaCodePatch(NEBULA_PATCH_BEGOMAN_FIRE_PROOF, nullptr) && MR::isBindedGroundDamageFire(this)) {
-#else
     if (MR::isBindedGroundDamageFire(this)) {
-#endif
         makeActorDead();
         MR::emitEffect(this, "Fall");
         return;
