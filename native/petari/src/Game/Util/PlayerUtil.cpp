@@ -871,7 +871,6 @@ namespace MR {
 
     const TVec3f* getNearestPlayerPos(const LiveActor* pActor) {
         const TVec3f* pNearest = getPlayerPos();
-#ifdef TARGET_PC
         const s32 copyNum = NebulaRemotePlayer::getCopyNum();
         if (copyNum == 0) {
             return pNearest;
@@ -894,7 +893,6 @@ namespace MR {
                 pNearest = &pCopy->mPosition;
             }
         }
-#endif
         return pNearest;
     }
 };  // namespace MR
