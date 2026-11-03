@@ -8,7 +8,7 @@
 #include "Game/Player/MarioActor.hpp"
 #include "Game/Player/PlayerEvent.hpp"
 #include "Game/Player/RushEndInfo.hpp"
-#include "Game/Player/NebulaRemotePlayer.hpp"  // For co-op remote player support
+#include "Game/Player/NebulaRemotePlayer.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/Util/AreaObjUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
@@ -869,33 +869,32 @@ namespace MR {
         return MarioAccess::getCameraCubeCode();
     }
 
-    TVec3f* getNearestPlayerPos() {
-        // Find the nearest player among all remote players
-        // Returns the nearest player's position for enemy targeting
-        // For co-op: checks NebulaRemotePlayer copies; for single-player: uses main player
-        
-        TVec3f* nearestPos = nullptr;
-        f32 nearestDist = FLT_MAX;
-        
-        // Check NebulaRemotePlayer copies for remote players
-        // Use getCopyNum() for accurate count (set in NebulaRemotePlayer::updateAll())
-        s32 copyNum = NebulaRemotePlayer::getCopyNum();
+    const TVec3f* getNearestPlayerPos(const LiveActor* pActor) {
+        const TVec3f* pNearest = getPlayerPos();
+#ifdef TARGET_PC
+        const s32 copyNum = NebulaRemotePlayer::getCopyNum();
+        if (copyNum == 0) {
+            return pNearest;
+        }
+        // A local Mario nothing touches now (dead, in a demo, bound, a Boo) isn't chased while another player can be.
+        bool found = !isPlayerDead() && !NebulaRemotePlayer::isLocalIntangible();
+        f32 nearestDistSq = found ? pActor->mPosition.squared(*pNearest) : 0.0f;
         for (s32 i = 0; i < copyNum; i++) {
-            NebulaRemotePlayer* pCopy = NebulaRemotePlayer::getCopy(i);
-            if (pCopy == nullptr || pCopy->mNumber == 0) {
-                continue;  // No copy at this index
+            const NebulaRemotePlayer* pCopy = NebulaRemotePlayer::getCopy(i);
+            // Copies showing nobody, and players nothing touches now, are skipped. Not isTouchable: that also says
+            // whether players touch each other, which the room's rules may turn off.
+            if (pCopy == nullptr || pCopy->mNumber == 0 || isDead(pCopy)
+                || (pCopy->mState.flags & (NEBULA_COOP_PLAYER_INTANGIBLE | NEBULA_COOP_PLAYER_DEAD)) != 0) {
+                continue;
             }
-            
-            // mPosition is available from LiveActor base class
-            // Distance to nearestPos (nullptr means use arbitrary initial distance)
-            f32 dist = nearestPos ? pCopy->mPosition.distance(*nearestPos) : 0;
-            if (dist < nearestDist) {
-                nearestDist = dist;
-                nearestPos = &pCopy->mPosition;
+            const f32 distSq = pActor->mPosition.squared(pCopy->mPosition);
+            if (!found || distSq < nearestDistSq) {
+                found = true;
+                nearestDistSq = distSq;
+                pNearest = &pCopy->mPosition;
             }
         }
-        
-        // If no remote player found, use main player position
-        return nearestPos != nullptr ? nearestPos : getPlayerPos();
+#endif
+        return pNearest;
     }
 };  // namespace MR

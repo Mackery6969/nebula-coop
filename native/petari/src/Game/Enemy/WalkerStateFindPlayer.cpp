@@ -41,9 +41,8 @@ void WalkerStateFindPlayer::exeFind() {
     }
 
     WalkerStateFunction::calcPassiveMovement(getHost(), mStateParam);
-    // Use nearest player pos for co-op support - enemies will target the nearest player
-    TVec3f* nearestPlayerPos = MR::getNearestPlayerPos();
-    MR::turnDirectionToTargetUseGroundNormalDegree(getHost(), mDirection, *nearestPlayerPos, mFindPlayerParam->mTurnMaxRateDegree);
+    // Co-op: the nearest player, not always the local Mario.
+    MR::turnDirectionToTargetUseGroundNormalDegree(getHost(), mDirection, *MR::getNearestPlayerPos(getHost()), mFindPlayerParam->mTurnMaxRateDegree);
 
     if (MR::isStep(this, mFindPlayerParam->mJumpStartStep)) {
         setNerve(GET_NERVE(WalkerStateFindPlayer, WalkerStateFindPlayerNrvFindJumpStart));

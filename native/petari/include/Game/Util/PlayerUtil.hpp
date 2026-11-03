@@ -26,7 +26,9 @@ namespace MR {
     TVec3f* getPlayerPos();
     TVec3f* getPlayerCenterPos();
     void getPlayerTakePos(TVec3f*);
-    TVec3f* getNearestPlayerPos();  // For enemies targeting nearest player instead of single player
+    // Co-op (docs/COOP_PLAN.md, Phase 3): the position of the player nearest pActor, the local Mario or another player
+    // in this instance who can be touched now. Single player, the local Mario's (getPlayerPos).
+    const TVec3f* getNearestPlayerPos(const LiveActor* pActor);
     void setPlayerPos(const TVec3f&);
     void setPlayerUpperRotateY(f32);
     TVec3f* getPlayerRotate();
