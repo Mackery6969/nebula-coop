@@ -528,6 +528,7 @@ void pump_events(int timeout_ms) noexcept {
                 // The editing keys to the text row; nothing reaches the game while it is edited.
                 switch (event.key.scancode) {
                 case SDL_SCANCODE_BACKSPACE: galaxy::gx::push_coop_text(galaxy::coop::kTextBackspace); break;
+                case SDL_SCANCODE_TAB: galaxy::gx::push_coop_text(galaxy::coop::kTextTab); break;
                 case SDL_SCANCODE_DELETE: galaxy::gx::push_coop_text(galaxy::coop::kTextDelete); break;
                 case SDL_SCANCODE_RETURN:
                 case SDL_SCANCODE_KP_ENTER: galaxy::gx::push_coop_text(galaxy::coop::kTextEnter); break;

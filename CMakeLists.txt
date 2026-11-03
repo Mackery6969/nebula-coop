@@ -608,6 +608,7 @@ galaxy_test(galaxy_runtime_settings_tests SOURCES ${rt}/runtime_settings_tests.c
 galaxy_test(galaxy_coop_menu_tests SOURCES ${rt}/coop_menu_tests.cpp LIBS galaxy_runtime_settings)
 galaxy_test(galaxy_net_tests SOURCES ${rt}/net/net_tests.cpp LIBS galaxy_net)
 galaxy_test(galaxy_coop_chat_tests SOURCES ${rt}/coop_chat_tests.cpp LIBS galaxy_net)
+galaxy_test(galaxy_coop_commands_tests SOURCES ${rt}/coop_commands_tests.cpp LIBS galaxy_net)
 galaxy_test(galaxy_coop_snapshot_tests SOURCES ${rt}/coop_snapshot_tests.cpp LIBS galaxy_net)
 galaxy_test(galaxy_coop_world_tests SOURCES ${rt}/coop_world_tests.cpp LIBS galaxy_net)
 galaxy_test(galaxy_achievements_tests SOURCES ${rt}/achievements_tests.cpp LIBS galaxy_runtime_settings)

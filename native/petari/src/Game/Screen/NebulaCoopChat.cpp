@@ -36,12 +36,14 @@ namespace {
     const s32 cBlinkFrames = 30;
 
     // RGBA: the strips are the game's window dimmed to see through (the typed line's darker, in a gold ring); the
-    // words white, a join or leave grey, a name in its character's colour (Mario's red, Luigi's green).
+    // words white, a join or leave grey, a command's words pale yellow (sm64coopdx's), a name in its character's
+    // colour (Mario's red, Luigi's green).
     const u32 cStripFill = 0x0A0F1EB4;
     const u32 cInputFill = 0x0A0F1EDC;
     const u32 cGold = 0xEBC800FF;
     const u32 cWhite = 0xFFFFFFFF;
     const u32 cNotice = 0xBEBEC8FF;
+    const u32 cCommand = 0xFFF982FF;
     const u32 cMario = 0xFF6E64FF;
     const u32 cLuigi = 0x6EF046FF;
 
@@ -68,8 +70,8 @@ namespace {
 
     // NebulaText's `pId` with {name} as `pName`.
     void fillName(wchar_t* pDst, s32 capacity, const char* pId, const wchar_t* pName) {
-        wchar_t pattern[128];
-        NebulaText::get(pattern, 128, pId);
+        wchar_t pattern[cTextLength];
+        NebulaText::get(pattern, cTextLength, pId);
         wchar_t* p = pDst;
         wchar_t* pEnd = pDst + capacity;
         *p = 0;
@@ -337,6 +339,18 @@ void NebulaCoopChat::control() {
                 setTextColor(rRow.mText, cWhite, cWhite);
                 wrapWords(rRow.mText, text, room, &textWidth, &textHeight);
                 rRow.mWidth = nameWidth + cNameGap + textWidth;
+            } else if (rLine.kind == NEBULA_COOP_CHAT_NOTICE) {
+                // A command's words: its text in the played language when the host names one, else as it came.
+                rRow.mName->SetVisible(false);
+                wchar_t text[cTextLength];
+                if (strncmp(rLine.text, "CoopCmd", 7) == 0 && NebulaText::has(rLine.text)) {
+                    fillName(text, cTextLength, rLine.text, name);
+                } else {
+                    toWide(text, cTextLength, rLine.text);
+                }
+                setTextColor(rRow.mText, cCommand, cCommand);
+                wrapWords(rRow.mText, text, limit, &textWidth, &textHeight);
+                rRow.mWidth = textWidth;
             } else {
                 rRow.mName->SetVisible(false);
                 wchar_t text[cTextLength];

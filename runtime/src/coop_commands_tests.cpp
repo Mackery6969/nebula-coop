@@ -208,7 +208,10 @@ void test_room() {
         config.name = name;
         return config;
     };
-    expect(joiner.join(join("LUIGI FAN")) && third.join(join("THIRD")), "two join");
+    // One after the other, so each has its number.
+    expect(joiner.join(join("LUIGI FAN")) && wait_for([&] { return joiner.state() == SessionState::Joined; }) &&
+               third.join(join("THIRD")),
+           "two join");
     expect(wait_for([&] {
                return joiner.state() == SessionState::Joined && third.state() == SessionState::Joined &&
                       joiner.players().size() == 3u && third.players().size() == 3u;

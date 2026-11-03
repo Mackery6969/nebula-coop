@@ -23,7 +23,7 @@ extern "C" {
 #define NEBULA_GAME_API __attribute__((visibility("default")))
 #endif
 
-#define NEBULA_GAME_API_VERSION 43u
+#define NEBULA_GAME_API_VERSION 45u
 
 /* A physical range of the game's memory and where it is in the host process: what the GPU's addresses resolve to. */
 typedef struct NebulaGameMemoryRegion {
@@ -516,20 +516,23 @@ enum {
 /* Online co-op's chat (coop_chat, docs/COOP_PLAN.md "Chat") as the game draws it over play: the room's newest lines,
    and the line the keyboard types (T opens it, Enter sends it, Escape drops it; the host takes the keys). Its texts
    are printable ASCII. A line keeps its words (`id` names it), so the game sets them once; its `alpha` falls as it
-   fades. Controllers read the chat, they don't type. */
+   fades. Controllers read the chat, they don't type. A line starting with '/' is a command (galaxy/coop_commands.h):
+   what it says is a NOTICE line for this player alone. */
 #define NEBULA_COOP_CHAT_LINES 8
 #define NEBULA_COOP_CHAT_TEXT 104 /* a message's longest (100) and its terminator */
 enum {
     NEBULA_COOP_CHAT_MESSAGE = 0, /* `name` said `text` */
     NEBULA_COOP_CHAT_JOINED,      /* `name` joined the room */
     NEBULA_COOP_CHAT_LEFT,        /* `name` left it */
+    NEBULA_COOP_CHAT_NOTICE,      /* a command's words: NebulaText's `text` when it is an id ("CoopCmd..."), {name}
+                                     as `name`; otherwise `text` as it is */
 };
 typedef struct NebulaCoopChatLine {
     uint32_t id;
     uint32_t kind;      /* NEBULA_COOP_CHAT_* */
     uint32_t character; /* a message's sender's: 0 Mario, 1 Luigi (their name's colour) */
     uint32_t alpha;     /* 0 to 255 */
-    char name[24];
+    char name[32];
     char text[NEBULA_COOP_CHAT_TEXT];
 } NebulaCoopChatLine;
 typedef struct NebulaCoopChatView {

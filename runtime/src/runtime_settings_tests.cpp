@@ -645,6 +645,17 @@ int main() {
     passed &= expect(galaxy::get_runtime_settings().coop == galaxy::RuntimeCoopSettings{},
                      "unknown player interaction, knockback and PvP values keep the defaults");
 
+    // The kept ban and moderator lists: addresses, each once.
+    write_text(settings_path, "coop_bans=192.168.1.9, ::1,not an address,192.168.1.9\ncoop_moderators=fe80::2\n");
+    galaxy::load_runtime_settings_from_file();
+    const galaxy::RuntimeSettings lists = galaxy::get_runtime_settings();
+    passed &= expect(lists.coop_bans == std::vector<std::string>({"192.168.1.9", "::1"}) &&
+                         lists.coop_moderators == std::vector<std::string>({"fe80::2"}),
+                     "kept co-op lists load, dropping what isn't an address and repeats");
+    passed &= expect(galaxy::save_runtime_settings_to_file(), "kept co-op lists save");
+    galaxy::load_runtime_settings_from_file();
+    passed &= expect(galaxy::get_runtime_settings() == lists, "kept co-op lists round-trip");
+
     const auto endpoint = [](std::string_view text, const char* host, unsigned port) {
         std::string parsed_host;
         std::uint16_t parsed_port = 0u;
