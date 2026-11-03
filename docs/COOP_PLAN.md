@@ -281,7 +281,7 @@ options and the room's players' names (each Tab the next match), and a player's 
   description, handler)` (`galaxy/coop_commands.h`); a `[On|Off]` in the description are the options Tab offers.
   Nebula's mods (Riivolution patches, files) run no code, so the commands are Nebula's own features': the Personal
   Star Counter's `/psc` comes with its room setting.
-- **The game.** The host's `coop_chat` gives a command's words as `NEBULA_COOP_CHAT_NOTICE` lines (game API 118):
+- **The game.** The host's `coop_chat` gives a command's words as `NEBULA_COOP_CHAT_NOTICE` lines (game API 121):
   a `CoopCmd...` text id with `{name}` filled in, or words as they are.
 
 ## Personal Star Counter
@@ -462,7 +462,7 @@ Each phase ships on its own and leaves the game playable.
       (see [Mods](#mods-the-rooms-not-the-players)).
 - [x] [Chat](#chat), keyboard only; controllers read it.
 - [x] [Chat commands](#chat-commands) as sm64coopdx's: `/help`, `/players`, `/kick`, `/ban`, `/permban`,
-      `/moderator`, `/confirm`, Tab completion, and commands features add (API version 118).
+      `/moderator`, `/confirm`, Tab completion, and commands features add (API version 121).
 - [x] The [Personal Star Counter](#personal-star-counter): each player's stars this room and all time, on the HUD and
       in the player list (API version 41).
 
