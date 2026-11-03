@@ -188,6 +188,8 @@ private:
     void finish_edit();
     void read_mods();
     void toggle_mod(unsigned index);
+    // The Mods page's row of the built-in Personal Star Counter (a room setting): after the folder's mods.
+    [[nodiscard]] unsigned star_counter_row() const;
 
     bool settings_ = false;
     SaveStore* saves_ = nullptr;

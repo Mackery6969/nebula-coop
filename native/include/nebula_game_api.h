@@ -214,6 +214,7 @@ enum {
     NEBULA_COOP_LIST_LUIGI = 1u << 0, /* plays Luigi */
     NEBULA_COOP_LIST_HOST = 1u << 1,  /* the room's host */
     NEBULA_COOP_LIST_YOU = 1u << 2,   /* this player */
+    NEBULA_COOP_LIST_STARS = 1u << 3, /* the room plays the Personal Star Counter: `stars` shows */
 };
 
 /* Online co-op's shared world (coop_world_report and coop_world_take, docs/COOP_PLAN.md "Shared world state"): the
@@ -273,8 +274,8 @@ enum {
                                         (__NebulaGXBloomMarker): 0 not at all (their copy chains, as the console's), 1
                                         their own chains with the scene they work over kept and restored by it (in the
                                         EFB's own format), 2 it draws the bloom from their values */
-    NEBULA_OPTION_STAR_COUNTER,      /* 1 while the player wants the Personal Star Counter's two counters on the HUD
-                                        (NebulaStarCounter; the Player tab's setting), 0 not */
+    NEBULA_OPTION_STAR_COUNTER,      /* 1 while the room plays the built-in Personal Star Counter mod (the host's
+                                        choice, off by default): NebulaStarCounter's two counters show on the HUD */
 };
 
 /* game_light: the game's lights, from the objects that own them; `values` per kind. */

@@ -168,7 +168,7 @@ f32 NebulaStarCounter::getLineStep() const {
 void NebulaStarCounter::appear() {
     mCount = getCount();
     if (mCount < 0 || !isWanted()) {
-        // The room's count outside a room, or the player turned the counters off.
+        // The room's count outside a room, or the room doesn't play the mod.
         kill();
         return;
     }

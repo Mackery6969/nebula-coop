@@ -177,7 +177,8 @@ How a join goes (`galaxy/coop_mods.h`, `galaxy/coop_session.h`), as sm64coopdx's
 
 Nebula's in-game settings menu (F1, the pause menu's Settings) keeps its pages, but ADVANCED becomes **ONLINE**:
 
-- **Room.** The session's settings: Player Interaction, Knockback Strength, PvP Mode, Cheats and the player list.
+- **Room.** The session's settings: Player Interaction, Knockback Strength, PvP Mode, Cheats, the built-in Personal
+  Star Counter and the player list.
   The host changes them for everyone, like sm64coopdx's in-game host settings; other players see them.
 - **No Leave game.** The way out of an online game is the game's own: the pause menu's Quit (in the Observatory, or
   before it opens) returns to the main menu, and back there the session ends (the host closes the room, a joiner
@@ -228,7 +229,7 @@ packets. It has no physics or state machine of its own. It collides with the loc
   (the session's own message, sent with the room to who joins later), so the list has every player's place before
   remote players exist; the game names the galaxy and star in the played language (`NebulaPlayerList`,
   `coop_list`). The round trip to each player shows beside them, and the Power Stars they got in the room before it
-  ([Personal Star Counter](#personal-star-counter)).
+  while the room plays the [Personal Star Counter](#personal-star-counter).
 
 ## Chat
 
@@ -253,10 +254,13 @@ with it, the same layout with the star tinted as the mod's (`NebulaStarCounter`,
 - **Green: every one.** All the Power Stars this player ever got, kept across saves with Nebula's other all-time
   counts (`power_stars` in `stats.ini`); the achievement board's stats page lists it too.
 
-They're on unless the player turns them off: the settings' Player tab has Personal Star Counter (`coop_star_counter=0`
-in `runtime_settings.ini`, this player's own, as the mod's `/psc off`). The game asks with
-`NEBULA_OPTION_STAR_COUNTER` as the counters come in, and once a second while they show, so turning it off takes them
-away at once; the player list still shows everyone's counts.
+It's a mod, as in sm64coopdx: a room plays it only when its host turns it on, and it's off by default. Being built
+in, it has nothing to download and needs no restart: it's the last row of the Host page's Mods (and counts with the
+mods on there), and the Online tab's Room has it too, so the host can turn it on or off during a game. It's a room
+setting (`coop_star_counter=1` in `runtime_settings.ini`), sent with the room's other settings, so every player has
+the host's. The game asks with `NEBULA_OPTION_STAR_COUNTER` as the counters come in and once a second while they
+show, so they go at once when the host turns it off; the player list shows the stars only while it's on
+(`NEBULA_COOP_LIST_STARS`).
 
 As in the mod, a star counts only when it's new to the save (the mod counts when the save's star count goes up), so a
 star the room already has counts for nobody again; a Grand Star counts too. The host counts them, as it decides the
@@ -417,7 +421,7 @@ Each phase ships on its own and leaves the game playable.
       (see [Mods](#mods-the-rooms-not-the-players)).
 - [x] [Chat](#chat), keyboard only; controllers read it.
 - [x] The [Personal Star Counter](#personal-star-counter): each player's stars this room and all time, on the HUD and
-      in the player list (API version 41).
+      in the player list (API version 41); a built-in mod the host turns on for the room, off by default (API 43).
 
 ### Phase 2: same world
 

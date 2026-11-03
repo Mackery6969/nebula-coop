@@ -1455,6 +1455,12 @@ std::vector<SettingsRow> online_page(const RuntimeSettings& runtime) {
                         s_runtime_draft.coop.cheats = !s_runtime_draft.coop.cheats;
                     },
                     "ON: EVERYONE IN THE ROOM MAY USE THE CHEATS BELOW, ONCE APPLIED. OFF: THEY DO NOTHING"});
+    rows.push_back({"PERSONAL STAR COUNTER", coop.star_counter ? std::string("ON") : std::string("OFF"),
+                    [](RenderConfig&, int delta) {
+                        if (delta == 0) return;
+                        s_runtime_draft.coop.star_counter = !s_runtime_draft.coop.star_counter;
+                    },
+                    "THE BUILT-IN MOD: EVERYONE'S STARS IN THIS ROOM (RED) AND EVER (GREEN), AND IN THE PLAYER LIST"});
 
     // A player who joined: the room's rows show the host's settings, unchanged.
     if (status.joined) {
@@ -1536,7 +1542,7 @@ std::vector<SettingsRow> online_page(const RuntimeSettings& runtime) {
     return rows;
 }
 
-// The PLAYER page: the player's name, character and Personal Star Counter, theirs in every game they play (the main menu's Host and Join send
+// The PLAYER page: the player's name and character, theirs in every game they play (the main menu's Host and Join send
 // them). The name is a text, typed in place (start_settings_text); a change applies from the next game hosted or joined.
 std::vector<SettingsRow> player_page(const RuntimeSettings& runtime) {
     std::vector<SettingsRow> rows;
@@ -1558,12 +1564,6 @@ std::vector<SettingsRow> player_page(const RuntimeSettings& runtime) {
                         character = static_cast<CoopCharacter>(settings_step(static_cast<unsigned>(character), 2u, delta));
                     },
                     "WHO YOU PLAY AS, IN ANY SAVE. OTHER PLAYERS SEE YOU AS HIM"});
-    rows.push_back({"PERSONAL STAR COUNTER", coop.star_counter ? std::string("ON") : std::string("OFF"),
-                    [](RenderConfig&, int delta) {
-                        if (delta == 0) return;
-                        s_runtime_draft.coop.star_counter = !s_runtime_draft.coop.star_counter;
-                    },
-                    "YOUR STARS IN THIS ROOM (RED) AND EVER (GREEN), UNDER THE STAR COUNT"});
     return rows;
 }
 

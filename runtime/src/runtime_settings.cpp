@@ -244,7 +244,7 @@ void apply_kv(RuntimeSettings& settings, const char* key, const char* value) {
     } else if (std::strcmp(key, "coop_cheats") == 0) {
         settings.coop.cheats = std::strcmp(value, "1") == 0;
     } else if (std::strcmp(key, "coop_star_counter") == 0) {
-        settings.coop.star_counter = std::strcmp(value, "0") != 0;
+        settings.coop.star_counter = std::strcmp(value, "1") == 0;
     } else if (std::strcmp(key, "coop_pvp_mode") == 0) {
         for (const CoopPvpMode mode : {CoopPvpMode::Classic, CoopPvpMode::Revamped}) {
             if (_stricmp(value, coop_pvp_mode_key(mode)) == 0) settings.coop.pvp_mode = mode;

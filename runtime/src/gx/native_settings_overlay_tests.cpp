@@ -561,13 +561,13 @@ int main() {
                      "up returns to text speed");
     passed &= expect(key(VK_TAB), "Tab enters the player page");
     snapshot = galaxy::gx::native_settings_overlay_snapshot();
-    passed &= expect(snapshot.tab == 5u && snapshot.row_count == 3u && snapshot.row == 0u,
-                     "player page has the name, the character and the Personal Star Counter, the name selected");
+    passed &= expect(snapshot.tab == 5u && snapshot.row_count == 2u && snapshot.row == 0u,
+                     "player page has the name and the character, the name selected");
     {
         // The name is typed in place: Space starts it (its own space dropped), Enter keeps it in the draft.
         const std::string name = galaxy::get_runtime_settings().coop.player_name;
         galaxy::gx::NativeSettingsView player = galaxy::gx::native_settings_view();
-        passed &= expect(player.rows.size() == 3u && player.rows[0].text && player.rows[0].name && !player.editing &&
+        passed &= expect(player.rows.size() == 2u && player.rows[0].text && player.rows[0].name && !player.editing &&
                              player.rows[1].label == "CHARACTER" && player.rows[1].changes,
                          "the name is a text, the character a choice");
         passed &= expect(key(VK_SPACE) && galaxy::gx::native_settings_typing() &&
@@ -595,12 +595,6 @@ int main() {
                              galaxy::gx::native_settings_view().rows[1].value == "LUIGI" && key(VK_BACK) &&
                              galaxy::gx::native_settings_view().rows[1].value == "MARIO",
                          "right picks Luigi, Backspace undoes it");
-        passed &= expect(key(VK_DOWN) && galaxy::gx::native_settings_view().rows[2].label == "PERSONAL STAR COUNTER" &&
-                             galaxy::gx::native_settings_view().rows[2].value == "ON" && key(VK_RIGHT) &&
-                             galaxy::gx::native_settings_view().rows[2].value == "OFF" && key(VK_BACK) &&
-                             galaxy::gx::native_settings_view().rows[2].value == "ON",
-                         "the Personal Star Counter is on, right turns it off, Backspace undoes it");
-        (void)key(VK_UP);
         (void)key(VK_UP);
     }
     passed &= expect(key(VK_TAB), "Tab enters the system page");
@@ -611,8 +605,8 @@ int main() {
                      "the graphics card row cannot be changed in game");
     passed &= expect(key(VK_TAB), "Tab enters the online page");
     snapshot = galaxy::gx::native_settings_overlay_snapshot();
-    passed &= expect(snapshot.tab == 7u && snapshot.row_count == 12u,
-                     "online page has the room (its heading, players and five settings) and the cheats (their "
+    passed &= expect(snapshot.tab == 7u && snapshot.row_count == 13u,
+                     "online page has the room (its heading, players and six settings) and the cheats (their "
                      "heading, galaxy, star and two buttons)");
     passed &= expect(key(VK_TAB), "Tab enters the mods page");
     snapshot = galaxy::gx::native_settings_overlay_snapshot();
