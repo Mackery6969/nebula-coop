@@ -295,18 +295,18 @@ namespace MR {
 
     void blendMtxRotate(MtxPtr pMtxA, MtxPtr pMtxB, f32 blend, MtxPtr pDst) {
         Quaternion quatA, quatB, quatR;
-        C_QUATMtx(&quatA, pMtxA);
-        C_QUATMtx(&quatB, pMtxB);
-        JMAQuatLerp(&quatA, &quatB, blend, &quatR);
-        PSMTXQuat(pDst, &quatR);
+        NebulaQuatFromMtx(&quatA, pMtxA);
+        NebulaQuatFromMtx(&quatB, pMtxB);
+        NebulaQuatLerp(&quatA, &quatB, blend, &quatR);
+        NebulaMtxQuat(pDst, &quatR);
     }
 
     void blendMtxRotateSlerp(MtxPtr pMtxA, MtxPtr pMtxB, f32 blend, MtxPtr pDst) {
         Quaternion quatA, quatB, quatR;
-        C_QUATMtx(&quatA, pMtxA);
-        C_QUATMtx(&quatB, pMtxB);
-        C_QUATSlerp(&quatA, &quatB, &quatR, blend);
-        PSMTXQuat(pDst, &quatR);
+        NebulaQuatFromMtx(&quatA, pMtxA);
+        NebulaQuatFromMtx(&quatB, pMtxB);
+        NebulaQuatSlerp(&quatA, &quatB, &quatR, blend);
+        NebulaMtxQuat(pDst, &quatR);
     }
 
     void blendMtx(MtxPtr pMtxA, MtxPtr pMtxB, f32 blend, MtxPtr pDst) {
@@ -504,8 +504,6 @@ namespace MR {
         MR::makeMtxFrontUpPos(pDst, rFront, support, rPos);
     }
 
-#pragma push
-#pragma opt_propagation off
     void orthogonalize(TPos3f* pMtx) {
         TVec3f axisZ, axisY, axisX;
 
@@ -516,8 +514,8 @@ namespace MR {
         pY = &axisY;
         pZ = &axisZ;
 
-        PSVECCrossProduct(pY, pZ, &axisX);
-        PSVECCrossProduct(pZ, &axisX, pY);
+        NebulaVecCrossProduct(pY, pZ, &axisX);
+        NebulaVecCrossProduct(pZ, &axisX, pY);
 
         axisX.normalize();
         pY->normalize();
@@ -555,7 +553,6 @@ namespace MR {
         pMtx->mMtx[1][2] = zDir.y;
         pMtx->mMtx[2][2] = zDir.z;
     }
-#pragma pop
 
     void turnMtxToXDirRate(TPos3f* pMtx, const TVec3f& rDir, f32 rate) {
         TQuat4f quat;
@@ -747,11 +744,11 @@ namespace MR {
         TVec3f localY(0.0f, 1.0f, 0.0f);
 
         Mtx invA;
-        PSMTXInverse(pMtxA, invA);
+        NebulaMtxInverse(pMtxA, invA);
 
         TVec3f axisYA, axisYB;
-        PSMTXMultVecSR(invA, &localY, &axisYA);
-        PSMTXMultVecSR(pMtxB, &axisYA, &axisYB);
+        NebulaMtxMultVecSR(invA, &localY, &axisYA);
+        NebulaMtxMultVecSR(pMtxB, &axisYA, &axisYB);
 
         TVec3f cross = localY.cross(axisYB);
 
@@ -840,53 +837,15 @@ namespace MR {
         MtxPtr mtxY = tmpMtxRotYRad(pRad->y);
         MtxPtr mtxZ = tmpMtxRotZRad(pRad->z);
 
-        MtxPtr first, second, third;
-
-        switch (order) {
-        case 0:
-            first = mtxY;
-            second = mtxX;
-            third = mtxZ;
-            break;
-        case 1:
-            second = mtxX;
-            first = mtxZ;
-            third = mtxY;
-            break;
-        case 2:
-            first = mtxX;
-            second = mtxY;
-            third = mtxZ;
-            break;
-        case 3:
-            first = mtxZ;
-            second = mtxY;
-            third = mtxX;
-            break;
-        case 4:
-            second = mtxZ;
-            first = mtxX;
-            third = mtxZ;
-            break;
-        case 5:
-            first = mtxY;
-            second = mtxZ;
-            third = mtxX;
-            break;
-        }
-
-        MR::multMtx(pDst, second, first);
-        MR::multMtx(pDst, pDst, third);
+        // Order 0 is Y, X, Z; order 5 is Y, Z, X.
+        MR::multMtx(pDst, order == 5 ? mtxZ : mtxX, mtxY);
+        MR::multMtx(pDst, pDst, order == 5 ? mtxX : mtxZ);
     }
 
     void rotAxisVecRad(const TVec3f& rAxis, const TVec3f& rVec, TVec3f* pOut, f32 rad) {
         Mtx rot;
-        PSMTXRotAxisRad(rot, &rVec, rad);
-        PSMTXMultVec(rot, &rAxis, pOut);
+        NebulaMtxRotAxisRad(rot, &rVec, rad);
+        NebulaMtxMultVec(rot, &rAxis, pOut);
     }
 };  // namespace MR
 
-void MtxUtil_FORCE_MATCH(TVec3f* pA, TVec3f* pB, TRot3f* pMtx) {
-    *pA = *pA + *pB;
-    pMtx->getEuler(*pA);
-}

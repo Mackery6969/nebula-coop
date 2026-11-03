@@ -306,7 +306,7 @@ void Shellfish::endBindItem() {
 }
 
 void Shellfish::putItem() {
-    const Vec* pOffset;
+    const Vec* pOffset = nullptr;
 
     if (mItemType == 0) {
         pOffset = &::sCoinOffset;
@@ -318,7 +318,7 @@ void Shellfish::putItem() {
         pOffset = &::sKinokoOneUpOffset;
     }
 
-    PSMTXMultVec(getBaseMtx(), pOffset, &mItem->mPosition);
+    NebulaMtxMultVec(getBaseMtx(), pOffset, &mItem->mPosition);
 }
 
 Shellfish::~Shellfish() {

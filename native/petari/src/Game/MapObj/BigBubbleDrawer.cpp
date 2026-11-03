@@ -1,8 +1,14 @@
 #include "Game/MapObj/BigBubbleDrawer.hpp"
+#include "Game/Util/NativeShader.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util.hpp"
 #include <JSystem/JGeometry/TMatrix.hpp>
 #include <JSystem/JUtility/JUTTexture.hpp>
+#include <nebula_game_api.h>
+#include <cstring>
+
 
 namespace {
     static Color8 sTevColor0(0xE0E0E0FF);
@@ -14,8 +20,8 @@ BigBubbleDrawer::BigBubbleDrawer() {
     mBubbleTexture = nullptr;
     mRainbowTexture = nullptr;
     _8 = 0.0f;
-    mBubbleTexture = new JUTTexture(MR::loadTexFromArc("BigBubble.arc", "Bubble.bti"), 0);
-    mRainbowTexture = new JUTTexture(MR::loadTexFromArc("BigBubble.arc", "Rainbow.bti"), 0);
+    mBubbleTexture = new JUTTexture(MR::loadTexFromArc("BigBubble.arc", "Bubble.bti"));
+    mRainbowTexture = new JUTTexture(MR::loadTexFromArc("BigBubble.arc", "Rainbow.bti"));
 }
 
 void BigBubbleDrawer::setUpDraw() const {
@@ -23,77 +29,48 @@ void BigBubbleDrawer::setUpDraw() const {
 }
 
 void BigBubbleDrawer::setUpVertexFormat() const {
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_NRM, GX_POS_XY, GX_F32, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_POS_XYZ, GX_F32, 0);
-    GXClearVtxDesc();
-    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_NRM, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
 }
 
 void BigBubbleDrawer::setUpTexture() const {
-    GXSetNumTexGens(2);
-    GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, 0x1E, 0, 0x7D);
-    GXSetTexCoordGen2(GX_TEXCOORD1, GX_TG_MTX3x4, GX_TG_NRM, 0x21, 0, 0x7D);
-    TPos3f mtx;
-    mtx.identity();
-    GXLoadTexMtxImm(mtx, 0x1E, GX_MTX2x4);
-
-    mtx.set(MR::getCameraViewMtx());
-    mtx.setTrans(::sEnvMatTrans);
-
-    GXLoadTexMtxImm(mtx, 0x21, GX_MTX3x4);
-    mRainbowTexture->load(GX_TEXMAP0);
-    mBubbleTexture->load(GX_TEXMAP1);
 }
 
-void BigBubbleDrawer::setUpTevStage() const {
-    GXSetNumTevStages(3);
-    GXSetTevColor(GX_TEVREG0, (GXColor&)::sTevColor0);
-    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR_NULL);
-    GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_TEXC, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO);
-    GXSetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, 0, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_TEXA, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, 0, GX_TEVPREV);
-    GXSetTevOrder(GX_TEVSTAGE1, GX_TEXCOORD1, GX_TEXMAP1, GX_COLOR_NULL);
-    GXSetTevColorIn(GX_TEVSTAGE1, GX_CC_ZERO, GX_CC_C0, GX_CC_TEXA, GX_CC_CPREV);
-    GXSetTevColorOp(GX_TEVSTAGE1, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, 1, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE1, GX_CA_TEXA, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE1, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, 0, GX_TEVPREV);
-    GXSetTevOrder(GX_TEVSTAGE2, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR_NULL);
-    GXSetTevColorIn(GX_TEVSTAGE2, GX_CC_CPREV, GX_CC_C1, GX_CC_A1, GX_CC_ZERO);
-    GXSetTevColorOp(GX_TEVSTAGE2, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, 1, GX_TEVPREV);
-    GXSetTevKAlphaSel(GX_TEVSTAGE2, GX_TEV_KASEL_7_8);
-    GXSetTevAlphaIn(GX_TEVSTAGE2, GX_CA_APREV, GX_CA_KONST, GX_CA_A1, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE2, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, 0, GX_TEVPREV);
+void BigBubbleDrawer::setUpStage() const {
+    // runtime/src/render/materials/big_bubble.hlsl: the rainbow (texture 0) with sTevColor0 mixed in by the bubble
+    // environment map's alpha (texture 1, by the eye-space normal through the camera's rotation offset by
+    // sEnvMatTrans), sTevColor1 over it by its alpha; blended by alpha, depth tested and not written, back faces culled.
+    NebulaNativeMaterial material;
+    NativeShader::init(material, NEBULA_SHADER_BIG_BUBBLE, NativeShader::BLEND_ALPHA, NEBULA_COMPARE_LEQUAL, false,
+                       NEBULA_CULL_BACK);
+    NativeShader::setColor(material, 0, ::sTevColor0.r, ::sTevColor0.g, ::sTevColor0.b, ::sTevColor0.a);
+    NativeShader::setColor(material, 4, ::sTevColor1.r, ::sTevColor1.g, ::sTevColor1.b, ::sTevColor1.a);
+    TPos3f env;
+    env.set(MR::getCameraViewMtx());
+    env.setTrans(::sEnvMatTrans);
+    for (u32 row = 0; row < 3; row++) {
+        for (u32 column = 0; column < 4; column++) {
+            material.constants[8 + row * 4 + column] = env.mMtx[row][column];
+        }
+    }
+    NativeShader::setTexture(material, 0, mRainbowTexture);
+    NativeShader::setTexture(material, 1, mBubbleTexture);
+    NativeShader::send(material);
 }
 
 void BigBubbleDrawer::setUpPixelFormat() const {
-    GXSetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
-    GXSetAlphaCompare(GX_ALWAYS, 0, GX_AOP_AND, GX_ALWAYS, 0);
-    GXSetColorUpdate(1);
-    GXSetAlphaUpdate(0);
-    GXSetCoPlanar(0);
-    GXSetZMode(1, GX_LEQUAL, 0);
-    GXSetZCompLoc(0);
-    GXSetCullMode(GX_CULL_BACK);
-    GXSetClipMode(GX_CLIP_ENABLE);
+    J3DPass::writeColor(true);
+    J3DPass::writeAlpha(false);
 }
 
 void BigBubbleDrawer::setUpMaterial() const {
     setUpVertexFormat();
-    GXSetNumChans(1);
-    GXSetChanCtrl(GX_COLOR0A0, 0, GX_SRC_REG, GX_SRC_REG, 0, GX_DF_NONE, GX_AF_NONE);
-    GXSetChanCtrl(GX_COLOR1A1, 0, GX_SRC_REG, GX_SRC_REG, 0, GX_DF_NONE, GX_AF_NONE);
     setUpTexture();
-    setUpTevStage();
+    setUpStage();
     setUpPixelFormat();
-    GXLoadPosMtxImm(MR::getCameraViewMtx(), 0);
+    J3DNativeShape::setPosition(0, MR::getCameraViewMtx());
 
     Mtx normalMtx;
-    PSMTXIdentity(normalMtx);
-    GXLoadNrmMtxImm(normalMtx, 0);
-    GXSetCurrentMtx(0);
+    NebulaMtxIdentity(normalMtx);
+    J3DNativeShape::setNormal(0, normalMtx);
+    J3DPass::positionMatrix(0);
     MR::loadProjectionMtx();
 }

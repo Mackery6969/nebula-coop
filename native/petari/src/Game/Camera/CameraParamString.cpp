@@ -1,5 +1,6 @@
 #include "Game/Camera/CameraParamString.hpp"
-#include <revolution.h>
+#include <NebulaGpu.h>
+#include <nebula_math.h>
 
 CameraParamString::CameraParamString() {
     mString = nullptr;

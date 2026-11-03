@@ -1,4 +1,16 @@
+#include <JSystem/J3DGraphBase/J3DNativeTarget.hpp>
+#include <JSystem/JUtility/JUTTexture.hpp>
 #include "Game/MapObj/FallOutFieldDraw.hpp"
+#include "Game/Util/NativeShader.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeMaterial.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
+#include <JSystem/JUtility/JUTTexture.hpp>
+#include <nebula_game_api.h>
+#include <cstring>
+
+extern "C" const NebulaHostServices* nebula_host(void);
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeView.hpp>
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Map/StageSwitch.hpp"
 #include "Game/MapObj/ClipAreaHolder.hpp"
@@ -12,23 +24,13 @@
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/ScreenUtil.hpp"
 
-void FallOutFieldDraw_FORCE_MATCH_SDATA2() {
-    (void)0.25f;
-}
-
 namespace {
-    inline void drawFillScreen(GXColor color) {
-        GXSetTevColor(GX_TEVREG0, color);
+    inline void drawFillScreen(NebulaColor8 color) {
         ImageEffectLocalUtil::sendTextureVertex(1, 0);
     }
 };  // namespace
 
 namespace {
-    static GXTevOp sAlphaTevOperater = GX_TEV_COMP_A8_GT;
-    static GXBlendMode sFillBlendMode = GX_BM_BLEND;
-    static GXBlendFactor sFillSrcFactor = GX_BL_SRCALPHA;
-    static GXBlendFactor sFillDstFactor = GX_BL_INVSRCALPHA;
-    static GXLogicOp sFillLogicOp = GX_LO_NOOP;
     // static const s32 sBlurCount = _;
     // static const f32 sBlurRadius = _;
     // static const f32 sBlurIntensity = _;
@@ -39,40 +41,51 @@ namespace {
 FallOutFieldDraw::FallOutFieldDraw(const char* pName) : NameObj(pName), _C() {
     MR::createClipAreaHolder();
     MR::connectToScene(this, MR::MovementType_None, MR::CalcAnimType_None, MR::DrawBufferType_None, MR::DrawType_FallOutFieldDraw);
-    MR::createScreenAlphaSceneObj(2, 0.5f);
     MR::createScreenAlphaSceneObj(3, 0.25f);
     MR::createScreenAlphaSceneObj(4, 0.25f);
+    mFrameKey = ImageEffectLocalUtil::createFrameKey();
+    mMask = new JUTTexture(MR::getScreenUnitsAcross() / 2, MR::getScreenUnitsDown() / 2);
+    mMask->mWrapS = NEBULA_WRAP_CLAMP;
+    mMask->mWrapT = NEBULA_WRAP_CLAMP;
+    mMask->mMinType = NEBULA_FILTER_LINEAR;
+    mMask->mMagType = NEBULA_FILTER_LINEAR;
+    mBlurScratch = new JUTTexture(MR::getScreenUnitsAcross() / 4, MR::getScreenUnitsDown() / 4);
+    mBlurScratch->mWrapS = NEBULA_WRAP_CLAMP;
+    mBlurScratch->mWrapT = NEBULA_WRAP_CLAMP;
+    mBlurScratch->mMinType = NEBULA_FILTER_LINEAR;
+    mBlurScratch->mMagType = NEBULA_FILTER_LINEAR;
 }
+
+namespace {
+    // The fill (runtime/src/render/materials/image_effect.hlsl mode 3): the fill colour where the half-size mask (texture 0,
+    // 255 where the mask's test passed) is set, nothing elsewhere. Linear filtering spreads the mask: a test for under 1
+    // counts where all four texels passed, a test for over 1 where any did. Blended by its alpha, depth always passing and
+    // written, no culling.
+    void sendFillMaterial(bool textureFirst, JUTTexture* pMask) {
+        NebulaNativeMaterial material;
+        NativeShader::init(material, NEBULA_SHADER_IMAGE_EFFECT, NativeShader::BLEND_ALPHA, NEBULA_COMPARE_ALWAYS, true,
+                           NEBULA_CULL_NONE);
+        NativeShader::setColor(material, 4, 0, 0, 0, textureFirst ? 1 : 254);
+        NativeShader::setColor(material, 8, ::sFillColor.r, ::sFillColor.g, ::sFillColor.b, ::sFillColor.a);
+        material.constants[12] = 3.0f;
+        material.constants[13] = 1.0f;
+        NativeShader::setTexture(material, 0, pMask);
+        NativeShader::send(material);
+    }
+}  // namespace
 
 void FallOutFieldDraw::setUpFillScreen() const {
-    GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_C0, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO);
-    GXSetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetTevKColor(GX_KCOLOR0, Color8(0, 0, 0, 1));
-    GXSetTevKAlphaSel(GX_TEVSTAGE0, GX_TEV_KASEL_K0_A);
-
-    GXTevAlphaArg alphaA = _C ? GX_CA_TEXA : GX_CA_KONST;
-    GXTevAlphaArg alphaB = _C ? GX_CA_KONST : GX_CA_TEXA;
-
-    GXSetTevAlphaIn(GX_TEVSTAGE0, alphaA, alphaB, GX_CA_A0, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE0, ::sAlphaTevOperater, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetAlphaCompare(GX_GREATER, 0, GX_AOP_AND, GX_ALWAYS, 0);
-    GXSetZMode(GX_TRUE, GX_ALWAYS, GX_TRUE);
-    GXSetZCompLoc(GX_FALSE);
-    GXSetColorUpdate(GX_TRUE);
-    GXSetAlphaUpdate(GX_FALSE);
-    GXSetZScaleOffset(0.0f, 1.0f);
-    GXSetBlendMode(::sFillBlendMode, ::sFillSrcFactor, ::sFillDstFactor, ::sFillLogicOp);
+    J3DPass::writeColor(true);
+    J3DPass::writeAlpha(false);
+    J3DNativeView::setZScaleOffset(0.0f, 1.0f);
+    sendFillMaterial(_C, mMask);
 }
 
+
 void FallOutFieldDraw::setUpEdgeAndClearAlpha() const {
-    GXSetTevColor(GX_TEVREG1, ::sEdgeColor);
-    GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_C1, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO);
-    GXSetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_A1, GX_CA_TEXA, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetColorUpdate(GX_TRUE);
-    GXSetAlphaUpdate(GX_TRUE);
-    GXSetDstAlpha(GX_TRUE, 0);
+    J3DPass::writeColor(true);
+    J3DPass::writeAlpha(true);
+    J3DPass::constantAlpha(true, 0);
 }
 
 void FallOutFieldDraw::init(const JMapInfoIter& rIter) {
@@ -108,46 +121,33 @@ void FallOutFieldDraw::draw() const {
 
     ImageEffectLocalUtil::setupDrawTexture();
 
-    JUTTexture* pScreenAlphaTexture2 = MR::getScreenAlphaTexture(2);
     JUTTexture* pScreenAlphaTexture3 = MR::getScreenAlphaTexture(3);
     JUTTexture* pScreenAlphaTexture4 = MR::getScreenAlphaTexture(4);
 
-    ImageEffectLocalUtil::capture(pScreenAlphaTexture2, 0, 1, GX_CTF_A8, true, 0);
+    J3DPass::writeColor(false);
+    J3DPass::writeAlpha(true);
+    J3DPass::constantAlpha(false, 0);
+    J3DNativeView::setZScaleOffset(0.0f, 0.0f);
+    // The mask: alpha 255 where the screen's alpha is under (or, by arg 0, over) 1, a pass of its own at half size, then
+    // halved again and blurred, each into its own texture.
+    const NebulaColor8 constantAlpha = {0, 0, 0, 1};
+    const NebulaColor8 white = {255, 255, 255, 255};
+    ImageEffectLocalUtil::setMode(_C ? ImageEffectLocalUtil::Mode_MaskAbove : ImageEffectLocalUtil::Mode_MaskBelow, constantAlpha,
+                                  white);
+    J3DNativeTarget::beginOverFrame(mMask->mImage, mMask->getWidth(), mMask->getHeight(), 0, mFrameKey->mImage, NEBULA_TARGET_ALPHA, nullptr);
+    ImageEffectLocalUtil::drawTexture(mFrameKey, 2, 0, 255, ImageEffectLocalUtil::TexDrawType_0);
+    J3DNativeTarget::end(mMask->mImage, NEBULA_TARGET_ALPHA);
 
-    GXSetTevKColor(GX_KCOLOR0, Color8(0, 0, 0, 1));
-    GXSetTevKAlphaSel(GX_TEVSTAGE0, GX_TEV_KASEL_K0_A);
-    GXSetTevKColorSel(GX_TEVSTAGE0, GX_TEV_KCSEL_K0_A);
-    GXSetTevColor(GX_TEVREG0, Color8(255, 255, 255, 255));
+    ImageEffectLocalUtil::setMode(ImageEffectLocalUtil::Mode_Alpha, constantAlpha, ::sEdgeColor);
+    J3DNativeTarget::begin(pScreenAlphaTexture3->mImage, pScreenAlphaTexture3->getWidth(), pScreenAlphaTexture3->getHeight(), 0);
+    ImageEffectLocalUtil::drawTexture(mMask, 4, 0, 255, ImageEffectLocalUtil::TexDrawType_0);
+    J3DNativeTarget::end(pScreenAlphaTexture3->mImage, NEBULA_TARGET_ALPHA);
 
-    GXTevColorArg colorA = _C ? GX_CC_TEXA : GX_CC_KONST;
-    GXTevColorArg colorB = _C ? GX_CC_KONST : GX_CC_TEXA;
+    ImageEffectLocalUtil::blurTexture(pScreenAlphaTexture3, mBlurScratch, pScreenAlphaTexture4, 0.004f, NEBULA_TARGET_ALPHA, 5.0f);
 
-    GXSetTevColorIn(GX_TEVSTAGE0, colorA, colorB, GX_CC_ZERO, GX_CC_ZERO);
-    GXSetTevColorOp(GX_TEVSTAGE0, GX_TEV_COMP_RGB8_GT, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-
-    GXTevAlphaArg alphaA = _C ? GX_CA_TEXA : GX_CA_KONST;
-    GXTevAlphaArg alphaB = _C ? GX_CA_KONST : GX_CA_TEXA;
-
-    GXSetTevAlphaIn(GX_TEVSTAGE0, alphaA, alphaB, GX_CA_A0, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_COMP_A8_GT, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetColorUpdate(GX_FALSE);
-    GXSetAlphaUpdate(GX_TRUE);
-    GXSetDstAlpha(GX_FALSE, 0);
-    GXSetZScaleOffset(0.0f, 0.0f);
-
-    ImageEffectLocalUtil::drawTexture(pScreenAlphaTexture2, 2, 0, 255, ImageEffectLocalUtil::TexDrawType_0);
-    ImageEffectLocalUtil::capture(pScreenAlphaTexture3, 2, 0, GX_CTF_A8, true, 0);
-
-    GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_TEXA, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO);
-    GXSetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_TEXA, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-
-    ImageEffectLocalUtil::blurTexture(pScreenAlphaTexture3, 4, 4, 5, 0.004f, 1.0f);
-    ImageEffectLocalUtil::capture(pScreenAlphaTexture4, 4, 4, GX_CTF_A8, false, 0);
     setUpEdgeAndClearAlpha();
+    ImageEffectLocalUtil::setMode(ImageEffectLocalUtil::Mode_Edge, constantAlpha, ::sEdgeColor);
     ImageEffectLocalUtil::drawTexture(pScreenAlphaTexture4, 1, 0, 255, ImageEffectLocalUtil::TexDrawType_2);
-    MR::loadScreenAlphaTexture(2, GX_TEXMAP0);
     setUpFillScreen();
 
     ::drawFillScreen(::sFillColor);
@@ -155,10 +155,10 @@ void FallOutFieldDraw::draw() const {
     MR::loadViewMtx();
     MR::loadProjectionMtx();
 
-    GXSetColorUpdate(GX_TRUE);
-    GXSetAlphaUpdate(GX_TRUE);
-    GXSetDstAlpha(GX_TRUE, 0);
-    GXSetZScaleOffset(1.0f, 0.0f);
+    J3DPass::writeColor(true);
+    J3DPass::writeAlpha(true);
+    J3DPass::constantAlpha(true, 0);
+    J3DNativeView::setZScaleOffset(1.0f, 0.0f);
 }
 
 namespace MR {

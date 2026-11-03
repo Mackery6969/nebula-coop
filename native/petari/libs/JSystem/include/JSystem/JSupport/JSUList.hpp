@@ -1,7 +1,7 @@
 #pragma once
 
-#include "Inline.hpp"
-#include <revolution.h>
+#include <NebulaGpu.h>
+#include <nebula_math.h>
 
 class JSUPtrLink;
 template < typename T >
@@ -29,10 +29,10 @@ public:
         return mPrev;
     }
 
-    /* 0x0 */ void* mData;
-    /* 0x4 */ JSUPtrList* mPtrList;
-    /* 0x8 */ JSUPtrLink* mPrev;
-    /* 0xC */ JSUPtrLink* mNext;
+    void* mData;
+    JSUPtrList* mPtrList;
+    JSUPtrLink* mPrev;
+    JSUPtrLink* mNext;
 };
 
 template < class T >
@@ -89,9 +89,9 @@ public:
         return mNodeCount;
     }
 
-    /* 0x0 */ JSUPtrLink* mHead;
-    /* 0x4 */ JSUPtrLink* mTail;
-    /* 0x8 */ u32 mNodeCount;
+    JSUPtrLink* mHead;
+    JSUPtrLink* mTail;
+    u32 mNodeCount;
 };
 
 template < class T >
@@ -160,7 +160,7 @@ public:
         return this->mLink != other.mLink;
     }
 
-    JSUListIterator< T > operator++(int) NO_INLINE {
+    JSUListIterator< T > operator++(int) {
         JSUListIterator< T > prev = *this;
         this->mLink = this->mLink->getNext();
         return prev;
@@ -280,7 +280,7 @@ public:
         return prev;
     }
 
-    JSUTreeIterator< T >& operator++() NO_INLINE {
+    JSUTreeIterator< T >& operator++() {
         this->mTree = this->mTree->getNextChild();
         return *this;
     }
@@ -293,5 +293,5 @@ public:
         return this->getObject();
     }
 
-    /* 0x0 */ JSUTree< T >* mTree;
+    JSUTree< T >* mTree;
 };

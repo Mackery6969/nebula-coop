@@ -1,7 +1,7 @@
 #pragma once
 
-#ifdef TARGET_PC
 #include "Game/LiveActor/LiveActor.hpp"
+#include "Game/Player/MarioModelTint.hpp"
 #include <nebula_game_api.h>
 
 class XanimePlayer;
@@ -59,8 +59,8 @@ public:
     void startAnimationEffect();
     void updateAnimationEffect();
     void stopAnimationEffect();
-    // MarioActor::updateLightDL's display list for this copy: its light's ambient colour, a white material.
-    void updateLightDL();
+    // MarioActor::updateLightList's tint for this copy: its light's ambient colour, a white material.
+    void updateLightTint();
 
     /* 0x90 */ bool mIsLuigi;
     u32 mNumber;  // the player shown (NebulaCoopRemotePlayer::number), 0 for none
@@ -69,9 +69,7 @@ public:
     NebulaCoopPlayer mState;  // the latest snapshot shown
     char mGroup[48];          // the animation whose effect last started, as the snapshot names it
     f32 mLastFrame;           // the snapshot's frame last shown, to tell a restarted animation
-    u8* mDL[2];               // updateLightDL's, one drawn while the other is written
-    u32 mDLSize;
-    u8 mCurrDL;
+    MarioModelTint mLightTint; // updateLightTint's
     TVec3f mFront;
     TVec3f mUp;
     u32 mRewindMs;    // NebulaCoopRemotePlayer::rewind_ms
@@ -79,4 +77,3 @@ public:
     s32 mStompTimer;  // frames until their landing on the local Mario's head may squash him again
     bool mSolid;      // its sensor is on
 };
-#endif

@@ -1,11 +1,34 @@
 #include "Game/Screen/ScreenBlurEffect.hpp"
-#include "Game/Screen/CopyFilterNegater.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeView.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
 #include "Game/Screen/ImageEffectLocalUtil.hpp"
 #include "Game/Screen/ImageEffectResource.hpp"
 #include "Game/Screen/ImageEffectSystemHolder.hpp"
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/Color.hpp"
+#include "Game/Util/DrawUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
+#include <JSystem/JUtility/JUTTexture.hpp>
+#include "Game/Util/NativeShader.hpp"
+#include <nebula_game_api.h>
+
+namespace {
+    // runtime/src/render/materials/screen_blur.hlsl: the blurred picture (texture 0) at the effect's alpha where the
+    // depth capture (texture 1) lies beyond 240 (of 255); depth tested, not written; blended by its alpha.
+    void sendBlurMaterial(JUTTexture* pPicture, JUTTexture* pDepth, u8 alpha) {
+        NebulaNativeMaterial material;
+        NativeShader::init(material, NEBULA_SHADER_SCREEN_BLUR, NativeShader::BLEND_ALPHA, NEBULA_COMPARE_LEQUAL, false,
+                           NEBULA_CULL_NONE);
+        material.constants[0] = alpha / 255.0f;
+        material.constants[1] = 240 / 255.0f;
+        NativeShader::setTexture(material, 0, pPicture);
+        NativeShader::setTexture(material, 1, pDepth);
+        NativeShader::send(material);
+        J3DNativeShape::setCurrentIdentity();
+    }
+}  // namespace
 #include <JSystem/JGeometry/TMatrix.hpp>
 #include <JSystem/JUtility/JUTTexture.hpp>
 
@@ -20,6 +43,7 @@ ScreenBlurEffect::ScreenBlurEffect(const char* pName) : ImageEffectBase(pName), 
 
     _14 = MR::getImageEffectResource()->_0;
     _18 = MR::getImageEffectResource()->_8;
+    mFrameDepthKey = ImageEffectLocalUtil::createFrameKey();
 }
 
 void ScreenBlurEffect::calcAnimSub() {
@@ -44,79 +68,41 @@ void ScreenBlurEffect::drawBlur() const {
 
     TProj3f projectionMtx;
     projectionMtx.makePerspective(MR::getRenderFovy(), MR::getAspect(), MR::getNearZ(), MR::getFarZ());
-    GXSetProjection(projectionMtx, GX_PERSPECTIVE);
-
-    GXClearVtxDesc();
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_POS_XYZ, GX_F32, 0);
-    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
+    J3DNativeView::setPerspective(projectionMtx);
 
     TMtx34f posMtx;
     posMtx.identity();
-    GXLoadPosMtxImm((MtxPtr)&posMtx, GX_PNMTX0);
-    GXSetCurrentMtx(GX_PNMTX0);
+    J3DNativeShape::setPosition(0, (MtxPtr)&posMtx);
+    J3DPass::positionMatrix(0);
 
-    GXSetCullMode(GX_CULL_NONE);
-    GXSetClipMode(GX_CLIP_ENABLE);
-    GXSetNumChans(1);
-    GXSetChanCtrl(GX_COLOR0A0, GX_FALSE, GX_SRC_REG, GX_SRC_REG, GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
-    GXSetNumTexGens(2);
-    GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY, GX_FALSE, GX_PTIDENTITY);
-    GXSetTexCoordGen2(GX_TEXCOORD1, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY, GX_FALSE, GX_PTIDENTITY);
-    GXSetNumTevStages(2);
-    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
-    GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO, GX_CC_TEXC);
-    GXSetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_RASA);
-    GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetTevOrder(GX_TEVSTAGE1, GX_TEXCOORD1, GX_TEXMAP1, GX_COLOR_NULL);
-    GXSetTevColorIn(GX_TEVSTAGE1, GX_CC_TEXC, GX_CC_KONST, GX_CC_CPREV, GX_CC_ZERO);
-    GXSetTevColorOp(GX_TEVSTAGE1, GX_TEV_COMP_R8_GT, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE1, GX_CA_TEXA, GX_CA_KONST, GX_CA_APREV, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE1, GX_TEV_COMP_R8_GT, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetTevKColorSel(GX_TEVSTAGE1, GX_TEV_KCSEL_K0);
-    GXSetNumIndStages(0);
-    GXSetTevDirect(GX_TEVSTAGE0);
-    GXSetFog(GX_FOG_NONE, 0.0f, 0.0f, 0.0f, 0.0f, Color8(0, 0, 0, 0));
-    GXSetColorUpdate(GX_TRUE);
-    GXSetAlphaUpdate(GX_FALSE);
-    GXSetZMode(GX_TRUE, GX_LEQUAL, GX_FALSE);
-    GXSetZCompLoc(GX_TRUE);
-    GXSetDither(GX_FALSE);
-    GXSetChanMatColor(GX_COLOR0A0, Color8(255, 255, 255, static_cast< s32 >(get_10() * 220.0f * mIntensity)));
-    GXSetChanAmbColor(GX_COLOR0A0, Color8(255, 255, 255, 255));
-    GXSetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
-    GXSetTevKColor(GX_KCOLOR0, Color8(240, 240, 240, 240));
-
-    _14->load(GX_TEXMAP0);
-    _18->load(GX_TEXMAP1);
+    J3DPass::writeColor(true);
+    J3DPass::writeAlpha(false);
+    sendBlurMaterial(_14, _18, static_cast< u8 >(static_cast< s32 >(get_10() * 220.0f * mIntensity)));
 
     f32 y = MR::tanDegree(MR::getRenderFovy() * 0.5f) * mScale;
     f32 x = MR::getAspect() * y;
 
-    GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, 4);
+    J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, 4, NEBULA_SHAPE_TEXCOORD0);
     {
         f32 z = -mScale;
 
-        GXPosition3f32(-x, -y, z);
-        GXTexCoord2f32(0.0f, 1.0f);
+        J3DNativeDraw::position(-x, -y, z);
+        J3DNativeDraw::texCoord(0.0f, 1.0f);
 
-        GXPosition3f32(-x, y, z);
-        GXTexCoord2f32(0.0f, 0.0f);
+        J3DNativeDraw::position(-x, y, z);
+        J3DNativeDraw::texCoord(0.0f, 0.0f);
 
-        GXPosition3f32(x, -y, z);
-        GXTexCoord2f32(1.0f, 1.0f);
+        J3DNativeDraw::position(x, -y, z);
+        J3DNativeDraw::texCoord(1.0f, 1.0f);
 
-        GXPosition3f32(x, y, z);
-        GXTexCoord2f32(1.0f, 0.0f);
+        J3DNativeDraw::position(x, y, z);
+        J3DNativeDraw::texCoord(1.0f, 0.0f);
     }
-    GXEnd();
 }
 
 void ScreenBlurEffect::captureBlur() const {
-    CopyFilterNegater copyFilterNegater = CopyFilterNegater();
-
-    _14->capture(0, 0, GX_TF_RGBA8, false, 0);
-    _18->capture(0, 0, GX_TF_Z8, true, 0);
+    _14->frameColorAlpha();
+    ImageEffectLocalUtil::drawFrameDepth(_18, mFrameDepthKey);
+    MR::loadProjectionMtx();
+    MR::loadViewMtx();
 }

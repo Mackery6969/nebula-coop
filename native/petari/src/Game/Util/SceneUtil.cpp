@@ -1,7 +1,4 @@
-#ifdef TARGET_PC
 #include <nebula_game_api.h>
-#include <revolution/os.h>
-#endif
 #include "Game/Util/SceneUtil.hpp"
 #include "Game/NameObj/NameObjFinder.hpp"
 #include "Game/Scene/PlacementStateChecker.hpp"
@@ -24,6 +21,7 @@
 #include "Game/Util/SingletonHolder.hpp"
 #include "Game/Util/StringUtil.hpp"
 #include <cstdio>
+#include "Game/System/NebulaHost.hpp"
 
 namespace {
     const JMapIdInfo cInitializeStartIdInfo(0, 0);
@@ -135,14 +133,6 @@ namespace MR {
         return isKoopaVs;
     }
 
-    bool isStageKoopaVs1() {
-        return isEqualStageName("KoopaBattleVs1Galaxy");
-    }
-
-    bool isStageKoopaVs2() {
-        return isEqualStageName("KoopaBattleVs2Galaxy");
-    }
-
     bool isStageKoopaVs3() {
         return isEqualStageName("KoopaBattleVs3Galaxy");
     }
@@ -160,11 +150,6 @@ namespace MR {
     }
 
     bool isStageSuddenDeathDodoryu() {
-#ifdef TARGET_PC
-        if (__NebulaCodePatch(NEBULA_PATCH_NO_SUDDEN_DEATH_DODORYU, nullptr)) {
-            return false;
-        }
-#endif
         return isEqualStageName("CosmosGardenGalaxy") && getCurrentScenarioNo() == 4;
     }
 
@@ -209,7 +194,6 @@ namespace MR {
         return getStageDataHolder()->getStartPosNum();
     }
 
-#ifdef TARGET_PC
     bool getMarioStartPose(s32 marioNo, TVec3f* pTrans, TVec3f* pRotate) {
         const JMapInfoIter iter = getStageDataHolder()->makeMarioJMapInfoIter(JMapIdInfo(marioNo, 0));
         if (!iter.isValid()) {
@@ -219,7 +203,6 @@ namespace MR {
         MR::getJMapInfoRotate(iter, pRotate);
         return true;
     }
-#endif
 
     s32 getCurrentStartZoneId() {
         return getStageDataHolder()->getCurrentStartZoneId();
@@ -229,7 +212,7 @@ namespace MR {
         return ::cInitializeStartIdInfo;
     }
 
-    JKRMemArchive* getStageArchive(const char* pStageName) {
+    AssetFolder* getStageArchive(const char* pStageName) {
         char archiveName[256];
         StageFileLoader::makeStageArchiveName(archiveName, sizeof(archiveName), pStageName);
         return receiveArchive(archiveName);
@@ -283,13 +266,7 @@ namespace MR {
 
     s32 getPlacedHiddenStarScenarioNo(const char* pStageName, s32 starId) {
         GalaxyStatusAccessor accessor = makeGalaxyStatusAccessor(pStageName);
-#ifdef TARGET_PC
-        s32 scenarioNo = __NebulaCodePatch(NEBULA_PATCH_NO_HIDDEN_STAR_TABLE, nullptr)
-                             ? 0
-                             : getPlacedHiddenStarScenarioNoFromTable(pStageName, starId);
-#else
         s32 scenarioNo = getPlacedHiddenStarScenarioNoFromTable(pStageName, starId);
-#endif
         if (scenarioNo > 0) {
             return scenarioNo;
         }
@@ -305,10 +282,6 @@ namespace MR {
         }
 
         return 1;
-    }
-
-    bool SceneUtil_DUMMY(const JMapInfoIter& rIter) {
-        return isEqualRailUsage(rIter, "General");
     }
 
     void getRailInfo(JMapInfoIter* pRailIter, const JMapInfo** ppPointInfo, const JMapInfoIter& rIter) {
@@ -369,7 +342,7 @@ namespace MR {
     void getCurrentScenarioStartAnimCameraData(void** ppData, s32* pSize) {
         StageDataHolder* pHolder = getStageDataHolder();
         char fileName[64];
-        snprintf(fileName, sizeof(fileName), "StartScenario%d.canm", getCurrentScenarioNo());
+        nebula_snprintf(fileName, sizeof(fileName), "StartScenario%d.canm", getCurrentScenarioNo());
         *ppData = pHolder->getStageArchiveResource(fileName);
         if (*ppData != nullptr) {
             *pSize = pHolder->getStageArchiveResourceSize(*ppData);
@@ -387,11 +360,9 @@ namespace MR {
         ::getScenePlayingResult()->incPurpleCoin();
     }
 
-#ifdef TARGET_PC
     void incCoinOfOtherPlayer(int term) {
         ::getScenePlayingResult()->incCoinOfOtherPlayer(term);
     }
-#endif
 
     s32 getCoinNum() {
         return ::getScenePlayingResult()->getCoinNum();

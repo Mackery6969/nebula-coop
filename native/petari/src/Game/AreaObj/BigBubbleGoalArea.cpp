@@ -1,4 +1,6 @@
 #include "Game/AreaObj/BigBubbleGoalArea.hpp"
+#include "Game/Util/NativeShader.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
 #include "Game/Ride/BigBubble.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Util/AreaObjUtil.hpp"
@@ -63,9 +65,11 @@ void BigBubbleGoalArea::draw() const {
         return;
     }
 
-    TDDraw::setup(0, 1, 0);
-    GXSetZMode(GX_TRUE, GX_LEQUAL, GX_TRUE);
-    GXSetCullMode(GX_CULL_BACK);
+    NebulaNativeMaterial material;
+    TDDraw::setupNative(&material, 0, 1, 0);
+    NativeShader::setDepth(material, true, NEBULA_COMPARE_LEQUAL, true);
+    material.cull = NEBULA_CULL_BACK;
+    NativeShader::send(material);
 
     f32 f = TWO_PI * (mMeterDisplayAmount / mMeterCapacity);
 

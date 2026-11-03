@@ -1,6 +1,6 @@
-//! The game partition of a Super Mario Galaxy (RMGE01) disc as the native game reads it: `game.pak`, the partition's
-//! decrypted data at its own offsets, with the gaps left sparse. Android's setup calls it through JNI (`jni.rs`);
-//! Windows Setup runs the `nebula-import` program (`main.rs`).
+//! The game partition of a Super Mario Galaxy disc (RMGE01, RMGP01 or RMGJ01) as the native game reads it: `game.pak`,
+//! the partition's decrypted data at its own offsets, with the gaps left sparse. Android's setup calls it through JNI
+//! (`jni.rs`); Windows Setup runs the `nebula-import` program (`main.rs`).
 
 use anyhow::{anyhow, bail, Context, Result};
 use nod::{Disc, OpenOptions, PartitionBase, PartitionKind};
@@ -12,14 +12,33 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+pub mod cook;
 mod jni;
 
 /// Super Mario Galaxy, North America.
 pub const RMGE01_GAME_ID: &str = "RMGE01";
 /// SHA-1 of RMGE01's main.dol.
 pub const RMGE01_DOL_SHA1: &str = "9a71008ae1ee9010e267fa67d1f0b0d4f0e895dd";
-/// RMGE01's only disc revision.
-const RMGE01_REVISION: u8 = 0;
+
+/// A release the native game plays: its game id, its main.dol's SHA-1 (the one Petari's build of it matches,
+/// config/<id>/build.sha1) and its region's name. Each has one disc revision, 0.
+pub struct Release {
+    pub game_id: &'static str,
+    pub dol_sha1: &'static str,
+    pub region: &'static str,
+}
+
+pub const RELEASES: [Release; 3] = [
+    Release { game_id: RMGE01_GAME_ID, dol_sha1: RMGE01_DOL_SHA1, region: "USA" },
+    Release { game_id: "RMGP01", dol_sha1: "9bd1daa520bd1f573b6a4b82e03336e9c51b511f", region: "Europe" },
+    Release { game_id: "RMGJ01", dol_sha1: "604d0b47d446caec0aab9ac370014f132e1b4016", region: "Japan" },
+];
+const RELEASE_REVISION: u8 = 0;
+
+/// The release a game id names, if the native game plays it.
+pub fn release(game_id: &str) -> Option<&'static Release> {
+    RELEASES.iter().find(|release| release.game_id == game_id)
+}
 
 const BOOT_BIN_SIZE: usize = 0x440;
 const BI2_BIN_SIZE: usize = 0x2000;
@@ -31,11 +50,12 @@ const TMD_SIGNATURE_TYPE: u32 = 0x0001_0001;
 const TMD_CONTENT_COUNT_OFFSET: usize = 0x1de;
 const TMD_CONTENT_RECORD_OFFSET: usize = 0x1e4;
 const TMD_CONTENT_RECORD_SIZE: usize = 36;
+/// The game partition's size in RMGE01's title metadata (the tests' disc); every release's is whole clusters.
+#[cfg(test)]
 const RMGE01_PARTITION_DATA_BYTES: u64 = 0xff7c_0000;
+const PARTITION_CLUSTER: u64 = 0x8000;
 const COPY_CHUNK: usize = 1 << 20;
 
-/// The content folder's one file besides game.pak: the settings overlay draws its window frame from this archive.
-const FILE_SELECT_ARCHIVE: &str = "LayoutData/FileSelect.arc";
 
 /// What a disc image is, as Android's setup shows it before importing.
 #[derive(Debug, Clone)]
@@ -55,7 +75,7 @@ pub struct InputIdentity {
     pub game_id: String,
     pub title: String,
     pub revision: u8,
-    /// Read for RMGE01 only.
+    /// Read for the releases the native game plays.
     pub main_dol_sha1: Option<String>,
     /// The game partition's language folders (`UsEnglish`, `EuGerman`...); empty when its file table was not read.
     pub languages: Vec<String>,
@@ -72,36 +92,35 @@ impl InputIdentity {
         main_dol_sha1: Option<String>,
         languages: Vec<String>,
     ) -> Self {
-        let message = if game_id != RMGE01_GAME_ID {
-            if game_id.starts_with("RMG") {
-                format!(
-                    "This is Super Mario Galaxy for {} ({game_id}, revision {revision}){}. Nebula supports only the \
-                     North American release, RMGE01.",
-                    region_name(&game_id),
-                    in_languages(&languages)
-                )
-            } else {
-                format!(
-                    "This is {title} ({game_id}), not Super Mario Galaxy (RMGE01). Nebula supports only the North \
-                     American release of Super Mario Galaxy."
-                )
-            }
-        } else if revision != RMGE01_REVISION || main_dol_sha1.as_deref() != Some(RMGE01_DOL_SHA1) {
-            format!(
-                "This RMGE01 copy is revision {revision} with main.dol SHA-1 {}. Nebula supports only revision \
-                 {RMGE01_REVISION} (main.dol SHA-1 {RMGE01_DOL_SHA1}). The image may be modified, patched or a \
-                 different revision.",
-                main_dol_sha1.as_deref().unwrap_or("unknown")
-            )
-        } else {
-            String::new()
+        let known = release(&game_id);
+        let message = match known {
+            None if game_id.starts_with("RMG") => format!(
+                "This is Super Mario Galaxy for {} ({game_id}, revision {revision}){}. Nebula plays the releases for \
+                 North America (RMGE01), Europe (RMGP01) and Japan (RMGJ01).",
+                region_name(&game_id),
+                in_languages(&languages)
+            ),
+            None => format!(
+                "This is {title} ({game_id}), not Super Mario Galaxy. Nebula plays Super Mario Galaxy for North \
+                 America (RMGE01), Europe (RMGP01) and Japan (RMGJ01)."
+            ),
+            Some(known) if revision != RELEASE_REVISION || main_dol_sha1.as_deref() != Some(known.dol_sha1) => format!(
+                "This {game_id} copy is revision {revision} with main.dol SHA-1 {}. Nebula supports only revision \
+                 {RELEASE_REVISION} (main.dol SHA-1 {}). The image may be modified, patched or a different revision.",
+                main_dol_sha1.as_deref().unwrap_or("unknown"),
+                known.dol_sha1
+            ),
+            Some(_) => String::new(),
         };
         InputIdentity {
             supported: message.is_empty(),
-            message: if message.is_empty() {
-                format!("Supported: Super Mario Galaxy (USA, RMGE01, revision 0){}.", in_languages(&languages))
-            } else {
-                message
+            message: match known {
+                Some(known) if message.is_empty() => format!(
+                    "Supported: Super Mario Galaxy ({}, {game_id}, revision {revision}){}.",
+                    known.region,
+                    in_languages(&languages)
+                ),
+                _ => message,
             },
             format,
             game_id,
@@ -266,7 +285,16 @@ impl Seek for DiscFile {
     }
 }
 
+/// A build for extracted folders only reads no disc image.
+fn refuse_images() -> Result<()> {
+    if cfg!(feature = "folders-only") {
+        bail!("this build of Nebula reads extracted game folders only");
+    }
+    Ok(())
+}
+
 fn open_disc(disc: DiscFile) -> Result<Disc> {
+    refuse_images()?;
     Disc::new_stream_with_options(Box::new(disc), &OpenOptions { rebuild_encryption: false, validate_hashes: true })
         .map_err(|error| anyhow!("this is not a readable GameCube or Wii disc image: {error}"))
 }
@@ -280,8 +308,14 @@ pub fn identify(disc: DiscFile) -> Result<Identity> {
     let title = header.game_title_str().to_owned();
     let (supported, message) = if !header.is_wii() {
         (false, format!("{title} is a GameCube game, not Super Mario Galaxy."))
-    } else if game_id != RMGE01_GAME_ID {
-        (false, format!("{title} ({game_id}) is not the North American Super Mario Galaxy (RMGE01)."))
+    } else if release(&game_id).is_none() {
+        (
+            false,
+            format!(
+                "{title} ({game_id}) is not Super Mario Galaxy for North America (RMGE01), Europe (RMGP01) or Japan \
+                 (RMGJ01)."
+            ),
+        )
     } else {
         (true, format!("Super Mario Galaxy ({game_id}), {format}"))
     };
@@ -296,6 +330,7 @@ pub fn identify_input(input: &Path) -> Result<InputIdentity> {
     if !input.is_file() {
         bail!("{} does not exist", input.display());
     }
+    refuse_images()?;
     let file = File::open(input).with_context(|| format!("{} cannot be opened", input.display()))?;
     let disc = Disc::new_stream(Box::new(DiscFile::new(file)))
         .map_err(|error| anyhow!("{} is not a readable GameCube/Wii disc image: {error}", input.display()))?;
@@ -304,9 +339,9 @@ pub fn identify_input(input: &Path) -> Result<InputIdentity> {
     let mut main_dol_sha1 = None;
     let mut languages = Vec::new();
     if header.is_wii() && game_id.starts_with("RMG") {
-        // Another region's languages are read for its message; a partition that cannot be read leaves them out.
+        // Another release's languages are read for its message; a partition that cannot be read leaves them out.
         let opened = disc.open_partition_kind(PartitionKind::Data);
-        if game_id == RMGE01_GAME_ID {
+        if release(&game_id).is_some() {
             let meta = opened.context("the disc's game partition cannot be opened")?.meta().context("the game partition cannot be read")?;
             main_dol_sha1 = Some(sha1_hex(&meta.raw_dol));
             languages = language_folders(&meta.raw_fst);
@@ -344,7 +379,7 @@ fn identify_folder(data: &Path) -> Result<InputIdentity> {
     ))
 }
 
-/// The partition folder of an extracted game (Dolphin's "Extract Entire Disc" layout): `input/DATA` or `input`.
+/// The partition folder of an extracted game (an emulator's whole-disc extraction layout): `input/DATA` or `input`.
 fn data_root(input: &Path) -> Result<PathBuf> {
     let nested = input.join("DATA");
     if nested.join("sys").join("main.dol").is_file() {
@@ -375,10 +410,10 @@ fn read_u64_be(data: &[u8], offset: usize) -> Result<u64> {
     Ok(u64::from_be_bytes(bytes.try_into().unwrap()))
 }
 
-/// The partition's data size from RMGE01's title metadata: one content record, of type 3.
+/// The partition's data size from its title metadata: one content record, of type 3, of whole clusters.
 fn validate_tmd(tmd: &[u8]) -> Result<u64> {
     if tmd.len() != TMD_SIZE || read_u32_be(tmd, 0)? != TMD_SIGNATURE_TYPE {
-        bail!("the game partition's title metadata is not RMGE01's");
+        bail!("the game partition's title metadata is not a Wii game's");
     }
     if read_u16_be(tmd, TMD_CONTENT_COUNT_OFFSET)? != 1
         || TMD_CONTENT_RECORD_OFFSET + TMD_CONTENT_RECORD_SIZE != tmd.len()
@@ -389,8 +424,8 @@ fn validate_tmd(tmd: &[u8]) -> Result<u64> {
     let index = read_u16_be(tmd, TMD_CONTENT_RECORD_OFFSET + 4)?;
     let kind = read_u16_be(tmd, TMD_CONTENT_RECORD_OFFSET + 6)?;
     let size = read_u64_be(tmd, TMD_CONTENT_RECORD_OFFSET + 8)?;
-    if id != 0 || index != 0 || kind != 3 || size != RMGE01_PARTITION_DATA_BYTES {
-        bail!("the game partition's content record is not RMGE01's");
+    if id != 0 || index != 0 || kind != 3 || size == 0 || size % PARTITION_CLUSTER != 0 {
+        bail!("the game partition's content record is not a Wii game's");
     }
     Ok(size)
 }
@@ -553,8 +588,8 @@ impl Source {
     }
 }
 
-/// RMGE01's game partition, checked: its system files at their offsets, the files of its file table, and where to
-/// read them.
+/// A release's game partition (RELEASES), checked: its system files at their offsets, the files of its file table, and
+/// where to read them.
 pub struct Partition {
     system: Vec<(&'static str, u64, Box<[u8]>)>,
     files: Vec<GameFile>,
@@ -564,7 +599,7 @@ pub struct Partition {
 }
 
 impl Partition {
-    /// The game partition of a disc image, or of an extracted folder (Dolphin's "Extract Entire Disc" layout).
+    /// The game partition of a disc image, or of an extracted folder (an emulator's whole-disc extraction layout).
     pub fn open(input: &Path) -> Result<Partition> {
         if input.is_dir() {
             return Partition::from_folder(&data_root(input)?);
@@ -580,8 +615,8 @@ impl Partition {
     pub fn from_disc(disc: DiscFile) -> Result<Partition> {
         let disc = open_disc(disc)?;
         let header = disc.header();
-        if !header.is_wii() || header.game_id_str() != RMGE01_GAME_ID {
-            bail!("this disc is not the North American Super Mario Galaxy (RMGE01)");
+        if !header.is_wii() || release(header.game_id_str()).is_none() {
+            bail!("this disc is not Super Mario Galaxy for North America (RMGE01), Europe (RMGP01) or Japan (RMGJ01)");
         }
         let mut partition =
             disc.open_partition_kind(PartitionKind::Data).context("the disc's game partition cannot be opened")?;
@@ -627,9 +662,10 @@ impl Partition {
 
     fn new(system: SystemFiles, source: Source) -> Result<Partition> {
         let SystemFiles { boot, bi2, apploader, dol, fst, tmd } = system;
-        if boot.len() != BOOT_BIN_SIZE || &boot[..RMGE01_GAME_ID.len()] != RMGE01_GAME_ID.as_bytes() {
-            bail!("the game partition's boot header is not RMGE01's");
-        }
+        let known = (boot.len() == BOOT_BIN_SIZE)
+            .then(|| std::str::from_utf8(&boot[..6]).ok().and_then(release))
+            .flatten()
+            .context("the game partition's boot header is not Super Mario Galaxy's (RMGE01, RMGP01 or RMGJ01)")?;
         if bi2.len() != BI2_BIN_SIZE || apploader.len() < APPLOADER_HEADER_SIZE {
             bail!("the game partition's system files have unexpected sizes");
         }
@@ -639,8 +675,11 @@ impl Partition {
             bail!("the game partition's apploader has an unexpected size");
         }
         let dol_sha1 = sha1_hex(&dol);
-        if dol_sha1 != RMGE01_DOL_SHA1 {
-            bail!("main.dol differs from Super Mario Galaxy's (SHA-1 {dol_sha1}): the disc image may be damaged");
+        if dol_sha1 != known.dol_sha1 {
+            bail!(
+                "main.dol differs from Super Mario Galaxy's ({}, SHA-1 {dol_sha1}): the disc image may be damaged",
+                known.game_id
+            );
         }
         // Wii partition offsets and sizes are words: the boot header holds them divided by 4.
         let dol_offset = u64::from(read_u32_be(&boot, 0x420)?) << 2;
@@ -743,7 +782,7 @@ impl Partition {
         Ok(())
     }
 
-    /// Writes the content folder the native game runs from: game.pak and files/LayoutData/FileSelect.arc. `output`
+    /// Writes the content folder the native game runs from: game.pak. `output`
     /// must not exist; it is removed again when the import fails.
     pub fn write_content(&mut self, output: &Path, progress: &mut dyn FnMut(u64, u64) -> bool) -> Result<u64> {
         if output.exists() {
@@ -758,24 +797,60 @@ impl Partition {
     }
 
     fn write_content_to(&mut self, output: &Path, progress: &mut dyn FnMut(u64, u64) -> bool) -> Result<u64> {
-        let (offset, length) = self
-            .files
-            .iter()
-            .find(|file| file.path.eq_ignore_ascii_case(FILE_SELECT_ARCHIVE))
-            .map(|file| (file.offset, file.length))
-            .with_context(|| format!("the file table has no {FILE_SELECT_ARCHIVE}"))?;
         let pak = output.join("game.pak");
-        let size = self.write_pak(&pak, progress)?;
-        let mut archive = vec![0u8; length as usize];
-        let mut reader = File::open(&pak).with_context(|| format!("{} cannot be opened", pak.display()))?;
-        reader.seek(SeekFrom::Start(offset))?;
-        reader
-            .read_exact(&mut archive)
-            .with_context(|| format!("{FILE_SELECT_ARCHIVE} cannot be read from game.pak"))?;
-        let target = join_relative(&output.join("files"), FILE_SELECT_ARCHIVE);
-        fs::create_dir_all(target.parent().unwrap())?;
-        fs::write(&target, archive).with_context(|| format!("{} cannot be written", target.display()))?;
+        let (size, _) = self.write_cooked_pak(&pak, progress)?;
         Ok(size)
+    }
+
+    /// Writes the cooked game.pak (cook/mod.rs) at `output`: the files of the partition cooked, after its system
+    /// files. The destination is replaced only when the whole file was written and flushed.
+    pub fn write_cooked_pak(
+        &mut self,
+        output: &Path,
+        progress: &mut dyn FnMut(u64, u64) -> bool,
+    ) -> Result<(u64, cook::Stats)> {
+        if let Some(parent) = output.parent() {
+            fs::create_dir_all(parent).with_context(|| format!("{} cannot be created", parent.display()))?;
+        }
+        let name = output.file_name().context("the destination has no file name")?.to_string_lossy();
+        let temporary = output.with_file_name(format!(".{name}.importing"));
+        let mut area = Vec::new();
+        let (mut fst_offset, mut fst_size) = (0usize, 0usize);
+        for (label, offset, bytes) in &self.system {
+            let end = *offset as usize + bytes.len();
+            if area.len() < end {
+                area.resize(end, 0);
+            }
+            area[*offset as usize..end].copy_from_slice(bytes);
+            if *label == "fst.bin" {
+                (fst_offset, fst_size) = (*offset as usize, bytes.len());
+            }
+        }
+        // The boot header's reserve for a larger file table stays the table's.
+        let fst_max = (read_u32_be(&area, 0x42c)? as usize) << 2;
+        area.resize(area.len().max(fst_offset + fst_max), 0);
+        let system = cook::SystemArea { bytes: area, fst_offset, fst_size };
+        let Partition { files, source, .. } = self;
+        let by_offset: std::collections::HashMap<u64, &GameFile> = files.iter().map(|f| (f.offset, f)).collect();
+        let origin = source.origin();
+        let mut read = |file: &cook::PakFile| -> Result<Vec<u8>> {
+            let game_file = by_offset.get(&file.offset).context("a file the file table lists twice")?;
+            let mut reader = source.open(game_file)?;
+            let mut bytes = vec![0u8; file.length as usize];
+            reader.read_exact(&mut bytes).with_context(|| format!("{} cannot be read from {origin}", file.path))?;
+            Ok(bytes)
+        };
+        let mut stats = cook::Stats::default();
+        let result = cook::write_cooked_pak(&system, &mut read, &temporary, progress, &mut stats);
+        let size = match result {
+            Ok(size) => size,
+            Err(error) => {
+                let _ = fs::remove_file(&temporary);
+                return Err(error);
+            }
+        };
+        fs::rename(&temporary, output).with_context(|| format!("{} cannot be replaced", output.display()))?;
+        Ok((size, stats))
     }
 }
 
@@ -824,7 +899,11 @@ mod tests {
         let mut wrong_size = valid_tmd();
         wrong_size[TMD_CONTENT_RECORD_OFFSET + 8..TMD_CONTENT_RECORD_OFFSET + 16]
             .copy_from_slice(&(RMGE01_PARTITION_DATA_BYTES + 0x8000).to_be_bytes());
-        assert!(validate_tmd(&wrong_size).is_err());
+        assert!(validate_tmd(&wrong_size).is_ok(), "another release's partition size, in whole clusters");
+        let mut torn = valid_tmd();
+        torn[TMD_CONTENT_RECORD_OFFSET + 8..TMD_CONTENT_RECORD_OFFSET + 16]
+            .copy_from_slice(&(RMGE01_PARTITION_DATA_BYTES + 0x10).to_be_bytes());
+        assert!(validate_tmd(&torn).is_err());
         let mut two_contents = valid_tmd();
         two_contents[TMD_CONTENT_COUNT_OFFSET..TMD_CONTENT_COUNT_OFFSET + 2].copy_from_slice(&2u16.to_be_bytes());
         assert!(validate_tmd(&two_contents).is_err());
@@ -988,24 +1067,117 @@ mod tests {
         assert_eq!(left.len(), 2, "a temporary file was left: {left:?}");
     }
 
+    /// A partition of a folder whose system files are real enough to cook: boot.bin pointing at a file table that
+    /// lists `files` (`/`-separated paths, one folder level at most) at their offsets.
+    fn table_partition(data: &Path, files: &[(&str, u64, &[u8])]) -> Partition {
+        let mut entries: Vec<(bool, String, u32, u32)> = Vec::new(); // folder, name, offset or parent, length or end
+        let mut folders: Vec<String> = Vec::new();
+        for (path, offset, bytes) in files {
+            match path.split_once('/') {
+                Some((folder, name)) => {
+                    if !folders.iter().any(|f| f == folder) {
+                        folders.push(folder.to_string());
+                        entries.push((true, folder.to_string(), 0, 0));
+                    }
+                    entries.push((false, name.to_string(), (*offset >> 2) as u32, bytes.len() as u32));
+                }
+                None => entries.push((false, path.to_string(), (*offset >> 2) as u32, bytes.len() as u32)),
+            }
+        }
+        let count = entries.len() + 1;
+        // A folder's end: the index after its files (they follow it).
+        for i in 0..entries.len() {
+            if entries[i].0 {
+                let mut end = i + 1;
+                while end < entries.len() && !entries[end].0 && files.iter().any(|(p, _, _)| p.ends_with(&format!("/{}", entries[end].1))) {
+                    end += 1;
+                }
+                entries[i].3 = (end + 1) as u32;
+            }
+        }
+        let mut fst = Vec::new();
+        let mut names = vec![0u8];
+        fst.extend_from_slice(&0x0100_0000u32.to_be_bytes());
+        fst.extend_from_slice(&0u32.to_be_bytes());
+        fst.extend_from_slice(&(count as u32).to_be_bytes());
+        for (folder, name, a, b) in &entries {
+            fst.extend_from_slice(&(((*folder as u32) << 24) | names.len() as u32).to_be_bytes());
+            names.extend_from_slice(name.as_bytes());
+            names.push(0);
+            fst.extend_from_slice(&a.to_be_bytes());
+            fst.extend_from_slice(&b.to_be_bytes());
+        }
+        fst.extend_from_slice(&names);
+        let mut boot = vec![0u8; BOOT_BIN_SIZE];
+        boot[..6].copy_from_slice(b"RMGE01");
+        boot[0x420..0x424].copy_from_slice(&(0x2480u32 >> 2).to_be_bytes());
+        boot[0x424..0x428].copy_from_slice(&(0x20000u32 >> 2).to_be_bytes());
+        let fst_words = (fst.len() as u32 + 3) >> 2;
+        fst.resize(fst_words as usize * 4, 0);
+        boot[0x428..0x42c].copy_from_slice(&fst_words.to_be_bytes());
+        boot[0x42c..0x430].copy_from_slice(&fst_words.to_be_bytes());
+        // main.dol: one data section over the tables' addresses (cook/dol.rs), zeros.
+        let mut dol = vec![0u8; 0x100];
+        dol[0x1C..0x20].copy_from_slice(&0x100u32.to_be_bytes());
+        dol[0x48 + 0x1C..0x48 + 0x20].copy_from_slice(&0x8053_A000u32.to_be_bytes());
+        dol[0x90 + 0x1C..0x90 + 0x20].copy_from_slice(&0xE000u32.to_be_bytes());
+        dol.resize(0x100 + 0xE000, 0);
+        // The two tables as empty tables (16-byte header: no entries, no fields, data at 16), as the cook reads them.
+        for address in [0x8053_C620u32, 0x8053_C800] {
+            let at = 0x100 + (address - 0x8053_A000) as usize;
+            dol[at + 8..at + 12].copy_from_slice(&16u32.to_be_bytes());
+        }
+        let system = vec![
+            ("boot.bin", 0, boot.into_boxed_slice()),
+            ("main.dol", 0x2480, dol.into_boxed_slice()),
+            ("fst.bin", 0x20000, fst.into_boxed_slice()),
+        ];
+        folder_partition(data, files, system)
+    }
+
     #[test]
-    fn content_folder_holds_game_pak_and_file_select_archive() {
+    fn content_folder_holds_the_cooked_game_pak() {
         let directory = tempfile::tempdir().unwrap();
-        let mut partition = folder_partition(
+        // A Yaz0 file of four literal bytes (a code byte, then them): stored expanded.
+        let mut compressed = b"Yaz0".to_vec();
+        compressed.extend_from_slice(&4u32.to_be_bytes());
+        compressed.extend_from_slice(&[0; 8]);
+        compressed.extend_from_slice(&[0xF0, b'a', b'b', b'c', b'd']);
+        let mut partition = table_partition(
             &directory.path().join("data"),
-            &[("LayoutData/FileSelect.arc", 0x20, b"archive")],
-            Vec::new(),
+            &[("LayoutData/FileSelect.arc", 0x21000, b"archive"), ("small.szs", 0x21020, &compressed)],
         );
         let output = directory.path().join("content");
         partition.write_content(&output, &mut |_, _| true).unwrap();
-        assert_eq!(fs::read(output.join("files").join("LayoutData").join("FileSelect.arc")).unwrap(), b"archive");
-        assert_eq!(fs::metadata(output.join("game.pak")).unwrap().len(), 0x27);
+        let read = |path: &str| cook::store::read_file(&output.join("game.pak"), path).unwrap();
+        assert_eq!(read("small.szs"), b"abcd");
+        assert_eq!(read("LayoutData/FileSelect.arc"), b"archive");
+        // main.dol's tables as files of their own folder (cook/dol.rs).
+        assert_eq!(read("NebulaData/StoryProgressTable.bcsv").len(), 0x1E0);
         assert!(partition.write_content(&output, &mut |_, _| true).unwrap_err().to_string().contains("already exists"));
+    }
 
-        let mut without_archive = folder_partition(&directory.path().join("other"), &[("a.bin", 0, b"x")], Vec::new());
-        let failed = directory.path().join("failed");
-        assert!(without_archive.write_content(&failed, &mut |_, _| true).is_err());
-        assert!(!failed.exists());
+    #[test]
+    fn a_format_1_content_folder_cooks_without_the_disc() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut compressed = b"Yaz0".to_vec();
+        compressed.extend_from_slice(&4u32.to_be_bytes());
+        compressed.extend_from_slice(&[0; 8]);
+        compressed.extend_from_slice(&[0xF0, b'a', b'b', b'c', b'd']);
+        let mut partition = table_partition(
+            &directory.path().join("data"),
+            &[("LayoutData/FileSelect.arc", 0x21000, b"archive"), ("small.szs", 0x21020, &compressed)],
+        );
+        let old = directory.path().join("content-format1");
+        partition.write_pak(&old.join("game.pak"), &mut |_, _| true).unwrap();
+        let output = directory.path().join("content");
+        let stats = cook::cook_content(&old, &output, &mut |_, _| true).unwrap();
+        assert_eq!(stats.expanded_files, 1);
+        let read = |path: &str| cook::store::read_file(&output.join("game.pak"), path).unwrap();
+        assert_eq!(read("small.szs"), b"abcd");
+        assert_eq!(read("LayoutData/FileSelect.arc"), b"archive");
+        assert_eq!(read("NebulaData/StoryProgressTable.bcsv").len(), 0x1E0);
+        assert!(cook::cook_content(&old, &output, &mut |_, _| true).unwrap_err().to_string().contains("already exists"));
     }
 
     #[test]
@@ -1016,8 +1188,8 @@ mod tests {
             other.to_json(),
             "{\"format\":\"ISO\",\"gameId\":\"RMCP01\",\"title\":\"Mario \\\"Kart\\\"\\u000a\",\"revision\":0,\
              \"mainDolSha1\":null,\"languages\":[],\"supported\":false,\"message\":\"This is Mario \\\"Kart\\\"\\u000a \
-             (RMCP01), not Super Mario Galaxy (RMGE01). Nebula supports only the North American release of Super Mario \
-             Galaxy.\"}"
+             (RMCP01), not Super Mario Galaxy. Nebula plays Super Mario Galaxy for North America (RMGE01), Europe (RMGP01) \
+             and Japan (RMGJ01).\"}"
         );
         let us = vec!["UsEnglish".to_owned(), "UsFrench".to_owned(), "UsSpanish".to_owned()];
         let supported = InputIdentity::new(
@@ -1032,15 +1204,33 @@ mod tests {
         assert_eq!(supported.message, "Supported: Super Mario Galaxy (USA, RMGE01, revision 0), in English, French and Spanish.");
         assert!(supported.to_json().contains("\"languages\":[\"UsEnglish\",\"UsFrench\",\"UsSpanish\"]"));
         let europe: Vec<String> = ["EuEnglish", "EuGerman", "EuFrench"].iter().map(|s| s.to_string()).collect();
-        assert_eq!(
-            InputIdentity::new("ISO".into(), "RMGP01".into(), "x".into(), 1, None, europe).message,
-            "This is Super Mario Galaxy for Europe (RMGP01, revision 1), in English, German and French. Nebula supports \
-             only the North American release, RMGE01."
+        let pal = InputIdentity::new(
+            "ISO".into(),
+            "RMGP01".into(),
+            "x".into(),
+            0,
+            Some("9bd1daa520bd1f573b6a4b82e03336e9c51b511f".into()),
+            europe.clone(),
         );
+        assert!(pal.supported);
+        assert_eq!(pal.message, "Supported: Super Mario Galaxy (Europe, RMGP01, revision 0), in English, German and French.");
+        let japan = InputIdentity::new(
+            "ISO".into(),
+            "RMGJ01".into(),
+            "x".into(),
+            0,
+            Some("604d0b47d446caec0aab9ac370014f132e1b4016".into()),
+            vec!["JpJapanese".to_owned()],
+        );
+        assert!(japan.supported);
+        assert_eq!(japan.message, "Supported: Super Mario Galaxy (Japan, RMGJ01, revision 0), in Japanese.");
+        let other_dol =
+            InputIdentity::new("ISO".into(), "RMGP01".into(), "x".into(), 0, Some(RMGE01_DOL_SHA1.into()), europe);
+        assert!(!other_dol.supported && other_dol.message.starts_with("This RMGP01 copy is revision 0 with main.dol"));
         assert_eq!(
             InputIdentity::new("ISO".into(), "RMGK01".into(), "x".into(), 0, None, Vec::new()).message,
-            "This is Super Mario Galaxy for Korea (RMGK01, revision 0). Nebula supports only the North American \
-             release, RMGE01."
+            "This is Super Mario Galaxy for Korea (RMGK01, revision 0). Nebula plays the releases for North America \
+             (RMGE01), Europe (RMGP01) and Japan (RMGJ01)."
         );
         let revision = InputIdentity::new(
             "ISO".into(),

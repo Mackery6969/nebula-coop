@@ -9,37 +9,6 @@
 #include "Game/Util/MtxUtil.hpp"
 #include <cstring>
 
-void MarioHang_FORCE_MATCH_SDATA2() {
-    (void)-0.8f;
-    (void)50.0f;
-    (void)5.0f;
-    (void)60.0f;
-    (void)160.0f;
-    (void)0.1f;
-    (void)0.08726647f;
-    (void)100.0f;
-    (void)150.0f;
-    (void)0.2f;
-    (void)30.0f;
-    (void)-0.707f;
-    (void)84.0f;
-    (void)-20.0f;
-    (void)-100.0f;
-    (void)0.707f;
-    (void)45.0f;
-    (void)80.0f;
-    (void)6.0f;
-    (void)0.95f;
-    (void)20.0f;
-    (void)15.0f;
-    (void)55.0f;
-    (void)-55.0f;
-    (void)-15.0f;
-    (void)-150.0f;
-    (void)0.001f;
-    (void)0.01f;
-}
-
 bool Mario::isHanging() const {
     return getCurrentStatus() == MarioStatus_Hang;
 }
@@ -516,7 +485,7 @@ void MarioHang::recordWallPolygon(const Triangle* pTriangle) {
     mWallSensor = pTriangle->mSensor;
     TPos3f matrix;
     MR::makeMtxWithoutScale(&matrix, *_20->getBaseInvMtx());
-    PSMTXMultVecSR(matrix.toMtxPtr(), _20->getNormal(0), &_28);
+    NebulaMtxMultVecSR(matrix.toMtxPtr(), _20->getNormal(0), &_28);
     _34 = *_20->getNormal(0);
 }
 
@@ -524,7 +493,7 @@ void MarioHang::recordHangNorm(const TVec3f& rNormal) {
     _34 = rNormal;
     TPos3f matrix;
     MR::makeMtxWithoutScale(&matrix, *_20->getBaseInvMtx());
-    PSMTXMultVecSR(matrix.toMtxPtr(), &rNormal, &_28);
+    NebulaMtxMultVecSR(matrix.toMtxPtr(), &rNormal, &_28);
 }
 
 void MarioHang::forceDrop() {
@@ -574,7 +543,7 @@ bool MarioHang::update() {
     matrix.identity();
     MR::makeMtxWithoutScale(&matrix, *_20->getBaseMtx());
     TVec3f normal;
-    PSMTXMultVecSR(matrix.toMtxPtr(), &_28, &normal);
+    NebulaMtxMultVecSR(matrix.toMtxPtr(), &_28, &normal);
     getPlayer()->setFrontVecKeepUp(-normal);
     _34 = normal;
     _14++;

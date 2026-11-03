@@ -1,5 +1,6 @@
-#ifdef TARGET_PC
 #include "Game/Player/NebulaRemotePlayer.hpp"
+#include "nebula_module.h"
+#include "Game/System/NebulaHost.hpp"
 #include "Game/Animation/XanimeCore.hpp"
 #include "Game/Animation/XanimePlayer.hpp"
 #include "Game/Effect/AutoEffectGroup.hpp"
@@ -18,6 +19,7 @@
 #include "Game/Player/MarioDamage.hpp"
 #include "Game/Player/MarioFaint.hpp"
 #include "Game/Player/MarioHolder.hpp"
+#include "Game/Player/MarioModelTint.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
@@ -27,17 +29,13 @@
 #include "Game/Util/LightUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
-#include "Game/Util/MemoryUtil.hpp"
 #include "Game/Util/ModelUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
-#include "Game/Util/SchedulerUtil.hpp"
 #include <cmath>
 #include <cstdio>
 #include <cstring>
-#include <revolution/gd.h>
-#include <revolution/os.h>
 
 namespace {
     // Copies of each character a scene keeps: one for each other player a room of 16 may have.
@@ -162,12 +160,10 @@ bool NebulaRemotePlayer::isLocalIntangible() {
 
 NebulaRemotePlayer::NebulaRemotePlayer(bool isLuigi)
     : LiveActor(isLuigi ? "NebulaRemoteLuigi" : "NebulaRemoteMario"), mIsLuigi(isLuigi), mNumber(0), mXanimePlayer(nullptr),
-      mLastFrame(0.0f), mDLSize(0), mCurrDL(0), mFront(0.0f, 0.0f, 1.0f), mUp(0.0f, 1.0f, 0.0f), mRewindMs(0), mShownFrames(0),
+      mLastFrame(0.0f), mFront(0.0f, 0.0f, 1.0f), mUp(0.0f, 1.0f, 0.0f), mRewindMs(0), mShownFrames(0),
       mStompTimer(0), mSolid(false) {
     mName[0] = '\0';
     mGroup[0] = '\0';
-    mDL[0] = nullptr;
-    mDL[1] = nullptr;
     memset(&mState, 0, sizeof(mState));
 }
 
@@ -182,7 +178,7 @@ void NebulaRemotePlayer::tryCreate() {
     sSceneFrames = 0;
     sHistoryNum = 0;
     u32 roomSize = 0;
-    __NebulaCoopList(nullptr, 0, &roomSize);
+    NebulaHost::coopList(nullptr, 0, &roomSize);
     if (roomSize < 2) {
         return;
     }
@@ -199,7 +195,7 @@ void NebulaRemotePlayer::tryCreate() {
         pCopy->initWithoutIter();
         sCopies[sCopyNum++] = pCopy;
     }
-    OSReport("[coop] %d copies for the other players\n", sCopyNum);
+    nebula_log("[coop] %d copies for the other players\n", sCopyNum);
 }
 
 s32 NebulaRemotePlayer::getCopyNum() {
@@ -219,7 +215,7 @@ void NebulaRemotePlayer::updateAll() {
     if (sCopyNum == 0) {
         return;
     }
-    __NebulaCoopRules(&sRules);
+    NebulaHost::coopRules(&sRules);
     if (sSceneFrames < cContactAfter) {
         sSceneFrames++;
     }
@@ -227,8 +223,9 @@ void NebulaRemotePlayer::updateAll() {
     if (const MarioActor* pMario = getLocalMario()) {
         recordLocal(pMario);
     }
-    NebulaCoopRemotePlayer remote[cMaxPerCharacter * 2];
-    u32 remoteNum = __NebulaCoopRemote(remote, cMaxPerCharacter * 2);
+    // Static: the module links without __chkstk, so no frame may need a stack probe.
+    static NebulaCoopRemotePlayer remote[cMaxPerCharacter * 2];
+    u32 remoteNum = NebulaHost::coopRemote(remote, cMaxPerCharacter * 2);
     if (remoteNum > static_cast< u32 >(cMaxPerCharacter * 2)) {
         remoteNum = cMaxPerCharacter * 2;
     }
@@ -292,10 +289,8 @@ void NebulaRemotePlayer::init(const JMapInfoIter& rIter) {
     // The player's own model: the local player's is already here; the other character's loads into the scene. Its
     // materials take the stage's fog, as MarioActor::initDrawAndModel has the local Mario's.
     initModelManagerWithAnm(mIsLuigi ? "Luigi" : "Mario", nullptr, true);
-    MR::initDLMakerFog(this, true);
-    MR::newDifferedDLBuffer(this);
-    mDL[0] = new (0x20) u8[0x100];
-    mDL[1] = new (0x20) u8[0x100];
+    MR::initMaterialFog(this, true);
+    MR::newDifferedMaterials(this);
 
     // Lit as the local Mario is (MR::initLightCtrlForPlayer), by the player light of the light area it stands in: its
     // own, as it may stand in another area than he does. No draw buffer of its own to sort it in.
@@ -348,7 +343,7 @@ void NebulaRemotePlayer::show(const NebulaCoopRemotePlayer& rRemote) {
     } else if (mShownFrames < cContactAfter) {
         mShownFrames++;
     }
-    snprintf(mName, sizeof(mName), "%s", rRemote.name);
+    nebula_snprintf(mName, sizeof(mName), "%s", rRemote.name);
     mState = rRemote.player;
     mState.group[sizeof(mState.group) - 1] = '\0';
     mState.animation[sizeof(mState.animation) - 1] = '\0';
@@ -450,7 +445,7 @@ void NebulaRemotePlayer::updateAnimation() {
     // Its effects, as the animation the snapshot names changes or starts again.
     if (restarted || strcmp(mGroup, mState.group) != 0) {
         stopAnimationEffect();
-        snprintf(mGroup, sizeof(mGroup), "%s", mState.group);
+        nebula_snprintf(mGroup, sizeof(mGroup), "%s", mState.group);
         startAnimationEffect();
     } else {
         updateAnimationEffect();
@@ -479,35 +474,22 @@ void NebulaRemotePlayer::stopAnimationEffect() {
 
 void NebulaRemotePlayer::calcAnim() {
     LiveActor::calcAnim();
-    updateLightDL();
+    updateLightTint();
 }
 
-void NebulaRemotePlayer::updateLightDL() {
-    // No light area found yet: the model's own colours (ActorLightCtrl::loadLight loads none either).
+void NebulaRemotePlayer::updateLightTint() {
+    // As MarioActor::calcFogLighting and updateLightList tint the local Mario's each frame (without his damage and item
+    // fogs): its light's ambient colour, a white material. The model's own materials' colours would leave it lit
+    // unlike him. None while no light area is found yet (ActorLightCtrl::loadLight loads none either).
     if (mActorLightCtrl->mAreaLightInf == nullptr) {
-        mDLSize = 0;
+        mLightTint.kind = MarioModelTint::Kind_None;
         return;
     }
-    // As MarioActor::calcFogLighting and updateLightDL make the local Mario's each frame (without his damage and item
-    // fogs): its light's ambient colour, a white material, the second colour channel off. The model's own materials'
-    // registers would leave it lit unlike him.
-    u8 buffer[256] ATTRIBUTE_ALIGN(32);
-    GDLObj displayList;
-    MR::ProhibitSchedulerAndInterrupts lock(false);
-    GDInitGDLObj(&displayList, buffer, sizeof(buffer));
-    __GDCurrentDL = &displayList;
-    GDSetChanAmbColor(GX_COLOR0A0, *MR::getLightAmbientColor(this));
-    const GXColor white = {255, 255, 255, 255};
-    GDSetChanMatColor(GX_COLOR0A0, white);
-    GDSetChanCtrl(GX_COLOR1, GX_FALSE, GX_SRC_REG, GX_SRC_REG, GX_LIGHT_NULL, GX_DF_CLAMP, GX_AF_NONE);
-    GDPadCurr32();
-    const u32 length = displayList.ptr - displayList.start;
-    // The other one may still be drawn from.
-    mCurrDL = 1 - mCurrDL;
-    mDLSize = length;
-    const u32 size = (length + 31) & ~31;
-    MR::copyMemory(mDL[mCurrDL], buffer, size);
-    DCStoreRange(mDL[mCurrDL], size);
+    mLightTint.kind = MarioModelTint::Kind_Light;
+    const Color8 ambient = *MR::getLightAmbientColor(this);
+    mLightTint.color0 = ambient.mRGBA;
+    mLightTint.color1 = Color8(255, 255, 255, 255).mRGBA;
+    mLightTint.hasFog = false;
 }
 
 bool NebulaRemotePlayer::isTouchable() const {
@@ -626,10 +608,9 @@ void NebulaRemotePlayer::draw() const {
     MR::loadActorLight(this);
     J3DModelX* pModel = reinterpret_cast< J3DModelX* >(MR::getJ3DModel(this));
     pModel->viewCalc2();
-    GXInvalidateVtxCache();
     pModel->mFlags.clear();
-    pModel->setDynamicDL(mDLSize != 0 ? mDL[mCurrDL] : nullptr, mDLSize);
+    pModel->setDynamicList(mLightTint.kind != MarioModelTint::Kind_None ? &mLightTint : nullptr);
+    pModel->setDrawView(0);
     pModel->directDraw(nullptr);
     MR::loadLightPlayer();
 }
-#endif

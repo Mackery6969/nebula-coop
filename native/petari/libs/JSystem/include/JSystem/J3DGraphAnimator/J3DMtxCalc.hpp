@@ -1,6 +1,7 @@
 #pragma once
 
-#include <revolution.h>
+#include <NebulaGpu.h>
+#include <nebula_math.h>
 
 class J3DAnmTransform;
 class J3DMtxBuffer;
@@ -42,4 +43,4 @@ public:
 
     static J3DMtxBuffer* mMtxBuffer;
     static J3DJoint* mJoint;
-};  // Size: 0x4
+};

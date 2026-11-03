@@ -1,14 +1,8 @@
 #include "Game/MapObj/ClipAreaShape.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util.hpp"
 #include "Game/Util/MtxUtil.hpp"
-
-void ClipAreaShape_FORCE_MATCH_SDATA2() {
-    (void)0.001f;
-    (void)500.0f;
-    (void)0.01f;
-    (void)1000.0f;
-}
 
 ClipAreaShape::ClipAreaShape(const char* pName) : mModelData() {
     mModelData = MR::getJ3DModelData(pName);
@@ -41,7 +35,7 @@ void ClipAreaShape::drawVolumeShape(const TPos3f& rMtx, const TVec3f& rPos) cons
     volMtx.identity();
     calcVolumeMatrix(&volMtx, rMtx, rPos);
     MR::multMtx(volMtx, volMtx, MR::getCameraViewMtx());
-    GXLoadPosMtxImm(volMtx, 0);
+    J3DNativeShape::setPosition(0, volMtx);
     MR::drawSimpleModel(mModelData);
 }
 

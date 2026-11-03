@@ -10,9 +10,7 @@
 #include "Game/System/GameSequenceFunction.hpp"
 #include "Game/System/GameSystem.hpp"
 #include "Game/System/GameSystemFunction.hpp"
-#ifdef TARGET_PC
 #include "Game/System/NebulaCoopDemos.hpp"
-#endif
 #include "Game/System/GameSystemSceneController.hpp"
 #include "Game/System/LuigiLeftSupplier.hpp"
 #include "Game/System/StarPointerOnOffController.hpp"
@@ -104,8 +102,8 @@ void GameSequenceProgress::startScene() {
         MR::startStarPointerModeGame(this);
     }
 
-    GameSystemFunction::setPermissionToCheckWiiRemoteConnectAndScreenDimming(isScenePermittedIsUpdateWiiRemoteStatus());
-    GameSystemFunction::setAutoSleepTimeWiiRemote(isSceneLongAutoSleepWiiRemote());
+    GameSystemFunction::setPermissionToCheckInput(isScenePermittedUpdateInputStatus());
+    GameSystemFunction::setInputSleepTime(isSceneLongInputSleep());
 
     if (MR::isEqualSceneName("Game")) {
         mStorySequenceExecutor->setNerveSceneStart();
@@ -157,11 +155,9 @@ void GameSequenceProgress::requestGalaxyMove(const GalaxyMoveArgument& rMoveArg)
     GameSequenceFunction::storeSceneStartGameDataHolder();
 
     if (rMoveArg.mMoveType == 4) {
-#ifdef TARGET_PC
         // Online co-op: a star the room gave, taken now by this player, returns as its first.
         NebulaCoopDemos::beforeStageResult(GameSequenceFunction::getClearedStageName(),
                                            GameSequenceFunction::getClearedPowerStarId());
-#endif
         GameSequenceFunction::updateGameDataAndSequenceAfterStageResultSequence();
         mFindingLuigiEventScheduler->updateOnStageResult(GameSequenceFunction::getClearedStageName(), GameSequenceFunction::getClearedPowerStarId());
 
@@ -296,7 +292,6 @@ void GameSequenceProgress::exeResetProcessing() {
             mPlayerMissLeft->kill();
         }
 
-        mFindingLuigiEventScheduler->clearLostAndFoundCount();
     }
 
     if (!GameSystemFunction::isResetProcessing()) {
@@ -305,11 +300,11 @@ void GameSequenceProgress::exeResetProcessing() {
     }
 }
 
-bool GameSequenceProgress::isScenePermittedIsUpdateWiiRemoteStatus() {
+bool GameSequenceProgress::isScenePermittedUpdateInputStatus() {
     return !MR::isEqualSceneName("Logo");
 }
 
-bool GameSequenceProgress::isSceneLongAutoSleepWiiRemote() {
+bool GameSequenceProgress::isSceneLongInputSleep() {
     if (MR::isEqualSceneName("Game") && MR::isEqualStageName("EpilogueDemoStage")) {
         return true;
     }

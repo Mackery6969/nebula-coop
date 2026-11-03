@@ -228,7 +228,7 @@ packets. It has no physics or state machine of its own. It collides with the loc
   quarter of the way each frame; it jumps there when more than 6 frames off, as the animation starts or starts again),
   so it runs smoothly between snapshots and through its loops rather than stepping with each one.
 - **Lit as the local Mario.** Each copy has its own light (the player light of the light area it stands in, as
-  `MarioActor`'s is his), the same display list over its materials (the light's ambient colour, a white material) and
+  `MarioActor`'s is his), the same tint over its materials (the light's ambient colour, a white material) and
   the stage's fog on its materials, so it looks as the local Mario does standing there.
 - **Effects.** A copy plays Mario's spin effects (the spin light; the ice, fire and Bee spins) on its own joints as
   its spin animation starts and ends, as `MarioAnimator`'s callbacks play them on him. Only those are registered on a
