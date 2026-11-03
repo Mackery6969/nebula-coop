@@ -168,7 +168,8 @@ void NebulaRemotePlayer::updateAll() {
     if (const MarioActor* pMario = getLocalMario()) {
         recordLocal(pMario);
     }
-    NebulaCoopRemotePlayer remote[cMaxPerCharacter * 2];
+    // Static: the module links without __chkstk, so no frame may need a stack probe.
+    static NebulaCoopRemotePlayer remote[cMaxPerCharacter * 2];
     u32 remoteNum = NebulaHost::coopRemote(remote, cMaxPerCharacter * 2);
     if (remoteNum > static_cast< u32 >(cMaxPerCharacter * 2)) {
         remoteNum = cMaxPerCharacter * 2;

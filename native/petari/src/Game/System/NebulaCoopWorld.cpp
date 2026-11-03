@@ -228,7 +228,8 @@ namespace {
     }
 
     void takeFromServer() {
-        NebulaCoopWorldEvent events[cTakePerCall];
+        // Static: the module links without __chkstk, so no frame may need a stack probe.
+        static NebulaCoopWorldEvent events[cTakePerCall];
         for (u32 call = 0; call < cTakeCalls; call++) {
             const u32 count = NebulaHost::coopWorldTake(events, cTakePerCall);
             const u32 used = count < cTakePerCall ? count : cTakePerCall;
