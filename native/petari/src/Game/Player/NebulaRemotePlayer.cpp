@@ -11,6 +11,7 @@
 #include "Game/Player/MarioDamage.hpp"
 #include "Game/Player/MarioFaint.hpp"
 #include "Game/Player/MarioHolder.hpp"
+#include "Game/Player/NebulaCoopBubble.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
@@ -105,7 +106,8 @@ bool NebulaRemotePlayer::isLocalIntangible() {
 
 NebulaRemotePlayer::NebulaRemotePlayer(bool isLuigi)
     : LiveActor(isLuigi ? "NebulaRemoteLuigi" : "NebulaRemoteMario"), mIsLuigi(isLuigi), mNumber(0), mXanimePlayer(nullptr),
-      mFront(0.0f, 0.0f, 1.0f), mUp(0.0f, 1.0f, 0.0f), mRewindMs(0), mShownFrames(0), mStompTimer(0), mSolid(false) {
+      mFront(0.0f, 0.0f, 1.0f), mUp(0.0f, 1.0f, 0.0f), mRewindMs(0), mShownFrames(0), mStompTimer(0), mSolid(false),
+      mBubble(nullptr) {
     mName[0] = '\0';
     mGroup[0] = '\0';
     mBck[0] = '\0';
@@ -138,6 +140,7 @@ void NebulaRemotePlayer::tryCreate() {
     for (s32 i = 0; i < perCharacter * 2; i++) {
         NebulaRemotePlayer* pCopy = new NebulaRemotePlayer(i >= perCharacter);
         pCopy->initWithoutIter();
+        pCopy->mBubble = NebulaCoopBubble::createModel();
         sCopies[sCopyNum++] = pCopy;
     }
     OSReport("[coop] %d copies for the other players\n", sCopyNum);
@@ -286,12 +289,25 @@ void NebulaRemotePlayer::show(const NebulaCoopRemotePlayer& rRemote) {
     if (MR::isDead(this)) {
         appear();
     }
+    // Their bubble, round their body's middle; bursting as they're let out.
+    if (mBubble != nullptr) {
+        if ((mState.flags & NEBULA_COOP_PLAYER_BUBBLED) != 0) {
+            mBubble->follow(mPosition + mUp * cBodyCenter);
+        } else if (!isNew) {
+            mBubble->pop();
+        } else {
+            mBubble->hide();
+        }
+    }
 }
 
 void NebulaRemotePlayer::hide() {
     mNumber = 0;
     mName[0] = '\0';
     mShownFrames = 0;
+    if (mBubble != nullptr) {
+        mBubble->hide();
+    }
     if (!MR::isDead(this)) {
         makeActorDead();
     }

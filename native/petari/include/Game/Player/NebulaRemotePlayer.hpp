@@ -4,6 +4,7 @@
 #include "Game/LiveActor/LiveActor.hpp"
 #include <nebula_game_api.h>
 
+class NebulaBubble;
 class XanimePlayer;
 
 // Online co-op (docs/COOP_PLAN.md "Remote players"): another player in this instance, drawn as their Mario or Luigi
@@ -63,5 +64,6 @@ public:
     s32 mShownFrames; // frames since this copy began showing its player
     s32 mStompTimer;  // frames until their landing on the local Mario's head may squash him again
     bool mSolid;      // its sensor is on
+    NebulaBubble* mBubble;  // round them while they're in a bubble (NebulaCoopBubble)
 };
 #endif

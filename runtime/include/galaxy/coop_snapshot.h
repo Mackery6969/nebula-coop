@@ -53,6 +53,7 @@ struct PlayerSnapshot {
     std::uint32_t health = 0u;
     std::uint32_t mode = 0u;
     std::uint32_t flags = 0u;  // NEBULA_COOP_PLAYER_*
+    std::uint32_t area = 0u;   // the part of the stage they're in (NebulaCoopPlayer::area): bubbles stay within one
 };
 
 // Longest names kept from a snapshot.

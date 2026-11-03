@@ -57,8 +57,9 @@ Games are self-hosted. There is no lobby server, relay or account system run by 
 - **Server settings.** The `coop_*` keys in `runtime_settings.ini`, so a dedicated server can be configured without a
   menu: `coop_port` (default 7777), `coop_max_players` (2-16, default 8), `coop_player_name`, `coop_password`, and the
   [player collision](#player-collisions) options `coop_player_interaction`, `coop_knockback_strength` and
-  `coop_pvp_mode`, and `coop_cheats`. They're written only once they differ from the defaults. The host's collision options and save are
-  the session's, as in sm64coopdx.
+  `coop_pvp_mode`, [bubble on death](#bubble-on-death) `coop_bubble_death` (`1` or `0`, default `1`), and
+  `coop_cheats`. They're written only once they differ from the defaults. The host's collision and bubble options and
+  save are the session's, as in sm64coopdx.
 
 ## Instances: one per galaxy and mission
 
@@ -114,7 +115,7 @@ front of it, as its own screen.
   | Page | Rows |
   |---|---|
   | Main | Host, Join, Options, Quit; Nebula's version in a corner |
-  | Host | Save (any number, each with its name and Power Stars; New, Rename and Erase), port, password, max players, Player Interaction, Knockback Strength, PvP Mode, Cheats, then Host and Back |
+  | Host | Save (any number, each with its name and Power Stars; New, Rename and Erase), port, password, max players, Player Interaction, Knockback Strength, PvP Mode, Bubble on Death, Cheats, then Host and Back |
   | Join | Address (`host[:port]`), password, then Join; the last address is remembered. No public or private lobbies: there's no relay |
   | Options | Nebula's settings pages, with PLAYER in the MODS page's old place: name, character (Mario or Luigi, as sm64coopdx's player options pick a model). MODS is the last page |
   | Quit | "Quit to desktop?" yes or no |
@@ -185,7 +186,8 @@ How a join goes (`galaxy/coop_mods.h`, `galaxy/coop_session.h`), as sm64coopdx's
 
 Nebula's in-game settings menu (F1, the pause menu's Settings) keeps its pages, but ADVANCED becomes **ONLINE**:
 
-- **Room.** The session's settings: Player Interaction, Knockback Strength, PvP Mode, Cheats and the player list.
+- **Room.** The session's settings: Player Interaction, Knockback Strength, PvP Mode, Bubble on Death, Cheats and
+  the player list.
   The host changes them for everyone, like sm64coopdx's in-game host settings; other players see them.
 - **No Leave game.** The way out of an online game is the game's own: the pause menu's Quit (in the Observatory, or
   before it opens) returns to the main menu, and back there the session ends (the host closes the room, a joiner
@@ -332,6 +334,32 @@ The rules carried over, with SMG's equivalents (`NebulaRemotePlayer`, game API 4
   own Mario. No message is sent for a hit, so collisions add nothing to a room's traffic.
 - Not yet: a Fire Mario's fireballs and other thrown things, which other players' games don't draw.
 
+## Bubble on death
+
+sm64coopdx's bubble (`mario_set_bubbled`, `act_bubbled`, `bhv_bubble_player`), a room option on the Host page and
+the Online tab (Bubble on Death, `coop_bubble_death`, on by default), sent with the room as the collision options are.
+
+- **When.** A player whose Mario would miss (any of the game's deaths: hurt to nothing, a fall, lava, quicksand, a
+  black hole, drowning...) while another player is alive in the same instance *and the same part of it* loses a life
+  and floats in a bubble instead. With no life left it's the game over, as in sm64coopdx; a race lost or the timer
+  running out is never a bubble.
+- **The same part.** A galaxy is one scene, so sm64coopdx's areas are the warp pipes here: each player's part is where
+  the stage starts, or the pipe they last came out of; going back down that pipe returns them to the part before
+  (a stack, `NebulaCoopPlayer::area`, a hash of the pipe's placed position, the same in every game). A player down a
+  pipe can't save one above it, nor the other way round. Launch Stars and Warp Pods stay in the same part.
+- **Flying.** The bubble (the air bubble's model, turning and swelling) holds Mario, who can't be touched and touches
+  nothing: no enemy, item, death area or wall. The stick flies it where the camera looks, A rises and Z sinks, eased as
+  sm64coopdx's (`MarioActor`'s `NebulaBubble` state, `NebulaCoopBubble`).
+- **Out.** Touching a player who can let them out (in the same part, neither dead nor bubbled) after two thirds of a
+  second bursts it: the player plays on from there with full health (3) and three seconds unharmed. With nobody left
+  to fly to for half a second (they missed, left the part or the instance), the bubble ends in the miss after all, with
+  its life given back, since the miss takes one.
+- **Who decides.** The bubbled player's own game, as sm64coopdx: no message. The snapshot says it
+  (`NEBULA_COOP_PLAYER_BUBBLED`, with `DEAD` and `INTANGIBLE`) and its part, and the others draw the bubble round its
+  copy, bursting as it's let out (game API 44, session protocol 6).
+- Not yet: Mario keeps a power-up form in the bubble (a miss would have taken it), and doesn't turn to face where he
+  flies.
+
 ## Shared world state
 
 The server decides everything but the visuals (`galaxy/coop_world.h`, the game's `NebulaCoopWorld`, game API 40's
@@ -442,6 +470,7 @@ Each phase ships on its own and leaves the game playable.
       ([Shared world state](#shared-world-state)).
 - [x] [Player collisions](#player-collisions): non-solid, solid and friendly fire, knockback strength and PvP mode,
       with lag compensation.
+- [x] [Bubble on death](#bubble-on-death): a player who dies near another flies to them in a bubble, for a life.
 - [ ] Remote players stomp, spin and touch objects. Hits are sent as events to the client that owns the object.
 
 ### Phase 3: shared enemies and objects

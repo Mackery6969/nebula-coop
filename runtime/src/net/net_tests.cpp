@@ -599,8 +599,10 @@ void test_session() {
     // The host changes the room.
     galaxy::RuntimeCoopSettings room = host_session.room();
     room.cheats = false;
+    room.bubble_death = false;
     host_session.set_room(room);
-    expect(wait_for([&] { return !joiner.room().cheats; }), "the host's room changes reach the players");
+    expect(wait_for([&] { return !joiner.room().cheats && !joiner.room().bubble_death; }),
+           "the host's room changes reach the players");
 
     third.leave();
     expect(wait_for([&] { return host_session.players().size() == 2u && joiner.players().size() == 2u; }),

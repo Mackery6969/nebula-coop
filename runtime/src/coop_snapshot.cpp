@@ -10,7 +10,7 @@ namespace galaxy::coop {
 namespace {
 
 // The snapshot's own version, first: one from another layout is dropped.
-constexpr std::uint8_t kSnapshotVersion = 1u;
+constexpr std::uint8_t kSnapshotVersion = 2u;
 // Snapshots kept of each player: a second's worth.
 constexpr std::size_t kKeep = 32u;
 
@@ -64,7 +64,7 @@ std::vector<std::uint8_t> encode_snapshot(const PlayerSnapshot& snapshot) {
     out.str(snapshot.animation.substr(0, kSnapshotAnimationLimit));
     out.f32(snapshot.frame).f32(snapshot.rate);
     for (const float weight : snapshot.weights) out.f32(weight);
-    out.u32(snapshot.health).u32(snapshot.mode).u32(snapshot.flags);
+    out.u32(snapshot.health).u32(snapshot.mode).u32(snapshot.flags).u32(snapshot.area);
     return out.take();
 }
 
@@ -89,6 +89,7 @@ std::optional<PlayerSnapshot> decode_snapshot(std::span<const std::uint8_t> data
     snapshot.health = in.u32();
     snapshot.mode = in.u32();
     snapshot.flags = in.u32();
+    snapshot.area = in.u32();
     if (!in.ok()) return std::nullopt;
     // Nothing the game would choke on: no infinities, no names with a NUL inside.
     if (!finite(snapshot.position) || !finite(snapshot.rotation) || !finite(snapshot.front) || !finite(snapshot.up) ||

@@ -12,6 +12,9 @@
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
+#ifdef TARGET_PC
+#include "Game/Player/NebulaCoopBubble.hpp"
+#endif
 
 void MarioActor::forceKill(u32 type) {
     if (mMario->getMovementStates()._1F) {
@@ -86,6 +89,12 @@ void MarioActor::forceKill(u32 type) {
 }
 
 void MarioActor::exeGameOver() {
+#ifdef TARGET_PC
+    // Online co-op: with another player alive here, the miss becomes a bubble (sm64coopdx's bubble on death).
+    if (MR::isFirstStep(this) && NebulaCoopBubble::tryStart(this)) {
+        return;
+    }
+#endif
     mVelocity.zero();
     calcHeadPos();
     updateRealMtx();
@@ -135,6 +144,12 @@ void MarioActor::exeGameOver() {
 }
 
 void MarioActor::exeGameOverAbyss() {
+#ifdef TARGET_PC
+    // Online co-op: with another player alive here, the miss becomes a bubble (sm64coopdx's bubble on death).
+    if (MR::isFirstStep(this) && NebulaCoopBubble::tryStart(this)) {
+        return;
+    }
+#endif
     mVelocity = getLastMove() * 0.99f + mCamDirZ * 35.0f * 0.01f;
     mLastMove = mVelocity;
 
@@ -161,6 +176,12 @@ void MarioActor::exeGameOverAbyss() {
 }
 
 void MarioActor::exeGameOverFire() {
+#ifdef TARGET_PC
+    // Online co-op: with another player alive here, the miss becomes a bubble (sm64coopdx's bubble on death).
+    if (MR::isFirstStep(this) && NebulaCoopBubble::tryStart(this)) {
+        return;
+    }
+#endif
     mVelocity.zero();
     calcHeadPos();
     updateRealMtx();
@@ -188,6 +209,12 @@ void MarioActor::exeGameOverFire() {
 }
 
 void MarioActor::exeGameOverSink() {
+#ifdef TARGET_PC
+    // Online co-op: with another player alive here, the miss becomes a bubble (sm64coopdx's bubble on death).
+    if (MR::isFirstStep(this) && NebulaCoopBubble::tryStart(this)) {
+        return;
+    }
+#endif
     mVelocity.zero();
     calcHeadPos();
     updateRealMtx();
@@ -238,6 +265,12 @@ void MarioActor::exeGameOverSink() {
 }
 
 void MarioActor::exeGameOverNonStop() {
+#ifdef TARGET_PC
+    // Online co-op: with another player alive here, the miss becomes a bubble (sm64coopdx's bubble on death).
+    if (MR::isFirstStep(this) && NebulaCoopBubble::tryStart(this)) {
+        return;
+    }
+#endif
     if (!MR::isFirstStep(this)) {
         return;
     }
@@ -255,6 +288,12 @@ void MarioActor::exeGameOverNonStop() {
 
     MR::startStarPointerModeDemoMarioDeath(this);
 }
+
+#ifdef TARGET_PC
+void MarioActor::exeNebulaBubble() {
+    NebulaCoopBubble::updateLocal(this);
+}
+#endif
 
 void MarioActor::exeTimeWait() {
     if (_FB8 != getNerveStep()) {

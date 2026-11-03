@@ -78,6 +78,7 @@
 #include "Game/Screen/NebulaCoopChat.hpp"
 #include "Game/Screen/NebulaPlayerList.hpp"
 #include "Game/System/NebulaAchievements.hpp"
+#include "Game/Player/NebulaCoopBubble.hpp"
 #include "Game/System/NebulaCoopDemos.hpp"
 #include "Game/System/NebulaCoopWorld.hpp"
 #include "Game/Util/MessageUtil.hpp"
@@ -127,6 +128,7 @@ GameScene::~GameScene() {
 void GameScene::init() {
 #ifdef TARGET_PC
     NebulaRemotePlayer::forgetAll();
+    NebulaCoopBubble::forgetAll();
     NebulaCoopWorld::startScene();
 #endif
     SceneFunction::createHioBasicNode(this);
@@ -193,6 +195,9 @@ void GameScene::init() {
         NebulaAchievementLuma::tryCreate();
         // Online co-op: copies of the other players, when in a room.
         NebulaRemotePlayer::tryCreate();
+        if (NebulaRemotePlayer::getCopyNum() > 0) {
+            NebulaCoopBubble::tryCreate();
+        }
 #endif
         GameSceneFunction::loadScenarioWaveData();
         MR::createStarPiece();
@@ -290,6 +295,10 @@ namespace {
         if (NebulaRemotePlayer::isLocalIntangible()) {
             player.flags |= NEBULA_COOP_PLAYER_INTANGIBLE;
         }
+        if (NebulaCoopBubble::isLocalBubbled()) {
+            player.flags |= NEBULA_COOP_PLAYER_BUBBLED;
+        }
+        player.area = NebulaCoopBubble::getArea();
         __NebulaCoopPlayer(&player);
     }
 };  // namespace
@@ -549,6 +558,9 @@ void GameScene::requestPlayMovieDemo() {
 }
 
 void GameScene::requestStartGameOverDemo() {
+#ifdef TARGET_PC
+    NebulaCoopBubble::noticeGameOverDemo();
+#endif
     if (!isNerve(GET_NERVE(GameScene, GameSceneGameOver))) {
         setNerve(GET_NERVE(GameScene, GameSceneGameOver));
     }

@@ -1449,6 +1449,12 @@ std::vector<SettingsRow> online_page(const RuntimeSettings& runtime) {
                         mode = static_cast<CoopPvpMode>(settings_step(static_cast<unsigned>(mode), 2u, delta));
                     },
                     "FRIENDLY FIRE'S RULES: CLASSIC, OR REVAMPED (WHICH ATTACKS BEAT WHICH)"});
+    rows.push_back({"BUBBLE ON DEATH", coop.bubble_death ? std::string("ON") : std::string("OFF"),
+                    [](RenderConfig&, int delta) {
+                        if (delta == 0) return;
+                        s_runtime_draft.coop.bubble_death = !s_runtime_draft.coop.bubble_death;
+                    },
+                    "ON: A PLAYER WHO DIES NEAR ANOTHER FLOATS TO THEM IN A BUBBLE, FOR A LIFE, INSTEAD OF A MISS"});
     rows.push_back({"ALLOW CHEATS", coop.cheats ? std::string("ON") : std::string("OFF"),
                     [](RenderConfig&, int delta) {
                         if (delta == 0) return;
