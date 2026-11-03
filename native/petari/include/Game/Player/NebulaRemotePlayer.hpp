@@ -9,7 +9,8 @@ class XanimePlayer;
 // Online co-op (docs/COOP_PLAN.md "Remote players"): another player in this instance, drawn as their Mario or Luigi
 // where their snapshots put them, playing the animation they play. It has no physics or state of its own; its model is
 // the player's own (Mario's or Luigi's, as MarioActor loads it) with Mario's animations (MarioAnimator's table), driven
-// as GhostPlayer drives the cosmic ghost's.
+// as GhostPlayer drives the cosmic ghost's. It is lit as MarioActor lights the local Mario (the player light of the
+// light area it stands in, its ambient colour and the stage's fog), and plays Mario's spin effects on its own joints.
 //
 // Player collisions (docs/COOP_PLAN.md "Player collisions", sm64coopdx's interact_player and interact_player_pvp) as
 // the room's rules have them: like the cosmic ghost, its body sensor pushes the local Mario away and takes his stomps,
@@ -38,6 +39,7 @@ public:
 
     virtual void init(const JMapInfoIter& rIter);
     virtual void control();
+    virtual void calcAnim();
     virtual void calcAndSetBaseMtx();
     virtual void draw() const;
     virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
@@ -49,14 +51,27 @@ public:
     bool isTouchable() const;
     // This player's attack, as they saw the local Mario, onto him.
     void tryAttackLocal();
+    // The animation the snapshot names onto the copy: changed when it differs, played on at its speed here and eased
+    // onto the snapshot's frame (snapped when far off), so it runs smoothly between snapshots and through its loops.
+    void updateAnimation();
+    // Mario's effects for an animation (MarioAnimator's spinEntry, spinUpdate and spinClose): started as it starts,
+    // stopped as it ends.
+    void startAnimationEffect();
+    void updateAnimationEffect();
+    void stopAnimationEffect();
+    // MarioActor::updateLightDL's display list for this copy: its light's ambient colour, a white material.
+    void updateLightDL();
 
     /* 0x90 */ bool mIsLuigi;
     u32 mNumber;  // the player shown (NebulaCoopRemotePlayer::number), 0 for none
     char mName[32];
     XanimePlayer* mXanimePlayer;
     NebulaCoopPlayer mState;  // the latest snapshot shown
-    char mGroup[48];          // the animation last started, as the snapshot names it
-    char mBck[32];
+    char mGroup[48];          // the animation whose effect last started, as the snapshot names it
+    f32 mLastFrame;           // the snapshot's frame last shown, to tell a restarted animation
+    u8* mDL[2];               // updateLightDL's, one drawn while the other is written
+    u32 mDLSize;
+    u8 mCurrDL;
     TVec3f mFront;
     TVec3f mUp;
     u32 mRewindMs;    // NebulaCoopRemotePlayer::rewind_ms
