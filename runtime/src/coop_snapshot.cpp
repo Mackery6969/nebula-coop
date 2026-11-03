@@ -174,9 +174,11 @@ bool send_snapshot(Session& session, const PlayerSnapshot& snapshot) {
     return sent;
 }
 
-PlayerSnapshot blend_snapshots(const PlayerSnapshot& from, const PlayerSnapshot& to, float t) {
+PlayerSnapshot blend_snapshots(const PlayerSnapshot& from, const PlayerSnapshot& to, float t, float frames) {
     t = std::clamp(t, 0.0f, 1.0f);
-    PlayerSnapshot out = to;
+    // The animation and what the player does: the nearer one's.
+    PlayerSnapshot out = t < 0.5f ? from : to;
+    out.sequence = to.sequence;
     for (std::size_t i = 0; i < 3u; ++i) {
         out.position[i] = lerp(from.position[i], to.position[i], t);
         out.rotation[i] = lerp_angle(from.rotation[i], to.rotation[i], t);
@@ -186,9 +188,16 @@ PlayerSnapshot blend_snapshots(const PlayerSnapshot& from, const PlayerSnapshot&
     out.up = lerp_direction(from.up, to.up, t);
     out.gravity = lerp_direction(from.gravity, to.gravity, t);
     // The same animation in both, not looped round in between: its frame along the way, its tracks' weights too.
+    // Otherwise (another animation, or round its loop) the nearer one's frame, moved on or back at its speed by the
+    // game frames between it and `t` (the game wraps a loop's frame).
+    frames = std::max(frames, 0.0f);
     if (from.group == to.group && from.animation == to.animation && from.frame <= to.frame) {
         out.frame = lerp(from.frame, to.frame, t);
         for (std::size_t i = 0; i < out.weights.size(); ++i) out.weights[i] = lerp(from.weights[i], to.weights[i], t);
+    } else if (t < 0.5f) {
+        out.frame = from.frame + from.rate * frames * t;
+    } else {
+        out.frame = std::max(to.frame - to.rate * frames * (1.0f - t), 0.0f);
     }
     return out;
 }
@@ -245,7 +254,8 @@ std::vector<RemotePlayer> RemotePlayers::sample(const std::string& stage, int sc
                 // Only within one instance: a player moved to another stage jumps.
                 snapshot = before.snapshot.stage == after.snapshot.stage &&
                                    before.snapshot.scenario == after.snapshot.scenario
-                               ? blend_snapshots(before.snapshot, after.snapshot, span > 0.0f ? into / span : 1.0f)
+                               ? blend_snapshots(before.snapshot, after.snapshot, span > 0.0f ? into / span : 1.0f,
+                                                 span * kGameFramesPerSecond)
                                : after.snapshot;
             }
             break;

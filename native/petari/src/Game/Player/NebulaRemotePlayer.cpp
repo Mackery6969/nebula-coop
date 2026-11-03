@@ -3,6 +3,13 @@
 #include "Game/System/NebulaHost.hpp"
 #include "Game/Animation/XanimeCore.hpp"
 #include "Game/Animation/XanimePlayer.hpp"
+#include "Game/Effect/AutoEffectGroup.hpp"
+#include "Game/Effect/AutoEffectGroupHolder.hpp"
+#include "Game/Effect/AutoEffectInfo.hpp"
+#include "Game/Effect/EffectSystem.hpp"
+#include "Game/Effect/EffectSystemUtil.hpp"
+#include "Game/LiveActor/ActorLightCtrl.hpp"
+#include "Game/LiveActor/EffectKeeper.hpp"
 #include "Game/LiveActor/ModelManager.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/Player/J3DModelX.hpp"
@@ -12,17 +19,21 @@
 #include "Game/Player/MarioDamage.hpp"
 #include "Game/Player/MarioFaint.hpp"
 #include "Game/Player/MarioHolder.hpp"
+#include "Game/Player/MarioModelTint.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/ActorShadowUtil.hpp"
 #include "Game/Util/DemoUtil.hpp"
+#include "Game/Util/EffectUtil.hpp"
+#include "Game/Util/LightUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ModelUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -83,6 +94,50 @@ namespace {
         }
     }
 
+    // Mario's effects for his animations, as MarioAnimator's callback table plays them (MarioAnimationEfx.cpp): the
+    // animation, the effect (Luigi's own where he has one), and the frame past which it stops (0 for its end).
+    struct AnimationEffect {
+        const char* mAnimation;
+        const char* mEffect;
+        const char* mLuigiEffect;
+        f32 mStopAfter;
+    };
+    const AnimationEffect cAnimationEffects[] = {
+        {"\213\363\222\206\202\320\202\313\202\350" /* 空中ひねり */, "\203\130\203\163\203\223\203\211\203\103\203\147" /* スピンライト */, nullptr, 30.0f},
+        {"\222\156\217\343\202\320\202\313\202\350" /* 地上ひねり */, "\203\130\203\163\203\223\203\211\203\103\203\147" /* スピンライト */, nullptr, 0.0f},
+        {"\203\101\203\103\203\130\202\320\202\313\202\350" /* アイスひねり */, "\203\101\203\103\203\130\203\130\203\163\203\223" /* アイススピン */, nullptr, 0.0f},
+        {"\203\101\203\103\203\130\202\320\202\313\202\350\220\303\216\176" /* アイスひねり静止 */, "\203\101\203\103\203\130\203\130\203\163\203\223" /* アイススピン */, nullptr, 0.0f},
+        {"\203\164\203\100\203\103\203\101\203\130\203\163\203\223" /* ファイアスピン */, "\203\164\203\100\203\103\203\101\203\130\203\163\203\223" /* ファイアスピン */, nullptr, 0.0f},
+        {"\203\164\203\100\203\103\203\101\203\130\203\163\203\223\213\363\222\206" /* ファイアスピン空中 */, "\203\164\203\100\203\103\203\101\203\130\203\163\203\223" /* ファイアスピン */, nullptr, 0.0f},
+        {"\203\156\203\140\203\130\203\163\203\223" /* ハチスピン */, "\203\156\203\140\203\130\203\163\203\223" /* ハチスピン */, "\203\156\203\140\203\213\203\103\201\133\203\127\203\130\203\163\203\223" /* ハチルイージスピン */, 0.0f},
+        {"\203\156\203\140\203\130\203\163\203\223\213\363\222\206" /* ハチスピン空中 */, "\203\156\203\140\203\130\203\163\203\223" /* ハチスピン */, "\203\156\203\140\203\213\203\103\201\133\203\127\203\130\203\163\203\223" /* ハチルイージスピン */, 0.0f},
+    };
+    const u32 cAnimationEffectNum = sizeof(cAnimationEffects) / sizeof(cAnimationEffects[0]);
+
+    const AnimationEffect* findAnimationEffect(const char* pAnimation) {
+        for (u32 i = 0; i < cAnimationEffectNum; i++) {
+            if (strcmp(cAnimationEffects[i].mAnimation, pAnimation) == 0) {
+                return &cAnimationEffects[i];
+            }
+        }
+        return nullptr;
+    }
+
+    bool isAnimationEffect(const char* pEffect) {
+        for (u32 i = 0; i < cAnimationEffectNum; i++) {
+            const AnimationEffect& rEffect = cAnimationEffects[i];
+            if (strcmp(rEffect.mEffect, pEffect) == 0 || (rEffect.mLuigiEffect != nullptr && strcmp(rEffect.mLuigiEffect, pEffect) == 0)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // How far the copy's animation may be from the snapshot's frame before it jumps there; nearer, it eases there by
+    // this much of the way each frame.
+    const f32 cFrameSnap = 6.0f;
+    const f32 cFrameEase = 0.25f;
+
     // The local Mario `ms` ago (at 60 frames a second), as far back as is kept.
     const Sample& rewound(u32 ms) {
         s32 frames = static_cast< s32 >(ms * 60 / 1000);
@@ -105,10 +160,10 @@ bool NebulaRemotePlayer::isLocalIntangible() {
 
 NebulaRemotePlayer::NebulaRemotePlayer(bool isLuigi)
     : LiveActor(isLuigi ? "NebulaRemoteLuigi" : "NebulaRemoteMario"), mIsLuigi(isLuigi), mNumber(0), mXanimePlayer(nullptr),
-      mFront(0.0f, 0.0f, 1.0f), mUp(0.0f, 1.0f, 0.0f), mRewindMs(0), mShownFrames(0), mStompTimer(0), mSolid(false) {
+      mLastFrame(0.0f), mFront(0.0f, 0.0f, 1.0f), mUp(0.0f, 1.0f, 0.0f), mRewindMs(0), mShownFrames(0),
+      mStompTimer(0), mSolid(false) {
     mName[0] = '\0';
     mGroup[0] = '\0';
-    mBck[0] = '\0';
     memset(&mState, 0, sizeof(mState));
 }
 
@@ -231,8 +286,31 @@ void NebulaRemotePlayer::updateAll() {
 }
 
 void NebulaRemotePlayer::init(const JMapInfoIter& rIter) {
-    // The player's own model: the local player's is already here; the other character's loads into the scene.
-    initModelManagerWithAnm(mIsLuigi ? "Luigi" : "Mario", nullptr, false);
+    // The player's own model: the local player's is already here; the other character's loads into the scene. Its
+    // materials take the stage's fog, as MarioActor::initDrawAndModel has the local Mario's.
+    initModelManagerWithAnm(mIsLuigi ? "Luigi" : "Mario", nullptr, true);
+    MR::initMaterialFog(this, true);
+    MR::newDifferedMaterials(this);
+
+    // Lit as the local Mario is (MR::initLightCtrlForPlayer), by the player light of the light area it stands in: its
+    // own, as it may stand in another area than he does. No draw buffer of its own to sort it in.
+    initActorLightCtrl();
+    mActorLightCtrl->init(0 /* the area's player light */, true);
+
+    // Mario's effects for the animations it plays, from his effect list (MarioActor's "Mario"), on its own joints:
+    // those alone (and their children), not all of his for every copy. Those started with a bck of their own are
+    // MarioActor's model's, not this one's.
+    mEffectKeeper = new EffectKeeper(getName(), MR::getModelResourceHolder(this), 0, "Mario");
+    if (const AutoEffectGroup* pGroup = MR::getEffectSystem()->mGroupHolder->find("Mario")) {
+        for (s32 i = 0; i < pGroup->mCount; i++) {
+            const AutoEffectInfo* pInfo = pGroup->mEffects[i];
+            const bool wanted = pInfo->mParentName == nullptr ? isAnimationEffect(pInfo->getName())
+                                                              : mEffectKeeper->isRegisteredEmitter(pInfo->mParentName);
+            if (wanted && pInfo->mAnimName == nullptr && !mEffectKeeper->isRegisteredEmitter(pInfo->getName())) {
+                MR::Effect::addAutoEffect(mEffectKeeper, this, pInfo);
+            }
+        }
+    }
     MR::connectToScene(this, MR::MovementType_Player, MR::CalcAnimType_Player, MR::DrawBufferType_None, MR::DrawType_Player);
 
     // Mario's animations, as GhostPlayer plays them on the cosmic ghost.
@@ -281,8 +359,9 @@ void NebulaRemotePlayer::show(const NebulaCoopRemotePlayer& rRemote) {
     }
     if (isNew) {
         // Another player on this copy: their animation starts afresh.
+        stopAnimationEffect();
         mGroup[0] = '\0';
-        mBck[0] = '\0';
+        mLastFrame = 0.0f;
     }
     if (MR::isDead(this)) {
         appear();
@@ -293,6 +372,7 @@ void NebulaRemotePlayer::hide() {
     mNumber = 0;
     mName[0] = '\0';
     mShownFrames = 0;
+    mGroup[0] = '\0';
     if (!MR::isDead(this)) {
         makeActorDead();
     }
@@ -302,25 +382,114 @@ void NebulaRemotePlayer::control() {
     if (mXanimePlayer == nullptr) {
         return;
     }
-    // A new animation as the snapshot names it: its group, else (Mario's code played a bck of its own) the bck.
-    if (strcmp(mGroup, mState.group) != 0 || strcmp(mBck, mState.animation) != 0) {
-        nebula_snprintf(mGroup, sizeof(mGroup), "%s", mState.group);
-        nebula_snprintf(mBck, sizeof(mBck), "%s", mState.animation);
-        if (mGroup[0] != '\0') {
-            mXanimePlayer->changeAnimation(mGroup);
-        }
-        const char* pPlaying = mXanimePlayer->getCurrentBckName();
-        if (mBck[0] != '\0' && (pPlaying == nullptr || strcmp(pPlaying, mBck) != 0)) {
-            mXanimePlayer->changeSimpleBck(mBck);
-        }
+    updateAnimation();
+}
+
+void NebulaRemotePlayer::updateAnimation() {
+    // The animation the snapshot names, when the copy plays another: its group, else (Mario's code played a bck of its
+    // own) the bck. What the copy plays is asked of it, not remembered, so one it ended by itself (back to its default)
+    // starts again when the player plays it again.
+    bool changed = false;
+    if (mState.group[0] != '\0' && strcmp(mXanimePlayer->getCurrentAnimationName(), mState.group) != 0) {
+        mXanimePlayer->changeAnimation(mState.group);
+        changed = true;
+    }
+    const char* pPlaying = mXanimePlayer->getCurrentBckName();
+    if (mState.animation[0] != '\0' && (pPlaying == nullptr || strcmp(pPlaying, mState.animation) != 0)) {
+        mXanimePlayer->changeSimpleBck(mState.animation);
+        changed = true;
     }
     for (u32 i = 0; i < 4; i++) {
         mXanimePlayer->changeTrackWeight(i, mState.track_weights[i]);
     }
-    if (mXanimePlayer->getFrameCtrl() != nullptr) {
-        MR::setBckRate(this, mState.animation_rate);
-        MR::getBckCtrl(this)->setFrame(mState.animation_frame);
+
+    // Played on here at the player's speed (ModelManager::update moves it along each frame), and kept on the
+    // snapshot's frame: eased onto it, or put there when far off, as when it starts or starts again. Round a loop the
+    // short way: its end and its loop's start are the same pose.
+    J3DFrameCtrl* pCtrl = mXanimePlayer->getFrameCtrl();
+    f32 target = mState.animation_frame;
+    // The same animation started again (a second spin): its frame went back.
+    const bool restarted = !changed && strcmp(mGroup, mState.group) == 0 && target + cFrameSnap < mLastFrame;
+    if (pCtrl != nullptr) {
+        pCtrl->setRate(mState.animation_rate);
+        const f32 loopStart = pCtrl->getLoop();
+        const f32 end = pCtrl->getEnd();
+        const bool loops = pCtrl->getAttribute() == J3DFrameCtrl::EMode_LOOP && end > loopStart;
+        if (loops && target > end) {
+            target = loopStart + fmodf(target - loopStart, end - loopStart);
+        } else if (target > end) {
+            target = end;
+        }
+        f32 drift = target - pCtrl->getFrame();
+        if (loops) {
+            const f32 length = end - loopStart;
+            if (drift > length * 0.5f) {
+                drift -= length;
+            } else if (drift < -length * 0.5f) {
+                drift += length;
+            }
+        }
+        if (changed || restarted || drift > cFrameSnap || drift < -cFrameSnap) {
+            pCtrl->setFrame(target);
+        } else {
+            f32 frame = pCtrl->getFrame() + drift * cFrameEase;
+            if (loops && frame >= end) {
+                frame -= end - loopStart;
+            } else if (loops && frame < loopStart) {
+                frame += end - loopStart;
+            }
+            pCtrl->setFrame(frame);
+        }
     }
+
+    // Its effects, as the animation the snapshot names changes or starts again.
+    if (restarted || strcmp(mGroup, mState.group) != 0) {
+        stopAnimationEffect();
+        nebula_snprintf(mGroup, sizeof(mGroup), "%s", mState.group);
+        startAnimationEffect();
+    } else {
+        updateAnimationEffect();
+    }
+    mLastFrame = mState.animation_frame;
+}
+
+void NebulaRemotePlayer::startAnimationEffect() {
+    if (const AnimationEffect* pEffect = findAnimationEffect(mGroup)) {
+        MR::emitEffect(this, mIsLuigi && pEffect->mLuigiEffect != nullptr ? pEffect->mLuigiEffect : pEffect->mEffect);
+    }
+}
+
+void NebulaRemotePlayer::updateAnimationEffect() {
+    const AnimationEffect* pEffect = findAnimationEffect(mGroup);
+    if (pEffect != nullptr && pEffect->mStopAfter > 0.0f && mState.animation_frame > pEffect->mStopAfter) {
+        MR::deleteEffect(this, pEffect->mEffect);
+    }
+}
+
+void NebulaRemotePlayer::stopAnimationEffect() {
+    if (const AnimationEffect* pEffect = findAnimationEffect(mGroup)) {
+        MR::deleteEffect(this, mIsLuigi && pEffect->mLuigiEffect != nullptr ? pEffect->mLuigiEffect : pEffect->mEffect);
+    }
+}
+
+void NebulaRemotePlayer::calcAnim() {
+    LiveActor::calcAnim();
+    updateLightTint();
+}
+
+void NebulaRemotePlayer::updateLightTint() {
+    // As MarioActor::calcFogLighting and updateLightList tint the local Mario's each frame (without his damage and item
+    // fogs): its light's ambient colour, a white material. The model's own materials' colours would leave it lit
+    // unlike him. None while no light area is found yet (ActorLightCtrl::loadLight loads none either).
+    if (mActorLightCtrl->mAreaLightInf == nullptr) {
+        mLightTint.kind = MarioModelTint::Kind_None;
+        return;
+    }
+    mLightTint.kind = MarioModelTint::Kind_Light;
+    const Color8 ambient = *MR::getLightAmbientColor(this);
+    mLightTint.color0 = ambient.mRGBA;
+    mLightTint.color1 = Color8(255, 255, 255, 255).mRGBA;
+    mLightTint.hasFog = false;
 }
 
 bool NebulaRemotePlayer::isTouchable() const {
@@ -434,10 +603,14 @@ void NebulaRemotePlayer::draw() const {
     if (MR::isDead(this)) {
         return;
     }
+    // Its own light, as MR::loadLightPlayer loads the local Mario's before the players draw; his again after, for the
+    // rest of them.
+    MR::loadActorLight(this);
     J3DModelX* pModel = reinterpret_cast< J3DModelX* >(MR::getJ3DModel(this));
     pModel->viewCalc2();
     pModel->mFlags.clear();
-    pModel->setDynamicList(nullptr);
+    pModel->setDynamicList(mLightTint.kind != MarioModelTint::Kind_None ? &mLightTint : nullptr);
     pModel->setDrawView(0);
     pModel->directDraw(nullptr);
+    MR::loadLightPlayer();
 }
