@@ -13,7 +13,7 @@ BEGIN
       VALUE "LegalCopyright", "Copyright 2026 keepvaibin"
       VALUE "OriginalFilename", "@NEBULA_RC_FILE@"
       VALUE "ProductName", "Nebula"
-      VALUE "ProductVersion", "@NEBULA_RC_MAJOR@.@NEBULA_RC_MINOR@.@NEBULA_RC_PATCH@"
+      VALUE "ProductVersion", "@NEBULA_BUILD_FINGERPRINT@"
     END
   END
   BLOCK "VarFileInfo"

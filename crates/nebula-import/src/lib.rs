@@ -15,6 +15,8 @@ use std::sync::Arc;
 pub mod cook;
 mod jni;
 
+include!(concat!(env!("OUT_DIR"), "/version.rs"));
+
 /// Super Mario Galaxy, North America.
 pub const RMGE01_GAME_ID: &str = "RMGE01";
 /// SHA-1 of RMGE01's main.dol.

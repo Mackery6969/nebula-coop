@@ -34,6 +34,10 @@ fn main() -> ExitCode {
 
 fn run(arguments: &[OsString]) -> Result<ExitCode> {
     match arguments {
+        ["--version", ..] | ["-V", ..] => {
+            println!("nebula-import {}", nebula_import::FINGERPRINT);
+            Ok(ExitCode::SUCCESS)
+        }
         [command, input] if command == "identify" => {
             let identity = identify_input(Path::new(input))?;
             println!("{}", identity.to_json());
