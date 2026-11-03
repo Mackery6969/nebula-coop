@@ -347,7 +347,7 @@ namespace {
             return;
         }
         Motion& rMotion = sMotions[sMotionNum];
-        memset(&rMotion, 0, sizeof(rMotion));
+        memset(static_cast< void* >(&rMotion), 0, sizeof(rMotion));
         rMotion.mEntry = index;
         rMotion.mHeard = cSilentFrames;
         LiveActor* pActor = sEntries[index].mActor;
@@ -372,7 +372,7 @@ namespace {
             key = hashValue(key, 0x9e3779b9u);
         }
         Entry& rEntry = sEntries[sEntryNum];
-        memset(&rEntry, 0, sizeof(rEntry));
+        memset(static_cast< void* >(&rEntry), 0, sizeof(rEntry));
         rEntry.mActor = pActor;
         rEntry.mKey = key;
         rEntry.mKind = static_cast< u8 >(kind);
