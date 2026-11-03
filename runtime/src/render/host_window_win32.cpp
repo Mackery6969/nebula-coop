@@ -688,6 +688,7 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         if (coop_text_entry()) {
             switch (wp) {
             case VK_BACK: push_coop_text(galaxy::coop::kTextBackspace); break;
+            case VK_TAB: push_coop_text(galaxy::coop::kTextTab); break;
             case VK_DELETE: push_coop_text(galaxy::coop::kTextDelete); break;
             case VK_RETURN: push_coop_text(galaxy::coop::kTextEnter); break;
             case VK_ESCAPE: push_coop_text(galaxy::coop::kTextEscape); break;

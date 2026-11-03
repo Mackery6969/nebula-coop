@@ -65,6 +65,7 @@ struct RoomMod {
 // The keys a text row takes besides the characters typed (type()).
 enum TextKey : char32_t {
     kTextBackspace = 0x08,
+    kTextTab = 0x09,  // the chat's completion (galaxy/coop_chat.h); text rows ignore it
     kTextEnter = 0x0D,
     kTextEscape = 0x1B,
     kTextDelete = 0x7F,

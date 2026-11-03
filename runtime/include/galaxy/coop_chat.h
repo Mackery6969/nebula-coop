@@ -6,8 +6,12 @@
 // A message is its text alone: who said it is the session's sender, so a player can't speak as another. Its text is
 // printable ASCII (what the game's font draws), cut to kChatMessageLimit. Chat may be called from any thread; the
 // session's thread adds the lines that come.
+//
+// A line starting with '/' is a command (galaxy/coop_commands.h), run here and never sent: what it says shows for
+// this player alone. Tab completes it, and a player's name in a message.
 #pragma once
 
+#include "galaxy/coop_commands.h"
 #include "galaxy/coop_session.h"
 
 #include <cstdint>
@@ -38,6 +42,8 @@ struct ChatLine {
         Message,  // `name` said `text`
         Joined,   // `name` joined the room
         Left,     // `name` left it
+        Notice,   // a command's words to this player: `text`, a NebulaText id (kCommandTextPrefix...) with {name}
+                  // as `name`, or words shown as they are
     };
     std::uint32_t id = 0u;  // its own number, from 1: a line never changes, so a drawn one is drawn again as is
     Kind kind = Kind::Message;
@@ -75,6 +81,10 @@ public:
     void receive(const SessionPlayer& from, std::span<const std::uint8_t> data, std::uint64_t now_ms);
     // Someone joined or left the room.
     void notice(ChatLine::Kind kind, std::string name, std::uint64_t now_ms);
+    // A command's words, for this player alone (a Notice line).
+    void say(std::string text, std::string name = {});
+    // The commands a '/' line runs.
+    [[nodiscard]] Commands& commands() { return commands_; }
     // The room ended: no lines, no typing.
     void clear();
 
@@ -83,8 +93,8 @@ public:
     // Drops the line typed.
     void close();
     [[nodiscard]] bool typing() const;
-    // A key typed into the line (a printable character or a galaxy::coop::TextKey). Enter sends it to the room and
-    // closes it, Escape drops it. False when no line is typed.
+    // A key typed into the line (a printable character or a galaxy::coop::TextKey). Enter sends it to the room (or
+    // runs its command) and closes it, Escape drops it, Tab completes it. False when no line is typed.
     bool type(char32_t key, std::uint64_t now_ms);
 
     // What shows at `now_ms`: while typing, the last kChatShownLines lines; otherwise the ones still showing.
@@ -97,6 +107,10 @@ private:
     // Whether a line from `from` at `now_ms` is within their burst (and counts it).
     bool allow(net::PeerId from, std::uint64_t now_ms);
     void send(const std::string& text, std::uint64_t now_ms);
+    void run_command(const std::string& line);
+    // Tab: the next of what the line may become (Commands::complete), from the line as the first Tab found it.
+    void complete(const std::vector<std::string>& players);
+    void set_input(std::string text);
 
     mutable std::mutex lock_;
     Session* session_ = nullptr;
@@ -107,6 +121,11 @@ private:
     std::string input_;
     std::size_t cursor_ = 0u;
     std::uint32_t input_serial_ = 0u;
+    // Tabs in a row: the line before the first, and the next completion they give.
+    bool completing_ = false;
+    std::string completion_base_;
+    std::size_t completion_next_ = 0u;
+    Commands commands_;
 };
 
 }  // namespace galaxy::coop

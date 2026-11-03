@@ -106,6 +106,18 @@ std::string Address::to_string() const {
     return "(unknown)";
 }
 
+std::string Address::host_text() const {
+    if (!valid()) return {};
+    const sockaddr_storage address = unmapped(*this);
+    char text[INET6_ADDRSTRLEN + 1]{};
+    if (address.ss_family == AF_INET) {
+        inet_ntop(AF_INET, &reinterpret_cast<const sockaddr_in*>(&address)->sin_addr, text, sizeof(text));
+    } else if (address.ss_family == AF_INET6) {
+        inet_ntop(AF_INET6, &reinterpret_cast<const sockaddr_in6*>(&address)->sin6_addr, text, sizeof(text));
+    }
+    return text;
+}
+
 bool operator==(const Address& a, const Address& b) noexcept {
     const sockaddr_storage x = unmapped(a);
     const sockaddr_storage y = unmapped(b);

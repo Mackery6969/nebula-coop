@@ -729,6 +729,7 @@ void pump_events(int timeout_ms) noexcept {
             // A main menu text row or the chat's line being typed: the editing keys go to it, nothing to the game.
             switch (key.key) {
             case VK_BACK: galaxy::render::push_coop_text(galaxy::coop::kTextBackspace); break;
+            case VK_TAB: galaxy::render::push_coop_text(galaxy::coop::kTextTab); break;
             case VK_DELETE: galaxy::render::push_coop_text(galaxy::coop::kTextDelete); break;
             case VK_RETURN: galaxy::render::push_coop_text(galaxy::coop::kTextEnter); break;
             case VK_ESCAPE: galaxy::render::push_coop_text(galaxy::coop::kTextEscape); break;
