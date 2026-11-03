@@ -602,8 +602,11 @@ void test_session() {
     galaxy::RuntimeCoopSettings room = host_session.room();
     room.cheats = false;
     room.star_counter = false;
+    room.bubble_death = false;
     host_session.set_room(room);
-    expect(wait_for([&] { return !joiner.room().cheats && !joiner.room().star_counter; }),
+    expect(wait_for([&] {
+               return !joiner.room().cheats && !joiner.room().star_counter && !joiner.room().bubble_death;
+           }),
            "the host's room changes reach the players");
 
     third.leave();

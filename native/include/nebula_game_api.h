@@ -542,6 +542,8 @@ typedef struct NebulaCoopPlayer {
     float front[3];        /* where the model faces and its up: its base matrix's Z and Y (the true turn, on any
                               planet; `rotation` is the actor's own) */
     float up[3];
+    uint32_t area;         /* the part of the stage the player is in (API 44): 0 where the stage starts, else the warp
+                              pipe they came out of (NebulaCoopBubble). Bubbles reach only players in the same one */
 } NebulaCoopPlayer;
 
 enum {
@@ -553,6 +555,8 @@ enum {
     NEBULA_COOP_PLAYER_HIP_DROP_LAND = 1u << 4,  /* MR::isPlayerHipDropLand: its landing */
     NEBULA_COOP_PLAYER_INTANGIBLE = 1u << 5,     /* nothing touches them: dead, in a demo, bound (a Launch Star,
                                                     a bubble...), a Boo, or out of the player's control */
+    NEBULA_COOP_PLAYER_BUBBLED = 1u << 6,        /* (API 44) in a bubble after a death, flying to another player
+                                                    (sm64coopdx's bubble on death); DEAD and INTANGIBLE too */
 };
 
 /* Another player in the same instance (the stage and the scenario) as the local one, for its copy to draw
@@ -566,11 +570,13 @@ typedef struct NebulaCoopRemotePlayer {
                                 (sm64coopdx's lag compensation) */
 } NebulaCoopRemotePlayer;
 
-/* Player collisions (coop_rules, docs/COOP_PLAN.md "Player collisions"): the room's options, the host's. */
+/* The room's rules for players (coop_rules, docs/COOP_PLAN.md "Player collisions" and "Bubble on death"): the room's
+   options, the host's. */
 typedef struct NebulaCoopRules {
     uint32_t interaction; /* NEBULA_COOP_INTERACTION_* */
     uint32_t knockback;   /* the knockback strength, 0-255 (sm64coopdx's: Weak 10, Normal 25, Too much 60) */
     uint32_t pvp;         /* NEBULA_COOP_PVP_* */
+    uint32_t bubble;      /* (API 44) 1: bubble on death; 0 (and outside a room): a death is a miss */
 } NebulaCoopRules;
 
 enum {
@@ -1411,7 +1417,7 @@ typedef struct NebulaHostServices {
        host counts each star coop_world_report brings it for who got it), or -1 when there is no room. Called on the
        simulation thread. */
     int32_t (*coop_star_count)(void* user);
-    /* The room's player collision options (NebulaCoopRules): non-solid outside a room. Called on the simulation
+    /* The room's player collision and bubble options (NebulaCoopRules): non-solid, no bubbles outside a room. Called on the simulation
        thread, each game scene frame. */
     void (*coop_rules)(void* user, NebulaCoopRules* rules);
     /* Online co-op: an achievement another player unlocked in the room's save (achievement then says 0 for it), for

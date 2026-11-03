@@ -87,6 +87,9 @@ struct RuntimeCoopSettings {
     CoopPlayerInteraction player_interaction = CoopPlayerInteraction::Solid;
     unsigned knockback_strength = kCoopKnockbackNormal;
     CoopPvpMode pvp_mode = CoopPvpMode::Classic;
+    // Bubble on death (sm64coopdx's): a player who dies with another alive in the same part of the galaxy floats in a
+    // bubble to them instead of missing, for a life.
+    bool bubble_death = true;
     // The room's cheats (the Online tab's Cheats): off, they do nothing for anyone in it.
     bool cheats = false;
     // The room's built-in Personal Star Counter mod (the Host page's Mods, the Online tab): each player's stars on the

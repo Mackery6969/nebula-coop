@@ -1704,6 +1704,7 @@ void send_coop_snapshot() {
     snapshot.health = local.health;
     snapshot.mode = local.mode;
     snapshot.flags = local.flags;
+    snapshot.area = local.area;
     (void)galaxy::coop::send_snapshot(gCoopSession, snapshot);
 }
 
@@ -2764,6 +2765,7 @@ uint32_t svc_coop_remote(void*, NebulaCoopRemotePlayer* players, uint32_t capaci
         // The character is the room's: what they picked as they joined.
         player.flags = (snapshot.flags & ~static_cast<uint32_t>(NEBULA_COOP_PLAYER_LUIGI)) |
                        (from.character == galaxy::CoopCharacter::Luigi ? NEBULA_COOP_PLAYER_LUIGI : 0u);
+        player.area = snapshot.area;
         // Their snapshot came half a round trip ago and shows kSnapshotDelay late; what they saw of this player had
         // come and shown as late. Two joiners reach each other through the host: each one's ping is to it.
         const auto them = std::find_if(room.begin(), room.end(),
@@ -2788,6 +2790,7 @@ void svc_coop_rules(void*, NebulaCoopRules* rules) {
     rules->interaction = static_cast<uint32_t>(room.player_interaction);
     rules->knockback = room.knockback_strength;
     rules->pvp = static_cast<uint32_t>(room.pvp_mode);
+    rules->bubble = room.bubble_death ? 1u : 0u;
 }
 
 // Nebula's screens with small text (sharp_2d): the 2D layer at the window's resolution while they show.
