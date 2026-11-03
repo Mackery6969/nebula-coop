@@ -57,6 +57,11 @@ foreach ($RelativePath in $TrackedFiles) {
         if ($File.Length -gt 16MB) { $Failures.Add("Shader-cache seed larger than 16 MiB: $($File.FullName)") }
         continue
     }
+    # The game module's PGO profile (native/pgo, NEBULA_PGO): clang's merged counters for Nebula's own code.
+    if ($RelativePath -eq 'native/pgo/game.profdata') {
+        if ($File.Length -gt 16MB) { $Failures.Add("PGO profile larger than 16 MiB: $($File.FullName)") }
+        continue
+    }
     if ($File.Extension.ToLowerInvariant() -in $ForbiddenExtensions -and
         $RelativePath -notin $AllowedBinaries) {
         $Failures.Add("Forbidden game-content extension: $($File.FullName)")
