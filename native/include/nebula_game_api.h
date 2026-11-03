@@ -23,7 +23,7 @@ extern "C" {
 #define NEBULA_GAME_API __attribute__((visibility("default")))
 #endif
 
-#define NEBULA_GAME_API_VERSION 118u
+#define NEBULA_GAME_API_VERSION 119u
 
 /* Viewports, scissors, clears, target sizes and picture points count this many units across a frame on each axis. */
 #define NEBULA_FRAME_UNITS 65536.0f
@@ -615,11 +615,11 @@ enum {
    - NEBULA_COOP_WORLD_STAR_GOT (both ways): a player took a star in the instance, `scenario` the star and `value`
      NEBULA_COOP_STAR_*, as sm64coopdx's collect_star reaches the level. The others there are told (API 42,
      docs/COOP_PLAN.md "Cutscenes and transitions").
-   - NEBULA_COOP_WORLD_HIT (both ways, API 118, docs/COOP_PLAN.md "Shared objects"): the local player hit a placed
+   - NEBULA_COOP_WORLD_HIT (both ways, API 119, docs/COOP_PLAN.md "Shared objects"): the local player hit a placed
      object (`object` its key, `value` the game's message, ACTMES_*, `scenario` which of its sensors). Each other game
      in the instance plays it again from that player's copy (`player` their number), so the object reacts in every
      game as in the hitter's: a Goomba squashed, a box broken, a boss hurt.
-   - NEBULA_COOP_WORLD_SWITCH (both ways, API 118): a stage switch turned (`object` its zone << 16 | its number, the
+   - NEBULA_COOP_WORLD_SWITCH (both ways, API 119): a stage switch turned (`object` its zone << 16 | its number, the
      zone 0xffff for the stage's global ones; `value` 1 on, 0 off). The instance's record keeps them; a player
      entering gets them before READY. */
 typedef struct NebulaCoopWorldEvent {
@@ -1412,7 +1412,7 @@ typedef struct NebulaHostServices {
        its pop-up: 1 with its id (galaxy::achievements', at most `capacity` bytes into `id`), 0 when none waits.
        Called on the simulation thread. */
     int (*coop_achievement_take)(void* user, char* id, uint32_t capacity);
-    /* Online co-op's shared objects (NebulaCoopObjectState, API 118): the objects the local game moves this frame
+    /* Online co-op's shared objects (NebulaCoopObjectState, API 119): the objects the local game moves this frame
        (the host lets it or not), and the others' as they came, the latest of each, at most `capacity` into `states`
        (how many there are; the rest wait for the next call). Nothing outside a room. Called on the simulation
        thread. */

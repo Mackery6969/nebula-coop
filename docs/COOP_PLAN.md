@@ -372,7 +372,7 @@ and tells the players it concerns. It follows sm64coopdx's rules, with Galaxy's 
 
 As sm64coopdx's sync objects (`sync_object.c`), on top of the shared world's keys: every actor placed from the stage's
 files has a key from its placement, and the actors it makes as it is placed (a boss's parts, a group's members) get
-keys from it and their order. Messages 40-42 of `galaxy/coop_world.h`, game API 118's `coop_objects_report` and
+keys from it and their order. Messages 40-42 of `galaxy/coop_world.h`, game API 119's `coop_objects_report` and
 `coop_objects_take`, `NEBULA_COOP_WORLD_HIT` and `NEBULA_COOP_WORLD_SWITCH`.
 
 | What | How | As sm64coopdx |
