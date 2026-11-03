@@ -605,8 +605,8 @@ int main() {
                      "the graphics card row cannot be changed in game");
     passed &= expect(key(VK_TAB), "Tab enters the online page");
     snapshot = galaxy::gx::native_settings_overlay_snapshot();
-    passed &= expect(snapshot.tab == 7u && snapshot.row_count == 12u,
-                     "online page has the room (its heading, players and five settings) and the cheats (their "
+    passed &= expect(snapshot.tab == 7u && snapshot.row_count == 13u,
+                     "online page has the room (its heading, players and six settings) and the cheats (their "
                      "heading, galaxy, star and two buttons)");
     passed &= expect(key(VK_TAB), "Tab enters the mods page");
     snapshot = galaxy::gx::native_settings_overlay_snapshot();
