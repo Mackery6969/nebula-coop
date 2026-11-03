@@ -44,6 +44,8 @@ inline constexpr unsigned kPuckLastInterface = 5;
 inline constexpr std::uint16_t kDeckProductId = 0x1205;
 inline constexpr std::uint16_t kClassicProductId = 0x1102;
 inline constexpr std::uint16_t kClassicReceiverProductId = 0x1142;
+inline constexpr std::uint16_t kClassicBleProductId = 0x1105;
+inline constexpr std::uint16_t kClassicBleBootloaderlessProductId = 0x1106;
 inline constexpr int kDeckInterface = 2;
 inline constexpr int kClassicInterface = 2;
 inline constexpr int kReceiverFirstInterface = 1;
@@ -58,7 +60,10 @@ enum class Model : std::uint8_t { Controller, Deck, Classic };
 [[nodiscard]] constexpr std::optional<Model> model_of_product(std::uint16_t product) noexcept {
     if (is_controller_product(product) || is_puck_product(product)) return Model::Controller;
     if (product == kDeckProductId) return Model::Deck;
-    if (product == kClassicProductId || product == kClassicReceiverProductId) return Model::Classic;
+    if (product == kClassicProductId || product == kClassicReceiverProductId || product == kClassicBleProductId ||
+        product == kClassicBleBootloaderlessProductId) {
+        return Model::Classic;
+    }
     return std::nullopt;
 }
 // A wireless receiver: its controllers come and go (WirelessEvent).
@@ -110,6 +115,7 @@ inline constexpr std::uint32_t kSteam = 0x00010000;
 inline constexpr std::uint32_t kLeftGrip1 = 0x00020000;   // L4
 inline constexpr std::uint32_t kLeftGrip2 = 0x00040000;   // L5
 inline constexpr std::uint32_t kLeftBumper = 0x00080000;
+inline constexpr std::uint32_t kRightPadTouch = 0x00200000;  // a finger on the right trackpad
 inline constexpr std::uint32_t kRightPadClick = 0x00400000;
 inline constexpr std::uint32_t kLeftPadClick = 0x04000000;
 }  // namespace button
@@ -158,6 +164,14 @@ struct ClassicState {
     std::array<std::int16_t, 2> stick{};
     std::uint32_t packet = 0;
     bool primed = false;
+    // Bluetooth: 18-byte segments make one message, whose chunks carry only what changed.
+    std::array<std::uint8_t, 18 * 8> message{};
+    unsigned next_segment = 0;
+    std::uint32_t buttons = 0;
+    std::array<std::uint8_t, 2> triggers{};
+    std::array<std::int16_t, 2> right_pad{};
+    std::array<std::uint8_t, 6> accel{};
+    std::array<std::uint8_t, 6> gyro{};
 };
 // Its state (message 1): A/B/X/Y, bumpers, the analog triggers, the grips as GL/GR, the stick and its click, the
 // left pad's click (the D-pad when pressed at an edge) as LPad, the right pad as the right stick (turned 15 degrees,
@@ -165,6 +179,14 @@ struct ClassicState {
 // report or another message.
 [[nodiscard]] bool decode_classic_report(std::span<const std::uint8_t> report, ClassicState& state,
                                          switch_hid::DecodedState& out) noexcept;
+// The same over Bluetooth: report 0x03, a segment at a time. False until a whole state message has arrived.
+[[nodiscard]] bool decode_classic_ble_report(std::span<const std::uint8_t> report, ClassicState& state,
+                                             switch_hid::DecodedState& out) noexcept;
+// One feature report of up to kClassicBleSegmentBytes from a kValveFeatureBytes one: segment `index` of its
+// message, its size (0 past the last).
+inline constexpr std::size_t kClassicBleSegmentBytes = 20;
+std::size_t build_classic_ble_segment(std::span<const std::uint8_t> feature, unsigned index,
+                                      std::span<std::uint8_t> out) noexcept;
 // A receiver's message 3: its controller connecting or leaving.
 [[nodiscard]] WirelessEvent decode_classic_wireless_event(std::span<const std::uint8_t> report) noexcept;
 

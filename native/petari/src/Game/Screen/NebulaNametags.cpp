@@ -1,6 +1,6 @@
 #include "Game/Screen/NebulaNametags.hpp"
+#include "nebula_module.h"
 
-#ifdef TARGET_PC
 #include "Game/Player/NebulaRemotePlayer.hpp"
 #include "Game/Screen/LayoutManager.hpp"
 #include "Game/Screen/NebulaPaneKit.hpp"
@@ -17,7 +17,6 @@
 #include <nw4r/lyt/pane.h>
 #include <nw4r/lyt/textBox.h>
 #include <nw4r/lyt/window.h>
-#include <revolution/os.h>
 
 using namespace NebulaUi;
 
@@ -68,7 +67,7 @@ namespace {
         if (toHead.dot(MR::getCamZdir()) <= 0.0f) {
             return false;
         }
-        const f32 distance = PSVECMag(&toHead);
+        const f32 distance = toHead.length();
         if (distance > cFar) {
             return false;
         }
@@ -92,12 +91,12 @@ namespace {
         if (strcmp(rTag.mShown, pCopy->mName) == 0 && rTag.mShownLuigi == pCopy->mIsLuigi) {
             return;
         }
-        snprintf(rTag.mShown, sizeof(rTag.mShown), "%s", pCopy->mName);
+        nebula_snprintf(rTag.mShown, sizeof(rTag.mShown), "%s", pCopy->mName);
         rTag.mShownLuigi = pCopy->mIsLuigi;
-        wchar_t text[32];
+        char16_t text[32];
         s32 i = 0;
         for (; i < 31 && rTag.mShown[i] != 0; i++) {
-            text[i] = static_cast< wchar_t >(static_cast< u8 >(rTag.mShown[i]));
+            text[i] = static_cast< char16_t >(static_cast< u8 >(rTag.mShown[i]));
         }
         text[i] = 0;
         setText(rTag.mName, text);
@@ -128,7 +127,7 @@ void NebulaNametags::init(const JMapInfoIter& rIter) {
     new (&p->mWindow) NebulaPaneKit();
     Pane* pRoot = pManager->mLayout->mpRootPane;
     if (pRoot == nullptr || !p->mText.init(pManager->mLayoutHolder)) {
-        OSReport("NebulaNametags: no InformationWindow layout\n");
+        nebula_log("NebulaNametags: no InformationWindow layout\n");
         return;
     }
     p->mWindow.init(MR::createAndAddLayoutHolder("SysInfoWindowMini.arc"));
@@ -145,14 +144,14 @@ void NebulaNametags::init(const JMapInfoIter& rIter) {
     for (s32 i = 0; i < cTagsMax; i++) {
         Tag& rTag = p->mTags[i];
         char name[17];
-        snprintf(name, sizeof(name), "NbTag%d", i);
+        nebula_snprintf(name, sizeof(name), "NbTag%d", i);
         rTag.mRoot = makeGroup(p->mRoot, name);
         if (rTag.mRoot == nullptr) {
             return;
         }
-        snprintf(name, sizeof(name), "NbTagFrm%d", i);
+        nebula_snprintf(name, sizeof(name), "NbTagFrm%d", i);
         rTag.mFrame = makeWindow(kits, rTag.mRoot, name);
-        snprintf(name, sizeof(name), "NbTagName%d", i);
+        nebula_snprintf(name, sizeof(name), "NbTagName%d", i);
         rTag.mName = makeText(kits, rTag.mRoot, name, 32);
         if (rTag.mFrame == nullptr || rTag.mName == nullptr) {
             rTag.mRoot = nullptr;
@@ -212,4 +211,3 @@ void NebulaNametags::control() {
         rTag.mRoot->mAlpha = toAlpha(easeOut(static_cast< f32 >(rTag.mFade) / cFadeFrames));
     }
 }
-#endif

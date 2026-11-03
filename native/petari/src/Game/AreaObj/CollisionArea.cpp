@@ -10,10 +10,6 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include <JSystem/JGeometry/TVec.hpp>
 
-void CollisionArea_FORCE_MATCH_SDATA2() {
-    (void)5.0f;
-}
-
 CollisionArea::CollisionArea(int formType, const char* pName) : AreaObj(formType, pName) {
     _3C = 0;
     _40 = 0.0f;
@@ -336,7 +332,7 @@ void AreaPolygon::setSurface(s32 surface) {
         static_cast< AreaFormCube* >(mForm)->calcWorldMtx(&matrix);
         static_cast< AreaFormCube* >(mForm)->calcWorldPos(&mPosition);
     } else {
-        PSMTXCopy(_128, matrix);
+        NebulaMtxCopy(_128, matrix);
         MR::extractMtxTrans(_128, &mPosition);
     }
 

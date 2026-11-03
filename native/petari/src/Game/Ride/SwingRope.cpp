@@ -1,4 +1,8 @@
 #include "Game/Ride/SwingRope.hpp"
+#include "Game/Util/NativeShader.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Ride/SledRopePoint.hpp"
@@ -10,23 +14,15 @@
 #include "Game/Util/ActorShadowUtil.hpp"
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/Color.hpp"
-#include "Game/Util/GamePadUtil.hpp"
+#include "Game/Util/PlayerInputUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include <JSystem/JUtility/JUTTexture.hpp>
-#include <revolution/gx/GXCull.h>
-#include <revolution/gx/GXEnum.h>
-#include <revolution/gx/GXGeometry.h>
-#include <revolution/gx/GXLighting.h>
-#include <revolution/gx/GXPixel.h>
-#include <revolution/gx/GXTev.h>
-#include <revolution/gx/GXTransform.h>
-#include <revolution/gx/GXVert.h>
-#include <revolution/mtx.h>
-#include <revolution/wpad.h>
+#include <nebula_math.h>
+#include "Game/System/NebulaInput.hpp"
 
 namespace {
     static const f32 sPointInterval = 50.0f;
@@ -42,8 +38,6 @@ namespace {
     static const f32 sHangPointGravityStretcn = 0.8f;
     static const f32 sHangPointFrictionRate = 0.995f;
     static const f32 sHangPointReboundRate = 0.7f;
-    static const f32 sPointSpeedToSlow = 10.0f;
-    static const f32 sPointNormalToSlow = 0.9999f;
     static const s32 sAnimInterpoleFrame = 10;
     static const s32 sAnimInterpoleFrameToSlowWait = 10;
     static const s32 sStepWaitAfterSwing = 0;
@@ -168,8 +162,6 @@ void SwingRope::exeFree() {
 
     SwingRopePoint* point;
     for (s32 idx = 0; idx < mNumPoints; idx++) {
-        f32 f1 = idx;
-        f32 f2 = mNumPoints - 1;
         point = mPoints[idx];
         point->updatePosAndAxis(front, calcFriction(idx));
         front.set(mPoints[idx]->mFront);
@@ -198,7 +190,7 @@ inline void SwingRope::exeFreeInvalid() {
 
 void SwingRope::exeBindSlideDownStart() {
     if (MR::isFirstStep(this)) {
-        MR::startBckPlayer("SwingRopeSlideDownStart", 0L);
+        MR::startBckPlayer("SwingRopeSlideDownStart", 0);
         mSlideSpeed = 0.0f;
     }
 
@@ -404,27 +396,12 @@ bool SwingRope::isAllPointsStop() const {
     return true;
 }
 
-bool SwingRope::isAllPointsSlow() const {
-    for (s32 idx = 0; idx < mNumPoints; idx++) {
-        if (MR::abs(mPoints[idx]->mVelocity.x) > ::sPointSpeedToSlow || MR::abs(mPoints[idx]->mVelocity.y) > ::sPointSpeedToSlow ||
-            MR::abs(mPoints[idx]->mVelocity.z) > ::sPointSpeedToSlow) {
-            return false;
-        }
-
-        if (mPoints[idx]->mUp.y < ::sPointNormalToSlow) {
-            return false;
-        }
-    }
-
-    return true;
-}
-
 bool SwingRope::isStretched() const {
     return MR::abs(mGrabCoord - mBasePos.distance(mSledPoint->mPosition)) < ::sCoordLooseToStretch;
 }
 
 bool SwingRope::tryJump() {
-    if (MR::testCorePadTriggerA(WPAD_CHAN0) || MR::testSystemTriggerA()) {
+    if (MR::isPressedJump(PLAYER_1) || MR::testSystemTriggerA()) {
         TVec3f front = mSledPoint->mFront;
 
         TVec3f jumpY = mGravity;
@@ -441,9 +418,9 @@ bool SwingRope::tryJump() {
             MR::normalize(&jumpXZ);
             front.set(jumpXZ);
             jumpXZ.scale(::sJumpSpeedMaxXZ);
-        } else if (jumpXZ.length() < ::sJumpSpeedMinXZ && MR::isGamePadStickOperated(WPAD_CHAN0)) {
+        } else if (jumpXZ.length() < ::sJumpSpeedMinXZ && MR::isMoveStickOperated(PLAYER_1)) {
             TVec3f stick(0.0f, 0.0f, 0.0f);
-            MR::calcWorldStickDirectionXZ(&stick, WPAD_CHAN0);
+            MR::calcWorldStickDirectionXZ(&stick, PLAYER_1);
             front.set< f32 >(stick.x, stick.y, stick.z);
             jumpXZ.set(stick * ::sJumpSpeedRate);
             MR::vecKillElement(jumpXZ, mGravity, &jumpXZ);
@@ -458,7 +435,7 @@ bool SwingRope::tryJump() {
         MR::endActorCameraAtLanding(this, mCameraInfo);
         MR::startSound(mRider, "SE_PV_JUMP_S");
         MR::startSound(mRider, "SE_PM_JUMP_M");
-        MR::startBckPlayer("SwingRopeSpin", 0L);
+        MR::startBckPlayer("SwingRopeSpin", 0);
 
         MR::setPlayerFrontTargetVec(front, 1);
         MR::endBindAndPlayerWeakGravityJump(this, jumpVec);
@@ -474,7 +451,7 @@ bool SwingRope::tryJump() {
 void SwingRope::updateHangPoint() {
     TVec3f stick(0.0f, 0.0f, 0.0f);
     TVec3f front = mSledPoint->mFront;
-    MR::calcWorldStickDirectionXZ(&stick, WPAD_CHAN0);
+    MR::calcWorldStickDirectionXZ(&stick, PLAYER_1);
 
     if (!MR::isNearZero(stick)) {
         MR::vecBlend(mSledPoint->mFront, stick, &front, ::sHangPointBlendRateAxisZ);
@@ -666,7 +643,6 @@ void SwingRope::updateHangLowerPoints() {
     s32 nextIndex = grabIndex + 1;
 
     if (nextIndex <= mNumPoints - 1) {
-        f32 f = nextIndex + 1;
         mPoints[nextIndex]->setPosAndAxis(mFootPos, mSledPoint->mSide, mSledPoint->mUp, mSledPoint->mFront);
 
         TVec3f up, front, side;
@@ -702,25 +678,24 @@ void SwingRope::updateHangLowerPointPos(s32 index) {
 
 namespace {
     void sendPoint(const TVec3f& pos, const TVec3f& side, const TVec3f& front, f32 x, f32 y, u32 color, f32 texX, f32 texY) {
-        GXPosition3f32(pos.x + side.x * x + front.x * y, pos.y + side.y * x + front.y * y, pos.z + side.z * x + front.z * y);
-        GXColor1u32(color);
-        GXTexCoord2f32(texX, texY);
+        J3DNativeDraw::position(pos.x + side.x * x + front.x * y, pos.y + side.y * x + front.y * y, pos.z + side.z * x + front.z * y);
+        J3DNativeDraw::color(color);
+        J3DNativeDraw::texCoord(texX, texY);
     }
 
     void drawPolygon(const TVec3f& posA, const TVec3f& posB, const TVec3f& side, const TVec3f& front, f32 x1, f32 y1, f32 x2, f32 y2, u32 color1,
                      u32 color2, f32 texY1, f32 texY2) {
-        GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, 4);
+        J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, 4, NEBULA_SHAPE_COLOR0 | NEBULA_SHAPE_TEXCOORD0);
         {
             sendPoint(posA, side, front, x1, y1, color1, 0.0f, texY1);
             sendPoint(posA, side, front, x2, y2, color2, 1.0f, texY1);
             sendPoint(posB, side, front, x1, y1, color1, 0.0f, texY2);
             sendPoint(posB, side, front, x2, y2, color2, 1.0f, texY2);
         }
-        GXEnd();
     }
 
     void drawLine(const SwingRope* pRope, u32 color1, u32 color2, f32 x1, f32 y1, f32 x2, f32 y2) {
-        GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, (pRope->mNumPoints + 1) * 2);
+        J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, (pRope->mNumPoints + 1) * 2, NEBULA_SHAPE_COLOR0 | NEBULA_SHAPE_TEXCOORD0);
         {
             const TVec3f& front = pRope->mPoints[0]->getFront();
             const TVec3f& side = pRope->mPoints[0]->getSide();
@@ -740,11 +715,10 @@ namespace {
                 sendPoint(pos, side, front, x2, y2, color2, 1.0f, ::sTexRate * (idx + 1));
             }
         }
-        GXEnd();
     }
 
     void drawLineAtHanging(const SwingRope* pRope, u32 color1, u32 color2, f32 texY1, f32 texY2, f32 x1, f32 y1, f32 x2, f32 y2) {
-        GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, (pRope->mNumPoints + 1) * 2);
+        J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, (pRope->mNumPoints + 1) * 2, NEBULA_SHAPE_COLOR0 | NEBULA_SHAPE_TEXCOORD0);
         {
             const TVec3f& front = pRope->mPoints[0]->getFront();
             const TVec3f& side = pRope->mPoints[0]->getSide();
@@ -764,7 +738,6 @@ namespace {
                 sendPoint(pos, side, front, x2, y2, color2, 1.0f, ::sTexRate * (idx + 1));
             }
         }
-        GXEnd();
     }
 };  // namespace
 
@@ -807,43 +780,22 @@ void SwingRope::drawBind() const {
 
 SwingRopeGroup::SwingRopeGroup(const char* pName) : NameObj(pName) {
     mTexture = nullptr;
-    mTexture = new JUTTexture(MR::loadTexFromArc("SwingRope.arc", "SwingRope.bti"), 0);
+    mTexture = new JUTTexture(MR::loadTexFromArc("SwingRope.arc", "SwingRope.bti"));
 
     MR::registerPreDrawFunction(MR::Functor(this, &SwingRopeGroup::initDraw), MR::DrawType_SwingRope);
 }
 
 void SwingRopeGroup::initDraw() const {
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_POS_XYZ, GX_RGBA8, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_POS_XYZ, GX_F32, 0);
-
-    GXClearVtxDesc();
-    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
-
-    GXLoadPosMtxImm(MR::getCameraViewMtx(), 0);
-    GXSetCurrentMtx(0);
-
-    GXSetNumChans(1);
-    GXSetChanCtrl(GX_COLOR0A0, GX_DISABLE, GX_SRC_VTX, GX_SRC_VTX, 0, GX_DF_NONE, GX_AF_NONE);
-    GXSetChanCtrl(GX_COLOR1A1, GX_DISABLE, GX_SRC_REG, GX_SRC_REG, 0, GX_DF_NONE, GX_AF_NONE);
-
-    GXSetNumTexGens(1);
-    GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX3x4, GX_TG_TEX0, 60, GX_FALSE, 125);
-    mTexture->load(GX_TEXMAP0);
-
-    GXSetNumTevStages(1);
-    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
-    GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_TEXC, GX_CC_RASC, GX_CC_ZERO);
-    GXSetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_TEXA, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
-
-    GXSetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_NOOP);
-    GXSetAlphaCompare(GX_GREATER, 0, GX_AOP_OR, GX_GREATER, 0);
-
-    GXSetZMode(GX_ENABLE, GX_LEQUAL, GX_ENABLE);
-    GXSetZCompLoc(GX_DISABLE);
-    GXSetCullMode(GX_CULL_NONE);
+    J3DNativeShape::setPosition(0, MR::getCameraViewMtx());
+    // runtime/src/render/materials/tex_modulate.hlsl: the texture times the vertex colour, its alpha the texture's; drawn where
+    // the alpha is above 0, depth tested and written, no culling.
+    NebulaNativeMaterial material;
+    NativeShader::init(material, NEBULA_SHADER_TEX_MODULATE, NativeShader::BLEND_ALPHA, NEBULA_COMPARE_LEQUAL, true,
+                       NEBULA_CULL_NONE);
+    material.early_depth = 0;
+    material.constants[0] = 1.0f;
+    material.constants[1] = 0.0f;
+    NativeShader::setTexture(material, 0, mTexture);
+    NativeShader::send(material);
+    J3DNativeShape::setCurrentIdentity();
 }

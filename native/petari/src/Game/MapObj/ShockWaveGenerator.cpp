@@ -1,4 +1,5 @@
 #include "Game/MapObj/ShockWaveGenerator.hpp"
+#include "Game/System/NebulaRegion.hpp"
 #include "Game/LiveActor/ActorCameraInfo.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
@@ -58,9 +59,9 @@ void ShockWaveGenerator::exeWait() {
         MR::startBtk(this, "SpinHit");
         MR::setBrkFrameAndStop(this, 0.0f);
         MR::setBtkFrameAndStop(this, 0.0f);
-#if (VERSION == RMGP01 || VERSION == RMGK01)
-        MR::validateClipping(this);
-#endif
+        if (NebulaRegion::isPal()) {
+            MR::validateClipping(this);
+        }
     }
 }
 
@@ -69,7 +70,7 @@ void ShockWaveGenerator::exeDemoEcho() {
         MR::startActorCameraTargetSelf(this, mCameraInfo);
     }
 
-    MR::tryRumblePadVeryWeak(this, WPAD_CHAN0);
+    MR::tryRumblePadVeryWeak(this, PLAYER_1);
 
     if (MR::isStep(this, ::sStepForDemoEcho)) {
         MR::endDemo(this, ::cDemoCameraName);
@@ -83,7 +84,7 @@ void ShockWaveGenerator::exeGenerate() {
         sendMsgShockWaveToNearEnemy();
         MR::emitEffect(this, "ShockWave");
         MR::shakeCameraWeak();
-        MR::tryRumblePadStrong(this, WPAD_CHAN0);
+        MR::tryRumblePadStrong(this, PLAYER_1);
     }
 
     if (MR::isStep(this, ::sStepForGenerate)) {
@@ -126,20 +127,18 @@ bool ShockWaveGenerator::isPlayerInCameraStartRange() const {
 }
 
 void ShockWaveGenerator::startShockWave() {
-#if (VERSION == RMGP01 || VERSION == RMGK01)
-    MR::invalidateClipping(this);
-#endif
+    if (NebulaRegion::isPal()) {
+        MR::invalidateClipping(this);
+    }
 
     MR::startSound(this, "SE_OJ_SHOCK_WAVE_GENERATE");
     if (mCameraInfo != nullptr) {
         if (isPlayerInCameraStartRange()) {
-#if (VERSION == RMGJ01 || VERSION == RMGE01)
-            MR::requestStartDemoWithoutCinemaFrame(this, ::cDemoCameraName, GET_NERVE(ShockWaveGenerator, ShockWaveGeneratorNrvDemoEcho), nullptr);
-#else
-            if (MR::tryStartDemoWithoutCinemaFrame(this, ::cDemoCameraName)) {
+            if (!NebulaRegion::isPal()) {
+                MR::requestStartDemoWithoutCinemaFrame(this, ::cDemoCameraName, GET_NERVE(ShockWaveGenerator, ShockWaveGeneratorNrvDemoEcho), nullptr);
+            } else if (MR::tryStartDemoWithoutCinemaFrame(this, ::cDemoCameraName)) {
                 setNerve(GET_NERVE(ShockWaveGenerator, ShockWaveGeneratorNrvDemoEcho));
             }
-#endif
         } else {
             setNerve(GET_NERVE(ShockWaveGenerator, ShockWaveGeneratorNrvGenerate));
         }

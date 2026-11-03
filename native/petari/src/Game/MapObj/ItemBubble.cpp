@@ -17,11 +17,6 @@ namespace NrvItemBubble {
     NEW_NERVE(ItemBubbleNrvBreak, ItemBubble, Break);
 };  // namespace NrvItemBubble
 
-void FORCE_OPERATOR() {
-    TVec3f vec;
-    vec *= 1.0f;
-}
-
 ItemBubble::ItemBubble(const char* pName) : LiveActor(pName), _90(), _94() {
     _8C = 0.0f;
 }
@@ -36,9 +31,9 @@ void ItemBubble::init(const JMapInfoIter& rIter) {
     initModelManagerWithAnm("ItemBubble", nullptr, false);
     MR::connectToSceneMapObj(this);
     mScale.mult(1.2f);
-    PSMTXScale(_9C, mScale.x, mScale.y, mScale.z);
+    NebulaMtxScale(_9C, mScale.x, mScale.y, mScale.z);
     MR::setMtxTrans(_9C, mPosition.x, mPosition.y, mPosition.z);
-    PSMTXCopy(_9C, _CC);
+    NebulaMtxCopy(_9C, _CC);
     _108 = mPosition;
     initHitSensor(1);
     MR::addHitSensorMapObj(this, "body", 8, mScale.x * ::cHitSensorRadius, TVec3f(0.0f, 0.0f, 0.0f));
@@ -108,8 +103,8 @@ void ItemBubble::init(const JMapInfoIter& rIter) {
             _94[i] = new StarPiece("\203\101\203\103\203\145\203\200\203\157\203\165\203\213\203\163\201\133\203\130" /* アイテムバブルピース */);
             _94[i]->initWithoutIter();
             _90[i] = new RotPartsModel(this, "\203\130\203\136\201\133\203\163\201\133\203\130" /* スターピース */, "StarPiece", nullptr, 13, true);
-            MR::initDLMakerMatColor0(_90[i], "StarPiece1_v", &_94[i]->mColor);
-            MR::newDifferedDLBuffer(_90[i]);
+            MR::initMaterialColor0(_90[i], "StarPiece1_v", &_94[i]->mColor);
+            MR::newDifferedMaterials(_90[i]);
             _90[i]->initWithoutIter();
 
             switch (itemCount) {
@@ -138,7 +133,7 @@ void ItemBubble::init(const JMapInfoIter& rIter) {
         vec2.zero();
 
         TRot3f mtx;
-        PSMTXRotRad(mtx, (char)90, TWO_PI / static_cast< f32 >(itemCount));
+        NebulaMtxRotRad(mtx, (char)90, TWO_PI / static_cast< f32 >(itemCount));
 
         if (itemType == 0) {
             vec3.set< f32 >(0.0f, -60.0f, 0.0f);
@@ -152,7 +147,7 @@ void ItemBubble::init(const JMapInfoIter& rIter) {
             }
 
             _90[i]->initFixedPosition(_CC, vec + vec3, vec2);
-            PSMTXMultVec(mtx, vec, vec);
+            NebulaMtxMultVec(mtx, vec, vec);
         }
     }
 
@@ -241,8 +236,6 @@ void ItemBubble::calcAndSetBaseMtx() {
     reinterpret_cast< TPos3f* >(getBaseMtx())->setTrans(mPosition);
 }
 
-#pragma push
-#pragma global_optimizer off
 void ItemBubble::exeWait() {
     if (MR::isFirstStep(this)) {
         // Useless...
@@ -264,7 +257,7 @@ void ItemBubble::exeWait() {
         MR::moveCoordAndFollowTrans(this, mRailSpeed);
     }
 
-    PSMTXScale(_9C, mScale.x, mScale.y, mScale.z);
+    NebulaMtxScale(_9C, mScale.x, mScale.y, mScale.z);
     MtxPtr pMtx = MR::tmpMtxRotZDeg(mRotation.z);
     MR::multMtx(_9C, pMtx, _9C);
 
@@ -273,7 +266,7 @@ void ItemBubble::exeWait() {
     MR::setMtxTrans(_9C, mPosition.x, mPosition.y, mPosition.z);
 
     if (mUseRail) {
-        PSMTXCopy(_9C, _CC);
+        NebulaMtxCopy(_9C, _CC);
     } else {
         MR::blendMtx(_CC, _9C, 0.1f, _CC);
     }
@@ -288,7 +281,6 @@ void ItemBubble::exeWait() {
         _90[i]->mRotation.y += 8.0f;
     }
 }
-#pragma pop
 
 void ItemBubble::exeBreak() {
     if (MR::isFirstStep(this)) {

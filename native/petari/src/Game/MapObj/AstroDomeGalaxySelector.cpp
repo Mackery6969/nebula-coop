@@ -10,7 +10,7 @@
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/DemoUtil.hpp"
 #include "Game/Util/EventUtil.hpp"
-#include "Game/Util/GamePadUtil.hpp"
+#include "Game/Util/PlayerInputUtil.hpp"
 #include "Game/Util/LayoutUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
@@ -19,11 +19,9 @@
 #include "Game/Util/SequenceUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
-#ifdef TARGET_PC
 #include "Game/LiveActor/LiveActorGroup.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/Screen/NebulaSelectPlayers.hpp"
-#endif
 
 namespace {
     const char* const cDemoNameDomeLecture = "\203\150\201\133\203\200\203\214\203\116\203\140\203\203\201\133\202\121" /* ドームレクチャー２ */;
@@ -51,9 +49,7 @@ namespace NrvAstroDomeGalaxySelector {
 
 AstroDomeGalaxySelector::AstroDomeGalaxySelector(const char* pName)
     : LiveActor(pName), mCameraController(), mBackButton(), mInfo(), mConfirmLayout(), _9C() {
-#ifdef TARGET_PC
     mCoopPlayers = nullptr;
-#endif
 }
 
 void AstroDomeGalaxySelector::init(const JMapInfoIter& rIter) {
@@ -72,10 +68,8 @@ void AstroDomeGalaxySelector::init(const JMapInfoIter& rIter) {
     mConfirmLayout = new GalaxyConfirmLayout();
     mConfirmLayout->initWithoutIter();
 
-#ifdef TARGET_PC
     mCoopPlayers = new NebulaSelectPlayers(true);
     mCoopPlayers->initWithoutIter();
-#endif
 
     MR::needStageSwitchWriteA(this, rIter);
     MR::onSwitchA(this);
@@ -139,7 +133,6 @@ void AstroDomeGalaxySelector::showGalaxyInfo(const MiniatureGalaxy* pMiniGalaxy)
     mInfo->show(pMiniGalaxy->mGalaxyName, state, cometID);
 }
 
-#ifdef TARGET_PC
 // Online co-op: the other players in each galaxy of the dome, under its miniature, as long as the player picks or
 // confirms one (sm64coopdx shows them on its act select).
 void AstroDomeGalaxySelector::showCoopPlayers() {
@@ -155,7 +148,6 @@ void AstroDomeGalaxySelector::showCoopPlayers() {
         }
     }
 }
-#endif
 
 bool AstroDomeGalaxySelector::tryStartLectureDemo(const Nerve* pNerve) {
     if (isNerve(GET_NERVE(AstroDomeGalaxySelector, AstroDomeGalaxySelectorNrvGalaxySelectStart))) {
@@ -193,7 +185,7 @@ void AstroDomeGalaxySelector::exeGalaxySelect() {
         mBackButton->appear();
     }
 
-    if (SphereSelectorFunction::isValidPointing() && MR::testCorePadTriggerB(WPAD_CHAN0)) {
+    if (SphereSelectorFunction::isValidPointing() && MR::isPressedFire(PLAYER_1)) {
         MR::startSystemSE("SE_SY_GALAXY_DECIDE_CANCEL");
 
         if (mBackButton->isAppearing()) {
@@ -231,9 +223,7 @@ void AstroDomeGalaxySelector::exeGalaxySelect() {
             showGalaxyInfo(pointingMiniatureGalaxy);
         }
 
-#ifdef TARGET_PC
         showCoopPlayers();
-#endif
     }
 }
 
@@ -250,9 +240,7 @@ void AstroDomeGalaxySelector::exeGalaxyConfirmStart() {
     }
 
     showGalaxyInfo(::getSelectedMiniatureGalaxy());
-#ifdef TARGET_PC
     showCoopPlayers();
-#endif
 
     if (SphereSelectorFunction::isConfirmWait() &&
         !tryStartLectureDemo(GET_NERVE(AstroDomeGalaxySelector, AstroDomeGalaxySelectorNrvGalaxyMoveLecture))) {
@@ -266,9 +254,7 @@ void AstroDomeGalaxySelector::exeGalaxyConfirm() {
     }
 
     showGalaxyInfo(::getSelectedMiniatureGalaxy());
-#ifdef TARGET_PC
     showCoopPlayers();
-#endif
 
     if (!mConfirmLayout->isSelected()) {
         return;

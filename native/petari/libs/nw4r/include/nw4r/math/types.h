@@ -1,7 +1,8 @@
 #pragma once
 
 #include <cstring>
-#include <revolution.h>
+#include <NebulaGpu.h>
+#include <nebula_math.h>
 
 namespace nw4r {
     namespace math {
@@ -83,23 +84,24 @@ namespace nw4r {
         };
 
         inline MTX34* MTX34Copy(MTX34* pOut, const MTX34* pIn) {
-            PSMTXCopy(*pIn, *pOut);
+            NebulaMtxCopy(*pIn, *pOut);
             return pOut;
         }
 
         inline MTX34* MTX34Identity(MTX34* pOut) {
-            PSMTXIdentity(*pOut);
+            NebulaMtxIdentity(*pOut);
             return pOut;
         }
 
         inline MTX34* MTX34Mult(MTX34* pOut, const MTX34* pA, const MTX34* pB) {
-            PSMTXConcat(*pA, *pB, *pOut);
+            NebulaMtxConcat(*pA, *pB, *pOut);
             return pOut;
         }
 
-        MTX34* MTX34Mult(MTX34* pOut, const MTX34* p, f32 f);
-
-        VEC3* VEC3TransformNormal(VEC3* pOut, const MTX34* pM, const VEC3* pV);
+        inline VEC3* VEC3TransformNormal(VEC3* pOut, const MTX34* pM, const VEC3* pV) {
+            NebulaMtxMultVecSR(pM->mtx, reinterpret_cast< const Vec* >(pV), reinterpret_cast< Vec* >(pOut));
+            return pOut;
+        }
 
     };  // namespace math
 };  // namespace nw4r

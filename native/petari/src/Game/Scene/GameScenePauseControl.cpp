@@ -31,9 +31,6 @@ void GameScenePauseControl::exeNormal() {
     tryStartPauseMenu();
 
     if (mPauseMenuOff) {
-#ifndef TARGET_PC
-        AudWrap::getSystem()->exitPauseMenu();
-#endif
         mScene->setNerveAfterPauseMenu();
         mPauseMenuOff = false;
         mScene->mPauseSeq->deactivate();

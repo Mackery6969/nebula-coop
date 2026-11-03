@@ -1,7 +1,5 @@
 #include "Game/Ride/SurfRay.hpp"
-#ifdef TARGET_PC
 #include <nebula_game_api.h>
-#endif
 #include "Game/LiveActor/ActorJointCtrl.hpp"
 #include "Game/LiveActor/MaterialCtrl.hpp"
 #include "Game/LiveActor/Nerve.hpp"
@@ -13,7 +11,7 @@
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/Color.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/GamePadUtil.hpp"
+#include "Game/Util/PlayerInputUtil.hpp"
 #include "Game/Util/JointUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
@@ -24,6 +22,7 @@
 #include "Game/Util/SequenceUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
+#include "Game/System/NebulaHost.hpp"
 
 namespace NrvSurfRay {
     NEW_NERVE(SurfRayNrvWaitPlayer, SurfRay, WaitPlayer);
@@ -155,10 +154,10 @@ void SurfRay::init(const JMapInfoIter& pMapInfoIter) {
     }
 
     resetAllInfo();
-    initModelManagerWithAnm("SurfRay", nullptr, this != nullptr);
+    initModelManagerWithAnm("SurfRay", nullptr, true);
 
-    mProjmapFxMtxSetter = MR::initDLMakerProjmapEffectMtxSetter(this);
-    MR::newDifferedDLBuffer(this);
+    mProjmapFxMtxSetter = MR::initMaterialProjmapEffectMtxSetter(this);
+    MR::newDifferedMaterials(this);
     mProjmapFxMtxSetter->updateMtxUseBaseMtx();
 
     MR::startBtk(this, "SurfRay");
@@ -414,7 +413,7 @@ void SurfRay::exeWipeOut() {
     if (!updateRide() && !MR::isWipeActive()) {
         MR::resetPosition(this, "\203\130\203\136\201\133\203\147\210\312\222\165\201\151\203\124\201\133\203\164\203\102\203\223\201\152" /* スタート位置（サーフィン） */);
         resetAllInfo();
-        MR::startBckPlayer("SurfRide", 0L);
+        MR::startBckPlayer("SurfRide", 0);
         MR::resetCameraMan();
         setNerve(GET_NERVE(SurfRay, SurfRayNrvWipeIn));
     }
@@ -434,7 +433,7 @@ void SurfRay::exeReady() {
     if (MR::isFirstStep(this)) {
         MR::endStartPosCamera();
         MR::startBck(this, "WaitRaceStart");
-        MR::startBckPlayer("SurfRide", 0L);
+        MR::startBckPlayer("SurfRide", 0);
         MR::tryEmitEffect(this, "Ripple");
         MR::tryDeleteEffect(this, "RunDashSplash");
         MR::tryDeleteEffect(this, "SwimSplash");
@@ -491,9 +490,7 @@ bool SurfRay::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver)
         }
 
         mRider = MR::getSensorHost(pSender);
-#ifdef TARGET_PC
-        __NebulaGameContext(NEBULA_CONTEXT_TILT_SECTION, 2);
-#endif
+        NebulaHost::gameContext(NEBULA_CONTEXT_TILT_SECTION, 2);
         MR::startStarPointerMode1PInvalid2PValid(this);
         MR::invalidateClipping(this);
         mRayTilt = 0.0f;
@@ -503,7 +500,7 @@ bool SurfRay::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver)
         }
 
         MR::startBckNoInterpole(this, "Wait");
-        MR::startBckPlayer("SurfRideLoop", 0L);
+        MR::startBckPlayer("SurfRideLoop", 0);
         MR::calcAnimDirect(this);
         mActorJointCtrl->resetDynamicCtrl();
 
@@ -556,7 +553,7 @@ bool SurfRay::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver)
         MR::resetPosition(this, "\203\130\203\136\201\133\203\147\210\312\222\165\201\151\203\124\201\133\203\164\203\102\203\223\201\152" /* スタート位置（サーフィン） */);
         resetAllInfo();
         MR::setPlayerPos(mPosition);
-        MR::startBckPlayer("SurfRide", 0L);
+        MR::startBckPlayer("SurfRide", 0);
         MR::resetCameraMan();
         return true;
     }
@@ -620,7 +617,7 @@ bool SurfRay::updateRideAccel() {
         return true;
     }
 
-    if (!MR::testCorePadButtonA(mPadChannel)) {
+    if (!MR::isHeldJump(mPadChannel)) {
         setNerve(GET_NERVE(SurfRay, SurfRayNrvRideFree));
         return true;
     }
@@ -637,7 +634,7 @@ bool SurfRay::updateRideFree() {
         return true;
     }
 
-    if (MR::testCorePadButtonA(mPadChannel)) {
+    if (MR::isHeldJump(mPadChannel)) {
         setNerve(GET_NERVE(SurfRay, SurfRayNrvRideAccel));
         return true;
     }
@@ -792,7 +789,7 @@ void SurfRay::updateToWater() {
 }
 
 void SurfRay::updateAccel() {
-    if (MR::testCorePadButtonA(mPadChannel)) {
+    if (MR::isHeldJump(mPadChannel)) {
         mSurfSpeed += 0.5f;
     } else {
         mSurfSpeed *= 0.99f;
@@ -840,7 +837,7 @@ void SurfRay::updateRotate() {
 
     if (isRotateStart()) {
         TVec3f accel(0.0f, 0.0f, 0.0f);
-        MR::getCorePadAcceleration(&accel, mPadChannel);
+        MR::getMainTilt(&accel, mPadChannel);
 
         if (accel.z > -0.7f || MR::abs(accel.x) > 0.15f) {
             f32 twistAngle = accel.x;
@@ -1013,7 +1010,7 @@ bool SurfRay::tryInWater() {
 }
 
 bool SurfRay::tryJumpOrFall() {
-    if (MR::isPadSwing(WPAD_CHAN0) && (MR::isBinded(this) || mWaterInfo.isInWater() || mAirTime < 15)) {
+    if (MR::isSpin(PLAYER_1) && (MR::isBinded(this) || mWaterInfo.isInWater() || mAirTime < 15)) {
         f32 f0 = (mSurfSpeed / 40.0f) * (((70.0f - MR::abs(mRotation.z)) * 5.0f) / 70.0f) + 15.0f;
         TVec3f v1(mGroundNormal);
 
@@ -1074,5 +1071,5 @@ bool SurfRay::isRotateStart() const {
         return false;
     }
 
-    return mSurfSpeed > 3.0f || MR::testCorePadButtonA(mPadChannel);
+    return mSurfSpeed > 3.0f || MR::isHeldJump(mPadChannel);
 }

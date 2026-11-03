@@ -1,12 +1,16 @@
 #include "Game/Map/WhirlPoolAccelerator.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
 #include "Game/Map/WaterAreaHolder.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Util.hpp"
 #include <JSystem/JUtility/JUTTexture.hpp>
-#include <revolution/gx/GXVert.h>
+#include "Game/Util/NativeShader.hpp"
+#include <nebula_game_api.h>
 
-GXColor sWhirlPoolAcceleratorTevReg1 = {0x00, 0x34, 0x52, 0xFF};
-GXColor sWhirlPoolAcceleratorTevReg2 = {0x7C, 0xA9, 0xBD, 0xFF};
+NebulaColor8 sWhirlPoolAcceleratorTevReg1 = {0x00, 0x34, 0x52, 0xFF};
+NebulaColor8 sWhirlPoolAcceleratorTevReg2 = {0x7C, 0xA9, 0xBD, 0xFF};
 
 namespace {
     extern const f32 sAlphaPointNum;
@@ -35,7 +39,7 @@ void WhirlPoolAccelerator::init(const JMapInfoIter& rIter) {
     mHeight = 100.0f * mScale.y;
     MR::calcActorAxisY(&mAxis, this);
     initPoints();
-    mTexture = new JUTTexture(MR::loadTexFromArc("Whirlpool.arc", "Whirlpool.bti"), 0);
+    mTexture = new JUTTexture(MR::loadTexFromArc("Whirlpool.arc", "Whirlpool.bti"));
     initSound(4, false);
     mClippingCenter.set(mPosition);
     mClippingCenter.y += mHeight / 2.0f;
@@ -140,7 +144,7 @@ void WhirlPoolAccelerator::drawPlane(f32 x0, f32 y0, f32 x1, f32 y1, f32 u0, f32
     MR::makeMtxRotate(rotation, 0.0f, mRotation, 0.0f);
     rotation.mult(offset, offset);
     MR::makeMtxRotate(rotation, 0.0f, 25.0f, 0.0f);
-    GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, mPointCount * 2);
+    J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, mPointCount * 2, NEBULA_SHAPE_COLOR0 | NEBULA_SHAPE_TEXCOORD0);
     const WhirlPoolPoint* pPoint;
 
     for (s32 i = 0; i < mPointCount; i++) {
@@ -153,50 +157,32 @@ void WhirlPoolAccelerator::drawPlane(f32 x0, f32 y0, f32 x1, f32 y1, f32 u0, f32
         position.add(offset);
         rotation.mult(offset, offset);
 
-        GXPosition3f32(position.x + side.x * x0 + normal.x * y0, position.y + side.y * x0 + normal.y * y0, position.z + side.z * x0 + normal.z * y0);
-        GXColor4u8(0xFF, 0xFF, 0xFF, mPoints[i]->mAlpha);
-        GXTexCoord2f32(u0 + pPoint->mTexCoord, v0);
+        J3DNativeDraw::position(position.x + side.x * x0 + normal.x * y0, position.y + side.y * x0 + normal.y * y0, position.z + side.z * x0 + normal.z * y0);
+        J3DNativeDraw::color(0xFF, 0xFF, 0xFF, mPoints[i]->mAlpha);
+        J3DNativeDraw::texCoord(u0 + pPoint->mTexCoord, v0);
 
-        GXPosition3f32(position.x + side.x * x1 + normal.x * y1, position.y + side.y * x1 + normal.y * y1, position.z + side.z * x1 + normal.z * y1);
-        GXColor4u8(0xFF, 0xFF, 0xFF, mPoints[i]->mAlpha);
-        GXTexCoord2f32(u1 + pPoint->mTexCoord, v0);
+        J3DNativeDraw::position(position.x + side.x * x1 + normal.x * y1, position.y + side.y * x1 + normal.y * y1, position.z + side.z * x1 + normal.z * y1);
+        J3DNativeDraw::color(0xFF, 0xFF, 0xFF, mPoints[i]->mAlpha);
+        J3DNativeDraw::texCoord(u1 + pPoint->mTexCoord, v0);
         v0 += 0.02f;
     }
-
-    GXEnd();
 }
 
 void WhirlPoolAccelerator::loadMaterial() const {
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
-    GXClearVtxDesc();
-    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
-    GXLoadPosMtxImm(MR::getCameraViewMtx(), GX_PNMTX0);
-    GXSetCurrentMtx(GX_PNMTX0);
-    GXSetNumChans(1);
-    GXSetChanCtrl(GX_COLOR0A0, GX_DISABLE, GX_SRC_VTX, GX_SRC_VTX, GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
-    GXSetChanCtrl(GX_COLOR1A1, GX_DISABLE, GX_SRC_REG, GX_SRC_REG, GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
-    GXSetNumTexGens(1);
-    GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX3x4, GX_TG_TEX0, GX_IDENTITY, GX_FALSE, GX_PTIDENTITY);
-    mTexture->load(GX_TEXMAP0);
-    GXSetNumIndStages(0);
-    GXSetNumTevStages(1);
-    GXSetTevColor(GX_TEVREG0, sWhirlPoolAcceleratorTevReg1);
-    GXSetTevColor(GX_TEVREG1, sWhirlPoolAcceleratorTevReg2);
-    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
-    GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_C0, GX_CC_C1, GX_CC_TEXC, GX_CC_ZERO);
-    GXSetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_RASA, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
-    GXSetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_NOOP);
-    GXSetAlphaCompare(GX_GREATER, 0, GX_AOP_OR, GX_GREATER, 0);
-    GXSetZMode(GX_TRUE, GX_LEQUAL, GX_TRUE);
-    GXSetZCompLoc(GX_TRUE);
-    GXSetCullMode(GX_CULL_NONE);
-    GXSetClipMode(GX_CLIP_ENABLE);
+    J3DNativeShape::setPosition(0, MR::getCameraViewMtx());
+    J3DPass::positionMatrix(0);
+    // runtime/src/render/materials/whirlpool_accelerator.hlsl: the two colours mixed by the texture at the vertex
+    // alpha; drawn where above zero and blended by it, depth tested and written, no culling.
+    NebulaNativeMaterial material;
+    NativeShader::init(material, NEBULA_SHADER_WHIRLPOOL_ACCELERATOR, NativeShader::BLEND_ALPHA, NEBULA_COMPARE_LEQUAL,
+                       true, NEBULA_CULL_NONE);
+    const NebulaColor8& rLow = sWhirlPoolAcceleratorTevReg1;
+    const NebulaColor8& rHigh = sWhirlPoolAcceleratorTevReg2;
+    NativeShader::setColor(material, 0, rLow.r, rLow.g, rLow.b, rLow.a);
+    NativeShader::setColor(material, 4, rHigh.r, rHigh.g, rHigh.b, rHigh.a);
+    NativeShader::setTexture(material, 0, mTexture);
+    NativeShader::send(material);
+    J3DNativeShape::setCurrentIdentity();
 }
 
 WhirlPoolAccelerator::~WhirlPoolAccelerator() {

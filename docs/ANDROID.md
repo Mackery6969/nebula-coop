@@ -34,7 +34,7 @@ The app's private storage (`NEBULA_DATA_DIR` for the native game):
 | --- | --- |
 | `game/game.pak`, `game/install.properties` | the game, written by setup; the second last, so its presence means a complete game |
 | `nand/` | saves and the Mii database |
-| `config.ini` | renderer settings (`runtime/src/gx/render_config.cpp`); the launcher writes its keys only |
+| `config.ini` | renderer settings (`runtime/src/render/render_config.cpp`); the launcher writes its keys only |
 | `logs/game.log`, `logs/game.previous.log` | the game's output, this run and the one before |
 | `last_error.txt` | a fatal error's message, shown by the launcher |
 
@@ -48,6 +48,9 @@ Uninstalling asks whether to keep this data (`hasFragileUserData`).
   first finger on the left of the picture is a floating stick; any other finger is the pointer
   (`GameActivity.nativePointer`). With a controller in use they hide (Automatic), and come back at a touch.
 - Back opens the HOME Menu, as the HOME button does.
+- Not yet on the SDL hosts (Android, Linux): the settings menu over the game (the Windows host's pages, draft and
+  keys, `host_window_win32.cpp`); its view stays closed. The button icons follow the controller in use, as on
+  Windows (`button_icons` in `host_window_sdl.cpp`).
 - Out of sight, the host stops the display and audio clocks, so the game waits at its next retrace
   (`SDL_HINT_ANDROID_BLOCK_ON_PAUSE` is off: SDL's thread keeps pumping events).
 - When Android takes the window's surface away (the app leaving the screen, a fold moving it to the other display),
@@ -62,7 +65,7 @@ Uninstalling asks whether to keep this data (`hasFragileUserData`).
   late callback never delays it; the host's clock takes over when the display gives no vsync or runs at a rate 60
   does not divide. Each frame is presented for the retrace slot after its retrace (`VK_GOOGLE_display_timing`), so
   the compositor shows it for exactly one retrace period.
-- The game and GX render threads are a performance-hint session (ADPF, Android 13+): each frame's work (the busier
+- The game and render threads are a performance-hint session (ADPF, Android 13+): each frame's work (the busier
   thread's CPU time) is reported against 16.7 ms, so the CPU clocks rise before a frame runs late.
 - The log reports every 10 s: `[pacing]` (retraces on the display's vsync, frame work), `[present-timing]` (frames
   the display showed at their slot, and one retrace after the frame before), `[vk-cpu]` (the render thread's CPU and

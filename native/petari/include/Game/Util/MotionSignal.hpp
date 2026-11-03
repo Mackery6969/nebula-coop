@@ -1,9 +1,7 @@
 #pragma once
 
-#ifdef TARGET_PC
 #include <JSystem/JGeometry/TVec.hpp>
-#include <nebula_gx_fifo.h>
-#include <revolution/types.h>
+#include "Game/Util/RenderSignals.hpp"
 
 class J3DMatPacket;
 class J3DModel;
@@ -27,8 +25,8 @@ namespace nw4r {
 
 // What the renderer needs to draw between two game frames (frame interpolation, motion vectors, temporal upscaling)
 // and to know the scene (ray tracing): the object each draw belongs to, the draw phase it is in, when an object starts
-// a new life or jumps, and when the camera cuts. The game writes them as host markers into the GX stream
-// (galaxy/motion_signals.h), only while the renderer asks for them (__NebulaGXMarkers).
+// a new life or jumps, and when the camera cuts. The game writes them as host markers into the record stream
+// (galaxy/motion_signals.h), only while the renderer asks for them (NebulaRender::sDrawIdentities).
 namespace MotionSignal {
     // SceneFunction's draw phases in GameScene::draw3D (galaxy::motion::ScenePhase).
     enum ScenePhase {
@@ -57,7 +55,7 @@ namespace MotionSignal {
 
     // A J3D model's shape packet draws next (J3DShapePacket::prepareDraw).
     inline void drawShapePacket(const J3DShapePacket* pPacket) {
-        if (__NebulaGXMarkers != 0) {
+        if (NebulaRender::sDrawIdentities != 0) {
             drawShapePacketImpl(pPacket);
         }
     }
@@ -67,57 +65,57 @@ namespace MotionSignal {
     // resource name and the material's name, lower case), names the surface for the renderer's material table (the
     // ray tracer's light sources and materials, finer than their textures).
     inline void drawMaterial(const J3DShapePacket* pPacket) {
-        if (__NebulaGXMarkers != 0) {
+        if (NebulaRender::sDrawIdentities != 0) {
             drawMaterialImpl(pPacket);
         }
     }
 
     // A NameObj's own draw method runs next (the draw lists' delegator).
     inline void drawNameObj(const NameObj* pObj) {
-        if (__NebulaGXMarkers != 0) {
+        if (NebulaRender::sDrawIdentities != 0) {
             drawNameObjImpl(pObj);
         }
     }
 
     // An emitter's particles draw next (JPAResource::drawP, drawC for its children).
     inline void drawEmitter(const JPAResource* pResource, const JPABaseEmitter* pEmitter, bool child) {
-        if (__NebulaGXMarkers != 0) {
+        if (NebulaRender::sDrawIdentities != 0) {
             drawEmitterImpl(pResource, pEmitter, child);
         }
     }
 
-    // One particle draws next (its own GXBegin).
+    // One particle draws next (its own u8).
     inline void drawParticle(const JPABaseParticle* pParticle, bool child) {
-        if (__NebulaGXMarkers != 0) {
+        if (NebulaRender::sDrawIdentities != 0) {
             drawParticleImpl(pParticle, child);
         }
     }
 
-    // A particle of a stripe: its two vertices are written next, inside the stripe's one GXBegin (strip 0 JPADrawStripe,
+    // A particle of a stripe: its two vertices are written next, inside the stripe's one u8 (strip 0 JPADrawStripe,
     // 1 and 2 the passes of JPADrawStripeX).
     void stripeParticle(const JPABaseParticle* pParticle, u8 strip);
 
     // CategoryList::execute(MR::DrawType), drawOpa and drawXlu(MR::DrawBufferType).
     inline void drawType(u32 type) {
-        if (__NebulaGXMarkers != 0) {
+        if (NebulaRender::sDrawIdentities != 0) {
             categoryImpl(1, type);
         }
     }
 
     inline void drawBufferOpa(u32 type) {
-        if (__NebulaGXMarkers != 0) {
+        if (NebulaRender::sDrawIdentities != 0) {
             categoryImpl(2, type);
         }
     }
 
     inline void drawBufferXlu(u32 type) {
-        if (__NebulaGXMarkers != 0) {
+        if (NebulaRender::sDrawIdentities != 0) {
             categoryImpl(3, type);
         }
     }
 
     inline void phase(ScenePhase phase) {
-        if (__NebulaGXMarkers != 0) {
+        if (NebulaRender::sDrawIdentities != 0) {
             categoryImpl(4, phase);
         }
     }
@@ -125,13 +123,8 @@ namespace MotionSignal {
     // GameScene::drawMirror: the mirror's draws begin (after isDrawMirror) and end (before its clearZBuffer).
     void mirror(bool begin);
 
-    // Draws only the ray tracer's rays meet, never drawn to the picture (the player's body in the first-person view):
-    // whether the renderer takes them now (it traces the scene and reads the markers that keep them out of the
-    // picture; without both they would be drawn), and their bounds.
-    bool traceOnlyWanted();
-    void traceOnly(bool begin);
 
-    // GX light loads (LightFunction, MR::loadLightPlayer).
+    // light loads (LightFunction, MR::loadLightPlayer).
     void actorLight(const ActorLightInfo* pInfo);
     void coinLight(const LightInfoCoin* pInfo);
     void pointLight(const PointLightInfo* pInfo);
@@ -163,4 +156,3 @@ namespace MotionSignal {
     // CameraViewInterpolator::reduceOscillation took its target without blending: a camera cut.
     void cameraCut();
 };  // namespace MotionSignal
-#endif

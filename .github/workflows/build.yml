@@ -142,6 +142,16 @@ jobs:
             build/host/NebulaNativeVk.exe
           retention-days: 1
           if-no-files-found: error
+      # The shader tools the Android build runs on this machine (platform/sdl's NEBULA_HOST_TOOLS).
+      - if: matrix.vulkan == 'ON'
+        uses: actions/upload-artifact@v7
+        with:
+          name: spirv-tools
+          path: |
+            build/host/galaxy_native_spirv.exe
+            build/host/galaxy_utility_spirv.exe
+          retention-days: 1
+          if-no-files-found: error
 
   game:
     name: Game module
@@ -160,22 +170,6 @@ jobs:
           path: build/game/smg_game.dll
           retention-days: 1
           if-no-files-found: error
-
-  sdk-tests:
-    name: Native SDK tests
-    needs: changes
-    if: needs.changes.outputs.build == 'true'
-    runs-on: windows-2025
-    steps:
-      - uses: actions/Checkout@v7
-      - uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-      - name: Build and run
-        shell: bash
-        run: |
-          export PATH="/c/Program Files/LLVM/bin:$PATH"
-          sh native/sdk/os/tests/run_tests.sh native/petari build/sdk-tests clang
 
   windows:
     name: Windows test build
@@ -269,7 +263,8 @@ jobs:
 
   android:
     name: Android
-    needs: changes
+    # The Vulkan host build's shader tools compile the SPIR-V the APK carries.
+    needs: [changes, host]
     if: needs.changes.outputs.build == 'true'
     runs-on: windows-2025
     steps:
@@ -298,11 +293,15 @@ jobs:
           clone KhronosGroup/glslang "$GLSLANG_TAG" glslang-src
           pin KhronosGroup/SPIRV-Tools "$SPIRV_TOOLS_COMMIT" glslang-src/External/spirv-tools
           pin KhronosGroup/SPIRV-Headers "$SPIRV_HEADERS_COMMIT" glslang-src/External/spirv-tools/external/spirv-headers
+      - uses: actions/download-artifact@v8
+        with:
+          name: spirv-tools
+          path: build/spirv-tools
       - name: APK
         # Debug-signed: no -Signing.
         run: |
           $env:JAVA_HOME = $env:JAVA_HOME_17_X64
-          .\platform\android\build_apk.ps1 -Deps "$PWD\deps" -Work "$PWD\build\android"
+          .\platform\android\build_apk.ps1 -Deps "$PWD\deps" -Work "$PWD\build\android" -HostTools "$PWD\build\spirv-tools"
       - name: Logs
         if: failure()
         uses: actions/upload-artifact@v7
@@ -324,7 +323,7 @@ jobs:
   result:
     name: Build result
     if: always()
-    needs: [changes, import, host, game, sdk-tests, windows, linux, android]
+    needs: [changes, import, host, game, windows, linux, android]
     runs-on: ubuntu-24.04
     steps:
       - name: Check

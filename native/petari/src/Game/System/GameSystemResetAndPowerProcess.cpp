@@ -1,9 +1,6 @@
 #include "Game/System/GameSystemResetAndPowerProcess.hpp"
-#ifdef TARGET_PC
 #include "Game/System/NebulaAchievements.hpp"
-#endif
 #include "Game/LiveActor/Nerve.hpp"
-#include "Game/System/DrawSyncManager.hpp"
 #include "Game/System/GameSequenceFunction.hpp"
 #include "Game/System/GameSystemFunction.hpp"
 #include "Game/System/MainLoopFramework.hpp"
@@ -13,9 +10,11 @@
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/SingletonHolder.hpp"
-#include "Game/Util/TriggerChecker.hpp"
 #include "Game/Util/ValueControl.hpp"
-#include <JSystem/JUtility/JUTVideo.hpp>
+#include "Game/System/NebulaFrameClock.hpp"
+#include <nebula_game_api.h>
+
+extern "C" const NebulaHostServices* nebula_host(void);
 
 namespace {
     static const s32 sFadeinoutFrame = 30;
@@ -23,7 +22,7 @@ namespace {
 };  // namespace
 
 namespace NrvGameSystemResetAndPowerProcess {
-    NEW_NERVE(GameSystemResetAndPowerProcessPolling, GameSystemResetAndPowerProcess, Polling);
+    NEW_NERVE(GameSystemResetAndPowerProcessIdle, GameSystemResetAndPowerProcess, Idle);
     NEW_NERVE(GameSystemResetAndPowerProcessWaitResetPermitted, GameSystemResetAndPowerProcess, WaitResetPermitted);
     NEW_NERVE(GameSystemResetAndPowerProcessPrepareReset, GameSystemResetAndPowerProcess, PrepareReset);
     NEW_NERVE(GameSystemResetAndPowerProcessReset, GameSystemResetAndPowerProcess, Reset);
@@ -32,8 +31,7 @@ namespace NrvGameSystemResetAndPowerProcess {
 };  // namespace NrvGameSystemResetAndPowerProcess
 
 void GameSystemResetAndPowerProcess::init(const JMapInfoIter& rIter) {
-    initNerve(GET_NERVE(GameSystemResetAndPowerProcess, GameSystemResetAndPowerProcessPolling));
-    OSSetPowerCallback(GameSystemResetAndPowerProcess::handleOSPowerCallback);
+    initNerve(GET_NERVE(GameSystemResetAndPowerProcess, GameSystemResetAndPowerProcessIdle));
     appear();
 }
 
@@ -42,27 +40,22 @@ void GameSystemResetAndPowerProcess::draw() const {
         return;
     }
 
-    J2DOrthoGraphSimple graph;
-    graph.setPort();
+    MR::setupScreen2D();
 
     u8 alpha = MR::lerp(255, 0, mFadeinoutControl->getValue());
-    graph.setColor(static_cast< const GXColor& >(GXColor(Color8(0, 0, 0, alpha))));
-
-    f32 height = static_cast< s32 >(JUTVideo::getManager()->getRenderMode()->efbHeight);
-    f32 width = MR::getScreenWidth();
-    graph.fillBox(TBox2f(0.0f, 0.0f, width, height));
+    MR::drawScreenColor(Color8(0, 0, 0, alpha));
 }
 
-bool GameSystemResetAndPowerProcess::isActive() const NO_INLINE {
-    return !isNerve(GET_NERVE(GameSystemResetAndPowerProcess, GameSystemResetAndPowerProcessPolling));
+bool GameSystemResetAndPowerProcess::isActive() const {
+    return !isNerve(GET_NERVE(GameSystemResetAndPowerProcess, GameSystemResetAndPowerProcessIdle));
 }
 
 void GameSystemResetAndPowerProcess::setResetOperationApplicationReset() {
     mResetOperation = ResetOperation_ApplicationReset;
 }
 
-void GameSystemResetAndPowerProcess::setResetOperationReturnToMenu() {
-    mResetOperation = ResetOperation_ReturnToMenu;
+void GameSystemResetAndPowerProcess::setResetOperationQuit() {
+    mResetOperation = ResetOperation_Quit;
 }
 
 void GameSystemResetAndPowerProcess::requestReset(bool param1) {
@@ -73,32 +66,16 @@ void GameSystemResetAndPowerProcess::requestReset(bool param1) {
     }
 }
 
-void GameSystemResetAndPowerProcess::requestGoWiiMenu(bool param1) {
+void GameSystemResetAndPowerProcess::requestQuitGame(bool param1) {
     if (tryPermitReset()) {
         _5E = param1;
-        setResetOperationReturnToMenu();
+        setResetOperationQuit();
         setNerve(GET_NERVE(GameSystemResetAndPowerProcess, GameSystemResetAndPowerProcessWaitResetPermitted));
     }
 }
 
-void GameSystemResetAndPowerProcess::notifyCheckDiskResult(bool param1) {
-    _5C = true;
-
-    if (param1) {
-        return;
-    }
-
-    if (mResetOperation == ResetOperation_ApplicationReset) {
-        setResetOperationReturnToMenu();
-    }
-}
-
-void GameSystemResetAndPowerProcess::exePolling() {
-    if (tryAcceptPowerOff()) {
-        setNerve(GET_NERVE(GameSystemResetAndPowerProcess, GameSystemResetAndPowerProcessWaitResetPermitted));
-    } else if (mResetTriggerChecker->getOnTrigger()) {
-        setNerve(GET_NERVE(GameSystemResetAndPowerProcess, GameSystemResetAndPowerProcessWaitResetPermitted));
-    }
+// Resets come from the HOME Menu (requestReset, requestQuitGame).
+void GameSystemResetAndPowerProcess::exeIdle() {
 }
 
 void GameSystemResetAndPowerProcess::exeWaitResetPermitted() {
@@ -122,7 +99,6 @@ void GameSystemResetAndPowerProcess::exePrepareReset() {
         GameSystemFunction::prepareResetSystem();
         GameSystemFunction::resetAllControllerRumble();
         GameSystemFunction::forceToDeactivateHomeButtonLayout();
-        GameSequenceFunction::requestPrepareResetNWC24();
         GameSystemFunction::prepareResetSaveDataHandleSequence();
     }
 
@@ -141,28 +117,15 @@ void GameSystemResetAndPowerProcess::exePrepareReset() {
     }
 
     if (b) {
-        b = GameSequenceFunction::isEnableToResetNWC24();
-    }
-
-    if (b) {
-        GameSequenceFunction::resetNWC24();
         setNerve(GET_NERVE(GameSystemResetAndPowerProcess, GameSystemResetAndPowerProcessReset));
     }
 }
 
 void GameSystemResetAndPowerProcess::exeReset() {
-    if (MR::isFirstStep(this)) {
-        _5C = false;
+    GameSystemFunction::setPermissionToCheckInput(false);
 
-        DVDCheckDiskAsync(&mCommandBlock, GameSystemResetAndPowerProcess::handleCheckDiskAsync);
-    }
-
-    if (_5C) {
-        GameSystemFunction::setPermissionToCheckWiiRemoteConnectAndScreenDimming(false);
-
-        if (mResetOperation != ResetOperation_ApplicationReset) {
-            exitApplication();
-        }
+    if (mResetOperation != ResetOperation_ApplicationReset) {
+        exitApplication();
     }
 
     MR::setNerveAtStep(this, GET_NERVE(GameSystemResetAndPowerProcess, GameSystemResetAndPowerProcessWaitPrepareFadein), ::sResetWaitFrame);
@@ -185,63 +148,34 @@ void GameSystemResetAndPowerProcess::exeFadein() {
         GameSystemFunction::restoreFromResetSaveDataHandleSequence();
     }
 
-    if (tryAcceptPowerOff()) {
-        GameSystemFunction::restartControllerLeaveWatcher();
-        GameSystemFunction::restartSceneController();
-        setNerve(GET_NERVE(GameSystemResetAndPowerProcess, GameSystemResetAndPowerProcessWaitResetPermitted));
-    } else {
-        if (MR::isFirstStep(this)) {
-            mFadeinoutControl->setDirToOneResetFrame();
-        }
+    if (MR::isFirstStep(this)) {
+        mFadeinoutControl->setDirToOneResetFrame();
+    }
 
-        if (mFadeinoutControl->mFrame == mFadeinoutControl->mMaxFrame) {
-            GameSystemFunction::restartControllerLeaveWatcher();
-            GameSystemFunction::restartSceneController();
-            setNerve(GET_NERVE(GameSystemResetAndPowerProcess, GameSystemResetAndPowerProcessPolling));
-        }
+    if (mFadeinoutControl->mFrame == mFadeinoutControl->mMaxFrame) {
+        GameSystemFunction::restartSceneController();
+        setNerve(GET_NERVE(GameSystemResetAndPowerProcess, GameSystemResetAndPowerProcessIdle));
     }
 }
 
 void GameSystemResetAndPowerProcess::exitApplication() {
-#ifdef TARGET_PC
     // The counts Nebula's achievements hold for the host (jumps, coins, play time), before the game ends.
     NebulaAchievements::flushStats();
-#endif
-    DrawSyncManager::end();
-    MainLoopFramework::setForOSResetSystem();
-    VISetBlack(TRUE);
-    VIFlush();
-    VIWaitForRetrace();
+    MainLoopFramework::prepareForExit();
+    NebulaFrameClock::show(false);
+    NebulaFrameClock::waitFrame();
 
-    switch (mResetOperation) {
-    case ResetOperation_Restart:
-        OSRestart(0);
-        break;
-    case ResetOperation_ReturnToMenu:
-        OSReturnToMenu();
-        break;
-    case ResetOperation_RebootSystem:
-        OSRebootSystem();
-        break;
-    case ResetOperation_ShutdownSystem:
-        OSShutdownSystem();
-        break;
+    // The host closes the game for "leave the game", or starts it again; it does not return.
+    const NebulaHostServices* const host = nebula_host();
+    if (mResetOperation == ResetOperation_Quit) {
+        host->app_exit(host->user);
+    } else {
+        host->app_restart(host->user);
     }
 }
 
-bool GameSystemResetAndPowerProcess::tryPermitReset() NO_INLINE {
+bool GameSystemResetAndPowerProcess::tryPermitReset() {
     return !isActive();
-}
-
-bool GameSystemResetAndPowerProcess::tryAcceptPowerOff() {
-    if (!mIsValidPowerOff) {
-        return false;
-    }
-
-    mIsValidPowerOff = false;
-    mResetOperation = ResetOperation_ShutdownSystem;
-
-    return true;
 }
 
 bool GameSystemResetAndPowerProcess::isResetAcceptAudio() const {
@@ -253,23 +187,12 @@ bool GameSystemResetAndPowerProcess::isResetAcceptAudio() const {
 }
 
 void GameSystemResetAndPowerProcess::control() {
-    mResetTriggerChecker->update(OSGetResetButtonState() != FALSE);
     mFadeinoutControl->update();
 }
 
-void GameSystemResetAndPowerProcess::handleOSPowerCallback() {
-    SingletonHolder< GameSystemResetAndPowerProcess >::get()->mIsValidPowerOff = true;
-}
-
-void GameSystemResetAndPowerProcess::handleCheckDiskAsync(s32 result, DVDCommandBlock* pBlock) {
-    SingletonHolder< GameSystemResetAndPowerProcess >::get()->notifyCheckDiskResult(result != 0);
-}
-
 GameSystemResetAndPowerProcess::GameSystemResetAndPowerProcess()
-    : LayoutActor("\203\212\203\132\203\142\203\147\201\105\223\144\214\271" /* リセット・電源 */, false), mResetTriggerChecker(), mFadeinoutControl(), mResetOperation(ResetOperation_Restart), _5C(true),
-      mIsValidPowerOff(), _5E() {
-    mResetTriggerChecker = new TriggerChecker();
-
+    : LayoutActor("\203\212\203\132\203\142\203\147\201\105\223\144\214\271" /* リセット・電源 */, false), mFadeinoutControl(), mResetOperation(ResetOperation_Restart), _5C(true),
+      _5E() {
     mFadeinoutControl = new ValueControl(::sFadeinoutFrame);
     mFadeinoutControl->setOne();
 }

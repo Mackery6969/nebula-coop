@@ -93,7 +93,7 @@ std::filesystem::path SaveStore::folder(std::string_view id) const {
 bool SaveStore::write_info(const SaveInfo& info) const {
     std::ostringstream out;
     out << "name=" << info.name << '\n' << "file=" << info.file << '\n' << "last_played=" << info.last_played << '\n';
-    return io::write_text_file_atomically(folder(info.id) / kInfoFile, out.str());
+    return io::write_file_atomically(folder(info.id) / kInfoFile, out.str());
 }
 
 std::string SaveStore::create(std::string_view name, unsigned file) {
@@ -141,7 +141,7 @@ bool SaveStore::rename(std::string_view id, std::string_view name) {
 
 bool SaveStore::set_next_start(std::string_view id) {
     if (!valid_id(id)) return false;
-    return io::write_text_file_atomically(root_ / kNextStartFile, std::string(id) + "\n");
+    return io::write_file_atomically(root_ / kNextStartFile, std::string(id) + "\n");
 }
 
 std::string SaveStore::take_next_start() {
@@ -184,7 +184,7 @@ bool SaveStore::convert(const std::filesystem::path& nand_data, unsigned files,
             fs::copy_file(achievements, folder(id) / "achievements.ini", fs::copy_options::overwrite_existing, error);
         }
     }
-    return io::write_text_file_atomically(root_ / kConvertedFile, "1\n");
+    return io::write_file_atomically(root_ / kConvertedFile, "1\n");
 }
 
 bool SaveStore::converted() const {

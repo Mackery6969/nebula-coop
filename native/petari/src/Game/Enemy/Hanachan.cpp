@@ -20,16 +20,6 @@
 #include "Game/Util/StarPointerUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
 
-void Hanachan_FORCE_MATCH_SDATA2() {
-    (void)1.0f;
-    (void)0.0f;
-    (void)0.5f;
-    (void)3.0f;
-    (void)-1.0f;
-    (void)MR::pi();
-    (void)2.0f;
-}
-
 namespace {
     const f32 hFarDistToPursuePlayer = 2000.0f;
     // hPursuePlayerTurnLimitRadian
@@ -390,8 +380,6 @@ void HanachanParts::calcAndSetBaseMtx() {
 void HanachanParts::exeWalk() {
     if (MR::isFirstStep(this)) {
         MR::startAction(this, "Walk");
-        s32 frameMax = MR::getBckFrameMax(this, "Walk") - 1;
-        f32 unused = (frameMax + ::hWalkStep * mPartsIndex) % frameMax;
         MR::setBckFrameAndStop(this, ::hWalkStep * mPartsIndex);
         MR::setBckRate(this, ::hWalkAnimRate);
     }
@@ -428,9 +416,6 @@ void HanachanParts::exeTrample() {
             mIsLanded = true;
             changeHeadAngry();
             MR::startAction(this, "Walk");
-
-            s32 frameMax = MR::getBckFrameMax(this, "Walk") - 1;
-            f32 unused = (frameMax + mPartsIndex * ::hWalkStep) % frameMax;
 
             MR::setBckFrameAndStop(this, mPartsIndex * ::hWalkStep);
             MR::setBckRate(this, ::hAngryAnimRate);
@@ -624,9 +609,7 @@ void HanachanParts::exeOverturnWait() {
 
     if (!mIsLanded && MR::isBckStopped(this)) {
         MR::startAction(this, "OverturnWait");
-        s16 frameMax = MR::getBckFrameMax(this, "OverturnWait");
         s32 frame = mPartsIndex * ::hWalkStep;
-        f32 unused = ((frameMax - 1) + frame) % (frameMax - 1);
         MR::setBckFrameAndStop(this, frame);
         MR::setBckRate(this, ::hWalkAnimRate);
         mIsLanded = true;
@@ -1189,8 +1172,6 @@ bool Hanachan::isOwnSensor(HitSensor* pSensor) {
     return false;
 }
 
-#pragma push
-#pragma opt_propagation off
 void Hanachan::setNerveBlow(const TVec3f& rPos) {
     TVec3f dir = *getPosition() - rPos;
     MR::vecKillElement(dir, mGravity, &dir);
@@ -1226,7 +1207,6 @@ void Hanachan::setNerveBlow(const TVec3f& rPos) {
 
     setNerve(GET_NERVE(Hanachan, HanachanNrvHanachanBlow));
 }
-#pragma pop
 
 void Hanachan::applyPlayerHipDropReaction() {
     if (MR::isPlayerHipDropLand()) {

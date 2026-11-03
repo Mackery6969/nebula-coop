@@ -26,8 +26,7 @@
 #include "Game/Util/SoundUtil.hpp"
 #include <JSystem/JGeometry/TMatrix.hpp>
 #include <JSystem/JMath/JMath.hpp>
-#include <revolution/mtx.h>
-#include <revolution/types.h>
+#include <nebula_math.h>
 
 namespace {
     const char* sSensorNameList[] = {"Body", "BodyHipDrop"};
@@ -361,7 +360,7 @@ void BossStinkBug::updateJointControl() {
 
 void BossStinkBug::appearStarPiece(s32 num) {
     TVec3f offsetVec;
-    PSMTXMultVec(MR::getJointMtx(this, "Body"), ::sAppearStarPieceOffset, offsetVec);
+    NebulaMtxMultVec(MR::getJointMtx(this, "Body"), ::sAppearStarPieceOffset, offsetVec);
     MR::appearStarPieceToDirection(this, offsetVec, -mGravity, num, 30.0f, 40.0f, false);
     MR::startSound(this, "SE_OJ_STAR_PIECE_BURST");
 }

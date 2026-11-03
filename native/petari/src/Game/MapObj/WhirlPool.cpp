@@ -1,13 +1,15 @@
 #include "Game/MapObj/WhirlPool.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
 #include "Game/Map/WaterAreaHolder.hpp"
 #include "Game/Map/WhirlPoolAccelerator.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Util.hpp"
+#include "Game/Util/NativeShader.hpp"
 #include <JSystem/JUtility/JUTTexture.hpp>
-#include <revolution/gx/GXVert.h>
 
-GXColor sWhirlPoolTevReg1 = {0x28, 0x28, 0x28, 0x14};
-GXColor sWhirlPoolTevReg2 = {0x55, 0x96, 0xBE, 0xFF};
+NebulaColor8 sWhirlPoolTevReg1 = {0x28, 0x28, 0x28, 0x14};
+NebulaColor8 sWhirlPoolTevReg2 = {0x55, 0x96, 0xBE, 0xFF};
 
 WhirlPool::WhirlPool(const char* pName)
     : LiveActor(pName), mRadius(100.0f), mHeight(100.0f), mAxis(0.0f, 1.0f, 0.0f), mPointCount(), mPoints(), mRotation(), mTexOffsetU0(),
@@ -24,8 +26,8 @@ void WhirlPool::init(const JMapInfoIter& rIter) {
     mHeight = 100.0f * mScale.y;
     MR::calcActorAxisY(&mAxis, this);
     initPoints();
-    mTexture = new JUTTexture(MR::loadTexFromArc("WaterWave.arc", "Water.bti"), 0);
-    mIndirectTexture = new JUTTexture(MR::loadTexFromArc("WaterWave.arc", "WaterIndirect.bti"), 0);
+    mTexture = new JUTTexture(MR::loadTexFromArc("WaterWave.arc", "Water.bti"));
+    mIndirectTexture = new JUTTexture(MR::loadTexFromArc("WaterWave.arc", "WaterIndirect.bti"));
     initSound(4, false);
     mClippingCenter.set(mPosition);
     mClippingCenter.y -= mRadius / 2.0f;
@@ -121,7 +123,7 @@ void WhirlPool::drawPlane(f32 x0, f32 y0, f32 x1, f32 y1, f32 u0, f32 u1, f32 u2
     MR::makeMtxRotate(rotation, 0.0f, mRotation, 0.0f);
     rotation.mult(offset, offset);
     MR::makeMtxRotate(rotation, 0.0f, 25.0f, 0.0f);
-    GXBegin(GX_TRIANGLESTRIP, GX_VTXFMT0, mPointCount * 2);
+    J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, mPointCount * 2, NEBULA_SHAPE_COLOR0 | NEBULA_SHAPE_TEXCOORD0 | NEBULA_SHAPE_TEXCOORD0 << 1 | NEBULA_SHAPE_TEXCOORD0 << 2);
     const WhirlPoolPoint* pPoint;
 
     for (s32 i = 0; i < mPointCount; i++) {
@@ -134,92 +136,50 @@ void WhirlPool::drawPlane(f32 x0, f32 y0, f32 x1, f32 y1, f32 u0, f32 u1, f32 u2
         position.add(offset);
         rotation.mult(offset, offset);
 
-        GXPosition3f32(position.x + side.x * x0 + normal.x * y0, position.y + side.y * x0 + normal.y * y0, position.z + side.z * x0 + normal.z * y0);
-        GXColor4u8(0xFF, 0xFF, 0xFF, mPoints[i]->mAlpha);
-        GXTexCoord2f32(u0 + pPoint->mTexCoord, v0);
-        GXTexCoord2f32(u2 + pPoint->mTexCoord, v1);
-        GXTexCoord2f32(u0 + pPoint->mTexCoord, v2);
+        J3DNativeDraw::position(position.x + side.x * x0 + normal.x * y0, position.y + side.y * x0 + normal.y * y0, position.z + side.z * x0 + normal.z * y0);
+        J3DNativeDraw::color(0xFF, 0xFF, 0xFF, mPoints[i]->mAlpha);
+        J3DNativeDraw::texCoord(u0 + pPoint->mTexCoord, v0);
+        J3DNativeDraw::texCoord(u2 + pPoint->mTexCoord, v1);
+        J3DNativeDraw::texCoord(u0 + pPoint->mTexCoord, v2);
 
-        GXPosition3f32(position.x + side.x * x1 + normal.x * y1, position.y + side.y * x1 + normal.y * y1, position.z + side.z * x1 + normal.z * y1);
-        GXColor4u8(0xFF, 0xFF, 0xFF, mPoints[i]->mAlpha);
-        GXTexCoord2f32(u1 + pPoint->mTexCoord, v0);
+        J3DNativeDraw::position(position.x + side.x * x1 + normal.x * y1, position.y + side.y * x1 + normal.y * y1, position.z + side.z * x1 + normal.z * y1);
+        J3DNativeDraw::color(0xFF, 0xFF, 0xFF, mPoints[i]->mAlpha);
+        J3DNativeDraw::texCoord(u1 + pPoint->mTexCoord, v0);
         v0 += 0.01f;
-        GXTexCoord2f32(u3 + pPoint->mTexCoord, v1);
+        J3DNativeDraw::texCoord(u3 + pPoint->mTexCoord, v1);
         v1 += 0.01f;
-        GXTexCoord2f32(u1 + pPoint->mTexCoord, v2);
+        J3DNativeDraw::texCoord(u1 + pPoint->mTexCoord, v2);
         v2 += 0.01f;
     }
-
-    GXEnd();
 }
 
 void WhirlPool::loadMaterial() const {
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX1, GX_TEX_ST, GX_F32, 0);
-    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX2, GX_TEX_ST, GX_F32, 0);
-    GXClearVtxDesc();
-    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_TEX0, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_TEX1, GX_DIRECT);
-    GXSetVtxDesc(GX_VA_TEX2, GX_DIRECT);
-    GXLoadPosMtxImm(MR::getCameraViewMtx(), GX_PNMTX0);
-    GXSetCurrentMtx(GX_PNMTX0);
-    GXSetNumChans(1);
-    GXSetChanCtrl(GX_COLOR0A0, GX_DISABLE, GX_SRC_VTX, GX_SRC_VTX, GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
-    GXSetChanCtrl(GX_COLOR1A1, GX_DISABLE, GX_SRC_REG, GX_SRC_REG, GX_LIGHT_NULL, GX_DF_NONE, GX_AF_NONE);
-    GXSetNumTexGens(4);
-    GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX3x4, GX_TG_TEX0, GX_IDENTITY, GX_FALSE, GX_PTIDENTITY);
-    GXSetTexCoordGen2(GX_TEXCOORD1, GX_TG_MTX3x4, GX_TG_TEX1, GX_IDENTITY, GX_FALSE, GX_PTIDENTITY);
-    GXSetTexCoordGen2(GX_TEXCOORD2, GX_TG_MTX3x4, GX_TG_TEX2, GX_IDENTITY, GX_FALSE, GX_PTIDENTITY);
-    GXSetTexCoordGen2(GX_TEXCOORD3, GX_TG_MTX3x4, GX_TG_POS, GX_TEXMTX0, GX_FALSE, GX_PTIDENTITY);
-    MR::loadTexProjectionMtx(GX_TEXMTX0);
-    mTexture->load(GX_TEXMAP0);
-    JUTTexture screenTexture(MR::getScreenResTIMG(), 0);
-    screenTexture.load(GX_TEXMAP1);
-    mIndirectTexture->load(GX_TEXMAP2);
-    GXSetNumIndStages(1);
-    GXSetIndTexOrder(GX_INDTEXSTAGE0, GX_TEXCOORD2, GX_TEXMAP2);
-    GXSetTevIndWarp(GX_TEVSTAGE3, GX_INDTEXSTAGE0, GX_TRUE, GX_FALSE, GX_ITM_0);
-    f32 indirectMtx[2][3];
-    indirectMtx[0][0] = 0.2f;
-    indirectMtx[0][1] = 0.0f;
-    indirectMtx[0][2] = 0.0f;
-    indirectMtx[1][0] = 0.0f;
-    indirectMtx[1][1] = 0.2f;
-    indirectMtx[1][2] = 0.0f;
-    GXSetIndTexMtx(GX_ITM_0, indirectMtx, 0);
-    GXSetNumTevStages(4);
-    GXSetTevColor(GX_TEVREG0, sWhirlPoolTevReg1);
-    GXSetTevColor(GX_TEVREG1, sWhirlPoolTevReg2);
-    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR_NULL);
-    GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_TEXC, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO);
-    GXSetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
-    GXSetTevOrder(GX_TEVSTAGE1, GX_TEXCOORD1, GX_TEXMAP0, GX_COLOR_NULL);
-    GXSetTevColorIn(GX_TEVSTAGE1, GX_CC_ZERO, GX_CC_TEXC, GX_CC_CPREV, GX_CC_ZERO);
-    GXSetTevColorOp(GX_TEVSTAGE1, GX_TEV_ADD, GX_TB_ZERO, GX_CS_DIVIDE_2, GX_FALSE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE1, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE1, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_2, GX_FALSE, GX_TEVPREV);
-    GXSetTevOrder(GX_TEVSTAGE2, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
-    GXSetTevColorIn(GX_TEVSTAGE2, GX_CC_CPREV, GX_CC_A0, GX_CC_C0, GX_CC_CPREV);
-    GXSetTevColorOp(GX_TEVSTAGE2, GX_TEV_COMP_R8_EQ, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE2, GX_CA_RASA, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE2, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
-    GXSetTevOrder(GX_TEVSTAGE3, GX_TEXCOORD3, GX_TEXMAP1, GX_COLOR_NULL);
-    GXSetTevColorIn(GX_TEVSTAGE3, GX_CC_ZERO, GX_CC_TEXC, GX_CC_C1, GX_CC_CPREV);
-    GXSetTevColorOp(GX_TEVSTAGE3, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE3, GX_CA_APREV, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE3, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_FALSE, GX_TEVPREV);
-    GXSetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_NOOP);
-    GXSetAlphaCompare(GX_GREATER, 0, GX_AOP_OR, GX_GREATER, 0);
-    GXSetZMode(GX_TRUE, GX_LEQUAL, GX_TRUE);
-    GXSetZCompLoc(GX_TRUE);
-    GXSetCullMode(GX_CULL_NONE);
-    GXSetClipMode(GX_CLIP_ENABLE);
+    // runtime/src/render/materials/whirlpool.hlsl: the swirl (texture 0) over the screen behind (texture 1) warped by
+    // the indirect texture (texture 2); blended by its alpha where above zero, depth tested and written.
+    J3DNativeShape::setPosition(0, MR::getCameraViewMtx());
+    J3DNativeShape::setCurrentIdentity();
+    JUTTexture screenTexture(MR::getScreenResTIMG());
+    NebulaNativeMaterial material;
+    NativeShader::init(material, NEBULA_SHADER_WHIRLPOOL, NativeShader::BLEND_ALPHA, NEBULA_COMPARE_LEQUAL, true,
+                       NEBULA_CULL_NONE);
+    NativeShader::setColor(material, 0, sWhirlPoolTevReg1.r, sWhirlPoolTevReg1.g, sWhirlPoolTevReg1.b,
+                           sWhirlPoolTevReg1.a);
+    NativeShader::setColor(material, 4, sWhirlPoolTevReg2.r, sWhirlPoolTevReg2.g, sWhirlPoolTevReg2.b,
+                           sWhirlPoolTevReg2.a);
+    TPos3f screen;
+    MR::calcTexProjectionMtx(&screen);
+    for (u32 row = 0; row < 3; row++) {
+        for (u32 column = 0; column < 4; column++) {
+            material.constants[8 + row * 4 + column] = screen.mMtx[row][column];
+        }
+    }
+    // The warp: 0.2 screen texels per indirect step.
+    material.constants[20] = 0.2f / screenTexture.getWidth();
+    material.constants[21] = 0.2f / screenTexture.getHeight();
+    NativeShader::setTexture(material, 0, mTexture);
+    NativeShader::setTexture(material, 1, &screenTexture);
+    NativeShader::setTexture(material, 2, mIndirectTexture);
+    NativeShader::send(material);
 }
 
 WhirlPool::~WhirlPool() {

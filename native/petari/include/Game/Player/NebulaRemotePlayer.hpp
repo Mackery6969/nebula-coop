@@ -1,6 +1,5 @@
 #pragma once
 
-#ifdef TARGET_PC
 #include "Game/LiveActor/LiveActor.hpp"
 #include <nebula_game_api.h>
 
@@ -64,4 +63,3 @@ public:
     s32 mStompTimer;  // frames until their landing on the local Mario's head may squash him again
     bool mSolid;      // its sensor is on
 };
-#endif

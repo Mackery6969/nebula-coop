@@ -1,6 +1,5 @@
 #pragma once
 
-#include <revolution/types.h>
 
 class GalaxyMoveArgument;
 class UserFile;
@@ -29,8 +28,8 @@ namespace GameSequenceFunction {
     void requestGalaxyMove(const GalaxyMoveArgument&);
     void requestCancelScenarioSelect();
     void sendStageResultSequenceParam(const char*, s32, int, int);
-    bool hasStageResultSequence() NO_INLINE;
-    const char* getClearedStageName() NO_INLINE;
+    bool hasStageResultSequence();
+    const char* getClearedStageName();
     s32 getClearedPowerStarId();
     int getClearedStarPieceNum();
     int getClearedCoinNum();
@@ -44,7 +43,6 @@ namespace GameSequenceFunction {
     void reflectStageResultSequenceCoin();
     void resetStageResultSequenceParam();
     void startPreLoadSaveDataSequence();
-    void startTotalMailSizeSaveSequence();
     void startGameDataLoadSequence(int, bool);
     void startCreateUserFileSequence(int);
     void startDeleteUserFileSequence(int);
@@ -57,19 +55,13 @@ namespace GameSequenceFunction {
     bool isSuccessSaveDataHandleSequence();
     void restoreUserFile(UserFile*, int);
     void restoreUserFile(UserFile*, int, bool);
-    void tryNANDErrorSequence(s32);
-    void reserveUserName(const wchar_t*);
-    void requestPrepareResetNWC24();
-    bool isEnableToResetNWC24();
-    void resetNWC24();
+    void reserveUserName(const char16_t*);
     void storeSceneStartGameDataHolder();
     void updateGameDataAndSequenceAfterStageResultSequence();
     void startGameDataSaveSequence(bool, bool);
-#ifdef TARGET_PC
     // After startGameDataSaveSequence: the caller opens a system window once the save is done (SaveDataHandleSequence).
     void setGameDataSaveWindowFollows();
     // The save data read again from the NAND, as at the start, nothing of the last read kept: online co-op's save
     // folder changed (a missing file reads as a new console's).
     void startReloadSaveDataSequence();
-#endif
 };  // namespace GameSequenceFunction

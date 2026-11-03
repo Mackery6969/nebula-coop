@@ -2,14 +2,12 @@
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Screen/CoinCounter.hpp"
 #include "Game/Screen/MarioMeter.hpp"
-#ifdef TARGET_PC
 #include "Game/Screen/NebulaStarCounter.hpp"
-#endif
 #include "Game/Screen/PlayerLeft.hpp"
 #include "Game/Screen/StarCounter.hpp"
 #include "Game/Screen/StarPieceCounter.hpp"
 #include "Game/Util/DemoUtil.hpp"
-#include "Game/Util/GamePadUtil.hpp"
+#include "Game/Util/PlayerInputUtil.hpp"
 #include "Game/Util/LayoutUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
@@ -29,10 +27,8 @@ namespace NrvCounterLayoutController {
 CounterLayoutController::CounterLayoutController()
     : LayoutActor("\203\112\203\105\203\223\203\136\214\156\203\214\203\103\203\101\203\105\203\147\220\247\214\344" /* カウンタ系レイアウト制御 */, true), mPlayerNotMovingFrame(), _24(), mCoinCounter(), mStarPieceCounter(), mPlayerLeft(),
       mStarCounter(), mHPMeter() {
-#ifdef TARGET_PC
     mRoomStarCounter = nullptr;
     mAllTimeStarCounter = nullptr;
-#endif
 }
 
 void CounterLayoutController::init(const JMapInfoIter& rIter) {
@@ -47,12 +43,10 @@ void CounterLayoutController::init(const JMapInfoIter& rIter) {
     mPlayerLeft->initWithoutIter();
     mStarCounter = new StarCounter();
     mStarCounter->initWithoutIter();
-#ifdef TARGET_PC
     mRoomStarCounter = new NebulaStarCounter(NebulaStarCounter::Kind_Room);
     mRoomStarCounter->initWithoutIter();
     mAllTimeStarCounter = new NebulaStarCounter(NebulaStarCounter::Kind_AllTime);
     mAllTimeStarCounter->initWithoutIter();
-#endif
 
     appear();
 }
@@ -86,10 +80,8 @@ void CounterLayoutController::requestedTicoEat(bool param1) {
         mCoinCounter->kill();
         mPlayerLeft->kill();
         mStarCounter->kill();
-#ifdef TARGET_PC
         mRoomStarCounter->kill();
         mAllTimeStarCounter->kill();
-#endif
     }
 
     _24 = true;
@@ -113,10 +105,8 @@ void CounterLayoutController::showAllLayout() {
         mStarPieceCounter->forceAppear(false);
         mPlayerLeft->forceAppear();
         mStarCounter->appear();
-#ifdef TARGET_PC
         mRoomStarCounter->appear();
         mAllTimeStarCounter->appear();
-#endif
     }
 }
 
@@ -126,10 +116,8 @@ void CounterLayoutController::hideAllLayout() {
         mStarPieceCounter->disappear(false);
         mPlayerLeft->disappear();
         mStarCounter->disappear();
-#ifdef TARGET_PC
         mRoomStarCounter->disappear();
         mAllTimeStarCounter->disappear();
-#endif
     }
 }
 
@@ -149,8 +137,8 @@ bool CounterLayoutController::isPlayerMoving() const {
         return true;
     }
 
-    if (!MR::isNearZero(MR::getSubPadStickX(WPAD_CHAN0)) || !MR::isNearZero(MR::getSubPadStickY(WPAD_CHAN0)) ||
-        MR::testPadButtonAnyWithoutHome(WPAD_CHAN0) || MR::isCorePadSwing(WPAD_CHAN0) || MR::isSubPadSwing(WPAD_CHAN0)) {
+    if (!MR::isNearZero(MR::getMoveStickX(PLAYER_1)) || !MR::isNearZero(MR::getMoveStickY(PLAYER_1)) ||
+        MR::isHeldAnyWithoutHome(PLAYER_1) || MR::isMainSpin(PLAYER_1) || MR::isSubSpin(PLAYER_1)) {
         return true;
     }
 
@@ -176,10 +164,8 @@ void CounterLayoutController::killAllCoounter() {
     mStarPieceCounter->kill();
     mPlayerLeft->kill();
     mStarCounter->kill();
-#ifdef TARGET_PC
     mRoomStarCounter->kill();
     mAllTimeStarCounter->kill();
-#endif
 }
 
 bool CounterLayoutController::tryEndTicoEatStarPiece() {

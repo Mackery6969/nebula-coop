@@ -1,10 +1,14 @@
 #include "Game/MapObj/TrampleStar.hpp"
+#include "Game/Util/NativeShader.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
 #include "Game/LiveActor/AllLiveActorGroup.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Util.hpp"
-#include <JSystem/JKernel/JKRHeap.hpp>
+#include "Game/System/NebulaArena.hpp"
 #include <JSystem/JUtility/JUTTexture.hpp>
 
 namespace {
@@ -35,7 +39,7 @@ void TrampleStarShare::copy(TrampleStar* pTrampleStar) const {
     pTrampleStar->mNumVtxs = mTrampleStar->mNumVtxs;
 }
 
-TrampleStar::TrampleStar(const char* pName) : LiveActor(pName) {
+TrampleStar::TrampleStar(const char* pName) : LiveActor(pName), mIsLod(false) {
 }
 
 TrampleStar::~TrampleStar() {
@@ -45,7 +49,7 @@ void TrampleStar::init(const JMapInfoIter& rIter) {
     MR::initDefaultPos(this, rIter);
     MR::connectToScene(this, MR::MovementType_MapObj, MR::CalcAnimType_MapObj, MR::DrawBufferType_None, MR::DrawType_FlexibleSphere);
 
-    mTexture = new JUTTexture(MR::loadTexFromArc("TrampleStar.arc", "TrampleStar.bti"), 0);
+    mTexture = new JUTTexture(MR::loadTexFromArc("TrampleStar.arc", "TrampleStar.bti"));
 
     f32 scale = 500.0f;
     scale *= mScale.x;
@@ -154,15 +158,11 @@ void TrampleStar::init(const JMapInfoIter& rIter) {
                 }
             }
 
-            if (mVtxOverlap[vtxA] == -1 && mTexST[vtxA].x != 0.0f && mTexST[vtxA].y != 0.0f && mTexST[vtxA].x != 1.0f) {
-                // NOTE: this is a dummy to emit the above structure
-                f32 f1 = 0.0f;
-            }
         }
 
         toSphere(scale);
 
-        TrampleStarShare* shareStar = new TrampleStarShare(this);
+        new TrampleStarShare(this);
     }
 
     _A8 = new u8[mNumVtxs];
@@ -212,7 +212,6 @@ void TrampleStar::writeCheckFlag(u16 vtxA, u16 vtxB, u16 value) {
 }
 
 void TrampleStar::divide() {
-    // https://decomp.me/scratch/SCOGi
 
     initCheckFlag(mNumVtxs);
     u16 numSurfaces = mNumSurfaces;
@@ -324,9 +323,6 @@ void TrampleStar::calcSurface(bool calcDrawBuffers) {
         }
     }
 
-    DCStoreRange(mDrawPos, mNumDrawVtxs * 4 * 3);
-    DCStoreRange(mDrawNorm, mNumDrawVtxs * 4 * 3);
-    DCStoreRange(mDrawTex, mNumDrawVtxs * 4 * 2);
 }
 
 void TrampleStar::calcLodSurface() {
@@ -348,9 +344,6 @@ void TrampleStar::calcLodSurface() {
         }
     }
 
-    DCStoreRange(mDrawPos, mNumDrawVtxs * 4 * 3);
-    DCStoreRange(mDrawNorm, mNumDrawVtxs * 4 * 3);
-    DCStoreRange(mDrawTex, mNumDrawVtxs * 4 * 2);
 }
 
 void TrampleStar::onLod() {
@@ -428,7 +421,7 @@ void TrampleStar::exeBindingShoot() {
                     TVec3f up = mVtxs[mCaptureVtx];
                     MR::normalizeOrZero(&up);
 
-                    if (MR::getPlayerLevelA()) {
+                    if (MR::getPlayerHeldJump()) {
                         mJumpVel *= 1.5f;
                         MR::startSoundPlayer("SE_OJ_TRAMPOLINE_BOUND_L");
                         MR::startSoundPlayer("SE_PV_JUMP_JOY");
@@ -454,7 +447,7 @@ void TrampleStar::exeBindingShoot() {
             TVec3f up = mVtxs[mCaptureVtx];
             MR::normalizeOrZero(&up);
 
-            if (MR::getPlayerLevelA()) {
+            if (MR::getPlayerHeldJump()) {
                 mJumpVel *= 1.5f;
             }
 
@@ -491,14 +484,11 @@ u32 TrampleStar::calcNearestVtxIndex(const TVec3f& rPos) {
 
 void TrampleStar::draw() const {
     if (!MR::isDead(this)) {
-        TDDraw::setup(0, 1, 0);
-        GXSetZMode(GX_TRUE, GX_LEQUAL, GX_TRUE);
-        GXInvalidateVtxCache();
         drawSelf();
-        GXSetZMode(GX_TRUE, GX_LEQUAL, GX_TRUE);
+        J3DPass::depth(true, NEBULA_COMPARE_LEQUAL, true);
         MR::reinitGX();
-        GXSetAlphaUpdate(GX_TRUE);
-        GXSetDstAlpha(GX_TRUE, 0);
+        J3DPass::writeAlpha(true);
+        J3DPass::constantAlpha(true, 0);
     }
 }
 
@@ -564,9 +554,6 @@ void TrampleStar::drawSelf() const {
     }
 
     MR::ddSetVtxFormat(3);
-    mTexture->load(GX_TEXMAP0);
-    GXSetZCompLoc(GX_TRUE);
-    const_cast< JUTTexture* >(MR::getMarioShadowTexForLoad())->load(GX_TEXMAP1);
     TVec3f playerPos = *MR::getPlayerPos();
     TVec3f diff = mPosition - playerPos;
     TVec3f shadowPos = MR::getMarioShadowVec();
@@ -576,14 +563,14 @@ void TrampleStar::drawSelf() const {
     TPos3f mtx2;
 
     if (MR::vecKillElement(diff, shadowPos, &diff) > 0.0f) {
-        PSMTXTrans(mtx, -playerPos.x, -playerPos.y, -playerPos.z);
+        NebulaMtxTrans(mtx, -playerPos.x, -playerPos.y, -playerPos.z);
     } else {
-        PSMTXTrans(mtx, 1000000.0f, 1000000.0f, 1000000.0f);
+        NebulaMtxTrans(mtx, 1000000.0f, 1000000.0f, 1000000.0f);
     }
 
     MR::makeMtxRotate(rot, -*MR::getPlayerRotate());
 
-    PSMTXIdentity(mtx2);
+    NebulaMtxIdentity(mtx2);
 
     TVec3f front;
     MR::getPlayerFrontVec(&front);
@@ -601,7 +588,7 @@ void TrampleStar::drawSelf() const {
     }
 
     MR::makeMtxUpFront(&mtx2, -MR::getMarioShadowVec(), -front);
-    PSMTXInverse(mtx2, mtx2);
+    NebulaMtxInverse(mtx2, mtx2);
 
     MR::multMtx(mtx3, mtx, mtx2);
     TPos3f mtx4;
@@ -617,45 +604,25 @@ void TrampleStar::drawSelf() const {
     mtx4[1][3] = debug5;
     MR::multMtx(mtx3, mtx3, mtx4);
 
-    GXLoadTexMtxImm(mtx3, GX_TEXMTX1, GX_MTX3x4);
-    GXSetNumTevStages(3);
-    GXSetNumTexGens(2);
-    GXSetTevDirect(GX_TEVSTAGE0);
-    GXSetTevDirect(GX_TEVSTAGE1);
-    GXSetTevDirect(GX_TEVSTAGE2);
-    GXSetChanCtrl(GX_COLOR0, GX_TRUE, GX_SRC_REG, GX_SRC_REG, GX_LIGHT0, GX_DF_CLAMP, GX_AF_SPOT);
-    GXSetChanCtrl(GX_ALPHA0, GX_TRUE, GX_SRC_REG, GX_SRC_REG, GX_LIGHT2, GX_DF_CLAMP, GX_AF_SPOT);
-    GXSetChanCtrl(GX_COLOR1A1, GX_FALSE, GX_SRC_REG, GX_SRC_REG, GX_LIGHT_NULL, GX_DF_CLAMP, GX_AF_SPOT);
-    GXSetChanMatColor(GX_COLOR0A0, (GXColor)Color8(0xCC, 0xCC, 0xCC, 0xFF));
-    GXSetChanAmbColor(GX_COLOR0A0, (GXColor)Color8(0x7F, 0x7F, 0x93, 0xC3));
-    GXSetTevKColor(GX_KCOLOR0, (GXColor)Color8(0x00, 0x00, 0x00, 0xB4));
-    GXSetTevKColorSel(GX_TEVSTAGE0, GX_TEV_KCSEL_K0);
-    GXSetTevKAlphaSel(GX_TEVSTAGE0, GX_TEV_KASEL_K0_A);
-    GXSetTevColor(GX_TEVREG0, (GXColor)Color8(0xFF, 0xFF, 0xFF, 0x00));
-    GXSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
-    GXSetTevColorIn(GX_TEVSTAGE0, GX_CC_KONST, GX_CC_C0, GX_CC_RASC, GX_CC_ZERO);
-    GXSetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE0, GX_CA_KONST, GX_CA_ZERO, GX_CA_RASA, GX_CA_ZERO);
-    GXSetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_2, GX_TRUE, GX_TEVPREV);
-    GXSetTevOrder(GX_TEVSTAGE1, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR_NULL);
-    GXSetTevColorIn(GX_TEVSTAGE1, GX_CC_ZERO, GX_CC_CPREV, GX_CC_TEXC, GX_CC_APREV);
-    GXSetTevColorOp(GX_TEVSTAGE1, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    GXSetTevAlphaIn(GX_TEVSTAGE1, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_TEXA);
-    GXSetTevAlphaOp(GX_TEVSTAGE1, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
+    J3DNativeShape::setTexture(1, mtx3, 3);
+    // runtime/src/render/materials/trample_star.hlsl: blended by alpha, depth tested early and written, no culling.
+    NebulaNativeMaterial material;
+    TDDraw::setupNative(&material, 0, 1, 0);
+    material.shader = NEBULA_SHADER_TRAMPLE_STAR;
+    NativeShader::setDepth(material, true, NEBULA_COMPARE_LEQUAL, true);
+    material.early_depth = 1;
+    NativeShader::setColor(material, 0, 0xCC, 0xCC, 0xCC, 0xFF);
+    NativeShader::setColor(material, 4, 0x7F, 0x7F, 0x93, 0xC3);
+    material.constants[8] = 0xB4 / 255.0f;
+    material.constants[9] = MR::getPlayerShadowHeight() < MR::calcDistanceToPlayer(this) ? 0.0f : 1.0f;
+    NativeShader::setTexture(material, 0, mTexture);
+    NativeShader::setTexture(material, 1, MR::getMarioShadowTexForLoad());
+    NativeShader::send(material);
+    static const u8 kPlaces[8] = {J3DNativeShape::kIdentityTexture, 1, J3DNativeShape::kIdentityTexture, J3DNativeShape::kIdentityTexture,
+                                  J3DNativeShape::kIdentityTexture, J3DNativeShape::kIdentityTexture, J3DNativeShape::kIdentityTexture, J3DNativeShape::kIdentityTexture};
+    J3DNativeShape::setCurrent(0, kPlaces);
 
-    if (MR::getPlayerShadowHeight() < MR::calcDistanceToPlayer(this)) {
-        GXSetNumTevStages(2);
-        GXSetNumTexGens(1);
-    } else {
-        GXSetTexCoordGen2(GX_TEXCOORD1, GX_TG_MTX3x4, GX_TG_POS, GX_TEXMTX1, GX_FALSE, GX_PTIDENTITY);
-        GXSetTevOrder(GX_TEVSTAGE2, GX_TEXCOORD1, GX_TEXMAP1, GX_COLOR_NULL);
-        GXSetTevColorIn(GX_TEVSTAGE2, GX_CC_CPREV, GX_CC_ZERO, GX_CC_TEXC, GX_CC_ZERO);
-        GXSetTevColorOp(GX_TEVSTAGE2, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-        GXSetTevAlphaIn(GX_TEVSTAGE2, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_APREV);
-        GXSetTevAlphaOp(GX_TEVSTAGE2, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
-    }
-
-    GXBegin(GX_TRIANGLES, GX_VTXFMT0, mNumDrawVtxs);
+    J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLES, mNumDrawVtxs, MR::ddVtxAttributes());
     {
         TVec3f* pos = mDrawPos;
         TVec3f* norm = mDrawNorm;
@@ -669,9 +636,5 @@ void TrampleStar::drawSelf() const {
         }
     }
 
-    GXEnd();
 }
 
-void TrampleStar_FORCE_MATCH_TEXTURE(const ResTIMG* pImage) {
-    new JUTTexture(pImage, 0);
-}

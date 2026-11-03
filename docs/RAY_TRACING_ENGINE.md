@@ -26,20 +26,20 @@ is not traced and shows the game's picture.
 - Sky: radiance per direction from the traced sky map (octahedral, 64x64, linear); its SH-9 for hit shading. The light
   it sends onto surfaces keeps 0.4 of the backdrop's chroma (a painted sky is far more saturated than a sky's light:
   the game's blue holds 10-15 x its red in linear light, a clear sky's light 2-3 x); reflections show it as drawn.
-- Emitters: radiance L = table colour (linear) x table intensity, or the draw's TEV output x intensity. A light source
+- Emitters: radiance L = table colour (linear) x table intensity, or the draw's stage output x intensity. A light source
   (intensity 1 or more: Lumas, lamps and electricity 6-8, star bits 3) lights the scene at that radiance; its own
   surface is shown at most 1.5 x white so its colour survives the tone curve. A faint glow (intensity below 1: coins,
   star chips, Boos, glowing flowers) is a surface lit, shaded and reflecting as any other, its glow (colour x intensity)
   added, and sends that glow as light. Power pi L A (one-sided), 2 pi L A (two-sided). A particle texture the table
   names a light source, drawn as opaque geometry, is traced (the fire bars' cores). An emitting triangle's radiance is
-  its TEV output's mean over seven points (97752e9 lost the division: every model light source lit the scene at seven
-  times its stated radiance until b90). A light source shows its emitted colour (the TEV output at full light, or the
+  its stage output's mean over seven points (97752e9 lost the division: every model light source lit the scene at seven
+  times its stated radiance until b90). A light source shows its emitted colour (the stage output at full light, or the
   table's for `recolour`) times its radiance past the composite's albedo, so an environment-mapped lamp keeps its
   colour; a faint glow adds its glow in the game's painted colours of it (a coin's gradient and embossed ?).
   `near-glow`: a material emits only within 1.25 x the size of a glow light source's light (the game's glow sprite of
   it): the Observatory's entrance stars share one material and one draw with their gold border.
 - Exposure: stage exposure (CPU, from the stage light) x eye adaptation (GPU, eased), applied once where scene light
-  enters the HDR scene EFB (composite, emission pass). The camera's tone curve is the only compression. The
+  enters the HDR scene frame (composite, emission pass). The camera's tone curve is the only compression. The
   adaptation meters the light the surfaces receive centre-weighted (the picture's middle, where the player is, four
   times) to a fifth of the full light, as a camera meters its subject, at most 4 x (a night stays darker than a day),
   with highlight priority: no further than shows the brightest tenth of the surfaces at the stage's full light
@@ -48,7 +48,7 @@ is not traced and shows the game's picture.
   sprites (halos, flares, fire cards) stay as the game drew them for the display, except a `recolour` light source's:
   shown in the table's colour at the sprite's peak (the Observatory's lamp orbs, tinted pale blue by the game, warm
   white). Glow sprites a table names a light source are area lights from their drawn triangles (GlowEmitterCS); a
-  `tint` one emits what it draws: its TEV output over each triangle (16 points, textures filtered over each point's
+  `tint` one emits what it draws: its stage output over each triangle (16 points, textures filtered over each point's
   share), linear, times what its source blend factor passes (an alpha-blended flame its colour over its alpha's
   coverage), times the table's radiance, so a fire's light follows the game's colour keys and fading. A `volume` glow
   (a glowing volume the game draws as geometry: the Dreadnought's beam-go-round flame beams) emits as its sprites do,
@@ -62,7 +62,7 @@ is not traced and shows the game's picture.
   haze or dust) emit their drawn colour (`emitter+tint`), each group's brightest drawable colour at a large fire's
   luminance: 1.38 x a white surface under a full light of 100,000 lx (a hydrocarbon fireball's peak surface emissive
   power, 450 kW/m2, at emissivity 1: 1678 K; Planck x CIE 1931). That colour comes from the effect archive (the
-  port's tools/fire_rows.py): JPA's TEV stage 0 (JPABaseShape::st_ca, over prm and env and their colour keys) with a
+  port's tools/fire_rows.py): JPA's stage stage 0 (JPABaseShape::st_ca, over prm and env and their colour keys) with a
   texel of 1 bounds what a particle can draw; the row's intensity is 1.38 over its luminance. A meteor's impact is a
   hypervelocity impact flash, not a fire: measured on the Moon at 1,300-5,800 K (NELIOTA's two-band flashes, 85 %
   2,000-4,500 K) and at 2,500-5,000 K in the laboratory; its group is taken at the measured range's cool end, 1,850 K
@@ -73,7 +73,7 @@ is not traced and shows the game's picture.
   (MeteoriteBreak00's white-yellow debris). The fire textures' own rows emit their drawn colour at 1: smoke drawn with
   them (black smoke, extinguished fire) sends its own dark colour, a blue fire blue.
 - Metals: where the game maps an environment onto a metal, its specular colour is what the material passes of that
-  environment (TEV with the map white less TEV with it black), weighted by how much of its look the map carries; in
+  environment (stage with the map white less stage with it black), weighted by how much of its look the map carries; in
   the hue of its own colour where that is a coloured metal's (saturated: gold, copper), neutral for a grey metal's
   cast. A metal of a colour no metal has (saturated, hue outside 8-60 degrees: teal, blue, green, olive, violet, pure
   red) is paint over metal: a dielectric, its colour its albedo, F0 0.04, a gloss lacquer (roughness at most 0.2).
@@ -93,7 +93,7 @@ is not traced and shows the game's picture.
   Jerlov's coastal types), dimmed by the water above the camera at Kd. The water carries the stage's light into its
   caves as it is lit from above. The game's own filter (WaterCameraFilter: red and green lowered with the depth) still
   follows the composite.
-- Fog: each traced draw's GX fog (type, A, B magnitude and shift, C, colour: the draw table's words 12-15).
+- Fog: each traced draw's fog (type, A, B magnitude and shift, C, colour: the draw table's words 12-15).
   EngineGBufferCS evaluates the raster's share at the pixel as the hardware does (ze = A 2^24 / (B - z >> shift) in
   perspective, A z / 2^24 orthographic; f = saturate(ze - C) through the exponential types; 1/256 steps). The composite
   takes the fog out of the game's colour, (c - fc f) / (1 - f), lights that, and lays the fog over the lit surface in
@@ -120,7 +120,7 @@ is not traced and shows the game's picture.
   back faces. The art paints white water white and clear water in its hue (the row's colour): the painted colour lies
   between the two, and how far towards white is the share of white water (fall_foam), a foam of bubbles and drops,
   white at the painted brightness (bubbles scatter every colour alike: the colour less the clear water's hue amplified
-  any departure of the traced TEV colour from the art's line into a hue, the Twin Falls' streaks pink and Beach Bowl's
+  any departure of the traced stage colour from the art's line into a hue, the Twin Falls' streaks pink and Beach Bowl's
   cyan), times the row's `white<n>` (the Twin Falls 0.5, half their painted streaks; `unpainted` 0). The rest is clear
   water, whose bubbles scatter its `aeration` (the row's; else 0.36; the Twin Falls 0, Beach Bowl 0.2: its glassy lip and
   its white fall one haze) and which passes what lies behind it. White water is a layer lit from both sides
@@ -136,7 +136,7 @@ is not traced and shows the game's picture.
   wherever it is not behind the scene (a fall pours down its cliff within a few units of it). The game's opaque sheets
   (Beach Bowl's falls with their splash cloud, the Twin Falls, Onimasu's stream: `traced solid` identity rows) are
   hidden, so the frame shows what lies behind, and the clear pass makes them water (clear_fall): the same split from
-  the draw's own TEV colour (its indirect stages evaluated: the Twin Falls' column warps its fall texture through an
+  the draw's own stage colour (its indirect stages evaluated: the Twin Falls' column warps its fall texture through an
   indirect map) where its alpha test passes, water's thin-sheet Fresnel (n 1.333) and pure water's absorption over the
   sheet's thickness (Pope and Fry 1997: 84, 97, 100 % through half a metre; the row's range). What they pass is
   refracted (screen-space, fall_through): the sheet is a thin prism whose thickness slopes with its faces' corrugations
@@ -148,16 +148,16 @@ is not traced and shows the game's picture.
   scene only after the frame's lighting, so what lies in front of them takes the light of the surface behind.
 - Waterfall mist (the table's `mist` effects: the spray at the falls' feet, the Twin Falls', Beach Bowl's, Honeyhive's):
   the game paints its spray as cloud sprites (lobed, opaque, tinted blue). Under the engine each sprite is a puff of
-  drops instead (GxBackend::note_rt_mist): a Gaussian cloud at the sprite's quad centre (its corners through its
+  drops instead (RenderCore::note_rt_mist): a Gaussian cloud at the sprite's quad centre (its corners through its
   position matrix), sigma half the quad's half side (the cloud reaches the quad's edges at two sigma), optical depth
-  through its centre its row's `intensity` times the sprite's opacity (TEV register 0's alpha, JPA's particle colour):
+  through its centre its row's `intensity` times the sprite's opacity (stage register 0's alpha, JPA's particle colour):
   4 for the cloud sprites (as opaque at the core as the painted cloud), 1.6 for steam, 0.8 for the droplets' dot
   sprites (over the mist they were white speckle), by each texture's coverage. The sprites are not drawn. MistLightCS
   lights each puff at the water's trace: the share of the sun it sees (32 shadow rays from fixed points over it, the
   scene's sun shadow with its clear solids passed: the falls are water) and the light from the sky above it (16 fixed
   upward rays: the sky's radiance, else the surface met lit as the clear pass lights its hits; the radiance cache's
   cells come and go between frames and the mist's colour swung with them), every ray's hash salt its own; and the
-  water's surface below it. MistCompositePS integrates the puffs along each camera ray up to the EFB's surface and above
+  water's surface below it. MistCompositePS integrates the puffs along each camera ray up to the frame's surface and above
   the water under each puff (Gaussian columns, erf): what lies behind passes exp(-depth), the mist adds 0.9 x its light
   (a dense spray is a white cloud whose lit face the eye sees: as white as a surface facing that light) times one minus
   that. Turbulence: value noise anchored in the world at the mist's mean point along the ray, rising half a metre a
@@ -180,7 +180,7 @@ is not traced and shows the game's picture.
 | UVs, vertex colours | GeometryCS | g_tri_uv 72 B/tri |
 | BVH: scene (mask 1), late occluders, water, sky | build_tlas | TLAS |
 | Draw materials | add_draw | engine material records (sec. 4) |
-| TEV programs for hit colour | note_tev | g_tev 128 B + stages; rt_tev.hlsli |
+| stage programs for hit colour | note_tev | g_tev 128 B + stages; rt_tev.hlsli |
 | Textures, de-light maps | texture_view, delight_view | SM 6.6 heap |
 | Emissive triangles + power CDF | EmitTriangleCS, EmitScanCS, GlowEmitterCS | g_emit_tris |
 | Traced sky map + SH | SkyProbeCS, SkyTraceShCS | sky buffers |
@@ -207,7 +207,7 @@ lists every model's materials, identities and textures from the disc (port/table
 | 0 | class (opaque, metal, glass, crystal, emitter, foliage card, star surface) 4b, flags (two-sided, no shadow, alpha test, de-lit) 12b, roughness unorm8, metallic unorm8 |
 | 1 | emission: intensity (half) and kind (none, surface, volume) |
 | 2 | emission colour RGBA8 (linear after decode) |
-| 3 | TEV record index (hits), de-light map view |
+| 3 | stage record index (hits), de-light map view |
 | 4-7 | material texture view, alpha map view + alpha_from, colour source (vertex / register), spare |
 
 ## 5. Frame
@@ -217,7 +217,7 @@ slot, rewritten each frame: no root-signature limits).
 
 | # | Pass | Resolution | Output |
 |---|---|---|---|
-| E1 | GBufferCS | full | normal (oct16x2), face normal, albedo (linear, de-lit: EFB colour x exp(-painted shading), the painted reflection out by its luminance share (its tint kept), past 1 scaled by its brightest channel: hue kept), roughness, metallic, class, emission (only inside the table's glowing region of an atlas), eye z, draw id |
+| E1 | GBufferCS | full | normal (oct16x2), face normal, albedo (linear, de-lit: frame colour x exp(-painted shading), the painted reflection out by its luminance share (its tint kept), past 1 scaled by its brightest channel: hue kept), roughness, metallic, class, emission (only inside the table's glowing region of an atlas), eye z, draw id |
 | E1b | LightGridCS | 24^3 cells of 256 units about the camera, 64 slots each | grid-based light reservoirs (ReGIR: Boksansky, Jukarainen and Wyman, Ray Tracing Gems II, 2021): each slot resamples 8 lights drawn by power by their light at the cell (power over the squared distance from its centre, the cell's half diagonal added); a surface in a cell draws its light candidates from its slots, each weighed by its slot's resampling weight (chained RIS), outside the grid by power. Drawn by power alone, the scene's biggest lights (the star core, a lava sea) took the candidates wherever a surface was, and a lamp, laser or fireball beside it went unfound |
 | E2 | DirectInitialCS | full | the sun's disc (one direction: interleaved gradient noise across pixels, the R2 sequence across frames; a shadow ray; kept as the penumbra its blocker makes, 0.5 d tan(radius), and the water its light crosses); ReSTIR DI: 8 (16 high) light candidates (emissive triangles and the game's point lights, from the surface's light grid cell, E1b), temporal reuse (reprojected, M cap 20 x candidates, depth / normal checks) through the light remap (below): a reservoir keeps its light and the point on it, and its sample is rebuilt from the light as this frame has it; then the boiling filter (below) |
 | E3 | DirectSpatialCS | full | 4 spatial neighbours (30 px at 1056 lines: footprints below; normal > 0.9, depth 10%) combined by the generalized balance heuristic (below), final shadow ray, diffuse irradiance and specular (GGX) of the kept light; an occluded sample stays in its reservoir; reservoir stored as its light, the point on it (a triangle's barycentrics, a sphere's world direction), W and M: 16 bytes |
@@ -227,10 +227,10 @@ slot, rewritten each frame: no root-signature limits).
 | E5d | MistLightCS (the water's trace) | per puff | the waterfall mist's puffs (above): the sun's share by 32 shadow rays, the light from above by 16 rays (sky, or the hit lit as the clear pass lights it), the water's surface under it, exposed; MistCompositePS after the water's composites (scissored to the puffs' reach) |
 | E5c | CacheCS | 1M cells | the world's radiance cache (below): each cell's new samples from E4's and E5's hits onto its light |
 | E5b | ClearCS (the water's trace) | full | the water window's glass and crystal by their own geometry (closest-hit traversal of the water acceleration structure): up to two thin walls along the camera ray (front, far side), each R = 2F/(1+F), T = (1-F)/(1+F) of the exact dielectric Fresnel (n 1.5), a traced GGX reflection and the sun's highlight; ClearCompositePS with the water's composite: picture behind x T + R, exposed. A `traced` material's game draw is hidden but still captured. A `traced solid` (the crystal cages: the game draws them as a screen capture bent by an indirect map, which can only show what is behind them on screen) stays in the scene for the other rays and is no camera ray's surface; here it is a closed dielectric (its row's index, `ior<n>`, else quartz's 1.544; the crystal cages take moissanite's 2.65: 20.7 % reflected at normal incidence, where quartz's 4.6 % mirrored almost nothing beside them; RTX Remix's translucent material without thin walls, Whitted's recursion as in Unity HDRP's recursive rendering): the front face's Fresnel reflection and sun highlight, the refracted ray followed inside up to 16 segments, each far face passing its Fresnel share out (none past the critical angle: 40.4 degrees for quartz, 22.2 for moissanite) and reflecting the rest on, what is still inside then leaving as the light that left (total internal reflection holds some rays for many faces: at 8 segments about 1 % of a crystal's light on average, 20 % at worst, was lost), the row's colour as the transmittance after its range (Beer-Lambert); the first share out is the picture where the picture shows what it meets (its pixel kept in the record), the others shaded as the frame lit their hits (g_final) or as a glass reflection's. Records are 32 B: R, T per channel, eye z, the pixel seen through |
-| E6 | DenoiseTemporalCS | full | diffuse (demodulated: the lights' and the bounce; the sun's is E3b's) and specular histories, reprojection by depth / normal / draw id (the raster's motion where a surface moved: below), moments, history length; variance clipping of specular history; anti-lag of the diffuse history (a 4-frame fast history of its luminance against the moments' mean: past 1.5 x the frames' deviation the history shortens, to 4 frames at most); a new sample past twice its brightest neighbour lowered to that (fireflies; lowered to the neighbours themselves, the first pixels to find a small light never entered the history) |
-| E7 | DenoiseAtrousCS x4 + log2(lines / 1056) | full | variance-guided a-trous (steps 1, 2, 4, 8, 16 at 2112 lines): depth plane, normal^p (p 2 at one frame of history to 64 from eight: moving characters), luminance / sqrt(variance); half-res GI joins through a joint bilateral upsample in the first step; a reflection spreads no wider than its lobe (none below roughness 0.05, full from 0.3) |
+| E6 | DenoiseTemporalCS | full | diffuse (demodulated: the lights' and the bounce; the sun's is E3b's) and specular histories with moments and history length. Diffuse: reprojected by depth / normal (the raster's motion where a surface moved: below). Specular: the surface's history or its reflection's virtual image's, each by its confidence (below). Anti-lag of each (a 4-frame fast history of its luminance against the moments' mean: past 1.5 x the frames' deviation the history shortens, to 4 frames at most). A new direct sample past twice its brightest neighbour lowered to that (fireflies; lowered to the neighbours themselves, the first pixels to find a small light never entered the history), a reflection the same without a history and with one at most (2 + 38 / (N + 1)) x its history's luminance (NRD's suppressor) |
+| E7 | DenoiseAtrousCS x4 + log2(lines / 1056) | full | variance-guided a-trous (steps 1, 2, 4, 8, 16 at 2112 lines): depth plane, normal^p (p 2 at one frame of history to 64 from eight: moving characters), luminance / sqrt(variance); half-res GI joins through a joint bilateral upsample in the first step; a reflection within its lobe's footprint on screen, normals within the lobe's half-angle and like roughness, against the variance its history leaves (below); the first step's result is each history |
 | E7b | FinalCS | full | the sun's diffuse and specular light by E3b's visibility (its facing from the disc's centre, the water's tint) onto the a-trous result; the slot's result at the exposure |
-| E8 | CompositePS | full | albedo x diffuse + specular + emission, x exposure, sRGB-encoded into the HDR scene EFB |
+| E8 | CompositePS | full | albedo x diffuse + specular + emission, x exposure, sRGB-encoded into the HDR scene frame |
 | E9 | The game's additive draws | full | drawn as the game drew them (gain 1): halos, sparks, number plates, flames are display effects; their light reaches the scene as emitting geometry (raised to radiance x exposure, b40-b71, whole halos saturated into white blobs) |
 | E10 | Camera | full | adaptation from the scene's log luminance (up to 4x for dim views; highlight priority both ways, down to half: the brightest tenth of surfaces no brighter than the stage's own light on a surface facing it, as the camera's stage exposure shows it), a stage sun at 1.25 x the stage's key (GALAXY_RT_SUN_STRENGTH) with the camera exposed for the stage's own light, bloom, sun shafts (screen-space radial gather from a visible sun, quarter resolution, weighted by Henyey-Greenstein g 0.76 forward scattering of the pixel's angle from the sun and the air in front of its surface, 1 - exp(-d / sky distance); samples above 8 clamped), tone curve |
 
@@ -242,22 +242,27 @@ at its own sheet. The front records (the open air's and the fall's light per sam
 g_final; a sample's .w is 0 (the fall's light there was read as CaptureCS's halo, bloom, since 15ba5e16).
 
 The effects layer: the game's effects (from its ShadowSurface draw type 0x26, the first list after the translucent ones
-in GameScene::draw3D, to the water's trace) draw into two more targets as they blend into the EFB: their colour (L) and
-what of the EFB behind them they let through (T, the blend's destination factor), so the frame is L + T B. The water's
+in GameScene::draw3D, to the water's trace) draw into two more targets as they blend into the frame: their colour (L) and
+what of the frame behind them they let through (T, the blend's destination factor), so the frame is L + T B. The water's
 and the clear surfaces' composites (and the mist's) go under them: B = (F - L) / T, then L + T B'. Before, the
 composites ran after the effects and painted over the spray (the cover mask that was to keep them was empty: the
-game's EFB is RGBA6, so every source-alpha blend was dual-source and wrote no reactive mask). In motion scenes those
+game's frame is RGBA6, so every source-alpha blend was dual-source and wrote no reactive mask). In motion scenes those
 blends are single-source (the destination alpha the game reads is constant 0: kRenderStateZeroAlpha) and write the
 reactive mask; water drawn inside the window (OceanBowl, phase 8) stays out of the layer.
 
 Start: the ray tracer's compute pipelines compile in parallel (pso_jobs.h; the device's pipeline creation is
 free-threaded). On a cold driver cache (each build's first start) they took 26-33 s one after another before the first
-frame, 1.6-1.8 s in parallel.
+frame, 1.6-1.8 s in parallel. A tracer starts on a worker thread (RendererD3D12::start_ray_tracer) while the frames
+draw without ray tracing, and takes over at a frame's start with the inputs the scene gave the one it replaces
+(SceneRayTracer::adopt_inputs): turning ray tracing on never holds the window.
 Sub-frames re-run E8 per sub-frame with reprojection from their traced slot (kLightSlots results kept: diffuse,
-specular, eye z, camera).
+specular, eye z, camera). Their replay is recorded once per sequence, so every pass in it reads its frame's slot,
+never the tracer's current state (the next frame's, or none while its scene is open): the camera (camera_finish) takes
+the slot ReplayKind::HdrEnd keeps and the slot's physical flag, and turns the shafts' sun into the sub-frame's camera
+by write_reprojection's rows.
 
 The water's trace runs renderer frames after the trace (a game frame spans several): the draws' tables (draw table,
-texture table, TEV records) it and the glass pass read are uploaded again into its own frame's ring
+texture table, stage records) it and the glass pass read are uploaded again into its own frame's ring
 (refresh_draw_tables); read from the trace's ring, since reused, they hung the GPU under Dusty Dune's crystals.
 The water pass makes its own samples' buffers (RtReflections::ensure_buffers without the opaque pass's): the opaque
 pass made them before the engine took its place, and from then to b103 the water pass refused every frame (no water
@@ -274,7 +279,7 @@ late: the restart closed the water window untraced).
 Player choices (Graphics, RAY TRACING; `render_config.h` `rt_effect_on`, read each frame): REFLECTIONS (E5 and E5b,
 `SceneRayTracer::surface_reflections_active`; off, the composite keeps each surface's painted reflection in its albedo
 and metals take diffuse light, so they show the game's own reflection, and glass and crystal are the game's draws
-again), WATER REFLECTIONS (the water draws join the water window, `GxBackend::rt_water_draw`; off, the game's water),
+again), WATER REFLECTIONS (the water draws join the water window, `RenderCore::rt_water_draw`; off, the game's water),
 SUN RAYS and LENS BLOOM (E10's shafts and pyramid, independent). There is no switch for the bounce light: E4 also
 carries the sky's light, which needs a fallback before it can be turned off. Tests: GALAXY_TEST_RT_EFFECT_AB turns one
 off in frames that end in an odd present, so at 60 fps consecutive presents of one run show it on and off.
@@ -312,7 +317,8 @@ off in frames that end in an odd present, so at 60 fps consecutive presents of o
   gradient samples at the last frame's visibility points) against the shade the reservoir kept, and
   flags its own kept sample when its light is new (engine_light_existed: the remap's other way). Over a 5 x 5
   neighbourhood the mean of the relative change and of the new flags (the new lights' share of the light) is the light
-  change; the diffuse and specular histories weigh this frame (1 - change) / length + change, and ReSTIR GI's temporal
+  change; the diffuse history weighs this frame (1 - change) / length + change (the specular history the new lights'
+  share alone: below), and ReSTIR GI's temporal
   reservoir keeps (1 - change) of its weight (Remix's validateLightingChange drops such samples). The diffuse
   history's own anti-lag compares a fast and a slow history against their variance, which a flash inflates: after a
   meteor's impact the picture held 0.36 of the full light on the ground 150 frames after the light had gone to 0.01,
@@ -336,11 +342,29 @@ off in frames that end in an odd present, so at 60 fps consecutive presents of o
   reference's 8 bounces. GALAXY_RT_ENGINE_CACHE=0 turns it off.
 - ReSTIR GI: sample = (hit position, hit normal, outgoing radiance); spatial reuse with the solid-angle Jacobian and
   a shadow ray for the reused sample.
-- Denoiser: SVGF (Schied 2017) with ReLAX's history clamping for specular and ReBLUR's fast-history anti-lag for
-  diffuse; history length cap 32 (diffuse), 16 (specular). The sun's shadow apart (E3b, after SIGMA): in the diffuse
-  history (32 frames unclamped) and its a-trous it took half a second to form and to leave, and blurred to blobs.
+- Denoiser: SVGF (Schied 2017) with ReBLUR's fast-history anti-lag for both histories; history length cap 32. The
+  sun's shadow apart (E3b, after SIGMA): in the diffuse history (32 frames unclamped) and its a-trous it took half a
+  second to form and to leave, and blurred to blobs.
+- Specular history (after NVIDIA's ReBLUR, Zhdan's GTC 2020 talk and the NRD shaders; our own code). A reflection
+  moves with what it shows, not with the surface showing it: reprojected by the surface's motion alone and clamped to
+  the 3 x 3 range of one-sample neighbours, a turning or glossy object's reflection glittered and trailed (the
+  Gateway's spinning key). Two candidates: the surface where it was (engine_history), trusted while the GGX lobe's
+  peak from its point and normal then, towards the eye then, turned less than the lobe's half-angle (narrower at a
+  grazing view and as the history grows, wider where the reflected thing is near the surface: a contact reflection
+  moves with it); and the reflection's virtual image (the reflected point mirrored behind the surface along the lobe's
+  peak, at the 3 x 3's nearest hit distance, nearer or farther by the thin-lens equation of the surface's curvature),
+  carried by the camera and by the surface's own motion as far as the image lies on it, its taps on the pixel's
+  tangent plane, trusted while their normal lies within the lobe's half-angle, their roughness is alike, and their own
+  virtual image (their point, normal and hit distance then) is this one within half the lobe's spread there (a thing
+  that moved with the surface, or past it, is elsewhere then). Each history counts for as far as it is trusted (32 x
+  its confidence, less for taps off the surface); the reflection's is kept where it is at least as long and the
+  picture moved (NRD's virtual history amount, one or the other). A light that changes or moves is the anti-lag's to
+  follow in a reflection, a new light shows at once; by the diffuse light's change the reflections next to moving
+  lights kept one frame or two. The a-trous weighs a reflection by the variance its history leaves (the samples'
+  over its length) and spreads it over its lobe's footprint on screen and no wider: the hit distance x the lobe's
+  half-angle tangent seen past the surface from the eye.
 - Russian roulette / clamps: none on the primary estimators; firefly rejection on the history input (a sample past
-  twice its 8 neighbours' brightest lowered to that).
+  twice its 8 neighbours' brightest lowered to that; for a reflection with a history, against the history instead).
 - Footprints: every pixel takes one sample whatever the resolution, so a reach in pixels covers less of a surface as
   the lines grow. The widths were set at 1056 lines (2x); at 6x (2112 lines in a 2560 x 1440 window) the spatial reuse
   and the denoiser gathered from a quarter of the surface they had at 2x, and the light stayed speckled. The direct
@@ -372,7 +396,7 @@ off in frames that end in an odd present, so at 60 fps consecutive presents of o
   GALAXY_RT_DEBUG_UNTRACE=id,... keeps those table materials out of the traced scene (still drawn), with
   GALAXY_RT_DEBUG_UNTRACE_AB=1 on odd presents only: two snapshots in a row differ by what those draws add to the
   traced picture (Mario's image in a crystal). GALAXY_RT_ENGINE_CLEAR=10 shows a clear solid's light still inside
-  where its path ran out of segments; GALAXY_RT_LOG_TEV=id prints that material's TEV program once.
+  where its path ran out of segments; GALAXY_RT_LOG_TEV=id prints that material's stage program once.
 - Visible surface: the camera ray's triangle within the raster's depth; else the candidate nearest that depth (the
   raster drew a surface there): an alpha-tested light source a few units off was no draw at all. Draws the picture
   never shows are skipped (kDrawTableUnseen): the clear solids and the trace-only draws.
@@ -391,7 +415,7 @@ AuthoredEmitCS / EmitMergeCS, the night model, RtReflections for opaque surfaces
 pass stays). The game's point lights and the star core stay: they are the game's own
 light sources (dropping them in build 39 left the Octoombas' lamps unlit, owner report 10-20).
 
-## 8. Budget (reference GPU, 2x EFB 1280x1056, 60 fps)
+## 8. Budget (reference GPU, 2x frame 1280x1056, 60 fps)
 G-buffer 0.3 ms, DI 1.2 ms, GI 1.5 ms, specular 1.0 ms, denoise 1.0 ms, composite + camera 0.4 ms: 5.4 ms.
 
 ## 9. Verification

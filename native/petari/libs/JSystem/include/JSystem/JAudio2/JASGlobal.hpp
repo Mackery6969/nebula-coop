@@ -1,6 +1,7 @@
 #pragma once
 
-#include <revolution.h>
+#include <NebulaGpu.h>
+#include <nebula_math.h>
 
 template < typename T >
 class JASGlobalInstance {

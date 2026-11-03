@@ -9,26 +9,26 @@ JPAEmitterCallBack::~JPAEmitterCallBack() {
 }
 
 JPABaseParticle* JPABaseEmitter::createParticle() {
-    if (mpPtclPool->getNum() != 0) {
-        JPANode< JPABaseParticle >* node = mpPtclPool->pop_front();
-        mAlivePtclBase.push_front(node);
-        mpRes->getDyn()->calc(mpEmtrMgr->pWd);
-        node->mData.init_p(mpEmtrMgr->pWd);
-        return &node->mData;
+    if (mpPtclPool->getNum() == 0) {
+        mpEmtrMgr->growParticles();
     }
 
-    return NULL;
+    JPANode< JPABaseParticle >* node = mpPtclPool->pop_front();
+    mAlivePtclBase.push_front(node);
+    mpRes->getDyn()->calc(mpEmtrMgr->pWd);
+    node->mData.init_p(mpEmtrMgr->pWd);
+    return &node->mData;
 }
 
 JPABaseParticle* JPABaseEmitter::createChild(JPABaseParticle* parent) {
-    if (mpPtclPool->getNum() != 0) {
-        JPANode< JPABaseParticle >* node = mpPtclPool->pop_front();
-        mAlivePtclChld.push_front(node);
-        node->mData.init_c(mpEmtrMgr->pWd, parent);
-        return &node->mData;
+    if (mpPtclPool->getNum() == 0) {
+        mpEmtrMgr->growParticles();
     }
 
-    return NULL;
+    JPANode< JPABaseParticle >* node = mpPtclPool->pop_front();
+    mAlivePtclChld.push_front(node);
+    node->mData.init_c(mpEmtrMgr->pWd, parent);
+    return &node->mData;
 }
 
 void JPABaseEmitter::deleteAllParticle() {
@@ -75,12 +75,12 @@ bool JPABaseEmitter::processTermination() {
 
 void JPABaseEmitter::calcEmitterGlobalPosition(JGeometry::TVec3< f32 >* dst) const {
     Mtx mtx;
-    PSMTXScale(mtx, mGlobalScl.x, mGlobalScl.y, mGlobalScl.z);
-    PSMTXConcat(mGlobalRot, mtx, mtx);
+    NebulaMtxScale(mtx, mGlobalScl.x, mGlobalScl.y, mGlobalScl.z);
+    NebulaMtxConcat(mGlobalRot, mtx, mtx);
     mtx[0][3] = mGlobalTrs.x;
     mtx[1][3] = mGlobalTrs.y;
     mtx[2][3] = mGlobalTrs.z;
-    PSMTXMultVec(mtx, mLocalTrs, *dst);
+    NebulaMtxMultVec(mtx, mLocalTrs, *dst);
 }
 
 #include "JSystem/JParticle/JPAListInline.hpp"

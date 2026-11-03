@@ -1,4 +1,10 @@
+#include <JSystem/J3DGraphBase/J3DNativeMaterial.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
+#include <nebula_cooked_material.h>
 #include "Game/MapObj/FlexibleSphere.hpp"
+#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
 #include "Game/Player/J3DModelX.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
@@ -13,8 +19,7 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include <JSystem/J3DGraphBase/J3DShape.hpp>
-#include <revolution/gx/GXGeometry.h>
-#include <revolution/mtx.h>
+#include <nebula_math.h>
 
 #define GROW true
 #define SHRINK false
@@ -22,11 +27,13 @@
 f32 scale = 1.0f;
 void shapeCallBack(J3DShape* pShape) {
     Mtx mtx;
-    PSMTXScale(mtx, scale, scale, 0.0f);
-    GXLoadTexMtxImm(mtx, 30, GX_MTX2x4);
-    GXSetTexCoordGen2(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, 30, GX_FALSE, 125);
-    GXSetTexCoordGen2(GX_TEXCOORD1, GX_TG_MTX2x4, GX_TG_TEX0, 30, GX_FALSE, 125);
-    GXSetTexCoordGen2(GX_TEXCOORD2, GX_TG_MTX2x4, GX_TG_TEX0, 30, GX_FALSE, 125);
+    NebulaMtxScale(mtx, scale, scale, 0.0f);
+    J3DNativeShape::setTexture(0, mtx, 2);
+    J3DNativeShape::flushState();
+    J3DNativeMaterial::applyPass(NEBULA_PASS_FLEXIBLE_COORDINATES);
+    J3DPass::textureMatrix(0, 0);
+    J3DPass::textureMatrix(1, 0);
+    J3DPass::textureMatrix(2, 0);
 }
 
 FlexibleSphere::FlexibleSphere(const char* pName) : LiveActor(pName), mTimer() {
@@ -219,7 +226,7 @@ void FlexibleSphere::control() {
         }
 
         if (MR::isActorOnPlayer(this)) {
-            MR::tryRumblePad(this, "\203\175\203\212\203\111[\202\265\202\321\202\352]" /* マリオ[しびれ] */, WPAD_CHAN0);
+            MR::tryRumblePad(this, "\203\175\203\212\203\111[\202\265\202\321\202\352]" /* マリオ[しびれ] */, PLAYER_1);
         }
     }
 }
@@ -228,7 +235,6 @@ void FlexibleSphere::draw() const {
     if (!MR::isDead(this)) {
         J3DModelX* model = static_cast< J3DModelX* >(MR::getJ3DModel(this));
         model->viewCalc2();
-        GXInvalidateVtxCache();
         scale = 0.05f / mScale.x + 0.95f;
         model->directDraw(nullptr);
     }
