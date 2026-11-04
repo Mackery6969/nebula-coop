@@ -212,9 +212,12 @@ bool restart_asking() {
 // The pages, in order.
 constexpr const char* kNativeSettingsTabNames[] = {"DISPLAY", "GRAPHICS", "CONTROLS", "AUDIO", "GENERAL", "MODS", "SYSTEM",
                                                    "ONLINE",  "PLAYER"};
-// The pages shown, in order: online co-op's PLAYER after GENERAL. GRAPHICS and MODS come back as their features are
-// built natively.
-constexpr unsigned kShownTabs[] = {0u, 2u, 3u, 4u, 8u, 6u, 7u};
+// The pages shown, in order: online co-op's PLAYER after GENERAL; ONLINE holds the room and ADVANCED's cheats.
+#if defined(__ANDROID__)
+constexpr unsigned kShownTabs[] = {0u, 1u, 2u, 3u, 4u, 8u, 5u, 7u};  // nothing on SYSTEM there: diagnostics are the launcher's
+#else
+constexpr unsigned kShownTabs[] = {0u, 1u, 2u, 3u, 4u, 8u, 5u, 6u, 7u};
+#endif
 constexpr unsigned kShownTabCount = static_cast<unsigned>(std::size(kShownTabs));
 
 unsigned shown_position(unsigned tab) {
@@ -224,10 +227,23 @@ unsigned shown_position(unsigned tab) {
     return 0u;
 }
 
+// The GRAPHICS page's rows for what is not built natively yet. Each goes with its feature.
+bool graphics_row_hidden(const char* label) {
+    static constexpr const char* kHidden[] = {
+        "RESOLUTION", "UPSCALING", "QUALITY MODE", "DLSS MODE", "FSR 3 MODE", "SHARPENING", "RAY TRACING", "RAY TRACING QUALITY",
+        "FRAME RATE", "INTERPOLATION", "FRAME RATE LIMIT", "TARGET FRAME RATE",
+        "TEXTURE PACKS", "  REPLACEMENTS", "DUMP TEXTURES", "MOVIES",
+    };
+    for (const char* hidden : kHidden) {
+        if (std::strcmp(label, hidden) == 0) return true;
+    }
+    return false;
+}
+
 // Rows of the shown pages for what is not there yet or not on this platform.
 bool row_hidden(const char* label) {
     static constexpr const char* kHidden[] = {
-        "INTERFACE", "HUD RESOLUTION", "RAY TRACING HARDWARE", "NVIDIA STREAMLINE", "NVIDIA REFLEX", "DLSS", "DLSS FRAME GENERATION",
+        "POST-PROCESS", "INTERFACE", "HUD RESOLUTION", "RAY TRACING HARDWARE", "NVIDIA STREAMLINE", "NVIDIA REFLEX", "DLSS", "DLSS FRAME GENERATION",
 #if defined(__ANDROID__)
         "MONITOR", "DISPLAY MODE", "RESOLUTION", "REFRESH RATE", "VSYNC", "DISCORD STATUS", "MIIS", "IMPORT MIIS", "YOUR MIIS", "MIIS FOLDER",
         "GRAPHICS CARD", "DIAGNOSTICS",
@@ -772,6 +788,18 @@ void refresh_controls_devices(bool force) {
         }
         s_controls_devices.count = kept;
     }
+#if defined(__ANDROID__)
+    // A phone's own controls are its screen: the keyboard's row only for a keyboard that is there.
+    if (!galaxy::host::physical_keyboard_attached()) {
+        std::size_t kept = 0;
+        for (std::size_t i = 0; i < s_controls_devices.count; ++i) {
+            if (s_controls_devices.entries[i].key.scheme != galaxy::input::ControlScheme::Keyboard) {
+                s_controls_devices.entries[kept++] = s_controls_devices.entries[i];
+            }
+        }
+        s_controls_devices.count = kept;
+    }
+#endif
     if (s_controls_devices.count == 0u) {
         end_controls_capture();
         return;
@@ -1989,7 +2017,8 @@ std::vector<galaxy::mods::ModInfo>& mods_list() {
 // With s_mods_mutex held: the texture packs and movies of the mods mods.ini has on to the renderer now (disc changes
 // wait for the next start).
 void apply_live_mods() {
-    set_texture_pack_mod_folders(galaxy::mods::texture_folders(s_mods_saved));
+    set_texture_pack_mod_folders(galaxy::mods::texture_folders(s_mods_saved),
+                                 galaxy::mods::texture_folder_categories_off(s_mods_saved));
     set_movie_mod_folders(galaxy::mods::movie_folders(s_mods_saved));
 }
 
@@ -2246,7 +2275,7 @@ void select_mods_row(const RenderConfig& render, const std::string& key) {
 
 // What a mod changes, its conflicts by the draft's order, or why it does nothing: the line under the page.
 std::string mod_details(const galaxy::mods::ModInfo& mod) {
-    if (!mod.problem.empty() && (mod.code_patches != 0u || (!mod.files && !mod.textures && !mod.movies && !mod.loose))) {
+    if (!mod.problem.empty() && (mod.pack_textures != nullptr || mod.code_patches != 0u || (!mod.files && !mod.textures && !mod.movies && !mod.loose))) {
         return mods_ui_text(mod.problem, 120u);
     }
     std::string kinds;
@@ -2281,7 +2310,7 @@ void close_mod_options(const RenderConfig& render);
 // Whether a mod has options to show: its Riivolution choices, or the text it shows in a language it lacks.
 bool mod_has_options(const galaxy::mods::ModInfo& mod, const std::string& playing) {
     const bool covers = std::find(mod.languages.begin(), mod.languages.end(), playing) != mod.languages.end();
-    return !mod.options.empty() || (!mod.languages.empty() && !covers && !playing.empty());
+    return !mod.options.empty() || mod.textures || (!mod.languages.empty() && !covers && !playing.empty());
 }
 
 // A mod's options instead of the lists: its Riivolution choices and the text it shows, part of the draft. Done,
@@ -2332,6 +2361,36 @@ std::vector<SettingsRow> mod_options_page(std::size_t i) {
                         },
                         "THIS MOD HAS NO " + language_name(playing) + " TEXT. ITS OWN TEXT MATCHES ITS CHANGES"});
     }
+    // A pack's textures by what they are: each kind on or off, applied with the rest of the page.
+    if (mod.textures) {
+        SettingsRow heading{"TEXTURE CATEGORIES", {}, nullptr, {}, true};
+        rows.push_back(std::move(heading));
+        if (!mod.categories_final) {
+            rows.push_back({"SORTING TEXTURES", {}, nullptr, "THE GAME'S TEXTURES ARE BEING SORTED. THIS HAPPENS ONCE"});
+        }
+        for (std::size_t c = 0; c < galaxy::textures::kCategoryCount; ++c) {
+            const unsigned count = mod.category_textures[c];
+            if (count == 0u) continue;
+            const auto category = static_cast<galaxy::textures::Category>(c);
+            const bool off = (mod.categories_off & galaxy::textures::category_bit(category)) != 0u;
+            rows.push_back({galaxy::textures::category_name(category),
+                            std::string(off ? "OFF" : "ON") + " (" + std::to_string(count) + ")",
+                            [i, category](RenderConfig&, int delta) {
+                                const std::lock_guard<std::mutex> change_lock(s_mods_mutex);
+                                if (i >= s_mods.size() || delta == 0) return;
+                                s_mods[i].categories_off ^= galaxy::textures::category_bit(category);
+                            },
+                            mods_ui_text(mod.pack_title.empty() ? mod.id : mod.pack_title, 40u)});
+        }
+        rows.push_back(button_row({}, {"ALL ON", "ALL OFF"},
+                                  [i](RenderConfig&, unsigned button) {
+                                      const std::lock_guard<std::mutex> change_lock(s_mods_mutex);
+                                      if (i < s_mods.size()) {
+                                          s_mods[i].categories_off = button == 0u ? 0u : 0xFFFFFFFFu;
+                                      }
+                                  },
+                                  {}));
+    }
     rows.push_back(button_row({}, {"DONE"}, [](RenderConfig& draft, unsigned) { close_mod_options(draft); }, {}));
     return rows;
 }
@@ -2358,9 +2417,17 @@ SettingsRow mods_buttons_row() {
     if (s_mod_dialog_open.load(std::memory_order_acquire)) help = "CHOOSING";
     const auto focus = std::find_if(s_mods.begin(), s_mods.end(), [](const galaxy::mods::ModInfo& m) { return m.id == s_mod_focus; });
     const bool options = focus != s_mods.end() && mod_has_options(*focus, next_start_language_folder());
+#if defined(__ANDROID__)
+    // A phone imports from the launcher, where its file picker is.
+    SettingsRow row = button_row(
+        {}, {options ? "OPTIONS" : "-OPTIONS", "RESCAN"},
+        [](RenderConfig&, unsigned shown) {
+            const unsigned button = shown == 0u ? 2u : 4u;
+#else
     SettingsRow row = button_row(
         {}, {"IMPORT FILE", "IMPORT FOLDER", options ? "OPTIONS" : "-OPTIONS", "OPEN FOLDER", "RESCAN"},
         [](RenderConfig&, unsigned button) {
+#endif
             switch (button) {
             case 0u:
             case 1u:
@@ -2397,6 +2464,10 @@ std::vector<SettingsRow> mods_page(const RenderConfig&) {
     std::vector<SettingsRow> rows;
     const std::lock_guard<std::mutex> lock(s_mods_mutex);
     std::vector<galaxy::mods::ModInfo>& mods = mods_list();
+    // The packs' categories, once the game's textures are sorted.
+    for (galaxy::mods::ModInfo& mod : mods) {
+        (void)galaxy::mods::update_pack_categories(mod);
+    }
     const auto open = std::find_if(mods.begin(), mods.end(), [](const galaxy::mods::ModInfo& m) { return m.id == s_mod_options; });
     if (open != mods.end()) {
         return mod_options_page(static_cast<std::size_t>(open - mods.begin()));
@@ -2751,7 +2822,10 @@ std::vector<SettingsRow> settings_page(unsigned tab, const RenderConfig& draft, 
     std::vector<SettingsRow> rows;
     switch (tab % kNativeSettingsTabCount) {
     case 0: rows = display_page(draft); break;
-    case 1: rows = graphics_page(draft); break;
+    case 1:
+        rows = graphics_page(draft);
+        std::erase_if(rows, [](const SettingsRow& row) { return graphics_row_hidden(std::string(row.label).c_str()); });
+        break;
     case kGeneralTab: rows = game_page(runtime); break;
     case kModsTab: rows = mods_page(draft); break;
     case kSystemTab: rows = system_page(caps); break;
@@ -2791,6 +2865,9 @@ std::string native_settings_row_text(
             default: return "INPUT: AUTO";
             }
         case ControlsRow::Device: {
+#if defined(__ANDROID__)
+            if (s_controls_devices.count == 0u) return "EDIT: TOUCH SCREEN";
+#endif
             if (s_controls_devices.count == 0u) return "EDIT: NONE";
             const galaxy::input::DeviceEntry& entry = s_controls_devices.entries[
                 galaxy::input::resolve_device(s_controls_devices, s_controls_device)];
@@ -3458,6 +3535,12 @@ NativeSettingsView build_native_settings_view() {
     // The hints show the buttons the icons do: a chosen style whatever is in hand (the keyboard's: its keys), else what
     // the player last used.
     const ButtonIcons icons = get_runtime_settings().button_icons;
+#if defined(__ANDROID__)
+    // Touch: no keys or buttons to name.
+    if (icons == ButtonIcons::Auto && !galaxy::host::last_input_device()) {
+        view.input = 4u;  // NEBULA_SETTINGS_INPUT_TOUCH
+    }
+#endif
     if (icons == ButtonIcons::Xbox || icons == ButtonIcons::Nintendo || icons == ButtonIcons::PlayStation) {
         view.input = icons == ButtonIcons::Xbox ? 1u : icons == ButtonIcons::Nintendo ? 2u : 3u;
     } else if (const auto device = galaxy::host::last_input_device(); device && icons != ButtonIcons::Keyboard) {

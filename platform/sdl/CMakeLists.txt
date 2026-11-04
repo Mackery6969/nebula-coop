@@ -132,6 +132,8 @@ add_library(galaxy_render_vk STATIC
     ${rt}/render/vk/compile_journal.cpp
     ${rt}/render/vk/renderer_vk.cpp
     ${rt}/render/vk/renderer_vk_scene.cpp
+    ${rt}/render/vk/ambient_occlusion_vk.cpp
+    ${rt}/render/vk/scene_camera_vk.cpp
     ${rt}/render/vk/renderer_vk_replay.cpp
     ${rt}/render/vk/post_process_vk.cpp
     ${rt}/render/vk/game_bloom_vk.cpp
@@ -169,6 +171,7 @@ add_library(galaxy_render_vk STATIC
     ${rt}/mii_formats.cpp
     ${rt}/mod_xml.cpp
     ${rt}/mods.cpp
+    ${rt}/texture_categories.cpp
     ${rt}/crash_report.cpp
     ${rt}/discord_presence.cpp
     ${rt}/controller_roster.cpp

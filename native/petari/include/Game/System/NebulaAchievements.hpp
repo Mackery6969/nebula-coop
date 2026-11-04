@@ -76,6 +76,8 @@ namespace NebulaAchievements {
     // GameScene: a star's get sequence starts. One new to the save counts for this player all time
     // (NebulaStat_PowerStars, the Personal Star Counter's green count).
     void onStarGet();
+    // Rosalina's talk in the Observatory after the first Grand Star has ended.
+    void onRosalinaWelcome();
     const NebulaAchievementIcon* getIcon(s32 index);
 
     // The textures the icons use, each once (the pop-up loads them when its scene starts).
