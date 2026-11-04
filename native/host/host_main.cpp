@@ -25,6 +25,7 @@
 #include "galaxy/atomic_file.h"
 #include "galaxy/coop_chat.h"
 #include "galaxy/coop_menu.h"
+#include "galaxy/coop_nebulanet.h"
 #include "galaxy/coop_mods.h"
 #include "galaxy/coop_popups.h"
 #include "galaxy/coop_saves.h"
@@ -1910,6 +1911,11 @@ void note_coop_room() {
     status.players = static_cast<unsigned>(std::max<std::size_t>(gCoopSession.players().size(), 1u));
     status.joined = gCoopSession.state() == galaxy::coop::SessionState::Joined;
     if (status.joined) status.room = gCoopSession.room();
+    // The code friends join with: the host's from NebulaNet, or the one this player joined by.
+    status.code = gCoopSession.room_code();
+    if (status.code.empty() && status.joined) {
+        status.code = galaxy::coop::parse_room_code(gCoopMenu.room().join_address).value_or(std::string());
+    }
     galaxy::render::set_coop_room_status(status);
 #endif
 }
@@ -1948,6 +1954,15 @@ void handle_coop_session_events() {
             changed = true;
             break;
         case Kind::RoomChanged: changed = true; break;
+        case Kind::RoomCode:
+            std::fprintf(stderr, "[coop] NebulaNet room code %s\n", event.text.c_str());
+            gCoopChat.say("CoopCmdRoomCode", event.text);
+            changed = true;
+            break;
+        case Kind::NebulaNetLost:
+            std::fprintf(stderr, "[coop] NebulaNet: %s\n", event.text.c_str());
+            gCoopChat.say(event.text);
+            break;
         case Kind::Moderator: gCoopChat.say("CoopCmdModeratorGranted"); break;
         case Kind::KeepBan:
         case Kind::KeepModerator: keep_coop_list(event.kind == Kind::KeepBan, event.text); break;
@@ -2044,6 +2059,18 @@ void pump_coop_chat() {
 }
 #endif
 
+// The NebulaNet rooms are listed on: the game's, unless the settings name another (coop_nebulanet).
+std::string coop_nebulanet_server() {
+    const std::string& own = gCoopMenu.room().nebulanet_server;
+    return own.empty() ? std::string(galaxy::coop::kNebulaNetServer) : own;
+}
+
+// A room code typed on the Join page ("K7QX2M", "k7qx-2m"), rather than an address (which has a dot or a colon).
+std::optional<std::string> coop_join_code(const std::string& text) {
+    if (text.find_first_of(".:[") != std::string::npos) return std::nullopt;
+    return galaxy::coop::parse_room_code(text);
+}
+
 // Host: the room opens on the Host page's port as the save starts. False (and why on the menu) when it can't.
 bool open_coop_room() {
     galaxy::coop::HostConfig config;
@@ -2057,6 +2084,8 @@ bool open_coop_room() {
     config.mods = coop_session_mods();
     config.bans = galaxy::get_runtime_settings().coop_bans;
     config.moderators = galaxy::get_runtime_settings().coop_moderators;
+    // NebulaNet lists the room under a code (its chat line, and the Online tab, show it); Direct: by address only.
+    if (config.room.nebulanet) config.nebulanet = coop_nebulanet_server();
     listen_coop_snapshots();
     if (!gCoopSession.host(std::move(config))) {
         std::fprintf(stderr, "[coop] the room could not open on port %u\n", static_cast<unsigned>(gCoopMenu.room().port));
@@ -2072,13 +2101,17 @@ bool open_coop_room() {
     return true;
 }
 
-// Join: connects to the Join page's address. How it goes comes to poll_coop_join.
+// Join: finds the Join page's room code on NebulaNet, or connects to its address. How it goes comes to
+// poll_coop_join.
 void start_coop_join() {
     keep_coop_settings();
     const galaxy::RuntimeCoopSettings& room = gCoopMenu.room();
     galaxy::coop::JoinConfig config;
-    if (!galaxy::parse_coop_endpoint(room.join_address, config.address, config.port)) {
-        gCoopMenu.set_message("THAT ISN'T AN ADDRESS: HOST, HOST:PORT OR [IPV6]:PORT");
+    if (const std::optional<std::string> code = coop_join_code(room.join_address)) {
+        config.code = *code;
+        config.nebulanet = coop_nebulanet_server();
+    } else if (!galaxy::parse_coop_endpoint(room.join_address, config.address, config.port)) {
+        gCoopMenu.set_message("THAT ISN'T A ROOM CODE OR AN ADDRESS: HOST, HOST:PORT OR [IPV6]:PORT");
         return;
     }
     config.password = room.password;
@@ -2089,7 +2122,11 @@ void start_coop_join() {
     config.mods = coop_session_mods();
     config.mods_cache = coop_mods_cache();
     config.find_mod = find_own_mod;
-    std::fprintf(stderr, "[coop] joining %s port %u\n", config.address.c_str(), static_cast<unsigned>(config.port));
+    if (config.code.empty()) {
+        std::fprintf(stderr, "[coop] joining %s port %u\n", config.address.c_str(), static_cast<unsigned>(config.port));
+    } else {
+        std::fprintf(stderr, "[coop] joining room %s on %s\n", config.code.c_str(), config.nebulanet.c_str());
+    }
     listen_coop_snapshots();
     if (!gCoopSession.join(std::move(config))) {
         std::string why = "THE ADDRESS COULD NOT BE REACHED";
@@ -2158,6 +2195,7 @@ bool poll_coop_join() {
     // The joining screen: what the join waits for, and how far (the mods' download by its bytes).
     using Step = galaxy::coop::JoinStep;
     switch (gCoopSession.join_step()) {
+    case Step::FindingRoom: gCoopMenu.set_join_status("FINDING THE ROOM ON NEBULANET...", {}, 5u); break;
     case Step::Reaching: gCoopMenu.set_join_status("CONNECTING TO THE HOST...", {}, 10u); break;
     case Step::Asking: gCoopMenu.set_join_status("WAITING FOR THE HOST TO LET YOU IN...", {}, 30u); break;
     case Step::DownloadingMods: {
@@ -5428,11 +5466,11 @@ int main(int argc, char** argv) {
             gCoopAutoStart = CoopAutoStart::Host;
             gCoopAutoPort = port;
         } else if (key == "--join") {
-            // As the main menu opens, Join connects to the address.
+            // As the main menu opens, Join finds the room code on NebulaNet or connects to the address.
             std::string address;
             std::uint16_t port = 0u;
-            if (!galaxy::parse_coop_endpoint(value, address, port)) {
-                die("--join takes an address, address:port or [IPv6]:port");
+            if (!coop_join_code(value) && !galaxy::parse_coop_endpoint(value, address, port)) {
+                die("--join takes a room code, an address, address:port or [IPv6]:port");
             }
             gCoopAutoStart = CoopAutoStart::Join;
             gCoopAutoAddress = value;

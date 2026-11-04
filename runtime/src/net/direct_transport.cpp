@@ -157,8 +157,18 @@ bool DirectTransport::lobby_create(const LobbyConfig& config) {
     return true;
 }
 
-bool DirectTransport::lobby_join(const JoinConfig& config) {
+bool DirectTransport::open_for_join() {
     lobby_leave();
+    if (!socket_.open(0u, true)) return false;
+    host_ = false;
+    state_ = State::Preparing;
+    return true;
+}
+
+bool DirectTransport::lobby_join(const JoinConfig& config) {
+    // A socket opened for this join (open_for_join) is kept: its public address is the one NebulaNet passed on.
+    const bool prepared = state_ == State::Preparing && socket_.is_open();
+    if (!prepared) lobby_leave();
     // The addresses asked for, those that resolve, each once; the socket takes IPv6 when one of them is.
     std::vector<Address> addresses;
     bool ipv6 = false;
@@ -171,7 +181,8 @@ bool DirectTransport::lobby_join(const JoinConfig& config) {
     };
     add(config.address, config.port);
     for (const Endpoint& alternate : config.alternates) add(alternate.address, alternate.port);
-    if (addresses.empty() || !socket_.open(0u, ipv6)) {
+    if (addresses.empty() || (!prepared && !socket_.open(0u, ipv6))) {
+        if (prepared) close_now();
         if (callbacks_.on_error) callbacks_.on_error(NetError::LobbyJoinFailed, kNoPeer);
         return false;
     }
@@ -295,6 +306,7 @@ void DirectTransport::update(std::chrono::milliseconds wait) {
     if (state_ == State::Closed) return;
     const Clock::time_point now = Clock::now();
     update_discovery(now);
+    if (state_ == State::Preparing) return;
     if (state_ == State::Joining) {
         if (now - join_started_ > join_timeout_) {
             fail(NetError::LobbyNotFound);

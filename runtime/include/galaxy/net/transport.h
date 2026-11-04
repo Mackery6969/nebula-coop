@@ -13,12 +13,14 @@
 #pragma once
 
 #include "galaxy/net/link.h"
+#include "galaxy/net/udp.h"
 
 #include <chrono>
 #include <cstdint>
 #include <functional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -118,6 +120,23 @@ public:
     [[nodiscard]] virtual std::chrono::milliseconds ping(PeerId peer) const noexcept = 0;
     // The port a host listens on.
     [[nodiscard]] virtual std::uint16_t port() const noexcept = 0;
+    // NAT traversal (NebulaNet's room codes, docs/COOP_PLAN.md "Hosting"), where the transport has it (the direct
+    // one; another does nothing). A joiner opens its socket before it knows the host's addresses, so a STUN server
+    // can tell it its own; the next lobby_join keeps that socket.
+    virtual bool open_for_join() { return false; }
+    // Asks a STUN server which public address this transport's socket has (false: it can't ask).
+    virtual bool discover_public_address(std::string_view server, std::uint16_t port) {
+        (void)server;
+        (void)port;
+        return false;
+    }
+    // True while it waits for the STUN server's answer.
+    [[nodiscard]] virtual bool discovering() const noexcept { return false; }
+    // The answer (invalid when there was none).
+    [[nodiscard]] virtual Address public_address() const { return {}; }
+    // A host's: opens its router to a joiner at `address` for a while.
+    virtual void punch(const Address& address) { (void)address; }
+
     // A host's: who the member is beyond this lobby, what bans and moderators are kept by (sm64coopdx's get_id_str:
     // the direct transport's is the member's IP address). Empty when unknown.
     [[nodiscard]] virtual std::string peer_identity(PeerId peer) const = 0;

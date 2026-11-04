@@ -48,7 +48,7 @@ public:
     bool send_to(PeerId peer, Channel channel, std::span<const std::uint8_t> data) override;
 
     [[nodiscard]] bool in_lobby() const noexcept override { return state_ == State::Lobby; }
-    [[nodiscard]] bool joining() const noexcept { return state_ == State::Joining; }
+    [[nodiscard]] bool joining() const noexcept { return state_ == State::Joining || state_ == State::Preparing; }
     [[nodiscard]] bool is_host() const noexcept override { return host_; }
     [[nodiscard]] PeerId self() const noexcept override { return self_; }
     [[nodiscard]] PeerId owner() const noexcept override { return owner_; }
@@ -62,19 +62,23 @@ public:
     // internet sees it at; update() goes on asking until it answers (public_address) or kDiscoveryTimeout passes.
     // False when there is no socket (no lobby being made or joined) or the server's name doesn't resolve. Blocks
     // while the name is looked up.
-    bool discover_public_address(std::string_view server, std::uint16_t port = stun::kDefaultPort);
+    bool discover_public_address(std::string_view server, std::uint16_t port = stun::kDefaultPort) override;
     [[nodiscard]] Discovery discovery() const noexcept { return discovery_; }
+    [[nodiscard]] bool discovering() const noexcept override { return discovery_ == Discovery::Asking; }
     // The address the STUN server saw, once discovery() is Found.
-    [[nodiscard]] const Address& public_address() const noexcept { return public_address_; }
+    [[nodiscard]] Address public_address() const override { return public_address_; }
     // A host's: sends a few datagrams to `joiner` for kPunchFor, so this host's router lets that joiner's hellos in
     // (its own hellos open the joiner's router). Ends early once the joiner is a member.
-    void punch(const Address& joiner);
+    void punch(const Address& joiner) override;
+    // Opens the socket a join will use (both IPv4 and IPv6 where the system can) so a STUN server can be asked from
+    // it first; lobby_join then keeps it.
+    bool open_for_join() override;
 
     // Tests: drop this share (0 to 1) of the datagrams sent, at random.
     void set_test_loss(double share) noexcept { loss_ = share; }
 
 private:
-    enum class State { Closed, Joining, Lobby };
+    enum class State { Closed, Preparing, Joining, Lobby };
     struct Remote;
 
     Remote* find(const Address& address);

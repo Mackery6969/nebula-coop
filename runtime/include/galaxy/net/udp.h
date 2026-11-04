@@ -45,6 +45,10 @@ private:
 // The address of an IP address's bytes (4: IPv4, 16: IPv6, in network order) and a port; invalid for another size.
 [[nodiscard]] Address make_address(std::span<const std::uint8_t> ip, std::uint16_t port) noexcept;
 
+// This machine's IPv4 address on its own network (the one its traffic to the internet leaves from: a router's LAN
+// address such as 192.168.1.20), with port 0; invalid when there's no network. Sends nothing.
+[[nodiscard]] Address local_address();
+
 // The address of `host` ("1.2.3.4", "::1", "example.com"; "" the local machine) on `port`: false when it doesn't
 // resolve. Blocks while a name is looked up.
 [[nodiscard]] bool resolve(std::string_view host, std::uint16_t port, Address& address);

@@ -51,7 +51,11 @@ introduces players, as sm64coopdx's CoopNet does, so nobody has to forward a por
   address its game socket has; NebulaNet (a Cloudflare Worker) gives the host a room code and swaps the two sides'
   addresses when someone joins by it; the host punches toward the joiner while the joiner's hellos go to every address
   the host may have, and both routers let the other side in. Play then goes straight between them. The transport's
-  part is `DirectTransport::discover_public_address`, `punch` and `JoinConfig::alternates`.
+  part is `DirectTransport::discover_public_address`, `punch` and `JoinConfig::alternates`; the game's talk with
+  NebulaNet (a WebSocket the host keeps open, one HTTPS request per join, over WinHTTP or the system's libcurl) is
+  `galaxy/coop_nebulanet.h`. The Host page's NETWORK picks NebulaNet (the default) or Direct, as sm64coopdx's CoopNet or
+  direct connection; the room's code shows in the host's chat and on the Online tab, and the Join page takes a code or
+  an address. `coop_network=direct` and `coop_nebulanet=<url>` (another NebulaNet, to test one's own) are its settings.
 - **Relay fallback (next).** Where both routers are too strict for punching (carrier NAT, some campus networks),
   NebulaNet hands out Cloudflare TURN credentials and the joiner goes through the relay. Later still: a Discord Join
   button carrying the room code, and a public room list.

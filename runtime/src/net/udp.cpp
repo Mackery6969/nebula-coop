@@ -198,6 +198,29 @@ bool resolve(std::string_view host, std::uint16_t port, Address& address) {
     return found;
 }
 
+Address local_address() {
+    Address out;
+    if (!start_sockets()) return out;
+    const Native socket = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (socket == kNone) return out;
+    // Connecting a UDP socket only picks the route (and the address it leaves from); nothing is sent. 192.0.2.1 is
+    // a documentation address no one answers.
+    sockaddr_in away{};
+    away.sin_family = AF_INET;
+    away.sin_port = htons(9);
+    away.sin_addr.s_addr = htonl(0xC0000201u);
+    sockaddr_in here{};
+    socklen_t length = sizeof(here);
+    if (::connect(socket, reinterpret_cast<const sockaddr*>(&away), sizeof(away)) == 0 &&
+        getsockname(socket, reinterpret_cast<sockaddr*>(&here), &length) == 0 && here.sin_addr.s_addr != 0u) {
+        here.sin_port = 0;
+        std::memcpy(out.data(), &here, sizeof(here));
+        out.set_length(static_cast<std::uint32_t>(sizeof(here)));
+    }
+    close_native(socket);
+    return out;
+}
+
 UdpSocket::~UdpSocket() { close(); }
 
 bool UdpSocket::open(std::uint16_t port, bool ipv6) {

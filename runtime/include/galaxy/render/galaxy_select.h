@@ -58,6 +58,7 @@ struct CoopRoomStatus {
     unsigned players = 1u;
     bool joined = false;
     RuntimeCoopSettings room{};
+    std::string code;  // the room's NebulaNet code, when it has one (the Online tab shows it)
 };
 void set_coop_room_status(const CoopRoomStatus& status);
 [[nodiscard]] CoopRoomStatus coop_room_status();

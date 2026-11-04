@@ -82,7 +82,12 @@ struct RuntimeCoopSettings {
     std::string player_name;    // empty: PLAYER
     CoopCharacter character = CoopCharacter::Mario;
     std::string password;       // a host's: joining needs it; a joiner's: sent to the host. Empty: none
-    std::string join_address;   // the Join page's last address, "host[:port]" (empty: none yet)
+    std::string join_address;   // the Join page's last room code or address, "host[:port]" (empty: none yet)
+    // The Host page's NETWORK: NebulaNet, where friends join by the room's code with no port forwarded
+    // (galaxy/coop_nebulanet.h), or Direct, by the host's address and port.
+    bool nebulanet = true;
+    // Another NebulaNet than the game's (coop_nebulanet=https://...), for testing one's own; empty: the game's.
+    std::string nebulanet_server;
     // The host's are the session's: they reach every player as they join.
     CoopPlayerInteraction player_interaction = CoopPlayerInteraction::Solid;
     unsigned knockback_strength = kCoopKnockbackNormal;
