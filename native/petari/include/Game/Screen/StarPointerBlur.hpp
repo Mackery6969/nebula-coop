@@ -54,4 +54,5 @@ public:
     f32 _34;
     f32 _38;
     f32 _3C;
+    f32 mPointsScreenWidth;  // MR::getScreenWidth when mBlurPoints were placed (0: not yet)
 };

@@ -89,5 +89,6 @@ namespace StarPointerFunction {
     s32 getPastPointNum(s32);
     const TVec2f& getPastPosition(s32, s32);
     s32 getNextPastPointNum(s32);
+    const TVec2f& getNextPastPosition(s32, s32);
     bool canShoot(s32);
 };  // namespace StarPointerFunction
