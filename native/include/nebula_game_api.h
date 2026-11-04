@@ -1076,6 +1076,27 @@ typedef struct NebulaCoopChatView {
     char input[NEBULA_COOP_CHAT_TEXT];
 } NebulaCoopChatView;
 
+/* Online co-op's pop-ups (coop_popup_take, docs/COOP_PLAN.md "Pop-ups"), sm64coopdx's: a small box in the screen's
+   top-right corner for a few seconds as another player joins or leaves, goes somewhere, dies or gets a Power Star. The
+   host makes only the kinds the player keeps on (Options' PLAYER page). Names are printable ASCII. */
+enum {
+    NEBULA_COOP_POPUP_JOINED = 1,     /* `name` joined the room */
+    NEBULA_COOP_POPUP_LEFT,           /* `name` left it */
+    NEBULA_COOP_POPUP_OBSERVATORY,    /* `name` went to the Comet Observatory */
+    NEBULA_COOP_POPUP_GALAXY,         /* `name` went to galaxy `stage`, its star `scenario` (0: none chosen) */
+    NEBULA_COOP_POPUP_ENTERED_HERE,   /* `name` came to this player's galaxy and star */
+    NEBULA_COOP_POPUP_LEFT_HERE,      /* `name` left them */
+    NEBULA_COOP_POPUP_DIED,           /* `name`, in this player's instance, lost a life (a bubble too) */
+    NEBULA_COOP_POPUP_STAR,           /* `name` got a Power Star new to the room's save, in galaxy `stage` */
+};
+typedef struct NebulaCoopPopup {
+    uint32_t kind;      /* NEBULA_COOP_POPUP_* */
+    uint32_t character; /* the player's: 0 Mario, 1 Luigi (their colour) */
+    int32_t scenario;
+    char name[32];
+    char stage[48];     /* NebulaCoopPlayer's stage */
+} NebulaCoopPopup;
+
 /* A Mii as the game draws it (the Mii library's character info): every part, colour, scale and position as a number,
    names UTF-16 (host byte order, 10 characters, unused ones 0), the create ID as a Mii file stores it. */
 typedef struct NebulaMii {
@@ -1437,6 +1458,9 @@ typedef struct NebulaHostServices {
        thread. */
     void (*coop_objects_report)(void* user, const NebulaCoopObjectState* states, uint32_t count);
     uint32_t (*coop_objects_take)(void* user, NebulaCoopObjectState* states, uint32_t capacity);
+    /* Online co-op's pop-ups (NebulaCoopPopup): 1 with the oldest one waiting, 0 when none waits (or no room). Called
+       on the simulation thread, each game scene frame. */
+    int (*coop_popup_take)(void* user, NebulaCoopPopup* popup);
 } NebulaHostServices;
 
 

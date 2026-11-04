@@ -26,6 +26,7 @@
 #include "galaxy/coop_chat.h"
 #include "galaxy/coop_menu.h"
 #include "galaxy/coop_mods.h"
+#include "galaxy/coop_popups.h"
 #include "galaxy/coop_saves.h"
 #include "galaxy/coop_session.h"
 #include "galaxy/coop_snapshot.h"
@@ -1616,6 +1617,9 @@ std::atomic<bool> gCoopLuigi{false};
 // The room's chat (galaxy/coop_chat.h), over the session below (which goes first, its thread giving the chat lines),
 // and its commands (galaxy/coop_commands.h).
 galaxy::coop::Chat gCoopChat;
+// The pop-ups of who joined, left, went where, died or got a star (galaxy/coop_popups.h), for the game's corner boxes
+// (coop_popup_take).
+galaxy::coop::Popups gCoopPopups;
 // Online play (galaxy/coop_session.h): the room this player hosts or joined. Host opens it as its save starts; Join
 // connects from the main menu and plays the host's save once let in; the pause menu's Quit (back at the main menu)
 // leaves it.
@@ -1897,6 +1901,7 @@ void pump_coop_session() {
     if (!gCoopSession.active()) {
         if (gCoopWorld.active()) gCoopWorld.stop();
         gCoopAchievementsWaiting.clear();
+        gCoopPopups.clear();
         return;
     }
     // A join connecting from the main menu: its events are poll_coop_join's (Joined above all, which plays the save).
@@ -1906,6 +1911,10 @@ void pump_coop_session() {
         send_coop_snapshot();
         gCoopWorld.update();
         take_coop_achievements();
+#if defined(NEBULA_HOST_RENDERER)
+        gCoopPopups.set_options(galaxy::get_runtime_settings().coop_popups);
+#endif
+        gCoopPopups.update(gCoopSession.players(), galaxy::coop::chat_clock_ms());
     }
 #if defined(NEBULA_HOST_RENDERER)
     const galaxy::RuntimeCoopSettings settings = galaxy::get_runtime_settings().coop;
@@ -1934,6 +1943,7 @@ void pump_coop_session() {
         case Kind::Closed:
             std::fprintf(stderr, "[coop] the room ended: %s\n", event.text.empty() ? "left" : event.text.c_str());
             gCoopChat.clear();
+            gCoopPopups.clear();
             if (!event.text.empty()) {
                 set_coop_notice(event.text);
 #if defined(NEBULA_HOST_RENDERER)
@@ -2417,6 +2427,7 @@ int32_t svc_coop_menu(void*, uint32_t what) {
             if (gCoopSession.active()) gCoopSession.leave();
             (void)gCoopSession.take_events();
             gCoopChat.clear();
+            gCoopPopups.clear();
             {
                 const std::lock_guard<std::mutex> lock(gCoopLock);
                 gCoopLocalValid = false;
@@ -2736,6 +2747,34 @@ int svc_coop_achievement_take(void*, char* id, uint32_t capacity) {
     return 1;
 }
 
+// The oldest pop-up waiting, for the game's corner boxes: 1 with it, 0 when none waits. Only in a room's game, as the
+// chat.
+int svc_coop_popup_take(void*, NebulaCoopPopup* popup) {
+    if (popup == nullptr || !gCoopSession.active()) return 0;
+#if defined(NEBULA_HOST_RENDERER)
+    if (!galaxy::render::coop_in_game()) return 0;
+#endif
+    const std::optional<galaxy::coop::Popup> next = gCoopPopups.take(galaxy::coop::chat_clock_ms());
+    if (!next) return 0;
+    *popup = {};
+    using Kind = galaxy::coop::Popup::Kind;
+    switch (next->kind) {
+    case Kind::Joined: popup->kind = NEBULA_COOP_POPUP_JOINED; break;
+    case Kind::Left: popup->kind = NEBULA_COOP_POPUP_LEFT; break;
+    case Kind::Observatory: popup->kind = NEBULA_COOP_POPUP_OBSERVATORY; break;
+    case Kind::Galaxy: popup->kind = NEBULA_COOP_POPUP_GALAXY; break;
+    case Kind::EnteredHere: popup->kind = NEBULA_COOP_POPUP_ENTERED_HERE; break;
+    case Kind::LeftHere: popup->kind = NEBULA_COOP_POPUP_LEFT_HERE; break;
+    case Kind::Died: popup->kind = NEBULA_COOP_POPUP_DIED; break;
+    case Kind::Star: popup->kind = NEBULA_COOP_POPUP_STAR; break;
+    }
+    popup->character = next->character == galaxy::CoopCharacter::Luigi ? 1u : 0u;
+    popup->scenario = next->scenario;
+    std::snprintf(popup->name, sizeof(popup->name), "%s", next->name.c_str());
+    std::snprintf(popup->stage, sizeof(popup->stage), "%s", next->stage.c_str());
+    return 1;
+}
+
 // The other players in this player's instance, for their copies: as they were kSnapshotDelay ago, by number. Who
 // left the room is forgotten.
 uint32_t svc_coop_remote(void*, NebulaCoopRemotePlayer* players, uint32_t capacity) {
@@ -2758,6 +2797,14 @@ uint32_t svc_coop_remote(void*, NebulaCoopRemotePlayer* players, uint32_t capaci
         if (!here) gCoopRemote.remove(player.id);
         return !here;
     });
+    // Who died here since the last frame, for the pop-ups.
+    std::vector<galaxy::coop::InstancePlayer> instance;
+    instance.reserve(remote.size());
+    for (const galaxy::coop::RemotePlayer& player : remote) {
+        instance.push_back({player.id, player.name, player.character,
+                            (player.snapshot.flags & NEBULA_COOP_PLAYER_DEAD) != 0u});
+    }
+    gCoopPopups.update_instance(instance, galaxy::coop::chat_clock_ms());
     const std::size_t count = std::min<std::size_t>(remote.size(), players != nullptr ? capacity : 0u);
     for (std::size_t i = 0; i < count; ++i) {
         const galaxy::coop::RemotePlayer& from = remote[i];
@@ -5487,6 +5534,7 @@ int main(int argc, char** argv) {
     services.coop_star_count = svc_coop_star_count;
     services.coop_rules = svc_coop_rules;
     services.coop_achievement_take = svc_coop_achievement_take;
+    services.coop_popup_take = svc_coop_popup_take;
     services.coop_objects_report = svc_coop_objects_report;
     services.coop_objects_take = svc_coop_objects_take;
 #if defined(NEBULA_HOST_RENDERER)

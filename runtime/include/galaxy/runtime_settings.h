@@ -99,6 +99,19 @@ struct RuntimeCoopSettings {
     friend bool operator==(const RuntimeCoopSettings&, const RuntimeCoopSettings&) = default;
 };
 
+// Which of online co-op's pop-ups this player sees (Options' PLAYER page, galaxy/coop_popups.h): sm64coopdx's
+// notices of other players in the screen's top-right corner. Each is on until turned off.
+struct RuntimeCoopPopups {
+    bool joins = true;        // a player joined the room
+    bool leaves = true;       // a player left it
+    bool observatory = true;  // a player went to the Comet Observatory
+    bool galaxies = true;     // a player went to a galaxy's star, or came to or left this player's
+    bool deaths = true;       // a player in this player's galaxy died
+    bool stars = true;        // a player got a Power Star new to the save
+
+    friend bool operator==(const RuntimeCoopPopups&, const RuntimeCoopPopups&) = default;
+};
+
 // A co-op address, "host:port", "host" (the default port) or "[ipv6]:port". False when malformed.
 [[nodiscard]] bool parse_coop_endpoint(std::string_view text, std::string& host, std::uint16_t& port);
 // "nonsolid", "solid" or "friendly_fire"; "classic" or "revamped" (runtime_settings.ini).
@@ -129,6 +142,9 @@ struct RuntimeSettings {
     // room's commands keep them.
     std::vector<std::string> coop_bans;
     std::vector<std::string> coop_moderators;
+    // The co-op pop-ups this player sees (the PLAYER page's). Not in RuntimeCoopSettings, which the main menu's room
+    // overwrites (keep_coop_settings).
+    RuntimeCoopPopups coop_popups{};
 
     friend bool operator==(const RuntimeSettings&, const RuntimeSettings&) = default;
 };
