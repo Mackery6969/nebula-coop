@@ -109,6 +109,8 @@ namespace {
         f32 mRotation[4];              // the turn drawn, eased toward the owner's
         bool mRotationSet;
         bool mFollowing;     // another player's game moves it: its states put it where they have it
+        bool mNoClip;        // its clipping held off here while it is followed (it runs and moves where it is seen)
+        s32 mAge;            // frames since the owner's last state came
         bool mHitClaim;      // the local player just hit it: taken over, whoever was nearer
         const Nerve* mHitNerve;  // the nerve a hit began (the others get it by playing the hit again)
         u32 mClasses[4];     // the nerve classes its own code has set (a nerve from another game must be one)
@@ -122,13 +124,19 @@ namespace {
     Motion sMotions[cMaxMotions];
     s32 sMotionNum = 0;
     ActorSlot sMotionTable[cMotionTableSize];
-    // An owner silent this long has let it go; a player this far from it doesn't take it over; a quarter nearer than
-    // its owner does. States go out 15 times a second while it moves, 3 when it doesn't.
-    const s32 cSilentFrames = 30;
+    // An owner silent this long has let it go (the host lets another take it after half a second; a follower keeps
+    // following through a late state or two); a player this far from it doesn't take it over; a quarter nearer than
+    // its owner does. States go out 15 times a second while it moves, 4 when it doesn't.
+    const s32 cFollowFrames = 45;
     const f32 cSyncDistance = 6000.0f;
     const f32 cNearerRatio = 1.25f;
     const s32 cSendMoving = 4;
-    const s32 cSendStill = 20;
+    const s32 cSendStill = 15;
+    // A follower glides to where its owner has it now (its last place moved on as fast as it went, a few frames at
+    // most), a third of the way each frame; one this far off jumps there.
+    const f32 cSnapDistance = 600.0f;
+    const f32 cGlide = 0.3f;
+    const s32 cAheadFrames = 8;
     const s32 cClaimEvery = 15;
     u32 sSelf = 0;  // the local player's number
     MarioActor* sMario = nullptr;
@@ -346,7 +354,7 @@ namespace {
         Motion& rMotion = sMotions[sMotionNum];
         memset(static_cast< void* >(&rMotion), 0, sizeof(rMotion));
         rMotion.mEntry = index;
-        rMotion.mHeard = cSilentFrames;
+        rMotion.mHeard = cFollowFrames;
         LiveActor* pActor = sEntries[index].mActor;
         if (pActor->mSpine != nullptr) {
             noteClass(rMotion, pActor->mSpine->getCurrentNerve());
@@ -448,6 +456,11 @@ namespace {
     }
 
     // Where the local player's own attacks (not an enemy's, not a thing's own) reach: these are played again.
+    // Shots only the local player makes (a star bit, a fireball): their hits are his, whatever actor carried them.
+    bool isSharedShot(u32 msg) {
+        return msg == ACTMES_STAR_PIECE_ATTACK || msg == ACTMES_FIREBALL_ATTACK;
+    }
+
     bool isSharedHit(u32 msg) {
         switch (msg) {
         case ACTMES_PLAYER_PUNCH:
@@ -653,6 +666,23 @@ namespace {
         return false;
     }
 
+    // Following another game's copy, or not. A followed enemy isn't clipped here, as a synced object stays active in
+    // sm64ex-coop: it runs, so its animation plays and it glides along, rather than standing frozen where it was last
+    // drawn (a far one is drawn while clipped) and jumping as states come.
+    void setFollowing(Motion& rMotion, LiveActor* pActor, bool following) {
+        rMotion.mFollowing = following;
+        if (pActor == nullptr) {
+            return;
+        }
+        if (following && !rMotion.mNoClip && !MR::isInvalidClipping(pActor)) {
+            MR::invalidateClipping(pActor);
+            rMotion.mNoClip = true;
+        } else if (!following && rMotion.mNoClip) {
+            MR::validateClipping(pActor);
+            rMotion.mNoClip = false;
+        }
+    }
+
     // Another game's state of an enemy, as sm64ex-coop's object packets: its owner's place, speed and nerve
     // overwrite this game's copy as they come. Between states the copy runs its own AI, as a non-owner's object runs
     // its behavior there; nothing here holds it.
@@ -672,12 +702,17 @@ namespace {
         rMotion.mOwnerDistance = rState.distance;
         rMotion.mState = rState;
         rMotion.mOwnerNerve = rState.nerve;
-        rMotion.mFollowing = true;
+        rMotion.mAge = 0;
         if (pActor == nullptr || rEntry.mGone || MR::isDead(pActor)) {
             return;
         }
-        pActor->mPosition.set(rState.position[0], rState.position[1], rState.position[2]);
+        setFollowing(rMotion, pActor, true);
+        // Its speed as the owner's; its place glides there each frame (afterMovement), or jumps when far off.
         pActor->mVelocity.set(rState.velocity[0], rState.velocity[1], rState.velocity[2]);
+        const TVec3f there(rState.position[0], rState.position[1], rState.position[2]);
+        if (pActor->mPosition.distance(there) > cSnapDistance) {
+            pActor->mPosition.set(there);
+        }
         // Its nerve when the owner's changed (or it was just taken over), so this copy makes the same move once, its
         // first step's animation and sound with it; not again each state, which would start that move over. Not one
         // a hit began (that comes as the hit, played again here), nor one of a class this game's code never set on it
@@ -752,14 +787,14 @@ namespace {
             Motion& rMotion = sMotions[i];
             Entry& rEntry = sEntries[rMotion.mEntry];
             LiveActor* pActor = rEntry.mActor;
-            if (rMotion.mHeard < cSilentFrames) {
+            if (rMotion.mHeard < cFollowFrames) {
                 rMotion.mHeard++;
             }
             if (rMotion.mSendIn > 0) {
                 rMotion.mSendIn--;
             }
             if (pActor == nullptr) {
-                rMotion.mFollowing = false;
+                setFollowing(rMotion, nullptr, false);
                 continue;
             }
             // Its hit nerve is over once it has another.
@@ -770,8 +805,8 @@ namespace {
             const bool alive = !rEntry.mGone && !MR::isDead(pActor);
             const bool awake = alive && !MR::isClipped(pActor);
             const f32 distance = pMarioPos != nullptr ? pMarioPos->distance(pActor->mPosition) : 1.0e9f;
-            const bool followed = rMotion.mOwner != 0 && rMotion.mOwner != sSelf && rMotion.mHeard < cSilentFrames;
-            rMotion.mFollowing = alive && followed;
+            const bool followed = rMotion.mOwner != 0 && rMotion.mOwner != sSelf && rMotion.mHeard < cFollowFrames;
+            setFollowing(rMotion, pActor, alive && followed);
             bool send = false;
             if (rMotion.mOwner == sSelf) {
                 if (!awake) {
@@ -798,7 +833,7 @@ namespace {
             const bool moved = rMotion.mSentPosition.distance(pActor->mPosition) > 1.0f;
             rMotion.mOwner = sSelf;
             rMotion.mHeard = 0;
-            rMotion.mFollowing = false;
+            setFollowing(rMotion, pActor, false);
             rMotion.mHitClaim = false;
             rMotion.mSentNerve = states[stateNum - 1].nerve;
             rMotion.mSentPosition = pActor->mPosition;
@@ -1009,8 +1044,10 @@ namespace NebulaCoopWorld {
 
     bool deliverMessage(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
         LiveActor* pActor = pReceiver->mHost;
-        // The local Mario's own attack on a followed thing: noted for the others to play again.
-        if (sReplaying || sMario == nullptr || pSender == nullptr || pSender->mHost != sMario || !isSharedHit(msg)) {
+        // The local Mario's own attack on a followed thing, or his star bit's or fireball's: noted for the others to
+        // play again.
+        if (sReplaying || sMario == nullptr || pSender == nullptr ||
+            !(pSender->mHost == sMario ? isSharedHit(msg) : isSharedShot(msg))) {
             return pActor->receiveMessage(msg, pSender, pReceiver);
         }
         const s32 index = findActor(pActor);
@@ -1032,7 +1069,7 @@ namespace NebulaCoopWorld {
             rMotion.mHitClaim = true;
             rMotion.mOwner = sSelf;
             rMotion.mHeard = 0;
-            rMotion.mFollowing = false;
+            setFollowing(rMotion, pActor, false);
         }
         if (rEntry.mLastHit == msg && sClock - rEntry.mLastHitFrame < cHitRepeatFrames) {
             return true;
@@ -1055,6 +1092,23 @@ namespace NebulaCoopWorld {
         if (sDispatch == pActor) {
             // A hit (the local player's, or another's played again) begins it: the others get the hit itself.
             pMotion->mHitNerve = pNerve;
+        }
+    }
+
+    void afterMovement(LiveActor* pActor) {
+        Motion* pMotion = findMotion(pActor);
+        if (pMotion == nullptr || !pMotion->mFollowing || MR::isDead(pActor)) {
+            return;
+        }
+        const NebulaCoopObjectState& rState = pMotion->mState;
+        const f32 ahead = static_cast< f32 >(pMotion->mAge < cAheadFrames ? pMotion->mAge : cAheadFrames);
+        pMotion->mAge++;
+        const TVec3f there(rState.position[0] + rState.velocity[0] * ahead, rState.position[1] + rState.velocity[1] * ahead,
+                           rState.position[2] + rState.velocity[2] * ahead);
+        if (pActor->mPosition.distance(there) > cSnapDistance) {
+            pActor->mPosition.set(there);
+        } else {
+            pActor->mPosition.set(pActor->mPosition + (there - pActor->mPosition) * cGlide);
         }
     }
 

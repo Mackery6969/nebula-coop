@@ -503,8 +503,8 @@ keys from it and their order. Messages 40-42 of `galaxy/coop_world.h`, game API 
 
 | What | How | As sm64coopdx |
 |---|---|---|
-| A hit (stomp, spin, ground pound, kick, upper punch, freeze, star power) | The local Mario's hit on a followed thing is played again in each other game in the instance, sent from his copy there, so the thing runs the same reaction: a Goomba squashed with its animation, a block broken, a boss hurt. Things a hit kills stay until their death has played | `packet_object.c`'s interactions |
-| An enemy's movement | One game moves each plain enemy: its owner, the nearest player, the host settling who. Each of the owner's states overwrites the others' copies as it comes (place, speed, and its nerve when that changed); between states each copy runs its own AI, as a non-owner's object runs its behavior. Copies are drawn turned as the owner's | `sync_object` owners, `packet_object` |
+| A hit (stomp, spin, ground pound, kick, upper punch, freeze, star power, a star bit, a fireball) | The local Mario's hit on a followed thing, or his star bit's or fireball's, is played again in each other game in the instance, sent from his copy there, so the thing runs the same reaction: a Goomba squashed with its animation, a block broken, a boss hurt. Things a hit kills stay until their death has played | `packet_object.c`'s interactions |
+| An enemy's movement | One game moves each plain enemy: its owner, the nearest player, the host settling who. The owner's states steer the others' copies (speed, and its nerve when that changed; they glide to its place, a third of the way each frame, jumping when 600 units off) while each copy runs its own AI, as a non-owner's object runs its behavior. A followed copy isn't clipped, as a synced object stays active, so a far one moves and animates rather than standing frozen. Copies are drawn turned as the owner's | `sync_object` owners, `packet_object` |
 | A stage switch | Turned in one game, turned in the others in the instance; the instance's record keeps them, given to a player entering it before it is ready | `packet_level_*`, the respawn info |
 | An enemy's coins | Keyed by the enemy and their order, so one taken is gone for everyone and counts for all | spawned objects' sync ids |
 
@@ -517,8 +517,9 @@ keys from it and their order. Messages 40-42 of `galaxy/coop_world.h`, game API 
 - **Local switches.** Switches an area turns while the local player is in it (`SwitchArea` with a player condition,
   `ClipFieldSwitch`) stay each player's; a switch that turns back and forth more than four times in two seconds (a
   timer's) is made each player's for the scene, so it doesn't flood the room.
-- **Not yet.** Hits from things other than Mario himself (a fireball, a thrown shell, a star bit) aren't played again,
-  so bosses hurt by thrown things (Kaliente's coconuts, Kingfin's shells) can differ between games. Bosses get the
+- **Not yet.** Hits from thrown things other than star bits and fireballs (a shell, a coconut) aren't played again,
+  so bosses hurt by them (Kaliente's coconuts, Kingfin's shells) can differ between games. Holding the pointer on an
+  enemy (it stops in place) stays the pointing player's. Bosses get the
   shared hits but not shared movement; platforms on their own timers stay each game's (switch-driven ones are shared).
   Enemies don't yet target the nearest player in every game (Phase 3's second item).
 
@@ -605,7 +606,7 @@ Each phase ships on its own and leaves the game playable.
 - [x] Per-object packets on top of Phase 2's placement keys (`NebulaCoopWorld`), each enemy owned by its nearest
       player with the host settling who: enemies' movement and deaths, hits on anything placed (blocks, bosses and
       their parts), switches, enemies' coins ([Shared objects](#shared-objects)).
-- [ ] Bosses' movement, and hits from thrown things (fireballs, shells, star bits).
+- [ ] Bosses' movement, and hits from thrown shells and the like (star bits' and fireballs' are shared).
 - [ ] Each enemy targets the *nearest* player instead of `MR::getPlayerPos`. This is where the call-site inventory
       gets used: route `MR::getPlayer*` through a "player relevant to this actor" helper, one subsystem at a time.
 
