@@ -2276,6 +2276,9 @@ void svc_settings_view(void*, NebulaSettingsView* view) {
     const galaxy::render::NativeSettingsView source = galaxy::render::native_settings_view();
     if (!source.open && gCoopMenu.is_open()) {
         fill_coop_menu_view(view);
+        // The hints show what the player last used (or the chosen button icons), as the settings' do: a controller's
+        // buttons, not the keyboard's keys, once a controller moves the menu.
+        view->input = source.input;
         return;
     }
     view->open = source.open ? 1u : 0u;
