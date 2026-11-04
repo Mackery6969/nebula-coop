@@ -257,7 +257,8 @@ void SaveDataHandleSequence::restoreUserFile(UserFile* pUserFile, int index) {
 void SaveDataHandleSequence::restoreUserFile(UserFile* pUserFile, int index, bool isPlayerMario) {
     restoreUserFileConfigData(pUserFile, index);
     restoreUserFileGameData(pUserFile, index, isPlayerMario);
-    pUserFile->setLastLoadedMario(isPlayerMario);
+    // One game for both characters (restoreUserFileGameData): the file is always its Mario half.
+    pUserFile->setLastLoadedMario(true);
 }
 
 void SaveDataHandleSequence::backupCurrentUserFile() {
@@ -566,13 +567,17 @@ void SaveDataHandleSequence::restoreUserFileConfigData(UserFile* pUserFile, int 
 }
 
 void SaveDataHandleSequence::restoreUserFileGameData(UserFile* pUserFile, int index, bool isPlayerMario) {
+    // Nebula: a file is one game, whoever plays it. The character is the player's own (Options' PLAYER page, switched
+    // live), so a file no longer has a Luigi half with its own progress (the Wii's "luigi1" to "luigi3", made once
+    // Mario's 120 stars were done): the Mario half ("mario1" to "mario3") is read and written for both characters.
+    (void)isPlayerMario;
     char dataName[16];
-    nebula_snprintf(dataName, sizeof(dataName), "%s%1d", isPlayerMario ? "mario" : "luigi", index);
+    nebula_snprintf(dataName, sizeof(dataName), "mario%1d", index);
 
     mSaveDataHandler->restoreGameDataFile(dataName, mTempBuffer, SaveDataHandler::getEnoughtTempBufferSize());
     pUserFile->loadFromGameDataBinary(dataName, mTempBuffer, SaveDataHandler::getEnoughtTempBufferSize());
 
-    pUserFile->mIsPlayerMario = isPlayerMario;
+    pUserFile->mIsPlayerMario = true;
 }
 
 bool SaveDataHandleSequence::trySave() {

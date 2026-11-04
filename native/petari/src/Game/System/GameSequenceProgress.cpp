@@ -13,6 +13,7 @@
 #include "Game/System/NebulaCoopDemos.hpp"
 #include "Game/System/GameSystemSceneController.hpp"
 #include "Game/System/LuigiLeftSupplier.hpp"
+#include "Game/Player/NebulaCharacter.hpp"
 #include "Game/System/StarPointerOnOffController.hpp"
 #include "Game/System/StorySequenceExecutor.hpp"
 #include "Game/Util/LayoutUtil.hpp"
@@ -195,7 +196,8 @@ void GameSequenceProgress::requestGalaxyMove(const GalaxyMoveArgument& rMoveArg)
         mStarPointerOnOffController->setStateToTitle(this);
         break;
     case 5:
-        if (mPlayerMissLeft != nullptr && !isCometStar(moveArg)) {
+        // A character switch starts the stage again as a retry, but nothing was missed.
+        if (mPlayerMissLeft != nullptr && !isCometStar(moveArg) && !NebulaCharacter::isSwitchReload()) {
             mPlayerMissLeft->appear();
         }
     case 0:

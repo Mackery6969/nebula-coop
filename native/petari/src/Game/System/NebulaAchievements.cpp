@@ -598,7 +598,8 @@ namespace NebulaAchievements {
 
     void getFileProgress(NebulaFileProgress* pProgress) {
         const Galaxies galaxies = checkGalaxies();
-        pProgress->mMario = GameDataFunction::isDataMario();
+        // The character played (the file is the same game for both).
+        pProgress->mMario = !MR::isPlayerLuigi();
         pProgress->mPowerStars = MR::getPowerStarNum();
         pProgress->mPowerStarsMax = GameDataFunction::getPowerStarNumMax();
         pProgress->mStarBits = GameDataFunction::getStockedStarPieceNum();

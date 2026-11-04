@@ -106,6 +106,7 @@
 #include "Game/Screen/NebulaPlayerList.hpp"
 #include "Game/System/NebulaAchievements.hpp"
 #include "Game/Player/NebulaCoopBubble.hpp"
+#include "Game/Player/NebulaCharacter.hpp"
 #include "Game/System/NebulaCoopDemos.hpp"
 #include "Game/System/NebulaCoopWorld.hpp"
 #include "Game/Util/MessageUtil.hpp"
@@ -152,6 +153,7 @@ GameScene::GameScene()
 }
 
 GameScene::~GameScene() {
+    NebulaCharacter::endScene();
     NebulaCoopWorld::endScene();
     MR::destroySceneMessage();
     NPCFunction::deleteNPCData();
@@ -159,6 +161,8 @@ GameScene::~GameScene() {
 }
 
 void GameScene::init() {
+    // The character this scene plays, before anything asks (the player's archives just below, MarioActor's model).
+    NebulaCharacter::startScene();
     NebulaRemotePlayer::forgetAll();
     NebulaCoopBubble::forgetAll();
     NebulaCoopWorld::startScene();
@@ -364,6 +368,8 @@ void GameScene::update() {
         GameSystemFunction::requestResetGameSystem(true);
     }
     NebulaCoopWorld::update();
+    // A character switched in play (Options' PLAYER page): the player's spot reloaded as the other one.
+    NebulaCharacter::update(isNerve(GET_NERVE(GameScene, GameSceneAction)));
     // Online co-op: a Grand Star another player in this instance took takes this player along (sm64coopdx's Bowser 3
     // Grand Star): its get sequence, as the star itself starts it, once play allows.
     if (isNerve(GET_NERVE(GameScene, GameSceneAction)) && !MR::isDemoActive() && !MR::isPlayerDead()) {

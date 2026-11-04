@@ -2817,7 +2817,8 @@ std::vector<SettingsRow> player_page(const RuntimeSettings& runtime) {
                         character =
                             static_cast<CoopCharacter>(ui::settings_step(static_cast<unsigned>(character), 2u, delta));
                     },
-                    "WHO YOU PLAY AS, IN ANY SAVE. OTHER PLAYERS SEE YOU AS HIM"});
+                    "WHO YOU PLAY AS, IN ANY SAVE. CHANGED IN A GALAXY, YOUR SPOT RELOADS AS HIM AT ONCE (IN A COMET, AT "
+                    "THE NEXT START), AND OTHER PLAYERS SEE YOU AS HIM"});
 
     // The pop-ups in the screen's top-right corner (galaxy/coop_popups.h), sm64coopdx's: each kind on or off.
     rows.push_back({"POP-UPS", {}, nullptr, {}, true});

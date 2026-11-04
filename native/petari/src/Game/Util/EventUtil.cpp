@@ -1,5 +1,6 @@
 #include "Game/Map/RaceManager.hpp"
 #include "Game/System/NebulaHost.hpp"
+#include "Game/Player/NebulaCharacter.hpp"
 #include "Game/NPC/EventDirector.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/Scene/ScenePlayingResult.hpp"
@@ -104,12 +105,9 @@ namespace MR {
     }
 
     bool isPlayerLuigi() {
-        // Online co-op: the player's own character (Options' PLAYER page), whatever save they play in; a
-        // file's Luigi half still plays Luigi.
-        if (NebulaHost::coopMenu(NEBULA_COOP_MENU_CHARACTER) == 1) {
-            return true;
-        }
-        return !GameDataFunction::isDataMario();
+        // The player's own character (Options' PLAYER page), whatever save they play: the one this game scene started
+        // with, as a switch in play reloads the player's spot (NebulaCharacter).
+        return NebulaCharacter::isLuigi();
     }
 
     void explainEnableToSpin(LiveActor* pActor) {

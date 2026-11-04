@@ -560,6 +560,30 @@ void test_session() {
     expect(wait_for([&] { return name_of(joiner, 0u) == "HOSTY" && name_of(third, 0u) == "HOSTY"; }),
            "and changes again");
 
+    // A player's character switched mid-game (sm64coopdx's live character change) reaches everyone as it changes.
+    const auto character_of = [](const Session& session, unsigned index) {
+        for (const SessionPlayer& player : session.players()) {
+            if (player.index == index) return static_cast<int>(player.character);
+        }
+        return -1;
+    };
+    constexpr int kMario = static_cast<int>(galaxy::CoopCharacter::Mario);
+    constexpr int kLuigi = static_cast<int>(galaxy::CoopCharacter::Luigi);
+    expect(character_of(third, 2u) == kMario, "a player starts as the character it joined with");
+    third.set_character(galaxy::CoopCharacter::Luigi);
+    expect(character_of(third, 2u) == kLuigi, "a joiner that switches sees its new character at once");
+    host_session.set_character(galaxy::CoopCharacter::Luigi);
+    expect(wait_for([&] {
+               return character_of(host_session, 2u) == kLuigi && character_of(joiner, 2u) == kLuigi &&
+                      character_of(joiner, 0u) == kLuigi && character_of(third, 0u) == kLuigi;
+           }),
+           "a joiner's and the host's switches reach everyone");
+    expect(name_of(joiner, 2u) == "THIRD" && place_of(joiner, 1u) == "EggStarGalaxy/2",
+           "keeping their names and places");
+    third.set_character(galaxy::CoopCharacter::Mario);
+    expect(wait_for([&] { return character_of(joiner, 2u) == kMario && character_of(host_session, 2u) == kMario; }),
+           "and switches back");
+
     // Each player's Power Stars this room (the Personal Star Counter): the host counts them and tells everyone.
     const auto stars_of = [](const Session& session, unsigned index) {
         for (const SessionPlayer& player : session.players()) {

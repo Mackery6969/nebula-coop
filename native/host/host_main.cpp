@@ -1632,7 +1632,9 @@ std::vector<galaxy::coop::RoomMod> coop_room_mods();
 std::optional<galaxy::coop::SaveStore> gCoopSaves;
 unsigned gCoopSaveFile = 1u;  // the user file the played save plays
 
-// The character the played save plays as (NEBULA_COOP_MENU_CHARACTER): Options' PLAYER page's, as Host left the menu.
+// The character the player wants (NEBULA_COOP_MENU_CHARACTER): Options' PLAYER page's, as Host or Join left the menu,
+// then as the page changes in game (renderer builds). The game plays it from its next stage start, and a switch in
+// play reloads the player's spot as the other character (NebulaCharacter).
 std::atomic<bool> gCoopLuigi{false};
 
 // The room's chat (galaxy/coop_chat.h), over the session below (which goes first, its thread giving the chat lines),
@@ -1942,6 +1944,17 @@ void pump_coop_session() {
     if (gCoopSession.is_host()) gCoopSession.set_room(settings);
     gCoopSession.set_name(settings.player_name);
 #endif
+    // The character the game plays now (its snapshot's, which changes as a switch reloads the player's spot), not
+    // the one wanted: the others' nametags, list and chat follow the model they see.
+    {
+        bool valid = false, luigi = false;
+        {
+            const std::lock_guard<std::mutex> lock(gCoopLock);
+            valid = gCoopLocalValid;
+            luigi = (gCoopLocal.flags & NEBULA_COOP_PLAYER_LUIGI) != 0u;
+        }
+        if (valid) gCoopSession.set_character(luigi ? galaxy::CoopCharacter::Luigi : galaxy::CoopCharacter::Mario);
+    }
     using Kind = galaxy::coop::SessionEvent::Kind;
     bool changed = false;
     for (const galaxy::coop::SessionEvent& event : gCoopSession.take_events()) {
@@ -2485,7 +2498,16 @@ int32_t svc_coop_menu(void*, uint32_t what) {
         galaxy::render::set_coop_text_entry(false);
 #endif
         return 0;
-    case NEBULA_COOP_MENU_CHARACTER: return gCoopLuigi.load(std::memory_order_relaxed) ? 1 : 0;
+    case NEBULA_COOP_MENU_CHARACTER:
+#if defined(NEBULA_HOST_RENDERER)
+        // Live: Options' PLAYER page may switch it mid-game (sm64coopdx's live character change). Not in the main
+        // menu, where Host and Join take the menu's own.
+        if (!gCoopMenu.is_open()) {
+            gCoopLuigi.store(galaxy::get_runtime_settings().coop.character == galaxy::CoopCharacter::Luigi,
+                             std::memory_order_relaxed);
+        }
+#endif
+        return gCoopLuigi.load(std::memory_order_relaxed) ? 1 : 0;
     case NEBULA_COOP_MENU_JOINED: return gCoopSession.active() && !gCoopSession.is_host() ? 1 : 0;
     case NEBULA_COOP_MENU_LEAVE:
         // Each game scene frame: the room's news, the chat's line, and the room ending under the player.
@@ -2852,9 +2874,8 @@ uint32_t svc_coop_remote(void*, NebulaCoopRemotePlayer* players, uint32_t capaci
         for (std::size_t j = 0; j < 4u; ++j) player.track_weights[j] = snapshot.weights[j];
         player.health = snapshot.health;
         player.mode = snapshot.mode;
-        // The character is the room's: what they picked as they joined.
-        player.flags = (snapshot.flags & ~static_cast<uint32_t>(NEBULA_COOP_PLAYER_LUIGI)) |
-                       (from.character == galaxy::CoopCharacter::Luigi ? NEBULA_COOP_PLAYER_LUIGI : 0u);
+        // The character is the one their game plays now (their snapshot's), so a live switch shows at once.
+        player.flags = snapshot.flags;
         player.area = snapshot.area;
         // Their snapshot came half a round trip ago and shows kSnapshotDelay late; what they saw of this player had
         // come and shown as late. Two joiners reach each other through the host: each one's ping is to it.
