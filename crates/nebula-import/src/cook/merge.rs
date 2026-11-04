@@ -482,10 +482,12 @@ mod tests {
     }
 
     #[test]
-    fn a_column_the_table_lacks_is_named() {
+    fn a_column_the_table_lacks_is_left_out() {
+        // Another layer's table of the same name may have it: the row still counts, its other columns as given.
         let rows = read_rows(br#"{ "rows": [ { "nope": 1 } ] }"#).unwrap();
-        let error = add_rows(&table(), &rows).unwrap_err();
-        assert!(format!("{error:#}").contains("no column nope"), "{error:#}");
+        let out = add_rows(&table(), &rows).unwrap();
+        assert_eq!(u32::from_le_bytes(out[0..4].try_into().unwrap()), 2);
+        assert!(out.len() >= table().len() + 8);
     }
 
     /// A cooked particle file of resources (user index, the texture it names) and textures (bytes).
