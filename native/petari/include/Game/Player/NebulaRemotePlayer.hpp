@@ -63,6 +63,8 @@ public:
     void startAnimationEffect();
     void updateAnimationEffect();
     void stopAnimationEffect();
+    // The effect the animation last started plays on this copy (its character's own), none for most.
+    const char* getAnimationEffectName() const;
     // MarioActor::updateLightList's tint for this copy: its light's ambient colour, a white material.
     void updateLightTint();
 
