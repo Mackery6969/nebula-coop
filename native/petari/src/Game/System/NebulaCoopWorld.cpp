@@ -434,7 +434,7 @@ namespace {
             return;
         }
         rEntry.mGone = true;
-        const bool following = rEntry.mMotion >= 0 && sMotions[rEntry.mMotion].mLocked;
+        const bool following = rEntry.mMotion >= 0 && sMotions[rEntry.mMotion].mFollowing;
         if (rEntry.mGot && !MR::isDead(rEntry.mActor)) {
             // The local player took it too and it still flies to him: it ends its flight first.
             rEntry.mGoneDelay = 60;
