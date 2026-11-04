@@ -18,6 +18,8 @@ struct NativeShaderBytes {
 // Output variants (native_material.hlsli): the targets a pipeline's render state names.
 // The J3D material set's first NebulaShaderId (nebula_game_api.h NEBULA_SHADER_J3D_FIRST).
 inline constexpr std::uint32_t kNativeShaderJ3DFirst = 256u;
+// Numbers from here on are shaders a converted mod brings (mod_shaders.h).
+inline constexpr std::uint32_t kModShaderIdFirst = 0x40000000u;
 
 enum NativeShaderVariant : unsigned {
     kNativeVariantBase = 0u,
@@ -31,7 +33,10 @@ enum NativeShaderVariant : unsigned {
     kNativeVariantPixelDual = 8u,
     kNativeVariantPixelSample = 9u,
     kNativeVariantPixelSampleDual = 10u,
-    kNativeVariants = 11u,
+    kNativeVariantPixelReactive = 11u,
+    kNativeVariantPixelLayer = 12u,
+    kNativeVariantPixelMotion = 13u,
+    kNativeVariants = 14u,
 };
 
 [[nodiscard]] constexpr unsigned native_shader_variant(std::uint32_t blend_bits) noexcept {
@@ -53,11 +58,6 @@ enum NativeShaderVariant : unsigned {
 }
 
 [[nodiscard]] NativeShaderBytes native_shader_bytes(std::uint32_t shader, unsigned variant, bool pixel) noexcept;
-
-// The curved surfaces' hull (domain false) or domain stage for every native material (native_curved.hlsl), by
-// whether the output layout carries motion vectors (kNativeVariantMotion).
-[[nodiscard]] NativeShaderBytes native_curved_bytes(unsigned variant, bool domain) noexcept;
-
 
 // A native pipeline's render state: the draw's (its dual-source and constant-alpha bits the shader's dual variant
 // and PE word serve).

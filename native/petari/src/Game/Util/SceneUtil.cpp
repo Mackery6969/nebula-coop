@@ -1,3 +1,4 @@
+#include "Game/System/NebulaMods.hpp"
 #include <nebula_game_api.h>
 #include "Game/Util/SceneUtil.hpp"
 #include "Game/NameObj/NameObjFinder.hpp"
@@ -69,6 +70,12 @@ namespace MR {
 
         if (pStage == nullptr) {
             return false;
+        }
+
+        // What a mod says of the stage: every rule the game keeps by a stage's name asks here.
+        const s32 ruled = NebulaMods::stageRule(pStage, pStageName);
+        if (ruled >= 0) {
+            return ruled != 0;
         }
 
         return isEqualStringCase(pStage, pStageName);
@@ -346,7 +353,7 @@ namespace MR {
 
     void getCurrentScenarioStartAnimCameraData(void** ppData, s32* pSize) {
         StageDataHolder* pHolder = getStageDataHolder();
-        char fileName[64];
+        char fileName[256];
         nebula_snprintf(fileName, sizeof(fileName), "StartScenario%d.canm", getCurrentScenarioNo());
         *ppData = pHolder->getStageArchiveResource(fileName);
         if (*ppData != nullptr) {
@@ -357,6 +364,7 @@ namespace MR {
     }
 
     void incCoin(int term) {
+        term = NebulaMods::fire(NEBULA_MOD_EVENT_COIN, term);
         ::getScenePlayingResult()->incCoin(term);
         incPlayerLife(term);
     }

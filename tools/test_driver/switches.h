@@ -75,6 +75,33 @@ inline constexpr const char* audio_wav_dump_only_name() noexcept { return "GALAX
 inline constexpr const wchar_t* audio_wav_dump_only_wide_name() noexcept { return L"GALAXY_AUDIO_WAV_DUMP_ONLY"; }
 #endif
 #if defined(NEBULA_RELEASE)
+inline const char* audio_test_device_cycle() noexcept { return nullptr; }
+inline constexpr const char* audio_test_device_cycle_name() noexcept { return ""; }
+inline constexpr const wchar_t* audio_test_device_cycle_wide_name() noexcept { return L""; }
+#else
+inline const char* audio_test_device_cycle() noexcept { return std::getenv("GALAXY_AUDIO_TEST_DEVICE_CYCLE"); }
+inline constexpr const char* audio_test_device_cycle_name() noexcept { return "GALAXY_AUDIO_TEST_DEVICE_CYCLE"; }
+inline constexpr const wchar_t* audio_test_device_cycle_wide_name() noexcept { return L"GALAXY_AUDIO_TEST_DEVICE_CYCLE"; }
+#endif
+#if defined(NEBULA_RELEASE)
+inline const char* audio_test_reopen() noexcept { return nullptr; }
+inline constexpr const char* audio_test_reopen_name() noexcept { return ""; }
+inline constexpr const wchar_t* audio_test_reopen_wide_name() noexcept { return L""; }
+#else
+inline const char* audio_test_reopen() noexcept { return std::getenv("GALAXY_AUDIO_TEST_REOPEN"); }
+inline constexpr const char* audio_test_reopen_name() noexcept { return "GALAXY_AUDIO_TEST_REOPEN"; }
+inline constexpr const wchar_t* audio_test_reopen_wide_name() noexcept { return L"GALAXY_AUDIO_TEST_REOPEN"; }
+#endif
+#if defined(NEBULA_RELEASE)
+inline const char* audio_test_gaps() noexcept { return nullptr; }
+inline constexpr const char* audio_test_gaps_name() noexcept { return ""; }
+inline constexpr const wchar_t* audio_test_gaps_wide_name() noexcept { return L""; }
+#else
+inline const char* audio_test_gaps() noexcept { return std::getenv("GALAXY_AUDIO_TEST_GAPS"); }
+inline constexpr const char* audio_test_gaps_name() noexcept { return "GALAXY_AUDIO_TEST_GAPS"; }
+inline constexpr const wchar_t* audio_test_gaps_wide_name() noexcept { return L"GALAXY_AUDIO_TEST_GAPS"; }
+#endif
+#if defined(NEBULA_RELEASE)
 inline const char* audio_wav_dump_seconds() noexcept { return nullptr; }
 inline constexpr const char* audio_wav_dump_seconds_name() noexcept { return ""; }
 inline constexpr const wchar_t* audio_wav_dump_seconds_wide_name() noexcept { return L""; }
@@ -100,6 +127,22 @@ inline constexpr const wchar_t* crash_dump_dir_wide_name() noexcept { return L""
 inline const char* crash_dump_dir() noexcept { return std::getenv("GALAXY_CRASH_DUMP_DIR"); }
 inline constexpr const char* crash_dump_dir_name() noexcept { return "GALAXY_CRASH_DUMP_DIR"; }
 inline constexpr const wchar_t* crash_dump_dir_wide_name() noexcept { return L"GALAXY_CRASH_DUMP_DIR"; }
+#endif
+#if defined(NEBULA_RELEASE)
+inline const char* test_window_off_desktop() noexcept { return nullptr; }
+inline constexpr const char* test_window_off_desktop_name() noexcept { return ""; }
+inline constexpr const wchar_t* test_window_off_desktop_wide_name() noexcept { return L""; }
+#else
+inline const char* test_window_off_desktop() noexcept { return std::getenv("GALAXY_TEST_WINDOW_OFF_DESKTOP"); }
+inline constexpr const char* test_window_off_desktop_name() noexcept { return "GALAXY_TEST_WINDOW_OFF_DESKTOP"; }
+inline constexpr const wchar_t* test_window_off_desktop_wide_name() noexcept { return L"GALAXY_TEST_WINDOW_OFF_DESKTOP"; }
+#endif
+#if defined(NEBULA_RELEASE)
+inline constexpr const wchar_t* xess_dir_wide_name() noexcept { return L""; }
+inline constexpr const wchar_t* streamline_dir_wide_name() noexcept { return L""; }
+#else
+inline constexpr const wchar_t* xess_dir_wide_name() noexcept { return L"GALAXY_XESS_DIR"; }
+inline constexpr const wchar_t* streamline_dir_wide_name() noexcept { return L"GALAXY_STREAMLINE_DIR"; }
 #endif
 #if defined(NEBULA_RELEASE)
 inline const char* hide_window() noexcept { return nullptr; }
@@ -489,6 +532,15 @@ inline constexpr const char* test_settings_keys_name() noexcept { return "GALAXY
 inline constexpr const wchar_t* test_settings_keys_wide_name() noexcept { return L"GALAXY_TEST_SETTINGS_KEYS"; }
 #endif
 #if defined(NEBULA_RELEASE)
+inline const char* test_motion_dump() noexcept { return nullptr; }
+inline constexpr const char* test_motion_dump_name() noexcept { return ""; }
+inline constexpr const wchar_t* test_motion_dump_wide_name() noexcept { return L""; }
+#else
+inline const char* test_motion_dump() noexcept { return std::getenv("GALAXY_TEST_MOTION_DUMP"); }
+inline constexpr const char* test_motion_dump_name() noexcept { return "GALAXY_TEST_MOTION_DUMP"; }
+inline constexpr const wchar_t* test_motion_dump_wide_name() noexcept { return L"GALAXY_TEST_MOTION_DUMP"; }
+#endif
+#if defined(NEBULA_RELEASE)
 inline const char* test_settings_open() noexcept { return nullptr; }
 inline constexpr const char* test_settings_open_name() noexcept { return ""; }
 inline constexpr const wchar_t* test_settings_open_wide_name() noexcept { return L""; }
@@ -543,10 +595,14 @@ inline constexpr const char* trace_file_reads_name() noexcept { return "GALAXY_T
 inline constexpr const wchar_t* trace_file_reads_wide_name() noexcept { return L"GALAXY_TRACE_FILE_READS"; }
 #endif
 #if defined(NEBULA_RELEASE)
+inline const char* test_mods_screen() noexcept { return nullptr; }
+inline const char* test_mods_changed() noexcept { return nullptr; }
 inline const char* trace_loads() noexcept { return nullptr; }
 inline constexpr const char* trace_loads_name() noexcept { return ""; }
 inline constexpr const wchar_t* trace_loads_wide_name() noexcept { return L""; }
 #else
+inline const char* test_mods_screen() noexcept { return std::getenv("GALAXY_TEST_MODS_SCREEN"); }
+inline const char* test_mods_changed() noexcept { return std::getenv("GALAXY_TEST_MODS_CHANGED"); }
 inline const char* trace_loads() noexcept { return std::getenv("GALAXY_TRACE_LOADS"); }
 inline constexpr const char* trace_loads_name() noexcept { return "GALAXY_TRACE_LOADS"; }
 inline constexpr const wchar_t* trace_loads_wide_name() noexcept { return L"GALAXY_TRACE_LOADS"; }

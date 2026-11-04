@@ -1,4 +1,5 @@
 #include "Game/AudioLib/AudSoundNameConverter.hpp"
+#include "Game/System/NebulaMods.hpp"
 #include <JSystem/JAudio2/JAUSoundTable.hpp>
 #include <JSystem/JGadget/hashcode.hpp>
 #include <cstring>
@@ -41,6 +42,13 @@ inline s32 AudSoundNameConverter::getOtherSoundCategory(const char* pName) const
 }
 
 JAISoundID AudSoundNameConverter::getSoundID(const char* pName, u32 hash) const {
+    if (NebulaMods::sHasSoundEffects) {
+        const u32 modded = NebulaMods::soundEffectSlow(pName);
+        if (modded != static_cast< u32 >(-1)) {
+            return modded;
+        }
+    }
+
     bool isSE;
     if (pName[0] == 'S' && pName[1] == 'E') {
         isSE = true;
@@ -48,12 +56,12 @@ JAISoundID AudSoundNameConverter::getSoundID(const char* pName, u32 hash) const 
         isSE = false;
     }
 
-    s32 startingOffset;
-    if (isSE) {
-        startingOffset = mGroupItemOffsets[getSeSoundCategory(pName)];
-    } else {
-        startingOffset = mGroupItemOffsets[getOtherSoundCategory(pName)];
+    // A name of none of the game's categories isn't one of its sounds: a mod's track, or nothing.
+    const s32 category = isSE ? getSeSoundCategory(pName) : getOtherSoundCategory(pName);
+    if (category < 0) {
+        return NebulaMods::trackId(pName);
     }
+    s32 startingOffset = mGroupItemOffsets[category];
 
     for (s32 i = startingOffset; i < mNumItems; i++) {
         const AudSoundNameData& data = mSoundNameData[i];
@@ -61,7 +69,7 @@ JAISoundID AudSoundNameConverter::getSoundID(const char* pName, u32 hash) const 
             return data.mID;
         }
     }
-    return -1;
+    return NebulaMods::trackId(pName);
 }
 
 void AudSoundNameConverter::init() {

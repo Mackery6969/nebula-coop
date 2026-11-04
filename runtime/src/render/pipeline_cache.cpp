@@ -111,9 +111,7 @@ D3D12_GRAPHICS_PIPELINE_STATE_DESC make_pso_desc_impl(
     ID3D12RootSignature* root_signature,
     const RenderStateKey& rs,
     D3D12_SHADER_BYTECODE vs,
-    D3D12_SHADER_BYTECODE ps,
-    D3D12_SHADER_BYTECODE hull_shader,
-    D3D12_SHADER_BYTECODE domain_shader) {
+    D3D12_SHADER_BYTECODE ps) {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pd{};
     pd.pRootSignature = root_signature;
     pd.VS = vs;
@@ -235,16 +233,6 @@ D3D12_GRAPHICS_PIPELINE_STATE_DESC make_pso_desc_impl(
     case D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE:
         pd.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
         break;
-    case D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH:
-        // A curved surface's patches (kVsKeyCurved): the hull and domain shaders of its vertex output's variant.
-        if (hull_shader.pShaderBytecode == nullptr || domain_shader.pShaderBytecode == nullptr) {
-            throw std::invalid_argument(
-                "curved PSO requires the curved hull and domain shaders");
-        }
-        pd.HS = hull_shader;
-        pd.DS = domain_shader;
-        pd.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
-        break;
     default:
         pd.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
         break;
@@ -303,17 +291,13 @@ Microsoft::WRL::ComPtr<ID3D12PipelineState> create_pso(
     ID3D12RootSignature* root_signature,
     const RenderStateKey& rs,
     D3D12_SHADER_BYTECODE vs,
-    D3D12_SHADER_BYTECODE ps,
-    D3D12_SHADER_BYTECODE hull_shader,
-    D3D12_SHADER_BYTECODE domain_shader) {
+    D3D12_SHADER_BYTECODE ps) {
     const D3D12_GRAPHICS_PIPELINE_STATE_DESC pd =
         make_pso_desc_impl(
             root_signature,
             rs,
             vs,
-            ps,
-            hull_shader,
-            domain_shader);
+            ps);
 
     Microsoft::WRL::ComPtr<ID3D12PipelineState> pso;
     const HRESULT hr =
@@ -337,16 +321,12 @@ D3D12_GRAPHICS_PIPELINE_STATE_DESC make_pso_desc(
     ID3D12RootSignature* root_signature,
     const RenderStateKey& render_state,
     D3D12_SHADER_BYTECODE vertex_shader,
-    D3D12_SHADER_BYTECODE pixel_shader,
-    D3D12_SHADER_BYTECODE hull_shader,
-    D3D12_SHADER_BYTECODE domain_shader) {
+    D3D12_SHADER_BYTECODE pixel_shader) {
     return make_pso_desc_impl(
         root_signature,
         render_state,
         vertex_shader,
-        pixel_shader,
-        hull_shader,
-        domain_shader);
+        pixel_shader);
 }
 
 Microsoft::WRL::ComPtr<ID3D12PipelineState> PipelineCache::create_native(std::uint32_t shader, const RenderStateKey& rs,
@@ -356,13 +336,9 @@ Microsoft::WRL::ComPtr<ID3D12PipelineState> PipelineCache::create_native(std::ui
     };
     const D3D12_SHADER_BYTECODE vs = code(native_shader_bytes(shader, variant, false));
     const D3D12_SHADER_BYTECODE ps = code(native_shader_bytes(shader, variant, true));
-    // A curved surface's patches: the native patch stages for the output layout.
-    const bool curved = (rs.primitive_topology & kTopologyTypeMask) == kTopologyPatch;
-    const D3D12_SHADER_BYTECODE hs = curved ? code(native_curved_bytes(variant, false)) : D3D12_SHADER_BYTECODE{};
-    const D3D12_SHADER_BYTECODE ds = curved ? code(native_curved_bytes(variant, true)) : D3D12_SHADER_BYTECODE{};
     Microsoft::WRL::ComPtr<ID3D12PipelineState> pso;
-    if (vs.pShaderBytecode && ps.pShaderBytecode && (!curved || (hs.pShaderBytecode && ds.pShaderBytecode))) {
-        pso = create_pso(device_.Get(), root_signature_.Get(), rs, vs, ps, hs, ds);
+    if (vs.pShaderBytecode && ps.pShaderBytecode) {
+        pso = create_pso(device_.Get(), root_signature_.Get(), rs, vs, ps);
     }
     return pso;
 }
@@ -374,7 +350,7 @@ ID3D12PipelineState* PipelineCache::get_native(std::uint32_t shader, const Rende
     const RenderStateKey rs = native_render_state(render_state);
     const unsigned variant = native_draw_variant(shader, native_shader_variant(rs.blend_bits),
                                                  rs.samples_log2 & kSceneVariantSamplesMask, true, pixel_lit);
-    const std::uint32_t id = shader * kNativeVariants + variant;
+    const std::uint64_t id = std::uint64_t{shader} * kNativeVariants + variant;
     const std::uint64_t hash = combine64(hash_key_words(&rs, sizeof(rs)), id);
     auto& bucket = native_psos_[hash];
     for (const auto& entry : bucket) {
@@ -382,7 +358,8 @@ ID3D12PipelineState* PipelineCache::get_native(std::uint32_t shader, const Rende
             return entry.second.Get();
         }
     }
-    note_pipeline_for_seed(shader, render_state);
+    // A mod's shader is not in the next run's list: that run may not have the mod.
+    if (shader < kModShaderIdFirst) note_pipeline_for_seed(shader, render_state);
     Microsoft::WRL::ComPtr<ID3D12PipelineState> pso = create_native(shader, rs, variant);
     bucket.emplace_back(std::make_pair(id, rs), pso);
     return pso.Get();
@@ -434,7 +411,7 @@ void PipelineCache::merge_prepared() {
     }
     for (Prepared& p : done) {
         const unsigned variant = native_shader_variant(p.rs.blend_bits);
-        const std::uint32_t id = p.shader * kNativeVariants + variant;
+        const std::uint64_t id = std::uint64_t{p.shader} * kNativeVariants + variant;
         auto& bucket = native_psos_[combine64(hash_key_words(&p.rs, sizeof(p.rs)), id)];
         bool have = false;
         for (const auto& entry : bucket) {

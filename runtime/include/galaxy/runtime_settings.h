@@ -17,7 +17,11 @@ enum class RuntimeInputMode : std::uint32_t {
     KeyboardMouse = 1,
     Controller = 2,
     RealWiimote = 3,
+    Phone = 4,  // the on-screen controls alone (phones and tablets)
 };
+
+// The game's sound modes. Surround is matrix-encoded on two speakers and has its own speakers where the output has them.
+enum class SoundOutput : std::uint8_t { Mono, Stereo, Surround };
 
 struct RuntimeAudioSettings {
     float master = 1.0f;
@@ -29,6 +33,7 @@ struct RuntimeAudioSettings {
     float cutscene = 1.0f;
     // What the game plays on the Wii Remote speaker, mixed into the output; off unless chosen.
     float wiimote_speaker = 0.0f;
+    SoundOutput sound_output = SoundOutput::Stereo;
 
     friend bool operator==(const RuntimeAudioSettings&, const RuntimeAudioSettings&) = default;
 };
@@ -121,11 +126,8 @@ struct RuntimeCoopPopups {
 [[nodiscard]] const char* coop_character_key(CoopCharacter character) noexcept;
 
 struct RuntimeSettings {
-#if defined(__ANDROID__)
-    RuntimeInputMode input_mode = RuntimeInputMode::Auto;  // the touch controls, and a pad when one is in hand
-#else
-    RuntimeInputMode input_mode = RuntimeInputMode::KeyboardMouse;
-#endif
+    // Auto: whatever is attached and in use.
+    RuntimeInputMode input_mode = RuntimeInputMode::Auto;
     RuntimeAudioSettings audio{};
     // Steps of dialogue text revealed per frame: 1 the game's pace, 2 or 3; 4 each page at once (instant).
     unsigned text_speed = 1u;
@@ -145,6 +147,8 @@ struct RuntimeSettings {
     // The co-op pop-ups this player sees (the PLAYER page's). Not in RuntimeCoopSettings, which the main menu's room
     // overwrites (keep_coop_settings).
     RuntimeCoopPopups coop_popups{};
+    // The menus' text and everything around it, in percent; 0: as large as the screen's size calls for.
+    unsigned menu_text_size = 0u;
 
     friend bool operator==(const RuntimeSettings&, const RuntimeSettings&) = default;
 };
@@ -166,6 +170,7 @@ void set_disc_languages(std::span<const std::string> folders) noexcept;
 [[nodiscard]] const char* game_language_key(GameLanguage language) noexcept;
 // "auto", "wii", "xbox", "nintendo" or "playstation" (runtime_settings.ini).
 [[nodiscard]] const char* button_icons_key(ButtonIcons icons) noexcept;
+[[nodiscard]] const char* sound_output_key(SoundOutput output) noexcept;
 
 // The generation changes only when the input mode changes, so device queues can reject reports acquired
 // under an older source.
@@ -182,6 +187,7 @@ struct RuntimeInputModeState {
     case RuntimeInputMode::Controller: return !controller;
     case RuntimeInputMode::RealWiimote: return !wii_remote;
     case RuntimeInputMode::Auto: return !controller && !wii_remote && !keyboard_or_mouse;
+    case RuntimeInputMode::Phone:
     case RuntimeInputMode::KeyboardMouse: break;
     }
     return false;

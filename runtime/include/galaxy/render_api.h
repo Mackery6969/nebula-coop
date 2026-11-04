@@ -298,6 +298,8 @@ void native_settings_post_key(std::uintptr_t virtual_key) noexcept;
 [[nodiscard]] bool native_settings_typing() noexcept;
 // A character typed (WM_CHAR, SDL's text input) into the name being typed; false when none is.
 bool native_settings_type(char32_t character);
+// The mods saved differ from the ones this run started with.
+[[nodiscard]] bool native_settings_mods_changed();
 
 // The settings menu as it stands, for the native game's own menu (NebulaSettingsMenu) and the overlay alike: the
 // pages, the open page's rows (the overlay's English), the selection and what the line under the page says.
@@ -323,8 +325,8 @@ enum class NativeSettingsStatus : unsigned {
     CaptureKey,       // a binding waits for a key or mouse button
     CapturePad,       // a binding waits for a button, stick or trigger
     Message,          // a message for a moment (status_text)
-    DlssAsk,          // download DLSS? (yes: Apply, no: Close)
-    DlssInstalling,   // DLSS downloads and installs
+    DlssAsk,          // download DLSS? (yes: Apply, its license: Revert, no: Close)
+    DlssInstalling,   // DLSS downloads (status_number percent; Close stops it)
     DlssRestart,      // DLSS installed: restart now? (yes: Apply, later: Close)
     DlssFailed,       // DLSS was not installed
     KeepDisplay,      // keep the new display? (status_number seconds left)
@@ -339,6 +341,12 @@ enum class NativeSettingsStatus : unsigned {
     JoyCon,           // Pair Joy-Con: status_number has the halves (kJoyCon* bits); Close leaves
     RtRestartAsk,     // ray tracing turned on before its shaders are prepared: restart now? (yes: Apply, later: Close)
     DiagnosticsAsk,   // restart and record a diagnostics run? (yes: Apply, no: Close)
+    ModsCodeAsk,      // a mod turned on brings code: allow it? (yes: Apply, no: Close)
+    XessAsk,          // download XeSS? (yes: Apply, its license: Revert, no: Close)
+    XessInstalling,   // XeSS downloads (status_number percent; Close stops it)
+    XessRestart,      // XeSS installed: restart now? (yes: Apply, later: Close)
+    XessFailed,       // XeSS was not installed
+    License,          // the maker's license: long_text a page (next: Apply, before: Revert, back: Close)
 };
 // The Pair Joy-Con screen's status_number (nebula_game_api.h's NEBULA_JOYCON_*, checked alike in host_main.cpp).
 inline constexpr int kJoyConLeftBit = 1;       // a left half is connected
@@ -362,6 +370,7 @@ struct NativeSettingsView {
     NativeSettingsStatus status = NativeSettingsStatus::Help;
     int status_number = 0;
     std::string status_text;
+    std::string long_text;
 };
 // The menu as it stands. The first call hands the drawing to the game: the overlay draws nothing of its own after.
 [[nodiscard]] NativeSettingsView native_settings_view();

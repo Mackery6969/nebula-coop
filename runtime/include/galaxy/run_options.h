@@ -27,6 +27,9 @@ struct RunOptions {
     const char* audio_wav_dump = nullptr;
     const char* audio_wav_dump_only = nullptr;
     const char* audio_wav_dump_seconds = nullptr;
+    const char* audio_test_device_cycle = nullptr;
+    const char* audio_test_reopen = nullptr;
+    const char* audio_test_gaps = nullptr;
     const char* boot_fast = nullptr;
     const char* crash_dump_dir = nullptr;
     const char* d3d_debug = nullptr;
@@ -34,6 +37,7 @@ struct RunOptions {
     const char* gpu_passes = nullptr;
     const char* gpu_preference = nullptr;
     const char* hide_window = nullptr;
+    const char* test_window_off_desktop = nullptr;
     const char* log_to_console = nullptr;
     const char* movie_dir = nullptr;
     const char* pipeline_seed_out = nullptr;
@@ -56,6 +60,7 @@ struct RunOptions {
     const char* test_post_fault = nullptr;
     const char* test_script_clock = nullptr;
     const char* test_settings_keys = nullptr;
+    const char* test_motion_dump = nullptr;
     const char* test_settings_open = nullptr;
     const char* test_window_sizes = nullptr;
     const char* texture_dump_dir = nullptr;
@@ -63,6 +68,8 @@ struct RunOptions {
     const char* trace_file_reads = nullptr;
     const char* trace_frame_times = nullptr;
     const char* trace_loads = nullptr;
+    const char* test_mods_screen = nullptr;
+    const char* test_mods_changed = nullptr;
     const char* trace_memory = nullptr;
     const char* trace_interp_slots = nullptr;
     const char* trace_present_stats = nullptr;
@@ -74,6 +81,8 @@ struct RunOptions {
     const char* xinput_require_focus = nullptr;
 #if defined(_WIN32)
     const wchar_t* frame_timeline_path_w = nullptr;
+    const wchar_t* xess_dir_w = nullptr;
+    const wchar_t* streamline_dir_w = nullptr;
     const wchar_t* render_config_path_w = nullptr;
     const wchar_t* runtime_settings_path_w = nullptr;
     const wchar_t* crash_dump_dir_w = nullptr;

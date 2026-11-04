@@ -3,6 +3,10 @@
 # the cache paths below; the game module is native/CMakeLists.txt.
 cmake_minimum_required(VERSION 3.22)
 project(NebulaSDL LANGUAGES C CXX)
+# The game's version, from the main project's file.
+file(STRINGS "${CMAKE_CURRENT_LIST_DIR}/../../CMakeLists.txt" nebula_project_line REGEX "^project\\(Nebula VERSION ")
+string(REGEX MATCH "[0-9]+\\.[0-9]+\\.[0-9]+" nebula_version "${nebula_project_line}")
+add_compile_definitions(NEBULA_VERSION="${nebula_version}")
 
 option(NEBULA_RELEASE "Leave the test hooks out" OFF)
 if(NEBULA_RELEASE)
@@ -29,6 +33,23 @@ set(NEBULA_VMA_DIR "${NEBULA_DEPS}/VulkanMemoryAllocator-v3.4.0" CACHE PATH "Vul
 set(NEBULA_GLSLANG_SOURCE_DIR "${NEBULA_DEPS}/glslang-src" CACHE PATH "glslang source (External/spirv-tools inside)")
 set(NEBULA_SDL_DIR "${NEBULA_DEPS}/SDL3-3.4.18" CACHE PATH "SDL3 source")
 
+# The shader compiler, for mods' materials: glslang's HLSL front end and the SPIR-V optimizer.
+set(ENABLE_GLSLANG_BINARIES OFF CACHE BOOL "" FORCE)
+set(ENABLE_HLSL ON CACHE BOOL "" FORCE)
+set(ENABLE_OPT ON CACHE BOOL "" FORCE)
+set(GLSLANG_TESTS OFF CACHE BOOL "" FORCE)
+set(GLSLANG_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+set(SPIRV_SKIP_TESTS ON CACHE BOOL "" FORCE)
+set(SPIRV_SKIP_EXECUTABLES ON CACHE BOOL "" FORCE)
+set(SPIRV_TOOLS_BUILD_STATIC ON CACHE BOOL "" FORCE)
+add_subdirectory("${NEBULA_GLSLANG_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/glslang" EXCLUDE_FROM_ALL)
+file(GLOB nebula_glslang_spirv_headers "${NEBULA_GLSLANG_SOURCE_DIR}/SPIRV/*.h" "${NEBULA_GLSLANG_SOURCE_DIR}/SPIRV/*.hpp")
+file(COPY ${nebula_glslang_spirv_headers} DESTINATION "${CMAKE_BINARY_DIR}/glslang-include/glslang/SPIRV")
+add_library(nebula_shader_compiler INTERFACE)
+target_include_directories(nebula_shader_compiler SYSTEM INTERFACE
+    "${CMAKE_BINARY_DIR}/glslang-include" "${NEBULA_GLSLANG_SOURCE_DIR}" "${NEBULA_GLSLANG_SOURCE_DIR}/External/spirv-tools/include")
+target_link_libraries(nebula_shader_compiler INTERFACE glslang SPIRV glslang-default-resource-limits SPIRV-Tools-opt SPIRV-Tools-static)
+
 add_library(nebula_vulkan_deps INTERFACE)
 target_include_directories(nebula_vulkan_deps INTERFACE
     "${NEBULA_VULKAN_HEADERS_DIR}/include" "${NEBULA_VOLK_DIR}" "${NEBULA_VMA_DIR}/include")
@@ -44,24 +65,8 @@ if(IS_DIRECTORY "${NEBULA_HOST_TOOLS}")
     set_target_properties(galaxy_native_spirv PROPERTIES IMPORTED_LOCATION "${NEBULA_HOST_TOOLS}/galaxy_native_spirv${CMAKE_HOST_EXECUTABLE_SUFFIX}")
     add_executable(galaxy_utility_spirv IMPORTED)
     set_target_properties(galaxy_utility_spirv PROPERTIES IMPORTED_LOCATION "${NEBULA_HOST_TOOLS}/galaxy_utility_spirv${CMAKE_HOST_EXECUTABLE_SUFFIX}")
-elseif(NOT CMAKE_CROSSCOMPILING AND EXISTS "${NEBULA_GLSLANG_SOURCE_DIR}/CMakeLists.txt")
-    # glslang with its HLSL front end and the SPIR-V optimizer (cmake/vulkan_deps.cmake's settings).
-    set(ENABLE_GLSLANG_BINARIES OFF CACHE BOOL "" FORCE)
-    set(ENABLE_HLSL ON CACHE BOOL "" FORCE)
-    set(ENABLE_OPT ON CACHE BOOL "" FORCE)
-    set(GLSLANG_TESTS OFF CACHE BOOL "" FORCE)
-    set(GLSLANG_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
-    set(SPIRV_SKIP_TESTS ON CACHE BOOL "" FORCE)
-    set(SPIRV_SKIP_EXECUTABLES ON CACHE BOOL "" FORCE)
-    set(SPIRV_TOOLS_BUILD_STATIC ON CACHE BOOL "" FORCE)
-    add_subdirectory("${NEBULA_GLSLANG_SOURCE_DIR}" glslang EXCLUDE_FROM_ALL)
-    file(GLOB glslang_spirv_headers "${NEBULA_GLSLANG_SOURCE_DIR}/SPIRV/*.h" "${NEBULA_GLSLANG_SOURCE_DIR}/SPIRV/*.hpp")
-    file(COPY ${glslang_spirv_headers} DESTINATION "${CMAKE_BINARY_DIR}/glslang-include/glslang/SPIRV")
-    add_library(nebula_shader_compiler INTERFACE)
-    target_include_directories(nebula_shader_compiler SYSTEM INTERFACE "${CMAKE_BINARY_DIR}/glslang-include"
-        "${NEBULA_GLSLANG_SOURCE_DIR}" "${NEBULA_GLSLANG_SOURCE_DIR}/External/spirv-tools/include")
-    target_link_libraries(nebula_shader_compiler INTERFACE glslang SPIRV glslang-default-resource-limits SPIRV-Tools-opt
-        SPIRV-Tools-static)
+elseif(NOT CMAKE_CROSSCOMPILING)
+    # (glslang and nebula_shader_compiler: above.)
     include("${nebula_root}/cmake/post_shader_sources.cmake")
     set(galaxy_tools_post_embed_cpp "${CMAKE_CURRENT_BINARY_DIR}/generated/tools_post_shader_embed.cpp")
     galaxy_embed_post_sources("${galaxy_tools_post_embed_cpp}" "${nebula_root}")
@@ -128,9 +133,18 @@ add_library(galaxy_render_vk STATIC
     ${rt}/render/vk/utility_spirv.cpp
     ${rt}/render/vk/texture_backend_vk.cpp
     ${rt}/render/vk/pipeline_cache_vk.cpp
+    ${rt}/render/mod_shaders.cpp
+    ${rt}/render/mod_shader_build.cpp
+    ${rt}/render/vk/mod_shader_compile_vk.cpp
+    ${rt}/render/vk/shader_compile_vk.cpp
     ${rt}/render/pipeline_seed.cpp
     ${rt}/render/vk/compile_journal.cpp
     ${rt}/render/vk/renderer_vk.cpp
+    ${rt}/render/vk/ambient_occlusion_vk.cpp
+    ${rt}/render/vk/temporal_upscaler_vk.cpp
+    ${rt}/render/vk/ffx_vk_forward.cpp
+    ${rt}/render/vk/fsr_frame_generation_vk.cpp
+    ${rt}/render/vk/scene_camera_vk.cpp
     ${rt}/render/vk/renderer_vk_scene.cpp
     ${rt}/render/vk/ambient_occlusion_vk.cpp
     ${rt}/render/vk/scene_camera_vk.cpp
@@ -172,12 +186,24 @@ add_library(galaxy_render_vk STATIC
     ${rt}/mii_import.cpp
     ${rt}/mii_formats.cpp
     ${rt}/mod_xml.cpp
+    ${rt}/luma.cpp
+    ${rt}/mod_plugins.cpp
     ${rt}/mods.cpp
     ${rt}/texture_categories.cpp
     ${rt}/crash_report.cpp
     ${rt}/discord_presence.cpp
     ${rt}/controller_roster.cpp
     ${rt}/wiimote_speaker.cpp)
+# How a plugin replaces a game function here. Android keeps it too: the same code, built for arm64.
+if(NOT WIN32)
+    target_sources(galaxy_render_vk PRIVATE ${rt}/mod_hook_posix.cpp)
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+        set(nebula_hde "${CMAKE_CURRENT_LIST_DIR}/../../third_party/minhook/src/hde/hde64.c")
+        target_sources(galaxy_render_vk PRIVATE "${nebula_hde}")
+        set_source_files_properties("${nebula_hde}" PROPERTIES INCLUDE_DIRECTORIES "${CMAKE_CURRENT_LIST_DIR}/../../runtime/include/galaxy/hde_shim")
+        set_source_files_properties(${rt}/mod_hook_posix.cpp PROPERTIES INCLUDE_DIRECTORIES "${CMAKE_CURRENT_LIST_DIR}/../../runtime/include/galaxy/hde_shim")
+    endif()
+endif()
 # Mod import (archives) on the desktop systems; Android and iOS take no mods.
 if(NOT ANDROID AND NOT IOS)
     set(NEBULA_ARCHIVE_SOURCES "${nebula_root}/third_party/archive" CACHE PATH "zlib, xz and libarchive sources")
@@ -190,6 +216,16 @@ target_include_directories(galaxy_render_vk PRIVATE "${nebula_root}/third_party/
 # vk_mem_alloc.h leaves pointer nullability unannotated.
 target_compile_options(galaxy_render_vk PRIVATE -Wno-nullability-completeness)
 target_link_libraries(galaxy_render_vk PUBLIC nebula_vulkan_deps)
+target_link_libraries(galaxy_render_vk PRIVATE nebula_shader_compiler)
+
+# AMD FSR 3 (cmake/fidelityfx_android.cmake).
+include("${nebula_root}/cmake/fidelityfx_android.cmake")
+nebula_fidelityfx_android("${NEBULA_VULKAN_HEADERS_DIR}/include" "${rt}/render/vk/ffx_portable.h" "${rt}/render/vk/ffx_vk_names.h")
+if(TARGET nebula_fidelityfx_vk)
+    target_link_libraries(galaxy_render_vk PRIVATE nebula_fidelityfx_vk)
+    set_source_files_properties(${rt}/render/vk/temporal_upscaler_vk.cpp PROPERTIES
+        COMPILE_OPTIONS "-include;${rt}/render/vk/ffx_portable.h")
+endif()
 
 # SDL3: the window, Vulkan surface, audio, gamepads and touch. Android loads libSDL3.so from SDL's Java activity.
 set(SDL_SHARED ON CACHE BOOL "" FORCE)

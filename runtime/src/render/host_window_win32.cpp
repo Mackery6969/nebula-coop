@@ -2,7 +2,9 @@
 // The game's Win32 window on both renderers (host_window_win32.h): the window procedure, the pointer, and what the
 // settings menu asks of its platform (host_window.h).
 
+#include "galaxy/vendor_download.h"
 #include "galaxy/render/host_window_win32.h"
+#include "galaxy/render/xess_library.h"
 #include "galaxy/windows_power.h"
 #include "galaxy/run_options.h"
 #include "galaxy/path_text.h"
@@ -381,7 +383,6 @@ void hold_display_on(bool hold) noexcept {
 
 
 
-HANDLE s_dlss_download = nullptr;
 std::wstring launcher_path() {
     wchar_t path[MAX_PATH]{};
     const DWORD length = GetModuleFileNameW(nullptr, path, MAX_PATH);
@@ -563,6 +564,15 @@ OpenedWindow open_game_window(WindowOwner& owner, int window_width, int window_h
         // No pointer seed from this thread: the window thread publishes geometry and input through WM_SIZE and
         // WM_SETFOCUS, and the first real message or cursor poll places the pointer.
         opened.shown = !hidden_window;
+#if !defined(NEBULA_RELEASE)
+        // GALAXY_TEST_WINDOW_OFF_DESKTOP: shown, one column of pixels on the desktop, behind everything: what runs only for a shown
+        // window runs, and nothing appears.
+        if (hidden_window && ::galaxy::run_options().test_window_off_desktop) {
+            SetWindowPos(opened.window, HWND_BOTTOM, GetSystemMetrics(SM_XVIRTUALSCREEN) - static_cast<int>(outer_width) + 1,
+                         GetSystemMetrics(SM_YVIRTUALSCREEN), static_cast<int>(outer_width), static_cast<int>(outer_height),
+                         SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        }
+#endif
     }
     return opened;
 }
@@ -1400,11 +1410,16 @@ void open_folder(const std::filesystem::path& folder) {
 
 UpscalerCaps upscaler_caps() noexcept {
     UpscalerCaps caps;
+    caps.xess = xess_library::available();
     caps.dlss = streamline::dlss_supported();
     caps.frame_generation = streamline::frame_generation_supported();
     caps.frame_generation_dynamic = streamline::frame_generation_dynamic();
     caps.frame_generation_max = streamline::frame_generation_max();
     caps.frames_presented = streamline::frames_presented();
+    caps.fsr_frame_generation = fsr_frame_generation_compiled();
+    if (get_render_config().frame_generation == 2u) {
+        caps.frames_presented = frame_generation_running() && frame_generation_allowed() ? 2u : 1u;
+    }
     return caps;
 }
 
@@ -1431,22 +1446,63 @@ bool frame_generation_files_present() {
     return true;
 }
 
-bool start_dlss_install() {
-    return start_launcher(L"--install-dlss", &s_dlss_download);
+bool xess_files_present() {
+    return vendor_download::installed(vendor_download::Package::Xess, xess_library::directory());
 }
 
-DlssInstall poll_dlss_install() {
-    if (s_dlss_download == nullptr || WaitForSingleObject(s_dlss_download, 0u) != WAIT_OBJECT_0) {
-        return DlssInstall::Running;
+namespace {
+
+vendor_download::Package vendor_package(unsigned upscaler) {
+    return upscaler == 4u ? vendor_download::Package::Xess : vendor_download::Package::Dlss;
+}
+
+}  // namespace
+
+unsigned vendor_megabytes(unsigned upscaler) {
+    return vendor_download::download_megabytes(vendor_package(upscaler));
+}
+
+bool start_vendor_install(unsigned upscaler) {
+    const std::wstring directory = upscaler == 4u ? xess_library::directory() : streamline::default_directory();
+    return !directory.empty() && vendor_download::start(vendor_package(upscaler), directory);
+}
+
+void cancel_vendor_install() {
+    vendor_download::cancel();
+}
+
+VendorInstall poll_vendor_install(unsigned& percent) {
+    const vendor_download::Progress progress = vendor_download::progress();
+    percent = progress.total_bytes != 0u ? static_cast<unsigned>(progress.done_bytes * 100u / progress.total_bytes) : 0u;
+    switch (progress.state) {
+    case vendor_download::State::Done:
+        vendor_download::acknowledge();
+        return VendorInstall::Done;
+    case vendor_download::State::Canceled:
+        vendor_download::acknowledge();
+        return VendorInstall::Canceled;
+    case vendor_download::State::Failed:
+        vendor_download::acknowledge();
+        return VendorInstall::Failed;
+    default:
+        return VendorInstall::Running;
     }
-    DWORD code = 1u;
-    GetExitCodeProcess(s_dlss_download, &code);
-    CloseHandle(s_dlss_download);
-    s_dlss_download = nullptr;
-    if (code == 1u) {
-        return DlssInstall::Closed;
+}
+
+void fetch_vendor_license(unsigned upscaler) {
+    vendor_download::fetch_license(vendor_package(upscaler));
+}
+
+VendorLicense vendor_license(std::string& text) {
+    vendor_download::License license = vendor_download::license();
+    if (license.failed) {
+        return VendorLicense::Failed;
     }
-    return code == 0u && dlss_files_present() ? DlssInstall::Succeeded : DlssInstall::Failed;
+    if (!license.ready) {
+        return VendorLicense::Loading;
+    }
+    text = std::move(license.text);
+    return VendorLicense::Ready;
 }
 
 // The launcher starts the game again once this process has exited (`record`: a diagnostics run); this one closes.
@@ -1462,3 +1518,28 @@ bool restart_game(bool record) {
 }  // namespace host_window
 
 }  // namespace galaxy::render
+
+namespace galaxy::host {
+
+unsigned touch_pointer_state() noexcept {
+    return 0u;
+}
+
+void note_touch_target(std::uint32_t) noexcept {}
+
+bool touch_target_at(float, float) noexcept {
+    return false;
+}
+
+unsigned window_width_dp() noexcept {
+    const HWND window = reinterpret_cast<HWND>(render::host_window::pointer_hwnd.load(std::memory_order_relaxed));
+    RECT area{};
+    if (window == nullptr || !GetClientRect(window, &area)) {
+        return 0u;
+    }
+    const UINT dpi = GetDpiForWindow(window);
+    const int width = area.right - area.left;
+    return static_cast<unsigned>(dpi != 0u ? MulDiv(width, 96, static_cast<int>(dpi)) : width);
+}
+
+}  // namespace galaxy::host

@@ -44,6 +44,9 @@
 #include "galaxy/mii_import.h"
 #include "galaxy/mods.h"
 #include "galaxy/game_instance.h"
+#include "galaxy/render/host_window.h"
+#include "galaxy/mod_plugins.h"
+#include "galaxy/render/mod_shaders.h"
 #if defined(NEBULA_HOST_RENDERER)
 #include "galaxy/experimental_ultrawide_aspect.h"
 #include "galaxy/frame_timeline.h"
@@ -210,8 +213,24 @@ char gCrashText[1024];
 char gCrashActivityFile[512];
 char gCrashModRead[640];
 
+// While mods' code runs: the file a crash leaves, so that the next start leaves the code off once.
+std::filesystem::path gCodeCrashFile;
+
 void gather_crash_facts(galaxy::crash::Facts::Kind kind, const char* text, bool in_game = false,
                         bool stack_overflow = false) noexcept {
+    if (!gCodeCrashFile.empty()) {
+        std::filesystem::path file;
+        file.swap(gCodeCrashFile);
+#if defined(_WIN32)
+        if (FILE* out = _wfopen(file.c_str(), L"wb")) {
+            std::fclose(out);
+        }
+#else
+        if (FILE* out = std::fopen(file.c_str(), "wb")) {
+            std::fclose(out);
+        }
+#endif
+    }
     std::snprintf(gCrashText, sizeof(gCrashText), "%s", text != nullptr ? text : "");
     gCrashFacts.kind = kind;
     gCrashFacts.in_game = in_game;
@@ -332,6 +351,7 @@ struct Module {
     decltype(&nebula_game_api_fingerprint) api_fingerprint;  // null in a module from before fingerprints
     decltype(&nebula_game_attach) attach;
     decltype(&nebula_game_run) run;
+    void* module;
     decltype(&nebula_game_sound_frame) audio_tick;
     decltype(&nebula_game_mii_valid) mii_valid;
     decltype(&nebula_game_mii_changed) mii_changed;
@@ -440,11 +460,17 @@ void run(HANDLE thread, double seconds) {
 }  // namespace game_profile
 #endif
 
+// The mods' code, started once the game is attached.
+std::vector<galaxy::mods::PluginFile> gPlugins;
+galaxy::mods::ModRows gModRows;
+bool gModsChangeGame = false;
+
 void load_module(const fs::path& path) {
 #if defined(_WIN32)
     void* module = LoadLibraryW(path.wstring().c_str());
 #else
-    void* module = dlopen(path.string().c_str(), RTLD_NOW | RTLD_LOCAL);
+    // Global: a plugin built with the game's headers finds the game's functions here.
+    void* module = dlopen(path.string().c_str(), RTLD_NOW | RTLD_GLOBAL);
 #endif
     if (module == nullptr) {
         die("cannot load the game module %s", utf8_of(path.filename()).c_str());
@@ -458,6 +484,7 @@ void load_module(const fs::path& path) {
 #endif
     gModule.attach = reinterpret_cast<decltype(gModule.attach)>(find_symbol(module, "nebula_game_attach"));
     gModule.run = reinterpret_cast<decltype(gModule.run)>(find_symbol(module, "nebula_game_run"));
+    gModule.module = module;
     gModule.audio_tick = reinterpret_cast<decltype(gModule.audio_tick)>(find_symbol(module, "nebula_game_sound_frame"));
     gModule.mii_valid = reinterpret_cast<decltype(gModule.mii_valid)>(find_symbol(module, "nebula_game_mii_valid"));
     gModule.mii_changed =
@@ -611,7 +638,7 @@ int svc_code_patch(void*, uint32_t id, uint32_t* value) {
 // A mod's own save folder (Riivolution's savegame): the game's save files go there instead.
 fs::path gModSaveRoot;
 
-bool nand_path(const char* path, fs::path* out) {
+bool save_folder_path(const char* path, fs::path* out) {
     if (path == nullptr || path[0] != '/') {
         return false;
     }
@@ -705,6 +732,7 @@ void ai_thread() {
         return;  // the audio ticks come with each frame (svc_test_frame_step)
     }
     name_thread(L"Nebula Host Audio");
+    auto next = std::chrono::steady_clock::now();
     for (;;) {
         uint32_t frame_samples = 0;
         {
@@ -714,7 +742,8 @@ void ai_thread() {
         }
         gSoundBlocks.fetch_add(1, std::memory_order_relaxed);
         gModule.audio_tick();
-        std::this_thread::sleep_for(std::chrono::nanoseconds(static_cast<int64_t>(frame_samples * 1e9 / 32000.0)));
+        next += std::chrono::nanoseconds(static_cast<int64_t>(frame_samples * 1e9 / 32000.0));
+        std::this_thread::sleep_until(next);
     }
 }
 #endif
@@ -1147,11 +1176,16 @@ LONG CALLBACK crash_handler(EXCEPTION_POINTERS* info) {
     HMODULE owner = nullptr;
     if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
                             static_cast<LPCWSTR>(info->ExceptionRecord->ExceptionAddress), &owner) ||
-        (owner != GetModuleHandleW(nullptr) && owner != GetModuleHandleW(L"smg_game.dll"))) {
+        (owner != GetModuleHandleW(nullptr) && owner != GetModuleHandleW(L"smg_game.dll") &&
+         galaxy::mods::plugin_at(info->ExceptionRecord->ExceptionAddress) == nullptr)) {
         return EXCEPTION_CONTINUE_SEARCH;
     }
     if (gCrashing.exchange(1) != 0) {
         return EXCEPTION_CONTINUE_SEARCH;
+    }
+    if (const char* plugin = galaxy::mods::plugin_at(info->ExceptionRecord->ExceptionAddress)) {
+        std::string line = std::string("in the code of the mod ") + plugin;
+        log_line("crash:", line.c_str());
     }
     report_fatal_exception(info, owner);
 }
@@ -1608,6 +1642,9 @@ static_assert(static_cast<uint32_t>(galaxy::render::NativeSettingsStatus::Leave)
                   NEBULA_SETTINGS_STATUS_RT_RESTART_ASK &&
               static_cast<uint32_t>(galaxy::render::NativeSettingsStatus::DiagnosticsAsk) ==
                   NEBULA_SETTINGS_STATUS_DIAGNOSTICS_ASK &&
+              static_cast<uint32_t>(galaxy::render::NativeSettingsStatus::ModsCodeAsk) == NEBULA_SETTINGS_STATUS_MODS_CODE_ASK &&
+              static_cast<uint32_t>(galaxy::render::NativeSettingsStatus::XessAsk) == NEBULA_SETTINGS_STATUS_XESS_ASK &&
+              static_cast<uint32_t>(galaxy::render::NativeSettingsStatus::License) == NEBULA_SETTINGS_STATUS_LICENSE &&
               galaxy::render::kJoyConLeftBit == NEBULA_JOYCON_LEFT && galaxy::render::kJoyConRightBit == NEBULA_JOYCON_RIGHT &&
               galaxy::render::kJoyConLeftHeldBit == NEBULA_JOYCON_LEFT_HELD &&
               galaxy::render::kJoyConRightHeldBit == NEBULA_JOYCON_RIGHT_HELD &&
@@ -2411,6 +2448,7 @@ void svc_settings_view(void*, NebulaSettingsView* view) {
     view->status = static_cast<uint32_t>(source.status);
     view->status_number = source.status_number;
     copy_settings_text(view->status_text, source.status_text);
+    copy_settings_text(view->long_text, source.long_text);
 #else
     if (gCoopMenu.is_open()) fill_coop_menu_view(view);
 #endif
@@ -3866,6 +3904,10 @@ void svc_game_context(void*, uint32_t what, int32_t value) {
 #if defined(NEBULA_HOST_RENDERER)
         galaxy::render::note_camera_water(value > 0 ? static_cast<float>(value - 1) : -1.0f);
 #endif
+    } else if (what == NEBULA_CONTEXT_TOUCH_TARGET) {
+#if defined(NEBULA_HOST_RENDERER)
+        galaxy::host::note_touch_target(static_cast<std::uint32_t>(value));
+#endif
     }
 }
 
@@ -3902,6 +3944,10 @@ int svc_asset_find(void*, const char* path, NebulaAssetEntry* out) {
 
 int svc_asset_entry(void*, int32_t index, NebulaAssetEntry* out) {
     return disc_entry_out(disc_table().entry(index), out);
+}
+
+int svc_asset_added_child(void*, const char* path, uint32_t child, NebulaAssetEntry* out) {
+    return path != nullptr ? disc_entry_out(disc_table().added_child(path, child), out) : 0;
 }
 
 int svc_asset_child(void*, int32_t folder, uint32_t child, NebulaAssetEntry* out) {
@@ -4247,6 +4293,10 @@ void svc_game_light(void*, uint32_t kind, uint64_t id, const float* v) {
 #endif
 }
 
+// While their files cook at the start: the phase NEBULA_OPTION_RT_PREPARATION reports, and where the cooker says how far it is.
+std::atomic<uint32_t> gModsPreparing{0u};
+fs::path gModsProgressFile;
+
 uint32_t svc_option(void*, uint32_t what) {
     switch (what) {
     case NEBULA_OPTION_TEXT_SPEED:
@@ -4266,11 +4316,34 @@ uint32_t svc_option(void*, uint32_t what) {
         switch (galaxy::get_runtime_input_mode_state().mode) {
         case galaxy::RuntimeInputMode::Controller: return NEBULA_INPUT_MODE_CONTROLLER;
         case galaxy::RuntimeInputMode::RealWiimote: return NEBULA_INPUT_MODE_WII_REMOTE;
+        case galaxy::RuntimeInputMode::Phone:
         case galaxy::RuntimeInputMode::Auto: return NEBULA_INPUT_MODE_AUTO;
         case galaxy::RuntimeInputMode::KeyboardMouse: break;
         }
 #endif
         return NEBULA_INPUT_MODE_KEYBOARD_MOUSE;
+    case NEBULA_OPTION_MENU_TEXT_SIZE:
+#if defined(NEBULA_HOST_RENDERER)
+        return galaxy::get_runtime_settings().menu_text_size;
+#else
+        return 0;
+#endif
+    case NEBULA_OPTION_MODS_CHANGED:
+        // A test: only the settings page can change mods otherwise.
+        if (::galaxy::run_options().test_mods_changed != nullptr) {
+            return 1u;
+        }
+#if defined(NEBULA_HOST_RENDERER)
+        return galaxy::render::native_settings_mods_changed() ? 1u : 0u;
+#else
+        return 0;
+#endif
+    case NEBULA_OPTION_WINDOW_WIDTH_DP:
+#if defined(NEBULA_HOST_RENDERER)
+        return galaxy::host::window_width_dp();
+#else
+        return 0;
+#endif
     case NEBULA_OPTION_BLOOM:
 #if defined(NEBULA_HOST_RENDERER)
         return galaxy::render::bloom_route();
@@ -4279,16 +4352,33 @@ uint32_t svc_option(void*, uint32_t what) {
 #endif
     case NEBULA_OPTION_STAR_COUNTER:
         return coop_star_counter_on() ? 1u : 0u;
+    case NEBULA_OPTION_MODS_PREPARING:
+        return gModsPreparing.load(std::memory_order_acquire) != 0u ? 1u : 0u;
     case NEBULA_OPTION_RT_PREPARATION:
-    case NEBULA_OPTION_RT_PREPARE_PROGRESS:
-        // The ray tracer is parked (no shaders to prepare): the game's preparation screen never shows.
-        return 0;
+        // The ray tracer is parked: only mods' files bring the game's preparation screen.
+        return gModsPreparing.load(std::memory_order_acquire);
+    case NEBULA_OPTION_RT_PREPARE_PROGRESS: {
+        if (gModsPreparing.load(std::memory_order_acquire) == 0u) {
+            return 0;
+        }
+        std::ifstream in(gModsProgressFile);
+        uint64_t done = 0;
+        uint64_t total = 0;
+        in >> done >> total;
+        return total != 0u ? static_cast<uint32_t>(done * 10000u / total) : 0u;
+    }
     case NEBULA_OPTION_TEST_ARENA_FILL: {
         const char* value = ::galaxy::run_options().test_arena_fill;
         return value != nullptr ? 0x100u | (static_cast<uint32_t>(std::strtoul(value, nullptr, 16)) & 0xFFu) : 0u;
     }
     case NEBULA_OPTION_TEST_TRACE_LOADS:
         return ::galaxy::run_options().trace_loads != nullptr ? 1u : 0u;
+    case NEBULA_OPTION_TOUCH_POINTER:
+#if defined(NEBULA_HOST_RENDERER)
+        return galaxy::host::touch_pointer_state();
+#else
+        return 0;
+#endif
     default:
         return 0;
     }
@@ -4312,7 +4402,7 @@ void svc_save_request(void*, const NebulaSaveRequest* request) {
     auto operation = [r, name] {
         fs::path folder;
         galaxy::saves::Result result = galaxy::saves::kFailed;
-        if (nand_path(gSaveDataPath.c_str(), &folder)) {
+        if (save_folder_path(gSaveDataPath.c_str(), &folder)) {
             switch (r.op) {
             case NEBULA_SAVE_READ:
                 result = galaxy::saves::read(folder, name, r.buffer, r.size, r.length);
@@ -4352,7 +4442,11 @@ uint32_t svc_system_setting(void*, uint32_t item) {
         return 1;  // English
 #endif
     case NEBULA_SETTING_SOUND_MODE:
+#if defined(NEBULA_HOST_RENDERER)
+        return static_cast<uint32_t>(galaxy::get_runtime_settings().audio.sound_output);
+#else
         return 1;  // stereo
+#endif
     case NEBULA_SETTING_WIDESCREEN:
         return 1;
     default:
@@ -4456,8 +4550,14 @@ bool input_device_missing(bool wii_remote) {
     }
     std::array<galaxy::input::ControllerInfo, galaxy::input::kMaxControllers> connected{};
     const bool controller = galaxy::host::connected_controllers(connected) != 0u;
-    missing = galaxy::input_missing(galaxy::get_runtime_input_mode_state().mode, controller, wii_remote,
-                                    galaxy::host::keyboard_or_mouse_attached());
+#if defined(__ANDROID__)
+    // Its screen is always in hand.
+    const bool own_controls = galaxy::get_runtime_input_mode_state().mode == galaxy::RuntimeInputMode::Auto;
+#else
+    const bool own_controls = false;
+#endif
+    missing = !own_controls && galaxy::input_missing(galaxy::get_runtime_input_mode_state().mode, controller, wii_remote,
+                                                     galaxy::host::keyboard_or_mouse_attached());
     return missing;
 }
 
@@ -4510,6 +4610,7 @@ uint32_t svc_input_read(void*, uint32_t player, NebulaInputDevice* device, Nebul
     }
 #if defined(NEBULA_HOST_RENDERER)
     gInputRead.store(true, std::memory_order_release);
+    gInputRead.notify_one();
     if (gControlsInput.load(std::memory_order_acquire)) {
         const std::lock_guard<std::mutex> lock(gInputSampleLock);
         gInputSamples.push(controls_sample());
@@ -4544,9 +4645,7 @@ void input_thread() {
         return;  // one sample per read, taken by the read (svc_input_read)
     }
     name_thread(L"Nebula Host Input");
-    while (!gInputRead.load(std::memory_order_acquire)) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
+    gInputRead.wait(false, std::memory_order_acquire);
     const auto period = std::chrono::milliseconds(10);
     auto next = Clock::now() + period;
 #if defined(NEBULA_REAL_WIIMOTE)
@@ -4982,6 +5081,11 @@ fs::path game_instance_saves(const fs::path& saves) {
             }
         }
     }
+#elif defined(__ANDROID__) && defined(NEBULA_HOST_RENDERER)
+    if (restart && galaxy::render::host_window::restart_game(false)) {
+        // The activity ends this process once the new one is on its way.
+        std::this_thread::sleep_for(std::chrono::seconds(5));
+    }
 #else
     (void)restart;
 #endif
@@ -4990,6 +5094,39 @@ fs::path game_instance_saves(const fs::path& saves) {
 
 void svc_app_exit(void*) {
     finish_and_exit(false);
+}
+
+static_assert(NEBULA_PATCH_FLIP_PANEL_GROUP == 1 && NEBULA_PATCH_MISS_STAR_PIECES == 7 && NEBULA_PATCH_MESSENGER_EX_ONE_UPS == 12 && NEBULA_PATCH_NO_DARK_COMET_RULES == 18 && NEBULA_PATCH_WATER_AIR == 27 && NEBULA_PATCH_COUNT == 28,
+              "galaxy::luma::switch_number numbers the switches as these do");
+
+void svc_mods_start(void*) {
+    const fs::path crashed = galaxy::mods::mods_folder() / ".code_crashed";
+    std::error_code crash_error;
+    if (fs::exists(crashed, crash_error)) {
+        fs::remove(crashed, crash_error);
+        if (!gPlugins.empty()) {
+            log_line("mods:", "the last run crashed with mods' code on: it stays off for this run");
+            gPlugins.clear();
+            galaxy::mods::set_code_off_after_crash();
+        }
+    }
+    // Any mod at all tells the game: a stage then holds more than its level asks for.
+    if (!gModsChangeGame) {
+        return;
+    }
+    if (!gPlugins.empty()) {
+        gCodeCrashFile = crashed;
+    }
+    const auto game_api = reinterpret_cast<const NebulaModApi* (*)()>(find_symbol(gModule.module, "nebula_game_mod_api"));
+    galaxy::mods::start_plugins(gPlugins, gModRows, game_api(),
+                                [](const char* name) -> void* {
+#if defined(_WIN32)
+                                    return reinterpret_cast<void*>(GetProcAddress(static_cast<HMODULE>(gModule.module), name));
+#else
+                                    return dlsym(gModule.module, name);
+#endif
+                                },
+                                [](const char* text) { log_line("mods:", text); });
 }
 
 void svc_app_restart(void*) {
@@ -5057,12 +5194,15 @@ std::string json_text(std::string_view text) {
 // The mods' disc files, cooked once into a store the game reads over its own (cook/overlay.rs): by the cooker beside
 // this program, again when what they change has changed. A failure leaves the game as it is and says why in the log.
 void cook_mod_files(const galaxy::mods::DiscPlan& plan, const fs::path& settings_folder, const std::string& game_id);
-
 void prepare_mod_files(const fs::path& settings_folder, const std::string& game_id) {
+    galaxy::mods::set_played_language(static_cast<unsigned>(galaxy::game_language_resolved(galaxy::get_runtime_settings().language)));
     const std::string language = galaxy::mods::language_folder(
         game_id, static_cast<unsigned>(galaxy::game_language_resolved(galaxy::get_runtime_settings().language)));
     const galaxy::mods::DiscPlan plan = galaxy::mods::plan_disc_changes(gPak.store, game_id, language);
     gModPatches = plan.native_patches;
+    gPlugins = plan.plugins;
+    gModRows = plan.rows;
+    gModsChangeGame = !plan.files.empty() || !plan.merges.empty() || !plan.materials.empty() || !plan.plugins.empty() || !plan.rows.empty() || !plan.native_patches.empty();
     if (!plan.save_folder.empty() && !gSaveDataPath.empty()) {
         // A clone starts from the player's save the first time, the rest starts new; the player's stays as it is.
         const fs::path mine = gSaveRoot / gSaveDataPath.substr(1);
@@ -5070,7 +5210,9 @@ void prepare_mod_files(const fs::path& settings_folder, const std::string& game_
         std::error_code save_error;
         if (!fs::exists(theirs, save_error)) {
             fs::create_directories(theirs, save_error);
-            if (plan.save_clone) {
+            if (!plan.save_start.empty()) {
+                fs::copy(plan.save_start, plan.save_folder, fs::copy_options::recursive | fs::copy_options::skip_existing, save_error);
+            } else if (plan.save_clone) {
                 fs::copy(mine, theirs, fs::copy_options::recursive | fs::copy_options::skip_existing, save_error);
             }
         }
@@ -5081,21 +5223,37 @@ void prepare_mod_files(const fs::path& settings_folder, const std::string& game_
         log_line("mods:", note.c_str());
     }
     cook_mod_files(plan, settings_folder, game_id);
-    // Converted mods over the rest, the top of the list last.
-    for (const fs::path& store : plan.stores) {
-        const std::string text = "package " + utf8_of(store.parent_path().filename()) + (gPak.store.attach_overlay(store) ? " applied" : " could not be read");
-        log_line("mods:", text.c_str());
+    // What the .luma mods' materials need: what they brought, then what the game built for them.
+    {
+        std::error_code built_error;
+        const fs::path built = settings_folder / "mods" / ".cooked" / "built.shaders";
+        if (fs::is_regular_file(built, built_error)) {
+            galaxy::render::load_mod_shaders(built);
+        }
+    }
+    for (const fs::path& folder : plan.luma_folders) {
+        std::error_code shaders_error;
+        const fs::path shaders = folder / "shaders" / galaxy::render::native_shader_file_name();
+        if (fs::is_regular_file(shaders, shaders_error)) {
+            const galaxy::render::ModShadersResult loaded = galaxy::render::load_mod_shaders(shaders);
+            if (loaded == galaxy::render::ModShadersResult::OtherInterface) {
+                log_line("mods:", "its shaders are for another build of Nebula");
+            } else if (loaded == galaxy::render::ModShadersResult::Unreadable) {
+                log_line("mods:", "its shaders could not be read: models that need them are not drawn");
+            }
+        }
     }
 }
 
 void cook_mod_files(const galaxy::mods::DiscPlan& plan, const fs::path& settings_folder, const std::string& game_id) {
-    if (plan.files.empty()) {
+    if (plan.files.empty() && plan.merges.empty()) {
         return;
     }
     const fs::path folder = settings_folder / "mods" / ".cooked";
     const fs::path overlay = folder / "mods.pak";
     const fs::path signature_file = folder / "mods.signature";
-    const std::string signature = galaxy::mods::plan_signature(plan, game_id);
+    // Another build's shader interface means their shaders are built again.
+    const std::string signature = galaxy::mods::plan_signature(plan, game_id) + galaxy::render::native_shader_interface() + "\n";
     std::error_code error;
     fs::create_directories(folder, error);
     std::string kept;
@@ -5104,12 +5262,14 @@ void cook_mod_files(const galaxy::mods::DiscPlan& plan, const fs::path& settings
         kept.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
     }
     if (kept != signature || !fs::is_regular_file(overlay, error)) {
+        const auto cook_now = [plan, folder, overlay, signature_file, signature, game_id]() -> bool {
         const fs::path plan_file = folder / "mods.plan";
         if (!galaxy::io::write_file_atomically(plan_file, galaxy::mods::plan_text(plan, game_id))) {
             log_line("mods:", "the plan could not be written");
-            return;
+            return false;
         }
-        fs::remove(signature_file, error);
+        std::error_code cook_error;
+        fs::remove(signature_file, cook_error);
 #if defined(_WIN32)
         wchar_t exe[MAX_PATH] = {};
         GetModuleFileNameW(nullptr, exe, MAX_PATH);
@@ -5131,7 +5291,7 @@ void cook_mod_files(const galaxy::mods::DiscPlan& plan, const fs::path& settings
         }
         if (exit_code != 0u) {
             log_line("mods:", "the mods' files could not be cooked: the game runs without them");
-            return;
+            return false;
         }
 #else
         // The importer's library, as the launcher loads it.
@@ -5140,11 +5300,69 @@ void cook_mod_files(const galaxy::mods::DiscPlan& plan, const fs::path& settings
         const auto cook = library != nullptr ? reinterpret_cast<CookOverlay>(dlsym(library, "nebula_cook_overlay")) : nullptr;
         if (cook == nullptr || cook(utf8_of(plan_file).c_str(), utf8_of(overlay).c_str()) != 0) {
             log_line("mods:", "the mods' files could not be cooked: the game runs without them");
+            return false;
+        }
+#endif
+        // What a mod holds that couldn't be used: the rest of it goes ahead.
+        {
+            fs::path left_out = overlay;
+            left_out.replace_extension("left_out");
+            std::ifstream lines(left_out);
+            std::string line;
+            while (std::getline(lines, line)) {
+                log_line("mods: left out:", line.c_str());
+            }
+        }
+        {
+            // What their materials need and they didn't bring.
+            std::vector<fs::path> brought;
+            for (const fs::path& mod : plan.luma_folders) {
+                brought.push_back(mod / "shaders" / galaxy::render::native_shader_file_name());
+            }
+            fs::path sources = overlay;
+            sources.replace_extension("sources");
+            fs::path progress = overlay;
+            progress.replace_extension("progress");
+            const galaxy::render::ModShaderBuild built = galaxy::render::build_missing_mod_shaders(
+                sources, brought, folder / "built.shaders", [progress](unsigned done, unsigned total) {
+                    std::ofstream out(progress);
+                    out << done << ' ' << total << '\n';
+                });
+            std::error_code progress_error;
+            fs::remove(progress, progress_error);
+            if (built.wanted != 0u) {
+                char text[96];
+                std::snprintf(text, sizeof(text), "%u of %u shaders built here", built.built, built.wanted);
+                log_line("mods:", text);
+                if (!built.problem.empty()) {
+                    log_line("mods:", built.problem.c_str());
+                }
+            }
+        }
+        if (!galaxy::io::write_file_atomically(signature_file, signature)) {
+            log_line("mods:", "the signature could not be written");
+        }
+            return true;
+        };
+#if defined(NEBULA_HOST_RENDERER)
+        // The game's own screen while they cook; then it starts again with them, so that they are there from its first file.
+        // A hidden test run cooks first, as its measurements start from the game with its mods.
+        if (::galaxy::run_options().hide_window == nullptr || ::galaxy::run_options().test_mods_screen != nullptr) {
+            gModsProgressFile = overlay;
+            gModsProgressFile.replace_extension("progress");
+            gModsPreparing.store(2u, std::memory_order_release);
+            log_line("mods:", "preparing their files");
+            std::thread([cook_now]() {
+                if (cook_now()) {
+                    finish_and_exit(true);
+                }
+                gModsPreparing.store(0u, std::memory_order_release);
+            }).detach();
             return;
         }
 #endif
-        if (!galaxy::io::write_file_atomically(signature_file, signature)) {
-            log_line("mods:", "the signature could not be written");
+        if (!cook_now()) {
+            return;
         }
     }
     if (gPak.store.attach_overlay(overlay)) {
@@ -5666,6 +5884,7 @@ int main(int argc, char** argv) {
     services.asset_find = svc_asset_find;
     services.asset_entry = svc_asset_entry;
     services.asset_child = svc_asset_child;
+    services.asset_added_child = svc_asset_added_child;
     services.asset_read = svc_asset_read;
     services.memory_reserve = svc_memory_reserve;
     services.memory_commit = svc_memory_commit;
@@ -5704,6 +5923,7 @@ int main(int argc, char** argv) {
     services.game_context = svc_game_context;
     services.app_exit = svc_app_exit;
     services.app_restart = svc_app_restart;
+    services.mods_start = svc_mods_start;
     services.test_scene_frame = svc_test_scene_frame;
     services.display_extent = svc_display_extent;
     services.option = svc_option;

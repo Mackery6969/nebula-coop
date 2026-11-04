@@ -38,6 +38,8 @@ public:
     bool calcDisplayScenarioNum(s32*, s32*) const;
     void appearAllStar(s32, s32, bool);
     void appearStar(s32, s32, int);
+    void appearPage(s32);
+    void tryChangePage();
     bool isAppearStarEndAll() const;
     bool tryCancel();
     void setPlayerLeft();
@@ -75,4 +77,10 @@ public:
     s32 _A8;
     // Online co-op: who plays each star, under it.
     NebulaSelectPlayers* mCoopPlayers;
+    // A galaxy with more stars than the screen's seven: all of them, in order, and the page shown.
+    s32* mListScenario = nullptr;
+    s32* mListState = nullptr;
+    s32 mListNum = 0;
+    s32 mListPage = 0;
+    bool mPageKeyHeld = false;
 };

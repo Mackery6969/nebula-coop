@@ -76,7 +76,8 @@ std::uint32_t pack_sampler_key(
     std::uint8_t mip_levels,
     std::uint8_t lod_shift_x16,
     bool arbitrary,
-    std::uint8_t mip_lines_log2_x32) noexcept {
+    std::uint8_t mip_lines_log2_x32,
+    int scene_bias_x32) noexcept {
     std::uint32_t min_filter =
         min_filter_code(mode) & 0x7u;
     std::uint32_t min_lod =
@@ -95,10 +96,13 @@ std::uint32_t pack_sampler_key(
             static_cast<std::uint32_t>(mip_levels - 1u) * 16u);
         full_chain = true;
     }
-    std::uint32_t lod_bias =
-        static_cast<std::uint32_t>(static_cast<std::uint8_t>(lod_bias_x32(mode.lod_bias))) & 0xFFu;
+    // The levels only a texture with levels has: a scene rendered under the output reads them for the output's pixels.
+    const int authored_bias_x32 = static_cast<int>(static_cast<std::int8_t>(lod_bias_x32(mode.lod_bias))) +
+                                  (source_mips || full_chain ? scene_bias_x32 : 0);
+    std::uint32_t lod_bias = static_cast<std::uint32_t>(static_cast<std::uint8_t>(
+        static_cast<std::int8_t>(std::clamp(authored_bias_x32, -128, 127))));
     if (arbitrary && source_mips) {
-        const int bias = static_cast<int>(static_cast<std::int8_t>(lod_bias_x32(mode.lod_bias))) +
+        const int bias = authored_bias_x32 +
                          static_cast<int>(mip_lines_log2_x32) - 2 * static_cast<int>(lod_shift_x16);
         lod_bias = static_cast<std::uint32_t>(static_cast<std::uint8_t>(
             static_cast<std::int8_t>(std::clamp(bias, -128, 127))));
@@ -606,19 +610,17 @@ void RenderCore::trace_memory() {
     }
     std::uint64_t geometry = 0u;
     std::uint64_t vertices = 0u;
-    std::uint64_t split = 0u;
     for (const auto& [key, shape] : record_shapes_) {
         if (shape.geometry != nullptr) {
             geometry += shape.geometry->corners.capacity() * sizeof(shapes::Corner) + shape.geometry->indices.capacity() * sizeof(std::uint16_t);
         }
         vertices += shape.resident_vertices * sizeof(RenderVertex);
-        split += shape.split_indices.capacity() * sizeof(std::uint16_t);
     }
     const auto mb = [](std::uint64_t bytes) { return static_cast<double>(bytes) / (1024.0 * 1024.0); };
     std::fprintf(stderr,
-                 "[memory] shape arrays %.1f (%zu), groups %.1f, expanded vertices %.1f, split indices %.1f (%zu shapes), images %.1f, decoded %.1f, "
+                 "[memory] shape arrays %.1f (%zu), groups %.1f, expanded vertices %.1f (%zu shapes), images %.1f, decoded %.1f, "
                  "upload arenas %.1f, texture pool %.1f, curved %.1f, record pool %.1f\n",
-                 mb(arrays), shape_arrays_.size(), mb(geometry), mb(vertices), mb(split), record_shapes_.size(), mb(texture_cache_.image_bytes()),
+                 mb(arrays), shape_arrays_.size(), mb(geometry), mb(vertices), record_shapes_.size(), mb(texture_cache_.image_bytes()),
                  mb(texture_cache_.decoded_map_stats().resident_bytes), mb(texture_cache_.upload_arena_bytes()), mb(texture_cache_.pool_bytes()),
                  mb(curved::memory_bytes()),
                  mb(producer_record_pool_.vertices.capacity() * sizeof(RenderVertex) + producer_record_pool_.matrices.capacity() * sizeof(shapes::Matrix)));
@@ -1668,6 +1670,9 @@ void RenderCore::apply_scene_ao(const std::array<float, 12>& view) {
     }
     flush_pending_draw_batch();
     renderer_.set_scene_ao_view(scene_depth_view(view.data(), viewport));
+    ao_objects_.finish();
+    collect_ao_objects_ = false;
+    renderer_.set_scene_ao_objects(ao_objects_.list());
     renderer_.record_scene_ao();
 }
 
@@ -1707,8 +1712,26 @@ void RenderCore::on_scene_marker(SceneMarker marker, const std::array<float, 12>
     const bool was_temporal = temporal_scene_;
     const bool was_motion = motion_scene_;
     if (marker == SceneMarker::SceneBegin) {
+        collect_ao_objects_ = ambient_occlusion_ && side_layer_ == kSceneLayer;
+        if (collect_ao_objects_) {
+            ao_objects_.begin(view != nullptr ? view->data() : nullptr);
+        }
         temporal_scene_ = renderer_.scene_temporal_begin(
             scene_jitter_px_[0], scene_jitter_px_[1]);
+        {
+            // Rendered under the output, the scene's textures keep the output's detail: the upscaler takes it from the
+            // jittered samples of many frames.
+            const unsigned output_width = renderer_.temporal_output_width();
+            const unsigned render_width = renderer_.frame_map().width;
+            int bias = 0;
+            if (temporal_scene_ && output_width > render_width && render_width != 0u) {
+                bias = static_cast<int>(std::lround(32.0 * std::log2(static_cast<double>(render_width) / output_width)));
+            }
+            if (bias != scene_mip_bias_x32_) {
+                scene_mip_bias_x32_ = bias;
+                texture_bindings_dirty_ = true;
+            }
+        }
         // A temporal scene writes the motion, and so does one the ray tracing engine lights (its histories follow
         // moving surfaces by it) without a temporal upscaler: unjittered, the transform history behind it.
         motion_scene_ = renderer_.begin_motion_scene();
@@ -1775,6 +1798,10 @@ void RenderCore::on_scene_marker(SceneMarker marker, const std::array<float, 12>
         temporal_scene_ = false;
         motion_scene_ = false;
         history_scene_ = false;
+        if (scene_mip_bias_x32_ != 0) {
+            scene_mip_bias_x32_ = 0;
+            texture_bindings_dirty_ = true;
+        }
         current_replay_record_ = -1;
         current_ps_record_ = -1;
         matrices_.set_load_tracking(false);
@@ -3512,7 +3539,7 @@ void RenderCore::render_frame_on_thread(FrameChunk& chunk) {
             const RenderConfig render = get_render_config();
             const bool enhanced = render.enhanced_lighting;
             const bool per_pixel = render.per_pixel_lighting;
-            curved_surfaces_ = render.curved_surfaces && curved_surfaces_offered();
+            curved_refine_ = render.curved_surfaces && curved_surfaces_offered();
             ambient_occlusion_ =
                 render.ambient_occlusion && renderer_.ambient_occlusion_ready();
             // A lighting-mode change re-keys every lit draw's pipeline.
@@ -3855,6 +3882,7 @@ RenderCore::TextureBindingKey RenderCore::capture_texture_binding_key(
     std::uint8_t map_mask) const {
     TextureBindingKey key{};
     key.map_mask = map_mask;
+    key.scene_bias_x32 = scene_mip_bias_x32_;
     for (unsigned m = 0; m < kMaxTextureMaps; ++m) {
         if ((map_mask & (1u << m)) == 0u) {
             continue;
@@ -3902,7 +3930,7 @@ std::array<std::uint32_t, kMaxTextureMaps> RenderCore::capture_sampler_keys(
         const TextureHandle& handle = handles[map];
         keys[map] = pack_sampler_key(
             draw_state_.texture[map].mode, handle.generated_mips, handle.mip_levels,
-            handle.lod_shift_x16, handle.lod_arbitrary, mip_lines_log2_x32);
+            handle.lod_shift_x16, handle.lod_arbitrary, mip_lines_log2_x32, scene_mip_bias_x32_);
     }
     // Unused slots still get valid zero-key descriptors, but cannot fragment
     // the table cache. map_mask includes both direct and indirect sampling.
@@ -4013,61 +4041,8 @@ void RenderCore::prune_dirty_texture_binding_tables() {
     dirty_texture_aliases_.clear();
 }
 
-bool RenderCore::curved_draw(std::uint8_t vtxfmt) const {
-    if (!curved_surfaces_ || !scene_phase_ || side_layer_ != kSceneLayer ||
-        draw_state_.projection_type != 0u) {
-        return false;
-    }
-    (void)vtxfmt;
-    // A native shape record whose model the analysis rounds (curved_surfaces.h; a model kept only for its flat
-    // corners draws plainly).
-    return record_inputs_ != nullptr && record_inputs_->curved != nullptr && record_inputs_->curved->bends;
-}
-
-namespace {
-
-
-}  // namespace
-
-std::uint32_t RenderCore::split_curved_triangles(std::span<const RenderVertex> vertices,
-                                                std::span<const std::uint16_t> triangles,
-                                                std::vector<std::uint16_t>& split) {
-    // A triangle is flat when no corner has a displacement or crease normal: every edge then keeps one segment and
-    // moves nothing, in this triangle and in its neighbours.
-    const auto flat = [&](std::size_t t) {
-        for (std::size_t k = 0; k < 3u; ++k) {
-            const RenderVertex& v = vertices[triangles[t + k]];
-            if ((v.curve[0] | v.curve[1]) != 0u) {
-                return false;
-            }
-        }
-        return true;
-    };
-    split.clear();
-    const std::size_t count = triangles.size() / 3u * 3u;
-    if (count == 0u || !std::all_of(triangles.begin(), triangles.begin() + static_cast<std::ptrdiff_t>(count),
-                                    [&](std::uint16_t i) { return i < vertices.size(); })) {
-        return 0u;
-    }
-    std::size_t flat_indices = 0;
-    for (std::size_t t = 0; t < count; t += 3u) {
-        flat_indices += flat(t) ? 3u : 0u;
-    }
-    split.resize(count);
-    std::size_t f = 0;
-    std::size_t c = flat_indices;
-    for (std::size_t t = 0; t < count; t += 3u) {
-        std::size_t& out = flat(t) ? f : c;
-        split[out] = triangles[t];
-        split[out + 1u] = triangles[t + 1u];
-        split[out + 2u] = triangles[t + 2u];
-        out += 3u;
-    }
-    return static_cast<std::uint32_t>(flat_indices);
-}
-
 gpu::Pipeline* RenderCore::flush_draw_state(
-    gpu::TopologyType primitive_topology_type, std::uint8_t vtxfmt) {
+    gpu::TopologyType primitive_topology_type) {
     // Always counted: the denominator of every *_us field.
     if (screen_run_ && !frame_scene_seen_ && !screen_frame_open_ && interp_recording_ && !history_scene_) [[unlikely]] {
         begin_screen_frame();
@@ -4080,7 +4055,6 @@ gpu::Pipeline* RenderCore::flush_draw_state(
         galaxy::loss::note(galaxy::loss::Kind::DrawNoMaterial);
         return nullptr;
     }
-    const bool curved = primitive_topology_type == gpu::kTopologyTypeTriangle && curved_draw(vtxfmt);
     // Consume once, propagating upload invalidation before considering reuse.
     // What changed: the typed state's flags, the register file's for matrix memory (until the matrix arena).
     const std::uint32_t dirty =
@@ -4119,7 +4093,7 @@ gpu::Pipeline* RenderCore::flush_draw_state(
         current_ps_constants_ != 0 &&
         (current_texture_map_mask_ == 0u ||
          current_texture_table_.ptr != 0) &&
-        curved == current_curved_ && (curved || render_state_key_.primitive_topology == topology_key)) {
+        render_state_key_.primitive_topology == topology_key) {
         return current_pipeline_;
     }
 
@@ -4166,12 +4140,7 @@ gpu::Pipeline* RenderCore::flush_draw_state(
     // The scene target's variant (its samples per pixel, MSAA, the output scene target has one; the HDR scene scene target) decides the
     // pipeline's too.
     const std::uint8_t samples_log2 = renderer_.scene_variant();
-    // A curved draw after another keeps its patch topology (its variant is settled below).
-    const bool keep_patch =
-        curved && (render_state_key_.primitive_topology & kTopologyTypeMask) == kTopologyPatch;
-    if (!keep_patch) {
-        render_state_key_.primitive_topology = topology_key;
-    }
+    render_state_key_.primitive_topology = topology_key;
     render_state_key_.samples_log2 = samples_log2;
     // Motion writers: opaque triangles with color writes in a temporal scene
     // (blending, logic ops and dual-source alpha cannot share a second
@@ -4201,7 +4170,9 @@ gpu::Pipeline* RenderCore::flush_draw_state(
         const bool candidate = motion_scene_ &&
             topology_key == static_cast<std::uint8_t>(gpu::kTopologyTypeTriangle) &&
             (bb & ((1u << 8) | dual_bit)) == 0u && (bb & (1u << 25)) != 0u;
-        const bool writer = candidate && (bb & 1u) == 0u;
+        // A pass over the screen (no depth test: the fill between the scene's opaque models and its shadows) is no surface:
+        // it leaves the motion the surfaces wrote.
+        const bool writer = candidate && (bb & 1u) == 0u && (render_state_key_.zmode_bits & 1u) != 0u;
         const bool reactive = candidate && (bb & 1u) != 0u;
         // Dual-source and constant alpha as the key builders made them, but for a reactive draw drawn single-source.
         if (single_source) {
@@ -4239,19 +4210,12 @@ gpu::Pipeline* RenderCore::flush_draw_state(
         motion_bits_set_ = writer || reactive;
     }
 
-    // Curved surfaces: the vertex stage's curve outputs and the patches of its output variant's hull and domain shaders.
-    current_curved_ = curved;
-    if (curved) {
-        render_state_key_.primitive_topology = static_cast<std::uint8_t>(kTopologyPatch);
-    }
     {
         // The native material's pipeline: its build-compiled shaders under the draw's render state.
         current_pipeline_ = pipeline_cache_.get_native(native_material_->shader, render_state_key_,
                                                        per_pixel_lighting_ || enhanced_lighting_);
         // GALAXY_LOG_NATIVE_MATERIALS=1: each native shader's pipelines as draws first take them.
         current_pso_key_valid_ = false;
-        // A curved native draw goes whole through its patch stages (native_curved.hlsl).
-        current_flat_pipeline_ = nullptr;
     }
     if (current_pipeline_ == nullptr) {
         // The driver refused the pipeline in every form and no uber stand-in exists (the pipeline cache logged
@@ -4563,8 +4527,7 @@ bool RenderCore::draw_calls_batch_compatible(
         lhs.sampler_table.ptr != rhs.sampler_table.ptr ||
         lhs.matrix_palette != rhs.matrix_palette ||
         lhs.topology != rhs.topology ||
-        lhs.has_viewport != rhs.has_viewport ||
-        lhs.flat_pipeline != nullptr || rhs.flat_pipeline != nullptr) {
+        lhs.has_viewport != rhs.has_viewport) {
         return false;
     }
     if (lhs.scissor.left != rhs.scissor.left ||
@@ -4593,8 +4556,6 @@ void RenderCore::flush_pending_draw_batch() {
     }
     if (!pending_draw_batch_.hidden) {
         const DrawCall& call = pending_draw_batch_.call;
-        if (call.topology == gpu::kTopologyTrianglePatches) {
-        }
         renderer_.draw(call);
     }
     pending_draw_batch_ = {};
@@ -4636,7 +4597,7 @@ bool RenderCore::begin_cached_draw_run(
 
     gpu::Pipeline* pso = nullptr;
     {
-        pso = flush_draw_state(topology_type, vtxfmt);
+        pso = flush_draw_state(topology_type);
     }
     if (pso == nullptr) {
         flush_pending_draw_batch();
@@ -4660,7 +4621,7 @@ bool RenderCore::begin_cached_draw_run(
     cached_draw_run_state_call_.aux_target     = current_pipeline_aux_;
     cached_draw_run_state_call_.replay_record  = current_replay_record_;
     cached_draw_run_state_call_.ps_record      = current_ps_record_;
-    cached_draw_run_state_call_.topology       = draw_topology(topology);
+    cached_draw_run_state_call_.topology       = topology;
     cached_draw_run_state_call_.scissor        = scissor_rect;
     for (unsigned i = 0; i < 6; ++i) {
         cached_draw_run_state_call_.viewport[i] = draw_state_.viewport[i];
@@ -5065,7 +5026,8 @@ void RenderCore::draw_record_shape(const shapes::Record& record) {
     if (!ensure_resident_vertex_buffer()) {
         return;
     }
-    const bool stale = !shape.expanded || shape.versions != versions || shape.position_matrix != position_matrix;
+    const bool stale = !shape.expanded || shape.versions != versions || shape.position_matrix != position_matrix ||
+                       shape.refined != curved_refine_;
     if (stale || shape.resident_epoch != resident_vertices_.epoch()) {
         // The model's analysis for its curved surfaces (its first draw waits for it).
         shape.curved = curved::find_model(keys[0]);
@@ -5085,17 +5047,43 @@ void RenderCore::draw_record_shape(const shapes::Record& record) {
             shape.expanded = true;
             shape.versions = versions;
             shape.position_matrix = position_matrix;
-            shape.split_built = false;
-            shape.split_indices.clear();
+            shape.object_slots_built = false;
+        }
+        // No patch stages: the bending triangles refined here, once, for every draw of the shape.
+        shape.refined = curved_refine_;
+        shape.refined_indices.clear();
+        const bool refine = curved_refine_ && !shape.refine_failed && shape.curved != nullptr && shape.curved->bends &&
+                            (geometry.attributes & shapes::kOwnPositions) == 0u;
+        if (refine) {
+            std::vector<RenderVertex> refined;
+            std::vector<std::uint16_t> refined_indices;
+            if (shapes::refine_curved(expand_scratch_, geometry.indices, kCurveRefineTolerance, refined, refined_indices)) {
+                expand_scratch_ = std::move(refined);
+                shape.refined_indices = std::move(refined_indices);
+            }
         }
         // The block holds the vertices and, behind them, the indices: both written once, for every draw of the shape.
-        const auto expanded_units = static_cast<std::uint32_t>(expand_scratch_.size());
-        const auto index_bytes = static_cast<std::uint32_t>(geometry.indices.size() * sizeof(std::uint16_t));
-        const std::uint32_t index_units =
-            (index_bytes + static_cast<std::uint32_t>(sizeof(RenderVertex)) - 1u) / static_cast<std::uint32_t>(sizeof(RenderVertex));
-        const std::uint32_t block_units = expanded_units + index_units;
         shape.resident_epoch = 0u;
-        const std::optional<std::uint32_t> offset = resident_vertices_.allocate(block_units);
+        auto block_size = [&](std::uint32_t& vertices_units, std::uint32_t& bytes) {
+            vertices_units = static_cast<std::uint32_t>(expand_scratch_.size());
+            const std::size_t index_count = !shape.refined_indices.empty() ? shape.refined_indices.size() : geometry.indices.size();
+            bytes = static_cast<std::uint32_t>(index_count * sizeof(std::uint16_t));
+            return vertices_units + (bytes + static_cast<std::uint32_t>(sizeof(RenderVertex)) - 1u) / static_cast<std::uint32_t>(sizeof(RenderVertex));
+        };
+        std::uint32_t expanded_units = 0u;
+        std::uint32_t index_bytes = 0u;
+        std::uint32_t block_units = block_size(expanded_units, index_bytes);
+        std::optional<std::uint32_t> offset = resident_vertices_.allocate(block_units);
+        if (!offset.has_value() && !shape.refined_indices.empty()) {
+            // No room for the refined group: the model's own triangles, not no model, and no second try for it.
+            shape.refined_indices.clear();
+            shape.refine_failed = true;
+            if (!shapes::expand(geometry, arrays, position_matrix, shape.curved.get(), expand_scratch_)) {
+                return;
+            }
+            block_units = block_size(expanded_units, index_bytes);
+            offset = resident_vertices_.allocate(block_units);
+        }
         if (!offset.has_value()) {
             return;
         }
@@ -5104,7 +5092,8 @@ void RenderCore::draw_record_shape(const shapes::Record& record) {
             static_cast<std::uint64_t>(*offset) * sizeof(RenderVertex),
             static_cast<std::uint64_t>(block_units) * sizeof(RenderVertex));
         std::memcpy(staged, expand_scratch_.data(), static_cast<std::size_t>(expanded_units) * sizeof(RenderVertex));
-        std::memcpy(staged + static_cast<std::size_t>(expanded_units) * sizeof(RenderVertex), geometry.indices.data(),
+        std::memcpy(staged + static_cast<std::size_t>(expanded_units) * sizeof(RenderVertex),
+                    !shape.refined_indices.empty() ? shape.refined_indices.data() : geometry.indices.data(),
                     index_bytes);
         shape.resident_epoch = resident_vertices_.epoch();
         shape.resident_offset = *offset;
@@ -5112,6 +5101,36 @@ void RenderCore::draw_record_shape(const shapes::Record& record) {
         shape.resident_vertices = expanded_units;
     }
     const std::uint32_t units = shape.resident_vertices;
+
+    // The scene's opaque models (the depth and colour they leave) cast the occlusion its pass reads.
+    if (collect_ao_objects_ && record.pass.depth_write != 0u && record.pass.color_write != 0u && record.pass.blend_op == 0u &&
+        (geometry.attributes & shapes::kOwnPositions) == 0u) {
+        if (!shape.object_slots_built) {
+            shape.object_slots_built = true;
+            shape.object_slots.clear();
+            if (shapes::expand(geometry, arrays, position_matrix, shape.curved.get(), expand_scratch_)) {
+                for (const RenderVertex& v : expand_scratch_) {
+                    const std::uint32_t row = v.mtx_indices[0] & 0xFFu;
+                    auto slot = std::find_if(shape.object_slots.begin(), shape.object_slots.end(),
+                                             [row](const ao::ObjectSlot& s) { return s.row == row; });
+                    if (slot == shape.object_slots.end()) {
+                        ao::ObjectSlot made;
+                        made.row = row;
+                        std::copy_n(v.position, 3u, made.min);
+                        std::copy_n(v.position, 3u, made.max);
+                        shape.object_slots.push_back(made);
+                        slot = std::prev(shape.object_slots.end());
+                    }
+                    for (unsigned i = 0u; i < 3u; ++i) {
+                        slot->min[i] = std::min(slot->min[i], v.position[i]);
+                        slot->max[i] = std::max(slot->max[i], v.position[i]);
+                    }
+                }
+            }
+        }
+        ao_objects_.add(keys[0], shape.object_slots,
+                        [this](std::uint32_t row, std::uint32_t column) { return matrices_.matrix_value(row, column); });
+    }
 
     RecordVertexInputs inputs;
     inputs.matrix_bits = ((geometry.attributes & shapes::kPositionMatrix) != 0u ? 1u : 0u) |
@@ -5147,20 +5166,7 @@ void RenderCore::draw_record_shape(const shapes::Record& record) {
     flush_pending_draw_batch();
     cached_draw_run_batch_compatible_known_ = false;
 
-    const bool curved = current_curved_ && current_flat_pipeline_ != nullptr;
-    if (curved && !shape.split_built) {
-        shape.split_built = true;
-        (void)shapes::expand(geometry, arrays, position_matrix, shape.curved.get(), expand_scratch_);
-        shape.split_flat_indices = split_curved_triangles(expand_scratch_, geometry.indices, shape.split_indices);
-    }
-    const bool split = curved && !shape.split_indices.empty();
-    const std::vector<std::uint16_t>& indices = split ? shape.split_indices : geometry.indices;
-    // A split curved surface's indices are their own, a feature's; every other draw reads the shape's block.
-    const UploadRing::Allocation ib = split ? renderer_.index_ring().upload_immutable(
-                                                  indices.data(), indices.size() * sizeof(std::uint16_t),
-                                                  sizeof(std::uint16_t), shape.split_upload_token)
-                                            : UploadRing::Allocation{};
-    const auto first_index = static_cast<std::uint32_t>(ib.offset / sizeof(std::uint16_t));
+    const std::vector<std::uint16_t>& indices = !shape.refined_indices.empty() ? shape.refined_indices : geometry.indices;
     const auto index_count = static_cast<std::uint32_t>(indices.size());
     const std::size_t vertex_byte_offset = static_cast<std::size_t>(shape.resident_offset) * sizeof(RenderVertex);
     ++stat_draws_issued_;
@@ -5169,24 +5175,12 @@ void RenderCore::draw_record_shape(const shapes::Record& record) {
                                                  units * static_cast<std::uint32_t>(sizeof(RenderVertex)),
                                                  static_cast<std::uint32_t>(sizeof(RenderVertex)));
     const gpu::IndexView ibv = gpu::index_view(
-        split ? renderer_.index_ring().gpu_base() + static_cast<std::size_t>(first_index) * sizeof(std::uint16_t)
-              : resident_vertex_gpu_ + vertex_byte_offset + static_cast<std::size_t>(units) * sizeof(RenderVertex),
+        resident_vertex_gpu_ + vertex_byte_offset + static_cast<std::size_t>(units) * sizeof(RenderVertex),
         index_count * static_cast<std::uint32_t>(sizeof(std::uint16_t)));
     DrawCall call = cached_draw_run_state_call_;
     call.vertex_view = vbv;
     call.index_view = ibv;
     call.index_count = index_count;
-    if (split) {
-        call.flat_pipeline = current_flat_pipeline_;
-        call.flat_index_count = shape.split_flat_indices;
-        // The sort's view of this frame: of the triangles after the flat ones, those the hull shader would leave
-        // whole draw after the flat ones.
-        call.curve_sort = renderer_.sort_curved(
-            vbv.BufferLocation, ibv.BufferLocation + shape.split_flat_indices * sizeof(std::uint16_t),
-            (index_count - shape.split_flat_indices) / 3u, call.vs_constants, call.matrix_palette,
-            cpu_vs_constants_.per_vertex != 0u);
-        call.curve_sort_list = renderer_.curve_sort_list();
-    }
     pending_draw_batch_.active = true;
     pending_draw_batch_.call = call;
     pending_draw_batch_.rt = false;
@@ -5196,7 +5190,7 @@ void RenderCore::draw_record_shape(const shapes::Record& record) {
     pending_draw_batch_.base_vertex = shape.resident_offset;
     pending_draw_batch_.vertex_count = units;
     pending_draw_batch_.vertex_byte_end = vertex_byte_offset + static_cast<std::size_t>(units) * sizeof(RenderVertex);
-    pending_draw_batch_.first_index = first_index;
+    pending_draw_batch_.first_index = 0u;
     pending_draw_batch_.index_count = index_count;
     pending_draw_batch_.draw_count = 1u;
     pending_draw_batch_.resident = true;

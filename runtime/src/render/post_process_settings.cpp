@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Post-processing settings, pass planning, FSR 1 constants, the AA self-test and the overlay's status text.
+#if defined(NEBULA_GPU_VULKAN)
+#include "galaxy/render/vk/vk_context.h"
+#endif
 #include "galaxy/render/post_process_settings.h"
 #include "galaxy/run_options.h"
 #include "galaxy/render/render_config.h"
@@ -216,8 +219,15 @@ std::string post_process_caps_text(const PostProcessStatus& status) {
 }
 
 #if defined(NEBULA_GPU_VULKAN)
-// Temporal upscaling is D3D12 only (temporal_upscaler.cpp).
-bool fsr3_available() noexcept { return false; }
+// Whether the build holds it (temporal_upscaler_vk.cpp) and, once there is a device, whether it runs there.
+bool fsr3_available() noexcept {
+#if defined(GALAXY_WITH_FSR3_VK)
+    const vk::Context& context = vk::Context::get();
+    return context.device() == VK_NULL_HANDLE || context.temporal_upscaling();
+#else
+    return false;
+#endif
+}
 #endif
 
 }  // namespace galaxy::render

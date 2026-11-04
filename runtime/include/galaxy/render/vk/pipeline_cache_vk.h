@@ -53,8 +53,7 @@ private:
     [[nodiscard]] VkShaderModule native_module(const void* words, std::size_t bytes, vk::ShaderStage stage);
     [[nodiscard]] VkPipeline create_pipeline(const RenderStateKey& render_state, VkShaderModule vs, VkShaderModule ps,
                                              bool dual_source, bool export_depth, std::uint32_t compat,
-                                             VkResult& result, VkShaderModule hs = VK_NULL_HANDLE,
-                                             VkShaderModule ds = VK_NULL_HANDLE) const;
+                                             VkResult& result) const;
     [[nodiscard]] std::uint32_t applicable_compat(const RenderStateKey& render_state, bool dual_source,
                                                   bool export_depth) const;
     template <typename Make>
@@ -76,7 +75,7 @@ private:
     // A vertex module's input locations (bit i: location i), for the vertex input state.
     std::unordered_map<VkShaderModule, std::uint32_t> input_masks_;
     // Native materials' pipelines by shader, output variant and render state.
-    std::unordered_map<std::uint64_t, std::vector<std::pair<std::pair<std::uint32_t, RenderStateKey>, VkPipeline>>>
+    std::unordered_map<std::uint64_t, std::vector<std::pair<std::pair<std::uint64_t, RenderStateKey>, VkPipeline>>>
         native_pipelines_;
     std::uint32_t created_ = 0;
     [[nodiscard]] VkPipeline create_native(std::uint32_t shader, const RenderStateKey& rs, unsigned variant);

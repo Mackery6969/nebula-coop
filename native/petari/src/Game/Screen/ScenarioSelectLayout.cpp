@@ -177,7 +177,7 @@ void ScenarioSelectLayout::appear() {
 
     if (isNewScenario) {
         MR::showPaneRecursive(this, "New");
-        MR::copyPaneTrans(&mNewTextFollowPos, this, ::cStarPaneName[normalScenarioCompleteNum - 1]);
+        MR::copyPaneTrans(&mNewTextFollowPos, this, ::cStarPaneName[(normalScenarioCompleteNum - 1) % 7]);
     } else if (!MR::isScenarioDecided()) {
         const char* stageName = MR::getCurrentStageName();
 
@@ -196,7 +196,10 @@ void ScenarioSelectLayout::appear() {
                 continue;
             }
 
-            const char* starPaneName = ::cStarPaneName[MR::getPlacedHiddenStarScenarioNo(stageName, scenarioNo) - 1];
+            if (hiddenIndex >= static_cast< s32 >(ARRAY_SIZE(::cQuestionPaneName))) {
+                break;
+            }
+            const char* starPaneName = ::cStarPaneName[(MR::getPlacedHiddenStarScenarioNo(stageName, scenarioNo) - 1) % 7];
 
             if (MR::isPowerStarGreenInCurrentStage(scenarioNo)) {
                 MR::showPaneRecursive(this, "NewStarGreen");
@@ -529,6 +532,14 @@ void ScenarioSelectLayout::appearAllStar(s32 normalScenarioCompleteNum, s32 extr
 
         appearStar(0, MR::getCurrentScenarioNo(), starState);
     } else {
+        const s32 room = normalScenarioCompleteNum + getHiddenScenarioNum();
+        delete[] mListScenario;
+        delete[] mListState;
+        mListScenario = new s32[room > 0 ? room : 1];
+        mListState = new s32[room > 0 ? room : 1];
+        mListNum = 0;
+        mListPage = 0;
+
         for (s32 i = 0; i < normalScenarioCompleteNum; i++) {
             s32 starState;
 
@@ -540,20 +551,95 @@ void ScenarioSelectLayout::appearAllStar(s32 normalScenarioCompleteNum, s32 extr
                 starState = 0;
             }
 
-            appearStar(i, i + 1, starState);
+            mListScenario[mListNum] = i + 1;
+            mListState[mListNum++] = starState;
         }
-
-        s32 starIndex = 3;
 
         for (s32 j = 0; j < getHiddenScenarioNum(); j++) {
             s32 scenarioNo = MR::getCurrentStageNormalScenarioNum() + j + 1;
 
             if (MR::hasPowerStarInCurrentStage(scenarioNo)) {
-                appearStar(starIndex, scenarioNo, isNewScenario ? 1 : 2);
-                starIndex++;
+                mListScenario[mListNum] = scenarioNo;
+                mListState[mListNum++] = isNewScenario ? 1 : 2;
             }
         }
+
+        // The game's own places: its normal stars first, the rest from the fourth. With more than the screen holds, pages.
+        if (mListNum <= 7) {
+            s32 starIndex = 0;
+            for (s32 i = 0; i < mListNum; i++) {
+                if (i == normalScenarioCompleteNum && starIndex < 3) {
+                    starIndex = 3;
+                }
+                appearStar(starIndex++, mListScenario[i], mListState[i]);
+            }
+        } else {
+            appearPage(0);
+        }
     }
+}
+
+void ScenarioSelectLayout::appearPage(s32 page) {
+    for (s32 i = 0; i < 7; i++) {
+        if (!mStar[i]->_30) {
+            mStar[i]->kill();
+        }
+    }
+    mListPage = page;
+    mSelectedScenarioNo = -1;
+    // Six on a page: the screen's seventh place lies over the second.
+    for (s32 i = 0; i < 6 && page * 6 + i < mListNum; i++) {
+        appearStar(i, mListScenario[page * 6 + i], mListState[page * 6 + i]);
+    }
+
+    // The page, after the galaxy's name.
+    char16_t text[256];
+    const char16_t* pName = MR::getGalaxyNameOnCurrentLanguage(MR::getCurrentStageName());
+    s32 at = 0;
+    while (pName != nullptr && pName[at] != 0 && at < 200) {
+        text[at] = pName[at];
+        at++;
+    }
+    const s32 pages = (mListNum + 5) / 6;
+    const s32 number = page + 1;
+    text[at++] = u' ';
+    text[at++] = u' ';
+    text[at++] = u'<';
+    text[at++] = u' ';
+    if (number >= 10) {
+        text[at++] = static_cast< char16_t >(u'0' + number / 10 % 10);
+    }
+    text[at++] = static_cast< char16_t >(u'0' + number % 10);
+    text[at++] = u'/';
+    if (pages >= 10) {
+        text[at++] = static_cast< char16_t >(u'0' + pages / 10 % 10);
+    }
+    text[at++] = static_cast< char16_t >(u'0' + pages % 10);
+    text[at++] = u' ';
+    text[at++] = u'>';
+    text[at] = 0;
+    MR::setTextBoxMessageRecursive(this, "Galaxy", text);
+}
+
+void ScenarioSelectLayout::tryChangePage() {
+    if (mListNum <= 7) {
+        return;
+    }
+    const s32 pages = (mListNum + 5) / 6;
+    // A pointer: pressing with it at either side of the screen, on no star.
+    const f32 pointerX = MR::isStarPointerInScreen(0) && MR::testDPDMenuPadDecideTrigger() && mSelectedScenarioNo <= 0 ? MR::getStarPointerScreenPosition(0)->x : MR::getScreenWidth() * 0.5f;
+    const bool left = MR::isHeldLeft(0) || MR::isMoveStickPressedLeft(0) || pointerX < MR::getScreenWidth() * 0.15f;
+    const bool right = MR::isHeldRight(0) || MR::isMoveStickPressedRight(0) || pointerX > MR::getScreenWidth() * 0.85f;
+    if (!left && !right) {
+        mPageKeyHeld = false;
+        return;
+    }
+    if (mPageKeyHeld) {
+        return;
+    }
+    mPageKeyHeld = true;
+    MR::startSystemSE("SE_SY_GALAMAP_CURSOR_ON");
+    appearPage((mListPage + (right ? 1 : pages - 1)) % pages);
 }
 
 void ScenarioSelectLayout::appearStar(s32 starId, s32 scenarioNo, int a3) {
@@ -690,8 +776,12 @@ void ScenarioSelectLayout::exeWaitScenarioSelect() {
     if (MR::isFirstStep(this)) {
         startAnimAllNewPane("NewWait");
         mBackButton->appear();
+        if (mListNum > 7) {
+            appearPage(mListPage);
+        }
     }
 
+    tryChangePage();
     updateSelectedScenario();
     updateScenarioText();
     MR::startSystemLevelSE("SE_DM_LV_SENARIO_SEL_FLY");

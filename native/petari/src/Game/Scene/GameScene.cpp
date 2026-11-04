@@ -1,4 +1,5 @@
 #include "Game/Scene/GameScene.hpp"
+#include "Game/System/NebulaMods.hpp"
 #include "Game/System/NebulaLoadTrace.hpp"
 #include "JSystem/JAudio2/JASWaveArcLoader.hpp"
 #include "Game/System/GameThreads.hpp"
@@ -155,6 +156,7 @@ GameScene::GameScene()
 GameScene::~GameScene() {
     NebulaCharacter::endScene();
     NebulaCoopWorld::endScene();
+    NebulaMods::fire(NEBULA_MOD_EVENT_STAGE_END, 0, nullptr, MR::getCurrentStageName());
     MR::destroySceneMessage();
     NPCFunction::deleteNPCData();
     MR::onStarPointerSceneOut();
@@ -192,6 +194,11 @@ void GameScene::init() {
 
     if (MR::isStageEpilogueDemo()) {
         MR::createSceneObj(SceneObj_StaffRoll);
+    }
+
+    // A plugin can start a movie in any scene.
+    if (NebulaMods::hasCode()) {
+        MR::createSceneObj(SceneObj_MoviePlayerSimple);
     }
 
     if (MR::isStageEpilogueDemo() || GameSequenceFunction::isNeedMoviePlayerForStorySequenceEvent()) {
@@ -341,6 +348,7 @@ namespace {
 };  // namespace
 
 void GameScene::start() {
+    NebulaMods::fire(NEBULA_MOD_EVENT_STAGE_START, MR::getCurrentScenarioNo(), nullptr, MR::getCurrentStageName());
     AudWrap::getSceneMgr()->startScene();
     sBoardRequested = false;
     reportPresence();
@@ -356,6 +364,7 @@ void GameScene::start() {
 }
 
 void GameScene::update() {
+    NebulaMods::StageFrame stageFrame;
     updateMenusLeftOpen();
     mPauseCtrl->updateNerve();
     updateNerve();
@@ -381,7 +390,7 @@ void GameScene::update() {
     }
     NebulaRemotePlayer::updateAll();
     NebulaAchievements::update();
-    if (sTestBoard && MR::isExistSceneObj(SceneObj_GameSceneLayoutHolder) && MR::getGameSceneLayoutHolder()->mAchievementBoard != nullptr) {
+    if (sTestBoard && MR::isStageAstroLocation() && MR::isExistSceneObj(SceneObj_GameSceneLayoutHolder) && MR::getGameSceneLayoutHolder()->mAchievementBoard != nullptr) {
         sTestBoard = false;
         requestShowNebulaBoard();
     }
@@ -434,7 +443,7 @@ void GameScene::draw() const {
 #endif
     // The settings' galaxy select (its ONLINE page's cheats) names its galaxies and stars in the game's own words, asked once.
     if (NebulaHost::galaxySelectNamesWanted() != 0) {
-        char id[64];
+        char id[256];
         u32 stars = 0;
         for (u32 i = 0; NebulaHost::galaxySelectStage(i, id, sizeof(id), &stars) != 0; ++i) {
             NebulaHost::galaxySelectName(i, 0, reinterpret_cast< const u16* >(MR::getGalaxyNameOnCurrentLanguage(id)));

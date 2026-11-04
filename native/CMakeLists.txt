@@ -3,6 +3,10 @@
 # native SDK layer, as a shared library apart from the host runtime.
 cmake_minimum_required(VERSION 3.24)
 project(NebulaGame LANGUAGES C CXX)
+# The game's version, from the main project's file.
+file(STRINGS "${CMAKE_CURRENT_LIST_DIR}/../CMakeLists.txt" nebula_project_line REGEX "^project\\(Nebula VERSION ")
+string(REGEX MATCH "[0-9]+\\.[0-9]+\\.[0-9]+" nebula_version "${nebula_project_line}")
+add_compile_definitions(NEBULA_VERSION="${nebula_version}")
 
 if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
     message(FATAL_ERROR "The game module is built with clang's GNU driver (clang++, not clang-cl).")
@@ -21,6 +25,23 @@ file(GLOB_RECURSE game_sources CONFIGURE_DEPENDS
     "${petari}/src/JSystem/*.cpp" "${petari}/src/JSystem/*.c"
     "${petari}/src/nw4r/*.cpp" "${petari}/src/nw4r/*.c"
     "${petari}/src/MiiLib/*.c" "${petari}/src/MiiLib/*.cpp")
+
+# What a plugin built with the game's headers must match: any change to them may move a field or a virtual function.
+file(GLOB_RECURSE nebula_game_headers "${petari}/include/*" "${petari}/libs/*.h" "${petari}/libs/*.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/math/include/*" "${CMAKE_CURRENT_SOURCE_DIR}/include/nebula_prelude.h")
+list(SORT nebula_game_headers)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${nebula_game_headers})
+set(nebula_abi_text "${NEBULA_GAME_VERSION}")
+foreach(header IN LISTS nebula_game_headers)
+    file(SHA256 "${header}" header_hash)
+    string(APPEND nebula_abi_text "${header_hash}")
+endforeach()
+string(SHA256 nebula_abi_hash "${nebula_abi_text}")
+string(SUBSTRING "${nebula_abi_hash}" 0 16 nebula_abi_hash)
+set(NEBULA_GAME_ABI "0x${nebula_abi_hash}ull")
+# For the plugin kit: what a plugin built with these headers says it is.
+file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/sdk/nebula_game_abi.h" CONTENT "#define NEBULA_GAME_ABI ${NEBULA_GAME_ABI}\n" @ONLY)
+set_source_files_properties("${petari}/src/Game/System/NebulaMods.cpp" PROPERTIES COMPILE_DEFINITIONS "NEBULA_GAME_ABI=${NEBULA_GAME_ABI}")
 
 add_library(smg_game SHARED
     ${game_sources}
@@ -55,7 +76,17 @@ target_compile_definitions(smg_game PRIVATE VERSION=${CMAKE_MATCH_1} ${version_i
 set_target_properties(smg_game PROPERTIES
     C_STANDARD 11 C_EXTENSIONS ON
     CXX_STANDARD 17 CXX_EXTENSIONS ON
-    C_VISIBILITY_PRESET hidden CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
+    C_VISIBILITY_PRESET hidden CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON
+    # A plugin built with the game's headers calls the game's functions as the game itself does.
+    WINDOWS_EXPORT_ALL_SYMBOLS ON)
+# Only to measure what those exports cost, or to train the profile (its counters cannot be exported): plugins built with the game's headers cannot load in such a build.
+option(NEBULA_NO_PLUGIN_EXPORTS "Leave the game's functions unexported" OFF)
+if(NEBULA_NO_PLUGIN_EXPORTS OR CMAKE_CXX_FLAGS MATCHES "fprofile-instr-generate")
+    set_target_properties(smg_game PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)
+elseif(NOT WIN32)
+    # The same on Linux and Mac: what Windows does with its export list, these do with visibility.
+    set_target_properties(smg_game PROPERTIES C_VISIBILITY_PRESET default CXX_VISIBILITY_PRESET default VISIBILITY_INLINES_HIDDEN OFF)
+endif()
 
 
 # Every float-to-integer conversion into a type narrower than 32 bits goes through s32, as the Wii converts
@@ -116,8 +147,8 @@ target_compile_options(smg_game PRIVATE
 
 set_source_files_properties(math/src/nebula_libm.c math/src/nebula_libc.c math/src/nebula_runtime_win.c PROPERTIES COMPILE_OPTIONS -fno-builtin)
 target_compile_definitions(smg_game PRIVATE _USE_STD_VECTOR_ALGORITHMS=0 _ACRTIMP=)
-# No system library: everything the module uses it defines or asks the host for. A sanitizer's runtime needs the C runtime.
-if(WIN32 AND NOT NEBULA_SANITIZE)
+# No system library: everything the module uses it defines or asks the host for. A sanitizer's runtime and the profile counters' need the C runtime.
+if(WIN32 AND NOT NEBULA_SANITIZE AND NOT CMAKE_CXX_FLAGS MATCHES "fprofile-instr-generate")
     target_link_options(smg_game PRIVATE -nostdlib "LINKER:/NOENTRY" "LINKER:/NODEFAULTLIB")
 endif()
 
@@ -162,8 +193,22 @@ endif()
 
 # The native game's host (host/host_main.cpp): loads the module and serves it. Built with the host's own C++ library.
 # The mods' virtual disc (galaxy::mods) serves this host's disc reads as the windowed host's.
+# How a plugin replaces a game function on Windows.
+set(nebula_minhook_sources)
+if(NOT WIN32)
+    set(nebula_minhook_sources ../runtime/src/mod_hook_posix.cpp)
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+        list(APPEND nebula_minhook_sources ../third_party/minhook/src/hde/hde64.c)
+        set_source_files_properties(../third_party/minhook/src/hde/hde64.c PROPERTIES INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/../runtime/include/galaxy/hde_shim")
+    endif()
+endif()
+if(WIN32)
+    set(nebula_minhook_dir "${CMAKE_CURRENT_LIST_DIR}/../third_party/minhook")
+    set(nebula_minhook_sources "${nebula_minhook_dir}/src/buffer.c" "${nebula_minhook_dir}/src/hook.c" "${nebula_minhook_dir}/src/trampoline.c" "${nebula_minhook_dir}/src/hde/hde64.c")
+endif()
 add_executable(nebula_native_host host/host_main.cpp ../tools/test_driver/run_options.cpp
-    ../runtime/src/mods.cpp ../runtime/src/texture_categories.cpp ../runtime/src/mod_xml.cpp ../runtime/src/atomic_file.cpp ../runtime/src/save_files.cpp ../runtime/src/disc_files.cpp
+    ../runtime/src/mod_plugins.cpp ${nebula_minhook_sources}
+    ../runtime/src/luma.cpp ../runtime/src/mods.cpp ../runtime/src/texture_categories.cpp ../runtime/src/mod_xml.cpp ../runtime/src/atomic_file.cpp ../runtime/src/save_files.cpp ../runtime/src/disc_files.cpp
     ../runtime/src/crash_report.cpp ../runtime/src/discord_presence.cpp ../runtime/src/mii_import.cpp
     ../runtime/src/mii_formats.cpp ../runtime/src/coop_menu.cpp ../runtime/src/coop_saves.cpp ../runtime/src/coop_mods.cpp
     ../runtime/src/coop_session.cpp ../runtime/src/coop_snapshot.cpp ../runtime/src/coop_chat.cpp
@@ -173,7 +218,7 @@ add_executable(nebula_native_host host/host_main.cpp ../tools/test_driver/run_op
 if(WIN32)
     target_link_libraries(nebula_native_host PRIVATE ws2_32)
 endif()
-target_include_directories(nebula_native_host PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include"
+target_include_directories(nebula_native_host PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/minhook/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/../runtime/include" "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_compile_features(nebula_native_host PRIVATE cxx_std_20)
 target_compile_definitions(nebula_native_host PRIVATE _CRT_SECURE_NO_WARNINGS)
