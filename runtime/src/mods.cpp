@@ -1505,7 +1505,8 @@ std::string plan_signature(const DiscPlan& plan, const std::string& game_id) {
     for (const DiscPlan::File& file : plan.files) {
         std::error_code ec;
         const auto size = fs::file_size(file.host, ec);
-        const auto time = fs::last_write_time(file.host, ec).time_since_epoch().count();
+        // (A 128-bit count on Android's libc++, which std::to_string does not take.)
+        const auto time = static_cast<long long>(fs::last_write_time(file.host, ec).time_since_epoch().count());
         text += file.disc + "\t" + galaxy::path_text(file.host) + "\t" + std::to_string(size) + "\t" +
                 std::to_string(time) + "\n";
     }
