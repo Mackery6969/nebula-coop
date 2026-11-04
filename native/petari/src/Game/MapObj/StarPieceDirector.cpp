@@ -131,6 +131,11 @@ s32 StarPieceDirector::getDeclareRemnantStarPieceCountNotExist(const NameObj* pN
 }
 
 bool StarPieceDirector::hopPiece(const NameObj* pNameObj, const TVec3f& rVec1, const TVec3f& rVec2) {
+    // Online co-op: a block another player hit gives its star bit to them, not here.
+    if (NebulaCoopWorld::isOtherPlayersHit(pNameObj)) {
+        return false;
+    }
+
     StarPieceHostInfo* hostInfo = findHostInfo(pNameObj);
 
     if (hostInfo == nullptr) {

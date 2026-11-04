@@ -15,9 +15,9 @@ class Nerve;
 // groups), star bits (alone or in groups), 1-Up and Life mushrooms and Rainbow Stars, and the plain enemies. Each has
 // a key from its placement (its zone, name, link id and place), the same in every player's game. A thing the local
 // play kills (taken, defeated) is reported gone; a thing the server says is gone is removed (made dead, its dead
-// switch turned on, without its drops or sounds) and kept dead if the game brings it back. A coin another player
-// took counts here too, a purple coin toward the 100, as sm64coopdx's collect_coin does; so does a star bit another
-// player took (spending them, on a Luma or a shot, stays each player's own).
+// switch turned on, without its drops or sounds) and kept dead if the game brings it back. Coins and star bits are
+// each player's own (Galaxy has no 100-coin star): one another player took is only gone here. A purple coin another
+// player took counts toward the 100 here too, as sm64coopdx's collect_coin does.
 //
 // The save: Power Stars and event flags the game gets, and event values it sets, are reported (GameDataHolder); the
 // session's are applied as they come, and again after each scene starts, for whatever the game doesn't have.
@@ -33,7 +33,7 @@ class Nerve;
 // - Switches. A stage switch turned in one game is turned in the others in the instance; the instance's record keeps
 //   them for players coming later. Switches an area turns while the player is in it stay each player's.
 // - Coins an enemy drops, and star bits a followed thing lets out (a crystal broken, an enemy defeated), are keyed by
-//   it and their order, so one taken counts for everyone and is gone everywhere.
+//   it and their order, so one taken is gone everywhere (counted for its taker).
 namespace NebulaCoopWorld {
     // Whether the game is in a room's scene with its objects followed: the hooks below do nothing otherwise.
     extern bool sObjectsActive;
@@ -59,6 +59,9 @@ namespace NebulaCoopWorld {
     void endLocalSwitches();
     // CoinHolder::appearCoin: a coin `pHost` let out (an enemy's drop).
     void noteCoinDrop(const NameObj* pHost, LiveActor* pCoin);
+    // CoinHolder::hopCoin, StarPieceDirector::hopPiece: whether `pHost`'s last hit was another player's, played again
+    // here (a "?" block's coin or star bit, given straight to whoever hit it, is theirs: none hops here).
+    bool isOtherPlayersHit(const NameObj* pHost);
     // StarPieceDirector::getDeadStarPiece: a pooled star bit let out again (for anything: a drop, a shot, a gift).
     void noteStarBitPooled(const LiveActor* pPiece);
     // StarPieceDirector::appearPiece: a star bit `pHost` let out (a crystal's, an enemy's).
@@ -74,9 +77,9 @@ namespace NebulaCoopWorld {
     void endPlacement();
     // Each game scene frame: what the server told is applied, what the local play killed is reported.
     void update();
-    // Coin::noticeGetCoin: the local player took this coin (it counts for the others too).
+    // Coin::noticeGetCoin: the local player took this coin (gone for the others, counted only here).
     void noticeCoinGot(const LiveActor* pCoin);
-    // StarPiece, as the local player gets it: it counts for the others too.
+    // StarPiece, as the local player gets it: it is gone for the others (a drop is reported only once taken).
     void noticeStarBitGot(const LiveActor* pPiece);
     // NebulaCoopBubble::tryStart, as a miss goes on (no bubble saved the local player): the player doesn't keep the
     // instance going until the scene starts over (sm64coopdx's death warp out of the level), once per scene.

@@ -461,9 +461,9 @@ and tells the players it concerns. It follows sm64coopdx's rules, with Galaxy's 
 
 | What | Who it reaches | As sm64coopdx |
 |---|---|---|
-| A coin taken | Gone for everyone in the instance, and counted for each of them (without the life or 1-Up it gives its taker) | `packet_collect_coin` |
+| A coin taken | Gone for everyone in the instance; counted only for its taker (Galaxy has no 100-coin star, so each player's coins are their own) | `packet_collect_coin`, without its count |
 | A purple coin taken | Gone for everyone in the instance, and counted toward the 100 for each of them, so the star appears for all | `packet_collect_coin` |
-| A star bit taken | Gone for everyone in the instance, and counted for each player there as it comes (not for a player entering later); spending them (a Luma fed, a shot) stays each player's own | `packet_collect_coin` |
+| A star bit taken | Gone for everyone in the instance; counted only for its taker | `packet_collect_coin`, without its count |
 | A 1-Up or Life Mushroom, a Rainbow Star taken | Gone for everyone in the instance; what it gives is its taker's | `packet_collect_item` |
 | A plain enemy defeated | Gone for everyone in the instance, its dead switch turned on in each game (a star waiting on it appears for all), without its drops | an object's death in `packet_object.c`, kept by `packet_level_respawn_info` |
 | A Power Star got, an event flag on | The session's save, for every player | `packet_collect_star`, `packet_save_set_flag` |
@@ -502,8 +502,9 @@ keys from it and their order. Messages 40-42 of `galaxy/coop_world.h`, game API 
 | A hit (stomp, spin, ground pound, kick, upper punch, freeze, star power) | The local Mario's hit on a followed thing is played again in each other game in the instance, sent from his copy there, so the thing runs the same reaction: a Goomba squashed with its animation, a block broken, a boss hurt. Things a hit kills stay until their death has played | `packet_object.c`'s interactions |
 | An enemy's movement | One game moves each plain enemy: its owner, the nearest player, the host settling who. The others' copies follow its nerve (their own AI doesn't change it), place, speed and turn, eased; far off they snap | `sync_object` owners and `so->behavior` |
 | A stage switch | Turned in one game, turned in the others in the instance; the instance's record keeps them, given to a player entering it before it is ready | `packet_level_*`, the respawn info |
-| An enemy's coins | Keyed by the enemy and their order, so one taken is gone for everyone and counts for all | spawned objects' sync ids |
-| Star bits a thing lets out (a crystal broken, an enemy defeated) | Keyed by the thing and their order, so one taken is gone for everyone and counts for all; one nobody takes falls away in each game alone. A "?" block's star bits go straight to whoever hits it, and the hit played again gives them to each player | spawned objects' sync ids |
+| An enemy's coins | Keyed by the enemy and their order, so one taken is gone for everyone (counted for its taker) | spawned objects' sync ids |
+| Star bits a thing lets out (a crystal broken, an enemy defeated) | Keyed by the thing and their order, so one taken is gone for everyone (counted for its taker); one nobody takes falls away in each game alone | spawned objects' sync ids |
+| A "?" block's coin or star bit | Given straight to whoever hit the block: the hit played again in the others' games hops nothing there | |
 
 - **Who owns an enemy.** The host takes a claim when the enemy has no owner, the claim is its owner's, its owner has
   been silent for half a second, the claimant is a quarter nearer, or the claimant hit it. Owners send their enemies

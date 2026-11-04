@@ -19,7 +19,6 @@
 #include "Game/System/GameEventFlagTable.hpp"
 #include "Game/System/GameEventValueChecker.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
-#include "Game/Util/EventUtil.hpp"
 #include "Game/Util/JMapUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Player/MarioActor.hpp"
@@ -53,6 +52,7 @@ namespace {
         bool mAlive;  // as the last frame saw it
         bool mGone;   // reported, or the server said so: kept dead
         bool mGot;    // a coin or star bit the local player took
+        bool mHitByOther;  // its last hit was another player's, played again here
         s16 mMotion;     // its slot in sMotions, -1 for none
         s16 mGoneDelay;  // frames before the server's gone removes it: its own death (a hit played again) may still play
         s16 mHitFrames;  // frames since a hit last played on it, up to cHitFrames
@@ -424,16 +424,6 @@ namespace {
 
     void applyGone(u32 object, u32 how) {
         const s32 index = findIndex(object);
-        if ((how & NEBULA_COOP_GONE_STAR_BIT) != 0) {
-            // A star bit another player took counts here too, as it comes, whether or not this game has let it out
-            // yet; not from the record a player entering gets (those were the others' before they came), and not one
-            // the local player took as well (the race lost: each counted their own).
-            const bool takenHere = index >= 0 && (sEntries[index].mGone || sEntries[index].mGot);
-            if (sReady && !takenHere && MR::getStarPieceNum() < 10000) {
-                MR::addStarPiece(1);
-            }
-            how &= ~static_cast< u32 >(NEBULA_COOP_GONE_STAR_BIT);
-        }
         if (index < 0 || sEntries[index].mActor == nullptr) {
             // Not here yet (a coin or star bit an enemy drops in this game a little later): gone once it comes.
             sPending[sPendingNext].mKey = object;
@@ -459,9 +449,8 @@ namespace {
             removeQuietly(rEntry);
             rEntry.mAlive = false;
         }
-        if ((how & NEBULA_COOP_GONE_COIN) != 0) {
-            MR::incCoinOfOtherPlayer(1);
-        }
+        // Coins and star bits are each player's own (Galaxy has no 100-coin star): another player's are only gone
+        // here. Purple coins count toward the mission's 100 for everyone.
         if ((how & NEBULA_COOP_GONE_PURPLE) != 0) {
             MR::incPurpleCoin();
         }
@@ -528,6 +517,7 @@ namespace {
         sReplaying = false;
         sDispatch = pDispatch;
         rEntry.mHitFrames = 0;
+        rEntry.mHitByOther = true;
     }
 
     void rememberRoomSwitch(u32 id, bool on) {
@@ -1005,19 +995,16 @@ namespace NebulaCoopWorld {
             }
             // A coin is the instance's once a player takes it (sm64coopdx's collect_coin): one a timer, a switch or a
             // black hole takes goes in every game alike, and comes back with a challenge tried again.
-            // A star bit, as a coin, counts for everyone once a player takes it; one a thing let out that isn't taken
-            // (it fell away) stays each game's.
+            // A coin or star bit a player takes is gone for everyone (counted only for its taker); one a thing let
+            // out that isn't taken (it fell away) stays each game's.
             const bool isCoin = rEntry.mKind == Kind_Coin || rEntry.mKind == Kind_PurpleCoin;
-            const bool isStarBit = rEntry.mKind == Kind_StarBit || rEntry.mKind == Kind_StarBitDrop;
             const bool needsGot = isCoin || rEntry.mKind == Kind_StarBitDrop;
-            const bool reportsGone = isCoin || isStarBit || rEntry.mKind == Kind_Item || rEntry.mKind == Kind_Enemy;
+            const bool reportsGone = isCoin || rEntry.mKind == Kind_StarBit || rEntry.mKind == Kind_StarBitDrop || rEntry.mKind == Kind_Item || rEntry.mKind == Kind_Enemy;
             if (reportsGone && !alive && rEntry.mAlive && !rEntry.mGone && !settling && (!needsGot || rEntry.mGot)) {
                 rEntry.mGone = true;
                 u32 how = 0;
                 if (isCoin) {
                     how = rEntry.mKind == Kind_PurpleCoin ? NEBULA_COOP_GONE_PURPLE : NEBULA_COOP_GONE_COIN;
-                } else if (isStarBit && rEntry.mGot) {
-                    how = NEBULA_COOP_GONE_STAR_BIT;
                 }
                 report(NEBULA_COOP_WORLD_GONE, rEntry.mKey, how, 0, nullptr);
             }
@@ -1063,6 +1050,7 @@ namespace NebulaCoopWorld {
         }
         Entry& rEntry = sEntries[index];
         rEntry.mHitFrames = 0;
+        rEntry.mHitByOther = false;
         if (rEntry.mMotion >= 0) {
             // A hit takes it over (sm64coopdx: who interacts with an object sends its update).
             Motion& rMotion = sMotions[rEntry.mMotion];
@@ -1204,6 +1192,14 @@ namespace NebulaCoopWorld {
         if (index >= 0) {
             applyPending(index);
         }
+    }
+
+    bool isOtherPlayersHit(const NameObj* pHost) {
+        if (!sObjectsActive) {
+            return false;
+        }
+        const s32 index = findActor(pHost);
+        return index >= 0 && sEntries[index].mHitByOther && sEntries[index].mHitFrames < cHitFrames;
     }
 
     void noteStarBitPooled(const LiveActor* pPiece) {

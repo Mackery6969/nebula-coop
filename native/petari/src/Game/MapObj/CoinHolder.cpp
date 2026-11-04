@@ -22,6 +22,11 @@ CoinHolder::CoinHolder(const char* pName) : DeriveActorGroup< Coin >(pName, ::sC
 }
 
 bool CoinHolder::hopCoin(const NameObj* pObj, const TVec3f& rPosition, const TVec3f& rDirection) {
+    // Online co-op: a block another player hit gives its coin to them, not here.
+    if (NebulaCoopWorld::isOtherPlayersHit(pObj)) {
+        return false;
+    }
+
     CoinHostInfo* hostInfo = findHostInfo(pObj);
 
     if (hostInfo->_8 >= hostInfo->_4) {
