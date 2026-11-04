@@ -547,6 +547,9 @@ typedef struct NebulaCoopPlayer {
     float up[3];
     uint32_t area;         /* the part of the stage the player is in (API 44): 0 where the stage starts, else the warp
                               pipe they came out of (NebulaCoopBubble). Bubbles reach only players in the same one */
+    char tracks[4][32];    /* the bck each of the group's tracks plays where Mario's code swapped in another
+                              (XanimePlayer::changeTrackAnimation: a slope's wait, walking in mud), as its motion
+                              resource is named; "" for the group's own */
 } NebulaCoopPlayer;
 
 enum {

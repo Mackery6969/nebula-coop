@@ -228,7 +228,9 @@ packets. It has no physics or state machine of its own. It collides with the loc
   the host, which passes it on as message 33). It holds the instance, the position, the model's facing and up (its
   base matrix with the turn Mario's root joint gets on top, as in a quick turn round: the true turn on any planet),
   gravity, velocity, and the animation: its group as Mario's `XanimePlayer` names it, the bck, the frame, the speed
-  and the group's track weights (walking into running). An older snapshot than the last is dropped.
+  and the group's track weights (walking into running), and the bck on any track Mario's code swapped
+  (`changeTrackAnimation`: standing on a slope plays a slope wait on the run's track; walking in mud), by its motion
+  resource's name (one byte when none is). An older snapshot than the last is dropped.
 - **Drawn 100 ms behind.** The host keeps the last second of each player's snapshots and gives the game
   (`coop_remote`, each scene frame) the others in its own instance as they were 100 ms ago, between the two snapshots
   either side: one lost snapshot doesn't show. The animation and what the player does are the nearer snapshot's; the
@@ -240,7 +242,10 @@ packets. It has no physics or state machine of its own. It collides with the loc
   plays the cosmic ghost's. Each player keeps their copy while they stay; unused copies are hidden.
 - **Animation.** A copy plays the animation itself at the player's speed and eases onto the snapshot's frame (a
   quarter of the way each frame; it jumps there when more than 6 frames off, as the animation starts or starts again),
-  so it runs smoothly between snapshots and through its loops rather than stepping with each one.
+  so it runs smoothly between snapshots and through its loops rather than stepping with each one. It puts the
+  swapped bcks on its tracks (the group's own back where none is). An animation that ends stays on its last frame
+  until the snapshot names another, as the player's game can keep one: a copy that went back to its default by itself
+  was told the animation again the next frame and flickered between the two (falling asleep).
 - **Lit as the local Mario.** Each copy has its own light (the player light of the light area it stands in, as
   `MarioActor`'s is his), the same tint over its materials (the light's ambient colour, a white material) and
   the stage's fog on its materials, so it looks as the local Mario does standing there.
