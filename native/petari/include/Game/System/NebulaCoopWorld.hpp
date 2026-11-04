@@ -30,9 +30,10 @@ class Nerve;
 //   other game in the instance from his copy there, so the thing reacts in every game: a Goomba squashed with its
 //   animation, a box broken, a switch pressed, a boss hurt.
 // - Movement. Each plain enemy is moved by one game, its owner: the player nearest it, the host settling who. As
-//   sm64ex-coop's object packets, each of the owner's states overwrites the others' copies (where it is, how fast it
-//   goes, its nerve when that changed) and between states each copy runs its own AI; its model is drawn turned as the
-//   owner's. A player who hits an enemy takes it over.
+//   sm64ex-coop's object packets, the owner's states steer the others' copies (how fast it goes, its nerve when that
+//   changed, where it is: they glide there) while each copy runs its own AI, unclipped while it is followed, as a
+//   synced object stays active; its model is drawn turned as the owner's. A player who hits an enemy takes it over:
+//   his stomps, spins and kicks, and his star bits' and fireballs' hits.
 // - Switches. A stage switch turned in one game is turned in the others in the instance; the instance's record keeps
 //   them for players coming later. Switches an area turns while the player is in it stay each player's.
 // - Coins an enemy drops, and star bits a followed thing lets out (a crystal broken, an enemy defeated), are keyed by
@@ -51,6 +52,8 @@ namespace NebulaCoopWorld {
     bool deliverMessage(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
     // LiveActor::setNerve: a nerve the actor's own code sets (never held back: its AI always runs).
     void noteNerve(LiveActor* pActor, const Nerve* pNerve);
+    // LiveActor::movement's end: an enemy another game moves glides to where that game has it.
+    void afterMovement(LiveActor* pActor);
     // calcAnmMtx after calcAndSetBaseMtx: an enemy another game moves is drawn turned as there.
     void afterBaseMtx(LiveActor* pActor);
     // StageSwitchFunction: a switch turned (its zone << 16 | number, the zone 0xffff for global ones).

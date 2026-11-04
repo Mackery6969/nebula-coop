@@ -5,6 +5,7 @@
 #include "Game/Player/MarioModule.hpp"
 
 class HashSortTable;
+class ResourceHolder;
 class MarioActor;
 class XanimeResourceTable;
 class XanimePlayer;
@@ -16,6 +17,12 @@ public:
 
     void init();
     void update();
+
+    // Mario's animation groups as the given character plays them (Luigi's own bcks swapped in where he has one), in a
+    // table of their own: another player's copy of the character the local player isn't (NebulaRemotePlayer). The
+    // local player's table writes into the shared group list, so this one starts from a copy of it.
+    static XanimeResourceTable* newCharacterResourceTable(ResourceHolder* pHolder, bool isLuigi);
+
     void calc();
 
     void setHoming();

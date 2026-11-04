@@ -646,7 +646,11 @@ enum {
      the bank changed by `object` (a signed number; 0 when only telling the bank). The host's game keeps the
      session's bank, which comes to every other game to take as its own.
    - NEBULA_COOP_WORLD_STAR_BITS_ADD (to the host's game): a joiner's game changed the bank by `object` (signed): the
-     host's game applies it, and tells its bank again. */
+     host's game applies it, and tells its bank again.
+   - NEBULA_COOP_WORLD_TELEPORT (host to game): a cheat command (/tp, docs/COOP_PLAN.md "Chat commands") moves the
+     local player to a place in this stage: its x, y and z are the float bits of `object`, `value` and `scenario`. The
+     game puts the player there standing, as soon as nothing holds them (a demo, a death, a bubble, a launch), or not
+     at all within a few seconds. A game without it ignores it. */
 typedef struct NebulaCoopWorldEvent {
     uint32_t kind;     /* NEBULA_COOP_WORLD_* */
     uint32_t object;   /* GONE, HIT, SWITCH; STAR_BITS and STAR_BITS_ADD: the bank's change (signed) */
@@ -672,6 +676,7 @@ enum {
     NEBULA_COOP_WORLD_RACE_TIME,
     NEBULA_COOP_WORLD_STAR_BITS,
     NEBULA_COOP_WORLD_STAR_BITS_ADD,
+    NEBULA_COOP_WORLD_TELEPORT,
 };
 
 enum {

@@ -152,6 +152,7 @@ add_library(galaxy_render_vk STATIC
     ${rt}/coop_commands.cpp
     ${rt}/coop_popups.cpp
     ${rt}/coop_snapshot.cpp
+    ${rt}/coop_teleport.cpp
     ${rt}/coop_world.cpp
     ${rt}/net/udp.cpp
     ${rt}/net/link.cpp

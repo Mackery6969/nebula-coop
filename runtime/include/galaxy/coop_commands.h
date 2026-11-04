@@ -12,9 +12,12 @@
 // it is.
 #pragma once
 
+#include "galaxy/coop_session.h"
+
 #include <cstdint>
 #include <functional>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -22,7 +25,6 @@
 namespace galaxy::coop {
 
 class Chat;
-class Session;
 
 // The NebulaText ids of the commands' own texts start with this: the game looks them up, and shows any other text
 // as it is.
@@ -80,6 +82,12 @@ private:
     std::vector<ChatCommand> commands_;
     std::function<void()> question_;
 };
+
+// A player in `players` by their number or their name (sm64coopdx's chat_get_network_player): the number, then the
+// name exactly, then the name case aside.
+[[nodiscard]] std::optional<SessionPlayer> find_player(const std::vector<SessionPlayer>& players, std::string_view who);
+// Whether two words are the same, case aside (ASCII).
+[[nodiscard]] bool same_words(std::string_view a, std::string_view b);
 
 // The room's commands (sm64coopdx's /players, /kick, /ban, /permban, /moderator) on `chat`'s, over `session`. Once,
 // with the chat attached.

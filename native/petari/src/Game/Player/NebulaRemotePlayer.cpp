@@ -18,6 +18,7 @@
 #include "Game/Player/J3DModelX.hpp"
 #include "Game/Player/Mario.hpp"
 #include "Game/Player/MarioActor.hpp"
+#include "Game/Player/MarioAnimator.hpp"
 #include "Game/Player/MarioConst.hpp"
 #include "Game/Player/MarioDamage.hpp"
 #include "Game/Player/MarioFaint.hpp"
@@ -30,6 +31,7 @@
 #include "Game/Util/ActorShadowUtil.hpp"
 #include "Game/Util/DemoUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
+#include "Game/Util/EventUtil.hpp"
 #include "Game/Util/LightUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
@@ -46,6 +48,8 @@ namespace {
     const s32 cMaxPerCharacter = 15;
     NebulaRemotePlayer* sCopies[cMaxPerCharacter * 2];
     s32 sCopyNum = 0;
+    // The animations of the character the local player isn't, for that character's copies (made with them, a scene's).
+    XanimeResourceTable* sOtherTable = nullptr;
 
     bool isUnit(const f32* pVec) {
         const f32 length = pVec[0] * pVec[0] + pVec[1] * pVec[1] + pVec[2] * pVec[2];
@@ -177,12 +181,14 @@ NebulaRemotePlayer::NebulaRemotePlayer(bool isLuigi)
 
 void NebulaRemotePlayer::forgetAll() {
     sCopyNum = 0;
+    sOtherTable = nullptr;
     sSceneFrames = 0;
     sHistoryNum = 0;
 }
 
 void NebulaRemotePlayer::tryCreate() {
     sCopyNum = 0;
+    sOtherTable = nullptr;
     sSceneFrames = 0;
     sHistoryNum = 0;
     u32 roomSize = 0;
@@ -190,7 +196,7 @@ void NebulaRemotePlayer::tryCreate() {
     if (roomSize < 2) {
         return;
     }
-    // Mario's animations, which the copies play, are the local player's.
+    // The copies' animations come from the local player's archive and table.
     if (!MR::isExistSceneObj(SceneObj_MarioHolder) || MR::getMarioHolder()->getMarioActor() == nullptr) {
         return;
     }
@@ -198,6 +204,9 @@ void NebulaRemotePlayer::tryCreate() {
     if (perCharacter > cMaxPerCharacter) {
         perCharacter = cMaxPerCharacter;
     }
+    // Each character plays its own animations (Luigi's wait, run and jumps are his), whichever the local player is:
+    // the other character's from a table of their own, on the same archive.
+    sOtherTable = MarioAnimator::newCharacterResourceTable(MR::getPlayerXanimeResource()->mResourceHolder, !MR::isPlayerLuigi());
     for (s32 i = 0; i < perCharacter * 2; i++) {
         NebulaRemotePlayer* pCopy = new NebulaRemotePlayer(i >= perCharacter);
         pCopy->init(JMapInfoIter{});
@@ -339,8 +348,11 @@ void NebulaRemotePlayer::init(const JMapInfoIter& rIter) {
     }
     MR::connectToScene(this, MR::MovementType_Player, MR::CalcAnimType_Player, MR::DrawBufferType_None, MR::DrawType_Player);
 
-    // Mario's animations, as GhostPlayer plays them on the cosmic ghost.
-    mXanimePlayer = new XanimePlayer(MR::getJ3DModel(this), MR::getPlayerXanimeResource());
+    // Its character's animations, as GhostPlayer plays them on the cosmic ghost: the local player's when they play the
+    // same one. A Luigi copy on Mario's screen played Mario's wait and run at Luigi's frames and speed (his feet slid,
+    // and his idle jumped back where the two waits' lengths differ); a Mario copy on Luigi's screen played Luigi's.
+    XanimeResourceTable* pTable = mIsLuigi == MR::isPlayerLuigi() || sOtherTable == nullptr ? MR::getPlayerXanimeResource() : sOtherTable;
+    mXanimePlayer = new XanimePlayer(MR::getJ3DModel(this), pTable);
     mXanimePlayer->duplicateSimpleGroup();
     mModelManager->mXanimePlayer = mXanimePlayer;
     mXanimePlayer->setDefaultAnimation("\212\356\226\173" /* 基本 */);

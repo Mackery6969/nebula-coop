@@ -562,6 +562,37 @@ void test_session() {
     expect(wait_for([&] { return name_of(joiner, 0u) == "HOSTY" && name_of(third, 0u) == "HOSTY"; }),
            "and changes again");
 
+    // No two players share a name (sm64ex-coop's): a name someone has, in any case, gets a number, cut to fit.
+    third.set_name("hosty");
+    expect(name_of(third, 2u) == "hosty (2)", "a joiner renamed to a name someone has sees it numbered at once");
+    expect(wait_for([&] {
+               return name_of(host_session, 2u) == "hosty (2)" && name_of(joiner, 2u) == "hosty (2)" &&
+                      name_of(joiner, 0u) == "HOSTY";
+           }),
+           "and so does everyone, the first keeping the name");
+    third.set_name("hosty");
+    expect(name_of(third, 2u) == "hosty (2)", "the number stays while the name asked for does");
+    host_session.set_name("ABCDEFGHIJKLMNOPQRST");
+    joiner.set_name("abcdefghijklmnopqrst");
+    expect(wait_for([&] {
+               return name_of(third, 0u) == "ABCDEFGHIJKLMNOPQRST" && name_of(third, 1u) == "abcdefghijklmnop (2)" &&
+                      name_of(joiner, 1u) == "abcdefghijklmnop (2)" && name_of(host_session, 1u) == "abcdefghijklmnop (2)";
+           }),
+           "a long name is cut to fit its number");
+    host_session.set_name("LUIGI NUMBER ONE FAN");
+    expect(name_of(host_session, 0u) == "LUIGI NUMBER ONE FAN", "a host renamed to a name no one has now keeps it");
+    host_session.set_name("abcdefghijklmnop (2)");
+    expect(name_of(host_session, 0u) == "abcdefghijklmnop (3)", "and gets a number of its own too");
+    joiner.set_name("LUIGI NUMBER ONE FAN");
+    third.set_name("THIRD");
+    host_session.set_name("HOSTY");
+    expect(wait_for([&] {
+               return name_of(joiner, 0u) == "HOSTY" && name_of(joiner, 1u) == "LUIGI NUMBER ONE FAN" &&
+                      name_of(joiner, 2u) == "THIRD" && name_of(third, 1u) == "LUIGI NUMBER ONE FAN" &&
+                      name_of(host_session, 2u) == "THIRD";
+           }),
+           "and everyone takes back a name freed");
+
     // A player's character switched mid-game (sm64coopdx's live character change) reaches everyone as it changes.
     const auto character_of = [](const Session& session, unsigned index) {
         for (const SessionPlayer& player : session.players()) {
@@ -639,9 +670,11 @@ void test_session() {
     expect(wait_for([&] { return host_session.players().size() == 2u && joiner.players().size() == 2u; }),
            "a player leaving leaves everyone's list");
     Session late;
-    expect(late.join({"127.0.0.1", port, "pw", "test 1", "LATE", galaxy::CoopCharacter::Mario}) &&
+    expect(late.join({"127.0.0.1", port, "pw", "test 1", "Hosty", galaxy::CoopCharacter::Mario}) &&
                wait_for([&] { return late.state() == SessionState::Joined; }),
            "a player joins later");
+    expect(name_of(late, 2u) == "Hosty (2)" && name_of(host_session, 2u) == "Hosty (2)",
+           "a player joining with a name someone has gets a number");
     expect(place_of(late, 0u) == "AstroGalaxy/0" && place_of(late, 1u) == "EggStarGalaxy/2",
            "and gets everyone's place with the room");
     expect(stars_of(late, 0u) == 1 && stars_of(late, 1u) == 2 && late.stars() == 0u,

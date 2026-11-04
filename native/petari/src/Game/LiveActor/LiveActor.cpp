@@ -156,6 +156,10 @@ void LiveActor::movement() {
         MR::updateLightCtrl(this);
     }
 
+    // Online co-op: an enemy another player's game moves glides to where that game has it.
+    if (NebulaCoopWorld::sObjectsActive) {
+        NebulaCoopWorld::afterMovement(this);
+    }
     MR::tryUpdateHitSensorsAll(this);
     MR::actorSoundMovement(this);
     MR::requestCalcActorShadow(this);
