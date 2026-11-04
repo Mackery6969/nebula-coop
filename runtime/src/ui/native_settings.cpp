@@ -459,7 +459,7 @@ unsigned runtime_draft_changes(RuntimeSettings* live) {
     // A setting added to RuntimeSettings is drafted here too: these bindings stop compiling until it is.
     // coop_bans and coop_moderators aren't the menu's (the room's /permban and /moderator keep them): never drafted.
     [[maybe_unused]] const auto& [mode, audio, text_speed, language, discord_status, button_icons, co_star, coop,
-                                  coop_bans, coop_moderators] = d;
+                                  coop_bans, coop_moderators, coop_popups] = d;
     [[maybe_unused]] const auto& [master, music, sfx, voice, ambience, cutscene, wiimote_speaker] = d.audio;
     RuntimeSettings scratch{};
     RuntimeSettings& out = live != nullptr ? *live : scratch;
@@ -483,6 +483,7 @@ unsigned runtime_draft_changes(RuntimeSettings* live) {
     take(d.button_icons, b.button_icons, out.button_icons);
     take(d.co_star, b.co_star, out.co_star);
     take(d.coop, b.coop, out.coop);
+    take(d.coop_popups, b.coop_popups, out.coop_popups);
     return changes;
 }
 
@@ -2746,6 +2747,33 @@ std::vector<SettingsRow> player_page(const RuntimeSettings& runtime) {
                             static_cast<CoopCharacter>(ui::settings_step(static_cast<unsigned>(character), 2u, delta));
                     },
                     "WHO YOU PLAY AS, IN ANY SAVE. OTHER PLAYERS SEE YOU AS HIM"});
+
+    // The pop-ups in the screen's top-right corner (galaxy/coop_popups.h), sm64coopdx's: each kind on or off.
+    rows.push_back({"POP-UPS", {}, nullptr, {}, true});
+    struct PopupRow {
+        const char* label;
+        bool RuntimeCoopPopups::*flag;
+        const char* help;
+    };
+    static constexpr PopupRow kPopupRows[] = {
+        {"PLAYER JOINS", &RuntimeCoopPopups::joins, "A POP-UP WHEN ANOTHER PLAYER JOINS THE ROOM"},
+        {"PLAYER LEAVES", &RuntimeCoopPopups::leaves, "A POP-UP WHEN ANOTHER PLAYER LEAVES THE ROOM"},
+        {"OBSERVATORY", &RuntimeCoopPopups::observatory, "A POP-UP WHEN ANOTHER PLAYER GOES TO THE COMET OBSERVATORY"},
+        {"GALAXIES", &RuntimeCoopPopups::galaxies,
+         "A POP-UP WHEN ANOTHER PLAYER GOES TO A GALAXY OR COMES TO OR LEAVES YOURS"},
+        {"DEATHS", &RuntimeCoopPopups::deaths, "A POP-UP WHEN ANOTHER PLAYER IN YOUR GALAXY LOSES A LIFE"},
+        {"POWER STARS", &RuntimeCoopPopups::stars, "A POP-UP WHEN ANOTHER PLAYER GETS A POWER STAR NEW TO THE SAVE"},
+    };
+    for (const PopupRow& row : kPopupRows) {
+        bool RuntimeCoopPopups::*const flag = row.flag;
+        rows.push_back({row.label, runtime.coop_popups.*flag ? std::string("ON") : std::string("OFF"),
+                        [flag](RenderConfig&, int delta) {
+                            if (delta == 0) return;
+                            bool& on = s_runtime_draft.coop_popups.*flag;
+                            on = !on;
+                        },
+                        row.help});
+    }
     return rows;
 }
 

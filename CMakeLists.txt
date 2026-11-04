@@ -124,6 +124,7 @@ add_library(galaxy_net STATIC
     runtime/src/coop_session.cpp
     runtime/src/coop_chat.cpp
     runtime/src/coop_commands.cpp
+    runtime/src/coop_popups.cpp
     runtime/src/coop_snapshot.cpp
     runtime/src/coop_world.cpp)
 target_link_libraries(galaxy_net PUBLIC galaxy_runtime_abi galaxy_atomic_file ws2_32)
@@ -523,6 +524,7 @@ galaxy_test(galaxy_coop_menu_tests SOURCES ${rt}/coop_menu_tests.cpp LIBS galaxy
 galaxy_test(galaxy_net_tests SOURCES ${rt}/net/net_tests.cpp LIBS galaxy_net)
 galaxy_test(galaxy_coop_chat_tests SOURCES ${rt}/coop_chat_tests.cpp LIBS galaxy_net)
 galaxy_test(galaxy_coop_commands_tests SOURCES ${rt}/coop_commands_tests.cpp LIBS galaxy_net)
+galaxy_test(galaxy_coop_popups_tests SOURCES ${rt}/coop_popups_tests.cpp LIBS galaxy_net)
 galaxy_test(galaxy_coop_snapshot_tests SOURCES ${rt}/coop_snapshot_tests.cpp LIBS galaxy_net)
 galaxy_test(galaxy_coop_world_tests SOURCES ${rt}/coop_world_tests.cpp LIBS galaxy_net)
 galaxy_test(galaxy_achievements_tests SOURCES ${rt}/achievements_tests.cpp LIBS galaxy_runtime_settings)
