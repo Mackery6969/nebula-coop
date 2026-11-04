@@ -499,7 +499,7 @@ keys from it and their order. Messages 40-42 of `galaxy/coop_world.h`, game API 
 | What | How | As sm64coopdx |
 |---|---|---|
 | A hit (stomp, spin, ground pound, kick, upper punch, freeze, star power) | The local Mario's hit on a followed thing is played again in each other game in the instance, sent from his copy there, so the thing runs the same reaction: a Goomba squashed with its animation, a block broken, a boss hurt. Things a hit kills stay until their death has played | `packet_object.c`'s interactions |
-| An enemy's movement | One game moves each plain enemy: its owner, the nearest player, the host settling who. The others' copies follow its nerve (their own AI doesn't change it), place, speed and turn, eased; far off they snap | `sync_object` owners and `so->behavior` |
+| An enemy's movement | One game moves each plain enemy: its owner, the nearest player, the host settling who. Each of the owner's states overwrites the others' copies as it comes (place, speed, and its nerve when that changed); between states each copy runs its own AI, as a non-owner's object runs its behavior. Copies are drawn turned as the owner's | `sync_object` owners, `packet_object` |
 | A stage switch | Turned in one game, turned in the others in the instance; the instance's record keeps them, given to a player entering it before it is ready | `packet_level_*`, the respawn info |
 | An enemy's coins | Keyed by the enemy and their order, so one taken is gone for everyone and counts for all | spawned objects' sync ids |
 
