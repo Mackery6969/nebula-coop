@@ -1488,6 +1488,7 @@ void svc_coop_player(void*, const NebulaCoopPlayer* player) {
     copy.stage[sizeof(copy.stage) - 1] = '\0';
     copy.animation[sizeof(copy.animation) - 1] = '\0';
     copy.group[sizeof(copy.group) - 1] = '\0';
+    for (char* track : copy.tracks) track[sizeof(copy.tracks[0]) - 1] = '\0';
     bool moved = false;
     {
         const std::lock_guard<std::mutex> lock(gCoopLock);
@@ -1790,6 +1791,7 @@ void send_coop_snapshot() {
     snapshot.frame = local.animation_frame;
     snapshot.rate = local.animation_rate;
     for (std::size_t i = 0; i < snapshot.weights.size(); ++i) snapshot.weights[i] = local.track_weights[i];
+    for (std::size_t i = 0; i < snapshot.tracks.size(); ++i) snapshot.tracks[i] = local.tracks[i];
     snapshot.health = local.health;
     snapshot.mode = local.mode;
     snapshot.flags = local.flags;
@@ -2932,6 +2934,9 @@ uint32_t svc_coop_remote(void*, NebulaCoopRemotePlayer* players, uint32_t capaci
         player.animation_frame = snapshot.frame;
         player.animation_rate = snapshot.rate;
         for (std::size_t j = 0; j < 4u; ++j) player.track_weights[j] = snapshot.weights[j];
+        for (std::size_t j = 0; j < 4u; ++j) {
+            std::snprintf(player.tracks[j], sizeof(player.tracks[j]), "%s", snapshot.tracks[j].c_str());
+        }
         player.health = snapshot.health;
         player.mode = snapshot.mode;
         // The character is the one their game plays now (their snapshot's), so a live switch shows at once.

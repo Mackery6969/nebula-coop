@@ -3,6 +3,9 @@
 #include "Game/System/NebulaHost.hpp"
 #include "Game/Animation/XanimeCore.hpp"
 #include "Game/Animation/XanimePlayer.hpp"
+#include "Game/Animation/XanimeResource.hpp"
+#include "Game/System/ResourceHolder.hpp"
+#include "Game/System/ResourceInfo.hpp"
 #include "Game/Effect/AutoEffectGroup.hpp"
 #include "Game/Effect/AutoEffectGroupHolder.hpp"
 #include "Game/Effect/AutoEffectInfo.hpp"
@@ -168,6 +171,8 @@ NebulaRemotePlayer::NebulaRemotePlayer(bool isLuigi)
     mName[0] = '\0';
     mGroup[0] = '\0';
     memset(&mState, 0, sizeof(mState));
+    memset(mTrackName, 0, sizeof(mTrackName));
+    memset(mTrackBck, 0, sizeof(mTrackBck));
 }
 
 void NebulaRemotePlayer::forgetAll() {
@@ -339,6 +344,10 @@ void NebulaRemotePlayer::init(const JMapInfoIter& rIter) {
     mXanimePlayer->duplicateSimpleGroup();
     mModelManager->mXanimePlayer = mXanimePlayer;
     mXanimePlayer->setDefaultAnimation("\212\356\226\173" /* 基本 */);
+    // An animation that ends stays on its last frame until the snapshot names another, as the player's game can keep
+    // one (MarioModule::changeAnimationNonStop, changeAnimationWithAttr). Going back to its default by itself, then
+    // being told the animation again the next frame, flickered between the two.
+    mXanimePlayer->_7E = false;
     mXanimePlayer->getCore()->enableJointTransform(MR::getJ3DModelData(this));
     mXanimePlayer->changeAnimation("\212\356\226\173" /* 基本 */);
 
@@ -433,6 +442,7 @@ void NebulaRemotePlayer::updateAnimation() {
         mXanimePlayer->changeSimpleBck(mState.animation);
         changed = true;
     }
+    updateTracks();
     for (u32 i = 0; i < 4; i++) {
         mXanimePlayer->changeTrackWeight(i, mState.track_weights[i]);
     }
@@ -474,6 +484,11 @@ void NebulaRemotePlayer::updateAnimation() {
             }
             pCtrl->setFrame(frame);
         }
+        // An animation this copy finished (it stays on its last frame) that the player's game still moves along, as
+        // when it plays again or this copy got to its end first: moving again.
+        if (mState.animation_rate != 0.0f && target < end) {
+            pCtrl->mState &= ~1;
+        }
     }
 
     // Its effects, as the animation the snapshot names changes or starts again.
@@ -485,6 +500,28 @@ void NebulaRemotePlayer::updateAnimation() {
         updateAnimationEffect();
     }
     mLastFrame = mState.animation_frame;
+}
+
+void NebulaRemotePlayer::updateTracks() {
+    const XanimeGroupInfo* pGroup = mXanimePlayer->mCurrentAnimation;
+    XanimeCore* pCore = mXanimePlayer->getCore();
+    if (pGroup == nullptr || pCore->mTrackList == nullptr) {
+        return;
+    }
+    const u32 count = pGroup->mBckTableVariant < pCore->mTrackCount ? pGroup->mBckTableVariant : pCore->mTrackCount;
+    for (u32 i = 0; i < count && i < 4; i++) {
+        // Looked up as the name the snapshot gives changes, not each frame.
+        if (strcmp(mTrackName[i], mState.tracks[i]) != 0) {
+            nebula_snprintf(mTrackName[i], sizeof(mTrackName[i]), "%s", mState.tracks[i]);
+            mTrackBck[i] = mTrackName[i][0] != '\0'
+                               ? static_cast< J3DAnmTransform* >(mXanimePlayer->mResourceTable->findResMotion(mTrackName[i]))
+                               : nullptr;
+        }
+        J3DAnmTransform* pWanted = mTrackBck[i] != nullptr ? mTrackBck[i] : static_cast< J3DAnmTransform* >(pGroup->_20[i]);
+        if (pWanted != nullptr && pCore->mTrackList[i]._0 != pWanted) {
+            pCore->setBck(i, pWanted);
+        }
+    }
 }
 
 const char* NebulaRemotePlayer::getAnimationEffectName() const {

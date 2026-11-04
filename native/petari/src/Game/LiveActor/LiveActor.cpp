@@ -159,10 +159,6 @@ void LiveActor::movement() {
         MR::updateLightCtrl(this);
     }
 
-    // Online co-op: an enemy another player's game moves goes where that game has it.
-    if (NebulaCoopWorld::sObjectsActive) {
-        NebulaCoopWorld::afterMovement(this);
-    }
     MR::tryUpdateHitSensorsAll(this);
     MR::actorSoundMovement(this);
     MR::requestCalcActorShadow(this);
@@ -270,9 +266,9 @@ MtxPtr LiveActor::getTakingMtx() const {
 }
 
 void LiveActor::setNerve(const Nerve* pNerve) {
-    // Online co-op: an enemy another player's game moves takes that game's nerves, not its own AI's.
-    if (NebulaCoopWorld::sObjectsActive && !NebulaCoopWorld::allowNerve(this, pNerve)) {
-        return;
+    // Online co-op: the nerves an enemy's own code sets, for another game's states to name one of them.
+    if (NebulaCoopWorld::sObjectsActive) {
+        NebulaCoopWorld::noteNerve(this, pNerve);
     }
     mSpine->setNerve(pNerve);
 }

@@ -105,10 +105,10 @@ namespace {
         s32 mHeard;          // frames since its owner's last state, or since this game took it over
         f32 mOwnerDistance;  // how far the owner's player was from it
         NebulaCoopObjectState mState;  // the owner's last state
-        s32 mAge;                      // frames since it came
+        u32 mOwnerNerve;               // the nerve the owner's last state named (it is taken here when it changes)
         f32 mRotation[4];              // the turn drawn, eased toward the owner's
         bool mRotationSet;
-        bool mLocked;        // following its owner now: its own AI doesn't change its nerve
+        bool mFollowing;     // another player's game moves it: its states put it where they have it
         bool mHitClaim;      // the local player just hit it: taken over, whoever was nearer
         const Nerve* mHitNerve;  // the nerve a hit began (the others get it by playing the hit again)
         u32 mClasses[4];     // the nerve classes its own code has set (a nerve from another game must be one)
@@ -130,12 +130,8 @@ namespace {
     const s32 cSendMoving = 4;
     const s32 cSendStill = 20;
     const s32 cClaimEvery = 15;
-    // A follower further than this from where its owner has it jumps there; nearer, it eases there.
-    const f32 cSnapDistance = 600.0f;
-    const f32 cEase = 0.25f;
     u32 sSelf = 0;  // the local player's number
     MarioActor* sMario = nullptr;
-    bool sSyncNerve = false;  // setting a nerve from another game's state
 
     // Switches: turned this frame (sent at the frame's end), the room's as last told (set again once the scene's own
     // setup is done), and switches the local player alone turns (an area he's in).
@@ -434,7 +430,7 @@ namespace {
             return;
         }
         rEntry.mGone = true;
-        const bool following = rEntry.mMotion >= 0 && sMotions[rEntry.mMotion].mLocked;
+        const bool following = rEntry.mMotion >= 0 && sMotions[rEntry.mMotion].mFollowing;
         if (sReady && (rEntry.mHitFrames < cHitFrames || following) && !MR::isDead(rEntry.mActor)) {
             // Its death, from a hit played here or its owner's nerves, may still be playing (a Goomba squashed): it
             // ends first.
@@ -657,7 +653,9 @@ namespace {
         return false;
     }
 
-    // Another game's state of an enemy: it moves that game's copy, which this one follows.
+    // Another game's state of an enemy, as sm64ex-coop's object packets: its owner's place, speed and nerve
+    // overwrite this game's copy as they come. Between states the copy runs its own AI, as a non-owner's object runs
+    // its behavior there; nothing here holds it.
     void applyState(const NebulaCoopObjectState& rState) {
         const s32 index = findIndex(rState.object);
         if (index < 0 || sEntries[index].mMotion < 0 || rState.player == 0 || rState.player == sSelf) {
@@ -666,19 +664,27 @@ namespace {
         Entry& rEntry = sEntries[index];
         Motion& rMotion = sMotions[rEntry.mMotion];
         LiveActor* pActor = rEntry.mActor;
+        const bool newOwner = rMotion.mOwner != rState.player || !rMotion.mFollowing;
+        const u32 lastNerve = rMotion.mOwnerNerve;
         rMotion.mOwner = rState.player;
         rMotion.mHeard = 0;
         rMotion.mHitClaim = false;
         rMotion.mOwnerDistance = rState.distance;
         rMotion.mState = rState;
-        rMotion.mAge = 0;
+        rMotion.mOwnerNerve = rState.nerve;
+        rMotion.mFollowing = true;
         if (pActor == nullptr || rEntry.mGone || MR::isDead(pActor)) {
             return;
         }
-        // Its nerve, unless a hit began it (that comes as the hit, played again here) or this game's code never set
-        // one of its class on it (another class's nerve would run this actor as something else).
+        pActor->mPosition.set(rState.position[0], rState.position[1], rState.position[2]);
+        pActor->mVelocity.set(rState.velocity[0], rState.velocity[1], rState.velocity[2]);
+        // Its nerve when the owner's changed (or it was just taken over), so this copy makes the same move once, its
+        // first step's animation and sound with it; not again each state, which would start that move over. Not one
+        // a hit began (that comes as the hit, played again here), nor one of a class this game's code never set on it
+        // (another class's nerve would run this actor as something else).
         Spine* pSpine = pActor->mSpine;
-        if (rState.nerve == 0 || (rState.flags & NEBULA_COOP_OBJECT_HIT_NERVE) != 0 || pSpine == nullptr) {
+        if (rState.nerve == 0 || (rState.flags & NEBULA_COOP_OBJECT_HIT_NERVE) != 0 || pSpine == nullptr ||
+            (!newOwner && rState.nerve == lastNerve)) {
             return;
         }
         const Nerve* pCurrent = pSpine->getCurrentNerve();
@@ -689,9 +695,7 @@ namespace {
         if (pNerve == nullptr || !isKnownClass(rMotion, pNerve->nebulaClass())) {
             return;
         }
-        sSyncNerve = true;
         pActor->setNerve(pNerve);
-        sSyncNerve = false;
     }
 
     void takeStates() {
@@ -755,7 +759,7 @@ namespace {
                 rMotion.mSendIn--;
             }
             if (pActor == nullptr) {
-                rMotion.mLocked = false;
+                rMotion.mFollowing = false;
                 continue;
             }
             // Its hit nerve is over once it has another.
@@ -767,7 +771,7 @@ namespace {
             const bool awake = alive && !MR::isClipped(pActor);
             const f32 distance = pMarioPos != nullptr ? pMarioPos->distance(pActor->mPosition) : 1.0e9f;
             const bool followed = rMotion.mOwner != 0 && rMotion.mOwner != sSelf && rMotion.mHeard < cSilentFrames;
-            rMotion.mLocked = alive && followed;
+            rMotion.mFollowing = alive && followed;
             bool send = false;
             if (rMotion.mOwner == sSelf) {
                 if (!awake) {
@@ -794,7 +798,7 @@ namespace {
             const bool moved = rMotion.mSentPosition.distance(pActor->mPosition) > 1.0f;
             rMotion.mOwner = sSelf;
             rMotion.mHeard = 0;
-            rMotion.mLocked = false;
+            rMotion.mFollowing = false;
             rMotion.mHitClaim = false;
             rMotion.mSentNerve = states[stateNum - 1].nerve;
             rMotion.mSentPosition = pActor->mPosition;
@@ -1028,7 +1032,7 @@ namespace NebulaCoopWorld {
             rMotion.mHitClaim = true;
             rMotion.mOwner = sSelf;
             rMotion.mHeard = 0;
-            rMotion.mLocked = false;
+            rMotion.mFollowing = false;
         }
         if (rEntry.mLastHit == msg && sClock - rEntry.mLastHitFrame < cHitRepeatFrames) {
             return true;
@@ -1042,46 +1046,21 @@ namespace NebulaCoopWorld {
         return true;
     }
 
-    bool allowNerve(LiveActor* pActor, const Nerve* pNerve) {
+    void noteNerve(LiveActor* pActor, const Nerve* pNerve) {
         Motion* pMotion = findMotion(pActor);
         if (pMotion == nullptr) {
-            return true;
+            return;
         }
         noteClass(*pMotion, pNerve);
-        if (sSyncNerve) {
-            return true;
-        }
         if (sDispatch == pActor) {
             // A hit (the local player's, or another's played again) begins it: the others get the hit itself.
             pMotion->mHitNerve = pNerve;
-            return true;
         }
-        // Following another game's copy: its own AI waits for that game's nerve.
-        return !pMotion->mLocked;
-    }
-
-    void afterMovement(LiveActor* pActor) {
-        Motion* pMotion = findMotion(pActor);
-        if (pMotion == nullptr || !pMotion->mLocked) {
-            return;
-        }
-        const NebulaCoopObjectState& rState = pMotion->mState;
-        // Where its owner has it now: its last place, moved on as fast as it went then.
-        const f32 age = static_cast< f32 >(pMotion->mAge < 30 ? pMotion->mAge : 30);
-        const TVec3f there(rState.position[0] + rState.velocity[0] * age, rState.position[1] + rState.velocity[1] * age,
-                           rState.position[2] + rState.velocity[2] * age);
-        pMotion->mAge++;
-        if (pActor->mPosition.distance(there) > cSnapDistance) {
-            pActor->mPosition.set(there);
-        } else {
-            pActor->mPosition.set(pActor->mPosition + (there - pActor->mPosition) * cEase);
-        }
-        pActor->mVelocity.set(rState.velocity[0], rState.velocity[1], rState.velocity[2]);
     }
 
     void afterBaseMtx(LiveActor* pActor) {
         Motion* pMotion = findMotion(pActor);
-        if (pMotion == nullptr || !pMotion->mLocked) {
+        if (pMotion == nullptr || !pMotion->mFollowing) {
             return;
         }
         const f32* pTarget = pMotion->mState.rotation;
