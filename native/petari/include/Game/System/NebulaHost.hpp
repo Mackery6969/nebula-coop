@@ -146,6 +146,11 @@ namespace NebulaHost {
         return nebula_host()->coop_achievement_take(nebula_host()->user, pId, capacity);
     }
 
+    // Online co-op's pop-ups: 1 with the oldest waiting, 0 when none waits.
+    inline s32 coopPopupTake(NebulaCoopPopup* pPopup) {
+        return nebula_host()->coop_popup_take(nebula_host()->user, pPopup);
+    }
+
     // Shared objects (docs/COOP_PLAN.md "Shared objects"): the states of the enemies this game moves, and the ones
     // the other players' games move.
     inline void coopObjectsReport(const NebulaCoopObjectState* pStates, u32 count) {

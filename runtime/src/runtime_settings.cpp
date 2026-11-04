@@ -9,6 +9,7 @@
 #include "galaxy/c_locale_number.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cerrno>
 #include <cctype>
@@ -78,6 +79,16 @@ std::vector<std::string> sanitize_coop_list(const std::vector<std::string>& list
         if (address && std::find(out.begin(), out.end(), entry) == out.end()) out.push_back(entry);
     }
     return out;
+}
+
+// The co-op pop-ups' keys in runtime_settings.ini (coop_popup_<name>=0 turns one off), each with its flag.
+std::array<std::pair<const char*, bool*>, 6> coop_popup_keys(RuntimeCoopPopups& popups) {
+    return {{{"joins", &popups.joins},
+             {"leaves", &popups.leaves},
+             {"observatory", &popups.observatory},
+             {"galaxies", &popups.galaxies},
+             {"deaths", &popups.deaths},
+             {"stars", &popups.stars}}};
 }
 
 // "a,b,c": its entries.
@@ -296,6 +307,10 @@ void apply_kv(RuntimeSettings& settings, const char* key, const char* value) {
     } else if (std::strcmp(key, "coop_pvp_mode") == 0) {
         for (const CoopPvpMode mode : {CoopPvpMode::Classic, CoopPvpMode::Revamped}) {
             if (::galaxy::text_iequal(value, coop_pvp_mode_key(mode))) settings.coop.pvp_mode = mode;
+        }
+    } else if (std::strncmp(key, "coop_popup_", 11) == 0) {
+        for (const auto& [name, flag] : coop_popup_keys(settings.coop_popups)) {
+            if (std::strcmp(key + 11, name) == 0) *flag = std::strcmp(value, "0") != 0;
         }
     } else if (std::strcmp(key, "coop_bans") == 0) {
         settings.coop_bans = split_coop_list(value);
@@ -660,6 +675,11 @@ bool save_runtime_settings_to_file() {
         if (settings.coop.cheats != defaults.cheats) contents << "coop_cheats=" << (settings.coop.cheats ? 1 : 0) << '\n';
         if (settings.coop.star_counter != defaults.star_counter) {
             contents << "coop_star_counter=" << (settings.coop.star_counter ? 1 : 0) << '\n';
+        }
+        // The pop-ups this player turned off (each is on by default).
+        RuntimeCoopPopups popups = settings.coop_popups;
+        for (const auto& [name, flag] : coop_popup_keys(popups)) {
+            if (!*flag) contents << "coop_popup_" << name << "=0" << '\n';
         }
         for (const auto& [key, list] : {std::pair{"coop_bans", &settings.coop_bans},
                                         std::pair{"coop_moderators", &settings.coop_moderators}}) {
