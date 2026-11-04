@@ -104,8 +104,8 @@ jobs:
           - renderer: Vulkan
             vulkan: ON
     env:
-      # sccache keeps compiled objects in the GitHub Actions cache.
-      SCCACHE_GHA_ENABLED: "true"
+      # Compile on this machine when the sccache server can't be reached mid-build, instead of failing.
+      SCCACHE_IGNORE_SERVER_IO_ERROR: "1"
     steps:
       - uses: actions/Checkout@v7
       - uses: ilammy/msvc-dev-cmd@v1
@@ -122,6 +122,26 @@ jobs:
             build/host/_deps
           key: host-deps-${{ matrix.vulkan }}-${{ hashFiles('cmake/**', 'third_party/archive/**') }}
       - uses: mozilla-actions/sccache-action@v0.0.9
+      # sccache keeps compiled objects in the GitHub Actions cache. Its server reads that cache when it starts and
+      # gives up if it can't (a GitHub outage, or "Egress is over the account limit"), which failed every compile.
+      # Then it uses its local cache instead: the build is slower but doesn't fail. SCCACHE_GHA_ENABLED is set
+      # here rather than in the job's env, which would take precedence over GITHUB_ENV.
+      - name: Start sccache
+        run: |
+          $env:SCCACHE_GHA_ENABLED = "true"
+          for ($try = 1; $try -le 3; $try++) {
+            sccache --start-server
+            if ($LASTEXITCODE -eq 0) {
+              "SCCACHE_GHA_ENABLED=true" >> $env:GITHUB_ENV
+              exit 0
+            }
+            Start-Sleep -Seconds 10
+          }
+          Write-Output "::warning title=sccache::The GitHub Actions cache is unavailable: building without it."
+          $env:SCCACHE_GHA_ENABLED = "false"
+          "SCCACHE_GHA_ENABLED=false" >> $env:GITHUB_ENV
+          sccache --start-server
+          exit $LASTEXITCODE
       - name: Configure
         # Without cross-file optimization: the link of every test against the renderer library otherwise takes
         # minutes. Release builds keep it (NEBULA_HOST_IPO defaults to ON).

@@ -1,0 +1,40 @@
+# TEMPORARY: checks the sccache fallback with an unreachable cache. Removed before merging.
+name: sccache fallback test
+on: pull_request
+permissions:
+  contents: read
+jobs:
+  fallback:
+    runs-on: windows-2022
+    env:
+      SCCACHE_IGNORE_SERVER_IO_ERROR: "1"
+    steps:
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Start sccache
+        env:
+          ACTIONS_RESULTS_URL: http://127.0.0.1:9/
+        run: |
+          $env:SCCACHE_GHA_ENABLED = "true"
+          for ($try = 1; $try -le 3; $try++) {
+            sccache --start-server
+            if ($LASTEXITCODE -eq 0) {
+              "SCCACHE_GHA_ENABLED=true" >> $env:GITHUB_ENV
+              exit 0
+            }
+            Start-Sleep -Seconds 10
+          }
+          Write-Output "::warning title=sccache::The GitHub Actions cache is unavailable: building without it."
+          $env:SCCACHE_GHA_ENABLED = "false"
+          "SCCACHE_GHA_ENABLED=false" >> $env:GITHUB_ENV
+          sccache --start-server
+          exit $LASTEXITCODE
+      - name: Compile through sccache
+        run: |
+          echo "SCCACHE_GHA_ENABLED=$env:SCCACHE_GHA_ENABLED"
+          'int main(void) { return 0; }' | Set-Content t.c
+          sccache cl /nologo /c t.c
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          sccache --show-stats
