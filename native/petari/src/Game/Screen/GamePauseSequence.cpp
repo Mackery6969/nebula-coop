@@ -1,3 +1,4 @@
+#include "Game/System/NebulaMods.hpp"
 #include "Game/Screen/GamePauseSequence.hpp"
 #include "Game/AudioLib/AudSystem.hpp"
 #include "Game/AudioLib/AudWrap.hpp"
@@ -33,6 +34,7 @@ void GamePauseSequence::initWindowMenu(const MR::FunctorBase& rFunc) {
 }
 
 void GamePauseSequence::startPause(MenuType type) {
+    NebulaMods::fire(NEBULA_MOD_EVENT_PAUSE, 1);
     mMenuType = type;
     appear();
     MR::startStarPointerModePauseMenu(this);
@@ -52,6 +54,7 @@ void GamePauseSequence::startPause(MenuType type) {
 }
 
 void GamePauseSequence::deactivate() {
+    NebulaMods::fire(NEBULA_MOD_EVENT_PAUSE, 0);
     MR::endStarPointerMode(this);
     kill();
     GameSystemFunction::onPauseEndAllRumble();

@@ -5,6 +5,7 @@
 // Objects released while the GPU may still use them are destroyed once it passes the last submitted value.
 #pragma once
 
+#include <algorithm>
 #include <volk.h>
 
 #include "galaxy/render/vk/device_quirks_vk.h"
@@ -101,6 +102,8 @@ public:
     [[nodiscard]] VkPhysicalDevice physical_device() const noexcept { return physical_; }
     [[nodiscard]] VkDevice device() const noexcept { return device_; }
     [[nodiscard]] VkQueue queue() const noexcept { return queue_; }
+    [[nodiscard]] VkQueue generation_present_queue() const noexcept { return generation_present_queue_; }
+    [[nodiscard]] VkQueue generation_acquire_queue() const noexcept { return generation_acquire_queue_; }
     [[nodiscard]] std::uint32_t queue_family() const noexcept { return queue_family_; }
     [[nodiscard]] VmaAllocator_T* allocator() const noexcept { return allocator_; }
     [[nodiscard]] const VkPhysicalDeviceProperties& properties() const noexcept { return properties_; }
@@ -111,7 +114,6 @@ public:
     [[nodiscard]] bool logic_op() const noexcept { return logic_op_; }
     [[nodiscard]] bool geometry_shader() const noexcept { return geometry_shader_; }
     [[nodiscard]] bool sample_rate_shading() const noexcept { return sample_rate_shading_; }
-    [[nodiscard]] bool tessellation_shader() const noexcept { return tessellation_shader_; }
     [[nodiscard]] bool sampler_anisotropy() const noexcept { return sampler_anisotropy_; }
     // shaderImageGatherExtended: a gather of one chosen channel (FSR 1 EASU's GatherRed/Green/Blue).
     [[nodiscard]] bool gather_extended() const noexcept { return gather_extended_; }
@@ -120,6 +122,13 @@ public:
     [[nodiscard]] bool depth_clamp() const noexcept { return depth_clamp_; }
     // VK_EXT_depth_clip_enable: clamping without giving up clipping (D3D's rasterizer).
     [[nodiscard]] bool depth_clip_enable() const noexcept { return depth_clip_enable_; }
+    // What FSR 3's compute passes need, enabled (temporal_upscaler_vk.cpp).
+    [[nodiscard]] bool temporal_upscaling() const noexcept { return temporal_upscaling_; }
+    [[nodiscard]] bool device_extension_enabled(const char* name) const noexcept {
+        return std::find(enabled_device_extensions_.begin(), enabled_device_extensions_.end(), name) != enabled_device_extensions_.end();
+    }
+    // What XeSS asked for, enabled (Context::create).
+    [[nodiscard]] bool xess_upscaling() const noexcept { return xess_upscaling_; }
     [[nodiscard]] bool display_timing() const noexcept { return display_timing_; }
     // The largest device-local heap's use and budget (the driver's with VK_EXT_memory_budget, else VMA's estimate).
     bool device_memory_budget(std::uint64_t& usage, std::uint64_t& budget) const noexcept;
@@ -198,6 +207,8 @@ private:
     VkPhysicalDevice physical_ = VK_NULL_HANDLE;
     VkDevice device_ = VK_NULL_HANDLE;
     VkQueue queue_ = VK_NULL_HANDLE;
+    VkQueue generation_present_queue_ = VK_NULL_HANDLE;
+    VkQueue generation_acquire_queue_ = VK_NULL_HANDLE;
     std::uint32_t queue_family_ = 0;
     VmaAllocator_T* allocator_ = nullptr;
     VkPhysicalDeviceProperties properties_{};
@@ -208,7 +219,6 @@ private:
     bool dual_source_blend_ = false;
     bool logic_op_ = false;
     bool geometry_shader_ = false;
-    bool tessellation_shader_ = false;
     bool sample_rate_shading_ = false;
     bool sampler_anisotropy_ = false;
     bool gather_extended_ = false;
@@ -218,6 +228,10 @@ private:
     bool display_timing_ = false;  // VK_GOOGLE_display_timing
     bool depth_clamp_ = false;
     bool depth_clip_enable_ = false;
+    bool temporal_upscaling_ = false;
+    std::vector<std::string> enabled_device_extensions_;
+    bool xess_upscaling_ = false;
+    bool xess_instance_ready_ = false;
     bool debug_names_ = false;
     struct Pending {
         std::uint64_t value;

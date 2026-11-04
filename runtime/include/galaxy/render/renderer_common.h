@@ -182,11 +182,10 @@ public:
 private:
     std::int64_t frequency_ = 0;
     std::int64_t last_qpc_ = 0;
-    // A high-resolution waitable timer (Windows 10 1803+), so a wait sleeps instead of spinning on
-    // SwitchToThread. Null: Sleep and yield.
+    // A high-resolution waitable timer (Windows 10 1803+). Null: Sleep.
     void* timer_ = nullptr;
     bool timer_tried_ = false;
-    // Sleeps toward a target `remaining_ms` away, waking kPaceSpinMs early; yields when closer.
+    // Sleeps until a target `remaining_ms` away.
     void sleep_before(double remaining_ms);
 };
 
@@ -222,16 +221,6 @@ struct DrawCall {
     std::uint32_t blend_slot = 0;
     // Interpolated redraw: the scene's pixel-constant record, -1 for none.
     std::int32_t ps_record = -1;
-    // A split curved surface (flat_pipeline set): its first `flat_index_count` indices are triangles no corner bends,
-    // drawn as a triangle list with `flat_pipeline` (the same shaders without the patch stages), the rest as patches
-    // with `pipeline`.
-    gpu::Pipeline* flat_pipeline = nullptr;
-    std::uint32_t flat_index_count = 0;
-    // The split draw's place in its command list's curve sort (the renderer's sort_curved), -1 for none: its
-    // triangles the hull shader would leave whole are drawn as a triangle list too. Interpolated redraws draw the
-    // split as above.
-    std::int32_t curve_sort = -1;
-    std::uint32_t curve_sort_list = 0;
 };
 
 }  // namespace galaxy::render

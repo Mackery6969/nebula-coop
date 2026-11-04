@@ -29,14 +29,13 @@ namespace Nebula.Launcher
             Application.SetCompatibleTextRenderingDefault(false);
             try
             {
-                // The in-game menu runs these: the DLSS download, and a restart once the game has exited (--record: a
-                // diagnostics run).
-                if (args.Length > 0 && string.Equals(args[0], "--install-dlss", StringComparison.OrdinalIgnoreCase))
+                // A .luma opened from Explorer: the Mods page, with it being imported.
+                if (args.Length > 1 && string.Equals(args[0], "--open-mod", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (GraphicsSettings.DlssInstalled()) return 0;
-                    using (var dialog = new DlssInstallDialog(false) { TopMost = true })
-                        return dialog.ShowDialog() == DialogResult.OK ? 0 : 1;
+                    Application.Run(new SettingsForm(new LaunchSession(), args[1]));
+                    return 0;
                 }
+                // The in-game menu runs this: a restart once the game has exited (--record: a diagnostics run).
                 int restartAfter;
                 if (args.Length > 1 && string.Equals(args[0], "--restart-after", StringComparison.OrdinalIgnoreCase) &&
                     int.TryParse(args[1], out restartAfter))
@@ -345,7 +344,7 @@ namespace Nebula.Launcher
             }
         }
 
-        public SettingsForm(LaunchSession session)
+        public SettingsForm(LaunchSession session, string importMod = null)
         {
             this.session = session;
             offeredLanguages = GeneralSettings.Offered(Path.Combine(session.Content, "game.pak"));
@@ -387,7 +386,15 @@ namespace Nebula.Launcher
                 // has a window.
                 var modsTab = new TabPage(NebulaText.Of("Mods"));
                 pages.Add(modsTab);
-                new ModsPage(modsTab, session.App, session.Content);
+                var mods = new ModsPage(modsTab, session.App, session.Content);
+                if (importMod != null)
+                {
+                    Shown += delegate
+                    {
+                        tabs.SelectedTab = modsTab;
+                        mods.Import(new[] { importMod });
+                    };
+                }
             }
             pages.Add(advanced);
             tabs.TabPages.AddRange(pages.ToArray());

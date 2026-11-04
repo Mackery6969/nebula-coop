@@ -138,7 +138,8 @@ const float* InterpolationKernel::weights(double fraction) const noexcept {
 AudioMixer::AudioMixer(std::uint32_t rate)
     : rate_(std::clamp<std::uint32_t>(rate, 8000u, 192000u)),
       game_ratio_(static_cast<double>(rate_) / kGameRate),
-      voice_kernel_(4u, 0.753, 7.05, 1024u),
+      voice_kernels_{InterpolationKernel(kVoiceTaps, 0.96, 8.0, 1024u), InterpolationKernel(kVoiceTaps, 0.72, 8.0, 1024u),
+                     InterpolationKernel(kVoiceTaps, 0.48, 8.0, 1024u), InterpolationKernel(kVoiceTaps, 0.24, 8.0, 1024u)},
       // The movie's 32 kHz sound: 128 taps, cut off at 16 kHz (its third-octave band within 0.3 dB of a brick wall).
       stream_kernel_(128u, std::min(1.0, game_ratio_), 7.0, 512u),
       source_(kMaxSourceSamples, 0.0f) {
@@ -161,6 +162,7 @@ void AudioMixer::set_rate(std::uint32_t rate) {
     panner_send_right_.reset(subframe / 2u);
     subframe_counter_ = 0u;
     frame_.clear();
+    frame_surround_.clear();
     stream_history_.clear();
     stream_running_ = false;
     for (VoiceState& state : voice_states_) {
@@ -199,6 +201,12 @@ float* AudioMixer::bus(std::uint32_t index) noexcept {
     return index != NEBULA_AUDIO_BUS_NONE && index < kBusCount ? buses_[index].data() : nullptr;
 }
 
+void AudioMixer::set_discrete(bool on) noexcept {
+    discrete_ = on;
+    frame_.clear();
+    frame_surround_.clear();
+}
+
 void AudioMixer::mix(float gain) {
     if (!configured()) {
         return;
@@ -222,7 +230,7 @@ void AudioMixer::mix(float gain) {
         }
     }
 
-    // The surround buses one subframe late, matrix-encoded into left and right.
+    // The surround buses one subframe late, matrix-encoded into left and right unless they have their own speakers.
     std::array<float, kMaxSubframe> late_left{};
     std::array<float, kMaxSubframe> late_right{};
     fold_left_.process(buses_[kSurroundLeft].data(), late_left.data(), n);
@@ -231,7 +239,15 @@ void AudioMixer::mix(float gain) {
     float* right = buses_[kRight].data();
     const float* center = buses_[kCenter].data();
     const float* inverted = buses_[kRightInverted].data();
-    for (std::size_t i = 0; i < n; ++i) {
+    for (std::size_t i = 0; discrete_ && i < n; ++i) {
+        right[i] -= inverted[i];
+        frame_.push_back(left[i] * gain);
+        frame_.push_back(right[i] * gain);
+        frame_surround_.push_back(center[i] * gain);
+        frame_surround_.push_back(late_left[i] * gain);
+        frame_surround_.push_back(late_right[i] * gain);
+    }
+    for (std::size_t i = 0; !discrete_ && i < n; ++i) {
         left[i] += kFold * (kUnit * late_left[i] + kMatrix * late_right[i]) + kCenterGain * center[i];
         right[i] += kFold * (-kMatrix * late_left[i] - kUnit * late_right[i]) + kCenterGain * center[i] - inverted[i];
         frame_.push_back(left[i] * gain);
@@ -247,6 +263,8 @@ std::span<const float> AudioMixer::end_frame() {
     static thread_local std::vector<float> out;
     out.swap(frame_);
     frame_.clear();
+    surround_out_.swap(frame_surround_);
+    frame_surround_.clear();
     const std::size_t outputs = out.size() / 2u;
     const std::uint32_t stream_frames = frame_subframes_ * kGameSubframeSamples;
     frame_subframes_ = 0u;
@@ -259,15 +277,17 @@ std::span<const float> AudioMixer::end_frame() {
     movie_.pull(stream.data(), stream_frames);
     // History: taps - 1 earlier samples' room, then the new ones; outputs from position taps/2 - 1.
     const std::size_t taps = stream_kernel_.taps();
-    const std::size_t keep = taps;
+    const std::size_t keep = taps + 1u;
     if (!stream_running_ || stream_history_.size() != keep * 2u) {
         stream_history_.assign(keep * 2u, 0.0f);
         stream_running_ = true;
+        stream_place_ = 0.0;
     }
     std::vector<float> x(stream_history_);
     x.insert(x.end(), stream.begin(), stream.end());
-    const double step = static_cast<double>(stream_frames) / static_cast<double>(outputs);
-    const double origin = static_cast<double>(taps / 2u - 1u);
+    // The output's rate exactly: a block's whole outputs do not fall on whole 32 kHz samples, the remainder carries over.
+    const double step = 1.0 / game_ratio_;
+    const double origin = static_cast<double>(taps / 2u) + stream_place_;
     for (std::size_t j = 0; j < outputs; ++j) {
         const double at = origin + static_cast<double>(j) * step;
         const auto whole = static_cast<std::size_t>(at);
@@ -282,6 +302,7 @@ std::span<const float> AudioMixer::end_frame() {
         out[j * 2u] += l;
         out[j * 2u + 1u] += r;
     }
+    stream_place_ += static_cast<double>(outputs) * step - static_cast<double>(stream_frames);
     std::copy(x.end() - static_cast<std::ptrdiff_t>(keep * 2u), x.end(), stream_history_.begin());
     return out;
 }
@@ -354,34 +375,36 @@ void AudioMixer::render_source(VoiceState& state, NebulaVoice& voice, float* out
         std::fill_n(out, n, 0.0f);
         return;
     }
-    // The source samples this subframe covers, after the previous subframe's last four.
+    // The source samples this subframe covers, after the previous subframe's last taps.
     const double span = std::min(static_cast<double>(voice.rate) / kSubframesPerSecond, static_cast<double>(kMaxSourceSpan));
     const double end_position = state.phase + span;
     const auto needed = static_cast<std::uint32_t>(end_position);
     float* x = source_.data();
     std::copy(state.history.begin(), state.history.end(), x);
     ++stats_.pcm_renders;
-    read_pcm(state, voice, x + 4, needed);
-    // Output i reads at source position phase + i * span / n; four taps around it (position + 1 between the second
-    // and third). Steps of four source samples or more pick samples directly.
+    read_pcm(state, voice, x + kVoiceTaps, needed);
+    // Output i reads at source position phase + i * span / n, the taps around it. The whole source band passes; a step of
+    // more than one source sample an output takes a lower cutoff, so a raised pitch does not fold back.
     const double start = state.phase;
     const double step = span / n;
-    if (voice.rate >= 4.0f * kGameRate) {
-        for (std::uint32_t i = 0; i < n; ++i) {
-            out[i] = x[static_cast<std::uint32_t>(start + i * step)];
+    const InterpolationKernel& kernel = voice_kernels_[step <= 1.04 ? 0u : step <= 1.39 ? 1u : step <= 2.08 ? 2u : 3u];
+    for (std::uint32_t i = 0; i < n; ++i) {
+        const double at = start + i * step;
+        const auto whole = static_cast<std::uint32_t>(at);
+        const float* w = kernel.weights(at - whole);
+        const float* s = x + whole;
+        float sum[4] = {};
+        for (std::uint32_t k = 0; k < kVoiceTaps; k += 4u) {
+            sum[0] += s[k] * w[k];
+            sum[1] += s[k + 1u] * w[k + 1u];
+            sum[2] += s[k + 2u] * w[k + 2u];
+            sum[3] += s[k + 3u] * w[k + 3u];
         }
-    } else {
-        for (std::uint32_t i = 0; i < n; ++i) {
-            const double at = start + i * step;
-            const auto whole = static_cast<std::uint32_t>(at);
-            const float* w = voice_kernel_.weights(at - whole);
-            const float* s = x + whole;
-            out[i] = s[0] * w[0] + s[1] * w[1] + s[2] * w[2] + s[3] * w[3];
-        }
+        out[i] = sum[0] + sum[1] + sum[2] + sum[3];
     }
     state.last = out[n - 1u];
     state.phase = end_position - needed;
-    std::copy_n(x + needed, 4u, state.history.begin());
+    std::copy_n(x + needed, kVoiceTaps, state.history.begin());
 }
 
 // PCM: `restart` the sample it starts (or loops) at, `address` the next byte, `left` the samples before the end.

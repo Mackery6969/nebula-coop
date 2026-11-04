@@ -74,7 +74,7 @@ using host_window::hidden_window_mode_enabled;
 
 namespace {
 
-#if defined(GALAXY_WITH_STREAMLINE)
+#if defined(GALAXY_WITH_STREAMLINE) || defined(GALAXY_STREAMLINE_VK)
 constexpr bool kStreamlineBuilt = true;
 #else
 constexpr bool kStreamlineBuilt = false;
@@ -83,6 +83,10 @@ constexpr bool kStreamlineBuilt = false;
 // DLSS offered before it is installed (defined below).
 bool dlss_offered();
 bool dlss_installed_now();
+bool xess_offered();
+bool xess_installed_now();
+bool vendor_prompting();
+unsigned vendor_upscaler();
 bool frame_generation_offered();
 bool dlss_hold_back(RenderConfig& applied, const RenderConfig& live);
 bool dlss_prompt_key(std::uintptr_t key, bool was_down);
@@ -96,7 +100,6 @@ void dlss_dismiss_prompt();
 void poll_dlss_download();
 std::string dlss_footer(std::uint64_t now_ms, bool& error);
 NativeSettingsStatus dlss_status(std::uint64_t now_ms);
-constexpr int kDlssDownloadMegabytes = 31;  // NVIDIA's DLSS files, as downloaded
 
 // Settings pages built from rows (DISPLAY, GRAPHICS, GAME, MODS, SYSTEM, ONLINE, PLAYER: settings_page): a label, the
 // value for the draft, how left/right change the draft (none: the row is fixed) and a help line; a
@@ -111,6 +114,7 @@ bool settings_page_tab(unsigned tab) { return tab != 2u && tab != 3u; }
 unsigned temporal_upscaler(const RenderConfig& render) {
     if (render.upscaler == 2u && fsr3_available()) return 2u;
     if (render.upscaler == 3u && host_window::upscaler_caps().dlss) return 3u;
+    if (render.upscaler == 4u && host_window::upscaler_caps().xess) return 4u;
     return 0u;
 }
 
@@ -119,6 +123,7 @@ std::vector<unsigned> available_upscalers() {
     std::vector<unsigned> choices{0u, 1u};
     if (fsr3_available()) choices.push_back(2u);
     if (host_window::upscaler_caps().dlss || dlss_offered()) choices.push_back(3u);
+    if (host_window::upscaler_caps().xess || xess_offered()) choices.push_back(4u);
     return choices;
 }
 
@@ -199,6 +204,8 @@ std::atomic<bool> s_settings_drawn_by_game{false};
 bool s_settings_leave_asking = false;
 // Apply saved mod changes this session did not start with: the menu asks whether to restart now.
 std::atomic<bool> s_mods_restart_ask{false};
+// A mod turned on brings code the player hasn't allowed: the menu asks first, one mod at a time.
+std::atomic<bool> s_mods_code_ask{false};
 // RAY TRACING turned on (applied) before its shaders are prepared: the menu asks to restart, which prepares them.
 std::atomic<bool> s_rt_restart_ask{false};
 // SYSTEM > DIAGNOSTICS > RECORD: the menu asks to restart into a recorded session (the launcher's recording).
@@ -206,7 +213,7 @@ std::atomic<bool> s_diagnostics_ask{false};
 
 // A restart question is up (the mods', ray tracing's, the diagnostics run's).
 bool restart_asking() {
-    return s_mods_restart_ask.load(std::memory_order_acquire) || s_rt_restart_ask.load(std::memory_order_acquire) ||
+    return s_mods_code_ask.load(std::memory_order_acquire) || s_mods_restart_ask.load(std::memory_order_acquire) || s_rt_restart_ask.load(std::memory_order_acquire) ||
            s_diagnostics_ask.load(std::memory_order_acquire);
 }
 // The pages, in order.
@@ -230,9 +237,7 @@ unsigned shown_position(unsigned tab) {
 // The GRAPHICS page's rows for what is not built natively yet. Each goes with its feature.
 bool graphics_row_hidden(const char* label) {
     static constexpr const char* kHidden[] = {
-        "RESOLUTION", "UPSCALING", "QUALITY MODE", "DLSS MODE", "FSR 3 MODE", "SHARPENING", "RAY TRACING", "RAY TRACING QUALITY",
-        "FRAME RATE", "INTERPOLATION", "FRAME RATE LIMIT", "TARGET FRAME RATE",
-        "TEXTURE PACKS", "  REPLACEMENTS", "DUMP TEXTURES", "MOVIES",
+        "RAY TRACING", "RAY TRACING QUALITY", "TEXTURE PACKS", "  REPLACEMENTS", "DUMP TEXTURES",
     };
     for (const char* hidden : kHidden) {
         if (std::strcmp(label, hidden) == 0) return true;
@@ -243,7 +248,7 @@ bool graphics_row_hidden(const char* label) {
 // Rows of the shown pages for what is not there yet or not on this platform.
 bool row_hidden(const char* label) {
     static constexpr const char* kHidden[] = {
-        "POST-PROCESS", "INTERFACE", "HUD RESOLUTION", "RAY TRACING HARDWARE", "NVIDIA STREAMLINE", "NVIDIA REFLEX", "DLSS", "DLSS FRAME GENERATION",
+        "POST-PROCESS", "RAY TRACING HARDWARE", "NVIDIA STREAMLINE", "NVIDIA REFLEX", "DLSS", "DLSS FRAME GENERATION",
 #if defined(__ANDROID__)
         "MONITOR", "DISPLAY MODE", "RESOLUTION", "REFRESH RATE", "VSYNC", "DISCORD STATUS", "MIIS", "IMPORT MIIS", "YOUR MIIS", "MIIS FOLDER",
         "GRAPHICS CARD", "DIAGNOSTICS",
@@ -335,7 +340,7 @@ using ui::Interpolation;
 ui::FrameRateCaps settings_frame_rate_caps(const RenderConfig& render, bool offer = false) {
     return {settings_refresh_hz(render), offer && frame_generation_offered(),
             host_window::upscaler_caps().frame_generation, host_window::upscaler_caps().frame_generation_dynamic,
-            host_window::upscaler_caps().frame_generation_max};
+            host_window::upscaler_caps().frame_generation_max, host_window::upscaler_caps().fsr_frame_generation};
 }
 Interpolation interpolation_of(const RenderConfig& render) { return ui::interpolation_of(render); }
 std::vector<unsigned> interpolation_targets(const RenderConfig& render, Interpolation mode) {
@@ -475,8 +480,8 @@ unsigned runtime_draft_changes(RuntimeSettings* live) {
     // A setting added to RuntimeSettings is drafted here too: these bindings stop compiling until it is.
     // coop_bans and coop_moderators aren't the menu's (the room's /permban and /moderator keep them): never drafted.
     [[maybe_unused]] const auto& [mode, audio, text_speed, language, discord_status, button_icons, co_star, coop,
-                                  coop_bans, coop_moderators, coop_popups] = d;
-    [[maybe_unused]] const auto& [master, music, sfx, voice, ambience, cutscene, wiimote_speaker] = d.audio;
+                                  coop_bans, coop_moderators, coop_popups, menu_text_size] = d;
+    [[maybe_unused]] const auto& [master, music, sfx, voice, ambience, cutscene, wiimote_speaker, sound_output] = d.audio;
     RuntimeSettings scratch{};
     RuntimeSettings& out = live != nullptr ? *live : scratch;
     unsigned changes = 0u;
@@ -493,6 +498,7 @@ unsigned runtime_draft_changes(RuntimeSettings* live) {
     take(d.audio.ambience, b.audio.ambience, out.audio.ambience);
     take(d.audio.cutscene, b.audio.cutscene, out.audio.cutscene);
     take(d.audio.wiimote_speaker, b.audio.wiimote_speaker, out.audio.wiimote_speaker);
+    take(d.audio.sound_output, b.audio.sound_output, out.audio.sound_output);
     take(d.text_speed, b.text_speed, out.text_speed);
     take(d.language, b.language, out.language);
     take(d.discord_status, b.discord_status, out.discord_status);
@@ -500,6 +506,7 @@ unsigned runtime_draft_changes(RuntimeSettings* live) {
     take(d.co_star, b.co_star, out.co_star);
     take(d.coop, b.coop, out.coop);
     take(d.coop_popups, b.coop_popups, out.coop_popups);
+    take(d.menu_text_size, b.menu_text_size, out.menu_text_size);
     return changes;
 }
 
@@ -527,6 +534,7 @@ unsigned pending_settings_changes() {
     changes += d.curved_surfaces != live.curved_surfaces;
     changes += lighting_mode(d) != lighting_mode(live);
     changes += d.ambient_occlusion != live.ambient_occlusion;
+    changes += d.ambient_occlusion_ssao != live.ambient_occlusion_ssao;
     changes += d.bloom != live.bloom;
     changes += d.hud_output_resolution != live.hud_output_resolution;
     changes += d.ray_tracing_enabled != live.ray_tracing_enabled;
@@ -561,6 +569,7 @@ enum class ControlsRow {
     GyroSensitivity,
     TouchSensitivity,
     PairJoyCon,
+    ArrangeTouch,
     Reset,
 };
 
@@ -661,8 +670,16 @@ std::vector<ControlsRowInfo> controls_rows() {
     if (s_input_mode_draft == RuntimeInputMode::RealWiimote) {
         return rows;
     }
-    rows.push_back({ControlsRow::Device});
     if (s_controls_devices.count == 0u) {
+        rows.push_back({ControlsRow::Device});
+        return rows;
+    }
+    if (s_controls_devices.count != 1u || !galaxy::input::is_phone(s_controls_devices.entries[0].key)) {
+        rows.push_back({ControlsRow::Device});
+    }
+    // The phone's own controls are arranged, not bound.
+    if (galaxy::input::is_phone(s_controls_device)) {
+        rows.push_back({ControlsRow::ArrangeTouch});
         return rows;
     }
     for (unsigned index = 0; index < galaxy::input::kGameInputCount; ++index) {
@@ -779,30 +796,28 @@ void refresh_controls_devices(bool force) {
     std::array<galaxy::input::ControllerInfo, galaxy::input::kMaxControllers> connected{};
     const std::size_t count = galaxy::host::connected_controllers(connected);
     const std::optional<galaxy::input::DeviceKey> active = galaxy::host::last_input_device();
-    galaxy::input::build_device_list(std::span<const galaxy::input::ControllerInfo>(connected.data(), count),
-                                     active, s_controls_devices);
-    // Only what the input mode reads: the keyboard and mouse alone, or the controllers alone.
-    if (s_input_mode_draft == RuntimeInputMode::KeyboardMouse || s_input_mode_draft == RuntimeInputMode::Controller) {
-        const bool keyboard = s_input_mode_draft == RuntimeInputMode::KeyboardMouse;
-        std::size_t kept = 0;
-        for (std::size_t i = 0; i < s_controls_devices.count; ++i) {
-            const bool is_keyboard = s_controls_devices.entries[i].key.scheme == galaxy::input::ControlScheme::Keyboard;
-            if (is_keyboard == keyboard) s_controls_devices.entries[kept++] = s_controls_devices.entries[i];
-        }
-        s_controls_devices.count = kept;
-    }
 #if defined(__ANDROID__)
-    // A phone's own controls are its screen: the keyboard's row only for a keyboard that is there.
-    if (!galaxy::host::physical_keyboard_attached()) {
+    constexpr bool kHasPhone = true;
+#else
+    constexpr bool kHasPhone = false;
+#endif
+    // Only what is attached, on every system.
+    galaxy::input::build_device_list(std::span<const galaxy::input::ControllerInfo>(connected.data(), count), active,
+                                     s_controls_devices, galaxy::host::keyboard_or_mouse_attached(), kHasPhone);
+    // Only what the input mode reads.
+    if (s_input_mode_draft != RuntimeInputMode::Auto) {
         std::size_t kept = 0;
         for (std::size_t i = 0; i < s_controls_devices.count; ++i) {
-            if (s_controls_devices.entries[i].key.scheme != galaxy::input::ControlScheme::Keyboard) {
-                s_controls_devices.entries[kept++] = s_controls_devices.entries[i];
-            }
+            const galaxy::input::DeviceKey key = s_controls_devices.entries[i].key;
+            const bool phone = galaxy::input::is_phone(key);
+            const bool keyboard = !phone && key.scheme == galaxy::input::ControlScheme::Keyboard;
+            const bool wanted = s_input_mode_draft == RuntimeInputMode::Phone          ? phone
+                                : s_input_mode_draft == RuntimeInputMode::KeyboardMouse ? keyboard
+                                                                                        : !phone && !keyboard;
+            if (wanted) s_controls_devices.entries[kept++] = s_controls_devices.entries[i];
         }
         s_controls_devices.count = kept;
     }
-#endif
     if (s_controls_devices.count == 0u) {
         end_controls_capture();
         return;
@@ -828,7 +843,7 @@ unsigned native_settings_row_count(unsigned tab) {
         return static_cast<unsigned>(
             settings_page(tab, s_settings_draft, s_runtime_draft, get_render_feature_caps()).size());
     }
-    return tab == 2u ? controls_row_count() : 7u;
+    return tab == 2u ? controls_row_count() : 8u;
 }
 
 // A heading row (never selected).
@@ -890,6 +905,7 @@ void apply_controls_draft() {
     if (s_input_mode_draft != runtime.input_mode) {
         runtime.input_mode = s_input_mode_draft;
         set_runtime_settings(runtime);
+        galaxy::host::input_mode_changed();
     }
 }
 
@@ -925,6 +941,7 @@ void apply_native_settings_draft() {
     applied.per_pixel_lighting = next.per_pixel_lighting;
     applied.enhanced_lighting = next.enhanced_lighting;
     applied.ambient_occlusion = next.ambient_occlusion;
+    applied.ambient_occlusion_ssao = next.ambient_occlusion_ssao;
     applied.bloom = next.bloom;
     applied.hud_output_resolution = next.hud_output_resolution;
     applied.ray_tracing_enabled = next.ray_tracing_enabled;
@@ -948,7 +965,7 @@ void apply_native_settings_draft() {
     s_settings_draft = get_render_config();
     reset_runtime_draft();
     if (dlss_asked) {
-        s_settings_draft.upscaler = 3u;  // the row shows what the question is about
+        s_settings_draft.upscaler = vendor_upscaler();  // the row shows what the question is about
     }
     if (display_changed) {
         if (!settings_display_confirming()) {
@@ -1013,7 +1030,7 @@ void step_native_setting_round(int direction) {
     // A binding (on: wait for an input) and the reset (on: the defaults) are no lists: stepped as the keys step them.
     if (tab == kControlsTab &&
         (controls_row(row).kind == ControlsRow::Binding || controls_row(row).kind == ControlsRow::Reset ||
-         controls_row(row).kind == ControlsRow::PairJoyCon)) {
+         controls_row(row).kind == ControlsRow::PairJoyCon || controls_row(row).kind == ControlsRow::ArrangeTouch)) {
         adjust_native_setting(direction);
         return;
     }
@@ -1073,8 +1090,14 @@ void adjust_native_setting_unlogged(int delta) {
         };
         switch (info.kind) {
         case ControlsRow::InputMode: {
+#if defined(__ANDROID__)
+            static constexpr RuntimeInputMode kModes[] = {RuntimeInputMode::Auto, RuntimeInputMode::Phone,
+                                                          RuntimeInputMode::Controller, RuntimeInputMode::KeyboardMouse,
+                                                          RuntimeInputMode::RealWiimote};
+#else
             static constexpr RuntimeInputMode kModes[] = {RuntimeInputMode::Auto, RuntimeInputMode::KeyboardMouse,
                                                           RuntimeInputMode::Controller, RuntimeInputMode::RealWiimote};
+#endif
             unsigned index = 0u;
             for (unsigned i = 0; i < std::size(kModes); ++i) {
                 if (kModes[i] == s_input_mode_draft) index = i;
@@ -1154,6 +1177,9 @@ void adjust_native_setting_unlogged(int delta) {
         case ControlsRow::PairJoyCon:
             if (delta > 0) open_joycon_pairing();
             return;
+        case ControlsRow::ArrangeTouch:
+            if (delta > 0) galaxy::host::arrange_touch_controls();
+            return;
         case ControlsRow::Reset:
             if (delta > 0) {
                 s_controls_draft.table(s_controls_scheme) =
@@ -1170,6 +1196,11 @@ void adjust_native_setting_unlogged(int delta) {
                                 &settings.audio.sfx, &settings.audio.voice,
                                 &settings.audio.ambience, &settings.audio.cutscene,
                                 &settings.audio.wiimote_speaker};
+        if (row == std::size(gains)) {
+            const int next = (static_cast<int>(settings.audio.sound_output) + (delta < 0 ? 2 : 1)) % 3;
+            settings.audio.sound_output = static_cast<SoundOutput>(next);
+            return;
+        }
         if (row >= std::size(gains)) return;
         *gains[row] = step_gain(*gains[row], delta);
     }
@@ -1307,7 +1338,7 @@ bool handle_controls_key(std::uintptr_t key, bool was_down, bool from_pad) {
             start_controls_capture(info.target);
             return true;
         }
-        if (info.kind == ControlsRow::Reset || info.kind == ControlsRow::PairJoyCon) {
+        if (info.kind == ControlsRow::Reset || info.kind == ControlsRow::PairJoyCon || info.kind == ControlsRow::ArrangeTouch) {
             adjust_native_setting(1);
             return true;
         }
@@ -1333,7 +1364,7 @@ std::size_t selected_settings_buttons() {
     const unsigned row = s_native_settings_row.load(std::memory_order_relaxed);
     if (tab == kControlsTab) {
         const ControlsRow kind = controls_row(row).kind;
-        return kind == ControlsRow::Reset || kind == ControlsRow::PairJoyCon ? 1u : 0u;
+        return kind == ControlsRow::Reset || kind == ControlsRow::PairJoyCon || kind == ControlsRow::ArrangeTouch ? 1u : 0u;
     }
     if (!settings_page_tab(tab)) {
         return 0u;
@@ -1575,8 +1606,8 @@ bool handle_native_settings_key(std::uintptr_t key, bool was_down, bool from_pad
             // A new display waits to be kept, DLSS to be downloaded and new mods to be restarted for, on the page;
             // anything else closes.
             const NativeSettingsStatus dlss = dlss_status(galaxy::steady_ms());
-            if (!settings_display_confirming() && dlss != NativeSettingsStatus::DlssAsk &&
-                dlss != NativeSettingsStatus::DlssRestart && !restart_asking()) {
+            if (!settings_display_confirming() && dlss != NativeSettingsStatus::DlssAsk && dlss != NativeSettingsStatus::XessAsk &&
+                dlss != NativeSettingsStatus::DlssRestart && dlss != NativeSettingsStatus::XessRestart && !restart_asking()) {
                 set_native_settings_visible(false);
             }
         } else if (key == VK_BACK) {
@@ -1917,6 +1948,8 @@ public:
         state.render_percent = static_cast<unsigned>(std::lround(settings_render_fraction(render) * 100.0f));
         state.dlss_supported = host_window::upscaler_caps().dlss;
         state.dlss_installed = dlss_installed_now();
+        state.xess_supported = host_window::upscaler_caps().xess;
+        state.xess_installed = xess_installed_now();
         state.ray_tracing_offered = host_window::ray_tracing_offered.load(std::memory_order_relaxed);
         state.temporal_upscaling = temporal_upscaler(render) != 0u;
         state.spatial_upscaling = spatial_quality_mode(render);
@@ -2109,11 +2142,40 @@ unsigned mods_draft_changes() {
     return mods_draft_changes_locked();
 }
 
+// With s_mods_mutex held: the first mod on with code the player hasn't answered for.
+galaxy::mods::ModInfo* first_code_to_allow_locked() {
+    for (galaxy::mods::ModInfo& mod : s_mods) {
+        if (mod.enabled && mod.problem.empty() && !mod.code_token.empty() && !mod.code_allowed) return &mod;
+    }
+    return nullptr;
+}
+
+// The player's answer about the mod's code: yes keeps it on, allowed; no turns it off. Then the next one, or the restart.
+void answer_mod_code(bool allow) {
+    const std::lock_guard<std::mutex> lock(s_mods_mutex);
+    if (galaxy::mods::ModInfo* mod = first_code_to_allow_locked()) {
+        mod->code_allowed = allow;
+        mod->enabled = allow;
+        save_mods();
+    }
+    if (first_code_to_allow_locked() != nullptr) return;
+    s_mods_code_ask.store(false, std::memory_order_release);
+    if (galaxy::mods::mods_differ_from_session(s_mods)) {
+        s_mods_restart_ask.store(true, std::memory_order_release);
+    }
+    s_mods_scanned = false;
+}
+
 // With s_mods_mutex held: the draft to mods.ini; `ask`: the menu asks to restart when this session started otherwise.
 // The overlaps follow the saved order at the next read.
 void commit_mods_locked(bool ask) {
     if (mods_draft_changes_locked() == 0u) return;
     save_mods();
+    if (ask && first_code_to_allow_locked() != nullptr) {
+        s_mods_code_ask.store(true, std::memory_order_release);
+        s_mods_scanned = false;
+        return;
+    }
     s_mod_held.clear();
     if (ask && galaxy::mods::mods_differ_from_session(s_mods)) {
         s_mods_restart_ask.store(true, std::memory_order_release);
@@ -2339,9 +2401,13 @@ std::vector<SettingsRow> mod_options_page(std::size_t i) {
                                const std::lock_guard<std::mutex> change_lock(s_mods_mutex);
                                if (i >= s_mods.size() || o >= s_mods[i].options.size()) return;
                                galaxy::mods::ModOption& changed = s_mods[i].options[o];
-                               changed.selected = settings_step(
-                                   std::min<unsigned>(changed.selected, static_cast<unsigned>(changed.choices.size())),
-                                   static_cast<unsigned>(changed.choices.size() + 1u), delta);
+                               if (changed.must_choose) {
+                                   changed.selected = settings_step(std::max(changed.selected, 1u) - 1u, static_cast<unsigned>(changed.choices.size()), delta) + 1u;
+                               } else {
+                                   changed.selected = settings_step(
+                                       std::min<unsigned>(changed.selected, static_cast<unsigned>(changed.choices.size())),
+                                       static_cast<unsigned>(changed.choices.size() + 1u), delta);
+                               }
                            },
                            other_region ? std::string("MADE FOR ANOTHER REGION'S DISC: IT MAY NOT WORK WITH THIS ONE")
                                         : mods_ui_text(option.section, 30u)};
@@ -2661,11 +2727,22 @@ public:
             state.mii_count = static_cast<int>(galaxy::host::mii_library_count());
             s_mii_count.store(state.mii_count, std::memory_order_release);
         }
+        state.touch_controls = galaxy::host::touch_controls_present();
+        if (state.touch_controls) {
+            const galaxy::host::TouchControlsSettings touch = galaxy::host::touch_controls_settings();
+            state.touch_size = touch.size;
+            state.touch_opacity = touch.opacity;
+            state.touch_vibration = touch.vibration;
+        }
         return state;
     }
     void act(ui::GeneralPageAction action) const override {
         if (action == ui::GeneralPageAction::ImportMiis) start_mii_import_dialog();
-        else open_mii_folder();
+        else if (action == ui::GeneralPageAction::OpenMiiFolder) open_mii_folder();
+        else galaxy::host::reset_touch_controls_places();
+    }
+    void set_touch_controls(unsigned size, unsigned opacity, bool vibration) const override {
+        galaxy::host::set_touch_controls_settings({size, opacity, vibration});
     }
 };
 
@@ -2899,13 +2976,21 @@ std::string native_settings_row_text(
             case RuntimeInputMode::Controller: return "INPUT: CONTROLLER ONLY";
             case RuntimeInputMode::RealWiimote: return "INPUT: WII REMOTE";
             case RuntimeInputMode::KeyboardMouse: return "INPUT: KEYBOARD+MOUSE ONLY";
-            default: return "INPUT: AUTO";
+            case RuntimeInputMode::Phone: return "INPUT: PHONE";
+            default: {
+                // Auto names what it is using now.
+                for (std::size_t i = 0; i < s_controls_devices.count; ++i) {
+                    if (s_controls_devices.entries[i].active) {
+                        return "INPUT: AUTO (" + upper_ascii(s_controls_devices.entries[i].label.data()) + ")";
+                    }
+                }
+                return "INPUT: AUTO";
+            }
             }
         case ControlsRow::Device: {
-#if defined(__ANDROID__)
-            if (s_controls_devices.count == 0u) return "EDIT: TOUCH SCREEN";
-#endif
-            if (s_controls_devices.count == 0u) return "EDIT: NONE";
+            if (s_controls_devices.count == 0u) {
+                return s_input_mode_draft == RuntimeInputMode::KeyboardMouse ? "NO KEYBOARD OR MOUSE CONNECTED" : "NO CONTROLLER CONNECTED";
+            }
             const galaxy::input::DeviceEntry& entry = s_controls_devices.entries[
                 galaxy::input::resolve_device(s_controls_devices, s_controls_device)];
             // Bluetooth is abbreviated: the row has no room for the longest names.
@@ -2971,6 +3056,8 @@ std::string native_settings_row_text(
             return text;
         case ControlsRow::PairJoyCon:
             return "PAIR JOY-CON";
+        case ControlsRow::ArrangeTouch:
+            return "ON-SCREEN CONTROLS";
         case ControlsRow::Reset:
             return std::string("RESET ") + galaxy::input::control_scheme_label(s_controls_scheme) + " TO DEFAULTS";
         }
@@ -2985,6 +3072,12 @@ std::string native_settings_row_text(
         case 4: return std::string("AMBIENCE: ") + percent_text(runtime.audio.ambience);
         case 5: return std::string("CUTSCENE: ") + percent_text(runtime.audio.cutscene);
         case 6: return std::string("WIIMOTE SOUNDS: ") + percent_text(runtime.audio.wiimote_speaker);
+        case 7:
+            switch (runtime.audio.sound_output) {
+            case SoundOutput::Mono: return "SOUND OUTPUT: MONO";
+            case SoundOutput::Surround: return "SOUND OUTPUT: SURROUND";
+            default: return "SOUND OUTPUT: STEREO";
+            }
         default: return {};
         }
     default:
@@ -2992,11 +3085,16 @@ std::string native_settings_row_text(
     }
 }
 
-enum class DlssOffer : std::uint8_t { None, Ask, Downloading, Ready, Failed };
-DlssOffer s_dlss_offer = DlssOffer::None;
-std::atomic<bool> s_dlss_downloading{false};
+enum class VendorOffer : std::uint8_t { None, Ask, License, Downloading, Ready, Failed };
+VendorOffer s_vendor_offer = VendorOffer::None;
+unsigned s_vendor_upscaler = 3u;  // what it is about: 3 DLSS, 4 XeSS
+std::atomic<bool> s_vendor_downloading{false};
+std::atomic<unsigned> s_vendor_percent{0u};
 bool s_dlss_installed_now = false;
-std::uint64_t s_dlss_failed_until_ms = 0u;
+bool s_xess_installed_now = false;
+std::uint64_t s_vendor_failed_until_ms = 0u;
+std::vector<std::string> s_license_pages;
+unsigned s_license_page = 0u;
 
 bool dlss_offered() {
     if (!kStreamlineBuilt || host_window::upscaler_caps().dlss) {
@@ -3005,13 +3103,36 @@ bool dlss_offered() {
     if (s_dlss_installed_now) {
         return true;
     }
-    static const bool offered = host_window::rtx_adapter.load(std::memory_order_relaxed) &&
-                                !host_window::dlss_files_present() && host_window::launcher_available();
+    static const bool offered = host_window::rtx_adapter.load(std::memory_order_relaxed) && !host_window::dlss_files_present();
     return offered;
 }
 
 bool dlss_installed_now() {
     return s_dlss_installed_now && !host_window::upscaler_caps().dlss;
+}
+
+// Where the machine has a download for it (host_window::vendor_megabytes); it runs on any GPU that takes its shaders.
+bool xess_offered() {
+    if (host_window::upscaler_caps().xess || host_window::vendor_megabytes(4u) == 0u) {
+        return false;
+    }
+    if (s_xess_installed_now) {
+        return true;
+    }
+    static const bool offered = !host_window::xess_files_present();
+    return offered;
+}
+
+bool xess_installed_now() {
+    return s_xess_installed_now && !host_window::upscaler_caps().xess;
+}
+
+unsigned vendor_upscaler() { return s_vendor_upscaler; }
+
+// A question of its own is up: the page and its rows wait.
+bool vendor_prompting() {
+    return s_vendor_offer == VendorOffer::Ask || s_vendor_offer == VendorOffer::License || s_vendor_offer == VendorOffer::Downloading ||
+           s_vendor_offer == VendorOffer::Ready;
 }
 
 // DLSS Frame Generation (GRAPHICS > INTERPOLATION): offered while it runs, or with DLSS once its plugins are
@@ -3024,63 +3145,128 @@ bool frame_generation_offered() {
     return installed && host_window::upscaler_caps().dlss;
 }
 
-// DLSS chosen before it is installed is not applied: the menu asks to download it. Once downloaded this session it
+// DLSS or XeSS chosen before it is installed is not applied: the menu asks to download it. Once downloaded this session it
 // applies and runs after a restart (FSR 1 until then).
 bool dlss_hold_back(RenderConfig& applied, const RenderConfig& live) {
-    if (applied.upscaler != 3u || live.upscaler == 3u || !dlss_offered() || s_dlss_installed_now) {
+    const unsigned wanted = applied.upscaler;
+    if ((wanted != 3u && wanted != 4u) || live.upscaler == wanted) {
+        return false;
+    }
+    if (wanted == 3u ? !dlss_offered() || s_dlss_installed_now : !xess_offered() || s_xess_installed_now) {
         return false;
     }
     applied.upscaler = live.upscaler;
-    if (s_dlss_offer != DlssOffer::Downloading) {
-        s_dlss_offer = DlssOffer::Ask;
+    if (s_vendor_offer != VendorOffer::Downloading) {
+        s_vendor_offer = VendorOffer::Ask;
+        s_vendor_upscaler = wanted;
     }
     return true;
 }
 
 void dlss_dismiss_prompt() {
-    if (s_dlss_offer == DlssOffer::Ask || s_dlss_offer == DlssOffer::Ready) {
-        s_dlss_offer = DlssOffer::None;
+    if (s_vendor_offer == VendorOffer::Ask || s_vendor_offer == VendorOffer::License || s_vendor_offer == VendorOffer::Ready) {
+        s_vendor_offer = VendorOffer::None;
     }
 }
 
-void dlss_fail(const char* why) {
-    if (s_settings_draft.upscaler == 3u && !s_dlss_installed_now) {
+void vendor_revert_draft() {
+    if (s_settings_draft.upscaler == s_vendor_upscaler &&
+        !(s_vendor_upscaler == 3u ? s_dlss_installed_now : s_xess_installed_now)) {
         s_settings_draft.upscaler = get_render_config().upscaler;
     }
-    s_dlss_offer = DlssOffer::Failed;
-    s_dlss_failed_until_ms = galaxy::steady_ms() + 4000u;
-    std::cerr << "[dlss] not installed: " << why << '\n';
 }
 
-// Enter/Y and Esc/B answer the DLSS questions; other keys wait for an answer.
+void vendor_fail(const char* why) {
+    vendor_revert_draft();
+    s_vendor_offer = VendorOffer::Failed;
+    s_vendor_failed_until_ms = galaxy::steady_ms() + 4000u;
+    std::cerr << "[download] not installed: " << why << '\n';
+}
+
+// The license in pages the menu's window holds, broken between words.
+std::vector<std::string> license_pages(const std::string& text) {
+    constexpr std::size_t kPageBytes = 1100u;
+    std::string clean;
+    clean.reserve(text.size());
+    for (const char c : text) {
+        if (c != '\r') {
+            clean.push_back(c == '\t' || c == '\f' ? ' ' : c);
+        }
+    }
+    std::vector<std::string> pages;
+    std::size_t at = 0u;
+    while (at < clean.size()) {
+        std::size_t end = std::min(at + kPageBytes, clean.size());
+        if (end < clean.size()) {
+            const std::size_t paragraph = clean.rfind("\n\n", end);
+            const std::size_t space = clean.rfind(' ', end);
+            if (paragraph != std::string::npos && paragraph > at + kPageBytes / 2u) {
+                end = paragraph + 2u;
+            } else if (space != std::string::npos && space > at) {
+                end = space + 1u;
+            }
+        }
+        pages.push_back(clean.substr(at, end - at));
+        at = end;
+    }
+    return pages;
+}
+
+// The vendor questions' keys: Enter/Y, Backspace/X and Esc/B; other keys wait for an answer.
 bool dlss_prompt_key(std::uintptr_t key, bool was_down) {
-    if (s_dlss_offer != DlssOffer::Ask && s_dlss_offer != DlssOffer::Ready) {
+    if (!vendor_prompting()) {
         return false;
     }
-    if (was_down || (key != VK_RETURN && key != VK_ESCAPE)) {
+    if (was_down) {
         return true;
     }
-    if (key == VK_ESCAPE) {
-        if (s_dlss_offer == DlssOffer::Ask) {
-            s_settings_draft.upscaler = get_render_config().upscaler;
+    switch (s_vendor_offer) {
+    case VendorOffer::Ask:
+        if (key == VK_ESCAPE) {
+            vendor_revert_draft();
+            s_vendor_offer = VendorOffer::None;
+        } else if (key == VK_BACK) {
+            host_window::fetch_vendor_license(s_vendor_upscaler);
+            s_license_pages.clear();
+            s_license_page = 0u;
+            s_vendor_offer = VendorOffer::License;
+        } else if (key == VK_RETURN) {
+            if (host_window::start_vendor_install(s_vendor_upscaler)) {
+                s_vendor_percent.store(0u, std::memory_order_relaxed);
+                s_vendor_downloading.store(true, std::memory_order_release);
+                s_vendor_offer = VendorOffer::Downloading;
+                std::cerr << "[download] started\n";
+            } else {
+                vendor_fail("could not start");
+            }
         }
-        s_dlss_offer = DlssOffer::None;
-        return true;
-    }
-    if (s_dlss_offer == DlssOffer::Ask) {
-        if (host_window::start_dlss_install()) {
-            s_dlss_downloading.store(true, std::memory_order_release);
-            s_dlss_offer = DlssOffer::Downloading;
-            std::cerr << "[dlss] download started\n";
-        } else {
-            dlss_fail("no launcher");
+        break;
+    case VendorOffer::License:
+        if (key == VK_ESCAPE) {
+            s_vendor_offer = VendorOffer::Ask;
+        } else if (key == VK_BACK && s_license_page > 0u) {
+            --s_license_page;
+        } else if (key == VK_RETURN && s_license_page + 1u < s_license_pages.size()) {
+            ++s_license_page;
         }
-        return true;
-    }
-    // Ready: the game starts again.
-    s_dlss_offer = DlssOffer::None;
-    if (host_window::restart_game(false)) {
-        std::cerr << "[dlss] restarting\n";
+        break;
+    case VendorOffer::Downloading:
+        if (key == VK_ESCAPE) {
+            host_window::cancel_vendor_install();
+        }
+        break;
+    case VendorOffer::Ready:
+        if (key == VK_ESCAPE) {
+            s_vendor_offer = VendorOffer::None;
+        } else if (key == VK_RETURN) {
+            s_vendor_offer = VendorOffer::None;
+            if (host_window::restart_game(false)) {
+                std::cerr << "[download] restarting\n";
+            }
+        }
+        break;
+    default:
+        break;
     }
     return true;
 }
@@ -3091,6 +3277,14 @@ bool dlss_prompt_key(std::uintptr_t key, bool was_down) {
 bool restart_ask_key(std::uintptr_t key, bool was_down) {
     if (!restart_asking()) return false;
     if (was_down) return true;
+    if (s_mods_code_ask.load(std::memory_order_acquire)) {
+        if (key == VK_RETURN || key == VK_SPACE) {
+            answer_mod_code(true);
+        } else if (key == VK_ESCAPE || key == VK_BACK || key == VK_F1) {
+            answer_mod_code(false);
+        }
+        return true;
+    }
     if (key == VK_RETURN || key == VK_SPACE) {
         s_mods_restart_ask.store(false, std::memory_order_release);
         s_rt_restart_ask.store(false, std::memory_order_release);
@@ -3108,69 +3302,116 @@ bool restart_ask_key(std::uintptr_t key, bool was_down) {
     return true;
 }
 
-// Render thread, every frame: notices when the download window closes.
+// Render thread, every frame: follows the download, and takes the license when it arrives.
 void poll_dlss_download() {
-    if (!s_dlss_downloading.load(std::memory_order_acquire)) {
+    if (s_vendor_offer == VendorOffer::License && s_license_pages.empty()) {
+        const std::lock_guard<std::recursive_mutex> lock(s_native_settings_mutex);
+        std::string text;
+        if (host_window::vendor_license(text) == host_window::VendorLicense::Ready) {
+            s_license_pages = license_pages(text);
+        }
+    }
+    if (!s_vendor_downloading.load(std::memory_order_acquire)) {
         return;
     }
     const std::lock_guard<std::recursive_mutex> lock(s_native_settings_mutex);
-    const host_window::DlssInstall install = host_window::poll_dlss_install();
-    if (install == host_window::DlssInstall::Running) {
+    unsigned percent = 0u;
+    const host_window::VendorInstall install = host_window::poll_vendor_install(percent);
+    s_vendor_percent.store(percent, std::memory_order_relaxed);
+    if (install == host_window::VendorInstall::Running) {
         return;
     }
-    s_dlss_downloading.store(false, std::memory_order_release);
-    if (install != host_window::DlssInstall::Succeeded) {
-        dlss_fail(install == host_window::DlssInstall::Closed ? "closed" : "download failed");
+    s_vendor_downloading.store(false, std::memory_order_release);
+    if (install == host_window::VendorInstall::Canceled) {
+        vendor_revert_draft();
+        s_vendor_offer = VendorOffer::None;
+        std::cerr << "[download] stopped\n";
         return;
     }
-    s_dlss_installed_now = true;
+    if (install != host_window::VendorInstall::Done) {
+        vendor_fail("download failed");
+        return;
+    }
+    (s_vendor_upscaler == 3u ? s_dlss_installed_now : s_xess_installed_now) = true;
     RenderConfig render = get_render_config();
-    render.upscaler = 3u;
+    render.upscaler = s_vendor_upscaler;
     set_render_config(render);
-    s_settings_draft.upscaler = 3u;
+    s_settings_draft.upscaler = s_vendor_upscaler;
     s_settings_save.dirty.store(true, std::memory_order_release);
     flush_native_settings_if_dirty();
-    s_dlss_offer = DlssOffer::Ready;
-    std::cerr << "[dlss] installed; it starts with the next launch\n";
+    s_vendor_offer = VendorOffer::Ready;
+    std::cerr << "[download] installed; it starts with the next launch\n";
 }
 
+// The overlay's line for these questions.
 std::string dlss_footer(std::uint64_t now_ms, bool& error) {
-    switch (s_dlss_offer) {
-    case DlssOffer::Ask:
-        return "DOWNLOAD NVIDIA DLSS (" + std::to_string(kDlssDownloadMegabytes) + " MB)? ENTER/Y YES  ESC/B NO";
-    case DlssOffer::Downloading:
-        return "INSTALLING NVIDIA DLSS...";
-    case DlssOffer::Ready:
-        return "DLSS READY. RESTART NOW? ENTER/Y YES  ESC/B LATER";
-    case DlssOffer::Failed:
-        if (now_ms < s_dlss_failed_until_ms) {
+    const std::string name = s_vendor_upscaler == 3u ? "NVIDIA DLSS" : "INTEL XESS";
+    switch (s_vendor_offer) {
+    case VendorOffer::Ask:
+        return "DOWNLOAD " + name + " (" + std::to_string(host_window::vendor_megabytes(s_vendor_upscaler)) + " MB)? ENTER/Y YES  ESC/B NO";
+    case VendorOffer::License:
+        return name + " LICENSE";
+    case VendorOffer::Downloading:
+        return "DOWNLOADING " + name + " " + std::to_string(s_vendor_percent.load(std::memory_order_relaxed)) + "%";
+    case VendorOffer::Ready:
+        return name + " READY. RESTART NOW? ENTER/Y YES  ESC/B LATER";
+    case VendorOffer::Failed:
+        if (now_ms < s_vendor_failed_until_ms) {
             error = true;
-            return "DLSS WAS NOT INSTALLED";
+            return name + " WAS NOT INSTALLED";
         }
-        s_dlss_offer = DlssOffer::None;
+        s_vendor_offer = VendorOffer::None;
         return {};
     default:
         return {};
     }
 }
 
-// The DLSS offer as the menu's status: its two questions, the install, a failure for a moment; Help when there is
-// none.
+// The offer as the menu's status: its questions, the download, a failure for a moment; Help when there is none.
 NativeSettingsStatus dlss_status(std::uint64_t now_ms) {
     bool error = false;
     if (dlss_footer(now_ms, error).empty()) {
         return NativeSettingsStatus::Help;
     }
-    switch (s_dlss_offer) {
-    case DlssOffer::Ask: return NativeSettingsStatus::DlssAsk;
-    case DlssOffer::Downloading: return NativeSettingsStatus::DlssInstalling;
-    case DlssOffer::Ready: return NativeSettingsStatus::DlssRestart;
-    default: return NativeSettingsStatus::DlssFailed;
+    const bool dlss = s_vendor_upscaler == 3u;
+    switch (s_vendor_offer) {
+    case VendorOffer::Ask: return dlss ? NativeSettingsStatus::DlssAsk : NativeSettingsStatus::XessAsk;
+    case VendorOffer::License: return NativeSettingsStatus::License;
+    case VendorOffer::Downloading: return dlss ? NativeSettingsStatus::DlssInstalling : NativeSettingsStatus::XessInstalling;
+    case VendorOffer::Ready: return dlss ? NativeSettingsStatus::DlssRestart : NativeSettingsStatus::XessRestart;
+    default: return dlss ? NativeSettingsStatus::DlssFailed : NativeSettingsStatus::XessFailed;
+    }
+}
+
+// What the question says with it.
+void fill_vendor_view(NativeSettingsView& view) {
+    switch (s_vendor_offer) {
+    case VendorOffer::Ask:
+        view.status_number = static_cast<int>(host_window::vendor_megabytes(s_vendor_upscaler));
+        break;
+    case VendorOffer::Downloading:
+        view.status_number = static_cast<int>(s_vendor_percent.load(std::memory_order_relaxed));
+        break;
+    case VendorOffer::License:
+        if (s_license_page < s_license_pages.size()) {
+            view.status_number = static_cast<int>(s_license_page) + 1;
+            view.long_text = s_license_pages[s_license_page];
+        } else {
+            std::string unused;
+            view.status_number = host_window::vendor_license(unused) == host_window::VendorLicense::Failed ? -2 : -1;
+        }
+        break;
+    default:
+        break;
     }
 }
 
 
 }  // namespace
+
+bool native_settings_mods_changed() {
+    return mods_restart_pending();
+}
 
 namespace host_window {
 
@@ -3482,7 +3723,12 @@ void draw_native_settings_overlay(UiCanvas& renderer) {
     case NativeSettingsStatus::DlssAsk:
     case NativeSettingsStatus::DlssInstalling:
     case NativeSettingsStatus::DlssRestart:
-    case NativeSettingsStatus::DlssFailed: {
+    case NativeSettingsStatus::DlssFailed:
+    case NativeSettingsStatus::XessAsk:
+    case NativeSettingsStatus::XessInstalling:
+    case NativeSettingsStatus::XessRestart:
+    case NativeSettingsStatus::XessFailed:
+    case NativeSettingsStatus::License: {
         bool dlss_error = false;
         status = dlss_footer(galaxy::steady_ms(), dlss_error);
         status_color = dlss_error ? error : accent;
@@ -3519,6 +3765,9 @@ void draw_native_settings_overlay(UiCanvas& renderer) {
         break;
     case NativeSettingsStatus::GpuRestart:
         status = "THE NEW GRAPHICS CARD APPLIES WHEN NEBULA RESTARTS";
+        break;
+    case NativeSettingsStatus::ModsCodeAsk:
+        status = pad_hints("THIS MOD RUNS ITS OWN CODE AND CAN DO ANYTHING ON THIS DEVICE. ALLOW IT?  ENTER/Y YES  ESC/B NO");
         break;
     case NativeSettingsStatus::ModsRestartAsk:
     case NativeSettingsStatus::RtRestartAsk:
@@ -3664,6 +3913,9 @@ NativeSettingsView build_native_settings_view() {
             } else if (info.kind == ControlsRow::PairJoyCon) {
                 shown.buttons = true;
                 shown.value = "PAIR";
+            } else if (info.kind == ControlsRow::ArrangeTouch) {
+                shown.buttons = true;
+                shown.value = "ARRANGE";
             }
         }
         view.rows.push_back(std::move(shown));
@@ -3696,6 +3948,8 @@ NativeSettingsView build_native_settings_view() {
     } else if (s_settings_leave_asking) {
         view.status = NativeSettingsStatus::Leave;
         view.status_number = static_cast<int>(pending_settings_changes());
+    } else if (s_mods_code_ask.load(std::memory_order_acquire)) {
+        view.status = NativeSettingsStatus::ModsCodeAsk;
     } else if (s_mods_restart_ask.load(std::memory_order_acquire)) {
         view.status = NativeSettingsStatus::ModsRestartAsk;
     } else if (s_rt_restart_ask.load(std::memory_order_acquire)) {
@@ -3710,7 +3964,7 @@ NativeSettingsView build_native_settings_view() {
         view.status_text = s_controls_message;
     } else if (const NativeSettingsStatus dlss = dlss_status(now_ms); dlss != NativeSettingsStatus::Help) {
         view.status = dlss;
-        view.status_number = kDlssDownloadMegabytes;
+        fill_vendor_view(view);
     } else if (settings_display_confirming()) {
         const std::uint64_t left_ms = s_display_confirm_deadline_ms > now_ms ? s_display_confirm_deadline_ms - now_ms : 0u;
         view.status = NativeSettingsStatus::KeepDisplay;
@@ -4040,7 +4294,7 @@ void native_settings_input(NativeSettingsInput input, int arg) {
         break;
     }
     // The page and its rows wait while a question is up (keep the display? leave without applying?).
-    if (!visible || s_settings_leave_asking || s_joycon_pairing || settings_display_confirming() || restart_asking()) {
+    if (!visible || s_settings_leave_asking || s_joycon_pairing || settings_display_confirming() || restart_asking() || vendor_prompting()) {
         return;
     }
     switch (input) {

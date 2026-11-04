@@ -25,7 +25,7 @@ extern "C" {
 
 /* Upstream Nebula's number for this interface. Co-op changes leave it as it is (docs/COOP_PLAN.md "Versions"): the
    host checks the module against the header's fingerprint (nebula_game_api_fingerprint), which the build works out. */
-#define NEBULA_GAME_API_VERSION 121u
+#define NEBULA_GAME_API_VERSION 122u
 
 /* Viewports, scissors, clears, target sizes and picture points count this many units across a frame on each axis. */
 #define NEBULA_FRAME_UNITS 65536.0f
@@ -718,6 +718,10 @@ enum {
     NEBULA_OPTION_INPUT_MODE,        /* NebulaInputMode: the input mode the player chose */
     NEBULA_OPTION_BLOOM,             /* 1 when the renderer's bloom is built: BloomEffect and BloomEffectSimple give it
                                         their values (NebulaRender::bloomMarker); 0 no bloom */
+    NEBULA_OPTION_MENU_TEXT_SIZE,    /* the menus' text in percent; 0: as the screen's size calls for */
+    NEBULA_OPTION_WINDOW_WIDTH_DP,   /* the window's width in density-independent units; 0: not known */
+    NEBULA_OPTION_MODS_CHANGED,      /* the mods chosen differ from those this run started with: a reset starts the game again */
+    NEBULA_OPTION_MODS_PREPARING,    /* the preparation screen is for mods' files (their title), not ray tracing */
     NEBULA_OPTION_RT_PREPARATION,    /* ray tracing's shader preparation, which the title waits for (NebulaRtPrepare):
                                         0 none, 1 the renderer opens its pipeline library, 2 it compiles the pipelines
                                         (the preparation screen shows) */
@@ -725,6 +729,8 @@ enum {
                                           going back */
     NEBULA_OPTION_TEST_ARENA_FILL,     /* tests (GALAXY_TEST_ARENA_FILL=<hex byte>): 0x100 | the byte every arena block starts as; 0 without it */
     NEBULA_OPTION_TEST_TRACE_LOADS,    /* tests (GALAXY_TRACE_LOADS): 1 logs what each scene change loads */
+    NEBULA_OPTION_TOUCH_POINTER,       /* 0 no touch screen, 1 one, 2 the finger has the pointer, 3 and the game is on a
+                                          menu: no pointer shows under a finger there */
     NEBULA_OPTION_STAR_COUNTER,        /* 1 while the room plays the built-in Personal Star Counter mod (the host's
                                           choice, off by default): NebulaStarCounter's two counters show on the HUD */
 };
@@ -757,12 +763,12 @@ enum {
     NEBULA_MOVIE_AUDIO_CLOSE,
     NEBULA_MOVIE_AUDIO_RESET,    /* the waiting frames dropped, the volume at its target */
     NEBULA_MOVIE_AUDIO_VOLUME,   /* value 0-127 (the gain is its square), reached over `milliseconds` */
-    NEBULA_MOVIE_AUDIO_RESUME,   /* after a pause: once two frames wait, 150 ms of silence, then a 31 ms fade in */
+    NEBULA_MOVIE_AUDIO_RESUME,   /* after a pause: once two frames wait, a 5 ms fade in */
 };
 
 /* The sound clock (sound_clock). */
 enum {
-    NEBULA_AUDIO_START = 1, /* value: a frame's length in 32 kHz samples; the host calls nebula_game_sound_frame once
+    NEBULA_AUDIO_START = 1, /* value: a block's length in 32 kHz samples; the host calls nebula_game_sound_frame once
                                a frame's length */
     NEBULA_AUDIO_STOP,
 };
@@ -938,8 +944,9 @@ enum {
     NEBULA_SETTINGS_STATUS_CAPTURE_KEY,      /* a binding waits for a key or mouse button */
     NEBULA_SETTINGS_STATUS_CAPTURE_PAD,      /* a binding waits for a button, stick or trigger */
     NEBULA_SETTINGS_STATUS_MESSAGE,          /* a message for a moment (`status_text`) */
-    NEBULA_SETTINGS_STATUS_DLSS_ASK,         /* download DLSS? yes: NEBULA_SETTINGS_APPLY, no: NEBULA_SETTINGS_CLOSE */
-    NEBULA_SETTINGS_STATUS_DLSS_INSTALLING,  /* DLSS downloads and installs */
+    NEBULA_SETTINGS_STATUS_DLSS_ASK,         /* download DLSS? yes: NEBULA_SETTINGS_APPLY, its license: NEBULA_SETTINGS_REVERT,
+                                                no: NEBULA_SETTINGS_CLOSE */
+    NEBULA_SETTINGS_STATUS_DLSS_INSTALLING,  /* DLSS downloads (`status_number` percent); NEBULA_SETTINGS_CLOSE stops it */
     NEBULA_SETTINGS_STATUS_DLSS_RESTART,     /* DLSS installed: restart now? yes: APPLY, later: CLOSE */
     NEBULA_SETTINGS_STATUS_DLSS_FAILED,      /* DLSS was not installed */
     NEBULA_SETTINGS_STATUS_KEEP_DISPLAY,     /* keep the new display? (`status_number` seconds before it reverts) */
@@ -956,6 +963,13 @@ enum {
                                                 next start): restart now? yes: APPLY, later: CLOSE */
     NEBULA_SETTINGS_STATUS_DIAGNOSTICS_ASK,  /* restart and record a diagnostics run (the launcher's recording)? yes:
                                                 APPLY, no: CLOSE */
+    NEBULA_SETTINGS_STATUS_MODS_CODE_ASK,    /* a mod turned on brings code: allow it? yes: APPLY, no: CLOSE */
+    NEBULA_SETTINGS_STATUS_XESS_ASK,         /* download XeSS? yes: APPLY, its license: REVERT, no: CLOSE */
+    NEBULA_SETTINGS_STATUS_XESS_INSTALLING,  /* XeSS downloads (`status_number` percent); CLOSE stops it */
+    NEBULA_SETTINGS_STATUS_XESS_RESTART,     /* XeSS installed: restart now? yes: APPLY, later: CLOSE */
+    NEBULA_SETTINGS_STATUS_XESS_FAILED,      /* XeSS was not installed */
+    NEBULA_SETTINGS_STATUS_LICENSE,          /* the maker's license: `long_text` one page, `status_number` its number from 1
+                                                (-1 loading, -2 not reachable); next: APPLY, before: REVERT, back: CLOSE */
 };
 /* The Pair Joy-Con screen's halves (NEBULA_SETTINGS_STATUS_JOYCON). */
 enum {
@@ -1009,6 +1023,7 @@ typedef struct NebulaSettingsView {
     uint32_t kind; /* NEBULA_SETTINGS_KIND_* */
     uint32_t back; /* the main menu: a page under the main one, which B leaves; its rows reset to their defaults */
     uint32_t editing; /* the selected text row is edited (A keeps it, B drops it, Minus or X deletes) */
+    char long_text[1536]; /* a license's page */
 } NebulaSettingsView;
 
 /* The player's input to the settings menu (settings_input); the keyboard and controllers reach it through the host. */
@@ -1292,6 +1307,10 @@ typedef struct NebulaHostServices {
     /* The game closes, or starts again from its boot, with pending saves written. Do not return. */
     void (*app_exit)(void* user);
     void (*app_restart)(void* user);
+    /* The game's memory is ready, and nothing of it has run: the mods' code starts. */
+    void (*mods_start)(void* user);
+    /* What the mods add to a folder the game has: asset_child doesn't list these. */
+    int (*asset_added_child)(void* user, const char* path, uint32_t child, NebulaAssetEntry* out);
 
     /* Tests: once per game scene frame (before its 3D), what a hidden run asks of the game (GALAXY_TEST_*): returns 1
        with `action` filled, or 0. */
@@ -1513,6 +1532,21 @@ enum {
     NEBULA_PATCH_BEGOMAN_FIRE_PROOF,         /* Begoman Baby, Spike and Spring survive fire ground */
     NEBULA_PATCH_MESSENGER_ALWAYS_EX,        /* KinopioAstro (the 1-up messenger) gives its larger supply */
     NEBULA_PATCH_MESSENGER_EX_ONE_UPS,       /* value: that supply's 1-ups (20) */
+    NEBULA_PATCH_PLAYER_HEALTH,              /* value: the health and most health a player starts with (3) */
+    NEBULA_PATCH_PLAYER_HEALTH_FIXED,        /* the Daredevil comet doesn't change the player's health */
+    NEBULA_PATCH_HIT_TAKES_ALL,              /* a hit takes all the player's health */
+    NEBULA_PATCH_LIFE_UP_HEALTH,             /* value: the most health a Life Up gives (6); 0: it gives none */
+    NEBULA_PATCH_NO_LOW_HEALTH_WARNING,      /* no warning sound at low health */
+    NEBULA_PATCH_NO_DARK_COMET_RULES,        /* a Daredevil comet is a comet like any other */
+    NEBULA_PATCH_MAX_LIVES,                  /* value: the most lives (99) */
+    NEBULA_PATCH_MAX_STAR_BITS,              /* value: the most star bits kept in the save (9999) */
+    NEBULA_PATCH_MAX_CARRIED_STAR_BITS,      /* value: the most star bits carried in a stage (999) */
+    NEBULA_PATCH_MAX_COINS,                  /* value: the most coins in a stage (999) */
+    NEBULA_PATCH_COINS_PER_ONE_UP,           /* value: coins for a 1-up (50); 0: none */
+    NEBULA_PATCH_STAR_BITS_PER_ONE_UP,       /* value: star bits for a 1-up (50); 0: none */
+    NEBULA_PATCH_STARTING_LIVES,             /* value: the lives a file starts or loads with (4) */
+    NEBULA_PATCH_PURPLE_COINS_FOR_STAR,      /* value: purple coins that bring the star (100) */
+    NEBULA_PATCH_WATER_AIR,                  /* value: the air the player has under water (8) */
     NEBULA_PATCH_COUNT
 };
 
@@ -1523,6 +1557,9 @@ enum {
                                              page): DLSS Frame Generation may add frames (NebulaFrameGen) */
     NEBULA_CONTEXT_CAMERA_WATER,          /* each frame: the camera's depth under water in units, at least 1 (0: out
                                              of water; MR::isCameraInWater): ray tracing's water medium */
+    NEBULA_CONTEXT_TOUCH_TARGET,          /* each frame, on a touch screen, for each thing in reach the pointer grabs (a pull
+                                             star): its circle on the screen, bits 0-11 x and 12-23 y (0..4095 across), bits
+                                             24-31 the radius (255: the screen's height) */
 };
 
 #define NEBULA_MOVIE_AUDIO_QUEUE_FRAMES 20
@@ -1534,6 +1571,8 @@ NEBULA_GAME_API uint32_t nebula_game_attach(const NebulaHostServices* host);
 NEBULA_GAME_API uint32_t nebula_game_api_fingerprint(void);
 /* Runs the game on the calling thread, the simulation thread. Does not return. */
 NEBULA_GAME_API void nebula_game_run(void);
+/* The game's half of the plugin interface. */
+NEBULA_GAME_API const struct NebulaModApi* nebula_game_mod_api(void);
 /* A file read finished: `result` is the bytes read, or -1 on a read error. */
 /* The audio clock, while started (NEBULA_AUDIO_START): the game mixes its next frame (voices_mix, voices_frame). */
 NEBULA_GAME_API void nebula_game_sound_frame(void);

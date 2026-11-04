@@ -218,21 +218,12 @@ VkPipeline PipelineCacheVk::create_native(std::uint32_t shader, const RenderStat
     const VkShaderModule vs = native_module(vs_bytes.data, vs_bytes.size, vk::ShaderStage::Vertex);
     const VkShaderModule ps = native_module(ps_bytes.data, ps_bytes.size, vk::ShaderStage::Fragment);
     VkPipeline pipeline = VK_NULL_HANDLE;
-    // A curved surface's patches: the native patch stages for the output layout.
-    VkShaderModule hs = VK_NULL_HANDLE;
-    VkShaderModule ds = VK_NULL_HANDLE;
-    if ((rs.primitive_topology & kTopologyTypeMask) == kTopologyPatch) {
-        const NativeShaderBytes hull = native_curved_bytes(variant, false);
-        const NativeShaderBytes domain = native_curved_bytes(variant, true);
-        hs = native_module(hull.data, hull.size, vk::ShaderStage::Hull);
-        ds = native_module(domain.data, domain.size, vk::ShaderStage::Domain);
-    }
     if (vs != VK_NULL_HANDLE && ps != VK_NULL_HANDLE) {
         // The dual variant's second output is the 8-bit combiner alpha the colour blends against (render state bit 27),
         // as the old path's dual-source pipelines.
         const bool dual = native_variant_dual(variant);
         const auto make = [&](std::uint32_t compat, VkResult& result) {
-            return create_pipeline(rs, vs, ps, dual, false, compat, result, hs, ds);
+            return create_pipeline(rs, vs, ps, dual, false, compat, result);
         };
         pipeline = with_fallbacks(make, applicable_compat(rs, dual, false), "a native pipeline",
                                   describe_render_state(rs), nullptr);
@@ -244,7 +235,7 @@ VkPipeline PipelineCacheVk::get_native(std::uint32_t shader, const RenderStateKe
     const RenderStateKey rs = native_render_state(render_state);
     const unsigned variant = native_draw_variant(shader, native_shader_variant(rs.blend_bits), rs.samples_log2 & kSceneVariantSamplesMask,
                                                  vk::Context::get().sample_rate_shading(), pixel_lit);
-    const std::uint32_t id = shader * kNativeVariants + variant;
+    const std::uint64_t id = std::uint64_t{shader} * kNativeVariants + variant;
     const std::uint64_t hash = combine64(hash_key_words(&rs, sizeof(rs)), id);
     auto& bucket = native_pipelines_[hash];
     for (const auto& entry : bucket) {
@@ -252,7 +243,8 @@ VkPipeline PipelineCacheVk::get_native(std::uint32_t shader, const RenderStateKe
             return entry.second;
         }
     }
-    note_pipeline_for_seed(shader, render_state);
+    // A mod's shader is not in the next run's list: that run may not have the mod.
+    if (shader < kModShaderIdFirst) note_pipeline_for_seed(shader, render_state);
     const VkPipeline pipeline = create_native(shader, rs, variant);
     bucket.emplace_back(std::make_pair(id, rs), pipeline);
     // The driver's cache data on disk every 64 new pipelines (the next launch builds them from it).
@@ -321,7 +313,7 @@ void PipelineCacheVk::merge_prepared() {
     }
     for (const Prepared& p : done) {
         const unsigned variant = native_shader_variant(p.rs.blend_bits);
-        const std::uint32_t id = p.shader * kNativeVariants + variant;
+        const std::uint64_t id = std::uint64_t{p.shader} * kNativeVariants + variant;
         auto& bucket = native_pipelines_[combine64(hash_key_words(&p.rs, sizeof(p.rs)), id)];
         bool have = false;
         for (const auto& entry : bucket) {
@@ -339,7 +331,7 @@ void PipelineCacheVk::merge_prepared() {
 
 VkPipeline PipelineCacheVk::create_pipeline(const RenderStateKey& rs, VkShaderModule vs, VkShaderModule ps,
                                             bool dual_source, bool export_depth, std::uint32_t compat,
-                                            VkResult& result, VkShaderModule hs, VkShaderModule ds) const {
+                                            VkResult& result) const {
     result = VK_ERROR_INITIALIZATION_FAILED;
     if (vs == VK_NULL_HANDLE || ps == VK_NULL_HANDLE) {
         return VK_NULL_HANDLE;
@@ -355,23 +347,6 @@ VkPipeline PipelineCacheVk::create_pipeline(const RenderStateKey& rs, VkShaderMo
     };
     add_stage(VK_SHADER_STAGE_VERTEX_BIT, vs);
     VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-    // A curved surface's patches (kVsKeyCurved): its vertex output variant's hull and domain stages. In the default
-    // domain origin (upper left) the hull stage's triangle_cw, VertexOrderCw as glslang writes it, winds each patch's
-    // triangles as the patch is wound, as on D3D12, so they cull as the triangles they replace.
-    VkPipelineTessellationStateCreateInfo tessellation{VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO};
-    tessellation.patchControlPoints = 3u;
-    const bool curved = (rs.primitive_topology & kTopologyTypeMask) == kTopologyPatch;
-    if (curved) {
-        const unsigned variant = curved_variant(rs.primitive_topology);
-        const VkShaderModule hull = hs;
-        const VkShaderModule domain = ds;
-        if (hull == VK_NULL_HANDLE || domain == VK_NULL_HANDLE) {
-            return VK_NULL_HANDLE;
-        }
-        topology = VK_PRIMITIVE_TOPOLOGY_PATCH_LIST;
-        add_stage(VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT, hull);
-        add_stage(VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT, domain);
-    }
     add_stage(VK_SHADER_STAGE_FRAGMENT_BIT, ps);
 
     VkVertexInputBindingDescription binding{0, static_cast<std::uint32_t>(sizeof(RenderVertex)),
@@ -498,8 +473,23 @@ VkPipeline PipelineCacheVk::create_pipeline(const RenderStateKey& rs, VkShaderMo
         blend.logicOpEnable = VK_TRUE;
         blend.logicOp = logic_op_mode((bb >> 9u) & 0xfu);
     }
-    blend.attachmentCount = 1;
-    blend.pAttachments = &target;
+    // A temporal scene's second target: a writer's motion vectors, a blended draw's reactive mask (its largest).
+    VkPipelineColorBlendAttachmentState targets[2]{target, {}};
+    const unsigned aux = (bb & kRenderStateMotionTarget) != 0u ? 1u : (bb & kRenderStateReactiveTarget) != 0u ? 2u : 0u;
+    if (aux == 1u) {
+        targets[1].colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
+    } else if (aux == 2u) {
+        targets[1].blendEnable = VK_TRUE;
+        targets[1].srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+        targets[1].dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+        targets[1].colorBlendOp = VK_BLEND_OP_MAX;
+        targets[1].srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        targets[1].dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        targets[1].alphaBlendOp = VK_BLEND_OP_MAX;
+        targets[1].colorWriteMask = VK_COLOR_COMPONENT_R_BIT;
+    }
+    blend.attachmentCount = aux != 0u ? 2u : 1u;
+    blend.pAttachments = targets;
 
     const VkDynamicState dynamic_states[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
     VkPipelineDynamicStateCreateInfo dynamic{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
@@ -511,7 +501,6 @@ VkPipeline PipelineCacheVk::create_pipeline(const RenderStateKey& rs, VkShaderMo
     info.pStages = stages;
     info.pVertexInputState = &vertex_input;
     info.pInputAssemblyState = &input_assembly;
-    info.pTessellationState = curved ? &tessellation : nullptr;
     info.pViewportState = &viewport;
     info.pRasterizationState = &raster;
     info.pMultisampleState = &multisample;
@@ -519,7 +508,7 @@ VkPipeline PipelineCacheVk::create_pipeline(const RenderStateKey& rs, VkShaderMo
     info.pColorBlendState = &blend;
     info.pDynamicState = &dynamic;
     info.layout = layout_->layout;
-    info.renderPass = layout_->pass_for(rs.samples_log2, false);
+    info.renderPass = aux != 0u ? layout_->aux_pass_for(rs.samples_log2, aux) : layout_->pass_for(rs.samples_log2, false);
     const TestRefusals& refuse = test_refusals();
     if ((refuse.dual_source && dual_source && layout_->dual_source_blend) || (refuse.depth_clip && raster.pNext) ||
         (refuse.depth_clamp && raster.depthClampEnable) || (refuse.logic_op && blend.logicOpEnable) ||

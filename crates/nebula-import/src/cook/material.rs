@@ -51,7 +51,11 @@ pub fn cook_model(bytes: &[u8]) -> Result<Vec<u8>> {
             let table = Mat3::parse(&bounded)?;
             for i in 0..table.len() {
                 let p = table.compatibility_program(i, 0x11100000, false)?;
-                let shader = cooked_shader(&p)?;
+                let written = table.name(i).and_then(|name| written_shader(&name));
+                let shader = match written {
+                    Some(id) => id,
+                    None => cooked_shader(&p)?,
+                };
                 // Record: generated shader ID, material index, native pipeline
                 // state, then reserved space. No source combiner fields survive.
                 descriptors.extend_from_slice(&shader.to_le_bytes());
@@ -62,7 +66,7 @@ pub fn cook_model(bytes: &[u8]) -> Result<Vec<u8>> {
                 let (used_maps, used_coords) = used_masks(&p);
                 descriptors.extend_from_slice(&[used_maps, used_coords, 0, 0]);
                 for pass in 0..64 {
-                    let id = pass_shader(&pass_program(&p, pass), pass);
+                    let id = written.unwrap_or_else(|| pass_shader(&pass_program(&p, pass), pass));
                     descriptors.extend_from_slice(&id.to_le_bytes());
                 }
             }
@@ -86,6 +90,32 @@ pub fn cook_model(bytes: &[u8]) -> Result<Vec<u8>> {
     let size = u32::try_from(result.len())?;
     result[8..12].copy_from_slice(&size.to_le_bytes());
     super::mesh::native(result)
+}
+
+/// The materials a source model has, by name: each one's shader as Nebula would generate it, a starting point for one
+/// written by hand.
+pub fn generated_shaders(bytes: &[u8]) -> Result<Vec<(String, String)>> {
+    if bytes.len() < 32 {
+        bail!("not a model");
+    }
+    let blocks = u32::from_be_bytes(bytes[12..16].try_into()?) as usize;
+    let mut at = 32usize;
+    for _ in 0..blocks {
+        let header = bytes.get(at..at + 8).context("a model block past the file's end")?;
+        let size = u32::from_be_bytes(header[4..8].try_into()?) as usize;
+        if &header[..4] == b"MAT3" {
+            let table = Mat3::parse(bytes.get(at..at + size).context("a model block past the file's end")?)?;
+            let mut out = Vec::new();
+            for i in 0..table.len() {
+                let program = table.compatibility_program(i, 0x11100000, false)?;
+                let name = table.name(i).unwrap_or_else(|| format!("material{i}"));
+                out.push((name, super::shader_source::material_source(&normalize_program(&program)?)?));
+            }
+            return Ok(out);
+        }
+        at += size;
+    }
+    bail!("the model has no materials")
 }
 
 /// Which texture each coordinate samples, for its scale: the last stage order or
@@ -139,6 +169,20 @@ pub struct Mat3<'a> {
 }
 
 impl<'a> Mat3<'a> {
+    /// A material's name, from the block's name table.
+    pub fn name(&self, index: usize) -> Option<String> {
+        let table = *self.offsets.get(2).filter(|o| **o != 0)?;
+        let count = u16::from_be_bytes(self.bytes.get(table..table + 2)?.try_into().ok()?) as usize;
+        if index >= count {
+            return None;
+        }
+        let entry = table + 4 + index * 4;
+        let at = table + u16::from_be_bytes(self.bytes.get(entry + 2..entry + 4)?.try_into().ok()?) as usize;
+        let text = self.bytes.get(at..)?;
+        let end = text.iter().position(|b| *b == 0)?;
+        Some(String::from_utf8_lossy(&text[..end]).into_owned())
+    }
+
     pub fn parse(bytes: &'a [u8]) -> Result<Self> {
         if bytes.len() < 0x84 || &bytes[..4] != b"MAT3" {
             bail!("expected a complete MAT3 header");
@@ -619,6 +663,46 @@ pub fn pass_program(source: &[u8], pass: u32) -> Vec<u8> {
     p
 }
 
+/// A material this build has no shader for, in a mod's conversion: it takes a number from its key and comes with the mod.
+pub const MOD_SHADER_FIRST: u32 = 0x4000_0000;
+
+/// While set, a mod's conversion is running: materials the build lacks are collected for it to compile, by number.
+pub static MOD_MATERIALS: std::sync::Mutex<Option<BTreeMap<u32, [u8; PROGRAM_BYTES]>>> = std::sync::Mutex::new(None);
+
+std::thread_local! {
+    /// Whether this file's materials need their pass variants: the player's models, which draw through them.
+    pub static MOD_FILE_NEEDS_PASSES: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn key_hash(bytes: &[u8]) -> Result<u64> {
+    Ok(shader_key(bytes)?.iter().fold(0xcbf29ce484222325u64, |h, &b| (h ^ u64::from(b)).wrapping_mul(0x100000001b3)))
+}
+
+/// The material's number in a mod's conversion, its program kept; None outside one.
+fn mod_material(bytes: &[u8]) -> Result<Option<u32>> {
+    let mut guard = MOD_MATERIALS.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(materials) = guard.as_mut() else {
+        return Ok(None);
+    };
+    let id = MOD_SHADER_FIRST | (key_hash(bytes)? as u32 & 0x3FFF_FFFF);
+    materials.entry(id).or_insert(normalize_program(bytes)?);
+    Ok(Some(id))
+}
+
+/// Shaders a mod wrote, by the material's name, while its conversion runs: their sources, by the numbers they take.
+pub static WRITTEN_SHADERS: std::sync::Mutex<Option<BTreeMap<String, (u32, String)>>> = std::sync::Mutex::new(None);
+
+/// The number of the shader written for this material; None if none was.
+fn written_shader(name: &str) -> Option<u32> {
+    WRITTEN_SHADERS.lock().unwrap_or_else(|e| e.into_inner()).as_ref()?.get(name).map(|(id, _)| *id)
+}
+
+/// A written shader's number: from its name and its words, so that an edit builds again.
+pub fn written_shader_id(name: &str, source: &str) -> u32 {
+    let hash = name.bytes().chain(source.bytes()).fold(0xcbf29ce484222325u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100000001b3));
+    MOD_SHADER_FIRST | (hash as u32 & 0x3FFF_FFFF)
+}
+
 /// While set, a material this build has no shader for is noted here instead of refused: the tool that lists what mods
 /// need (`nebula-import mod-materials`), never a game's cook.
 pub static NOTE_MISSING: std::sync::Mutex<Option<Vec<[u8; PROGRAM_BYTES]>>> = std::sync::Mutex::new(None);
@@ -632,6 +716,9 @@ fn pass_shader(bytes: &[u8], pass: u32) -> u32 {
         Ok(None) => {
             if let (Some(noted), Ok(program)) = (NOTE_PASSES.lock().unwrap_or_else(|e| e.into_inner()).as_mut(), normalize_program(bytes)) {
                 noted.push((pass as u8, program));
+            }
+            if MOD_FILE_NEEDS_PASSES.get() {
+                return mod_material(bytes).ok().flatten().unwrap_or(0);
             }
             0
         }
@@ -659,12 +746,10 @@ pub fn cooked_shader(bytes: &[u8]) -> Result<u32> {
         noted.push(normalize_program(bytes)?);
         return Ok(1);
     }
-    let hash = shader_key(bytes)?
-        .iter()
-        .fold(0xcbf29ce484222325u64, |h, &b| {
-            (h ^ u64::from(b)).wrapping_mul(0x100000001b3)
-        });
-    bail!("source material shader {hash:016x} absent from this build");
+    if let Some(id) = mod_material(bytes)? {
+        return Ok(id);
+    }
+    bail!("source material shader {:016x} absent from this build", key_hash(bytes)?);
 }
 
 /// The build's shader table, passed explicitly so a cook cannot silently use a

@@ -11,13 +11,42 @@
 #endif
 
 #include <atomic>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <deque>
 #include <string>
 
 namespace galaxy {
 namespace {
 
+#if defined(__ANDROID__)
+// The activity's process has no environment a test can set: its switches are lines of test_env in the app's data.
+void load_test_environment() {
+    const char* const data = std::getenv("NEBULA_DATA_DIR");
+    if (data == nullptr) {
+        return;
+    }
+    std::FILE* const file = std::fopen((std::string(data) + "/test_env").c_str(), "r");
+    if (file == nullptr) {
+        return;
+    }
+    char line[1024];
+    while (std::fgets(line, sizeof(line), file) != nullptr) {
+        line[std::strcspn(line, "\r\n")] = 0;
+        if (char* const equals = std::strchr(line, '=')) {
+            *equals = 0;
+            setenv(line, equals + 1, 1);
+        }
+    }
+    std::fclose(file);
+}
+#endif
+
 RunOptions read_options() {
+#if defined(__ANDROID__)
+    load_test_environment();
+#endif
     RunOptions o;
     o.frame_timeline = nebula_switch::frame_timeline();
     o.frame_timeline_events = nebula_switch::frame_timeline_events();
@@ -26,6 +55,9 @@ RunOptions read_options() {
     o.audio_wav_dump = nebula_switch::audio_wav_dump();
     o.audio_wav_dump_only = nebula_switch::audio_wav_dump_only();
     o.audio_wav_dump_seconds = nebula_switch::audio_wav_dump_seconds();
+    o.audio_test_device_cycle = nebula_switch::audio_test_device_cycle();
+    o.audio_test_reopen = nebula_switch::audio_test_reopen();
+    o.audio_test_gaps = nebula_switch::audio_test_gaps();
     o.boot_fast = nebula_switch::boot_fast();
     o.crash_dump_dir = nebula_switch::crash_dump_dir();
     o.d3d_debug = nebula_switch::d3d_debug();
@@ -33,6 +65,7 @@ RunOptions read_options() {
     o.gpu_passes = nebula_switch::gpu_passes();
     o.gpu_preference = nebula_switch::gpu_preference();
     o.hide_window = nebula_switch::hide_window();
+    o.test_window_off_desktop = nebula_switch::test_window_off_desktop();
     o.log_to_console = nebula_switch::log_to_console();
     o.movie_dir = nebula_switch::movie_dir();
     o.pipeline_seed_out = nebula_switch::pipeline_seed_out();
@@ -55,6 +88,7 @@ RunOptions read_options() {
     o.test_post_fault = nebula_switch::test_post_fault();
     o.test_script_clock = nebula_switch::test_script_clock();
     o.test_settings_keys = nebula_switch::test_settings_keys();
+    o.test_motion_dump = nebula_switch::test_motion_dump();
     o.test_settings_open = nebula_switch::test_settings_open();
     o.test_window_sizes = nebula_switch::test_window_sizes();
     o.texture_dump_dir = nebula_switch::texture_dump_dir();
@@ -62,6 +96,8 @@ RunOptions read_options() {
     o.trace_file_reads = nebula_switch::trace_file_reads();
     o.trace_frame_times = nebula_switch::trace_frame_times();
     o.trace_loads = nebula_switch::trace_loads();
+    o.test_mods_screen = nebula_switch::test_mods_screen();
+    o.test_mods_changed = nebula_switch::test_mods_changed();
     o.trace_memory = nebula_switch::trace_memory();
     o.trace_present_stats = nebula_switch::trace_present_stats();
     o.trace_thread_cpu = nebula_switch::trace_thread_cpu();
@@ -87,6 +123,8 @@ RunOptions read_options() {
         return wide.back().c_str();
     };
     o.frame_timeline_path_w = read_wide(nebula_switch::frame_timeline_path_wide_name());
+    o.xess_dir_w = read_wide(nebula_switch::xess_dir_wide_name());
+    o.streamline_dir_w = read_wide(nebula_switch::streamline_dir_wide_name());
     o.render_config_path_w = read_wide(nebula_switch::render_config_path_wide_name());
     o.runtime_settings_path_w = read_wide(nebula_switch::runtime_settings_path_wide_name());
     o.crash_dump_dir_w = read_wide(nebula_switch::crash_dump_dir_wide_name());

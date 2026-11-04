@@ -1,4 +1,6 @@
 #include "Game/System/GameSystem.hpp"
+#include "Game/System/NebulaHost.hpp"
+#include "Game/System/NebulaMods.hpp"
 #include "Game/System/NebulaLoadTrace.hpp"
 #include "Game/System/NebulaArena.hpp"
 #include "Game/System/GameThreads.hpp"
@@ -79,6 +81,7 @@ GameSystem::GameSystem()
 }
 
 void GameSystem::init() {
+    nebula_host()->mods_start(nebula_host()->user);
     mObjHolder = new GameSystemObjHolder();
     mFontHolder = new GameSystemFontHolder();
     mFontHolder->createFontFromEmbeddedData();
@@ -229,6 +232,7 @@ void GameSystem::update() {
     mObjHolder->update();
     NebulaMenuFocus::update();
     NebulaRtPrepare::update();
+    NebulaMods::fire(NEBULA_MOD_EVENT_FRAME);
     NebulaSettingsMenu::update();
     NebulaIcons::update();
     // The settings menu has read the remotes: the game plays on without them. The skip's question waits under it.
@@ -249,8 +253,6 @@ void GameSystem::update() {
 void GameSystem::updateSceneController() {
     bool isSceneUpdate = true;
     bool isResetProcessing = SingletonHolder< GameSystemResetAndPowerProcess >::get()->isActive();
-
-    mObjHolder->updateAudioSystem();
 
     if (isResetProcessing) {
         isSceneUpdate = false;
@@ -291,6 +293,9 @@ void GameSystem::updateSceneController() {
     if (isResetProcessing) {
         mSceneController->updateSceneDuringResetProcessing();
     }
+
+    // After the scene: what it asked for this frame starts now, not a frame later.
+    mObjHolder->updateAudioSystem();
 }
 
 void GameSystem::calcAnim() {

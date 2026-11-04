@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 project(Nebula VERSION 2.0.1 LANGUAGES C CXX)
+add_compile_definitions(NEBULA_VERSION="${PROJECT_VERSION}")
 
 # A build for players: the test switches' names are left out (galaxy/test_hooks.h).
 option(NEBULA_RELEASE "Leave the test hooks out" OFF)
@@ -87,6 +88,15 @@ function(galaxy_host_options target)
         target_compile_options(${target} PRIVATE /GS- /GR- /Oi /favor:INTEL64)
     endif()
 endfunction()
+
+# How a plugin replaces a game function on Windows.
+set(nebula_minhook_sources)
+if(WIN32)
+    set(nebula_minhook_dir "${CMAKE_CURRENT_LIST_DIR}/third_party/minhook")
+    set(nebula_minhook_sources "${nebula_minhook_dir}/src/buffer.c" "${nebula_minhook_dir}/src/hook.c" "${nebula_minhook_dir}/src/trampoline.c" "${nebula_minhook_dir}/src/hde/hde64.c")
+    set_source_files_properties(${nebula_minhook_sources} PROPERTIES COMPILE_OPTIONS "/W0;/WX-;/wd4310;/wd4244;/wd4267;/wd4100;/wd4701;/wd4706")
+endif()
+include_directories("${CMAKE_CURRENT_LIST_DIR}/third_party/minhook/include" "${CMAKE_CURRENT_LIST_DIR}/native/include")
 
 add_library(galaxy_runtime_abi INTERFACE)
 target_include_directories(galaxy_runtime_abi INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/runtime/include")
@@ -179,9 +189,13 @@ add_library(galaxy_native_host STATIC
     runtime/src/mii_import.cpp
     runtime/src/mii_formats.cpp
     runtime/src/mod_xml.cpp
+    runtime/src/luma.cpp
+    runtime/src/mod_plugins.cpp
+    ${nebula_minhook_sources}
     runtime/src/mods.cpp
     runtime/src/texture_categories.cpp
     runtime/src/mod_import.cpp
+    runtime/src/vendor_download.cpp
     runtime/src/crash_report.cpp
     runtime/src/discord_presence.cpp
     runtime/src/controller_hid.cpp
@@ -294,7 +308,7 @@ endforeach()
 # Ambient occlusion (runtime/src/render/ambient_occlusion.hlsl), compiled by fxc like the post passes.
 set(galaxy_ao_hlsl "${CMAKE_CURRENT_SOURCE_DIR}/runtime/src/render/ambient_occlusion.hlsl")
 set(galaxy_ao_headers "")
-foreach(galaxy_ao_pass distance_cs:DepthCS:cs_5_0 occlusion_cs:AoCS:cs_5_0 denoise_cs:DenoiseCS:cs_5_0
+foreach(galaxy_ao_pass distance_cs:DepthCS:cs_5_0 occlusion_cs:AoCS:cs_5_0 ssao_cs:SsaoCS:cs_5_0 denoise_cs:DenoiseCS:cs_5_0
         upsample_cs:UpsampleCS:cs_5_0 apply_vs:ApplyVS:vs_5_0 apply_ps:ApplyPS:ps_5_0)
     string(REPLACE ":" ";" galaxy_ao_pair "${galaxy_ao_pass}")
     list(GET galaxy_ao_pair 0 galaxy_ao_name)
@@ -408,6 +422,9 @@ runtime/src/render/host_window_win32.cpp
     runtime/src/render/render_state_key.cpp
     runtime/src/render/frame_pass.cpp
     runtime/src/render/line_point_params.cpp
+    runtime/src/render/mod_shaders.cpp
+    runtime/src/render/mod_shader_build.cpp
+    runtime/src/render/mod_shader_compile_d3d12.cpp
     runtime/src/render/pipeline_cache.cpp
     runtime/src/render/pipeline_seed.cpp
     runtime/src/render/post_process.cpp
@@ -420,9 +437,12 @@ runtime/src/render/host_window_win32.cpp
     runtime/src/render/game_bloom.cpp
     ${galaxy_bloom_headers}
     runtime/src/render/temporal_upscaler.cpp
+    runtime/src/render/xess_library.cpp
+    runtime/src/render/xess_upscaler.cpp
     runtime/src/render/game_lights.cpp
     runtime/src/render/rt_materials.cpp
     runtime/src/render/streamline_bridge.cpp
+    runtime/src/render/fsr_frame_generation.cpp
     runtime/src/render/transform_history.cpp
     runtime/src/render/frame_interpolation.cpp
     runtime/src/render/interp_gpu.cpp
@@ -439,6 +459,8 @@ target_include_directories(galaxy_render PRIVATE "${galaxy_utility_shader_dir}" 
 include(cmake/fidelityfx.cmake)
 target_link_libraries(galaxy_render PRIVATE nebula_fidelityfx)
 target_link_libraries(galaxy_render PUBLIC galaxy_disc_files)
+# Intel XeSS headers (MIT, third_party/xess): the runtime loads the signed library from a vendor folder at run time.
+target_include_directories(galaxy_render SYSTEM PRIVATE third_party/xess/include)
 # NVIDIA Streamline 2.14.1 headers (MIT, third_party/streamline) for DLSS: the
 # runtime loads the signed binaries from the user's vendor folder at run time.
 # Empty builds the runtime without DLSS.
@@ -580,7 +602,8 @@ galaxy_test(galaxy_frame_phase_tests SOURCES ${rt}/frame_phase_tests.cpp ${rt}/f
 galaxy_test(galaxy_frame_telemetry_tests SOURCES ${rt}/frame_telemetry_tests.cpp ${rt}/frame_telemetry.cpp)
 galaxy_test(galaxy_mii_import_tests SOURCES ${rt}/mii_import_tests.cpp ${rt}/mii_import.cpp ${rt}/mii_formats.cpp
     LIBS galaxy_atomic_file)
-galaxy_test(galaxy_mods_tests SOURCES ${rt}/mods_tests.cpp ${rt}/mod_xml.cpp ${rt}/mods.cpp
+galaxy_test(galaxy_luma_tests SOURCES ${rt}/luma_tests.cpp ${rt}/luma.cpp)
+galaxy_test(galaxy_mods_tests SOURCES ${rt}/mods_tests.cpp ${rt}/mod_xml.cpp ${rt}/mods.cpp ${rt}/luma.cpp
     ${rt}/mod_import.cpp ${rt}/texture_categories.cpp ${rt}/disc_files.cpp LIBS galaxy_atomic_file nebula_archive)
 galaxy_test(galaxy_crash_report_tests SOURCES ${rt}/crash_report_tests.cpp ${rt}/crash_report.cpp)
 
@@ -719,6 +742,10 @@ runtime/src/render/host_window_win32.cpp
         "${galaxy_utility_spirv_dir}/utility_spirv_data.h"
         runtime/src/render/vk/texture_backend_vk.cpp
         runtime/src/render/vk/pipeline_cache_vk.cpp
+        runtime/src/render/mod_shaders.cpp
+        runtime/src/render/mod_shader_build.cpp
+        runtime/src/render/vk/mod_shader_compile_vk.cpp
+        runtime/src/render/vk/shader_compile_vk.cpp
         runtime/src/render/pipeline_seed.cpp
         runtime/src/render/vk/compile_journal.cpp
         runtime/src/render/vk/renderer_vk.cpp
@@ -727,6 +754,11 @@ runtime/src/render/host_window_win32.cpp
         runtime/src/render/vk/post_process_vk.cpp
         runtime/src/render/vk/game_bloom_vk.cpp
         runtime/src/render/vk/ambient_occlusion_vk.cpp
+        runtime/src/render/vk/temporal_upscaler_vk.cpp
+        runtime/src/render/vk/streamline_vk.cpp
+        runtime/src/render/vk/ffx_vk_forward.cpp
+        runtime/src/render/vk/fsr_frame_generation_vk.cpp
+        runtime/src/render/xess_library.cpp
         runtime/src/render/vk/scene_camera_vk.cpp
         ${galaxy_native_spirv_sources}
         runtime/src/render/vk/surface_win32.cpp)
@@ -736,6 +768,13 @@ runtime/src/render/host_window_win32.cpp
         "${CMAKE_CURRENT_SOURCE_DIR}/native/include")
     target_compile_features(galaxy_render_vk PUBLIC cxx_std_20)
     target_link_libraries(galaxy_render_vk PUBLIC galaxy_disc_files)
+    target_include_directories(galaxy_render_vk SYSTEM PRIVATE third_party/xess/include "${GALAXY_STREAMLINE_SDK}/include")
+    target_compile_definitions(galaxy_render_vk PRIVATE GALAXY_STREAMLINE_VK=1)
+    if(NEBULA_FSR3)
+        nebula_fidelityfx_vulkan("${vulkan_headers_SOURCE_DIR}/include")
+        target_link_libraries(galaxy_render_vk PRIVATE nebula_fidelityfx_vk)
+    endif()
+    target_link_libraries(galaxy_render_vk PRIVATE nebula_shader_compiler)
     target_link_libraries(galaxy_render_vk
         PUBLIC
             nebula_vulkan_deps
