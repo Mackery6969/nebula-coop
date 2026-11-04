@@ -256,6 +256,10 @@ packets. It has no physics or state machine of its own. It collides with the loc
   (holding a shell), sounds and the other effects. The copies share the model with a local player of the same character, so a
   form's colours on the local player can show on them.
 
+- **One name each.** No two players in a room share a name (sm64ex-coop's). The host numbers a name someone already
+  has, in any case: a second MARIO joins, or renames itself, as "MARIO (2)", cut to fit the 20-letter limit. The player
+  keeps asking for the name in Options; the number goes once that name changes.
+
 - **Nametags.** Each remote player's name over their head, in the game's font, hidden when they're behind a wall or
   far away (sm64coopdx's nametags). `NebulaNametags`, drawn with the HUD: the name in the character's colour on a
   small see-through window 200 units up the copy's up; it shrinks past 1200 units (to 0.6 of its size), and fades out
