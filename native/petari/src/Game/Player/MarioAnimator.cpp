@@ -25,6 +25,20 @@ MarioAnimator::MarioAnimator(MarioActor* pActor) : MarioModule(pActor) {
     init();
 }
 
+XanimeResourceTable* MarioAnimator::newCharacterResourceTable(ResourceHolder* pHolder, bool isLuigi) {
+    u32 count = 0;
+    while (marioAnimeTable[count].mParent.mAnimationName[0] != '\0') {
+        count++;
+    }
+    // The terminator too: the table reads up to it.
+    XanimeGroupInfo* pGroups = new XanimeGroupInfo[count + 1];
+    for (u32 i = 0; i <= count; i++) {
+        pGroups[i] = marioAnimeTable[i];
+    }
+    return new XanimeResourceTable(pHolder, pGroups, marioAnimeAuxTable, marioAnimeOfsTable, reinterpret_cast< XanimeBckTable* >(singleAnimeTable),
+                                   doubleAnimeTable, tripleAnimeTable, quadAnimeTable, isLuigi ? luigiAnimeSwapTable : nullptr);
+}
+
 void MarioAnimator::init() {
     XanimeSwapTable* luigiAnimations = nullptr;
     if (gIsLuigi) {
