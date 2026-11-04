@@ -285,11 +285,14 @@ struct HostPointerCaptureCleanupDecision {
 
 // ReleaseCapture sends WM_CAPTURECHANGED after a normal final button-up; that does not turn a pointer
 // still inside the client into a leave. WM_CANCELMODE, and capture loss while a button is held, are
-// cleanup events.
+// cleanup events. SetCapture sends WM_CAPTURECHANGED to the window even when it already holds the
+// capture (the second button pressed while the first is held, as the title's A+B): the capture stays,
+// so nothing is cleaned up and both buttons stay held.
 [[nodiscard]] HostPointerCaptureCleanupDecision
 select_host_pointer_capture_cleanup(
     bool cancel_mode,
-    bool button_pressed) noexcept;
+    bool button_pressed,
+    bool capture_kept = false) noexcept;
 
 // The snapshot behind one lock shared by every writer and reader: read-modify-write publications
 // cannot lose sequence increments, and readers never see a torn snapshot. Mutations must not call
