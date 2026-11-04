@@ -80,6 +80,7 @@ namespace {
     ActorSlot sActors[cTableSize];
     bool sInRoom = false;
     bool sPlaced = false;
+    bool sMissed = false;    // the local player missed: told once this scene
     bool sReady = false;     // the instance's record has all come
     bool sApplying = false;  // applying what the server said: not reported back
     s32 sFrames = 0;
@@ -835,6 +836,7 @@ namespace NebulaCoopWorld {
         sMotionNum = 0;
         memset(sMotionTable, 0, sizeof(sMotionTable));
         sPlaced = false;
+        sMissed = false;
         sReady = false;
         sFrames = 0;
         sClock = 0;
@@ -986,6 +988,19 @@ namespace NebulaCoopWorld {
         }
         updateMotions();
         updateSwitches(sFrames == cSettleFrames && settling);
+    }
+
+    void noticeMiss() {
+        if (!sInRoom || !sPlaced || sMissed) {
+            return;
+        }
+        sMissed = true;
+        report(NEBULA_COOP_WORLD_MISS, 0, 0, 0, nullptr);
+        nebula_log("[coop] a miss: the instance goes on without this player until the scene starts over\n");
+    }
+
+    bool isInRoom() {
+        return sInRoom;
     }
 
     bool deliverMessage(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {

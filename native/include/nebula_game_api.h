@@ -630,7 +630,11 @@ enum {
      game as in the hitter's: a Goomba squashed, a box broken, a boss hurt.
    - NEBULA_COOP_WORLD_SWITCH (both ways, API 119): a stage switch turned (`object` its zone << 16 | its number, the
      zone 0xffff for the stage's global ones; `value` 1 on, 0 off). The instance's record keeps them; a player
-     entering gets them before READY. */
+     entering gets them before READY.
+   - NEBULA_COOP_WORLD_MISS (game to host): the local player missed (no bubble saved them). Until the scene starts
+     over and ENTER comes again they don't keep the instance going and nothing more they do there counts, as
+     sm64coopdx's death warp takes a player out of the level: an instance starts fresh only once everyone in it
+     missed or left. STAR_GOT still comes. A runtime without it ignores it. */
 typedef struct NebulaCoopWorldEvent {
     uint32_t kind;     /* NEBULA_COOP_WORLD_* */
     uint32_t object;   /* GONE, HIT, SWITCH */
@@ -651,6 +655,7 @@ enum {
     NEBULA_COOP_WORLD_STAR_GOT,
     NEBULA_COOP_WORLD_HIT,
     NEBULA_COOP_WORLD_SWITCH,
+    NEBULA_COOP_WORLD_MISS,
 };
 
 enum {

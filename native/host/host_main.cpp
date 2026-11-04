@@ -2614,6 +2614,10 @@ void svc_coop_world_report(void*, const NebulaCoopWorldEvent* event) {
                                static_cast<std::uint8_t>(copy.scenario), 0u});
         return;
     case NEBULA_COOP_WORLD_SWITCH: gCoopWorld.report_switch({copy.object, copy.value != 0u}); return;
+    case NEBULA_COOP_WORLD_MISS:
+        std::fprintf(stderr, "[coop] world: a miss, the instance goes on without this player until its scene starts over\n");
+        gCoopWorld.report_miss();
+        return;
     default: return;
     }
 }
