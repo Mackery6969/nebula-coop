@@ -12,6 +12,7 @@
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
+#include "Game/Player/NebulaCoopBubble.hpp"
 
 void MarioActor::forceKill(u32 type) {
     if (mMario->getMovementStates()._1F) {
@@ -86,6 +87,10 @@ void MarioActor::forceKill(u32 type) {
 }
 
 void MarioActor::exeGameOver() {
+    // Online co-op: with another player alive here, the miss becomes a bubble (sm64coopdx's bubble on death).
+    if (MR::isFirstStep(this) && NebulaCoopBubble::tryStart(this)) {
+        return;
+    }
     mVelocity.zero();
     calcHeadPos();
     updateRealMtx();
@@ -135,6 +140,10 @@ void MarioActor::exeGameOver() {
 }
 
 void MarioActor::exeGameOverAbyss() {
+    // Online co-op: with another player alive here, the miss becomes a bubble (sm64coopdx's bubble on death).
+    if (MR::isFirstStep(this) && NebulaCoopBubble::tryStart(this)) {
+        return;
+    }
     mVelocity = getLastMove() * 0.99f + mCamDirZ * 35.0f * 0.01f;
     mLastMove = mVelocity;
 
@@ -161,6 +170,10 @@ void MarioActor::exeGameOverAbyss() {
 }
 
 void MarioActor::exeGameOverFire() {
+    // Online co-op: with another player alive here, the miss becomes a bubble (sm64coopdx's bubble on death).
+    if (MR::isFirstStep(this) && NebulaCoopBubble::tryStart(this)) {
+        return;
+    }
     mVelocity.zero();
     calcHeadPos();
     updateRealMtx();
@@ -188,6 +201,10 @@ void MarioActor::exeGameOverFire() {
 }
 
 void MarioActor::exeGameOverSink() {
+    // Online co-op: with another player alive here, the miss becomes a bubble (sm64coopdx's bubble on death).
+    if (MR::isFirstStep(this) && NebulaCoopBubble::tryStart(this)) {
+        return;
+    }
     mVelocity.zero();
     calcHeadPos();
     updateRealMtx();
@@ -238,6 +255,10 @@ void MarioActor::exeGameOverSink() {
 }
 
 void MarioActor::exeGameOverNonStop() {
+    // Online co-op: with another player alive here, the miss becomes a bubble (sm64coopdx's bubble on death).
+    if (MR::isFirstStep(this) && NebulaCoopBubble::tryStart(this)) {
+        return;
+    }
     if (!MR::isFirstStep(this)) {
         return;
     }
@@ -254,6 +275,10 @@ void MarioActor::exeGameOverNonStop() {
     }
 
     MR::startStarPointerModeDemoMarioDeath(this);
+}
+
+void MarioActor::exeNebulaBubble() {
+    NebulaCoopBubble::updateLocal(this);
 }
 
 void MarioActor::exeTimeWait() {

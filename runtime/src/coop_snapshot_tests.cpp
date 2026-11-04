@@ -50,13 +50,14 @@ void test_bytes() {
     snapshot.health = 3u;
     snapshot.mode = 2u;
     snapshot.flags = 1u;
+    snapshot.area = 0xA5EA1234u;
     const std::vector<std::uint8_t> bytes = galaxy::coop::encode_snapshot(snapshot);
     const std::optional<PlayerSnapshot> back = galaxy::coop::decode_snapshot(bytes);
     expect(back.has_value(), "a snapshot reads back");
     expect(back && back->sequence == 7u && back->stage == "EggStarGalaxy" && back->scenario == 1 &&
                back->position[0] == 12.5f && back->rotation[1] == 90.0f && back->front[0] == 1.0f && back->up[1] == 1.0f && back->velocity[2] == 3.0f &&
                back->group == "run" && back->animation == "run" && back->rate == 0.5f && back->weights[1] == 0.75f &&
-               back->health == 3u && back->mode == 2u && back->flags == 1u,
+               back->health == 3u && back->mode == 2u && back->flags == 1u && back->area == 0xA5EA1234u,
            "as it was sent");
     expect(bytes.size() < 200u, "in one small datagram");
     for (std::size_t cut = 0; cut < bytes.size(); ++cut) {

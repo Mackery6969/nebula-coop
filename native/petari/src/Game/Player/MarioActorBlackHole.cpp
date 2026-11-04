@@ -11,6 +11,7 @@
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
+#include "Game/Player/NebulaCoopBubble.hpp"
 
 void MarioActor::initBlackHoleOut() {
     mPosRelativeToBlackHole = mPosition - mBlackHolePosition;
@@ -40,6 +41,10 @@ void MarioActor::initBlackHoleOut() {
 }
 
 void MarioActor::exeGameOverBlackHole2() {
+    // Online co-op: with another player alive here, the miss becomes a bubble (sm64coopdx's bubble on death).
+    if (MR::isFirstStep(this) && NebulaCoopBubble::tryStart(this)) {
+        return;
+    }
     if (MR::isFirstStep(this)) {
         MR::setCubeBgmChangeInvalid();
         MR::clearBgmQueue();

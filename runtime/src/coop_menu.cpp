@@ -22,6 +22,7 @@ enum HostRow : unsigned {
     RowInteraction,
     RowKnockback,
     RowPvp,
+    RowBubble,
     RowCheats,
     RowMods,
     RowStart,
@@ -314,6 +315,9 @@ std::vector<MenuRow> MainMenu::rows() const {
                               "HOW FAR A PLAYER'S ATTACK KNOCKS ANOTHER", false, true};
         rows[RowPvp] = {"PVP MODE", coop.pvp_mode == CoopPvpMode::Revamped ? "REVAMPED" : "CLASSIC",
                         "FRIENDLY FIRE'S RULES: CLASSIC, OR REVAMPED (WHICH ATTACKS BEAT WHICH)", false, true};
+        rows[RowBubble] = {"BUBBLE ON DEATH", coop.bubble_death ? "ON" : "OFF",
+                           "ON: A PLAYER WHO DIES NEAR ANOTHER FLOATS TO THEM IN A BUBBLE, FOR A LIFE, INSTEAD OF A MISS",
+                           false, true};
         rows[RowCheats] = {"CHEATS", coop.cheats ? "ON" : "OFF",
                            "ON: EVERYONE IN THE ROOM MAY USE THE ONLINE TAB'S CHEATS", false, true};
         const unsigned on = mods_on(mods_) + (coop.star_counter ? 1u : 0u);
@@ -459,6 +463,7 @@ void MainMenu::change(int delta) {
         case RowPvp:
             coop.pvp_mode = static_cast<CoopPvpMode>(step(static_cast<unsigned>(coop.pvp_mode), delta, 2u));
             break;
+        case RowBubble: coop.bubble_death = step(coop.bubble_death ? 1u : 0u, delta, 2u) == 1u; break;
         case RowCheats: coop.cheats = step(coop.cheats ? 1u : 0u, delta, 2u) == 1u; break;
         default: break;
         }
@@ -676,6 +681,7 @@ void MainMenu::reset() {
     case RowInteraction: room_.player_interaction = defaults.player_interaction; break;
     case RowKnockback: room_.knockback_strength = defaults.knockback_strength; break;
     case RowPvp: room_.pvp_mode = defaults.pvp_mode; break;
+    case RowBubble: room_.bubble_death = defaults.bubble_death; break;
     case RowCheats: room_.cheats = defaults.cheats; break;
     default: break;  // the save, the mods and the buttons have no default
     }

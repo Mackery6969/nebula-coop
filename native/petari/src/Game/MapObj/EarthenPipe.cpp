@@ -6,6 +6,7 @@
 #include "Game/LiveActor/PartsModel.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/Util.hpp"
+#include "Game/Player/NebulaCoopBubble.hpp"
 
 namespace NrvEarthenPipe {
     NEW_NERVE(EarthenPipeNrvWait, EarthenPipe, Wait);
@@ -265,6 +266,8 @@ void EarthenPipe::exePlayerIn() {
     }
 
     if (MR::isBckStopped(mHostActor) && !MR::isPlayerDead()) {
+        // Online co-op: through a warp pipe the player is in another part of the stage, as far as bubbles go.
+        NebulaCoopBubble::noticePipeWarp(_8C, _B0->_8C);
         _F0.setInline(_B0->getBaseMtx());
         if (_B0->tryShowUp()) {
             setNerve(GET_NERVE(EarthenPipe, EarthenPipeNrvTargetPipeShowUp));

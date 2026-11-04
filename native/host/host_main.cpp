@@ -41,6 +41,7 @@
 #include "galaxy/mii_formats.h"
 #include "galaxy/mii_import.h"
 #include "galaxy/mods.h"
+#include "galaxy/game_instance.h"
 #if defined(NEBULA_HOST_RENDERER)
 #include "galaxy/experimental_ultrawide_aspect.h"
 #include "galaxy/frame_timeline.h"
@@ -1624,13 +1625,15 @@ unsigned gCoopSaveFile = 1u;  // the user file the played save plays
 // The character the played save plays as (NEBULA_COOP_MENU_CHARACTER): Options' PLAYER page's, as Host left the menu.
 std::atomic<bool> gCoopLuigi{false};
 
-// The room's chat (galaxy/coop_chat.h), over the session below (which goes first, its thread giving the chat lines).
+// The room's chat (galaxy/coop_chat.h), over the session below (which goes first, its thread giving the chat lines),
+// and its commands (galaxy/coop_commands.h).
 galaxy::coop::Chat gCoopChat;
 // Online play (galaxy/coop_session.h): the room this player hosts or joined. Host opens it as its save starts; Join
 // connects from the main menu and plays the host's save once let in; the pause menu's Quit (back at the main menu)
 // leaves it.
 galaxy::coop::Session gCoopSession;
 void keep_coop_settings();
+void keep_coop_list(bool ban, const std::string& identity);
 // The game as online play compares it: a player with another is refused, as is one with another disc
 // (gCoopDisc); one playing other mods gets the room's (galaxy/coop_mods.h).
 const std::string kCoopGameVersion = "nebula-api-" + std::to_string(NEBULA_GAME_API_VERSION);
@@ -1723,6 +1726,7 @@ void send_coop_snapshot() {
     snapshot.health = local.health;
     snapshot.mode = local.mode;
     snapshot.flags = local.flags;
+    snapshot.area = local.area;
     (void)galaxy::coop::send_snapshot(gCoopSession, snapshot);
 }
 
@@ -1792,10 +1796,13 @@ fs::path coop_mods_cache() {
     return mods.empty() ? fs::path{} : mods.parent_path() / "coop_mods";
 }
 
-// The join that waits for Nebula to start again with a room's mods.
+// The join that waits for Nebula to start again with a room's mods: in the cache, or a second game's own folder
+// (galaxy/game_instance.h), as the games share the cache but each restarts to join on its own.
 fs::path coop_next_join_file() {
     const fs::path cache = coop_mods_cache();
-    return cache.empty() ? fs::path{} : cache / ".next_join";
+    if (cache.empty()) return {};
+    const fs::path& instance = galaxy::game_instance_folder();
+    return instance.empty() ? cache / ".next_join" : instance / ".next_join";
 }
 
 // The mods this game started with that change it (the room's, for a host; what a joiner plays now), with their files'
@@ -1931,6 +1938,9 @@ void pump_coop_session() {
             changed = true;
             break;
         case Kind::RoomChanged: changed = true; break;
+        case Kind::Moderator: gCoopChat.say("CoopCmdModeratorGranted"); break;
+        case Kind::KeepBan:
+        case Kind::KeepModerator: keep_coop_list(event.kind == Kind::KeepBan, event.text); break;
         case Kind::Closed:
             std::fprintf(stderr, "[coop] the room ended: %s\n", event.text.empty() ? "left" : event.text.c_str());
             gCoopChat.clear();
@@ -1989,6 +1999,8 @@ bool open_coop_room() {
     config.save = coop_room_save;
     config.disc = gCoopDisc;
     config.mods = coop_session_mods();
+    config.bans = galaxy::get_runtime_settings().coop_bans;
+    config.moderators = galaxy::get_runtime_settings().coop_moderators;
     listen_coop_snapshots();
     if (!gCoopSession.host(std::move(config))) {
         std::fprintf(stderr, "[coop] the room could not open on port %u\n", static_cast<unsigned>(gCoopMenu.room().port));
@@ -2082,6 +2094,8 @@ bool poll_coop_join() {
         std::fprintf(stderr, "[coop] joined: the host's save (file %u, %zu file(s)), %zu player(s)\n", save->file,
                      save->files.size(), gCoopSession.players().size());
         gCoopMenu.finish_join("JOINED! LOADING THE HOST'S SAVE...");
+        // A moderator the host kept is one again (the rest of this join's events went with Joined).
+        if (gCoopSession.is_moderator()) gCoopChat.say("CoopCmdModeratorGranted");
         note_coop_room();
         return true;
     }
@@ -2120,6 +2134,16 @@ void keep_coop_settings() {
     galaxy::set_runtime_settings(settings);
     (void)galaxy::save_runtime_settings_to_file();
 #endif
+}
+
+// /permban and /moderator: who they named, kept with the player's settings for every room it hosts.
+void keep_coop_list(bool ban, const std::string& identity) {
+    galaxy::RuntimeSettings settings = galaxy::get_runtime_settings();
+    std::vector<std::string>& list = ban ? settings.coop_bans : settings.coop_moderators;
+    if (identity.empty() || std::find(list.begin(), list.end(), identity) != list.end()) return;
+    list.push_back(identity);
+    galaxy::set_runtime_settings(settings);
+    (void)galaxy::save_runtime_settings_to_file();
 }
 
 // The mods folder's mods for the Host page: mods.ini's on and off (the room last hosted), the ones on in their order.
@@ -2374,6 +2398,7 @@ void svc_coop_chat(void*, NebulaCoopChatView* view) {
         switch (shown.line.kind) {
         case galaxy::coop::ChatLine::Kind::Joined: line.kind = NEBULA_COOP_CHAT_JOINED; break;
         case galaxy::coop::ChatLine::Kind::Left: line.kind = NEBULA_COOP_CHAT_LEFT; break;
+        case galaxy::coop::ChatLine::Kind::Notice: line.kind = NEBULA_COOP_CHAT_NOTICE; break;
         default: line.kind = NEBULA_COOP_CHAT_MESSAGE; break;
         }
         line.character = shown.line.character == galaxy::CoopCharacter::Luigi ? 1u : 0u;
@@ -2511,6 +2536,35 @@ bool coop_star_counter_on() {
     return galaxy::get_runtime_settings().coop.star_counter;
 }
 
+// /psc [on|off] (sm64coopdx's Personal Star Counter mod's command): the host turns the counter on or off for the whole
+// room, as the Host page's Mods does, and keeps it for the rooms it hosts later. Without a word, it flips it.
+void add_coop_star_counter_command() {
+    galaxy::coop::ChatCommand psc;
+    psc.name = "psc";
+    psc.help = "CoopCmdPscHelp";
+    psc.options = {"on", "off"};
+    psc.shown = [] { return gCoopSession.is_host(); };
+    psc.run = [](std::string_view words) {
+        if (!gCoopSession.is_host()) {
+            gCoopChat.say("CoopCmdHostOnly");
+            return true;
+        }
+        galaxy::RuntimeSettings settings = galaxy::get_runtime_settings();
+        std::string word(words);
+        for (char& c : word) c = c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
+        if (!word.empty() && word != "on" && word != "off") return false;
+        const bool on = word.empty() ? !coop_star_counter_on() : word == "on";
+        settings.coop.star_counter = on;
+        galaxy::set_runtime_settings(settings);
+        (void)galaxy::save_runtime_settings_to_file();
+        // The room's now, not at the session's next pump: the players' lists show it at once.
+        gCoopSession.set_room(settings.coop);
+        gCoopChat.say(on ? "CoopCmdPscOn" : "CoopCmdPscOff");
+        return true;
+    };
+    (void)gCoopChat.commands().add(std::move(psc));
+}
+
 // The player list (Tab or the controller's Share held): the room's players by number, each one's place and round trip.
 uint32_t svc_coop_list(void*, NebulaCoopListPlayer* players, uint32_t capacity, uint32_t* room_size) {
     if (room_size != nullptr) *room_size = 0u;
@@ -2540,6 +2594,8 @@ uint32_t svc_coop_list(void*, NebulaCoopListPlayer* players, uint32_t capacity, 
 
 // What the game is told and hasn't taken yet (coop_world_take), in order.
 std::deque<galaxy::coop::WorldEvent> gCoopWorldWaiting;
+// The others' objects' states as they came, the game's next to take (coop_objects_take).
+std::deque<galaxy::coop::ObjectState> gCoopStatesWaiting;
 
 // The shared world: what the game's play did (galaxy::coop::World settles it, or sends it to the host to).
 void svc_coop_world_report(void*, const NebulaCoopWorldEvent* event) {
@@ -2552,6 +2608,7 @@ void svc_coop_world_report(void*, const NebulaCoopWorldEvent* event) {
         std::fprintf(stderr, "[coop] world: %s, scenario %d placed\n", copy.name, static_cast<int>(copy.scenario));
         // Nothing waiting from the last scene is for this one (the save comes again whole).
         gCoopWorldWaiting.clear();
+        gCoopStatesWaiting.clear();
         gCoopWorld.enter({copy.name, copy.scenario});
         return;
     case NEBULA_COOP_WORLD_GONE: gCoopWorld.report_gone({copy.object, copy.value}); return;
@@ -2561,6 +2618,12 @@ void svc_coop_world_report(void*, const NebulaCoopWorldEvent* event) {
     case NEBULA_COOP_WORLD_STAR_GOT:
         gCoopWorld.report_star({copy.scenario, (copy.value & NEBULA_COOP_STAR_GRAND) != 0u});
         return;
+    case NEBULA_COOP_WORLD_HIT:
+        if (copy.value > 0xffffu || copy.scenario < 0 || copy.scenario > 255) return;
+        gCoopWorld.report_hit({copy.object, static_cast<std::uint16_t>(copy.value),
+                               static_cast<std::uint8_t>(copy.scenario), 0u});
+        return;
+    case NEBULA_COOP_WORLD_SWITCH: gCoopWorld.report_switch({copy.object, copy.value != 0u}); return;
     default: return;
     }
 }
@@ -2589,6 +2652,16 @@ uint32_t svc_coop_world_take(void*, NebulaCoopWorldEvent* events, uint32_t capac
             to.kind = NEBULA_COOP_WORLD_STAR_GOT;
             to.scenario = from.star.star;
             to.value = from.star.grand ? NEBULA_COOP_STAR_GRAND : 0u;
+        } else if (from.kind == Kind::Hit) {
+            to.kind = NEBULA_COOP_WORLD_HIT;
+            to.object = from.hit.object;
+            to.value = from.hit.message;
+            to.scenario = from.hit.sensor;
+            to.player = from.hit.player;
+        } else if (from.kind == Kind::Switch) {
+            to.kind = NEBULA_COOP_WORLD_SWITCH;
+            to.object = from.change.id;
+            to.value = from.change.on ? 1u : 0u;
         } else {
             using galaxy::coop::SaveKind;
             to.kind = from.save.kind == SaveKind::Star   ? NEBULA_COOP_WORLD_STAR
@@ -2598,6 +2671,53 @@ uint32_t svc_coop_world_take(void*, NebulaCoopWorldEvent* events, uint32_t capac
             to.value = from.save.value;
             std::snprintf(to.name, sizeof(to.name), "%s", from.save.name.c_str());
         }
+        waiting.pop_front();
+    }
+    return count;
+}
+
+// Shared objects (galaxy::coop::ObjectState): the ones this game moves this frame, which the host lets it or not.
+void svc_coop_objects_report(void*, const NebulaCoopObjectState* states, uint32_t count) {
+    if (states == nullptr || count == 0u || !gCoopWorld.active()) return;
+    std::vector<galaxy::coop::ObjectState> report;
+    report.reserve(std::min<uint32_t>(count, 512u));
+    for (uint32_t i = 0; i < count && i < 512u; ++i) {
+        const NebulaCoopObjectState& from = states[i];
+        galaxy::coop::ObjectState& to = report.emplace_back();
+        to.object = from.object;
+        to.nerve = from.nerve;
+        to.step = static_cast<std::uint16_t>(std::min<uint32_t>(from.step, 0xffffu));
+        to.flags = static_cast<std::uint8_t>(from.flags & (galaxy::coop::kObjectHitClaim | galaxy::coop::kObjectHitNerve));
+        std::copy(std::begin(from.position), std::end(from.position), to.position.begin());
+        std::copy(std::begin(from.velocity), std::end(from.velocity), to.velocity.begin());
+        std::copy(std::begin(from.rotation), std::end(from.rotation), to.rotation.begin());
+        to.distance = from.distance;
+    }
+    gCoopWorld.report_states(report);
+}
+
+// The others' objects as they came (the latest of each): what the game can't take this call waits for the next.
+uint32_t svc_coop_objects_take(void*, NebulaCoopObjectState* states, uint32_t capacity) {
+    std::deque<galaxy::coop::ObjectState>& waiting = gCoopStatesWaiting;
+    if (!gCoopWorld.active()) {
+        waiting.clear();
+        return 0u;
+    }
+    for (const galaxy::coop::ObjectState& state : gCoopWorld.take_states()) waiting.push_back(state);
+    uint32_t count = 0u;
+    while (states != nullptr && count < capacity && !waiting.empty()) {
+        const galaxy::coop::ObjectState& from = waiting.front();
+        NebulaCoopObjectState& to = states[count++];
+        to = {};
+        to.object = from.object;
+        to.nerve = from.nerve;
+        to.step = from.step;
+        to.flags = from.flags;
+        std::copy(from.position.begin(), from.position.end(), to.position);
+        std::copy(from.velocity.begin(), from.velocity.end(), to.velocity);
+        std::copy(from.rotation.begin(), from.rotation.end(), to.rotation);
+        to.distance = from.distance;
+        to.player = from.player;
         waiting.pop_front();
     }
     return count;
@@ -2670,6 +2790,7 @@ uint32_t svc_coop_remote(void*, NebulaCoopRemotePlayer* players, uint32_t capaci
         // The character is the room's: what they picked as they joined.
         player.flags = (snapshot.flags & ~static_cast<uint32_t>(NEBULA_COOP_PLAYER_LUIGI)) |
                        (from.character == galaxy::CoopCharacter::Luigi ? NEBULA_COOP_PLAYER_LUIGI : 0u);
+        player.area = snapshot.area;
         // Their snapshot came half a round trip ago and shows kSnapshotDelay late; what they saw of this player had
         // come and shown as late. Two joiners reach each other through the host: each one's ping is to it.
         const auto them = std::find_if(room.begin(), room.end(),
@@ -2694,6 +2815,7 @@ void svc_coop_rules(void*, NebulaCoopRules* rules) {
     rules->interaction = static_cast<uint32_t>(room.player_interaction);
     rules->knockback = room.knockback_strength;
     rules->pvp = static_cast<uint32_t>(room.pvp_mode);
+    rules->bubble = room.bubble_death ? 1u : 0u;
 }
 
 // Nebula's screens with small text (sharp_2d): the 2D layer at the window's resolution while they show.
@@ -4603,24 +4725,93 @@ int svc_test_scene_frame(void*, NebulaTestAction* action) {
 // other power events close the game.
 // Every way out of the game: pending saves written (bounded: a dead drive does not hold the game), counters flushed.
 #if defined(_WIN32) && defined(NEBULA_HOST_RENDERER)
-// One game per data folder, so two never write the same saves. A second start brings the first's window forward and ends. Hidden test
-// runs have their own folders and may run side by side; GALAXY_TEST_ONE_GAME=1 tests this.
+// Up to kMaxGames games per data folder, so a player can host and join on one computer to test co-op. The first plays
+// as always; each further one is game 2, 3, ... with its own folder for the files it writes (galaxy/game_instance.h),
+// so two never write the same saves or settings. A start past the last brings the first's window forward and ends.
+// Hidden test runs have their own folders and may run side by side; GALAXY_TEST_ONE_GAME=1 tests this.
+constexpr unsigned kMaxGames = 4u;
+// The game a restart (finish_and_exit) starts again as, so a second game stays the second.
+constexpr wchar_t kGameInstanceVariable[] = L"NEBULA_GAME_INSTANCE";
 HANDLE gOneGame = nullptr;
 
-bool one_game_at_a_time() {
+// A second game's folder starts with copies of the first's settings, graphics settings and mods list, the window
+// windowed (two borderless games on one screen would cover each other). A file it already has stays as it is.
+void seed_game_instance(const fs::path& folder, const fs::path& settings, const fs::path& config) {
+    std::error_code error;
+    fs::create_directories(folder, error);
+    const auto copy_once = [&](const fs::path& from, const fs::path& to) {
+        std::error_code copy_error;
+        if (from.empty() || fs::exists(to, copy_error) || !fs::is_regular_file(from, copy_error)) return false;
+        return fs::copy_file(from, to, copy_error) && !copy_error;
+    };
+    if (!settings.empty()) {
+        copy_once(settings / "runtime_settings.ini", folder / "runtime_settings.ini");
+        copy_once(settings / "mods.ini", folder / "mods.ini");
+    }
+    if (copy_once(config, folder / "config.ini")) {
+        std::string text;
+        if (std::FILE* file = galaxy::open_path(folder / "config.ini", "rb")) {
+            char buffer[4096];
+            for (std::size_t read; (read = std::fread(buffer, 1, sizeof(buffer), file)) != 0u;) text.append(buffer, read);
+            std::fclose(file);
+        }
+        std::string out;
+        for (std::size_t at = 0; at < text.size();) {
+            std::size_t end = text.find('\n', at);
+            end = end == std::string::npos ? text.size() : end + 1u;
+            const std::string_view line(text.data() + at, end - at);
+            out += line.starts_with("display_mode=") ? "display_mode=" + std::to_string(galaxy::render::kDisplayWindowed) + "\n"
+                                                     : std::string(line);
+            at = end;
+        }
+        (void)galaxy::io::write_file_atomically(folder / "config.ini", out);
+    }
+}
+
+// True when this start should end (every game slot taken).
+bool claim_game_instance(int argc, char** argv) {
     if (::galaxy::run_option_flag(::galaxy::run_options().hide_window, false) &&
         !::galaxy::run_option_flag(::galaxy::run_options().test_one_game, false)) {
         return false;
     }
-    std::wstring name = L"Local\\NebulaGame-";
-    for (const wchar_t c : galaxy::runtime_settings_folder().wstring()) {
-        name += c == L'\\' || c == L':' ? L'_' : c;
-    }
-    gOneGame = CreateMutexW(nullptr, TRUE, name.c_str());
-    if (gOneGame == nullptr || GetLastError() != ERROR_ALREADY_EXISTS) {
+    // The mods tool (--import-mod, --list-mods, --remove-mod) plays no game: it works on the first's mods.
+    if (argc >= 2 && (std::strcmp(argv[1], "--import-mod") == 0 || std::strcmp(argv[1], "--list-mods") == 0 ||
+                      std::strcmp(argv[1], "--remove-mod") == 0)) {
         return false;
     }
-    log_line("host:", "the game is already running");
+    const fs::path settings = galaxy::runtime_settings_folder();
+    std::wstring base = L"Local\\NebulaGame-";
+    for (const wchar_t c : settings.wstring()) {
+        base += c == L'\\' || c == L':' ? L'_' : c;
+    }
+    // A restart asks for the game it was; otherwise the first free one.
+    unsigned wanted = 0u;
+    wchar_t value[8]{};
+    if (GetEnvironmentVariableW(kGameInstanceVariable, value, 8) != 0u) {
+        const unsigned digit = static_cast<unsigned>(value[0]) - static_cast<unsigned>(L'0');
+        if (digit >= 1u && digit <= kMaxGames && value[1] == L'\0') wanted = digit;
+        SetEnvironmentVariableW(kGameInstanceVariable, nullptr);
+    }
+    for (unsigned attempt = 0u; attempt <= kMaxGames; ++attempt) {
+        const unsigned number = attempt == 0u ? wanted : attempt;
+        if (number == 0u || (attempt != 0u && number == wanted)) continue;
+        // The first game's name is the one every earlier Nebula used.
+        const std::wstring name = number == 1u ? base : base + L"-" + std::to_wstring(number);
+        HANDLE mutex = CreateMutexW(nullptr, TRUE, name.c_str());
+        if (mutex == nullptr) return false;  // nothing to tell games apart with: play, as the first
+        if (GetLastError() == ERROR_ALREADY_EXISTS) {
+            CloseHandle(mutex);
+            continue;
+        }
+        gOneGame = mutex;
+        if (number > 1u && !settings.empty()) {
+            const fs::path folder = settings / "instances" / std::to_wstring(number);
+            seed_game_instance(folder, settings, galaxy::render::render_config_path());
+            galaxy::set_game_instance(number, folder);
+        }
+        return false;
+    }
+    log_line("host:", "every game slot is taken");
     if (HWND window = FindWindowW(galaxy::render::host_window::kWindowClass, nullptr)) {
         ShowWindow(window, IsIconic(window) ? SW_RESTORE : SW_SHOW);
         SetForegroundWindow(window);
@@ -4628,6 +4819,23 @@ bool one_game_at_a_time() {
     return true;
 }
 #endif
+
+// A second game's saves (galaxy/game_instance.h): its own folder, which starts as a copy of the first's.
+fs::path game_instance_saves(const fs::path& saves) {
+    const fs::path& folder = galaxy::game_instance_folder();
+    if (folder.empty()) return saves;
+    const fs::path own = folder / "saves";
+    std::error_code error;
+    if (!fs::exists(own, error)) {
+        fs::create_directories(own, error);
+        if (fs::is_directory(saves, error)) {
+            fs::copy(saves, own, fs::copy_options::recursive | fs::copy_options::skip_existing, error);
+            if (error) std::fprintf(stderr, "[host] game %u's saves: copying the first's failed (%s)\n",
+                                    galaxy::game_instance(), error.message().c_str());
+        }
+    }
+    return own;
+}
 
 [[noreturn]] void finish_and_exit(bool restart) {
     log_line("host:", restart ? "restart" : "the game ended");
@@ -4647,6 +4855,9 @@ bool one_game_at_a_time() {
 #if defined(NEBULA_HOST_RENDERER)
         if (gOneGame != nullptr) {
             CloseHandle(gOneGame);  // the new process takes it
+        }
+        if (const unsigned instance = galaxy::game_instance(); instance > 1u) {
+            SetEnvironmentVariableW(kGameInstanceVariable, std::to_wstring(instance).c_str());
         }
 #endif
         wchar_t path[MAX_PATH];
@@ -4987,7 +5198,7 @@ int main(int argc, char** argv) {
     if (argc >= 3 && std::strcmp(argv[1], "--crash-report") == 0) {
         return show_crash_report_dialog();
     }
-    if (one_game_at_a_time()) {
+    if (claim_game_instance(argc, argv)) {
         return 0;
     }
 #endif
@@ -5136,6 +5347,11 @@ int main(int argc, char** argv) {
     if (saves.empty()) {
         saves = default_nand(program);
     }
+    saves = game_instance_saves(saves);
+    if (const unsigned instance = galaxy::game_instance(); instance > 1u) {
+        log_line("host:", ("game " + std::to_string(instance) + ", with its own settings and saves in " +
+                           utf8_of(galaxy::game_instance_folder())).c_str());
+    }
     log_line("paths:", ("disc " + pak.string() + ", saves " + saves.string()).c_str());
     if (module.empty()) {
 #if defined(_WIN32)
@@ -5211,9 +5427,13 @@ int main(int argc, char** argv) {
         gSaveDataPath = std::string("/title/00010000/") + title + "/data";
         fs::create_directories(gSaveRoot / gSaveDataPath.substr(1), error);  // the release's own save folder
         if (!settings_folder.empty()) {
-            fs::create_directories(settings_folder / "mods", error);
-            galaxy::mods::set_mods_folder(settings_folder / "mods", settings_folder / "mods.ini", game_id);
-            // A join Nebula started again for: this start plays the room's mods (prepare_mod_files), then joins.
+#if !defined(NEBULA_RELEASE)  // mods return with their feature
+            // A second game (galaxy/game_instance.h) plays the first's installed mods, with its own list of which are on.
+            const fs::path& instance = galaxy::game_instance_folder();
+            const fs::path mods_home = instance.empty() ? settings_folder : instance.parent_path().parent_path();
+            fs::create_directories(mods_home / "mods", error);
+            galaxy::mods::set_mods_folder(mods_home / "mods", settings_folder / "mods.ini", game_id);
+            // A join Nebula started again for: this start plays the room's mods, then joins.
             if (std::optional<galaxy::coop::NextJoin> join = galaxy::coop::take_next_join(coop_next_join_file())) {
                 std::vector<galaxy::mods::RoomModChoice> room;
                 for (const galaxy::coop::SharedMod& mod : join->mods) {
@@ -5384,6 +5604,8 @@ int main(int argc, char** argv) {
     services.coop_menu = svc_coop_menu;
     services.coop_chat = svc_coop_chat;
     gCoopChat.attach(gCoopSession);
+    galaxy::coop::add_room_commands(gCoopChat, gCoopSession);
+    add_coop_star_counter_command();
     services.coop_list = svc_coop_list;
     services.coop_remote = svc_coop_remote;
     services.coop_world_report = svc_coop_world_report;
@@ -5391,6 +5613,8 @@ int main(int argc, char** argv) {
     services.coop_star_count = svc_coop_star_count;
     services.coop_rules = svc_coop_rules;
     services.coop_achievement_take = svc_coop_achievement_take;
+    services.coop_objects_report = svc_coop_objects_report;
+    services.coop_objects_take = svc_coop_objects_take;
 #if defined(NEBULA_HOST_RENDERER)
     // The display configuration (GALAXY_RENDER_CONFIG_PATH in tests), loaded before the window; the settings overlay
     // reads its frame art from the game files.

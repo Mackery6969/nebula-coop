@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <span>
 #include <string>
+#include <vector>
 #include <string_view>
 
 namespace galaxy {
@@ -86,6 +87,9 @@ struct RuntimeCoopSettings {
     CoopPlayerInteraction player_interaction = CoopPlayerInteraction::Solid;
     unsigned knockback_strength = kCoopKnockbackNormal;
     CoopPvpMode pvp_mode = CoopPvpMode::Classic;
+    // Bubble on death (sm64coopdx's): a player who dies with another alive in the same part of the galaxy floats in a
+    // bubble to them instead of missing, for a life.
+    bool bubble_death = true;
     // The room's cheats (the Online tab's Cheats): off, they do nothing for anyone in it.
     bool cheats = false;
     // The room's built-in Personal Star Counter mod (the Host page's Mods, the Online tab): each player's stars on the
@@ -120,6 +124,11 @@ struct RuntimeSettings {
     // Co-star mode: with two controllers attached, the second plays player 2.
     bool co_star = false;
     RuntimeCoopSettings coop{};
+    // Who is banned from, and who is a moderator of, every co-op room this player hosts (sm64coopdx's ban and
+    // moderator lists; /permban and /moderator add to them): the players' IP addresses. Not the Host page's: the
+    // room's commands keep them.
+    std::vector<std::string> coop_bans;
+    std::vector<std::string> coop_moderators;
 
     friend bool operator==(const RuntimeSettings&, const RuntimeSettings&) = default;
 };

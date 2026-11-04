@@ -35,6 +35,7 @@ What's left to turn Nebula into an online co-op mod like sm64coopdx. The reasoni
 - [x] Version, mods and disc check when a player joins
 - [x] Mod sharing as sm64coopdx's: joiners download the room's mods they don't have from the host
 - [x] Chat (keyboard only; controllers read it): T opens a line, Enter sends it, Escape drops it
+- [x] Chat commands as sm64coopdx's: /help, /players, /kick, /ban, /permban, /moderator, /confirm, Tab completion
 - [x] Personal Star Counter (sm64coopdx's mod, built in): each player's stars this room and all time under the HUD's
       star count, and each player's in the player list; a built-in mod the host turns on for the room (Host page's
       Mods, Online tab), off by default
@@ -50,7 +51,8 @@ What's left to turn Nebula into an online co-op mod like sm64coopdx. The reasoni
 
 ## Later (Phases 3 and 4)
 
-- [ ] Shared enemies and objects
+- [x] Shared enemies and objects: hits (squashes play everywhere), enemies' movement, switches, blocks, enemies' coins
+- [ ] Bosses' movement and hits from thrown things shared
 - [ ] Bosses and story demos with several players
 - [ ] Dedicated server (the game with no window)
 

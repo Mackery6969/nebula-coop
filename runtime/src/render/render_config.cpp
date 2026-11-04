@@ -6,6 +6,7 @@
 #include "../../../tools/test_driver/switches.h"
 #include "galaxy/atomic_file.h"
 #include "galaxy/platform_paths.h"
+#include "galaxy/game_instance.h"
 
 #include <algorithm>
 #include <bit>
@@ -332,6 +333,9 @@ static std::filesystem::path config_path() {
         return override_path[0] != '\0' ? std::filesystem::path(override_path) : std::filesystem::path{};
     }
 #endif
+    if (const std::filesystem::path& instance = galaxy::game_instance_folder(); !instance.empty()) {
+        return instance / "config.ini";  // a second game's own (galaxy/game_instance.h)
+    }
     const std::filesystem::path folder = galaxy::nebula_data_directory();
     return folder.empty() ? folder : folder / "config.ini";
 }

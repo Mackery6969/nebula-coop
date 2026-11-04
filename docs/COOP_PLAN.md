@@ -57,8 +57,9 @@ Games are self-hosted. There is no lobby server, relay or account system run by 
 - **Server settings.** The `coop_*` keys in `runtime_settings.ini`, so a dedicated server can be configured without a
   menu: `coop_port` (default 7777), `coop_max_players` (2-16, default 8), `coop_player_name`, `coop_password`, and the
   [player collision](#player-collisions) options `coop_player_interaction`, `coop_knockback_strength` and
-  `coop_pvp_mode`, and `coop_cheats`. They're written only once they differ from the defaults. The host's collision options and save are
-  the session's, as in sm64coopdx.
+  `coop_pvp_mode`, [bubble on death](#bubble-on-death) `coop_bubble_death` (`1` or `0`, default `1`), and
+  `coop_cheats`. They're written only once they differ from the defaults. The host's collision and bubble options and
+  save are the session's, as in sm64coopdx.
 
 ## Instances: one per galaxy and mission
 
@@ -114,7 +115,7 @@ front of it, as its own screen.
   | Page | Rows |
   |---|---|
   | Main | Host, Join, Options, Quit; Nebula's version in a corner |
-  | Host | Save (any number, each with its name and Power Stars; New, Rename and Erase), port, password, max players, Player Interaction, Knockback Strength, PvP Mode, Cheats, then Host and Back |
+  | Host | Save (any number, each with its name and Power Stars; New, Rename and Erase), port, password, max players, Player Interaction, Knockback Strength, PvP Mode, Bubble on Death, Cheats, then Host and Back |
   | Join | Address (`host[:port]`), password, then Join; the last address is remembered. No public or private lobbies: there's no relay |
   | Options | Nebula's settings pages, with PLAYER in the MODS page's old place: name, character (Mario or Luigi, as sm64coopdx's player options pick a model). MODS is the last page |
   | Quit | "Quit to desktop?" yes or no |
@@ -185,8 +186,8 @@ How a join goes (`galaxy/coop_mods.h`, `galaxy/coop_session.h`), as sm64coopdx's
 
 Nebula's in-game settings menu (F1, the pause menu's Settings) keeps its pages, but ADVANCED becomes **ONLINE**:
 
-- **Room.** The session's settings: Player Interaction, Knockback Strength, PvP Mode, Cheats, the built-in Personal
-  Star Counter and the player list.
+- **Room.** The session's settings: Player Interaction, Knockback Strength, PvP Mode, Bubble on Death, Cheats, the
+  built-in Personal Star Counter and the player list.
   The host changes them for everyone, like sm64coopdx's in-game host settings; other players see them.
 - **No Leave game.** The way out of an online game is the game's own: the pause menu's Quit (in the Observatory, or
   before it opens) returns to the main menu, and back there the session ends (the host closes the room, a joiner
@@ -263,6 +264,40 @@ The host keeps it (`runtime/src/coop_chat.cpp`): a line is a session message hol
 at most 100 characters), so its sender's name is the session's and can't be faked. A player's lines past five in three
 seconds are dropped. The window layers send T to it while the host allows it (a room's game with no menu over it), and
 the game draws what `coop_chat` gives it (`NebulaCoopChat`, the game's window and message font).
+
+### Chat commands
+
+sm64coopdx's chat commands (its `chat_commands.c` and its mods' `hook_chat_command`). A line starting with `/` runs a
+command on the player's own game instead of going to the room; what it says shows in the chat for that player alone,
+in pale yellow, in the played language (`CoopCmd...` in `localization/NebulaText.tsv`). `/help` (or `/?`, or `/`
+alone) lists the commands the player may use now, and an unknown one says so. Tab completes a command's name, its
+options and the room's players' names (each Tab the next match), and a player's name in a message.
+
+| Command | Who | What |
+|---|---|---|
+| `/players` | everyone | every player in the room by number (the host is 0) |
+| `/kick NAME\|NUMBER` | the host, a moderator | removes the player from the room; they may join again |
+| `/ban NAME\|NUMBER` | the host, a moderator | removes them and refuses them while this room is open |
+| `/permban NAME\|NUMBER` | the host | removes them and refuses them in every room this player hosts |
+| `/moderator NAME\|NUMBER` | the host | lets them `/kick` and `/ban`, in every room this player hosts |
+| `/confirm` | whoever was asked | the four above ask first; `/confirm` does it, any other line drops the question |
+
+- **Who a player is.** Bans and moderators go by the player's IP address (the transport's `peer_identity`, as
+  sm64coopdx's `get_id_str`), so they hold when the player joins again under another name. On one machine (or behind
+  one router's address) a ban bans everyone there, as in sm64coopdx.
+- **Kept.** `/permban` and `/moderator` keep the address in `runtime_settings.ini` (`coop_bans`, `coop_moderators`),
+  given to the session as the room opens. A banned player is refused at the join ("YOU ARE BANNED FROM THIS ROOM"),
+  and a kept moderator is one again as they join.
+- **Messages.** The host does every removal (the transport's `unpeer`; the player is told "THE HOST REMOVED YOU FROM
+  THE ROOM"). A moderator's `/kick` and `/ban` ask the host with the session's message 12, which the host checks
+  against its own list of moderators. Who is a moderator travels with the player's info (session protocol 7).
+- **Adding one.** A feature registers its own command, as a sm64coopdx mod does: `Chat::commands().add(name,
+  description, handler)` (`galaxy/coop_commands.h`); a `[On|Off]` in the description are the options Tab offers.
+  Nebula's mods (Riivolution patches, files) run no code, so the commands are Nebula's own features': the Personal
+  Star Counter's host-only `/psc [on|off]` (the host's `host_main.cpp`) turns the room's counter on or off, as the Host
+  page's Mods does, and keeps it for the rooms it hosts later.
+- **The game.** The host's `coop_chat` gives a command's words as `NEBULA_COOP_CHAT_NOTICE` lines (game API 121):
+  a `CoopCmd...` text id with `{name}` filled in, or words as they are.
 
 ## Personal Star Counter
 
@@ -353,6 +388,32 @@ The rules carried over, with SMG's equivalents (`NebulaRemotePlayer`, game API 4
   own Mario. No message is sent for a hit, so collisions add nothing to a room's traffic.
 - Not yet: a Fire Mario's fireballs and other thrown things, which other players' games don't draw.
 
+## Bubble on death
+
+sm64coopdx's bubble (`mario_set_bubbled`, `act_bubbled`, `bhv_bubble_player`), a room option on the Host page and
+the Online tab (Bubble on Death, `coop_bubble_death`, on by default), sent with the room as the collision options are.
+
+- **When.** A player whose Mario would miss (any of the game's deaths: hurt to nothing, a fall, lava, quicksand, a
+  black hole, drowning...) while another player is alive in the same instance *and the same part of it* loses a life
+  and floats in a bubble instead. With no life left it's the game over, as in sm64coopdx; a race lost or the timer
+  running out is never a bubble.
+- **The same part.** A galaxy is one scene, so sm64coopdx's areas are the warp pipes here: each player's part is where
+  the stage starts, or the pipe they last came out of; going back down that pipe returns them to the part before
+  (a stack, `NebulaCoopPlayer::area`, a hash of the pipe's placed position, the same in every game). A player down a
+  pipe can't save one above it, nor the other way round. Launch Stars and Warp Pods stay in the same part.
+- **Flying.** The bubble (the air bubble's model, turning and swelling) holds Mario, who can't be touched and touches
+  nothing: no enemy, item, death area or wall. The stick flies it where the camera looks, A rises and Z sinks, eased as
+  sm64coopdx's (`MarioActor`'s `NebulaBubble` state, `NebulaCoopBubble`).
+- **Out.** Touching a player who can let them out (in the same part, neither dead nor bubbled) after two thirds of a
+  second bursts it: the player plays on from there with full health (3) and three seconds unharmed. With nobody left
+  to fly to for half a second (they missed, left the part or the instance), the bubble ends in the miss after all, with
+  its life given back, since the miss takes one.
+- **Who decides.** The bubbled player's own game, as sm64coopdx: no message. The snapshot says it
+  (`NEBULA_COOP_PLAYER_BUBBLED`, with `DEAD` and `INTANGIBLE`) and its part, and the others draw the bubble round its
+  copy, bursting as it's let out (game API 120, session protocol 7).
+- Not yet: Mario keeps a power-up form in the bubble (a miss would have taken it), and doesn't turn to face where he
+  flies.
+
 ## Shared world state
 
 The server decides everything but the visuals (`galaxy/coop_world.h`, the game's `NebulaCoopWorld`, game API 40's
@@ -388,8 +449,34 @@ and tells the players it concerns. It follows sm64coopdx's rules, with Galaxy's 
   pop-up (game API 43's `coop_achievement_take`); the goal met later in that player's own game shows nothing again.
   Achievements are the host process's, not the game's: a scene start doesn't give them again. The headless host keeps
   none.
-- **Later (Phase 3).** Objects' movement and state (enemies walking, platforms, switches) and which player each enemy
-  targets: sync objects as sm64coopdx's `sync_object.c`, each owned by the server.
+
+## Shared objects
+
+As sm64coopdx's sync objects (`sync_object.c`), on top of the shared world's keys: every actor placed from the stage's
+files has a key from its placement, and the actors it makes as it is placed (a boss's parts, a group's members) get
+keys from it and their order. Messages 40-42 of `galaxy/coop_world.h`, game API 119's `coop_objects_report` and
+`coop_objects_take`, `NEBULA_COOP_WORLD_HIT` and `NEBULA_COOP_WORLD_SWITCH`.
+
+| What | How | As sm64coopdx |
+|---|---|---|
+| A hit (stomp, spin, ground pound, kick, upper punch, freeze, star power) | The local Mario's hit on a followed thing is played again in each other game in the instance, sent from his copy there, so the thing runs the same reaction: a Goomba squashed with its animation, a block broken, a boss hurt. Things a hit kills stay until their death has played | `packet_object.c`'s interactions |
+| An enemy's movement | One game moves each plain enemy: its owner, the nearest player, the host settling who. The others' copies follow its nerve (their own AI doesn't change it), place, speed and turn, eased; far off they snap | `sync_object` owners and `so->behavior` |
+| A stage switch | Turned in one game, turned in the others in the instance; the instance's record keeps them, given to a player entering it before it is ready | `packet_level_*`, the respawn info |
+| An enemy's coins | Keyed by the enemy and their order, so one taken is gone for everyone and counts for all | spawned objects' sync ids |
+
+- **Who owns an enemy.** The host takes a claim when the enemy has no owner, the claim is its owner's, its owner has
+  been silent for half a second, the claimant is a quarter nearer, or the claimant hit it. Owners send their enemies
+  15 times a second while they move (3 times still), unreliably, only enemies within 6000 units; the host
+  sends a taken claim on to the others in the instance. A player leaving gives up what they owned.
+- **Nerves.** A nerve's id is a hash of its class and name (`NEW_NERVE`), the same in every build; a nerve another
+  game sends is used only on an actor of the class it belongs to.
+- **Local switches.** Switches an area turns while the local player is in it (`SwitchArea` with a player condition,
+  `ClipFieldSwitch`) stay each player's; a switch that turns back and forth more than four times in two seconds (a
+  timer's) is made each player's for the scene, so it doesn't flood the room.
+- **Not yet.** Hits from things other than Mario himself (a fireball, a thrown shell, a star bit) aren't played again,
+  so bosses hurt by thrown things (Kaliente's coconuts, Kingfin's shells) can differ between games. Bosses get the
+  shared hits but not shared movement; platforms on their own timers stay each game's (switch-driven ones are shared).
+  Enemies don't yet target the nearest player in every game (Phase 3's second item).
 
 ## Phases
 
@@ -449,6 +536,8 @@ Each phase ships on its own and leaves the game playable.
 - [x] Version, disc and mods check as a player joins: another version or disc is refused; other mods get the room's
       (see [Mods](#mods-the-rooms-not-the-players)).
 - [x] [Chat](#chat), keyboard only; controllers read it.
+- [x] [Chat commands](#chat-commands) as sm64coopdx's: `/help`, `/players`, `/kick`, `/ban`, `/permban`,
+      `/moderator`, `/confirm`, Tab completion, and commands features add (API version 121).
 - [x] The [Personal Star Counter](#personal-star-counter): each player's stars this room and all time, on the HUD and
       in the player list (API version 41); a built-in mod the host turns on for the room, off by default (API 118).
 
@@ -463,12 +552,16 @@ Each phase ships on its own and leaves the game playable.
       ([Shared world state](#shared-world-state)).
 - [x] [Player collisions](#player-collisions): non-solid, solid and friendly fire, knockback strength and PvP mode,
       with lag compensation.
-- [ ] Remote players stomp, spin and touch objects. Hits are sent as events to the client that owns the object.
+- [x] [Bubble on death](#bubble-on-death): a player who dies near another flies to them in a bubble, for a life.
+- [x] Remote players stomp, spin and touch objects: each hit is played again in every game in the instance
+      ([Shared objects](#shared-objects)).
 
 ### Phase 3: shared enemies and objects
 
-- [ ] Per-object packets on top of Phase 2's placement keys (`NebulaCoopWorld`), each object owned by the server.
-      Begin with simple enemies (Goomba/Kuribo, Octoomba), then platforms and switches.
+- [x] Per-object packets on top of Phase 2's placement keys (`NebulaCoopWorld`), each enemy owned by its nearest
+      player with the host settling who: enemies' movement and deaths, hits on anything placed (blocks, bosses and
+      their parts), switches, enemies' coins ([Shared objects](#shared-objects)).
+- [ ] Bosses' movement, and hits from thrown things (fireballs, shells, star bits).
 - [ ] Each enemy targets the *nearest* player instead of `MR::getPlayerPos`. This is where the call-site inventory
       gets used: route `MR::getPlayer*` through a "player relevant to this actor" helper, one subsystem at a time.
 

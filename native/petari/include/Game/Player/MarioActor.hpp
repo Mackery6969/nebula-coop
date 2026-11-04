@@ -293,6 +293,8 @@ public:
     void exeGameOverSink();
     void exeGameOverNonStop();
     void exeTimeWait();
+    // Online co-op's bubble on death (NebulaCoopBubble): flying to another player in a bubble instead of a miss.
+    void exeNebulaBubble();
 
     // Defined in MarioActorGravity
     const TVec3f& getGravityVec() const;
@@ -1017,4 +1019,5 @@ namespace NrvMarioActor {
     NEW_NERVE(MarioActorNrvGameOverSink, MarioActor, GameOverSink);
     NEW_NERVE(MarioActorNrvTimeWait, MarioActor, TimeWait);
     NEW_NERVE(MarioActorNrvNoRush, MarioActor, Wait);
+    NEW_NERVE(MarioActorNrvNebulaBubble, MarioActor, NebulaBubble);
 };  // namespace NrvMarioActor
