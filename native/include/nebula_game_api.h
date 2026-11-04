@@ -681,6 +681,8 @@ enum {
 enum {
     NEBULA_COOP_GONE_COIN = 1u << 0,   /* a coin a player took: gone for everyone, counted only for its taker */
     NEBULA_COOP_GONE_PURPLE = 1u << 1, /* a purple coin a player took: it counts toward the 100 for everyone */
+    NEBULA_COOP_GONE_CHIP = 1u << 2,   /* a Star Chip a player took: it counts toward its group for everyone (the
+                                          group's Launch Star appears for all) */
 };
 
 /* Online co-op's shared objects (coop_objects_report and coop_objects_take, docs/COOP_PLAN.md "Shared objects"),

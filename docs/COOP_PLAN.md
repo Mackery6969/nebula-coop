@@ -469,6 +469,7 @@ and tells the players it concerns. It follows sm64coopdx's rules, with Galaxy's 
 | A coin taken | Gone for everyone in the instance; counted only for its taker (Galaxy has no 100-coin star, so each player's coins are their own) | `packet_collect_coin`, without its count |
 | A purple coin taken | Gone for everyone in the instance, and counted toward the 100 for each of them, so the star appears for all | `packet_collect_coin` |
 | A star bit taken | Gone for everyone in the instance; counted only for its taker | `packet_collect_coin`, without its count |
+| A Star Chip taken (blue or yellow, placed or from a box or a shell) | Gone for everyone in the instance, and counted toward its group for each of them, so the group's Launch Star appears for all | `packet_collect_coin` (red coins) |
 | A 1-Up or Life Mushroom, a Rainbow Star taken | Gone for everyone in the instance; what it gives is its taker's | `packet_collect_item` |
 | A plain enemy defeated | Gone for everyone in the instance, its dead switch turned on in each game (a star waiting on it appears for all), without its drops | an object's death in `packet_object.c`, kept by `packet_level_respawn_info` |
 | A Power Star got, an event flag on | The session's save, for every player | `packet_collect_star`, `packet_save_set_flag` |

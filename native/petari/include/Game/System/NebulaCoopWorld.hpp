@@ -78,6 +78,10 @@ namespace NebulaCoopWorld {
     void endPlacement();
     // Each game scene frame: what the server told is applied, what the local play killed is reported.
     void update();
+    // ChipBase::initAfterPlacement: a Star Chip (blue or yellow), wherever it came from (placed, in a box, a shell).
+    void noteChip(LiveActor* pChip);
+    // ChipBase::requestGet: the local player took this Star Chip: it counts toward its group for everyone.
+    void noticeChipGot(LiveActor* pChip);
     // Coin::noticeGetCoin: the local player took this coin (gone for the others, counted only here).
     void noticeCoinGot(const LiveActor* pCoin);
     // StarPiece, as the local player gets it: it is gone for the others (a drop is reported only once taken).

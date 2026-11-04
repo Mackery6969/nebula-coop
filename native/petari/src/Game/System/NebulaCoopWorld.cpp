@@ -9,6 +9,7 @@
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/LiveActor/Spine.hpp"
 #include "Game/Map/StageSwitch.hpp"
+#include "Game/MapObj/ChipBase.hpp"
 #include "Game/MapObj/Coin.hpp"
 #include "Game/MapObj/CoinGroup.hpp"
 #include "Game/MapObj/StarPiece.hpp"
@@ -196,6 +197,20 @@ namespace {
             return false;
         }
         return true;
+    }
+
+    // The Star Chips in this scene (another player's take is applied only to a chip).
+    const s32 cMaxChips = 256;
+    LiveActor* sChips[cMaxChips];
+    s32 sChipNum = 0;
+
+    bool isChip(const LiveActor* pActor) {
+        for (s32 i = 0; i < sChipNum; i++) {
+            if (sChips[i] == pActor) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // Things the server said were gone before this game had them (a coin an enemy drops here later).
@@ -434,6 +449,14 @@ namespace {
             return;
         }
         rEntry.mGone = true;
+        if ((how & NEBULA_COOP_GONE_CHIP) != 0 && isChip(rEntry.mActor)) {
+            // Another player's Star Chip counts toward its group here too, whether it shows yet or not.
+            sApplying = true;
+            static_cast< ChipBase* >(rEntry.mActor)->takeForOtherPlayer();
+            sApplying = false;
+            rEntry.mAlive = false;
+            return;
+        }
         const bool following = rEntry.mMotion >= 0 && sMotions[rEntry.mMotion].mFollowing;
         if (rEntry.mGot && !MR::isDead(rEntry.mActor)) {
             // The local player took it too and it still flies to him: it ends its flight first.
@@ -906,6 +929,7 @@ namespace NebulaCoopWorld {
         sLocalSwitches = 0;
         sFlipNum = 0;
         memset(sPending, 0, sizeof(sPending));
+        sChipNum = 0;
         sObjectsActive = false;
         sSelf = 0;
         sHost = false;
@@ -1248,6 +1272,26 @@ namespace NebulaCoopWorld {
         if (index >= 0) {
             sEntries[index].mGot = true;
         }
+    }
+
+    void noteChip(LiveActor* pChip) {
+        if (sInRoom && pChip != nullptr && sChipNum < cMaxChips && !isChip(pChip)) {
+            sChips[sChipNum++] = pChip;
+        }
+    }
+
+    void noticeChipGot(LiveActor* pChip) {
+        if (!sInRoom || !sPlaced || sApplying) {
+            return;
+        }
+        const s32 index = findActor(pChip);
+        if (index < 0 || sEntries[index].mGone) {
+            return;
+        }
+        // Gone here as its own take plays out (its effect, its sound), then kept dead.
+        sEntries[index].mGone = true;
+        sEntries[index].mGoneDelay = 60;
+        report(NEBULA_COOP_WORLD_GONE, sEntries[index].mKey, NEBULA_COOP_GONE_CHIP, 0, nullptr);
     }
 
     void noticeStarBitGot(const LiveActor* pPiece) {
