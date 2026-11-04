@@ -389,9 +389,10 @@ typedef struct NebulaShapeCorner {
     uint16_t color[2];
     uint16_t texcoord[8];
     uint8_t position_matrix;
-    uint8_t texture_matrix[8];
+    uint8_t texture_matrix[8]; /* the coordinate's texture place, or NEBULA_CORNER_POSITION_MATRIX */
     uint8_t reserved[3];
 } NebulaShapeCorner;
+#define NEBULA_CORNER_POSITION_MATRIX 0xFFu /* the coordinate starts from the corner's own position matrix */
 
 /* Which arrays a shape group's corners read and which matrix places they carry (NebulaShapeGeometry::attributes). */
 enum {
@@ -725,6 +726,7 @@ enum {
     NEBULA_SCENE_3D_END,
     NEBULA_SCENE_2D_BEGIN, /* GameScene::draw2D's begin */
     NEBULA_SCENE_2D_END,
+    NEBULA_SCENE_3D_OPAQUE_END, /* GameScene::draw3D, before the lists that blend: the scene's projection terms and viewport (12 floats) */
 };
 
 /* The movie player's sound (movie_audio_control). */
@@ -951,6 +953,7 @@ enum {
     NEBULA_SETTINGS_INPUT_XBOX,        /* Xbox, Steam and other controllers: A B X Y, LB RB */
     NEBULA_SETTINGS_INPUT_NINTENDO,    /* Switch Pro and Switch 2 Pro: A B X Y, L R */
     NEBULA_SETTINGS_INPUT_PLAYSTATION, /* cross circle square triangle, L1 R1 */
+    NEBULA_SETTINGS_INPUT_TOUCH,       /* the finger: no key or button hints */
 };
 
 typedef struct NebulaSettingsRow {
@@ -1075,6 +1078,27 @@ typedef struct NebulaCoopChatView {
     uint32_t cursor;       /* in `input` */
     char input[NEBULA_COOP_CHAT_TEXT];
 } NebulaCoopChatView;
+
+/* Online co-op's pop-ups (coop_popup_take, docs/COOP_PLAN.md "Pop-ups"), sm64coopdx's: a small box in the screen's
+   top-right corner for a few seconds as another player joins or leaves, goes somewhere, dies or gets a Power Star. The
+   host makes only the kinds the player keeps on (Options' PLAYER page). Names are printable ASCII. */
+enum {
+    NEBULA_COOP_POPUP_JOINED = 1,     /* `name` joined the room */
+    NEBULA_COOP_POPUP_LEFT,           /* `name` left it */
+    NEBULA_COOP_POPUP_OBSERVATORY,    /* `name` went to the Comet Observatory */
+    NEBULA_COOP_POPUP_GALAXY,         /* `name` went to galaxy `stage`, its star `scenario` (0: none chosen) */
+    NEBULA_COOP_POPUP_ENTERED_HERE,   /* `name` came to this player's galaxy and star */
+    NEBULA_COOP_POPUP_LEFT_HERE,      /* `name` left them */
+    NEBULA_COOP_POPUP_DIED,           /* `name`, in this player's instance, lost a life (a bubble too) */
+    NEBULA_COOP_POPUP_STAR,           /* `name` got a Power Star new to the room's save, in galaxy `stage` */
+};
+typedef struct NebulaCoopPopup {
+    uint32_t kind;      /* NEBULA_COOP_POPUP_* */
+    uint32_t character; /* the player's: 0 Mario, 1 Luigi (their colour) */
+    int32_t scenario;
+    char name[32];
+    char stage[48];     /* NebulaCoopPlayer's stage */
+} NebulaCoopPopup;
 
 /* A Mii as the game draws it (the Mii library's character info): every part, colour, scale and position as a number,
    names UTF-16 (host byte order, 10 characters, unused ones 0), the create ID as a Mii file stores it. */
@@ -1266,6 +1290,9 @@ typedef struct NebulaHostServices {
        video's frame of the same time in place of the planes. Called on the simulation thread. */
     void (*movie_frame)(void* user, const char* name, int32_t frame, float frame_rate, const void* y, const void* u,
                         const void* v, uint32_t width, uint32_t height);
+    /* A native equivalent of a mod's code patch (NEBULA_PATCH_*): 1 with `value` set when an enabled mod carries it,
+       else 0. Fixed for the session. */
+    int (*code_patch)(void* user, uint32_t id, uint32_t* value);
     /* What the player is doing, for Discord: the galaxy and the star (UTF-16, the game's own text in the played
        language; either may be NULL) and the Power Stars collected (-1: not in a file). Reported when it changes. */
     void (*presence)(void* user, const uint16_t* galaxy, const uint16_t* star, int32_t power_stars);
@@ -1437,12 +1464,33 @@ typedef struct NebulaHostServices {
        thread. */
     void (*coop_objects_report)(void* user, const NebulaCoopObjectState* states, uint32_t count);
     uint32_t (*coop_objects_take)(void* user, NebulaCoopObjectState* states, uint32_t capacity);
+    /* Online co-op's pop-ups (NebulaCoopPopup): 1 with the oldest one waiting, 0 when none waits (or no room). Called
+       on the simulation thread, each game scene frame. */
+    int (*coop_popup_take)(void* user, NebulaCoopPopup* popup);
 } NebulaHostServices;
 
 
 enum {
     NEBULA_MOVIE_NONE = -1,
     NEBULA_MOVIE_OPENING = -2,
+};
+
+/* Native equivalents of mods' code patches: the host's mods
+   layer recognises each by its exact bytes for this disc and the game asks code_patch for it. */
+enum {
+    NEBULA_PATCH_FLIP_PANEL_GROUP = 1,       /* value: a FlipPanel group's size (joinToGroupArray's 0x20) */
+    NEBULA_PATCH_FLIP_PANEL_OBSERVER_GROUP,  /* value: the same for FlipPanelObserver */
+    NEBULA_PATCH_WATER_BAZOOKA_SHOT_FLAG,    /* WaterBazooka::tryShotBullet: shotWaterBullet's last flag set */
+    NEBULA_PATCH_KAMECK_BARRIER_OFFSET_Y,    /* value: float bits added to BossKameckBarrier's height at init */
+    NEBULA_PATCH_SKELETAL_FISH_BABY_NO_BUBBLE, /* SkeletalFishBaby::damage releases no air bubble */
+    NEBULA_PATCH_DODORYU_SHELL_ONLY,         /* Dodoryu (Lv1, Lv2) is hurt by a shell alone (isMsgJetTurtleAttack) */
+    NEBULA_PATCH_MISS_STAR_PIECES,           /* value: star bits added after a miss (s32; -999: all lost) */
+    NEBULA_PATCH_NO_HIDDEN_STAR_TABLE,       /* getPlacedHiddenStarScenarioNo skips its table */
+    NEBULA_PATCH_NO_SUDDEN_DEATH_DODORYU,    /* isStageSuddenDeathDodoryu is false */
+    NEBULA_PATCH_BEGOMAN_FIRE_PROOF,         /* Begoman Baby, Spike and Spring survive fire ground */
+    NEBULA_PATCH_MESSENGER_ALWAYS_EX,        /* KinopioAstro (the 1-up messenger) gives its larger supply */
+    NEBULA_PATCH_MESSENGER_EX_ONE_UPS,       /* value: that supply's 1-ups (20) */
+    NEBULA_PATCH_COUNT
 };
 
 enum {

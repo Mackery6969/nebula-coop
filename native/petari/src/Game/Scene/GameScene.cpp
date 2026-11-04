@@ -85,10 +85,24 @@
 #include "Game/Util/SceneUtil.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/Screen/GameSceneLayoutHolder.hpp"
+#if !defined(NEBULA_RELEASE)
+#include "Game/Boss/Koopa.hpp"
+#include "Game/Boss/KoopaSequencer.hpp"
+#include "Game/Util/ModelUtil.hpp"
+#include "JSystem/J3DGraphAnimator/J3DModelData.hpp"
+#include "JSystem/J3DGraphBase/J3DMaterial.hpp"
+#include "JSystem/JUtility/JUTNameTab.hpp"
+#include <nebula_cooked_material.h>
+#include "Game/Player/MarioAccess.hpp"
+#include "Game/Player/MarioActor.hpp"
+#include "Game/Map/StageSwitch.hpp"
+#include "Game/Util/ActorSwitchUtil.hpp"
+#endif
 #include "Game/NPC/NebulaAchievementLuma.hpp"
 #include "Game/Screen/NebulaAchievementBoard.hpp"
 #include "Game/Screen/NebulaAchievementToast.hpp"
 #include "Game/Screen/NebulaCoopChat.hpp"
+#include "Game/Screen/NebulaCoopPopups.hpp"
 #include "Game/Screen/NebulaPlayerList.hpp"
 #include "Game/System/NebulaAchievements.hpp"
 #include "Game/Player/NebulaCoopBubble.hpp"
@@ -378,6 +392,10 @@ void GameScene::update() {
     // Online co-op's chat, likewise everywhere in the scene (the host sends nothing outside a room's game).
     if (MR::isExistSceneObj(SceneObj_GameSceneLayoutHolder) && MR::getGameSceneLayoutHolder()->mCoopChat != nullptr) {
         MR::getGameSceneLayoutHolder()->mCoopChat->update();
+    }
+    // Its pop-ups, likewise.
+    if (MR::isExistSceneObj(SceneObj_GameSceneLayoutHolder) && MR::getGameSceneLayoutHolder()->mCoopPopups != nullptr) {
+        MR::getGameSceneLayoutHolder()->mCoopPopups->update();
     }
     // Online co-op's player list while Tab or the controller's Share is held, over whatever the scene is doing.
     if (MR::isExistSceneObj(SceneObj_GameSceneLayoutHolder) && MR::getGameSceneLayoutHolder()->mPlayerList != nullptr) {
@@ -670,6 +688,7 @@ void GameScene::draw3D() const {
     SceneFunction::executeDrawBufferListNormalOpa();
     SceneFunction::executeDrawListOpa();
     CategoryList::drawOpa(MR::DrawBufferType_UNK_0x18);
+    MR::sceneOpaqueEnd();
     SceneFunction::executeDrawBufferListNormalXlu();
     SceneFunction::executeDrawListXlu();
     CategoryList::drawXlu(MR::DrawBufferType_UNK_0x18);
@@ -723,6 +742,9 @@ void GameScene::drawOverlay() const {
     }
     if (MR::isExistSceneObj(SceneObj_GameSceneLayoutHolder) && MR::getGameSceneLayoutHolder()->mCoopChat != nullptr) {
         MR::getGameSceneLayoutHolder()->mCoopChat->drawOnTop();
+    }
+    if (MR::isExistSceneObj(SceneObj_GameSceneLayoutHolder) && MR::getGameSceneLayoutHolder()->mCoopPopups != nullptr) {
+        MR::getGameSceneLayoutHolder()->mCoopPopups->drawOnTop();
     }
     if (MR::isExistSceneObj(SceneObj_GameSceneLayoutHolder) && MR::getGameSceneLayoutHolder()->mPlayerList != nullptr) {
         MR::getGameSceneLayoutHolder()->mPlayerList->drawOnTop();

@@ -1,7 +1,7 @@
 #pragma once
 
 // Nebula's services, asked directly by the game (nebula_game_api.h): the host's options and
-// its settings menu and button icons, achievements and play stats, presence, the galaxy select's
+// code patches, its settings menu and button icons, achievements and play stats, presence, the galaxy select's
 // names, scene and light signals for the renderer, art export, test requests.
 
 
@@ -10,6 +10,9 @@
 extern "C" const NebulaHostServices* nebula_host(void);
 
 namespace NebulaHost {
+    // Whether code patch `id` (NEBULA_PATCH_*) is on, and its value: the host's answer is fixed for the session.
+    bool codePatch(u32 id, u32* pValue);
+
     inline u32 option(u32 what) {
         return nebula_host()->option(nebula_host()->user, what);
     }
@@ -141,6 +144,11 @@ namespace NebulaHost {
 
     inline s32 coopAchievementTake(char* pId, u32 capacity) {
         return nebula_host()->coop_achievement_take(nebula_host()->user, pId, capacity);
+    }
+
+    // Online co-op's pop-ups: 1 with the oldest waiting, 0 when none waits.
+    inline s32 coopPopupTake(NebulaCoopPopup* pPopup) {
+        return nebula_host()->coop_popup_take(nebula_host()->user, pPopup);
     }
 
     // Shared objects (docs/COOP_PLAN.md "Shared objects"): the states of the enemies this game moves, and the ones

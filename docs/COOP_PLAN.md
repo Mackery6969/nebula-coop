@@ -310,6 +310,33 @@ options and the room's players' names (each Tab the next match), and a player's 
 - **The game.** The host's `coop_chat` gives a command's words as `NEBULA_COOP_CHAT_NOTICE` lines (game API 121):
   a `CoopCmd...` text id with `{name}` filled in, or words as they are.
 
+## Pop-ups
+
+sm64coopdx's pop-ups: a small box in the screen's top-right corner for six seconds, the newest on top sliding in
+over the others (at most five), each fading in its last second, with a soft sound. Its ring is the player's
+character's colour. They tell this player about the others:
+
+| Pop-up | When | sm64coopdx's |
+|---|---|---|
+| *Name* joined the game. / left the game. | another player joins or leaves the room | connected / disconnected |
+| *Name* entered the Comet Observatory. | they go to the Observatory (its domes and the library count as it) | entered *level* |
+| *Name* entered *galaxy* *star* | they go to a galaxy's star elsewhere | entered *level* |
+| *Name* entered your galaxy. / left your galaxy. | they come to, or leave, this player's galaxy and star | entered / left this level |
+| *Name* lost a life. | a player in this player's instance dies (a bubble too) | died |
+| *Name* got a Power Star! *galaxy* | the host counts a star new to the save for them (the Personal Star Counter's count, kept whether or not the room plays it) | (none) |
+
+Each kind can be turned off on Options' PLAYER page (POP-UPS: player joins, player leaves, observatory, galaxies,
+deaths, Power Stars), kept as `coop_popup_<kind>=0` in `runtime_settings.ini` (`RuntimeSettings::coop_popups`, a
+player's setting, not the room's). All are on by default.
+
+Nothing new travels. The host (`runtime/src/coop_popups.cpp`) compares the room's players (`Session::players()`:
+who is there, where each plays, their stars) each frame with the frame before; the room as this player finds it on
+joining makes none. Deaths come from the snapshots of the players in this player's instance (their
+`NEBULA_COOP_PLAYER_DEAD` turning on), as sm64coopdx tells of a death only in the same level. The game takes them with
+`coop_popup_take` (`NebulaCoopPopup`) and draws them (`NebulaCoopPopups`, the game's window and message font); the
+galaxy and star names are the game's own. One the game doesn't take within six seconds (a star select is showing) is
+dropped. The chat keeps its own join and leave lines.
+
 ## Personal Star Counter
 
 sm64coopdx's Personal Star Counter mod (`personal-starcount-ex.lua`), built in. Galaxy's HUD shows the save's Power

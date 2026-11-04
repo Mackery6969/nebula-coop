@@ -138,13 +138,11 @@ namespace MR {
         J3DNativeDraw::texCoord(0.0f, 1.0f);
     }
 
-    // setupScreen2D's state with the projection in screen units (MR::getScreenWidth across, MR::getScreenHeight down), the
-    // units screen positions count in: the star pointer's trail is drawn where the pointer's layout puts the pointer at
-    // every picture shape (the canvas's 640 units across would put it MR::getScreenWidth / 640 times as far right).
+    // Across the game's screen units, wider than the canvas: the star pointer's trail and the cursor it follows.
     void loadProjectionMtxFor2D() {
         MR::setupScreen2D();
         Mtx44 projection;
-        NebulaMtxOrtho(projection, 0.0f, MR::getScreenHeight(), 0.0f, MR::getScreenWidth(), -30000.0f, 30000.0f);
+        NebulaMtxOrtho(projection, 0.0f, ::getScreenHeightInline(), 0.0f, MR::getScreenWidth(), -30000.0f, 30000.0f);
         J3DNativeView::setOrthographic(projection);
     }
 
