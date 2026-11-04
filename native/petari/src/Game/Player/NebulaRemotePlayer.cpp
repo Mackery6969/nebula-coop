@@ -193,7 +193,7 @@ void NebulaRemotePlayer::tryCreate() {
     }
     for (s32 i = 0; i < perCharacter * 2; i++) {
         NebulaRemotePlayer* pCopy = new NebulaRemotePlayer(i >= perCharacter);
-        pCopy->initWithoutIter();
+        pCopy->init(JMapInfoIter{});
         pCopy->mBubble = NebulaCoopBubble::createModel();
         sCopies[sCopyNum++] = pCopy;
     }
@@ -512,8 +512,9 @@ void NebulaRemotePlayer::calcAnim() {
 void NebulaRemotePlayer::updateLightTint() {
     // As MarioActor::calcFogLighting and updateLightList tint the local Mario's each frame (without his damage and item
     // fogs): its light's ambient colour, a white material. The model's own materials' colours would leave it lit
-    // unlike him. None while no light area is found yet (ActorLightCtrl::loadLight loads none either).
-    if (mActorLightCtrl->mAreaLightInf == nullptr) {
+    // unlike him. None while no light area is found yet (ActorLightCtrl::loadLight loads none either), or before the
+    // copy is fully initialized (the join flow can call calcAnim before init finishes).
+    if (mActorLightCtrl == nullptr || mActorLightCtrl->mAreaLightInf == nullptr) {
         mLightTint.kind = MarioModelTint::Kind_None;
         return;
     }
