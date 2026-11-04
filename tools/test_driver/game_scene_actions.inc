@@ -97,7 +97,52 @@
                     MR::isEqualStringCase(MR::getModelResName(pActor), action.stage)) {
                     JUTNativeLog("test: appear %s %.0f %.0f %.0f\n", action.stage, pActor->mPosition.x, pActor->mPosition.y,
                              pActor->mPosition.z);
-                    pActor->appear();
+                    // An actor a stage switch holds back follows that switch.
+                    if (MR::isValidSwitchAppear(pActor)) {
+                        StageSwitchFunction::onSwitchBySwitchIdInfo(*pActor->mStageSwitchCtrl->mSwitchAppear);
+                    } else {
+                        pActor->appear();
+                    }
+                }
+            }
+        } else if (action.kind == NEBULA_TEST_LIST_MATERIALS) {
+            AllLiveActorGroup* pGroup = MR::getAllLiveActorGroup();
+            for (s32 i = 0; pGroup != nullptr && i < pGroup->getObjNum(); ++i) {
+                LiveActor* pActor = pGroup->getActor(i);
+                if (pActor != nullptr && pActor->mModelManager != nullptr &&
+                    MR::isEqualStringCase(MR::getModelResName(pActor), action.stage)) {
+                    J3DModelData* pData = MR::getJ3DModelData(pActor);
+                    for (u16 m = 0; pData != nullptr && m < pData->getMaterialNum(); ++m) {
+                        const J3DMaterial* pMaterial = pData->getMaterialNodePointer(m);
+                        const NebulaCookedMaterial* pCooked = pMaterial->mNativeMaterial;
+                        JUTNativeLog("test: material %s %u %s shader %u blend %u %u %u %u depth %u %u %u cull %u\n", action.stage, m,
+                                     pData->getMaterialName()->getName(m), pCooked != nullptr ? pCooked->shader : 0u,
+                                     pCooked != nullptr ? pCooked->blend_op : 0u, pCooked != nullptr ? pCooked->blend_src : 0u,
+                                     pCooked != nullptr ? pCooked->blend_dst : 0u, pCooked != nullptr ? pCooked->logic_op : 0u,
+                                     pCooked != nullptr ? pCooked->depth_test : 0u, pCooked != nullptr ? pCooked->depth_func : 0u,
+                                     pCooked != nullptr ? pCooked->depth_write : 0u, pCooked != nullptr ? pCooked->cull : 0u);
+                        J3DMaterial* pEditable = pData->getMaterialNodePointer(m);
+                        for (u32 c = 0; c < pEditable->getTexGenNum(); ++c) {
+                            J3DTexCoord* pCoord = pEditable->getTexCoord(c);
+                            J3DTexMtx* pMtx = pEditable->mTexGenBlock->getTexMtx(c);
+                            JUTNativeLog("test: coordinate %u %u type %u source %u matrix %u info %u projection %u used %u\n", m, c,
+                                         pCoord->getTexGenType(), pCoord->getTexGenSrc(), pCoord->getTexGenMtx(),
+                                         pMtx != nullptr ? pMtx->getTexMtxInfo().mInfo : 255u,
+                                         pMtx != nullptr ? pMtx->getTexMtxInfo().mProjection : 255u,
+                                         pCooked != nullptr ? (pCooked->used_coords >> c) & 1u : 0u);
+                        }
+                    }
+                    break;
+                }
+            }
+        } else if (action.kind == NEBULA_TEST_KOOPA_HIT) {
+            AllLiveActorGroup* pGroup = MR::getAllLiveActorGroup();
+            for (s32 i = 0; pGroup != nullptr && i < pGroup->getObjNum(); ++i) {
+                LiveActor* pActor = pGroup->getActor(i);
+                if (pActor != nullptr && pActor->mModelManager != nullptr && !MR::isDead(pActor) &&
+                    MR::isEqualStringCase(MR::getModelResName(pActor), "koopa")) {
+                    MR::incPlayerLife(8);
+                    static_cast< Koopa* >(pActor)->mSequencer->testHit(MarioAccess::getPlayerActor()->getSensor("body"));
                 }
             }
         } else if (action.kind == NEBULA_TEST_KILL_ACTOR) {

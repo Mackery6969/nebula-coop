@@ -6,10 +6,19 @@ channels, alpha test, fog type; not blend, depth, culling or values) and reports
     python -I tools/dev/gen_j3d_materials.py census <dump.bin> [more dumps...]
     python -I tools/dev/gen_j3d_materials.py emit <out dir> <dump.bin>...   (a trial set)
     python -I tools/dev/gen_j3d_materials.py generate <repo> <dump.bin>...  (the repository's set and tables)
+    python -I tools/dev/gen_j3d_materials.py append <repo> <records.bin>...  (more materials after the set: existing ones
+        keep their numbers, which imported games hold; records from `nebula-import mod-materials`)
 """
+import importlib.util
+import os
 import struct
 import sys
 from collections import Counter
+
+_spec = importlib.util.spec_from_file_location("j3d_pixel_lit", os.path.join(os.path.dirname(os.path.abspath(__file__)), "j3d_pixel_lit.py"))
+_module = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_module)
+pixel_lit = _module.pixel_lit
 
 RECORD = 756
 
@@ -427,6 +436,8 @@ def write_if_changed(path, text):
                 return False
     except FileNotFoundError:
         pass
+    if os.path.basename(path).startswith("m") and path.endswith(".hlsl"):
+        text = pixel_lit(text)
     with open(path, "w", encoding="utf-8", newline="\n") as f:
         f.write(text)
     return True
@@ -541,9 +552,52 @@ def generate(repo, paths, subset=None):
 
 
 
+def append(repo, paths):
+    """New materials after the set: a game already imported holds the numbers of the old ones."""
+    import re
+    out_dir = os.path.join(repo, "runtime", "src", "render", "materials", "j3d")
+    inc = os.path.join(repo, "crates", "nebula-import", "src", "cook", "material_shader_keys.inc")
+    with open(inc, encoding="utf8", newline="") as f:
+        text = f.read().replace("\r\n", "\n")
+    head = text[:text.index("&[")]
+    table = {int(h, 16): int(i) for h, i in re.findall(r"\(0x([0-9a-f]{16})u64, (\d+)u32\)", text)}
+    next_ident = max(table.values()) + 1
+    list_file = os.path.join(out_dir, "list.cmake")
+    with open(list_file, encoding="utf8", newline="") as f:
+        listed = f.read().replace("\r\n", "\n")
+    added, failed = [], Counter()
+    for rec in sorted(set(read(paths))):
+        p = parse(rec)
+        h = fnv1a64(shader_key_bytes(shader_key(p)))
+        if h in table:
+            continue
+        lines = []
+        try:
+            emit_vertex(p, lines)
+            emit_pixel(p, lines)
+        except Unsupported as e:
+            failed[str(e)] += 1
+            continue
+        ident = next_ident
+        next_ident += 1
+        table[h] = ident
+        added.append(ident)
+        write_if_changed(os.path.join(out_dir, f"m{ident:04d}.hlsl"), pixel_lit(
+            f"// J3D material {ident} (tools/dev/gen_j3d_materials.py append: a material mods use)\n"
+            '#include "j3d_material.hlsli"\n\n' + "\n".join(lines) + "\n"))
+    if added:
+        at = listed.rindex(")")
+        listed = listed[:at] + "".join(f"    m{ident:04d}\n" for ident in added) + listed[at:]
+        write_if_changed(list_file, listed)
+        write_if_changed(inc, head + "&[\n" + "".join(f"    (0x{h:016x}u64, {ident}u32),\n" for h, ident in sorted(table.items())) + "]\n")
+    print(f"added {len(added)} materials ({added[:1]}..{added[-1:]}), unsupported {sum(failed.values())}: {dict(failed)}")
+
+
 def main():
     if len(sys.argv) >= 3 and sys.argv[1] == "census":
         census(sys.argv[2:])
+    elif len(sys.argv) >= 4 and sys.argv[1] == "append":
+        append(sys.argv[2], sys.argv[3:])
     elif len(sys.argv) >= 4 and sys.argv[1] == "emit":
         emit(sys.argv[3:], sys.argv[2])
     elif len(sys.argv) >= 4 and sys.argv[1] == "generate":
