@@ -11,6 +11,7 @@
 #include "Game/Screen/NebulaAchievementBoard.hpp"
 #include "Game/Screen/NebulaAchievementToast.hpp"
 #include "Game/Screen/NebulaCoopChat.hpp"
+#include "Game/Screen/NebulaCoopPopups.hpp"
 #include "Game/Screen/NebulaNametags.hpp"
 #include "Game/Screen/NebulaPlayerList.hpp"
 #include "Game/Screen/NoteCounter.hpp"
@@ -61,6 +62,8 @@ GameSceneLayoutHolder::GameSceneLayoutHolder()
     mAchievementToast->initWithoutIter();
     mCoopChat = new NebulaCoopChat();
     mCoopChat->initWithoutIter();
+    mCoopPopups = new NebulaCoopPopups();
+    mCoopPopups->initWithoutIter();
     mPlayerList = new NebulaPlayerList();
     mPlayerList->initWithoutIter();
     mNametags = new NebulaNametags();

@@ -673,6 +673,20 @@ int main() {
     galaxy::load_runtime_settings_from_file();
     passed &= expect(galaxy::get_runtime_settings() == lists, "kept co-op lists round-trip");
 
+    // The co-op pop-ups: each on unless turned off, and only the ones turned off written.
+    write_text(settings_path, "coop_popup_joins=0\ncoop_popup_deaths=0\ncoop_popup_stars=1\ncoop_popup_unknown=0\n");
+    galaxy::load_runtime_settings_from_file();
+    const galaxy::RuntimeCoopPopups popups = galaxy::get_runtime_settings().coop_popups;
+    passed &= expect(!popups.joins && popups.leaves && popups.observatory && popups.galaxies && !popups.deaths &&
+                         popups.stars,
+                     "co-op pop-up keys load");
+    passed &= expect(galaxy::save_runtime_settings_to_file() &&
+                         read_text(settings_path).find("coop_popup_joins=0") != std::string::npos &&
+                         read_text(settings_path).find("coop_popup_leaves") == std::string::npos,
+                     "only the pop-ups turned off are written");
+    galaxy::load_runtime_settings_from_file();
+    passed &= expect(galaxy::get_runtime_settings().coop_popups == popups, "co-op pop-ups round-trip");
+
     const auto endpoint = [](std::string_view text, const char* host, unsigned port) {
         std::string parsed_host;
         std::uint16_t parsed_port = 0u;

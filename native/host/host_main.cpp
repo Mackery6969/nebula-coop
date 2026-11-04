@@ -26,6 +26,7 @@
 #include "galaxy/coop_chat.h"
 #include "galaxy/coop_menu.h"
 #include "galaxy/coop_mods.h"
+#include "galaxy/coop_popups.h"
 #include "galaxy/coop_saves.h"
 #include "galaxy/coop_session.h"
 #include "galaxy/coop_snapshot.h"
@@ -505,10 +506,12 @@ void mark_written(const void* dst, uint32_t size) {
 struct Pak {
     char id[7] = {};  // the game id
     galaxy::disc::AssetStore store;
+    fs::path store_file;
 };
 Pak gPak;
 
 void open_pak(const fs::path& path) {
+    gPak.store_file = path;
     if (!gPak.store.open(path)) {
         die("%s is not a game store: import the game again", utf8_of(path.filename()).c_str());
     }
@@ -591,12 +594,31 @@ fs::path save_folder_override() {
     return gCoopSaveFolder;
 }
 
+// The native switches the enabled mods' code patches set (NEBULA_PATCH_*), for the session.
+std::map<std::uint32_t, std::uint32_t> gModPatches;
+
+int svc_code_patch(void*, uint32_t id, uint32_t* value) {
+    const auto it = gModPatches.find(id);
+    if (it == gModPatches.end()) {
+        return 0;
+    }
+    if (value != nullptr) {
+        *value = it->second;
+    }
+    return 1;
+}
+
+// A mod's own save folder (Riivolution's savegame): the game's save files go there instead.
+fs::path gModSaveRoot;
+
 bool nand_path(const char* path, fs::path* out) {
     if (path == nullptr || path[0] != '/') {
         return false;
     }
-    fs::path result = gSaveRoot;
-    // The game's saves in another folder (save_folder_override).
+    fs::path result = !gModSaveRoot.empty() && !gSaveDataPath.empty() && std::string_view(path).starts_with(gSaveDataPath)
+                          ? gModSaveRoot
+                          : gSaveRoot;
+    // The co-op save's folder over a mod's (save_folder_override).
     fs::path saves;
     if (!gSaveDataPath.empty() && std::strncmp(path, gSaveDataPath.c_str(), gSaveDataPath.size()) == 0 &&
         (path[gSaveDataPath.size()] == '/' || path[gSaveDataPath.size()] == '\0') &&
@@ -1618,6 +1640,9 @@ std::atomic<bool> gCoopLuigi{false};
 // The room's chat (galaxy/coop_chat.h), over the session below (which goes first, its thread giving the chat lines),
 // and its commands (galaxy/coop_commands.h).
 galaxy::coop::Chat gCoopChat;
+// The pop-ups of who joined, left, went where, died or got a star (galaxy/coop_popups.h), for the game's corner boxes
+// (coop_popup_take).
+galaxy::coop::Popups gCoopPopups;
 // Online play (galaxy/coop_session.h): the room this player hosts or joined. Host opens it as its save starts; Join
 // connects from the main menu and plays the host's save once let in; the pause menu's Quit (back at the main menu)
 // leaves it.
@@ -1899,6 +1924,7 @@ void pump_coop_session() {
     if (!gCoopSession.active()) {
         if (gCoopWorld.active()) gCoopWorld.stop();
         gCoopAchievementsWaiting.clear();
+        gCoopPopups.clear();
         return;
     }
     // A join connecting from the main menu: its events are poll_coop_join's (Joined above all, which plays the save).
@@ -1908,6 +1934,10 @@ void pump_coop_session() {
         send_coop_snapshot();
         gCoopWorld.update();
         take_coop_achievements();
+#if defined(NEBULA_HOST_RENDERER)
+        gCoopPopups.set_options(galaxy::get_runtime_settings().coop_popups);
+#endif
+        gCoopPopups.update(gCoopSession.players(), galaxy::coop::chat_clock_ms());
     }
 #if defined(NEBULA_HOST_RENDERER)
     const galaxy::RuntimeCoopSettings settings = galaxy::get_runtime_settings().coop;
@@ -1947,6 +1977,7 @@ void pump_coop_session() {
         case Kind::Closed:
             std::fprintf(stderr, "[coop] the room ended: %s\n", event.text.empty() ? "left" : event.text.c_str());
             gCoopChat.clear();
+            gCoopPopups.clear();
             if (!event.text.empty()) {
                 set_coop_notice(event.text);
 #if defined(NEBULA_HOST_RENDERER)
@@ -2430,6 +2461,7 @@ int32_t svc_coop_menu(void*, uint32_t what) {
             if (gCoopSession.active()) gCoopSession.leave();
             (void)gCoopSession.take_events();
             gCoopChat.clear();
+            gCoopPopups.clear();
             {
                 const std::lock_guard<std::mutex> lock(gCoopLock);
                 gCoopLocalValid = false;
@@ -2758,6 +2790,34 @@ int svc_coop_achievement_take(void*, char* id, uint32_t capacity) {
     return 1;
 }
 
+// The oldest pop-up waiting, for the game's corner boxes: 1 with it, 0 when none waits. Only in a room's game, as the
+// chat.
+int svc_coop_popup_take(void*, NebulaCoopPopup* popup) {
+    if (popup == nullptr || !gCoopSession.active()) return 0;
+#if defined(NEBULA_HOST_RENDERER)
+    if (!galaxy::render::coop_in_game()) return 0;
+#endif
+    const std::optional<galaxy::coop::Popup> next = gCoopPopups.take(galaxy::coop::chat_clock_ms());
+    if (!next) return 0;
+    *popup = {};
+    using Kind = galaxy::coop::Popup::Kind;
+    switch (next->kind) {
+    case Kind::Joined: popup->kind = NEBULA_COOP_POPUP_JOINED; break;
+    case Kind::Left: popup->kind = NEBULA_COOP_POPUP_LEFT; break;
+    case Kind::Observatory: popup->kind = NEBULA_COOP_POPUP_OBSERVATORY; break;
+    case Kind::Galaxy: popup->kind = NEBULA_COOP_POPUP_GALAXY; break;
+    case Kind::EnteredHere: popup->kind = NEBULA_COOP_POPUP_ENTERED_HERE; break;
+    case Kind::LeftHere: popup->kind = NEBULA_COOP_POPUP_LEFT_HERE; break;
+    case Kind::Died: popup->kind = NEBULA_COOP_POPUP_DIED; break;
+    case Kind::Star: popup->kind = NEBULA_COOP_POPUP_STAR; break;
+    }
+    popup->character = next->character == galaxy::CoopCharacter::Luigi ? 1u : 0u;
+    popup->scenario = next->scenario;
+    std::snprintf(popup->name, sizeof(popup->name), "%s", next->name.c_str());
+    std::snprintf(popup->stage, sizeof(popup->stage), "%s", next->stage.c_str());
+    return 1;
+}
+
 // The other players in this player's instance, for their copies: as they were kSnapshotDelay ago, by number. Who
 // left the room is forgotten.
 uint32_t svc_coop_remote(void*, NebulaCoopRemotePlayer* players, uint32_t capacity) {
@@ -2780,6 +2840,14 @@ uint32_t svc_coop_remote(void*, NebulaCoopRemotePlayer* players, uint32_t capaci
         if (!here) gCoopRemote.remove(player.id);
         return !here;
     });
+    // Who died here since the last frame, for the pop-ups.
+    std::vector<galaxy::coop::InstancePlayer> instance;
+    instance.reserve(remote.size());
+    for (const galaxy::coop::RemotePlayer& player : remote) {
+        instance.push_back({player.id, player.name, player.character,
+                            (player.snapshot.flags & NEBULA_COOP_PLAYER_DEAD) != 0u});
+    }
+    gCoopPopups.update_instance(instance, galaxy::coop::chat_clock_ms());
     const std::size_t count = std::min<std::size_t>(remote.size(), players != nullptr ? capacity : 0u);
     for (std::size_t i = 0; i < count; ++i) {
         const galaxy::coop::RemotePlayer& from = remote[i];
@@ -2865,9 +2933,13 @@ void svc_scene_marker(void*, uint32_t marker, const float* view) {
         galaxy::render::attach_scene_view(view, view[15] != 0.0f ? view + 12 : nullptr,
                                       gSceneStage.empty() ? nullptr : gSceneStage.c_str());
     }
+    if (marker == NEBULA_SCENE_3D_OPAQUE_END && view != nullptr) {
+        galaxy::render::attach_scene_opaque(view);
+    }
     static constexpr galaxy::render::SceneMarker kMarkers[] = {
         galaxy::render::SceneMarker::SceneBegin, galaxy::render::SceneMarker::SceneEnd,
-        galaxy::render::SceneMarker::Scene2DBegin, galaxy::render::SceneMarker::Scene2DEnd};
+        galaxy::render::SceneMarker::Scene2DBegin, galaxy::render::SceneMarker::Scene2DEnd,
+        galaxy::render::SceneMarker::SceneOpaqueEnd};
     if (marker < std::size(kMarkers)) {
         galaxy::render::attach_scene_marker(kMarkers[marker]);
     }
@@ -4958,6 +5030,108 @@ std::string json_text(std::string_view text) {
 }
 
 
+// The mods' disc files, cooked once into a store the game reads over its own (cook/overlay.rs): by the cooker beside
+// this program, again when what they change has changed. A failure leaves the game as it is and says why in the log.
+void cook_mod_files(const galaxy::mods::DiscPlan& plan, const fs::path& settings_folder, const std::string& game_id);
+
+void prepare_mod_files(const fs::path& settings_folder, const std::string& game_id) {
+    const std::string language = galaxy::mods::language_folder(
+        game_id, static_cast<unsigned>(galaxy::game_language_resolved(galaxy::get_runtime_settings().language)));
+    const galaxy::mods::DiscPlan plan = galaxy::mods::plan_disc_changes(gPak.store, game_id, language);
+    gModPatches = plan.native_patches;
+    if (!plan.save_folder.empty() && !gSaveDataPath.empty()) {
+        // A clone starts from the player's save the first time, the rest starts new; the player's stays as it is.
+        const fs::path mine = gSaveRoot / gSaveDataPath.substr(1);
+        const fs::path theirs = plan.save_folder / gSaveDataPath.substr(1);
+        std::error_code save_error;
+        if (!fs::exists(theirs, save_error)) {
+            fs::create_directories(theirs, save_error);
+            if (plan.save_clone) {
+                fs::copy(mine, theirs, fs::copy_options::recursive | fs::copy_options::skip_existing, save_error);
+            }
+        }
+        gModSaveRoot = plan.save_folder;
+        log_line("mods:", "saves go to the mod's save folder");
+    }
+    for (const std::string& note : plan.notes) {
+        log_line("mods:", note.c_str());
+    }
+    cook_mod_files(plan, settings_folder, game_id);
+    // Converted mods over the rest, the top of the list last.
+    for (const fs::path& store : plan.stores) {
+        const std::string text = "package " + utf8_of(store.parent_path().filename()) + (gPak.store.attach_overlay(store) ? " applied" : " could not be read");
+        log_line("mods:", text.c_str());
+    }
+}
+
+void cook_mod_files(const galaxy::mods::DiscPlan& plan, const fs::path& settings_folder, const std::string& game_id) {
+    if (plan.files.empty()) {
+        return;
+    }
+    const fs::path folder = settings_folder / "mods" / ".cooked";
+    const fs::path overlay = folder / "mods.pak";
+    const fs::path signature_file = folder / "mods.signature";
+    const std::string signature = galaxy::mods::plan_signature(plan, game_id);
+    std::error_code error;
+    fs::create_directories(folder, error);
+    std::string kept;
+    {
+        std::ifstream in(signature_file, std::ios::binary);
+        kept.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    }
+    if (kept != signature || !fs::is_regular_file(overlay, error)) {
+        const fs::path plan_file = folder / "mods.plan";
+        if (!galaxy::io::write_file_atomically(plan_file, galaxy::mods::plan_text(plan, game_id))) {
+            log_line("mods:", "the plan could not be written");
+            return;
+        }
+        fs::remove(signature_file, error);
+#if defined(_WIN32)
+        wchar_t exe[MAX_PATH] = {};
+        GetModuleFileNameW(nullptr, exe, MAX_PATH);
+        const fs::path cooker = fs::path(exe).parent_path() / "nebula-import.exe";
+        std::wstring command = L"\"" + cooker.wstring() + L"\" overlay \"" + plan_file.wstring() + L"\" --output \"" +
+                               overlay.wstring() + L"\"";
+        STARTUPINFOW startup{};
+        startup.cb = sizeof(startup);
+        PROCESS_INFORMATION process{};
+        DWORD exit_code = 1;
+        if (CreateProcessW(cooker.c_str(), command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr,
+                           &startup, &process)) {
+            WaitForSingleObject(process.hProcess, INFINITE);
+            GetExitCodeProcess(process.hProcess, &exit_code);
+            CloseHandle(process.hThread);
+            CloseHandle(process.hProcess);
+        } else {
+            log_line("mods:", "the cooker (nebula-import) could not start");
+        }
+        if (exit_code != 0u) {
+            log_line("mods:", "the mods' files could not be cooked: the game runs without them");
+            return;
+        }
+#else
+        // The importer's library, as the launcher loads it.
+        using CookOverlay = int (*)(const char*, const char*);
+        void* const library = dlopen("libnebula_import.so", RTLD_NOW | RTLD_LOCAL);
+        const auto cook = library != nullptr ? reinterpret_cast<CookOverlay>(dlsym(library, "nebula_cook_overlay")) : nullptr;
+        if (cook == nullptr || cook(utf8_of(plan_file).c_str(), utf8_of(overlay).c_str()) != 0) {
+            log_line("mods:", "the mods' files could not be cooked: the game runs without them");
+            return;
+        }
+#endif
+        if (!galaxy::io::write_file_atomically(signature_file, signature)) {
+            log_line("mods:", "the signature could not be written");
+        }
+    }
+    if (gPak.store.attach_overlay(overlay)) {
+        char text[96];
+        std::snprintf(text, sizeof(text), "%zu files applied", plan.files.size());
+        log_line("mods:", text);
+    } else {
+        log_line("mods:", "the mods' files could not be read: the game runs without them");
+    }
+}
+
 // The game id from Setup's game.pak, read without mapping it; false (and nothing changed) for a file that is not one:
 // the tools then work without it.
 bool read_game_id(const fs::path& path, std::string& id) {
@@ -5021,7 +5195,8 @@ int run_mods_tool() {
                    ",\"order\":" + std::to_string(mod.order) + ",\"riivolution\":" + (mod.riivolution ? "true" : "false") +
                    ",\"files\":" + ((mod.files || mod.loose) ? "true" : "false") + ",\"textures\":" +
                    (mod.textures ? "true" : "false") + ",\"movies\":" + (mod.movies ? "true" : "false") +
-                   ",\"code_patches\":" + std::to_string(mod.code_patches) + ",\"problem\":" + json_text(mod.problem) + ",\"languages\":[";
+                   ",\"code_patches\":" + std::to_string(mod.code_patches) + ",\"native_patches\":" +
+                   std::to_string(mod.native_patches) + ",\"problem\":" + json_text(mod.problem) + ",\"languages\":[";
             for (std::size_t l = 0; l < mod.languages.size(); ++l) out += (l ? "," : "") + json_text(mod.languages[l]);
             out += "],\"options\":[";
             for (std::size_t o = 0; o < mod.options.size(); ++o) {
@@ -5137,6 +5312,11 @@ int main(int argc, char** argv) {
     }
 #endif
 #if defined(NEBULA_HOST_RENDERER) && defined(_WIN32)
+    for (int i = 1; i + 1 < argc; ++i) {  // (--host may come without its value)
+        if (std::strcmp(argv[i], "--diagnostics") == 0) {
+            galaxy::g_diagnostics_recording = argv[i + 1][0] == '1';
+        }
+    }
     // GALAXY_FRAME_TIMELINE=1: the frame pipeline's events (frame_timeline.h), written at exit.
     galaxy::timeline::initialize_from_environment();
 #endif
@@ -5208,6 +5388,8 @@ int main(int argc, char** argv) {
             saves = arg_path(i);
         } else if (key == "--module") {
             module = arg_path(i);
+        } else if (key == "--diagnostics") {
+            // Read above, before the timeline starts.
         } else if (key == "--seconds") {
             seconds = std::atof(value);
 #if defined(NEBULA_HOST_RENDERER)
@@ -5331,13 +5513,12 @@ int main(int argc, char** argv) {
         gSaveDataPath = std::string("/title/00010000/") + title + "/data";
         fs::create_directories(gSaveRoot / gSaveDataPath.substr(1), error);  // the release's own save folder
         if (!settings_folder.empty()) {
-#if !defined(NEBULA_RELEASE)  // mods return with their feature
             // A second game (galaxy/game_instance.h) plays the first's installed mods, with its own list of which are on.
             const fs::path& instance = galaxy::game_instance_folder();
             const fs::path mods_home = instance.empty() ? settings_folder : instance.parent_path().parent_path();
             fs::create_directories(mods_home / "mods", error);
             galaxy::mods::set_mods_folder(mods_home / "mods", settings_folder / "mods.ini", game_id);
-            // A join Nebula started again for: this start plays the room's mods, then joins.
+            // A join Nebula started again for: this start plays the room's mods (prepare_mod_files), then joins.
             if (std::optional<galaxy::coop::NextJoin> join = galaxy::coop::take_next_join(coop_next_join_file())) {
                 std::vector<galaxy::mods::RoomModChoice> room;
                 for (const galaxy::coop::SharedMod& mod : join->mods) {
@@ -5352,7 +5533,15 @@ int main(int argc, char** argv) {
                              galaxy::coop::mods_text(join->mods).c_str(), join->address.c_str());
                 gCoopStartedRoomMods = std::move(join->mods);
             }
-#endif
+            galaxy::mods::set_mods_store_file(gPak.store_file);
+            {
+                // The mods mods.ini has on: their packs and movies from the first frame.
+                const std::vector<galaxy::mods::ModInfo> mods = galaxy::mods::scan_mods();
+                galaxy::render::set_texture_pack_mod_folders(galaxy::mods::texture_folders(mods),
+                                                             galaxy::mods::texture_folder_categories_off(mods));
+                galaxy::render::set_movie_mod_folders(galaxy::mods::movie_folders(mods));
+            }
+            prepare_mod_files(settings_folder, game_id);
         }
         {
             // The session's mods, for crash reports: one line each, and whether one changes the game itself.
@@ -5449,6 +5638,7 @@ int main(int argc, char** argv) {
     services.clock_ns = svc_clock_ns;
     services.calendar_ns = svc_calendar_ns;
     services.stripe_particle = svc_stripe_particle;
+    services.code_patch = svc_code_patch;
     services.asset_find = svc_asset_find;
     services.asset_entry = svc_asset_entry;
     services.asset_child = svc_asset_child;
@@ -5508,6 +5698,7 @@ int main(int argc, char** argv) {
     services.coop_star_count = svc_coop_star_count;
     services.coop_rules = svc_coop_rules;
     services.coop_achievement_take = svc_coop_achievement_take;
+    services.coop_popup_take = svc_coop_popup_take;
     services.coop_objects_report = svc_coop_objects_report;
     services.coop_objects_take = svc_coop_objects_take;
 #if defined(NEBULA_HOST_RENDERER)
