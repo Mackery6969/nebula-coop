@@ -10,7 +10,7 @@ namespace galaxy::coop {
 namespace {
 
 // The snapshot's own version, first: one from another layout is dropped.
-constexpr std::uint8_t kSnapshotVersion = 2u;
+constexpr std::uint8_t kSnapshotVersion = 3u;
 // Snapshots kept of each player: a second's worth.
 constexpr std::size_t kKeep = 32u;
 
@@ -64,6 +64,15 @@ std::vector<std::uint8_t> encode_snapshot(const PlayerSnapshot& snapshot) {
     out.str(snapshot.animation.substr(0, kSnapshotAnimationLimit));
     out.f32(snapshot.frame).f32(snapshot.rate);
     for (const float weight : snapshot.weights) out.f32(weight);
+    // A bit for each track with a bck of its own, then those names: one byte when none is (most of the time).
+    std::uint8_t swapped = 0u;
+    for (std::size_t i = 0; i < snapshot.tracks.size(); ++i) {
+        if (!snapshot.tracks[i].empty()) swapped |= static_cast<std::uint8_t>(1u << i);
+    }
+    out.u8(swapped);
+    for (const std::string& track : snapshot.tracks) {
+        if (!track.empty()) out.str(track.substr(0, kSnapshotTrackLimit));
+    }
     out.u32(snapshot.health).u32(snapshot.mode).u32(snapshot.flags).u32(snapshot.area);
     return out.take();
 }
@@ -86,6 +95,10 @@ std::optional<PlayerSnapshot> decode_snapshot(std::span<const std::uint8_t> data
     snapshot.frame = in.f32();
     snapshot.rate = in.f32();
     for (float& weight : snapshot.weights) weight = in.f32();
+    const std::uint8_t swapped = in.u8();
+    for (std::size_t i = 0; i < snapshot.tracks.size(); ++i) {
+        if ((swapped & (1u << i)) != 0u) snapshot.tracks[i] = in.str(kSnapshotTrackLimit);
+    }
     snapshot.health = in.u32();
     snapshot.mode = in.u32();
     snapshot.flags = in.u32();
@@ -98,7 +111,8 @@ std::optional<PlayerSnapshot> decode_snapshot(std::span<const std::uint8_t> data
         !std::all_of(snapshot.weights.begin(), snapshot.weights.end(), [](float w) { return std::isfinite(w); })) {
         return std::nullopt;
     }
-    for (const std::string* text : {&snapshot.stage, &snapshot.group, &snapshot.animation}) {
+    for (const std::string* text : {&snapshot.stage, &snapshot.group, &snapshot.animation, &snapshot.tracks[0],
+                                    &snapshot.tracks[1], &snapshot.tracks[2], &snapshot.tracks[3]}) {
         if (text->find('\0') != std::string::npos) return std::nullopt;
     }
     return snapshot;

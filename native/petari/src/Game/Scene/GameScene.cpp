@@ -75,6 +75,9 @@
 #include "Game/Util/ModelUtil.hpp"
 #include "Game/Animation/XanimeCore.hpp"
 #include "Game/Animation/XanimePlayer.hpp"
+#include "Game/Animation/XanimeResource.hpp"
+#include "Game/System/ResourceHolder.hpp"
+#include "Game/System/ResourceInfo.hpp"
 #include "Game/Player/MarioAnimator.hpp"
 #include "Game/Player/MarioHolder.hpp"
 #include "Game/Util/FileUtil.hpp"
@@ -299,6 +302,21 @@ namespace {
             player.animation_rate = pXanime->getFrameCtrl() != nullptr ? pXanime->getRate() : 1.0f;
             for (u32 i = 0; i < 4; i++) {
                 player.track_weights[i] = pXanime->mWeights[i];
+            }
+            // The tracks Mario's code put another bck on (standing on a slope: its wait, not the group's run), by
+            // their motion resource's name. Looked up only while one is swapped, and a pointer match is cheap.
+            const XanimeGroupInfo* pGroup = pXanime->mCurrentAnimation;
+            const XanimeCore* pCore = pXanime->getCore();
+            if (pGroup != nullptr && pCore->mTrackList != nullptr) {
+                const u32 count = pGroup->mBckTableVariant < pCore->mTrackCount ? pGroup->mBckTableVariant : pCore->mTrackCount;
+                for (u32 i = 0; i < count && i < 4; i++) {
+                    const void* pBck = pCore->mTrackList[i]._0;
+                    if (pBck == nullptr || pBck == pGroup->_20[i]) {
+                        continue;
+                    }
+                    const char* pName = pXanime->mResourceTable->mResourceHolder->mMotionResTable->findResName(pBck);
+                    nebula_snprintf(player.tracks[i], sizeof(player.tracks[i]), "%s", pName != nullptr ? pName : "");
+                }
             }
         }
         // The model's turn: its base matrix's Z (front) and Y (up) columns, with the turn MarioActor::calcAndSetBaseMtx

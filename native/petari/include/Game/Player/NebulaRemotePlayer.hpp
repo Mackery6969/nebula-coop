@@ -6,6 +6,7 @@
 
 class NebulaBubble;
 class XanimePlayer;
+class J3DAnmTransform;
 
 // Online co-op (docs/COOP_PLAN.md "Remote players"): another player in this instance, drawn as their Mario or Luigi
 // where their snapshots put them, playing the animation they play. It has no physics or state of its own; its model is
@@ -58,6 +59,8 @@ public:
     // The animation the snapshot names onto the copy: changed when it differs, played on at its speed here and eased
     // onto the snapshot's frame (snapped when far off), so it runs smoothly between snapshots and through its loops.
     void updateAnimation();
+    // The bcks Mario's code swapped onto the group's tracks (NebulaCoopPlayer::tracks), the group's own elsewhere.
+    void updateTracks();
     // Mario's effects for an animation (MarioAnimator's spinEntry, spinUpdate and spinClose): started as it starts,
     // stopped as it ends.
     void startAnimationEffect();
@@ -75,6 +78,8 @@ public:
     NebulaCoopPlayer mState;  // the latest snapshot shown
     char mGroup[48];          // the animation whose effect last started, as the snapshot names it
     f32 mLastFrame;           // the snapshot's frame last shown, to tell a restarted animation
+    char mTrackName[4][32];   // the swapped-in bck each track was last told to play ("" none), and that bck
+    J3DAnmTransform* mTrackBck[4];
     MarioModelTint mLightTint; // updateLightTint's
     TVec3f mFront;
     TVec3f mUp;
