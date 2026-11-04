@@ -466,17 +466,20 @@ the Online tab (Bubble on Death, `coop_bubble_death`, on by default), sent with 
   (a stack, `NebulaCoopPlayer::area`, a hash of the pipe's placed position, the same in every game). A player down a
   pipe can't save one above it, nor the other way round. Launch Stars and Warp Pods stay in the same part.
 - **Flying.** The bubble (the air bubble's model, turning and swelling) holds Mario, who can't be touched and touches
-  nothing: no enemy, item, death area or wall. The stick flies it where the camera looks, A rises and Z sinks, eased as
-  sm64coopdx's (`MarioActor`'s `NebulaBubble` state, `NebulaCoopBubble`).
+  nothing: no enemy, item, death area or wall. It flies by the gravity where it is, as Mario walks, not by the
+  screen's up: the stick moves it across the ground that gravity pulls to (ahead the way the camera looks), A rises
+  away from that ground and Z sinks towards it, eased as sm64coopdx's. Round a planet the bubble's up turns with the
+  pull, Mario upright in it and facing the way he flies (`MarioActor`'s `NebulaBubble` state, `NebulaCoopBubble`).
 - **Out.** Touching a player who can let them out (in the same part, neither dead nor bubbled) after two thirds of a
-  second bursts it: the player plays on from there with full health (3) and three seconds unharmed. With nobody left
+  second bursts it: the player plays on from there with full health (3) and three seconds unharmed. As the bubble
+  flies through walls and floors, the player comes out on the other player's side of any wall or floor between them,
+  stood on a floor just below. With nobody left
   to fly to for half a second (they missed, left the part or the instance), the bubble ends in the miss after all, with
   its life given back, since the miss takes one.
 - **Who decides.** The bubbled player's own game, as sm64coopdx: no message. The snapshot says it
   (`NEBULA_COOP_PLAYER_BUBBLED`, with `DEAD` and `INTANGIBLE`) and its part, and the others draw the bubble round its
   copy, bursting as it's let out (game API 120, session protocol 7).
-- Not yet: Mario keeps a power-up form in the bubble (a miss would have taken it), and doesn't turn to face where he
-  flies.
+- Not yet: Mario keeps a power-up form in the bubble (a miss would have taken it).
 
 ## Shared world state
 

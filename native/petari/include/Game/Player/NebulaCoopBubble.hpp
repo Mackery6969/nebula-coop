@@ -25,8 +25,9 @@ public:
 
 // Online co-op's bubble on death (docs/COOP_PLAN.md "Bubble on death", sm64coopdx's mario_set_bubbled and
 // act_bubbled): while the room has it on, a player whose Mario would miss with another player alive in the same part of
-// the stage loses a life and floats in a bubble instead, flown with the stick (A rises, Z sinks), through walls, until
-// it touches that player: then it bursts and the player plays on where they are, with full health. With nobody left to
+// the stage loses a life and floats in a bubble instead, flown with the stick by the gravity where it is (A away from the
+// ground, Z towards it), through walls, until it touches that player: then it bursts and the player plays on there, out
+// of any wall or floor, with full health. With nobody left to
 // fly to, the bubble ends in the miss after all (its life given back, as the miss takes one).
 //
 // The part of the stage: where the stage starts, or the warp pipe the player last came out of (going back down that
