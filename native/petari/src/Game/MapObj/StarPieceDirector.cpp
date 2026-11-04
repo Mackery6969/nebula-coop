@@ -6,6 +6,7 @@
 #include "Game/Screen/StarPointerDirector.hpp"
 #include "Game/Util.hpp"
 #include "Game/System/NebulaAchievements.hpp"
+#include "Game/System/NebulaCoopWorld.hpp"
 
 namespace NrvStarPieceShooter {
     NEW_NERVE(HostTypeNrvWait, StarPieceShooter, Wait);
@@ -173,6 +174,8 @@ bool StarPieceDirector::appearPiece(const NameObj* pNameObj, const TVec3f& rVec,
             appearPiece->setHostInfo(hostInfo);
             hostInfo->_8++;
             appearPiece->launch(rVec, f1, f2, a3, a2);
+            // Online co-op: a crystal's or an enemy's star bit, the same one in every game.
+            NebulaCoopWorld::noteStarBitDrop(pNameObj, appearPiece);
         }
     }
 
@@ -204,6 +207,7 @@ bool StarPieceDirector::appearPieceToDirection(const NameObj* pNameObj, const TV
         appearPiece->setHostInfo(hostInfo);
         hostInfo->_8++;
         appearPiece->launch(rVec1, rVec2, f1, f2, a3, a2);
+        NebulaCoopWorld::noteStarBitDrop(pNameObj, appearPiece);
     }
 
     return appearedStarPiece;
@@ -300,6 +304,8 @@ StarPiece* StarPieceDirector::getDeadStarPiece() {
         mColorIndex = 0;
     }
 
+    // Online co-op: whatever the pooled star bit stood for before (a drop taken, kept dead), it doesn't now.
+    NebulaCoopWorld::noteStarBitPooled(deadStarPiece);
     return deadStarPiece;
 }
 

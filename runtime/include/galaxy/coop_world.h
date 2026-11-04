@@ -67,7 +67,7 @@ struct Instance {
 };
 
 // A placed thing gone from an instance: the game's key for it (its placement, the same in every player's game) and
-// how (NEBULA_COOP_GONE_*: a coin taken counts for everyone in the instance).
+// how (NEBULA_COOP_GONE_*: a coin or star bit taken counts for everyone in the instance).
 struct Gone {
     std::uint32_t object = 0u;
     std::uint32_t how = 0u;

@@ -19,6 +19,7 @@
 #include "Game/System/GameEventFlagTable.hpp"
 #include "Game/System/GameEventValueChecker.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
+#include "Game/Util/EventUtil.hpp"
 #include "Game/Util/JMapUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Player/MarioActor.hpp"
@@ -38,6 +39,7 @@ namespace {
         Kind_Coin,
         Kind_PurpleCoin,
         Kind_StarBit,
+        Kind_StarBitDrop,  // a star bit a followed thing let out (a crystal broken, an enemy defeated): shared once taken
         Kind_Item,
         Kind_Enemy,   // a plain enemy: gone once defeated, moved by its owner's game, hits shared
         Kind_Object,  // any other placed actor (a boss, a box, a switch, a platform): hits shared
@@ -50,11 +52,12 @@ namespace {
         u8 mKind;
         bool mAlive;  // as the last frame saw it
         bool mGone;   // reported, or the server said so: kept dead
-        bool mGot;    // a coin the local player took
+        bool mGot;    // a coin or star bit the local player took
         s16 mMotion;     // its slot in sMotions, -1 for none
         s16 mGoneDelay;  // frames before the server's gone removes it: its own death (a hit played again) may still play
         s16 mHitFrames;  // frames since a hit last played on it, up to cHitFrames
         u16 mDrops;      // coins it let out so far (each one's key)
+        u16 mBits;       // star bits it let out so far (each one's key)
         u16 mLastHit;    // the last hit noted on it, and when (a hit isn't sent twice in a few frames)
         s32 mLastHitFrame;
     };
@@ -421,8 +424,18 @@ namespace {
 
     void applyGone(u32 object, u32 how) {
         const s32 index = findIndex(object);
+        if ((how & NEBULA_COOP_GONE_STAR_BIT) != 0) {
+            // A star bit another player took counts here too, as it comes, whether or not this game has let it out
+            // yet; not from the record a player entering gets (those were the others' before they came), and not one
+            // the local player took as well (the race lost: each counted their own).
+            const bool takenHere = index >= 0 && (sEntries[index].mGone || sEntries[index].mGot);
+            if (sReady && !takenHere && MR::getStarPieceNum() < 10000) {
+                MR::addStarPiece(1);
+            }
+            how &= ~static_cast< u32 >(NEBULA_COOP_GONE_STAR_BIT);
+        }
         if (index < 0 || sEntries[index].mActor == nullptr) {
-            // Not here yet (a coin an enemy drops in this game a little later): gone once it comes.
+            // Not here yet (a coin or star bit an enemy drops in this game a little later): gone once it comes.
             sPending[sPendingNext].mKey = object;
             sPending[sPendingNext].mHow = how;
             sPendingNext = (sPendingNext + 1) % cMaxPending;
@@ -435,7 +448,10 @@ namespace {
         }
         rEntry.mGone = true;
         const bool following = rEntry.mMotion >= 0 && sMotions[rEntry.mMotion].mLocked;
-        if (sReady && (rEntry.mHitFrames < cHitFrames || following) && !MR::isDead(rEntry.mActor)) {
+        if (rEntry.mGot && !MR::isDead(rEntry.mActor)) {
+            // The local player took it too and it still flies to him: it ends its flight first.
+            rEntry.mGoneDelay = 60;
+        } else if (sReady && (rEntry.mHitFrames < cHitFrames || following) && !MR::isDead(rEntry.mActor)) {
             // Its death, from a hit played here or its owner's nerves, may still be playing (a Goomba squashed): it
             // ends first.
             rEntry.mGoneDelay = 150;
@@ -824,6 +840,25 @@ namespace {
     bool isReported(const GameDataHolder* pHolder) {
         return !sApplying && sInRoom && pHolder == GameDataFunction::getCurrentGameDataHolder();
     }
+
+    // A pooled actor let out again stands for nothing it stood for before (a gone one would be kept dead).
+    void forgetPooled(const LiveActor* pActor) {
+        const s32 had = findActor(pActor);
+        if (had >= 0) {
+            sEntries[had].mActor = nullptr;
+        }
+    }
+
+    // A drop just keyed: what the server said of it before it came applies now.
+    void applyPending(s32 index) {
+        sEntries[index].mAlive = true;
+        for (s32 i = 0; i < cMaxPending; i++) {
+            if (sPending[i].mKey == sEntries[index].mKey && sPending[i].mKey != 0) {
+                sPending[i].mKey = 0;
+                applyGone(sEntries[index].mKey, sPending[i].mHow);
+            }
+        }
+    }
 };  // namespace
 
 namespace NebulaCoopWorld {
@@ -970,13 +1005,19 @@ namespace NebulaCoopWorld {
             }
             // A coin is the instance's once a player takes it (sm64coopdx's collect_coin): one a timer, a switch or a
             // black hole takes goes in every game alike, and comes back with a challenge tried again.
+            // A star bit, as a coin, counts for everyone once a player takes it; one a thing let out that isn't taken
+            // (it fell away) stays each game's.
             const bool isCoin = rEntry.mKind == Kind_Coin || rEntry.mKind == Kind_PurpleCoin;
-            const bool reportsGone = isCoin || rEntry.mKind == Kind_StarBit || rEntry.mKind == Kind_Item || rEntry.mKind == Kind_Enemy;
-            if (reportsGone && !alive && rEntry.mAlive && !rEntry.mGone && !settling && (!isCoin || rEntry.mGot)) {
+            const bool isStarBit = rEntry.mKind == Kind_StarBit || rEntry.mKind == Kind_StarBitDrop;
+            const bool needsGot = isCoin || rEntry.mKind == Kind_StarBitDrop;
+            const bool reportsGone = isCoin || isStarBit || rEntry.mKind == Kind_Item || rEntry.mKind == Kind_Enemy;
+            if (reportsGone && !alive && rEntry.mAlive && !rEntry.mGone && !settling && (!needsGot || rEntry.mGot)) {
                 rEntry.mGone = true;
                 u32 how = 0;
                 if (isCoin) {
                     how = rEntry.mKind == Kind_PurpleCoin ? NEBULA_COOP_GONE_PURPLE : NEBULA_COOP_GONE_COIN;
+                } else if (isStarBit && rEntry.mGot) {
+                    how = NEBULA_COOP_GONE_STAR_BIT;
                 }
                 report(NEBULA_COOP_WORLD_GONE, rEntry.mKey, how, 0, nullptr);
             }
@@ -1152,27 +1193,38 @@ namespace NebulaCoopWorld {
         if (!sObjectsActive || pCoin == nullptr) {
             return;
         }
+        forgetPooled(pCoin);
         const s32 host = findActor(pHost);
         if (host < 0) {
             return;
         }
-        // The pooled coin stood for another before: no longer.
-        const s32 had = findActor(pCoin);
-        if (had >= 0) {
-            sEntries[had].mActor = nullptr;
-        }
         Entry& rHost = sEntries[host];
         const u32 key = hashValue(hashValue(rHost.mKey, 0x44524f50u /* DROP */), rHost.mDrops++);
         const s32 index = add(key, pCoin, Kind_Coin);
-        if (index < 0) {
+        if (index >= 0) {
+            applyPending(index);
+        }
+    }
+
+    void noteStarBitPooled(const LiveActor* pPiece) {
+        if (sObjectsActive && pPiece != nullptr) {
+            forgetPooled(pPiece);
+        }
+    }
+
+    void noteStarBitDrop(const NameObj* pHost, LiveActor* pPiece) {
+        if (!sObjectsActive || pPiece == nullptr) {
             return;
         }
-        sEntries[index].mAlive = true;
-        for (s32 i = 0; i < cMaxPending; i++) {
-            if (sPending[i].mKey == sEntries[index].mKey && sPending[i].mKey != 0) {
-                sPending[i].mKey = 0;
-                applyGone(sEntries[index].mKey, sPending[i].mHow);
-            }
+        const s32 host = findActor(pHost);
+        if (host < 0) {
+            return;
+        }
+        Entry& rHost = sEntries[host];
+        const u32 key = hashValue(hashValue(rHost.mKey, 0x42495453u /* BITS */), rHost.mBits++);
+        const s32 index = add(key, pPiece, Kind_StarBitDrop);
+        if (index >= 0) {
+            applyPending(index);
         }
     }
 
@@ -1182,6 +1234,16 @@ namespace NebulaCoopWorld {
         }
         const s32 index = findActor(pCoin);
         if (index >= 0) {
+            sEntries[index].mGot = true;
+        }
+    }
+
+    void noticeStarBitGot(const LiveActor* pPiece) {
+        if (!sInRoom || sApplying) {
+            return;
+        }
+        const s32 index = findActor(pPiece);
+        if (index >= 0 && (sEntries[index].mKind == Kind_StarBit || sEntries[index].mKind == Kind_StarBitDrop)) {
             sEntries[index].mGot = true;
         }
     }
