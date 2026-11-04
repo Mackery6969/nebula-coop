@@ -7,6 +7,7 @@
 #include "Game/Screen/StarPointerDirector.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
+#include "Game/Util/ScreenUtil.hpp"
 #include <JSystem/JUtility/JUTTexture.hpp>
 #include <NebulaGpuTypes.h>
 
@@ -22,7 +23,7 @@ StarPointerBlur::~StarPointerBlur() {
 
 StarPointerBlur::StarPointerBlur(JUTTexture* pTexture)
     : NameObj("\203\130\203\136\201\133\203\174\203\103\203\223\203\136\227\160\203\165\203\211\201\133" /* スターポインタ用ブラー */), mTexture(pTexture), mPadChannel(PLAYER_1), mMainColor(nullptr), mSubColor(nullptr), mBlurPoints(nullptr),
-      mBlurThicks(nullptr), mBlurTexCoords(nullptr), mNumHiddenPoints(0), _2C(false), _2D(false), _30(0), _34(0), _38(0), _3C(0) {
+      mBlurThicks(nullptr), mBlurTexCoords(nullptr), mNumHiddenPoints(0), _2C(false), _2D(false), _30(0), _34(0), _38(0), _3C(0), mPointsScreenWidth(0.0f) {
     mBlurPoints = new BlurPoint[BLUR_POINT_NUM];
     mBlurThicks = new f32[BLUR_POINT_NUM];
     mBlurTexCoords = new f32[BLUR_POINT_NUM];
@@ -62,8 +63,21 @@ void StarPointerBlur::hideAll() {
     mNumHiddenPoints = BLUR_POINT_NUM;
 }
 
+// This frame's points, as StarPointerLayout::setPosition puts the pointer at this frame's newest: the trail ends under the
+// pointer (the previous frame's points left it a frame of movement behind). Points kept from another picture shape (the
+// window resized or changed) are moved to this one's screen units.
 void StarPointerBlur::movement() {
-    // This frame's positions, as the cursor (StarPointerLayout::setPosition): its head stays on the cursor.
+    const f32 screenWidth = MR::getScreenWidth();
+    if (mPointsScreenWidth != screenWidth) {
+        if (mPointsScreenWidth > 0.0f) {
+            const f32 scale = screenWidth / mPointsScreenWidth;
+            for (s32 idx = 0; idx < BLUR_POINT_NUM; idx++) {
+                mBlurPoints[idx].mPos.x *= scale;
+            }
+        }
+        mPointsScreenWidth = screenWidth;
+    }
+
     s32 pastPointNum = StarPointerFunction::getNextPastPointNum(mPadChannel);
 
     if (pastPointNum <= 0) {

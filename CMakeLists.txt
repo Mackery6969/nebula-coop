@@ -123,6 +123,7 @@ add_library(galaxy_net STATIC
     runtime/src/coop_mods.cpp
     runtime/src/coop_session.cpp
     runtime/src/coop_chat.cpp
+    runtime/src/coop_commands.cpp
     runtime/src/coop_snapshot.cpp
     runtime/src/coop_world.cpp)
 target_link_libraries(galaxy_net PUBLIC galaxy_runtime_abi galaxy_atomic_file ws2_32)
@@ -474,12 +475,15 @@ endif()
 # The native game's windowed host (native/host): runs the game module that native/CMakeLists.txt builds with clang
 # (smg_game.dll, beside the executable or --module) on Nebula's renderer.
 add_executable(NebulaNative native/host/host_main.cpp runtime/src/movie_video.cpp runtime/src/frame_phase.cpp)
+# The game API's and online play's fingerprints (cmake/nebula_fingerprint.cmake): no version to bump by hand.
+include(cmake/nebula_fingerprint.cmake)
+nebula_fingerprint("${CMAKE_SOURCE_DIR}" "${CMAKE_SOURCE_DIR}/native/petari" "${CMAKE_BINARY_DIR}/generated")
 if(WIN32)
     enable_language(RC)
 endif()
 include(cmake/nebula_file_details.cmake)
 nebula_file_details(NebulaNative NebulaNative.exe "Super Mario Galaxy on PC" ICON "${CMAKE_CURRENT_SOURCE_DIR}/installer/assets/nebula.ico")
-target_include_directories(NebulaNative PRIVATE native/include runtime/include)
+target_include_directories(NebulaNative PRIVATE native/include runtime/include "${CMAKE_BINARY_DIR}/generated")
 target_compile_definitions(NebulaNative PRIVATE NEBULA_HOST_RENDERER=1 NEBULA_HOST_D3D12=1 _CRT_SECURE_NO_WARNINGS)
 target_compile_features(NebulaNative PRIVATE cxx_std_20)
 target_link_libraries(NebulaNative PRIVATE galaxy_render galaxy_save_files galaxy_disc_files dwmapi)
@@ -540,6 +544,7 @@ galaxy_test(galaxy_runtime_settings_tests SOURCES ${rt}/runtime_settings_tests.c
 galaxy_test(galaxy_coop_menu_tests SOURCES ${rt}/coop_menu_tests.cpp LIBS galaxy_runtime_settings)
 galaxy_test(galaxy_net_tests SOURCES ${rt}/net/net_tests.cpp LIBS galaxy_net)
 galaxy_test(galaxy_coop_chat_tests SOURCES ${rt}/coop_chat_tests.cpp LIBS galaxy_net)
+galaxy_test(galaxy_coop_commands_tests SOURCES ${rt}/coop_commands_tests.cpp LIBS galaxy_net)
 galaxy_test(galaxy_coop_snapshot_tests SOURCES ${rt}/coop_snapshot_tests.cpp LIBS galaxy_net)
 galaxy_test(galaxy_coop_world_tests SOURCES ${rt}/coop_world_tests.cpp LIBS galaxy_net)
 galaxy_test(galaxy_achievements_tests SOURCES ${rt}/achievements_tests.cpp LIBS galaxy_runtime_settings)
@@ -744,7 +749,7 @@ runtime/src/render/host_window_win32.cpp
 
     add_executable(NebulaNativeVk native/host/host_main.cpp runtime/src/frame_phase.cpp runtime/src/movie_video.cpp)
     nebula_file_details(NebulaNativeVk NebulaNative.exe "Super Mario Galaxy on PC" ICON "${CMAKE_CURRENT_SOURCE_DIR}/installer/assets/nebula.ico")
-    target_include_directories(NebulaNativeVk PRIVATE native/include runtime/include)
+    target_include_directories(NebulaNativeVk PRIVATE native/include runtime/include "${CMAKE_BINARY_DIR}/generated")
     target_compile_definitions(NebulaNativeVk PRIVATE NEBULA_HOST_RENDERER=1 _CRT_SECURE_NO_WARNINGS)
     target_link_libraries(NebulaNativeVk PRIVATE dwmapi galaxy_render_vk galaxy_save_files galaxy_disc_files)
     if(MSVC)

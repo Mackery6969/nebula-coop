@@ -636,7 +636,7 @@ int main() {
     write_text(settings_path,
                "coop_port=9000\ncoop_max_players=40\ncoop_player_name=  Mario\x01 Bros  \ncoop_password=pw\n"
                "coop_player_interaction=Friendly_Fire\ncoop_knockback_strength=60\ncoop_pvp_mode=revamped\ncoop_cheats=1\n"
-               "coop_character=Luigi\ncoop_join_address=192.168.1.20:7778\ncoop_star_counter=1\n");
+               "coop_bubble_death=0\ncoop_character=Luigi\ncoop_join_address=192.168.1.20:7778\ncoop_star_counter=1\n");
     galaxy::load_runtime_settings_from_file();
     const galaxy::RuntimeCoopSettings coop = galaxy::get_runtime_settings().coop;
     passed &= expect(static_cast<unsigned>(coop.port) == 9000u && coop.max_players == 8u &&
@@ -644,7 +644,7 @@ int main() {
                          coop.password == "pw" &&
                          coop.player_interaction == galaxy::CoopPlayerInteraction::FriendlyFire &&
                          coop.knockback_strength == galaxy::kCoopKnockbackTooMuch &&
-                         coop.pvp_mode == galaxy::CoopPvpMode::Revamped && coop.cheats &&
+                         coop.pvp_mode == galaxy::CoopPvpMode::Revamped && coop.cheats && !coop.bubble_death &&
                          coop.character == galaxy::CoopCharacter::Luigi && coop.join_address == "192.168.1.20:7778" &&
                          coop.star_counter,
                      "co-op keys load; an out-of-range count and control characters are dropped");
@@ -661,6 +661,17 @@ int main() {
     galaxy::load_runtime_settings_from_file();
     passed &= expect(galaxy::get_runtime_settings().coop == galaxy::RuntimeCoopSettings{},
                      "unknown player interaction, knockback and PvP values keep the defaults");
+
+    // The kept ban and moderator lists: addresses, each once.
+    write_text(settings_path, "coop_bans=192.168.1.9, ::1,not an address,192.168.1.9\ncoop_moderators=fe80::2\n");
+    galaxy::load_runtime_settings_from_file();
+    const galaxy::RuntimeSettings lists = galaxy::get_runtime_settings();
+    passed &= expect(lists.coop_bans == std::vector<std::string>({"192.168.1.9", "::1"}) &&
+                         lists.coop_moderators == std::vector<std::string>({"fe80::2"}),
+                     "kept co-op lists load, dropping what isn't an address and repeats");
+    passed &= expect(galaxy::save_runtime_settings_to_file(), "kept co-op lists save");
+    galaxy::load_runtime_settings_from_file();
+    passed &= expect(galaxy::get_runtime_settings() == lists, "kept co-op lists round-trip");
 
     const auto endpoint = [](std::string_view text, const char* host, unsigned port) {
         std::string parsed_host;

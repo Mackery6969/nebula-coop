@@ -1,6 +1,7 @@
 #include "Game/AreaObj/SwitchArea.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
+#include "Game/System/NebulaCoopWorld.hpp"
 
 SwitchArea::SwitchArea(int formType, const char* pName) : AreaObj(formType, pName) {
 }
@@ -17,6 +18,12 @@ void SwitchArea::movement() {
 
     bool bVar1 = !isValidSwitchB() || isOnSwitchB();
 
+    // Online co-op: an area that turns its switch back as the player leaves follows the local player alone; one that
+    // turns it once is everyone's.
+    const bool local = mObjArg0 != -1;
+    if (local) {
+        NebulaCoopWorld::beginLocalSwitches();
+    }
     if (bVar1 && isInVolume(*MR::getPlayerPos())) {
         if (mObjArg1 == -1) {
             onSwitchA();
@@ -25,6 +32,9 @@ void SwitchArea::movement() {
         }
     } else if (mObjArg0 != -1) {
         offSwitchA();
+    }
+    if (local) {
+        NebulaCoopWorld::endLocalSwitches();
     }
 }
 

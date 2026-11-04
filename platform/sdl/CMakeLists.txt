@@ -149,6 +149,7 @@ add_library(galaxy_render_vk STATIC
     ${rt}/coop_mods.cpp
     ${rt}/coop_session.cpp
     ${rt}/coop_chat.cpp
+    ${rt}/coop_commands.cpp
     ${rt}/coop_snapshot.cpp
     ${rt}/coop_world.cpp
     ${rt}/net/udp.cpp
@@ -213,7 +214,11 @@ else()
     add_executable(main ${host_sources})
     set_target_properties(main PROPERTIES OUTPUT_NAME nebula)
 endif()
-target_include_directories(main PRIVATE "${nebula_root}/native/include" "${nebula_root}/runtime/include")
+# The game API's and online play's fingerprints (cmake/nebula_fingerprint.cmake): no version to bump by hand.
+include("${nebula_root}/cmake/nebula_fingerprint.cmake")
+nebula_fingerprint("${nebula_root}" "${nebula_root}/native/petari" "${CMAKE_CURRENT_BINARY_DIR}/generated")
+target_include_directories(main PRIVATE "${nebula_root}/native/include" "${nebula_root}/runtime/include"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_compile_definitions(main PRIVATE NEBULA_HOST_RENDERER=1 NEBULA_HOST_SDL=1)
 target_include_directories(main PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(main PRIVATE galaxy_render_vk SDL3::SDL3)

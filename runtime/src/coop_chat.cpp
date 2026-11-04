@@ -65,6 +65,17 @@ void Chat::notice(ChatLine::Kind kind, std::string name, std::uint64_t now_ms) {
     add(std::move(line));
 }
 
+void Chat::say(std::string text, std::string name) {
+    ChatLine line;
+    line.kind = ChatLine::Kind::Notice;
+    line.name = std::move(name);
+    line.text = std::move(text);
+    line.local = true;
+    line.at_ms = chat_clock_ms();
+    const std::lock_guard<std::mutex> lock(lock_);
+    add(std::move(line));
+}
+
 void Chat::clear() {
     const std::lock_guard<std::mutex> lock(lock_);
     lines_.clear();
@@ -73,6 +84,7 @@ void Chat::clear() {
     typing_ = false;
     input_.clear();
     cursor_ = 0u;
+    completing_ = false;
 }
 
 bool Chat::open() {
@@ -100,10 +112,26 @@ bool Chat::typing() const {
 }
 
 bool Chat::type(char32_t key, std::uint64_t now_ms) {
+    if (key == kTextTab) {
+        // The players' names, from the session without the chat's lock (its thread holds its own giving lines).
+        Session* session = nullptr;
+        {
+            const std::lock_guard<std::mutex> lock(lock_);
+            if (!typing_) return false;
+            session = session_;
+        }
+        std::vector<std::string> names;
+        if (session != nullptr) {
+            for (const SessionPlayer& player : session->players()) names.push_back(player.name);
+        }
+        complete(names);
+        return true;
+    }
     std::string text;
     {
         const std::lock_guard<std::mutex> lock(lock_);
         if (!typing_) return false;
+        completing_ = false;
         switch (key) {
         case kTextEnter:
             text = clean_chat_text(input_);
@@ -136,16 +164,50 @@ bool Chat::type(char32_t key, std::uint64_t now_ms) {
         }
         ++input_serial_;
         if (key != kTextEnter) return true;
-        if (text.empty()) {
-            // Nothing to say: the line closes.
+        if (text.empty() || text.front() == '/') {
+            // Nothing to say, or a command: the line closes.
             typing_ = false;
             input_.clear();
             cursor_ = 0u;
-            return true;
+            if (text.empty()) return true;
         }
     }
-    send(text, now_ms);
+    if (text.front() == '/') {
+        run_command(text);
+    } else {
+        send(text, now_ms);
+    }
     return true;
+}
+
+// A '/' line: /help (or /? or /) lists the commands, another runs; one no command takes says so, as sm64coopdx's.
+void Chat::run_command(const std::string& line) {
+    if (line == "/" || line == "/help" || line == "/?") {
+        for (std::string& help : commands_.help()) say(std::move(help));
+        return;
+    }
+    if (!commands_.run(line)) say("CoopCmdUnknown");
+}
+
+void Chat::complete(const std::vector<std::string>& players) {
+    const std::lock_guard<std::mutex> lock(lock_);
+    if (!typing_) return;
+    if (!completing_) {
+        completing_ = true;
+        completion_base_ = input_;
+        completion_next_ = 0u;
+    }
+    const std::vector<std::string> found = commands_.complete(completion_base_, players);
+    if (found.empty()) return;
+    set_input(found[completion_next_ % found.size()]);
+    completion_next_ = (completion_next_ + 1u) % found.size();
+}
+
+void Chat::set_input(std::string text) {
+    if (text.size() > kChatMessageLimit) text.resize(kChatMessageLimit);
+    input_ = std::move(text);
+    cursor_ = input_.size();
+    ++input_serial_;
 }
 
 // Enter on a line with words: to the room, and shown here as everyone sees it. A line past this player's burst stays

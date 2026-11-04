@@ -4,6 +4,7 @@
 #include "Game/Player/MarioModelTint.hpp"
 #include <nebula_game_api.h>
 
+class NebulaBubble;
 class XanimePlayer;
 
 // Online co-op (docs/COOP_PLAN.md "Remote players"): another player in this instance, drawn as their Mario or Luigi
@@ -31,6 +32,9 @@ public:
     // The copies this scene has (shown or not), for their nametags (NebulaNametags).
     static s32 getCopyNum();
     static const NebulaRemotePlayer* getCopy(s32 index);
+    // Shared objects (NebulaCoopWorld): the sensor another player's hit is played again from here, the copy of player
+    // `number` (where it stands now), none when nobody shows them.
+    static HitSensor* getHitSender(u32 number);
     // Where its name goes: above its head, along its up.
     TVec3f getNametagPos() const;
     // Nothing touches the local Mario now: dead, in a demo, bound to something (a Launch Star, a bubble...), a Boo,
@@ -76,4 +80,5 @@ public:
     s32 mShownFrames; // frames since this copy began showing its player
     s32 mStompTimer;  // frames until their landing on the local Mario's head may squash him again
     bool mSolid;      // its sensor is on
+    NebulaBubble* mBubble;  // round them while they're in a bubble (NebulaCoopBubble)
 };

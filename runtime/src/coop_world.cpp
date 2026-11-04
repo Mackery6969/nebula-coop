@@ -4,6 +4,8 @@
 #include "galaxy/net/bytes.h"
 
 #include <algorithm>
+#include <chrono>
+#include <cmath>
 #include <utility>
 
 namespace galaxy::coop {
@@ -125,30 +127,123 @@ std::optional<StarGot> read_star(ByteReader& in) {
     return star;
 }
 
+// An object's state on the wire: its speed in 64ths of a unit a frame and its turn in 32767ths, its owner's distance in
+// fours of units.
+std::int16_t to_fixed(float value, float scale) {
+    const float scaled = std::clamp(value * scale, -32767.0f, 32767.0f);
+    return static_cast<std::int16_t>(scaled < 0.0f ? scaled - 0.5f : scaled + 0.5f);
+}
+
+bool finite3(const std::array<float, 3>& vec) {
+    return std::isfinite(vec[0]) && std::isfinite(vec[1]) && std::isfinite(vec[2]);
+}
+
+void write_states(ByteWriter& out, std::span<const ObjectState> states) {
+    out.u8(static_cast<std::uint8_t>(states.size()));
+    for (const ObjectState& state : states) {
+        out.u32(state.object).u32(state.nerve).u16(state.step).u8(state.flags);
+        for (const float value : state.position) out.f32(value);
+        for (const float value : state.velocity) out.u16(static_cast<std::uint16_t>(to_fixed(value, 64.0f)));
+        for (const float value : state.rotation) out.u16(static_cast<std::uint16_t>(to_fixed(value, 32767.0f)));
+        out.u16(static_cast<std::uint16_t>(std::clamp(state.distance * 0.25f + 0.5f, 0.0f, 65535.0f)));
+    }
+}
+
+std::optional<std::vector<ObjectState>> read_states(ByteReader& in) {
+    const std::size_t count = in.u8();
+    std::vector<ObjectState> states;
+    states.reserve(std::min(count, kObjectStatesPerMessage));
+    for (std::size_t i = 0; i < count && in.ok(); ++i) {
+        ObjectState state;
+        state.object = in.u32();
+        state.nerve = in.u32();
+        state.step = in.u16();
+        state.flags = in.u8();
+        for (float& value : state.position) value = in.f32();
+        for (float& value : state.velocity) value = static_cast<std::int16_t>(in.u16()) / 64.0f;
+        for (float& value : state.rotation) value = static_cast<std::int16_t>(in.u16()) / 32767.0f;
+        state.distance = in.u16() * 4.0f;
+        if (in.ok() && finite3(state.position)) states.push_back(state);
+    }
+    if (!in.ok()) return std::nullopt;
+    return states;
+}
+
+void write_hit(ByteWriter& out, const ObjectHit& hit) {
+    out.u32(hit.object).u16(hit.message).u8(hit.sensor);
+}
+
+std::optional<ObjectHit> read_hit(ByteReader& in) {
+    ObjectHit hit;
+    hit.object = in.u32();
+    hit.message = in.u16();
+    hit.sensor = in.u8();
+    if (!in.ok()) return std::nullopt;
+    return hit;
+}
+
+void write_switches(ByteWriter& out, std::span<const SwitchChange> switches) {
+    out.u16(static_cast<std::uint16_t>(switches.size()));
+    for (const SwitchChange& change : switches) out.u32(change.id).u8(change.on ? 1u : 0u);
+}
+
+std::optional<std::vector<SwitchChange>> read_switches(ByteReader& in) {
+    const std::size_t count = in.u16();
+    std::vector<SwitchChange> switches;
+    switches.reserve(std::min(count, kMaxSwitchesPerInstance));
+    for (std::size_t i = 0; i < count && in.ok(); ++i) {
+        SwitchChange change;
+        change.id = in.u32();
+        change.on = in.u8() != 0u;
+        switches.push_back(change);
+    }
+    if (!in.ok()) return std::nullopt;
+    return switches;
+}
+
 // Something to send once the world's lock is let go (the session's own lock comes first on its thread).
-struct Outgoing {
-    std::uint8_t type = 0u;
-    PeerId to = net::kEveryone;
-    std::vector<std::uint8_t> bytes;
-};
+using Outgoing = World::Outgoing;
 
 void flush(Session* session, std::vector<Outgoing>& out) {
     if (session == nullptr) return;
     for (const Outgoing& message : out) {
-        (void)session->send(message.type, Channel::Ordered, message.bytes, message.to);
+        (void)session->send(message.type, message.reliable ? Channel::Ordered : Channel::Unreliable, message.bytes,
+                            message.to);
     }
     out.clear();
 }
 
-// A host's record of what is gone, for one of its players: in messages of kGonePerMessage, each with the player's
-// scene (its epoch), then the end.
-void queue_record(std::vector<Outgoing>& out, PeerId to, std::uint16_t epoch, std::span<const Gone> gone) {
+// Objects' states for a player's scene (its epoch), from their owner (its number), a datagram each.
+void queue_states(std::vector<Outgoing>& out, PeerId to, std::uint16_t epoch, unsigned owner,
+                  std::span<const ObjectState> states) {
+    for (std::size_t at = 0; at < states.size(); at += kObjectStatesPerMessage) {
+        ByteWriter body;
+        body.u16(epoch).u8(static_cast<std::uint8_t>(owner));
+        write_states(body, states.subspan(at, std::min(kObjectStatesPerMessage, states.size() - at)));
+        out.push_back({kObjectStateMessage, to, body.take(), false});
+    }
+}
+
+void queue_switches(std::vector<Outgoing>& out, PeerId to, std::uint16_t epoch, std::span<const SwitchChange> switches) {
+    for (std::size_t at = 0; at < switches.size(); at += kMaxSwitchesPerInstance) {
+        ByteWriter body;
+        body.u16(epoch);
+        write_switches(body, switches.subspan(at, std::min(kMaxSwitchesPerInstance, switches.size() - at)));
+        out.push_back({kWorldSwitchMessage, to, body.take()});
+    }
+}
+
+// A host's record of an instance, for one of its players: what is gone in messages of kGonePerMessage, then its
+// switches, each with the player's scene (its epoch), then the end.
+void queue_record(std::vector<Outgoing>& out, PeerId to, std::uint16_t epoch, std::span<const Gone> gone,
+                  std::span<const SwitchChange> switches) {
     for (std::size_t at = 0; at < gone.size(); at += kGonePerMessage) {
         ByteWriter body;
         body.u16(epoch);
         write_gone(body, gone.subspan(at, std::min(kGonePerMessage, gone.size() - at)));
         out.push_back({kWorldGoneMessage, to, body.take()});
     }
+    if (!switches.empty()) queue_switches(out, to, epoch, switches);
     ByteWriter ready;
     ready.u16(epoch);
     out.push_back({kWorldReadyMessage, to, ready.take()});
@@ -197,6 +292,28 @@ std::optional<std::vector<SaveChange>> decode_save_changes(std::span<const std::
     return read_changes(in);
 }
 
+std::vector<std::uint8_t> encode_object_states(std::span<const ObjectState> states) {
+    ByteWriter out;
+    write_states(out, states.first(std::min(states.size(), kObjectStatesPerMessage)));
+    return out.take();
+}
+
+std::optional<std::vector<ObjectState>> decode_object_states(std::span<const std::uint8_t> data) {
+    ByteReader in(data);
+    return read_states(in);
+}
+
+std::vector<std::uint8_t> encode_switches(std::span<const SwitchChange> switches) {
+    ByteWriter out;
+    write_switches(out, switches.first(std::min(switches.size(), kMaxSwitchesPerInstance)));
+    return out.take();
+}
+
+std::optional<std::vector<SwitchChange>> decode_switches(std::span<const std::uint8_t> data) {
+    ByteReader in(data);
+    return read_switches(in);
+}
+
 // --- WorldAuthority ---
 
 void WorldAuthority::drop_player(Player player) {
@@ -205,6 +322,9 @@ void WorldAuthority::drop_player(Player player) {
     const auto record = instances_.find(it->second);
     if (record != instances_.end()) {
         record->second.players.erase(player);
+        record->second.missed.erase(player);
+        // What it moved is the next player's to take.
+        std::erase_if(record->second.owners, [player](const auto& owned) { return owned.second.player == player; });
         if (record->second.players.empty()) instances_.erase(record);
     }
     where_.erase(it);
@@ -213,7 +333,11 @@ void WorldAuthority::drop_player(Player player) {
 std::vector<Gone> WorldAuthority::enter(Player player, const Instance& instance) {
     drop_player(player);
     Record& record = instances_[instance];
-    if (record.players.empty()) record.gone.clear();
+    if (record.players.size() == record.missed.size()) {
+        record.gone.clear();
+        record.owners.clear();
+        record.switches.clear();
+    }
     record.players.insert(player);
     where_[player] = instance;
     std::vector<Gone> gone;
@@ -224,11 +348,26 @@ std::vector<Gone> WorldAuthority::enter(Player player, const Instance& instance)
 
 void WorldAuthority::leave(Player player) { drop_player(player); }
 
+void WorldAuthority::miss(Player player) {
+    Record* record = playing(player);
+    if (record == nullptr) return;
+    record->missed.insert(player);
+    std::erase_if(record->owners, [player](const auto& owned) { return owned.second.player == player; });
+}
+
+WorldAuthority::Record* WorldAuthority::playing(Player player) {
+    const auto it = where_.find(player);
+    if (it == where_.end()) return nullptr;
+    const auto record = instances_.find(it->second);
+    if (record == instances_.end() || record->second.missed.count(player) != 0u) return nullptr;
+    return &record->second;
+}
+
 WorldAuthority::Settled WorldAuthority::gone(Player player, std::span<const Gone> gone) {
     Settled settled;
-    const auto it = where_.find(player);
-    if (it == where_.end()) return settled;
-    Record& record = instances_[it->second];
+    Record* playing_in = playing(player);
+    if (playing_in == nullptr) return settled;
+    Record& record = *playing_in;
     for (const Gone& thing : gone) {
         if (record.gone.size() >= kMaxGonePerInstance) break;
         if (record.gone.emplace(thing.object, thing.how).second) settled.news.push_back(thing);
@@ -246,6 +385,81 @@ std::vector<WorldAuthority::Player> WorldAuthority::star_got(Player player) cons
     std::vector<Player> tell = players_in(it->second);
     tell.erase(std::remove(tell.begin(), tell.end(), player), tell.end());
     return tell;
+}
+
+std::vector<WorldAuthority::Player> WorldAuthority::others(Player player) const { return star_got(player); }
+
+WorldAuthority::Claimed WorldAuthority::claim(Player player, std::span<const ObjectState> states, std::uint64_t now_ms) {
+    Claimed claimed;
+    Record* playing_in = playing(player);
+    if (playing_in == nullptr) return claimed;
+    Record& record = *playing_in;
+    for (const ObjectState& state : states) {
+        // A thing gone from the instance moves for nobody.
+        if (record.gone.count(state.object) != 0u) continue;
+        auto owned = record.owners.find(state.object);
+        if (owned == record.owners.end()) {
+            if (record.owners.size() >= kMaxGonePerInstance) continue;
+            owned = record.owners.emplace(state.object, Owner{player, now_ms, state.distance}).first;
+        } else {
+            Owner& owner = owned->second;
+            const bool silent = now_ms - owner.heard_ms >= kObjectOwnerSilenceMs || now_ms < owner.heard_ms;
+            const bool nearer = state.distance * 1.25f < owner.distance;
+            const bool hit = (state.flags & kObjectHitClaim) != 0u;
+            if (owner.player != player && !silent && !nearer && !hit) continue;
+            owner = {player, now_ms, state.distance};
+        }
+        claimed.states.push_back(state);
+    }
+    if (!claimed.states.empty()) {
+        for (const Player other : record.players) {
+            if (other != player) claimed.tell.push_back(other);
+        }
+    }
+    return claimed;
+}
+
+std::optional<WorldAuthority::Player> WorldAuthority::owner(Player player, std::uint32_t object) const {
+    const auto it = where_.find(player);
+    if (it == where_.end()) return std::nullopt;
+    const auto record = instances_.find(it->second);
+    if (record == instances_.end()) return std::nullopt;
+    const auto owned = record->second.owners.find(object);
+    if (owned == record->second.owners.end()) return std::nullopt;
+    return owned->second.player;
+}
+
+WorldAuthority::Switched WorldAuthority::switches(Player player, std::span<const SwitchChange> switches) {
+    Switched switched;
+    Record* playing_in = playing(player);
+    if (playing_in == nullptr) return switched;
+    Record& record = *playing_in;
+    for (const SwitchChange& change : switches) {
+        const auto had = record.switches.find(change.id);
+        if (had != record.switches.end()) {
+            if (had->second == change.on) continue;
+            had->second = change.on;
+        } else {
+            if (record.switches.size() >= kMaxSwitchesPerInstance) continue;
+            record.switches.emplace(change.id, change.on);
+        }
+        switched.news.push_back(change);
+    }
+    if (!switched.news.empty()) {
+        for (const Player other : record.players) {
+            if (other != player) switched.tell.push_back(other);
+        }
+    }
+    return switched;
+}
+
+std::vector<SwitchChange> WorldAuthority::switches_of(const Instance& instance) const {
+    std::vector<SwitchChange> switches;
+    const auto it = instances_.find(instance);
+    if (it == instances_.end()) return switches;
+    switches.reserve(it->second.switches.size());
+    for (const auto& [id, on] : it->second.switches) switches.push_back({id, on});
+    return switches;
 }
 
 bool WorldAuthority::save(const SaveChange& change, bool from_host) {
@@ -299,7 +513,7 @@ void World::attach(Session& session) {
             if (!active_ || !host_) return;
             const std::vector<Gone> gone = authority_.enter(from.id, *instance);
             epochs_[from.id] = epoch;
-            queue_record(out, from.id, epoch, gone);
+            queue_record(out, from.id, epoch, gone, authority_.switches_of(*instance));
         }
         flush(session_, out);
     });
@@ -360,6 +574,86 @@ void World::attach(Session& session) {
         }
         flush(session_, out);
     });
+    // Objects' states: a joiner's (host), or the ones the host let their owner move (joiner).
+    session.on_message(kObjectStateMessage, [this](const SessionPlayer& from, std::span<const std::uint8_t> data) {
+        ByteReader in(data);
+        const std::uint16_t epoch = in.u16();
+        const unsigned owner = in.u8();
+        const std::optional<std::vector<ObjectState>> states = read_states(in);
+        if (!states) return;
+        std::vector<Outgoing> out;
+        {
+            const std::lock_guard<std::recursive_mutex> lock(lock_);
+            if (!active_) return;
+            if (!host_) {
+                if (!from.host || epoch != epoch_ || owner == 0u) return;
+                for (ObjectState state : *states) {
+                    state.player = owner;
+                    push_state(state);
+                }
+                return;
+            }
+            const auto it = epochs_.find(from.id);
+            if (it == epochs_.end() || it->second != epoch) return;
+            host_states(from.id, from.index + 1u, *states, out);
+        }
+        flush(session_, out);
+    });
+    // A hit: a joiner's player's (host), or another player's in this player's instance (joiner).
+    session.on_message(kObjectHitMessage, [this](const SessionPlayer& from, std::span<const std::uint8_t> data) {
+        ByteReader in(data);
+        const std::uint16_t epoch = in.u16();
+        const unsigned player = in.u8();
+        std::optional<ObjectHit> hit = read_hit(in);
+        if (!hit) return;
+        std::vector<Outgoing> out;
+        {
+            const std::lock_guard<std::recursive_mutex> lock(lock_);
+            if (!active_) return;
+            if (!host_) {
+                if (!from.host || epoch != epoch_ || player == 0u) return;
+                hit->player = player;
+                push({WorldEvent::Kind::Hit, {}, {}, {}, *hit});
+                return;
+            }
+            const auto it = epochs_.find(from.id);
+            if (it == epochs_.end() || it->second != epoch) return;
+            hit->player = from.index + 1u;
+            host_hit(from.id, *hit, out);
+        }
+        flush(session_, out);
+    });
+    // Switches turned: a joiner's (host), or the instance's (joiner: its record at the enter, then news).
+    session.on_message(kWorldSwitchMessage, [this](const SessionPlayer& from, std::span<const std::uint8_t> data) {
+        ByteReader in(data);
+        const std::uint16_t epoch = in.u16();
+        const std::optional<std::vector<SwitchChange>> switches = read_switches(in);
+        if (!switches) return;
+        std::vector<Outgoing> out;
+        {
+            const std::lock_guard<std::recursive_mutex> lock(lock_);
+            if (!active_) return;
+            if (!host_) {
+                if (!from.host || epoch != epoch_) return;
+                for (const SwitchChange& change : *switches) push({WorldEvent::Kind::Switch, {}, {}, {}, {}, change});
+                return;
+            }
+            const auto it = epochs_.find(from.id);
+            if (it == epochs_.end() || it->second != epoch) return;
+            host_switches(from.id, *switches, out);
+        }
+        flush(session_, out);
+    });
+    // A joiner missed: it doesn't keep the instance its scene (the epoch) was in going, until it enters again.
+    session.on_message(kWorldMissMessage, [this](const SessionPlayer& from, std::span<const std::uint8_t> data) {
+        ByteReader in(data);
+        const std::uint16_t epoch = in.u16();
+        const std::lock_guard<std::recursive_mutex> lock(lock_);
+        if (!in.ok() || !active_ || !host_) return;
+        const auto it = epochs_.find(from.id);
+        if (it == epochs_.end() || it->second != epoch) return;
+        authority_.miss(from.id);
+    });
     session.on_message(kSaveRequestMessage, [this](const SessionPlayer& from, std::span<const std::uint8_t>) {
         std::vector<Outgoing> out;
         {
@@ -381,6 +675,8 @@ void World::start() {
         save_.clear();
         entered_.reset();
         events_.clear();
+        states_.clear();
+        state_index_.clear();
         achievements_.clear();
         epochs_.clear();
         members_.clear();
@@ -398,6 +694,8 @@ void World::stop() {
     save_.clear();
     entered_.reset();
     events_.clear();
+    states_.clear();
+    state_index_.clear();
     achievements_.clear();
     epochs_.clear();
     members_.clear();
@@ -451,8 +749,13 @@ void World::enter(const Instance& instance) {
         for (const SaveChange& change : save_) {
             if (change.kind != SaveKind::Achievement) push({WorldEvent::Kind::Save, {}, change});
         }
+        states_.clear();
+        state_index_.clear();
         if (host_) {
             for (const Gone& thing : authority_.enter(self, instance)) push({WorldEvent::Kind::Gone, thing, {}});
+            for (const SwitchChange& change : authority_.switches_of(instance)) {
+                push({WorldEvent::Kind::Switch, {}, {}, {}, {}, change});
+            }
             push({WorldEvent::Kind::Ready, {}, {}});
         } else {
             ByteWriter body;
@@ -532,6 +835,87 @@ void World::report_star(const StarGot& star) {
         }
     }
     flush(session_, out);
+}
+
+void World::report_miss() {
+    const PeerId self = self_peer();
+    const PeerId host = host_peer();
+    std::vector<Outgoing> out;
+    {
+        const std::lock_guard<std::recursive_mutex> lock(lock_);
+        if (!active_ || !entered_) return;
+        entered_.reset();
+        states_.clear();
+        state_index_.clear();
+        if (host_) {
+            authority_.miss(self);
+        } else {
+            ByteWriter body;
+            body.u16(epoch_);
+            out.push_back({kWorldMissMessage, host, body.take()});
+        }
+    }
+    flush(session_, out);
+}
+
+void World::report_states(std::span<const ObjectState> states) {
+    if (states.empty()) return;
+    const PeerId self = self_peer();
+    const PeerId host = host_peer();
+    std::vector<Outgoing> out;
+    {
+        const std::lock_guard<std::recursive_mutex> lock(lock_);
+        if (!active_ || !entered_) return;
+        if (host_) {
+            host_states(self, 1u, states, out);
+        } else {
+            queue_states(out, host, epoch_, 0u, states);
+        }
+    }
+    flush(session_, out);
+}
+
+void World::report_hit(const ObjectHit& hit) {
+    const PeerId self = self_peer();
+    const PeerId host = host_peer();
+    std::vector<Outgoing> out;
+    {
+        const std::lock_guard<std::recursive_mutex> lock(lock_);
+        if (!active_ || !entered_) return;
+        if (host_) {
+            ObjectHit own = hit;
+            own.player = 1u;
+            host_hit(self, own, out);
+        } else {
+            ByteWriter body;
+            body.u16(epoch_).u8(0u);
+            write_hit(body, hit);
+            out.push_back({kObjectHitMessage, host, body.take()});
+        }
+    }
+    flush(session_, out);
+}
+
+void World::report_switch(const SwitchChange& change) {
+    const PeerId self = self_peer();
+    const PeerId host = host_peer();
+    std::vector<Outgoing> out;
+    {
+        const std::lock_guard<std::recursive_mutex> lock(lock_);
+        if (!active_ || !entered_) return;
+        if (host_) {
+            host_switches(self, std::span<const SwitchChange>(&change, 1u), out);
+        } else {
+            queue_switches(out, host, epoch_, std::span<const SwitchChange>(&change, 1u));
+        }
+    }
+    flush(session_, out);
+}
+
+std::vector<ObjectState> World::take_states() {
+    const std::lock_guard<std::recursive_mutex> lock(lock_);
+    state_index_.clear();
+    return std::exchange(states_, {});
 }
 
 std::vector<WorldEvent> World::take() {
@@ -634,6 +1018,73 @@ void World::host_save(PeerId from, const SaveChange& change) {
     std::vector<Outgoing> out;
     queue_changes(out, net::kEveryone, std::span<const SaveChange>(&change, 1u));
     flush(session_, out);
+}
+
+// The world's lock held, the host's: the states the host lets `from` move, to the others in its instance.
+void World::host_states(PeerId from, unsigned number, std::span<const ObjectState> states, std::vector<Outgoing>& out) {
+    const auto now_ms = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                       std::chrono::steady_clock::now().time_since_epoch())
+                                                       .count());
+    const WorldAuthority::Claimed claimed = authority_.claim(from, states, now_ms);
+    if (claimed.states.empty()) return;
+    const PeerId self = self_peer();
+    for (const PeerId to : claimed.tell) {
+        if (to == self) {
+            for (ObjectState state : claimed.states) {
+                state.player = number;
+                push_state(state);
+            }
+            continue;
+        }
+        const auto it = epochs_.find(to);
+        if (it == epochs_.end()) continue;
+        queue_states(out, to, it->second, number, claimed.states);
+    }
+}
+
+void World::host_hit(PeerId from, ObjectHit hit, std::vector<Outgoing>& out) {
+    const PeerId self = self_peer();
+    for (const PeerId to : authority_.others(from)) {
+        if (to == self) {
+            push({WorldEvent::Kind::Hit, {}, {}, {}, hit});
+            continue;
+        }
+        const auto it = epochs_.find(to);
+        if (it == epochs_.end()) continue;
+        ByteWriter body;
+        body.u16(it->second).u8(static_cast<std::uint8_t>(hit.player));
+        write_hit(body, hit);
+        out.push_back({kObjectHitMessage, to, body.take()});
+    }
+}
+
+void World::host_switches(PeerId from, std::span<const SwitchChange> switches, std::vector<Outgoing>& out) {
+    const WorldAuthority::Switched switched = authority_.switches(from, switches);
+    if (switched.news.empty()) return;
+    const PeerId self = self_peer();
+    for (const PeerId to : switched.tell) {
+        if (to == self) {
+            for (const SwitchChange& change : switched.news) push({WorldEvent::Kind::Switch, {}, {}, {}, {}, change});
+            continue;
+        }
+        const auto it = epochs_.find(to);
+        if (it == epochs_.end()) continue;
+        queue_switches(out, to, it->second, switched.news);
+    }
+}
+
+// The latest state of each object waits for the game; older ones of it are dropped.
+void World::push_state(const ObjectState& state) {
+    const auto [at, added] = state_index_.emplace(state.object, states_.size());
+    if (!added) {
+        states_[at->second] = state;
+        return;
+    }
+    if (states_.size() >= kMaxGonePerInstance) {
+        state_index_.erase(at);
+        return;
+    }
+    states_.push_back(state);
 }
 
 }  // namespace galaxy::coop

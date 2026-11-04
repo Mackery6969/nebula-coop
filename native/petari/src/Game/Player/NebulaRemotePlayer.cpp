@@ -20,6 +20,7 @@
 #include "Game/Player/MarioFaint.hpp"
 #include "Game/Player/MarioHolder.hpp"
 #include "Game/Player/MarioModelTint.hpp"
+#include "Game/Player/NebulaCoopBubble.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
@@ -161,7 +162,7 @@ bool NebulaRemotePlayer::isLocalIntangible() {
 NebulaRemotePlayer::NebulaRemotePlayer(bool isLuigi)
     : LiveActor(isLuigi ? "NebulaRemoteLuigi" : "NebulaRemoteMario"), mIsLuigi(isLuigi), mNumber(0), mXanimePlayer(nullptr),
       mLastFrame(0.0f), mFront(0.0f, 0.0f, 1.0f), mUp(0.0f, 1.0f, 0.0f), mRewindMs(0), mShownFrames(0),
-      mStompTimer(0), mSolid(false) {
+      mStompTimer(0), mSolid(false), mBubble(nullptr) {
     mName[0] = '\0';
     mGroup[0] = '\0';
     memset(&mState, 0, sizeof(mState));
@@ -193,6 +194,7 @@ void NebulaRemotePlayer::tryCreate() {
     for (s32 i = 0; i < perCharacter * 2; i++) {
         NebulaRemotePlayer* pCopy = new NebulaRemotePlayer(i >= perCharacter);
         pCopy->initWithoutIter();
+        pCopy->mBubble = NebulaCoopBubble::createModel();
         sCopies[sCopyNum++] = pCopy;
     }
     nebula_log("[coop] %d copies for the other players\n", sCopyNum);
@@ -204,6 +206,23 @@ s32 NebulaRemotePlayer::getCopyNum() {
 
 const NebulaRemotePlayer* NebulaRemotePlayer::getCopy(s32 index) {
     return index >= 0 && index < sCopyNum ? sCopies[index] : nullptr;
+}
+
+HitSensor* NebulaRemotePlayer::getHitSender(u32 number) {
+    for (s32 i = 0; i < sCopyNum; i++) {
+        NebulaRemotePlayer* pCopy = sCopies[i];
+        if (number == 0 || pCopy->mNumber != number || MR::isDead(pCopy)) {
+            continue;
+        }
+        HitSensor* pSensor = pCopy->getSensor("body");
+        if (pSensor == nullptr) {
+            return nullptr;
+        }
+        // Its body's middle, where the copy stands now (a sensor off isn't moved with it).
+        pSensor->mPosition.set(pCopy->mPosition + pCopy->mUp * cBodyCenter);
+        return pSensor;
+    }
+    return nullptr;
 }
 
 TVec3f NebulaRemotePlayer::getNametagPos() const {
@@ -366,6 +385,16 @@ void NebulaRemotePlayer::show(const NebulaCoopRemotePlayer& rRemote) {
     if (MR::isDead(this)) {
         appear();
     }
+    // Their bubble, round their body's middle; bursting as they're let out.
+    if (mBubble != nullptr) {
+        if ((mState.flags & NEBULA_COOP_PLAYER_BUBBLED) != 0) {
+            mBubble->follow(mPosition + mUp * cBodyCenter);
+        } else if (!isNew) {
+            mBubble->pop();
+        } else {
+            mBubble->hide();
+        }
+    }
 }
 
 void NebulaRemotePlayer::hide() {
@@ -373,6 +402,9 @@ void NebulaRemotePlayer::hide() {
     mName[0] = '\0';
     mShownFrames = 0;
     mGroup[0] = '\0';
+    if (mBubble != nullptr) {
+        mBubble->hide();
+    }
     if (!MR::isDead(this)) {
         makeActorDead();
     }

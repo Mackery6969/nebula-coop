@@ -1,4 +1,5 @@
 /* The game module: its entry points (nebula_game_api.h), the host's services, the log, fatal errors and the boot. */
+#include <nebula_fingerprint.h>
 #include <nebula_game_api.h>
 
 #include "nebula_module.h"
@@ -30,6 +31,10 @@ void free(void* data) {
 
 const NebulaHostServices* nebula_host(void) {
     return sHost;
+}
+
+NEBULA_GAME_API uint32_t nebula_game_api_fingerprint(void) {
+    return NEBULA_GAME_API_FINGERPRINT;
 }
 
 NEBULA_GAME_API uint32_t nebula_game_attach(const NebulaHostServices* host) {
