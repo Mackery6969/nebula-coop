@@ -50,6 +50,8 @@ struct PlayerSnapshot {
     float frame = 0.0f;
     float rate = 1.0f;
     std::array<float, 4> weights{};  // the animation's tracks' weights (XanimePlayer::mWeights)
+    std::array<std::string, 4> tracks;  // the bck Mario's code swapped onto each track (NebulaCoopPlayer::tracks), ""
+                                        // for the group's own; only those swapped are sent
     std::uint32_t health = 0u;
     std::uint32_t mode = 0u;
     std::uint32_t flags = 0u;  // NEBULA_COOP_PLAYER_*
@@ -59,6 +61,7 @@ struct PlayerSnapshot {
 // Longest names kept from a snapshot.
 inline constexpr std::size_t kSnapshotStageLimit = 47u;
 inline constexpr std::size_t kSnapshotAnimationLimit = 47u;
+inline constexpr std::size_t kSnapshotTrackLimit = 31u;
 
 [[nodiscard]] std::vector<std::uint8_t> encode_snapshot(const PlayerSnapshot& snapshot);
 // Nothing when it's cut short or not a snapshot.
