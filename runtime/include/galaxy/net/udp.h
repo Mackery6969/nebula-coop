@@ -23,6 +23,9 @@ public:
     [[nodiscard]] std::string to_string() const;
     // The host alone, "1.2.3.4" or "::1" (an IPv4 address mapped into IPv6 shows as IPv4).
     [[nodiscard]] std::string host_text() const;
+    // The IP address's bytes in network order into `out`: 4 for IPv4 (an IPv4 address mapped into IPv6 too), 16 for
+    // IPv6, 0 when there's none.
+    [[nodiscard]] std::size_t ip_bytes(std::span<std::uint8_t, 16> out) const noexcept;
 
     // The bytes as the system takes them (a sockaddr).
     [[nodiscard]] const void* data() const noexcept { return bytes_.data(); }
@@ -38,6 +41,9 @@ private:
     alignas(8) std::array<std::uint8_t, 128> bytes_{};
     std::uint32_t length_ = 0u;
 };
+
+// The address of an IP address's bytes (4: IPv4, 16: IPv6, in network order) and a port; invalid for another size.
+[[nodiscard]] Address make_address(std::span<const std::uint8_t> ip, std::uint16_t port) noexcept;
 
 // The address of `host` ("1.2.3.4", "::1", "example.com"; "" the local machine) on `port`: false when it doesn't
 // resolve. Blocks while a name is looked up.

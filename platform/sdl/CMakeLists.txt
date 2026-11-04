@@ -156,6 +156,7 @@ add_library(galaxy_render_vk STATIC
     ${rt}/net/udp.cpp
     ${rt}/net/link.cpp
     ${rt}/net/direct_transport.cpp
+    ${rt}/net/stun.cpp
     ${rt}/input_bindings.cpp
     ${rt}/host_pointer_events.cpp
     ${rt}/native_input.cpp

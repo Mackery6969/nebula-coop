@@ -20,6 +20,7 @@
 #include <span>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace galaxy::net {
 
@@ -56,10 +57,21 @@ struct LobbyConfig {
     unsigned max_members = 8u;  // the host included
 };
 
+// A host name or IP and a port.
+struct Endpoint {
+    std::string address;
+    std::uint16_t port = 0u;
+};
+
 struct JoinConfig {
     std::string address;  // a host name or IP
     std::uint16_t port = 0u;
     std::string password;
+    // More addresses the same host may be reached at, tried at the same time (a room code's: the host's public
+    // address as its STUN server saw it, and its addresses on its own network); the first that answers is the host.
+    std::vector<Endpoint> alternates;
+    // How long the join tries before NetError::LobbyNotFound; 0: the transport's own.
+    std::chrono::milliseconds timeout{0};
 };
 
 struct TransportCallbacks {

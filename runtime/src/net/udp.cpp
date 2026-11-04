@@ -118,6 +118,40 @@ std::string Address::host_text() const {
     return text;
 }
 
+std::size_t Address::ip_bytes(std::span<std::uint8_t, 16> out) const noexcept {
+    if (!valid()) return 0u;
+    const sockaddr_storage address = unmapped(*this);
+    if (address.ss_family == AF_INET) {
+        std::memcpy(out.data(), &reinterpret_cast<const sockaddr_in*>(&address)->sin_addr, 4);
+        return 4u;
+    }
+    if (address.ss_family == AF_INET6) {
+        std::memcpy(out.data(), &reinterpret_cast<const sockaddr_in6*>(&address)->sin6_addr, 16);
+        return 16u;
+    }
+    return 0u;
+}
+
+Address make_address(std::span<const std::uint8_t> ip, std::uint16_t port) noexcept {
+    Address out;
+    if (ip.size() == 4u) {
+        sockaddr_in four{};
+        four.sin_family = AF_INET;
+        four.sin_port = htons(port);
+        std::memcpy(&four.sin_addr, ip.data(), 4);
+        std::memcpy(out.data(), &four, sizeof(four));
+        out.set_length(static_cast<std::uint32_t>(sizeof(four)));
+    } else if (ip.size() == 16u) {
+        sockaddr_in6 six{};
+        six.sin6_family = AF_INET6;
+        six.sin6_port = htons(port);
+        std::memcpy(&six.sin6_addr, ip.data(), 16);
+        std::memcpy(out.data(), &six, sizeof(six));
+        out.set_length(static_cast<std::uint32_t>(sizeof(six)));
+    }
+    return out;
+}
+
 bool operator==(const Address& a, const Address& b) noexcept {
     const sockaddr_storage x = unmapped(a);
     const sockaddr_storage y = unmapped(b);

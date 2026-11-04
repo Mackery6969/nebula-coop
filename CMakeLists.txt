@@ -120,6 +120,7 @@ add_library(galaxy_net STATIC
     runtime/src/net/udp.cpp
     runtime/src/net/link.cpp
     runtime/src/net/direct_transport.cpp
+    runtime/src/net/stun.cpp
     runtime/src/coop_mods.cpp
     runtime/src/coop_session.cpp
     runtime/src/coop_chat.cpp

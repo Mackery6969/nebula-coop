@@ -38,18 +38,23 @@ the other menus show over a game that keeps running, as sm64coopdx's do, and the
 
 ## Hosting
 
-Games are self-hosted. There is no lobby server, relay or account system run by the project.
+Games are self-hosted: the world always runs on the host's PC. NebulaNet (its own repository, run on Cloudflare) only
+introduces players, as sm64coopdx's CoopNet does, so nobody has to forward a port.
 
 - **Listen server (first).** One player chooses Host in Nebula, which opens a UDP port (configurable, default to be
   picked). The other players choose Join and enter `address:port`. The host runs the session (who's in, the
   save); each instance's world is settled by a player inside it (see
-  [Instances](#instances-one-per-galaxy-and-mission)). This is how sm64coopdx's direct connections work, without its
-  CoopNet relay.
-- **Reaching the host.** The host forwards the UDP port on their router, or the group uses a VPN overlay such as
-  Tailscale, ZeroTier or Radmin VPN and joins by its address. The docs explain both; Nebula itself does no NAT
-  traversal.
-- **A relay (maybe, much later).** sm64coopdx's CoopNet lets players join by a code without forwarding ports. Galaxy
-  could have the same, but it needs a server someone runs; it's a side idea, only worth it if the project grows.
+  [Instances](#instances-one-per-galaxy-and-mission)). This is how sm64coopdx's direct connections work.
+- **Reaching the host by address.** The host forwards the UDP port on their router, or the group uses a VPN overlay
+  such as Tailscale, ZeroTier or Radmin VPN and joins by its address. This always keeps working, NebulaNet or not.
+- **Reaching the host by room code (NebulaNet).** Each side asks a STUN server (`stun.cloudflare.com`) which public
+  address its game socket has; NebulaNet (a Cloudflare Worker) gives the host a room code and swaps the two sides'
+  addresses when someone joins by it; the host punches toward the joiner while the joiner's hellos go to every address
+  the host may have, and both routers let the other side in. Play then goes straight between them. The transport's
+  part is `DirectTransport::discover_public_address`, `punch` and `JoinConfig::alternates`.
+- **Relay fallback (next).** Where both routers are too strict for punching (carrier NAT, some campus networks),
+  NebulaNet hands out Cloudflare TURN credentials and the joiner goes through the relay. Later still: a Discord Join
+  button carrying the room code, and a public room list.
 - **Dedicated server (later).** The world simulation *is* the game, so a server with nobody playing on it needs a
   headless Nebula: the game module running with no window, renderer or audio output, and no local Mario (or a hidden
   one). That's a real but separate project after Phase 2. The protocol is designed so the authority doesn't have to be
@@ -635,11 +640,12 @@ the highest on main and check again before merging.
 
 ## The network layer
 
-Shaped like sm64coopdx's CoopNet, over direct UDP (no relay: see [Hosting](#hosting)). Four layers, each with its
-tests in `runtime/src/net/net_tests.cpp`:
+Shaped like sm64coopdx's CoopNet, over direct UDP with NAT traversal (see [Hosting](#hosting)). Four layers, each
+with its tests in `runtime/src/net/net_tests.cpp`:
 
 - **Sockets** (`galaxy/net/udp.h`): one non-blocking UDP socket, dual-stack IPv6 where the system allows, Winsock on
-  Windows and POSIX sockets on Linux, Android (the app has the `INTERNET` permission) and macOS.
+  Windows and POSIX sockets on Linux, Android (the app has the `INTERNET` permission) and macOS. STUN's answers
+  share the socket: they start with two zero bits, the transport's own datagrams with "NB".
 - **Channels** (`galaxy/net/link.h`): unreliable (snapshots), reliable (acknowledged and sent again, delivered once)
   and ordered (reliable and in order; long messages such as a save or a mod are cut into datagrams and joined again,
   with 256 datagrams in flight at most). The resend timeout follows the measured round trip; a message unacknowledged
@@ -648,8 +654,9 @@ tests in `runtime/src/net/net_tests.cpp`:
   lobby; members join it, each gets a peer id, and everyone hears of members joining and leaving through callbacks
   (`on_lobby_joined`, `on_peer_joined`, `on_peer_left`, `on_receive`, `on_error` with CoopNet's errors: lobby full,
   wrong password, another protocol, a peer that stopped answering). The direct transport admits members on the host's
-  port and passes their messages on, so only the host's port needs forwarding. A relay that joins by a code would be
-  another `Transport`, with nothing above it changing.
+  port and passes their messages on, so only the host's port needs forwarding, or none: it asks a STUN server for its
+  public address (`galaxy/net/stun.h`), a host punches toward a joiner NebulaNet told it of, and a joiner tries every
+  address the host may have at once. A relay would be another way in, with nothing above the transport changing.
 - **Session** (`galaxy/coop_session.h`): the room as the game sees it, on a thread of its own. A joiner asks to be let
   in with the game's version, its disc and mods, their name and character (a joiner with other mods gets the room's
   first: see [Mods](#mods-the-rooms-not-the-players)); the host answers with the player's number, the room's

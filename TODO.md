@@ -39,6 +39,12 @@ What's left to turn Nebula into an online co-op mod like sm64coopdx. The reasoni
 - [x] Personal Star Counter (sm64coopdx's mod, built in): each player's stars this room and all time under the HUD's
       star count, and each player's in the player list; a built-in mod the host turns on for the room (Host page's
       Mods, Online tab), off by default
+- [x] NAT traversal in the transport: public address from a STUN server, the host punching toward a joiner, a join
+      trying every address the host may have
+- [ ] NebulaNet (its own repository, a Cloudflare Worker): room codes and the address swap
+- [ ] Host page: NebulaNet or Direct, as sm64coopdx's CoopNet or direct connection; Join by room code or address
+- [ ] Relay fallback through Cloudflare TURN when punching fails
+- [ ] Discord Join button carrying the room code
 
 ## Same world (Phase 2)
 

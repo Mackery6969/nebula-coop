@@ -6,6 +6,7 @@
 #include "galaxy/net/bytes.h"
 #include "galaxy/net/direct_transport.h"
 #include "galaxy/net/link.h"
+#include "galaxy/net/stun.h"
 #include "galaxy/net/udp.h"
 
 #include <algorithm>
@@ -191,6 +192,148 @@ bool pump(std::vector<galaxy::net::DirectTransport*> transports, const std::func
         if (done()) return true;
     }
     return false;
+}
+
+void test_stun() {
+    using namespace galaxy::net;
+    stun::TransactionId id{};
+    for (std::size_t i = 0; i < id.size(); ++i) id[i] = static_cast<std::uint8_t>(i * 7u + 1u);
+    const std::vector<std::uint8_t> request = stun::binding_request(id);
+    stun::TransactionId got{};
+    expect(request.size() == 20u && stun::is_stun(request) && stun::parse_binding_request(request, got) && got == id,
+           "a STUN Binding request reads back with its id");
+    const std::uint8_t four_bytes[4] = {203u, 0u, 113u, 5u};
+    const Address four = make_address(four_bytes, 4242u);
+    expect(four.to_string() == "203.0.113.5:4242", "an address is made from IPv4 bytes");
+    Address mapped;
+    expect(stun::parse_binding_response(stun::binding_response(id, four), id, mapped) && mapped == four,
+           "a Binding answer gives the IPv4 address it reports");
+    std::uint8_t six_bytes[16] = {0x20u, 0x01u, 0x0du, 0xb8u};
+    six_bytes[15] = 9u;
+    const Address six = make_address(six_bytes, 50000u);
+    expect(stun::parse_binding_response(stun::binding_response(id, six), id, mapped) && mapped == six &&
+               mapped.to_string() == "[2001:db8::9]:50000",
+           "and the IPv6 one");
+    stun::TransactionId other = id;
+    other[0] ^= 1u;
+    expect(!stun::parse_binding_response(stun::binding_response(id, four), other, mapped),
+           "an answer to another request is not taken");
+    // An older server's MAPPED-ADDRESS, not masked.
+    std::vector<std::uint8_t> old = {0x01, 0x01, 0x00, 0x0c, 0x21, 0x12, 0xa4, 0x42};
+    old.insert(old.end(), id.begin(), id.end());
+    const std::vector<std::uint8_t> attribute = {0x00, 0x01, 0x00, 0x08, 0x00, 0x01, 0x10, 0x92, 203, 0, 113, 5};
+    old.insert(old.end(), attribute.begin(), attribute.end());
+    expect(stun::parse_binding_response(old, id, mapped) && mapped == four, "MAPPED-ADDRESS is read too");
+    const std::vector<std::uint8_t> ours = {'N', 'B', 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    expect(!stun::is_stun(ours), "the transport's own datagrams are never taken for STUN");
+}
+
+// A STUN server on the loopback that tells everyone they are at `reported`.
+struct FakeStun {
+    galaxy::net::UdpSocket socket;
+    galaxy::net::Address reported;
+    int asked = 0;
+    void serve() {
+        std::array<std::uint8_t, 512> buffer{};
+        galaxy::net::Address from;
+        for (;;) {
+            const std::ptrdiff_t size = socket.receive_from(buffer, from);
+            if (size < 0) return;
+            galaxy::net::stun::TransactionId id{};
+            if (!galaxy::net::stun::parse_binding_request(
+                    std::span<const std::uint8_t>(buffer.data(), static_cast<std::size_t>(size)), id)) {
+                continue;
+            }
+            ++asked;
+            (void)socket.send_to(from, galaxy::net::stun::binding_response(id, reported));
+        }
+    }
+};
+
+void test_transport_nat() {
+    using namespace galaxy::net;
+    FakeStun stun;
+    expect(stun.socket.open(0u, false), "a STUN server opens");
+    const std::uint8_t public_ip[4] = {198u, 51u, 100u, 7u};
+    stun.reported = make_address(public_ip, 61000u);
+
+    DirectTransport host;
+    expect(!host.discover_public_address("127.0.0.1", stun.socket.local_port()),
+           "no STUN question before there is a socket");
+    LobbyConfig config;
+    expect(host.lobby_create(config), "the host opens a lobby");
+    expect(host.discover_public_address("127.0.0.1", stun.socket.local_port()) &&
+               host.discovery() == DirectTransport::Discovery::Asking,
+           "the host asks a STUN server for its public address");
+    const Clock::time_point until = Clock::now() + 5s;
+    while (Clock::now() < until && host.discovery() == DirectTransport::Discovery::Asking) {
+        stun.serve();
+        host.update(1ms);
+    }
+    expect(host.discovery() == DirectTransport::Discovery::Found && host.public_address() == stun.reported &&
+               stun.asked >= 1,
+           "and learns it from the server's answer");
+
+    // No server there: it gives up.
+    UdpSocket silent;
+    expect(silent.open(0u, false), "a silent port opens");
+    DirectTransport lonely;
+    expect(lonely.lobby_create(config), "another host opens a lobby");
+    expect(lonely.discover_public_address("127.0.0.1", silent.local_port()), "and asks a server that never answers");
+    expect(pump({&lonely}, [&] { return lonely.discovery() == DirectTransport::Discovery::Failed; }, 6s) &&
+               !lonely.public_address().valid(),
+           "and gives up after a few seconds");
+
+    // Punching: datagrams toward a joiner's address until it joins (or time runs out).
+    UdpSocket joiner_router;
+    expect(joiner_router.open(0u, false), "a joiner's address opens");
+    Address joiner_address;
+    expect(resolve("127.0.0.1", joiner_router.local_port(), joiner_address), "and resolves");
+    host.punch(joiner_address);
+    int punches = 0;
+    const Clock::time_point punching = Clock::now() + 1200ms;
+    while (Clock::now() < punching) {
+        host.update(1ms);
+        std::array<std::uint8_t, 64> buffer{};
+        Address from;
+        std::ptrdiff_t size = 0;
+        while ((size = joiner_router.receive_from(buffer, from)) >= 0) {
+            if (size == 4 && buffer[0] == 'N' && buffer[1] == 'B' && buffer[2] == DirectTransport::kProtocol &&
+                buffer[3] == 0x04u && from.port() == host.port()) {
+                ++punches;
+            }
+        }
+    }
+    expect(punches >= 3, "a host punches toward a joiner's address again and again");
+
+    // A join by a room code's addresses: the first one asked for answers nothing, an alternate is the host.
+    UdpSocket nobody;
+    expect(nobody.open(0u, false), "an address with no host opens");
+    DirectTransport joiner;
+    JoinConfig join{"127.0.0.1", nobody.local_port(), ""};
+    join.alternates.push_back({"127.0.0.1", host.port()});
+    join.alternates.push_back({"this-name-does-not-resolve.invalid", 7777u});
+    join.timeout = 20s;
+    expect(joiner.lobby_join(join), "a join tries several addresses");
+    expect(pump({&host, &joiner}, [&] { return joiner.in_lobby(); }), "and gets in through the one that answers");
+    expect(joiner.owner() == host.self() && host.members().size() == 2u, "the host is its owner");
+
+    // The same joiner reaching the host two ways (IPv4 and IPv6 on a dual-stack host) is still one member.
+    Address six;
+    if (resolve("::1", host.port(), six)) {
+        DirectTransport both;
+        JoinConfig twice{"127.0.0.1", host.port(), ""};
+        twice.alternates.push_back({"::1", host.port()});
+        if (both.lobby_join(twice)) {
+            expect(pump({&host, &joiner, &both}, [&] { return both.in_lobby(); }), "a joiner trying two ways gets in");
+            const Clock::time_point settle = Clock::now() + 600ms;
+            while (Clock::now() < settle) {
+                for (auto* transport : {&host, &joiner, &both}) transport->update(1ms);
+            }
+            expect(host.members().size() == 3u && both.members().size() == 3u,
+                   "and is one member, not one per way it tried");
+        }
+    }
 }
 
 void test_transport_lobby() {
@@ -892,7 +1035,9 @@ int main() {
     test_link_long_message();
     test_link_gives_up();
     test_addresses();
+    test_stun();
     test_transport_lobby();
+    test_transport_nat();
     test_session();
     test_session_host_gone();
     test_coop_mods();
