@@ -572,6 +572,28 @@ Each phase ships on its own and leaves the game playable.
 - [ ] Camera and HUD per player; spectate on death.
 - [ ] Discord presence for the lobby (`discord_presence.cpp` already exists), player colours.
 
+## Versions
+
+No co-op change bumps a version number by hand: two pull requests open at once used to take the same next number
+and clash. The build works out what decides whether two builds work together (`cmake/nebula_fingerprint.cmake`,
+written to `nebula_fingerprint.h` in each build tree):
+
+- **The game module and the host.** `NEBULA_GAME_API_FINGERPRINT` hashes `native/include/nebula_game_api.h`. The
+  module returns its own from `nebula_game_api_fingerprint`, and the host refuses a module built from another header
+  (a stale `smg_game` beside a new host). `NEBULA_GAME_API_VERSION` is upstream Nebula's number: co-op changes leave
+  it alone, and an upstream sync takes upstream's line.
+- **Online play.** `NEBULA_COOP_FINGERPRINT` hashes the game API, the co-op and network runtime
+  (`runtime/*/coop_*`, `runtime/*/net/*`, tests left out) and the game's co-op code (`native/petari/**/*Coop*`). The
+  host's game version is `nebula-coop-<fingerprint>`, so a joiner whose online play differs in any way is refused
+  ("THE HOST PLAYS ANOTHER VERSION OF NEBULA"). The session protocol (`kSessionProtocol`, 8) changes only if a join
+  request's first fields change.
+
+Files are hashed with LF line endings, so Windows and Linux checkouts agree. Mentions of "game API 121" and the
+like above name the change that brought a hook in; new work names its feature instead.
+
+Message types still need a free number each (`galaxy/coop_session.h` `kFirstFeatureMessage` and up): pick one past
+the highest on main and check again before merging.
+
 ## The network layer
 
 Shaped like sm64coopdx's CoopNet, over direct UDP (no relay: see [Hosting](#hosting)). Four layers, each with its

@@ -35,7 +35,12 @@ if(WIN32)
     nebula_file_details(smg_game smg_game.dll "Super Mario Galaxy on PC, the game")
 endif()
 
+# The game API's fingerprint (cmake/nebula_fingerprint.cmake), which the host checks the module against.
+include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/nebula_fingerprint.cmake")
+nebula_fingerprint("${CMAKE_CURRENT_SOURCE_DIR}/.." "${petari}" "${CMAKE_CURRENT_BINARY_DIR}/generated")
+
 target_include_directories(smg_game BEFORE PRIVATE
+    "${CMAKE_CURRENT_BINARY_DIR}/generated"
     "${CMAKE_CURRENT_SOURCE_DIR}/math/include"
     "${petari}/include"
     "${petari}/libs/JSystem/include"
@@ -169,7 +174,7 @@ if(WIN32)
     target_link_libraries(nebula_native_host PRIVATE ws2_32)
 endif()
 target_include_directories(nebula_native_host PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include"
-    "${CMAKE_CURRENT_SOURCE_DIR}/../runtime/include")
+    "${CMAKE_CURRENT_SOURCE_DIR}/../runtime/include" "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_compile_features(nebula_native_host PRIVATE cxx_std_20)
 target_compile_definitions(nebula_native_host PRIVATE _CRT_SECURE_NO_WARNINGS)
 add_dependencies(nebula_native_host smg_game)

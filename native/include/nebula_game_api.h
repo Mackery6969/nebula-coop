@@ -23,6 +23,8 @@ extern "C" {
 #define NEBULA_GAME_API __attribute__((visibility("default")))
 #endif
 
+/* Upstream Nebula's number for this interface. Co-op changes leave it as it is (docs/COOP_PLAN.md "Versions"): the
+   host checks the module against the header's fingerprint (nebula_game_api_fingerprint), which the build works out. */
 #define NEBULA_GAME_API_VERSION 121u
 
 /* Viewports, scissors, clears, target sizes and picture points count this many units across a frame on each axis. */
@@ -1451,6 +1453,9 @@ enum {
 
 /* Returns NEBULA_GAME_API_VERSION, or 0 if the host's services are too old. */
 NEBULA_GAME_API uint32_t nebula_game_attach(const NebulaHostServices* host);
+/* The fingerprint of the nebula_game_api.h the module was built from (cmake/nebula_fingerprint.cmake): the host
+   refuses a module whose differs from its own. Called before nebula_game_attach. */
+NEBULA_GAME_API uint32_t nebula_game_api_fingerprint(void);
 /* Runs the game on the calling thread, the simulation thread. Does not return. */
 NEBULA_GAME_API void nebula_game_run(void);
 /* A file read finished: `result` is the bytes read, or -1 on a read error. */

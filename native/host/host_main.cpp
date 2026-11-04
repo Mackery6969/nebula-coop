@@ -19,6 +19,7 @@
 #include "galaxy/frame_phase.h"
 #include "galaxy/render/present_clock.h"
 #include <nebula_cooked_texture.h>
+#include <nebula_fingerprint.h>
 #include <nebula_game_api.h>
 
 #include "galaxy/atomic_file.h"
@@ -327,6 +328,7 @@ void report_crash_facts(const fs::path& dump) {
 
 // The module's entry points.
 struct Module {
+    decltype(&nebula_game_api_fingerprint) api_fingerprint;  // null in a module from before fingerprints
     decltype(&nebula_game_attach) attach;
     decltype(&nebula_game_run) run;
     decltype(&nebula_game_sound_frame) audio_tick;
@@ -446,6 +448,13 @@ void load_module(const fs::path& path) {
     if (module == nullptr) {
         die("cannot load the game module %s", utf8_of(path.filename()).c_str());
     }
+#if defined(_WIN32)
+    gModule.api_fingerprint = reinterpret_cast<decltype(gModule.api_fingerprint)>(
+        GetProcAddress(static_cast<HMODULE>(module), "nebula_game_api_fingerprint"));
+#else
+    gModule.api_fingerprint =
+        reinterpret_cast<decltype(gModule.api_fingerprint)>(dlsym(module, "nebula_game_api_fingerprint"));
+#endif
     gModule.attach = reinterpret_cast<decltype(gModule.attach)>(find_symbol(module, "nebula_game_attach"));
     gModule.run = reinterpret_cast<decltype(gModule.run)>(find_symbol(module, "nebula_game_run"));
     gModule.audio_tick = reinterpret_cast<decltype(gModule.audio_tick)>(find_symbol(module, "nebula_game_sound_frame"));
@@ -1615,7 +1624,9 @@ void keep_coop_settings();
 void keep_coop_list(bool ban, const std::string& identity);
 // The game as online play compares it: a player with another is refused, as is one with another disc
 // (gCoopDisc); one playing other mods gets the room's (galaxy/coop_mods.h).
-const std::string kCoopGameVersion = "nebula-api-" + std::to_string(NEBULA_GAME_API_VERSION);
+// The co-op fingerprint (cmake/nebula_fingerprint.cmake) stands for the version: builds whose online play differs in
+// any way refuse each other, and no change bumps a number by hand.
+const std::string kCoopGameVersion = "nebula-coop-" NEBULA_COOP_FINGERPRINT;
 galaxy::coop::DiscInfo gCoopDisc;
 // This start played a room's mods for a join (the join Nebula started again for): the room's list.
 std::optional<std::vector<galaxy::coop::SharedMod>> gCoopStartedRoomMods;
@@ -5527,6 +5538,10 @@ int main(int argc, char** argv) {
         []() noexcept { return galaxy::render::native_settings_overlay_visible() || galaxy::render::home_menu_visible(); },
         [](std::uintptr_t key) noexcept { galaxy::render::native_settings_post_key(key); });
 #endif
+    if (gModule.api_fingerprint == nullptr || gModule.api_fingerprint() != NEBULA_GAME_API_FINGERPRINT) {
+        die("the game module was built from another nebula_game_api.h than the host (%08x): build both again",
+            static_cast<unsigned>(NEBULA_GAME_API_FINGERPRINT));
+    }
     if (gModule.attach(&services) != NEBULA_GAME_API_VERSION) {
         die("the game module's API version differs from the host's (%u)", NEBULA_GAME_API_VERSION);
     }
