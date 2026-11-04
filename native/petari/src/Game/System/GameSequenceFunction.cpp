@@ -8,6 +8,7 @@
 #include "Game/System/GameDataTemporaryInGalaxy.hpp"
 #include "Game/System/GameSequenceDirector.hpp"
 #include "Game/System/GameSequenceProgress.hpp"
+#include "Game/System/NebulaCoopWorld.hpp"
 #include "Game/System/GameSystem.hpp"
 #include "Game/System/GameSystemSceneController.hpp"
 #include "Game/System/SaveDataHandleSequence.hpp"
@@ -188,6 +189,8 @@ namespace GameSequenceFunction {
 
         GameDataSomeScenarioAccessor accessor = pGameDataHolder->makeGalaxyScenarioAccessor(getClearedStageName(), getClearedPowerStarId());
         accessor.updateMaxCoinNum(clearedCoinNum);
+        // Online co-op: the room's most coins for the star are the best of anyone's.
+        NebulaCoopWorld::noticeMostCoins(pGameDataHolder, getClearedStageName(), getClearedPowerStarId(), accessor.getMaxCoinNum());
     }
 
     void resetStageResultSequenceParam() {

@@ -42,17 +42,40 @@ bool valid_change(const SaveChange& change) {
     case SaveKind::Flag: return plain_name(change.name);
     case SaveKind::Value: return plain_name(change.name) && change.value <= 0xffffu;
     case SaveKind::Achievement: return plain_stage(change.name) && !change.name.empty();
+    case SaveKind::Coins:
+        return plain_stage(change.name) && !change.name.empty() && change.scenario > 0 && change.scenario < 256 &&
+               change.value <= 0xffffu;
+    case SaveKind::RaceTime: return plain_name(change.name) && change.value != 0u;
+    case SaveKind::StarBits: return change.name.empty() && change.value <= 0xffffu;
+    case SaveKind::StarBitsChange: return change.name.empty() && change.value != 0u;
     }
+    return false;
+}
+
+// A high score better than the one had: more coins, a quicker race.
+bool better_score(const SaveChange& had, const SaveChange& change) {
+    if (change.kind == SaveKind::Coins) return change.value > had.value;
+    if (change.kind == SaveKind::RaceTime) return change.value < had.value;
     return false;
 }
 
 // The save's entry `change` updates rather than adds: a value's latest and an achievement's first unlock are kept by
 // name alone.
 bool same_entry(const SaveChange& had, const SaveChange& change) {
-    if (change.kind == SaveKind::Value || change.kind == SaveKind::Achievement) {
+    if (change.kind == SaveKind::Value || change.kind == SaveKind::Achievement || change.kind == SaveKind::RaceTime ||
+        change.kind == SaveKind::StarBits) {
         return had.kind == change.kind && had.name == change.name;
     }
+    if (change.kind == SaveKind::Coins) {
+        return had.kind == change.kind && had.name == change.name && had.scenario == change.scenario;
+    }
     return had == change;
+}
+
+// Whether the save's entry takes `change`'s value: a value's or the bank's latest, a high score's better one.
+bool updates_entry(const SaveChange& had, const SaveChange& change) {
+    if (change.kind == SaveKind::Value || change.kind == SaveKind::StarBits) return had.value != change.value;
+    return better_score(had, change);
 }
 
 void write_instance(ByteWriter& out, const Instance& instance) {
@@ -90,9 +113,16 @@ void write_changes(ByteWriter& out, std::span<const SaveChange> changes) {
     out.u16(static_cast<std::uint16_t>(changes.size()));
     for (const SaveChange& change : changes) {
         out.u8(static_cast<std::uint8_t>(change.kind)).str(change.name);
-        if (change.kind == SaveKind::Star) out.u8(static_cast<std::uint8_t>(change.scenario));
-        if (change.kind == SaveKind::Value) out.u16(static_cast<std::uint16_t>(change.value));
-        if (change.kind == SaveKind::Achievement) out.u32(change.value);
+        if (change.kind == SaveKind::Star || change.kind == SaveKind::Coins) {
+            out.u8(static_cast<std::uint8_t>(change.scenario));
+        }
+        if (change.kind == SaveKind::Value || change.kind == SaveKind::Coins || change.kind == SaveKind::StarBits) {
+            out.u16(static_cast<std::uint16_t>(change.value));
+        }
+        if (change.kind == SaveKind::Achievement || change.kind == SaveKind::RaceTime ||
+            change.kind == SaveKind::StarBitsChange) {
+            out.u32(change.value);
+        }
     }
 }
 
@@ -103,10 +133,18 @@ std::optional<std::vector<SaveChange>> read_changes(ByteReader& in) {
         SaveChange change;
         const unsigned kind = in.u8();
         change.name = in.str(256u);
-        if (kind == static_cast<unsigned>(SaveKind::Star)) change.scenario = in.u8();
-        if (kind == static_cast<unsigned>(SaveKind::Value)) change.value = in.u16();
-        if (kind == static_cast<unsigned>(SaveKind::Achievement)) change.value = in.u32();
-        if (kind < 1u || kind > 4u) return std::nullopt;
+        if (kind == static_cast<unsigned>(SaveKind::Star) || kind == static_cast<unsigned>(SaveKind::Coins)) {
+            change.scenario = in.u8();
+        }
+        if (kind == static_cast<unsigned>(SaveKind::Value) || kind == static_cast<unsigned>(SaveKind::Coins) ||
+            kind == static_cast<unsigned>(SaveKind::StarBits)) {
+            change.value = in.u16();
+        }
+        if (kind == static_cast<unsigned>(SaveKind::Achievement) || kind == static_cast<unsigned>(SaveKind::RaceTime) ||
+            kind == static_cast<unsigned>(SaveKind::StarBitsChange)) {
+            change.value = in.u32();
+        }
+        if (kind < 1u || kind > 8u) return std::nullopt;
         change.kind = static_cast<SaveKind>(kind);
         if (in.ok() && valid_change(change)) changes.push_back(std::move(change));
     }
@@ -464,12 +502,14 @@ std::vector<SwitchChange> WorldAuthority::switches_of(const Instance& instance) 
 
 bool WorldAuthority::save(const SaveChange& change, bool from_host) {
     if (!valid_change(change)) return false;
-    if (change.kind == SaveKind::Value && !from_host) return false;
+    // The bank's changes aren't kept (World::host_save gives a joiner's to the host's game).
+    if (change.kind == SaveKind::StarBitsChange) return false;
+    if ((change.kind == SaveKind::Value || change.kind == SaveKind::StarBits) && !from_host) return false;
     const auto it = std::find_if(save_.begin(), save_.end(),
                                  [&change](const SaveChange& had) { return same_entry(had, change); });
     if (it != save_.end()) {
-        if (change.kind != SaveKind::Value || it->value == change.value) return false;
-        // The latest value only, kept in its place: the record doesn't grow as a value changes.
+        if (!updates_entry(*it, change)) return false;
+        // The latest value or the best score only, kept in its place: the record doesn't grow as it changes.
         it->value = change.value;
         return true;
     }
@@ -807,8 +847,9 @@ void World::report_save(const SaveChange& change) {
                 queue_changes(out, net::kEveryone, std::span<const SaveChange>(&change, 1u));
                 star = change.kind == SaveKind::Star;
             }
-        } else if (change.kind != SaveKind::Value) {
-            // A joiner's event values are its own (WorldAuthority::save): they aren't sent.
+        } else if (change.kind != SaveKind::Value && change.kind != SaveKind::StarBits) {
+            // A joiner's event values and bank are its own (WorldAuthority::save): they aren't sent. Its changes to
+            // the bank are, for the host's game.
             queue_changes(out, host, std::span<const SaveChange>(&change, 1u));
         }
     }
@@ -953,9 +994,10 @@ void World::remember_save(const SaveChange& change) {
     const auto it = std::find_if(save_.begin(), save_.end(),
                                  [&change](const SaveChange& had) { return same_entry(had, change); });
     if (it != save_.end()) {
-        if (change.kind == SaveKind::Value) it->value = change.value;
+        if (updates_entry(*it, change)) it->value = change.value;
         return;
     }
+    if (change.kind == SaveKind::StarBitsChange) return;
     if (save_.size() < kMaxSaveChanges) save_.push_back(change);
 }
 
@@ -1009,6 +1051,11 @@ std::vector<std::pair<PeerId, std::vector<std::uint8_t>>> World::host_star(PeerI
 }
 
 void World::host_save(PeerId from, const SaveChange& change) {
+    if (change.kind == SaveKind::StarBitsChange) {
+        // The host's game keeps the bank: it applies a joiner's change, and its bank comes back to everyone.
+        if (valid_change(change)) push({WorldEvent::Kind::Save, {}, change});
+        return;
+    }
     if (!authority_.save(change, false)) return;
     // The Personal Star Counter: a star new to the session's save counts for the player who got it (on the session's
     // thread, which holds the session already).

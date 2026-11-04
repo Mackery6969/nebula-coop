@@ -467,7 +467,9 @@ and tells the players it concerns. It follows sm64coopdx's rules, with Galaxy's 
 | A 1-Up or Life Mushroom, a Rainbow Star taken | Gone for everyone in the instance; what it gives is its taker's | `packet_collect_item` |
 | A plain enemy defeated | Gone for everyone in the instance, its dead switch turned on in each game (a star waiting on it appears for all), without its drops | an object's death in `packet_object.c`, kept by `packet_level_respawn_info` |
 | A Power Star got, an event flag on | The session's save, for every player | `packet_collect_star`, `packet_save_set_flag` |
-| An event value set (comets, the like) | The host's game's are the session's, for every player; each joiner's stay its own | |
+| An event value set (comets, the like) | The host's game's are the session's, for every player; each joiner's stay its own (not race times: below) | |
+| A high score: a star's most coins, a race's best time | The save's, the best of anyone's, for every player | |
+| Star bits banked in the observatory (a stage's taken in, a Luma fed) | One bank, the host's game's: a joiner's change goes to it, and its bank reaches every player | |
 | An achievement unlocked | The save's: kept in the host's `achievements.ini` on the day it was first unlocked, and every player's, each with its pop-up | |
 
 - **What is followed.** The things placed from the stage's files that these name: coins and purple coins, alone or in

@@ -51,6 +51,16 @@ void test_bytes() {
            "with their stars, Shift JIS names and values");
     expect(saved && saved->size() == 4u && (*saved)[3].name == "first_star" && (*saved)[3].value == 1793145600u,
            "and an achievement with when it was unlocked");
+    const std::vector<SaveChange> scores{{SaveKind::Coins, "EggStarGalaxy", 2, 312u},
+                                         {SaveKind::RaceTime, "TeresaRace", 0, 0x12345u},
+                                         {SaveKind::StarBits, "", 0, 9999u},
+                                         {SaveKind::StarBitsChange, "", 0, static_cast<std::uint32_t>(-40)},
+                                         {SaveKind::Coins, "EggStarGalaxy", 0, 5u},
+                                         {SaveKind::RaceTime, "TeresaRace", 0, 0u}};
+    const std::optional<std::vector<SaveChange>> scored = decode_save_changes(encode_save_changes(scores));
+    expect(scored && scored->size() == 4u && (*scored)[0] == scores[0] && (*scored)[1] == scores[1] &&
+               (*scored)[2] == scores[2] && (*scored)[3] == scores[3],
+           "high scores and the star bit bank round trip, a coin score without a star and a time of 0 dropped");
     std::vector<ObjectState> states(2u);
     states[0].object = 7u;
     states[0].nerve = 0x1234abcdu;
@@ -158,6 +168,38 @@ void test_authority() {
     expect(!world.save({SaveKind::Achievement, "first_star", 0, 200u}, true), "once, whoever unlocks it again");
     expect(world.save_changes().back().value == 100u, "on the day it was first unlocked");
     expect(!world.save({SaveKind::Achievement, "", 0, 1u}, true), "no achievement without an id");
+
+    // High scores: anyone's, the best kept.
+    expect(world.save({SaveKind::Coins, "EggStarGalaxy", 1, 80u}, false), "a joiner's most coins");
+    expect(!world.save({SaveKind::Coins, "EggStarGalaxy", 1, 60u}, true), "fewer isn't news");
+    expect(world.save({SaveKind::Coins, "EggStarGalaxy", 1, 95u}, true), "more is");
+    expect(world.save({SaveKind::Coins, "EggStarGalaxy", 2, 10u}, true), "another star's are its own");
+    expect(world.save({SaveKind::RaceTime, "TeresaRace", 0, 3000u}, false), "a joiner's race time");
+    expect(!world.save({SaveKind::RaceTime, "TeresaRace", 0, 3600u}, true), "slower isn't news");
+    expect(world.save({SaveKind::RaceTime, "TeresaRace", 0, 2900u}, true), "quicker is");
+    // The bank: the host's alone, changes never kept.
+    expect(!world.save({SaveKind::StarBits, "", 0, 500u}, false), "a joiner's bank is its own");
+    expect(world.save({SaveKind::StarBits, "", 0, 500u}, true), "the host's is the session's");
+    expect(!world.save({SaveKind::StarBits, "", 0, 500u}, true), "the same bank is no news");
+    expect(world.save({SaveKind::StarBits, "", 0, 450u}, true), "a changed bank is");
+    expect(!world.save({SaveKind::StarBitsChange, "", 0, 5u}, false), "a change isn't kept");
+    std::size_t coins = 0u, times = 0u, banks = 0u;
+    for (const SaveChange& change : world.save_changes()) {
+        if (change.kind == SaveKind::Coins && change.scenario == 1) {
+            ++coins;
+            expect(change.value == 95u, "the most coins kept");
+        }
+        if (change.kind == SaveKind::RaceTime) {
+            ++times;
+            expect(change.value == 2900u, "the best time kept");
+        }
+        if (change.kind == SaveKind::StarBits) {
+            ++banks;
+            expect(change.value == 450u, "the latest bank kept");
+        }
+        expect(change.kind != SaveKind::StarBitsChange, "no change in the record");
+    }
+    expect(coins == 1u && times == 1u && banks == 1u, "each kept once");
 }
 
 void test_object_authority() {
@@ -460,6 +502,31 @@ void test_session_world() {
     for (const Game* game : {&at_host, &at_mario, &at_luigi}) {
         for (const SaveChange& change : game->save) {
             expect(change.name != "Comet1Status", "a joiner's event value stays its own");
+        }
+    }
+
+    // The star bit bank: a joiner's change goes to the host's game alone; the host's bank reaches everyone.
+    const SaveChange spent{SaveKind::StarBitsChange, "", 0, static_cast<std::uint32_t>(-30)};
+    const SaveChange bank{SaveKind::StarBits, "", 0, 470u};
+    at_mario.world.report_save(spent);
+    at_mario.world.report_save({SaveKind::StarBits, "", 0, 1u});
+    expect(wait_for([&] {
+               pump_all();
+               return at_host.saw(spent);
+           }),
+           "a joiner's change to the bank reaches the host's game");
+    at_host.world.report_save(bank);
+    const SaveChange best{SaveKind::RaceTime, "TeresaRace", 0, 2400u};
+    at_luigi.world.report_save(best);
+    expect(wait_for([&] {
+               pump_all();
+               return at_mario.saw(bank) && at_luigi.saw(bank) && at_host.saw(best) && at_mario.saw(best);
+           }),
+           "the host's bank and anyone's best time reach everyone");
+    for (const Game* game : {&at_mario, &at_luigi}) {
+        for (const SaveChange& change : game->save) {
+            expect(change.kind != SaveKind::StarBitsChange, "a change to the bank goes to the host's game alone");
+            expect(change.kind != SaveKind::StarBits || change.value != 1u, "a joiner's bank stays its own");
         }
     }
 

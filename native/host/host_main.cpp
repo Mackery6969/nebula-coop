@@ -2684,6 +2684,16 @@ void svc_coop_world_report(void*, const NebulaCoopWorldEvent* event) {
     case NEBULA_COOP_WORLD_STAR: gCoopWorld.report_save({SaveKind::Star, copy.name, copy.scenario, 0u}); return;
     case NEBULA_COOP_WORLD_FLAG: gCoopWorld.report_save({SaveKind::Flag, copy.name, 0, 0u}); return;
     case NEBULA_COOP_WORLD_VALUE: gCoopWorld.report_save({SaveKind::Value, copy.name, 0, copy.value}); return;
+    case NEBULA_COOP_WORLD_COINS:
+        if (copy.value > 0xffffu) return;
+        gCoopWorld.report_save({SaveKind::Coins, copy.name, copy.scenario, copy.value});
+        return;
+    case NEBULA_COOP_WORLD_RACE_TIME: gCoopWorld.report_save({SaveKind::RaceTime, copy.name, 0, copy.value}); return;
+    case NEBULA_COOP_WORLD_STAR_BITS:
+        // The bank (the host's is everyone's), and the change to it (a joiner's goes to the host's game).
+        if (copy.value <= 0xffffu) gCoopWorld.report_save({SaveKind::StarBits, "", 0, copy.value});
+        if (copy.object != 0u) gCoopWorld.report_save({SaveKind::StarBitsChange, "", 0, copy.object});
+        return;
     case NEBULA_COOP_WORLD_STAR_GOT:
         gCoopWorld.report_star({copy.scenario, (copy.value & NEBULA_COOP_STAR_GRAND) != 0u});
         return;
@@ -2737,11 +2747,21 @@ uint32_t svc_coop_world_take(void*, NebulaCoopWorldEvent* events, uint32_t capac
             to.value = from.change.on ? 1u : 0u;
         } else {
             using galaxy::coop::SaveKind;
-            to.kind = from.save.kind == SaveKind::Star   ? NEBULA_COOP_WORLD_STAR
-                      : from.save.kind == SaveKind::Flag ? NEBULA_COOP_WORLD_FLAG
-                                                         : NEBULA_COOP_WORLD_VALUE;
+            switch (from.save.kind) {
+            case SaveKind::Star: to.kind = NEBULA_COOP_WORLD_STAR; break;
+            case SaveKind::Flag: to.kind = NEBULA_COOP_WORLD_FLAG; break;
+            case SaveKind::Coins: to.kind = NEBULA_COOP_WORLD_COINS; break;
+            case SaveKind::RaceTime: to.kind = NEBULA_COOP_WORLD_RACE_TIME; break;
+            case SaveKind::StarBits: to.kind = NEBULA_COOP_WORLD_STAR_BITS; break;
+            case SaveKind::StarBitsChange: to.kind = NEBULA_COOP_WORLD_STAR_BITS_ADD; break;
+            default: to.kind = NEBULA_COOP_WORLD_VALUE; break;
+            }
             to.scenario = from.save.scenario;
             to.value = from.save.value;
+            if (from.save.kind == SaveKind::StarBitsChange) {
+                to.object = from.save.value;
+                to.value = 0u;
+            }
             std::snprintf(to.name, sizeof(to.name), "%s", from.save.name.c_str());
         }
         waiting.pop_front();

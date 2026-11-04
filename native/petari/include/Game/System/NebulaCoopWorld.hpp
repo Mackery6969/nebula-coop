@@ -20,7 +20,9 @@ class Nerve;
 // player took counts toward the 100 here too, as sm64coopdx's collect_coin does.
 //
 // The save: Power Stars and event flags the game gets, and event values it sets, are reported (GameDataHolder); the
-// session's are applied as they come, and again after each scene starts, for whatever the game doesn't have.
+// session's are applied as they come, and again after each scene starts, for whatever the game doesn't have. High
+// scores (a star's most coins, a race's best time) are the best of anyone's; the observatory's star bit bank is the
+// host's game's, which applies the joiners' changes to it.
 //
 // Shared objects (docs/COOP_PLAN.md "Shared objects", sm64coopdx's sync objects), with keys for every placed actor and
 // the actors each one makes as it is placed (a boss's parts, a group's members):
@@ -91,4 +93,11 @@ namespace NebulaCoopWorld {
     void noticePowerStar(const GameDataHolder* pHolder, const char* pGalaxyName, s32 scenarioNo);
     void noticeEventFlag(const GameDataHolder* pHolder, const char* pName);
     void noticeEventValue(const GameDataHolder* pHolder, const char* pName, u16 value);
+    // GameDataHolder::addStockedStarPiece: the observatory's bank changed (the host's game keeps the room's; a joiner's
+    // change goes to it).
+    void noticeStockedStarBits(const GameDataHolder* pHolder, s32 change);
+    // High scores, the room's the best of anyone's: a star's most coins (GameSequenceFunction's stage result), a race's
+    // best time (GameDataHolder::setRaceBestTime).
+    void noticeMostCoins(const GameDataHolder* pHolder, const char* pGalaxyName, s32 scenarioNo, s32 coins);
+    void noticeRaceTime(const GameDataHolder* pHolder, const char* pRaceName, u32 time);
 };  // namespace NebulaCoopWorld

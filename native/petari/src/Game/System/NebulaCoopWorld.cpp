@@ -137,6 +137,7 @@ namespace {
     const f32 cSnapDistance = 600.0f;
     const f32 cEase = 0.25f;
     u32 sSelf = 0;  // the local player's number
+    bool sHost = false;  // the local player hosts the room: this game keeps the observatory's star bit bank
     MarioActor* sMario = nullptr;
     bool sSyncNerve = false;  // setting a nerve from another game's state
 
@@ -543,6 +544,13 @@ namespace {
         sApplying = false;
     }
 
+    // A race's best time is kept in two event values (GameDataHolder::setRaceBestTime): it goes as a whole, the best of
+    // anyone's (NEBULA_COOP_WORLD_RACE_TIME), not as the host's values.
+    bool isRaceTimeValue(const char* pName) {
+        const size_t length = strlen(pName);
+        return length > 3 && (strcmp(pName + length - 3, "/hi") == 0 || strcmp(pName + length - 3, "/lo") == 0);
+    }
+
     void applySave(const NebulaCoopWorldEvent& rEvent) {
         GameDataHolder* pHolder = GameDataFunction::getCurrentGameDataHolder();
         if (pHolder == nullptr) {
@@ -561,9 +569,31 @@ namespace {
                 pHolder->tryOnGameEventFlag(rEvent.name);
             }
         } else if (rEvent.kind == NEBULA_COOP_WORLD_VALUE) {
-            if (pHolder->mEventValueChecker->findIndex(rEvent.name) >= 0 &&
+            if (!isRaceTimeValue(rEvent.name) && pHolder->mEventValueChecker->findIndex(rEvent.name) >= 0 &&
                 pHolder->getGameEventValue(rEvent.name) != static_cast< s32 >(rEvent.value)) {
                 pHolder->setGameEventValue(rEvent.name, static_cast< u16 >(rEvent.value));
+            }
+        } else if (rEvent.kind == NEBULA_COOP_WORLD_COINS) {
+            // The session's most coins for a star, when more than this save's.
+            if (rEvent.scenario > 0 && pHolder->mAllGalaxyStorage->isExistAccessor(rEvent.name, rEvent.scenario)) {
+                pHolder->makeGalaxyScenarioAccessor(rEvent.name, rEvent.scenario).updateMaxCoinNum(static_cast< s32 >(rEvent.value));
+            }
+        } else if (rEvent.kind == NEBULA_COOP_WORLD_RACE_TIME) {
+            // The session's best time for a race, when quicker than this save's.
+            if (rEvent.value != 0 && rEvent.value < pHolder->getRaceBestTime(rEvent.name)) {
+                pHolder->setRaceBestTime(rEvent.name, rEvent.value);
+            }
+        } else if (rEvent.kind == NEBULA_COOP_WORLD_STAR_BITS) {
+            // The host's bank is everyone's (its own game keeps it).
+            const s32 change = static_cast< s32 >(rEvent.value) - pHolder->getStockedStarPieceNum();
+            if (!sHost && change != 0) {
+                pHolder->addStockedStarPiece(change);
+            }
+        } else if (rEvent.kind == NEBULA_COOP_WORLD_STAR_BITS_ADD) {
+            // A joiner changed the bank: the host's game applies it, and its bank goes back to everyone (not applying).
+            sApplying = false;
+            if (sHost) {
+                pHolder->addStockedStarPiece(static_cast< s32 >(rEvent.object));
             }
         }
         sApplying = false;
@@ -874,6 +904,7 @@ namespace NebulaCoopWorld {
         memset(sPending, 0, sizeof(sPending));
         sObjectsActive = false;
         sSelf = 0;
+        sHost = false;
         sMario = nullptr;
         u32 roomSize = 0;
         NebulaHost::coopList(nullptr, 0, &roomSize);
@@ -884,6 +915,7 @@ namespace NebulaCoopWorld {
             for (u32 i = 0; i < count && i < 16; i++) {
                 if ((players[i].flags & NEBULA_COOP_LIST_YOU) != 0) {
                     sSelf = players[i].number;
+                    sHost = (players[i].flags & NEBULA_COOP_LIST_HOST) != 0;
                 }
             }
         }
@@ -957,6 +989,11 @@ namespace NebulaCoopWorld {
         }
         sPlaced = true;
         sObjectsActive = true;
+        // The host's bank, for the others (a player who joined since).
+        GameDataHolder* pHolder = GameDataFunction::getCurrentGameDataHolder();
+        if (sHost && pHolder != nullptr) {
+            report(NEBULA_COOP_WORLD_STAR_BITS, 0, static_cast< u32 >(pHolder->getStockedStarPieceNum()), 0, nullptr);
+        }
         nebula_log("[coop] the instance follows %d placed things, %d of them moving\n", sEntryNum, sMotionNum);
         report(NEBULA_COOP_WORLD_ENTER, 0, 0, MR::getCurrentScenarioNo(), MR::getCurrentStageName());
     }
@@ -1258,8 +1295,27 @@ namespace NebulaCoopWorld {
 
     void noticeEventValue(const GameDataHolder* pHolder, const char* pName, u16 value) {
         // Each player's own count of misses isn't the room's.
-        if (isReported(pHolder) && pName != nullptr && strcmp(pName, "MissNum") != 0) {
+        if (isReported(pHolder) && pName != nullptr && strcmp(pName, "MissNum") != 0 && !isRaceTimeValue(pName)) {
             report(NEBULA_COOP_WORLD_VALUE, 0, value, 0, pName);
+        }
+    }
+
+    void noticeStockedStarBits(const GameDataHolder* pHolder, s32 change) {
+        if (isReported(pHolder) && change != 0) {
+            report(NEBULA_COOP_WORLD_STAR_BITS, static_cast< u32 >(change), static_cast< u32 >(pHolder->getStockedStarPieceNum()), 0,
+                   nullptr);
+        }
+    }
+
+    void noticeMostCoins(const GameDataHolder* pHolder, const char* pGalaxyName, s32 scenarioNo, s32 coins) {
+        if (isReported(pHolder) && pGalaxyName != nullptr && scenarioNo > 0 && coins > 0) {
+            report(NEBULA_COOP_WORLD_COINS, 0, static_cast< u32 >(coins), scenarioNo, pGalaxyName);
+        }
+    }
+
+    void noticeRaceTime(const GameDataHolder* pHolder, const char* pRaceName, u32 time) {
+        if (isReported(pHolder) && pRaceName != nullptr && time != 0) {
+            report(NEBULA_COOP_WORLD_RACE_TIME, 0, time, 0, pRaceName);
         }
     }
 };  // namespace NebulaCoopWorld
