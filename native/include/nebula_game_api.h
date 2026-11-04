@@ -638,7 +638,11 @@ enum {
    - NEBULA_COOP_WORLD_MISS (game to host): the local player missed (no bubble saved them). Until the scene starts
      over and ENTER comes again they don't keep the instance going and nothing more they do there counts, as
      sm64coopdx's death warp takes a player out of the level: an instance starts fresh only once everyone in it
-     missed or left. STAR_GOT still comes. A runtime without it ignores it. */
+     missed or left. STAR_GOT still comes. A runtime without it ignores it.
+   - NEBULA_COOP_WORLD_TELEPORT (host to game): a cheat command (/tp, docs/COOP_PLAN.md "Chat commands") moves the
+     local player to a place in this stage: its x, y and z are the float bits of `object`, `value` and `scenario`. The
+     game puts the player there standing, as soon as nothing holds them (a demo, a death, a bubble, a launch), or not
+     at all within a few seconds. A game without it ignores it. */
 typedef struct NebulaCoopWorldEvent {
     uint32_t kind;     /* NEBULA_COOP_WORLD_* */
     uint32_t object;   /* GONE, HIT, SWITCH */
@@ -660,6 +664,7 @@ enum {
     NEBULA_COOP_WORLD_HIT,
     NEBULA_COOP_WORLD_SWITCH,
     NEBULA_COOP_WORLD_MISS,
+    NEBULA_COOP_WORLD_TELEPORT,
 };
 
 enum {
