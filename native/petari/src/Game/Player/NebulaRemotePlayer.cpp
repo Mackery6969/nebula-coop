@@ -642,7 +642,8 @@ void NebulaRemotePlayer::draw() const {
     pModel->viewCalc2();
     pModel->mFlags.clear();
     pModel->setDynamicList(mLightTint.kind != MarioModelTint::Kind_None ? &mLightTint : nullptr);
-    pModel->setDrawView(0);
+    // No setDrawView: it points the draw matrices at the extra buffers only the local Mario has (MarioActor's
+    // initExtraMtxBuffer); this copy has none, so it drew from a null array and crashed. GhostPlayer draws the same way.
     pModel->directDraw(nullptr);
     MR::loadLightPlayer();
 }
