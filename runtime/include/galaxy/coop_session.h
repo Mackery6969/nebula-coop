@@ -175,6 +175,10 @@ public:
     bool join(JoinConfig config);
     // Leaves, or closes the room as its host. Nothing happens when there is no session.
     void leave();
+    // As leave(), but only when no other thread is inside the session now: a crashing game's last word to the room
+    // (the thread that crashed may hold the session), so the others leave at once instead of waiting for the room to
+    // stop answering. False when it couldn't.
+    bool leave_if_free();
 
     [[nodiscard]] SessionState state() const;
     [[nodiscard]] bool active() const { return state() != SessionState::Idle; }

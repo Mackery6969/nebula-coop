@@ -728,6 +728,9 @@ struct Session::State {
     void error(net::NetError error, PeerId) {
         if (error == net::NetError::PeerFailed && transport->in_lobby()) return;  // a member; peer_left follows
         std::string why = net::net_error_text(error);
+        // A joiner's lobby fails for PeerFailed only when the host itself went quiet (crashed, or its network went):
+        // say so, as the host closing the room says it.
+        if (error == net::NetError::PeerFailed && state == SessionState::Joined) why = "the host stopped answering";
         for (char& c : why) c = static_cast<char>(c >= 'a' && c <= 'z' ? c - 'a' + 'A' : c);
         if (state == SessionState::Connecting) {
             end(SessionEvent::Kind::JoinFailed, std::move(why));
@@ -881,6 +884,13 @@ void Session::leave() {
     const std::lock_guard<std::recursive_mutex> lock(lock_);
     if (state_->state == SessionState::Idle) return;
     state_->end(SessionEvent::Kind::Closed, {});
+}
+
+bool Session::leave_if_free() {
+    const std::unique_lock<std::recursive_mutex> lock(lock_, std::try_to_lock);
+    if (!lock.owns_lock()) return false;
+    if (state_->state != SessionState::Idle) state_->end(SessionEvent::Kind::Closed, {});
+    return true;
 }
 
 SessionState Session::state() const {
