@@ -845,7 +845,8 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         const galaxy::host::HostPointerCaptureCleanupDecision cleanup =
             galaxy::host::select_host_pointer_capture_cleanup(
                 msg == WM_CANCELMODE,
-                had_pressed_button);
+                had_pressed_button,
+                msg == WM_CAPTURECHANGED && reinterpret_cast<HWND>(lp) == hwnd);
         if (cleanup.publish_cancel_all) {
             s_pointer_transitions.cancel_unexpected_capture(
                 cached_pointer_coordinates(false),

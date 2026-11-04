@@ -240,7 +240,9 @@ apply_host_pointer_cursor_outside_publication(
 
 HostPointerCaptureCleanupDecision select_host_pointer_capture_cleanup(
     bool cancel_mode,
-    bool button_pressed) noexcept {
+    bool button_pressed,
+    bool capture_kept) noexcept {
+    if (capture_kept && !cancel_mode) return {};
     return {
         button_pressed,
         cancel_mode || button_pressed,

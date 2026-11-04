@@ -1055,6 +1055,18 @@ bool normal_capture_release_preserves_pointer_visibility() {
     passed &= expect(
         !cancel_mode.publish_cancel_all && cancel_mode.clear_window_state,
         "WM_CANCELMODE clears pointer window state without a phantom edge");
+
+    const HostPointerCaptureCleanupDecision second_button =
+        galaxy::host::select_host_pointer_capture_cleanup(false, true, true);
+    passed &= expect(
+        !second_button.publish_cancel_all && !second_button.clear_window_state,
+        "a second button's SetCapture on the window holding the capture keeps both buttons held");
+
+    const HostPointerCaptureCleanupDecision cancel_while_kept =
+        galaxy::host::select_host_pointer_capture_cleanup(true, true, true);
+    passed &= expect(
+        cancel_while_kept.publish_cancel_all && cancel_while_kept.clear_window_state,
+        "WM_CANCELMODE still cleans up while the window holds the capture");
     return passed;
 }
 
