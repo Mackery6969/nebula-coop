@@ -2745,7 +2745,8 @@ std::vector<SettingsRow> player_page(const RuntimeSettings& runtime) {
                         character =
                             static_cast<CoopCharacter>(ui::settings_step(static_cast<unsigned>(character), 2u, delta));
                     },
-                    "WHO YOU PLAY AS, IN ANY SAVE. OTHER PLAYERS SEE YOU AS HIM"});
+                    "WHO YOU PLAY AS, IN ANY SAVE. CHANGED IN A GALAXY, YOUR SPOT RELOADS AS HIM AT ONCE (IN A COMET, AT "
+                    "THE NEXT START), AND OTHER PLAYERS SEE YOU AS HIM"});
     return rows;
 }
 

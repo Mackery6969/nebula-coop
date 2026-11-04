@@ -35,6 +35,8 @@ enum Message : std::uint8_t {
     kPlayerStars = 10,  // host, to everyone: a player and the Power Stars they got in this room
     kPlayerName = 11,   // joiner, to the host: its new name (the host tells everyone with kPlayerInfo)
     kRemovePlayer = 12, // a moderator, to the host: remove a player (how: a Removal, Kick or Ban; who)
+    kPlayerCharacter = 13,  // joiner, to the host: the character it plays now (the host tells everyone with
+                            // kPlayerInfo). A host that doesn't know it lets it pass: the room sees the join's.
 };
 
 // A joiner that doesn't ask to be let in this soon is removed; a join that isn't let in this soon fails.
@@ -629,6 +631,15 @@ struct Session::State {
         send_info(*renamed);
     }
 
+    // A host's: a joiner switched character (sm64coopdx's live character change).
+    void host_receive_character(PeerId from, ByteReader& in) {
+        const auto got = in.u8() == 1u ? CoopCharacter::Luigi : CoopCharacter::Mario;
+        SessionPlayer* switched = player(from);
+        if (!in.ok() || switched == nullptr || switched->local || switched->character == got) return;
+        switched->character = got;
+        send_info(*switched);
+    }
+
     void receive(PeerId from, Channel channel, std::span<const std::uint8_t> data) {
         ByteReader in(data);
         const std::uint8_t type = in.u8();
@@ -654,6 +665,7 @@ struct Session::State {
             if (type == kJoinRequest) host_receive_join(from, in);
             if (type == kModRequest) host_send_piece(from, in);
             if (type == kPlayerName && state == SessionState::Hosting) host_receive_name(from, in);
+            if (type == kPlayerCharacter && state == SessionState::Hosting) host_receive_character(from, in);
             if (type == kRemovePlayer) host_receive_remove(from, in);
             return;
         }
@@ -953,6 +965,22 @@ void Session::set_name(const std::string& name) {
     ByteWriter body;
     body.str(clean);
     state_->send(state_->transport->owner(), kPlayerName, body);
+}
+
+void Session::set_character(CoopCharacter character) {
+    const std::lock_guard<std::recursive_mutex> lock(lock_);
+    if (state_->state != SessionState::Hosting && state_->state != SessionState::Joined) return;
+    auto& list = state_->players;
+    const auto self = std::find_if(list.begin(), list.end(), [](const auto& p) { return p.local; });
+    if (self == list.end() || self->character == character) return;
+    self->character = character;
+    if (state_->state == SessionState::Hosting) {
+        state_->send_info(*self);
+        return;
+    }
+    ByteWriter body;
+    body.u8(static_cast<std::uint8_t>(character));
+    state_->send(state_->transport->owner(), kPlayerCharacter, body);
 }
 
 void Session::credit_star(net::PeerId player) {

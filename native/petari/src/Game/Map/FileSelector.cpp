@@ -22,6 +22,7 @@
 #include "Game/Screen/TitleSequenceProduct.hpp"
 #include "Game/System/GameSequenceFunction.hpp"
 #include "Game/System/UserFile.hpp"
+#include "Game/Util/EventUtil.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/DemoUtil.hpp"
@@ -1382,7 +1383,8 @@ void FileSelector::exeDemo() {
 
     if (iconId.isMii()) {
         FileSelectFunc::copyMiiName(reinterpret_cast< u16* >(name), iconId);
-    } else if (isUserFileLuigi(_B4->_140)) {
+    } else if (MR::isPlayerLuigi()) {
+        // The player's character (the file is the same game for both).
         const char16_t* pMessage = MR::getGameMessageDirect(::cLuigiNameMessageID);
 
         MR::copyString(name, pMessage, ARRAY_SIZE(name));

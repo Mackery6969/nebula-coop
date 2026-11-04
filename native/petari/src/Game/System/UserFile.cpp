@@ -2,6 +2,7 @@
 #include "Game/System/UserFile.hpp"
 #include "Game/System/ConfigDataHolder.hpp"
 #include "Game/System/GameDataHolder.hpp"
+#include "Game/Util/EventUtil.hpp"
 #include "Game/Util/MemoryUtil.hpp"
 #include <MiiLib.h>
 
@@ -66,7 +67,9 @@ void UserFile::setLastLoadedMario(bool lastLoadedMario) {
 }
 
 void UserFile::onCompleteEndingCurrentPlayer() {
-    if (mIsPlayerMario) {
+    // The character who saw it (the file is the same game for both): seeing it once as each completes the file for
+    // Mario and Luigi.
+    if (!MR::isPlayerLuigi()) {
         mConfigDataHolder->onCompleteEndingMario();
     } else {
         mConfigDataHolder->onCompleteEndingLuigi();

@@ -1016,8 +1016,9 @@ enum {
    PLAY: the user file (1 to 6) the chosen save plays; its save data is then the game's NAND save folder, which the
    game reads again (empty for a new save). NEBULA_COOP_MENU_KEYS: the keys held that the Wii Remote has no button
    for (NEBULA_COOP_KEY_*), outside Nebula's settings menu and the main menu's text rows.
-   NEBULA_COOP_MENU_CHARACTER: 1 when the player plays Luigi (Options' PLAYER page's character as Host played), else 0;
-   MR::isPlayerLuigi follows it in every save. NEBULA_COOP_MENU_JOINED: 1 when the player joined another's room, so
+   NEBULA_COOP_MENU_CHARACTER: 1 when the player wants Luigi (Options' PLAYER page's character, as Host or Join left the
+   menu, then live as the page changes in game), else 0; each game scene plays the one wanted as it started, and a
+   switch in play reloads the player's spot (NebulaCharacter). A save is the same game for both. NEBULA_COOP_MENU_JOINED: 1 when the player joined another's room, so
    the save played is the host's (the pause menu's Quit then doesn't write it), else 0. NEBULA_COOP_MENU_TITLE, as the
    file select starts: 1 when the game's title shows before the menu (once, as Nebula starts), 0 when the menu opens at
    once (back from a room, or when the menu starts one itself: --host, --join, a restart for the room's mods).
