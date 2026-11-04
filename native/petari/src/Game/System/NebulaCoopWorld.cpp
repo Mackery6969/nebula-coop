@@ -9,6 +9,7 @@
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/LiveActor/Spine.hpp"
 #include "Game/Map/StageSwitch.hpp"
+#include "Game/MapObj/ChipBase.hpp"
 #include "Game/MapObj/Coin.hpp"
 #include "Game/MapObj/CoinGroup.hpp"
 #include "Game/MapObj/StarPiece.hpp"
@@ -42,6 +43,7 @@ namespace {
         Kind_Coin,
         Kind_PurpleCoin,
         Kind_StarBit,
+        Kind_StarBitDrop,  // a star bit a followed thing let out (a crystal broken, an enemy defeated): shared once taken
         Kind_Item,
         Kind_Enemy,   // a plain enemy: gone once defeated, moved by its owner's game, hits shared
         Kind_Object,  // any other placed actor (a boss, a box, a switch, a platform): hits shared
@@ -54,11 +56,13 @@ namespace {
         u8 mKind;
         bool mAlive;  // as the last frame saw it
         bool mGone;   // reported, or the server said so: kept dead
-        bool mGot;    // a coin the local player took
+        bool mGot;    // a coin or star bit the local player took
+        bool mHitByOther;  // its last hit was another player's, played again here
         s16 mMotion;     // its slot in sMotions, -1 for none
         s16 mGoneDelay;  // frames before the server's gone removes it: its own death (a hit played again) may still play
         s16 mHitFrames;  // frames since a hit last played on it, up to cHitFrames
         u16 mDrops;      // coins it let out so far (each one's key)
+        u16 mBits;       // star bits it let out so far (each one's key)
         u16 mLastHit;    // the last hit noted on it, and when (a hit isn't sent twice in a few frames)
         s32 mLastHitFrame;
     };
@@ -145,6 +149,7 @@ namespace {
     const s32 cAheadFrames = 8;
     const s32 cClaimEvery = 15;
     u32 sSelf = 0;  // the local player's number
+    bool sHost = false;  // the local player hosts the room: this game keeps the observatory's star bit bank
     MarioActor* sMario = nullptr;
 
     // Switches: turned this frame (sent at the frame's end), the room's as last told (set again once the scene's own
@@ -206,6 +211,20 @@ namespace {
             return false;
         }
         return true;
+    }
+
+    // The Star Chips in this scene (another player's take is applied only to a chip).
+    const s32 cMaxChips = 256;
+    LiveActor* sChips[cMaxChips];
+    s32 sChipNum = 0;
+
+    bool isChip(const LiveActor* pActor) {
+        for (s32 i = 0; i < sChipNum; i++) {
+            if (sChips[i] == pActor) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // Things the server said were gone before this game had them (a coin an enemy drops here later).
@@ -432,7 +451,7 @@ namespace {
     void applyGone(u32 object, u32 how) {
         const s32 index = findIndex(object);
         if (index < 0 || sEntries[index].mActor == nullptr) {
-            // Not here yet (a coin an enemy drops in this game a little later): gone once it comes.
+            // Not here yet (a coin or star bit an enemy drops in this game a little later): gone once it comes.
             sPending[sPendingNext].mKey = object;
             sPending[sPendingNext].mHow = how;
             sPendingNext = (sPendingNext + 1) % cMaxPending;
@@ -444,8 +463,19 @@ namespace {
             return;
         }
         rEntry.mGone = true;
+        if ((how & NEBULA_COOP_GONE_CHIP) != 0 && isChip(rEntry.mActor)) {
+            // Another player's Star Chip counts toward its group here too, whether it shows yet or not.
+            sApplying = true;
+            static_cast< ChipBase* >(rEntry.mActor)->takeForOtherPlayer();
+            sApplying = false;
+            rEntry.mAlive = false;
+            return;
+        }
         const bool following = rEntry.mMotion >= 0 && sMotions[rEntry.mMotion].mFollowing;
-        if (sReady && (rEntry.mHitFrames < cHitFrames || following) && !MR::isDead(rEntry.mActor)) {
+        if (rEntry.mGot && !MR::isDead(rEntry.mActor)) {
+            // The local player took it too and it still flies to him: it ends its flight first.
+            rEntry.mGoneDelay = 60;
+        } else if (sReady && (rEntry.mHitFrames < cHitFrames || following) && !MR::isDead(rEntry.mActor)) {
             // Its death, from a hit played here or its owner's nerves, may still be playing (a Goomba squashed): it
             // ends first.
             rEntry.mGoneDelay = 150;
@@ -453,9 +483,8 @@ namespace {
             removeQuietly(rEntry);
             rEntry.mAlive = false;
         }
-        if ((how & NEBULA_COOP_GONE_COIN) != 0) {
-            MR::incCoinOfOtherPlayer(1);
-        }
+        // Coins and star bits are each player's own (Galaxy has no 100-coin star): another player's are only gone
+        // here. Purple coins count toward the mission's 100 for everyone.
         if ((how & NEBULA_COOP_GONE_PURPLE) != 0) {
             MR::incPurpleCoin();
         }
@@ -527,6 +556,7 @@ namespace {
         sReplaying = false;
         sDispatch = pDispatch;
         rEntry.mHitFrames = 0;
+        rEntry.mHitByOther = true;
     }
 
     void rememberRoomSwitch(u32 id, bool on) {
@@ -552,6 +582,13 @@ namespace {
         sApplying = false;
     }
 
+    // A race's best time is kept in two event values (GameDataHolder::setRaceBestTime): it goes as a whole, the best of
+    // anyone's (NEBULA_COOP_WORLD_RACE_TIME), not as the host's values.
+    bool isRaceTimeValue(const char* pName) {
+        const size_t length = strlen(pName);
+        return length > 3 && (strcmp(pName + length - 3, "/hi") == 0 || strcmp(pName + length - 3, "/lo") == 0);
+    }
+
     void applySave(const NebulaCoopWorldEvent& rEvent) {
         GameDataHolder* pHolder = GameDataFunction::getCurrentGameDataHolder();
         if (pHolder == nullptr) {
@@ -570,9 +607,31 @@ namespace {
                 pHolder->tryOnGameEventFlag(rEvent.name);
             }
         } else if (rEvent.kind == NEBULA_COOP_WORLD_VALUE) {
-            if (pHolder->mEventValueChecker->findIndex(rEvent.name) >= 0 &&
+            if (!isRaceTimeValue(rEvent.name) && pHolder->mEventValueChecker->findIndex(rEvent.name) >= 0 &&
                 pHolder->getGameEventValue(rEvent.name) != static_cast< s32 >(rEvent.value)) {
                 pHolder->setGameEventValue(rEvent.name, static_cast< u16 >(rEvent.value));
+            }
+        } else if (rEvent.kind == NEBULA_COOP_WORLD_COINS) {
+            // The session's most coins for a star, when more than this save's.
+            if (rEvent.scenario > 0 && pHolder->mAllGalaxyStorage->isExistAccessor(rEvent.name, rEvent.scenario)) {
+                pHolder->makeGalaxyScenarioAccessor(rEvent.name, rEvent.scenario).updateMaxCoinNum(static_cast< s32 >(rEvent.value));
+            }
+        } else if (rEvent.kind == NEBULA_COOP_WORLD_RACE_TIME) {
+            // The session's best time for a race, when quicker than this save's.
+            if (rEvent.value != 0 && rEvent.value < pHolder->getRaceBestTime(rEvent.name)) {
+                pHolder->setRaceBestTime(rEvent.name, rEvent.value);
+            }
+        } else if (rEvent.kind == NEBULA_COOP_WORLD_STAR_BITS) {
+            // The host's bank is everyone's (its own game keeps it).
+            const s32 change = static_cast< s32 >(rEvent.value) - pHolder->getStockedStarPieceNum();
+            if (!sHost && change != 0) {
+                pHolder->addStockedStarPiece(change);
+            }
+        } else if (rEvent.kind == NEBULA_COOP_WORLD_STAR_BITS_ADD) {
+            // A joiner changed the bank: the host's game applies it, and its bank goes back to everyone (not applying).
+            sApplying = false;
+            if (sHost) {
+                pHolder->addStockedStarPiece(static_cast< s32 >(rEvent.object));
             }
         }
         sApplying = false;
@@ -905,6 +964,25 @@ namespace {
     bool isReported(const GameDataHolder* pHolder) {
         return !sApplying && sInRoom && pHolder == GameDataFunction::getCurrentGameDataHolder();
     }
+
+    // A pooled actor let out again stands for nothing it stood for before (a gone one would be kept dead).
+    void forgetPooled(const LiveActor* pActor) {
+        const s32 had = findActor(pActor);
+        if (had >= 0) {
+            sEntries[had].mActor = nullptr;
+        }
+    }
+
+    // A drop just keyed: what the server said of it before it came applies now.
+    void applyPending(s32 index) {
+        sEntries[index].mAlive = true;
+        for (s32 i = 0; i < cMaxPending; i++) {
+            if (sPending[i].mKey == sEntries[index].mKey && sPending[i].mKey != 0) {
+                sPending[i].mKey = 0;
+                applyGone(sEntries[index].mKey, sPending[i].mHow);
+            }
+        }
+    }
 };  // namespace
 
 namespace NebulaCoopWorld {
@@ -928,8 +1006,10 @@ namespace NebulaCoopWorld {
         sLocalSwitches = 0;
         sFlipNum = 0;
         memset(sPending, 0, sizeof(sPending));
+        sChipNum = 0;
         sObjectsActive = false;
         sSelf = 0;
+        sHost = false;
         sMario = nullptr;
         sTeleportFrames = 0;
         u32 roomSize = 0;
@@ -941,6 +1021,7 @@ namespace NebulaCoopWorld {
             for (u32 i = 0; i < count && i < 16; i++) {
                 if ((players[i].flags & NEBULA_COOP_LIST_YOU) != 0) {
                     sSelf = players[i].number;
+                    sHost = (players[i].flags & NEBULA_COOP_LIST_HOST) != 0;
                 }
             }
         }
@@ -1014,6 +1095,11 @@ namespace NebulaCoopWorld {
         }
         sPlaced = true;
         sObjectsActive = true;
+        // The host's bank, for the others (a player who joined since).
+        GameDataHolder* pHolder = GameDataFunction::getCurrentGameDataHolder();
+        if (sHost && pHolder != nullptr) {
+            report(NEBULA_COOP_WORLD_STAR_BITS, 0, static_cast< u32 >(pHolder->getStockedStarPieceNum()), 0, nullptr);
+        }
         nebula_log("[coop] the instance follows %d placed things, %d of them moving\n", sEntryNum, sMotionNum);
         report(NEBULA_COOP_WORLD_ENTER, 0, 0, MR::getCurrentScenarioNo(), MR::getCurrentStageName());
     }
@@ -1053,9 +1139,12 @@ namespace NebulaCoopWorld {
             }
             // A coin is the instance's once a player takes it (sm64coopdx's collect_coin): one a timer, a switch or a
             // black hole takes goes in every game alike, and comes back with a challenge tried again.
+            // A coin or star bit a player takes is gone for everyone (counted only for its taker); one a thing let
+            // out that isn't taken (it fell away) stays each game's.
             const bool isCoin = rEntry.mKind == Kind_Coin || rEntry.mKind == Kind_PurpleCoin;
-            const bool reportsGone = isCoin || rEntry.mKind == Kind_StarBit || rEntry.mKind == Kind_Item || rEntry.mKind == Kind_Enemy;
-            if (reportsGone && !alive && rEntry.mAlive && !rEntry.mGone && !settling && (!isCoin || rEntry.mGot)) {
+            const bool needsGot = isCoin || rEntry.mKind == Kind_StarBitDrop;
+            const bool reportsGone = isCoin || rEntry.mKind == Kind_StarBit || rEntry.mKind == Kind_StarBitDrop || rEntry.mKind == Kind_Item || rEntry.mKind == Kind_Enemy;
+            if (reportsGone && !alive && rEntry.mAlive && !rEntry.mGone && !settling && (!needsGot || rEntry.mGot)) {
                 rEntry.mGone = true;
                 u32 how = 0;
                 if (isCoin) {
@@ -1107,6 +1196,7 @@ namespace NebulaCoopWorld {
         }
         Entry& rEntry = sEntries[index];
         rEntry.mHitFrames = 0;
+        rEntry.mHitByOther = false;
         if (rEntry.mMotion >= 0) {
             // A hit takes it over (sm64coopdx: who interacts with an object sends its update).
             Motion& rMotion = sMotions[rEntry.mMotion];
@@ -1229,27 +1319,46 @@ namespace NebulaCoopWorld {
         if (!sObjectsActive || pCoin == nullptr) {
             return;
         }
+        forgetPooled(pCoin);
         const s32 host = findActor(pHost);
         if (host < 0) {
             return;
         }
-        // The pooled coin stood for another before: no longer.
-        const s32 had = findActor(pCoin);
-        if (had >= 0) {
-            sEntries[had].mActor = nullptr;
-        }
         Entry& rHost = sEntries[host];
         const u32 key = hashValue(hashValue(rHost.mKey, 0x44524f50u /* DROP */), rHost.mDrops++);
         const s32 index = add(key, pCoin, Kind_Coin);
-        if (index < 0) {
+        if (index >= 0) {
+            applyPending(index);
+        }
+    }
+
+    bool isOtherPlayersHit(const NameObj* pHost) {
+        if (!sObjectsActive) {
+            return false;
+        }
+        const s32 index = findActor(pHost);
+        return index >= 0 && sEntries[index].mHitByOther && sEntries[index].mHitFrames < cHitFrames;
+    }
+
+    void noteStarBitPooled(const LiveActor* pPiece) {
+        if (sObjectsActive && pPiece != nullptr) {
+            forgetPooled(pPiece);
+        }
+    }
+
+    void noteStarBitDrop(const NameObj* pHost, LiveActor* pPiece) {
+        if (!sObjectsActive || pPiece == nullptr) {
             return;
         }
-        sEntries[index].mAlive = true;
-        for (s32 i = 0; i < cMaxPending; i++) {
-            if (sPending[i].mKey == sEntries[index].mKey && sPending[i].mKey != 0) {
-                sPending[i].mKey = 0;
-                applyGone(sEntries[index].mKey, sPending[i].mHow);
-            }
+        const s32 host = findActor(pHost);
+        if (host < 0) {
+            return;
+        }
+        Entry& rHost = sEntries[host];
+        const u32 key = hashValue(hashValue(rHost.mKey, 0x42495453u /* BITS */), rHost.mBits++);
+        const s32 index = add(key, pPiece, Kind_StarBitDrop);
+        if (index >= 0) {
+            applyPending(index);
         }
     }
 
@@ -1259,6 +1368,36 @@ namespace NebulaCoopWorld {
         }
         const s32 index = findActor(pCoin);
         if (index >= 0) {
+            sEntries[index].mGot = true;
+        }
+    }
+
+    void noteChip(LiveActor* pChip) {
+        if (sInRoom && pChip != nullptr && sChipNum < cMaxChips && !isChip(pChip)) {
+            sChips[sChipNum++] = pChip;
+        }
+    }
+
+    void noticeChipGot(LiveActor* pChip) {
+        if (!sInRoom || !sPlaced || sApplying) {
+            return;
+        }
+        const s32 index = findActor(pChip);
+        if (index < 0 || sEntries[index].mGone) {
+            return;
+        }
+        // Gone here as its own take plays out (its effect, its sound), then kept dead.
+        sEntries[index].mGone = true;
+        sEntries[index].mGoneDelay = 60;
+        report(NEBULA_COOP_WORLD_GONE, sEntries[index].mKey, NEBULA_COOP_GONE_CHIP, 0, nullptr);
+    }
+
+    void noticeStarBitGot(const LiveActor* pPiece) {
+        if (!sInRoom || sApplying) {
+            return;
+        }
+        const s32 index = findActor(pPiece);
+        if (index >= 0 && (sEntries[index].mKind == Kind_StarBit || sEntries[index].mKind == Kind_StarBitDrop)) {
             sEntries[index].mGot = true;
         }
     }
@@ -1277,8 +1416,27 @@ namespace NebulaCoopWorld {
 
     void noticeEventValue(const GameDataHolder* pHolder, const char* pName, u16 value) {
         // Each player's own count of misses isn't the room's.
-        if (isReported(pHolder) && pName != nullptr && strcmp(pName, "MissNum") != 0) {
+        if (isReported(pHolder) && pName != nullptr && strcmp(pName, "MissNum") != 0 && !isRaceTimeValue(pName)) {
             report(NEBULA_COOP_WORLD_VALUE, 0, value, 0, pName);
+        }
+    }
+
+    void noticeStockedStarBits(const GameDataHolder* pHolder, s32 change) {
+        if (isReported(pHolder) && change != 0) {
+            report(NEBULA_COOP_WORLD_STAR_BITS, static_cast< u32 >(change), static_cast< u32 >(pHolder->getStockedStarPieceNum()), 0,
+                   nullptr);
+        }
+    }
+
+    void noticeMostCoins(const GameDataHolder* pHolder, const char* pGalaxyName, s32 scenarioNo, s32 coins) {
+        if (isReported(pHolder) && pGalaxyName != nullptr && scenarioNo > 0 && coins > 0) {
+            report(NEBULA_COOP_WORLD_COINS, 0, static_cast< u32 >(coins), scenarioNo, pGalaxyName);
+        }
+    }
+
+    void noticeRaceTime(const GameDataHolder* pHolder, const char* pRaceName, u32 time) {
+        if (isReported(pHolder) && pRaceName != nullptr && time != 0) {
+            report(NEBULA_COOP_WORLD_RACE_TIME, 0, time, 0, pRaceName);
         }
     }
 };  // namespace NebulaCoopWorld

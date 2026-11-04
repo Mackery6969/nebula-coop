@@ -147,6 +147,8 @@ void GameDataHolder::setRaceBestTime(const char* pName, u32 value) {
     char loName[48];
     nebula_snprintf(loName, sizeof(loName), "%s/lo", pName);
     setGameEventValue(loName, value);
+    // Online co-op: the room's best time is the best of anyone's.
+    NebulaCoopWorld::noticeRaceTime(this, pName, value);
 }
 
 u32 GameDataHolder::getRaceBestTime(const char* pName) const {
@@ -269,7 +271,10 @@ s32 GameDataHolder::getStockedStarPieceNum() const {
 }
 
 void GameDataHolder::addStockedStarPiece(int num) {
+    const s32 had = getStockedStarPieceNum();
     mPlayerStatus->addStockedStarPiece(num);
+    // Online co-op: the observatory's bank is the room's.
+    NebulaCoopWorld::noticeStockedStarBits(this, getStockedStarPieceNum() - had);
 }
 
 s32 GameDataHolder::setupSpinDriverPathStorage(const char* pGalaxyName, int scenarioNo, int zoneId, int spinDriverId, f32* pDrawRange) {

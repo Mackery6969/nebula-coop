@@ -639,17 +639,25 @@ enum {
      over and ENTER comes again they don't keep the instance going and nothing more they do there counts, as
      sm64coopdx's death warp takes a player out of the level: an instance starts fresh only once everyone in it
      missed or left. STAR_GOT still comes. A runtime without it ignores it.
+   - NEBULA_COOP_WORLD_COINS, _RACE_TIME (both ways): a high score in the save, the session's the best of anyone's: a
+     star's most coins (`name` the galaxy, `scenario` the star, `value` the coins), a race's best time (`name` the
+     race, `value` its time in frames). The game keeps the better of its own and the session's.
+   - NEBULA_COOP_WORLD_STAR_BITS (both ways): the star bits banked in the observatory, `value` the bank. Game to host:
+     the bank changed by `object` (a signed number; 0 when only telling the bank). The host's game keeps the
+     session's bank, which comes to every other game to take as its own.
+   - NEBULA_COOP_WORLD_STAR_BITS_ADD (to the host's game): a joiner's game changed the bank by `object` (signed): the
+     host's game applies it, and tells its bank again.
    - NEBULA_COOP_WORLD_TELEPORT (host to game): a cheat command (/tp, docs/COOP_PLAN.md "Chat commands") moves the
      local player to a place in this stage: its x, y and z are the float bits of `object`, `value` and `scenario`. The
      game puts the player there standing, as soon as nothing holds them (a demo, a death, a bubble, a launch), or not
      at all within a few seconds. A game without it ignores it. */
 typedef struct NebulaCoopWorldEvent {
     uint32_t kind;     /* NEBULA_COOP_WORLD_* */
-    uint32_t object;   /* GONE, HIT, SWITCH */
+    uint32_t object;   /* GONE, HIT, SWITCH; STAR_BITS and STAR_BITS_ADD: the bank's change (signed) */
     uint32_t value;    /* GONE: NEBULA_COOP_GONE_*; VALUE: the value; STAR_GOT: NEBULA_COOP_STAR_*; HIT: the message;
                           SWITCH: on */
-    int32_t scenario;  /* ENTER, STAR and STAR_GOT; HIT: the sensor */
-    char name[48];     /* ENTER and STAR: the stage; FLAG and VALUE: the name (Shift JIS) */
+    int32_t scenario;  /* ENTER, STAR, STAR_GOT and COINS; HIT: the sensor */
+    char name[48];     /* ENTER, STAR and COINS: the stage; FLAG and VALUE: the name (Shift JIS); RACE_TIME: the race */
     uint32_t player;   /* HIT (taken): who hit it, their number */
 } NebulaCoopWorldEvent;
 
@@ -664,6 +672,10 @@ enum {
     NEBULA_COOP_WORLD_HIT,
     NEBULA_COOP_WORLD_SWITCH,
     NEBULA_COOP_WORLD_MISS,
+    NEBULA_COOP_WORLD_COINS,
+    NEBULA_COOP_WORLD_RACE_TIME,
+    NEBULA_COOP_WORLD_STAR_BITS,
+    NEBULA_COOP_WORLD_STAR_BITS_ADD,
     NEBULA_COOP_WORLD_TELEPORT,
 };
 
@@ -672,8 +684,10 @@ enum {
 };
 
 enum {
-    NEBULA_COOP_GONE_COIN = 1u << 0,   /* a coin a player took: it counts for everyone in the instance */
-    NEBULA_COOP_GONE_PURPLE = 1u << 1, /* a purple coin a player took: the same, toward the 100 */
+    NEBULA_COOP_GONE_COIN = 1u << 0,   /* a coin a player took: gone for everyone, counted only for its taker */
+    NEBULA_COOP_GONE_PURPLE = 1u << 1, /* a purple coin a player took: it counts toward the 100 for everyone */
+    NEBULA_COOP_GONE_CHIP = 1u << 2,   /* a Star Chip a player took: it counts toward its group for everyone (the
+                                          group's Launch Star appears for all) */
 };
 
 /* Online co-op's shared objects (coop_objects_report and coop_objects_take, docs/COOP_PLAN.md "Shared objects"),

@@ -47,6 +47,9 @@ public:
     }
     void exeGot();
     bool isGettable() const;
+    // Online co-op: another player in the instance took this chip. It counts toward its group here too (the group's
+    // Launch Star appears for everyone), without the oxygen or the sound it gives its taker.
+    void takeForOtherPlayer();
     static bool isNeedBubble(const JMapInfoIter&);
     static void makeArchiveList(NameObjArchiveListCollector*, const JMapInfoIter&);
 

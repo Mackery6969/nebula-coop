@@ -67,7 +67,7 @@ struct Instance {
 };
 
 // A placed thing gone from an instance: the game's key for it (its placement, the same in every player's game) and
-// how (NEBULA_COOP_GONE_*: a coin taken counts for everyone in the instance).
+// how (NEBULA_COOP_GONE_*: a purple coin taken counts for everyone in the instance).
 struct Gone {
     std::uint32_t object = 0u;
     std::uint32_t how = 0u;
@@ -80,6 +80,15 @@ enum class SaveKind : std::uint8_t {
     // An achievement unlocked in the save (galaxy::achievements' id as name; value when, in seconds since 1970 UTC):
     // every player's who plays it. The first unlock's time is the save's.
     Achievement = 4,
+    // A star's most coins (name the galaxy, scenario the star, value the coins): anyone's, the highest kept.
+    Coins = 5,
+    // A race's best time (name the race, value its time in frames): anyone's, the lowest kept.
+    RaceTime = 6,
+    // The star bits banked in the observatory (value the bank): the host's game's, which keeps the bank.
+    StarBits = 7,
+    // A joiner's game changed the bank (value the change, as a signed number): sent to the host's game to apply, whose
+    // bank then comes back to everyone as StarBits. Not kept.
+    StarBitsChange = 8,
 };
 
 struct SaveChange {
