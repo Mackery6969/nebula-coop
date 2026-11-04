@@ -41,6 +41,7 @@
 #include "galaxy/mii_formats.h"
 #include "galaxy/mii_import.h"
 #include "galaxy/mods.h"
+#include "galaxy/game_instance.h"
 #if defined(NEBULA_HOST_RENDERER)
 #include "galaxy/experimental_ultrawide_aspect.h"
 #include "galaxy/frame_timeline.h"
@@ -1774,10 +1775,13 @@ fs::path coop_mods_cache() {
     return mods.empty() ? fs::path{} : mods.parent_path() / "coop_mods";
 }
 
-// The join that waits for Nebula to start again with a room's mods.
+// The join that waits for Nebula to start again with a room's mods: in the cache, or a second game's own folder
+// (galaxy/game_instance.h), as the games share the cache but each restarts to join on its own.
 fs::path coop_next_join_file() {
     const fs::path cache = coop_mods_cache();
-    return cache.empty() ? fs::path{} : cache / ".next_join";
+    if (cache.empty()) return {};
+    const fs::path& instance = galaxy::game_instance_folder();
+    return instance.empty() ? cache / ".next_join" : instance / ".next_join";
 }
 
 // The mods this game started with that change it (the room's, for a host; what a joiner plays now), with their files'
@@ -4696,24 +4700,93 @@ int svc_test_scene_frame(void*, NebulaTestAction* action) {
 // other power events close the game.
 // Every way out of the game: pending saves written (bounded: a dead drive does not hold the game), counters flushed.
 #if defined(_WIN32) && defined(NEBULA_HOST_RENDERER)
-// One game per data folder, so two never write the same saves. A second start brings the first's window forward and ends. Hidden test
-// runs have their own folders and may run side by side; GALAXY_TEST_ONE_GAME=1 tests this.
+// Up to kMaxGames games per data folder, so a player can host and join on one computer to test co-op. The first plays
+// as always; each further one is game 2, 3, ... with its own folder for the files it writes (galaxy/game_instance.h),
+// so two never write the same saves or settings. A start past the last brings the first's window forward and ends.
+// Hidden test runs have their own folders and may run side by side; GALAXY_TEST_ONE_GAME=1 tests this.
+constexpr unsigned kMaxGames = 4u;
+// The game a restart (finish_and_exit) starts again as, so a second game stays the second.
+constexpr wchar_t kGameInstanceVariable[] = L"NEBULA_GAME_INSTANCE";
 HANDLE gOneGame = nullptr;
 
-bool one_game_at_a_time() {
+// A second game's folder starts with copies of the first's settings, graphics settings and mods list, the window
+// windowed (two borderless games on one screen would cover each other). A file it already has stays as it is.
+void seed_game_instance(const fs::path& folder, const fs::path& settings, const fs::path& config) {
+    std::error_code error;
+    fs::create_directories(folder, error);
+    const auto copy_once = [&](const fs::path& from, const fs::path& to) {
+        std::error_code copy_error;
+        if (from.empty() || fs::exists(to, copy_error) || !fs::is_regular_file(from, copy_error)) return false;
+        return fs::copy_file(from, to, copy_error) && !copy_error;
+    };
+    if (!settings.empty()) {
+        copy_once(settings / "runtime_settings.ini", folder / "runtime_settings.ini");
+        copy_once(settings / "mods.ini", folder / "mods.ini");
+    }
+    if (copy_once(config, folder / "config.ini")) {
+        std::string text;
+        if (std::FILE* file = galaxy::open_path(folder / "config.ini", "rb")) {
+            char buffer[4096];
+            for (std::size_t read; (read = std::fread(buffer, 1, sizeof(buffer), file)) != 0u;) text.append(buffer, read);
+            std::fclose(file);
+        }
+        std::string out;
+        for (std::size_t at = 0; at < text.size();) {
+            std::size_t end = text.find('\n', at);
+            end = end == std::string::npos ? text.size() : end + 1u;
+            const std::string_view line(text.data() + at, end - at);
+            out += line.starts_with("display_mode=") ? "display_mode=" + std::to_string(galaxy::render::kDisplayWindowed) + "\n"
+                                                     : std::string(line);
+            at = end;
+        }
+        (void)galaxy::io::write_file_atomically(folder / "config.ini", out);
+    }
+}
+
+// True when this start should end (every game slot taken).
+bool claim_game_instance(int argc, char** argv) {
     if (::galaxy::run_option_flag(::galaxy::run_options().hide_window, false) &&
         !::galaxy::run_option_flag(::galaxy::run_options().test_one_game, false)) {
         return false;
     }
-    std::wstring name = L"Local\\NebulaGame-";
-    for (const wchar_t c : galaxy::runtime_settings_folder().wstring()) {
-        name += c == L'\\' || c == L':' ? L'_' : c;
-    }
-    gOneGame = CreateMutexW(nullptr, TRUE, name.c_str());
-    if (gOneGame == nullptr || GetLastError() != ERROR_ALREADY_EXISTS) {
+    // The mods tool (--import-mod, --list-mods, --remove-mod) plays no game: it works on the first's mods.
+    if (argc >= 2 && (std::strcmp(argv[1], "--import-mod") == 0 || std::strcmp(argv[1], "--list-mods") == 0 ||
+                      std::strcmp(argv[1], "--remove-mod") == 0)) {
         return false;
     }
-    log_line("host:", "the game is already running");
+    const fs::path settings = galaxy::runtime_settings_folder();
+    std::wstring base = L"Local\\NebulaGame-";
+    for (const wchar_t c : settings.wstring()) {
+        base += c == L'\\' || c == L':' ? L'_' : c;
+    }
+    // A restart asks for the game it was; otherwise the first free one.
+    unsigned wanted = 0u;
+    wchar_t value[8]{};
+    if (GetEnvironmentVariableW(kGameInstanceVariable, value, 8) != 0u) {
+        const unsigned digit = static_cast<unsigned>(value[0]) - static_cast<unsigned>(L'0');
+        if (digit >= 1u && digit <= kMaxGames && value[1] == L'\0') wanted = digit;
+        SetEnvironmentVariableW(kGameInstanceVariable, nullptr);
+    }
+    for (unsigned attempt = 0u; attempt <= kMaxGames; ++attempt) {
+        const unsigned number = attempt == 0u ? wanted : attempt;
+        if (number == 0u || (attempt != 0u && number == wanted)) continue;
+        // The first game's name is the one every earlier Nebula used.
+        const std::wstring name = number == 1u ? base : base + L"-" + std::to_wstring(number);
+        HANDLE mutex = CreateMutexW(nullptr, TRUE, name.c_str());
+        if (mutex == nullptr) return false;  // nothing to tell games apart with: play, as the first
+        if (GetLastError() == ERROR_ALREADY_EXISTS) {
+            CloseHandle(mutex);
+            continue;
+        }
+        gOneGame = mutex;
+        if (number > 1u && !settings.empty()) {
+            const fs::path folder = settings / "instances" / std::to_wstring(number);
+            seed_game_instance(folder, settings, galaxy::render::render_config_path());
+            galaxy::set_game_instance(number, folder);
+        }
+        return false;
+    }
+    log_line("host:", "every game slot is taken");
     if (HWND window = FindWindowW(galaxy::render::host_window::kWindowClass, nullptr)) {
         ShowWindow(window, IsIconic(window) ? SW_RESTORE : SW_SHOW);
         SetForegroundWindow(window);
@@ -4721,6 +4794,23 @@ bool one_game_at_a_time() {
     return true;
 }
 #endif
+
+// A second game's saves (galaxy/game_instance.h): its own folder, which starts as a copy of the first's.
+fs::path game_instance_saves(const fs::path& saves) {
+    const fs::path& folder = galaxy::game_instance_folder();
+    if (folder.empty()) return saves;
+    const fs::path own = folder / "saves";
+    std::error_code error;
+    if (!fs::exists(own, error)) {
+        fs::create_directories(own, error);
+        if (fs::is_directory(saves, error)) {
+            fs::copy(saves, own, fs::copy_options::recursive | fs::copy_options::skip_existing, error);
+            if (error) std::fprintf(stderr, "[host] game %u's saves: copying the first's failed (%s)\n",
+                                    galaxy::game_instance(), error.message().c_str());
+        }
+    }
+    return own;
+}
 
 [[noreturn]] void finish_and_exit(bool restart) {
     log_line("host:", restart ? "restart" : "the game ended");
@@ -4740,6 +4830,9 @@ bool one_game_at_a_time() {
 #if defined(NEBULA_HOST_RENDERER)
         if (gOneGame != nullptr) {
             CloseHandle(gOneGame);  // the new process takes it
+        }
+        if (const unsigned instance = galaxy::game_instance(); instance > 1u) {
+            SetEnvironmentVariableW(kGameInstanceVariable, std::to_wstring(instance).c_str());
         }
 #endif
         wchar_t path[MAX_PATH];
@@ -4977,7 +5070,7 @@ int main(int argc, char** argv) {
     if (argc >= 3 && std::strcmp(argv[1], "--crash-report") == 0) {
         return show_crash_report_dialog();
     }
-    if (one_game_at_a_time()) {
+    if (claim_game_instance(argc, argv)) {
         return 0;
     }
 #endif
@@ -5119,6 +5212,11 @@ int main(int argc, char** argv) {
     if (saves.empty()) {
         saves = default_nand(program);
     }
+    saves = game_instance_saves(saves);
+    if (const unsigned instance = galaxy::game_instance(); instance > 1u) {
+        log_line("host:", ("game " + std::to_string(instance) + ", with its own settings and saves in " +
+                           utf8_of(galaxy::game_instance_folder())).c_str());
+    }
     log_line("paths:", ("disc " + pak.string() + ", saves " + saves.string()).c_str());
     if (module.empty()) {
 #if defined(_WIN32)
@@ -5195,8 +5293,11 @@ int main(int argc, char** argv) {
         fs::create_directories(gSaveRoot / gSaveDataPath.substr(1), error);  // the release's own save folder
         if (!settings_folder.empty()) {
 #if !defined(NEBULA_RELEASE)  // mods return with their feature
-            fs::create_directories(settings_folder / "mods", error);
-            galaxy::mods::set_mods_folder(settings_folder / "mods", settings_folder / "mods.ini", game_id);
+            // A second game (galaxy/game_instance.h) plays the first's installed mods, with its own list of which are on.
+            const fs::path& instance = galaxy::game_instance_folder();
+            const fs::path mods_home = instance.empty() ? settings_folder : instance.parent_path().parent_path();
+            fs::create_directories(mods_home / "mods", error);
+            galaxy::mods::set_mods_folder(mods_home / "mods", settings_folder / "mods.ini", game_id);
             // A join Nebula started again for: this start plays the room's mods, then joins.
             if (std::optional<galaxy::coop::NextJoin> join = galaxy::coop::take_next_join(coop_next_join_file())) {
                 std::vector<galaxy::mods::RoomModChoice> room;

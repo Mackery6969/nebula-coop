@@ -5,6 +5,7 @@
 
 #include "galaxy/render/vk/pipeline_cache_vk.h"
 #include "galaxy/run_options.h"
+#include "galaxy/game_instance.h"
 #include "galaxy/render/pipeline_seed.h"
 #include "galaxy/windows_power.h"
 
@@ -159,11 +160,13 @@ constexpr VkVertexInputAttributeDescription kVertexAttributes[] = {
     {12, 0, VK_FORMAT_R32G32_SFLOAT, 104},    {13, 0, VK_FORMAT_R32G32_SFLOAT, 112},
     {14, 0, VK_FORMAT_R32G32B32_UINT, 120},    {15, 0, VK_FORMAT_R32G32B32_UINT, 132},
 };
-// Written beside the target and renamed, so a reader never sees a partial file.
+// Written beside the target and renamed, so a reader never sees a partial file. Games sharing the cache
+// (galaxy/game_instance.h) each write their own temporary file.
 template <typename Write>
 bool replace_file(const std::filesystem::path& path, Write&& write) {
     std::filesystem::path temp = path;
     temp += ".tmp";
+    if (const unsigned instance = galaxy::game_instance(); instance > 1u) temp += std::to_string(instance);
     {
         std::ofstream out(temp, std::ios::binary | std::ios::trunc);
         if (!out) {

@@ -8,6 +8,7 @@
 #include "galaxy/path_text.h"
 #include "galaxy/controller_hid.h"
 #include "galaxy/coop_menu.h"
+#include "galaxy/game_instance.h"
 
 #include "galaxy/render/display_modes.h"
 #include "galaxy/render/galaxy_select.h"
@@ -487,6 +488,12 @@ OpenedWindow open_game_window(WindowOwner& owner, int window_width, int window_h
                                        GetDpiForSystem());
         window_x = outer.left;
         window_y = outer.top;
+        // A second game (galaxy/game_instance.h) a step down and right of the first, so both title bars show.
+        if (const unsigned instance = galaxy::game_instance(); instance > 1u) {
+            const long step = 40L * static_cast<long>(instance - 1u);
+            window_x = static_cast<int>(std::min<long>(window_x + step, std::max<long>(start_monitor->work_area.left, start_monitor->work_area.right - 160L)));
+            window_y = static_cast<int>(std::min<long>(window_y + step, std::max<long>(start_monitor->work_area.top, start_monitor->work_area.bottom - 120L)));
+        }
         actual_window_width = static_cast<int>(
             (outer.right - outer.left) - (frame.right - frame.left));
         actual_window_height = static_cast<int>(
@@ -539,8 +546,11 @@ OpenedWindow open_game_window(WindowOwner& owner, int window_width, int window_h
         const DWORD ex_style =
             hidden_window ? (WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE)
                           : (WS_EX_APPWINDOW | WS_EX_ACCEPTFILES);
+        // A second game's window says which it is: "Nebula (2)".
+        const unsigned instance = galaxy::game_instance();
+        const std::wstring title = instance > 1u ? L"Nebula (" + std::to_wstring(instance) + L")" : std::wstring(L"Nebula");
         opened.window = owner.start({
-            kWindowClass, L"Nebula", window_style, ex_style,
+            kWindowClass, title, window_style, ex_style,
             window_x, window_y, static_cast<int>(outer_width),
             static_cast<int>(outer_height), !hidden_window});
         if (opened.window == nullptr) {

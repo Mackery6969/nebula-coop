@@ -5,6 +5,7 @@
 #include "galaxy/atomic_file.h"
 #include "galaxy/input_bindings.h"
 #include "galaxy/platform_paths.h"
+#include "galaxy/game_instance.h"
 #include "galaxy/c_locale_number.h"
 
 #include <algorithm>
@@ -326,6 +327,9 @@ std::filesystem::path settings_path() {
         return path;
     }
 #endif
+    if (const std::filesystem::path& instance = game_instance_folder(); !instance.empty()) {
+        return instance / "runtime_settings.ini";  // a second game's own (galaxy/game_instance.h)
+    }
     const std::filesystem::path folder = nebula_data_directory();
     return folder.empty() ? folder : folder / "runtime_settings.ini";
 }
