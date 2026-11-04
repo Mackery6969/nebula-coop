@@ -96,7 +96,9 @@ namespace {
     }
 
     // Mario's effects for his animations, as MarioAnimator's callback table plays them (MarioAnimationEfx.cpp): the
-    // animation, the effect (Luigi's own where he has one), and the frame past which it stops (0 for its end).
+    // animation, the effect (Luigi's own where he has one), and the frame past which it stops (0 for its end). The
+    // effects go by their names in Mario's effect list ("SpinLight"), the names this copy's keeper registers them by:
+    // MarioEffect renames them for the local Mario alone (スピンライト), so his names find nothing here.
     struct AnimationEffect {
         const char* mAnimation;
         const char* mEffect;
@@ -104,14 +106,14 @@ namespace {
         f32 mStopAfter;
     };
     const AnimationEffect cAnimationEffects[] = {
-        {"\213\363\222\206\202\320\202\313\202\350" /* 空中ひねり */, "\203\130\203\163\203\223\203\211\203\103\203\147" /* スピンライト */, nullptr, 30.0f},
-        {"\222\156\217\343\202\320\202\313\202\350" /* 地上ひねり */, "\203\130\203\163\203\223\203\211\203\103\203\147" /* スピンライト */, nullptr, 0.0f},
-        {"\203\101\203\103\203\130\202\320\202\313\202\350" /* アイスひねり */, "\203\101\203\103\203\130\203\130\203\163\203\223" /* アイススピン */, nullptr, 0.0f},
-        {"\203\101\203\103\203\130\202\320\202\313\202\350\220\303\216\176" /* アイスひねり静止 */, "\203\101\203\103\203\130\203\130\203\163\203\223" /* アイススピン */, nullptr, 0.0f},
-        {"\203\164\203\100\203\103\203\101\203\130\203\163\203\223" /* ファイアスピン */, "\203\164\203\100\203\103\203\101\203\130\203\163\203\223" /* ファイアスピン */, nullptr, 0.0f},
-        {"\203\164\203\100\203\103\203\101\203\130\203\163\203\223\213\363\222\206" /* ファイアスピン空中 */, "\203\164\203\100\203\103\203\101\203\130\203\163\203\223" /* ファイアスピン */, nullptr, 0.0f},
-        {"\203\156\203\140\203\130\203\163\203\223" /* ハチスピン */, "\203\156\203\140\203\130\203\163\203\223" /* ハチスピン */, "\203\156\203\140\203\213\203\103\201\133\203\127\203\130\203\163\203\223" /* ハチルイージスピン */, 0.0f},
-        {"\203\156\203\140\203\130\203\163\203\223\213\363\222\206" /* ハチスピン空中 */, "\203\156\203\140\203\130\203\163\203\223" /* ハチスピン */, "\203\156\203\140\203\213\203\103\201\133\203\127\203\130\203\163\203\223" /* ハチルイージスピン */, 0.0f},
+        {"\213\363\222\206\202\320\202\313\202\350" /* 空中ひねり */, "SpinLight", nullptr, 30.0f},
+        {"\222\156\217\343\202\320\202\313\202\350" /* 地上ひねり */, "SpinLight", nullptr, 0.0f},
+        {"\203\101\203\103\203\130\202\320\202\313\202\350" /* アイスひねり */, "IceMarioSpinLight", nullptr, 0.0f},
+        {"\203\101\203\103\203\130\202\320\202\313\202\350\220\303\216\176" /* アイスひねり静止 */, "IceMarioSpinLight", nullptr, 0.0f},
+        {"\203\164\203\100\203\103\203\101\203\130\203\163\203\223" /* ファイアスピン */, "FireMarioSpinLight", nullptr, 0.0f},
+        {"\203\164\203\100\203\103\203\101\203\130\203\163\203\223\213\363\222\206" /* ファイアスピン空中 */, "FireMarioSpinLight", nullptr, 0.0f},
+        {"\203\156\203\140\203\130\203\163\203\223" /* ハチスピン */, "BeeMarioSpinLight", "BeeLuigiSpinLight", 0.0f},
+        {"\203\156\203\140\203\130\203\163\203\223\213\363\222\206" /* ハチスピン空中 */, "BeeMarioSpinLight", "BeeLuigiSpinLight", 0.0f},
     };
     const u32 cAnimationEffectNum = sizeof(cAnimationEffects) / sizeof(cAnimationEffects[0]);
 
@@ -485,22 +487,31 @@ void NebulaRemotePlayer::updateAnimation() {
     mLastFrame = mState.animation_frame;
 }
 
+const char* NebulaRemotePlayer::getAnimationEffectName() const {
+    const AnimationEffect* pEffect = findAnimationEffect(mGroup);
+    if (pEffect == nullptr) {
+        return nullptr;
+    }
+    return mIsLuigi && pEffect->mLuigiEffect != nullptr ? pEffect->mLuigiEffect : pEffect->mEffect;
+}
+
 void NebulaRemotePlayer::startAnimationEffect() {
-    if (const AnimationEffect* pEffect = findAnimationEffect(mGroup)) {
-        MR::emitEffect(this, mIsLuigi && pEffect->mLuigiEffect != nullptr ? pEffect->mLuigiEffect : pEffect->mEffect);
+    // Only one this copy has: an effect it lacks has no emitter, and starting or stopping that crashed the game.
+    if (const char* pName = getAnimationEffectName()) {
+        MR::tryEmitEffect(this, pName);
     }
 }
 
 void NebulaRemotePlayer::updateAnimationEffect() {
     const AnimationEffect* pEffect = findAnimationEffect(mGroup);
     if (pEffect != nullptr && pEffect->mStopAfter > 0.0f && mState.animation_frame > pEffect->mStopAfter) {
-        MR::deleteEffect(this, pEffect->mEffect);
+        MR::tryDeleteEffect(this, getAnimationEffectName());
     }
 }
 
 void NebulaRemotePlayer::stopAnimationEffect() {
-    if (const AnimationEffect* pEffect = findAnimationEffect(mGroup)) {
-        MR::deleteEffect(this, mIsLuigi && pEffect->mLuigiEffect != nullptr ? pEffect->mLuigiEffect : pEffect->mEffect);
+    if (const char* pName = getAnimationEffectName()) {
+        MR::tryDeleteEffect(this, pName);
     }
 }
 
