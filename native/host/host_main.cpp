@@ -30,6 +30,7 @@
 #include "galaxy/coop_saves.h"
 #include "galaxy/coop_session.h"
 #include "galaxy/coop_snapshot.h"
+#include "galaxy/coop_teleport.h"
 #include "galaxy/coop_world.h"
 #include "galaxy/run_options.h"
 #include "../../tools/test_driver/switches.h"
@@ -99,6 +100,7 @@ inline int64_t perf_hint_retrace() noexcept { return 0; }
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <bit>
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
@@ -2597,9 +2599,14 @@ int32_t svc_coop_menu(void*, uint32_t what) {
     }
 }
 
+// /psc off hid the Personal Star Counter for this player (sm64coopdx's mod keeps its own the same way): until /psc on,
+// or Nebula starts again.
+std::atomic<bool> gCoopStarCounterHidden{false};
+
 // The room's built-in Personal Star Counter mod (the Host page's Mods, the Online tab): the room's as the host set it,
-// else this player's as they last hosted.
+// else this player's as they last hosted; never while this player hid it.
 bool coop_star_counter_on() {
+    if (gCoopStarCounterHidden) return false;
     const galaxy::coop::SessionState state = gCoopSession.state();
     if (state == galaxy::coop::SessionState::Hosting || state == galaxy::coop::SessionState::Joined) {
         return gCoopSession.room().star_counter;
@@ -2607,33 +2614,63 @@ bool coop_star_counter_on() {
     return galaxy::get_runtime_settings().coop.star_counter;
 }
 
-// /psc [on|off] (sm64coopdx's Personal Star Counter mod's command): the host turns the counter on or off for the whole
-// room, as the Host page's Mods does, and keeps it for the rooms it hosts later. Without a word, it flips it.
+// /psc [on|off] (sm64coopdx's Personal Star Counter mod's command): shows or hides the counter for this player. Only in
+// a room made with the mod (a room's mods never change while it's open); without a word, it flips it.
 void add_coop_star_counter_command() {
+    const auto in_room_with_it = [] {
+        const galaxy::coop::SessionState state = gCoopSession.state();
+        return (state == galaxy::coop::SessionState::Hosting || state == galaxy::coop::SessionState::Joined) &&
+               gCoopSession.room().star_counter;
+    };
     galaxy::coop::ChatCommand psc;
     psc.name = "psc";
     psc.help = "CoopCmdPscHelp";
     psc.options = {"on", "off"};
-    psc.shown = [] { return gCoopSession.is_host(); };
-    psc.run = [](std::string_view words) {
-        if (!gCoopSession.is_host()) {
-            gCoopChat.say("CoopCmdHostOnly");
-            return true;
-        }
-        galaxy::RuntimeSettings settings = galaxy::get_runtime_settings();
+    psc.shown = in_room_with_it;
+    psc.run = [in_room_with_it](std::string_view words) {
+        if (!in_room_with_it()) return false;
         std::string word(words);
         for (char& c : word) c = c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
         if (!word.empty() && word != "on" && word != "off") return false;
-        const bool on = word.empty() ? !coop_star_counter_on() : word == "on";
-        settings.coop.star_counter = on;
-        galaxy::set_runtime_settings(settings);
-        (void)galaxy::save_runtime_settings_to_file();
-        // The room's now, not at the session's next pump: the players' lists show it at once.
-        gCoopSession.set_room(settings.coop);
+        const bool on = word.empty() ? gCoopStarCounterHidden.load() : word == "on";
+        gCoopStarCounterHidden = !on;
         gCoopChat.say(on ? "CoopCmdPscOn" : "CoopCmdPscOff");
         return true;
     };
     (void)gCoopChat.commands().add(std::move(psc));
+}
+
+// A teleport the cheat commands asked for (galaxy/coop_teleport.h), for the game's next coop_world_take.
+std::mutex gCoopTeleportLock;
+std::optional<galaxy::coop::Position> gCoopTeleport;
+
+// /tp, /teleport and /pos, over the game's last report of this player and the others' snapshots.
+void add_coop_cheat_commands() {
+    galaxy::coop::CheatHooks hooks;
+    hooks.here = []() -> std::optional<galaxy::coop::Position> {
+        const std::lock_guard<std::mutex> lock(gCoopLock);
+        if (!gCoopLocalValid || gCoopLocal.stage[0] == '\0') return std::nullopt;
+        return galaxy::coop::Position{gCoopLocal.position[0], gCoopLocal.position[1], gCoopLocal.position[2]};
+    };
+    hooks.where = [](galaxy::net::PeerId id) -> std::optional<galaxy::coop::Position> {
+        std::string stage;
+        int scenario = 0;
+        {
+            const std::lock_guard<std::mutex> lock(gCoopLock);
+            if (!gCoopLocalValid || gCoopLocal.stage[0] == '\0') return std::nullopt;
+            stage = gCoopLocal.stage;
+            scenario = gCoopLocal.scenario;
+        }
+        for (const galaxy::coop::RemotePlayer& player : gCoopRemote.sample(stage, scenario)) {
+            if (player.id == id) return player.snapshot.position;
+        }
+        return std::nullopt;
+    };
+    hooks.move = [](const galaxy::coop::Position& position) {
+        const std::lock_guard<std::mutex> lock(gCoopTeleportLock);
+        gCoopTeleport = position;
+    };
+    galaxy::coop::add_cheat_commands(gCoopChat, gCoopSession, std::move(hooks));
 }
 
 // The player list (Tab or the controller's Share held): the room's players by number, each one's place and round trip.
@@ -2706,12 +2743,26 @@ void svc_coop_world_report(void*, const NebulaCoopWorldEvent* event) {
 // What the game is told, in order: what it can't take this call waits for the next.
 uint32_t svc_coop_world_take(void*, NebulaCoopWorldEvent* events, uint32_t capacity) {
     std::deque<galaxy::coop::WorldEvent>& waiting = gCoopWorldWaiting;
+    std::optional<galaxy::coop::Position> teleport;
+    {
+        const std::lock_guard<std::mutex> lock(gCoopTeleportLock);
+        teleport = std::exchange(gCoopTeleport, std::nullopt);
+    }
     if (!gCoopWorld.active()) {
         waiting.clear();
         return 0u;
     }
     for (galaxy::coop::WorldEvent& event : gCoopWorld.take()) waiting.push_back(std::move(event));
     uint32_t count = 0u;
+    // A cheat command's teleport first: the position's floats' bits in object, value and scenario.
+    if (teleport && events != nullptr && capacity > 0u) {
+        NebulaCoopWorldEvent& to = events[count++];
+        to = {};
+        to.kind = NEBULA_COOP_WORLD_TELEPORT;
+        to.object = std::bit_cast<uint32_t>((*teleport)[0]);
+        to.value = std::bit_cast<uint32_t>((*teleport)[1]);
+        to.scenario = std::bit_cast<int32_t>((*teleport)[2]);
+    }
     while (events != nullptr && count < capacity && !waiting.empty()) {
         const galaxy::coop::WorldEvent& from = waiting.front();
         NebulaCoopWorldEvent& to = events[count++];
@@ -5720,6 +5771,7 @@ int main(int argc, char** argv) {
     gCoopChat.attach(gCoopSession);
     galaxy::coop::add_room_commands(gCoopChat, gCoopSession);
     add_coop_star_counter_command();
+    add_coop_cheat_commands();
     services.coop_list = svc_coop_list;
     services.coop_remote = svc_coop_remote;
     services.coop_world_report = svc_coop_world_report;

@@ -23,10 +23,14 @@
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Player/MarioActor.hpp"
 #include "Game/Player/MarioHolder.hpp"
+#include "Game/Player/NebulaCoopBubble.hpp"
 #include "Game/Player/NebulaRemotePlayer.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
+#include "Game/Util/CameraUtil.hpp"
+#include "Game/Util/DemoUtil.hpp"
 #include "Game/Util/ModelUtil.hpp"
+#include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SceneUtil.hpp"
 #include <math.h>
 #include <cstdio>
@@ -65,6 +69,8 @@ namespace {
     // A scene's first frames: things the stage's own setup kills then aren't reported (a coin hidden for a comet, an
     // enemy waiting for its switch), only noted.
     const s32 cSettleFrames = 30;
+    // A cheat command's teleport waits this long for nothing to hold the player (a demo, a death...), then is dropped.
+    const s32 cTeleportFrames = 180;
     // What one frame takes from the host at most.
     const u32 cTakePerCall = 64;
     const u32 cTakeCalls = 16;
@@ -559,6 +565,40 @@ namespace {
         sApplying = false;
     }
 
+    TVec3f sTeleportTo(0.0f, 0.0f, 0.0f);
+    s32 sTeleportFrames = 0;
+
+    f32 floatFromBits(u32 bits) {
+        f32 value;
+        memcpy(&value, &bits, sizeof(value));
+        return value;
+    }
+
+    // NEBULA_COOP_WORLD_TELEPORT: where /tp sends the local player, kept until it can.
+    void noticeTeleport(const NebulaCoopWorldEvent& rEvent) {
+        sTeleportTo.set(floatFromBits(rEvent.object), floatFromBits(rEvent.value),
+                        floatFromBits(static_cast< u32 >(rEvent.scenario)));
+        sTeleportFrames = cTeleportFrames;
+    }
+
+    // The teleport, once nothing holds the player: standing there, the camera with them (as a character change puts
+    // the player back on its spot).
+    void tryTeleport() {
+        if (sTeleportFrames <= 0) {
+            return;
+        }
+        sTeleportFrames--;
+        if (sMario == nullptr || MR::isPlayerDead() || MR::isDemoActive() || MR::isPlayerInRush() ||
+            MR::isPlayerHidden() || MR::isOffPlayerControl() || NebulaCoopBubble::isLocalBubbled()) {
+            return;
+        }
+        sTeleportFrames = 0;
+        sMario->mVelocity.zero();
+        MR::setPlayerPosAndWait(sTeleportTo);
+        MR::resetCameraMan();
+        nebula_log("[coop] teleported to %.0f %.0f %.0f\n", sTeleportTo.x, sTeleportTo.y, sTeleportTo.z);
+    }
+
     void takeFromServer() {
         // Static: the module links without __chkstk, so no frame may need a stack probe.
         static NebulaCoopWorldEvent events[cTakePerCall];
@@ -576,6 +616,8 @@ namespace {
                 } else if (events[i].kind == NEBULA_COOP_WORLD_SWITCH) {
                     rememberRoomSwitch(events[i].object, events[i].value != 0);
                     applySwitch(events[i].object, events[i].value != 0);
+                } else if (events[i].kind == NEBULA_COOP_WORLD_TELEPORT) {
+                    noticeTeleport(events[i]);
                 } else if (events[i].kind == NEBULA_COOP_WORLD_STAR_GOT) {
                     NebulaCoopDemos::applyStarGot(events[i].scenario, (events[i].value & NEBULA_COOP_STAR_GRAND) != 0);
                 } else if (events[i].kind != NEBULA_COOP_WORLD_READY) {
@@ -854,6 +896,7 @@ namespace NebulaCoopWorld {
         sObjectsActive = false;
         sSelf = 0;
         sMario = nullptr;
+        sTeleportFrames = 0;
         u32 roomSize = 0;
         NebulaHost::coopList(nullptr, 0, &roomSize);
         sInRoom = roomSize != 0;
@@ -947,6 +990,7 @@ namespace NebulaCoopWorld {
         sClock++;
         sMario = MR::isExistSceneObj(SceneObj_MarioHolder) ? MR::getMarioHolder()->getMarioActor() : nullptr;
         takeFromServer();
+        tryTeleport();
         takeStates();
         const bool settling = sFrames < cSettleFrames;
         if (settling) {

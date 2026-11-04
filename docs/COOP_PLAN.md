@@ -298,6 +298,20 @@ options and the room's players' names (each Tab the next match), and a player's 
 | `/permban NAME\|NUMBER` | the host | removes them and refuses them in every room this player hosts |
 | `/moderator NAME\|NUMBER` | the host | lets them `/kick` and `/ban`, in every room this player hosts |
 | `/confirm` | whoever was asked | the four above ask first; `/confirm` does it, any other line drops the question |
+| `/psc [on\|off]` | everyone, in a room made with the Personal Star Counter | shows or hides the counter for this player |
+| `/tp`, `/teleport` | everyone (themselves), the host and moderators (anyone), only with cheats on | Minecraft's teleport, below |
+| `/pos` | everyone, only with cheats on | where this player is, for `/tp` |
+
+- **Cheat commands** (`galaxy/coop_teleport.h`). They work, and show on `/help` and Tab, only while the room's cheats
+  are on (the Online tab's Allow Cheats, the host's). `/tp` reads its words as Minecraft does: `/tp PLAYER`,
+  `/tp X Y Z`, `/tp TARGET PLAYER`, `/tp TARGET X Y Z`. A player is a name or a number, `@s` this player, and a target
+  may be `@a`, everyone. A coordinate is a number, `~` (where the moved player is on that axis) or `~` and a number
+  from there, in the stage's units. Nobody changes stage: a player goes to another only in the same instance (the
+  galaxy and its star). Moving another player is the session's message 49: the host's straight to them, a
+  moderator's to the host, which checks the room's cheats and that they are a moderator, and passes it on. The moved
+  player's own game resolves the `~` and where the other player is, and is told who moved it. The game gets the
+  place as `NEBULA_COOP_WORLD_TELEPORT` (from `coop_world_take`) and puts the player there standing once nothing holds
+  them (a demo, a death, a bubble, a launch), or drops it after three seconds.
 
 - **Who a player is.** Bans and moderators go by the player's IP address (the transport's `peer_identity`, as
   sm64coopdx's `get_id_str`), so they hold when the player joins again under another name. On one machine (or behind
@@ -311,8 +325,8 @@ options and the room's players' names (each Tab the next match), and a player's 
 - **Adding one.** A feature registers its own command, as a sm64coopdx mod does: `Chat::commands().add(name,
   description, handler)` (`galaxy/coop_commands.h`); a `[On|Off]` in the description are the options Tab offers.
   Nebula's mods (Riivolution patches, files) run no code, so the commands are Nebula's own features': the Personal
-  Star Counter's host-only `/psc [on|off]` (the host's `host_main.cpp`) turns the room's counter on or off, as the Host
-  page's Mods does, and keeps it for the rooms it hosts later.
+  Star Counter's `/psc [on|off]` (the host's `host_main.cpp`) is there only in a room made with the mod (a room's mods
+  never change while it is open), and shows or hides the counter for this player alone, as sm64coopdx's mod does.
 - **The game.** The host's `coop_chat` gives a command's words as `NEBULA_COOP_CHAT_NOTICE` lines (game API 121):
   a `CoopCmd...` text id with `{name}` filled in, or words as they are.
 
