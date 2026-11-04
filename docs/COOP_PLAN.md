@@ -204,7 +204,8 @@ Nebula's in-game settings menu (F1, the pause menu's Settings) keeps its pages, 
   before it opens) returns to the main menu, and back there the session ends (the host closes the room, a joiner
   disconnects). Only the host's Quit writes the save first: a joiner plays the host's save, the room's, which only
   the host's game writes. A joiner whose host quits is brought back to the main menu with a notice. Closing the
-  window also leaves.
+  window also leaves, and a game that crashes tells the room as its crash report is written; a host that vanishes
+  without a word (no network) is noticed after 10 seconds of silence, and its players go back to the main menu too.
 - **Cheats.** Today's ADVANCED rows (Galaxy Select: travel to any galaxy and star; Grand Stars: give the save Grand
   Stars 1-6) move here under a Cheats heading. They work only while the room has cheats on (`coop_cheats`, the
   host's choice, off by default), and are shown greyed out otherwise. A host playing alone turns cheats on for

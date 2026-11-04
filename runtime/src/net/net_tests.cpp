@@ -9,6 +9,7 @@
 #include "galaxy/net/udp.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <deque>
@@ -16,6 +17,7 @@
 #include <fstream>
 #include <functional>
 #include <random>
+#include <span>
 #include <string>
 #include <thread>
 #include <vector>
@@ -654,6 +656,86 @@ void test_session() {
            }),
            "the host leaving closes the room for the others");
     expect(joiner.state() == SessionState::Idle, "who are back to no session");
+    expect(!joiner_events.empty() && joiner_events.back().kind == Kind::Closed &&
+               joiner_events.back().text == "THE HOST CLOSED THE ROOM",
+           "and told why, which takes them back to the main menu");
+}
+
+// The direct transport, until told to go quiet: then it neither receives nor sends, as a game that crashed (or lost its
+// network) with its socket still open.
+class QuietTransport final : public galaxy::net::Transport {
+public:
+    std::atomic<bool> quiet{false};
+
+    const char* name() const noexcept override { return "Quiet"; }
+    bool lobby_create(const galaxy::net::LobbyConfig& config) override {
+        inner_.set_callbacks(callbacks_);
+        return inner_.lobby_create(config);
+    }
+    bool lobby_join(const galaxy::net::JoinConfig& config) override {
+        inner_.set_callbacks(callbacks_);
+        return inner_.lobby_join(config);
+    }
+    void lobby_leave() override {
+        if (!quiet.load()) inner_.lobby_leave();
+    }
+    void unpeer(galaxy::net::PeerId peer) override { inner_.unpeer(peer); }
+    void update(std::chrono::milliseconds wait) override {
+        if (!quiet.load()) inner_.update(wait);
+    }
+    bool send_to(galaxy::net::PeerId peer, Channel channel, std::span<const std::uint8_t> data) override {
+        return !quiet.load() && inner_.send_to(peer, channel, data);
+    }
+    bool in_lobby() const noexcept override { return inner_.in_lobby(); }
+    bool is_host() const noexcept override { return inner_.is_host(); }
+    galaxy::net::PeerId self() const noexcept override { return inner_.self(); }
+    galaxy::net::PeerId owner() const noexcept override { return inner_.owner(); }
+    std::chrono::milliseconds ping(galaxy::net::PeerId peer) const noexcept override { return inner_.ping(peer); }
+    std::uint16_t port() const noexcept override { return inner_.port(); }
+    std::string peer_identity(galaxy::net::PeerId peer) const override { return inner_.peer_identity(peer); }
+
+private:
+    galaxy::net::DirectTransport inner_;
+};
+
+// The host gone without a word (its game crashed): its players notice it stop answering and the room ends for them,
+// saying so.
+void test_session_host_gone() {
+    using namespace galaxy::coop;
+    using Kind = SessionEvent::Kind;
+    auto quiet = std::make_unique<QuietTransport>();
+    QuietTransport& host_transport = *quiet;
+    Session host_session(std::move(quiet));
+    HostConfig host;
+    host.port = 0u;
+    host.game_version = "test 1";
+    host.name = "HOSTY";
+    host.save = [] {
+        RoomSave save;
+        save.files.push_back({"GameData.bin", std::vector<std::uint8_t>(100u, 0x5au)});
+        return save;
+    };
+    expect(host_session.host(host), "a quiet session hosts");
+    Session joiner;
+    expect(joiner.join({"127.0.0.1", host_session.port(), "", "test 1", "JOINER", galaxy::CoopCharacter::Mario}) &&
+               wait_for([&] { return joiner.state() == SessionState::Joined; }),
+           "a player joins it");
+    (void)joiner.take_events();
+
+    host_transport.quiet.store(true);
+    const Clock::time_point went = Clock::now();
+    std::vector<SessionEvent> events;
+    expect(wait_for(
+               [&] {
+                   for (auto& e : joiner.take_events()) events.push_back(e);
+                   return has_event(events, Kind::Closed);
+               },
+               galaxy::net::DirectTransport::kTimeout + 5s),
+           "a host that stops answering ends the room for its players");
+    expect(Clock::now() - went >= galaxy::net::DirectTransport::kTimeout - 1s, "once it has been quiet a while");
+    expect(joiner.state() == SessionState::Idle, "who are back to no session");
+    expect(!events.empty() && events.back().kind == Kind::Closed && events.back().text == "THE HOST STOPPED ANSWERING",
+           "and told why, which takes them back to the main menu");
 }
 
 // The join's checks and the room's mods: another disc is refused; a joiner without the room's mods downloads them
@@ -812,6 +894,7 @@ int main() {
     test_addresses();
     test_transport_lobby();
     test_session();
+    test_session_host_gone();
     test_coop_mods();
     test_session_mods();
     if (s_failures == 0) std::printf("net tests passed\n");

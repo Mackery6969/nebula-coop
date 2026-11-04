@@ -992,6 +992,9 @@ EXCEPTION_POINTERS* gCrashInfo;
 DWORD gCrashThread;
 std::atomic<int> gCrashing{0};
 
+// Defined with the co-op session, below.
+void leave_coop_room_at_crash();
+
 void crash_writer() {
     for (;;) {
         WaitForSingleObject(gCrashRequest, INFINITE);
@@ -1022,6 +1025,9 @@ void crash_writer() {
             CloseHandle(file);
         }
         report_crash_facts(fs::path(path));
+        // The dump and report first (what the crash left must not cost them): then the room hears this player go,
+        // so the others don't wait for it to stop answering.
+        leave_coop_room_at_crash();
         SetEvent(gCrashDone);
         // The dump and report are written: whatever the crashed thread still does (the module's thread report, a flush
         // behind a lock another thread held when it stopped) never keeps the process alive.
@@ -1647,6 +1653,13 @@ galaxy::coop::Popups gCoopPopups;
 // connects from the main menu and plays the host's save once let in; the pause menu's Quit (back at the main menu)
 // leaves it.
 galaxy::coop::Session gCoopSession;
+
+#if defined(_WIN32)
+void leave_coop_room_at_crash() {
+    // Never waits: the thread that crashed may be inside the session.
+    if (!gCoopSession.leave_if_free()) log_line("crash:", "the co-op room could not be told (the session was busy)");
+}
+#endif
 void keep_coop_settings();
 void keep_coop_list(bool ban, const std::string& identity);
 // The game as online play compares it: a player with another is refused, as is one with another disc
@@ -1916,45 +1929,9 @@ void note_coop_place() {
     gCoopSession.set_place(stage, scenario);
 }
 
-// What happened in the room since the last call, on the game's thread: logged, and a room that ended while playing
-// takes the player back to the main menu. The host's room settings (the Online page's) and the player's name (Options'
-// PLAYER page's) reach the others as they change.
-void pump_coop_session() {
-    note_coop_place();
-    if (!gCoopSession.active()) {
-        if (gCoopWorld.active()) gCoopWorld.stop();
-        gCoopAchievementsWaiting.clear();
-        gCoopPopups.clear();
-        return;
-    }
-    // A join connecting from the main menu: its events are poll_coop_join's (Joined above all, which plays the save).
-    if (gCoopMenu.joining()) return;
-    const galaxy::coop::SessionState state = gCoopSession.state();
-    if (state == galaxy::coop::SessionState::Hosting || state == galaxy::coop::SessionState::Joined) {
-        send_coop_snapshot();
-        gCoopWorld.update();
-        take_coop_achievements();
-#if defined(NEBULA_HOST_RENDERER)
-        gCoopPopups.set_options(galaxy::get_runtime_settings().coop_popups);
-#endif
-        gCoopPopups.update(gCoopSession.players(), galaxy::coop::chat_clock_ms());
-    }
-#if defined(NEBULA_HOST_RENDERER)
-    const galaxy::RuntimeCoopSettings settings = galaxy::get_runtime_settings().coop;
-    if (gCoopSession.is_host()) gCoopSession.set_room(settings);
-    gCoopSession.set_name(settings.player_name);
-#endif
-    // The character the game plays now (its snapshot's, which changes as a switch reloads the player's spot), not
-    // the one wanted: the others' nametags, list and chat follow the model they see.
-    {
-        bool valid = false, luigi = false;
-        {
-            const std::lock_guard<std::mutex> lock(gCoopLock);
-            valid = gCoopLocalValid;
-            luigi = (gCoopLocal.flags & NEBULA_COOP_PLAYER_LUIGI) != 0u;
-        }
-        if (valid) gCoopSession.set_character(luigi ? galaxy::CoopCharacter::Luigi : galaxy::CoopCharacter::Mario);
-    }
+// The room's news since the last call, on the game's thread: logged and shown, and a room that ended under the player
+// (its host quit, crashed or stopped answering, or this player was removed) takes them back to the main menu.
+void handle_coop_session_events() {
     using Kind = galaxy::coop::SessionEvent::Kind;
     bool changed = false;
     for (const galaxy::coop::SessionEvent& event : gCoopSession.take_events()) {
@@ -1990,6 +1967,51 @@ void pump_coop_session() {
         }
     }
     if (changed) note_coop_room();
+}
+
+// What happened in the room since the last call, on the game's thread: logged, and a room that ended while playing
+// takes the player back to the main menu. The host's room settings (the Online page's) and the player's name (Options'
+// PLAYER page's) reach the others as they change.
+void pump_coop_session() {
+    note_coop_place();
+    if (!gCoopSession.active()) {
+        if (gCoopWorld.active()) gCoopWorld.stop();
+        gCoopAchievementsWaiting.clear();
+        gCoopPopups.clear();
+        // The room may have just ended on the session's own thread (the host left, or stopped answering): the session
+        // is idle already, but its Closed event still waits here to say why and take the player to the main menu.
+        if (!gCoopMenu.joining()) handle_coop_session_events();
+        return;
+    }
+    // A join connecting from the main menu: its events are poll_coop_join's (Joined above all, which plays the save).
+    if (gCoopMenu.joining()) return;
+    const galaxy::coop::SessionState state = gCoopSession.state();
+    if (state == galaxy::coop::SessionState::Hosting || state == galaxy::coop::SessionState::Joined) {
+        send_coop_snapshot();
+        gCoopWorld.update();
+        take_coop_achievements();
+#if defined(NEBULA_HOST_RENDERER)
+        gCoopPopups.set_options(galaxy::get_runtime_settings().coop_popups);
+#endif
+        gCoopPopups.update(gCoopSession.players(), galaxy::coop::chat_clock_ms());
+    }
+#if defined(NEBULA_HOST_RENDERER)
+    const galaxy::RuntimeCoopSettings settings = galaxy::get_runtime_settings().coop;
+    if (gCoopSession.is_host()) gCoopSession.set_room(settings);
+    gCoopSession.set_name(settings.player_name);
+#endif
+    // The character the game plays now (its snapshot's, which changes as a switch reloads the player's spot), not
+    // the one wanted: the others' nametags, list and chat follow the model they see.
+    {
+        bool valid = false, luigi = false;
+        {
+            const std::lock_guard<std::mutex> lock(gCoopLock);
+            valid = gCoopLocalValid;
+            luigi = (gCoopLocal.flags & NEBULA_COOP_PLAYER_LUIGI) != 0u;
+        }
+        if (valid) gCoopSession.set_character(luigi ? galaxy::CoopCharacter::Luigi : galaxy::CoopCharacter::Mario);
+    }
+    handle_coop_session_events();
 }
 
 #if defined(NEBULA_HOST_RENDERER)
@@ -4925,6 +4947,8 @@ fs::path game_instance_saves(const fs::path& saves) {
 
 [[noreturn]] void finish_and_exit(bool restart) {
     log_line("host:", restart ? "restart" : "the game ended");
+    // The room hears this player go (a host's closes for everyone), as the process ends without its destructors.
+    gCoopSession.leave();
     for (int waited = 0; gSavesPending.load(std::memory_order_acquire) != 0 && waited < 500; waited++) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
