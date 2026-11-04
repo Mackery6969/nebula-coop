@@ -7,7 +7,9 @@
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
 #include "Game/Util/EventUtil.hpp"
+#include "Game/Util/GravityUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
+#include "Game/Util/MapUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ModelUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
@@ -31,6 +33,14 @@ namespace {
     // each frame takes (the rest is the last frame's, so it drifts and turns softly).
     const f32 cFlySpeed = 30.0f;
     const f32 cFlyEase = 0.1f;
+    // How fast the bubble's up turns to a new gravity's (a planet's pull as it flies round), and Mario to the way he
+    // flies, each frame.
+    const f32 cGravityTurn = 0.1f;
+    const f32 cFaceTurn = 0.15f;
+    // Bursting where the map is: kept back this far from a wall or floor between the bubble and the other player, and
+    // set down on a floor within this much below his feet.
+    const f32 cPopClearance = 60.0f;
+    const f32 cPopFloorReach = 120.0f;
     // Bursting: the bubble's middle this near the other player's, once these frames have passed (sm64coopdx's 120
     // units, after 20 of its frames).
     const f32 cPopReach = 150.0f;
@@ -50,6 +60,9 @@ namespace {
     s32 sPopWait = 0;
     s32 sAlone = 0;
     TVec3f sVelocity(0.0f, 0.0f, 0.0f);
+    // The bubble's middle (it flies, Mario hangs in it, feet towards its gravity) and its gravity.
+    TVec3f sCenter(0.0f, 0.0f, 0.0f);
+    TVec3f sGravity(0.0f, -1.0f, 0.0f);
     u32 sAreas[cAreaDepth];
     s32 sAreaNum = 0;
 
@@ -85,6 +98,67 @@ namespace {
         return pActor->mPosition - pActor->getGravityVec() * cBodyCenter;
     }
 
+    // The gravity where the bubble is, turned to a little each frame; where nothing pulls, the last one.
+    void updateGravity(const MarioActor* pActor) {
+        TVec3f gravity;
+        if (!MR::calcGravityVectorOrZero(pActor, sCenter, &gravity, nullptr, 0) || !MR::normalizeOrZero(&gravity)) {
+            return;
+        }
+        TVec3f blended;
+        MR::vecBlendSphere(sGravity, gravity, &blended, cGravityTurn);
+        if (MR::normalizeOrZero(&blended)) {
+            sGravity = blended;
+        }
+    }
+
+    // `rVec` across the ground the gravity pulls to: without its part along the gravity, 1 long (zero if nothing is
+    // left).
+    TVec3f alongGround(const TVec3f& rVec) {
+        TVec3f across;
+        MR::vecKillElement(rVec, sGravity, &across);
+        MR::normalizeOrZero(&across);
+        return across;
+    }
+
+    // Mario where the bubble is: hanging in it, feet towards its gravity, his up its up, facing the way he flies.
+    void placeInBubble(MarioActor* pActor) {
+        const TVec3f feet = sCenter + sGravity * cBodyCenter;
+        pActor->mPosition = feet;
+        pActor->mMario->mPosition = feet;
+        pActor->mVelocity.zero();
+        // His gravity follows the bubble's (the camera's up and his own go with it).
+        pActor->updateGravityVec(true, true);
+        TVec3f up;
+        MR::vecBlendSphere(pActor->mMario->mHeadVec, -sGravity, &up, cGravityTurn);
+        if (MR::normalizeOrZero(&up)) {
+            pActor->mMario->forceSetHeadVecKeepSide(up);
+        }
+        TVec3f across;
+        MR::vecKillElement(sVelocity, sGravity, &across);
+        if (across.length() > 3.0f) {
+            pActor->mMario->setFrontVecKeepUp(across, cFaceTurn);
+        }
+    }
+
+    // Where a bubble bursting at `rCenter` by the other player at `rRescuer` lets Mario out: his feet, clear of the
+    // map. The bubble flies through walls and floors, the other player stands in the open: a wall or floor between them
+    // keeps him on the other player's side of it, and a floor just under his feet stands him on it.
+    TVec3f findPopFeet(const TVec3f& rCenter, const TVec3f& rRescuer) {
+        TVec3f center = rCenter;
+        TVec3f hit;
+        const TVec3f toCenter = rCenter - rRescuer;
+        if (!MR::isNearZero(toCenter) && MR::getFirstPolyOnLineToMap(&hit, nullptr, rRescuer, toCenter)) {
+            TVec3f back = rRescuer - hit;
+            const f32 room = back.length();
+            MR::normalizeOrZero(&back);
+            center = hit + back * (room < cPopClearance ? room : cPopClearance);
+        }
+        if (MR::getFirstPolyOnLineToMap(&hit, nullptr, center, sGravity * (cBodyCenter + cPopFloorReach))) {
+            return hit - sGravity * 5.0f;
+        }
+        return center + sGravity * cBodyCenter;
+    }
+
     TVec3f getCenter(const NebulaRemotePlayer* pCopy) {
         return pCopy->mPosition + pCopy->mUp * cBodyCenter;
     }
@@ -111,21 +185,23 @@ namespace {
     }
 
     // Out of the bubble, by the other player: full health, blinking a while, falling from there.
-    void popLocal(MarioActor* pActor) {
+    void popLocal(MarioActor* pActor, const NebulaRemotePlayer* pRescuer) {
         sBubbled = false;
         if (sLocal != nullptr) {
             sLocal->pop();
         }
         pActor->mVelocity.zero();
         pActor->setNerve(GET_NERVE(MarioActor, MarioActorNrvWait));
-        // Placed where the bubble burst, as a demo places him, standing ready to fall from there.
-        MR::setPlayerPos(pActor->mPosition);
+        // Placed where the bubble burst (out of any wall or floor it flew into), as a demo places him, upright for the
+        // gravity there and ready to fall from there. Map collision comes back before he's placed, so the ground under
+        // him is found from the new place.
+        pActor->_F44 = true;
+        MR::onBind(pActor);
+        MR::setPlayerPos(findPopFeet(sCenter, getCenter(pRescuer)));
         pActor->resetCondition();
         pActor->mMaxHealth = 3;
         pActor->mHealth = 3;
         pActor->resetWaterLife();
-        pActor->_F44 = true;
-        MR::onBind(pActor);
         MR::validateHitSensors(pActor);
         pActor->mMario->mDamage->_16 = cInvincibleFrames;
         nebula_log("[coop] out of the bubble\n");
@@ -206,6 +282,8 @@ void NebulaCoopBubble::forgetAll() {
     sPopWait = 0;
     sAlone = 0;
     sVelocity.zero();
+    sCenter.zero();
+    sGravity.set(0.0f, -1.0f, 0.0f);
     sAreaNum = 0;
 }
 
@@ -256,7 +334,12 @@ bool startBubble(MarioActor* pActor) {
     sPopWait = cPopAfter;
     sAlone = 0;
     sVelocity.zero();
-    sLocal->follow(getCenter(pActor));
+    sCenter = getCenter(pActor);
+    sGravity = pActor->getGravityVec();
+    if (!MR::normalizeOrZero(&sGravity)) {
+        sGravity.set(0.0f, -1.0f, 0.0f);
+    }
+    sLocal->follow(sCenter);
     MR::startSound(sLocal, "SE_OJ_AIR_BUBBLE_BREAK");
     nebula_log("[coop] in a bubble (%d lives left)\n", MR::getPlayerLeft());
     return true;
@@ -279,12 +362,10 @@ void NebulaCoopBubble::updateLocal(MarioActor* pActor) {
         return;
     }
     // As the miss states keep him: no animation of his own over the bubble's, the model where he is.
-    pActor->calcHeadPos();
-    pActor->updateRealMtx();
     pActor->_F44 = false;
     MR::offBind(pActor);
 
-    const TVec3f center = getCenter(pActor);
+    const TVec3f center = sCenter;
     const NebulaRemotePlayer* pTarget = findRescuer(center);
     if (pTarget == nullptr || !isBubbleOn()) {
         if (++sAlone >= cAloneFrames) {
@@ -295,28 +376,41 @@ void NebulaCoopBubble::updateLocal(MarioActor* pActor) {
         sAlone = 0;
     }
 
-    // Flown where the camera looks: the stick across and ahead, jump (A) up and crouch (Z) down, eased (sm64coopdx's 0.9 and 0.1).
-    TVec3f want = MR::getCamXdir() * MR::getPlayerStickX() + MR::getCamZdir() * MR::getPlayerStickY();
+    // Flown as Mario walks, by the gravity where the bubble is rather than the screen's up: the stick across the
+    // ground that gravity pulls to, ahead the way the camera looks (or, looking straight down on it, the screen's up);
+    // jump (A) away from the ground and crouch (Z) towards it. Eased as sm64coopdx's (0.9 and 0.1).
+    updateGravity(pActor);
+    const TVec3f up = -sGravity;
+    const TVec3f right = alongGround(MR::getCamXdir());
+    TVec3f ahead = alongGround(MR::getCamZdir());
+    if (MR::isNearZero(ahead) || MR::abs(MR::getCamZdir().dot(up)) > 0.9f) {
+        ahead = alongGround(MR::getCamYdir() * (MR::getCamZdir().dot(up) < 0.0f ? 1.0f : -1.0f));
+    }
+    TVec3f want = right * MR::getPlayerStickX() + ahead * MR::getPlayerStickY();
     if (MR::getPlayerHeldJump()) {
-        want += MR::getCamYdir();
+        want += up;
     }
     if (MR::getPlayerHeldCrouch()) {
-        want -= MR::getCamYdir();
+        want -= up;
     }
     if (want.length() > 1.0f) {
         MR::normalize(&want);
     }
     sVelocity = sVelocity * (1.0f - cFlyEase) + want * (cFlySpeed * cFlyEase);
-    pActor->mVelocity = sVelocity;
+    sCenter += sVelocity;
+    placeInBubble(pActor);
+    // As the miss states keep him: no animation of his own over the bubble's, the model where he is.
+    pActor->calcHeadPos();
+    pActor->updateRealMtx();
 
     if (sLocal != nullptr) {
-        sLocal->follow(center + sVelocity);
+        sLocal->follow(sCenter);
     }
 
     if (sPopWait > 0) {
         sPopWait--;
-    } else if (pTarget != nullptr && (getCenter(pTarget) - center).length() < cPopReach) {
-        popLocal(pActor);
+    } else if (pTarget != nullptr && (getCenter(pTarget) - sCenter).length() < cPopReach) {
+        popLocal(pActor, pTarget);
     }
 }
 
