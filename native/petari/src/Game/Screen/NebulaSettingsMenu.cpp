@@ -273,7 +273,7 @@ namespace {
         {{u"A", 0xFFFFFFFF, cText}, {u"B", 0xFFFFFFFF, cText}, {u"X", 0xFFFFFFFF, cText}, {u"Y", 0xFFFFFFFF, cText}},
         {{u"\u00D7", 0xFFFFFFFF, cText}, {u"\u25CB", 0xFFFFFFFF, cText}, {u"\u25A1", 0xFFFFFFFF, cText}, {u"\u25B3", 0xFFFFFFFF, cText}},
     };
-    const char16_t* const cPadShoulders[3][2] = {{u"LB", u"RB"}, {u"u", u"R"}, {u"L1", u"R1"}};
+    const char16_t* const cPadShoulders[3][2] = {{u"LB", u"RB"}, {u"L", u"R"}, {u"L1", u"R1"}};
     // The controllers' Back button, which resets the main menu's settings: a pill as the shoulders are.
     const char16_t* const cPadBack[3] = {u"View", u"−", u"Create"};
     const PadButton cShoulders[3] = {{nullptr, 0x45474EFF, 0xFFFFFFFF}, {nullptr, 0xFFFFFFFF, cText}, {nullptr, 0xFFFFFFFF, cText}};
@@ -1215,7 +1215,7 @@ bool NebulaSettingsScreen::build() {
             return false;
         }
         setTextStyle(mHalves[half].mLetter, cTextSize, cText, cText, 4);
-        setText(mHalves[half].mLetter, half == 0 ? u"u" : u"R");
+        setText(mHalves[half].mLetter, half == 0 ? u"L" : u"R");
         mHalves[half].mMap = nullptr;
         mHalves[half].mPresses = -1;
     }
