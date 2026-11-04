@@ -588,10 +588,11 @@ void NebulaRemotePlayer::tryAttackLocal() {
     }
 
     // Thrown away from them, the knockback strength times the attack's scale (sm64coopdx's speeds are a 30 Hz
-    // frame's, Galaxy's a 60 Hz one's); friendly fire costs health as an enemy's hit does.
+    // frame's, Galaxy's a 60 Hz one's); friendly fire costs health as an enemy's hit does. (normalizeOrZero is true
+    // when the vector was zero: only then, standing inside them, is he thrown backwards from where he faces.)
     TVec3f away;
     MR::vecKillElement(pMario->mPosition - mPosition, pMario->getGravityVec(), &away);
-    if (!MR::normalizeOrZero(&away)) {
+    if (MR::normalizeOrZero(&away)) {
         away = -pMario->mMario->mFrontVec;
     }
     const f32 knockback = static_cast< f32 >(sRules.knockback) * scale * 0.5f;
