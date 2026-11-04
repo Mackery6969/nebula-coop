@@ -15,6 +15,7 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#include "Game/System/NebulaCoopWorld.hpp"
 #include "Game/System/NebulaHost.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
 #include <nebula_game_api.h>
@@ -218,7 +219,9 @@ NebulaBubble* NebulaCoopBubble::createModel() {
     return pBubble;
 }
 
-bool NebulaCoopBubble::tryStart(MarioActor* pActor) {
+namespace {
+// The miss as a bubble, when another player can let this one out: true when it is one.
+bool startBubble(MarioActor* pActor) {
     // A race lost (forceKill's 1, 2 and 5) isn't a death; a game over isn't bubbled (sm64coopdx bubbles with lives
     // left only), nor a miss the scene already plays.
     if (sLocal == nullptr || sBubbled || sGiveUp || sGameOverDemo || !isBubbleOn()) {
@@ -257,6 +260,18 @@ bool NebulaCoopBubble::tryStart(MarioActor* pActor) {
     MR::startSound(sLocal, "SE_OJ_AIR_BUBBLE_BREAK");
     nebula_log("[coop] in a bubble (%d lives left)\n", MR::getPlayerLeft());
     return true;
+}
+
+}  // namespace
+
+bool NebulaCoopBubble::tryStart(MarioActor* pActor) {
+    if (startBubble(pActor)) {
+        return true;
+    }
+    // The miss goes on: until the scene starts over the player doesn't keep the instance going, as sm64coopdx's death
+    // warp takes a player out of the level. The instance starts fresh only once everyone in it missed or left.
+    NebulaCoopWorld::noticeMiss();
+    return false;
 }
 
 void NebulaCoopBubble::updateLocal(MarioActor* pActor) {

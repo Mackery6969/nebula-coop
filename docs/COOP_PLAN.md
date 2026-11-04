@@ -84,6 +84,17 @@ don't. The Comet Observatory (and the other hub/demo stages) is an instance too,
   `packet_level_area_inform`. An instance nobody else is in starts fresh from the stage files, as sm64coopdx's level
   does once everyone left; so a player alone whose scene starts over (a miss) finds its coins back, as in the game
   alone, while one with company finds them as the others left them.
+- **A miss leaves the instance.** sm64coopdx's death warp takes a player out of the level, so a level starts over
+  only once everyone in it died or left. Here a player whose miss goes on (no bubble saved them) stops keeping the
+  instance going at once (`NEBULA_COOP_WORLD_MISS`, the session's message 43), not when their scene starts over: so a
+  mission resets only once every player in it missed or left. Two players missing together both come back to a fresh
+  instance; a player still bubbled when the others miss has nobody to fly to and misses too, as sm64coopdx's "all
+  bubbled" warps everyone out. What the dying scene does after its miss no longer counts (what it moved is the
+  others' to take), but it still hears of stars taken there, so a Grand Star still takes it along.
+- **Game over.** sm64coopdx's game over gives four lives and sends the player back to the castle; it never leaves the
+  server. Here, in a room, a game over gives four lives and goes back to the Observatory (or plays the stage again
+  where there is none yet), instead of the game's title, where the player would leave the room and a host would close
+  it. A joiner's game over doesn't write the save (the host's game writes the room's).
 - **Free movement.** Nobody is pulled along to another galaxy. Each player picks galaxies and stars from their own
   dome and star select, and leaves an instance by finishing, dying out or exiting.
 - **Who is where.** The dome's galaxy select names the other players in each galaxy under its miniature, and the star

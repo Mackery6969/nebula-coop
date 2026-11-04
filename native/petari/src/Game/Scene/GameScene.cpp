@@ -534,15 +534,31 @@ void GameScene::exeCometRetryAfterMiss() {
 }
 
 void GameScene::exeSaveAfterGameOver() {
+    // Online co-op: a game over doesn't end the game (back at the main menu the player would leave the room, and a
+    // host would close it for everyone). As sm64coopdx's game over (four lives, back to the castle), the player gets
+    // four lives and goes back to the Observatory, or plays the stage again where there is none to go back to. A
+    // joiner plays the host's save, which the host's game writes: theirs isn't written (as their Quit doesn't).
+    const bool inRoom = NebulaCoopWorld::isInRoom();
     if (MR::isFirstStep(this)) {
         MR::incPlayerGameOverNum();
-        GameSequenceFunction::startGameDataSaveSequence(true, true);
+        if (!inRoom || NebulaHost::coopMenu(NEBULA_COOP_MENU_JOINED) != 1) {
+            GameSequenceFunction::startGameDataSaveSequence(true, true);
+        }
         MR::startStarPointerModePauseMenu(this);
     }
 
     if (!GameSequenceFunction::isActiveSaveDataHandleSequence()) {
         MR::endStarPointerMode(this);
-        MR::requestChangeSceneAfterGameOver();
+        if (!inRoom) {
+            MR::requestChangeSceneAfterGameOver();
+        } else {
+            GameDataFunction::addPlayerLeft(4 - GameDataFunction::getPlayerLeft());
+            if (MR::isOnGameEventFlagUseAstroDome() && !MR::isStageAstroLocation()) {
+                MR::requestChangeStageGoBackAstroDome();
+            } else {
+                MR::requestChangeStageAfterMiss();
+            }
+        }
     }
 }
 

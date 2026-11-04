@@ -322,6 +322,7 @@ void WorldAuthority::drop_player(Player player) {
     const auto record = instances_.find(it->second);
     if (record != instances_.end()) {
         record->second.players.erase(player);
+        record->second.missed.erase(player);
         // What it moved is the next player's to take.
         std::erase_if(record->second.owners, [player](const auto& owned) { return owned.second.player == player; });
         if (record->second.players.empty()) instances_.erase(record);
@@ -332,7 +333,7 @@ void WorldAuthority::drop_player(Player player) {
 std::vector<Gone> WorldAuthority::enter(Player player, const Instance& instance) {
     drop_player(player);
     Record& record = instances_[instance];
-    if (record.players.empty()) {
+    if (record.players.size() == record.missed.size()) {
         record.gone.clear();
         record.owners.clear();
         record.switches.clear();
@@ -347,11 +348,26 @@ std::vector<Gone> WorldAuthority::enter(Player player, const Instance& instance)
 
 void WorldAuthority::leave(Player player) { drop_player(player); }
 
+void WorldAuthority::miss(Player player) {
+    Record* record = playing(player);
+    if (record == nullptr) return;
+    record->missed.insert(player);
+    std::erase_if(record->owners, [player](const auto& owned) { return owned.second.player == player; });
+}
+
+WorldAuthority::Record* WorldAuthority::playing(Player player) {
+    const auto it = where_.find(player);
+    if (it == where_.end()) return nullptr;
+    const auto record = instances_.find(it->second);
+    if (record == instances_.end() || record->second.missed.count(player) != 0u) return nullptr;
+    return &record->second;
+}
+
 WorldAuthority::Settled WorldAuthority::gone(Player player, std::span<const Gone> gone) {
     Settled settled;
-    const auto it = where_.find(player);
-    if (it == where_.end()) return settled;
-    Record& record = instances_[it->second];
+    Record* playing_in = playing(player);
+    if (playing_in == nullptr) return settled;
+    Record& record = *playing_in;
     for (const Gone& thing : gone) {
         if (record.gone.size() >= kMaxGonePerInstance) break;
         if (record.gone.emplace(thing.object, thing.how).second) settled.news.push_back(thing);
@@ -375,9 +391,9 @@ std::vector<WorldAuthority::Player> WorldAuthority::others(Player player) const 
 
 WorldAuthority::Claimed WorldAuthority::claim(Player player, std::span<const ObjectState> states, std::uint64_t now_ms) {
     Claimed claimed;
-    const auto it = where_.find(player);
-    if (it == where_.end()) return claimed;
-    Record& record = instances_[it->second];
+    Record* playing_in = playing(player);
+    if (playing_in == nullptr) return claimed;
+    Record& record = *playing_in;
     for (const ObjectState& state : states) {
         // A thing gone from the instance moves for nobody.
         if (record.gone.count(state.object) != 0u) continue;
@@ -415,9 +431,9 @@ std::optional<WorldAuthority::Player> WorldAuthority::owner(Player player, std::
 
 WorldAuthority::Switched WorldAuthority::switches(Player player, std::span<const SwitchChange> switches) {
     Switched switched;
-    const auto it = where_.find(player);
-    if (it == where_.end()) return switched;
-    Record& record = instances_[it->second];
+    Record* playing_in = playing(player);
+    if (playing_in == nullptr) return switched;
+    Record& record = *playing_in;
     for (const SwitchChange& change : switches) {
         const auto had = record.switches.find(change.id);
         if (had != record.switches.end()) {
@@ -628,6 +644,16 @@ void World::attach(Session& session) {
         }
         flush(session_, out);
     });
+    // A joiner missed: it doesn't keep the instance its scene (the epoch) was in going, until it enters again.
+    session.on_message(kWorldMissMessage, [this](const SessionPlayer& from, std::span<const std::uint8_t> data) {
+        ByteReader in(data);
+        const std::uint16_t epoch = in.u16();
+        const std::lock_guard<std::recursive_mutex> lock(lock_);
+        if (!in.ok() || !active_ || !host_) return;
+        const auto it = epochs_.find(from.id);
+        if (it == epochs_.end() || it->second != epoch) return;
+        authority_.miss(from.id);
+    });
     session.on_message(kSaveRequestMessage, [this](const SessionPlayer& from, std::span<const std::uint8_t>) {
         std::vector<Outgoing> out;
         {
@@ -806,6 +832,27 @@ void World::report_star(const StarGot& star) {
             body.u16(epoch_);
             write_star(body, star);
             out.push_back({kStarGotMessage, host, body.take()});
+        }
+    }
+    flush(session_, out);
+}
+
+void World::report_miss() {
+    const PeerId self = self_peer();
+    const PeerId host = host_peer();
+    std::vector<Outgoing> out;
+    {
+        const std::lock_guard<std::recursive_mutex> lock(lock_);
+        if (!active_ || !entered_) return;
+        entered_.reset();
+        states_.clear();
+        state_index_.clear();
+        if (host_) {
+            authority_.miss(self);
+        } else {
+            ByteWriter body;
+            body.u16(epoch_);
+            out.push_back({kWorldMissMessage, host, body.take()});
         }
     }
     flush(session_, out);

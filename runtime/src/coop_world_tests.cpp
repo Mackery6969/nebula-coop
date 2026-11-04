@@ -82,6 +82,14 @@ void test_bytes() {
     expect(!decode_gone(cut), "a cut list is dropped");
 }
 
+ObjectState state_of(std::uint32_t object, float distance, std::uint8_t flags = 0u) {
+    ObjectState state;
+    state.object = object;
+    state.distance = distance;
+    state.flags = flags;
+    return state;
+}
+
 void test_authority() {
     WorldAuthority world;
     expect(world.enter(1u, kEgg1).empty(), "a new instance has nothing gone");
@@ -111,6 +119,30 @@ void test_authority() {
     expect(world.instance_count() == 0u, "empty instances are forgotten");
     expect(world.gone(1u, std::vector<Gone>{{1u, 0u}}).news.empty(), "a player in no instance changes nothing");
 
+    // Misses (World::report_miss): the instance starts fresh once everyone in it missed, not before.
+    WorldAuthority misses;
+    (void)misses.enter(1u, kEgg1);
+    (void)misses.enter(2u, kEgg1);
+    (void)misses.gone(1u, std::vector<Gone>{{20u, 1u}});
+    std::vector<ObjectState> owned{state_of(30u, 100.0f)};
+    (void)misses.claim(1u, owned, 0u);
+    misses.miss(1u);
+    expect(!misses.owner(2u, 30u), "what a player moved is let go at its miss");
+    expect(misses.gone(1u, std::vector<Gone>{{22u, 0u}}).news.empty() && misses.claim(1u, owned, 1u).states.empty(),
+           "and nothing more it does there counts");
+    const std::vector<WorldAuthority::Player> heard = misses.star_got(2u);
+    expect(heard.size() == 1u && heard[0] == 1u, "though it still hears of a star taken there");
+    expect(misses.enter(1u, kEgg1).size() == 1u, "back from a miss, the instance is as the others left it");
+    misses.miss(1u);
+    misses.miss(2u);
+    expect(misses.enter(2u, kEgg1).empty(), "everyone missed: the first back starts it fresh");
+    (void)misses.gone(2u, std::vector<Gone>{{21u, 0u}});
+    const std::vector<Gone> fresh = misses.enter(1u, kEgg1);
+    expect(fresh.size() == 1u && has(fresh, 21u), "the next back finds the fresh one");
+    misses.miss(2u);
+    misses.leave(1u);
+    expect(misses.enter(2u, kEgg1).empty(), "one missed and the other left: fresh too");
+
     expect(world.save({SaveKind::Star, "EggStarGalaxy", 1, 0u}, false), "a joiner's star is the session's");
     expect(!world.save({SaveKind::Star, "EggStarGalaxy", 1, 0u}, true), "once");
     expect(world.save({SaveKind::Flag, "SpecialStarGrand1", 0, 0u}, false), "a flag");
@@ -126,14 +158,6 @@ void test_authority() {
     expect(!world.save({SaveKind::Achievement, "first_star", 0, 200u}, true), "once, whoever unlocks it again");
     expect(world.save_changes().back().value == 100u, "on the day it was first unlocked");
     expect(!world.save({SaveKind::Achievement, "", 0, 1u}, true), "no achievement without an id");
-}
-
-ObjectState state_of(std::uint32_t object, float distance, std::uint8_t flags = 0u) {
-    ObjectState state;
-    state.object = object;
-    state.distance = distance;
-    state.flags = flags;
-    return state;
 }
 
 void test_object_authority() {
@@ -488,6 +512,50 @@ void test_session_world() {
            }),
            "a scene starts over");
     expect(at_mario.achievements.empty(), "and isn't given the achievements again");
+
+    // Misses (sm64coopdx's death warp out of the level): Mario's takes him out of the instance, and the host still in
+    // it keeps its record for him; once everyone in it missed, the first back starts it fresh.
+    at_mario.world.report_miss();
+    std::this_thread::sleep_for(150ms);
+    pump_all();
+    at_mario.enter(kEgg1);
+    expect(wait_for([&] {
+               pump_all();
+               return at_mario.ready;
+           }),
+           "back from a miss");
+    expect(has(at_mario.gone, 100u) && has(at_mario.gone, 101u),
+           "a miss with someone still in the instance finds it as they left it");
+    at_mario.world.report_miss();
+    at_host.world.report_miss();
+    std::this_thread::sleep_for(150ms);
+    pump_all();
+    at_host.enter(kEgg1);
+    expect(wait_for([&] {
+               pump_all();
+               return at_host.ready;
+           }),
+           "the host back from its miss");
+    expect(at_host.gone.empty(), "everyone in it missed: the instance starts fresh");
+    at_host.world.report_gone({200u, 0u});
+    at_mario.enter(kEgg1);
+    expect(wait_for([&] {
+               pump_all();
+               return at_mario.ready;
+           }),
+           "Mario back too");
+    expect(has(at_mario.gone, 200u) && !has(at_mario.gone, 100u), "into the fresh one");
+    at_mario.world.report_miss();
+    at_mario.world.report_miss();
+    std::this_thread::sleep_for(100ms);
+    pump_all();
+    at_mario.enter(kEgg1);
+    expect(wait_for([&] {
+               pump_all();
+               return at_mario.ready;
+           }),
+           "a second miss report is nothing more");
+    expect(has(at_mario.gone, 200u), "the host still keeping the record");
 
     // Mario leaves the room: the host forgets him, and his instance keeps the host in it.
     mario.leave();

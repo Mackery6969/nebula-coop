@@ -70,6 +70,11 @@ namespace NebulaCoopWorld {
     void update();
     // Coin::noticeGetCoin: the local player took this coin (it counts for the others too).
     void noticeCoinGot(const LiveActor* pCoin);
+    // NebulaCoopBubble::tryStart, as a miss goes on (no bubble saved the local player): the player doesn't keep the
+    // instance going until the scene starts over (sm64coopdx's death warp out of the level), once per scene.
+    void noticeMiss();
+    // Whether this scene is in a room.
+    bool isInRoom();
 
     // GameDataHolder: the current save got a Power Star, an event flag, an event value.
     void noticePowerStar(const GameDataHolder* pHolder, const char* pGalaxyName, s32 scenarioNo);

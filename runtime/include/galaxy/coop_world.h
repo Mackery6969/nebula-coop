@@ -5,7 +5,9 @@
 // (first come wins, a thing gone stays gone) and tells the players it concerns: the instance's for what is gone, the
 // room for the save. A player whose scene starts gets the instance's record first (sm64coopdx's
 // packet_level_area_request / packet_level_area_inform); an instance nobody else is in starts fresh from the stage
-// files, as sm64coopdx's level does once everyone left it.
+// files, as sm64coopdx's level does once everyone left it. A player whose Mario misses stops keeping its instance
+// going there and then (sm64coopdx's death warp takes a player out of the level), so an instance starts fresh only
+// once everyone in it missed or left, and a player whose scene starts over after a miss finds it as the others left it.
 //
 // WorldAuthority is the host's bookkeeping alone (no network, for tests and a dedicated server later); World runs it
 // over a Session: the host's own game talks to it directly, a joiner's through the session's messages.
@@ -43,6 +45,8 @@ inline constexpr std::uint8_t kObjectHitMessage = 41u;    // player to host: its
                                                           // instance: the same, for each game to play it again
 inline constexpr std::uint8_t kWorldSwitchMessage = 42u;  // player to host: switches turned; host to its instance (and
                                                           // the instance's record, at its enter): the same
+inline constexpr std::uint8_t kWorldMissMessage = 43u;    // player to host: its player missed: the instance goes on
+                                                          // without it until its scene starts over
 
 // Most things an instance's record keeps, and the most save changes a session keeps: a player can't grow the
 // host's memory past them.
@@ -146,10 +150,15 @@ public:
     using Player = net::PeerId;
 
     // A player's scene in `instance` is ready: what is gone there, for that player to remove. An instance nobody
-    // else is in starts fresh first (its record dropped).
+    // else is in, or only players whose miss goes on, starts fresh first (its record dropped).
     std::vector<Gone> enter(Player player, const Instance& instance);
     // A player left the room: an instance it leaves empty is forgotten.
     void leave(Player player);
+    // A player's miss went on (no bubble saved it): until its scene starts over and enters again it doesn't keep its
+    // instance going (an instance whose players all missed starts fresh at the next enter, as sm64coopdx's level once
+    // everyone death-warped out of it), and nothing more it does there counts. What it moved is the others' to take.
+    // It still hears of stars taken there (a Grand Star takes it along once its scene starts over).
+    void miss(Player player);
     // A player's things gone from its instance: the ones that are news (first come wins), and the other players in
     // that instance to tell. Nothing for a player in no instance.
     struct Settled {
@@ -204,8 +213,11 @@ private:
         std::map<std::uint32_t, Owner> owners;        // object, who moves it
         std::map<std::uint32_t, bool> switches;       // switch, on
         std::set<Player> players;
+        std::set<Player> missed;                      // those of players whose miss goes on
     };
     void drop_player(Player player);
+    // The record of the instance `player` plays in: none for a player in no instance, or whose miss goes on.
+    Record* playing(Player player);
 
     std::map<Instance, Record> instances_;
     std::map<Player, Instance> where_;
@@ -260,6 +272,9 @@ public:
     void report_save(const SaveChange& change);
     // The game's player took a star in the instance it entered: the others there are told.
     void report_star(const StarGot& star);
+    // The game's player missed (no bubble saved it): it doesn't keep the instance it entered going until its scene
+    // starts over and enters again, as sm64coopdx's death warp takes a player out of the level (WorldAuthority::miss).
+    void report_miss();
     // The objects the game's player moves (their states, at most each frame): the host lets it move them or not, and
     // tells the others in the instance of the ones it does.
     void report_states(std::span<const ObjectState> states);
