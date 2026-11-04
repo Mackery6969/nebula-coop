@@ -238,8 +238,10 @@ packets. It has no physics or state machine of its own. It collides with the loc
   a loop's end, which the game wraps). A player not heard from for a second isn't drawn.
 - **The copies** (`NebulaRemotePlayer`, `native/petari/src/Game/Player`). As a scene starts in a room, it makes one
   copy of Mario and one of Luigi for each other player the room may have (15 of each at most). Each is Mario's or
-  Luigi's own model (the other character's loads into the scene) with Mario's animations, played as `GhostPlayer`
-  plays the cosmic ghost's. Each player keeps their copy while they stay; unused copies are hidden.
+  Luigi's own model (the other character's loads into the scene) with that character's animations (Luigi's own wait,
+  run, jumps and spins swapped in, as `luigiAnimeSwapTable` has them; the local player's table for their own
+  character, a table of its own for the other), played as `GhostPlayer` plays the cosmic ghost's. Each player keeps
+  their copy while they stay; unused copies are hidden.
 - **Animation.** A copy plays the animation itself at the player's speed and eases onto the snapshot's frame (a
   quarter of the way each frame; it jumps there when more than 6 frames off, as the animation starts or starts again),
   so it runs smoothly between snapshots and through its loops rather than stepping with each one. It puts the
