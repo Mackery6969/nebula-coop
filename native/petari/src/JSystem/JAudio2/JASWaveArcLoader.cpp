@@ -101,3 +101,6 @@ void JASWaveArc::setEntryNum(s32 entryNum) {
     mEntryNum = entryNum;
 }
 
+void JASWaveArc::waitLoadDone() {
+}
+

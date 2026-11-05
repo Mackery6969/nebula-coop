@@ -260,6 +260,7 @@ public:
     static void initForLiveActor();
     static void initEffectSystem(u32, u32);
     static void allocateDrawBufferActorList();
+    static void createHioBasicNode(Scene*);
 };
 
 class CategoryList {

@@ -74,4 +74,12 @@ namespace GameSceneFunction {
 
         pGameScene->mDraw3D = false;
     }
+
+    void loadScenarioWaveData() {
+        SingletonHolder< GameSystem >::get()->mSceneController->loadScenarioWaveData();
+    }
+
+    bool isLoadDoneScenarioWaveData() {
+        return SingletonHolder< GameSystem >::get()->mSceneController->isLoadDoneScenarioWaveData();
+    }
 };  // namespace GameSceneFunction

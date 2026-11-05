@@ -138,3 +138,6 @@ void CategoryList::requestMovementOff(MR::MovementType type) {
     MR::requestMovementOffWithCategory(type);
 }
 
+void SceneFunction::createHioBasicNode(Scene*) {
+}
+

@@ -60,4 +60,5 @@ struct JASWaveArc {
     GameMutex mMutex;
 
     // Until an archive has finished loading since the last wait.
+    static void waitLoadDone();
 };
