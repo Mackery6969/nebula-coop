@@ -222,15 +222,21 @@ const char* AstroMapObjFunction::getModelName(const char* pObjName, s32 domeId) 
         nameTable = ::cAstroStarPlateNameTable;
     }
 
-    if (nameTable != nullptr) {
+    if (nameTable != nullptr && domeId >= 1 && domeId <= 6) {
         return nameTable[domeId - 1];
+    }
+    // A dome past the game's six: its model is named by its number.
+    if (nameTable != nullptr) {
+        static char sName[64];
+        nebula_snprintf(sName, sizeof(sName), "%s%d", pObjName, domeId);
+        return sName;
     }
 
     return pObjName;
 }
 
 const JMapInfo* AstroMapObjFunction::createAstroNamePlateParser() {
-    char arcName[64];
+    char arcName[256];
     nebula_snprintf(arcName, sizeof(arcName), "%s.arc", ::cAstroNamePlateArcName);
 
     return MR::createCsvParser(arcName, ::cAstroNamePlateFileName);

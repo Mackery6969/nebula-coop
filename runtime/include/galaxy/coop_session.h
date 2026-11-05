@@ -216,7 +216,9 @@ public:
     // is no room too: a room opened or joined later starts with it.
     void set_place(const std::string& stage, int scenario);
     // This player's name (Options' PLAYER page's, cleaned as at a join), told to everyone as it changes: their player
-    // list, nametags and chat show it from then on, as sm64coopdx's player settings do. Nothing outside a room.
+    // list, nametags and chat show it from then on, as sm64coopdx's player settings do. A name another player has (in
+    // any case) gets a number, "MARIO (2)", as at a join (sm64ex-coop's); calling again with the same name keeps the
+    // number. Nothing outside a room.
     void set_name(const std::string& name);
     // The character this player plays now (sm64coopdx's live character change), told to everyone as it changes:
     // their player list, nametags and chat colours follow. Nothing outside a room.

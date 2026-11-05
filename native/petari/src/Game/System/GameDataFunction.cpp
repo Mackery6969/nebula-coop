@@ -1,5 +1,7 @@
+#include "Game/System/NebulaHost.hpp"
 #include "Game/System/NebulaCalendar.hpp"
 #include "Game/System/GameDataFunction.hpp"
+#include "Game/System/NebulaMods.hpp"
 #include "Game/System/GalaxyStatusAccessor.hpp"
 #include "Game/System/GameDataGalaxyStorage.hpp"
 #include "Game/System/GameDataHolder.hpp"
@@ -43,6 +45,9 @@ namespace GameDataFunction {
 
     void setGameFlagPowerStarSuccess(const char* pGalaxyName, s32 scenarioNo, bool isOwned) {
         getCurrentGameDataHolder()->setPowerStar(pGalaxyName, scenarioNo, isOwned);
+        if (isOwned) {
+            NebulaMods::fire(NEBULA_MOD_EVENT_STAR_GET, scenarioNo, nullptr, pGalaxyName);
+        }
     }
 
     GameDataSomeScenarioAccessor makeGalaxyScenarioAccessor(const char* pGalaxyName, s32 scenarioNo) {
@@ -132,6 +137,11 @@ namespace GameDataFunction {
     }
 
     void restoreGalaxyCometStatus(int cometId, u16* pCometStatus, u16* pPastSecond) {
+        if (cometId > 6) {
+            *pCometStatus = 0;
+            *pPastSecond = 0;
+            return;
+        }
         char eventValueName[20];
 
         nebula_snprintf(eventValueName, sizeof(eventValueName), "Comet%1dStatus", cometId);
@@ -267,7 +277,7 @@ namespace GameDataFunction {
         for (s32 i = 0; i < exclamationGalaxyNum; i++) {
             const char* pExclamationGalaxyName = GameEventFlagTable::getExclamationGalaxyNameFromIndex(i);
 
-            if (pGameDataHolder->isAppearGalaxy(pExclamationGalaxyName)) {
+            if (pExclamationGalaxyName != nullptr && pGameDataHolder->isAppearGalaxy(pExclamationGalaxyName)) {
                 ticoGalaxyNum++;
             }
         }
@@ -318,7 +328,7 @@ namespace GameDataFunction {
     }
 
     bool isOnGameEventFlagNormalComet(const char* pGalaxyName) {
-        char eventFlagName[64];
+        char eventFlagName[256];
 
         nebula_snprintf(eventFlagName, sizeof(eventFlagName), "NormalComet%s", pGalaxyName);
 
@@ -326,7 +336,7 @@ namespace GameDataFunction {
     }
 
     bool isOnGameEventFlagCoin100Comet(const char* pGalaxyName) {
-        char eventFlagName[64];
+        char eventFlagName[256];
 
         nebula_snprintf(eventFlagName, sizeof(eventFlagName), "Coin100Comet%s", pGalaxyName);
 
@@ -334,6 +344,10 @@ namespace GameDataFunction {
     }
 
     void updateGalaxyCometStatus(int cometId, u16 cometStatus, u16 pastSecond) {
+        // The save keeps the game's six domes' comets: a mod's further ones start over each play.
+        if (cometId > 6) {
+            return;
+        }
         char eventValueName[20];
 
         nebula_snprintf(eventValueName, sizeof(eventValueName), "Comet%1dStatus", cometId);
@@ -344,7 +358,7 @@ namespace GameDataFunction {
     void addStockedStarPiece(int num) {
         getCurrentGameDataHolder()->addStockedStarPiece(num);
 
-        if (getCurrentGameDataHolder()->getStockedStarPieceNum() != 9999) {
+        if (getCurrentGameDataHolder()->getStockedStarPieceNum() != NebulaHost::setting(NEBULA_PATCH_MAX_STAR_BITS, 9999)) {
             return;
         }
 
@@ -391,7 +405,7 @@ namespace GameDataFunction {
 
     s32 calcGreenStarNum(const GameDataHolder* pGameDataHolder) {
         s32 greenStarNum = 0;
-        char eventFlagName[32];
+        char eventFlagName[256];
 
         for (int i = 1; i <= 3; i++) {
             nebula_snprintf(eventFlagName, sizeof(eventFlagName), "SpecialStarGreen%1d", i);

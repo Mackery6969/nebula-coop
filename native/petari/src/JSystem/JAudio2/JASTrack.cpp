@@ -1,3 +1,4 @@
+#include "Game/AudioLib/AudParams.hpp"
 #include "JSystem/JAudio2/JASTrack.hpp"
 #include "JSystem/JAudio2/JASAiCtrl.hpp"
 #include "JSystem/JAudio2/JASBankTable.hpp"
@@ -100,6 +101,9 @@ void JASTrack::init() {
     mTempo = 120;
     mTimebase = 48;
     mTempoRate = 1.0f;
+    mSampleClock = nullptr;
+    mSampleClockData = nullptr;
+    mClockTicks = 0.0;
     updateTempo();
 
     mTranspose = 0;
@@ -656,6 +660,13 @@ void JASTrack::setTempo(u16 tempo) {
     updateTempo();
 }
 
+void JASTrack::setSampleClock(SampleClock clock, void* pData) {
+    mSampleClock = clock;
+    mSampleClockData = pData;
+    mClockTicks = 0.0;
+    mPlaytime = 0.0f;
+}
+
 void JASTrack::setTempoRate(f32 rate) {
     mTempoRate = rate;
     mInvalidateSeq = true;
@@ -753,8 +764,25 @@ s32 JASTrack::seqMain() {
     }
 
     f32 step = 1.0f;
+    const f64 clockSamples = mSampleClock != nullptr ? mSampleClock(mSampleClockData) : -1.0;
+    if (clockSamples >= 0.0) {
+        // Its place is the clock's: as many ticks as have come due.
+        const f64 due = clockSamples * mTimebase * mTempo / (60.0 * AudParams::streamSampleRate);
+        // Paused, no tick comes due: it takes up what the clock moved when it plays again.
+        while (!mPauseFlag && mClockTicks + 1.0 <= due) {
+            mClockTicks += 1.0;
+            if (tickProc() < 0) {
+                updateSeq(false, 1.0f);
+                close();
+                return -1;
+            }
+        }
+        updateSeq(false, step);
+        return 0;
+    }
     while (mPlaytime >= step) {
         mPlaytime -= step;
+        mClockTicks += 1.0;
         if (tickProc() < 0) {
             updateSeq(false, 1.0f);
             close();

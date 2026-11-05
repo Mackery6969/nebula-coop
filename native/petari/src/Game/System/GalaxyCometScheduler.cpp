@@ -158,6 +158,11 @@ const GalaxyCometTimePaper* const sGalaxyCometTimerPaper[] = {
     sCometTimeTableGrandGalaxy4, sCometTimeTableGrandGalaxy5, sCometTimeTableGrandGalaxy6,
 };
 
+// A mod's schedule for a dome, in place of the game's.
+// A mod can have more domes than the game's six.
+const s32 cMostDomes = 16;
+const GalaxyCometTimePaper* sTimePaperSet[cMostDomes] = {};
+
 const GalaxyCometSerializeInfo cSerializeInfoPurpleCometAppear = {0x0007, 0};
 
 const GalaxyCometSerializeInfo cSerializeInfoFirstContact[] = {
@@ -285,10 +290,21 @@ void GalaxyCometTimeTable::advance() {
     updateTimePaperPos();
 }
 
+void GalaxyCometScheduler::setTimePaper(s32 dome, const GalaxyCometTimePaper* pPaper) {
+    if (dome >= 0 && dome < cMostDomes) {
+        sTimePaperSet[dome] = pPaper;
+    }
+}
+
 GalaxyCometScheduler::GalaxyCometScheduler() : mTimeTables(), mEnabled(true) {
-    mTimeTables.init(6);
+    // The game's six and any more a mod gave a schedule, one after another.
+    s32 domes = 6;
+    while (domes < cMostDomes && sTimePaperSet[domes] != nullptr) {
+        domes++;
+    }
+    mTimeTables.init(domes);
     for (s32 i = 0; i < mTimeTables.size(); i++) {
-        mTimeTables[i] = new GalaxyCometTimeTable(sGalaxyCometTimerPaper[i]);
+        mTimeTables[i] = new GalaxyCometTimeTable(sTimePaperSet[i] != nullptr ? sTimePaperSet[i] : sGalaxyCometTimerPaper[i]);
     }
 }
 

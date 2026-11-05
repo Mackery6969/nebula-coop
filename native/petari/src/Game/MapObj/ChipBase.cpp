@@ -5,6 +5,7 @@
 #include "Game/MapObj/ChipHolder.hpp"
 #include "Game/MapObj/MapPartsRailMover.hpp"
 #include "Game/NameObj/NameObjArchiveListCollector.hpp"
+#include "Game/System/NebulaCoopWorld.hpp"
 #include "Game/Util/ActorMovementUtil.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/ActorShadowUtil.hpp"
@@ -148,6 +149,7 @@ void ChipBase::initJMapParam(const JMapInfoIter& rIter) {
 
 void ChipBase::initAfterPlacement() {
     MR::registerChip(mChipType, this, mGroupID);
+    NebulaCoopWorld::noteChip(this);
     MR::setClippingRangeIncludeShadow(this, &mClippingRange, 100.0f);
 }
 
@@ -246,6 +248,8 @@ bool ChipBase::requestGet(HitSensor* pSender, HitSensor* pReceiver) {
     if (isGettable()) {
         MR::noticeGetChip(mChipType, this, mGroupID);
         setNerve(GET_NERVE(ChipBase, ChipBaseNrvGot));
+        // Online co-op: it counts for everyone in the instance.
+        NebulaCoopWorld::noticeChipGot(this);
 
         if (mHost != nullptr) {
             mHost->receiveMessage(ACTMES_ITEM_GET, pSender, pReceiver);
@@ -354,6 +358,21 @@ void ChipBase::exeGot() {
         }
     }
 
+    kill();
+}
+
+void ChipBase::takeForOtherPlayer() {
+    MR::noticeGetChip(mChipType, this, mGroupID);
+
+    if (MR::isDead(this)) {
+        return;
+    }
+
+    if (hasAirBubble()) {
+        mAirBubble->kill();
+    }
+
+    MR::emitEffect(this, "Get");
     kill();
 }
 

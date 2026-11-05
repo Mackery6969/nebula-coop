@@ -237,7 +237,9 @@ packets. It has no physics or state machine of its own. It collides with the loc
   the host, which passes it on as message 33). It holds the instance, the position, the model's facing and up (its
   base matrix with the turn Mario's root joint gets on top, as in a quick turn round: the true turn on any planet),
   gravity, velocity, and the animation: its group as Mario's `XanimePlayer` names it, the bck, the frame, the speed
-  and the group's track weights (walking into running). An older snapshot than the last is dropped.
+  and the group's track weights (walking into running), and the bck on any track Mario's code swapped
+  (`changeTrackAnimation`: standing on a slope plays a slope wait on the run's track; walking in mud), by its motion
+  resource's name (one byte when none is). An older snapshot than the last is dropped.
 - **Drawn 100 ms behind.** The host keeps the last second of each player's snapshots and gives the game
   (`coop_remote`, each scene frame) the others in its own instance as they were 100 ms ago, between the two snapshots
   either side: one lost snapshot doesn't show. The animation and what the player does are the nearer snapshot's; the
@@ -245,11 +247,16 @@ packets. It has no physics or state machine of its own. It collides with the loc
   a loop's end, which the game wraps). A player not heard from for a second isn't drawn.
 - **The copies** (`NebulaRemotePlayer`, `native/petari/src/Game/Player`). As a scene starts in a room, it makes one
   copy of Mario and one of Luigi for each other player the room may have (15 of each at most). Each is Mario's or
-  Luigi's own model (the other character's loads into the scene) with Mario's animations, played as `GhostPlayer`
-  plays the cosmic ghost's. Each player keeps their copy while they stay; unused copies are hidden.
+  Luigi's own model (the other character's loads into the scene) with that character's animations (Luigi's own wait,
+  run, jumps and spins swapped in, as `luigiAnimeSwapTable` has them; the local player's table for their own
+  character, a table of its own for the other), played as `GhostPlayer` plays the cosmic ghost's. Each player keeps
+  their copy while they stay; unused copies are hidden.
 - **Animation.** A copy plays the animation itself at the player's speed and eases onto the snapshot's frame (a
   quarter of the way each frame; it jumps there when more than 6 frames off, as the animation starts or starts again),
-  so it runs smoothly between snapshots and through its loops rather than stepping with each one.
+  so it runs smoothly between snapshots and through its loops rather than stepping with each one. It puts the
+  swapped bcks on its tracks (the group's own back where none is). An animation that ends stays on its last frame
+  until the snapshot names another, as the player's game can keep one: a copy that went back to its default by itself
+  was told the animation again the next frame and flickered between the two (falling asleep).
 - **Lit as the local Mario.** Each copy has its own light (the player light of the light area it stands in, as
   `MarioActor`'s is his), the same tint over its materials (the light's ambient colour, a white material) and
   the stage's fog on its materials, so it looks as the local Mario does standing there.
@@ -259,6 +266,10 @@ packets. It has no physics or state machine of its own. It collides with the loc
 - **Not yet:** the power-up forms (Bee, Boo, Fire...: the copy is the plain model), the upper-body animations
   (holding a shell), sounds and the other effects. The copies share the model with a local player of the same character, so a
   form's colours on the local player can show on them.
+
+- **One name each.** No two players in a room share a name (sm64ex-coop's). The host numbers a name someone already
+  has, in any case: a second MARIO joins, or renames itself, as "MARIO (2)", cut to fit the 20-letter limit. The player
+  keeps asking for the name in Options; the number goes once that name changes.
 
 - **Nametags.** Each remote player's name over their head, in the game's font, hidden when they're behind a wall or
   far away (sm64coopdx's nametags). `NebulaNametags`, drawn with the HUD: the name in the character's colour on a
@@ -302,6 +313,20 @@ options and the room's players' names (each Tab the next match), and a player's 
 | `/permban NAME\|NUMBER` | the host | removes them and refuses them in every room this player hosts |
 | `/moderator NAME\|NUMBER` | the host | lets them `/kick` and `/ban`, in every room this player hosts |
 | `/confirm` | whoever was asked | the four above ask first; `/confirm` does it, any other line drops the question |
+| `/psc [on\|off]` | everyone, in a room made with the Personal Star Counter | shows or hides the counter for this player |
+| `/tp`, `/teleport` | everyone (themselves), the host and moderators (anyone), only with cheats on | Minecraft's teleport, below |
+| `/pos` | everyone, only with cheats on | where this player is, for `/tp` |
+
+- **Cheat commands** (`galaxy/coop_teleport.h`). They work, and show on `/help` and Tab, only while the room's cheats
+  are on (the Online tab's Allow Cheats, the host's). `/tp` reads its words as Minecraft does: `/tp PLAYER`,
+  `/tp X Y Z`, `/tp TARGET PLAYER`, `/tp TARGET X Y Z`. A player is a name or a number, `@s` this player, and a target
+  may be `@a`, everyone. A coordinate is a number, `~` (where the moved player is on that axis) or `~` and a number
+  from there, in the stage's units. Nobody changes stage: a player goes to another only in the same instance (the
+  galaxy and its star). Moving another player is the session's message 49: the host's straight to them, a
+  moderator's to the host, which checks the room's cheats and that they are a moderator, and passes it on. The moved
+  player's own game resolves the `~` and where the other player is, and is told who moved it. The game gets the
+  place as `NEBULA_COOP_WORLD_TELEPORT` (from `coop_world_take`) and puts the player there standing once nothing holds
+  them (a demo, a death, a bubble, a launch), or drops it after three seconds.
 
 - **Who a player is.** Bans and moderators go by the player's IP address (the transport's `peer_identity`, as
   sm64coopdx's `get_id_str`), so they hold when the player joins again under another name. On one machine (or behind
@@ -315,8 +340,8 @@ options and the room's players' names (each Tab the next match), and a player's 
 - **Adding one.** A feature registers its own command, as a sm64coopdx mod does: `Chat::commands().add(name,
   description, handler)` (`galaxy/coop_commands.h`); a `[On|Off]` in the description are the options Tab offers.
   Nebula's mods (Riivolution patches, files) run no code, so the commands are Nebula's own features': the Personal
-  Star Counter's host-only `/psc [on|off]` (the host's `host_main.cpp`) turns the room's counter on or off, as the Host
-  page's Mods does, and keeps it for the rooms it hosts later.
+  Star Counter's `/psc [on|off]` (the host's `host_main.cpp`) is there only in a room made with the mod (a room's mods
+  never change while it is open), and shows or hides the counter for this player alone, as sm64coopdx's mod does.
 - **The game.** The host's `coop_chat` gives a command's words as `NEBULA_COOP_CHAT_NOTICE` lines (game API 121):
   a `CoopCmd...` text id with `{name}` filled in, or words as they are.
 
@@ -450,17 +475,20 @@ the Online tab (Bubble on Death, `coop_bubble_death`, on by default), sent with 
   (a stack, `NebulaCoopPlayer::area`, a hash of the pipe's placed position, the same in every game). A player down a
   pipe can't save one above it, nor the other way round. Launch Stars and Warp Pods stay in the same part.
 - **Flying.** The bubble (the air bubble's model, turning and swelling) holds Mario, who can't be touched and touches
-  nothing: no enemy, item, death area or wall. The stick flies it where the camera looks, A rises and Z sinks, eased as
-  sm64coopdx's (`MarioActor`'s `NebulaBubble` state, `NebulaCoopBubble`).
+  nothing: no enemy, item, death area or wall. It flies by the gravity where it is, as Mario walks, not by the
+  screen's up: the stick moves it across the ground that gravity pulls to (ahead the way the camera looks), A rises
+  away from that ground and Z sinks towards it, eased as sm64coopdx's. Round a planet the bubble's up turns with the
+  pull, Mario upright in it and facing the way he flies (`MarioActor`'s `NebulaBubble` state, `NebulaCoopBubble`).
 - **Out.** Touching a player who can let them out (in the same part, neither dead nor bubbled) after two thirds of a
-  second bursts it: the player plays on from there with full health (3) and three seconds unharmed. With nobody left
+  second bursts it: the player plays on from there with full health (3) and three seconds unharmed. As the bubble
+  flies through walls and floors, the player comes out on the other player's side of any wall or floor between them,
+  stood on a floor just below. With nobody left
   to fly to for half a second (they missed, left the part or the instance), the bubble ends in the miss after all, with
   its life given back, since the miss takes one.
 - **Who decides.** The bubbled player's own game, as sm64coopdx: no message. The snapshot says it
   (`NEBULA_COOP_PLAYER_BUBBLED`, with `DEAD` and `INTANGIBLE`) and its part, and the others draw the bubble round its
   copy, bursting as it's let out (game API 120, session protocol 7).
-- Not yet: Mario keeps a power-up form in the bubble (a miss would have taken it), and doesn't turn to face where he
-  flies.
+- Not yet: Mario keeps a power-up form in the bubble (a miss would have taken it).
 
 ## Shared world state
 
@@ -470,12 +498,16 @@ and tells the players it concerns. It follows sm64coopdx's rules, with Galaxy's 
 
 | What | Who it reaches | As sm64coopdx |
 |---|---|---|
-| A coin taken | Gone for everyone in the instance, and counted for each of them (without the life or 1-Up it gives its taker) | `packet_collect_coin` |
+| A coin taken | Gone for everyone in the instance; counted only for its taker (Galaxy has no 100-coin star, so each player's coins are their own) | `packet_collect_coin`, without its count |
 | A purple coin taken | Gone for everyone in the instance, and counted toward the 100 for each of them, so the star appears for all | `packet_collect_coin` |
-| A star bit, a 1-Up or Life Mushroom, a Rainbow Star taken | Gone for everyone in the instance; what it gives is its taker's | `packet_collect_item` |
+| A star bit taken | Gone for everyone in the instance; counted only for its taker | `packet_collect_coin`, without its count |
+| A Star Chip taken (blue or yellow, placed or from a box or a shell) | Gone for everyone in the instance, and counted toward its group for each of them, so the group's Launch Star appears for all | `packet_collect_coin` (red coins) |
+| A 1-Up or Life Mushroom, a Rainbow Star taken | Gone for everyone in the instance; what it gives is its taker's | `packet_collect_item` |
 | A plain enemy defeated | Gone for everyone in the instance, its dead switch turned on in each game (a star waiting on it appears for all), without its drops | an object's death in `packet_object.c`, kept by `packet_level_respawn_info` |
 | A Power Star got, an event flag on | The session's save, for every player | `packet_collect_star`, `packet_save_set_flag` |
-| An event value set (comets, the like) | The host's game's are the session's, for every player; each joiner's stay its own | |
+| An event value set (comets, the like) | The host's game's are the session's, for every player; each joiner's stay its own (not race times: below) | |
+| A high score: a star's most coins, a race's best time | The save's, the best of anyone's, for every player | |
+| Star bits banked in the observatory (a stage's taken in, a Luma fed) | One bank, the host's game's: a joiner's change goes to it, and its bank reaches every player | |
 | An achievement unlocked | The save's: kept in the host's `achievements.ini` on the day it was first unlocked, and every player's, each with its pop-up | |
 
 - **What is followed.** The things placed from the stage's files that these name: coins and purple coins, alone or in
@@ -507,10 +539,12 @@ keys from it and their order. Messages 40-42 of `galaxy/coop_world.h`, game API 
 
 | What | How | As sm64coopdx |
 |---|---|---|
-| A hit (stomp, spin, ground pound, kick, upper punch, freeze, star power) | The local Mario's hit on a followed thing is played again in each other game in the instance, sent from his copy there, so the thing runs the same reaction: a Goomba squashed with its animation, a block broken, a boss hurt. Things a hit kills stay until their death has played | `packet_object.c`'s interactions |
-| An enemy's movement | One game moves each plain enemy: its owner, the nearest player, the host settling who. The others' copies follow its nerve (their own AI doesn't change it), place, speed and turn, eased; far off they snap | `sync_object` owners and `so->behavior` |
+| A hit (stomp, spin, ground pound, kick, upper punch, freeze, star power, a star bit, a fireball) | The local Mario's hit on a followed thing, or his star bit's or fireball's, is played again in each other game in the instance, sent from his copy there, so the thing runs the same reaction: a Goomba squashed with its animation, a block broken, a boss hurt. Things a hit kills stay until their death has played | `packet_object.c`'s interactions |
+| An enemy's movement | One game moves each plain enemy: its owner, the nearest player, the host settling who. The owner's states steer the others' copies (speed, and its nerve when that changed; they glide to its place, a third of the way each frame, jumping when 600 units off) while each copy runs its own AI, as a non-owner's object runs its behavior. A followed copy isn't clipped, as a synced object stays active, so a far one moves and animates rather than standing frozen. Copies are drawn turned as the owner's | `sync_object` owners, `packet_object` |
 | A stage switch | Turned in one game, turned in the others in the instance; the instance's record keeps them, given to a player entering it before it is ready | `packet_level_*`, the respawn info |
-| An enemy's coins | Keyed by the enemy and their order, so one taken is gone for everyone and counts for all | spawned objects' sync ids |
+| An enemy's coins | Keyed by the enemy and their order, so one taken is gone for everyone (counted for its taker) | spawned objects' sync ids |
+| Star bits a thing lets out (a crystal broken, an enemy defeated) | Keyed by the thing and their order, so one taken is gone for everyone (counted for its taker); one nobody takes falls away in each game alone | spawned objects' sync ids |
+| A "?" block's coin or star bit | Given straight to whoever hit the block: the hit played again in the others' games hops nothing there | |
 
 - **Who owns an enemy.** The host takes a claim when the enemy has no owner, the claim is its owner's, its owner has
   been silent for half a second, the claimant is a quarter nearer, or the claimant hit it. Owners send their enemies
@@ -521,8 +555,9 @@ keys from it and their order. Messages 40-42 of `galaxy/coop_world.h`, game API 
 - **Local switches.** Switches an area turns while the local player is in it (`SwitchArea` with a player condition,
   `ClipFieldSwitch`) stay each player's; a switch that turns back and forth more than four times in two seconds (a
   timer's) is made each player's for the scene, so it doesn't flood the room.
-- **Not yet.** Hits from things other than Mario himself (a fireball, a thrown shell, a star bit) aren't played again,
-  so bosses hurt by thrown things (Kaliente's coconuts, Kingfin's shells) can differ between games. Bosses get the
+- **Not yet.** Hits from thrown things other than star bits and fireballs (a shell, a coconut) aren't played again,
+  so bosses hurt by them (Kaliente's coconuts, Kingfin's shells) can differ between games. Holding the pointer on an
+  enemy (it stops in place) stays the pointing player's. Bosses get the
   shared hits but not shared movement; platforms on their own timers stay each game's (switch-driven ones are shared).
   Enemies don't yet target the nearest player in every game (Phase 3's second item).
 
@@ -609,7 +644,7 @@ Each phase ships on its own and leaves the game playable.
 - [x] Per-object packets on top of Phase 2's placement keys (`NebulaCoopWorld`), each enemy owned by its nearest
       player with the host settling who: enemies' movement and deaths, hits on anything placed (blocks, bosses and
       their parts), switches, enemies' coins ([Shared objects](#shared-objects)).
-- [ ] Bosses' movement, and hits from thrown things (fireballs, shells, star bits).
+- [ ] Bosses' movement, and hits from thrown shells and the like (star bits' and fireballs' are shared).
 - [ ] Each enemy targets the *nearest* player instead of `MR::getPlayerPos`. This is where the call-site inventory
       gets used: route `MR::getPlayer*` through a "player relevant to this actor" helper, one subsystem at a time.
 

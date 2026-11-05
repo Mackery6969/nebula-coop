@@ -3,6 +3,9 @@
 #include "Game/System/NebulaHost.hpp"
 #include "Game/Animation/XanimeCore.hpp"
 #include "Game/Animation/XanimePlayer.hpp"
+#include "Game/Animation/XanimeResource.hpp"
+#include "Game/System/ResourceHolder.hpp"
+#include "Game/System/ResourceInfo.hpp"
 #include "Game/Effect/AutoEffectGroup.hpp"
 #include "Game/Effect/AutoEffectGroupHolder.hpp"
 #include "Game/Effect/AutoEffectInfo.hpp"
@@ -15,6 +18,7 @@
 #include "Game/Player/J3DModelX.hpp"
 #include "Game/Player/Mario.hpp"
 #include "Game/Player/MarioActor.hpp"
+#include "Game/Player/MarioAnimator.hpp"
 #include "Game/Player/MarioConst.hpp"
 #include "Game/Player/MarioDamage.hpp"
 #include "Game/Player/MarioFaint.hpp"
@@ -27,6 +31,7 @@
 #include "Game/Util/ActorShadowUtil.hpp"
 #include "Game/Util/DemoUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
+#include "Game/Util/EventUtil.hpp"
 #include "Game/Util/LightUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
@@ -43,6 +48,8 @@ namespace {
     const s32 cMaxPerCharacter = 15;
     NebulaRemotePlayer* sCopies[cMaxPerCharacter * 2];
     s32 sCopyNum = 0;
+    // The animations of the character the local player isn't, for that character's copies (made with them, a scene's).
+    XanimeResourceTable* sOtherTable = nullptr;
 
     bool isUnit(const f32* pVec) {
         const f32 length = pVec[0] * pVec[0] + pVec[1] * pVec[1] + pVec[2] * pVec[2];
@@ -168,16 +175,20 @@ NebulaRemotePlayer::NebulaRemotePlayer(bool isLuigi)
     mName[0] = '\0';
     mGroup[0] = '\0';
     memset(&mState, 0, sizeof(mState));
+    memset(mTrackName, 0, sizeof(mTrackName));
+    memset(mTrackBck, 0, sizeof(mTrackBck));
 }
 
 void NebulaRemotePlayer::forgetAll() {
     sCopyNum = 0;
+    sOtherTable = nullptr;
     sSceneFrames = 0;
     sHistoryNum = 0;
 }
 
 void NebulaRemotePlayer::tryCreate() {
     sCopyNum = 0;
+    sOtherTable = nullptr;
     sSceneFrames = 0;
     sHistoryNum = 0;
     u32 roomSize = 0;
@@ -185,7 +196,7 @@ void NebulaRemotePlayer::tryCreate() {
     if (roomSize < 2) {
         return;
     }
-    // Mario's animations, which the copies play, are the local player's.
+    // The copies' animations come from the local player's archive and table.
     if (!MR::isExistSceneObj(SceneObj_MarioHolder) || MR::getMarioHolder()->getMarioActor() == nullptr) {
         return;
     }
@@ -193,6 +204,9 @@ void NebulaRemotePlayer::tryCreate() {
     if (perCharacter > cMaxPerCharacter) {
         perCharacter = cMaxPerCharacter;
     }
+    // Each character plays its own animations (Luigi's wait, run and jumps are his), whichever the local player is:
+    // the other character's from a table of their own, on the same archive.
+    sOtherTable = MarioAnimator::newCharacterResourceTable(MR::getPlayerXanimeResource()->mResourceHolder, !MR::isPlayerLuigi());
     for (s32 i = 0; i < perCharacter * 2; i++) {
         NebulaRemotePlayer* pCopy = new NebulaRemotePlayer(i >= perCharacter);
         pCopy->init(JMapInfoIter{});
@@ -334,11 +348,18 @@ void NebulaRemotePlayer::init(const JMapInfoIter& rIter) {
     }
     MR::connectToScene(this, MR::MovementType_Player, MR::CalcAnimType_Player, MR::DrawBufferType_None, MR::DrawType_Player);
 
-    // Mario's animations, as GhostPlayer plays them on the cosmic ghost.
-    mXanimePlayer = new XanimePlayer(MR::getJ3DModel(this), MR::getPlayerXanimeResource());
+    // Its character's animations, as GhostPlayer plays them on the cosmic ghost: the local player's when they play the
+    // same one. A Luigi copy on Mario's screen played Mario's wait and run at Luigi's frames and speed (his feet slid,
+    // and his idle jumped back where the two waits' lengths differ); a Mario copy on Luigi's screen played Luigi's.
+    XanimeResourceTable* pTable = mIsLuigi == MR::isPlayerLuigi() || sOtherTable == nullptr ? MR::getPlayerXanimeResource() : sOtherTable;
+    mXanimePlayer = new XanimePlayer(MR::getJ3DModel(this), pTable);
     mXanimePlayer->duplicateSimpleGroup();
     mModelManager->mXanimePlayer = mXanimePlayer;
     mXanimePlayer->setDefaultAnimation("\212\356\226\173" /* 基本 */);
+    // An animation that ends stays on its last frame until the snapshot names another, as the player's game can keep
+    // one (MarioModule::changeAnimationNonStop, changeAnimationWithAttr). Going back to its default by itself, then
+    // being told the animation again the next frame, flickered between the two.
+    mXanimePlayer->_7E = false;
     mXanimePlayer->getCore()->enableJointTransform(MR::getJ3DModelData(this));
     mXanimePlayer->changeAnimation("\212\356\226\173" /* 基本 */);
 
@@ -433,6 +454,7 @@ void NebulaRemotePlayer::updateAnimation() {
         mXanimePlayer->changeSimpleBck(mState.animation);
         changed = true;
     }
+    updateTracks();
     for (u32 i = 0; i < 4; i++) {
         mXanimePlayer->changeTrackWeight(i, mState.track_weights[i]);
     }
@@ -474,6 +496,11 @@ void NebulaRemotePlayer::updateAnimation() {
             }
             pCtrl->setFrame(frame);
         }
+        // An animation this copy finished (it stays on its last frame) that the player's game still moves along, as
+        // when it plays again or this copy got to its end first: moving again.
+        if (mState.animation_rate != 0.0f && target < end) {
+            pCtrl->mState &= ~1;
+        }
     }
 
     // Its effects, as the animation the snapshot names changes or starts again.
@@ -485,6 +512,28 @@ void NebulaRemotePlayer::updateAnimation() {
         updateAnimationEffect();
     }
     mLastFrame = mState.animation_frame;
+}
+
+void NebulaRemotePlayer::updateTracks() {
+    const XanimeGroupInfo* pGroup = mXanimePlayer->mCurrentAnimation;
+    XanimeCore* pCore = mXanimePlayer->getCore();
+    if (pGroup == nullptr || pCore->mTrackList == nullptr) {
+        return;
+    }
+    const u32 count = pGroup->mBckTableVariant < pCore->mTrackCount ? pGroup->mBckTableVariant : pCore->mTrackCount;
+    for (u32 i = 0; i < count && i < 4; i++) {
+        // Looked up as the name the snapshot gives changes, not each frame.
+        if (strcmp(mTrackName[i], mState.tracks[i]) != 0) {
+            nebula_snprintf(mTrackName[i], sizeof(mTrackName[i]), "%s", mState.tracks[i]);
+            mTrackBck[i] = mTrackName[i][0] != '\0'
+                               ? static_cast< J3DAnmTransform* >(mXanimePlayer->mResourceTable->findResMotion(mTrackName[i]))
+                               : nullptr;
+        }
+        J3DAnmTransform* pWanted = mTrackBck[i] != nullptr ? mTrackBck[i] : static_cast< J3DAnmTransform* >(pGroup->_20[i]);
+        if (pWanted != nullptr && pCore->mTrackList[i]._0 != pWanted) {
+            pCore->setBck(i, pWanted);
+        }
+    }
 }
 
 const char* NebulaRemotePlayer::getAnimationEffectName() const {
@@ -588,10 +637,11 @@ void NebulaRemotePlayer::tryAttackLocal() {
     }
 
     // Thrown away from them, the knockback strength times the attack's scale (sm64coopdx's speeds are a 30 Hz
-    // frame's, Galaxy's a 60 Hz one's); friendly fire costs health as an enemy's hit does.
+    // frame's, Galaxy's a 60 Hz one's); friendly fire costs health as an enemy's hit does. (normalizeOrZero is true
+    // when the vector was zero: only then, standing inside them, is he thrown backwards from where he faces.)
     TVec3f away;
     MR::vecKillElement(pMario->mPosition - mPosition, pMario->getGravityVec(), &away);
-    if (!MR::normalizeOrZero(&away)) {
+    if (MR::normalizeOrZero(&away)) {
         away = -pMario->mMario->mFrontVec;
     }
     const f32 knockback = static_cast< f32 >(sRules.knockback) * scale * 0.5f;

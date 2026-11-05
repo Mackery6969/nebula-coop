@@ -130,6 +130,14 @@ std::string clean_name(std::string_view name) {
     return out.empty() ? std::string("PLAYER") : out;
 }
 
+// Two names the room would mix up: the same but for upper and lower case.
+bool same_name(std::string_view a, std::string_view b) {
+    const auto lower = [](char c) { return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c; };
+    return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [&](char x, char y) {
+               return lower(x) == lower(y);
+           });
+}
+
 }  // namespace
 
 struct Session::State {
@@ -188,10 +196,31 @@ struct Session::State {
     Nat nat = Nat::None;
     std::string room_code;
     std::size_t listed_players = 0u;
+    // The name this player asked for (cleaned), which the room may have numbered: set_name only acts when it changes.
+    std::string wanted_name;
 
     SessionPlayer* player(PeerId id) {
         const auto it = std::find_if(players.begin(), players.end(), [id](const auto& p) { return p.id == id; });
         return it == players.end() ? nullptr : &*it;
+    }
+
+    // `name` as player `self` gets it in this room: as is when no one else has it, else numbered as sm64ex-coop does
+    // ("MARIO (2)"), cut to fit the name limit. Only the host's counts; a joiner's guesses it for its own new name.
+    std::string unique_name(const std::string& name, PeerId self) const {
+        const auto taken = [&](const std::string& candidate) {
+            return std::any_of(players.begin(), players.end(),
+                               [&](const SessionPlayer& p) { return p.id != self && same_name(p.name, candidate); });
+        };
+        if (!taken(name)) return name;
+        // More numbers than players, so one is always free.
+        for (unsigned n = 2u;; ++n) {
+            const std::string suffix = " (" + std::to_string(n) + ")";
+            std::string base = name.substr(0u, kPlayerNameLimit - suffix.size());
+            while (!base.empty() && base.back() == ' ') base.pop_back();
+            if (base.empty()) base = "PLAYER";
+            std::string candidate = base + suffix;
+            if (!taken(candidate)) return candidate;
+        }
     }
 
     void event(SessionEvent::Kind kind, std::string name = {}, std::string text = {}) {
@@ -285,7 +314,8 @@ struct Session::State {
         while (std::any_of(players.begin(), players.end(), [index](const auto& p) { return p.index == index; })) {
             ++index;
         }
-        SessionPlayer joined{from, index, name, character, false, false, {}, 0, 0u};
+        // A name someone in the room already has gets a number (sm64ex-coop's).
+        SessionPlayer joined{from, index, unique_name(name, from), character, false, false, {}, 0, 0u};
         joined.moderator = listed(host_config.moderators, identity);
         waiting.erase(from);
 
@@ -308,7 +338,7 @@ struct Session::State {
         accept.u8(static_cast<std::uint8_t>(players.size()));
         for (const SessionPlayer& player : players) write_player(accept, player);
         send(from, kJoinAccept, accept);
-        event(SessionEvent::Kind::PlayerJoined, name);
+        event(SessionEvent::Kind::PlayerJoined, joined.name);
     }
 
     static bool listed(const std::vector<std::string>& list, const std::string& identity) {
@@ -638,13 +668,21 @@ struct Session::State {
         }
     }
 
-    // A host's: a joiner renamed itself.
+    // A host's: a joiner renamed itself. A name someone else has gets a number, and the joiner hears it even when its
+    // name stays (it showed the one it asked for, or guessed another number).
     void host_receive_name(PeerId from, ByteReader& in) {
-        const std::string got = clean_name(in.str(256u));
+        const std::string asked = clean_name(in.str(256u));
         SessionPlayer* renamed = player(from);
-        if (!in.ok() || renamed == nullptr || renamed->local || renamed->name == got) return;
-        renamed->name = got;
-        send_info(*renamed);
+        if (!in.ok() || renamed == nullptr || renamed->local) return;
+        const std::string got = unique_name(asked, from);
+        if (renamed->name != got) {
+            renamed->name = got;
+            send_info(*renamed);
+        } else if (got != asked) {
+            ByteWriter info;
+            write_player(info, *renamed);
+            send(from, kPlayerInfo, info);
+        }
     }
 
     // A host's: a joiner switched character (sm64coopdx's live character change).
@@ -907,16 +945,18 @@ Session::Session(std::unique_ptr<net::Transport> transport) : state_(std::make_u
     State* s = state_.get();
     callbacks.on_lobby_joined = [s](PeerId self, PeerId owner, std::uint64_t) {
         if (s->host) {
+            s->wanted_name = clean_name(s->host_config.name);
             s->state = SessionState::Hosting;
             s->players = {SessionPlayer{self, 0u, clean_name(s->host_config.name), s->host_config.character, true,
                                         true, s->stage, s->scenario, 0u}};
             s->event(SessionEvent::Kind::Hosting, {}, std::to_string(s->transport->port()));
             return;
         }
+        s->wanted_name = clean_name(s->join_config.name);
         ByteWriter body;
         body.u16(kSessionProtocol)
             .str(s->join_config.game_version)
-            .str(clean_name(s->join_config.name))
+            .str(s->wanted_name)
             .u8(static_cast<std::uint8_t>(s->join_config.character))
             .str(s->join_config.disc.game_id)
             .u8(static_cast<std::uint8_t>(s->join_config.disc.revision))
@@ -1122,15 +1162,23 @@ void Session::set_place(const std::string& stage, int scenario) {
 void Session::set_name(const std::string& name) {
     const std::lock_guard<std::recursive_mutex> lock(lock_);
     if (state_->state != SessionState::Hosting && state_->state != SessionState::Joined) return;
+    // Called every frame with Options' name: only a new one counts, not the number the room gave it.
     const std::string clean = clean_name(name);
+    if (clean == state_->wanted_name) return;
     auto& list = state_->players;
     const auto self = std::find_if(list.begin(), list.end(), [](const auto& p) { return p.local; });
-    if (self == list.end() || self->name == clean) return;
-    self->name = clean;
+    if (self == list.end()) return;
+    state_->wanted_name = clean;
+    // A name someone else has gets a number. A joiner shows the one it guesses at once and asks the host, whose answer
+    // settles it.
+    const std::string unique = state_->unique_name(clean, self->id);
     if (state_->state == SessionState::Hosting) {
+        if (self->name == unique) return;
+        self->name = unique;
         state_->send_info(*self);
         return;
     }
+    self->name = unique;
     ByteWriter body;
     body.str(clean);
     state_->send(state_->transport->owner(), kPlayerName, body);

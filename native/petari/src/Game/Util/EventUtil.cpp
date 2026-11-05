@@ -1,3 +1,4 @@
+#include "Game/System/NebulaMods.hpp"
 #include "Game/Map/RaceManager.hpp"
 #include "Game/System/NebulaHost.hpp"
 #include "Game/Player/NebulaCharacter.hpp"
@@ -19,6 +20,7 @@
 #include "Game/Util/StringUtil.hpp"
 #include <cstdio>
 #include "Game/System/NebulaAchievements.hpp"
+#include "Game/System/NebulaHost.hpp"
 
 
 namespace {
@@ -89,6 +91,7 @@ namespace MR {
     }
 
     void addStarPiece(int num) {
+        num = NebulaMods::fire(NEBULA_MOD_EVENT_STAR_BIT, num);
         if (MR::isStageAstroLocation()) {
             GameDataFunction::addStockedStarPiece(num);
         } else {
@@ -978,7 +981,7 @@ namespace MR {
     }
 
     bool isKoopaFortressAppearInGalaxy() {
-        char key[32];
+        char key[256];
 
         if (!MR::isEqualStageName("AstroDome")) {
             return false;
@@ -1002,6 +1005,9 @@ namespace MR {
     }
 
     bool isGalaxyDarkCometAppearInCurrentStage() {
+        if (NebulaHost::codePatch(NEBULA_PATCH_NO_DARK_COMET_RULES, nullptr)) {
+            return false;
+        }
         return EventFunction::isStartCometEvent("Dark");
     }
 

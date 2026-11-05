@@ -203,24 +203,26 @@ std::vector<std::string> Commands::complete(std::string_view line, const std::ve
     return out;
 }
 
+std::optional<SessionPlayer> find_player(const std::vector<SessionPlayer>& players, std::string_view who) {
+    if (!who.empty() && std::all_of(who.begin(), who.end(), [](char c) { return c >= '0' && c <= '9'; })) {
+        for (const SessionPlayer& player : players) {
+            if (std::to_string(player.index) == who) return player;
+        }
+    }
+    for (const SessionPlayer& player : players) {
+        if (player.name == who) return player;
+    }
+    for (const SessionPlayer& player : players) {
+        if (same(player.name, who)) return player;
+    }
+    return std::nullopt;
+}
+
+bool same_words(std::string_view a, std::string_view b) { return same(a, b); }
+
 void add_room_commands(Chat& chat, Session& session) {
     Commands& commands = chat.commands();
-    // A player by their number or their name (sm64coopdx's chat_get_network_player): exactly, then case aside.
-    const auto find = [&session](std::string_view who) -> std::optional<SessionPlayer> {
-        const std::vector<SessionPlayer> players = session.players();
-        if (!who.empty() && std::all_of(who.begin(), who.end(), [](char c) { return c >= '0' && c <= '9'; })) {
-            for (const SessionPlayer& player : players) {
-                if (std::to_string(player.index) == who) return player;
-            }
-        }
-        for (const SessionPlayer& player : players) {
-            if (player.name == who) return player;
-        }
-        for (const SessionPlayer& player : players) {
-            if (same(player.name, who)) return player;
-        }
-        return std::nullopt;
-    };
+    const auto find = [&session](std::string_view who) { return find_player(session.players(), who); };
     const auto host_or_moderator = [&session] { return session.is_host() || session.is_moderator(); };
     const auto host = [&session] { return session.is_host(); };
 

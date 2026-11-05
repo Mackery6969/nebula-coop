@@ -1,3 +1,4 @@
+#include "Game/System/NebulaMods.hpp"
 #include "Game/Scene/PlacementInfoOrdered.hpp"
 #include "Game/LiveActor/AllLiveActorGroup.hpp"
 #include "Game/Map/PlanetMapCreator.hpp"
@@ -94,6 +95,9 @@ void PlacementInfoOrdered::initPlacement() {
             const char* pName = MR::getJapaneseObjectName(pSet->mName);
             for (link = pSet->mList.mHead; link != nullptr; link = link->mNextLink) {
                 const JMapInfoIter& rIter = static_cast< Index* >(link->mValue)->getInfoIter();
+                if (NebulaMods::isMissingFiles(pSet->mName, rIter)) {
+                    continue;
+                }
                 MR::setCurrentPlacementZoneId(MR::getPlacedZoneId(rIter));
                 // Online co-op: the actors it makes as it is placed are its parts.
                 NebulaCoopWorld::beginPlacement();

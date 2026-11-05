@@ -36,6 +36,9 @@ namespace {
     // Screen units (NebulaUi::readScreen): 456 high, 810 wide at 16:9.
     const f32 cMargin = 16.0f;     // the window from the screen's edges
     const f32 cMaxWidth = 900.0f;  // a wide screen keeps a window that reads as one
+    const f32 cMinWindowWidth = 480.0f;  // the tabs and the footer keep their shape down to this
+    const f32 cReadableTextDp = 14.0f;  // a row's text on the screen, at the least, unless the player chooses otherwise
+    const f32 cZoomMax = 1.8f;
     const f32 cPad = 26.0f;        // the window's inside
     const f32 cTitleSize = 21.0f;
     const f32 cTabHeight = 30.0f;
@@ -75,6 +78,8 @@ namespace {
     const s32 cGlyphPad = 'C';  // the picture font's +Control Pad
     const f32 cHintGap = 18.0f;
     const f32 cQuestionWidth = 470.0f;
+    const f32 cLicenseTextSize = 12.0f;
+    const f32 cLicenseInset = 12.0f;  // the license's window inside the menu's
     const f32 cQuestionHeight = 180.0f;
     const f32 cQuestionMargin = 22.0f;  // the answers from the window's sides and foot
     const f32 cQuestionRing = 6.4f;     // the window's white ring (measured), inside its edges
@@ -151,10 +156,31 @@ namespace {
          {"SettingsChoiceKeep", "SettingsChoiceUndo", nullptr},
          {NEBULA_SETTINGS_APPLY, NEBULA_SETTINGS_CLOSE, 0},
          {KeyApply, KeyBack, 0}},
-        {NEBULA_SETTINGS_STATUS_DLSS_ASK, "SettingsDlssAsk", "SettingsDlssAsk", 2,
-         {"SettingsChoiceDownload", "SettingsChoiceNotNow", nullptr},
+        {NEBULA_SETTINGS_STATUS_DLSS_ASK, "SettingsDlssAsk", "SettingsDlssAsk", 3,
+         {"SettingsChoiceDownload", "SettingsChoiceLicense", "SettingsChoiceNotNow"},
+         {NEBULA_SETTINGS_APPLY, NEBULA_SETTINGS_REVERT, NEBULA_SETTINGS_CLOSE},
+         {KeyApply, KeyUndo, KeyBack}},
+        {NEBULA_SETTINGS_STATUS_XESS_ASK, "SettingsXessAsk", "SettingsXessAsk", 3,
+         {"SettingsChoiceDownload", "SettingsChoiceLicense", "SettingsChoiceNotNow"},
+         {NEBULA_SETTINGS_APPLY, NEBULA_SETTINGS_REVERT, NEBULA_SETTINGS_CLOSE},
+         {KeyApply, KeyUndo, KeyBack}},
+        {NEBULA_SETTINGS_STATUS_DLSS_INSTALLING, "SettingsDlssInstalling", "SettingsDlssInstalling", 1,
+         {"SettingsChoiceCancel", nullptr, nullptr},
+         {NEBULA_SETTINGS_CLOSE, 0, 0},
+         {KeyBack, 0, 0}},
+        {NEBULA_SETTINGS_STATUS_XESS_INSTALLING, "SettingsXessInstalling", "SettingsXessInstalling", 1,
+         {"SettingsChoiceCancel", nullptr, nullptr},
+         {NEBULA_SETTINGS_CLOSE, 0, 0},
+         {KeyBack, 0, 0}},
+        {NEBULA_SETTINGS_STATUS_XESS_RESTART, "SettingsXessRestart", "SettingsXessRestart", 2,
+         {"SettingsChoiceRestart", "SettingsChoiceLater", nullptr},
          {NEBULA_SETTINGS_APPLY, NEBULA_SETTINGS_CLOSE, 0},
          {KeyApply, KeyBack, 0}},
+        // Its text is the page the host sends (fillTexts).
+        {NEBULA_SETTINGS_STATUS_LICENSE, "SettingsLicenseLoading", "SettingsLicenseLoading", 3,
+         {"SettingsChoicePrevious", "SettingsChoiceNext", "SettingsBack"},
+         {NEBULA_SETTINGS_REVERT, NEBULA_SETTINGS_APPLY, NEBULA_SETTINGS_CLOSE},
+         {KeyUndo, KeyApply, KeyBack}},
         {NEBULA_SETTINGS_STATUS_DLSS_RESTART, "SettingsDlssRestart", "SettingsDlssRestart", 2,
          {"SettingsChoiceRestart", "SettingsChoiceLater", nullptr},
          {NEBULA_SETTINGS_APPLY, NEBULA_SETTINGS_CLOSE, 0},
@@ -165,6 +191,10 @@ namespace {
          {KeyApply, KeyBack, 0}},
         {NEBULA_SETTINGS_STATUS_RT_RESTART_ASK, "SettingsRtRestartAsk", "SettingsRtRestartAsk", 2,
          {"SettingsChoiceRestart", "SettingsChoiceLater", nullptr},
+         {NEBULA_SETTINGS_APPLY, NEBULA_SETTINGS_CLOSE, 0},
+         {KeyApply, KeyBack, 0}},
+        {NEBULA_SETTINGS_STATUS_MODS_CODE_ASK, "SettingsModsCodeAsk", "SettingsModsCodeAsk", 2,
+         {"SettingsChoiceAllow", "SettingsChoiceNotNow", nullptr},
          {NEBULA_SETTINGS_APPLY, NEBULA_SETTINGS_CLOSE, 0},
          {KeyApply, KeyBack, 0}},
         {NEBULA_SETTINGS_STATUS_DIAGNOSTICS_ASK, "SettingsDiagnosticsAsk", "SettingsDiagnosticsAsk", 2,
@@ -847,6 +877,8 @@ private:
     Window* mQuestionShadow;
     Window* mQuestionPanel;
     TextBox* mQuestionText;
+    Window* mProgressTrack;  // a download's bar
+    Window* mProgressFill;
     Button mChoices[ChoiceNum];
     s32 mChoiceCount;
     Pane* mJoyCon;  // the Pair Joy-Con picture
@@ -892,6 +924,10 @@ private:
 
     // The layout, again whenever the screen's shape changes.
     f32 mScaleX;
+    f32 mZoom = 1.0f;  // the menu's size (arrange): every measure below is in its own units
+    f32 mScreenWidth = 0.0f;
+    f32 mScreenHeight = 0.0f;
+    s32 mTextSizeChosen = 0;
     f32 mWidth;
     f32 mHeight;
     f32 mPanelWidth;
@@ -960,7 +996,7 @@ NebulaSettingsScreen::NebulaSettingsScreen()
     : LayoutActor("NebulaSettingsMenu", true), mBuilt(false), mRoot(nullptr), mDim(nullptr), mMenu(nullptr), mPage(nullptr), mShadow(nullptr),
       mPanel(nullptr), mTitle(nullptr), mList(nullptr), mHighlight(nullptr), mTrack(nullptr), mThumb(nullptr), mStatus(nullptr),
       mStatusWidth(0.0f), mStatusRoom(-1.0f), mQuestion(nullptr), mQuestionDim(nullptr), mQuestionShadow(nullptr), mQuestionPanel(nullptr),
-      mQuestionText(nullptr), mChoiceCount(0), mJoyCon(nullptr), mJoyConPaired(false), mJoyConBits(0), mQuestionInk(0.0f), mOpen(0.0f), mClosing(false), mQuestionShown(-1), mHome(false), mHomeView(-1),
+      mQuestionText(nullptr), mProgressTrack(nullptr), mProgressFill(nullptr), mChoiceCount(0), mJoyCon(nullptr), mJoyConPaired(false), mJoyConBits(0), mQuestionInk(0.0f), mOpen(0.0f), mClosing(false), mQuestionShown(-1), mHome(false), mHomeView(-1),
       mFocusButton(nullptr), mFrame(0), mScroll(0.0f),
       mScrollTarget(0.0f), mHighlightY(0.0f), mPointerMode(false), mPointerX(0.0f), mPointerY(0.0f), mPointerRow(-1), mHoverRow(-1),
       mHoverTab(-1), mPressing(false), mPressRow(-1), mPressY(0.0f), mPressScroll(0.0f), mScrollDrag(false), mSwipeFrames(0), mDraggedAt(-1), mHoverArrow(0),
@@ -1196,11 +1232,18 @@ bool NebulaSettingsScreen::build() {
     mQuestion->AppendChild(mQuestionDim);
     mQuestion->AppendChild(mQuestionShadow);
     mQuestion->AppendChild(mQuestionPanel);
-    mQuestionText = makeText(mKits, mQuestion, "NsQText", 256);
+    mQuestionText = makeText(mKits, mQuestion, "NsQText", 1536);
     if (mQuestionText == nullptr) {
         return false;
     }
     setTextStyle(mQuestionText, cTextSize + 1.0f, cText, cText, 4);
+    mProgressTrack = makeWindow(mKits, mQuestion, "NsQBarTrack");
+    mProgressFill = makeWindow(mKits, mQuestion, "NsQBarFill");
+    if (mProgressTrack == nullptr || mProgressFill == nullptr) {
+        return false;
+    }
+    paint(mProgressTrack, cSliderTrack, cSliderTrack);
+    paint(mProgressFill, cSliderFill, cSliderFill);
     for (s32 i = 0; i < ChoiceNum; i++) {
         char name[16];
         nebula_snprintf(name, sizeof(name), "NsChoice%d", static_cast< int >(i));
@@ -1233,7 +1276,33 @@ bool NebulaSettingsScreen::build() {
 // Where everything goes for the screen's shape: the window as large as the screen allows, at most cMaxWidth wide.
 void NebulaSettingsScreen::arrange() {
     readScreen(&mScaleX, &mWidth, &mHeight);
-    mRoot->mScale = nw4r::math::VEC2(mScaleX, 1.0f);
+    mTextSizeChosen = static_cast< s32 >(NebulaHost::option(NEBULA_OPTION_MENU_TEXT_SIZE));
+    mScreenWidth = mWidth;
+    mScreenHeight = mHeight;
+    // The menu's size: the player's, or large enough that its text is readable on this screen.
+    const s32 chosen = static_cast< s32 >(NebulaHost::option(NEBULA_OPTION_MENU_TEXT_SIZE));
+    const s32 wide = static_cast< s32 >(NebulaHost::option(NEBULA_OPTION_WINDOW_WIDTH_DP));
+    mZoom = 1.0f;
+    if (chosen != 0) {
+        mZoom = static_cast< f32 >(chosen) / 100.0f;
+    } else if (wide > 0) {
+        const f32 textDp = cTextSize * static_cast< f32 >(wide) / mWidth;
+        mZoom = textDp < cReadableTextDp ? cReadableTextDp / textDp : 1.0f;
+        mZoom = mZoom > cZoomMax ? cZoomMax : mZoom;
+    }
+    // What is not rows, in the menu's units: the margins, the window's inside, the tabs and the footer. The title goes
+    // first on a short screen; whatever size is asked for, rows stay: three for the size the screen chose, two for the player's.
+    const f32 titleRoom = cTitleSize + 14.0f;
+    const f32 around = cMargin * 2.0f + cPad * 1.8f + cTabHeight + 8.0f + cButtonHeight * 0.5f + cFooterLine * 0.5f + 3.0f + cFooterSize * 0.5f + 8.0f;
+    const f32 largest = mHeight / (around + cRowHeight * (chosen != 0 ? 2.0f : 3.0f) + 1.0f);
+    const f32 widest = mWidth / (cMinWindowWidth + cMargin * 2.0f);
+    mZoom = mZoom > largest ? largest : mZoom;
+    mZoom = mZoom > widest ? widest : mZoom;
+    const bool titled = mHeight / mZoom >= around + titleRoom + cRowHeight * 3.0f;
+    mTitle->SetVisible(titled);
+    mWidth /= mZoom;
+    mHeight /= mZoom;
+    mRoot->mScale = nw4r::math::VEC2(mScaleX * mZoom, mZoom);
     mPanelWidth = mWidth - cMargin * 2.0f;
     mPanelWidth = mPanelWidth > cMaxWidth ? cMaxWidth : mPanelWidth;
     mPanelHeight = mHeight - cMargin * 2.0f;
@@ -1241,7 +1310,7 @@ void NebulaSettingsScreen::arrange() {
     mLeft = -mPanelWidth * 0.5f + cPad;
     mRight = mPanelWidth * 0.5f - cPad;
     mTitleY = top - cTitleSize * 0.5f;
-    mTabY = mTitleY - cTitleSize * 0.5f - 14.0f - cTabHeight * 0.5f;
+    mTabY = top - (titled ? titleRoom : 0.0f) - cTabHeight * 0.5f;
     mListTop = mTabY - cTabHeight * 0.5f - 8.0f;
     mFooterY = -mPanelHeight * 0.5f + cPad * 0.8f + cButtonHeight * 0.5f;
     mHintsY = mFooterY - cFooterLine * 0.5f + 3.0f;
@@ -1374,7 +1443,7 @@ __attribute__((noinline)) void NebulaSettingsScreen::fillTexts(const NebulaSetti
     const s32 hint = firstHint(rView);
     if (pShown != nullptr && pShown->status == rView.status && pShown->status_number == rView.status_number &&
         strcmp(pShown->help, rView.help) == 0 && strcmp(pShown->status_text, rView.status_text) == 0 &&
-        pShown->page == rView.page && pShown->input == rView.input && firstHint(*pShown) == hint) {
+        strcmp(pShown->long_text, rView.long_text) == 0 && pShown->page == rView.page && pShown->input == rView.input && firstHint(*pShown) == hint) {
         return;
     }
 
@@ -1393,11 +1462,12 @@ __attribute__((noinline)) void NebulaSettingsScreen::fillTexts(const NebulaSetti
         pStatusText = rView.status_text;
         statusColor = cWarning;
         break;
-    case NEBULA_SETTINGS_STATUS_DLSS_INSTALLING:
-        pStatusId = "SettingsDlssInstalling";
-        break;
     case NEBULA_SETTINGS_STATUS_DLSS_FAILED:
         pStatusId = "SettingsDlssFailed";
+        statusColor = cWarning;
+        break;
+    case NEBULA_SETTINGS_STATUS_XESS_FAILED:
+        pStatusId = "SettingsXessFailed";
         statusColor = cWarning;
         break;
     case NEBULA_SETTINGS_STATUS_SAVE_FAILED:
@@ -1495,6 +1565,69 @@ __attribute__((noinline)) void NebulaSettingsScreen::fillTexts(const NebulaSetti
         return;
     }
     const Question& rQuestion = cQuestions[question];
+    if (rView.status == NEBULA_SETTINGS_STATUS_LICENSE) {
+        static char16_t page[1536];
+        static char16_t shown[1536];
+        if (rView.status_number > 0) {
+            // Its number, then the page.
+            s32 used = 0;
+            getNumbered(page, 64, "SettingsLicensePage", rView.status_number);
+            while (page[used] != 0) {
+                used++;
+            }
+            page[used++] = u'\n';
+            page[used++] = u'\n';
+            fromUtf8(page + used, 1536 - used, rView.long_text);
+        } else {
+            NebulaText::get(page, 1536, rView.status_number == -2 ? "SettingsLicenseFailed" : "SettingsLicenseLoading");
+        }
+        setAnchor(mQuestionText, 3);
+        setTextSize(mQuestionText, cLicenseTextSize);
+        u16 pageLength = 0;
+        while (pageLength < 1535 && page[pageLength] != 0) {
+            pageLength++;
+        }
+        const f32 pageRoom = mPanelWidth - cLicenseInset * 2.0f - cQuestionMargin * 2.0f;
+        // Lines broken at the last space that fits, measured once for a page: the box alone would break inside a word.
+        static u16 shownLength = 0;
+        bool samePage = shownLength == pageLength;
+        for (u16 i = 0; samePage && i < pageLength; i++) {
+            samePage = page[i] == shown[i] || (page[i] == u' ' && shown[i] == u'\n');
+        }
+        if (!samePage) {
+            memcpy(shown, page, pageLength * sizeof(char16_t));
+            shown[pageLength] = 0;
+            shownLength = pageLength;
+            u16 lineStart = 0;
+            u16 lastSpace = 0;
+            for (u16 i = 0; i <= pageLength; i++) {
+                if (i != pageLength && shown[i] != u' ' && shown[i] != u'\n') {
+                    continue;
+                }
+                mQuestionText->SetString(shown + lineStart, 0, static_cast< u16 >(i - lineStart));
+                measure(mQuestionText, 4000.0f, &width, &height);
+                if (width > pageRoom && lastSpace > lineStart) {
+                    shown[lastSpace] = u'\n';
+                    lineStart = static_cast< u16 >(lastSpace + 1);
+                }
+                if (i != pageLength) {
+                    if (shown[i] == u'\n') {
+                        lineStart = static_cast< u16 >(i + 1);
+                    } else {
+                        lastSpace = i;
+                    }
+                }
+            }
+        }
+        mQuestionText->SetString(shown, 0, shownLength);
+        measure(mQuestionText, pageRoom, &width, &height);
+        mQuestionInk = height;
+        for (s32 i = 0; i < mChoiceCount; i++) {
+            fillKeyCap(mChoices[i].mKey, rQuestion.mKeys[i], rView.input, false);
+        }
+        return;
+    }
+    setAnchor(mQuestionText, 4);
     const char* pText = rView.status_number == 1 ? rQuestion.mTextOne : rQuestion.mText;
     if (rView.status == NEBULA_SETTINGS_STATUS_JOYCON) {
         // Paired, both halves here (hold L and R), or one missing (connect them).
@@ -1548,6 +1681,10 @@ void NebulaSettingsScreen::setQuestion(s32 question) {
         }
     }
     mQuestion->SetVisible(question >= 0);
+    const bool bar = question >= 0 && (cQuestions[question].mStatus == NEBULA_SETTINGS_STATUS_DLSS_INSTALLING ||
+                                       cQuestions[question].mStatus == NEBULA_SETTINGS_STATUS_XESS_INSTALLING);
+    mProgressTrack->SetVisible(bar);
+    mProgressFill->SetVisible(bar);
     mJoyCon->SetVisible(question >= 0 && cQuestions[question].mStatus == NEBULA_SETTINGS_STATUS_JOYCON);
     mJoyConPaired = false;
     for (s32 half = 0; half < 2; half++) {
@@ -1641,8 +1778,8 @@ void NebulaSettingsScreen::readPointer(const NebulaSettingsView& rView) {
     screen.y = (screen.y + 1.0f) * static_cast< s32 >(NebulaFrameClock::cScreenUnitsDown) * 0.5f;
     TVec2f layout;
     MR::convertScreenPosToLayoutPos(&layout, screen);
-    const f32 x = layout.x / mScaleX;
-    const f32 y = layout.y - mMenu->mTranslate.y;
+    const f32 x = layout.x / (mScaleX * mZoom);
+    const f32 y = layout.y / mZoom - mMenu->mTranslate.y;
     // The main menu, played with a pad as often as a pointer, gives the pointer its highlight back only once it really
     // moves (a gyro's or a resting stick's drift does not), as NebulaMenuFocus does; until then nothing is under it.
     const bool mainMenu = rView.kind == NEBULA_SETTINGS_KIND_MAIN_MENU;
@@ -2276,7 +2413,8 @@ void NebulaSettingsScreen::placeRows(const NebulaSettingsView& rView) {
     const f32 content = rView.total_rows * cRowHeight;
     const f32 maxScroll = content > listHeight ? content - listHeight : 0.0f;
     const f32 selectedTop = rView.selected * cRowHeight;
-    const f32 room = mPointerMode ? 0.0f : cRowHeight;
+    // A row kept on each side of the selection, when the list has room for all three.
+    const f32 room = mPointerMode || listHeight < cRowHeight * 3.0f ? 0.0f : cRowHeight;
     if (!mScrollDrag && static_cast< s32 >(rView.selected) != mDraggedAt) {
         mDraggedAt = -1;
         if (selectedTop - room < mScrollTarget) {
@@ -2493,21 +2631,37 @@ void NebulaSettingsScreen::place(const NebulaSettingsView& rView) {
         const f32 picture = cCapHeight * cTextSize + cJoyConLetterGap +
                             (NebulaIcons::cJoyConShoulder + NebulaIcons::cJoyConBody[1]) * cJoyConUnit;
         const f32 gap = cQuestionMargin - cQuestionRing;
-        const f32 height = joycon ? cQuestionMargin * 2.0f + gap * 2.0f + picture + mQuestionInk + cButtonHeight : cQuestionHeight;
-        mQuestionPanel->mSize = nw4r::lyt::Size(cQuestionWidth, height);
-        mQuestionShadow->mSize = nw4r::lyt::Size(cQuestionWidth, height);
+        const bool license = rView.status == NEBULA_SETTINGS_STATUS_LICENSE;
+        const bool bar = rView.status == NEBULA_SETTINGS_STATUS_DLSS_INSTALLING || rView.status == NEBULA_SETTINGS_STATUS_XESS_INSTALLING;
+        const f32 panelWidth = license ? mPanelWidth - cLicenseInset * 2.0f : cQuestionWidth;
+        const f32 height = joycon    ? cQuestionMargin * 2.0f + gap * 2.0f + picture + mQuestionInk + cButtonHeight
+                           : license ? mPanelHeight - cLicenseInset * 2.0f
+                                     : cQuestionHeight;
+        mQuestionPanel->mSize = nw4r::lyt::Size(panelWidth, height);
+        mQuestionShadow->mSize = nw4r::lyt::Size(panelWidth, height);
         const f32 answersY = -height * 0.5f + cQuestionMargin + cButtonHeight * 0.5f;
         const f32 top = height * 0.5f - cQuestionMargin;
         const f32 textY = joycon ? top - picture - gap - mQuestionInk * 0.5f
-                                 : (height * 0.5f + answersY + cButtonHeight * 0.5f) * 0.5f;
-        mQuestionText->mTranslate = nw4r::math::VEC3(0.0f, textCentre(textY, cTextSize + 1.0f), 0.0f);
+                                 : (height * 0.5f + answersY + cButtonHeight * 0.5f) * 0.5f + (bar ? cSliderHeight * 1.5f : 0.0f);
+        if (license) {
+            mQuestionText->mTranslate = nw4r::math::VEC3(-panelWidth * 0.5f + cQuestionMargin, top - mQuestionInk * 0.5f, 0.0f);
+        } else {
+            mQuestionText->mTranslate = nw4r::math::VEC3(0.0f, textCentre(textY, cTextSize + 1.0f), 0.0f);
+        }
         if (joycon) {
             placeJoyCon(top);
         }
-        const f32 width = (cQuestionWidth - cQuestionMargin * 2.0f - cButtonGap * (mChoiceCount - 1)) / (mChoiceCount > 0 ? mChoiceCount : 1);
+        if (bar) {
+            const f32 barWidth = cQuestionWidth - cQuestionMargin * 2.0f;
+            const f32 barY = textY - (cTextSize + 1.0f) * 0.5f - cSliderHeight * 2.0f;
+            const f32 percent = clamp(static_cast< f32 >(rView.status_number), 0.0f, 100.0f) / 100.0f;
+            const f32 fill = barWidth * percent > cSliderHeight ? barWidth * percent : cSliderHeight;
+            shape(mProgressTrack, 0.0f, barY, barWidth, cSliderHeight, cSliderHeight * 0.5f);
+            shape(mProgressFill, -barWidth * 0.5f + fill * 0.5f, barY, fill, cSliderHeight, cSliderHeight * 0.5f);
+        }
+        const f32 width = (panelWidth - cQuestionMargin * 2.0f - cButtonGap * (mChoiceCount - 1)) / (mChoiceCount > 0 ? mChoiceCount : 1);
         for (s32 i = 0; i < mChoiceCount; i++) {
-            placeButton(mChoices[i], -cQuestionWidth * 0.5f + cQuestionMargin + width * 0.5f + i * (width + cButtonGap), answersY,
-                        width);
+            placeButton(mChoices[i], -panelWidth * 0.5f + cQuestionMargin + width * 0.5f + i * (width + cButtonGap), answersY, width);
         }
     }
 }
@@ -2693,7 +2847,8 @@ void NebulaSettingsScreen::step(const NebulaSettingsView& rView, s32 homeView) {
     f32 width;
     f32 height;
     readScreen(&scaleX, &width, &height);
-    if (scaleX != mScaleX || __builtin_fabsf(width - mWidth) > 0.5f || __builtin_fabsf(height - mHeight) > 0.5f) {
+    if (scaleX != mScaleX || __builtin_fabsf(width - mScreenWidth) > 0.5f || __builtin_fabsf(height - mScreenHeight) > 0.5f ||
+        static_cast< s32 >(NebulaHost::option(NEBULA_OPTION_MENU_TEXT_SIZE)) != mTextSizeChosen) {
         arrange();
     }
     if (!mHome && rView.page == rView.controls_page && rView.status != NEBULA_SETTINGS_STATUS_JOYCON) {
@@ -2766,7 +2921,7 @@ void NebulaSettingsScreen::drawMenu() const {
     draw();
     mList->SetVisible(true);
     if (!mHome) {
-        drawClipped(mList, getLayoutManager()->mDrawInfo, mMenu->mTranslate.y, mLeft - 4.0f, mRight + 18.0f, mClipTop, mClipBottom);
+        drawClipped(mList, getLayoutManager()->mDrawInfo, mLeft - 4.0f, mRight + 18.0f, mClipTop, mClipBottom);
     }
     if (asking) {
         mQuestion->SetVisible(true);

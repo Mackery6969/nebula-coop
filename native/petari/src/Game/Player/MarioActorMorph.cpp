@@ -1,6 +1,7 @@
 #include "Game/Enemy/KarikariDirector.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/Player/MarioActor.hpp"
+#include "Game/System/NebulaMods.hpp"
 #include "Game/Player/MarioConst.hpp"
 #include "Game/Player/MarioParts.hpp"
 #include "Game/Player/MarioState.hpp"
@@ -14,8 +15,28 @@
 #include "Game/Util/MapUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 
+bool MarioActor::canTakePowerUp(s32 playerMode) const {
+    switch (playerMode) {
+    case PlayerMode_Invincible: return mModels[4] != nullptr;
+    case PlayerMode_Ice: return mModels[3] != nullptr;
+    case PlayerMode_Bee: return mModels[2] != nullptr;
+    case PlayerMode_Hopper: return mModels[5] != nullptr;
+    case PlayerMode_Teresa: return _9A4 != nullptr;
+    case PlayerMode_Tornado: return mTornadoMario != nullptr;
+    default: return true;
+    }
+}
+
 void MarioActor::setPlayerMode(u16 playerMode, bool myBool) {
+    playerMode = static_cast< u16 >(NebulaMods::fire(NEBULA_MOD_EVENT_POWER_UP, playerMode));
+
     if (mPlayerMode == playerMode) {
+        // A mod's power-up again: its time starts over.
+        if (playerMode >= NebulaMods::cFirstPowerUp) {
+            _3DC = NebulaMods::powerUpStart(playerMode, this);
+            return;
+        }
+
         if (playerMode == 1) {
             _3DC = mConst->getTable()->mMetalHoldTime;
             MR::startSubBGM("BGM_MUTEKI_A", false);
@@ -122,7 +143,11 @@ void MarioActor::setPlayerMode(u16 playerMode, bool myBool) {
     }
 
     _3D6 = mPlayerMode;
+    NebulaMods::powerUpEnd(mPlayerMode, this);
     mPlayerMode = playerMode;
+    if (playerMode >= NebulaMods::cFirstPowerUp) {
+        _3DC = NebulaMods::powerUpStart(playerMode, this);
+    }
 
     switch (playerMode) {
     case 9:
@@ -322,6 +347,8 @@ void MarioActor::resetPlayerModeOnNoDamage() {
 }
 
 void MarioActor::updatePlayerMode() {
+    NebulaMods::powerUpUpdate(mPlayerMode);
+
     if (_3DC == 0) {
         return;
     }

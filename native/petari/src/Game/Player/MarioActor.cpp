@@ -1,5 +1,6 @@
 #include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Player/MarioActor.hpp"
+#include "Game/System/NebulaMods.hpp"
 #include "Game/Animation/XanimeCore.hpp"
 #include "Game/Camera/CameraTargetArg.hpp"
 #include "Game/Enemy/KarikariDirector.hpp"
@@ -45,6 +46,7 @@
 #include "Game/Util/StarPointerUtil.hpp"
 #include "Game/System/NebulaArena.hpp"
 #include "Game/System/NebulaAchievements.hpp"
+#include "Game/System/NebulaHost.hpp"
 
 template void JGeometry::SMatrix34C< f32 >::set(const f32 (*)[4]);
 
@@ -55,16 +57,18 @@ MarioActor::MarioActor(const char* pName) : LiveActor(pName), _1B0(0xFFFFFFFF) {
     mMario = new Mario(this);
     _930 = 0;
     _468 = 0;
-    mMaxHealth = 3;
-    mHealth = 3;
-    mWaterLife = 8;
+    u32 startingHealth = 3;
+    NebulaHost::codePatch(NEBULA_PATCH_PLAYER_HEALTH, &startingHealth);
+    mMaxHealth = startingHealth;
+    mHealth = startingHealth;
+    mWaterLife = NebulaHost::setting(NEBULA_PATCH_WATER_AIR, 8);
 
     if (MR::isPlayerLuigi()) {
-        mMaxHealth = 3;
-        mHealth = 3;
+        mMaxHealth = startingHealth;
+        mHealth = startingHealth;
     }
 
-    if (MR::isGalaxyDarkCometAppearInCurrentStage()) {
+    if (MR::isGalaxyDarkCometAppearInCurrentStage() && !NebulaHost::codePatch(NEBULA_PATCH_PLAYER_HEALTH_FIXED, nullptr)) {
         mMaxHealth = 1;
         mHealth = 1;
     }
@@ -157,8 +161,11 @@ MarioActor::MarioActor(const char* pName) : LiveActor(pName), _1B0(0xFFFFFFFF) {
     mBlackHoleRotateAxis.zero();
     mPosRelativeToBlackHole.zero();
 
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < 64; i++) {
         mModels[i] = nullptr;
+    }
+    for (int i = 0; i < 58; i++) {
+        mModPowerUpModels[i] = nullptr;
     }
 
     _A61 = false;
@@ -870,7 +877,11 @@ void MarioActor::control() {
     if (mSuperKinokoCollected) {
         if (MR::tryStartDemoWithoutCinemaFrame(this, "\203\175\203\212\203\111\203\130\201\133\203\160\201\133\211\273" /* マリオスーパー化 */)) {  // 6-up camera
             mSuperKinokoCollected = false;
-            changeMaxLife(6);
+            u32 lifeUpHealth = 6;
+            NebulaHost::codePatch(NEBULA_PATCH_LIFE_UP_HEALTH, &lifeUpHealth);
+            if (lifeUpHealth != 0) {
+                changeMaxLife(static_cast< s32 >(lifeUpHealth));
+            }
             MR::stopAnimFrame(this);
             MR::requestPowerUpHPMeter();
             mMario->startPadVib("\203\175\203\212\203\111[\225\317\220\147]" /* マリオ[変身] */);
@@ -1122,7 +1133,7 @@ bool MarioActor::doRush() {
                 }
 
                 if (initial == 2) {
-                    mWaterLife = 8;
+                    mWaterLife = NebulaHost::setting(NEBULA_PATCH_WATER_AIR, 8);
                     MR::getGameSceneLayoutHolder()->changeLifeMeterModeGround();
                     mMario->forceExitSwim();
                 } else if (initial == 0) {
@@ -1450,33 +1461,23 @@ void MarioActor::decLife(u16 amt) {
         return;
     }
 
+    if (NebulaMods::fire(NEBULA_MOD_EVENT_PLAYER_DAMAGE, 1) == 0) {
+        _388 = 0;
+        return;
+    }
+
     if (mHealth) {
-        mHealth--;
+        mHealth = NebulaHost::codePatch(NEBULA_PATCH_HIT_TAKES_ALL, nullptr) ? 0 : mHealth - 1;
     }
 
     _388 = 0;
-    if (gIsLuigi) {
-        if (mMaxHealth == 3) {
-            return;
-        }
-
-        if (mHealth > 3) {
-            return;
-        }
-
-        mMaxHealth = 3;
+    // A Life Up's extra health gone, the most falls back to what the player starts with.
+    const u32 startingHealth = NebulaHost::setting(NEBULA_PATCH_PLAYER_HEALTH, 3);
+    if (mMaxHealth <= startingHealth || mHealth > startingHealth) {
         return;
     }
 
-    if (mMaxHealth == 3) {
-        return;
-    }
-
-    if (mHealth > 3) {
-        return;
-    }
-
-    mMaxHealth = 3;
+    mMaxHealth = startingHealth;
 }
 
 void MarioActor::decLifeLarge() {
@@ -1492,7 +1493,7 @@ void MarioActor::decLifeSmall() {
 }
 
 void MarioActor::resetWaterLife() {
-    mWaterLife = 8;
+    mWaterLife = NebulaHost::setting(NEBULA_PATCH_WATER_AIR, 8);
 }
 
 void MarioActor::updateLife() {
@@ -1508,7 +1509,7 @@ void MarioActor::updateLife() {
         return;
     }
 
-    mHealth--;
+    mHealth = NebulaHost::codePatch(NEBULA_PATCH_HIT_TAKES_ALL, nullptr) ? 0 : mHealth - 1;
 }
 
 void MarioActor::incLife(u32 amt) {
@@ -1897,7 +1898,12 @@ void MarioActor::calcAnim() {
             }
         }
 
-        switch (val) {
+        // A mod's power-up: a body of its own, or the look of one of the game's.
+        const s32 modSlot = static_cast< s32 >(val) - NebulaMods::cFirstPowerUp;
+        const bool ownModel = modSlot >= 0 && modSlot < 58 && mModels[6 + modSlot] != nullptr;
+        if (ownModel) {
+            changeDisplayMode(6 + modSlot);
+        } else switch (NebulaMods::powerUpLook(val)) {
         case 1:
             changeDisplayMode(4);
             _9C8->calcAnim();
@@ -1987,7 +1993,10 @@ void MarioActor::calcAnim() {
             MR::updateModelDiffMaterials(_A00);
             break;
         default:
-            if (mCurrModel != 1) {
+            if (mCurrModel >= 6 && mModPowerUpModels[mCurrModel - 6] != nullptr) {
+                mModPowerUpModels[mCurrModel - 6]->mPosition.set(mPosition);
+                MR::updateModelDiffMaterials(mModPowerUpModels[mCurrModel - 6]);
+            } else if (mCurrModel != 1) {
                 MR::updateModelDiffMaterials(this);
             }
 

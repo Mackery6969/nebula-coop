@@ -4,6 +4,7 @@
 #include "Game/Map/HitInfo.hpp"
 #include "Game/MapObj/PowerStar.hpp"
 #include "Game/MapObj/StarPieceDirector.hpp"
+#include "Game/System/NebulaCoopWorld.hpp"
 #include "Game/Util.hpp"
 #include "Game/Util/ActorMovementUtil.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
@@ -1227,7 +1228,9 @@ bool StarPiece::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceive
     if (MR::isMsgStartPowerStarGet(msg)) {
         if ((isNerve(GET_NERVE(StarPiece, HostTypeNrvToTarget)) && mFlags.isGoToPlayer) || isNerve(GET_NERVE(StarPiece, HostTypeNrvSpinDrained)) ||
             isNerve(GET_NERVE(StarPiece, HostTypeNrvToPlayerEnd))) {
-            MR::gotByPlayer();
+            if (MR::gotByPlayer()) {
+                NebulaCoopWorld::noticeStarBitGot(this);
+            }
         }
 
         makeActorDead();
@@ -1243,6 +1246,8 @@ bool StarPiece::isIgnoreTriOnThrow(const Triangle* pTriangle) {
 
 bool StarPiece::touchPlayer() {
     if (MR::gotByPlayer()) {
+        // Online co-op: it counts for the others in the instance too.
+        NebulaCoopWorld::noticeStarBitGot(this);
         if (200.0f < calcDistToCamera()) {
             if (isEffectLight()) {
                 MR::emitEffect(this, "StarPieceGetS");

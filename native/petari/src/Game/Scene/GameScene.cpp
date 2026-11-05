@@ -1,4 +1,5 @@
 #include "Game/Scene/GameScene.hpp"
+#include "Game/System/NebulaMods.hpp"
 #include "Game/System/NebulaLoadTrace.hpp"
 #include "JSystem/JAudio2/JASWaveArcLoader.hpp"
 #include "Game/System/GameThreads.hpp"
@@ -75,6 +76,9 @@
 #include "Game/Util/ModelUtil.hpp"
 #include "Game/Animation/XanimeCore.hpp"
 #include "Game/Animation/XanimePlayer.hpp"
+#include "Game/Animation/XanimeResource.hpp"
+#include "Game/System/ResourceHolder.hpp"
+#include "Game/System/ResourceInfo.hpp"
 #include "Game/Player/MarioAnimator.hpp"
 #include "Game/Player/MarioHolder.hpp"
 #include "Game/Util/FileUtil.hpp"
@@ -155,6 +159,7 @@ GameScene::GameScene()
 GameScene::~GameScene() {
     NebulaCharacter::endScene();
     NebulaCoopWorld::endScene();
+    NebulaMods::fire(NEBULA_MOD_EVENT_STAGE_END, 0, nullptr, MR::getCurrentStageName());
     MR::destroySceneMessage();
     NPCFunction::deleteNPCData();
     MR::onStarPointerSceneOut();
@@ -192,6 +197,11 @@ void GameScene::init() {
 
     if (MR::isStageEpilogueDemo()) {
         MR::createSceneObj(SceneObj_StaffRoll);
+    }
+
+    // A plugin can start a movie in any scene.
+    if (NebulaMods::hasCode()) {
+        MR::createSceneObj(SceneObj_MoviePlayerSimple);
     }
 
     if (MR::isStageEpilogueDemo() || GameSequenceFunction::isNeedMoviePlayerForStorySequenceEvent()) {
@@ -300,6 +310,21 @@ namespace {
             for (u32 i = 0; i < 4; i++) {
                 player.track_weights[i] = pXanime->mWeights[i];
             }
+            // The tracks Mario's code put another bck on (standing on a slope: its wait, not the group's run), by
+            // their motion resource's name. Looked up only while one is swapped, and a pointer match is cheap.
+            const XanimeGroupInfo* pGroup = pXanime->mCurrentAnimation;
+            const XanimeCore* pCore = pXanime->getCore();
+            if (pGroup != nullptr && pCore->mTrackList != nullptr) {
+                const u32 count = pGroup->mBckTableVariant < pCore->mTrackCount ? pGroup->mBckTableVariant : pCore->mTrackCount;
+                for (u32 i = 0; i < count && i < 4; i++) {
+                    const void* pBck = pCore->mTrackList[i]._0;
+                    if (pBck == nullptr || pBck == pGroup->_20[i]) {
+                        continue;
+                    }
+                    const char* pName = pXanime->mResourceTable->mResourceHolder->mMotionResTable->findResName(pBck);
+                    nebula_snprintf(player.tracks[i], sizeof(player.tracks[i]), "%s", pName != nullptr ? pName : "");
+                }
+            }
         }
         // The model's turn: its base matrix's Z (front) and Y (up) columns, with the turn MarioActor::calcAndSetBaseMtx
         // gives his root joint on top (Mario::createCorrectionMtx: a quick turn round, or the matrix of what holds
@@ -341,6 +366,7 @@ namespace {
 };  // namespace
 
 void GameScene::start() {
+    NebulaMods::fire(NEBULA_MOD_EVENT_STAGE_START, MR::getCurrentScenarioNo(), nullptr, MR::getCurrentStageName());
     AudWrap::getSceneMgr()->startScene();
     sBoardRequested = false;
     reportPresence();
@@ -356,6 +382,7 @@ void GameScene::start() {
 }
 
 void GameScene::update() {
+    NebulaMods::StageFrame stageFrame;
     updateMenusLeftOpen();
     mPauseCtrl->updateNerve();
     updateNerve();
@@ -381,7 +408,7 @@ void GameScene::update() {
     }
     NebulaRemotePlayer::updateAll();
     NebulaAchievements::update();
-    if (sTestBoard && MR::isExistSceneObj(SceneObj_GameSceneLayoutHolder) && MR::getGameSceneLayoutHolder()->mAchievementBoard != nullptr) {
+    if (sTestBoard && MR::isStageAstroLocation() && MR::isExistSceneObj(SceneObj_GameSceneLayoutHolder) && MR::getGameSceneLayoutHolder()->mAchievementBoard != nullptr) {
         sTestBoard = false;
         requestShowNebulaBoard();
     }
@@ -434,7 +461,7 @@ void GameScene::draw() const {
 #endif
     // The settings' galaxy select (its ONLINE page's cheats) names its galaxies and stars in the game's own words, asked once.
     if (NebulaHost::galaxySelectNamesWanted() != 0) {
-        char id[64];
+        char id[256];
         u32 stars = 0;
         for (u32 i = 0; NebulaHost::galaxySelectStage(i, id, sizeof(id), &stars) != 0; ++i) {
             NebulaHost::galaxySelectName(i, 0, reinterpret_cast< const u16* >(MR::getGalaxyNameOnCurrentLanguage(id)));

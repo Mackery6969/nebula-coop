@@ -58,8 +58,8 @@ attribution; this entry records the source and credits its authors.
 
 ## AMD FidelityFX SDK 1.1.4 (MIT)
 
-The FSR 3 upscaler and its DX12 backend, built from <https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK>
-(tag `v1.1.4`, downloaded and checked by SHA-256 at configure time) and linked into `NebulaNative.exe`. Copyright (c)
+The FSR 3 upscaler and its DX12 and Vulkan backends, built from <https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK>
+(tag `v1.1.4`, downloaded and checked by SHA-256 at configure time) and linked into the game. Copyright (c)
 2023-2024 Advanced Micro Devices, Inc. License: MIT, the SDK's `LICENSE.txt`.
 
 ## libarchive 3.8.1, xz 5.8.1, zlib 1.3.1
@@ -99,6 +99,17 @@ used under the MIT alternative: `third_party/stb/LICENSE`.
 `third_party/bcdec/bcdec.h` (v0.98) from <https://github.com/iOrange/bcdec> decodes texture packs' BC1-BC5 and BC7
 DDS files. Copyright (c) 2022 Sergii Kudlai, used under the MIT alternative: `third_party/bcdec/LICENSE`.
 
+## DirectX Shader Compiler (NCSA and MIT; dxil.dll under Microsoft's terms)
+
+Windows installs carry `dxc\dxc.exe`, `dxc\dxcompiler.dll` and `dxc\dxil.dll` from Microsoft's release v1.9.2609,
+<https://github.com/microsoft/DirectXShaderCompiler>, unchanged, with their license files beside them. The game starts them to
+build a mod's shaders on the player's PC.
+
+## MinHook (BSD 2-clause)
+
+`third_party/minhook` (1.3.4) from <https://github.com/TsudaKageyu/minhook>, unchanged, is how a mod's plugin replaces a
+game function on Windows. Copyright (C) 2009-2017 Tsuda Kageyu: `third_party/minhook/LICENSE.txt`.
+
 ## MiiPort (ISC)
 
 `runtime/src/mii_formats.cpp` adapts the Switch's colour and glasses downgrade tables and the 3DS/Wii U and Switch Mii
@@ -129,7 +140,7 @@ Setup's game importer, `nebula-import.exe` (`crates/nebula-import`), reads disc 
 `nod` crate 1.4.4 by Luke Street (<https://github.com/encounter/nod>, MIT OR Apache-2.0). `nod`
 contains the Wii common keys needed to read a Wii disc partition.
 
-`nebula-import.exe` links 45 crates (`Cargo.lock`) under MIT, Apache-2.0, BSD-2-Clause,
+`nebula-import.exe` links 62 crates (`Cargo.lock`) under MIT, Apache-2.0, BSD-2-Clause,
 BSD-3-Clause, Zlib or 0BSD terms, and the C libraries zstd (BSD-3-Clause), liblzma (0BSD) and
 bzip2 (bzip2 license). Their license texts are in
 [docs/licenses/rust-dependencies.txt](docs/licenses/rust-dependencies.txt). The `nod` crate ships

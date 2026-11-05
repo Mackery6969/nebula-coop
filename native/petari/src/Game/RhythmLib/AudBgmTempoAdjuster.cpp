@@ -4,15 +4,8 @@
 #include "Game/System/GameThreads.hpp"
 
 AudBgmTempoAdjuster::AudBgmTempoAdjuster()
-    : mStream(), mBeatMul(1.0f), mIntroBeats(), mLoopBeats(), mLoopStartSamples(), mLoopEndSamples(), mLoopSamples() {
-    init();
-}
-
-void AudBgmTempoAdjuster::init() {
-    mLoopCount = 0;
-    mCurrentBeat = 0;
-    mIsBeatNeedSync = false;
-    mIsStreamNeedSync = false;
+    : mStream(nullptr), mTempo(120.0f), mBeatMul(1.0f), mIntroBeats(0), mLoopBeats(0), mLoopStartSamples(0), mLoopEndSamples(0),
+      mIsNewStream(false) {
 }
 
 void AudBgmTempoAdjuster::setInfo(f32 beatMul, u32 introBeats, u32 loopBeats, u32 loopStartSamples, u32 loopEndSamples) {
@@ -21,90 +14,42 @@ void AudBgmTempoAdjuster::setInfo(f32 beatMul, u32 introBeats, u32 loopBeats, u3
     mLoopBeats = loopBeats;
     mLoopStartSamples = loopStartSamples;
     mLoopEndSamples = loopEndSamples;
-    mLoopSamples = loopEndSamples - loopStartSamples;
 }
 
 void AudBgmTempoAdjuster::setStream(JAIStream* pStream) {
     GameAudioExclusion crit;
-    init();
     mStream = pStream;
+    mIsNewStream = pStream != nullptr;
 }
 
 void AudBgmTempoAdjuster::reject() {
     GameAudioExclusion crit;
     mStream = nullptr;
-    init();
+    mIsNewStream = false;
 }
 
-f32 AudBgmTempoAdjuster::beatProc(f32 tempo) {
-    if (mStream == nullptr) {
-        return 1.0f;
-    }
-
-    f32 currSample = mStream->inner_.mStream.mPosition;
-    u32 loopCount = mStream->inner_.mStream.mLoopCount;
-
-    bool newStreamLoop = false;
-    if (loopCount != mLoopCount) {
-        newStreamLoop = true;
-        mLoopCount = loopCount;
-    }
-
-    bool newBeatLoop = false;
-    if (mLoopBeats != 0 && mCurrentBeat >= mIntroBeats + mLoopBeats) {
-        mCurrentBeat = mIntroBeats;
-        newBeatLoop = true;
-    }
-
-    // (samples/beat) * mBeatMul * mCurrentBeat
-    f32 beatSampleStart = (60.0f * AudParams::streamSampleRate / tempo) * mBeatMul * mCurrentBeat;
-
-    if (mLoopSamples != 0.0f) {
-        if (newBeatLoop && !newStreamLoop && !mIsStreamNeedSync) {
-            currSample -= mLoopSamples;
-        } else if (!newBeatLoop && newStreamLoop && !mIsBeatNeedSync) {
-            currSample += mLoopSamples;
-        }
-    }
-
-    f32 samples = currSample - beatSampleStart;  // how many samples out-of-sync
-    f32 rate = calcAdjustRate(samples, tempo);
-
-    if (newBeatLoop) {
-        mIsBeatNeedSync = true;
-    }
-    if (newStreamLoop) {
-        mIsStreamNeedSync = true;
-    }
-
-    if (mIsBeatNeedSync && mIsStreamNeedSync) {
-        mIsBeatNeedSync = false;
-        mIsStreamNeedSync = false;
-    }
-
-    mCurrentBeat++;
-
-    return rate;
+bool AudBgmTempoAdjuster::takeNewStream() {
+    const bool isNew = mIsNewStream;
+    mIsNewStream = false;
+    return isNew;
 }
 
-f32 AudBgmTempoAdjuster::calcAdjustRate(f32 syncSamples, f32 tempo) {
-    f32 rate = (syncSamples - 500.0f) / ((60.0f * AudParams::streamSampleRate / tempo) * mBeatMul);
-
-    bool early = false;
-    if (rate < 0.0f) {
-        early = true;
-        rate = -rate;
+f64 AudBgmTempoAdjuster::sequenceSamples(void* pSelf) {
+    const AudBgmTempoAdjuster* const self = static_cast< const AudBgmTempoAdjuster* >(pSelf);
+    if (self->mStream == nullptr) {
+        return -1.0;
     }
-
-    // In proportion to the difference: it closes within the next beat. A square left a small difference for good.
-    if (rate > 1.0f) {
-        rate = 1.0f;
+    const u32 position = self->mStream->inner_.mStream.mPosition;
+    const u32 loops = self->mStream->inner_.mStream.mLoopCount;
+    const u32 loopSamples = self->mLoopEndSamples - self->mLoopStartSamples;
+    if (self->mLoopBeats == 0 || loopSamples == 0) {
+        return position;
     }
-
-    if (!early) {
-        rate += 1.0f;
-        return rate;
+    const f64 samplesPerBeat = 60.0 * AudParams::streamSampleRate / self->mTempo * self->mBeatMul;
+    const f64 intro = self->mIntroBeats * samplesPerBeat;
+    const f64 loop = self->mLoopBeats * samplesPerBeat;
+    if (loops == 0 && position < self->mLoopStartSamples) {
+        return position * intro / self->mLoopStartSamples;
     }
-
-    return 1.0f / (1.0f + rate);
+    return intro + loops * loop + (static_cast< f64 >(position) - self->mLoopStartSamples) * loop / loopSamples;
 }

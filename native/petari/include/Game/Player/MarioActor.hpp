@@ -192,6 +192,7 @@ public:
     void swapTextureInit();
     void initBlur();
     void changeDisplayMode(u8);
+    void initModPowerUpModels();
     bool isAllHidden() const;
     void calcViewMainModel();
     void initFace();
@@ -559,6 +560,9 @@ public:
         return _482 || _481;
     }
 
+    /// @brief Whether this stage loaded what the player mode needs: a level brings a power-up's model with the item that gives it.
+    bool canTakePowerUp(s32 playerMode) const;
+
     inline Mario* getMario() const {
         return mMario;
     }
@@ -805,7 +809,8 @@ public:
     TVec3f _A18;
     u8 _A24;
     u8 _A25;
-    J3DModelX* mModels[6];
+    J3DModelX* mModels[64];  // the game's six, then a mod's power-ups' whole-body models
+    ModelHolder* mModPowerUpModels[58];
     ModelHolder* _A40;
     ModelHolder* _A44;
     ModelHolder* _A48;

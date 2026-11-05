@@ -1,5 +1,6 @@
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/System/NebulaCoopWorld.hpp"
+#include "Game/System/NebulaMods.hpp"
 #include "Game/Util/MotionSignal.hpp"
 #include "Game/AudioLib/AudAnmSoundObject.hpp"
 #include "Game/LiveActor/ActorAnimKeeper.hpp"
@@ -44,6 +45,7 @@ void LiveActor::appear() {
 }
 
 void LiveActor::makeActorAppeared() {
+    NebulaMods::fire(NEBULA_MOD_EVENT_ACTOR_APPEAR, 0, this, mName);
     if (mSensorKeeper != nullptr) {
         mSensorKeeper->validateBySystem();
     }
@@ -78,6 +80,7 @@ void LiveActor::kill() {
 }
 
 void LiveActor::makeActorDead() {
+    NebulaMods::fire(NEBULA_MOD_EVENT_ACTOR_KILL, 0, this, mName);
     MotionSignal::died(this);
     mVelocity.zero();
 
@@ -156,7 +159,7 @@ void LiveActor::movement() {
         MR::updateLightCtrl(this);
     }
 
-    // Online co-op: an enemy another player's game moves goes where that game has it.
+    // Online co-op: an enemy another player's game moves glides to where that game has it.
     if (NebulaCoopWorld::sObjectsActive) {
         NebulaCoopWorld::afterMovement(this);
     }
@@ -267,9 +270,9 @@ MtxPtr LiveActor::getTakingMtx() const {
 }
 
 void LiveActor::setNerve(const Nerve* pNerve) {
-    // Online co-op: an enemy another player's game moves takes that game's nerves, not its own AI's.
-    if (NebulaCoopWorld::sObjectsActive && !NebulaCoopWorld::allowNerve(this, pNerve)) {
-        return;
+    // Online co-op: the nerves an enemy's own code sets, for another game's states to name one of them.
+    if (NebulaCoopWorld::sObjectsActive) {
+        NebulaCoopWorld::noteNerve(this, pNerve);
     }
     mSpine->setNerve(pNerve);
 }
@@ -372,6 +375,11 @@ void LiveActor::prepareDrawClipped() {
 
 void LiveActor::initModelManagerWithAnm(const char* pModelName, const char* pAnimName, bool a3) {
     mModelManager = new ModelManager();
+    // A class of the mod's: its files in place of those the object it is made as asks for.
+    pModelName = NebulaMods::modelFor(mName, pModelName);
+    if (pAnimName != nullptr) {
+        pAnimName = NebulaMods::modelFor(mName, pAnimName);
+    }
     mModelManager->init(pModelName, pAnimName, a3);
 
     MR::getJ3DModel(this)->setBaseScale(mScale);
@@ -431,6 +439,7 @@ void LiveActor::initShadowControllerList(u32 shadowNum) {
 }
 
 void LiveActor::initActorCollisionParts(const char* pParam1, HitSensor* pParam2, ResourceHolder* pParam3, MtxPtr pParam4, bool param5, bool param6) {
+    pParam1 = NebulaMods::modelFor(mName, pParam1);
     MR::CollisionScaleType scaleType;
 
     if (param6) {

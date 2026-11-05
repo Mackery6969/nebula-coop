@@ -47,6 +47,7 @@ void test_bytes() {
     snapshot.velocity = {1.0f, 2.0f, 3.0f};
     snapshot.rate = 0.5f;
     snapshot.weights = {0.25f, 0.75f, 0.0f, 0.0f};
+    snapshot.tracks[2] = "slope_wait_r";
     snapshot.health = 3u;
     snapshot.mode = 2u;
     snapshot.flags = 1u;
@@ -57,8 +58,14 @@ void test_bytes() {
     expect(back && back->sequence == 7u && back->stage == "EggStarGalaxy" && back->scenario == 1 &&
                back->position[0] == 12.5f && back->rotation[1] == 90.0f && back->front[0] == 1.0f && back->up[1] == 1.0f && back->velocity[2] == 3.0f &&
                back->group == "run" && back->animation == "run" && back->rate == 0.5f && back->weights[1] == 0.75f &&
-               back->health == 3u && back->mode == 2u && back->flags == 1u && back->area == 0xA5EA1234u,
+               back->tracks[0].empty() && back->tracks[1].empty() && back->tracks[2] == "slope_wait_r" &&
+               back->tracks[3].empty() && back->health == 3u && back->mode == 2u && back->flags == 1u &&
+               back->area == 0xA5EA1234u,
            "as it was sent");
+    PlayerSnapshot plain = snapshot;
+    plain.tracks = {};
+    expect(galaxy::coop::encode_snapshot(plain).size() + 2u + 12u == bytes.size(),
+           "a track with no bck of its own costs nothing but the one byte");
     expect(bytes.size() < 200u, "in one small datagram");
     for (std::size_t cut = 0; cut < bytes.size(); ++cut) {
         if (galaxy::coop::decode_snapshot({bytes.data(), cut})) {

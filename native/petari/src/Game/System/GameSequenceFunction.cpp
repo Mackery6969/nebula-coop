@@ -1,3 +1,4 @@
+#include "Game/System/NebulaMods.hpp"
 #include "Game/System/GameSequenceFunction.hpp"
 #include "Game/System/FindingLuigiEventScheduler.hpp"
 #include "Game/System/GalaxyCometScheduler.hpp"
@@ -8,6 +9,7 @@
 #include "Game/System/GameDataTemporaryInGalaxy.hpp"
 #include "Game/System/GameSequenceDirector.hpp"
 #include "Game/System/GameSequenceProgress.hpp"
+#include "Game/System/NebulaCoopWorld.hpp"
 #include "Game/System/GameSystem.hpp"
 #include "Game/System/GameSystemSceneController.hpp"
 #include "Game/System/SaveDataHandleSequence.hpp"
@@ -188,6 +190,8 @@ namespace GameSequenceFunction {
 
         GameDataSomeScenarioAccessor accessor = pGameDataHolder->makeGalaxyScenarioAccessor(getClearedStageName(), getClearedPowerStarId());
         accessor.updateMaxCoinNum(clearedCoinNum);
+        // Online co-op: the room's most coins for the star are the best of anyone's.
+        NebulaCoopWorld::noticeMostCoins(pGameDataHolder, getClearedStageName(), getClearedPowerStarId(), accessor.getMaxCoinNum());
     }
 
     void resetStageResultSequenceParam() {
@@ -273,6 +277,7 @@ namespace GameSequenceFunction {
     }
 
     void startGameDataSaveSequence(bool isConfirmRemind, bool isSaveAndQuitMsg) {
+        NebulaMods::fire(NEBULA_MOD_EVENT_GAME_SAVE);
         ::getGameSequenceProgress()->getGalaxyCometScheduler()->updateStateToGameData();
 
         if (GameDataFunction::isPassedStoryEvent("\203\163\201\133\203\140\217\351\225\202\217\343\214\343" /* ピーチ城浮上後 */) && !GameDataFunction::hasGrandStar(1)) {
