@@ -141,3 +141,16 @@ void AudSystemWrapper::receiveResourceForInitialize() {
     mSpkRes = MR::getMountedArchive(AudSpeakerWrap::getResName());
     mJaiRemixSeqRes = MR::getMountedArchive(sJaiRemixArc);
 }
+
+void AudSystemWrapper::loadScenarioWaveData(const char* pSceneName, const char* pStageName, s32 scenarioNo) {
+    if (mAudSystem != nullptr && mAudSystem->mSceneMgr != nullptr) {
+        mAudSystem->mSceneMgr->loadScenarioResource(pSceneName, pStageName, scenarioNo);
+    }
+}
+
+bool AudSystemWrapper::isLoadDoneScenarioWaveData() const {
+    if (mAudSystem == nullptr || mAudSystem->mSceneMgr == nullptr) {
+        return false;
+    }
+    return mAudSystem->mSceneMgr->isLoadDoneScenarioResource();
+}

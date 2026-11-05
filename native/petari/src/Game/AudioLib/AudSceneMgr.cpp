@@ -38,3 +38,10 @@ void AudSceneMgr::setPlayerLuigi(bool isLuigi) {
     mAudioData->loadWaveArc(cPlayerVoiceBank, isLuigi ? cLuigiVoices : cMarioVoices);
     mPlayerMode = mode;
 }
+
+void AudSceneMgr::loadScenarioResource(const char*, const char*, s32) {
+}
+
+bool AudSceneMgr::isLoadDoneScenarioResource() {
+    return true;
+}

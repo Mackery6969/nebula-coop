@@ -16,6 +16,8 @@ public:
 
     void startScene();
     void setPlayerLuigi(bool isLuigi);
+    void loadScenarioResource(const char*, const char*, s32);
+    bool isLoadDoneScenarioResource();
 
     bool isPlayerModeMario() {
         return mPlayerMode == PlayerMode_Mario;

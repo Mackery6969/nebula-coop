@@ -27,6 +27,9 @@ public:
     void resumeReset();
     void receiveResourceForInitialize();
 
+    void loadScenarioWaveData(const char*, const char*, s32);
+    bool isLoadDoneScenarioWaveData() const;
+
     AudSystem* mAudSystem;
     NebulaArena* mSolidHeap;
     NebulaArena* mHeap;

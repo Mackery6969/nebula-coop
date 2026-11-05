@@ -73,6 +73,8 @@ public:
     void setCurrentScenarioNo(s32, s32);
     void resetCurrentScenarioNo();
     bool isScenarioDecided() const;
+    void loadScenarioWaveData();
+    bool isLoadDoneScenarioWaveData() const;
     void exeNotInitialized();
     void exeNormal();
     void exeWaitDrawDoneScene();

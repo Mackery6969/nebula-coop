@@ -334,6 +334,14 @@ bool GameSystemSceneController::isScenarioDecided() const {
     return mCurrSceneControlInfo.mScenarioNo > 0;
 }
 
+void GameSystemSceneController::loadScenarioWaveData() {
+    ::getAudioSystemWrapper()->loadScenarioWaveData(mCurrSceneControlInfo.mScene, mCurrSceneControlInfo.mStage, mCurrSceneControlInfo.mScenarioNo);
+}
+
+bool GameSystemSceneController::isLoadDoneScenarioWaveData() const {
+    return ::getAudioSystemWrapper()->isLoadDoneScenarioWaveData();
+}
+
 void GameSystemSceneController::exeNotInitialized() {
     if (mSpine->mStep == 0) {
         mIntermissionScene->setCurrentSceneControllerState("[system setup]");
