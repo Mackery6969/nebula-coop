@@ -41,6 +41,8 @@ enum SceneInitializeState {
 
 class GameSystemSceneController {
 public:
+    void holdSceneInitialize();
+    bool resumeSceneInitialize();
     /// @brief Creates a new `GameSystemSceneController`.
     GameSystemSceneController();
 
@@ -71,13 +73,11 @@ public:
     void setCurrentScenarioNo(s32, s32);
     void resetCurrentScenarioNo();
     bool isScenarioDecided() const;
-    void loadScenarioWaveData();
-    bool isLoadDoneScenarioWaveData() const;
     void exeNotInitialized();
     void exeNormal();
     void exeWaitDrawDoneScene();
     void exeDestroyScene();
-    void exeChangeWaveBank();
+    void exeChoosePlayerVoices();
     void exeInitializeScene();
     void exeInvalidateSystemWipe();
     void exeDestroyed();
@@ -105,6 +105,8 @@ public:
     NameObjHolder* mObjHolder;
     Scene* mScene;
     SceneInitializeState mSceneInitializeState;
+    bool mSceneInitializeHeld = false;
+    bool mSceneInitializeDone = false;
     IntermissionScene* mIntermissionScene;
     PlayTimerScene* mPlayTimerScene;
     ScenarioSelectScene* mScenarioSelectScene;

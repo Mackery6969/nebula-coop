@@ -15,15 +15,14 @@ namespace MR {
     void drawScreenColor(const NebulaColor8& rColor);
     void drawScreenPicture(const JUTTexture& rTexture);
     void drawInit();
-    void reinitGX();
+    void resetDrawState();
     void loadViewMtxFor2DModel();
     void drawInitFor2DModel();
     void setDefaultViewportAndScissor();
     void loadProjectionMtxFor2D();
     void setupDrawForNW4RLayout(f32, bool);
     void clearZBuffer();
-    void clearAlphaBuffer(u8);
-    void clearAlphaBuffer(u8, const TVec2f&, const TVec2f&);
+    void clearStencil();
     void fillScreenSetup(const NebulaColor8&);
     void fillScreenArea(const TVec2s&, const TVec2s&);
     void fillScreen(const NebulaColor8&);

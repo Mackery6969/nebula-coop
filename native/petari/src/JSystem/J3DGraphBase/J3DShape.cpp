@@ -1,4 +1,6 @@
 #include "JSystem/J3DGraphBase/J3DShape.hpp"
+#include "JSystem/J3DGraphBase/J3DNativeShape.hpp"
+#include "JSystem/J3DGraphBase/J3DShapeMtx.hpp"
 #include "JSystem/J3DGraphBase/J3DPacket.hpp"
 #include "JSystem/J3DGraphBase/J3DShapeDraw.hpp"
 #include "JSystem/J3DGraphBase/J3DSys.hpp"
@@ -28,6 +30,7 @@ void J3DShape::initialize() {
     mHasNBT = false;
     mHasPNMTXIdx = false;
     mNebulaRegistered = false;
+    mNebulaWhole = false;
 }
 
 void J3DShape::addTexMtxIndex(u32 coord, u32 valueBase) {
@@ -40,7 +43,7 @@ void J3DShape::addTexMtxIndex(u32 coord, u32 valueBase) {
         NebulaShapeCorner* pCorners = pMesh->corners();
         for (u32 c = 0; c < pMesh->mCornerCount; c++) {
             pCorners[c].texture_matrix[coord] = valueBase == cTexMtxBasePlaceZero ? 0
-                                                : valueBase >= 30                ? pCorners[c].position_matrix
+                                                : valueBase >= 30                ? NEBULA_CORNER_NORMAL_MATRIX
                                                                                  : NEBULA_CORNER_POSITION_MATRIX;
         }
     }
@@ -87,7 +90,11 @@ void J3DShape::drawFast() const {
         mCurrentMtx.load();
 
     setArrayAndBindPipeline();
-    if (!checkFlag(J3DShpFlag_NoMtx)) {
+    if (mNebulaWhole && !checkFlag(J3DShpFlag_NoMtx) &&
+        sTexMtxLoadTypeIsPlain()) {
+        mShapeMtx[0]->load();
+        J3DNativeShape::drawWhole(this);
+    } else if (!checkFlag(J3DShpFlag_NoMtx)) {
         for (u16 n = mMtxGroupNum, i = 0; i < n; i++) {
             if (mShapeMtx[i] != nullptr)
                 mShapeMtx[i]->load();

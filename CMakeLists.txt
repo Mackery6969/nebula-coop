@@ -153,6 +153,7 @@ add_library(galaxy_native_input STATIC
     runtime/src/controller_roster.cpp
     runtime/src/generic_hid.cpp
     runtime/src/input/wiimote_input.cpp
+    runtime/src/input/wiimote_motion.cpp
     runtime/src/native_input.cpp
     runtime/src/playstation_controller.cpp
     runtime/src/simple_pads.cpp
@@ -276,19 +277,12 @@ function(galaxy_post_shader name pass preset library stage entry)
 endfunction()
 galaxy_post_shader(post_fullscreen_vs PASS_RESAMPLE - none vs_5_0 VSMain)
 galaxy_post_shader(post_resample_ps PASS_RESAMPLE - none ps_5_0 PSMain)
-galaxy_post_shader(post_deband_ps PASS_DEBAND - none ps_5_0 PSMain)
-galaxy_post_shader(post_deband_reduce_ps PASS_DEBAND_REDUCE - none ps_5_0 PSMain)
-galaxy_post_shader(post_deband_smooth_ps PASS_DEBAND_SMOOTH - none ps_5_0 PSMain)
-galaxy_post_shader(post_deband_apply_ps PASS_DEBAND_APPLY - none ps_5_0 PSMain)
 galaxy_post_shader(post_fxaa_ps PASS_FXAA - none ps_5_0 PSMain)
 galaxy_post_shader(post_fsr_easu_ps PASS_FSR_EASU - fsr ps_5_0 PSMain)
 galaxy_post_shader(post_fsr_rcas_ps PASS_FSR_RCAS - fsr ps_5_0 PSMain)
 galaxy_post_shader(post_fsr_rcas_scaled_ps PASS_FSR_RCAS_SCALED - fsr ps_5_0 PSMain)
 # The same passes reading a picture held in a taller texture (post_process.hlsl SOURCE_BOX).
 galaxy_post_shader(post_resample_box_ps PASS_RESAMPLE SOURCE_BOX none ps_5_0 PSMain)
-galaxy_post_shader(post_deband_box_ps PASS_DEBAND SOURCE_BOX none ps_5_0 PSMain)
-galaxy_post_shader(post_deband_reduce_box_ps PASS_DEBAND_REDUCE SOURCE_BOX none ps_5_0 PSMain)
-galaxy_post_shader(post_deband_apply_box_ps PASS_DEBAND_APPLY SOURCE_BOX none ps_5_0 PSMain)
 galaxy_post_shader(post_fsr_easu_box_ps PASS_FSR_EASU SOURCE_BOX fsr ps_5_0 PSMain)
 galaxy_post_shader(post_fsr_rcas_scaled_box_ps PASS_FSR_RCAS_SCALED SOURCE_BOX fsr ps_5_0 PSMain)
 galaxy_post_shader(post_smaa_edges_vs PASS_SMAA_EDGES SMAA_PRESET_HIGH smaa vs_5_0 VSMain)
@@ -583,6 +577,7 @@ galaxy_test(galaxy_keyboard_layout_tests SOURCES ${rt}/input/keyboard_layout_tes
 galaxy_test(galaxy_keyboard_state_tests SOURCES ${rt}/input/keyboard_state_tests.cpp)
 galaxy_test(galaxy_raw_mouse_tests SOURCES ${rt}/input/raw_mouse_tests.cpp)
 galaxy_test(galaxy_rumble_route_tests SOURCES ${rt}/input/rumble_route_tests.cpp ${rt}/input/rumble_route.cpp)
+galaxy_test(galaxy_wiimote_motion_tests SOURCES ${rt}/input/wiimote_motion_tests.cpp ${rt}/input/wiimote_motion.cpp)
 galaxy_test(galaxy_mouse_projection_tests SOURCES ${rt}/input/mouse_projection_tests.cpp LIBS galaxy_native_input)
 galaxy_test(galaxy_raw_mouse_win32_tests SOURCES ${rt}/input/raw_mouse_win32_tests.cpp LIBS galaxy_native_host)
 galaxy_test(galaxy_key_positions_win32_tests SOURCES ${rt}/input/key_positions_win32_tests.cpp
@@ -651,7 +646,6 @@ endforeach()
 # The tests compile their own small shaders; the program itself never compiles any.
 target_link_libraries(galaxy_frame_pass_tests PRIVATE d3dcompiler)
 target_link_libraries(galaxy_warp_capture_store_tests PRIVATE d3dcompiler)
-add_test(NAME galaxy_post_process_tests_held_no_deband COMMAND galaxy_post_process_tests --held-no-deband)
 # Texture records (nebula_cooked_texture.h) in the texture cache's suite.
 target_include_directories(galaxy_warp_capture_store_tests PRIVATE native/include)
 foreach(mode content-key-hash oversized-content-cache decoded-allocation-budget)

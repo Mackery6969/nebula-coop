@@ -162,13 +162,13 @@ void J3DModelX::directDraw(J3DModel* model) {
 
 namespace {
     // The flat passes' colours by list: `a` marks a flat pass (2: register 0's
-    // colour as the draw's lists left it), `alpha` its
-    // alpha (list 1 and 3: (0 + 1/2) / 2; their destination alpha is the list's constant); list 5 writes depth only.
+    // colour as the draw's lists left it), `alpha` its alpha (list 1 is the shadow texture's: list 14 with it, the soft
+    // edge around it, at a quarter); list 5 writes depth only.
     struct OverrideColor {
         u8 r, g, b, alpha, a;
     };
     const OverrideColor kOverrideColors[16] = {
-        {0, 0, 0, 0, 0},     {0, 0, 0, 64, 1},   {0, 0, 0, 0, 0},  {0, 0, 0, 64, 1},
+        {0, 0, 0, 0, 0},     {0, 0, 0, 255, 1},  {0, 0, 0, 0, 0},  {0, 0, 0, 64, 1},
         {255, 255, 0, 255, 1}, {0, 0, 0, 0, 1},  {0, 0, 0, 0, 0},  {0, 0, 0, 0, 0},
         {0, 0, 0, 252, 1},   {0, 0, 0, 4, 1},    {0, 0, 0, 0, 0},  {0, 0, 0, 0, 0},
         {0, 0, 0, 0, 2},     {35, 25, 25, 5, 1}, {0, 0, 0, 0, 0},  {0, 0, 0, 0, 0},
@@ -188,7 +188,9 @@ void J3DModelX::drawIn(J3DMaterial* material, bool fog, MtxPtr base, J3DModel* m
     J3DMatPacket* matPacket = getMatPacket(material->getIndex());
     J3DShapePacket* packet = model ? model->getShapePacket(material->getShape()->getIndex()) : getShapePacket(material->getShape()->getIndex());
     j3dSys.setMatPacket(matPacket);
-    J3DNativeMaterial::send(matPacket->getMaterial(), matPacket->mpTexture, matPacket->getSnapshot());
+    J3DNativeMaterial::send(matPacket->getMaterial());
+    packet->getShape()->loadPreDrawSetting();
+    J3DNativeMaterial::sendOwn(packet->mpMaterial, matPacket->getMaterial());
 
     if (fog) {
         TVec3f pos;
@@ -196,10 +198,6 @@ void J3DModelX::drawIn(J3DMaterial* material, bool fog, MtxPtr base, J3DModel* m
         TDDraw::mixFogColor(pos, _1D4, _1D8);
     }
 
-    packet->getShape()->loadPreDrawSetting();
-    if (packet->getSnapshot()) {
-        J3DNativeMaterial::sendDiffered(packet->getSnapshot());
-    }
     if (MR::getJ3DShapePacketUserData(packet)) {
         MR::getJ3DShapePacketUserData(packet)->load();
     }
@@ -209,7 +207,7 @@ void J3DModelX::drawIn(J3DMaterial* material, bool fog, MtxPtr base, J3DModel* m
         if (mFlags.word() & (1 << i)) {
             if (i == 6) {
                 J3DNativeMaterial::overrideCoordinate(MR::getScreenResTIMG()->image(), MR::getScreenWidth(),
-                                                      NebulaFrameClock::cScreenUnitsDown);
+                                                      NebulaFrameClock::cScreenLines);
                 continue;
             }
             sendFlagState(i);
@@ -251,15 +249,15 @@ void J3DModelX::drawIn(J3DMaterial* material, bool fog, MtxPtr base, J3DModel* m
         material.cull = NEBULA_NATIVE_KEPT;
         const OverrideColor& rColor = kOverrideColors[override];
         if (rColor.a == 2) {
-            const f32* pRegisters = J3DNativeMaterial::registers();
+            const f32* pRegister = J3DNativeMaterial::currentRegister(1);
             for (u32 c = 0; c < 4; c++) {
-                material.constants[c] = pRegisters[4 + c];
+                material.constants[c] = pRegister[c];
             }
         } else {
             material.constants[0] = rColor.r / 255.0f;
             material.constants[1] = rColor.g / 255.0f;
             material.constants[2] = rColor.b / 255.0f;
-            material.constants[3] = rColor.alpha / 255.0f;
+            material.constants[3] = (override == 1 && (mFlags.word() & (1 << 14)) != 0 ? 64 : rColor.alpha) / 255.0f;
         }
         NativeShader::send(material);
     }
@@ -297,11 +295,9 @@ bool J3DModelX::simpleDrawSetup(J3DMaterial* material) {
     J3DMatPacket* matPacket = getMatPacket(material->getIndex());
     J3DShapePacket* packet = getShapePacket(material->getShape()->getIndex());
     j3dSys.setMatPacket(matPacket);
-    J3DNativeMaterial::send(matPacket->getMaterial(), matPacket->mpTexture, matPacket->getSnapshot());
+    J3DNativeMaterial::send(matPacket->getMaterial());
     packet->getShape()->loadPreDrawSetting();
-    if (packet->getSnapshot()) {
-        J3DNativeMaterial::sendDiffered(packet->getSnapshot());
-    }
+    J3DNativeMaterial::sendOwn(packet->mpMaterial, matPacket->getMaterial());
     return true;
 }
 
@@ -323,7 +319,6 @@ void J3DModelX::sendFlagState(u32 flag) {
         noBlend();
         writeColor(false);
         writeAlpha(true);
-        constantAlpha(true, 0xFF);
         break;
     // Texture 0 at alpha 1/4 added (J3DNativeMaterial::override mode 1).
     case 2:
@@ -333,13 +328,14 @@ void J3DModelX::sendFlagState(u32 flag) {
         writeColor(true);
         writeAlpha(false);
         break;
+    // Where the model is behind a surface: marked, and the fill darkens it.
     case 3:
         depth(true, NEBULA_COMPARE_GEQUAL, false);
         cull(NEBULA_CULL_BACK);
         noBlend();
         writeColor(false);
-        writeAlpha(true);
-        constantAlpha(true, 0x90);
+        writeAlpha(false);
+        stencil(NEBULA_STENCIL_ALWAYS, NEBULA_STENCIL_ADD);
         break;
     case 4:
         depth(true, NEBULA_COMPARE_LEQUAL, false);
@@ -354,40 +350,6 @@ void J3DModelX::sendFlagState(u32 flag) {
         noBlend();
         writeColor(false);
         writeAlpha(false);
-        break;
-    case 7: {
-        const NebulaColor8 ambient = {0, 0, 0, 0};
-        const NebulaColor8 material = {0, 0, 0, 255};
-        J3DNativeShape::flushState();
-        J3DNativeMaterial::setLightAmbient(0, ambient);
-        J3DNativeMaterial::setLightMaterial(0, material);
-        J3DNativeMaterial::sendRegisters();
-        noBlend();
-        writeColor(false);
-        writeAlpha(true);
-        J3DNativeMaterial::applyPass(NEBULA_PASS_LIGHT_MASK);
-        break;
-    }
-    case 8:
-        cull(NEBULA_CULL_FRONT);
-        blend(NEBULA_FACTOR_ZERO, NEBULA_FACTOR_ZERO);
-        writeColor(false);
-        writeAlpha(true);
-        depth(true, NEBULA_COMPARE_LEQUAL, false);
-        break;
-    case 9:
-        cull(NEBULA_CULL_BACK);
-        blend(NEBULA_FACTOR_ONE, NEBULA_FACTOR_ONE);
-        writeColor(false);
-        writeAlpha(true);
-        depth(true, NEBULA_COMPARE_LEQUAL, false);
-        break;
-    case 10:
-        blend(NEBULA_FACTOR_DST_ALPHA, NEBULA_FACTOR_INV_DST_ALPHA);
-        writeColor(true);
-        writeAlpha(true);
-        depth(true, NEBULA_COMPARE_LEQUAL, false);
-        constantAlpha(true, 0);
         break;
     // The reflection model: its program (one stage: texture 0 halved, stage 0's alpha above 0x20, no channels) is
     // J3DNativeMaterial::override mode 5.
@@ -413,13 +375,12 @@ void J3DModelX::sendFlagState(u32 flag) {
         writeColor(true);
         writeAlpha(false);
         break;
-    case 14:
-        constantAlpha(true, 0x40);
-        break;
+    // Only where the dark mask did not mark.
     case 15:
-        blend(NEBULA_FACTOR_INV_DST_ALPHA, NEBULA_FACTOR_DST_ALPHA);
+        noBlend();
         writeColor(true);
         writeAlpha(false);
+        stencil(NEBULA_STENCIL_IF_ZERO, NEBULA_STENCIL_KEEP);
         break;
     default:
         break;
@@ -430,32 +391,28 @@ void MarioModelTint::send() const {
     J3DNativeShape::flushState();
     switch (kind) {
     case Kind_Alpha:
-        J3DNativeMaterial::setColorRegister(3, color0);
-        J3DNativeMaterial::sendRegisters();
+        J3DNativeMaterial::setCurrentRegister(3, color0);
         J3DPass::blend(NEBULA_FACTOR_SRC_ALPHA, NEBULA_FACTOR_INV_SRC_ALPHA);
         J3DPass::cull(NEBULA_CULL_BACK);
         J3DNativeMaterial::applyPass(NEBULA_PASS_PLAYER_OPACITY);
         break;
     case Kind_ConstantAlpha:
-        J3DPass::constantAlpha(true, alpha);
+        J3DNativeMaterial::overrideAlpha(alpha / 255.0f);
         break;
     case Kind_ReflectAlpha:
-        J3DNativeMaterial::setColorRegister(3, color0);
-        J3DNativeMaterial::sendRegisters();
+        J3DNativeMaterial::setCurrentRegister(3, color0);
         J3DNativeMaterial::applyPass(NEBULA_PASS_REFLECTION_ALPHA);
         break;
     case Kind_Light:
-        J3DNativeMaterial::setLightAmbient(0, color0);
-        J3DNativeMaterial::setLightMaterial(0, color1);
+        J3DNativeMaterial::setCurrentAmbient(0, color0);
+        J3DNativeMaterial::setCurrentMaterialColor(0, color1);
         if (hasFog) {
-            J3DNativeMaterial::setFog(2, fogStart, fogEnd, fogNear, fogFar, fogColor);
+            J3DNativeMaterial::setCurrentFog(fogStart, fogEnd, fogNear, fogFar, fogColor);
         }
-        J3DNativeMaterial::sendRegisters();
         J3DNativeMaterial::applyPass(NEBULA_PASS_PLAYER_LIGHT);
         break;
     case Kind_Ghost:
-        J3DNativeMaterial::setColorRegister(1, color0);
-        J3DNativeMaterial::sendRegisters();
+        J3DNativeMaterial::setCurrentRegister(1, color0);
         break;
     default:
         break;
@@ -494,12 +451,6 @@ J3DModelX::J3DModelX(J3DModelData* data, u32 flags, u32 bufferFlags) : J3DModel(
 void J3DModelX::shapePacketDrawFast(J3DShapePacketX* packet) const {
     if (!(packet->mFlags & 0x10) && packet->getShape()) {
         packet->prepareDraw();
-        if (packet->getTexMtxObj()) {
-            J3DDifferedTexMtx::sTexGenBlock = packet->getShape()->mMaterial->mTexGenBlock;
-            J3DDifferedTexMtx::sTexMtxObj = packet->getTexMtxObj();
-        } else {
-            J3DDifferedTexMtx::sTexGenBlock = nullptr;
-        }
         shapeDrawFast(static_cast< J3DShapeX* >(packet->getShape()));
     }
 }

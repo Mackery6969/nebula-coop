@@ -644,7 +644,7 @@ void MarioAnimator::setHoming() {
             vAngle = 0.0f;
         } else {
             f32 dist2 = toTarget.length();
-            vAngle = JMath::sAtanTable.atan2_(angleH, dist2);
+            vAngle = JMAATan2(angleH, dist2);
 
             if (isStatusActiveID(MarioStatus_Talk)) {
                 if (vAngle > 1.0f) {

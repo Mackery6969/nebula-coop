@@ -1,7 +1,7 @@
 #include "JSystem/J3DGraphBase/J3DTevs.hpp"
-#include "JSystem/J3DGraphBase/J3DMatBlock.hpp"
 #include "JSystem/J3DGraphBase/J3DStruct.hpp"
 #include "JSystem/J3DGraphBase/J3DSys.hpp"
+#include "JSystem/J3DGraphBase/J3DTexture.hpp"
 #include "JSystem/J3DGraphBase/J3DTransform.hpp"
 
 
@@ -262,7 +262,7 @@ const u8 j3dDefaultNumChans = 1;
 
 const NebulaColor8 j3dDefaultConstantColor = {0xFF, 0xFF, 0xFF, 0xFF};
 
-const J3DBlendInfo j3dDefaultBlendInfo = {J3D_BM_BLEND, J3D_BL_SRCALPHA, J3D_BL_INVSRCALPHA, J3D_LO_NOOP};
+const J3DBlendInfo j3dDefaultBlendInfo = {J3D_BM_BLEND, J3D_BL_SRCALPHA, J3D_BL_INVSRCALPHA, 0};
 
 
 

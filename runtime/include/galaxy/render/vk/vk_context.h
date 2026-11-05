@@ -26,6 +26,11 @@ struct VmaAllocation_T;
 
 namespace galaxy::render::vk {
 
+// The scene: the art's own blending, in gamma, at 10 bits a channel. No shader reads its alpha.
+inline constexpr VkFormat kSceneColorFormat = VK_FORMAT_A2B10G10R10_UNORM_PACK32;
+// A texture target's colour: the game keeps masks in its alpha.
+inline constexpr VkFormat kTargetColorFormat = VK_FORMAT_R8G8B8A8_UNORM;
+
 class Context;
 
 // An image with its views. The render thread tracks `layout`; the last reference hands the Vulkan objects to the
@@ -110,8 +115,6 @@ public:
     [[nodiscard]] const std::string& device_name() const noexcept { return device_name_; }
     [[nodiscard]] const DeviceIdentity& identity() const noexcept { return identity_; }
     [[nodiscard]] const DeviceQuirks& quirks() const noexcept { return quirks_; }
-    [[nodiscard]] bool dual_source_blend() const noexcept { return dual_source_blend_; }
-    [[nodiscard]] bool logic_op() const noexcept { return logic_op_; }
     [[nodiscard]] bool geometry_shader() const noexcept { return geometry_shader_; }
     [[nodiscard]] bool sample_rate_shading() const noexcept { return sample_rate_shading_; }
     [[nodiscard]] bool sampler_anisotropy() const noexcept { return sampler_anisotropy_; }
@@ -216,8 +219,6 @@ private:
     std::string failure_;
     DeviceIdentity identity_;
     DeviceQuirks quirks_;
-    bool dual_source_blend_ = false;
-    bool logic_op_ = false;
     bool geometry_shader_ = false;
     bool sample_rate_shading_ = false;
     bool sampler_anisotropy_ = false;

@@ -812,6 +812,7 @@ void JPAResource::drawP(JPAEmitterWorkData* work) {
         JPANode< JPABaseParticle >* node = work->mpEmtr->mAlivePtclBase.getLast();
         for (; node != work->mpEmtr->mAlivePtclBase.getEnd(); node = node->getPrev()) {
             work->mpCurNode = node;
+            JPAParticleBatch::particle(node->getObject());
             if (mpDrawParticleFuncList != NULL) {
                 for (int i = mpDrawParticleFuncListNum - 1; i >= 0; i--) {
                     (*mpDrawParticleFuncList[i])(work, node->getObject());
@@ -822,6 +823,7 @@ void JPAResource::drawP(JPAEmitterWorkData* work) {
         JPANode< JPABaseParticle >* node = work->mpEmtr->mAlivePtclBase.getFirst();
         for (; node != work->mpEmtr->mAlivePtclBase.getEnd(); node = node->getNext()) {
             work->mpCurNode = node;
+            JPAParticleBatch::particle(node->getObject());
             if (mpDrawParticleFuncList != NULL) {
                 for (int i = mpDrawParticleFuncListNum - 1; i >= 0; i--) {
                     (*mpDrawParticleFuncList[i])(work, node->getObject());
@@ -876,6 +878,7 @@ void JPAResource::drawC(JPAEmitterWorkData* work) {
         JPANode< JPABaseParticle >* node = work->mpEmtr->mAlivePtclChld.getLast();
         for (; node != work->mpEmtr->mAlivePtclChld.getEnd(); node = node->getPrev()) {
             work->mpCurNode = node;
+            JPAParticleBatch::particle(node->getObject());
             if (mpDrawParticleChildFuncList != NULL) {
                 for (int i = mpDrawParticleChildFuncListNum - 1; i >= 0; i--) {
                     (*mpDrawParticleChildFuncList[i])(work, node->getObject());
@@ -886,6 +889,7 @@ void JPAResource::drawC(JPAEmitterWorkData* work) {
         JPANode< JPABaseParticle >* node = work->mpEmtr->mAlivePtclChld.getFirst();
         for (; node != work->mpEmtr->mAlivePtclChld.getEnd(); node = node->getNext()) {
             work->mpCurNode = node;
+            JPAParticleBatch::particle(node->getObject());
             if (mpDrawParticleChildFuncList != NULL) {
                 for (int i = mpDrawParticleChildFuncListNum - 1; i >= 0; i--) {
                     (*mpDrawParticleChildFuncList[i])(work, node->getObject());
@@ -924,11 +928,9 @@ namespace {
         pOut[3] = rColor.a / 255.0f;
     }
 
-    // The material with the game's register file in its first constants (fog), then its own values over it: prm and
-    // env (register slots 1 and 2), the indirect matrix (rows 0-1), the alpha test's references.
+    // The material with its own values: prm and env, the indirect matrix (rows 0-1), the alpha test's references.
     void sendParticle(bool constantsOnly) {
         NebulaNativeMaterial& rMaterial = sParticle;
-        memcpy(rMaterial.constants, J3DNativeMaterial::registers(), 84 * sizeof(f32));
         putColor(rMaterial.constants + 4, sPrm);
         putColor(rMaterial.constants + 8, sEnv);
         for (u32 row = 0; row < 2; row++) {
@@ -938,7 +940,7 @@ namespace {
         }
         rMaterial.constants[80] = rMaterial.constants[88 + 4] / 255.0f;
         rMaterial.constants[81] = rMaterial.constants[88 + 5] / 255.0f;
-        rMaterial.constants_only = constantsOnly ? 3 : 2;
+        rMaterial.constants_only = constantsOnly ? 1 : 0;
         J3DNativeShape::flushState();
         J3DNativeMaterial::watch(&rMaterial);
     J3DNativeState::sendMaterial(&rMaterial);
@@ -948,7 +950,7 @@ namespace {
     // textures as the emitter's functions load them (the drawing state's maps), the blending, depth and culling the
     // shape and the manager set; its colours from JPANativeColor.
     void sendParticleMaterial(const JPABaseShape* pShape, u32 flags) {
-        JPAParticleBatch::begin();
+        JPAParticleBatch::begin((flags & 7) != 0);
         NebulaNativeMaterial& material = sParticle;
         NativeShader::init(material, NEBULA_SHADER_PARTICLE, NativeShader::BLEND_OPAQUE, NEBULA_COMPARE_ALWAYS, false,
                            NEBULA_CULL_NONE);
@@ -956,8 +958,8 @@ namespace {
         material.depth_test = NEBULA_NATIVE_KEPT;
         material.cull = NEBULA_NATIVE_KEPT;
         material.early_depth = pShape->getZCompLoc() ? 1 : 0;
-        material.constants[84] = static_cast< f32 >(pShape->getTevColorMode());
-        material.constants[85] = static_cast< f32 >(pShape->getTevAlphaMode());
+        material.constants[84] = static_cast< f32 >(pShape->getStageColorMode());
+        material.constants[85] = static_cast< f32 >(pShape->getStageAlphaMode());
         material.constants[86] = static_cast< f32 >(flags);
         material.constants[88] = static_cast< f32 >(pShape->getAlphaCmp0());
         material.constants[89] = static_cast< f32 >(pShape->getAlphaCmp1());

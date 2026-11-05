@@ -69,6 +69,7 @@
 // A real Wii Remote over Windows HID (wiimote_hid.h).
 #define NEBULA_REAL_WIIMOTE 1
 #include "galaxy/input/wiimote_input.h"
+#include "galaxy/input/wiimote_motion.h"
 #include "galaxy/wiimote_hid.h"
 #endif
 #include "galaxy/runtime_settings.h"
@@ -611,7 +612,8 @@ Worker gFs(L"Nebula Host Saves");
 // The save folder's root: the game's paths under it, each checked.
 fs::path gSaveRoot;
 
-// The game's save folder under it (title/00010000/<the game's four-character code in hex>/data, as an install has it).
+// The game's save folder under it (its four-character code); gOldSaveDataPath is where earlier versions kept the
+// save (title/00010000/<the code in hex>/data), read once; a mod's clone copies it too).
 std::string gSaveDataPath;
 // The co-op save being played (galaxy::coop::SaveStore): the game's save folder while set. The fs thread reads it.
 std::mutex gCoopSaveMutex;
@@ -623,6 +625,7 @@ fs::path save_folder_override() {
     return gCoopSaveFolder;
 }
 
+std::string gOldSaveDataPath;
 // The native switches the enabled mods' code patches set (NEBULA_PATCH_*), for the session.
 std::map<std::uint32_t, std::uint32_t> gModPatches;
 
@@ -644,7 +647,7 @@ bool save_folder_path(const char* path, fs::path* out) {
     if (path == nullptr || path[0] != '/') {
         return false;
     }
-    fs::path result = !gModSaveRoot.empty() && !gSaveDataPath.empty() && std::string_view(path).starts_with(gSaveDataPath)
+    fs::path result = !gModSaveRoot.empty() && !gSaveDataPath.empty() && (std::string_view(path).starts_with(gSaveDataPath) || std::string_view(path).starts_with(gOldSaveDataPath))
                           ? gModSaveRoot
                           : gSaveRoot;
     // The co-op save's folder over a mod's (save_folder_override).
@@ -672,7 +675,7 @@ bool save_folder_path(const char* path, fs::path* out) {
 // The audio clock: started by the game with its frame's length (in 32 kHz samples).
 std::mutex gAiLock;
 std::condition_variable gAiWake;
-uint32_t gAudioFrameSamples = 0;
+uint32_t gSoundTicksPerSecond = 0;
 bool gAiRunning = false;
 
 #if defined(NEBULA_HOST_RENDERER)
@@ -736,15 +739,15 @@ void ai_thread() {
     name_thread(L"Nebula Host Audio");
     auto next = std::chrono::steady_clock::now();
     for (;;) {
-        uint32_t frame_samples = 0;
+        uint32_t ticks_per_second = 0;
         {
             std::unique_lock<std::mutex> lock(gAiLock);
-            gAiWake.wait(lock, [] { return gAiRunning && gAudioFrameSamples != 0; });
-            frame_samples = gAudioFrameSamples;
+            gAiWake.wait(lock, [] { return gAiRunning && gSoundTicksPerSecond != 0; });
+            ticks_per_second = gSoundTicksPerSecond;
         }
         gSoundBlocks.fetch_add(1, std::memory_order_relaxed);
         gModule.audio_tick();
-        next += std::chrono::nanoseconds(static_cast<int64_t>(frame_samples * 1e9 / 32000.0));
+        next += std::chrono::nanoseconds(static_cast<int64_t>(1e9 / ticks_per_second));
         std::this_thread::sleep_until(next);
     }
 }
@@ -860,14 +863,14 @@ void svc_frame_wait(void*) {
 // period, without the device's correction) and the clock.
 void svc_test_frame_step(void*) {
     static double due_ns = 0.0;
-    uint32_t frame_samples = 0;
+    uint32_t ticks_per_second = 0;
     {
         std::lock_guard<std::mutex> lock(gAiLock);
-        frame_samples = gAiRunning ? gAudioFrameSamples : 0u;
+        ticks_per_second = gAiRunning ? gSoundTicksPerSecond : 0u;
     }
-    if (frame_samples != 0u) {
+    if (ticks_per_second != 0u) {
         due_ns += 1e9 / 60.0;
-        const double period_ns = static_cast<double>(frame_samples) * 1e9 / 32000.0;
+        const double period_ns = 1e9 / ticks_per_second;
         while (due_ns >= period_ns) {
             due_ns -= period_ns;
             gSoundBlocks.fetch_add(1, std::memory_order_relaxed);
@@ -3085,16 +3088,6 @@ void svc_scene_marker(void*, uint32_t marker, const float* view) {
 #endif
 }
 
-void svc_stripe_particle(void*, uint64_t particle, uint32_t age_lifetime, uint8_t strip) {
-#if defined(NEBULA_HOST_RENDERER)
-    galaxy::render::attach_stripe_particle(0, particle, age_lifetime, strip);
-#else
-    (void)particle;
-    (void)age_lifetime;
-    (void)strip;
-#endif
-}
-
 // The game's steady clock: nanoseconds since the process's first read, plus one (0 means "never" to its users).
 uint64_t svc_clock_ns(void*) {
     if (deterministic_mode()) {
@@ -3311,6 +3304,7 @@ void svc_shape_geometry(void*, const NebulaShapeGeometry* geometry) {
             out.texture_matrix[k] = in.texture_matrix[k];
         }
         out.position_matrix = in.position_matrix;
+        out.model_matrix = in.model_matrix;
     }
     g->indices.assign(geometry->indices, geometry->indices + geometry->index_count);
     for (const uint16_t index : g->indices) {
@@ -3375,12 +3369,15 @@ void copy_draw_matrices(const NebulaDrawMatrix* matrices, uint32_t count, galaxy
 
 void svc_shape_draw(void*, uint64_t shape, uint64_t position, uint64_t normal, uint64_t color,
                     const NebulaDrawMatrix* matrices, uint32_t matrix_count, const NebulaShapeCurrent* current,
-                    const NebulaShapeTexGen* texgens, uint32_t texgen_count, const NebulaPassState* pass) {
+                    const NebulaShapeTexGen* texgens, uint32_t texgen_count, const NebulaPassState* pass,
+                    uint32_t palette, uint32_t palette_matrix) {
 #if defined(NEBULA_HOST_RENDERER)
     namespace shapes = galaxy::render::shapes;
     attach_pending_records();
     shapes::Record record;
     record.kind = shapes::Record::Kind::Draw;
+    record.palette = palette;
+    record.palette_matrix = palette_matrix;
     std::memcpy(&record.pass, pass, sizeof(record.pass));
     record.key = shape;
     record.position = position;
@@ -3401,7 +3398,29 @@ void svc_shape_draw(void*, uint64_t shape, uint64_t position, uint64_t normal, u
     galaxy::render::attach_shape_record(std::move(record));
 #else
     (void)shape, (void)position, (void)normal, (void)color, (void)matrices, (void)matrix_count,
-        (void)current, (void)texgens, (void)texgen_count, (void)pass;
+        (void)current, (void)texgens, (void)texgen_count, (void)pass, (void)palette, (void)palette_matrix;
+#endif
+}
+
+// A model's draw matrices for a view: a record in draw order and the rows, written by the game, in the frame's pool.
+uint32_t svc_shape_palette(void*, uint64_t key, uint32_t count, uint32_t frame, float** rows) {
+#if defined(NEBULA_HOST_RENDERER)
+    namespace shapes = galaxy::render::shapes;
+    static uint32_t next_id = 0u;
+    attach_pending_records();
+    shapes::Record record;
+    record.kind = shapes::Record::Kind::Palette;
+    record.key = key;
+    record.palette = ++next_id;
+    record.palette_matrix = frame;
+    *rows = galaxy::render::reserve_palette_rows(record, count);
+    galaxy::render::attach_shape_record(std::move(record));
+    return next_id;
+#else
+    static float scratch[24u * 4096u];
+    (void)key, (void)count, (void)frame;
+    *rows = scratch;
+    return 1u;
 #endif
 }
 
@@ -3566,10 +3585,14 @@ int32_t svc_mii_record(void*, uint32_t slot, NebulaMii* mii) {
 void svc_immediate(void*, const NebulaImmediate* draw) {
 #if defined(NEBULA_HOST_RENDERER)
     namespace shapes = galaxy::render::shapes;
-    if (draw == nullptr || draw->count == 0u || draw->position == nullptr) {
+    if (draw == nullptr || draw->count == 0u || (draw->position == nullptr && draw->corners == nullptr)) {
         return;
     }
     const uint32_t n = draw->count;
+    static_assert(sizeof(NebulaParticleCorner) == sizeof(galaxy::render::RenderVertexCore) &&
+                  offsetof(NebulaParticleCorner, before) == offsetof(galaxy::render::RenderVertexCore, normal) &&
+                  offsetof(NebulaParticleCorner, prm) == offsetof(galaxy::render::RenderVertexCore, color0) &&
+                  offsetof(NebulaParticleCorner, s) == offsetof(galaxy::render::RenderVertexCore, uv0));
     static_assert(shapes::kQuads == NEBULA_PRIMITIVE_QUADS && shapes::kPoints == NEBULA_PRIMITIVE_POINTS &&
                   shapes::kTriangleFan == NEBULA_PRIMITIVE_TRIANGLE_FAN && shapes::kLineStrip == NEBULA_PRIMITIVE_LINE_STRIP);
     shapes::Record record;
@@ -3579,6 +3602,13 @@ void svc_immediate(void*, const NebulaImmediate* draw) {
     record.primitive = draw->primitive;
     copy_draw_matrices(draw->matrices, draw->matrix_count, record);
     attach_pending_records();
+    if (draw->corners != nullptr) {
+        record.attributes = static_cast<uint32_t>(NEBULA_SHAPE_NORMAL | NEBULA_SHAPE_COLOR0 | NEBULA_SHAPE_COLOR1 |
+                                                  NEBULA_SHAPE_TEXCOORD0 | NEBULA_SHAPE_OWN_POSITIONS);
+        std::memcpy(galaxy::render::reserve_record_corners(record, n), draw->corners, n * sizeof(NebulaParticleCorner));
+        galaxy::render::attach_shape_record(std::move(record));
+        return;
+    }
     // Its values are its own: geometry the game builds as it draws.
     const bool has_normal = (draw->attributes & NEBULA_SHAPE_NORMAL) != 0u && draw->normal != nullptr;
     const bool has_color[2] = {(draw->attributes & NEBULA_SHAPE_COLOR0) != 0u && draw->color[0] != nullptr,
@@ -3632,19 +3662,6 @@ void svc_immediate(void*, const NebulaImmediate* draw) {
         }
         // Vertices without a place of their own take the draw's.
         v.mtx_indices[0] = 3u * (draw->position_matrix != nullptr ? draw->position_matrix[i] : draw->pass.position_matrix % 10u) & 0xFFu;
-        // Texture matrices named by the attributes: place 0's row.
-        for (unsigned t = 0; t < 8u; ++t) {
-            if ((attributes & (shapes::kTextureMatrix0 << t)) != 0u) {
-                const uint32_t row = 30u;
-                if (t < 3u) {
-                    v.mtx_indices[0] |= row << (8u * (t + 1u));
-                } else if (t < 7u) {
-                    v.mtx_indices[1] |= row << (8u * (t - 3u));
-                } else {
-                    v.mtx_indices[2] |= row;
-                }
-            }
-        }
     }
     if (widened != 0u) {
         shapes::widen_lines_points(draw->primitive, n, out, galaxy::render::reserve_record_vertices(record, widened));
@@ -3657,7 +3674,7 @@ void svc_immediate(void*, const NebulaImmediate* draw) {
 #endif
 }
 
-void svc_screen_probe(void*, uint32_t channel, uint32_t what, const NebulaScreenProbe* probes, uint32_t count) {
+void svc_screen_probe(void*, uint32_t channel, const NebulaScreenProbe* probes, uint32_t count) {
 #if defined(NEBULA_HOST_RENDERER)
     static_assert(sizeof(NebulaScreenProbe) == sizeof(galaxy::render::ScreenProbe) &&
                   NEBULA_SCREEN_PROBES_MAX == galaxy::render::kScreenProbesMax);
@@ -3666,12 +3683,11 @@ void svc_screen_probe(void*, uint32_t channel, uint32_t what, const NebulaScreen
     record.kind = shapes::Record::Kind::Readback;
     attach_pending_records();
     record.key = channel;
-    record.marker_aux = what;
     std::memcpy(galaxy::render::reserve_record_probes(record, std::min(count, NEBULA_SCREEN_PROBES_MAX)), probes,
                 std::min(count, NEBULA_SCREEN_PROBES_MAX) * sizeof(NebulaScreenProbe));
     galaxy::render::attach_shape_record(std::move(record));
 #else
-    (void)channel, (void)what, (void)probes, (void)count;
+    (void)channel, (void)probes, (void)count;
 #endif
 }
 
@@ -3743,6 +3759,23 @@ void svc_target_begin(void*, uint64_t key, uint32_t width, uint32_t height, uint
 #endif
 }
 
+void svc_target_begin_pixels(void*, uint64_t key, uint32_t width, uint32_t height, uint32_t clear_rgba) {
+#if defined(NEBULA_HOST_RENDERER)
+    namespace shapes = galaxy::render::shapes;
+    shapes::Record record;
+    record.kind = shapes::Record::Kind::TargetBegin;
+    record.key = key;
+    record.target_width = width;
+    record.target_height = height;
+    record.target_clear_rgba = clear_rgba;
+    record.target_pixels = true;
+    attach_pending_records();
+    galaxy::render::attach_shape_record(std::move(record));
+#else
+    (void)key, (void)width, (void)height, (void)clear_rgba;
+#endif
+}
+
 void svc_target_end(void*, uint64_t key, uint32_t channels) {
 #if defined(NEBULA_HOST_RENDERER)
     namespace shapes = galaxy::render::shapes;
@@ -3771,17 +3804,17 @@ void svc_target_clear(void*, uint32_t clear_rgba, uint32_t channels) {
 #endif
 }
 
-void svc_frame_pass(void*, uint64_t key, uint32_t channels) {
+void svc_frame_pass(void*, uint64_t key) {
 #if defined(NEBULA_HOST_RENDERER)
     namespace shapes = galaxy::render::shapes;
     shapes::Record record;
     record.kind = shapes::Record::Kind::FramePass;
     record.key = key;
-    record.target_channels = static_cast<std::uint8_t>(channels);
+    record.target_channels = NEBULA_TARGET_RGB;
     attach_pending_records();
     galaxy::render::attach_shape_record(std::move(record));
 #else
-    (void)key, (void)channels;
+    (void)key;
 #endif
 }
 
@@ -3799,22 +3832,17 @@ void svc_frame_take(void*, uint64_t key) {
 }
 
 // A clear of the frame's rectangle.
-void svc_frame_clear(void*, uint32_t left, uint32_t top, uint32_t width, uint32_t height, uint32_t clear_rgba,
-                     uint32_t channels) {
+void svc_frame_clear(void*, uint32_t clear_rgba, uint32_t channels) {
 #if defined(NEBULA_HOST_RENDERER)
     namespace shapes = galaxy::render::shapes;
     shapes::Record record;
     record.kind = shapes::Record::Kind::FrameClear;
-    record.target_x = left;
-    record.target_y = top;
-    record.target_width = width;
-    record.target_height = height;
     record.target_clear_rgba = clear_rgba;
     record.target_channels = static_cast<std::uint8_t>(channels & 7u);
     attach_pending_records();
     galaxy::render::attach_shape_record(std::move(record));
 #else
-    (void)left, (void)top, (void)width, (void)height, (void)clear_rgba, (void)channels;
+    (void)clear_rgba, (void)channels;
 #endif
 }
 
@@ -3897,18 +3925,6 @@ void svc_light(void*, uint32_t index, const NebulaLight* light) {
 #endif
 }
 
-void svc_frame_alpha(void*, int keep) {
-#if defined(NEBULA_HOST_RENDERER)
-    galaxy::render::state::Op op{};
-    op.kind = galaxy::render::state::kFrameAlpha;
-    op.a[0] = 1u;
-    op.a[1] = keep != 0 ? 1u : 0u;
-    attach_state_ops(&op, 1u);
-#else
-    (void)keep;
-#endif
-}
-
 void svc_texture_coordinate(void*, uint32_t coord, uint32_t from, uint32_t matrix_slot) {
 #if defined(NEBULA_HOST_RENDERER)
     galaxy::render::state::Op op{};
@@ -3921,6 +3937,15 @@ void svc_texture_coordinate(void*, uint32_t coord, uint32_t from, uint32_t matri
     attach_state_ops(&op, 1u);
 #else
     (void)coord, (void)from, (void)matrix_slot;
+#endif
+}
+
+std::uint32_t svc_material_layout(void*, std::uint32_t shader) {
+#if defined(NEBULA_HOST_RENDERER)
+    return galaxy::render::native_material_layout(shader);
+#else
+    (void)shader;
+    return 0u;
 #endif
 }
 
@@ -3958,7 +3983,7 @@ uint32_t svc_art_export(void*, const NebulaArtExport*) {
     return 0u;
 }
 std::atomic<uint32_t> gTiltSection{0};
-std::atomic<bool> gMotor{false};
+std::atomic<uint8_t> gMotor{0};
 
 void svc_game_context(void*, uint32_t what, int32_t value) {
     char text[64];
@@ -4478,7 +4503,7 @@ void svc_save_request(void*, const NebulaSaveRequest* request) {
     auto operation = [r, name] {
         fs::path folder;
         galaxy::saves::Result result = galaxy::saves::kFailed;
-        if (save_folder_path(gSaveDataPath.c_str(), &folder)) {
+        if (save_folder_path(name.starts_with("GameData.bin") ? gOldSaveDataPath.c_str() : gSaveDataPath.c_str(), &folder)) {
             switch (r.op) {
             case NEBULA_SAVE_READ:
                 result = galaxy::saves::read(folder, name, r.buffer, r.size, r.length);
@@ -4530,18 +4555,15 @@ uint32_t svc_system_setting(void*, uint32_t item) {
     }
 }
 
-// Player 1: Nebula's controls (the bindings, keyboard and mouse, controllers; a real Wii Remote while it is in use)
-// as a remote with a Nunchuk, connected from the start. The host takes a sample every 10 ms and one each time the
-// game reads (svc_input_read), when it starts its 10 ms anew; the game gets every sample since its last read.
-// Headless, the remote lies still: one sample per read, nothing pressed.
-constexpr uint32_t kInputSamples = 120;  // a read takes at most the newest 1.2 s
-
+// Player 1: Nebula's controls (the bindings, keyboard and mouse, controllers; a real Wii Remote while it is in use, its
+// sensors translated by wiimote::Motion), as a controller with a move stick, connected from the start. The game's read
+// takes the sample. Headless, the controller lies still.
 NebulaInputSample rest_input_sample() {
     NebulaInputSample sample{};
     sample.roll[0] = 1.0f;
     sample.distance = (0.2f / 0.383864f) / 0.3125f;
-    sample.gravity[2] = 1.0f;
-    sample.nunchuk_gravity[2] = 1.0f;
+    sample.tilt[2] = 1.0f;
+    sample.sub_tilt[2] = 1.0f;
     return sample;
 }
 
@@ -4567,50 +4589,44 @@ NebulaInputSample input_sample(const galaxy::input::PlayerInput& input) {
     sample.roll[1] = input.roll_y;
     sample.distance = input.distance;
     for (int i = 0; i < 3; ++i) {
-        sample.gravity[i] = input.gravity[i];
-        sample.nunchuk_gravity[i] = input.nunchuk_gravity[i];
+        sample.tilt[i] = input.gravity[i];
+        sample.sub_tilt[i] = input.nunchuk_gravity[i];
     }
-    sample.shake = static_cast<uint8_t>((input.shake ? NEBULA_SHAKE_REMOTE : 0u) |
-                                        (input.nunchuk_shake ? NEBULA_SHAKE_NUNCHUK : 0u));
     return sample;
 }
 
-// Player 1's samples not yet read, oldest first; past kInputSamples the oldest go.
-class InputSamples {
+// A device's tilt eased, and its spin held as presses: what a player does, one frame at a time.
+class ControlsMotion {
 public:
-    void push(const NebulaInputSample& sample) {
-        const std::lock_guard<std::mutex> lock(lock_);
-        ring_[(head_ + count_) % kInputSamples] = sample;
-        if (count_ < kInputSamples) {
-            ++count_;
-        } else {
-            head_ = (head_ + 1) % kInputSamples;
-        }
+    void reset() {
+        tilt_ = sub_tilt_ = {0.0f, 0.0f, 1.0f};
     }
-    uint32_t take(NebulaInputSample* out, uint32_t max) {
-        const std::lock_guard<std::mutex> lock(lock_);
-        const uint32_t count = std::min(count_, max);
-        const uint32_t skip = count_ - count;
-        for (uint32_t i = 0; i < count; ++i) {
-            out[i] = ring_[(head_ + skip + i) % kInputSamples];
+    void apply(const galaxy::input::PlayerInput& input, NebulaInputSample& sample) {
+        constexpr float kFollow = 0.15f;  // of the difference, each frame
+        for (int i = 0; i < 3; ++i) {
+            tilt_[i] += kFollow * (input.gravity[i] - tilt_[i]);
+            sub_tilt_[i] += kFollow * (input.nunchuk_gravity[i] - sub_tilt_[i]);
+            sample.tilt[i] = tilt_[i];
+            sample.sub_tilt[i] = sub_tilt_[i];
         }
-        head_ = (head_ + count_) % kInputSamples;
-        count_ = 0;
-        return count;
+        sample.spin_presses = input.shake && !held_ ? 1u : 0u;
+        sample.sub_spin_presses = input.nunchuk_shake && !sub_held_ ? 1u : 0u;
+        held_ = input.shake;
+        sub_held_ = input.nunchuk_shake;
     }
 
 private:
-    std::mutex lock_;
-    std::array<NebulaInputSample, kInputSamples> ring_{};
-    uint32_t head_ = 0;
-    uint32_t count_ = 0;
+    std::array<float, 3> tilt_{0.0f, 0.0f, 1.0f};
+    std::array<float, 3> sub_tilt_{0.0f, 0.0f, 1.0f};
+    bool held_ = false;
+    bool sub_held_ = false;
 };
-
-InputSamples gInputSamples;
-// One sample is taken at a time: on the input thread every 10 ms and on the game's thread when it reads.
+ControlsMotion gControlsMotion;
+galaxy::input::wiimote::Motion gRemoteMotion;
+// One sample is taken at a time: on the game's thread when it reads, and on the input thread while a real remote is in use.
 std::mutex gInputSampleLock;
-std::atomic<int64_t> gInputReadNs{std::numeric_limits<int64_t>::min() / 2};  // the game's last read, steady clock
-std::atomic<bool> gInputRead{false};  // the game has read its input (the 10 ms samples start then)
+std::atomic<bool> gRemoteConnected{false};  // a real remote is connected
+std::atomic<bool> gInputRead{false};  // the game has read its input
 std::atomic<bool> gControlsInput{true};  // player 1 is the controls (not a real remote)
 std::atomic<uint8_t> gInputNunchuk{1};
 std::atomic<uint8_t> gInputBattery{4};
@@ -4637,32 +4653,32 @@ bool input_device_missing(bool wii_remote) {
     return missing;
 }
 
-// The controls now (under gInputSampleLock). Each sample renews the motor's state (a stale one stops).
-NebulaInputSample controls_sample() {
+// The controls now (under gInputSampleLock). Each read renews the motor's state (a stale one stops).
+galaxy::input::PlayerInput controls_input() {
     static const bool frame_clock = [] {
         const char* value = ::galaxy::run_options().test_script_clock;
         return value != nullptr && std::strcmp(value, "frames") == 0;
     }();
     const int32_t mode = gStarPointerMode.load(std::memory_order_relaxed);
     galaxy::host::native_game_rumble(gMotor.load(std::memory_order_relaxed), mode);
-    return input_sample(galaxy::host::native_game_input(
+    return galaxy::host::native_game_input(
         frame_clock ? gSceneFrames.load(std::memory_order_relaxed) : gGameFrames.load(std::memory_order_relaxed), mode,
-        static_cast<uint8_t>(gTiltSection.load(std::memory_order_relaxed))));
+        static_cast<uint8_t>(gTiltSection.load(std::memory_order_relaxed)));
 }
 #endif
 
-uint32_t svc_input_read(void*, uint32_t player, NebulaInputDevice* device, NebulaInputSample* samples, uint32_t max) {
+uint32_t svc_input_read(void*, uint32_t player, NebulaInputDevice* device, NebulaInputSample* sample) {
     if (device != nullptr) {
         *device = {};
 #if defined(NEBULA_HOST_RENDERER)
-        // Player 2, when someone plays it (co-star mode): the pointer and its buttons, no Nunchuk.
+        // Player 2, when someone plays it (co-star mode): the pointer and its buttons, no move stick.
         if (player == 1) {
             galaxy::input::PlayerInput co_star{};
             if (galaxy::host::native_game_co_star(&co_star)) {
                 device->connected = 1;
                 device->battery = 4;
-                if (samples != nullptr && max != 0) {
-                    samples[0] = input_sample(co_star);
+                if (sample != nullptr) {
+                    *sample = input_sample(co_star);
                     return 1;
                 }
             }
@@ -4681,7 +4697,7 @@ uint32_t svc_input_read(void*, uint32_t player, NebulaInputDevice* device, Nebul
 #endif
         }
     }
-    if (player != 0 || samples == nullptr || max == 0) {
+    if (player != 0 || sample == nullptr) {
         return 0;
     }
 #if defined(NEBULA_HOST_RENDERER)
@@ -4689,42 +4705,74 @@ uint32_t svc_input_read(void*, uint32_t player, NebulaInputDevice* device, Nebul
     gInputRead.notify_one();
     if (gControlsInput.load(std::memory_order_acquire)) {
         const std::lock_guard<std::mutex> lock(gInputSampleLock);
-        gInputSamples.push(controls_sample());
-        gInputReadNs.store(std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now().time_since_epoch()).count(),
-                           std::memory_order_release);
+        const galaxy::input::PlayerInput input = controls_input();
+        *sample = input_sample(input);
+        gControlsMotion.apply(input, *sample);
+        const bool missing = input_device_missing(gRemoteConnected.load(std::memory_order_relaxed));
+        galaxy::host::set_input_missing_shown(missing);
+        gInputConnected.store(missing ? 0u : 1u, std::memory_order_relaxed);
+    } else {
+        galaxy::input::wiimote::MotionFrame frame;
+        const galaxy::input::PlayerInput input = gRemoteMotion.read(frame);
+        *sample = input_sample(input);
+        for (int i = 0; i < 3; ++i) {
+            sample->tilt[i] = frame.tilt[i];
+            sample->sub_tilt[i] = frame.sub_tilt[i];
+        }
+        sample->spin_presses = frame.spin_presses;
+        sample->sub_spin_presses = frame.sub_spin_presses;
+#if defined(NEBULA_REAL_WIIMOTE)
+        // Its motor is on or off: a strength is how often it is on.
+        static uint32_t motor_share = 0;
+        motor_share += gMotor.load(std::memory_order_relaxed);
+        const bool motor_on = motor_share >= 255u;
+        if (motor_on) {
+            motor_share -= 255u;
+        }
+        galaxy::host::real_wiimote_set_rumble(motor_on);
+#endif
     }
-    return gInputSamples.take(samples, max);
+    return 1;
 #else
-    samples[0] = rest_input_sample();
+    *sample = rest_input_sample();
     return 1;
 #endif
 }
 
 void svc_input_control(void*, uint32_t player, uint32_t what, uint32_t value) {
+#if defined(NEBULA_HOST_RENDERER)
+    if (player == 0 && what == NEBULA_INPUT_RESET) {
+        const std::lock_guard<std::mutex> lock(gInputSampleLock);
+        gControlsMotion.reset();
+        gRemoteMotion.reset();
+        return;
+    }
+#endif
     if (player != 0 || what != NEBULA_INPUT_RUMBLE) {
         return;  // player 1's controller is never let go; there are no others
     }
-    gMotor.store(value != 0, std::memory_order_relaxed);
+    gMotor.store(static_cast<uint8_t>(value), std::memory_order_relaxed);
 #if defined(NEBULA_REAL_WIIMOTE)
     if (!galaxy::host::real_wiimote_in_use()) {
-        galaxy::host::native_game_rumble(value != 0, gStarPointerMode.load(std::memory_order_relaxed));
+        galaxy::host::native_game_rumble(static_cast<uint8_t>(value), gStarPointerMode.load(std::memory_order_relaxed));
     }
-    galaxy::host::real_wiimote_set_rumble(value != 0);
 #elif defined(NEBULA_HOST_RENDERER)
-    galaxy::host::native_game_rumble(value != 0, gStarPointerMode.load(std::memory_order_relaxed));
+    galaxy::host::native_game_rumble(static_cast<uint8_t>(value), gStarPointerMode.load(std::memory_order_relaxed));
 #endif
 }
 
 #if defined(NEBULA_HOST_RENDERER)
 void input_thread() {
     if (deterministic_mode()) {
-        return;  // one sample per read, taken by the read (svc_input_read)
+        return;  // the read takes the sample (svc_input_read)
     }
+#if !defined(NEBULA_REAL_WIIMOTE)
+    return;
+#else
     name_thread(L"Nebula Host Input");
     gInputRead.wait(false, std::memory_order_acquire);
     const auto period = std::chrono::milliseconds(10);
     auto next = Clock::now() + period;
-#if defined(NEBULA_REAL_WIIMOTE)
     galaxy::host::ensure_real_wiimote_started();
     // The remote's data reports, IR camera on: with its Nunchuk, buttons, accelerometer, IR and extension; without.
     galaxy::host::real_wiimote_set_report(0x37);
@@ -4753,7 +4801,6 @@ void input_thread() {
     [[maybe_unused]] constexpr bool real = false;  // no real Wii Remote on this host
 #endif
     for (;;) {
-#if defined(NEBULA_REAL_WIIMOTE)
         // A real Wii Remote's reports become samples as they arrive: in the Wii Remote input mode while it is
         // connected, in Auto from its first button press until a key, a mouse button or a controller is used. The
         // keyboard, mouse and controllers are read every 10 ms meanwhile (for that, and the settings menu).
@@ -4762,13 +4809,15 @@ void input_thread() {
         galaxy::host::RealWiimoteConnection real_connection{};
         const auto until_tick =
             std::chrono::duration_cast<std::chrono::milliseconds>(next - Clock::now()).count();
+        // Not playing with it: nothing to do until a report or a connection arrives.
         const galaxy::host::RealWiimoteEvent event = galaxy::host::real_wiimote_wait(
-            real ? static_cast<uint32_t>(std::clamp<long long>(until_tick, 0, 10)) : 0u, real_report, real_size,
+            real ? static_cast<uint32_t>(std::clamp<long long>(until_tick, 0, 10)) : 3600000u, real_report, real_size,
             real_connection);
         const bool wii_remote_mode =
             galaxy::get_runtime_input_mode_state().mode == galaxy::RuntimeInputMode::RealWiimote;
         if (event == galaxy::host::RealWiimoteEvent::Connected) {
             remote = real_connection;
+            gRemoteConnected.store(true, std::memory_order_relaxed);
             reader.connect(real_connection.eeprom, real_connection.extension_calibration, real_connection.nunchuk);
             galaxy::host::real_wiimote_set_report(real_connection.nunchuk ? 0x37 : 0x33);
             if (real) {
@@ -4782,6 +4831,7 @@ void input_thread() {
         if (event == galaxy::host::RealWiimoteEvent::Disconnected) {
             use_remote(false);
             remote.reset();
+            gRemoteConnected.store(false, std::memory_order_relaxed);
             continue;
         }
         if (event == galaxy::host::RealWiimoteEvent::Battery) {
@@ -4793,41 +4843,22 @@ void input_thread() {
             const std::span<const uint8_t> bytes(real_report.data(), real_size);
             if (!real && (wii_remote_mode || galaxy::host::real_wiimote_buttons_held(bytes))) use_remote(true);
             galaxy::input::PlayerInput input{};
-            if (real && reader.read(bytes, input)) gInputSamples.push(input_sample(input));
+            if (real && reader.read(bytes, input)) gRemoteMotion.add(input);
             continue;
         }
-        if (real && Clock::now() < next) {
-            continue;
-        }
-#endif
-        sleep_until_precise(next);
-        // The game read within the last 10 ms: the next sample 10 ms after its.
-        const Clock::time_point read{std::chrono::nanoseconds(gInputReadNs.load(std::memory_order_acquire))};
-        if (!real && read + period > next) {
-            next = read + period;
+        if (!real || Clock::now() < next) {
             continue;
         }
         next += period;
         const std::lock_guard<std::mutex> lock(gInputSampleLock);
-        const NebulaInputSample sample = controls_sample();
-#if defined(NEBULA_REAL_WIIMOTE)
-        if (real) {
-            // Another device used (in Auto): back to the keyboard, mouse and controllers, with this sample.
-            if (galaxy::get_runtime_input_mode_state().mode == galaxy::RuntimeInputMode::RealWiimote ||
-                galaxy::host::last_input_device() == device_when_real) {
-                continue;
-            }
+        (void)controls_input();  // for the device last used, and the settings menu
+        // Another device used (in Auto): back to the keyboard, mouse and controllers, with this sample.
+        if (galaxy::get_runtime_input_mode_state().mode != galaxy::RuntimeInputMode::RealWiimote &&
+            galaxy::host::last_input_device() != device_when_real) {
             use_remote(false);
         }
-        const bool wii_remote = remote.has_value();
-#else
-        constexpr bool wii_remote = false;
-#endif
-        const bool missing = input_device_missing(wii_remote);
-        galaxy::host::set_input_missing_shown(missing);
-        gInputConnected.store(missing ? 0u : 1u, std::memory_order_relaxed);
-        gInputSamples.push(sample);
     }
+#endif
 }
 #endif
 
@@ -4855,11 +4886,12 @@ void svc_audio_setup(void*, NebulaVoice* voices, uint32_t count, const NebulaEff
 #endif
 }
 
-void svc_audio_mix(void*, float gain) {
+void svc_audio_mix(void*, float gain, uint32_t used) {
 #if defined(NEBULA_HOST_RENDERER)
-    gAudio->mix(gain);
+    gAudio->mix(gain, used);
 #else
     (void)gain;
+    (void)used;
 #endif
     gSoundSubframes.fetch_add(1, std::memory_order_relaxed);
 }
@@ -4909,7 +4941,7 @@ void svc_audio_control(void*, uint32_t what, uint32_t value) {
         std::lock_guard<std::mutex> lock(gAiLock);
         if (what == NEBULA_AUDIO_START) {
             gAiRunning = true;
-            gAudioFrameSamples = value;
+            gSoundTicksPerSecond = value;
         } else if (what == NEBULA_AUDIO_STOP) {
             gAiRunning = false;
         }
@@ -4994,6 +5026,9 @@ int svc_hbm(void*, uint32_t what, uint32_t value) {
 //   GALAXY_TEST_SCRIPT_CLOCK=frames: the scripted input (GALAXY_INPUT_*) counts scene frames instead of frames, so a
 //     run's game frames take the same input whatever its renderer's speed (builds compared frame for frame).
 std::atomic<bool> gTourDone{false};
+#if defined(_WIN32) && defined(NEBULA_HOST_RENDERER) && !defined(NEBULA_HOST_SDL)
+HANDLE gHostWake = nullptr;
+#endif
 
 int svc_test_scene_frame(void*, NebulaTestAction* action) {
 #if defined(NEBULA_RELEASE)
@@ -5283,6 +5318,8 @@ void prepare_mod_files(const fs::path& settings_folder, const std::string& game_
         // A clone starts from the player's save the first time, the rest starts new; the player's stays as it is.
         const fs::path mine = gSaveRoot / gSaveDataPath.substr(1);
         const fs::path theirs = plan.save_folder / gSaveDataPath.substr(1);
+        const fs::path old_mine = gSaveRoot / gOldSaveDataPath.substr(1);
+        const fs::path old_theirs = plan.save_folder / gOldSaveDataPath.substr(1);
         std::error_code save_error;
         if (!fs::exists(theirs, save_error)) {
             fs::create_directories(theirs, save_error);
@@ -5290,6 +5327,10 @@ void prepare_mod_files(const fs::path& settings_folder, const std::string& game_
                 fs::copy(plan.save_start, plan.save_folder, fs::copy_options::recursive | fs::copy_options::skip_existing, save_error);
             } else if (plan.save_clone) {
                 fs::copy(mine, theirs, fs::copy_options::recursive | fs::copy_options::skip_existing, save_error);
+                if (fs::exists(old_mine, save_error)) {
+                    fs::create_directories(old_theirs, save_error);
+                    fs::copy(old_mine, old_theirs, fs::copy_options::recursive | fs::copy_options::skip_existing, save_error);
+                }
             }
         }
         gModSaveRoot = plan.save_folder;
@@ -5828,7 +5869,8 @@ int main(int argc, char** argv) {
         const std::string game_id(gPak.store.game_id());
         char title[9];
         std::snprintf(title, sizeof(title), "%02x%02x%02x%02x", (unsigned char)gPak.id[0], (unsigned char)gPak.id[1], (unsigned char)gPak.id[2], (unsigned char)gPak.id[3]);
-        gSaveDataPath = std::string("/title/00010000/") + title + "/data";
+        gOldSaveDataPath = std::string("/title/00010000/") + title + "/data";
+        gSaveDataPath = "/" + std::string(gPak.id, 4);
         fs::create_directories(gSaveRoot / gSaveDataPath.substr(1), error);  // the release's own save folder
         if (!settings_folder.empty()) {
             // A second game (galaxy/game_instance.h) plays the first's installed mods, with its own list of which are on.
@@ -5929,16 +5971,18 @@ int main(int argc, char** argv) {
     services.shape_geometry = svc_shape_geometry;
     services.shape_forget = svc_shape_forget;
     services.shape_draw = svc_shape_draw;
+    services.shape_palette = svc_shape_palette;
     services.native_material = svc_native_material;
+    services.material_layout = svc_material_layout;
     services.test_frame_step = deterministic_mode() ? svc_test_frame_step : nullptr;
     services.view_projection = svc_view_projection;
     services.view_viewport = svc_view_viewport;
     services.view_scissor = svc_view_scissor;
     services.light = svc_light;
-    services.frame_alpha = svc_frame_alpha;
     services.texture_coordinate = svc_texture_coordinate;
     services.immediate = svc_immediate;
     services.target_begin = svc_target_begin;
+    services.target_begin_pixels = svc_target_begin_pixels;
     services.target_begin_over_frame = svc_target_begin_over_frame;
     services.target_end = svc_target_end;
     services.target_clear = svc_target_clear;
@@ -5955,7 +5999,6 @@ int main(int argc, char** argv) {
     services.marker = svc_marker;
     services.clock_ns = svc_clock_ns;
     services.calendar_ns = svc_calendar_ns;
-    services.stripe_particle = svc_stripe_particle;
     services.code_patch = svc_code_patch;
     services.asset_find = svc_asset_find;
     services.asset_entry = svc_asset_entry;
@@ -6139,6 +6182,10 @@ int main(int argc, char** argv) {
     bool first_frame = false;
     uint32_t reported = 0;
     auto next_report = Clock::now() + std::chrono::seconds(1);
+#if defined(_WIN32) && defined(NEBULA_HOST_RENDERER) && !defined(NEBULA_HOST_SDL)
+    gHostWake = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    galaxy::render::host_window::set_state_wake(gHostWake);
+#endif
     while (Clock::now() < end && !gTourDone.load(std::memory_order_relaxed)) {
 #if defined(NEBULA_HOST_RENDERER)
         // The window's messages, on the thread that created it.
@@ -6154,7 +6201,12 @@ int main(int argc, char** argv) {
             log_line("host:", away ? "suspended (out of sight)" : "resumed");
         }
 #else
-        MsgWaitForMultipleObjects(0, nullptr, FALSE, 4, QS_ALLINPUT);
+        // Until a message, a change of the window or the game's end (gHostWake), or the once-a-second report.
+        {
+            const auto until = std::chrono::duration_cast<std::chrono::milliseconds>(next_report - Clock::now()).count();
+            const DWORD wait = first_frame ? static_cast<DWORD>(std::clamp<long long>(until + 1, 0, 1000)) : 5u;
+            MsgWaitForMultipleObjects(1, &gHostWake, FALSE, wait, QS_ALLINPUT);
+        }
         // Minimised, the game and its sound stop, as on the platforms that suspend.
         if (const bool away = galaxy::render::host_window::is_minimized(); away != gSuspended) {
             {

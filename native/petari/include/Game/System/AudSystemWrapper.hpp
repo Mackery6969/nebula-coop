@@ -17,14 +17,10 @@ public:
     void updateRhythm();
     void movement();
     void stopAllSound(u32);
-    bool isLoadDoneWaveDataAtSystemInit() const;
-    void loadStaticWaveData();
-    bool isLoadDoneStaticWaveData() const;
-    void loadStageWaveData(const char*, const char*, bool);
-    bool isLoadDoneStageWaveData() const;
-    void loadScenarioWaveData(const char*, const char*, s32);
-    bool isLoadDoneScenarioWaveData() const;
-    bool isPermitToReset() const;
+    void setPlayerLuigi(bool);
+    bool isCreated() const {
+        return mAudSystem != nullptr;
+    }
     void prepareReset();
     void requestReset(bool);
     bool isResetDone();
@@ -43,5 +39,4 @@ public:
     AssetFolder* mSpkRes;
     bool _28;
     bool mIsResetDone;
-    bool mDisableReset;
 };

@@ -27,7 +27,7 @@ MiiFacePartsHolder::~MiiFacePartsHolder() {
 }
 
 void MiiFacePartsHolder::init(const JMapInfoIter& rIter) {
-    AssetFolder* pArchive = MR::receiveArchive("/ObjectData/MiiFaceDatabase.arc");
+    AssetFolder* pArchive = MR::getMountedArchive("/ObjectData/MiiFaceDatabase.arc");
     void* pResBuffer = pArchive->getResource("/RFL_Res.dat");
     u32 resSize = pArchive->getResSize(pResBuffer);
     _38 = MiiInitRes(pResBuffer, resSize, false);
@@ -116,9 +116,7 @@ MiiFaceParts* MiiFacePartsHolder::createPartsFromReceipe(const char* pName, cons
 
     MR::getSceneObj< MiiFacePartsHolder >(SceneObj_MiiFacePartsHolder)->registerActor(pParts);
 
-    if (MR::startFunctionAsyncExecuteOnMainThread(MR::Functor< NameObj >(pParts, &NameObj::initWithoutIter), "initNameObjOnMainThread")) {
-        MR::waitForEndFunctionAsyncExecute("initNameObjOnMainThread");
-    }
+    pParts->initWithoutIter();
 
     return pParts;
 }
@@ -147,12 +145,10 @@ void MiiFacePartsHolder::drawExtra() const {
     setting.reverseCulling = 0;
 
     MR::loadLight(1);
-    setTevOpa();
-    J3DPass::alphaTest(NEBULA_COMPARE_NEQUAL, 255);
+    setStageOpa();
     J3DPass::blend(NEBULA_FACTOR_ONE, NEBULA_FACTOR_ZERO);
     drawEachActor(&MiiFaceParts::drawOpa, &setting);
-    setTevXlu();
-    J3DPass::alphaTest(NEBULA_COMPARE_GREATER, 0);
+    setStageXlu();
     J3DPass::blend(NEBULA_FACTOR_SRC_ALPHA, NEBULA_FACTOR_INV_SRC_ALPHA);
     drawEachActor(&MiiFaceParts::drawXlu, &setting);
 }
@@ -160,14 +156,14 @@ void MiiFacePartsHolder::drawExtra() const {
 // The game's Mii NPC stages after each part (runtime/src/render/materials/mii_face.hlsl chains 2 and 3): the colour lit
 // by lights 0 and 1 (clamped diffuse, no attenuation) over the material grey 165 and ambient 128; the opaque pass adds
 // the rim from the alpha channel lit by light 2 (signed diffuse) and draws where the alpha is not 255.
-void MiiFacePartsHolder::setTevOpa() const {
+void MiiFacePartsHolder::setStageOpa() const {
     const NebulaColor8 material = {165, 165, 165, 255};
     const NebulaColor8 ambient = {128, 128, 128, 128};
     Mii_NativeChain(MII_I_NATIVE_CHAIN_NPC_OPA, J3D_LIGHT0 | J3D_LIGHT1, J3D_DF_CLAMP, J3D_AF_NONE, ambient, material, 1);
     J3DPass::depth(true, NEBULA_COMPARE_LEQUAL, true);
 }
 
-void MiiFacePartsHolder::setTevXlu() const {
+void MiiFacePartsHolder::setStageXlu() const {
     const NebulaColor8 material = {165, 165, 165, 255};
     const NebulaColor8 ambient = {128, 128, 128, 128};
     Mii_NativeChain(MII_I_NATIVE_CHAIN_NPC_XLU, J3D_LIGHT0 | J3D_LIGHT1, J3D_DF_CLAMP, J3D_AF_NONE, ambient, material, 0);

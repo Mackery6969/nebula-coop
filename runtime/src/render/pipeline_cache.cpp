@@ -22,22 +22,23 @@ namespace galaxy::render {
 namespace {
 
 constexpr D3D12_INPUT_ELEMENT_DESC kInputLayout[] = {
-    {"POSITION",     0, DXGI_FORMAT_R32G32B32_FLOAT, 0,  0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-    {"NORMAL",       0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-    {"TANGENT",      0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-    {"BINORMAL",     0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 36, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-    {"COLOR",        0, DXGI_FORMAT_R32_UINT,        0, 48, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-    {"COLOR",        1, DXGI_FORMAT_R32_UINT,        0, 52, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-    {"TEXCOORD",     0, DXGI_FORMAT_R32G32_FLOAT,    0, 56, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-    {"TEXCOORD",     1, DXGI_FORMAT_R32G32_FLOAT,    0, 64, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-    {"TEXCOORD",     2, DXGI_FORMAT_R32G32_FLOAT,    0, 72, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-    {"TEXCOORD",     3, DXGI_FORMAT_R32G32_FLOAT,    0, 80, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-    {"TEXCOORD",     4, DXGI_FORMAT_R32G32_FLOAT,    0, 88, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-    {"TEXCOORD",     5, DXGI_FORMAT_R32G32_FLOAT,    0, 96, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-    {"TEXCOORD",     6, DXGI_FORMAT_R32G32_FLOAT,    0, 104, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-    {"TEXCOORD",     7, DXGI_FORMAT_R32G32_FLOAT,    0, 112, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-    {"BLENDINDICES", 0, DXGI_FORMAT_R32G32B32_UINT, 0, 120, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-    {"BEND",         0, DXGI_FORMAT_R32G32B32_UINT,  0, 132, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    {"COLOR", 0, DXGI_FORMAT_R32_UINT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    {"COLOR", 1, DXGI_FORMAT_R32_UINT, 0, 28, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 32, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    {"BLENDINDICES", 0, DXGI_FORMAT_R32_UINT, 0, 40, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    {"TANGENT", 0, DXGI_FORMAT_R32G32B32_FLOAT, 1, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    {"BINORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 1, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    {"TEXCOORD", 1, DXGI_FORMAT_R32G32_FLOAT, 1, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    {"TEXCOORD", 2, DXGI_FORMAT_R32G32_FLOAT, 1, 32, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    {"TEXCOORD", 3, DXGI_FORMAT_R32G32_FLOAT, 1, 40, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    {"TEXCOORD", 4, DXGI_FORMAT_R32G32_FLOAT, 1, 48, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    {"TEXCOORD", 5, DXGI_FORMAT_R32G32_FLOAT, 1, 56, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    {"TEXCOORD", 6, DXGI_FORMAT_R32G32_FLOAT, 1, 64, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    {"TEXCOORD", 7, DXGI_FORMAT_R32G32_FLOAT, 1, 72, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    {"BLENDINDICES", 1, DXGI_FORMAT_R32G32_UINT, 1, 80, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+    {"BEND", 0, DXGI_FORMAT_R32_UINT, 1, 88, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
 };
 
 // game BlendFactor -> D3D12, src side.
@@ -78,29 +79,6 @@ D3D12_BLEND to_alpha_blend(D3D12_BLEND b) {
     case D3D12_BLEND_DEST_COLOR:     return D3D12_BLEND_DEST_ALPHA;
     case D3D12_BLEND_INV_DEST_COLOR: return D3D12_BLEND_INV_DEST_ALPHA;
     default:                         return b;
-    }
-}
-
-// game LogicOp 0-15 -> D3D12.
-D3D12_LOGIC_OP logic_op_mode(std::uint32_t m) {
-    switch (m) {
-    case 0:  return D3D12_LOGIC_OP_CLEAR;
-    case 1:  return D3D12_LOGIC_OP_AND;
-    case 2:  return D3D12_LOGIC_OP_AND_REVERSE;
-    case 3:  return D3D12_LOGIC_OP_COPY;
-    case 4:  return D3D12_LOGIC_OP_AND_INVERTED;
-    case 5:  return D3D12_LOGIC_OP_NOOP;
-    case 6:  return D3D12_LOGIC_OP_XOR;
-    case 7:  return D3D12_LOGIC_OP_OR;
-    case 8:  return D3D12_LOGIC_OP_NOR;
-    case 9:  return D3D12_LOGIC_OP_EQUIV;
-    case 10: return D3D12_LOGIC_OP_INVERT;
-    case 11: return D3D12_LOGIC_OP_OR_REVERSE;
-    case 12: return D3D12_LOGIC_OP_COPY_INVERTED;
-    case 13: return D3D12_LOGIC_OP_OR_INVERTED;
-    case 14: return D3D12_LOGIC_OP_NAND;
-    case 15: return D3D12_LOGIC_OP_SET;
-    default: return D3D12_LOGIC_OP_NOOP;
     }
 }
 
@@ -154,35 +132,6 @@ D3D12_GRAPHICS_PIPELINE_STATE_DESC make_pso_desc_impl(
         rt.SrcBlendAlpha  = to_alpha_blend(rt.SrcBlend);
         rt.DestBlendAlpha = to_alpha_blend(rt.DestBlend);
         rt.BlendOpAlpha   = rt.BlendOp;
-        if (bb & (1u << 27)) {           // dual-source dst-alpha
-            // The PS exports the material alpha on SV_Target1 (the matching
-            // PixelShaderKey flags bit7 is derived from the same register
-            // snapshot): RGB blends against SRC1_ALPHA while the alpha
-            // channel keeps its independently selected alpha equation.
-            rt.SrcBlend = (rt.SrcBlend == D3D12_BLEND_SRC_ALPHA)
-                ? D3D12_BLEND_SRC1_ALPHA
-                : (rt.SrcBlend == D3D12_BLEND_INV_SRC_ALPHA)
-                    ? D3D12_BLEND_INV_SRC1_ALPHA
-                    : rt.SrcBlend;
-            rt.DestBlend = (rt.DestBlend == D3D12_BLEND_SRC_ALPHA)
-                ? D3D12_BLEND_SRC1_ALPHA
-                : (rt.DestBlend == D3D12_BLEND_INV_SRC_ALPHA)
-                    ? D3D12_BLEND_INV_SRC1_ALPHA
-                    : rt.DestBlend;
-        }
-        if (bb & (1u << 28)) { // Constant destination alpha is independent.
-            rt.SrcBlendAlpha = D3D12_BLEND_ONE;
-            rt.DestBlendAlpha = D3D12_BLEND_ZERO;
-            rt.BlendOpAlpha = D3D12_BLEND_OP_ADD;
-        }
-        if (bb & kRenderStateZeroAlpha) { // Constant destination alpha 0, drawn single-source.
-            rt.SrcBlendAlpha = D3D12_BLEND_ZERO;
-            rt.DestBlendAlpha = D3D12_BLEND_ZERO;
-            rt.BlendOpAlpha = D3D12_BLEND_OP_ADD;
-        }
-    } else if (bb & (1u << 8)) {         // logic_op_enable
-        rt.LogicOpEnable = TRUE;
-        rt.LogicOp = logic_op_mode((bb >> 9) & 0xFu);
     }
 
     pd.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
@@ -226,6 +175,23 @@ D3D12_GRAPHICS_PIPELINE_STATE_DESC make_pso_desc_impl(
             ? D3D12_DEPTH_WRITE_MASK_ALL
             : D3D12_DEPTH_WRITE_MASK_ZERO;
     }
+    if (const std::uint32_t test = (zb >> 5u) & 0x3u; test != 0u) {
+        static constexpr D3D12_COMPARISON_FUNC kStencilTest[4] = {
+            D3D12_COMPARISON_FUNC_ALWAYS, D3D12_COMPARISON_FUNC_ALWAYS, D3D12_COMPARISON_FUNC_EQUAL,
+            D3D12_COMPARISON_FUNC_NOT_EQUAL};
+        static constexpr D3D12_STENCIL_OP kStencilOp[4] = {D3D12_STENCIL_OP_KEEP, D3D12_STENCIL_OP_INCR_SAT,
+                                                           D3D12_STENCIL_OP_DECR_SAT, D3D12_STENCIL_OP_ZERO};
+        pd.DepthStencilState.StencilEnable = TRUE;
+        pd.DepthStencilState.StencilReadMask = 0xFFu;
+        pd.DepthStencilState.StencilWriteMask = 0xFFu;
+        D3D12_DEPTH_STENCILOP_DESC face{};
+        face.StencilFailOp = D3D12_STENCIL_OP_KEEP;
+        face.StencilDepthFailOp = D3D12_STENCIL_OP_KEEP;
+        face.StencilPassOp = kStencilOp[(zb >> 7u) & 0x3u];
+        face.StencilFunc = kStencilTest[test];
+        pd.DepthStencilState.FrontFace = face;
+        pd.DepthStencilState.BackFace = face;
+    }
 
     pd.SampleMask            = UINT_MAX;
     switch (static_cast<D3D12_PRIMITIVE_TOPOLOGY_TYPE>(
@@ -238,7 +204,8 @@ D3D12_GRAPHICS_PIPELINE_STATE_DESC make_pso_desc_impl(
         break;
     }
     pd.NumRenderTargets      = 1;
-    pd.RTVFormats[0]         = (rs.samples_log2 & kSceneVariantHdr) != 0u ? kSceneHdrColorFormat : kSceneColorFormat;
+    pd.RTVFormats[0]         = (rs.samples_log2 & kSceneVariantTarget) != 0u ? kTargetColorFormat
+                               : (rs.samples_log2 & kSceneVariantHdr) != 0u ? kSceneHdrColorFormat : kSceneColorFormat;
     if ((bb & kRenderStateMotionTarget) != 0u) {
         // Opaque motion writer: render target 1 takes the motion vectors
         // with render target 0's write mask (independent blend off).

@@ -91,15 +91,6 @@ private:
     unsigned eviction_cursor_ = 0u;
 };
 
-// A stripe particle's vertex in the draw logged next (JPA stripes, two vertices per particle): interpolated per
-// particle between game frames (RendererD3D12::note_stripe_vertices).
-struct StripeVertex {
-    std::uint32_t vertex = 0;        // in the draw's vertex buffer
-    std::uint64_t particle = 0;      // JPABaseParticle (its address)
-    std::uint32_t age_lifetime = 0;  // age << 16 | lifetime
-    std::uint8_t strip = 0;          // JPADrawStripe 0, JPADrawStripeX passes 1-2
-    std::uint8_t side = 0;           // the particle's first or second vertex
-};
 
 struct SceneClearValues {
     std::array<float, 4> color{};
@@ -200,6 +191,7 @@ struct DrawCall {
     gpu::Address matrix_palette = 0; // root SRV t0,space1: the draw's row table
     gpu::Address matrix_rows = 0;    // root SRV t3,space1: the rows its table names (the matrix ring, a replay's output)
     gpu::VertexView vertex_view{};
+    gpu::VertexView extra_view{};  // RenderVertexExtra; no address: zeros
     gpu::IndexView index_view{};
     std::uint32_t index_count = 0;
     gpu::Topology topology = gpu::kTopologyTriangleList;
@@ -214,11 +206,6 @@ struct DrawCall {
     // Interpolated redraw: the scene transform record whose VS constants a
     // sub-frame replaces, -1 for draws outside the 3D scene.
     std::int32_t replay_record = -1;
-    // Sub-frames only: the matching draw's vertices in the frame before,
-    // blended with this draw's (root SRV t1, space1); 0 for none. The pair's
-    // GPU verdict (same geometry or not) is at `blend_slot`.
-    gpu::Address blend_vertices = 0;
-    std::uint32_t blend_slot = 0;
     // Interpolated redraw: the scene's pixel-constant record, -1 for none.
     std::int32_t ps_record = -1;
 };

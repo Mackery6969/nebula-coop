@@ -223,7 +223,7 @@ void LensFlareDirector::setDrawSyncToken() {
     for (u32 i = 0; i < mBrightObjCount; i++) {
         mBrightObjArray[i]->calcBrightInfo(&probes[i * BrightObjBase::cProbeCount]);
     }
-    J3DNativeView::probeScreen(BrightObjBase::cReadbackChannel, NEBULA_SCREEN_PROBE_ALPHA, probes, count);
+    J3DNativeView::probeScreen(BrightObjBase::cReadbackChannel, probes, count);
 }
 
 s32 LensFlareDirector::checkArea() {
@@ -286,7 +286,7 @@ void LensFlareDirector::controlFlare(s32 area, bool hasBrightObj) {
     mGlow->mPosition.set(flarePos);
     mLine->mPosition.set(flarePos);
 
-    TVec2f screenCenter(MR::getScreenWidth() / 2.0f, static_cast< s32 >(NebulaFrameClock::cScreenUnitsDown) / 2.0f);
+    TVec2f screenCenter(MR::getScreenWidth() / 2.0f, static_cast< s32 >(NebulaFrameClock::cScreenLines) / 2.0f);
 
     f32 screenRadius = screenCenter.length();
     TVec2f offset(screenCenter - position);

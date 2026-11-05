@@ -157,17 +157,15 @@ struct GameLight {
 // The lights noted within `max_age_ms` (not black), at most `out.size()`; returns the count.
 std::size_t game_point_lights(std::span<GameLight> out, std::uint64_t max_age_ms) noexcept;
 std::size_t game_world_lights(std::span<GameLight> out, std::uint64_t max_age_ms) noexcept;
-// Simulation thread: one particle of a JPA stripe at `stream_offset` bytes into the next submitted frame; its two
-// strip vertices follow. The next render_frame submission carries it.
-void attach_stripe_particle(std::size_t stream_offset, std::uint64_t particle, std::uint32_t age_lifetime,
-                            std::uint8_t strip);
 // Simulation thread: a native shape record (native_shapes.h) at its offset into the next submitted frame.
 void attach_shape_record(shapes::Record&& record);
 [[nodiscard]] shapes::Matrix* reserve_record_matrices(shapes::Record& record, std::uint32_t count);
+[[nodiscard]] float* reserve_palette_rows(shapes::Record& record, std::uint32_t count);
 [[nodiscard]] state::Op* reserve_record_ops(shapes::Record& record, std::uint32_t count);
 [[nodiscard]] const shapes::Matrix* producer_record_matrices(const shapes::Record& record);
 [[nodiscard]] std::uint32_t reserve_record_native(const void* native, std::size_t bytes);
 [[nodiscard]] RenderVertex* reserve_record_vertices(shapes::Record& record, std::uint32_t count);
+[[nodiscard]] RenderVertexCore* reserve_record_corners(shapes::Record& record, std::uint32_t count);
 [[nodiscard]] ScreenProbe* reserve_record_probes(shapes::Record& record, std::uint32_t count);
 // Simulation thread: the THP movie frame the game draws (movie_replacement.h); every later submission carries it
 // until the movie closes (frame -1).

@@ -163,18 +163,6 @@ public:
             producer_scene_sky_up_ = producer_scene_sky_up_known_ ? encode_octahedral(eye) : 0u;
         }
     }
-    // One particle of a JPA stripe at `stream_offset` of the live stream
-    // (its two strip vertices follow); carried by the next submission.
-    struct StripeParticleMark {
-        std::size_t offset = 0;
-        std::uint64_t particle = 0;
-        std::uint32_t age_lifetime = 0;   // mAge << 16 | mLifeTime
-        std::uint8_t strip = 0;           // 0 JPADrawStripe, 1-2 JPADrawStripeX
-    };
-    // Simulation thread.
-    void attach_stripe_particle(const StripeParticleMark& mark) {
-        if (producer_stripe_particles_.size() < 65536u) producer_stripe_particles_.push_back(mark);
-    }
     // Simulation thread: a native shape record (native_shapes.h) the next submission carries, run when its parser
     // reaches the record's offset.
     void attach_shape_record(shapes::Record&& record) {
@@ -186,6 +174,12 @@ public:
         record.matrix_count = count;
         producer_record_pool_.matrices.resize(producer_record_pool_.matrices.size() + count);
         return producer_record_pool_.matrices.data() + record.matrix_first;
+    }
+    [[nodiscard]] float* reserve_palette_rows(shapes::Record& record, std::uint32_t count) {
+        record.palette_first = static_cast<std::uint32_t>(producer_record_pool_.palette_rows.size());
+        record.palette_count = count;
+        producer_record_pool_.palette_rows.resize(producer_record_pool_.palette_rows.size() + count * 24u);
+        return producer_record_pool_.palette_rows.data() + record.palette_first;
     }
     [[nodiscard]] state::Op* reserve_record_ops(shapes::Record& record, std::uint32_t count) {
         record.op_first = static_cast<std::uint32_t>(producer_record_pool_.ops.size());
@@ -210,6 +204,13 @@ public:
         record.vertex_count = count;
         producer_record_pool_.vertices.resize(producer_record_pool_.vertices.size() + count);
         return producer_record_pool_.vertices.data() + record.vertex_first;
+    }
+    [[nodiscard]] RenderVertexCore* reserve_record_corners(shapes::Record& record, std::uint32_t count) {
+        record.vertex_first = static_cast<std::uint32_t>(producer_record_pool_.corners.size());
+        record.vertex_count = count;
+        record.attributes |= shapes::kReadyCorners;
+        producer_record_pool_.corners.resize(producer_record_pool_.corners.size() + count);
+        return producer_record_pool_.corners.data() + record.vertex_first;
     }
     // Simulation thread: a record's matrices while the pool is still being filled.
     [[nodiscard]] const shapes::Matrix* producer_record_matrices(const shapes::Record& record) const noexcept {
@@ -254,7 +255,7 @@ private:
     // A copy (scene target to texture or display) with the pixel format it reads.
     void on_frame_output(const FramePassRequest& params);
     // The frame clears' format byte (make_scene_clear_values): 1 a frame keeping alpha, 0 one without.
-    [[nodiscard]] std::uint8_t frame_format() const noexcept { return draw_state_.frame_alpha ? 1u : 0u; }
+    [[nodiscard]] std::uint8_t frame_format() const noexcept { return draw_state_.target_alpha ? 1u : 0u; }
     // A light op's words (the state), into matrix memory.
     void load_light(const state::Op& op);
     void on_host_marker(std::uint8_t kind, std::uint16_t aux, std::uint64_t a, std::uint64_t b);
@@ -311,8 +312,6 @@ private:
         bool black = false;  // the output shows black (no picture)
         bool present_swap_chain = true;
         bool present_only = false;
-        // JPA stripe particles in this chunk (attach_stripe_particle).
-        std::vector<StripeParticleMark> stripe_particles;
         // The chunk's records, in the order the game made them (attach_shape_record).
         std::vector<shapes::Record> shape_records;
         shapes::RecordPool record_pool;
@@ -359,16 +358,6 @@ private:
     bool scene_stage_known_ = false;
     // Render thread: the scene's sky up changed; the next draw uploads its VS constants.
     bool sky_up_dirty_ = false;
-    std::vector<StripeParticleMark> producer_stripe_particles_;
-    // Render thread: the chunk's stripe marks while its records run (log
-    // recording), and the stripe vertices of the pending draw batch.
-    std::span<const StripeParticleMark> parse_stripes_{};
-    std::size_t parse_stripe_next_ = 0;
-    std::vector<StripeVertex> pending_stripe_vertices_;
-    std::vector<StripeVertex> draw_stripe_vertices_;
-    void take_attached_stripe_particles(FrameChunk& chunk);
-    // Render thread, after a chunk's parse: trace of the stripe-particle marks.
-    void note_stripe_particles(const FrameChunk& chunk);
     // Render thread: inside GameScene::draw3D (between the scene markers).
     bool scene_phase_ = false;
     // Render thread -> simulation thread: emit draw-identity markers.
@@ -413,6 +402,7 @@ private:
     // part of the key).
     std::uint32_t identity_continuity_ = 0;
     bool identity_continuity_particle_ = false;
+    bool identity_emitter_ = false;  // the draws that follow are an emitter's
     // Category in force (draw phase and the latest CategoryList call).
     std::uint32_t identity_category_ = 0x00FF0000u;
     std::uint64_t motion_category_markers_ = 0;
@@ -420,7 +410,6 @@ private:
     std::uint64_t motion_scene_markers_ = 0;
     std::uint64_t motion_light_markers_ = 0;
     std::uint64_t motion_mirror_markers_ = 0;
-    std::uint64_t motion_stripe_marks_ = 0;
     // GameScene::draw2D began (SceneMarker::Scene2DBegin); 2D layers in the report window.
     void on_scene_2d_begin();
     std::uint64_t window_2d_scenes_ = 0;
@@ -527,10 +516,22 @@ private:
         std::vector<VertexConstants> constants;   // per record, as uploaded
         std::vector<std::int32_t> prev_index;   // matched record of the previous scene
         std::vector<std::int32_t> palette;      // per record: shadow index or -1
+        // Per record: its model's block in `models`, or -1. A block's rows are kept here for the next scene's pairing;
+        // `order` tells a model's blocks of one frame apart (a view each).
+        std::vector<std::int32_t> model;
+        struct Model {
+            std::uint64_t key = 0;
+            std::uint32_t order = 0;
+            std::uint32_t count = 0;
+            std::uint32_t first_word = 0;
+            std::uint32_t ring_row = 0;
+        };
+        std::vector<Model> models;
+        std::vector<std::uint32_t> model_words;
         std::vector<std::uint8_t> per_vertex;   // per-vertex palette draw
+        std::vector<std::uint8_t> particle;     // its corners place themselves by the presented frame's time
         // Per record, from its drawing state: texgen i's bit when it maps position or normal (its matrices lerp
         // whole), and the lights its colour channels and emboss texgens evaluate.
-        std::vector<std::uint8_t> spatial_texgens;
         std::vector<std::uint8_t> light_masks;
         // The palettes (shadows) as rows: per shadow a table of draw_rows::kRows indices into `palette_rows` (4
         // words a row). A shadow appends only the kinds that changed since the one before it; the rest it shares.
@@ -573,7 +574,8 @@ private:
         }
         void clear() noexcept {
             constants.clear(); prev_index.clear();
-            palette.clear(); per_vertex.clear(); spatial_texgens.clear(); light_masks.clear(); palette_tables.clear(); palette_rows.clear(); palette_count = 0;
+            model.clear(); models.clear(); model_words.clear();
+            palette.clear(); per_vertex.clear(); particle.clear(); light_masks.clear(); palette_tables.clear(); palette_rows.clear(); palette_count = 0;
             valid = false; serial = 0;
             category.clear(); camera_epoch_known = false;
             rt_projection_known = false;
@@ -627,10 +629,9 @@ private:
         std::uint32_t record = 0;
         std::int32_t prev = -1;           // matched record of the scene before
         std::int32_t palette = -1;        // interp_palette_motions_ index
-        EyeMotion position{};             // inline position matrix
-        bool position_moves = false;
-        bool tex_moves = false;           // inline texture or post matrices
+        std::int32_t model = -1;          // interp_model_motions_ index
         bool projection_moves = false;
+        bool particle = false;
     };
     std::vector<InterpRecordMotion> interp_moving_;
     std::vector<InterpRecordMotion> interp_pending_;  // classification scratch
@@ -653,6 +654,17 @@ private:
         return layer == kScreenLayer ? kScreenCamera : layer == kMirrorLayer ? interp_mirror_camera_ : interp_camera_;
     }
     std::vector<InterpPaletteMotion> interp_palette_motions_;
+    // A model's block moving in the playing scene: its pair before, its motion, its rows in the output.
+    struct InterpModelMotion {
+        std::int32_t model = -1;
+        std::int32_t before = -1;
+        std::uint32_t output_row = 0;
+        std::uint32_t prev_row = 0;
+        ModelMotion motion{};
+    };
+    std::vector<InterpModelMotion> interp_model_motions_;
+    std::vector<std::int32_t> interp_model_index_;  // per scene block: its entry, or -1
+    std::vector<interp_gpu::Copy> interp_model_copies_;
     std::vector<std::int32_t> interp_palette_first_;  // per shadow: first entry
     std::uint64_t interp_moving_records_ = 0;        // summed per sub-frame
     std::uint64_t interp_palette_decompositions_ = 0;
@@ -833,7 +845,7 @@ private:
     NativeDrawState draw_state_;
     // The blend the pixel engine performs (effective_blend: one that writes the source unchanged is none).
     [[nodiscard]] BlendMode draw_blend() const {
-        return effective_blend(draw_state_.blend, draw_state_.frame_alpha);
+        return effective_blend(draw_state_.blend, draw_state_.target_alpha);
     }
     PipelineCache pipeline_cache_;
     TextureCache texture_cache_;
@@ -880,12 +892,12 @@ private:
     struct ScreenProbeFlight {
         std::uint32_t channel = 0, count = 0;
         std::size_t slot = 0;
-        ScreenProbeKind kind = ScreenProbeKind::Alpha;
         std::array<ScreenProbe, kScreenProbesMax> probes{};
     };
     std::array<ScreenProbeFlight, Renderer::kScreenProbeSlots> probe_flights_{};
     std::size_t probe_flight_first_ = 0, probe_flights_active_ = 0;
     void record_screen_probes(const shapes::Record& record);
+    void set_target_alpha(bool on);
     static constexpr std::uint32_t kScreenProbeChannels = 8u;
     struct ScreenProbeAnswers {
         std::uint32_t count = 0;
@@ -900,9 +912,8 @@ private:
     // GPU-resident decoded vertices (render thread only). One persistently
     // mapped UPLOAD buffer, created lazily per device; see
     // resident_vertex_arena.h for the block retirement rule.
-    static constexpr std::uint32_t kResidentDecodedVertexCapacity =
-        static_cast<std::uint32_t>(
-            64u * 1024u * 1024u / sizeof(RenderVertex));
+    static constexpr std::uint32_t kResidentUnit = 16u;
+    static constexpr std::uint32_t kResidentDecodedVertexCapacity = 64u * 1024u * 1024u / kResidentUnit;
     ResidentVertexArena resident_vertices_;
     UploadBuffer resident_vertex_buffer_;
     gpu::Address resident_vertex_gpu_ = 0;
@@ -957,7 +968,6 @@ private:
     void begin_target_pass(const shapes::Record& record);
     void end_target_pass(const shapes::Record& record);
     // The open target pass's size (game units), for its closing copy.
-    std::array<std::uint32_t, 2> target_pass_size_{};
     // A draw record's matrices and current matrices, into the matrix state its draw reads.
     void apply_record_matrices(const shapes::Record& record);
     // Gives back a group's resident block.
@@ -974,6 +984,26 @@ private:
         const curved::Model* curved = nullptr;
     };
     const RecordVertexInputs* record_inputs_ = nullptr;
+    // Models' blocks of the game frame, by id (Record::Kind::Palette): the rows kept, and where the ring has them.
+    struct ModelPalette {
+        std::uint64_t key = 0;
+        std::uint32_t count = 0;
+        std::uint32_t first = 0;      // in model_palette_rows_
+        std::uint32_t order = 0;      // among this frame's blocks of the key
+        std::uint32_t ring_row = 0;
+        std::uint64_t ring_epoch = 0;
+        bool in_ring = false;
+        std::int32_t scene_model = -1;
+        std::uint32_t scene_stamp = 0;
+    };
+    std::vector<ModelPalette> model_palettes_;
+    std::vector<float> model_palette_rows_;
+    std::uint32_t model_palette_first_id_ = 0;
+    std::uint32_t model_palette_frame_ = ~0u;
+    std::uint32_t interp_scene_stamp_ = 1u;
+    ModelPalette* draw_palette_ = nullptr;
+    std::uint32_t draw_palette_row_ = 0;
+    void note_model_palette(const shapes::Record& record);
     // draw_record_immediate's vertices and indices before they go to the rings.
     std::vector<std::uint16_t> immediate_indices_;
     // The vertex inputs the last keys were built with.
@@ -1067,7 +1097,7 @@ private:
     bool texture_bindings_dirty_ = true;
     std::uint8_t current_texture_map_mask_ = 0;
     // sampled_texture_map_mask(draw_state_) reads DrawCounts, the material order, indirect-command and IND_REF registers,
-    // all of which set kDirtyTev; invalidated wherever the state resets.
+    // all of which set kDirtyStage; invalidated wherever the state resets.
     bool current_texture_map_mask_valid_ = false;
 
     struct TextureBindingKey {

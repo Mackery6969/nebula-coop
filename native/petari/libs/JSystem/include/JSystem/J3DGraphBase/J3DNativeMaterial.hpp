@@ -7,8 +7,6 @@
 class J3DMaterial;
 class J3DModelData;
 class J3DTexture;
-class J3DMaterialSnapshot;
-struct NebulaMaterialParts;
 struct NebulaNativeMaterial;
 
 // The parts a material loads (the others keep what was set before).
@@ -26,11 +24,9 @@ enum {
 struct J3DMaterialSetup {
     u8 tex_gens, cull, z_compare_location, fog_type;
     u16 loads;
-    // 0: the material as its list sets it. Else an instance's differed list: only the parts these J3D flags name.
-    u32 diff_flags;
     u8 tex_gen_post[8];  // each coordinate's post-transform row (61 the identity)
     struct { u8 comp0, op, comp1; } alpha_compare;
-    struct { u8 type, source, destination, logic_op; } blend;  // NEBULA_BLEND_*, NEBULA_FACTOR_*
+    struct { u8 type, source, destination; } blend;  // NEBULA_BLEND_*, NEBULA_FACTOR_*
     struct { u8 enable, func, update; } z_mode;
     // Coordinate i's texture matrix, when the material has one: `id` its place (a post-transform one from 64), `rows`
     // 2 or 3, `listed` whether the material's own list loads it (a differed list loads every one).
@@ -56,34 +52,20 @@ struct J3DMaterialValues {
 // block's settings as values.
 
 namespace J3DNativeMaterial {
-    // `pTexture`: the texture table the material's texture numbers index (its packet's; j3dSys's for shared lists).
-    void build(J3DMaterial* pMaterial, J3DTexture* pTexture, NebulaMaterialParts* pOut);
     // The material the next shape draws use, a record after every command written before it.
-    // A snapshot's storage, from the current heap (where a material list's buffers come from).
-    NebulaMaterialParts* create();
-    // The material as `pList` sets it now (made or patched), into its snapshot.
-    // is new or changed. `diffFlags`: the J3D diff flags of a differed list (0 for a whole list).
-    void capture(J3DMaterial* pMaterial, J3DTexture* pTexture, J3DMaterialSnapshot* pList, u32 diffFlags = 0);
-    // The material `pList` sets (its snapshot; built now for a list from the model file, which has none).
-    void send(J3DMaterial* pMaterial, J3DTexture* pTexture, J3DMaterialSnapshot* pList);
-    // An instance's differed list (a shape packet's: the material with that instance's animated values), when it has
-    // been made.
-    void sendDiffered(J3DMaterialSnapshot* pList);
-    // The values every material takes (the register file): each setter changes it, sendRegisters gives the current
-    // material the new values.
-    void setColorRegister(u32 index, NebulaColor8 color);
-    void setColorRegisterWide(u32 index, const NebulaColor16& rColor);
-    void setConstantColor(u32 index, NebulaColor8 color);
-    void setLightMaterial(u32 channel, NebulaColor8 color);
+    void send(J3DMaterial* pMaterial);
+    // A model's own copy of the material `pShared` just sent, when it has one.
+    void sendOwn(J3DMaterial* pMaterial, const J3DMaterial* pShared);
+    // The light environment's ambient colour: materials with none of their own take it, the current one at once.
     void setLightAmbient(u32 channel, NebulaColor8 color);
-    void setIndirectMatrix(u32 index, const f32 offset[2][3], s8 scaleExp);
-    void setFog(u32 type, f32 start, f32 end, f32 nearZ, f32 farZ, NebulaColor8 color);
-    void setAlphaTest(u8 compare0, u8 reference0, u8 op, u8 compare1, u8 reference1);
-    void sendRegisters();
+    const f32* lightAmbient(u32 channel);
+    // The current J3D material's stage colour `index` (0 the output, 1-3 the others), and its fog.
+    void setCurrentRegister(u32 index, NebulaColor8 color);
+    const f32* currentRegister(u32 index);
+    void setCurrentMaterialColor(u32 channel, NebulaColor8 color);
+    void setCurrentAmbient(u32 channel, NebulaColor8 color);
+    void setCurrentFog(f32 start, f32 end, f32 nearZ, f32 farZ, NebulaColor8 color);
     void applyPass(u8 pass);
-    // The register file (j3d_material.hlsli MaterialConstants' first 84 floats: colour registers, constant colours, material and
-    // ambient colours, indirect matrices, fog, alpha references) as the materials and state changes left it.
-    const f32* registers();
     // A material another part of the game sends (NativeShader::send; NULL a drawing-state one: a registered program's
     // values): the draws after it no longer use the current J3D material.
     void watch(const NebulaNativeMaterial* pNative);
@@ -101,4 +83,6 @@ namespace J3DNativeMaterial {
     // 1-4, alphas A0 and A1, drawn above `ref`, -1 always): whether the material draws natively and took it (else the
     // caller loads its program). Mode 0 ends it.
     bool override(u32 mode, f32 a0, f32 a1, f32 ref);
+    // The alpha written over the reflection pass (override mode 5).
+    void overrideAlpha(f32 alpha);
 };  // namespace J3DNativeMaterial

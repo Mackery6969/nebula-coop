@@ -29,12 +29,11 @@ namespace MovieDraw {
     void drawFrame(u16 screenWidth, u16 screenHeight, u8* pY, u8* pU, u8* pV, s16 x, s16 y, s16 textureWidth,
                    s16 textureHeight, s16 width, s16 height) {
         // The screen in its own pixels, the frame as it is.
-        J3DNativeState::setFrameAlpha(false);
         Mtx44 projection;
         NebulaMtxOrtho(projection, 0.0f, screenHeight, 0.0f, screenWidth, 0.0f, -1.0f);
         J3DNativeView::setOrthographic(projection);
-        J3DNativeView::setViewport(0.0f, 0.0f, screenWidth, screenHeight, 0.0f, 1.0f);
-        J3DNativeView::setScissor(0, 0, screenWidth, screenHeight);
+        J3DNativeView::setViewport(0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f);
+        J3DNativeView::setScissor(0.0f, 0.0f, 1.0f, 1.0f);
         Mtx identity;
         NebulaMtxIdentity(identity);
         J3DNativeShape::setPosition(0, identity);

@@ -23,35 +23,44 @@ VolumeModelDrawer::VolumeModelDrawer(const char* pName, const char* pFileName, M
     mModelData = (J3DModelData*)MR::createAndAddResourceHolder(buf)->mModelResTable->getRes(pFileName);
 }
 
+// A glow on whatever stands inside the model's shape: its back faces behind a surface mark the pixel, its front faces
+// behind one unmark it, so what stays marked has the surface between them. The colour goes on at its alpha squared, each
+// pixel once.
 void VolumeModelDrawer::draw() const {
     MR::loadProjectionMtx();
     loadModelDrawMtx();
     J3DPass::positionMatrix(0);
     J3DPass::writeColor(false);
-    J3DPass::writeAlpha(true);
-    J3DPass::constantAlpha(true, 0);
+    J3DPass::writeAlpha(false);
+    J3DPass::noBlend();
+
+    const u32 strength = mColor.a;
+    NebulaColor8 color = mColor;
+    color.a = static_cast< u8 >(strength * strength / 255);
+    MR::setShadowVolumeColor(color);
+
     J3DPass::cull(NEBULA_CULL_NONE);
-    NebulaColor8 color_1 = mColor;
-    MR::setShadowVolumeColor(color_1);
     J3DPass::depth(false, NEBULA_COMPARE_ALWAYS, false);
-    J3DPass::blend(NEBULA_FACTOR_ONE, NEBULA_FACTOR_ZERO);
+    J3DPass::stencil(NEBULA_STENCIL_ALWAYS, NEBULA_STENCIL_ZERO);
     MR::drawSimpleModel(mModelData);
-    J3DPass::constantAlpha(false, 0);
+
     J3DPass::depth(true, NEBULA_COMPARE_GEQUAL, false);
     J3DPass::cull(NEBULA_CULL_FRONT);
-    J3DPass::blend(NEBULA_FACTOR_SRC_ALPHA, NEBULA_FACTOR_ZERO);
+    J3DPass::stencil(NEBULA_STENCIL_ALWAYS, NEBULA_STENCIL_ADD);
     MR::drawSimpleModel(mModelData);
     J3DPass::cull(NEBULA_CULL_BACK);
-    J3DPass::subtractBlend();
+    J3DPass::stencil(NEBULA_STENCIL_ALWAYS, NEBULA_STENCIL_ZERO);
     MR::drawSimpleModel(mModelData);
-    NebulaColor8 color_2 = mColor;
-    MR::setShadowVolumeColor(color_2);
+
     J3DPass::cull(NEBULA_CULL_NONE);
-    J3DPass::blend(NEBULA_FACTOR_DST_ALPHA, NEBULA_FACTOR_ONE);
-    J3DPass::writeColor(true);
-    J3DPass::constantAlpha(true, 0);
     J3DPass::depth(false, NEBULA_COMPARE_ALWAYS, false);
+    J3DPass::writeColor(true);
+    J3DPass::blend(NEBULA_FACTOR_SRC_ALPHA, NEBULA_FACTOR_ONE);
+    J3DPass::stencil(NEBULA_STENCIL_IF_SET, NEBULA_STENCIL_ZERO);
     MR::drawSimpleModel(mModelData);
+
+    J3DPass::stencil(NEBULA_STENCIL_OFF, NEBULA_STENCIL_KEEP);
+    J3DPass::noBlend();
 }
 
 void VolumeModelDrawer::loadModelDrawMtx() const {

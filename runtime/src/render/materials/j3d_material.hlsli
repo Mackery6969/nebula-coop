@@ -1,22 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // The J3D materials' framework (E-04 step 3): every generated runtime/src/render/materials/j3d/m<id>.hlsl includes this.
-// One constant layout for all of them (the game packs it from the material's values: J3DNativeMaterial), the native
-// framework, and the vertex lighting from the draw's lights (float math).
-
-struct MaterialConstants {
-    float4 reg[4];        // the colour registers PREV, REG0-2 at the draw (0-1 scale; signed, beyond 1 possible)
-    float4 kcolor[4];     // the constant colours 0-3
-    float4 mat_color[2];  // channels 0 and 1: material colour
-    float4 amb_color[2];  // and ambient colour
-    float4 ind_mtx[6];    // indirect matrix m: rows 2m and 2m + 1 (xyz), its scale applied
-    float4 fog;           // start, end, near, far
-    float4 fog_color;     // rgb; w: the fog type (0 none)
-    float4 alpha_ref;     // the alpha test's references 0 and 1 (0-1)
-    float4 tex_scale[8];  // xy: texture coordinate i's scale (texels per unit), zw: map i's size (texels)
-    float4 ovr;           // a pass that replaces the material's colour (j3d_override): x the mode (0 none), y and z
-                          // alphas A0 and A1 (0-1), w the alpha reference (drawn above it; -1 always)
-    float4 ovr_coord;     // x: coordinate 0 replaced (j3d_vertex_override; 0 none, 1 the vertex's normal)
-};
+// Each material declares the constants it reads before including this (its struct MaterialConstants, in the order of
+// tools/dev/j3d_compact.py SLOTS; the game packs them by the mask its shader's table gives): always fog, fog_color, ovr
+// and ovr_coord. Here: the native framework, and the vertex lighting from the draw's lights (float math).
+//   reg1-3      the colour registers at the draw (0-1 scale; signed, beyond 1 possible)
+//   kcolor0-3   the constant colours
+//   mat_color0-1, amb_color0-1  channels 0 and 1: material and ambient colour
+//   ind_mtx0-5  indirect matrix m: rows 2m and 2m + 1 (xyz), its scale applied
+//   fog         start, end, near, far; fog_color: rgb, w the fog type (0 none)
+//   alpha_ref   the alpha test's references 0 and 1 (0-1)
+//   tex_scale0-7  xy: texture coordinate i's scale (texels per unit), zw: map i's size (texels)
+//   ovr         a pass that replaces the material's colour (j3d_override): x the mode (0 none), y and z alphas A0 and A1
+//               (0-1), w the alpha reference (drawn above it; -1 always)
+//   ovr_coord   x: coordinate 0 replaced (j3d_vertex_override; 0 none, 1 the vertex's normal)
 
 #include "native_material.hlsli"
 
@@ -230,11 +226,6 @@ float2 j3d_coord(float4 uv) {
     return uv.z != 0.0 && uv.w != 0.0 ? uv.xy / uv.z : uv.xy;
 }
 
-// Coordinate `coord` in texels of its scale (the size of the map its last stage reads).
-float2 j3d_texel(float4 uv, uint coord) {
-    return j3d_coord(uv) * material.tex_scale[coord].xy;
-}
-
 // Coordinate 0 replaced over the material's own stages (J3DNativeMaterial::overrideCoordinate): 1 the vertex's normal
 // (the normal through the identity, 2x4, normalized: J3DModelX list 6, the ghost's shell over the screen's copy).
 void j3d_vertex_override(NativeVertex v, inout NativeVaryings o) {
@@ -249,10 +240,12 @@ void j3d_vertex_override(NativeVertex v, inout NativeVaryings o) {
 // (J3DModelX list 2), 2 the channel colour with alpha A0 (MarioSearchLight's volume), 3 the channel colour with alpha
 // RASA - K(1 - A0) (its cone: stage 0's constant alpha), 4 the channel colour with alpha (A1 + (A0 - A1) RASA) / 2 (its
 // falloff), 5 texture 0 at coordinate 0 halved with stage 0's own alpha (`a0`: the material's stage 0 alpha combiner
-// without channels; J3DModelX list 11, the reflection model). Fog as the material's.
+// without channels; J3DModelX list 11, the reflection model; `ovr.y` above 0: the alpha written instead). Fog as the
+// material's.
 float4 j3d_override(float4 t0, float4 ras, float k0, float a0, float4 pos) {
     const uint mode = uint(material.ovr.x);
     float4 c;
+    float tested = -1.0;
     if (mode == 1u) {
         c = float4(t0.rgb, 0.25);
     } else if (mode == 2u) {
@@ -262,9 +255,10 @@ float4 j3d_override(float4 t0, float4 ras, float k0, float a0, float4 pos) {
     } else if (mode == 4u) {
         c = float4(ras.rgb, saturate(lerp(material.ovr.z, material.ovr.y, ras.a) * 0.5));
     } else {
-        c = float4(saturate(t0.rgb * 0.5), a0);
+        c = float4(saturate(t0.rgb * 0.5), material.ovr.y > 0.0 ? material.ovr.y : a0);
+        tested = a0;
     }
-    if (round(c.a * 255.0) <= material.ovr.w) {
+    if (round((tested >= 0.0 ? tested : c.a) * 255.0) <= material.ovr.w) {
         discard;
     }
     c.rgb = j3d_fog(c.rgb, pos);

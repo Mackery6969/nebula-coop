@@ -61,13 +61,11 @@ public:
     void loadPosMtxIndx(int, u16) const;
     void loadNrmMtxIndx(int, u16) const;
     void drawInit();
-    void reinitGX();
+    void resetDrawState();
     void reinitGenMode();
     void reinitLighting();
     void reinitTransform();
     void reinitTexture();
-    void reinitTevStages();
-    void reinitIndStages();
     void reinitPixelProc();
 
     MtxPtr getViewMtx() {

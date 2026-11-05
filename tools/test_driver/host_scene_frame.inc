@@ -175,6 +175,9 @@
     if (touring && next == stops.size() && !gTourDone.load(std::memory_order_relaxed) &&
         ++since_stop >= std::max(tour_frames, last_frame)) {
         gTourDone.store(true, std::memory_order_relaxed);  // the run ends once the last stop has had its frames
+#if defined(_WIN32) && defined(NEBULA_HOST_RENDERER) && !defined(NEBULA_HOST_SDL)
+        SetEvent(gHostWake);
+#endif
         log_line("tour:", "done");
     }
     if (touring && next < stops.size() && ++since_stop >= tour_frames) {
@@ -187,8 +190,19 @@
         char text[128];
         std::snprintf(text, sizeof(text), "%zu/%zu %s %d", next, stops.size(), stop.stage.c_str(), stop.scenario);
         log_line("tour:", text);
+#if defined(NEBULA_HOST_RENDERER)
+        if (nebula_switch::present_snapshot_by_stop() != nullptr) {
+            galaxy::render::number_present_snapshots(0u);
+        }
+#endif
         return 1;
     }
+#if defined(NEBULA_HOST_RENDERER)
+    // Pictures named by stop and scene frame: a build's load frames do not move them.
+    if (touring && nebula_switch::present_snapshot_by_stop() != nullptr) {
+        galaxy::render::number_present_snapshots(next * 1000u + since_stop);
+    }
+#endif
     if (touring && stop_frame == 0) {
         return 0;
     }

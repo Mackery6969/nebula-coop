@@ -36,11 +36,8 @@ void HeapMemoryWatcher::createSceneHeapOnGameHeap() {
     mSceneHeap = ::createArena(mGameHeap);
 }
 
-void HeapMemoryWatcher::adjustStationedHeaps() {
-}
-
-void HeapMemoryWatcher::setCurrentHeapToStationedHeap() {
-    MR::becomeCurrentHeap(mStationedHeap);
+void HeapMemoryWatcher::setCurrentHeapToPermanent() {
+    MR::becomeCurrentHeap(mPermanent);
 }
 
 void HeapMemoryWatcher::setCurrentHeapToGameHeap() {
@@ -70,9 +67,8 @@ void HeapMemoryWatcher::destroyGameHeap() {
 
 void HeapMemoryWatcher::createHeaps() {
     MR::CurrentHeapRestorer heapRestorer = MR::CurrentHeapRestorer(NebulaArena::sRootHeap);
-    ::createArena(NebulaArena::sRootHeap)->becomeSystemHeap();
-    mAudSystemHeap = ::createArena(NebulaArena::sRootHeap);
-    mStationedHeap = ::createArena(NebulaArena::sRootHeap);
+    mPermanent = ::createArena(NebulaArena::sRootHeap);
+    mPermanent->becomeSystemHeap();
     createGameHeap();
 }
 
@@ -81,9 +77,6 @@ void HeapMemoryWatcher::createGameHeap() {
 }
 
 HeapMemoryWatcher::HeapMemoryWatcher()
-    : mStationedHeap(nullptr), mGameHeap(nullptr), mFileCacheHeap(nullptr), mSceneHeap(nullptr), mAudSystemHeap(nullptr) {
+    : mPermanent(nullptr), mGameHeap(nullptr), mFileCacheHeap(nullptr), mSceneHeap(nullptr) {
     createHeaps();
-}
-
-void HeapMemoryWatcher::checkRestMemory() {
 }

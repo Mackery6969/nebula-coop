@@ -4,7 +4,6 @@
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/System/GameSequenceFunction.hpp"
 #include "Game/System/GameSystemFunction.hpp"
-#include "Game/System/MainLoopFramework.hpp"
 #include "Game/Util/Color.hpp"
 #include "Game/Util/DrawUtil.hpp"
 #include "Game/Util/LayoutUtil.hpp"
@@ -24,7 +23,6 @@ namespace {
 
 namespace NrvGameSystemResetAndPowerProcess {
     NEW_NERVE(GameSystemResetAndPowerProcessIdle, GameSystemResetAndPowerProcess, Idle);
-    NEW_NERVE(GameSystemResetAndPowerProcessWaitResetPermitted, GameSystemResetAndPowerProcess, WaitResetPermitted);
     NEW_NERVE(GameSystemResetAndPowerProcessPrepareReset, GameSystemResetAndPowerProcess, PrepareReset);
     NEW_NERVE(GameSystemResetAndPowerProcessReset, GameSystemResetAndPowerProcess, Reset);
     NEW_NERVE(GameSystemResetAndPowerProcessWaitPrepareFadein, GameSystemResetAndPowerProcess, WaitPrepareFadein);
@@ -59,39 +57,32 @@ void GameSystemResetAndPowerProcess::setResetOperationQuit() {
     mResetOperation = ResetOperation_Quit;
 }
 
-void GameSystemResetAndPowerProcess::requestReset(bool param1) {
+void GameSystemResetAndPowerProcess::requestReset(bool isImmediate) {
     if (tryPermitReset()) {
-        _5E = param1;
-
-        setNerve(GET_NERVE(GameSystemResetAndPowerProcess, GameSystemResetAndPowerProcessWaitResetPermitted));
+        beginFadeOut(isImmediate);
     }
 }
 
-void GameSystemResetAndPowerProcess::requestQuitGame(bool param1) {
+void GameSystemResetAndPowerProcess::requestQuitGame(bool isImmediate) {
     if (tryPermitReset()) {
-        _5E = param1;
         setResetOperationQuit();
-        setNerve(GET_NERVE(GameSystemResetAndPowerProcess, GameSystemResetAndPowerProcessWaitResetPermitted));
+        beginFadeOut(isImmediate);
     }
+}
+
+void GameSystemResetAndPowerProcess::beginFadeOut(bool isImmediate) {
+    if (isImmediate) {
+        mFadeinoutControl->setZero();
+    } else {
+        mFadeinoutControl->setDirToZero();
+    }
+
+    GameSystemFunction::activateScreenPreserver();
+    setNerve(GET_NERVE(GameSystemResetAndPowerProcess, GameSystemResetAndPowerProcessPrepareReset));
 }
 
 // Resets come from the HOME Menu (requestReset, requestQuitGame).
 void GameSystemResetAndPowerProcess::exeIdle() {
-}
-
-void GameSystemResetAndPowerProcess::exeWaitResetPermitted() {
-    if (GameSystemFunction::isPermitToResetAudioSystem() && GameSystemFunction::isPermitToResetSaveDataHandleSequence()) {
-        if (_5E) {
-            mFadeinoutControl->setZero();
-        } else {
-            mFadeinoutControl->setDirToZero();
-        }
-
-        _5E = false;
-
-        GameSystemFunction::activateScreenPreserver();
-        setNerve(GET_NERVE(GameSystemResetAndPowerProcess, GameSystemResetAndPowerProcessPrepareReset));
-    }
 }
 
 void GameSystemResetAndPowerProcess::exePrepareReset() {
@@ -100,7 +91,6 @@ void GameSystemResetAndPowerProcess::exePrepareReset() {
         GameSystemFunction::prepareResetSystem();
         GameSystemFunction::resetAllControllerRumble();
         GameSystemFunction::forceToDeactivateHomeButtonLayout();
-        GameSystemFunction::prepareResetSaveDataHandleSequence();
     }
 
     if (MR::isStep(this, 2)) {
@@ -114,7 +104,7 @@ void GameSystemResetAndPowerProcess::exePrepareReset() {
     }
 
     if (b) {
-        b = isResetAcceptAudio();
+        b = MR::isGreaterStep(this, 2) && GameSystemFunction::isDoneResetAudioSystem();
     }
 
     if (b) {
@@ -163,7 +153,6 @@ void GameSystemResetAndPowerProcess::exeFadein() {
 void GameSystemResetAndPowerProcess::exitApplication() {
     // The counts Nebula's achievements hold for the host (jumps, coins, play time), before the game ends.
     NebulaAchievements::flushStats();
-    MainLoopFramework::prepareForExit();
     NebulaFrameClock::show(false);
     NebulaFrameClock::waitFrame();
 
@@ -180,21 +169,12 @@ bool GameSystemResetAndPowerProcess::tryPermitReset() {
     return !isActive();
 }
 
-bool GameSystemResetAndPowerProcess::isResetAcceptAudio() const {
-    if (mResetOperation != ResetOperation_ApplicationReset && MR::isGreaterStep(this, 2) && GameSystemFunction::isDoneResetAudioSystem()) {
-        return true;
-    }
-
-    return MR::isGreaterStep(this, 17);
-}
-
 void GameSystemResetAndPowerProcess::control() {
     mFadeinoutControl->update();
 }
 
 GameSystemResetAndPowerProcess::GameSystemResetAndPowerProcess()
-    : LayoutActor("\203\212\203\132\203\142\203\147\201\105\223\144\214\271" /* リセット・電源 */, false), mFadeinoutControl(), mResetOperation(ResetOperation_Restart), _5C(true),
-      _5E() {
+    : LayoutActor("\203\212\203\132\203\142\203\147\201\105\223\144\214\271" /* リセット・電源 */, false), mFadeinoutControl(), mResetOperation(ResetOperation_Restart), _5C(true) {
     mFadeinoutControl = new ValueControl(::sFadeinoutFrame);
     mFadeinoutControl->setOne();
 }

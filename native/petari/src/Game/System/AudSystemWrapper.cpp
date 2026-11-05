@@ -31,17 +31,16 @@ AudSystemWrapper::AudSystemWrapper(NebulaArena* pSolidHeap, NebulaArena* pHeap) 
     self->mJaiRemixSeqRes = nullptr;
     self->mSpkRes = nullptr;
     self->_28 = false;
-    self->mDisableReset = false;
     mSpkHeap = NebulaArena::create(pSolidHeap);
 }
 
 void AudSystemWrapper::requestResourceForInitialize() {
-    MR::loadAsyncToMainRAM(sAudioResFile, nullptr, mHeap, GameAssets::ALLOC_DIRECTION_BACKWARD);
-    MR::mountAsyncArchive(sJaiSeqArc, mSolidHeap);
-    MR::mountAsyncArchive(sJaiChordArc, mSolidHeap);
-    MR::mountAsyncArchive(sJaiMeArc, mSolidHeap);
-    MR::mountAsyncArchive(AudSpeakerWrap::getResName(), mSpkHeap);
-    MR::mountAsyncArchive(sJaiRemixArc, mSolidHeap);
+    MR::loadFile(sAudioResFile, nullptr, mHeap);
+    MR::mountArchive(sJaiSeqArc, mSolidHeap);
+    MR::mountArchive(sJaiChordArc, mSolidHeap);
+    MR::mountArchive(sJaiMeArc, mSolidHeap);
+    MR::mountArchive(AudSpeakerWrap::getResName(), mSpkHeap);
+    MR::mountArchive(sJaiRemixArc, mSolidHeap);
 }
 
 void AudSystemWrapper::createAudioSystem() {
@@ -51,9 +50,7 @@ void AudSystemWrapper::createAudioSystem() {
         return;
     }
 
-    mDisableReset = true;
     mAudSystem = AudNewAudSystem(mSolidHeap, mSmrRes, mJaiSeqRes, mJaiChordRes, mJaiMeRes, mJaiRemixSeqRes);
-    mDisableReset = false;
 
     MR::removeFileConsideringLanguage(sAudioResFile);
     mSmrRes = nullptr;
@@ -89,98 +86,10 @@ void AudSystemWrapper::stopAllSound(u32 time) {
     mAudSystem->stop(time);
 }
 
-bool AudSystemWrapper::isLoadDoneWaveDataAtSystemInit() const {
-    if (mAudSystem == nullptr) {
-        return false;
+void AudSystemWrapper::setPlayerLuigi(bool isLuigi) {
+    if (mAudSystem != nullptr && mAudSystem->mSceneMgr != nullptr) {
+        mAudSystem->mSceneMgr->setPlayerLuigi(isLuigi);
     }
-
-    if (mAudSystem->mSceneMgr == nullptr) {
-        return false;
-    }
-
-    return mAudSystem->mSceneMgr->isLoadDoneSystemInit();
-}
-
-void AudSystemWrapper::loadStaticWaveData() {
-    if (mAudSystem == nullptr) {
-        return;
-    }
-
-    if (mAudSystem->mSceneMgr == nullptr) {
-        return;
-    }
-
-    mAudSystem->mSceneMgr->loadStaticResource();
-}
-
-bool AudSystemWrapper::isLoadDoneStaticWaveData() const {
-    if (mAudSystem == nullptr) {
-        return false;
-    }
-
-    if (mAudSystem->mSceneMgr == nullptr) {
-        return false;
-    }
-
-    return mAudSystem->mSceneMgr->isLoadDoneStaticResource();
-}
-
-void AudSystemWrapper::loadStageWaveData(const char* pSceneName, const char* pStageName, bool isPlayerLuigi) {
-    if (mAudSystem == nullptr) {
-        return;
-    }
-
-    if (mAudSystem->mSceneMgr == nullptr) {
-        return;
-    }
-
-    if (isPlayerLuigi) {
-        mAudSystem->mSceneMgr->setPlayerModeLuigi();
-    } else {
-        mAudSystem->mSceneMgr->setPlayerModeMario();
-    }
-
-    mAudSystem->mSceneMgr->loadStageResource(pSceneName, pStageName);
-}
-
-bool AudSystemWrapper::isLoadDoneStageWaveData() const {
-    if (mAudSystem == nullptr) {
-        return false;
-    }
-
-    if (mAudSystem->mSceneMgr == nullptr) {
-        return false;
-    }
-
-    return mAudSystem->mSceneMgr->isLoadDoneStageResource();
-}
-
-void AudSystemWrapper::loadScenarioWaveData(const char* pSceneName, const char* pStageName, s32 scenarioNo) {
-    if (mAudSystem == nullptr) {
-        return;
-    }
-
-    if (mAudSystem->mSceneMgr == nullptr) {
-        return;
-    }
-
-    mAudSystem->mSceneMgr->loadScenarioResource(pSceneName, pStageName, scenarioNo);
-}
-
-bool AudSystemWrapper::isLoadDoneScenarioWaveData() const {
-    if (mAudSystem == nullptr) {
-        return false;
-    }
-
-    if (mAudSystem->mSceneMgr == nullptr) {
-        return false;
-    }
-
-    return mAudSystem->mSceneMgr->isLoadDoneScenarioResource();
-}
-
-bool AudSystemWrapper::isPermitToReset() const {
-    return !mDisableReset;
 }
 
 void AudSystemWrapper::prepareReset() {
@@ -225,10 +134,10 @@ void AudSystemWrapper::resumeReset() {
 }
 
 void AudSystemWrapper::receiveResourceForInitialize() {
-    mSmrRes = MR::receiveFile(sAudioResFile);
-    mJaiSeqRes = MR::receiveArchive(sJaiSeqArc);
-    mJaiChordRes = MR::receiveArchive(sJaiChordArc);
-    mJaiMeRes = MR::receiveArchive(sJaiMeArc);
-    mSpkRes = MR::receiveArchive(AudSpeakerWrap::getResName());
-    mJaiRemixSeqRes = MR::receiveArchive(sJaiRemixArc);
+    mSmrRes = MR::getLoadedFile(sAudioResFile);
+    mJaiSeqRes = MR::getMountedArchive(sJaiSeqArc);
+    mJaiChordRes = MR::getMountedArchive(sJaiChordArc);
+    mJaiMeRes = MR::getMountedArchive(sJaiMeArc);
+    mSpkRes = MR::getMountedArchive(AudSpeakerWrap::getResName());
+    mJaiRemixSeqRes = MR::getMountedArchive(sJaiRemixArc);
 }

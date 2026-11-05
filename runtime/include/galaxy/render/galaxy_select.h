@@ -75,6 +75,8 @@ void set_coop_chat_available(bool available) noexcept;
 [[nodiscard]] bool coop_chat_key(std::uint32_t virtual_key) noexcept;
 [[nodiscard]] bool take_coop_chat_open() noexcept;
 // The game, once per scene frame: a travel the page asked for (true, once), and the Grand Stars.
+// Test tours: the next present's picture number (a stop's thousand and its scene frame); 0: no pictures until the next.
+void number_present_snapshots(std::uint64_t number) noexcept;
 [[nodiscard]] bool take_galaxy_travel(std::size_t& stage, std::uint32_t& star) noexcept;
 [[nodiscard]] bool take_grand_stars() noexcept;
 [[nodiscard]] bool take_leave_game() noexcept;
