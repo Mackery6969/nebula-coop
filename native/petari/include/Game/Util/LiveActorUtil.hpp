@@ -120,6 +120,7 @@ namespace MR {
     bool isExistTexture(const LiveActor*, const char*);
 
     void prepareMaterials(LiveActor*);
+    void newDifferedMaterials(LiveActor*);
     void initMaterialFog(LiveActor*, bool);
     void initMaterialColor0(LiveActor*, const char*, const J3DColor*);
     TexMtxCtrl* initMaterialTexMtx(LiveActor*, const char*);

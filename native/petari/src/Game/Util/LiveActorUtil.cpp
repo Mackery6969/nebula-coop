@@ -862,6 +862,10 @@ namespace MR {
         pActor->mModelManager->prepareMaterials();
     }
 
+    void newDifferedMaterials(LiveActor* pActor) {
+        pActor->mModelManager->newDifferedMaterials();
+    }
+
     void initMaterialFog(LiveActor* pActor, bool enable) {
         pActor->mModelManager->mMaterialUpdater->addFogCtrl(enable);
     }
