@@ -29,7 +29,6 @@
 #include <JSystem/JAudio2/JASStream.hpp>
 #include <JSystem/JAudio2/JASAiCtrl.hpp>
 #include <JSystem/JAudio2/JASDriverIF.hpp>
-#include <JSystem/JAudio2/JASLoadThread.hpp>
 #include <JSystem/JAudio2/JASHeapCtrl.hpp>
 #include <JSystem/JAudio2/JASTrack.hpp>
 #include <JSystem/JAudio2/JASWaveArcLoader.hpp>
@@ -59,7 +58,7 @@ void J3DShapeMtx::loadMtxIndx_PNGP(int slot, u16 index) const {
     j3dSys.loadNrmMtxIndx(slot, index);
     ShapePacketUserData* pData = MR::getJ3DShapePacketUserData(j3dSys.getShapePacket());
     if (pData != nullptr) {
-        pData->loadTexMtx(j3dSys.getShapePacket()->getShape()->getMaterial(), slot, index);
+        pData->loadTexMtx(j3dSys.getShapePacket()->mpMaterial, slot, index);
     }
 }
 
@@ -456,8 +455,8 @@ void JPADrawLine(JPAEmitterWorkData* pWork, JPABaseParticle* pParticle) {
     end.setLength(pWork->mGlobalPtclScl.y * (25.0f * pParticle->mParticleScaleY));
     end.sub(position, end);
     JPAParticleBatch::primitive(NEBULA_PRIMITIVE_LINES);
-    JPAParticleBatch::vertex(position.x, position.y, position.z, 0.0f, 0.0f);
-    JPAParticleBatch::vertex(end.x, end.y, end.z, 0.0f, 1.0f);
+    JPAParticleBatch::corner(0, position.x, position.y, position.z, 0.0f, 0.0f);
+    JPAParticleBatch::corner(1, end.x, end.y, end.z, 0.0f, 1.0f);
 }
 
 void JPADrawStripe(JPAEmitterWorkData* pWork) {
@@ -494,7 +493,7 @@ void JPADrawStripe(JPAEmitterWorkData* pWork) {
     for (JPANode< JPABaseParticle >* pNode = pFirst; pNode != pWork->mpAlivePtcl->getEnd();) {
         JPABaseParticle* pParticle = pNode->getObject();
         pWork->mpCurNode = pNode;
-        MotionSignal::stripeParticle(pParticle, 0);
+        JPAParticleBatch::particle(pParticle);
         position.set(pParticle->mPosition);
         f32 sin = JMASSin(pParticle->mRotateAngle);
         f32 cos = JMASCos(pParticle->mRotateAngle);
@@ -531,8 +530,8 @@ void JPADrawStripe(JPAEmitterWorkData* pWork) {
         matrix[2][2] = pParticle->mBaseAxis.z;
         matrix[2][3] = 0.0f;
         NebulaMtxMultVecArraySR(matrix, vertices, vertices, 2);
-        JPAParticleBatch::vertex(vertices[0].x + position.x, vertices[0].y + position.y, vertices[0].z + position.z, 0.0f, texCoord);
-        JPAParticleBatch::vertex(vertices[1].x + position.x, vertices[1].y + position.y, vertices[1].z + position.z, 1.0f, texCoord);
+        JPAParticleBatch::corner(0, vertices[0].x + position.x, vertices[0].y + position.y, vertices[0].z + position.z, 0.0f, texCoord);
+        JPAParticleBatch::corner(1, vertices[1].x + position.x, vertices[1].y + position.y, vertices[1].z + position.z, 1.0f, texCoord);
         pNode = pNext(pNode);
         texCoord += texStep;
     }
@@ -577,7 +576,7 @@ void JPADrawStripeX(JPAEmitterWorkData* pWork) {
     for (JPANode< JPABaseParticle >* pNode = pFirst; pNode != pWork->mpAlivePtcl->getEnd();) {
         JPABaseParticle* pParticle = pNode->getObject();
         pWork->mpCurNode = pNode;
-        MotionSignal::stripeParticle(pParticle, 1);
+        JPAParticleBatch::particle(pParticle);
         position.set(pParticle->mPosition);
         f32 sin = JMASSin(pParticle->mRotateAngle);
         f32 cos = JMASCos(pParticle->mRotateAngle);
@@ -618,8 +617,8 @@ void JPADrawStripeX(JPAEmitterWorkData* pWork) {
         matrix[2][2] = pParticle->mBaseAxis.z;
         matrix[2][3] = 0.0f;
         NebulaMtxMultVecArraySR(matrix, vertices, vertices, 2);
-        JPAParticleBatch::vertex(vertices[0].x + position.x, vertices[0].y + position.y, vertices[0].z + position.z, 0.0f, texCoord);
-        JPAParticleBatch::vertex(vertices[1].x + position.x, vertices[1].y + position.y, vertices[1].z + position.z, 1.0f, texCoord);
+        JPAParticleBatch::corner(0, vertices[0].x + position.x, vertices[0].y + position.y, vertices[0].z + position.z, 0.0f, texCoord);
+        JPAParticleBatch::corner(1, vertices[1].x + position.x, vertices[1].y + position.y, vertices[1].z + position.z, 1.0f, texCoord);
         pNode = pNext(pNode);
         texCoord += texStep;
     }
@@ -629,7 +628,7 @@ void JPADrawStripeX(JPAEmitterWorkData* pWork) {
     for (JPANode< JPABaseParticle >* pNode = pFirst; pNode != pWork->mpAlivePtcl->getEnd();) {
         JPABaseParticle* pParticle = pNode->getObject();
         pWork->mpCurNode = pNode;
-        MotionSignal::stripeParticle(pParticle, 2);
+        JPAParticleBatch::particle(pParticle);
         position.set(pParticle->mPosition);
         f32 sin = -JMASSin(pParticle->mRotateAngle);
         f32 cos = JMASCos(pParticle->mRotateAngle);
@@ -670,8 +669,8 @@ void JPADrawStripeX(JPAEmitterWorkData* pWork) {
         matrix[2][2] = pParticle->mBaseAxis.z;
         matrix[2][3] = 0.0f;
         NebulaMtxMultVecArraySR(matrix, vertices, vertices, 2);
-        JPAParticleBatch::vertex(vertices[0].x + position.x, vertices[0].y + position.y, vertices[0].z + position.z, 0.0f, texCoord);
-        JPAParticleBatch::vertex(vertices[1].x + position.x, vertices[1].y + position.y, vertices[1].z + position.z, 1.0f, texCoord);
+        JPAParticleBatch::corner(2, vertices[0].x + position.x, vertices[0].y + position.y, vertices[0].z + position.z, 0.0f, texCoord);
+        JPAParticleBatch::corner(3, vertices[1].x + position.x, vertices[1].y + position.y, vertices[1].z + position.z, 1.0f, texCoord);
         pNode = pNext(pNode);
         texCoord += texStep;
     }
@@ -826,14 +825,15 @@ void JPADrawRotYBillboard(JPAEmitterWorkData* pWork, JPABaseParticle* pParticle)
 }
 
 void JAU_JASInitializer::initJASystem(NebulaArena* pHeap) {
-    if (JASLoad::getThreadPointer() == nullptr) {
+    static bool sStarted = false;
+    if (!sStarted) {
+        sStarted = true;
         JASKernel::setupRootHeap(pHeap, heapSize_);
         JASTrack::newMemPool(field_0x1c);
         if (field_0x20 > 0) {
             JASTrack::TChannelMgr::newMemPool(field_0x20);
         }
 
-        JASLoad::createThread(0x100, 0x8000);
         JASDriver::startAudio();
         JASDriver::setOutputLevel(outputLevel_);
     }

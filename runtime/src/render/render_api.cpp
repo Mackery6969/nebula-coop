@@ -68,17 +68,16 @@ unsigned bloom_route() noexcept {
     return backend().bloom_route();
 }
 
-void attach_stripe_particle(std::size_t stream_offset, std::uint64_t particle, std::uint32_t age_lifetime,
-                            std::uint8_t strip) {
-    backend().attach_stripe_particle({stream_offset, particle, age_lifetime, strip});
-}
-
 void attach_shape_record(shapes::Record&& record) {
     backend().attach_shape_record(std::move(record));
 }
 
 shapes::Matrix* reserve_record_matrices(shapes::Record& record, std::uint32_t count) {
     return backend().reserve_record_matrices(record, count);
+}
+
+float* reserve_palette_rows(shapes::Record& record, std::uint32_t count) {
+    return backend().reserve_palette_rows(record, count);
 }
 
 state::Op* reserve_record_ops(shapes::Record& record, std::uint32_t count) {
@@ -91,6 +90,10 @@ ScreenProbe* reserve_record_probes(shapes::Record& record, std::uint32_t count) 
 
 RenderVertex* reserve_record_vertices(shapes::Record& record, std::uint32_t count) {
     return backend().reserve_record_vertices(record, count);
+}
+
+RenderVertexCore* reserve_record_corners(shapes::Record& record, std::uint32_t count) {
+    return backend().reserve_record_corners(record, count);
 }
 
 std::uint32_t reserve_record_native(const void* native, std::size_t bytes) {

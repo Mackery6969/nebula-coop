@@ -15,7 +15,6 @@
 #include "Game/System/NebulaArena.hpp"
 
 namespace {
-    NEW_NERVE(GameSystemStationedArchiveLoaderLoadAudio1stWaveData, GameSystemStationedArchiveLoader, LoadAudio1stWaveData);
     NEW_NERVE(GameSystemStationedArchiveLoaderLoadStationedArchivePlayer, GameSystemStationedArchiveLoader, LoadStationedArchivePlayer);
     NEW_NERVE(GameSystemStationedArchiveLoaderLoadStationedArchiveOthers, GameSystemStationedArchiveLoader, LoadStationedArchiveOthers);
     NEW_NERVE(GameSystemStationedArchiveLoaderInitializeGameData, GameSystemStationedArchiveLoader, InitializeGameData);
@@ -28,7 +27,7 @@ bool ConditionIfIsNotPlayer::isExecute(const MR::StationedFileInfo* pInfo) const
            pInfo->mLoadType != MR::StationedFileInfo::LOAD_TYPE_MOUNT_RESOURCE_LUIGI;
 }
 
-ConditionUsePlayerHeap::ConditionUsePlayerHeap() : mNapaHeap(), mGDDRHeap(), mIsDataMario(true) {
+ConditionUsePlayerHeap::ConditionUsePlayerHeap() : mHeap(), mIsDataMario(true) {
 }
 
 bool ConditionUsePlayerHeap::isExecute(const MR::StationedFileInfo* pInfo) const {
@@ -42,36 +41,21 @@ bool ConditionUsePlayerHeap::isExecute(const MR::StationedFileInfo* pInfo) const
 }
 
 NebulaArena* ConditionUsePlayerHeap::getProperHeap(const MR::StationedFileInfo* pInfo) const {
-    switch (pInfo->mHeapType) {
-    case MR::StationedFileInfo::HEAP_TYPE_NAPA:
-        return mNapaHeap;
-    case MR::StationedFileInfo::HEAP_TYPE_GDDR:
-        return mGDDRHeap;
-    case MR::StationedFileInfo::HEAP_TYPE_NONE:
-        return nullptr;
-    default:
-        return nullptr;
-    }
+    return mHeap;
 }
 
-PlayerHeapHolder::PlayerHeapHolder() : mCondition(), mNapaHeap(), mGDDRHeap(), mIsDataMario(true) {
+PlayerHeapHolder::PlayerHeapHolder() : mCondition(), mHeap(), mIsDataMario(true) {
     ConditionUsePlayerHeap* condition = new ConditionUsePlayerHeap();
     // Room for either player's archives: a change of player loads the other's in the same heaps at any time. Pages not used cost nothing.
-    mNapaHeap = NebulaArena::create(MR::getStationedHeap());
-    NebulaArena* gddr = NebulaArena::create(MR::getStationedHeap());
-    mGDDRHeap = gddr;
-    condition->mNapaHeap = mNapaHeap;
-    condition->mGDDRHeap = gddr;
+    mHeap = NebulaArena::create(MR::getPermanentHeap());
+    condition->mHeap = mHeap;
     mCondition = condition;
     condition->mIsDataMario = mIsDataMario;
 }
 
 void PlayerHeapHolder::dispose() {
-    MR::removeResourceAndFileHolderIfIsEqualHeap(mNapaHeap);
-    MR::removeResourceAndFileHolderIfIsEqualHeap(mGDDRHeap);
-
-    mNapaHeap->freeAll();
-    mGDDRHeap->freeAll();
+    MR::removeResourceAndFileHolderIfIsEqualHeap(mHeap);
+    mHeap->freeAll();
 }
 
 void PlayerHeapHolder::setIsDataMario(bool isDataMario) {
@@ -80,8 +64,7 @@ void PlayerHeapHolder::setIsDataMario(bool isDataMario) {
 }
 
 GameSystemStationedArchiveLoader::GameSystemStationedArchiveLoader() : NerveExecutor("\217\355\222\223\203\146\201\133\203\136\217\211\212\372\211\273" /* 常駐データ初期化 */), mHeapHolder() {
-    mDone.init();
-    initNerve(GET_NERVE_ANON(GameSystemStationedArchiveLoaderLoadAudio1stWaveData));
+    initNerve(GET_NERVE_ANON(GameSystemStationedArchiveLoaderLoadStationedArchiveOthers));
 }
 
 void GameSystemStationedArchiveLoader::update() {
@@ -94,7 +77,7 @@ bool GameSystemStationedArchiveLoader::isDone() const {
 
 void GameSystemStationedArchiveLoader::waitDone() {
     while (!isDone()) {
-        mDone.wait();
+        update();
     }
 }
 
@@ -115,25 +98,11 @@ void GameSystemStationedArchiveLoader::requestChangeArchivePlayer(bool isDataMar
     setNerve(GET_NERVE_ANON(GameSystemStationedArchiveLoaderChangeArchivePlayer));
 }
 
-void GameSystemStationedArchiveLoader::exeLoadAudio1stWaveData() {
-    if (MR::isFirstStep(this)) {
-        GameSystemFunction::loadAudioStaticWaveData();
-    }
-
-    if (GameSystemFunction::isLoadedAudioStaticWaveData()) {
-        setNerve(GET_NERVE_ANON(GameSystemStationedArchiveLoaderLoadStationedArchiveOthers));
-    }
-}
-
 void GameSystemStationedArchiveLoader::exeLoadStationedArchivePlayer() {
     if (MR::isFirstStep(this)) {
         mHeapHolder = new PlayerHeapHolder();
 
-        MR::startFunctionAsyncExecute(MR::Functor(this, &GameSystemStationedArchiveLoader::startToLoadStationedArchivePlayer, true),
-                                      "\217\355\222\223\203\212\203\134\201\133\203\130\223\307\202\335\215\236\202\335" /* 常駐リソース読み込み */);
-    }
-
-    if (MR::tryEndFunctionAsyncExecute("\217\355\222\223\203\212\203\134\201\133\203\130\223\307\202\335\215\236\202\335" /* 常駐リソース読み込み */)) {
+        startToLoadStationedArchivePlayer(true);
         createAndAddPlayerArchives(mHeapHolder->mIsDataMario);
 
         if (mHeapHolder != nullptr) {
@@ -145,11 +114,7 @@ void GameSystemStationedArchiveLoader::exeLoadStationedArchivePlayer() {
 
 void GameSystemStationedArchiveLoader::exeLoadStationedArchiveOthers() {
     if (MR::isFirstStep(this)) {
-        MR::startFunctionAsyncExecute(MR::Functor(this, &GameSystemStationedArchiveLoader::startToLoadStationedArchiveOthers),
-                                      "\217\355\222\223\203\212\203\134\201\133\203\130\223\307\202\335\215\236\202\335" /* 常駐リソース読み込み */);
-    }
-
-    if (MR::tryEndFunctionAsyncExecute("\217\355\222\223\203\212\203\134\201\133\203\130\223\307\202\335\215\236\202\335" /* 常駐リソース読み込み */)) {
+        startToLoadStationedArchiveOthers();
         createAndAddOtherArchives();
         setNerve(GET_NERVE_ANON(GameSystemStationedArchiveLoaderLoadStationedArchivePlayer));
     }
@@ -158,11 +123,8 @@ void GameSystemStationedArchiveLoader::exeLoadStationedArchiveOthers() {
 void GameSystemStationedArchiveLoader::exeInitializeGameData() {
     GameSystemFunction::initAfterStationedResourceLoaded();
     SingletonHolder< HeapMemoryWatcher >::get()->setCurrentHeapToGameHeap();
-    SingletonHolder< HeapMemoryWatcher >::get()->adjustStationedHeaps();
     GameSystemFunction::setSceneNameObjHolderToNameObjRegister();
-    MR::clearFileLoaderRequestFileInfo(false);
     setNerve(GET_NERVE_ANON(GameSystemStationedArchiveLoaderEnd));
-    mDone.signal();
 }
 
 void GameSystemStationedArchiveLoader::exeEnd() {
@@ -172,14 +134,9 @@ void GameSystemStationedArchiveLoader::exeChangeArchivePlayer() {
     if (MR::isFirstStep(this)) {
         mHeapHolder->dispose();
         bool isMario = mHeapHolder->mIsDataMario;
-        MR::startFunctionAsyncExecute(MR::Functor(this, &GameSystemStationedArchiveLoader::startToLoadStationedArchivePlayer, isMario),
-                                      "\203\166\203\214\203\103\203\204\201\133\203\212\203\134\201\133\203\130\223\307\202\335\215\236\202\335" /* プレイヤーリソース読み込み */);
-    }
-
-    if (MR::tryEndFunctionAsyncExecute("\203\166\203\214\203\103\203\204\201\133\203\212\203\134\201\133\203\130\223\307\202\335\215\236\202\335" /* プレイヤーリソース読み込み */)) {
+        startToLoadStationedArchivePlayer(isMario);
         createAndAddPlayerArchives(mHeapHolder->mIsDataMario);
         setNerve(GET_NERVE_ANON(GameSystemStationedArchiveLoaderEnd));
-        mDone.signal();
     }
 }
 
@@ -189,7 +146,7 @@ void GameSystemStationedArchiveLoader::startToLoadStationedArchivePlayer(bool a1
 
 void GameSystemStationedArchiveLoader::startToLoadStationedArchiveOthers() {
     StationedArchiveLoader::loadResourcesFromTable(ConditionIfIsNotPlayer());
-    StationedArchiveLoader::loadScenarioData(MR::getStationedHeap());
+    StationedArchiveLoader::loadScenarioData(MR::getPermanentHeap());
 }
 
 void GameSystemStationedArchiveLoader::createAndAddPlayerArchives(bool isDataMario) {
@@ -199,10 +156,10 @@ void GameSystemStationedArchiveLoader::createAndAddPlayerArchives(bool isDataMar
     ResourceHolder* pMarioAnimeHolder = MR::createAndAddResourceHolder("MarioAnime.arc");
 
     if (isDataMario) {
-        pMarioAnimeHolder->newMaterialAnmBuffer(
+        pMarioAnimeHolder->bindMaterialAnimations(
             static_cast< J3DModelData* >(MR::createAndAddResourceHolder("Mario.arc")->mModelResTable->getRes("mario")));
     } else {
-        pMarioAnimeHolder->newMaterialAnmBuffer(
+        pMarioAnimeHolder->bindMaterialAnimations(
             static_cast< J3DModelData* >(MR::createAndAddResourceHolder("Luigi.arc")->mModelResTable->getRes("luigi")));
     }
 }

@@ -14,8 +14,8 @@ namespace GameSceneFunction {
     bool isExecScenarioOpeningCamera();
     bool isExecScenarioStarter();
     bool isExecStageClearDemo();
-    void loadScenarioWaveData();
-    bool isLoadDoneScenarioWaveData();
     void activateDraw3D();
     void deactivateDraw3D();
+    void loadScenarioWaveData();
+    bool isLoadDoneScenarioWaveData();
 };  // namespace GameSceneFunction

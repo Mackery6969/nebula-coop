@@ -139,6 +139,9 @@ std::atomic<unsigned> s_layer_2d_lines{0u};
 // back and written to GALAXY_PRESENT_SNAPSHOT_DIR\present_<n>.ppm, limited to
 // presents GALAXY_PRESENT_SNAPSHOT_FIRST..GALAXY_PRESENT_SNAPSHOT_LAST.
 std::uint64_t g_snapshot_presents = 0u;
+// number_present_snapshots: the next present's number comes from the tour; none while it waits for a stop.
+bool g_snapshot_numbered = false;
+bool g_snapshot_hold = false;
 
 std::string present_snapshot_path() {
     static const std::uint64_t every = ::galaxy::run_option_u64(::galaxy::run_options().present_snapshot_every, 0u);
@@ -152,7 +155,7 @@ std::string present_snapshot_path() {
     }();
     const std::uint64_t presents = ++g_snapshot_presents;
     if (every == 0u || directory.empty() || presents < first || presents > last ||
-        presents % every != 0u) {
+        presents % every != 0u || (g_snapshot_numbered && (g_snapshot_hold || presents % 1000u == 0u))) {
         return {};
     }
     // Its time, for latency measurements against the input's (GALAXY_INPUT_POINTER_PATH's jumps).
@@ -614,7 +617,7 @@ void RenderCore::trace_memory() {
         if (shape.geometry != nullptr) {
             geometry += shape.geometry->corners.capacity() * sizeof(shapes::Corner) + shape.geometry->indices.capacity() * sizeof(std::uint16_t);
         }
-        vertices += shape.resident_vertices * sizeof(RenderVertex);
+        vertices += shape.resident_units * kResidentUnit;
     }
     const auto mb = [](std::uint64_t bytes) { return static_cast<double>(bytes) / (1024.0 * 1024.0); };
     std::fprintf(stderr,
@@ -859,7 +862,7 @@ bool RenderCore::ensure_resident_vertex_buffer() {
     release_resident_vertex_buffer();
     resident_vertex_device_ = device;
     UploadBuffer buffer = renderer_.create_resident_vertices(
-        static_cast<std::size_t>(kResidentDecodedVertexCapacity) * sizeof(RenderVertex),
+        static_cast<std::size_t>(kResidentDecodedVertexCapacity) * kResidentUnit,
         "Resident decoded vertices");
     if (buffer.gpu == 0u) {
         // Not fatal: every hit keeps using the per-frame ring upload.
@@ -872,8 +875,7 @@ bool RenderCore::ensure_resident_vertex_buffer() {
     resident_vertex_buffer_ = std::move(buffer);
     resident_vertices_.reset(kResidentDecodedVertexCapacity, kFramesInFlight);
     renderer_.set_resident_vertices(resident_vertex_gpu_,
-                                    static_cast<std::uint64_t>(kResidentDecodedVertexCapacity) *
-                                        sizeof(RenderVertex));
+                                    static_cast<std::uint64_t>(kResidentDecodedVertexCapacity) * kResidentUnit);
     return true;
 }
 
@@ -900,7 +902,7 @@ void RenderCore::render_frame(
     }
 
     // Nothing to render: nothing attached (records, scene markers, captures).
-    const bool empty = producer_shape_records_.empty() && producer_stripe_particles_.empty();
+    const bool empty = producer_shape_records_.empty();
     if (empty) {
         if (present_swap_chain) {
             present_cached_display(black, true);
@@ -919,7 +921,6 @@ void RenderCore::render_frame(
     // for queue space), so a measured frame never subtracts a default time_point.
     FrameChunk chunk;
     chunk.pointer_response=producer_pointer_response_;
-    take_attached_stripe_particles(chunk);
     take_attached_shape_records(chunk);
     chunk.prerecorded_movie=producer_movie_content_;
     chunk.movie_frame=producer_movie_frame_;
@@ -1085,7 +1086,8 @@ void RenderCore::write_scene_vs_constants(const VertexConstants& cpu, VertexCons
         apply_scene_jitter(cpu, upload, jitter_ndc);
     }
     // The draw's position rows (motion vectors of the frame after read them as its previous ones).
-    const std::uint32_t palette_offset = current_matrix_palette_ != 0u ? matrix_block_base_[0] : kNoPaletteOffset;
+    const std::uint32_t palette_offset = draw_palette_ != nullptr ? draw_palette_->ring_row
+                                         : current_matrix_palette_ != 0u ? matrix_block_base_[0] : kNoPaletteOffset;
     temporal_vs_palette_va_ = current_matrix_palette_;
     if (std::exchange(scene_chunk_restart_, false) && interp_recording_ && !motion_scene_ &&
         current_replay_record_ >= 0) [[unlikely]] {
@@ -1138,12 +1140,19 @@ void RenderCore::write_scene_vs_constants(const VertexConstants& cpu, VertexCons
     record.continuity = identity_continuity_;
     record.particle = identity_continuity_particle_;
     record.palette = cpu_vs_constants_.per_vertex != 0u;
-    if (record.palette) {
+    if (draw_palette_ != nullptr) {
+        // The draw's matrix (a skinned shape's first stands for its object).
+        const float* rows = model_palette_rows_.data() + draw_palette_->first + (record.palette ? 0u : 4u * draw_palette_row_);
+        std::memcpy(record.position.data(), rows, 12u * sizeof(float));
+        record.palette = true;
+        record.palette_offset = palette_offset;
+    } else if (record.palette) {
         // Position matrix 0 (rows 0-2) stands for the per-vertex palette's object.
         for (unsigned i = 0; i < 12u; ++i) record.position[i] = matrices_.matrix_value(i / 4u, i % 4u);
         record.palette_offset = palette_offset;
     } else {
-        std::memcpy(record.position.data(), cpu.inline_pos_matrix, sizeof(record.position));
+        const std::uint32_t row = std::min(cpu.draw_rows[0][0], 61u);
+        for (unsigned i = 0; i < 12u; ++i) record.position[i] = matrices_.matrix_value(row + i / 4u, i % 4u);
     }
     record.translation[0] = record.position[3];
     record.translation[1] = record.position[7];
@@ -1166,12 +1175,26 @@ void RenderCore::write_scene_vs_constants(const VertexConstants& cpu, VertexCons
         scene.constants.push_back(cpu);
         const std::int32_t m = history.current_matches().back();
         scene.prev_index.push_back(m);
-        // Inline draws read normals, lights and indexed texture matrices from
-        // the palette too: their snapshot is interpolated like a skinned one.
-        scene.palette.push_back(record.palette || current_palette_required_ ? current_palette_shadow_ : -1);
+        scene.palette.push_back(current_palette_shadow_);
         scene.per_vertex.push_back(record.palette ? 1u : 0u);
-        const auto [spatial, lights] = interp_draw_facts(draw_state_);
-        scene.spatial_texgens.push_back(spatial);
+        scene.particle.push_back(identity_emitter_ ? 1u : 0u);
+        std::int32_t scene_model = -1;
+        if (draw_palette_ != nullptr) {
+            ModelPalette& block = *draw_palette_;
+            if (block.scene_stamp != interp_scene_stamp_) {
+                block.scene_stamp = interp_scene_stamp_;
+                block.scene_model = static_cast<std::int32_t>(scene.models.size());
+                const std::uint32_t words = block.count * 24u;
+                scene.models.push_back({block.key, block.order, block.count, static_cast<std::uint32_t>(scene.model_words.size()),
+                                        block.ring_row});
+                const std::size_t at = scene.model_words.size();
+                scene.model_words.resize(at + words);
+                std::memcpy(scene.model_words.data() + at, model_palette_rows_.data() + block.first, words * 4u);
+            }
+            scene_model = block.scene_model;
+        }
+        scene.model.push_back(scene_model);
+        const std::uint8_t lights = interp_draw_facts(draw_state_).second;
         scene.light_masks.push_back(lights);
         scene.category.push_back(record.category);
     }
@@ -1188,9 +1211,7 @@ void RenderCore::write_scene_vs_constants(const VertexConstants& cpu, VertexCons
     std::uint32_t previous_palette = 0u;
     Affine34 prev_pos = replays_upscaled ? affine_identity() : camera;
     if (replays_upscaled) {
-        if (!record.palette) {
-            prev_pos = record.position;
-        } else if (palette_offset != kNoPaletteOffset) {
+        if (palette_offset != kNoPaletteOffset) {
             mode = 0u;
             previous_palette = palette_offset;
         }
@@ -1311,6 +1332,14 @@ std::uint64_t RenderCore::record_identity() noexcept {
 }
 
 void RenderCore::on_host_marker(std::uint8_t kind, std::uint16_t aux, std::uint64_t a, std::uint64_t b) {
+    if (kind == motion::kMarkerSnapshotNumber) {
+        g_snapshot_numbered = true;
+        g_snapshot_hold = a == 0u;
+        if (a != 0u) {
+            g_snapshot_presents = a - 1u;
+        }
+        return;
+    }
     // The game's bloom, drawn by the renderer at this point of the stream (game_bloom.h).
     if (kind == motion::kMarkerBloom) {
         flush_pending_draw_batch();
@@ -1330,10 +1359,7 @@ void RenderCore::on_host_marker(std::uint8_t kind, std::uint16_t aux, std::uint6
         on_motion_marker(kind, aux, a, b);
         return;
     }
-    if (kind == motion::kMarkerNameObj) {
-    } else if (kind == motion::kMarkerShapePacket) {
-    } else if (kind == motion::kMarkerEmitter || kind == motion::kMarkerParticle) {
-    }
+    identity_emitter_ = kind == motion::kMarkerEmitter;
     if (!history_scene_) {
         return;
     }
@@ -1431,15 +1457,6 @@ void RenderCore::on_scene_2d_begin() {
     ++window_2d_scenes_;
 }
 
-void RenderCore::take_attached_stripe_particles(FrameChunk& chunk) {
-    if (producer_stripe_particles_.empty()) {
-        return;
-    }
-    chunk.stripe_particles.insert(chunk.stripe_particles.end(), producer_stripe_particles_.begin(),
-                                  producer_stripe_particles_.end());
-    producer_stripe_particles_.clear();
-}
-
 void RenderCore::take_attached_shape_records(FrameChunk& chunk) {
     if (producer_shape_records_.empty()) {
         return;
@@ -1454,9 +1471,12 @@ void RenderCore::take_attached_shape_records(FrameChunk& chunk) {
         const std::size_t ops = producer_record_pool_.ops.size();
         const std::size_t natives = producer_record_pool_.natives.size();
         const std::size_t vertices = producer_record_pool_.vertices.size();
+        const std::size_t corners = producer_record_pool_.corners.size();
         chunk.record_pool.scenes.swap(producer_record_pool_.scenes);
         chunk.record_pool.vertices.swap(producer_record_pool_.vertices);
         producer_record_pool_.vertices.reserve(vertices);
+        chunk.record_pool.corners.swap(producer_record_pool_.corners);
+        producer_record_pool_.corners.reserve(corners);
         chunk.record_pool.probes.swap(producer_record_pool_.probes);
         producer_record_pool_.probes.clear();
         chunk.record_pool.matrices.swap(producer_record_pool_.matrices);
@@ -1479,6 +1499,10 @@ void RenderCore::take_attached_shape_records(FrameChunk& chunk) {
     producer_record_pool_.scenes.clear();
     chunk.record_pool.vertices.insert(chunk.record_pool.vertices.end(), producer_record_pool_.vertices.begin(), producer_record_pool_.vertices.end());
     producer_record_pool_.vertices.clear();
+    const auto first_corner = static_cast<std::uint32_t>(chunk.record_pool.corners.size());
+    chunk.record_pool.corners.insert(chunk.record_pool.corners.end(), producer_record_pool_.corners.begin(),
+                                     producer_record_pool_.corners.end());
+    producer_record_pool_.corners.clear();
     const auto first_probe = static_cast<std::uint32_t>(chunk.record_pool.probes.size());
     chunk.record_pool.probes.insert(chunk.record_pool.probes.end(), producer_record_pool_.probes.begin(), producer_record_pool_.probes.end());
     producer_record_pool_.probes.clear();
@@ -1490,20 +1514,19 @@ void RenderCore::take_attached_shape_records(FrameChunk& chunk) {
     for (shapes::Record& record : producer_shape_records_) {
         record.matrix_first += first_matrix;
         record.op_first += first_op;
-        record.vertex_first += record.kind == shapes::Record::Kind::Readback ? first_probe : first_vertex;
+        record.vertex_first += record.kind == shapes::Record::Kind::Readback ? first_probe
+                               : (record.attributes & shapes::kReadyCorners) != 0u ? first_corner
+                                                                                   : first_vertex;
         record.native_index += record.native_index == shapes::kNoNative ? 0u : record.kind == shapes::Record::Kind::Scene ? first_scene : first_native;
         chunk.shape_records.push_back(std::move(record));
     }
     producer_shape_records_.clear();
 }
 
-void RenderCore::note_stripe_particles(const FrameChunk& chunk) {
-    motion_stripe_marks_ += chunk.stripe_particles.size();
-}
-
 // A fresh InterpScene for the frame being recorded (its mirror pass or its 3D
 // scene, whichever comes first).
 void RenderCore::open_interp_scene() {
+    ++interp_scene_stamp_;
     note_interp_log_completion();
     interp_scene_ = (interp_scene_ + 1u) % 4u;
     if (interp_shown_scene_ == static_cast<std::int32_t>(interp_scene_)) {
@@ -1979,8 +2002,7 @@ void RenderCore::start_interp_sequence(std::uint32_t picture_slot) {
 // When the scene before the starting one was never on screen (its log was
 // replaced before a present started it, or its sequence ended before showing
 // anything), the sub-frames start from the scene shown last, records matched
-// through the skipped scenes. Vertex blending needs consecutive logs
-// (prepare_vertex_blend) and stays off for such a sequence.
+// through the skipped scenes.
 void RenderCore::select_interp_before() {
     const unsigned scene = interp_sequence_.scene;
     interp_sequence_.before = (scene + 3u) % 4u;
@@ -2574,9 +2596,9 @@ void RenderCore::report_interp_stats() {
             << identity_continuity_rejected_
             << " particle-age-steps(<0/0/1/2/>2)=" << particle_age_steps_[0] << '/' << particle_age_steps_[1]
             << '/' << particle_age_steps_[2] << '/' << particle_age_steps_[3] << '/' << particle_age_steps_[4]
-            << " signal-markers(category/image-effect/scene/pass/light/stripe-marks)=" << motion_category_markers_
+            << " signal-markers(category/image-effect/scene/pass/light)=" << motion_category_markers_
             << '/' << motion_image_effect_markers_ << '/' << motion_scene_markers_ << '/' << motion_mirror_markers_
-            << '/' << motion_light_markers_ << '/' << motion_stripe_marks_
+            << '/' << motion_light_markers_
             << " layout-markers(2d-scenes/pane/actor/star-pointer)=" << window_2d_scenes_ << '/'
             << identity_markers_by_kind_[motion::kMarkerLayoutPane] << '/'
             << identity_markers_by_kind_[motion::kMarkerLayoutActor] << '/'
@@ -2601,9 +2623,6 @@ void RenderCore::report_interp_stats() {
             << " gpu-phase-ms(eval/replay/present)=" << gpu_phase[0] / gpu_divisor << '/'
             << gpu_phase[1] / gpu_divisor << '/' << gpu_phase[2] / gpu_divisor
             << " chunk-continued-records=" << std::exchange(interp_chunk_continues_, 0u)
-            << " vertex-blend-draws-per-subframe="
-            << (interp_presented_ != 0u
-                    ? static_cast<double>(renderer_.take_vertex_blend_draws()) / presented : 0.0)
             << " guarded-copies=" << renderer_.take_subframe_guarded()
             << " redirected-copies=" << redirect.redirected
             << " patched-tables=" << redirect.patched_tables
@@ -2674,7 +2693,6 @@ void RenderCore::report_interp_stats() {
     motion_mirror_markers_ = 0u;
     motion_light_markers_ = 0u;
     window_2d_scenes_ = 0u;
-    motion_stripe_marks_ = 0u;
     interp_stats_qpc_ = now;
 }
 
@@ -2719,6 +2737,8 @@ bool RenderCore::render_interp_subframe(float t) {
         interp_pending_.clear();
         interp_palette_motions_.clear();
         interp_palette_first_.assign(scene.palette_count, -1);
+        interp_model_index_.assign(scene.models.size(), -1);
+        std::size_t model_motions = 0u;
         static const CameraCutLimits cut_limits{};
         camera_motion(before_valid && before_scene.view_known ? &before_scene.view : nullptr,
                       scene.view_known ? &scene.view : nullptr, interp_camera_move_, cut_limits,
@@ -2742,8 +2762,6 @@ bool RenderCore::render_interp_subframe(float t) {
         interp_mirror_camera_ = CameraMotion{};
         interp_mirror_camera_.known = interp_camera_.known && interp_camera_.cut;
         interp_mirror_camera_.cut = interp_mirror_camera_.known;
-        const bool camera_moves = interp_camera_.known && !interp_camera_.cut &&
-            std::memcmp(interp_camera_.a.data(), interp_camera_.b.data(), sizeof(Affine34)) != 0;
         const auto records_start = std::chrono::steady_clock::now();
         for (std::size_t r = 0; r < count; ++r) {
             const std::int32_t m = prev_index[r];
@@ -2761,24 +2779,8 @@ bool RenderCore::render_interp_subframe(float t) {
             InterpRecordMotion motion{};
             motion.record = static_cast<std::uint32_t>(r);
             motion.prev = prev_data ? m : -1;
-            if (scene.per_vertex[r] == 0u) {
-                Affine34 b{};
-                std::memcpy(b.data(), now.inline_pos_matrix, sizeof(Affine34));
-                Affine34 a{};
-                if (before != nullptr) {
-                    std::memcpy(a.data(), before->inline_pos_matrix, sizeof(Affine34));
-                }
-                eye_motion(before != nullptr ? &a : nullptr, b, camera, orthographic, motion.position);
-                motion.position_moves =
-                    !motion.position.still || (motion.position.split && camera_moves);
-                interp_snapped_ += motion.position.snapped ? 1u : 0u;
-            }
+            motion.particle = scene.particle[r] != 0u;
             if (before != nullptr && !(camera.known && camera.cut)) {
-                motion.tex_moves =
-                    std::memcmp(before->inline_tex_matrices, now.inline_tex_matrices,
-                                sizeof(now.inline_tex_matrices)) != 0 ||
-                    std::memcmp(before->inline_post_matrices, now.inline_post_matrices,
-                                sizeof(now.inline_post_matrices)) != 0;
                 motion.projection_moves =
                     before->projection[3][3] == now.projection[3][3] &&
                     std::memcmp(before->projection, now.projection, sizeof(now.projection)) != 0;
@@ -2803,23 +2805,53 @@ bool RenderCore::render_interp_subframe(float t) {
                     entry.layer = static_cast<std::uint8_t>(layer);
                     interp_palette_first_[static_cast<std::size_t>(shadow)] = index;
                 }
-                // The slots this record reads: every one for per-vertex
-                // matrices; for an inline draw, the normal matrix of its
-                // matrix index when it is lit; the lights its channels and
-                // emboss texgens evaluate (texture rows are taken whole).
+                // The slots this record reads: every one for per-vertex matrices; else its position matrix and,
+                // when it is lit, its normal matrix; the lights its channels and emboss texgens evaluate (texture rows
+                // are taken whole).
                 InterpPaletteMotion& entry = interp_palette_motions_[static_cast<std::size_t>(index)];
                 entry.light_mask |= scene.light_masks[r];
-                if (scene.per_vertex[r] != 0u) {
+                if (scene.model[r] >= 0) {
+                    // Its position and normal matrices are in its model's block.
+                } else if (scene.per_vertex[r] != 0u) {
                     entry.position_mask = kAllPaletteSlots;
                     entry.normal_mask = kAllPaletteSlots;
-                } else if ((now.flags & 0x02u) != 0u) {
+                } else {
                     const std::uint32_t slot = (now.draw_rows[0][0] & 0x3Fu) / 3u;
-                    if (slot < 10u) entry.normal_mask |= static_cast<std::uint16_t>(1u << slot);
+                    if (slot < 10u) {
+                        entry.position_mask |= static_cast<std::uint16_t>(1u << slot);
+                        if ((now.flags & 0x02u) != 0u) entry.normal_mask |= static_cast<std::uint16_t>(1u << slot);
+                    }
                 }
                 motion.palette = index;
             }
-            if (motion.position_moves || motion.tex_moves || motion.projection_moves ||
-                motion.palette >= 0) {
+            const std::int32_t model = scene.model[r];
+            if (model >= 0) {
+                std::int32_t& entry = interp_model_index_[static_cast<std::size_t>(model)];
+                if (entry < 0) {
+                    if (interp_model_motions_.size() <= model_motions) interp_model_motions_.emplace_back();
+                    entry = static_cast<std::int32_t>(model_motions++);
+                    InterpModelMotion& moving_model = interp_model_motions_[static_cast<std::size_t>(entry)];
+                    moving_model.model = model;
+                    moving_model.before = -1;
+                    const InterpScene::Model& block = scene.models[static_cast<std::size_t>(model)];
+                    if (before_valid) {
+                        for (std::size_t b = 0; b < before_scene.models.size(); ++b) {
+                            const InterpScene::Model& other = before_scene.models[b];
+                            if (other.key == block.key && other.order == block.order && other.count == block.count) {
+                                moving_model.before = static_cast<std::int32_t>(b);
+                                break;
+                            }
+                        }
+                    }
+                    model_motion(moving_model.before >= 0 ? before_scene.model_words.data() +
+                                     before_scene.models[static_cast<std::size_t>(moving_model.before)].first_word : nullptr,
+                                 scene.model_words.data() + block.first_word, block.count, camera, orthographic,
+                                 moving_model.motion);
+                    interp_snapped_ += moving_model.motion.snapped;
+                }
+                motion.model = entry;
+            }
+            if (motion.projection_moves || motion.palette >= 0 || motion.model >= 0 || motion.particle) {
                 interp_pending_.push_back(motion);
             }
         }
@@ -2833,22 +2865,23 @@ bool RenderCore::render_interp_subframe(float t) {
             interp_snapped_ += entry.motion.snapped;
             ++interp_palette_decompositions_;
         }
+        interp_model_motions_.resize(model_motions);
         for (InterpRecordMotion& motion : interp_pending_) {
-            if (motion.palette >= 0 &&
+            bool model_moves = false;
+            if (motion.model >= 0) {
+                const ModelMotion& m = interp_model_motions_[static_cast<std::size_t>(motion.model)].motion;
+                for (std::size_t k = 0; k < m.position_changed.size() && !model_moves; ++k) {
+                    model_moves = m.position_changed[k] != 0u || m.normal_changed[k] != 0u;
+                }
+            }
+            if (motion.palette >= 0 && !model_moves &&
                 !interp_palette_motions_[static_cast<std::size_t>(motion.palette)].motion.any_changed) {
                 motion.palette = -1;
             }
-            if (motion.position_moves || motion.tex_moves || motion.projection_moves ||
-                motion.palette >= 0) {
+            if (motion.projection_moves || motion.palette >= 0 || motion.particle) {
                 interp_moving_.push_back(motion);
             }
         }
-        const auto blend_start = std::chrono::steady_clock::now();
-        // Vertex blending pairs draws with the log run before: not for a
-        // sequence chained past a skipped scene (select_interp_before).
-        renderer_.prepare_vertex_blend(before_valid && !interp_sequence_.chained
-                                           ? std::span<const std::int32_t>(prev_index)
-                                           : std::span<const std::int32_t>{});
         const auto colours_start = std::chrono::steady_clock::now();
         const auto program_start = std::chrono::steady_clock::now();
         interp_sequence_.ready = prepare_interp_sequence(scene, before_scene, before_valid);
@@ -2856,8 +2889,7 @@ bool RenderCore::render_interp_subframe(float t) {
         const auto ms = [](auto from, auto to) { return std::chrono::duration<double, std::milli>(to - from).count(); };
         interp_prepare_phase_ms_[0] += ms(build_start, records_start);
         interp_prepare_phase_ms_[1] += ms(records_start, palettes_start);
-        interp_prepare_phase_ms_[2] += ms(palettes_start, blend_start);
-        interp_prepare_phase_ms_[3] += ms(blend_start, colours_start);
+        interp_prepare_phase_ms_[2] += ms(palettes_start, colours_start);
         interp_prepare_phase_ms_[4] += ms(colours_start, program_start);
         interp_prepare_phase_ms_[5] += ms(program_start, prepare_end);
         interp_prepare_ms_ += ms(build_start, prepare_end);
@@ -2953,9 +2985,25 @@ bool RenderCore::prepare_interp_sequence(const InterpScene& scene, const InterpS
     // moving block at the frame presented before (blocks the program leaves
     // alone carry their own transform there: no motion).
     const bool motion = renderer_.temporal_interpolation();
+    // The blocks the moving records read (a record in the output reads all its rows there).
+    std::uint32_t model_rows = 0u;
+    for (InterpModelMotion& entry : interp_model_motions_) {
+        entry.output_row = ~0u;
+    }
+    for (const InterpRecordMotion& moving : interp_moving_) {
+        if (moving.model < 0 || moving.palette < 0) continue;
+        InterpModelMotion& entry = interp_model_motions_[static_cast<std::size_t>(moving.model)];
+        if (entry.output_row == ~0u) {
+            const std::uint32_t matrices = scene.models[static_cast<std::size_t>(entry.model)].count;
+            entry.output_row = model_rows;
+            model_rows += 6u * matrices;
+            entry.prev_row = model_rows;
+            model_rows += motion ? 3u * matrices : 0u;
+        }
+    }
     interp_layout_ = {static_cast<std::uint32_t>(interp_moving_.size()),
                       static_cast<std::uint32_t>(interp_palette_source_.size()),
-                      motion ? static_cast<std::uint32_t>(interp_palette_source_.size()) : 0u};
+                      motion ? static_cast<std::uint32_t>(interp_palette_source_.size()) : 0u, model_rows};
     const interp_gpu::Layout& layout = interp_layout_;
     for (std::size_t s = 0; s < interp_moving_.size(); ++s) {
         const InterpRecordMotion& moving = interp_moving_[s];
@@ -2964,26 +3012,19 @@ bool RenderCore::prepare_interp_sequence(const InterpScene& scene, const InterpS
         const VertexConstants& recorded = scene.constants[moving.record];
         const VertexConstants* before = moving.prev >= 0
             ? &before_scene.constants[static_cast<std::size_t>(moving.prev)] : nullptr;
-        // The inline matrix's ends: the frame before's and this one's.
-        const float* const position_a = before != nullptr ? &before->inline_pos_matrix[0][0] : nullptr;
-        const float* const position_b = &recorded.inline_pos_matrix[0][0];
-        if (moving.position_moves) {
-            interp_program_.eye(base + interp_gpu::kVsPosition, moving.position, position_a, position_b);
-        }
-        if (moving.tex_moves && before != nullptr) {
-            // Per texgen: projection and environment maps lerp whole; texture
-            // coordinate matrices scroll (wrap-aware) or step.
-            for (unsigned i = 0; i < kMaxTexGens; ++i) {
-                const bool spatial = ((scene.spatial_texgens[moving.record] >> i) & 1u) != 0u;
-                interp_program_.tex_matrix(base + interp_gpu::kVsTex + 12u * i, &before->inline_tex_matrices[i][0][0],
-                                           &recorded.inline_tex_matrices[i][0][0], spatial);
-                interp_program_.tex_matrix(base + interp_gpu::kVsPost + 12u * i,
-                                           &before->inline_post_matrices[i][0][0],
-                                           &recorded.inline_post_matrices[i][0][0], spatial);
-            }
-        }
         if (moving.projection_moves && before != nullptr) {
             interp_program_.projection(base, *before, recorded);
+        }
+        if (moving.particle) {
+            // The corners' time, this frame's and (motion vectors) the frame presented before's.
+            const float zero = 0.0f;
+            const float one = 1.0f;
+            interp_program_.lerp(base + interp_gpu::kVsParticleTime, &zero, &one, 1u);
+            if (motion) {
+                interp_program_.at_previous(true);
+                interp_program_.lerp(base + interp_gpu::kVsParticleTime + 1u, &zero, &one, 1u);
+                interp_program_.at_previous(false);
+            }
         }
         std::int32_t palette_slot = -1;
         if (moving.palette >= 0) {
@@ -2997,22 +3038,29 @@ bool RenderCore::prepare_interp_sequence(const InterpScene& scene, const InterpS
                     interp_gpu::kPaletteRows / 4u;
                 const std::uint32_t row_bases[4]{rows + draw_rows::kNormal, rows + draw_rows::kTexture,
                                                  rows + draw_rows::kPost, rows + draw_rows::kLight};
-                interp_program_.store(base + interp_gpu::kVsPosBase, &rows, 1u);
-                interp_program_.store(base + interp_gpu::kVsRowBases, row_bases, 4u);
+                std::uint32_t pos_rows = rows;
+                std::uint32_t kept_row_bases[4]{row_bases[0], row_bases[1], row_bases[2], row_bases[3]};
+                if (moving.model >= 0) {
+                    // Its position and normal matrices from its model's block.
+                    const InterpModelMotion& entry = interp_model_motions_[static_cast<std::size_t>(moving.model)];
+                    pos_rows = layout.model_row(entry.output_row);
+                    kept_row_bases[0] = pos_rows + 3u * scene.models[static_cast<std::size_t>(entry.model)].count;
+                }
+                interp_program_.store(base + interp_gpu::kVsPosBase, &pos_rows, 1u);
+                interp_program_.store(base + interp_gpu::kVsRowBases, kept_row_bases, 4u);
             }
         }
         if (motion) {
             interp_program_.at_previous(true);
-            if (moving.position_moves) {
-                interp_program_.eye(base + interp_gpu::kVsMotionPrevPos, moving.position, position_a, position_b);
-            }
             if (moving.projection_moves && before != nullptr) {
                 interp_program_.projection_params(base, *before, recorded);
             }
             if (palette_slot >= 0) {
                 // Mode 0: the palette's rows at the frame before.
                 const std::uint32_t ctrl[2]{
-                    0u, (layout.prev_palette_offset(static_cast<std::uint32_t>(palette_slot)) - layout.palette_base()) /
+                    0u, moving.model >= 0
+                            ? layout.model_row(interp_model_motions_[static_cast<std::size_t>(moving.model)].prev_row)
+                            : (layout.prev_palette_offset(static_cast<std::uint32_t>(palette_slot)) - layout.palette_base()) /
                                 16u + interp_gpu::kPrevPaletteRows / 4u};
                 interp_program_.store(base + interp_gpu::kVsMotionCtrl, ctrl, 2u);
             }
@@ -3038,6 +3086,26 @@ bool RenderCore::prepare_interp_sequence(const InterpScene& scene, const InterpS
             interp_program_.at_previous(false);
         }
     }
+    interp_model_copies_.clear();
+    for (const InterpModelMotion& entry : interp_model_motions_) {
+        if (entry.output_row == ~0u) continue;
+        const InterpScene::Model& block = scene.models[static_cast<std::size_t>(entry.model)];
+        const std::uint32_t* now_words = scene.model_words.data() + block.first_word;
+        const std::uint32_t* before_words = entry.before >= 0
+            ? before_scene.model_words.data() + before_scene.models[static_cast<std::size_t>(entry.before)].first_word : nullptr;
+        const std::uint32_t output_word = (layout.models_base() + entry.output_row * 16u) / 4u;
+        interp_model_copies_.push_back({static_cast<std::uint32_t>(interp_gpu::Source::Matrices), block.ring_row * 16u,
+                                        layout.models_base() + entry.output_row * 16u, block.count * 24u});
+        interp_program_.model(output_word, entry.motion, before_words, now_words, block.count, false);
+        if (motion) {
+            const std::uint32_t prev_word = (layout.models_base() + entry.prev_row * 16u) / 4u;
+            interp_model_copies_.push_back({static_cast<std::uint32_t>(interp_gpu::Source::Matrices), block.ring_row * 16u,
+                                            layout.models_base() + entry.prev_row * 16u, block.count * 12u});
+            interp_program_.at_previous(true);
+            interp_program_.model(prev_word, entry.motion, before_words, now_words, block.count, true);
+            interp_program_.at_previous(false);
+        }
+    }
     interp_program_ops_ += interp_program_.ops.size();
     interp_program_words_ += interp_program_.payload.size();
     Renderer::ReplaySequence sequence{};
@@ -3045,8 +3113,8 @@ bool RenderCore::prepare_interp_sequence(const InterpScene& scene, const InterpS
     sequence.record_vs_slot = interp_vs_slot_;
     sequence.record_palette_slot = interp_record_palette_slot_;
     sequence.palette_source = interp_palette_source_;
+    sequence.model_copies = interp_model_copies_;
     sequence.program = &interp_program_;
-    sequence.vertex_blend = true;
     return renderer_.begin_replay_sequence(sequence);
 }
 
@@ -3361,9 +3429,8 @@ void RenderCore::record_screen_probes(const shapes::Record& record) {
     }
     ScreenProbeFlight& flight = probe_flights_[(probe_flight_first_ + probe_flights_active_) % probe_flights_.size()];
     const std::span<const ScreenProbe> probes(current_record_pool_->probes.data() + record.vertex_first, record.vertex_count);
-    flight.kind = record.marker_aux != 0u ? ScreenProbeKind::Depth : ScreenProbeKind::Alpha;
     flight.slot = (probe_flight_first_ + probe_flights_active_) % probe_flights_.size();
-    if (renderer_.record_screen_probes(flight.slot, flight.kind, probes)) {
+    if (renderer_.record_screen_probes(flight.slot, probes)) {
         flight.channel = channel;
         flight.count = record.vertex_count;
         std::copy(probes.begin(), probes.end(), flight.probes.begin());
@@ -3381,9 +3448,7 @@ void RenderCore::poll_screen_probes() {
         for (std::uint32_t i = 0; i < flight.count; ++i) {
             const std::uint8_t* const pixel = rgba + std::size_t{i} * 4u;
             flight.probes[i].value = flight.probes[i].x < 0.0f ? 0.0f
-                : flight.kind == ScreenProbeKind::Depth
-                    ? static_cast<float>((std::uint32_t{pixel[0]} << 16u) | (std::uint32_t{pixel[1]} << 8u) | pixel[2]) / 16777215.0f
-                    : static_cast<float>(pixel[3]) / 255.0f;
+                : static_cast<float>((std::uint32_t{pixel[0]} << 16u) | (std::uint32_t{pixel[1]} << 8u) | pixel[2]) / 16777215.0f;
         }
         {
             const std::lock_guard guard(probe_answers_lock_);
@@ -3723,22 +3788,15 @@ void RenderCore::render_frame_on_thread(FrameChunk& chunk) {
 
     const std::uint64_t diagnostic_parse_start_ns =
         cadence::steady_now_ns_if_enabled(cadence_diagnostics_);
-    if (!chunk.shape_records.empty() || !chunk.stripe_particles.empty()) {
+    if (!chunk.shape_records.empty()) {
         frame_services_ = services;
         // The images are the game's handed-over copies, unchanged while they are read: first-use decodes may run
         // on workers.
         texture_cache_.set_async_decode_allowed(true);
         try {
-            parse_stripes_ = interp_recording_ ? std::span<const StripeParticleMark>(chunk.stripe_particles)
-                                               : std::span<const StripeParticleMark>{};
-            parse_stripe_next_ = 0u;
             current_record_pool_ = &chunk.record_pool;
             for (const shapes::Record& record : chunk.shape_records) {
                 on_shape_record(record);
-            }
-            parse_stripes_ = {};
-            if (!chunk.stripe_particles.empty()) [[unlikely]] {
-                note_stripe_particles(chunk);
             }
         } catch (...) {
             texture_cache_.set_async_decode_allowed(false);
@@ -4135,62 +4193,29 @@ gpu::Pipeline* RenderCore::flush_draw_state(
         texture_bindings_dirty_ || texture_binding_changed;
 
     if (rs_dirty) {
-        render_state_key_ = for_device_blending(build_render_state_key(draw_state_));
+        render_state_key_ = build_render_state_key(draw_state_);
     }
     // The scene target's variant (its samples per pixel, MSAA, the output scene target has one; the HDR scene scene target) decides the
     // pipeline's too.
     const std::uint8_t samples_log2 = renderer_.scene_variant();
     render_state_key_.primitive_topology = topology_key;
     render_state_key_.samples_log2 = samples_log2;
-    // Motion writers: opaque triangles with color writes in a temporal scene
-    // (blending, logic ops and dual-source alpha cannot share a second
-    // target). Keys only change while a motion scene is (or was) active.
-    // Blended triangles (no dual-source alpha) write the reactive mask.
-    // The game's scene runs on an 8-bit scene target (MainLoopFramework::preGX), where every blend that reads the source alpha
-    // is dual-source (needs_dual_src_alpha): it blends at the material's 8-bit alpha, not the scene target's 6-bit one, and under
-    // constant destination alpha (the state: the translucent lists, Mario, shadows) writes the constant instead.
-    // Dual-source blending binds no second target, so none of those effects wrote the reactive mask (DLSS's, and the
-    // water's and clear surfaces' cover: a fall's spray was painted over). In a temporal scene such a draw blends
-    // single-source instead, at the same 8-bit alpha (ShaderGenerator's reactive variant), and writes the mask; a
-    // constant destination alpha of 0 (every one the game sets) its alpha channel's own blend writes
-    // (kRenderStateZeroAlpha). Another constant stays dual-source.
+    // Motion writers: opaque triangles with color writes in a temporal scene (blending and logic ops cannot share a
+    // second target). Blended triangles write the reactive mask. Keys only change while a motion scene is (or was) active.
     bool motion_key_changed = false;
     if (motion_scene_ || motion_bits_set_) [[unlikely]] {
         const BlendMode blend_mode = draw_blend();
-        const auto src_alpha_factor = [](BlendFactor f) {
-            return static_cast<std::uint32_t>(f) == 4u || static_cast<std::uint32_t>(f) == 5u;
-        };
-        const bool constant_alpha = blend_mode.const_alpha_enable && blend_mode.alpha_update;
-        const bool single_source =
-            blend_mode.blend_enable && !blend_mode.subtract &&
-            (src_alpha_factor(blend_mode.src_factor) || src_alpha_factor(blend_mode.dst_factor)) &&
-            draw_state_.frame_alpha && (!constant_alpha || blend_mode.const_alpha == 0u);
-        const std::uint32_t dual_bit = motion_scene_ && single_source ? 0u : (1u << 27);
         std::uint32_t bb = render_state_key_.blend_bits;
         const bool candidate = motion_scene_ &&
             topology_key == static_cast<std::uint8_t>(gpu::kTopologyTypeTriangle) &&
-            (bb & ((1u << 8) | dual_bit)) == 0u && (bb & (1u << 25)) != 0u;
+            (bb & (1u << 8)) == 0u && (bb & (1u << 25)) != 0u;
         // A pass over the screen (no depth test: the fill between the scene's opaque models and its shadows) is no surface:
         // it leaves the motion the surfaces wrote.
         const bool writer = candidate && (bb & 1u) == 0u && (render_state_key_.zmode_bits & 1u) != 0u;
         const bool reactive = candidate && (bb & 1u) != 0u;
-        // Dual-source and constant alpha as the key builders made them, but for a reactive draw drawn single-source.
-        if (single_source) {
-            const bool dual = !reactive && dual_source_blending();
-            const auto set_bit = [&motion_key_changed](auto& word, auto mask, bool on) {
-                if (((word & mask) != 0u) != on) {
-                    word ^= mask;
-                    motion_key_changed = true;
-                }
-            };
-            set_bit(bb, 1u << 27, dual);
-            set_bit(bb, 1u << 28, constant_alpha && dual);
-            set_bit(bb, kRenderStateZeroAlpha, constant_alpha && !dual);
-            render_state_key_.blend_bits = bb;
-        }
         // The effects layer (RendererD3D12::begin_layer_window): a reactive draw (single-source) whose factors never
         // read the scene target (its colour or, on an scene target with alpha, its alpha) blends the same into the layer's targets.
-        const auto reads_scene = [has_alpha = draw_state_.frame_alpha](BlendFactor f, bool source) {
+        const auto reads_scene = [has_alpha = draw_state_.target_alpha](BlendFactor f, bool source) {
             const auto v = static_cast<std::uint32_t>(f);
             (void)source;
             return v == 8u || v == 9u || (has_alpha && (v == 6u || v == 7u));  // the destination's colour or alpha
@@ -4317,8 +4342,35 @@ gpu::Pipeline* RenderCore::flush_draw_state(
     }
     // The rows' binding: the ring from its start (draws name their blocks' rows from it).
     draw_matrix_palette_ = current_matrix_palette_ != 0u ? renderer_.matrix_ring().gpu_base() : 0u;
+    const std::uint32_t pos_base_before = cpu_vs_constants_.pos_base;
+    const std::uint32_t normal_base_before = cpu_vs_constants_.row_bases[0];
+    const std::uint32_t position_row_before = cpu_vs_constants_.position_row;
     cpu_vs_constants_.pos_base = matrix_block_base_[0];
     cpu_vs_constants_.row_bases[0] = matrix_block_base_[2];
+    cpu_vs_constants_.position_row = VsConstantsCpuCache::kOwnPlace;
+    if (draw_palette_ != nullptr) {
+        ModelPalette& block = *draw_palette_;
+        if (!block.in_ring || block.ring_epoch != renderer_.matrix_ring().epoch()) {
+            const std::size_t bytes = static_cast<std::size_t>(block.count) * 96u;
+            UploadRing::Allocation alloc = renderer_.matrix_ring().allocate(bytes, 256u);
+            std::memcpy(alloc.cpu, model_palette_rows_.data() + block.first, bytes);
+            block.ring_row = static_cast<std::uint32_t>((alloc.gpu - renderer_.matrix_ring().gpu_base()) / 16u);
+            block.ring_epoch = renderer_.matrix_ring().epoch();
+            block.in_ring = true;
+            if (current_matrix_palette_ == 0u) {
+                current_matrix_palette_ = alloc.gpu;
+                draw_matrix_palette_ = renderer_.matrix_ring().gpu_base();
+            }
+        }
+        cpu_vs_constants_.pos_base = block.ring_row;
+        cpu_vs_constants_.row_bases[0] = block.ring_row + 3u * block.count;
+        if ((matrix_bits & 1u) == 0u) {
+            cpu_vs_constants_.position_row = draw_palette_row_;
+        }
+    }
+    matrix_bases_changed_ = matrix_bases_changed_ || pos_base_before != cpu_vs_constants_.pos_base ||
+                            normal_base_before != cpu_vs_constants_.row_bases[0] ||
+                            position_row_before != cpu_vs_constants_.position_row;
     cpu_vs_constants_.row_bases[1] = matrix_block_base_[1];
     cpu_vs_constants_.row_bases[2] = matrix_block_base_[3];
     cpu_vs_constants_.row_bases[3] = draw_light_base_;
@@ -4332,24 +4384,13 @@ gpu::Pipeline* RenderCore::flush_draw_state(
     const std::uint32_t native_texmtx = (matrix_bits >> 1u) & 0xFFu;
     // The header word as the last upload wrote it (a draw's from its key): any change uploads again, or a native
     // draw after a game one would read that draw's mask.
-    // A native draw's pixel engine word (native_material.hlsli native_ps): bit 8 constant destination alpha with the
-    // alpha at bits 9-16, on a frame with alpha (as the uber shader's dst-alpha flag). Colour keeps 8 bits on every
-    // frame, as the old path's keys (build_pixel_shader_key: no six-bit colour or ordered pattern).
-    const BlendMode& pe_blend = draw_state_.blend;
-    const bool frame_alpha = draw_state_.frame_alpha;
-    const std::uint32_t native_pe = frame_alpha && pe_blend.const_alpha_enable && pe_blend.alpha_update &&
-                                            (render_state_key_.blend_bits & kRenderStateZeroAlpha) == 0u
-                                        ? 0x100u | static_cast<std::uint32_t>(pe_blend.const_alpha) << 9u
-                                        : 0u;
-    const std::uint32_t header_texmtx = native_texmtx | native_pe << 8u;
-    const bool native_texmtx_changed = std::exchange(native_texmtx_, header_texmtx) != header_texmtx;
+    const bool native_texmtx_changed = std::exchange(native_texmtx_, native_texmtx) != native_texmtx;
     // Upload VS constants when scalar state, fixed inline matrices or the matrix blocks change.
     if (native_texmtx_changed || per_vertex_changed || std::exchange(sky_up_dirty_, false) || vs_c_dirty ||
         xf_dirty || vcd_dirty || inline_matrices_stale_ ||
         frame_bindings_dirty_ || dirty == ~0u || std::exchange(matrix_bases_changed_, false) ||
         (history_scene_ && current_matrix_palette_ != temporal_vs_palette_va_)) {
-        const VertexConstants& vs_c = cpu_vs_constants_.update(
-            matrices_, draw_state_, dirty, RasterScale{renderer_.frame_map().sx, renderer_.frame_map().sy}, frame_bindings_dirty_);
+        const VertexConstants& vs_c = cpu_vs_constants_.update(draw_state_, dirty, RasterScale{renderer_.frame_map().sx, renderer_.frame_map().sy}, frame_bindings_dirty_);
         UploadRing::Allocation vs_alloc =
             renderer_.constant_ring().allocate(sizeof(VertexConstants), 256u);
         std::memcpy(vs_alloc.cpu, &vs_c, sizeof(vs_c));
@@ -4360,7 +4401,7 @@ gpu::Pipeline* RenderCore::flush_draw_state(
             // The per-vertex texture matrix bits and each texgen's post-transform row (| 0x100 normalize).
             auto* native_vs = reinterpret_cast<VertexConstants*>(vs_alloc.cpu);
             native_vs->draw_header[1] = renderer_.frame_map().height;
-            native_vs->draw_header[2] = native_pe;
+            native_vs->draw_header[2] = 0u;
             native_vs->draw_header[3] = native_texmtx;
             for (unsigned i = 0; i < 8u; ++i) {
                 native_vs->post_rows[i] = (draw_state_.post_texgen[i].matrix_index & 0x3Fu) |
@@ -4550,10 +4591,6 @@ void RenderCore::flush_pending_draw_batch() {
         return;
     }
 
-    if (!pending_stripe_vertices_.empty()) [[unlikely]] {
-        renderer_.note_stripe_vertices(pending_stripe_vertices_);
-        pending_stripe_vertices_.clear();
-    }
     if (!pending_draw_batch_.hidden) {
         const DrawCall& call = pending_draw_batch_.call;
         renderer_.draw(call);
@@ -4682,9 +4719,13 @@ void RenderCore::on_shape_record(const shapes::Record& record) {
         texture_bindings_dirty_ = true;
         current_texture_binding_key_valid_ = false;
         return;
+    case shapes::Record::Kind::Palette:
+        note_model_palette(record);
+        return;
     case shapes::Record::Kind::Draw:
         draw_state_.apply_pass(record.pass);
         draw_record_shape(record);
+        draw_palette_ = nullptr;
         return;
     case shapes::Record::Kind::NativeMaterial:
         apply_native_material(record.native_index != shapes::kNoNative ? &current_record_pool_->natives[record.native_index] : nullptr);
@@ -4793,9 +4834,7 @@ void RenderCore::on_shape_record(const shapes::Record& record) {
         // The values as the game gave them (alpha 255 on a frame without alpha).
         flush_pending_draw_batch();
         renderer_.clear_scene(record.target_clear_rgba, (record.target_channels & 1u) != 0u,
-                            (record.target_channels & 2u) != 0u, (record.target_channels & 4u) != 0u, record.target_x,
-                            record.target_y, record.target_width, record.target_height,
-                            frame_format());
+                            (record.target_channels & 2u) != 0u, (record.target_channels & 4u) != 0u, 0u, 0u, kFrameUnits, kFrameUnits, frame_format());
         return;
     }
     case shapes::Record::Kind::TargetClear:
@@ -4803,10 +4842,17 @@ void RenderCore::on_shape_record(const shapes::Record& record) {
             flush_pending_draw_batch();
             renderer_.clear_scene(record.target_clear_rgba, (record.target_channels & 1u) != 0u,
                                 (record.target_channels & 2u) != 0u, (record.target_channels & 4u) != 0u, 0u, 0u,
-                                target_pass_size_[0], target_pass_size_[1], frame_format());
+                                kFrameUnits, kFrameUnits, frame_format());
         }
         return;
     }
+}
+
+void RenderCore::set_target_alpha(bool on) {
+    state::Op op{};
+    op.kind = state::kTargetAlpha;
+    op.a[0] = on ? 1u : 0u;
+    draw_state_.apply(op);
 }
 
 // A pass into a texture target (E-07): the draws until its end go to the target set, whose top left the pass clears
@@ -4827,7 +4873,12 @@ void RenderCore::begin_target_pass(const shapes::Record& record) {
         renderer_.open_frame_for_pass(record.target_frame_key, record.target_channels, record.target_depth_key, texture_cache_);
         texture_bindings_dirty_ = true;
     }
-    if (!renderer_.begin_target_pass(record.key, record.target_width, record.target_height)) {
+    // The target's own pixels: inside the pass, rectangles are fractions of it.
+    const FrameMap& frame = renderer_.frame_map();
+    const auto pixels = [&](std::uint32_t size, float scale) {
+        return record.target_pixels ? size : std::max<std::uint32_t>(1u, static_cast<std::uint32_t>(std::lround(size * static_cast<double>(scale))));
+    };
+    if (!renderer_.begin_target_pass(record.key, pixels(record.target_width, frame.sx), pixels(record.target_height, frame.sy))) {
         if (over_frame) {
             renderer_.close_frame_for_pass(texture_cache_);
         }
@@ -4839,10 +4890,9 @@ void RenderCore::begin_target_pass(const shapes::Record& record) {
         }
         return;
     }
-    target_pass_size_ = {record.target_width, record.target_height};
     frame_bindings_dirty_ = true;
-    renderer_.clear_scene(record.target_clear_rgba, true, true, true, 0u, 0u,
-                        record.target_width, record.target_height, frame_format());
+    set_target_alpha(true);
+    renderer_.clear_scene(record.target_clear_rgba, true, true, true, 0u, 0u, kFrameUnits, kFrameUnits, frame_format());
 }
 
 // The pass's end: its picture, at full precision, becomes the texture at its key, then the frame's targets come
@@ -4853,6 +4903,7 @@ void RenderCore::end_target_pass(const shapes::Record& record) {
     }
     flush_pending_draw_batch();
     renderer_.end_target_pass(record.target_channels, texture_cache_);
+    set_target_alpha(false);
     frame_bindings_dirty_ = true;
     texture_bindings_dirty_ = true;
 }
@@ -4984,10 +5035,46 @@ void RenderCore::apply_record_matrices(const shapes::Record& record) {
     }
 }
 
+void RenderCore::note_model_palette(const shapes::Record& record) {
+    // A game frame's blocks stay for its draws.
+    if (record.palette_matrix != model_palette_frame_) {
+        model_palette_frame_ = record.palette_matrix;
+        model_palettes_.clear();
+        model_palette_rows_.clear();
+        model_palette_first_id_ = record.palette;
+        draw_palette_ = nullptr;
+    }
+    ModelPalette block;
+    block.key = record.key;
+    block.count = record.palette_count;
+    block.first = static_cast<std::uint32_t>(model_palette_rows_.size());
+    for (auto it = model_palettes_.rbegin(); it != model_palettes_.rend(); ++it) {
+        if (it->key == record.key) {
+            block.order = it->order + 1u;
+            break;
+        }
+    }
+    const float* rows = current_record_pool_->palette_rows.data() + record.palette_first;
+    model_palette_rows_.insert(model_palette_rows_.end(), rows, rows + record.palette_count * 24u);
+    draw_palette_ = nullptr;  // the vector may have moved
+    model_palettes_.push_back(block);
+}
+
 void RenderCore::draw_record_shape(const shapes::Record& record) {
     apply_record_matrices(record);
     if (record.key == 0u) {
         return;  // state only (the matrices, current matrices and texgens set before a material record)
+    }
+    // The model's block the draw reads, or its places.
+    draw_palette_ = nullptr;
+    if (record.palette != 0u) {
+        const std::uint32_t index = record.palette - model_palette_first_id_;
+        if (record.palette < model_palette_first_id_ || index >= model_palettes_.size()) {
+            return;  // a skinned shape drawn with no block of its model this frame
+        }
+        draw_palette_ = &model_palettes_[index];
+        draw_palette_row_ = 3u * record.palette_matrix;
+        matrices_.note_block_load(record.palette_matrix);
     }
     const auto found = record_shapes_.find(record.key);
     if (found == record_shapes_.end() || found->second.geometry == nullptr) {
@@ -5020,6 +5107,7 @@ void RenderCore::draw_record_shape(const shapes::Record& record) {
             versions[i] = a->second.version;
         }
     }
+    const bool uses_extras = (geometry.attributes & (shapes::kNbt | (shapes::kTexCoord0 * 0xFEu) | (shapes::kTextureMatrix0 * 0xFFu))) != 0u;
     // Corners without a position matrix of their own take the one J3DCurrentMtx::load set.
     const auto position_matrix = static_cast<std::uint8_t>(
         (geometry.attributes & shapes::kPositionMatrix) != 0u ? 0u : draw_state_.position_matrix);
@@ -5062,13 +5150,14 @@ void RenderCore::draw_record_shape(const shapes::Record& record) {
                 shape.refined_indices = std::move(refined_indices);
             }
         }
-        // The block holds the vertices and, behind them, the indices: both written once, for every draw of the shape.
+        // The block holds the vertices' streams and, behind them, the indices: written once, for every draw of the shape.
         shape.resident_epoch = 0u;
         auto block_size = [&](std::uint32_t& vertices_units, std::uint32_t& bytes) {
             vertices_units = static_cast<std::uint32_t>(expand_scratch_.size());
+            const std::size_t vertex_bytes = vertices_units * (sizeof(RenderVertexCore) + (uses_extras ? sizeof(RenderVertexExtra) : 0u));
             const std::size_t index_count = !shape.refined_indices.empty() ? shape.refined_indices.size() : geometry.indices.size();
             bytes = static_cast<std::uint32_t>(index_count * sizeof(std::uint16_t));
-            return vertices_units + (bytes + static_cast<std::uint32_t>(sizeof(RenderVertex)) - 1u) / static_cast<std::uint32_t>(sizeof(RenderVertex));
+            return static_cast<std::uint32_t>((vertex_bytes + bytes + kResidentUnit - 1u) / kResidentUnit);
         };
         std::uint32_t expanded_units = 0u;
         std::uint32_t index_bytes = 0u;
@@ -5089,10 +5178,23 @@ void RenderCore::draw_record_shape(const shapes::Record& record) {
         }
         // Written once while the block belongs to this group, so no in-flight frame sees a partial write.
         std::byte* const staged = renderer_.stage_resident_vertices(
-            static_cast<std::uint64_t>(*offset) * sizeof(RenderVertex),
-            static_cast<std::uint64_t>(block_units) * sizeof(RenderVertex));
-        std::memcpy(staged, expand_scratch_.data(), static_cast<std::size_t>(expanded_units) * sizeof(RenderVertex));
-        std::memcpy(staged + static_cast<std::size_t>(expanded_units) * sizeof(RenderVertex),
+            static_cast<std::uint64_t>(*offset) * kResidentUnit, static_cast<std::uint64_t>(block_units) * kResidentUnit);
+        std::byte* written = staged;
+        for (const RenderVertex& v : expand_scratch_) {
+            RenderVertexCore core;
+            write_core(v, core);
+            std::memcpy(written, &core, sizeof(core));
+            written += sizeof(core);
+        }
+        if (uses_extras) {
+            for (const RenderVertex& v : expand_scratch_) {
+                RenderVertexExtra extra;
+                write_extra(v, extra);
+                std::memcpy(written, &extra, sizeof(extra));
+                written += sizeof(extra);
+            }
+        }
+        std::memcpy(written,
                     !shape.refined_indices.empty() ? shape.refined_indices.data() : geometry.indices.data(),
                     index_bytes);
         shape.resident_epoch = resident_vertices_.epoch();
@@ -5168,17 +5270,21 @@ void RenderCore::draw_record_shape(const shapes::Record& record) {
 
     const std::vector<std::uint16_t>& indices = !shape.refined_indices.empty() ? shape.refined_indices : geometry.indices;
     const auto index_count = static_cast<std::uint32_t>(indices.size());
-    const std::size_t vertex_byte_offset = static_cast<std::size_t>(shape.resident_offset) * sizeof(RenderVertex);
+    const std::size_t vertex_byte_offset = static_cast<std::size_t>(shape.resident_offset) * kResidentUnit;
+    const std::size_t core_bytes = static_cast<std::size_t>(units) * sizeof(RenderVertexCore);
+    const std::size_t extra_bytes = uses_extras ? static_cast<std::size_t>(units) * sizeof(RenderVertexExtra) : 0u;
     ++stat_draws_issued_;
 
-    const gpu::VertexView vbv = gpu::vertex_view(resident_vertex_gpu_ + vertex_byte_offset,
-                                                 units * static_cast<std::uint32_t>(sizeof(RenderVertex)),
-                                                 static_cast<std::uint32_t>(sizeof(RenderVertex)));
+    const gpu::VertexView vbv = gpu::vertex_view(resident_vertex_gpu_ + vertex_byte_offset, static_cast<std::uint32_t>(core_bytes),
+                                                 static_cast<std::uint32_t>(sizeof(RenderVertexCore)));
     const gpu::IndexView ibv = gpu::index_view(
-        resident_vertex_gpu_ + vertex_byte_offset + static_cast<std::size_t>(units) * sizeof(RenderVertex),
+        resident_vertex_gpu_ + vertex_byte_offset + core_bytes + extra_bytes,
         index_count * static_cast<std::uint32_t>(sizeof(std::uint16_t)));
     DrawCall call = cached_draw_run_state_call_;
     call.vertex_view = vbv;
+    call.extra_view = uses_extras ? gpu::vertex_view(resident_vertex_gpu_ + vertex_byte_offset + core_bytes, static_cast<std::uint32_t>(extra_bytes),
+                                                     static_cast<std::uint32_t>(sizeof(RenderVertexExtra)))
+                                  : gpu::VertexView{};
     call.index_view = ibv;
     call.index_count = index_count;
     pending_draw_batch_.active = true;
@@ -5189,7 +5295,7 @@ void RenderCore::draw_record_shape(const shapes::Record& record) {
     pending_draw_batch_.indexed = true;
     pending_draw_batch_.base_vertex = shape.resident_offset;
     pending_draw_batch_.vertex_count = units;
-    pending_draw_batch_.vertex_byte_end = vertex_byte_offset + static_cast<std::size_t>(units) * sizeof(RenderVertex);
+    pending_draw_batch_.vertex_byte_end = vertex_byte_offset + core_bytes;
     pending_draw_batch_.first_index = 0u;
     pending_draw_batch_.index_count = index_count;
     pending_draw_batch_.draw_count = 1u;
@@ -5235,28 +5341,38 @@ void RenderCore::draw_record_immediate(const shapes::Record& record) {
     const DrawCall& state_call = cached_draw_run_state_call_;
     // Consecutive draws with the same state share one GPU draw : the vertices and indices
     // follow the batch's in the rings, the indices counted from its first vertex.
-    bool append = pending_draw_batch_.active && !pending_draw_batch_.resident && pending_draw_batch_.indexed &&
+    // Lines, points and further texture coordinates take the second stream: such a draw stands alone.
+    const bool uses_extras = record.primitive == shapes::kWideQuads || (record.attributes & (shapes::kTexCoord0 * 0xFEu)) != 0u;
+    bool append = !uses_extras && pending_draw_batch_.call.extra_view.BufferLocation == 0u &&
+                  pending_draw_batch_.active && !pending_draw_batch_.resident && pending_draw_batch_.indexed &&
                   pending_draw_batch_.vertex_count + count <= 0x10000u &&
                   draw_calls_batch_compatible(pending_draw_batch_.call, state_call, true, true);
     if (!append) {
         flush_pending_draw_batch();
     }
     cached_draw_run_batch_compatible_known_ = false;
-    const UploadRing::Allocation vb =
-        renderer_.vertex_ring().allocate(static_cast<std::size_t>(count) * sizeof(RenderVertex), 16u);
-    // The rings are write-combined: this copy is the only touch, never a read.
-    std::memcpy(vb.cpu, current_record_pool_->vertices.data() + record.vertex_first, static_cast<std::size_t>(count) * sizeof(RenderVertex));
+    const bool ready = (record.attributes & shapes::kReadyCorners) != 0u;
+    const RenderVertex* const source = ready ? nullptr : current_record_pool_->vertices.data() + record.vertex_first;
+    const UploadRing::Allocation vb = renderer_.vertex_ring().allocate(static_cast<std::size_t>(count) * sizeof(RenderVertexCore), 4u);
+    // The rings are write-combined: these writes are the only touch, never a read.
+    auto* const core_out = reinterpret_cast<RenderVertexCore*>(vb.cpu);
+    if (ready) {
+        std::memcpy(core_out, current_record_pool_->corners.data() + record.vertex_first, count * sizeof(RenderVertexCore));
+    } else {
+        for (std::uint32_t i = 0; i < count; ++i) {
+            write_core(source[i], core_out[i]);
+        }
+    }
     const auto index_count = static_cast<std::uint32_t>(immediate_indices_.size());
     const UploadRing::Allocation ib = renderer_.index_ring().allocate(
         static_cast<std::size_t>(index_count) * sizeof(std::uint16_t), sizeof(std::uint16_t));
     const auto first_index = static_cast<std::uint32_t>(ib.offset / sizeof(std::uint16_t));
-    const auto base_vertex = static_cast<std::uint32_t>(vb.offset / sizeof(RenderVertex));
     if (append && (vb.offset != pending_draw_batch_.vertex_byte_end ||
                    first_index != pending_draw_batch_.first_index + pending_draw_batch_.index_count)) {
         flush_pending_draw_batch();
         append = false;
     }
-    const std::uint32_t bias = append ? base_vertex - pending_draw_batch_.base_vertex : 0u;
+    const std::uint32_t bias = append ? pending_draw_batch_.vertex_count : 0u;
     auto* indices = reinterpret_cast<std::uint16_t*>(ib.cpu);
     for (std::uint32_t i = 0; i < index_count; ++i) {
         indices[i] = static_cast<std::uint16_t>(immediate_indices_[i] + bias);
@@ -5264,23 +5380,35 @@ void RenderCore::draw_record_immediate(const shapes::Record& record) {
     ++stat_draws_issued_;
     if (append) {
         pending_draw_batch_.call.index_count += index_count;
-        pending_draw_batch_.call.vertex_view.SizeInBytes += count * static_cast<std::uint32_t>(sizeof(RenderVertex));
+        pending_draw_batch_.call.vertex_view.SizeInBytes += count * static_cast<std::uint32_t>(sizeof(RenderVertexCore));
         pending_draw_batch_.call.index_view.SizeInBytes += index_count * static_cast<std::uint32_t>(sizeof(std::uint16_t));
         pending_draw_batch_.vertex_count += count;
-        pending_draw_batch_.vertex_byte_end = vb.offset + static_cast<std::size_t>(count) * sizeof(RenderVertex);
+        pending_draw_batch_.vertex_byte_end = vb.offset + static_cast<std::size_t>(count) * sizeof(RenderVertexCore);
         pending_draw_batch_.index_count += index_count;
         ++pending_draw_batch_.draw_count;
         return;
     }
     const gpu::VertexView vbv =
         gpu::vertex_view(renderer_.vertex_ring().gpu_base() + vb.offset,
-                         count * static_cast<std::uint32_t>(sizeof(RenderVertex)),
-                         static_cast<std::uint32_t>(sizeof(RenderVertex)));
+                         count * static_cast<std::uint32_t>(sizeof(RenderVertexCore)),
+                         static_cast<std::uint32_t>(sizeof(RenderVertexCore)));
+    gpu::VertexView extra_view{};
+    if (uses_extras) {
+        const UploadRing::Allocation more = renderer_.vertex_ring().allocate(static_cast<std::size_t>(count) * sizeof(RenderVertexExtra), 4u);
+        auto* const extra_out = reinterpret_cast<RenderVertexExtra*>(more.cpu);
+        for (std::uint32_t i = 0; i < count; ++i) {
+            write_extra(source[i], extra_out[i]);
+        }
+        extra_view = gpu::vertex_view(renderer_.vertex_ring().gpu_base() + more.offset,
+                                      count * static_cast<std::uint32_t>(sizeof(RenderVertexExtra)),
+                                      static_cast<std::uint32_t>(sizeof(RenderVertexExtra)));
+    }
     const gpu::IndexView ibv = gpu::index_view(
         renderer_.index_ring().gpu_base() + static_cast<std::size_t>(first_index) * sizeof(std::uint16_t),
         index_count * static_cast<std::uint32_t>(sizeof(std::uint16_t)));
     DrawCall call = state_call;
     call.vertex_view = vbv;
+    call.extra_view = extra_view;
     call.index_view = ibv;
     call.index_count = index_count;
     pending_draw_batch_.active = true;
@@ -5289,9 +5417,9 @@ void RenderCore::draw_record_immediate(const shapes::Record& record) {
     pending_draw_batch_.hidden = false;
     pending_draw_batch_.traced = false;
     pending_draw_batch_.indexed = true;
-    pending_draw_batch_.base_vertex = base_vertex;
+    pending_draw_batch_.base_vertex = 0u;
     pending_draw_batch_.vertex_count = count;
-    pending_draw_batch_.vertex_byte_end = vb.offset + static_cast<std::size_t>(count) * sizeof(RenderVertex);
+    pending_draw_batch_.vertex_byte_end = vb.offset + static_cast<std::size_t>(count) * sizeof(RenderVertexCore);
     pending_draw_batch_.first_index = first_index;
     pending_draw_batch_.index_count = index_count;
     pending_draw_batch_.draw_count = 1u;
@@ -5386,5 +5514,14 @@ unsigned layer_2d_lines() noexcept {
     return s_layer_2d_lines.load(std::memory_order_relaxed);
 }
 
+
+// With the frame's records, so that a picture's number is its frame's whatever the render thread is doing.
+void number_present_snapshots(std::uint64_t number) noexcept {
+    shapes::Record record;
+    record.kind = shapes::Record::Kind::Marker;
+    record.key = motion::kMarkerSnapshotNumber;
+    record.marker[0] = number;
+    attach_shape_record(std::move(record));
+}
 
 }  // namespace galaxy::render

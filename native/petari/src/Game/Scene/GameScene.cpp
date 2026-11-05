@@ -63,7 +63,6 @@
 #include "Game/Screen/GameStageClearSequence.hpp"
 #include "Game/Screen/LensFlare.hpp"
 #include "Game/Screen/MoviePlayingSequence.hpp"
-#include "Game/Screen/ScreenAlphaCapture.hpp"
 #include "Game/System/GalaxyMapController.hpp"
 #include "Game/System/GameSequenceFunction.hpp"
 #include "Game/Util/CameraUtil.hpp"
@@ -190,7 +189,6 @@ void GameScene::init() {
     MR::createSceneObj(SceneObj_ScenePlayingResult);
     MR::createSceneObj(SceneObj_FurDrawManager);
     MR::createSceneObj(SceneObj_PlacementStateChecker);
-    MR::createScreenAlphaSceneObj(0, 1.0f);
     MR::createSceneObj(SceneObj_GroupCheckManager);
     MR::createSceneObj(SceneObj_CinemaFrame);
     MR::createSceneObj(SceneObj_PlanetMapCreator);
@@ -208,14 +206,15 @@ void GameScene::init() {
         MR::createMoviePlayingSequence();
     }
 
-    SceneFunction::waitDoneStageFileLoad();
+    SceneFunction::createStageDataHolder();
     MR::waitEndChangeArchivePlayer();
     SceneFunction::startActorFileLoadCommon();
-    MR::waitSceneInitializeResume();
+    MR::holdSceneInitialize();
+}
 
-    if (!MR::isScenarioDecided()) {
-        MR::receiveAllRequestedFile();
-    } else {
+// What needs the scenario: the star the player chose (MR::tryResumeSceneInitialize).
+void GameScene::initAfterScenarioChosen() {
+    if (MR::isScenarioDecided()) {
         SceneFunction::initAfterScenarioSelected();
         NPCFunction::createNPCData();
         SceneFunction::startActorFileLoadScenario();
@@ -481,7 +480,7 @@ void GameScene::draw() const {
     drawMirror();
     draw3D();
     draw2D();
-    MR::reinitGX();
+    MR::resetDrawState();
 }
 
 void GameScene::calcAnim() {
@@ -701,7 +700,6 @@ void GameScene::draw3D() const {
     MR::setDefaultViewportAndScissor();
     J3DPass::writeColor(true);
     J3DPass::writeAlpha(true);
-    J3DPass::constantAlpha(true, 0);
     CategoryList::drawOpa(MR::DrawBufferType_ClippedMapParts);
     CategoryList::execute(MR::DrawType_ClipArea);
     CategoryList::execute(MR::DrawType_FallOutFieldDraw);
@@ -709,15 +707,15 @@ void GameScene::draw3D() const {
     J3DPass::writeAlpha(true);
     CategoryList::execute(MR::DrawType_ShadowVolume);
     J3DPass::writeColor(true);
-    J3DPass::constantAlpha(true, 0);
+    // What is drawn after the volumes is not in their shadow.
+    J3DPass::stencil(NEBULA_STENCIL_ALWAYS, NEBULA_STENCIL_ZERO);
     SceneFunction::executeDrawBufferListNormalOpaBeforeSilhouette();
+    J3DPass::stencil(NEBULA_STENCIL_OFF, NEBULA_STENCIL_KEEP);
     CategoryList::execute(MR::DrawType_0x28);
     SceneFunction::executeDrawSilhouetteAndFillShadow();
     SceneFunction::executeDrawAlphaShadow();
-    CategoryList::execute(MR::DrawType_BrightSun);
     MR::setLensFlareDrawSyncToken();
     J3DPass::writeAlpha(false);
-    J3DPass::constantAlpha(false, 0);
     SceneFunction::executeDrawBufferListNormalOpa();
     SceneFunction::executeDrawListOpa();
     CategoryList::drawOpa(MR::DrawBufferType_UNK_0x18);

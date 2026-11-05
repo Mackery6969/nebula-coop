@@ -33,7 +33,7 @@ namespace {
 
 namespace {
     NEW_NERVE(GameSequenceProgressBooting, GameSequenceProgress, Booting);
-    NEW_NERVE(GameSequenceProgressLogo, GameSequenceProgress, Logo);
+    NEW_NERVE(GameSequenceProgressBoot, GameSequenceProgress, Boot);
     NEW_NERVE(GameSequenceProgressWaitGoToFirstScene, GameSequenceProgress, WaitGoToFirstScene);
     NEW_NERVE(GameSequenceProgressNormal, GameSequenceProgress, Normal);
     NEW_NERVE(GameSequenceProgressGalaxyMove, GameSequenceProgress, GalaxyMove);
@@ -90,7 +90,7 @@ void GameSequenceProgress::startScene() {
     mMinFrame = 0;
     mIsPlayTicoSound = false;
 
-    if (MR::isEqualSceneName("Logo")) {
+    if (MR::isEqualSceneName("Boot")) {
         mStarPointerOnOffController->setStateToBase(this);
     } else if (MR::isEqualSceneName("Title")) {
         mStarPointerOnOffController->setStateToBase(this);
@@ -129,7 +129,7 @@ void GameSequenceProgress::startScene() {
 }
 
 void GameSequenceProgress::endScene() {
-    if (isNerve(GET_NERVE_ANON(GameSequenceProgressLogo))) {
+    if (isNerve(GET_NERVE_ANON(GameSequenceProgressBoot))) {
         MR::requestChangeSceneAfterBoot();
 
         GameSystemFunction::setResetOperationApplicationReset();
@@ -237,11 +237,11 @@ void GameSequenceProgress::exeBooting() {
     }
 
     if (GameSequenceFunction::isReadyToStartScene()) {
-        setNerve(GET_NERVE_ANON(GameSequenceProgressLogo));
+        setNerve(GET_NERVE_ANON(GameSequenceProgressBoot));
     }
 }
 
-void GameSequenceProgress::exeLogo() {
+void GameSequenceProgress::exeBoot() {
     if (MR::isFirstStep(this)) {
         startScene();
         GameSequenceFunction::startScene();
@@ -303,7 +303,7 @@ void GameSequenceProgress::exeResetProcessing() {
 }
 
 bool GameSequenceProgress::isScenePermittedUpdateInputStatus() {
-    return !MR::isEqualSceneName("Logo");
+    return !MR::isEqualSceneName("Boot");
 }
 
 bool GameSequenceProgress::isSceneLongInputSleep() {

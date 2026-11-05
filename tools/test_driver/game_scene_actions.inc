@@ -115,16 +115,16 @@
                     for (u16 m = 0; pData != nullptr && m < pData->getMaterialNum(); ++m) {
                         const J3DMaterial* pMaterial = pData->getMaterialNodePointer(m);
                         const NebulaCookedMaterial* pCooked = pMaterial->mNativeMaterial;
-                        JUTNativeLog("test: material %s %u %s shader %u blend %u %u %u %u depth %u %u %u cull %u\n", action.stage, m,
+                        JUTNativeLog("test: material %s %u %s shader %u blend %u %u %u depth %u %u %u cull %u\n", action.stage, m,
                                      pData->getMaterialName()->getName(m), pCooked != nullptr ? pCooked->shader : 0u,
                                      pCooked != nullptr ? pCooked->blend_op : 0u, pCooked != nullptr ? pCooked->blend_src : 0u,
-                                     pCooked != nullptr ? pCooked->blend_dst : 0u, pCooked != nullptr ? pCooked->logic_op : 0u,
+                                     pCooked != nullptr ? pCooked->blend_dst : 0u,
                                      pCooked != nullptr ? pCooked->depth_test : 0u, pCooked != nullptr ? pCooked->depth_func : 0u,
                                      pCooked != nullptr ? pCooked->depth_write : 0u, pCooked != nullptr ? pCooked->cull : 0u);
                         J3DMaterial* pEditable = pData->getMaterialNodePointer(m);
                         for (u32 c = 0; c < pEditable->getTexGenNum(); ++c) {
                             J3DTexCoord* pCoord = pEditable->getTexCoord(c);
-                            J3DTexMtx* pMtx = pEditable->mTexGenBlock->getTexMtx(c);
+                            J3DTexMtx* pMtx = pEditable->getTexMtx(c);
                             JUTNativeLog("test: coordinate %u %u type %u source %u matrix %u info %u projection %u used %u\n", m, c,
                                          pCoord->getTexGenType(), pCoord->getTexGenSrc(), pCoord->getTexGenMtx(),
                                          pMtx != nullptr ? pMtx->getTexMtxInfo().mInfo : 255u,

@@ -21,7 +21,6 @@ public:
     bool isDone() const;
     void waitDone();
     void requestChangeArchivePlayer(bool);
-    void exeLoadAudio1stWaveData();
     void exeLoadStationedArchivePlayer();
     void exeLoadStationedArchiveOthers();
     void exeInitializeGameData();
@@ -33,7 +32,6 @@ public:
     void createAndAddOtherArchives();
 
     PlayerHeapHolder* mHeapHolder;
-    GameEvent mDone;
 };
 
 class ConditionIsEqualType : public StationedArchiveLoader::Condition {
@@ -65,8 +63,7 @@ public:
     virtual bool isExecute(const MR::StationedFileInfo*) const;
     virtual NebulaArena* getProperHeap(const MR::StationedFileInfo*) const;
 
-    NebulaArena* mNapaHeap;
-    NebulaArena* mGDDRHeap;
+    NebulaArena* mHeap;
     bool mIsDataMario;
 };
 
@@ -79,7 +76,6 @@ public:
 
 
     ConditionUsePlayerHeap* mCondition;
-    NebulaArena* mNapaHeap;
-    NebulaArena* mGDDRHeap;
+    NebulaArena* mHeap;
     bool mIsDataMario;
 };

@@ -119,10 +119,10 @@ namespace MR {
     bool isExistBva(const LiveActor*, const char*);
     bool isExistTexture(const LiveActor*, const char*);
 
+    void prepareMaterials(LiveActor*);
     void newDifferedMaterials(LiveActor*);
     void initMaterialFog(LiveActor*, bool);
     void initMaterialColor0(LiveActor*, const char*, const J3DColor*);
-    void initMaterialChangeTex(LiveActor*, const char*);
     TexMtxCtrl* initMaterialTexMtx(LiveActor*, const char*);
 
     void startAction(const LiveActor*, const char*);

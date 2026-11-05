@@ -44,11 +44,14 @@ struct Corner {
     std::array<std::uint16_t, 8> texcoord{};
     std::uint8_t position_matrix = 0;
     std::array<std::uint8_t, 8> texture_matrix{};
+    std::uint16_t model_matrix = 0;
 };
 
 // Geometry::attributes (as nebula_game_api.h's NEBULA_SHAPE_*).
 // Corner::texture_matrix: the coordinate starts from the corner's own position matrix (as NEBULA_CORNER_POSITION_MATRIX).
 inline constexpr std::uint8_t kCornerPositionMatrix = 0xFFu;
+inline constexpr std::uint8_t kCornerNormalMatrix = 0xFEu;
+inline constexpr std::uint32_t kModelMatrices = 1u << 23;
 inline constexpr std::uint32_t kNormal = 1u << 0;
 inline constexpr std::uint32_t kColor0 = 1u << 1;
 inline constexpr std::uint32_t kColor1 = 1u << 2;
@@ -99,6 +102,9 @@ struct Matrix {
     std::array<float, 12> values{};
 };
 
+// An immediate's vertices are whole in RecordPool::corners (`vertex_first` counts there).
+inline constexpr std::uint32_t kReadyCorners = 1u << 24u;
+
 // How immediate vertices group: nebula_game_api.h NebulaPrimitive's values.
 enum PrimitiveKind : std::uint8_t { kQuads = 0, kTriangles, kTriangleStrip, kTriangleFan, kLines, kLineStrip, kPoints, kWideQuads };
 
@@ -127,19 +133,21 @@ struct RecordPool {
     std::vector<state::Op> ops;
     std::vector<material::Native> natives;
     std::vector<RenderVertex> vertices;
+    std::vector<RenderVertexCore> corners;  // Immediate with kReadyCorners
     std::vector<ScreenProbe> probes;
+    std::vector<float> palette_rows;
 };
 
 // The game's records, in the order it made them (render_core.h attach_shape_record).
 // What a draw does to the target (nebula_game_api.h NebulaPassState).
 struct PassState {
-    std::uint8_t blend_op = 0, blend_src = 0, blend_dst = 0, logic_op = 0;
+    std::uint8_t blend_op = 0, blend_src = 0, blend_dst = 0;
     std::uint8_t depth_test = 0, depth_func = 0, depth_write = 0;
     std::uint8_t cull = 0;
     std::uint8_t color_write = 0, alpha_write = 0;
-    std::uint8_t constant_alpha = 0, constant_alpha_value = 0;
     std::uint8_t position_matrix = 0;
     std::uint8_t line_divisor = 0, point_divisor = 0;
+    std::uint8_t stencil_func = 0, stencil_op = 0;
     std::uint8_t line_offsets = 0, point_offsets = 0;
     std::uint8_t reserved[3] = {};
     float line_width = 0.0f, point_size = 0.0f;
@@ -148,7 +156,7 @@ struct PassState {
 struct Record {
     enum class Kind : std::uint8_t {
         Array, Geometry, Draw, State, Immediate, TextureImage, Readback, Marker,
-        TargetBegin, TargetEnd, TargetClear, FramePass, FrameTake, NativeMaterial, FrameShow, FrameClear, Forget, Scene, TextureHd
+        TargetBegin, TargetEnd, TargetClear, FramePass, FrameTake, NativeMaterial, FrameShow, FrameClear, Forget, Scene, TextureHd, Palette
     };
     Kind kind = Kind::Draw;
     std::uint64_t key = 0;   // the array's or the group's
@@ -165,6 +173,9 @@ struct Record {
     // Readback: its probes in the frame's pool, the same way.
     std::uint32_t vertex_first = 0, vertex_count = 0, attributes = 0;
     PassState pass;  // Draw, Immediate
+    // Palette: its id, its game frame, its rows in the frame's pool (palette_first, palette_count matrices).
+    // Draw: the block it reads (0 none) and, a shape of one matrix, which matrix.
+    std::uint32_t palette = 0, palette_matrix = 0, palette_first = 0, palette_count = 0;
     std::uint8_t primitive = 0;
     // An image's bytes (TextureImage), at `key`: its physical address. TextureHd: the record the game painted larger of
     // the image at `key`; none: it goes.
@@ -182,6 +193,7 @@ struct Record {
     std::array<std::uint64_t, 2> marker{};
     // A target pass (TargetBegin and TargetEnd, the target at `key`): its size, clear colour (RGBA) and depth.
     std::uint32_t target_width = 0, target_height = 0;
+    bool target_pixels = false;  // TargetBegin: target_width x target_height are pixels, not a share of the frame
     std::uint32_t target_clear_rgba = 0;
     // TargetBegin: the textures that are the frame and its depth during the pass (0: not sampled), the frame carrying
     // target_channels.

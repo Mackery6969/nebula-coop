@@ -116,9 +116,7 @@ VkSampler create_sampler(VkDevice device, VkFilter filter, VkSamplerMipmapMode m
 std::size_t RendererVk::ConstantsSetKeyHash::operator()(const ConstantsSetKey& key) const noexcept {
     std::uint64_t hash = mix64(reinterpret_cast<std::uint64_t>(key.b0));
     hash = combine64(hash, reinterpret_cast<std::uint64_t>(key.b1));
-    hash = combine64(hash, reinterpret_cast<std::uint64_t>(key.earlier));
-    hash = combine64(hash, key.whole_palette ? 1u : 0u);
-    return static_cast<std::size_t>(combine64(hash, reinterpret_cast<std::uint64_t>(key.palette)));
+    return static_cast<std::size_t>(combine64(hash, reinterpret_cast<std::uint64_t>(key.rows)));
 }
 
 bool RendererVk::initialize(int window_width, int window_height, const FrameMap& frame) {
@@ -205,21 +203,13 @@ bool RendererVk::initialize(int window_width, int window_height, const FrameMap&
             shutdown();
             return false;
         }
-        // Vertex blending's verdicts and frame values: every draw reads them (game frames the zero element).
-        blend_verdicts_ = vk::Context::get().create_buffer((vk_detail::kZeroValuesElement + 1u) * 16u,
-                                                           VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, "blend verdicts");
-        if (!blend_verdicts_) {
-            shutdown();
-            return false;
-        }
-        std::memset(blend_verdicts_->mapped, 0, blend_verdicts_->size);
         refresh_default_sampler_table();
         // The game's bloom, compiled on a worker; the game draws its own chains until it is ready.
         bloom_.initialize();
         // Presentation post-processing, compiled on a worker; the plain blit presents until it is ready.
         const RenderConfig cfg = get_render_config();
         if (cfg.post_process) {
-            post_.initialize(post_process_settings_from(cfg), draw_layout_.scene_pass, color_pass_);
+            post_.initialize(post_process_settings_from(cfg), draw_layout_.scene_pass, color_pass_, rgba8_pass_);
             if (!ao_.initialize()) {
                 std::cerr << "[ambient-occlusion] off on this device" << std::endl;
             }
@@ -274,7 +264,7 @@ bool RendererVk::create_layouts() {
                                                      VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT)) ==
             (VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT)
         ? VK_FORMAT_D24_UNORM_S8_UINT
-        : VK_FORMAT_D32_SFLOAT;
+        : VK_FORMAT_D32_SFLOAT_S8_UINT;
     {
         VkFormatProperties depth_properties{};
         vkGetPhysicalDeviceFormatProperties(context.physical_device(), depth_format_, &depth_properties);
@@ -283,18 +273,15 @@ bool RendererVk::create_layouts() {
 
     const VkShaderStageFlags stage_passes = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     {
-        // Set 0: b0, b1, the matrix palette, vertex blending's earlier vertices and verdicts.
+        // Set 0: b0, b1, the matrix rows.
         const VkDescriptorSetLayoutBinding bindings[] = {
             {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, stage_passes, nullptr},
             // b1: the pixel constants, or a native material's constants (both stages read those).
             {1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
-            {2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1, stage_passes, nullptr},
-            {3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr},
-            {4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr},
             {5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, stage_passes, nullptr},  // the rows the row table names
         };
         VkDescriptorSetLayoutCreateInfo info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-        info.bindingCount = 6;
+        info.bindingCount = 3;
         info.pBindings = bindings;
         vk::check(vkCreateDescriptorSetLayout(device, &info, nullptr, &draw_layout_.sets[0]), "set 0 layout");
     }
@@ -315,13 +302,9 @@ bool RendererVk::create_layouts() {
         vk::check(vkCreateDescriptorSetLayout(device, &info, nullptr, &draw_layout_.sets[2]), "set 2 layout");
     }
     {
-        // Vertex blending's per-draw values (b2): mode, frame element, verdict slot, last vertex, first vertex's byte.
-        const VkPushConstantRange blend{VK_SHADER_STAGE_VERTEX_BIT, 0, 5u * sizeof(std::uint32_t)};
         VkPipelineLayoutCreateInfo info{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
         info.setLayoutCount = 3;
         info.pSetLayouts = draw_layout_.sets.data();
-        info.pushConstantRangeCount = 1;
-        info.pPushConstantRanges = &blend;
         vk::check(vkCreatePipelineLayout(device, &info, nullptr, &draw_layout_.layout), "draw pipeline layout");
     }
     linear_clamp_ = create_sampler(device, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST);
@@ -361,13 +344,13 @@ bool RendererVk::create_layouts() {
         vk::check(vkCreatePipelineLayout(device, &info, nullptr, &conversion_layout_), "conversion pipeline layout");
     }
 
-    // MSAA: the counts the device renders RGBA8 and the depth format with and samples the depth with.
+    // MSAA: the counts the device renders the scene's format and the depth format with and samples the depth with.
     {
         const VkPhysicalDeviceLimits& limits = context.properties().limits;
         VkSampleCountFlags counts = limits.framebufferColorSampleCounts & limits.framebufferDepthSampleCounts &
             limits.sampledImageDepthSampleCounts;
         VkImageFormatProperties image{};
-        if (vkGetPhysicalDeviceImageFormatProperties(context.physical_device(), VK_FORMAT_R8G8B8A8_UNORM,
+        if (vkGetPhysicalDeviceImageFormatProperties(context.physical_device(), vk::kSceneColorFormat,
                                                      VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL,
                                                      VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, 0, &image) == VK_SUCCESS) {
             counts &= image.sampleCounts;
@@ -390,10 +373,16 @@ bool RendererVk::create_layouts() {
     }
     // The scene target pass keeps both targets in their attachment layouts; whoever samples them transitions and returns them.
     // With MSAA its targets are multisampled and a third attachment, the single-sample colour, takes their resolve.
-    for (const bool wide : {false, true})
+    for (const unsigned kind : {0u, 1u, 2u})
     for (unsigned samples_log2 = 0u; (1u << samples_log2) <= msaa_max_samples_; ++samples_log2) {
+        const bool wide = kind == 1u;
+        const bool target = kind == 2u;
+        if (target && samples_log2 != 0u) {
+            continue;
+        }
         VkAttachmentDescription attachments[3]{};
-        attachments[0].format = wide ? VK_FORMAT_R16G16B16A16_SFLOAT : VK_FORMAT_R8G8B8A8_UNORM;
+        attachments[0].format = wide ? VK_FORMAT_R16G16B16A16_SFLOAT
+                                : target ? vk::kTargetColorFormat : vk::kSceneColorFormat;
         attachments[0].samples = static_cast<VkSampleCountFlagBits>(1u << samples_log2);
         attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
         attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -403,6 +392,8 @@ bool RendererVk::create_layouts() {
         attachments[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
         attachments[1] = attachments[0];
         attachments[1].format = depth_format_;
+        attachments[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        attachments[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
         attachments[1].initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
         attachments[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
         attachments[2] = attachments[0];
@@ -451,6 +442,7 @@ bool RendererVk::create_layouts() {
         info.pDependencies = dependencies;
         vk::check(vkCreateRenderPass(device, &info, nullptr,
                                      wide                ? &draw_layout_.wide_passes[samples_log2]
+                                     : target            ? &draw_layout_.target_pass
                                      : samples_log2 != 0u ? &draw_layout_.ms_passes[samples_log2]
                                                          : &draw_layout_.scene_pass),
                   "scene target render pass");
@@ -459,6 +451,7 @@ bool RendererVk::create_layouts() {
         attachments[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
         vk::check(vkCreateRenderPass(device, &info, nullptr,
                                      wide                ? &draw_layout_.wide_passes_clear[samples_log2]
+                                     : target            ? &draw_layout_.target_pass_clear
                                      : samples_log2 != 0u ? &draw_layout_.ms_passes_clear[samples_log2]
                                                          : &draw_layout_.scene_pass_clear),
                   "scene target clearing render pass");
@@ -468,7 +461,7 @@ bool RendererVk::create_layouts() {
     for (const bool wide : {false, true})
     for (unsigned aux = 0u; aux < 2u; ++aux) {
         VkAttachmentDescription attachments[3]{};
-        attachments[0].format = wide ? VK_FORMAT_R16G16B16A16_SFLOAT : VK_FORMAT_R8G8B8A8_UNORM;
+        attachments[0].format = wide ? VK_FORMAT_R16G16B16A16_SFLOAT : vk::kSceneColorFormat;
         attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
         attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
         attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -478,6 +471,8 @@ bool RendererVk::create_layouts() {
         attachments[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
         attachments[1] = attachments[0];
         attachments[1].format = depth_format_;
+        attachments[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        attachments[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
         attachments[1].initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
         attachments[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
         attachments[2] = attachments[0];
@@ -524,10 +519,10 @@ bool RendererVk::create_layouts() {
         vk::check(vkCreateRenderPass(device, &info, nullptr, &draw_layout_.aux_passes[wide ? 1u : 0u][aux]),
                   "temporal scene render pass");
     }
-    // One RGBA8 target written whole (copies, screen probes): its old contents are dropped; it ends shader-readable.
+    // One target written whole (copies; RGBA8: screen probes): its old contents are dropped; it ends shader-readable.
     {
         VkAttachmentDescription attachment{};
-        attachment.format = VK_FORMAT_R8G8B8A8_UNORM;
+        attachment.format = vk::kSceneColorFormat;
         attachment.samples = VK_SAMPLE_COUNT_1_BIT;
         attachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
         attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -562,15 +557,14 @@ bool RendererVk::create_layouts() {
         info.dependencyCount = 2;
         info.pDependencies = dependencies;
         vk::check(vkCreateRenderPass(device, &info, nullptr, &color_pass_), "copy render pass");
+        attachment.format = VK_FORMAT_R8G8B8A8_UNORM;
+        vk::check(vkCreateRenderPass(device, &info, nullptr, &rgba8_pass_), "RGBA8 render pass");
     }
     draw_layout_.depth_format = depth_format_;
     set_curved_surfaces_offered(true);
     host_window::rtx_adapter.store(vk::Context::get().properties().vendorID == 0x10DEu &&
                                        std::strstr(vk::Context::get().properties().deviceName, "RTX") != nullptr,
                                    std::memory_order_relaxed);
-    draw_layout_.dual_source_blend = context.dual_source_blend();
-    set_dual_source_blending(context.dual_source_blend());
-    draw_layout_.logic_op = context.logic_op();
     draw_layout_.depth_clamp = context.depth_clamp();
     draw_layout_.depth_clip_enable = context.depth_clip_enable();
     persistent_pool_ = create_pool(device, kPersistentSets, kPersistentPool);
@@ -941,6 +935,8 @@ bool RendererVk::create_utility_pipelines() {
         VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
     conversion_pipeline_ = create_utility_pipeline(color_pass_, conversion_layout_, vk::UtilitySpirv::BlitVs,
                                                    vk::UtilitySpirv::SceneConversionPs, kAll, false, false, false);
+    probe_pipeline_ = create_utility_pipeline(rgba8_pass_, conversion_layout_, vk::UtilitySpirv::BlitVs,
+                                              vk::UtilitySpirv::SceneConversionPs, kAll, false, false, false);
     display_filter_pipeline_ = create_utility_pipeline(color_pass_, conversion_layout_, vk::UtilitySpirv::BlitVs,
                                                        vk::UtilitySpirv::DisplayFilterPs, kAll, false, false, false);
     for (unsigned kind = 0u; kind < static_cast<unsigned>(SceneUtility::Count); ++kind) {
@@ -1058,7 +1054,8 @@ void RendererVk::shutdown() {
         draw_queries_ = VK_NULL_HANDLE;
         destroy_swapchain();
         for (VkRenderPass pass :
-             {present_pass_, color_pass_, draw_layout_.scene_pass, draw_layout_.scene_pass_clear}) {
+             {present_pass_, color_pass_, rgba8_pass_, draw_layout_.scene_pass, draw_layout_.scene_pass_clear,
+              draw_layout_.target_pass, draw_layout_.target_pass_clear}) {
             if (pass != VK_NULL_HANDLE) vkDestroyRenderPass(device, pass, nullptr);
         }
         for (auto& passes : draw_layout_.aux_passes) {
@@ -1077,7 +1074,8 @@ void RendererVk::shutdown() {
                 pass = VK_NULL_HANDLE;
             }
         }
-        present_pass_ = color_pass_ = draw_layout_.scene_pass = draw_layout_.scene_pass_clear = VK_NULL_HANDLE;
+        present_pass_ = color_pass_ = rgba8_pass_ = draw_layout_.target_pass = draw_layout_.target_pass_clear =
+            draw_layout_.scene_pass = draw_layout_.scene_pass_clear = VK_NULL_HANDLE;
         for (VkPipelineLayout layout : {draw_layout_.layout, utility_layout_, conversion_layout_}) {
             if (layout != VK_NULL_HANDLE) vkDestroyPipelineLayout(device, layout, nullptr);
         }
@@ -1853,7 +1851,7 @@ bool RendererVk::present(const DisplayTexture* source, bool capture_backbuffer, 
                                                    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                                                    true, "post-process picture");
                 VkFramebufferCreateInfo info{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
-                info.renderPass = color_pass_;
+                info.renderPass = rgba8_pass_;
                 info.attachmentCount = 1;
                 info.width = width;
                 info.height = height;
@@ -1867,7 +1865,7 @@ bool RendererVk::present(const DisplayTexture* source, bool capture_backbuffer, 
             }
             if (oriented_) {
                 VkRenderPassBeginInfo begin{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
-                begin.renderPass = color_pass_;
+                begin.renderPass = rgba8_pass_;
                 begin.framebuffer = oriented_->framebuffer;
                 begin.renderArea = {{0, 0}, {width, height}};
                 vkCmdBeginRenderPass(commands, &begin, VK_SUBPASS_CONTENTS_INLINE);

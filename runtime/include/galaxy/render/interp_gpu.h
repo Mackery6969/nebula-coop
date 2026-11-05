@@ -100,10 +100,8 @@ static_assert(kPaletteBytes % 256u == 0u && kVsBytes % 256u == 0u &&
 // Word offsets inside the blocks.
 inline constexpr std::uint32_t kVsProjection = offsetof(VertexConstants, projection) / 4u;
 inline constexpr std::uint32_t kVsPosBase = offsetof(VertexConstants, pos_base) / 4u;
+inline constexpr std::uint32_t kVsParticleTime = offsetof(VertexConstants, draw_rows) / 4u + 9u;
 inline constexpr std::uint32_t kVsRowBases = offsetof(VertexConstants, row_bases) / 4u;
-inline constexpr std::uint32_t kVsPosition = offsetof(VertexConstants, inline_pos_matrix) / 4u;
-inline constexpr std::uint32_t kVsTex = offsetof(VertexConstants, inline_tex_matrices) / 4u;
-inline constexpr std::uint32_t kVsPost = offsetof(VertexConstants, inline_post_matrices) / 4u;
 inline constexpr std::uint32_t kVsMotionPrevProj = offsetof(VertexConstants, motion_prev_proj) / 4u;
 inline constexpr std::uint32_t kVsMotionPrevPos = offsetof(VertexConstants, motion_prev_pos) / 4u;
 inline constexpr std::uint32_t kVsMotionCtrl = offsetof(VertexConstants, motion_ctrl) / 4u;
@@ -114,6 +112,7 @@ struct Layout {
     std::uint32_t vs_count = 0;
     std::uint32_t palette_count = 0;
     std::uint32_t prev_palette_count = 0;  // 0, or palette_count with motion vectors
+    std::uint32_t model_rows = 0;          // models' blocks, as rows, after the previous palettes
     [[nodiscard]] std::uint32_t vs_offset(std::uint32_t slot) const noexcept { return slot * kVsBytes; }
     [[nodiscard]] std::uint32_t palette_base() const noexcept { return vs_count * kVsBytes; }
     [[nodiscard]] std::uint32_t palette_offset(std::uint32_t slot) const noexcept {
@@ -123,7 +122,14 @@ struct Layout {
         return palette_base() + palette_count * kPaletteBytes + slot * kPrevPaletteBytes;
     }
     [[nodiscard]] std::uint32_t bytes() const noexcept {
+        return models_base() + model_rows * 16u;
+    }
+    [[nodiscard]] std::uint32_t models_base() const noexcept {
         return palette_base() + palette_count * kPaletteBytes + prev_palette_count * kPrevPaletteBytes;
+    }
+    // Row `row` of the models' blocks as the rows a draw names (from the palettes' base).
+    [[nodiscard]] std::uint32_t model_row(std::uint32_t row) const noexcept {
+        return (models_base() - palette_base()) / 16u + row;
     }
 };
 
@@ -145,6 +151,9 @@ public:
     void lerp(std::uint32_t dst, const float* from, const float* to, std::uint32_t count, bool round = false);
     void color8(std::uint32_t dst, std::uint32_t a, std::uint32_t b);
     void store(std::uint32_t dst, const std::uint32_t* words, std::uint32_t count);
+    // A model's block at word `dst`: its changed matrices, and the same for its position matrices alone.
+    void model(std::uint32_t dst, const ModelMotion& m, const std::uint32_t* a, const std::uint32_t* b,
+               std::uint32_t count, bool positions_only);
 
     // One texture matrix (3 rows of 4) as tex_matrix_at for 0 < t < 1.
     void tex_matrix(std::uint32_t dst, const float* a, const float* b, bool spatial);

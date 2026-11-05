@@ -15,14 +15,12 @@ namespace {
 // NEBULA_CULL_* (the game's winding) as the renderer's flipped one: the game's back faces are the renderer's front.
 constexpr CullMode kCull[4] = {CullMode::None, CullMode::Front, CullMode::Back, CullMode::All};
 
-// `op` NEBULA_BLEND_*: replace 0, add 1, subtract 2, logic 3.
-void set_blend(BlendMode& b, std::uint8_t op, std::uint8_t source, std::uint8_t destination, std::uint8_t logic) {
+// `op` NEBULA_BLEND_*: replace 0, add 1, subtract 2.
+void set_blend(BlendMode& b, std::uint8_t op, std::uint8_t source, std::uint8_t destination) {
     b.blend_enable = op == 1u || op == 2u;
-    b.logic_op_enable = op == 3u;
     b.subtract = op == 2u;
     b.src_factor = static_cast<BlendFactor>(source <= 9u ? source : 0u);  // NEBULA_FACTOR_*
     b.dst_factor = static_cast<BlendFactor>(destination <= 9u ? destination : 0u);
-    b.logic_mode = static_cast<std::uint8_t>(logic & 15u);
 }
 
 void set_z(ZMode& z, std::uint8_t enable, std::uint8_t func, std::uint8_t update) {
@@ -70,7 +68,7 @@ const Group kGroups[kGroupCount] = {
     NEBULA_GROUP(gen, kStateDirtyVertexShader | kStateDirtyRenderState | kStateDirtyVertexConstants),
     NEBULA_GROUP(z, kStateDirtyRenderState),
     NEBULA_GROUP(blend, kStateDirtyRenderState),
-    NEBULA_GROUP(frame_alpha, kStateDirtyRenderState),
+    NEBULA_GROUP(target_alpha, kStateDirtyRenderState),
     NEBULA_GROUP(channel, kStateDirtyVertexShader | kStateDirtyVertexConstants),
     NEBULA_GROUP(material_color, kStateDirtyVertexConstants),
     NEBULA_GROUP(ambient_color, kStateDirtyVertexConstants),
@@ -97,7 +95,7 @@ std::uint32_t op_groups(std::uint8_t kind) {
     case state::kTexCoordGen: return bit(kTexgen) | bit(kPostTexgen) | bit(kTextureMatrix);
     case state::kProjection: return bit(kProjection) | bit(kProjectionType);
     case state::kViewport: return bit(kViewport);
-    case state::kFrameAlpha: return bit(kFrame);
+    case state::kTargetAlpha: return bit(kFrame);
     default: return 0u;
     }
 }
@@ -133,12 +131,12 @@ void NativeDrawState::apply_pass(const shapes::PassState& pass) {
             coord[t].line_offset = ((pass.line_offsets >> t) & 1u) != 0u;
             coord[t].point_offset = ((pass.point_offsets >> t) & 1u) != 0u;
         }
-        set_blend(blend, pass.blend_op, pass.blend_src, pass.blend_dst, pass.logic_op);
+        set_blend(blend, pass.blend_op, pass.blend_src, pass.blend_dst);
         blend.color_update = pass.color_write != 0u;
         blend.alpha_update = pass.alpha_write != 0u;
-        blend.const_alpha_enable = pass.constant_alpha != 0u;
-        blend.const_alpha = pass.constant_alpha_value;
         set_z(z, pass.depth_test, pass.depth_func, pass.depth_write);
+        stencil_test = pass.stencil_func;
+        stencil_op = pass.stencil_op;
         gen.cull = kCull[pass.cull & 3u];
     });
 }
@@ -151,10 +149,8 @@ void NativeDrawState::apply(const state::Op& op) {
 void NativeDrawState::set_op(const state::Op& op) {
     const std::uint8_t* a = op.a;
     switch (op.kind) {
-    case state::kFrameAlpha:
-        if (a[0] != 0u) {
-            frame_alpha = a[1] != 0u;
-        }
+    case state::kTargetAlpha:
+        target_alpha = a[0] != 0u;
         break;
     case state::kTexCoordGen: {
         TexGen made = material::tex_gen(a[1], a[2]);

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// NormalMapBase (Game/MapObj/NormalMapBase.cpp drawSetting, setTevForObject, drawMaterialSetting): a normal-mapped
+// NormalMapBase (Game/MapObj/NormalMapBase.cpp drawSetting, setStageForObject, drawMaterialSetting): a normal-mapped
 // shape lit through a light gradient. The normal map (texture 0, coordinate 0) offsets coordinate 1 (the gradient's
 // centre) by its normal through the indirect matrix the light directions make (8-bit, less 128 in s, t and u, in the
 // gradient's texels); the gradient (texture 1) there gives light A's colour and its alpha; channel 0 (clamped diffuse,
@@ -30,7 +30,7 @@ struct MaterialConstants {
 
 float2 normal_map_coord(NativeVertex v, uint i) {
     const float4 c = float4(v.uv[0], 1.0, 1.0);
-    return float2(dot(c, inline_tex_matrices[3u * i]), dot(c, inline_tex_matrices[3u * i + 1u]));
+    return float2(dot(c, native_tex_row(3u * i)), dot(c, native_tex_row(3u * i + 1u)));
 }
 
 void material_vertex(NativeVertex v, inout NativeVaryings o) {

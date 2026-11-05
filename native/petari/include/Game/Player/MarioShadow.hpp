@@ -25,10 +25,7 @@ public:
     void initCaptureTex();
     void setViewMtx(const TVec3f&);
     void drawVolumeBox(const TVec3f&, const TVec3f&) const;
-    void draw2() const;
     void draw3() const;
-    void createMesh();
-    void drawVolume() const;
     void doSortPolygons();
     const TVec3f& getDrawPos(u32) const;
     const TVec3f& getDrawPos(u32, u32) const;
@@ -57,8 +54,6 @@ public:
     u8 _70[128];
     s32 _F0[128];
     TVec3f _2F0;
-    u16 _2FC;
-    u16 _2FE;
     JUTTexture* _300;
     u8 _304;
     bool _305;
@@ -75,6 +70,5 @@ public:
     u16 _338;
     u16 _33A;
     u16 _33C;
-    J3DModelX* _340;
     // The volume's drawing state (built; nothing in the game draws with it).
 };

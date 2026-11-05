@@ -172,7 +172,7 @@ void StarPointerPeekZ::setDrawSyncToken() {
             mInfos[channel]->mDrawReady = true;
 
             TVec2f pos;
-            MR::convertScreenPosToCanvasPos(&pos, mInfos[channel]->mPos);
+            MR::convertScreenPosToFrame(&pos, mInfos[channel]->mPos);
             probes[channel].x = pos.x;
             probes[channel].y = pos.y;
         } else {
@@ -180,7 +180,7 @@ void StarPointerPeekZ::setDrawSyncToken() {
             probes[channel].y = -1.0f;
         }
     }
-    J3DNativeView::probeScreen(cReadbackChannel, NEBULA_SCREEN_PROBE_DEPTH, probes, count);
+    J3DNativeView::probeScreen(cReadbackChannel, probes, count);
 }
 
 namespace StarPointerFunction {

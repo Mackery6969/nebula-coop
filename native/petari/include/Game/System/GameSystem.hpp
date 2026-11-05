@@ -5,7 +5,6 @@
 class GameSequenceDirector;
 class GameSystemErrorWatcher;
 class GameSystemFontHolder;
-class GameSystemFrameControl;
 class GameSystemObjHolder;
 class GameSystemSceneController;
 class GameSystemStationedArchiveLoader;
@@ -24,11 +23,9 @@ public:
     bool isDoneLoadSystemArchive() const;
     void startToLoadSystemArchive();
     void exeInitializeAudio();
-    void exeInitializeLogoScene();
+    void exeInitializeBootScene();
     void exeLoadStationedArchive();
-    void exeWaitForReboot();
     void exeNormal();
-    void initGX();
     void initAfterStationedResourceLoaded();
     void prepareReset();
     bool isPreparedReset() const;
@@ -42,7 +39,6 @@ public:
     GameSequenceDirector* mSequenceDirector;
     GameSystemErrorWatcher* mErrorWatcher;
     GameSystemFontHolder* mFontHolder;
-    GameSystemFrameControl* mFrameControl;
     GameSystemObjHolder* mObjHolder;
     GameSystemSceneController* mSceneController;
     GameSystemStationedArchiveLoader* mStationedArchiveLoader;

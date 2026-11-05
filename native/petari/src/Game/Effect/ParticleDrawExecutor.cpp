@@ -29,7 +29,6 @@ ParticleDrawExecutor::ParticleDrawExecutor(const EffectSystem* pSystem, bool cre
 }
 
 void ParticleDrawExecutor::initDraw() {
-    J3DPass::noFog();
 }
 
 void ParticleDrawExecutor::draw3D() const {
@@ -43,7 +42,7 @@ void ParticleDrawExecutor::draw2D() const {
         JPADrawInfo drawInfo(cameraMtx.toMtxPtr());
 
         f32 width;
-        f32 height = static_cast< s32 >(NebulaFrameClock::cScreenUnitsDown);
+        f32 height = static_cast< s32 >(NebulaFrameClock::cScreenLines);
         width = MR::isScreen16Per9() ? MR::getScreenWidth() : NebulaFrameClock::cLayoutWidth;
         width *= 0.5f;
         height *= 0.5f;

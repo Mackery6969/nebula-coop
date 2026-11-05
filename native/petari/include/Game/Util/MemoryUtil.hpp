@@ -17,8 +17,8 @@ namespace MR {
     };
 
     NebulaArena* getCurrentHeap();
-    NebulaArena* getAproposHeapForSceneArchive(f32 maxFreeSizeRate);
-    NebulaArena* getStationedHeap();
+    NebulaArena* getSceneArchiveHeap();
+    NebulaArena* getPermanentHeap();
     NebulaArena* getSceneHeap();
     void becomeCurrentHeap(NebulaArena* pHeap);
     bool isEqualCurrentHeap(NebulaArena* pHeap);

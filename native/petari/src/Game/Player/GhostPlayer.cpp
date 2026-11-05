@@ -151,7 +151,7 @@ void GhostPlayer::init(const JMapInfoIter& rIter) {
     mCurrentPacket = static_cast< GhostPacket* >(MR::loadResourceFromArc(arcPath, gstPath));
 
     if (MR::isFileExist(gstPath, false)) {
-        mCurrentPacket = static_cast< GhostPacket* >(MR::loadToMainRAM(gstPath, nullptr, nullptr, GameAssets::ALLOC_DIRECTION_FORWARD));
+        mCurrentPacket = static_cast< GhostPacket* >(MR::loadFile(gstPath, nullptr, nullptr));
     }
 
     if (mCurrentPacket == nullptr) {
@@ -602,7 +602,6 @@ void GhostPlayer::draw() const {
 
     J3DPass::writeAlpha(false);
     J3DPass::writeColor(true);
-    J3DPass::constantAlpha(false, 0);
 }
 
 u32 GhostPlayer::receiveGhostPacket(GhostPacket* pPacket) {

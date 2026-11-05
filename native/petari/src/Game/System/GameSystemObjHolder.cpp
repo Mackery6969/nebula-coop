@@ -8,10 +8,8 @@
 #include "Game/System/AssetFolder.hpp"
 #include "Game/System/ErrorMessageArchive.hpp"
 #include "Game/System/FileLoader.hpp"
-#include "Game/System/FunctionAsyncExecutor.hpp"
 #include "Game/System/HeapMemoryWatcher.hpp"
 #include "Game/System/Language.hpp"
-#include "Game/System/MainLoopFramework.hpp"
 #include "Game/System/MessageHolder.hpp"
 #include "Game/System/RenderMode.hpp"
 #include "Game/System/ResourceHolderManager.hpp"
@@ -25,12 +23,10 @@
 #include "Game/System/NebulaFrameClock.hpp"
 
 GameSystemObjHolder::GameSystemObjHolder()
-    : mObjHolder(), mParticleResHolder(), mPictureSpan(), mCaptureScreenDirector(), mScreenPreserver(), mAudioSystem(), mPlayerInputs(),
-      mFunctionAsyncExecutor(), mMessageHolder(), mStarPointerDirector(), mRandom(0), mLanguage(MR::getDecidedLanguageFromIPL()) {
+    : mObjHolder(), mParticleResHolder(), mCaptureScreenDirector(), mScreenPreserver(), mAudioSystem(), mPlayerInputs(), mMessageHolder(), mStarPointerDirector(), mRandom(0), mLanguage(MR::getDecidedLanguageFromIPL()) {
     initStore();
-    initNAND();
     initNameObj();
-    MR::createAndAddArchive(AssetFolder::mount("/NebulaData/ErrorMessageArchive.arc", MR::getStationedHeap()), MR::getStationedHeap(),
+    MR::createAndAddArchive(AssetFolder::mount("/NebulaData/ErrorMessageArchive.arc", MR::getPermanentHeap()), MR::getPermanentHeap(),
                             "ErrorMessageArchive.arc");
 }
 
@@ -64,7 +60,6 @@ void GameSystemObjHolder::init() {
     initPicture();
     initResourceHolderManager();
     initMessageResource();
-    initFunctionAsyncExecutor();
     initGameController();
     initDisplay();
 }
@@ -78,7 +73,6 @@ void GameSystemObjHolder::createAudioSystem() {
 void GameSystemObjHolder::update() {
     mAudioSystem->updateRhythm();
     mPlayerInputs->update();
-    mFunctionAsyncExecutor->update();
     mStarPointerDirector->update();
 }
 
@@ -86,10 +80,6 @@ void GameSystemObjHolder::updateAudioSystem() {
     if (mAudioSystem != nullptr) {
         mAudioSystem->movement();
     }
-}
-
-void GameSystemObjHolder::clearRequestFileInfo(bool unk) {
-    SingletonHolder< FileLoader >::get()->clearRequestFileInfo(unk);
 }
 
 void GameSystemObjHolder::drawStarPointer() {
@@ -108,18 +98,13 @@ void GameSystemObjHolder::initStore() {
     SingletonHolder< FileLoader >::init();
 }
 
-void GameSystemObjHolder::initNAND() {
-}
-
 void GameSystemObjHolder::initAudio() {
-    mAudioSystem = new AudSystemWrapper(SingletonHolder< HeapMemoryWatcher >::get()->getAudSystemHeap(), MR::getStationedHeap());
+    mAudioSystem = new AudSystemWrapper(SingletonHolder< HeapMemoryWatcher >::get()->getPermanentHeap(), MR::getPermanentHeap());
     mAudioSystem->requestResourceForInitialize();
 }
 
 void GameSystemObjHolder::initPicture() {
-    // The share of the safe area's reference width the picture spans (getSafetyFrameWidth).
-    mPictureSpan = MR::isAspectRatioFlag16Per9() ? 686 : 670;
-    NebulaFrameClock::startPicture();
+    NebulaFrameClock::show(true);
 }
 
 void GameSystemObjHolder::initNameObj() {
@@ -127,10 +112,6 @@ void GameSystemObjHolder::initNameObj() {
 
     SingletonHolder< NameObjRegister >::init();
     SingletonHolder< NameObjRegister >::get()->setCurrentHolder(mObjHolder);
-}
-
-void GameSystemObjHolder::initFunctionAsyncExecutor() {
-    mFunctionAsyncExecutor = new FunctionAsyncExecutor();
 }
 
 void GameSystemObjHolder::initResourceHolderManager() {
@@ -151,9 +132,6 @@ void GameSystemObjHolder::initStarPointerDirector() {
 }
 
 void GameSystemObjHolder::initDisplay() {
-    MainLoopFramework* pManager = MainLoopFramework::createManager(true);
-    pManager->setClearColor(Color8(30, 30, 200, 0));
-
     mCaptureScreenDirector = new CaptureScreenDirector();
     mScreenPreserver = new ScreenPreserver();
 

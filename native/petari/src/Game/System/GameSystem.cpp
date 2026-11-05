@@ -14,7 +14,6 @@
 #include "Game/System/GameSequenceFunction.hpp"
 #include "Game/System/GameSystemErrorWatcher.hpp"
 #include "Game/System/GameSystemFontHolder.hpp"
-#include "Game/System/GameSystemFrameControl.hpp"
 #include "Game/System/GameSystemFunction.hpp"
 #include "Game/System/GameSystemObjHolder.hpp"
 #include "Game/System/GameSystemResetAndPowerProcess.hpp"
@@ -22,7 +21,7 @@
 #include "Game/System/GameSystemStationedArchiveLoader.hpp"
 #include "Game/System/HeapMemoryWatcher.hpp"
 #include "Game/System/HomeButtonStateNotifier.hpp"
-#include "Game/System/MainLoopFramework.hpp"
+#include "Game/System/GameFrame.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/MemoryUtil.hpp"
 #include "Game/Util/MutexHolder.hpp"
@@ -43,13 +42,11 @@
 #include "Game/System/PlayerInputs.hpp"
 
 
-#define INIT_AUDIO_KEY "\203\111\201\133\203\146\203\102\203\111\217\211\212\372\211\273" /* オーディオ初期化 */  // "Audio Initialization"
 
 namespace NrvGameSystem {
     NEW_NERVE(GameSystemInitializeAudio, GameSystem, InitializeAudio);
-    NEW_NERVE(GameSystemInitializeLogoScene, GameSystem, InitializeLogoScene);
+    NEW_NERVE(GameSystemInitializeBootScene, GameSystem, InitializeBootScene);
     NEW_NERVE(GameSystemLoadStationedArchive, GameSystem, LoadStationedArchive);
-    NEW_NERVE(GameSystemWaitForReboot, GameSystem, WaitForReboot);
     NEW_NERVE(GameSystemNormal, GameSystem, Normal);
 };  // namespace NrvGameSystem
 
@@ -60,8 +57,7 @@ extern "C" void nebula_game_main(void) {
     (MR::MutexHolder< 2 >::sMutex).init();
     nw4r::lyt::LytInit();
     SingletonHolder< HeapMemoryWatcher >::init();
-    SingletonHolder< HeapMemoryWatcher >::get()->setCurrentHeapToStationedHeap();
-    MR::initAcosTable();
+    SingletonHolder< HeapMemoryWatcher >::get()->setCurrentHeapToPermanent();
     SingletonHolder< GameSystem >::init();
     SingletonHolder< GameSystem >::get()->init();
 
@@ -76,7 +72,7 @@ extern "C" void nebula_game_main(void) {
 
 GameSystem::GameSystem()
     : NerveExecutor("GameSystem"), mSequenceDirector(nullptr), mErrorWatcher(nullptr), mFontHolder(nullptr),
-      mFrameControl(nullptr), mObjHolder(nullptr), mSceneController(nullptr), mStationedArchiveLoader(nullptr), mHomeButtonLayout(nullptr),
+      mObjHolder(nullptr), mSceneController(nullptr), mStationedArchiveLoader(nullptr), mHomeButtonLayout(nullptr),
       mSystemWipeHolder(nullptr), mHomeButtonStateNotifier(nullptr), mIsExecuteLoadSystemArchive(false) {
 }
 
@@ -87,11 +83,10 @@ void GameSystem::init() {
     mFontHolder->createFontFromEmbeddedData();
     initNerve(GET_NERVE(GameSystem, GameSystemInitializeAudio));
     mSequenceDirector = new GameSequenceDirector();
-    initGX();
+    J3DNativeState::initDefaults();
     mSceneController = new GameSystemSceneController();
     mObjHolder->init();
     mErrorWatcher = new GameSystemErrorWatcher();
-    mFrameControl = new GameSystemFrameControl();
     SingletonHolder< GameSystemResetAndPowerProcess >::init();
     SingletonHolder< GameSystemResetAndPowerProcess >::get()->initWithoutIter();
     mStationedArchiveLoader = new GameSystemStationedArchiveLoader();
@@ -111,34 +106,29 @@ bool GameSystem::isDoneLoadSystemArchive() const {
 void GameSystem::startToLoadSystemArchive() {
     mIsExecuteLoadSystemArchive = true;
 
-    SingletonHolder< HeapMemoryWatcher >::get()->setCurrentHeapToStationedHeap();
+    SingletonHolder< HeapMemoryWatcher >::get()->setCurrentHeapToPermanent();
     SingletonHolder< NameObjRegister >::get()->setCurrentHolder(mObjHolder->mObjHolder);
     setNerve(GET_NERVE(GameSystem, GameSystemLoadStationedArchive));
 }
 
 void GameSystem::exeInitializeAudio() {
     if (MR::isFirstStep(this)) {
-        MR::startFunctionAsyncExecute(MR::Functor(mObjHolder, &GameSystemObjHolder::createAudioSystem), INIT_AUDIO_KEY);
+        mObjHolder->createAudioSystem();
     }
 
     updateSceneController();
 
-    if (MR::isEndFunctionAsyncExecute(INIT_AUDIO_KEY) && mObjHolder->mAudioSystem->isLoadDoneWaveDataAtSystemInit()) {
-        MR::waitForEndFunctionAsyncExecute(INIT_AUDIO_KEY);
-        setNerve(GET_NERVE(GameSystem, GameSystemInitializeLogoScene));
+    if (mObjHolder->mAudioSystem->isCreated()) {
+        setNerve(GET_NERVE(GameSystem, GameSystemInitializeBootScene));
     }
 }
 
-void GameSystem::exeInitializeLogoScene() {
-    if (GameSystemFunction::isResetProcessing()) {
-        setNerve(GET_NERVE(GameSystem, GameSystemWaitForReboot));
-    } else {
-        if (MR::isFirstStep(this)) {
-            MR::requestChangeScene("Logo");
-        }
-
-        updateSceneController();
+void GameSystem::exeInitializeBootScene() {
+    if (MR::isFirstStep(this)) {
+        MR::requestChangeScene("Boot");
     }
+
+    updateSceneController();
 }
 
 void GameSystem::exeLoadStationedArchive() {
@@ -150,17 +140,9 @@ void GameSystem::exeLoadStationedArchive() {
     }
 }
 
-void GameSystem::exeWaitForReboot() {
-}
-
 void GameSystem::exeNormal() {
     updateSceneController();
     mStationedArchiveLoader->update();
-}
-
-void GameSystem::initGX() {
-    // The drawing state the game starts from, before anything is drawn.
-    J3DNativeState::initDefaults();
 }
 
 void GameSystem::initAfterStationedResourceLoaded() {
@@ -194,10 +176,9 @@ void GameSystem::frameLoop() {
 }
 
 void GameSystem::drawFrame() {
-    MainLoopFramework::sManager->beginRender();
+    GameFrame::begin();
     draw();
-    MainLoopFramework::sManager->endRender();
-    MainLoopFramework::sManager->endFrame();
+    GameFrame::end();
 }
 
 void GameSystem::draw() {
@@ -222,7 +203,6 @@ void GameSystem::draw() {
         NebulaSettingsMenu::draw();
         mObjHolder->drawStarPointer();
     }
-    mHomeButtonLayout->draw();
     SingletonHolder< GameSystemResetAndPowerProcess >::get()->draw();
 }
 

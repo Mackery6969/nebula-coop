@@ -1,8 +1,6 @@
 #pragma once
 
 namespace GameSystemFunction {
-    void loadAudioStaticWaveData();
-    bool isLoadedAudioStaticWaveData();
     void initAfterStationedResourceLoaded();
     void setSceneNameObjHolderToNameObjRegister();
     bool isCreatedGameDataHolder();
@@ -21,11 +19,8 @@ namespace GameSystemFunction {
     void requestQuitGame(bool);
     void forceToDeactivateHomeButtonLayout();
     void resetCurrentScenarioNo();
-    bool isPermitToResetSaveDataHandleSequence();
-    void prepareResetSaveDataHandleSequence();
     bool isPrepareResetSaveDataHandleSequence();
     void restoreFromResetSaveDataHandleSequence();
-    bool isPermitToResetAudioSystem();
     void prepareResetAudioSystem();
     void requestResetAudioSystem(bool);
     bool isDoneResetAudioSystem();

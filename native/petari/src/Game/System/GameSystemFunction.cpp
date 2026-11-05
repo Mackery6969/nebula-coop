@@ -1,6 +1,6 @@
 #include "Game/System/GameSystemFunction.hpp"
 #include "Game/NameObj/NameObjRegister.hpp"
-#include "Game/Scene/LogoScene.hpp"
+#include "Game/Scene/BootScene.hpp"
 #include "Game/Screen/HomeButtonLayout.hpp"
 #include "Game/Screen/ScreenPreserver.hpp"
 #include "Game/System/AudSystemWrapper.hpp"
@@ -20,14 +20,14 @@
 #include "Game/Util/SingletonHolder.hpp"
 
 namespace {
-    LogoScene* getLogoScene() {
-        LogoScene* pLogoScene = static_cast< LogoScene* >(SingletonHolder< GameSystem >::get()->mSceneController->mScene);
+    BootScene* getBootScene() {
+        BootScene* pBootScene = static_cast< BootScene* >(SingletonHolder< GameSystem >::get()->mSceneController->mScene);
 
-        if (pLogoScene == nullptr) {
+        if (pBootScene == nullptr) {
             return nullptr;
         }
 
-        return pLogoScene;
+        return pBootScene;
     }
 
     AudSystemWrapper* getAudSystemWrapper() {
@@ -40,14 +40,6 @@ namespace {
 };  // namespace
 
 namespace GameSystemFunction {
-    void loadAudioStaticWaveData() {
-        ::getAudSystemWrapper()->loadStaticWaveData();
-    }
-
-    bool isLoadedAudioStaticWaveData() {
-        return ::getAudSystemWrapper()->isLoadDoneStaticWaveData();
-    }
-
     void initAfterStationedResourceLoaded() {
         SingletonHolder< GameSystem >::get()->initAfterStationedResourceLoaded();
     }
@@ -130,20 +122,6 @@ namespace GameSystemFunction {
         SingletonHolder< GameSystem >::get()->mSceneController->resetCurrentScenarioNo();
     }
 
-    bool isPermitToResetSaveDataHandleSequence() {
-        if (::getSaveDataHandleSequence() != nullptr) {
-            return ::getSaveDataHandleSequence()->isPermitToReset();
-        }
-
-        return true;
-    }
-
-    void prepareResetSaveDataHandleSequence() {
-        if (::getSaveDataHandleSequence() != nullptr) {
-            ::getSaveDataHandleSequence()->prepareReset();
-        }
-    }
-
     bool isPrepareResetSaveDataHandleSequence() {
         if (::getSaveDataHandleSequence() != nullptr) {
             return ::getSaveDataHandleSequence()->isPreparedReset();
@@ -156,10 +134,6 @@ namespace GameSystemFunction {
         if (::getSaveDataHandleSequence() != nullptr) {
             ::getSaveDataHandleSequence()->restoreFromReset();
         }
-    }
-
-    bool isPermitToResetAudioSystem() {
-        return ::getAudSystemWrapper()->isPermitToReset();
     }
 
     void prepareResetAudioSystem() {
@@ -250,6 +224,6 @@ namespace GameSystemFunction {
     }
 
     bool isBeforeTitle() {
-        return MR::isEqualSceneName("Logo") && ::getLogoScene() != nullptr && ::getLogoScene()->isBeforeTitle();
+        return MR::isEqualSceneName("Boot") && ::getBootScene() != nullptr && ::getBootScene()->isBeforeTitle();
     }
 };  // namespace GameSystemFunction

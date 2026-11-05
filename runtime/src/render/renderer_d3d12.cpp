@@ -590,7 +590,7 @@ bool RendererD3D12::create_scene_targets(const FrameMap& map) {
     }
     scene_dsv_ = dsv_heap_->GetCPUDescriptorHandleForHeapStart();
     // MSAA: draws and clears go to the multisampled targets; scene_color_ and scene_depth_ hold their resolves.
-    if (!create_scene_msaa(scene_msaa_, scene_depth_.Get(), wanted_msaa_samples(), scene_rtv_, scene_dsv_)) {
+    if (!create_scene_msaa(scene_msaa_, scene_color_.Get(), scene_depth_.Get(), wanted_msaa_samples(), scene_rtv_, scene_dsv_)) {
         std::cerr << "[Renderer] MSAA targets unavailable; the scene target draws without MSAA\n";
         scene_msaa_.samples = 1u;
         const UINT stride = device_->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
@@ -628,7 +628,7 @@ unsigned RendererD3D12::msaa_max_samples() const {
     return msaa_max_samples_;
 }
 
-bool RendererD3D12::create_scene_msaa(SceneMsaa& msaa, ID3D12Resource* depth, unsigned samples,
+bool RendererD3D12::create_scene_msaa(SceneMsaa& msaa, ID3D12Resource* color, ID3D12Resource* depth, unsigned samples,
                                     D3D12_CPU_DESCRIPTOR_HANDLE& rtv, D3D12_CPU_DESCRIPTOR_HANDLE& dsv) {
     msaa.color.Reset();
     msaa.depth.Reset();
@@ -641,15 +641,16 @@ bool RendererD3D12::create_scene_msaa(SceneMsaa& msaa, ID3D12Resource* depth, un
     hp.Type = D3D12_HEAP_TYPE_DEFAULT;
     D3D12_RESOURCE_DESC rd{};
     rd.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    const DXGI_FORMAT color_format = color->GetDesc().Format;
     rd.Width = depth->GetDesc().Width;
     rd.Height = depth->GetDesc().Height;
     rd.DepthOrArraySize = 1;
     rd.MipLevels = 1;
-    rd.Format = kSceneColorFormat;
+    rd.Format = color_format;
     rd.SampleDesc.Count = samples;
     rd.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
     D3D12_CLEAR_VALUE cv{};
-    cv.Format = kSceneColorFormat;
+    cv.Format = color_format;
     cv.Color[3] = 1.0f;
     if (FAILED(device_->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_RENDER_TARGET,
                                                 &cv, IID_PPV_ARGS(&msaa.color)))) {
@@ -676,7 +677,7 @@ bool RendererD3D12::create_scene_msaa(SceneMsaa& msaa, ID3D12Resource* depth, un
     }
     rtv = msaa.rtv_heap->GetCPUDescriptorHandleForHeapStart();
     D3D12_RENDER_TARGET_VIEW_DESC color_view{};
-    color_view.Format = kSceneColorFormat;
+    color_view.Format = color_format;
     color_view.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DMS;
     device_->CreateRenderTargetView(msaa.color.Get(), &color_view, rtv);
     const UINT dsv_stride = device_->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
@@ -768,8 +769,7 @@ void RendererD3D12::record_scene_resolve(ID3D12GraphicsCommandList* list, bool c
         barriers[1].Transition.pResource = scene_color_.Get();
         barriers[1].Transition.StateAfter = D3D12_RESOURCE_STATE_RESOLVE_DEST;
         list->ResourceBarrier(2u, barriers);
-        list->ResolveSubresource(scene_color_.Get(), 0u, msaa.color.Get(), 0u,
-                                 scene_hdr_ ? kSceneHdrColorFormat : kSceneColorFormat);
+        list->ResolveSubresource(scene_color_.Get(), 0u, msaa.color.Get(), 0u, scene_color_->GetDesc().Format);
         for (auto& barrier : barriers) {
             std::swap(barrier.Transition.StateBefore, barrier.Transition.StateAfter);
         }
@@ -948,9 +948,6 @@ HRESULT create_draw_root_signature(
     //   [2] Descriptor table   SRV t0..t7,space0  PS - textures
     //   [3] Descriptor table   Sampler s0..s7       PS
     //   [4] Root SRV  t0,space1 VS - matrix palette
-    //   [5] Root SRV  t1,space1 VS - previous vertices (sub-frame blending)
-    //   [6] Root constants b2   VS - vertex blend mode, t, verdict slot
-    //   [7] Root SRV  t2,space1 VS - vertex blend verdicts
 
     D3D12_DESCRIPTOR_RANGE tex_range{};
     tex_range.RangeType          = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
@@ -966,7 +963,7 @@ HRESULT create_draw_root_signature(
     samp_range.RegisterSpace      = 0;
     samp_range.OffsetInDescriptorsFromTableStart = 0;
 
-    D3D12_ROOT_PARAMETER params[9]{};
+    D3D12_ROOT_PARAMETER params[5]{};
     params[0].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_CBV;
     params[0].Descriptor.ShaderRegister = 0;
     params[0].Descriptor.RegisterSpace  = 0;
@@ -987,37 +984,14 @@ HRESULT create_draw_root_signature(
     params[3].DescriptorTable.pDescriptorRanges   = &samp_range;
     params[3].ShaderVisibility                    = D3D12_SHADER_VISIBILITY_PIXEL;
 
+    // The rows the draw's row table (t0, space1) names: the matrix ring, or a replay's output.
     params[4].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_SRV;
-    params[4].Descriptor.ShaderRegister = 0;
+    params[4].Descriptor.ShaderRegister = 3;
     params[4].Descriptor.RegisterSpace  = 1;
-    // The matrix palette also holds the lights, which per-pixel lighting
-    // reads in the pixel shader.
     params[4].ShaderVisibility          = D3D12_SHADER_VISIBILITY_ALL;
 
-    params[5].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_SRV;
-    params[5].Descriptor.ShaderRegister = 1;
-    params[5].Descriptor.RegisterSpace  = 1;
-    params[5].ShaderVisibility          = D3D12_SHADER_VISIBILITY_VERTEX;
-
-    params[6].ParameterType            = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-    params[6].Constants.ShaderRegister = 2;
-    params[6].Constants.RegisterSpace  = 0;
-    params[6].Constants.Num32BitValues = 5;
-    params[6].ShaderVisibility         = D3D12_SHADER_VISIBILITY_VERTEX;
-
-    params[7].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_SRV;
-    params[7].Descriptor.ShaderRegister = 2;
-    params[7].Descriptor.RegisterSpace  = 1;
-    params[7].ShaderVisibility          = D3D12_SHADER_VISIBILITY_VERTEX;
-
-    // The rows the draw's row table (t0, space1) names: the matrix ring, or a replay's output.
-    params[8].ParameterType             = D3D12_ROOT_PARAMETER_TYPE_SRV;
-    params[8].Descriptor.ShaderRegister = 3;
-    params[8].Descriptor.RegisterSpace  = 1;
-    params[8].ShaderVisibility          = D3D12_SHADER_VISIBILITY_ALL;
-
     D3D12_ROOT_SIGNATURE_DESC rsd{};
-    rsd.NumParameters = 9;
+    rsd.NumParameters = 5;
     rsd.pParameters   = params;
     rsd.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
@@ -1268,6 +1242,9 @@ bool RendererD3D12::create_conversion_pipeline() {
         pd.SampleDesc.Count      = 1;
         d3d_check(device_->CreateGraphicsPipelineState(
             &pd, IID_PPV_ARGS(&conv_pipeline_)), "CreateConvPSO");
+        pd.RTVFormats[0] = kTargetColorFormat;
+        d3d_check(device_->CreateGraphicsPipelineState(
+            &pd, IID_PPV_ARGS(&probe_pipeline_)), "CreateProbePSO");
         pd.RTVFormats[0] = kSceneColorFormat;
         const UtilityShaderBytes filter = utility_shader(UtilityShader::DisplayFilterPs);
         pd.PS = {filter->GetBufferPointer(), filter->GetBufferSize()};
@@ -1309,7 +1286,7 @@ void RendererD3D12::write_scene_conversion_views(const DescriptorRing::Table& ta
     view.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     view.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     view.Texture2D.MipLevels = 1u;
-    view.Format = kSceneColorFormat;
+    view.Format = scene_color_->GetDesc().Format;
     device_->CreateShaderResourceView(scene_color_.Get(), &view, table.cpu);
     auto depth_cpu = table.cpu;
     depth_cpu.ptr += stride;
@@ -1649,7 +1626,7 @@ detail::create_scene_conversion_source_views(
     view.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     view.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     view.Texture2D.MipLevels = 1u;
-    view.Format = kSceneColorFormat;
+    view.Format = color->GetDesc().Format;
     device->CreateShaderResourceView(color, &view, table.cpu);
     view.Format = kSceneDepthSrvFormat;
     device->CreateShaderResourceView(depth, &view, depth_cpu);
@@ -1698,7 +1675,8 @@ ID3D12PipelineState* RendererD3D12::clear_pipeline(bool color) {
     pd.DepthStencilState.DepthEnable = FALSE;
     pd.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     pd.NumRenderTargets = 1;
-    pd.RTVFormats[0] = (variant & kSceneVariantHdr) != 0u ? kSceneHdrColorFormat : kSceneColorFormat;
+    pd.RTVFormats[0] = (variant & kSceneVariantTarget) != 0u ? kTargetColorFormat
+                       : (variant & kSceneVariantHdr) != 0u ? kSceneHdrColorFormat : kSceneColorFormat;
     pd.SampleDesc.Count = 1u << (variant & kSceneVariantSamplesMask);
     pd.BlendState.RenderTarget[0].RenderTargetWriteMask = color
         ? D3D12_COLOR_WRITE_ENABLE_RED | D3D12_COLOR_WRITE_ENABLE_GREEN | D3D12_COLOR_WRITE_ENABLE_BLUE
@@ -3093,12 +3071,11 @@ void RendererD3D12::invalidate_draw_bindings() {
     bound_ps_constants_ = 0;
     bound_texture_table_ = {};
     bound_sampler_table_ = {};
-    bound_matrix_palette_ = 0;
     bound_matrix_rows_ = 0;
-    bound_vertex_blend_valid_ = false;
     bound_topology_ = D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
     bound_vertex_view_ = {};
     bound_vertex_view_valid_ = false;
+    bound_extra_view_valid_ = false;
     bound_index_view_ = {};
     bound_index_view_valid_ = false;
     bound_scissor_valid_ = false;
@@ -3335,7 +3312,6 @@ void RendererD3D12::begin_frame(bool present_swap_chain) {
             replay_recording_ = false;
             // The logs name memory of the rings just rebuilt.
             run_valid_ = false;
-            prev_run_valid_ = false;
             replay_textures_.clear();
             play_textures_.clear();
             run_textures_.clear();
@@ -3569,9 +3545,6 @@ void RendererD3D12::begin_frame(bool present_swap_chain) {
             if (run_valid_ && ring_segment_ == run_segment_) {
                 run_valid_ = false;
             }
-            if (prev_run_valid_ && ring_segment_ == prev_run_segment_) {
-                prev_run_valid_ = false;
-            }
             if (ring_segment_fence_[ring_segment_] != 0u) {
                 wait_for_fence_value(ring_segment_fence_[ring_segment_]);
             }
@@ -3623,7 +3596,6 @@ void RendererD3D12::begin_frame(bool present_swap_chain) {
     }
     retired_frame_pass_targets_[frame_slot_].clear();
 
-    ensure_frame_values();
     // Bind both heaps for the entire frame.
     ID3D12DescriptorHeap* heaps[] = {srv_ring_.heap(), sampler_heap_.Get()};
     command_list_->SetDescriptorHeaps(2, heaps);
@@ -4443,18 +4415,7 @@ void RendererD3D12::suspend_temporal_interpolation(double ms_per_frame) {
               << " ms GPU per presented frame\n";
 }
 
-void RendererD3D12::note_stripe_vertices(std::span<const StripeVertex> vertices) {
-    if (!replay_recording_ || vertices.empty()) {
-        return;
-    }
-    replay_stripes_.draws.push_back({static_cast<std::uint32_t>(replay_draws_.size()),
-                                     static_cast<std::uint32_t>(replay_stripes_.vertices.size()),
-                                     static_cast<std::uint32_t>(vertices.size())});
-    replay_stripes_.vertices.insert(replay_stripes_.vertices.end(), vertices.begin(), vertices.end());
-}
-
 void RendererD3D12::publish_replay_log() {
-    std::swap(replay_stripes_, play_stripes_);
     std::swap(replay_ops_, play_ops_);
     std::swap(replay_draws_, play_draws_);
     std::swap(replay_clears_, play_clears_);
@@ -4468,16 +4429,6 @@ bool RendererD3D12::start_replay_playback() {
     if (!replay_valid_) {
         return false;
     }
-    // The playing log becomes the one before (vertex blending reads it).
-    prev_run_valid_ = run_valid_;
-    if (run_valid_) {
-        std::swap(prev_run_draws_, run_draws_);
-        std::swap(prev_run_stripes_, run_stripes_);
-        prev_run_segment_ = run_segment_;
-        prev_run_serial_ = run_serial_;
-    }
-    std::swap(play_stripes_, run_stripes_);
-    run_blend_vertices_.clear();
     std::swap(play_ops_, run_ops_);
     std::swap(play_draws_, run_draws_);
     std::swap(play_clears_, run_clears_);
@@ -4492,447 +4443,9 @@ bool RendererD3D12::start_replay_playback() {
     return true;
 }
 
-// Blend verdicts, then the presented frame's values (t, t of the frame before,
-// jitter) at kFrameValuesElement and a zero element read by game frames. Made
-// at the first frame, zeroed, so every draw can read it.
-void RendererD3D12::ensure_frame_values() {
-    if (blend_verdicts_ || !device_) {
-        return;
-    }
-    D3D12_HEAP_PROPERTIES heap{};
-    heap.Type = D3D12_HEAP_TYPE_DEFAULT;
-    D3D12_RESOURCE_DESC desc{};
-    desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-    desc.Width = static_cast<UINT64>(kZeroValuesElement + 1u) * 16u;
-    desc.Height = 1;
-    desc.DepthOrArraySize = 1;
-    desc.MipLevels = 1;
-    desc.SampleDesc.Count = 1;
-    desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-    desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-    d3d_check(device_->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COPY_DEST,
-                                               nullptr, IID_PPV_ARGS(&blend_verdicts_)),
-              "frame values CreateCommittedResource");
-    blend_verdicts_->SetName(L"vertex blend verdicts and frame values");
-    const UploadRing::Allocation zeros = constant_ring_.allocate(static_cast<std::size_t>(desc.Width), 256u);
-    std::memset(zeros.cpu, 0, static_cast<std::size_t>(desc.Width));
-    command_list_->CopyBufferRegion(blend_verdicts_.Get(), 0u, constant_ring_.resource(), zeros.offset, desc.Width);
-    D3D12_RESOURCE_BARRIER barrier{};
-    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    barrier.Transition.pResource = blend_verdicts_.Get();
-    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
-    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
-    command_list_->ResourceBarrier(1, &barrier);
-    blend_verdicts_state_ = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
-}
-
-bool RendererD3D12::ensure_blend_validation() {
-    if (blend_validate_pso_) {
-        return true;
-    }
-    if (blend_validate_failed_ || !device_) {
-        return false;
-    }
-    blend_validate_failed_ = true;
-    if (!blend_verdicts_) {
-        return false;
-    }
-    D3D12_ROOT_PARAMETER params[5]{};
-    for (unsigned i = 0; i < 3u; ++i) {
-        params[i].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
-        params[i].Descriptor.ShaderRegister = i;
-        params[i].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    }
-    params[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
-    params[3].Descriptor.ShaderRegister = 0;
-    params[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    params[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-    params[4].Constants.ShaderRegister = 0;
-    params[4].Constants.Num32BitValues = 2;
-    params[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    D3D12_ROOT_SIGNATURE_DESC rsd{};
-    rsd.NumParameters = 5;
-    rsd.pParameters = params;
-    ComPtr<ID3DBlob> blob, err;
-    if (FAILED(D3D12SerializeRootSignature(&rsd, D3D_ROOT_SIGNATURE_VERSION_1, &blob, &err)) ||
-        FAILED(device_->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(),
-                                            IID_PPV_ARGS(&blend_validate_root_)))) {
-        return false;
-    }
-    try {
-        const UtilityShaderBytes cs = utility_shader(UtilityShader::BlendValidateCs);
-        D3D12_COMPUTE_PIPELINE_STATE_DESC pso{};
-        pso.pRootSignature = blend_validate_root_.Get();
-        pso.CS = {cs->GetBufferPointer(), cs->GetBufferSize()};
-        if (FAILED(device_->CreateComputePipelineState(&pso, IID_PPV_ARGS(&blend_validate_pso_)))) {
-            return false;
-        }
-    } catch (const std::exception& error) {
-        std::cerr << "[interp-blend] validation shader: " << error.what() << '\n';
-        return false;
-    }
-    blend_validate_failed_ = false;
-    return true;
-}
-
-bool RendererD3D12::ensure_stripe_gather(std::uint64_t bytes) {
-    if (!stripe_gather_pso_) {
-        if (stripe_gather_failed_ || !device_) {
-            return false;
-        }
-        stripe_gather_failed_ = true;
-        D3D12_ROOT_PARAMETER params[5]{};
-        for (unsigned i = 0; i < 3u; ++i) {
-            params[i].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
-            params[i].Descriptor.ShaderRegister = i;
-            params[i].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-        }
-        params[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
-        params[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-        params[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-        params[4].Constants.Num32BitValues = 3u;
-        params[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-        D3D12_ROOT_SIGNATURE_DESC rsd{};
-        rsd.NumParameters = 5;
-        rsd.pParameters = params;
-        ComPtr<ID3DBlob> blob, err;
-        if (FAILED(D3D12SerializeRootSignature(&rsd, D3D_ROOT_SIGNATURE_VERSION_1, &blob, &err)) ||
-            FAILED(device_->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(),
-                                                IID_PPV_ARGS(&stripe_gather_root_)))) {
-            return false;
-        }
-        try {
-            const UtilityShaderBytes cs = utility_shader(UtilityShader::StripeGatherCs);
-            D3D12_COMPUTE_PIPELINE_STATE_DESC desc{};
-            desc.pRootSignature = stripe_gather_root_.Get();
-            desc.CS = {cs->GetBufferPointer(), cs->GetBufferSize()};
-            if (FAILED(device_->CreateComputePipelineState(&desc, IID_PPV_ARGS(&stripe_gather_pso_)))) {
-                return false;
-            }
-        } catch (const std::exception& error) {
-            std::cerr << "[stripe-gather] shader: " << error.what() << '\n';
-            return false;
-        }
-        stripe_gather_failed_ = false;
-    }
-    if (stripe_earlier_ && stripe_earlier_bytes_ >= bytes) {
-        return true;
-    }
-    std::uint64_t size = std::max<std::uint64_t>(stripe_earlier_bytes_ * 2u, 1ull << 20u);
-    while (size < bytes) {
-        size *= 2u;
-    }
-    if (stripe_earlier_) {
-        // Sub-frames in flight still read the old one.
-        interp_retired_.push_back({std::move(stripe_earlier_), next_fence_value_});
-        stripe_earlier_bytes_ = 0u;
-    }
-    D3D12_HEAP_PROPERTIES heap{};
-    heap.Type = D3D12_HEAP_TYPE_DEFAULT;
-    D3D12_RESOURCE_DESC desc{};
-    desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-    desc.Width = size;
-    desc.Height = 1;
-    desc.DepthOrArraySize = 1;
-    desc.MipLevels = 1;
-    desc.SampleDesc.Count = 1;
-    desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-    desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-    if (FAILED(device_->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc,
-                                                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, nullptr,
-                                                IID_PPV_ARGS(&stripe_earlier_)))) {
-        return false;
-    }
-    stripe_earlier_->SetName(L"stripe particle earlier vertices");
-    stripe_earlier_bytes_ = size;
-    stripe_earlier_state_ = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
-    return true;
-}
-
-void RendererD3D12::record_stripe_gather() {
-    const std::size_t bytes = stripe_gather_.size() * sizeof(stripe_gather_[0]);
-    const UploadRing::Allocation table = constant_ring_.allocate(bytes, 256u);
-    std::memcpy(table.cpu, stripe_gather_.data(), bytes);
-    D3D12_RESOURCE_BARRIER barrier{};
-    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    barrier.Transition.pResource = stripe_earlier_.Get();
-    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    barrier.Transition.StateBefore = stripe_earlier_state_;
-    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-    command_list_->ResourceBarrier(1, &barrier);
-    command_list_->SetComputeRootSignature(stripe_gather_root_.Get());
-    command_list_->SetPipelineState(stripe_gather_pso_.Get());
-    const std::uint64_t ring_bytes = vertex_ring_.total_bytes();
-    const bool resident = resident_vertex_base_ != 0u && resident_vertex_bytes_ >= 4u;
-    const std::uint32_t limits[3]{
-        static_cast<std::uint32_t>(std::min<std::uint64_t>(ring_bytes - 4u, 0xFFFFFFF0u)),
-        static_cast<std::uint32_t>(std::min<std::uint64_t>((resident ? resident_vertex_bytes_ : ring_bytes) - 4u,
-                                                           0xFFFFFFF0u)),
-        static_cast<std::uint32_t>(stripe_gather_.size())};
-    command_list_->SetComputeRootShaderResourceView(0, vertex_ring_.gpu_base());
-    command_list_->SetComputeRootShaderResourceView(1, resident ? resident_vertex_base_ : vertex_ring_.gpu_base());
-    command_list_->SetComputeRootShaderResourceView(2, table.gpu);
-    command_list_->SetComputeRootUnorderedAccessView(3, stripe_earlier_->GetGPUVirtualAddress());
-    command_list_->SetComputeRoot32BitConstants(4, 3u, limits, 0u);
-    const auto threads = static_cast<std::uint64_t>(stripe_gather_.size()) * 36u;
-    command_list_->Dispatch(static_cast<UINT>((threads + 63u) / 64u), 1u, 1u);
-    std::swap(barrier.Transition.StateBefore, barrier.Transition.StateAfter);
-    command_list_->ResourceBarrier(1, &barrier);
-    stripe_earlier_state_ = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
-    bound_pipeline_ = nullptr;
-}
-
-void RendererD3D12::record_blend_validation() {
-    if (!blend_validate_pending_) {
-        return;
-    }
-    blend_validate_pending_ = false;
-    if (!stripe_gather_.empty()) {
-        record_stripe_gather();
-    }
-    if (blend_pairs_.empty()) {
-        return;
-    }
-    const std::size_t bytes = blend_pairs_.size() * sizeof(blend_pairs_[0]);
-    const UploadRing::Allocation table = constant_ring_.allocate(bytes, 256u);
-    std::memcpy(table.cpu, blend_pairs_.data(), bytes);
-    if (blend_verdicts_state_ != D3D12_RESOURCE_STATE_UNORDERED_ACCESS) {
-        D3D12_RESOURCE_BARRIER barrier{};
-        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        barrier.Transition.pResource = blend_verdicts_.Get();
-        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        barrier.Transition.StateBefore = blend_verdicts_state_;
-        barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-        command_list_->ResourceBarrier(1, &barrier);
-    }
-    command_list_->SetComputeRootSignature(blend_validate_root_.Get());
-    command_list_->SetPipelineState(blend_validate_pso_.Get());
-    const std::uint64_t ring_bytes = vertex_ring_.total_bytes();
-    const bool resident = resident_vertex_base_ != 0u && resident_vertex_bytes_ >= 12u;
-    const std::uint32_t limits[2]{
-        static_cast<std::uint32_t>(std::min<std::uint64_t>(ring_bytes - 12u, 0xFFFFFFF0u)),
-        static_cast<std::uint32_t>(std::min<std::uint64_t>((resident ? resident_vertex_bytes_ : ring_bytes) - 12u,
-                                                           0xFFFFFFF0u))};
-    command_list_->SetComputeRootShaderResourceView(0, vertex_ring_.gpu_base());
-    command_list_->SetComputeRootShaderResourceView(1, resident ? resident_vertex_base_ : vertex_ring_.gpu_base());
-    command_list_->SetComputeRootShaderResourceView(2, table.gpu);
-    command_list_->SetComputeRootUnorderedAccessView(3, blend_verdicts_->GetGPUVirtualAddress());
-    command_list_->SetComputeRoot32BitConstants(4, 2u, limits, 0u);
-    command_list_->Dispatch(static_cast<UINT>(blend_pairs_.size()), 1u, 1u);
-    D3D12_RESOURCE_BARRIER barrier{};
-    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    barrier.Transition.pResource = blend_verdicts_.Get();
-    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-    barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
-    command_list_->ResourceBarrier(1, &barrier);
-    blend_verdicts_state_ = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
-    bound_pipeline_ = nullptr;
-}
-
-void RendererD3D12::prepare_vertex_blend(std::span<const std::int32_t> previous_record) {
-    run_blend_vertices_.assign(run_draws_.size(), BlendSource{});
-    blend_pairs_.clear();
-    stripe_gather_.clear();
-    blend_validate_pending_ = false;
-    std::int32_t ps_records = 0;
-    for (const DrawCall& call : run_draws_) {
-        ps_records = std::max(ps_records, call.ps_record + 1);
-    }
-    run_ps_previous_.assign(static_cast<std::size_t>(ps_records), -1);
-    if (!prev_run_valid_ || prev_run_serial_ + 1u != run_serial_ || previous_record.empty()) {
-        return;
-    }
-    // Where a draw's vertices are: the frame vertex ring (0) or the resident
-    // decoded-vertex buffer (1), and the byte offset there.
-    const D3D12_GPU_VIRTUAL_ADDRESS ring_base = vertex_ring_.gpu_base();
-    const std::uint64_t ring_bytes =
-        vertex_ring_.resource() != nullptr ? vertex_ring_.resource()->GetDesc().Width : 0u;
-    const auto locate = [&](D3D12_GPU_VIRTUAL_ADDRESS va, std::uint32_t bytes, std::uint32_t& offset) {
-        if (va >= ring_base && va + bytes <= ring_base + ring_bytes) {
-            offset = static_cast<std::uint32_t>(va - ring_base);
-            return 0;
-        }
-        if (resident_vertex_base_ != 0u && va >= resident_vertex_base_ &&
-            va + bytes <= resident_vertex_base_ + resident_vertex_bytes_) {
-            offset = static_cast<std::uint32_t>(va - resident_vertex_base_);
-            return 1;
-        }
-        return -1;
-    };
-    // The draws of each previous record, in log order (counting sort).
-    std::int32_t records = 0;
-    for (const DrawCall& call : prev_run_draws_) {
-        records = std::max(records, call.replay_record + 1);
-    }
-    std::vector<std::uint32_t>& scratch = blend_scratch_;
-    const std::size_t count = static_cast<std::size_t>(records);
-    scratch.assign(2u * count + 1u + prev_run_draws_.size(), 0u);
-    std::uint32_t* const first = scratch.data();              // [records + 1]
-    std::uint32_t* const fill = first + count + 1u;           // [records]
-    std::uint32_t* const order = fill + count;                // [draws]
-    for (const DrawCall& call : prev_run_draws_) {
-        if (call.replay_record >= 0) ++first[call.replay_record + 1];
-    }
-    for (std::size_t r = 0; r < count; ++r) first[r + 1u] += first[r];
-    for (std::size_t d = 0; d < prev_run_draws_.size(); ++d) {
-        const std::int32_t r = prev_run_draws_[d].replay_record;
-        if (r >= 0) order[first[r] + fill[r]++] = static_cast<std::uint32_t>(d);
-    }
-    // Reuse `fill` as each previous record's cursor: a record's draws pair in
-    // order, skipping up to three unmatched draws (one drawn in only one of
-    // the frames) to the next one with as many vertices.
-    std::fill(fill, fill + count, 0u);
-    // Stripe draws of both logs, by draw index.
-    stripe_of_draw_.assign(run_draws_.size(), -1);
-    for (std::size_t i = 0; i < run_stripes_.draws.size(); ++i) {
-        const StripeDraw& stripe = run_stripes_.draws[i];
-        if (stripe.draw < stripe_of_draw_.size()) stripe_of_draw_[stripe.draw] = static_cast<std::int32_t>(i);
-    }
-    stripe_of_prev_draw_.assign(prev_run_draws_.size(), -1);
-    for (std::size_t i = 0; i < prev_run_stripes_.draws.size(); ++i) {
-        const StripeDraw& stripe = prev_run_stripes_.draws[i];
-        if (stripe.draw < stripe_of_prev_draw_.size()) {
-            stripe_of_prev_draw_[stripe.draw] = static_cast<std::int32_t>(i);
-        }
-    }
-    const bool pairs_checked = ensure_blend_validation();
-    // Per stripe draw: its draw and first gathered vertex (addresses once the
-    // gather buffer is sized).
-    std::vector<std::array<std::uint32_t, 2>> stripe_blends;
-    for (std::size_t d = 0; d < run_draws_.size(); ++d) {
-        const DrawCall& call = run_draws_[d];
-        const std::int32_t r = call.replay_record;
-        if (r < 0 || static_cast<std::size_t>(r) >= previous_record.size()) continue;
-        const std::int32_t m = previous_record[static_cast<std::size_t>(r)];
-        if (m < 0 || m >= records) continue;
-        std::uint32_t at = first[m] + fill[m];
-        const std::uint32_t end = std::min(first[m + 1], at + 4u);
-        const std::int32_t stripe = stripe_of_draw_[d];
-        if (stripe >= 0) {
-            // A stripe pairs with its record's next stripe draw whatever the
-            // particle count, and then particle by particle.
-            while (at < end && stripe_of_prev_draw_[order[at]] < 0) {
-                ++at;
-            }
-        } else {
-            while (at < end && prev_run_draws_[order[at]].vertex_view.SizeInBytes != call.vertex_view.SizeInBytes) {
-                ++at;
-            }
-        }
-        if (at >= end) {
-            continue;
-        }
-        fill[m] = at + 1u - first[m];
-        const DrawCall& before = prev_run_draws_[order[at]];
-        if (call.ps_record >= 0 && before.ps_record >= 0) {
-            std::int32_t& pair = run_ps_previous_[static_cast<std::size_t>(call.ps_record)];
-            pair = pair == -1 || pair == before.ps_record ? before.ps_record : -2;
-        }
-        std::uint32_t current_offset = 0u, previous_offset = 0u;
-        const int current_buffer =
-            locate(call.vertex_view.BufferLocation, call.vertex_view.SizeInBytes, current_offset);
-        const int previous_buffer =
-            locate(before.vertex_view.BufferLocation, before.vertex_view.SizeInBytes, previous_offset);
-        // A strip of the same length slides along itself (index pairing, as
-        // any pair); one that grew or shrank pairs particle by particle.
-        if (stripe >= 0 && before.vertex_view.SizeInBytes != call.vertex_view.SizeInBytes) {
-            const std::uint32_t vertices = call.vertex_view.StrideInBytes == 144u
-                ? call.vertex_view.SizeInBytes / call.vertex_view.StrideInBytes : 0u;
-            const std::uint32_t previous_vertices = before.vertex_view.StrideInBytes == 144u
-                ? before.vertex_view.SizeInBytes / before.vertex_view.StrideInBytes : 0u;
-            if (vertices == 0u || current_buffer < 0 || previous_buffer < 0 ||
-                stripe_gather_.size() + vertices > (1u << 20u)) {
-                continue;
-            }
-            // Previous particles by (particle, pass, side, lifetime); a match
-            // continues only if its age moved on by at most one frame.
-            const StripeDraw& prev_draw =
-                prev_run_stripes_.draws[static_cast<std::size_t>(stripe_of_prev_draw_[order[at]])];
-            const auto key_of = [](const StripeVertex& v) {
-                return std::pair<std::uint64_t, std::uint32_t>{
-                    v.particle, (static_cast<std::uint32_t>(v.strip) << 24u) |
-                                    (static_cast<std::uint32_t>(v.side) << 16u) | (v.age_lifetime & 0xFFFFu)};
-            };
-            stripe_keys_.clear();
-            for (std::uint32_t i = 0; i < prev_draw.count; ++i) {
-                const StripeVertex& v = prev_run_stripes_.vertices[prev_draw.first + i];
-                if (v.vertex < previous_vertices) stripe_keys_.emplace_back(key_of(v), prev_draw.first + i);
-            }
-            std::sort(stripe_keys_.begin(), stripe_keys_.end());
-            const auto base = static_cast<std::uint32_t>(stripe_gather_.size());
-            for (std::uint32_t i = 0; i < vertices; ++i) {
-                stripe_gather_.push_back({current_offset + i * 144u, static_cast<std::uint32_t>(current_buffer)});
-            }
-            stripe_matched_.assign(vertices, -1);
-            const StripeDraw& draw = run_stripes_.draws[static_cast<std::size_t>(stripe)];
-            for (std::uint32_t i = 0; i < draw.count; ++i) {
-                const StripeVertex& v = run_stripes_.vertices[draw.first + i];
-                if (v.vertex >= vertices) continue;
-                const auto key = key_of(v);
-                const auto found = std::lower_bound(stripe_keys_.begin(), stripe_keys_.end(),
-                                                    std::pair{key, std::uint32_t{0}});
-                if (found == stripe_keys_.end() || found->first != key) continue;
-                const StripeVertex& was = prev_run_stripes_.vertices[found->second];
-                const auto steps = static_cast<std::uint16_t>((v.age_lifetime >> 16u) - (was.age_lifetime >> 16u));
-                if (steps > 1u) continue;
-                stripe_gather_[base + v.vertex] = {previous_offset + was.vertex * 144u,
-                                                   static_cast<std::uint32_t>(previous_buffer)};
-                stripe_matched_[v.vertex] = static_cast<std::int32_t>(was.vertex);
-            }
-            // A new particle grows out of where its nearest surviving
-            // neighbour (same side of the strip) was.
-            for (std::uint32_t i = 0; i < vertices; ++i) {
-                if (stripe_matched_[i] >= 0) continue;
-                for (std::uint32_t step = 2u; step <= 16u; step += 2u) {
-                    const std::int64_t below = static_cast<std::int64_t>(i) - step;
-                    const std::uint32_t above = i + step;
-                    std::int32_t from = -1;
-                    if (above < vertices && stripe_matched_[above] >= 0) {
-                        from = stripe_matched_[above];
-                    } else if (below >= 0 && stripe_matched_[static_cast<std::size_t>(below)] >= 0) {
-                        from = stripe_matched_[static_cast<std::size_t>(below)];
-                    }
-                    if (from >= 0) {
-                        stripe_gather_[base + i] = {previous_offset + static_cast<std::uint32_t>(from) * 144u,
-                                                    static_cast<std::uint32_t>(previous_buffer)};
-                        break;
-                    }
-                }
-            }
-            stripe_blends.push_back({static_cast<std::uint32_t>(d), base});
-            continue;
-        }
-        if (pairs_checked && before.vertex_view.BufferLocation != call.vertex_view.BufferLocation &&
-            before.vertex_view.StrideInBytes == call.vertex_view.StrideInBytes &&
-            call.vertex_view.SizeInBytes != 0u && current_buffer >= 0 && previous_buffer >= 0 &&
-            blend_pairs_.size() < kStripeVerdict) {
-            const auto slot = static_cast<std::uint32_t>(blend_pairs_.size());
-            blend_pairs_.push_back({current_offset, previous_offset,
-                                    call.vertex_view.SizeInBytes / call.vertex_view.StrideInBytes,
-                                    static_cast<std::uint32_t>(current_buffer) |
-                                        (static_cast<std::uint32_t>(previous_buffer) << 1u)});
-            run_blend_vertices_[d] = {before.vertex_view.BufferLocation, slot};
-        }
-    }
-    if (!stripe_gather_.empty()) {
-        if (ensure_stripe_gather(static_cast<std::uint64_t>(stripe_gather_.size()) * 144u)) {
-            const D3D12_GPU_VIRTUAL_ADDRESS earlier = stripe_earlier_->GetGPUVirtualAddress();
-            for (const auto& [draw, base] : stripe_blends) {
-                run_blend_vertices_[draw] = {earlier + static_cast<std::uint64_t>(base) * 144u, kStripeVerdict};
-            }
-        } else {
-            stripe_gather_.clear();
-        }
-    }
-    blend_validate_pending_ = !blend_pairs_.empty() || !stripe_gather_.empty();
-}
-
 void RendererD3D12::begin_replay_record() {
     replay_scene_count_ = 0u;
     replay_screen_frame_ = false;
-    replay_stripes_.clear();
     replay_ops_.clear();
     replay_draws_.clear();
     replay_clears_.clear();
@@ -5350,7 +4863,7 @@ bool RendererD3D12::ensure_interp_eval() {
         return false;
     }
     interp_eval_failed_ = true;
-    D3D12_ROOT_PARAMETER params[6]{};
+    D3D12_ROOT_PARAMETER params[5]{};
     params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
     params[0].Constants.ShaderRegister = 0;
     params[0].Constants.Num32BitValues = sizeof(InterpEvalFrame) / 4u;
@@ -5360,13 +4873,11 @@ bool RendererD3D12::ensure_interp_eval() {
         params[1u + i].Descriptor.ShaderRegister = i;
         params[1u + i].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     }
-    for (unsigned i = 0; i < 2u; ++i) {
-        params[4u + i].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
-        params[4u + i].Descriptor.ShaderRegister = i;
-        params[4u + i].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-    }
+    params[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    params[4].Descriptor.ShaderRegister = 0;
+    params[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     D3D12_ROOT_SIGNATURE_DESC rsd{};
-    rsd.NumParameters = 6;
+    rsd.NumParameters = 5;
     rsd.pParameters = params;
     ComPtr<ID3DBlob> blob, err;
     if (FAILED(D3D12SerializeRootSignature(&rsd, D3D_ROOT_SIGNATURE_VERSION_1, &blob, &err)) ||
@@ -5445,20 +4956,6 @@ void RendererD3D12::transition_interp_output(D3D12_RESOURCE_STATES state) {
     interp_output_state_ = state;
 }
 
-void RendererD3D12::transition_blend_verdicts(D3D12_RESOURCE_STATES state) {
-    if (!blend_verdicts_ || blend_verdicts_state_ == state) {
-        return;
-    }
-    D3D12_RESOURCE_BARRIER barrier{};
-    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    barrier.Transition.pResource = blend_verdicts_.Get();
-    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    barrier.Transition.StateBefore = blend_verdicts_state_;
-    barrier.Transition.StateAfter = state;
-    command_list_->ResourceBarrier(1, &barrier);
-    blend_verdicts_state_ = state;
-}
-
 // The sequence's base copies (first sub-frame) and its ops at t, into the
 // output read by the replay. The frame at t = 1 takes the copies again (its
 // constants as the game frame recorded them), the stores (output addressing)
@@ -5466,7 +4963,6 @@ void RendererD3D12::transition_blend_verdicts(D3D12_RESOURCE_STATES state) {
 void RendererD3D12::record_interp_eval(const SubframeTime& time, const Affine34& camera_t,
                                        const Affine34& camera_prev) {
     transition_interp_output(D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-    transition_blend_verdicts(D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     // The ray-traced lighting of the replayed frame follows this sub-frame's camera, and the composites rebuild its
     // points with the view its depth is drawn with: its projection at t with this frame's jitter in it, as
     // RenderCore::scene_depth_view gives a traced frame's (the draws add the jitter in clip space, x + jx w: the
@@ -5496,13 +4992,11 @@ void RendererD3D12::record_interp_eval(const SubframeTime& time, const Affine34&
     frame.output_last = static_cast<std::uint32_t>(interp_output_bytes_ - 4u);
     frame.constants_last = static_cast<std::uint32_t>(std::min<std::uint64_t>(constant_ring_.total_bytes() - 4u, 0xFFFFFFF0u));
     frame.matrices_last = static_cast<std::uint32_t>(std::min<std::uint64_t>(matrix_ring_.total_bytes() - 4u, 0xFFFFFFF0u));
-    frame.frame_slot = kFrameValuesElement;
     command_list_->SetComputeRootSignature(interp_eval_root_.Get());
     command_list_->SetComputeRootShaderResourceView(1, sequence_.program);
     command_list_->SetComputeRootShaderResourceView(2, constant_ring_.gpu_base());
     command_list_->SetComputeRootShaderResourceView(3, matrix_ring_.gpu_base());
     command_list_->SetComputeRootUnorderedAccessView(4, interp_output_->GetGPUVirtualAddress());
-    command_list_->SetComputeRootUnorderedAccessView(5, blend_verdicts_->GetGPUVirtualAddress());
     if ((sequence_.first || last) && sequence_.copies != 0u) {
         frame.count = sequence_.copies;
         frame.table = sequence_.copies_offset;
@@ -5520,7 +5014,6 @@ void RendererD3D12::record_interp_eval(const SubframeTime& time, const Affine34&
     command_list_->SetComputeRoot32BitConstants(0, sizeof(frame) / 4u, &frame, 0u);
     command_list_->Dispatch(std::max(1u, (sequence_.ops + 63u) / 64u), 1u, 1u);
     transition_interp_output(kInterpOutputRead);
-    transition_blend_verdicts(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     bound_pipeline_ = nullptr;
 }
 
@@ -5618,6 +5111,7 @@ bool RendererD3D12::begin_replay_sequence(const ReplaySequence& sequence) {
         }
     }
 
+    interp_copies_.insert(interp_copies_.end(), sequence.model_copies.begin(), sequence.model_copies.end());
     // The program: copies, ops, payload (16 bytes of tail room for Load4).
     const interp_gpu::Program& program = *sequence.program;
     const std::size_t copies_bytes = interp_copies_.size() * sizeof(interp_gpu::Copy);
@@ -5781,14 +5275,7 @@ bool RendererD3D12::record_replay_list(ReplayList& entry) {
         replay_playing_ = true;
         bind_scene();
         const auto far_values = make_scene_clear_values(0u, 0u);
-        // The log before's vertices are gone once its segment came round (a
-        // later game frame records there while this sequence still plays).
-        const bool blend = sequence.vertex_blend && prev_run_valid_ &&
-                           (!blend_pairs_.empty() || !stripe_gather_.empty()) &&
-                           run_blend_vertices_.size() == run_draws_.size();
-        entry.blend_segment = prev_run_segment_;
         const D3D12_GPU_VIRTUAL_ADDRESS output = interp_output_->GetGPUVirtualAddress();
-        std::uint64_t blended = 0u;
         for (const ReplayOp& op : run_ops_) {
             switch (op.kind) {
             case ReplayKind::Draw: {
@@ -5804,11 +5291,6 @@ bool RendererD3D12::record_replay_list(ReplayList& entry) {
                                                            static_cast<std::uint32_t>(sequence.record_palette_slot[record]));
                         call.matrix_rows = output + layout.palette_base();
                     }
-                }
-                if (blend && run_blend_vertices_[op.index].vertices != 0u) {
-                    call.blend_vertices = run_blend_vertices_[op.index].vertices;
-                    call.blend_slot = run_blend_vertices_[op.index].slot;
-                    ++blended;
                 }
                 if (!redirect_.empty() && call.texture_table.ptr != 0u) {
                     call.texture_table = patch_replay_table(call.texture_table);
@@ -5923,9 +5405,7 @@ bool RendererD3D12::record_replay_list(ReplayList& entry) {
         invalidate_draw_bindings();
 
         entry.sequence = sequence_.serial;
-        entry.blend = blend && blended != 0u;
         entry.redirect = redirect;
-        entry.blended_draws = blended;
         entry.guarded = subframe_guarded_.size();
         entry.alloc_segment = ring_segment_;
     }
@@ -5957,7 +5437,7 @@ bool RendererD3D12::present_replay_subframe(const SubframeTime& given, const Aff
     ReplayList* replay = nullptr;
     for (ReplayList& entry : replay_lists_) {
         if (entry.sequence == sequence_.serial && entry.fence <= completed &&
-            (!entry.blend || (prev_run_valid_ && entry.blend_segment == prev_run_segment_))) {
+            true) {
             replay = &entry;
             break;
         }
@@ -6031,10 +5511,6 @@ bool RendererD3D12::present_replay_subframe(const SubframeTime& given, const Aff
         const Swap swap{*this};
         if (subframe_query_heap_) {
             command_list_->EndQuery(subframe_query_heap_.Get(), D3D12_QUERY_TYPE_TIMESTAMP, index * 4u);
-        }
-        if (replay->blend && !sequence_.validated) {
-            record_blend_validation();
-            sequence_.validated = true;
         }
         record_interp_eval(time, camera_t, camera_prev);
         if (subframe_query_heap_) {
@@ -6145,9 +5621,6 @@ bool RendererD3D12::present_replay_subframe(const SubframeTime& given, const Aff
         for (const unsigned segment : {run_segment_, sequence_.alloc_segment, replay->alloc_segment, ring_segment_}) {
             ring_segment_fence_[segment] = std::max(ring_segment_fence_[segment], fence);
         }
-        if (replay->blend) {
-            ring_segment_fence_[replay->blend_segment] = std::max(ring_segment_fence_[replay->blend_segment], fence);
-        }
     } else {
         // The replay read the recorded frame's slot rings and appended to the
         // current ones: neither may be rewound before it completes.
@@ -6160,7 +5633,6 @@ bool RendererD3D12::present_replay_subframe(const SubframeTime& given, const Aff
         }
     }
     sequence_.first = false;
-    vertex_blend_draws_ += replay->blended_draws;
     subframe_guarded_total_ += replay->guarded;
     subframe_record_ms_ += std::chrono::duration<double, std::milli>(
         std::chrono::steady_clock::now() - record_start).count();
@@ -6765,7 +6237,7 @@ void RendererD3D12::write_scene_set_views(SceneTargetSet& set, const DescriptorR
     view.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     view.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     view.Texture2D.MipLevels = 1u;
-    view.Format = set.hdr ? kSceneHdrColorFormat : kSceneColorFormat;
+    view.Format = set.color->GetDesc().Format;
     device_->CreateShaderResourceView(set.color.Get(), &view, table.cpu);
     auto depth_cpu = table.cpu;
     depth_cpu.ptr += stride;
@@ -6780,7 +6252,7 @@ void RendererD3D12::write_scene_set_views(SceneTargetSet& set, const DescriptorR
 bool RendererD3D12::create_scene_set(
     SceneTargetSet& set, ComPtr<ID3D12DescriptorHeap>& rtv_heap,
     ComPtr<ID3D12DescriptorHeap>& dsv_heap, const FrameMap& map, bool persistent_views,
-    bool unordered_access, unsigned samples, bool hdr, unsigned width, unsigned height) {
+    bool unordered_access, unsigned samples, bool hdr, unsigned width, unsigned height, bool target) {
     const UINT w = static_cast<UINT>(std::lround(static_cast<double>(width) * map.sx));
     const UINT h = static_cast<UINT>(std::lround(static_cast<double>(height) * map.sy));
     if (set.color) {
@@ -6807,7 +6279,7 @@ bool RendererD3D12::create_scene_set(
     rd.Height = h;
     rd.DepthOrArraySize = 1;
     rd.MipLevels = 1;
-    rd.Format = hdr ? kSceneHdrColorFormat : kSceneColorFormat;
+    rd.Format = target ? kTargetColorFormat : hdr ? kSceneHdrColorFormat : kSceneColorFormat;
     rd.SampleDesc.Count = 1;
     rd.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET |
                (unordered_access ? D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS : D3D12_RESOURCE_FLAG_NONE);
@@ -6836,7 +6308,7 @@ bool RendererD3D12::create_scene_set(
     dsv.Format = kSceneDepthFormat;
     dsv.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
     device_->CreateDepthStencilView(set.depth.Get(), &dsv, set.dsv);
-    if (!create_scene_msaa(set.msaa, set.depth.Get(), samples, set.rtv, set.dsv)) {
+    if (!create_scene_msaa(set.msaa, set.color.Get(), set.depth.Get(), samples, set.rtv, set.dsv)) {
         set.color.Reset();
         set.depth.Reset();
         return false;
@@ -6914,12 +6386,13 @@ bool RendererD3D12::begin_target_pass(std::uint64_t key, std::uint32_t width, st
         return false;
     }
     TargetSlot& slot = target_slots_[key];
-    const bool kept = slot.set.color && slot.set.map == frame_ && slot.width == width && slot.height == height;
+    const FrameMap map(width, height);
+    const bool kept = slot.set.color && slot.set.map == map;
     // A new set starts as a render target; the pass's first clear (RenderCore) fills it. Its copy views are written
     // per use (no persistent descriptors per key).
     if (!kept) {
-        if (!create_scene_set(slot.set, slot.rtv_heap, slot.dsv_heap, frame_, false, false, 1u, false, width,
-                            height)) {
+        if (!create_scene_set(slot.set, slot.rtv_heap, slot.dsv_heap, map, false, false, 1u, false, kFrameUnits,
+                            kFrameUnits, true)) {
             target_slots_.erase(key);
             return false;
         }
@@ -7190,7 +6663,7 @@ void RendererD3D12::present_fg_hudless(const DisplayTexture& source, const D3D12
     } else {
         const DescriptorRing::Table tbl = srv_ring_.allocate(1);
         D3D12_SHADER_RESOURCE_VIEW_DESC sd{};
-        sd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        sd.Format = fg_hudless_display_.texture->GetDesc().Format;
         sd.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
         sd.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         sd.Texture2D.MipLevels = 1;
@@ -7699,7 +7172,7 @@ void RendererD3D12::clear_scene(
     if (depth_enable) {
         // Reversed depth: far is 0, which the flipped compares pass.
         command_list_->ClearDepthStencilView(
-            dsv, D3D12_CLEAR_FLAG_DEPTH, clear.reversed_depth, 0, num_rects, rects);
+            dsv, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, clear.reversed_depth, 0, num_rects, rects);
     }
 }
 
@@ -7741,31 +7214,9 @@ void RendererD3D12::draw(const DrawCall& call) {
         command_list_->SetGraphicsRootDescriptorTable(3, call.sampler_table);
         bound_sampler_table_ = call.sampler_table;
     }
-    if (call.matrix_palette &&
-        call.matrix_palette != bound_matrix_palette_) {
-        command_list_->SetGraphicsRootShaderResourceView(4, call.matrix_palette);
-        bound_matrix_palette_ = call.matrix_palette;
-    }
     if (call.matrix_rows && call.matrix_rows != bound_matrix_rows_) {
-        command_list_->SetGraphicsRootShaderResourceView(8, call.matrix_rows);
+        command_list_->SetGraphicsRootShaderResourceView(4, call.matrix_rows);
         bound_matrix_rows_ = call.matrix_rows;
-    }
-    if (!bound_vertex_blend_valid_ || call.blend_vertices != bound_blend_vertices_ ||
-        call.blend_slot != bound_blend_slot_) {
-        // Unblended draws bind valid addresses the shaders never read.
-        command_list_->SetGraphicsRootShaderResourceView(
-            5, call.blend_vertices != 0u ? call.blend_vertices : vertex_ring_.gpu_base());
-        const std::uint32_t vertices = call.vertex_view.StrideInBytes != 0u
-            ? call.vertex_view.SizeInBytes / call.vertex_view.StrideInBytes : 0u;
-        const std::uint32_t blend[5]{call.blend_vertices != 0u ? 1u : 0u,
-                                     replay_playing_ ? kFrameValuesElement : kZeroValuesElement,
-                                     std::min(call.blend_slot, kMaxBlendPairs - 1u),
-                                     call.blend_vertices != 0u && vertices != 0u ? vertices - 1u : 0u, 0u};
-        command_list_->SetGraphicsRoot32BitConstants(6, 5u, blend, 0u);
-        command_list_->SetGraphicsRootShaderResourceView(7, blend_verdicts_->GetGPUVirtualAddress());
-        bound_blend_vertices_ = call.blend_vertices;
-        bound_blend_slot_ = call.blend_slot;
-        bound_vertex_blend_valid_ = true;
     }
     if (call.aux_target != bound_rt_aux_) [[unlikely]] {
         if (call.aux_target == 3u) {
@@ -7860,6 +7311,35 @@ void RendererD3D12::draw(const DrawCall& call) {
         command_list_->IASetVertexBuffers(0, 1, &call.vertex_view);
         bound_vertex_view_ = call.vertex_view;
         bound_vertex_view_valid_ = true;
+    }
+    if (!bound_extra_view_valid_ || call.extra_view.BufferLocation != bound_extra_view_.BufferLocation ||
+        call.extra_view.SizeInBytes != bound_extra_view_.SizeInBytes) {
+        if (!zero_vertices_) {
+            D3D12_HEAP_PROPERTIES heap{};
+            heap.Type = D3D12_HEAP_TYPE_UPLOAD;
+            D3D12_RESOURCE_DESC desc{};
+            desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+            desc.Width = sizeof(RenderVertexExtra);
+            desc.Height = 1;
+            desc.DepthOrArraySize = 1;
+            desc.MipLevels = 1;
+            desc.SampleDesc.Count = 1;
+            desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+            d3d_check(device_->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_GENERIC_READ,
+                                                       nullptr, IID_PPV_ARGS(&zero_vertices_)),
+                      "zero vertices");
+            void* mapped = nullptr;
+            d3d_check(zero_vertices_->Map(0, nullptr, &mapped), "Map zero vertices");
+            std::memset(mapped, 0, sizeof(RenderVertexExtra));
+            zero_vertices_->Unmap(0, nullptr);
+        }
+        // Meshes without the second stream read one zero element for every vertex.
+        const D3D12_VERTEX_BUFFER_VIEW view = call.extra_view.BufferLocation != 0u
+            ? call.extra_view
+            : D3D12_VERTEX_BUFFER_VIEW{zero_vertices_->GetGPUVirtualAddress(), sizeof(RenderVertexExtra), 0u};
+        command_list_->IASetVertexBuffers(1, 1, &view);
+        bound_extra_view_ = call.extra_view;
+        bound_extra_view_valid_ = true;
     }
     const bool time_draw = draw_query_heap_ && pass_list_open_ && call.index_count > 0u &&
                            draw_marks_[frame_slot_].size() < kGpuDrawSlots / 2u;
@@ -8191,7 +7671,7 @@ bool RendererD3D12::ensure_screen_probe_resources() {
     target_desc.Height = 1;
     target_desc.DepthOrArraySize = 1;
     target_desc.MipLevels = 1;
-    target_desc.Format = kSceneColorFormat;
+    target_desc.Format = kTargetColorFormat;
     target_desc.SampleDesc.Count = 1;
     target_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
     target_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
@@ -8228,21 +7708,20 @@ bool RendererD3D12::ensure_screen_probe_resources() {
     return true;
 }
 
-bool RendererD3D12::record_screen_probes(std::size_t slot, ScreenProbeKind kind, std::span<const ScreenProbe> probes) {
+bool RendererD3D12::record_screen_probes(std::size_t slot, std::span<const ScreenProbe> probes) {
     ScreenProbeSlot& out = probe_slots_[slot];
     if (out.fence != 0u || probes.size() > kScreenProbesMax || !ensure_screen_probe_resources()) {
         return false;
     }
     ID3D12GraphicsCommandList* const list = command_list_.Get();
     settle_owed_scene();
-    const bool is_depth = kind == ScreenProbeKind::Depth;
-    resolve_scene_on(list, !is_depth, is_depth);
-    ID3D12Resource* const src = is_depth ? scene_depth_.Get() : scene_color_.Get();
+    resolve_scene_on(list, false, true);
+    ID3D12Resource* const src = scene_depth_.Get();
 
     D3D12_RESOURCE_BARRIER barriers[2]{};
     barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
     barriers[0].Transition.pResource = src;
-    barriers[0].Transition.StateBefore = is_depth ? D3D12_RESOURCE_STATE_DEPTH_WRITE : D3D12_RESOURCE_STATE_RENDER_TARGET;
+    barriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_DEPTH_WRITE;
     barriers[0].Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
     barriers[0].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
     barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -8254,8 +7733,8 @@ bool RendererD3D12::record_screen_probes(std::size_t slot, ScreenProbeKind kind,
 
     list->OMSetRenderTargets(1, &probe_rtv_, FALSE, nullptr);
     list->SetGraphicsRootSignature(s_conv_root_sig.Get());
-    list->SetPipelineState(conv_pipeline_.Get());
-    list->SetGraphicsRootDescriptorTable(1, is_depth ? conv_scene_depth_srv_ : conv_scene_color_srv_);
+    list->SetPipelineState(probe_pipeline_.Get());
+    list->SetGraphicsRootDescriptorTable(1, conv_scene_depth_srv_);
     list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     for (std::size_t i = 0; i < probes.size(); ++i) {
         if (probes[i].x < 0.0f || probes[i].y < 0.0f) {
@@ -8265,7 +7744,7 @@ bool RendererD3D12::record_screen_probes(std::size_t slot, ScreenProbeKind kind,
         const D3D12_RECT scissor{static_cast<LONG>(i), 0, static_cast<LONG>(i) + 1, 1};
         list->RSSetViewports(1, &viewport);
         list->RSSetScissorRects(1, &scissor);
-        const SceneConversionShaderConstants constants = make_screen_probe_constants(probes[i].x, probes[i].y, frame_, is_depth);
+        const SceneConversionShaderConstants constants = make_screen_probe_constants(probes[i].x, probes[i].y, frame_, true);
         list->SetGraphicsRoot32BitConstants(0, 16, constants.values.data(), 0);
         list->DrawInstanced(3, 1, 0, 0);
     }
@@ -8280,7 +7759,7 @@ bool RendererD3D12::record_screen_probes(std::size_t slot, ScreenProbeKind kind,
     D3D12_TEXTURE_COPY_LOCATION dst_copy{};
     dst_copy.pResource = out.readback.Get();
     dst_copy.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-    dst_copy.PlacedFootprint.Footprint.Format = kSceneColorFormat;
+    dst_copy.PlacedFootprint.Footprint.Format = kTargetColorFormat;
     dst_copy.PlacedFootprint.Footprint.Width = kScreenProbesMax;
     dst_copy.PlacedFootprint.Footprint.Height = 1;
     dst_copy.PlacedFootprint.Footprint.Depth = 1;
@@ -8351,7 +7830,8 @@ void RendererD3D12::queue_debug_ppm_capture(
     const std::uint8_t* source,
     unsigned width,
     unsigned height,
-    unsigned row_pitch) {
+    unsigned row_pitch,
+    bool ten_bit) {
     constexpr std::size_t kMaximumPendingDebugCaptures = 8u;
     reap_debug_capture_writers(false);
     if (debug_ppm_writers_.size() >= kMaximumPendingDebugCaptures) {
@@ -8370,11 +7850,15 @@ void RendererD3D12::queue_debug_ppm_capture(
     }
     std::vector<std::uint8_t> rgba(
         source_row_bytes * static_cast<std::size_t>(height));
-    for (unsigned y = 0u; y < height; ++y) {
-        std::memcpy(
-            rgba.data() + static_cast<std::size_t>(y) * source_row_bytes,
-            source + static_cast<std::size_t>(y) * row_pitch,
-            source_row_bytes);
+    if (ten_bit) {
+        ten_bit_to_rgba8(source, rgba.data(), width, height, row_pitch, static_cast<unsigned>(source_row_bytes));
+    } else {
+        for (unsigned y = 0u; y < height; ++y) {
+            std::memcpy(
+                rgba.data() + static_cast<std::size_t>(y) * source_row_bytes,
+                source + static_cast<std::size_t>(y) * row_pitch,
+                source_row_bytes);
+        }
     }
 
     DebugPpmWriter writer{};
@@ -8531,10 +8015,12 @@ void RendererD3D12::debug_log_readback() {
     for (UINT y = 0; y < h; y += 4) {           // sample every 4th row/col
         const std::uint8_t* row = base + static_cast<std::size_t>(y) * row_pitch;
         for (UINT x = 0; x < w; x += 4) {
-            const std::uint8_t r = row[x * 4 + 0];
-            const std::uint8_t g = row[x * 4 + 1];
-            const std::uint8_t bl = row[x * 4 + 2];
-            const std::uint8_t a = row[x * 4 + 3];
+            std::uint32_t word = 0u;
+            std::memcpy(&word, row + x * 4u, 4u);
+            const auto r = static_cast<std::uint8_t>((word & 1023u) >> 2u);
+            const auto g = static_cast<std::uint8_t>((word >> 10u & 1023u) >> 2u);
+            const auto bl = static_cast<std::uint8_t>((word >> 20u & 1023u) >> 2u);
+            const auto a = static_cast<std::uint8_t>((word >> 30u) * 85u);
             rs += r; gs += g; bs += bl;
             rmax = std::max(rmax, r); gmax = std::max(gmax, g);
             bmax = std::max(bmax, bl); amax = std::max(amax, a);
@@ -8552,7 +8038,8 @@ void RendererD3D12::debug_log_readback() {
             base,
             w,
             h,
-            row_pitch);
+            row_pitch,
+            true);
     }
 
     readback_buf_->Unmap(0, &no_write);
@@ -8703,7 +8190,7 @@ bool RendererD3D12::present(
         // One-slot SRV in the frame's ring for the display picture texture.
         const DescriptorRing::Table tbl = srv_ring_.allocate(1);
         D3D12_SHADER_RESOURCE_VIEW_DESC sd{};
-        sd.Format                    = DXGI_FORMAT_R8G8B8A8_UNORM;
+        sd.Format                    = source->texture->GetDesc().Format;
         sd.ViewDimension             = D3D12_SRV_DIMENSION_TEXTURE2D;
         sd.Shader4ComponentMapping   = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         sd.Texture2D.MipLevels       = 1;
@@ -8825,7 +8312,7 @@ bool RendererD3D12::debug_copy_selected_display_to_readback(const DisplayTexture
     }
     const auto desc = source.texture->GetDesc();
     if (desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
-        desc.Format != DXGI_FORMAT_R8G8B8A8_UNORM ||
+        (desc.Format != DXGI_FORMAT_R8G8B8A8_UNORM && desc.Format != DXGI_FORMAT_R10G10B10A2_UNORM) ||
         desc.Width != source.width || desc.Height < source.height ||
         source.width == 0u || source.height == 0u) {
         throw std::runtime_error("selected display picture capture has inconsistent extent/format");
@@ -8860,7 +8347,8 @@ bool RendererD3D12::debug_copy_selected_display_to_readback(const DisplayTexture
     src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
     dst.pResource = selected_display_readback_buf_.Get();
     dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-    dst.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    dst.PlacedFootprint.Footprint.Format = desc.Format;
+    selected_display_readback_ten_bit_ = desc.Format == DXGI_FORMAT_R10G10B10A2_UNORM;
     dst.PlacedFootprint.Footprint.Width = source.width;
     dst.PlacedFootprint.Footprint.Height = source.height;
     dst.PlacedFootprint.Footprint.Depth = 1;
@@ -8896,7 +8384,8 @@ void RendererD3D12::debug_log_selected_display_readback() {
     try {
         queue_debug_ppm_capture("selected-display-dump", selected_display_readback_path_,
             static_cast<const std::uint8_t*>(mapped), selected_display_readback_width_,
-            selected_display_readback_height_, selected_display_readback_pitch_);
+            selected_display_readback_height_, selected_display_readback_pitch_,
+            selected_display_readback_ten_bit_);
     } catch (...) {
         const D3D12_RANGE no_write{0, 0};
         selected_display_readback_buf_->Unmap(0, &no_write);
