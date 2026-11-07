@@ -87,7 +87,7 @@ std::string set_activity_json(std::uint32_t pid, const Activity& activity, std::
         field("state", activity.state);
         json += first ? "" : ",";
         json += "\"timestamps\":{\"start\":" + std::to_string(start_seconds) + "}";
-        json += ",\"assets\":{\"large_image\":\"nebula\",\"large_text\":\"Super Mario Galaxy (Nebula)\"}}";
+        json += ",\"assets\":{\"large_image\":\"smg\",\"large_text\":\"Super Mario Galaxy (Nebula)\"}}";
     }
     json += "},\"nonce\":\"" + std::to_string(nonce) + "\"}";
     return json;

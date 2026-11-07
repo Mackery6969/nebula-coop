@@ -1,4 +1,4 @@
-#include "galaxy/portable.h"
+﻿#include "galaxy/portable.h"
 #include "galaxy/runtime_settings.h"
 #include "galaxy/run_options.h"
 #include "../../tools/test_driver/switches.h"
@@ -170,6 +170,10 @@ RuntimeSettings sanitize_settings(RuntimeSettings settings) {
         settings.coop.character = CoopCharacter::Mario;
     }
     settings.coop.join_address = sanitize_coop_text(settings.coop.join_address, kCoopAddressLimit);
+    // Only a web address: it is only ever connected to, never shown.
+    std::string& server = settings.coop.nebulanet_server;
+    server = sanitize_coop_text(server, kCoopAddressLimit);
+    if (!server.starts_with("https://") && !server.starts_with("http://")) server.clear();
     settings.coop_bans = sanitize_coop_list(settings.coop_bans);
     settings.coop_moderators = sanitize_coop_list(settings.coop_moderators);
     return settings;
@@ -298,6 +302,11 @@ void apply_kv(RuntimeSettings& settings, const char* key, const char* value) {
         }
     } else if (std::strcmp(key, "coop_join_address") == 0) {
         settings.coop.join_address = value;
+    } else if (std::strcmp(key, "coop_network") == 0) {
+        if (::galaxy::text_iequal(value, "nebulanet")) settings.coop.nebulanet = true;
+        if (::galaxy::text_iequal(value, "direct")) settings.coop.nebulanet = false;
+    } else if (std::strcmp(key, "coop_nebulanet") == 0) {
+        settings.coop.nebulanet_server = value;
     } else if (std::strcmp(key, "coop_player_interaction") == 0) {
         for (const CoopPlayerInteraction interaction :
              {CoopPlayerInteraction::NonSolid, CoopPlayerInteraction::Solid, CoopPlayerInteraction::FriendlyFire}) {
@@ -686,6 +695,10 @@ bool save_runtime_settings_to_file() {
         }
         if (!settings.coop.join_address.empty()) {
             contents << "coop_join_address=" << settings.coop.join_address << '\n';
+        }
+        if (settings.coop.nebulanet != defaults.nebulanet) contents << "coop_network=direct\n";
+        if (!settings.coop.nebulanet_server.empty()) {
+            contents << "coop_nebulanet=" << settings.coop.nebulanet_server << '\n';
         }
         if (settings.coop.player_interaction != defaults.player_interaction) {
             contents << "coop_player_interaction=" << coop_player_interaction_key(settings.coop.player_interaction)

@@ -130,6 +130,12 @@ add_library(galaxy_net STATIC
     runtime/src/net/udp.cpp
     runtime/src/net/link.cpp
     runtime/src/net/direct_transport.cpp
+    runtime/src/net/stun.cpp
+    runtime/src/net/json.cpp
+    runtime/src/net/web.cpp
+    runtime/src/net/web_win.cpp
+    runtime/src/net/web_curl.cpp
+    runtime/src/coop_nebulanet.cpp
     runtime/src/coop_mods.cpp
     runtime/src/coop_session.cpp
     runtime/src/coop_chat.cpp
@@ -138,7 +144,8 @@ add_library(galaxy_net STATIC
     runtime/src/coop_snapshot.cpp
     runtime/src/coop_teleport.cpp
     runtime/src/coop_world.cpp)
-target_link_libraries(galaxy_net PUBLIC galaxy_runtime_abi galaxy_atomic_file ws2_32)
+# NebulaNet's web calls: WinHTTP on Windows, the system's libcurl (loaded when first used) elsewhere.
+target_link_libraries(galaxy_net PUBLIC galaxy_runtime_abi galaxy_atomic_file ws2_32 winhttp)
 galaxy_host_options(galaxy_net)
 
 add_library(galaxy_frame_cadence_diagnostics STATIC runtime/src/frame_cadence_diagnostics.cpp)
