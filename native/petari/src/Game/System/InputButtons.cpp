@@ -12,7 +12,7 @@ void InputButtons::holdForMenu() {
 }
 
 void InputButtons::update() {
-    const PlayerInputSample* const pSample = mPad->getSample();
+    const PlayerInputSample* const pSample = mPad->getSample(0);
     if (pSample == nullptr) {
         return;
     }

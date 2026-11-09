@@ -1,6 +1,6 @@
 #pragma once
 
-#include <nebula_geometry.hpp>
+#include <JSystem/JGeometry/TVec.hpp>
 #include "Game/System/NebulaInput.hpp"
 
 class InputTilt;
@@ -29,8 +29,11 @@ public:
     void disconnected();
     static void connectCallback(s32, s32);
     static void extensionCallback(s32, s32);
-    // This frame's sample; null while the controller has none.
-    PlayerInputSample* getSample() const;
+    PlayerInputSample* getSample(u32) const;
+    s32 getValidStatusCount() const;
+    s32 getEnableAccelPastCount(u32) const;
+    bool getAcceleration(TVec3f*, u32) const;
+    bool getPastAcceleration(TVec3f*, s32, u32) const;
 
     s32 mChannel;
     PlayerInputReader* mReadInfo;
@@ -38,8 +41,8 @@ public:
     InputPointer* mPointer;
     InputTilt* mMainTilt;
     InputSwing* mMainSwing;
-    InputRumble* mRumble;
-    InputRumble* mMenuRumble;
+    InputRumble* _18;
+    InputRumble* _1C;
     InputStick* mStick;
     InputTilt* mSubTilt;
     InputSwing* mSubSwing;

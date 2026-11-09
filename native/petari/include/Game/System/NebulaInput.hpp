@@ -6,6 +6,7 @@ enum {
     PLAYER_1 = 0,
     PLAYER_2 = 1,
     PLAYER_3 = 2,
+    PLAYER_MAX = 1,
 };
 
 // The controllers the game reads, 0 to count() - 1: the host's players, never fewer than the game's own two (PlayerInputs'
