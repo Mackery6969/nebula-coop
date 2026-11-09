@@ -8,9 +8,7 @@ class GravityDustParticleCallBack : public MultiEmitterParticleCallBack {
 public:
     GravityDustParticleCallBack(const LiveActor* pActor);
 
-    virtual ~GravityDustParticleCallBack();
-
-    virtual void execute(JPABaseEmitter* pEmitter, JPABaseParticle* pParticle);
+    virtual void execute(EmitterCore* pEmitter, ParticleCore* pParticle) override;
 
     const LiveActor* mActor;
 };

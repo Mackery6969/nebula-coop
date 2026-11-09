@@ -2,7 +2,7 @@
 
 #include "Game/NameObj/NameObj.hpp"
 #include "Game/Util/Array.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class AreaForm;
 class StageSwitchCtrl;
@@ -11,9 +11,9 @@ class AreaObj : public NameObj {
 public:
     AreaObj(int, const char*);
 
-    virtual void init(const JMapInfoIter&);
+    virtual void init(const TableIter&) override;
 
-    virtual bool isInVolume(const TVec3f&) const;
+    virtual bool isInVolume(const Vec3f&) const;
 
     virtual const char* getManagerName() const {
         return mName;
@@ -25,8 +25,8 @@ public:
     bool isOnSwitchB() const;
     bool isValidSwitchA() const;
     bool isValidSwitchB() const;
-    void setFollowMtx(const TPos3f*);
-    TPos3f* getFollowMtx() const;
+    void setFollowMtx(const Pos3f*);
+    Pos3f* getFollowMtx() const;
 
     void validate() {
         mIsValid = true;
@@ -37,7 +37,7 @@ public:
     }
 
     bool isValid() const {
-        return mIsValid && _15 && mIsAwake;
+        return mIsValid && mIsFollowValid && mIsAwake;
     }
 
     void awake() {
@@ -56,7 +56,7 @@ public:
     AreaForm* mForm;
     int mFormType;
     bool mIsValid;
-    bool _15;
+    bool mIsFollowValid;
     bool mIsAwake;
     s32 mObjArg0;
     s32 mObjArg1;
@@ -71,10 +71,10 @@ public:
 
 class AreaObjMgr : public NameObj {
 public:
-    AreaObjMgr(s32, const char*);
+    AreaObjMgr(s32 firstCapacity, const char* pName);
 
     void entry(AreaObj*);
-    AreaObj* find_in(const TVec3f&) const;
+    AreaObj* find_in(const Vec3f&) const;
 
     AreaObj* getAreaObj(int index) {
         return mArray[index];
@@ -85,5 +85,5 @@ public:
     }
 
     MR::Vector< MR::AssignableArray< AreaObj* > > mArray;
-    s32 _18;
+    s32 mFirstCapacity;  // entry grows past it
 };

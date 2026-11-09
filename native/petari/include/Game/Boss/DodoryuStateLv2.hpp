@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/Boss/DodoryuStateBase.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 struct DodoryuAnimSet {
     const char* mBckName;
@@ -13,61 +13,58 @@ struct DodoryuAnimSet {
 
 struct DodoryuChaseParam {
     s32 mReadyChaseStep;
-    f32 _4;
-    f32 _8;
-    f32 _C;
-    f32 _10;
-    f32 _14;
+    f32 mUndergroundMaxSpeed;
+    f32 mUndergroundAccel;
+    f32 mUndergroundTurnAngle;
+    f32 mUndergroundLateralDamping;
+    f32 mChaseAppearDistance;
     s32 mAppearSignStep;
-    f32 _1C;
-    f32 _20;
-    f32 _24;
-    f32 _28;
+    f32 mExposingHeadMaxSpeed;
+    f32 mExposingHeadAccel;
+    f32 mExposingHeadTurnAngle;
+    f32 mExposingHeadLateralDamping;
     s32 mReadyAppearStepMin;
     s32 mReadyAppearStepMax;
-    f32 _34;
-    f32 _38;
-    f32 _3C;
-    f32 _40;
-    f32 _44;
-    f32 _48;
+    f32 mChaseHideDistance;
+    f32 mAppearSignFaceAngle;
+    f32 mExposingBustMaxSpeed;
+    f32 mExposingBustAccel;
+    f32 mExposingBustTurnAngle;
+    f32 mExposingBustLateralDamping;
     s32 mChaseAppearStepMin;
     s32 mChaseAppearStepMax;
     s32 mChaseAppearEndStep;
-    s32 _58;
-    f32 _5C;
-    s32 _60;
-    s32 _64;
-    f32 _68;
-    f32 _6C;
-    f32 _70;
-    s32 _74;
+    s32 mEscapeStepMax;
+    f32 mEscapeEndDistance;
+    s32 mEscapeDirStepMin;
+    s32 mEscapeDirStepMax;
+    f32 mEscapeSpeed;
+    f32 mEscapeDirAngleMax;
+    f32 mEscapeTurnAngle;
+    s32 mEscapeStepMin;
     s32 mLaughStep;
     s32 mFindPosStepMin;
     s32 mFindPosStepMax;
-    f32 _84;
-    f32 _88;
-    f32 _8C;
-    s32 _90;
+    f32 mRandomMoveDistanceMin;
+    f32 mRandomMoveDistanceMax;
+    f32 mJumpOutSpeed;
+    s32 mKnockDownStopStep;
     s32 mKnockDownStep;
-    u32 _98;
-    bool _9C;
-    f32 _A0;
-    f32 _A4;
-    f32 _A8;
-    f32 _AC;
+    bool mHasChaseMore;
+    f32 mInAngerMaxSpeed;
+    f32 mInAngerAccel;
+    f32 mInAngerTurnAngle;
+    f32 mInAngerLateralDamping;
     s32 mChaseMoreStep;
-    f32 _B4;
-    f32 _B8;
     s32 mChaseMoreAccelCounterMin;
     s32 mChaseMoreAccelCounterMax;
     s32 mChaseMoreBrakeCounterMin;
     s32 mChaseMoreBrakeCounterMax;
     DodoryuAnimSet mAnimSetStart;
-    DodoryuAnimSet _E0;
-    DodoryuAnimSet _F4;
+    DodoryuAnimSet mAnimSetReadyChase;
+    DodoryuAnimSet mAnimSetUndergroundWalk;
     DodoryuAnimSet mAnimSetReadyAppear;
-    DodoryuAnimSet _11C;
+    DodoryuAnimSet mAnimSetReadyAppearWalk;
     DodoryuAnimSet mAnimSetChaseHide;
     DodoryuAnimSet mAnimSetChaseAppearStart;
     DodoryuAnimSet mAnimSetChaseAppear;
@@ -79,7 +76,7 @@ struct DodoryuChaseParam {
     DodoryuAnimSet mAnimSetKnockDown;
     DodoryuAnimSet mAnimSetLaugh;
     DodoryuAnimSet mAnimSetLaughEnd;
-    DodoryuAnimSet _20C;
+    DodoryuAnimSet mAnimSetHideJump;
     DodoryuAnimSet mAnimSetChaseMoreStart;
     DodoryuAnimSet mAnimSetChaseMore;
     DodoryuAnimSet mAnimSetChaseMoreEnd;
@@ -87,17 +84,17 @@ struct DodoryuChaseParam {
 
 class DodoryuStateLv2 : public DodoryuStateBase {
 public:
-    DodoryuStateLv2(Dodoryu* pHost, DodoryuChaseParam* pChaseParam, const char* pName);
+    DodoryuStateLv2(Dodoryu* pHost, const DodoryuChaseParam* pChaseParam, const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void control();
+    virtual void init(const TableIter& rIter) override;
+    virtual void control() override;
 
-    virtual void start();
-    virtual void catchAttackSensor(HitSensor*, HitSensor*);
-    virtual void catchHipDrop();
-    virtual bool catchPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual void catchStartClipped();
-    virtual void catchSendPlayerFlying(HitSensor*, HitSensor*);
+    virtual void start() override;
+    virtual void catchAttackSensor(HitSensor*, HitSensor*) override;
+    virtual void catchHipDrop() override;
+    virtual bool catchPlayerAttack(u32, HitSensor*, HitSensor*) override;
+    virtual void catchStartClipped() override;
+    virtual void catchSendPlayerFlying(HitSensor*, HitSensor*) override;
 
     void knockOver();
     bool isEnableToCatchHipDrop() const;
@@ -117,9 +114,9 @@ public:
     bool tryToShiftAppearSign();
     void determinChaseMoreAccelCounter();
     void determinChaseMoreBrakeCounter();
-    void turnToward(const TVec3f&, f32);
+    void turnToward(const Vec3f&, f32);
     void addVelocity(bool);
-    void calcLimitedRotateMtx(TPos3f*, const TVec3f&, const TVec3f&, f32);
+    void calcLimitedRotateMtx(Pos3f*, const Vec3f&, const Vec3f&, f32);
     bool isReflectSpinAttack() const;
     void shiftChaseUnderground();
     void shiftChaseExposingHead();
@@ -166,20 +163,15 @@ public:
     void endChaseMore();
     void exeChaseMoreEnd();
 
-    u32 _90;
-    TVec3f _94;
-    TVec3f _A0;
-    TVec3f _AC;
+    Vec3f mAttackDir;
     s32 mReadyAppearStep;
     s32 mChaseAppearStep;
     s32 mChaseAppearEndCounter;
-    u32 _C4;
-    s32 _C8;
-    s32 _CC;
-    TVec3f _D0;
+    s32 mEscapeStepMaxLeft;
+    s32 mEscapeStepMinLeft;
     s32 mFindPosStep;
     s32 mChaseMoreCounter;
     bool mIsChaseMoreBrake;
-    DodoryuChaseParam* mChaseParam;
+    const DodoryuChaseParam* mChaseParam;
     bool mIsPlayerStaggering;
 };

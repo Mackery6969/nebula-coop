@@ -1,32 +1,30 @@
 #include "Game/Util/SpringValue.hpp"
 
 SpringValue::SpringValue() {
-    mRestValue = 0.0f;
-    mSpringValue = 0.0f;
-    mAccelFactor = 0.3f;
-    mDamping = 0.8f;
-    mVelocity = 0.0f;
+    setParam(0.0f, 0.0f, 0.3f, 0.8f, 0.0f);
 }
 
-SpringValue::SpringValue(f32 param1, f32 param2, f32 param3, f32 param4, f32 param5) {
-    mRestValue = param1;
-    mSpringValue = param2;
-    mAccelFactor = param3;
-    mDamping = param4;
-    mVelocity = param5;
+SpringValue::SpringValue(f32 restValue, f32 value, f32 accelFactor, f32 damping, f32 velocity) {
+    setParam(restValue, value, accelFactor, damping, velocity);
 }
 
-void SpringValue::setParam(f32 param1, f32 param2, f32 param3, f32 param4, f32 param5) {
-    mRestValue = param1;
-    mSpringValue = param2;
-    mAccelFactor = param3;
-    mDamping = param4;
-    mVelocity = param5;
+void SpringValue::setParam(f32 restValue, f32 value, f32 accelFactor, f32 damping, f32 velocity) {
+    mRestValue = restValue;
+    mSpringValue = value;
+    mAccelFactor = accelFactor;
+    mDamping = damping;
+    mVelocity = velocity;
 }
 
+// Moves by the velocity, then pulls the velocity toward the rest value and damps it.
 f32 SpringValue::update() {
     mSpringValue += mVelocity;
     mVelocity += mAccelFactor * (mRestValue - mSpringValue);
     mVelocity *= mDamping;
     return mSpringValue;
+}
+
+void SpringValue::reset() {
+    mSpringValue = mRestValue;
+    mVelocity = 0.0f;
 }

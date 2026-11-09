@@ -3,12 +3,10 @@
 // The renderer API the host calls (D3D12 or Vulkan behind one RenderCore): window, the game's records and
 // presentation, the game's scene and light reports, and the native settings overlay.
 
-#include "galaxy/render/native_shapes.h"
 #include "galaxy/render/render_config.h"
 #include "galaxy/render/pointer_response.h"
 #include "galaxy/controller_roster.h"
 #include "galaxy/host_pointer_events.h"
-#include "galaxy/render/render_services.h"
 
 #include <array>
 #include <cstddef>
@@ -18,7 +16,17 @@
 #include <span>
 #include <vector>
 
+struct NebulaFrameList;
+
+struct NebulaScreenProbe;
+
 namespace galaxy::render {
+using ScreenProbe = ::NebulaScreenProbe;
+
+class TextureStore;
+namespace core {
+class Registries;
+}
 
 struct HostPointerState {
     bool window_focused = false;
@@ -51,19 +59,6 @@ struct HostClientExtent {
 // extent limited to 4:3..32:9, or the chosen ratio.
 [[nodiscard]] HostClientExtent aspect_latch_extent() noexcept;
 
-// Scene boundaries the simulation thread marks in the record stream:
-// GameScene::draw3D's entry and its closing MR::clearZBuffer call; the 2D
-// layer, GameScene::draw2D's entry and epilogue (layouts, camera cover,
-// pause, 2D models, wipes).
-enum class SceneMarker : std::uint8_t {
-    SceneBegin,
-    SceneEnd,
-    Scene2DBegin,
-    Scene2DEnd,
-    SceneOpaqueEnd,  // the game's opaque surfaces are drawn; the lists that blend follow
-};
-
-
 // Creates the window and the renderer (device, swap chain, queues, root signature, pipelines, upload buffers).
 // Returns false on failure.
 bool initialize(int width, int height);
@@ -74,34 +69,24 @@ std::string startup_failure();
 // the host's fast start shows one frame a display period. On by default.
 void set_frame_end_presents(bool enabled) noexcept;
 
-// The game dump's content root (GamePaths::content_root), from which the settings overlay reads the game's UI art
-// (game_asset_extract.h). Call once, before the overlay is first shown; without it the overlay draws solid colors.
-void set_native_settings_content_root(const std::string& utf8_path);
-
-// Renders the game's frame from the records it attached (and the scene markers, stripe particles and pointer
-// capture with them) and optionally presents: the newest picture (the last frame end), or black when `black`.
-// Nothing attached: at most a present.
-void render_frame(
-    const RenderServices* services,
-    bool present_swap_chain = true,
-    bool black = false);
+// Walks the frame list attached (attach_frame_list) and optionally presents: the newest picture, or black when
+// `black`. Nothing attached: at most a present.
+void render_frame(bool present_swap_chain = true, bool black = false);
 
 // Blocks until the render queue and every in-flight render chunk are idle.
 void wait_for_render_idle();
 
 
-// Simulation thread: the next render_frame submission handles `marker` after the records made before it.
-void attach_scene_marker(SceneMarker marker);
-// Simulation thread, before attach_scene_marker(SceneBegin): the game camera's
-// world-to-eye matrix (row-major 3x4) for that scene, the player's up in the
-// world (null when unknown: the enhanced sky then takes the view's up), and
-// the stage being played (null when the game does not say).
-// The next SceneOpaqueEnd's six projection terms and viewport (left, top, width, height, near and far depth).
-void attach_scene_opaque(const float view[12]) noexcept;
-void attach_scene_view(const float view[12], const float* up = nullptr, const char* stage = nullptr) noexcept;
-// Simulation thread, at each SceneBegin: whether the renderer reads
-// draw-identity markers (frame interpolation or motion vectors are on).
-[[nodiscard]] bool draw_identity_wanted() noexcept;
+// The services' registries and texture store; any thread.
+[[nodiscard]] core::Registries& registries() noexcept;
+// The pipelines made, and those the settings in use still want.
+struct PipelineProgress {
+    std::uint32_t done = 0u, left = 0u;
+};
+[[nodiscard]] PipelineProgress pipeline_progress() noexcept;
+[[nodiscard]] TextureStore& textures() noexcept;
+// The list the next render_frame hands over.
+void attach_frame_list(NebulaFrameList* list) noexcept;
 // Simulation thread: how the game's bloom goes through the renderer (NEBULA_OPTION_BLOOM: 0 not at all, 1 its scene
 // kept, 2 drawn by it; galaxy/render/game_bloom.h).
 [[nodiscard]] unsigned bloom_route() noexcept;
@@ -154,25 +139,18 @@ struct GameLight {
     // actor, else its place), never 0.
     std::uint32_t key = 0u;
 };
+// How many lights were noted within `max_age_ms` (not black): the room game_point_lights / game_world_lights need.
+[[nodiscard]] std::size_t game_point_light_count(std::uint64_t max_age_ms) noexcept;
+[[nodiscard]] std::size_t game_world_light_count(std::uint64_t max_age_ms) noexcept;
 // The lights noted within `max_age_ms` (not black), at most `out.size()`; returns the count.
 std::size_t game_point_lights(std::span<GameLight> out, std::uint64_t max_age_ms) noexcept;
 std::size_t game_world_lights(std::span<GameLight> out, std::uint64_t max_age_ms) noexcept;
-// Simulation thread: a native shape record (native_shapes.h) at its offset into the next submitted frame.
-void attach_shape_record(shapes::Record&& record);
-[[nodiscard]] shapes::Matrix* reserve_record_matrices(shapes::Record& record, std::uint32_t count);
-[[nodiscard]] float* reserve_palette_rows(shapes::Record& record, std::uint32_t count);
-[[nodiscard]] state::Op* reserve_record_ops(shapes::Record& record, std::uint32_t count);
-[[nodiscard]] const shapes::Matrix* producer_record_matrices(const shapes::Record& record);
-[[nodiscard]] std::uint32_t reserve_record_native(const void* native, std::size_t bytes);
-[[nodiscard]] RenderVertex* reserve_record_vertices(shapes::Record& record, std::uint32_t count);
-[[nodiscard]] RenderVertexCore* reserve_record_corners(shapes::Record& record, std::uint32_t count);
-[[nodiscard]] ScreenProbe* reserve_record_probes(shapes::Record& record, std::uint32_t count);
-// Simulation thread: the THP movie frame the game draws (movie_replacement.h); every later submission carries it
-// until the movie closes (frame -1).
-void attach_movie_frame(const char* name, std::int32_t frame, float frame_rate, std::uint64_t y, std::uint64_t u,
-                        std::uint64_t v, std::uint32_t width, std::uint32_t height) noexcept;
-// Any thread: a replacement video's frames show for the open movie (its THP frames need no decode).
-[[nodiscard]] bool movie_replacement_showing() noexcept;
+// Test hook: the light stores' clock runs `ms` ahead from now on (an entry unseen for 10 s is reused).
+void advance_game_lights_clock(std::uint64_t ms) noexcept;
+// Simulation thread: the movie frame the game draws (movie_playback.h); every later submission carries it until the
+// next. `data`: the cooked movie (null keeps the one given).
+void attach_movie_frame(const char* name, std::int32_t frame, float frame_rate, const void* data, std::uint64_t size,
+                        std::uint32_t width, std::uint32_t height);
 
 // Channel `channel`'s latest finished probes (nebula_game_api.h NebulaHostServices::screen_probe_results).
 [[nodiscard]] std::uint32_t screen_probe_results(std::uint32_t channel, ScreenProbe* probes, std::uint32_t capacity);
@@ -181,6 +159,17 @@ void attach_movie_frame(const char* name, std::int32_t frame, float frame_rate, 
 // Pumps window messages; the host's main loop calls it periodically.
 void pump_messages();
 [[nodiscard]] bool quit_requested() noexcept;
+
+// The window is minimised: the renderer presents nothing of its own (no repeated pictures, no generated frames) and waits for
+// work without polling. The host sets it together with the game's own suspension. A covered window is not this: the game
+// goes on and the renderer stops presenting by itself. `window_occluded` is the OS's own word that the whole window is covered
+// (Direct3D 12's present status; Vulkan on Windows reports none, so false there).
+void set_window_hidden(bool hidden) noexcept;
+[[nodiscard]] bool window_occluded() noexcept;
+// The window is open but not in front (another program is, or its own dialog is not the active one): the renderer shows the game's
+// own frames at the game's rate and makes no generated frames and no repeated pictures, so a window nobody is playing in costs
+// the GPU the least a moving picture needs. The host sets it from the OS's word on the foreground; false brings everything back.
+void set_window_background(bool background) noexcept;
 
 // The latest pointer state of the native window, from its client-area mouse messages and the OS cursor position.
 [[nodiscard]] HostPointerState poll_host_pointer_state() noexcept;
@@ -201,34 +190,14 @@ struct NativeSettingsOverlaySnapshot {
     unsigned pending_changes = 0;
     bool confirming_display = false;
 };
-struct NativeSettingsLayout {
-    bool supported = false;
-    int panel_x = 0;
-    int panel_y = 0;
-    int panel_width = 0;
-    int panel_height = 0;
-    int text_scale = 0;
-    int rows_y = 0;
-    int row_step = 0;
-    int footer_y = 0;
-};
-
 struct DisplayPresentStats {
-    std::uint64_t requests = 0;
     std::uint64_t presented = 0;
-    // Game-timed presents of a new DisplayTexture::copy_serial, each counted once at its first presentation.
+    // Game-timed presents of a new DisplayTexture::picture_number, each counted once at most.
     // Frame-rate-decoupling re-presents and replays of an older copy do not count.
-    std::uint64_t first_serial_presentations = 0;
-    std::uint64_t repeated_or_stale_serial_requests = 0;
-    std::uint64_t skipped_duplicate_presents = 0;
-    std::uint64_t duplicate_run_max = 0;
-    std::uint64_t out_of_order_serial_requests = 0;
-    std::uint64_t serial_delta_zero = 0;
-    std::uint64_t serial_delta_one = 0;
-    std::uint64_t serial_delta_multi = 0;
-    std::uint64_t highest_first_presented_copy_serial = 0;
+    std::uint64_t new_pictures_shown = 0;
+    std::uint64_t pictures_shown_again = 0;
     std::uint64_t last_presented_frame_stamp = 0;
-    std::uint64_t last_presented_copy_serial = 0;
+    std::uint64_t last_presented_picture = 0;
     std::uint32_t last_presented_slot = 0;
 };
 
@@ -254,21 +223,16 @@ bool request_restart() noexcept;
 
 // The native game's HOME Menu with its choices, taking the keyboard and controllers while open: return
 // to the game, reset, or leave it, the last two after "are you sure?". The game opens it
-// (HBMInit) and polls each frame: -1 nothing chosen yet, 0 return to the game, 1 leave the game, 2 reset. The game
-// draws it from home_menu_view (NEBULA_HBM_VIEW, `drawing`) and sends the pointer's answers; until it draws it, the
-// host draws its own panel.
+// (home_menu_open) and polls each frame: -1 nothing chosen yet, 0 return to the game, 1 leave the game, 2 reset. The game
+// draws it from home_menu_view (NEBULA_HOME_MENU_VIEW) and sends the pointer's answers.
 void home_menu_open() noexcept;
 [[nodiscard]] int home_menu_poll() noexcept;
 void home_menu_close() noexcept;
 [[nodiscard]] bool home_menu_visible() noexcept;
-[[nodiscard]] int home_menu_view(bool drawing) noexcept;
+[[nodiscard]] int home_menu_view() noexcept;
 void home_menu_point(unsigned answer) noexcept;
 void home_menu_choose(unsigned answer) noexcept;
 [[nodiscard]] bool native_window_input_captured() noexcept;
-[[nodiscard]] NativeSettingsLayout compute_native_settings_layout(
-    unsigned backbuffer_width,
-    unsigned backbuffer_height,
-    unsigned tab) noexcept;
 // `was_down` is Win32 LPARAM bit 30. Repeated F1 messages are consumed without
 // toggling so keyboard autorepeat cannot flap the overlay.
 [[nodiscard]] bool native_settings_handle_window_key(
@@ -345,6 +309,9 @@ enum class NativeSettingsStatus : unsigned {
     XessRestart,      // XeSS installed: restart now? (yes: Apply, later: Close)
     XessFailed,       // XeSS was not installed
     License,          // the maker's license: long_text a page (next: Apply, before: Revert, back: Close)
+    Preparing,        // pipelines the settings in use want are still being made (status_number percent)
+    Arrange,          // the phone's on-screen controls are dragged where they go (save: Apply, the game's places: Revert,
+                      // cancel: Close)
 };
 // The Pair Joy-Con screen's status_number (nebula_game_api.h's NEBULA_JOYCON_*, checked alike in host_main.cpp).
 inline constexpr int kJoyConLeftBit = 1;       // a left half is connected
@@ -376,8 +343,20 @@ struct NativeSettingsView {
 enum class NativeSettingsInput : unsigned { Open = 1, Close, SelectPage, SelectRow, Change, Apply, Revert, Press, MoveMod, SetValue };
 void native_settings_input(NativeSettingsInput input, int arg);
 
+// GPU time by pass (the settings overlay's SYSTEM page): off at every start; while it is on, the renderer writes a timestamp at
+// each pass boundary of every frame and reads them back a frame later; while it is off it records and reads nothing. A pass's
+// time is a running average (about ten frames) over the frames that ran it, in milliseconds.
+struct GpuPassTime {
+    const char* name;  // static text
+    float ms;
+};
+void set_gpu_timing(bool on) noexcept;
+[[nodiscard]] bool gpu_timing_on() noexcept;
+// The passes that have a time, at most `capacity`; how many.
+[[nodiscard]] std::size_t gpu_pass_times(GpuPassTime* out, std::size_t capacity) noexcept;
+
 // The frames the game has shown (display copies) and how the presents met them.
-[[nodiscard]] std::uint64_t display_copy_count() noexcept;
+[[nodiscard]] std::uint64_t pictures_made() noexcept;
 [[nodiscard]] DisplayPresentStats display_present_stats() noexcept;
 
 }  // namespace galaxy::render

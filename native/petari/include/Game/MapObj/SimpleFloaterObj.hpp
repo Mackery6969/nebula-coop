@@ -7,15 +7,14 @@ class SimpleFloaterObj : public LiveActor {
 public:
     SimpleFloaterObj(const char*);
 
-    virtual ~SimpleFloaterObj();
-    virtual void init(const JMapInfoIter&);
+    virtual void init(const TableIter&) override;
 
     void exeWait();
     inline bool isVelocityClose() {
-        return _90->_50.length() < 0.3f;
+        return mFloatingForce->mVelocity.length() < 0.3f;
     }
 
-    const char* _8C;
-    MapPartsFloatingForce* _90;
-    TVec3f _94;
+    const char* mObjName;
+    MapPartsFloatingForce* mFloatingForce;
+    Vec3f mEffectPos;
 };

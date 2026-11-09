@@ -3,7 +3,6 @@
 #pragma once
 
 #include "galaxy/controller_roster.h"
-#include "galaxy/frame_cadence_diagnostics.h"
 #include "galaxy/host_pointer_events.h"
 #include "galaxy/input_bindings.h"
 #include "galaxy/native_input.h"
@@ -82,13 +81,13 @@ void publish_native_pointer_input_origin(bool button, bool injected) noexcept;
 [[nodiscard]] bool native_pointer_input_injected(bool button) noexcept;
 
 // Binding capture for the overlay's CONTROLS page. While armed, the controller
-// of `scheme` (and `slot`, 0xff: any of the family) is read in every input
+// of `scheme` (and `slot`, kKeyboardSlot: any of the family) is read in every input
 // mode, never reaches the overlay's pad navigation, and the first new press
 // (button, stick direction past 0.6, trigger past 0.5) is stored; the overlay
 // is told through its key sink with kBindingCaptureKey and collects it with
 // take_controller_binding_capture.
 inline constexpr std::uintptr_t kBindingCaptureKey = 0xE8u;
-void arm_controller_binding_capture(input::ControlScheme scheme, std::uint8_t slot = input::kKeyboardSlot) noexcept;
+void arm_controller_binding_capture(input::ControlScheme scheme, std::uint32_t slot = input::kKeyboardSlot) noexcept;
 void cancel_controller_binding_capture() noexcept;
 [[nodiscard]] std::optional<input::InputSource> take_controller_binding_capture() noexcept;
 
@@ -104,14 +103,15 @@ std::size_t connected_controllers(std::span<input::ControllerInfo> out) noexcept
 [[nodiscard]] input::ButtonIconStyle button_icons_auto_style() noexcept;
 // A person typed or clicked (overlay keys included).
 void note_keyboard_input() noexcept;
-#if defined(__ANDROID__)
-// A keyboard or mouse plugged in, not the touch screen that stands in for them.
-[[nodiscard]] bool physical_keyboard_attached() noexcept;
-#endif
 // The system lists a keyboard or a mouse.
 [[nodiscard]] bool keyboard_or_mouse_attached() noexcept;
-// The phone's on-screen controls: the editor where they are arranged, and what the input mode says of them.
+// The phone's on-screen controls: the editor where they are arranged (the settings menu shows its words and answers
+// while touch_arranging() is true: from arrange_touch_controls until it is saved, cancelled or the phone's Back cancels
+// it), and what the input mode says of them.
 void arrange_touch_controls() noexcept;
+[[nodiscard]] bool touch_arranging() noexcept;
+void finish_arranging_touch_controls(bool save) noexcept;
+void reset_arranged_touch_controls() noexcept;
 void input_mode_changed() noexcept;
 // The on-screen controls' settings for the screen as it is now (each size and turn of a screen has its own size). size: in
 // percent, 0: what the game gives this screen.
@@ -136,14 +136,23 @@ void note_touch_target(std::uint32_t circle) noexcept;
 // settings menu as F1 does.
 void set_input_missing_shown(bool shown) noexcept;
 [[nodiscard]] bool input_missing_shown() noexcept;
-// Synchronous check (settings UI only): a controller is attached now.
-[[nodiscard]] bool controller_present_now() noexcept;
+// SDL hosts: the player took up a real Wii Remote, or let it go. A phone's on-screen controls step aside for it, as
+// for a controller.
+void real_wiimote_taken(bool taken) noexcept;
+// A real Wii Remote as the settings show it (wiimote_hid.cpp; never connected where a host has none).
+struct WiiRemoteState {
+    bool connected = false;
+    bool nunchuk = false;
+    bool has_motion_plus = false;
+    bool motion_plus = false;  // on: the motion pointer mode points with it
+};
+[[nodiscard]] WiiRemoteState wii_remote_state() noexcept;
 
 // The live controls (bindings, keyboard and mouse, controllers, the scripted and replayed test input) as player 1's
-// input at retrace `current_vi`. `star_pointer_mode` (-1 none) and `tilt_section` (0 none, 1 Star Ball, 2 Ray) come
+// input at game frame `current_frame`. `star_pointer_mode` (-1 none) and `tilt_section` (0 none, 1 Star Ball, 2 Ray) come
 // from the game: the control mapping's menu or play context and the tilt steering.
 [[nodiscard]] galaxy::input::PlayerInput native_game_input(
-    std::uint64_t current_vi,
+    std::uint64_t current_frame,
     std::int32_t star_pointer_mode,
     std::uint8_t tilt_section);
 // Player 2 (co-star mode), as of the last native_game_input: false while nobody plays it.

@@ -1,11 +1,12 @@
 #include "Game/MapObj/KeySwitch.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util.hpp"
-#include <JSystem/JMath/JMath.hpp>
+#include <nebula_geometry.hpp>
 
 namespace {
-    static const char* const cDemoName = "\203\112\203\115\217\157\214\273" /* カギ出現 */;
+    static const char* const cDemoName = "カギ出現";
 };  // namespace
 
 namespace NrvKeySwitch {
@@ -14,26 +15,23 @@ namespace NrvKeySwitch {
     NEW_NERVE(KeySwitchNrvWait, KeySwitch, Wait);
 };  // namespace NrvKeySwitch
 
-KeySwitch::~KeySwitch() {
-}
-
 KeySwitch::KeySwitch(const char* pName) : LiveActor(pName) {
     mCameraInfo = 0;
     mCurDemoFrame = -1;
 }
 
-void KeySwitch::init(const JMapInfoIter& rIter) {
+void KeySwitch::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("KeySwitch", 0, false);
     MR::connectToSceneMapObjDecoration(this);
     initHitSensor(1);
-    TVec3f box;
+    Vec3f box;
     box.x = 0.0f;
     box.y = 105.0f;
     box.z = 0.0f;
     MR::addHitSensorMapObjSimple(this, "body", 8, 105.0f, box);
     initBinder(105.0f, 105.0f, 0);
-    initEffectKeeper(0, 0, false);
+    initEffectKeeper(0, 0);
     initSound(4, false);
     MR::initShadowVolumeCylinder(this, 90.0f);
 
@@ -67,13 +65,13 @@ void KeySwitch::init(const JMapInfoIter& rIter) {
     }
 }
 
-void KeySwitch::initKeySwitchByOwner(const JMapInfoIter& rIter) {
+void KeySwitch::initKeySwitchByOwner(const TableIter& rIter) {
     initWithoutIter();
     MR::needStageSwitchWriteA(this, rIter);
     MR::initActorCamera(this, rIter, &mCameraInfo);
 }
 
-void KeySwitch::appearKeySwitch(const TVec3f& rVec) {
+void KeySwitch::appearKeySwitch(const Vec3f& rVec) {
     MR::resetPosition(this, rVec);
     MR::onCalcGravity(this);
     MR::invalidateClipping(this);
@@ -104,7 +102,7 @@ void KeySwitch::exeAppear() {
     MR::setBckRate(this, MR::calcNerveValue(this, 0xB4, 3.0f, 1.5f));
     MR::addVelocityToGravity(this, 2.0f);
 
-    bool val = false;
+    bool isSettled = false;
 
     if (MR::isBindedGround(this)) {
         if (mVelocity.length() >= 10.0f) {
@@ -115,16 +113,16 @@ void KeySwitch::exeAppear() {
             }
 
             MR::startSound(this, "SE_OJ_KEY_SWITCH_BOUND", mag);
-            TVec3f neg;
+            Vec3f neg;
             neg.negate(mGravity);
             MR::calcReboundVelocity(&mVelocity, neg, 0.60f, 0.7f);
         } else {
-            val = true;
+            isSettled = true;
         }
     }
 
     if (!tryAvoid()) {
-        if (val) {
+        if (isSettled) {
             MR::validateClipping(this);
             setNerve(GET_NERVE(KeySwitch, KeySwitchNrvWait));
         }
@@ -152,9 +150,9 @@ void KeySwitch::kill() {
 }
 
 void KeySwitch::calcAndSetBaseMtx() {
-    TVec3f front;
+    Vec3f front;
     MR::calcFrontVec(&front, this);
-    TPos3f mtx;
+    Pos3f mtx;
     MR::calcMtxFromGravityAndZAxis(&mtx, this, mGravity, front);
     MR::setBaseTRMtx(this, mtx);
 }
@@ -172,16 +170,16 @@ void KeySwitch::control() {
     }
 }
 
-bool KeySwitch::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool KeySwitch::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     return MR::isMsgStarPieceReflect(msg);
 }
 
-bool KeySwitch::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool KeySwitch::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (MR::isMsgStarPieceReflect(msg)) {
         return true;
     }
 
-    if (isNerve(GET_NERVE(KeySwitch, KeySwitchNrvAppear)) && MR::isLessEqualStep(this, 60)) {
+    if (isNerve(GET_NERVE(KeySwitch, KeySwitchNrvAppear)) && MR::isLessEqualStep(this, NebulaFrameClock::stepsOfSeconds(1))) {
         return false;
     }
 
@@ -214,16 +212,16 @@ bool KeySwitch::tryAvoid() {
     }
 
     sensorActor = sensor->mHost;
-    TVec3f up;
+    Vec3f up;
     MR::calcUpVec(&up, sensorActor);
-    TVec3f thing;
-    thing.sub(mPosition, sensorActor->mPosition);
-    TVec3f stack_8 = thing.killElement(up);
+    Vec3f away;
+    away.sub(mPosition, sensorActor->mPosition);
+    Vec3f awayOnPlane = away.killElement(up);
 
-    if (MR::normalizeOrZero(&stack_8)) {
-        MR::calcFrontVec(&stack_8, sensorActor);
+    if (MR::normalizeOrZero(&awayOnPlane)) {
+        MR::calcFrontVec(&awayOnPlane, sensorActor);
     }
 
-    mVelocity.scale(10.0f, stack_8);
+    mVelocity.scale(10.0f, awayOnPlane);
     return true;
 }

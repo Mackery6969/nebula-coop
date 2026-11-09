@@ -1,13 +1,12 @@
 #include "Game/Map/CollisionCategorizedKeeper.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
-#include "Game/Map/CollisionDirector.hpp"
 #include "Game/Map/CollisionParts.hpp"
 #include "Game/Util/CollisionPartsFilter.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/SceneUtil.hpp"
 
 CollisionCategorizedKeeper::CollisionCategorizedKeeper(s32 category)
-    : NameObj("\222\156\214\140\203\122\203\212\203\127\203\207\203\223\203\112\203\145\203\123\203\212\203\114\201\133\203\160\201\133" /* 地形コリジョンカテゴリキーパー */), mHitInfoArray(), _10(), mPartsCount(), mCategory(category), mZonesInitialized(),
+    : NameObj("地形コリジョンカテゴリキーパー"), mHitInfoArray(), mNumHits(), mPartsCount(), mCategory(category), mZonesInitialized(),
       mUpdateZoneBounds(true) {
     mHitInfoRoom = 32;
     mHitInfoArray = new HitInfo[mHitInfoRoom];
@@ -22,14 +21,14 @@ void CollisionCategorizedKeeper::movement() {
         for (int i = 0; i < count; i++) {
             pParts = (*pZone)->mParts[i];
 
-            if (pParts->_CC) {
+            if (pParts->mIsValid) {
                 if (mCategory == pParts->mKeeperIndex) {
                     pParts->updateMtx();
                 }
 
                 if (mUpdateZoneBounds) {
                     (*pZone)->calcMinMaxAndRadius();
-                } else if (pParts->_D4 == 0) {
+                } else if (pParts->mStillCount == 0) {
                     (*pZone)->calcMinMaxAndRadiusIfMoveOuter(pParts);
                 }
             }
@@ -59,9 +58,8 @@ void CollisionCategorizedKeeper::removeFromGlobal(CollisionParts* pParts) {
     mPartsCount--;
 }
 
-s32 CollisionCategorizedKeeper::checkStrikePoint(const TVec3f& rPosition, HitInfo* pHitInfo) {
-    MR::getCollisionDirector();
-    _10 = 0;
+s32 CollisionCategorizedKeeper::checkStrikePoint(const Vec3f& rPosition, HitInfo* pHitInfo) {
+    mNumHits = 0;
 
     for (CollisionZone** pZone = mZones.begin(); pZone != mZones.end(); pZone++) {
         if (pZone != mZones.begin()) {
@@ -70,7 +68,7 @@ s32 CollisionCategorizedKeeper::checkStrikePoint(const TVec3f& rPosition, HitInf
             }
 
             f32 radius = (*pZone)->mRadius;
-            TVec3f offset((*pZone)->mCenter);
+            Vec3f offset((*pZone)->mCenter);
             offset -= rPosition;
 
             if (radius * radius < offset.squared()) {
@@ -84,12 +82,12 @@ s32 CollisionCategorizedKeeper::checkStrikePoint(const TVec3f& rPosition, HitInf
         for (int i = 0; i < count; i++) {
             pParts = (*pZone)->mParts[i];
 
-            if (!pParts->_CC) {
+            if (!pParts->mIsValid) {
                 continue;
             }
 
-            f32 radius = pParts->_D8;
-            TVec3f offset;
+            f32 radius = pParts->mBoundingRadius;
+            Vec3f offset;
             offset.x = MR::abs(pParts->getTrans().x - rPosition.x);
 
             if (radius < offset.x) {
@@ -113,19 +111,18 @@ s32 CollisionCategorizedKeeper::checkStrikePoint(const TVec3f& rPosition, HitInf
             }
 
             if (pParts->checkStrikePoint(pHitInfo, rPosition)) {
-                _10 = 1;
+                mNumHits = 1;
                 return 1;
             }
         }
     }
 
-    return _10;
+    return mNumHits;
 }
 
-s32 CollisionCategorizedKeeper::collectStrikeBall(const TVec3f& rPosition, f32 ballRadius, bool moving, const CollisionPartsFilterBase* pPartsFilter,
+s32 CollisionCategorizedKeeper::collectStrikeBall(const Vec3f& rPosition, f32 ballRadius, bool moving, const CollisionPartsFilterBase* pPartsFilter,
                                                 const TriangleFilterBase* pTriangleFilter) {
-    MR::getCollisionDirector();
-    _10 = 0;
+    mNumHits = 0;
     s32 hitCount = 0;
 
     for (CollisionZone** pZone = mZones.begin(); pZone != mZones.end(); pZone++) {
@@ -135,7 +132,7 @@ s32 CollisionCategorizedKeeper::collectStrikeBall(const TVec3f& rPosition, f32 b
             }
 
             f32 radius = ballRadius + (*pZone)->mRadius;
-            TVec3f offset((*pZone)->mCenter);
+            Vec3f offset((*pZone)->mCenter);
             offset -= rPosition;
 
             if (radius * radius < offset.squared()) {
@@ -149,7 +146,7 @@ s32 CollisionCategorizedKeeper::collectStrikeBall(const TVec3f& rPosition, f32 b
         for (int i = 0; i < count; i++) {
             pParts = (*pZone)->mParts[i];
 
-            if (!pParts->_CC) {
+            if (!pParts->mIsValid) {
                 continue;
             }
 
@@ -157,8 +154,8 @@ s32 CollisionCategorizedKeeper::collectStrikeBall(const TVec3f& rPosition, f32 b
                 continue;
             }
 
-            f32 radius = ballRadius + pParts->_D8;
-            TVec3f offset;
+            f32 radius = ballRadius + pParts->mBoundingRadius;
+            Vec3f offset;
             offset.x = MR::abs(pParts->getTrans().x - rPosition.x);
 
             if (radius < offset.x) {
@@ -184,21 +181,20 @@ s32 CollisionCategorizedKeeper::collectStrikeBall(const TVec3f& rPosition, f32 b
             hitCount += pParts->checkStrikeBall(&mHitInfoArray[hitCount], mHitInfoRoom - hitCount, rPosition, ballRadius, moving, pTriangleFilter);
 
             if (hitCount >= mHitInfoRoom) {
-                _10 = hitCount;
+                mNumHits = hitCount;
                 return hitCount;
             }
         }
     }
 
-    _10 = hitCount;
+    mNumHits = hitCount;
     return hitCount;
 }
 
-s32 CollisionCategorizedKeeper::collectStrikeBallWithThickness(const TVec3f& rPosition, f32 ballRadius, f32 thickness,
+s32 CollisionCategorizedKeeper::collectStrikeBallWithThickness(const Vec3f& rPosition, f32 ballRadius, f32 thickness,
                                                              const CollisionPartsFilterBase* pPartsFilter,
                                                              const TriangleFilterBase* pTriangleFilter) {
-    MR::getCollisionDirector();
-    _10 = 0;
+    mNumHits = 0;
     s32 hitCount = 0;
 
     for (CollisionZone** pZone = mZones.begin(); pZone != mZones.end(); pZone++) {
@@ -208,7 +204,7 @@ s32 CollisionCategorizedKeeper::collectStrikeBallWithThickness(const TVec3f& rPo
             }
 
             f32 radius = ballRadius + (*pZone)->mRadius;
-            TVec3f offset((*pZone)->mCenter);
+            Vec3f offset((*pZone)->mCenter);
             offset -= rPosition;
 
             if (radius * radius < offset.squared()) {
@@ -222,7 +218,7 @@ s32 CollisionCategorizedKeeper::collectStrikeBallWithThickness(const TVec3f& rPo
         for (int i = 0; i < count; i++) {
             pParts = (*pZone)->mParts[i];
 
-            if (!pParts->_CC) {
+            if (!pParts->mIsValid) {
                 continue;
             }
 
@@ -230,8 +226,8 @@ s32 CollisionCategorizedKeeper::collectStrikeBallWithThickness(const TVec3f& rPo
                 continue;
             }
 
-            f32 radius = ballRadius + pParts->_D8;
-            TVec3f offset;
+            f32 radius = ballRadius + pParts->mBoundingRadius;
+            Vec3f offset;
             offset.x = MR::abs(pParts->getTrans().x - rPosition.x);
 
             if (radius < offset.x) {
@@ -258,28 +254,26 @@ s32 CollisionCategorizedKeeper::collectStrikeBallWithThickness(const TVec3f& rPo
                 pParts->checkStrikeBallWithThickness(&mHitInfoArray[hitCount], mHitInfoRoom - hitCount, rPosition, ballRadius, thickness, pTriangleFilter);
 
             if (hitCount >= mHitInfoRoom) {
-                _10 = hitCount;
+                mNumHits = hitCount;
                 return hitCount;
             }
         }
     }
 
-    _10 = hitCount;
+    mNumHits = hitCount;
     return hitCount;
 }
 
-s32 CollisionCategorizedKeeper::collectStrikeLine(const TVec3f& rStart, const TVec3f& rDirection, s32 maxHits,
+s32 CollisionCategorizedKeeper::collectStrikeLine(const Vec3f& rStart, const Vec3f& rDirection, s32 maxHits,
                                                 const CollisionPartsFilterBase* pPartsFilter, const TriangleFilterBase* pTriangleFilter) {
-    MR::getCollisionDirector();
-
     if (maxHits == 0 || maxHits > mHitInfoRoom) {
         maxHits = mHitInfoRoom;
     }
 
-    _10 = 0;
+    mNumHits = 0;
     s32 hitCount = 0;
-    TVec3f min(rStart);
-    TVec3f max(rStart);
+    Vec3f min(rStart);
+    Vec3f max(rStart);
 
     if (rDirection.x < 0.0f) {
         min.x += rDirection.x;
@@ -301,7 +295,7 @@ s32 CollisionCategorizedKeeper::collectStrikeLine(const TVec3f& rStart, const TV
 
     for (CollisionZone** pZone = mZones.begin(); pZone != mZones.end(); pZone++) {
         if (pZone != mZones.begin()) {
-            TVec3f position((*pZone)->mCenter);
+            Vec3f position((*pZone)->mCenter);
             f32 radius = (*pZone)->mRadius;
 
             if (!isSphereOverlappingWithBox(min, max, position, radius)) {
@@ -319,7 +313,7 @@ s32 CollisionCategorizedKeeper::collectStrikeLine(const TVec3f& rStart, const TV
         for (int i = 0; i < count; i++) {
             pParts = (*pZone)->mParts[i];
 
-            if (!pParts->_CC) {
+            if (!pParts->mIsValid) {
                 continue;
             }
 
@@ -327,8 +321,8 @@ s32 CollisionCategorizedKeeper::collectStrikeLine(const TVec3f& rStart, const TV
                 continue;
             }
 
-            TVec3f position(pParts->getTrans());
-            f32 radius = pParts->_D8;
+            Vec3f position(pParts->getTrans());
+            f32 radius = pParts->mBoundingRadius;
 
             if (!isSphereOverlappingWithBox(min, max, position, radius)) {
                 continue;
@@ -341,21 +335,20 @@ s32 CollisionCategorizedKeeper::collectStrikeLine(const TVec3f& rStart, const TV
             hitCount += pParts->checkStrikeLine(&mHitInfoArray[hitCount], maxHits - hitCount, rStart, rDirection, pTriangleFilter);
 
             if (maxHits <= hitCount) {
-                _10 = hitCount;
+                mNumHits = hitCount;
                 return hitCount;
             }
         }
     }
 
-    _10 = hitCount;
+    mNumHits = hitCount;
     return hitCount;
 }
 
-u32 CollisionCategorizedKeeper::createAreaPolygonList(Triangle* pTriangles, u32 maxTriangles, const TVec3f& rStart, const TVec3f& rEnd) {
-    MR::getCollisionDirector();
+u32 CollisionCategorizedKeeper::createAreaPolygonList(Triangle* pTriangles, u32 maxTriangles, const Vec3f& rStart, const Vec3f& rEnd) {
     u32 triangleCount = 0;
-    TVec3f min;
-    TVec3f max;
+    Vec3f min;
+    Vec3f max;
 
     if (rStart.x < rEnd.x) {
         min.x = rStart.x;
@@ -392,12 +385,12 @@ u32 CollisionCategorizedKeeper::createAreaPolygonList(Triangle* pTriangles, u32 
         for (int i = 0; i < count; i++) {
             pParts = (*pZone)->mParts[i];
 
-            if (!pParts->_CC) {
+            if (!pParts->mIsValid) {
                 continue;
             }
 
-            f32 radius = pParts->_D8;
-            TVec3f position(pParts->getTrans());
+            f32 radius = pParts->mBoundingRadius;
+            Vec3f position(pParts->getTrans());
 
             if (!isSphereOverlappingWithBox(min, max, position, radius)) {
                 continue;
@@ -414,11 +407,10 @@ u32 CollisionCategorizedKeeper::createAreaPolygonList(Triangle* pTriangles, u32 
     return triangleCount;
 }
 
-u32 CollisionCategorizedKeeper::createAreaPolygonListArray(Triangle* pTriangles, u32 maxTriangles, TVec3f* pVertices, u32 vertexCount) {
-    MR::getCollisionDirector();
+u32 CollisionCategorizedKeeper::createAreaPolygonListArray(Triangle* pTriangles, u32 maxTriangles, Vec3f* pVertices, u32 vertexCount) {
     u32 triangleCount = 0;
-    TVec3f min;
-    TVec3f max;
+    Vec3f min;
+    Vec3f max;
     MR::createBoundingBox(pVertices, vertexCount, &min, &max);
 
     for (CollisionZone** pZone = mZones.begin(); pZone != mZones.end(); pZone++) {
@@ -432,12 +424,12 @@ u32 CollisionCategorizedKeeper::createAreaPolygonListArray(Triangle* pTriangles,
         for (int i = 0; i < count; i++) {
             pParts = (*pZone)->mParts[i];
 
-            if (!pParts->_CC) {
+            if (!pParts->mIsValid) {
                 continue;
             }
 
-            f32 radius = pParts->_D8;
-            TVec3f position(pParts->getTrans());
+            f32 radius = pParts->mBoundingRadius;
+            Vec3f position(pParts->getTrans());
 
             if (!isSphereOverlappingWithBox(min, max, position, radius)) {
                 continue;
@@ -454,7 +446,7 @@ u32 CollisionCategorizedKeeper::createAreaPolygonListArray(Triangle* pTriangles,
     return triangleCount;
 }
 
-bool CollisionCategorizedKeeper::isSphereOverlappingWithBox(const TVec3f& rMin, const TVec3f& rMax, const TVec3f& rCenter, f32 radius) {
+bool CollisionCategorizedKeeper::isSphereOverlappingWithBox(const Vec3f& rMin, const Vec3f& rMax, const Vec3f& rCenter, f32 radius) {
     if (rCenter.x < rMin.x - radius || rMax.x + radius < rCenter.x) {
         return false;
     }
@@ -493,7 +485,7 @@ void CollisionCategorizedKeeper::growHitInfo() {
     mHitInfoArray = new (NebulaArena::findFromRoot(this), 0) HitInfo[mHitInfoRoom];
 }
 
-s32 CollisionCategorizedKeeper::checkStrikeBall(const TVec3f& rPosition, f32 ballRadius, bool moving,
+s32 CollisionCategorizedKeeper::checkStrikeBall(const Vec3f& rPosition, f32 ballRadius, bool moving,
                                                 const CollisionPartsFilterBase* pPartsFilter,
                                                 const TriangleFilterBase* pTriangleFilter) {
     s32 hitCount = collectStrikeBall(rPosition, ballRadius, moving, pPartsFilter, pTriangleFilter);
@@ -505,7 +497,7 @@ s32 CollisionCategorizedKeeper::checkStrikeBall(const TVec3f& rPosition, f32 bal
     return hitCount;
 }
 
-s32 CollisionCategorizedKeeper::checkStrikeBallWithThickness(const TVec3f& rPosition, f32 ballRadius, f32 thickness,
+s32 CollisionCategorizedKeeper::checkStrikeBallWithThickness(const Vec3f& rPosition, f32 ballRadius, f32 thickness,
                                                              const CollisionPartsFilterBase* pPartsFilter,
                                                              const TriangleFilterBase* pTriangleFilter) {
     s32 hitCount = collectStrikeBallWithThickness(rPosition, ballRadius, thickness, pPartsFilter, pTriangleFilter);
@@ -517,7 +509,7 @@ s32 CollisionCategorizedKeeper::checkStrikeBallWithThickness(const TVec3f& rPosi
     return hitCount;
 }
 
-s32 CollisionCategorizedKeeper::checkStrikeLine(const TVec3f& rStart, const TVec3f& rDirection, s32 maxHits,
+s32 CollisionCategorizedKeeper::checkStrikeLine(const Vec3f& rStart, const Vec3f& rDirection, s32 maxHits,
                                                 const CollisionPartsFilterBase* pPartsFilter,
                                                 const TriangleFilterBase* pTriangleFilter) {
     s32 hitCount = collectStrikeLine(rStart, rDirection, maxHits, pPartsFilter, pTriangleFilter);
@@ -544,7 +536,8 @@ CollisionZone* CollisionCategorizedKeeper::getZone(int zone) {
         mZonesInitialized = true;
     }
 
-    return mZones[zone];
+    // A part made outside any placement (zone -1, e.g. spawned by a mod) or past the zone list belongs to the global zone.
+    return mZones[zone >= 0 && zone < mZones.size() ? zone : 0];
 }
 
 CollisionZone::CollisionZone(s32 zoneID) : mZoneID(zoneID), mCenter(0, 0, 0), mRadius(), mMin(0, 0, 0), mMax(0, 0, 0) {
@@ -565,11 +558,11 @@ void CollisionZone::calcMinMaxAndRadius() {
     mRadius = 0.0f;
 
     for (CollisionParts** pParts = mParts.begin(); pParts != mParts.end(); pParts++) {
-        TVec3f min((*pParts)->getTrans());
-        TVec3f max((*pParts)->getTrans());
-        f32 radius = (*pParts)->_D8;
-        min -= TVec3f(radius, radius, radius);
-        max += TVec3f(radius, radius, radius);
+        Vec3f min((*pParts)->getTrans());
+        Vec3f max((*pParts)->getTrans());
+        f32 radius = (*pParts)->mBoundingRadius;
+        min -= Vec3f(radius, radius, radius);
+        max += Vec3f(radius, radius, radius);
         addAndUpdateMinMax(min, max);
     }
 
@@ -577,10 +570,10 @@ void CollisionZone::calcMinMaxAndRadius() {
     f32 radius = 0.0f;
 
     for (pCurrent = mParts.begin(); pCurrent != mParts.end(); pCurrent++) {
-        TVec3f position((*pCurrent)->getTrans());
+        Vec3f position((*pCurrent)->getTrans());
         position -= mCenter;
         f32 outer = position.length();
-        outer += (*pCurrent)->_D8;
+        outer += (*pCurrent)->mBoundingRadius;
 
         if (radius < outer) {
             radius = outer;
@@ -591,10 +584,10 @@ void CollisionZone::calcMinMaxAndRadius() {
 }
 
 void CollisionZone::calcMinMaxAndRadiusIfMoveOuter(CollisionParts* pParts) {
-    f32 radius = pParts->_D8;
-    TVec3f position(pParts->getTrans());
-    TVec3f min(mMin);
-    TVec3f max(mMax);
+    f32 radius = pParts->mBoundingRadius;
+    Vec3f position(pParts->getTrans());
+    Vec3f min(mMin);
+    Vec3f max(mMax);
     min.x += radius;
     min.y += radius;
     min.z += radius;
@@ -607,7 +600,7 @@ void CollisionZone::calcMinMaxAndRadiusIfMoveOuter(CollisionParts* pParts) {
     }
 }
 
-void CollisionZone::addAndUpdateMinMax(TVec3f min, TVec3f max) {
+void CollisionZone::addAndUpdateMinMax(Vec3f min, Vec3f max) {
     if (mRadius == 0.0f) {
         mRadius = 0.1f;
         mMin.set(min);
@@ -653,11 +646,8 @@ void CollisionZone::eraseParts(CollisionParts* pParts) {
     }
 }
 
-CollisionCategorizedKeeper::~CollisionCategorizedKeeper() {
-}
-
-TVec3f CollisionParts::getTrans() {
-    TVec3f translation;
+Vec3f CollisionParts::getTrans() {
+    Vec3f translation;
     mBaseMatrix.getTrans(translation);
     return translation;
 }

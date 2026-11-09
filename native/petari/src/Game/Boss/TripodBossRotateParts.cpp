@@ -7,7 +7,7 @@
 TripodBossRotateParts::TripodBossRotateParts(const char* pName) : TripodBossFixParts(pName), mRotator() {
 }
 
-void TripodBossRotateParts::init(const JMapInfoIter& rIter) {
+void TripodBossRotateParts::init(const TableIter& rIter) {
     TripodBossFixParts::init(rIter);
 
     mRotator = new MapPartsRotator(this);
@@ -27,16 +27,13 @@ void TripodBossRotateParts::activateTripodBoss() {
     mRotator->start();
 }
 
-void TripodBossRotateParts::calcTripodLocalMatrix(TPos3f* pMtx) {
+void TripodBossRotateParts::calcTripodLocalMatrix(Pos3f* pMtx) {
     if (mRotator->isWorking()) {
         pMtx->set(mRotator->getRotateMtx());
-        pMtx->setTrans(_BC);
+        pMtx->setTrans(mLocalPos);
     } else {
-        MR::makeMtxTR(*pMtx, _BC, mRotation);
+        MR::makeMtxTR(*pMtx, mLocalPos, mRotation);
     }
-}
-
-TripodBossRotateParts::~TripodBossRotateParts() {
 }
 
 void TripodBossRotateParts::exeWaitOwn() {

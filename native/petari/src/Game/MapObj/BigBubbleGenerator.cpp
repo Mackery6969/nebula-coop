@@ -6,14 +6,14 @@
 #include "Game/Util/ActorMovementUtil.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 
 namespace {
-    static const f32 sActiveDistance = 1500.0f;
-    static const f32 sNonActiveDistance = 2000.0f;
-    static const f32 sGenerateOffsetY = 60.0f;
+    const f32 sActiveDistance = 1500.0f;
+    const f32 sNonActiveDistance = 2000.0f;
+    const f32 sGenerateOffsetY = 60.0f;
 };  // namespace
 
 namespace NrvBigBubbleGenerator {
@@ -21,12 +21,13 @@ namespace NrvBigBubbleGenerator {
     NEW_NERVE(BigBubbleGeneratorNrvActive, BigBubbleGenerator, Active);
 };  // namespace NrvBigBubbleGenerator
 
-BigBubbleGenerator::BigBubbleGenerator(const char* pName)
-    : LiveActor(pName), mSpawnTimer(-1), mMinSize(1.0f), mMaxSize(1.0f), mIsObstruct(0), mShape(-1), mLimitterID(-1), mAttachedBubble(nullptr) {
+BigBubbleGenerator::BigBubbleGenerator(const char* pName, bool isObstruct)
+    : LiveActor(pName), mSpawnTimer(-1), mMinSize(1.0f), mMaxSize(1.0f), mIsObstruct(isObstruct), mShape(-1), mLimitterID(-1),
+      mAttachedBubble(nullptr) {
     MR::createBigBubbleHolder();
 }
 
-void BigBubbleGenerator::init(const JMapInfoIter& rIter) {
+void BigBubbleGenerator::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("AirBubbleGenerator", nullptr, false);
     MR::connectToSceneMapObj(this);
@@ -36,20 +37,21 @@ void BigBubbleGenerator::init(const JMapInfoIter& rIter) {
 
     MR::initCollisionParts(this, "AirBubbleGenerator", getSensor(nullptr), nullptr);
     initNerve(GET_NERVE(BigBubbleGenerator, BigBubbleGeneratorNrvNonActive));
-    initFromJMapParam(rIter);
+    initFromPlacementParam(rIter);
     makeActorAppeared();
 }
 
-void BigBubbleGenerator::initFromJMapParam(const JMapInfoIter& rIter) {
-    MR::getJMapInfoArg0NoInit(rIter, &mSpawnTimer);
-    if (MR::getJMapInfoArg1NoInit(rIter, &mMinSize)) {
+// Sizes are placed in percent.
+void BigBubbleGenerator::initFromPlacementParam(const TableIter& rIter) {
+    MR::getPlacementArg0NoInit(rIter, &mSpawnTimer);
+    if (MR::getPlacementArg1NoInit(rIter, &mMinSize)) {
         mMinSize /= 100.0f;
     }
-    if (MR::getJMapInfoArg2NoInit(rIter, &mMaxSize)) {
+    if (MR::getPlacementArg2NoInit(rIter, &mMaxSize)) {
         mMaxSize /= 100.0f;
     }
-    MR::getJMapInfoArg3WithInit(rIter, &mLimitterID);
-    MR::getJMapInfoArg4WithInit(rIter, &mShape);
+    MR::getPlacementArg3WithInit(rIter, &mLimitterID);
+    MR::getPlacementArg4WithInit(rIter, &mShape);
 
     if (MR::useStageSwitchReadAppear(this, rIter)) {
         MR::listenStageSwitchOnOffAppear(this, MR::Functor(this, &BigBubbleGenerator::onActive), MR::Functor(this, &BigBubbleGenerator::offActive));
@@ -63,11 +65,7 @@ void BigBubbleGenerator::initAfterPlacement() {
 }
 
 void BigBubbleGenerator::control() {
-    if (mAttachedBubble == nullptr) {
-        return;
-    }
-
-    if (MR::isDead(mAttachedBubble) || mAttachedBubble->mHost != this) {
+    if (mAttachedBubble != nullptr && (MR::isDead(mAttachedBubble) || mAttachedBubble->mHost != this)) {
         mAttachedBubble = nullptr;
     }
 }
@@ -86,60 +84,43 @@ void BigBubbleGenerator::offActive() {
     }
 }
 
-inline bool BigBubbleGenerator::isActiveRange() {
-    return MR::isNearPlayerAnyTime(this, ::sActiveDistance);
-}
-
-inline bool BigBubbleGenerator::isNonActiveRange() {
-    return !MR::isNearPlayerAnyTime(this, ::sNonActiveDistance);
-}
-
-bool BigBubbleGenerator::tryActive() {
-    if (!MR::isValidSwitchAppear(this) && isActiveRange()) {
+void BigBubbleGenerator::tryActive() {
+    if (!MR::isValidSwitchAppear(this) && MR::isNearPlayerAnyTime(this, ::sActiveDistance)) {
         MR::invalidateClipping(this);
         setNerve(GET_NERVE(BigBubbleGenerator, BigBubbleGeneratorNrvActive));
-        return true;
     }
-    return false;
 }
 
-bool BigBubbleGenerator::tryNonActive() {
-    if (!MR::isValidSwitchAppear(this) && isNonActiveRange()) {
+void BigBubbleGenerator::tryNonActive() {
+    if (!MR::isValidSwitchAppear(this) && !MR::isNearPlayerAnyTime(this, ::sNonActiveDistance)) {
         MR::validateClipping(this);
         setNerve(GET_NERVE(BigBubbleGenerator, BigBubbleGeneratorNrvNonActive));
-        return true;
     }
-    return false;
 }
 
-inline void BigBubbleGenerator::exeNonActive() {
+void BigBubbleGenerator::exeNonActive() {
     tryActive();
 }
 
+// A negative timer keeps one bubble attached; otherwise one is sent every mSpawnTimer steps.
 void BigBubbleGenerator::exeActive() {
-    bool spawn = false;
-    bool attach = false;
-    if (mSpawnTimer < 0) {
-        if (mAttachedBubble == nullptr) {
-            spawn = true;
-            attach = true;
-        }
+    const bool isAttach = mSpawnTimer < 0;
+    bool isSpawn;
+    if (isAttach) {
+        isSpawn = mAttachedBubble == nullptr;
     } else {
-        if ((mSpawnTimer != 0 ? getNerveStep() % mSpawnTimer : getNerveStep()) == 0) {
-            spawn = true;
-            attach = false;
-        }
+        isSpawn = (mSpawnTimer != 0 ? getNerveStep() % mSpawnTimer : getNerveStep()) == 0;
     }
 
-    if (spawn) {
-        TVec3f up;
+    if (isSpawn) {
+        Vec3f up;
         MR::calcActorAxisY(&up, this);
-        TVec3f pos = mPosition + up * ::sGenerateOffsetY;
+        Vec3f pos = mPosition + up * ::sGenerateOffsetY;
         MR::startBck(this, "Generate");
-        BigBubble* bubble = MR::generateBigBubble(this, pos, up, MR::getRandom(mMinSize, mMaxSize), attach, mIsObstruct, mShape, mLimitterID);
+        BigBubble* pBubble = MR::generateBigBubble(this, pos, up, MR::getRandom(mMinSize, mMaxSize), isAttach, mIsObstruct, mShape, mLimitterID);
 
-        if (attach) {
-            mAttachedBubble = bubble;
+        if (isAttach) {
+            mAttachedBubble = pBubble;
         }
     }
 
@@ -147,13 +128,9 @@ void BigBubbleGenerator::exeActive() {
 }
 
 NameObj* MR::createBigBubbleGenerator(const char* pName) {
-    BigBubbleGenerator* generator = new BigBubbleGenerator(pName);
-    generator->mIsObstruct = false;
-    return generator;
+    return new BigBubbleGenerator(pName, false);
 }
 
 NameObj* MR::createBigObstructBubbleGenerator(const char* pName) {
-    BigBubbleGenerator* generator = new BigBubbleGenerator(pName);
-    generator->mIsObstruct = true;
-    return generator;
+    return new BigBubbleGenerator(pName, true);
 }

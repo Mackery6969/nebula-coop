@@ -12,38 +12,40 @@ class Mogu : public LiveActor {
 public:
     Mogu(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void kill();
-    virtual void endClipped();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void kill() override;
+    virtual void endClipped() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
 
-    void exeWait();
     void exeHide();
     void exeHideWait();
     void exeAppear();
-    bool isPlayerExistUp();
+    bool isPlayerExistUp() const;
+    bool isPlayerTooNear(f32 distanceToPlayer) const;
+    bool tryStartSwoon(bool isHipDropFelt);
     void exeSearch();
     void exeThrow();
     void endThrow();
-    void tearDownThrow();
     void exeSwoonStart();
     void exeSwoon();
     void exeHipDropReaction();
     void exeSwoonEnd();
     void exeStampDeath();
     void exeHitBlow();
-    bool isNearPlayerHipDrop();
-    bool tryPunchHitted(HitSensor*, HitSensor*, bool);
+    bool isNearPlayerHipDrop() const;
+    bool isHiddenOrDown() const;
+    bool isSwoon() const;
+    void startHitBlow(HitSensor* pAttacker, HitSensor* pVictim);
 
     AnimScaleController* mAnimScaleController;
-    FixedPosition* _90;
+    FixedPosition* mStoneHoldPos;
     MoguStone* mStone;
     ModelObj* mHole;
-    TVec3f mSight;
-    TVec3f _A8;
-    bool _B4;
+    Vec3f mSight;
+    Vec3f mUp;
+    bool mThrowOnGravity;
     bool mIsCannonFleet;
 };

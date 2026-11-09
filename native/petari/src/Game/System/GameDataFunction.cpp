@@ -14,7 +14,7 @@
 #include "Game/System/ScenarioDataParser.hpp"
 #include "Game/System/UserFile.hpp"
 #include "Game/Util/SingletonHolder.hpp"
-#include <cstdio>
+#include "Game/Util/StringUtil.hpp"
 
 namespace {
     SaveDataHandleSequence* getSaveDataHandleSequence() {
@@ -74,6 +74,14 @@ namespace GameDataFunction {
         return getCurrentGameDataHolder()->getPowerStarNumOwned(pGalaxyName);
     }
 
+    const char* findStarGalaxyName(const char* pGalaxyName) {
+        const ScenarioData* pData = ScenarioDataFunction::getScenarioDataParser()->getScenarioData(pGalaxyName);
+        if (pData == nullptr || getCurrentGameDataHolder()->mAllGalaxyStorage->findIndex(pData->mGalaxyName) < 0) {
+            return nullptr;
+        }
+        return pData->mGalaxyName;
+    }
+
     s32 getPowerStarNumMax() {
         s32 powerStarNumMax = 0;
 
@@ -128,12 +136,12 @@ namespace GameDataFunction {
         getCurrentGameDataHolder()->setGameEventValueForBit(pName, index, isOn);
     }
 
-    s32 setupAlreadyDoneFlag(const char* pZoneName, const JMapInfoIter& rIter, u32* pParam3) {
-        return ::getGameDataTemporaryInGalaxy()->setupAlreadyDoneFlag(pZoneName, rIter, pParam3);
+    s32 setupAlreadyDoneFlag(const char* pName, const TableIter& rIter, u32* pIsDone) {
+        return ::getGameDataTemporaryInGalaxy()->setupAlreadyDoneFlag(pName, rIter, pIsDone);
     }
 
-    void updateAlreadyDoneFlag(int param1, u32 param2) {
-        ::getGameDataTemporaryInGalaxy()->updateAlreadyDoneFlag(param1, param2);
+    void updateAlreadyDoneFlag(int index, u32 isDone) {
+        ::getGameDataTemporaryInGalaxy()->updateAlreadyDoneFlag(index, isDone);
     }
 
     void restoreGalaxyCometStatus(int cometId, u16* pCometStatus, u16* pPastSecond) {
@@ -142,11 +150,9 @@ namespace GameDataFunction {
             *pPastSecond = 0;
             return;
         }
-        char eventValueName[20];
-
-        nebula_snprintf(eventValueName, sizeof(eventValueName), "Comet%1dStatus", cometId);
-
-        *pCometStatus = getCurrentGameDataHolder()->getGameEventValue(eventValueName);
+        // The save keeps no seconds of a comet's state, so the past seconds start at 0 (they were left unset).
+        *pPastSecond = 0;
+        *pCometStatus = getCurrentGameDataHolder()->getGameEventValue(MR::FormattedName("Comet%1dStatus", cometId).c_str());
     }
 
     void setRaceBestTime(const char* pRaceName, u32 bestTime) {
@@ -173,12 +179,12 @@ namespace GameDataFunction {
         getCurrentGameDataHolder()->incPlayerMissNum();
     }
 
-    s32 registerStorageSpinDriverPathDrawRange(const char* pGalaxyName, int scenarioNo, int zoneId, int param4, f32* pParam5) {
-        return getCurrentGameDataHolder()->setupSpinDriverPathStorage(pGalaxyName, scenarioNo, zoneId, param4, pParam5);
+    s32 registerStorageSpinDriverPathDrawRange(const char* pGalaxyName, int scenarioNo, int zoneId, int spinDriverId, f32* pDrawRange) {
+        return getCurrentGameDataHolder()->setupSpinDriverPathStorage(pGalaxyName, scenarioNo, zoneId, spinDriverId, pDrawRange);
     }
 
-    void updateStorageSpinDriverPathDrawRange(const char* pGalaxyName, int scenarioNo, int param3, f32 param4) {
-        getCurrentGameDataHolder()->updateSpinDriverPathStorage(pGalaxyName, scenarioNo, param3, param4);
+    void updateStorageSpinDriverPathDrawRange(const char* pGalaxyName, int scenarioNo, int spinDriverIndex, f32 drawRange) {
+        getCurrentGameDataHolder()->updateSpinDriverPathStorage(pGalaxyName, scenarioNo, spinDriverIndex, drawRange);
     }
 
     u32 getStarPieceNumGivingToTicoSeed(int index) {
@@ -298,17 +304,15 @@ namespace GameDataFunction {
     }
 
     void resetGameDataGoToGalaxyFirst() {
-        ::getGameDataTemporaryInGalaxy()->resetRaceBestTime();
         ::getGameDataTemporaryInGalaxy()->resetPlayerRestartIdInfo();
-        ::getGameDataTemporaryInGalaxy()->_4 = false;
+        ::getGameDataTemporaryInGalaxy()->mIsRetry = false;
         ::getGameDataTemporaryInGalaxy()->clearAlreadyDoneFlag();
         ::getGameDataTemporaryInGalaxy()->resetStageResultStarPieceParam();
         ::getGameDataTemporaryInGalaxy()->resetStageResultCoinParam();
     }
 
     void resetGameDataGoToGalaxyRetry() {
-        ::getGameDataTemporaryInGalaxy()->resetRaceBestTime();
-        ::getGameDataTemporaryInGalaxy()->_4 = true;
+        ::getGameDataTemporaryInGalaxy()->mIsRetry = true;
     }
 
     void onCompleteEndingCurrentPlayer() {
@@ -328,31 +332,27 @@ namespace GameDataFunction {
     }
 
     bool isOnGameEventFlagNormalComet(const char* pGalaxyName) {
-        char eventFlagName[256];
+        MR::FormattedName eventFlagName;
 
-        nebula_snprintf(eventFlagName, sizeof(eventFlagName), "NormalComet%s", pGalaxyName);
+        eventFlagName.format("NormalComet%s", pGalaxyName);
 
-        return getCurrentGameDataHolder()->isOnGameEventFlag(eventFlagName);
+        return getCurrentGameDataHolder()->isOnGameEventFlag(eventFlagName.c_str());
     }
 
     bool isOnGameEventFlagCoin100Comet(const char* pGalaxyName) {
-        char eventFlagName[256];
+        MR::FormattedName eventFlagName;
 
-        nebula_snprintf(eventFlagName, sizeof(eventFlagName), "Coin100Comet%s", pGalaxyName);
+        eventFlagName.format("Coin100Comet%s", pGalaxyName);
 
-        return getCurrentGameDataHolder()->isOnGameEventFlag(eventFlagName);
+        return getCurrentGameDataHolder()->isOnGameEventFlag(eventFlagName.c_str());
     }
 
-    void updateGalaxyCometStatus(int cometId, u16 cometStatus, u16 pastSecond) {
+    void updateGalaxyCometStatus(int cometId, u16 cometStatus, u16 /*pastSecond*/) {
         // The save keeps the game's six domes' comets: a mod's further ones start over each play.
         if (cometId > 6) {
             return;
         }
-        char eventValueName[20];
-
-        nebula_snprintf(eventValueName, sizeof(eventValueName), "Comet%1dStatus", cometId);
-
-        getCurrentGameDataHolder()->setGameEventValue(eventValueName, cometStatus);
+        getCurrentGameDataHolder()->setGameEventValue(MR::FormattedName("Comet%1dStatus", cometId).c_str(), cometStatus);
     }
 
     void addStockedStarPiece(int num) {
@@ -405,12 +405,8 @@ namespace GameDataFunction {
 
     s32 calcGreenStarNum(const GameDataHolder* pGameDataHolder) {
         s32 greenStarNum = 0;
-        char eventFlagName[256];
-
         for (int i = 1; i <= 3; i++) {
-            nebula_snprintf(eventFlagName, sizeof(eventFlagName), "SpecialStarGreen%1d", i);
-
-            if (pGameDataHolder->isOnGameEventFlag(eventFlagName)) {
+            if (pGameDataHolder->isOnGameEventFlag(MR::FormattedName("SpecialStarGreen%1d", i).c_str())) {
                 greenStarNum++;
             }
         }

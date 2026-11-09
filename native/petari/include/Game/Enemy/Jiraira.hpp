@@ -6,14 +6,13 @@ class Jiraira : public LiveActor {
 public:
     Jiraira(const char*);
 
-    virtual ~Jiraira();
-    virtual void init(const JMapInfoIter&);
-    virtual void appear();
-    virtual void kill();
-    virtual void control();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter&) override;
+    virtual void appear() override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     void exeWait();
     void exeStepped();
@@ -21,6 +20,6 @@ public:
     void exePreRecover();
     void exeRecover();
 
-    CollisionParts* _8C;
-    f32 _90;
+    CollisionParts* mBodyCollision;
+    f32 mExplodeRadius;
 };

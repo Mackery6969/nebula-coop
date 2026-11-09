@@ -24,8 +24,8 @@ WalkerStateStaggerParam::WalkerStateStaggerParam()
       mRotateRateDegree(40.0f) {
 }
 
-WalkerStateStagger::WalkerStateStagger(LiveActor* pHost, TVec3f* pDirection, WalkerStateParam* pStateParam, WalkerStateStaggerParam* pStaggerParam)
-    : ActorStateBase< LiveActor >("\225\340\215\163\214\136\202\346\202\353\202\337\202\253\217\363\221\324" /* 歩行型よろめき状態 */, pHost), mStateParam(pStateParam), mStaggerParam(pStaggerParam), mVelH(0.0f, 0.0f, 1.0f),
+WalkerStateStagger::WalkerStateStagger(LiveActor* pHost, Vec3f* pDirection, WalkerStateParam* pStateParam, WalkerStateStaggerParam* pStaggerParam)
+    : ActorStateBase< LiveActor >("歩行型よろめき状態", pHost), mStateParam(pStateParam), mStaggerParam(pStaggerParam), mVelH(0.0f, 0.0f, 1.0f),
       mDirection(pDirection) {
     if (mStaggerParam == nullptr) {
         mStaggerParam = &::sDefaultStaggerParam;
@@ -56,7 +56,7 @@ void WalkerStateStagger::exeStagger() {
         MR::startAction(getHost(), "Stagger");
     }
 
-    TVec3f dir;
+    Vec3f dir;
     dir.killElement(mVelH, getHost()->mGravity);
 
     if (!MR::isNearZero(dir)) {
@@ -92,12 +92,8 @@ void WalkerStateStagger::exeStaggerEnd() {
 }
 
 void WalkerStateStagger::reboundWall() {
-    if (!MR::isBindedWall(getHost())) {
-        return;
-    }
-
-    if (MR::calcReboundVelocity(&getHost()->mVelocity, *MR::getWallNormal(getHost()), 0.9f)) {
-        TVec3f velH;
+    if (MR::isBindedWall(getHost()) && MR::calcReboundVelocity(&getHost()->mVelocity, *MR::getWallNormal(getHost()), 0.9f)) {
+        Vec3f velH;
         velH.killElement(getHost()->mVelocity, getHost()->mGravity);
         if (!MR::normalizeOrZero(&velH)) {
             mVelH.set(velH);
@@ -106,27 +102,12 @@ void WalkerStateStagger::reboundWall() {
 }
 
 bool WalkerStateStagger::isEnableKick() const {
-    if (mIsDead) {
-        return false;
-    }
-
-    if (isNerve(GET_NERVE(WalkerStateStagger, WalkerStateStaggerNrvStagger)) && MR::isLessStep(this, mStaggerParam->mKickEnableStep)) {
-        return false;
-    }
-
-    return true;
+    return !mIsDead &&
+           !(isNerve(GET_NERVE(WalkerStateStagger, WalkerStateStaggerNrvStagger)) && MR::isLessStep(this, mStaggerParam->mKickEnableStep));
 }
 
 bool WalkerStateStagger::isUpsideDown() const {
-    if (mIsDead) {
-        return false;
-    }
-
-    if (isNerve(GET_NERVE(WalkerStateStagger, WalkerStateStaggerNrvStaggerEnd)) && MR::isGreaterStep(this, 15)) {
-        return false;
-    }
-
-    return true;
+    return !mIsDead && !(isNerve(GET_NERVE(WalkerStateStagger, WalkerStateStaggerNrvStaggerEnd)) && MR::isGreaterStep(this, 15));
 }
 
 bool WalkerStateStagger::isStaggerStart() const {

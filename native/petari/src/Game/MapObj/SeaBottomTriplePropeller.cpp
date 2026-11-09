@@ -15,7 +15,7 @@ SeaBottomTriplePropeller::SeaBottomTriplePropeller(const char* pName) : LiveActo
     }
 }
 
-void SeaBottomTriplePropeller::init(const JMapInfoIter& rIter) {
+void SeaBottomTriplePropeller::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("SeaBottomTriplePropeller", nullptr, false);
     MR::connectToSceneCollisionMapObj(this);
@@ -25,17 +25,17 @@ void SeaBottomTriplePropeller::init(const JMapInfoIter& rIter) {
 
     MR::initCollisionParts(this, "PropellerCap", getSensor("body"), nullptr);
     mPropellerCollision[0] =
-        MR::createCollisionPartsFromLiveActor(this, "Propeller", getSensor("body"), MR::getJointMtx(this, "Propeller1"), MR::CollisionScaleType_Unk2);
+        MR::createCollisionPartsFromLiveActor(this, "Propeller", getSensor("body"), MR::getJointMtx(this, "Propeller1"), MR::CollisionScaleType_Default);
     mPropellerCollision[1] =
-        MR::createCollisionPartsFromLiveActor(this, "Propeller", getSensor("body"), MR::getJointMtx(this, "Propeller2"), MR::CollisionScaleType_Unk2);
+        MR::createCollisionPartsFromLiveActor(this, "Propeller", getSensor("body"), MR::getJointMtx(this, "Propeller2"), MR::CollisionScaleType_Default);
     mPropellerCollision[2] =
-        MR::createCollisionPartsFromLiveActor(this, "Propeller", getSensor("body"), MR::getJointMtx(this, "Propeller3"), MR::CollisionScaleType_Unk2);
+        MR::createCollisionPartsFromLiveActor(this, "Propeller", getSensor("body"), MR::getJointMtx(this, "Propeller3"), MR::CollisionScaleType_Default);
 
     MR::validateCollisionParts(mPropellerCollision[0]);
     MR::validateCollisionParts(mPropellerCollision[1]);
     MR::validateCollisionParts(mPropellerCollision[2]);
 
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initSound(4, false);
 
     mAudSeKeeper = new AudSeKeeper(this, 3);

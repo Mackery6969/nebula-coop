@@ -2,18 +2,17 @@
 
 #include "Game/LiveActor/LiveActor.hpp"
 
-class JAISoundID;
+class SoundID;
 
 class SoundEmitter : public LiveActor {
 public:
     SoundEmitter(const char*);
 
-    virtual ~SoundEmitter();
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
+    virtual void init(const TableIter&) override;
+    virtual void control() override;
 
     void exePlaySound();
     void exeStandBy();
 
-    s32 _8C;
+    s32 mSoundType;
 };

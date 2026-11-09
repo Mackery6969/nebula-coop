@@ -6,14 +6,14 @@ class DodoryuStateLv1 : public DodoryuStateBase {
 public:
     DodoryuStateLv1(Dodoryu* pHost, const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void control();
+    virtual void init(const TableIter& rIter) override;
+    virtual void control() override;
 
-    virtual void start();
-    virtual void catchAttackSensor(HitSensor*, HitSensor*);
-    virtual void catchHipDrop();
-    virtual bool catchPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual void catchStartClipped();
+    virtual void start() override;
+    virtual void catchAttackSensor(HitSensor*, HitSensor*) override;
+    virtual void catchHipDrop() override;
+    virtual bool catchPlayerAttack(u32, HitSensor*, HitSensor*) override;
+    virtual void catchStartClipped() override;
 
     bool isAttackable() const;
     void executeHideJump();
@@ -45,8 +45,8 @@ public:
 
     s32 mHideStep;
     s32 mAppearStep;
-    TVec3f _98;
-    bool _A4;
+    Vec3f mKnockDir;
+    bool mIsSpinCountered;
     bool mIsValidPop;
     f32 mPopAccel;
     f32 mPopSpeed;

@@ -1,9 +1,9 @@
-#include <string_view>
 // SPDX-License-Identifier: GPL-3.0-only
 // Mods (mods.h, virtual_disc.h, mod_xml.h): the XML reader, the disc's patching and reads, Riivolution mods, files
 // mods, load order, saved choices, savegames, main.dol's memory patches, the mods' layouts and languages, and importing.
 
 #include "galaxy/mod_import.h"
+#include "galaxy/test_temp.h"
 #include "galaxy/mod_xml.h"
 #include "galaxy/mods.h"
 
@@ -17,6 +17,8 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -28,26 +30,12 @@ bool expect(bool condition, const char* message) {
     return condition;
 }
 
-void put32(std::vector<std::uint8_t>& b, std::size_t at, std::uint32_t v) {
-    b[at] = static_cast<std::uint8_t>(v >> 24u);
-    b[at + 1] = static_cast<std::uint8_t>(v >> 16u);
-    b[at + 2] = static_cast<std::uint8_t>(v >> 8u);
-    b[at + 3] = static_cast<std::uint8_t>(v);
-}
-
-std::uint32_t get32(const std::uint8_t* p) {
-    return static_cast<std::uint32_t>(p[0]) << 24u | static_cast<std::uint32_t>(p[1]) << 16u |
-           static_cast<std::uint32_t>(p[2]) << 8u | static_cast<std::uint32_t>(p[3]);
-}
-
 void write(const fs::path& path, std::string_view text) {
     fs::create_directories(path.parent_path());
     std::ofstream out(path, std::ios::binary | std::ios::trunc);
     out.write(text.data(), static_cast<std::streamsize>(text.size()));
 }
 
-// A partition: a file table (/opening.bnr, /StageData/A.arc, /StageData/B.arc), its files, main.dol.
-// Reads a file through a built table: its position and size by path ("/StageData/A.arc").
 bool xml() {
     bool ok = true;
     std::string error;
@@ -63,17 +51,23 @@ bool xml() {
     }
     ok &= expect(!galaxy::mods::parse_xml("<a><b></a>", &error) && error.find("line 1") != std::string::npos,
                  "a mismatched tag is refused, its line said");
+    // A numeric reference that is no character (zero, past U+10FFFF, half a surrogate pair) gives U+FFFD, valid UTF-8;
+    // one that is a character is itself.
+    const auto refs = galaxy::mods::parse_xml("<a k=\"&#0;|&#x110000;|&#xFFFFFFFF;|&#xD800;|&#x10FFFF;|&#x20AC;\"/>", &error);
+    ok &= expect(refs.has_value(), "a document with character references");
+    if (refs) {
+        ok &= expect(refs->attribute("k") ==
+                         "\xEF\xBF\xBD|\xEF\xBF\xBD|\xEF\xBF\xBD|\xEF\xBF\xBD|\xF4\x8F\xBF\xBF|\xE2\x82\xAC",
+                     "character references: invalid ones give U+FFFD");
+    }
     return ok;
 }
 
-// A partition with these files (path, contents), directories as the paths name them; an empty main.dol after them.
-// Loose files, every name match, disc layouts a folder down, packs without textures/, hidden folders, region
-// options, a sole option as the mod's switch, and text in the language played.
 // Importing: zip and 7z made with libarchive's writer, a top folder lifted, a path that would leave refused, an
 // update in place, a file that is no archive.
 bool importing() {
     bool ok = true;
-    const fs::path root = fs::temp_directory_path() / "nebula_mods_import";
+    const fs::path root = galaxy::test_temp_path("nebula_mods_import");
     std::error_code ec;
     fs::remove_all(root, ec);
     fs::create_directories(root / "mods");
@@ -137,9 +131,28 @@ bool importing() {
     }
     ok &= expect(!fs::exists(root / "mods" / "Cool Mod" / "__MACOSX"), "system clutter skipped");
     const galaxy::mods::ImportResult again = galaxy::mods::import_mod(root / "Cool Mod.zip", root / "mods");
-    ok &= expect(again.ok && again.replaced, "the same mod again: updated in place");
+    ok &= expect(again.ok && again.already && !again.replaced && again.id == "Cool Mod",
+                 "the same mod again: nothing added");
+    fs::copy_file(root / "Cool Mod.zip", root / "Cool Mod (1).zip", ec);
+    const galaxy::mods::ImportResult renamed = galaxy::mods::import_mod(root / "Cool Mod (1).zip", root / "mods");
+    ok &= expect(renamed.ok && renamed.already && renamed.id == "Cool Mod" && !fs::exists(root / "mods" / "Cool Mod (1)"),
+                 "the same mod under another file name: nothing added");
+    fs::create_directories(root / "v2");
+    make(root / "v2" / "Cool Mod.zip", ARCHIVE_FORMAT_ZIP,
+         {{"riivolution/cool.xml", "<wiidisc version=\"1\"><id game=\"RMG\"/></wiidisc>"}, {"Cool/a.arc", "B"}, {"readme.txt", "hi"}});
+    const galaxy::mods::ImportResult update = galaxy::mods::import_mod(root / "v2" / "Cool Mod.zip", root / "mods");
+    ok &= expect(update.ok && update.replaced && !update.already, "a changed file of the same size: updated in place");
     const galaxy::mods::ImportResult pack = galaxy::mods::import_mod(root / "Pack.7z", root / "mods");
     ok &= expect(pack.ok && pack.kinds == "TEXTURES", "a 7z texture pack imported");
+    fs::copy(root / "mods" / "Pack", root / "Pack copy", fs::copy_options::recursive, ec);
+    write(root / "Pack copy" / "Thumbs.db", "clutter");
+    const galaxy::mods::ImportResult copy = galaxy::mods::import_mod(root / "Pack copy", root / "mods");
+    ok &= expect(copy.ok && copy.already && copy.id == "Pack" && !fs::exists(root / "mods" / "Pack copy"),
+                 "the same pack as a folder (clutter aside): nothing added");
+    write(root / "Pack copy" / "RMG" / "extra.png", "png");
+    const galaxy::mods::ImportResult more = galaxy::mods::import_mod(root / "Pack copy", root / "mods");
+    ok &= expect(more.ok && !more.already && more.id == "Pack copy", "a pack with one more file: its own mod");
+    ok &= expect(galaxy::mods::remove_mod(root / "mods", "Pack copy", nullptr), "the second pack removed");
     const galaxy::mods::ImportResult fake = galaxy::mods::import_mod(root / "fake.zip", root / "mods");
     ok &= expect(!fake.ok && !fake.message.empty(), "a file that is no archive is refused with a reason");
     std::vector<std::string> left;
@@ -155,7 +168,6 @@ bool importing() {
 
 }  // namespace
 
-// A patch by the disc file's offsets into a file the import cooked is refused and reported; the game's file stays.
 // Each kind of game file goes to the category a player would look for it in.
 void test_texture_categories() {
     using galaxy::textures::Category;
@@ -163,35 +175,35 @@ void test_texture_categories() {
     const auto is = [](std::string_view path, Category category) {
         expect(category_of_path(path) == category, std::string(path).c_str());
     };
-    is("ObjectData/Mario.arc/Mario.bdl", Category::MarioLuigi);
-    is("ObjectData/BeeMario.arc/BeeMario.bdl", Category::MarioLuigi);
-    is("ObjectData/Kuribo.arc/Kuribo.bdl", Category::Enemies);
-    is("ObjectData/BasaBasaHang.arc/x.bdl", Category::Enemies);
-    is("ObjectData/Rosetta.arc/Rosetta.bdl", Category::Characters);
-    is("ObjectData/TicoFat.arc/TicoFat.bdl", Category::Characters);
-    is("ObjectData/Dodoryu.arc/Dodoryu.bdl", Category::Bosses);
-    is("ObjectData/BossKameck.arc/BossKameck.bdl", Category::Bosses);
-    is("ObjectData/KinokoOneUp.arc/x.bdl", Category::Items);
-    is("ObjectData/PowerStar.arc/PowerStar.bdl", Category::Items);
-    is("ObjectData/Coin.arc/Coin.bdl", Category::Items);
-    is("ObjectData/HeavensDoorMiddlePlanet.arc/x.bdl", Category::Planets);
-    is("ObjectData/HeavensDoorMiddlePlanetLow.arc/x.bdl", Category::Planets);
-    is("ObjectData/GalaxySky.arc/GalaxySky.bdl", Category::Skies);
-    is("ObjectData/HomeAir.arc/HomeAir.bdl", Category::Skies);
-    is("ObjectData/AstroBaseA.arc/x.bdl", Category::Objects);
-    is("ParticleData/Effect.arc/x.jpc", Category::Particles);
-    is("LayoutData/Font.arc/x", Category::Fonts);
-    is("LayoutData/Icon.arc/x", Category::Icons);
-    is("LayoutData/BackButton.arc/x", Category::Icons);
-    is("LayoutData/PictureBook.arc/x", Category::Story);
-    is("LayoutData/PeachLetter.arc/x", Category::Story);
-    is("LayoutData/MapGalaxyBg.arc/x", Category::GalaxyMap);
-    is("LayoutData/StarCounter.arc/x", Category::Hud);
-    is("LayoutData/TalkBalloonEvent.arc/x", Category::Hud);
-    is("LayoutData/PauseMenu.arc/x", Category::Menus);
-    is("LayoutData/FileSelect.arc/x", Category::Menus);
-    is("UsEnglish/LayoutData/Font.arc/x", Category::Fonts);
-    is("StageData/HeavensDoorGalaxy.arc/x", Category::Planets);
+    is("ObjectData/Mario/Mario.bdl", Category::MarioLuigi);
+    is("ObjectData/BeeMario/BeeMario.bdl", Category::MarioLuigi);
+    is("ObjectData/Kuribo/Kuribo.bdl", Category::Enemies);
+    is("ObjectData/BasaBasaHang/x.bdl", Category::Enemies);
+    is("ObjectData/Rosetta/Rosetta.bdl", Category::Characters);
+    is("ObjectData/TicoFat/TicoFat.bdl", Category::Characters);
+    is("ObjectData/Dodoryu/Dodoryu.bdl", Category::Bosses);
+    is("ObjectData/BossKameck/BossKameck.bdl", Category::Bosses);
+    is("ObjectData/KinokoOneUp/x.bdl", Category::Items);
+    is("ObjectData/PowerStar/PowerStar.bdl", Category::Items);
+    is("ObjectData/Coin/Coin.bdl", Category::Items);
+    is("ObjectData/HeavensDoorMiddlePlanet/x.bdl", Category::Planets);
+    is("ObjectData/HeavensDoorMiddlePlanetLow/x.bdl", Category::Planets);
+    is("ObjectData/GalaxySky/GalaxySky.bdl", Category::Skies);
+    is("ObjectData/HomeAir/HomeAir.bdl", Category::Skies);
+    is("ObjectData/AstroBaseA/x.bdl", Category::Objects);
+    is("ParticleData/Effect/x.jpc", Category::Particles);
+    is("LayoutData/Font/x", Category::Fonts);
+    is("LayoutData/Icon/x", Category::Icons);
+    is("LayoutData/BackButton/x", Category::Icons);
+    is("LayoutData/PictureBook/x", Category::Story);
+    is("LayoutData/PeachLetter/x", Category::Story);
+    is("LayoutData/MapGalaxyBg/x", Category::GalaxyMap);
+    is("LayoutData/StarCounter/x", Category::Hud);
+    is("LayoutData/TalkBalloonEvent/x", Category::Hud);
+    is("LayoutData/PauseMenu/x", Category::Menus);
+    is("LayoutData/FileSelect/x", Category::Menus);
+    is("UsEnglish/LayoutData/Font/x", Category::Fonts);
+    is("StageData/HeavensDoorGalaxy/x", Category::Planets);
     is("opening.bnr", Category::Other);
     using galaxy::textures::category_of_pack_folder;
     expect(category_of_pack_folder("Bighead/Characters/Mario") == Category::MarioLuigi, "a pack's Mario folder");

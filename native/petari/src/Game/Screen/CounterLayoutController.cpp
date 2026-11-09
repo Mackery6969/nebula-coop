@@ -1,4 +1,5 @@
 #include "Game/Screen/CounterLayoutController.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Screen/CoinCounter.hpp"
 #include "Game/Screen/MarioMeter.hpp"
@@ -16,7 +17,7 @@
 
 namespace {
     const s32 cJudgeNotMovingFrame = 60;
-    const s32 cShowWaitFrame = 240;
+    const s32 cShowWaitFrame = NebulaFrameClock::stepsOfSeconds(4);
 };  // namespace
 
 namespace NrvCounterLayoutController {
@@ -25,21 +26,21 @@ namespace NrvCounterLayoutController {
 };  // namespace NrvCounterLayoutController
 
 CounterLayoutController::CounterLayoutController()
-    : LayoutActor("\203\112\203\105\203\223\203\136\214\156\203\214\203\103\203\101\203\105\203\147\220\247\214\344" /* カウンタ系レイアウト制御 */, true), mPlayerNotMovingFrame(), _24(), mCoinCounter(), mStarPieceCounter(), mPlayerLeft(),
+    : LayoutActor("カウンタ系レイアウト制御", true), mPlayerNotMovingFrame(), mIsTicoEatRequested(), mCoinCounter(), mStarPieceCounter(), mPlayerLeft(),
       mStarCounter(), mHPMeter() {
     mRoomStarCounter = nullptr;
     mAllTimeStarCounter = nullptr;
 }
 
-void CounterLayoutController::init(const JMapInfoIter& rIter) {
+void CounterLayoutController::init(const TableIter& /*rIter*/) {
     MR::connectToSceneLayout(this);
     initNerve(GET_NERVE(CounterLayoutController, CounterLayoutControllerNrvPlayerMoving));
 
-    mCoinCounter = new CoinCounter("\203\122\203\103\203\223\203\112\203\105\203\223\203\136" /* コインカウンタ */);
+    mCoinCounter = new CoinCounter("コインカウンタ");
     mCoinCounter->initWithoutIter();
-    mStarPieceCounter = new StarPieceCounter("\203\130\203\136\201\133\203\163\201\133\203\130\203\112\203\105\203\223\203\136" /* スターピースカウンタ */);
+    mStarPieceCounter = new StarPieceCounter("スターピースカウンタ");
     mStarPieceCounter->initWithoutIter();
-    mPlayerLeft = new PlayerLeft("\203\166\203\214\203\103\203\204\201\133\216\143\213\100\225\134\216\246" /* プレイヤー残機表示 */);
+    mPlayerLeft = new PlayerLeft("プレイヤー残機表示");
     mPlayerLeft->initWithoutIter();
     mStarCounter = new StarCounter();
     mStarCounter->initWithoutIter();
@@ -52,7 +53,7 @@ void CounterLayoutController::init(const JMapInfoIter& rIter) {
 }
 
 void CounterLayoutController::appear() {
-    if (_24) {
+    if (mIsTicoEatRequested) {
         mStarPieceCounter->appear();
     } else {
         appearAllCounterWithoutStar();
@@ -84,7 +85,7 @@ void CounterLayoutController::requestedTicoEat(bool param1) {
         mAllTimeStarCounter->kill();
     }
 
-    _24 = true;
+    mIsTicoEatRequested = true;
 }
 
 bool CounterLayoutController::isInvalidSystemStateShowCounter() {
@@ -96,11 +97,11 @@ bool CounterLayoutController::isWaitToDisappearCounter(const LayoutActor* pActor
 }
 
 void CounterLayoutController::control() {
-    _24 = false;
+    mIsTicoEatRequested = false;
 }
 
 void CounterLayoutController::showAllLayout() {
-    if (!_24) {
+    if (!mIsTicoEatRequested) {
         mCoinCounter->forceAppear();
         mStarPieceCounter->forceAppear(false);
         mPlayerLeft->forceAppear();
@@ -111,7 +112,7 @@ void CounterLayoutController::showAllLayout() {
 }
 
 void CounterLayoutController::hideAllLayout() {
-    if (!_24) {
+    if (!mIsTicoEatRequested) {
         mCoinCounter->disappear();
         mStarPieceCounter->disappear(false);
         mPlayerLeft->disappear();
@@ -169,7 +170,7 @@ void CounterLayoutController::killAllCoounter() {
 }
 
 bool CounterLayoutController::tryEndTicoEatStarPiece() {
-    if (mStarPieceCounter->mMode != 0 && !_24) {
+    if (mStarPieceCounter->mMode != 0 && !mIsTicoEatRequested) {
         if (mStarPieceCounter->tryOffModeTicoEat()) {
             mCoinCounter->appear();
             mPlayerLeft->appear();
@@ -186,7 +187,10 @@ void CounterLayoutController::exePlayerMoving() {
         mPlayerNotMovingFrame = 0;
     }
 
-    mHPMeter->requestPlayerMoving();
+    // No life meter set (a scene layout without one) has nothing to tell.
+    if (mHPMeter != nullptr) {
+        mHPMeter->requestPlayerMoving();
+    }
 
     if (tryEndTicoEatStarPiece()) {
         setNerve(GET_NERVE(CounterLayoutController, CounterLayoutControllerNrvPlayerMoving));
@@ -206,7 +210,9 @@ void CounterLayoutController::exePlayerNotMoving() {
         showAllLayout();
     }
 
-    mHPMeter->requestPlayerStopped();
+    if (mHPMeter != nullptr) {
+        mHPMeter->requestPlayerStopped();
+    }
 
     if (tryEndTicoEatStarPiece()) {
         setNerve(GET_NERVE(CounterLayoutController, CounterLayoutControllerNrvPlayerNotMoving));

@@ -5,16 +5,28 @@
 class MessageEditorMessageTag;
 
 namespace ReplaceTagProcessor {
+    // The code units Replace writes for pSrc, with the terminator.
+    u32 getReplaceRoom(const char16_t* pSrc);
     u32 Replace(char16_t* pDst, const char16_t* pSrc);
-    u32 ReplaceArgs(char16_t* pDst, const char16_t* pSrc, va_list args);
+    // argCount is the number of arguments args holds; a tag naming a later one gives the empty text.
+    u32 ReplaceArgs(char16_t* pDst, const char16_t* pSrc, va_list args, u32 argCount);
     u32 exePictureGroup(char16_t* pDst, const MessageEditorMessageTag& rTag);
-    u32 exeStringGroup(char16_t* pDst, const MessageEditorMessageTag& rTag, va_list args);
-    u32 exeNumberGroup(char16_t* pDst, const MessageEditorMessageTag& rTag, va_list args);
+    u32 exeStringGroup(char16_t* pDst, const MessageEditorMessageTag& rTag, va_list args, u32 argCount);
+    // The code units exeStringGroup writes for the tag, without the terminator.
+    u32 getStringGroupRoom(const MessageEditorMessageTag& rTag, va_list args, u32 argCount);
+    u32 exeNumberGroup(char16_t* pDst, const MessageEditorMessageTag& rTag, va_list args, u32 argCount);
     u32 exeLocalizeGroup(char16_t* pDst, const MessageEditorMessageTag& rTag);
+    // The code units exeLocalizeGroup writes for the tag, with the terminator.
+    u32 getLocalizeGroupRoom(const MessageEditorMessageTag& rTag);
     u32 exeLocalizeGroupPlayerName(char16_t* pDst, u8 form);
     u32 exeRaceTimeGroup(char16_t* pDst, const MessageEditorMessageTag& rTag);
+    // The code units exeRaceTimeGroup writes for the tag, without the terminator.
+    u32 getRaceTimeGroupRoom(const MessageEditorMessageTag& rTag);
 };  // namespace ReplaceTagProcessor
 
 namespace ReplaceTagFunction {
-    u32 ReplaceArgs(char16_t* pDst, s32 length, const char16_t* pFormat, ...);
+    // Writes pFormat with its tags replaced into pDst (length units with the terminator, cut to fit) and returns the
+    // whole text's units without the terminator, cut or not. A null pDst only measures. argCount is how many
+    // arguments follow.
+    u32 ReplaceArgs(char16_t* pDst, s32 length, const char16_t* pFormat, u32 argCount, ...);
 };  // namespace ReplaceTagFunction

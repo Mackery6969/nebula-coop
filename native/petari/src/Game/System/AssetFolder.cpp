@@ -37,14 +37,14 @@ namespace {
     }
 }  // namespace
 
-AssetFolder* AssetFolder::mount(const char* pPath, NebulaArena* pHeap) {
+AssetFolder* AssetFolder::mount(const char* pPath, NebulaArena* pArena) {
     const s32 entry = GameAssets::find(pPath);
     if (entry < 0) {
         nebula_fatal("%s is missing: the game content was not cooked by this version", pPath);
     }
 
-    void* const pBytes = GameAssets::load(entry, nullptr, 0, pHeap, nullptr);
-    return new (pHeap, 0) AssetFolder(entry, pBytes);
+    void* const pBytes = GameAssets::load(entry, nullptr, 0, pArena, nullptr);
+    return new (pArena, 0) AssetFolder(entry, pBytes);
 }
 
 AssetFolder::AssetFolder(s32 entry, void* pBytes) : mEntry(entry), mBytes(static_cast< u8* >(pBytes)), mPosition(0) {
@@ -65,11 +65,11 @@ s32 AssetFolder::findPath(const char* pPath) const {
         const size_t length = pSlash != nullptr ? static_cast< size_t >(pSlash - pPath) : strlen(pPath);
         if (length != 0 && !(length == 1 && pPath[0] == '.')) {
             NebulaAssetEntry entry;
-            u32 i = 0;
-            while (child(folder, i, &entry) && !isSameName(entry.name, pPath, length)) {
-                i++;
+            bool isFound = false;
+            for (u32 i = 0; !isFound && child(folder, i, &entry); i++) {
+                isFound = isSameName(entry.name, pPath, length);
             }
-            if (!child(folder, i, &entry)) {
+            if (!isFound) {
                 return -1;
             }
             folder = entry.index;
@@ -132,20 +132,6 @@ u32 AssetFolder::getResSize(const void* pData) const {
     return findSize(mEntry, pData);
 }
 
-u32 AssetFolder::countFiles(s32 folder) const {
-    u32 count = 0;
-    NebulaAssetEntry entry;
-    for (u32 i = 0; child(folder, i, &entry); i++) {
-        count += entry.folder != 0 ? countFiles(entry.index) : 1;
-    }
-
-    return count;
-}
-
-u32 AssetFolder::countResource() const {
-    return countFiles(mEntry);
-}
-
 s32 AssetFolder::findFolder(const char* pDirectory) const {
     const s32 found = findPath(pDirectory);
     NebulaAssetEntry entry;
@@ -166,6 +152,7 @@ bool AssetFolder::getItem(s32 folder, u32 index, Item* pItem) const {
 
     pItem->mEntry = entry.index;
     pItem->mIsFolder = entry.folder != 0;
+    pItem->mKind = entry.kind;
     pItem->mName = entry.name;
     pItem->mData = dataOf(entry);
     pItem->mSize = entry.length;
@@ -177,12 +164,12 @@ const char* AssetFolder::getName() const {
     return entryOf(mEntry, &self) ? self.name : "";
 }
 
-AssetFolder* AssetFolder::getSubFolder(const char* pPath, NebulaArena* pHeap) const {
+AssetFolder* AssetFolder::getSubFolder(const char* pPath, NebulaArena* pArena) const {
     const s32 folder = findFolder(pPath);
     NebulaAssetEntry entry;
     if (folder < 0 || !entryOf(folder, &entry)) {
         nebula_fatal("%s is missing: the game content was not cooked by this version", pPath);
     }
 
-    return new (pHeap, 0) AssetFolder(folder, dataOf(entry));
+    return new (pArena, 0) AssetFolder(folder, dataOf(entry));
 }

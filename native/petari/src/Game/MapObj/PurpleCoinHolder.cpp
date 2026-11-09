@@ -7,10 +7,9 @@
 
 namespace {
     static const s32 sMaxPurpleCoin = 256;
-    // static const s32 sGetIncrementCount = _;
 };  // namespace
 
-PurpleCoinHolder::PurpleCoinHolder() : DeriveActorGroup< Coin >("\203\160\201\133\203\166\203\213\203\122\203\103\203\223\212\307\227\235" /* パープルコイン管理 */, ::sMaxPurpleCoin), mStarter() {
+PurpleCoinHolder::PurpleCoinHolder() : DeriveActorGroup< Coin >("パープルコイン管理", ::sMaxPurpleCoin), mStarter() {
     MR::declarePowerStarCoin100();
     MR::createPurpleCoinCounter();
 }
@@ -41,7 +40,7 @@ namespace MR {
         MR::createSceneObj(SceneObj_PurpleCoinHolder);
     }
 
-    void addToPurpleCoinHolder(const NameObj* pObj, Coin* pCoin) {
+    void addToPurpleCoinHolder(const NameObj* /*pObj*/, Coin* pCoin) {
         ::getPurpleCoinHolder()->registerActor(pCoin);
     }
 

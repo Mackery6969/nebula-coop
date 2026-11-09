@@ -1,9 +1,9 @@
 #include "Game/MapObj/SandUpDownTriRock.hpp"
+#include "Game/Util/StringUtil.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Map/CollisionParts.hpp"
 #include "Game/MapObj/MapObjActorInitInfo.hpp"
 #include "Game/Util.hpp"
-#include <cstdio>
 
 namespace NrvSandUpDownTriRock {
     NEW_NERVE(SandUpDownTriRockNrvWait, SandUpDownTriRock, Wait);
@@ -19,7 +19,7 @@ SandUpDownTriRock::SandUpDownTriRock(const char* pName) : MapObjActor(pName), mR
     }
 }
 
-void SandUpDownTriRock::init(const JMapInfoIter& rIter) {
+void SandUpDownTriRock::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
 
     MapObjActorInitInfo info;
@@ -31,14 +31,13 @@ void SandUpDownTriRock::init(const JMapInfoIter& rIter) {
     info.setupNerve(GET_NERVE(SandUpDownTriRock, SandUpDownTriRockNrvWait));
     initialize(rIter, info);
 
-    MR::getJMapInfoArg0NoInit(rIter, &mRestStep);
+    MR::getPlacementArg0NoInit(rIter, &mRestStep);
 
     for (s32 i = 0; i < ARRAY_SIZE(mRockCollisionParts); i++) {
-        char name[256];
-        nebula_snprintf(name, sizeof(name), "Move0%d", i);
+        const MR::FormattedName name("Move0%d", i);
 
-        mRockCollisionParts[i] =
-            MR::createCollisionPartsFromLiveActor(this, name, getSensor("body"), MR::getJointMtx(this, name), MR::CollisionScaleType_Unk2);
+        mRockCollisionParts[i] = MR::createCollisionPartsFromLiveActor(this, name.c_str(), getSensor("body"), MR::getJointMtx(this, name.c_str()),
+                                                                       MR::CollisionScaleType_Default);
         MR::validateCollisionParts(mRockCollisionParts[i]);
     }
 }
@@ -80,7 +79,7 @@ void SandUpDownTriRock::exeUp() {
 void SandUpDownTriRock::exeStop() {
 }
 
-bool SandUpDownTriRock::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool SandUpDownTriRock::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (MR::isMsgStartPowerStarGet(msg)) {
         setNerve(GET_NERVE(SandUpDownTriRock, SandUpDownTriRockNrvStop));
 
@@ -90,7 +89,7 @@ bool SandUpDownTriRock::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* 
     return false;
 }
 
-void SandUpDownTriRock::initCaseUseSwitchB(const MapObjActorInitInfo& info) {
+void SandUpDownTriRock::initCaseUseSwitchB(const MapObjActorInitInfo& /*info*/) {
     MR::listenStageSwitchOnB(this, MR::Functor(this, &SandUpDownTriRock::startDown));
 }
 

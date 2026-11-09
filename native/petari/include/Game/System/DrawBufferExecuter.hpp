@@ -3,15 +3,16 @@
 #include <NebulaGpu.h>
 #include <nebula_math.h>
 
-class J3DModel;
+class Model;
 class LiveActor;
 class DrawBuffer;
 
 class DrawBufferExecuter {
 public:
-    DrawBufferExecuter(const char*, J3DModel*, s32);
+    DrawBufferExecuter(const char* pName, Model* pModel);
 
     void allocateActorListBuffer();
+    void reserve(s32 count);
     void add(LiveActor*);
     void remove(LiveActor*);
     void findLightInfo(LiveActor*);

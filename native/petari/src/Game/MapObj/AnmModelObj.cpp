@@ -15,9 +15,9 @@
 #include "Game/Util/StringUtil.hpp"
 
 namespace {
-    const char* cFollowJointName = "Move";
-    const char* cAnimFileName = "Move";
-    const char* cEndLoopEffectName = "EndLoop";
+    const char* const cFollowJointName = "Move";
+    const char* const cAnimFileName = "Move";
+    const char* const cEndLoopEffectName = "EndLoop";
 };  // namespace
 
 namespace NrvAnmModelObj {
@@ -26,10 +26,10 @@ namespace NrvAnmModelObj {
     NEW_NERVE(HostTypeDone, AnmModelObj, Done);
 };  // namespace NrvAnmModelObj
 
-AnmModelObj::AnmModelObj(const char* pName) : MapObjActor(pName), mJointPos(0.0f, 0.0f, 0.0f) {
+AnmModelObj::AnmModelObj(const char* pName) : MapObjActor(pName), mJointPos(0.0f, 0.0f, 0.0f), mDoneLevelSe(nullptr) {
 }
 
-void AnmModelObj::init(const JMapInfoIter& rIter) {
+void AnmModelObj::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
     MapObjActorInitInfo info;
     MapObjActorUtil::setupInitInfoSimpleMapObj(&info);
@@ -46,6 +46,10 @@ void AnmModelObj::init(const JMapInfoIter& rIter) {
     f32 boundRadius;
     MR::calcModelBoundingRadius(&boundRadius, this);
     MR::setClippingTypeSphere(this, boundRadius, &mJointPos);
+
+    if (MR::isEqualString(mObjectName, "HeavenlyBeachUnderRock")) {
+        mDoneLevelSe = MR::StageEffect::getMovingSe(mObjectName);
+    }
 }
 
 bool AnmModelObj::isDone() const {
@@ -123,19 +127,15 @@ void AnmModelObj::exeDone() {
         MR::emitEffect(this, ::cEndLoopEffectName);
     }
 
-    if (MR::isEqualString(mObjectName, "HeavenlyBeachUnderRock")) {
-        const char* movingSE = MR::StageEffect::getMovingSe(mObjectName);
-
-        if (movingSE != nullptr) {
-            MR::startLevelSound(this, movingSE);
-        }
+    if (mDoneLevelSe != nullptr) {
+        MR::startLevelSound(this, mDoneLevelSe);
     }
 }
 
 AnmModelSwitchMove::AnmModelSwitchMove(const char* pName) : AnmModelObj(pName) {
 }
 
-void AnmModelSwitchMove::init(const JMapInfoIter& rIter) {
+void AnmModelSwitchMove::init(const TableIter& rIter) {
     AnmModelObj::init(rIter);
 
     if (MR::isDemoCast(this, nullptr)) {
@@ -160,7 +160,7 @@ bool AnmModelSwitchMove::isOnStartAnmTrigger() const {
 AnmModelGroundOnMove::AnmModelGroundOnMove(const char* pName) : AnmModelObj(pName) {
 }
 
-void AnmModelGroundOnMove::init(const JMapInfoIter& rIter) {
+void AnmModelGroundOnMove::init(const TableIter& rIter) {
     AnmModelObj::init(rIter);
     MR::useStageSwitchWriteB(this, rIter);
 }
@@ -178,7 +178,7 @@ bool AnmModelGroundOnMove::isOnStartAnmTrigger() const {
 AnmModelBindMove::AnmModelBindMove(const char* pName) : AnmModelObj(pName) {
 }
 
-void AnmModelBindMove::init(const JMapInfoIter& rIter) {
+void AnmModelBindMove::init(const TableIter& rIter) {
     AnmModelObj::init(rIter);
     MR::useStageSwitchWriteB(this, rIter);
 }
@@ -189,7 +189,7 @@ void AnmModelBindMove::control() {
     }
 }
 
-bool AnmModelBindMove::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool AnmModelBindMove::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     return msg == ACTMES_IS_REFLECTION_G_CAPTURE;
 }
 
@@ -206,7 +206,7 @@ bool AnmModelBindMove::isOnStartAnmTrigger() const {
 AnmModelSwitchMoveEventCamera::AnmModelSwitchMoveEventCamera(const char* pName) : AnmModelSwitchMove(pName), mCameraInfo() {
 }
 
-void AnmModelSwitchMoveEventCamera::init(const JMapInfoIter& rIter) {
+void AnmModelSwitchMoveEventCamera::init(const TableIter& rIter) {
     AnmModelObj::init(rIter);
 
     if (MR::isDemoCast(this, nullptr) && MR::tryRegisterDemoActionNerve(this, GET_NERVE(AnmModelObj, HostTypeMove), nullptr)) {

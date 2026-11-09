@@ -1,7 +1,7 @@
 #pragma once
 
 
-class JMapInfoIter;
+class TableIter;
 class LiveActor;
 class Nerve;
 class DemoExecutor;
@@ -27,19 +27,18 @@ public:
     s32 mActionType;
     const char* mPosName;
     const char* mAnimName;
-    s32 _18;
+    s32 mCastCapacity;
     s32 mCastCount;
     LiveActor** mCastList;
     MR::FunctorBase** mFunctors;
     const Nerve** mNerves;
-    u8 _2C;
 };
 
 class DemoActionKeeper {
 public:
     DemoActionKeeper(const DemoExecutor*);
 
-    void initCast(LiveActor*, const JMapInfoIter&);
+    void initCast(LiveActor*, const TableIter&);
     void registerFunctor(const LiveActor*, const MR::FunctorBase&, const char*);
     void registerNerve(const LiveActor*, const Nerve*, const char*);
     void update();

@@ -1,23 +1,19 @@
+#include <stdint.h>
 #pragma once
 
 
 namespace MR {
-    /* thanks to https://github.com/magcius/noclip.website/blob/master/src/SuperMarioGalaxy/NameObj.ts */
+    // Category ids index the scene's category tables (SceneNameObjListExecutor); every value has a table row.
     enum MovementType {
         MovementType_None = -1,
-        MovementType_UNK_0x00,
-        MovementType_StopSceneDelayRequest,
         MovementType_Camera,
         MovementType_ScreenEffect,
         MovementType_ClippingDirector,
         MovementType_SensorHitChecker,
         MovementType_MsgSharedGroup,
-        MovementType_UNK_0x07,
-        MovementType_UNK_0x08,
         MovementType_AudCameraWatcher,
         MovementType_TalkDirector,
         MovementType_DemoDirector,
-        MovementType_UNK_0x0C,
         MovementType_AreaObj,
         MovementType_Layout,
         MovementType_LayoutDecoration,
@@ -25,8 +21,7 @@ namespace MR {
         MovementType_WipeLayout,
         MovementType_LayoutOnPause,
         MovementType_MovieSubtitles,
-        MovementType_UNK_0x14,
-        MovementType_UNK_0x15,
+        MovementType_EffectUpdateCheck,
         MovementType_MirrorCamera,
         MovementType_ImageEffect,
         MovementType_AudEffectDirector,
@@ -72,11 +67,8 @@ namespace MR {
         CalcAnimType_LayoutDecoration,
         CalcAnimType_MovieSubtitles,
         CalcAnimType_Item,
-        CalcAnimType_UNK_0x11,
-        CalcAnimType_UNK_0x12,
         CalcAnimType_AnimParticle,
         CalcAnimType_AnimParticleIgnorePause,
-        CalcAnimType_UNK_0x15,
     };
 
     enum DrawBufferType {
@@ -104,8 +96,7 @@ namespace MR {
         DrawBufferType_Player,
         DrawBufferType_PlayerDecoration,
         DrawBufferType_CrystalBox,
-        DrawBufferType_UNK_0x17,
-        DrawBufferType_UNK_0x18,
+        DrawBufferType_PlayerParts,
         DrawBufferType_IndirectMapObj,
         DrawBufferType_IndirectMapObjStrongLight,
         DrawBufferType_IndirectNpc,
@@ -118,18 +109,14 @@ namespace MR {
         DrawBufferType_GlaringLight,
         DrawBufferType_AstroDomeSky,
         DrawBufferType_Model3DFor2D,
-        DrawBufferType_0x25,
-        DrawBufferType_0x26,
         DrawBufferType_MirrorMapObj,
-        DrawBufferType_0x28,
     };
 
+    // A draw order slot: the draw tables are indexed by it, in this order.
     enum DrawType {
         DrawType_None = -1,
         DrawType_SwingRope,
-        DrawType_0x1,
         DrawType_Creeper,
-        DrawType_0x3,
         DrawType_PlantStalk,
         DrawType_Plant,
         DrawType_Trapeze,
@@ -143,30 +130,29 @@ namespace MR {
         DrawType_ElectricRailHolder,
         DrawType_BigBubble,
         DrawType_BigBubbleGoal,
-        DrawType_0x11,
         DrawType_SpinDriverPathDrawer,
         DrawType_GCapture,
         DrawType_ClipAreaDropLaser,
         DrawType_SpiderThread,
         DrawType_SpaceCocoon,
-        DrawType_0x17,
-        DrawType_WarpPodPath,     // TODO: DrawType_NormalMap?
-        DrawType_FlexibleSphere,  // TODO: DrawType_DynamicCollisionObj?
+        DrawType_FootPrint,
+        // Normal-mapped map objects and the warp pod paths.
+        DrawType_NormalMap,
+        // Meshes rebuilt every frame: FlexibleSphere, TrampleStar, DynamicCollisionObj.
+        DrawType_FlexibleSphere,
         DrawType_KirairaChain,
         DrawType_WaterPlant,
         DrawType_VolumeModel,
         DrawType_Flag,
         DrawType_AstroDomeSkyClear,
         DrawType_AstroDomeOrbit,
-        DrawType_0x20,
         DrawType_OceanBowlBloomDrawer,
         DrawType_Player,
-        DrawType_0x23,
-        DrawType_0x24,
+        DrawType_PlayerIndirect,
         DrawType_MiiFacePartsHolder,
         DrawType_ShadowSurface,
         DrawType_ShadowVolume,
-        DrawType_0x28,
+        DrawType_PlayerSilhouette,
         DrawType_AlphaShadow,
         DrawType_ClipArea,
         DrawType_FallOutFieldDraw,
@@ -174,10 +160,8 @@ namespace MR {
         DrawType_CaptureScreenIndirect,
         DrawType_CaptureScreenCamera,
         DrawType_CenterScreenBlur,
-        DrawType_0x30,
         DrawType_Fur,
-        DrawType_0x32,
-        DrawType_0x33,
+        DrawType_PlayerSearchLight,
         DrawType_BloomEffectPreDraw,
         DrawType_BloomEffectPostDraw,
         DrawType_BloomModel,
@@ -185,7 +169,6 @@ namespace MR {
         DrawType_DashRing,
         DrawType_BrightSun,
         DrawType_WaterCameraFilter,
-        DrawType_0x3B,
         DrawType_Layout,
         DrawType_LayoutDecoration,
         DrawType_LayoutOnPause,
@@ -194,7 +177,7 @@ namespace MR {
         DrawType_CometScreenFilter,
         DrawType_WipeLayout,
         DrawType_TalkLayout,
-        DrawType_0x44,
+        DrawType_TalkPartsLayout,
         DrawType_CinemaFrame,
         DrawType_GalaxyNamePlate,
         DrawType_EffectDraw3D,
@@ -208,11 +191,10 @@ namespace MR {
         DrawType_MiiFaceIcon,
         DrawType_MiiFaceNew,
         DrawType_CameraCover,
-        DrawType_0x52,
     };
 
     enum LightType {
-        LightType_None = -1,  // TODO: better name?
+        LightType_None = -1,
         LightType_Player,
         LightType_Strong,
         LightType_Weak,
@@ -250,15 +232,13 @@ public:
     static void executeDrawImageEffect();
     static void executeDrawList2DNormal();
     static void executeDrawList2DMovie();
-    static void startStageFileLoad();
     static void createStageDataHolder();
-    static void startActorFileLoadCommon();
-    static void startActorFileLoadScenario();
     static void startActorPlacement();
+    static bool startActorPlacementStep(uint64_t deadline);
     static void initAfterScenarioSelected();
     static void initForNameObj();
     static void initForLiveActor();
-    static void initEffectSystem(u32, u32);
+    static void initEffectSystem(u32 emitterCount);
     static void allocateDrawBufferActorList();
     static void createHioBasicNode(Scene*);
 };

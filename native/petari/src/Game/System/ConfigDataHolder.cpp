@@ -2,9 +2,7 @@
 #include "Game/System/ConfigDataHolder.hpp"
 #include "Game/System/ConfigDataMii.hpp"
 #include "Game/System/ConfigDataMisc.hpp"
-#include <JSystem/JSupport/JSUMemoryInputStream.hpp>
-#include <JSystem/JSupport/JSUMemoryOutputStream.hpp>
-#include <cstdio>
+#include "Game/System/SaveBytes.hpp"
 
 ConfigDataCreateChunk::ConfigDataCreateChunk() : mIsCreated() {
     initializeData();
@@ -19,20 +17,22 @@ u32 ConfigDataCreateChunk::getSignature() const {
 }
 
 s32 ConfigDataCreateChunk::serialize(u8* pBuffer, u32 size) const {
-    JSUMemoryOutputStream stream = JSUMemoryOutputStream(pBuffer, size);
+    SaveWriter stream(pBuffer, size);
 
-    u8 isCreated = -(mIsCreated != false);
-    stream.write(&isCreated, sizeof(mIsCreated));
+    // Saved as 0xFF when created.
+    u8 isCreated = mIsCreated ? 0xFF : 0;
+    stream.write(&isCreated, sizeof(isCreated));
 
-    return stream.mPosition;
+    return stream.getPosition();
 }
 
 s32 ConfigDataCreateChunk::deserialize(const u8* pBuffer, u32 size) {
     initializeData();
 
-    JSUMemoryInputStream stream = JSUMemoryInputStream(pBuffer, size);
+    SaveReader stream(pBuffer, size);
 
-    u8 isCreated;
+    // A short save keeps the initial values.
+    u8 isCreated = 0;
     stream.read(&isCreated, sizeof(mIsCreated));
     mIsCreated = isCreated != 0;
 
@@ -106,7 +106,7 @@ s32 ConfigDataHolder::makeFileBinary(u8* pBuffer, u32 size) {
 }
 
 ConfigDataHolder::ConfigDataHolder() : mChunkHolder(), mCreateChunk(), mMii(), mMisc() {
-    mChunkHolder = new BinaryDataChunkHolder(64, 3);
+    mChunkHolder = new BinaryDataChunkHolder();
     mCreateChunk = new ConfigDataCreateChunk();
     mMii = new ConfigDataMii();
     mMisc = new ConfigDataMisc();
@@ -115,11 +115,11 @@ ConfigDataHolder::ConfigDataHolder() : mChunkHolder(), mCreateChunk(), mMii(), m
     mChunkHolder->addChunk(mMii);
     mChunkHolder->addChunk(mMisc);
     resetAllData();
-    nebula_snprintf(mName, sizeof(mName), "config1");
+    mUser = 1;
 }
 
-bool ConfigDataHolder::loadFromFileBinary(const char* pName, const u8* pBuffer, u32 size) {
-    nebula_snprintf(mName, sizeof(mName), "%s", pName);
+bool ConfigDataHolder::loadFromFileBinary(SaveFileId file, const u8* pBuffer, u32 size) {
+    mUser = file.mUser;
 
     return mChunkHolder->loadFromFileBinary(pBuffer, size);
 }

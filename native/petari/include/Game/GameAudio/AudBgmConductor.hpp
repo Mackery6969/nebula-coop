@@ -4,21 +4,20 @@
 
 class AudBgmConductor : public NameObj {
 public:
-    /// @brief Creates a new `AudBgmConductor`.
     AudBgmConductor();
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void movement();
+    virtual void init(const TableIter& rIter) override;
+    virtual void movement() override;
 
     void playPinchEventBgmLevel(bool);
     void setStateBit(u32);
     void stopPinchEventBgmSoon();
     void movementPinchEventBgm();
 
-    // TODO: clarify StateBit_1
+    // Set each frame by AudCameraWatcher (camera under water) and MarioSwim (a swim dash); cleared by movement.
     enum StateBits {
-        StateBit_1 = 0b010,
-        StateBit_Delay = 0b100,
+        StateBit_CameraInWater = 0b010,
+        StateBit_SwimJet = 0b100,
     };
 
     u32 mStateBits;

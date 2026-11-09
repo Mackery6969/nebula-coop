@@ -5,8 +5,11 @@
 #include "Game/Ride/BigBubble.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
+#include "Game/System/Arenas.hpp"
+#include "Game/System/NebulaArena.hpp"
 #include "Game/Util.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
+#include "Game/Util/MotionSignal.hpp"
 #include "Game/Util/ObjUtil.hpp"
 
 namespace {
@@ -15,24 +18,15 @@ namespace {
     }
 };  // namespace
 
-BigBubbleHolder::BigBubbleHolder(const char* pName) : NameObj(pName), mDrawer(), mNumLimitters(), mNumBubbles(), mIsMarioBinded() {
-    for (s32 idx = 0; idx < 16; idx++) {
-        mBubbles[idx] = nullptr;
-        mDrawBubbles[idx] = nullptr;
-    }
-
-    for (s32 idx = 0; idx < 64; idx++) {
-        mLimitters[idx] = nullptr;
-    }
-
-    mDrawer = new BigBubbleDrawer();
+BigBubbleHolder::BigBubbleHolder(const char* pName)
+    : NameObj(pName), mDrawer(new BigBubbleDrawer()), mBubbles(), mDrawBubbles(), mLimitters(), mNumLimitters(), mNumBubbles(), mIsMarioBinded() {
     MR::registerPreDrawFunction(MR::Functor(&MR::setUpBigBubbleDraw), MR::DrawType_BigBubble);
     MR::connectToScene(this, MR::MovementType_EnemyDecoration, MR::CalcAnimType_None, MR::DrawBufferType_None, MR::DrawType_BigBubble);
 }
 
 void BigBubbleHolder::movement() {
     mIsMarioBinded = false;
-    for (s32 idx = 0; idx < 16; idx++) {
+    for (s32 idx = 0; idx < mBubbles.size(); idx++) {
         if (mBubbles[idx]->isBindMario()) {
             mIsMarioBinded = true;
             break;
@@ -41,8 +35,12 @@ void BigBubbleHolder::movement() {
 }
 
 void BigBubbleHolder::draw() const {
+    // The bubbles draw far to near, an order that changes as they and the camera move: each draws as an object of its own
+    // (its slot, its life), so its surface pairs with itself whatever its place in the order.
     for (s32 idx = 0; idx < mNumBubbles; idx++) {
-        mDrawBubbles[idx]->draw();
+        BigBubble* pBubble = mDrawBubbles[idx];
+        MotionSignal::drawObject(pBubble->mDrawSlot, pBubble->mMotionEpoch);
+        pBubble->draw();
     }
 }
 
@@ -55,23 +53,39 @@ void BigBubbleHolder::addMoveLimitter(BigBubbleMoveLimitter* pLimitter) {
     mLimitters.at(mNumLimitters++) = pLimitter;
 }
 
-BigBubble* BigBubbleHolder::generateBigBubble(LiveActor* pHost, const TVec3f& rPos, const TVec3f& rUp, f32 volume, bool isObstruct, s32 actionType,
+BigBubble* BigBubbleHolder::generateBigBubble(LiveActor* pHost, const Vec3f& rPos, const Vec3f& rUp, f32 volume, bool isObstruct, s32 actionType,
                                               s32 shapeType, s32 limitterID) {
     BigBubbleMoveLimitter* limitter = nullptr;
     if (limitterID >= 0) {
         limitter = getMoveLimitter(limitterID);
     }
 
-    for (s32 idx = 0; idx < 16; idx++) {
+    BigBubble* pBubble = nullptr;
+    for (s32 idx = 0; idx < mBubbles.size(); idx++) {
         if (MR::isDead(mBubbles[idx])) {
-            mBubbles[idx]->setHost(pHost);
-            mBubbles[idx]->generate(rPos, rUp, volume, isObstruct, actionType, shapeType, limitter);
-
-            return mBubbles[idx];
+            pBubble = mBubbles[idx];
+            break;
         }
     }
 
-    return nullptr;
+    if (pBubble == nullptr) {
+        pBubble = createBubble();
+        pBubble->initAfterPlacement();
+    }
+
+    pBubble->setHost(pHost);
+    pBubble->generate(rPos, rUp, volume, isObstruct, actionType, shapeType, limitter);
+
+    return pBubble;
+}
+
+BigBubble* BigBubbleHolder::createBubble() {
+    NebulaArena::CurrentScope scope(Arenas::scene());
+    BigBubble* pBubble = new BigBubble("オオアワ[共有]");
+    pBubble->initWithoutIter();
+    mBubbles.push_back(pBubble);
+    mDrawBubbles.push_back(nullptr);
+    return pBubble;
 }
 
 BigBubbleMoveLimitter* BigBubbleHolder::getMoveLimitter(s32 limitterID) const {
@@ -85,7 +99,7 @@ BigBubbleMoveLimitter* BigBubbleHolder::getMoveLimitter(s32 limitterID) const {
 
 void BigBubbleHolder::sortDrawOrder() {
     mNumBubbles = 0;
-    for (s32 idx = 0; idx < 16; idx++) {
+    for (s32 idx = 0; idx < mBubbles.size(); idx++) {
         if (mBubbles[idx]->isDraw()) {
             bool skipSort;
             s32 other = mNumBubbles;
@@ -120,13 +134,18 @@ void MR::createBigBubbleHolder() {
     MR::createSceneObj(SceneObj_BigBubbleHolder);
 }
 
-BigBubble* MR::generateBigBubble(LiveActor* pHost, const TVec3f& rPos, const TVec3f& rUp, f32 volume, bool isObstruct, s32 actionType, s32 shapeType,
+BigBubble* MR::generateBigBubble(LiveActor* pHost, const Vec3f& rPos, const Vec3f& rUp, f32 volume, bool isObstruct, s32 actionType, s32 shapeType,
                                  s32 limitterID) {
     return ::getBigBubbleHolder()->generateBigBubble(pHost, rPos, rUp, volume, isObstruct, actionType, shapeType, limitterID);
 }
 
-void MR::limitBigBubblePosition(TVec3f* pPos, f32 f1, s32 limitterID) {
-    ::getBigBubbleHolder()->getMoveLimitter(limitterID)->limitPosition(pPos, f1);
+void MR::limitBigBubblePosition(Vec3f* pPos, f32 offset, s32 limitterID) {
+    // A limitter number nothing registered (a bubble set to one a stage lacks) limits nothing.
+    BigBubbleMoveLimitter* pLimitter = ::getBigBubbleHolder()->getMoveLimitter(limitterID);
+
+    if (pLimitter != nullptr) {
+        pLimitter->limitPosition(pPos, offset);
+    }
 }
 
 void MR::addBigBubbleMoveLimitter(BigBubbleMoveLimitter* pLimitter) {
@@ -141,12 +160,10 @@ bool MR::isPlayerBindedBigBubble() {
     return ::getBigBubbleHolder()->mIsMarioBinded;
 }
 
-BigBubbleHolder::~BigBubbleHolder() {
-}
-
-void BigBubbleHolder::init(const JMapInfoIter& rIter) {
-    for (s32 idx = 0; idx < 16; idx++) {
-        mBubbles[idx] = new BigBubble("\203\111\203\111\203\101\203\217[\213\244\227\114]" /* オオアワ[共有] */);
-        mBubbles[idx]->initWithoutIter();
+void BigBubbleHolder::init(const TableIter& /*rIter*/) {
+    mBubbles.init(cBubbleCount);
+    mDrawBubbles.init(cBubbleCount);
+    for (s32 idx = 0; idx < cBubbleCount; idx++) {
+        createBubble();
     }
 }

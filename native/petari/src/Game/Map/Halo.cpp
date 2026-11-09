@@ -3,7 +3,7 @@
 #include "Game/MapObj/MapObjActorInitInfo.hpp"
 #include "Game/Util/ActorMovementUtil.hpp"
 #include "Game/Util/CameraUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
@@ -18,7 +18,7 @@ namespace NrvPowerStarHalo {
 };  // namespace NrvPowerStarHalo
 
 namespace {
-    static const HaloParam sParams[] = {{"ZoneHalo", 70.0f, 20.0f, 4.0f}, {"PowerStarHalo", 80.0f, 20.0f, 30.0f}};
+    static const HaloParam sParams[] = {{"ZoneHalo", 4.0f}, {"PowerStarHalo", 30.0f}};
 
     static const HaloParam* getParam(const char* pName) {
         for (u32 i = 0; i < ARRAY_SIZE(sParams); i++) {
@@ -34,7 +34,7 @@ namespace {
 Halo::Halo(const char* pName) : MapObjActor(pName), mDistance(70.0f) {
 }
 
-void Halo::init(const JMapInfoIter& rIter) {
+void Halo::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
     MapObjActorInitInfo info;
     info.setupDefaultPos();
@@ -44,7 +44,7 @@ void Halo::init(const JMapInfoIter& rIter) {
     info.setupFarClipping(-1.0f);
     info.setupAffectedScale();
     initialize(rIter, info);
-    MR::getJMapInfoArg0NoInit(rIter, &mDistance);
+    MR::getPlacementArg0NoInit(rIter, &mDistance);
 }
 
 void Halo::appear() {
@@ -83,7 +83,7 @@ f32 Halo::getDistance() const {
     return MR::calcDistanceToPlayer(this);
 }
 
-void Halo::connectToScene(const MapObjActorInitInfo& rIter) {
+void Halo::connectToScene(const MapObjActorInitInfo& /*rIter*/) {
     MR::connectToSceneAir(this);
 }
 
@@ -148,12 +148,9 @@ void Halo::exeDisappear() {
 PowerStarHalo::PowerStarHalo(const char* pName) : Halo(pName), mAppearDuringOpeningCam(-1) {
 }
 
-Halo::~Halo() {
-}
-
-void PowerStarHalo::init(const JMapInfoIter& rIter) {
+void PowerStarHalo::init(const TableIter& rIter) {
     Halo::init(rIter);
-    MR::getJMapInfoArg1NoInit(rIter, &mAppearDuringOpeningCam);
+    MR::getPlacementArg1NoInit(rIter, &mAppearDuringOpeningCam);
 
     if (mAppearDuringOpeningCam == -1) {
         setNerve(GET_NERVE(PowerStarHalo, HostTypeWaitScenarioOpeningEnd));
@@ -181,7 +178,4 @@ void PowerStarHalo::exeWaitScenarioOpeningEnd() {
         MR::showModel(this);
         Halo::appear();
     }
-}
-
-PowerStarHalo::~PowerStarHalo() {
 }

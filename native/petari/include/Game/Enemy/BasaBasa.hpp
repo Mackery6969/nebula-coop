@@ -9,19 +9,18 @@ class SpinHitController;
 
 class BasaBasa : public LiveActor {
 public:
-    BasaBasa(const char*);
+    BasaBasa(const char* pName);
 
-    virtual ~BasaBasa();
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void kill();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPush(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter& rIter) override;
+    virtual void initAfterPlacement() override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     void exeWait();
     void exeAirWait();
@@ -39,34 +38,34 @@ public:
     void exeHitBackEnd();
     void exeComeHome();
     void exeAttachCelling();
-    void exeDPDSwoon();
-    void endDPDSwoon();
+    void exePointerSwoon();
+    void endPointerSwoon();
     void exeStun();
     void initHangModel();
     bool tryClippingAndResetPos();
-    bool trySetNerveDPDSwoon();
+    bool trySetNervePointerSwoon();
     bool tryComeHome();
     void updateRailType();
     void controlVelocity();
     void tuneHeight();
-    bool isNearTarget(f32) const;
+    bool isNearTarget(f32 distance) const;
+    bool isDown() const;
     bool isNrvEnableStun() const;
 
     ModelObj* mHangModel;
     AnimScaleController* mScaleController;
     AnimStampController* mStampController;
     SpinHitController* mSpinHitController;
-    TVec3f _9C;
-    f32 _A8;
-    f32 _AC;
-    u32 _B0;
-    const TVec3f* _B4;
-    f32 _B8;
-    TVec3f _BC;
+    Vec3f mFront;
+    f32 mChaseDistance;   // Obj_arg0
+    f32 mAttackDistance;  // random 600..800
+    const Vec3f* mTarget;  // the player's center, the rail position or mHomePos
+    f32 mChaseTurnAngle;  // random -25..25 degrees off the target
+    Vec3f mAttackTarget;
     bool mIsIceModel;
-    TVec3f _CC;
-    TVec3f _D8;
-    f32 _E4;
-    s32 _E8;
-    u8 _EC;
+    Vec3f mHomePos;
+    Vec3f mHomeFront;
+    f32 mHomeDistance;  // Obj_arg1, default mChaseDistance + 1000
+    s32 mClipStep;
+    bool mIsOnCeiling;
 };

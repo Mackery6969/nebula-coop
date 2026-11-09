@@ -4,53 +4,50 @@
 #include "Game/LiveActor/IKJointCtrl.hpp"
 #include "Game/LiveActor/LiveActor.hpp"
 
-ActorJointCtrl::ActorJointCtrl(LiveActor* pActor) {
-    mActor = pActor;
-    mJointCtrlKeeper = 0;
-    mFaceJointCtrl = 0;
-    mJointCtrlHolder = 0;
-    _10 = 1;
-    _11 = 0;
-
+ActorJointCtrl::ActorJointCtrl(LiveActor* pActor) : mActor(pActor), mIsIdle(true) {
     mJointCtrlKeeper = new DynamicJointCtrlKeeper(mActor);
     mFaceJointCtrl = new FaceJointCtrl(mActor);
     mFaceJointCtrl->init();
     mJointCtrlHolder = ActorJoint::createIKJointCtrlHolder(mActor);
-
-    if (mJointCtrlHolder) {
-        _11 = 1;
-    }
 }
 
-void ActorJointCtrl::startDynamicCtrl(const char* pName, s32 val) {
-    mJointCtrlKeeper->startCtrl(pName, val);
+void ActorJointCtrl::startDynamicCtrl(const char* pName, s32 time) {
+    mJointCtrlKeeper->startCtrl(pName, time);
 }
-void ActorJointCtrl::endDynamicCtrl(const char* pName, s32 val) {
-    mJointCtrlKeeper->endCtrl(pName, val);
+
+void ActorJointCtrl::endDynamicCtrl(const char* pName, s32 time) {
+    mJointCtrlKeeper->endCtrl(pName, time);
 }
 
 void ActorJointCtrl::resetDynamicCtrl() {
     mJointCtrlKeeper->reset();
 }
 
-void ActorJointCtrl::startFaceCtrl(s32 val) {
-    mFaceJointCtrl->startCtrl(val);
+void ActorJointCtrl::startFaceCtrl(s32 time) {
+    mFaceJointCtrl->startCtrl(time);
 }
 
-void ActorJointCtrl::endFaceCtrl(s32 val) {
-    mFaceJointCtrl->endCtrl(val);
+void ActorJointCtrl::endFaceCtrl(s32 time) {
+    mFaceJointCtrl->endCtrl(time);
 }
 
-void ActorJointCtrl::setIKEndPosition(const char* pName, const TVec3f& a2, f32 a3) {
-    mJointCtrlHolder->setEndPosition(pName, a2, a3);
+void ActorJointCtrl::setIKEndPosition(const char* pName, const Vec3f& rPos, f32 rate) {
+    // An actor with no IK table has nothing to bend.
+    if (mJointCtrlHolder != nullptr) {
+        mJointCtrlHolder->setEndPosition(pName, rPos, rate);
+    }
 }
 
-void ActorJointCtrl::setIKEndDirection(const char* pName, const TVec3f& a2, f32 a3) {
-    mJointCtrlHolder->setEndDirection(pName, a2, a3);
+void ActorJointCtrl::setIKEndDirection(const char* pName, const Vec3f& rDirection, f32 rate) {
+    if (mJointCtrlHolder != nullptr) {
+        mJointCtrlHolder->setEndDirection(pName, rDirection, rate);
+    }
 }
 
 void ActorJointCtrl::endIKCtrlAll() {
-    mJointCtrlHolder->endCtrlAll();
+    if (mJointCtrlHolder != nullptr) {
+        mJointCtrlHolder->endCtrlAll();
+    }
 }
 
 void ActorJointCtrl::update() {
@@ -61,13 +58,10 @@ void ActorJointCtrl::update() {
 void ActorJointCtrl::startUpdate() {
     if (mJointCtrlHolder) {
         mJointCtrlHolder->startUpdate();
-    }
-
-    if (_11) {
         mActor->calcAnim();
     }
 
-    _10 = 0;
+    mIsIdle = false;
 }
 
 void ActorJointCtrl::endUpdate() {
@@ -83,11 +77,11 @@ void ActorJointCtrl::endUpdate() {
         mJointCtrlHolder->endUpdate();
     }
 
-    _10 = 1;
+    mIsIdle = true;
 }
 
 void ActorJointCtrl::setCallBackFunction() {
-    if (_10) {
+    if (mIsIdle) {
         if (mJointCtrlKeeper) {
             mJointCtrlKeeper->setCallBackFunction();
         }

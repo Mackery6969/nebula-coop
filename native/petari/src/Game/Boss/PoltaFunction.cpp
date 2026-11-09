@@ -13,7 +13,13 @@
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
-#include <JSystem/JMath/JMath.hpp>
+#include <nebula_geometry.hpp>
+
+namespace {
+    const f32 cRockCircleBaseAngle = 15.0f;
+    const f32 cRockCircleAngleStep = 7.0f;
+    const f32 cBombTeresaRootHeight = 120.0f;
+}  // namespace
 
 namespace PoltaFunction {
     void onMovement(Polta* pPolta) {
@@ -27,9 +33,6 @@ namespace PoltaFunction {
         MR::requestMovementOn(pPolta->mRightArm);
         MR::requestMovementOn(pPolta->mRightArm->mBreakModel);
         MR::requestMovementOn(pPolta->mRightArm->mFormationModel);
-    }
-
-    void emitEffectShadow(Polta* pPolta) {
     }
 
     PoltaArm* getLeftArmActor(Polta* pPolta) {
@@ -158,89 +161,62 @@ namespace PoltaFunction {
             return false;
         }
 
-        TVec3f direction(*MR::getPlayerPos());
-        const TVec3f& rGravity = pPolta->mGravity;
+        Vec3f direction(*MR::getPlayerPos());
+        const Vec3f& rGravity = pPolta->mGravity;
         direction.sub(pPolta->mPosition);
         direction.orthogonalize(rGravity);
 
         if (MR::normalizeOrZero(&direction)) {
-            direction = pPolta->_C4;
+            direction = pPolta->mFront;
         }
 
         MR::rotateVecDegree(&direction, pPolta->mGravity, angle);
-        TVec3f position;
+        Vec3f position;
         position.scaleAdd(distance, direction, pPolta->mPosition);
 
         pRock->start(pPolta, position);
         return true;
     }
 
-// this is the only way I could match this
-// TODO fix
-    bool appearRockCircle(Polta* pPolta, const TVec3f& rCenter, f32 radius, s32 index, s32 count, s32 rockType) {
+    // Rocks alternate sides of Polta's front, each pair further round: index 0 at -22 degrees, 1 at +29, 2 at -36 and so on.
+    // The offset is the rock's float point in Polta's base frame.
+    bool appearRockCircle(Polta* pPolta, const Vec3f& rCenter, f32 radius, s32 index, PoltaRock::Color color) {
         PoltaRock* const pRock = pPolta->mRockHolder->getDeadMember();
         if (pRock == nullptr) {
             return false;
         }
 
-        switch (rockType) {
-        case 0:
-            pRock->setColorWhite();
-            break;
-        case 1:
-            pRock->setColorBlack();
-            break;
-        case 2:
-            pRock->setColorYellow();
-            break;
-        default:
-            pRock->setColorWhite();
-            break;
-        }
+        pRock->setColor(color);
 
-        const TVec3f& rFront = pPolta->_C4;
-        TVec3f direction(rFront);
+        Vec3f direction(pPolta->mFront);
         f32 sign = index % 2 ? 1.0f : -1.0f;
-        f32 angle = sign * (15.0f + 7.0f * (index + 1));
-        const TVec3f& rGravity = pPolta->mGravity;
-        MR::rotateVecDegree(&direction, rGravity, angle);
+        f32 angle = sign * (::cRockCircleBaseAngle + ::cRockCircleAngleStep * (index + 1));
+        MR::rotateVecDegree(&direction, pPolta->mGravity, angle);
         direction.orthogonalize(pPolta->mGravity);
         MR::normalizeOrZero(&direction);
 
-        TVec3f position;
+        Vec3f position;
         position.scaleAdd(radius, direction, rCenter);
-        TVec3f offset(radius * -MR::sinDegree(angle), 0.0f, radius * MR::cosDegree(angle));
+        Vec3f offset(radius * -MR::sinDegree(angle), 0.0f, radius * MR::cosDegree(angle));
 
-        const TVec3f& rOffset = offset;
-        pRock->start(pPolta, position, rOffset);
+        pRock->start(pPolta, position, offset);
         return true;
     }
 
-    bool appearWhiteRockCircle(Polta* pPolta, const TVec3f& rCenter, f32 radius, s32 index, s32 count) {
-        return appearRockCircle(pPolta, rCenter, radius, index, count, 0);
-    }
-
-    bool appearBlackRockCircle(Polta* pPolta, const TVec3f& rCenter, f32 radius, s32 index, s32 count) {
-        return appearRockCircle(pPolta, rCenter, radius, index, count, 1);
-    }
-
-    bool appearYellowRockCircle(Polta* pPolta, const TVec3f& rCenter, f32 radius, s32 index, s32 count) {
-        return appearRockCircle(pPolta, rCenter, radius, index, count, 2);
-    }
-
-    bool appearBombTeresaFromRoot(Polta* pPolta, f32 param2, f32 param3, s32 param4) {
-        TVec3f position;
-        position.scaleAdd(-120.0f, pPolta->mGravity, pPolta->mPosition);
+    // Bomb boos come out cBombTeresaRootHeight above Polta's root.
+    bool appearBombTeresaFromRoot(Polta* pPolta) {
+        Vec3f position;
+        position.scaleAdd(-::cBombTeresaRootHeight, pPolta->mGravity, pPolta->mPosition);
         BombTeresa* pBombTeresa = pPolta->mBombTeresaHolder->getDeadMember();
         if (pBombTeresa == nullptr) {
             return false;
         }
 
-        pBombTeresa->appearShadow(position, TVec3f(0.0f, 0.0f, 0.0f));
+        pBombTeresa->appearShadow(position, Vec3f(0.0f, 0.0f, 0.0f));
         return true;
     }
 
-    bool appearBombTeresaNormal(Polta* pPolta, const TVec3f& rPosition, const TVec3f& rVelocity) {
+    bool appearBombTeresaNormal(Polta* pPolta, const Vec3f& rPosition, const Vec3f& rVelocity) {
         BombTeresa* pBombTeresa = pPolta->mBombTeresaHolder->getDeadMember();
         if (pBombTeresa == nullptr) {
             return false;

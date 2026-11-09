@@ -1,7 +1,7 @@
 #include "Game/Enemy/KirairaChain.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
+#include "Game/Render/TypedDraw.hpp"
 #include "Game/LiveActor/ModelObj.hpp"
-#include "Game/LiveActor/SimpleJ3DModelDrawer.hpp"
+#include "Game/LiveActor/SimpleModelDrawer.hpp"
 #include "Game/Ride/SwingRopePoint.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Util/CameraUtil.hpp"
@@ -10,14 +10,10 @@
 #include "Game/Util/MtxUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/RailUtil.hpp"
-#include <JSystem/J3DGraphBase/J3DShapeDraw.hpp>
-
-KirairaChain::~KirairaChain() {
-}
 
 KirairaChain::KirairaChain(const LiveActor* pHost)
-    : LiveActor("\203\114\203\211\203\103\203\211\202\314\215\275" /* キライラの鎖 */), mHost(pHost), mIsCut(), mCutPos(0.0f, 0.0f, 0.0f), mRailStart(0.0f, 0.0f, 0.0f), mRailEnd(0.0f, 0.0f, 0.0f),
-      mFixPointTopDir(1.0f, 0.0f, 0.0f), mFixPointBottomDir(1.0f, 0.0f, 0.0f), mPointCount(), mPoints(), _138(), mAccelPointIdx(),
+    : LiveActor("キライラの鎖"), mHost(pHost), mIsCut(), mCutPos(0.0f, 0.0f, 0.0f), mRailStart(0.0f, 0.0f, 0.0f), mRailEnd(0.0f, 0.0f, 0.0f),
+      mFixPointTopDir(1.0f, 0.0f, 0.0f), mFixPointBottomDir(1.0f, 0.0f, 0.0f), mPointCount(), mPoints(), mAccelPointIdx(),
       mAccelTimer(), mAccel(0.0f, 0.0f, 0.0f), mClippingCenter(0.0f, 0.0f, 0.0f), mModelDrawer(), mFixPointTop(),
       mFixPointBottom() {
     mFixPointTopMtx.identity();
@@ -30,15 +26,15 @@ KirairaChain::KirairaChain(const LiveActor* pHost)
     f32 railLength;
 
     if (MR::isExistRail(mHost)) {
-        TVec3f startDir;
-        TVec3f endDir;
+        Vec3f startDir;
+        Vec3f endDir;
         MR::calcRailStartPointPosAndDirection(&mRailStart, &startDir, mHost);
         MR::calcRailEndPointPosAndDirection(&mRailEnd, &endDir, mHost);
         mPosition.set(mRailEnd);
 
         railLength = MR::getRailTotalLength(mHost);
 
-        TVec3f up(0.0f, 0.0f, 1.0f);
+        Vec3f up(0.0f, 0.0f, 1.0f);
         MR::makeMtxUpFront(&mFixPointTopMtx, startDir, up);
         endDir.scale(-1.0f);
         MR::makeMtxUpFront(&mFixPointBottomMtx, endDir, up);
@@ -64,6 +60,11 @@ KirairaChain::KirairaChain(const LiveActor* pHost)
         mPointCount -= 2;
     }
 
+    // A chain is at least two points (a short rail would give none or a divide by zero in initPoints).
+    if (mPointCount < 2) {
+        mPointCount = 2;
+    }
+
     mFixPointTopMtx.getXDir(mFixPointTopDir);
     mFixPointBottomMtx.getXDir(mFixPointBottomDir);
 }
@@ -73,7 +74,7 @@ void KirairaChain::initPoints() {
 
     for (s32 i = 0; i < mPointCount; i++) {
         f32 t = static_cast< f32 >(i) / (mPointCount - 1);
-        TVec3f point;
+        Vec3f point;
 
         if (MR::isExistRail(mHost)) {
             point = mRailStart * (1.0f - t) + mRailEnd * t;
@@ -86,9 +87,10 @@ void KirairaChain::initPoints() {
 }
 
 void KirairaChain::draw() const {
-    mModelDrawer->initDraw();
+    MaterialDraw material(mModelDrawer->mMaterial);
+    TypedDraw site(material, nullptr, MR::getCameraViewMtx());
 
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.identity();
 
     for (s32 i = 0; i < mPointCount; i++) {
@@ -98,15 +100,13 @@ void KirairaChain::draw() const {
 
         mtx.setTrans(point->mPosition);
 
-        NebulaMtxConcat(MR::getCameraViewMtx(), mtx, mtx);
-        J3DNativeShape::setPosition(0, mtx);
-        J3DNativeShape::setNormal(0, mtx);
-        mModelDrawer->mShapeDraw->draw();
+        site.setWorld(mtx);
+        material.drawUnder(site, mModelDrawer->mShape);
     }
 }
 
 void KirairaChain::updatePoints() {
-    TVec3f accel(mGravity);
+    Vec3f accel(mGravity);
 
     if (MR::isExistRail(mHost)) {
         accel.scale(0.05f);
@@ -127,9 +127,9 @@ void KirairaChain::updatePoints() {
         s32 lowIdx = MR::clamp(static_cast< s32 >((MR::getRailCoord(mHost) - offset) / 40.0f), 0, mPointCount - 1);
         s32 highIdx = MR::clamp(static_cast< s32 >((offset + MR::getRailCoord(mHost)) / 40.0f), 0, mPointCount - 1);
 
-        TVec3f posA;
+        Vec3f posA;
         MR::calcRailPosAtCoord(&posA, mHost, 40.0f * (lowIdx + 1));
-        TVec3f posB;
+        Vec3f posB;
         MR::calcRailPosAtCoord(&posB, mHost, 40.0f * highIdx);
 
         if (lowIdx + 1 < highIdx - 1) {
@@ -183,7 +183,7 @@ void KirairaChain::updatePoints() {
         }
     } else {
         MtxPtr baseMtx = mHost->getBaseMtx();
-        TVec3f dir(baseMtx[1][0], baseMtx[1][1], baseMtx[1][2]);
+        Vec3f dir(baseMtx[1][0], baseMtx[1][1], baseMtx[1][2]);
         dir.scale(-100.0f);
         dir.add(mHost->mPosition);
         restrictPointFromTopAndCalcAxis(0, mPointCount - 1, dir, 0.9f);
@@ -207,22 +207,22 @@ void KirairaChain::control() {
     updatePoints();
 }
 
-void KirairaChain::init(const JMapInfoIter& rIter) {
+void KirairaChain::init(const TableIter& /*rIter*/) {
     MR::connectToScene(this, MR::MovementType_MapObj, -1, -1, MR::DrawType_KirairaChain);
     initPoints();
 
-    mModelDrawer = new SimpleJ3DModelDrawer(this, "\203\114\203\211\203\103\203\211\202\314\215\275\225\140\211\346" /* キライラの鎖描画 */, "KirairaChain", -1);
+    mModelDrawer = new SimpleModelDrawer(this, "キライラの鎖描画", "KirairaChain", -1);
     mModelDrawer->initWithoutIter();
 
-    mFixPointTop = MR::createModelObjEnemy("\203\114\203\211\203\103\203\211\202\314\214\305\222\350\223\137[Top]" /* キライラの固定点[Top] */, "KirairaFixPointTop", mFixPointTopMtx.toMtxPtr());
-    mFixPointBottom = MR::createModelObjEnemy("\203\114\203\211\203\103\203\211\202\314\214\305\222\350\223\137[Bottom]" /* キライラの固定点[Bottom] */, "KirairaFixPointBottom", mFixPointBottomMtx.toMtxPtr());
+    mFixPointTop = MR::createModelObjEnemy("キライラの固定点[Top]", "KirairaFixPointTop", mFixPointTopMtx.toMtxPtr());
+    mFixPointBottom = MR::createModelObjEnemy("キライラの固定点[Bottom]", "KirairaFixPointBottom", mFixPointBottomMtx.toMtxPtr());
 
     mFixPointTop->appear();
     mFixPointBottom->appear();
     makeActorAppeared();
 }
 
-void KirairaChain::restrictPointFromTop(s32 startIdx, s32 endIdx, const TVec3f& rPos, f32 radius) {
+void KirairaChain::restrictPointFromTop(s32 startIdx, s32 endIdx, const Vec3f& rPos, f32 radius) {
     mPoints[startIdx]->restrict(rPos, 40.0f, nullptr);
     mPoints[startIdx]->updatePos(radius);
 
@@ -236,7 +236,7 @@ void KirairaChain::restrictPointFromTop(s32 startIdx, s32 endIdx, const TVec3f& 
     }
 }
 
-void KirairaChain::restrictPointFromBottom(s32 startIdx, s32 endIdx, const TVec3f& rPos, f32 radius) {
+void KirairaChain::restrictPointFromBottom(s32 startIdx, s32 endIdx, const Vec3f& rPos, f32 radius) {
     mPoints[endIdx]->restrict(rPos, 40.0f, nullptr);
     mPoints[endIdx]->updatePos(radius);
 
@@ -250,7 +250,7 @@ void KirairaChain::restrictPointFromBottom(s32 startIdx, s32 endIdx, const TVec3
     }
 }
 
-void KirairaChain::restrictPointFromTopAndCalcAxis(s32 startIdx, s32 endIdx, const TVec3f& rPos, f32 radius) {
+void KirairaChain::restrictPointFromTopAndCalcAxis(s32 startIdx, s32 endIdx, const Vec3f& rPos, f32 radius) {
     mPoints[startIdx]->restrict(rPos, 40.0f, nullptr);
     mPoints[startIdx]->updatePosAndAxis(mFixPointTopDir, radius);
 
@@ -260,7 +260,7 @@ void KirairaChain::restrictPointFromTopAndCalcAxis(s32 startIdx, s32 endIdx, con
     }
 }
 
-void KirairaChain::restrictPointFromBottomAndCalcAxis(s32 startIdx, s32 endIdx, const TVec3f& rPos, f32 radius) {
+void KirairaChain::restrictPointFromBottomAndCalcAxis(s32 startIdx, s32 endIdx, const Vec3f& rPos, f32 radius) {
     mPoints[endIdx]->restrict(rPos, 40.0f, nullptr);
     mPoints[endIdx]->updatePosAndAxis(mFixPointBottomDir, radius);
 

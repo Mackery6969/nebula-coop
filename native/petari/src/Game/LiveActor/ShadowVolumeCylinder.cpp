@@ -1,5 +1,5 @@
 #include "Game/LiveActor/ShadowVolumeCylinder.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
+#include "Game/Render/TypedDraw.hpp"
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
@@ -12,7 +12,7 @@ namespace {
 ShadowVolumeCylinder::~ShadowVolumeCylinder() {
 }
 
-ShadowVolumeCylinder::ShadowVolumeCylinder() : ShadowVolumeModel("\211\145\225\140\211\346[\203\173\203\212\203\205\201\133\203\200\211\176\222\214]" /* 影描画[ボリューム円柱] */) {
+ShadowVolumeCylinder::ShadowVolumeCylinder() : ShadowVolumeModel("影描画[ボリューム円柱]") {
     mRadius = 100.0f;
     initVolumeModel("ShadowVolumeCylinder");
 }
@@ -21,14 +21,14 @@ void ShadowVolumeCylinder::setRadius(f32 radius) {
     mRadius = radius;
 }
 
-void ShadowVolumeCylinder::loadModelDrawMtx() const {
+void ShadowVolumeCylinder::loadModelDrawMtx(TypedDraw& rDraw) const {
     ShadowController* controller = getController();
-    TVec3f position;
+    Vec3f position;
     calcBaseDropPosition(&position);
-    TVec3f direction;
+    Vec3f direction;
     controller->getDropDir(&direction);
-    TVec3f up(-direction);
-    TPos3f mtx;
+    Vec3f up(-direction);
+    Pos3f mtx;
     MR::makeMtxUpNoSupportPos(&mtx, up, position);
 
     f32 radius = mRadius / ::sModelScale;
@@ -36,8 +36,7 @@ void ShadowVolumeCylinder::loadModelDrawMtx() const {
         radius *= controller->getHost()->mScale.x;
     }
 
-    TVec3f scale(radius, calcBaseDropLength() / ::sModelScale, radius);
+    Vec3f scale(radius, calcBaseDropLength() / ::sModelScale, radius);
     MR::preScaleMtx(mtx, scale);
-    NebulaMtxConcat(MR::getCameraViewMtx(), mtx, mtx);
-    J3DNativeShape::setPosition(0, mtx);
+    rDraw.setWorld(mtx);
 }

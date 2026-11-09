@@ -1,4 +1,5 @@
 #include "Game/Boss/DinoPackunFire.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util/ActorMovementUtil.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
@@ -15,32 +16,32 @@ namespace NrvDinoPackunFire {
     NEW_NERVE(DinoPackunFireNrvGround, DinoPackunFire, Ground);
 };  // namespace NrvDinoPackunFire
 
-DinoPackunFireHolder::DinoPackunFireHolder(s32 numMax) : DeriveActorGroup< DinoPackunFire >("\203\146\203\102\203\155\203\160\203\142\203\116\203\223\211\212\212\307\227\235" /* ディノパックン炎管理 */, numMax) {
+DinoPackunFireHolder::DinoPackunFireHolder(s32 numMax) : DeriveActorGroup< DinoPackunFire >("ディノパックン炎管理", numMax) {
     DinoPackunFire* pFire;
 
     for (s32 i = 0; i < numMax; i++) {
-        pFire = new DinoPackunFire("\203\146\203\102\203\155\203\160\203\142\203\116\203\223\211\212" /* ディノパックン炎 */);
+        pFire = new DinoPackunFire("ディノパックン炎");
         pFire->initWithoutIter();
         registerActor(pFire);
     }
 }
 
 DinoPackunFire::DinoPackunFire(const char* pName) : LiveActor(pName) {
-    _8C.x = 0.0f;
-    _8C.y = 0.0f;
-    _8C.z = 0.0f;
-    _8C.w = 1.0f;
+    mRollQuat.x = 0.0f;
+    mRollQuat.y = 0.0f;
+    mRollQuat.z = 0.0f;
+    mRollQuat.w = 1.0f;
 }
 
-void DinoPackunFire::init(const JMapInfoIter& rIter) {
+void DinoPackunFire::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("DinoPackunFireBall", nullptr, false);
     MR::connectToSceneEnemy(this);
     initHitSensor(1);
-    TVec3f attackOffs;
+    Vec3f attackOffs;
     attackOffs.set(0.0f, 0.0f, 0.0f);
     MR::addHitSensorEnemyAttack(this, "attack", 8, 150.0f, attackOffs);
-    TVec3f starOffs;
+    Vec3f starOffs;
     starOffs.set(0.0f);
     MR::initStarPointerTarget(this, 150.0f, starOffs);
     initBinder(150.0f, 0.0f, 0);
@@ -50,7 +51,7 @@ void DinoPackunFire::init(const JMapInfoIter& rIter) {
     MR::onCalcShadow(this, nullptr);
     MR::onCalcGravity(this);
     MR::invalidateClipping(this);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initSound(4, false);
     makeActorDead();
 }
@@ -64,17 +65,15 @@ void DinoPackunFire::control() {
 }
 
 void DinoPackunFire::calcAndSetBaseMtx() {
-    MR::setBaseTRMtx(this, _8C);
+    MR::setBaseTRMtx(this, mRollQuat);
 }
 
 void DinoPackunFire::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
-    if (MR::isSensorPlayer(pReceiver)) {
-    }
 
     MR::sendMsgEnemyAttackFire(pReceiver, pSender);
 }
 
-void DinoPackunFire::appearShot(const TVec3f& rPos, const TVec3f& rVelocity) {
+void DinoPackunFire::appearShot(const Vec3f& rPos, const Vec3f& rVelocity) {
     mPosition.x = rPos.x;
     mPosition.y = rPos.y;
     mPosition.z = rPos.z;
@@ -89,17 +88,17 @@ void DinoPackunFire::exeShot() {
         MR::startAction(this, "Move");
     }
 
-    MR::rotateQuatRollBall(&_8C, mVelocity, -mGravity, (150.0f * mScale.x));
+    MR::rotateQuatRollBall(&mRollQuat, mVelocity, -mGravity, (150.0f * mScale.x));
     MR::addVelocityToGravity(this, 2.0f);
     MR::attenuateVelocity(this, 0.98f);
     MR::reboundVelocityFromCollision(this, 0.80f, 15.0f, 0.40f);
-    if (MR::isGreaterStep(this, 120) && MR::isBindedGround(this)) {
+    if (MR::isGreaterStep(this, NebulaFrameClock::stepsOfSeconds(2)) && MR::isBindedGround(this)) {
         setNerve(GET_NERVE(DinoPackunFire, DinoPackunFireNrvGround));
         MR::zeroVelocity(this);
     } else {
         MR::startLevelSound(this, "SE_BM_LV_D_PAKKUN_FIREBALL_L");
         MR::sendMsgEnemyAttackToBindedSensor(this, getSensor(nullptr));
-        if (MR::isGreaterStep(this, 450)) {
+        if (MR::isGreaterStep(this, NebulaFrameClock::stepsOfMilliseconds(7500))) {
             MR::startSound(this, "SE_BM_D_PAKKUN_FIREBALL_L_END");
             kill();
         }
@@ -114,7 +113,4 @@ void DinoPackunFire::exeGround() {
         MR::startSound(this, "SE_BM_D_PAKKUN_FIREBALL_L_END");
         kill();
     }
-}
-
-DinoPackunFire::~DinoPackunFire() {
 }

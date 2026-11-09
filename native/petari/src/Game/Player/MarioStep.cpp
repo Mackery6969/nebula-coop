@@ -15,11 +15,11 @@ void Mario::checkStep() {
         return;
     }
 
-    if (mMovementStates._A) {
+    if (mMovementStates.squat) {
         return;
     }
 
-    if (!mMovementStates._1) {
+    if (!mMovementStates.onGround) {
         return;
     }
 
@@ -48,7 +48,7 @@ void Mario::checkStep() {
         return;
     }
 
-    if (!MR::isNearZero(_184)) {
+    if (!MR::isNearZero(mRelativeMove)) {
         return;
     }
 
@@ -56,27 +56,27 @@ void Mario::checkStep() {
         return;
     }
 
-    if (_750) {
+    if (mCorrectionEaseTimer) {
         return;
     }
 
-    if (mDrawStates._C) {
+    if (mDrawStates.onSlipFloor) {
         return;
     }
 
-    if (isSlipPolygon(_45C)) {
+    if (isSlipPolygon(mShadowPolygon)) {
         return;
     }
 
-    if (_4D8->isValid() && !mMovementStates._8 && mMovementStates._1) {
-        const f32 frontDot = mFrontVec.dot(*_4D8->getNormal(0));
-        TVec3f horizontal;
-        MR::vecKillElement(_50C - mPosition, -*getGravityVec(), &horizontal);
+    if (mStepPolygon->isValid() && !mMovementStates.frontWall && mMovementStates.onGround) {
+        const f32 frontDot = mFrontVec.dot(*mStepPolygon->getNormal(0));
+        Vec3f horizontal;
+        MR::vecKillElement(mStepHitPos - mPosition, -*getGravityVec(), &horizontal);
 
         if (horizontal.length() < 20.0f && MR::abs(frontDot) < 0.3926991f) {
-            f32 stepHeight = (_50C - mPosition).dot(-*getGravityVec());
+            f32 stepHeight = (mStepHitPos - mPosition).dot(-*getGravityVec());
             if (stepHeight < mActor->getConst().getTable()->mWalkStepHeight) {
-                startStep(_50C);
+                startStep(mStepHitPos);
             }
         } else if (MR::abs(frontDot) < 1.0471976f) {
             Mtx rotMtx;
@@ -87,31 +87,31 @@ void Mario::checkStep() {
         return;
     }
 
-    if (!mMovementStates._15) {
+    if (!mMovementStates.frontLedge) {
         return;
     }
 
-    if (!mMovementStates._39) {
+    if (!mMovementStates.frontFloorFound) {
         return;
     }
 
-    const TVec3f* worldPadDir = &getWorldPadDir();
+    const Vec3f* worldPadDir = &getWorldPadDir();
     if (!(worldPadDir->dot(*mFrontWallTriangle->getNormal(0)) < -0.5f)) {
         return;
     }
 
-    f32 stepHeight = (_4A4 - mPosition).dot(-*getGravityVec());
+    f32 stepHeight = (mFrontFloorPos - mPosition).dot(-*getGravityVec());
     if (stepHeight < mActor->getConst().getTable()->mWalkStepHeight) {
-        startStep(_4A4);
+        startStep(mFrontFloorPos);
     }
 }
 
-void Mario::startStep(const TVec3f& rVec) {
+void Mario::startStep(const Vec3f& rVec) {
     if (getCurrentStatus() == 0x10) {
         return;
     }
 
-    TVec3f checkPos = rVec - *getGravityVec() * 80.0f;
+    Vec3f checkPos = rVec - *getGravityVec() * 80.0f;
     HitInfo hitInfo;
 
     if (MR::checkStrikePointToMap(checkPos, &hitInfo)) {
@@ -128,7 +128,7 @@ void Mario::startStep(const TVec3f& rVec) {
         return;
     }
 
-    TVec3f oldPos(mPosition);
+    Vec3f oldPos(mPosition);
     mPosition = rVec;
     const f32 ceilDist = calcDistToCeil(false);
     mPosition = oldPos;
@@ -137,52 +137,52 @@ void Mario::startStep(const TVec3f& rVec) {
         return;
     }
 
-    if (_4C8->isValid() && MR::isSensorPressObj(_4C8->mSensor)) {
+    if (mCeilPolygon->isValid() && MR::isSensorPressObj(mCeilPolygon->mSensor)) {
         return;
     }
 
-    if (_4D8->isValid()) {
-        if (MR::isSensorPressObj(_4D8->mSensor)) {
+    if (mStepPolygon->isValid()) {
+        if (MR::isSensorPressObj(mStepPolygon->mSensor)) {
             return;
         }
 
-        MtxPtr prevBase = _4D8->getPrevBaseMtx()->toMtxPtr();
-        MtxPtr base = _4D8->getBaseMtx()->toMtxPtr();
+        MtxPtr prevBase = mStepPolygon->getPrevBaseMtx()->toMtxPtr();
+        MtxPtr base = mStepPolygon->getBaseMtx()->toMtxPtr();
 
-        if (!MR::isSameMtx(base, prevBase) && _4D8->mSensor != mGroundPolygon->mSensor) {
+        if (!MR::isSameMtx(base, prevBase) && mStepPolygon->mSensor != mGroundPolygon->mSensor) {
             return;
         }
     }
 
-    setTrans(rVec, "\212\113\222\151" /* 階段 */);
+    setTrans(rVec);
     changeStatus(mStep);
-    _3D0 = 0;
+    mTurnSlipTimer = 0;
     const f32 zero = 0.0f;
     mVelocity.z = zero;
     mVelocity.y = zero;
     mVelocity.x = zero;
-    mMovementStates._10 = false;
+    mMovementStates.turnStickNeutral = false;
 }
 
 MarioStep::MarioStep(MarioActor* pActor) : MarioState(pActor, MarioStatus_Step) {
-    _14 = 0.0f;
-    _18 = 0.0f;
+    mBlendFrames = 0.0f;
+    mStartSpeed = 0.0f;
 }
 
 bool MarioStep::start() {
-    _18 = getPlayer()->mWalkSpeed;
-    MR::clamp(_18, 0.0f, 1.0f);
+    mStartSpeed = getPlayer()->mWalkSpeed;
+    MR::clamp(mStartSpeed, 0.0f, 1.0f);
 
-    s32 v2 = 20 - static_cast< s32 >(16.0f * _18);
+    s32 v2 = 20 - static_cast< s32 >(16.0f * mStartSpeed);
 
     if (v2 < 4) {
         v2 = 4;
     }
 
     mActor->setBlendMtxTimer(v2);
-    _14 = static_cast< u16 >(v2);
+    mBlendFrames = static_cast< u16 >(v2);
 
-    if (isAnimationRun(nullptr) && !mActor->_3E5) {
+    if (isAnimationRun(nullptr) && !mActor->mPunchSensorOn) {
         stopAnimation(nullptr);
     }
 
@@ -200,25 +200,25 @@ bool MarioStep::update() {
     getPlayer()->mainMove();
     clearVelocity();
 
-    f32 _278 = getPlayer()->mWalkSpeed;
-    if (_278 < 0.1f) {
-        _278 = 0.1f;
+    f32 walkSpeed = getPlayer()->mWalkSpeed;
+    if (walkSpeed < 0.1f) {
+        walkSpeed = 0.1f;
     }
 
-    getPlayer()->mWalkSpeed = _278;
+    getPlayer()->mWalkSpeed = walkSpeed;
     getPlayer()->updateWalkSpeed();
 
-    if (_278 < 0.5f) {
-        _278 = 0.5f;
+    if (walkSpeed < 0.5f) {
+        walkSpeed = 0.5f;
     }
 
-    f32 v7 = _14 - _278;
-    _14 -= _278;
+    f32 framesLeft = mBlendFrames - walkSpeed;
+    mBlendFrames -= walkSpeed;
 
-    if (v7 < 0.0f) {
+    if (framesLeft < 0.0f) {
         return false;
     } else {
-        mActor->setBlendMtxTimer((s32)(v7));
+        mActor->setBlendMtxTimer((s32)(framesLeft));
         return true;
     }
 }

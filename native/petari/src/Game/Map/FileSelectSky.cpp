@@ -20,14 +20,14 @@ FileSelectSky::~FileSelectSky() {
 FileSelectSky::FileSelectSky(const char* pName) : LiveActor(pName), mAngleX(), mAngleY(), mProjmapEffectMtxSetter() {
 }
 
-void FileSelectSky::init(const JMapInfoIter& rIter) {
+void FileSelectSky::init(const TableIter& /*rIter*/) {
     initModelManagerWithAnm("CometNearOrbitSky", nullptr, false);
     mScale.x = 0.8f;
     mScale.y = 0.8f;
     mScale.z = 0.8f;
     mProjmapEffectMtxSetter = MR::initMaterialProjmapEffectMtxSetter(this);
     MR::connectToSceneSky(this);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     MR::invalidateClipping(this);
     initNerve(GET_NERVE(FileSelectSky, FileSelectSkyNrvWait));
     makeActorDead();
@@ -42,7 +42,7 @@ void FileSelectSky::calcAndSetBaseMtx() {
     MR::setBaseTRMtx(this, mBaseMtx);
 }
 
-bool FileSelectSky::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool FileSelectSky::receiveOtherMsg(u32 /*msg*/, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     return false;
 }
 
@@ -57,9 +57,9 @@ void FileSelectSky::exeWait() {
         mAngleY = 0.0f;
     }
 
-    TPos3f rotateX, rotateY;
-    rotateY.makeRotate(TVec3f(0.0f, 1.0f, 0.0f), mAngleY);
-    rotateX.makeRotate(TVec3f(1.0f, 0.0f, 0.0f), mAngleX);
+    Pos3f rotateX, rotateY;
+    rotateY.makeRotate(Vec3f(0.0f, 1.0f, 0.0f), mAngleY);
+    rotateX.makeRotate(Vec3f(1.0f, 0.0f, 0.0f), mAngleX);
     mBaseMtx.concat(rotateY, rotateX);
     mBaseMtx.invert(mBaseMtx);
     f32 step = (getNerveStep() * PI) / ::cCycleX;

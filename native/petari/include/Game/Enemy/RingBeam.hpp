@@ -8,46 +8,46 @@ class RingBeamShadowDrawer;
 
 class RingBeam : public LiveActor {
 public:
-    RingBeam(const char*, LiveActor*, bool, bool);
+    RingBeam(const char* pName, LiveActor* pHost, bool isFollowGravity, bool hasShadow);
 
-    virtual ~RingBeam() {};
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void appear();
-    virtual void kill();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void appear() override;
+    virtual void kill() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     void setSpeed(f32 speed);
     void setLife(s32 life);
-    void setColor(f32 color);
     void setRadius(f32 radius);
-    void initPos(const LiveActor* actor);
-    void startBrk(const char*);
+    void initPos(const LiveActor* pActor);
+    void startBrk(const char* pAnimName);
     void exeSpread();
 
-    LiveActor* _8c;
+    LiveActor* mHost;
     ModelObj* mBloomModel;
     f32 mSpeed;
     s32 mLife;
-    bool _9c;
-    bool _9d;
-    RingBeamShadowDrawer* _a0;
-    ModelObj* _a4;
-    TVec3f _a8;
-    TVec3f _b4;
-    TVec3f _c0;
-    TVec3f _cc;
+    bool mIsFollowGravity;
+    bool mHasShadow;
+    RingBeamShadowDrawer* mShadowDrawer;
+    ModelObj* mShadowModel;
+    Vec3f mFront;
+    Vec3f mBeamGravity;
+    Vec3f mEdgePos;  // the ring's leading edge point; the radius is its distance from the host's axis
+    Vec3f mSoundPos;
 };
 
 class RingBeamShadowDrawer : public ShadowVolumeDrawer {
 public:
     RingBeamShadowDrawer(const LiveActor*);
 
-    virtual ~RingBeamShadowDrawer() {};
-    virtual void loadModelDrawMtx() const;
-    virtual void drawShape() const;
-    virtual bool isDraw() const;
+    virtual ~RingBeamShadowDrawer() override {};
+    virtual void loadModelDrawMtx(TypedDraw& rDraw) const override;
+    virtual void drawShape(TypedDraw& rDraw) const override;
+    virtual bool isDraw() const override;
+    virtual void calcDrawAnchor(Vec3f* pOut) const override;
+    virtual u32 calcDrawLives() const override;
 
-    const LiveActor* _1c;
-    f32 _20;
+    const LiveActor* mHost;
+    f32 mRadius;
 };

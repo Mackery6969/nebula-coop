@@ -15,16 +15,16 @@ HatchWaterPlanet::HatchWaterPlanet(const char* pName) : LiveActor(pName) {
     mCollisionParts = nullptr;
 }
 
-void HatchWaterPlanet::init(const JMapInfoIter& rIter) {
+void HatchWaterPlanet::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("HatchWaterPlanet", nullptr, false);
     MR::connectToScenePlanet(this);
     initHitSensor(1);
     MR::addBodyMessageSensorMapObj(this);
     MR::initCollisionParts(this, "HatchWaterPlanetBefore", getSensor(nullptr), nullptr);
-    mCollisionParts = MR::createCollisionPartsFromLiveActor(this, "HatchWaterPlanetAfter", getSensor(nullptr), MR::CollisionScaleType_Unk2);
+    mCollisionParts = MR::createCollisionPartsFromLiveActor(this, "HatchWaterPlanetAfter", getSensor(nullptr), MR::CollisionScaleType_Default);
     MR::invalidateCollisionParts(mCollisionParts);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initSound(4, false);
     if (MR::tryRegisterDemoCast(this, rIter)) {
         MR::registerDemoActionNerve(this, GET_NERVE(HatchWaterPlanet, HatchWaterPlanetNrvOpen), nullptr);
@@ -66,7 +66,4 @@ void HatchWaterPlanet::exeWaitAfterOpen() {
         MR::invalidateCollisionParts(this);
         MR::validateCollisionParts(mCollisionParts);
     }
-}
-
-HatchWaterPlanet::~HatchWaterPlanet() {
 }

@@ -1,6 +1,7 @@
 #include "Game/MapObj/ClipArea.hpp"
+#include "Game/Render/TypedDraw.hpp"
 #include "Game/Util/DrawUtil.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include "Game/Render/FrameList.hpp"
 #include "Game/MapObj/ClipAreaHolder.hpp"
 #include "Game/MapObj/ClipAreaShape.hpp"
 #include "Game/Scene/SceneFunction.hpp"
@@ -8,7 +9,6 @@
 
 namespace {
     static const Color8 sShapeColor(0, 0, 0, 4);
-    static const Color8 sDebugShapeColor(255, 0, 0, 128);
 };  // namespace
 
 ClipArea::ClipArea(const char* pName) : LiveActor(pName), mShape() {
@@ -17,12 +17,12 @@ ClipArea::ClipArea(const char* pName) : LiveActor(pName), mShape() {
     MR::addClipArea(this);
 }
 
-void ClipArea::init(const JMapInfoIter& rIter) {
+void ClipArea::init(const TableIter& rIter) {
     initBaseMatrix(rIter);
     MR::connectToScene(this, MR::MovementType_None, MR::CalcAnimType_None, MR::DrawBufferType_None, MR::DrawType_ClipArea);
 }
 
-void ClipArea::initBaseMatrix(const JMapInfoIter& rIter) {
+void ClipArea::initBaseMatrix(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     MR::makeMtxTR(mBaseMtx, this);
 }
@@ -32,26 +32,24 @@ void ClipArea::draw() const {
         return;
     }
 
-    MR::setShadowVolumeColor(::sShapeColor);
-    J3DPass::writeColor(false);
-    J3DPass::writeAlpha(false);
-    J3DPass::noBlend();
-    J3DPass::stencil(NEBULA_STENCIL_ALWAYS, NEBULA_STENCIL_ADD);
-    J3DPass::cull(NEBULA_CULL_FRONT);
-    mShape->drawVolumeShape(mBaseMtx, mScale);
-    J3DPass::stencil(NEBULA_STENCIL_ALWAYS, NEBULA_STENCIL_TAKE);
-    J3DPass::cull(NEBULA_CULL_BACK);
-    mShape->drawVolumeShape(mBaseMtx, mScale);
-    J3DPass::stencil(NEBULA_STENCIL_OFF, NEBULA_STENCIL_KEEP);
-    J3DPass::writeColor(true);
+    SiteMaterial material;
+    MR::initShadowVolumeMaterial(material, ::sShapeColor);
+    material.setStencil(NEBULA_STENCIL_ALWAYS, NEBULA_STENCIL_ADD);
+    material.mState.cull = NEBULA_CULL_FRONT;
+    TypedDraw site(material, nullptr, MR::getCameraViewMtx());
+    mShape->drawVolumeShape(site, mBaseMtx, mScale);
+    material.setStencil(NEBULA_STENCIL_ALWAYS, NEBULA_STENCIL_TAKE);
+    material.mState.cull = NEBULA_CULL_BACK;
+    site.setMaterial(material);
+    mShape->drawVolumeShape(site, mBaseMtx, mScale);
 }
 
 void ClipArea::setShape(ClipAreaShape* pShape) {
     mShape = pShape;
 }
 
-bool ClipArea::isInArea(const TVec3f& rParam1, f32 param2) const {
-    return mShape->isInArea(rParam1, param2, mBaseMtx, mScale);
+bool ClipArea::isInArea(const Vec3f& rPos, f32 radius) const {
+    return mShape->isInArea(rPos, radius, mBaseMtx, mScale);
 }
 
 namespace MR {

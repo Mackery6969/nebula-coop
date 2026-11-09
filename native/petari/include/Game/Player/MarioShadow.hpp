@@ -1,11 +1,14 @@
 #pragma once
 
-#include "Game/NameObj/NameObj.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+class TypedDraw;
 
-class J3DModelX;
+#include "Game/NameObj/NameObj.hpp"
+#include <nebula_geometry.hpp>
+
+class PlayerModel;
+struct SiteMaterial;
 class Triangle;
-class JUTTexture;
+class GameTexture;
 
 class CollisionShadow : public NameObj {
 public:
@@ -15,60 +18,57 @@ public:
     virtual void draw() const;
 
     void setMode(u32);
-    void create(const TVec3f&, const TVec3f&, const TVec3f&);
-    void calcView(J3DModelX*, u32, J3DModelX*);
-    void drawAndCaptureTex(J3DModelX*, const TVec3f&);
+    void create(const Vec3f&, const Vec3f&, const Vec3f&);
+    void calcView(PlayerModel*, u32, PlayerModel*);
+    void drawAndCaptureTex(PlayerModel*, const Vec3f&);
     void setUpdateFlag();
     void draw1() const;
-    void sendVtx() const;
-    void sendZsortedVtx(bool) const;
+    void initMaterial(SiteMaterial* pMaterial, u32 test, u8 ref) const;
+    void sendPolygons(TypedDraw& rDraw, u32 partBase, bool sorted, bool offset) const;
     void initCaptureTex();
-    void setViewMtx(const TVec3f&);
-    void drawVolumeBox(const TVec3f&, const TVec3f&) const;
+    void setViewMtx(const Vec3f&);
+    void drawVolumeBox(const Vec3f&, const Vec3f&) const;
     void draw3() const;
     void doSortPolygons();
-    const TVec3f& getDrawPos(u32) const;
-    const TVec3f& getDrawPos(u32, u32) const;
-    const TVec2f& getDrawTx(u32, u32) const;
+    void makePolygonLists(u32 num);
+    const Vec3f& getDrawPos(u32) const;
+    const Vec3f& getDrawPos(u32, u32) const;
+    u32 getDrawPart(u32 polygon, bool sorted) const;
 
-    u8 _C;
-    u16 _E;
-    f32 _10;
-    f32 _14;
-    f32 _18;
-    f32 _1C;
-    f32 _20;
-    TVec3f _24;
-    TVec3f _30;
-    TVec3f _3C;
-    TVec3f _48;
-    u32 _54;
-    u16 _58;
-    u16 _5A;
-    u8* _5C;
-    TVec3f* _60;
-    TVec2f* _64;
-    u16* _68;
-    u16 _6C;
-    u16 _6E;
-    u8 _70[128];
-    s32 _F0[128];
-    TVec3f _2F0;
-    JUTTexture* _300;
-    u8 _304;
-    bool _305;
-    u8 _306;
-    u8 _307;
-    u16 _308;
-    f32 _30C;
-    f32 _310;
-    TVec3f _314;
-    TVec3f _320;
-    Triangle* _32C;
-    Triangle* _330;
-    Triangle* _334;
-    u16 _338;
-    u16 _33A;
-    u16 _33C;
+    u8 mMode;  // the shadow's mode (setMode; 255 none)
+    f32 mRadius;  // the polygon box's half size
+    f32 mVolumeHeight;  // the volume box's up size (MarioActor::calcAnim)
+    f32 mVolumeWidth;  // the volume box's side size
+    f32 mLength;  // the shadow's length along mDirection (MarioActor sets it each frame)
+    Vec3f mDirection;  // the shadow's direction, smoothed
+    Vec3f mUp;  // the capture view's up
+    Vec3f mVolumeUp;  // the volume box's up
+    Vec3f mReferencePos;  // the shadow's point (MarioActor: the shadow position)
+    u32 mPolygonCount;  // the polygons that take the shadow
+    u32 mListCapacity;  // room for this many polygons in each list below; doubles when a query fills it
+    u16 mVertsPerPolygon;  // corners per polygon (3)
+    u32* mPolygonIndices;  // each shadow polygon's index in mPolygons
+    Vec3f* mVertices;  // the distinct vertices
+    u32* mPolygonParts;  // each polygon's draw number, from its triangle (create)
+    u32* mVertexIndices;  // each polygon corner's vertex
+    u32 mVertexCount;  // entries in mVertices
+    u32 mEdgePolygonCount;  // polygons edge-on to the direction
+    u32* mEdgePolygons;  // their indices in mPolygons
+    s32* mSortOrder;  // the polygons by distance (doSortPolygons)
+    f32* mSortDistances;
+    Vec3f mCenter;  // the shadow's center (create)
+    Vec3f mProjSide;  // the texture's s axis as of the polygons (create)
+    Vec3f mProjUp;  // its t axis
+    Vec3f mProjCenter;  // the point at the texture's middle
+    u32 mProjJumps;  // steps the projection jumped (create); part of every polygon's draw number
+    GameTexture* mCaptureTex;  // the captured shadow
+    u8 mUpdate;  // the capture is due (setUpdateFlag)
+    bool mSnapDirection;  // the direction snaps instead of blending (the bee's wall stick)
+    u8 mViewDone;  // calcView ran: the capture may draw
+    u8 mCaptureOn;  // the capture draws (drawShadow)
+    u16 mDrawFlags;  // the capture and draw options (2, 4, 8); nothing sets it
+    f32 mCheckOffset;  // the polygon box's offset back along the direction (by mode)
+    f32 mDrawOffset;  // the vertices' offset along their normal (by mode)
+    Triangle* mPolygons;  // the polygons found (createAreaPolygonListArray)
     // The volume's drawing state (built; nothing in the game draws with it).
 };

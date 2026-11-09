@@ -1,13 +1,13 @@
 #pragma once
 
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class AutoEffectInfo;
 class EffectKeeper;
 class EffectSystem;
-class JMapInfo;
-class JPABaseEmitter;
-class JPAEmitterManager;
+class Table;
+class EmitterCore;
+class EmitterManager;
 class LayoutActor;
 class LiveActor;
 class ModelManager;
@@ -24,16 +24,16 @@ namespace MR {
         void requestMovementOffAllLoopEmitters();
         void checkEffectSceneUpdate(const EffectSystem* pSystem);
         void movementEffectNormal(const EffectSystem* pSystem);
-        void drawEffect3D(const EffectSystem* pSystem, const TPos3f& rViewMtx);
+        void drawEffect3D(const EffectSystem* pSystem, const Pos3f& rViewMtx);
         void drawEffect2D(const EffectSystem* pSystem);
         void forceDeleteAllEmitters(const EffectSystem* pSystem);
         bool isExistInResource(u16* pIndex, const char* pName);
         bool isEffect2D(const MultiEmitter* pEmitter);
         void initEffectSyncBck(EffectKeeper* pKeeper, const ModelManager* pModelManager, const char* pEffectName, const char* pAnimName,
-                               s32 animCount, f32 startFrame, f32 endFrame, bool deleteOnEnd);
+                               s32 animCount, f32 startFrame, f32 endFrame);
         void addEffectSyncBck(MultiEmitter* pEmitter, const ModelManager* pModelManager, const char* pAnimName);
         int getAutoEffectNum(const char* pName);
-        JMapInfo* getAutoEffectListBinary();
+        Table* getAutoEffectListBinary();
         void setupMultiEmitter(EffectKeeper* pKeeper, const ModelManager* pModelManager, const AutoEffectInfo* pInfo);
         void setupMultiEmitterSyncBck(EffectKeeper* pKeeper, const ModelManager* pModelManager, const AutoEffectInfo* pInfo);
         void registerAutoEffectInfoGroup(EffectKeeper* pKeeper, const LiveActor* pActor, const char* pName);
@@ -47,12 +47,12 @@ namespace MR {
                                          const char* pName);
         void deleteParticleEmitter(ParticleEmitter* pEmitter);
         void setLinkSingleEmitter(ParticleEmitter* pEmitter, SingleEmitter* pSingleEmitter);
-        SingleEmitter* getLinkSingleEmitter(const JPABaseEmitter* pEmitter);
+        SingleEmitter* getLinkSingleEmitter(const EmitterCore* pEmitter);
         void forceDeleteAllOneTimeEmitter();
-        void createParticleEmitter(ParticleEmitter* pEmitter, JPAEmitterManager* pManager, const TVec3f& rPosition, u16 resourceId, u8 groupId,
+        void createParticleEmitter(ParticleEmitter* pEmitter, EmitterManager* pManager, const Vec3f& rPosition, u16 resourceId, u8 groupId,
                                    u8 resourceManagerId);
         bool isExistInResource(u16* pIndex, const char* pName, s32 number);
         const char* getEffectAttributeName(s32 floorCode);
-        AutoEffectInfo* createAutoEffect(const char* pGroupName, const char* pUniqueName);
+        AutoEffectInfo* createAutoEffect(const char* pUniqueName);
     };  // namespace Effect
 };  // namespace MR

@@ -6,13 +6,13 @@
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/DemoUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/RailUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
-#include <JSystem/JMath/JMATrigonometric.hpp>
+#include <nebula_geometry.hpp>
 
 namespace NrvStarPieceGroup {
     NEW_NERVE(HostTypeNrvGroup, StarPieceGroup, Group);
@@ -20,8 +20,8 @@ namespace NrvStarPieceGroup {
 };  // namespace NrvStarPieceGroup
 
 StarPieceGroup::StarPieceGroup(const char* pName)
-    : LiveActor(pName), mPieces(), mRailCoords(), _94(), _95(), mNumPieces(), mCircleRadius(400.0f), mIsRail(), mPlaceAtPathPoints(), _A4(-1),
-      mRailSpeed(10.0f), _AC(0.0f, 0.0f, 0.0f) {
+    : LiveActor(pName), mPieces(), mRailCoords(), mHasAppeared(), mIsAppearEffect(), mNumPieces(), mCircleRadius(400.0f), mIsRail(), mPlaceAtPathPoints(), mLifeStep(-1),
+      mRailSpeed(10.0f), mRailClippingCenter(0.0f, 0.0f, 0.0f) {
 }
 
 bool StarPieceGroup::isExistAnyStarPiece() {
@@ -38,12 +38,12 @@ void StarPieceGroup::forceReplaceStarPieceAll() {
     placementAllPiece();
     for (int i = 0; i < mNumPieces; i++) {
         mPieces[i]->appearFromGroup();
-        if (_95) {
+        if (mIsAppearEffect) {
             MR::emitEffect(mPieces[i], "Appear");
         }
     }
 
-    if (_95) {
+    if (mIsAppearEffect) {
         MR::startSound(this, "SE_OJ_STAR_PIECE_BURST");
     }
 }
@@ -67,7 +67,7 @@ void StarPieceGroup::forceKillStarPieceAll(bool withEffect) {
     }
 }
 
-void StarPieceGroup::init(const JMapInfoIter& rIter) {
+void StarPieceGroup::init(const TableIter& rIter) {
     initSound(3, false);
     const char* objectName = nullptr;
     MR::getObjectName(&objectName, rIter);
@@ -81,20 +81,20 @@ void StarPieceGroup::init(const JMapInfoIter& rIter) {
         isFlow = false;
     }
 
-    s32 arg2 = -1;
+    s32 placeAtPathPoints = -1;
     MR::initDefaultPos(this, rIter);
 
     if (isFlow) {
         mNumPieces = 1;
         mRailSpeed = 10.0f;
-        MR::getJMapInfoArg0NoInit(rIter, &mRailSpeed);
-        MR::getJMapInfoArg1NoInit(rIter, &mNumPieces);
+        MR::getPlacementArg0NoInit(rIter, &mRailSpeed);
+        MR::getPlacementArg1NoInit(rIter, &mNumPieces);
     } else {
         mNumPieces = 6;
-        MR::getJMapInfoArg0NoInit(rIter, &mNumPieces);
-        MR::getJMapInfoArg1NoInit(rIter, &mCircleRadius);
-        MR::getJMapInfoArg2NoInit(rIter, &arg2);
-        MR::getJMapInfoArg5NoInit(rIter, &_A4);
+        MR::getPlacementArg0NoInit(rIter, &mNumPieces);
+        MR::getPlacementArg1NoInit(rIter, &mCircleRadius);
+        MR::getPlacementArg2NoInit(rIter, &placeAtPathPoints);
+        MR::getPlacementArg5NoInit(rIter, &mLifeStep);
         MR::joinToGroupArray(this, rIter, nullptr, 32);
     }
 
@@ -104,7 +104,7 @@ void StarPieceGroup::init(const JMapInfoIter& rIter) {
     if (isRail) {
         mIsRail = true;
         initRailRider(rIter);
-        if (arg2 == 1) {
+        if (placeAtPathPoints == 1) {
             mNumPieces = MR::getRailPointNum(this);
             mPlaceAtPathPoints = true;
         } else {
@@ -124,13 +124,16 @@ void StarPieceGroup::init(const JMapInfoIter& rIter) {
     }
 
     MR::useStageSwitchWriteDead(this, rIter);
+    if (mNumPieces < 0) {
+        mNumPieces = 0;
+    }
     mPieces = new StarPiece*[mNumPieces];
     mRailCoords = new f32[mNumPieces];
 
     MR::declareStarPiece(this, mNumPieces);
 
     for (u32 i = 0; i < mNumPieces; i++) {
-        mPieces[i] = new StarPiece("\203\117\203\213\201\133\203\166\203\130\203\136\201\133\203\163\201\133\203\130" /* グループスターピース */);
+        mPieces[i] = new StarPiece("グループスターピース");
         if (isFlow) {
             mPieces[i]->initAndSetRailMoveFromGroup(rIter);
         } else {
@@ -142,14 +145,14 @@ void StarPieceGroup::init(const JMapInfoIter& rIter) {
         }
 
         if (MR::isValidSwitchA(this)) {
-            mPieces[i]->mFlags._1 = false;
+            mPieces[i]->mFlags.isGettable = false;
         }
     }
 
     MR::connectToSceneMapObjMovement(this);
 
     if (isRail) {
-        MR::initAndSetRailClipping(&_AC, this, 100.0f, 500.0f);
+        MR::initAndSetRailClipping(&mRailClippingCenter, this, 100.0f, 500.0f);
     }
 
     MR::validateClipping(this);
@@ -168,26 +171,26 @@ void StarPieceGroup::init(const JMapInfoIter& rIter) {
         makeActorDead();
         MR::syncStageSwitchAppear(this);
     } else {
-        _95 = false;
+        mIsAppearEffect = false;
         makeActorAppeared();
     }
 
-    _95 = true;
+    mIsAppearEffect = true;
 }
 
 void StarPieceGroup::makeActorAppeared() {
     LiveActor::makeActorAppeared();
 
-    if (_94) {
+    if (mHasAppeared) {
         makeActorDead();
     } else {
-        _94 = true;
+        mHasAppeared = true;
         forceReplaceStarPieceAll();
     }
 }
 
 void StarPieceGroup::appear() {
-    if (!_94) {
+    if (!mHasAppeared) {
         MR::startSound(this, "SE_OJ_STAR_PIECE_BURST");
     }
 
@@ -200,10 +203,10 @@ void StarPieceGroup::makeActorDead() {
 }
 
 void StarPieceGroup::control() {
-    if (_A4 != -1) {
+    if (mLifeStep != -1) {
         MR::invalidateClipping(this);
-        _A4--;
-        if (_A4 <= 0) {
+        mLifeStep--;
+        if (mLifeStep <= 0) {
             kill();
         }
     }
@@ -229,15 +232,15 @@ void StarPieceGroup::placementPieceOnCircle() {
         return;
     }
 
-    TPos3f mtxTRS;
+    Pos3f mtxTRS;
     MR::makeMtxTRS(mtxTRS.toMtxPtr(), this);
 
-    TVec3f zDir;
-    TVec3f xDir;
+    Vec3f zDir;
+    Vec3f xDir;
     mtxTRS.getXDir(xDir);
     mtxTRS.getZDir(zDir);
 
-    const TVec3f center(*getPosition());
+    const Vec3f center(*getPosition());
     f32 currentAngle = 0.0f;
     f32 angleBetweenPieces = TWO_PI / mNumPieces;
     for (u32 i = 0; i < mNumPieces; i++) {
@@ -257,7 +260,7 @@ void StarPieceGroup::placementPieceOnRail() {
 
     if (mNumPieces == 1) {
         coordDistBetweenPieces = 0.0f;
-    } else if (MR::isLoopRail(this) == false) {
+    } else if (!MR::isLoopRail(this)) {
         coordDistBetweenPieces = railLength / (mNumPieces - 1.0f);
     } else {
         coordDistBetweenPieces = railLength / mNumPieces;
@@ -272,7 +275,7 @@ void StarPieceGroup::placementPieceOnRail() {
             railCoord = i * coordDistBetweenPieces;
         }
 
-        TVec3f railPos;
+        Vec3f railPos;
         MR::calcRailPosAtCoord(&railPos, this, railCoord);
         MR::resetPosition(mPieces[i], railPos);
         mRailCoords[i] = railCoord;
@@ -282,7 +285,7 @@ void StarPieceGroup::placementPieceOnRail() {
 void StarPieceGroup::placementPieceOnRailPoint() {
     s32 numRailPoints = MR::getRailPointNum(this);
     for (int i = 0; i < numRailPoints; i++) {
-        TVec3f railPointPos;
+        Vec3f railPointPos;
         MR::calcRailPointPos(&railPointPos, this, i);
         MR::resetPosition(mPieces[i], railPointPos);
     }
@@ -290,13 +293,13 @@ void StarPieceGroup::placementPieceOnRailPoint() {
 
 void StarPieceGroup::onSwitchA() {
     for (u32 i = 0; i < mNumPieces; i++) {
-        mPieces[i]->mFlags._1 = true;
+        mPieces[i]->mFlags.isGettable = true;
     }
 }
 
 void StarPieceGroup::offSwitchA() {
     for (u32 i = 0; i < mNumPieces; i++) {
-        mPieces[i]->mFlags._1 = false;
+        mPieces[i]->mFlags.isGettable = false;
     }
 }
 
@@ -333,7 +336,7 @@ void StarPieceGroup::exeFlow() {
     for (u32 i = 0; i < mNumPieces; i++) {
         mRailCoords[i] = MR::repeat(mRailCoords[i] + mRailSpeed, 0.0f, railLength);
         if (mPieces[i]->isOnRailMove()) {
-            TVec3f railPos;
+            Vec3f railPos;
             MR::calcRailPosAtCoord(&railPos, this, mRailCoords[i]);
             MR::resetPosition(mPieces[i], railPos);
         }

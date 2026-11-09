@@ -1,4 +1,5 @@
 #include "Game/MapObj/ExterminationChecker.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Boss/SkeletalFishBaby.hpp"
 #include "Game/Enemy/Kuribo.hpp"
 #include "Game/Enemy/Meramera.hpp"
@@ -41,19 +42,24 @@ ExterminationChecker::ExterminationChecker(const char* pName) : LiveActor(pName)
     mKeySwitchPos.x = 0.0f;
     mKeySwitchPos.y = 0.0f;
     mKeySwitchPos.z = 0.0f;
-    _A0 = 1;
-    _A1 = 0;
+    mIsPowerStar = 1;
+    mIsKeySwitch = 0;
 }
 
-void ExterminationChecker::init(const JMapInfoIter& rIter) {
+void ExterminationChecker::init(const TableIter& rIter) {
     MR::connectToSceneMapObjMovement(this);
     s32 objNum = MR::getChildObjNum(rIter);
-    mGroup = new LiveActorGroup("\203\101\203\116\203\136\201\133\212\307\227\235" /* アクター管理 */, objNum);
+    mGroup = new LiveActorGroup("アクター管理", objNum);
 
     for (s32 i = 0; i < objNum; i++) {
         const char* objName = nullptr;
         MR::getChildObjName(&objName, rIter, i);
-        LiveActor* actor = ::findEntry(objName)(MR::getJapaneseObjectName(objName));
+        // A child of a kind the table lacks (a mod's row) is not made.
+        CreationFunc pCreate = ::findEntry(objName);
+        if (pCreate == nullptr) {
+            continue;
+        }
+        LiveActor* actor = pCreate(MR::getJapaneseObjectName(objName));
         MR::initChildObj(actor, rIter, i);
         mGroup->registerActor(actor);
     }
@@ -61,12 +67,12 @@ void ExterminationChecker::init(const JMapInfoIter& rIter) {
     MR::invalidateClipping(this);
     MR::useStageSwitchSleep(this, rIter);
 
-    if (_A1) {
-        mKeySwitch = new KeySwitch("\221\123\226\305\227\160\203\114\201\133\203\130\203\103\203\142\203\140" /* 全滅用キースイッチ */);
+    if (mIsKeySwitch) {
+        mKeySwitch = new KeySwitch("全滅用キースイッチ");
         mKeySwitch->initKeySwitchByOwner(rIter);
     }
 
-    if (_A0) {
+    if (mIsPowerStar) {
         MR::declarePowerStar(this);
     }
 
@@ -93,11 +99,11 @@ void ExterminationChecker::exeWatching() {
         return;
     }
 
-    if (_A0) {
+    if (mIsPowerStar) {
         setNerve(GET_NERVE(ExterminationChecker, ExterminationCheckerNrvTryStartDemoAppear));
     }
 
-    if (_A1) {
+    if (mIsKeySwitch) {
         setNerve(GET_NERVE(ExterminationChecker, ExterminationCheckerNrvAppearKeySwitch));
     }
 }
@@ -108,7 +114,7 @@ void ExterminationChecker::exeTryStartDemoAppear() {
     }
 
     if (MR::isGreaterStep(this, 5)) {
-        if (MR::tryStartDemo(this, "\221\123\226\305\203\130\203\136\201\133\217\157\214\273" /* 全滅スター出現 */)) {
+        if (MR::tryStartDemo(this, "全滅スター出現")) {
             setNerve(GET_NERVE(ExterminationChecker, ExterminationCheckerNrvAppearStar));
         }
     }
@@ -119,8 +125,8 @@ void ExterminationChecker::exeAppearStar() {
         MR::startSystemSE("SE_SY_TOTAL_COMPLETE");
     }
 
-    if (MR::isStep(this, 120)) {
-        MR::endDemo(this, "\221\123\226\305\203\130\203\136\201\133\217\157\214\273" /* 全滅スター出現 */);
+    if (MR::isStep(this, NebulaFrameClock::stepsOfSeconds(2))) {
+        MR::endDemo(this, "全滅スター出現");
         MR::startAfterBossBGM();
         MR::requestAppearPowerStar(this);
         kill();
@@ -128,7 +134,7 @@ void ExterminationChecker::exeAppearStar() {
 }
 
 void ExterminationChecker::exeAppearKeySwitch() {
-    if (MR::isStep(this, 30)) {
+    if (MR::isStep(this, NebulaFrameClock::stepsOfMilliseconds(500))) {
         mKeySwitch->appearKeySwitch(mKeySwitchPos);
         kill();
     }
@@ -137,18 +143,15 @@ void ExterminationChecker::exeAppearKeySwitch() {
 namespace MR {
     NameObj* createExterminationPowerStar(const char* pName) {
         ExterminationChecker* checker = new ExterminationChecker(pName);
-        checker->_A0 = 1;
-        checker->_A1 = 0;
+        checker->mIsPowerStar = 1;
+        checker->mIsKeySwitch = 0;
         return checker;
     }
 
     NameObj* createExterminationKeySwitch(const char* pName) {
         ExterminationChecker* checker = new ExterminationChecker(pName);
-        checker->_A0 = 0;
-        checker->_A1 = 1;
+        checker->mIsPowerStar = 0;
+        checker->mIsKeySwitch = 1;
         return checker;
     }
 };  // namespace MR
-
-ExterminationChecker::~ExterminationChecker() {
-}

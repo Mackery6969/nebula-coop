@@ -6,18 +6,19 @@ class WipeRing : public WipeLayoutBase {
 public:
     WipeRing(bool, const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void wipe(s32);
-    virtual void forceClose();
-    virtual void forceOpen();
-    virtual bool isOpen() const;
-    virtual bool isClose() const;
-    virtual bool isWipeIn() const;
-    virtual bool isWipeOut() const;
+    virtual void init(const TableIter&) override;
+    virtual void calcAnim() override;
+    virtual void wipe(s32) override;
+    virtual void forceClose() override;
+    virtual void forceOpen() override;
+    virtual bool isOpen() const override;
+    virtual bool isClose() const override;
+    virtual bool isWipeIn() const override;
+    virtual bool isWipeOut() const override;
 
-    void setCenterPos(const TVec3f&);
+    void setCenterPos(const Vec3f&);
     void startAnim(const char*);
-    bool getMarioCenterPos(TVec3f*);
+    bool getMarioCenterPos(Vec3f*);
     f32 calcRadius() const;
     f32 calcMaxRadius() const;
     void updatePlayerPos();
@@ -27,7 +28,7 @@ public:
     void exeWipeOut();
 
 private:
-    TVec2f mCenterPos;
+    Vec2f mCenterPos;
     s32 mAnimFrame;
     f32 mWipeOutFrame;
     f32 mWipeInFrame;

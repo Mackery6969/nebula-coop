@@ -2,7 +2,7 @@
 
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/Util/ActorMovementUtil.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class AnimScaleController;
 template < typename T >
@@ -14,22 +14,22 @@ class BombTeresa : public LiveActor {
 public:
     BombTeresa(const char*);
 
-    virtual ~BombTeresa() {
+    virtual ~BombTeresa() override {
     }
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void makeActorAppeared();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPush(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
+    virtual void makeActorAppeared() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPush(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
     void initTongue();
     void initSensor();
-    void initFromJMapParam(const JMapInfoIter&);
+    void initFromPlacementParam(const TableIter&);
     void exeAppear();
     void exeShadowAppear();
     void exeBallAppear();
@@ -47,7 +47,7 @@ public:
     void exeShock();
     void exeDisperse();
     void exeReadyRestart();
-    bool tryCheseEnd();
+    bool tryChaseEnd();
     bool tryDirectTackle();
     bool tryAbortDrift();
     bool tryDriftRelease();
@@ -56,10 +56,10 @@ public:
     bool tryRevival();
     bool requestDrift();
     bool requestDisperse();
-    bool appearNormal(const TVec3f&, const TVec3f&);
-    bool appearShadow(const TVec3f&, const TVec3f&);
-    bool rootTongueMtxCallBack(TPos3f*, const JointControllerInfo&);
-    bool endTongueMtxCallBack(TPos3f*, const JointControllerInfo&);
+    bool appearNormal(const Vec3f&, const Vec3f&);
+    bool appearShadow(const Vec3f&, const Vec3f&);
+    bool rootTongueMtxCallBack(Pos3f*, const JointControllerInfo&);
+    bool endTongueMtxCallBack(Pos3f*, const JointControllerInfo&);
     void updateNormalVelocity();
     void updateDriftReleaseVelocity();
     bool isTouchTongue() const;
@@ -71,7 +71,7 @@ public:
     bool isEnableHitExplosion() const;
     bool isEnableStarPieceAttack() const;
     bool isEnableShockWave() const;
-    void addTeresaSpinPullVelocity(f32);
+    void addTeresaSpinPullVelocity(f32 height);
 
     inline bool isOutOfRange(f32 dist) {
         return !MR::isNearPlayer(this, dist);
@@ -81,17 +81,15 @@ public:
     JointControlDelegator< BombTeresa >* mJointDelegator2;
     AnimScaleController* mScaleController;
     WalkerStateBindStarPointer* mBindStarPointer;
-    TQuat4f _9C;
-    TVec3f _AC;
-    TVec3f _B8;
-    TVec3f _C4;
-    TVec3f _D0;
-    f32 _DC;
-    f32 _E0;
-    f32 _E4;
-    s32 _E8;
-    bool _EC;
+    Quat4f mPoseQuat;
+    Vec3f mFront;
+    Vec3f mTonguePos;
+    Vec3f mInitPos;
+    f32 mTongueRate;
+    f32 mDriftPullSpeed;
+    f32 mDriftSpinSpeed;
+    s32 mDriftStep;
+    bool mIsDriftRelease;
     bool mDisableRespawning;
-    bool _EE;
-    bool _EF;
+    bool mIsWanderAfterWait;  // Polta's (BombTeresaHolder): out of the player's reach it wanders after 60 steps of waiting
 };

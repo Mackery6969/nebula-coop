@@ -15,9 +15,9 @@ public:
 
     CubeCameraArea(int, const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void movement();
-    virtual bool isInVolume(const TVec3f&) const;
+    virtual void init(const TableIter&) override;
+    virtual void movement() override;
+    virtual bool isInVolume(const Vec3f&) const override;
     virtual s32 getCategoryArg() const;
 
     bool isValidCameraID() const;
@@ -31,7 +31,7 @@ public:
         return mZoneID;
     }
 
-    s32 _3C;
+    s32 mCategoryMask;
     u32 mZoneID;
 };
 

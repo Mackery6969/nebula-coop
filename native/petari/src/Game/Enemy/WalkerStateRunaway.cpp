@@ -1,4 +1,5 @@
 #include "Game/Enemy/WalkerStateRunaway.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
@@ -21,15 +22,14 @@ WalkerStateRunawayParam::WalkerStateRunawayParam() {
     mJumpAction = "Jump";
     mGroundAccel = 0.05f;
     mAirAccel = 1.0f;
-    _14 = 0.9f;
-    _18 = 0.99f;
-    _1C = 5;
+    mRunFriction = 0.9f;
+    mWallJumpFriction = 0.99f;
     mTurnMaxRateDegree = 3.0f;
     mRunawayDistance = 1100.0f;
     mWaitDistance = 1300.0f;
     mRunawayTurnRateMaxDegree = 10.0f;
     mRunawayTurnRateMinDegree = 3.0f;
-    mRunawayTurnTime = 30;
+    mRunawayTurnTime = NebulaFrameClock::stepsOfMilliseconds(500);
     mPlayerFrontLineLength = 25.0f;
     mRunawayBckRatio = 1.0f;
     mMinRunawayBckRate = 0.9f;
@@ -40,8 +40,8 @@ WalkerStateRunawayParam::WalkerStateRunawayParam() {
     mWallJumpPowerV = 15.0f;
 }
 
-WalkerStateRunaway::WalkerStateRunaway(LiveActor* pHost, TVec3f* pDirection, WalkerStateRunawayParam* pRunawayParam)
-    : ActorStateBase< LiveActor >("\225\340\215\163\214\136\203\101\203\116\203\136\201\133\223\246\202\260" /* 歩行型アクター逃げ */, pHost), mRunawayParam(pRunawayParam), mDirection(pDirection), _18(0), mRunawaySpeed(1.0f) {
+WalkerStateRunaway::WalkerStateRunaway(LiveActor* pHost, Vec3f* pDirection, WalkerStateRunawayParam* pRunawayParam)
+    : ActorStateBase< LiveActor >("歩行型アクター逃げ", pHost), mRunawayParam(pRunawayParam), mDirection(pDirection), mRunawaySpeed(1.0f) {
     if (mRunawayParam == nullptr) {
         mRunawayParam = &::sDefaultParam;
     }
@@ -52,7 +52,6 @@ WalkerStateRunaway::WalkerStateRunaway(LiveActor* pHost, TVec3f* pDirection, Wal
 void WalkerStateRunaway::appear() {
     mIsDead = false;
     setNerve(GET_NERVE(WalkerStateRunaway, WalkerStateRunawayNrvWait));
-    _18 = 0;
 }
 
 bool WalkerStateRunaway::tryRunaway() {
@@ -75,16 +74,16 @@ bool WalkerStateRunaway::tryWait() {
 
 bool WalkerStateRunaway::tryWallJump() {
     if (MR::isBindedWall(getHost()) && MR::calcHitPowerToWall(getHost()) > 0.0f) {
-        TVec3f horiz;
+        Vec3f horiz;
         MR::calcVecFromPlayerH(&horiz, getHost());
-        TVec3f wallNorml;
+        Vec3f wallNorml;
         MR::calcWallNormalHorizontal(&wallNorml, getHost());
 
         if (MR::isOppositeDirection(horiz, wallNorml)) {
             MR::addVelocityClockwiseToDirection(getHost(), wallNorml,
                                                 MR::isHalfProbability() ? mRunawayParam->mWallJumpPowerH : -mRunawayParam->mWallJumpPowerH);
         } else {
-            TVec3f dir;
+            Vec3f dir;
             dir.add(wallNorml, horiz);
             MR::addVelocityMoveToDirection(getHost(), dir, mRunawayParam->mWallJumpPowerH);
         }
@@ -104,7 +103,7 @@ void WalkerStateRunaway::exeWait() {
 
     MR::turnDirectionToPlayerDegree(getHost(), mDirection, mRunawayParam->mTurnMaxRateDegree);
     MR::addVelocityToGravity(getHost(), MR::isBindedGround(getHost()) ? mRunawayParam->mGroundAccel : mRunawayParam->mAirAccel);
-    MR::attenuateVelocity(getHost(), check18() ? mRunawayParam->_14 : mRunawayParam->_18);
+    MR::attenuateVelocity(getHost(), mRunawayParam->mRunFriction);
 
     if (tryRunaway()) {
         return;
@@ -116,19 +115,20 @@ void WalkerStateRunaway::exeRunaway() {
         MR::startAction(getHost(), mRunawayParam->mRunawayAction);
     }
 
-    TVec3f v13;
-    v13.scaleAdd(mRunawayParam->mPlayerFrontLineLength, *MR::getPlayerVelocity(), *MR::getPlayerPos());
-    TVec3f* actorPos = &mHost->mPosition;
-    MR::calcPerpendicFootToLineInside(&v13, *actorPos, *MR::getPlayerPos(), v13);
-    MR::turnDirectionFromTargetDegree(mHost, mDirection, v13,
+    // Run from the nearest point of the player's path ahead.
+    Vec3f fleeFrom;
+    fleeFrom.scaleAdd(mRunawayParam->mPlayerFrontLineLength, *MR::getPlayerVelocity(), *MR::getPlayerPos());
+    Vec3f* actorPos = &mHost->mPosition;
+    MR::calcPerpendicFootToLineInside(&fleeFrom, *actorPos, *MR::getPlayerPos(), fleeFrom);
+    MR::turnDirectionFromTargetDegree(mHost, mDirection, fleeFrom,
                                       MR::calcNerveValue(mHost, mRunawayParam->mRunawayTurnTime, mRunawayParam->mRunawayTurnRateMaxDegree,
                                                          mRunawayParam->mRunawayTurnRateMinDegree));
 
     MR::setBckRate(getHost(),
                    MR::clamp(mRunawaySpeed / mRunawayParam->mRunawayBckRatio, mRunawayParam->mMinRunawayBckRate, mRunawayParam->mMaxRunawayBckRate));
-    MR::addVelocityMoveToDirection(getHost(), *mDirection, check18() ? mRunawaySpeed : 0.0f);
+    MR::addVelocityMoveToDirection(getHost(), *mDirection, mRunawaySpeed);
     MR::addVelocityToGravity(getHost(), MR::isBindedGround(getHost()) ? mRunawayParam->mGroundAccel : mRunawayParam->mAirAccel);
-    MR::attenuateVelocity(getHost(), check18() ? mRunawayParam->_14 : mRunawayParam->_18);
+    MR::attenuateVelocity(getHost(), mRunawayParam->mRunFriction);
 
     if (!tryWait()) {
         if (tryWallJump()) {
@@ -144,7 +144,7 @@ void WalkerStateRunaway::exeWallJump() {
 
     MR::turnDirectionDegree(getHost(), mDirection, getHost()->mVelocity, 45.0f);
     MR::addVelocityToGravity(getHost(), mRunawayParam->mAirAccel);
-    MR::attenuateVelocity(getHost(), mRunawayParam->_18);
+    MR::attenuateVelocity(getHost(), mRunawayParam->mWallJumpFriction);
     MR::reboundVelocityFromEachCollision(getHost(), 0.0f, mRunawayParam->mWallReboundPower, 0.0f, 0.0f);
 
     if (MR::isGreaterStep(this, mRunawayParam->mWallJumpTime)) {

@@ -7,17 +7,15 @@ class ModelObj;
 
 class ChooChooTrain : public LiveActor {
 public:
-    /// @brief Creates a new `ChooChooTrain`.
-    /// @param pName A pointer to the null-terminated name of the object.
     ChooChooTrain(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void startClipped();
-    virtual void endClipped();
-    virtual void control();
+    virtual void init(const TableIter& rIter) override;
+    virtual void startClipped() override;
+    virtual void endClipped() override;
+    virtual void control() override;
 
     MR::Vector< MR::AssignableArray< ModelObj* > > mModelArray;
-    TVec3f _98;
+    Vec3f mClipCenter;
     f32 mRailSpeed;
     s32 mWhistleTimer;
 };

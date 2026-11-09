@@ -4,11 +4,10 @@
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ModelUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
-#include <JSystem/J3DGraphAnimator/J3DModelData.hpp>
-#include <JSystem/J3DGraphBase/J3DMaterial.hpp>
-#include <JSystem/J3DGraphBase/J3DShape.hpp>
-#include <JSystem/J3DGraphBase/J3DSys.hpp>
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include "Game/Render/ModelData.hpp"
+#include "Game/Render/Material.hpp"
+#include "Game/Render/Model.hpp"
+#include <nebula_geometry.hpp>
 
 namespace {
     static const f32 sScaleMin = 0.0001f;
@@ -22,33 +21,29 @@ namespace {
     static const f32 sSpringSpeedToStop = 0.001f;
 };  // namespace
 
-PlantLeaf::PlantLeaf(f32 leafCoord, const TVec3f& rPosition, const TVec3f& rGrowDirection, f32 leafSize)
-    : LiveActor("\227\164\201\151\220\114\202\321\220\101\225\250\201\152" /* 葉（伸び植物） */), mSpringCoord(), mSpringSpeed(), mLeafCoord(leafCoord), mLeafSize(leafSize), mSide(1.0f, 0.0f, 0.0f),
+PlantLeaf::PlantLeaf(f32 leafCoord, const Vec3f& rPosition, const Vec3f& rGrowDirection, f32 leafSize)
+    : LiveActor("葉（伸び植物）"), mSpringCoord(), mSpringSpeed(), mLeafCoord(leafCoord), mLeafSize(leafSize), mSide(1.0f, 0.0f, 0.0f),
       mUp(0.0f, 1.0f, 0.0f), mFront(rGrowDirection) {
     mPosition.set(rPosition);
     MR::makeAxisFrontUp(&mSide, &mUp, mFront, mUp);
     mBaseMtx.setXYZDir(mSide, mUp, mFront);
     mBaseMtx.scale(mLeafSize * ::sScaleMin);
     mBaseMtx.setTrans(mPosition);
-    mPosMtx.identity();
 }
 
-PlantLeafDrawInit::PlantLeafDrawInit(const char* pName) : LiveActor(pName), mMaterial(), mShape(), mShapeDraw() {
-    MR::registerPreDrawFunction(MR::Functor(this, &PlantLeafDrawInit::initDraw), MR::DrawType_Plant);
-
+PlantLeafDrawInit::PlantLeafDrawInit(const char* pName) : LiveActor(pName), mMaterial(), mShape() {
     initModelManagerWithAnm("PlantLeaf", 0, false);
-    J3DModelData* pModelData = MR::getJ3DModelData(this);
+    ModelData* pModelData = MR::getModelData(this);
     mMaterial = MR::getMaterial(pModelData, 0);
-    mShape = mMaterial->mShape;
-    mShapeDraw = *mShape->mShapeDraw;
+    mShape = mMaterial->getMesh();
 }
 
-void PlantLeaf::init(const JMapInfoIter&) {
+void PlantLeaf::init(const TableIter&) {
     MR::invalidateClipping(this);
     makeActorAppeared();
 }
 
-void PlantLeaf::updateGrowUp(const TVec3f& rStalkPos, const TVec3f& rAxisY, f32 growthPercent, f32 offset) {
+void PlantLeaf::updateGrowUp(const Vec3f& rStalkPos, const Vec3f& rAxisY, f32 growthPercent, f32 offset) {
     mPosition.set(mFront);
     mPosition *= offset;
     mPosition.add(rStalkPos);
@@ -64,7 +59,7 @@ void PlantLeaf::updateGrowUp(const TVec3f& rStalkPos, const TVec3f& rAxisY, f32 
     mBaseMtx.setTrans(mPosition);
 }
 
-bool PlantLeaf::updateSpring(const TVec3f& rPos, f32 springPower, f32 growthPercent) {
+bool PlantLeaf::updateSpring(const Vec3f& rPos, f32 springPower, f32 growthPercent) {
     if (mPosition.squared(rPos) < ::sDistancePush * ::sDistancePush) {
         if (mSpringCoord == 0.0f && mSpringSpeed == 0.0f) {
             MR::tryRumblePadWeak(this, PLAYER_1);
@@ -85,38 +80,29 @@ bool PlantLeaf::updateSpring(f32 growthPercent) {
 
     mSpringSpeed *= ::sSpringFrictionRate;
 
-    if (MR::abs(mSpringCoord) < ::sSpringCoordToStop && MR::abs(mSpringSpeed) < ::sSpringSpeedToStop) {
+    const bool stopped = MR::abs(mSpringCoord) < ::sSpringCoordToStop && MR::abs(mSpringSpeed) < ::sSpringSpeedToStop;
+    if (stopped) {
         mSpringCoord = 0.0f;
         mSpringSpeed = 0.0f;
         MR::makeAxisFrontUp(&mSide, &mUp, mFront, mUp);
         mBaseMtx.setXYZDir(mSide, mUp, mFront);
-        mBaseMtx.scale(mLeafSize * growthPercent);
-        mBaseMtx.setTrans(mPosition);
-        return true;
     } else {
-        TVec3f side = mFront;
-        TVec3f front;
-        TVec3f up;
-        side.y += mSpringCoord;
-        MR::normalize(&side);
-        MR::makeAxisFrontUp(&front, &up, side, mUp);
-        mBaseMtx.setXYZDir(front, up, side);
-        mBaseMtx.scale(mLeafSize * growthPercent);
-        mBaseMtx.setTrans(mPosition);
-        return false;
+        // The leaf's front bends up by the spring.
+        Vec3f bentFront = mFront;
+        Vec3f side;
+        Vec3f up;
+        bentFront.y += mSpringCoord;
+        MR::normalize(&bentFront);
+        MR::makeAxisFrontUp(&side, &up, bentFront, mUp);
+        mBaseMtx.setXYZDir(side, up, bentFront);
     }
+
+    mBaseMtx.scale(mLeafSize * growthPercent);
+    mBaseMtx.setTrans(mPosition);
+    return stopped;
 }
 
-void PlantLeafDrawInit::init(const JMapInfoIter& rIter) {
+void PlantLeafDrawInit::init(const TableIter& /*rIter*/) {
     MR::invalidateClipping(this);
     makeActorDead();
-}
-
-void PlantLeafDrawInit::initDraw() const {
-    J3DModelData* pModelData = MR::getJ3DModelData(this);
-    j3dSys.mVtxPos = pModelData->mVertexData.mVtxPosArray;
-    j3dSys.mVtxNrm = pModelData->mVertexData.mVtxNrmArray;
-    j3dSys.mVtxCol = pModelData->mVertexData.mVtxColorArray[0];
-    mMaterial->useForDraw();
-    mShape->loadPreDrawSetting();
 }

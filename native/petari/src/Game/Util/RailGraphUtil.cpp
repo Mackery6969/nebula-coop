@@ -1,20 +1,20 @@
 #include "Game/Util/RailGraphUtil.hpp"
 #include "Game/Map/RailGraph.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/SceneUtil.hpp"
 #include "math_types.hpp"
 
 namespace {
-    inline void addRailToGraph(RailGraph* pGraph, JMapInfoIter currentRail, const JMapInfo* pPoints) {
+    inline void addRailToGraph(RailGraph* pGraph, TableIter currentRail, const Table* pPoints) {
         s32 pointCount = pPoints->getNumEntries();
         s32 firstNode = 0;
         s32 previousNode = -1;
         RailGraphEdge edge;
 
         for (s32 i = 0; i < pointCount; i++) {
-            TVec3f position;
-            MR::getRailPointPos0(JMapInfoIter(pPoints, i), &position);
+            Vec3f position;
+            MR::getRailPointPos0(TableIter(pPoints, i), &position);
             s32 nearNode = MR::getNearNodeIndex(pGraph, position, 100.0f, nullptr);
             s32 node;
             if (nearNode == -1) {
@@ -42,17 +42,20 @@ namespace {
 };  // namespace
 
 namespace MR {
-    RailGraph* createRailGraphFromJMap(const JMapInfoIter& rIter) {
+    RailGraph* createRailGraphFromPlacement(const TableIter& rIter) {
         RailGraph* pGraph = new RailGraph;
-        const JMapInfo* pRailPoints = nullptr;
-        JMapInfoIter railIter;
+        const Table* pRailPoints = nullptr;
+        TableIter railIter;
         bool hasRail = true;
         getRailInfo(&railIter, &pRailPoints, rIter);
+
+        // A chain visits each rail of the zone once at most; links that come back round (bad placement data) end it there.
+        s32 railsLeft = getPlacedRailNum(getPlacedZoneId(rIter));
 
         while (hasRail) {
             ::addRailToGraph(pGraph, railIter, pRailPoints);
 
-            hasRail = getNextLinkRailInfo(&railIter, &pRailPoints, railIter);
+            hasRail = getNextLinkRailInfo(&railIter, &pRailPoints, railIter) && --railsLeft > 0;
         }
 
         return pGraph;
@@ -66,7 +69,7 @@ namespace MR {
         pIter->moveNodeNext();
     }
 
-    void moveNodeNearPosition(RailGraphIter* pRailGraphIter, const TVec3f& rPosition, f32 maxDistance, RailGraphNodeSelecter* pSelector) {
+    void moveNodeNearPosition(RailGraphIter* pRailGraphIter, const Vec3f& rPosition, f32 maxDistance, RailGraphNodeSelecter* pSelector) {
         pRailGraphIter->setNode(getNearNodeIndex(pRailGraphIter->mGraph, rPosition, maxDistance, pSelector));
     }
 
@@ -84,31 +87,31 @@ namespace MR {
         return pRailGraphIter->isWatchedPrevEdge();
     }
 
-    TVec3f* getCurrentNodePosition(const RailGraphIter* pGraph) {
-        return &pGraph->getCurrentNode()->_0;
+    Vec3f* getCurrentNodePosition(const RailGraphIter* pGraph) {
+        return &pGraph->getCurrentNode()->mPos;
     }
 
-    TVec3f* getNextNodePosition(const RailGraphIter* pIter) {
-        return &pIter->getNextNode()->_0;
+    Vec3f* getNextNodePosition(const RailGraphIter* pIter) {
+        return &pIter->getNextNode()->mPos;
     }
 
-    void calcWatchEdgeVector(const RailGraphIter* pIter, TVec3f* pEdge) {
-        pEdge->set(pIter->getWatchNode()->_0 - pIter->getCurrentNode()->_0);
+    void calcWatchEdgeVector(const RailGraphIter* pIter, Vec3f* pEdge) {
+        pEdge->set(pIter->getWatchNode()->mPos - pIter->getCurrentNode()->mPos);
     }
 
-    void calcWatchEdgeDirection(const RailGraphIter* pRailGraphIter, TVec3f* pVec) {
+    void calcWatchEdgeDirection(const RailGraphIter* pRailGraphIter, Vec3f* pVec) {
         calcWatchEdgeVector(pRailGraphIter, pVec);
         MR::normalize(pVec);
     }
 
-    s32 getNearNodeIndex(const RailGraph* pGraph, const TVec3f& rPosition, f32 maxDistance, RailGraphNodeSelecter* pSelector) {
+    s32 getNearNodeIndex(const RailGraph* pGraph, const Vec3f& rPosition, f32 maxDistance, RailGraphNodeSelecter* pSelector) {
         if (maxDistance < 0.0f) {
             maxDistance = FLOAT_MAX;
         }
 
         f32 nearestDistance = maxDistance;
         s32 nearestNode = -1;
-        s32 nodeCount = pGraph->_8;
+        const s32 nodeCount = pGraph->getNodeNum();
         RailGraphIter iter = pGraph->getIterator();
         for (s32 i = 0; i < nodeCount; i++) {
             if (pSelector != nullptr) {
@@ -118,7 +121,7 @@ namespace MR {
                 }
             }
 
-            f32 distance = rPosition.distance(pGraph->getNode(i)->_0);
+            f32 distance = rPosition.distance(pGraph->getNode(i)->mPos);
             if (distance < nearestDistance) {
                 nearestDistance = distance;
                 nearestNode = i;
@@ -129,22 +132,22 @@ namespace MR {
     }
 
     s32 getSelectEdgeArg0(const RailGraphIter* pIter) {
-        return pIter->getCurrentEdge()->mPointArg0;
+        return pIter->getCurrentEdge()->mPointArg[0];
     }
 
     s32 getSelectEdgeArg1(const RailGraphIter* pIter) {
-        return pIter->getCurrentEdge()->mPointArg1;
+        return pIter->getCurrentEdge()->mPointArg[1];
     }
 
     s32 getSelectEdgeArg2(const RailGraphIter* pIter) {
-        return pIter->getCurrentEdge()->mPointArg2;
+        return pIter->getCurrentEdge()->mPointArg[2];
     }
 
     s32 getSelectEdgeArg3(const RailGraphIter* pIter) {
-        return pIter->getCurrentEdge()->mPointArg3;
+        return pIter->getCurrentEdge()->mPointArg[3];
     }
 
     s32 getWatchEdgeArg7(const RailGraphIter* pIter) {
-        return pIter->getWatchEdge()->mPointArg7;
+        return pIter->getWatchEdge()->mPointArg[7];
     }
 };  // namespace MR

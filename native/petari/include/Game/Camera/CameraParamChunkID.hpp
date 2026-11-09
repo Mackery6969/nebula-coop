@@ -1,5 +1,8 @@
 #pragma once
 
+namespace MR {
+    class FormattedName;
+}
 
 class CameraParamChunkID {
 public:
@@ -17,6 +20,8 @@ public:
     void createOtherID(s32, const char*);
     void createEventID(s32, const char*);
     void createStartID(s32, u16);
+    void setName(const MR::FormattedName& rName);
+    void copyName(const char* pName);
 
     s8 mZoneID;
     char* mName;
@@ -27,9 +32,23 @@ public:
     inline CameraParamChunkID_Tmp() : CameraParamChunkID() {
     }
 
-    virtual char* getBuffer(u32 size) {
-        return &mBuffer[0];
+    ~CameraParamChunkID_Tmp() {
+        delete[] mLong;
     }
 
-    char mBuffer[0x100];
+    CameraParamChunkID_Tmp(const CameraParamChunkID_Tmp&) = delete;
+    CameraParamChunkID_Tmp& operator=(const CameraParamChunkID_Tmp&) = delete;
+
+    virtual char* getBuffer(u32 size) override {
+        if (size <= sizeof(mBuffer)) {
+            return &mBuffer[0];
+        }
+
+        delete[] mLong;
+        mLong = new char[size];
+        return mLong;
+    }
+
+    char mBuffer[0x100];  // the common case in itself; a longer id is in mLong, whole
+    char* mLong = nullptr;
 };

@@ -14,10 +14,10 @@ namespace NrvStarPieceMother {
     NEW_NERVE(HostTypeNrvWait, StarPieceMother, Wait);
 };  // namespace NrvStarPieceMother
 
-StarPieceMother::StarPieceMother(const char* pName) : LiveActor(pName), mStarPieceArray(), _90(), _94(6), _98(), _9C(), _A0(10.0f) {
+StarPieceMother::StarPieceMother(const char* pName) : LiveActor(pName), mStarPieceArray(), mRailCoords(), mNumPieces(6), mNextPiece(), mRailSpeed(10.0f) {
 }
 
-void StarPieceMother::init(const JMapInfoIter& rIter) {
+void StarPieceMother::init(const TableIter& rIter) {
     s32 isRailNotConnected = false;
 
     if (!MR::isValidInfo(rIter) || !MR::isConnectedWithRail(rIter)) {
@@ -50,41 +50,42 @@ void StarPieceMother::init(const JMapInfoIter& rIter) {
     MR::tryRegisterDemoCast(this, rIter);
 
     s32 arg = -1;
-    MR::getJMapInfoArg0NoInit(rIter, &arg);
+    MR::getPlacementArg0NoInit(rIter, &arg);
     if (arg != -1) {
-        _94 = arg;
+        // A count under zero is no pieces.
+        mNumPieces = arg > 0 ? arg : 0;
     }
 
-    mStarPieceArray = new StarPiece*[_94];
-    _90 = new f32[_94];
+    mStarPieceArray = new StarPiece*[mNumPieces];
+    mRailCoords = new f32[mNumPieces];
 
-    for (u32 idx = 0; idx < _94; idx++) {
-        mStarPieceArray[idx] = new StarPiece("\203\130\203\136\201\133\203\163\201\133\203\130\203\175\203\125\201\133\203\163\201\133\203\130" /* スターピースマザーピース */);
+    for (u32 idx = 0; idx < mNumPieces; idx++) {
+        mStarPieceArray[idx] = new StarPiece("スターピースマザーピース");
         mStarPieceArray[idx]->initAndSetFloatingFromGroup(rIter);
         mStarPieceArray[idx]->makeActorDead();
 
         if (MR::isValidSwitchA(this)) {
-            mStarPieceArray[idx]->mFlags._1 = false;
+            mStarPieceArray[idx]->mFlags.isGettable = false;
         }
     }
 
     if (isRailNotConnected) {
         initNerve(GET_NERVE(StarPieceMother, HostTypeNrvWait));
         initHitSensor(1);
-        MR::addHitSensorMapObj(this, "body", 8, 100.0f, TVec3f(0.0f, 0.0f, 0.0f));
+        MR::addHitSensorMapObj(this, "body", 8, 100.0f, Vec3f(0.0f, 0.0f, 0.0f));
         makeActorAppeared();
     } else {
         initNerve(GET_NERVE(StarPieceMother, HostTypeNrvMoveOnRail));
 
         arg = -1;
-        MR::getJMapInfoArg1NoInit(rIter, &arg);
+        MR::getPlacementArg1NoInit(rIter, &arg);
         f32 railPos = (arg == -1) ? 0.0f : static_cast< f32 >(arg);
         placementPieceOnRail(railPos);
 
         arg = -1;
-        MR::getJMapInfoArg2NoInit(rIter, &arg);
+        MR::getPlacementArg2NoInit(rIter, &arg);
         if (arg != -1 && arg != 0) {
-            _A0 = static_cast< f32 >(arg);
+            mRailSpeed = static_cast< f32 >(arg);
         }
 
         makeActorDead();
@@ -113,13 +114,14 @@ void StarPieceMother::exeMoveOnRail() {
     }
 
     MR::startLevelSound(this, "SE_OJ_LV_STAR_PIECE_MO_MV");
-    MR::moveCoordAndFollowTrans(this, _A0);
+    MR::moveCoordAndFollowTrans(this, mRailSpeed);
 
     f32 railCoord = MR::getRailCoord(this);
-    if (_90[_98] <= railCoord) {
-        mStarPieceArray[_98]->appear();
+    // Every piece out, the mother rides on to the rail's end: no piece is left to look up.
+    if (static_cast< s32 >(mNextPiece) < mNumPieces && mRailCoords[mNextPiece] <= railCoord) {
+        mStarPieceArray[mNextPiece]->appear();
         MR::startSound(this, "SE_OJ_STAR_PIECE_BURST");
-        _98++;
+        mNextPiece++;
     }
 
     if (MR::isRailReachedGoal(this)) {
@@ -128,40 +130,45 @@ void StarPieceMother::exeMoveOnRail() {
 }
 
 void StarPieceMother::placementPieceOnRail(f32 distance) {
-    TVec3f railPos;
+    // No pieces (placement arg 0 of 0 or less): nothing to place.
+    if (mNumPieces <= 0) {
+        return;
+    }
+
+    Vec3f railPos;
     MR::calcRailPosAtCoord(&railPos, this, distance);
     mStarPieceArray[0]->mPosition.set(railPos);
-    _90[0] = distance;
+    mRailCoords[0] = distance;
 
     f32 step = 0.0f;
     f32 difference = MR::getRailTotalLength(this) - distance;
-    if (1 < _94) {
-        step = 1.0f / (_94 - 1.0f);
+    if (1 < mNumPieces) {
+        step = 1.0f / (mNumPieces - 1.0f);
         step *= difference;
     }
 
-    for (int idx = 1; idx < _94; idx++) {
+    for (int idx = 1; idx < mNumPieces; idx++) {
         distance += step;
         f32 value = distance >= difference ? difference : distance;
         MR::calcRailPosAtCoord(&railPos, this, value);
         mStarPieceArray[idx]->mPosition.set(railPos);
-        _90[idx] = value;
+        mRailCoords[idx] = value;
     }
 }
 
 void StarPieceMother::onSwitchA() {
-    for (u32 idx = 0; idx < _94; idx++) {
-        mStarPieceArray[idx]->mFlags._1 = true;
+    for (u32 idx = 0; idx < mNumPieces; idx++) {
+        mStarPieceArray[idx]->mFlags.isGettable = true;
     }
 }
 
 void StarPieceMother::offSwitchA() {
-    for (u32 idx = 0; idx < _94; idx++) {
-        mStarPieceArray[idx]->mFlags._1 = false;
+    for (u32 idx = 0; idx < mNumPieces; idx++) {
+        mStarPieceArray[idx]->mFlags.isGettable = false;
     }
 }
 
-void StarPieceMother::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
+void StarPieceMother::attackSensor(HitSensor* /*pSender*/, HitSensor* pReceiver) {
     if (MR::isSensorPlayer(pReceiver) && (!MR::isValidSwitchA(this) || MR::isOnSwitchA(this))) {
         emitStarPieces();
         kill();
@@ -169,8 +176,8 @@ void StarPieceMother::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
 }
 
 void StarPieceMother::emitStarPieces() {
-    for (u32 idx = 0; idx < _94; idx++) {
-        TVec3f position;
+    for (u32 idx = 0; idx < mNumPieces; idx++) {
+        Vec3f position;
         position.set(*MR::getPlayerCenterPos());
         position.sub(mPosition);
         MR::normalizeOrZero(&position);

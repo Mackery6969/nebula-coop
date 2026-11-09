@@ -1,15 +1,16 @@
 #pragma once
 
+#include "Game/Scene/SceneFactory.hpp"
 
-class JMapIdInfo;
+class PlacementId;
 
 namespace MR {
-    void requestChangeScene(const char*);
+    void requestChangeScene(SceneKind);
     void requestChangeSceneTitle();
     void requestChangeStageInGameAfterLoadingGameData();
     void requestChangeStageAfterStageClear();
     void requestChangeStageAfterMiss();
-    void requestChangeStageInGameMoving(const char*, s32, const JMapIdInfo&);
+    void requestChangeStageInGameMoving(const char*, s32, const PlacementId&);
     void requestChangeStageInGameMoving(const char*, s32);
     void requestChangeSceneAfterGameOver();
     void requestChangeSceneAfterBoot();
@@ -25,6 +26,6 @@ namespace MR {
     void requestEndMissDemo();
     void requestShowGalaxyMap();
     void executeOnWelcomeAndRetry();
-    void requestGoToAstroGalaxy(s32);
-    void requestGoToAstroDomeFromAstroGalaxy(s32, s32);
+    void requestGoToAstroGalaxy(s32 startId);
+    void requestGoToAstroDomeFromAstroGalaxy(s32 scenarioNo, s32 startId);
 };  // namespace MR

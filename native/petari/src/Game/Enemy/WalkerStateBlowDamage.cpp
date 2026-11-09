@@ -1,14 +1,15 @@
 #include "Game/Enemy/WalkerStateBlowDamage.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util/ActorMovementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/NerveUtil.hpp"
 
 namespace {
-    static const f32 sAirFric = 0.99f;
-    static const f32 sAirGravityAccel = 1.0f;
-    static const f32 sDamageTurnLimit = 15.0f;
-    static const s32 sDamageLandTime = 30;
+    const f32 sAirFric = 0.99f;
+    const f32 sAirGravityAccel = 1.0f;
+    const f32 sDamageTurnLimit = 15.0f;
+    const s32 sDamageLandTime = NebulaFrameClock::stepsOfMilliseconds(500);
 };  // namespace
 
 namespace NrvWalkerStateBlowDamage {
@@ -16,8 +17,8 @@ namespace NrvWalkerStateBlowDamage {
     NEW_NERVE(WalkerStateBlowDamageNrvBlowLand, WalkerStateBlowDamage, BlowLand);
 };  // namespace NrvWalkerStateBlowDamage
 
-WalkerStateBlowDamage::WalkerStateBlowDamage(LiveActor* pHost, TVec3f* pDirection, WalkerStateBlowDamageParam* pBlowDamageParam)
-    : ActorStateBase< LiveActor >("\220\201\202\253\224\362\202\321\203\137\203\201\201\133\203\127\217\363\221\324" /* 吹き飛びダメージ状態 */, pHost), mDirection(pDirection), mBlowDamageParam(pBlowDamageParam) {
+WalkerStateBlowDamage::WalkerStateBlowDamage(LiveActor* pHost, Vec3f* pDirection)
+    : ActorStateBase< LiveActor >("吹き飛びダメージ状態", pHost), mDirection(pDirection) {
     initNerve(GET_NERVE(WalkerStateBlowDamage, WalkerStateBlowDamageNrvBlow));
 }
 
@@ -34,12 +35,10 @@ void WalkerStateBlowDamage::exeBlow() {
     MR::addVelocityToGravity(getHost(), ::sAirGravityAccel);
     MR::turnDirectionDegree(getHost(), mDirection, -getHost()->mVelocity, ::sDamageTurnLimit);
 
-    if (MR::isGreaterStep(this, 5)) {
-        if (MR::isBindedGround(getHost())) {
-            MR::startAction(getHost(), "DamageLand");
-            MR::zeroVelocity(getHost());
-            setNerve(GET_NERVE(WalkerStateBlowDamage, WalkerStateBlowDamageNrvBlowLand));
-        }
+    if (MR::isGreaterStep(this, 5) && MR::isBindedGround(getHost())) {
+        MR::startAction(getHost(), "DamageLand");
+        MR::zeroVelocity(getHost());
+        setNerve(GET_NERVE(WalkerStateBlowDamage, WalkerStateBlowDamageNrvBlowLand));
     }
 }
 

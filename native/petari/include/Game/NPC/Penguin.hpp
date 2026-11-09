@@ -34,10 +34,10 @@ public:
 
     Penguin(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
     void exeReaction();
     void exeWait();
@@ -52,18 +52,18 @@ public:
 
 class TurtlePartsModel : public PartsModel {
 public:
-    TurtlePartsModel(LiveActor* pActor, const char* pName, const char* pModelName, MtxPtr mtx, int drawBufferType, bool a6)
-        : PartsModel(pActor, pName, pModelName, mtx, drawBufferType, a6) {
+    TurtlePartsModel(LiveActor* pActor, const char* pName, const char* pModelName, MtxPtr mtx, int drawBufferType, bool deferMaterials)
+        : PartsModel(pActor, pName, pModelName, mtx, drawBufferType, deferMaterials) {
     }
 
-    virtual void appear() {
+    virtual void appear() override {
         LiveActor::appear();
         MR::startBtk(this, "KouraShine");
         MR::emitEffect(this, "HandyGlow");
     }
 
-    virtual void init(const JMapInfoIter& rIter) {
-        initEffectKeeper(8, "koura", false);
+    virtual void init(const TableIter& /*rIter*/) override {
+        initEffectKeeper(8, "koura");
         initSound(8, false);
         MR::invalidateClipping(this);
         makeActorAppeared();

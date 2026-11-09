@@ -10,15 +10,15 @@
 #include "Game/System/InputStick.hpp"
 
 PlayerInput::PlayerInput(s32 channel, PlayerInputReader* pReadInfo)
-    : mChannel(channel), mReadInfo(pReadInfo), mButton(), mPointer(), mMainTilt(), mMainSwing(), _18(), _1C(), mStick(), mSubTilt(), mSubSwing(),
+    : mChannel(channel), mReadInfo(pReadInfo), mButton(), mPointer(), mMainTilt(), mMainSwing(), mRumble(), mMenuRumble(), mStick(), mSubTilt(), mSubSwing(),
       mInfoChecker(), mIsConnected(), mHasMoveStick() {
     mButton = new InputButtons(this);
     mPointer = new InputPointer(this);
     mMainTilt = new InputTilt(this, INPUT_HAND_MAIN);
     mMainSwing = new InputSwing(this, INPUT_HAND_MAIN);
-    _18 = new InputRumble(this);
-    _1C = new InputRumble(this);
-    _18->registInstance();
+    mRumble = new InputRumble(this);
+    mMenuRumble = new InputRumble(this);
+    mRumble->registInstance();
     mSubTilt = new InputTilt(this, INPUT_HAND_SUB);
     mSubSwing = new InputSwing(this, INPUT_HAND_SUB);
     mStick = new InputStick(this);
@@ -34,8 +34,8 @@ void PlayerInput::update() {
     mMainTilt->update();
     mPointer->update();
     mMainSwing->update();
-    _18->update();
-    _1C->update();
+    mRumble->update();
+    mMenuRumble->update();
     mSubTilt->update();
     mSubSwing->update();
     mStick->update();
@@ -58,7 +58,7 @@ void PlayerInput::holdForMenu() {
 }
 
 InputRumble* PlayerInput::getRumbleInstance() const {
-    return _18->getRumbleInstance();
+    return mRumble->getRumbleInstance();
 }
 
 s32 PlayerInput::getBattery() const {
@@ -109,8 +109,6 @@ void PlayerInput::extensionCallback(s32 chan, s32 result) {
         return;
     }
 
-    SpkSystem::extensionProcess(chan, result);
-
     switch (result) {
     case INPUT_HAND_MAIN:
         pInput->mHasMoveStick = false;
@@ -128,6 +126,6 @@ bool MR::hasMoveStick(const PlayerInputSample* pSample) {
     return pSample != nullptr && pSample->mHasMoveStick;
 }
 
-PlayerInputSample* PlayerInput::getSample(u32 index) const {
-    return mReadInfo->getSample(index);
+PlayerInputSample* PlayerInput::getSample() const {
+    return mReadInfo->getSample();
 }

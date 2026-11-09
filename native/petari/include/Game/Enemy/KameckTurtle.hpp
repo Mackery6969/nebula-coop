@@ -7,21 +7,19 @@ class SmallKameckBeamEventListener;
 
 class KameckTurtle : public LiveActor {
 public:
-    /// @brief Creates a new `KameckTurtle`.
-    /// @param pName A pointer to the null-terminated name of the object.
     KameckTurtle(const char* pName);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void makeActorAppeared();
-    virtual void makeActorDead();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void makeActorAppeared() override;
+    virtual void makeActorDead() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
     void initJetTurtle();
-    void appearDirection(const TVec3f&);
+    void appearDirection(const Vec3f&);
     void exeRun();
     void exeWait();
     bool isEnableAttack() const;
@@ -29,7 +27,7 @@ public:
 
     SmallKameckBeamEventListener* mEventListener;
     JetTurtle* mTurtle;
-    TQuat4f mRotateQuat;
-    TVec3f _A4;
-    TVec3f _B0;
+    Quat4f mRotateQuat;
+    Vec3f mFront;
+    Vec3f mRunDir;
 };

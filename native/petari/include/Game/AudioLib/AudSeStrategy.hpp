@@ -1,23 +1,8 @@
 #pragma once
 
-#include <JSystem/JAudio2/JAISound.hpp>
-#include <JSystem/JAudio2/JASHeapCtrl.hpp>
+class EffectSound;
 
-class JAISe;
-struct JASSoundParams;
-
-class AudSeStrategy : public JAISoundStrategy< JAISe >, public JASPoolAllocObject< AudSeStrategy > {
-public:
-    AudSeStrategy() {};
-
-    virtual void calc(JAISe*);
-    virtual void mix(JAISe*, JASSoundParams*);
-};
-
-class AudSeStrategyMgr : public JAISoundStrategyMgr< JAISe > {
-public:
-    AudSeStrategyMgr() {};
-
-    virtual JAISoundStrategy< JAISe >* newStrategy(JAISoundID);
-    virtual bool deleteStrategy(JAISoundStrategy< JAISe >*);
-};
+namespace AudSeStrategy {
+    // A playing effect's step each frame: the effector's send and low-pass for the effects that take them.
+    void calc(EffectSound* pSe);
+};  // namespace AudSeStrategy

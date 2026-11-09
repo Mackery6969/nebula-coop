@@ -1,7 +1,6 @@
 #include "Game/MapObj/AstroDomeOrbit.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
+#include "Game/Render/FrameList.hpp"
+#include "Game/Render/TypedDraw.hpp"
 #include "Game/Map/SphereSelector.hpp"
 #include "Game/MapObj/MiniatureGalaxyHolder.hpp"
 #include "Game/Scene/SceneFunction.hpp"
@@ -10,189 +9,176 @@
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
-#include "Game/Util/NativeShader.hpp"
 #include <nebula_game_api.h>
 
 namespace {
-    const static Vec cRotateOutermost = {20.0f, 45.0f, 0.0f};
-    const static f32 cRadius[] = {4000.0f, 6200.0f, 8100.0f, 10300.0f, 12000.0f};
-    const static f32 cRadiusLastDome[] = {4000.0f, 6700.0f, 9100.0f, 11800.0f};
-    const static s32 cDevideNum = 64;
-    const static f32 cWidth = 100.0f;
-    const static f32 cHeight = 50.0f;
-    const static f32 cGalaxyRotateSpeed = -0.05f;
-    const static f32 cGalaxyRotateCoordOffset = 230.0f;
-    const static f32 cBloomWidth = 131.0f;
-    const static f32 cBloomHeight = 60.0f;
+    const Vec cRotateOutermost = {20.0f, 45.0f, 0.0f};
+    // Orbit radius by galaxy index: five galaxies in a dome, four in the last one.
+    const f32 cRadius[] = {4000.0f, 6200.0f, 8100.0f, 10300.0f, 12000.0f};
+    const f32 cRadiusLastDome[] = {4000.0f, 6700.0f, 9100.0f, 11800.0f};
+    // The fifth ring is tilted.
+    const s32 cOutermostIndex = 4;
+    const s32 cDivideNum = AstroDomeOrbit::cRingPointNum - 1;
+    const f32 cWidth = 100.0f;
+    const f32 cHeight = 50.0f;
+    const f32 cGalaxyRotateSpeed = -0.05f;
+    const f32 cGalaxyRotateCoordOffset = 230.0f;
+    const f32 cBloomWidth = 131.0f;
+    const f32 cBloomHeight = 60.0f;
 
-    const static Color8 cColor(0x13, 0xB1, 0xFF, 0xFF);
-    const static Color8 cBloomColor(0x00, 0xB4, 0x64, 0xFF);
-};  // namespace
+    const Color8 cColor(0x13, 0xB1, 0xFF, 0xFF);
+    const Color8 cBloomColor(0x00, 0xB4, 0x64, 0xFF);
 
-AstroDomeOrbit::AstroDomeOrbit() : LiveActor("\223\126\225\266\203\150\201\133\203\200\202\314\213\117\223\271" /* 天文ドームの軌道 */), mOrbitRadius(5000.0f), mAngle() {
+    // runtime/src/render/materials/flat_color.hlsl: the colour added to the frame, depth tested and not written, back
+    // faces culled.
+    SiteMaterial loadMaterial(const Color8& rColor) {
+        SiteMaterial material;
+        material.init(NEBULA_SHADER_FLAT_COLOR, SiteMaterial::BLEND_ADD, NEBULA_COMPARE_LEQUAL, false, NEBULA_CULL_BACK);
+        material.setColor(0, rColor.r, rColor.g, rColor.b, rColor.a);
+        return material;
+    }
+
+    void putVertex(VertexP*& rpVtx, const Vec3f& rPos) {
+        *rpVtx++ = {rPos.x, rPos.y, rPos.z};
+    }
+}  // namespace
+
+AstroDomeOrbit::AstroDomeOrbit() : LiveActor("天文ドームの軌道"), mOrbitRadius(5000.0f), mAngle(), mRingCos(), mRingSin() {
 }
 
-void AstroDomeOrbit::init(const JMapInfoIter& rIter) {
+void AstroDomeOrbit::init(const TableIter& /*rIter*/) {
     MR::connectToScene(this, MR::MovementType_None, MR::CalcAnimType_None, MR::DrawBufferType_None, MR::DrawType_AstroDomeOrbit);
 
     MR::invalidateClipping(this);
 
-    MR::createAdaptorAndConnectToDrawBloomModel("\223\126\225\266\203\150\201\133\203\200\213\117\223\271\203\165\203\213\201\133\203\200\225\140\211\346" /* 天文ドーム軌道ブルーム描画 */, MR::Functor(this, &AstroDomeOrbit::drawBloom));
+    MR::createAdaptorAndConnectToDrawBloomModel("天文ドーム軌道ブルーム描画", MR::Functor(this, &AstroDomeOrbit::drawBloom));
+
+    for (s32 i = 0; i < cRingPointNum; i++) {
+        f32 angle = TWO_PI * i / ::cDivideNum;
+        mRingCos[i] = MR::cos(angle);
+        mRingSin[i] = MR::sin(angle);
+    }
 
     makeActorDead();
 }
 
 void AstroDomeOrbit::draw() const {
-    if (!MR::isValidDraw(this)) {
-        return;
-    }
-
-    initDraw(::cColor);
-
-    drawCelling(::cWidth, true, ::cHeight);
-    drawCelling(::cWidth, false, ::cHeight);
-
-    drawSide(::cWidth, true, ::cHeight);
-    drawSide(::cWidth, false, ::cHeight);
+    drawBand(::cColor, ::cWidth, ::cHeight);
 }
 
 void AstroDomeOrbit::drawBloom() const {
-    if (!MR::isValidDraw(this)) {
-        return;
-    }
-
-    initDraw(::cBloomColor);
-
-    drawCelling(::cBloomWidth, true, ::cBloomHeight);
-    drawCelling(::cBloomWidth, false, ::cBloomHeight);
-
-    drawSide(::cBloomWidth, true, ::cBloomHeight);
-    drawSide(::cBloomWidth, false, ::cBloomHeight);
+    drawBand(::cBloomColor, ::cBloomWidth, ::cBloomHeight);
 }
 
-void AstroDomeOrbit::setup(s32 radiusIdx) {
-    s32 miniNum = MiniatureGalaxyFunction::getMiniatureGalaxyNum();
-    const f32* radii = ::cRadiusLastDome;
+void AstroDomeOrbit::setup(s32 galaxyIndex) {
+    const bool isFullDome = MiniatureGalaxyFunction::getMiniatureGalaxyNum() == ARRAY_SIZE(::cRadius);
+    const f32* pRadii = isFullDome ? ::cRadius : ::cRadiusLastDome;
+    const s32 radiusNum = isFullDome ? ARRAY_SIZE(::cRadius) : ARRAY_SIZE(::cRadiusLastDome);
 
-    if (miniNum == 5) {
-        radii = ::cRadius;
-    }
+    // A dome with more galaxies than rings puts the extra ones on the outermost ring.
+    mOrbitRadius = pRadii[MR::clamp(galaxyIndex, 0, radiusNum - 1)];
+    mAngle = ::cGalaxyRotateCoordOffset * galaxyIndex;
 
-    mOrbitRadius = radii[radiusIdx];
-    mAngle = ::cGalaxyRotateCoordOffset * radiusIdx;
-
-    if (radiusIdx >= 4) {
+    if (galaxyIndex >= ::cOutermostIndex) {
         mRotation.set(::cRotateOutermost);
     }
 }
 
 void AstroDomeOrbit::moveCoord() {
-    mAngle = calcRepeatedRotateCoord(::cGalaxyRotateSpeed + mAngle);
+    mAngle = MR::repeatDegree(::cGalaxyRotateSpeed + mAngle);
 }
 
-void AstroDomeOrbit::calcGalaxyPos(TVec3f* pPos) const {
-    f32 angle = calcRepeatedRotateCoord(mAngle) * TWO_PI / 360.0f;
+void AstroDomeOrbit::calcGalaxyPos(Vec3f* pPos) const {
+    f32 angle = MR::repeatDegree(mAngle) * TWO_PI / 360.0f;
     pPos->set< f32 >(MR::cos(angle), 0.0f, MR::sin(angle));
     pPos->mult(mOrbitRadius);
     pPos->add(*pPos, SphereSelectorFunction::getHandleTrans());
 
-    TPos3f rotateMtx;
+    Pos3f rotateMtx;
     SphereSelectorFunction::calcHandledRotateMtx(mRotation, &rotateMtx);
     rotateMtx.mult(*pPos, *pPos);
 }
 
-void AstroDomeOrbit::initDraw(const Color8& rColor) const {
-    TPos3f rotateMtx;
+// Top and bottom faces, then the outer and inner walls.
+void AstroDomeOrbit::drawBand(const Color8& rColor, f32 width, f32 height) const {
+    if (!MR::isValidDraw(this)) {
+        return;
+    }
+
+    Pos3f rotateMtx;
     SphereSelectorFunction::calcHandledRotateMtx(mRotation, &rotateMtx);
-    rotateMtx.concat(MR::getCameraViewMtx(), rotateMtx);
-    J3DNativeShape::setPosition(0, rotateMtx);
-    J3DPass::positionMatrix(0);
-    // runtime/src/render/materials/flat_color.hlsl: the colour added to the frame, depth tested and not written, back
-    // faces culled.
-    NebulaNativeMaterial material;
-    NativeShader::init(material, NEBULA_SHADER_FLAT_COLOR, NativeShader::BLEND_ADD, NEBULA_COMPARE_LEQUAL, false,
-                       NEBULA_CULL_BACK);
-    NativeShader::setColor(material, 0, rColor.r, rColor.g, rColor.b, rColor.a);
-    NativeShader::send(material);
+    const SiteMaterial material = ::loadMaterial(rColor);
+    TypedDraw site(material, rotateMtx, MR::getCameraViewMtx());
+
+    drawFlat(site, width, true, height);
+    drawFlat(site, width, false, height);
+
+    drawSide(site, width, true, height);
+    drawSide(site, width, false, height);
 }
 
-void AstroDomeOrbit::drawCelling(f32 width, bool isAddHeight, f32 height) const {
-    TVec3f handleTrans;
-    handleTrans.set(SphereSelectorFunction::getHandleTrans());
+// The strip's vertex order picks the face culling keeps.
+void AstroDomeOrbit::drawFlat(TypedDraw& rDraw, f32 width, bool isTop, f32 height) const {
+    Vec3f center;
+    center.set(SphereSelectorFunction::getHandleTrans());
 
-    if (isAddHeight) {
-        handleTrans.y += (0.5f * height);
+    if (isTop) {
+        center.y += (0.5f * height);
     } else {
-        handleTrans.y -= (0.5f * height);
+        center.y -= (0.5f * height);
     }
 
-    J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, 130, 0);
+    VertexP* pVtx = rDraw.vertices< VertexP >(NEBULA_PRIMITIVE_TRIANGLE_STRIP, cRingPointNum * 2);
 
-    for (s32 i = 0; i < ::cDevideNum + 1; i++) {
-        f32 angle = TWO_PI * i / ::cDevideNum;
+    for (s32 i = 0; i < cRingPointNum; i++) {
+        Vec3f dir;
+        dir.set< f32 >(mRingCos[i], 0.0f, mRingSin[i]);
 
-        TVec3f rotateVec;
-        rotateVec.set< f32 >(MR::cos(angle), 0.0f, MR::sin(angle));
+        Vec3f inner;
+        inner.scale(mOrbitRadius - (0.5f * width), dir);
+        inner.add(center);
 
-        TVec3f negVec;
-        negVec.scale(mOrbitRadius - (0.5f * width), rotateVec);
-        negVec.add(handleTrans);
+        Vec3f outer;
+        outer.scale(mOrbitRadius + (0.5f * width), dir);
+        outer.add(center);
 
-        TVec3f posVec;
-        posVec.scale(mOrbitRadius + (0.5f * width), rotateVec);
-        posVec.add(handleTrans);
-
-        if (isAddHeight) {
-            J3DNativeDraw::position(negVec.x, negVec.y, negVec.z);
-            J3DNativeDraw::position(posVec.x, posVec.y, posVec.z);
+        if (isTop) {
+            ::putVertex(pVtx, inner);
+            ::putVertex(pVtx, outer);
         } else {
-            J3DNativeDraw::position(posVec.x, posVec.y, posVec.z);
-            J3DNativeDraw::position(negVec.x, negVec.y, negVec.z);
+            ::putVertex(pVtx, outer);
+            ::putVertex(pVtx, inner);
         }
     }
 }
 
-void AstroDomeOrbit::drawSide(f32 width, bool isAddWidth, f32 height) const {
-    TVec3f handleTrans;
-    handleTrans.set(SphereSelectorFunction::getHandleTrans());
-    handleTrans.y += 0.5f * height;
+void AstroDomeOrbit::drawSide(TypedDraw& rDraw, f32 width, bool isOuter, f32 height) const {
+    Vec3f center;
+    center.set(SphereSelectorFunction::getHandleTrans());
+    center.y += 0.5f * height;
 
-    f32 scale;
-    if (isAddWidth) {
-        scale = mOrbitRadius + (0.5f * width);
-    } else {
-        scale = mOrbitRadius - (0.5f * width);
-    }
+    f32 radius = isOuter ? mOrbitRadius + (0.5f * width) : mOrbitRadius - (0.5f * width);
 
-    J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, (::cDevideNum + 1) * 2, 0);
+    VertexP* pVtx = rDraw.vertices< VertexP >(NEBULA_PRIMITIVE_TRIANGLE_STRIP, cRingPointNum * 2);
 
-    for (s32 i = 0; i < ::cDevideNum + 1; i++) {
-        f32 angle = TWO_PI * i / ::cDevideNum;
+    for (s32 i = 0; i < cRingPointNum; i++) {
+        Vec3f dir;
+        dir.set< f32 >(mRingCos[i], 0.0f, mRingSin[i]);
 
-        TVec3f rotateVec;
-        rotateVec.set< f32 >(MR::cos(angle), 0.0f, MR::sin(angle));
+        Vec3f top;
+        top.scale(radius, dir);
+        top.add(center);
 
-        TVec3f v16;
-        v16.scale(scale, rotateVec);
-        v16.add(handleTrans);
+        Vec3f bottom;
+        bottom.set(top);
+        bottom.y -= height;
 
-        TVec3f v15;
-        v15.set(v16);
-        v15.y -= height;
-
-        if (isAddWidth) {
-            J3DNativeDraw::position(v16.x, v16.y, v16.z);
-            J3DNativeDraw::position(v15.x, v15.y, v15.z);
+        if (isOuter) {
+            ::putVertex(pVtx, top);
+            ::putVertex(pVtx, bottom);
         } else {
-            J3DNativeDraw::position(v15.x, v15.y, v15.z);
-            J3DNativeDraw::position(v16.x, v16.y, v16.z);
+            ::putVertex(pVtx, bottom);
+            ::putVertex(pVtx, top);
         }
     }
-}
-
-f32 AstroDomeOrbit::calcRepeatedRotateCoord(f32 coord) const {
-    return MR::repeatDegree(coord);
-}
-
-AstroDomeOrbit::~AstroDomeOrbit() {
 }

@@ -1,23 +1,25 @@
 #include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Screen/NebulaUi.hpp"
 #include <nebula_cooked_texture.h>
-#include <JSystem/J3DGraphBase/J3DNativeView.hpp>
+#include "Game/Render/FrameList.hpp"
 
 #include "Game/Screen/LayoutCoreUtil.hpp"
 #include "Game/Screen/NebulaPaneKit.hpp"
+#include "Game/System/NebulaText.hpp"
 #include "Game/Util/MessageUtil.hpp"
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
+#include "Game/Util/TextString.hpp"
 #include <cstdio>
-#include <nw4r/lyt/layout.h>
-#include <nw4r/lyt/material.h>
-#include <nw4r/ut/Font.h>
-#include <nw4r/ut/Rect.h>
+#include <Game/Ui/Layout.hpp>
+#include <Game/Ui/Material.hpp>
+#include <Game/Ui/Font.hpp>
+#include <Game/Ui/Rect.hpp>
 #include "Game/System/NebulaHost.hpp"
 
 namespace NebulaUi {
-    nw4r::ut::Color color(u32 rgba) {
-        return nw4r::ut::Color(rgba);
+    Color8 color(u32 rgba) {
+        return Color8(rgba);
     }
 
     void setTextColor(TextBox* pText, u32 top, u32 bottom) {
@@ -39,12 +41,12 @@ namespace NebulaUi {
         if (pWindow == nullptr) {
             return;
         }
-        if (nw4r::lyt::Material* pContent = pWindow->GetContentMaterial()) {
+        if (Ui::Material* pContent = pWindow->GetContentMaterial()) {
             pContent->SetStageColor(0, tevColor(fill, false));
             pContent->SetStageColor(1, tevColor(fill, true));
         }
         for (u32 i = 0; i < pWindow->mFrameNum; i++) {
-            if (nw4r::lyt::Material* pFrame = pWindow->GetFrameMaterial(i)) {
+            if (Ui::Material* pFrame = pWindow->GetFrameMaterial(i)) {
                 pFrame->SetStageColor(0, tevColor(ring, false));
                 pFrame->SetStageColor(1, tevColor(fill, true));
             }
@@ -60,9 +62,9 @@ namespace NebulaUi {
         const f32 most = (w < h ? w : h) / (2.0f * cCorner);
         k = k > most ? most : k;
         k = k < 0.05f ? 0.05f : k;
-        pPane->mScale = nw4r::math::VEC2(k, k);
-        pPane->mSize = nw4r::lyt::Size(w / k, h / k);
-        pPane->mTranslate = nw4r::math::VEC3(x, y, 0.0f);
+        pPane->mScale = Vec2f(k, k);
+        pPane->mSize = Ui::Size(w / k, h / k);
+        pPane->mTranslate = Vec3f(x, y, 0.0f);
     }
 
     void setText(TextBox* pText, const char16_t* pString) {
@@ -72,7 +74,7 @@ namespace NebulaUi {
     }
 
     void setTextSize(TextBox* pText, f32 size) {
-        pText->SetFontSize(nw4r::lyt::Size(size * cFontAspect, size));
+        pText->SetFontSize(Ui::Size(size * cFontAspect, size));
         pText->mCharSpace = size * cCharSpace;
         pText->mLineSpace = size * cLineSpace;
     }
@@ -100,11 +102,11 @@ namespace NebulaUi {
         if (pText == nullptr) {
             return;
         }
-        pText->mSize = nw4r::lyt::Size(limit, 1000.0f);
-        const nw4r::ut::Rect rect = pText->GetTextDrawRect();
+        pText->mSize = Ui::Size(limit, 1000.0f);
+        const Ui::Rect rect = pText->GetTextDrawRect();
         *pWidth = rect.right - rect.left;
         *pHeight = rect.bottom - rect.top;
-        pText->mSize = nw4r::lyt::Size(*pWidth + 2.0f, *pHeight + 2.0f);
+        pText->mSize = Ui::Size(*pWidth + 2.0f, *pHeight + 2.0f);
     }
 
     // A box centred on `y` whose capitals look centred there.
@@ -137,26 +139,34 @@ namespace NebulaUi {
     }
 
     void wrapWords(TextBox* pText, const char16_t* pSource, f32 limit, f32* pWidth, f32* pHeight) {
-        const s32 cMax = 256;
-        char16_t out[cMax];
-        char16_t line[cMax];
+        // The result holds the source's units, one break in place of each run of spaces; a line holds a word more.
+        const s32 sourceLength = static_cast< s32 >(MR::textLength(pSource));
+        const u32 room = static_cast< u32 >(sourceLength) + 3;
+        MR::Text16 outText;
+        MR::Text16 lineText;
+        char16_t* const out = outText.room(room);
+        char16_t* const line = lineText.room(room);
         s32 length = 0;
         s32 lineStart = 0;
         s32 i = 0;
-        while (pSource[i] != 0 && length < cMax - 2) {
+        while (pSource[i] != 0) {
             s32 end = i;
             while (pSource[end] != 0 && pSource[end] != u' ') {
                 end += unitLength(&pSource[end]);
             }
+            // A tag longer than the text left (a mod's text) ends at the text's end.
+            if (end > sourceLength) {
+                end = sourceLength;
+            }
             // The line so far with the word added.
             s32 n = 0;
-            for (s32 k = lineStart; k < length && n < cMax - 1; k++) {
+            for (s32 k = lineStart; k < length; k++) {
                 line[n++] = out[k];
             }
-            if (length > lineStart && n < cMax - 1) {
+            if (length > lineStart) {
                 line[n++] = u' ';
             }
-            for (s32 k = i; k < end && n < cMax - 1; k++) {
+            for (s32 k = i; k < end; k++) {
                 line[n++] = pSource[k];
             }
             line[n] = 0;
@@ -169,7 +179,7 @@ namespace NebulaUi {
             } else if (length > lineStart) {
                 out[length++] = u' ';
             }
-            for (s32 k = i; k < end && length < cMax - 1; k++) {
+            for (s32 k = i; k < end; k++) {
                 out[length++] = pSource[k];
             }
             i = end;
@@ -184,10 +194,10 @@ namespace NebulaUi {
 
     // A box's font size for picture-font glyphs `size` high: the writer scales them by the box's own font (the message
     // font, 27 wide for 33 high), so a square size would draw them a fifth too wide.
-    nw4r::lyt::Size glyphFontSize(const TextBox* pText, f32 size) {
-        const nw4r::ut::Font* pFont = pText->mpFont;
+    Ui::Size glyphFontSize(const TextBox* pText, f32 size) {
+        const Ui::Font* pFont = pText->mpFont;
         const f32 aspect = pFont != nullptr && pFont->GetHeight() > 0 ? static_cast< f32 >(pFont->GetWidth()) / pFont->GetHeight() : 1.0f;
-        return nw4r::lyt::Size(size * aspect, size);
+        return Ui::Size(size * aspect, size);
     }
 
     // The game's picture font: a glyph sized like text, centred on its place.
@@ -195,18 +205,18 @@ namespace NebulaUi {
         if (pText == nullptr) {
             return;
         }
-        char16_t glyph[8] = {0};
+        char16_t glyph[8] = {0};  // one picture font tag (3 units) and the terminator
         MR::addPictureFontTag(glyph, code);
         setText(pText, glyph);
         pText->SetFontSize(glyphFontSize(pText, size));
         pText->mCharSpace = 0.0f;
         setAnchor(pText, 4);
-        pText->mSize = nw4r::lyt::Size(size * 2.0f, size * 2.0f);
+        pText->mSize = Ui::Size(size * 2.0f, size * 2.0f);
     }
 
     // A glyph picture's coverage at (x, y) of its sheet, 0-15: its alpha where it has one, else its intensity. The
     // sheets are records.
-    s32 glyphCoverage(const nw4r::ut::Glyph& rGlyph, s32 x, s32 y) {
+    s32 glyphCoverage(const Ui::Glyph& rGlyph, s32 x, s32 y) {
         const u8* pData = static_cast< const u8* >(rGlyph.pTexture);
         // A cooked sheet (nebula_cooked_texture.h): texels in rows; the same 4-bit coverage as the tiles gave.
         if (const NebulaTexture* pRecord = nebula_texture_record(pData)) {
@@ -228,8 +238,8 @@ namespace NebulaUi {
 
     // The ink box of `code`'s picture, in its cell's pixels (x from the cell's left, y from its top); false when
     // the picture cannot be read or holds no ink.
-    bool glyphInkBox(const nw4r::ut::Font* pFont, u16 code, s32* pLeft, s32* pTop, s32* pRight, s32* pBottom) {
-        nw4r::ut::Glyph glyph;
+    bool glyphInkBox(const Ui::Font* pFont, u16 code, s32* pLeft, s32* pTop, s32* pRight, s32* pBottom) {
+        Ui::Glyph glyph;
         pFont->GetGlyph(&glyph, code);
         if (glyph.pTexture == nullptr) {
             return false;
@@ -255,7 +265,7 @@ namespace NebulaUi {
         return *pRight >= 0;
     }
     bool inkOffset(const TextBox* pText, f32* pX, f32* pY, f32* pWidth, f32* pHeight) {
-        const nw4r::ut::Font* pFont = pText->mpFont;
+        const Ui::Font* pFont = pText->mpFont;
         const char16_t* pString = pText->mTextBuf;
         if (pFont == nullptr || pString == nullptr || pString[0] == 0 || pFont->GetWidth() <= 0 || pFont->GetHeight() <= 0) {
             return false;
@@ -281,7 +291,7 @@ namespace NebulaUi {
         return true;
     }
 
-    bool stringInkBox(const nw4r::ut::Font* pFont, const char16_t* pString, f32 space, bool strict, f32* pLeft, f32* pTop,
+    bool stringInkBox(const Ui::Font* pFont, const char16_t* pString, f32 space, bool strict, f32* pLeft, f32* pTop,
                       f32* pRight, f32* pBottom, f32* pEnd) {
         f32 cursor = 0.0f;
         f32 left = 1e9f;
@@ -289,7 +299,7 @@ namespace NebulaUi {
         f32 top = 1e9f;
         f32 bottom = -1e9f;
         for (const char16_t* p = pString; *p != 0; p++) {
-            const nw4r::ut::CharWidths widths = pFont->GetCharWidths(static_cast< u16 >(*p));
+            const Ui::CharWidths widths = pFont->GetCharWidths(static_cast< u16 >(*p));
             if (p != pString) {
                 cursor += space;
             }
@@ -333,6 +343,29 @@ namespace NebulaUi {
         return pDst;
     }
 
+    // The room is asked again at twice the size while the text fills it (NebulaText cuts at the room it is given).
+    s32 getText(MR::Text16& rText, const char* pId) {
+        u32 units = rText.capacity();
+        for (;;) {
+            const s32 length = NebulaText::get(rText.room(units), static_cast< s32 >(units), pId);
+            if (length < static_cast< s32 >(units) - 1) {
+                return length;
+            }
+            units *= 2;
+        }
+    }
+
+    s32 getText(MR::GrowBuffer< char16_t >& rText, const char* pId) {
+        u32 units = rText.mRoom > 256 ? rText.mRoom : 256;
+        for (;;) {
+            const s32 length = NebulaText::get(rText.room(units), static_cast< s32 >(units), pId);
+            if (length < static_cast< s32 >(units) - 1) {
+                return length;
+            }
+            units *= 2;
+        }
+    }
+
     Window* makeWindow(const Kits& rKits, Pane* pParent, const char* pName) {
         Window* pWindow = rKits.mWindow->makeWindow("WinInfo", pName);
         if (pWindow == nullptr) {
@@ -359,28 +392,24 @@ namespace NebulaUi {
     }
 
     Pane* makeGroup(Pane* pParent, const char* pName) {
-        Pane* pPane = nw4r::lyt::Layout::NewObj< Pane >();
-        if (pPane != nullptr) {
-            pPane->SetName(pName);
-            pPane->SetInfluencedAlpha(true);
-            pParent->AppendChild(pPane);
-        }
+        Pane* pPane = pParent->GetLayout()->NewPane< Pane >();
+        pPane->SetName(pName);
+        pPane->SetInfluencedAlpha(true);
+        pParent->AppendChild(pPane);
         return pPane;
     }
 
-    Picture* makePicture(Pane* pParent, const char* pName, nw4r::lyt::TexMap* pTexture) {
+    Picture* makePicture(Pane* pParent, const char* pName, Ui::TexMap* pTexture) {
         if (pTexture == nullptr) {
             return nullptr;
         }
-        Picture* pPicture = nw4r::lyt::Layout::NewObj< Picture >(*pTexture);
-        if (pPicture != nullptr) {
-            pPicture->SetName(pName);
-            pPicture->SetInfluencedAlpha(true);
-            for (u32 i = 0; i < 4; i++) {
-                pPicture->SetVtxColor(i, color(0xFFFFFFFF));
-            }
-            pParent->AppendChild(pPicture);
+        Picture* pPicture = pParent->GetLayout()->NewPane< Picture >(*pTexture);
+        pPicture->SetName(pName);
+        pPicture->SetInfluencedAlpha(true);
+        for (u32 i = 0; i < 4; i++) {
+            pPicture->SetVtxColor(i, color(0xFFFFFFFF));
         }
+        pParent->AppendChild(pPicture);
         return pPicture;
     }
 
@@ -388,7 +417,7 @@ namespace NebulaUi {
     Pane* makePiece(const Kits& rKits, Pane* pParent, const char* pPiece, const char* pName, f32 y) {
         Pane* pPane = rKits.mButton->make(pPiece, pName);
         if (pPane != nullptr) {
-            pPane->mTranslate = nw4r::math::VEC3(0.0f, y, 0.0f);
+            pPane->mTranslate = Vec3f(0.0f, y, 0.0f);
             pParent->AppendChild(pPane);
         }
         return pPane;
@@ -397,10 +426,10 @@ namespace NebulaUi {
     // A button: the shadow (BackButton's ShaBButton: 1.07 by 1.1, half seen, 6 below), the rim and face (BButton:
     // 1.1), the shine (BButtonShine: 1.1, shown for the highlight), Back's arrow, and its label.
     bool makeChip(const Kits& rKits, Pane* pParent, Chip* pChip, const char* pName, bool arrow, f32 textSize, u32 textColor) {
-        char name[17];
+        MR::FormattedName name;
         pChip->mRoot = makeGroup(pParent, pName);
-        nebula_snprintf(name, sizeof(name), "%sA", pName);
-        pChip->mArt = pChip->mRoot != nullptr ? makeGroup(pChip->mRoot, name) : nullptr;
+        name.format("%sA", pName);
+        pChip->mArt = pChip->mRoot != nullptr ? makeGroup(pChip->mRoot, name.c_str()) : nullptr;
         if (pChip->mArt == nullptr) {
             return false;
         }
@@ -412,35 +441,35 @@ namespace NebulaUi {
             {"PicLShine", "PicCShine", "PicRShine"},
         };
         for (s32 layer = 0; layer < LayerNum; layer++) {
-            nebula_snprintf(name, sizeof(name), "%s%s", pName, cLayerNames[layer]);
-            Pane* pLayer = makeGroup(pChip->mArt, name);
+            name.format("%s%s", pName, cLayerNames[layer]);
+            Pane* pLayer = makeGroup(pChip->mArt, name.c_str());
             if (pLayer == nullptr) {
                 return false;
             }
             pChip->mLayers[layer] = pLayer;
             if (layer == LayerShadow) {
-                pLayer->mScale = nw4r::math::VEC2(1.07f, 1.1f);
+                pLayer->mScale = Vec2f(1.07f, 1.1f);
                 pLayer->mAlpha = 128;
             } else {
-                pLayer->mScale = nw4r::math::VEC2(cButtonGroup, cButtonGroup);
+                pLayer->mScale = Vec2f(cButtonGroup, cButtonGroup);
             }
             const f32 y = layer == LayerShadow ? -6.0f : 0.0f;
-            nebula_snprintf(name, sizeof(name), "%s%sL", pName, cLayerNames[layer]);
-            pChip->mLeft[layer] = makePiece(rKits, pLayer, cPieces[layer][0], name, y);
-            nebula_snprintf(name, sizeof(name), "%s%sC", pName, cLayerNames[layer]);
-            pChip->mMiddle[layer] = makePiece(rKits, pLayer, cPieces[layer][1], name, y);
-            nebula_snprintf(name, sizeof(name), "%s%sR", pName, cLayerNames[layer]);
-            pChip->mRight[layer] = makePiece(rKits, pLayer, cPieces[layer][2], name, y);
+            name.format("%s%sL", pName, cLayerNames[layer]);
+            pChip->mLeft[layer] = makePiece(rKits, pLayer, cPieces[layer][0], name.c_str(), y);
+            name.format("%s%sC", pName, cLayerNames[layer]);
+            pChip->mMiddle[layer] = makePiece(rKits, pLayer, cPieces[layer][1], name.c_str(), y);
+            name.format("%s%sR", pName, cLayerNames[layer]);
+            pChip->mRight[layer] = makePiece(rKits, pLayer, cPieces[layer][2], name.c_str(), y);
             if (pChip->mLeft[layer] == nullptr || pChip->mMiddle[layer] == nullptr || pChip->mRight[layer] == nullptr) {
                 return false;
             }
             if (layer == LayerFace && arrow) {
-                nebula_snprintf(name, sizeof(name), "%sArw", pName);
-                pChip->mArrow = makePiece(rKits, pLayer, "PicArrow", name, 0.0f);
+                name.format("%sArw", pName);
+                pChip->mArrow = makePiece(rKits, pLayer, "PicArrow", name.c_str(), 0.0f);
             }
         }
-        nebula_snprintf(name, sizeof(name), "%sT", pName);
-        pChip->mText = makeText(rKits, pChip->mRoot, name, 64);
+        name.format("%sT", pName);
+        pChip->mText = makeText(rKits, pChip->mRoot, name.c_str(), 64);
         if (pChip->mText == nullptr) {
             return false;
         }
@@ -451,7 +480,7 @@ namespace NebulaUi {
     // The button's art for `width` x `height` (its rim's outer edge), centred on the chip's place.
     void shapeChip(Chip& rChip, f32 width, f32 height) {
         const f32 scale = height / cButtonRimHeight;
-        rChip.mArt->mScale = nw4r::math::VEC2(scale, scale);
+        rChip.mArt->mScale = Vec2f(scale, scale);
         f32 middle = width / (scale * cButtonGroup) - 2.0f * cButtonEnd;
         middle = middle < 0.0f ? 0.0f : middle;
         for (s32 layer = 0; layer < LayerNum; layer++) {
@@ -476,8 +505,8 @@ namespace NebulaUi {
             return;
         }
         pPane->SetInfluencedAlpha(true);
-        for (nw4r::lyt::PaneList::Iterator it = pPane->GetChildList().GetBeginIter(); it != pPane->GetChildList().GetEndIter(); ++it) {
-            setInfluencedAlphaRecursive(&*it, depth + 1);
+        for (Ui::Pane* pChild : pPane->GetChildList()) {
+            setInfluencedAlphaRecursive(pChild, depth + 1);
         }
     }
 
@@ -509,17 +538,17 @@ namespace NebulaUi {
     }
 
     // the scissor is in the frame's units: the layout's canvas spans the default viewport.
-    void drawClipped(Pane* pPane, const nw4r::lyt::DrawInfo& rDrawInfo, f32 left, f32 right, f32 top, f32 bottom) {
-        const nw4r::math::MTX34& rPlace = pPane->mpParent->mGlbMtx;
+    void drawClipped(Pane* pPane, const Ui::DrawInfo& rDrawInfo, f32 left, f32 right, f32 top, f32 bottom) {
+        const Mtx34f& rPlace = pPane->mpParent->mGlbMtx;
         f32 scaleX;
         f32 width;
         f32 canvasHeight;
         readScreen(&scaleX, &width, &canvasHeight);
         const f32 canvasWidth = width * scaleX;
-        const f32 x0f = (rPlace._00 * left + rPlace._03) / canvasWidth + 0.5f;
-        const f32 x1f = (rPlace._00 * right + rPlace._03) / canvasWidth + 0.5f;
-        const f32 y0f = 0.5f - (rPlace._11 * top + rPlace._13) / canvasHeight;
-        const f32 y1f = 0.5f - (rPlace._11 * bottom + rPlace._13) / canvasHeight;
+        const f32 x0f = (rPlace.mMtx[0][0] * left + rPlace.mMtx[0][3]) / canvasWidth + 0.5f;
+        const f32 x1f = (rPlace.mMtx[0][0] * right + rPlace.mMtx[0][3]) / canvasWidth + 0.5f;
+        const f32 y0f = 0.5f - (rPlace.mMtx[1][1] * top + rPlace.mMtx[1][3]) / canvasHeight;
+        const f32 y1f = 0.5f - (rPlace.mMtx[1][1] * bottom + rPlace.mMtx[1][3]) / canvasHeight;
         const f32 x0 = x0f < 0.0f ? 0.0f : x0f;
         const f32 y0 = y0f < 0.0f ? 0.0f : y0f;
         const f32 x1 = x1f > 1.0f ? 1.0f : x1f;
@@ -527,8 +556,8 @@ namespace NebulaUi {
         if (x1 <= x0 || y1 <= y0) {
             return;
         }
-        J3DNativeView::setScissor(x0, y0, x1 - x0, y1 - y0);
+        Frame::setScissor(x0, y0, x1 - x0, y1 - y0);
         pPane->Draw(rDrawInfo);
-        J3DNativeView::setScissor(0.0f, 0.0f, 1.0f, 1.0f);
+        Frame::setScissor(0.0f, 0.0f, 1.0f, 1.0f);
     }
 };  // namespace NebulaUi

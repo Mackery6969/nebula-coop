@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // The Vulkan driver identification and known-bug table (device_quirks_vk.h).
 #include "galaxy/render/vk/device_quirks_vk.h"
-#include "galaxy/run_options.h"
 
+#include <system_error>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -72,36 +72,6 @@ DriverVersion decode(DriverKind kind, std::uint32_t raw) {
     }
 }
 
-// GALAXY_VK_SIMULATE_DRIVER=<kind>:<major>.<minor>.<patch> (kind: qualcomm, arm, imagination, samsung) presents this
-// device as that driver to the table, so a desktop run exercises a mobile driver's workarounds.
-void apply_simulation(DeviceIdentity& identity) {
-    const char* value = ::galaxy::run_options().vk_simulate_driver;
-    if (value == nullptr || value[0] == '\0') {
-        return;
-    }
-    static constexpr struct {
-        const char* name;
-        DriverKind kind;
-        std::uint32_t vendor;
-    } kKinds[] = {{"qualcomm", DriverKind::QualcommProprietary, kVendorQualcomm},
-                  {"arm", DriverKind::ArmProprietary, kVendorArm},
-                  {"imagination", DriverKind::ImaginationProprietary, kVendorImagination},
-                  {"samsung", DriverKind::SamsungProprietary, kVendorSamsung}};
-    for (const auto& entry : kKinds) {
-        const std::size_t length = std::strlen(entry.name);
-        if (std::strncmp(value, entry.name, length) == 0 && value[length] == ':') {
-            unsigned major = 0, minor = 0, patch = 0;
-            if (std::sscanf(value + length + 1, "%u.%u.%u", &major, &minor, &patch) >= 2) {
-                identity.driver = entry.kind;
-                identity.vendor_id = entry.vendor;
-                identity.driver_version = {major, minor, patch};
-                identity.driver_info = "simulated";
-            }
-            return;
-        }
-    }
-}
-
 }  // namespace
 
 DeviceIdentity identify(VkPhysicalDevice physical, bool has_driver_properties) {
@@ -127,7 +97,6 @@ DeviceIdentity identify(VkPhysicalDevice physical, bool has_driver_properties) {
         identity.driver = kind_from_vendor(core.vendorID);
     }
     identity.driver_version = decode(identity.driver, core.driverVersion);
-    apply_simulation(identity);
     return identity;
 }
 
@@ -141,17 +110,16 @@ DeviceQuirks quirks_for(const DeviceIdentity& id) {
     // BUG_SLOW_CACHED_READBACK_MEMORY: Mali and Adreno read cached memory back slower than
     // coherent memory.
     quirks.coherent_readback = qualcomm || arm;
-    // BUG_SLOW_OPTIMAL_IMAGE_TO_BUFFER_COPY (VKStagingTexture): Qualcomm's driver allocates a
-    // temporary image for each copy from an optimal-tiled image to a buffer; a reused linear image avoids it.
-    quirks.linear_readback = qualcomm;
     // BUG_BROKEN_CLEAR_LOADOP_RENDERPASS: PowerVR's render-pass load-op clears do not clear.
     quirks.clear_by_command = id.driver == DriverKind::ImaginationProprietary;
+    // Dolphin BUG_BROKEN_D32F_CLEAR: 32-bit depth clears have no effect in Adreno's Vulkan driver, no version known to
+    // be fixed; its workaround is D24S8 there.
+    quirks.depth_d24 = qualcomm;
     // Applied on every device, so not quirks: SPIR-V 1.3 (ANGLE supportsSPIRV14 and Dawn UseSpirv14: Qualcomm before
     // 512.829 crashes on SPIR-V 1.4's OpCopyLogical, Adreno 7xx too, ARM before r47 mishandles its OpSelect); no
     // maximal-reconvergence execution mode (Dawn use_spirv_reconvergence_mode, Dusklight issue 2563: Adreno 740's
     // compiler crashes); material byte masks one component at a time (BUG_BROKEN_VECTOR_BITWISE_AND: Mali returns
-    // the constant vector of a vector AND); D24S8 depth where the device has it (BUG_BROKEN_D32F_CLEAR: D32F
-    // clears do nothing on Adreno); viewport depth ranges never reversed.
+    // the constant vector of a vector AND); viewport depth ranges never reversed.
     return quirks;
 }
 
@@ -176,13 +144,20 @@ const char* driver_kind_name(DriverKind kind) noexcept {
 }
 
 std::string describe(const DeviceIdentity& id) {
-    char text[512];
-    std::snprintf(text, sizeof(text), "%s (vendor 0x%04x device 0x%x), %s %u.%u.%u%s%s%s, Vulkan %u.%u.%u",
-                  id.device_name.c_str(), id.vendor_id, id.device_id, driver_kind_name(id.driver),
-                  id.driver_version.major, id.driver_version.minor, id.driver_version.patch,
-                  id.driver_info.empty() ? "" : " (", id.driver_info.c_str(), id.driver_info.empty() ? "" : ")",
-                  VK_API_VERSION_MAJOR(id.api_version), VK_API_VERSION_MINOR(id.api_version),
-                  VK_API_VERSION_PATCH(id.api_version));
+    const auto write = [&id](char* out, std::size_t size) {
+        return std::snprintf(out, size, "%s (vendor 0x%04x device 0x%x), %s %u.%u.%u%s%s%s, Vulkan %u.%u.%u",
+                             id.device_name.c_str(), id.vendor_id, id.device_id, driver_kind_name(id.driver),
+                             id.driver_version.major, id.driver_version.minor, id.driver_version.patch,
+                             id.driver_info.empty() ? "" : " (", id.driver_info.c_str(), id.driver_info.empty() ? "" : ")",
+                             VK_API_VERSION_MAJOR(id.api_version), VK_API_VERSION_MINOR(id.api_version),
+                             VK_API_VERSION_PATCH(id.api_version));
+    };
+    const int length = write(nullptr, 0u);
+    if (length <= 0) {
+        return {};
+    }
+    std::string text(static_cast<std::size_t>(length), '\0');
+    write(text.data(), text.size() + 1u);
     return text;
 }
 
@@ -196,8 +171,8 @@ std::string describe(const DeviceQuirks& quirks) {
     };
     add(quirks.clear_with_draw, "clear-with-draw");
     add(quirks.coherent_readback, "coherent-readback");
-    add(quirks.linear_readback, "linear-readback");
     add(quirks.clear_by_command, "clear-by-command");
+    add(quirks.depth_d24, "depth-d24");
     return text.empty() ? "none" : text;
 }
 

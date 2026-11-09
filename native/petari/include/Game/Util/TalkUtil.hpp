@@ -1,9 +1,9 @@
 #pragma once
 
 #include "Game/Util/MessageUtil.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
-class JMapInfoIter;
+class TableIter;
 class LiveActor;
 class TalkMessageCtrl;
 class TalkMessageFuncBase;
@@ -12,19 +12,19 @@ namespace MR {
     class ActorTalkParam {
     public:
         void setNoTurnAction(const char* pActionName) {
-            _14 = pActionName;
-            _1C = pActionName;
-            _18 = 0;
-            _20 = 0;
-            _0 = 0;
-            _1 = 0;
+            mWaitAction = pActionName;
+            mTalkAction = pActionName;
+            mWaitTurnAction = 0;
+            mTalkTurnAction = 0;
+            mTurnWhenNear = 0;
+            mTurnOnTalk = 0;
         }
 
         void setSingleAction(const char* pActionName) {
-            _14 = pActionName;
-            _18 = pActionName;
-            _1C = pActionName;
-            _20 = pActionName;
+            mWaitAction = pActionName;
+            mWaitTurnAction = pActionName;
+            mTalkAction = pActionName;
+            mTalkTurnAction = pActionName;
         }
 
         inline void setDefaultAction() {
@@ -33,36 +33,34 @@ namespace MR {
         }
 
         inline void setMoveAction(const char* pMoveName, const char* pMoveTurnName) {
-            _14 = pMoveName;
-            _18 = pMoveTurnName;
+            mWaitAction = pMoveName;
+            mWaitTurnAction = pMoveTurnName;
         }
 
         inline void setTalkAction(const char* pTalkName, const char* pTalkTurnName) {
-            _1C = pTalkName;
-            _20 = pTalkTurnName;
+            mTalkAction = pTalkName;
+            mTalkTurnAction = pTalkTurnName;
         }
 
         inline void setMoveTalkNoTurnAction(const char* pMoveName, const char* pTalkName) {
-            _14 = pMoveName;
-            _1C = pTalkName;
-            _18 = nullptr;
-            _20 = nullptr;
-            _0 = false;
-            _1 = false;
+            mWaitAction = pMoveName;
+            mTalkAction = pTalkName;
+            mWaitTurnAction = nullptr;
+            mTalkTurnAction = nullptr;
+            mTurnWhenNear = false;
+            mTurnOnTalk = false;
         }
 
-        u8 _0;
-        u8 _1;
-        u8 _2;
-        u8 _3;
-        f32 _4;
-        f32 _8;
-        f32 _C;
-        f32 _10;
-        const char* _14;
-        const char* _18;
-        const char* _1C;
-        const char* _20;
+        u8 mTurnWhenNear;
+        u8 mTurnOnTalk;
+        f32 mNearDistance;
+        f32 mTurnSpeed;
+        f32 mTiltSpeed;
+        f32 mTiltMaxAngle;
+        const char* mWaitAction;
+        const char* mWaitTurnAction;
+        const char* mTalkAction;
+        const char* mTalkTurnAction;
     };
 
     void registerBranchFunc(TalkMessageCtrl*, const TalkMessageFuncBase&);
@@ -71,9 +69,9 @@ namespace MR {
     void registerKillFunc(TalkMessageCtrl*, const TalkMessageFuncBase&);
     void setMessageArg(TalkMessageCtrl*, int);
     void setMessageArg(TalkMessageCtrl*, const char16_t*);
-    TalkMessageCtrl* createTalkCtrl(LiveActor*, const JMapInfoIter&, const char*, const TVec3f&, MtxPtr);
-    TalkMessageCtrl* createTalkCtrlDirect(LiveActor*, const JMapInfoIter&, const char*, const TVec3f&, MtxPtr);
-    TalkMessageCtrl* createTalkCtrlDirectOnRootNodeAutomatic(LiveActor*, const JMapInfoIter&, const char*, const TVec3f&, MtxPtr);
+    TalkMessageCtrl* createTalkCtrl(LiveActor*, const TableIter&, const char*, const Vec3f&, MtxPtr);
+    TalkMessageCtrl* createTalkCtrlDirect(LiveActor*, const TableIter&, const char*, const Vec3f&, MtxPtr);
+    TalkMessageCtrl* createTalkCtrlDirectOnRootNodeAutomatic(LiveActor*, const TableIter&, const char*, const Vec3f&, MtxPtr);
     bool tryTalkNearPlayer(TalkMessageCtrl*);
     bool tryTalkNearPlayerAtEnd(TalkMessageCtrl*);
     bool tryTalkForce(TalkMessageCtrl*);
@@ -88,9 +86,9 @@ namespace MR {
     bool tryTalkRequest(TalkMessageCtrl*);
     bool tryTalkSelectLeft(TalkMessageCtrl*);
     bool tryTalkSelectRight(TalkMessageCtrl*);
-    const MtxPtr getMessageBalloonFollowMatrix(const TalkMessageCtrl*);
-    const TVec3f& getMessageBalloonFollowOffset(const TalkMessageCtrl*);
-    void setMessageBalloonFollowOffset(TalkMessageCtrl*, const TVec3f&);
+    MtxPtr getMessageBalloonFollowMatrix(const TalkMessageCtrl*);
+    const Vec3f& getMessageBalloonFollowOffset(const TalkMessageCtrl*);
+    void setMessageBalloonFollowOffset(TalkMessageCtrl*, const Vec3f&);
     bool isNearPlayer(const TalkMessageCtrl*, f32);
     bool inMessageArea(const TalkMessageCtrl*);
     bool isTalkNone(const TalkMessageCtrl*);

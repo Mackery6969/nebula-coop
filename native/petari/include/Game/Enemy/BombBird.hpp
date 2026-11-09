@@ -10,18 +10,17 @@ class SpinHitController;
 class WalkerStateBindStarPointer;
 
 struct BombBirdParam {
-    f32 _0;
-    f32 _4;
-    f32 _8;
-    f32 _C;
+    f32 mMoveAccel;
+    f32 mGravityAccel;
+    f32 mFriction;
+    f32 mTurnDegree;
 };
 
 class BombBird : public LiveActor {
 public:
     BombBird(const char*);
 
-    virtual ~BombBird() override;
-    virtual void init(const JMapInfoIter&) override;
+    virtual void init(const TableIter&) override;
     virtual void makeActorDead() override;
     virtual void startClipped() override;
     virtual void control() override;
@@ -48,9 +47,9 @@ public:
     void exeBindStarPointer();
     void endBindStarPointer();
 
-    MR::FixedArray< BombBirdBomb*, 3 > mBombs;
+    MR::InlineArray< BombBirdBomb*, 3 > mBombs;
     BombBirdBomb* mHeldBomb;
-    TVec3f mFront;
+    Vec3f mFront;
     bool mSearchPlayer;
     bool mHoldBomb;
     FixedPosition* mFixedPos;

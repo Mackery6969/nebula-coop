@@ -1,12 +1,12 @@
 #pragma once
 
+#include "Game/Util/Color.hpp"
+
 #include "Game/Animation/AnmPlayer.hpp"
-#include "Game/Util/JMapInfo.hpp"
-#include <JSystem/J3DGraphBase/J3DStruct.hpp>
-#include <JSystem/JGeometry/TMatrix.hpp>
-#include <JSystem/JGeometry/TVec.hpp>
+#include "Game/Util/Table.hpp"
+#include <nebula_geometry.hpp>
+
 #include <NebulaGpu.h>
-#include <nebula_math.h>
 #include <nebula_math.h>
 
 class ActorLightCtrl;
@@ -37,7 +37,8 @@ namespace MR {
     enum CollisionScaleType {
         CollisionScaleType_AutoEqualScale,
         CollisionScaleType_NotUsingScale,
-        CollisionScaleType_Unk2,
+        // The matrix's scale as it is.
+        CollisionScaleType_Default,
     };
 
     bool isExistIndirectTexture(const LiveActor*);
@@ -61,7 +62,7 @@ namespace MR {
     bool isBindedWall(const LiveActor*, HitSensor*);
     bool isBindedWallOfMap(const LiveActor*);
     bool isBindedWallOfMoveLimit(const LiveActor*);
-    bool isBindedWallOrSlopeGround(const LiveActor*, f32, TVec3f*);
+    bool isBindedWallOrSlopeGround(const LiveActor*, f32, Vec3f*);
     bool isBindedRoof(const LiveActor*);
     bool isBindedRoof(const LiveActor*, HitSensor*);
     bool isBinded(const LiveActor*);
@@ -69,18 +70,17 @@ namespace MR {
     bool isPressedRoofAndGround(const LiveActor*);
     bool isPressedMovingWall(const LiveActor*);
 
-    void initDefaultPos(LiveActor*, const JMapInfoIter&);
-    void initDefaultPosNoRepeat(LiveActor*, const JMapInfoIter&);
+    void initDefaultPos(LiveActor*, const TableIter&);
+    void initDefaultPosNoRepeat(LiveActor*, const TableIter&);
 
     bool isValidMovement(const LiveActor*);
     bool isValidCalcAnim(const LiveActor*);
-    bool isValidCalcViewAndEntry(const LiveActor*);
     bool isValidDraw(const LiveActor*);
 
     void calcAnimDirect(LiveActor*);
 
     void setClippingTypeSphere(LiveActor*, f32);
-    void setClippingTypeSphere(LiveActor*, f32, const TVec3f*);
+    void setClippingTypeSphere(LiveActor*, f32, const Vec3f*);
     void setClippingTypeSphereContainsModelBoundingBox(LiveActor*, f32);
 
     void setClippingFar50m(LiveActor*);
@@ -90,7 +90,7 @@ namespace MR {
     void setClippingFarMax(LiveActor*);
     void setClippingFar(LiveActor*, f32);
 
-    void setGroupClipping(LiveActor*, const JMapInfoIter&, int);
+    void setGroupClipping(LiveActor*, const TableIter&, int capacity);
     void validateClipping(LiveActor*);
     void invalidateClipping(LiveActor*);
 
@@ -100,9 +100,9 @@ namespace MR {
     bool isInvalidClipping(const LiveActor*);
 
     void setBaseTRMtx(LiveActor*, MtxPtr);
-    void setBaseTRMtx(LiveActor*, const TPos3f&);
-    void setBaseTRMtx(LiveActor*, const TQuat4f&);
-    void setBaseScale(LiveActor*, const TVec3f&);
+    void setBaseTRMtx(LiveActor*, const Pos3f&);
+    void setBaseTRMtx(LiveActor*, const Quat4f&);
+    void setBaseScale(LiveActor*, const Vec3f&);
 
     ResourceHolder* getResourceHolder(const LiveActor*);
     ResourceHolder* getModelResourceHolder(const LiveActor*);
@@ -122,7 +122,7 @@ namespace MR {
     void prepareMaterials(LiveActor*);
     void newDifferedMaterials(LiveActor*);
     void initMaterialFog(LiveActor*, bool);
-    void initMaterialColor0(LiveActor*, const char*, const J3DColor*);
+    void initMaterialColor0(LiveActor*, const char*, const Color8*);
     TexMtxCtrl* initMaterialTexMtx(LiveActor*, const char*);
 
     void startAction(const LiveActor*, const char*);
@@ -216,15 +216,15 @@ namespace MR {
 
     bool isBckPlaying(const LiveActor*, const char*);
 
-    J3DFrameCtrl* getBckCtrl(const LiveActor*);
-    J3DFrameCtrl* getBtkCtrl(const LiveActor*);
-    J3DFrameCtrl* getBrkCtrl(const LiveActor*);
-    J3DFrameCtrl* getBtpCtrl(const LiveActor*);
-    J3DFrameCtrl* getBpkCtrl(const LiveActor*);
-    J3DFrameCtrl* getBvaCtrl(const LiveActor*);
+    FrameCtrl* getBckCtrl(const LiveActor*);
+    FrameCtrl* getBtkCtrl(const LiveActor*);
+    FrameCtrl* getBrkCtrl(const LiveActor*);
+    FrameCtrl* getBtpCtrl(const LiveActor*);
+    FrameCtrl* getBpkCtrl(const LiveActor*);
+    FrameCtrl* getBvaCtrl(const LiveActor*);
 
     void updateMaterial(LiveActor*);
-    void setMirrorReflectionInfoFromMtxYUp(const TPos3f&);
+    void setMirrorReflectionInfoFromMtxYUp(const Pos3f&);
     void setMirrorReflectionInfoFromModel(LiveActor*);
     void changeModelDataTexAll(LiveActor*, const char*, const ResTIMG&);
 
@@ -252,8 +252,8 @@ namespace MR {
     void updateLightCtrl(LiveActor*);
     void updateLightCtrlDirect(LiveActor*);
     void loadActorLight(const LiveActor*);
-    void calcLightPos0(TVec3f*, const LiveActor*);
-    void calcLightPos1(TVec3f*, const LiveActor*);
+    void calcLightPos0(Vec3f*, const LiveActor*);
+    void calcLightPos1(Vec3f*, const LiveActor*);
     const NebulaColor8* getLightAmbientColor(const LiveActor*);
     ActorLightCtrl* getLightCtrl(const LiveActor*);
 
@@ -285,24 +285,24 @@ namespace MR {
     void setNerveAtBckStopped(LiveActor*, const Nerve*);
     bool trySetNerve(LiveActor*, const Nerve*);
 
-    const TVec3f* getGroundNormal(const LiveActor*);
-    const TVec3f* getWallNormal(const LiveActor*);
-    const TVec3f* getRoofNormal(const LiveActor*);
-    const TVec3f* getBindedNormal(const LiveActor*);
-    const TVec3f* getBindedHitPos(const LiveActor*);
-    const TVec3f* getGroundHitPos(const LiveActor*);
-    const TVec3f* getWallHitPos(const LiveActor*);
-    const TVec3f* getRoofHitPos(const LiveActor*);
+    const Vec3f* getGroundNormal(const LiveActor*);
+    const Vec3f* getWallNormal(const LiveActor*);
+    const Vec3f* getRoofNormal(const LiveActor*);
+    const Vec3f* getBindedNormal(const LiveActor*);
+    const Vec3f* getBindedHitPos(const LiveActor*);
+    const Vec3f* getGroundHitPos(const LiveActor*);
+    const Vec3f* getWallHitPos(const LiveActor*);
+    const Vec3f* getRoofHitPos(const LiveActor*);
 
-    void calcWallNormalHorizontal(TVec3f*, const LiveActor*);
+    void calcWallNormalHorizontal(Vec3f*, const LiveActor*);
     f32 calcHitPowerToGround(const LiveActor*);
     f32 calcHitPowerToWall(const LiveActor*);
     int getBindedPlaneNum(const LiveActor*);
-    const TVec3f* getBindedPlaneNormal(const LiveActor*, int);
+    const Vec3f* getBindedPlaneNormal(const LiveActor*, int);
     HitSensor* getBindedPlaneSensor(const LiveActor*, int);
-    TVec3f* getBindedFixReactionVector(const LiveActor*);
+    Vec3f* getBindedFixReactionVector(const LiveActor*);
 
-    void setBinderOffsetVec(LiveActor*, const TVec3f*, bool);
+    void setBinderOffsetVec(LiveActor* pActor, const Vec3f* pVec, bool isInHostFrame);
     void setBinderRadius(LiveActor*, f32);
     f32 getBinderRadius(const LiveActor*);
     void setBinderIgnoreMovingCollision(LiveActor*);
@@ -310,7 +310,7 @@ namespace MR {
     void invalidateExCollisionParts(LiveActor*);
     void setBinderCollisionPartsFilter(LiveActor*, CollisionPartsFilterBase*);
     void setBinderExceptActor(LiveActor*, const LiveActor*);
-    void setBinderExceptSensorType(LiveActor*, const TVec3f*, f32);
+    void setBinderExceptSensorType(LiveActor*, const Vec3f*, f32);
     void setBindTriangleFilter(LiveActor*, TriangleFilterBase*);
     bool isExistBinder(const LiveActor*);
 
@@ -344,7 +344,7 @@ namespace MR {
     void offCalcGravity(LiveActor*);
 
     LiveActorGroup* joinToGroup(LiveActor*, const char*);
-    MsgSharedGroup* joinToGroupArray(LiveActor*, const JMapInfoIter&, const char*, s32);
+    MsgSharedGroup* joinToGroupArray(LiveActor*, const TableIter&, const char*, s32);
     LiveActorGroup* getGroupFromArray(const LiveActor*);
     LiveActor* getPairedGroupMember(const LiveActor*);
 
@@ -365,9 +365,9 @@ namespace MR {
     bool isExistInAttributeGroupReflectSpinningBox(const LiveActor*);
 
     void calcGravity(LiveActor*);
-    void calcGravity(LiveActor*, const TVec3f&);
+    void calcGravity(LiveActor*, const Vec3f&);
     void calcGravityOrZero(LiveActor*);
-    void calcGravityOrZero(LiveActor*, const TVec3f&);
+    void calcGravityOrZero(LiveActor*, const Vec3f&);
 
     void initFur(LiveActor*);
     void initFurPlanet(LiveActor*);
@@ -380,7 +380,7 @@ namespace MR {
 
     CollisionParts* createCollisionPartsFromLiveActor(LiveActor*, const char*, HitSensor*, MR::CollisionScaleType);
     CollisionParts* createCollisionPartsFromLiveActor(LiveActor*, const char*, HitSensor*, MtxPtr, MR::CollisionScaleType);
-    CollisionParts* createCollisionPartsFromResourceHolder(ResourceHolder*, const char*, HitSensor*, const TPos3f&, MR::CollisionScaleType);
+    CollisionParts* createCollisionPartsFromResourceHolder(ResourceHolder*, const char*, HitSensor*, const Pos3f&, MR::CollisionScaleType);
     CollisionParts* tryCreateCollisionMoveLimit(LiveActor*, MtxPtr, HitSensor*);
     CollisionParts* tryCreateCollisionWaterSurface(LiveActor*, MtxPtr, HitSensor*);
     CollisionParts* tryCreateCollisionSunshade(LiveActor*, MtxPtr, HitSensor*);
@@ -421,14 +421,15 @@ namespace MR {
     PartsModel* createPartsModelEnemy(LiveActor*, const char*, const char*, MtxPtr);
     PartsModel* createPartsModelNpc(LiveActor*, const char*, const char*, MtxPtr);
     PartsModel* createPartsModelIndirectNpc(LiveActor*, const char*, const char*, MtxPtr);
-    PartsModel* createPartsModelEnemyAndFix(LiveActor*, const char*, const char*, MtxPtr, const TVec3f&, const TVec3f&, const char*);
+    PartsModel* createPartsModelEnemyAndFix(LiveActor*, const char*, const char*, MtxPtr, const Vec3f&, const Vec3f&, const char*);
     PartsModel* createPartsModelNpcAndFix(LiveActor*, const char*, const char*, const char*);
 
-    LodCtrl* createLodCtrlNPC(LiveActor*, const JMapInfoIter&);
-    LodCtrl* createLodCtrlPlanet(LiveActor*, const JMapInfoIter&, f32);
-    LodCtrl* createLodCtrlMapObj(LiveActor*, const JMapInfoIter&, f32);
+    LodCtrl* createLodCtrlNPC(LiveActor*, const TableIter&);
+    LodCtrl* createLodCtrlPlanet(LiveActor*, const TableIter&, f32);
+    LodCtrl* createLodCtrlMapObj(LiveActor*, const TableIter&, f32);
 
-    Flag* createMapFlag(const char*, const char*, const TVec3f*, const TVec3f&, f32, f32, f32, s32, s32, f32);
+    Flag* createMapFlag(const char* pName, const char* pInfoName, const Vec3f* pPos, const Vec3f& rSide, f32 stickLength, f32 width, f32 height,
+                        s32 numPointsU, s32 numPointsV);
 
     void stopSceneAtStep(const LiveActor*, s32, s32);
 

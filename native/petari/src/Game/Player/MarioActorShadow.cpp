@@ -1,7 +1,7 @@
 #include "Game/LiveActor/HitSensor.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include "Game/Render/FrameList.hpp"
 #include "Game/Map/HitInfo.hpp"
-#include "Game/Player/J3DModelX.hpp"
+#include "Game/Player/PlayerModel.hpp"
 #include "Game/Player/JetTurtleShadow.hpp"
 #include "Game/Player/Mario.hpp"
 #include "Game/Player/MarioActor.hpp"
@@ -19,71 +19,67 @@
 #include "Game/Util/ModelUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
-#include <JSystem/J3DGraphBase/J3DSys.hpp>
+#include "Game/Render/Model.hpp"
 
 void MarioActor::initShadow() {
-    _A08 = 1;
+    mShadowMode = 1;
 
     if (gIsLuigi) {
-        _A10 = new ModelHolder("LuigiShadow", true);
+        mSimpleModelHolder = new ModelHolder("LuigiShadow", true);
     } else {
-        _A10 = new ModelHolder("MarioShadow", true);
+        mSimpleModelHolder = new ModelHolder("MarioShadow", true);
     }
 
-    _A10->initWithoutIter();
+    mSimpleModelHolder->initWithoutIter();
 
-    _A14 = reinterpret_cast< J3DModelX* >(MR::getJ3DModel(_A10));
-    J3DModelX* pSource = mModels[0];
-    J3DModelX* pShadow = _A14;
-    pShadow->_DD = pSource->_DD;
-
-    for (u32 idx = 0; idx < pShadow->_DD; idx++) {
-        pShadow->mExtraMtxBuffer[idx] = pSource->mExtraMtxBuffer[idx];
-    }
+    mSimpleModel = static_cast< PlayerModel* >(MR::getModel(mSimpleModelHolder));
+    PlayerModel* pSource = mModels[0];
+    PlayerModel* pShadow = mSimpleModel;
+    pShadow->copyExtraPoses(pSource);
 }
 
 void MarioActor::calcViewReflectionModel() {
-    J3DModelX* pModel = getJ3DModel();
-    TPos3f matrix;
-    NebulaMtxCopy(getJ3DModel()->getBaseTRMtx(), matrix.toMtxPtr());
-    TPos3f offset;
+    PlayerModel* pModel = getModel();
+    Pos3f matrix;
+    NebulaMtxCopy(getModel()->getBaseTRMtx(), matrix.toMtxPtr());
+    Pos3f offset;
     NebulaMtxIdentity(offset.toMtxPtr());
     f32 factor;
     f32 distance = 10.0f;
-    if (isAnimationRun("\203\136\201\133\203\223\203\127\203\203\203\223\203\166" /* ターンジャンプ */)) {
+    if (isAnimationRun("ターンジャンプ")) {
         distance = 25.0f;
     }
 
-    if (_A08 != 6 && _A08 != 7) {
-        _A24 = 0;
+    if (mShadowMode != 6 && mShadowMode != 7) {
+        mReflectSimpleAlpha = 0;
     }
 
-    if (_A08 != 3) {
-        _A25 = 0;
+    if (mShadowMode != 3) {
+        mWaterReflectAlpha = 0;
     }
 
-    TVec3f position;
-    switch (_A08) {
+    Vec3f position;
+    switch (mShadowMode) {
     case 2: {
         matrix.mMtx[0][1] = -matrix.mMtx[0][1];
         matrix.mMtx[1][1] = -matrix.mMtx[1][1];
         matrix.mMtx[2][1] = -matrix.mMtx[2][1];
-        position = mMario->mShadowPos - *mMario->_45C->getNormal(0) * distance;
-        TVec3f root;
+        position = mMario->mShadowPos - *mMario->mShadowPolygon->getNormal(0) * distance;
+        Vec3f root;
         getRealPos("All_Root", &root);
-        TVec3f translation(mPosition - root);
+        Vec3f translation(mPosition - root);
         NebulaMtxTrans(offset.toMtxPtr(), translation.x, translation.y, translation.z);
-        updateReflectAlphaList(_A09);
+        updateReflectAlphaList(mReflectAlpha);
         break;
     }
     case 3: {
-        TVec3f x;
+        Vec3f x;
         x.set< f32 >(matrix.mMtx[0][0], matrix.mMtx[1][0], matrix.mMtx[2][0]);
-        TVec3f y;
+        Vec3f y;
         y.set< f32 >(matrix.mMtx[0][1], matrix.mMtx[1][1], matrix.mMtx[2][1]);
-        TVec3f z;
+        Vec3f z;
         z.set< f32 >(matrix.mMtx[0][2], matrix.mMtx[1][2], matrix.mMtx[2][2]);
-        const TVec3f& rNormal = mMario->mSwim->mSurfacePos;
+        const Vec3f& rNormal = mMario->mSwim->mSurfacePos;
         f32 dx = MR::vecKillElement(x, rNormal, &x);
         f32 dy = MR::vecKillElement(y, rNormal, &y);
         f32 dz = MR::vecKillElement(z, rNormal, &z);
@@ -115,25 +111,25 @@ void MarioActor::calcViewReflectionModel() {
         MR::clamp01(&alpha);
         alpha *= 64.0f;
         f32 target = factor * alpha;
-        if (_A25 > static_cast< u8 >((s32)(target))) {
-            _A25--;
-        } else if (_A25 < static_cast< u8 >((s32)(target))) {
-            _A25++;
+        if (mWaterReflectAlpha > static_cast< u8 >((s32)(target))) {
+            mWaterReflectAlpha--;
+        } else if (mWaterReflectAlpha < static_cast< u8 >((s32)(target))) {
+            mWaterReflectAlpha++;
         }
 
-        updateSimpleAlphaList(_A25);
-        _B18 = position;
+        updateSimpleAlphaList(mWaterReflectAlpha);
+        mReflectPos = position;
         break;
     }
     case 6:
     case 7: {
-        TVec3f x;
+        Vec3f x;
         x.set< f32 >(matrix.mMtx[0][0], matrix.mMtx[1][0], matrix.mMtx[2][0]);
-        TVec3f y;
+        Vec3f y;
         y.set< f32 >(matrix.mMtx[0][1], matrix.mMtx[1][1], matrix.mMtx[2][1]);
-        TVec3f z;
+        Vec3f z;
         z.set< f32 >(matrix.mMtx[0][2], matrix.mMtx[1][2], matrix.mMtx[2][2]);
-        TVec3f normal(mMario->mSwim->_178 - mPosition);
+        Vec3f normal(mMario->mSwim->mWaterEdgePos - mPosition);
         MR::normalize(&normal);
         f32 dx = MR::vecKillElement(x, normal, &x);
         f32 dy = MR::vecKillElement(y, normal, &y);
@@ -150,7 +146,7 @@ void MarioActor::calcViewReflectionModel() {
         matrix.mMtx[0][2] = z.x;
         matrix.mMtx[1][2] = z.y;
         matrix.mMtx[2][2] = z.z;
-        position = mMario->mSwim->_178 - normal * distance;
+        position = mMario->mSwim->mWaterEdgePos - normal * distance;
         f32 edgeDistance = mMario->mSwim->getWaterEdgeDist();
         if (edgeDistance < 0.0f) {
             factor = 0.0f;
@@ -166,37 +162,37 @@ void MarioActor::calcViewReflectionModel() {
         MR::clamp01(&alpha);
         alpha *= 127.0f;
         f32 target = factor * alpha;
-        if (_A24 > static_cast< u8 >((s32)(target))) {
-            _A24--;
-        } else if (_A24 < static_cast< u8 >((s32)(target))) {
-            _A24++;
+        if (mReflectSimpleAlpha > static_cast< u8 >((s32)(target))) {
+            mReflectSimpleAlpha--;
+        } else if (mReflectSimpleAlpha < static_cast< u8 >((s32)(target))) {
+            mReflectSimpleAlpha++;
         }
 
-        updateSimpleAlphaList(_A24);
-        _B18 = position;
+        updateSimpleAlphaList(mReflectSimpleAlpha);
+        mReflectPos = position;
         break;
     }
     }
 
     matrix.setTrans(position);
-    NebulaMtxCopy(matrix.toMtxPtr(), _E0C.toMtxPtr());
+    NebulaMtxCopy(matrix.toMtxPtr(), mTurtleShadowMtx.toMtxPtr());
     if (getCarrySensor() != nullptr) {
-        TPos3f carry;
-        NebulaMtxConcat(_BC8.mMtx, MR::getJointMtx(getCarrySensor()->mHost, 0), carry.toMtxPtr());
-        NebulaMtxConcat(_E0C.toMtxPtr(), carry.toMtxPtr(), _E0C.toMtxPtr());
-        _9A0->calcType0(_E0C.toMtxPtr());
+        Pos3f carry;
+        NebulaMtxConcat(mModelUnbaseMtx.mMtx, MR::getJointMtx(getCarrySensor()->mHost, 0), carry.toMtxPtr());
+        NebulaMtxConcat(mTurtleShadowMtx.toMtxPtr(), carry.toMtxPtr(), mTurtleShadowMtx.toMtxPtr());
+        mTurtleShadow->calcType0(mTurtleShadowMtx.toMtxPtr());
     }
 
-    NebulaMtxConcat(_BC8.mMtx, offset.toMtxPtr(), offset.toMtxPtr());
+    NebulaMtxConcat(mModelUnbaseMtx.mMtx, offset.toMtxPtr(), offset.toMtxPtr());
     NebulaMtxConcat(matrix.toMtxPtr(), offset.toMtxPtr(), matrix.toMtxPtr());
-    NebulaMtxConcat(j3dSys.mViewMtx, matrix.toMtxPtr(), j3dSys.mViewMtx);
+    NebulaMtxConcat(ModelSys::mViewMtx, matrix.toMtxPtr(), ModelSys::mViewMtx);
     pModel->viewCalc3(3, nullptr);
     MR::loadViewMtx();
 }
 
 void MarioActor::calcViewWallShadowModel() {
-    _A0C = 0;
-    if (_A08 & 2) {
+    mWallShadeOn = 0;
+    if (mShadowMode & 2) {
         return;
     }
 
@@ -204,41 +200,41 @@ void MarioActor::calcViewWallShadowModel() {
         return;
     }
 
-    TVec3f direction;
+    Vec3f direction;
     s32 length = 0;
-    const AreaObj* pArea = MR::getAreaObj("ExtraWallCheckArea", _2A0);
+    const AreaObj* pArea = MR::getAreaObj("ExtraWallCheckArea", mCenterPos);
     if (pArea != nullptr) {
         MR::calcCubeAxisZ(pArea, &direction);
         length = MR::getAreaObjArg(pArea, 0);
-        _20C = pArea;
-        _210 = 0;
+        mWallShadeArea = pArea;
+        mWallShadeAreaKind = 0;
     } else {
-        pArea = MR::getAreaObj("ExtraWallCheckCylinder", _2A0);
+        pArea = MR::getAreaObj("ExtraWallCheckCylinder", mCenterPos);
         if (pArea != nullptr) {
             length = calcCylinderToCenter(pArea, &direction);
-            _20C = pArea;
-            _210 = 1;
+            mWallShadeArea = pArea;
+            mWallShadeAreaKind = 1;
         }
     }
 
     bool fading = false;
     if (pArea == nullptr || static_cast< f32 >(length) < 0.0f) {
-        if (_208 >= 1000.0f) {
+        if (mWallShadeDist >= 1000.0f) {
             return;
         }
 
-        _208 += 10.0f;
-        if (_208 >= 1000.0f) {
-            _208 = 1000.0f;
+        mWallShadeDist += 10.0f;
+        if (mWallShadeDist >= 1000.0f) {
+            mWallShadeDist = 1000.0f;
         }
 
-        switch (_210) {
+        switch (mWallShadeAreaKind) {
         case 0:
-            MR::calcCubeAxisZ(_20C, &direction);
-            length = MR::getAreaObjArg(_20C, 0);
+            MR::calcCubeAxisZ(mWallShadeArea, &direction);
+            length = MR::getAreaObjArg(mWallShadeArea, 0);
             break;
         case 1:
-            length = calcCylinderToCenter(_20C, &direction);
+            length = calcCylinderToCenter(mWallShadeArea, &direction);
             break;
         }
 
@@ -246,52 +242,50 @@ void MarioActor::calcViewWallShadowModel() {
     }
 
     Triangle triangle;
-    TVec3f position;
-    if (!MR::getFirstPolyOnLineToMap(&position, &triangle, _2A0, direction * static_cast< f32 >(length))) {
+    Vec3f position;
+    if (!MR::getFirstPolyOnLineToMap(&position, &triangle, mCenterPos, direction * static_cast< f32 >(length))) {
         return;
     }
 
-    _1F0 = position;
-    _1FC = *triangle.getNormal(0);
+    mWallShadePos = position;
+    mWallShadeNormal = *triangle.getNormal(0);
     if (!fading) {
-        _208 = 0.9f * _208 + 0.1f * (position - _2A0).length();
+        mWallShadeDist = 0.9f * mWallShadeDist + 0.1f * (position - mCenterPos).length();
     }
 
-    updateRandomTexture(_208);
-    TVec3f normal(direction);
+    updateRandomTexture(mWallShadeDist);
+    Vec3f normal(direction);
     MR::normalizeOrZero(&normal);
-    J3DModelX* pModel = getJ3DModel();
-    J3DModelX* pSimple = getSimpleModel();
+    PlayerModel* pModel = getModel();
+    PlayerModel* pSimple = getSimpleModel();
     NebulaMtxCopy(pModel->getBaseTRMtx(), pSimple->getBaseTRMtx());
-    TPos3f& matrix = *reinterpret_cast< TPos3f* >(pSimple->getBaseTRMtx());
-    TVec3f x;
-    matrix.getXDir(x);
+    MtxPtr matrix = pSimple->getBaseTRMtx();
+    Vec3f x;
+    MR::extractMtxXDir(matrix, &x);
     MR::vecKillElement(x, normal, &x);
-    TVec3f y;
-    matrix.getYDir(y);
+    Vec3f y;
+    MR::extractMtxYDir(matrix, &y);
     MR::vecKillElement(y, normal, &y);
-    TVec3f z;
-    matrix.getZDir(z);
+    Vec3f z;
+    MR::extractMtxZDir(matrix, &z);
     MR::vecKillElement(z, normal, &z);
-    matrix.setXDir(x);
-    matrix.setYDir(y);
-    matrix.setZDir(z);
-    TVec3f horizontal;
+    MR::setMtxAxisXYZ(matrix, x, y, z);
+    Vec3f horizontal;
     MR::vecKillElement(mPosition - position, getGravityVec(), &horizontal);
-    TVec3f translation = mPosition + normal * (10.0f + horizontal.length());
-    MR::setMtxTrans(matrix.toMtxPtr(), translation.x, translation.y, translation.z);
-    NebulaMtxConcat(matrix.toMtxPtr(), _BC8.mMtx, matrix.toMtxPtr());
+    Vec3f translation = mPosition + normal * (10.0f + horizontal.length());
+    MR::setMtxTrans(matrix, translation.x, translation.y, translation.z);
+    NebulaMtxConcat(matrix, mModelUnbaseMtx.mMtx, matrix);
     pSimple->viewCalcRef(3, pModel);
-    _A0C = 1;
+    mWallShadeOn = 1;
 }
 
 void MarioActor::drawShadow() const {
-    bool hidden = _482 || _481;
+    bool hidden = mHidden || mHiddenByDemo;
     if (hidden) {
         return;
     }
 
-    if (!(_A08 & 1)) {
+    if (!(mShadowMode & 1)) {
         return;
     }
 
@@ -299,28 +293,28 @@ void MarioActor::drawShadow() const {
         return;
     }
 
-    if (mBeeWallWalk && mMario->mMovementStates._1) {
+    if (mBeeWallWalk && mMario->mMovementStates.onGround) {
         return;
     }
 
-    if (mMario->isStatusActive(MarioStatus_FpView) && _1A1) {
+    if (mMario->isStatusActive(MarioStatus_FpView) && mFpViewHidden) {
         return;
     }
 
-    if (_924 != nullptr && selectNoShadow(_924)) {
+    if (mRushSensor != nullptr && selectNoShadow(mRushSensor)) {
         return;
     }
 
-    if (mMario->mMovementStates._F && mMario->_544 > 1) {
+    if (mMario->mMovementStates.tornado && mMario->mTornadoTimer > 1) {
         return;
     }
 
-    J3DModelX* pSimple = getSimpleModel();
-    TPos3f matrix;
+    PlayerModel* pSimple = getSimpleModel();
+    Pos3f matrix;
     NebulaMtxScale(matrix.toMtxPtr(), mScale.x, mScale.y, mScale.z);
-    NebulaMtxConcat(matrix.toMtxPtr(), _BC8.mMtx, matrix.toMtxPtr());
-    NebulaMtxConcat(getJ3DModel()->getBaseTRMtx(), matrix.toMtxPtr(), pSimple->getBaseTRMtx());
-    _214->calcView(pSimple, 2, getJ3DModel());
+    NebulaMtxConcat(matrix.toMtxPtr(), mModelUnbaseMtx.mMtx, matrix.toMtxPtr());
+    NebulaMtxConcat(getModel()->getBaseTRMtx(), matrix.toMtxPtr(), pSimple->getBaseTRMtx());
+    mCollisionShadow->calcView(pSimple, 2, getModel());
     if (mMario->mSinkTimer > 180) {
         return;
     }
@@ -334,26 +328,26 @@ void MarioActor::drawShadow() const {
         MR::hideJointAndChildren(pSimple, "ShoulderR");
     }
 
-    if (_A58 || mMario->mSinkTimer > 120) {
+    if (mHandsHidden || mMario->mSinkTimer > 120) {
         MR::hideJoint(pSimple, "HandL0");
         MR::hideJoint(pSimple, "HandR0");
     }
 
-    _214->drawAndCaptureTex(pSimple, mPosition);
+    mCollisionShadow->drawAndCaptureTex(pSimple, mPosition);
     if (mBeeWallWalk) {
-        _214->_307 = 0;
+        mCollisionShadow->mCaptureOn = 0;
     } else {
-        _214->_307 = 1;
+        mCollisionShadow->mCaptureOn = 1;
     }
 
-    _214->draw();
+    mCollisionShadow->draw();
     MR::showJointAndChildren(pSimple, "JointRoot");
 }
 
 void MarioActor::decideShadowMode() {
-    if (getMovementStates()._2 && !mMario->isNotReflectGlassGround() && !mMario->isStatusActive(MarioStatus_FpView) &&
-        (mMario->_962 == 14 || mMario->_962 == 33)) {
-        _A08 = 2;
+    if (getMovementStates().shadowFound && !mMario->isNotReflectGlassGround() && !mMario->isStatusActive(MarioStatus_FpView) &&
+        (mMario->mPolygonFloorCode == 14 || mMario->mPolygonFloorCode == 33)) {
+        mShadowMode = 2;
         f32 distance = mMario->mVerticalSpeed / 500.0f;
         if (distance >= 0.75f) {
             distance = 0.75f;
@@ -363,99 +357,97 @@ void MarioActor::decideShadowMode() {
         distance = 1.0f - distance;
         u8 target = (s32)(static_cast< f32 >(maximum) * distance);
         for (s32 i = 0; i < 4; i++) {
-            if (_A09 < target) {
-                _A09++;
-            } else if (_A09 > target) {
-                _A09--;
+            if (mReflectAlpha < target) {
+                mReflectAlpha++;
+            } else if (mReflectAlpha > target) {
+                mReflectAlpha--;
             }
         }
-    } else if (_A09) {
-        _A09--;
-        if (_A09) {
-            _A09--;
+    } else if (mReflectAlpha) {
+        mReflectAlpha--;
+        if (mReflectAlpha) {
+            mReflectAlpha--;
         }
 
-        if (_A09) {
-            _A09--;
+        if (mReflectAlpha) {
+            mReflectAlpha--;
         }
 
-        if (_A09) {
-            _A09--;
+        if (mReflectAlpha) {
+            mReflectAlpha--;
         }
 
-        if (!_A09) {
-            _A08 = 1;
+        if (!mReflectAlpha) {
+            mShadowMode = 1;
         } else {
-            _A08 = 2;
+            mShadowMode = 2;
         }
     } else {
-        _A08 = 1;
+        mShadowMode = 1;
     }
 
     if (mMario->isSwimming() && MR::isInWater(mCamPos)) {
-        if (_A25 || mCamDirZ.dot(-getGravityVector()) > 0.0f) {
-            _A08 = 3;
+        if (mWaterReflectAlpha || mCamDirZ.dot(-getGravityVector()) > 0.0f) {
+            mShadowMode = 3;
         }
 
-        if (_A24 || (mMario->mSwim->getWaterEdgeDist() > 0.0f && mMario->mSwim->getWaterEdgeDist() < 1000.0f)) {
-            _A08 = 7;
+        if (mReflectSimpleAlpha || (mMario->mSwim->getWaterEdgeDist() > 0.0f && mMario->mSwim->getWaterEdgeDist() < 1000.0f)) {
+            mShadowMode = 7;
         }
     }
 
-    _214->setUpdateFlag();
+    mCollisionShadow->setUpdateFlag();
 }
 
 void MarioActor::calcViewSilhouetteModel() {
-    J3DModelX* pModel = getJ3DModel();
-    J3DModelX* pSimple = getSimpleModel();
-    TVec3f direction(mPosition - mCamPos);
+    PlayerModel* pModel = getModel();
+    PlayerModel* pSimple = getSimpleModel();
+    Vec3f direction(mPosition - mCamPos);
     MR::normalizeOrZero(&direction);
     NebulaMtxCopy(pModel->getBaseTRMtx(), pSimple->getBaseTRMtx());
-    TPos3f& matrix = *reinterpret_cast< TPos3f* >(pSimple->getBaseTRMtx());
-    TVec3f x;
-    matrix.getXDir(x);
+    MtxPtr matrix = pSimple->getBaseTRMtx();
+    Vec3f x;
+    MR::extractMtxXDir(matrix, &x);
     MR::vecKillElement(x, direction, &x);
-    TVec3f y;
-    matrix.getYDir(y);
+    Vec3f y;
+    MR::extractMtxYDir(matrix, &y);
     MR::vecKillElement(y, direction, &y);
-    TVec3f z;
-    matrix.getZDir(z);
+    Vec3f z;
+    MR::extractMtxZDir(matrix, &z);
     MR::vecKillElement(z, direction, &z);
-    matrix.setXDir(x);
-    matrix.setYDir(y);
-    matrix.setZDir(z);
-    TVec3f root;
-    TVec3f translation;
-    if (_EA4) {
+    MR::setMtxAxisXYZ(matrix, x, y, z);
+    Vec3f root;
+    Vec3f translation;
+    if (mInDemo) {
         getRealPos("All_Root", &root);
         translation = root - direction * getConst().getTable()->mSilhouetteZoffset;
     } else {
         translation = mPosition;
     }
 
-    MR::setMtxTrans(matrix.toMtxPtr(), translation.x, translation.y, translation.z);
-    NebulaMtxConcat(matrix.toMtxPtr(), _BC8.mMtx, matrix.toMtxPtr());
+    MR::setMtxTrans(matrix, translation.x, translation.y, translation.z);
+    NebulaMtxConcat(matrix, mModelUnbaseMtx.mMtx, matrix);
     pSimple->viewCalcRef(1, pModel);
 }
 
-f32 MarioActor::calcCylinderToCenter(const AreaObj* pAreaObj, TVec3f* pVec) {
-    TVec3f upVec;
+f32 MarioActor::calcCylinderToCenter(const AreaObj* pAreaObj, Vec3f* pVec) {
+    Vec3f upVec;
     MR::calcCylinderUpVec(&upVec, pAreaObj);
 
-    TVec3f centerPos;
+    Vec3f centerPos;
     MR::calcCylinderCenterPos(&centerPos, pAreaObj);
 
-    MR::vecKillElement(centerPos - _2A0, upVec, pVec);
+    MR::vecKillElement(centerPos - mCenterPos, upVec, pVec);
 
     if (MR::normalizeOrZero(pVec)) {
-        if (_208 >= 1000.0f) {
+        if (mWallShadeDist >= 1000.0f) {
             return -1.0f;
         }
 
-        _208 += 10.0f;
+        mWallShadeDist += 10.0f;
 
-        if (_208 >= 1000.0f) {
-            _208 = 1000.0f;
+        if (mWallShadeDist >= 1000.0f) {
+            mWallShadeDist = 1000.0f;
         }
 
         return -1.0f;
@@ -465,73 +457,69 @@ f32 MarioActor::calcCylinderToCenter(const AreaObj* pAreaObj, TVec3f* pVec) {
 }
 
 void MarioActor::calcViewBlurModel() {
-    J3DModelX* pModel = getJ3DModel();
-    if (pModel->_1E5) {
-        if (_A6E == 1) {
-            _A6E = 2;
+    PlayerModel* pModel = getModel();
+    if (pModel->mBlurDrawMissed) {
+        if (mBlurState == 1) {
+            mBlurState = 2;
         }
 
-        pModel->_1E5 = 0;
+        pModel->mBlurDrawMissed = 0;
     }
 
     if (MR::isDemoActive()) {
-        if (_A6E) {
-            _A6E = 5;
+        if (mBlurState) {
+            mBlurState = 5;
         }
 
         return;
     }
 
-    if (_1C1) {
+    if (mBaseMtxStale) {
         return;
     }
 
-    if (!_A6E) {
+    if (!mBlurState) {
         return;
     }
 
-    if (_A6E >= 3) {
-        _A6E--;
+    if (mBlurState >= 3) {
+        mBlurState--;
         return;
     }
 
-    if (_A6E == 2) {
-        for (u32 i = 0; i < 8; i++) {
-            for (u32 j = 0; j < getModelData()->getDrawMtxNum(); j++) {
-                NebulaMtxCopy(pModel->getDrawMtx(j), _A70[i][j]);
-                NebulaMtxCopy(pModel->getDrawMtx(j), _A90[i][j]);
-            }
+    if (mBlurState == 2) {
+        for (u32 i = 0; i < cBlurPoseNum; i++) {
+            Model::copyPose(&mBlurPoses[0][i], *pModel->getDrawPose());
+            Model::copyPose(&mBlurPoses[1][i], *pModel->getDrawPose());
         }
 
-        _B12 = 0;
-        _A6E = 1;
-    } else if (_37C % 3 == 0) {
-        _B12 = (_B12 + 1) & 7;
-        for (u32 j = 0; j < getModelData()->getDrawMtxNum(); j++) {
-            NebulaMtxCopy(pModel->getDrawMtx(j), mBlurMatrices[1 - _B10][_B12][j]);
-        }
+        mBlurPoseIndex = 0;
+        mBlurState = 1;
+    } else if (mFrameCount % 3 == 0) {
+        mBlurPoseIndex = (mBlurPoseIndex + 1) % cBlurPoseNum;
+        Model::copyPose(&mBlurPoses[1 - mBlurPoseSet][mBlurPoseIndex], *pModel->getDrawPose());
     }
 
-    _B10 = 1 - _B10;
-    pModel->_1E4 = 1;
+    mBlurPoseSet = 1 - mBlurPoseSet;
+    pModel->mBlurPoseFresh = 1;
 }
 
 void MarioActor::calcViewFootPrint() {
-    if (!_934 && mMario->mMovementStates._1 &&
-        (mMario->mTargetWalkSpeedIndex || getMario()->_1C.mIsUnderwater || mMario->mWalkSpeed > 0.1f || mMario->isPlayerModeHopper())) {
-        if (!mMario->mSinkTimer && !mMario->mDrawStates._9 && !mMario->mDrawStates._A && mMario->_1C._13 && mMario->_1C._14 &&
+    if (!mInRush && mMario->mMovementStates.onGround &&
+        (mMario->mTargetWalkSpeedIndex || getMario()->mHitStates.landed || mMario->mWalkSpeed > 0.1f || mMario->isPlayerModeHopper())) {
+        if (!mMario->mSinkTimer && !mMario->mDrawStates.baseTransPoint && !mMario->mDrawStates.atEdge && mMario->mHitStates.groundSameSensor && mMario->mHitStates.groundEvenSlope &&
             (mMario->checkCurrentFloorCodeSevere(13) || mMario->checkCurrentFloorCodeSevere(26))) {
-            _B48->addPrint(mPosition, mMario->mFrontVec, mMario->_368, false);
+            mFootPrint->addPrint(mPosition, mMario->mFrontVec, mMario->mGroundNorm, false);
         }
     }
 
-    if (_B48->isValid(_37C) && MR::isInWater(*_B48->getPrintPos(_37C))) {
-        _B48->invalidate(_37C);
+    if (mFootPrint->isValid(mFrameCount) && MR::isInWater(*mFootPrint->getPrintPos(mFrameCount))) {
+        mFootPrint->invalidate(mFrameCount);
     }
 }
 
 void MarioActor::drawSilhouette() const {
-    bool hidden = _482 || _483 || _481;
+    bool hidden = mHidden || mMorphHidden || mHiddenByDemo;
     if (hidden) {
         return;
     }
@@ -545,7 +533,7 @@ void MarioActor::drawSilhouette() const {
             return;
         }
 
-        if (!MR::isExistMapCollision(mCamPos, _2AC - mCamPos)) {
+        if (!MR::isExistMapCollision(mCamPos, mHeadPos - mCamPos)) {
             return;
         }
     }
@@ -558,25 +546,21 @@ void MarioActor::drawSilhouette() const {
         return;
     }
 
-    if (mMario->isStatusActive(MarioStatus_FpView) && _1A1) {
+    if (mMario->isStatusActive(MarioStatus_FpView) && mFpViewHidden) {
         return;
     }
 
-    if (_EA4) {
+    if (mInDemo) {
         return;
     }
 
-    if (_934) {
+    if (mInRush) {
         return;
     }
 
-    J3DModelX* pModel = getSimpleModel();
+    PlayerModel* pModel = getSimpleModel();
     pModel->setDrawView(1);
-    pModel->mFlags.clear();
-    pModel->mFlags._1C = true;
-    pModel->directDraw(nullptr);
-    pModel->mFlags._1C = false;
-    J3DPass::stencil(NEBULA_STENCIL_OFF, NEBULA_STENCIL_KEEP);
-    J3DPass::writeAlpha(true);
-    J3DPass::writeColor(true);
+    pModel->mDrawPasses = PlayerModel::Pass_BehindMark;
+    pModel->directDraw();
+    pModel->mDrawPasses &= ~PlayerModel::Pass_BehindMark;
 }

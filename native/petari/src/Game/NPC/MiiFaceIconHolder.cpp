@@ -9,15 +9,15 @@
 
 MiiFaceIconHolder::MiiFaceIconHolder(u32 iconNum, const char* pName)
     : NameObj(pName), mIconNumMax(iconNum), mIconNum(0), mIcon(new MiiFaceIcon*[iconNum]) {
-    MR::connectToScene(MR::createDrawAdaptor("Mii\203\101\203\103\203\122\203\223\220\266\220\254" /* Miiアイコン生成 */, MR::Functor(this, &MiiFaceIconHolder::drawIcons)), MR::MovementType_None,
+    MR::connectToScene(MR::createDrawAdaptor("Miiアイコン生成", MR::Functor(this, &MiiFaceIconHolder::drawIcons)), MR::MovementType_None,
                        MR::CalcAnimType_None, MR::DrawBufferType_None, MR::DrawType_MiiFaceIcon);
 }
 
+// Every icon asked for since the last draw, in the frame it was asked for.
 void MiiFaceIconHolder::drawIcons() {
-    for (int i = 0; i < mIconNum; i++) {
+    for (u32 i = 0; i < mIconNum; i++) {
         if (mIcon[i]->mIsRequestMakeIcon) {
             mIcon[i]->drawIcon();
-            break;
         }
     }
 }

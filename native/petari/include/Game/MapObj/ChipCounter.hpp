@@ -8,13 +8,13 @@ class ChipCounter : public LayoutActor {
 public:
     ChipCounter(const char*, s32);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
+    virtual void init(const TableIter&) override;
+    virtual void control() override;
 
     void setCount(s32);
-    void requestShow(s32, s32);
-    void requestHide(s32);
-    void requestComplete(s32);
+    void requestShow(s32 groupId, s32 count);
+    void requestHide(s32 groupId);
+    void requestComplete(s32 groupId);
     void requestActive();
     void requestDeactive();
     bool tryEndFrameIn();
@@ -36,5 +36,5 @@ public:
     s32 mCount;
     s32 mType;
     s32 mGroupId;
-    f32 _30;
+    f32 mShowRate;
 };

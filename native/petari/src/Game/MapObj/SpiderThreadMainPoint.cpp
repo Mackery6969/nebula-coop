@@ -8,7 +8,6 @@
 
 namespace {
     static const f32 sFrictionRate = 0.9f;
-    // static const _32 sSpeedMin =
     static const f32 sWindFrictionRate = 0.9f;
     static const f32 sBasePosAccelRate = 0.3f;
     static const f32 sBasePosDiffMin = 1.0f;
@@ -21,7 +20,7 @@ SpiderThreadPointNearInfo::SpiderThreadPointNearInfo()
     : mMainPoint(nullptr), mPartPoint(nullptr), mDistToPoint(0.0f), mSpringFactor(0.0f), mThreadPart(nullptr) {
 }
 
-void SpiderThreadPointNearInfo::setInfo(f32 springFactor, SpiderThreadPart* pThreadPart, const TVec3f& rVec) {
+void SpiderThreadPointNearInfo::setInfo(f32 springFactor, SpiderThreadPart* pThreadPart, const Vec3f& rVec) {
     mSpringFactor = springFactor;
     mThreadPart = pThreadPart;
 
@@ -42,7 +41,7 @@ void SpiderThreadPointNearInfo::clear() {
     mDistToPoint = 0.0f;
 }
 
-const TVec3f* SpiderThreadPointNearInfo::getPos() const {
+const Vec3f* SpiderThreadPointNearInfo::getPos() const {
     if (mMainPoint != nullptr) {
         return &mMainPoint->mPosition;
     }
@@ -54,18 +53,28 @@ const TVec3f* SpiderThreadPointNearInfo::getPos() const {
     return nullptr;
 }
 
-SpiderThreadMainPoint::SpiderThreadMainPoint(const TVec3f& rPos, int nearInfoBufferSize)
-    : SpiderThreadPoint(rPos, ::sFrictionRate), mRadialLine(nullptr), mNearInfoBufferSize(nearInfoBufferSize), mNumNearInfos(0), mNearInfos(nullptr) {
-    mNearInfos = new SpiderThreadPointNearInfo[nearInfoBufferSize];
+SpiderThreadMainPoint::SpiderThreadMainPoint(const Vec3f& rPos, int nearInfoBufferSize)
+    : SpiderThreadPoint(rPos, ::sFrictionRate), mRadialLine(nullptr), mNumNearInfos(0), mNearInfos(nullptr),
+      mNearInfoCapacity(nearInfoBufferSize > 0 ? nearInfoBufferSize : 0) {
+    mNearInfos = new SpiderThreadPointNearInfo[mNearInfoCapacity];
 }
 
 void SpiderThreadMainPoint::addNearMainPoint(SpiderThreadMainPoint* pMainPoint, SpiderThreadPart* pThreadPart) {
+    // An entry past the buffer is not kept: that neighbour pulls no spring.
+    if (mNumNearInfos >= mNearInfoCapacity) {
+        return;
+    }
+
     getNearPointInfo(mNumNearInfos)->mMainPoint = pMainPoint;
     getNearPointInfo(mNumNearInfos)->setInfo(::sNearMainPointAccelRate, pThreadPart, mPosition);
     mNumNearInfos++;
 }
 
 void SpiderThreadMainPoint::addNearPartPoint(SpiderThreadPoint* pThreadPoint, f32 springFactor) {
+    if (mNumNearInfos >= mNearInfoCapacity) {
+        return;
+    }
+
     getNearPointInfo(mNumNearInfos)->mPartPoint = pThreadPoint;
     getNearPointInfo(mNumNearInfos)->setInfo(springFactor, nullptr, mPosition);
     mNumNearInfos++;
@@ -102,11 +111,12 @@ void SpiderThreadMainPoint::removeNearPointFromRadial(const SpiderThreadPoint* p
     }
 }
 
-void SpiderThreadMainPoint::cutNearPoints(s32* numCutPoints, SpiderThreadMainPoint** pMainPoints) {
+void SpiderThreadMainPoint::cutNearPoints(s32* numCutPoints, SpiderThreadMainPoint** pMainPoints, s32 numMainPoints) {
     SpiderThreadPart* threadPart;
     for (s32 idx = 0; idx < mNumNearInfos; idx++) {
         SpiderThreadMainPoint* mainPoint;
-        if (getNearPointInfo(idx)->mMainPoint != nullptr) {
+        // A neighbour with no cut point left in the buffer stays joined.
+        if (getNearPointInfo(idx)->mMainPoint != nullptr && *numCutPoints < numMainPoints) {
             getNearPointInfo(idx)->mMainPoint->removeNearPoint(this);
 
             mainPoint = pMainPoints[*numCutPoints];
@@ -127,10 +137,10 @@ void SpiderThreadMainPoint::cutNearPoints(s32* numCutPoints, SpiderThreadMainPoi
 void SpiderThreadMainPoint::updateVelocity() {
     updateWind(::sWindFrictionRate);
 
-    TVec3f springBack(mBasePos);
+    Vec3f springBack(mBasePos);
     springBack.sub(mPosition);
 
-    TVec3f diff(springBack);
+    Vec3f diff(springBack);
 
     if (springBack.length() > ::sBasePosDiffMin) {
         MR::normalizeOrZero(&springBack);
@@ -145,7 +155,7 @@ void SpiderThreadMainPoint::updateVelocity() {
 
 void SpiderThreadMainPoint::closeToNearPoint(const SpiderThreadPointNearInfo* pNearInfo) {
     if (pNearInfo->getPos() != nullptr) {
-        TVec3f springBack(*pNearInfo->getPos());
+        Vec3f springBack(*pNearInfo->getPos());
         springBack.sub(mPosition);
         f32 dist = springBack.length();
 

@@ -23,7 +23,7 @@ KoopaBattleMapDamagePlate::KoopaBattleMapDamagePlate(const char* pName) : LiveAc
     mBaseMtx.identity();
 }
 
-void KoopaBattleMapDamagePlate::init(const JMapInfoIter& rIter) {
+void KoopaBattleMapDamagePlate::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
 
     MR::calcGravity(this);
@@ -39,9 +39,9 @@ void KoopaBattleMapDamagePlate::init(const JMapInfoIter& rIter) {
     MR::connectToSceneMapObj(this);
 
     initHitSensor(1);
-    MR::addHitSensor(this, "Attack", ATYPE_KOOPA_DAMAGE_PLATE, 8, 250.0f, TVec3f(0.0f, -150.0f, 0.0f));
+    MR::addHitSensor(this, "Attack", ATYPE_KOOPA_DAMAGE_PLATE, 8, 250.0f, Vec3f(0.0f, -150.0f, 0.0f));
     MR::initCollisionParts(this, "KoopaPlateDamage", getSensor("Attack"), mBaseMtx);
-    initEffectKeeper(1, nullptr, false);
+    initEffectKeeper(1, nullptr);
 
     MR::addEffectHitNormal(this, "Hit");
     MR::setEffectBaseScale(this, "Hit", 3.0f);
@@ -97,7 +97,7 @@ void KoopaBattleMapDamagePlate::attackSensor(HitSensor* pSender, HitSensor* pRec
     }
 }
 
-bool KoopaBattleMapDamagePlate::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool KoopaBattleMapDamagePlate::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* /*pReceiver*/) {
     if (msg == ACTMES_KOOPA_PLATE_DAMAGE) {
         return true;
     }
@@ -114,9 +114,6 @@ bool KoopaBattleMapDamagePlate::receiveOtherMsg(u32 msg, HitSensor* pSender, Hit
     setNerve(GET_NERVE(KoopaBattleMapDamagePlate, KoopaBattleMapDamagePlateNrvBreak));
 
     return true;
-}
-
-KoopaBattleMapDamagePlate::~KoopaBattleMapDamagePlate() {
 }
 
 void KoopaBattleMapDamagePlate::exeWait() {

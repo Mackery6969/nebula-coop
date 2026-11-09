@@ -1,26 +1,28 @@
 #include "Game/Enemy/OtaRock.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Enemy/AnimScaleController.hpp"
 #include "Game/Enemy/CocoNutBall.hpp"
 #include "Game/Enemy/FireBall.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/CocoNut.hpp"
-#include "Game/NameObj/NameObjArchiveListCollector.hpp"
 #include "Game/Util.hpp"
 
 namespace {
+    const s32 cCocoNutNum = 4;
+    const s32 cFireBallNum = 3;
     const Vec cSensorOffset = {0.0f, 180.0f, 0.0f};
     const f32 cSensorRadius = 300.0f;
-    const s32 cWaitFrameMin = 30;
-    const s32 cWaitFrameMax = 90;
+    const s32 cWaitFrameMin = NebulaFrameClock::stepsOfMilliseconds(500);
+    const s32 cWaitFrameMax = NebulaFrameClock::stepsOfMilliseconds(1500);
     const f32 cAppearDistance = 3800.0f;
     const f32 cHideDistance = 4000.0f;
     const s32 cThrowBallStep = 40;
     const f32 cThrowAngleMin = 5.0f;
     const f32 cThrowAngleMax = 10.0f;
     const f32 cThrowFireBallSpeed = 15.0f;
-    const s32 cWaitFrameMinNoThrowCocoNut = 120;
-    const s32 cWaitFrameMaxNoThrowCocoNut = 180;
+    const s32 cWaitFrameMinNoThrowCocoNut = NebulaFrameClock::stepsOfSeconds(2);
+    const s32 cWaitFrameMaxNoThrowCocoNut = NebulaFrameClock::stepsOfSeconds(3);
 };  // namespace
 
 namespace NrvOtaRock {
@@ -35,21 +37,21 @@ namespace NrvOtaRock {
 
 OtaRock::OtaRock(const char* pName)
     : LiveActor(pName), mNoThrowCocoNut(false), mCocoNutArray(nullptr), mFireBallArray(nullptr), mFixedPosition(nullptr),
-      mThrowCocoNutCounter(0), mWaitFrame(0), _A4(), _D4(0.0f, 0.0f, 1.0f), mAnimScaleController(0) {
-    _A4.identity();
+      mThrowCocoNutCounter(0), mWaitFrame(0), mBaseMtx(), mFront(0.0f, 0.0f, 1.0f), mAnimScaleController(0) {
+    mBaseMtx.identity();
 }
 
-void OtaRock::init(const JMapInfoIter& rIter) {
+void OtaRock::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     MR::useStageSwitchReadA(this, rIter);
     MR::useStageSwitchWriteDead(this, rIter);
-    MR::getJMapInfoArg0NoInit(rIter, &mNoThrowCocoNut);
+    MR::getPlacementArg0NoInit(rIter, &mNoThrowCocoNut);
     MR::calcGravity(this);
     initModel();
     MR::connectToSceneEnemy(this);
     MR::initLightCtrl(this);
     initSensor();
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initSound(8, false);
     MR::addToAttributeGroupSearchTurtle(this);
     mAnimScaleController = new AnimScaleController(nullptr);
@@ -75,22 +77,13 @@ void OtaRock::kill() {
     LiveActor::kill();
 }
 
-void OtaRock::makeArchiveList(NameObjArchiveListCollector* pCollector, const JMapInfoIter& rIter) {
-    bool noCocoNut = false;
-    MR::getJMapInfoArg0NoInit(rIter, &noCocoNut);
-
-    if (!noCocoNut) {
-        pCollector->addArchive(CocoNut::getModelName());
-    }
-}
-
 void OtaRock::control() {
     mAnimScaleController->updateNerve();
 }
 
 void OtaRock::calcAndSetBaseMtx() {
-    MR::setBaseTRMtx(this, _A4);
-    TVec3f scale = mAnimScaleController->_C * mScale;
+    MR::setBaseTRMtx(this, mBaseMtx);
+    Vec3f scale = mAnimScaleController->mScale * mScale;
     MR::setBaseScale(this, scale);
 }
 
@@ -106,7 +99,7 @@ void OtaRock::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     }
 }
 
-bool OtaRock::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool OtaRock::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (MR::isMsgStarPieceReflect(msg)) {
         mAnimScaleController->startHitReaction();
         return true;
@@ -120,7 +113,7 @@ bool OtaRock::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pRe
     return true;
 }
 
-bool OtaRock::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool OtaRock::receiveMsgEnemyAttack(u32 /*msg*/, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     setNerve(GET_NERVE(OtaRock, OtaRockNrvDown));
     return true;
 }
@@ -129,45 +122,45 @@ void OtaRock::initModel() {
     initModelManagerWithAnm("OtaRock", nullptr, false);
 
     if (!mNoThrowCocoNut) {
-        mCocoNutArray = new CocoNutBall[4];
-        for (int i = 0; i < 4; i++) {
+        mCocoNutArray = new CocoNutBall[::cCocoNutNum];
+        for (int i = 0; i < ::cCocoNutNum; i++) {
             mCocoNutArray[i].initWithoutIter();
-            mCocoNutArray[i]._8C = this;
+            mCocoNutArray[i].mHost = this;
         }
     }
 
-    mFireBallArray = new FireBall[3];
-    for (int i = 0; i < 3; i++) {
+    mFireBallArray = new FireBall[::cFireBallNum];
+    for (int i = 0; i < ::cFireBallNum; i++) {
         mFireBallArray[i].initWithoutIter();
         mFireBallArray[i].mHost = this;
     }
 
-    mFixedPosition = new FixedPosition(this, "Mouth", TVec3f(0.0f, 0.0f, 50.0f), TVec3f(0.0f, 0.0f, -90.0f));
+    mFixedPosition = new FixedPosition(this, "Mouth", Vec3f(0.0f, 0.0f, 50.0f), Vec3f(0.0f, 0.0f, -90.0f));
 
-    TPos3f mtxTR;
+    Pos3f mtxTR;
     MR::makeMtxTR(mtxTR.toMtxPtr(), this);
-    mtxTR.getZDir(_D4);
+    mtxTR.getZDir(mFront);
 }
 
 void OtaRock::initSensor() {
     initHitSensor(1);
-    MR::addHitSensorMtxEnemy(this, "body", 8, ::cSensorRadius, getBaseMtx(), static_cast< TVec3f >(::cSensorOffset));
+    MR::addHitSensorMtxEnemy(this, "body", 8, ::cSensorRadius, getBaseMtx(), static_cast< Vec3f >(::cSensorOffset));
 }
 
 void OtaRock::updateBaseMtx() {
-    TVec3f up = -mGravity;
-    TVec3f front;
+    Vec3f up = -mGravity;
+    Vec3f front;
     if (MR::isStageStateScenarioOpeningCamera()) {
-        front.set(_D4);
+        front.set(mFront);
     } else {
         front.sub(*MR::getPlayerPos(), mPosition);
         MR::normalize(&front);
     }
-    MR::makeMtxUpFrontPos(&_A4, up, front, mPosition);
+    MR::makeMtxUpFrontPos(&mBaseMtx, up, front, mPosition);
 }
 
 CocoNutBall* OtaRock::getDisappearedCocoNut() {
-    for (s32 i = 0; i < 4; i++) {
+    for (s32 i = 0; i < ::cCocoNutNum; i++) {
         if (MR::isDead(&mCocoNutArray[i])) {
             return &mCocoNutArray[i];
         }
@@ -177,7 +170,7 @@ CocoNutBall* OtaRock::getDisappearedCocoNut() {
 }
 
 FireBall* OtaRock::getDisappearedFireBall() {
-    for (s32 i = 0; i < 3; i++) {
+    for (s32 i = 0; i < ::cFireBallNum; i++) {
         if (MR::isDead(&mFireBallArray[i])) {
             return &mFireBallArray[i];
         }
@@ -187,7 +180,7 @@ FireBall* OtaRock::getDisappearedFireBall() {
 
 s32 OtaRock::getDisappearedCocoNutNum() const {
     s32 num = 0;
-    for (s32 i = 0; i < 4; i++) {
+    for (s32 i = 0; i < ::cCocoNutNum; i++) {
         if (MR::isDead(&mCocoNutArray[i])) {
             num++;
         }
@@ -197,7 +190,7 @@ s32 OtaRock::getDisappearedCocoNutNum() const {
 
 s32 OtaRock::getDisappearedFireBallNum() const {
     s32 num = 0;
-    for (s32 i = 0; i < 3; i++) {
+    for (s32 i = 0; i < ::cFireBallNum; i++) {
         if (MR::isDead(&mFireBallArray[i])) {
             num++;
         }
@@ -215,7 +208,7 @@ bool OtaRock::isValidThrowFireBall() const {
 
 void OtaRock::throwCocoNut() {
     CocoNutBall* pCocoNut = OtaRock::getDisappearedCocoNut();
-    TVec3f fixedTrans;
+    Vec3f fixedTrans;
     mFixedPosition->calc();
     mFixedPosition->copyTrans(&fixedTrans);
     f32 f = MR::getRandom(::cThrowAngleMin, ::cThrowAngleMax);
@@ -225,7 +218,7 @@ void OtaRock::throwCocoNut() {
 
 void OtaRock::throwFireBall() {
     FireBall* fireBall = getDisappearedFireBall();
-    TVec3f fixedTrans;
+    Vec3f fixedTrans;
     mFixedPosition->calc();
     mFixedPosition->copyTrans(&fixedTrans);
     fireBall->appearAndThrow(fixedTrans, ::cThrowFireBallSpeed, 0.0f);
@@ -309,12 +302,12 @@ void OtaRock::exeDown() {
         MR::tryRumblePadVeryStrong(this, PLAYER_1);
 
         if (!mNoThrowCocoNut) {
-            for (s32 i = 0; i < 4; i++) {
+            for (s32 i = 0; i < ::cCocoNutNum; i++) {
                 if (!MR::isDead(&mCocoNutArray[i]))
                     mCocoNutArray[i].kill();
             }
         }
-        for (s32 i = 0; i < 3; i++) {
+        for (s32 i = 0; i < ::cFireBallNum; i++) {
             if (!MR::isDead(&mFireBallArray[i]))
                 mFireBallArray[i].kill();
         }
@@ -368,7 +361,4 @@ void OtaRock::exeShow() {
     }
     updateBaseMtx();
     MR::setNerveAtBckStopped(this, GET_NERVE(OtaRock, OtaRockNrvWait));
-}
-
-OtaRock::~OtaRock() {
 }

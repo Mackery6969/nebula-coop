@@ -17,7 +17,7 @@ namespace NrvMechaKoopaPartsArm {
 MechaKoopaPartsArm::MechaKoopaPartsArm(const char* pName) : MapObjActor(pName), mIsRightArm() {
 }
 
-void MechaKoopaPartsArm::init(const JMapInfoIter& rIter) {
+void MechaKoopaPartsArm::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
     mIsRightArm = isObjectName("MechaKoopaPartsArmRight");
     MapObjActorInitInfo info;
@@ -39,24 +39,18 @@ void MechaKoopaPartsArm::init(const JMapInfoIter& rIter) {
 
 void MechaKoopaPartsArm::exeWait() {
     if (MapObjActorUtil::isRotatorMoving(this)) {
-        if (isNerve(GET_NERVE(MechaKoopaPartsArm, MechaKoopaPartsArmNrvWaitFront))) {
-            setNerve(GET_NERVE(MechaKoopaPartsArm, MechaKoopaPartsArmNrvMoveStartRear));
-        } else {
-            setNerve(GET_NERVE(MechaKoopaPartsArm, MechaKoopaPartsArmNrvMoveStartFront));
-        }
+        setNerve(isNerve(GET_NERVE(MechaKoopaPartsArm, MechaKoopaPartsArmNrvWaitFront))
+                     ? static_cast< const Nerve* >(GET_NERVE(MechaKoopaPartsArm, MechaKoopaPartsArmNrvMoveStartRear))
+                     : GET_NERVE(MechaKoopaPartsArm, MechaKoopaPartsArmNrvMoveStartFront));
     }
 }
 
 void MechaKoopaPartsArm::exeMoveStart() {
+    const bool isFront = isNerve(GET_NERVE(MechaKoopaPartsArm, MechaKoopaPartsArmNrvMoveStartFront));
+
     if (MR::isFirstStep(this)) {
         MapObjActorUtil::pauseRotator(this);
-
-        if (isNerve(GET_NERVE(MechaKoopaPartsArm, MechaKoopaPartsArmNrvMoveStartFront))) {
-            MR::startBck(this, "Front");
-        } else {
-            MR::startBck(this, "Rear");
-        }
-
+        MR::startBck(this, isFront ? "Front" : "Rear");
         MR::startSound(this, "SE_OJ_M_KOOPA_ARM_START");
 
         if (MR::isOnPlayer(this)) {
@@ -66,11 +60,8 @@ void MechaKoopaPartsArm::exeMoveStart() {
     }
 
     if (MR::isBckStopped(this)) {
-        if (isNerve(GET_NERVE(MechaKoopaPartsArm, MechaKoopaPartsArmNrvMoveStartFront))) {
-            setNerve(GET_NERVE(MechaKoopaPartsArm, MechaKoopaPartsArmNrvMoveFront));
-        } else {
-            setNerve(GET_NERVE(MechaKoopaPartsArm, MechaKoopaPartsArmNrvMoveRear));
-        }
+        setNerve(isFront ? static_cast< const Nerve* >(GET_NERVE(MechaKoopaPartsArm, MechaKoopaPartsArmNrvMoveFront))
+                         : GET_NERVE(MechaKoopaPartsArm, MechaKoopaPartsArmNrvMoveRear));
     }
 }
 
@@ -87,11 +78,9 @@ void MechaKoopaPartsArm::exeMove() {
 
     MR::startSound(this, "SE_OJ_M_KOOPA_ARM_END");
 
-    if (isNerve(GET_NERVE(MechaKoopaPartsArm, MechaKoopaPartsArmNrvMoveFront))) {
-        setNerve(GET_NERVE(MechaKoopaPartsArm, MechaKoopaPartsArmNrvWaitFront));
-    } else {
-        setNerve(GET_NERVE(MechaKoopaPartsArm, MechaKoopaPartsArmNrvWaitRear));
-    }
+    setNerve(isNerve(GET_NERVE(MechaKoopaPartsArm, MechaKoopaPartsArmNrvMoveFront))
+                 ? static_cast< const Nerve* >(GET_NERVE(MechaKoopaPartsArm, MechaKoopaPartsArmNrvWaitFront))
+                 : GET_NERVE(MechaKoopaPartsArm, MechaKoopaPartsArmNrvWaitRear));
 }
 
 void MechaKoopaPartsArm::exeBreakStart() {
@@ -121,12 +110,13 @@ void MechaKoopaPartsArm::exeBreak() {
     }
 }
 
-void MechaKoopaPartsArm::initCaseUseSwitchB(const MapObjActorInitInfo& rInfo) {
+void MechaKoopaPartsArm::initCaseUseSwitchB(const MapObjActorInitInfo& /*rInfo*/) {
     if (mIsRightArm) {
         MR::listenStageSwitchOnB(this, MR::Functor(this, &MechaKoopaPartsArm::startBreak));
     }
 }
 
+// init starts the rotator itself.
 void MechaKoopaPartsArm::initCaseNoUseSwitchB(const MapObjActorInitInfo&) {
 }
 

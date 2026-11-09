@@ -29,16 +29,16 @@ namespace NrvStarPieceCounter {
 
 StarPieceCounter::StarPieceCounter(const char* pName)
     : LayoutActor(pName, true), mStarPieceNum(0), mStarPieceDisplayNum(0), mInvalidCountUpFrame(0), mLayoutAppearer(nullptr), mPaneRumbler(nullptr),
-      mFollowPos(0.0f, 0.0f), _3C(0), mMode(0) {
+      mFollowPos(0.0f, 0.0f), mForcedAppear(0), mMode(0) {
 }
 
-void StarPieceCounter::init(const JMapInfoIter& rIter) {
+void StarPieceCounter::init(const TableIter& /*rIter*/) {
     initLayoutManager("StarPieceCounter", 3);
     MR::createAndAddPaneCtrl(this, "TSPieceCounter", 1);
     MR::setFollowPos(&mFollowPos, this, "TSPieceCounter");
 
     mPaneRumbler = new CountUpPaneRumbler(this, "TCounter");
-    mLayoutAppearer = new CounterLayoutAppearer(this, TVec2f(0.0f, 30.0f));
+    mLayoutAppearer = new CounterLayoutAppearer(this, Vec2f(0.0f, 30.0f));
 
     if (!MR::isStageAstroLocation()) {
         MR::createAndAddPaneCtrl(this, "StarPieceCounter", 1);
@@ -61,7 +61,7 @@ void StarPieceCounter::appear() {
     mPaneRumbler->reset();
 
     mInvalidCountUpFrame = 0;
-    _3C = 0;
+    mForcedAppear = 0;
 
     MR::hideLayout(this);
     forceSync();
@@ -82,7 +82,7 @@ void StarPieceCounter::forceAppear(bool param1) {
         v5 = 2;
     }
 
-    _3C = v5;
+    mForcedAppear = v5;
 }
 
 void StarPieceCounter::disappear(bool param1) {
@@ -91,7 +91,7 @@ void StarPieceCounter::disappear(bool param1) {
     }
 
     if (!param1) {
-        _3C = 0;
+        mForcedAppear = 0;
     }
 }
 
@@ -207,7 +207,7 @@ bool StarPieceCounter::isValidAppearSituation() const {
 }
 
 bool StarPieceCounter::isDispCenter() const {
-    return MR::isStageAstroLocation() || mMode != 0 || _3C == 2;
+    return MR::isStageAstroLocation() || mMode != 0 || mForcedAppear == 2;
 }
 
 bool StarPieceCounter::tryChangeModeTicoEat(int mode) {
@@ -254,7 +254,7 @@ void StarPieceCounter::exeAppear() {
         if (isDispCenter()) {
             MR::showPaneRecursive(this, "TSPieceCounter");
             MR::hidePaneRecursive(this, "StarPieceCounter");
-            mLayoutAppearer->setAppearOffset(TVec2f(0.0f, ::cAppearOffsetCenterY));
+            mLayoutAppearer->setAppearOffset(Vec2f(0.0f, ::cAppearOffsetCenterY));
 
             if (MR::isStageAstroLocation()) {
                 MR::showPaneRecursive(this, "PicTStarPiece");
@@ -266,18 +266,18 @@ void StarPieceCounter::exeAppear() {
         } else {
             MR::showPaneRecursive(this, "StarPieceCounter");
             MR::hidePaneRecursive(this, "TSPieceCounter");
-            mLayoutAppearer->setAppearOffset(TVec2f(::cAppearOffsetRightX, 0.0f));
+            mLayoutAppearer->setAppearOffset(Vec2f(::cAppearOffsetRightX, 0.0f));
         }
 
         f32 y = 0.0f;
 
         if (mMode != 0) {
             y = ::cBaseOffsetTicoFatY;
-        } else if (_3C == 2) {
+        } else if (mForcedAppear == 2) {
             y = ::cBaseOffsetEatTicoY;
         }
 
-        mLayoutAppearer->appear(TVec2f(0.0f, y));
+        mLayoutAppearer->appear(Vec2f(0.0f, y));
     }
 
     if (mLayoutAppearer->isAppeared()) {
@@ -290,7 +290,7 @@ void StarPieceCounter::exeWait() {
         return;
     }
 
-    if (mMode != 0 || (_3C == 0 && mStarPieceDisplayNum == mStarPieceNum && CounterLayoutController::isWaitToDisappearCounter(this))) {
+    if (mMode != 0 || (mForcedAppear == 0 && mStarPieceDisplayNum == mStarPieceNum && CounterLayoutController::isWaitToDisappearCounter(this))) {
         setNerve(GET_NERVE(StarPieceCounter, StarPieceCounterNrvDisappear));
     }
 }
@@ -301,8 +301,8 @@ void StarPieceCounter::exeDisappear() {
     }
 
     if (mLayoutAppearer->isDisappeared()) {
-        if (_3C == 2) {
-            _3C = 0;
+        if (mForcedAppear == 2) {
+            mForcedAppear = 0;
         }
 
         setNerve(GET_NERVE(StarPieceCounter, StarPieceCounterNrvHide));

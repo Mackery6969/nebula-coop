@@ -1,6 +1,5 @@
 #include "Game/Screen/LuigiLetter.hpp"
 #include "Game/LiveActor/Nerve.hpp"
-#include "Game/NameObj/NameObjArchiveListCollector.hpp"
 #include "Game/Screen/IconAButton.hpp"
 #include "Game/Util/EventUtil.hpp"
 #include "Game/Util/PlayerInputUtil.hpp"
@@ -8,6 +7,7 @@
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include <cstdio>
+#include "Game/Util/StringUtil.hpp"
 
 namespace NrvLuigiLetter {
     NEW_NERVE(HostTypeNrvAppear, LuigiLetter, Appear);
@@ -16,19 +16,19 @@ namespace NrvLuigiLetter {
 };  // namespace NrvLuigiLetter
 
 LuigiLetter::LuigiLetter(bool param1, const char* pParam2)
-    : LayoutActor("\203\213\203\103\201\133\203\127\202\314\216\350\216\206" /* ルイージの手紙 */, true), mTexture(nullptr), mAButtonIcon(nullptr), _28(pParam2), _2C(param1) {
+    : LayoutActor("ルイージの手紙", true), mTexture(nullptr), mAButtonIcon(nullptr), mGalaxyName(pParam2), mIsForTalk(param1) {
 }
 
-void LuigiLetter::init(const JMapInfoIter& rIter) {
-    char archiveName[256];
-    char textureName[256];
+void LuigiLetter::init(const TableIter& /*rIter*/) {
+    MR::FormattedName archiveName;
+    MR::FormattedName textureName;
 
     initLayoutManager("LuigiLetter", 1);
     initNerve(GET_NERVE(LuigiLetter, HostTypeNrvAppear));
-    nebula_snprintf(archiveName, sizeof(archiveName), "LuigiPicture%s.arc", _28);
-    nebula_snprintf(textureName, sizeof(textureName), "LuigiPicture%s.bti", _28);
+    archiveName.format("LuigiPicture%s", mGalaxyName);
+    textureName.format("LuigiPicture%s.bti", mGalaxyName);
 
-    mTexture = MR::createLytTexMap(archiveName, textureName);
+    mTexture = MR::createLytTexMap(archiveName.c_str(), textureName.c_str());
 
     MR::replacePaneTexture(this, "PicDummy", mTexture, 0);
 
@@ -36,7 +36,7 @@ void LuigiLetter::init(const JMapInfoIter& rIter) {
     mAButtonIcon->initWithoutIter();
     mAButtonIcon->setFollowActorPane(this, "AButtonPosition");
 
-    if (_2C) {
+    if (mIsForTalk) {
         MR::connectToSceneTalkLayoutNoMovement(this);
         MR::connectToSceneTalkLayoutNoMovement(mAButtonIcon);
     } else {
@@ -90,26 +90,6 @@ void LuigiLetter::exeEnd() {
     if (MR::isAnimStopped(this, 0)) {
         kill();
     }
-}
-
-void LuigiLetter::makeArchiveListForNPC(NameObjArchiveListCollector* pCollector, const JMapInfoIter& rIter) {
-    LuigiLetter::makeArchiveListCommon(pCollector, MR::getLuigiLetterGalaxyNameForNPC());
-}
-
-void LuigiLetter::makeArchiveListForMenu(NameObjArchiveListCollector* pCollector, const JMapInfoIter& rIter) {
-    LuigiLetter::makeArchiveListCommon(pCollector, MR::getLuigiLetterGalaxyName());
-}
-
-void LuigiLetter::makeArchiveListCommon(NameObjArchiveListCollector* pCollector, const char* pGalaxyName) {
-    if (pGalaxyName == nullptr) {
-        return;
-    }
-
-    char archiveName[256];
-    nebula_snprintf(archiveName, sizeof(archiveName), "LuigiPicture%s", pGalaxyName);
-
-    pCollector->addArchive("LuigiLetter");
-    pCollector->addArchive(archiveName);
 }
 
 namespace MR {

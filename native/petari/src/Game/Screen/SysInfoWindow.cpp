@@ -9,9 +9,10 @@
 #include "Game/Screen/LayoutManager.hpp"
 #include "Game/System/NebulaFrameGen.hpp"
 #include "Game/Util/DrawUtil.hpp"
-#include <nw4r/lyt/pane.h>
-#include <nw4r/lyt/textBox.h>
+#include <Game/Ui/Pane.hpp>
+#include <Game/Ui/TextBox.hpp>
 #include "Game/System/NebulaClock.hpp"
+#include "Game/Util/StringUtil.hpp"
 
 namespace {
     const MessageChangeFuncTableEntry cMessageChangeFuncTable[] = {
@@ -37,8 +38,8 @@ namespace NrvSysInfoWindow {
 };  // namespace NrvSysInfoWindow
 
 SysInfoWindow::SysInfoWindow(SysInfoWindowType windowType, SysInfoExecuteType executeType)
-    : LayoutActor("\203\126\203\130\203\145\203\200\227\160\203\103\203\223\203\164\203\110\203\201\201\133\203\126\203\207\203\223\203\105\203\102\203\223\203\150\203\105" /* システム用インフォメーションウィンドウ */, true), mWindowType(windowType), mType(Type_Key), mYesNoSelector(nullptr),
-      mIconAButton(nullptr), mTextParentPaneName(nullptr), mWindowParentPaneName(nullptr), _38(executeType == ExecuteType_Children)
+    : LayoutActor("システム用インフォメーションウィンドウ", true), mWindowType(windowType), mType(Type_Key), mYesNoSelector(nullptr),
+      mIconAButton(nullptr), mTextParentPaneName(nullptr), mWindowParentPaneName(nullptr), mExecutesIconAButton(executeType == ExecuteType_Children)
       ,
       mIsBackAnswersNo(false), mDimPane(nullptr), mDim(0.0f), mDimFloor(0.0f), mDimLinger(0), mDimEpoch(0),
       mDimHandOver(DimHandOver_None), mDimHanding(false), mFadePane(nullptr), mPanelPane(nullptr), mShadowPane(nullptr)
@@ -55,7 +56,7 @@ SysInfoWindow::SysInfoWindow(SysInfoWindowType windowType, SysInfoExecuteType ex
     }
 }
 
-void SysInfoWindow::init(const JMapInfoIter& rIter) {
+void SysInfoWindow::init(const TableIter& /*rIter*/) {
     initLayoutManager(getLayoutName(), 1);
     MR::createAndAddPaneCtrl(this, mTextParentPaneName, 1);
     MR::createAndAddPaneCtrl(this, mWindowParentPaneName, 1);
@@ -68,7 +69,7 @@ void SysInfoWindow::init(const JMapInfoIter& rIter) {
         MR::setTextBoxGameMessageRecursive(this, "Right", "System_Save00_Yes");
     }
 
-    mIconAButton = MR::createAndSetupIconAButton(this, !_38, false);
+    mIconAButton = MR::createAndSetupIconAButton(this, !mExecutesIconAButton, false);
     mDimPane = MR::getPane(this, "BG");
     if (mWindowType == WindowType_Normal) {
         mFadePane = MR::getPane(this, mWindowParentPaneName);
@@ -82,7 +83,7 @@ void SysInfoWindow::init(const JMapInfoIter& rIter) {
 void SysInfoWindow::movement() {
     LayoutActor::movement();
 
-    if (_38) {
+    if (mExecutesIconAButton) {
         mIconAButton->movement();
     }
 }
@@ -95,7 +96,7 @@ void SysInfoWindow::calcAnim() {
     }
     updateDim();
 
-    if (_38) {
+    if (mExecutesIconAButton) {
         mIconAButton->calcAnim();
     }
 }
@@ -116,7 +117,7 @@ void SysInfoWindow::draw() const {
         LayoutActor::draw();
     }
 
-    if (_38) {
+    if (mExecutesIconAButton) {
         mIconAButton->draw();
     }
 }
@@ -170,12 +171,12 @@ void SysInfoWindow::appear(const char* pMessageId, SysInfoType type, SysInfoText
     pMessageChangeFunc(this, mTextParentPaneName, pMessageId);
 
     if (type == Type_YesNo) {
-        char yesMessageId[256];
-        char noMessageId[256];
-        nebula_snprintf(yesMessageId, sizeof(yesMessageId), "%s_Yes", pMessageId);
-        nebula_snprintf(noMessageId, sizeof(noMessageId), "%s_No", pMessageId);
-        pMessageChangeFunc(this, "Right", yesMessageId);
-        pMessageChangeFunc(this, "Left", noMessageId);
+        MR::FormattedName yesMessageId;
+        MR::FormattedName noMessageId;
+        yesMessageId.format("%s_Yes", pMessageId);
+        noMessageId.format("%s_No", pMessageId);
+        pMessageChangeFunc(this, "Right", yesMessageId.c_str());
+        pMessageChangeFunc(this, "Left", noMessageId.c_str());
     }
 
     appear();
@@ -234,7 +235,7 @@ namespace {
     // Lines centred in a box centred in its pane, as the game's own questions are.
     class TextBoxRecursiveCenter : public TextBoxRecursiveOperation {
     public:
-        virtual void execute(nw4r::lyt::TextBox* pTextBox) const {
+        virtual void execute(Ui::TextBox* pTextBox) const {
             pTextBox->SetTextPositionH(1);
             pTextBox->SetTextPositionV(1);
             pTextBox->mBits.textAlignment = 2;
@@ -281,7 +282,7 @@ void SysInfoWindow::decideNo() {
 // window shaped as its drop shadow is (shapeFade).
 f32 SysInfoWindow::getOwnDim() const {
     f32 level = mDimPane->IsVisible() ? mDimPane->mAlpha / 255.0f : 0.0f;
-    for (const nw4r::lyt::Pane* pPane = mDimPane->GetParent(); pPane != nullptr && level > 0.0f; pPane = pPane->GetParent()) {
+    for (const Ui::Pane* pPane = mDimPane->GetParent(); pPane != nullptr && level > 0.0f; pPane = pPane->GetParent()) {
         if (!pPane->IsVisible()) {
             level = 0.0f;
         } else if (pPane->IsInfluencedAlpha()) {
@@ -349,7 +350,7 @@ void SysInfoWindow::drawDim() const {
     if (pManager == nullptr || pManager->mIsScreenHidden) {
         return;
     }
-    MR::setupDrawForNW4RLayout(1.0f, true);
+    MR::setupDrawForLayout();
     const u8 alpha = mDimPane->mGlbAlpha;
     mDimPane->mGlbAlpha = static_cast< u8 >(mDim * 255.0f + 0.5f);
     mDimPane->Draw(pManager->mDrawInfo);
@@ -419,7 +420,7 @@ void SysInfoWindow::exeDisappear() {
     }
 
     if (MR::isPaneAnimStopped(this, mTextParentPaneName, 0)) {
-        if (mType == Type_Key || mType == Type_Blocking || (mYesNoSelector != nullptr && !mYesNoSelector->_C)) {
+        if (mType == Type_Key || mType == Type_Blocking || (mYesNoSelector != nullptr && !mYesNoSelector->mIsActive)) {
             kill();
         }
     }

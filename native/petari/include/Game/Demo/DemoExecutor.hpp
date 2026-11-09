@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Game/Demo/DemoCastGroup.hpp"
+#include "Game/Scene/MovementControlType.hpp"
 #include "Game/Util/Array.hpp"
 
 class DemoActionKeeper;
@@ -23,7 +24,7 @@ public:
 
     virtual const char* getName() const = 0;
     virtual const char* getTypeString() const = 0;
-    virtual void initCast(LiveActor*, const JMapInfoIter&) {};
+    virtual void initCast(LiveActor*, const TableIter&) {};
     virtual void start() {
     }
 
@@ -60,18 +61,18 @@ public:
     /// @brief Creates a new `DemoExecutor`
     DemoExecutor(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void movement();
+    virtual void init(const TableIter& rIter) override;
+    virtual void movement() override;
 
-    virtual void registerDemoActor(LiveActor*, const JMapInfoIter&);
+    virtual void registerDemoActor(LiveActor*, const TableIter&) override;
 
-    void start(NameObj*, const char*, s32);
-    void startPart(NameObj*, const char*, const char*, s32);
+    void start(NameObj*, const char*, MR::MovementControlType);
+    void startPart(NameObj*, const char*, const char*, MR::MovementControlType);
     void startProperDemoSystem();
-    void startDemoSystemPart(const char*, s32);
+    void startDemoSystemPart(const char*, MR::MovementControlType);
     bool tryStartProperDemoSystem();
-    bool tryStartDemoSystemPart(const char*, s32);
-    bool tryStartProperDemoSystemPart(const char*);
+    bool tryStartDemoSystemPart(const char*, MR::MovementControlType);
+    bool tryStartProperDemoSystemPart(const char* pPartName);
     void pause();
     void resume();
     void addTalkAnimCtrl(DemoTalkAnimCtrl*);
@@ -88,13 +89,12 @@ public:
     DemoActionKeeper* mActionKeeper;
     DemoWipeKeeper* mWipeKeeper;
     DemoSoundKeeper* mSoundKeeper;
-    MR::Vector< MR::FixedArray< DemoSheetKeeperBase*, 2 > > mSheetKeeper;
-    StageSwitchCtrl* _40;
-    NameObj* _44;
-    const char* _48;
-    s32 _4C;
-    bool _50;
-    MR::Vector< MR::FixedArray< LiveActor*, 192 > > mActor;
-    MR::Vector< MR::FixedArray< DemoTalkAnimCtrl*, 8 > > mTalkAnimCtrl;
-    MR::Vector< MR::FixedArray< DemoTalkMessageCtrl, 8 > > mTalkMessageCtrl;
+    MR::InlineVector< DemoSheetKeeperBase*, 2 > mSheetKeeper;
+    StageSwitchCtrl* mStageSwitchCtrl;
+    NameObj* mDemoStarter;
+    const char* mDemoName;
+    MR::MovementControlType mMovementType;  // None while not running
+    MR::InlineVector< LiveActor*, 192 > mUnclippedCasts;  // casts start() stopped clipping; end() restores them
+    MR::InlineVector< DemoTalkAnimCtrl*, 8 > mTalkAnimCtrl;
+    MR::InlineVector< DemoTalkMessageCtrl, 8 > mTalkMessageCtrl;
 };

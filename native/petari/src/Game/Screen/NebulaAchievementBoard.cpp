@@ -1,5 +1,5 @@
 #include "Game/Screen/NebulaAchievementBoard.hpp"
-#include <JSystem/JUtility/JUTNativeLog.hpp>
+#include <nebula_module.h>
 
 #include "Game/Screen/NebulaMenuFocus.hpp"
 #include "Game/LiveActor/Nerve.hpp"
@@ -19,15 +19,16 @@
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
+#include "Game/Util/TextString.hpp"
 #include <cstdio>
 #include <cstring>
-#include <nw4r/lyt/layout.h>
-#include <nw4r/lyt/material.h>
-#include <nw4r/lyt/pane.h>
-#include <nw4r/lyt/picture.h>
-#include <nw4r/lyt/textBox.h>
-#include <nw4r/lyt/window.h>
-#include <nw4r/ut/Font.h>
+#include <Game/Ui/Layout.hpp>
+#include <Game/Ui/Material.hpp>
+#include <Game/Ui/Pane.hpp>
+#include <Game/Ui/Picture.hpp>
+#include <Game/Ui/TextBox.hpp>
+#include <Game/Ui/Window.hpp>
+#include <Game/Ui/Font.hpp>
 #include <NebulaGpu.h>
 #include "Game/System/NebulaInput.hpp"
 #include "Game/System/NebulaHost.hpp"
@@ -129,28 +130,34 @@ namespace {
 
 
     // A whole number, at least `digits` long (the game's wide characters are 16-bit everywhere: no swprintf).
-    void formatInt(char16_t* pDst, s32 capacity, s32 value, s32 digits) {
-        char text[16];
-        nebula_snprintf(text, sizeof(text), "%0*d", digits, value);
-        s32 i = 0;
-        for (; text[i] != 0 && i + 1 < capacity; i++) {
-            pDst[i] = static_cast< char16_t >(text[i]);
+    void formatInt(MR::Text16& rDst, s32 value, s32 digits) {
+        const MR::FormattedName text("%0*d", digits, value);
+        const char* const pText = text.c_str();
+        u32 length = 0;
+        while (pText[length] != 0) {
+            length++;
         }
-        pDst[i] = 0;
+        char16_t* const pDst = rDst.room(length + 1);
+        for (u32 i = 0; i < length; i++) {
+            pDst[i] = static_cast< char16_t >(pText[i]);
+        }
+        pDst[length] = 0;
     }
 
     // A number with its digits grouped by threes, as the language writes them (NebulaText's DigitGroup).
-    void formatNumber(char16_t* pDst, s32 capacity, u64 value) {
-        char digits[24];
+    void formatNumber(MR::Text16& rDst, u64 value) {
+        char digits[24];  // a u64 has at most 20 digits
         nebula_snprintf(digits, sizeof(digits), "%llu", static_cast< unsigned long long >(value));
-        char16_t group[4];
-        NebulaText::get(group, 4, "DigitGroup");
+        MR::Text16 group;
+        getText(group, "DigitGroup");
         const s32 count = static_cast< s32 >(strlen(digits));
+        const u32 room = static_cast< u32 >(count) + static_cast< u32 >((count - 1) / 3) * static_cast< u32 >(MR::textLength(group.c_str())) + 1;
+        char16_t* const pDst = rDst.room(room);
         char16_t* p = pDst;
-        char16_t* pEnd = pDst + capacity;
+        char16_t* pEnd = pDst + room;
         for (s32 i = 0; i < count && p + 1 < pEnd; i++) {
             if (i > 0 && (count - i) % 3 == 0) {
-                p = append(p, pEnd, group);
+                p = append(p, pEnd, group.c_str());
             }
             *p++ = static_cast< char16_t >(digits[i]);
         }
@@ -158,11 +165,25 @@ namespace {
     }
 
     // NebulaText's `pId` with its {name} tokens replaced.
-    void fill(char16_t* pDst, s32 capacity, const char* pId, const char* const* pNames, const char16_t* const* pValues, s32 count) {
-        char16_t pattern[128];
-        NebulaText::get(pattern, 128, pId);
+    void fill(MR::Text16& rDst, const char* pId, const char* const* pNames, const char16_t* const* pValues, s32 count) {
+        MR::Text16 patternText;
+        getText(patternText, pId);
+        const char16_t* const pattern = patternText.c_str();
+        // Room for the pattern with every {token} replaced by the longest value.
+        u32 longest = 0;
+        for (s32 i = 0; i < count; i++) {
+            const u32 length = static_cast< u32 >(MR::textLength(pValues[i]));
+            longest = length > longest ? length : longest;
+        }
+        u32 room = static_cast< u32 >(MR::textLength(pattern)) + 1;
+        for (const char16_t* s = pattern; *s != 0; s++) {
+            if (*s == u'{') {
+                room += longest;
+            }
+        }
+        char16_t* const pDst = rDst.room(room);
         char16_t* p = pDst;
-        char16_t* pEnd = pDst + capacity;
+        char16_t* pEnd = pDst + room;
         *p = 0;
         for (const char16_t* s = pattern; *s != 0;) {
             bool replaced = false;
@@ -190,23 +211,23 @@ namespace {
         }
     }
 
-    void formatDate(char16_t* pDst, s32 capacity, s32 date) {
-        char16_t y[8], m[4], d[4];
-        formatInt(y, 8, date / 10000, 1);
-        formatInt(m, 4, date / 100 % 100, 2);
-        formatInt(d, 4, date % 100, 2);
+    void formatDate(MR::Text16& rDst, s32 date) {
+        MR::Text16 y, m, d;
+        formatInt(y, date / 10000, 1);
+        formatInt(m, date / 100 % 100, 2);
+        formatInt(d, date % 100, 2);
         const char* const names[] = {"y", "m", "d"};
-        const char16_t* const values[] = {y, m, d};
-        fill(pDst, capacity, "DateFormat", names, values, 3);
+        const char16_t* const values[] = {y.c_str(), m.c_str(), d.c_str()};
+        fill(rDst, "DateFormat", names, values, 3);
     }
 
-    void formatCount(char16_t* pDst, s32 capacity, s32 current, s32 goal) {
-        char16_t n[16], total[16];
-        formatNumber(n, 16, static_cast< u64 >(current));
-        formatNumber(total, 16, static_cast< u64 >(goal));
+    void formatCount(MR::Text16& rDst, s32 current, s32 goal) {
+        MR::Text16 n, total;
+        formatNumber(n, static_cast< u64 >(current));
+        formatNumber(total, static_cast< u64 >(goal));
         const char* const names[] = {"n", "total"};
-        const char16_t* const values[] = {n, total};
-        fill(pDst, capacity, "BoardCount", names, values, 2);
+        const char16_t* const values[] = {n.c_str(), total.c_str()};
+        fill(rDst, "BoardCount", names, values, 2);
     }
 
     struct Card {
@@ -223,7 +244,7 @@ namespace {
         TextBox* mMeta;
         Window* mTrack;
         Window* mBar;
-        char16_t mHintText[192];  // what the player did (shown unlocked), or the locked line
+        MR::GrowBuffer< char16_t > mHintText;  // what the player did (shown unlocked), or the locked line
         bool mUnlocked;
         s32 mDate;
         s32 mCurrent;
@@ -285,7 +306,7 @@ struct NebulaBoardParts {
     NebulaPaneKit mText;    // InformationWindow: the game's message font
     NebulaPaneKit mWindow;  // SysInfoWindowMini: the window with a ring
     NebulaPaneKit mButton;  // BackButton: the game's button
-    nw4r::lyt::TexMap** mTextures;
+    Ui::TexMap** mTextures;
     Pane* mBoard;
     Window* mPanel;
     TextBox* mTitleGlyph;
@@ -383,15 +404,15 @@ namespace {
         const s32 texture = pIcon != nullptr && pIcon->mGlyph == 0 ? NebulaAchievements::findIconTexture(pIcon) : -1;
         if (pPicture != nullptr && texture >= 0 && pParts->mTextures[texture] != nullptr) {
             pPicture->GetMaterial()->SetTexture(0, *pParts->mTextures[texture]);
-            nw4r::math::VEC2(*pCoords)[4] = pPicture->mTexCoordAry.mData;
+            Vec2f(*pCoords)[4] = pPicture->mTexCoordAry.mData;
             if (pCoords != nullptr && pPicture->mTexCoordAry.mNum > 0) {
-                pCoords[0][0] = nw4r::math::VEC2(pIcon->mU0, pIcon->mV0);
-                pCoords[0][1] = nw4r::math::VEC2(pIcon->mU1, pIcon->mV0);
-                pCoords[0][2] = nw4r::math::VEC2(pIcon->mU0, pIcon->mV1);
-                pCoords[0][3] = nw4r::math::VEC2(pIcon->mU1, pIcon->mV1);
+                pCoords[0][0] = Vec2f(pIcon->mU0, pIcon->mV0);
+                pCoords[0][1] = Vec2f(pIcon->mU1, pIcon->mV0);
+                pCoords[0][2] = Vec2f(pIcon->mU0, pIcon->mV1);
+                pCoords[0][3] = Vec2f(pIcon->mU1, pIcon->mV1);
             }
             const f32 fill = pIcon->mFill > 0.0f ? pIcon->mFill : 1.0f;
-            pPicture->mSize = nw4r::lyt::Size(size * fill * pIcon->mWidth / pIcon->mHeight, size * fill);
+            pPicture->mSize = Ui::Size(size * fill * pIcon->mWidth / pIcon->mHeight, size * fill);
             for (u32 i = 0; i < 4; i++) {
                 pPicture->SetVtxColor(i, color(tint));
             }
@@ -414,10 +435,10 @@ namespace {
     // An icon centred on (x, y): a picture by its middle, a glyph by where its picture sits.
     void placeIcon(TextBox* pGlyph, Picture* pPicture, f32 x, f32 y, f32 size) {
         if (pGlyph != nullptr) {
-            pGlyph->mTranslate = nw4r::math::VEC3(x, glyphCentre(y, size), 0.0f);
+            pGlyph->mTranslate = Vec3f(x, glyphCentre(y, size), 0.0f);
         }
         if (pPicture != nullptr) {
-            pPicture->mTranslate = nw4r::math::VEC3(x, y, 0.0f);
+            pPicture->mTranslate = Vec3f(x, y, 0.0f);
         }
     }
 
@@ -496,16 +517,16 @@ namespace {
             measure(rCard.mName, 4000.0f, &width, &height);
             measure(rCard.mNameShadow, 4000.0f, &width, &height);
             const f32 squeeze = width > nameRoom && width > 0.0f ? nameRoom / width : 1.0f;
-            rCard.mName->mScale = nw4r::math::VEC2(squeeze, 1.0f);
-            rCard.mNameShadow->mScale = nw4r::math::VEC2(squeeze, 1.0f);
+            rCard.mName->mScale = Vec2f(squeeze, 1.0f);
+            rCard.mNameShadow->mScale = Vec2f(squeeze, 1.0f);
             // The sentence below it: two lines at most, smaller if a language needs a third.
             rCard.mHintSize = cHintSize;
             setTextSize(rCard.mHint, rCard.mHintSize);
-            wrapWords(rCard.mHint, rCard.mHintText, textWidth, &width, &rCard.mHintHeight);
+            wrapWords(rCard.mHint, rCard.mHintText.mItems, textWidth, &width, &rCard.mHintHeight);
             if (countLines(rCard.mHintHeight, rCard.mHintSize) > 2) {
                 rCard.mHintSize = cHintSize * 0.86f;
                 setTextSize(rCard.mHint, rCard.mHintSize);
-                wrapWords(rCard.mHint, rCard.mHintText, textWidth, &width, &rCard.mHintHeight);
+                wrapWords(rCard.mHint, rCard.mHintText.mItems, textWidth, &width, &rCard.mHintHeight);
             }
             f32 block;
             cardTextTop(rCard, &block);
@@ -533,10 +554,10 @@ namespace {
                 measure(rTile.mValue, 4000.0f, &width, &height);
                 measure(rTile.mValueShadow, 4000.0f, &width, &height);
                 const f32 valueScale = width > room && width > 0.0f ? room / width : 1.0f;
-                rTile.mValue->mScale = nw4r::math::VEC2(valueScale, 1.0f);
-                rTile.mValueShadow->mScale = nw4r::math::VEC2(valueScale, 1.0f);
+                rTile.mValue->mScale = Vec2f(valueScale, 1.0f);
+                rTile.mValueShadow->mScale = Vec2f(valueScale, 1.0f);
                 measure(rTile.mLabel, 4000.0f, &width, &height);
-                rTile.mLabel->mScale = nw4r::math::VEC2(width > room && width > 0.0f ? room / width : 1.0f, 1.0f);
+                rTile.mLabel->mScale = Vec2f(width > room && width > 0.0f ? room / width : 1.0f, 1.0f);
             }
         } else {
             const s32 rows = (p->mShownNum + p->mColumns - 1) / p->mColumns;
@@ -547,20 +568,20 @@ namespace {
         }
 
         // The empty list's line.
-        char16_t empty[96] = {0};
+        MR::Text16 empty;
         if (p->mTab != TabStats && p->mShownNum == 0) {
-            NebulaText::get(empty, 96, p->mFilterMode == FilterLocked ? "BoardEmptyLocked" : "BoardEmptyUnlocked");
+            getText(empty, p->mFilterMode == FilterLocked ? "BoardEmptyLocked" : "BoardEmptyUnlocked");
         }
-        wrapWords(p->mEmpty, empty, p->mListRight - p->mListLeft - 40.0f, &width, &height);
+        wrapWords(p->mEmpty, empty.c_str(),p->mListRight - p->mListLeft - 40.0f, &width, &height);
 
         // The tabs across the panel's whole width, each the same; a label too long for its tab narrows.
         const f32 tabWidth = (right - left - cTabGap * (TabNum - 1)) / TabNum;
         for (s32 i = 0; i < TabNum; i++) {
             Chip& rChip = p->mTabs[i];
-            rChip.mText->mScale = nw4r::math::VEC2(1.0f, 1.0f);
+            rChip.mText->mScale = Vec2f(1.0f, 1.0f);
             measure(rChip.mText, 4000.0f, &width, &height);
             const f32 room = tabWidth - cTabPadding * 2.0f;
-            rChip.mText->mScale = nw4r::math::VEC2(width > room && width > 0.0f ? room / width : 1.0f, 1.0f);
+            rChip.mText->mScale = Vec2f(width > room && width > 0.0f ? room / width : 1.0f, 1.0f);
             rChip.mWidth = tabWidth;
             rChip.mHeight = cTabHeight;
             rChip.mX = left + tabWidth * 0.5f + i * (tabWidth + cTabGap);
@@ -576,7 +597,7 @@ namespace {
             x += rChip.mWidth + cTabGap;
         }
         // The tab's count at the row's right: how many of its achievements are unlocked (the header has All's).
-        char16_t count[48] = {0};
+        MR::Text16 count;
         if (p->mTab != TabAll && p->mTab != TabStats) {
             s32 unlocked = 0;
             s32 total = 0;
@@ -586,9 +607,9 @@ namespace {
                     unlocked += p->mCards[i].mUnlocked ? 1 : 0;
                 }
             }
-            formatCount(count, 48, unlocked, total);
+            formatCount(count, unlocked, total);
         }
-        setText(p->mTabCount, count);
+        setText(p->mTabCount, count.c_str());
         measure(p->mTabCount, 4000.0f, &width, &height);
 
         // The footer: Back on the left (its arrow, then its label), the pad's guide on the right.
@@ -632,8 +653,8 @@ namespace {
     void placeChip(Chip& rChip, f32 x, f32 y, bool active, bool focused, f32 pulse) {
         rChip.mFocusLevel += ((focused ? 1.0f : 0.0f) - rChip.mFocusLevel) * 0.35f;
         const f32 grow = 1.0f + 0.06f * rChip.mFocusLevel;
-        rChip.mRoot->mTranslate = nw4r::math::VEC3(x, y, 0.0f);
-        rChip.mRoot->mScale = nw4r::math::VEC2(grow, grow);
+        rChip.mRoot->mTranslate = Vec3f(x, y, 0.0f);
+        rChip.mRoot->mScale = Vec2f(grow, grow);
         shapeChip(rChip, rChip.mWidth, rChip.mHeight);
         rChip.mArt->mAlpha = toAlpha(active ? 1.0f : 0.62f);
         rChip.mLayers[LayerShine]->mAlpha = toAlpha(rChip.mFocusLevel * pulse);
@@ -642,9 +663,9 @@ namespace {
     // One frame of placement: the open and tab animations, the scroll, the highlight.
     void place(NebulaBoardParts* p, f32 open, s32 frame) {
         const f32 pulse = 0.7f + 0.3f * __builtin_sinf(frame * 0.12f);
-        p->mBoard->mScale = nw4r::math::VEC2(p->mScaleX, 1.0f);
+        p->mBoard->mScale = Vec2f(p->mScaleX, 1.0f);
         p->mBoard->mAlpha = toAlpha(open);
-        p->mBoard->mTranslate = nw4r::math::VEC3(0.0f, (1.0f - easeOut(open)) * -16.0f, 0.0f);
+        p->mBoard->mTranslate = Vec3f(0.0f, (1.0f - easeOut(open)) * -16.0f, 0.0f);
 
         // The panel and the header: the crown and title on the header's middle, the count, bar and percentage too.
         const f32 panelTop = p->mHeight * 0.5f - cMargin;
@@ -657,24 +678,24 @@ namespace {
         // The crown stands on the title's baseline.
         const f32 baseline = headerY - cCapHeight * 0.5f * cTitleSize;
         const f32 crownMiddle = baseline + cCrownHeight * 0.5f * cTitleGlyph;
-        p->mTitleGlyph->mTranslate = nw4r::math::VEC3(left + cTitleGlyph * 0.5f + 2.0f, crownMiddle + cCrownLift * cTitleGlyph, 0.0f);
+        p->mTitleGlyph->mTranslate = Vec3f(left + cTitleGlyph * 0.5f + 2.0f, crownMiddle + cCrownLift * cTitleGlyph, 0.0f);
         measure(p->mTitle, 4000.0f, &width, &height);
         measure(p->mTitleShadow, 4000.0f, &width, &height);
         const f32 titleX = left + cTitleGlyph + 12.0f;
-        p->mTitle->mTranslate = nw4r::math::VEC3(titleX, textCentre(headerY, cTitleSize), 0.0f);
-        p->mTitleShadow->mTranslate = nw4r::math::VEC3(titleX + 1.5f, textCentre(headerY, cTitleSize) - 1.5f, 0.0f);
+        p->mTitle->mTranslate = Vec3f(titleX, textCentre(headerY, cTitleSize), 0.0f);
+        p->mTitleShadow->mTranslate = Vec3f(titleX + 1.5f, textCentre(headerY, cTitleSize) - 1.5f, 0.0f);
         f32 percentWidth;
         measure(p->mPercent, 4000.0f, &percentWidth, &height);
         measure(p->mSummary, 4000.0f, &width, &height);
         const f32 barWidth = clamp((right - left) * 0.22f, 90.0f, 220.0f);
-        p->mPercent->mTranslate = nw4r::math::VEC3(right, textCentre(headerY, cSummarySize), 0.0f);
+        p->mPercent->mTranslate = Vec3f(right, textCentre(headerY, cSummarySize), 0.0f);
         const f32 barRight = right - percentWidth - 12.0f;
         shape(p->mSummaryTrack, barRight - barWidth * 0.5f, headerY, barWidth, 10.0f, 5.0f);
         const f32 done = p->mCardNum > 0 ? static_cast< f32 >(p->mUnlockedNum) / p->mCardNum : 0.0f;
         const f32 fillWidth = barWidth * done * easeOut(open);
         shape(p->mSummaryBar, barRight - barWidth + fillWidth * 0.5f, headerY, fillWidth < 10.0f ? 10.0f : fillWidth, 10.0f, 5.0f);
         p->mSummaryBar->SetVisible(p->mUnlockedNum > 0);
-        p->mSummary->mTranslate = nw4r::math::VEC3(barRight - barWidth - 12.0f, textCentre(headerY, cSummarySize), 0.0f);
+        p->mSummary->mTranslate = Vec3f(barRight - barWidth - 12.0f, textCentre(headerY, cSummarySize), 0.0f);
 
         // The tabs and, under them, the filters: the chosen one bright, the others dimmed; the highlight grows and
         // shines as the game's buttons do.
@@ -688,15 +709,15 @@ namespace {
                                  (!p->mPointerMode || p->mPointerIn);
             rChip.mRoot->SetVisible(tab || filters);
             placeChip(rChip, rChip.mX, tab ? p->mTabY : p->mFilterY, chosen, focused, pulse);
-            rChip.mText->mTranslate = nw4r::math::VEC3(0.0f, textCentre(0.0f, tab ? cTabSize : cFilterSize), 0.0f);
+            rChip.mText->mTranslate = Vec3f(0.0f, textCentre(0.0f, tab ? cTabSize : cFilterSize), 0.0f);
             rChip.mText->mAlpha = toAlpha(chosen ? 1.0f : 0.8f);
         }
-        p->mTabCount->mTranslate = nw4r::math::VEC3(right, textCentre(p->mFilterY, cFilterSize + 1.0f), 0.0f);
+        p->mTabCount->mTranslate = Vec3f(right, textCentre(p->mFilterY, cFilterSize + 1.0f), 0.0f);
         p->mTabCount->SetVisible(filters);
 
         // The list: a tab's change slides it in; the scissor cuts what reaches past the edges.
         const f32 switched = easeOut(static_cast< f32 >(p->mSwitchFrame) / cSwitchFrames);
-        p->mList->mTranslate = nw4r::math::VEC3((1.0f - switched) * 26.0f * p->mSwitchDirection, 0.0f, 0.0f);
+        p->mList->mTranslate = Vec3f((1.0f - switched) * 26.0f * p->mSwitchDirection, 0.0f, 0.0f);
         p->mList->mAlpha = toAlpha(static_cast< f32 >(p->mSwitchFrame) / cSwitchFrames * 1.4f);
         const f32 cw = p->mCardWidth;
         const f32 ch = p->mCardHeight;
@@ -725,8 +746,8 @@ namespace {
             const bool focused = p->mZone == ZoneList && p->mCardFocus == rCard.mOrder && (!p->mPointerMode || p->mPointerIn);
             rCard.mFocusLevel += ((focused ? 1.0f : 0.0f) - rCard.mFocusLevel) * 0.3f;
             const f32 grow = 1.0f + 0.02f * rCard.mFocusLevel;
-            rCard.mRoot->mTranslate = nw4r::math::VEC3(x, y + (1.0f - cascade) * -10.0f, 0.0f);
-            rCard.mRoot->mScale = nw4r::math::VEC2(grow, grow);
+            rCard.mRoot->mTranslate = Vec3f(x, y + (1.0f - cascade) * -10.0f, 0.0f);
+            rCard.mRoot->mScale = Vec2f(grow, grow);
 
             shape(rCard.mFocus, 0.0f, 0.0f, cw + 7.0f, ch + 7.0f, 15.5f);
             rCard.mFocus->mAlpha = toAlpha(rCard.mFocusLevel * pulse);
@@ -742,10 +763,10 @@ namespace {
             const f32 nameTop = cardTextTop(rCard, &block);
             const f32 textX = -cw * 0.5f + cCardPad + cBadge + 14.0f;
             const f32 textRight = cw * 0.5f - cCardPad;
-            rCard.mName->mTranslate = nw4r::math::VEC3(textX, nameTop, 0.0f);
-            rCard.mNameShadow->mTranslate = nw4r::math::VEC3(textX + 1.0f, nameTop - 1.0f, 0.0f);
+            rCard.mName->mTranslate = Vec3f(textX, nameTop, 0.0f);
+            rCard.mNameShadow->mTranslate = Vec3f(textX + 1.0f, nameTop - 1.0f, 0.0f);
             const f32 hintTop = nameTop - cNameSize - 6.0f;
-            rCard.mHint->mTranslate = nw4r::math::VEC3(textX, hintTop, 0.0f);
+            rCard.mHint->mTranslate = Vec3f(textX, hintTop, 0.0f);
             rCard.mHint->SetVisible(rCard.mHintText[0] != 0);
             rCard.mMeta->SetVisible(rCard.mUnlocked || bar);
             rCard.mTrack->SetVisible(bar);
@@ -754,7 +775,7 @@ namespace {
                 // The day, its letters level with the name's.
                 const f32 nameMiddle = nameTop - (cCapTop + cCapHeight * 0.5f) * cNameSize;
                 setAnchor(rCard.mMeta, 5);
-                rCard.mMeta->mTranslate = nw4r::math::VEC3(textRight, textCentre(nameMiddle, cMetaSize), 0.0f);
+                rCard.mMeta->mTranslate = Vec3f(textRight, textCentre(nameMiddle, cMetaSize), 0.0f);
             } else if (bar) {
                 // The count right of its bar, both under the text.
                 f32 baseline = nameTop - cBaseline * cNameSize;
@@ -764,10 +785,10 @@ namespace {
                 }
                 const f32 barY = baseline - 11.0f - cBarHeight * 0.5f;
                 setAnchor(rCard.mMeta, 5);
-                rCard.mMeta->mTranslate = nw4r::math::VEC3(textRight, textCentre(barY, cMetaSize), 0.0f);
+                rCard.mMeta->mTranslate = Vec3f(textRight, textCentre(barY, cMetaSize), 0.0f);
                 const f32 barWidth = textRight - rCard.mMetaWidth - 10.0f - textX;
                 shape(rCard.mTrack, textX + barWidth * 0.5f, barY, barWidth, cBarHeight, cBarHeight * 0.5f);
-                const f32 part = barWidth * rCard.mCurrent / rCard.mGoal;
+                const f32 part = barWidth * (rCard.mCurrent < rCard.mGoal ? rCard.mCurrent : rCard.mGoal) / rCard.mGoal;
                 const f32 shown = part < cBarHeight ? cBarHeight : part;
                 shape(rCard.mBar, textX + shown * 0.5f, barY, shown, cBarHeight, cBarHeight * 0.5f);
             }
@@ -779,7 +800,7 @@ namespace {
         for (s32 section = 0; section < 2; section++) {
             TextBox* pTitle = p->mSections[section];
             const f32 titleY = y - 6.0f;
-            pTitle->mTranslate = nw4r::math::VEC3(p->mListLeft + 2.0f, titleY, 0.0f);
+            pTitle->mTranslate = Vec3f(p->mListLeft + 2.0f, titleY, 0.0f);
             const f32 titleAlpha = listAlpha(p, titleY, titleY - cSectionSize);
             pTitle->SetVisible(stats && titleAlpha > 0.0f);
             pTitle->mAlpha = toAlpha(titleAlpha);
@@ -799,7 +820,7 @@ namespace {
                     continue;
                 }
                 rTile.mRoot->mAlpha = toAlpha(alpha);
-                rTile.mRoot->mTranslate = nw4r::math::VEC3(tx, ty + (1.0f - cascade) * -10.0f, 0.0f);
+                rTile.mRoot->mTranslate = Vec3f(tx, ty + (1.0f - cascade) * -10.0f, 0.0f);
                 shape(rTile.mBody, 0.0f, 0.0f, tw, cTileHeight, 12.0f);
                 placeIcon(rTile.mGlyph, rTile.mPicture, -tw * 0.5f + cCardPad + 19.0f, 0.0f, 36.0f);
                 // The number over its label, the pair centred on the tile by their letters.
@@ -808,15 +829,15 @@ namespace {
                 const f32 labelTop = -(cValueSize + 3.0f);
                 const f32 blockBottom = labelTop - cBaseline * cLabelSize;
                 const f32 valueTop = -(blockTop + blockBottom) * 0.5f;
-                rTile.mValue->mTranslate = nw4r::math::VEC3(textX, valueTop, 0.0f);
-                rTile.mValueShadow->mTranslate = nw4r::math::VEC3(textX + 1.0f, valueTop - 1.5f, 0.0f);
-                rTile.mLabel->mTranslate = nw4r::math::VEC3(textX, valueTop + labelTop, 0.0f);
+                rTile.mValue->mTranslate = Vec3f(textX, valueTop, 0.0f);
+                rTile.mValueShadow->mTranslate = Vec3f(textX + 1.0f, valueTop - 1.5f, 0.0f);
+                rTile.mLabel->mTranslate = Vec3f(textX, valueTop + labelTop, 0.0f);
             }
             y -= ((last - first + p->mTileColumns - 1) / p->mTileColumns) * (cTileHeight + cGap) + cGap;
         }
 
         p->mEmpty->mTranslate =
-            nw4r::math::VEC3((p->mListLeft + p->mListRight) * 0.5f, textCentre((p->mListTop + p->mListBottom) * 0.5f, cNameSize), 0.0f);
+            Vec3f((p->mListLeft + p->mListRight) * 0.5f, textCentre((p->mListTop + p->mListBottom) * 0.5f, cNameSize), 0.0f);
         p->mEmpty->SetVisible(!stats && p->mShownNum == 0);
 
         // The scroll bar, when there is more than fits.
@@ -840,16 +861,16 @@ namespace {
         const f32 arrowX = -rBack.mWidth * 0.5f + cBackHeight * 0.56f;
         rBack.mArrow->mTranslate.x = toFaceUnits(rBack, arrowX);
         const f32 glyphX = arrowX + backArrowSize(cBackHeight) * 0.5f + 6.0f + cBackGlyph * 0.5f;
-        rBack.mGlyph->mTranslate = nw4r::math::VEC3(glyphX, glyphCentre(0.0f, cBackGlyph), 0.0f);
-        rBack.mText->mTranslate = nw4r::math::VEC3(glyphX + cBackGlyph * 0.5f + 5.0f, textCentre(0.0f, cFooterSize + 1.0f), 0.0f);
+        rBack.mGlyph->mTranslate = Vec3f(glyphX, glyphCentre(0.0f, cBackGlyph), 0.0f);
+        rBack.mText->mTranslate = Vec3f(glyphX + cBackGlyph * 0.5f + 5.0f, textCentre(0.0f, cFooterSize + 1.0f), 0.0f);
         f32 x = p->mWidth * 0.5f - cMargin - 6.0f;
         for (s32 i = HintNum - 1; i >= 0; i--) {
             TextBox* pLabel = p->mHintLabels[i];
-            pLabel->mTranslate = nw4r::math::VEC3(x, textCentre(p->mFooterY, cFooterSize), 0.0f);
+            pLabel->mTranslate = Vec3f(x, textCentre(p->mFooterY, cFooterSize), 0.0f);
             x -= pLabel->mSize.width + 7.0f;
             TextBox* pGlyphs = p->mHintGlyphs[i];
             const f32 glyphWidth = pGlyphs->mSize.width;
-            pGlyphs->mTranslate = nw4r::math::VEC3(x - glyphWidth * 0.5f, glyphCentre(p->mFooterY, cFooterGlyph), 0.0f);
+            pGlyphs->mTranslate = Vec3f(x - glyphWidth * 0.5f, glyphCentre(p->mFooterY, cFooterGlyph), 0.0f);
             x -= glyphWidth + 24.0f;
         }
     }
@@ -859,8 +880,8 @@ namespace {
         if (!MR::isStarPointerInScreen(PLAYER_1)) {
             return false;
         }
-        TVec2f screen = MR::getStarPointerScreenPositionOrEdge(PLAYER_1);
-        TVec2f layout;
+        Vec2f screen = MR::getStarPointerScreenPositionOrEdge(PLAYER_1);
+        Vec2f layout;
         MR::convertScreenPosToLayoutPos(&layout, screen);
         *pX = layout.x / p->mScaleX;
         *pY = layout.y - p->mBoard->mTranslate.y;
@@ -1088,7 +1109,7 @@ NebulaAchievementBoard::NebulaAchievementBoard()
     : LayoutActor("NebulaAchievementBoard", true), mParts(nullptr), mBackground(nullptr), mIsOpen(false) {
 }
 
-void NebulaAchievementBoard::init(const JMapInfoIter& rIter) {
+void NebulaAchievementBoard::init(const TableIter& /*rIter*/) {
     // A reset while the last scene's board was open never closed it.
     setSharp(SharpBoard, false);
     initLayoutManager("InformationWindow", 0);
@@ -1112,19 +1133,20 @@ void NebulaAchievementBoard::init(const JMapInfoIter& rIter) {
     new (&p->mWindow) NebulaPaneKit();
     new (&p->mButton) NebulaPaneKit();
     Pane* pRoot = pManager->mLayout->mpRootPane;
-    if (pRoot == nullptr || !p->mText.init(pManager->mLayoutHolder) || !p->mButton.init(MR::createAndAddLayoutHolder("BackButton.arc"))) {
-        JUTNativeLog("NebulaAchievementBoard: no InformationWindow or BackButton layout\n");
+    if (pRoot == nullptr || !p->mText.init(pManager->mLayoutHolder, "InformationWindow", pManager->mLayout) ||
+        !p->mButton.init("BackButton", pManager->mLayout)) {
+        nebula_log("NebulaAchievementBoard: no InformationWindow or BackButton layout\n");
         return;
     }
-    const bool ringed = p->mWindow.init(MR::createAndAddLayoutHolder("SysInfoWindowMini.arc"));
+    const bool ringed = p->mWindow.init("SysInfoWindowMini", pManager->mLayout);
     // The information window's own panes stay hidden; the board is built beside them.
-    for (nw4r::lyt::PaneList::Iterator it = pRoot->GetChildList().GetBeginIter(); it != pRoot->GetChildList().GetEndIter(); ++it) {
-        it->SetVisible(false);
+    for (Ui::Pane* pChild : pRoot->GetChildList()) {
+        pChild->SetVisible(false);
     }
 
     // The icons' textures, from the game's files.
     const s32 textureNum = NebulaAchievements::getIconTextureNum();
-    p->mTextures = new nw4r::lyt::TexMap*[textureNum];
+    p->mTextures = new Ui::TexMap*[textureNum];
     for (s32 i = 0; i < textureNum; i++) {
         p->mTextures[i] = nullptr;
         const NebulaAchievementIcon* pIcon = NebulaAchievements::getIconTexture(i);
@@ -1132,7 +1154,7 @@ void NebulaAchievementBoard::init(const JMapInfoIter& rIter) {
             LayoutHolder* pHolder = MR::createAndAddLayoutHolder(pIcon->mArchive);
             void* pTpl = pHolder != nullptr ? pHolder->GetResource('timg', pIcon->mTexture, nullptr) : nullptr;
             if (pTpl != nullptr) {
-                p->mTextures[i] = new nw4r::lyt::TexMap();
+                p->mTextures[i] = new Ui::TexMap();
                 p->mTextures[i]->ReplaceImage(pTpl, 0);
             }
         } else if (MR::isExistResourceInArc(pIcon->mArchive, pIcon->mTexture)) {
@@ -1163,10 +1185,10 @@ void NebulaAchievementBoard::init(const JMapInfoIter& rIter) {
     }
     paint(p->mSummaryTrack, cTrack, cTrack);
     paint(p->mSummaryBar, cGold, cGoldTop);
-    char16_t text[192];
-    NebulaText::get(text, 64, "BoardTitle");
-    setText(p->mTitle, text);
-    setText(p->mTitleShadow, text);
+    MR::Text16 text;
+    getText(text, "BoardTitle");
+    setText(p->mTitle, text.c_str());
+    setText(p->mTitleShadow, text.c_str());
     setTextStyle(p->mTitle, cTitleSize, cGoldTop, cGoldBottom, 3);
     setTextStyle(p->mTitleShadow, cTitleSize, cTextShadow, cTextShadow, 3);
     setGlyph(p->mTitleGlyph, cGlyphCrown, cTitleGlyph);
@@ -1174,25 +1196,25 @@ void NebulaAchievementBoard::init(const JMapInfoIter& rIter) {
     // The tabs and the filter.
     static const char* const cTabIds[TabNum] = {"TabAll", "TabStory", "TabChallenges", "TabExtras", "TabStats"};
     for (s32 i = 0; i < TabNum; i++) {
-        char name[17];
-        nebula_snprintf(name, sizeof(name), "NbTab%d", i);
-        if (!makeChip(p, pBoard, &p->mTabs[i], name, false)) {
+        MR::FormattedName name;
+        name.format("NbTab%d", i);
+        if (!makeChip(p, pBoard, &p->mTabs[i], name.c_str(), false)) {
             p->mBoard = nullptr;
             return;
         }
-        NebulaText::get(text, 48, cTabIds[i]);
-        setText(p->mTabs[i].mText, text);
+        getText(text, cTabIds[i]);
+        setText(p->mTabs[i].mText, text.c_str());
     }
     static const char* const cFilterIds[FilterNum] = {"FilterAll", "FilterUnlocked", "FilterLocked"};
     for (s32 i = 0; i < FilterNum; i++) {
-        char name[17];
-        nebula_snprintf(name, sizeof(name), "NbFlt%d", i);
-        if (!makeChip(p, pBoard, &p->mFilters[i], name, false)) {
+        MR::FormattedName name;
+        name.format("NbFlt%d", i);
+        if (!makeChip(p, pBoard, &p->mFilters[i], name.c_str(), false)) {
             p->mBoard = nullptr;
             return;
         }
-        NebulaText::get(text, 48, cFilterIds[i]);
-        setText(p->mFilters[i].mText, text);
+        getText(text, cFilterIds[i]);
+        setText(p->mFilters[i].mText, text.c_str());
         setTextStyle(p->mFilters[i].mText, cFilterSize, cButtonText, cButtonText, 4);
     }
     p->mTabCount = makeText(p, pBoard, "NbTabCnt", 32);
@@ -1213,41 +1235,41 @@ void NebulaAchievementBoard::init(const JMapInfoIter& rIter) {
     memset(static_cast< void* >(p->mCards), 0, sizeof(Card) * p->mCardNum);
     for (s32 i = 0; i < p->mCardNum; i++) {
         Card& rCard = p->mCards[i];
-        char name[17];
-        nebula_snprintf(name, sizeof(name), "NbC%02d", i);
-        rCard.mRoot = makeGroup(p->mList, name);
+        MR::FormattedName name;
+        name.format("NbC%02d", i);
+        rCard.mRoot = makeGroup(p->mList, name.c_str());
         if (rCard.mRoot == nullptr) {
             p->mCardNum = i;
             break;
         }
-        nebula_snprintf(name, sizeof(name), "NbC%02dF", i);
-        rCard.mFocus = makeWindow(p, rCard.mRoot, name);
-        nebula_snprintf(name, sizeof(name), "NbC%02dS", i);
-        rCard.mShadow = makeWindow(p, rCard.mRoot, name);
-        nebula_snprintf(name, sizeof(name), "NbC%02dB", i);
-        rCard.mBody = makeWindow(p, rCard.mRoot, name);
-        nebula_snprintf(name, sizeof(name), "NbC%02dI", i);
-        rCard.mBadge = makeWindow(p, rCard.mRoot, name);
-        nebula_snprintf(name, sizeof(name), "NbC%02dY", i);
-        rCard.mGlyph = makeText(p, rCard.mRoot, name, 8);
+        name.format("NbC%02dF", i);
+        rCard.mFocus = makeWindow(p, rCard.mRoot, name.c_str());
+        name.format("NbC%02dS", i);
+        rCard.mShadow = makeWindow(p, rCard.mRoot, name.c_str());
+        name.format("NbC%02dB", i);
+        rCard.mBody = makeWindow(p, rCard.mRoot, name.c_str());
+        name.format("NbC%02dI", i);
+        rCard.mBadge = makeWindow(p, rCard.mRoot, name.c_str());
+        name.format("NbC%02dY", i);
+        rCard.mGlyph = makeText(p, rCard.mRoot, name.c_str(), 8);
         const NebulaAchievementIcon* pIcon = NebulaAchievements::getIcon(i);
         const s32 texture = pIcon != nullptr && pIcon->mGlyph == 0 ? NebulaAchievements::findIconTexture(pIcon) : -1;
         if (texture >= 0) {
-            nebula_snprintf(name, sizeof(name), "NbC%02dP", i);
-            rCard.mPicture = makePicture(rCard.mRoot, name, p->mTextures[texture]);
+            name.format("NbC%02dP", i);
+            rCard.mPicture = makePicture(rCard.mRoot, name.c_str(), p->mTextures[texture]);
         }
-        nebula_snprintf(name, sizeof(name), "NbC%02dn", i);
-        rCard.mNameShadow = makeText(p, rCard.mRoot, name, 96);
-        nebula_snprintf(name, sizeof(name), "NbC%02dN", i);
-        rCard.mName = makeText(p, rCard.mRoot, name, 96);
-        nebula_snprintf(name, sizeof(name), "NbC%02dH", i);
-        rCard.mHint = makeText(p, rCard.mRoot, name, 256);
-        nebula_snprintf(name, sizeof(name), "NbC%02dM", i);
-        rCard.mMeta = makeText(p, rCard.mRoot, name, 48);
-        nebula_snprintf(name, sizeof(name), "NbC%02dT", i);
-        rCard.mTrack = makeWindow(p, rCard.mRoot, name);
-        nebula_snprintf(name, sizeof(name), "NbC%02dR", i);
-        rCard.mBar = makeWindow(p, rCard.mRoot, name);
+        name.format("NbC%02dn", i);
+        rCard.mNameShadow = makeText(p, rCard.mRoot, name.c_str(), 96);
+        name.format("NbC%02dN", i);
+        rCard.mName = makeText(p, rCard.mRoot, name.c_str(), 96);
+        name.format("NbC%02dH", i);
+        rCard.mHint = makeText(p, rCard.mRoot, name.c_str(), 256);
+        name.format("NbC%02dM", i);
+        rCard.mMeta = makeText(p, rCard.mRoot, name.c_str(), 48);
+        name.format("NbC%02dT", i);
+        rCard.mTrack = makeWindow(p, rCard.mRoot, name.c_str());
+        name.format("NbC%02dR", i);
+        rCard.mBar = makeWindow(p, rCard.mRoot, name.c_str());
         if (rCard.mFocus == nullptr || rCard.mShadow == nullptr || rCard.mBody == nullptr || rCard.mBadge == nullptr ||
             rCard.mGlyph == nullptr || rCard.mNameShadow == nullptr || rCard.mName == nullptr || rCard.mHint == nullptr ||
             rCard.mMeta == nullptr || rCard.mTrack == nullptr || rCard.mBar == nullptr) {
@@ -1260,9 +1282,10 @@ void NebulaAchievementBoard::init(const JMapInfoIter& rIter) {
         paint(rCard.mBar, cGold, cGoldTop);
 
         // Its name in the played language.
-        NebulaAchievements::getName(text, 96, NebulaAchievements::getId(i));
-        setText(rCard.mName, text);
-        setText(rCard.mNameShadow, text);
+        rCard.mHintText.room(1)[0] = 0;
+        NebulaAchievements::getName(text, NebulaAchievements::getId(i));
+        setText(rCard.mName, text.c_str());
+        setText(rCard.mNameShadow, text.c_str());
         setTextStyle(rCard.mName, cNameSize, cWhite, cWhite, 0);
         setTextStyle(rCard.mNameShadow, cNameSize, cTextShadow, cTextShadow, 0);
         setTextStyle(rCard.mHint, cHintSize, cSubText, cSubText, 0);
@@ -1270,54 +1293,54 @@ void NebulaAchievementBoard::init(const JMapInfoIter& rIter) {
     }
 
     for (s32 i = 0; i < 2; i++) {
-        char name[17];
-        nebula_snprintf(name, sizeof(name), "NbSec%d", i);
-        p->mSections[i] = makeText(p, p->mList, name, 64);
+        MR::FormattedName name;
+        name.format("NbSec%d", i);
+        p->mSections[i] = makeText(p, p->mList, name.c_str(), 64);
         if (p->mSections[i] == nullptr) {
             p->mBoard = nullptr;
             return;
         }
-        NebulaText::get(text, 64, i == 0 ? "StatsFile" : "StatsAllTime");
-        setText(p->mSections[i], text);
+        getText(text, i == 0 ? "StatsFile" : "StatsAllTime");
+        setText(p->mSections[i], text.c_str());
         setTextStyle(p->mSections[i], cSectionSize, cGoldTop, cGoldBottom, 0);
     }
     for (s32 i = 0; i < StatNum; i++) {
         Tile& rTile = p->mTiles[i];
-        char name[17];
-        nebula_snprintf(name, sizeof(name), "NbS%02d", i);
-        rTile.mRoot = makeGroup(p->mList, name);
+        MR::FormattedName name;
+        name.format("NbS%02d", i);
+        rTile.mRoot = makeGroup(p->mList, name.c_str());
         if (rTile.mRoot == nullptr) {
             p->mBoard = nullptr;
             return;
         }
-        nebula_snprintf(name, sizeof(name), "NbS%02dB", i);
-        rTile.mBody = makeWindow(p, rTile.mRoot, name);
-        nebula_snprintf(name, sizeof(name), "NbS%02dY", i);
-        rTile.mGlyph = makeText(p, rTile.mRoot, name, 8);
+        name.format("NbS%02dB", i);
+        rTile.mBody = makeWindow(p, rTile.mRoot, name.c_str());
+        name.format("NbS%02dY", i);
+        rTile.mGlyph = makeText(p, rTile.mRoot, name.c_str(), 8);
         if (i == StatJumps || i == StatLivesLost || i == StatChapters) {
             // A picture: the player's face (Mario's or Luigi's, chosen when the board opens), the storybook's cover.
             const char* pTexture = i == StatChapters ? "PictureBookCoverFront.bti" : "mymiimario.tpl";
             for (s32 t = 0; t < textureNum; t++) {
-                if (strcmp(NebulaAchievements::getIconTexture(t)->mTexture, pTexture) == 0 && p->mTextures[t] != nullptr) {
-                    nebula_snprintf(name, sizeof(name), "NbS%02dP", i);
-                    rTile.mPicture = makePicture(rTile.mRoot, name, p->mTextures[t]);
+                if (MR::isEqualString(NebulaAchievements::getIconTexture(t)->mTexture, pTexture) && p->mTextures[t] != nullptr) {
+                    name.format("NbS%02dP", i);
+                    rTile.mPicture = makePicture(rTile.mRoot, name.c_str(), p->mTextures[t]);
                 }
             }
         }
-        nebula_snprintf(name, sizeof(name), "NbS%02dv", i);
-        rTile.mValueShadow = makeText(p, rTile.mRoot, name, 48);
-        nebula_snprintf(name, sizeof(name), "NbS%02dV", i);
-        rTile.mValue = makeText(p, rTile.mRoot, name, 48);
-        nebula_snprintf(name, sizeof(name), "NbS%02dL", i);
-        rTile.mLabel = makeText(p, rTile.mRoot, name, 64);
+        name.format("NbS%02dv", i);
+        rTile.mValueShadow = makeText(p, rTile.mRoot, name.c_str(), 48);
+        name.format("NbS%02dV", i);
+        rTile.mValue = makeText(p, rTile.mRoot, name.c_str(), 48);
+        name.format("NbS%02dL", i);
+        rTile.mLabel = makeText(p, rTile.mRoot, name.c_str(), 64);
         if (rTile.mBody == nullptr || rTile.mGlyph == nullptr || rTile.mValueShadow == nullptr || rTile.mValue == nullptr ||
             rTile.mLabel == nullptr) {
             p->mBoard = nullptr;
             return;
         }
         paint(rTile.mBody, cTileFill, cTileRing);
-        NebulaText::get(text, 64, cStatLabels[i]);
-        setText(rTile.mLabel, text);
+        getText(text, cStatLabels[i]);
+        setText(rTile.mLabel, text.c_str());
         setTextStyle(rTile.mValueShadow, cValueSize, cTextShadow, cTextShadow, 0);
         setTextStyle(rTile.mValue, cValueSize, cWhite, cWhite, 0);
         setTextStyle(rTile.mLabel, cLabelSize, cSubText, cSubText, 0);
@@ -1345,8 +1368,8 @@ void NebulaAchievementBoard::init(const JMapInfoIter& rIter) {
         return;
     }
     setGlyph(p->mBack.mGlyph, cGlyphB, cBackGlyph);
-    NebulaText::get(text, 48, "BoardBack");
-    const char16_t* pBack = text;
+    getText(text, "BoardBack");
+    const char16_t* pBack = text.c_str();
     while (*pBack == u' ') {
         pBack++;
     }
@@ -1354,16 +1377,16 @@ void NebulaAchievementBoard::init(const JMapInfoIter& rIter) {
     setTextStyle(p->mBack.mText, cFooterSize + 1.0f, cButtonText, cButtonText, 3);
     static const char* const cHintIds[HintNum] = {"HintTabs", "HintMove"};
     for (s32 i = 0; i < HintNum; i++) {
-        char name[17];
-        nebula_snprintf(name, sizeof(name), "NbHint%dY", i);
-        p->mHintGlyphs[i] = makeText(p, pBoard, name, 16);
-        nebula_snprintf(name, sizeof(name), "NbHint%dT", i);
-        p->mHintLabels[i] = makeText(p, pBoard, name, 48);
+        MR::FormattedName name;
+        name.format("NbHint%dY", i);
+        p->mHintGlyphs[i] = makeText(p, pBoard, name.c_str(), 16);
+        name.format("NbHint%dT", i);
+        p->mHintLabels[i] = makeText(p, pBoard, name.c_str(), 48);
         if (p->mHintGlyphs[i] == nullptr || p->mHintLabels[i] == nullptr) {
             p->mBoard = nullptr;
             return;
         }
-        char16_t glyphs[16] = {0};
+        char16_t glyphs[16] = {0};  // two picture font tags (3 units each) and the terminator
         char16_t* q = glyphs;
         if (i == HintTabs) {
             q = MR::addPictureFontTag(q, cGlyphMinus);
@@ -1375,8 +1398,8 @@ void NebulaAchievementBoard::init(const JMapInfoIter& rIter) {
         p->mHintGlyphs[i]->SetFontSize(glyphFontSize(p->mHintGlyphs[i], cFooterGlyph));
         p->mHintGlyphs[i]->mCharSpace = 3.0f;
         setAnchor(p->mHintGlyphs[i], 4);
-        NebulaText::get(text, 48, cHintIds[i]);
-        setText(p->mHintLabels[i], text);
+        getText(text, cHintIds[i]);
+        setText(p->mHintLabels[i], text.c_str());
         setTextStyle(p->mHintLabels[i], cFooterSize, cSubText, cSubText, 5);
     }
 
@@ -1386,8 +1409,7 @@ void NebulaAchievementBoard::init(const JMapInfoIter& rIter) {
     }
 
     mParts = p;
-    pManager->rebuildPaneInfo();
-    JUTNativeLog("NebulaAchievementBoard: %d cards, %s windows\n", p->mCardNum, ringed ? "ringed" : "plain");
+    nebula_log("NebulaAchievementBoard: %d cards, %s windows\n", p->mCardNum, ringed ? "ringed" : "plain");
 }
 
 void NebulaAchievementBoard::open() {
@@ -1440,23 +1462,26 @@ void NebulaAchievementBoard::open() {
             rCard.mGoal = 0;
         }
         if (rCard.mUnlocked) {
-            char id[48];
-            nebula_snprintf(id, sizeof(id), "AchievementHint.%s", NebulaAchievements::getId(i));
-            NebulaText::get(rCard.mHintText, 192, id);
+            MR::FormattedName id("AchievementHint.%s", NebulaAchievements::getId(i));
+            getText(rCard.mHintText, id.c_str());
         } else if (rCard.mGoal > 0) {
             // Its progress bar says enough.
             rCard.mHintText[0] = 0;
         } else {
             // What earns it stays a surprise until it is unlocked.
-            NebulaText::get(rCard.mHintText, 192, "AchievementLocked");
+            getText(rCard.mHintText, "AchievementLocked");
         }
-        char16_t meta[48] = {0};
+        // A save's count below 0 shows as 0 (formatCount takes it as unsigned).
+        if (rCard.mCurrent < 0) {
+            rCard.mCurrent = 0;
+        }
+        MR::Text16 meta;
         if (rCard.mDate > 1) {
-            formatDate(meta, 48, rCard.mDate);
+            formatDate(meta, rCard.mDate);
         } else if (rCard.mGoal > 0) {
-            formatCount(meta, 48, rCard.mCurrent, rCard.mGoal);
+            formatCount(meta, rCard.mCurrent, rCard.mGoal);
         }
-        setText(rCard.mMeta, meta);
+        setText(rCard.mMeta, meta.c_str());
         const bool on = rCard.mUnlocked;
         paint(rCard.mBody, on ? cCardFill : cLockedFill, on ? cCardRing : cLockedRing);
         paint(rCard.mBadge, on ? cBadgeFill : cLockedBadgeFill, on ? cCardRing : cLockedRing);
@@ -1469,16 +1494,16 @@ void NebulaAchievementBoard::open() {
     }
 
     // The header: how many are unlocked.
-    char16_t text[48];
-    formatCount(text, 48, p->mUnlockedNum, p->mCardNum);
-    setText(p->mSummary, text);
+    MR::Text16 text;
+    formatCount(text, p->mUnlockedNum, p->mCardNum);
+    setText(p->mSummary, text.c_str());
     setTextStyle(p->mSummary, cSummarySize, cWhite, cWhite, 5);
-    char16_t percent[8];
-    formatInt(percent, 8, p->mCardNum > 0 ? p->mUnlockedNum * 100 / p->mCardNum : 0, 1);
+    MR::Text16 percent;
+    formatInt(percent, p->mCardNum > 0 ? p->mUnlockedNum * 100 / p->mCardNum : 0, 1);
     const char* const percentNames[] = {"n"};
-    const char16_t* const percentValues[] = {percent};
-    fill(text, 48, "BoardPercent", percentNames, percentValues, 1);
-    setText(p->mPercent, text);
+    const char16_t* const percentValues[] = {percent.c_str()};
+    fill(text, "BoardPercent", percentNames, percentValues, 1);
+    setText(p->mPercent, text.c_str());
     setTextStyle(p->mPercent, cSummarySize, cGoldTop, cGoldBottom, 5);
 
     // The stats page's numbers.
@@ -1486,9 +1511,9 @@ void NebulaAchievementBoard::open() {
     const NebulaAchievementIcon* pBook = nullptr;
     for (s32 i = 0; i < NebulaAchievements::getIconTextureNum(); i++) {
         const NebulaAchievementIcon* pIcon = NebulaAchievements::getIconTexture(i);
-        if (strcmp(pIcon->mTexture, file.mMario ? "mymiimario.tpl" : "mymiiluigi.tpl") == 0) {
+        if (MR::isEqualString(pIcon->mTexture, file.mMario ? "mymiimario.tpl" : "mymiiluigi.tpl")) {
             pFace = pIcon;
-        } else if (strcmp(pIcon->mTexture, "PictureBookCoverFront.bti") == 0) {
+        } else if (MR::isEqualString(pIcon->mTexture, "PictureBookCoverFront.bti")) {
             pBook = pIcon;
         }
     }
@@ -1555,21 +1580,21 @@ void NebulaAchievementBoard::open() {
             count = NebulaAchievements::getStat(NebulaStat_PlaySeconds), glyph = 'W';
             break;
         }
-        char16_t value[48];
+        MR::Text16 value;
         if (i == StatPlayTime) {
-            char16_t hours[16], minutes[8];
-            formatNumber(hours, 16, count / 3600);
-            formatInt(minutes, 8, static_cast< s32 >(count / 60 % 60), 1);
+            MR::Text16 hours, minutes;
+            formatNumber(hours, count / 3600);
+            formatInt(minutes, static_cast< s32 >(count / 60 % 60), 1);
             const char* const names[] = {"h", "m"};
-            const char16_t* const values[] = {hours, minutes};
-            fill(value, 48, "PlayTime", names, values, 2);
+            const char16_t* const values[] = {hours.c_str(), minutes.c_str()};
+            fill(value, "PlayTime", names, values, 2);
         } else if (current >= 0 && goal > 0) {
-            formatCount(value, 48, current, goal);
+            formatCount(value, current, goal);
         } else {
-            formatNumber(value, 48, count);
+            formatNumber(value, count);
         }
-        setText(rTile.mValue, value);
-        setText(rTile.mValueShadow, value);
+        setText(rTile.mValue, value.c_str());
+        setText(rTile.mValueShadow, value.c_str());
         if (glyph == 0) {
             setIcon(p, rTile.mGlyph, rTile.mPicture, pPicture, 36.0f, cWhite);
         } else {

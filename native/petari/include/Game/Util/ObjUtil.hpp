@@ -1,14 +1,14 @@
 #pragma once
 
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 #include "Game/System/NebulaInput.hpp"
 #include <NebulaGpu.h>
 
 class BenefitItemLifeUp;
 class BenefitItemObj;
 class BenefitItemOneUp;
-class JMapInfo;
-class JMapInfoIter;
+class Table;
+class TableIter;
 class LayoutActor;
 class LiveActor;
 class ModelObj;
@@ -24,14 +24,14 @@ namespace MR {
 };  // namespace MR
 
 namespace MR {
-    bool isJudgedToClipFrustum(const TVec3f&, f32);
-    bool isJudgedToClipFrustum100m(const TVec3f&, f32);
-    bool isJudgedToClipFrustum300m(const TVec3f&, f32);
-    bool isJudgedToNearClip(const TVec3f&, f32);
-    bool isInWater(const TVec3f&);
-    bool isInWater(const LiveActor*, const TVec3f&);
-    bool isInDeath(const TVec3f&);
-    bool isInDarkMatter(const TVec3f&);
+    bool isJudgedToClipFrustum(const Vec3f&, f32);
+    bool isJudgedToClipFrustum100m(const Vec3f&, f32);
+    bool isJudgedToClipFrustum300m(const Vec3f&, f32);
+    bool isJudgedToNearClip(const Vec3f&, f32);
+    bool isInWater(const Vec3f&);
+    bool isInWater(const LiveActor*, const Vec3f&);
+    bool isInDeath(const Vec3f&);
+    bool isInDarkMatter(const Vec3f&);
     void connectToScene(LiveActor*, int, int, int, int);
     void connectToScene(NameObj*, int, int, int, int);
     void connectToSceneCollisionMapObj(LiveActor*);
@@ -122,49 +122,49 @@ namespace MR {
     const ResTIMG* loadTexFromArc(const char*, const char*);
     const ResTIMG* loadTexFromArc(const char*);
     bool isExistFileInArc(const ResourceHolder*, const char*, ...) ATTRIBUTE_PRINTF(2, 3);
-    JMapInfo* createCsvParser(const ResourceHolder*, const char*, ...) ATTRIBUTE_PRINTF(2, 3);
-    JMapInfo* createCsvParser(const char*, const char*, ...) ATTRIBUTE_PRINTF(2, 3);
-    JMapInfo* tryCreateCsvParser(const LiveActor*, const char*, ...) ATTRIBUTE_PRINTF(2, 3);
-    JMapInfo* tryCreateCsvParser(const ResourceHolder*, const char*, ...) ATTRIBUTE_PRINTF(2, 3);
-    s32 getCsvDataElementNum(const JMapInfo*);
-    void getCsvDataStr(const char**, const JMapInfo*, const char*, s32);
-    void getCsvDataStrOrNULL(const char**, const JMapInfo*, const char*, s32);
-    void getCsvDataS32(s32*, const JMapInfo*, const char*, s32);
-    void getCsvDataU8(u8*, const JMapInfo*, const char*, s32);
-    void getCsvDataF32(f32*, const JMapInfo*, const char*, s32);
-    void getCsvDataBool(bool*, const JMapInfo*, const char*, s32);
-    void getCsvDataVec(Vec*, const JMapInfo*, const char*, s32);
-    void getCsvDataColor(NebulaColor8*, const JMapInfo*, const char*, s32);
+    Table* createCsvParser(const ResourceHolder*, const char*, ...) ATTRIBUTE_PRINTF(2, 3);
+    Table* createCsvParser(const char*, const char*, ...) ATTRIBUTE_PRINTF(2, 3);
+    Table* tryCreateCsvParser(const LiveActor*, const char*, ...) ATTRIBUTE_PRINTF(2, 3);
+    Table* tryCreateCsvParser(const ResourceHolder*, const char*, ...) ATTRIBUTE_PRINTF(2, 3);
+    s32 getCsvDataElementNum(const Table*);
+    void getCsvDataStr(const char**, const Table*, const char*, s32);
+    void getCsvDataStrOrNULL(const char**, const Table*, const char*, s32);
+    void getCsvDataS32(s32*, const Table*, const char*, s32);
+    void getCsvDataU8(u8*, const Table*, const char*, s32);
+    void getCsvDataF32(f32*, const Table*, const char*, s32);
+    void getCsvDataBool(bool*, const Table*, const char*, s32);
+    void getCsvDataVec(Vec*, const Table*, const char*, s32);
+    void getCsvDataColor(NebulaColor8*, const Table*, const char*, s32);
     bool isStageStateScenarioOpeningCamera();
     bool isStageStatePowerStarAppeared();
     void declarePowerStar(const NameObj*);
     void declarePowerStar(const NameObj*, s32);
     void declarePowerStarCoin100();
-    void appearPowerStarContinueCurrentDemo(const NameObj*, const TVec3f&);
+    void appearPowerStarContinueCurrentDemo(const NameObj*, const Vec3f&);
     void appearPowerStarWithoutDemo(const NameObj*);
     void requestAppearPowerStar(const NameObj*);
-    void requestAppearPowerStar(const NameObj*, const TVec3f&);
-    void requestAppearPowerStar(const NameObj*, s32, const TVec3f&);
+    void requestAppearPowerStar(const NameObj*, const Vec3f&);
+    void requestAppearPowerStar(const NameObj*, s32, const Vec3f&);
     void requestAppearPowerStar(const NameObj*, const LiveActor*, f32);
     void requestAppearPowerStarCoin100();
     bool isEndPowerStarAppearDemo(const NameObj*);
     ModelObj* createPowerStarDemoModel(const NameObj*, const char*, MtxPtr);
     void declareCoin(const NameObj*, s32);
     s32 getDeclareRemnantCoinCount(const NameObj*);
-    void hopCoin(const NameObj*, const TVec3f&, const TVec3f&);
-    void appearCoinFix(const NameObj*, const TVec3f&, s32);
-    void appearCoinPop(const NameObj*, const TVec3f&, s32);
-    void appearCoinPopToDirection(const NameObj*, const TVec3f&, const TVec3f&, s32);
-    void appearCoinToVelocity(const NameObj*, const TVec3f&, const TVec3f&, s32);
-    void appearCoinCircle(const NameObj*, const TVec3f&, s32);
+    void hopCoin(const NameObj*, const Vec3f&, const Vec3f&);
+    void appearCoinFix(const NameObj*, const Vec3f&, s32);
+    void appearCoinPop(const NameObj*, const Vec3f&, s32);
+    void appearCoinPopToDirection(const NameObj*, const Vec3f&, const Vec3f&, s32);
+    void appearCoinToVelocity(const NameObj*, const Vec3f&, const Vec3f&, s32);
+    void appearCoinCircle(const NameObj*, const Vec3f&, s32);
     void declareStarPiece(const NameObj*, s32);
     s32 getDeclareRemnantStarPieceCount(const NameObj*);
     s32 getDeclareRemnantStarPieceCountNotExist(const NameObj*);
     void declareStarPieceReceiver(const NameObj*, s32);
     void clearGotCountStarPieceReceiver(const NameObj*);
-    void hopStarPiece(const NameObj*, const TVec3f&, const TVec3f&);
-    bool appearStarPiece(const NameObj*, const TVec3f&, s32, f32, f32, bool);
-    bool appearStarPieceToDirection(const NameObj*, const TVec3f&, const TVec3f&, s32, f32, f32, bool);
+    void hopStarPiece(const NameObj*, const Vec3f&, const Vec3f&);
+    bool appearStarPiece(const NameObj*, const Vec3f&, s32, f32, f32, bool);
+    bool appearStarPieceToDirection(const NameObj*, const Vec3f&, const Vec3f&, s32, f32, f32, bool);
     void initStarPieceGetCSSound();
     BenefitItemOneUp* createKinokoOneUp();
     void appearKinokoOneUpPop(BenefitItemObj*, MtxPtr, f32);
@@ -191,13 +191,13 @@ namespace MR {
     void stopShakingCamera(NameObj*);
     bool isName(const NameObj*, const char*);
     bool isSame(const NameObj*, const NameObj*);
-    bool tryRegisterNamePosLinkObj(const NameObj*, const JMapInfoIter&);
+    bool tryRegisterNamePosLinkObj(const NameObj*, const TableIter&);
     bool findNamePos(const char*, MtxPtr);
-    bool findNamePos(const char*, TVec3f*, TVec3f*);
+    bool findNamePos(const char*, Vec3f*, Vec3f*);
     void findNamePosOnGround(const char*, MtxPtr);
     bool tryFindNamePos(const char*, MtxPtr);
-    bool tryFindNamePos(const char*, TVec3f*, TVec3f*);
+    bool tryFindNamePos(const char*, Vec3f*, Vec3f*);
     void findLinkNamePos(const NameObj*, const char*, MtxPtr);
     bool tryFindLinkNamePos(const NameObj*, const char*, MtxPtr);
-    bool tryFindLinkNamePos(const NameObj*, const char*, TVec3f*, TVec3f*);
+    bool tryFindLinkNamePos(const NameObj*, const char*, Vec3f*, Vec3f*);
 };  // namespace MR

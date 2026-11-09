@@ -1,62 +1,73 @@
-#include <JSystem/J3DGraphBase/J3DNativeMaterial.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
-#include <nebula_cooked_material.h>
+#include "Game/Render/Material.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
+#include "Game/Render/FrameList.hpp"
+#include "Game/Render/TypedDraw.hpp"
 #include "Game/MapObj/FlexibleSphere.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
-#include "Game/Player/J3DModelX.hpp"
+#include "Game/Player/PlayerModel.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/DemoUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MapPartsUtil.hpp"
 #include "Game/Util/ModelUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
-#include <JSystem/J3DGraphBase/J3DShape.hpp>
+#include "Game/Render/ModelData.hpp"
 #include <nebula_math.h>
+#include "Game/Util/StringUtil.hpp"
 
-#define GROW true
-#define SHRINK false
+namespace {
+    // Placement args 0-2 are scales in ten-thousandths.
+    const f32 cArgScaleUnit = 10000.0f;
+    const f32 cDefaultMaxScale = 1.0f;
+    const f32 cDefaultMinScale = 0.1f;
+    const f32 cDefaultScaleRate = 0.002f;
+    const f32 cQuakeHearDistance = 4000.0f;
+    const u16 cQuakeFrames = 60;
+    const s32 cTimerSoundInterval = NebulaFrameClock::stepsOfSeconds(1);
 
-f32 scale = 1.0f;
-void shapeCallBack(J3DShape* pShape) {
-    Mtx mtx;
-    NebulaMtxScale(mtx, scale, scale, 0.0f);
-    J3DNativeShape::setTexture(0, mtx, 2);
-    J3DNativeShape::flushState();
-    J3DNativeMaterial::applyPass(NEBULA_PASS_FLEXIBLE_COORDINATES);
-    J3DPass::textureMatrix(0, 0);
-    J3DPass::textureMatrix(1, 0);
-    J3DPass::textureMatrix(2, 0);
-}
+    // The texture coordinate scale of the sphere being drawn: the surface pattern keeps its size as the sphere shrinks.
+    // Set by draw() just before directDraw() runs the hook.
+    f32 sCoordScale = 1.0f;
+
+    void flexibleCoordinates(MaterialDraw& rDraw) {
+        Mtx mtx;
+        NebulaMtxScale(mtx, sCoordScale, sCoordScale, 0.0f);
+
+        rDraw.applyPass(NEBULA_FORM_PASS_FLEXIBLE_COORDINATES);
+        rDraw.setCoordinate(0, mtx);
+        rDraw.setCoordinate(1, mtx);
+        rDraw.setCoordinate(2, mtx);
+    }
+};  // namespace
 
 FlexibleSphere::FlexibleSphere(const char* pName) : LiveActor(pName), mTimer() {
 }
 
-void FlexibleSphere::init(const JMapInfoIter& rIter) {
+// Grows to its max scale and shrinks to its min, quaking at each end, once the player stands on it (or switch A turns
+// on). Arg 3 = 1 shrinks only, with a countdown, and vanishes at the min.
+void FlexibleSphere::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
 
-    char arcName[256];
-    MR::getMapPartsObjectNameIfExistShapeID(arcName, 256, rIter);
-    initModelManagerWithAnm(arcName, nullptr, false);
+    MR::FormattedName arcName;
+    MR::getMapPartsObjectNameIfExistShapeID(arcName, rIter);
+    initModelManagerWithAnm(arcName.c_str(), nullptr, false);
 
     initHitSensor(1);
-    MR::addHitSensorMapObj(this, "body", 8, 1000.0f, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorMapObj(this, "body", 8, 1000.0f, Vec3f(0.0f, 0.0f, 0.0f));
     MR::invalidateHitSensors(this);
 
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
 
     initSound(4, false);
 
-    MR::initCollisionParts(this, arcName, getSensor("body"), nullptr);
+    MR::initCollisionParts(this, arcName.c_str(), getSensor("body"), nullptr);
 
-    mGrowDirection = GROW;
+    mIsGrowing = true;
 
     MR::connectToScene(this, MR::MovementType_Planet, MR::CalcAnimType_Planet, MR::DrawBufferType_None, MR::DrawType_FlexibleSphere);
 
@@ -64,8 +75,9 @@ void FlexibleSphere::init(const JMapInfoIter& rIter) {
     MR::setClippingTypeSphere(this, 3000.0f);
     MR::setClippingFarMax(this);
 
-    J3DModelX* model = static_cast< J3DModelX* >(MR::getJ3DModel(this));
-    model->mShapeCallback = shapeCallBack;
+    // ModelUtil makes FlexibleSphere models PlayerModels.
+    PlayerModel* pModel = static_cast< PlayerModel* >(MR::getModel(this));
+    pModel->setDrawHook(flexibleCoordinates);
 
     if (MR::isValidInfo(rIter)) {
         MR::useStageSwitchReadA(this, rIter);
@@ -74,52 +86,44 @@ void FlexibleSphere::init(const JMapInfoIter& rIter) {
 
     makeActorAppeared();
 
-    mMaxScale = 1.0f;
-    mMinScale = 0.1f;
-    mScaleRate = 0.002f;
+    mMaxScale = cDefaultMaxScale;
+    mMinScale = cDefaultMinScale;
+    mScaleRate = cDefaultScaleRate;
     mVanishOnShrinkEnd = false;
-    _90 = true;
 
     if (MR::isValidInfo(rIter)) {
-        s32 arg0 = -1;
-        s32 arg1 = -1;
-        s32 arg2 = -1;
-        s32 arg3 = -1;
-        s32 arg4 = -1;
+        s32 maxScale = -1;
+        s32 minScale = -1;
+        s32 scaleRate = -1;
+        s32 vanishType = -1;
 
-        MR::getJMapInfoArg0NoInit(rIter, &arg0);
-        MR::getJMapInfoArg1NoInit(rIter, &arg1);
-        MR::getJMapInfoArg2NoInit(rIter, &arg2);
-        MR::getJMapInfoArg3NoInit(rIter, &arg3);
-        MR::getJMapInfoArg4NoInit(rIter, &arg4);
+        MR::getPlacementArg0NoInit(rIter, &maxScale);
+        MR::getPlacementArg1NoInit(rIter, &minScale);
+        MR::getPlacementArg2NoInit(rIter, &scaleRate);
+        MR::getPlacementArg3NoInit(rIter, &vanishType);
 
-        if (arg0 != -1) {
-            mMaxScale = arg0 / 10000.0f;
+        if (maxScale != -1) {
+            mMaxScale = maxScale / cArgScaleUnit;
         }
 
-        if (arg1 != -1) {
-            mMinScale = arg1 / 10000.0f;
+        if (minScale != -1) {
+            mMinScale = minScale / cArgScaleUnit;
         }
 
-        if (arg2 != -1) {
-            mScaleRate = arg2 / 10000.0f;
+        if (scaleRate != -1) {
+            mScaleRate = scaleRate / cArgScaleUnit;
         }
 
-        if (arg3 == 1) {
-            mVanishOnShrinkEnd = true;
-        }
-
-        if (arg4 == 1) {
-            _90 = false;
-        }
+        mVanishOnShrinkEnd = vanishType == 1;
     }
 
     mShakeTimer = 0;
     mEnabled = false;
 
     if (mVanishOnShrinkEnd) {
-        mGrowDirection = SHRINK;
-        mTimer = (mScale.x - mMinScale) / mScaleRate;
+        mIsGrowing = false;
+        // A rate of 0 (placement arg 2) never shrinks: no steps to count.
+        mTimer = mScaleRate > 0.0f ? static_cast< s32 >((mScale.x - mMinScale) / mScaleRate) : 0;
     }
 }
 
@@ -135,111 +139,125 @@ void FlexibleSphere::kill() {
     LiveActor::kill();
 }
 
+// Nothing moves while a quake shakes the camera.
 void FlexibleSphere::control() {
     if (mShakeTimer != 0) {
-        if (MR::calcDistanceToPlayer(mPosition) < 4000.0f) {
-            MR::startLevelSound(this, "SE_AT_LV_EARTHQUAKE");
-        }
+        updateQuake();
+        return;
+    }
 
-        if (--mShakeTimer == 0) {
-            MR::stopShakingCamera(this);
-            MR::validateClipping(this);
+    if (!mEnabled && !tryStart()) {
+        return;
+    }
+
+    // Equal limits (placement args 0 and 1) give the sound no range, not a division by 0.
+    const f32 scaleRange = mMaxScale - mMinScale;
+    MR::startLevelSound(this, "SE_OJ_LV_FLEX_SPHERE_MOVE", scaleRange != 0.0f ? ((mScale.x - mMinScale) / scaleRange) * 100.0f : 0.0f);
+
+    f32 scale = mScale.x;
+
+    if (mIsGrowing) {
+        if (scale < mMaxScale) {
+            scale = scale + mScaleRate;
+            mScale.set(scale);
+        } else {
+            mIsGrowing = false;
+            startQuake();
         }
         return;
     }
 
-    if (!mEnabled) {
-        if (MR::isValidSwitchA(this)) {
-            if (MR::isOnSwitchA(this)) {
-                mEnabled = true;
-                if (MR::isRegisteredEffect(this, "Wind")) {
-                    MR::emitEffect(this, "Wind");
-                }
-            } else {
-                return;
-            }
-        } else {
-            if (MR::isActorOnPlayer(this)) {
-                mEnabled = true;
-            } else {
-                return;
-            }
-        }
-    }
+    if (scale > mMinScale) {
+        scale = scale - mScaleRate;
+        mScale.set(scale);
 
-    MR::startLevelSound(this, "SE_OJ_LV_FLEX_SPHERE_MOVE", ((mScale.x - mMinScale) / (mMaxScale - mMinScale)) * 100.0f);
-
-    bool quake = false;
-    if (mGrowDirection != SHRINK) {
-        f32 scale = mScale.x;
-        if (scale < mMaxScale) {
-            scale = scale + mScaleRate;
-            mScale.x = scale;
-            mScale.y = scale;
-            mScale.z = scale;
-        } else {
-            mGrowDirection = SHRINK;
-            quake = true;
+        if (mVanishOnShrinkEnd) {
+            updateVanishTimer();
         }
+    } else if (mVanishOnShrinkEnd) {
+        MR::startSystemSE("SE_SY_TIMER_A_0");
+        MR::startSound(this, "SE_OJ_FLEX_SPHERE_VANISH");
+        kill();
     } else {
-        // mGrowDirection == SHRINK
-        f32 scale = mScale.x;
-        if (scale > mMinScale) {
-            bool vanishOnEnd = mVanishOnShrinkEnd;
-            scale = scale - mScaleRate;
-            mScale.x = scale;
-            mScale.y = scale;
-            mScale.z = scale;
+        mIsGrowing = true;
+        startQuake();
+    }
+}
 
-            if (vanishOnEnd && mTimer > 0) {
-                if (!MR::isPlayerDead()) {
-                    if (!MR::isPowerStarGetDemoActive() && mTimer % 60 == 0) {
-                        if (mTimer <= 120) {
-                            MR::startSystemSE("SE_SY_TIMER_A_QUASI_0");
-                        } else if (mTimer <= 600) {
-                            MR::startSystemSE("SE_SY_TIMER_A_1");
-                        } else {
-                            MR::startSystemSE("SE_SY_TIMER_A_2");
-                        }
-                    }
-                }
-                mTimer--;
-            }
+// Switch A when it has one, else the player standing on it.
+bool FlexibleSphere::tryStart() {
+    if (MR::isValidSwitchA(this)) {
+        if (!MR::isOnSwitchA(this)) {
+            return false;
+        }
 
+        mEnabled = true;
+
+        if (MR::isRegisteredEffect(this, "Wind")) {
+            MR::emitEffect(this, "Wind");
+        }
+
+        return true;
+    }
+
+    if (!MR::isActorOnPlayer(this)) {
+        return false;
+    }
+
+    mEnabled = true;
+    return true;
+}
+
+// Ticks once a second, faster-sounding in the last ten seconds and the last two; quiet while the player is dead or a star
+// is being collected.
+void FlexibleSphere::updateVanishTimer() {
+    if (mTimer <= 0) {
+        return;
+    }
+
+    if (!MR::isPlayerDead() && !MR::isPowerStarGetDemoActive() && mTimer % cTimerSoundInterval == 0) {
+        if (mTimer <= 120) {
+            MR::startSystemSE("SE_SY_TIMER_A_QUASI_0");
+        } else if (mTimer <= 600) {
+            MR::startSystemSE("SE_SY_TIMER_A_1");
         } else {
-            if (mVanishOnShrinkEnd) {
-                MR::startSystemSE("SE_SY_TIMER_A_0");
-                MR::startSound(this, "SE_OJ_FLEX_SPHERE_VANISH");
-                kill();
-            } else {
-                mGrowDirection = GROW;
-                quake = true;
-            }
+            MR::startSystemSE("SE_SY_TIMER_A_2");
         }
     }
 
-    if (quake && mShakeTimer == 0) {
-        mShakeTimer = 60;
-        if (MR::calcDistanceToPlayer(mPosition) < 4000.0f) {
-            MR::shakeCameraInfinity(this, 0.2f, 3.0f);
-            MR::invalidateClipping(this);
-        }
+    mTimer--;
+}
 
-        if (MR::isActorOnPlayer(this)) {
-            MR::tryRumblePad(this, "\203\175\203\212\203\111[\202\265\202\321\202\352]" /* マリオ[しびれ] */, PLAYER_1);
-        }
+void FlexibleSphere::startQuake() {
+    mShakeTimer = cQuakeFrames;
+
+    if (MR::calcDistanceToPlayer(mPosition) < cQuakeHearDistance) {
+        MR::shakeCameraInfinity(this, 0.2f, 3.0f);
+        MR::invalidateClipping(this);
+    }
+
+    if (MR::isActorOnPlayer(this)) {
+        MR::tryRumblePad(this, "マリオ[しびれ]", PLAYER_1);
+    }
+}
+
+void FlexibleSphere::updateQuake() {
+    if (MR::calcDistanceToPlayer(mPosition) < cQuakeHearDistance) {
+        MR::startLevelSound(this, "SE_AT_LV_EARTHQUAKE");
+    }
+
+    if (--mShakeTimer == 0) {
+        MR::stopShakingCamera(this);
+        MR::validateClipping(this);
     }
 }
 
 void FlexibleSphere::draw() const {
     if (!MR::isDead(this)) {
-        J3DModelX* model = static_cast< J3DModelX* >(MR::getJ3DModel(this));
-        model->viewCalc2();
-        scale = 0.05f / mScale.x + 0.95f;
-        model->directDraw(nullptr);
+        PlayerModel* pModel = static_cast< PlayerModel* >(MR::getModel(this));
+        pModel->viewCalc2();
+        // A sphere shrunk to a scale of 0 (a minimum of 0 in placement arg 1) keeps the plain pattern size.
+        sCoordScale = mScale.x > 0.0f ? 0.05f / mScale.x + 0.95f : 1.0f;
+        pModel->directDraw();
     }
-}
-
-bool FlexibleSphere::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
-    return false;
 }

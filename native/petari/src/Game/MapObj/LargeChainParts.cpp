@@ -12,7 +12,7 @@ void LargeChainParts::breakChainParts() {
     kill();
 }
 
-void LargeChainParts::initChainParts(TVec3f* pPos, TVec3f* pRot, TVec3f* pScale, bool isFixedPoint) {
+void LargeChainParts::initChainParts(Vec3f* pPos, Vec3f* pRot, Vec3f* pScale, bool isFixedPoint) {
     mPosition.set(*pPos);
     mRotation.set(*pRot);
     mScale.set(*pScale);
@@ -34,7 +34,7 @@ void LargeChainParts::initChainParts(TVec3f* pPos, TVec3f* pRot, TVec3f* pScale,
         MR::initCollisionParts(this, "LargeChain", getSensor("body"), nullptr);
     }
 
-    initEffectKeeper(0, "LargeChain", false);
+    initEffectKeeper(0, "LargeChain");
     initSound(2, false);
 
     makeActorAppeared();

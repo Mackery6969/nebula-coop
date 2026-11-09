@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class CameraTargetMtx;
 class ModelObj;
@@ -10,15 +10,13 @@ class ProloguePictureBook;
 
 class PrologueDirector : public LiveActor {
 public:
-    /// @brief Creates a new `PrologueDirector`.
-    /// @param pName A pointer to the null-terminated name of the object.
     PrologueDirector(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void initAfterPlacement();
-    virtual void appear();
-    virtual void kill();
-    virtual void control();
+    virtual void init(const TableIter& rIter) override;
+    virtual void initAfterPlacement() override;
+    virtual void appear() override;
+    virtual void kill() override;
+    virtual void control() override;
 
     void exeWait();
     void exePictureBook();
@@ -42,13 +40,12 @@ private:
     ModelObj* mScenery;
     ModelObj* mMarioPosDummyModel;
     CameraTargetMtx* mCameraTarget;
-    TMtx34f _A0;
-    bool _D0;
+    Mtx34f mPlayerBaseMtx;
+    bool mUseSwitchA;
 };
 
 class PrologueHolder : public NameObj {
 public:
-    /// @brief Creates a new `PrologueHolder`.
     /// @param pName The pointer to the null-terminated name of the object.
     PrologueHolder(const char* pName);
 

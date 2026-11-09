@@ -1,4 +1,5 @@
 #include "Game/Screen/StarPointerLayout.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Util/MotionSignal.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Screen/LayoutCoreUtil.hpp"
@@ -19,13 +20,13 @@
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
 #include "Game/Util/SystemUtil.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
-#include <JSystem/JMath/JMATrigonometric.hpp>
-#include <JSystem/JUtility/JUTTexture.hpp>
+#include <nebula_geometry.hpp>
+
+#include "Game/Render/GameTexture.hpp"
 #include "Game/System/NebulaInput.hpp"
 
 namespace {
-    // TODO: names
+    // Two colours for each of the four pad channels (setPortAndColor): the blur takes both, the command stream the first.
     static NebulaColor8 sColorA[] = {
         {0x00, 0x32, 0xFF, 0xFF},
         {0xFF, 0xFF, 0x00, 0xFF},
@@ -45,20 +46,25 @@ namespace {
     static const f32 sHoldRadius = 45;
     static const f32 sHandRadius = 20;
 
-    // static const _32 sStepRadian =
     static const s32 hGripTime = 20;
-    static const s32 hReleaseTime = 30;
-    static const s32 hHideRumbleTime = 30;
-    // static const _32 hInvalidateWaitFrame =
-    // static const _32 sStarVelZeroRange =
-    // static const _32 sStarRateScale =
-    // static const _32 sStarRateMax =
-    // static const _32 h16x9ScaleX =
+    static const s32 hReleaseTime = NebulaFrameClock::stepsOfMilliseconds(500);
+    static const s32 hHideRumbleTime = NebulaFrameClock::stepsOfMilliseconds(500);
     static const f32 sRotateMult = 900.0f;
     // static const f32 sRotateHandMult =
     static const f32 hEndAnimRate = 2.0f;
     static const s32 sBeginHideTime = 0;
     static const f32 sDegreeMin = 0.0f;
+
+    // A layout a mod changed may lack one of these panes (null): no pane, nothing to show, hide or turn.
+    static void setPaneVisible(Ui::Pane* pPane, bool visible) {
+        if (pPane != nullptr) {
+            pPane->SetVisible(visible);
+        }
+    }
+
+    static bool isPaneVisible(const Ui::Pane* pPane) {
+        return pPane != nullptr && pPane->IsVisible();
+    }
 };  // namespace
 
 namespace NrvStarPointerLayout {
@@ -78,7 +84,7 @@ namespace NrvStarPointerLayout {
 
 StarPointerLayout::StarPointerLayout(const char* pName)
     : LayoutActor(pName, true), mPosition(0.0f, 0.0f), mPointerKind(StarPointerKind_NULL), mAnimType(AnimType_HandPaa), mTouchTimer(),
-      mPadChannel(-1), mRadius(::sNormalRadius), _3C(),
+      mPadChannel(-1), mRadius(::sNormalRadius),
       mDirector(), mBlur(), mCommandStream(), mNumber(), mActor(), mNewTouchedID(), mTouchedID(), mStartTouch(), mStartDisableShoot(), mSingleTouch(),
       mShootDisabled(), mIsPointerValid(true), mIsAppear(true), mAppearTime() {
 }
@@ -99,10 +105,15 @@ void StarPointerLayout::initWithPort(s32 channel) {
         MR::createAndAddPaneCtrl(this, "PicNozzle", 1);
     }
     MR::createAndAddGroupCtrl(this, "GroupRing", 1);
+    mStarPointerPane = MR::getPane(this, "StarPointer");
+    mHandPointerPane = MR::getPane(this, "HandPointer");
+    // Null where the layout has no such pane (the second player's has neither): the uses are player 1's.
+    mHandArrowPane = MR::getPane(this, "HandArrow");
+    mPicNozzlePane = MR::getPane(this, "PicNozzle");
 
     initNerve(GET_NERVE(StarPointerLayout, HostTypeNrvHideImmediately));
 
-    mBlur = new StarPointerBlur(new JUTTexture(MR::loadTexFromArc("StarPointerBlur.arc", "Blur.bti")));
+    mBlur = new StarPointerBlur(new GameTexture(MR::loadTexFromArc("StarPointerBlur", "Blur.bti")));
 
     mCommandStream = new StarPointerCommandStream(&mPosition);
 
@@ -110,7 +121,7 @@ void StarPointerLayout::initWithPort(s32 channel) {
     mCommandStream->setPortAndColor(mPadChannel, &::sColorA[mPadChannel]);
     mCommandStream->initWithoutIter();
 
-    mNumber = new StarPointerNumber(this, mPadChannel, "\203\130\203\136\201\133\203\174\203\103\203\223\203\136\203\151\203\223\203\157\201\133" /* スターポインタナンバー */);
+    mNumber = new StarPointerNumber(this, mPadChannel, "スターポインタナンバー");
     mNumber->initWithoutIter();
     mNumber->appear();
 
@@ -128,7 +139,7 @@ void StarPointerLayout::kill() {
     LayoutActor::kill();
 }
 
-bool StarPointerLayout::startCommandStream(const LiveActor* pActor, const TVec3f* pPos, bool b) {
+bool StarPointerLayout::startCommandStream(const LiveActor* pActor, const Vec3f* pPos, bool b) {
     if (mCommandStream->mWorldPos != nullptr) {
         return false;
     }
@@ -140,7 +151,7 @@ bool StarPointerLayout::startCommandStream(const LiveActor* pActor, const TVec3f
     return true;
 }
 
-void StarPointerLayout::endCommandStream(const LiveActor* pActor) {
+void StarPointerLayout::endCommandStream(const LiveActor* /*pActor*/) {
     forceEndCommandStream();
     MR::endStarPointerMode(this);
 }
@@ -171,12 +182,12 @@ void StarPointerLayout::exeWait() {
         }
 
         if (mPointerKind == StarPointerKind_StarPointerNozzle) {
-            MR::showPane(this, "PicNozzle");
+            ::setPaneVisible(mPicNozzlePane, true);
             MR::stopPaneAnim(this, "PicNozzle", 0);
             startAnimStarPointer("Wait");
 
         } else if (mPadChannel == PLAYER_1) {
-            MR::hidePane(this, "PicNozzle");
+            ::setPaneVisible(mPicNozzlePane, false);
         }
     }
 
@@ -219,12 +230,12 @@ void StarPointerLayout::exeGrip() {
         }
 
         if (mPointerKind == StarPointerKind_StarPointerNozzle) {
-            MR::showPane(this, "PicNozzle");
+            ::setPaneVisible(mPicNozzlePane, true);
             MR::startPaneAnim(this, "PicNozzle", "Touch", 0);
             startAnimStarPointer("Touch");
         } else {
             if (mPadChannel == PLAYER_1) {
-                MR::hidePane(this, "PicNozzle");
+                ::setPaneVisible(mPicNozzlePane, false);
             }
         }
     }
@@ -238,7 +249,7 @@ void StarPointerLayout::exeGrip() {
         return;
     }
 
-    if (MR::isGreaterStep(this, ::hGripTime) || MR::isHiddenPane(this, "StarPointer")) {
+    if (MR::isGreaterStep(this, ::hGripTime) || !::isPaneVisible(mStarPointerPane)) {
         setNerve(GET_NERVE(StarPointerLayout, HostTypeNrvHold));
     }
 }
@@ -272,14 +283,14 @@ void StarPointerLayout::exeHold() {
         }
 
         if (mPointerKind == StarPointerKind_StarPointerNozzle) {
-            MR::showPane(this, "PicNozzle");
+            ::setPaneVisible(mPicNozzlePane, true);
             if (MR::isPaneAnimStopped(this, "PicNozzle", 0)) {
                 MR::startPaneAnim(this, "PicNozzle", "Touch", 0);
             }
             startAnimStarPointer("Touch");
         } else {
             if (mPadChannel == PLAYER_1) {
-                MR::hidePane(this, "PicNozzle");
+                ::setPaneVisible(mPicNozzlePane, false);
             }
         }
     }
@@ -349,11 +360,11 @@ void StarPointerLayout::exeRelease() {
         }
 
         if (mPointerKind == StarPointerKind_StarPointerNozzle) {
-            MR::showPane(this, "PicNozzle");
+            ::setPaneVisible(mPicNozzlePane, true);
             MR::stopPaneAnim(this, "PicNozzle", 0);
             startAnimStarPointer("Wait");
         } else if (mPadChannel == PLAYER_1) {
-            MR::hidePane(this, "PicNozzle");
+            ::setPaneVisible(mPicNozzlePane, false);
         }
     }
 
@@ -386,11 +397,11 @@ void StarPointerLayout::exeOnReaction() {
         }
 
         if (mPointerKind == StarPointerKind_StarPointerNozzle) {
-            MR::showPane(this, "PicNozzle");
+            ::setPaneVisible(mPicNozzlePane, true);
             MR::stopPaneAnim(this, "PicNozzle", 0);
             startAnimStarPointer("Wait");
         } else if (mPadChannel == PLAYER_1) {
-            MR::hidePane(this, "PicNozzle");
+            ::setPaneVisible(mPicNozzlePane, false);
         }
     }
 
@@ -436,7 +447,7 @@ void StarPointerLayout::exeOutScreen() {
     if (MR::isFirstStep(this)) {
         hideBlur();
         if (mPadChannel == PLAYER_1) {
-            MR::hidePane(this, "PicNozzle");
+            ::setPaneVisible(mPicNozzlePane, false);
         }
     }
 
@@ -463,22 +474,22 @@ void StarPointerLayout::hideAll() {
     hideBlur();
     mCommandStream->hide();
     if (mPadChannel == PLAYER_1) {
-        MR::hidePane(this, "PicNozzle");
-        MR::hidePane(this, "HandArrow");
+        ::setPaneVisible(mPicNozzlePane, false);
+        ::setPaneVisible(mHandArrowPane, false);
     }
-    MR::hidePaneRecursive(this, "HandPointer");
-    MR::hidePaneRecursive(this, "StarPointer");
+    MR::hidePaneRecursive(mHandPointerPane);
+    MR::hidePaneRecursive(mStarPointerPane);
 }
 
 void StarPointerLayout::exeHide() {
     if (MR::isFirstStep(this)) {
         if (mPadChannel == PLAYER_1) {
-            MR::hidePane(this, "PicNozzle");
+            ::setPaneVisible(mPicNozzlePane, false);
         }
 
         if (isNerve(GET_NERVE(StarPointerLayout, HostTypeNrvHideImmediately))) {
-            MR::hidePaneRecursive(this, "HandPointer");
-            MR::hidePaneRecursive(this, "StarPointer");
+            MR::hidePaneRecursive(mHandPointerPane);
+            MR::hidePaneRecursive(mStarPointerPane);
         } else if (isNerve(GET_NERVE(StarPointerLayout, HostTypeNrvNotConnected)) || isNerve(GET_NERVE(StarPointerLayout, HostTypeNrvInvalidate)) ||
                    isNerve(GET_NERVE(StarPointerLayout, HostTypeNrvInvalidateWait))) {
             MR::hideLayout(this);
@@ -491,7 +502,7 @@ void StarPointerLayout::exeHide() {
                 MR::setAnimRate(this, ::hEndAnimRate, 0);
             } else if (mPointerKind == StarPointerKind_HandPointer || mPointerKind == StarPointerKind_2 ||
                        mPointerKind == StarPointerKind_HandPointerReactionWithCrossCursor || mPointerKind == StarPointerKind_FingerPointer) {
-                MR::hidePane(this, "HandPointer");
+                ::setPaneVisible(mHandPointerPane, false);
             }
         }
 
@@ -514,7 +525,7 @@ void StarPointerLayout::tearDownHide() {
     if (mPointerKind == StarPointerKind_StarPointer || mPointerKind == StarPointerKind_5 || mPointerKind == StarPointerKind_StarPointerNozzle) {
         MR::setAnimRate(this, 1.0f, 0);
     } else if (mPointerKind == StarPointerKind_HandPointer || mPointerKind == StarPointerKind_2 || mPointerKind == StarPointerKind_FingerPointer) {
-        MR::showPane(this, "HandPointer");
+        ::setPaneVisible(mHandPointerPane, true);
     }
     MR::showLayout(this);
     MR::releaseAnimFrame(this);
@@ -548,7 +559,7 @@ void StarPointerLayout::draw() const {
         }
     }
 
-    MotionSignal::starPointerLayout(this);
+    MotionSignal::drawObject(mDrawSlot, mMotionEpoch);
     drawDecoration();
     LayoutActor::draw();
     mNumber->draw();
@@ -569,7 +580,7 @@ void StarPointerLayout::drawDecoration() const {
 void StarPointerLayout::control() {
     mAppearTime++;
     mNumber->movement();
-    MR::convertPaneLocalPosToScreenPos(&mPosition, MR::getRootPane(this), TVec2f(0.0f, 0.0f));
+    MR::convertPaneLocalPosToScreenPos(&mPosition, MR::getRootPane(this), Vec2f(0.0f, 0.0f));
 
     if (isNerve(GET_NERVE(StarPointerLayout, HostTypeNrvNotConnected))) {
         if (MR::isConnectedInput(mPadChannel)) {
@@ -588,9 +599,9 @@ void StarPointerLayout::control() {
         if (mPointerKind == StarPointerKind_HandPointerReactionWithCrossCursor &&
             (getAnimType() == AnimType_HandGuu || getAnimType() == AnimType_HandPaa) && !isNerve(GET_NERVE(StarPointerLayout, HostTypeNrvHide)) &&
             !isNerve(GET_NERVE(StarPointerLayout, HostTypeNrvHideImmediately)) && !isNerve(GET_NERVE(StarPointerLayout, HostTypeNrvOutScreen))) {
-            MR::showPane(this, "HandArrow");
+            ::setPaneVisible(mHandArrowPane, true);
         } else {
-            MR::hidePane(this, "HandArrow");
+            ::setPaneVisible(mHandArrowPane, false);
         }
     }
 
@@ -626,7 +637,7 @@ void StarPointerLayout::control() {
             !isNerve(GET_NERVE(StarPointerLayout, HostTypeNrvHideImmediately))) {
             if (controller->isOutScreenLong()) {
                 if (mPointerKind == StarPointerKind_StarPointer) {
-                    if (MR::isHiddenPane(this, "StarPointer")) {
+                    if (!::isPaneVisible(mStarPointerPane)) {
                         startAnimHandGuu();
                     } else {
                         startAnimStarPointer("Blink");
@@ -663,46 +674,43 @@ void StarPointerLayout::control() {
 
 void StarPointerLayout::setPosition() {
     StarPointerController* controller = StarPointerFunction::getStarPointerDirector()->getStarPointerController(mPadChannel);
-    // This frame's position (StarPointerController::updateDpdInfo has run). The 3D targeting keeps the previous frame's, which its depth peek belongs to.
-    TVec2f pos = controller->mInfo.mPos;
+    // This frame's position (StarPointerController::updatePointerInfo has run). The 3D targeting keeps the previous frame's, which its depth peek belongs to.
+    Vec2f pos = controller->mInfo.mPos;
     setTrans(pos);
     mNumber->setTrans(pos);
 }
 
 void StarPointerLayout::rotateTest() {
-    TVec2f horiz;
+    Vec2f horiz;
     MR::getPlayerInput(mPadChannel)->mPointer->getHorizonVec(&horiz);
     f32 angle = MR::normalizeAbs(MR::toDegree(MR::atan2(horiz.y, horiz.x)), ::sDegreeMin, 180.0f);
 
     if (mPointerKind == StarPointerKind_StarPointer) {
         angle *= ::sRotateMult;
-        TVec3f rotate;
-        MR::copyPaneRotate(&rotate, this, "StarPointer");
-        MR::setPaneRotate(this, rotate.x, rotate.y, -angle, "StarPointer");
+        if (mStarPointerPane != nullptr) {
+            mStarPointerPane->mRotate.z = -angle;
+        }
     } else if (mPointerKind == StarPointerKind_StarPointerNozzle && mPadChannel == PLAYER_1) {
-        TVec2f targetScreenPos;
+        Vec2f targetScreenPos;
         MR::calcScreenPosition(&targetScreenPos, StarPointerFunction::getStarPointerDirector()->mNozzleAimPos);
-        TVec2f pointerPos = MR::getStarPointerScreenPositionOrEdge(mPadChannel);
+        Vec2f pointerPos = MR::getStarPointerScreenPositionOrEdge(mPadChannel);
         calcPoseNozzle(targetScreenPos, pointerPos);
     }
 }
 
-void StarPointerLayout::calcPoseNozzle(const TVec2f& rTargetPos, const TVec2f& rPointerPos) {
-    TVec2f diff = rPointerPos;
+void StarPointerLayout::calcPoseNozzle(const Vec2f& rTargetPos, const Vec2f& rPointerPos) {
+    Vec2f diff = rPointerPos;
     diff.sub(rTargetPos);
 
     if (MR::isScreen16Per9()) {
         // stripped
     }
 
-    if (!MR::isNearZero(diff)) {
+    if (mPicNozzlePane != nullptr && !MR::isNearZero(diff)) {
         f32 dist;
         MR::separateScalarAndDirection(&dist, &diff, diff);
 
-        f32 angle = MR::toDegree(MR::atan2(diff.x, diff.y));
-        TVec3f rotate;
-        MR::copyPaneRotate(&rotate, this, "PicNozzle");
-        MR::setPaneRotate(this, rotate.x, rotate.y, angle, "PicNozzle");
+        mPicNozzlePane->mRotate.z = MR::toDegree(MR::atan2(diff.x, diff.y));
     }
 }
 
@@ -834,14 +842,14 @@ void StarPointerLayout::changeToStarPointer() {
         mBlur->show();
     }
 
-    MR::hidePaneRecursive(this, "HandPointer");
-    MR::showPaneRecursive(this, "StarPointer");
+    MR::hidePaneRecursive(mHandPointerPane);
+    MR::showPaneRecursive(mStarPointerPane);
 }
 
 void StarPointerLayout::changeToHandPointer() {
     hideBlur();
-    MR::hidePaneRecursive(this, "StarPointer");
-    MR::showPaneRecursive(this, "HandPointer");
+    MR::hidePaneRecursive(mStarPointerPane);
+    MR::showPaneRecursive(mHandPointerPane);
 
     if (mPadChannel == PLAYER_1) {
         MR::showPaneRecursive(this, "PicPlayer1");

@@ -2,24 +2,24 @@
 #include "Game/AudioLib/AudSoundId.hpp"
 #include "Game/AudioLib/AudSystem.hpp"
 #include "Game/AudioLib/AudWrap.hpp"
-#include <JSystem/JAudio2/JAISoundChild.hpp>
+#include "Game/Sound/SoundChild.hpp"
 
 namespace {
-    f32 sSpeedMin = 2.0f;
-    f32 sSpeedMax = 22.0f;
-    f32 sSpeedLowThreshold = 7.0f;
-    f32 sSpeedMidThreshold = 12.0f;
-    f32 sTempoRateMin = 0.55f;
-    f32 sTempoRateMax = 1.22f;
-    f32 sTempoRateVeryHigh = 1.478f;
-    f32 sPitchRateNormal = 1.0f;
-    f32 sPitchRateVeryHigh = 1.189f;
-    s32 sFirstBarSteps = 107;
-    s32 sStateNumLow = 1;
-    s32 sStateNumMid = 2;
-    s32 sStateNumHigh = 3;
-    s32 sStateNumVeryHigh = 4;
-    s32 sPercTrack = 14;
+    const f32 sSpeedMin = 2.0f;
+    const f32 sSpeedMax = 22.0f;
+    const f32 sSpeedLowThreshold = 7.0f;
+    const f32 sSpeedMidThreshold = 12.0f;
+    const f32 sTempoRateMin = 0.55f;
+    const f32 sTempoRateMax = 1.22f;
+    const f32 sTempoRateVeryHigh = 1.478f;
+    const f32 sPitchRateNormal = 1.0f;
+    const f32 sPitchRateVeryHigh = 1.189f;
+    const s32 sFirstBarSteps = 107;
+    const s32 sStateNumLow = 1;
+    const s32 sStateNumMid = 2;
+    const s32 sStateNumHigh = 3;
+    const s32 sStateNumVeryHigh = 4;
+    const s32 sPercTrack = 14;
 };  // namespace
 
 AudTamakoroBgmCtrl::AudTamakoroBgmCtrl() : mSteps(0) {
@@ -32,9 +32,9 @@ void AudTamakoroBgmCtrl::init() {
 void AudTamakoroBgmCtrl::control(f32 speed, bool disabled, s32 frames) {
     AudBgm* bgm = AudWrap::getStageBgm();
     if (bgm != nullptr) {
-        JAISoundHandle* handle = bgm->getHandle();
+        SoundHandle* handle = bgm->getHandle();
         if (handle != nullptr && handle->isSoundAttached()) {
-            JAISoundID id = handle->getSound()->getID();
+            SoundID id = handle->getSound()->getID();
             if (id == BGM_TAMAKORO || id == BGM_TAMAKORO_2) {
                 if (mSteps > ::sFirstBarSteps) {
                     if (speed < ::sSpeedMin) {
@@ -76,22 +76,22 @@ void AudTamakoroBgmCtrl::control(f32 speed, bool disabled, s32 frames) {
     }
 }
 
-void AudTamakoroBgmCtrl::modifyTempo(JAISoundHandle* pHandle, f32 tempo) {
+void AudTamakoroBgmCtrl::modifyTempo(SoundHandle* pHandle, f32 tempo) {
     if (pHandle != nullptr && pHandle->isSoundAttached()) {
-        JAITempoMgr* mgr = pHandle->getSound()->getTempoMgr();
+        SoundTempo* mgr = pHandle->getSound()->getTempoMgr();
         if (mgr != nullptr) {
             mgr->mTransition.set(tempo, mgr->getTempo(), 10);
         }
     }
 }
 
-void AudTamakoroBgmCtrl::modifyPitch(JAISoundHandle* pHandle, f32 pitch) {
+void AudTamakoroBgmCtrl::modifyPitch(SoundHandle* pHandle, f32 pitch) {
     if (pHandle != nullptr && pHandle->isSoundAttached()) {
         for (s32 i = 0; i < 16; i++) {
             if (i == ::sPercTrack) {
                 continue;
             }
-            JAISoundChild* child = pHandle->getSound()->getChild(i);
+            SoundChild* child = pHandle->getSound()->getChild(i);
             if (child == nullptr) {
                 continue;
             }

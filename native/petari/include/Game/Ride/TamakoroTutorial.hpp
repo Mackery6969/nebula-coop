@@ -1,28 +1,25 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
 class TalkMessageCtrl;
 class Tamakoro;
 
 class TamakoroTutorial : public LiveActor {
 public:
-    /// @brief Creates a new `TamakoroTutorial`.
-    /// @param pName A pointer to the null-terminated name of the object.
     TamakoroTutorial(const char* pName);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
-    virtual void updateHitSensor(HitSensor*);
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void control() override;
+    virtual void updateHitSensor(HitSensor*) override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
 
     bool isNeedTutorial();
     void requestStart();
     void requestEnd();
     void exeFirst();
-    void exeDenyTalk();
     void exeFirstForceTalk();
     void exeWaitRideTalk();
     void exeWaitRide();
@@ -34,12 +31,12 @@ public:
     void exeWait();
     void exeTrample();
     void exeRecover();
-    void startTimerSound(s32, s32);
+    void startTimerSound(s32 step);
 
     Tamakoro* mHost;
     TalkMessageCtrl* mTalkCtrl;
     TalkMessageCtrl* mTalkCtrlAutomatic;
-    TVec3f mPadAccel;
-    bool _A4;
-    bool _A5;
+    Vec3f mPadAccel;
+    bool mIsTrampled;
+    bool mCanTalk;
 };

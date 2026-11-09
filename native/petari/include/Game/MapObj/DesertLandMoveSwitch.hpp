@@ -5,25 +5,26 @@
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Map/CollisionParts.hpp"
 #include "Game/MapObj/MapObjConnector.hpp"
-#include "Game/Util/JMapInfo.hpp"
+#include "Game/Util/Table.hpp"
 #include "Game/Util/SpringValue.hpp"
 
 class DesertLandMoveSwitch : public LiveActor {
 public:
     DesertLandMoveSwitch(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void initAfterPlacement();
-    virtual void calcAnim();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    void initModelAndCollision(const JMapInfoIter& rIter);
+    virtual void init(const TableIter& rIter) override;
+    virtual void initAfterPlacement() override;
+    virtual void calcAnim() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    void initModelAndCollision(const TableIter& rIter);
     bool tryOn();
     bool trySwitchDown();
     bool tryConnect();
     void updateTimerSE();
+    bool updateSpring();
     void exeWait();
     void exeSwitchDown();
     void exeOn();
@@ -32,9 +33,12 @@ public:
     CollisionParts* mCollisionParts;
     SpringValue* mSpringValue;
     MapObjConnector* mMapObjConnector;
-    bool _98;
-    bool _99;
-    bool _9A;
-    s32 _9C;
-    const char* _A0;
+    bool mIsHipDropped;
+    bool mWasOnPlayer;
+    bool mIsOnPlayer;
+    // Steps switch A stays on; 0 holds until something turns it off.
+    s32 mTimer;
+    const char* mObjName;
+    // Added to the step for the countdown sounds.
+    s32 mTimerLead;
 };

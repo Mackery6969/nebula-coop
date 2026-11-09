@@ -1,7 +1,6 @@
 #include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Scene/GameSceneFunction.hpp"
-#include "Game/Scene/PlayTimerScene.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/Screen/BloomEffect.hpp"
 #include "Game/Screen/BloomEffectSimple.hpp"
@@ -22,12 +21,12 @@
 #include "Game/Screen/StarCounter.hpp"
 #include "Game/Screen/StarPieceCounter.hpp"
 #include "Game/Screen/SystemWipeHolder.hpp"
+#include "Game/Screen/WipeLayoutBase.hpp"
 #include "Game/Screen/YesNoController.hpp"
 #include "Game/Screen/YesNoLayout.hpp"
 #include "Game/System/GameSystem.hpp"
 #include "Game/System/GameSystemObjHolder.hpp"
 #include "Game/System/GameSystemSceneController.hpp"
-#include "Game/System/RenderMode.hpp"
 #include "Game/Util/LayoutUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SingletonHolder.hpp"
@@ -36,19 +35,15 @@
 
 
 namespace {
-    char sWipeCircle[] = "\211\176\203\217\203\103\203\166" /* 円ワイプ */;
-    char sWipeFade[] = "\203\164\203\106\201\133\203\150\203\217\203\103\203\166" /* フェードワイプ */;
-    char sWipeWhiteFade[] = "\224\222\203\164\203\106\201\133\203\150\203\217\203\103\203\166" /* 白フェードワイプ */;
-    char sWipeGameOver[] = "\203\121\201\133\203\200\203\111\201\133\203\157\201\133" /* ゲームオーバー */;
-    char sWipeKoopa[] = "\203\116\203\142\203\160" /* クッパ */;
+    char sWipeCircle[] = "円ワイプ";
+    char sWipeFade[] = "フェードワイプ";
+    char sWipeWhiteFade[] = "白フェードワイプ";
+    char sWipeGameOver[] = "ゲームオーバー";
+    char sWipeKoopa[] = "クッパ";
     char sSoundOneUp[] = "SE_SY_1UP";
 
     CaptureScreenDirector* getCaptureScreenDirector() {
         return SingletonHolder< GameSystem >::get()->mObjHolder->mCaptureScreenDirector;
-    }
-
-    PlayTimerScene* getPlayTimerScene() {
-        return SingletonHolder< GameSystem >::get()->mSceneController->mPlayTimerScene;
     }
 
     void appearInformationMessage(bool hasButtonLayout, bool isCenter) {
@@ -98,11 +93,18 @@ namespace MR {
         return isScreen16Per9() ? NebulaFrameClock::cWideScreenWidth : static_cast< s32 >(NebulaFrameClock::cLayoutWidth);
     }
 
+    f32 getScreenAspect() {
+        if (isScreen16Per9()) {
+            return getDisplay().wide ? getDisplay().content_aspect : 16.0f / 9.0f;
+        }
+        return static_cast< f32 >(getScreenWidth()) / getScreenHeight();
+    }
+
     s32 getScreenMargin() {
         return getScreenWidth() * 0.045f;
     }
 
-    void convertScreenPosToFrame(TVec2f* pFrame, const TVec2f& rScreenPos) {
+    void convertScreenPosToFrame(Vec2f* pFrame, const Vec2f& rScreenPos) {
         pFrame->set(rScreenPos.x / getScreenWidth(), rScreenPos.y / getScreenHeight());
     }
 
@@ -170,6 +172,20 @@ namespace MR {
         return SceneWipeHolderFunction::getSceneWipeHolder()->isOpen();
     }
 
+    // A system or scene wipe fully closed: every wipe closes opaque (a fade at full alpha, a ring shut), so the scene
+    // under it is not seen. One still closing or opening does not count.
+    bool isScreenCoveredByWipe() {
+        const SystemWipeHolder* pSystem = ::getSystemWipeHolder();
+        if (pSystem != nullptr && pSystem->getCurrent() != nullptr && !MR::isDead(pSystem->getCurrent()) && pSystem->isClose()) {
+            return true;
+        }
+        if (!MR::isExistSceneObj(SceneObj_SceneWipeHolder)) {
+            return false;
+        }
+        const SceneWipeHolder* pScene = SceneWipeHolderFunction::getSceneWipeHolder();
+        return pScene->getCurrent() != nullptr && !MR::isDead(pScene->getCurrent()) && pScene->isClose();
+    }
+
     void closeSystemWipeCircle(s32 frame) {
         ::getSystemWipeHolder()->forceOpen(::sWipeCircle);
         ::getSystemWipeHolder()->wipe(nullptr, frame);
@@ -203,6 +219,57 @@ namespace MR {
         ::getSystemWipeHolder()->forceClose(::sWipeWhiteFade);
     }
 
+    void forceCloseSystemWipeFade() {
+        ::getSystemWipeHolder()->forceClose(::sWipeFade);
+    }
+
+    // A scene's wipe is its own: it goes with the scene, and the intermission scene that follows draws black. A wipe left
+    // fully closed (a dead one counts as open: a fade that was never used reads closed) is handed to the system wipe.
+    void holdClosedSceneWipeOnSystemWipe() {
+        if (!isExistSceneObj(SceneObj_SceneWipeHolder) || ::getSystemWipeHolder() == nullptr) {
+            return;
+        }
+
+        const SceneWipeHolder* const pHolder = SceneWipeHolderFunction::getSceneWipeHolder();
+        const WipeLayoutBase* const pWipe = pHolder->getCurrent();
+
+        if (pWipe == nullptr || isDead(pWipe) || !pWipe->isClose()) {
+            return;
+        }
+
+        if (pHolder->isCurrent(::sWipeWhiteFade)) {
+            forceCloseSystemWipeWhiteFade();
+        } else {
+            forceCloseSystemWipeFade();
+        }
+    }
+
+    bool coverScreenForSceneChange() {
+        if (!isExistSceneObj(SceneObj_SceneWipeHolder) || ::getSystemWipeHolder() == nullptr) {
+            return true;
+        }
+
+        const WipeLayoutBase* const pSceneWipe = SceneWipeHolderFunction::getSceneWipeHolder()->getCurrent();
+
+        if (pSceneWipe != nullptr && !isDead(pSceneWipe)) {
+            if (pSceneWipe->isWipeOut()) {
+                return false;
+            }
+
+            if (pSceneWipe->isClose()) {
+                return true;
+            }
+        }
+
+        const WipeLayoutBase* const pSystemWipe = ::getSystemWipeHolder()->getCurrent();
+
+        if (pSystemWipe == nullptr || isDead(pSystemWipe) || !(pSystemWipe->isClose() || pSystemWipe->isWipeOut())) {
+            forceCloseSystemWipeWhiteFade();
+        }
+
+        return true;
+    }
+
     bool isSystemWipeActive() {
         return ::getSystemWipeHolder()->isWipeIn() || ::getSystemWipeHolder()->isWipeOut();
     }
@@ -217,7 +284,7 @@ namespace MR {
         ::getSystemWipeHolder()->startGameScreenCapture();
     }
 
-    void setWipeCircleCenterPos(const TVec3f& rCenterPos) {
+    void setWipeCircleCenterPos(const Vec3f& rCenterPos) {
         ::getSystemWipeHolder()->setWipeRingCenter(rCenterPos);
     }
 
@@ -263,8 +330,8 @@ namespace MR {
         getImageEffectDirector()->turnOnNormal();
     }
 
-    void turnOnDepthOfField(bool param1) {
-        getImageEffectDirector()->turnOnDepthOfField(param1);
+    void turnOnDepthOfField(bool isPlayerSync) {
+        getImageEffectDirector()->turnOnDepthOfField(isPlayerSync);
     }
 
     void turnOffImageEffect() {
@@ -325,21 +392,6 @@ namespace MR {
 
     void startCenterScreenBlur(s32 time, f32 offset, u8 alpha, s32 fadeIn, s32 fadeOut) {
         getSceneObj< CenterScreenBlur >(SceneObj_CenterScreenBlur)->start(time, offset, alpha, fadeIn, fadeOut);
-    }
-
-    void startGlobalTimer() {
-    }
-
-    void resetGlobalTimer() {
-        ::getPlayTimerScene()->stop();
-    }
-
-    bool isGlobalTimerEnd() {
-        return ::getPlayTimerScene()->isEndGlobalTimer();
-    }
-
-    void startGlobalTimerTimeUp() {
-        ::getPlayTimerScene()->startTimeUp();
     }
 
     void requestPowerUpHPMeter() {
@@ -430,8 +482,8 @@ namespace MR {
         ::appearInformationMessage(hasButtonLayout, false);
     }
 
-    void setInformationMessageReplaceString(const char16_t* pMessage, s32 param2) {
-        getGameSceneLayoutHolder()->mInformationMessage->setReplaceString(pMessage, param2);
+    void setInformationMessageReplaceString(const char16_t* pMessage, s32 argIndex) {
+        getGameSceneLayoutHolder()->mInformationMessage->setReplaceString(pMessage, argIndex);
     }
 
     void disappearInformationMessage() {

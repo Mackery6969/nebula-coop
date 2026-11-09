@@ -1,19 +1,27 @@
 #include "Game/Boss/DinoPackunBattleEgg.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Boss/DinoPackun.hpp"
 #include "Game/Boss/DinoPackunStateDamage.hpp"
 #include "Game/Boss/DinoPackunTail.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util.hpp"
 #include "Game/Util/PlayerUtil.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
 namespace {
-    inline void removeVelocity(DinoPackun* pHost, const TVec3f& rDir) {
-        TVec3f* pVelocity = &pHost->mVelocity;
+    // Where the tail leaves the egg, in the boss's frame.
+    const Vec3f cEggOutPosition(0.0f, 60.0f, -320.0f);
+    const s32 cTurnSteps = NebulaFrameClock::stepsOfSeconds(2);
+    const f32 cTurnDegree = 0.3f;
+    const s32 cWalkSteps = NebulaFrameClock::stepsOfSeconds(5);
+    const f32 cWalkSpeed = 0.5f;
+    const s32 cWalkFootPrintPeriod = 91;
+
+    // Drops the part of the velocity along `rDir`.
+    void removeVelocity(DinoPackun* pHost, const Vec3f& rDir) {
+        Vec3f* pVelocity = &pHost->mVelocity;
         pHost->mVelocity.scaleAdd(-rDir.dot(*pVelocity), rDir, *pVelocity);
     }
-
-    static TVec3f sEggOutPosition = TVec3f(0.0f, 60.0f, -320.0f);
 };  // namespace
 
 namespace NrvDinoPackunBattleEgg {
@@ -22,9 +30,8 @@ namespace NrvDinoPackunBattleEgg {
     NEW_NERVE(DinoPackunBattleEggNrvDamage, DinoPackunBattleEgg, Damage);
 };  // namespace NrvDinoPackunBattleEgg
 
-DinoPackunBattleEgg::DinoPackunBattleEgg(DinoPackun* pParent) : DinoPackunAction("1\211\361\220\355\227\221\203\157\203\147\203\213" /* 1回戦卵バトル */, pParent) {
-    mStateDamage = nullptr;
-    _18 = 1.0f;
+// The first fight's opening: the boss walks inside its egg, only the tail out; the egg is harmless and pushes.
+DinoPackunBattleEgg::DinoPackunBattleEgg(DinoPackun* pHost) : DinoPackunAction("1回戦卵バトル", pHost), mStateDamage(nullptr) {
 }
 
 void DinoPackunBattleEgg::init() {
@@ -40,60 +47,39 @@ void DinoPackunBattleEgg::appear() {
 }
 
 void DinoPackunBattleEgg::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
-    if (getHost()->isSensorEgg(pSender)) {
-        if (MR::isSensorPlayer(pReceiver)) {
-            MR::sendMsgPush(pReceiver, pSender);
-        }
+    if (getHost()->isSensorEgg(pSender) && MR::isSensorPlayer(pReceiver)) {
+        MR::sendMsgPush(pReceiver, pSender);
     }
 }
 
-bool DinoPackunBattleEgg::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
-    if (!getHost()->isSensorEgg(pReceiver)) {
-        return false;
-    }
-
-    if (MR::isMsgPlayerSpinAttack(msg)) {
-    }
-
-    return MR::isMsgStarPieceReflect(msg);
+// The egg takes reflected star pieces.
+bool DinoPackunBattleEgg::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* pReceiver) {
+    return getHost()->isSensorEgg(pReceiver) && MR::isMsgStarPieceReflect(msg);
 }
 
-// an attempt was made
+// A map object stops the egg's motion into it, and turns it when it walks into one.
 bool DinoPackunBattleEgg::receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) {
     if (!getHost()->isSensorEgg(pReceiver)) {
         return false;
     }
 
-    if ((isNerve(GET_NERVE(DinoPackunBattleEgg, DinoPackunBattleEggNrvWalk)) ||
-         isNerve(GET_NERVE(DinoPackunBattleEgg, DinoPackunBattleEggNrvTurn))) &&
-        getHost()->isSensorEgg(pReceiver) && MR::isSensorMapObj(pSender)) {
-        TVec3f v11;
-        MR::calcSensorHorizonNormalize(&v11, getHost()->mGravity, pSender, pReceiver);
-
-        if (getHost()->mVelocity.dot(v11) < 0.0f) {
-            removeVelocity(getHost(), v11);
-        }
-
-        if (isNerve(GET_NERVE(DinoPackunBattleEgg, DinoPackunBattleEggNrvWalk)) && getHost()->_E8.dot(v11) < 0.0f) {
-            TVec3f v10;
-            MR::calcSideVec(&v10, getHost());
-
-            f32 v9;
-
-            if (v10.dot(v11) > 0.0f) {
-                v9 = 1.0f;
-            } else {
-                v9 = -1.0f;
-            }
-
-            _18 = v9;
-            setNerve(GET_NERVE(DinoPackunBattleEgg, DinoPackunBattleEggNrvTurn));
-        }
-
-        return true;
+    if (!(isNerve(GET_NERVE(DinoPackunBattleEgg, DinoPackunBattleEggNrvWalk)) || isNerve(GET_NERVE(DinoPackunBattleEgg, DinoPackunBattleEggNrvTurn))) ||
+        !MR::isSensorMapObj(pSender)) {
+        return false;
     }
 
-    return false;
+    Vec3f away;
+    MR::calcSensorHorizonNormalize(&away, getHost()->mGravity, pSender, pReceiver);
+
+    if (getHost()->mVelocity.dot(away) < 0.0f) {
+        removeVelocity(getHost(), away);
+    }
+
+    if (isNerve(GET_NERVE(DinoPackunBattleEgg, DinoPackunBattleEggNrvWalk)) && getHost()->mFront.dot(away) < 0.0f) {
+        setNerve(GET_NERVE(DinoPackunBattleEgg, DinoPackunBattleEggNrvTurn));
+    }
+
+    return true;
 }
 
 bool DinoPackunBattleEgg::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
@@ -116,9 +102,9 @@ void DinoPackunBattleEgg::exeTurn() {
         MR::startSound(getHost(), "SE_BM_D_PAKKUN_SLAVER");
     }
 
-    getHost()->adjustTailRootPosition(::sEggOutPosition, 1.0f);
+    getHost()->adjustTailRootPosition(cEggOutPosition, 1.0f);
 
-    if (updateTurn(120, 0.30f)) {
+    if (updateTurn(cTurnSteps, cTurnDegree)) {
         setNerve(GET_NERVE(DinoPackunBattleEgg, DinoPackunBattleEggNrvWalk));
     }
 }
@@ -128,14 +114,11 @@ void DinoPackunBattleEgg::exeWalk() {
         MR::startBck(getHost(), "EggWalk");
     }
 
-    getHost()->adjustTailRootPosition(::sEggOutPosition, 1.0f);
+    getHost()->adjustTailRootPosition(cEggOutPosition, 1.0f);
 
-    if (updateWalk(300, 0.5f, 91)) {
+    if (updateWalk(cWalkSteps, cWalkSpeed, cWalkFootPrintPeriod)) {
         setNerve(GET_NERVE(DinoPackunBattleEgg, DinoPackunBattleEggNrvTurn));
     }
-}
-
-DinoPackunBattleEgg::~DinoPackunBattleEgg() {
 }
 
 void DinoPackunBattleEgg::exeDamage() {

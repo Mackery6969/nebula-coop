@@ -2,7 +2,7 @@
 
 #include "Game/LiveActor/LiveActor.hpp"
 
-class JUTTexture;
+class GameTexture;
 
 class TrampleStar : public LiveActor {
 public:
@@ -21,13 +21,11 @@ public:
 
     TrampleStar(const char*);
 
-    virtual ~TrampleStar();
-
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void draw() const;
-    virtual void calcAnim();
-    virtual void control();
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void draw() const override;
+    virtual void calcAnim() override;
+    virtual void control() override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     void toSphere(f32);
     void initCheckFlag(u32);
@@ -43,35 +41,32 @@ public:
     void exeWait();
     void exeBindingCapture();
     void exeBindingShoot();
-    u32 calcNearestVtxIndex(const TVec3f&);
+    u32 calcNearestVtxIndex(const Vec3f&);
     void drawSelf() const;
 
-    u32 _8C;  // NOTE: unused
     u16* mCheckFlags;
     u16 mNumFlags;
     u16 mNumSurfaces;
     u16 mNumVtxs;
-    TVec3f* mVtxs;
+    Vec3f* mVtxs;
     f32* mDeformCoeff;
     f32* mDeformSpeed;
-    u8* _A8;  // NOTE: allocated but unused?
     Surface* mSurfaces;
     Surface* mLodSurfaces;
-    u32 _B4;  // NOTE: unused
-    JUTTexture* mTexture;
-    TVec2f* mTexST;
+    GameTexture* mTexture;
+    Vec2f* mTexST;
     s16* mVtxOverlap;
     u16 mNumDrawVtxs;
-    TVec3f* mDrawPos;
-    TVec3f* mDrawNorm;
-    TVec2f* mDrawTex;
+    Vec3f* mDrawPos;
+    Vec3f* mDrawNorm;
+    Vec2f* mDrawTex;
     f32* mDrawDeformCoeffs;
     bool mIsLod;
     u16 mCaptureVtx;
     f32 mDeformRate;
     f32 mJumpVel;
     f32 mSpringRate;
-    u16 mCaptureFrames;
+    s32 mCaptureFrames;
 };
 
 class TrampleStarShare : public LiveActor {

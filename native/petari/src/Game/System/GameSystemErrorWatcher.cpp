@@ -13,10 +13,14 @@
 #include "Game/System/NebulaInput.hpp"
 #include <nebula_game_api.h>
 
-#define INPUT_STATUS_OK 0
-#define INPUT_STATUS_DISCONNECT 1
-#define INPUT_STATUS_NO_BATTERY 2
-#define INPUT_STATUS_NO_MOVE_STICK 3
+namespace {
+    enum InputStatus {
+        INPUT_STATUS_OK,
+        INPUT_STATUS_DISCONNECT,
+        INPUT_STATUS_NO_BATTERY,
+        INPUT_STATUS_NO_MOVE_STICK,
+    };
+};  // namespace
 
 namespace {
     const GameSystemErrorWatcher::Message cMessageUnplagged = {
@@ -62,7 +66,7 @@ void GameSystemErrorWatcher::initAfterResourceLoaded() {
     mBatteryLayout = new BatteryLayout();
     mBatteryLayout->initWithoutIter();
 
-    mUnplaggedTexMap = MR::createLytTexMap("ErrorMessageImage.arc", "FreeStyleUnplagged.bti");
+    mUnplaggedTexMap = MR::createLytTexMap("ErrorMessageImage", "FreeStyleUnplagged.bti");
 }
 
 void GameSystemErrorWatcher::movement() {
@@ -210,7 +214,7 @@ const GameSystemErrorWatcher::Message* GameSystemErrorWatcher::getProperMessageI
     }
 }
 
-const nw4r::lyt::TexMap* GameSystemErrorWatcher::getProperErrorTexMap() const {
+const Ui::TexMap* GameSystemErrorWatcher::getProperErrorTexMap() const {
     switch (mInputStatus) {
     case INPUT_STATUS_NO_MOVE_STICK:
         return mUnplaggedTexMap;

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class DinoPackun;
 template < typename T >
@@ -13,35 +13,35 @@ class DinoPackunTailNode : public LiveActor {
 public:
     DinoPackunTailNode(const char*, DinoPackun*);
 
-    virtual const TVec3f* getNodeDirection() const;
+    virtual const Vec3f* getNodeDirection() const;
     virtual void requestLockPosition();
     virtual void requestUnLockPosition();
-    virtual void addNodeVelocity(const TVec3f&);
+    virtual void addNodeVelocity(const Vec3f&);
     virtual JointController* createJointControllerOwn(LiveActor*, const char*) = 0;
 
     void createJointController(LiveActor*, const char*);
     void resetJoint();
     f32 getLinkLength() const;
     f32 getKeepBendPower() const;
-    bool preCalcJoint(TPos3f*, const JointControllerInfo&);
-    bool turnJointLocalXDir(TPos3f*, const JointControllerInfo&);
-    bool calcJointScale(TPos3f*, const JointControllerInfo&);
+    bool preCalcJoint(Pos3f*, const JointControllerInfo&);
+    bool turnJointLocalXDir(Pos3f*, const JointControllerInfo&);
+    bool calcJointScale(Pos3f*, const JointControllerInfo&);
     void registerPreCalcJointCallBack();
     void registerJointCallBack();
     void lockPosition();
     void unLockPosition();
-    void addNodeVelocityHost(const TVec3f&);
+    void addNodeVelocityHost(const Vec3f&);
 
     DinoPackun* mParent;
-    TVec3f mNodeDirection;
-    TVec3f _9C;
-    TVec3f _A8;
-    LiveActor* _B4;
-    LiveActor* _B8;
-    MtxPtr _BC;
-    JointControlDelegator< DinoPackunTailNode >* _C0;
-    JointControlDelegator< DinoPackunTailNode >* _C4;
+    Vec3f mNodeDirection;
+    Vec3f mJointPos;
+    Vec3f mJointFront;
+    LiveActor* mPrevNode;
+    LiveActor* mNextNode;
+    MtxPtr mJointMtx;
+    JointControlDelegator< DinoPackunTailNode >* mPreCalcJointCtrl;
+    JointControlDelegator< DinoPackunTailNode >* mJointCtrl;
     f32 mLinkLength;
     f32 mKeepBendPower;
-    u8 _D0;
+    bool mIsLocked;
 };

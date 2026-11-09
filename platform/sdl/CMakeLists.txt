@@ -11,6 +11,8 @@ add_compile_definitions(NEBULA_VERSION="${nebula_version}")
 option(NEBULA_RELEASE "Leave the test hooks out" OFF)
 if(NEBULA_RELEASE)
     add_compile_definitions(NEBULA_RELEASE=1)
+else()
+    add_compile_definitions(NEBULA_DEV=1)
 endif()
 
 set(CMAKE_CXX_STANDARD 20)
@@ -83,7 +85,7 @@ else()
     message(FATAL_ERROR "Set NEBULA_HOST_TOOLS to the Windows Vulkan build folder")
 endif()
 include("${nebula_root}/cmake/native_materials.cmake")
-galaxy_native_material_sources(galaxy_native_spirv_sources spirv)
+galaxy_program_blob(galaxy_programs_spirv spirv)
 set(galaxy_utility_spirv_dir "${CMAKE_CURRENT_BINARY_DIR}/generated/utility_spirv")
 file(MAKE_DIRECTORY "${galaxy_utility_spirv_dir}")
 add_custom_command(OUTPUT "${galaxy_utility_spirv_dir}/utility_spirv_data.h"
@@ -107,53 +109,48 @@ add_library(galaxy_render_vk STATIC
     ${rt}/render/texture_store.cpp
     ${rt}/render/texture_pack.cpp
     ${rt}/render/texture_pack_codecs.cpp
-    ${rt}/render/movie_replacement.cpp
-    ${rt}/render/curved_surfaces.cpp
-    ${rt}/render/native_shapes.cpp
-    ${rt}/render/native_material.cpp
-    ${rt}/render/drawing_state.cpp
-    ${rt}/render/draw_matrices.cpp
-    ${rt}/render/render_state_key.cpp
+    ${rt}/render/movie_playback.cpp
+    ${rt}/movie_video.cpp
     ${rt}/render/frame_pass.cpp
-    ${rt}/render/line_point_params.cpp
     ${rt}/render/post_process_settings.cpp
-    ${rt}/render/transform_history.cpp
     ${rt}/render/render_core.cpp
+    ${rt}/render/affine.cpp
+    ${rt}/render/core/compose.cpp
+    ${rt}/render/core/draw_walker.cpp
+    ${rt}/render/core/pairing.cpp
+    ${rt}/render/core/pipelines.cpp
+    ${rt}/render/core/program_table.cpp
+    ${rt}/render/core/registries.cpp
+    ${rt}/render/core/pipelines_vk.cpp
+    ${rt}/render/core/encoder_vk.cpp
     ${rt}/render/game_lights.cpp
     ${rt}/render/galaxy_select.cpp
     ${rt}/render/frame_interpolation.cpp
-    ${rt}/render/interp_gpu.cpp
     ${rt}/render/rt_materials.cpp
-    ${rt}/frame_telemetry.cpp
+    $<$<NOT:$<BOOL:${NEBULA_RELEASE}>>:${rt}/frame_telemetry.cpp>
     ${rt}/perf_hint.cpp
-    ${rt}/render/game_asset_extract.cpp
     ${rt}/render/vk/vk_context.cpp
     ${rt}/render/vk/device_quirks_vk.cpp
     ${rt}/render/vk/vk_libraries.cpp
     ${rt}/render/vk/utility_spirv.cpp
     ${rt}/render/vk/texture_backend_vk.cpp
-    ${rt}/render/vk/pipeline_cache_vk.cpp
     ${rt}/render/mod_shaders.cpp
     ${rt}/render/mod_shader_build.cpp
     ${rt}/render/vk/mod_shader_compile_vk.cpp
     ${rt}/render/vk/shader_compile_vk.cpp
-    ${rt}/render/pipeline_seed.cpp
     ${rt}/render/vk/compile_journal.cpp
     ${rt}/render/vk/renderer_vk.cpp
     ${rt}/render/vk/ambient_occlusion_vk.cpp
     ${rt}/render/vk/temporal_upscaler_vk.cpp
+    ${rt}/render/vk/sgsr2_vk.cpp
     ${rt}/render/vk/ffx_vk_forward.cpp
     ${rt}/render/vk/fsr_frame_generation_vk.cpp
     ${rt}/render/vk/scene_camera_vk.cpp
     ${rt}/render/vk/renderer_vk_scene.cpp
-    ${rt}/render/vk/ambient_occlusion_vk.cpp
-    ${rt}/render/vk/scene_camera_vk.cpp
     ${rt}/render/vk/renderer_vk_replay.cpp
     ${rt}/render/vk/post_process_vk.cpp
     ${rt}/render/vk/game_bloom_vk.cpp
     "${galaxy_utility_spirv_dir}/utility_spirv_data.h"
-    ${galaxy_native_spirv_sources}
-    ${rt}/frame_cadence_diagnostics.cpp
     ${rt}/runtime_settings.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../../tools/test_driver/run_options.cpp
     ${rt}/achievements.cpp
@@ -173,6 +170,9 @@ add_library(galaxy_render_vk STATIC
     ${rt}/net/direct_transport.cpp
     ${rt}/input_bindings.cpp
     ${rt}/host_pointer_events.cpp
+    ${rt}/input/wiimote_motion.cpp
+    ${rt}/input/controls_engine.cpp
+    ${rt}/input/live_controls_engine.cpp
     ${rt}/native_input.cpp
     ${rt}/pointer_control.cpp
     ${rt}/rumble.cpp
@@ -182,7 +182,7 @@ add_library(galaxy_render_vk STATIC
     ${rt}/native_audio.cpp
     ${rt}/movie_audio.cpp
     ${rt}/atomic_file.cpp
-    ${rt}/disc_files.cpp
+    ${rt}/asset_store.cpp
     ${rt}/save_files.cpp
     ${rt}/mii_import.cpp
     ${rt}/mii_formats.cpp
@@ -205,15 +205,18 @@ if(NOT WIN32)
         set_source_files_properties(${rt}/mod_hook_posix.cpp PROPERTIES INCLUDE_DIRECTORIES "${CMAKE_CURRENT_LIST_DIR}/../../runtime/include/galaxy/hde_shim")
     endif()
 endif()
-# Mod import (archives) on the desktop systems; Android and iOS take no mods.
-if(NOT ANDROID AND NOT IOS)
+# Mod import (folders and archives).
+if(NOT IOS)
     set(NEBULA_ARCHIVE_SOURCES "${nebula_root}/third_party/archive" CACHE PATH "zlib, xz and libarchive sources")
     include("${nebula_root}/cmake/archive_deps.cmake")
     target_sources(galaxy_render_vk PRIVATE ${rt}/mod_import.cpp)
     target_link_libraries(galaxy_render_vk PUBLIC nebula_archive)
+    # The host's stand-in importer (host_window_sdl.cpp) is for the systems without this one.
+    target_compile_definitions(galaxy_render_vk PUBLIC NEBULA_MOD_IMPORT=1)
 endif()
+target_include_directories(galaxy_render_vk PUBLIC "${nebula_root}/runtime/src")
 target_include_directories(galaxy_render_vk PUBLIC "${nebula_root}/runtime/include")
-target_include_directories(galaxy_render_vk PRIVATE "${nebula_root}/third_party/smaa" "${nebula_root}/native/include" "${galaxy_native_include_dir_spirv}" "${galaxy_utility_spirv_dir}")
+target_include_directories(galaxy_render_vk PRIVATE "${nebula_root}/third_party/smaa" "${nebula_root}/native/include" "${galaxy_utility_spirv_dir}")
 # vk_mem_alloc.h leaves pointer nullability unannotated.
 target_compile_options(galaxy_render_vk PRIVATE -Wno-nullability-completeness)
 target_link_libraries(galaxy_render_vk PUBLIC nebula_vulkan_deps)
@@ -239,13 +242,19 @@ add_subdirectory("${NEBULA_SDL_DIR}" SDL3 EXCLUDE_FROM_ALL)
 # activity calls its SDL_main), an executable elsewhere.
 set(host_sources
     "${nebula_root}/native/host/host_main.cpp"
-    "${nebula_root}/runtime/src/movie_video.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/host_window_sdl.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/audio_device_sdl.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/display_clock.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/thread_sampler.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/native_game_host_sdl.cpp")
 if(ANDROID)
+    # A real Wii Remote on a DolphinBar (wiimote_hid.h over wiimote_link_android.cpp).
+    list(APPEND host_sources
+        "${CMAKE_CURRENT_SOURCE_DIR}/wiimote_link_android.cpp"
+        ${rt}/wiimote_hid.cpp
+        ${rt}/wiimote_protocol.cpp
+        ${rt}/input/wiimote_input.cpp
+        ${rt}/input/wiimote_motion_pointer.cpp)
     add_library(main SHARED ${host_sources})
     target_link_libraries(main PRIVATE android log nativewindow)
 else()
@@ -260,4 +269,23 @@ target_include_directories(main PRIVATE "${nebula_root}/native/include" "${nebul
 target_compile_definitions(main PRIVATE NEBULA_HOST_RENDERER=1 NEBULA_HOST_SDL=1)
 target_include_directories(main PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(main PRIVATE galaxy_render_vk SDL3::SDL3)
+
+# The launcher's mod and Mii import on Android (libnebula_mods.so): the game's own importers, in the launcher's process.
+if(ANDROID)
+    add_library(nebula_mods SHARED
+        "${CMAKE_CURRENT_SOURCE_DIR}/mod_import_jni.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/mii_import_jni.cpp"
+        ${rt}/mii_import.cpp
+        ${rt}/mii_formats.cpp
+        ${rt}/mod_import.cpp
+        ${rt}/mods.cpp
+        ${rt}/mod_xml.cpp
+        ${rt}/luma.cpp
+        ${rt}/texture_categories.cpp
+        ${rt}/asset_store.cpp
+        ${rt}/atomic_file.cpp)
+    target_include_directories(nebula_mods PRIVATE "${nebula_root}/runtime/include" "${nebula_root}/native/include")
+    target_link_libraries(nebula_mods PRIVATE nebula_archive log)
+    target_link_options(nebula_mods PRIVATE "-Wl,--gc-sections")
+endif()
 

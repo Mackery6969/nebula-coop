@@ -1,5 +1,5 @@
 //! Mods' files as the game reads them: each file a mod changes or adds is cooked as the disc's were at import and
-//! written to a store of its own, which the game reads over game.pak (runtime/src/disc_files.cpp). The plan names them,
+//! written to a store of its own, which the game reads over game.pak (runtime/src/asset_store.cpp). The plan names them,
 //! one a line: the game id, then `path<TAB>source file`.
 
 use super::{archive, audio_data, cook_entry, cooks, place, store, Stats, StoreItem, ALIGN};
@@ -40,9 +40,9 @@ pub fn read_plan(text: &str) -> Result<(String, Vec<Change>)> {
     Ok((game_id, changes))
 }
 
-/// What a modern file of a mod becomes: each file's place in the game, with the game's ending, and bytes the cooker reads.
-/// Empty: it isn't one. A model's animations go beside it.
-fn modern_files(change: &Change, bytes: &[u8]) -> Result<Vec<(String, Vec<u8>)>> {
+/// What a modern file of a mod becomes: each file's place in the game, with the game's ending, its bytes, and whether
+/// they are the store's already (else the cooker reads them). Empty: it isn't one. A model's animations go beside it.
+fn modern_files(change: &Change, bytes: &[u8]) -> Result<Vec<(String, Vec<u8>, bool)>> {
     let lower = change.path.to_ascii_lowercase();
     let renamed = |ending: &str| {
         let dot = change.path.rfind('.').unwrap_or(change.path.len());
@@ -52,34 +52,43 @@ fn modern_files(change: &Change, bytes: &[u8]) -> Result<Vec<(String, Vec<u8>)>>
     if lower.ends_with(".kcl.glb") || lower.ends_with(".kcl.gltf") {
         let (collision, attributes) = super::gltf::to_collision(bytes, change.source.parent())?;
         let stem = &change.path[..lower.find(".kcl.").unwrap_or(change.path.len())];
-        return Ok(vec![(format!("{stem}.kcl"), collision), (format!("{stem}.pa"), attributes)]);
+        return Ok(vec![(format!("{stem}.kcl"), collision, false), (format!("{stem}.pa"), attributes, false)]);
     }
     if lower.ends_with(".gltf") || lower.ends_with(".glb") {
-        let (model, animations) = super::gltf::to_files(bytes, change.source.parent())?;
+        let file = change.path.rsplit('/').next().unwrap_or(&change.path);
+        let stem = file.split('.').next().unwrap_or(file);
+        let (model, animations) = super::gltf::to_files(bytes, change.source.parent(), stem)?;
         let folder = change.path.rfind('/').map_or("", |at| &change.path[..at + 1]);
-        let mut out = vec![(renamed(".bmd"), model)];
-        out.extend(animations.into_iter().map(|(name, bck)| (format!("{folder}{name}.bck"), bck)));
+        let without_modern_extension = &change.path[..change.path.rfind('.').unwrap_or(change.path.len())];
+        let native_path = if lower.ends_with(".bdl.gltf") || lower.ends_with(".bdl.glb") ||
+            lower.ends_with(".bmd.gltf") || lower.ends_with(".bmd.glb") {
+            without_modern_extension.to_string()
+        } else {
+            renamed(".bmd")
+        };
+        let mut out = vec![(native_path, model, true)];
+        out.extend(animations.into_iter().map(|(name, clip)| (format!("{folder}{name}.bck"), clip, true)));
         return Ok(out);
     }
     if lower.ends_with(".bcsv.json") {
-        return Ok(vec![(change.path[..change.path.len() - ".json".len()].to_string(), super::merge::table_from_json(bytes)?)]);
+        return Ok(vec![(change.path[..change.path.len() - ".json".len()].to_string(), super::table::TableIr::from_json(bytes)?.to_ntbl(), true)]);
     }
     if lower.ends_with(".png") {
         // The game's interface keeps its pictures in another form, in a folder of that name.
         if lower.contains("/timg/") {
-            return Ok(vec![(renamed(".tpl"), super::gltf::png_to_tpl(bytes)?)]);
+            return Ok(vec![(renamed(".tpl"), super::gltf::png_to_tpl(bytes)?, false)]);
         }
-        return Ok(vec![(renamed(".bti"), super::gltf::png_to_bti(bytes)?)]);
+        return Ok(vec![(renamed(".bti"), super::gltf::png_to_bti(bytes)?, false)]);
     }
     if lower.ends_with(".wav") || lower.ends_with(".ogg") {
-        return Ok(vec![(renamed(".ast"), super::modern_audio::to_stream(&change.path, bytes)?)]);
+        return Ok(vec![(renamed(".ast"), super::modern_audio::to_stream(&change.path, bytes)?, true)]);
     }
     Ok(Vec::new())
 }
 
 /// One file of a mod as store items. A wave archive needs the sound archive that lays it out.
 fn cook_change(change: &Change, bytes: Vec<u8>, waves: &BTreeMap<String, Vec<audio_data::WavePlace>>, stats: &mut Stats) -> Result<Vec<StoreItem>> {
-    if cooks(&change.path) || archive::is_compressed(&bytes) {
+    if cooks(&change.path) || archive::is_compressed(&bytes) || super::sound::is_sequence_path(&change.path) {
         return cook_entry(&change.path, bytes, stats);
     }
     if bytes.is_empty() {
@@ -121,8 +130,6 @@ pub fn write_overlay(game_id: &str, changes: &[Change], base: Option<&Path>, out
         if let Some(file) = &progress {
             let _ = fs::write(file, format!("{done} {}\n", changes.len()));
         }
-        let lower = change.path.to_ascii_lowercase();
-        super::material::MOD_FILE_NEEDS_PASSES.set(lower.contains("mario") || lower.contains("luigi") || lower.contains("flexible"));
         let result = fs::read(&change.source)
             .with_context(|| format!("{} cannot be read", change.source.display()))
             .and_then(|bytes| {
@@ -132,9 +139,8 @@ pub fn write_overlay(game_id: &str, changes: &[Change], base: Option<&Path>, out
                     return Ok(vec![(change.path.clone(), cook_change(change, bytes, &waves, stats)?)]);
                 }
                 let mut cooked = Vec::with_capacity(modern.len());
-                for (path, converted) in modern {
-                    // A stream is in the game's form already.
-                    let items = if path.ends_with(".ast") {
+                for (path, converted, done) in modern {
+                    let items = if done {
                         vec![StoreItem { path: String::new(), order: 0, bytes: Some(converted) }]
                     } else {
                         cook_entry(&path, converted, stats)?
@@ -170,7 +176,7 @@ pub fn write_overlay(game_id: &str, changes: &[Change], base: Option<&Path>, out
 
 /// What a merged file holds so far: a mod's file of that name in this store, else the game's.
 fn merge_start(path: &str, base: Option<&Path>, temporary: &Path, pak: &mut File, placed: &[store::Placed]) -> Result<Vec<u8>> {
-    if let Some(mine) = placed.iter().find(|p| !p.folder && p.path.eq_ignore_ascii_case(path)) {
+    if let Some(mine) = placed.iter().find(|p| !p.folder && store::same_path(&p.path, path)) {
         pak.flush()?;
         let mut reader = File::open(temporary)?;
         reader.seek(SeekFrom::Start(mine.position))?;
@@ -201,10 +207,10 @@ fn apply_merges(changes: &[Change], base: Option<&Path>, pak: &mut File, tempora
                     Some(current) => current,
                     None => merge_start(&path, base, temporary, pak, placed)?,
                 };
-                let mut rows = super::merge::read_rows(&bytes)?;
+                let mut rows = super::table::read_rows(&bytes)?;
                 if table_key.ends_with("particlenames.bcsv") {
                     let folder = change.source.parent().map(Path::to_path_buf).unwrap_or_default();
-                    let first = super::merge::row_count(&current)?;
+                    let first = super::table::row_count(&current)?;
                     first_particle.insert(folder, u16::try_from(first).context("too many particles")?);
                     for (i, row) in rows.iter_mut().enumerate() {
                         if let Some(fields) = row.as_object_mut() {
@@ -212,8 +218,7 @@ fn apply_merges(changes: &[Change], base: Option<&Path>, pak: &mut File, tempora
                         }
                     }
                 }
-                let current = super::merge::edit_rows(&current, &bytes)?;
-                merged.insert(table_key, super::merge::add_rows(&current, &rows)?);
+                merged.insert(table_key, super::table::merge(&current, &bytes, &rows)?);
             } else if lower(&change.path).ends_with(".jpc") {
                 let folder = change.source.parent().map(Path::to_path_buf).unwrap_or_default();
                 let first = *first_particle.get(&folder).context("new particles need their names: ParticleNames.bcsv.json beside them")?;
@@ -237,11 +242,11 @@ fn apply_merges(changes: &[Change], base: Option<&Path>, pak: &mut File, tempora
     for (key, bytes) in merged {
         let path = placed
             .iter()
-            .find(|p| p.path.eq_ignore_ascii_case(&key))
+            .find(|p| store::same_path(&p.path, &key))
             .map(|p| p.path.clone())
-            .or_else(|| changes.iter().filter(|c| c.merge).map(|c| c.path.trim_end_matches(".json").to_string()).find(|p| p.eq_ignore_ascii_case(&key)))
+            .or_else(|| changes.iter().filter(|c| c.merge).map(|c| c.path.trim_end_matches(".json").to_string()).find(|p| store::same_path(p, &key)))
             .unwrap_or(key);
-        placed.retain(|p| !p.path.eq_ignore_ascii_case(&path));
+        placed.retain(|p| !store::same_path(&p.path, &path));
         placed.extend(place(pak, at, &path, vec![StoreItem { path: String::new(), order: 0, bytes: Some(bytes) }], stats)?);
     }
     Ok(())
@@ -280,7 +285,7 @@ fn complete_archives(changes: &[Change], base: Option<&Path>, pak: &mut File, at
         let Ok(members) = store::read_folder(base, &archive) else { continue };
         for (relative, bytes) in members {
             let path = format!("{archive}/{relative}");
-            if !placed.iter().any(|p| p.path.eq_ignore_ascii_case(&path)) {
+            if !placed.iter().any(|p| store::same_path(&p.path, &path)) {
                 placed.extend(place(pak, at, &path, vec![StoreItem { path: String::new(), order: 0, bytes: Some(bytes) }], stats)?);
             }
         }
@@ -311,32 +316,25 @@ fn cook_plan_inner(plan: &Path, output: &Path) -> Result<(Stats, Vec<(String, St
     for line in text.lines().filter_map(|line| line.strip_prefix("=material\t")) {
         let (name, source) = line.split_once('\t').with_context(|| format!("the plan's line {line:?}"))?;
         let words = fs::read_to_string(source).with_context(|| format!("{source} cannot be read"))?;
-        written.insert(name.to_string(), (super::material::written_shader_id(name, &words), words));
+        written.insert(name.to_string(), words);
     }
-    let shaders_written: Vec<(u32, String)> = written.values().cloned().collect();
-    *super::material::WRITTEN_SHADERS.lock().unwrap_or_else(|e| e.into_inner()) = Some(written);
+    *super::programs::MOD_WRITTEN.lock().unwrap_or_else(|e| e.into_inner()) = Some(written);
+    *super::programs::MOD_TEXTS.lock().unwrap_or_else(|e| e.into_inner()) = Some(BTreeMap::new());
     *PROGRESS.lock().unwrap_or_else(|e| e.into_inner()) = Some(output.with_extension("progress"));
-    // A material this build lacks takes its number from its key, as in a .luma's own shaders.
-    *super::material::MOD_MATERIALS.lock().unwrap_or_else(|e| e.into_inner()) = Some(std::collections::BTreeMap::new());
     let result = write_overlay(&game_id, &changes, plan_base(&text).as_deref(), output, &mut stats);
-    let materials = super::material::MOD_MATERIALS.lock().unwrap_or_else(|e| e.into_inner()).take().unwrap_or_default();
+    let texts = super::programs::MOD_TEXTS.lock().unwrap_or_else(|e| e.into_inner()).take().unwrap_or_default();
     let _ = fs::remove_file(output.with_extension("progress"));
-    *super::material::WRITTEN_SHADERS.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    *super::programs::MOD_WRITTEN.lock().unwrap_or_else(|e| e.into_inner()) = None;
     let failed = result?;
     // What those materials need, for shaders the mod didn't bring or brought for another build.
     let sources = output.with_extension("sources");
     let _ = fs::remove_dir_all(&sources);
     fs::create_dir_all(&sources).with_context(|| format!("{} cannot be created", sources.display()))?;
-    for (name, text) in super::shader_source::HEADERS {
+    for (name, text) in super::programs::HEADERS {
         fs::write(sources.join(name), text)?;
     }
-    for (id, words) in &shaders_written {
-        fs::write(sources.join(format!("m{id:08x}.hlsl")), words)?;
-    }
-    for (id, record) in &materials {
-        if let Ok(source) = super::shader_source::material_source(record) {
-            fs::write(sources.join(format!("m{id:08x}.hlsl")), source)?;
-        }
+    for (name, text) in &texts {
+        fs::write(sources.join(name), text)?;
     }
     Ok((stats, failed))
 }
@@ -344,6 +342,23 @@ fn cook_plan_inner(plan: &Path, output: &Path) -> Result<(Stats, Vec<(String, St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn modern_models_can_replace_either_native_model_ending() {
+        let bytes = br#"{"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"mesh":0}],
+            "meshes":[{"primitives":[{"attributes":{"POSITION":0},"indices":1}]}],
+            "accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3"},{"bufferView":1,"componentType":5123,"count":3,"type":"SCALAR"}],
+            "bufferViews":[{"buffer":0,"byteLength":36},{"buffer":0,"byteOffset":36,"byteLength":6}],
+            "buffers":[{"byteLength":42,"uri":"data:application/octet-stream;base64,AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAABAAIA"}]}"#;
+        for (path, expected) in [("ObjectData/Coin.arc/coin.bdl.gltf", "ObjectData/Coin.arc/coin.bdl"),
+                                 ("ObjectData/Test.arc/test.bmd.gltf", "ObjectData/Test.arc/test.bmd"),
+                                 ("ObjectData/Test.arc/test.gltf", "ObjectData/Test.arc/test.bmd")] {
+            let files = modern_files(&Change { path: path.into(), source: "fixture.gltf".into(), merge: false }, bytes).unwrap();
+            assert_eq!(files[0].0, expected);
+            assert!(files[0].2);
+            assert_eq!(&files[0].1[..4], b"NMDL");
+        }
+    }
 
     #[test]
     fn a_plan_names_its_game_and_files() {

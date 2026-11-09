@@ -7,20 +7,20 @@ class MagicBell : public LiveActor {
 public:
     MagicBell(const char*);
 
-    virtual ~MagicBell();
-    virtual void init(const JMapInfoIter&);
-    virtual MtxPtr getBaseMtx() const;
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual MtxPtr getBaseMtx() const override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
 
     void exeWait();
     void exeRing();
     bool tryRing();
-    void startRing(const TVec3f&, const TVec3f&);
+    void startRing(const Vec3f& rHitDir, const Vec3f& rHitPos);
+    void updateJointMtx();
 
     Swinger* mBellSwinger;
     MtxPtr mSurface2Mtx;
     Swinger* mBellRodSwinger;
     MtxPtr mSurface1Mtx;
-    TVec3f mHitMarkPosition;
+    Vec3f mHitMarkPosition;
 };

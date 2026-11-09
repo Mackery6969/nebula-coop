@@ -1,18 +1,9 @@
 #include "Game/Camera/DotCamParams.hpp"
-#include "Game/Util/JMapInfo.hpp"
-#include <cstdio>
-#include <cstring>
+#include "Game/Util/StringUtil.hpp"
+#include "Game/Util/Table.hpp"
 
-template bool JMapInfoIter::getValue< s32 >(const char*, s32*) const;
-
-DotCamReaderInBin::DotCamReaderInBin(const void* pData) : mVersion(), _8(), mMapInfo() {
+DotCamReaderInBin::DotCamReaderInBin(const void* pData) : mVersion(), mMapInfo() {
     init(pData);
-}
-
-DotCamReaderInBin::~DotCamReaderInBin() {
-    if (_8 != nullptr) {
-        delete[] _8;
-    }
 }
 
 bool DotCamReaderInBin::hasMoreChunk() const {
@@ -51,22 +42,21 @@ void DotCamReaderInBin::init(const void* pData) {
     mMapIter = mMapInfo.begin();
 }
 
-bool DotCamReaderInBin::getValueVec(const char* pName, TVec3f* pOut) {
-    char buffer[0x100];
-    char* pBuffer = &buffer[0];
+bool DotCamReaderInBin::getValueVec(const char* pName, Vec3f* pOut) {
+    MR::FormattedName key;
 
     f32 z;
     f32 y;
     f32 x;
 
-    nebula_snprintf(pBuffer, sizeof(buffer), "%s.X", pName);
-    bool success = mMapIter.getValue< f32 >(pBuffer, &x) & 1;
+    key.format("%s.X", pName);
+    bool success = mMapIter.getValue< f32 >(key.c_str(), &x) & 1;
 
-    nebula_snprintf(pBuffer, sizeof(buffer), "%s.Y", pName);
-    success &= mMapIter.getValue< f32 >(pBuffer, &y);
+    key.format("%s.Y", pName);
+    success &= mMapIter.getValue< f32 >(key.c_str(), &y);
 
-    nebula_snprintf(pBuffer, sizeof(buffer), "%s.Z", pName);
-    success &= mMapIter.getValue< f32 >(pBuffer, &z);
+    key.format("%s.Z", pName);
+    success &= mMapIter.getValue< f32 >(key.c_str(), &z);
 
     if (success) {
         pOut->x = x;

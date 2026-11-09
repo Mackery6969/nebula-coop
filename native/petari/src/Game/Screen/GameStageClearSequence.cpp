@@ -1,4 +1,5 @@
 #include "Game/Screen/GameStageClearSequence.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/PowerStar.hpp"
 #include "Game/Screen/SimpleLayout.hpp"
@@ -16,11 +17,11 @@ namespace {
     static const s32 sClearDemoWipeFramePowerStar = 80;
     static const s32 sFanfareStartStepPowerStar = 15;
     static const f32 sLayoutOffsetYPowerStar = 80.0f;
-    static const s32 sLayoutStartStepGrandStar = 510;
+    static const s32 sLayoutStartStepGrandStar = NebulaFrameClock::stepsOfMilliseconds(8500);
     static const s32 sClearDemoWipeStepGrandStar = 670;
     static const s32 sFanfareStartStepGrandStar = 53;
     static const f32 sLayoutOffsetYGrandStar = 20.0f;
-    static const s32 sClearDemoWipeStepKoopaVs3 = 840;
+    static const s32 sClearDemoWipeStepKoopaVs3 = NebulaFrameClock::stepsOfSeconds(14);
     static const s32 sClearDemoWipeFrameKoopaVs3 = 60;
 };  // namespace
 
@@ -30,11 +31,11 @@ namespace NrvGameStageClearSequence {
 };  // namespace NrvGameStageClearSequence
 
 GameStageClearSequence::GameStageClearSequence()
-    : LayoutActor("\203\130\203\145\201\133\203\127\203\116\203\212\203\101\203\126\201\133\203\120\203\223\203\130" /* ステージクリアシーケンス */, true), mEffectLayout(nullptr), mEffectFollowPos(0.0f, 0.0f) {
+    : LayoutActor("ステージクリアシーケンス", true), mEffectLayout(nullptr), mEffectFollowPos(0.0f, 0.0f) {
 }
 
-void GameStageClearSequence::init(const JMapInfoIter& rIter) {
-    mEffectLayout = new SimpleEffectLayout("\203\130\203\136\201\133\216\346\223\276" /* スター取得 */, "GetStar", 1, -1);
+void GameStageClearSequence::init(const TableIter& /*rIter*/) {
+    mEffectLayout = new SimpleEffectLayout("スター取得", "GetStar", 1, -1);
     mEffectLayout->initWithoutIter();
 
     MR::setFollowPos(&mEffectFollowPos, mEffectLayout, nullptr);
@@ -47,14 +48,14 @@ void GameStageClearSequence::init(const JMapInfoIter& rIter) {
 
 void GameStageClearSequence::startPowerStarGetDemo() {
     LayoutActor::appear();
-    mEffectFollowPos.set(TVec2f(0.0f, ::sLayoutOffsetYPowerStar));
+    mEffectFollowPos.set(Vec2f(0.0f, ::sLayoutOffsetYPowerStar));
     MR::setTextBoxGameMessageRecursive(mEffectLayout, "GetStar", "GetStar_PowerStar");
     setNerve(GET_NERVE(GameStageClearSequence, GameStageClearSequencePowerStarGetDemo));
 }
 
 void GameStageClearSequence::startGrandStarGetDemo() {
     LayoutActor::appear();
-    mEffectFollowPos.set(TVec2f(0.0f, ::sLayoutOffsetYGrandStar));
+    mEffectFollowPos.set(Vec2f(0.0f, ::sLayoutOffsetYGrandStar));
     MR::setTextBoxGameMessageRecursive(mEffectLayout, "GetStar", "GetStar_GrandStar");
     setNerve(GET_NERVE(GameStageClearSequence, GameStageClearSequenceGrandStarGetDemo));
 }
@@ -70,7 +71,6 @@ void GameStageClearSequence::exePowerStarGetDemo() {
         MR::stopStageBGM(2);
         MR::setSoundVolumeSetting(1, 20);
         MR::stopScene(::sClearDemoStopFrame);
-        MR::resetGlobalTimer();
         MR::deactivateDefaultGameLayout();
         MR::endGalaxyCometEvent();
     }
@@ -100,7 +100,6 @@ void GameStageClearSequence::exeGrandStarGetDemo() {
         MR::stopStageBGM(2);
         MR::setSoundVolumeSetting(1, 20);
         MR::stopScene(::sClearDemoStopFrame);
-        MR::resetGlobalTimer();
         MR::deactivateDefaultGameLayout();
         MR::endGalaxyCometEvent();
     }

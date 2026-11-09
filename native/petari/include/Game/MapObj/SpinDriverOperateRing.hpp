@@ -2,36 +2,35 @@
 
 #include "Game/LiveActor/LiveActor.hpp"
 
+// The pointer-steered offset of a super spin driver's flight: a spring in the plane across the shot direction.
 class SpinDriverOperateRing : public LiveActor {
 public:
     SpinDriverOperateRing(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
+    virtual void init(const TableIter&) override;
 
+    // 0 turns steering off; 1 is the full ring radius.
     void setRadiusRate(f32);
     void reset();
-    void update(const TVec3f&, const TVec3f&);
+    void update(const Vec3f& rCenter, const Vec3f& rShootDir);
     void updatePosition();
-    void updateControlPoint(const TVec3f&);
-    void updateDirection(const TVec3f&);
+    void updateControlPoint(const Vec3f& rShootDir);
+    void updateDirection(const Vec3f&);
     void resetVelocityAndTrans();
-    void addAccelToOperatePlane(const TVec3f&);
-    void addAccelOperate(TVec3f*, const TVec3f&);
+    void addAccelToOperatePlane(const Vec3f& rShootDir);
+    void addAccelOperate(Vec3f* pAccel);
     void addAccelToCenter();
     void attenuateVelocity();
-    void calcOperatePowerByDPD(TVec3f*) const;
+    void calcOperatePowerByPointer(Vec3f*) const;
 
-    void exeWait();
-
-    TVec3f _8C;
-    TVec3f _98;
-    TVec3f _A4;
-    TVec3f mAccelerate;
-    TVec3f mDirection;
-    TVec3f _C8;
+    Vec3f mCenter;
+    Vec3f mOffset;
+    Vec3f mAccelerate;
+    // Smoothed steering direction (SuperSpinDriver bends the shot by it).
+    Vec3f mDirection;
+    Vec3f mPointerPos;
     f32 mRadiusRate;
-    f32 _D8;
-    f32 _DC;
-    s32 _E0;
+    f32 mOffsetLength;
+    f32 mOffsetRate;
+    s32 mOperateState;
 };

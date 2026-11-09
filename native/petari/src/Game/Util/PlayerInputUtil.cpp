@@ -11,15 +11,15 @@
 #include "Game/Util/VectorUtil.hpp"
 
 namespace MR {
-    void getPointerPosOnScreen(TVec2f* pPos, s32 channel) {
+    void getPointerPosOnScreen(Vec2f* pPos, s32 channel) {
         MR::getPlayerInput(channel)->mPointer->getPointingPosBasedOnScreen(pPos);
     }
 
-    void getPointerPos(TVec2f* pPos, s32 channel) {
+    void getPointerPos(Vec2f* pPos, s32 channel) {
         MR::getPlayerInput(channel)->mPointer->getPointingPos(pPos);
     }
 
-    void getPointerPastPos(TVec2f* pPos, s32 idx, s32 channel) {
+    void getPointerPastPos(Vec2f* pPos, s32 idx, s32 channel) {
         MR::getPlayerInput(channel)->mPointer->getPastPointingPos(pPos, idx);
     }
 
@@ -35,7 +35,7 @@ namespace MR {
         return MR::getPlayerInput(channel)->mPointer->mDistDisplay;
     }
 
-    void getMainTilt(TVec3f* pAccel, s32 channel) {
+    void getMainTilt(Vec3f* pAccel, s32 channel) {
         MR::getPlayerInput(channel)->mMainTilt->getAcceleration(pAccel);
     }
 
@@ -133,12 +133,6 @@ namespace MR {
         return MR::getPlayerInput(channel)->mButton->testTriggerMinus();
     }
 
-    bool isPressedAnyWithoutHome(s32 channel) {
-        return isPressedUp(channel) || isPressedDown(channel) || isPressedLeft(channel) ||
-               isPressedRight(channel) || isPressedJump(channel) || isPressedFire(channel) || testCorePadTrigger1(channel) ||
-               testCorePadTrigger2(channel) || isPressedPause(channel) || isPressedMap(channel);
-    }
-
     bool isPressedHome(s32 channel) {
         return MR::getPlayerInput(channel)->mButton->testTriggerHome();
     }
@@ -172,23 +166,19 @@ namespace MR {
     }
 
     bool isMoveStickPressedUp(s32 channel) {
-        return (MR::getPlayerInput(channel)->mStick->mTrigger & 1) != 0;
+        return (MR::getPlayerInput(channel)->mStick->mTrigger & InputStick::Direction_Up) != 0;
     }
 
     bool isMoveStickPressedDown(s32 channel) {
-        return (MR::getPlayerInput(channel)->mStick->mTrigger & 2) != 0;
+        return (MR::getPlayerInput(channel)->mStick->mTrigger & InputStick::Direction_Down) != 0;
     }
 
     bool isMoveStickPressedLeft(s32 channel) {
-        return (MR::getPlayerInput(channel)->mStick->mTrigger & 8) != 0;
+        return (MR::getPlayerInput(channel)->mStick->mTrigger & InputStick::Direction_Left) != 0;
     }
 
     bool isMoveStickPressedRight(s32 channel) {
-        return (MR::getPlayerInput(channel)->mStick->mTrigger & 4) != 0;
-    }
-
-    void getSubTilt(TVec3f* pAccel, s32 channel) {
-        MR::getPlayerInput(channel)->mSubTilt->getAcceleration(pAccel);
+        return (MR::getPlayerInput(channel)->mStick->mTrigger & InputStick::Direction_Right) != 0;
     }
 
     bool isSubSpin(s32 channel) {
@@ -200,18 +190,18 @@ namespace MR {
     }
 
     bool testSystemPadTriggerDecide() {
-        return isPressedJump(PLAYER_1) != false;
+        return isPressedJump(PLAYER_1);
     }
 
     bool testSystemTriggerA() {
-        return isPressedJump(PLAYER_1) != false;
+        return isPressedJump(PLAYER_1);
     }
 
     bool testSystemTriggerB() {
-        return isPressedFire(PLAYER_1) != false;
+        return isPressedFire(PLAYER_1);
     }
 
-    bool testDPDMenuPadDecideTrigger() {
+    bool testPointerMenuPadDecideTrigger() {
         return isPressedJump(PLAYER_1);
     }
 
@@ -293,13 +283,13 @@ namespace MR {
     }
 
     void calcWorldStickDirectionXZ(f32* pDirX, f32* pDirZ, s32 channel) {
-        TPos3f mtx;
+        Pos3f mtx;
         mtx.set(getCameraInvViewMtx());
-        TVec3f side;
+        Vec3f side;
         mtx.getXDir(side);
         side.y = 0.0f;
         normalizeOrZero(&side);
-        TVec3f front;
+        Vec3f front;
         mtx.getZDir(front);
         front.y = 0.0f;
         normalizeOrZero(&front);
@@ -309,13 +299,13 @@ namespace MR {
         f32 y = getMoveStickY(channel);
         side.scale(x);
         front.scale(y);
-        TVec3f direction = side + front;
+        Vec3f direction = side + front;
         normalizeOrZero(&direction);
         *pDirX = direction.x;
         *pDirZ = direction.z;
     }
 
-    void calcWorldStickDirectionXZ(TVec3f* pDir, s32 channel) {
+    void calcWorldStickDirectionXZ(Vec3f* pDir, s32 channel) {
         pDir->y = 0.0f;
 
         calcWorldStickDirectionXZ(&pDir->x, &pDir->z, channel);

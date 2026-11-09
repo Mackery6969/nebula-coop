@@ -1,10 +1,8 @@
 #include "Game/System/NebulaFrameClock.hpp"
-#include "Game/System/GameThreads.hpp"
 
 #include <math.h>
 
 #include <nebula_game_api.h>
-#include <nebula_threads.h>
 #include "Game/System/NebulaSystemSettings.hpp"
 
 extern "C" const NebulaHostServices* nebula_host(void);
@@ -53,7 +51,8 @@ namespace {
 
     void onFrame() {
         sFrames++;
-        nebula_host()->frame_begun(nebula_host()->user, sPicture ? 0 : 1, sFrames);
+        const NebulaHostServices* const host = nebula_host();
+        host->frame_begun(host->user, sPicture ? 0 : 1, sFrames);
         refreshDisplay();
     }
 
@@ -69,8 +68,14 @@ namespace NebulaFrameClock {
         beginFrame();
     }
 
+    // Deterministic test runs (the host's test_frame_step) step the clock here instead.
     void sleepUntilFrame() {
-        GameThreads::waitFrame();
+        const NebulaHostServices* const host = nebula_host();
+        if (host->test_frame_step != nullptr) {
+            host->test_frame_step(host->user);
+        } else {
+            host->frame_wait(host->user);
+        }
     }
 
     void beginFrame() {

@@ -1,5 +1,4 @@
 #include "Game/System/AudSystemWrapper.hpp"
-#include "Game/System/GameThreads.hpp"
 #include "Game/AudioLib/AudMeNameConverter.hpp"
 #include "Game/AudioLib/AudMicWrap.hpp"
 #include "Game/AudioLib/AudSceneMgr.hpp"
@@ -13,34 +12,16 @@
 #include "Game/System/NebulaArena.hpp"
 #include "Game/System/AssetFolder.hpp"
 
-namespace AudRhythmWrap {
-    void rhythmProc();
-};  // namespace AudRhythmWrap
-
-AudSystemWrapper::AudSystemWrapper(NebulaArena* pSolidHeap, NebulaArena* pHeap) {
-    volatile AudSystemWrapper* self = this;
-
-    self->mIsResetDone = false;
-    self->mSolidHeap = pSolidHeap;
-    self->mAudSystem = nullptr;
-    self->mHeap = pHeap;
-    self->mSmrRes = nullptr;
-    self->mJaiSeqRes = nullptr;
-    self->mJaiChordRes = nullptr;
-    self->mJaiMeRes = nullptr;
-    self->mJaiRemixSeqRes = nullptr;
-    self->mSpkRes = nullptr;
-    self->_28 = false;
-    mSpkHeap = NebulaArena::create(pSolidHeap);
-}
-
-void AudSystemWrapper::requestResourceForInitialize() {
-    MR::loadFile(sAudioResFile, nullptr, mHeap);
-    MR::mountArchive(sJaiSeqArc, mSolidHeap);
-    MR::mountArchive(sJaiChordArc, mSolidHeap);
-    MR::mountArchive(sJaiMeArc, mSolidHeap);
-    MR::mountArchive(AudSpeakerWrap::getResName(), mSpkHeap);
-    MR::mountArchive(sJaiRemixArc, mSolidHeap);
+AudSystemWrapper::AudSystemWrapper(NebulaArena* pArena) {
+    mIsResetDone = false;
+    mArena = pArena;
+    mAudSystem = nullptr;
+    mSeqArchive = nullptr;
+    mChordArchive = nullptr;
+    mMeArchive = nullptr;
+    mRemixArchive = nullptr;
+    mSpkRes = nullptr;
+    mSpeakerArena = NebulaArena::create(pArena);
 }
 
 void AudSystemWrapper::createAudioSystem() {
@@ -50,10 +31,7 @@ void AudSystemWrapper::createAudioSystem() {
         return;
     }
 
-    mAudSystem = AudNewAudSystem(mSolidHeap, mSmrRes, mJaiSeqRes, mJaiChordRes, mJaiMeRes, mJaiRemixSeqRes);
-
-    MR::removeFileConsideringLanguage(sAudioResFile);
-    mSmrRes = nullptr;
+    mAudSystem = AudNewAudSystem(mArena, mSeqArchive, mChordArchive, mMeArchive, mRemixArchive);
 
     mAudSystem->setSpeakerResource(mSpkRes);
     createSoundNameConverter();
@@ -64,14 +42,6 @@ void AudSystemWrapper::createSoundNameConverter() {
     AudSingletonHolder< AudSoundNameConverter >::init();
     AudSingletonHolder< AudMeNameConverter >::init();
     AudSingletonHolder< CSSoundNameConverter >::init();
-}
-
-void AudSystemWrapper::updateRhythm() {
-    if (mAudSystem == nullptr) {
-        return;
-    }
-
-    AudRhythmWrap::rhythmProc();
 }
 
 void AudSystemWrapper::movement() {
@@ -100,11 +70,11 @@ void AudSystemWrapper::prepareReset() {
     }
 }
 
-void AudSystemWrapper::requestReset(bool stopThreads) {
+void AudSystemWrapper::requestReset(bool stopClock) {
     if (mAudSystem == nullptr) {
         mIsResetDone = true;
     } else {
-        mAudSystem->resetAudio(10, stopThreads);
+        mAudSystem->resetAudio(10, stopClock);
         mAudSystem->stop(10);
     }
 }
@@ -134,12 +104,11 @@ void AudSystemWrapper::resumeReset() {
 }
 
 void AudSystemWrapper::receiveResourceForInitialize() {
-    mSmrRes = MR::getLoadedFile(sAudioResFile);
-    mJaiSeqRes = MR::getMountedArchive(sJaiSeqArc);
-    mJaiChordRes = MR::getMountedArchive(sJaiChordArc);
-    mJaiMeRes = MR::getMountedArchive(sJaiMeArc);
-    mSpkRes = MR::getMountedArchive(AudSpeakerWrap::getResName());
-    mJaiRemixSeqRes = MR::getMountedArchive(sJaiRemixArc);
+    mSeqArchive = MR::getArchive(cSeqArchivePath, mArena);
+    mChordArchive = MR::getArchive(cChordArchivePath, mArena);
+    mMeArchive = MR::getArchive(cMeArchivePath, mArena);
+    mSpkRes = MR::getArchive(AudSpeakerWrap::getResName(), mSpeakerArena);
+    mRemixArchive = MR::getArchive(cRemixArchivePath, mArena);
 }
 
 void AudSystemWrapper::loadScenarioWaveData(const char* pSceneName, const char* pStageName, s32 scenarioNo) {

@@ -2,11 +2,11 @@
 
 #include "Game/AudioLib/AudSystem.hpp"
 #include "Game/AudioLib/AudWrap.hpp"
-#include <JSystem/JAudio2/JAUSoundObject.hpp>
-#include <JSystem/JKernel/JKRDisposer.hpp>
+#include "Game/Sound/SoundObject.hpp"
+#include "Game/System/NebulaArena.hpp"
 
-class JAISoundID;
-class JAISoundHandle;
+class SoundID;
+class SoundHandle;
 
 enum SE_GROUP {
     SE_SYSTEM = 0x00,
@@ -30,60 +30,42 @@ enum BGM_GROUP {
     MULTI_BGM = 0x01,
 };
 
-class AudSoundObjHashData {
+class AudSoundObject : public SoundObject, ArenaOwned {
 public:
-    AudSoundObjHashData();
+    AudSoundObject(Vec3f*, u8, NebulaArena*);
 
-    void init();
-
-    const char* mName;
-    u32 mHash;
-    JAISoundID mID;
-};
-
-class AudSoundObject : public JAUSoundObject, JKRDisposer {
-public:
-    AudSoundObject(TVec3f*, u8, NebulaArena*);
-
-    virtual JAISoundHandle* startSound(JAISoundID);
-    virtual JAISoundHandle* startLevelSound(JAISoundID);
+    SoundHandle* startSound(SoundID);
+    SoundHandle* startLevelSound(SoundID);
     virtual ~AudSoundObject();
 
     void addToSoundObjHolder();
-    void setTrans(TVec3f*);
-    bool writePort(JAISoundHandle*, u32, u16);
-    bool isLimitedSound(JAISoundID);
-    JAISoundHandle* startLevelSound(const char*);
-    JAISoundHandle* startSoundParam(JAISoundID, s32, s32);
-    JAISoundHandle* startLevelSoundParam(JAISoundID, s32, s32);
-    JAISoundHandle* startLevelSoundParam(const char*, s32, s32);
-    bool modifyLimitedSound(JAISoundID);
-    bool isPlayingID(JAISoundID);
-    void releaseHandle(JAISoundID);
+    void setTrans(Vec3f*);
+    bool writePort(SoundHandle*, u32, u16);
+    bool isLimitedSound(SoundID);
+    SoundHandle* startLevelSound(const char*);
+    SoundHandle* startSoundParam(SoundID, s32 level, s32 subLevel);
+    SoundHandle* startLevelSoundParam(SoundID, s32 level, s32 subLevel);
+    SoundHandle* startLevelSoundParam(const char*, s32 level, s32 subLevel);
+    bool modifyLimitedSound(SoundID);
+    bool isPlayingID(SoundID);
+    void releaseHandle(SoundID);
     void setMapCode(s32);
     void setMapCodeExtra(s32);
     s32 getMapCode() const;
     void clearMapCode();
-    JAISoundID convertNameToLevelSEID(const char*);
-    void limitVoiceOne(JAISoundID);
+    SoundID convertNameToLevelSEID(const char*);
+    void limitVoiceOne(SoundID);
     void stopCategorySound(u32, u32);
-    void setMapCodeToPort(JAISoundHandle*, JAISoundID);
-    void setCutoffToPort(JAISoundHandle*, JAISoundID);
-    JAISoundID convertSoundIdFromSeVersion(JAISoundID) const;
-    void modifySe_Kawamura(JAISoundHandle*, s32);
-    bool modifyLimitedSound_Kawamura(JAISoundID);
-    void modifySe_Takezawa(JAISoundHandle*, s32, s32);
-    bool modifyLimitedSound_Takezawa(JAISoundID);
-    void modifySe_Gohara(JAISoundHandle*, s32, s32);
+    void setMapCodeToPort(SoundHandle*, SoundID);
+    void setCutoffToPort(SoundHandle*, SoundID);
+    SoundID convertSoundIdFromSeVersion(SoundID) const;
+    void modifySe(SoundHandle*, s32 level, s32 subLevel);
 
-    bool isEnableStartSound(JAISoundID soundID) {
+    bool isEnableStartSound(SoundID soundID) {
         return AudWrap::getSystem()->isEnableStartSound(soundID);
     }
 
-    u32 mSeVersion;  // TODO: Kuribo and Metbo "_DARK"?
+    u32 mSeVersion;  // Which variant of the owner's sounds plays; each actor class names its versions.
     s32 mMapCode;
     s32 mMapCodeExtra;
-    AudSoundObjHashData* mHashDatas;
-    s32 mNumHandles;
-    s32 mNumSounds;
 };

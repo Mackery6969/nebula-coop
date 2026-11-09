@@ -10,40 +10,40 @@ MarioNullBck::MarioNullBck(const char* pName) : LiveActor(pName) {
 MarioNullBck::~MarioNullBck() {
 }
 
-void MarioNullBck::init(const JMapInfoIter& rIter) {
+void MarioNullBck::init(const TableIter& rIter) {
     initModelManagerWithAnm("MarioDummyItem", nullptr, false);
     MR::startBck(this, "PickUpBall");
     makeActorDead();
 }
 
 void MarioNullBck::appear() {
-    _8C = 0;
+    mLastFrame = 0;
     LiveActor::appear();
 }
 
-void MarioNullBck::getLastPos(TVec3f* pDest) {
+void MarioNullBck::getLastPos(Vec3f* pDest) {
     MR::copyJointPos(this, "DummyItem", pDest);
 }
 
-bool MarioNullBck::getFramePos(f32 a1, TVec3f* a2, TVec3f* a3) {
+bool MarioNullBck::getFramePos(f32 frame, Vec3f* pPos, Vec3f* pRot) {
     bool ret = false;
     if (MR::isDead(this)) {
         return true;
     }
-    if (a1 > MR::getBckCtrl(this)->getEnd() - 0.01f) {
-        a1 = MR::getBckCtrl(this)->getEnd() - 0.01f;
+    if (frame > MR::getBckCtrl(this)->getEnd() - 0.01f) {
+        frame = MR::getBckCtrl(this)->getEnd() - 0.01f;
         ret = true;
     }
-    if ((f32)_8C >= a1) {
+    if ((f32)mLastFrame >= frame) {
         ret = true;
-        a1 = MR::getBckCtrl(this)->getEnd();
+        frame = MR::getBckCtrl(this)->getEnd();
     }
-    _8C = (s16)(s32)(a1);
-    MR::setBckFrame(this, a1);
+    mLastFrame = (s16)(s32)(frame);
+    MR::setBckFrame(this, frame);
     MR::setBckRate(this, 0.0f);
     MR::updateModelManager(this);
     MR::calcAnimModelManager(this);
-    MR::copyJointPos(this, "DummyItem", a2);
-    MR::makeRTFromMtxPtr(a2, a3, MR::getJointMtx(this, "DummyPoly"), true);
+    MR::copyJointPos(this, "DummyItem", pPos);
+    MR::makeRTFromMtxPtr(pPos, pRot, MR::getJointMtx(this, "DummyPoly"), true);
     return ret;
 }

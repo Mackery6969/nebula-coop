@@ -2,8 +2,8 @@
 #include "Game/Util/Array.hpp"
 #include "Game/Util/ObjUtil.hpp"
 
-NameObjGroup::NameObjGroup(const char* pName, int numMax) : NameObj(pName), mObjNumMax(), mObjNum(), mObjArray() {
-    initObjArray(numMax);
+NameObjGroup::NameObjGroup(const char* pName, int capacity)
+    : NameObj(pName), mObjNumMax(capacity), mObjNum(0), mObjArray(new NameObj*[capacity]) {
 }
 
 NameObjGroup::~NameObjGroup() {
@@ -12,8 +12,15 @@ NameObjGroup::~NameObjGroup() {
 
 void NameObjGroup::registerObj(NameObj* pObj) {
     if (mObjNum >= mObjNumMax) {
-        mObjArray = MR::growArray(mObjArray, mObjNumMax);
-        mObjNumMax *= 2;
+        // A group made for 0 (ExterminationChecker with no children, a mod's FlipPanel group size) starts at 16.
+        if (mObjNumMax == 0) {
+            delete[] mObjArray;
+            mObjArray = new (NebulaArena::findFromRoot(this), 0) NameObj*[16];
+            mObjNumMax = 16;
+        } else {
+            mObjArray = MR::growArray(mObjArray, mObjNumMax);
+            mObjNumMax *= 2;
+        }
     }
 
     mObjArray[mObjNum] = pObj;
@@ -23,14 +30,5 @@ void NameObjGroup::registerObj(NameObj* pObj) {
 void NameObjGroup::pauseOffAll() const {
     for (s32 i = 0; i < mObjNum; i++) {
         MR::requestMovementOn(mObjArray[i]);
-    }
-}
-
-void NameObjGroup::initObjArray(int numMax) {
-    mObjNumMax = numMax;
-    mObjArray = new NameObj*[numMax];
-
-    for (s32 i = 0; i < mObjNumMax; i++) {
-        mObjArray[i] = nullptr;
     }
 }

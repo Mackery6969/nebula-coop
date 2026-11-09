@@ -10,12 +10,12 @@ public:
     /// @param pName A pointer to the null-terminated name of the object.
     HeatHazeEffect(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void appear();
-    virtual void control();
+    virtual void init(const TableIter& rIter) override;
+    virtual void appear() override;
+    virtual void control() override;
 
 private:
-    f32 _8C;
+    f32 mHazeDistance;  // distance in front of the camera
 };
 
 class HeatHazeDirector : public NameObj {
@@ -24,8 +24,8 @@ public:
     /// @param pName A pointer to the null-terminated name of the object.
     HeatHazeDirector(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void movement();
+    virtual void init(const TableIter& rIter) override;
+    virtual void movement() override;
 
 private:
     HeatHazeEffect* mEffect;

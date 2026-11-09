@@ -8,8 +8,7 @@ class TypicalDoor : public MapObjActor {
 public:
     TypicalDoor(const char*);
 
-    virtual ~TypicalDoor();
-    virtual void init(const JMapInfoIter&) override;
+    virtual void init(const TableIter&) override;
     virtual void initCaseUseSwitchB(const MapObjActorInitInfo&) override;
 
     void open();
@@ -26,7 +25,7 @@ public:
     TypicalDoorOpen(const char* pName) : TypicalDoor(pName) {
     }
 
-    virtual void init(const JMapInfoIter&) override;
+    virtual void init(const TableIter&) override;
     virtual void initCaseUseSwitchB(const MapObjActorInitInfo&) override;
 };
 
@@ -34,12 +33,12 @@ class DarknessRoomDoor : public TypicalDoor {
 public:
     DarknessRoomDoor(const char*);
 
-    virtual void init(const JMapInfoIter&) override;
+    virtual void init(const TableIter&) override;
     virtual void control() override;
     virtual void connectToScene(const MapObjActorInitInfo&) override;
 
     void validateCollision();
     void invalidateCollision();
 
-    bool _CC;
+    bool mIsNormalDraw;
 };

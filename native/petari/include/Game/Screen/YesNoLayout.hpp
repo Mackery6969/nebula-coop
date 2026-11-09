@@ -9,15 +9,15 @@ public:
     /// @brief Creates a new `YesNoLayout`.
     YesNoLayout();
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void appear();
-    virtual void kill();
-    virtual void control();
+    virtual void init(const TableIter& rIter) override;
+    virtual void appear() override;
+    virtual void kill() override;
+    virtual void control() override;
 
     void setInformationMessage(const char*);
     void setSelectMessage(const char*, const char*);
     void exeSelecting();
 
     YesNoController* mController;
-    bool _24;
+    bool mHasInformationMessage;
 };

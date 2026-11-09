@@ -6,13 +6,11 @@ class ClipAreaShapeSphere;
 
 class ClipAreaDrop : public ClipArea {
 public:
-    /// @brief Creates a new `ClipArea`.
-    /// @param pName A pointer to the null-terminated name of the object.
     ClipAreaDrop(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void appear();
-    virtual void control();
+    virtual void init(const TableIter& rIter) override;
+    virtual void appear() override;
+    virtual void control() override;
 
     void setBaseSize(f32);
 

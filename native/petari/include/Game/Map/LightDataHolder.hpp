@@ -1,8 +1,9 @@
 #pragma once
 
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 #include <NebulaGpu.h>
 #include <nebula_math.h>
+#include "Game/Util/NameIndex.hpp"
 
 struct LightInfo {
     NebulaColor8 mColor;
@@ -12,10 +13,8 @@ struct LightInfo {
 
 struct LightInfoCoin {
     LightInfo base;
-    struct {
-        NebulaColor8 _14;
-        f32 _18;
-    };
+    NebulaColor8 mSpecularColor;
+    f32 mShininess;
 };
 
 struct ActorLightInfo {
@@ -28,7 +27,6 @@ struct ActorLightInfo {
 struct AreaLightInfo {
     const char* mAreaLightName;
     s32 mInterpolate;
-    bool mFix;
     ActorLightInfo mPlayerLight;
     ActorLightInfo mStrongLight;
     ActorLightInfo mWeakLight;
@@ -51,5 +49,6 @@ public:
 
     s32 mLightCount;
     AreaLightInfo* mLights;
-    LightInfoCoin _8;
+    LightInfoCoin mCoinLight;
+    MR::NameIndex mIndex;  // area light name -> index in mLights, the first of a name
 };

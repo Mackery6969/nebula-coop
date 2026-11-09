@@ -6,10 +6,10 @@ class ZoneLightID;
 
 class LightAreaHolder : public AreaObjMgr {
 public:
-    LightAreaHolder(s32 maxNum, const char* pName);
+    LightAreaHolder(s32 firstCapacity, const char* pName);
 
-    virtual void initAfterPlacement();
+    virtual void initAfterPlacement() override;
 
-    bool tryFindLightID(const TVec3f& rArea, ZoneLightID* pLightID) const;
+    bool tryFindLightID(const Vec3f& rArea, ZoneLightID* pLightID) const;
     void sort();
 };

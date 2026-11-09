@@ -10,18 +10,17 @@ public:
     SimpleBreakableObjBase(const char* pName) : MapObjActor(pName) {
     }
 
-    virtual ~SimpleBreakableObjBase() {
+    virtual ~SimpleBreakableObjBase() override {
     }
 
-    virtual void control();
+    virtual void control() override;
 };
 
 class SimpleBreakableObj : public SimpleBreakableObjBase {
 public:
     SimpleBreakableObj(const char*);
 
-    virtual ~SimpleBreakableObj();
-    virtual void init(const JMapInfoIter&) override;
+    virtual void init(const TableIter&) override;
     virtual void control() override;
     virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
     virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*) override;
@@ -47,7 +46,6 @@ public:
 
     ActorCameraInfo* mCameraInfo;
     s32 mBreakOffsetFrame;
-    s32 _CC;
     s32 mSwitchDeadDelay;
     u16 mBreakFlags;
     s32 mItemType;
@@ -55,7 +53,6 @@ public:
     BenefitItemObj* mKinokoOneUp;
     bool mPlayRiddleSound;
     bool mBreakEnded;
-    bool _E6;
 };
 
 class SimpleBreakableIndirectObj : public SimpleBreakableObj {
@@ -63,6 +60,6 @@ public:
     SimpleBreakableIndirectObj(const char* pName) : SimpleBreakableObj(pName) {
     }
 
-    virtual ~SimpleBreakableIndirectObj() {
+    virtual ~SimpleBreakableIndirectObj() override {
     }
 };

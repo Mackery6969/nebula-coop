@@ -4,21 +4,17 @@
 
 class BootScene : public Scene {
 public:
-    /// @brief Creates a new `BootScene`.
     BootScene();
 
-    /// @brief Destroys the `BootScene`.
-    virtual ~BootScene();
-
-    virtual void init();
-    virtual void update();
-    virtual void calcAnim();
-    virtual void draw() const;
+    virtual void init() override;
+    virtual void update() override;
+    virtual void calcAnim() override;
+    virtual void draw() const override;
 
     bool isBeforeTitle() const;
 
     void exeMountGameData();
-    void exeWaitRayTracing();
+    void exeWaitPreparation();
     void exeWaitReadDoneSystemArchive();
     void exeDeactive();
 

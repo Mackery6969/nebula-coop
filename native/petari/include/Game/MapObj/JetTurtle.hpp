@@ -2,30 +2,31 @@
 
 #include "Game/LiveActor/LiveActor.hpp"
 
-#define JETTURTLETYPE_RED 1
-#define JETTURTLETYPE_GOLD 2
-
 class JetTurtle : public LiveActor {
 public:
+    enum ShellType {
+        SHELL_GREEN,  // slow, never homes
+        SHELL_RED,
+        SHELL_GOLD,
+    };
+
     JetTurtle(const char*);
 
-    virtual ~JetTurtle();
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void appear();
-    virtual void control();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveMsgThrow(HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
+    virtual void appear() override;
+    virtual void control() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgThrow(HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
     virtual void resetPosition();
     virtual void reset(u32);
 
     void exeWait();
     void endWait();
     void exeWait2();
-    void endWait2();
     void exeThrowWait();
     virtual void exeThrowing();
     void exeTakenReserve();
@@ -33,7 +34,7 @@ public:
     void exeRestart();
     void exeDrop();
 
-    void init2(const JMapInfoIter&, s32);
+    void init2(const TableIter& rIter, bool isGolden);
     void becomeSlowType();
     void becomeFastType();
     void appearAndTryTaken();
@@ -43,25 +44,20 @@ public:
     bool isWait() const;
     bool isRestart() const;
 
-    inline bool isNerveWait();
-
-    f32 _8C;
-    u16 mShellType;  // (0 = green, 1 = red, 2 = gold)
-    u16 _92;
-    HitSensor* _94;
-    HitSensor* _98;
-    TVec3f _9C;
-    TVec3f _A8;
-    TVec3f _B4;
-    TVec3f _C0;
-    TVec3f _CC;
-    u16 _D8;
-    u16 _DA;
-    u32 _DC;
-    u8 _E0;
-    u8 _E1;
-    u8 _E2;
-    u8 _E3;
+    f32 mThrowSpeedBonus;
+    u16 mShellType;  // ShellType
+    u16 mSpeedType;  // index of the speed tables; 0 also adds the player's speed to a throw
+    HitSensor* mTakenSensor;
+    HitSensor* mHomingTarget;
+    Vec3f mThrowDir;
+    Vec3f mInitPos;
+    Vec3f mInitRotation;
+    Vec3f mThrowStartPos;
+    Vec3f mLastGravity;
+    bool mIsRevive;
+    bool mIsAppeared;  // placed visible rather than by a switch
+    bool mHasReviveLight;
+    bool mIsResetRequested;
 };
 
 class GoldenTurtle : public JetTurtle {
@@ -69,9 +65,8 @@ public:
     GoldenTurtle(const char* pName) : JetTurtle(pName) {
     }
 
-    virtual ~GoldenTurtle();
-    virtual void init(const JMapInfoIter&);
-    virtual void resetPosition();
-    virtual void reset(u32);
-    virtual void exeThrowing();
+    virtual void init(const TableIter&) override;
+    virtual void resetPosition() override;
+    virtual void reset(u32) override;
+    virtual void exeThrowing() override;
 };

@@ -13,26 +13,28 @@ namespace {
     };
 
     static const f32 sInitRotateVel = 100.0f;
+    // Distance a head must pass beyond the view before its drop effect is deleted (it is made at the view's edge).
+    static const f32 sDropClipLeaveMargin = 150.0f;
     static const f32 sToSensorRadius = 1900.0f;
     static const f32 sEnvironmentRadius = 2100.0f;
 };  // namespace
 
 LavaProminenceTriple::LavaProminenceTriple(const char* pName)
-    : LiveActor(pName), mBloomModel(), mBaseRot(0, 0, 0, 1), mCurrRot(0, 0, 0, 1), mSide(0, 0, 1), mFront(1, 0, 0), mIsAppearDrop1(),
-      mRotateVel(::sInitRotateVel), mIsAppearDrop2(), mIsAppearDrop3(), mIsEnvironment(), mDefaultAppearTime() {
+    : LiveActor(pName), mBloomModel(), mBaseRot(0, 0, 0, 1), mCurrRot(0, 0, 0, 1), mSide(0, 0, 1), mFront(1, 0, 0), mRotateVel(::sInitRotateVel),
+      mIsAppearDrop1(), mIsAppearDrop2(), mIsAppearDrop3(), mIsEnvironment(), mDefaultAppearTime() {
     mBloomMtx.identity();
 }
 
-void LavaProminenceTriple::init(const JMapInfoIter& rIter) {
+void LavaProminenceTriple::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
-    TQuat4f rot;
+    Quat4f rot;
     rot.setEulerDegree(mRotation.x, mRotation.y, mRotation.z);
     rot.getZDir(mFront);
     rot.getXDir(mSide);
     mBaseRot = rot;
 
-    MR::getJMapInfoArg0NoInit(rIter, &mRotateVel);
-    MR::getJMapInfoArg1NoInit(rIter, &mDefaultAppearTime);
+    MR::getPlacementArg0NoInit(rIter, &mRotateVel);
+    MR::getPlacementArg1NoInit(rIter, &mDefaultAppearTime);
     mAppearTime = mDefaultAppearTime;
 
     if (MR::useStageSwitchReadAppear(this, rIter)) {
@@ -63,7 +65,7 @@ void LavaProminenceTriple::init(const JMapInfoIter& rIter) {
         MR::addHitSensorCallbackMapObj(this, "attack", 1, 80.0f * mScale.y);
     }
 
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     MR::setGroupClipping(this, rIter, 16);
 
     if (mIsEnvironment) {
@@ -101,7 +103,7 @@ void LavaProminenceTriple::control() {
 
     mRotation.y += mRotateVel / 100.0f;
     MR::repeatDegree(&mRotation.y);
-    mCurrRot.setRotate(TVec3f(0, 1, 0), MR::toRadian(mRotation.y));
+    mCurrRot.setRotate(Vec3f(0, 1, 0), MR::toRadian(mRotation.y));
     mBloomModel->mPosition.set(mPosition);
     MR::startLevelSound(this, "SE_OJ_LV_PROMINENCE_T_MOVE");
     updateEffectClipping();
@@ -114,9 +116,9 @@ void LavaProminenceTriple::control() {
 }
 
 void LavaProminenceTriple::calcAndSetBaseMtx() {
-    TQuat4f rot = mBaseRot;
+    Quat4f rot = mBaseRot;
     rot.mult(rot, mCurrRot);
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.zeroTrans();
     mtx.setQT(rot, mPosition);
     MR::setBaseTRMtx(this, mtx);
@@ -127,7 +129,7 @@ void LavaProminenceTriple::attackSensor(HitSensor* pSender, HitSensor* pReceiver
     MR::sendMsgEnemyAttackFireStrong(pReceiver, pSender);
 }
 void LavaProminenceTriple::updateHitSensor(HitSensor* pSensor) {
-    TVec3f diff = *MR::getPlayerCenterPos();
+    Vec3f diff = *MR::getPlayerCenterPos();
     diff -= mPosition;
 
     if (MR::isNearZero(diff)) {
@@ -170,7 +172,7 @@ void LavaProminenceTriple::updateHitSensor(HitSensor* pSensor) {
     angle += mRotation.y;
     MR::repeatDegree(&angle);
 
-    TVec3f offset = mFront * MR::cosDegree(angle);
+    Vec3f offset = mFront * MR::cosDegree(angle);
     offset += mSide * MR::sinDegree(angle);
     offset *= mScale.y * ::sToSensorRadius;
     pSensor->mPosition.set(*getPosition());
@@ -186,11 +188,13 @@ void LavaProminenceTriple::updateEffectClipping() {
 }
 
 void LavaProminenceTriple::updateEffectClippingIndividual(bool* pIsAppear, const char* pEffectName, const char* pJointName) {
-    TVec3f jointPos;
+    Vec3f jointPos;
     MR::copyJointPos(this, pJointName, &jointPos);
 
-    if (*pIsAppear == true) {
-        if (MR::isJudgedToClipFrustum(jointPos, 1.0f)) {
+    // The drop goes when the head is a margin outside the view and comes back at its edge: with a 1 unit sphere and one
+    // test for both, the animated head crossing the edge deleted and made the effect again, restarting its particles.
+    if (*pIsAppear) {
+        if (MR::isJudgedToClipFrustum(jointPos, 1.0f + ::sDropClipLeaveMargin)) {
             MR::deleteEffect(this, pEffectName);
             *pIsAppear = false;
         }

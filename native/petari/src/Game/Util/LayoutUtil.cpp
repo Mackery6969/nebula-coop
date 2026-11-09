@@ -1,6 +1,6 @@
 #include "Game/Util/TextString.hpp"
 #include "Game/Util/LayoutUtil.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include "Game/Render/FrameList.hpp"
 #include "Game/Effect/MultiEmitter.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Screen/CustomTagProcessor.hpp"
@@ -17,64 +17,44 @@
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SingletonHolder.hpp"
 #include "Game/Util/StringUtil.hpp"
-#include <JSystem/J3DGraphAnimator/J3DAnimation.hpp>
-#include <JSystem/JUtility/JUTTexture.hpp>
-#include <nw4r/lyt/layout.h>
-#include <nw4r/lyt/material.h>
-#include <nw4r/lyt/picture.h>
-#include <nw4r/lyt/textBox.h>
+#include "Game/Render/Clip.hpp"
+#include "Game/Render/GameTexture.hpp"
+#include <Game/Ui/Layout.hpp>
+#include <Game/Ui/Material.hpp>
+#include <Game/Ui/Picture.hpp>
+#include <Game/Ui/TextBox.hpp>
 
-template nw4r::lyt::TextBox* nw4r::ut::DynamicCast< nw4r::lyt::TextBox*, nw4r::lyt::Pane >(nw4r::lyt::Pane*);
-
-template void JGeometry::TVec2< f32 >::set< f32 >(f32, f32);
-template void JGeometry::TBox2< f32 >::set(const TVec2f&, const TVec2f&);
 
 
 
 namespace {
-    void setInfluencedAlphaToChild(nw4r::lyt::Pane* pPane) {
+    void setInfluencedAlphaToChild(Ui::Pane* pPane) {
         pPane->SetInfluencedAlpha(true);
 
-        nw4r::lyt::PaneList& rChildren = pPane->GetChildList();
+        Ui::PaneList& rChildren = pPane->GetChildList();
 
-        for (nw4r::lyt::PaneList::Iterator it = rChildren.GetBeginIter(); it != rChildren.GetEndIter(); it++) {
-            it->SetInfluencedAlpha(true);
+        for (Ui::Pane* pChild : rChildren) {
+            pChild->SetInfluencedAlpha(true);
         }
     }
 
-    void showPaneRecursive(nw4r::lyt::Pane* pPane) {
-        pPane->SetVisible(true);
-
-        for (nw4r::lyt::PaneList::Iterator it = pPane->GetChildList().GetBeginIter(); it != pPane->GetChildList().GetEndIter(); ++it) {
-            showPaneRecursive(&*it);
-        }
-    }
-
-    void hidePaneRecursive(nw4r::lyt::Pane* pPane) {
-        pPane->SetVisible(false);
-
-        for (nw4r::lyt::PaneList::Iterator it = pPane->GetChildList().GetBeginIter(); it != pPane->GetChildList().GetEndIter(); ++it) {
-            hidePaneRecursive(&*it);
-        }
-    }
-
-    void initFrameCtrlReverse(J3DFrameCtrl* pFrameCtrl) {
+    void initFrameCtrlReverse(FrameCtrl* pFrameCtrl) {
         pFrameCtrl->setAttribute(pFrameCtrl->EMode_RESET);
         pFrameCtrl->setRate(-pFrameCtrl->mRate);
         pFrameCtrl->setFrame(pFrameCtrl->mEnd);
     }
 
-    bool getTextDrawRectRecursive(nw4r::ut::Rect* pRect, const nw4r::lyt::Pane* pPane, bool initialized) {
-        const nw4r::lyt::PaneList& rChildren = pPane->GetChildList();
+    bool getTextDrawRectRecursive(Ui::Rect* pRect, const Ui::Pane* pPane, bool initialized) {
+        const Ui::PaneList& rChildren = pPane->GetChildList();
 
-        for (nw4r::lyt::PaneList::ConstIterator it = rChildren.GetBeginIter(); it != rChildren.GetEndIter(); ++it) {
-            initialized = getTextDrawRectRecursive(pRect, &*it, initialized);
+        for (const Ui::Pane* pChild : rChildren) {
+            initialized = getTextDrawRectRecursive(pRect, pChild, initialized);
         }
 
-        const nw4r::lyt::TextBox* pTextBox = nw4r::ut::DynamicCast< const nw4r::lyt::TextBox* >(pPane);
+        const Ui::TextBox* pTextBox = Ui::PaneCast< Ui::TextBox >(pPane);
 
         if (pTextBox != nullptr) {
-            nw4r::ut::Rect rect = pTextBox->GetTextDrawRect(nw4r::lyt::DrawInfo());
+            Ui::Rect rect = pTextBox->GetTextDrawRect(Ui::DrawInfo());
 
             if (initialized) {
                 if (rect.left < pRect->left) {
@@ -101,19 +81,19 @@ namespace {
         return initialized;
     }
 
-    u32 getTextLineNumMaxRecursiveSub(const nw4r::lyt::Pane* pPane) {
+    u32 getTextLineNumMaxRecursiveSub(const Ui::Pane* pPane) {
         u32 max = 0;
-        const nw4r::lyt::PaneList& rChildren = pPane->GetChildList();
+        const Ui::PaneList& rChildren = pPane->GetChildList();
 
-        for (nw4r::lyt::PaneList::ConstIterator it = rChildren.GetBeginIter(); it != rChildren.GetEndIter(); ++it) {
-            u32 count = getTextLineNumMaxRecursiveSub(&*it);
+        for (const Ui::Pane* pChild : rChildren) {
+            u32 count = getTextLineNumMaxRecursiveSub(pChild);
 
             if (count > max) {
                 max = count;
             }
         }
 
-        const nw4r::lyt::TextBox* pTextBox = nw4r::ut::DynamicCast< const nw4r::lyt::TextBox* >(pPane);
+        const Ui::TextBox* pTextBox = Ui::PaneCast< Ui::TextBox >(pPane);
 
         if (pTextBox != nullptr) {
             u32 count = MR::countMessageLine(pTextBox->mTextBuf);
@@ -129,6 +109,10 @@ namespace {
 
 LayoutHolder* MR::createAndAddLayoutHolder(const char* pArcName) {
     return SingletonHolder< ResourceHolderManager >::get()->createAndAddLayoutHolder(pArcName, nullptr);
+}
+
+LayoutHolder* MR::createAndAddGameLayoutHolder(const char* pArcName) {
+    return SingletonHolder< ResourceHolderManager >::get()->createAndAddGameLayoutHolder(pArcName);
 }
 
 LayoutHolder* MR::createAndAddLayoutHolderRawData(const char* pArcPath) {
@@ -148,7 +132,9 @@ bool MR::isExistPaneCtrl(LayoutActor* pActor, const char* pPaneName) {
 }
 
 u8 MR::getPaneAlpha(const LayoutActor* pActor, const char* pPaneName) {
-    return getPane(pActor, pPaneName)->mAlpha;
+    // A pane the layout lacks (a mod's layout) is fully transparent; the pane setters below leave it alone.
+    const Ui::Pane* pPane = getPane(pActor, pPaneName);
+    return pPane != nullptr ? pPane->mAlpha : 0;
 }
 
 void MR::setInfluencedAlphaToChild(const LayoutActor* pActor) {
@@ -166,7 +152,10 @@ void MR::setLayoutAlphaFloat(const LayoutActor* pActor, f32 alpha) {
 }
 
 void MR::setPaneAlpha(const LayoutActor* pActor, const char* pPaneName, u8 alpha) {
-    getPane(pActor, pPaneName)->mAlpha = alpha;
+    Ui::Pane* pPane = getPane(pActor, pPaneName);
+    if (pPane != nullptr) {
+        pPane->mAlpha = alpha;
+    }
 }
 
 void MR::setPaneAlphaFloat(const LayoutActor* pActor, const char* pPaneName, f32 alpha) {
@@ -176,16 +165,20 @@ void MR::setPaneAlphaFloat(const LayoutActor* pActor, const char* pPaneName, f32
 }
 
 void MR::executeTextBoxRecursive(LayoutActor* pActor, const char* pPaneName, const TextBoxRecursiveOperation& rOperation) {
-    nw4r::lyt::TextBox* pTextBox = nw4r::ut::DynamicCast< nw4r::lyt::TextBox* >(getPane(pActor, pPaneName));
+    Ui::Pane* pPane = getPane(pActor, pPaneName);
+
+    if (pPane == nullptr) {
+        return;
+    }
+
+    Ui::TextBox* pTextBox = Ui::PaneCast< Ui::TextBox >(pPane);
 
     if (pTextBox != nullptr) {
         rOperation.execute(pTextBox);
     }
 
-    nw4r::lyt::Pane* pPane = getPane(pActor, pPaneName);
-
-    for (nw4r::lyt::PaneList::Iterator it = pPane->GetChildList().GetBeginIter(); it != pPane->GetChildList().GetEndIter(); ++it) {
-        executeTextBoxRecursive(pActor, it->mName, rOperation);
+    for (Ui::Pane* pChild : pPane->GetChildList()) {
+        executeTextBoxRecursive(pActor, pChild->mName, rOperation);
     }
 }
 
@@ -206,14 +199,14 @@ void MR::setTextBoxMessageRecursive(LayoutActor* pActor, const char* pPaneName, 
 }
 
 void MR::setTextBoxFormatRecursive(LayoutActor* pActor, const char* pPaneName, const char16_t* pFormat, ...) {
-    char16_t message[256];
+    MR::Text16 message;
     va_list list;
 
     va_start(list, pFormat);
-    MR::formatTextV(message, ARRAY_SIZE(message), pFormat, list);
+    message.format(pFormat, list);
     va_end(list);
 
-    setTextBoxMessageRecursive(pActor, pPaneName, message);
+    setTextBoxMessageRecursive(pActor, pPaneName, message.c_str());
 }
 
 void MR::setTextBoxArgNumberRecursive(LayoutActor* pActor, const char* pPaneName, s32 number, s32 argIndex) {
@@ -257,41 +250,72 @@ void MR::setTextBoxHorizontalPositionCenterRecursive(LayoutActor* pActor, const 
 }
 
 void MR::updateClearTimeTextBox(LayoutActor* pActor, const char* pPaneName, u32 step) {
-    char16_t clearTimeText[16];
-
-    makeClearTimeString(clearTimeText, step);
-    setTextBoxMessageRecursive(pActor, pPaneName, clearTimeText);
+    Text16 text;
+    setTextBoxMessageRecursive(pActor, pPaneName, makeClearTimeString(text, step));
 }
 
 void MR::updateMinuteAndSecondTextBox(LayoutActor* pActor, const char* pPaneName, u32 step) {
-    char16_t minuteAndSecondText[16];
-
-    makeMinuteAndSecondString(minuteAndSecondText, step);
-    setTextBoxMessageRecursive(pActor, pPaneName, minuteAndSecondText);
+    Text16 text;
+    setTextBoxMessageRecursive(pActor, pPaneName, makeMinuteAndSecondString(text, step));
 }
 
-void MR::setTextBoxFontRecursive(LayoutActor* pActor, const char* pPaneName, nw4r::ut::Font* pFont) {
+void MR::setTextBoxFontRecursive(LayoutActor* pActor, const char* pPaneName, Ui::Font* pFont) {
     executeTextBoxRecursive(pActor, pPaneName, TextBoxRecursiveSetFont(pFont));
 }
 
 void MR::showPane(LayoutActor* pActor, const char* pPaneName) {
-    getPane(pActor, pPaneName)->SetVisible(true);
+    Ui::Pane* pPane = getPane(pActor, pPaneName);
+    if (pPane != nullptr) {
+        pPane->SetVisible(true);
+    }
+}
+
+void MR::showPaneRecursive(Ui::Pane* pPane) {
+    // A pane a mod's layout lacks is null: nothing to show.
+    if (pPane == nullptr) {
+        return;
+    }
+    pPane->SetVisible(true);
+    for (Ui::Pane* pChild : pPane->GetChildList()) {
+        showPaneRecursive(pChild);
+    }
+}
+
+void MR::hidePaneRecursive(Ui::Pane* pPane) {
+    // A pane a mod's layout lacks is null: nothing to hide.
+    if (pPane == nullptr) {
+        return;
+    }
+    pPane->SetVisible(false);
+    for (Ui::Pane* pChild : pPane->GetChildList()) {
+        hidePaneRecursive(pChild);
+    }
 }
 
 void MR::showPaneRecursive(LayoutActor* pActor, const char* pPaneName) {
-    ::showPaneRecursive(getPane(pActor, pPaneName));
+    Ui::Pane* pPane = getPane(pActor, pPaneName);
+    if (pPane != nullptr) {
+        showPaneRecursive(pPane);
+    }
 }
 
 void MR::hidePane(LayoutActor* pActor, const char* pPaneName) {
-    getPane(pActor, pPaneName)->SetVisible(false);
+    Ui::Pane* pPane = getPane(pActor, pPaneName);
+    if (pPane != nullptr) {
+        pPane->SetVisible(false);
+    }
 }
 
 void MR::hidePaneRecursive(LayoutActor* pActor, const char* pPaneName) {
-    ::hidePaneRecursive(getPane(pActor, pPaneName));
+    Ui::Pane* pPane = getPane(pActor, pPaneName);
+    if (pPane != nullptr) {
+        hidePaneRecursive(pPane);
+    }
 }
 
 bool MR::isHiddenPane(const LayoutActor* pActor, const char* pPaneName) {
-    return !getPane(pActor, pPaneName)->IsVisible();
+    Ui::Pane* pPane = getPane(pActor, pPaneName);
+    return pPane == nullptr || !pPane->IsVisible();
 }
 
 void MR::showScreen(LayoutActor* pActor) {
@@ -306,8 +330,8 @@ void MR::hideScreen(LayoutActor* pActor) {
     pLayoutManager->mIsScreenHidden = true;
 }
 
-void MR::setFollowPos(const TVec2f* pFollowPos, const LayoutActor* pActor, const char* pPaneName) {
-    pActor->getLayoutManager()->getPaneCtrl(pPaneName)->mFollowPos = pFollowPos;
+void MR::setFollowPos(const Vec2f* pFollowPos, const LayoutActor* pActor, const char* pPaneName) {
+    pActor->getLayoutManager()->getPaneCtrl(pPaneName)->setFollowPos(pFollowPos);
 }
 
 void MR::setFollowTypeReplace(const LayoutActor* pActor, const char* pPaneName) {
@@ -320,60 +344,66 @@ void MR::setFollowTypeAdd(const LayoutActor* pActor, const char* pPaneName) {
     pCtrl->mFollowType = 1;
 }
 
-void MR::copyPaneTrans(TVec2f* pTrans, const LayoutActor* pActor, const char* pPaneName) {
-    nw4r::lyt::Pane* pPane = getPane(pActor, pPaneName);
-    pTrans->x = pPane->mGlbMtx._03;
-    pTrans->y = pPane->mGlbMtx._13;
+void MR::copyPaneTrans(Vec2f* pTrans, const LayoutActor* pActor, const char* pPaneName) {
+    // A pane the layout lacks (a mod's layout) sits at the layout's origin.
+    Ui::Pane* pPane = getPane(pActor, pPaneName);
+    pTrans->x = pPane != nullptr ? pPane->mGlbMtx.mMtx[0][3] : 0.0f;
+    pTrans->y = pPane != nullptr ? pPane->mGlbMtx.mMtx[1][3] : 0.0f;
     convertLayoutPosToScreenPos(pTrans, *pTrans);
 }
 
 f32 MR::getPaneTransX(const LayoutActor* pActor, const char* pPaneName) {
-    nw4r::lyt::Pane* pPane = getPane(pActor, pPaneName);
-    TVec2f trans(pPane->mGlbMtx._03, pPane->mGlbMtx._13);
-    convertLayoutPosToScreenPos(&trans, trans);
+    Vec2f trans;
+    copyPaneTrans(&trans, pActor, pPaneName);
     return trans.x;
 }
 
 f32 MR::getPaneTransY(const LayoutActor* pActor, const char* pPaneName) {
-    nw4r::lyt::Pane* pPane = getPane(pActor, pPaneName);
-    TVec2f trans(pPane->mGlbMtx._03, pPane->mGlbMtx._13);
-    convertLayoutPosToScreenPos(&trans, trans);
+    Vec2f trans;
+    copyPaneTrans(&trans, pActor, pPaneName);
     return trans.y;
 }
 
 void MR::setLayoutPosAtPaneTrans(LayoutActor* pActor, const LayoutActor* pFollowActor, const char* pPaneName) {
-    TVec2f trans;
+    Vec2f trans;
     copyPaneTrans(&trans, pFollowActor, pPaneName);
     pActor->setTrans(trans);
 }
 
-void MR::copyPaneScale(TVec2f* pScale, const LayoutActor* pActor, const char* pPaneName) {
-    nw4r::lyt::Pane* pPane = getPane(pActor, pPaneName);
+void MR::copyPaneScale(Vec2f* pScale, const LayoutActor* pActor, const char* pPaneName) {
+    // A pane the layout lacks (a mod's layout) has scale 1.
+    Ui::Pane* pPane = getPane(pActor, pPaneName);
+    if (pPane == nullptr) {
+        pScale->set< f32 >(1.0f, 1.0f);
+        return;
+    }
+
     pScale->set< f32 >(pPane->mScale.x, pPane->mScale.y);
 }
 
 void MR::setPaneScale(const LayoutActor* pActor, f32 x, f32 y, const char* pPaneName) {
-    nw4r::math::VEC2 scale(x, y);
-    getPane(pActor, pPaneName)->mScale = scale;
+    Vec2f scale(x, y);
+    Ui::Pane* pPane = getPane(pActor, pPaneName);
+    if (pPane != nullptr) {
+        pPane->mScale = scale;
+    }
 }
 
 void MR::setLayoutScaleAtPaneScale(LayoutActor* pActor, const LayoutActor* pFollowActor, const char* pPaneName) {
-    TVec2f scale;
+    Vec2f scale;
     copyPaneScale(&scale, pFollowActor, pPaneName);
     setPaneScale(pActor, scale.x, scale.y, nullptr);
 }
 
-void MR::copyPaneRotate(TVec3f* pRotate, const LayoutActor* pActor, const char* pPaneName) {
-    nw4r::lyt::Pane* pPane = getPane(pActor, pPaneName);
-    pRotate->set< f32 >(pPane->mRotate.x, pPane->mRotate.y, pPane->mRotate.z);
-}
-
 void MR::setPaneRotate(const LayoutActor* pActor, f32 x, f32 y, f32 z, const char* pPaneName) {
-    nw4r::math::VEC3 rotate;
+    Vec3f rotate;
     rotate.x = x;
     rotate.y = y;
     rotate.z = z;
-    getPane(pActor, pPaneName)->mRotate = rotate;
+    Ui::Pane* pPane = getPane(pActor, pPaneName);
+    if (pPane != nullptr) {
+        pPane->mRotate = rotate;
+    }
 }
 
 void MR::setLayoutScalePosAtPaneScaleTrans(LayoutActor* pActor, const LayoutActor* pFollowActor, const char* pPaneName) {
@@ -387,26 +417,37 @@ void MR::setLayoutScalePosAtPaneScaleTransIfExecCalcAnim(LayoutActor* pActor, co
     }
 }
 
-nw4r::lyt::TexMap* MR::createLytTexMap(const char* pArcName, const char* pTextureName) {
-    JUTTexture texture(loadTexFromArc(pArcName, pTextureName));
+Ui::TexMap* MR::createLytTexMap(const char* pArcName, const char* pTextureName) {
+    GameTexture texture(loadTexFromArc(pArcName, pTextureName));
 
-    return new nw4r::lyt::TexMap(texture.getTexObj());
+    return new Ui::TexMap(texture.site());
 }
 
-nw4r::lyt::TexMap* MR::createLytTexMap(ResTIMG* pImage) {
-    JUTTexture texture(pImage);
+Ui::TexMap* MR::createLytTexMap(ResTIMG* pImage) {
+    GameTexture texture(pImage);
 
-    return new nw4r::lyt::TexMap(texture.getTexObj());
+    return new Ui::TexMap(texture.site());
 }
 
-nw4r::lyt::TexMap* MR::getLytTexMap(LayoutActor* pActor, const char* pPaneName, u8 textureIndex) {
-    nw4r::lyt::Picture* pPicture = nw4r::ut::DynamicCast< nw4r::lyt::Picture* >(getPane(pActor, pPaneName));
+Ui::TexMap* MR::getLytTexMap(LayoutActor* pActor, const char* pPaneName, u8 textureIndex) {
+    Ui::Picture* pPicture = Ui::PaneCast< Ui::Picture >(getPane(pActor, pPaneName));
 
-    return const_cast< nw4r::lyt::TexMap* >(&pPicture->GetMaterial()->GetTexture(textureIndex));
+    // A pane that is not a picture (a mod's layout) has no texture map.
+    if (pPicture == nullptr) {
+        return nullptr;
+    }
+
+    return const_cast< Ui::TexMap* >(&pPicture->GetMaterial()->GetTexture(textureIndex));
 }
 
-void MR::replacePaneTexture(LayoutActor* pActor, const char* pPaneName, const nw4r::lyt::TexMap* pTexture, u8 textureIndex) {
-    nw4r::lyt::Picture* pPicture = nw4r::ut::DynamicCast< nw4r::lyt::Picture* >(getPane(pActor, pPaneName));
+void MR::replacePaneTexture(LayoutActor* pActor, const char* pPaneName, const Ui::TexMap* pTexture, u8 textureIndex) {
+    Ui::Picture* pPicture = Ui::PaneCast< Ui::Picture >(getPane(pActor, pPaneName));
+
+    // A picture the caller found no texture for keeps the one it has.
+    if (pPicture == nullptr || pTexture == nullptr) {
+        return;
+    }
+
     pPicture->GetMaterial()->SetTexture(textureIndex, *pTexture);
 }
 
@@ -460,7 +501,7 @@ void MR::startAnimAndSetFrameAndStop(LayoutActor* pActor, const char* pAnimName,
 }
 
 void MR::setAnimFrameAndStop(LayoutActor* pActor, f32 animFrame, u32 animLayer) {
-    J3DFrameCtrl* pFrameCtrl = getAnimCtrl(pActor, animLayer);
+    FrameCtrl* pFrameCtrl = getAnimCtrl(pActor, animLayer);
 
     pFrameCtrl->setFrame(animFrame);
     pFrameCtrl->setRate(0.0f);
@@ -471,21 +512,29 @@ void MR::setAnimFrameAndStopAtEnd(LayoutActor* pActor, u32 animLayer) {
 }
 
 void MR::setAnimFrameAndStopAdjustTextWidth(LayoutActor* pActor, const char* pPaneName, u32 animLayer) {
-    nw4r::lyt::Pane* pPane = getPane(pActor, pPaneName);
-    nw4r::ut::Rect rect;
+    Ui::Pane* pPane = getPane(pActor, pPaneName);
+    if (pPane == nullptr) {
+        return;
+    }
+
+    Ui::Rect rect;
     ::getTextDrawRectRecursive(&rect, pPane, false);
     setAnimFrameAndStop(pActor, rect.GetWidth(), animLayer);
 }
 
 void MR::setAnimFrameAndStopAdjustTextHeight(LayoutActor* pActor, const char* pPaneName, u32 animLayer) {
-    nw4r::lyt::Pane* pPane = getPane(pActor, pPaneName);
-    nw4r::ut::Rect rect;
+    Ui::Pane* pPane = getPane(pActor, pPaneName);
+    if (pPane == nullptr) {
+        return;
+    }
+
+    Ui::Rect rect;
     ::getTextDrawRectRecursive(&rect, pPane, false);
     setAnimFrameAndStop(pActor, rect.GetHeight(), animLayer);
 }
 
 void MR::setPaneAnimFrameAndStop(LayoutActor* pActor, const char* pPaneName, f32 animFrame, u32 animLayer) {
-    J3DFrameCtrl* pFrameCtrl = getPaneAnimCtrl(pActor, pPaneName, animLayer);
+    FrameCtrl* pFrameCtrl = getPaneAnimCtrl(pActor, pPaneName, animLayer);
 
     pFrameCtrl->setFrame(animFrame);
     pFrameCtrl->setRate(0.0f);
@@ -544,14 +593,16 @@ s16 MR::getPaneAnimFrameMax(const LayoutActor* pActor, const char* pPaneName, u3
 }
 
 s16 MR::getAnimFrameMax(const LayoutActor* pActor, const char* pAnimName) {
-    return pActor->getLayoutManager()->getAnimTransform(pAnimName)->GetFrameSize();
+    // An animation the layout lacks (a mod's layout) has no frames.
+    Ui::AnimTransform* pAnimTransform = pActor->getLayoutManager()->getAnimTransform(pAnimName);
+    return pAnimTransform != nullptr ? pAnimTransform->GetFrameSize() : 0;
 }
 
-J3DFrameCtrl* MR::getAnimCtrl(const LayoutActor* pActor, u32 animLayer) {
+FrameCtrl* MR::getAnimCtrl(const LayoutActor* pActor, u32 animLayer) {
     return pActor->getLayoutManager()->getPaneCtrl(nullptr)->getFrameCtrl(animLayer);
 }
 
-J3DFrameCtrl* MR::getPaneAnimCtrl(const LayoutActor* pActor, const char* pPaneName, u32 animLayer) {
+FrameCtrl* MR::getPaneAnimCtrl(const LayoutActor* pActor, const char* pPaneName, u32 animLayer) {
     return pActor->getLayoutManager()->getPaneCtrl(pPaneName)->getFrameCtrl(animLayer);
 }
 
@@ -576,15 +627,25 @@ void MR::forceDeleteEffectAll(LayoutActor* pActor) {
 }
 
 void MR::setEffectHostMtx(LayoutActor* pActor, const char* pParam2, MtxPtr pHostMtx) {
-    getEffect(pActor, pParam2)->setHostMtx(pHostMtx);
+    // An effect name the layout's effect list lacks (a mod's list) is left alone.
+    MultiEmitter* pEmitter = getEffect(pActor, pParam2);
+    if (pEmitter != nullptr) {
+        pEmitter->setHostMtx(pHostMtx);
+    }
 }
 
 void MR::setEffectRate(LayoutActor* pActor, const char* pEffectName, f32 rate) {
-    getEffect(pActor, pEffectName)->setRate(rate, -1);
+    MultiEmitter* pEmitter = getEffect(pActor, pEffectName);
+    if (pEmitter != nullptr) {
+        pEmitter->setRate(rate, -1);
+    }
 }
 
 void MR::setEffectDirectionalSpeed(LayoutActor* pActor, const char* pEffectName, f32 speed) {
-    getEffect(pActor, pEffectName)->setDirectionalSpeed(speed, -1);
+    MultiEmitter* pEmitter = getEffect(pActor, pEffectName);
+    if (pEmitter != nullptr) {
+        pEmitter->setDirectionalSpeed(speed, -1);
+    }
 }
 
 void MR::pauseOffEffectAll(LayoutActor* pActor) {
@@ -608,28 +669,26 @@ bool MR::isRegisteredEffect(const LayoutActor* pActor, const char* pParam2) {
     return pActor->mEffectKeeper != nullptr;
 }
 
-void MR::copyLayoutDrawInfoWithAspect(nw4r::lyt::DrawInfo* pDrawInfo, const LayoutActor* pActor, bool aspect) {
+void MR::copyLayoutDrawInfoWithAspect(Ui::DrawInfo* pDrawInfo, const LayoutActor* pActor, bool aspect) {
     *pDrawInfo = pActor->getLayoutManager()->mDrawInfo;
 
     if (aspect) {
         pDrawInfo->mFlag.locationAdjust = true;
-        pDrawInfo->mLocationAdjustScale = nw4r::math::VEC2(0.75f, 1.0f);
+        pDrawInfo->mLocationAdjustScale = Vec2f(0.75f, 1.0f);
     } else {
         pDrawInfo->mFlag.locationAdjust = false;
-        pDrawInfo->mLocationAdjustScale = nw4r::math::VEC2(1.0f, 1.0f);
+        pDrawInfo->mLocationAdjustScale = Vec2f(1.0f, 1.0f);
     }
 }
 
-void MR::calcAnimLayoutWithDrawInfo(const LayoutActor* pActor, const nw4r::lyt::DrawInfo& rDrawInfo) {
+void MR::calcAnimLayoutWithDrawInfo(const LayoutActor* pActor, const Ui::DrawInfo& rDrawInfo) {
     if (isExecuteCalcAnimLayout(pActor)) {
         pActor->getLayoutManager()->calcAnimWithoutLocationAdjust(rDrawInfo);
     }
 }
 
-void MR::drawLayoutWithDrawInfoWithoutProjectionSetup(const LayoutActor* pActor, const nw4r::lyt::DrawInfo& rDrawInfo) {
+void MR::drawLayoutWithDrawInfoWithoutProjectionSetup(const LayoutActor* pActor, const Ui::DrawInfo& rDrawInfo) {
     if (isExecuteDrawLayout(pActor)) {
-        J3DPass::cull(NEBULA_CULL_NONE);
-        J3DPass::depth(false, NEBULA_COMPARE_NEVER, false);
         pActor->getLayoutManager()->mLayout->Draw(rDrawInfo);
     }
 }
@@ -780,29 +839,30 @@ SimpleLayout* MR::createSimpleLayout(const char* pName, const char* pArcName, u3
 SimpleLayout* MR::createSimpleLayoutTalkParts(const char* pName, const char* pArcName, u32 rootPaneAnimLayerNum) {
     SimpleLayout* simpleLayout;
 
-    simpleLayout = new SimpleLayout(pName, pArcName, rootPaneAnimLayerNum, MR::DrawType_0x44);
+    simpleLayout = new SimpleLayout(pName, pArcName, rootPaneAnimLayerNum, MR::DrawType_TalkPartsLayout);
     simpleLayout->initWithoutIter();
 
     return simpleLayout;
 }
 
-nw4r::lyt::Pane* MR::getPane(const LayoutActor* pActor, const char* pPaneName) {
+Ui::Pane* MR::getPane(const LayoutActor* pActor, const char* pPaneName) {
     return pActor->getLayoutManager()->getPane(pPaneName);
 }
 
-nw4r::lyt::Pane* MR::getRootPane(const LayoutActor* pActor) {
+Ui::Pane* MR::getRootPane(const LayoutActor* pActor) {
     return pActor->getLayoutManager()->getPane(nullptr);
 }
 
-void MR::calcTextBoxRectRecursive(TBox2f* pBox, const LayoutActor* pActor, const char* pPaneName) {
-    nw4r::lyt::Pane* pPane = getPane(pActor, pPaneName);
-    nw4r::ut::Rect rect;
+void MR::calcTextBoxRectRecursive(Box2f* pBox, const LayoutActor* pActor, const char* pPaneName) {
+    Ui::Pane* pPane = getPane(pActor, pPaneName);
+    Ui::Rect rect;
 
-    if (::getTextDrawRectRecursive(&rect, pPane, false)) {
-        TVec2f min;
-        TVec2f max;
-        convertPaneLocalPosToScreenPos(&min, pPane, TVec2f(rect.left, rect.top));
-        convertPaneLocalPosToScreenPos(&max, pPane, TVec2f(rect.right, rect.bottom));
+    // A pane the layout lacks (a mod's layout) has an empty box.
+    if (pPane != nullptr && ::getTextDrawRectRecursive(&rect, pPane, false)) {
+        Vec2f min;
+        Vec2f max;
+        convertPaneLocalPosToScreenPos(&min, pPane, Vec2f(rect.left, rect.top));
+        convertPaneLocalPosToScreenPos(&max, pPane, Vec2f(rect.right, rect.bottom));
         pBox->set(min, max);
     } else {
         pBox->i.zero();
@@ -811,7 +871,7 @@ void MR::calcTextBoxRectRecursive(TBox2f* pBox, const LayoutActor* pActor, const
 }
 
 u32 MR::getTextLineNumMaxRecursive(const LayoutActor* pActor, const char* pPaneName) {
-    nw4r::lyt::Pane* pPane = getPane(pActor, pPaneName);
+    Ui::Pane* pPane = getPane(pActor, pPaneName);
 
     if (pPane != nullptr) {
         return ::getTextLineNumMaxRecursiveSub(pPane);
@@ -823,7 +883,7 @@ u32 MR::getTextLineNumMaxRecursive(const LayoutActor* pActor, const char* pPaneN
 void MR::invalidateParentAnim(LayoutActor* pActor) {
     LayoutManager* pLayoutManager = pActor->getLayoutManager();
 
-    pLayoutManager->_61 = 0;
+    pLayoutManager->mParentAnimValid = false;
 }
 
 namespace {

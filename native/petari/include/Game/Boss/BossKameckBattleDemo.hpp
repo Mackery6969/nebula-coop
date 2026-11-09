@@ -8,7 +8,7 @@ class BossKameckDemoPosition;
 
 class BossKameckBattleDemo : public BossKameckAction {
 public:
-    BossKameckBattleDemo(BossKameck*, const JMapInfoIter&);
+    BossKameckBattleDemo(BossKameck*, const TableIter&);
 
     virtual void init();
     virtual void appear();
@@ -30,6 +30,11 @@ public:
     void exePowerUpVs2();
     void exeDownVs1();
     void exeDownVs2();
+    void startCastAnim(const char* pAnimName);
+    void endCastAnim(const char* pAnimName);
+    void updateWaitAppear(const Nerve* pAppearNerve);
+    void updatePowerUp(const char* pAnimName, const char* pDemoName, const char* pLevelSe);
+    void updateDown(const char* pAnimName, const char* pDemoName);
     void updateCastPose();
 
     BossKameckDemoPosition* mDemoPos;
@@ -41,7 +46,7 @@ class BossKameckDemoPosition : public LiveActor {
 public:
     BossKameckDemoPosition();
 
-    virtual void init(const JMapInfoIter&);
+    virtual void init(const TableIter&) override;
 
     ActorCameraInfo* mCameraInfo;
 };

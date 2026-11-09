@@ -1,11 +1,8 @@
-#include <JSystem/J3DGraphBase/J3DNativeTarget.hpp>
+#include "Game/Render/FrameList.hpp"
 #include "Game/MapObj/NormalMapBase.hpp"
-#include "Game/System/GameThreads.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeTexture.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
-#include "Game/Animation/BtkPlayer.hpp"
+#include "Game/System/Arenas.hpp"
+#include "Game/Render/RenderTexture.hpp"
+#include "Game/Render/TypedDraw.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/System/ResourceHolder.hpp"
@@ -14,64 +11,45 @@
 #include "Game/Util/DirectDraw.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
-#include "Game/Util/NativeShader.hpp"
 #include "Game/Util/ModelUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
-#include <JSystem/J3DGraphAnimator/J3DJoint.hpp>
-#include <JSystem/J3DGraphAnimator/J3DModel.hpp>
-#include <JSystem/J3DGraphBase/J3DMaterial.hpp>
-#include <JSystem/J3DGraphBase/J3DShapeDraw.hpp>
-#include <JSystem/J3DGraphBase/J3DTransform.hpp>
+#include "Game/Render/ModelData.hpp"
+#include "Game/Render/Model.hpp"
+#include "Game/Render/Material.hpp"
+#include "Game/Render/Transform.hpp"
 #include "Game/System/NebulaArena.hpp"
-#include <JSystem/JUtility/JUTTexture.hpp>
+#include "Game/Render/GameTexture.hpp"
 #include <cmath>
 #include <cstring>
 #include <nebula_format.h>
 
-s16 sgrad_tex_thresh;
-
-static s16 width = 0x100;
-static s16 height = 0x100;
-
 namespace {
+    // The gradient texture's size in texels.
+    const u32 cGradTexWidth = 0x100;
+    const u32 cGradTexHeight = 0x100;
+
     // The object's native material (runtime/src/render/materials/normal_map.hlsl): drawSetting and setStageForObject
     // set its program, each normal-mapped shape its textures, colours and indirect matrix (drawMaterialSetting).
-    NebulaNativeMaterial sNormalMap;
+    SiteMaterial sNormalMap;
 }  // namespace
 
-NormalMapBase::NormalMapBase(const char* pName) : LiveActor(pName) {
-    mBtkPlayer = nullptr;
-    _150 = 0;
-    for (u32 i = 0; i < ARRAY_SIZE(_184); i++) {
-        NebulaMtxIdentity(_184[i]);
-    }
-
-    _13A = 0;
+NormalMapBase::NormalMapBase(const char* pName) : LiveActor(pName), mTextures(nullptr) {
+    mTexFlags = 0;
     mGradTexMode = 0;
-    _E8 = 0;
-    _EC = 0;
     mBackLightMode = 0;
-    _4C5 = 0;
 }
 
 void NormalMapBase::setup(const char* pName) {
-    _4C5 = 1;
-    _4C4 = 1;
     initModelManagerWithAnm(pName, nullptr, false);
-    MR::connectToScene(this, MR::MovementType_MapObj, MR::CalcAnimType_MapObj, MR::DrawBufferType_None, MR::DrawType_WarpPodPath);
+    MR::connectToScene(this, MR::MovementType_MapObj, MR::CalcAnimType_MapObj, MR::DrawBufferType_None, MR::DrawType_NormalMap);
     MR::initLightCtrlNoDrawMapObj(this);
     setupLighting();
     setupTexture();
     MR::invalidateClipping(this);
-    mHeight = 128;
-    mWidth = 128;
-    _4B8 = new JUTTexture(mHeight, mWidth, NEBULA_TEXTURE_LINEAR_LA8);
     appear();
 }
 
 void NormalMapBase::initNormalMap() {
-    _4C5 = 1;
-    _4C4 = 0;
     setupLighting();
     setupTexture();
 }
@@ -85,7 +63,7 @@ void NormalMapBase::setupLighting() {
     mStageColor1.g = 0;
     mStageColor1.b = 0;
     mStageColor1.a = 0;
-    _138 = 0;
+    mDrawFlags = 0;
     mLightAMode = 0;
     mLightBMode = 1;
     mHardLightColorMask = 0;
@@ -98,36 +76,36 @@ void NormalMapBase::setupLighting() {
     mMatColor = 255;
     mAmbAlpha = 128;
     mMatAlpha = 255;
-    char fileName[256];
-    nebula_snprintf(fileName, sizeof(fileName), "%s.nrm.txt", MR::getModelResName(this));
-    if (MR::getResourceHolder(this)->mFileInfoTable->isExistRes(fileName)) {
-        const char* pData = static_cast< const char* >(MR::getResourceHolder(this)->mFileInfoTable->getRes(fileName));
-        loadData(pData, MR::getResourceHolder(this)->mFileInfoTable->findFileInfo(fileName)->_4);
+    MR::FormattedName fileName("%s.nrm.txt", MR::getModelResName(this));
+    if (MR::getResourceHolder(this)->mFileInfoTable->isExistRes(fileName.c_str())) {
+        const char* pData = static_cast< const char* >(MR::getResourceHolder(this)->mFileInfoTable->getRes(fileName.c_str()));
+        loadData(pData, MR::getResourceHolder(this)->mFileInfoTable->findFileInfo(fileName.c_str())->mSize);
     }
 }
 
 void NormalMapBase::setupTexture() {
-    _90 = nullptr;
     mNormalTex = nullptr;
-    J3DTexture* pTexture = MR::getJ3DModelData(this)->getTexture();
-    for (u16 i = 0; i < pTexture->getNum(); i++) {
+    const u32 textureCount = MR::getModelData(this)->getTextureCount();
+    delete[] mTextures;
+    mTextures = new GameTexture*[textureCount];
+    for (u32 i = 0; i < textureCount; i++) {
         const ResTIMG* pImage = MR::getResTIMG(this, i);
         const char* pName = MR::getTextureName(this, i);
         if (strstr(pName, "Nswap_")) {
-            char fileName[256];
-            nebula_snprintf(fileName, sizeof(fileName), "%s.bti", pName + 6);
-            pImage = MR::getTexFromArc(fileName, this);
-            mNormalTex = new JUTTexture(pImage);
+            MR::FormattedName fileName("%s.bti", pName + 6);
+            // The model's own picture stays when the archive lacks the swap file.
+            const ResTIMG* pSwapImage = MR::getTexFromArc(fileName.c_str(), this);
+            if (pSwapImage != nullptr) {
+                pImage = pSwapImage;
+            }
+            mNormalTex = new GameTexture(pImage);
             mTextures[i] = mNormalTex;
-            mTextures[i]->mMinType = NEBULA_FILTER_LINEAR;
-            mTextures[i]->mMagType = NEBULA_FILTER_LINEAR;
-            mTextures[i]->init();
+            mTextures[i]->setFilter(NEBULA_FILTER_LINEAR, NEBULA_FILTER_LINEAR);
         } else if (strstr(pName, "ormal") && !mNormalTex) {
-            mNormalTex = new JUTTexture(pImage);
+            mNormalTex = new GameTexture(pImage);
             mTextures[i] = mNormalTex;
         } else {
-            _90 = new JUTTexture(pImage);
-            mTextures[i] = _90;
+            mTextures[i] = new GameTexture(pImage);
         }
 
         if (strstr(pName, "Zormal")) {
@@ -135,7 +113,7 @@ void NormalMapBase::setupTexture() {
         }
     }
 
-    mImagePtr = new (MR::getSceneHeap(), 0) u16[width * height];
+    mImagePtr = new (Arenas::scene(), 0) u16[::cGradTexWidth * ::cGradTexHeight];
     createGradTexture();
 }
 
@@ -144,33 +122,7 @@ void NormalMapBase::control() {
 
 void NormalMapBase::calcAnim() {
     LiveActor::calcAnim();
-    updateBtkMtx();
-    (MR::MutexHolder< 0 >::sMutex).lock();
-    MR::getJ3DModel(this)->viewCalc();
-    (MR::MutexHolder< 0 >::sMutex).unlock();
-}
-
-void NormalMapBase::updateBtkMtx() {
-    if (mBtkPlayer && _150) {
-        mBtkPlayer->reflectFrame();
-        mBtkPlayer->update();
-        J3DAnmTextureSRTKey* pAnm = static_cast< J3DAnmTextureSRTKey* >(mBtkPlayer->mAnmRes);
-        if (pAnm) {
-            for (u32 i = 0; i < mBtkMtxCount; i++) {
-                J3DTextureSRTInfo transform;
-                pAnm->getTransform(mBtkMtxIndices[i], &transform);
-                J3DGetTextureMtxMayaOld(transform, _184[i]);
-            }
-        }
-    }
-}
-
-void NormalMapBase::loadTexMtxBtk(J3DMaterial* pMaterial) const {
-    if (mBtkPlayer != nullptr) {
-        if (_150) {
-            J3DNativeShape::setTexture(0, _184[pMaterial->mIndex], 2);
-        }
-    }
+    MR::getModel(this)->viewCalc();
 }
 
 void NormalMapBase::draw() const {
@@ -178,29 +130,29 @@ void NormalMapBase::draw() const {
         MR::loadActorLight(this);
         MR::loadViewMtx();
         MR::loadProjectionMtx();
-        const TPos3f& rCameraViewMtx = MR::getCameraViewMtx();
-        TPos3f lightMtx;
+        const Pos3f& rCameraViewMtx = MR::getCameraViewMtx();
+        Pos3f lightMtx;
         Mtx mtx;
         NebulaMtxIdentity(mtx);
         MR::makeMtxTRS(mtx, this);
         MR::multMtx(mtx, mtx, rCameraViewMtx);
-        NebulaMtxCopy((const MtxPtr)mtx, (MtxPtr)_F4);
+        NebulaMtxCopy(mtx, mDrawMtx);
 
         MR::makeMtxTR(lightMtx, this);
         MR::normalize(&lightMtx);
         drawSetting(lightMtx);
-        shapeAnalyzeDraw(MR::getJ3DModel(this));
-        standardDraw(MR::getJ3DModel(this));
+        shapeAnalyzeDraw(MR::getModel(this));
+        standardDraw(MR::getModel(this));
     }
 }
 
 void NormalMapBase::updateLightMtx(MtxPtr pMtx) const {
-    TPos3f inverse;
+    Pos3f inverse;
     f32 indMtx[2][3];
-    TVec3f lightA;
-    TVec3f lightB;
-    TVec3f localA;
-    TVec3f localB;
+    Vec3f lightA;
+    Vec3f lightB;
+    Vec3f localA;
+    Vec3f localB;
     switch (mLightAMode) {
     case 0:
         MR::calcLightPos0(&lightA, this);
@@ -234,7 +186,7 @@ void NormalMapBase::updateLightMtx(MtxPtr pMtx) const {
     NebulaMtxMultVecSR(inverse, &localA, &localA);
     NebulaMtxMultVecSR(inverse, &localB, &localB);
     if (pMtx) {
-        TVec3f light(localA * 0.5f);
+        Vec3f light(localA * 0.5f);
         light *= 1.0077f;
         indMtx[0][0] = light.x * pMtx[0][0] + light.y * pMtx[1][0] + light.z * pMtx[2][0];
         indMtx[0][1] = light.x * pMtx[0][1] + light.y * pMtx[1][1] + light.z * pMtx[2][1];
@@ -268,10 +220,10 @@ bool NormalMapBase::isNormalMapMaterial(const char* pName) const {
     return strstr(pName, "Nrm") != 0;
 }
 
-void NormalMapBase::standardDraw(J3DModel* pModel) const {
-    if ((_138 & 0x10) == 0) {
-        for (u16 i = 0; i < pModel->mModelData->mMaterialTable.getMaterialNum(); i++) {
-            J3DMaterial* pMaterial = pModel->mModelData->getMaterialNodePointer(i);
+void NormalMapBase::standardDraw(Model* pModel) const {
+    if ((mDrawFlags & 0x10) == 0) {
+        for (u32 i = 0; i < pModel->mModelData->getMaterialCount(); i++) {
+            Material* pMaterial = pModel->mModelData->getMaterialAt(i);
             const char* pMaterialName = MR::getMaterialName(pModel->mModelData, pMaterial->mIndex);
             if (!isNormalMapMaterial(pMaterialName)) {
                 MR::simpleDraw(pModel, pMaterial);
@@ -280,13 +232,13 @@ void NormalMapBase::standardDraw(J3DModel* pModel) const {
     }
 }
 
-void NormalMapBase::shapeAnalyzeDraw(J3DModel* pModel) const {
-    for (u16 i = 0; i < pModel->mModelData->getShapeNum(); i++) {
-        J3DShape* pShape = pModel->mModelData->getShapeNodePointer(i);
+void NormalMapBase::shapeAnalyzeDraw(Model* pModel) const {
+    for (u32 i = 0; i < pModel->mModelData->getMeshCount(); i++) {
+        Mesh* pShape = pModel->mModelData->getMeshAt(i);
         bool found = false;
-        for (u16 j = 0; j < pModel->mModelData->getJointNum(); j++) {
-            J3DJoint* pJoint = pModel->mModelData->getJointNodePointer(j);
-            J3DMaterial* pMaterial = pJoint->getMesh();
+        for (u32 j = 0; j < pModel->mModelData->getJointCount(); j++) {
+            Joint* pJoint = pModel->mModelData->getJointAt(j);
+            Material* pMaterial = pJoint->getMesh();
             while (pMaterial) {
                 const char* pName = MR::getMaterialName(pModel->mModelData, pMaterial->mIndex);
                 if (!isNormalMapMaterial(pName)) {
@@ -294,35 +246,31 @@ void NormalMapBase::shapeAnalyzeDraw(J3DModel* pModel) const {
                     continue;
                 }
 
-                if (pMaterial->mShape == pShape) {
-                    setStageForObject_Material();
-                    TPos3f localMtx;
-                    TPos3f viewMtx;
-                    const J3DTransformInfo& rTransform = pJoint->getTransformInfo();
-                    f32 rotationZ = rTransform.mRotation.z * (180.0f / 32768.0f);
-                    f32 rotationY = rTransform.mRotation.y * (180.0f / 32768.0f);
-                    f32 rotationX = rTransform.mRotation.x * (180.0f / 32768.0f);
+                if (pMaterial->getMesh() == pShape) {
+                    Pos3f localMtx;
+                    Pos3f viewMtx;
+                    const TransformInfo& rTransform = pJoint->getTransformInfo();
+                    f32 rotationZ = rTransform.mRotation.z * Angle::cRadianToDegree;
+                    f32 rotationY = rTransform.mRotation.y * Angle::cRadianToDegree;
+                    f32 rotationX = rTransform.mRotation.x * Angle::cRadianToDegree;
                     MR::makeMtxTRS(localMtx, rTransform.mTranslate.x, rTransform.mTranslate.y, rTransform.mTranslate.z, rotationX, rotationY,
                                    rotationZ, rTransform.mScale.x, rTransform.mScale.y, rTransform.mScale.z);
-                    NebulaMtxConcat(_F4, localMtx, viewMtx);
+                    NebulaMtxConcat(mDrawMtx, localMtx, viewMtx);
                     if (pJoint->getMtxType() == 1) {
-                        J3DCalcBBoardMtx(viewMtx);
-                        TPos3f inverse;
-                        NebulaMtxInverse(_F4, inverse);
+                        billboardMtx(viewMtx);
+                        Pos3f inverse;
+                        NebulaMtxInverse(mDrawMtx, inverse);
                         NebulaMtxConcat(inverse, viewMtx, localMtx);
                     } else if (pJoint->getMtxType() == 2) {
-                        J3DCalcYBBoardMtx(viewMtx);
-                        TPos3f inverse;
-                        NebulaMtxInverse(_F4, inverse);
+                        billboardYMtx(viewMtx);
+                        Pos3f inverse;
+                        NebulaMtxInverse(mDrawMtx, inverse);
                         NebulaMtxConcat(inverse, viewMtx, localMtx);
                     }
 
-                    J3DNativeShape::setPosition(0, viewMtx);
-                    J3DNativeShape::setNormal(0, viewMtx);
                     MR::normalize(&localMtx);
                     updateLightMtx(localMtx);
                     drawMaterialSetting(pModel->getMaterial(pMaterial->mIndex));
-                    pMaterial->mCurrentMtx.load();
                     found = true;
                     break;
                 }
@@ -341,98 +289,100 @@ void NormalMapBase::shapeAnalyzeDraw(J3DModel* pModel) const {
     }
 }
 
-void NormalMapBase::drawShape(J3DModel* pModel, J3DShape* pShape) const {
-    pShape->prepareGeometry();
-    u16 groupCount = pShape->getMtxGroupNum();
-    for (u16 i = 0; i < groupCount; i++) {
-        if (pShape->getShapeDraw(i)) {
-            J3DShapeMtx* pShapeMtx = pShape->getShapeMtx(i);
-            u16 count = pShapeMtx->getUseMtxNum();
-            for (u16 j = 0; j < count; j++) {
-                u16 index = pShapeMtx->getUseMtxIndex(j);
-                if (index != 0xFFFF) {
-                    MtxPtr pMtx = pModel->getDrawMtx(index);
-                    J3DNativeShape::setPosition(j, pMtx);
-                    J3DNativeShape::setNormal(j, pMtx);
-                }
-            }
-
-            pShape->getShapeDraw(i)->draw();
-        }
-    }
+void NormalMapBase::drawShape(Model* pModel, Mesh* pShape) const {
+    TypedDraw site(sNormalMap, nullptr, MR::getCameraViewMtx());
+    site.setModelBlock(pModel->getModelData(), pModel->block(pShape->getMaterial()));
+    site.drawMesh(pShape);
 }
 
 void NormalMapBase::loadDiffuseGradTex(u32 slot) const {
-    J3DNativeTexObj obj;
-    J3DNativeTexture::init(&obj, mImagePtr, width, height, NEBULA_WRAP_CLAMP, NEBULA_WRAP_CLAMP);
+    SiteTexture obj;
+    SiteTextures::init(&obj, mImagePtr, ::cGradTexWidth, ::cGradTexHeight, NEBULA_WRAP_CLAMP, NEBULA_WRAP_CLAMP);
 
-    if (_13A & 1) {
-        J3DNativeTexture::setFilter(&obj, NEBULA_FILTER_NEAREST, NEBULA_FILTER_NEAREST, 0.0f, 0.0f, 0.0f, false, 0);
+    if (mTexFlags & 1) {
+        SiteTextures::setFilter(&obj, NEBULA_FILTER_NEAREST, NEBULA_FILTER_NEAREST, 0.0f, 0.0f, 0.0f, false, 0);
     } else {
-        J3DNativeTexture::setFilter(&obj, NEBULA_FILTER_LINEAR, NEBULA_FILTER_LINEAR, 0.0f, 0.0f, 0.0f, false, 0);
+        SiteTextures::setFilter(&obj, NEBULA_FILTER_LINEAR, NEBULA_FILTER_LINEAR, 0.0f, 0.0f, 0.0f, false, 0);
     }
 
-    NativeShader::setTexObj(sNormalMap, slot, &obj);
+    sNormalMap.setTexture(slot, obj);
 }
 
-void NormalMapBase::loadNormalTex(const JUTTexture* pTex, u32 slot) const {
-    J3DNativeTexObj obj;
-    J3DNativeTexture::init(&obj, pTex->mImage, pTex->mTIMG->mWidth, pTex->mTIMG->mHeight, NEBULA_WRAP_CLAMP, NEBULA_WRAP_CLAMP);
-    if ((_13A & 2) != 0 && (_13A & 0x4) != 0) {
-        J3DNativeTexture::setFilter(&obj, NEBULA_FILTER_NEAREST, NEBULA_FILTER_NEAREST, 0.0f, 0.0f, 0.0f, false, 0);
-    } else if ((_13A & 0x2) != 0) {
-        J3DNativeTexture::setFilter(&obj, NEBULA_FILTER_NEAREST, NEBULA_FILTER_LINEAR, 0.0, 0.0, 0.0, 0, 0);
-    } else if ((_13A & 0x4) != 0) {
-        J3DNativeTexture::setFilter(&obj, NEBULA_FILTER_LINEAR, NEBULA_FILTER_NEAREST, 0.0, 0.0, 0.0, 0, 0);
+void NormalMapBase::loadNormalTex(const GameTexture* pTex, u32 slot) const {
+    SiteTexture obj;
+    SiteTextures::init(&obj, pTex->image(), pTex->info()->mWidth, pTex->info()->mHeight, NEBULA_WRAP_CLAMP, NEBULA_WRAP_CLAMP);
+    if ((mTexFlags & 2) != 0 && (mTexFlags & 0x4) != 0) {
+        SiteTextures::setFilter(&obj, NEBULA_FILTER_NEAREST, NEBULA_FILTER_NEAREST, 0.0f, 0.0f, 0.0f, false, 0);
+    } else if ((mTexFlags & 0x2) != 0) {
+        SiteTextures::setFilter(&obj, NEBULA_FILTER_NEAREST, NEBULA_FILTER_LINEAR, 0.0, 0.0, 0.0, 0, 0);
+    } else if ((mTexFlags & 0x4) != 0) {
+        SiteTextures::setFilter(&obj, NEBULA_FILTER_LINEAR, NEBULA_FILTER_NEAREST, 0.0, 0.0, 0.0, 0, 0);
     } else {
-        J3DNativeTexture::setFilter(&obj, NEBULA_FILTER_LINEAR, NEBULA_FILTER_LINEAR, 0.0, 0.0, 0.0, 0, 0);
+        SiteTextures::setFilter(&obj, NEBULA_FILTER_LINEAR, NEBULA_FILTER_LINEAR, 0.0, 0.0, 0.0, 0, 0);
     }
 
-    NativeShader::setTexObj(sNormalMap, slot, &obj);
+    sNormalMap.setTexture(slot, obj);
 }
 
-void NormalMapBase::loadTexture1(J3DMaterial* pMaterial) const {
-    NativeShader::setTexture(sNormalMap, 2, mTextures[pMaterial->getTexNo(0)]);
-    loadNormalTex(mTextures[pMaterial->getTexNo(1)], 0);
+void NormalMapBase::loadTexture1(Material* pMaterial) const {
+    // A material without the two pictures keeps the ones the last material set.
+    const u32 textureCount = MR::getModelData(this)->getTextureCount();
+    const u32 baseIndex = pMaterial->getTextureIndex(0);
+    const u32 normalIndex = pMaterial->getTextureIndex(1);
+
+    if (baseIndex < textureCount) {
+        sNormalMap.setTexture(2, mTextures[baseIndex]);
+    }
+
+    if (normalIndex < textureCount) {
+        loadNormalTex(mTextures[normalIndex], 0);
+    }
 }
 
-void NormalMapBase::drawMaterialSetting(J3DMaterial* pMaterial) const {
+void NormalMapBase::drawMaterialSetting(Material* pMaterial) const {
     loadTexture1(pMaterial);
-    loadTexMtxBtk(pMaterial);
-    J3DNativeShape::setTexture(2, pMaterial->getTexMtx(0)->getMtx(), 2);
+    // A material with no texture matrix uses the identity.
+    CoordMatrix* pCoordMatrix = pMaterial->getCoordMatrix(0);
+    if (pCoordMatrix != nullptr) {
+        sNormalMap.setMatrix(9, 2, pCoordMatrix->getMtx());
+    } else {
+        Mtx identity;
+        NebulaMtxIdentity(identity);
+        sNormalMap.setMatrix(9, 2, identity);
+    }
     Color8 ambient;
     Color8 material;
     ambient.set(mAmbColor, mAmbColor, mAmbColor, mAmbAlpha);
     material.set(mMatColor, mMatColor, mMatColor, mMatAlpha);
     if (mUseModelLightReg & 1) {
-        NebulaColor8* pColor = pMaterial->getAmbColor(0);
+        NebulaColor8* pColor = pMaterial->getAmbientColor(0);
         ambient.r = pColor->r;
         ambient.g = pColor->g;
         ambient.b = pColor->b;
     }
 
     if (mUseModelLightReg & 2) {
-        ambient.a = pMaterial->getAmbColor(0)->a;
+        ambient.a = pMaterial->getAmbientColor(0)->a;
     }
 
     if (mUseModelLightReg & 4) {
-        NebulaColor8* pColor = pMaterial->getMatColor(0);
+        NebulaColor8* pColor = pMaterial->getMaterialColor(0);
         material.r = pColor->r;
         material.g = pColor->g;
         material.b = pColor->b;
     }
 
     if (mUseModelLightReg & 8) {
-        material.a = pMaterial->getMatColor(0)->a;
+        material.a = pMaterial->getMaterialColor(0)->a;
     }
 
-    NativeShader::setColor(sNormalMap, 0, material.r, material.g, material.b, material.a);
-    NativeShader::setColor(sNormalMap, 4, ambient.r, ambient.g, ambient.b, ambient.a);
+    sNormalMap.setColor(0, material.r, material.g, material.b, material.a);
+    sNormalMap.setColor(4, ambient.r, ambient.g, ambient.b, ambient.a);
     const NebulaColor16& rColor0 = mUseModelStageColor ? static_cast< const NebulaColor16& >(*pMaterial->getRegisterColor(0))
                                                 : static_cast< const NebulaColor16& >(mStageColor0);
     const NebulaColor16& rColor1 = mUseModelStageColor ? static_cast< const NebulaColor16& >(*pMaterial->getRegisterColor(1))
                                                 : static_cast< const NebulaColor16& >(mStageColor1);
-    // C0 and C1 as the combiner takes a register (its low 8 bits).
+    // The two stage colours as the shader reads them: the low 8 bits of each channel, 0 to 1.
     sNormalMap.constants[8] = static_cast< u8 >(rColor0.r) / 255.0f;
     sNormalMap.constants[9] = static_cast< u8 >(rColor0.g) / 255.0f;
     sNormalMap.constants[10] = static_cast< u8 >(rColor0.b) / 255.0f;
@@ -441,19 +391,18 @@ void NormalMapBase::drawMaterialSetting(J3DMaterial* pMaterial) const {
     sNormalMap.constants[13] = static_cast< u8 >(rColor1.g) / 255.0f;
     sNormalMap.constants[14] = static_cast< u8 >(rColor1.b) / 255.0f;
     sNormalMap.constants[15] = static_cast< u8 >(rColor1.a) / 255.0f;
-    NativeShader::send(sNormalMap);
 }
 
 void NormalMapBase::drawSetting(MtxPtr pMtx) const {
-    NativeShader::init(sNormalMap, NEBULA_SHADER_NORMAL_MAP, NativeShader::BLEND_OPAQUE, NEBULA_COMPARE_LEQUAL, true,
+    sNormalMap.init(NEBULA_SHADER_NORMAL_MAP, SiteMaterial::BLEND_OPAQUE, NEBULA_COMPARE_LEQUAL, true,
                        NEBULA_CULL_BACK);
-    sNormalMap.color_write = 1;
-    sNormalMap.alpha_write = 0;
+    sNormalMap.mState.color_write = 1;
+    sNormalMap.mState.alpha_write = 0;
     updateLightMtx(pMtx);
     Mtx scale_mtx;
     NebulaMtxScale(scale_mtx, 0.0f, 0.0f, 0.0f);
     MR::setMtxTrans(scale_mtx, 0.5f, 0.5f, 0.0f);
-    J3DNativeShape::setTexture(1, scale_mtx, 2);
+    sNormalMap.setMatrix(9, 1, scale_mtx);
 
     // Channel 0: lit by the hard light mask with the ambient colour from the material and the material colour from
     // the vertex; else by no lights from the material's colours (the model's light registers) or the vertex's. Its
@@ -473,15 +422,8 @@ void NormalMapBase::drawSetting(MtxPtr pMtx) const {
     loadDiffuseGradTex(1);
 }
 
-// Coordinate 0 through the BTK's matrix (texture matrix 0) when it plays, else the vertex's.
-void NormalMapBase::setStageForObject_Material() const {
-    sNormalMap.constants[32] = mBtkPlayer && _150 ? 1.0f : 0.0f;
-}
-
 // The stages' selections (normal_map.hlsl): light A and B's colours, the raster, light B's alpha, the back-light mode.
 void NormalMapBase::setStageForObject() const {
-    setStageForObject_Material();
-
     // Light A: one, none where the colour mask leaves light 0 out, the gradient for modes 0 and 1. Light B: one, none
     // where the mask leaves light 1 out, stage 0's alpha for mode 1.
     f32 lightA = (mHardLightColorMask & 0x1) == 0 ? 0.0f : 1.0f;
@@ -498,8 +440,8 @@ void NormalMapBase::setStageForObject() const {
     sNormalMap.constants[30] = mBackLightMode == 4 ? 1.0f : 0.0f;
     sNormalMap.constants[31] = mLightBMode == 2 ? 1.0f : 0.0f;
     sNormalMap.constants[33] = 1.0f;
-    sNormalMap.constants[34] = width;
-    sNormalMap.constants[35] = height;
+    sNormalMap.constants[34] = ::cGradTexWidth;
+    sNormalMap.constants[35] = ::cGradTexHeight;
 }
 
 namespace {
@@ -532,33 +474,33 @@ namespace {
 }  // namespace
 
 // The light gradient as LA8 rows (NEBULA_TEXTURE_LINEAR_LA8): intensity by column (the ambient-to-material ramp),
-// alpha by row (the same ramp down the rows, none when _138 & 1), laid out as the picture the game has always shown.
+// alpha by row (the same ramp down the rows, none when mDrawFlags & 1), laid out as the picture the game has always shown.
 // The game wrote both ramps as two-channel texels in rows and ran its tile conversion on them, which leaves the
 // first 2 KB as each 4-row band's first eight intensities (two to a texel: alpha, then intensity) and the rest as the
 // rows' bytes read as 4x4 tiles: texel (x, y) here is what those tiles showed there.
 void NormalMapBase::createGradTexture() {
-    for (u32 x = 0; x < width; x++) {
-        const f32 ratio = gradLevel(x, width, mLightingLowLevel, mLightingHighLevel, mGradTexMode) / 255.0f;
+    for (u32 x = 0; x < ::cGradTexWidth; x++) {
+        const f32 ratio = gradLevel(x, ::cGradTexWidth, mLightingLowLevel, mLightingHighLevel, mGradTexMode) / 255.0f;
         sGradIntensity[x] = static_cast< u8 >(static_cast< s32 >(mAmbColor + ratio * (mMatColor - mAmbColor)));
     }
-    for (u32 y = 0; y < height; y++) {
-        if (_138 & 1) {
+    for (u32 y = 0; y < ::cGradTexHeight; y++) {
+        if (mDrawFlags & 1) {
             sGradAlpha[y] = 0;
             continue;
         }
-        const f32 ratio = gradLevel(y, height, mLightingLowLevel, mLightingHighLevel, mGradTexMode) / 255.0f;
+        const f32 ratio = gradLevel(y, ::cGradTexHeight, mLightingLowLevel, mLightingHighLevel, mGradTexMode) / 255.0f;
         sGradAlpha[y] = static_cast< u8 >(static_cast< s32 >(mAmbColor + ratio * (mMatColor - mAmbColor)));
     }
 
     u8* pTexels = static_cast< u8* >(mImagePtr);
-    const u32 tilesAcross = width / 4;
-    for (u32 y = 0; y < height; y++) {
-        for (u32 x = 0; x < width; x++) {
+    const u32 tilesAcross = ::cGradTexWidth / 4;
+    for (u32 y = 0; y < ::cGradTexHeight; y++) {
+        for (u32 x = 0; x < ::cGradTexWidth; x++) {
             const u32 tile = (y / 4) * tilesAcross + x / 4;
             const u32 inTile = (y % 4) * 4 + x % 4;
             u8 alpha;
             u8 intensity;
-            if (tile < static_cast< u32 >(height / 4)) {
+            if (tile < ::cGradTexHeight / 4) {
                 // Band `tile`'s entries 2 * inTile and 2 * inTile + 1: columns 0-3 of its rows, then columns 4-7.
                 const u32 first = 2 * inTile;
                 const u32 second = first + 1;
@@ -566,20 +508,20 @@ void NormalMapBase::createGradTexture() {
                 intensity = sGradIntensity[second < 16 ? second % 4 : 4 + (second - 16) % 4];
             } else {
                 const u32 written = tile * 16 + inTile;
-                alpha = sGradAlpha[written / width];
-                intensity = sGradIntensity[written % width];
+                alpha = sGradAlpha[written / ::cGradTexWidth];
+                intensity = sGradIntensity[written % ::cGradTexWidth];
             }
-            u8* pTexel = pTexels + 2 * (y * width + x);
+            u8* pTexel = pTexels + 2 * (y * ::cGradTexWidth + x);
             pTexel[0] = intensity;
             pTexel[1] = alpha;
         }
     }
 
-    J3DNativeTexture::registerLinear(mImagePtr, NEBULA_TEXTURE_LINEAR_LA8, width, height, 1);
+    RenderTexture::linear(mImagePtr, NEBULA_TEXTURE_LINEAR_LA8, ::cGradTexWidth, ::cGradTexHeight, 1);
 }
 
-void NormalMapBase::swapColorGB(JUTTexture* pTexture) {
-    const NebulaTexture* pRecord = nebula_texture_record(pTexture->mImage);
+void NormalMapBase::swapColorGB(GameTexture* pTexture) {
+    const NebulaTexture* pRecord = nebula_texture_record(pTexture->image());
     if (pRecord == nullptr || pRecord->layout != NEBULA_TEXTURE_RGBA8) {
         return;
     }
@@ -592,7 +534,7 @@ void NormalMapBase::swapColorGB(JUTTexture* pTexture) {
         const u32 levelHeight = pRecord->height >> level != 0 ? pRecord->height >> level : 1;
         for (u32 at = 0; at < levelWidth * levelHeight; at++, pTexel += 4) {
             const u32 color = pTexel[0] << 24 | pTexel[1] << 16 | pTexel[2] << 8 | pTexel[3];
-                TVec3f normal;
+                Vec3f normal;
                 normal.set(static_cast< s8 >((color & 0xFF) - 128) / 128.0f, static_cast< s8 >(((color >> 8) & 0xFF) - 128) / 128.0f,
                            static_cast< s8 >(((color >> 16) & 0xFF) - 128) / 128.0f);
                 u8 r = (s32)(128.0f + 127.0f * normal.x);
@@ -605,43 +547,28 @@ void NormalMapBase::swapColorGB(JUTTexture* pTexture) {
         }
     }
 
-    pTexture->mImage = pCopy;
-    pTexture->mObj.mImage = pCopy;
-    J3DNativeTexture::registerRecord(pCopy);
+    pTexture->setImage(pCopy);
 }
 
+// One setting per line: the number leads the line and the name anywhere on it picks the setting.
 void NormalMapBase::loadData(const char* pData, u32 size) {
-    char line[256];
+    const char* const pEnd = pData + size;
     const char* pCursor = pData;
-    u32 offset = 0;
-    while (true) {
-        if (offset >= size) {
-            break;
+    MR::FormattedName lineText;
+    while (pCursor < pEnd) {
+        const char* pLineEnd = pCursor;
+        while (pLineEnd < pEnd && *pLineEnd != '\n' && *pLineEnd != '\r') {
+            pLineEnd++;
         }
 
-        u32 length = 0;
-        do {
-            if (*pCursor == '\n' || *pCursor == '\r') {
-                break;
-            }
-
-            offset++;
-            line[length] = *pCursor;
-            length++;
-            pCursor++;
-        } while (offset < size);
+        const u32 length = static_cast< u32 >(pLineEnd - pCursor);
+        char* const line = lineText.room(length + 1);
+        memcpy(line, pCursor, length);
         line[length] = '\0';
-        while (true) {
-            if (offset >= size) {
-                break;
-            }
 
-            if (*pCursor != '\n' && *pCursor != '\r') {
-                break;
-            }
-
+        pCursor = pLineEnd;
+        while (pCursor < pEnd && (*pCursor == '\n' || *pCursor == '\r')) {
             pCursor++;
-            offset++;
         }
 
         MR::scan8(line, "mLightingHighLevel", &mLightingHighLevel);
@@ -661,7 +588,4 @@ void NormalMapBase::loadData(const char* pData, u32 size) {
         MR::scans16x4(line, "mTevColor0", reinterpret_cast< s16* >(&mStageColor0));
         MR::scans16x4(line, "mTevColor1", reinterpret_cast< s16* >(&mStageColor1));
     }
-}
-
-NormalMapBase::~NormalMapBase() {
 }

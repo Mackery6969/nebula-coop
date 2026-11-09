@@ -5,23 +5,17 @@
 
 #include <cmath>
 
-CameraContext::~CameraContext() {
-}
-
-CameraContext::CameraContext() : NameObj("\203\112\203\201\203\211\203\122\203\223\203\145\203\114\203\130\203\147" /* カメラコンテキスト */) {
+CameraContext::CameraContext() : NameObj("カメラコンテキスト") {
     initParams();
 }
 
 void CameraContext::initParams() {
-    mView.setPositionFromLookAt(TVec3f(0.0f, 0.0f, 3000.0f), TVec3f(0.0f, 1.0f, 0.0f), TVec3f(0.0f, 0.0f, 0.0f));
+    mView.setPositionFromLookAt(Vec3f(0.0f, 0.0f, 3000.0f), Vec3f(0.0f, 1.0f, 0.0f), Vec3f(0.0f, 0.0f, 0.0f));
 
     mViewInv.set(mView);
     mViewInv.invert(mViewInv);
 
     mFovy = 45.0f;
-    const f32 height = MR::getScreenHeight();
-    const f32 width = MR::getScreenWidth();
-    mAspectRatio = width / height;
     mNearZ = 100.0f;
     mFarZ = 800000.0f;
 
@@ -30,23 +24,16 @@ void CameraContext::initParams() {
     updateProjectionMtx();
 }
 
-const TPos3f& CameraContext::getViewMtx() const {
+const Pos3f& CameraContext::getViewMtx() const {
     return mView;
 }
 
-const TPos3f& CameraContext::getInvViewMtx() const {
+const Pos3f& CameraContext::getInvViewMtx() const {
     return mViewInv;
 }
 
 f32 CameraContext::getAspect() const {
-    if (MR::isScreen16Per9()) {
-        if (MR::getDisplay().wide) {
-            return MR::getDisplay().content_aspect;
-        }
-        return 16.0f / 9.0f;
-    } else {
-        return static_cast< f32 >(MR::getScreenWidth()) / MR::getScreenHeight();
-    }
+    return MR::getScreenAspect();
 }
 
 // The vertical field of view the picture is drawn with: the camera's, and below 4:3 (the native build's wide shapes) widened
@@ -63,7 +50,7 @@ f32 CameraContext::getRenderFovy() const {
     return mFovy;
 }
 
-void CameraContext::setViewMtx(const TPos3f& rMtx, bool b1, bool b2, const TVec3f& rVec) {
+void CameraContext::setViewMtx(const Pos3f& rMtx) {
     mView.set(rMtx);
     mViewInv.invert(rMtx);
 }
@@ -86,7 +73,7 @@ void CameraContext::setShakeOffset(f32 x, f32 y) {
 void CameraContext::updateProjectionMtx() {
     mProjection.makePerspective(getRenderFovy(), getAspect(), mNearZ, mFarZ);
 
-    TProj3f trans;
+    Proj3f trans;
     trans.makeTrans(mShakeOffset.x, mShakeOffset.y);
 
     mProjection.concat(trans, mProjection);

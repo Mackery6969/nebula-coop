@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class Rock;
 
@@ -9,12 +9,12 @@ class RockCreator : public LiveActor {
 public:
     RockCreator(const char*);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void appear();
-    virtual void kill();
+    virtual void init(const TableIter& rIter) override;
+    virtual void appear() override;
+    virtual void kill() override;
 
     void invalidate();
-    void initMapToolInfo(const JMapInfoIter& rIter);
+    void initMapToolInfo(const TableIter& rIter);
     void create();
 
     void exeActive();

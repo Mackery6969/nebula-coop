@@ -7,16 +7,16 @@
 #include "Game/MapObj/FloaterFloatingForceTypeNormal.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapInfo.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/Table.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MapUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
 #include "math_types.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
+
 
 namespace {
     const char* const cEffectName = "LavaBubble";
@@ -28,13 +28,10 @@ namespace NrvLavaFloater {
 };  // namespace NrvLavaFloater
 
 LavaFloater::LavaFloater(const char* pName)
-    : LiveActor(pName), mFloatingForce(), mMtxSetter(), mLodCtrlPlanet(), mObjectName(), _9C(gZeroVec), _A8() {
+    : LiveActor(pName), mFloatingForce(), mMtxSetter(), mLodCtrlPlanet(), mObjectName(), mGroundPos(gZeroVec), mGroundOffset() {
 }
 
-LavaFloater::~LavaFloater() {
-}
-
-void LavaFloater::init(const JMapInfoIter& rIter) {
+void LavaFloater::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     MR::getObjectName(&mObjectName, rIter);
 
@@ -50,8 +47,8 @@ void LavaFloater::init(const JMapInfoIter& rIter) {
         initModelManagerWithAnm(mObjectName, nullptr, false);
     }
 
-    initEffectKeeper(0, 0, false);
-    MR::setEffectHostSRT(this, ::cEffectName, &_9C, &mRotation, nullptr);
+    initEffectKeeper(0, 0);
+    MR::setEffectHostSRT(this, ::cEffectName, &mGroundPos, &mRotation, nullptr);
     initSound(4, false);
     initHitSensor(1);
     MR::initCollisionParts(this, mObjectName, MR::addBodyMessageSensorMapObj(this), nullptr);
@@ -72,22 +69,22 @@ void LavaFloater::init(const JMapInfoIter& rIter) {
 }
 
 void LavaFloater::initAfterPlacement() {
-    TVec3f v6(mGravity);
-    v6 *= 1000.0f;
+    Vec3f down(mGravity);
+    down *= 1000.0f;
 
-    if (!MR::getFirstPolyOnLineToMap(&_9C, nullptr, mPosition, v6)) {
-        MR::calcMapGroundUpper(&_9C, this);
+    if (!MR::getFirstPolyOnLineToMap(&mGroundPos, nullptr, mPosition, down)) {
+        MR::calcMapGroundUpper(&mGroundPos, this);
     }
 
-    _A8 = mPosition.distance(_9C);
+    mGroundOffset = mPosition.distance(mGroundPos);
 
-    if ((mPosition - _9C).dot(mGravity) < 0.0f) {
-        _A8 *= -1.0f;
+    if ((mPosition - mGroundPos).dot(mGravity) < 0.0f) {
+        mGroundOffset *= -1.0f;
     }
 
     if (mMtxSetter != nullptr) {
-        TVec3f uselessVec(0.0f, _A8, 0.0f);
-        mMtxSetter->updateMtxUseBaseMtxWithLocalOffset(TVec3f(0.0f, _A8, 0.0f));
+        Vec3f uselessVec(0.0f, mGroundOffset, 0.0f);
+        mMtxSetter->updateMtxUseBaseMtxWithLocalOffset(Vec3f(0.0f, mGroundOffset, 0.0f));
     }
 
     MR::offCalcGravity(this);
@@ -133,13 +130,13 @@ void LavaFloater::endClipped() {
 }
 
 f32 LavaFloater::getCurrentSinkDepth() const {
-    TPos3f depthMtx;
-    TVec3f v1, v2;
+    Pos3f depthMtx;
+    Vec3f basePos, up;
     depthMtx.set(getBaseMtx());
-    depthMtx.getTrans(v1);
-    depthMtx.getYDir(v2);
-    f32 sign = MR::sign(v2.dot(_9C - v1));
-    return sign * _9C.distance(v1);
+    depthMtx.getTrans(basePos);
+    depthMtx.getYDir(up);
+    f32 sign = MR::sign(up.dot(mGroundPos - basePos));
+    return sign * mGroundPos.distance(basePos);
 }
 
 void LavaFloater::exeFloat() {
@@ -147,7 +144,7 @@ void LavaFloater::exeFloat() {
         MR::deleteEffect(this, ::cEffectName);
     }
 
-    if (_A8 < getCurrentSinkDepth()) {
+    if (mGroundOffset < getCurrentSinkDepth()) {
         setNerve(GET_NERVE(LavaFloater, HostTypeSink));
     }
 }
@@ -157,8 +154,7 @@ void LavaFloater::exeSink() {
         MR::emitEffect(this, ::cEffectName);
     }
 
-    if (MR::isNearZero(getCurrentSinkDepth() - _A8, 1.0f)) {
+    if (MR::isNearZero(getCurrentSinkDepth() - mGroundOffset, 1.0f)) {
         setNerve(GET_NERVE(LavaFloater, HostTypeFloat));
     }
 }
-

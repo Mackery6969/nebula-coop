@@ -13,27 +13,25 @@ class GalaxyMapTicoIcon;
 class GalaxyMapTitle;
 class IconAButton;
 
-namespace nw4r {
-    namespace lyt {
-        class DrawInfo;
-    };  // namespace lyt
-};  // namespace nw4r
+namespace Ui {
+    class DrawInfo;
+}  // namespace Ui
 
 class GalaxyMap : public LayoutActor {
 public:
     /// @brief Creates a new `GalaxyMap`.
     GalaxyMap();
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void movement();
-    virtual void draw() const;
-    virtual void calcAnim();
-    virtual void appear();
-    virtual void kill();
+    virtual void init(const TableIter& rIter) override;
+    virtual void movement() override;
+    virtual void draw() const override;
+    virtual void calcAnim() override;
+    virtual void appear() override;
+    virtual void kill() override;
 
     void movementForCapture();
-    void calcAnimForCapture(const nw4r::lyt::DrawInfo&);
-    void drawForCapture(const nw4r::lyt::DrawInfo&);
+    void calcAnimForCapture(const Ui::DrawInfo&);
+    void drawForCapture(const Ui::DrawInfo&);
     void setModeNormal();
     void setModeNewGalaxyDiscover();
     void setModeNewTicoGalaxyDiscover();
@@ -44,7 +42,6 @@ public:
     bool isTransition() const;
     bool isPointingAnything() const;
     bool isShowDetail() const;
-    void dispIconAButton();
     void changeToGalaxyMap();
     void changeToAstroMap();
     void forceToGalaxyMap();
@@ -76,6 +73,6 @@ public:
     GalaxyMapIcon* mPointingIcon;
     GalaxyMapTitle* mTitle;
     const char* mGalaxyName;
-    bool _70;
-    bool _71;
+    bool mIsPointingNew;  // the pointed galaxy icon is new
+    bool mIsFocusEnabled;  // pointing at an icon may focus it
 };

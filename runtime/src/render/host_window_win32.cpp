@@ -2,9 +2,12 @@
 // The game's Win32 window on both renderers (host_window_win32.h): the window procedure, the pointer, and what the
 // settings menu asks of its platform (host_window.h).
 
+#include "galaxy/achievements.h"
+#include "galaxy/stats.h"
 #include "galaxy/vendor_download.h"
 #include "galaxy/render/host_window_win32.h"
 #include "galaxy/render/xess_library.h"
+#include "galaxy/windows_paths.h"
 #include "galaxy/windows_power.h"
 #include "galaxy/run_options.h"
 #include "galaxy/path_text.h"
@@ -47,6 +50,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cwchar>
 #include <filesystem>
 #include <iostream>
 #include <iterator>
@@ -70,8 +74,11 @@ std::atomic<std::uintptr_t> settings_window{0};
 std::atomic<bool> borderless_active{false};
 std::atomic<std::uintptr_t> pointer_hwnd{0};
 std::atomic<bool> display_changed{false};
+std::atomic<bool> monitor_changed{false};
 namespace {
+HMONITOR s_window_monitor = nullptr;  // the window's thread only
 std::atomic<bool> s_minimized{false};
+std::atomic<bool> s_background{false};  // the program is not the active one (WM_ACTIVATEAPP)
 }
 std::atomic<HANDLE> s_state_wake{nullptr};
 
@@ -87,6 +94,62 @@ void set_state_wake(void* event) noexcept {
 
 bool is_minimized() noexcept {
     return s_minimized.load(std::memory_order_relaxed);
+}
+
+bool is_background() noexcept {
+    return s_background.load(std::memory_order_relaxed);
+}
+
+namespace {
+std::atomic<std::uint64_t> s_instance_key{0u};
+constexpr wchar_t kInstanceProperty[] = L"NebulaInstanceKey";
+
+struct InstanceSearch {
+    std::uintptr_t key = 0u;
+    HWND found = nullptr;
+};
+
+BOOL CALLBACK find_instance_window(HWND window, LPARAM parameter) {
+    auto& search = *reinterpret_cast<InstanceSearch*>(parameter);
+    wchar_t name[64]{};
+    if (GetClassNameW(window, name, static_cast<int>(std::size(name))) == 0 || std::wcscmp(name, kWindowClass) != 0) {
+        return TRUE;
+    }
+    if (reinterpret_cast<std::uintptr_t>(GetPropW(window, kInstanceProperty)) != search.key) {
+        return TRUE;
+    }
+    search.found = window;
+    return FALSE;
+}
+}  // namespace
+
+void set_instance_key(std::uint64_t key) noexcept {
+    s_instance_key.store(key, std::memory_order_relaxed);
+}
+
+bool show_existing_instance(std::uint64_t key, unsigned wait_ms) noexcept {
+    if (key == 0u) {
+        return false;
+    }
+    const ULONGLONG deadline = GetTickCount64() + wait_ms;
+    for (;;) {
+        InstanceSearch search;
+        search.key = static_cast<std::uintptr_t>(key);
+        EnumWindows(find_instance_window, reinterpret_cast<LPARAM>(&search));
+        if (search.found != nullptr) {
+            // The user started this process last, so it may hand the foreground over; the running game's window takes it.
+            DWORD process = 0u;
+            GetWindowThreadProcessId(search.found, &process);
+            if (process != 0u) {
+                (void)AllowSetForegroundWindow(process);
+            }
+            return PostMessageW(search.found, kShowInstanceMessage, 0, 0) != FALSE;
+        }
+        if (GetTickCount64() >= deadline) {
+            return false;
+        }
+        Sleep(50);
+    }
 }
 static UINT monitor_dpi(const MonitorInfo& monitor) noexcept {
     const HMONITOR handle = MonitorFromPoint(
@@ -107,7 +170,6 @@ std::atomic<std::uint64_t> pending_resize_extent{0};
 std::atomic<bool> surface_withdrawn{false};
 std::timed_mutex surface_use;
 // RendererD3D12::suspend_temporal_interpolation (the FRAME RATE row says so).
-std::atomic<bool> temporal_interp_suspended{false};
 
 }  // namespace host_window
 
@@ -371,37 +433,11 @@ bool input_message_injected() noexcept {
     return GetCurrentInputMessageSource(&source) && source.originId == IMO_INJECTED;
 }
 
-// While the game window is in front the display stays on and the PC stays awake: Windows does not count controller
-// input as activity. Window thread only.
-void hold_display_on(bool hold) noexcept {
-    static const HANDLE request = [] {
-        REASON_CONTEXT reason{};
-        reason.Version = POWER_REQUEST_CONTEXT_VERSION;
-        reason.Flags = POWER_REQUEST_CONTEXT_SIMPLE_STRING;
-        reason.Reason.SimpleReasonString = const_cast<LPWSTR>(L"Nebula is running");
-        return PowerCreateRequest(&reason);
-    }();
-    static bool held = false;
-    if (request == INVALID_HANDLE_VALUE || hold == held || (hold && hidden_window_mode_enabled())) return;
-    if (hold) {
-        (void)PowerSetRequest(request, PowerRequestDisplayRequired);
-        (void)PowerSetRequest(request, PowerRequestSystemRequired);
-    } else {
-        (void)PowerClearRequest(request, PowerRequestDisplayRequired);
-        (void)PowerClearRequest(request, PowerRequestSystemRequired);
-    }
-    held = hold;
-}
-
-
-
 std::wstring launcher_path() {
-    wchar_t path[MAX_PATH]{};
-    const DWORD length = GetModuleFileNameW(nullptr, path, MAX_PATH);
-    if (length == 0u || length >= MAX_PATH) {
+    std::wstring launcher = ::galaxy::windows::executable_path();
+    if (launcher.empty()) {
         return {};
     }
-    std::wstring launcher(path, length);
     const std::size_t slash = launcher.find_last_of(L"\\/");
     if (slash == std::wstring::npos) {
         return {};
@@ -473,6 +509,8 @@ OpenedWindow open_game_window(WindowOwner& owner, int window_width, int window_h
     store_monitor_cache(start_monitors);
     const MonitorInfo* start_monitor =
         find_monitor(start_monitors, widen_utf8(start_config.monitor.data()));
+    // The window is made on that monitor: its frame is the one of that monitor's scale.
+    const UINT frame_dpi = start_monitor != nullptr ? monitor_dpi(*start_monitor) : GetDpiForSystem();
     int actual_window_width = window_width;
     int actual_window_height = window_height;
     int window_x = CW_USEDEFAULT;
@@ -497,8 +535,7 @@ OpenedWindow open_game_window(WindowOwner& owner, int window_width, int window_h
             *start_monitor, static_cast<unsigned>(window_width),
             static_cast<unsigned>(window_height));
         RECT frame{0, 0, 0, 0};
-        (void)AdjustWindowRectExForDpi(&frame, kWindowStyle, FALSE, WS_EX_APPWINDOW,
-                                       GetDpiForSystem());
+        (void)AdjustWindowRectExForDpi(&frame, kWindowStyle, FALSE, WS_EX_APPWINDOW, frame_dpi);
         window_x = outer.left;
         window_y = outer.top;
         // A second game (galaxy/game_instance.h) a step down and right of the first, so both title bars show.
@@ -538,7 +575,7 @@ OpenedWindow open_game_window(WindowOwner& owner, int window_width, int window_h
 
         RECT frame{0, 0, 0, 0};
         if (!fullscreen_window) {
-            if (!AdjustWindowRectExForDpi(&frame, window_style, FALSE, WS_EX_APPWINDOW, GetDpiForSystem())) {
+            if (!AdjustWindowRectExForDpi(&frame, window_style, FALSE, WS_EX_APPWINDOW, frame_dpi)) {
                 std::cerr << "[Renderer] AdjustWindowRect failed\n";
                 return {};
             }
@@ -572,19 +609,13 @@ OpenedWindow open_game_window(WindowOwner& owner, int window_width, int window_h
         }
         settings_window.store(
             reinterpret_cast<std::uintptr_t>(opened.window), std::memory_order_release);
+        if (const std::uint64_t key = s_instance_key.load(std::memory_order_relaxed); key != 0u) {
+            (void)SetPropW(opened.window, kInstanceProperty, reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(key)));
+        }
         borderless_active.store(fullscreen_window, std::memory_order_release);
         // No pointer seed from this thread: the window thread publishes geometry and input through WM_SIZE and
         // WM_SETFOCUS, and the first real message or cursor poll places the pointer.
         opened.shown = !hidden_window;
-#if !defined(NEBULA_RELEASE)
-        // GALAXY_TEST_WINDOW_OFF_DESKTOP: shown, one column of pixels on the desktop, behind everything: what runs only for a shown
-        // window runs, and nothing appears.
-        if (hidden_window && ::galaxy::run_options().test_window_off_desktop) {
-            SetWindowPos(opened.window, HWND_BOTTOM, GetSystemMetrics(SM_XVIRTUALSCREEN) - static_cast<int>(outer_width) + 1,
-                         GetSystemMetrics(SM_YVIRTUALSCREEN), static_cast<int>(outer_width), static_cast<int>(outer_height),
-                         SWP_NOACTIVATE | SWP_SHOWWINDOW);
-        }
-#endif
     }
     return opened;
 }
@@ -623,7 +654,25 @@ double display_refresh_hz(NativeWindow window) noexcept {
     return static_cast<double>(mode.dmDisplayFrequency);
 }
 
+// Raw relative mouse motion (WM_INPUT) for the window while it is in front: no input sink and no legacy suppression, so
+// the cursor and the settings menu work as without it.
+static void raw_mouse_attach(HWND hwnd) noexcept {
+    (void)galaxy::host::install_native_raw_mouse(reinterpret_cast<std::uintptr_t>(hwnd));
+}
+
+static void raw_mouse_detach(HWND hwnd) noexcept {
+    galaxy::host::remove_native_raw_mouse(reinterpret_cast<std::uintptr_t>(hwnd));
+}
+
 LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    if (msg == WM_NCDESTROY) {
+        (void)RemovePropW(hwnd, kInstanceProperty);
+    }
+    if (msg == kShowInstanceMessage) {
+        ShowWindow(hwnd, IsIconic(hwnd) ? SW_RESTORE : SW_SHOW);
+        (void)SetForegroundWindow(hwnd);
+        return 0;
+    }
     if (msg == WM_DROPFILES) {
         // Dropped files: mod archives and folders into the mods folder (the MODS page opens on the import),
         // anything else to the Mii import.
@@ -648,6 +697,17 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WM_DISPLAYCHANGE) {
         store_monitor_cache(enumerate_monitors());
         display_changed.store(true, std::memory_order_release);
+        monitor_changed.store(true, std::memory_order_release);
+    }
+    if (msg == WM_WINDOWPOSCHANGED || msg == WM_DPICHANGED) {
+        // The message goes on to the default handling below. A new monitor, or a new density on the same one (the user's scale
+        // setting): the renderer reads the output's rate and colour space again, and the menus' size follows the window's width
+        // in density-independent units (window_width_dp, read as the window is drawn).
+        const HMONITOR now = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        if (now != s_window_monitor || msg == WM_DPICHANGED) {
+            s_window_monitor = now;
+            monitor_changed.store(true, std::memory_order_release);
+        }
     }
     if (msg == kTestResizeMessage) {
         RECT rect{0, 0, static_cast<LONG>(wp), static_cast<LONG>(lp)};
@@ -678,6 +738,12 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WM_CREATE) {
         host_window::pointer_hwnd.store(reinterpret_cast<std::uintptr_t>(hwnd),
                              std::memory_order_release);
+        raw_mouse_attach(hwnd);
+    }
+    if (msg == WM_INPUT) {
+        // Relative motion for the pointer paths that ask for raw movement; DefWindowProc releases the packet.
+        galaxy::host::publish_native_raw_mouse(reinterpret_cast<std::uintptr_t>(hwnd), static_cast<std::uintptr_t>(lp));
+        return DefWindowProcW(hwnd, msg, wp, lp);
     }
     if (msg == WM_ENTERMENULOOP || msg == WM_ENTERSIZEMOVE) {
         (msg == WM_ENTERMENULOOP ? s_system_menu_active : host_window::move_size_active)
@@ -758,6 +824,10 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 galaxy::host::publish_native_window_key_press(normalized);
             }
             galaxy::host::publish_native_window_key_state(normalized, true);
+            // The scan code too: the movement keys are bound by position (a letter's place on a US keyboard), whatever
+            // the layout calls the key.
+            galaxy::host::publish_native_window_key_event(normalized, static_cast<std::uintptr_t>(lp), true, was_down,
+                                                          input_message_injected());
         }
     }
     if (msg == WM_CHAR && native_settings_type(static_cast<char32_t>(wp))) {
@@ -777,10 +847,11 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             ? MapVirtualKeyA(
                 (static_cast<UINT>(lp) >> 16u) & 0xffu,
                 MAPVK_VSC_TO_VK_EX) : 0u;
-        galaxy::host::publish_native_window_key_state(
-            galaxy::input::normalize_native_window_key(key, mapped_shift,
-                (static_cast<UINT>(lp) & (1u << 24u)) != 0u),
-            false);
+        const std::uint32_t normalized = galaxy::input::normalize_native_window_key(
+            key, mapped_shift, (static_cast<UINT>(lp) & (1u << 24u)) != 0u);
+        galaxy::host::publish_native_window_key_state(normalized, false);
+        galaxy::host::publish_native_window_key_event(normalized, static_cast<std::uintptr_t>(lp), false, false,
+                                                      input_message_injected());
     }
     if (msg == WM_SETCURSOR && LOWORD(lp) == HTCLIENT) {
         const bool focused =
@@ -898,6 +969,9 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WM_ACTIVATEAPP) {
         // The 1 ms timer only while in front: it costs a laptop's battery for every program.
         galaxy::host::hold_high_resolution_timer(wp != FALSE);
+        // What the game does without focus is the host's to decide (runtime_settings focus_loss): it is woken to look.
+        s_background.store(wp == FALSE, std::memory_order_relaxed);
+        wake_main_thread();
     }
     if (msg == WM_SIZE) {
         s_minimized.store(wp == SIZE_MINIMIZED, std::memory_order_relaxed);
@@ -928,6 +1002,7 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WM_SETFOCUS) {
         s_pointer_focused.store(true, std::memory_order_relaxed);
         s_pointer_focus_valid.store(true, std::memory_order_release);
+        raw_mouse_attach(hwnd);
         seed_pointer_from_client(hwnd, false);
         maybe_hide_os_cursor();
         return 0;
@@ -941,6 +1016,7 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WM_KILLFOCUS) {
         s_coop_keys_held.store(0u, std::memory_order_relaxed);
         galaxy::host::clear_native_window_key_presses();
+        raw_mouse_detach(hwnd);
         s_pointer_focused.store(false, std::memory_order_relaxed);
         invalidate_pointer_focus_once();
         clear_pointer_window_state(hwnd);
@@ -949,18 +1025,33 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     }
     if (msg == WM_ACTIVATEAPP) {
         s_pointer_focused.store(wp != 0, std::memory_order_relaxed);
-        hold_display_on(wp != 0);
         if (wp != 0) {
             s_pointer_focus_valid.store(true, std::memory_order_release);
+            raw_mouse_attach(hwnd);
             seed_pointer_from_client(hwnd, false);
             maybe_hide_os_cursor();
         } else {
             galaxy::host::clear_native_window_key_presses();
+            raw_mouse_detach(hwnd);
             invalidate_pointer_focus_once();
             clear_pointer_window_state(hwnd);
             SetCursor(LoadCursorA(nullptr, IDC_ARROW));
         }
         return 0;
+    }
+    if (msg == WM_QUERYENDSESSION || msg == WM_ENDSESSION) {
+        // Windows is ending the session (shutdown, restart, sign-out): the unlocks and counts waiting out their write delay
+        // (galaxy::achievements, galaxy::stats: 0.25 s and 1.5 s) are written now, on the window's thread, before the process
+        // can be ended under them. WM_ENDSESSION's wp says the session is ending; the query allows it (and writes early: a
+        // session another program refuses loses nothing by it).
+        if (msg == WM_QUERYENDSESSION || wp != FALSE) {
+            galaxy::achievements::flush();
+            galaxy::stats::flush();
+        }
+        if (msg == WM_ENDSESSION && wp != FALSE) {
+            save_native_settings_now();
+        }
+        return msg == WM_QUERYENDSESSION ? TRUE : 0;
     }
     if (msg == WM_CLOSE) {
         save_native_settings_now();
@@ -972,7 +1063,7 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         save_native_settings_now();
         host_window::quit_request.store(true, std::memory_order_release);
         wake_main_thread();
-        hold_display_on(false);
+        raw_mouse_detach(hwnd);
         invalidate_pointer_focus_once();
         clear_pointer_buttons();
         host_window::pointer_hwnd.store(0u, std::memory_order_release);
@@ -1376,8 +1467,8 @@ void pick_files(FilePick kind, std::function<void(std::vector<std::filesystem::p
                 dialog->SetTitle(L"Import mod folders");
             } else {
                 const COMDLG_FILTERSPEC filters[] = {
-                    {L"Mods and texture packs (zip, 7z, rar, tar)",
-                     L"*.zip;*.7z;*.rar;*.tar;*.tgz;*.gz;*.txz;*.xz;*.tbz2;*.bz2;*.tzst;*.zst"},
+                    {L"Mods and texture packs (luma, zip, 7z, rar, tar)",
+                     L"*.luma;*.zip;*.7z;*.rar;*.tar;*.tgz;*.gz;*.txz;*.xz;*.tbz2;*.bz2;*.tzst;*.zst"},
                     {L"All files", L"*.*"}};
                 dialog->SetFileTypes(2u, filters);
                 dialog->SetTitle(L"Import mods");
@@ -1421,6 +1512,10 @@ void open_folder(const std::filesystem::path& folder) {
             CoUninitialize();
         }
     }).detach();
+}
+
+bool folders_open() noexcept {
+    return true;
 }
 
 UpscalerCaps upscaler_caps() noexcept {

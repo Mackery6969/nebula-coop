@@ -1,4 +1,5 @@
 #include "Game/NPC/CometEventExecutorTimeLimit.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Screen/TimeLimitLayout.hpp"
 #include "Game/Util/DemoUtil.hpp"
@@ -7,7 +8,7 @@
 #include "Game/Util/PlayerUtil.hpp"
 
 namespace {
-    static const s32 sCometTimeLimitDefault = 1800;
+    const s32 sCometTimeLimitDefault = NebulaFrameClock::stepsOfSeconds(30);
 };  // namespace
 
 namespace NrvCometEventExecutorTimeLimit {
@@ -15,10 +16,10 @@ namespace NrvCometEventExecutorTimeLimit {
 };  // namespace NrvCometEventExecutorTimeLimit
 
 CometEventExecutorTimeLimit::CometEventExecutorTimeLimit(u32 timeLimit)
-    : LiveActor("\220\247\214\300\216\236\212\324\203\122\203\201\203\142\203\147\216\300\215\163\216\322" /* 制限時間コメット実行者 */), mTimeLimitLayout(nullptr), mTimeLimit(timeLimit) {
+    : LiveActor("制限時間コメット実行者"), mTimeLimitLayout(nullptr), mTimeLimit(timeLimit) {
 }
 
-void CometEventExecutorTimeLimit::init(const JMapInfoIter&) {
+void CometEventExecutorTimeLimit::init(const TableIter&) {
     MR::connectToSceneLayoutMovement(this);
     MR::invalidateClipping(this);
 
@@ -54,9 +55,5 @@ void CometEventExecutorTimeLimit::exeStartEvent() {
 }
 
 u32 CometEventExecutorTimeLimit::getTimeLimit() const {
-    if (mTimeLimit != 0) {
-        return mTimeLimit * 60;
-    }
-
-    return ::sCometTimeLimitDefault * 60;
+    return NebulaFrameClock::stepsOfSeconds(mTimeLimit != 0 ? mTimeLimit : ::sCometTimeLimitDefault);
 }

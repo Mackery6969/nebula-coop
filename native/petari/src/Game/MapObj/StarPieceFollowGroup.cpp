@@ -1,10 +1,11 @@
 #include "Game/MapObj/StarPieceFollowGroup.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/StarPiece.hpp"
 #include "Game/Util.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/EventUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
@@ -13,7 +14,7 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SceneUtil.hpp"
 #include "math_types.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 #include <nebula_math.h>
 
 namespace NrvStarPieceFollowGroup {
@@ -22,26 +23,27 @@ namespace NrvStarPieceFollowGroup {
 };  // namespace NrvStarPieceFollowGroup
 
 StarPieceFollowGroup::StarPieceFollowGroup(const char* pName)
-    : LiveActor(pName), mPieces(nullptr), _90(nullptr), mNumPiecesTotal(6), mNumPiecesUse(0), mRadius(350.0f), mAngle(0.0f), mTimeLimit(1200) {
+    : LiveActor(pName), mPieces(nullptr), mPieceOffsets(nullptr), mNumPiecesTotal(6), mNumPiecesUse(0), mRadius(350.0f), mAngle(0.0f), mTimeLimit(1200) {
 }
 
-void StarPieceFollowGroup::init(const JMapInfoIter& rIter) {
+void StarPieceFollowGroup::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
-    s32 arg0 = -1;
-    MR::getJMapInfoArg0NoInit(rIter, &arg0);
-    if (arg0 != -1) {
-        mNumPiecesTotal = arg0;
+    s32 numPieces = -1;
+    MR::getPlacementArg0NoInit(rIter, &numPieces);
+    if (numPieces != -1) {
+        // A count under zero is no pieces.
+        mNumPiecesTotal = numPieces > 0 ? numPieces : 0;
     }
 
-    MR::getJMapInfoArg1NoInit(rIter, &mTimeLimit);
-    MR::getJMapInfoArg2NoInit(rIter, &mRadius);
+    MR::getPlacementArg1NoInit(rIter, &mTimeLimit);
+    MR::getPlacementArg2NoInit(rIter, &mRadius);
 
     initNerve(GET_NERVE(StarPieceFollowGroup, HostTypeNrvFollowEnd));
 
     mPieces = new StarPiece*[mNumPiecesTotal];
-    _90 = new TVec3f[mNumPiecesTotal];
+    mPieceOffsets = new Vec3f[mNumPiecesTotal];
     for (int i = 0; i < mNumPiecesTotal; i++) {
-        mPieces[i] = new StarPiece("\203\164\203\110\203\215\201\133\203\130\203\136\201\133\203\163\201\133\203\130" /* フォロースターピース */);
+        mPieces[i] = new StarPiece("フォロースターピース");
         mPieces[i]->initWithoutIter();
         mPieces[i]->makeActorDead();
     }
@@ -88,16 +90,16 @@ bool StarPieceFollowGroup::beginFollowPieces() {
 }
 
 void StarPieceFollowGroup::placementPiece(s32 numPlace) {
-    TPos3f mtxTRS;
+    Pos3f mtxTRS;
     MR::makeMtxTRS(mtxTRS.toMtxPtr(), this);
 
-    TVec3f zDir;
-    TVec3f xDir;
+    Vec3f zDir;
+    Vec3f xDir;
 
     mtxTRS.getXDir(xDir);
     mtxTRS.getZDir(zDir);
 
-    TVec3f position(mPosition);
+    Vec3f position(mPosition);
     f32 currentAngle = 0.0f;
     f32 angleBetweenPieces = TWO_PI / numPlace;
     for (u32 i = 0; i < numPlace; i++) {
@@ -109,8 +111,8 @@ void StarPieceFollowGroup::placementPiece(s32 numPlace) {
     }
 }
 
-void StarPieceFollowGroup::updateAxises(const TVec3f& rVec1, const TVec3f& rVec2, const TVec3f& rVec3, f32 angle) {
-    TQuat4f quat;
+void StarPieceFollowGroup::updateAxises(const Vec3f& rVec1, const Vec3f& rVec2, const Vec3f& rVec3, f32 angle) {
+    Quat4f quat;
     quat.setRotate(mLocalXAxis, rVec1, angle);
     quat.rotate(mLocalXAxis);
 
@@ -122,9 +124,9 @@ void StarPieceFollowGroup::updateAxises(const TVec3f& rVec1, const TVec3f& rVec2
 }
 
 void StarPieceFollowGroup::followPieces() {
-    TVec3f playerSideVec;
-    TVec3f playerFrontVec;
-    TVec3f playerUpVec;
+    Vec3f playerSideVec;
+    Vec3f playerFrontVec;
+    Vec3f playerUpVec;
 
     MR::getPlayerSideVec(&playerSideVec);
     MR::getPlayerFrontVec(&playerFrontVec);
@@ -132,8 +134,8 @@ void StarPieceFollowGroup::followPieces() {
 
     updateAxises(playerSideVec, playerFrontVec, playerUpVec, 0.25f);
 
-    TVec3f playerPos(*MR::getPlayerPos());
-    TVec3f playerVelocity(*MR::getPlayerVelocity());
+    Vec3f playerPos(*MR::getPlayerPos());
+    Vec3f playerVelocity(*MR::getPlayerVelocity());
 
     playerPos.add(mLocalYAxis.multInLine(0.0f));
     playerPos.add(playerVelocity * 10.0f);
@@ -154,18 +156,18 @@ void StarPieceFollowGroup::followPieces() {
 
         f32 cos = MR::cos(currentAngle);
         f32 sin = MR::sin(currentAngle);
-        f32 cos2 = 1.0f + 0.25f * MR::cos(3.0f * currentAngle);
+        f32 wobble = 1.0f + 0.25f * MR::cos(3.0f * currentAngle);
 
-        TVec3f vec2(playerPos);
-        TVec3f vec(0.0f, 0.0f, 0.0f);
+        Vec3f target(playerPos);
+        Vec3f offset(0.0f, 0.0f, 0.0f);
 
-        vec.add(mLocalXAxis * cos * mRadius);
-        vec.add(mLocalZAxis * sin * mRadius);
+        offset.add(mLocalXAxis * cos * mRadius);
+        offset.add(mLocalZAxis * sin * mRadius);
 
-        _90[i].set(vec);
+        mPieceOffsets[i].set(offset);
 
-        vec2.add(vec * cos2);
-        currentPiece->mVelocity.set(vec2);
+        target.add(offset * wobble);
+        currentPiece->mVelocity.set(target);
         currentPiece->mVelocity.sub(currentPiece->mPosition);
         currentPiece->mVelocity.mult(1.0f);
     }
@@ -205,34 +207,34 @@ void StarPieceFollowGroup::exeFollowToPlayer() {
 }
 
 void StarPieceFollowGroup::exeFollowEnd() {
-    bool doSomeExtraTVecStuff = false;
+    bool pullBack = false;
     if (MR::isGreaterStep(this, 20)) {
-        doSomeExtraTVecStuff = true;
+        pullBack = true;
     }
 
-    s32 numPiecesNotFollowingAnymore = 0;
+    s32 released = 0;
     for (int i = 0; i < (u32)mNumPiecesUse; i++) {
         StarPiece* currentPiece = mPieces[i];
         if (!currentPiece->isFollowing()) {
-            numPiecesNotFollowingAnymore++;
-            if (numPiecesNotFollowingAnymore == mNumPiecesUse - 1) {
+            released++;
+            if (released == mNumPiecesUse - 1) {
                 kill();
             }
             continue;
         }
 
-        if (doSomeExtraTVecStuff) {
+        if (pullBack) {
             const f32 SCALE = 0.05f;
-            currentPiece->mVelocity += (_90[i] * SCALE);
+            currentPiece->mVelocity += (mPieceOffsets[i] * SCALE);
         }
 
-        TVec3f vec2(*MR::getPlayerVelocity());
-        MR::normalizeOrZero(&vec2);
+        Vec3f playerDir(*MR::getPlayerVelocity());
+        MR::normalizeOrZero(&playerDir);
         const f32 TEN = 10.0f;
-        currentPiece->mVelocity += (vec2 * TEN);
+        currentPiece->mVelocity += (playerDir * TEN);
     }
 
-    if (MR::isGreaterStep(this, 120)) {
+    if (MR::isGreaterStep(this, NebulaFrameClock::stepsOfSeconds(2))) {
         kill();
         MR::offSwitchA(this);
         allKillPieces();

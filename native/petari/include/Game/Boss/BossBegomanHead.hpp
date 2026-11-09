@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/LiveActor/PartsModel.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 template < typename T >
 class JointControlDelegator;
@@ -11,8 +11,8 @@ class BossBegomanHead : public PartsModel {
 public:
     BossBegomanHead(LiveActor*, MtxPtr);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void calcAndSetBaseMtx();
+    virtual void init(const TableIter&) override;
+    virtual void calcAndSetBaseMtx() override;
 
     bool isSwitchOn();
     bool isEdgeOut();
@@ -29,7 +29,7 @@ public:
     void exeSwitchOff();
     void exeTurn();
     void exeTurnEnd();
-    bool calcJointEdge(TPos3f*, const JointControllerInfo&);
+    bool calcJointEdge(Pos3f*, const JointControllerInfo&);
 
 private:
     f32 mAngle;

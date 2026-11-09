@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/NameObj/NameObj.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class CameraDirector;
 class CameraPoseParam;
@@ -10,9 +10,9 @@ class CameraMan : public NameObj {
 public:
     CameraMan(const char*);
 
-    virtual void init(const JMapInfoIter&) {
+    virtual void init(const TableIter&) override {
     }
-    virtual void movement();
+    virtual void movement() override;
     virtual void calc() {
     }
     virtual void notifyActivate() {
@@ -49,13 +49,13 @@ public:
     }
 
     void owned(CameraDirector*);
-    void released(CameraDirector*);
-    void activate(CameraDirector*);
-    void deactivate(CameraDirector*);
+    void released();
+    void activate();
+    void deactivate();
 
     CameraDirector* mDirector;
     CameraPoseParam* mPoseParam;
     bool mIsActivated;
     bool mRequestLOfsReset;
-    TPos3f mMatrix;
+    Pos3f mMatrix;
 };

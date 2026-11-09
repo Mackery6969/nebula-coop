@@ -1,27 +1,26 @@
 #pragma once
 
 #include "Game/Camera/Camera.hpp"
-#include <JSystem/JGeometry.hpp>
+#include <nebula_geometry.hpp>
 
 class CameraMedianPlanet : public Camera {
 public:
-    CameraMedianPlanet(const char* pName = "\222\206\223\137\222\215\226\332\203\166\203\211\203\154\203\142\203\147\203\112\203\201\203\211" /* 中点注目プラネットカメラ */);
-    virtual ~CameraMedianPlanet();
+    CameraMedianPlanet(const char* pName = "中点注目プラネットカメラ");
 
-    virtual void reset();
-    virtual CameraTargetObj* calc();
-    virtual CamTranslatorBase* createTranslator();
+    virtual void reset() override;
+    virtual CameraTargetObj* calc() override;
+    virtual void setParamFromChunk(const CameraParamChunk*) override;
 
-    void getPrevFront(TVec3f*);
-    void constrainDipAngle(TVec3f*);
-    void makeTargetMtx(TPos3f*);
-    void peepMtx(TPos3f*);
-    void rotate33(TPos3f*, const TVec3f&, f32);
-    void constrainLength(TVec3f*);
+    void getPrevFront(Vec3f*);
+    void constrainDipAngle(Vec3f*);
+    void makeTargetMtx(Pos3f*);
+    void peepMtx(Pos3f*);
+    void rotate33(Pos3f*, const Vec3f&, f32);
+    void constrainLength(Vec3f*);
     f32 getMaxRate();
-    void getRegisterUpVec(TVec3f*);
-    void calcWatchPos(TVec3f*);
-    bool calcUpVec(TVec3f*, const TVec3f&, const TVec3f&);
+    void getRegisterUpVec(Vec3f*);
+    void calcWatchPos(Vec3f*);
+    bool calcUpVec(Vec3f*, const Vec3f&, const Vec3f&);
 
     void setParam(const char* pName, f32 distMin, f32 distMax, f32 angleMin, f32 constrainRate, f32 peepAngle, f32 dist, f32 partialRate) {
         mString = pName;

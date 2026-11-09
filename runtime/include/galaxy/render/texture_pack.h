@@ -6,7 +6,7 @@
 //   <pack>/[<GameID or its 3-letter prefix>/]**/tex1_<w>x<h>[_m]_<hash>[_<palette hash>|_$]_<fmt>[_mip<n>|_arb].png|.dds
 // <w>x<h> and <fmt> are the game texture's size and format; <hash> the source bytes of its base level, <palette hash>
 // the palette entries a palette texture uses ($: any palette). A replacement is sampled with the game texture's
-// normalized coordinates at any size; its sampler LOD range shifts by log2 of the scale (TextureHandle::lod_shift_x16).
+// normalized coordinates at any size; its sampler LOD range shifts by log2 of the scale (TextureHandle::lod_shift).
 //
 // TexturePacks owns the index of every pack folder (the player's pack and the mods' textures/ folders, a later folder
 // winning a name; built on a loader thread), the loaders (PNG through stb_image, DDS BC1-BC7 through bcdec or 32-bit
@@ -15,13 +15,13 @@
 // through its own staging and backend (any GPU API). Render thread only, except where noted.
 
 #include "galaxy/render/gpu_types.h"
-#include "galaxy/render/draw_types.h"
 #include "galaxy/render/gpu_texture_backend.h"
 
 #include <array>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <nebula_cooked_texture.h>
 #include <deque>
 #include <filesystem>
 #include <functional>
@@ -39,9 +39,20 @@
 
 namespace galaxy::render {
 
+// Texture pack file names carry a format code (tex1_WxH_<hash>_<code>).
+enum class TexturePackFormat : std::uint8_t {
+    Gray8 = 0x1, GrayAlpha8 = 0x3, Rgb565 = 0x4, Packed16 = 0x5, Rgba8 = 0x6,
+    Palette4 = 0x8, Palette8 = 0x9, Palette14 = 0xA, Block4 = 0xE,
+};
+
+// A block record's third and fourth colours (nebula_cooked_texture.h NEBULA_TEXTURE_BLOCK4): 5/8 and 3/8.
+[[nodiscard]] constexpr std::uint8_t block4_interpolated_channel(std::uint8_t primary, std::uint8_t secondary) {
+    return static_cast<std::uint8_t>((5u * primary + 3u * secondary) >> 3u);
+}
+
 struct TexturePackName {
-    std::uint16_t width = 0;
-    std::uint16_t height = 0;
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
     std::uint8_t format = 0;
     std::uint8_t level = 0;   // _mip<n>
     bool mipmapped = false;   // _m
@@ -63,9 +74,9 @@ struct DdsLayout {
     std::uint32_t width = 0;
     std::uint32_t height = 0;
     std::uint32_t levels = 0;
-    std::array<std::size_t, 16> level_offset{};
-    std::array<std::uint32_t, 16> row_bytes{};  // bytes of one row of blocks (or pixels)
-    std::array<std::uint32_t, 16> rows{};       // rows of blocks (or pixels)
+    std::array<std::size_t, NEBULA_TEXTURE_MAX_LEVELS> level_offset{};
+    std::array<std::uint32_t, NEBULA_TEXTURE_MAX_LEVELS> row_bytes{};  // bytes of one row of blocks (or pixels)
+    std::array<std::uint32_t, NEBULA_TEXTURE_MAX_LEVELS> rows{};       // rows of blocks (or pixels)
 };
 // BC1-BC5 and BC7 (DXT1/DXT3/DXT5/ATI1/ATI2/BC4U/BC5U or a DX10 header; sRGB forms as UNORM), DX10 R8G8B8A8 and
 // B8G8R8A8, DX9 A8R8G8B8 and A8B8G8R8. False for anything else or a truncated file.
@@ -110,7 +121,7 @@ struct TextureReplacement {
     std::uint32_t width = 0;
     std::uint32_t height = 0;
     std::uint32_t levels = 0;
-    std::uint8_t lod_shift_x16 = 0;  // 16 x log2(replacement width / game width)
+    float lod_shift = 0.0f;  // log2(replacement width / game width)
     bool arbitrary = false;          // _arb: its level n shows where the game shows its level n
     std::uint64_t bytes = 0;
 };
@@ -149,6 +160,8 @@ public:
     void remove_user(std::uint32_t slot) noexcept;
 
     void begin_frame() noexcept { ++frame_; }
+    // Called only after the upload fence: large driver allocations retire on a loader, never in a present.
+    void retire_uploads(std::vector<TextureBackend::UploadChunk> uploads);
     // Once per frame: publishes a finished index (returns true: every cached texture must be looked up again) and,
     // when `uploads` is empty, hands out finished loads to upload (slot and pixels, up to a byte budget). The cache
     // uploads them over the next frames (uploading()) and calls make_resident for each.
@@ -198,11 +211,34 @@ public:
         bool dds = false;
         std::vector<std::filesystem::path> mips;  // custom lower levels (_mip<n>) by level; empty where absent
     };
+    struct SizeKey {
+        std::uint32_t width, height, format;
+        bool operator==(const SizeKey&) const = default;
+    };
+    struct SizeHash {
+        std::size_t operator()(const SizeKey& key) const noexcept {
+            return static_cast<std::size_t>((std::uint64_t{key.width} * 0x100000001B3ull ^ key.height) * 0x100000001B3ull ^ key.format);
+        }
+    };
+    struct NameKey {
+        SizeKey size;
+        std::uint64_t hash, palette;
+        bool mipmapped;
+        bool operator==(const NameKey&) const = default;
+    };
+    struct NameHash {
+        std::size_t operator()(const NameKey& key) const noexcept {
+            std::uint64_t h = SizeHash{}(key.size);
+            h = (h ^ key.hash) * 0x100000001B3ull;
+            h = (h ^ key.palette) * 0x100000001B3ull;
+            return static_cast<std::size_t>(h ^ static_cast<std::uint64_t>(key.mipmapped));
+        }
+    };
     struct Index {
         std::vector<Record> records;
-        std::unordered_set<std::uint64_t> sizes;                  // (w, h, fmt) with any name
-        std::unordered_map<std::uint64_t, std::uint32_t> exact;   // name key -> record
-        std::unordered_map<std::uint64_t, std::uint32_t> any_palette;
+        std::unordered_set<SizeKey, SizeHash> sizes;                  // (w, h, fmt) with any name
+        std::unordered_map<NameKey, std::uint32_t, NameHash> exact;   // name key -> record
+        std::unordered_map<NameKey, std::uint32_t, NameHash> any_palette;
         std::uint64_t files = 0;
         std::uint64_t folders = 0;
         std::uint64_t levels = 0;     // custom lower levels (_mip<n>) of the textures
@@ -233,9 +269,9 @@ private:
         std::unique_ptr<Load> ready;
     };
 
-    static std::uint64_t size_key(std::uint32_t width, std::uint32_t height, std::uint32_t format) noexcept;
-    static std::uint64_t name_key(std::uint64_t size, std::uint64_t hash, std::uint64_t palette, bool mipmapped) noexcept;
-    std::unique_ptr<Load> load(const Record& record, std::uint32_t slot, std::uint64_t generation) const;
+    static SizeKey size_key(std::uint32_t width, std::uint32_t height, std::uint32_t format) noexcept;
+    static NameKey name_key(SizeKey size, std::uint64_t hash, std::uint64_t palette, bool mipmapped) noexcept;
+    std::unique_ptr<Load> load(const Record& record, std::uint32_t slot, std::uint64_t generation);
     void request(std::uint32_t slot);
     void evict_to_budget(std::uint64_t incoming);
     void clear_slots() noexcept;
@@ -243,6 +279,9 @@ private:
     void start_workers();
     void submit(std::function<void()> job);
     void worker_main();
+    TextureBackend::UploadChunk take_staging(std::uint64_t size);
+    std::vector<TextureBackend::UploadChunk> free_staging_;
+    std::uint64_t free_staging_bytes_ = 0;
     void stop_workers() noexcept;
 
     TexturePackSettings settings_;

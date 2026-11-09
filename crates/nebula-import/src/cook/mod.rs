@@ -5,19 +5,38 @@
 
 pub mod archive;
 pub mod audio_data;
+pub mod distance;
 pub mod dol;
 pub mod ghost;
 pub mod gltf;
 pub mod modern_audio;
 pub mod formats;
+pub mod fur;
 pub mod material;
 pub mod kcl;
+pub mod camera;
+pub mod message;
+pub mod mii_parts;
 pub mod merge;
-pub mod mesh;
+pub mod clip;
+#[cfg(feature = "proof-tools")]
+mod proof_tests;
+#[cfg(feature = "proof-tools")]
+pub use proof_tests::{clip_census, model_census};
+pub mod programs;
+pub mod curves;
+pub mod mesh_order;
+pub mod model_ir;
+pub mod limits;
+pub mod model_write;
+pub mod pipeline_list;
 pub mod native_data;
 pub mod overlay;
-pub mod shader_source;
+pub mod particles;
+pub mod ui_layout;
+pub mod sound;
 pub mod store;
+pub mod table;
 pub mod texture;
 pub mod thp;
 
@@ -35,6 +54,8 @@ pub struct Stats {
     pub expanded_files: u64,
     pub bytes_in: u64,
     pub bytes_out: u64,
+    /// Disc files and archive members the store leaves out: only a console or the game's tools read them.
+    pub left_out: u64,
 }
 
 impl Stats {
@@ -44,14 +65,41 @@ impl Stats {
 
     pub fn summary(&self) -> String {
         let images: Vec<String> = self.images.iter().map(|(k, v)| format!("{k} {v}")).collect();
-        format!(
-            "{} files cooked, {} expanded, {} -> {} bytes; images: {}",
+        #[allow(unused_mut)]
+        let mut summary = format!(
+            "{} files cooked, {} expanded, {} left out, {} -> {} bytes; images: {}",
             self.cooked_files,
             self.expanded_files,
+            self.left_out,
             self.bytes_in,
             self.bytes_out,
             images.join(", ")
-        )
+        );
+        #[cfg(feature = "proof-tools")]
+        summary.push_str(&format!(
+            "; tables proved: {}, reads agreeing: {}",
+            table::proof::TABLES.load(std::sync::atomic::Ordering::Relaxed),
+            table::proof::READS.load(std::sync::atomic::Ordering::Relaxed)
+        ));
+        #[cfg(feature = "proof-tools")]
+        summary.push_str(&format!(
+            "; collision models proved: {}, octree leaves agreeing: {}",
+            kcl::proof::MODELS.load(std::sync::atomic::Ordering::Relaxed),
+            kcl::proof::LEAVES.load(std::sync::atomic::Ordering::Relaxed)
+        ));
+        #[cfg(feature = "proof-tools")]
+        summary.push_str(&format!(
+            "; camera clips proved: {}, reads agreeing: {}",
+            camera::proof::CLIPS.load(std::sync::atomic::Ordering::Relaxed),
+            camera::proof::READS.load(std::sync::atomic::Ordering::Relaxed)
+        ));
+        #[cfg(feature = "proof-tools")]
+        summary.push_str(&format!(
+            "; message files proved: {}, reads agreeing: {}",
+            message::proof::FILES.load(std::sync::atomic::Ordering::Relaxed),
+            message::proof::READS.load(std::sync::atomic::Ordering::Relaxed)
+        ));
+        summary
     }
 }
 
@@ -71,16 +119,24 @@ fn placement_table_name(name: &str) -> bool {
 /// Whether the cooker reads a file of this name (the others are copied as they are).
 pub fn cooks(name: &str) -> bool {
     matches!(extension(name).as_str(), "arc" | "szs" | "gst" | "bti" | "bmd" | "bdl" | "bmt" | "cit" | "bas" | "brs" | "bme" | "bct" | "csw" | "bck" | "bca" | "btk" | "brk" | "bpk" | "bpa" | "btp" | "bva" | "blk" | "bla" | "bxk" | "bxa" | "tpl" | "brfnt" | "jpc" | "bcsv" | "tbl" | "pa" | "bcam" | "banmt" | "canm" | "thp" | "ast")
+        || fur::is_fur_text(name)
 }
 
-/// A disc file only a console reads: the channel banner, the HOME menu's loadable module and the module list.
+/// A disc file only a console reads: the channel banner, the HOME menu (its module, its library's files and each
+/// language's layout), the module list, and the save data's banner and icon for the console's data manager.
 fn console_only(path: &str) -> bool {
-    path == "opening.bnr" || path.starts_with("ModuleData/")
+    path == "opening.bnr"
+        || path.starts_with("ModuleData/")
+        || path.starts_with("HomeButton2/")
+        || path.ends_with("/LayoutData/HomeButton.arc")
+        || path == "ObjectData/SaveIconBanner.arc"
 }
 
 /// An archive member left behind by the tools that made the game; no code opens one.
 fn tool_leftover(file: &str) -> bool {
     matches!(extension(file).as_str(), "ini" | "prj" | "xnim" | "dvw" | "dvmat" | "dck" | "dtp" | "backup" | "csv#")
+        || file.eq_ignore_ascii_case("collisionversion")
+        || file.eq_ignore_ascii_case("debugmoveinfo")
 }
 
 /// What a source file (or a part of one) becomes in the store: bytes at a path below it, or a folder with no files.
@@ -116,10 +172,20 @@ fn cook_entry_at(name: &str, bytes: Vec<u8>, depth: usize, stats: &mut Stats) ->
     for member in archive::members(&bytes).with_context(|| format!("{name}: archive"))? {
         let file = member.path.rsplit('/').next().unwrap_or(&member.path);
         if tool_leftover(file) {
+            stats.left_out += 1;
             continue;
         }
         for item in cook_entry_at(&format!("{name}/{file}"), member.bytes, depth + 1, stats)? {
-            let path = if item.path.is_empty() { member.path.clone() } else { format!("{}/{}", member.path, item.path) };
+            // The Mii parts file holds the native parts under their own name.
+            let member_path = if mii_parts::is_source(file) {
+                match member.path.rsplit_once('/') {
+                    Some((folder, _)) => format!("{folder}/{}", mii_parts::NAME),
+                    None => mii_parts::NAME.to_string(),
+                }
+            } else {
+                member.path.clone()
+            };
+            let path = if item.path.is_empty() { member_path } else { format!("{member_path}/{}", item.path) };
             items.push(StoreItem { path, order: member.offset, bytes: item.bytes });
         }
     }
@@ -168,54 +234,64 @@ pub fn cook_file(name: &str, bytes: Vec<u8>, stats: &mut Stats) -> Result<Option
     if archive::is_archive(&bytes) {
         bail!("{name} is an archive");
     }
-    let cooked = if bytes.starts_with(b"J3D2bmd3") || bytes.starts_with(b"J3D2bdl4") {
-        let textured = formats::j3d_model(&bytes, stats).with_context(|| format!("{name}: model"))?;
-        Some(material::cook_model(&textured).with_context(|| format!("{name}: native model materials"))?)
-    } else if native_data::is_j3d_model(&bytes) {
-        Some(material::cook_model(&bytes).with_context(|| format!("{name}: native material table"))?)
-    } else if native_data::is_j3d_animation(&bytes) {
-        Some(native_data::j3d_animation(&bytes).with_context(|| format!("{name}: animation"))?)
+    let cooked = if native_data::is_model_file(&bytes) {
+        let source = model_ir::Source::of(&bytes);
+        let ir = model_ir::read_file(&bytes, source, stats).with_context(|| format!("{name}: model"))?;
+        let stem = name.rsplit('/').next().unwrap_or(name);
+        let stem = stem.split('.').next().unwrap_or(stem);
+        Some(model_write::write(&ir, stem, &programs::written_or_unknown()).with_context(|| format!("{name}: native model"))?)
+    } else if native_data::is_animation_file(&bytes) {
+        Some(clip::write(&clip::read(&bytes).with_context(|| format!("{name}: animation"))?))
     } else if bytes.starts_with(b"JPAC2-10") {
-        let textured = formats::jpc(&bytes, stats).with_context(|| format!("{name}: particles"))?;
-        Some(native_data::jpc_host(&textured).with_context(|| format!("{name}: particles (host order)"))?)
+        let ir = particles::read_jpc(&bytes, stats).with_context(|| format!("{name}: particles"))?;
+        pipeline_list::add_particles(&ir);
+        Some(particles::write(&ir))
     } else if bytes.starts_with(&[0x00, 0x20, 0xAF, 0x30]) {
         let textured = formats::tpl(&bytes, stats).with_context(|| format!("{name}: layout textures"))?;
         Some(native_data::tpl_host(&textured).with_context(|| format!("{name}: layout textures (host order)"))?)
-    } else if bytes.starts_with(b"RLYT") || bytes.starts_with(b"RLAN") {
-        Some(material::layout::cook(&bytes).with_context(|| format!("{name}: native layout materials"))?)
+    } else if bytes.starts_with(b"RLYT") {
+        let ir = ui_layout::read_layout(&bytes).with_context(|| format!("{name}: layout"))?;
+        Some(ui_layout::write_layout(&ir).with_context(|| format!("{name}: cooked layout"))?)
+    } else if bytes.starts_with(b"RLAN") {
+        let ir = ui_layout::read_animation(&bytes).with_context(|| format!("{name}: layout animation"))?;
+        Some(ui_layout::write_animation(&ir).with_context(|| format!("{name}: cooked layout animation"))?)
     } else if bytes.starts_with(b"STRM") && extension(name) == "ast" {
         Some(audio_data::ast(&bytes).with_context(|| format!("{name}: stream"))?)
     } else if bytes.starts_with(b"THP\0") {
         Some(thp::movie(&bytes).with_context(|| format!("{name}: movie"))?)
-    } else if bytes.starts_with(b"AA_<") {
-        Some(native_data::baa(&bytes).with_context(|| format!("{name}: audio archive"))?)
+    } else if bytes.starts_with(b"AA_<") || bytes.starts_with(b"NSND") {
+        Some(sound::archive(&bytes).with_context(|| format!("{name}: audio archive"))?)
+    } else if sound::is_sequence_path(name) {
+        Some(sound::sequence(&bytes).with_context(|| format!("{name}: sequence"))?)
+    } else if extension(name) == "bme" {
+        Some(sound::me_program(&bytes).with_context(|| format!("{name}: ME program"))?)
     } else if bytes.starts_with(b"MESGbmg1") {
-        Some(native_data::bmg(&bytes).with_context(|| format!("{name}: messages"))?)
+        Some(message::cook(&bytes).with_context(|| format!("{name}: messages"))?)
     } else if matches!(extension(name).as_str(), "bcsv" | "tbl" | "pa" | "bcam" | "banmt") {
-        native_data::bcsv(&bytes, true).with_context(|| format!("{name}: table"))?
-    } else if placement_table_name(name) && native_data::bcsv(&bytes, false).ok().flatten().is_some()
-    {
-        native_data::bcsv(&bytes, false)?
+        table::cook(&bytes, true).with_context(|| format!("{name}: table"))?
+    } else if placement_table_name(name) && table::is_bcsv(&bytes) {
+        table::cook(&bytes, false).with_context(|| format!("{name}: placement table"))?
     } else if extension(name) == "gst" {
-        Some(ghost::host_order(&bytes).with_context(|| format!("{name}: ghost"))?)
+        Some(ghost::cook(&bytes).with_context(|| format!("{name}: ghost"))?)
     } else if extension(name) == "canm" {
-        Some(native_data::canm(&bytes).with_context(|| format!("{name}: camera animation"))?)
+        Some(camera::cook(&bytes).with_context(|| format!("{name}: camera animation"))?)
     } else if extension(name) == "bas" {
         Some(native_data::bas(&bytes).with_context(|| format!("{name}: sound animation"))?)
     } else if extension(name) == "cit" {
         Some(native_data::cit(&bytes).with_context(|| format!("{name}: chord table"))?)
-    } else if matches!(extension(name).as_str(), "brs" | "bme") || (extension(name) == "bmt" && !bytes.starts_with(b"J3D")) {
+    } else if extension(name) == "brs" || (extension(name) == "bmt" && !bytes.starts_with(b"J3D")) {
         Some(native_data::rhythm(&bytes, &extension(name)).with_context(|| format!("{name}: rhythm library file"))?)
     } else if matches!(extension(name).as_str(), "bct" | "csw") {
         Some(native_data::speaker(&bytes, &extension(name)).with_context(|| format!("{name}: speaker file"))?)
     } else if extension(name) == "kcl" {
-        Some(native_data::kcl(&bytes).with_context(|| format!("{name}: collision"))?)
+        Some(kcl::cook(&bytes).with_context(|| format!("{name}: collision"))?)
+    } else if fur::is_fur_text(name) {
+        Some(fur::cook(&bytes).with_context(|| format!("{name}: fur"))?)
     } else if bytes.starts_with(b"RFNT") {
         let textured = formats::font(&bytes, stats).with_context(|| format!("{name}: font"))?;
         Some(native_data::font_native(&textured).with_context(|| format!("{name}: font (native layout)"))?)
-    } else if name.rsplit('/').next().is_some_and(|file| file.eq_ignore_ascii_case("RFL_Res.dat")) {
-        let textured = formats::rfl_res(&bytes, stats).with_context(|| format!("{name}: Mii parts"))?;
-        Some(native_data::rfl_res_host(&textured).with_context(|| format!("{name}: Mii parts (host order)"))?)
+    } else if mii_parts::is_source(name) {
+        Some(mii_parts::cook(&bytes, stats).with_context(|| format!("{name}: Mii parts"))?)
     } else if extension(name) == "bti" {
         // A texture file whose image is a record already keeps it; every one's header turns host order.
         let textured = if texture::is_record(bytes.get(0x20..).unwrap_or(&[])) {
@@ -305,7 +381,11 @@ pub fn write_cooked_pak(
     progress: &mut dyn FnMut(u64, u64) -> bool,
     stats: &mut Stats,
 ) -> Result<u64> {
+    static COOK_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _cook = COOK_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let files = pak_files(system.fst())?;
+    programs::prepare_written_files(&files, read)?;
+    pipeline_list::reset();
     let total: u64 = files.iter().map(|f| f.length).sum();
     let mut pak = File::create(output).with_context(|| format!("{} cannot be created", output.display()))?;
     pak.write_all(&[0u8; store::HEADER as usize])?;
@@ -325,6 +405,7 @@ pub fn write_cooked_pak(
     order.sort_by_key(|f| f.offset);
     for file in order {
         if console_only(&file.path) {
+            stats.left_out += 1;
             done += file.length;
             continue;
         }
@@ -363,6 +444,8 @@ pub fn write_cooked_pak(
     let layout = audio_data::layout_text(&waves).into_bytes();
     let item = StoreItem { path: String::new(), order: 0, bytes: Some(layout) };
     placed.extend(place(&mut pak, &mut at, overlay::WAVE_LAYOUT, vec![item], stats)?);
+    let item = StoreItem { path: String::new(), order: 0, bytes: Some(pipeline_list::checked_bytes()?) };
+    placed.extend(place(&mut pak, &mut at, pipeline_list::PATH, vec![item], stats)?);
     let at = store::write_index(&mut pak, at, &placed, system.bytes[..8].try_into().unwrap())?;
     pak.set_len(at)?;
     pak.sync_all().context("game.pak cannot be flushed to storage")?;

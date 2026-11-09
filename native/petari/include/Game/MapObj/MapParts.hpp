@@ -6,15 +6,13 @@ class MapParts : public LiveActor {
 public:
     MapParts(const char*);
 
-    virtual ~MapParts() {};
-
-    virtual void init(const JMapInfoIter&);
-    virtual void appear();
+    virtual void init(const TableIter&) override;
+    virtual void appear() override;
     virtual s32 getSensorNumMax() const;
     virtual void connectToScene();
 
     static s32 getMoveStartSignalTime();
-    void initModelAndCollision(const JMapInfoIter&);
+    void initModelAndCollision(const TableIter&);
 
-    TVec3f _8C;
+    Vec3f mClipCenter;
 };

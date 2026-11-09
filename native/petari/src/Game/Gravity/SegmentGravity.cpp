@@ -1,7 +1,7 @@
 #include "Game/Gravity.hpp"
 #include "Game/Util.hpp"
-#include <JSystem/JGeometry/TUtil.hpp>
-#include <JSystem/JMath/JMATrigonometric.hpp>
+#include <nebula_geometry.hpp>
+
 
 SegmentGravity::SegmentGravity()
     : PlanetGravity(), mSideVector(1, 0, 0), mOppositeSideVecOrtho(1, 0, 0), mWorldOppositeSideVecOrtho(1, 0, 0), mAxis(0, 0, 0) {
@@ -17,19 +17,19 @@ SegmentGravity::SegmentGravity()
     }
 }
 
-bool SegmentGravity::calcOwnGravityVector(TVec3f* pDest, f32* pScalar, const TVec3f& rPos) const {
-    TVec3f relPosFromBase = rPos - mWorldGravityPoints[0];
+bool SegmentGravity::calcOwnGravityVector(Vec3f* pDest, f32* pScalar, const Vec3f& rPos) const {
+    Vec3f relPosFromBase = rPos - mWorldGravityPoints[0];
     f32 axisY = relPosFromBase.dot(mAxis);
     if (-1.0f < mValidSideCos) {
         if (!mWorldOppositeSideVecOrtho.isZero()) {
-            TVec3f dirOnBasePlane = relPosFromBase - mAxis * axisY;
+            Vec3f dirOnBasePlane = relPosFromBase - mAxis * axisY;
             MR::normalizeOrZero(&dirOnBasePlane);
             if (dirOnBasePlane.dot(mWorldOppositeSideVecOrtho) < mValidSideCos) {
                 return false;
             }
         }
     }
-    TVec3f attraction;
+    Vec3f attraction;
     if (axisY < mHemisphereExtension[0]) {
         if (!mEdges[0]) {
             return false;
@@ -46,7 +46,7 @@ bool SegmentGravity::calcOwnGravityVector(TVec3f* pDest, f32* pScalar, const TVe
             attraction = mWorldGravityPoints[0] + mAxis * axisY;
         }
     }
-    TVec3f gravity = attraction - rPos;
+    Vec3f gravity = attraction - rPos;
     f32 distance;
     MR::separateScalarAndDirection(&distance, &gravity, gravity);
     if (!isInRangeDistance(distance)) {
@@ -61,7 +61,7 @@ bool SegmentGravity::calcOwnGravityVector(TVec3f* pDest, f32* pScalar, const TVe
     return true;
 }
 
-void SegmentGravity::updateMtx(const TPos3f& rMtx) {
+void SegmentGravity::updateMtx(const Pos3f& rMtx) {
     for (s32 i = 0; i < 2; i++) {
         rMtx.mult(mGravityPoints[i], mWorldGravityPoints[i]);
     }
@@ -70,41 +70,34 @@ void SegmentGravity::updateMtx(const TPos3f& rMtx) {
     MR::separateScalarAndDirection(&mAxisLength, &mAxis, mAxis);
 }
 
-void SegmentGravity::setGravityPoint(u32 index, const TVec3f& rGravityPoint) {
+void SegmentGravity::setGravityPoint(u32 index, const Vec3f& rGravityPoint) {
     mGravityPoints[index != 0] = rGravityPoint;
     updateLocalParam();
 }
 
-void SegmentGravity::setSideVector(const TVec3f& rSideVec) {
+void SegmentGravity::setSideVector(const Vec3f& rSideVec) {
     mSideVector = rSideVec;
     MR::normalizeOrZero(&mSideVector);
     updateLocalParam();
 }
 
-void SegmentGravity::setValidSideDegree(f32 val) {
-    mValidSideDegree = val;
-    ;
+void SegmentGravity::setValidSideDegree(f32 validSideDegree) {
+    mValidSideDegree = validSideDegree;
     updateLocalParam();
 }
 
-void SegmentGravity::setEdgeValid(u32 index, bool val) {
-    mEdges[index != 0] = val;
+void SegmentGravity::setEdgeValid(u32 index, bool isValid) {
+    mEdges[index != 0] = isValid;
 }
 
 void SegmentGravity::updateLocalParam() {
-    TRot3f rot;
-
-    // Both of these variables are present because the codegen indicates they should be.
-    // In the final game, however, they have no behavioral effect and are not given any storage.
-    bool artifact = true;
-    bool& rArtifact = artifact;
+    Rot3f rot;
 
     mValidSideCos = MR::cosDegree(0.5f * mValidSideDegree);
 
-    TVec3f localAxis = mGravityPoints[1] - mGravityPoints[0];
+    Vec3f localAxis = mGravityPoints[1] - mGravityPoints[0];
     MR::normalizeOrZero(&localAxis);
     if (MR::isNearZero(localAxis)) {
-        rArtifact = false;
         mOppositeSideVecOrtho.zero();
         return;
     }
@@ -118,10 +111,5 @@ void SegmentGravity::updateLocalParam() {
 
     rot.identity();
     rot.setRotate(localAxis, 0.5f * mValidSideDegree * (PI / 180));
-
-    // Necessary to force the compiler to load the arguments to `mult` in the correct order
-    rArtifact = false;
-    if (!artifact) {
-        rot.mult(mOppositeSideVecOrtho, mOppositeSideVecOrtho);
-    }
+    rot.mult(mOppositeSideVecOrtho, mOppositeSideVecOrtho);
 }

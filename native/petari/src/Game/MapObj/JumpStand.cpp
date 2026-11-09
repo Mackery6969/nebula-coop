@@ -4,7 +4,7 @@
 #include "Game/Util.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
-#include "JSystem/JGeometry/TVec.hpp"
+#include <nebula_geometry.hpp>
 #include "Game/System/NebulaInput.hpp"
 
 namespace NrvJumpStand {
@@ -14,24 +14,29 @@ namespace NrvJumpStand {
     NEW_NERVE(JumpStandNrvStarPieceBound, JumpStand, StarPieceBound);
 };  // namespace NrvJumpStand
 
+namespace {
+    // By JumpType.
+    const char* const cJumpAnimName[] = {"TrampolineJumpLow", "TrampolineJumpMiddle", "TrampolineJumpHigh"};
+};  // namespace
+
 JumpStand::JumpStand(const char* pName) : LiveActor(pName), mBindedActor(), mIsMarioJumpingHigh() {
-    _90.identity();
+    mCollisionMtx.identity();
 }
 
-void JumpStand::init(const JMapInfoIter& rIter) {
+void JumpStand::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("JumpStand", nullptr, false);
     MR::connectToSceneMapObjStrongLight(this);
     MR::initLightCtrl(this);
     initHitSensor(2);
     MR::addBodyMessageSensorMapObj(this);
-    TVec3f binderOffs;
+    Vec3f binderOffs;
     binderOffs.set(0.0f, 100.0f, 0.0f);
     MR::addHitSensorPriorBinder(this, "binder", 4, 200.0f, binderOffs);
     MR::invalidateHitSensor(this, "binder");
-    _90.set(MR::getJointMtx(this, "JumpStandJoint03"));
-    MR::initCollisionParts(this, "JumpStand", getSensor("body"), _90);
-    initEffectKeeper(0, nullptr, false);
+    mCollisionMtx.set(MR::getJointMtx(this, "JumpStandJoint03"));
+    MR::initCollisionParts(this, "JumpStand", getSensor("body"), mCollisionMtx);
+    initEffectKeeper(0, nullptr);
     initSound(4, false);
     MR::setGroupClipping(this, rIter, 16);
     MR::initShadowFromCSV(this, "Shadow");
@@ -59,18 +64,15 @@ void JumpStand::exeTrampleBound() {
         MR::setBckFrame(this, getNerveStep());
     }
 
+    // A jump press in the first 5 steps bounces higher.
     if (MR::isStep(this, 5)) {
         if (mIsMarioJumpingHigh) {
             MR::startSound(this, "SE_OJ_JUMP_STAND_BOUND_M");
             MR::startSoundPlayer("SE_PV_JUMP_L");
+            endBindAndShootUp(32.0f, Jump_Middle);
         } else {
             MR::startSound(this, "SE_OJ_JUMP_STAND_BOUND_S");
             MR::startSoundPlayer("SE_PV_JUMP_M");
-        }
-
-        if (mIsMarioJumpingHigh) {
-            endBindAndShootUp(32.0f, Jump_Middle);
-        } else {
             endBindAndShootUp(26.0f, Jump_Low);
         }
 
@@ -94,11 +96,12 @@ void JumpStand::exeHipDropBound() {
         MR::startSound(this, "SE_OJ_JUMP_STAND_LAND_L");
     }
 
+    // Presses the player down into the stand for 15 steps, 6 a step easing to 5.
     if (MR::isLessStep(this, 15) && mBindedActor != nullptr) {
-        f32 v2 = (6.0f - MR::calcNerveEaseOutRate(this, 15));
-        TVec3f v3;
-        MR::calcUpVec(&v3, this);
-        mBindedActor->mPosition.scaleAdd(-v2, v3, mBindedActor->mPosition);
+        f32 pressDepth = (6.0f - MR::calcNerveEaseOutRate(this, 15));
+        Vec3f up;
+        MR::calcUpVec(&up, this);
+        mBindedActor->mPosition.scaleAdd(-pressDepth, up, mBindedActor->mPosition);
     }
 
     if (MR::isStep(this, 15)) {
@@ -129,17 +132,13 @@ void JumpStand::exeStarPieceBound() {
 }
 
 void JumpStand::control() {
-    TVec3f pos;
+    Vec3f pos;
     MR::copyJointPos(this, "JumpStandJoint03", &pos);
-    _90.setTrans(pos);
+    mCollisionMtx.setTrans(pos);
 }
 
-bool JumpStand::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
-    if (isNerve(GET_NERVE(JumpStand, JumpStandNrvTrampleBound))) {
-        return false;
-    }
-
-    if (isNerve(GET_NERVE(JumpStand, JumpStandNrvHipDropBound))) {
+bool JumpStand::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
+    if (isNerve(GET_NERVE(JumpStand, JumpStandNrvTrampleBound)) || isNerve(GET_NERVE(JumpStand, JumpStandNrvHipDropBound))) {
         return false;
     }
 
@@ -151,7 +150,7 @@ bool JumpStand::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* p
     return false;
 }
 
-bool JumpStand::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool JumpStand::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* /*pReceiver*/) {
     if (MR::isMsgUpdateBaseMtx(msg) && mBindedActor != nullptr) {
         updateBindActorMtx();
         return true;
@@ -162,36 +161,23 @@ bool JumpStand::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceive
         return true;
     }
 
-    if (!MR::isMsgAutoRushBegin(msg)) {
+    // The player landing on it starts a bounce: a hip drop lands deep, anything else a trample.
+    if (!MR::isMsgAutoRushBegin(msg) || !MR::isSensorPlayer(pSender) || !MR::isOnPlayer(getSensor("body"))) {
         return false;
     }
 
-    if (!MR::isSensorPlayer(pSender)) {
+    bool isHipDrop = MR::isPlayerHipDropLand();
+    if (!tryToStartBind(pSender)) {
         return false;
     }
 
-    if (!MR::isOnPlayer(getSensor("body"))) {
-        return false;
+    if (isHipDrop) {
+        setNerve(GET_NERVE(JumpStand, JumpStandNrvHipDropBound));
     } else {
-        if (!MR::isPlayerHipDropLand()) {
-            if (!tryToStartBind(pSender)) {
-                return false;
-            } else {
-                setNerve(GET_NERVE(JumpStand, JumpStandNrvTrampleBound));
-                return true;
-            }
-
-        } else if (MR::isPlayerHipDropLand()) {
-            if (!tryToStartBind(pSender)) {
-                return false;
-            } else {
-                setNerve(GET_NERVE(JumpStand, JumpStandNrvHipDropBound));
-                return true;
-            }
-        }
+        setNerve(GET_NERVE(JumpStand, JumpStandNrvTrampleBound));
     }
 
-    return false;
+    return true;
 }
 
 bool JumpStand::tryToStartBind(HitSensor* pSensor) {
@@ -208,49 +194,44 @@ bool JumpStand::tryToStartBind(HitSensor* pSensor) {
 }
 
 void JumpStand::updateBindActorMtx() {
-    TPos3f v6;
-    v6.identity();
-    TVec3f v5;
-    MR::calcPlayerWorldPadDir(&v5, MR::getMoveStickX(0), MR::getMoveStickY(0));
-    MR::calcMtxFromGravityAndZAxis(&v6, mBindedActor, mGravity, v5);
-    MR::blendMtxRotate(mBindedActor->getBaseMtx(), v6, 0.40f, v6);
-    v6.setTrans(mBindedActor->mPosition);
-    MR::setBaseTRMtx(mBindedActor, v6);
+    // The held player turns toward the stick.
+    Pos3f mtx;
+    mtx.identity();
+    Vec3f padDir;
+    MR::calcPlayerWorldPadDir(&padDir, MR::getMoveStickX(0), MR::getMoveStickY(0));
+    MR::calcMtxFromGravityAndZAxis(&mtx, mBindedActor, mGravity, padDir);
+    MR::blendMtxRotate(mBindedActor->getBaseMtx(), mtx, 0.40f, mtx);
+    mtx.setTrans(mBindedActor->mPosition);
+    MR::setBaseTRMtx(mBindedActor, mtx);
 }
 
-void JumpStand::endBindAndShootUp(f32 v1, JumpType type) {
-    TVec3f v28;
-
+// Shoots the player up at speed (along the stand for a high jump, against gravity otherwise), steered by up to
+// 3 across the jump by the stick.
+void JumpStand::endBindAndShootUp(f32 speed, JumpType type) {
     if (MR::isPlayerInRush()) {
+        Vec3f jumpVel;
         if (type == Jump_High) {
-            MR::calcUpVec(&v28, this);
+            MR::calcUpVec(&jumpVel, this);
         } else {
-            v28.negate(mGravity);
+            jumpVel.negate(mGravity);
         }
 
-        v28 *= v1;
+        jumpVel *= speed;
         f32 stickLen = MR::sqrt(MR::getMoveStickX(PLAYER_1) * MR::getMoveStickX(PLAYER_1) +
                                 MR::getMoveStickY(PLAYER_1) * MR::getMoveStickY(PLAYER_1));
-        TVec3f v27;
         if (stickLen > 0.1f) {
-            MR::normalize(v28, &v27);
-            TVec3f v26;
-            MR::calcPlayerWorldPadDir(&v26, MR::getMoveStickX(PLAYER_1), MR::getMoveStickY(PLAYER_1));
-            TVec3f v25;
-            v25.scale(3.0f * stickLen, v26);
-            v25.orthogonalize(v27);
-            v28.add(v25);
+            Vec3f jumpDir;
+            MR::normalize(jumpVel, &jumpDir);
+            Vec3f padDir;
+            MR::calcPlayerWorldPadDir(&padDir, MR::getMoveStickX(PLAYER_1), MR::getMoveStickY(PLAYER_1));
+            Vec3f steer;
+            steer.scale(3.0f * stickLen, padDir);
+            steer.orthogonalize(jumpDir);
+            jumpVel.add(steer);
         }
 
-        if (type == Jump_Low) {
-            MR::startBckPlayer("TrampolineJumpLow");
-        } else if (type == Jump_Middle) {
-            MR::startBckPlayer("TrampolineJumpMiddle");
-        } else if (type == Jump_High) {
-            MR::startBckPlayer("TrampolineJumpHigh");
-        }
-
-        MR::endBindAndPlayerJump(this, v28, 0);
+        MR::startBckPlayer(cJumpAnimName[type]);
+        MR::endBindAndPlayerJump(this, jumpVel, 0);
 
         if (type != Jump_High) {
             MR::becomePlayerNormalJumpStatus();

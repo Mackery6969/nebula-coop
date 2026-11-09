@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/NPC/TrickRabbitSnow.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class ActorCameraInfo;
 class BombTimerLayout;
@@ -10,15 +10,13 @@ class TalkMessageCtrl;
 
 class TrickRabbitSnowCollect : public LiveActor {
 public:
-    /// @brief Creates a new `TrickRabbitSnowCollect`.
-    /// @param pName A pointer to the null-terminated name of the object.
     TrickRabbitSnowCollect(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual MtxPtr getBaseMtx() const;
+    virtual void init(const TableIter& rIter) override;
+    virtual MtxPtr getBaseMtx() const override;
 
-    void initRabbits(const JMapInfoIter&);
-    void initTalk(const JMapInfoIter&);
+    void initRabbits(const TableIter&);
+    void initTalk(const TableIter&);
     void setStartPosition();
     void setFinishPosition();
     void noticeCaught(TrickRabbitSnow*);
@@ -44,7 +42,7 @@ public:
     void exeEnd();
 
 private:
-    TPos3f mBaseMtx;
+    Pos3f mBaseMtx;
     ActorCameraInfo* mCameraInfo;
     ModelObj* mPowerStarDemoModel;
     TalkMessageCtrl* mMsgCtrl;
@@ -57,21 +55,20 @@ private:
 
 class TrickRabbitCollectListener : public TrickRabbitSnowListener {
 public:
-    /// @brief Creates a new `TrickRabbitCollectListener`.
     TrickRabbitCollectListener(TrickRabbitSnowCollect* pHost) : TrickRabbitSnowListener(), mHost(pHost) {
     }
 
-    virtual void noticeStart(TrickRabbitSnow* pSubject) {
+    virtual void noticeStart(TrickRabbitSnow* /*pSubject*/) override {
     }
 
-    virtual void noticeAppear(TrickRabbitSnow* pSubject) {
+    virtual void noticeAppear(TrickRabbitSnow* /*pSubject*/) override {
     }
 
-    virtual void noticeCaught(TrickRabbitSnow* pSubject) {
+    virtual void noticeCaught(TrickRabbitSnow* pSubject) override {
         mHost->noticeCaught(pSubject);
     }
 
-    virtual void noticeGiveUp(TrickRabbitSnow* pSubject) {
+    virtual void noticeGiveUp(TrickRabbitSnow* pSubject) override {
         mHost->noticeGiveUp(pSubject);
     }
 

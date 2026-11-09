@@ -14,6 +14,8 @@
 #include <utility>
 #include <vector>
 
+#include "galaxy/game_step.h"
+
 namespace galaxy::render {
 
 inline constexpr float kMinFrameRate = 1.0f;
@@ -37,7 +39,7 @@ struct RenderConfig {
     bool     taa_enabled         = false;
 
     // Frames per second presented (0: the display's rate, at least 60; see present_frame_rate).
-    float    max_fps             = 60.0f;
+    float    max_fps             = static_cast<float>(kGameStepsPerSecond);
 
     // Submits the game's records at their own 60 Hz cadence instead of one present per game frame.
     bool     frame_rate_decouple = false;
@@ -82,9 +84,9 @@ struct RenderConfig {
     unsigned aa_mode             = 0;
     // 0 low .. 3 ultra.
     unsigned smaa_quality        = 2;
-    // 0 bilinear; 1 FidelityFX FSR 1 when the game image is smaller than the window; 2 FidelityFX FSR 3 and 3 NVIDIA
-    // DLSS (Streamline), both temporal: the jittered 3D scene is upscaled before the 2D layer and renders at the
-    // window's scale divided by the temporal_quality ratio.
+    // 0 bilinear; 1 FidelityFX FSR 1 when the game image is smaller than the window; 2 FidelityFX FSR 3, 3 NVIDIA
+    // DLSS (Streamline), 4 Intel XeSS and 5 Snapdragon Game Super Resolution 2, all temporal: the jittered 3D scene is
+    // upscaled before the 2D layer and renders at the window's scale divided by the temporal_quality ratio.
     unsigned upscaler            = 0;
     // 2: FSR 3 frame generation (fsr_frame_generation.h), one frame between each two, with FSR 3 or XeSS. 1: DLSS Frame Generation
     // (GRAPHICS > INTERPOLATION): nonzero has its generated frames reach max_fps (0: the
@@ -92,13 +94,22 @@ struct RenderConfig {
     // Generation plugins, loaded when the game starts with it on; while it runs the game presents its own 60 frames.
     // Without it the target falls back to Nebula's interpolation.
     unsigned frame_generation    = 0;
-    // 0 native AA 1.0, 1 quality 1.5, 2 balanced 1.7, 3 performance 2.0, 4 ultra performance 3.0.
+    // 0 native AA 1.0, 1 quality 1.5, 2 balanced 1.7, 3 performance 2.0, 4 ultra performance 3.0, 5 ultra quality 1.3
+    // (not DLSS, which has no such mode: it runs 5 as quality).
     unsigned temporal_quality    = 1;
-    // Bilinear and FSR 1: 0 renders at the INTERNAL RES row; 1-4 render at the output scale divided by 1.5, 1.7, 2
-    // or 3 (the temporal_quality ratios).
+    // FSR 1: 0 renders at the output's size; 1-5 render at the output scale divided by the temporal_quality ratios.
     unsigned spatial_quality     = 0;
+    // Upscaling off (upscaler 0): 0 follows the content area of the output; otherwise the selected vertical pixel
+    // count. Width follows the current content aspect, including a fold or window resize. Ignored with an upscaler on
+    // (render_internal_height).
+    unsigned internal_height     = 0;
     // RCAS strength 0-100; 0 skips the pass.
     unsigned sharpness           = 0;
+    // HDR10 output (post_process_settings.h): offered only while the display reports HDR mode, and written only then
+    // (get_display_hdr); the picture is otherwise the SDR one, bit for bit. paper_white is the luminance of the picture's white
+    // in nits (kPaperWhiteMin..kPaperWhiteMax).
+    bool     hdr                 = false;
+    unsigned paper_white         = 200;
 
     // Ray tracing on adapters with DXR 1.1, shader model 6.5 and dedicated video memory; ignored elsewhere.
     // rt_shadow_quality and rt_ao_enabled are not implemented and clamped off.
@@ -118,7 +129,7 @@ struct RenderConfig {
     unsigned rt_shadow_quality   = 0;   // 0=off, 1=low, 2=medium, 3=high
     bool     rt_ao_enabled       = false;
 
-    // Texture packs (texture_pack.h): replacements from texture_pack_directory() and the mods'
+    // Texture packs (texture_pack.h): replacements from the mods'
     // textures/ folders. preload loads the whole pack at start instead of each texture at its first
     // use; dump writes every newly decoded texture once, as a PNG under its pack name, to
     // texture_dump_directory(). The replacements on the GPU stay within texture_pack_budget_mb
@@ -139,7 +150,7 @@ struct RenderConfig {
     // GDI device name of the monitor (UTF-8, e.g. \\.\DISPLAY2); empty or unknown selects the primary monitor.
     std::array<char, 64> monitor{};
     // The GPU this session renders on, as gpu_identity() writes it ("10de:2b85:89ef1043"); empty, or a
-    // GPU that is not present, picks one automatically (GALAXY_GPU_PREFERENCE). Set at start-up from
+    // GPU that is not present, picks one automatically (the high-performance GPU first). Set at start-up from
     // config.ini (GALAXY_GPU overrides) and kept for the session; see next_start_gpu().
     std::array<char, 32> gpu{};
     // Game picture aspect, an index of kAspectRatios (0 follows the window's shape). Applied at the next video
@@ -154,7 +165,7 @@ struct RenderConfig {
 // least 60). VSync limits the rate to the display's.
 inline double present_frame_rate(float max_fps, unsigned vsync_interval, double refresh_hz) {
     double rate = max_fps > 0.0f ? static_cast<double>(max_fps)
-                                 : (refresh_hz > 1.0 ? std::max(refresh_hz, 60.0) : 60.0);
+                                 : (refresh_hz > 1.0 ? std::max(refresh_hz, kGameStepRate) : kGameStepRate);
     if (vsync_interval != 0u && refresh_hz > 1.0) rate = std::min(rate, refresh_hz);
     return rate;
 }
@@ -167,9 +178,30 @@ inline double present_frame_rate(float max_fps, unsigned vsync_interval, double 
 inline constexpr bool kRayTracingParked = true;
 
 inline unsigned interpolated_frames_per_game_frame(double rate) {
-    if (!(rate > 61.0)) return 0u;
-    const double frames = std::ceil(rate / 60.0 - 1e-3) - 1.0;
+    if (!(rate > kGameStepRate + 1.0)) return 0u;
+    const double frames = std::ceil(rate / kGameStepRate - 1e-3) - 1.0;
     return static_cast<unsigned>(std::clamp(frames, 1.0, 7.0));
+}
+
+inline constexpr std::array<unsigned, 9> kInternalHeights{0, 144, 240, 360, 480, 720, 1080, 1440, 2160};
+inline unsigned normalized_internal_height(unsigned height) {
+    return std::find(kInternalHeights.begin(), kInternalHeights.end(), height) != kInternalHeights.end() ? height : 0u;
+}
+// The exact height the 3D scene renders at: INTERNAL RESOLUTION with upscaling off. An upscaler's mode sets the
+// scale instead (upscaler_render_fraction), so the two never multiply.
+inline unsigned render_internal_height(const RenderConfig& cfg) {
+    return cfg.upscaler == 0u ? normalized_internal_height(cfg.internal_height) : 0u;
+}
+// A common sizing rule for both encoders. Bounds preserve aspect and fit `max_dimension`, the device's largest 2D
+// texture (D3D12's required 16384, Vulkan's maxImageDimension2D).
+inline std::pair<unsigned, unsigned> internal_extent(unsigned output_width, unsigned output_height,
+                                                     unsigned height, unsigned max_dimension, float quality = 1.0f) {
+    if (!output_width || !output_height) return {1u, 1u};
+    height = normalized_internal_height(height);
+    const double scale = (height ? double(height) / output_height : 1.0) * quality;
+    const double bounded = std::min(scale, double(max_dimension) / std::max(output_width, output_height));
+    return {std::max(1u, unsigned(std::lround(output_width * bounded))),
+            std::max(1u, unsigned(std::lround(output_height * bounded)))};
 }
 
 inline constexpr unsigned kDisplayWindowed = 0u;
@@ -264,21 +296,18 @@ void note_camera_water(float depth) noexcept;
 [[nodiscard]] float camera_water_depth() noexcept;
 // The rate the game presents at: max_fps, or 60 while frame generation runs.
 [[nodiscard]] inline float presented_max_fps(const RenderConfig& cfg) noexcept {
-    return frame_generation_running() ? 60.0f : cfg.max_fps;
+    return frame_generation_running() ? static_cast<float>(kGameStepsPerSecond) : cfg.max_fps;
 }
 void set_render_config(const RenderConfig& cfg);
 
 // The ray-traced effects players choose (RenderConfig::rt_reflections, rt_water, rt_sun_rays, rt_lens_bloom), as the
-// frame being drawn takes them. Tests: GALAXY_TEST_RT_EFFECT_AB=reflections|water|sun_rays|lens_bloom turns that one off
-// in frames that end in an odd present (set_rt_effect_frame, the snapshots' numbering): at 60 fps consecutive
-// pictures of one run differ by the effect alone.
+// frame being drawn takes them.
 enum class RtEffect : std::uint8_t { Reflections, Water, SunRays, LensBloom };
 [[nodiscard]] bool rt_effect_on(const RenderConfig& cfg, RtEffect effect) noexcept;
 // Whether the renderer refines curved surfaces: the CURVED SURFACES row is offered and
 // RenderConfig::curved_surfaces takes effect.
 void set_curved_surfaces_offered(bool offered) noexcept;
 [[nodiscard]] bool curved_surfaces_offered() noexcept;
-void set_rt_effect_frame(std::uint64_t frame) noexcept;
 
 // The scene target scale config.ini keeps for the next start. The overlay sets it with the live value so config.ini and the
 // running renderer agree.
@@ -289,7 +318,7 @@ void set_render_feature_caps(const RenderFeatureCaps& caps);
 [[nodiscard]] RenderTimingConfig resolve_frame_timing_config_from_environment();
 [[nodiscard]] const RenderTimingConfig& get_frame_timing_config();
 
-// Reads config.ini (in the data folder, or GALAXY_RENDER_CONFIG_PATH) if present, then the GALAXY_<KEY> overrides;
+// Reads config.ini (in the settings folder: --settings, else the data folder) if present, then the GALAXY_<KEY> overrides;
 // missing keys keep their defaults. Called once by the host before initialize().
 void load_render_config_from_file();
 
@@ -306,18 +335,15 @@ std::string gpu_identity(unsigned vendor_id, unsigned device_id, unsigned subsys
 std::string next_start_gpu();
 
 // Records the adapter the renderer runs on (adapter.ini beside config.ini) for the launcher, which offers DLSS only
-// on an NVIDIA RTX adapter: description, PCI vendor and device id, its gpu_identity(), the GPU preference the runtime
-// started with (low: integrated first) and whether it runs Nebula's ray tracing.
-void record_render_adapter(const wchar_t* description, unsigned vendor_id, unsigned device_id,
-                           unsigned subsys_id, bool low_power_preference, bool ray_tracing) noexcept;
+// on an NVIDIA RTX adapter: description (UTF-8), PCI vendor and device id, its gpu_identity() and whether it runs
+// Nebula's ray tracing.
+void record_render_adapter(const char* description, unsigned vendor_id, unsigned device_id,
+                           unsigned subsys_id, bool ray_tracing) noexcept;
 // When config.ini changed on disk since this process last read or wrote it (Nebula Settings saved it while the game
 // runs), reads it over the live settings, as the in-game menu would apply them, and returns true.
 bool reload_render_config_if_changed();
 
-// Texture packs are mods (mods.h). TextureDumps beside config.ini takes dumps (GALAXY_TEXTURE_DUMP_DIR replaces it);
-// GALAXY_TEXTURE_PACK_DIR names a pack folder for tests, below every mod. Empty when unknown or unset.
-[[nodiscard]] std::filesystem::path texture_pack_directory();
-[[nodiscard]] std::filesystem::path texture_pack_test_directory();
+// Texture packs are mods (mods.h). TextureDumps beside config.ini takes dumps; empty when unknown.
 [[nodiscard]] std::filesystem::path texture_dump_directory();
 // The enabled mods' textures/ folders in load order (the host sets them at start); the generation changes with each
 // set.
@@ -330,10 +356,10 @@ void set_texture_pack_game_id(std::string id);
 // The categories (galaxy::textures::category_bit) off in each of them.
 [[nodiscard]] std::vector<std::uint32_t> texture_pack_mod_categories_off();
 [[nodiscard]] std::uint64_t texture_pack_mod_folders_generation() noexcept;
-// HD movie replacements (movie_replacement.h): the Movies folder beside config.ini (GALAXY_MOVIE_DIR replaces it), and
+// HD movie replacements (movie_playback.h): the Movies folder beside config.ini, and
 // the enabled mods' movies/ folders in load order (the host sets them at start).
 [[nodiscard]] std::filesystem::path movie_directory();
-// config.ini (GALAXY_RENDER_CONFIG_PATH replaces it); empty when unknown.
+// config.ini in the settings folder; empty when unknown.
 [[nodiscard]] std::filesystem::path render_config_path();
 // The shader caches' folder (Nebula\shadercache\RMGE01 in the local app data).
 [[nodiscard]] std::filesystem::path shader_cache_directory();

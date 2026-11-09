@@ -1,8 +1,8 @@
 #include "Game/Map/WaterRoad.hpp"
-#include "Game/Util/NativeShader.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
+#include "Game/System/NebulaFrameClock.hpp"
+#include "Game/System/NebulaArena.hpp"
+#include "Game/Render/TypedDraw.hpp"
+#include "Game/Render/FrameList.hpp"
 #include "Game/AudioLib/AudSoundObject.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/LiveActor.hpp"
@@ -16,7 +16,7 @@
 #include "Game/Util/DemoUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
 #include "Game/Util/PlayerInputUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
@@ -25,7 +25,7 @@
 #include "Game/Util/RailUtil.hpp"
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
-#include <JSystem/JUtility/JUTTexture.hpp>
+#include "Game/Render/GameTexture.hpp"
 #include <NebulaGpuTypes.h>
 #include "Game/System/NebulaInput.hpp"
 
@@ -34,8 +34,8 @@ namespace {
     static const f32 sRiderSpeedMax = 150.0f;
     static const f32 sRiderSpinAccel = 50.0f;
     static const f32 sRiderFrictionRate = 0.99f;
-    static const s32 sStepRideSpin = 30;
-    static const s32 sDisappearStep = 30;
+    static const s32 sStepRideSpin = NebulaFrameClock::stepsOfMilliseconds(500);
+    static const s32 sDisappearStep = NebulaFrameClock::stepsOfMilliseconds(500);
     static const f32 sSensorOffsetY = 300.0f;
     static const f32 sPointIntervalLine = 100.0f;
     static const f32 sDotPointCreateHigh = 0.998f;
@@ -43,7 +43,6 @@ namespace {
     static const f32 sFloatToShortShift = 32768.0f;
     static const f32 sDefaultRadius = 500.0f;
     static const f32 sDotUpdateAxis = 0.99f;
-    // static const f32 sPlayerFlowSpeed =
     static const f32 sTexRateU0 = 0.05f;
     static const f32 sTexRateV0 = 0.0001f;
     static const f32 sTexRateU1 = 0.05f;
@@ -56,7 +55,6 @@ namespace {
     static const f32 sTexSpeedV1 = -0.005f;
     static const f32 sTexSpeedV2 = -0.005f;
     static const f32 sIndirectScale = 0.2f;
-    // static const f32 sEnvMapScale =
     static const f32 sClippingRadiusOffset = 100.0f;
     static const f32 sDistanceToLow = 10000.0f;
     static const f32 sTexSpeedU2 = 0.0f;
@@ -70,7 +68,7 @@ namespace {
         s32 numTestPoints = static_cast< s32 >(MR::getRailTotalLength(pRoad) / ::sPointIntervalLine) + 1;
         f32 testDelta = MR::getRailTotalLength(pRoad) / (numTestPoints - 1);
 
-        TVec3f testRailDir = MR::getRailDirection(pRoad);
+        Vec3f testRailDir = MR::getRailDirection(pRoad);
 
         s32 numPoints = 1;
         for (s32 idx = 1; idx < numTestPoints; idx++) {
@@ -119,17 +117,19 @@ void WaterRoadModelInfo::initPoints(WaterRoad* pRoad) {
     mNumLinePoints = numPoints < 2 ? 2 : numPoints;
     mNumPoints = mNumLinePoints * mNumLoopPoints;
 
-    f32 lineDelta = MR::getRailTotalLength(pRoad) / static_cast< s32 >(MR::getRailTotalLength(pRoad) / ::sPointIntervalLine);
+    // A rail under one interval long steps its whole length at once (the count was 0).
+    const s32 intervalCount = static_cast< s32 >(MR::getRailTotalLength(pRoad) / ::sPointIntervalLine);
+    f32 lineDelta = MR::getRailTotalLength(pRoad) / (intervalCount > 0 ? intervalCount : 1);
 
-    TVec3f up = pRoad->mBaseUp;
+    Vec3f up = pRoad->mBaseUp;
     f32 loopInterval = MR::toRadian(360.0f / mNumLoopPoints);
 
-    mPoints = new TVec3f[mNumPoints];
-    mNormals = new TVec3s[mNumPoints];
+    mPoints = new Vec3f[mNumPoints];
+    mNormals = new Vec3s[mNumPoints];
     mRailCoords = new f32[mNumPoints];
 
     MR::moveCoordToStartPos(pRoad);
-    TVec3f front = MR::getRailDirection(pRoad);
+    Vec3f front = MR::getRailDirection(pRoad);
 
     s32 pointIdx = 0;
     for (s32 lineIdx = 0; lineIdx < mNumLinePoints; lineIdx++) {
@@ -137,12 +137,12 @@ void WaterRoadModelInfo::initPoints(WaterRoad* pRoad) {
             MR::moveCoordToEndPos(pRoad);
         }
 
-        TVec3f side = MR::getRailDirection(pRoad).cross(up);
+        Vec3f side = MR::getRailDirection(pRoad).cross(up);
         MR::normalize(&side);
 
-        TPos3f loopRot;
+        Pos3f loopRot;
         loopRot.identity();
-        TVec3f rotAxis = MR::getRailDirection(pRoad) * -1.0f;
+        Vec3f rotAxis = MR::getRailDirection(pRoad) * -1.0f;
         loopRot.setRotate(rotAxis, loopInterval);
 
         up.cross(side, MR::getRailDirection(pRoad));
@@ -150,7 +150,7 @@ void WaterRoadModelInfo::initPoints(WaterRoad* pRoad) {
         mRailCoords[lineIdx] = MR::getRailCoord(pRoad);
 
         for (s32 loopIdx = 0; loopIdx < mNumLoopPoints; loopIdx++) {
-            TVec3f pos = side;
+            Vec3f pos = side;
             pos.scale(pRoad->mRadius);
             pos.add(MR::getRailPos(pRoad));
             mPoints[pointIdx].set(pos);
@@ -168,29 +168,36 @@ void WaterRoadModelInfo::initPoints(WaterRoad* pRoad) {
 
 }
 
-void WaterRoadModelInfo::initMesh() {
-    u32 attributes = NEBULA_SHAPE_NORMAL | NEBULA_SHAPE_TEXCOORD0 | NEBULA_SHAPE_TEXCOORD0 << 1;
-    if (!mIsLow) {
-        attributes |= NEBULA_SHAPE_TEXCOORD0 << 2;
+namespace {
+    void setThirdCoord(VertexPNT3& rVertex, f32 s, f32 t) {
+        rVertex.s2 = s;
+        rVertex.t2 = t;
     }
-    mMesh.init(attributes, 2 * mNumLinePoints * mNumLoopPoints);
-    mMesh.useArray(NativeMesh::SLOT_POSITION, mPoints);
-    mMesh.useArray(NativeMesh::SLOT_NORMAL, mNormals);
-    NativeMesh::sendArray(mPoints, NEBULA_SHAPE_ARRAY_POSITION, mNumPoints, mPoints);
-    // The normals are 1.14 fixed point.
-    f32* pNormals = new f32[3 * mNumPoints];
-    for (s32 i = 0; i < mNumPoints; i++) {
-        pNormals[3 * i] = mNormals[i].x / 16384.0f;
-        pNormals[3 * i + 1] = mNormals[i].y / 16384.0f;
-        pNormals[3 * i + 2] = mNormals[i].z / 16384.0f;
+    void setThirdCoord(VertexPNT2&, f32, f32) {
     }
-    NativeMesh::sendArray(mNormals, NEBULA_SHAPE_ARRAY_NORMAL, mNumPoints, pNormals);
-    delete[] pNormals;
-    sendGD();
-    mMesh.send();
-}
+}  // namespace
 
-void WaterRoadModelInfo::sendGD() {
+template < class T >
+void WaterRoadModelInfo::writeMesh(SiteMesh< T >& rMesh) {
+    rMesh.init(2 * mNumLinePoints * mNumLoopPoints);
+    const auto vertex = [this](u16 at, f32 s0, f32 t0, f32 s1, f32 t1, f32 s2, f32 t2) {
+        const Vec3f& rPlace = mPoints[at];
+        const Vec3s& rNormal = mNormals[at];
+        T out;
+        out.x = rPlace.x;
+        out.y = rPlace.y;
+        out.z = rPlace.z;
+        out.nx = rNormal.x / 16384.0f;
+        out.ny = rNormal.y / 16384.0f;
+        out.nz = rNormal.z / 16384.0f;
+        out.s0 = s0;
+        out.t0 = t0;
+        out.s1 = s1;
+        out.t1 = t1;
+        ::setThirdCoord(out, s2, t2);
+        return out;
+    };
+
     f32 texU0A = 0.0f;
     f32 texU0B = ::sTexRateU0;
     f32 texU1A = 0.0f;
@@ -205,7 +212,7 @@ void WaterRoadModelInfo::sendGD() {
         }
 
         u16 numPoints = mNumLinePoints * 2;
-        mMesh.begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, numPoints);
+        T* vtx = rMesh.strip(numPoints);
 
         for (s32 lineIdx = 0; lineIdx < mNumLinePoints; lineIdx++) {
             f32 texV0 = mRailCoords[lineIdx] * ::sTexRateV0;
@@ -215,23 +222,8 @@ void WaterRoadModelInfo::sendGD() {
             u16 pointIdx = calcPointIndex(lineIdx, loopIdx);
             u16 nextIdx = calcPointIndex(lineIdx, nextLoopIdx);
 
-            mMesh.index(NativeMesh::SLOT_POSITION, pointIdx);
-            mMesh.index(NativeMesh::SLOT_NORMAL, pointIdx);
-            mMesh.texCoord(0, texU0A, texV0);
-            mMesh.texCoord(1, texU1A, texV1);
-            if (!mIsLow) {
-                mMesh.texCoord(2, texU2A, texV2);
-            }
-            mMesh.corner();
-
-            mMesh.index(NativeMesh::SLOT_POSITION, nextIdx);
-            mMesh.index(NativeMesh::SLOT_NORMAL, nextIdx);
-            mMesh.texCoord(0, texU0B, texV0);
-            mMesh.texCoord(1, texU1B, texV1);
-            if (!mIsLow) {
-                mMesh.texCoord(2, texU2B, texV2);
-            }
-            mMesh.corner();
+            *vtx++ = vertex(pointIdx, texU0A, texV0, texU1A, texV1, texU2A, texV2);
+            *vtx++ = vertex(nextIdx, texU0B, texV0, texU1B, texV1, texU2B, texV2);
         }
 
         texU0A = texU0B;
@@ -241,20 +233,34 @@ void WaterRoadModelInfo::sendGD() {
         texU1B += ::sTexRateU1;
         texU2B += ::sTexRateU2;
     }
+
+    rMesh.send();
 }
+
+void WaterRoadModelInfo::initMesh() {
+    if (mIsLow) {
+        writeMesh(mMeshLow);
+    } else {
+        writeMesh(mMeshHigh);
+    }
+}
+
 
 void WaterRoadModelInfo::drawGD() const {
     if (mIsLow) {
-        loadMaterialLow();
+        const SiteMaterial material = loadMaterialLow();
+        TypedDraw site(material, nullptr, MR::getCameraViewMtx());
+        mMeshLow.draw(site);
     } else {
-        loadMaterialHigh(nullptr);
+        const SiteMaterial material = loadMaterialHigh(nullptr);
+        TypedDraw site(material, nullptr, MR::getCameraViewMtx());
+        mMeshHigh.draw(site);
     }
-
-    mMesh.draw();
 }
 
 void WaterRoadModelInfo::drawDirect(const WaterRoad* pRoad) const {
-    loadMaterialHigh(pRoad);
+    const SiteMaterial material = loadMaterialHigh(pRoad);
+    TypedDraw site(material, nullptr, MR::getCameraViewMtx());
 
     s32 pointNum = calcDemoDrawPointNum(pRoad);
     u16 numPoints = pointNum * 2;
@@ -275,74 +281,61 @@ void WaterRoadModelInfo::drawDirect(const WaterRoad* pRoad) const {
             nextLoopIdx = 0;
         }
 
-        J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, numPoints, NEBULA_SHAPE_NORMAL | NEBULA_SHAPE_TEXCOORD0 | NEBULA_SHAPE_TEXCOORD0 << 1 | NEBULA_SHAPE_TEXCOORD0 << 2);
+        VertexPNT3* vtx = site.vertices< VertexPNT3 >(NEBULA_PRIMITIVE_TRIANGLE_STRIP, numPoints);
 
         for (s32 lineIdx = 0; lineIdx < pointNum; lineIdx++) {
             f32 texV0 = mRailCoords[lineIdx] * ::sTexRateV0;
             f32 texV1 = mRailCoords[lineIdx] * ::sTexRateV1;
             f32 texV2 = mRailCoords[lineIdx] * ::sTexRateV2;
 
-            const TVec3f& pointA = mPoints[calcPointIndex(lineIdx, loopIdx)];
-            const TVec3f& pointB = mPoints[calcPointIndex(lineIdx, nextLoopIdx)];
+            const Vec3f& pointA = mPoints[calcPointIndex(lineIdx, loopIdx)];
+            const Vec3f& pointB = mPoints[calcPointIndex(lineIdx, nextLoopIdx)];
 
-            const TVec3s& normA = mNormals[calcPointIndex(lineIdx, loopIdx)];
-            const TVec3s& normB = mNormals[calcPointIndex(lineIdx, nextLoopIdx)];
+            const Vec3s& normA = mNormals[calcPointIndex(lineIdx, loopIdx)];
+            const Vec3s& normB = mNormals[calcPointIndex(lineIdx, nextLoopIdx)];
 
-            J3DNativeDraw::position(pointA.x, pointA.y, pointA.z);
-            J3DNativeDraw::normal(normA.x / 16384.0f, normA.y / 16384.0f, normA.z / 16384.0f);
-            J3DNativeDraw::texCoord(texU0A, texV0);
-            J3DNativeDraw::texCoord(texU1A, texV1);
-            J3DNativeDraw::texCoord(texU2A, texV2);
+            *vtx++ = {pointA.x, pointA.y, pointA.z, normA.x / 16384.0f, normA.y / 16384.0f, normA.z / 16384.0f, texU0A, texV0, texU1A, texV1, texU2A, texV2};
 
-            J3DNativeDraw::position(pointB.x, pointB.y, pointB.z);
-            J3DNativeDraw::normal(normB.x / 16384.0f, normB.y / 16384.0f, normB.z / 16384.0f);
-            J3DNativeDraw::texCoord(texU0B, texV0);
-            J3DNativeDraw::texCoord(texU1B, texV1);
-            J3DNativeDraw::texCoord(texU2B, texV2);
+            *vtx++ = {pointB.x, pointB.y, pointB.z, normB.x / 16384.0f, normB.y / 16384.0f, normB.z / 16384.0f, texU0B, texV0, texU1B, texV1, texU2B, texV2};
         }
 
         if (pointNum < mNumLinePoints) {
-            f32 t = (MR::getRailCoord(pRoad) - mRailCoords[pointNum - 1]) / (mRailCoords[pointNum] - mRailCoords[pointNum - 1]);
+            // Two line points on one coordinate (a road with no length) draw the earlier one.
+            const f32 coordSpan = mRailCoords[pointNum] - mRailCoords[pointNum - 1];
+            f32 t = coordSpan != 0.0f ? (MR::getRailCoord(pRoad) - mRailCoords[pointNum - 1]) / coordSpan : 0.0f;
 
-            const TVec3f& v1 = mPoints[calcPointIndex(pointNum - 1, loopIdx)];
-            s32 idx2 = calcPointIndex(pointNum, loopIdx);
-            const TVec3f& v2 = mPoints[idx2];
-            const TVec3f& v3 = mPoints[calcPointIndex(pointNum - 1, nextLoopIdx)];
-            const TVec3f& v4 = mPoints[calcPointIndex(pointNum, nextLoopIdx)];
+            // The road's end: points and normals between the last line passed and the next, on both loop sides.
+            const Vec3f& prevA = mPoints[calcPointIndex(pointNum - 1, loopIdx)];
+            s32 currAIdx = calcPointIndex(pointNum, loopIdx);
+            const Vec3f& currA = mPoints[currAIdx];
+            const Vec3f& prevB = mPoints[calcPointIndex(pointNum - 1, nextLoopIdx)];
+            const Vec3f& currB = mPoints[calcPointIndex(pointNum, nextLoopIdx)];
 
-            const TVec3s& n1 = mNormals[calcPointIndex(pointNum - 1, loopIdx)];
-            const TVec3s& n2 = mNormals[idx2];
-            const TVec3s& n3 = mNormals[calcPointIndex(pointNum - 1, nextLoopIdx)];
-            const TVec3s& n4 = mNormals[calcPointIndex(pointNum, nextLoopIdx)];
+            const Vec3s& prevNormA = mNormals[calcPointIndex(pointNum - 1, loopIdx)];
+            const Vec3s& currNormA = mNormals[currAIdx];
+            const Vec3s& prevNormB = mNormals[calcPointIndex(pointNum - 1, nextLoopIdx)];
+            const Vec3s& currNormB = mNormals[calcPointIndex(pointNum, nextLoopIdx)];
 
-            TVec3f vA = v1 * (1.0f - t) + v2 * t;
-            TVec3f vB = v3 * (1.0f - t) + v4 * t;
+            Vec3f vA = prevA * (1.0f - t) + currA * t;
+            Vec3f vB = prevB * (1.0f - t) + currB * t;
 
-            TVec3s nA;
-            nA.x = (s32)(n1.x * (1.0f - t) + n2.x * t);
-            nA.y = (s32)(n1.y * (1.0f - t) + n2.y * t);
-            nA.z = (s32)(n1.z * (1.0f - t) + n2.z * t);
+            Vec3s nA;
+            nA.x = (s32)(prevNormA.x * (1.0f - t) + currNormA.x * t);
+            nA.y = (s32)(prevNormA.y * (1.0f - t) + currNormA.y * t);
+            nA.z = (s32)(prevNormA.z * (1.0f - t) + currNormA.z * t);
 
-            TVec3s nB;
-            nB.x = (s32)(n3.x * (1.0f - t) + n4.x * t);
-            nB.y = (s32)(n3.y * (1.0f - t) + n4.y * t);
-            nB.z = (s32)(n3.z * (1.0f - t) + n4.z * t);
+            Vec3s nB;
+            nB.x = (s32)(prevNormB.x * (1.0f - t) + currNormB.x * t);
+            nB.y = (s32)(prevNormB.y * (1.0f - t) + currNormB.y * t);
+            nB.z = (s32)(prevNormB.z * (1.0f - t) + currNormB.z * t);
 
             f32 texV0 = MR::getRailCoord(pRoad) * ::sTexRateV0;
             f32 texV1 = MR::getRailCoord(pRoad) * ::sTexRateV1;
             f32 texV2 = MR::getRailCoord(pRoad) * ::sTexRateV2;
 
-            J3DNativeDraw::position(vA.x, vA.y, vA.z);
-            J3DNativeDraw::normal(nA.x / 16384.0f, nA.y / 16384.0f, nA.z / 16384.0f);
-            J3DNativeDraw::texCoord(texU0A, texV0);
-            J3DNativeDraw::texCoord(texU1A, texV1);
-            J3DNativeDraw::texCoord(texU2A, texV2);
+            *vtx++ = {vA.x, vA.y, vA.z, nA.x / 16384.0f, nA.y / 16384.0f, nA.z / 16384.0f, texU0A, texV0, texU1A, texV1, texU2A, texV2};
 
-            J3DNativeDraw::position(vB.x, vB.y, vB.z);
-            J3DNativeDraw::normal(nB.x / 16384.0f, nB.y / 16384.0f, nB.z / 16384.0f);
-            J3DNativeDraw::texCoord(texU0B, texV0);
-            J3DNativeDraw::texCoord(texU1B, texV1);
-            J3DNativeDraw::texCoord(texU2B, texV2);
+            *vtx++ = {vB.x, vB.y, vB.z, nB.x / 16384.0f, nB.y / 16384.0f, nB.z / 16384.0f, texU0B, texV0, texU1B, texV1, texU2B, texV2};
         }
 
         texU0A = texU0B;
@@ -365,64 +358,59 @@ s32 WaterRoadModelInfo::calcDemoDrawPointNum(const WaterRoad* pRoad) const {
 }
 
 namespace {
-    // The environment map's matrix: the camera's rotation then the map's half scale and centre.
-    void setEnvMatrix(u32 place) {
-        TPos3f pos;
+    // Its texture scrolls (WaterRoad::draw), for the material that follows.
+    Mtx sRoadScroll[3];
+
+    // runtime/src/render/materials/water_road.hlsl at high or low detail: blended by alpha where above zero, depth
+    // tested and written, no culling.
+    SiteMaterial roadMaterial(const WaterRoad* pRoad, bool high, u8 alpha) {
+        GameTexture screen(MR::getScreenResTIMG());
+        SiteMaterial material;
+        material.init(NEBULA_SHADER_WATER_ROAD, SiteMaterial::BLEND_ALPHA, NEBULA_COMPARE_LEQUAL, true,
+                           NEBULA_CULL_NONE);
+        // The scrolls, the screen's projection, then the environment map's: the camera's rotation, the map's half
+        // scale and centre.
+        const u32 scrolls = high ? 3 : 2;
+        for (u32 i = 0; i < scrolls; i++) {
+            material.setMatrix(4, i, sRoadScroll[i]);
+        }
+        Pos3f projection;
+        MR::calcTexProjectionMtx(&projection);
+        material.setMatrix(4, scrolls, projection);
+        Pos3f pos;
         pos.identity();
         pos.set(MR::getCameraViewMtx());
         pos.zeroTrans();
         static Mtx qMtx2 = {{0.5f, 0.0f, 0.0f, 0.5f}, {0.0f, -0.5f, 0.0f, 0.5f}, {0.0f, 0.0f, 1.0f, 0.0f}};
         MR::multMtx(pos.mMtx, qMtx2, pos.mMtx);
-        J3DNativeShape::setTexture(place, pos.mMtx, 2);
-    }
-
-    // runtime/src/render/materials/water_road.hlsl at high or low detail: blended by alpha where above zero, depth
-    // tested and written, no culling.
-    void sendRoadMaterial(const WaterRoad* pRoad, bool high, u8 alpha) {
-        JUTTexture screen(MR::getScreenResTIMG());
-        NebulaNativeMaterial material;
-        NativeShader::init(material, NEBULA_SHADER_WATER_ROAD, NativeShader::BLEND_ALPHA, NEBULA_COMPARE_LEQUAL, true,
-                           NEBULA_CULL_NONE);
-        NativeShader::setColor(material, 0, ::sStageColor1.r, ::sStageColor1.g, ::sStageColor1.b, ::sStageColor1.a);
-        NativeShader::setColor(material, 4, ::sStageColor2.r, ::sStageColor2.g, ::sStageColor2.b, ::sStageColor2.a);
+        material.setMatrix(4, scrolls + 1, pos.mMtx);
+        material.setColor(0, ::sStageColor1.r, ::sStageColor1.g, ::sStageColor1.b, ::sStageColor1.a);
+        material.setColor(4, ::sStageColor2.r, ::sStageColor2.g, ::sStageColor2.b, ::sStageColor2.a);
         material.constants[8] = high ? 1.0f : 0.0f;
         material.constants[9] = ::sIndirectScale;
         material.constants[10] = alpha / 255.0f;
         material.constants[12] = static_cast< f32 >(screen.getWidth());
         material.constants[13] = static_cast< f32 >(screen.getHeight());
-        NativeShader::setTexture(material, 0, pRoad->mTexture);
+        material.setTexture(0, pRoad->mTexture);
         if (high) {
-            NativeShader::setTexture(material, 1, pRoad->mIndirect);
+            material.setTexture(1, pRoad->mIndirect);
         }
-        NativeShader::setTexture(material, 2, &screen);
-        NativeShader::setTexture(material, 3, pRoad->mEnvMap);
-        NativeShader::send(material);
-        static const u8 kHigh[8] = {0, 1, 2, 3,
-                                    4, J3DNativeShape::kIdentityTexture, J3DNativeShape::kIdentityTexture, J3DNativeShape::kIdentityTexture};
-        static const u8 kLow[8] = {0, 1, 2, 3,
-                                   J3DNativeShape::kIdentityTexture, J3DNativeShape::kIdentityTexture, J3DNativeShape::kIdentityTexture, J3DNativeShape::kIdentityTexture};
-        J3DNativeShape::setCurrent(0, high ? kHigh : kLow);
+        material.setTexture(2, &screen);
+        material.setTexture(3, pRoad->mEnvMap);
+        return material;
     }
 }  // namespace
 
-void WaterRoadModelInfo::loadMaterialHigh(const WaterRoad* pRoad) const {
-    J3DNativeShape::setPosition(0, MR::getCameraViewMtx());
-    J3DNativeShape::setNormal(0, MR::getCameraViewMtx());
-    MR::loadTexProjectionMtx(0x27);
-    setEnvMatrix(4);
-    sendRoadMaterial(mRoad, true, pRoad != nullptr ? pRoad->mAlpha : 0xFF);
+SiteMaterial WaterRoadModelInfo::loadMaterialHigh(const WaterRoad* pRoad) const {
+    return roadMaterial(mRoad, true, pRoad != nullptr ? pRoad->mAlpha : 0xFF);
 }
 
-void WaterRoadModelInfo::loadMaterialLow() const {
-    J3DNativeShape::setPosition(0, MR::getCameraViewMtx());
-    J3DNativeShape::setNormal(0, MR::getCameraViewMtx());
-    MR::loadTexProjectionMtx(0x24);
-    setEnvMatrix(3);
-    sendRoadMaterial(mRoad, false, 0xFF);
+SiteMaterial WaterRoadModelInfo::loadMaterialLow() const {
+    return roadMaterial(mRoad, false, 0xFF);
 }
 
 WaterRoad::WaterRoad(const char* pName)
-    : LiveActor(pName), _8C(-1), mModelInfoHigh(), mModelInfoLow(), mRadius(::sDefaultRadius), mAlpha(0xFF), mBaseUp(0.0f, 1.0f, 0.0f), mRider(),
+    : LiveActor(pName), mModelInfoHigh(), mModelInfoLow(), mRadius(::sDefaultRadius), mAlpha(0xFF), mBaseUp(0.0f, 1.0f, 0.0f), mRider(),
       mTexUV0(0.0f, 0.0f), mTexUV1(0.0f, 0.0f), mTexUV2(0.0f, 0.0f), mTexture(), mIndirect(), mEnvMap(), mClippingCenter(0.0f, 0.0f, 0.0f),
       mCamRailNearestPos(0.0f, 0.0f, 0.0f), mSoundObj(), mCameraInfo() {
     mBaseMtx.identity();
@@ -430,13 +418,12 @@ WaterRoad::WaterRoad(const char* pName)
     mBoundingBox.zero();
 }
 
-void WaterRoad::init(const JMapInfoIter& rIter) {
+void WaterRoad::init(const TableIter& rIter) {
     MR::connectToScene(this, MR::MovementType_MapObj, MR::CalcAnimType_None, MR::DrawBufferType_None, MR::DrawType_WaterRoad);
     MR::initDefaultPos(this, rIter);
     MR::makeMtxTR(mBaseMtx, this);
     mBaseMtx.getYDir(mBaseUp);
-    MR::getJMapInfoArg0NoInit(rIter, &_8C);
-    MR::getJMapInfoArg1NoInit(rIter, &mRadius);
+    MR::getPlacementArg1NoInit(rIter, &mRadius);
     initRailRider(rIter);
 
     if (MR::getRailDirection(this).dot(mBaseUp) >= ::sDotUpdateAxis) {
@@ -455,16 +442,16 @@ void WaterRoad::init(const JMapInfoIter& rIter) {
 
     MR::moveCoordToStartPos(this);
 
-    initEffectKeeper(0, "WaterRoad", false);
+    initEffectKeeper(0, "WaterRoad");
     MR::setEffectHostMtx(this, "Top", mBaseMtx);
     MR::setEffectHostMtx(this, "End", mBaseMtx);
 
-    mTexture = new JUTTexture(MR::loadTexFromArc("WaterWave.arc", "Water.bti"));
-    mIndirect = new JUTTexture(MR::loadTexFromArc("WaterWave.arc", "WaterIndirect.bti"));
-    mEnvMap = new JUTTexture(MR::loadTexFromArc("WaterWave.arc", "EnvMap.bti"));
+    mTexture = new GameTexture(MR::loadTexFromArc("WaterWave", "Water.bti"));
+    mIndirect = new GameTexture(MR::loadTexFromArc("WaterWave", "WaterIndirect.bti"));
+    mEnvMap = new GameTexture(MR::loadTexFromArc("WaterWave", "EnvMap.bti"));
 
     initSound(3, false);
-    mSoundObj = new AudSoundObject(&mCamRailNearestPos, 4, MR::getCurrentHeap());
+    mSoundObj = new AudSoundObject(&mCamRailNearestPos, 4, NebulaArena::current());
 
     MR::calcBoundingBox(this, &mBoundingBox, ::sClippingRadiusOffset);
     mBoundingBox.pad(mRadius);
@@ -473,7 +460,7 @@ void WaterRoad::init(const JMapInfoIter& rIter) {
     MR::setClippingFarMax(this);
 
     bool hasDemo = MR::tryRegisterDemoCast(this, rIter);
-    MR::initMultiActorCamera(this, rIter, &mCameraInfo, "\203\157\203\103\203\223\203\150\222\206" /* バインド中 */);
+    MR::initMultiActorCamera(this, rIter, &mCameraInfo, "バインド中");
     MR::useStageSwitchWriteA(this, rIter);
     if (hasDemo) {
         makeActorDead();
@@ -491,7 +478,7 @@ void WaterRoad::appear() {
         MR::onSwitchA(this);
     }
 
-    if (MR::isDemoPartActive("\203\105\203\110\201\133\203\136\201\133\203\215\201\133\203\150\220\254\222\267" /* ウォーターロード成長 */)) {
+    if (MR::isDemoPartActive("ウォーターロード成長")) {
         setNerve(GET_NERVE(WaterRoad, WaterRoadNrvDemoGrowUp));
     } else {
         setNerve(GET_NERVE(WaterRoad, WaterRoadNrvDemoStart));
@@ -505,7 +492,7 @@ void WaterRoad::exeWait() {
 }
 
 void WaterRoad::exeWaitInvalid() {
-    if (MR::isStep(this, 180)) {
+    if (MR::isStep(this, NebulaFrameClock::stepsOfSeconds(3))) {
         setNerve(GET_NERVE(WaterRoad, WaterRoadNrvWait));
     }
 }
@@ -568,7 +555,7 @@ void WaterRoad::exeDemoStart() {
     MR::startLevelSound(this, "SE_OJ_LV_WATER_ROAD_APPEAR");
     MR::startAtmosphereLevelSE("SE_AT_LV_EARTHQUAKE");
 
-    if (MR::isDemoPartLastStep("\203\105\203\110\201\133\203\136\201\133\203\215\201\133\203\150\217\157\214\273" /* ウォーターロード出現 */)) {
+    if (MR::isDemoPartLastStep("ウォーターロード出現")) {
         setNerve(GET_NERVE(WaterRoad, WaterRoadNrvDemoGrowUp));
     }
 }
@@ -581,12 +568,12 @@ void WaterRoad::exeDemoGrowUp() {
         MR::tryRumblePadVeryStrong(this, PLAYER_1);
     }
 
-    updateDemo(MR::calcDemoPartStepRate("\203\105\203\110\201\133\203\136\201\133\203\215\201\133\203\150\220\254\222\267" /* ウォーターロード成長 */));
+    updateDemo(MR::calcDemoPartStepRate("ウォーターロード成長"));
 
     MR::startLevelSound(this, "SE_OJ_LV_WATER_ROAD_GROW");
     MR::startAtmosphereLevelSE("SE_AT_LV_EARTHQUAKE");
 
-    if (MR::isDemoPartLastStep("\203\105\203\110\201\133\203\136\201\133\203\215\201\133\203\150\220\254\222\267" /* ウォーターロード成長 */)) {
+    if (MR::isDemoPartLastStep("ウォーターロード成長")) {
         MR::deleteEffect(this, "Top");
         MR::emitEffect(this, "End");
         setNerve(GET_NERVE(WaterRoad, WaterRoadNrvDemoWaitEnd));
@@ -639,7 +626,7 @@ void WaterRoad::updateHitSensor(HitSensor* pSensor) {
     }
 }
 
-bool WaterRoad::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool WaterRoad::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* /*pReceiver*/) {
     if (MR::isMsgAutoRushBegin(msg)) {
         if (!isNerve(GET_NERVE(WaterRoad, WaterRoadNrvWait))) {
             return false;
@@ -647,13 +634,13 @@ bool WaterRoad::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceive
 
         mRider = MR::getSensorHost(pSender);
         MR::moveCoordToNearestPos(this, mRider->mPosition);
-        MR::startMultiActorCameraTargetPlayer(this, mCameraInfo, "\203\157\203\103\203\223\203\150\222\206" /* バインド中 */);
+        MR::startMultiActorCameraTargetPlayer(this, mCameraInfo, "バインド中");
         setNerve(GET_NERVE(WaterRoad, WaterRoadNrvRideStart));
         return true;
     }
 
     if (MR::isMsgUpdateBaseMtx(msg)) {
-        TVec3f front;
+        Vec3f front;
         mRiderMtx.getZDir(front);
         MR::makeMtxUpFrontPos(&mRiderMtx, MR::getRailDirection(this), front, MR::getRailPos(this));
         MR::setBaseTRMtx(mRider, mRiderMtx);
@@ -675,8 +662,8 @@ bool WaterRoad::updateRide() {
     if (MR::isRailReachedGoal(this)) {
         MR::startSound(mRider, "SE_OJ_WATER_ROAD_BIND_END");
         MR::startSound(mRider, "SE_PV_JUMP_M");
-        MR::endBindAndPlayerJump(this, TVec3f(0.0f, 0.0f, 0.0f), 0);
-        MR::endMultiActorCamera(this, mCameraInfo, "\203\157\203\103\203\223\203\150\222\206" /* バインド中 */, true);
+        MR::endBindAndPlayerJump(this, Vec3f(0.0f, 0.0f, 0.0f), 0);
+        MR::endMultiActorCamera(this, mCameraInfo, "バインド中", true);
         mRider = nullptr;
         setNerve(GET_NERVE(WaterRoad, WaterRoadNrvDisappear));
         return true;
@@ -689,7 +676,7 @@ void WaterRoad::updateDemo(f32 demoRate) {
     MR::setRailCoord(this, MR::getEaseOutValue(demoRate, 0.0f, 1.0f, 1.0f) * MR::getRailTotalLength(this));
 
     mPosition.set(MR::getRailPos(this));
-    TVec3f front;
+    Vec3f front;
     mBaseMtx.getZDir(front);
     MR::makeMtxUpFront(&mBaseMtx, MR::getRailDirection(this), front);
     mBaseMtx.setTrans(mPosition);
@@ -704,25 +691,25 @@ void WaterRoad::draw() const {
         return;
     }
 
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.identity();
     mtx[0][2] = mTexUV0.x;
     mtx[1][2] = mTexUV0.y;
-    J3DNativeShape::setTexture(0, mtx, 2);
+    NebulaMtxCopy(mtx, sRoadScroll[0]);
     mtx[0][2] = mTexUV1.x;
     mtx[1][2] = mTexUV1.y;
-    J3DNativeShape::setTexture(1, mtx, 2);
+    NebulaMtxCopy(mtx, sRoadScroll[1]);
 
 
     if (isNerve(GET_NERVE(WaterRoad, WaterRoadNrvDemoGrowUp)) || isNerve(GET_NERVE(WaterRoad, WaterRoadNrvDemoWaitEnd))) {
         mtx[0][2] = mTexUV2.x;
         mtx[1][2] = mTexUV2.y;
-        J3DNativeShape::setTexture(2, mtx, 2);
+        NebulaMtxCopy(mtx, sRoadScroll[2]);
         mModelInfoHigh->drawDirect(this);
         return;
     }
 
-    TVec3f boundedPos;
+    Vec3f boundedPos;
     boundedPos.x = MR::clamp(MR::getPlayerPos()->x, mBoundingBox.i.x, mBoundingBox.f.x);
     boundedPos.y = MR::clamp(MR::getPlayerPos()->y, mBoundingBox.i.y, mBoundingBox.f.y);
     boundedPos.z = MR::clamp(MR::getPlayerPos()->z, mBoundingBox.i.z, mBoundingBox.f.z);
@@ -732,7 +719,7 @@ void WaterRoad::draw() const {
     } else {
         mtx[0][2] = mTexUV2.x;
         mtx[1][2] = mTexUV2.y;
-        J3DNativeShape::setTexture(2, mtx, 2);
+        NebulaMtxCopy(mtx, sRoadScroll[2]);
         mModelInfoHigh->drawGD();
     }
 }

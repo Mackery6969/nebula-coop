@@ -1,20 +1,19 @@
 #include "Game/Boss/SkeletalFishBossRail.hpp"
 #include "Game/Boss/SkeletalFishBossFunc.hpp"
 #include "Game/Boss/SkeletalFishBossRailHolder.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/RailUtil.hpp"
 
 SkeletalFishBossRail::SkeletalFishBossRail(const char* pName) : LiveActor(pName) {
-    _8C = -1;
+    mRailId = -1;
     mFillUpFlags = nullptr;
     mNamePosIDs = nullptr;
-    _98 = 0.0f;
 }
 
-void SkeletalFishBossRail::init(const JMapInfoIter& rIter) {
+void SkeletalFishBossRail::init(const TableIter& rIter) {
     MR::createSkeletalFishBossRailHolder();
     initRailRider(rIter);
-    MR::getJMapInfoArg0WithInit(rIter, &_8C);
+    MR::getPlacementArg0WithInit(rIter, &mRailId);
     MR::getSkeletalFishBossRailHolder()->add(this);
     createFillUpFlag();
     createFillUpNamePosID();
@@ -58,11 +57,8 @@ void SkeletalFishBossRail::createFillUpNamePosID() {
 
 void SkeletalFishBossRail::linkFillUpNamePosID() {
     for (s32 i = 0; i < MR::getRailPointNum(this); i++) {
-        TVec3f railPos;
+        Vec3f railPos;
         MR::calcRailPointPos(&railPos, this, i);
         mNamePosIDs[i] = SkeletalFishBossFunc::getNearestGuardPosID(railPos);
     }
-}
-
-SkeletalFishBossRail::~SkeletalFishBossRail() {
 }

@@ -13,32 +13,32 @@ namespace NrvPenguinMaster {
 PenguinMaster::PenguinMaster(const char* pName) : NPCActor(pName) {
 }
 
-void PenguinMaster::init(const JMapInfoIter& rIter) {
+void PenguinMaster::init(const TableIter& rIter) {
     NPCActorCaps caps = "PenguinMaster";
     caps.setDefault();
     caps.mSensor = false;
     caps.mShadowSize = 130.0f;
-    caps.mMessageOffset = TVec3f(0.0f, 430.0f, 0.0f);
+    caps.mMessageOffset = Vec3f(0.0f, 430.0f, 0.0f);
     caps.mPointerSize = 180.0f;
     caps.mStarPointerOffs.x = 0.0f;
     caps.mStarPointerOffs.y = 200.0f;
     caps.mStarPointerOffs.z = 80.0f;
     caps.mWaitNerve = GET_NERVE(PenguinMaster, PenguinMasterNrvWait);
     LiveActor::initHitSensor(2);
-    MR::addHitSensorPush(this, "body", 8, 150.0f, TVec3f(0.0f, 100.0f, 0.0f));
-    MR::addHitSensorPush(this, "head", 8, 150.0f, TVec3f(0.0f, 260.0f, 100.0f));
+    MR::addHitSensorPush(this, "body", 8, 150.0f, Vec3f(0.0f, 100.0f, 0.0f));
+    MR::addHitSensorPush(this, "head", 8, 150.0f, Vec3f(0.0f, 260.0f, 100.0f));
     initialize(rIter, caps);
     const char* talk = "Talk";
-    mParam._14 = "Wait";
-    mParam._1C = talk;
-    mParam._18 = nullptr;
-    mParam._20 = nullptr;
-    mParam._0 = false;
-    mParam._1 = false;
-    _134 = "Trampled";
-    _13C = "Reaction";
-    _130 = "Reaction";
-    _138 = "Pointing";
+    mParam.mWaitAction = "Wait";
+    mParam.mTalkAction = talk;
+    mParam.mWaitTurnAction = nullptr;
+    mParam.mTalkTurnAction = nullptr;
+    mParam.mTurnWhenNear = false;
+    mParam.mTurnOnTalk = false;
+    mTrampleAction = "Trampled";
+    mReactionAction = "Reaction";
+    mSpinAction = "Reaction";
+    mPointingAction = "Pointing";
 
     if (mMsgCtrl != nullptr) {
         MR::setDistanceToTalk(mMsgCtrl, 350.0f);
@@ -47,7 +47,7 @@ void PenguinMaster::init(const JMapInfoIter& rIter) {
 
 bool PenguinMaster::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
     if (MR::isMsgPlayerSpinAttack(msg)) {
-        _E3 = true;
+        mIsSpinAttacked = true;
 
         return true;
     }
@@ -61,21 +61,21 @@ void PenguinMaster::exeWait() {
 }
 
 void PenguinMaster::exeReaction() {
-    if (_D8) {
+    if (mIsTrampledStart) {
         MR::startSound(this, "SE_SV_PENGUIN_OLD_TRAMPLED");
         MR::startSound(this, "SE_SM_PENGUIN_TRAMPLED");
     }
 
     if (isPointingSe()) {
         MR::startSound(this, "SE_SV_PENGUIN_OLD_POINTED_2P");
-        MR::startDPDHitSound();
+        MR::startPointerHitSound();
     }
 
-    if (_D9) {
+    if (mIsSpinAttackedStart) {
         MR::startSound(this, "SE_SV_PENGUIN_OLD_SPIN_HIT");
     }
 
-    if (_DB) {
+    if (mIsReactionStart) {
         MR::startSound(this, "SE_SV_PENGUIN_OLD_STAR_PIECE");
     }
 

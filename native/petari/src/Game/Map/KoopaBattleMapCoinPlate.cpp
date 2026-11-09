@@ -12,9 +12,6 @@ namespace {
     static const f32 sHopSpeed = 30.0f;
 };  // namespace
 
-KoopaBattleMapCoinPlate::~KoopaBattleMapCoinPlate() {
-}
-
 KoopaBattleMapCoinPlate::KoopaBattleMapCoinPlate(const char* pName) : LiveActor(pName) {
     mBaseMtx.identity();
 }
@@ -23,7 +20,7 @@ void KoopaBattleMapCoinPlate::calcAndSetBaseMtx() {
     MR::setBaseTRMtx(this, mBaseMtx);
 }
 
-void KoopaBattleMapCoinPlate::init(const JMapInfoIter& rIter) {
+void KoopaBattleMapCoinPlate::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
 
     MR::calcGravity(this);
@@ -35,9 +32,9 @@ void KoopaBattleMapCoinPlate::init(const JMapInfoIter& rIter) {
     MR::connectToSceneMapObj(this);
 
     initHitSensor(1);
-    MR::initCollisionParts(this, "KoopaPlateCoin", MR::addHitSensor(this, "Attack", ATYPE_KOOPA_COIN_PLATE, 8, 250.0f, TVec3f(0.0f, -150.0f, 0.0f)),
+    MR::initCollisionParts(this, "KoopaPlateCoin", MR::addHitSensor(this, "Attack", ATYPE_KOOPA_COIN_PLATE, 8, 250.0f, Vec3f(0.0f, -150.0f, 0.0f)),
                            mBaseMtx);
-    initEffectKeeper(1, nullptr, false);
+    initEffectKeeper(1, nullptr);
 
     MR::addEffectHitNormal(this, "Hit");
     MR::setEffectBaseScale(this, "Hit", 2.5f);
@@ -51,7 +48,7 @@ void KoopaBattleMapCoinPlate::init(const JMapInfoIter& rIter) {
     makeActorAppeared();
 }
 
-bool KoopaBattleMapCoinPlate::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool KoopaBattleMapCoinPlate::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* /*pReceiver*/) {
     if (msg != ACTMES_KOOPA_HIP_DROP_ATTACK) {
         return false;
     }
@@ -62,7 +59,7 @@ bool KoopaBattleMapCoinPlate::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSe
 
     MR::calcGravity(this);
 
-    TVec3f randomVec;
+    Vec3f randomVec;
     MR::calcRandomVec(&randomVec, -::sSideSpeed, ::sSideSpeed);
     MR::vecKillElement(randomVec, mGravity, &randomVec);
 

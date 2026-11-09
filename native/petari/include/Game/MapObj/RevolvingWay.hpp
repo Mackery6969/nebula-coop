@@ -1,21 +1,20 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TQuat.hpp>
+#include <nebula_geometry.hpp>
 
 class RevolvingWay : public LiveActor {
 public:
-    RevolvingWay(const char*);
+    RevolvingWay(const char* pName);
 
-    virtual ~RevolvingWay();
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
+    virtual void init(const TableIter& rIter) override;
+    virtual void calcAndSetBaseMtx() override;
 
     void exeWait();
     void addAccelMoment();
 
-    /* 0x0x8C */ TQuat4f mRotateQuat;
-    /* 0x0x9C */ TVec3f mFriction;
-    /* 0x0xA8 */ f32 mRadius;
+    Quat4f mRotateQuat;
+    // Rotation per step, from pointer strokes; decays each step.
+    Vec3f mRotateMoment;
+    f32 mRadius;
 };

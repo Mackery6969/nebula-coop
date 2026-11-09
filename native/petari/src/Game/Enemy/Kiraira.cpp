@@ -1,4 +1,5 @@
 #include "Game/Enemy/Kiraira.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Enemy/KirairaChain.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/LiveActorGroupArray.hpp"
@@ -9,7 +10,7 @@
 #include "Game/Util/ActorShadowUtil.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
@@ -19,19 +20,16 @@
 #include "Game/Util/StringUtil.hpp"
 
 namespace {
-    // static const f32 sDriftSpeedMax = 2.4f;
     static const f32 sTurnRate = 2.8f;
-    // static const f32 sTurnRateFirst = 0.8f;
     static const s32 sStepToStare = 5;
-    // static const f32 sDefaultSpeedOnRail = 100.0f;
     static const f32 sRailGoalOffset = 50.0f;
     static const s32 sIntervalToExplode = 10;
     static const f32 sEyeHitSize = 600.0f;
     static const f32 sMindEyeHitSize = 1500.0f;
     static const f32 sCameraShakeDistance = 3000.0f;
     static const f32 sNoCameraShakeDistance = FLOAT_MAX;
-    static const s32 sStepToRecoverSign = 300;
-    static const s32 sStepToRecover = 120;
+    static const s32 sStepToRecoverSign = NebulaFrameClock::stepsOfSeconds(5);
+    static const s32 sStepToRecover = NebulaFrameClock::stepsOfSeconds(2);
     static const f32 sEyeSensorInRadius = 1500.0f;
     static const f32 sEyeSensorOutRadius = 2000.0f;
 };  // namespace
@@ -48,19 +46,19 @@ namespace NrvKiraira {
 };  // namespace NrvKiraira
 
 Kiraira::Kiraira(const char* pName)
-    : LiveActor(pName), mRailCoordSpeed(5.0f), mRailVec(0.0f, 0.0f, 0.0f), mFront(0.0f, 0.0f, 1.0f), _A8(0.0f), mIsRail(false),
+    : LiveActor(pName), mRailCoordSpeed(5.0f), mRailVec(0.0f, 0.0f, 0.0f), mFront(0.0f, 0.0f, 1.0f), mDriftStep(0.0f), mIsRail(false),
       mIsForceDetonated(false), mEyesOpen(true), mSharedGroup(nullptr), mChain(nullptr) {
 }
 
-void Kiraira::init(const JMapInfoIter& rIter) {
+void Kiraira::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("Kiraira", nullptr, false);
     MR::connectToSceneEnemy(this);
     initHitSensor(3);
-    MR::addHitSensorEnemy(this, "body", 8, 120.0f, TVec3f(0.0f, 0.0f, 0.0f));
-    MR::addHitSensorEye(this, "eye", 16, ::sEyeHitSize, TVec3f(0.0f, 0.0f, 0.0f));
-    MR::addHitSensorEye(this, "mind_eye", 8, ::sMindEyeHitSize, TVec3f(0.0f, 0.0f, 0.0f));
-    initEffectKeeper(0, nullptr, false);
+    MR::addHitSensorEnemy(this, "body", 8, 120.0f, Vec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorEye(this, "eye", 16, ::sEyeHitSize, Vec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorEye(this, "mind_eye", 8, ::sMindEyeHitSize, Vec3f(0.0f, 0.0f, 0.0f));
+    initEffectKeeper(0, nullptr);
     initSound(6, false);
     MR::initShadowVolumeSphere(this, 90.0f);
     MR::setShadowDropLength(this, nullptr, 4000.0f);
@@ -72,13 +70,13 @@ void Kiraira::init(const JMapInfoIter& rIter) {
     if (mIsRail) {
         initRailRider(rIter);
         MR::initAndSetRailClipping(&mRailVec, this, 100.0f, 500.0f);
-        MR::getJMapInfoArg0NoInit(rIter, &mRailCoordSpeed);
+        MR::getPlacementArg0NoInit(rIter, &mRailCoordSpeed);
         MR::setRailCoordSpeed(this, mRailCoordSpeed);
     }
     initNerve(GET_NERVE(Kiraira, KirairaNrvWait));
     MR::useStageSwitchWriteB(this, rIter);
     MR::setGroupClipping(this, rIter, 16);
-    mSharedGroup = MR::joinToGroupArray(this, rIter, "\203\114\203\211\203\103\203\211\214\122\222\143" /* キライラ軍団 */, 16);
+    mSharedGroup = MR::joinToGroupArray(this, rIter, "キライラ軍団", 16);
     MR::addToAttributeGroupSearchTurtle(this);
     if (!mIsRail) {
         mChain = new KirairaChain(this);
@@ -89,7 +87,7 @@ void Kiraira::init(const JMapInfoIter& rIter) {
 }
 
 void Kiraira::calcAndSetBaseMtx() {
-    TPos3f mtx;
+    Pos3f mtx;
     MR::calcMtxFromGravityAndZAxis(&mtx, this, mGravity, mFront);
     MR::setBaseTRMtx(this, mtx);
 }
@@ -271,7 +269,7 @@ bool Kiraira::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pRe
     return false;
 }
 
-bool Kiraira::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool Kiraira::receiveMsgEnemyAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* pReceiver) {
     if (!isDown() && MR::isMsgExplosionAttack(msg) && MR::isSensorEnemy(pReceiver)) {
         MR::invalidateClipping(this);
         setNerve(GET_NERVE(Kiraira, KirairaNrvBeExploded));
@@ -281,7 +279,7 @@ bool Kiraira::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pRec
     return false;
 }
 
-bool Kiraira::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool Kiraira::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* /*pReceiver*/) {
     if (isDown()) {
         return false;
     }
@@ -332,10 +330,10 @@ void Kiraira::drift() {
             mPosition.set(*mChain->getCutPos());
         }
     } else {
-        mVelocity.scale(1.5f * MR::sinDegree(45.0f + 2.0f * _A8), mGravity);
+        mVelocity.scale(1.5f * MR::sinDegree(45.0f + 2.0f * mDriftStep), mGravity);
     }
 
-    _A8++;
+    mDriftStep++;
 }
 
 void Kiraira::driftOnRail() {
@@ -348,7 +346,7 @@ void Kiraira::driftOnRail() {
 
 void Kiraira::explode() {
     closeEyes();
-    MR::startRumbleWithShakeCameraStrong(this, "\213\255" /* 強 */, "\222\206" /* 中 */, ::sCameraShakeDistance, ::sNoCameraShakeDistance);
+    MR::startRumbleWithShakeCameraStrong(this, "強", "中", ::sCameraShakeDistance, ::sNoCameraShakeDistance);
     if (mIsForceDetonated) {
         MR::sendMsgExplosionToNearActor(getSensor("eye"), -1.0f);
     }

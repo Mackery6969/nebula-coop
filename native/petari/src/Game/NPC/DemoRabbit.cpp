@@ -1,6 +1,6 @@
 #include "Game/NPC/DemoRabbit.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
-#include "Game/NameObj/NameObjArchiveListCollector.hpp"
 #include "Game/Util.hpp"
 
 namespace {
@@ -16,11 +16,10 @@ namespace {
     static const f32 sTalkRunawayRange = 1300.0f;
     static const f32 sRunawayAccel = 1.55f;
     static const f32 sRunawayEndAccel = 1.2f;
-    static const s32 sRunawayDeccelTime = 900;
+    static const s32 sRunawayDeccelTime = NebulaFrameClock::stepsOfSeconds(15);
     static const f32 sRunawayTurnStartLimit = 10.0f;
     static const f32 sRunawayTurnLimit = 1.5f;
-    static const s32 sRunawayTurnDeccelTime = 30;
-    // static const f32 sAwayTargetVelocityRate;
+    static const s32 sRunawayTurnDeccelTime = NebulaFrameClock::stepsOfMilliseconds(500);
     static const f32 sWallJumpPowerV = 30.0f;
     static const f32 sAppearJumpPowerV = 20.0f;
     static const f32 sNearGoalDistance = 130.0f;
@@ -43,15 +42,7 @@ namespace NrvDemoRabbit {
 DemoRabbit::DemoRabbit(const char* pName) : NPCActor(pName) {
 }
 
-void DemoRabbit::makeArchiveList(NameObjArchiveListCollector* pCollector, const JMapInfoIter& rIter) {
-    if (MR::getDemoCastID(rIter) == 0) {
-        pCollector->addArchive("TrickRabbitBaby");
-    } else {
-        pCollector->addArchive("TrickRabbit");
-    }
-}
-
-void DemoRabbit::init(const JMapInfoIter& rIter) {
+void DemoRabbit::init(const TableIter& rIter) {
     NPCActorCaps caps("DemoRabbit");
     caps.setDefault();
     caps.mObjectName = "TrickRabbit";
@@ -65,14 +56,14 @@ void DemoRabbit::init(const JMapInfoIter& rIter) {
             caps.mWaitNerve = GET_NERVE(DemoRabbit, DemoRabbitNrvAppear);
             caps.mObjectName = "TrickRabbitBaby";
             MR::invalidateClipping(this);
-            MR::registerDemoActionNerve(this, GET_NERVE(DemoRabbit, DemoRabbitNrvTalk0), "\203\140\203\122\202\306\202\314\217\157\211\357\202\242[\203\105\203\124\203\115\211\357\230\142]" /* チコとの出会い[ウサギ会話] */);
-            MR::registerDemoActionNerve(this, GET_NERVE(DemoRabbit, DemoRabbitNrvGuide), "\203\140\203\122\202\306\202\314\217\157\211\357\202\242[\203\105\203\124\203\115\223\246\221\226]" /* チコとの出会い[ウサギ逃走] */);
-            MR::registerDemoActionFunctor(this, MR::Functor(this, &DemoRabbit::fadeOut), "\203\105\203\124\203\115\222\307\202\242\202\251\202\257[\203\164\203\106\201\133\203\150\203\101\203\105\203\147]" /* ウサギ追いかけ[フェードアウト] */);
-            MR::registerDemoActionFunctor(this, MR::Functor(this, &DemoRabbit::fadeIn), "\203\105\203\124\203\115\222\307\202\242\202\251\202\257[\203\164\203\106\201\133\203\150\203\103\203\223]" /* ウサギ追いかけ[フェードイン] */);
-            MR::registerDemoActionNerve(this, GET_NERVE(DemoRabbit, DemoRabbitNrvTalk1), "\203\105\203\124\203\115\222\307\202\242\202\251\202\257[\211\357\230\142]" /* ウサギ追いかけ[会話] */);
-            MR::registerDemoActionNerve(this, GET_NERVE(DemoRabbit, DemoRabbitNrvRunaway), "\203\105\203\124\203\115\222\307\202\242\202\251\202\257[\223\246\221\226]" /* ウサギ追いかけ[逃走] */);
+            MR::registerDemoActionNerve(this, GET_NERVE(DemoRabbit, DemoRabbitNrvTalk0), "チコとの出会い[ウサギ会話]");
+            MR::registerDemoActionNerve(this, GET_NERVE(DemoRabbit, DemoRabbitNrvGuide), "チコとの出会い[ウサギ逃走]");
+            MR::registerDemoActionFunctor(this, MR::Functor(this, &DemoRabbit::fadeOut), "ウサギ追いかけ[フェードアウト]");
+            MR::registerDemoActionFunctor(this, MR::Functor(this, &DemoRabbit::fadeIn), "ウサギ追いかけ[フェードイン]");
+            MR::registerDemoActionNerve(this, GET_NERVE(DemoRabbit, DemoRabbitNrvTalk1), "ウサギ追いかけ[会話]");
+            MR::registerDemoActionNerve(this, GET_NERVE(DemoRabbit, DemoRabbitNrvRunaway), "ウサギ追いかけ[逃走]");
         } else {
-            MR::registerDemoActionNerve(this, GET_NERVE(DemoRabbit, DemoRabbitNrvRunaway), "\203\105\203\124\203\115\222\307\202\242\202\251\202\257[\223\246\221\226]" /* ウサギ追いかけ[逃走] */);
+            MR::registerDemoActionNerve(this, GET_NERVE(DemoRabbit, DemoRabbitNrvRunaway), "ウサギ追いかけ[逃走]");
             caps.mWaitNerve = GET_NERVE(DemoRabbit, DemoRabbitNrvDemo);
         }
     }
@@ -87,7 +78,7 @@ void DemoRabbit::init(const JMapInfoIter& rIter) {
     MR::onCalcShadow(this, nullptr);
     MR::onCalcGravity(this);
 
-    _A0.getZDir(mFrontVec);
+    mPoseQuat.getZDir(mFrontVec);
 
     if (isNerve(GET_NERVE(DemoRabbit, DemoRabbitNrvAppear))) {
         makeActorDead();
@@ -105,7 +96,7 @@ void DemoRabbit::initAfterPlacement() {
 }
 
 void DemoRabbit::control() {
-    MR::blendQuatUpFront(&_A0, -mGravity, mFrontVec, ::sUpVecBlendRate, ::sFrontVecBlendRate);
+    MR::blendQuatUpFront(&mPoseQuat, -mGravity, mFrontVec, ::sUpVecBlendRate, ::sFrontVecBlendRate);
 
     if (MR::isBindedGround(this)) {
         mAirTimer = 0;
@@ -119,10 +110,10 @@ void DemoRabbit::fadeOut() {
 }
 
 void DemoRabbit::fadeIn() {
-    TVec3f railEndPos;
+    Vec3f railEndPos;
     MR::calcRailEndPos(&railEndPos, this);
 
-    TVec3f gravityVector;
+    Vec3f gravityVector;
     MR::calcGravityVector(this, railEndPos, &gravityVector, nullptr, 0);
 
 
@@ -139,7 +130,7 @@ void DemoRabbit::updateStopVelocity() {
 
     // No ground within 10 units: the up vector (the fall kept, the drift stopped). Left unset, `normal` can be a long
     // vector, which makes the kept part of the velocity grow each frame until the binder steps through the ground.
-    TVec3f normal(-mGravity);
+    Vec3f normal(-mGravity);
     MR::getFirstPolyNormalOnLineToMap(&normal, mPosition, mGravity * 10.0f, nullptr, nullptr);
     MR::vecKillElement(mVelocity, normal, &normal);
     mVelocity.sub(normal);
@@ -159,7 +150,7 @@ void DemoRabbit::updateNormalVelocity() {
     MR::reboundVelocityFromCollision(this, -0.05f);
 }
 
-void DemoRabbit::updateRun(const TVec3f& targetDir, bool unused) {
+void DemoRabbit::updateRun(const Vec3f& targetDir, bool /*unused*/) {
     f32 turnAngle = MR::calcNerveValue(this, ::sRunawayTurnDeccelTime, ::sRunawayTurnStartLimit, ::sRunawayTurnLimit);
 
     MR::turnDirectionDegree(this, &mFrontVec, targetDir - mPosition, turnAngle);
@@ -286,7 +277,7 @@ void DemoRabbit::exeGoal() {
     }
 
     if (MR::isNearPlayer(mMsgCtrl, 500.0f)) {
-        MR::startTimeKeepDemoMarioPuppetable(this, "\203\140\203\122\203\113\203\103\203\150\203\146\203\202" /* チコガイドデモ */, "\203\105\203\124\203\115\222\307\202\242\202\251\202\257[\203\164\203\106\201\133\203\150\203\101\203\105\203\147]" /* ウサギ追いかけ[フェードアウト] */);
+        MR::startTimeKeepDemoMarioPuppetable(this, "チコガイドデモ", "ウサギ追いかけ[フェードアウト]");
     } else {
         MR::tryTalkNearPlayer(mMsgCtrl);
     }
@@ -302,7 +293,7 @@ void DemoRabbit::exeGuide() {
         MR::startSound(this, "SE_SM_RABBIT_JUMP");
     }
 
-    TVec3f railPosFrontCoord;
+    Vec3f railPosFrontCoord;
     MR::calcRailPosFrontCoord(&railPosFrontCoord, this, 200.0f);
 
     if (MR::isRailReachedNearGoal(this, ::sNearGoalDistance)) {
@@ -335,7 +326,7 @@ void DemoRabbit::exeRunaway() {
     updateNormalVelocity();
     updateJump();
 
-    if (MR::isGreaterEqualStep(this, 120)) {
+    if (MR::isGreaterEqualStep(this, NebulaFrameClock::stepsOfSeconds(2))) {
         setNerve(GET_NERVE(DemoRabbit, DemoRabbitNrvChange));
     }
 }

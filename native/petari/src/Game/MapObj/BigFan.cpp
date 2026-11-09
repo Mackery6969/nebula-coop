@@ -3,7 +3,7 @@
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/BigFanHolder.hpp"
 #include "Game/Util.hpp"
-#include <JSystem/JMath/JMath.hpp>
+#include <nebula_geometry.hpp>
 
 namespace {
     static const f32 sBaseWindWidth = 400.0f;
@@ -21,7 +21,7 @@ BigFan::BigFan(const char* pName)
     BigFanFunction::registerBigFan(this);
 }
 
-void BigFan::init(const JMapInfoIter& rIter) {
+void BigFan::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     const char* object_name;
     MR::getObjectName(&object_name, rIter);
@@ -34,10 +34,10 @@ void BigFan::init(const JMapInfoIter& rIter) {
         MR::initCollisionParts(this, object_name, getSensor(nullptr), nullptr);
     }
 
-    MR::getJMapInfoArg0NoInit(rIter, &mWindLength);
-    MR::getJMapInfoArg1NoInit(rIter, &mWindSpeed);
+    MR::getPlacementArg0NoInit(rIter, &mWindLength);
+    MR::getPlacementArg1NoInit(rIter, &mWindSpeed);
     initWindModel();
-    TVec3f front;
+    Vec3f front;
     MR::calcFrontVec(&front, this);
     mClippingCenter.scaleAdd(mWindLength * 0.5f, front, mPosition);
     MR::setClippingTypeSphere(this, 400.0f + mWindLength, &mClippingCenter);
@@ -61,7 +61,7 @@ void BigFan::init(const JMapInfoIter& rIter) {
 }
 
 void BigFan::initWindModel() {
-    mWindModel = MR::createModelObjMapObj("\225\227\203\202\203\146\203\213" /* 風モデル */, "BigFanWind", getBaseMtx());
+    mWindModel = MR::createModelObjMapObj("風モデル", "BigFanWind", getBaseMtx());
     mWindModel->initWithoutIter();
     MR::invalidateClipping(mWindModel);
     MR::startBtk(mWindModel, "BigFanWind");
@@ -69,7 +69,7 @@ void BigFan::initWindModel() {
     mWindModel->mScale.z = mWindLength / 2000.0f;
 }
 
-void BigFan::calcWindInfo(TVec3f* pWindInfo, const TVec3f& rPos) {
+void BigFan::calcWindInfo(Vec3f* pWindInfo, const Vec3f& rPos) {
     if (MR::isDead(this) || !isStartOrWait()) {
         pWindInfo->zero();
         return;
@@ -80,10 +80,10 @@ void BigFan::calcWindInfo(TVec3f* pWindInfo, const TVec3f& rPos) {
         return;
     }
 
-    TVec3f front;
+    Vec3f front;
     MR::calcFrontVec(&front, this);
     MR::normalize(&front);
-    TVec3f offset = rPos - mPosition;
+    Vec3f offset = rPos - mPosition;
     f32 dot = front.dot(offset);
 
     if (dot < 0.0f) {
@@ -91,7 +91,7 @@ void BigFan::calcWindInfo(TVec3f* pWindInfo, const TVec3f& rPos) {
         return;
     }
 
-    TVec3f ortho;
+    Vec3f ortho;
     ortho = offset - front * dot;
     f32 mag = ortho.length();
 
@@ -157,11 +157,6 @@ void BigFan::exeWait() {
     }
 }
 
-inline bool BigFan::isStartOrWait() {
-    bool flag = false;
-    if (isNerve(GET_NERVE(BigFan, BigFanNrvStart)) || isNerve(GET_NERVE(BigFan, BigFanNrvWait))) {
-        flag = true;
-    }
-
-    return flag;
+bool BigFan::isStartOrWait() {
+    return isNerve(GET_NERVE(BigFan, BigFanNrvStart)) || isNerve(GET_NERVE(BigFan, BigFanNrvWait));
 }

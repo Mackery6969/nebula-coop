@@ -9,7 +9,7 @@
 #include "Game/Util/BaseMatrixFollowTargetHolder.hpp"
 #include "Game/Util/DemoUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/JointUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
@@ -17,12 +17,11 @@
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
-#include <JSystem/JMath/JMath.hpp>
+#include <nebula_geometry.hpp>
+
 
 namespace {
     static const f32 sPointableRange = 3400.0f;
-    // static const f32 sCaptureRange =
 
     static const BlueStarCupsulePlanetParam sParams[] = {{"BlueStarCupsulePlanet", 500.0f}, {"UFOBlueStarCupsule", 200.0f}};
 
@@ -48,25 +47,27 @@ BlueStarCupsulePlanet::BlueStarCupsulePlanet(const char* pName) : LiveActor(pNam
     MR::createGCapture();
 }
 
-void BlueStarCupsulePlanet::init(const JMapInfoIter& rIter) {
+void BlueStarCupsulePlanet::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     MR::getObjectName(&mName, rIter);
     initModelManagerWithAnm(mName, nullptr, false);
     MR::connectToScene(this, MR::MovementType_Planet, MR::CalcAnimType_Planet, MR::DrawBufferType_Planet, MR::DrawType_None);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initSound(4, false);
     initNerve(GET_NERVE(BlueStarCupsulePlanet, BlueStarCupsulePlanetNrvWait));
     initHitSensor(1);
 
-    TVec3f offset, vec;
-    TPos3f mtx;
-    MR::addHitSensorMapObj(this, "body", 16, 0.0f, TVec3f(0.0f, 0.0f, 0.0f));
+    Vec3f offset, vec;
+    Pos3f mtx;
+    MR::addHitSensorMapObj(this, "body", 16, 0.0f, Vec3f(0.0f, 0.0f, 0.0f));
     MR::initCollisionParts(this, mName, getSensor("body"), nullptr);
     MR::copyJointPos(this, "Root", &vec);
     mtx.set(getBaseMtx());
     mtx.invert(mtx);
     mtx.mult(vec, offset);
-    MR::initStarPointerTarget(this, ::getParam(mName)->mRadius, offset);
+    // A model name outside the table takes the first entry's radius.
+    const BlueStarCupsulePlanetParam* pParam = ::getParam(mName);
+    MR::initStarPointerTarget(this, pParam != nullptr ? pParam->mRadius : ::sParams[0].mRadius, offset);
     MR::setClippingTypeSphere(this, 600.0f);
 
     if (MR::isConnectedWithRail(rIter)) {
@@ -127,7 +128,7 @@ void BlueStarCupsulePlanet::updatePose() {
             if (MR::isEqualString(mName, "UFOBlueStarCupsule")) {
                 MR::startLevelSound(this, "SE_OJ_LV_UFO_BLUE_STAR_MOVE");
             }
-            mPosition.set(mRailMover->_28);
+            mPosition.set(mRailMover->mStartPos);
         }
     }
 
@@ -152,7 +153,7 @@ void BlueStarCupsulePlanet::releasedTarget() {
     }
 }
 
-void BlueStarCupsulePlanet::getTargetPosition(TVec3f* pPos) {
+void BlueStarCupsulePlanet::getTargetPosition(Vec3f* pPos) {
     MR::copyJointPos(this, "Root", pPos);
 }
 
@@ -185,7 +186,7 @@ void BlueStarCupsulePlanet::exePointable() {
 
     if (!isPointable()) {
         setNerve(GET_NERVE(BlueStarCupsulePlanet, BlueStarCupsulePlanetNrvWait));
-    } else if (MR::isStarPointerPointing(this, PLAYER_1, true, "\216\343" /* 弱 */)) {
+    } else if (MR::isStarPointerPointing(this, PLAYER_1, true, "弱")) {
         if (MR::requestGCaptureTarget(this)) {
             MR::invalidateClipping(this);
             setNerve(GET_NERVE(BlueStarCupsulePlanet, BlueStarCupsulePlanetNrvHitPointer));
@@ -212,7 +213,7 @@ void BlueStarCupsulePlanet::exeHitPointer() {
     MR::startLevelSound(this, "SE_OJ_LV_MAGIC_PNT_G_POINT");
 
     bool pointable = isPointable();
-    if (MR::isStarPointerPointing(this, PLAYER_1, true, "\216\343" /* 弱 */) && pointable) {
+    if (MR::isStarPointerPointing(this, PLAYER_1, true, "弱") && pointable) {
         MR::requestGCaptureTarget(this);
     }
 
@@ -236,7 +237,7 @@ void BlueStarCupsulePlanet::exeActive() {
 
 void BlueStarCupsulePlanet::calcAndSetBaseMtx() {
     if (mRotator != nullptr && mRotator->isWorking()) {
-        TPos3f mtx;
+        Pos3f mtx;
         mtx.identity();
         mtx.set(mRotator->getRotateMtx());
         mtx.setTrans(mPosition);
@@ -247,7 +248,7 @@ void BlueStarCupsulePlanet::calcAndSetBaseMtx() {
 }
 
 bool BlueStarCupsulePlanet::isPointable() const {
-    TVec3f pos, up;
+    Vec3f pos, up;
     MR::copyJointPos(this, "Root", &pos);
     f32 distance = pos.distance(*MR::getPlayerPos());
 

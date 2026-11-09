@@ -5,7 +5,7 @@
 class CameraContext;
 class CinemaFrame;
 class EffectSystem;
-class J3DDrawBuffer;
+class ItemBuffer;
 class ScenarioSelectLayout;
 
 class ScenarioSelectScene : public Scene {
@@ -22,6 +22,9 @@ public:
     void startBackground();
     bool isActive() const;
     bool isExecForeground() const;
+    bool isRunning() const {
+        return isExecForeground() && mIsResetRequested == 0;
+    }
     bool isScenarioSelecting() const;
     void validateScenarioSelect();
     void requestReset(bool waitForInitialize);
@@ -35,24 +38,20 @@ public:
     void exeWaitStartScenarioSelect();
     void exeStartScenarioSelect();
     void exeWaitScenarioSelect();
-    void exeWaitResumeInitializeThread();
+    void exeWaitSceneLoad();
     void exeWaitInitializeEnd();
     void exeWaitDisappearLayout();
-    void exeWaitResumeInitializeThreadIfRequestedReset();
-    void exeWaitResumeInitializeThreadIfCanceledSelect();
+    void exeWaitSceneLoadIfRequestedReset();
+    void exeWaitSceneLoadIfCanceledSelect();
 
-    u8 _14;
-    u8 _15;
-    u8 _16;
-    u8 _17;
+    bool mIsInitialized;
+    bool mIsBackground;
+    bool mIsCanceled;
     ScenarioSelectLayout* mScenarioLayout;
     CinemaFrame* mCinemaFrame;
-    J3DDrawBuffer* _20;
-    J3DDrawBuffer* _24;
-    u8 _28;
-    u8 _29;
-    u8 _2A;
-    u8 _2B;
+    ItemBuffer* mDrawBufferOpa;
+    ItemBuffer* mDrawBufferXlu;
+    bool mIsResetRequested;
     EffectSystem* mEffectSystem;
     CameraContext* mCameraContext;
 };

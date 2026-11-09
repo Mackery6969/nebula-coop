@@ -1,4 +1,5 @@
 #include "Game/Boss/KoopaBattleBase.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Boss/Koopa.hpp"
 #include "Game/Boss/KoopaFunction.hpp"
 #include "Game/Boss/KoopaStateDamageEscape.hpp"
@@ -14,9 +15,9 @@ namespace {
     static MR::ActorMoveParam sFindParam = {0.0f, 1.0f, 0.98f, 3.0f};
     static const f32 sChasePlayerJumpSpeed = 15.0f;
     static const f32 sWalkAnimRate = 0.18f;
-    static const s32 sWanderStepToAttackMin = 60;
-    static const s32 sWanderStepToAttackMax = 120;
-    static const s32 sSearchStep = 120;
+    static const s32 sWanderStepToAttackMin = NebulaFrameClock::stepsOfSeconds(1);
+    static const s32 sWanderStepToAttackMax = NebulaFrameClock::stepsOfSeconds(2);
+    static const s32 sSearchStep = NebulaFrameClock::stepsOfSeconds(2);
     static const f32 sSearchTurnSpeed = 2.4f;
     static const f32 sFindJumpSpeed = 10.0f;
 };  // namespace
@@ -79,8 +80,7 @@ bool KoopaBattleBase::updateWander(const MR::ActorMoveParam& rMoveParam) {
         }
     }
 
-    MR::moveAndTurnToDirection(mHost, KoopaFunction::getKoopaFrontPtr(mHost), KoopaFunction::getKoopaFront(mHost), rMoveParam._0, rMoveParam._4,
-                               rMoveParam._8, rMoveParam._C);
+    MR::moveAndTurnToDirection(mHost, KoopaFunction::getKoopaFrontPtr(mHost), KoopaFunction::getKoopaFront(mHost), rMoveParam);
 
     Koopa* pKoopa = mHost;
     MR::setBckRate(pKoopa, MR::calcVelocityLength(pKoopa) * ::sWalkAnimRate);
@@ -120,6 +120,31 @@ bool KoopaBattleBase::updateFind() {
     return false;
 }
 
+// True once Bowser, already angry, is knocked down again: the level is over.
+bool KoopaBattleBase::updateDamageReverse(const Nerve* pEndNerve, const Nerve* pRecoverNerve) {
+    if (MR::isFirstStep(this)) {
+        mStateDamageEscape->appear();
+        mStateDamageEscape->startDamageReverse();
+    }
+
+    if (mStateDamageEscape->update()) {
+        setNerve(pEndNerve);
+        return false;
+    }
+
+    if (!mStateDamageEscape->isDownEnd()) {
+        return false;
+    }
+
+    if (KoopaFunction::isKoopaAngry(mHost)) {
+        return true;
+    }
+
+    KoopaFunction::startKoopaAngry(mHost);
+    setNerve(pRecoverNerve);
+    return false;
+}
+
 bool KoopaBattleBase::updateRecover(const Nerve* pNerve) {
     if (MR::isFirstStep(this)) {
         MR::zeroVelocity(mHost);
@@ -135,12 +160,3 @@ bool KoopaBattleBase::updateRecover(const Nerve* pNerve) {
 
     return false;
 }
-
-KoopaBattleBase::~KoopaBattleBase() {
-}
-
-namespace MR {
-    void moveAndTurnToPlayer(LiveActor* pActor, TVec3f* pVec, const MR::ActorMoveParam& rMoveParam) {
-        moveAndTurnToPlayer(pActor, pVec, rMoveParam._0, rMoveParam._4, rMoveParam._8, rMoveParam._C);
-    }
-};  // namespace MR

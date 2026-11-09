@@ -1,4 +1,5 @@
 #include "Game/Boss/DinoPackunBattleEggVs2.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Boss/DinoPackun.hpp"
 #include "Game/Boss/DinoPackunStateDamage.hpp"
 #include "Game/Boss/DinoPackunStateFire.hpp"
@@ -15,20 +16,33 @@
 #include "Game/Util/SoundUtil.hpp"
 
 namespace {
-    static TVec3f sEggOutPosition = TVec3f(0.0f, 60.0f, -320.0f);
+    // Where the tail leaves the egg, in the boss's frame.
+    const Vec3f cEggOutPosition(0.0f, 60.0f, -320.0f);
+    const s32 cTurnSteps = NebulaFrameClock::stepsOfMilliseconds(500);
+    const f32 cTurnDegree = 1.5f;
+    const s32 cWalkSteps = NebulaFrameClock::stepsOfMilliseconds(12500);
+    const f32 cWalkSpeed = 0.9f;
+    const s32 cWalkFootPrintPeriod = 40;
+    const f32 cWalkTailBendRate = 1.5f;
+    // The walk weaves, turning the other way every period.
+    const s32 cWeavePeriod = 100;
+    const f32 cWeaveDegree = 0.75f;
+    // Each cycle the tail burns, cools, then warns before burning again. All three are plain step counts, so the
+    // sign window is the cycle's last 20 steps at any step rate.
+    const s32 cFireCycle = 200;
+    const s32 cFireSteps = 80;
+    const s32 cFireSignStep = 180;
 };  // namespace
 
-namespace NrvDinoPackunBattleEgg {
+namespace NrvDinoPackunBattleEggVs2 {
     NEW_NERVE(DinoPackunBattleEggVs2NrvTurn, DinoPackunBattleEggVs2, Turn);
     NEW_NERVE(DinoPackunBattleEggVs2NrvWalk, DinoPackunBattleEggVs2, Walk);
     NEW_NERVE(DinoPackunBattleEggVs2NrvDamage, DinoPackunBattleEggVs2, Damage);
-};  // namespace NrvDinoPackunBattleEgg
+};  // namespace NrvDinoPackunBattleEggVs2
 
-DinoPackunBattleEggVs2::DinoPackunBattleEggVs2(DinoPackun* pPackun) : DinoPackunAction("2\211\361\220\355\227\221\203\157\203\147\203\213" /* 2回戦卵バトル */, pPackun) {
-    mStateDamage = nullptr;
-    mTrackFireHolder = nullptr;
-    mStateFire = nullptr;
-    _20 = 1.0f;
+// The second fight's opening: inside the egg with a burning tail; the egg burns the player and hits other actors.
+DinoPackunBattleEggVs2::DinoPackunBattleEggVs2(DinoPackun* pHost)
+    : DinoPackunAction("2回戦卵バトル", pHost), mStateDamage(nullptr), mTrackFireHolder(nullptr), mStateFire(nullptr) {
 }
 
 void DinoPackunBattleEggVs2::setTrackFire(DinoPackunTrackFireHolder* pHolder) {
@@ -36,7 +50,7 @@ void DinoPackunBattleEggVs2::setTrackFire(DinoPackunTrackFireHolder* pHolder) {
 }
 
 void DinoPackunBattleEggVs2::init() {
-    initNerve(GET_NERVE(DinoPackunBattleEgg, DinoPackunBattleEggVs2NrvTurn));
+    initNerve(GET_NERVE(DinoPackunBattleEggVs2, DinoPackunBattleEggVs2NrvTurn));
     mStateDamage = new DinoPackunStateDamage(getHost());
     mStateDamage->setDamageEgg();
     mStateFire = new DinoPackunStateFire(getHost());
@@ -47,46 +61,51 @@ void DinoPackunBattleEggVs2::appear() {
     mIsDead = false;
     getHost()->mTail->lockNodePosition(1);
     mStateFire->requestFireDirect();
-    setNerve(GET_NERVE(DinoPackunBattleEgg, DinoPackunBattleEggVs2NrvTurn));
+    setNerve(GET_NERVE(DinoPackunBattleEggVs2, DinoPackunBattleEggVs2NrvTurn));
 }
 
 void DinoPackunBattleEggVs2::control() {
     mStateFire->update();
 }
 
+// Pushes whatever the attack did not take.
 void DinoPackunBattleEggVs2::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
-    if (getHost()->isSensorEgg(pSender)) {
-        if (MR::isSensorPlayer(pReceiver)) {
-            if (!MR::sendMsgEnemyAttackFire(pReceiver, pSender)) {
-                if (MR::sendMsgPush(pReceiver, pSender)) {
-                    return;
-                }
-            }
-        } else if (!MR::sendMsgEnemyAttack(pReceiver, pSender)) {
-            if (MR::sendMsgPush(pReceiver, pSender)) {
-                return;
-            }
+    if (!getHost()->isSensorEgg(pSender)) {
+        return;
+    }
+
+    if (MR::isSensorPlayer(pReceiver)) {
+        if (!MR::sendMsgEnemyAttackFire(pReceiver, pSender)) {
+            MR::sendMsgPush(pReceiver, pSender);
         }
+    } else if (!MR::sendMsgEnemyAttack(pReceiver, pSender)) {
+        MR::sendMsgPush(pReceiver, pSender);
     }
 }
 
-bool DinoPackunBattleEggVs2::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
-    return (!getHost()->isSensorEgg(pReceiver) ? false : MR::isMsgStarPieceReflect(msg));
+// The egg takes reflected star pieces.
+bool DinoPackunBattleEggVs2::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* pReceiver) {
+    return getHost()->isSensorEgg(pReceiver) && MR::isMsgStarPieceReflect(msg);
 }
 
-bool DinoPackunBattleEggVs2::receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) {
+bool DinoPackunBattleEggVs2::receiveMsgPush(HitSensor* /*pSender*/, HitSensor* pReceiver) {
     return getHost()->isSensorEgg(pReceiver);
 }
 
+// A damage message puts out the fire trail; the tail cools once the damage state takes a message.
 bool DinoPackunBattleEggVs2::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
-    if (isNerve(GET_NERVE(DinoPackunBattleEgg, DinoPackunBattleEggVs2NrvDamage))) {
+    if (isNerve(GET_NERVE(DinoPackunBattleEggVs2, DinoPackunBattleEggVs2NrvDamage))) {
         if (mStateDamage->receiveOtherMsg(msg, pSender, pReceiver)) {
             mStateFire->requestCool();
             return true;
         }
-    } else if (mStateDamage->isDamageMessage(msg)) {
+
+        return false;
+    }
+
+    if (mStateDamage->isDamageMessage(msg)) {
         mTrackFireHolder->killAll();
-        setNerve(GET_NERVE(DinoPackunBattleEgg, DinoPackunBattleEggVs2NrvDamage));
+        setNerve(GET_NERVE(DinoPackunBattleEggVs2, DinoPackunBattleEggVs2NrvDamage));
         return true;
     }
 
@@ -100,58 +119,45 @@ void DinoPackunBattleEggVs2::exeTurn() {
         MR::startSound(getHost(), "SE_BM_D_PAKKUN_LAVER");
     }
 
-    getHost()->adjustTailRootPosition(::sEggOutPosition, 1.0f);
+    getHost()->adjustTailRootPosition(cEggOutPosition, 1.0f);
 
-    if (updateTurn(30, 1.5f)) {
-        setNerve(GET_NERVE(DinoPackunBattleEgg, DinoPackunBattleEggVs2NrvWalk));
+    if (updateTurn(cTurnSteps, cTurnDegree)) {
+        setNerve(GET_NERVE(DinoPackunBattleEggVs2, DinoPackunBattleEggVs2NrvWalk));
     }
 }
 
 void DinoPackunBattleEggVs2::exeWalk() {
     if (MR::isFirstStep(this)) {
         MR::startBck(getHost(), "EggWalk");
-        getHost()->mTail->_C = 1.5f;
+        getHost()->mTail->mBendRate = cWalkTailBendRate;
     }
 
-    getHost()->adjustTailRootPosition(::sEggOutPosition, 1.0f);
+    getHost()->adjustTailRootPosition(cEggOutPosition, 1.0f);
 
     s32 step = getNerveStep();
-    f32 v3;
+    f32 weaveSide = (step / cWeavePeriod) % 2 != 0 ? -1.0f : 1.0f;
+    MR::rotateDirectionGravityDegree(getHost(), &getHost()->mFront, (cWeaveDegree * weaveSide));
 
-    s32 div = (step / 100);
-    if (div % 2 != 0) {
-        v3 = -1.0f;
-    } else {
-        v3 = 1.0f;
-    }
-
-    MR::rotateDirectionGravityDegree(getHost(), &getHost()->_E8, (0.75f * v3));
-    s32 v4 = getNerveStep() % 200;
-    if (v4 < 80) {
+    s32 cycleStep = step % cFireCycle;
+    if (cycleStep < cFireSteps) {
         mStateFire->requestFire();
+    } else if (cycleStep >= cFireSignStep) {
+        mStateFire->requestFireSign();
     } else {
-        if (v4 >= 180) {
-            mStateFire->requestFireSign();
-        } else {
-            mStateFire->requestCool();
-        }
+        mStateFire->requestCool();
     }
 
-    if (updateWalk(750, 0.9f, 40)) {
-        setNerve(GET_NERVE(DinoPackunBattleEgg, DinoPackunBattleEggVs2NrvTurn));
+    if (updateWalk(cWalkSteps, cWalkSpeed, cWalkFootPrintPeriod)) {
+        setNerve(GET_NERVE(DinoPackunBattleEggVs2, DinoPackunBattleEggVs2NrvTurn));
     }
 }
 
 void DinoPackunBattleEggVs2::exeDamage() {
     if (MR::isFirstStep(this)) {
-        getHost()->mTail->_C = 1.0f;
+        getHost()->mTail->mBendRate = 1.0f;
     }
 
     if (MR::updateActorState(this, mStateDamage)) {
         kill();
     }
-}
-
-DinoPackunBattleEggVs2::~DinoPackunBattleEggVs2() {
-    return;
 }

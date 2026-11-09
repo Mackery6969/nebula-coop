@@ -10,13 +10,13 @@ namespace NrvTombSpiderGland {
     NEW_NERVE(TombSpiderGlandNrvDamageWait, TombSpiderGland, DamageWait);
 };  // namespace NrvTombSpiderGland
 
-TombSpiderGland::TombSpiderGland(LiveActor* pActor, const char* pName, const TVec3f& rPos, const TVec3f& a1, const char* pJointName)
+TombSpiderGland::TombSpiderGland(LiveActor* pActor, const char* pName, const Vec3f& rPos, const Vec3f& rRotate, const char* pJointName)
     : PartsModel(pActor, pName, "TombSpiderGland", nullptr, MR::DrawBufferType_Enemy, false) {
     MR::initLightCtrl(this);
-    initFixedPosition(rPos, a1, pJointName);
+    initFixedPosition(rPos, rRotate, pJointName);
 }
 
-void TombSpiderGland::init(const JMapInfoIter& rIter) {
+void TombSpiderGland::init(const TableIter& rIter) {
     PartsModel::init(rIter);
     MR::startBrk(this, "Battle1st");
     initNerve(GET_NERVE(TombSpiderGland, TombSpiderGlandNrvWait));
@@ -36,10 +36,7 @@ bool TombSpiderGland::isActive() const {
 }
 
 bool TombSpiderGland::isDamage() const {
-    if (isNerve(GET_NERVE(TombSpiderGland, TombSpiderGlandNrvDamageStart)) || isNerve(GET_NERVE(TombSpiderGland, TombSpiderGlandNrvDamageWait))) {
-        return true;
-    }
-    return false;
+    return isNerve(GET_NERVE(TombSpiderGland, TombSpiderGlandNrvDamageStart)) || isNerve(GET_NERVE(TombSpiderGland, TombSpiderGlandNrvDamageWait));
 }
 
 void TombSpiderGland::exeWait() {

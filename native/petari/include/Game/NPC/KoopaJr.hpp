@@ -4,14 +4,12 @@
 
 class KoopaJr : public NPCActor {
 public:
-    /// @brief Creates a new `KoopaJr`.
-    /// @param pName A pointer to the null-terminated name of the object.
     KoopaJr(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void kill();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
+    virtual void init(const TableIter& rIter) override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
 
     void setStateShipBattleAppear();
     void setStateShipBattlePowerUp();

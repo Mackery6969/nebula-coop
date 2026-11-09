@@ -12,11 +12,8 @@
 #include "Game/Util/TalkUtil.hpp"
 
 namespace {
-    // static const f32 sGravityAccel = _;
-    // static const f32 sBodyRadius = _;
     static const s32 sMarioPoseBlendTime = 5;
     static const s32 sCaughtLandStartTime = 20;
-    // static const s32 sCaughtEventTime = _;
     static const f32 sCaughtJumpPower = 20.0f;
     static const f32 sCaughtGravityAccel = 1.0f;
     static const f32 sCaughtAirFreq = 0.99f;
@@ -30,7 +27,7 @@ namespace NrvRabbitStateCaught {
 };  // namespace NrvRabbitStateCaught
 
 RabbitStateCaught::RabbitStateCaught(LiveActor* pHost, TalkMessageCtrl* pTalkCtrl)
-    : ActorStateBase("\202\244\202\263\202\254\225\337\202\334\202\350\217\363\221\324" /* うさぎ捕まり状態 */, pHost), mCaughtStartMarioQuat(0.0f, 0.0f, 0.0f, 1.0f), mCaughtStartMarioTrans(0.0f, 0.0f, 0.0f),
+    : ActorStateBase("うさぎ捕まり状態", pHost), mCaughtStartMarioQuat(0.0f, 0.0f, 0.0f, 1.0f), mCaughtStartMarioTrans(0.0f, 0.0f, 0.0f),
       mTalkCtrl(pTalkCtrl), mPowerStarModel(), mUsePowerStarModel(true) {
     mCaughtLandMarioBaseMtx.identity();
 }
@@ -43,7 +40,7 @@ void RabbitStateCaught::init() {
     initNerve(GET_NERVE(RabbitStateCaught, RabbitStateCaughtNrvCaught));
 
     if (mUsePowerStarModel) {
-        mPowerStarModel = MR::createPowerStarDemoModel(mHost, "\203\160\203\217\201\133\203\130\203\136\201\133\203\146\203\202\203\202\203\146\203\213" /* パワースターデモモデル */, mCaughtLandMarioBaseMtx);
+        mPowerStarModel = MR::createPowerStarDemoModel(mHost, "パワースターデモモデル", mCaughtLandMarioBaseMtx);
         mPowerStarModel->initWithoutIter();
         MR::invalidateClipping(mPowerStarModel);
         mPowerStarModel->makeActorDead();
@@ -53,7 +50,7 @@ void RabbitStateCaught::init() {
 void RabbitStateCaught::appear() {
     mIsDead = false;
 
-    MR::requestStartDemoMarioPuppetable(this, mHost, "\225\337\202\334\202\350" /* 捕まり */, GET_NERVE(RabbitStateCaught, RabbitStateCaughtNrvCaught),
+    MR::requestStartDemoMarioPuppetable(this, mHost, "捕まり", GET_NERVE(RabbitStateCaught, RabbitStateCaughtNrvCaught),
                                         GET_NERVE(RabbitStateCaught, RabbitStateCaughtNrvTryStartDemo));
 }
 
@@ -90,7 +87,7 @@ void RabbitStateCaught::exeCaught() {
 }
 
 void RabbitStateCaught::exeCaughtLand() {
-    TMtx34f baseMtx;
+    Mtx34f baseMtx;
 
     if (MR::isFirstStep(this)) {
         baseMtx.set(mHost->getBaseMtx());
@@ -141,14 +138,14 @@ void RabbitStateCaught::exeCaughtEvent() {
 }
 
 void RabbitStateCaught::setCaughtStartMarioPose() {
-    TPos3f baseMtx(MR::getPlayerDemoActor()->getBaseMtx());
+    Pos3f baseMtx(MR::getPlayerDemoActor()->getBaseMtx());
     baseMtx.getQuat(mCaughtStartMarioQuat);
     baseMtx.getTrans(mCaughtStartMarioTrans);
 }
 
 void RabbitStateCaught::blendBaseMatrixToMario(f32 blendRate) const {
-    TMtx34f baseMtx;
-    TMtx34f finalBaseMtx;
+    Mtx34f baseMtx;
+    Mtx34f finalBaseMtx;
 
     if (blendRate >= 1.0f) {
         finalBaseMtx.set(mHost->getBaseMtx());

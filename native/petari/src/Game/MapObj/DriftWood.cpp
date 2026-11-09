@@ -1,4 +1,5 @@
 #include "Game/MapObj/DriftWood.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/MapObj/MapObjActorInitInfo.hpp"
 #include "Game/Util.hpp"
@@ -11,15 +12,16 @@
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/RailUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
-#include <JSystem/JMath/JMath.hpp>
+#include <nebula_geometry.hpp>
 #include <nebula_math.h>
 
-struct SinCosPair {
-    f32 sin;
-    f32 cos;
-};
-
-extern SinCosPair lbl_8060FC80[];
+namespace {
+    const s32 sWaveSoundStepMin = NebulaFrameClock::stepsOfMilliseconds(500);
+    const s32 sWaveSoundStepMax = NebulaFrameClock::stepsOfMilliseconds(1500);
+    const s32 sVibrateStep = 45;
+    const f32 sRailSpeed = 3.0f;
+    const f32 sAttackRange = 140.0f;
+};  // namespace
 
 DriftWood::DriftWood(const char* pName)
     : MapObjActor(pName), mRailDirection(0.0f, 0.0f, 1.0f), mRailClipping(0.0f, 0.0f, 0.0f), mVibrateOffset(0.0f, 0.0f, 0.0f), mWaveSoundTimer() {
@@ -32,13 +34,13 @@ namespace NrvDriftWood {
     NEW_NERVE(DriftWoodNrvVibrateTakeOff, DriftWood, Vibrate);
 };  // namespace NrvDriftWood
 
-void DriftWood::init(const JMapInfoIter& rIter) {
+void DriftWood::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
     MapObjActorInitInfo info;
     info.setupDefaultPos();
     info.setupConnectToScene();
     info.setupHitSensor();
-    info.setupHitSensorParam(8, 300.0f, TVec3f(0.0f, -60.0f, 0.0f));
+    info.setupHitSensorParam(8, 300.0f, Vec3f(0.0f, -60.0f, 0.0f));
     info.setupEffect(nullptr);
     info.setupSound(4);
     info.setupNerve(GET_NERVE(DriftWood, DriftWoodNrvWait));
@@ -46,7 +48,7 @@ void DriftWood::init(const JMapInfoIter& rIter) {
     MR::moveCoordAndTransToNearestRailPos(this);
     mRailDirection.set(MR::getRailDirection(this));
     getSensor(nullptr)->setType(ATYPE_EYE);
-    mWaveSoundTimer = MR::getRandom(30, 90);
+    mWaveSoundTimer = MR::getRandom(::sWaveSoundStepMin, ::sWaveSoundStepMax);
     f32 radius = 0.0f;
     MR::calcModelBoundingRadius(&radius, this);
     MR::initAndSetRailClipping(&mRailClipping, this, 100.0f, radius);
@@ -58,14 +60,14 @@ void DriftWood::exeWait() {
         MR::emitEffect(this, "Ripple");
     }
 
-    MR::moveCoordAndFollowTrans(this, 3.0f);
+    MR::moveCoordAndFollowTrans(this, ::sRailSpeed);
     MR::rotateVecDegree(&mRailDirection, mGravity, 0.05f);
 
     tryVibrate();
 
     if (mWaveSoundTimer <= 0) {
         MR::startSound(this, "SE_OJ_DRIFT_WOOD_WAVE");
-        mWaveSoundTimer = MR::getRandom(30, 90);
+        mWaveSoundTimer = MR::getRandom(::sWaveSoundStepMin, ::sWaveSoundStepMax);
     } else {
         mWaveSoundTimer--;
     }
@@ -77,24 +79,18 @@ void DriftWood::exeVibrate() {
         mVibrateOffset.zero();
     }
 
-    MR::moveCoord(this, 3.0f);
+    MR::moveCoord(this, ::sRailSpeed);
 
-    f32 step = 30.0f * MR::sinDegree(16.0f * getNerveStep());
-    f32 nerveValue = MR::calcNerveValue(this, 45, 0.1f, 1.0f);
+    f32 wave = 30.0f * MR::sinDegree(16.0f * getNerveStep());
+    f32 nerveValue = MR::calcNerveValue(this, ::sVibrateStep, 0.1f, 1.0f);
 
-    mVibrateOffset.scale((1.0f - nerveValue) * step, *getGravity());
+    mVibrateOffset.scale((1.0f - nerveValue) * wave, *getGravity());
     mPosition.add(MR::getRailPos(this), mVibrateOffset);
 
-    if (!tryVibrate()) {
-        if (MR::isGreaterEqualStep(this, 45)) {
-            mVibrateOffset.zero();
-
-            if (MR::isOnPlayer(this)) {
-                setNerve(GET_NERVE(DriftWood, DriftWoodNrvWaitLand));
-            } else {
-                setNerve(GET_NERVE(DriftWood, DriftWoodNrvWait));
-            }
-        }
+    if (!tryVibrate() && MR::isGreaterEqualStep(this, ::sVibrateStep)) {
+        mVibrateOffset.zero();
+        setNerve(MR::isOnPlayer(this) ? static_cast< const Nerve* >(GET_NERVE(DriftWood, DriftWoodNrvWaitLand))
+                                      : GET_NERVE(DriftWood, DriftWoodNrvWait));
     }
 }
 
@@ -103,33 +99,24 @@ void DriftWood::connectToScene(const MapObjActorInitInfo&) {
 }
 
 void DriftWood::calcAndSetBaseMtx() {
-    TPos3f mtx;
+    Pos3f mtx;
     MR::calcMtxFromGravityAndZAxis(&mtx, this, mGravity, mRailDirection);
     MR::setBaseTRMtx(this, mtx);
 }
 
 void DriftWood::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     if (MR::isSensorPlayer(pReceiver)) {
-        TVec3f delta;
+        Vec3f delta;
         delta.sub(pSender->mPosition, pReceiver->mPosition);
 
-        TVec3f upVec;
+        Vec3f upVec;
         MR::calcUpVec(&upVec, this);
 
-        TVec3f result = delta.killElement(upVec);
+        Vec3f side = delta.killElement(upVec);
 
-        f32 radius = pReceiver->mRadius;
-        f32 magnitude = result.length();
-        f32 threshold = 140.0f + radius;
-
-        if (magnitude > threshold) {
-        } else {
-            LiveActor* mHost = pReceiver->mHost;
-
-            if (!MR::isInWater(mHost, TVec3f(0.0f, 0.0f, 0.0f))) {
-                MR::sendMsgEnemyAttackFlip(pReceiver, pSender);
-                MR::startSound(this, "SE_OJ_DRIFT_WOOD_ATTACK");
-            }
+        if (!(side.length() > ::sAttackRange + pReceiver->mRadius) &&!MR::isInWater(pReceiver->mHost, Vec3f(0.0f, 0.0f, 0.0f))) {
+            MR::sendMsgEnemyAttackFlip(pReceiver, pSender);
+            MR::startSound(this, "SE_OJ_DRIFT_WOOD_ATTACK");
         }
     } else if (MR::isSensorMapObj(pReceiver) && MR::sendMsgEnemyAttack(pReceiver, pSender) && MR::isOnPlayer(this)) {
         MR::tryRumblePadMiddle(this, PLAYER_1);
@@ -142,11 +129,9 @@ bool DriftWood::tryVibrate() {
             setNerve(GET_NERVE(DriftWood, DriftWoodNrvVibrateLand));
             return true;
         }
-    } else {
-        if (isNerve(GET_NERVE(DriftWood, DriftWoodNrvWaitLand)) || isNerve(GET_NERVE(DriftWood, DriftWoodNrvWaitLand))) {
-            setNerve(GET_NERVE(DriftWood, DriftWoodNrvVibrateTakeOff));
-            return true;
-        }
+    } else if (isNerve(GET_NERVE(DriftWood, DriftWoodNrvWaitLand))) {
+        setNerve(GET_NERVE(DriftWood, DriftWoodNrvVibrateTakeOff));
+        return true;
     }
 
     return false;

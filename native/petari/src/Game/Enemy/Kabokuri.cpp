@@ -1,4 +1,5 @@
 #include "Game/Enemy/Kabokuri.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Enemy/AnimScaleController.hpp"
 #include "Game/Enemy/KabokuriFireHolder.hpp"
 #include "Game/Enemy/Kuribo.hpp"
@@ -12,8 +13,8 @@
 #include "Game/Util/ActorStateUtil.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapInfo.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/Table.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
@@ -34,7 +35,7 @@ namespace {
     static const f32 sNormalFreq = 0.9f;
     static const f32 sNormalGravity = 0.2f;
     static const f32 sRailCoordStepInterval = 50.0f;
-    static const s32 sWaitTime = 60;
+    static const s32 sWaitTime = NebulaFrameClock::stepsOfSeconds(1);
     static const f32 sWalkSpeed = 0.2f;
     static const f32 sWalkTurnDegree = 2.0f;
     static const f32 sWalkGoalRange = 25.0f;
@@ -61,11 +62,11 @@ namespace NrvKabokuri {
 
 Kabokuri::Kabokuri(const char* pName)
     : LiveActor(pName), mKuribo(), mBreakModel(), mAnimeScale(), mStateBindStartPointer(), mRotationQuat(0.0f, 0.0f, 0.0f, 1.0f),
-      mFrontVec(0.0f, 0.0f, 1.0f), _B8(-1), mIsValidDropFire() {
+      mFrontVec(0.0f, 0.0f, 1.0f), mIsValidDropFire() {
     KabokuriFireHolderFunc::createHolder();
 }
 
-void Kabokuri::init(const JMapInfoIter& rIter) {
+void Kabokuri::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initRailRider(rIter);
     MR::moveCoordAndTransToNearestRailPos(this);
@@ -73,7 +74,7 @@ void Kabokuri::init(const JMapInfoIter& rIter) {
     initModelManagerWithAnm("Kabokuri", nullptr, false);
     MR::connectToSceneEnemy(this);
     MR::initLightCtrl(this);
-    MR::getJMapInfoArg0WithInit(rIter, &mIsFloating);
+    MR::getPlacementArg0WithInit(rIter, &mIsFloating);
 
     if (!mIsFloating) {
         MR::onCalcGravity(this);
@@ -81,18 +82,18 @@ void Kabokuri::init(const JMapInfoIter& rIter) {
     } else {
         MR::offCalcGravity(this);
 
-        TVec3f upVec;
+        Vec3f upVec;
         mRotationQuat.getYDir(upVec);
         mGravity.set(-upVec);
     }
 
     initBinder(::sBinderRadius * mScale.y, ::sBinderRadius * mScale.y, 0);
-    initEffectKeeper(1, nullptr, false);
+    initEffectKeeper(1, nullptr);
     initSound(2, false);
     initSensor();
     MR::initShadowVolumeSphere(this, ::sShadowRadius);
     initNerve(GET_NERVE(Kabokuri, KabokuriNrvWait));
-    MR::initStarPointerTarget(this, 90.0f * mScale.y, TVec3f(0.0f, 90.0f * mScale.y, 0.0f));
+    MR::initStarPointerTarget(this, 90.0f * mScale.y, Vec3f(0.0f, 90.0f * mScale.y, 0.0f));
 
     mAnimeScale = new AnimScaleController(nullptr);
     mAnimeScale->setParamTight();
@@ -100,7 +101,7 @@ void Kabokuri::init(const JMapInfoIter& rIter) {
     mStateBindStartPointer = new WalkerStateBindStarPointer(this, mAnimeScale);
 
     // "Kabokuri kuribo"
-    mKuribo = new Kuribo("\203\112\203\173\203\116\203\212\203\116\203\212\203\173\201\133" /* カボクリクリボー */);
+    mKuribo = new Kuribo("カボクリクリボー");
 
     if (mIsFloating) {
         mKuribo->onNoGravitySupport();
@@ -110,7 +111,7 @@ void Kabokuri::init(const JMapInfoIter& rIter) {
     mKuribo->makeActorDead();
 
     // "Broken model"
-    mBreakModel = MR::createModelObjMapObjStrongLight("\211\363\202\352\203\202\203\146\203\213" /* 壊れモデル */, "KabokuriBreak", getBaseMtx());
+    mBreakModel = MR::createModelObjMapObjStrongLight("壊れモデル", "KabokuriBreak", getBaseMtx());
     mBreakModel->kill();
 
     MR::useStageSwitchWriteDead(this, rIter);
@@ -128,8 +129,8 @@ void Kabokuri::initSensor() {
 
     initHitSensor(2);
 
-    MR::addHitSensorEnemy(this, "body", 8, ::sBodyHitRadius * scale, TVec3f(0.0f, ::sBodyHitYOffset * scale, 0.0f));
-    MR::addHitSensorEnemyAttack(this, "attack", 8, ::sAttackHitRadius * scale, TVec3f(0.0f, ::sAttackHitYOffset * scale, 0.0f));
+    MR::addHitSensorEnemy(this, "body", 8, ::sBodyHitRadius * scale, Vec3f(0.0f, ::sBodyHitYOffset * scale, 0.0f));
+    MR::addHitSensorEnemyAttack(this, "attack", 8, ::sAttackHitRadius * scale, Vec3f(0.0f, ::sAttackHitYOffset * scale, 0.0f));
 }
 
 void Kabokuri::control() {
@@ -145,7 +146,7 @@ void Kabokuri::control() {
 
 void Kabokuri::calcAndSetBaseMtx() {
     MR::setBaseTRMtx(this, mRotationQuat);
-    MR::setBaseScale(this, mAnimeScale->_C * mScale);
+    MR::setBaseScale(this, mAnimeScale->mScale * mScale);
 }
 
 void Kabokuri::updatePose() {
@@ -194,7 +195,7 @@ void Kabokuri::addVelocityToRailPoint(f32 speed) {
         }
     }
 
-    TVec3f velocity;
+    Vec3f velocity;
     MR::calcVelocityMoveToTarget(&velocity, this, MR::getRailPos(this), 1.0f);
     if (velocity.dot(mFrontVec) > 0.4f) {
         mVelocity.add(velocity * speed);

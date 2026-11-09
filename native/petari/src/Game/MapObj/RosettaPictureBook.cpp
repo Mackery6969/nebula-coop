@@ -14,8 +14,8 @@
 #include "Game/Util/SoundUtil.hpp"
 
 namespace {
-    const s32 hFadeOutFrame = 60;
-    const s32 hFadeInFrame = 60;
+    const s32 sFadeOutFrame = 60;
+    const s32 sFadeInFrame = 60;
 };  // namespace
 
 namespace NrvRosettaPictureBook {
@@ -29,12 +29,12 @@ namespace NrvRosettaPictureBook {
 RosettaPictureBook::RosettaPictureBook(const char* pName) : LiveActor(pName), mLayout(), mIconAButton(), mIsValidOpenIconAButton() {
 }
 
-void RosettaPictureBook::init(const JMapInfoIter& rIter) {
+void RosettaPictureBook::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("RosettaPictureBook", nullptr, false);
     MR::connectToSceneMapObj(this);
     initHitSensor(1);
-    MR::addHitSensorMapObjSimple(this, "body", 8, 150.0f, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorMapObjSimple(this, "body", 8, 150.0f, Vec3f(0.0f, 0.0f, 0.0f));
 
     mLayout = new PictureBookLayout(1, MR::getPictureBookChapterCanRead(), false);
     mLayout->initWithoutIter();
@@ -59,15 +59,11 @@ void RosettaPictureBook::kill() {
     mIconAButton->kill();
 }
 
-void RosettaPictureBook::makeArchiveList(NameObjArchiveListCollector* pCollector, const JMapInfoIter& rIter) {
-    PictureBookLayout::makeArchiveList(pCollector, 1, MR::getPictureBookChapterCanRead(), false);
-}
-
 void RosettaPictureBook::control() {
     mIsValidOpenIconAButton = false;
 }
 
-void RosettaPictureBook::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
+void RosettaPictureBook::attackSensor(HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (MR::isOnGroundPlayer()) {
         mIsValidOpenIconAButton = true;
     }
@@ -83,19 +79,11 @@ void RosettaPictureBook::exeWait() {
         mIconAButton->term();
     }
 
-    if (!mIsValidOpenIconAButton) {
+    if (!mIsValidOpenIconAButton || !mIconAButton->isOpen() || !MR::isPressedJump(PLAYER_1)) {
         return;
     }
 
-    if (!mIconAButton->isOpen()) {
-        return;
-    }
-
-    if (!MR::isPressedJump(PLAYER_1)) {
-        return;
-    }
-
-    MR::requestStartDemoMarioPuppetableWithoutCinemaFrame(this, "\203\215\203\133\203\142\203\136\212\107\226\173\203\146\203\202" /* ロゼッタ絵本デモ */, GET_NERVE(RosettaPictureBook, HostTypeNrvFadeOut),
+    MR::requestStartDemoMarioPuppetableWithoutCinemaFrame(this, "ロゼッタ絵本デモ", GET_NERVE(RosettaPictureBook, HostTypeNrvFadeOut),
                                                           GET_NERVE(RosettaPictureBook, HostTypeNrvDemoWait));
 }
 
@@ -107,12 +95,12 @@ void RosettaPictureBook::exeFadeOut() {
         MR::startSystemSE("SE_SY_TALK_START");
         MR::requestMovementOn(mIconAButton);
         mIconAButton->term();
-        MR::closeWipeCircle(::hFadeOutFrame);
-        MR::stopStageBGM(::hFadeOutFrame);
+        MR::closeWipeCircle(::sFadeOutFrame);
+        MR::stopStageBGM(::sFadeOutFrame);
         MR::startBckPlayer("Wait");
     }
 
-    if (MR::isGreaterStep(this, ::hFadeOutFrame)) {
+    if (MR::isGreaterStep(this, ::sFadeOutFrame)) {
         mLayout->appear();
         setNerve(GET_NERVE(RosettaPictureBook, HostTypeNrvReading));
     }
@@ -124,17 +112,17 @@ void RosettaPictureBook::exeReading() {
     }
 
     if (MR::isDead(mLayout)) {
-        MR::endDemo(this, "\203\215\203\133\203\142\203\136\212\107\226\173\203\146\203\202" /* ロゼッタ絵本デモ */);
+        MR::endDemo(this, "ロゼッタ絵本デモ");
         setNerve(GET_NERVE(RosettaPictureBook, HostTypeNrvFadeIn));
     }
 }
 
 void RosettaPictureBook::exeFadeIn() {
     if (MR::isFirstStep(this)) {
-        MR::openWipeCircle(::hFadeInFrame);
+        MR::openWipeCircle(::sFadeInFrame);
     }
 
-    if (MR::isGreaterStep(this, ::hFadeInFrame)) {
+    if (MR::isGreaterStep(this, ::sFadeInFrame)) {
         setNerve(GET_NERVE(RosettaPictureBook, HostTypeNrvWait));
     }
 }

@@ -13,7 +13,7 @@ namespace NrvSignBoard {
 SignBoard::SignBoard(const char* pName) : NPCActor(pName) {
 }
 
-void SignBoard::init(const JMapInfoIter& rIter) {
+void SignBoard::init(const TableIter& rIter) {
     NPCActorCaps caps("SignBoard");
     caps.setDefault();
     caps.mWaitNerve = GET_NERVE(SignBoard, SignBoardNrvWait);
@@ -28,10 +28,10 @@ void SignBoard::init(const JMapInfoIter& rIter) {
 
     getSensor("Body")->setType(ATYPE_EYE);
 
-    new FollowCollisionArea(TVec3f(130.0f, 160.0f, 20.0f), getBaseMtx(), 80.0f);
+    new FollowCollisionArea(Vec3f(130.0f, 160.0f, 20.0f), getBaseMtx(), 80.0f);
 
-    TVec3f up;
-    MR::getUpVecFromQuat(&up, _A0);
+    Vec3f up;
+    MR::getUpVecFromQuat(&up, mPoseQuat);
 
     MR::setShadowProjection(this, nullptr, mPosition, up, true);
     MR::offCalcShadow(this, nullptr);

@@ -2,21 +2,15 @@
 
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/Util/TalkUtil.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class AnimScaleController;
 class JointController;
 struct JointControllerInfo;
 class LodCtrl;
-class NameObjArchiveListCollector;
 class NPCActorItem;
 class PartsModel;
 class TalkMessageCtrl;
-
-static const char* ReactionDefault = "Reaction";
-static const char* PointingDefault = "Pointing";
-static const char* TrampledDefault = "Trampled";
-static const char* SpinDefault = "Spin";
 
 class NPCActorCaps {
 public:
@@ -25,15 +19,12 @@ public:
     void setDefault();
     void setIndirect();
 
-    const char* _0;
     bool mModel;
     const char* mObjectName;
     bool mMakeActor;
-    bool mHostIO;
     bool mMessage;
-    bool _F;
-    const char* _10;
-    TVec3f mMessageOffset;
+    const char* mMessageId;
+    Vec3f mMessageOffset;
     MtxPtr mTalkMtx;
     const char* mTalkJointName;
     bool mInterpole;
@@ -51,21 +42,18 @@ public:
     bool mSensor;
     const char* mSensorJoint;
     f32 mSensorSize;
-    TVec3f mSensorOffset;
+    Vec3f mSensorOffset;
     s32 mSensorMax;
     bool mShadow;
     bool mUseShadow;
-    u8 _5E;
-    u8 _5F;
     f32 mShadowSize;
     bool mRailRider;
     bool mSwitchDead;
     bool mSwitchAppear;
-    u8 _67;
     bool mPointer;
-    const char* _6C;
-    const char* _70;
-    TVec3f mStarPointerOffs;
+    const char* mPointerJoint;
+    const char* mScaleJoint;
+    Vec3f mStarPointerOffs;
     f32 mPointerSize;
     s32 mSceneConnectionType;
     Nerve* mWaitNerve;
@@ -77,32 +65,28 @@ class NPCActor : public LiveActor {
 public:
     NPCActor(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void makeActorAppeared();
-    virtual void kill();
-    virtual void makeActorDead();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
+    virtual void makeActorAppeared() override;
+    virtual void kill() override;
+    virtual void makeActorDead() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
-    static void makeArchiveList(NameObjArchiveListCollector*, const JMapInfoIter&);
-    static void addArchive(NameObjArchiveListCollector*, const NPCActorItem&);
-    static void makeArchiveListDefault(NameObjArchiveListCollector*, const JMapInfoIter&);
 
-    bool initTalkCtrl(const JMapInfoIter&, const char*, const TVec3f&, MtxPtr);
-    bool initTalkCtrlDirect(const JMapInfoIter&, const char*, const TVec3f&, MtxPtr);
-    bool calcJointScale(TPos3f*, const JointControllerInfo&);
+    bool initTalkCtrl(const TableIter&, const char*, const Vec3f&, MtxPtr);
+    bool initTalkCtrlDirect(const TableIter&, const char*, const Vec3f&, MtxPtr);
+    bool calcJointScale(Pos3f*, const JointControllerInfo&);
     bool turnToPlayer();
-    bool turnToPlayer(f32);
-    bool turnToPlayer(f32, f32, f32);
+    bool turnToPlayer(f32 turnSpeedDeg);
+    bool turnToPlayer(f32 turnSpeedDeg, f32 tiltSpeedDeg, f32 maxTiltDeg);
     bool turnToDefault(f32);
     void setToDefault();
     void pushNerve(const Nerve*);
     const Nerve* popAndPushNerve(const Nerve*);
     const Nerve* popNerve();
-    bool tryPullNullNerve();
     bool isEmptyNerve() const;
     bool isScaleAnim() const;
     bool isPointingSe() const;
@@ -110,19 +94,19 @@ public:
     void updateScaleCtrl();
 
     bool isTrampledStart() const {
-        return !_DD && _E2;
+        return !mWasTrampled && mIsTrampled;
     }
 
     bool isReactionStart() const {
-        return !_E0 && _E5;
+        return !mWasReaction && mIsReaction;
     }
 
     bool isSpinAttackedStart() const {
-        return !_DE && _E3;
+        return !mWasSpinAttacked && mIsSpinAttacked;
     }
 
     bool isPointingStart() const {
-        return !_DF && _E4;
+        return !mWasPointed && mIsPointed;
     }
 
     bool tryPushNullNerve();
@@ -134,73 +118,73 @@ public:
 
     void setInitPose();
 
-    void initialize(const JMapInfoIter&, const NPCActorCaps&);
+    void initialize(const TableIter&, const NPCActorCaps&);
 
     void equipment(const NPCActorItem&, bool);
 
-    void setBaseMtx(const TPos3f&);
+    void setBaseMtx(const Pos3f&);
     void setBaseMtx(MtxPtr);
 
     inline void setDefaults() {
-        _130 = "Spin";
-        _134 = "Trampled";
-        _138 = "Pointing";
-        _13C = "Reaction";
+        mSpinAction = "Spin";
+        mTrampleAction = "Trampled";
+        mPointingAction = "Pointing";
+        mReactionAction = "Reaction";
     }
 
     inline void setDefaults(const char* pReaction, const char* pPointing, const char* pTrampled, const char* pSpin) {
-        _130 = pSpin;
-        _134 = pTrampled;
-        _138 = pPointing;
-        _13C = pReaction;
+        mSpinAction = pSpin;
+        mTrampleAction = pTrampled;
+        mPointingAction = pPointing;
+        mReactionAction = pReaction;
     }
 
     inline void setDefaults2(const char* pReaction, const char* pPointing, const char* pSpin, const char* pTrampled) {
-        _134 = pTrampled;
-        _130 = pSpin;
-        _138 = pPointing;
-        _13C = pReaction;
+        mTrampleAction = pTrampled;
+        mSpinAction = pSpin;
+        mPointingAction = pPointing;
+        mReactionAction = pReaction;
     }
 
     inline void setDefaults3(const char* pReaction, const char* pPointing, const char* pSpin, const char* pTrampled) {
-        _134 = pTrampled;
-        _130 = pSpin;
-        _13C = pPointing;
-        _138 = pReaction;
+        mTrampleAction = pTrampled;
+        mSpinAction = pSpin;
+        mReactionAction = pPointing;
+        mPointingAction = pReaction;
     }
 
-    inline void setDefaults4(const char* a1, const char* a2, const char* a3, const char* a4) {
-        _130 = a4;
-        _13C = a2;
-        _134 = a3;
-        _138 = a1;
+    inline void setDefaults4(const char* pPointingAction, const char* pReactionAction, const char* pTrampleAction, const char* pSpinAction) {
+        mSpinAction = pSpinAction;
+        mReactionAction = pReactionAction;
+        mTrampleAction = pTrampleAction;
+        mPointingAction = pPointingAction;
     }
 
     inline void setDefaultsParam() {
-        mParam._14 = "Wait";
-        mParam._18 = "Turn";
-        mParam._1C = "Talk";
-        mParam._20 = "TalkTurn";
-        _130 = "Spin";
-        _134 = "Trampled";
-        _138 = "Pointing";
-        _13C = "Reaction";
+        mParam.mWaitAction = "Wait";
+        mParam.mWaitTurnAction = "Turn";
+        mParam.mTalkAction = "Talk";
+        mParam.mTalkTurnAction = "TalkTurn";
+        mSpinAction = "Spin";
+        mTrampleAction = "Trampled";
+        mPointingAction = "Pointing";
+        mReactionAction = "Reaction";
     }
 
     inline void setDefaults2() {
-        _130 = "Spin";
-        _134 = "Trampled";
-        _138 = "Pointing";
+        mSpinAction = "Spin";
+        mTrampleAction = "Trampled";
+        mPointingAction = "Pointing";
     }
 
     inline void setTalkAction(const char* pActionName) {
-        _11C = pActionName;
-        _120 = pActionName;
+        mMoveAction = pActionName;
+        mMoveTalkAction = pActionName;
     }
 
     inline void setTalkAction(const char* pActionName, const char* pActionName2) {
-        _11C = pActionName;
-        _120 = pActionName2;
+        mMoveAction = pActionName;
+        mMoveTalkAction = pActionName2;
     }
 
     TalkMessageCtrl* getMsgCtrl() const {
@@ -209,51 +193,45 @@ public:
 
     LodCtrl* mLodCtrl;
     TalkMessageCtrl* mMsgCtrl;
-    PartsModel* _94;
-    PartsModel* _98;
-    s32 _9C;
-    TQuat4f _A0;
-    TQuat4f _B0;
-    TVec3f _C0;
-    TVec3f _CC;
-    u8 _D8;
-    u8 _D9;
-    u8 _DA;
-    u8 _DB;
-    u8 _DC;
-    u8 _DD;
-    u8 _DE;
-    u8 _DF;
-    u8 _E0;
-    u8 _E1;
-    u8 _E2;
-    u8 _E3;
-    u8 _E4;
-    u8 _E5;
-    u8 _E6;
-    u8 _E7;
+    PartsModel* mGoods0;
+    PartsModel* mGoods1;
+    s32 mTrampleCoolDown;
+    Quat4f mPoseQuat;
+    Quat4f mInitPoseQuat;
+    Vec3f mInitPos;
+    Vec3f mPoseRotation;
+    u8 mIsTrampledStart;
+    u8 mIsSpinAttackedStart;
+    u8 mIsPointingStart;
+    u8 mIsReactionStart;
+    u8 mWasTrampled;
+    u8 mWasSpinAttacked;
+    u8 mWasPointed;
+    u8 mWasReaction;
+    u8 mIsTrampled;
+    u8 mIsSpinAttacked;
+    u8 mIsPointed;
+    u8 mIsReaction;
+    u8 mIsJetTurtleHit;
     MR::ActorTalkParam mParam;
-    f32 _10C;
-    f32 _110;
-    f32 _114;
-    f32 _118;
-    const char* _11C;
-    const char* _120;
-    u8 _124;  // follow rail on ground
-    u8 _125;
-    u8 _126;
-    u8 _127;
-    u8 _128;
-    f32 _12C;
-    const char* _130;
-    const char* _134;
-    const char* _138;
-    const char* _13C;
+    f32 mRailSpeed;
+    f32 mRailAccel;
+    f32 mRailPoseRate;
+    f32 mMoveTalkBckRate;
+    const char* mMoveAction;
+    const char* mMoveTalkAction;
+    u8 mIsRailOnGround;  // follow rail on ground
+    u8 mUseReactionActions;
+    f32 mSwingReactDist;
+    const char* mSpinAction;
+    const char* mTrampleAction;
+    const char* mPointingAction;
+    const char* mReactionAction;
     AnimScaleController* mScaleController;
     JointController* mDelegator;
     const Nerve* mCurNerve;
     Nerve* mWaitNerve;
     Nerve* mTalkNerve;
     Nerve* mReactionNerve;
-    s32 _158;
+    s32 mPointingSeStep;
 };

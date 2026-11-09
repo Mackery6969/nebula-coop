@@ -1,5 +1,5 @@
 #include "Game/Util/GameLightSignal.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include "Game/Render/FrameList.hpp"
 #include "Game/LiveActor/ActorLightCtrl.hpp"
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/Map/LightDataHolder.hpp"
@@ -7,6 +7,7 @@
 #include "Game/Map/LightPointCtrl.hpp"
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
+#include "Game/Util/Array.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include <nebula_game_api.h>
 #include "Game/System/NebulaHost.hpp"
@@ -19,17 +20,17 @@ namespace {
         u32 mFrame;
     };
 
-    const u32 cRequesters = 64;
     // A requester silent for more frames than this keeps its light only while the game clips it: a clipped actor runs
     // no control, which is where it asks. One that died, or that the game runs but that stopped asking, lets its light
     // fade out.
     const u32 cRequestGap = 2;
-    Requester sRequesters[cRequesters];
+    // Every actor that asked: no limit.
+    MR::GrowBuffer< Requester > sRequesters;
     u32 sRequesterCount;
     const LiveActor* sStarCore;
     u32 sFrame;
     // The ActorLightInfos already sent this frame: one is loaded for every draw buffer group that uses it.
-    const ActorLightInfo* sWorldSent[16];
+    MR::GrowBuffer< const ActorLightInfo* > sWorldSent;
     u32 sWorldSentCount;
     u32 sWorldFrame;
 
@@ -84,12 +85,12 @@ namespace GameLightSignal {
             if (director->mDefaultAreaLight != nullptr) {
                 actorLightValues(NEBULA_LIGHT_AREA, director->mDefaultAreaLight->mPlanetLight);
             }
-            if (director->_1C != nullptr && director->_1C->mAreaLightInf != nullptr) {
-                actorLightValues(NEBULA_LIGHT_PLAYER, *director->_1C->getActorLight());
+            if (director->mPlayerLightCtrl != nullptr && director->mPlayerLightCtrl->mAreaLightInf != nullptr) {
+                actorLightValues(NEBULA_LIGHT_PLAYER, *director->mPlayerLightCtrl->getActorLight());
             }
         }
         if (sStarCore != nullptr && !MR::isDead(sStarCore)) {
-            const TVec3f& p = sStarCore->mPosition;
+            const Vec3f& p = sStarCore->mPosition;
             const f32 values[4] = {p.x, p.y, p.z, sStarCore->mScale.x};
             NebulaHost::gameLight(NEBULA_LIGHT_STAR_CORE, 0, values);
         }
@@ -108,8 +109,8 @@ namespace GameLightSignal {
         }
     }
 
-    void sun(const TVec3f& rPosition) {
-        const TVec3f camera = MR::getCamPos();
+    void sun(const Vec3f& rPosition) {
+        const Vec3f camera = MR::getCamPos();
         const f32 x = rPosition.x - camera.x;
         const f32 y = rPosition.y - camera.y;
         const f32 z = rPosition.z - camera.z;
@@ -129,13 +130,13 @@ namespace GameLightSignal {
     void pointLight(const PointLightInfo* pInfo) {
         const f32 reference = pInfo->mRefDistance;
         const f32 brightness = pInfo->mRefBrightness;
-        const J3DLightFalloff function = pInfo->mDistAttnFn;
+        const LightFalloff function = pInfo->mDistAttnFn;
         f32 half = 0.0f;
-        if (reference > 0.0f && brightness > 0.0f && brightness < 1.0f && function != J3D_FALLOFF_NONE) {
+        if (reference > 0.0f && brightness > 0.0f && brightness < 1.0f && function != LIGHT_FALLOFF_NONE) {
             const f32 q = (1.0f - brightness) / brightness;
-            const f32 k1 = function == J3D_FALLOFF_GENTLE ? q / reference : function == J3D_FALLOFF_MEDIUM ? 0.5f * q / reference : 0.0f;
-            const f32 k2 = function == J3D_FALLOFF_STEEP    ? q / (reference * reference)
-                           : function == J3D_FALLOFF_MEDIUM ? 0.5f * q / (reference * reference)
+            const f32 k1 = function == LIGHT_FALLOFF_GENTLE ? q / reference : function == LIGHT_FALLOFF_MEDIUM ? 0.5f * q / reference : 0.0f;
+            const f32 k2 = function == LIGHT_FALLOFF_STEEP    ? q / (reference * reference)
+                           : function == LIGHT_FALLOFF_MEDIUM ? 0.5f * q / (reference * reference)
                                                       : 0.0f;
             half = k2 > 0.0f ? (-k1 + __builtin_sqrtf(k1 * k1 + 4.0f * k2)) / (2.0f * k2) : 1.0f / k1;
         }
@@ -145,12 +146,12 @@ namespace GameLightSignal {
         NebulaHost::gameLight(NEBULA_LIGHT_POINT, NebulaHost::objectId(pInfo), values);
     }
 
-    // LightPointCtrl blends its light with J3DNativeState::initLightDistAttn(15, brightness, J3D_FALLOFF_GENTLE): it halves at
+    // LightPointCtrl blends its light with LightValues::distAttn(15, brightness, LIGHT_FALLOFF_GENTLE): it halves at
     // 15 sqrt(b / (1 - b)).
-    void pointRequest(const LiveActor* pActor, const TVec3f& rPosition, Color8 color, f32 brightness) {
-        const f32 b = brightness >= 0.95f ? (brightness <= 0.999999f ? brightness : 0.999999f) : 0.95f;
+    void pointRequest(const LiveActor* pActor, const Vec3f& rPosition, Color8 color, f32 brightness) {
+        const f32 clamped = brightness >= 0.95f ? (brightness <= 0.999999f ? brightness : 0.999999f) : 0.95f;
         const f32 values[7] = {rPosition.x, rPosition.y,  rPosition.z, channel(color.r), channel(color.g), channel(color.b),
-                               15.0f * __builtin_sqrtf(b / (1.0f - b))};
+                               15.0f * __builtin_sqrtf(clamped / (1.0f - clamped))};
         NebulaHost::gameLight(NEBULA_LIGHT_POINT_REQUEST, NebulaHost::objectId(pActor), values);
         Requester* slot = nullptr;
         for (u32 i = 0; i < sRequesterCount && slot == nullptr; i++) {
@@ -159,16 +160,7 @@ namespace GameLightSignal {
             }
         }
         if (slot == nullptr) {
-            if (sRequesterCount < cRequesters) {
-                slot = &sRequesters[sRequesterCount++];
-            } else {
-                slot = &sRequesters[0];
-                for (u32 i = 1; i < cRequesters; i++) {
-                    if (sRequesters[i].mFrame < slot->mFrame) {
-                        slot = &sRequesters[i];
-                    }
-                }
-            }
+            slot = &sRequesters.room(sRequesterCount + 1)[sRequesterCount++];
         }
         slot->mActor = pActor;
         for (u32 i = 0; i < 7; i++) {
@@ -187,9 +179,7 @@ namespace GameLightSignal {
                 return;
             }
         }
-        if (sWorldSentCount < 16) {
-            sWorldSent[sWorldSentCount++] = pInfo;
-        }
+        sWorldSent.room(sWorldSentCount + 1)[sWorldSentCount++] = pInfo;
         worldLight(pInfo->mInfo0);
         worldLight(pInfo->mInfo1);
     }

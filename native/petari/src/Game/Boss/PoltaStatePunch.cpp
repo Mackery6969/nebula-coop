@@ -1,4 +1,5 @@
 #include "Game/Boss/PoltaStatePunch.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Boss/Polta.hpp"
 #include "Game/Boss/PoltaArm.hpp"
 #include "Game/Boss/PoltaFunction.hpp"
@@ -15,7 +16,7 @@ namespace NrvPoltaStatePunch {
 };  // namespace NrvPoltaStatePunch
 
 PoltaStatePunch::PoltaStatePunch(Polta* pPolta)
-    : ActorStateBase< Polta >("[state]\222\156\226\312\222\100\202\253\215\125\214\202" /* [state]地面叩き攻撃 */, pPolta), mIsLeftArmActor(true), mIsActionAffectBody(true) {
+    : ActorStateBase< Polta >("[state]地面叩き攻撃", pPolta), mIsLeftArmActor(true), mIsActionAffectBody(true) {
     initNerve(GET_NERVE(PoltaStatePunch, PoltaStatePunchNrvStart));
 }
 
@@ -33,16 +34,13 @@ PoltaArm* PoltaStatePunch::getAttackActor() {
     }
 }
 
-// Unused remnant also found in PoltaStateAttackGround?
-const char* unusedDamagePunch = "Damage";
-
 void PoltaStatePunch::exeStart() {
     if (MR::isFirstStep(this)) {
         PoltaFunction::requestStartControllArm(getHost());
         PoltaFunction::startAction(getHost(), mIsLeftArmActor ? "PunchLeftStart" : "PunchRightStart", mIsActionAffectBody);
         MR::startSound(getHost(), "SE_BV_POLTA_PREP_PUNCH");
     }
-    if (MR::isLessStep(this, 60)) {
+    if (MR::isLessStep(this, NebulaFrameClock::stepsOfSeconds(1))) {
         getHost()->rotateToPlayer();
     }
 
@@ -98,7 +96,4 @@ bool PoltaStatePunch::isEnableAttack(const HitSensor* pSensor) const {
 
 bool PoltaStatePunch::isEnablePunchArm() const {
     return mIsLeftArmActor ? PoltaFunction::isEnableAttackLeftArm(getHost()) : PoltaFunction::isEnableAttackRightArm(getHost());
-}
-
-PoltaStatePunch::~PoltaStatePunch() {
 }

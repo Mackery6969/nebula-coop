@@ -16,12 +16,12 @@ void ImageEffectState::update() {
             return;
         }
 
-        if (getEffect()->_C) {
+        if (getEffect()->mIsOn) {
             return;
         }
 
         ImageEffectBase* pBase = getEffect();
-        pBase->_C = true;
+        pBase->mIsOn = true;
         pBase->notifyTurnOn();
         return;
     }
@@ -29,8 +29,8 @@ void ImageEffectState::update() {
     ImageEffectBase* pBase = mHost->mCurrentEffect;
 
     if (pBase != nullptr) {
-        if (pBase->_C) {
-            pBase->_C = false;
+        if (pBase->mIsOn) {
+            pBase->mIsOn = false;
             pBase->notifyTurnOff();
             return;
         }
@@ -42,7 +42,7 @@ void ImageEffectState::update() {
 
     if (getEffect() != nullptr) {
         ImageEffectBase* pBase = getEffect();
-        pBase->_C = true;
+        pBase->mIsOn = true;
         pBase->notifyTurnOn();
     }
 
@@ -58,59 +58,59 @@ void ImageEffectState::forceOff() {
     }
 
     pBase = getEffect();
-    pBase->_D = false;
-    pBase->_C = false;
-    pBase->_10 = 0.0f;
+    pBase->mIsShown = false;
+    pBase->mIsOn = false;
+    pBase->mFadeLevel = 0.0f;
     pBase->notifyForceOff();
 }
 
 namespace ImageEffectStateImpl {
     StateBloomNormal::StateBloomNormal(ImageEffectDirector* pHost)
-        : ImageEffectState(pHost), _8(true), _C(), _10(), mBloomIntensity(), _18(), mThreshold(), _20(), mIntensity1(), _28(), mIntensity2() {
+        : ImageEffectState(pHost), mIsSnap(true), mBloomIntensityNow(), mBloomIntensity(), mThresholdNow(), mThreshold(), mIntensity1Now(), mIntensity1(), mIntensity2Now(), mIntensity2() {
     }
 
     void StateBloomNormal::update() {
-        if (_8) {
-            _10 = mBloomIntensity;
-            _18 = mThreshold;
-            _20 = mIntensity1;
-            _28 = mIntensity2;
-            _8 = false;
+        if (mIsSnap) {
+            mBloomIntensityNow = mBloomIntensity;
+            mThresholdNow = mThreshold;
+            mIntensity1Now = mIntensity1;
+            mIntensity2Now = mIntensity2;
+            mIsSnap = false;
         } else {
             f32 rate = 0.1f;
-            _10 += ((mBloomIntensity + 0.5f) - _10) * rate;
-            _18 += ((mThreshold + 0.5f) - _18) * rate;
-            _20 += ((mIntensity1 + 0.5f) - _20) * rate;
-            _28 += ((mIntensity2 + 0.5f) - _28) * rate;
+            mBloomIntensityNow += ((mBloomIntensity + 0.5f) - mBloomIntensityNow) * rate;
+            mThresholdNow += ((mThreshold + 0.5f) - mThresholdNow) * rate;
+            mIntensity1Now += ((mIntensity1 + 0.5f) - mIntensity1Now) * rate;
+            mIntensity2Now += ((mIntensity2 + 0.5f) - mIntensity2Now) * rate;
 
-            if (_10 > 255.0f) {
-                _10 = 255.0f;
+            if (mBloomIntensityNow > 255.0f) {
+                mBloomIntensityNow = 255.0f;
             }
 
-            if (_18 > 255.0f) {
-                _18 = 255.0f;
+            if (mThresholdNow > 255.0f) {
+                mThresholdNow = 255.0f;
             }
 
-            if (_20 > 255.0f) {
-                _20 = 255.0f;
+            if (mIntensity1Now > 255.0f) {
+                mIntensity1Now = 255.0f;
             }
 
-            if (_28 > 255.0f) {
-                _28 = 255.0f;
+            if (mIntensity2Now > 255.0f) {
+                mIntensity2Now = 255.0f;
             }
         }
 
-        u8 bloomIntensity = (s32)(_10);
-        static_cast< BloomEffect* >(StateBloomNormal::getEffect())->_14 = bloomIntensity;
+        u8 bloomIntensity = (s32)(mBloomIntensityNow);
+        static_cast< BloomEffect* >(StateBloomNormal::getEffect())->mBloomIntensity = bloomIntensity;
 
-        u8 threshold = (s32)(_18);
-        static_cast< BloomEffect* >(StateBloomNormal::getEffect())->_20 = threshold;
+        u8 threshold = (s32)(mThresholdNow);
+        static_cast< BloomEffect* >(StateBloomNormal::getEffect())->mThreshold = threshold;
 
-        u8 intensity1 = (s32)(_20);
-        static_cast< BloomEffect* >(StateBloomNormal::getEffect())->_18 = intensity1 / 255.0f;
+        u8 intensity1 = (s32)(mIntensity1Now);
+        static_cast< BloomEffect* >(StateBloomNormal::getEffect())->mIntensity1 = intensity1 / 255.0f;
 
-        u8 intensity2 = (s32)(_28);
-        static_cast< BloomEffect* >(StateBloomNormal::getEffect())->_1C = intensity2 / 255.0f;
+        u8 intensity2 = (s32)(mIntensity2Now);
+        static_cast< BloomEffect* >(StateBloomNormal::getEffect())->mIntensity2 = intensity2 / 255.0f;
 
         ImageEffectState::update();
     }
@@ -124,7 +124,7 @@ namespace ImageEffectStateImpl {
     }
 
     void StateBloomNormal::onChange() {
-        _8 = true;
+        mIsSnap = true;
     }
 
     void StateBloomNormal::setBloomIntensity(u8 bloomIntensity) {

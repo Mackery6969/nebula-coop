@@ -6,8 +6,6 @@
 
 class TripodBossAccesser : public NameObj {
 public:
-    /// @brief Creates a new `TripodBossAccesser`.
-    /// @param pName A pointer to the null-terminated name of the object.
     TripodBossAccesser(const char* pName);
 
     TripodBoss* getTriPodBoss() const;
@@ -46,13 +44,13 @@ namespace MR {
     bool isRideMarioTripodBoss();
     bool tryDamageDemoTripodBoss();
     void requestEndDamageDemoTripodBoss();
-    uintptr_t getTripodBossGravityHostID();
-    void setTripodBossJointAttachBaseMatrix(const TPos3f&, s32);
+    const void* getTripodBossGravityHost();
+    void setTripodBossJointAttachBaseMatrix(const Pos3f&, s32);
     void requestStartTripodBossStepSequence(s32);
     void addTripodBossStepPoint(TripodBossStepPoint*);
-    void getTripodBossJointMatrix(TPos3f*, s32);
-    void getTripodBossAttachJointMatrix(TPos3f*, s32);
-    void concatTripodBossAttachJointMatrix(TPos3f*, s32);
+    void getTripodBossJointMatrix(Pos3f*, s32);
+    void getTripodBossAttachJointMatrix(Pos3f*, s32);
+    void concatTripodBossAttachJointMatrix(Pos3f*, s32);
     bool isSteppingTripodBossLegID(s32);
     bool isSteppingTripodBossJointID(s32);
 };  // namespace MR

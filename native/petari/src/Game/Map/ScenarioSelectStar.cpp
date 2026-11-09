@@ -1,4 +1,5 @@
 #include "Game/Map/ScenarioSelectStar.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/PowerStar.hpp"
 #include "Game/Util/MathUtil.hpp"
@@ -6,14 +7,14 @@
 #include "Game/Util/SoundUtil.hpp"
 
 namespace {
-    static const s32 cAppearWaitFrame = 60;
+    static const s32 cAppearWaitFrame = NebulaFrameClock::stepsOfSeconds(1);
     static const s32 cAppearDelayFrame = 15;
     static const s32 cHideDelayFrame = 10;
     static const f32 cNotPointingRotateSpeedZ = 1.5f;
     static const f32 cPointingRotateSpeedZ = 3.0f;
     static const f32 cPointingScale = 1.5f;
     static const f32 cNotPointingScale = 0.9f;
-    static const s32 cMoveInterval = 180;
+    static const s32 cMoveInterval = NebulaFrameClock::stepsOfSeconds(3);
     static const f32 cMoveDistance = 15.0f;
     static const s32 cAppearFrame = 60;
     static const s32 cStartPointingFrame = 20;
@@ -36,12 +37,12 @@ namespace NrvScenarioSelectStar {
 };  // namespace NrvScenarioSelectStar
 
 ScenarioSelectStar::ScenarioSelectStar(EffectSystem* pSystem)
-    : MultiSceneActor("\203\126\203\151\203\212\203\111\221\111\221\360\202\314\203\130\203\136\201\133" /* シナリオ選択のスター */, "PowerStar", false), mStarCollectedStatus(0), mScenarioNo(1), mStarId(0), mIsPointing(false),
+    : MultiSceneActor("シナリオ選択のスター", "PowerStar", false), mStarCollectedStatus(0), mScenarioNo(1), mStarId(0), mIsPointing(false),
       mRotateSpeed(0.0f), mBasePos(gZeroVec), mTranslationOnSelect(gZeroVec), mAppearFrame(::cAppearFrame), mScaleOnSelect(1.0f) {
     initEffect(pSystem, 0, "ScenarioStar");
 }
 
-void ScenarioSelectStar::init(const JMapInfoIter& rIter) {
+void ScenarioSelectStar::init(const TableIter& /*rIter*/) {
     initNerve(GET_NERVE(ScenarioSelectStar, ScenarioSelectStarNrvNotPointing));
 }
 
@@ -87,10 +88,10 @@ void ScenarioSelectStar::notSelect() {
 }
 
 bool ScenarioSelectStar::isAppearEnd() const {
-    return !_30 && !isNerve(GET_NERVE(ScenarioSelectStar, ScenarioSelectStarNrvAppear));
+    return !mIsDead && !isNerve(GET_NERVE(ScenarioSelectStar, ScenarioSelectStarNrvAppear));
 }
 
-void ScenarioSelectStar::setup(s32 scenarioNo, int starCollectedStatus, const TVec3f& rPos, s32 starId) {
+void ScenarioSelectStar::setup(s32 scenarioNo, int starCollectedStatus, const Vec3f& rPos, s32 starId) {
     mStarCollectedStatus = starCollectedStatus;
     mScenarioNo = scenarioNo;
     mBasePos.set(rPos);
@@ -123,9 +124,7 @@ bool ScenarioSelectStar::tryEndPointing() {
 }
 
 void ScenarioSelectStar::updatePos() {
-    // TODO: MR::repeat should probably be MR::repeatDegree?
-
-    TVec3f offset(0.0f, MR::sinDegree(MR::repeat((mRotateTime * 360.0f) / ::cMoveInterval, 0.0f, 360.0f)) * ::cMoveDistance, 0.0f);
+    Vec3f offset(0.0f, MR::sinDegree(MR::repeat((mRotateTime * 360.0f) / ::cMoveInterval, 0.0f, 360.0f)) * ::cMoveDistance, 0.0f);
     mTranslation.add(mBasePos, offset);
 }
 

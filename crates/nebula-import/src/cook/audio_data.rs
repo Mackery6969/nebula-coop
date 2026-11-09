@@ -40,11 +40,6 @@ fn be32(bytes: &[u8], at: usize) -> Result<u32> {
     Ok(u32::from_be_bytes(bytes.get(at..at + 4).context("a field past the data's end")?.try_into().unwrap()))
 }
 
-fn turn(bytes: &mut [u8], at: usize, width: usize) -> Result<()> {
-    bytes.get_mut(at..at + width).context("a field past the data's end")?.reverse();
-    Ok(())
-}
-
 /// 16-bit samples turned in place.
 fn turn_samples(samples: &mut [u8]) {
     for s in samples.chunks_exact_mut(2) {
@@ -96,7 +91,7 @@ fn decode_afc(frames: &[u8], history: &mut (i32, i32), out: &mut [u8]) {
     }
 }
 
-/// A stream as the game plays it (JASStream.hpp): the numbers it needs as host numbers, then each channel's PCM16 samples in
+/// A stream as the game plays it (StreamPlayer::Header):the numbers it needs as host numbers, then each channel's PCM16 samples in
 /// turn. The disc's blocks and their hold-over samples are gone: the whole file is in memory while it plays.
 pub fn ast(bytes: &[u8]) -> Result<Vec<u8>> {
     if bytes.len() < AST_HEADER || &bytes[..4] != b"STRM" {

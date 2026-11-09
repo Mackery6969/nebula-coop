@@ -2,7 +2,7 @@
 #include "Game/Animation/XanimePlayer.hpp"
 #include "Game/System/ResourceHolder.hpp"
 #include "Game/Util.hpp"
-#include "Game/Util/JMapInfo.hpp"
+#include "Game/Util/Table.hpp"
 
 namespace {
     static const char* sDefaultPlayDataName = "_default";
@@ -35,7 +35,7 @@ namespace {
 BckCtrl::BckCtrl(ResourceHolder* pResHolder, const char* pResName) : mControlData() {
     mDefaultCtrlData.mName = ::sDefaultPlayDataName;
     s32 numCtrl = 0;
-    JMapInfo info;
+    Table info;
     if (pResHolder->mBanmtResTable->isExistRes(pResName)) {
         info.attach(pResHolder->mBanmtResTable->getRes(pResName));
         numCtrl = info.getNumEntries();
@@ -47,7 +47,7 @@ BckCtrl::BckCtrl(ResourceHolder* pResHolder, const char* pResName) : mControlDat
 
     if (info.mData != nullptr) {
         for (int i = 0; i < info.getNumEntries(); i++) {
-            JMapInfoIter iter(&info, i);
+            TableIter iter(&info, i);
 
             const char* name = "";
             iter.getValue("name", &name);
@@ -152,7 +152,7 @@ BckCtrlData* BckCtrl::find(const char* pName) const {
     return nullptr;
 }
 
-inline f32 calcPlayRate(const J3DFrameCtrl& rCtrl, s32 playFrame, f32 baseRate = 1.0f) {
+inline f32 calcPlayRate(const FrameCtrl& rCtrl, s32 playFrame, f32 baseRate = 1.0f) {
     return baseRate * (static_cast< f32 >(rCtrl.getEnd() - rCtrl.getStart()) / playFrame);
 }
 
@@ -162,7 +162,7 @@ void BckCtrlFunction::reflectBckCtrlData(const BckCtrlData& rData, XanimePlayer*
     if (rData.mStartFrame >= 0 && rData.mStartFrame <= pFrameCtrl->getEnd()) {
         pFrameCtrl->setStart(rData.mStartFrame);
         pFrameCtrl->setLoop(rData.mStartFrame);
-        pPlayer->_84 = pPlayer->_20->getFrame();
+        pPlayer->mPrevFrame = pFrameCtrl->getFrame();
     }
 
     if (rData.mEndFrame >= 0 && rData.mEndFrame <= pFrameCtrl->getEnd()) {

@@ -1,24 +1,28 @@
 #include "Game/AudioLib/AudSoundObject.hpp"
-#include "Game/System/GameThreads.hpp"
 #include "Game/AudioLib/AudEffector.hpp"
 #include "Game/AudioLib/AudSoundId.hpp"
 #include "Game/AudioLib/AudSoundInfo.hpp"
 #include "Game/AudioLib/AudSoundNameConverter.hpp"
 #include "Game/AudioLib/AudSoundObjHolder.hpp"
 #include "Game/Util/SingletonHolder.hpp"
-#include <JSystem/JAudio2/JAISound.hpp>
-#include <JSystem/JGadget/hashcode.hpp>
+#include "Game/Sound/Sound.hpp"
 
-AudSoundObject::AudSoundObject(TVec3f* pPos, u8 numHandles, NebulaArena* pHeap)
-    : JAUSoundObject(pPos, numHandles, pHeap), JKRDisposer(), mSeVersion(0), mMapCode(0), mMapCodeExtra(0), mHashDatas(nullptr), mNumSounds(0) {
-    mNumHandles = numHandles;
-    if (mNumHandles > 0) {
-        mHashDatas = new AudSoundObjHashData[numHandles];
+namespace {
+    // Sequence ports the player foot and land sounds and the low-pass filter read.
+    const u32 cPortLpfCutoff = 10;
+    const u32 cPortMapCodeOffset = 11;
+    const u32 cPortMapCodeBank = 12;
+    // Map codes come in banks of seven; each code within a bank is twelve steps apart.
+    const s32 cMapCodeBankSize = 7;
+    const s32 cMapCodeStep = 12;
+    const s32 cLpfOpen = 0x7F;
+    // Special effect cutoffs: waterfalls and gulls under effect 2, fountains and the maze wind under effect 1.
+    const s32 cLpfCutoffSpecialFx2 = 10;
+    const s32 cLpfCutoffSpecialFx1 = 20;
+}  // namespace
 
-        for (s32 idx = 0; idx < mNumHandles; idx++) {
-            mHashDatas[idx].init();
-        }
-    }
+AudSoundObject::AudSoundObject(Vec3f* pPos, u8 numHandles, NebulaArena* pArena)
+    : SoundObject(pPos, numHandles, pArena), ArenaOwned(), mSeVersion(0), mMapCode(0), mMapCodeExtra(0) {
 }
 
 AudSoundObject::~AudSoundObject() {
@@ -29,11 +33,11 @@ void AudSoundObject::addToSoundObjHolder() {
     AudWrap::getSoundObjHolder()->add(this);
 }
 
-void AudSoundObject::setTrans(TVec3f* pTrans) {
+void AudSoundObject::setTrans(Vec3f* pTrans) {
     mPos = pTrans;
 }
 
-bool AudSoundObject::writePort(JAISoundHandle* pHandle, u32 port, u16 value) {
+bool AudSoundObject::writePort(SoundHandle* pHandle, u32 port, u16 value) {
     if (pHandle == nullptr) {
         return false;
     }
@@ -42,19 +46,15 @@ bool AudSoundObject::writePort(JAISoundHandle* pHandle, u32 port, u16 value) {
         return false;
     }
 
-    BOOL en = GameThreads::excludeAudio();
-
-    JASTrack* track = pHandle->getSound()->getTrack();
-    if (track != nullptr) {
-        track->writePort(port, value);
-        GameThreads::restoreAudio(en);
+    PlayerLink* player = pHandle->getSound()->getPlayer();
+    if (player != nullptr) {
+        player->writePort(PlayerLink::root(), port, value);
         return true;
     }
-    GameThreads::restoreAudio(en);
     return false;
 }
 
-bool AudSoundObject::isLimitedSound(JAISoundID soundID) {
+bool AudSoundObject::isLimitedSound(SoundID soundID) {
     if (soundID == -1) {
         return true;
     }
@@ -69,21 +69,19 @@ bool AudSoundObject::isLimitedSound(JAISoundID soundID) {
 
     if (!isPlayingID(soundID)) {
         AudSoundInfo* info = AudWrap::getSoundInfo();
-        if (info != nullptr) {
-            if (info->isLimitCountPlaying(soundID)) {
-                return true;
-            }
+        if (info->isLimitCountPlaying(soundID)) {
+            return true;
+        }
 
-            if (info->isLimitNumPlaying(soundID)) {
-                return true;
-            }
+        if (info->isLimitNumPlaying(soundID)) {
+            return true;
         }
     }
 
     return false;
 }
 
-JAISoundHandle* AudSoundObject::startSound(JAISoundID soundID) {
+SoundHandle* AudSoundObject::startSound(SoundID soundID) {
     if (!isEnableStartSound(soundID)) {
         return nullptr;
     }
@@ -92,7 +90,7 @@ JAISoundHandle* AudSoundObject::startSound(JAISoundID soundID) {
         return nullptr;
     }
 
-    if (AudWrap::getSystem()->_82B && soundID.getGroupID() != SE_HOME_BUTTON_MENU && soundID.getGroupID() != SE_SYSTEM) {
+    if (AudWrap::getSystem()->mIsTrigSeBlocked && soundID.getGroupID() != SE_HOME_BUTTON_MENU && soundID.getGroupID() != SE_SYSTEM) {
         return nullptr;
     }
 
@@ -101,13 +99,13 @@ JAISoundHandle* AudSoundObject::startSound(JAISoundID soundID) {
     }
 
     limitVoiceOne(soundID);
-    JAISoundHandle* handle = JAUSoundObject::startSound(soundID);
+    SoundHandle* handle = SoundObject::startSound(soundID);
     setMapCodeToPort(handle, soundID);
     setCutoffToPort(handle, soundID);
     return handle;
 }
 
-JAISoundHandle* AudSoundObject::startLevelSound(JAISoundID soundID) {
+SoundHandle* AudSoundObject::startLevelSound(SoundID soundID) {
     if (!isEnableStartSound(soundID)) {
         return nullptr;
     }
@@ -116,7 +114,7 @@ JAISoundHandle* AudSoundObject::startLevelSound(JAISoundID soundID) {
         return nullptr;
     }
 
-    if (AudWrap::getSystem()->_82C && soundID.getGroupID() != SE_HOME_BUTTON_MENU && soundID.getGroupID() != SE_SYSTEM) {
+    if (AudWrap::getSystem()->mIsLevelSeBlocked && soundID.getGroupID() != SE_HOME_BUTTON_MENU && soundID.getGroupID() != SE_SYSTEM) {
         return nullptr;
     }
 
@@ -124,62 +122,46 @@ JAISoundHandle* AudSoundObject::startLevelSound(JAISoundID soundID) {
         return nullptr;
     }
 
-    JAISoundHandle* handle = JAUSoundObject::startLevelSound(soundID);
+    SoundHandle* handle = SoundObject::startLevelSound(soundID);
     setMapCodeToPort(handle, soundID);
     setCutoffToPort(handle, soundID);
     return handle;
 }
 
-JAISoundHandle* AudSoundObject::startLevelSound(const char* pName) {
-    JAISoundID id = convertNameToLevelSEID(pName);
+SoundHandle* AudSoundObject::startLevelSound(const char* pName) {
+    SoundID id = convertNameToLevelSEID(pName);
     return startLevelSound(id);
 }
 
-JAISoundHandle* AudSoundObject::startSoundParam(JAISoundID soundID, s32 volume, s32 a2) {
-    JAISoundHandle* handle = startSound(soundID);
+SoundHandle* AudSoundObject::startSoundParam(SoundID soundID, s32 level, s32 subLevel) {
+    SoundHandle* handle = startSound(soundID);
     if (handle != nullptr && handle->isSoundAttached()) {
-        modifySe_Kawamura(handle, volume);
-        modifySe_Takezawa(handle, volume, a2);
-        modifySe_Gohara(handle, volume, a2);
+        modifySe(handle, level, subLevel);
     }
 
     return handle;
 }
 
-JAISoundHandle* AudSoundObject::startLevelSoundParam(JAISoundID soundID, s32 volume, s32 a2) {
-    JAISoundHandle* handle = startLevelSound(soundID);
+SoundHandle* AudSoundObject::startLevelSoundParam(SoundID soundID, s32 level, s32 subLevel) {
+    SoundHandle* handle = startLevelSound(soundID);
     if (handle != nullptr && handle->isSoundAttached()) {
-        modifySe_Kawamura(handle, volume);
-        modifySe_Takezawa(handle, volume, a2);
-        modifySe_Gohara(handle, volume, a2);
+        modifySe(handle, level, subLevel);
     }
 
     return handle;
 }
 
-JAISoundHandle* AudSoundObject::startLevelSoundParam(const char* pName, s32 volume, s32 a2) {
-    JAISoundID id = convertNameToLevelSEID(pName);
-    return startLevelSoundParam(id, volume, a2);
+SoundHandle* AudSoundObject::startLevelSoundParam(const char* pName, s32 level, s32 subLevel) {
+    SoundID id = convertNameToLevelSEID(pName);
+    return startLevelSoundParam(id, level, subLevel);
 }
 
-bool AudSoundObject::modifyLimitedSound(JAISoundID soundID) {
-    if (modifyLimitedSound_Kawamura(soundID)) {
-        return true;
-    }
-
-    if (modifyLimitedSound_Takezawa(soundID)) {
-        return true;
-    }
-
-    return false;
-}
-
-bool AudSoundObject::isPlayingID(JAISoundID soundID) {
+bool AudSoundObject::isPlayingID(SoundID soundID) {
     return getHandleSoundID(soundID) != nullptr;
 }
 
-void AudSoundObject::releaseHandle(JAISoundID soundID) {
-    JAISoundHandle* handle = getHandleSoundID(soundID);
+void AudSoundObject::releaseHandle(SoundID soundID) {
+    SoundHandle* handle = getHandleSoundID(soundID);
     if (handle != nullptr) {
         handle->getSound()->releaseHandle();
     }
@@ -218,48 +200,11 @@ void AudSoundObject::clearMapCode() {
     mMapCodeExtra = 0;
 }
 
-JAISoundID AudSoundObject::convertNameToLevelSEID(const char* pName) {
-    u32 hash = 0;
-    bool found = false;
-
-    for (s32 idx = 0; idx < mNumSounds; idx++) {
-        if (mHashDatas[idx].mName == pName) {
-            hash = mHashDatas[idx].mHash;
-            found = true;
-        }
-    }
-
-    if (!found) {
-        hash = JGadget::getHashCode(pName);
-
-        for (s32 idx = 0; idx < mNumSounds; idx++) {
-            mHashDatas[idx].mID = (u32)mHashDatas[idx].mID + 1;
-        }
-
-        if (mNumSounds < mNumHandles) {
-            AudSoundObjHashData* data = &mHashDatas[mNumSounds];
-            data->mName = pName;
-            data->mHash = hash;
-            data->mID = 0;
-            mNumSounds++;
-        } else {
-            s32 i = 0;
-            for (s32 idx = 0; idx < mNumSounds; idx++) {
-                if (mHashDatas[i].mID < mHashDatas[idx].mID) {
-                    i = idx;
-                }
-            }
-            AudSoundObjHashData* data = &mHashDatas[i];
-            data->mName = pName;
-            data->mHash = hash;
-            data->mID = 0;
-        }
-    }
-
-    return AudSingletonHolder< AudSoundNameConverter >::get()->getSoundID(pName, hash);
+SoundID AudSoundObject::convertNameToLevelSEID(const char* pName) {
+    return AudSingletonHolder< AudSoundNameConverter >::get()->getSoundID(pName);
 }
 
-void AudSoundObject::limitVoiceOne(JAISoundID soundID) {
+void AudSoundObject::limitVoiceOne(SoundID soundID) {
     u8 group = soundID.getGroupID();
 
     if (group == SE_ENEMY_VOICE) {
@@ -284,10 +229,10 @@ void AudSoundObject::limitVoiceOne(JAISoundID soundID) {
 }
 
 void AudSoundObject::stopCategorySound(u32 groupID, u32 fadeTime) {
-    for (s32 idx = 0; idx < JAUSoundObject::mNumHandles; idx++) {
-        JAISound* sound = mHandles[idx].getSound();
+    for (s32 idx = 0; idx < SoundObject::mNumHandles; idx++) {
+        Sound* sound = mHandles[idx].getSound();
         if (sound != nullptr) {
-            JAISoundID id = sound->mSoundID;
+            SoundID id = sound->mSoundID;
             u32 group = id.getGroupID();
             if (group == groupID) {
                 stopSound(id, fadeTime);
@@ -296,7 +241,7 @@ void AudSoundObject::stopCategorySound(u32 groupID, u32 fadeTime) {
     }
 }
 
-void AudSoundObject::setMapCodeToPort(JAISoundHandle* pHandle, JAISoundID soundID) {
+void AudSoundObject::setMapCodeToPort(SoundHandle* pHandle, SoundID soundID) {
     if (pHandle == nullptr) {
         return;
     }
@@ -323,13 +268,13 @@ void AudSoundObject::setMapCodeToPort(JAISoundHandle* pHandle, JAISoundID soundI
     case SE_PM_LAND:
     case SE_PM_HAND:
     case SE_PM_LAND_HEAVY:
-        writePort(pHandle, 12, (mapCode - 1) / 7);
-        writePort(pHandle, 11, ((mapCode - 1) % 7) * 12);
+        writePort(pHandle, ::cPortMapCodeBank, (mapCode - 1) / ::cMapCodeBankSize);
+        writePort(pHandle, ::cPortMapCodeOffset, ((mapCode - 1) % ::cMapCodeBankSize) * ::cMapCodeStep);
         break;
     }
 }
 
-void AudSoundObject::setCutoffToPort(JAISoundHandle* pHandle, JAISoundID soundID) {
+void AudSoundObject::setCutoffToPort(SoundHandle* pHandle, SoundID soundID) {
     if (pHandle == nullptr) {
         return;
     }
@@ -339,15 +284,11 @@ void AudSoundObject::setCutoffToPort(JAISoundHandle* pHandle, JAISoundID soundID
     }
 
     AudSoundInfo* info = AudWrap::getSoundInfo();
-    if (info == nullptr) {
-        return;
-    }
-
     if (info->isUseLpf(soundID)) {
         AudEffector* effector = AudWrap::getSystem()->mAudEffector;
         s32 value = effector->mCutoff;
-        if (value < 0 || value > 0x7F) {
-            value = 0x7F;
+        if (value < 0 || value > ::cLpfOpen) {
+            value = ::cLpfOpen;
         }
 
         switch (soundID) {
@@ -357,33 +298,30 @@ void AudSoundObject::setCutoffToPort(JAISoundHandle* pHandle, JAISoundID soundID
         case SE_AT_LV_WATERFALL_UPPER_L:
         case SE_OJ_SEAGULL_CHIRP:
             if (effector->mSpecialFx == 2) {
-                // TODO: magic value
-                value = 10;
+                value = ::cLpfCutoffSpecialFx2;
                 pHandle->getSound()->mParams.mMove.moveVolume(0.5f, 0);
             }
             break;
         case SE_OJ_LV_FOUNTAIN:
         case SE_AT_LV_WIND_RABBIT_MAZE:
             if (effector->mSpecialFx == 1) {
-                // TODO: magic value
-                value = 20;
+                value = ::cLpfCutoffSpecialFx1;
                 pHandle->getSound()->mParams.mMove.moveVolume(0.5f, 5);
             } else {
-                value = 0x7F;
+                value = ::cLpfOpen;
                 pHandle->getSound()->mParams.mMove.moveVolume(1.0f, 5);
             }
             break;
         }
-        // TODO: port magic value
-        writePort(pHandle, 10, value);
+        writePort(pHandle, ::cPortLpfCutoff, value);
     } else {
-        writePort(pHandle, 10, 0x7F);
-        return;
+        writePort(pHandle, ::cPortLpfCutoff, ::cLpfOpen);
     }
 }
 
-JAISoundID AudSoundObject::convertSoundIdFromSeVersion(JAISoundID soundID) const {
-    if (mSeVersion == 1) {  // TODO: enum
+SoundID AudSoundObject::convertSoundIdFromSeVersion(SoundID soundID) const {
+    // Kuribo::SeVersion_2D and Metbo::SeVersion_2D; no other actor's sounds have a case below.
+    if (mSeVersion == 1) {
         switch (soundID) {
         case SE_EM_KURIBO_LAND:
             return SE_EM_KURIBO_LAND_2D;
@@ -419,14 +357,4 @@ JAISoundID AudSoundObject::convertSoundIdFromSeVersion(JAISoundID soundID) const
     }
 
     return soundID;
-}
-
-AudSoundObjHashData::AudSoundObjHashData() {
-    init();
-}
-
-void AudSoundObjHashData::init() {
-    mName = nullptr;
-    mHash = 0;
-    mID = 0;
 }

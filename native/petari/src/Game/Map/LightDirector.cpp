@@ -9,11 +9,11 @@
 #include "Game/Util/ObjUtil.hpp"
 
 LightDirector::LightDirector()
-    : NameObj("\203\211\203\103\203\147\216\167\212\366" /* ライト指揮 */), _C(), mDataHolder(), mZoneDataHolder(), mDefaultAreaLight(), _1C(), mPointCtrl(), mResourceHolder() {
+    : NameObj("ライト指揮"), mAreaHolder(), mDataHolder(), mZoneDataHolder(), mDefaultAreaLight(), mPlayerLightCtrl(), mPointCtrl(), mResourceHolder() {
     GameLightSignal::sceneStart();
 }
 
-void LightDirector::init(const JMapInfoIter& rIter) {
+void LightDirector::init(const TableIter& /*rIter*/) {
     MR::connectToSceneMapObjMovement(this);
     LightFunction::loadAllLightWhite();
 
@@ -30,12 +30,12 @@ void LightDirector::initData() {
 }
 
 void LightDirector::loadLightPlayer() const {
-    _1C->loadLight();
+    mPlayerLightCtrl->loadLight();
     mPointCtrl->loadPointLight();
 }
 
 void LightDirector::loadLightCoin() const {
-    LightFunction::loadLightInfoCoin(&mDataHolder->_8);
+    LightFunction::loadLightInfoCoin(&mDataHolder->mCoinLight);
 }
 
 void LightDirector::movement() {

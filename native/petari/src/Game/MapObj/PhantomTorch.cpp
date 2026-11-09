@@ -1,4 +1,5 @@
 #include "Game/MapObj/PhantomTorch.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Effect/SpinPullParticleCallBack.hpp"
 #include "Game/LiveActor/LiveActorGroup.hpp"
 #include "Game/LiveActor/Nerve.hpp"
@@ -6,7 +7,7 @@
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
@@ -18,24 +19,23 @@ namespace NrvPhantomTorch {
     NEW_NERVE(HostTypeExtinguish, PhantomTorch, Extinguish);
 };  // namespace NrvPhantomTorch
 
-PhantomTorch::~PhantomTorch() {
-}
-
 PhantomTorch::PhantomTorch(const char* pName) : LiveActor(pName) {
     mParticle = nullptr;
     mItem = -1;
     mPullParticle = nullptr;
     mIsDecorative = false;
+    mBurnSe = nullptr;
 }
 
-void PhantomTorch::init(const JMapInfoIter& rIter) {
+void PhantomTorch::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     f32 x = mScale.x;
-    MR::getJMapInfoArg0NoInit(rIter, &mItem);
+    MR::getPlacementArg0NoInit(rIter, &mItem);
     s32 arg = -1;
-    MR::getJMapInfoArg1NoInit(rIter, &arg);
+    MR::getPlacementArg1NoInit(rIter, &arg);
     mIsDecorative = arg != -1;
     MR::getObjectName(&mParticle, rIter);
+    mBurnSe = MR::isEqualString(mParticle, "PhantomBonfire") ? "SE_OJ_LV_BONFIRE_BURN" : "SE_OJ_LV_PHANTOM_TOACH_BURN";
 
     if (mItem == -1) {
         MR::declareCoin(this, 1);
@@ -45,11 +45,11 @@ void PhantomTorch::init(const JMapInfoIter& rIter) {
         MR::declareStarPiece(this, 1);
     }
 
-    initEffectKeeper(0, mParticle, false);
+    initEffectKeeper(0, mParticle);
     mPullParticle = new SpinPullParticleCallBack();
     initSound(4, false);
     initHitSensor(1);
-    TVec3f vec;
+    Vec3f vec;
     vec.x = 0.0f;
     vec.y = 70.0f * x;
     vec.z = 0.0f;
@@ -165,20 +165,14 @@ void PhantomTorch::soundOrder() {
 }
 
 void PhantomTorch::exeWait() {
-    if (MR::isEqualString(mParticle, "PhantomBonfire")) {
-        MR::startLevelSound(this, "SE_OJ_LV_BONFIRE_BURN");
-    } else {
-        MR::startLevelSound(this, "SE_OJ_LV_PHANTOM_TOACH_BURN");
-    }
+    MR::startLevelSound(this, mBurnSe);
 }
 
 void PhantomTorch::exeAttack() {
-    if (MR::isStep(this, 30)) {
+    if (MR::isStep(this, NebulaFrameClock::stepsOfMilliseconds(500))) {
         setNerve(GET_NERVE(PhantomTorch, HostTypeWait));
-    } else if (MR::isEqualString(mParticle, "PhantomBonfire")) {
-        MR::startLevelSound(this, "SE_OJ_LV_BONFIRE_BURN");
     } else {
-        MR::startLevelSound(this, "SE_OJ_LV_PHANTOM_TOACH_BURN");
+        MR::startLevelSound(this, mBurnSe);
     }
 }
 

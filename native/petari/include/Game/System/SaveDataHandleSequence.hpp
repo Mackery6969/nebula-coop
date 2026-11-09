@@ -10,18 +10,11 @@ class SaveIcon;
 class SysInfoWindow;
 class UserFile;
 
-namespace MR {
-    class FunctorBase;
-};  // namespace MR
-
 class SaveDataHandleSequence : public NerveExecutor {
 public:
-    /// @brief Creates a new `SaveDataHandleSequence`.
     SaveDataHandleSequence();
 
     void initAfterResourceLoaded();
-    void registerFunctorOnSaveSuccess(const MR::FunctorBase&);
-    void registerFunctorJustBeforeSave(const MR::FunctorBase&);
     void update();
     void draw() const;
     void startPreLoad();
@@ -82,16 +75,15 @@ public:
     SaveErrorSequence* mSaveErrorSequence;
     SysInfoWindow* mSysInfoWindowConfirm;
     SysInfoWindow* mSysInfoWindowSave;
-    s32 _24;
+    // The last sequence ended done: saved, loaded, nothing to load, or the player went on without saving.
+    bool mSucceeded;
     bool mIsConfirmRemind;
     bool mIsSaveAndQuitMsg;
-    bool _2A;
-    bool _2B;
+    bool mIsCorrupted;
+    bool mIsNoSaveMode;
     UserFile* mWorkUserFile;
     const Nerve* mNerveForError;
     u8* mTempBuffer;
-    MR::FunctorBase* mOnSaveSuccessFunc;
-    MR::FunctorBase* mJustBeforeSaveFunc;
     SaveIcon* mSaveIcon;
     bool mWindowFollows;
     int mSaveCopyLoading = 0;

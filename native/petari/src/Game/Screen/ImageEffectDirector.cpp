@@ -19,7 +19,7 @@ namespace {
 };  // namespace
 
 ImageEffectDirector::ImageEffectDirector(const char* pName)
-    : NameObj(pName), mIsAuto(true), mIsPlayerSync(), _E(), _F(), mPlayerSyncIntensity(), mDepthOfFieldIntensity(::sDOFIntensity),
+    : NameObj(pName), mIsAuto(true), mIsPlayerSync(), mWasDOFSuppressed(), mIsDOFOffInSubjective(), mPlayerSyncIntensity(), mDepthOfFieldIntensity(::sDOFIntensity),
       mStateNull(new ImageEffectStateImpl::StateNull(this)), mStateBloomNormal(new ImageEffectStateImpl::StateBloomNormal(this)),
       mStateBloomSimple(new ImageEffectStateImpl::StateBloomSimple(this)), mStateScreenBlur(new ImageEffectStateImpl::StateScreenBlur(this)),
       mStateDepthOfField(new ImageEffectStateImpl::StateDepthOfField(this)), mState(mStateNull), mCurrentEffect() {
@@ -33,24 +33,24 @@ void ImageEffectDirector::movement() {
         updateManual();
     }
 
-    bool isDOF = _F && mState == mStateDepthOfField;
+    bool isDOFSuppressed = mIsDOFOffInSubjective && mState == mStateDepthOfField;
 
-    if (_E) {
-        if (!isDOF) {
+    if (mWasDOFSuppressed) {
+        if (!isDOFSuppressed) {
             mState->onChange();
         }
-    } else if (isDOF) {
+    } else if (isDOFSuppressed) {
         mState->forceOff();
         mStateNull->onChange();
     }
 
-    if (isDOF) {
+    if (isDOFSuppressed) {
         mStateNull->update();
     } else {
         mState->update();
     }
 
-    _E = isDOF;
+    mWasDOFSuppressed = isDOFSuppressed;
 }
 
 void ImageEffectDirector::setCurrentEffect(ImageEffectBase* pEffect) {
@@ -89,11 +89,11 @@ void ImageEffectDirector::setAuto() {
 }
 
 void ImageEffectDirector::turnOffDOFInSubjective() {
-    _F = true;
+    mIsDOFOffInSubjective = true;
 }
 
 void ImageEffectDirector::turnOnDOFInSubjective() {
-    _F = false;
+    mIsDOFOffInSubjective = false;
 }
 
 void ImageEffectDirector::setNormalBloomIntensity(u8 bloomIntensity) {
@@ -123,7 +123,7 @@ void ImageEffectDirector::updateManual() {
         incPlayerSyncIntensity();
     }
 
-    f32 intensity = mDepthOfFieldIntensity * (mPlayerSyncIntensity / 60.0f);
+    f32 intensity = mDepthOfFieldIntensity * (mPlayerSyncIntensity / static_cast< f32 >(::sIntensityCountMax));
 
     if (mState == mStateScreenBlur) {
         mStateScreenBlur->setIntensity(intensity);
@@ -182,13 +182,13 @@ void ImageEffectDirector::setBloomSimpleParams(ImageEffectArea* pArea) {
 void ImageEffectDirector::setScreenBlurParams(ImageEffectArea* pArea) {
     ScreenBlurArea* pScreenBlurArea = static_cast< ScreenBlurArea* >(pArea);
     updatePlayerSyncIntensity(pScreenBlurArea, mStateScreenBlur);
-    mStateScreenBlur->setIntensity(mPlayerSyncIntensity / 60.0f);
+    mStateScreenBlur->setIntensity(mPlayerSyncIntensity / static_cast< f32 >(::sIntensityCountMax));
 }
 
 void ImageEffectDirector::setDepthOfFieldParams(ImageEffectArea* pArea) {
     DepthOfFieldArea* pDepthOfFieldArea = static_cast< DepthOfFieldArea* >(pArea);
     updatePlayerSyncIntensity(pDepthOfFieldArea, mStateDepthOfField);
-    f32 syncIntensity = mPlayerSyncIntensity / 60.0f;
+    f32 syncIntensity = mPlayerSyncIntensity / static_cast< f32 >(::sIntensityCountMax);
     f32 areaIntensity = pDepthOfFieldArea->getIntensity();
     mStateDepthOfField->setIntensity(syncIntensity * areaIntensity);
     mStateDepthOfField->setBlurMaxDist(pDepthOfFieldArea->getBlurMaxDist());

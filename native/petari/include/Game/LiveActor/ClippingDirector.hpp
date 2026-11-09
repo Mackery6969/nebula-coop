@@ -12,13 +12,13 @@ class ClippingDirector : public NameObj {
 public:
     ClippingDirector();
 
-    virtual void movement();
+    virtual void movement() override;
 
     void endInitActorSystemInfo();
     void registerActor(LiveActor*);
-    void initActorSystemInfo(LiveActor*, const JMapInfoIter&);
-    void joinToGroupClipping(LiveActor*, const JMapInfoIter&, int);
-    void entryLodCtrl(LodCtrl*, const JMapInfoIter&);
+    void initActorSystemInfo(LiveActor*, const TableIter&);
+    void joinToGroupClipping(LiveActor*, const TableIter&, int capacity);
+    void entryLodCtrl(LodCtrl*, const TableIter&);
 
     ClippingJudge* mJudge;
     ClippingActorHolder* mActorHolder;

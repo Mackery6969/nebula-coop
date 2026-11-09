@@ -1,4 +1,6 @@
 #include "Game/System/NebulaMods.hpp"
+#include "Game/System/NebulaArena.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/System/GalaxyInfoTable.hpp"
 #include "Game/System/GalaxyStatusAccessor.hpp"
@@ -10,7 +12,6 @@
 #include "Game/AudioLib/AudSoundNameConverter.hpp"
 #include "Game/LiveActor/EffectKeeper.hpp"
 #include "Game/LiveActor/LiveActor.hpp"
-#include "Game/NameObj/NameObjArchiveListCollector.hpp"
 #include "Game/Player/MarioAccess.hpp"
 #include "Game/Player/MarioActor.hpp"
 #include "Game/Util.hpp"
@@ -29,7 +30,7 @@
 #include "Game/Util/MapUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/JointUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/EventUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
 #include "Game/Util/DemoUtil.hpp"
@@ -42,7 +43,8 @@
 #include "Game/Map/HitInfo.hpp"
 #include "Game/NameObj/NameObjFactory.hpp"
 #include "Game/Util/FileUtil.hpp"
-#include "Game/Util/JMapInfo.hpp"
+#include "Game/Util/Table.hpp"
+#include "Game/Util/StringUtil.hpp"
 #include "Game/AreaObj/AreaObj.hpp"
 #include "Game/LiveActor/HitSensorInfo.hpp"
 #include "Game/LiveActor/HitSensorKeeper.hpp"
@@ -52,7 +54,6 @@
 #include "Game/Util/LayoutUtil.hpp"
 #include "Game/Util/ActorShadowUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
-#include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/AreaObjUtil.hpp"
 #include "Game/System/NebulaHost.hpp"
 #include "Game/System/GameSequenceFunction.hpp"
@@ -70,13 +71,16 @@ namespace NebulaMods {
 }  // namespace NebulaMods
 
 namespace {
+    // A list grows in its owner's arena; a static one (outside every arena, it lasts the run) in the root arena,
+    // whichever arena a plugin's call finds current.
     template < typename T >
     class List {
     public:
         void add(const T& rItem) {
             if (mCount == mCapacity) {
                 const int capacity = mCapacity == 0 ? 8 : mCapacity * 2;
-                T* pItems = new T[capacity];
+                NebulaArena* const pArena = NebulaArena::findFromRoot(this);
+                T* pItems = new (pArena != nullptr ? pArena : NebulaArena::root(), 0) T[capacity];
                 for (int i = 0; i < mCount; i++) {
                     pItems[i] = mItems[i];
                 }
@@ -139,19 +143,20 @@ namespace {
     List< NebulaPowerUpClass > sPowerUps;
     int sStageFrames = 0;
 
-    const char* copyText(const char* pText) {
+    // A plugin's text kept: for the run (the root arena: tables, and names the next scene reads), or with pArena.
+    const char* copyText(const char* pText, NebulaArena* pArena = NebulaArena::root()) {
         if (pText == nullptr) {
             return nullptr;
         }
         const size_t length = strlen(pText) + 1;
-        char* pCopy = new char[length];
+        char* pCopy = new (pArena, 0) char[length];
         memcpy(pCopy, pText, length);
         return pCopy;
     }
 
     const ObjectEntry* findObject(const char* pName) {
         for (int i = 0; i < sObjects.mCount; i++) {
-            if (strcmp(sObjects.mItems[i].mName, pName) == 0) {
+            if (MR::isEqualString(sObjects.mItems[i].mName, pName)) {
                 return &sObjects.mItems[i];
             }
         }
@@ -179,17 +184,17 @@ namespace {
             sPluginActorTable = *reinterpret_cast< void** >(this);
         }
 
-        virtual void init(const JMapInfoIter& rIter) {
+        virtual void init(const TableIter& rIter) {
             if (rIter.isValid()) {
                 MR::initDefaultPos(this, rIter);
-                MR::getJMapInfoArg0NoInit(rIter, &mArgs[0]);
-                MR::getJMapInfoArg1NoInit(rIter, &mArgs[1]);
-                MR::getJMapInfoArg2NoInit(rIter, &mArgs[2]);
-                MR::getJMapInfoArg3NoInit(rIter, &mArgs[3]);
-                MR::getJMapInfoArg4NoInit(rIter, &mArgs[4]);
-                MR::getJMapInfoArg5NoInit(rIter, &mArgs[5]);
-                MR::getJMapInfoArg6NoInit(rIter, &mArgs[6]);
-                MR::getJMapInfoArg7NoInit(rIter, &mArgs[7]);
+                MR::getPlacementArg0NoInit(rIter, &mArgs[0]);
+                MR::getPlacementArg1NoInit(rIter, &mArgs[1]);
+                MR::getPlacementArg2NoInit(rIter, &mArgs[2]);
+                MR::getPlacementArg3NoInit(rIter, &mArgs[3]);
+                MR::getPlacementArg4NoInit(rIter, &mArgs[4]);
+                MR::getPlacementArg5NoInit(rIter, &mArgs[5]);
+                MR::getPlacementArg6NoInit(rIter, &mArgs[6]);
+                MR::getPlacementArg7NoInit(rIter, &mArgs[7]);
                 MR::useStageSwitchWriteA(this, rIter);
                 MR::useStageSwitchWriteB(this, rIter);
                 MR::useStageSwitchWriteDead(this, rIter);
@@ -223,7 +228,7 @@ namespace {
                 MR::connectToSceneMapObjMovement(this);
             }
             initHitSensor(1);
-            const TVec3f offset(0.0f, 0.0f, 0.0f);
+            const Vec3f offset(0.0f, 0.0f, 0.0f);
             HitSensor* pSensor = nullptr;
             switch (mClass->kind) {
             case NEBULA_OBJECT_MAP: pSensor = MR::addHitSensorMapObj(this, "body", 8, mClass->radius, offset); break;
@@ -250,7 +255,7 @@ namespace {
             initSound(4, false);
             // Its effects are the AutoEffectList rows of its own name.
             if (mClass->archive != nullptr) {
-                initEffectKeeper(0, mClass->name, false);
+                initEffectKeeper(0, mClass->name);
             }
             if (mClass->start != nullptr) {
                 mClass->start(asHandle(this), mClass->user);
@@ -284,11 +289,11 @@ namespace {
                 LiveActor::calcAndSetBaseMtx();
                 return;
             }
-            TVec3f up(-mGravity.x, -mGravity.y, -mGravity.z);
+            Vec3f up(-mGravity.x, -mGravity.y, -mGravity.z);
             if (MR::isNearZero(up)) {
                 up.set(0.0f, 1.0f, 0.0f);
             }
-            TPos3f base;
+            Pos3f base;
             MR::makeMtxUpFrontPos(&base, up, mFront, mPosition);
             MR::setBaseTRMtx(this, base);
         }
@@ -327,7 +332,7 @@ namespace {
         s32 mStateFrames;
         s32 mArgs[8];
         bool mUseFront;
-        TVec3f mFront;
+        Vec3f mFront;
         void* mData = nullptr;
     };
 
@@ -384,6 +389,17 @@ namespace {
         if (pGalaxy == nullptr || pGalaxy->size < sizeof(NebulaGalaxy) || pGalaxy->name == nullptr) {
             return -1;
         }
+        // The tables keep both as a byte.
+        if (pGalaxy->stars_to_open < 0 || pGalaxy->stars_to_open > 255 || pGalaxy->dome < 0 || pGalaxy->dome > 255) {
+            return -1;
+        }
+        // A galaxy is its scenario file: without one (a mod that ships none, or files that could not be cooked)
+        // it would be a name with no stars, scenarios or stage, so it never enters a table.
+        MR::FormattedName scenarioFile;
+        MR::makeScenarioArchiveFileName(scenarioFile, pGalaxy->name);
+        if (GameAssets::find(scenarioFile.c_str()) < 0) {
+            return -2;
+        }
         NebulaDataTables::AddedGalaxy added = {};
         added.mName = copyText(pGalaxy->name);
         added.mPane = copyText(pGalaxy->map_pane);
@@ -392,9 +408,9 @@ namespace {
             sMapSpots.add(spot);
             // A layout's pane names are short: this one is only ever looked for by the game.
             if (added.mPane == nullptr) {
-                char paneName[16];
-                nebula_snprintf(paneName, sizeof(paneName), "NebMap%d", sMapSpots.mCount);
-                added.mPane = copyText(paneName);
+                MR::FormattedName paneName;
+                paneName.format("NebMap%d", sMapSpots.mCount);
+                added.mPane = copyText(paneName.c_str());
             }
         }
         for (int i = 0; i < 3; i++) {
@@ -423,7 +439,7 @@ namespace {
 
     bool isGameSoundName(const char* pName) {
         for (const char* pPrefix : {"SE_", "BGM_", "MBGM_", "STM_", "ME_"}) {
-            if (strncmp(pName, pPrefix, strlen(pPrefix)) == 0) {
+            if (MR::isEqualStringPrefix(pName, pPrefix)) {
                 return true;
             }
         }
@@ -436,14 +452,18 @@ namespace {
         }
         // The file as the game has it: each of these ends up a stream of this name.
         const char* pEnd = strrchr(pFile, '.');
+        const char* const pSlash = strrchr(pFile, '/');
+        if (pEnd != nullptr && pSlash != nullptr && pEnd < pSlash) {
+            pEnd = nullptr;  // a dot in a folder name
+        }
         const size_t stem = pEnd != nullptr ? static_cast< size_t >(pEnd - pFile) : strlen(pFile);
         const bool rooted = pFile[0] == '/';
-        char* pPath = new char[stem + 6];
+        char* pPath = new (NebulaArena::root(), 0) char[stem + 6];
         pPath[0] = '/';
         memcpy(pPath + 1, pFile + (rooted ? 1 : 0), stem - (rooted ? 1 : 0));
         memcpy(pPath + 1 + stem - (rooted ? 1 : 0), ".ast", 5);
         for (int i = 0; i < sTracks.mCount; i++) {
-            if (strcmp(sTracks.mItems[i].mName, pName) == 0) {
+            if (MR::isEqualString(sTracks.mItems[i].mName, pName)) {
                 sTracks.mItems[i].mFile = pPath;
                 return 0;
             }
@@ -528,10 +548,10 @@ namespace {
     }
 
     int32_t apiSetCometSchedule(int32_t dome, const char* const* ppGalaxies, const int32_t* pCoins, int32_t count) {
-        if (dome < 1 || dome > 16 || ppGalaxies == nullptr || pCoins == nullptr || count <= 0) {
+        if (dome < 1 || ppGalaxies == nullptr || pCoins == nullptr || count <= 0) {
             return -1;
         }
-        GalaxyCometTimePaper* pPaper = new GalaxyCometTimePaper[count + 1];
+        GalaxyCometTimePaper* pPaper = new (NebulaArena::root(), 0) GalaxyCometTimePaper[static_cast< size_t >(count) + 1];
         for (s32 i = 0; i < count; i++) {
             pPaper[i].mGalaxyName = copyText(ppGalaxies[i]);
             pPaper[i].mCategory = pCoins[i];
@@ -547,15 +567,14 @@ namespace {
             return 0;
         }
         // The player holds on to the name.
-        char path[256];
-        nebula_snprintf(path, sizeof(path), pFile[0] == '/' ? "%s" : "/%s", pFile);
-        if (GameAssets::find(path) < 0) {
+        MR::FormattedName path(pFile[0] == '/' ? "%s" : "/%s", pFile);
+        if (GameAssets::find(path.c_str()) < 0) {
             return 0;
         }
         if (!MR::isExistSceneObj(SceneObj_MoviePlayerSimple)) {
             return 0;
         }
-        MR::startMoviePlayer(copyText(path));
+        MR::startMoviePlayer(copyText(path.c_str()));
         return 1;
     }
 
@@ -575,9 +594,10 @@ namespace {
         }
     }
 
-    const char16_t* wordsOf(const char* pUtf8) {
+    // UTF-8 as the game's UTF-16, kept as copyText keeps text.
+    const char16_t* wordsOf(const char* pUtf8, NebulaArena* pArena = NebulaArena::root()) {
         const size_t length = strlen(pUtf8);
-        char16_t* pWords = new char16_t[length + 1];
+        char16_t* pWords = new (pArena, 0) char16_t[length + 1];
         size_t out = 0;
         for (size_t i = 0; i < length;) {
             const u8 lead = static_cast< u8 >(pUtf8[i]);
@@ -603,7 +623,7 @@ namespace {
         if (pId == nullptr || pUtf8 == nullptr) {
             return -1;
         }
-        ModText text = {copyText(pId), wordsOf(pUtf8)};
+        ModText text = {copyText(pId), wordsOf(pUtf8, NebulaArena::root())};
         sTexts.add(text);
         return 0;
     }
@@ -617,18 +637,18 @@ namespace {
         if (pKey == nullptr || pValue == nullptr) {
             return -1;
         }
-        if (strcmp(pKey, "first_stage") == 0) {
+        if (MR::isEqualString(pKey, "first_stage")) {
             sFirstStage = copyText(pValue);
-        } else if (strcmp(pKey, "first_mission") == 0) {
+        } else if (MR::isEqualString(pKey, "first_mission")) {
             s32 mission = 0;
             for (const char* pAt = pValue; *pAt >= '0' && *pAt <= '9'; pAt++) {
                 mission = mission * 10 + (*pAt - '0');
             }
             sFirstMission = mission > 0 ? mission : 1;
-        } else if (strcmp(pKey, "hub") == 0) {
+        } else if (MR::isEqualString(pKey, "hub")) {
             sHubStage = copyText(pValue);
-        } else if (strcmp(pKey, "story_scenes") == 0) {
-            sNoStoryScenes = strcmp(pValue, "off") == 0;
+        } else if (MR::isEqualString(pKey, "story_scenes")) {
+            sNoStoryScenes = MR::isEqualString(pValue, "off");
         } else {
             return -1;
         }
@@ -641,8 +661,13 @@ namespace {
         }
     }
 
+    // A galaxy with scenario data (the game's or a mod's): one a stage change or the scenario select can open.
+    bool isGalaxy(const char* pGalaxy) {
+        return pGalaxy != nullptr && ScenarioDataFunction::getScenarioDataParser()->getScenarioData(pGalaxy) != nullptr;
+    }
+
     void apiOpenScenarioSelect(const char* pGalaxy) {
-        if (pGalaxy != nullptr && sStageFrames > 0) {
+        if (isGalaxy(pGalaxy) && sStageFrames > 0) {
             MR::requestStartScenarioSelect(copyText(pGalaxy));
         }
     }
@@ -684,21 +709,21 @@ namespace {
     }
 
     void apiGetPosition(NebulaActor* pActor, f32* pOut) {
-        const TVec3f& rAt = asActor(pActor)->mPosition;
+        const Vec3f& rAt = asActor(pActor)->mPosition;
         pOut[0] = rAt.x;
         pOut[1] = rAt.y;
         pOut[2] = rAt.z;
     }
 
     void apiGetGravity(NebulaActor* pActor, f32* pOut) {
-        const TVec3f& rDown = asActor(pActor)->mGravity;
+        const Vec3f& rDown = asActor(pActor)->mGravity;
         pOut[0] = rDown.x;
         pOut[1] = rDown.y;
         pOut[2] = rDown.z;
     }
 
     void apiSetPosition(NebulaActor* pActor, const f32* pIn) {
-        const TVec3f at(pIn[0], pIn[1], pIn[2]);
+        const Vec3f at(pIn[0], pIn[1], pIn[2]);
         if (pActor == apiPlayer()) {
             MR::setPlayerPos(at);
         } else {
@@ -707,14 +732,14 @@ namespace {
     }
 
     void apiGetVelocity(NebulaActor* pActor, f32* pOut) {
-        const TVec3f* pVelocity = pActor == apiPlayer() ? MarioAccess::getVelocity() : &asActor(pActor)->mVelocity;
+        const Vec3f* pVelocity = pActor == apiPlayer() ? MarioAccess::getVelocity() : &asActor(pActor)->mVelocity;
         pOut[0] = pVelocity->x;
         pOut[1] = pVelocity->y;
         pOut[2] = pVelocity->z;
     }
 
     void apiSetVelocity(NebulaActor* pActor, const f32* pIn) {
-        TVec3f* pVelocity = pActor == apiPlayer() ? MarioAccess::getVelocity() : &asActor(pActor)->mVelocity;
+        Vec3f* pVelocity = pActor == apiPlayer() ? MarioAccess::getVelocity() : &asActor(pActor)->mVelocity;
         pVelocity->set(pIn[0], pIn[1], pIn[2]);
     }
 
@@ -781,8 +806,13 @@ namespace {
             }
             break;
         case NEBULA_SET_ADD_LIVES:
+            // The count stops at the lives setting: a huge number from a mod ends there, not after that many calls.
             for (s32 i = 0; i < value; i++) {
+                const s32 before = MR::getPlayerLeft();
                 MR::incPlayerLeft();
+                if (MR::getPlayerLeft() == before) {
+                    break;
+                }
             }
             break;
         default: break;
@@ -797,7 +827,7 @@ namespace {
 
     void apiJumpPlayer(const f32* pVelocity) {
         if (playingPlayer() != nullptr) {
-            MarioAccess::forceJump(TVec3f(pVelocity[0], pVelocity[1], pVelocity[2]), 0);
+            MarioAccess::forceJump(Vec3f(pVelocity[0], pVelocity[1], pVelocity[2]), 0);
         }
     }
 
@@ -936,11 +966,8 @@ namespace {
             }
         } inZone;
         if (pEntry != nullptr) {
-            if (pEntry->mArchive != nullptr && !MR::isLoadedObjectOrLayoutArchive(pEntry->mArchive)) {
-                MR::mountArchiveByObjectOrLayoutName(pEntry->mArchive, nullptr);
-                if (!MR::isLoadedObjectOrLayoutArchive(pEntry->mArchive)) {
-                    return nullptr;
-                }
+            if (pEntry->mArchive != nullptr && !MR::isExistObjectOrLayoutArchive(pEntry->mArchive)) {
+                return nullptr;
             }
             pObject = pEntry->mCreator(pEntry->mName);
         } else {
@@ -948,9 +975,7 @@ namespace {
             if (pCreator == nullptr) {
                 return nullptr;
             }
-            const JMapInfoIter noPlacement;
-            NameObjFactory::requestMountObjectArchives(pName, noPlacement);
-            pObject = pCreator(copyText(pName));
+            pObject = pCreator(copyText(pName, NebulaArena::current()));
         }
         if (pObject == nullptr) {
             return nullptr;
@@ -1056,7 +1081,7 @@ namespace {
     }
 
     void apiGetRotation(NebulaActor* pActor, float* pOut) {
-        const TVec3f& rIn = asActor(pActor)->mRotation;
+        const Vec3f& rIn = asActor(pActor)->mRotation;
         pOut[0] = rIn.x;
         pOut[1] = rIn.y;
         pOut[2] = rIn.z;
@@ -1067,7 +1092,7 @@ namespace {
     }
 
     void apiGetScale(NebulaActor* pActor, float* pOut) {
-        const TVec3f& rIn = asActor(pActor)->mScale;
+        const Vec3f& rIn = asActor(pActor)->mScale;
         pOut[0] = rIn.x;
         pOut[1] = rIn.y;
         pOut[2] = rIn.z;
@@ -1079,7 +1104,7 @@ namespace {
 
     void apiSetFront(NebulaActor* pActor, const float* pIn) {
         PluginActor* pPlugin = asPluginActor(pActor);
-        TVec3f front(pIn[0], pIn[1], pIn[2]);
+        Vec3f front(pIn[0], pIn[1], pIn[2]);
         if (pPlugin != nullptr && !MR::isNearZero(front)) {
             MR::normalize(&front);
             pPlugin->mFront = front;
@@ -1239,9 +1264,9 @@ namespace {
         if (sStageFrames <= 0) {
             return 0;
         }
-        const TVec3f from(pFrom[0], pFrom[1], pFrom[2]);
-        const TVec3f line(pTo[0] - pFrom[0], pTo[1] - pFrom[1], pTo[2] - pFrom[2]);
-        TVec3f hit(0.0f, 0.0f, 0.0f);
+        const Vec3f from(pFrom[0], pFrom[1], pFrom[2]);
+        const Vec3f line(pTo[0] - pFrom[0], pTo[1] - pFrom[1], pTo[2] - pFrom[2]);
+        Vec3f hit(0.0f, 0.0f, 0.0f);
         Triangle triangle;
         if (!MR::getFirstPolyOnLineToMap(&hit, &triangle, from, line)) {
             return 0;
@@ -1266,7 +1291,7 @@ namespace {
     }
 
     int32_t apiIsInWater(const float* pAt) {
-        return sStageFrames > 0 && MR::isInWater(TVec3f(pAt[0], pAt[1], pAt[2])) ? 1 : 0;
+        return sStageFrames > 0 && MR::isInWater(Vec3f(pAt[0], pAt[1], pAt[2])) ? 1 : 0;
     }
 
     float apiDistanceToPlayer(NebulaActor* pActor) {
@@ -1275,7 +1300,7 @@ namespace {
 
     void apiGetJointPosition(NebulaActor* pActor, const char* pJoint, float* pOut) {
         const LiveActor* pLive = asActor(pActor);
-        TVec3f at(pLive->mPosition);
+        Vec3f at(pLive->mPosition);
         if (pLive->mModelManager != nullptr && pJoint != nullptr) {
             MR::copyJointPos(pLive, pJoint, &at);
         }
@@ -1285,7 +1310,7 @@ namespace {
     }
 
     void apiPlayerFront(float* pOut) {
-        TVec3f front(0.0f, 0.0f, 1.0f);
+        Vec3f front(0.0f, 0.0f, 1.0f);
         if (playingPlayer() != nullptr) {
             MR::getPlayerFrontVec(&front);
         }
@@ -1323,7 +1348,7 @@ namespace {
 
     void apiAppearItem(NebulaActor* pActor, NebulaItem what, const float* pAt, int32_t count) {
         const LiveActor* pLive = asActor(pActor);
-        const TVec3f at(pAt[0], pAt[1], pAt[2]);
+        const Vec3f at(pAt[0], pAt[1], pAt[2]);
         switch (what) {
         case NEBULA_ITEM_COINS: MR::appearCoinPop(pLive, at, count); break;
         case NEBULA_ITEM_STAR_BITS: MR::appearStarPiece(pLive, at, count, 10.0f, 40.0f, false); break;
@@ -1390,7 +1415,7 @@ namespace {
     }
 
     void apiChangeStage(const char* pGalaxy, int32_t mission) {
-        if (pGalaxy != nullptr && sStageFrames > 0) {
+        if (isGalaxy(pGalaxy) && sStageFrames > 0) {
             MR::requestChangeStageInGameMoving(copyText(pGalaxy), mission);
         }
     }
@@ -1399,6 +1424,11 @@ namespace {
         if (sStageFrames > 0) {
             MR::requestChangeStageGoBackAstroDome();
         }
+    }
+
+    // A mod's galaxy name: the game's spelling of a galaxy the save keeps stars for, or null.
+    const char* starGalaxy(const char* pGalaxy) {
+        return pGalaxy != nullptr ? GameDataFunction::findStarGalaxyName(pGalaxy) : nullptr;
     }
 
     int32_t apiIsEventFlagOn(const char* pName) {
@@ -1412,7 +1442,8 @@ namespace {
     }
 
     int32_t apiHasStar(const char* pGalaxy, int32_t star) {
-        return pGalaxy != nullptr && star > 0 && MR::isOnGameEventFlagPowerStarSuccess(pGalaxy, star) ? 1 : 0;
+        const char* pName = starGalaxy(pGalaxy);
+        return pName != nullptr && star > 0 && MR::isOnGameEventFlagPowerStarSuccess(pName, star) ? 1 : 0;
     }
 
     void apiShowMessage(const char* pText, int32_t centre) {
@@ -1443,12 +1474,11 @@ namespace {
             return -1;
         }
         // A track under its own name, which the game's sound names can't be: "+SE_OJ_COIN_GET".
-        char trackName[256];
-        nebula_snprintf(trackName, sizeof(trackName), "+%s", pName);
-        if (apiAddMusic(trackName, pFile) != 0) {
+        MR::FormattedName trackName("+%s", pName);
+        if (apiAddMusic(trackName.c_str(), pFile) != 0) {
             return -1;
         }
-        const SoundEffect effect = {copyText(pName), NebulaMods::trackId(trackName)};
+        const SoundEffect effect = {copyText(pName), NebulaMods::trackId(trackName.c_str())};
         sSoundEffects.add(effect);
         NebulaMods::sHasSoundEffects = true;
         return 0;
@@ -1509,7 +1539,7 @@ namespace {
         if (pName == nullptr) {
             return true;
         }
-        return strcmp(pActor->mName, pName) == 0 || strcmp(pActor->mName, MR::getJapaneseObjectName(pName)) == 0;
+        return MR::isEqualString(pActor->mName, pName) || MR::isEqualString(pActor->mName, MR::getJapaneseObjectName(pName));
     }
 
     NebulaActor* apiFindActor(const char* pName, NebulaActor* pAfter) {
@@ -1535,7 +1565,7 @@ namespace {
         if (sStageFrames <= 0 || pAt == nullptr) {
             return 0;
         }
-        const TVec3f at(pAt[0], pAt[1], pAt[2]);
+        const Vec3f at(pAt[0], pAt[1], pAt[2]);
         AllLiveActorGroup* pGroup = MR::getAllLiveActorGroup();
         s32 count = 0;
         for (s32 i = 0; i < pGroup->getObjNum(); i++) {
@@ -1597,9 +1627,9 @@ namespace {
     }
 
     void apiGravityAt(const float* pAt, float* pOut) {
-        TVec3f down(0.0f, -1.0f, 0.0f);
+        Vec3f down(0.0f, -1.0f, 0.0f);
         if (sStageFrames > 0) {
-            MR::calcGravityVector(MR::getAllLiveActorGroup(), TVec3f(pAt[0], pAt[1], pAt[2]), &down, nullptr, 0);
+            MR::calcGravityVector(MR::getAllLiveActorGroup(), Vec3f(pAt[0], pAt[1], pAt[2]), &down, nullptr, 0);
         }
         pOut[0] = down.x;
         pOut[1] = down.y;
@@ -1607,21 +1637,21 @@ namespace {
     }
 
     int32_t apiIsInArea(const char* pArea, const float* pAt) {
-        return sStageFrames > 0 && pArea != nullptr && MR::getAreaObj(pArea, TVec3f(pAt[0], pAt[1], pAt[2])) != nullptr ? 1 : 0;
+        return sStageFrames > 0 && pArea != nullptr && MR::getAreaObj(pArea, Vec3f(pAt[0], pAt[1], pAt[2])) != nullptr ? 1 : 0;
     }
 
     void apiCameraPosition(float* pOut) {
-        const TVec3f at = sStageFrames > 0 ? MR::getCamPos() : TVec3f(0.0f, 0.0f, 0.0f);
+        const Vec3f at = sStageFrames > 0 ? MR::getCamPos() : Vec3f(0.0f, 0.0f, 0.0f);
         pOut[0] = at.x;
         pOut[1] = at.y;
         pOut[2] = at.z;
     }
 
     void apiCameraTarget(float* pOut) {
-        TVec3f at(0.0f, 0.0f, 0.0f);
+        Vec3f at(0.0f, 0.0f, 0.0f);
         if (sStageFrames > 0) {
-            const TVec3f from = MR::getCamPos();
-            const TVec3f way = MR::getCamZdir();
+            const Vec3f from = MR::getCamPos();
+            const Vec3f way = MR::getCamZdir();
             at.set(from.x + way.x * 1000.0f, from.y + way.y * 1000.0f, from.z + way.z * 1000.0f);
         }
         pOut[0] = at.x;
@@ -1633,8 +1663,8 @@ namespace {
         if (sStageFrames <= 0) {
             return 0;
         }
-        TVec2f screen;
-        const bool front = MR::calcScreenPosition(&screen, TVec3f(pAt[0], pAt[1], pAt[2]));
+        Vec2f screen;
+        const bool front = MR::calcScreenPosition(&screen, Vec3f(pAt[0], pAt[1], pAt[2]));
         pOut[0] = screen.x;
         pOut[1] = screen.y;
         return front ? 1 : 0;
@@ -1650,7 +1680,7 @@ namespace {
         if (!MR::isStarPointerInScreen(0)) {
             return 0;
         }
-        const TVec2f* pAt = MR::getStarPointerScreenPosition(0);
+        const Vec2f* pAt = MR::getStarPointerScreenPosition(0);
         pOut[0] = pAt->x;
         pOut[1] = pAt->y;
         return 1;
@@ -1662,22 +1692,27 @@ namespace {
 
     void apiSetEventValue(const char* pName, int32_t value) {
         if (pName != nullptr) {
-            GameDataFunction::setGameEventValue(pName, static_cast< u16 >(value));
+            // The saved value is 16 bits: out of range is held at its ends, not wrapped.
+            GameDataFunction::setGameEventValue(pName, static_cast< u16 >(value < 0 ? 0 : value > 65535 ? 65535 : value));
         }
     }
 
     void apiSetStar(const char* pGalaxy, int32_t star, int32_t have) {
-        if (pGalaxy != nullptr && star > 0) {
-            GameDataFunction::setGameFlagPowerStarSuccess(pGalaxy, star, have != 0);
+        const char* pName = starGalaxy(pGalaxy);
+        if (pName != nullptr && star > 0) {
+            GameDataFunction::setGameFlagPowerStarSuccess(pName, star, have != 0);
         }
     }
 
     int32_t apiStarsInGalaxy(const char* pGalaxy) {
-        return pGalaxy != nullptr ? MR::makeGalaxyStatusAccessor(pGalaxy).getPowerStarNum() : 0;
+        const ScenarioData* pData =
+            pGalaxy != nullptr ? ScenarioDataFunction::getScenarioDataParser()->getScenarioData(pGalaxy) : nullptr;
+        return pData != nullptr ? pData->getPowerStarNum() : 0;
     }
 
     int32_t apiStarsWonInGalaxy(const char* pGalaxy) {
-        return pGalaxy != nullptr ? GameDataFunction::getPowerStarNumOwned(pGalaxy) : 0;
+        const char* pName = starGalaxy(pGalaxy);
+        return pName != nullptr ? GameDataFunction::getPowerStarNumOwned(pName) : 0;
     }
 
     // ---- layouts
@@ -1685,7 +1720,7 @@ namespace {
     public:
         PluginLayout(const char* pArchive) : LayoutActor("PluginLayout", true), mArchive(pArchive) {}
 
-        virtual void init(const JMapInfoIter&) {
+        virtual void init(const TableIter&) {
             initLayoutManager(mArchive, 1);
             MR::connectToSceneLayout(this);
             appear();
@@ -1694,7 +1729,7 @@ namespace {
         const char* mArchive;
         struct Moved {
             const char* mPane;
-            TVec2f mAt;
+            Vec2f mAt;
         };
         List< Moved* > mMoved;
     };
@@ -1707,11 +1742,10 @@ namespace {
         if (pName == nullptr || sStageFrames <= 0) {
             return nullptr;
         }
-        MR::mountArchiveByObjectOrLayoutName(pName, nullptr);
-        if (!MR::isLoadedObjectOrLayoutArchive(pName)) {
+        if (!MR::isExistObjectOrLayoutArchive(pName)) {
             return nullptr;
         }
-        PluginLayout* pLayout = new PluginLayout(copyText(pName));
+        PluginLayout* pLayout = new PluginLayout(copyText(pName, NebulaArena::current()));
         pLayout->initWithoutIter();
         return reinterpret_cast< NebulaLayout* >(pLayout);
     }
@@ -1724,11 +1758,9 @@ namespace {
         }
     }
 
-    const char16_t* wordsOf(const char* pUtf8);
-
     void apiLayoutSetText(NebulaLayout* pLayout, const char* pPane, const char* pUtf8) {
         if (pPane != nullptr && pUtf8 != nullptr) {
-            MR::setTextBoxMessageRecursive(asLayout(pLayout), pPane, wordsOf(pUtf8));
+            MR::setTextBoxMessageRecursive(asLayout(pLayout), pPane, wordsOf(pUtf8, NebulaArena::findFromRoot(asLayout(pLayout))));
         }
     }
 
@@ -1755,13 +1787,14 @@ namespace {
         }
         PluginLayout* pHost = asLayout(pLayout);
         for (int i = 0; i < pHost->mMoved.mCount; i++) {
-            if (strcmp(pHost->mMoved.mItems[i]->mPane, pPane) == 0) {
+            if (MR::isEqualString(pHost->mMoved.mItems[i]->mPane, pPane)) {
                 pHost->mMoved.mItems[i]->mAt.set(x, y);
                 return;
             }
         }
-        PluginLayout::Moved* pMoved = new PluginLayout::Moved;
-        pMoved->mPane = copyText(pPane);
+        NebulaArena* const pHostArena = NebulaArena::findFromRoot(pHost);
+        PluginLayout::Moved* pMoved = new (pHostArena) PluginLayout::Moved;
+        pMoved->mPane = copyText(pPane, pHostArena);
         pMoved->mAt.set(x, y);
         pHost->mMoved.add(pMoved);
         MR::createAndAddPaneCtrl(pHost, pMoved->mPane, 1);
@@ -1970,7 +2003,7 @@ namespace NebulaMods {
         for (int i = sCometLimits.mCount - 1; i >= 0; i--) {
             const CometLimit& rLimit = sCometLimits.mItems[i];
             if (rLimit.mMission == mission && MR::isEqualString(rLimit.mGalaxy, pGalaxy)) {
-                return rLimit.mSeconds * 60;
+                return NebulaFrameClock::stepsOfSeconds(rLimit.mSeconds);
             }
         }
         return 0;
@@ -2063,7 +2096,7 @@ namespace NebulaMods {
 
     const char16_t* text(const char* pId) {
         for (int i = sTexts.mCount - 1; i >= 0; i--) {
-            if (strcmp(sTexts.mItems[i].mId, pId) == 0) {
+            if (MR::isEqualString(sTexts.mItems[i].mId, pId)) {
                 return sTexts.mItems[i].mWords;
             }
         }
@@ -2072,7 +2105,7 @@ namespace NebulaMods {
 
     u32 trackId(const char* pName) {
         for (int i = 0; i < sTracks.mCount; i++) {
-            if (strcmp(sTracks.mItems[i].mName, pName) == 0) {
+            if (MR::isEqualString(sTracks.mItems[i].mName, pName)) {
                 return 0x02000000u | (cFirstTrackWave + static_cast< u32 >(i));
             }
         }
@@ -2088,7 +2121,7 @@ namespace NebulaMods {
         u32 forAll = static_cast< u32 >(-1);
         for (int i = sStageTracks.mCount - 1; i >= 0; i--) {
             const StageTrack& rRow = sStageTracks.mItems[i];
-            if (rRow.mScenario < 0 || strcmp(rRow.mStage, pStage) != 0) {
+            if (rRow.mScenario < 0 || !MR::isEqualString(rRow.mStage, pStage)) {
                 continue;
             }
             if (rRow.mScenario == scenario) {
@@ -2104,7 +2137,7 @@ namespace NebulaMods {
     u32 areaTrack(const char* pStage, s32 area) {
         for (int i = sStageTracks.mCount - 1; i >= 0; i--) {
             const StageTrack& rRow = sStageTracks.mItems[i];
-            if (rRow.mArea == area && strcmp(rRow.mStage, pStage) == 0) {
+            if (rRow.mArea == area && MR::isEqualString(rRow.mStage, pStage)) {
                 return rRow.mId;
             }
         }
@@ -2113,7 +2146,7 @@ namespace NebulaMods {
 
     bool mapSpot(const char* pGalaxy, f32* pX, f32* pY, s32* pDome) {
         for (int i = sMapSpots.mCount - 1; i >= 0; i--) {
-            if (strcmp(sMapSpots.mItems[i].mGalaxy, pGalaxy) == 0) {
+            if (MR::isEqualString(sMapSpots.mItems[i].mGalaxy, pGalaxy)) {
                 *pX = sMapSpots.mItems[i].mX;
                 *pY = sMapSpots.mItems[i].mY;
                 *pDome = sMapSpots.mItems[i].mDome;
@@ -2160,7 +2193,7 @@ namespace NebulaMods {
 
     u32 soundEffectSlow(const char* pName) {
         for (int i = sSoundEffects.mCount - 1; i >= 0; i--) {
-            if (strcmp(sSoundEffects.mItems[i].mName, pName) == 0) {
+            if (MR::isEqualString(sSoundEffects.mItems[i].mName, pName)) {
                 return sSoundEffects.mItems[i].mId;
             }
         }
@@ -2191,18 +2224,16 @@ namespace NebulaMods {
         return notOwn && MR::isEqualStringCase(pStage, pAskedName) ? 0 : -1;
     }
 
-    bool isMissingFiles(const char* pName, const JMapInfoIter& rIter) {
+    bool isMissingFiles(const char* pName) {
         if (!sAskedForApi) {
             return false;
         }
-        NameObjArchiveListCollector collector;
-        NameObjFactory::getMountObjectArchiveList(&collector, pName, rIter);
-        for (s32 i = 0; i < collector.getArchiveNum(); i++) {
-            char path[256];
-            char layout[256];
-            const char* pArchive = collector.getArchive(i);
-            if (!MR::makeObjectArchiveFileNameFromPrefix(path, sizeof(path), pArchive, false) && !MR::makeLayoutArchiveFileNameFromPrefix(layout, sizeof(layout), pArchive, false)) {
-                nebula_log("mods: left out: %s: it has no %s.arc\n", pName, pArchive);
+        const ObjectClass* pClass = sObjectClasses.mCount != 0 ? findObjectClass(pName) : nullptr;
+        const ObjectEntry* pEntry = sObjects.mCount != 0 ? findObject(pName) : nullptr;
+        const char* const archives[] = {pClass != nullptr ? pClass->mName : nullptr, pEntry != nullptr ? pEntry->mArchive : nullptr};
+        for (const char* pArchive : archives) {
+            if (pArchive != nullptr && !MR::isExistObjectOrLayoutArchive(pArchive)) {
+                nebula_log("mods: left out: %s: it has no archive %s\n", pName, pArchive);
                 return true;
             }
         }
@@ -2227,16 +2258,4 @@ namespace NebulaMods {
         return pEntry != nullptr ? pEntry->mCreator : nullptr;
     }
 
-    void addArchives(NameObjArchiveListCollector* pCollector, const char* pName) {
-        if (const ObjectClass* pClass = sObjectClasses.mCount != 0 ? findObjectClass(pName) : nullptr) {
-            pCollector->addArchive(pClass->mName);
-        }
-        if (sObjects.mCount == 0) {
-            return;
-        }
-        const ObjectEntry* pEntry = findObject(pName);
-        if (pEntry != nullptr && pEntry->mArchive != nullptr) {
-            pCollector->addArchive(pEntry->mArchive);
-        }
-    }
 }  // namespace NebulaMods

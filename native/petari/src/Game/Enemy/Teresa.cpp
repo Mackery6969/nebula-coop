@@ -1,4 +1,5 @@
 #include "Game/Enemy/Teresa.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Map/HitInfo.hpp"
@@ -11,7 +12,7 @@
 #include "Game/Util/AreaObjUtil.hpp"
 #include "Game/Util/Color.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LightUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MapUtil.hpp"
@@ -26,6 +27,19 @@
 
 namespace {
     static Color8 sPointLightColor(255, 255, 255, 255);
+
+    // Placement arg 0.
+    enum AppearanceType {
+        APPEAR_FROM_GROUND = 0,
+        APPEAR_FROM_WALL = 1,
+    };
+
+    const f32 sShadowRadius = 80.0f;
+    const f32 sChaseDistance = 1800.0f;
+    const f32 sLoveDistance = 1500.0f;
+    const f32 sShyDistance = 1500.0f;
+    const f32 sWalkEndDistance = 200.0f;
+    const f32 sFloatHeight = 150.0f;
 };  // namespace
 
 namespace NrvTeresa {
@@ -51,20 +65,18 @@ namespace NrvTeresa {
 };  // namespace NrvTeresa
 
 Teresa::Teresa(const char* pName)
-    : LiveActor(pName), mDisplayModel(), mKeySwitch(), _94(0.0f, 0.0f, 0.0f, 1.0f), mWallNormal(0, 0, 1), mWallHitPos(0, 0, 0), _BC(0, 0, 1),
-      _C8(0, 0, 0), _D4(1, 1, 1), _E0(0, 0, 0) {
-    _EC = 3000.0f;
-    _F0 = 600.0f;
-    _F4 = 1.0f;
+    : LiveActor(pName), mDisplayModel(), mKeySwitch(), mPoseQuat(0.0f, 0.0f, 0.0f, 1.0f), mWallNormal(0, 0, 1), mWallHitPos(0, 0, 0),
+      mInitPos(0, 0, 0), mAnimScale(1, 1, 1), mWalkTarget(0, 0, 0) {
+    mWalkRange = 600.0f;
+    mTransparency = 1.0f;
     mAppearanceType = -1;
-    _FC = 1;
-    _FD = 0;
-    _FE = 0;
+    mHasCoin = true;
+    mIsChief = false;
 }
 
-void Teresa::init(const JMapInfoIter& rIter) {
-    initFromJMapParam(rIter);
-    _C8.set(mPosition);
+void Teresa::init(const TableIter& rIter) {
+    initFromPlacementParam(rIter);
+    mInitPos.set(mPosition);
     mWallHitPos.set(mPosition);
 
     if (MR::isConnectedWithRail(rIter)) {
@@ -77,10 +89,10 @@ void Teresa::init(const JMapInfoIter& rIter) {
     initDummyModel(rIter);
     initSound(4, false);
     initSensor();
-    MR::initShadowVolumeSphere(this, 80.0f);
+    MR::initShadowVolumeSphere(this, sShadowRadius);
     MR::onShadowFollowHostScale(this, nullptr);
     initBind();
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initNerve(GET_NERVE(Teresa, TeresaNrvWait));
     setTransparency(1.0f);
     MR::useStageSwitchWriteDead(this, rIter);
@@ -91,19 +103,18 @@ void Teresa::init(const JMapInfoIter& rIter) {
 
     if (MR::isObjectName(rIter, "TeresaChief")) {
         MR::declarePowerStar(this);
-        _FC = 0;
-        _FD = 1;
+        mHasCoin = false;
+        mIsChief = true;
         MR::invalidateClipping(this);
         MR::setShadowDropLength(this, nullptr, 3000.0f);
     }
 
-    if (_FC) {
+    if (mHasCoin) {
         MR::declareCoin(this, 1);
     }
 
     if (MR::isValidInfo(rIter) && !MR::isExistStageSwitchAppear(rIter)) {
         makeActorAppeared();
-
     } else {
         makeActorDead();
     }
@@ -111,7 +122,7 @@ void Teresa::init(const JMapInfoIter& rIter) {
     setStartNerve();
 }
 
-void Teresa::initDummyModel(const JMapInfoIter& rIter) {
+void Teresa::initDummyModel(const TableIter& rIter) {
     if (MR::isValidInfo(rIter)) {
         mDisplayModel = MR::createDummyDisplayModel(this, rIter, "SklRoot", -1);
     }
@@ -119,10 +130,10 @@ void Teresa::initDummyModel(const JMapInfoIter& rIter) {
     if (mDisplayModel != nullptr) {
         mDisplayModel->kill();
 
-        if (MR::getDummyDisplayModelId(rIter, -1) == 6) {
-            mKeySwitch = new KeySwitch("\214\256\203\130\203\103\203\142\203\140" /* 鍵スイッチ */);
+        if (MR::getDummyDisplayModelId(rIter, -1) == DummyDisplayModelId_KeySwitch) {
+            mKeySwitch = new KeySwitch("鍵スイッチ");
             mKeySwitch->initKeySwitchByOwner(rIter);
-            _FC = 0;
+            mHasCoin = false;
         }
 
         if (MR::isBckExist(mDisplayModel, "InTeresa")) {
@@ -131,21 +142,20 @@ void Teresa::initDummyModel(const JMapInfoIter& rIter) {
     }
 }
 
-void Teresa::initFromJMapParam(const JMapInfoIter& rIter) {
+void Teresa::initFromPlacementParam(const TableIter& rIter) {
     if (MR::isValidInfo(rIter)) {
         MR::initDefaultPos(this, rIter);
-        mScale.mult(1.0f);
-        MR::makeQuatAndFrontFromRotate(&_94, &mWallNormal, this);
-        MR::getJMapInfoArg0WithInit(rIter, &mAppearanceType);
+        MR::makeQuatAndFrontFromRotate(&mPoseQuat, &mWallNormal, this);
+        MR::getPlacementArg0WithInit(rIter, &mAppearanceType);
     }
 }
 
 void Teresa::initSensor() {
-    f32 scale_x = mScale.x;
+    f32 scale = mScale.x;
     initHitSensor(2);
-    MR::addHitSensorEnemyAttack(this, "attack", 8, (70.0f * scale_x), TVec3f(0.0f, 0.0f, 0.0f));
-    MR::addHitSensorEnemy(this, "body", 8, (85.0f * scale_x), TVec3f(0.0f, 0.0f, 0.0f));
-    MR::initStarPointerTarget(this, (85.0f * scale_x), TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorEnemyAttack(this, "attack", 8, 70.0f * scale, Vec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorEnemy(this, "body", 8, 85.0f * scale, Vec3f(0.0f, 0.0f, 0.0f));
+    MR::initStarPointerTarget(this, 85.0f * scale, Vec3f(0.0f, 0.0f, 0.0f));
 }
 
 void Teresa::initBind() {
@@ -163,22 +173,19 @@ void Teresa::appear() {
     LiveActor::appear();
     setTransparency(0.0f);
 
-    switch (mAppearanceType) {
-    case 0:
-        MR::invalidateClipping(this);
-        MR::onBind(this);
-        mWallHitPos.set(mPosition);
-        setNerve(GET_NERVE(Teresa, TeresaNrvAppearFromGround));
-        break;
-    case 1:
-        MR::invalidateClipping(this);
-        MR::onBind(this);
-        mWallHitPos.set(mPosition);
-        setNerve(GET_NERVE(Teresa, TeresaNrvAppearFromWall));
-        break;
-    default:
+    if (mAppearanceType != APPEAR_FROM_GROUND && mAppearanceType != APPEAR_FROM_WALL) {
         setStartNerve();
-        break;
+        return;
+    }
+
+    MR::invalidateClipping(this);
+    MR::onBind(this);
+    mWallHitPos.set(mPosition);
+
+    if (mAppearanceType == APPEAR_FROM_GROUND) {
+        setNerve(GET_NERVE(Teresa, TeresaNrvAppearFromGround));
+    } else {
+        setNerve(GET_NERVE(Teresa, TeresaNrvAppearFromWall));
     }
 }
 
@@ -190,12 +197,12 @@ void Teresa::kill() {
         mKeySwitch->appearKeySwitch(mPosition);
     }
 
-    if (_FD) {
+    if (mIsChief) {
         MR::startAfterBossBGM();
         MR::requestAppearPowerStar(this, mPosition);
     }
 
-    if (_FC) {
+    if (mHasCoin) {
         MR::appearCoinPop(this, mPosition, 1);
     }
 
@@ -205,44 +212,36 @@ void Teresa::kill() {
 }
 
 namespace {
-    inline void blendTeresaQuat(TQuat4f* pQuat, const TVec3f& rGravity, const TVec3f& rFront) {
+    inline void blendTeresaQuat(Quat4f* pQuat, const Vec3f& rGravity, const Vec3f& rFront) {
         MR::blendQuatUpFront(pQuat, -rGravity, rFront, 0.1f, 0.2f);
     }
 };  // namespace
 
 void Teresa::control() {
     if (!isNerve(GET_NERVE(Teresa, TeresaNrvDrift)) && !isNerve(GET_NERVE(Teresa, TeresaNrvAscension))) {
-        _D4.x = 1.0f + (0.95f * (_D4.x - 1.0f));
-        _D4.z = 1.0f / _D4.x;
+        mAnimScale.x = 1.0f + (0.95f * (mAnimScale.x - 1.0f));
+        mAnimScale.z = 1.0f / mAnimScale.x;
     }
 
     tryHideWater();
-    ::blendTeresaQuat(&_94, mGravity, mWallNormal);
-    _FE = 0;
+    ::blendTeresaQuat(&mPoseQuat, mGravity, mWallNormal);
 
-    if (_F4 > 0.9f) {
-        MR::requestPointLight(this, TVec3f(mPosition), ::sPointLightColor, 1.0f, -1);
+    if (mTransparency > 0.9f) {
+        MR::requestPointLight(this, mPosition, ::sPointLightColor, 1.0f, -1);
     }
 }
 
 void Teresa::calcAndSetBaseMtx() {
-    MR::setBaseTRMtx(this, _94);
-    TVec3f scale = _D4 * mScale;
+    MR::setBaseTRMtx(this, mPoseQuat);
+    Vec3f scale = mAnimScale * mScale;
     MR::setBaseScale(this, scale);
 }
 
 void Teresa::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
-    if (!MR::isSensorPlayer(pReceiver)) {
-        if (MR::isSensorEnemy(pSender)) {
-            MR::sendMsgPush(pReceiver, pSender);
-            return;
-        }
-
-        return;
-    }
-
-    if (requestAttack(pSender, pReceiver)) {
-        return;
+    if (MR::isSensorPlayer(pReceiver)) {
+        requestAttack(pSender, pReceiver);
+    } else if (MR::isSensorEnemy(pSender)) {
+        MR::sendMsgPush(pReceiver, pSender);
     }
 }
 
@@ -252,16 +251,16 @@ bool Teresa::receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) {
     }
 
     if (MR::isSensorEnemy(pSender)) {
-        TVec3f v9 = MR::getSensorPos(pReceiver) - MR::getSensorPos(pSender);
-        MR::normalizeOrZero(&v9);
-        mVelocity.add(v9 * 0.1f);
+        Vec3f away = MR::getSensorPos(pReceiver) - MR::getSensorPos(pSender);
+        MR::normalizeOrZero(&away);
+        mVelocity.add(away * 0.1f);
         return true;
     }
 
     return false;
 }
 
-bool Teresa::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool Teresa::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (MR::isMsgSearchlightAttack(msg) || MR::isMsgFireBallAttack(msg) || MR::isMsgInvincibleAttack(msg)) {
         return requestSearchLightDead();
     }
@@ -297,8 +296,6 @@ bool Teresa::filterBind(const Triangle* pTriangle) {
     }
 
     if (MR::isWallCodeGhostThrough(pTriangle)) {
-        _FE = 1;
-        _BC.set(*pTriangle->getNormal(0));
         return isNerve(GET_NERVE(Teresa, TeresaNrvDrift));
     }
 
@@ -361,16 +358,7 @@ void Teresa::setStartNerve() {
     }
 }
 
-bool Teresa::tryAppearFromWallEnd() {
-    if (MR::isBckStopped(this)) {
-        setStartNerve();
-        return true;
-    }
-
-    return false;
-}
-
-bool Teresa::tryAppearFromGroundEnd() {
+bool Teresa::tryAppearEnd() {
     if (MR::isBckStopped(this)) {
         setStartNerve();
         return true;
@@ -390,7 +378,7 @@ bool Teresa::tryRailTurn() {
 }
 
 bool Teresa::tryRailTurnEnd() {
-    if (MR::isGreaterStep(this, 150)) {
+    if (MR::isGreaterStep(this, NebulaFrameClock::stepsOfMilliseconds(2500))) {
         setNerve(GET_NERVE(Teresa, TeresaNrvRailWalk));
         return true;
     }
@@ -400,12 +388,12 @@ bool Teresa::tryRailTurnEnd() {
 
 bool Teresa::tryWalk() {
     if (MR::isGreaterStep(this, 192)) {
-        TVec3f v6;
-        MR::getRandomVector(&v6, 1.0f);
-        MR::normalizeOrZero(&v6);
-        v6.orthogonalize(mGravity);
-        v6 *= _F0;
-        _E0 = v6 + _C8;
+        Vec3f offset;
+        MR::getRandomVector(&offset, 1.0f);
+        MR::normalizeOrZero(&offset);
+        offset.orthogonalize(mGravity);
+        offset *= mWalkRange;
+        mWalkTarget = offset + mInitPos;
         setNerve(GET_NERVE(Teresa, TeresaNrvWalk));
         return true;
     }
@@ -414,7 +402,7 @@ bool Teresa::tryWalk() {
 }
 
 bool Teresa::tryWalkEnd() {
-    if (MR::isGreaterStep(this, 300) || _E0.distance(mPosition) <= 200.0f) {
+    if (MR::isGreaterStep(this, NebulaFrameClock::stepsOfSeconds(5)) || mWalkTarget.distance(mPosition) <= sWalkEndDistance) {
         setNerve(GET_NERVE(Teresa, TeresaNrvWait));
         return true;
     }
@@ -427,7 +415,7 @@ bool Teresa::tryChase() {
         return false;
     }
 
-    if (!isShay() && MR::isNearPlayer(this, 1800.0f)) {
+    if (!isShay() && MR::isNearPlayer(this, sChaseDistance)) {
         setNerve(GET_NERVE(Teresa, TeresaNrvChase));
         return true;
     }
@@ -435,8 +423,8 @@ bool Teresa::tryChase() {
     return false;
 }
 
-bool Teresa::tryCheseEnd() {
-    if (MR::isGreaterStep(this, 240) || MR::isPlayerElementModeTeresa() || isNotNear()) {
+bool Teresa::tryChaseEnd() {
+    if (MR::isGreaterStep(this, NebulaFrameClock::stepsOfSeconds(4)) || MR::isPlayerElementModeTeresa() || isNotNear()) {
         setStartNerve();
         return true;
     }
@@ -445,7 +433,7 @@ bool Teresa::tryCheseEnd() {
 }
 
 bool Teresa::tryShay() {
-    if (MR::isStarPointerPointing2POnPressButton(this, "\216\343" /* 弱 */, true, false)) {
+    if (MR::isStarPointerPointing2POnPressButton(this, "弱", true, false)) {
         setNerve(GET_NERVE(Teresa, TeresaNrvShay));
         return true;
     }
@@ -470,21 +458,23 @@ bool Teresa::tryShayEnd() {
     if (MR::isPlayerElementModeTeresa()) {
         setStartNerve();
         return true;
-    } else if (!isShay()) {
-        if (MR::isExistRail(this)) {
-            setStartNerve();
-        } else {
-            setNerve(GET_NERVE(Teresa, TeresaNrvAggressive));
-        }
+    }
 
-        return true;
-    } else {
+    if (isShay()) {
         return false;
     }
+
+    if (MR::isExistRail(this)) {
+        setStartNerve();
+    } else {
+        setNerve(GET_NERVE(Teresa, TeresaNrvAggressive));
+    }
+
+    return true;
 }
 
 bool Teresa::tryLoveFind() {
-    if (MR::isPlayerElementModeTeresa() && MR::isNearPlayerAnyTime(this, 1500.0f)) {
+    if (MR::isPlayerElementModeTeresa() && MR::isNearPlayerAnyTime(this, sLoveDistance)) {
         setNerve(GET_NERVE(Teresa, TeresaNrvLoveFind));
         return true;
     }
@@ -493,7 +483,7 @@ bool Teresa::tryLoveFind() {
 }
 
 bool Teresa::tryLoveEnd() {
-    if (!MR::isPlayerElementModeTeresa() && MR::isNearPlayerAnyTime(this, 1500.0f)) {
+    if (!MR::isPlayerElementModeTeresa() && MR::isNearPlayerAnyTime(this, sLoveDistance)) {
         setNerve(GET_NERVE(Teresa, TeresaNrvLoveEnd));
         return true;
     }
@@ -511,7 +501,7 @@ bool Teresa::tryLoveFindEnd() {
 }
 
 bool Teresa::tryLoveChaseEnd() {
-    if (MR::isGreaterStep(this, 240)) {
+    if (MR::isGreaterStep(this, NebulaFrameClock::stepsOfSeconds(4))) {
         setStartNerve();
         return true;
     }
@@ -556,12 +546,12 @@ bool Teresa::tryDriftEnd() {
 }
 
 bool Teresa::tryHideWater() {
-    TVec3f v4;
-    v4.scaleAdd(70.0f * mScale.y, mGravity, mPosition);
+    Vec3f footPos;
+    footPos.scaleAdd(70.0f * mScale.y, mGravity, mPosition);
 
-    if (isCheckWater() && MR::isInWater(v4)) {
-        TPos3f effectMtx;
-        MR::makeMtxFrontNoSupportPos(&effectMtx, -mGravity, v4);
+    if (isCheckWater() && MR::isInWater(footPos)) {
+        Pos3f effectMtx;
+        MR::makeMtxFrontNoSupportPos(&effectMtx, -mGravity, footPos);
         MR::emitEffectHit(this, effectMtx, "HideWall");
         MR::invalidateClipping(this);
         MR::invalidateHitSensors(this);
@@ -579,7 +569,7 @@ bool Teresa::tryHideWall() {
     if (MR::isBindedWall(this)) {
         mWallNormal.set(*MR::getWallNormal(this));
         mWallHitPos.set(*MR::getWallHitPos(this));
-        TPos3f frontMtx;
+        Pos3f frontMtx;
         MR::makeMtxFrontNoSupportPos(&frontMtx, mWallNormal, mWallHitPos);
         MR::emitEffectHit(this, frontMtx, "HideWall");
         MR::invalidateClipping(this);
@@ -595,7 +585,7 @@ bool Teresa::tryHideWall() {
 }
 
 bool Teresa::tryHideWallEnd() {
-    if (MR::isGreaterStep(this, 60)) {
+    if (MR::isGreaterStep(this, NebulaFrameClock::stepsOfSeconds(1))) {
         MR::validateHitSensors(this);
         MR::onBind(this);
         MR::showModel(this);
@@ -616,7 +606,7 @@ bool Teresa::tryAscension() {
 }
 
 void Teresa::endAppear() {
-    if (!_FD) {
+    if (!mIsChief) {
         MR::validateClipping(this);
     }
 
@@ -627,57 +617,40 @@ void Teresa::endAppear() {
 void Teresa::endDrift() {
     MR::forceDeleteEffect(this, "SpinBlur");
     setTransparency(1.0f);
-    MR::setShadowVolumeSphereRadius(this, nullptr, 80.0f);
+    MR::setShadowVolumeSphereRadius(this, nullptr, sShadowRadius);
+}
+
+// Comes out along rDir from mWallHitPos while the shadow eases to full size over 60 steps.
+void Teresa::updateAppear(const Vec3f& rDir, const char* pAction) {
+    if (MR::isFirstStep(this)) {
+        MR::showModel(this);
+        MR::startAction(this, pAction);
+        MR::zeroVelocity(this);
+        Pos3f frontMtx;
+        MR::makeMtxFrontNoSupportPos(&frontMtx, rDir, mWallHitPos);
+        MR::emitEffectHit(this, frontMtx, "Appear");
+        MR::startSound(this, "SE_EM_TERESA_APPEAR");
+    }
+
+    Vec3f push(rDir);
+    push *= 0.2f;
+    mVelocity.add(push);
+    MR::attenuateVelocity(this, 0.9f);
+    f32 rate = MR::calcNerveRate(this, NebulaFrameClock::stepsOfSeconds(1));
+    MR::setShadowVolumeSphereRadius(this, nullptr, (sShadowRadius * (1.0f - (1.0f - rate) * (1.0f - rate))));
+    tryAppearEnd();
 }
 
 void Teresa::exeAppearFromWall() {
-    TVec3f v4;
-    _94.getZDir(v4);
-
-    if (MR::isFirstStep(this)) {
-        MR::showModel(this);
-        MR::startAction(this, "AppearWall");
-        MR::zeroVelocity(this);
-        TPos3f frontMtx;
-        MR::makeMtxFrontNoSupportPos(&frontMtx, v4, mWallHitPos);
-        MR::emitEffectHit(this, frontMtx, "Appear");
-        MR::startSound(this, "SE_EM_TERESA_APPEAR");
-    }
-
-    TVec3f v3(v4);
-    v3 *= 0.2f;
-    mVelocity.add(v3);
-    MR::attenuateVelocity(this, 0.9f);
-    f32 rate = MR::calcNerveRate(this, 60);
-    MR::setShadowVolumeSphereRadius(this, 0, (80.0f * (1.0f - (1.0f - rate) * (1.0f - rate))));
-    if (tryAppearFromWallEnd()) {
-        return;
-    }
+    Vec3f front;
+    mPoseQuat.getZDir(front);
+    updateAppear(front, "AppearWall");
 }
 
 void Teresa::exeAppearFromGround() {
-    TVec3f v4;
-    _94.getYDir(v4);
-
-    if (MR::isFirstStep(this)) {
-        MR::showModel(this);
-        MR::startAction(this, "AppearGround");
-        MR::zeroVelocity(this);
-        TPos3f frontMtx;
-        MR::makeMtxFrontNoSupportPos(&frontMtx, v4, mWallHitPos);
-        MR::emitEffectHit(this, frontMtx, "Appear");
-        MR::startSound(this, "SE_EM_TERESA_APPEAR");
-    }
-
-    TVec3f v3(v4);
-    v3 *= 0.2f;
-    mVelocity.add(v3);
-    MR::attenuateVelocity(this, 0.9f);
-    f32 rate = MR::calcNerveRate(this, 60);
-    MR::setShadowVolumeSphereRadius(this, 0, (80.0f * (1.0f - (1.0f - rate) * (1.0f - rate))));
-    if (tryAppearFromGroundEnd()) {
-        return;
-    }
+    Vec3f up;
+    mPoseQuat.getYDir(up);
+    updateAppear(up, "AppearGround");
 }
 
 void Teresa::exeWait() {
@@ -690,9 +663,7 @@ void Teresa::exeWait() {
     updateNormalVelocity();
 
     if (!tryAscension() && !tryShay() && !tryChase() && !tryWalk()) {
-        if (tryLoveFind()) {
-            return;
-        }
+        tryLoveFind();
     }
 }
 
@@ -701,23 +672,22 @@ void Teresa::exeWalk() {
         MR::startBtp(this, "Normal");
     }
 
-    MR::turnDirectionToTarget(this, &mWallNormal, _E0, 0.9995f);
+    MR::turnDirectionToTarget(this, &mWallNormal, mWalkTarget, 0.9995f);
     MR::addVelocityMoveToDirection(this, mWallNormal, 0.2f);
     updateNormalTransparency();
     updateNormalVelocity();
 
     if (!tryAscension() && !tryShay() && !tryWalkEnd()) {
-        if (tryLoveFind()) {
-            return;
-        }
+        tryLoveFind();
     }
 }
 
 void Teresa::exeRailWalk() {
-    TVec3f v7;
-    v7.killElement(MR::getRailPos(this) - mPosition, mGravity);
+    // Steps the rail point ahead once level with it.
+    Vec3f toRail;
+    toRail.killElement(MR::getRailPos(this) - mPosition, mGravity);
 
-    if (v7.length() < 10.0f) {
+    if (toRail.length() < 10.0f) {
         MR::moveCoord(this, 10.0f);
     }
 
@@ -727,14 +697,12 @@ void Teresa::exeRailWalk() {
     updateNormalVelocity();
 
     if (!tryAscension() && !tryShay() && !tryRailTurn()) {
-        if (tryLoveFind()) {
-            return;
-        }
+        tryLoveFind();
     }
 }
 
 void Teresa::exeRailTurn() {
-    if (MR::isGreaterStep(this, 60)) {
+    if (MR::isGreaterStep(this, NebulaFrameClock::stepsOfSeconds(1))) {
         MR::turnDirection(this, &mWallNormal, MR::getRailDirection(this), 0.9997f);
     }
 
@@ -743,9 +711,7 @@ void Teresa::exeRailTurn() {
     updateNormalVelocity();
 
     if (!tryAscension() && !tryShay() && !tryRailTurnEnd()) {
-        if (tryLoveFind()) {
-            return;
-        }
+        tryLoveFind();
     }
 }
 
@@ -761,9 +727,7 @@ void Teresa::exeLoveFind() {
     updateNormalVelocity();
 
     if (!tryAscension() && !tryShay() && !tryLoveFindEnd()) {
-        if (tryLoveEnd()) {
-            return;
-        }
+        tryLoveEnd();
     }
 }
 
@@ -778,9 +742,7 @@ void Teresa::exeLoveChase() {
     updateNormalVelocity();
 
     if (!tryAscension() && !tryShay() && !tryLoveEnd()) {
-        if (tryLoveChaseEnd()) {
-            return;
-        }
+        tryLoveChaseEnd();
     }
 }
 
@@ -795,9 +757,7 @@ void Teresa::exeLoveHit() {
     updateNormalVelocity();
 
     if (!tryAscension() && !tryShay()) {
-        if (tryLoveHitEnd()) {
-            return;
-        }
+        tryLoveHitEnd();
     }
 }
 
@@ -810,9 +770,7 @@ void Teresa::exeLoveEnd() {
     updateNormalVelocity();
 
     if (!tryAscension() && !tryShay()) {
-        if (tryAggressiveEnd()) {
-            return;
-        }
+        tryAggressiveEnd();
     }
 }
 
@@ -829,9 +787,7 @@ void Teresa::exeChase() {
     updateNormalVelocity();
 
     if (!tryAscension() && !tryShay()) {
-        if (tryCheseEnd()) {
-            return;
-        }
+        tryChaseEnd();
     }
 }
 
@@ -842,12 +798,12 @@ void Teresa::exeShay() {
         MR::zeroVelocity(this);
     }
 
-    if (_FD) {
+    if (mIsChief) {
         MR::startLevelSound(this, "SE_OJ_LV_POW_STAR_EXIST");
     }
 
     if (mDisplayModel != nullptr) {
-        setTransparency(MR::calcNerveEaseInOutValue(this, 60, _F4, 0.5f));
+        setTransparency(MR::calcNerveEaseInOutValue(this, NebulaFrameClock::stepsOfSeconds(1), mTransparency, 0.5f));
     } else {
         updateNormalTransparency();
     }
@@ -855,9 +811,7 @@ void Teresa::exeShay() {
     updateNormalVelocity();
 
     if (!tryAscension()) {
-        if (tryShayEnd()) {
-            return;
-        }
+        tryShayEnd();
     }
 }
 
@@ -871,16 +825,14 @@ void Teresa::exeAggressive() {
     updateNormalVelocity();
 
     if (!tryAscension() && !tryShay()) {
-        if (tryAggressiveEnd()) {
-            return;
-        }
+        tryAggressiveEnd();
     }
 }
 
 void Teresa::exeAttackSuccess() {
     if (MR::isFirstStep(this)) {
         MR::startAction(this, "Laugh");
-        MR::setShadowVolumeSphereRadius(this, nullptr, 80.0f);
+        MR::setShadowVolumeSphereRadius(this, nullptr, sShadowRadius);
         MR::startSound(this, "SE_EV_TERESA_ATTACK_SUCCESS");
     }
 
@@ -889,9 +841,7 @@ void Teresa::exeAttackSuccess() {
     updateNormalVelocity();
 
     if (!tryAscension()) {
-        if (tryAttackSuccessEnd()) {
-            return;
-        }
+        tryAttackSuccessEnd();
     }
 }
 
@@ -900,9 +850,7 @@ void Teresa::exeDrift() {
         MR::forceDeleteEffectAll(this);
         MR::startAction(this, "Drift");
         MR::emitEffect(this, "SpinBlur");
-        _D4.x = 1.0f;
-        _D4.y = 1.0f;
-        _D4.z = 1.0f;
+        mAnimScale.set(1.0f, 1.0f, 1.0f);
         MR::startSound(this, "SE_EM_TERESA_TORNADE");
 
         if (mDisplayModel != nullptr) {
@@ -917,9 +865,7 @@ void Teresa::exeDrift() {
     updateDriftTransparency();
 
     if (!tryAscension() && !tryHideWall()) {
-        if (tryDriftEnd()) {
-            return;
-        }
+        tryDriftEnd();
     }
 }
 
@@ -929,19 +875,17 @@ void Teresa::exeHideWall() {
         MR::setShadowVolumeSphereRadius(this, nullptr, 0.0f);
     }
 
-    if (tryHideWallEnd()) {
-        return;
-    }
+    tryHideWallEnd();
 }
 
 void Teresa::exeHideWater() {
     if (MR::isFirstStep(this)) {
         MR::startAction(this, "Hide");
         MR::setShadowVolumeSphereRadius(this, nullptr, 0.0f);
-        mWallHitPos.set(_C8);
+        mWallHitPos.set(mInitPos);
     }
 
-    if (MR::isGreaterStep(this, 60)) {
+    if (MR::isGreaterStep(this, NebulaFrameClock::stepsOfSeconds(1))) {
         MR::validateHitSensors(this);
         MR::onBind(this);
         MR::showModel(this);
@@ -951,9 +895,7 @@ void Teresa::exeHideWater() {
 
 void Teresa::exeAscension() {
     if (MR::isFirstStep(this)) {
-        _D4.x = 1.0f;
-        _D4.y = 1.0f;
-        _D4.z = 1.0f;
+        mAnimScale.set(1.0f, 1.0f, 1.0f);
         MR::setBaseScale(this, mScale);
         MR::startSound(this, "SE_EM_TERESA_DEAD");
         MR::startSound(this, "SE_EV_TERESA_DEAD");
@@ -968,10 +910,8 @@ void Teresa::exeStop() {
         setTransparency(0.0f);
     }
 
-    if (!tryAscension()) {
-        if (MR::isGreaterStep(this, 60)) {
-            setStartNerve();
-        }
+    if (!tryAscension() && MR::isGreaterStep(this, NebulaFrameClock::stepsOfSeconds(1))) {
+        setStartNerve();
     }
 }
 
@@ -984,139 +924,109 @@ void Teresa::endAppearFromWall() {
 }
 
 void Teresa::updateNormalVelocity() {
-    MR::addVelocityKeepHeightUseShadow(this, 150.0f + (85.0f * (mScale.y - 1.0f)), 0.40f, 40.0f, nullptr);
+    MR::addVelocityKeepHeightUseShadow(this, sFloatHeight + (85.0f * (mScale.y - 1.0f)), 0.40f, 40.0f, nullptr);
     MR::reboundVelocityFromCollision(this, -0.2f, 4.0f, 1.0f);
     MR::attenuateVelocity(this, 0.9f);
 }
 
 void Teresa::addDriftVelocity() {
     if (MR::isLessEqualStep(this, 35)) {
-        TVec3f v5;
-        MR::calcPlayerSpinPullVelocity(&v5, mPosition);
-        TVec3f v4(v5);
-        v4 *= 0.12f;
-        mVelocity.add(v4);
+        Vec3f pull;
+        MR::calcPlayerSpinPullVelocity(&pull, mPosition);
+        pull *= 0.12f;
+        mVelocity.add(pull);
     }
 
     MR::addVelocityAwayFromTarget(this, *MR::getPlayerPos(), -1.25f);
 }
 
 void Teresa::updateDriftAnimScale() {
-    TVec3f v4;
-    _94.getXDir(v4);
-    f32 v2 = v4.dot(mVelocity);
-    f32 v3 = (1.0f + (0.30f * MR::normalize(MR::abs(v2), 3.0f, 53.0f)));
-    _D4.x = v3;
-    _D4.z = 1.0f / v3;
+    // Stretches along its side by the sideways speed.
+    Vec3f side;
+    mPoseQuat.getXDir(side);
+    f32 sideSpeed = side.dot(mVelocity);
+    f32 stretch = 1.0f + (0.30f * MR::normalize(MR::abs(sideSpeed), 3.0f, 53.0f));
+    mAnimScale.x = stretch;
+    mAnimScale.z = 1.0f / stretch;
 }
 
 void Teresa::updateDriftTransparency() {
-    f32 v2 = MR::calcNerveRate(this, 50);
-    f32 v3 = ((4.0f * v2) * (v2 - 1.0f));
-    f32 v4 = (1.0f - (v3 * v3));
-    f32 v5 = MR::calcNerveValue(this, 25, _F4, v4);
-    setTransparency(v5);
-    MR::setShadowVolumeSphereRadius(this, nullptr, (80.0f * v4));
+    // Fades to see-through and back over the drift: 1 - (4r(r-1))^2.
+    f32 rate = MR::calcNerveRate(this, 50);
+    f32 bump = (4.0f * rate) * (rate - 1.0f);
+    f32 target = 1.0f - (bump * bump);
+    setTransparency(MR::calcNerveValue(this, 25, mTransparency, target));
+    MR::setShadowVolumeSphereRadius(this, nullptr, sShadowRadius * target);
 }
 
 void Teresa::updateNormalTransparency() {
-    if (_F4 < 1.0f) {
-        _F4 += 0.02f;
-        f32 v1 = _F4;
+    if (mTransparency < 1.0f) {
+        mTransparency += 0.02f;
 
-        if (v1 > 1.0f) {
-            _F4 = 1.0f;
+        if (mTransparency > 1.0f) {
+            mTransparency = 1.0f;
         }
     }
 
-    setTransparency(_F4);
+    setTransparency(mTransparency);
 }
 
 void Teresa::setTransparency(f32 val) {
     MR::setBrkFrameAndStop(this, (9.0f * (1.0f - val)));
 
-    if (val < 1.0f) {
-        if (mDisplayModel != nullptr) {
+    // The dummy model inside shows through only while see-through.
+    if (mDisplayModel != nullptr) {
+        if (val < 1.0f) {
             mDisplayModel->appear();
-        }
-    } else {
-        if (mDisplayModel != nullptr) {
+        } else {
             mDisplayModel->kill();
         }
     }
 
-    _F4 = val;
+    mTransparency = val;
+}
+
+bool Teresa::isAppearing() const {
+    return isNerve(GET_NERVE(Teresa, TeresaNrvAppearFromWall)) || isNerve(GET_NERVE(Teresa, TeresaNrvAppearFromGround));
+}
+
+bool Teresa::isHidden() const {
+    return isNerve(GET_NERVE(Teresa, TeresaNrvHideWater)) || isNerve(GET_NERVE(Teresa, TeresaNrvHideWall));
 }
 
 bool Teresa::canAttack() const {
-    if (isNerve(GET_NERVE(Teresa, TeresaNrvAppearFromWall)) || isNerve(GET_NERVE(Teresa, TeresaNrvAppearFromGround)) ||
-        isNerve(GET_NERVE(Teresa, TeresaNrvAttackSuccess)) || isNerve(GET_NERVE(Teresa, TeresaNrvDrift)) ||
-        isNerve(GET_NERVE(Teresa, TeresaNrvAscension))) {
-        return false;
-    }
-
-    return true;
+    return !(isAppearing() || isNerve(GET_NERVE(Teresa, TeresaNrvAttackSuccess)) || isNerve(GET_NERVE(Teresa, TeresaNrvDrift)) ||
+             isNerve(GET_NERVE(Teresa, TeresaNrvAscension)));
 }
 
 bool Teresa::canDrift() const {
-    if (isNerve(GET_NERVE(Teresa, TeresaNrvDrift)) || isNerve(GET_NERVE(Teresa, TeresaNrvAscension))) {
-        return false;
-    }
-
-    return true;
+    return !(isNerve(GET_NERVE(Teresa, TeresaNrvDrift)) || isNerve(GET_NERVE(Teresa, TeresaNrvAscension)));
 }
 
 bool Teresa::canSearchLightDead() const {
-    if (isNerve(GET_NERVE(Teresa, TeresaNrvAppearFromWall)) || isNerve(GET_NERVE(Teresa, TeresaNrvAppearFromGround)) ||
-        isNerve(GET_NERVE(Teresa, TeresaNrvHideWater)) || isNerve(GET_NERVE(Teresa, TeresaNrvHideWall)) ||
-        isNerve(GET_NERVE(Teresa, TeresaNrvAscension))) {
-        return false;
-    }
-
-    return true;
+    return !(isAppearing() || isHidden() || isNerve(GET_NERVE(Teresa, TeresaNrvAscension)));
 }
 
 bool Teresa::isEnableStarPieceStop() const {
-    if (isNerve(GET_NERVE(Teresa, TeresaNrvAppearFromWall)) || isNerve(GET_NERVE(Teresa, TeresaNrvAppearFromGround)) ||
-        isNerve(GET_NERVE(Teresa, TeresaNrvDrift)) || isNerve(GET_NERVE(Teresa, TeresaNrvHideWater)) ||
-        isNerve(GET_NERVE(Teresa, TeresaNrvHideWall)) || isNerve(GET_NERVE(Teresa, TeresaNrvAscension)) ||
-        isNerve(GET_NERVE(Teresa, TeresaNrvStop))) {
-        return false;
-    }
-
-    return true;
+    return !(isAppearing() || isNerve(GET_NERVE(Teresa, TeresaNrvDrift)) || isHidden() || isNerve(GET_NERVE(Teresa, TeresaNrvAscension)) ||
+             isNerve(GET_NERVE(Teresa, TeresaNrvStop)));
 }
 
 bool Teresa::isCheckWater() const {
-    if (isNerve(GET_NERVE(Teresa, TeresaNrvAppearFromWall)) || isNerve(GET_NERVE(Teresa, TeresaNrvAppearFromGround)) ||
-        isNerve(GET_NERVE(Teresa, TeresaNrvHideWater)) || isNerve(GET_NERVE(Teresa, TeresaNrvHideWall)) ||
-        isNerve(GET_NERVE(Teresa, TeresaNrvAscension))) {
-        return false;
-    }
-
-    return true;
+    return canSearchLightDead();
 }
 
 namespace {
-    inline bool isFacingTeresa(const TVec3f& rPosition) {
-        TVec3f playerFront;
+    inline bool isFacingTeresa(const Vec3f& rPosition) {
+        Vec3f playerFront;
         MR::getPlayerFrontVec(&playerFront);
 
         return playerFront.dot(rPosition - *MR::getPlayerPos()) > 0.0f;
     }
 };  // namespace
 
+// Shy while the player stands facing it close by.
 bool Teresa::isShay() const {
-    bool isNotSquat = MR::isPlayerSquat() == false;
-
-    if (isNotSquat) {
-        isNotSquat = ::isFacingTeresa(mPosition);
-    }
-
-    if (isNotSquat) {
-        return MR::isNearPlayer(this, 1500.0f);
-    }
-
-    return isNotSquat;
+    return !MR::isPlayerSquat() && ::isFacingTeresa(mPosition) && MR::isNearPlayer(this, sShyDistance);
 }
 

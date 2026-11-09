@@ -7,9 +7,9 @@ class TicoEat : public Tico {
 public:
     TicoEat(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void control() override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
     virtual void startReactionSound();
 
     void initStarPiece(s32);
@@ -22,17 +22,16 @@ public:
     void exeEatPst();
     void exeEatEnd();
 
-    u32 _190;
-    s32 _194;
-    s32 _198;
+    s32 mStarPieceNeed;
+    s32 mStarPieceLeft;
 };
 
 class TicoComet : public TicoEat {
 public:
     TicoComet(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void startReactionSound();
+    virtual void init(const TableIter&) override;
+    virtual void startReactionSound() override;
 
     bool branchFunc(u32);
     bool tryDemo();

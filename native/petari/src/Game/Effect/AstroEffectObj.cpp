@@ -2,38 +2,35 @@
 #include "Game/Effect/SimpleEffectObj.hpp"
 #include "Game/MapObj/AstroMapObjFunction.hpp"
 #include "Game/Util/DemoUtil.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 #include <nebula_math.h>
 
 AstroEffectObj::AstroEffectObj(const char* pName) : SimpleEffectObj(pName) {
-    _9C = -1;
+    mDomeId = -1;
 }
 
-void AstroEffectObj::init(const JMapInfoIter& rIter) {
+void AstroEffectObj::init(const TableIter& rIter) {
     SimpleEffectObj::init(rIter);
-    _9C = AstroMapObjFunction::getDomeIdFromArg0(rIter);
+    mDomeId = AstroMapObjFunction::getDomeIdFromArg0(rIter);
     MR::registerDemoSimpleCastAll(this);
     selectNrvWait();
     makeActorAppeared();
 }
 
-bool AstroEffectObj::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool AstroEffectObj::receiveOtherMsg(u32 /*msg*/, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     return false;
 }
 
 void AstroEffectObj::setStateMove() {
-    if (AstroMapObjFunction::isEnableRevival(_8C, _9C)) {
+    if (AstroMapObjFunction::isEnableRevival(mObjName, mDomeId)) {
         SimpleEffectObj::setStateMove();
     }
 }
 
 void AstroEffectObj::selectNrvWait() {
-    if (AstroMapObjFunction::isAlreadyRevival(_8C, _9C)) {
+    if (AstroMapObjFunction::isAlreadyRevival(mObjName, mDomeId)) {
         SimpleEffectObj::setStateMove();
         return;
     }
     SimpleEffectObj::setStateWait();
-}
-
-AstroEffectObj::~AstroEffectObj() {
 }

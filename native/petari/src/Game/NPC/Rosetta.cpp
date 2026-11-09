@@ -1,7 +1,7 @@
 #include "Game/NPC/Rosetta.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Demo/AstroDemoFunction.hpp"
 #include "Game/LiveActor/Nerve.hpp"
-#include "Game/NameObj/NameObjArchiveListCollector.hpp"
 #include "Game/NPC/RosettaDemoAstroDome.hpp"
 #include "Game/NPC/RosettaDemoEpilogue.hpp"
 #include "Game/NPC/RosettaDemoHeavensDoor.hpp"
@@ -11,7 +11,7 @@
 #include "Game/Util.hpp"
 
 namespace {
-    static const s32 sWaitActionInterval = 300;
+    static const s32 sWaitActionInterval = NebulaFrameClock::stepsOfSeconds(5);
 };  // namespace
 
 namespace NrvRosetta {
@@ -19,31 +19,10 @@ namespace NrvRosetta {
     NEW_NERVE(RosettaNrvReaction, Rosetta, Reaction);
 };  // namespace NrvRosetta
 
-Rosetta::Rosetta(const char* pName) : NPCActor(pName), mFadeStarter(this, -1), mDemoExecutor(), mTalkDemoExecutor(), mObjArg0(-1) {
+Rosetta::Rosetta(const char* pName) : NPCActor(pName), mFadeStarter(this, -1), mDemoExecutor(), mObjArg0(-1) {
 }
 
-void Rosetta::makeArchiveList(NameObjArchiveListCollector* pCollector, const JMapInfoIter& rIter) {
-    pCollector->addArchive("Rosetta");
-    pCollector->addArchive("RosettaMiddle");
-    pCollector->addArchive("RosettaLow");
-
-    s32 arg0;
-    MR::getJMapInfoArg0WithInit(rIter, &arg0);
-
-    switch (arg0) {
-    case 0:
-        RosettaDemoHeavensDoor1::makeArchiveList(pCollector, rIter);
-        break;
-    case 1:
-        RosettaDemoHeavensDoor2::makeArchiveList(pCollector, rIter);
-        break;
-    case 2:
-        RosettaDemoAstroDomeExplain::makeArchiveList(pCollector, rIter);
-        break;
-    }
-}
-
-void Rosetta::init(const JMapInfoIter& rIter) {
+void Rosetta::init(const TableIter& rIter) {
     NPCActorCaps caps("Rosetta");
     caps.setDefault();
     caps.setIndirect();
@@ -59,8 +38,8 @@ void Rosetta::init(const JMapInfoIter& rIter) {
     NPCActor::initialize(rIter, caps);
 
     initHitSensor(2);
-    MR::addHitSensorNpc(this, "Head", 8, 70.0f, TVec3f(0.0f, 160.0f, 0.0f));
-    MR::addHitSensorNpc(this, "Body", 8, 80.0f, TVec3f(0.0f, 50.0f, 0.0f));
+    MR::addHitSensorNpc(this, "Head", 8, 70.0f, Vec3f(0.0f, 160.0f, 0.0f));
+    MR::addHitSensorNpc(this, "Body", 8, 80.0f, Vec3f(0.0f, 50.0f, 0.0f));
 
     if (mMsgCtrl != nullptr) {
         MR::registerBranchFunc(getMsgCtrl(), TalkMessageFunc(this, &Rosetta::branchFunc));
@@ -69,11 +48,11 @@ void Rosetta::init(const JMapInfoIter& rIter) {
     }
 
     MR::startBrk(this, "Normal");
-    MR::getJMapInfoArg0NoInit(rIter, &mObjArg0);
+    MR::getPlacementArg0NoInit(rIter, &mObjArg0);
     AstroDemoFunction::tryRegisterAstroDemoAll(this, rIter);
-    MR::tryRegisterDemoCast(this, "\220\324\202\242\203\130\203\136\201\133" /* 赤いスター */, rIter);
-    MR::tryRegisterDemoCast(this, "\203\140\203\122\203\113\203\103\203\150\203\146\203\202" /* チコガイドデモ */, rIter);
-    MR::tryRegisterDemoCast(this, "\203\107\203\163\203\215\201\133\203\117\203\146\203\202" /* エピローグデモ */, rIter);
+    MR::tryRegisterDemoCast(this, "赤いスター", rIter);
+    MR::tryRegisterDemoCast(this, "チコガイドデモ", rIter);
+    MR::tryRegisterDemoCast(this, "エピローグデモ", rIter);
     AstroDemoFunction::tryRegisterSimpleCastIfAstroGalaxy(this);
 
     mTurnJointCtrl = new TurnJointCtrl(this);
@@ -82,19 +61,19 @@ void Rosetta::init(const JMapInfoIter& rIter) {
     mTurnJointCtrl->addWaist("Spine2", 0.4f, TurnJointCtrl::Z, TurnJointCtrl::X, TurnJointCtrl::Y);
     makeActorAppeared();
 
-    if (MR::isDemoCast(this, "\203\140\203\122\203\113\203\103\203\150\203\146\203\202" /* チコガイドデモ */)) {
+    if (MR::isDemoCast(this, "チコガイドデモ")) {
         mDemoExecutor = new RosettaDemoHeavensDoor1(this, rIter);
-    } else if (MR::isDemoCast(this, "\220\324\202\242\203\130\203\136\201\133" /* 赤いスター */)) {
+    } else if (MR::isDemoCast(this, "赤いスター")) {
         mDemoExecutor = new RosettaDemoHeavensDoor2(this, rIter);
-    } else if (MR::isDemoCast(this, "\203\215\203\133\203\142\203\136\217\363\213\265\220\340\226\276\203\146\203\202" /* ロゼッタ状況説明デモ */)) {
+    } else if (MR::isDemoCast(this, "ロゼッタ状況説明デモ")) {
         mDemoExecutor = new RosettaDemoAstroDomeExplain(this, rIter);
-    } else if (MR::isDemoCast(this, "\203\107\203\163\203\215\201\133\203\117\203\146\203\202" /* エピローグデモ */)) {
+    } else if (MR::isDemoCast(this, "エピローグデモ")) {
         mDemoExecutor = new RosettaDemoEpilogue(this, rIter);
-    } else if (MR::isDemoCast(this, "\203\215\203\133\203\142\203\136\215\305\217\111\214\210\220\355\203\146\203\202" /* ロゼッタ最終決戦デモ */)) {
+    } else if (MR::isDemoCast(this, "ロゼッタ最終決戦デモ")) {
         mDemoExecutor = new RosettaDemoAstroDomeFinalBattle(this, rIter);
     }
 
-    mTalkDemoExecutor = new RosettaDemoAstroDomeTalk(this, rIter);
+    new RosettaDemoAstroDomeTalk(this, rIter);  // its demos hold it
     MR::startBckNoInterpole(this, "WaitA");
     MR::calcAnimDirect(this);
 
@@ -105,7 +84,7 @@ void Rosetta::init(const JMapInfoIter& rIter) {
     MR::useStageSwitchWriteB(this, rIter);
     mParam.setMoveTalkNoTurnAction("WaitA", "TalkA");
     setDefaults();
-    _12C = 1500.0f;
+    mSwingReactDist = 1500.0f;
 }
 
 bool Rosetta::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
@@ -139,7 +118,7 @@ void Rosetta::endDemoWithInterpole() {
 
 void Rosetta::control() {
     if (canUpdateStarePos()) {
-        TVec3f starePos;
+        Vec3f starePos;
         MR::calcPlayerFaceStarePos(&starePos, MR::getJointMtx(this, "Head"), getBaseMtx());
         mTurnJointCtrl->setStarePos(starePos);
     }
@@ -149,13 +128,13 @@ void Rosetta::control() {
     if (mMsgCtrl != nullptr && MR::isTalkStart(mMsgCtrl)) {
         switch (MR::getRandom(0, 3)) {
         case 0:
-            mParam._1C = "TalkA";
+            mParam.mTalkAction = "TalkA";
             break;
         case 1:
-            mParam._1C = "TalkB";
+            mParam.mTalkAction = "TalkB";
             break;
         case 2:
-            mParam._1C = "TalkC";
+            mParam.mTalkAction = "TalkC";
             break;
         }
     }
@@ -163,10 +142,10 @@ void Rosetta::control() {
     if (MR::isIntervalStep(this, ::sWaitActionInterval)) {
         switch (MR::getRandom(0, 2)) {
         case 0:
-            mParam._14 = "WaitA";
+            mParam.mWaitAction = "WaitA";
             break;
         case 1:
-            mParam._14 = "WaitB";
+            mParam.mWaitAction = "WaitB";
             break;
         }
     }
@@ -215,8 +194,8 @@ bool Rosetta::canUpdateStarePos() const {
         return false;
     }
 
-    TVec3f dir = *MR::getPlayerPos() - mPosition;
-    TVec3f yDir;
+    Vec3f dir = *MR::getPlayerPos() - mPosition;
+    Vec3f yDir;
     MR::extractMtxYDir(getBaseMtx(), &yDir);
 
     if (MR::normalizeOrZero(&dir)) {
@@ -227,23 +206,21 @@ bool Rosetta::canUpdateStarePos() const {
 }
 
 void Rosetta::exeReaction() {
-    if (MR::isFirstStep(this)) {
-    }
 
-    if (_D8) {
+    if (mIsTrampledStart) {
         MR::startSound(this, "SE_SM_ROSETTA_BARRIER");
     }
 
     if (isPointingSe()) {
-        MR::startDPDHitSound();
+        MR::startPointerHitSound();
         MR::startSound(this, "SE_SV_ROSETTA_POINT");
     }
 
-    if (_D9) {
+    if (mIsSpinAttackedStart) {
         MR::startSound(this, "SE_SV_ROSETTA_SPIN");
     }
 
-    if (_DB) {
+    if (mIsReactionStart) {
         MR::startSound(this, "SE_SV_ROSETTA_STAR_PIECE_HIT");
     }
 

@@ -6,10 +6,9 @@ class FlashingCtrl : public NameObj {
 public:
     FlashingCtrl(LiveActor*, bool);
 
-    virtual ~FlashingCtrl();
-    virtual void movement();
+    virtual void movement() override;
 
-    void start(int);
+    void start(int timer);
     void end();
     s32 getCurrentInterval() const;
     bool isNowFlashing() const;
@@ -19,7 +18,7 @@ public:
     LiveActor* mActor;
     bool mToggleDraw;
     bool mIsEnded;
-    u8 mOverrideInterval;
+    s32 mOverrideInterval;
     s32 mTimer;
     s32 mFlashStartTime;
 };

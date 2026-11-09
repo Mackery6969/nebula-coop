@@ -28,7 +28,7 @@
 #include "Game/Util/SingletonHolder.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
-#include <JSystem/JAudio2/JAISound.hpp>
+#include "Game/Sound/Sound.hpp"
 
 namespace {
     AudBgmConductor* getAudBgmConductor() {
@@ -37,91 +37,91 @@ namespace {
 };  // namespace
 
 namespace MR {
-    JAISoundHandle* startSystemSE(JAISoundID id, s32 param2, s32 param3) {
-        return AudWrap::getSystemSeObject()->startSoundParam(id, param2, param3);
+    SoundHandle* startSystemSE(SoundID id, s32 level, s32 subLevel) {
+        return AudWrap::getSystemSeObject()->startSoundParam(id, level, subLevel);
     }
 
-    JAISoundHandle* startSystemLevelSE(const char* pName, s32 param2, s32 param3) {
-        return AudWrap::getSystemSeObject()->startLevelSoundParam(pName, param2, param3);
+    SoundHandle* startSystemLevelSE(const char* pName, s32 level, s32 subLevel) {
+        return AudWrap::getSystemSeObject()->startLevelSoundParam(pName, level, subLevel);
     }
 
-    JAISoundHandle* startSystemLevelSE(JAISoundID id, s32 param2, s32 param3) {
-        return AudWrap::getSystemSeObject()->startLevelSoundParam(id, param2, param3);
+    SoundHandle* startSystemLevelSE(SoundID id, s32 level, s32 subLevel) {
+        return AudWrap::getSystemSeObject()->startLevelSoundParam(id, level, subLevel);
     }
 
-    void stopSystemSE(const char* pName, u32 param2) {
-        JAISoundID id = AudSingletonHolder< AudSoundNameConverter >::get()->getSoundID(pName);
+    void stopSystemSE(const char* pName, u32 fadeTime) {
+        SoundID id = AudSingletonHolder< AudSoundNameConverter >::get()->getSoundID(pName);
 
-        stopSystemSE(id, param2);
+        stopSystemSE(id, fadeTime);
     }
 
-    void stopSystemSE(JAISoundID id, u32 param2) {
-        AudWrap::getSystemSeObject()->stopSound(id, param2);
+    void stopSystemSE(SoundID id, u32 fadeTime) {
+        AudWrap::getSystemSeObject()->stopSound(id, fadeTime);
     }
 
-    JAISoundHandle* startAtmosphereSE(const char* pName, s32 param2, s32 param3) {
-        JAISoundID id = AudSingletonHolder< AudSoundNameConverter >::get()->getSoundID(pName);
+    SoundHandle* startAtmosphereSE(const char* pName, s32 level, s32 subLevel) {
+        SoundID id = AudSingletonHolder< AudSoundNameConverter >::get()->getSoundID(pName);
 
-        return AudWrap::getAtmosphereSeObject()->startSoundParam(id, param2, param3);
+        return AudWrap::getAtmosphereSeObject()->startSoundParam(id, level, subLevel);
     }
 
-    JAISoundHandle* startAtmosphereLevelSE(const char* pName, s32 param2, s32 param3) {
-        return AudWrap::getAtmosphereSeObject()->startLevelSoundParam(pName, param2, param3);
+    SoundHandle* startAtmosphereLevelSE(const char* pName, s32 level, s32 subLevel) {
+        return AudWrap::getAtmosphereSeObject()->startLevelSoundParam(pName, level, subLevel);
     }
 
-    JAISoundHandle* startSoundObject(AudSoundObject* pSoundObject, const char* pName) {
-        JAISoundID id = AudSingletonHolder< AudSoundNameConverter >::get()->getSoundID(pName);
+    SoundHandle* startSoundObject(AudSoundObject* pSoundObject, const char* pName) {
+        SoundID id = AudSingletonHolder< AudSoundNameConverter >::get()->getSoundID(pName);
 
         return pSoundObject->startSound(id);
     }
 
-    JAISoundHandle* startSoundObjectLevel(AudSoundObject* pSoundObject, const char* pName, s32 param3) {
-        JAISoundHandle* pSoundHandle = pSoundObject->startLevelSound(pName);
+    SoundHandle* startSoundObjectLevel(AudSoundObject* pSoundObject, const char* pName, s32 lifeTime) {
+        SoundHandle* pSoundHandle = pSoundObject->startLevelSound(pName);
 
-        if (param3 > 0 && pSoundHandle != nullptr) {
-            (*pSoundHandle)->updateLifeTime(param3);
+        if (lifeTime > 0 && pSoundHandle != nullptr) {
+            (*pSoundHandle)->updateLifeTime(lifeTime);
         }
 
         return pSoundHandle;
     }
 
-    JAISoundHandle* startSoundObjectLevel(AudSoundObject* pSoundObject, JAISoundID id, s32 param3) {
-        JAISoundHandle* pSoundHandle = pSoundObject->startLevelSound(id);
+    SoundHandle* startSoundObjectLevel(AudSoundObject* pSoundObject, SoundID id, s32 lifeTime) {
+        SoundHandle* pSoundHandle = pSoundObject->startLevelSound(id);
 
-        if (param3 > 0 && pSoundHandle != nullptr) {
-            (*pSoundHandle)->updateLifeTime(param3);
+        if (lifeTime > 0 && pSoundHandle != nullptr) {
+            (*pSoundHandle)->updateLifeTime(lifeTime);
         }
 
         return pSoundHandle;
     }
 
-    JAISoundHandle* startSoundObjectLevelParam(AudSoundObject* pSoundObject, const char* pName, s32 param3, s32 param4, s32 param5) {
-        JAISoundHandle* pSoundHandle = pSoundObject->startLevelSoundParam(pName, param3, param4);
+    SoundHandle* startSoundObjectLevelParam(AudSoundObject* pSoundObject, const char* pName, s32 level, s32 subLevel, s32 lifeTime) {
+        SoundHandle* pSoundHandle = pSoundObject->startLevelSoundParam(pName, level, subLevel);
 
-        if (param5 > 0 && pSoundHandle != nullptr) {
-            (*pSoundHandle)->updateLifeTime(param5);
+        if (lifeTime > 0 && pSoundHandle != nullptr) {
+            (*pSoundHandle)->updateLifeTime(lifeTime);
         }
 
         return pSoundHandle;
     }
 
-    JAISoundHandle* startSoundObjectLevelParam(AudSoundObject* pSoundObject, JAISoundID id, s32 param3, s32 param4, s32 param5) {
-        JAISoundHandle* pSoundHandle = pSoundObject->startLevelSoundParam(id, param3, param4);
+    SoundHandle* startSoundObjectLevelParam(AudSoundObject* pSoundObject, SoundID id, s32 level, s32 subLevel, s32 lifeTime) {
+        SoundHandle* pSoundHandle = pSoundObject->startLevelSoundParam(id, level, subLevel);
 
-        if (param5 > 0 && pSoundHandle != nullptr) {
-            (*pSoundHandle)->updateLifeTime(param5);
+        if (lifeTime > 0 && pSoundHandle != nullptr) {
+            (*pSoundHandle)->updateLifeTime(lifeTime);
         }
 
         return pSoundHandle;
     }
 
-    JAISoundHandle* startSound(const LiveActor* pActor, const char* pName, s32 param3, s32 param4) {
+    SoundHandle* startSound(const LiveActor* pActor, const char* pName, s32 level, s32 subLevel) {
         pActor->mSoundObject->setMapCode(getMapSoundCodeFoot(pActor));
 
-        if (param3 != -1) {
+        if (level != -1) {
             AudAnmSoundObject* pSound = pActor->mSoundObject;
 
-            return pSound->startSoundParam(static_cast< u32 >(AudSingletonHolder< AudSoundNameConverter >::get()->getSoundID(pName)), param3, param4);
+            return pSound->startSoundParam(static_cast< u32 >(AudSingletonHolder< AudSoundNameConverter >::get()->getSoundID(pName)), level, subLevel);
         } else {
             AudAnmSoundObject* pSound = pActor->mSoundObject;
 
@@ -129,58 +129,58 @@ namespace MR {
         }
     }
 
-    JAISoundHandle* startSound(const LiveActor* pActor, JAISoundID id, s32 param3, s32 param4) {
+    SoundHandle* startSound(const LiveActor* pActor, SoundID id, s32 level, s32 subLevel) {
         pActor->mSoundObject->setMapCode(getMapSoundCodeFoot(pActor));
 
-        if (param3 != -1) {
-            return pActor->mSoundObject->startSoundParam(id, param3, param4);
+        if (level != -1) {
+            return pActor->mSoundObject->startSoundParam(id, level, subLevel);
         } else {
             return pActor->mSoundObject->startSound(id);
         }
     }
 
-    JAISoundHandle* startSoundSeVer(const LiveActor* pActor, const char* pName, s32 param3, s32 param4) {
+    SoundHandle* startSoundSeVer(const LiveActor* pActor, const char* pName, s32 level, s32 subLevel) {
         return startSound(pActor,
                           pActor->mSoundObject->convertSoundIdFromSeVersion(
                               static_cast< u32 >(AudSingletonHolder< AudSoundNameConverter >::get()->getSoundID(pName))),
-                          param3, param4);
+                          level, subLevel);
     }
 
-    JAISoundHandle* startLevelSound(const LiveActor* pActor, const char* pName, s32 param3, s32 param4, s32 param5) {
+    SoundHandle* startLevelSound(const LiveActor* pActor, const char* pName, s32 level, s32 subLevel, s32 lifeTime) {
         pActor->mSoundObject->setMapCode(getMapSoundCodeFoot(pActor));
 
-        if (param3 != -1) {
-            return startSoundObjectLevelParam(pActor->mSoundObject, pName, param3, param4, param5);
+        if (level != -1) {
+            return startSoundObjectLevelParam(pActor->mSoundObject, pName, level, subLevel, lifeTime);
         } else {
-            return startSoundObjectLevel(pActor->mSoundObject, pName, param5);
+            return startSoundObjectLevel(pActor->mSoundObject, pName, lifeTime);
         }
     }
 
-    JAISoundHandle* startLevelSound(const LiveActor* pActor, JAISoundID id, s32 param3, s32 param4, s32 param5) {
+    SoundHandle* startLevelSound(const LiveActor* pActor, SoundID id, s32 level, s32 subLevel, s32 lifeTime) {
         pActor->mSoundObject->setMapCode(getMapSoundCodeFoot(pActor));
 
-        if (param3 != -1) {
-            return startSoundObjectLevelParam(pActor->mSoundObject, id, param3, param4, param5);
+        if (level != -1) {
+            return startSoundObjectLevelParam(pActor->mSoundObject, id, level, subLevel, lifeTime);
         } else {
-            return startSoundObjectLevel(pActor->mSoundObject, id, param5);
+            return startSoundObjectLevel(pActor->mSoundObject, id, lifeTime);
         }
     }
 
-    JAISoundHandle* startLevelSoundSeVer(const LiveActor* pActor, const char* pName, s32 param3, s32 param4, s32 param5) {
+    SoundHandle* startLevelSoundSeVer(const LiveActor* pActor, const char* pName, s32 level, s32 subLevel, s32 lifeTime) {
         return startLevelSound(pActor,
                                pActor->mSoundObject->convertSoundIdFromSeVersion(
                                    static_cast< u32 >(AudSingletonHolder< AudSoundNameConverter >::get()->getSoundID(pName))),
-                               param3, param4, param5);
+                               level, subLevel, lifeTime);
     }
 
-    void stopSound(const LiveActor* pActor, const char* pName, u32 param3) {
+    void stopSound(const LiveActor* pActor, const char* pName, u32 fadeTime) {
         AudAnmSoundObject* pSound = pActor->mSoundObject;
 
-        pSound->stopSound(static_cast< u32 >(AudSingletonHolder< AudSoundNameConverter >::get()->getSoundID(pName)), param3);
+        pSound->stopSound(static_cast< u32 >(AudSingletonHolder< AudSoundNameConverter >::get()->getSoundID(pName)), fadeTime);
     }
 
-    void stopSound(const LiveActor* pActor, JAISoundID id, u32 param3) {
-        pActor->mSoundObject->stopSound(id, param3);
+    void stopSound(const LiveActor* pActor, SoundID id, u32 fadeTime) {
+        pActor->mSoundObject->stopSound(id, fadeTime);
     }
 
     void setSeVersion(const LiveActor* pActor, u32 version) {
@@ -188,25 +188,25 @@ namespace MR {
     }
 
     void releaseSoundHandle(const LiveActor* pActor, const char* pName) {
-        JAISoundID id = AudSingletonHolder< AudSoundNameConverter >::get()->getSoundID(pName);
+        SoundID id = AudSingletonHolder< AudSoundNameConverter >::get()->getSoundID(pName);
 
         pActor->mSoundObject->releaseHandle(id);
     }
 
-    void startBas(const LiveActor* pActor, const char* pName, bool param3, f32 param4, f32 param5) {
+    void startBas(const LiveActor* pActor, const char* pName, bool reversed, f32 loopStartFrame, f32 loopEndFrame) {
         if (pActor->mSoundObject == nullptr) {
             return;
         }
 
         ResourceHolder* pResourceHolder = getResourceHolder(pActor);
-        JAUSoundAnimation* pSoundAnimation = nullptr;
+        SoundAnimation* pSoundAnimation = nullptr;
 
         if (pResourceHolder->mBasResTable->isExistRes(pName)) {
-            pSoundAnimation = static_cast< JAUSoundAnimation* >(pResourceHolder->mBasResTable->getRes(pName));
+            pSoundAnimation = static_cast< SoundAnimation* >(pResourceHolder->mBasResTable->getRes(pName));
         }
 
         pActor->mSoundObject->setMapCode(getMapSoundCodeFoot(pActor));
-        pActor->mSoundObject->startAnimation(pSoundAnimation, param3, param4, param5);
+        pActor->mSoundObject->startAnimation(pSoundAnimation, reversed, loopStartFrame, loopEndFrame);
     }
 
     void actorSoundMovement(LiveActor* pActor) {
@@ -231,18 +231,16 @@ namespace MR {
         pSoundObject->process();
     }
 
-    void addJointToSeKeeper(AudSeKeeper* pSeKeeper, const char* pParam2, const char* pParam3) {
-        pSeKeeper->makeBox(pParam2, pParam3);
+    void addJointToSeKeeper(AudSeKeeper* pSeKeeper, const char* pJointName, const char* pJointName2) {
+        pSeKeeper->makeBox(pJointName, pJointName2);
     }
 
-    void startLevelSoundSeKeeper(AudSeKeeper* pSeKeeper, const char* pParam2, const char* pParam3) {
-        pSeKeeper->playLevel(pParam2, pParam3);
+    void startLevelSoundSeKeeper(AudSeKeeper* pSeKeeper, const char* pJointName, const char* pSoundName) {
+        pSeKeeper->playLevel(pJointName, pSoundName);
     }
 
     bool hasME() {
-        AudChordInfo* pChordInfo = AudWrap::getSystem()->getChordInfo();
-
-        return pChordInfo->mTable.mLoaded && pChordInfo->mCurChord != nullptr && pChordInfo->mCurScale != nullptr;
+        return AudWrap::getSystem()->getChordInfo()->isAvailable();
     }
 
     void startSystemME(const char* pName) {
@@ -273,7 +271,7 @@ namespace MR {
     }
 
     void startTalkSound(u8 soundNo, const LiveActor* pActor) {
-        JAISoundID id = AudTalkSoundData::getSoundIDFromTalkSoundNo(soundNo);
+        SoundID id = AudTalkSoundData::getSoundIDFromTalkSoundNo(soundNo);
         if (!id.isAnonymous()) {
             if (pActor == nullptr) {
                 startSystemSE(id);
@@ -283,8 +281,14 @@ namespace MR {
         }
     }
 
-    void startRemixSound(s32 melodyNo, s32 param2, f32 param3) {
-        AudWrap::getRemixMgr()->getRemixNoteGroupDataFromMelodyNo(melodyNo);
+    // beatLength: player travel per beat; the tempo follows the player's speed (3 at least).
+    void startRemixSound(s32 melodyNo, s32 noteNo, f32 beatLength) {
+        RemixNoteGroupData* pRemixNoteGroupData = AudWrap::getRemixMgr()->getRemixNoteGroupDataFromMelodyNo(melodyNo);
+
+        // A melody the remix data does not hold, a note past its end, or a rail with no length: no sound.
+        if (pRemixNoteGroupData == nullptr || noteNo < 0 || noteNo >= pRemixNoteGroupData->mNoteCount || !(beatLength > 0.0f)) {
+            return;
+        }
 
         AudRemixSequencer* pRemixSequencer = AudWrap::getRemixSequencer();
         f32 playerSpeed = getPlayerVelocity()->length();
@@ -293,56 +297,49 @@ namespace MR {
             playerSpeed = 3.0f;
         }
 
-        pRemixSequencer->setTempo((playerSpeed * 3600.0f) / param3);
-
-        RemixNoteGroupData* pRemixNoteGroupData = AudWrap::getRemixMgr()->getRemixNoteGroupDataFromMelodyNo(melodyNo);
+        pRemixSequencer->setTempo((playerSpeed * 3600.0f) / beatLength);
 
         for (s32 i = 0; i < pRemixNoteGroupData->mTrackCount; i++) {
             RemixNoteTrackData* pRemixNoteTrackData = &pRemixNoteGroupData->mRemixTracks[i];
 
-            pRemixSequencer->addNoteData(pRemixNoteTrackData, &pRemixNoteTrackData->_4[param2]);
+            pRemixSequencer->addNoteData(pRemixNoteTrackData, &pRemixNoteTrackData->mNotes[noteNo]);
         }
     }
 
+    // A melody the remix data does not hold counts one note (callers divide by it).
     s32 getRemixMelodyNoteNum(s32 melodyNo) {
-        return AudWrap::getRemixMgr()->getRemixNoteGroupDataFromMelodyNo(melodyNo)->mNoteCount;
+        const RemixNoteGroupData* pRemixNoteGroupData = AudWrap::getRemixMgr()->getRemixNoteGroupDataFromMelodyNo(melodyNo);
+
+        return pRemixNoteGroupData != nullptr && pRemixNoteGroupData->mNoteCount > 0 ? pRemixNoteGroupData->mNoteCount : 1;
     }
 
-    void limitedSound(const char* pName, s32 param2) {
-        JAISoundID id = AudSingletonHolder< AudSoundNameConverter >::get()->getSoundID(pName);
+    void limitedSound(const char* pName, s32 delay) {
+        SoundID id = AudSingletonHolder< AudSoundNameConverter >::get()->getSoundID(pName);
 
-        AudWrap::getSystem()->registerLimitedSound(id, param2);
+        AudWrap::getSystem()->registerLimitedSound(id, delay);
     }
 
-    JAISoundHandle* startStageBGM(const char* pName, bool param2) {
-        JAISoundID id = AudSingletonHolder< AudSoundNameConverter >::get()->getSoundID(pName);
+    SoundHandle* startStageBGM(const char* pName, bool lock) {
+        SoundID id = AudSingletonHolder< AudSoundNameConverter >::get()->getSoundID(pName);
 
-        return AudWrap::startStageBgm(id, param2);
+        return AudWrap::startStageBgm(id, lock);
     }
 
-    JAISoundHandle* startStageBGMFromStageName(const char* pSceneName, const char* pStageName, s32 scenarioNo) {
-        JAISoundID id = AudStageBgmWrap::changeStageNameToSoundID(pSceneName, pStageName, scenarioNo);
+    SoundHandle* startStageBGMFromStageName(const char* pSceneName, const char* pStageName, s32 scenarioNo) {
+        SoundID id = AudStageBgmWrap::changeStageNameToSoundID(pSceneName, pStageName, scenarioNo);
 
         if (id.isAnonymous()) {
             return nullptr;
         }
 
-        JAISoundHandle* pSoundHandle = AudWrap::startStageBgm(id, false);
-
-        if (pSoundHandle != nullptr) {
-            AudSceneMgr* pSceneMgr = AudWrap::getSceneMgr();
-
-            pSceneMgr->_4 = 1;
-        }
-
-        return pSoundHandle;
+        return AudWrap::startStageBgm(id, false);
     }
 
-    void stopStageBGM(u32 param1) {
+    void stopStageBGM(u32 fadeTime) {
         AudBgm* pStageBgm = AudWrap::getStageBgm();
 
         if (pStageBgm != nullptr) {
-            pStageBgm->stop(param1);
+            pStageBgm->stop(fadeTime);
         }
     }
 
@@ -355,28 +352,28 @@ namespace MR {
     }
 
     void setNextStageBGM(const char* pName) {
-        JAISoundID id = AudSingletonHolder< AudSoundNameConverter >::get()->getSoundID(pName);
+        SoundID id = AudSingletonHolder< AudSoundNameConverter >::get()->getSoundID(pName);
 
         AudWrap::setNextIdStageBgm(id);
     }
 
-    void moveVolumeStageBGM(f32 param1, u32 param2) {
+    void moveVolumeStageBGM(f32 volume, u32 fadeTime) {
         AudBgm* pStageBgm = AudWrap::getStageBgm();
 
         if (pStageBgm != nullptr) {
-            pStageBgm->moveVolume(param1, param2);
+            pStageBgm->moveVolume(volume, fadeTime);
         }
     }
 
-    void moveVolumeStageBGMForNoteFairy(f32 param1, u32 param2) {
+    void moveVolumeStageBGMForNoteFairy(f32 volume, u32 fadeTime) {
         AudBgm* pStageBgm = AudWrap::getStageBgm();
 
         if (pStageBgm != nullptr) {
-            pStageBgm->moveVolumeForNoteFairy(param1, param2);
+            pStageBgm->moveVolumeForNoteFairy(volume, fadeTime);
         }
     }
 
-    JAISoundHandle* startLastStageBGM() {
+    SoundHandle* startLastStageBGM() {
         return AudWrap::startLastStageBgm();
     }
 
@@ -401,7 +398,7 @@ namespace MR {
     }
 
     bool isPlayingStageBgmName(const char* pName) {
-        JAISoundID id = AudSingletonHolder< AudSoundNameConverter >::get()->getSoundID(pName);
+        SoundID id = AudSingletonHolder< AudSoundNameConverter >::get()->getSoundID(pName);
 
         return isPlayingStageBgmID(id);
     }
@@ -417,7 +414,7 @@ namespace MR {
                 return true;
             }
 
-            JAISoundHandle* pHandle = pBgm->getHandle();
+            SoundHandle* pHandle = pBgm->getHandle();
             if (pHandle == nullptr) {
                 return true;
             }
@@ -433,7 +430,7 @@ namespace MR {
     }
 
     bool isStopOrFadeoutBgmName(const char* pName) {
-        JAISoundID id = AudSingletonHolder< AudSoundNameConverter >::get()->getSoundID(pName);
+        SoundID id = AudSingletonHolder< AudSoundNameConverter >::get()->getSoundID(pName);
 
         return isStopOrFadeoutStageBgmID(id);
     }
@@ -456,33 +453,33 @@ namespace MR {
         }
     }
 
-    void setStageBGMStateBit(u32 param1) {
+    void setStageBGMStateBit(u32 bit) {
         AudBgmConductor* pBgmConductor = ::getAudBgmConductor();
 
         if (pBgmConductor != nullptr) {
-            pBgmConductor->setStateBit(param1);
+            pBgmConductor->setStateBit(bit);
         }
     }
 
-    JAISoundHandle* startSubBGM(const char* pName, bool param2) {
-        JAISoundID id = AudSingletonHolder< AudSoundNameConverter >::get()->getSoundID(pName);
+    SoundHandle* startSubBGM(const char* pName, bool lock) {
+        SoundID id = AudSingletonHolder< AudSoundNameConverter >::get()->getSoundID(pName);
 
-        return AudWrap::startSubBgm(id, param2);
+        return AudWrap::startSubBgm(id, lock);
     }
 
-    void stopSubBGM(u32 param1) {
+    void stopSubBGM(u32 fadeTime) {
         AudBgm* pSubBgm = AudWrap::getSubBgm();
 
         if (pSubBgm != nullptr) {
-            pSubBgm->stop(param1);
+            pSubBgm->stop(fadeTime);
         }
     }
 
-    void moveVolumeSubBGM(f32 param1, u32 param2) {
+    void moveVolumeSubBGM(f32 volume, u32 fadeTime) {
         AudBgm* pSubBgm = AudWrap::getSubBgm();
 
         if (pSubBgm != nullptr) {
-            pSubBgm->moveVolume(param1, param2);
+            pSubBgm->moveVolume(volume, fadeTime);
         }
     }
 
@@ -496,7 +493,7 @@ namespace MR {
         return false;
     }
 
-    void playLevelMarioPinchBGM(bool param1) {
+    void playLevelMarioPinchBGM(bool secondPinch) {
         if (isPlayerDead()) {
             return;
         }
@@ -504,7 +501,7 @@ namespace MR {
         AudBgmConductor* pBgmConductor = ::getAudBgmConductor();
 
         if (pBgmConductor != nullptr) {
-            pBgmConductor->playPinchEventBgmLevel(param1);
+            pBgmConductor->playPinchEventBgmLevel(secondPinch);
         }
     }
 
@@ -519,25 +516,25 @@ namespace MR {
     void submitTrigSE() {
         AudSystem* pSystem = AudWrap::getSystem();
 
-        pSystem->_82B = 1;
+        pSystem->mIsTrigSeBlocked = 1;
     }
 
     void permitTrigSE() {
         AudSystem* pSystem = AudWrap::getSystem();
 
-        pSystem->_82B = 0;
+        pSystem->mIsTrigSeBlocked = 0;
     }
 
     void submitLevelSE() {
         AudSystem* pSystem = AudWrap::getSystem();
 
-        pSystem->_82C = 1;
+        pSystem->mIsLevelSeBlocked = 1;
     }
 
     void permitLevelSE() {
         AudSystem* pSystem = AudWrap::getSystem();
 
-        pSystem->_82C = 0;
+        pSystem->mIsLevelSeBlocked = 0;
     }
 
     void submitSE() {
@@ -551,17 +548,17 @@ namespace MR {
     }
 
     bool isPermitSE() {
-        return !AudWrap::getSystem()->_82B && !AudWrap::getSystem()->_82C;
+        return !AudWrap::getSystem()->mIsTrigSeBlocked && !AudWrap::getSystem()->mIsLevelSeBlocked;
     }
 
     void setCubeBgmChangeInvalid() {
         AudSceneMgr* pSceneMgr = AudWrap::getSceneMgr();
 
-        pSceneMgr->_1D = 1;
+        pSceneMgr->mIsCubeBgmChangeInvalid = 1;
     }
 
     bool isCubeBgmChangeInvalid() {
-        return AudWrap::getSceneMgr()->_1D;
+        return AudWrap::getSceneMgr()->mIsCubeBgmChangeInvalid;
     }
 
     void clearBgmQueue() {
@@ -571,28 +568,28 @@ namespace MR {
         AudWrap::getBgmMgr()->clearNextBGM(1);
     }
 
-    void setMicMtx(MtxPtr pMtx, s32 param2) {
-        AudMicWrap::setMicMtx(pMtx, param2);
+    void setMicMtx(MtxPtr pMtx, s32 mic) {
+        AudMicWrap::setMicMtx(pMtx, mic);
     }
 
-    void setSoundVolumeSetting(s32 param1, u32 param2) {
-        AudWrap::getSystem()->setSeVolumeSet(param1, param2);
+    void setSoundVolumeSetting(s32 volumeSet, u32 maxSteps) {
+        AudWrap::getSystem()->setSeVolumeSet(volumeSet, maxSteps);
     }
 
-    void recoverSoundVolumeSetting(u32 param1) {
-        AudWrap::getSystem()->recoverSeVolumeSet(param1);
+    void recoverSoundVolumeSetting(u32 maxSteps) {
+        AudWrap::getSystem()->recoverSeVolumeSet(maxSteps);
     }
 
-    void setAudioEffectType(s32 param1, s32 param2) {
-        MR::getSceneObj< AudEffectDirector >(SceneObj_AudEffectDirector)->setEffectType(param1, param2);
+    void setAudioEffectType(s32 effectType, s32 priority) {
+        MR::getSceneObj< AudEffectDirector >(SceneObj_AudEffectDirector)->setEffectType(effectType, priority);
     }
 
-    void startCSSound(const char* pCSName, const char* pSEName, s32 param3) {
+    void startCSSound(const char* pCSName, const char* pSEName, s32 padChannel) {
         if (AudSpeakerWrap::isPlayable(-1)) {
             s32 id = AudSingletonHolder< CSSoundNameConverter >::get()->getSoundID(pCSName);
 
             if (id != -1) {
-                AudSpeakerWrap::start(id, param3);
+                AudSpeakerWrap::start(id, padChannel);
             }
         } else if (pSEName != nullptr) {
             startSystemSE(pSEName);
@@ -605,17 +602,17 @@ namespace MR {
         }
     }
 
-    JAISoundHandle* startSystemSE(const char* pName, s32 param2, s32 param3) {
+    SoundHandle* startSystemSE(const char* pName, s32 level, s32 subLevel) {
         if (MR::isEqualString(pName, "SE_SY_READ_RIDDLE_S") && MR::isPlayerDead()) {
             return nullptr;
         }
 
-        JAISoundID id = AudSingletonHolder< AudSoundNameConverter >::get()->getSoundID(pName);
+        SoundID id = AudSingletonHolder< AudSoundNameConverter >::get()->getSoundID(pName);
 
-        return startSystemSE(id, param2, param3);
+        return startSystemSE(id, level, subLevel);
     }
 
-    void startSpinHitSound(const LiveActor* pActor) {
+    void startSpinHitSound(const LiveActor* /*pActor*/) {
         startCSSound("CS_SPIN_HIT", nullptr, 0);
     }
 
@@ -623,7 +620,7 @@ namespace MR {
         startSound(pActor, "SE_PM_SPIN_HIT");
     }
 
-    void startDPDHitSound() {
+    void startPointerHitSound() {
         if (hasME()) {
             startSystemME("ME_DPD_HIT");
         } else {
@@ -633,7 +630,7 @@ namespace MR {
         startCSSound2P("CS_DPD_HIT", nullptr);
     }
 
-    void startDPDFreezeLevelSound(const LiveActor* pActor) {
+    void startPointerFreezeLevelSound(const LiveActor* pActor) {
         startLevelSound(pActor, "SE_EM_LV_DPD_POINT");
     }
 
@@ -675,8 +672,8 @@ namespace MR {
         startStageBGMFromStageName("Game", getCurrentStageName(), getCurrentScenarioNo());
     }
 
-    JAISoundHandle* startBossBGM(s32 id) {
-        JAISoundHandle* pSoundHandle = nullptr;
+    SoundHandle* startBossBGM(s32 id) {
+        SoundHandle* pSoundHandle = nullptr;
 
         switch (id) {
         case BossBgmID_01_A:
@@ -708,8 +705,8 @@ namespace MR {
         return pSoundHandle;
     }
 
-    JAISoundHandle* startEventBGM(s32 id) {
-        JAISoundHandle* pSoundHandle = nullptr;
+    SoundHandle* startEventBGM(s32 id) {
+        SoundHandle* pSoundHandle = nullptr;
 
         switch (id) {
         case EventBgmID_Hurry:
@@ -729,7 +726,7 @@ namespace MR {
         return pSoundHandle;
     }
 
-    JAISoundHandle* startAfterBossBGM() {
+    SoundHandle* startAfterBossBGM() {
         setCubeBgmChangeInvalid();
         clearBgmQueue();
 
@@ -738,7 +735,7 @@ namespace MR {
         }
 
         if (!isGalaxyDarkCometAppearInCurrentStage()) {
-            JAISoundID id = AudStageBgmWrap::getCometEventBgm(getCurrentStageName());
+            SoundID id = AudStageBgmWrap::getCometEventBgm(getCurrentStageName());
 
             if (!id.isAnonymous()) {
                 return AudWrap::startStageBgm(id, false);

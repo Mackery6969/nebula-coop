@@ -4,18 +4,18 @@
 
 class CameraMedianTower : public Camera {
 public:
-    CameraMedianTower(const char* pName = "\222\206\223\137\223\203\203\112\203\201\203\211" /* 中点塔カメラ */);
+    CameraMedianTower(const char* pName = "中点塔カメラ");
 
-    virtual void reset();
-    virtual CameraTargetObj* calc();
-    virtual CamTranslatorBase* createTranslator();
+    virtual void reset() override;
+    virtual CameraTargetObj* calc() override;
+    virtual void setParamFromChunk(const CameraParamChunk*) override;
 
-    void calcFovyPos(TVec3f*, const TVec3f&, const TVec3f&, const TVec3f&);
-    void limitAngularVelocity(TVec3f*, TVec3f*, const TVec3f&, const TVec3f&, const TVec3f&);
-    void calcDistance(TVec3f*, const TVec3f&);
-    void updateReset(const TVec3f&, const TVec3f&, const TVec3f&);
+    void calcFovyPos(Vec3f*, const Vec3f&, const Vec3f&, const Vec3f&);
+    void limitAngularVelocity(Vec3f*, Vec3f*, const Vec3f&, const Vec3f&, const Vec3f&);
+    void calcDistance(Vec3f*, const Vec3f&);
+    void updateReset(const Vec3f&, const Vec3f&, const Vec3f&);
 
-    void setParam(const char* pName, const TVec3f& wPoint, const TVec3f& axis, f32 angle, f32 dist, f32 maxDist, f32 partialRate) {
+    void setParam(const char* pName, const Vec3f& wPoint, const Vec3f& axis, f32 angle, f32 dist, f32 maxDist, f32 partialRate) {
         mString = pName;
         mWPoint.set(wPoint);
         mAxis.set(axis);
@@ -26,13 +26,13 @@ public:
     }
 
     const char* mString;
-    TVec3f mWPoint;
-    TVec3f mAxis;
+    Vec3f mWPoint;
+    Vec3f mAxis;
     f32 mAngleA;
     f32 mDist;
     f32 mMaxFocusDist;
     f32 mPartialRate;
-    TVec3f mBaseFront;
+    Vec3f mBaseFront;
     bool mIsResetting;
     s32 mInterpolateTime;
 };

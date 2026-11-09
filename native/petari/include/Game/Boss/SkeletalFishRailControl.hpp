@@ -1,28 +1,33 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 struct SkeletalFishRailInfo {
-    LiveActor* _0;
-    f32 _4;
+    LiveActor* mRail;
+    f32 mCoord;
 };
 
 class SkeletalFishRailControl {
 public:
+    enum State {
+        State_OnJoinRail,
+        State_Joining,
+        State_OnRail
+    };
+
     SkeletalFishRailControl();
 
-    void setRailActor(LiveActor*, LiveActor*, bool);
+    void setRailActor(LiveActor* pRail, LiveActor* pJoinRail, bool isResetRail);
     void update();
-    void getRailInfo(SkeletalFishRailInfo*, f32);
-    void getPos(TVec3f*, f32);
-    void getMtx(TPos3f*, f32);
+    void getRailInfo(SkeletalFishRailInfo*, f32 behind);
+    void getPos(Vec3f*, f32 behind);
+    void getMtx(Pos3f*, f32 behind);
 
-    u32 _0;
-    LiveActor* _4;
-    LiveActor* _8;
-    f32 _C;
-    f32 _10;
-    f32 _14;
-    bool _18;
+    State mState;
+    LiveActor* mJoinRail;
+    LiveActor* mRail;
+    f32 mRailCoord;
+    f32 mJoinCoord;
+    f32 mSpeed;
 };

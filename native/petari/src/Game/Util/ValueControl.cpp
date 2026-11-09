@@ -29,24 +29,27 @@ void ValueControl::setMaxFrame(int maxFrame) {
 }
 
 void ValueControl::update() {
-    if ((mDirection > 0 && mFrame != mMaxFrame) || (isDirToZero(mDirection) && mFrame != 0)) {
-        mFrame += getDirection();
+    if (mFrame != (mDirection > 0 ? mMaxFrame : 0)) {
+        mFrame += mDirection;
     }
 }
 
 void ValueControl::setZero() {
-    setDirToZeroResetFrame();
-
+    setDirToZero();
     mFrame = 0;
 }
 
 void ValueControl::setOne() {
-    setDirToOneResetFrame();
-
+    setDirToOne();
     mFrame = mMaxFrame;
 }
 
 f32 ValueControl::getValue() const {
+    // A control of no length (0 frames) is at its end already, not 0 / 0.
+    if (mMaxFrame <= 0) {
+        return mDirection > 0 ? 1.0f : 0.0f;
+    }
+
     return static_cast< f32 >(mFrame) / mMaxFrame;
 }
 

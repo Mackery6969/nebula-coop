@@ -4,25 +4,28 @@ class BegomanHead;
 class ModelObj;
 class BegomanSpike : public BegomanBase {
 public:
-    BegomanSpike(const char*);
+    BegomanSpike(const char* pName);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void appear();
-    virtual void control();
-    virtual void calcAnim();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPush(HitSensor*, HitSensor*);
-    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
-    virtual u32 getKind() const {
-        return 1;
+    virtual void init(const TableIter&) override;
+    virtual void appear() override;
+    virtual void control() override;
+    virtual void calcAnim() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPush(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
+    virtual u32 getKind() const override {
+        return Kind_Spike;
     }
-    virtual bool onTouchElectric(const TVec3f&, const TVec3f&);
-    virtual bool setNerveReturn();
-    virtual void setNerveLaunch();
-    virtual const Nerve* getNerveWait();
+    virtual bool onTouchElectric(const Vec3f&, const Vec3f&) override;
+    virtual bool setNerveReturn() override;
+    virtual void setNerveLaunch() override;
+    virtual const Nerve* getNerveWait() override;
     void onSwitchB();
+    bool isNrvBlown() const;
+    bool isNrvBroken() const;
+    bool isNrvStarPointerBindable() const;
     void tearDownPursue();
     void generateItem();
     void exeNoCalcWait();
@@ -50,8 +53,8 @@ public:
     void endBindStarPointer();
     void exeBindStarPointer();
     BegomanHead* mHead;
-    TPos3f mHeadMatrix;
+    Pos3f mHeadMatrix;
     ModelObj* mBrokenModel;
-    TPos3f mWaterColumnMatrix;
+    Pos3f mWaterColumnMatrix;
     bool mTurnAfterBlow;
 };

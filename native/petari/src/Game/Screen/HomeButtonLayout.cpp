@@ -3,7 +3,6 @@
 #include "Game/AudioLib/AudSystem.hpp"
 #include "Game/AudioLib/AudWrap.hpp"
 #include "Game/LiveActor/Nerve.hpp"
-#include "Game/Speaker/SpkSystem.hpp"
 #include "Game/System/GameSystemFunction.hpp"
 #include "Game/System/Language.hpp"
 #include "Game/System/PlayerInputs.hpp"
@@ -21,10 +20,10 @@ namespace NrvHomeButtonLayout {
     NEW_NERVE(HomeButtonLayoutActive, HomeButtonLayout, Active);
 };  // namespace NrvHomeButtonLayout
 
-HomeButtonLayout::HomeButtonLayout() : LayoutActor("HOME\203\173\203\136\203\223" /* HOMEボタン */, false), mIsInitialized(false), mForcedClosed(false) {
+HomeButtonLayout::HomeButtonLayout() : LayoutActor("HOMEボタン", false), mIsInitialized(false), mForcedClosed(false) {
 }
 
-void HomeButtonLayout::init(const JMapInfoIter& rIter) {
+void HomeButtonLayout::init(const TableIter& /*rIter*/) {
     // The host keeps the menu (NebulaHomeMenu).
     mIsInitialized = true;
     initNerve(GET_NERVE(HomeButtonLayout, HomeButtonLayoutDeactive));
@@ -108,7 +107,6 @@ void HomeButtonLayout::exeActive() {
 
     if (!bVar1) {
         AudWrap::getSystem()->exitHomeButtonMenu();
-        SpkSystem::reconnect(-1);
     }
 
     if (MR::isStarPointerModeHomeButton()) {
@@ -141,7 +139,7 @@ bool HomeButtonLayout::isActive() const {
 
 
 bool HomeButtonLayout::tryPressedHome() {
-    for (s32 i = 0; i < MR::getPlayerMaxCount(); i++) {
+    for (u32 i = 0; i < MR::getPlayerMaxCount(); i++) {
         if (MR::isPressedHome(i)) {
             return true;
         }

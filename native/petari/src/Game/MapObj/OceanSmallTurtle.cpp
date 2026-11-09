@@ -1,4 +1,5 @@
 #include "Game/MapObj/OceanSmallTurtle.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/AreaObj/MercatorTransformCube.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/MapPartsRailMover.hpp"
@@ -13,19 +14,18 @@ namespace NrvOceanSmallTurtle {
 };  // namespace NrvOceanSmallTurtle
 
 namespace {
-    // static const f32 sRisingSpeed;
     static const f32 sRisingSpeedAtFloatSignal = 0.5f;
     static const f32 sCatchRailSpeed = 2.0f;
     static const f32 sJudgeForCatchRail = 100.0f;
     static const f32 sBoundAmpMax = 20.0f;
-    static const s32 sBoundTime = 150;
+    static const s32 sBoundTime = NebulaFrameClock::stepsOfMilliseconds(2500);
     static const f32 sStartFloatPower = 1.0f;
     static const f32 sRambleSide = 1.0f;
     static const f32 sRambleRotX = 1.0f;
     static const f32 sDefaultAccelRate = 20.0f;
     static const f32 sAccelMax = 40.0f;
-    static const s32 sStepForFloatSignal = 60;
-    static const s32 sStepToRisingForFloatSignal = 120;
+    static const s32 sStepForFloatSignal = NebulaFrameClock::stepsOfSeconds(1);
+    static const s32 sStepToRisingForFloatSignal = NebulaFrameClock::stepsOfSeconds(2);
 };  // namespace
 
 OceanSmallTurtle::OceanSmallTurtle(const char* pName)
@@ -35,12 +35,12 @@ OceanSmallTurtle::OceanSmallTurtle(const char* pName)
     mEffectMtx.identity();
 }
 
-void OceanSmallTurtle::init(const JMapInfoIter& rIter) {
-    MR::getJMapInfoArg0NoInit(rIter, &mAccelRate);
+void OceanSmallTurtle::init(const TableIter& rIter) {
+    MR::getPlacementArg0NoInit(rIter, &mAccelRate);
     mAccelRate /= 100.0f;
 
-    MR::getJMapInfoArg1NoInit(rIter, &mArg1);
-    MR::getJMapInfoRotate(rIter, &mInfoRotate);
+    MR::getPlacementArg1NoInit(rIter, &mArg1);
+    MR::getPlacementRotate(rIter, &mInfoRotate);
 
     MR::initDefaultPosForMercator(this, rIter, true);
     mMercatorPos.set(mPosition);
@@ -54,7 +54,7 @@ void OceanSmallTurtle::init(const JMapInfoIter& rIter) {
     MR::addBodyMessageSensorMapObj(this);
 
     MR::initCollisionParts(this, "OceanSmallTurtle", getSensor("body"), nullptr);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initSound(4, false);
     initRailRider(rIter);
 
@@ -89,16 +89,16 @@ void OceanSmallTurtle::control() {
 }
 
 void OceanSmallTurtle::calcAndSetBaseMtx() {
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.identity();
     mPosition.set(mMercatorPos);
 
-    TPos3f rotateMtx;
+    Pos3f rotateMtx;
     MR::makeMtxRotate(rotateMtx, mRotation);
     mtx.concat(rotateMtx);
 
     if (isNerve(GET_NERVE(OceanSmallTurtle, OceanSmallTurtleNrvRailMove))) {
-        TPos3f rotateMtx2;
+        Pos3f rotateMtx2;
         MR::makeMtxRotate(rotateMtx2, mInfoRotate);
         mtx.concat(rotateMtx2);
     }
@@ -106,8 +106,8 @@ void OceanSmallTurtle::calcAndSetBaseMtx() {
     mtx.setTrans(mPosition);
 
     if (isBound) {
-        TVec3f up(-mGravity);
-        TVec3f scaledUp;
+        Vec3f up(-mGravity);
+        Vec3f scaledUp;
         scaledUp.scale(mBoundDisplacement, up);
         mtx[0][3] += scaledUp.x;
         mtx[1][3] += scaledUp.y;
@@ -122,9 +122,9 @@ void OceanSmallTurtle::exeWait() {
         mStartRotationX = mRotation.x;
     }
 
-    TVec3f up;
+    Vec3f up;
     up.negate(mGravity);
-    TVec3f scaledUp;
+    Vec3f scaledUp;
     scaledUp.scale(mArg1, up);
 
     if (MR::isInWater(this, scaledUp)) {
@@ -138,10 +138,10 @@ void OceanSmallTurtle::exeWait() {
 
 void OceanSmallTurtle::exeFloatSignal() {
     f32 speedAndDir = 3.0f * (getNerveStep() % 8 < 4 ? ::sRambleSide : -::sRambleSide);
-    TVec3f sideVec;
+    Vec3f sideVec;
     MR::calcSideVec(&sideVec, this);
 
-    TVec3f velocity;
+    Vec3f velocity;
 
     velocity.scale(speedAndDir, sideVec);
     mVelocity.set(velocity);
@@ -186,7 +186,7 @@ void OceanSmallTurtle::exeCatchRail() {
     mVelocity.zero();
     mRailMover->start();
 
-    MR::convertMercatorPlaneToSphereTransAndRotate(&mMercatorPos, &mRotation, mRailMover->_28, true);
+    MR::convertMercatorPlaneToSphereTransAndRotate(&mMercatorPos, &mRotation, mRailMover->mStartPos, true);
 
     setNerve(GET_NERVE(OceanSmallTurtle, OceanSmallTurtleNrvRailMove));
 }
@@ -201,7 +201,7 @@ void OceanSmallTurtle::exeRailMove() {
     mRailMover->movement();
     MR::startLevelSound(this, "SE_OJ_LV_O_SML_TURTLE_MOVE");
 
-    MR::convertMercatorPlaneToSphereTransAndRotate(&mMercatorPos, &mRotation, mRailMover->_28, true);
+    MR::convertMercatorPlaneToSphereTransAndRotate(&mMercatorPos, &mRotation, mRailMover->mStartPos, true);
 
     if (isNeedsForBound()) {
         mBoundTimer = 0;
@@ -244,7 +244,7 @@ bool OceanSmallTurtle::catchNearestRailPos() {
         return true;
     }
 
-    TVec3f vec;
+    Vec3f vec;
     vec.sub(mStartNearestRailPos, mMercatorPos);
 
     MR::normalize(&vec);
@@ -254,9 +254,9 @@ bool OceanSmallTurtle::catchNearestRailPos() {
 }
 
 void OceanSmallTurtle::floatFloater() {
-    TVec3f up;
+    Vec3f up;
     up.negate(mGravity);
-    TVec3f scaledUp;
+    Vec3f scaledUp;
     scaledUp.scale(mArg1, up);
 
     if (MR::isInWater(this, scaledUp)) {

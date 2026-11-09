@@ -4,12 +4,10 @@
 
 class TimerSwitch : public LiveActor {
 public:
-    /// @brief Creates a new `TimerSwitch`.
-    /// @param pName A pointer to the null-terminated name of the object.
     TimerSwitch(const char* pName);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
+    virtual void init(const TableIter&) override;
+    virtual void control() override;
 
     s32 mTimeLimit;
     s32 mTimeLeft;

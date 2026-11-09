@@ -1,4 +1,5 @@
 #include "Game/Boss/KoopaBattleMain.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Boss/Koopa.hpp"
 #include "Game/Boss/KoopaFunction.hpp"
 #include "Game/Boss/KoopaStateAttackFireLong.hpp"
@@ -25,10 +26,10 @@ namespace {
     static MR::ActorSightParam sAttackHipDropSight = {1000.0f, 90.0f, 30.0f};
     static const f32 sDistanceMaxToJumpAway = 1500.0f;
     static const f32 sSearchDistance = 2000.0f;
-    static const s32 sSearchStepToFind = 60;
+    static const s32 sSearchStepToFind = NebulaFrameClock::stepsOfSeconds(1);
     static const f32 sChasePlayerDistanceNearAttack = 500.0f;
-    static const s32 sChasePlayerStepToAttackFireShort = 90;
-    static const s32 sChasePlayerStepToAttackHipDrop = 60;
+    static const s32 sChasePlayerStepToAttackFireShort = NebulaFrameClock::stepsOfMilliseconds(1500);
+    static const s32 sChasePlayerStepToAttackHipDrop = NebulaFrameClock::stepsOfSeconds(1);
 };  // namespace
 
 namespace NrvKoopaBattleMain {
@@ -48,38 +49,38 @@ namespace NrvKoopaBattleMain {
 };  // namespace NrvKoopaBattleMain
 
 KoopaBattleMain::KoopaBattleMain(const char* pName, Koopa* pKoopa)
-    : KoopaBattleBase(pName, pKoopa), mStateAttackHipDrop(), mStateAttackShockWave(), mStateAttackRoll(), mStateAttackSpin(), _2C(true) {
+    : KoopaBattleBase(pName, pKoopa), mStateAttackHipDrop(), mStateAttackShockWave(), mStateAttackRoll(), mStateAttackSpin(), mIsMainAttackStarted(true) {
 }
 
 void KoopaBattleMain::init() {
     KoopaBattleBase::init();
     initNerve(GET_NERVE(KoopaBattleMain, KoopaBattleMainNrvWander));
-    MR::initActorStateKeeper(this, 16);
+    MR::initActorStateKeeper(this);
 
     mStateAttackHipDrop = new KoopaStateAttackHipDrop(mHost);
     mStateAttackShockWave = new KoopaStateAttackShockWave(mHost);
 
-    MR::initActorState(this, mStateGuard, GET_NERVE(KoopaBattleMain, KoopaBattleMainNrvGuard), "Guard");
-    MR::initActorState(this, mStateAttackHipDrop, GET_NERVE(KoopaBattleMain, KoopaBattleMainNrvAttackHipDrop), "AttackHipDrop");
-    MR::initActorState(this, mStateAttackShockWave, GET_NERVE(KoopaBattleMain, KoopaBattleMainNrvAttackShockWave), "AttackShockWave");
-    MR::initActorState(this, new KoopaStateAttackFireShort(mHost), GET_NERVE(KoopaBattleMain, KoopaBattleMainNrvAttackFireShort), "AttackFireShort");
-    MR::initActorState(this, mStateDamageEscape, GET_NERVE(KoopaBattleMain, KoopaBattleMainNrvDamageEscape), "DamageEscape");
-    MR::initActorState(this, new KoopaStateJumpAway(mHost), GET_NERVE(KoopaBattleMain, KoopaBattleMainNrvJumpAway), "JumpAway");
+    MR::initActorState(this, mStateGuard, GET_NERVE(KoopaBattleMain, KoopaBattleMainNrvGuard));
+    MR::initActorState(this, mStateAttackHipDrop, GET_NERVE(KoopaBattleMain, KoopaBattleMainNrvAttackHipDrop));
+    MR::initActorState(this, mStateAttackShockWave, GET_NERVE(KoopaBattleMain, KoopaBattleMainNrvAttackShockWave));
+    MR::initActorState(this, new KoopaStateAttackFireShort(mHost), GET_NERVE(KoopaBattleMain, KoopaBattleMainNrvAttackFireShort));
+    MR::initActorState(this, mStateDamageEscape, GET_NERVE(KoopaBattleMain, KoopaBattleMainNrvDamageEscape));
+    MR::initActorState(this, new KoopaStateJumpAway(mHost), GET_NERVE(KoopaBattleMain, KoopaBattleMainNrvJumpAway));
 
     if (KoopaFunction::isKoopaVs2(mHost) || KoopaFunction::isKoopaVs3(mHost)) {
         mStateAttackSpin = new KoopaStateAttackSpin(mHost);
-        MR::initActorState(this, mStateAttackSpin, GET_NERVE(KoopaBattleMain, KoopaBattleMainNrvAttackSpin), "AttackSpin");
+        MR::initActorState(this, mStateAttackSpin, GET_NERVE(KoopaBattleMain, KoopaBattleMainNrvAttackSpin));
 
         mStateAttackRoll = new KoopaStateAttackRoll(mHost);
-        MR::initActorState(this, mStateAttackRoll, GET_NERVE(KoopaBattleMain, KoopaBattleMainNrvAttackRoll), "AttackRoll");
+        MR::initActorState(this, mStateAttackRoll, GET_NERVE(KoopaBattleMain, KoopaBattleMainNrvAttackRoll));
 
-        MR::initActorState(this, new KoopaStateAttackFireLong(mHost), GET_NERVE(KoopaBattleMain, KoopaBattleMainNrvAttackFireLong), "AttackFireLong");
+        MR::initActorState(this, new KoopaStateAttackFireLong(mHost), GET_NERVE(KoopaBattleMain, KoopaBattleMainNrvAttackFireLong));
     }
 }
 
 void KoopaBattleMain::appear() {
     mIsDead = false;
-    _2C = true;
+    mIsMainAttackStarted = true;
 
     if (KoopaFunction::isKoopaVs1(mHost)) {
         if (KoopaFunction::isKoopaLv1(mHost)) {
@@ -116,8 +117,8 @@ void KoopaBattleMain::exeChasePlayer() {
     if (KoopaFunction::isKoopaVs1(mHost)) {
         if (MR::isNearPlayer(mHost, ::sChasePlayerDistanceNearAttack) ||
             ((MR::isGreaterStep(this, ::sChasePlayerStepToAttackHipDrop) &&
-              MR::isInSightFanPlayer(mHost, KoopaFunction::getKoopaFront(mHost), ::sAttackHipDropSight._0, ::sAttackHipDropSight._4,
-                                     ::sAttackHipDropSight._8)))) {
+              MR::isInSightFanPlayer(mHost, KoopaFunction::getKoopaFront(mHost), ::sAttackHipDropSight.mDistance, ::sAttackHipDropSight.mHorizontalDegree,
+                                     ::sAttackHipDropSight.mVerticalDegree)))) {
             setNerve(GET_NERVE(KoopaBattleMain, KoopaBattleMainNrvAttackHipDrop));
             return;
         }
@@ -172,10 +173,10 @@ void KoopaBattleMain::exeJumpAway() {
         return;
     }
 
-    _2C = false;
+    mIsMainAttackStarted = false;
 
     if (KoopaFunction::isKoopaVs3(mHost) && KoopaFunction::isKoopaLv3(mHost)) {
-        mStateAttackRoll->_1D = true;
+        mStateAttackRoll->mIsStartNow = true;
     }
 
     startMainAttack();
@@ -250,7 +251,7 @@ void KoopaBattleMain::exeAttackRoll() {
         return;
     }
 
-    if (mStateAttackRoll->_1C) {
+    if (mStateAttackRoll->mIsHitPlayer) {
         tryJumpAway();
     } else {
         setNerve(GET_NERVE(KoopaBattleMain, KoopaBattleMainNrvAttackHipDrop));
@@ -348,7 +349,7 @@ bool KoopaBattleMain::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSen
     return false;
 }
 
-#if !defined(NEBULA_RELEASE)
+#if defined(NEBULA_DEV)
 void KoopaBattleMain::testHit(HitSensor* pPlayer) {
     if (isNerve(GET_NERVE(KoopaBattleMain, KoopaBattleMainNrvDamageEscape))) {
         receiveMsgPlayerAttack(ACTMES_PLAYER_PUNCH, pPlayer, mHost->getSensor("DamageEscapeBody"));
@@ -358,7 +359,7 @@ void KoopaBattleMain::testHit(HitSensor* pPlayer) {
 }
 #endif
 
-bool KoopaBattleMain::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool KoopaBattleMain::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (msg == ACTMES_KOOPA_PLAYER_DAMAGE) {
         if (isNerve(GET_NERVE(KoopaBattleMain, KoopaBattleMainNrvAttackRoll))) {
             return true;
@@ -379,8 +380,8 @@ bool KoopaBattleMain::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pR
 }
 
 void KoopaBattleMain::startMainAttack() {
-    if (_2C == false) {
-        _2C = true;
+    if (!mIsMainAttackStarted) {
+        mIsMainAttackStarted = true;
 
         if (KoopaFunction::isKoopaVs2(mHost)) {
             setNerve(GET_NERVE(KoopaBattleMain, KoopaBattleMainNrvAttackSpin));
@@ -426,7 +427,4 @@ void KoopaBattleMain::exeFind() {
 
 void KoopaBattleMain::exeAttackFireLong() {
     MR::updateActorStateAndNextNerve(this, GET_NERVE(KoopaBattleMain, KoopaBattleMainNrvAttackShockWave));
-}
-
-KoopaBattleMain::~KoopaBattleMain() {
 }

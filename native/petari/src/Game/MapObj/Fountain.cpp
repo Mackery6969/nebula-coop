@@ -24,18 +24,18 @@ Fountain::Fountain(const char* pName) : LiveActor(pName), mFountainName(), mUp(0
 }
 
 inline void Fountain::initHitSensors(const char* hitSensor) {
-    MR::addHitSensorMapObj(this, hitSensor, 16, ::sSensorRadius, TVec3f(0.0f, ::sSensorOffsetY, 0.0f));
+    MR::addHitSensorMapObj(this, hitSensor, 16, ::sSensorRadius, Vec3f(0.0f, ::sSensorOffsetY, 0.0f));
 }
 
-void Fountain::init(const JMapInfoIter& rIter) {
+void Fountain::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.identity();
     mtx.setRotateDegree(mRotation);
     mtx.getYDir(mUp);
     MR::normalize(&mUp);
     MR::getObjectName(&mFountainName, rIter);
-    initEffectKeeper(0, mFountainName, false);
+    initEffectKeeper(0, mFountainName);
     initSound(4, false);
     initHitSensor(1);
     initHitSensors("body");

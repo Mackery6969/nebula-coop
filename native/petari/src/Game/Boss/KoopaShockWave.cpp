@@ -1,4 +1,5 @@
 #include "Game/Boss/KoopaShockWave.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Boss/Koopa.hpp"
 #include "Game/Boss/KoopaFunction.hpp"
 #include "Game/LiveActor/ModelObj.hpp"
@@ -12,24 +13,18 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 
-namespace {
-    // static const s32 sStepWaveAttack = _;
-    // static const f32 sModelRadius = _;
-    // static const f32 sShadowRadius = _;
-};  // namespace
-
 namespace NrvKoopaShockWave {
     NEW_NERVE(KoopaShockWaveNrvWaveAttack, KoopaShockWave, WaveAttack);
 };  // namespace NrvKoopaShockWave
 
 KoopaShockWave::KoopaShockWave(Koopa* pKoopa)
-    : LiveActor("\213\205\217\363\217\325\214\202\224\147" /* 球状衝撃波 */), mKoopa(pKoopa), mAngle(), mUp(0.0f, 1.0f, 0.0f), mFront(0.0f, 0.0f, 1.0f), mPartsModel(), mShadow() {
-    _94.identity();
+    : LiveActor("球状衝撃波"), mKoopa(pKoopa), mAngle(), mUp(0.0f, 1.0f, 0.0f), mFront(0.0f, 0.0f, 1.0f), mPartsModel(), mShadow() {
+    mKoopaMtx.identity();
     mBaseMtx.identity();
     mMtx.identity();
 }
 
-void KoopaShockWave::init(const JMapInfoIter& rIter) {
+void KoopaShockWave::init(const TableIter& /*rIter*/) {
     initModelManagerWithAnm("KoopaShockWave", nullptr, false);
 
     MR::startAction(this, "Spread");
@@ -54,7 +49,7 @@ void KoopaShockWave::init(const JMapInfoIter& rIter) {
     mPartsModel->kill();
     MR::invalidateClipping(mPartsModel);
 
-    ModelObj* pModelObj = MR::createModelObjNoSilhouettedMapObj("\217\325\214\202\224\147\202\314\211\145" /* 衝撃波の影 */, "KoopaShockWaveShadow", mMtx);
+    ModelObj* pModelObj = MR::createModelObjNoSilhouettedMapObj("衝撃波の影", "KoopaShockWaveShadow", mMtx);
     mShadow = pModelObj;
     MR::startAction(pModelObj, "Spread");
     MR::setBckFrameAndStop(pModelObj, 0.0f);
@@ -81,8 +76,9 @@ void KoopaShockWave::makeActorDead() {
 }
 
 namespace {
-    void makeShockWaveMtx(TPos3f* pDest, const TVec3f& rUp, const TVec3f& rFront, const TVec3f& r6, f32 f1, f32 f2) {
-        MR::makeMtxUpFrontPos(pDest, rUp, rFront, rUp * f1 * f2 + r6);
+    // The wave's frame, at scale * height above the planet's center along up.
+    void makeShockWaveMtx(Pos3f* pDest, const Vec3f& rUp, const Vec3f& rFront, const Vec3f& rCenter, f32 scale, f32 height) {
+        MR::makeMtxUpFrontPos(pDest, rUp, rFront, rUp * scale * height + rCenter);
     }
 };  // namespace
 
@@ -107,19 +103,19 @@ void KoopaShockWave::exeWaveAttack() {
         mFront.set(mKoopa->mFront);
         MR::normalizeOrZero(&mUp);
 
-        TVec3f vec2 = mUp;
-        vec2.scale(KoopaFunction::getPlanetRadius(mKoopa));
+        Vec3f surfacePos = mUp;
+        surfacePos.scale(KoopaFunction::getPlanetRadius(mKoopa));
 
-        vec2.add(KoopaFunction::getPlanetCenterPos(mKoopa));
+        surfacePos.add(KoopaFunction::getPlanetCenterPos(mKoopa));
 
-        MR::makeMtxUpFrontPos(&_94, -mKoopa->mGravity, mKoopa->mFront, vec2);
+        MR::makeMtxUpFrontPos(&mKoopaMtx, -mKoopa->mGravity, mKoopa->mFront, surfacePos);
 
         MR::startSound(mKoopa, "SE_BM_KOOPA_SWAVE_SHOOT");
 
         MR::validateHitSensors(this);
     }
 
-    mAngle = MR::calcNerveValue(this, 360, 0.0f, 180.0f);
+    mAngle = MR::calcNerveValue(this, NebulaFrameClock::stepsOfSeconds(6), 0.0f, 180.0f);
 
     f32 scale = MR::cosDegree(mAngle);
     ::makeShockWaveMtx(&mBaseMtx, mUp, mFront, KoopaFunction::getPlanetCenterPos(mKoopa), scale, 1300.0f);
@@ -145,24 +141,24 @@ void KoopaShockWave::exeWaveAttack() {
         MR::startBrk(mPartsModel, "Erase");
     }
 
-    if (MR::isStep(this, 360)) {
+    if (MR::isStep(this, NebulaFrameClock::stepsOfSeconds(6))) {
         kill();
     }
 }
 
 void KoopaShockWave::updateHitSensor(HitSensor* pSensor) {
-    TVec3f playerPos = *MR::getPlayerPos();
-    MR::calcLocalVec(&playerPos, _94);
+    Vec3f playerPos = *MR::getPlayerPos();
+    MR::calcLocalVec(&playerPos, mKoopaMtx);
 
     f32 degree = MR::toDegree(MR::atan2(-playerPos.z, playerPos.x)) + 180.0f;
 
-    TPos3f matrix = _94;
+    Pos3f matrix = mKoopaMtx;
     matrix.setTrans(KoopaFunction::getPlanetCenterPos(mKoopa));
 
-    TVec3f rotateVec;
+    Vec3f rotateVec;
     rotateVec.set(0.0f, KoopaFunction::getPlanetRadius(mKoopa), 0.0f);
-    MR::rotateVecDegree(&rotateVec, TVec3f(0.0f, 0.0f, 1.0f), mAngle);
-    MR::rotateVecDegree(&rotateVec, TVec3f(0.0f, 1.0f, 0.0f), degree);
+    MR::rotateVecDegree(&rotateVec, Vec3f(0.0f, 0.0f, 1.0f), mAngle);
+    MR::rotateVecDegree(&rotateVec, Vec3f(0.0f, 1.0f, 0.0f), degree);
 
     matrix.mult(rotateVec, rotateVec);
     MR::setSensorPos(pSensor, rotateVec);
@@ -176,7 +172,4 @@ void KoopaShockWave::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     if (MR::isSensorPlayer(pReceiver) && MR::isOnGroundPlayer() && MR::sendMsgEnemyAttack(pReceiver, pSender)) {
         mKoopa->receiveMessage(ACTMES_KOOPA_PLAYER_DAMAGE, pSender, MR::getMessageSensor());
     }
-}
-
-KoopaShockWave::~KoopaShockWave() {
 }

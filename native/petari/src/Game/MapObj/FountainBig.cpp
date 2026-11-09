@@ -1,4 +1,5 @@
 #include "Game/MapObj/FountainBig.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util.hpp"
@@ -18,19 +19,16 @@ FountainBig::FountainBig(const char* pName) : LiveActor(pName) {
     mSpoutTimer = -1;
 }
 
-FountainBig::~FountainBig() {
-}
-
-void FountainBig::init(const JMapInfoIter& rIter) {
+void FountainBig::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("FountainBig", nullptr, false);
     MR::connectToSceneMapObj(this);
     initHitSensor(1);
     MR::addHitSensorCallbackEye(this, "body", 4, 60.0f);
     MR::invalidateHitSensors(this);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initSound(4, false);
-    TVec3f vec;
+    Vec3f vec;
     MR::calcUpVec(&vec, this);
     mClippingRadius.scaleAdd(300.0f, vec, mPosition);
     MR::setClippingTypeSphere(this, 600.0f, &mClippingRadius);
@@ -46,7 +44,7 @@ void FountainBig::exeWait() {
         MR::invalidateHitSensors(this);
     }
 
-    if (MR::isStep(this, 120)) {
+    if (MR::isStep(this, NebulaFrameClock::stepsOfSeconds(2))) {
         setNerve(GET_NERVE(FountainBig, FountainBigNrvSign));
     }
 }
@@ -66,7 +64,7 @@ void FountainBig::exeSignStop() {
         MR::deleteEffect(this, "FountainBigSign");
     }
 
-    if (MR::isStep(this, 30)) {
+    if (MR::isStep(this, NebulaFrameClock::stepsOfMilliseconds(500))) {
         setNerve(GET_NERVE(FountainBig, FountainBigNrvSpout));
     }
 }
@@ -95,7 +93,7 @@ void FountainBig::exeSpout() {
         MR::clamp(calcNerve, 0.01f, 1.0f);
     }
     MR::startLevelSound(this, "SE_OJ_LV_FOUNTAIN_BIG_SPOUT");
-    if (MR::isStep(this, 180)) {
+    if (MR::isStep(this, NebulaFrameClock::stepsOfSeconds(3))) {
         MR::invalidateHitSensors(this);
         MR::deleteEffect(this, "FountainBig");
         setNerve(GET_NERVE(FountainBig, FountainBigNrvSpoutEnd));
@@ -115,12 +113,12 @@ void FountainBig::exeSpoutEnd() {
 }
 
 void FountainBig::updateHitSensor(HitSensor* pSensor) {
-    f32 pSensorY = pSensor->mRadius;
-    TVec3f vec1, vec2, vec3;
-    MR::calcUpVec(&vec1, this);
-    vec2.scaleAdd(pSensorY, vec1, mPosition);
-    vec3.scaleAdd(600.0f - pSensorY, vec1, vec2);
-    MR::calcPerpendicFootToLineInside(&pSensor->mPosition, *MR::getPlayerPos(), vec2, vec3);
+    f32 radius = pSensor->mRadius;
+    Vec3f up, bottom, top;
+    MR::calcUpVec(&up, this);
+    bottom.scaleAdd(radius, up, mPosition);
+    top.scaleAdd(600.0f - radius, up, bottom);
+    MR::calcPerpendicFootToLineInside(&pSensor->mPosition, *MR::getPlayerPos(), bottom, top);
 }
 
 void FountainBig::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {

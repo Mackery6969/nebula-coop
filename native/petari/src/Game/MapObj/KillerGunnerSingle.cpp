@@ -1,4 +1,5 @@
 #include "Game/MapObj/KillerGunnerSingle.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util.hpp"
@@ -24,15 +25,15 @@ namespace NrvKillerGunnerSingle {
 KillerGunnerSingle::KillerGunnerSingle(const char* pName) : LiveActor(pName) {
 }
 
-void KillerGunnerSingle::init(const JMapInfoIter& rIter) {
+void KillerGunnerSingle::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("KillerGunnerSingle", nullptr, false);
     MR::connectToSceneEnvironment(this);
     initHitSensor(2);
-    MR::addHitSensorMapObj(this, "body", 16, 0.0f, TVec3f(0.0f, 0.0f, 0.0f));
-    MR::addHitSensorEnemy(this, "shell", 16, 250.0f, TVec3f(::sShellPos));
+    MR::addHitSensorMapObj(this, "body", 16, 0.0f, Vec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorEnemy(this, "shell", 16, 250.0f, Vec3f(::sShellPos));
     MR::initCollisionParts(this, "KillerGunnerSingle", getSensor("body"), nullptr);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initSound(4, false);
     MR::setClippingTypeSphereContainsModelBoundingBox(this, 100.0f);
     initNerve(GET_NERVE(KillerGunnerSingle, HostTypeWait));
@@ -56,7 +57,7 @@ void KillerGunnerSingle::exeWait() {
         getSensor("shell")->invalidate();
     }
 
-    if (MR::isStep(this, 120)) {
+    if (MR::isStep(this, NebulaFrameClock::stepsOfSeconds(2))) {
         setNerve(GET_NERVE(KillerGunnerSingle, HostTypeCharge));
     }
 }
@@ -78,7 +79,7 @@ void KillerGunnerSingle::exeCharge() {
 
 void KillerGunnerSingle::exeShoot() {
     if (MR::isFirstStep(this)) {
-        MR::startRumbleWithShakeCameraWeak(this, "\222\206" /* 中 */, "\216\343" /* 弱 */, 500.0f, 1000.0f);
+        MR::startRumbleWithShakeCameraWeak(this, "中", "弱", 500.0f, 1000.0f);
     }
 
     if (MR::isStep(this, 0)) {
@@ -98,7 +99,4 @@ inline void KillerGunnerSingle::exeAttack() {
     if (MR::isBckStopped(this)) {
         setNerve(GET_NERVE(KillerGunnerSingle, HostTypeWait));
     }
-}
-
-KillerGunnerSingle::~KillerGunnerSingle() {
 }

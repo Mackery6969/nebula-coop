@@ -5,45 +5,38 @@
 #include "Game/Util.hpp"
 
 namespace {
-    static const f32 sGunPointOffset = 200.0f;
+    const f32 sGunPointOffset = 200.0f;
 };  // namespace
-
-WaterPressure::~WaterPressure() {
-}
 
 WaterPressure::WaterPressure(const char* pName) : PressureBase(pName), mCameraInfo(), mIsInvalidSpinKill() {
 }
 
-void WaterPressure::init(const JMapInfoIter& rIter) {
+void WaterPressure::init(const TableIter& rIter) {
     PressureBase::init(rIter);
     MR::initActorCamera(this, rIter, &mCameraInfo);
-    MR::getJMapInfoArg7NoInit(rIter, &mIsInvalidSpinKill);
+    MR::getPlacementArg7NoInit(rIter, &mIsInvalidSpinKill);
 }
 
-void WaterPressure::initBullet(const JMapInfoIter& rIter) {
+void WaterPressure::initBullet(const TableIter& /*rIter*/) {
     MR::createSceneObj(SceneObj_WaterPressureBulletHolder);
 }
 
 bool WaterPressure::shotBullet(f32 speed) {
     WaterPressureBullet* pBullet = MR::getSceneObj< WaterPressureBulletHolder >(SceneObj_WaterPressureBulletHolder)->callEmptyBullet();
-    if (pBullet == nullptr) {
-        return false;
-    }
-    TPos3f point;
+    Pos3f point;
     calcGunPointFromCannon(&point);
     pBullet->shotWaterBullet(this, point, speed, !isShotTypeOnGravity(), false, mIsInvalidSpinKill, &mCameraInfo);
     return true;
 }
 
-void WaterPressure::calcGunPointFromCannon(TPos3f* pMtx) {
-    TPos3f jointMtx = MR::getJointMtx(this, "Cannon1");
-    TVec3f sideVec, pos;
-    jointMtx.getXDir(sideVec);
+// The cannon fires along its joint's X axis.
+void WaterPressure::calcGunPointFromCannon(Pos3f* pMtx) {
+    Pos3f jointMtx = MR::getJointMtx(this, "Cannon1");
+    Vec3f front, pos;
+    jointMtx.getXDir(front);
     jointMtx.getTrans(pos);
-    pos.scaleAdd(::sGunPointOffset, sideVec, pos);
-    pMtx->set(jointMtx);
-    TVec3f upVec, frontVec;
-    jointMtx.getYDir(upVec);
-    jointMtx.getZDir(frontVec);
-    MR::makeMtxFrontUpPos(pMtx, sideVec, upVec, pos);
+    pos.scaleAdd(::sGunPointOffset, front, pos);
+    Vec3f up;
+    jointMtx.getYDir(up);
+    MR::makeMtxFrontUpPos(pMtx, front, up, pos);
 }

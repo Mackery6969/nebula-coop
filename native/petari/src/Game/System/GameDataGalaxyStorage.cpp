@@ -38,12 +38,12 @@ s32 GameDataSomeScenarioAccessor::getMaxCoinNum() const {
     return MR::clamp(mSomeGalaxyStorage->getMaxCoinNum(mScenarioNum - 1), 0, NebulaHost::setting(NEBULA_PATCH_MAX_COINS, 999));
 }
 
-void GameDataSomeScenarioAccessor::setPowerStarFlag(bool val) {
-    setBitFlagAccordingToBool(mSomeGalaxyStorage->mPowerStarOwnedFlags, val);
+void GameDataSomeScenarioAccessor::setPowerStarFlag(bool isOwned) {
+    setBitFlagAccordingToBool(mSomeGalaxyStorage->mPowerStarOwnedFlags, isOwned);
 }
 
-void GameDataSomeScenarioAccessor::setFlagAlreadyVisited(bool val) {
-    setBitFlagAccordingToBool(mSomeGalaxyStorage->mAlreadyVisitedFlags, val);
+void GameDataSomeScenarioAccessor::setFlagAlreadyVisited(bool isVisited) {
+    setBitFlagAccordingToBool(mSomeGalaxyStorage->mAlreadyVisitedFlags, isVisited);
 }
 
 void GameDataSomeScenarioAccessor::updateMaxCoinNum(int coinNum) {
@@ -54,12 +54,12 @@ void GameDataSomeScenarioAccessor::updateMaxCoinNum(int coinNum) {
     }
 }
 
-void GameDataSomeScenarioAccessor::setBitFlagAccordingToBool(u8* pFlags, bool val) {
+void GameDataSomeScenarioAccessor::setBitFlagAccordingToBool(u8* pFlags, bool isOn) {
     const s32 scenarioNo = mScenarioNum - 1;
-    if (scenarioNo >= mSomeGalaxyStorage->mSlots) {
+    if (!mSomeGalaxyStorage->hasSlot(scenarioNo)) {
         return;
     }
-    if (val) {
+    if (isOn) {
         pFlags[scenarioNo >> 3] |= (1 << (scenarioNo & 7));
     } else {
         pFlags[scenarioNo >> 3] &= ~(1 << (scenarioNo & 7));
@@ -81,6 +81,10 @@ GameDataSomeGalaxyStorage::GameDataSomeGalaxyStorage(const GalaxyStatusAccessor&
     mAlreadyVisitedFlags = new u8[flagBytes];
     mMaxCoinNum = new u16[mSlots];
     resetAllData();
+}
+
+GameDataSomeGalaxyStorage::GameDataSomeGalaxyStorage()
+    : mGalaxyName(""), mPowerStarNum(0), mSlots(0), mPowerStarOwnedFlags(nullptr), mAlreadyVisitedFlags(nullptr), mMaxCoinNum(nullptr) {
 }
 
 void GameDataSomeGalaxyStorage::resetAllData() {
@@ -128,8 +132,18 @@ s32 GameDataSomeGalaxyStorage::deserialize(const BinaryDataContentAccessor& rAcc
     // Past eight, if the save has them: a count, then that many missions' flags and coins. A save can have fewer or more than this mod now does.
     const u8* more = (const u8*)rAccessor.getPointer("mStarEx", (u8*)pData);
     if (more != nullptr) {
+        // The tables lie in the record or the save is damaged: the count is the file's, the room is the header's.
+        const u32 recordSize = rAccessor.getDataSize();
+        const u32 at = static_cast< u32 >(more - pData);
+        const u32 available = at <= recordSize ? recordSize - at : 0;
+        if (available < 2) {
+            return 1;
+        }
         const s32 extra = MR::loadSaveU16(more);
         const s32 bytes = (extra + 7) / 8;
+        if (2u + 2u * static_cast< u32 >(bytes) + 2u * static_cast< u32 >(extra) > available) {
+            return 1;
+        }
         for (s32 idx = 0; idx < extra; idx++) {
             const s32 scenarioNo = idx + 8;
             if (scenarioNo >= mSlots) {
@@ -148,7 +162,7 @@ s32 GameDataSomeGalaxyStorage::deserialize(const BinaryDataContentAccessor& rAcc
     return 0;
 }
 
-GameDataAllGalaxyStorage::GameDataAllGalaxyStorage() : mHeaderSerializer(nullptr) {
+GameDataAllGalaxyStorage::GameDataAllGalaxyStorage() : mHeaderSerializer(nullptr), mNoGalaxy(new GameDataSomeGalaxyStorage()) {
     mHeaderSerializer = new BinaryDataContentHeaderSerializer(new u8[64], 64);
     mSomeGalaxyStorages.init(64);
 
@@ -159,6 +173,15 @@ GameDataAllGalaxyStorage::GameDataAllGalaxyStorage() : mHeaderSerializer(nullptr
             mSomeGalaxyStorages.push_back(new GameDataSomeGalaxyStorage(accessor));
         }
         iter.goNext();
+    }
+
+    // First galaxy of a name, and of a save hash, in list order (as the scans found them).
+    mNames.reset(static_cast< u32 >(getGalaxyNum()));
+    mSaveHashes.reset(static_cast< u32 >(getGalaxyNum()));
+    for (s32 idx = 0; idx < getGalaxyNum(); idx++) {
+        const char* pName = mSomeGalaxyStorages[idx]->mGalaxyName;
+        mNames.add(pName, static_cast< u32 >(idx));
+        mSaveHashes.add(pName, static_cast< u16 >(MR::getHashCode(pName)), static_cast< u32 >(idx));
     }
     initHeaderSerializer();
 }
@@ -176,8 +199,10 @@ bool GameDataAllGalaxyStorage::isExistAccessor(const char* pGalaxyName, int scen
     return false;
 }
 
+// A galaxy the save keeps no storage for (no stars, or not a galaxy) reads and keeps nothing.
 GameDataSomeScenarioAccessor GameDataAllGalaxyStorage::makeAccessor(const char* pGalaxyName, int scenarioNum) const {
-    return GameDataSomeScenarioAccessor(mSomeGalaxyStorages[findIndex(pGalaxyName)], scenarioNum);
+    const s32 index = findIndex(pGalaxyName);
+    return GameDataSomeScenarioAccessor(index >= 0 ? mSomeGalaxyStorages[index] : mNoGalaxy, scenarioNum);
 }
 
 s32 GameDataAllGalaxyStorage::calcCurrentPowerStarNum() const {
@@ -189,7 +214,8 @@ s32 GameDataAllGalaxyStorage::calcCurrentPowerStarNum() const {
 }
 
 s32 GameDataAllGalaxyStorage::getPowerStarNumOwned(const char* pGalaxyName) const {
-    return mSomeGalaxyStorages[findIndex(pGalaxyName)]->getPowerStarNumOwned();
+    const s32 index = findIndex(pGalaxyName);
+    return index >= 0 ? mSomeGalaxyStorages[index]->getPowerStarNumOwned() : 0;
 }
 
 s32 GameDataAllGalaxyStorage::getGalaxyNum() const {
@@ -293,27 +319,14 @@ s32 GameDataAllGalaxyStorage::getExtraStars() const {
     return extra;
 }
 
-u32 GameDataAllGalaxyStorage::getExtraBytes() const {
-    const s32 extra = getExtraStars();
-    return extra > 0 ? getGalaxyNum() * (2 + 2 * ((extra + 7) / 8) + extra * sizeof(u16)) : 0;
-}
-
 s32 GameDataAllGalaxyStorage::findIndex(const char* pGalaxyName) const {
-    for (s32 idx = 0; idx < getGalaxyNum(); idx++) {
-        if (MR::isEqualString(pGalaxyName, mSomeGalaxyStorages[idx]->mGalaxyName)) {
-            return idx;
-        }
-    }
-    return -1;
+    const u32 index = mNames.find(pGalaxyName);
+    return index == MR::NameIndex::cNoValue ? -1 : static_cast< s32 >(index);
 }
 
 s32 GameDataAllGalaxyStorage::findIndex(u16 galaxyNameHash) const {
-    for (s32 idx = 0; idx < getGalaxyNum(); idx++) {
-        if ((u16)MR::getHashCode(mSomeGalaxyStorages[idx]->mGalaxyName) == galaxyNameHash) {
-            return idx;
-        }
-    }
-    return -1;
+    const u32 index = mSaveHashes.findHash(galaxyNameHash);
+    return index == MR::NameIndex::cNoValue ? -1 : static_cast< s32 >(index);
 }
 
 void GameDataSomeGalaxyStorage::serialize(const BinaryDataContentAccessor& rAccessor, u8* pData) const {
@@ -351,7 +364,7 @@ void GameDataSomeGalaxyStorage::serialize(const BinaryDataContentAccessor& rAcce
     }
 }
 
-s32 GameDataAllGalaxyStorage::serialize(u8* pData, u32 dataSize) const {
+s32 GameDataAllGalaxyStorage::serialize(u8* pData, u32 /*dataSize*/) const {
 
     const char* name;
     s32 writeOffset = 0;

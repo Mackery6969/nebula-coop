@@ -12,9 +12,7 @@
 #include "galaxy/switch_controller.h"
 #include "galaxy/tilt.h"
 
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <Windows.h>
+#include "galaxy/windows_api.h"
 #include <Xinput.h>
 
 #include <algorithm>
@@ -53,7 +51,7 @@ void test_names_round_trip() {
         const BindingTable table = default_binding_table(scheme);
         for (std::size_t t = 0; t < kGameInputCount; ++t) {
             const auto target = static_cast<GameInput>(t);
-            expect(parse_wii_target(game_input_id(target)) == target, "target id round trip");
+            expect(parse_game_input(game_input_id(target)) == target, "target id round trip");
             const std::string text = format_target_bindings(scheme, table[target]);
             TargetBindings parsed{};
             expect(parse_target_bindings(scheme, text, parsed), "default bindings parse");
@@ -803,6 +801,13 @@ void test_pointer_ownership() {
     PointerActivity gyro{};
     gyro.gyro = true;
     expect(owner.update(gyro, t) == PointerSource::Gyro, "the gyro takes over after the handoff");
+    t += 10'000;
+    PointerActivity held{};
+    held.gyro = true;
+    held.mouse = true;
+    expect(owner.update(held, t) == PointerSource::Mouse, "a moving mouse takes the pointer from a hand-held gyro at once");
+    t += 10'000;
+    expect(owner.update(gyro, t) == PointerSource::Mouse, "the gyro waits for the mouse's handoff");
     expect(std::string(pointer_source_name(PointerSource::Gyro)) == "gyro", "source names");
 }
 
@@ -857,9 +862,10 @@ double hide_time(Path&& at, double seconds, double report_s = 0.015) {
 
 void test_rest_hide() {
     using P = std::array<float, 2>;
-    // A still pointer hides after the default 4 s.
-    const double still = hide_time([](double) { return P{0.3f, -0.2f}; }, 6.0);
-    expect(still >= 3.99 && still <= 4.03, "a still pointer hides after 4 s");
+    // A still pointer hides after the default time.
+    const double S = kDefaultPointerHideSeconds;
+    const double still = hide_time([](double) { return P{0.3f, -0.2f}; }, S + 2.0);
+    expect(still >= S - 0.01 && still <= S + 0.03, "a still pointer hides after the default time");
     // Tremor (+-0.025 units at 9 Hz) plus small jerks (0.08 units for 60 ms,
     // alternating sides, every 0.5 s) never restart the timer.
     const double shaky = hide_time([](double t) {
@@ -867,25 +873,25 @@ void test_rest_hide() {
         const double phase = std::fmod(t + 0.2, 0.5);
         const double jerk = phase < 0.06 ? (std::fmod(t + 0.2, 1.0) < 0.5 ? 0.08 : -0.08) : 0.0;
         return P{static_cast<float>(0.3 + tremor + jerk), static_cast<float>(-0.2 + 0.5 * tremor)};
-    }, 6.0);
-    expect(shaky >= 3.99 && shaky <= 4.05, "tremor and small jerks inside the radius hide at 4 s");
+    }, S + 2.0);
+    expect(shaky >= S - 0.01 && shaky <= S + 0.05, "tremor and small jerks inside the radius hide on time");
     // A single-report spike far outside the radius is filtered out.
     const double spike = hide_time([](double t) {
         return P{t > 1.0 && t < 1.015 ? 0.8f : 0.3f, -0.2f};
-    }, 6.0);
-    expect(spike >= 3.99 && spike <= 4.03, "a one-report spike does not restart the timer");
+    }, S + 2.0);
+    expect(spike >= S - 0.01 && spike <= S + 0.03, "a one-report spike does not restart the timer");
     // A slow deliberate pan (0.15 units/s, 3 degrees per second at sensitivity
-    // 1) never hides while it lasts; it hides 4 s after it stops.
+    // 1) never hides while it lasts; it hides the default time after it stops.
     const double pan = hide_time([](double t) {
         return P{static_cast<float>(-0.9 + 0.15 * std::min(t, 10.0)), 0.0f};
     }, 9.9);
     expect(pan < 0.0, "a slow pan never hides");
     const double after_pan = hide_time([](double t) {
         return P{static_cast<float>(-0.9 + 0.15 * std::min(t, 10.0)), 0.0f};
-    }, 16.0);
+    }, 12.0 + S);
     // The timer runs from the last re-anchor, at most radius/speed (0.8 s)
     // before the pan stopped.
-    expect(after_pan > 13.1 && after_pan < 14.1, "the pointer hides within 4 s after the pan stops");
+    expect(after_pan > 9.1 + S && after_pan < 10.1 + S, "the pointer hides the default time after the pan stops");
 
     // Stick pointer (not latched): tremor keeps it hidden, leaving the radius
     // shows it, recenter shows it.
@@ -933,10 +939,11 @@ void test_mouse_rest_hide() {
     MouseRestHide hide{};
     std::uint64_t t = 1'000'000;
     bool hidden = false;
-    for (int i = 0; i < 440; ++i, t += 10'000) hidden |= hide.update(true, i == 0, t);
-    expect(!hidden, "a still mouse pointer shows for 4.4 s");
+    const int shown_reports = static_cast<int>(kMouseHideSeconds * 100.0f) - 10;
+    for (int i = 0; i < shown_reports; ++i, t += 10'000) hidden |= hide.update(true, i == 0, t);
+    expect(!hidden, "a still mouse pointer shows until 0.1 s before the hide time");
     for (int i = 0; i < 20; ++i, t += 10'000) hidden |= hide.update(true, false, t);
-    expect(hidden, "a still mouse pointer hides by 4.6 s");
+    expect(hidden, "a still mouse pointer hides by 0.1 s after the hide time");
     expect(!hide.update(true, true, t), "a mouse move shows it");
     t += 10'000;
     expect(!hide.update(true, false, t), "the timer starts again after the move");
@@ -990,8 +997,9 @@ double gyro_hide_time(double seconds, double pan_dps, double pan_until_s) {
 }
 
 void test_rest_hide_gyro() {
-    const double held = gyro_hide_time(6.0, 0.0, 0.0);
-    expect(held >= 3.95 && held <= 4.3, "hand-held gyro (tremor + small jerks) hides at about 4 s");
+    const double S = kDefaultPointerHideSeconds;
+    const double held = gyro_hide_time(S + 2.0, 0.0, 0.0);
+    expect(held >= S - 0.05 && held <= S + 0.3, "hand-held gyro (tremor + small jerks) hides at about the default time");
     expect(gyro_hide_time(8.0, 3.0, 8.0) < 0.0, "a slow 3 deg/s pan never hides while it lasts");
 }
 
@@ -1093,10 +1101,10 @@ void test_rumble_gate() {
     expect(!rb::motor_should_run(clock_back), "a publication from the future is not trusted");
 }
 
-// SphereAccelSensorController::clacXY for the Wii Remote: X from (a.x, |a.y|),
+// Tamakoro's calcTiltXY for the Wii Remote: X from (a.x, |a.y|),
 // Y the signed angle of (-a.y, a.z) from (cos 10, sin 10); 5-degree dead zone,
 // full at 25 degrees.
-std::array<float, 2> star_ball_clac_xy(const tilt::Vec3& a) {
+std::array<float, 2> star_ball_calc_xy(const tilt::Vec3& a) {
     constexpr float kDeg = 3.14159265f / 180.0f;
     const float dead = 5.0f * kDeg, full = 25.0f * kDeg, lean = 10.0f * kDeg;
     float x = 0.0f, y = 0.0f;
@@ -1129,13 +1137,13 @@ float ray_turn(const tilt::Vec3& a) {
 void test_tilt() {
     using namespace tilt;
     const auto close_to = [](float a, float b, float eps) { return std::fabs(a - b) <= eps; };
-    // Star Ball: the controller's neutral hold is clacXY's zero.
-    const auto neutral = star_ball_clac_xy(remote_gravity(Section::StarBall, {0.0f, 1.0f, 0.0f}));
+    // Star Ball: the controller's neutral hold is calcXY's zero.
+    const auto neutral = star_ball_calc_xy(remote_gravity(Section::StarBall, {0.0f, 1.0f, 0.0f}));
     expect(close_to(neutral[0], 0.0f, 1e-4f) && close_to(neutral[1], 0.0f, 1e-4f), "star ball: the neutral hold rolls nowhere");
     // Tilt right / forward 15 degrees: half of the range, positive.
-    const auto right = star_ball_clac_xy(remote_gravity(Section::StarBall, up_from_angles(15.0f, 0.0f)));
-    const auto forward = star_ball_clac_xy(remote_gravity(Section::StarBall, up_from_angles(0.0f, 15.0f)));
-    const auto left_back = star_ball_clac_xy(remote_gravity(Section::StarBall, up_from_angles(-15.0f, -15.0f)));
+    const auto right = star_ball_calc_xy(remote_gravity(Section::StarBall, up_from_angles(15.0f, 0.0f)));
+    const auto forward = star_ball_calc_xy(remote_gravity(Section::StarBall, up_from_angles(0.0f, 15.0f)));
+    const auto left_back = star_ball_calc_xy(remote_gravity(Section::StarBall, up_from_angles(-15.0f, -15.0f)));
     expect(close_to(right[0], 0.5f, 0.02f) && close_to(right[1], 0.0f, 0.02f), "star ball: 15 degrees right is X +0.5");
     expect(close_to(forward[1], 0.5f, 0.02f) && close_to(forward[0], 0.0f, 0.02f), "star ball: 15 degrees forward is Y +0.5");
     expect(left_back[0] < -0.4f && left_back[1] < -0.4f, "star ball: left and back are negative");
@@ -1145,13 +1153,13 @@ void test_tilt() {
     // A neutral captured in the player's own hold (30 degrees toward the
     // face) is zero; 15 degrees more forward is +0.5.
     const Vec3 hold = up_from_angles(0.0f, -30.0f);
-    const auto from_hold = star_ball_clac_xy(remote_gravity(Section::StarBall, relative_up(hold, hold)));
-    const auto more = star_ball_clac_xy(remote_gravity(Section::StarBall, relative_up(up_from_angles(0.0f, -15.0f), hold)));
+    const auto from_hold = star_ball_calc_xy(remote_gravity(Section::StarBall, relative_up(hold, hold)));
+    const auto more = star_ball_calc_xy(remote_gravity(Section::StarBall, relative_up(up_from_angles(0.0f, -15.0f), hold)));
     expect(close_to(from_hold[0], 0.0f, 1e-3f) && close_to(from_hold[1], 0.0f, 1e-3f), "star ball: the captured hold is neutral");
     expect(close_to(more[1], 0.5f, 0.03f), "star ball: tilt is measured from the captured hold");
     // Stick: full deflection is the full range.
-    const auto stick_right = star_ball_clac_xy(remote_gravity(Section::StarBall, up_from_stick(Section::StarBall, 1.0f, 0.0f)));
-    const auto stick_down = star_ball_clac_xy(remote_gravity(Section::StarBall, up_from_stick(Section::StarBall, 0.0f, -1.0f)));
+    const auto stick_right = star_ball_calc_xy(remote_gravity(Section::StarBall, up_from_stick(Section::StarBall, 1.0f, 0.0f)));
+    const auto stick_down = star_ball_calc_xy(remote_gravity(Section::StarBall, up_from_stick(Section::StarBall, 0.0f, -1.0f)));
     expect(close_to(stick_right[0], 1.0f, 0.02f) && close_to(stick_right[1], 0.0f, 0.02f),
            "star ball: stick right is full right");
     expect(close_to(stick_down[1], -1.0f, 0.02f) && close_to(stick_down[0], 0.0f, 0.02f),
@@ -1172,22 +1180,22 @@ void test_tilt() {
     expect(!t.update(Section::None, nullptr, 0.0f, 0.0f, false).active, "no section: no tilt");
     const Vec3 start = up_from_angles(5.0f, -20.0f);
     auto out = t.update(Section::StarBall, &start, 0.0f, 0.0f, false);
-    auto xy = star_ball_clac_xy(out.game);
+    auto xy = star_ball_calc_xy(out.game);
     expect(out.active && !out.from_stick && close_to(xy[0], 0.0f, 1e-3f) && close_to(xy[1], 0.0f, 1e-3f),
            "section start captures the hold as neutral");
     const Vec3 tilted = up_from_angles(5.0f, -5.0f);
-    xy = star_ball_clac_xy(t.update(Section::StarBall, &tilted, 0.0f, 0.0f, false).game);
+    xy = star_ball_calc_xy(t.update(Section::StarBall, &tilted, 0.0f, 0.0f, false).game);
     expect(xy[1] > 0.4f, "tilting forward from the hold rolls forward");
-    xy = star_ball_clac_xy(t.update(Section::StarBall, &tilted, 0.0f, 0.0f, true).game);
+    xy = star_ball_calc_xy(t.update(Section::StarBall, &tilted, 0.0f, 0.0f, true).game);
     expect(close_to(xy[1], 0.0f, 1e-3f), "recenter takes the current hold as neutral");
     out = t.update(Section::StarBall, &tilted, -1.0f, 0.0f, false);
-    xy = star_ball_clac_xy(out.game);
+    xy = star_ball_calc_xy(out.game);
     expect(!out.from_stick && close_to(xy[0], 0.0f, 1e-3f), "a Pro Controller's stick does not tilt");
     out = t.update(Section::StarBall, nullptr, -1.0f, 0.0f, false);
-    xy = star_ball_clac_xy(out.game);
+    xy = star_ball_calc_xy(out.game);
     expect(out.from_stick && xy[0] < -0.9f, "without motion (Xbox, keyboard) the stick steers");
     out = t.update(Section::StarBall, nullptr, 0.1f, 0.05f, false);
-    xy = star_ball_clac_xy(out.game);
+    xy = star_ball_calc_xy(out.game);
     expect(close_to(xy[0], 0.0f, 1e-3f) && close_to(xy[1], 0.0f, 1e-3f), "a stick at rest is level");
     expect(!t.update(Section::None, &tilted, 0.0f, 0.0f, false).active && !t.neutral_valid, "leaving resets the neutral");
 }
@@ -1232,6 +1240,32 @@ void test_jump_back() {
     }
 }
 
+void test_covered_mode_hold() {
+    CoveredModeHold hold{};
+    expect(hold.game(25) == 25 && hold.covered(false) == 25, "uncovered: the game's mode at once");
+    // The dome's launch: the demo's mode under the closed white fade, the sphere selector's left as the demo ends,
+    // then none as the scene changes; the touch controls never see the selector.
+    expect(hold.game(12) == 12, "the demo's mode, uncovered");
+    expect(hold.covered(true) == 12, "covered: still the demo's");
+    expect(hold.game(17) == 12 && hold.holding(), "a menu mode arriving under the wipe is held");
+    expect(hold.game(-1) == 12, "so is none");
+    expect(hold.covered(true) == 12, "every covered frame keeps the hold");
+    expect(hold.covered(false) == -1 && !hold.holding(), "the first uncovered frame releases it");
+    // A partial fade is not covered (the game reports 0 until it is fully closed).
+    expect(hold.game(4) == 4, "the title, uncovered");
+    expect(hold.game(5) == 5, "a change on an uncovered frame passes");
+    // Screens seen over the wipe pass, opening and closing.
+    hold.covered(true);
+    expect(hold.game(2) == 2, "a pause the player opens is never held");
+    expect(hold.game(25) == 25, "nor its closing");
+    expect(hold.game(0) == 0 && hold.game(25) == 25, "the HOME menu, open and closed");
+    expect(hold.game(1) == 1, "the error window");
+    expect(hold.game(7) == 7, "the galaxy map's pause");
+    expect(hold.game(6) == 6, "leaving a screen seen over the wipe is not held");
+    expect(hold.game(16) == 6 && hold.holding(), "then the hold applies again");
+    expect(hold.covered(false) == 16, "released");
+}
+
 void test_defaults_and_migration() {
     const ControlsConfig config = default_controls_config();
     const BindingTable& sw = config.table(ControlScheme::SwitchPro);
@@ -1274,10 +1308,10 @@ void test_defaults_and_migration() {
         const LogicalInput lt = evaluate_pad_bindings(xb, pad_sample, 0.12f);
         expect(lt.held(GameInput::Z) && !lt.held(GameInput::Shake), "Xbox: LT crouches");
     }
-    expect(config.tune(ControlScheme::SwitchPro).pointer_hide_seconds == 4.0f &&
+    expect(config.tune(ControlScheme::SwitchPro).pointer_hide_seconds == kDefaultPointerHideSeconds &&
                config.tune(ControlScheme::SwitchPro).pointer_hide_radius == kDefaultPointerHideRadius &&
                config.tune(ControlScheme::Xbox).pointer_hide_seconds == kDefaultPointerHideSeconds,
-           "still pointer hides after 4 s within 0.12 units by default");
+           "still pointer hides after the default time within 0.12 units by default");
     expect(only(xb[GameInput::PointerRecenter], {SourceKind::Button, pad::kRightStickBit}), "Xbox: RS recenters");
     expect(!config.tune(ControlScheme::Xbox).gyro_pointer, "Xbox has no gyro");
 
@@ -1472,11 +1506,14 @@ void test_playstation_and_steam_schemes() {
     };
     expect(allowed(ControlScheme::PlayStation, pad::kCaptureBit) && allowed(ControlScheme::PlayStation, pad::kChatBit) &&
                allowed(ControlScheme::PlayStation, pad::kGripLeftBit) &&
+               allowed(ControlScheme::PlayStation, pad::kFnLeftBit) && allowed(ControlScheme::PlayStation, pad::kFnRightBit) &&
                !allowed(ControlScheme::PlayStation, pad::kLeftPadBit) &&
                !allowed(ControlScheme::PlayStation, pad::kGripLeft2Bit),
            "PlayStation buttons");
     expect(allowed(ControlScheme::Steam, pad::kLeftPadBit) && allowed(ControlScheme::Steam, pad::kGripRight2Bit) &&
-               allowed(ControlScheme::Steam, pad::kGripLeftBit) && !allowed(ControlScheme::Steam, pad::kChatBit),
+               allowed(ControlScheme::Steam, pad::kGripLeftBit) && !allowed(ControlScheme::Steam, pad::kChatBit) &&
+               !allowed(ControlScheme::Steam, pad::kFnLeftBit) && !allowed(ControlScheme::Generic, pad::kFnRightBit) &&
+               allowed(ControlScheme::Generic, pad::kRightPadBit),
            "Steam buttons");
     expect(!allowed(ControlScheme::Xbox, pad::kLeftPadBit) && !allowed(ControlScheme::SwitchPro2, pad::kLeftPadBit) &&
                allowed(ControlScheme::SwitchPro2, pad::kChatBit) && !allowed(ControlScheme::SwitchPro, pad::kGripLeftBit) &&
@@ -1560,8 +1597,6 @@ void test_playstation_and_steam_schemes() {
     expect(logic.held(GameInput::A) && logic.held(GameInput::B) && !logic.held(GameInput::JumpBack),
            "Cross is Wii A and L1 is Wii B");
 }
-
-}  // namespace
 
 // The game's button icons: each Wii button's first controller input in the style asked; B in menus the button that
 // goes back there; the Wii's own icons where nothing on the controller is bound.
@@ -1657,6 +1692,43 @@ void test_button_icons() {
                    ButtonIconModel::Standard &&
                button_icon_spec(ButtonIconStyle::Nintendo, pro2, false).model == ButtonIconModel::Standard,
            "not in another's, nor without one");
+    const BindingTable steam_pad = default_binding_table(ControlScheme::Steam);
+    const ButtonIconSpec steam_icons = button_icon_spec(ButtonIconStyle::Xbox, steam_pad, false, ButtonIconModel::Steam);
+    expect(steam_icons.model == ButtonIconModel::Steam &&
+               button_icon_spec(ButtonIconStyle::Nintendo, steam_pad, false, ButtonIconModel::Steam).model ==
+                   ButtonIconModel::Standard &&
+               button_icon_spec(ButtonIconStyle::PlayStation, playstation, false, ButtonIconModel::DualSenseEdge).model ==
+                   ButtonIconModel::DualSenseEdge &&
+               button_icon_spec(ButtonIconStyle::Xbox, playstation, false, ButtonIconModel::DualSenseEdge).model ==
+                   ButtonIconModel::Standard,
+           "the Steam and Edge models in their own styles only");
+    expect(icon(steam_icons, ButtonIcon::Home) == Glyph{ButtonGlyph::Home, 0u} &&
+               icon(button_icon_spec(ButtonIconStyle::Xbox, steam_pad, false), ButtonIcon::Home) == Glyph{ButtonGlyph::Keep, 0u},
+           "HOME is the Steam button on the Steam model alone");
+    // HOME rebound shows its button; a game button on a D-pad direction shows that direction.
+    BindingTable home_pad = xbox;
+    home_pad[GameInput::Home] = {};
+    home_pad[GameInput::Home][0] = InputSource{SourceKind::Button, static_cast<std::uint8_t>(pad::kBackBit)};
+    expect(icon(button_icon_spec(ButtonIconStyle::Xbox, home_pad, false), ButtonIcon::Home) == Glyph{ButtonGlyph::Back, 0u} &&
+               icon(play, ButtonIcon::Home) == Glyph{ButtonGlyph::Keep, 0u},
+           "HOME on View shows View; on the home button the game's HOME");
+    expect(button_bound_to(pad::kDpadUpBit) == Glyph{ButtonGlyph::Dpad, 0u} &&
+               button_bound_to(pad::kDpadDownBit) == Glyph{ButtonGlyph::Dpad, 1u} &&
+               button_bound_to(pad::kDpadLeftBit) == Glyph{ButtonGlyph::Dpad, 2u} &&
+               button_bound_to(pad::kDpadRightBit) == Glyph{ButtonGlyph::Dpad, 3u},
+           "the D-pad's directions: up, down, left, right");
+    // The Edge's Fn buttons: cells on the Edge model alone; anywhere else the game's own icon stays.
+    BindingTable fn_pad = playstation;
+    fn_pad[GameInput::A] = {};
+    fn_pad[GameInput::A][0] = InputSource{SourceKind::Button, static_cast<std::uint8_t>(pad::kFnLeftBit)};
+    fn_pad[GameInput::B] = {};
+    fn_pad[GameInput::B][0] = InputSource{SourceKind::Button, static_cast<std::uint8_t>(pad::kFnRightBit)};
+    const ButtonIconSpec fn_edge = button_icon_spec(ButtonIconStyle::PlayStation, fn_pad, false, ButtonIconModel::DualSenseEdge);
+    const ButtonIconSpec fn_plain = button_icon_spec(ButtonIconStyle::PlayStation, fn_pad, false);
+    expect(icon(fn_edge, ButtonIcon::A) == Glyph{ButtonGlyph::Grip, 4u} && icon(fn_edge, ButtonIcon::B) == Glyph{ButtonGlyph::Grip, 5u} &&
+               icon(fn_plain, ButtonIcon::A) == Glyph{ButtonGlyph::Keep, 0u} &&
+               icon(fn_plain, ButtonIcon::B) == Glyph{ButtonGlyph::Keep, 0u},
+           "the Edge's Fn buttons show on the Edge model only");
 }
 
 // The keyboard's icons: every key and mouse button has one; each Wii button shows its input as it is reached for there.
@@ -1804,6 +1876,8 @@ void test_touch_tuning() {
     expect(std::string(pointer_source_name(PointerSource::Touch)) == "touch", "the touch source's name");
 }
 
+}  // namespace
+
 int main(int argc, char** argv) {
     // The launcher's ControlsSettings mirrors these defaults; this prints them
     // for a cross-check.
@@ -1824,6 +1898,7 @@ int main(int argc, char** argv) {
     test_pointer_ownership();
     test_stick_pointer();
     test_jump_back();
+    test_covered_mode_hold();
     test_rest_hide();
     test_mouse_rest_hide();
     test_rest_hide_gyro();

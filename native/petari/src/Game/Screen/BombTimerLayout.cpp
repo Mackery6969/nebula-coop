@@ -1,4 +1,5 @@
 #include "Game/Screen/BombTimerLayout.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util/LayoutUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
@@ -15,13 +16,13 @@ namespace NrvBombTimerLayout {
 };  // namespace NrvBombTimerLayout
 
 BombTimerLayout::BombTimerLayout(bool isConnectToScene)
-    : LayoutActor("\203\173\203\200\203\136\203\103\203\175\201\133\203\214\203\103\203\101\203\105\203\147" /* ボムタイマーレイアウト */, true), mDangerTransFrame(::sDangerTransFrame), mFrame(), mIsSuspend() {
+    : LayoutActor("ボムタイマーレイアウト", true), mTimeLimit(), mDangerTransFrame(::sDangerTransFrame), mFrame(), mIsSuspend() {
     if (isConnectToScene) {
         MR::connectToSceneLayout(this);
     }
 }
 
-void BombTimerLayout::init(const JMapInfoIter& rIter) {
+void BombTimerLayout::init(const TableIter& /*rIter*/) {
     initLayoutManager("BombTimer", 2);
     initNerve(GET_NERVE(BombTimerLayout, BombTimerLayoutNrvAppear));
     kill();
@@ -83,7 +84,7 @@ u32 BombTimerLayout::getRestTime() const {
 }
 
 void BombTimerLayout::updateTextBox() {
-    MR::setTextBoxNumberRecursive(this, "Counter", (getRestTime() + 59) / 60);
+    MR::setTextBoxNumberRecursive(this, "Counter", (getRestTime() + NebulaFrameClock::cStepsPerSecond - 1) / NebulaFrameClock::cStepsPerSecond);
 }
 
 void BombTimerLayout::exeAppear() {

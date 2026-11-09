@@ -2,15 +2,12 @@
 #include "Game/LiveActor/LodCtrl.hpp"
 #include "Game/LiveActor/MaterialCtrl.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MapUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
-#include "JSystem/JGeometry/TVec.hpp"
-
-LavaGalaxyParts::~LavaGalaxyParts() {
-}
+#include <nebula_geometry.hpp>
 
 LavaGalaxyParts::LavaGalaxyParts(const char* pName) : LiveActor(pName), mLodCtrl(), mMtxSetter() {
 }
@@ -18,7 +15,7 @@ LavaGalaxyParts::LavaGalaxyParts(const char* pName) : LiveActor(pName), mLodCtrl
 void LavaGalaxyParts::initAfterPlacement() {
     if (mMtxSetter != nullptr) {
 
-        TVec3f groundVec;
+        Vec3f groundVec;
         MR::calcMapGroundUpper(&groundVec, this);
 
         f32 yOffset = mPosition.distance(groundVec);
@@ -26,8 +23,8 @@ void LavaGalaxyParts::initAfterPlacement() {
             yOffset *= -1.0f;
         }
 
-        TVec3f uselessVec(0.0f, yOffset, 0.0f);
-        mMtxSetter->updateMtxUseBaseMtxWithLocalOffset(TVec3f(0.0f, yOffset, 0.0f));
+        Vec3f uselessVec(0.0f, yOffset, 0.0f);
+        mMtxSetter->updateMtxUseBaseMtxWithLocalOffset(Vec3f(0.0f, yOffset, 0.0f));
         MR::offCalcGravity(this);
     }
 }
@@ -54,7 +51,7 @@ void LavaGalaxyParts::control() {
     }
 }
 
-void LavaGalaxyParts::init(const JMapInfoIter& rIter) {
+void LavaGalaxyParts::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
 
     const char* objectName;
@@ -85,9 +82,6 @@ void LavaGalaxyParts::init(const JMapInfoIter& rIter) {
     MR::initCollisionParts(this, objectName, MR::addBodyMessageSensorMapObj(this), nullptr);
 
     MR::setClippingTypeSphereContainsModelBoundingBox(this, 100.0f);
-
-    f32 arg0 = -1.0f;
-    MR::getJMapInfoArg0NoInit(rIter, &arg0);
 
     pName = objectName;
     bool isNonFloatingOrLavaStep;

@@ -24,7 +24,7 @@ public:
     /// @brief Creates a new `GameSceneLayoutHolder`.
     GameSceneLayoutHolder();
 
-    virtual void movement();
+    virtual void movement() override;
 
     void createPurpleCoinCounter();
     PurpleCoinCounter* getPurpleCoinCounter() const;
@@ -53,8 +53,7 @@ public:
     OneUpBoard* mOneUpBoard;
     YesNoLayout* mYesNoLayout;
     PurpleCoinCounter* mPurpleCoinCounter;
-    bool _30;
-    bool _31;
+    bool mIsStatusInvalidatePending;  // movement() invalidates the status layout once
     CounterLayoutController* mCounterLayoutCtrl;
     bool mIsActiveDefaultGameLayout;
     // Nebula's achievement pop-up: GameScene runs and draws it (only in play, above everything else in 2D).

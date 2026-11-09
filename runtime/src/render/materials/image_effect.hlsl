@@ -12,6 +12,7 @@ struct MaterialConstants {
     float4 params;  // x the mode
 };
 
+#define NATIVE_COORDS 1
 #include "native_material.hlsli"
 
 void material_vertex(NativeVertex v, inout NativeVaryings o) {
@@ -22,14 +23,14 @@ float4 material_color(NativeVaryings i) {
     const uint mode = uint(material.params.x);
     if (mode == 7u) {
         uint width, height;
-        tex[0].GetDimensions(width, height);
+        TEX(0).GetDimensions(width, height);
         const float2 texel = 1.0 / float2(width, height);
         const float2 uv = i.uv[0].xy;
-        const float4 box = (tex[0].Sample(samp[0], uv + float2(-texel.x, -texel.y)) + tex[0].Sample(samp[0], uv + float2(texel.x, -texel.y)) +
-                            tex[0].Sample(samp[0], uv + float2(-texel.x, texel.y)) + tex[0].Sample(samp[0], uv + float2(texel.x, texel.y))) * 0.25;
+        const float4 box = (TEX(0).Sample(SAMP(0), uv + float2(-texel.x, -texel.y)) + TEX(0).Sample(SAMP(0), uv + float2(texel.x, -texel.y)) +
+                            TEX(0).Sample(SAMP(0), uv + float2(-texel.x, texel.y)) + TEX(0).Sample(SAMP(0), uv + float2(texel.x, texel.y))) * 0.25;
         return saturate(box * material.color);
     }
-    const float4 t = tex[0].Sample(samp[0], i.uv[0].xy);
+    const float4 t = TEX(0).Sample(SAMP(0), i.uv[0].xy);
     if (mode == 0u) {
         return saturate(t * material.color);
     }

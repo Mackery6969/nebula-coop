@@ -8,11 +8,9 @@ class Fish : public LiveActor {
 public:
     Fish(const char*, FishGroup*, int, bool);
 
-    virtual ~Fish();
-
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
+    virtual void init(const TableIter& rIter) override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
 
     void exeWander();
     void exeApproach();
@@ -24,29 +22,27 @@ public:
     FishGroup* mGroup;
     int mFishType;
     bool mCanEscape;
-    TVec3f mFollowPos;
-    TVec3f mFollowPosOffset;
-    TVec3f mFront;
+    Vec3f mFollowPos;
+    Vec3f mFollowPosOffset;
+    Vec3f mFront;
     f32 mDistanceToApproach;
     s32 mTimeToSearchPlayer;
     s32 mStepToMove;
-    TVec3f* mEscapePos;
+    Vec3f* mEscapePos;
 };
 
 class FishGroup : public LiveActor {
 public:
     FishGroup(const char*);
 
-    virtual ~FishGroup();
+    virtual void init(const TableIter& rIter) override;
+    virtual void startClipped() override;
+    virtual void endClipped() override;
+    virtual void control() override;
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void startClipped();
-    virtual void endClipped();
-    virtual void control();
-
-    TVec3f mUp;
+    Vec3f mUp;
     s32 mFishNum;
     Fish** mFish;
     f32 mSpeed;
-    TVec3f mClippingCenter;
+    Vec3f mClippingCenter;
 };

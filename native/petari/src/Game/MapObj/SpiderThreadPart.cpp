@@ -1,5 +1,6 @@
 #include "Game/MapObj/SpiderThreadPart.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
+#include "Game/System/NebulaFrameClock.hpp"
+#include "Game/Render/TypedDraw.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/LiveActor/PartsModel.hpp"
 #include "Game/MapObj/SpiderThreadMainPoint.hpp"
@@ -17,33 +18,23 @@ namespace {
     static Color8 sColorMinusY(0xFF, 0xFF, 0xFF, 0xFF);
 
     static const f32 sPointInterval = 50.0f;
-    static const f32 sFricitonLengthMin = 200.0f;
-    static const f32 sFricitonLengthMax = 700.0f;
-    // static const _32 sFrictionLengthRateMin =
-    // static const _32 sFrictionLengthRateMax =
-    // static const _32 sFrictionTipMin =
+    static const f32 sFrictionLengthMin = 200.0f;
+    static const f32 sFrictionLengthMax = 700.0f;
     static const s32 sTouchTimerMax = 5;
-    static const s32 sActorToucnTimerMax = 60;
+    static const s32 sActorTouchTimerMax = NebulaFrameClock::stepsOfSeconds(1);
     static const s32 sForceAttachTime = 20;
     static const f32 sWindFrictionRate = 0.93f;
-    // static const f32 sScaleMin =
-    // static const f32 sDrawWidthX =
-    // static const f32 sDrawWidthY =
-    // static const f32 sDrawWidthLongOffsetX =
-    // static const f32 sDrawWidthShortOffsetX =
-    // static const f32 sDrawWidthShortOffsetY =
     static const f32 sTexRateV = 0.002f;
-    // static const f32 sIndirectTexEndU =
     static const f32 sIndirectTexRateV = 0.001f;
     static const f32 sIndirectTexSpeed = -0.002f;
 };  // namespace
 
 SpiderThreadPart::SpiderThreadPart(SpiderThreadMainPoint* pPointA, SpiderThreadMainPoint* pPointB, f32 boundBoxPadding)
-    : mPointA(pPointA), mIsStill(true), mIsCut(false), mIsFree(false), _4(0), mNumHangingPoints(0), mStopTime(0), mTouchTimeout(0),
-      mPointerPosPad0(0.0f, 0.0f, 0.0f), mPointerPosPad1(0.0f, 0.0f, 0.0f), mPointB(pPointB), mNumPoints(0), mPoints(nullptr),
+    : mIsStill(true), mIsCut(false), mIsFree(false), mNumHangingPoints(0), mStopTime(0), mTouchTimeout(0),
+      mPointerPosPad0(0.0f, 0.0f, 0.0f), mPointerPosPad1(0.0f, 0.0f, 0.0f), mPointA(pPointA), mPointB(pPointB), mNumPoints(0), mPoints(nullptr),
       mSide(1.0f, 0.0f, 0.0f), mUp(0.0f, 1.0f, 0.0f), mFront(0.0f, 0.0f, 1.0f), mDistBetweenMainPoints(0.0f), mDistBetweenPoints(0.0f),
       mTextureOffset(0.0f) {
-    TVec3f forward(mPointB->mPosition);
+    Vec3f forward(mPointB->mPosition);
     forward.sub(mPointA->mPosition);
     mDistBetweenMainPoints = forward.length();
     mNumPoints = mDistBetweenMainPoints / ::sPointInterval;
@@ -53,7 +44,7 @@ SpiderThreadPart::SpiderThreadPart(SpiderThreadMainPoint* pPointA, SpiderThreadM
     mPoints = new SpiderThreadPoint*[mNumPoints];
 
     for (s32 idx = 0; idx < mNumPoints; idx++) {
-        TVec3f pos(forward);
+        Vec3f pos(forward);
         pos.scale(mDistBetweenPoints * (idx + 1));
         pos.add(mPointA->mPosition);
 
@@ -61,15 +52,16 @@ SpiderThreadPart::SpiderThreadPart(SpiderThreadMainPoint* pPointA, SpiderThreadM
         s32 index = MR::abs(halfNumPoints - idx);
         f32 indexNormalized = 1.0f - (static_cast< f32 >(index) / static_cast< f32 >(halfNumPoints));
 
-        f32 length = mDistBetweenMainPoints - ::sFricitonLengthMin;
+        f32 length = mDistBetweenMainPoints - ::sFrictionLengthMin;
         if (length < 0.0f) {
             length = 0.0f;
-        } else if (length > ::sFricitonLengthMax - ::sFricitonLengthMin) {
-            length = ::sFricitonLengthMax - ::sFricitonLengthMin;
+        } else if (length > ::sFrictionLengthMax - ::sFrictionLengthMin) {
+            length = ::sFrictionLengthMax - ::sFrictionLengthMin;
         }
 
-        f32 lengthNormalized = length / (::sFricitonLengthMax - ::sFricitonLengthMin);
+        f32 lengthNormalized = length / (::sFrictionLengthMax - ::sFrictionLengthMin);
 
+        // Friction runs from 0.9 at the ends to 1 in the middle; the length term blends 0.9 with 0.9.
         f32 indexSpring =
             ((0.9f * (1.0f - MR::getEaseOutValue(indexNormalized, 0.0f, 1.0f, 1.0f))) + MR::getEaseOutValue(indexNormalized, 0.0f, 1.0f, 1.0f));
         f32 lengthSpring = (0.9f * (1.0f - lengthNormalized) + (0.9f * lengthNormalized));
@@ -90,10 +82,10 @@ SpiderThreadPart::SpiderThreadPart(SpiderThreadMainPoint* pPointA, SpiderThreadM
     padBox(boundBoxPadding);
 
     f32 minZ = mPointA->mPosition.z >= mPointB->mPosition.z ? mPointB->mPosition.z : mPointA->mPosition.z;
-    TVec3f far(mBoundBox.i.x, mBoundBox.i.y, minZ - 1000.0f);
+    Vec3f far(mBoundBox.i.x, mBoundBox.i.y, minZ - 1000.0f);
 
     f32 maxZ = mPointA->mPosition.z >= mPointB->mPosition.z ? mPointA->mPosition.z : mPointB->mPosition.z;
-    TVec3f near(mBoundBox.f.x, mBoundBox.f.y, maxZ + 100.0f);
+    Vec3f near(mBoundBox.f.x, mBoundBox.f.y, maxZ + 100.0f);
     mBoundBox.extend(far);
     mBoundBox.extend(near);
 }
@@ -119,16 +111,16 @@ void SpiderThreadPart::updatePointerPos() {
         return;
     }
 
-    TVec3f center(mPointA->mPosition);
+    Vec3f center(mPointA->mPosition);
     center.add(mPointB->mPosition);
     center.scale(0.5f);
 
     if (MR::isStarPointerInScreen(PLAYER_1)) {
-        MR::calcStarPointerPosOnPlane(&mPointerPosPad0, center, TVec3f(0.0f, 0.0f, 1.0f), PLAYER_1, false);
+        MR::calcStarPointerPosOnPlane(&mPointerPosPad0, center, Vec3f(0.0f, 0.0f, 1.0f), PLAYER_1, false);
     }
 
     if (MR::isStarPointerInScreen(PLAYER_2)) {
-        MR::calcStarPointerPosOnPlane(&mPointerPosPad1, center, TVec3f(0.0f, 0.0f, 1.0f), PLAYER_2, false);
+        MR::calcStarPointerPosOnPlane(&mPointerPosPad1, center, Vec3f(0.0f, 0.0f, 1.0f), PLAYER_2, false);
     }
 }
 
@@ -145,9 +137,6 @@ void SpiderThreadPart::update() {
     }
 
     if (mIsStill) {
-        if (_4 > 0) {
-            updatePointPosToLine();
-        }
         mTouchTimeout = 0;
         return;
     }
@@ -181,17 +170,17 @@ void SpiderThreadPart::update() {
     }
 }
 
-void SpiderThreadPart::draw() const {
+void SpiderThreadPart::draw(TypedDraw& rDraw) const {
     if (mIsFree) {
         return;
     }
 
     if (mIsStill) {
-        drawLine();
+        drawLine(rDraw);
         return;
     }
 
-    drawPoints();
+    drawPoints(rDraw);
 }
 
 void SpiderThreadPart::startHang(s32 index) {
@@ -205,54 +194,54 @@ void SpiderThreadPart::startHang(s32 index) {
     updatePointPosHanging(index);
 }
 
-void SpiderThreadPart::updateHang(const TVec3f& rPos, s32 index) {
+void SpiderThreadPart::updateHang(const Vec3f& rPos, s32 index) {
     getPoint(index)->updateHang(rPos);
     updatePointPosHanging(index);
 }
 
 void SpiderThreadPart::endHang(s32 cutIndex) {
-    TVec3f front(mPointB->mPosition);
+    Vec3f front(mPointB->mPosition);
     front.sub(mPointA->mPosition);
     MR::normalize(&front);
 
+    // Each other point moves toward the eased line from its end to the released point, across the thread only.
     SpiderThreadPoint* point = getPoint(cutIndex);
 
     for (s32 idx = 0; idx < cutIndex; idx++) {
         f32 t = MR::getEaseOutValue(static_cast< f32 >(idx + 1) / static_cast< f32 >(cutIndex + 1), 0.0f, 1.0f, 1.0f);
 
-        TVec3f v1;
-        v1.x = point->mPosition.x * t + (1.0f - t) * mPointA->mPosition.x;
-        v1.y = point->mPosition.y * t + (1.0f - t) * mPointA->mPosition.y;
-        v1.z = point->mPosition.z * t + (1.0f - t) * mPointA->mPosition.z;
+        Vec3f linePos;
+        linePos.x = point->mPosition.x * t + (1.0f - t) * mPointA->mPosition.x;
+        linePos.y = point->mPosition.y * t + (1.0f - t) * mPointA->mPosition.y;
+        linePos.z = point->mPosition.z * t + (1.0f - t) * mPointA->mPosition.z;
 
-        TVec3f v2(v1);
-        v2.sub(getPoint(idx)->mPosition);
-        MR::vecKillElement(v2, front, &v1);
-        v1.add(getPoint(idx)->mPosition);
+        Vec3f offset(linePos);
+        offset.sub(getPoint(idx)->mPosition);
+        MR::vecKillElement(offset, front, &linePos);
+        linePos.add(getPoint(idx)->mPosition);
 
-        getPoint(idx)->setPos(v1);
+        getPoint(idx)->setPos(linePos);
     }
 
     for (s32 idx = cutIndex + 1; idx < mNumPoints; idx++) {
         f32 t = MR::getEaseOutValue(static_cast< f32 >(mNumPoints - idx) / static_cast< f32 >(mNumPoints - cutIndex), 0.0f, 1.0f, 1.0f);
 
-        TVec3f v1;
-        v1.x = point->mPosition.x * t + (1.0f - t) * mPointB->mPosition.x;
-        v1.y = point->mPosition.y * t + (1.0f - t) * mPointB->mPosition.y;
-        v1.z = point->mPosition.z * t + (1.0f - t) * mPointB->mPosition.z;
+        Vec3f linePos;
+        linePos.x = point->mPosition.x * t + (1.0f - t) * mPointB->mPosition.x;
+        linePos.y = point->mPosition.y * t + (1.0f - t) * mPointB->mPosition.y;
+        linePos.z = point->mPosition.z * t + (1.0f - t) * mPointB->mPosition.z;
 
-        TVec3f v2(v1);
-        v2.sub(getPoint(idx)->mPosition);
-        MR::vecKillElement(v2, front, &v1);
-        v1.add(getPoint(idx)->mPosition);
+        Vec3f offset(linePos);
+        offset.sub(getPoint(idx)->mPosition);
+        MR::vecKillElement(offset, front, &linePos);
+        linePos.add(getPoint(idx)->mPosition);
 
-        getPoint(idx)->setPos(v1);
+        getPoint(idx)->setPos(linePos);
     }
 
-    u32 index = cutIndex;
-    mPointA->removeNearPointFromRadial(getPoint(index));
+    mPointA->removeNearPointFromRadial(point);
     if (mPointA->mRadialLine != mPointB->mRadialLine) {
-        mPointB->removeNearPointFromRadial(getPoint(index));
+        mPointB->removeNearPointFromRadial(point);
     }
     mIsStill = false;
     mNumHangingPoints--;
@@ -266,7 +255,7 @@ void SpiderThreadPart::stopAllPoints() {
     mStopTime = ::sForceAttachTime;
 }
 
-f32 SpiderThreadPart::calcNearestPointInfo(const TVec3f** pPos, const TVec3f** pNeutralPos, s32* pPointNum, const TVec3f& rPos) {
+f32 SpiderThreadPart::calcNearestPointInfo(const Vec3f** pPos, const Vec3f** pNeutralPos, s32* pPointNum, const Vec3f& rPos) {
     if (mIsStill) {
         updatePointPosToLine();
     }
@@ -277,7 +266,7 @@ f32 SpiderThreadPart::calcNearestPointInfo(const TVec3f** pPos, const TVec3f** p
 }
 
 void SpiderThreadPart::updatePointPosToLine() {
-    TVec3f front(mPointB->mPosition);
+    Vec3f front(mPointB->mPosition);
     front.sub(mPointA->mPosition);
 
     f32 delta = front.length() / (mNumPoints + 1);
@@ -285,7 +274,7 @@ void SpiderThreadPart::updatePointPosToLine() {
 
     SpiderThreadPoint* point;
     for (s32 idx = 0; idx < mNumPoints; idx++) {
-        TVec3f pos(front);
+        Vec3f pos(front);
         pos.scale(delta * (idx + 1));
         pos.add(mPointA->mPosition);
 
@@ -301,30 +290,30 @@ void SpiderThreadPart::updatePointPosAndBasePosToLine() {
     }
 }
 
-bool SpiderThreadPart::touchActor(s32 index, const TVec3f& rVel) {
+bool SpiderThreadPart::touchActor(s32 index, const Vec3f& rVel) {
     if (mTouchTimeout > 0) {
         return false;
     }
 
-    // TODO: this really screams vector arithmetic inline
+    // Only the part of rVel across the thread (up and front) moves it.
     f32 projUp = mUp.dot(rVel);
     f32 projFront = mFront.dot(rVel);
-    TVec3f scaleUp(mUp);
-    TVec3f scaleFront(mFront);
+    Vec3f scaleUp(mUp);
+    Vec3f scaleFront(mFront);
     scaleUp.scale(projUp);
     scaleFront.scale(projFront);
-    TVec3f vel(scaleUp);
+    Vec3f vel(scaleUp);
     vel.add(scaleFront);
 
     getPoint(index)->mVelocity.add(vel);
     updatePointVelocityTouch(index, vel);
     mIsStill = false;
-    mTouchTimeout = ::sActorToucnTimerMax;
+    mTouchTimeout = ::sActorTouchTimerMax;
 
     return true;
 }
 
-void SpiderThreadPart::tryTouch(f32 radius, const TVec3f& rVel, s32 padChannel) {
+void SpiderThreadPart::tryTouch(f32 radius, const Vec3f& rVel, s32 padChannel) {
     if (mIsCut || mIsFree) {
         return;
     }
@@ -333,7 +322,7 @@ void SpiderThreadPart::tryTouch(f32 radius, const TVec3f& rVel, s32 padChannel) 
         return;
     }
 
-    TVec3f* pointerPos = &mPointerPosPad0;
+    Vec3f* pointerPos = &mPointerPosPad0;
     if (padChannel == PLAYER_2) {
         pointerPos = &mPointerPosPad1;
     }
@@ -342,9 +331,7 @@ void SpiderThreadPart::tryTouch(f32 radius, const TVec3f& rVel, s32 padChannel) 
         if (!mBoundBox.intersectsPoint(*pointerPos)) {
             return;
         }
-    }
 
-    if (mIsStill) {
         updatePointPosToLine();
     }
 
@@ -354,7 +341,7 @@ void SpiderThreadPart::tryTouch(f32 radius, const TVec3f& rVel, s32 padChannel) 
     }
 }
 
-s32 SpiderThreadPart::findTouchPoint(f32 radius, const TVec3f& rVel, s32 padChannel) {
+s32 SpiderThreadPart::findTouchPoint(f32 radius, const Vec3f& rVel, s32 padChannel) {
     for (s32 idx = 0; idx < mNumPoints; idx++) {
         if (getPoint(idx)->tryTouch(radius, rVel, padChannel)) {
             mTouchTimeout = ::sTouchTimerMax;
@@ -365,7 +352,7 @@ s32 SpiderThreadPart::findTouchPoint(f32 radius, const TVec3f& rVel, s32 padChan
     return -1;
 }
 
-f32 SpiderThreadPart::findNearestPointNo(s32* pPointNum, const TVec3f& rPos) const {
+f32 SpiderThreadPart::findNearestPointNo(s32* pPointNum, const Vec3f& rPos) const {
     *pPointNum = 0;
     f32 minDistance = MR::calcDistanceXY(getPoint(0)->mPosition, rPos);
 
@@ -387,28 +374,27 @@ void SpiderThreadPart::updatePointPosHanging(s32 hangIndex) {
     for (s32 idx = 0; idx < hangIndex; idx++) {
         f32 t = static_cast< f32 >(idx + 1) / static_cast< f32 >(hangIndex + 1);
 
-        TVec3f v1;
-        v1.x = point->mPosition.x * t + (1.0f - t) * mPointA->mPosition.x;
-        v1.y = point->mPosition.y * t + (1.0f - t) * mPointA->mPosition.y;
-        v1.z = point->mPosition.z * t + (1.0f - t) * mPointA->mPosition.z;
+        Vec3f linePos;
+        linePos.x = point->mPosition.x * t + (1.0f - t) * mPointA->mPosition.x;
+        linePos.y = point->mPosition.y * t + (1.0f - t) * mPointA->mPosition.y;
+        linePos.z = point->mPosition.z * t + (1.0f - t) * mPointA->mPosition.z;
 
-        getPoint(idx)->setPos(v1);
+        getPoint(idx)->setPos(linePos);
     }
 
     for (s32 idx = hangIndex + 1; idx < mNumPoints; idx++) {
         f32 t = static_cast< f32 >(mNumPoints - idx) / static_cast< f32 >(mNumPoints - hangIndex);
 
-        TVec3f v1;
-        v1.x = point->mPosition.x * t + (1.0f - t) * mPointB->mPosition.x;
-        v1.y = point->mPosition.y * t + (1.0f - t) * mPointB->mPosition.y;
-        v1.z = point->mPosition.z * t + (1.0f - t) * mPointB->mPosition.z;
+        Vec3f linePos;
+        linePos.x = point->mPosition.x * t + (1.0f - t) * mPointB->mPosition.x;
+        linePos.y = point->mPosition.y * t + (1.0f - t) * mPointB->mPosition.y;
+        linePos.z = point->mPosition.z * t + (1.0f - t) * mPointB->mPosition.z;
 
-        getPoint(idx)->setPos(v1);
+        getPoint(idx)->setPos(linePos);
     }
 }
 
-void SpiderThreadPart::updatePointVelocityTouch(s32 hangIndex, const TVec3f& rVel) {
-
+void SpiderThreadPart::updatePointVelocityTouch(s32 hangIndex, const Vec3f& rVel) {
     for (s32 idx = 0; idx < hangIndex; idx++) {
         f32 t = MR::getEaseOutValue(static_cast< f32 >(idx + 1) / static_cast< f32 >(hangIndex + 1), 0.0f, 1.0f, 1.0f);
 
@@ -423,7 +409,7 @@ void SpiderThreadPart::updatePointVelocityTouch(s32 hangIndex, const TVec3f& rVe
 }
 
 void SpiderThreadPart::updateBasePos() {
-    TVec3f front(mPointB->mPosition);
+    Vec3f front(mPointB->mPosition);
     front.sub(mPointA->mPosition);
 
     if (MR::isNearZero(front)) {
@@ -434,7 +420,7 @@ void SpiderThreadPart::updateBasePos() {
     MR::normalize(&front);
 
     for (s32 idx = 0; idx < mNumPoints; idx++) {
-        TVec3f pos(front);
+        Vec3f pos(front);
         pos.scale((idx + 1) * delta);
         pos.add(mPointA->mPosition);
         getPoint(idx)->mBasePos.set(pos);
@@ -449,7 +435,7 @@ void SpiderThreadPart::updateForceAttach() {
 
     f32 t = mStopTime / static_cast< f32 >(::sForceAttachTime);
     for (s32 idx = 0; idx < mNumPoints; idx++) {
-        TVec3f vel(getPoint(idx)->mVelocity);
+        Vec3f vel(getPoint(idx)->mVelocity);
         getPoint(idx)->updateSpring();
 
         getPoint(idx)->setPos(getPoint(idx)->mPosition * t + getPoint(idx)->mBasePos * (1.0f - t));
@@ -462,7 +448,7 @@ void SpiderThreadPart::updateCutPoints() {
         getPoint(idx)->updateWind(::sWindFrictionRate);
     }
 
-    TVec3f* pos = &mPointA->mPosition;
+    Vec3f* pos = &mPointA->mPosition;
     for (s32 idx = 0; idx < mNumPoints; idx++) {
         getPoint(idx)->restrict(pos, ::sPointInterval);
         pos = &getPoint(idx)->mPosition;
@@ -472,7 +458,7 @@ void SpiderThreadPart::updateCutPoints() {
         getPoint(idx)->updatePos();
     }
 
-    TVec3f direction(getPoint(mNumPoints - 2)->mPosition);
+    Vec3f direction(getPoint(mNumPoints - 2)->mPosition);
     direction.sub(getPoint(mNumPoints - 1)->mPosition);
 
     if (!MR::isNearZero(direction)) {
@@ -484,7 +470,7 @@ void SpiderThreadPart::updateCutPoints() {
 }
 
 void SpiderThreadPart::updateDrawVec() {
-    TVec3f* pos = &mPointA->mPosition;
+    Vec3f* pos = &mPointA->mPosition;
     for (s32 idx = 0; idx < mNumPoints - 1; idx++) {
         getPoint(idx)->updateDrawVec(pos, &getPoint(idx + 1)->mPosition);
         pos = &getPoint(idx)->mPosition;
@@ -494,136 +480,111 @@ void SpiderThreadPart::updateDrawVec() {
 }
 
 namespace {
-    // this is extremely hacky, and I'm not sure I like this. However, this matches.
-    inline void upperPoint1(const TVec3f& rPos, const TVec3f& rSide, const TVec3f& rFront, f32 x, f32 y) {
-        J3DNativeDraw::position(rPos.x - x * rSide.x + y * rFront.x, rPos.y - x * rSide.y + y * rFront.y, rPos.z - x * rSide.z + y * rFront.z);
-    }
-    inline void upperPoint2(const TVec3f& rPos, const TVec3f& rSide, const TVec3f& rFront, f32 x, f32 y) {
-        J3DNativeDraw::position(rPos.x + x * rSide.x + y * rFront.x, rPos.y + x * rSide.y + y * rFront.y, rPos.z + x * rSide.z + y * rFront.z);
-    }
-
-    inline void rightLowerPoint1(const TVec3f& rPos, const TVec3f& rSide, const TVec3f& rFront, f32 x, f32 y) {
-        J3DNativeDraw::position(rPos.x + x * rSide.x + y * rFront.x, rPos.y + x * rSide.y + y * rFront.y, rPos.z + x * rSide.z + y * rFront.z);
-    }
-    inline void rightLowerPoint2(const TVec3f& rPos, const TVec3f& rSide, const TVec3f& rFront, f32 x, f32 y) {
-        J3DNativeDraw::position(rPos.x - x * rSide.x - y * rFront.x, rPos.y - x * rSide.y - y * rFront.y, rPos.z - x * rSide.z - y * rFront.z);
-    }
-
-    inline void leftLowerPoint1(const TVec3f& rPos, const TVec3f& rSide, const TVec3f& rFront, f32 x, f32 y) {
-        J3DNativeDraw::position(rPos.x + x * rSide.x - y * rFront.x, rPos.y + x * rSide.y - y * rFront.y, rPos.z + x * rSide.z - y * rFront.z);
-    }
-    inline void leftLowerPoint2(const TVec3f& rPos, const TVec3f& rSide, const TVec3f& rFront, f32 x, f32 y) {
-        J3DNativeDraw::position(rPos.x - x * rSide.x + y * rFront.x, rPos.y - x * rSide.y + y * rFront.y, rPos.z - x * rSide.z + y * rFront.z);
+    // One edge of the thread's cross-section: two corners, each `pos + s * side + f * front`, texture u 0 then 1.
+    void sendEdge(VertexPCT2*& rVtx, const Vec3f& rPos, const Vec3f& rSide, const Vec3f& rFront, f32 texY1, f32 texY2, f32 side0, f32 front0,
+                  Rgba8 color0, f32 side1, f32 front1, Rgba8 color1) {
+        const f32 s[2] = {side0, side1};
+        const f32 f[2] = {front0, front1};
+        const Rgba8 color[2] = {color0, color1};
+        for (int i = 0; i < 2; i++) {
+            const f32 u = static_cast< f32 >(i);
+            *rVtx++ = {rPos.x + s[i] * rSide.x + f[i] * rFront.x,
+                       rPos.y + s[i] * rSide.y + f[i] * rFront.y,
+                       rPos.z + s[i] * rSide.z + f[i] * rFront.z,
+                       color[i],
+                       u,
+                       texY1,
+                       u,
+                       texY2};
+        }
     }
 
-    void sendPointsUpper(const TVec3f& rPos, const TVec3f& rSide, const TVec3f& rFront, f32 texY1, f32 texY2) {
-        upperPoint1(rPos, rSide, rFront, 18.0f, 3.0f);
-        J3DNativeDraw::color(sColorMinusX);
-        J3DNativeDraw::texCoord(0.0f, texY1);
-        J3DNativeDraw::texCoord(0.0f, texY2);
-
-        upperPoint2(rPos, rSide, rFront, 18.0f, 3.0f);
-        J3DNativeDraw::color(sColorPlusX);
-        J3DNativeDraw::texCoord(1.0f, texY1);
-        J3DNativeDraw::texCoord(1.0f, texY2);
+    void sendPointsUpper(VertexPCT2*& rVtx, const Vec3f& rPos, const Vec3f& rSide, const Vec3f& rFront, f32 texY1, f32 texY2) {
+        sendEdge(rVtx, rPos, rSide, rFront, texY1, texY2, -18.0f, 3.0f, sColorMinusX, 18.0f, 3.0f, sColorPlusX);
     }
 
-    void sendPointsRightLower(const TVec3f& rPos, const TVec3f& rSide, const TVec3f& rFront, f32 texY1, f32 texY2) {
-        rightLowerPoint1(rPos, rSide, rFront, 18.0f, 18.0f);
-        J3DNativeDraw::color(sColorPlusX);
-        J3DNativeDraw::texCoord(0.0f, texY1);
-        J3DNativeDraw::texCoord(0.0f, texY2);
-
-        rightLowerPoint2(rPos, rSide, rFront, 15.0f, 18.0f);
-        J3DNativeDraw::color(sColorMinusY);
-        J3DNativeDraw::texCoord(1.0f, texY1);
-        J3DNativeDraw::texCoord(1.0f, texY2);
+    void sendPointsRightLower(VertexPCT2*& rVtx, const Vec3f& rPos, const Vec3f& rSide, const Vec3f& rFront, f32 texY1, f32 texY2) {
+        sendEdge(rVtx, rPos, rSide, rFront, texY1, texY2, 18.0f, 18.0f, sColorPlusX, -15.0f, -18.0f, sColorMinusY);
     }
 
-    void sendPointsLeftLower(const TVec3f& rPos, const TVec3f& rSide, const TVec3f& rFront, f32 texY1, f32 texY2) {
-        leftLowerPoint1(rPos, rSide, rFront, 15.0f, 18.0f);
-        J3DNativeDraw::color(sColorMinusY);
-        J3DNativeDraw::texCoord(0.0f, texY1);
-        J3DNativeDraw::texCoord(0.0f, texY2);
-
-        leftLowerPoint2(rPos, rSide, rFront, 18.0f, 18.0f);
-        J3DNativeDraw::color(sColorMinusX);
-        J3DNativeDraw::texCoord(1.0f, texY1);
-        J3DNativeDraw::texCoord(1.0f, texY2);
+    void sendPointsLeftLower(VertexPCT2*& rVtx, const Vec3f& rPos, const Vec3f& rSide, const Vec3f& rFront, f32 texY1, f32 texY2) {
+        sendEdge(rVtx, rPos, rSide, rFront, texY1, texY2, 15.0f, -18.0f, sColorMinusY, -18.0f, 18.0f, sColorMinusX);
     }
 };  // namespace
 
-void SpiderThreadPart::drawLine() const {
-    J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, 4, NEBULA_SHAPE_COLOR0 | NEBULA_SHAPE_TEXCOORD0 | NEBULA_SHAPE_TEXCOORD0 << 1);
+void SpiderThreadPart::drawLine(TypedDraw& rDraw) const {
+    VertexPCT2* vtx;
+    vtx = rDraw.vertices< VertexPCT2 >(NEBULA_PRIMITIVE_TRIANGLE_STRIP, 4);
     {
-        ::sendPointsUpper(mPointA->mPosition, mSide, mUp, 0.0f, mTextureOffset);
-        ::sendPointsUpper(mPointB->mPosition, mSide, mUp, mDistBetweenMainPoints * ::sTexRateV,
+        ::sendPointsUpper(vtx, mPointA->mPosition, mSide, mUp, 0.0f, mTextureOffset);
+        ::sendPointsUpper(vtx, mPointB->mPosition, mSide, mUp, mDistBetweenMainPoints * ::sTexRateV,
                           mTextureOffset + mDistBetweenMainPoints * ::sIndirectTexRateV);
     }
 
-    J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, 4, NEBULA_SHAPE_COLOR0 | NEBULA_SHAPE_TEXCOORD0 | NEBULA_SHAPE_TEXCOORD0 << 1);
+    vtx = rDraw.vertices< VertexPCT2 >(NEBULA_PRIMITIVE_TRIANGLE_STRIP, 4);
     {
-        ::sendPointsRightLower(mPointA->mPosition, mSide, mUp, 0.0f, mTextureOffset);
-        ::sendPointsRightLower(mPointB->mPosition, mSide, mUp, mDistBetweenMainPoints * ::sTexRateV,
+        ::sendPointsRightLower(vtx, mPointA->mPosition, mSide, mUp, 0.0f, mTextureOffset);
+        ::sendPointsRightLower(vtx, mPointB->mPosition, mSide, mUp, mDistBetweenMainPoints * ::sTexRateV,
                                mTextureOffset + mDistBetweenMainPoints * ::sIndirectTexRateV);
     }
 
-    J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, 4, NEBULA_SHAPE_COLOR0 | NEBULA_SHAPE_TEXCOORD0 | NEBULA_SHAPE_TEXCOORD0 << 1);
+    vtx = rDraw.vertices< VertexPCT2 >(NEBULA_PRIMITIVE_TRIANGLE_STRIP, 4);
     {
-        ::sendPointsLeftLower(mPointA->mPosition, mSide, mUp, 0.0f, mTextureOffset);
-        ::sendPointsLeftLower(mPointB->mPosition, mSide, mUp, mDistBetweenMainPoints * ::sTexRateV,
+        ::sendPointsLeftLower(vtx, mPointA->mPosition, mSide, mUp, 0.0f, mTextureOffset);
+        ::sendPointsLeftLower(vtx, mPointB->mPosition, mSide, mUp, mDistBetweenMainPoints * ::sTexRateV,
                               mTextureOffset + mDistBetweenMainPoints * ::sIndirectTexRateV);
     }
 }
 
-void SpiderThreadPart::drawPoints() const {
+void SpiderThreadPart::drawPoints(TypedDraw& rDraw) const {
+    VertexPCT2* vtx;
     f32 offset2, offset1;
     f32 delta1 = (mDistBetweenMainPoints * ::sTexRateV) / (mNumPoints + 1);
     f32 delta2 = (mDistBetweenMainPoints * ::sIndirectTexRateV) / (mNumPoints + 1);
 
-    J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, (mNumPoints + 2) * 2, NEBULA_SHAPE_COLOR0 | NEBULA_SHAPE_TEXCOORD0 | NEBULA_SHAPE_TEXCOORD0 << 1);
+    vtx = rDraw.vertices< VertexPCT2 >(NEBULA_PRIMITIVE_TRIANGLE_STRIP, (mNumPoints + 2) * 2);
     {
-        ::sendPointsUpper(mPointA->mPosition, mSide, mUp, 0.0f, mTextureOffset);
+        ::sendPointsUpper(vtx, mPointA->mPosition, mSide, mUp, 0.0f, mTextureOffset);
 
         offset1 = delta1;
         offset2 = delta2 + mTextureOffset;
         for (s32 idx = 0; idx < mNumPoints; idx++) {
-            ::sendPointsUpper(getPoint(idx)->mPosition, mSide, getPoint(idx)->mUp, offset1, offset2);
+            ::sendPointsUpper(vtx, getPoint(idx)->mPosition, mSide, getPoint(idx)->mUp, offset1, offset2);
             offset1 += delta1;
             offset2 += delta2;
         }
 
-        ::sendPointsUpper(mPointB->mPosition, mSide, getPoint(mNumPoints - 1)->mUp, mDistBetweenMainPoints * ::sTexRateV,
+        ::sendPointsUpper(vtx, mPointB->mPosition, mSide, getPoint(mNumPoints - 1)->mUp, mDistBetweenMainPoints * ::sTexRateV,
                           mTextureOffset + mDistBetweenMainPoints * ::sIndirectTexRateV);
     }
 
-    J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, (mNumPoints + 2) * 2, NEBULA_SHAPE_COLOR0 | NEBULA_SHAPE_TEXCOORD0 | NEBULA_SHAPE_TEXCOORD0 << 1);
+    vtx = rDraw.vertices< VertexPCT2 >(NEBULA_PRIMITIVE_TRIANGLE_STRIP, (mNumPoints + 2) * 2);
     {
-        ::sendPointsRightLower(mPointA->mPosition, mSide, mUp, 0.0f, mTextureOffset);
+        ::sendPointsRightLower(vtx, mPointA->mPosition, mSide, mUp, 0.0f, mTextureOffset);
         offset1 = delta1;
         offset2 = delta2 + mTextureOffset;
         for (s32 idx = 0; idx < mNumPoints; idx++) {
-            ::sendPointsRightLower(getPoint(idx)->mPosition, mSide, getPoint(idx)->mUp, offset1, offset2);
+            ::sendPointsRightLower(vtx, getPoint(idx)->mPosition, mSide, getPoint(idx)->mUp, offset1, offset2);
             offset1 += delta1;
             offset2 += delta2;
         }
 
-        ::sendPointsRightLower(mPointB->mPosition, mSide, getPoint(mNumPoints - 1)->mUp, mDistBetweenMainPoints * ::sTexRateV,
+        ::sendPointsRightLower(vtx, mPointB->mPosition, mSide, getPoint(mNumPoints - 1)->mUp, mDistBetweenMainPoints * ::sTexRateV,
                                mTextureOffset + mDistBetweenMainPoints * ::sIndirectTexRateV);
     }
 
-    J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, (mNumPoints + 2) * 2, NEBULA_SHAPE_COLOR0 | NEBULA_SHAPE_TEXCOORD0 | NEBULA_SHAPE_TEXCOORD0 << 1);
+    vtx = rDraw.vertices< VertexPCT2 >(NEBULA_PRIMITIVE_TRIANGLE_STRIP, (mNumPoints + 2) * 2);
     {
-        ::sendPointsLeftLower(mPointA->mPosition, mSide, mUp, 0.0f, mTextureOffset);
+        ::sendPointsLeftLower(vtx, mPointA->mPosition, mSide, mUp, 0.0f, mTextureOffset);
         offset1 = delta1;
         offset2 = delta2 + mTextureOffset;
         for (s32 idx = 0; idx < mNumPoints; idx++) {
-            ::sendPointsLeftLower(getPoint(idx)->mPosition, mSide, getPoint(idx)->mUp, offset1, offset2);
+            ::sendPointsLeftLower(vtx, getPoint(idx)->mPosition, mSide, getPoint(idx)->mUp, offset1, offset2);
             offset1 += delta1;
             offset2 += delta2;
         }
 
-        ::sendPointsLeftLower(mPointB->mPosition, mSide, getPoint(mNumPoints - 1)->mUp, mDistBetweenMainPoints * ::sTexRateV,
+        ::sendPointsLeftLower(vtx, mPointB->mPosition, mSide, getPoint(mNumPoints - 1)->mUp, mDistBetweenMainPoints * ::sTexRateV,
                               mTextureOffset + mDistBetweenMainPoints * ::sIndirectTexRateV);
     }
 }

@@ -13,6 +13,24 @@ namespace {
     static const f32 sRotYMax = 90.0f;
     static const f32 sPadStickPlay = 0.3f;
     static const f32 sRotSpeedEff = 3.0f;
+
+    // A stick value outside the play, rescaled to -1..1.
+    f32 removeStickPlay(f32 value) {
+        f32 stick = 0.0f;
+        if (value < -::sPadStickPlay) {
+            stick = (value + ::sPadStickPlay) / (1.0f - ::sPadStickPlay);
+        } else if (value > ::sPadStickPlay) {
+            stick = (value - ::sPadStickPlay) / (1.0f - ::sPadStickPlay);
+        }
+
+        if (stick > 1.0f) {
+            stick = 1.0f;
+        } else if (stick < -1.0f) {
+            stick = -1.0f;
+        }
+
+        return stick;
+    }
 };  // namespace
 
 CameraSubjective::CameraSubjective(const char* pName) : Camera(pName), mAngleVel(0.0f, 0.0f), mAngle(0.0f, 0.0f) {
@@ -27,39 +45,15 @@ void CameraSubjective::reset() {
     mMtx.setXDir(CameraLocalUtil::getTarget(this)->getSideVec());
     mMtx.setYDir(CameraLocalUtil::getTarget(this)->getUpVec());
     mMtx.setZDir(CameraLocalUtil::getTarget(this)->getFrontVec());
-    mMtx.setTrans(TVec3f(0.0f, 0.0f, 0.0f));
+    mMtx.setTrans(Vec3f(0.0f, 0.0f, 0.0f));
 
     mAngleVel.zero();
 }
 
 CameraTargetObj* CameraSubjective::calc() {
-    TVec2f accel(0.0f, 0.0f);
+    Vec2f accel(0.0f, 0.0f);
 
-    TVec2f stick(0.0f, 0.0f);
-    if (MR::getMoveStickX(PLAYER_1) < -::sPadStickPlay) {
-        stick.x = (MR::getMoveStickX(PLAYER_1) + ::sPadStickPlay) / (1.0f - ::sPadStickPlay);
-    } else if (MR::getMoveStickX(PLAYER_1) > ::sPadStickPlay) {
-        stick.x = (MR::getMoveStickX(PLAYER_1) - ::sPadStickPlay) / (1.0f - ::sPadStickPlay);
-    }
-
-    if (MR::getMoveStickY(PLAYER_1) < -::sPadStickPlay) {
-        stick.y = (MR::getMoveStickY(PLAYER_1) + ::sPadStickPlay) / (1.0f - ::sPadStickPlay);
-    } else if (MR::getMoveStickY(PLAYER_1) > ::sPadStickPlay) {
-        stick.y = (MR::getMoveStickY(PLAYER_1) - ::sPadStickPlay) / (1.0f - ::sPadStickPlay);
-    }
-
-    if (stick.x > 1.0f) {
-        stick.x = 1.0f;
-    } else if (stick.x < -1.0f) {
-        stick.x = -1.0f;
-    }
-
-    if (stick.y > 1.0f) {
-        stick.y = 1.0f;
-    } else if (stick.y < -1.0f) {
-        stick.y = -1.0f;
-    }
-
+    Vec2f stick(::removeStickPlay(MR::getMoveStickX(PLAYER_1)), ::removeStickPlay(MR::getMoveStickY(PLAYER_1)));
     stick.y *= -1.0f;
 
     accel.x -= stick.x;
@@ -74,19 +68,19 @@ CameraTargetObj* CameraSubjective::calc() {
     mAngleVel.x = MR::clamp(mAngleVel.x + accel.y / ::sDivH, -1.0f, 2.0f);
     mAngleVel.y = MR::clamp(mAngleVel.y + accel.x / ::sDivW, -1.0f, 2.0f);
 
-    TPos3f rotX;
-    rotX.makeRotate(TVec3f(1.0f, 0.0f, 0.0f), mAngle.x * MR::pi() / 180.0f);
-    TPos3f rotY;
-    rotY.makeRotate(TVec3f(0.0f, 1.0f, 0.0f), mAngle.y * MR::pi() / 180.0f);
+    Pos3f rotX;
+    rotX.makeRotate(Vec3f(1.0f, 0.0f, 0.0f), mAngle.x * MR::pi() / 180.0f);
+    Pos3f rotY;
+    rotY.makeRotate(Vec3f(0.0f, 1.0f, 0.0f), mAngle.y * MR::pi() / 180.0f);
 
-    TPos3f rot;
+    Pos3f rot;
     rot.concat(mMtx, rotY);
     rot.concat(rotX);
 
-    TVec3f front;
+    Vec3f front;
     rot.getZDir(front);
     front.scale(-::sDistance);
-    TVec3f up;
+    Vec3f up;
     rot.getYDir(up);
 
     CameraLocalUtil::setWatchPos(this, CameraLocalUtil::getPos(this) - front);
@@ -94,8 +88,4 @@ CameraTargetObj* CameraSubjective::calc() {
     CameraLocalUtil::setWatchUpVec(this, CameraLocalUtil::getTarget(this)->getUpVec());
 
     return CameraLocalUtil::getTarget(this);
-}
-
-CamTranslatorBase* CameraSubjective::createTranslator() {
-    return new CamTranslatorDummy(this);
 }

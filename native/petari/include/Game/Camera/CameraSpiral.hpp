@@ -8,11 +8,11 @@ public:
         EaseType_Linear = 0,
         EaseType_InOut = 1,
     };
-    CameraSpiral(const char* pName = "\227\206\220\371\203\112\203\201\203\211\201\151\203\146\203\202\227\160\201\152" /* 螺旋カメラ（デモ用） */);
+    CameraSpiral(const char* pName = "螺旋カメラ（デモ用）");
 
-    virtual void reset();
-    virtual CameraTargetObj* calc();
-    virtual CamTranslatorBase* createTranslator();
+    virtual void reset() override;
+    virtual CameraTargetObj* calc() override;
+    virtual void setParamFromChunk(const CameraParamChunk*) override;
 
     void setParam(s32 easeType, s32 endTime, s32 startTime, f32 offYStart, f32 offYEnd, f32 distStart, f32 distEnd, f32 angleStart, f32 angleEnd) {
         mEndTime = endTime;

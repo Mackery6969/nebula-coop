@@ -6,25 +6,22 @@
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ModelUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
-#include <JSystem/JMath/JMath.hpp>
-
-MirrorActor::~MirrorActor() {
-}
+#include <nebula_geometry.hpp>
 
 MirrorActor::MirrorActor(LiveActor* pActor, const char* pName, const char* pArcName) : LiveActor(pName), mHost(pActor), mIsDisconnected() {
     initModelManagerWithAnm(pArcName, nullptr, false);
 }
 
-void MirrorActor::init(const JMapInfoIter& rIter) {
+void MirrorActor::init(const TableIter& /*rIter*/) {
     MR::connectToSceneMirrorMapObj(this);
     MR::copyJointAnimation(this, mHost);
     MR::syncMaterialAnimation(this, mHost);
     MR::invalidateClipping(this);
 
-    TBox3f box;
+    Box3f box;
     MR::calcModelBoundingBox(&box, mHost);
 
-    TVec3f center;
+    Vec3f center;
     center.lerp(box.f, box.i, 0.5f);
     mRadius = 0.5f * (box.f - box.i).length();
     mCenter = center;
@@ -64,13 +61,9 @@ void MirrorActor::calcViewAndEntry() {
 }
 
 bool MirrorActor::isHostInTheOtherSideOfMirror() const {
-    if (MR::isExistMirrorCamera()) {
-        return MR::getDistanceToMirror(getHostCenterPos()) < 0.0f;
-    }
-
-    return false;
+    return MR::isExistMirrorCamera() && MR::getDistanceToMirror(getHostCenterPos()) < 0.0f;
 }
 
-TVec3f MirrorActor::getHostCenterPos() const {
+Vec3f MirrorActor::getHostCenterPos() const {
     return mCenter + mHost->mPosition;
 }

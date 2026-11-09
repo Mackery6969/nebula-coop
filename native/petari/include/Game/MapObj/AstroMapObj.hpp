@@ -6,49 +6,51 @@ class GalaxyNamePlate;
 
 class AstroMapObj : public MapObjActor {
 public:
-    AstroMapObj(const char*);
+    AstroMapObj(const char* pName);
 
-    virtual ~AstroMapObj() {};
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter& rIter) override;
+    virtual void control() override;
 
-    virtual void initCaseNoUseSwitchB(const MapObjActorInitInfo&) {};
-    virtual void initCaseUseSwitchB(const MapObjActorInitInfo&) {};
-    virtual void initCaseNoUseSwitchA(const MapObjActorInitInfo&) {};
-    virtual void initCaseUseSwitchA(const MapObjActorInitInfo&) {};
+    virtual void initCaseNoUseSwitchB(const MapObjActorInitInfo&) override {};
+    virtual void initCaseUseSwitchB(const MapObjActorInitInfo&) override {};
+    virtual void initCaseNoUseSwitchA(const MapObjActorInitInfo&) override {};
+    virtual void initCaseUseSwitchA(const MapObjActorInitInfo&) override {};
 
     void exeOpen();
     void exeWait();
-    void exeAlive();
     void exeRevival();
 
     void setStateAlive();
     void setStateDead();
     void selectNrvWait();
     bool isPlayMachineSE() const;
-    void tryStartAllAnimAndEffect(const char*);
+    void tryStartAllAnimAndEffect(const char* pAnimName);
     bool isEndRevival() const;
-    bool isAlreadyOpen(const char*, s32);
     void setStateDoorOpenOrClose();
     void startDemo();
 
-    const JMapInfo* _C4;
-    GalaxyNamePlate* _C8;
-    const char* _CC;  // Uhh...
-    CollisionParts* _D0;
-    CollisionParts* _D4;
-    s32 _D8;
+    const Table* mNamePlateTable;
+    GalaxyNamePlate* mNamePlate;
+    // The placement name; MapObjActor::mObjectName is the model name, which can add the dome's.
+    const char* mObjName;
+    CollisionParts* mCloseCollision;
+    CollisionParts* mOpenCollision;
+    s32 mDomeId;
+    const char* mEngineSound;
+    const char* mRevivalSound;
+    bool mIsDoor;
+    bool mIsDomeEntrance;
+    bool mIsStarPlate;
+    bool mIsKitchenEntrance;
 };
 
 class AstroSimpleObj : public SimpleMapObjFarMax {
 public:
-    AstroSimpleObj(const char*);
+    AstroSimpleObj(const char* pName);
 
-    virtual ~AstroSimpleObj() {};
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
+    virtual void init(const TableIter& rIter) override;
+    virtual void control() override;
 
-    const JMapInfo* _C4;
-    GalaxyNamePlate* _C8;
+    const Table* mNamePlateTable;
+    GalaxyNamePlate* mNamePlate;
 };

@@ -8,13 +8,7 @@
 // updates. Render thread only. Built without the SDK headers
 // (GALAXY_STREAMLINE_SDK), every call reports Streamline as absent.
 
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <Windows.h>
+#include "galaxy/windows_api.h"
 #include <d3d12.h>
 #include <dxgi1_4.h>
 #include <wrl/client.h>
@@ -28,7 +22,7 @@ class TemporalUpscaler;
 
 namespace streamline {
 
-// GALAXY_STREAMLINE_DIR, else %LOCALAPPDATA%\Nebula\vendor\streamline-2.14.1.
+// vendor\streamline-2.14.1 in Nebula's data folder (platform_paths.h).
 [[nodiscard]] std::wstring default_directory();
 // Before the swap chain exists: loads and initializes Streamline from
 // `directory`. False when it is not installed, not signed or refused (OS,

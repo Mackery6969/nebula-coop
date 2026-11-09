@@ -2,11 +2,10 @@
 #include "Game/NPC/NPCParameter.hpp"
 #include "Game/Util/ObjUtil.hpp"
 
-NPCDirector::NPCDirector() : NameObj("NPC\216\167\212\366" /* NPC指揮 */) {
+NPCDirector::NPCDirector() : NameObj("NPC指揮") {
 }
 
-void NPCDirector::init(const JMapInfoIter& rIter) {
-    mCapsParameterReader = new NPCCapsParameterReader("");
+void NPCDirector::init(const TableIter& /*rIter*/) {
     mItemParameterReader = new NPCItemParameterReader("");
-    mDataResourceHolder = MR::createAndAddResourceHolder("NPCData.arc");
+    mDataResourceHolder = MR::createAndAddResourceHolder("NPCData");
 }

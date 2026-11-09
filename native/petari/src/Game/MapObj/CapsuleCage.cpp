@@ -1,12 +1,13 @@
 #include "Game/MapObj/CapsuleCage.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/MapObjActorInitInfo.hpp"
 #include "Game/Util.hpp"
 
 namespace {
-    const char* cDemoCameraName = "\222\215\226\332\203\112\203\201\203\211" /* 注目カメラ */;
-    static const s32 sStepForStartCamera = 50;
-    static const s32 sStepForEndCamera = 60;
+    const char* const cDemoCameraName = "注目カメラ";
+    const s32 sStepForStartCamera = 50;
+    const s32 sStepForEndCamera = NebulaFrameClock::stepsOfSeconds(1);
 };  // namespace
 
 namespace NrvCapsuleCage {
@@ -19,7 +20,7 @@ namespace NrvCapsuleCage {
 CapsuleCage::CapsuleCage(const char* pName) : MapObjActor(pName), mCameraInfo() {
 }
 
-void CapsuleCage::init(const JMapInfoIter& rIter) {
+void CapsuleCage::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
     MapObjActorInitInfo info;
     MapObjActorUtil::setupInitInfoSimpleMapObj(&info);
@@ -81,11 +82,11 @@ void CapsuleCage::kill() {
     MapObjActor::kill();
 }
 
-void CapsuleCage::connectToScene(const MapObjActorInitInfo& rInfo) {
+void CapsuleCage::connectToScene(const MapObjActorInitInfo& /*rInfo*/) {
     MR::connectToSceneIndirectMapObj(this);
 }
 
-void CapsuleCage::initCaseUseSwitchB(const MapObjActorInitInfo& rInfo) {
+void CapsuleCage::initCaseUseSwitchB(const MapObjActorInitInfo& /*rInfo*/) {
     MR::listenStageSwitchOnB(this, MR::Functor(this, &CapsuleCage::startOpen));
 }
 

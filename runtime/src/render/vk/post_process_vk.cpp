@@ -4,6 +4,8 @@
 
 #include "galaxy/render/vk/utility_spirv.h"
 
+#include "barriers_vk.h"
+
 #include "AreaTex.h"
 #include "SearchTex.h"
 
@@ -118,20 +120,6 @@ VkRenderPass create_smaa_pass(VkDevice device, VkFormat color_format, VkFormat s
 VkViewport flipped(const VkRect2D& rect) {
     return {static_cast<float>(rect.offset.x), static_cast<float>(rect.offset.y + static_cast<std::int32_t>(rect.extent.height)),
             static_cast<float>(rect.extent.width), -static_cast<float>(rect.extent.height), 0.0f, 1.0f};
-}
-
-void layout_barrier(VkCommandBuffer commands, VkImage image, VkImageLayout from, VkImageLayout to,
-                    VkPipelineStageFlags src_stage, VkAccessFlags src_access, VkPipelineStageFlags dst_stage,
-                    VkAccessFlags dst_access) {
-    VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
-    barrier.srcAccessMask = src_access;
-    barrier.dstAccessMask = dst_access;
-    barrier.oldLayout = from;
-    barrier.newLayout = to;
-    barrier.srcQueueFamilyIndex = barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = image;
-    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    vkCmdPipelineBarrier(commands, src_stage, dst_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 }
 
 template <std::size_t N>
@@ -458,6 +446,7 @@ void PostProcessorVk::apply_settings(const PostProcessSettings& settings) {
 bool PostProcessorVk::ensure_target(Target& target, unsigned width, unsigned height, VkFormat format,
                                     VkRenderPass pass, bool with_stencil) {
     if (target.texture && target.width == width && target.height == height && target.texture->format == format) {
+        target.used = clock_;
         return true;
     }
     target = {};
@@ -488,10 +477,12 @@ bool PostProcessorVk::ensure_target(Target& target, unsigned width, unsigned hei
     target.texture = std::move(texture);
     target.width = width;
     target.height = height;
+    target.used = clock_;
     return true;
 }
 
 bool PostProcessorVk::ensure_smaa_targets(unsigned width, unsigned height) {
+    smaa_used_ = clock_;
     if (stencil_.texture && stencil_.width == width && stencil_.height == height && edges_.texture &&
         weights_.texture) {
         return true;
@@ -500,6 +491,18 @@ bool PostProcessorVk::ensure_smaa_targets(unsigned width, unsigned height) {
     return ensure_target(stencil_, width, height, stencil_format_, VK_NULL_HANDLE, false) &&
            ensure_target(edges_, width, height, kEdgesFormat, edges_pass_, true) &&
            ensure_target(weights_, width, height, kWeightsFormat, weights_pass_, true);
+}
+
+void PostProcessorVk::trim_idle_targets() {
+    constexpr std::uint64_t kTargetIdleFrames = 600u;
+    if (stencil_.texture && clock_ > smaa_used_ + kTargetIdleFrames) {
+        edges_ = weights_ = stencil_ = {};
+    }
+    for (Target* target : {&antialiased_, &scaled_}) {
+        if (target->texture && clock_ > target->used + kTargetIdleFrames) {
+            *target = {};
+        }
+    }
 }
 
 void PostProcessorVk::begin_pass(VkCommandBuffer commands, VkRenderPass pass, const Target& target,
@@ -572,6 +575,8 @@ AaRun PostProcessorVk::prepare_scene_aa(VkCommandBuffer commands, const Texture&
     if (!ready_ || width == 0u || height == 0u) {
         return AaRun::kNone;
     }
+    ++clock_;
+    trim_idle_targets();
     const PostProcessPlan plan = plan_post_process(picture_width, picture_height, display_width, display_height,
                                                    settings_, status_.smaa_ok, status_.fxaa_ok);
     AaRun pass = plan.smaa ? AaRun::kSmaa : plan.fxaa ? AaRun::kFxaa : AaRun::kNone;
@@ -580,27 +585,25 @@ AaRun PostProcessorVk::prepare_scene_aa(VkCommandBuffer commands, const Texture&
         pass = AaRun::kNone;
     }
     if (pass != AaRun::kNone) {
-        layout_barrier(commands, color.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                       VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                       VK_ACCESS_TRANSFER_READ_BIT);
-        layout_barrier(commands, antialiased_.texture->image, VK_IMAGE_LAYOUT_UNDEFINED,
-                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
-                       VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
+        // The scene to a copy source and the copy's target (its last reads done) to a destination, in one call.
+        BarriersVk before(commands);
+        before.image(color.image, VK_IMAGE_ASPECT_COLOR_BIT, gpu::Use::ColorWrite, gpu::Use::CopySource,
+                     gpu::Contents::Keep, 1u);
+        before.image(antialiased_.texture->image, VK_IMAGE_ASPECT_COLOR_BIT, gpu::Use::PixelRead, gpu::Use::CopyDest,
+                     gpu::Contents::Discard, 1u);
+        before.issue();
         VkImageCopy region{};
         region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
         region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
         region.extent = {width, height, 1};
         vkCmdCopyImage(commands, color.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, antialiased_.texture->image,
                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-        layout_barrier(commands, color.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                       VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
-                       VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                       VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
-        layout_barrier(commands, antialiased_.texture->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                       VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                       VK_ACCESS_SHADER_READ_BIT);
+        BarriersVk after(commands);
+        after.image(color.image, VK_IMAGE_ASPECT_COLOR_BIT, gpu::Use::CopySource, gpu::Use::ColorWrite,
+                    gpu::Contents::Keep, 1u);
+        after.image(antialiased_.texture->image, VK_IMAGE_ASPECT_COLOR_BIT, gpu::Use::CopyDest, gpu::Use::PixelRead,
+                    gpu::Contents::Keep, 1u);
+        after.issue();
         if (!record_aa(commands, pass, antialiased_.texture->view, width, height, allocate)) {
             pass = status_.fxaa_ok ? AaRun::kFxaa : AaRun::kNone;
         }
@@ -653,15 +656,6 @@ VkPipeline PostProcessorVk::scene_pass_pipeline(bool smaa, VkRenderPass pass, un
                    : create_pipeline(kFullscreenVs, kFxaaPs, pass, kRgb, 0, samples);
     }
     return out;
-}
-
-void PostProcessorVk::hold_scene_targets(std::vector<std::shared_ptr<Texture>>& held) const {
-    for (const Target* target : {&antialiased_, &edges_, &weights_, &stencil_}) {
-        if (target->texture &&
-            std::find(held.begin(), held.end(), target->texture) == held.end()) {
-            held.push_back(target->texture);
-        }
-    }
 }
 
 PostProcessorVk::PresentStep PostProcessorVk::prepare_present(VkCommandBuffer commands, const Texture& source,
@@ -737,11 +731,11 @@ PostProcessorVk::PresentStep PostProcessorVk::prepare_present(VkCommandBuffer co
 }
 
 void PostProcessorVk::finish_present(VkCommandBuffer commands, const PresentStep& step, const VkRect2D& viewport,
-                                     const SetAllocator& allocate) {
+                                     const SetAllocator& allocate, const PostOutput& output) {
     PostConstants constants = step.constants;
     constants.origin[0] = viewport.offset.x;
     constants.origin[1] = viewport.offset.y;
-    constants.origin[2] = 1;
+    set_post_output(constants, output);
     draw(commands, step.pipeline, {step.input}, viewport, constants, allocate);
 }
 
@@ -818,16 +812,15 @@ void PostProcessorVk::self_test() {
         return;
     }
     rgba8_to_ten_bit(pattern.data(), reinterpret_cast<std::uint8_t*>(upload->mapped), kSize, kSize, kPitch);
-    layout_barrier(commands, source->image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                   VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                   VK_ACCESS_TRANSFER_WRITE_BIT);
+    image_barrier(commands, source->image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_2_NONE, VK_ACCESS_2_NONE,
+                  VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, 1u);
     VkBufferImageCopy copy{};
     copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
     copy.imageExtent = {kSize, kSize, 1};
     vkCmdCopyBufferToImage(commands, upload->buffer, source->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
-    layout_barrier(commands, source->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                   VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+    image_barrier(commands, source->image, VK_IMAGE_ASPECT_COLOR_BIT, gpu::Use::CopyDest, gpu::Use::PixelRead,
+                  gpu::Contents::Keep, 1u);
 
     const AaRun passes[2] = {AaRun::kSmaa, AaRun::kFxaa};
     bool recorded[2] = {false, false};
@@ -849,19 +842,18 @@ void PostProcessorVk::self_test() {
             draw(commands, fxaa_, {source->view}, full, c, allocate);
         }
         vkCmdEndRenderPass(commands);
-        layout_barrier(commands, antialiased_.texture->image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                       VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                       VK_ACCESS_TRANSFER_READ_BIT);
+        image_barrier(commands, antialiased_.texture->image, VK_IMAGE_ASPECT_COLOR_BIT,
+                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                      VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+                      VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, 1u);
         VkBufferImageCopy out{};
         out.bufferOffset = i * pattern.size();
         out.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
         out.imageExtent = {kSize, kSize, 1};
         vkCmdCopyImageToBuffer(commands, antialiased_.texture->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                                readback->buffer, 1, &out);
-        layout_barrier(commands, antialiased_.texture->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
-                       VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+        image_barrier(commands, antialiased_.texture->image, VK_IMAGE_ASPECT_COLOR_BIT, gpu::Use::CopySource,
+                      gpu::Use::PixelRead, gpu::Contents::Keep, 1u);
         recorded[i] = true;
     }
     vkEndCommandBuffer(commands);
@@ -903,18 +895,16 @@ bool PostProcessorVk::create_lookup_textures(VkCommandBuffer commands,
             return false;
         }
         std::memcpy(buffer->mapped, data, static_cast<std::size_t>(pitch) * height);
-        layout_barrier(commands, texture->image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                       VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                       VK_ACCESS_TRANSFER_WRITE_BIT);
+        image_barrier(commands, texture->image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+                      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_2_NONE, VK_ACCESS_2_NONE,
+                      VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, 1u);
         VkBufferImageCopy copy{};
         copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
         copy.imageExtent = {width, height, 1};
         vkCmdCopyBufferToImage(commands, buffer->buffer, texture->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
                                &copy);
-        layout_barrier(commands, texture->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                       VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                       VK_ACCESS_SHADER_READ_BIT);
+        image_barrier(commands, texture->image, VK_IMAGE_ASPECT_COLOR_BIT, gpu::Use::CopyDest, gpu::Use::PixelRead,
+                      gpu::Contents::Keep, 1u);
         staging.push_back(std::move(buffer));
         return true;
     };

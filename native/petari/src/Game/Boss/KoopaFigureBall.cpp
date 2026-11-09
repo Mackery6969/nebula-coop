@@ -10,15 +10,12 @@ namespace {
     static const f32 sWallJumpSpeed = 15.0f;
 };  // namespace
 
-KoopaFigureBall::~KoopaFigureBall() {
-}
-
 KoopaFigureBall::KoopaFigureBall(const char* pName, Koopa* pKoopa, f32 myFloat, const MR::ActorMoveParam* pMoveParam)
     : LiveActor(pName), mKoopa(pKoopa), mFront(0.0f, 0.0f, 1.0f), mRadius(myFloat), mAngle(), mMoveParam(pMoveParam) {
     mBaseMtx.identity();
 }
 
-void KoopaFigureBall::init(const JMapInfoIter& rIter) {
+void KoopaFigureBall::init(const TableIter& /*rIter*/) {
     initBinder(mRadius, 0.0f, 0);
 
     MR::onCalcGravity(this);
@@ -50,7 +47,7 @@ void KoopaFigureBall::makeActorDead() {
 }
 
 void KoopaFigureBall::control() {
-    MR::moveAndTurnToPlayer(this, &mFront, mMoveParam->_0, mMoveParam->_4, mMoveParam->_8, mMoveParam->_C);
+    MR::moveAndTurnToPlayer(this, &mFront, *mMoveParam);
 
     if (MR::isBindedWall(this)) {
         MR::addVelocityJump(this, ::sWallJumpSpeed);
@@ -59,18 +56,18 @@ void KoopaFigureBall::control() {
     mAngle += (mVelocity.dot(mFront) * 180.0f) / (mRadius * MR::pi());
     MR::makeMtxUpFrontPos(&mBaseMtx, -mGravity, mFront, mPosition + mGravity * mRadius);
 
-    TVec3f yDir;
-    TVec3f newTrans;
+    Vec3f yDir;
+    Vec3f newTrans;
     mBaseMtx.getYDir(yDir);
     mBaseMtx.getTrans(newTrans);
     newTrans += yDir * mRadius;
     mBaseMtx.setTrans(newTrans);
 
-    TPos3f rotMtx;
-    rotMtx.makeRotate(TVec3f(1.0f, 0.0f, 0.0f), MR::toRadian(mAngle));
+    Pos3f rotMtx;
+    rotMtx.makeRotate(Vec3f(1.0f, 0.0f, 0.0f), MR::toRadian(mAngle));
     mBaseMtx.concat(mBaseMtx, rotMtx);
 }
 
 MtxPtr KoopaFigureBall::getBaseMtx() const {
-    return (MtxPtr)&mBaseMtx;
+    return const_cast< MtxPtr >(mBaseMtx.mMtx);
 }

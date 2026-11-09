@@ -10,16 +10,15 @@ class SamboHead : public LiveActor {
 public:
     SamboHead(const char*);
 
-    virtual ~SamboHead();
-    virtual void init(const JMapInfoIter&);
-    virtual void appear();
-    virtual void kill();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPush(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void appear() override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPush(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
     void exeWaitUnderGround();
     void exeHide();
@@ -40,11 +39,17 @@ public:
     void exeBindStarPointer();
     void endBindStarPointer();
     void exeBindStarPointerEnd();
+    // Returns the angle turned this step.
+    f32 turnToPlayer();
+    void updateFall();
+    void updateBounceFall();
+    bool isPursuing() const;
+    bool isInactive() const;
 
     SpinHitController* mSpinCtrl;
     AnimScaleController* mScaleController;
     WalkerStateBindStarPointer* mBindStarPointer;
-    TVec3f _98;
-    TVec3f _A4;
-    bool _B0;
+    Vec3f mFront;
+    Vec3f mInitPos;
+    bool mIsPursueAlways;
 };

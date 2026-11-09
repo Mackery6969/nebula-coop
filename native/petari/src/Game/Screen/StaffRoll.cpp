@@ -1,4 +1,5 @@
 #include "Game/Screen/StaffRoll.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/Screen/InformationMessage.hpp"
@@ -17,7 +18,9 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#include "Game/Util/Array.hpp"
 #include "Game/Util/StringUtil.hpp"
+#include "Game/Util/TextString.hpp"
 #include <cstdio>
 
 #define PICTURE_TEXTURE_NUM 20
@@ -50,9 +53,23 @@ namespace {
         {8500, 14, 3, 2},  {8900, 14, 3, 3},  {9400, 15, 3, 0},  {10200, 15, 3, 1}, {10300, 16, 2, 0}, {11100, 16, 2, 1}, {11200, 17, 1, 0},
         {12000, 17, 1, 1}, {12090, 18, 0, 0}, {12890, 18, 0, 1}, {12990, 19, 3, 0}, {13390, 19, 3, 1},
     };
+    // Line `line` of `pMessage` whole, in `rText`: it is read again into twice the room while the line fills it (a tag
+    // is copied past the room it is asked for, so some is left over).
+    const char16_t* getLine(MR::Text16& rText, const char16_t* pMessage, u32 line) {
+        u32 units = rText.capacity();
+        for (;;) {
+            char16_t* const pDst = rText.room(units + 128);
+            const char16_t* const pEnd = MR::getMessageLine(pDst, units, pMessage, line);
+            if (static_cast< u32 >(pEnd - pDst) + 1 < units) {
+                return pDst;
+            }
+            units *= 2;
+        }
+    }
+
     const char* cStaffRollDemoName = "StaffRoll";
     const char* cSaveAfterStaffRollDemoName = "SaveAfterStaffRoll";
-    const char* cReplaceTextureArcName = "StaffRollTexture.arc";
+    const char* cReplaceTextureArcName = "StaffRollTexture";
     const char* cReplaceTexturePrefixHalf = "MStaffRollTexture";
     const char* cReplaceTexturePrefixComp = "LStaffRollTexture";
     const char* cStaffRollMsgId = "StaffList000";
@@ -73,7 +90,7 @@ namespace {
     };
     // static const s32 sStepForStartMargin = _;
     static const s32 sStepForPrepareInfo = 100;
-    static const s32 sStepForTitleLogoAppear = 60;
+    static const s32 sStepForTitleLogoAppear = NebulaFrameClock::stepsOfSeconds(1);
     // static const s32 sStepToEndLogoStop = _;
     static const s32 sStepToThankYouVoice = 190;
     // static const _ sTitleLogoHeight = _;
@@ -98,8 +115,8 @@ namespace {
             return &::sStaffRollParamTable[2];
         }
 
-
-        return nullptr;
+        // A region the table lacks rolls as the US one (every caller reads the answer).
+        return &::sStaffRollParamTable[1];
     }
 };  // namespace
 
@@ -110,7 +127,7 @@ namespace NrvStaffRollLine {
 StaffRollLine::StaffRollLine(const char* pName) : LayoutActor(pName, true), mPosition(0.0f, 0.0f) {
 }
 
-void StaffRollLine::init(const JMapInfoIter& rIter) {
+void StaffRollLine::init(const TableIter& /*rIter*/) {
     initLayoutManager("StaffRoll", 1);
     MR::createAndAddPaneCtrl(this, ::cPaneNameText, 1);
     MR::setFollowPos(&mPosition, this, ::cPaneNameText);
@@ -143,7 +160,7 @@ namespace NrvStaffRollPicture {
 StaffRollPicture::StaffRollPicture(const char* pName) : LayoutActor(pName, true), mReplaceTexture() {
 }
 
-void StaffRollPicture::init(const JMapInfoIter& rIter) {
+void StaffRollPicture::init(const TableIter& /*rIter*/) {
     initLayoutManager("StaffRollPicture", 1);
     MR::createAndAddPaneCtrl(this, "PictureLU", 1);
     MR::createAndAddPaneCtrl(this, "PictureLD", 1);
@@ -167,10 +184,10 @@ void StaffRollPicture::exeWork() {
 }
 
 void StaffRollPicture::initReplaceTexture() {
-    char replaceTextureName[256];
+    MR::FormattedName replaceTextureName;
     const char* pReplaceTexturePrefix;
 
-    mReplaceTexture = new nw4r::lyt::TexMap*[PICTURE_TEXTURE_NUM];
+    mReplaceTexture = new Ui::TexMap*[PICTURE_TEXTURE_NUM];
 
     if (MR::isStarCompleteAllGalaxy()) {
         pReplaceTexturePrefix = ::cReplaceTexturePrefixComp;
@@ -179,8 +196,8 @@ void StaffRollPicture::initReplaceTexture() {
     }
 
     for (s32 i = 0; i < PICTURE_TEXTURE_NUM; i++) {
-        nebula_snprintf(replaceTextureName, sizeof(replaceTextureName), "%s%03d.bti", pReplaceTexturePrefix, i);
-        mReplaceTexture[i] = MR::createLytTexMap(::cReplaceTextureArcName, replaceTextureName);
+        replaceTextureName.format("%s%03d.bti", pReplaceTexturePrefix, i);
+        mReplaceTexture[i] = MR::createLytTexMap(::cReplaceTextureArcName, replaceTextureName.c_str());
     }
 }
 
@@ -239,10 +256,10 @@ namespace NrvStaffRoll {
 
 StaffRoll::StaffRoll(const char* pName)
     : LayoutActor(pName, true), mInfo(), mLine(), mPicture(), mMsg(), mMsgLineNum(), mMsgLine(), mTitleLogoPos(0.0f, 0.0f), mEndLogoPos(0.0f, 0.0f),
-      _48(-1), _4C() {
+      mLineStep(-1), mBgmFrame() {
 }
 
-void StaffRoll::init(const JMapInfoIter& rIter) {
+void StaffRoll::init(const TableIter& /*rIter*/) {
     MR::connectToSceneLayout(this);
     initLayoutManager("StaffRollTitle", 1);
 
@@ -262,14 +279,14 @@ void StaffRoll::init(const JMapInfoIter& rIter) {
     mLine = new StaffRollLine*[LINE_NUM];
 
     for (s32 i = 0; i < LINE_NUM; i++) {
-        mLine[i] = new StaffRollLine("\203\130\203\136\203\142\203\164\203\215\201\133\203\213\210\352\215\163" /* スタッフロール一行 */);
+        mLine[i] = new StaffRollLine("スタッフロール一行");
         mLine[i]->initWithoutIter();
     }
 
     mMsg = MR::getGameMessageDirect(::cStaffRollMsgId);
     mMsgLineNum = MR::countMessageLine(mMsg);
 
-    mPicture = new StaffRollPicture("\203\130\203\136\203\142\203\164\203\215\201\133\203\213\216\312\220\136" /* スタッフロール写真 */);
+    mPicture = new StaffRollPicture("スタッフロール写真");
     mPicture->initWithoutIter();
 
     initNerve(GET_NERVE(StaffRoll, StaffRollNrvPrepareDemo));
@@ -310,10 +327,9 @@ bool StaffRoll::isNextLineEmpty() const {
         return false;
     }
 
-    char16_t message[256];
-    MR::getMessageLine(message, ARRAY_SIZE(message), mMsg, mMsgLine);
+    MR::Text16 message;
 
-    return message[0] == '\0';
+    return ::getLine(message, mMsg, mMsgLine)[0] == '\0';
 }
 
 void StaffRoll::exePrepareDemo() {
@@ -333,7 +349,7 @@ void StaffRoll::exePrepareBgm() {
 
     if (MR::isGreaterStep(this, ::sStepForTitleLogoAppear)) {
         MR::unlockStageBGM();
-        _4C = 0;
+        mBgmFrame = 0;
         setNerve(GET_NERVE(StaffRoll, StaffRollNrvTitleLogoAppear));
     }
 }
@@ -344,7 +360,7 @@ void StaffRoll::exeTitleLogoAppear() {
         MR::startPaneAnim(this, ::cPaneNameTitleLogo, "TitleLogoAppear", 0);
     }
 
-    if (MR::isStep(this, 240)) {
+    if (MR::isStep(this, NebulaFrameClock::stepsOfSeconds(4))) {
         setNerve(GET_NERVE(StaffRoll, StaffRollNrvTitleLogoScroll));
     }
 }
@@ -353,7 +369,7 @@ void StaffRoll::exeTitleLogoScroll() {
     if (MR::isFirstStep(this)) {
         MR::startPaneAnim(this, ::cPaneNameTitleLogo, "TitleLogoWait", 0);
         mPicture->appear();
-        _48 = 0;
+        mLineStep = 0;
     }
 
     mTitleLogoPos.y -= ::getStaffRollParam()->mScrollSpeed;
@@ -369,7 +385,7 @@ void StaffRoll::exeLineScroll() {
     s32 screenHeight = MR::getScreenHeight();
     s32 hasRemainder = MR::mod(screenHeight - ::sEndLogoPosY, pParam->mScrollSpeed) != 0.0f;
     s32 scrollSteps = (MR::getScreenHeight() - ::sEndLogoPosY) / ::getStaffRollParam()->mScrollSpeed;
-    if (_4C >= 14211 - (hasRemainder + scrollSteps)) {
+    if (mBgmFrame >= 14211 - (hasRemainder + scrollSteps)) {
         setNerve(GET_NERVE(StaffRoll, StaffRollNrvEndLogoScroll));
     }
 }
@@ -530,7 +546,7 @@ void StaffRoll::movement() {
     tryGenerateLine();
 
     if (MR::isPlayingStageBgm()) {
-        _4C++;
+        mBgmFrame++;
     }
 }
 
@@ -582,17 +598,17 @@ void StaffRoll::setNrvNextInfo() {
 bool StaffRoll::tryGenerateLine() {
     f32 lineLeading;
 
-    if (_48 == -1) {
+    if (mLineStep == -1) {
         return false;
     }
 
-    if (_48 == 0) {
+    if (mLineStep == 0) {
         makeLine();
 
         mMsgLine++;
     }
 
-    _48++;
+    mLineStep++;
 
     if (isNextLineEmpty()) {
         lineLeading = ::getStaffRollParam()->mEmptyLineLeading;
@@ -600,25 +616,28 @@ bool StaffRoll::tryGenerateLine() {
         lineLeading = ::getStaffRollParam()->mLineLeading;
     }
 
-    if (_48 * ::getStaffRollParam()->mScrollSpeed >= lineLeading) {
+    if (mLineStep * ::getStaffRollParam()->mScrollSpeed >= lineLeading) {
         if (mMsgLine < mMsgLineNum) {
-            _48 = 0;
+            mLineStep = 0;
         } else {
-            _48 = -1;
+            mLineStep = -1;
         }
     }
 
-    return _48 - 1 == 0;
+    return mLineStep - 1 == 0;
 }
 
 void StaffRoll::makeLine() {
     StaffRollLine* pLine;
-    char16_t message[256];
-    MR::getMessageLine(message, ARRAY_SIZE(message), mMsg, mMsgLine);
-    const char16_t* pMessage = message;
+    MR::Text16 message;
+    const char16_t* pMessage = ::getLine(message, mMsg, mMsgLine);
     s32 columnCount = 0;
-    char16_t columns[3][256] = {};
-    char16_t* pColumn = columns[0];
+    // The columns one after another in a single text, each ended where its '|' was; the text holds the line's units
+    // once and the last column's end.
+    MR::Text16 columnsText;
+    char16_t* pColumn = columnsText.room(static_cast< u32 >(MR::textLength(pMessage)) + 2);
+    MR::InlineVector< const char16_t*, 3 > columns;
+    columns.push_back(pColumn);
 
     while (true) {
         if (*pMessage == 0x1A) {
@@ -642,7 +661,8 @@ void StaffRoll::makeLine() {
                 break;
             }
 
-            pColumn = columns[columnCount];
+            pColumn++;
+            columns.push_back(pColumn);
         }
 
         pMessage++;
@@ -665,6 +685,10 @@ void StaffRoll::makeLine() {
         }
 
         pLine = getDeadLineLayout();
+        // Every line layout in use (a staff list with many columns or very short lines): the rest of this line is dropped.
+        if (pLine == nullptr) {
+            break;
+        }
         pLine->setPositionX(positionX);
         MR::setTextBoxMessageRecursive(pLine, ::cPaneNameText, columns[i]);
         pLine->appear();

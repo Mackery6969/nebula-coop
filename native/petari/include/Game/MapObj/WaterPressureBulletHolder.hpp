@@ -1,19 +1,10 @@
 #pragma once
 
-#include "Game/NameObj/NameObj.hpp"
+#include "Game/MapObj/PressureBulletHolder.hpp"
+#include "Game/MapObj/WaterPressureBullet.hpp"
 
-class WaterPressureBullet;
-
-class WaterPressureBulletHolder : public NameObj {
+// Shared by WaterPressure and WaterBazooka.
+class WaterPressureBulletHolder : public PressureBulletHolder< WaterPressureBullet, 16 > {
 public:
-    /// @brief Creates a new `WaterPressureBulletHolder`.
-    /// @param pName A pointer to the null-terminated name of the object.
-    WaterPressureBulletHolder(const char* pName);
-
-    virtual ~WaterPressureBulletHolder();
-    virtual void init(const JMapInfoIter& rIter);
-
-    WaterPressureBullet* callEmptyBullet();
-
-    WaterPressureBullet* mBullet[16];
+    WaterPressureBulletHolder(const char* pName) : PressureBulletHolder(pName, "ウォータープレッシャーの弾") {}
 };

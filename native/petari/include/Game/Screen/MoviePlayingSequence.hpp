@@ -47,6 +47,7 @@ struct MoviePlayingInfo {
 
 class MoviePlayingSequence : public LayoutActor {
 public:
+    // Indexes the movie list in this order.
     enum MovieType {
         MovieType_PrologueA,
         MovieType_PrologueB,
@@ -59,8 +60,8 @@ public:
 
     MoviePlayingSequence(const char*, s32);
 
-    virtual void appear();
-    virtual void kill();
+    virtual void appear() override;
+    virtual void kill() override;
 
     static const char* getMovieName(MovieType);
 

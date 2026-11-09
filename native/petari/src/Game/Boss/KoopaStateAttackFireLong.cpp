@@ -9,10 +9,10 @@
 #include "Game/Util/NerveUtil.hpp"
 
 namespace {
-    static MR::ActorMoveParam sFallParam = {0.0f, 1.0f, 1.0f, 0.0f};
-    static const s32 sStepEmit = 15;
-    static const s32 sEmitNumMax = 16;
-    static const f32 sTurnSpeed = 3.0f;
+    const MR::ActorMoveParam sFallParam = {0.0f, 1.0f, 1.0f, 0.0f};
+    const s32 sStepEmit = 15;
+    const s32 sEmitNumMax = 16;
+    const f32 sTurnSpeed = 3.0f;
 };  // namespace
 
 namespace NrvKoopaStateAttackFireLong {
@@ -21,7 +21,7 @@ namespace NrvKoopaStateAttackFireLong {
 };  // namespace NrvKoopaStateAttackFireLong
 
 KoopaStateAttackFireLong::KoopaStateAttackFireLong(Koopa* pKoopa)
-    : ActorStateBase< Koopa >("State[\211\212\230\101\222\145\215\125\214\202]" /* State[炎連弾攻撃] */, pKoopa), mMaxFire(::sEmitNumMax), mFireEmitted(-1) {
+    : ActorStateBase< Koopa >("State[炎連弾攻撃]", pKoopa), mMaxFire(::sEmitNumMax), mFireEmitted(-1) {
 }
 
 void KoopaStateAttackFireLong::init() {
@@ -71,7 +71,4 @@ void KoopaStateAttackFireLong::exeEmit() {
             setNerve(GET_NERVE(KoopaStateAttackFireLong, KoopaStateAttackFireLongNrvEmit));
         }
     }
-}
-
-KoopaStateAttackFireLong::~KoopaStateAttackFireLong() {
 }

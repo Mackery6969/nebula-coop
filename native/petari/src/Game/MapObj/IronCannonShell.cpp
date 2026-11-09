@@ -1,58 +1,66 @@
 #include "Game/MapObj/IronCannonShell.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util.hpp"
 
 namespace {
-    static const s32 sDefaultShotInterval = 300;
-    static const f32 sDefaultBulletSpeed = 30.0f;
-    static const f32 sGunPointOffset = 75.0f;
-    static const f32 sGunPointModelOffset = 100.0f;
-};  // namespace
+    const f32 cShellBaseScale = 1.3f;
+    const s32 cShellNum = 3;
+    const s32 cDefaultShotInterval = NebulaFrameClock::stepsOfSeconds(5);
+    const f32 cDefaultBulletSpeed = 30.0f;
+    // Shells start this far along the front; the launcher model's muzzle is cGunPointModelOffset further.
+    const f32 cGunPointOffset = 75.0f;
+    const f32 cGunPointModelOffset = 100.0f;
+    const s32 cGroupClippingNum = 32;
+}  // namespace
 
 namespace NrvIronCannonLauncherPoint {
     NEW_NERVE(IronCannonLauncherPointNrvWait, IronCannonLauncherPoint, Wait);
     NEW_NERVE(IronCannonLauncherPointNrvShot, IronCannonLauncherPoint, Shot);
-};  // namespace NrvIronCannonLauncherPoint
+}  // namespace NrvIronCannonLauncherPoint
 
 namespace NrvIronCannonLauncher {
     NEW_NERVE(IronCannonLauncherNrvRelax, IronCannonLauncher, Relax);
     NEW_NERVE(IronCannonLauncherNrvWait, IronCannonLauncher, Wait);
     NEW_NERVE(IronCannonLauncherNrvShot, IronCannonLauncher, Shot);
-};  // namespace NrvIronCannonLauncher
+}  // namespace NrvIronCannonLauncher
 
 IronCannonShell::IronCannonShell(const char* pName) : KoopaJrShipCannonShell(pName) {
 }
 
-IronCannonLauncherPoint::IronCannonLauncherPoint(const char* pName)
-    : LiveActor(pName), mShellHolder(), mShotInterval(::sDefaultShotInterval), mBulletSpeed(::sDefaultBulletSpeed) {
+f32 IronCannonShell::getBaseScale() const {
+    return ::cShellBaseScale;
 }
 
-void IronCannonLauncherPoint::init(const JMapInfoIter& rIter) {
+IronCannonLauncherPoint::IronCannonLauncherPoint(const char* pName)
+    : LiveActor(pName), mShellHolder(), mShotInterval(::cDefaultShotInterval), mBulletSpeed(::cDefaultBulletSpeed) {
+}
+
+void IronCannonLauncherPoint::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelAndConnectToScene();
     initBullet();
-    MR::getJMapInfoArg0NoInit(rIter, &mShotInterval);
-    MR::getJMapInfoArg1NoInit(rIter, &mBulletSpeed);
-    initEffectKeeper(0, "IronCannonLauncherPoint", false);
+    MR::getPlacementArg0NoInit(rIter, &mShotInterval);
+    MR::getPlacementArg1NoInit(rIter, &mBulletSpeed);
+    initEffectKeeper(0, "IronCannonLauncherPoint");
 
-    bool isAppear = false;
-
-    if (MR::useStageSwitchReadAppear(this, rIter)) {
+    const bool isWaitAppearSwitch = MR::useStageSwitchReadAppear(this, rIter);
+    if (isWaitAppearSwitch) {
         MR::syncStageSwitchAppear(this);
-        isAppear = true;
     }
 
     MR::useStageSwitchReadA(this, rIter);
-    MR::setGroupClipping(this, rIter, 32);
+    MR::setGroupClipping(this, rIter, ::cGroupClippingNum);
     initNerve(GET_NERVE(IronCannonLauncherPoint, IronCannonLauncherPointNrvWait));
 
-    if (isAppear) {
+    if (isWaitAppearSwitch) {
         makeActorDead();
     } else {
         makeActorAppeared();
     }
 }
 
+// With switch A in use and off (outside the opening camera), the interval is held at its start.
 void IronCannonLauncherPoint::exeWait() {
     if (!MR::isStageStateScenarioOpeningCamera() && MR::isValidSwitchA(this) && !MR::isOnSwitchA(this)) {
         setNerve(GET_NERVE(IronCannonLauncherPoint, IronCannonLauncherPointNrvWait));
@@ -76,57 +84,54 @@ void IronCannonLauncherPoint::initModelAndConnectToScene() {
 }
 
 void IronCannonLauncherPoint::initBullet() {
-    mShellHolder = new CannonShellHolder(3);
+    mShellHolder = new CannonShellHolder(::cShellNum);
 
-    for (s32 i = 0; i < 3; i++) {
-        IronCannonShell* pShell = new IronCannonShell("\203\114\203\203\203\155\203\223\222\145\226\103\221\344\202\314\222\145" /* キャノン弾砲台の弾 */);
+    for (s32 i = 0; i < ::cShellNum; i++) {
+        IronCannonShell* pShell = new IronCannonShell("キャノン弾砲台の弾");
         pShell->initWithoutIter();
         pShell->makeActorDead();
         mShellHolder->registerCannonShell(pShell);
     }
 }
 
-bool IronCannonLauncherPoint::tryShotBullet(f32 offset) {
+// Fires along the launcher's front from cGunPointOffset + muzzleOffset ahead; the shadow drops along its down axis.
+bool IronCannonLauncherPoint::tryShotBullet(f32 muzzleOffset) {
     IronCannonShell* pShell = static_cast< IronCannonShell* >(mShellHolder->getValidShell());
 
     if (pShell == nullptr) {
         return false;
     }
 
-    TPos3f mtx;
+    Pos3f mtx;
     MR::makeMtxTRS(mtx, mPosition, mRotation, mScale);
-    TVec3f vec;
-    mtx.getZDir(vec);
+    Vec3f front;
+    mtx.getZDir(front);
 
-    TVec3f vec2;
-    vec2.scaleAdd(::sGunPointOffset + offset, vec, mPosition);
-    pShell->launch(vec2, vec * mBulletSpeed);
+    Vec3f startPos;
+    startPos.scaleAdd(::cGunPointOffset + muzzleOffset, front, mPosition);
+    pShell->launch(startPos, front * mBulletSpeed);
 
-    TVec3f shadowdir;
-    mtx.getYDir(shadowdir);
-    shadowdir.negate();
-    MR::setShadowDropDirection(pShell, nullptr, shadowdir);
+    Vec3f shadowDir;
+    mtx.getYDir(shadowDir);
+    shadowDir.negate();
+    MR::setShadowDropDirection(pShell, nullptr, shadowDir);
 
     MR::emitEffect(this, "Shoot");
     return true;
 }
 
-IronCannonLauncher::IronCannonLauncher(const char* pName) : IronCannonLauncherPoint(pName), mEffectMtx(0.0f, 0.0f, 0.0f) {
+IronCannonLauncher::IronCannonLauncher(const char* pName) : IronCannonLauncherPoint(pName), mMuzzlePos(0.0f, 0.0f, 0.0f) {
 }
 
-// weird function ordering bro
-IronCannonLauncherPoint::~IronCannonLauncherPoint() {
-}
-
-void IronCannonLauncher::init(const JMapInfoIter& rIter) {
+void IronCannonLauncher::init(const TableIter& rIter) {
     IronCannonLauncherPoint::init(rIter);
 
     MR::useStageSwitchReadA(this, rIter);
-    MR::setClippingTypeSphereContainsModelBoundingBox(this, ::sGunPointModelOffset);
-    TVec3f front;
+    MR::setClippingTypeSphereContainsModelBoundingBox(this, ::cGunPointModelOffset);
+    Vec3f front;
     MR::calcFrontVec(&front, this);
-    mEffectMtx.scaleAdd(::sGunPointModelOffset, front, mPosition);
-    MR::setEffectHostSRT(this, "Shoot", &mEffectMtx, nullptr, nullptr);
+    mMuzzlePos.scaleAdd(::cGunPointModelOffset, front, mPosition);
+    MR::setEffectHostSRT(this, "Shoot", &mMuzzlePos, nullptr, nullptr);
     setNerve(GET_NERVE(IronCannonLauncher, IronCannonLauncherNrvWait));
 }
 
@@ -145,7 +150,7 @@ void IronCannonLauncher::exeWait() {
 void IronCannonLauncher::exeShot() {
     if (MR::isFirstStep(this)) {
         MR::startAllAnim(this, "Shot");
-        tryShotBullet(::sGunPointModelOffset);
+        tryShotBullet(::cGunPointModelOffset);
         setNerve(GET_NERVE(IronCannonLauncher, IronCannonLauncherNrvWait));
     }
 }
@@ -153,10 +158,4 @@ void IronCannonLauncher::exeShot() {
 void IronCannonLauncher::initModelAndConnectToScene() {
     initModelManagerWithAnm("IronCannonLauncher", nullptr, false);
     MR::connectToSceneMapObj(this);
-}
-
-IronCannonShell::~IronCannonShell() {
-}
-
-IronCannonLauncher::~IronCannonLauncher() {
 }

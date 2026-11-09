@@ -3,7 +3,7 @@
 #include "Game/NameObj/NameObj.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/Util/Array.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
 class CollisionPartsFilterBase;
 class HitSensor;
@@ -30,34 +30,44 @@ class ShadowControllerHolder : public NameObj {
 public:
     ShadowControllerHolder();
 
-    virtual ~ShadowControllerHolder();
+    virtual ~ShadowControllerHolder() override;
     virtual void initAfterPlacement() override;
     virtual void movement() override;
 
     void updateController();
 
-    MR::Vector< MR::AssignableArray< ShadowController* > > _C;
-    MR::Vector< MR::AssignableArray< ShadowController* > > _18;
-    bool _24;
-    f32 mFarClip;
+    MR::Vector< MR::AssignableArray< ShadowController* > > mControllers;
+    MR::Vector< MR::AssignableArray< ShadowController* > > mRequested;  // this frame's, each once
 };
 
+// Where an actor's shadow falls: a drop point and direction, and the projection a line along them finds.
 class ShadowController {
 public:
+    // Projection by collision.
+    enum class CollisionCalc : u8 { Off, On, Once };
+    // The drop direction from gravity. The "once" forms of the game compute every frame as well (its count test never
+    // passed), so they are these.
+    enum class DropGravity : u8 { None, Gravity, ShadowGravity };
+    enum class DropType : u8 { Map, WaterSurface };
+    enum class Visibility : u8 {
+        Always,        // its own, for a shadow that comes first (MeteorStrike)
+        SyncHost,      // follows the actor
+        UnlessHidden,  // apart from the actor's clipping, as a table asks; a character hidden is still not there
+    };
+
     ShadowController(LiveActor*, const char*);
 
     void requestCalc();
     void update();
-    void updateFarClipping(f32);
     void updateDirection();
     ShadowDrawer* getShadowDrawer();
     LiveActor* getHost() const;
     void setShadowDrawer(ShadowDrawer*);
-    void getDropPos(TVec3f*) const;
-    void getDropDir(TVec3f*) const;
+    void getDropPos(Vec3f*) const;
+    void getDropDir(Vec3f*) const;
     f32 getDropLength() const;
-    void getProjectionPos(TVec3f*) const;
-    void getProjectionNormal(TVec3f*) const;
+    void getProjectionPos(Vec3f*) const;
+    void getProjectionNormal(Vec3f*) const;
     f32 getProjectionLength() const;
     bool isProjected() const;
     bool isDraw() const;
@@ -65,17 +75,17 @@ public:
     bool isCalcGravity() const;
     bool isCalcShadowGravity() const;
     void setGroupName(const char*);
-    void setDropPosPtr(const TVec3f*);
-    void setDropPosMtxPtr(MtxPtr, const TVec3f&);
-    void setDropPosFix(const TVec3f&);
-    void setDropDirPtr(const TVec3f*);
-    void setProjectionPtr(const TVec3f*, const TVec3f*);
-    void setDropDirFix(const TVec3f&);
+    void setDropPosPtr(const Vec3f*);
+    void setDropPosMtxPtr(MtxPtr, const Vec3f&);
+    void setDropPosFix(const Vec3f&);
+    void setDropDirPtr(const Vec3f*);
+    void setProjectionPtr(const Vec3f*, const Vec3f*);
+    void setDropDirFix(const Vec3f&);
     void setDropLength(f32);
     void setDropStartOffset(f32);
     void setDropTypeNormal();
     void setDropTypeSurface();
-    void setProjectionFix(const TVec3f&, const TVec3f&, bool);
+    void setProjectionFix(const Vec3f&, const Vec3f&, bool);
     void onCalcCollision();
     void offCalcCollision();
     void onCalcCollisionOneTime();
@@ -91,16 +101,11 @@ public:
     bool isFollowHostScale() const;
     void onVisibleSyncHost();
     void offVisibleSyncHost();
-    // Apart from the actor's clipping, as a table asks; a character hidden is still not there.
     void offVisibleSyncHostUnlessHidden();
     void validate();
     void invalidate();
 
     void updateProjection();
-
-    inline void appendToHolder() {
-        MR::getSceneObj< ShadowControllerHolder >(SceneObj_ShadowControllerHolder)->_18.push_back(this);
-    }
 
     LiveActor* mActor;
     const char* mName;
@@ -108,30 +113,28 @@ public:
     ShadowDrawer* mDrawer;
     HitSensor* mProjectedSensor;
     CollisionPartsFilterBase* mCollisionPartsFilter;
-    MtxPtr _18;
-    MtxPtr _1C;
-    const TVec3f* mDropPos;
-    const TVec3f* mDropDir;
-    const TVec3f* mProjPos;
-    const TVec3f* mProjNorm;
-    TVec3f _30;
-    TVec3f _3C;
-    TVec3f _48;
-    TVec3f _54;
-    u8 _60;
-    u8 _61;
-    u8 _62;
-    u8 _63;
-    u8 _64;
-    u8 _65;
-    u8 _66;
-    u8 _67;
+    MtxPtr mHostMtx;  // the last matrix setDropPosMtxPtr gave; the drawers orient by it
+    // The drop point: *mDropPos, else mDropOffset in *mDropMtx, else mDropOffset itself.
+    const Vec3f* mDropPos;
+    MtxPtr mDropMtx;
+    Vec3f mDropOffset;
+    const Vec3f* mDropDir;  // else mDropDirection
+    Vec3f mDropDirection;
+    const Vec3f* mProjPos;   // else mProjectionPos
+    const Vec3f* mProjNorm;  // else mProjectionNormal
+    Vec3f mProjectionPos;
+    Vec3f mProjectionNormal;
     f32 mStartOffset;
     f32 mDropLength;
-    u8 _70;
-    u8 _71;
-    u8 _72;  // 1: follows the actor; 0: its own, for a shadow that comes first (MeteorStrike); or cVisibleUnlessHidden
-    static const u8 cVisibleUnlessHidden = 2;
+    CollisionCalc mCollisionCalc;
+    u32 mCollisionCount;  // projections since CollisionCalc::Once was set
+    DropGravity mDropGravity;
+    DropType mDropType;
+    Visibility mVisibility;
+    bool mIsProjected;
+    bool mIsRequested;
+    bool mIsFollowHostScale;
+    bool mIsValid;
 };
 
 namespace MR {

@@ -1,18 +1,21 @@
 #pragma once
 
 #include "Game/System/NerveExecutor.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
-class JMapInfoIter;
+class TableIter;
 class LiveActor;
 class SurfingGuidance;
 class TalkMessageCtrl;
 
 class SurfRayTutorial : public NerveExecutor {
 public:
-    SurfRayTutorial(LiveActor*, TalkMessageCtrl*, const JMapInfoIter&);
+    SurfRayTutorial(LiveActor*, TalkMessageCtrl*, const TableIter&);
 
     bool update();
+    void updateLessonStart(s32, void (SurfingGuidance::*)());
+    void updateLessonFailure(bool (SurfRayTutorial::*)() const);
+    void updateLessonUpkeep(bool (SurfRayTutorial::*)() const, void (SurfingGuidance::*)(), void (SurfingGuidance::*)(), const char*);
     void exeTutorialAllStart();
     void exeTutorialStraightStart();
     void exeTutorialStraightFailure();
@@ -36,13 +39,13 @@ public:
     void omitTutorial() const;
     void nextTutorial();
     void prevTutorial();
-    void startTimerSound(s32, s32);
+    void startTimerSound(s32 step, s32 level);
 
     LiveActor* mHost;
     bool mIsTutorialPass;
-    TVec3f mPadAccel;
+    Vec3f mPadAccel;
     TalkMessageCtrl* mTalkCtrl;
     SurfingGuidance* mSurfingGuidance;
     s32 mChangeStep;
-    s32 _28;
+    s32 mGoNextCount;
 };

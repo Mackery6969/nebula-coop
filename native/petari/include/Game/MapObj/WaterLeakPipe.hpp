@@ -6,9 +6,8 @@ class IceStepNoSlip : public ModelObj {
 public:
     IceStepNoSlip(MtxPtr);
 
-    virtual ~IceStepNoSlip();
-    virtual void init(const JMapInfoIter&);
-    virtual void appear();
+    virtual void init(const TableIter&) override;
+    virtual void appear() override;
 
     void exeAppear();
     void exeBreak();
@@ -18,10 +17,9 @@ class WaterLeakPipe : public LiveActor {
 public:
     WaterLeakPipe(const char*);
 
-    virtual ~WaterLeakPipe();
-    virtual void init(const JMapInfoIter&);
-    virtual void calcAnim() {};
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void calcAnim() override {};
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
 
     void initPipeHeight();
 
@@ -32,5 +30,5 @@ public:
     f32 mPipeHeight;
     MtxPtr mTopMtx;
     MtxPtr mBottomMtx;
-    TVec3f _9C;
+    Vec3f mClippingCenter;
 };

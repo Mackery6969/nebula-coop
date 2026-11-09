@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Game/Util/JMapInfo.hpp"
+#include "Game/Util/Table.hpp"
 
 class LiveActor;
 class ModelObj;
@@ -8,7 +8,7 @@ class ModelObj;
 // What the level's view cubes ask of an actor where the player stands: hidden, its near model or its far model.
 class LodCtrl {
 public:
-    LodCtrl(LiveActor*, const JMapInfoIter&);
+    LodCtrl(LiveActor*, const TableIter&);
 
     void appear();
     void kill();
@@ -28,7 +28,7 @@ public:
     const bool* mNear;
     const bool* mFar;
     const bool* mHidden;
-    s16 mViewGroupID;
+    s32 mViewGroupID;
 };
 
 class LodCtrlFunction {

@@ -6,17 +6,16 @@ class BenefitItemInvincible : public BenefitItemObj {
 public:
     BenefitItemInvincible(const char*);
 
-    virtual ~BenefitItemInvincible();
-    virtual void init(const JMapInfoIter&);
-    virtual void appearThrowUp();
-    virtual void initModelAndEfx();
-    virtual void exeCatch();
-    virtual void runBck(const char*);
-    virtual void runEfx(const char*);
-    virtual void stopEfx(const char*);
-    virtual void initEscape();
-    virtual void doEscape();
+    virtual void init(const TableIter&) override;
+    virtual void appearThrowUp() override;
+    virtual void initModelAndEfx() override;
+    virtual void exeCatch() override;
+    virtual void runBck(const char*) override;
+    virtual void runEfx(const char*) override;
+    virtual void stopEfx(const char*) override;
+    virtual void initEscape() override;
+    virtual void doEscape() override;
 
-    TVec3f mUpAxis;
-    TVec3f mFwdAxis;
+    Vec3f mUpAxis;
+    Vec3f mFwdAxis;
 };

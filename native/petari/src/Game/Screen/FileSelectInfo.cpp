@@ -5,10 +5,19 @@
 #include "Game/Util/NerveUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
-#include <JSystem/J3DGraphAnimator/J3DAnimation.hpp>
+#include "Game/Render/Clip.hpp"
 
 namespace {
     static const f32 sDisappearAnimRate = 0.25f;
+
+    // A text's code units with its terminator.
+    u32 unitsWithEnd(const char16_t* pText) {
+        u32 units = 1;
+        while (pText[units - 1] != 0) {
+            units++;
+        }
+        return units;
+    }
 };  // namespace
 
 namespace {
@@ -40,7 +49,7 @@ FileSelectInfo::FileSelectInfo(s32 nameBufferSize, const char* pName)
     MR::zeroMemory(mName, nameBufferSize * sizeof(char16_t));
 }
 
-void FileSelectInfo::init(const JMapInfoIter& rIter) {
+void FileSelectInfo::init(const TableIter& /*rIter*/) {
     initLayoutManager("FileInfo", 3);
     MR::connectToSceneLayout(this);
     initNerve(GET_NERVE_ANON(FileSelectInfoNrvAppear));
@@ -101,8 +110,10 @@ void FileSelectInfo::setInfo(u16* pName, s32 number, s32 starNum, s32 starPieceN
     mIsViewNormalEnding = isViewNormalEnding;
     mIsViewCompleteEnding = isViewCompleteEnding;
 
-    MR::copyString(mDateMessage, pDateMessage, ARRAY_SIZE(mDateMessage));
-    MR::copyString(mTimeMessage, pTimeMessage, ARRAY_SIZE(mTimeMessage));
+    const u32 dateUnits = unitsWithEnd(pDateMessage);
+    MR::copyString(mDateMessage.room(dateUnits), pDateMessage, dateUnits);
+    const u32 timeUnits = unitsWithEnd(pTimeMessage);
+    MR::copyString(mTimeMessage.room(timeUnits), pTimeMessage, timeUnits);
 
     mMissNum = missNum;
 }
@@ -152,8 +163,6 @@ void FileSelectInfo::exeAppear() {
 }
 
 void FileSelectInfo::exeDisplay() {
-    if (MR::isFirstStep(this)) {
-    }
 }
 
 void FileSelectInfo::exeDisappear() {
@@ -176,8 +185,8 @@ void FileSelectInfo::reflectInfo() {
     MR::setTextBoxMessageRecursive(this, "FileName", mName);
     MR::setTextBoxNumberRecursive(this, "Star", mStarNum);
     MR::setTextBoxNumberRecursive(this, "StarPiece", mStarPieceNum);
-    MR::setTextBoxMessageRecursive(this, "TxtDay", mDateMessage);
-    MR::setTextBoxMessageRecursive(this, "TxtTime", mTimeMessage);
+    MR::setTextBoxMessageRecursive(this, "TxtDay", mDateMessage.c_str());
+    MR::setTextBoxMessageRecursive(this, "TxtTime", mTimeMessage.c_str());
 
     if (mMissNum >= 0) {
         MR::setTextBoxNumberRecursive(this, "MissCounter", mMissNum);
@@ -216,7 +225,7 @@ void FileSelectInfo::reflectInfo() {
 }
 
 namespace FileSelectInfoSub {
-    SlideState::SlideState(FileSelectInfo* pHost) : NerveExecutor("\203\130\203\211\203\103\203\150\217\363\221\324" /* スライド状態 */), mHost(pHost) {
+    SlideState::SlideState(FileSelectInfo* pHost) : NerveExecutor("スライド状態"), mHost(pHost) {
         initNerve(GET_NERVE_GLOBAL(SlideStateNrvNormalPos));
     }
 
@@ -256,7 +265,7 @@ namespace FileSelectInfoSub {
 };  // namespace FileSelectInfoSub
 
 namespace FileSelectInfoSub {
-    CharaState::CharaState(FileSelectInfo* pHost) : NerveExecutor("\203\114\203\203\203\211\221\111\221\360\217\363\221\324" /* キャラ選択状態 */), mHost(pHost) {
+    CharaState::CharaState(FileSelectInfo* pHost) : NerveExecutor("キャラ選択状態"), mHost(pHost) {
         initNerve(GET_NERVE_GLOBAL(CharaStateNrvMario));
     }
 

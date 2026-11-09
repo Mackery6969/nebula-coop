@@ -1,4 +1,5 @@
 #include "Game/NPC/TrickRabbitSnow.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Enemy/WalkerStateBlowDamage.hpp"
 #include "Game/Enemy/WalkerStateRunaway.hpp"
 #include "Game/LiveActor/Nerve.hpp"
@@ -27,7 +28,6 @@ namespace {
     static const f32 sNormalAccel = 0.7f;
     static const f32 sPressureAccel = 1.2f;
     static const f32 sBrakeAccelRate = 0.99f;
-    // static const f32 sAppearSnowRange = _;
 };  // namespace
 
 namespace NrvTrickRabbitFreeRun {
@@ -52,7 +52,7 @@ void TrickRabbitSnow::setListener(TrickRabbitSnowListener* pListener) {
     mListener = pListener;
 }
 
-void TrickRabbitSnow::init(const JMapInfoIter& rIter) {
+void TrickRabbitSnow::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("TrickRabbit", nullptr, false);
     MR::connectToSceneNpc(this);
@@ -68,13 +68,13 @@ void TrickRabbitSnow::init(const JMapInfoIter& rIter) {
 
     mFootPrint = TrickRabbitUtil::createRabbitFootPrint(this);
 
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     MR::onEmitEffectSyncClipping(this, "Light");
     MR::onForceDeleteEffectSyncClipping(this, "Light");
     initSensor();
     initBinder(::sBindRadius, ::sBindYOffset, 0);
 
-    mMsgCtrl = MR::createTalkCtrl(this, rIter, "SnowRabbit", TVec3f(0.0f, 120.0f, 0.0f), nullptr);
+    mMsgCtrl = MR::createTalkCtrl(this, rIter, "SnowRabbit", Vec3f(0.0f, 120.0f, 0.0f), nullptr);
 
     initState();
     initSound(4, false);
@@ -97,9 +97,9 @@ void TrickRabbitSnow::initAfterPlacement() {
 
 void TrickRabbitSnow::initSensor() {
     initHitSensor(2);
-    MR::addHitSensorAtJointEnemy(this, "Body", "Spine", 8, ::sBodyRadius, TVec3f(0.0f, 0.0f, 0.0f));
-    MR::addHitSensorAtJointEnemy(this, "Catch", "Spine", 8, ::sCatchRadius, TVec3f(0.0f, 0.0f, 0.0f));
-    MR::initStarPointerTargetAtJoint(this, "Spine", ::sBodyRadius, TVec3f(0.0f));
+    MR::addHitSensorAtJointEnemy(this, "Body", "Spine", 8, ::sBodyRadius, Vec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorAtJointEnemy(this, "Catch", "Spine", 8, ::sCatchRadius, Vec3f(0.0f, 0.0f, 0.0f));
+    MR::initStarPointerTargetAtJoint(this, "Spine", ::sBodyRadius, Vec3f(0.0f));
 }
 
 void TrickRabbitSnow::initState() {
@@ -109,14 +109,14 @@ void TrickRabbitSnow::initState() {
 
     mStateWaitStart = new RabbitStateWaitStart(this, &mFrontVec, mMsgCtrl);
     mStateWaitStart->setTalkActionName("GiveUpTalk");
-    mStateWaitStart->_1C = false;
-    mStateWaitStart->_1D = false;
+    mStateWaitStart->mIsKillAfterTalk = false;
+    mStateWaitStart->mIsFallByGravity = false;
     mStateWaitStart->init();
 
     mStateRunaway = new WalkerStateRunaway(this, &mFrontVec, nullptr);
     mStateRunaway->init();
 
-    mStateBlowDamage = new WalkerStateBlowDamage(this, &mFrontVec, nullptr);
+    mStateBlowDamage = new WalkerStateBlowDamage(this, &mFrontVec);
     mStateBlowDamage->init();
 }
 
@@ -156,7 +156,7 @@ void TrickRabbitSnow::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     MR::sendMsgPush(pReceiver, pSender);
 }
 
-bool TrickRabbitSnow::receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) {
+bool TrickRabbitSnow::receiveMsgPush(HitSensor* pSender, HitSensor* /*pReceiver*/) {
     if (isNerve(GET_NERVE(TrickRabbitFreeRun, TrickRabbitSnowNrvHideSnow))) {
         return false;
     }
@@ -195,8 +195,6 @@ bool TrickRabbitSnow::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSen
         return requestCaught();
     }
 
-    if (MR::isMsgPlayerTrample(msg)) {
-    }
 
     return false;
 }
@@ -273,7 +271,7 @@ void TrickRabbitSnow::setFinishPosition() {
     MR::invalidateClipping(this);
     MR::requestMovementOn(this);
     MR::forwardNode(mMsgCtrl);
-    mStateWaitStart->_1D = false;
+    mStateWaitStart->mIsFallByGravity = false;
     setNerve(GET_NERVE(TrickRabbitFreeRun, TrickRabbitSnowNrvGiveUp));
 }
 
@@ -295,13 +293,13 @@ void TrickRabbitSnow::exeStartHideSnow() {
         MR::startAction(this, "Run");
     }
 
-    MR::escapeFromPlayer(this, &mFrontVec, ::sStartAwayParam._0, ::sStartAwayParam._4, ::sStartAwayParam._8, ::sStartAwayParam._C);
+    MR::escapeFromPlayer(this, &mFrontVec, ::sStartAwayParam);
 
     if (MR::checkPassBckFrame(this, 3.0f)) {
         startJumpSound();
     }
 
-    if (MR::isGreaterStep(this, 120)) {
+    if (MR::isGreaterStep(this, NebulaFrameClock::stepsOfSeconds(2))) {
         setNerve(GET_NERVE(TrickRabbitFreeRun, TrickRabbitSnowNrvVanish));
     }
 }
@@ -319,10 +317,10 @@ void TrickRabbitSnow::exeVanish() {
 
     MR::startSound(this, "SE_SM_METAMORPHOSE_SMOKE");
 
-    TVec3f trans;
-    TVec3f rotate;
+    Vec3f trans;
+    Vec3f rotate;
 
-    if (MR::tryFindLinkNamePos(this, "\211\102\202\352\210\312\222\165" /* 隠れ位置 */, &trans, &rotate)) {
+    if (MR::tryFindLinkNamePos(this, "隠れ位置", &trans, &rotate)) {
         mPosition.set(trans);
         mRotation.set(rotate);
         MR::makeQuatAndFrontFromRotate(&mRotateQuat, &mFrontVec, this);
@@ -396,12 +394,12 @@ void TrickRabbitSnow::exeBlowDamage() {
 void TrickRabbitSnow::exeCaught() {
 
     if (MR::updateActorState(this, mStateCaught)) {
-        MR::endDemo(this, "\225\337\202\334\202\350" /* 捕まり */);
+        MR::endDemo(this, "捕まり");
         MR::forwardNode(mMsgCtrl);
         mSpotMarkLight->kill();
         mFootPrint->clear();
         MR::startSound(this, "SE_OJ_STAR_PIECE_BURST");
-        mStateWaitStart->_1D = true;
+        mStateWaitStart->mIsFallByGravity = true;
         setNerve(GET_NERVE(TrickRabbitFreeRun, TrickRabbitSnowNrvGiveUp));
 
         if (mListener != nullptr) {

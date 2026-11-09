@@ -1,4 +1,5 @@
 #include "Game/Enemy/Kuribo.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Enemy/ItemGenerator.hpp"
 #include "Game/Enemy/WalkerStateChase.hpp"
 #include "Game/Enemy/WalkerStateFindPlayer.hpp"
@@ -15,7 +16,7 @@
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/BaseMatrixFollowTargetHolder.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MapUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
@@ -47,8 +48,8 @@ namespace {
         mStateParam.mPlayerSightFanDegreeH = 70.0f;
         mStateParam.mPlayerSightFanDegreeV = 30.0f;
         mWanderParam.mSpeed = 0.2f;
-        mWanderParam.mWaitTime = 120;
-        mWanderParam.mWalkTime = 120;
+        mWanderParam.mWaitTime = NebulaFrameClock::stepsOfSeconds(2);
+        mWanderParam.mWalkTime = NebulaFrameClock::stepsOfSeconds(2);
         mWanderParam.mTurnMaxRateDegree = 3.0f;
         mChaseParam.mChaseSpeed = 0.4f;
         mFindPlayerParam.mTurnMaxRateDegree = 5.0f;
@@ -77,41 +78,41 @@ namespace NrvKuribo {
 
 Kuribo::Kuribo(const char* pName)
     : LiveActor(pName), mScaleController(nullptr), mItemGenerator(nullptr), mStateWander(nullptr), mStateFindPlayer(nullptr),
-      mBindStarPointer(nullptr), mStateStagger(nullptr), mStateChase(nullptr), _A8(0.0f, 0.0f, 0.0f, 1.0f), _B8(0, 0, 1), _C4(0), _C5(1) {
+      mBindStarPointer(nullptr), mStateStagger(nullptr), mStateChase(nullptr), mPoseQuat(0.0f, 0.0f, 0.0f, 1.0f), mFront(0, 0, 1), mIsNoGravitySupport(false), mHasItem(true) {
 }
 
-void Kuribo::init(const JMapInfoIter& rIter) {
+void Kuribo::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("Kuribo", nullptr, false);
     MR::connectToSceneEnemy(this);
     MR::initLightCtrl(this);
-    MR::makeQuatAndFrontFromRotate(&_A8, &_B8, this);
+    MR::makeQuatAndFrontFromRotate(&mPoseQuat, &mFront, this);
     if (MR::isValidInfo(rIter)) {
-        MR::getJMapInfoArg0WithInit(rIter, &_C4);
+        MR::getPlacementArg0WithInit(rIter, &mIsNoGravitySupport);
     }
 
-    if (!_C4) {
+    if (!mIsNoGravitySupport) {
         MR::onCalcGravity(this);
         MR::calcGravity(this);
     } else {
         MR::offCalcGravity(this);
-        TVec3f v8;
-        MR::getUpVecFromQuat(&v8, _A8);
-        mGravity.set(v8);
+        Vec3f up;
+        MR::getUpVecFromQuat(&up, mPoseQuat);
+        mGravity.set(up);
     }
 
     mScaleController = new AnimScaleController(nullptr);
     mItemGenerator = new ItemGenerator();
-    MR::initStarPointerTarget(this, 70.0f * mScale.y, TVec3f(0.0f, 75.0f * mScale.y, 0.0f));
+    MR::initStarPointerTarget(this, 70.0f * mScale.y, Vec3f(0.0f, 75.0f * mScale.y, 0.0f));
     initSound(4, false);
     if (MR::isEqualStageName("KoopaBattleVs2Galaxy")) {
-        MR::setSeVersion(this, 1);
+        MR::setSeVersion(this, SeVersion_2D);
     } else {
-        MR::setSeVersion(this, 0);
+        MR::setSeVersion(this, SeVersion_NORMAL);
     }
 
     initBinder((70.0f * mScale.y), (70.0f * mScale.y), 0);
-    initEffectKeeper(1, nullptr, false);
+    initEffectKeeper(1, nullptr);
     initSensor();
     MR::initShadowVolumeSphere(this, 60.0f);
     initState();
@@ -135,29 +136,29 @@ void Kuribo::init(const JMapInfoIter& rIter) {
 }
 
 void Kuribo::initAfterPlacement() {
-    MR::turnQuatUpToGravity(&_A8, _A8, this);
+    MR::turnQuatUpToGravity(&mPoseQuat, mPoseQuat, this);
     MR::trySetMoveLimitCollision(this);
 }
 
 void Kuribo::initState() {
-    mStateFindPlayer = new WalkerStateFindPlayer(this, &_B8, &::sParam.mStateParam, &::sParam.mFindPlayerParam);
+    mStateFindPlayer = new WalkerStateFindPlayer(this, &mFront, &::sParam.mStateParam, &::sParam.mFindPlayerParam);
     mBindStarPointer = new WalkerStateBindStarPointer(this, mScaleController);
-    mStateStagger = new WalkerStateStagger(this, &_B8, &::sParam.mStateParam, &::sParam.mStaggerParam);
-    mStateWander = new WalkerStateWander(this, &_B8, &::sParam.mStateParam, &::sParam.mWanderParam);
-    mStateChase = new WalkerStateChase(this, &_B8, &::sParam.mStateParam, &::sParam.mChaseParam);
+    mStateStagger = new WalkerStateStagger(this, &mFront, &::sParam.mStateParam, &::sParam.mStaggerParam);
+    mStateWander = new WalkerStateWander(this, &mFront, &::sParam.mStateParam, &::sParam.mWanderParam);
+    mStateChase = new WalkerStateChase(this, &mFront, &::sParam.mStateParam, &::sParam.mChaseParam);
 }
 
 void Kuribo::initSensor() {
     f32 y_scale = mScale.y;
     initHitSensor(2);
-    MR::addHitSensor(this, "body", ATYPE_KURIBO, 8, 75.0f * y_scale, TVec3f(0.0f, 75.0f * y_scale, 0.0f));
-    MR::addHitSensor(this, "attack", ATYPE_ENEMY_ATTACK, 8, 45.0f * y_scale, TVec3f(0.0f, 75.0f * y_scale, 0.0f));
+    MR::addHitSensor(this, "body", ATYPE_KURIBO, 8, 75.0f * y_scale, Vec3f(0.0f, 75.0f * y_scale, 0.0f));
+    MR::addHitSensor(this, "attack", ATYPE_ENEMY_ATTACK, 8, 45.0f * y_scale, Vec3f(0.0f, 75.0f * y_scale, 0.0f));
 }
 
-void Kuribo::initAppearState(const JMapInfoIter& rIter) {
+void Kuribo::initAppearState(const TableIter& rIter) {
     s32 state = -1;
     if (MR::isValidInfo(rIter)) {
-        MR::getJMapInfoArg1NoInit(rIter, &state);
+        MR::getPlacementArg1NoInit(rIter, &state);
     }
 
     switch (state) {
@@ -166,7 +167,7 @@ void Kuribo::initAppearState(const JMapInfoIter& rIter) {
         break;
     case 0:
         setNerve(GET_NERVE(Kuribo, KuriboNrvAppearFromBox));
-        _A8.getZDir(_B8);
+        mPoseQuat.getZDir(mFront);
         break;
     }
 }
@@ -187,7 +188,7 @@ void Kuribo::kill() {
 
     MR::emitEffect(this, "DeathSmokeKuribo");
     MR::startSoundSeVer(this, "SE_EM_EXPLODE_S");
-    if (_C5) {
+    if (mHasItem) {
         mItemGenerator->generate(this);
     }
 
@@ -196,15 +197,15 @@ void Kuribo::kill() {
 
 void Kuribo::control() {
     mScaleController->updateNerve();
-    if (_C4) {
+    if (mIsNoGravitySupport) {
         MR::calcGravityOrZero(this);
     }
 
-    MR::blendQuatFromGroundAndFront(&_A8, this, _B8, 0.05f, 0.5f);
+    MR::blendQuatFromGroundAndFront(&mPoseQuat, this, mFront, 0.05f, 0.5f);
     if (!isNerve(GET_NERVE(Kuribo, KuriboNrvBindStarPointer))) {
-        TVec3f v3(0, 0, 0);
-        if (MR::calcVelocityAreaOrRailMoveOnGround(&v3, this)) {
-            MR::addVelocity(this, v3 * 0.05f);
+        Vec3f groundMove(0, 0, 0);
+        if (MR::calcVelocityAreaOrRailMoveOnGround(&groundMove, this)) {
+            MR::addVelocity(this, groundMove * 0.05f);
         }
     }
 
@@ -216,8 +217,8 @@ void Kuribo::control() {
 }
 
 void Kuribo::calcAndSetBaseMtx() {
-    MR::setBaseTRMtx(this, _A8);
-    TVec3f scale = mScaleController->_C * mScale;
+    MR::setBaseTRMtx(this, mPoseQuat);
+    Vec3f scale = mScaleController->mScale * mScale;
     MR::setBaseScale(this, scale);
 }
 
@@ -327,7 +328,7 @@ bool Kuribo::requestDead() {
     return true;
 }
 
-bool Kuribo::requestFlatDown(HitSensor* pSender, HitSensor* pReceiver) {
+bool Kuribo::requestFlatDown(HitSensor* /*pSender*/, HitSensor* pReceiver) {
     if (MR::isSensorEnemyAttack(pReceiver)) {
         return false;
     }
@@ -353,7 +354,7 @@ bool Kuribo::requestFlatDown(HitSensor* pSender, HitSensor* pReceiver) {
     return true;
 }
 
-bool Kuribo::requestHipDropDown(HitSensor* pSender, HitSensor* pReceiver) {
+bool Kuribo::requestHipDropDown(HitSensor* /*pSender*/, HitSensor* pReceiver) {
     if (!requestDead()) {
         return false;
     }
@@ -427,32 +428,34 @@ bool Kuribo::requestAttackSuccess() {
 }
 
 void Kuribo::onNoGravitySupport() {
-    _C4 = 1;
+    mIsNoGravitySupport = true;
     MR::offCalcGravity(this);
 }
 
-void Kuribo::setUp(const TVec3f& a1, const TQuat4f& a2, const TVec3f& a3) {
-    mPosition.set(a1);
-    mVelocity.set(a3);
-    _A8.x = a2.x;
-    _A8.y = a2.y;
-    _A8.z = a2.z;
-    _A8.w = a2.w;
-    _A8.getZDir(_B8);
+void Kuribo::setUp(const Vec3f& rPosition, const Quat4f& rPose, const Vec3f& rVelocity) {
+    mPosition.set(rPosition);
+    mVelocity.set(rVelocity);
+    mPoseQuat.x = rPose.x;
+    mPoseQuat.y = rPose.y;
+    mPoseQuat.z = rPose.z;
+    mPoseQuat.w = rPose.w;
+    mPoseQuat.getZDir(mFront);
 }
 
-void Kuribo::appearBlowed(const TVec3f& a1, const TQuat4f& a2, const TVec3f& a3) {
-    setUp(a1, a2, a3);
+// Thrown out of a Kabokuri's pumpkin.
+void Kuribo::appearBlowed(const Vec3f& rPosition, const Quat4f& rPose, const Vec3f& rVelocity) {
+    setUp(rPosition, rPose, rVelocity);
     setNerve(GET_NERVE(Kuribo, KuriboNrvBlow));
     MR::startAction(this, "Blow");
     appear();
-    if (_C4) {
+    if (mIsNoGravitySupport) {
         MR::calcGravityOrZero(this);
     }
 }
 
-void Kuribo::appearHipDropped(const TVec3f& a1, const TQuat4f& a2) {
-    setUp(a1, a2, TVec3f(0.0f, 0.0f, 0.0f));
+// Left flattened when a Kabokuri's pumpkin is hip-dropped.
+void Kuribo::appearHipDropped(const Vec3f& rPosition, const Quat4f& rPose) {
+    setUp(rPosition, rPose, Vec3f(0.0f, 0.0f, 0.0f));
     appear();
     MR::startAction(this, "HipDropDown");
     setNerve(GET_NERVE(Kuribo, KuriboNrvHipDropDown));
@@ -520,7 +523,7 @@ bool Kuribo::tryPointBind() {
 
 bool Kuribo::tryDead() {
     if (isEnableDead()) {
-        if (MR::isInDeath(this, TVec3f(0.0f, 0.0f, 0.0f)) || MR::isBindedGroundDamageFire(this) || MR::isInWater(mPosition)) {
+        if (MR::isInDeath(this, Vec3f(0.0f, 0.0f, 0.0f)) || MR::isBindedGroundDamageFire(this) || MR::isInWater(mPosition)) {
             mItemGenerator->setTypeNone();
             kill();
             return true;
@@ -601,8 +604,8 @@ void Kuribo::endNonActive() {
 void Kuribo::exeAppearFromBox() {
     if (MR::isFirstStep(this)) {
         MR::startAction(this, "AppearFromBox");
-        TVec3f zDir;
-        _A8.getZDir(zDir);
+        Vec3f zDir;
+        mPoseQuat.getZDir(zDir);
         MR::setVelocitySeparateHV(this, zDir, 7.0f, 30.0f);
         MR::offBind(this);
     }
@@ -625,9 +628,9 @@ void Kuribo::exeAttackSuccess() {
         MR::startAction(this, "Hit");
     }
 
-    MR::turnDirectionToTargetUseGroundNormalDegree(this, &_B8, *MR::getPlayerPos(), 5.0f);
+    MR::turnDirectionToTargetUseGroundNormalDegree(this, &mFront, *MR::getPlayerPos(), 5.0f);
     calcPassiveMovement();
-    if (MR::isGreaterStep(this, 60)) {
+    if (MR::isGreaterStep(this, NebulaFrameClock::stepsOfSeconds(1))) {
         setNerve(GET_NERVE(Kuribo, KuriboNrvWander));
     }
 }
@@ -668,7 +671,7 @@ void Kuribo::exePressDown() {
         MR::zeroVelocity(this);
     }
 
-    if (MR::isGreaterStep(this, 180)) {
+    if (MR::isGreaterStep(this, NebulaFrameClock::stepsOfSeconds(3))) {
         kill();
     }
 }
@@ -681,8 +684,8 @@ void Kuribo::exeBlowDown() {
     }
 
     calcPassiveMovement();
-    MR::turnDirectionDegree(this, &_B8, -mVelocity, 30.0f);
-    if (MR::isGreaterStep(this, 30)) {
+    MR::turnDirectionDegree(this, &mFront, -mVelocity, 30.0f);
+    if (MR::isGreaterStep(this, NebulaFrameClock::stepsOfMilliseconds(500))) {
         kill();
     }
 }
@@ -787,11 +790,8 @@ void Kuribo::exeBlowLand() {
 
 namespace MR {
     LiveActor* createNoItemKuriboActor(const char* pName) {
-        Kuribo* kuribo = new Kuribo(pName);
-        kuribo->_C5 = 0;
-        return kuribo;
+        Kuribo* pKuribo = new Kuribo(pName);
+        pKuribo->mHasItem = false;
+        return pKuribo;
     }
 };  // namespace MR
-
-Kuribo::~Kuribo() {
-}

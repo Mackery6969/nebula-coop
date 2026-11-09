@@ -1,26 +1,21 @@
+#include <nebula_game_api.h>
 #include "Game/Map/Flag.hpp"
-#include "Game/Util/NativeShader.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
+#include "Game/Render/TypedDraw.hpp"
+#include "Game/Render/FrameList.hpp"
 #include "Game/Ride/SwingRopePoint.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Util/ActorMovementUtil.hpp"
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/Color.hpp"
 #include "Game/Util/DemoUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
-#include <JSystem/JMath/JMATrigonometric.hpp>
-#include <JSystem/JUtility/JUTTexture.hpp>
-#include <nebula_game_api.h>
-#include <cstring>
-
-extern "C" const NebulaHostServices* nebula_host(void);
+#include <nebula_geometry.hpp>
+#include "Game/Render/GameTexture.hpp"
 
 namespace {
     static const f32 sDefaultPointIntervalU = 40.0f;
@@ -52,11 +47,8 @@ namespace {
 };  // namespace
 
 namespace {
-    NebulaColor8 sStickColors[] = {{0x00, 0xC8, 0x00, 0x00}, {0x00, 0xDC, 0x00, 0x00}, {0x00, 0xB4, 0x00, 0x00}, {0x00, 0xC8, 0x00, 0x00}};
+    const NebulaColor8 sStickColors[] = {{0x00, 0xC8, 0x00, 0x00}, {0x00, 0xDC, 0x00, 0x00}, {0x00, 0xB4, 0x00, 0x00}, {0x00, 0xC8, 0x00, 0x00}};
 };  // namespace
-
-Flag::~Flag() {
-}
 
 Flag::Flag(const char* pName)
     : LiveActor(pName), mObjName(), mDisableLighting(), mNumPointsV(10), mNumPointsU(10), mPointIntervalU(::sDefaultPointIntervalU),
@@ -68,12 +60,12 @@ Flag::Flag(const char* pName)
       mAlpha(0xFF), mAlphaDistanceNear(::sDefaultAlphaDistanceNear), mAlphaDistanceFar(::sDefaultAlphaDistanceFar), mSeStep(), mDisableSound() {
 }
 
-void Flag::init(const JMapInfoIter& rIter) {
+void Flag::init(const TableIter& rIter) {
     MR::connectToScene(this, MR::MovementType_MapObj, MR::CalcAnimType_None, MR::DrawBufferType_None, MR::DrawType_Flag);
 
     if (MR::isValidInfo(rIter)) {
         MR::initDefaultPos(this, rIter);
-        MR::getJMapInfoArg1NoInit(rIter, &mStickLength);
+        MR::getPlacementArg1NoInit(rIter, &mStickLength);
         MR::getObjectName(&mObjName, rIter);
         if (MR::isEqualString(mObjName, "FlagKoopaCastle")) {
             mPointIntervalU = 1000.0f / mNumPointsU;
@@ -113,7 +105,7 @@ void Flag::init(const JMapInfoIter& rIter) {
         } else if (MR::isEqualString(mObjName, "FlagRaceA")) {
             mDisableSound = true;
         }
-        TVec3f front;
+        Vec3f front;
         MR::calcActorAxis(&front, &mUp, &mSide, this);
     }
 
@@ -125,14 +117,14 @@ void Flag::init(const JMapInfoIter& rIter) {
     mFixPoints = new FixPoints[mNumPointsV];
 
     for (s32 idxV = 0; idxV < mNumPointsV; idxV++) {
-        TVec3f pos = mUp;
+        Vec3f pos = mUp;
         pos.scale(mStickLength + mPointIntervalV * ((mNumPointsV - 1) - idxV));
         pos.add(mPosition);
         mFixPoints[idxV].mPos.set(pos);
 
         mFixPoints[idxV].mPoints = new SwingRopePoint*[mNumPointsU];
         for (s32 idxU = 0; idxU < mNumPointsU; idxU++) {
-            TVec3f posU = pos;
+            Vec3f posU = pos;
             if (mIsVerticalFlag) {
                 posU.add(mGravity * (mPointIntervalU * (idxU + 1)));
             }
@@ -149,7 +141,8 @@ void Flag::init(const JMapInfoIter& rIter) {
     mTexST = new f32[mNumPointsV * (mNumPointsU + 1) * 2];
     s32 idx = 0;
     for (s32 idxV = 0; idxV < mNumPointsV; idxV++) {
-        f32 texV = static_cast< f32 >(idxV) / static_cast< f32 >(mNumPointsV - 1);
+        // One row is the top of the picture.
+        f32 texV = mNumPointsV > 1 ? static_cast< f32 >(idxV) / static_cast< f32 >(mNumPointsV - 1) : 0.0f;
         mTexST[idx + 0] = 0.0f;
         mTexST[idx + 1] = texV;
         idx += 2;
@@ -162,9 +155,9 @@ void Flag::init(const JMapInfoIter& rIter) {
     }
 
     if (mObjName != nullptr) {
-        mTexture = new JUTTexture(MR::loadTexFromArc(mObjName));
+        mTexture = new GameTexture(MR::loadTexFromArc(mObjName));
     } else {
-        mTexture = new JUTTexture(MR::loadTexFromArc("Flag.arc", "Flag.bti"));
+        mTexture = new GameTexture(MR::loadTexFromArc("Flag", "Flag.bti"));
     }
 
     initSound(4, false);
@@ -202,8 +195,8 @@ void Flag::appear() {
     MR::startSound(this, "SE_OJ_FLAG_APPEAR");
 }
 
-void Flag::setInfoPos(const char* pObjName, const TVec3f* pPos, const TVec3f& rSide, f32 stickLength, f32 width, f32 height, s32 numPointsU,
-                      s32 numPointsV, f32 /* unused */) {
+void Flag::setInfoPos(const char* pObjName, const Vec3f* pPos, const Vec3f& rSide, f32 stickLength, f32 width, f32 height, s32 numPointsU,
+                      s32 numPointsV) {
     mObjName = pObjName;
     mBasePos = pPos;
     mSide.set(rSide);
@@ -222,7 +215,8 @@ void Flag::setInfoPos(const char* pObjName, const TVec3f* pPos, const TVec3f& rS
         mPointIntervalU = width / mNumPointsU;
     }
 
-    if (height > 0.0f) {
+    // One row has no height between rows.
+    if (height > 0.0f && mNumPointsV > 1) {
         mPointIntervalV = height / (mNumPointsV - 1);
     }
 }
@@ -275,7 +269,7 @@ void Flag::updateFlag() {
     if (mBasePos != nullptr) {
         mPosition.set(*mBasePos);
         for (s32 idxV = 0; idxV < mNumPointsV; idxV++) {
-            TVec3f pos = mUp;
+            Vec3f pos = mUp;
             pos.scale(mStickLength + mPointIntervalV * ((mNumPointsV - 1) - idxV));
             pos.add(*getPosition());
             mFixPoints[idxV].mPos.set(pos);
@@ -287,7 +281,7 @@ void Flag::updateFlag() {
         mBaseMtx->getYDir2(mUp);
 
         for (s32 idxV = 0; idxV < mNumPointsV; idxV++) {
-            TVec3f pos = mUp;
+            Vec3f pos = mUp;
             pos.scale(mStickLength + mPointIntervalV * ((mNumPointsV - 1) - idxV));
             pos.add(*getPosition());
             mFixPoints[idxV].mPos.set(pos);
@@ -295,14 +289,14 @@ void Flag::updateFlag() {
     }
 
     // Add gravity and side wind
-    TVec3f grav = *getGravity();
+    Vec3f grav = *getGravity();
     grav.scale(mGravityScale);
     for (s32 idxV = 0; idxV < mNumPointsV; idxV++) {
         for (s32 idxU = 0; idxU < mNumPointsU; idxU++) {
             SwingRopePoint* point = mFixPoints[idxV].mPoints[idxU];
             point->addAccel(grav);
 
-            TVec3f side = mSide;
+            Vec3f side = mSide;
             f32 wave = MR::sinDegree(mWavePhase + ::sWindPosRateU * idxU + ::sWindPosRateV * idxV);
             if (wave < 0.0f) {
                 wave *= -1.0f;
@@ -317,7 +311,7 @@ void Flag::updateFlag() {
             // Add random wind accel at single point
             s32 pointV = MR::getRandom(0, mNumPointsV);
             s32 pointU = MR::getRandom(0, mNumPointsU);
-            TVec3f wind(MR::getRandom(-1.0f, 1.0f), 0.0f, MR::getRandom(-1.0f, 1.0f));
+            Vec3f wind(MR::getRandom(-1.0f, 1.0f), 0.0f, MR::getRandom(-1.0f, 1.0f));
             MR::vecKillElement(wind, mUp, &wind);
             wind.scale(MR::getRandom(mRandomWindAccelMin, mRandomWindAccelMax));
             mFixPoints[pointV].mPoints[pointU]->addAccel(wind);
@@ -329,7 +323,7 @@ void Flag::updateFlag() {
     } else {
         // Add random wind accel across whole flag
         for (s32 idxV = 0; idxV < mNumPointsV; idxV++) {
-            TVec3f wind(MR::getRandom(-1.0f, 1.0f), 0.0f, MR::getRandom(-1.0f, 1.0f));
+            Vec3f wind(MR::getRandom(-1.0f, 1.0f), 0.0f, MR::getRandom(-1.0f, 1.0f));
             wind.scale(MR::getRandom(mRandomWindAccelMin, mRandomWindAccelMax));
             mFixPoints[idxV].mPoints[0]->addAccel(wind);
         }
@@ -337,8 +331,8 @@ void Flag::updateFlag() {
 
     // restrict in horizontal direction
     for (s32 idxU = 0; idxU < mNumPointsU; idxU++) {
-        TVec3f* pos = &mFixPoints[0].mPoints[idxU]->mPosition;
-        TVec3f* vel = &mFixPoints[0].mPoints[idxU]->mVelocity;
+        Vec3f* pos = &mFixPoints[0].mPoints[idxU]->mPosition;
+        Vec3f* vel = &mFixPoints[0].mPoints[idxU]->mVelocity;
         for (s32 idxV = 1; idxV < mNumPointsV; idxV++) {
             SwingRopePoint* point = mFixPoints[idxV].mPoints[idxU];
             point->restrict(*pos, mPointIntervalV, vel);
@@ -349,7 +343,7 @@ void Flag::updateFlag() {
 
     // restrict in vertical direction
     for (s32 idxV = 0; idxV < mNumPointsV; idxV++) {
-        TVec3f* pos = &mFixPoints[idxV].mPos;
+        Vec3f* pos = &mFixPoints[idxV].mPos;
         for (s32 idxU = 0; idxU < mNumPointsU; idxU++) {
             SwingRopePoint* point = mFixPoints[idxV].mPoints[idxU];
             point->restrict(*pos, mPointIntervalU, nullptr);
@@ -358,8 +352,9 @@ void Flag::updateFlag() {
     }
 
     for (s32 idxU = 0; idxU < getNumPointsU(); idxU++) {
-        f32 friction =
-            mFrictionRateMin + (1.0f - (static_cast< f32 >(idxU) / static_cast< f32 >(mNumPointsU - 1))) * (mFrictionRateMax - mFrictionRateMin);
+        // One column is the fixed end of the cloth.
+        const f32 along = mNumPointsU > 1 ? static_cast< f32 >(idxU) / static_cast< f32 >(mNumPointsU - 1) : 0.0f;
+        f32 friction = mFrictionRateMin + (1.0f - along) * (mFrictionRateMax - mFrictionRateMin);
 
         for (s32 idxV = 0; idxV < getNumPointsV(); idxV++) {
             SwingRopePoint* point = mFixPoints[idxV].mPoints[idxU];
@@ -379,30 +374,27 @@ void Flag::draw() const {
         return;
     }
 
-    loadMaterial();
+    const SiteMaterial material = loadMaterial();
+    TypedDraw site(material, nullptr, MR::getCameraViewMtx());
 
     u8 indexA = 0;
     u8 indexB = mNumPointsU + 1;
     for (s32 idxV = 0; idxV < mNumPointsV - 1; idxV++) {
-        const TVec3f& posA = mFixPoints[idxV + 0].mPos;
-        const TVec3f& posB = mFixPoints[idxV + 1].mPos;
+        const Vec3f& posA = mFixPoints[idxV + 0].mPos;
+        const Vec3f& posB = mFixPoints[idxV + 1].mPos;
         // Each vertex's colour and texture coordinate are its entries of mColors and mTexST.
-        J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, (mNumPointsU + 1) * 2, NEBULA_SHAPE_COLOR0 | NEBULA_SHAPE_TEXCOORD0);
+        VertexPCT* vtx = site.vertices< VertexPCT >(NEBULA_PRIMITIVE_TRIANGLE_STRIP, (mNumPointsU + 1) * 2);
         {
-            J3DNativeDraw::position(posB.x, posB.y, posB.z);
-            sendEntry(indexB);
-            J3DNativeDraw::position(posA.x, posA.y, posA.z);
-            sendEntry(indexA);
+            *vtx++ = vertexOf(posB, indexB);
+            *vtx++ = vertexOf(posA, indexA);
             indexB++;
             indexA++;
 
             for (s32 idxU = 0; idxU < mNumPointsU; idxU++) {
-                const TVec3f& posA = mFixPoints[idxV].mPoints[idxU]->mPosition;
-                const TVec3f& posB = mFixPoints[idxV + 1].mPoints[idxU]->mPosition;
-                J3DNativeDraw::position(posB.x, posB.y, posB.z);
-                sendEntry(indexB);
-                J3DNativeDraw::position(posA.x, posA.y, posA.z);
-                sendEntry(indexA);
+                const Vec3f& posA = mFixPoints[idxV].mPoints[idxU]->mPosition;
+                const Vec3f& posB = mFixPoints[idxV + 1].mPoints[idxU]->mPosition;
+                *vtx++ = vertexOf(posB, indexB);
+                *vtx++ = vertexOf(posA, indexA);
 
                 indexB++;
                 indexA++;
@@ -411,54 +403,42 @@ void Flag::draw() const {
     }
 
     if (mStickLength > 0.0f) {
-        TVec3f pos(mPosition.x, mPosition.y, mPosition.z);
-
-        const TVec2f stickCoords[] = {{1.0f, 0.0f}, {0.0f, 1.0f}, {-1.0f, 0.0f}, {1.0f, 0.0f}};
+        const Vec2f stickCoords[] = {{1.0f, 0.0f}, {0.0f, 1.0f}, {-1.0f, 0.0f}, {1.0f, 0.0f}};
 
         // The stick's colours are ::sStickColors' entries, its texture coordinate mTexST's first.
-        J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, 8, NEBULA_SHAPE_COLOR0 | NEBULA_SHAPE_TEXCOORD0);
+        VertexPCT* vtx = site.vertices< VertexPCT >(NEBULA_PRIMITIVE_TRIANGLE_STRIP, 8);
 
         f32 length = mStickLength + mPointIntervalV * (mNumPointsV - 1);
         for (s32 idx = 0; idx < 4; idx++) {
-            TVec3f v1(stickCoords[idx].x, 0.0f, stickCoords[idx].y);
-            TVec3f v2(stickCoords[idx].x, 0.0f, stickCoords[idx].y);
-            v1.scale(::sStickWidth);
-            v2.scale(::sStickWidth);
-            TVec3f posA = mUp * length;
-            posA.add(v1);
-            posA.add(v2);
+            // The offset goes on twice: the stick is twice sStickWidth out.
+            Vec3f offset(stickCoords[idx].x, 0.0f, stickCoords[idx].y);
+            offset.scale(::sStickWidth);
+            Vec3f posA = mUp * length;
+            posA.add(offset);
+            posA.add(offset);
             posA.add(mPosition);
-            TVec3f posB = mPosition;
-            posB.add(v1);
-            posB.add(v2);
+            Vec3f posB = mPosition;
+            posB.add(offset);
+            posB.add(offset);
 
-            J3DNativeDraw::position(posA.x, posA.y, posA.z);
-            J3DNativeDraw::color(::sStickColors[idx].r, ::sStickColors[idx].g, ::sStickColors[idx].b, ::sStickColors[idx].a);
-            J3DNativeDraw::texCoord(mTexST[0], mTexST[1]);
-            J3DNativeDraw::position(posB.x, posB.y, posB.z);
-            J3DNativeDraw::color(::sStickColors[idx].r, ::sStickColors[idx].g, ::sStickColors[idx].b, ::sStickColors[idx].a);
-            J3DNativeDraw::texCoord(mTexST[0], mTexST[1]);
+            *vtx++ = {posA.x, posA.y, posA.z, Rgba8(::sStickColors[idx].r, ::sStickColors[idx].g, ::sStickColors[idx].b, ::sStickColors[idx].a), mTexST[0], mTexST[1]};
+            *vtx++ = {posB.x, posB.y, posB.z, Rgba8(::sStickColors[idx].r, ::sStickColors[idx].g, ::sStickColors[idx].b, ::sStickColors[idx].a), mTexST[0], mTexST[1]};
         }
     }
 }
 
-void Flag::sendEntry(u8 index) const {
-    const Color8& rColor = mColors[index];
-    J3DNativeDraw::color(rColor.r, rColor.g, rColor.b, rColor.a);
-    J3DNativeDraw::texCoord(mTexST[2 * index], mTexST[2 * index + 1]);
+VertexPCT Flag::vertexOf(const Vec3f& rPos, u8 index) const {
+    return VertexPCT{rPos.x, rPos.y, rPos.z, Rgba8(mColors[index]), mTexST[2 * index], mTexST[2 * index + 1]};
 }
 
-void Flag::loadMaterial() const {
-    J3DNativeShape::setPosition(0, MR::getCameraViewMtx());
-    J3DPass::positionMatrix(0);
+SiteMaterial Flag::loadMaterial() const {
 
     // runtime/src/render/materials/tex_modulate.hlsl: the texture times the vertex colour, its alpha times mAlpha;
     // blended by alpha where above zero, depth tested (written when opaque), no culling, no fog.
-    NebulaNativeMaterial material;
-    NativeShader::init(material, NEBULA_SHADER_TEX_MODULATE, NativeShader::BLEND_ALPHA, NEBULA_COMPARE_LEQUAL,
+    SiteMaterial material;
+    material.init(NEBULA_SHADER_TEX_MODULATE, SiteMaterial::BLEND_ALPHA, NEBULA_COMPARE_LEQUAL,
                        mAlpha == 0xFF, NEBULA_CULL_NONE);
     material.constants[0] = mAlpha / 255.0f;
-    NativeShader::setTexture(material, 0, mTexture);
-    NativeShader::send(material);
-    J3DNativeShape::setCurrentIdentity();
+    material.setTexture(0, mTexture);
+    return material;
 }

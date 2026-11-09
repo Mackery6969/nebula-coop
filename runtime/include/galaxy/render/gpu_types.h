@@ -16,20 +16,13 @@ namespace galaxy::render::gpu {
 // Handles keep D3D12's field names where the shared code reads them, so one RenderCore compiles for both.
 using Device = VkDevice_T;
 using Pipeline = VkPipeline_T;
+using PipelineRef = VkPipeline;
 using Resource = VkBuffer_T;
 // A 64-bit address in the renderer's own buffer address space: each buffer the old path binds owns a range, and the
 // renderer turns an address back into (buffer, offset) when it binds it. Arithmetic on it works as on D3D12's.
 using Address = std::uint64_t;
 struct Table {
     std::uint64_t ptr = 0;  // VkDescriptorSet
-};
-using Topology = VkPrimitiveTopology;
-// D3D12's values: pipeline keys store them.
-enum TopologyType : std::uint8_t {
-    kTopologyTypePointValue = 1,
-    kTopologyTypeLineValue = 2,
-    kTopologyTypeTriangleValue = 3,
-    kTopologyTypePatchValue = 4,
 };
 struct VertexView {
     Address BufferLocation = 0;
@@ -48,14 +41,6 @@ struct Rect {
     std::int32_t bottom = 0;
 };
 
-inline constexpr TopologyType kTopologyTypeTriangle = kTopologyTypeTriangleValue;
-inline constexpr TopologyType kTopologyTypeLine = kTopologyTypeLineValue;
-inline constexpr TopologyType kTopologyTypePoint = kTopologyTypePointValue;
-inline constexpr TopologyType kTopologyTypePatch = kTopologyTypePatchValue;
-inline constexpr Topology kTopologyTriangleList = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-inline constexpr Topology kTopologyLineList = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
-inline constexpr Topology kTopologyPointList = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
-// Curved surfaces' triangles as three-point patches (the pipeline's patch control points: 3).
 
 [[nodiscard]] inline VertexView vertex_view(Address address, std::uint32_t size, std::uint32_t stride) noexcept {
     return VertexView{address, size, stride};
@@ -104,20 +89,13 @@ struct DeviceRef {
     bool operator!=(std::nullptr_t) const noexcept { return handle != VK_NULL_HANDLE; }
     bool operator==(std::nullptr_t) const noexcept { return handle == VK_NULL_HANDLE; }
 };
-// copies stay below 640x528 at scale 6; every Vulkan device reports at least 4096.
-inline constexpr unsigned kMaxTexture2DDimension = 4096u;
 
 // An RGBA8 texture that is rendered to and sampled (display picture copies); empty when it cannot be created.
 [[nodiscard]] TextureRef create_render_texture(Device* device, std::uint32_t width, std::uint32_t height);
 
 }  // namespace galaxy::render::gpu
 #else
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
+#include "galaxy/windows_api.h"
 #include <d3d12.h>
 #include <wrl/client.h>
 
@@ -132,27 +110,17 @@ using TextureObject = ID3D12Resource;
 // Another reference to a texture a handle names.
 [[nodiscard]] inline TextureRef texture_ref(TextureObject* texture) { return TextureRef{texture}; }
 using CpuDescriptor = D3D12_CPU_DESCRIPTOR_HANDLE;
-inline constexpr unsigned kMaxTexture2DDimension = D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION;
 using Pipeline = ID3D12PipelineState;
+using PipelineRef = Microsoft::WRL::ComPtr<ID3D12PipelineState>;
 using Resource = ID3D12Resource;
 // A GPU address a draw binds (constants, matrix palette, vertex and index data).
 using Address = D3D12_GPU_VIRTUAL_ADDRESS;
 // A shader-visible table of texture or sampler descriptors.
 using Table = D3D12_GPU_DESCRIPTOR_HANDLE;
-using Topology = D3D12_PRIMITIVE_TOPOLOGY;
-using TopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE;
 using VertexView = D3D12_VERTEX_BUFFER_VIEW;
 using IndexView = D3D12_INDEX_BUFFER_VIEW;
 using Rect = D3D12_RECT;
 
-inline constexpr TopologyType kTopologyTypeTriangle = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-inline constexpr TopologyType kTopologyTypeLine = D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
-inline constexpr TopologyType kTopologyTypePoint = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
-inline constexpr TopologyType kTopologyTypePatch = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
-inline constexpr Topology kTopologyTriangleList = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-inline constexpr Topology kTopologyLineList = D3D_PRIMITIVE_TOPOLOGY_LINELIST;
-inline constexpr Topology kTopologyPointList = D3D_PRIMITIVE_TOPOLOGY_POINTLIST;
-// Curved surfaces' triangles as three-point patches.
 
 [[nodiscard]] inline VertexView vertex_view(Address address, std::uint32_t size, std::uint32_t stride) noexcept {
     VertexView view{};
@@ -183,15 +151,25 @@ inline constexpr Topology kTopologyPointList = D3D_PRIMITIVE_TOPOLOGY_POINTLIST;
 
 namespace galaxy::render::gpu {
 
+// Where upload memory lies: Host (system memory the GPU reads across the bus; the CPU writes it write-combined) or GpuLocal
+// (video memory the CPU writes through a resizable BAR, for data the GPU reads every frame: the vertex and constant rings and the resident geometry pages),
+// on a device that maps its video memory for the CPU in bulk (Direct3D 12: the GPU upload heap; Vulkan: device-local
+// host-visible memory in a heap of its own larger than the 256 MB window); Host elsewhere.
+enum class UploadPlace : std::uint8_t { Host, GpuLocal };
+
 // A persistently mapped buffer the CPU writes and the GPU reads: the upload rings and RenderCore's resident vertices.
 struct UploadMemory {
     BufferRef buffer;
     std::byte* cpu = nullptr;
     Address gpu = 0;
+    bool local = false;  // in video memory (UploadPlace::GpuLocal was given)
     explicit operator bool() const noexcept { return cpu != nullptr; }
 };
 
 // `bytes` of upload memory, mapped for its lifetime; empty when it cannot be created.
-[[nodiscard]] UploadMemory create_upload_memory(Device* device, std::size_t bytes, const char* name);
+[[nodiscard]] UploadMemory create_upload_memory(Device* device, std::size_t bytes, const char* name,
+                                                UploadPlace place = UploadPlace::Host);
+// The device reports itself lost, where the API can say so without a failed call.
+[[nodiscard]] bool device_removed(Device* device) noexcept;
 
 }  // namespace galaxy::render::gpu

@@ -13,7 +13,7 @@ namespace {
 namespace NrvCollapsePlane {
     NEW_NERVE(CollapsePlaneNrvWait, CollapsePlane, Wait);
     NEW_NERVE(CollapsePlaneNrvCollapse, CollapsePlane, Collapse);
-    NEW_NERVE(CollapsePlaneNrvDPDStop, CollapsePlane, DPDStop);
+    NEW_NERVE(CollapsePlaneNrvPointerStop, CollapsePlane, PointerStop);
     NEW_NERVE(CollapsePlaneNrvEnd, CollapsePlane, End);
 };  // namespace NrvCollapsePlane
 
@@ -21,7 +21,7 @@ CollapsePlane::CollapsePlane(const char* pName)
     : MapObjActor(pName), mScaleController(), mStateBindStartPointer(), mJointController(), mCollapseStep(-1), mCollapseTime(::sDefaultCollapseTime) {
 }
 
-void CollapsePlane::init(const JMapInfoIter& rIter) {
+void CollapsePlane::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
     MapObjActorInitInfo info;
     info.setupDefaultPos();
@@ -31,8 +31,8 @@ void CollapsePlane::init(const JMapInfoIter& rIter) {
     info.setupProjmapMtx(false);
     info.setupNerve(GET_NERVE(CollapsePlane, CollapsePlaneNrvWait));
     initialize(rIter, info);
-    initEffectKeeper(1, nullptr, false);
-    MR::initStarPointerTarget(this, mScale.x * 200.0f, TVec3f(0.0f, 0.0f, 0.0f));
+    initEffectKeeper(1, nullptr);
+    MR::initStarPointerTarget(this, mScale.x * 200.0f, Vec3f(0.0f, 0.0f, 0.0f));
 
     mScaleController = new AnimScaleController(nullptr);
     mScaleController->setParamTight();
@@ -43,7 +43,7 @@ void CollapsePlane::init(const JMapInfoIter& rIter) {
 
     MR::initCollisionPartsAutoEqualScale(this, "Move", getSensor(nullptr), MR::getJointMtx(this, "Plane"));
     MR::validateCollisionParts(this);
-    MR::getJMapInfoArg0NoInit(rIter, &mCollapseTime);
+    MR::getPlacementArg0NoInit(rIter, &mCollapseTime);
 }
 
 void CollapsePlane::exeWait() {
@@ -70,7 +70,7 @@ void CollapsePlane::exeCollapse() {
     }
 }
 
-void CollapsePlane::exeDPDStop() {
+void CollapsePlane::exePointerStop() {
     if (mCollapseStep == -1 && MR::isOnPlayer(this)) {
         mCollapseStep = 0;
     }
@@ -95,19 +95,20 @@ void CollapsePlane::calcAndSetBaseMtx() {
     }
 
     if (MR::isInitializeStateEnd()) {
-        MR::setBaseScale(this, mScaleController->_C * mScale);
+        MR::setBaseScale(this, mScaleController->mScale * mScale);
     }
 }
 
 void CollapsePlane::control() {
     mScaleController->updateNerve();
-    tryDPDStop();
+    tryPointerStop();
 }
 
-bool CollapsePlane::calcJointPlane(TPos3f* pMtx, const JointControllerInfo&) {
-    f32 xzScale = 1.0f - (::sScaleMin * mCollapseStep) / mCollapseTime;
+bool CollapsePlane::calcJointPlane(Pos3f* pMtx, const JointControllerInfo&) {
+    // A collapse time of 0 or less (placement arg 0) is collapsed at once.
+    f32 xzScale = mCollapseTime > 0 ? 1.0f - (::sScaleMin * mCollapseStep) / mCollapseTime : 1.0f - ::sScaleMin;
 
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.identity();
     MR::preScaleMtx(mtx, xzScale, 1.0f, xzScale);
     pMtx->concat(mtx);
@@ -116,8 +117,8 @@ bool CollapsePlane::calcJointPlane(TPos3f* pMtx, const JointControllerInfo&) {
     return true;
 }
 
-bool CollapsePlane::tryDPDStop() {
-    if (isNerve(GET_NERVE(CollapsePlane, CollapsePlaneNrvDPDStop))) {
+bool CollapsePlane::tryPointerStop() {
+    if (isNerve(GET_NERVE(CollapsePlane, CollapsePlaneNrvPointerStop))) {
         return false;
     }
 
@@ -129,7 +130,7 @@ bool CollapsePlane::tryDPDStop() {
         return false;
     }
 
-    setNerve(GET_NERVE(CollapsePlane, CollapsePlaneNrvDPDStop));
+    setNerve(GET_NERVE(CollapsePlane, CollapsePlaneNrvPointerStop));
 
     return true;
 }

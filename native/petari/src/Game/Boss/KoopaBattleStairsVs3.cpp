@@ -10,50 +10,67 @@
 #include "Game/Util/ObjUtil.hpp"
 
 namespace {
-    static const f32 sFireSpeed = 30.0f;
-};  // namespace
+    const f32 cFireSpeed = 30.0f;
+    const s32 cMeteorNum = 3;
+    const char* const cMeteorDemoAnimName[cMeteorNum] = {
+        "DemoKoopaBattleStairsVs3Start01",
+        "DemoKoopaBattleStairsVs3Start02",
+        "DemoKoopaBattleStairsVs3Start03",
+    };
+
+    ModelObj* getDemoMeteor(Koopa* pKoopa, s32 index) {
+        switch (index) {
+        case 0:
+            return KoopaFunction::getKoopaDemoMeteor1(pKoopa);
+        case 1:
+            return KoopaFunction::getKoopaDemoMeteor2(pKoopa);
+        default:
+            return KoopaFunction::getKoopaDemoMeteor3(pKoopa);
+        }
+    }
+}  // namespace
 
 namespace NrvKoopaBattleStairsVs3 {
     NEW_NERVE(KoopaBattleStairsVs3NrvWaitDemo, KoopaBattleStairsVs3, WaitDemo);
     NEW_NERVE(KoopaBattleStairsVs3NrvDemo, KoopaBattleStairsVs3, Demo);
     NEW_NERVE(KoopaBattleStairsVs3NrvWait, KoopaBattleStairsVs3, Wait);
-};  // namespace NrvKoopaBattleStairsVs3
+}  // namespace NrvKoopaBattleStairsVs3
 
-KoopaBattleStairsVs3::KoopaBattleStairsVs3(Koopa* pKoopa) : KoopaBattleStairsBase(pKoopa), mNamePos(0.0f, 0.0f, 0.0f) {
+KoopaBattleStairsVs3::KoopaBattleStairsVs3(Koopa* pKoopa) : KoopaBattleStairsBase(pKoopa), mFireStartPos(0.0f, 0.0f, 0.0f) {
     initNerve(GET_NERVE(KoopaBattleStairsVs3, KoopaBattleStairsVs3NrvWaitDemo));
-    
-    MR::findNamePos("\203\116\203\142\203\160\212\113\222\151\220\355\202\314\226\103\222\145\217\157\214\273" /* クッパ階段戦の砲弾出現 */, &mNamePos, nullptr);
+
+    MR::findNamePos("クッパ階段戦の砲弾出現", &mFireStartPos, nullptr);
 
     KoopaFunction::initKoopaAnimCamera(mKoopa, "DemoKoopaBattleStairsVs3Start");
 }
 
 s32 KoopaBattleStairsVs3::registerStair(KoopaBattleMapStair* pBattleMapStair) {
     mStairsGroup->registerActor(pBattleMapStair);
-    return calcFireAttackStep(pBattleMapStair, ::sFireSpeed, 0, mNamePos);
+    return calcFireAttackStep(pBattleMapStair, ::cFireSpeed, 0, mFireStartPos);
 }
 
 void KoopaBattleStairsVs3::exeWaitDemo() {
-    if (!KoopaFunction::tryStartKoopaCameraDemo(mKoopa, "\212\113\222\151\202\314\220\355\202\242\212\112\216\156\203\146\203\202" /* 階段の戦い開始デモ */, "DemoKoopaBattleStairsVs3Start", "\203\146\203\202\222\206\220\123" /* デモ中心 */)) {
+    if (!KoopaFunction::tryStartKoopaCameraDemo(mKoopa, "階段の戦い開始デモ", "DemoKoopaBattleStairsVs3Start", "デモ中心")) {
         return;
     }
 
-    KoopaFunction::getKoopaDemoMeteor1(mKoopa)->appear();
-    KoopaFunction::getKoopaDemoMeteor2(mKoopa)->appear();
-    KoopaFunction::getKoopaDemoMeteor3(mKoopa)->appear();
+    for (s32 i = 0; i < ::cMeteorNum; i++) {
+        ::getDemoMeteor(mKoopa, i)->appear();
+    }
 
     MR::requestMovementOn(KoopaFunction::getKoopaDemoPeach(mKoopa));
     MR::requestMovementOn(KoopaFunction::getKoopaDemoKoopaJr(mKoopa));
     MR::requestMovementOn(KoopaFunction::getKoopaDemoKoopaJrShip(mKoopa));
-    MR::requestMovementOn(KoopaFunction::getKoopaDemoMeteor1(mKoopa));
-    MR::requestMovementOn(KoopaFunction::getKoopaDemoMeteor2(mKoopa));
-    MR::requestMovementOn(KoopaFunction::getKoopaDemoMeteor3(mKoopa));
+    for (s32 i = 0; i < ::cMeteorNum; i++) {
+        MR::requestMovementOn(::getDemoMeteor(mKoopa, i));
+    }
 
     MR::startAction(KoopaFunction::getKoopaDemoPeach(mKoopa), "DemoKoopaBattleStairsVs3Start");
     MR::startAction(KoopaFunction::getKoopaDemoKoopaJr(mKoopa), "DemoKoopaBattleStairsVs3Start");
     MR::startAction(KoopaFunction::getKoopaDemoKoopaJrShip(mKoopa), "DemoKoopaBattleStairsVs3Start");
-    MR::startAction(KoopaFunction::getKoopaDemoMeteor1(mKoopa), "DemoKoopaBattleStairsVs3Start01");
-    MR::startAction(KoopaFunction::getKoopaDemoMeteor2(mKoopa), "DemoKoopaBattleStairsVs3Start02");
-    MR::startAction(KoopaFunction::getKoopaDemoMeteor3(mKoopa), "DemoKoopaBattleStairsVs3Start03");
+    for (s32 i = 0; i < ::cMeteorNum; i++) {
+        MR::startAction(::getDemoMeteor(mKoopa, i), ::cMeteorDemoAnimName[i]);
+    }
 
     KoopaFunction::endFaceCtrl(mKoopa, -1);
 
@@ -61,7 +78,7 @@ void KoopaBattleStairsVs3::exeWaitDemo() {
 }
 
 void KoopaBattleStairsVs3::exeDemo() {
-    if (!KoopaFunction::tryEndKoopaCameraDemo(mKoopa, "\212\113\222\151\202\314\220\355\202\242\212\112\216\156\203\146\203\202" /* 階段の戦い開始デモ */, "DemoKoopaBattleStairsVs3Start")) {
+    if (!KoopaFunction::tryEndKoopaCameraDemo(mKoopa, "階段の戦い開始デモ", "DemoKoopaBattleStairsVs3Start")) {
         return;
     }
 
@@ -71,9 +88,9 @@ void KoopaBattleStairsVs3::exeDemo() {
     MR::startAction(KoopaFunction::getKoopaDemoKoopaJr(mKoopa), "DemoKoopaVs3Wait");
     MR::startAction(KoopaFunction::getKoopaDemoKoopaJrShip(mKoopa), "DemoKoopaVs3Wait");
 
-    KoopaFunction::getKoopaDemoMeteor1(mKoopa)->kill();
-    KoopaFunction::getKoopaDemoMeteor2(mKoopa)->kill();
-    KoopaFunction::getKoopaDemoMeteor3(mKoopa)->kill();
+    for (s32 i = 0; i < ::cMeteorNum; i++) {
+        ::getDemoMeteor(mKoopa, i)->kill();
+    }
 
     setNerve(GET_NERVE(KoopaBattleStairsVs3, KoopaBattleStairsVs3NrvWait));
 }
@@ -86,15 +103,14 @@ void KoopaBattleStairsVs3::exeWait() {
     tryAttack();
 }
 
+// Each stair is fired at once, when its attack step comes or straight away if it has none.
 void KoopaBattleStairsVs3::tryAttack() {
-    KoopaBattleMapStair* pBattleMapStair;
-
     for (s32 i = 0; i < mStairsGroup->getObjNum(); i++) {
-        pBattleMapStair = static_cast< KoopaBattleMapStair* >(mStairsGroup->getActor(i));
+        KoopaBattleMapStair* pBattleMapStair = static_cast< KoopaBattleMapStair* >(mStairsGroup->getActor(i));
 
         if (pBattleMapStair->isRequestAttackVs3()) {
-            pBattleMapStair->_A6 = true;
-            KoopaFunction::emitFireStairsToTarget(mKoopa, pBattleMapStair, mNamePos, true);
+            pBattleMapStair->mIsKoopaAttack = true;
+            KoopaFunction::emitFireStairsToTarget(mKoopa, pBattleMapStair, mFireStartPos, true);
         }
     }
 }

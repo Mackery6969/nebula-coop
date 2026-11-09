@@ -5,7 +5,7 @@
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/BaseMatrixFollowTargetHolder.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
@@ -13,14 +13,14 @@
 ClipAreaMovable::ClipAreaMovable(const char* pName) : ClipArea(pName), mMapPartsRailMover(), mMapPartsRotator() {
 }
 
-void ClipAreaMovable::init(const JMapInfoIter& rIter) {
+void ClipAreaMovable::init(const TableIter& rIter) {
     initBaseMatrix(rIter);
     MR::connectToScene(this, MR::MovementType_ClippedMapParts, MR::CalcAnimType_None, MR::DrawBufferType_None, MR::DrawType_ClipArea);
     MR::setGroupClipping(this, rIter, 0x40);
     MR::setClippingTypeSphere(this, MR::getMaxAbsElement(mScale) * 1400.0f);
     initMoveFunction(rIter);
     initHitSensor(1);
-    MR::addHitSensorMapObj(this, "body", 0, 0.0f, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorMapObj(this, "body", 0, 0.0f, Vec3f(0.0f, 0.0f, 0.0f));
     MR::useStageSwitchReadB(this, rIter);
     MR::addBaseMatrixFollowTarget(this, rIter, 0, 0);
     makeActorAppeared();
@@ -44,7 +44,7 @@ void ClipAreaMovable::control() {
     updateMatrix();
 }
 
-void ClipAreaMovable::initMoveFunction(const JMapInfoIter& rIter) {
+void ClipAreaMovable::initMoveFunction(const TableIter& rIter) {
     if (MR::isConnectedWithRail(rIter)) {
         initRailRider(rIter);
 
@@ -87,11 +87,11 @@ void ClipAreaMovable::movementMoveFunction() {
 }
 
 void ClipAreaMovable::updateMatrix() {
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.identity();
 
     if (mMapPartsRailMover != nullptr) {
-        mPosition.set(mMapPartsRailMover->_28);
+        mPosition.set(mMapPartsRailMover->mStartPos);
     }
 
     if (mMapPartsRotator != nullptr) {
@@ -99,43 +99,43 @@ void ClipAreaMovable::updateMatrix() {
     }
 
     mtx.setTrans(mPosition);
-    __builtin_memcpy(mBaseMtx, mtx, sizeof(Mtx));
+    mBaseMtx = mtx;
 }
 
-NameObj* MR::createClipAreaSphere(const char* pParam1) {
-    ClipArea* pClipArea = new ClipAreaMovable(pParam1);
+NameObj* MR::createClipAreaSphere(const char* pModel) {
+    ClipArea* pClipArea = new ClipAreaMovable(pModel);
 
     MR::setClipSphereArea(pClipArea);
 
     return pClipArea;
 }
 
-NameObj* MR::createClipAreaCenterBox(const char* pParam1) {
-    ClipArea* pClipArea = new ClipAreaMovable(pParam1);
+NameObj* MR::createClipAreaCenterBox(const char* pModel) {
+    ClipArea* pClipArea = new ClipAreaMovable(pModel);
 
     MR::setClipCenterBoxArea(pClipArea);
 
     return pClipArea;
 }
 
-NameObj* MR::createClipAreaBottomBox(const char* pParam1) {
-    ClipArea* pClipArea = new ClipAreaMovable(pParam1);
+NameObj* MR::createClipAreaBottomBox(const char* pModel) {
+    ClipArea* pClipArea = new ClipAreaMovable(pModel);
 
     MR::setClipBottomBoxArea(pClipArea);
 
     return pClipArea;
 }
 
-NameObj* MR::createClipAreaTopCone(const char* pParam1) {
-    ClipArea* pClipArea = new ClipAreaMovable(pParam1);
+NameObj* MR::createClipAreaTopCone(const char* pModel) {
+    ClipArea* pClipArea = new ClipAreaMovable(pModel);
 
     MR::setClipTopConeArea(pClipArea);
 
     return pClipArea;
 }
 
-NameObj* MR::createClipAreaBottomCone(const char* pParam1) {
-    ClipArea* pClipArea = new ClipAreaMovable(pParam1);
+NameObj* MR::createClipAreaBottomCone(const char* pModel) {
+    ClipArea* pClipArea = new ClipAreaMovable(pModel);
 
     MR::setClipBottomConeArea(pClipArea);
 

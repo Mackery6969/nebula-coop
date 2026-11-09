@@ -269,7 +269,7 @@ void MoviePlayingSequence::exePlayWait() {
         // An HD replacement's decoder starts here, the play wait before the THP opens, so its first frames are ready
         // with the game's.
         const NebulaHostServices* const host = nebula_host();
-        host->movie_frame(host->user, ::getMovieName(mInfo), NEBULA_MOVIE_OPENING, 0.0f, nullptr, nullptr, nullptr, 0, 0);
+        host->movie_frame(host->user, ::getMovieName(mInfo), NEBULA_MOVIE_OPENING, 0.0f, nullptr, 0, 0, 0);
         MR::startStarPointerModeDemo(this);
         MR::stopSubBGM(60);
         MR::stopStageBGM(60);
@@ -289,7 +289,7 @@ void MoviePlayingSequence::exePlayWait() {
 
         if (MR::isEqualStringCase(mInfo->mMovieName, "/MovieData/PrologueA.thp")) {
             MarioAccess::readyRemoteDemo();
-            MR::setPlayerPosOnGroundAndWait("\203\212\203\130\203\136\201\133\203\147" /* リスタート */);
+            MR::setPlayerPosOnGroundAndWait("リスタート");
             MR::startBckPlayer("Wait");
         }
     }
@@ -477,6 +477,11 @@ MoviePlayingSequenceHolder::MoviePlayingSequenceHolder(const char* pName) : Name
 }
 
 MoviePlayingSequence* MoviePlayingSequenceHolder::getSequence(int idx) const {
+    // A type with no movie (or out of range) has no sequence (null).
+    if (idx < 0 || idx >= static_cast< int >(mSequence.size())) {
+        return nullptr;
+    }
+
     return mSequence[idx];
 }
 
@@ -490,11 +495,18 @@ namespace MR {
     }
 
     void startMovie(int type) {
-        ::getMoviePlayingSequence(type)->appear();
+        MoviePlayingSequence* pSequence = ::getMoviePlayingSequence(type);
+
+        if (pSequence != nullptr) {
+            pSequence->appear();
+        }
     }
 
     bool isEndMovie(int type) {
-        return isDead(::getMoviePlayingSequence(type));
+        MoviePlayingSequence* pSequence = ::getMoviePlayingSequence(type);
+
+        // No sequence never plays: it is ended.
+        return pSequence == nullptr || isDead(pSequence);
     }
 
     void startMovieEpilogueA() {

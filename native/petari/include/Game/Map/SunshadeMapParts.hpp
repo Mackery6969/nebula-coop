@@ -6,9 +6,8 @@ class SunshadeMapParts : public GeneralMapParts {
 public:
     SunshadeMapParts(const char*);
 
-    virtual ~SunshadeMapParts();
-    virtual void init(const JMapInfoIter&);
-    virtual void calcAnim();
+    virtual void init(const TableIter&) override;
+    virtual void calcAnim() override;
 
     CollisionParts* mCollision;
 };

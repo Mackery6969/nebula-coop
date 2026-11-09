@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class ActorCameraInfo;
 class AnimScaleController;
@@ -22,26 +22,26 @@ class DinoPackun : public LiveActor {
 public:
     DinoPackun(const char*);
 
-    virtual ~DinoPackun();
-    virtual void init(const JMapInfoIter&);
-    virtual void makeActorDead();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPush(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void makeActorDead() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPush(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
+    const char* getVsAnimName() const;
     void initTail();
     void initFootPrint();
-    void initDemoPosition(const JMapInfoIter&);
+    void initDemoPosition(const TableIter&);
     void initEggShell();
     void initBall();
-    void initCamera(const JMapInfoIter&);
+    void initCamera(const TableIter&);
     void initScaleJointController();
     void startHitReaction();
     bool isHitReaction(s32) const;
-    bool hitScaleJoint(TPos3f*, const JointControllerInfo&);
+    bool hitScaleJoint(Pos3f*, const JointControllerInfo&);
     DinoPackunEggShell* getEggShell();
     PartsModel* getEggBrokenModel();
     PartsModel* getBallModel();
@@ -56,7 +56,7 @@ public:
     void appearStarPiece(s32);
     bool isSensorEgg(const HitSensor*) const;
     void resetPosition();
-    void adjustTailRootPosition(const TVec3f&, f32);
+    void adjustTailRootPosition(const Vec3f&, f32);
     void activateParts();
     void onMovementParts();
     void onAimTailBall(s32);
@@ -77,18 +77,18 @@ public:
     CameraTargetMtx* mCamTargetMtx;
     ActorCameraInfo* mCameraInfo;
     DinoPackunSequencer* mSequence;
-    JointControlDelegator< DinoPackun >* _B4;
-    AnimScaleController* _B8;
-    TQuat4f _BC;
-    TVec4f _CC;
-    TVec3f _DC;
-    TVec3f _E8;
-    s32 _F4;
-    TVec3f mCameraVec;
-    f32 _104;
-    f32 _108;
-    s32 _10C;
-    u8 _110;
+    JointControlDelegator< DinoPackun >* mScaleJointCtrl;
+    AnimScaleController* mAnimScaleCtrl;
+    Quat4f mPoseQuat;
+    Vec4f mStartQuat;
+    Vec3f mStartPos;
+    Vec3f mFront;
+    s32 mCameraRegisterId;
+    Vec3f mCameraVec;
+    f32 mAimTailRateSpeed;
+    f32 mAimTailRate;
+    s32 mDamageCameraState;
+    bool mIsPreCalcAnim;
 };
 
 namespace MR {

@@ -35,7 +35,7 @@ namespace NrvLotusLeaf {
 LotusLeaf::LotusLeaf(const char* pName) : LiveActor(pName), mInitPos(gZeroVec), mShakeSpeed(), mShakePeriod() {
 }
 
-void LotusLeaf::init(const JMapInfoIter& rIter) {
+void LotusLeaf::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     mInitPos.set(mPosition);
     initModelManagerWithAnm("LotusLeaf", nullptr, false);
@@ -44,7 +44,7 @@ void LotusLeaf::init(const JMapInfoIter& rIter) {
     MR::initCollisionParts(this, "LotusLeaf", MR::addBodyMessageSensorMapObj(this), nullptr);
     initSound(4, false);
     initNerve(GET_NERVE(LotusLeaf, HostTypeWait));
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     MR::setEffectHostSRT(this, "LotusLeafRipple", &mInitPos, nullptr, nullptr);
     MR::initShadowVolumeCylinder(this, ::sShadowRadius);
 
@@ -89,13 +89,13 @@ void LotusLeaf::exeShake() {
         MR::emitEffect(this, "LotusLeafRipple");
     }
 
-    f32 f1 = TWO_PI / mShakePeriod;
-    f32 angle = getNerveStep() * f1;
+    f32 angularSpeed = TWO_PI / mShakePeriod;
+    f32 angle = getNerveStep() * angularSpeed;
     f32 vel = -mShakeSpeed * MR::cos(angle);
     mShakePeriod += ::sShakePeriodSlowPitch;
     mShakeSpeed *= ::sShakeSpeedAtten;
 
-    TVec3f& rVelocity = mVelocity;
+    Vec3f& rVelocity = mVelocity;
     f32 accel = vel - rVelocity.y;
     rVelocity.y = vel;
 

@@ -11,21 +11,21 @@ namespace {
 GravityDustParticleCallBack::GravityDustParticleCallBack(const LiveActor* pActor) : MultiEmitterParticleCallBack(), mActor(pActor) {
 }
 
-void GravityDustParticleCallBack::execute(JPABaseEmitter* pEmitter, JPABaseParticle* pParticle) {
-    TVec3f offsetPosition;
-    TVec3f baseAxis;
+void GravityDustParticleCallBack::execute(EmitterCore* pEmitter, ParticleCore* pParticle) {
+    Vec3f offsetPosition;
+    Vec3f baseAxis;
 
     if (pParticle->checkStatus(4)) {
         return;
     }
 
     offsetPosition.set(pParticle->mOffsetPosition);
-    u32 userWork = pParticle->getUserWork();
-    f32 speed = reinterpret_cast< f32& >(userWork);
+    // The particle's user word holds its speed's bits.
+    f32 speed = __builtin_bit_cast(f32, static_cast< u32 >(pParticle->getUserWork()));
     baseAxis.set(pParticle->mBaseAxis);
     baseAxis.scale(speed);
-    TVec3f gravityVector(0.0f, 0.0f, 0.0f);
-    TVec3f currentPosition;
+    Vec3f gravityVector(0.0f, 0.0f, 0.0f);
+    Vec3f currentPosition;
     currentPosition.set< f32 >(pParticle->getCalcCurrentPositionX(pEmitter), pParticle->getCalcCurrentPositionY(pEmitter),
                                pParticle->getCalcCurrentPositionZ(pEmitter));
     MR::calcGravityVectorOrZero(mActor, currentPosition, &gravityVector, nullptr, 0);
@@ -45,8 +45,7 @@ void GravityDustParticleCallBack::execute(JPABaseEmitter* pEmitter, JPABaseParti
         return;
     }
 
-    userWork = reinterpret_cast< u32& >(speed);
-    pParticle->setUserWork(userWork);
+    pParticle->setUserWork(__builtin_bit_cast(u32, speed));
 
     if (MR::isNearZero(baseAxis)) {
         return;
@@ -54,7 +53,4 @@ void GravityDustParticleCallBack::execute(JPABaseEmitter* pEmitter, JPABaseParti
 
     MR::normalize(&baseAxis);
     pParticle->mBaseAxis.set(baseAxis);
-}
-
-GravityDustParticleCallBack::~GravityDustParticleCallBack() {
 }

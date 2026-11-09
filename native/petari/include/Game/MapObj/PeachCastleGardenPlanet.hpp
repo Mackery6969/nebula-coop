@@ -8,14 +8,12 @@ class PeachCastleGardenPlanet : public MapObjActor {
 public:
     PeachCastleGardenPlanet(const char*);
 
-    virtual ~PeachCastleGardenPlanet();
-    virtual void init(const JMapInfoIter&);
-    virtual void connectToScene(const MapObjActorInitInfo&);
-    virtual void initCaseUseSwitchA(const MapObjActorInitInfo&);
+    virtual void init(const TableIter&) override;
+    virtual void connectToScene(const MapObjActorInitInfo&) override;
+    virtual void initCaseUseSwitchA(const MapObjActorInitInfo&) override;
 
     void startDamage();
     void exeWait();
     void exeDamage();
 
-    PartsModel* _C4;
 };

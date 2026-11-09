@@ -1,4 +1,5 @@
 #include "Game/Boss/BossStinkBugFlyDemo.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Boss/BossStinkBug.hpp"
 #include "Game/Demo/DemoPositionController.hpp"
 #include "Game/LiveActor/ActorJointCtrl.hpp"
@@ -15,7 +16,7 @@ namespace {
     static const s32 sFlySoundStartStep1 = 113;
     static const s32 sFlySoundStartStep2 = 260;
     static const s32 sShakeSoundStartStep = 48;
-    static const s32 sShakeSoundEndStep = 90;
+    static const s32 sShakeSoundEndStep = NebulaFrameClock::stepsOfMilliseconds(1500);
     static const s32 sCloseFeetSoundStartStep = 230;
     static const s32 sFlyStartSoundStartStep = 110;
     static const s32 sFlyStartSoundEndStep = 263;
@@ -26,8 +27,8 @@ namespace NrvBossStinkBugFlyDemo {
     NEW_NERVE(BossStinkBugFlyDemoNrvDemo, BossStinkBugFlyDemo, Demo);
 };  // namespace NrvBossStinkBugFlyDemo
 
-BossStinkBugFlyDemo::BossStinkBugFlyDemo(BossStinkBug* pStinkBug, const JMapInfoIter& rIter)
-    : BossStinkBugActionBase("\217\111\227\271\203\146\203\202" /* 終了デモ */, pStinkBug), mDemoPositionController(nullptr) {
+BossStinkBugFlyDemo::BossStinkBugFlyDemo(BossStinkBug* pStinkBug, const TableIter& rIter)
+    : BossStinkBugActionBase("終了デモ", pStinkBug), mDemoPositionController(nullptr) {
     initNerve(GET_NERVE(BossStinkBugFlyDemo, BossStinkBugFlyDemoNrvDemo));
     mDemoPositionController = new DemoPositionController("BossStinkBugDemo", rIter);
     mDemoPositionController->initAnimCamera("FlyDemo");
@@ -36,7 +37,7 @@ BossStinkBugFlyDemo::BossStinkBugFlyDemo(BossStinkBug* pStinkBug, const JMapInfo
 void BossStinkBugFlyDemo::appear() {
     ActorStateBase::appear();
     setNerve(GET_NERVE(BossStinkBugFlyDemo, BossStinkBugFlyDemoNrvTryStart));
-    MR::requestStartDemoMarioPuppetable(this, getHost(), "\203\173\203\130\203\112\203\201\203\200\203\126\224\362\215\163\203\146\203\202" /* ボスカメムシ飛行デモ */, GET_NERVE(BossStinkBugFlyDemo, BossStinkBugFlyDemoNrvDemo), nullptr);
+    MR::requestStartDemoMarioPuppetable(this, getHost(), "ボスカメムシ飛行デモ", GET_NERVE(BossStinkBugFlyDemo, BossStinkBugFlyDemoNrvDemo), nullptr);
 }
 
 void BossStinkBugFlyDemo::exeDemo() {
@@ -44,7 +45,7 @@ void BossStinkBugFlyDemo::exeDemo() {
         MR::overlayWithPreviousScreen(2);
         MR::stopStageBGM(30);
         getHost()->offBindLeg();
-        getHost()->_98->endIKCtrlAll();
+        getHost()->mJointCtrl->endIKCtrlAll();
         MR::startBckPlayer("BattleWait", "BattleWaitNoInter");
         mDemoPositionController->startDemo("FlyDemo");
         getHost()->reuestMovementOnParts();
@@ -80,7 +81,7 @@ void BossStinkBugFlyDemo::exeDemo() {
 
     if (MR::isBckStopped(getHost())) {
         mDemoPositionController->endDemo("FlyDemo");
-        MR::endDemo(getHost(), "\203\173\203\130\203\112\203\201\203\200\203\126\224\362\215\163\203\146\203\202" /* ボスカメムシ飛行デモ */);
+        MR::endDemo(getHost(), "ボスカメムシ飛行デモ");
         kill();
     }
 }

@@ -5,77 +5,40 @@
 #include "galaxy/platform_time.h"
 
 #if defined(_WIN32)
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <Windows.h>
+#include "galaxy/windows_api.h"
 #else
 #include <sched.h>
 #include <time.h>
 #endif
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstring>
 
 namespace galaxy::render {
 
-// The capture shader (captures, the frame shown, screen probes). A capture samples the frame inside its rectangle, through
-// the display's vertical filter when the game asked for it (the line above and the line, weighted), takes the colour's
-// luminance or the depth when asked, and writes the channels the picture carries. Colour stays in floating point; the
-// target's format rounds it once. A screen probe reads one pixel (depth as its 24-bit value, in three bytes).
-//
-// Root constants (b0):
-//   src_xform = src origin.xy, src texels per dest pixel .zw (scaled frame px)
-//   modes     = luminance, unused, depth, keep_alpha
-//   filt      = filter weights above/line/below (64ths), clamp_y min
-//   filt2     = clamp_y max, picture channels (7 the frame shown), the scaled one-logical-row filter offset, 1 a probe
+// The capture shader (captures and the frame shown): samples the frame inside the capture's rectangle and writes the
+// channels the picture carries (SceneConversionShaderConstants). Colour stays in floating point; the target's format
+// rounds it once.
 static constexpr char kConvPs[] = R"HLSL(
 cbuffer C : register(b0) {
-    float4 src_xform;
-    float4 modes;
-    float4 filt;
-    float4 filt2;
+    float4 src_xform;  // the rectangle's origin in frame pixels, then frame pixels per picture pixel
+    uint channels;     // NebulaTargetChannels; 4 the frame shown (not named `layout`: glslang's HLSL reserves it)
 };
 Texture2D srctex : register(t0);
 SamplerState s_lin : register(s0);
-SamplerState s_pt  : register(s1);
 struct V { float4 pos : SV_Position; float2 uv : TEXCOORD0; };
-uint4 pack_depth(float depth_sample) {
-    uint depth24 = uint(clamp(
-        (1.0 - depth_sample) * 16777216.0, 0.0, 16777215.0));
-    return uint4(
-        (depth24 >> 16) & 255u,
-        (depth24 >> 8) & 255u,
-        depth24 & 255u,
-        255u);
-}
 float4 main(V v) : SV_Target {
     float2 dims;
     srctex.GetDimensions(dims.x, dims.y);
-    float4 c;
-    if (filt2.w > 0.0) {
-        // A screen probe: the pixel src_xform.xy names.
-        const float4 texel = srctex.Load(int3(int2(src_xform.xy), 0));
-        c = modes.z != 0.0 ? float4(pack_depth(texel.r)) / 255.0 : saturate(texel);
-    } else {
-        const float2 at = (src_xform.xy + v.pos.xy * src_xform.zw) / dims;
-        c = srctex.SampleLevel(s_lin, at, 0);
-        // The depth buffer is reversed: the game's depth is one minus it.
-        c = modes.z != 0.0 ? float4(saturate(1.0 - c.rrr), 1.0) : saturate(c);
-    }
-    // The picture's channels (capture.h): the game's NebulaTargetChannels, 7 the frame shown. (Not named `layout`:
-    // glslang's HLSL front end reserves the word.)
-    uint channels = uint(filt2.y + 0.5);
-    if (channels == 3u) {          // red in every channel
-        c = c.rrrr;
-    } else if (channels == 6u || channels == 7u) { // colour, opaque
-        c.a = 1.0;
-    } else if (channels == 2u) {   // alpha in every channel
+    float4 c = saturate(srctex.SampleLevel(s_lin, (src_xform.xy + v.pos.xy * src_xform.zw) / dims, 0));
+    if (channels == 1u) {          // alpha in every channel
         c = c.aaaa;
+    } else if (channels == 2u) {   // red in every channel
+        c = c.rrrr;
+    } else if (channels >= 3u) {   // colour, opaque
+        c.a = 1.0;
     }
     return c;
 }
@@ -85,13 +48,28 @@ float4 main(V v) : SV_Target {
 static constexpr char kDisplayFilterPs[] = R"HLSL(
 cbuffer C : register(b0) {
     float4 src_xform;
-    float4 modes;
-    float4 filt;
-    float4 filt2;
+    uint channels;
 };
 Texture2D srctex : register(t0);
 float4 main(float4 pos : SV_Position) : SV_Target {
     return float4(saturate(srctex.Load(int3(int2(src_xform.xy) + int2(pos.xy), 0)).rgb), 1.0);
+}
+)HLSL";
+
+// Screen probes: each point's depth, 0 near to 1 far (the depth buffer is reversed), at the frame pixel the CPU found
+// for it (ScreenProbePixel); a point the game did not ask about (~0u) reads 0.
+static constexpr char kScreenProbeCs[] = R"HLSL(
+cbuffer C : register(b0) {
+    uint count;
+};
+Texture2D<float> depth : register(t0);
+StructuredBuffer<uint2> pixels : register(t1);
+RWStructuredBuffer<float> values : register(u0);
+[numthreads(64, 1, 1)]
+void main(uint3 id : SV_DispatchThreadID) {
+    if (id.x >= count) return;
+    const uint2 pixel = pixels[id.x];
+    values[id.x] = pixel.x == 0xffffffffu ? 0.0 : saturate(1.0 - depth.Load(int3(int2(pixel), 0)));
 }
 )HLSL";
 
@@ -113,105 +91,12 @@ constexpr char kBlitPs[] =
     "struct V{float4 p:SV_Position;float2 uv:TEXCOORD0;};"
     "float4 main(V v):SV_Target{return t.Sample(s,v.uv);}";
 
-// Native settings overlay corner decoration: one small textured quad in
-// screen-pixel coordinates. Root constants (b0, all-stage-visible):
-//   rect      = x, y, w, h in backbuffer pixels
-//   uv_minmax = u0, v0, u1, v1 (lets one square corner texture be mirrored
-//               per panel corner instead of needing four textures)
-//   tint      = RGBA multiplier (alpha also modulates the overlay's own
-//               translucency)
-//   screen    = backbuffer width, height (for the pixel->NDC divide)
-constexpr char kUiTexturedQuadVs[] = R"HLSL(
-cbuffer C : register(b0) {
-    float4 rect;
-    float4 uv_minmax;
-    float4 tint;
-    float2 screen;
-};
-struct V { float4 pos:SV_Position; float2 uv:TEXCOORD0; };
-V main(uint id : SV_VertexID) {
-    V o;
-    float2 corner = float2(float(id & 1u), float((id >> 1u) & 1u));
-    float2 px = rect.xy + corner * rect.zw;
-    float2 ndc = float2(px.x / screen.x * 2.0 - 1.0, 1.0 - px.y / screen.y * 2.0);
-    o.pos = float4(ndc, 0.5, 1.0);
-    o.uv = lerp(uv_minmax.xy, uv_minmax.zw, corner);
-    return o;
-}
-)HLSL";
-
-constexpr char kUiTexturedQuadPs[] = R"HLSL(
-cbuffer C : register(b0) {
-    float4 rect;
-    float4 uv_minmax;
-    float4 tint;
-    float2 screen;
-};
-Texture2D t : register(t0);
-SamplerState s : register(s0);
-struct V { float4 p:SV_Position; float2 uv:TEXCOORD0; };
-float4 main(V v) : SV_Target { return t.Sample(s, v.uv) * tint; }
-)HLSL";
-
-// Flat-coloured quad: the settings overlay's panel background and text glyphs
-// (ensure_native_settings_solid_pipeline_loaded).
-constexpr char kUiSolidQuadVs[] = R"HLSL(
-cbuffer C : register(b0) {
-    int4 rect;
-    float4 color;
-    uint2 screen;
-    uint2 glyph_mask;
-    uint glyph_mode;
-};
-struct V { float4 pos:SV_Position; };
-V main(uint id : SV_VertexID, uint cell : SV_InstanceID) {
-    V o;
-    float2 corner = float2(float(id & 1u), float((id >> 1u) & 1u));
-    float2 px = float2(rect.xy) + corner * float2(rect.zw);
-    if (glyph_mode != 0u) {
-        uint mask_word = cell < 32u ? glyph_mask.x : glyph_mask.y;
-        uint bit = (mask_word >> (cell & 31u)) & 1u;
-        // Cells are placed and clipped in integer pixels before the NDC conversion.
-        int2 cell_min = rect.xy + int2(cell % 5u, cell / 5u) * rect.zw;
-        int2 cell_max = clamp(cell_min + rect.zw, int2(0, 0), int2(screen));
-        cell_min = clamp(cell_min, int2(0, 0), int2(screen));
-        px = float2(cell_min) + corner * float2(cell_max - cell_min) * float(bit);
-    }
-    float2 ndc = float2(px.x / screen.x * 2.0 - 1.0, 1.0 - px.y / screen.y * 2.0);
-    o.pos = float4(ndc, 0.5, 1.0);
-    return o;
-}
-)HLSL";
-
-constexpr char kUiSolidQuadPs[] = R"HLSL(
-cbuffer C : register(b0) {
-    int4 rect;
-    float4 color;
-    uint2 screen;
-    uint2 glyph_mask;
-    uint glyph_mode;
-};
-float4 main() : SV_Target { return color; }
-)HLSL";
-
-
 constexpr char kClearPs[] =
     "cbuffer C:register(b0){float4 clear_color;};"
     "float4 main():SV_Target{return clear_color;}";
-constexpr char kDepthCarryLoadPs[] =
-    "Texture2D t:register(t0);SamplerState s:register(s0);"
-    "struct V{float4 p:SV_Position;float2 uv:TEXCOORD0;};"
-    "float main(V v):SV_Depth{float2 d;t.GetDimensions(d.x,d.y);"
-    "return t.Load(int3(min(int2(v.uv*d),int2(d)-1),0)).r;}";
 constexpr char kClearDepthPs[] =
     "cbuffer C:register(b0){float4 clear_value;};"
     "float main():SV_Depth{return clear_value.x;}";
-constexpr char kDepthCarryPs[] =
-    "Texture2D<float> t:register(t0);"
-    "SamplerState s:register(s0);"
-    "struct V{float4 p:SV_Position;float2 uv:TEXCOORD0;};"
-    "float main(V v):SV_Depth{return t.SampleLevel(s,v.uv,0);}";
-
 // The depth resolve: each pixel's first sample.
 constexpr char kDepthResolvePs[] = R"HLSL(
 Texture2DMS<float> depth_samples : register(t0);
@@ -220,22 +105,12 @@ float main(float4 pos : SV_Position) : SV_Depth {
 }
 )HLSL";
 
-constexpr char kMotionDebugPs[] =
-    "Texture2D<float2> mv:register(t0);"
-    "struct V{float4 p:SV_Position;float2 uv:TEXCOORD0;};"
-    "float4 main(V v):SV_Target{"
-    " float2 m=mv.Load(int3(int2(v.p.xy),0));"
-    " return float4(saturate(0.5+m.x/16.0),saturate(0.5+m.y/16.0),0.5,1.0);}";
-
 }  // namespace
 
 std::string_view depth_resolve_pixel_shader_source() noexcept {
     return {kDepthResolvePs, sizeof(kDepthResolvePs) - 1u};
 }
 
-std::string_view motion_debug_pixel_shader_source() noexcept {
-    return {kMotionDebugPs, sizeof(kMotionDebugPs) - 1u};
-}
 
 std::string_view blit_vertex_shader_source() noexcept {
     return {kBlitVs, sizeof(kBlitVs) - 1u};
@@ -245,36 +120,12 @@ std::string_view blit_pixel_shader_source() noexcept {
     return {kBlitPs, sizeof(kBlitPs) - 1u};
 }
 
-std::string_view ui_textured_quad_vertex_shader_source() noexcept {
-    return {kUiTexturedQuadVs, sizeof(kUiTexturedQuadVs) - 1u};
-}
-
-std::string_view ui_textured_quad_pixel_shader_source() noexcept {
-    return {kUiTexturedQuadPs, sizeof(kUiTexturedQuadPs) - 1u};
-}
-
-std::string_view ui_solid_quad_vertex_shader_source() noexcept {
-    return {kUiSolidQuadVs, sizeof(kUiSolidQuadVs) - 1u};
-}
-
-std::string_view ui_solid_quad_pixel_shader_source() noexcept {
-    return {kUiSolidQuadPs, sizeof(kUiSolidQuadPs) - 1u};
-}
-
 std::string_view clear_pixel_shader_source() noexcept {
     return {kClearPs, sizeof(kClearPs) - 1u};
 }
 
-std::string_view depth_carry_load_pixel_shader_source() noexcept {
-    return {kDepthCarryLoadPs, sizeof(kDepthCarryLoadPs) - 1u};
-}
-
 std::string_view clear_depth_pixel_shader_source() noexcept {
     return {kClearDepthPs, sizeof(kClearDepthPs) - 1u};
-}
-
-std::string_view depth_carry_pixel_shader_source() noexcept {
-    return {kDepthCarryPs, sizeof(kDepthCarryPs) - 1u};
 }
 
 std::string_view scene_conversion_shader_source() noexcept {
@@ -285,33 +136,22 @@ std::string_view display_filter_shader_source() noexcept {
     return std::string_view{kDisplayFilterPs, sizeof(kDisplayFilterPs) - 1u};
 }
 
-SceneConversionShaderConstants make_scene_conversion_constants(
-    bool from_depth,
-    std::uint8_t channels,
-    float src_x,
-    float src_y,
-    float step_x,
-    float step_y) noexcept {
-    return SceneConversionShaderConstants{{
-        src_x, src_y, step_x, step_y,
-        0.0f, 1.0f, from_depth ? 1.0f : 0.0f, 0.0f,
-        0.0f, 0.0f, 0.0f, 0.0f,
-        0.0f, static_cast<float>(channels), 0.0f, 0.0f,
-    }};
+std::string_view screen_probe_shader_source() noexcept {
+    return std::string_view{kScreenProbeCs, sizeof(kScreenProbeCs) - 1u};
 }
 
-SceneConversionShaderConstants make_screen_probe_constants(float x, float y, const FrameMap& map, bool depth) noexcept {
+SceneConversionShaderConstants make_scene_conversion_constants(std::uint8_t channels, float src_x, float src_y,
+                                                               float step_x, float step_y) noexcept {
+    return SceneConversionShaderConstants{{src_x, src_y, step_x, step_y}, channels};
+}
+
+ScreenProbePixel screen_probe_pixel(const ScreenProbe& probe, const FrameMap& map) noexcept {
+    // Not a number fails both tests too.
+    if (!(probe.x >= 0.0f) || !(probe.y >= 0.0f) || map.empty()) return {~0u, ~0u};
     const auto pixel = [](float at, float scale, unsigned size) {
-        return static_cast<float>(std::min(static_cast<unsigned>(at * scale), size - 1u));
+        return static_cast<std::uint32_t>(std::min(at * scale, static_cast<float>(size - 1u)));
     };
-    const float px = pixel(x, map.sx, map.width);
-    const float py = pixel(y, map.sy, map.height);
-    return SceneConversionShaderConstants{{
-        px, py, 1.0f, 1.0f,
-        0.0f, 1.0f, depth ? 1.0f : 0.0f, 1.0f,
-        0.0f, 0.0f, 0.0f, 0.0f,
-        0.0f, 255.0f, 0.0f, 1.0f,
-    }};
+    return {pixel(probe.x, map.sx, map.width), pixel(probe.y, map.sy, map.height)};
 }
 
 SceneClearValues make_scene_clear_values(std::uint32_t rgba, std::uint8_t frame_format) noexcept {
@@ -323,65 +163,66 @@ SceneClearValues make_scene_clear_values(std::uint32_t rgba, std::uint8_t frame_
             0.0f};
 }
 
-std::size_t SamplerTableKeyHasher::operator()(const SamplerTableKey& key) const noexcept {
+namespace {
+// FNV-1a over a sampler's words and the settings it depends on.
+struct SamplerHash {
     std::uint64_t hash = 0xCBF29CE484222325ull;
-    const auto mix = [&hash](std::uint32_t value) {
+    void mix(std::uint32_t value) noexcept {
         for (unsigned byte = 0u; byte < 4u; ++byte) {
             hash ^= (value >> (byte * 8u)) & 0xffu;
             hash *= 0x100000001B3ull;
         }
-    };
-    for (const auto sampler : key.samplers) mix(sampler);
-    mix(key.config);
-    return static_cast<std::size_t>(hash);
+    }
+    void sampler(const SamplerKey& key) noexcept {
+        const auto bits = [](float f) { return f == 0.0f ? 0u : std::bit_cast<std::uint32_t>(f); };
+        mix(key.filter);
+        mix(bits(key.min_lod));
+        mix(bits(key.max_lod));
+        mix(bits(key.lod_bias));
+    }
+};
+}  // namespace
+
+std::size_t SamplerSlotKeyHasher::operator()(const SamplerSlotKey& key) const noexcept {
+    SamplerHash h;
+    h.sampler(key.sampler);
+    h.mix(key.config);
+    return static_cast<std::size_t>(h.hash);
+}
+
+std::size_t SamplerTableKeyHasher::operator()(const SamplerTableKey& key) const noexcept {
+    SamplerHash h;
+    for (const SamplerKey& sampler : key.samplers) {
+        h.sampler(sampler);
+    }
+    h.mix(static_cast<std::uint32_t>(key.samplers.size()));
+    h.mix(key.config);
+    return static_cast<std::size_t>(h.hash);
 }
 
 std::uint32_t sampler_config_key(const RenderConfig& cfg) noexcept {
-    return ((std::clamp(cfg.anisotropic_filtering, 1u, 16u) & 0x1fu) << 8u) |
+    return (cfg.enhanced_mipmaps ? 1u << 16u : 0u) | ((std::clamp(cfg.anisotropic_filtering, 1u, 16u) & 0x1fu) << 8u) |
         (std::clamp(cfg.texture_lod_bias, 0u, 8u) & 0xfu);
 }
 
-SamplerTableKey make_sampler_table_key(const std::uint32_t keys[8], const RenderConfig& cfg) noexcept {
-    SamplerTableKey key{};
-    std::copy_n(keys, key.samplers.size(), key.samplers.begin());
+SamplerSlotKey make_sampler_slot_key(const SamplerKey& sampler, const RenderConfig& cfg) noexcept {
+    return SamplerSlotKey{sampler, sampler_config_key(cfg)};
+}
+
+SamplerTableKey make_sampler_table_key(const SamplerKey* keys, unsigned count, const RenderConfig& cfg) {
+    SamplerTableKey key;
+    key.samplers.assign(keys, keys + count);
     key.config = sampler_config_key(cfg);
     return key;
 }
 
-SamplerTableCache::Allocation SamplerTableCache::get_or_allocate(const SamplerTableKey& key) {
-    if (const auto it = tables_.find(key); it != tables_.end()) {
-        slot_frames_[(it->second - 8u) / 8u] = frame_;
+SamplerSlotCache::Allocation SamplerSlotCache::get_or_allocate(const SamplerSlotKey& key) {
+    if (const auto it = slots_.find(key); it != slots_.end()) {
         return {it->second, false};
     }
-    const bool fresh_slot = cursor_ + 8u <= kSamplerHeapSlots;
-    unsigned slot = fresh_slot ? (cursor_ - 8u) / 8u : eviction_cursor_;
-    if (!fresh_slot) {
-        unsigned checked = 0u;
-        while (checked < kDynamicTables && slot_frames_[slot] == frame_) {
-            slot = (slot + 1u) % kDynamicTables;
-            ++checked;
-        }
-        if (checked == kDynamicTables) {
-            throw std::runtime_error(
-                "[Renderer] sampler heap exhausted: more than 255 distinct "
-                "sampler configurations used within one frame");
-        }
-    }
-    const unsigned index = 8u + slot * 8u;
-    // Insert before retiring the old mapping: an allocation failure leaves
-    // all resident descriptors discoverable. Do not hold a victim iterator
-    // across insertion, which may rehash the map.
-    const auto [it, inserted] = tables_.emplace(key, index);
-    if (inserted) {
-        if (fresh_slot) cursor_ += 8u;
-        else {
-            tables_.erase(slot_keys_[slot]);
-            eviction_cursor_ = (slot + 1u) % kDynamicTables;
-        }
-        slot_keys_[slot] = key;
-        slot_frames_[slot] = frame_;
-    }
-    return {it->second, inserted};
+    const unsigned index = cursor_++;
+    slots_.emplace(key, index);
+    return {index, true};
 }
 
 PresentPacer::PresentPacer() noexcept : frequency_(galaxy::qpc_frequency()) {}

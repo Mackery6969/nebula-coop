@@ -108,7 +108,7 @@ struct BindingTable {
 
 // Unified gamepad state. Bits 0..15 are the XInput wButtons layout, so an
 // XINPUT_GAMEPAD word is a valid button mask; the two reserved XInput bits
-// carry Home/Capture and bits 16..22 the extra buttons of the Pro Controller 2,
+// carry Home/Capture and bits 16..24 the extra buttons of the Pro Controller 2,
 // the DualSense family and the Steam Controller. Face buttons are positional:
 // South is Xbox A, Nintendo B and PlayStation Cross.
 namespace pad {
@@ -135,7 +135,9 @@ inline constexpr unsigned kGripLeft2Bit = 19;   // Steam L5
 inline constexpr unsigned kGripRight2Bit = 20;  // Steam R5
 inline constexpr unsigned kLeftPadBit = 21;     // Steam left trackpad click
 inline constexpr unsigned kRightPadBit = 22;    // Steam right trackpad click
-inline constexpr unsigned kButtonBitCount = 23;
+inline constexpr unsigned kFnLeftBit = 23;      // DualSense Edge left Fn
+inline constexpr unsigned kFnRightBit = 24;     // DualSense Edge right Fn
+inline constexpr unsigned kButtonBitCount = 25;
 [[nodiscard]] constexpr std::uint32_t bit(unsigned index) noexcept {
     return 1u << index;
 }
@@ -259,11 +261,13 @@ struct ControlsConfig {
     case ControlScheme::Xbox: return kBase | kFace;
     case ControlScheme::SwitchPro: return kBase | kHomeCapture | kFace;
     case ControlScheme::SwitchPro2: return kBase | kHomeCapture | kFace | kGrips | pad::bit(pad::kChatBit);
-    case ControlScheme::PlayStation: return kBase | kHomeCapture | kFace | kGrips | pad::bit(pad::kChatBit);
+    case ControlScheme::PlayStation:
+        return kBase | kHomeCapture | kFace | kGrips | pad::bit(pad::kChatBit) | pad::bit(pad::kFnLeftBit) |
+               pad::bit(pad::kFnRightBit);
     case ControlScheme::Steam:
         return kBase | kHomeCapture | kFace | kGrips | pad::bit(pad::kGripLeft2Bit) |
                pad::bit(pad::kGripRight2Bit) | pad::bit(pad::kLeftPadBit) | pad::bit(pad::kRightPadBit);
-    case ControlScheme::Generic: return (1u << pad::kButtonBitCount) - 1u;
+    case ControlScheme::Generic: return (1u << pad::kFnLeftBit) - 1u;  // a HID pad has no Fn buttons
     }
     return 0u;
 }
@@ -275,12 +279,14 @@ struct ControlsConfig {
 [[nodiscard]] BindingTable version3_binding_table(ControlScheme scheme);
 [[nodiscard]] SchemeTuning legacy_scheme_tuning(ControlScheme scheme);
 // runtime_settings.ini `controls_version`; files without it are version 1.
-inline constexpr unsigned kControlsVersion = 6;
+inline constexpr unsigned kControlsVersion = 7;
 // Version 3 still-pointer defaults (pads), replaced in version 4.
 inline constexpr float kVersion3PointerHideSeconds = 4.0f;
 inline constexpr float kVersion3PointerHideRadius = 0.03f;
 // Version 4 still-pointer time and vibration strength, replaced in version 5.
 inline constexpr float kVersion4PointerHideSeconds = 2.0f;
+// The controller pointer's rest-hide time until version 7.
+inline constexpr float kVersion6PointerHideSeconds = 4.0f;
 inline constexpr std::uint8_t kVersion4Rumble = 100;
 // For a file of `version`: every binding list that still equals an older
 // version's default takes the current default, the gyro switch of a version-1
@@ -297,7 +303,7 @@ unsigned migrate_legacy_controls(ControlsConfig& config, unsigned version) noexc
 [[nodiscard]] const char* game_input_id(GameInput target) noexcept;
 [[nodiscard]] const char* game_input_label(GameInput target) noexcept;
 [[nodiscard]] std::optional<ControlScheme> parse_control_scheme(std::string_view id) noexcept;
-[[nodiscard]] std::optional<GameInput> parse_wii_target(std::string_view id) noexcept;
+[[nodiscard]] std::optional<GameInput> parse_game_input(std::string_view id) noexcept;
 
 // Textual source names are per scheme: "A" on a Switch scheme is the east
 // face button, on Xbox the south one. Keyboard names are key names
@@ -431,15 +437,16 @@ enum class ButtonIconStyle : std::uint8_t { Game, Xbox, Nintendo, PlayStation, K
     return ButtonIconStyle::Game;
 }
 // A model whose buttons are not its family's (ControllerInfo::icons): the DualShock 3's Select and Start, the GameCube
-// pad's analog L and R, its ZL and Z shoulders and its Start.
-enum class ButtonIconModel : std::uint8_t { Standard, Sixaxis, GameCube };
+// pad's face buttons, analog L and R, ZL and Z shoulders and Start, the Steam controllers' Steam button, quick access,
+// back buttons and trackpads (Xbox style), the DualSense Edge's back paddles and Fn buttons (PlayStation style).
+enum class ButtonIconModel : std::uint8_t { Standard, Sixaxis, GameCube, Steam, DualSenseEdge };
 enum class ButtonIcon : std::uint8_t { A, B, C, Z, One, Two, Plus, Minus, Home, Pad };
 inline constexpr std::size_t kButtonIconCount = 10;
 // What an icon shows: the game's own (Keep); a face button by place (0 south, 1 east, 2 west, 3 north); a shoulder, a
 // trigger or a stick's click (0 left, 1 right); Start (Xbox Menu, Plus, Options), Back (View, Minus, Share or Create),
-// Home; the D-pad (on a keyboard its four keys, ButtonIconSpec::pad_keys); a key or mouse button by its key icon;
+// Home; a D-pad direction (0 up, 1 down, 2 left, 3 right; on a keyboard the four keys, ButtonIconSpec::pad_keys); a key or mouse button by its key icon;
 // Capture (Share, the touchpad's click, Steam's quick access); Chat (Pro Controller 2 C, DualSense mute); a grip (0 left,
-// 1 right, 2 and 3 the Steam Controller's second pair); a trackpad's click (0 left, 1 right); a stick's direction (0 up,
+// 1 right, 2 and 3 the Steam Controller's second pair, 4 and 5 the DualSense Edge's left and right Fn buttons); a trackpad's click (0 left, 1 right); a stick's direction (0 up,
 // 1 down, 2 left, 3 right; 4 on the right stick's).
 enum class ButtonGlyph : std::uint8_t {
     Keep, Face, Shoulder, Trigger, Stick, Start, Back, Home, Dpad, Key, Capture, Chat, Grip, Trackpad, StickAxis };
@@ -472,9 +479,10 @@ struct ButtonIconSpec {
     friend bool operator==(const ButtonIconSpec&, const ButtonIconSpec&) = default;
 };
 // The icons in `style` for a controller's `table`: each game button's first controller input (the keyboard's: its first
-// key or mouse button). In menus B is the button that goes back there (JumpBack's), in play the game's B. HOME and the
-// Control Pad keep the game's own on a controller; the keyboard shows HOME's key and the Control Pad's four. `model`
-// counts only in its family's style.
+// key or mouse button). In menus B is the button that goes back there (JumpBack's), in play the game's B. HOME shows
+// its input, but on the controller's own home button the game's HOME (the Steam model's Steam button its own); the
+// Control Pad keeps the game's on a controller; the keyboard shows HOME's key and the Control Pad's four. `model` counts
+// only in its family's style.
 [[nodiscard]] ButtonIconSpec button_icon_spec(ButtonIconStyle style, const BindingTable& table, bool menu,
                                               ButtonIconModel model = ButtonIconModel::Standard) noexcept;
 

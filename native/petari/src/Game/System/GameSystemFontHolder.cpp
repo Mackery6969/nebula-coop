@@ -1,16 +1,15 @@
 #include "Game/System/GameSystemFontHolder.hpp"
-#include "Game/System/FileLoader.hpp"
 #include "Game/System/Language.hpp"
 #include "Game/Util/FileUtil.hpp"
 #include "Game/System/NebulaArena.hpp"
 #include "Game/System/AssetFolder.hpp"
 #include <cstdio>
-#include <nw4r/ut/ResFont.h>
+#include <Game/Ui/ResFont.hpp>
 
-GameSystemFontHolder::GameSystemFontHolder() : _4(), mEmbeddedMessageFont(), mMessageFont(), mPictureFont(), mMenuFont(), mNumberFont() {
+GameSystemFontHolder::GameSystemFontHolder() : mEmbeddedFontFolder(), mEmbeddedMessageFont(), mMessageFont(), mPictureFont(), mMenuFont(), mNumberFont() {
 }
 
-nw4r::ut::Font* GameSystemFontHolder::getMessageFont() const {
+Ui::Font* GameSystemFontHolder::getMessageFont() const {
     if (mEmbeddedMessageFont != nullptr) {
         return mEmbeddedMessageFont;
     }
@@ -19,28 +18,26 @@ nw4r::ut::Font* GameSystemFontHolder::getMessageFont() const {
 }
 
 void GameSystemFontHolder::createFontFromEmbeddedData() {
-    AssetFolder* pArchive = nullptr;
-    NebulaArena* pHeap = nullptr;
+    AssetFolder* pArchive = MR::getArchive("ErrorMessageArchive");
+    NebulaArena* pArena = MR::getArchiveArena("ErrorMessageArchive");
 
-    MR::getMountedArchiveAndHeap("ErrorMessageArchive.arc", &pArchive, &pHeap);
+    const char* embeddedFontPath = "/LayoutData/EmbeddedFont";
 
-    const char* embeddedFontPath = "/LayoutData/EmbeddedFont.arc";
-
-    _4 = pArchive->getSubFolder(embeddedFontPath, pHeap);
-    mEmbeddedMessageFont = new (pHeap, -4) nw4r::ut::ResFont();
-    mEmbeddedMessageFont->SetResource(_4->getResource("MessageFont26.brfnt"));
+    mEmbeddedFontFolder = pArchive->getSubFolder(embeddedFontPath, pArena);
+    mEmbeddedMessageFont = new (pArena, 4) Ui::ResFont();
+    mEmbeddedMessageFont->SetResource(mEmbeddedFontFolder->getResource("MessageFont26.brfnt"));
 }
 
 namespace {
-    inline nw4r::ut::ResFont* createFont(AssetFolder* pArchive, const char* pName) {
-        nw4r::ut::ResFont* pFont = new nw4r::ut::ResFont();
+    inline Ui::ResFont* createFont(AssetFolder* pArchive, const char* pName) {
+        Ui::ResFont* pFont = new Ui::ResFont();
         pFont->SetResource(pArchive->getResource(pName));
         return pFont;
     }
 };  // namespace
 
 void GameSystemFontHolder::createFontFromFile() {
-    AssetFolder* pArchive = MR::getMountedArchive("/LayoutData/Font.arc");
+    AssetFolder* pArchive = MR::getArchive("/LayoutData/Font");
 
     mMessageFont = createFont(pArchive, "/MessageFont26.brfnt");
 
@@ -62,7 +59,7 @@ void GameSystemFontHolder::createFontFromFile() {
         mEmbeddedMessageFont->RemoveResource();
 
         delete mEmbeddedMessageFont;
-        delete _4;
+        delete mEmbeddedFontFolder;
 
         mEmbeddedMessageFont = nullptr;
     }

@@ -1,22 +1,21 @@
+#include "Game/Util/CameraUtil.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/MapObj/TrampleStar.hpp"
-#include "Game/Util/NativeShader.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
+#include "Game/Render/TypedDraw.hpp"
+#include "Game/Render/FrameList.hpp"
 #include "Game/LiveActor/AllLiveActorGroup.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Util.hpp"
 #include "Game/System/NebulaArena.hpp"
-#include <JSystem/JUtility/JUTTexture.hpp>
+#include "Game/Render/GameTexture.hpp"
 
 namespace {
-    f32 debug1 = 0.003331f;
-    f32 debug2 = -0.003331f;
-    f32 debug3 = 1.0f;
-    f32 debug4 = 0.5f;
-    f32 debug5 = 0.5f;
+    // Shadow-space x and z onto the shadow texture: s = x * scale + 0.5, t = -z * scale + 0.5, q = 1.
+    const f32 cShadowTexScale = 0.003331f;
+    const f32 cShadowTexOffset = 0.5f;
+    const f32 cShadowTexQ = 1.0f;
 };  // namespace
 
 namespace {
@@ -42,19 +41,16 @@ void TrampleStarShare::copy(TrampleStar* pTrampleStar) const {
 TrampleStar::TrampleStar(const char* pName) : LiveActor(pName), mIsLod(false) {
 }
 
-TrampleStar::~TrampleStar() {
-}
-
-void TrampleStar::init(const JMapInfoIter& rIter) {
+void TrampleStar::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     MR::connectToScene(this, MR::MovementType_MapObj, MR::CalcAnimType_MapObj, MR::DrawBufferType_None, MR::DrawType_FlexibleSphere);
 
-    mTexture = new JUTTexture(MR::loadTexFromArc("TrampleStar.arc", "TrampleStar.bti"));
+    mTexture = new GameTexture(MR::loadTexFromArc("TrampleStar", "TrampleStar.bti"));
 
     f32 scale = 500.0f;
     scale *= mScale.x;
     initHitSensor(1);
-    MR::addHitSensorPriorBinder(this, "body", 4, scale, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorPriorBinder(this, "body", 4, scale, Vec3f(0.0f, 0.0f, 0.0f));
 
     mNumSurfaces = 12;
     mNumVtxs = 24;
@@ -66,7 +62,7 @@ void TrampleStar::init(const JMapInfoIter& rIter) {
     for (u32 actorIndex = 0; actorIndex < MR::getAllLiveActorGroup()->getObjNum(); actorIndex++) {
         LiveActor* actor = MR::getAllLiveActorGroup()->getActor(actorIndex);
 
-        if (strcmp(actor->mName, "TrampleStarShare") == 0) {
+        if (MR::isEqualString(actor->mName, "TrampleStarShare")) {
             isShareStar = true;
             static_cast< TrampleStarShare* >(actor)->copy(this);
             break;
@@ -74,11 +70,11 @@ void TrampleStar::init(const JMapInfoIter& rIter) {
     }
 
     if (!isShareStar) {
-        mVtxs = new TVec3f[mNumVtxs * 256];
+        mVtxs = new Vec3f[mNumVtxs * 256];
         mSurfaces = new Surface[mNumSurfaces * 256];
         mLodSurfaces = new Surface[static_cast< u32 >(mNumSurfaces * 256) / 4];
         mVtxOverlap = new s16[mNumVtxs * 256];
-        mTexST = new TVec2f[mNumVtxs * 256];
+        mTexST = new Vec2f[mNumVtxs * 256];
 
         mVtxs[0].set(-500.0f, -500.0f, -500.0f);
         mVtxs[1].set(-500.0f, -500.0f, 500.0f);
@@ -165,11 +161,10 @@ void TrampleStar::init(const JMapInfoIter& rIter) {
         new TrampleStarShare(this);
     }
 
-    _A8 = new u8[mNumVtxs];
     mNumDrawVtxs = 0;
-    mDrawPos = new TVec3f[mNumSurfaces * 3];
-    mDrawNorm = new TVec3f[mNumSurfaces * 3];
-    mDrawTex = new TVec2f[mNumSurfaces * 3];
+    mDrawPos = new Vec3f[mNumSurfaces * 3];
+    mDrawNorm = new Vec3f[mNumSurfaces * 3];
+    mDrawTex = new Vec2f[mNumSurfaces * 3];
     mDrawDeformCoeffs = new f32[mNumSurfaces * 3];
 
     for (u32 vtx = 0; vtx < mNumVtxs; vtx++) {
@@ -194,7 +189,7 @@ void TrampleStar::toSphere(f32 radius) {
 }
 
 void TrampleStar::initCheckFlag(u32 numFlags) {
-    mCheckFlags = new (-0x4) u16[numFlags * numFlags];
+    mCheckFlags = new u16[numFlags * numFlags];
     mNumFlags = numFlags;
 
     for (u32 idx = 0; idx < mNumFlags * mNumFlags; idx++) {
@@ -248,11 +243,11 @@ void TrampleStar::divide() {
 
     mNumSurfaces = numSurfaces;
     mNumVtxs = numVtxs;
-    delete mCheckFlags;
+    delete[] mCheckFlags;
 }
 
 void TrampleStar::moveVtx(f32 deformRate, u32 vtxIdx, u32 /* unused */, f32 /* unused */, u32 /* unused */) {
-    TVec3f vtxPos(mVtxs[vtxIdx]);
+    Vec3f vtxPos(mVtxs[vtxIdx]);
 
     for (u32 vtx = 0; vtx < mNumVtxs; vtx++) {
         f32 dist = (mVtxs[vtx] - vtxPos).length();
@@ -309,10 +304,10 @@ void TrampleStar::calcSurface(bool calcDrawBuffers) {
                 mNumDrawVtxs++;
             } else {
                 u32 vtx = mSurfaces[surface].mVtxs[idx];
-                TVec3f pos = mVtxs[vtx];
-                TVec3f up = pos;
+                Vec3f pos = mVtxs[vtx];
+                Vec3f up = pos;
                 MR::normalizeOrZero(&up);
-                TVec2f texST = mTexST[vtx];
+                Vec2f texST = mTexST[vtx];
 
                 pos += mPosition - up * mDeformCoeff[vtx];
                 mDrawPos[mNumDrawVtxs] = pos;
@@ -331,10 +326,10 @@ void TrampleStar::calcLodSurface() {
     for (u32 surface = 0; surface < mNumSurfaces / 4; surface++) {
         for (u32 idx = 0; idx < 3; idx++) {
             u32 vtx = mLodSurfaces[surface].mVtxs[idx];
-            TVec3f pos = mVtxs[vtx];
-            TVec3f up = pos;
+            Vec3f pos = mVtxs[vtx];
+            Vec3f up = pos;
             MR::normalizeOrZero(&up);
-            TVec2f& texST = mTexST[vtx];
+            Vec2f& texST = mTexST[vtx];
 
             pos += mPosition;
             mDrawPos[mNumDrawVtxs] = pos;
@@ -375,7 +370,7 @@ void TrampleStar::exeBindingCapture() {
         MR::startSoundPlayer("SE_OJ_TRAMPOLINE_LAND_L");
     }
 
-    TVec3f down = -mVtxs[mCaptureVtx];
+    Vec3f down = -mVtxs[mCaptureVtx];
     MR::normalizeOrZero(&down);
     moveVtx(mDeformRate, mCaptureVtx, 8, 0.8f, 0);
     mDeformRate = 0.85f * mDeformRate;
@@ -418,7 +413,7 @@ void TrampleStar::exeBindingShoot() {
                 mSpringRate = 0.2f;
 
                 if (MR::isPlayerInBind()) {
-                    TVec3f up = mVtxs[mCaptureVtx];
+                    Vec3f up = mVtxs[mCaptureVtx];
                     MR::normalizeOrZero(&up);
 
                     if (MR::getPlayerHeldJump()) {
@@ -442,9 +437,9 @@ void TrampleStar::exeBindingShoot() {
         }
     }
 
-    if (getNerveStep() == 120) {
+    if (getNerveStep() == NebulaFrameClock::stepsOfSeconds(2)) {
         if (MR::isPlayerInBind()) {
-            TVec3f up = mVtxs[mCaptureVtx];
+            Vec3f up = mVtxs[mCaptureVtx];
             MR::normalizeOrZero(&up);
 
             if (MR::getPlayerHeldJump()) {
@@ -466,7 +461,7 @@ void TrampleStar::exeBindingShoot() {
     }
 }
 
-u32 TrampleStar::calcNearestVtxIndex(const TVec3f& rPos) {
+u32 TrampleStar::calcNearestVtxIndex(const Vec3f& rPos) {
     f32 nearestDistance = 5000.0f;
     u32 nearestIndex = 0;
 
@@ -485,13 +480,11 @@ u32 TrampleStar::calcNearestVtxIndex(const TVec3f& rPos) {
 void TrampleStar::draw() const {
     if (!MR::isDead(this)) {
         drawSelf();
-        J3DPass::depth(true, NEBULA_COMPARE_LEQUAL, true);
         MR::resetDrawState();
-        J3DPass::writeAlpha(true);
     }
 }
 
-bool TrampleStar::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool TrampleStar::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* /*pReceiver*/) {
     if (msg == ACTMES_AUTORUSH_BEGIN) {
         mCaptureFrames = 10;
         mDeformRate = MR::getPlayerVelocity()->length();
@@ -522,12 +515,12 @@ bool TrampleStar::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pRecei
     }
 
     if (msg == ACTMES_UPDATE_BASEMTX) {
-        TVec3f side;
+        Vec3f side;
         MR::getPlayerSideVec(&side);
-        TVec3f capturePos = mVtxs[mCaptureVtx];
-        TVec3f down = -capturePos;
+        Vec3f capturePos = mVtxs[mCaptureVtx];
+        Vec3f down = -capturePos;
         down.normalize();
-        TPos3f mtx;
+        Pos3f mtx;
         capturePos += mPosition + down * mDeformCoeff[mCaptureVtx];
         MR::makeMtxUpSidePos(&mtx, -down, side, capturePos);
         MR::setPlayerBaseMtx(mtx);
@@ -552,26 +545,25 @@ void TrampleStar::drawSelf() const {
         return;
     }
 
-    MR::ddSetVtxFormat(3);
-    TVec3f playerPos = *MR::getPlayerPos();
-    TVec3f diff = mPosition - playerPos;
-    TVec3f shadowPos = MR::getMarioShadowVec();
-    TPos3f mtx3;
-    TPos3f mtx;
-    TRot3f rot;
-    TPos3f mtx2;
+    Vec3f playerPos = *MR::getPlayerPos();
+    Vec3f diff = mPosition - playerPos;
+    Vec3f shadowPos = MR::getMarioShadowVec();
+    Pos3f texMtx;
+    Pos3f toPlayer;
+    Rot3f rot;
+    Pos3f shadowFrame;
 
     if (MR::vecKillElement(diff, shadowPos, &diff) > 0.0f) {
-        NebulaMtxTrans(mtx, -playerPos.x, -playerPos.y, -playerPos.z);
+        NebulaMtxTrans(toPlayer, -playerPos.x, -playerPos.y, -playerPos.z);
     } else {
-        NebulaMtxTrans(mtx, 1000000.0f, 1000000.0f, 1000000.0f);
+        NebulaMtxTrans(toPlayer, 1000000.0f, 1000000.0f, 1000000.0f);
     }
 
     MR::makeMtxRotate(rot, -*MR::getPlayerRotate());
 
-    NebulaMtxIdentity(mtx2);
+    NebulaMtxIdentity(shadowFrame);
 
-    TVec3f front;
+    Vec3f front;
     MR::getPlayerFrontVec(&front);
 
     if (MR::isNearZero(front)) {
@@ -586,49 +578,47 @@ void TrampleStar::drawSelf() const {
         return;
     }
 
-    MR::makeMtxUpFront(&mtx2, -MR::getMarioShadowVec(), -front);
-    NebulaMtxInverse(mtx2, mtx2);
+    MR::makeMtxUpFront(&shadowFrame, -MR::getMarioShadowVec(), -front);
+    NebulaMtxInverse(shadowFrame, shadowFrame);
 
-    MR::multMtx(mtx3, mtx, mtx2);
-    TPos3f mtx4;
+    MR::multMtx(texMtx, toPlayer, shadowFrame);
+    Pos3f texProj;
 
-    for (u32 idx = 0; idx < 12; idx++) {
-        reinterpret_cast< f32* >(&mtx4)[idx] = 0;
+    for (s32 row = 0; row < 3; row++) {
+        for (s32 col = 0; col < 4; col++) {
+            texProj[row][col] = 0.0f;
+        }
     }
 
-    mtx4[0][0] = debug1;
-    mtx4[1][2] = debug2;
-    mtx4[2][3] = debug3;
-    mtx4[0][3] = debug4;
-    mtx4[1][3] = debug5;
-    MR::multMtx(mtx3, mtx3, mtx4);
+    texProj[0][0] = cShadowTexScale;
+    texProj[1][2] = -cShadowTexScale;
+    texProj[2][3] = cShadowTexQ;
+    texProj[0][3] = cShadowTexOffset;
+    texProj[1][3] = cShadowTexOffset;
+    MR::multMtx(texMtx, texMtx, texProj);
 
-    J3DNativeShape::setTexture(1, mtx3, 3);
     // runtime/src/render/materials/trample_star.hlsl: blended by alpha, depth tested early and written, no culling.
-    NebulaNativeMaterial material;
+    SiteMaterial material;
     TDDraw::setupNative(&material, 0, 1, 0);
-    material.shader = NEBULA_SHADER_TRAMPLE_STAR;
-    NativeShader::setDepth(material, true, NEBULA_COMPARE_LEQUAL, true);
-    material.early_depth = 1;
-    NativeShader::setColor(material, 0, 0xCC, 0xCC, 0xCC, 0xFF);
-    NativeShader::setColor(material, 4, 0x7F, 0x7F, 0x93, 0xC3);
+    material.setShader(NEBULA_SHADER_TRAMPLE_STAR);
+    material.setDepth(true, NEBULA_COMPARE_LEQUAL, true);
+    material.setMatrix(3, 0, texMtx);
+    material.setColor(0, 0xCC, 0xCC, 0xCC, 0xFF);
+    material.setColor(4, 0x7F, 0x7F, 0x93, 0xC3);
     material.constants[8] = 0xB4 / 255.0f;
     material.constants[9] = MR::getPlayerShadowHeight() < MR::calcDistanceToPlayer(this) ? 0.0f : 1.0f;
-    NativeShader::setTexture(material, 0, mTexture);
-    NativeShader::setTexture(material, 1, MR::getMarioShadowTexForLoad());
-    NativeShader::send(material);
-    static const u8 kPlaces[8] = {J3DNativeShape::kIdentityTexture, 1, J3DNativeShape::kIdentityTexture, J3DNativeShape::kIdentityTexture,
-                                  J3DNativeShape::kIdentityTexture, J3DNativeShape::kIdentityTexture, J3DNativeShape::kIdentityTexture, J3DNativeShape::kIdentityTexture};
-    J3DNativeShape::setCurrent(0, kPlaces);
+    material.setTexture(0, mTexture);
+    material.setTexture(1, MR::getMarioShadowTexForLoad());
 
-    J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLES, mNumDrawVtxs, MR::ddVtxAttributes());
+    TypedDraw site(material, nullptr, MR::getCameraViewMtx());
+    VertexPNT* pOut = site.vertices< VertexPNT >(NEBULA_PRIMITIVE_TRIANGLES, mNumDrawVtxs);
     {
-        TVec3f* pos = mDrawPos;
-        TVec3f* norm = mDrawNorm;
-        TVec2f* tex = mDrawTex;
+        Vec3f* pos = mDrawPos;
+        Vec3f* norm = mDrawNorm;
+        Vec2f* tex = mDrawTex;
 
         for (u32 vtx = 0; vtx < mNumDrawVtxs; vtx++) {
-            MR::ddSendVtxData(*pos, *norm, *tex);
+            *pOut++ = {pos->x, pos->y, pos->z, norm->x, norm->y, norm->z, tex->x, tex->y};
             pos++;
             norm++;
             tex++;
@@ -636,4 +626,3 @@ void TrampleStar::drawSelf() const {
     }
 
 }
-

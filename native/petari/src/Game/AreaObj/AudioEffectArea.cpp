@@ -4,36 +4,36 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 
-AudioEffectArea::AudioEffectArea(int formType, const char* pName) : AreaObj(formType, pName), _3C(), _40() {
+AudioEffectArea::AudioEffectArea(int formType, const char* pName) : AreaObj(formType, pName), mEffectType(), mEffectParam() {
 }
 
-void AudioEffectArea::init(const JMapInfoIter& rIter) {
+void AudioEffectArea::init(const TableIter& rIter) {
     AreaObj::init(rIter);
     MR::connectToSceneAreaObj(this);
 
-    _3C = mObjArg0;
-    _40 = mObjArg1;
+    mEffectType = mObjArg0;
+    mEffectParam = mObjArg1;
 
     if (mObjArg1 < 0) {
-        _40 = 64;
+        mEffectParam = 64;
     }
 }
 
 void AudioEffectArea::movement() {
-    bool val;
+    bool isInside;
 
-    switch (_3C) {
+    switch (mEffectType) {
     case 3:
     case 4:
-        val = isInVolume(MR::getCamPos()) || isInVolume(*MR::getPlayerPos());
+        isInside = isInVolume(MR::getCamPos()) || isInVolume(*MR::getPlayerPos());
         break;
     default:
-        val = isInVolume(*MR::getPlayerPos());
+        isInside = isInVolume(*MR::getPlayerPos());
         break;
     }
 
-    if (val) {
-        MR::setAudioEffectType(_3C, _40);
+    if (isInside) {
+        MR::setAudioEffectType(mEffectType, mEffectParam);
     } else {
         MR::setAudioEffectType(0, 0);
     }

@@ -1,4 +1,5 @@
 #include "Game/MapObj/LavaGeyser.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util.hpp"
@@ -15,21 +16,17 @@ namespace NrvLavaGeyser {
 LavaGeyser::LavaGeyser(const char* pName) : LiveActor(pName) {
     mArg0 = 180;
     mArg1 = 180;
-    _94.set(0.0f, 0.0f, 0.0f);
-    _A0.set(0.0f, 1.0f, 0.0f);
-    _B0 = 0.0f;
-    _AC = 0.0f;
-    _B8 = 0.0f;
-    _B4 = 0.0f;
+    mTopPos.set(0.0f, 0.0f, 0.0f);
+    mUp.set(0.0f, 1.0f, 0.0f);
 }
 
-void LavaGeyser::init(const JMapInfoIter& iter) {
+void LavaGeyser::init(const TableIter& iter) {
     MR::initDefaultPos(this, iter);
-    TQuat4f quat1;
+    Quat4f quat1;
     quat1.setEulerDegree(mRotation.x, mRotation.y, mRotation.z);
-    quat1.getYDir(_A0);
-    MR::getJMapInfoArg0NoInit(iter, &mArg0);
-    MR::getJMapInfoArg1NoInit(iter, &mArg1);
+    quat1.getYDir(mUp);
+    MR::getPlacementArg0NoInit(iter, &mArg0);
+    MR::getPlacementArg1NoInit(iter, &mArg1);
     MR::useStageSwitchReadA(this, iter);
     initModelManagerWithAnm("LavaGeyser", nullptr, false);
     MR::startBtk(this, "LavaGeyser");
@@ -38,7 +35,7 @@ void LavaGeyser::init(const JMapInfoIter& iter) {
     MR::connectToSceneMapObj(this);
     initHitSensor(3);
     MR::addHitSensorCallbackMapObj(this, "attack", 1, mScale.y * 100.0f);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initSound(4, false);
     MR::setClippingTypeSphereContainsModelBoundingBox(this, 100.0f);
     MR::setGroupClipping(this, iter, 16);
@@ -59,21 +56,22 @@ void LavaGeyser::startClipped() {
 }
 
 void LavaGeyser::updateHitSensor(HitSensor* pSensor) {
-    TVec3f cPos = *MR::getPlayerCenterPos();
+    Vec3f cPos = *MR::getPlayerCenterPos();
     cPos -= mPosition;
-    f32 v1 = _A0.dot(cPos);
-    TVec3f v2 = _94;
-    v2 -= mPosition;
-    f32 v3 = _A0.dot(v2) + -100.f;
-    if (v3 < 0.f) {
-        pSensor->mPosition.set(_94);
+    // The sensor follows the player's height up the column, stopping 100 short of the top.
+    f32 playerHeight = mUp.dot(cPos);
+    Vec3f toTop = mTopPos;
+    toTop -= mPosition;
+    f32 maxHeight = mUp.dot(toTop) + -100.f;
+    if (maxHeight < 0.f) {
+        pSensor->mPosition.set(mTopPos);
         return;
     }
 
-    f32 v4 = MR::clamp(v1, 0.0f, v3);
+    f32 sensorHeight = MR::clamp(playerHeight, 0.0f, maxHeight);
 
     pSensor->mPosition.set(mPosition);
-    pSensor->mPosition.add(_A0 * v4);
+    pSensor->mPosition.add(mUp * sensorHeight);
 }
 
 void LavaGeyser::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
@@ -94,7 +92,7 @@ void LavaGeyser::exeWait() {
     if (MR::isFirstStep(this)) {
         MR::hideModel(this);
         MR::invalidateHitSensors(this);
-        _94.set(mPosition);
+        mTopPos.set(mPosition);
     }
     if (MR::isValidSwitchA(this) && !MR::isOnSwitchA(this)) {
         setNerve(GET_NERVE(LavaGeyser, HostTypeNrvWaitSwitch));
@@ -105,12 +103,12 @@ void LavaGeyser::exeWait() {
 
 void LavaGeyser::exeSign() {
     if (MR::isFirstStep(this)) {
-        const TVec3f* pos = &mPosition;
-        _94.set(*pos);
+        const Vec3f* pos = &mPosition;
+        mTopPos.set(*pos);
         MR::emitEffect(this, "Sign");
     }
     MR::startLevelSound(this, "SE_OJ_LV_LAVA_GEYSER_SIGN");
-    if (MR::isStep(this, 90)) {
+    if (MR::isStep(this, NebulaFrameClock::stepsOfMilliseconds(1500))) {
         MR::deleteEffect(this, "Sign");
         setNerve(GET_NERVE(LavaGeyser, HostTypeNrvShootUp));
     }
@@ -123,7 +121,7 @@ void LavaGeyser::exeShootUp() {
         MR::startSound(this, "SE_OJ_LAVA_GEYSER_SHOOT");
         MR::startBck(this, "LavaGeyserAppear");
     }
-    MR::copyJointPos(this, "Top", &_94);
+    MR::copyJointPos(this, "Top", &mTopPos);
     MR::startLevelSound(this, "SE_OJ_LV_LAVA_GEYSER_SIGN");
     MR::startLevelSound(this, "SE_OJ_LV_LAVA_GEYSER_KEEP");
     if (MR::isBckStopped(this)) {
@@ -135,7 +133,7 @@ void LavaGeyser::exeShootKeep() {
     if (MR::isFirstStep(this)) {
         MR::startBck(this, "LavaGeyserWait");
     }
-    MR::copyJointPos(this, "Top", &_94);
+    MR::copyJointPos(this, "Top", &mTopPos);
     MR::startLevelSound(this, "SE_OJ_LV_LAVA_GEYSER_SIGN");
     MR::startLevelSound(this, "SE_OJ_LV_LAVA_GEYSER_KEEP");
     if (MR::isStep(this, mArg1)) {
@@ -147,7 +145,7 @@ void LavaGeyser::exeShootDown() {
     if (MR::isFirstStep(this)) {
         MR::startBck(this, "LavaGeyserDisappear");
     }
-    MR::copyJointPos(this, "Top", &_94);
+    MR::copyJointPos(this, "Top", &mTopPos);
     MR::startLevelSound(this, "SE_OJ_LV_LAVA_GEYSER_KEEP");
     if (MR::isBckStopped(this)) {
         MR::hideModel(this);

@@ -4,133 +4,74 @@
 #include "Game/Map/SleepControllerHolder.hpp"
 #include "Game/Map/StageSwitch.hpp"
 #include "Game/Map/SwitchWatcherHolder.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 
+namespace {
+    // Gives the actor its switch control when the placement names the switch; reading and writing need the same.
+    bool useStageSwitch(LiveActor* pActor, const TableIter& rIter, bool (*pIsExist)(const TableIter&)) {
+        if (!MR::isValidInfo(rIter) || !pIsExist(rIter)) {
+            return false;
+        }
+
+        if (pActor->mStageSwitchCtrl == nullptr) {
+            pActor->initStageSwitch(rIter);
+        }
+
+        return true;
+    }
+};  // namespace
+
 namespace MR {
-    bool useStageSwitchReadA(LiveActor* pActor, const JMapInfoIter& rIter) {
-        if (!isValidInfo(rIter)) {
-            return false;
-        }
-
-        if (!isExistStageSwitchA(rIter)) {
-            return false;
-        }
-
-        if (pActor->mStageSwitchCtrl == nullptr) {
-            pActor->initStageSwitch(rIter);
-        }
-
-        return true;
+    bool useStageSwitchReadA(LiveActor* pActor, const TableIter& rIter) {
+        return ::useStageSwitch(pActor, rIter, isExistStageSwitchA);
     }
 
-    bool useStageSwitchReadB(LiveActor* pActor, const JMapInfoIter& rIter) {
-        if (!isValidInfo(rIter)) {
-            return false;
-        }
-
-        if (!isExistStageSwitchB(rIter)) {
-            return false;
-        }
-
-        if (pActor->mStageSwitchCtrl == nullptr) {
-            pActor->initStageSwitch(rIter);
-        }
-
-        return true;
+    bool useStageSwitchReadB(LiveActor* pActor, const TableIter& rIter) {
+        return ::useStageSwitch(pActor, rIter, isExistStageSwitchB);
     }
 
-    bool useStageSwitchReadAppear(LiveActor* pActor, const JMapInfoIter& rIter) {
-        if (!isValidInfo(rIter)) {
-            return false;
-        }
-
-        if (!isExistStageSwitchAppear(rIter)) {
-            return false;
-        }
-
-        if (pActor->mStageSwitchCtrl == nullptr) {
-            pActor->initStageSwitch(rIter);
-        }
-
-        return true;
+    bool useStageSwitchReadAppear(LiveActor* pActor, const TableIter& rIter) {
+        return ::useStageSwitch(pActor, rIter, isExistStageSwitchAppear);
     }
 
-    void useStageSwitchSleep(LiveActor* pActor, const JMapInfoIter& rIter) {
+    void useStageSwitchSleep(LiveActor* pActor, const TableIter& rIter) {
         SleepControlFunc::addSleepControl(pActor, rIter);
     }
 
-    // Same as useStageSwitchReadA
-    bool useStageSwitchWriteA(LiveActor* pActor, const JMapInfoIter& rIter) {
-        if (!isValidInfo(rIter)) {
-            return false;
-        }
-
-        if (!isExistStageSwitchA(rIter)) {
-            return false;
-        }
-
-        if (pActor->mStageSwitchCtrl == nullptr) {
-            pActor->initStageSwitch(rIter);
-        }
-
-        return true;
+    bool useStageSwitchWriteA(LiveActor* pActor, const TableIter& rIter) {
+        return ::useStageSwitch(pActor, rIter, isExistStageSwitchA);
     }
 
-    // Same as useStageSwitchReadB
-    bool useStageSwitchWriteB(LiveActor* pActor, const JMapInfoIter& rIter) {
-        if (!isValidInfo(rIter)) {
-            return false;
-        }
-
-        if (!isExistStageSwitchB(rIter)) {
-            return false;
-        }
-
-        if (pActor->mStageSwitchCtrl == nullptr) {
-            pActor->initStageSwitch(rIter);
-        }
-
-        return true;
+    bool useStageSwitchWriteB(LiveActor* pActor, const TableIter& rIter) {
+        return ::useStageSwitch(pActor, rIter, isExistStageSwitchB);
     }
 
-    bool useStageSwitchWriteDead(LiveActor* pActor, const JMapInfoIter& rIter) {
-        if (!isValidInfo(rIter)) {
-            return false;
-        }
-
-        if (!isExistStageSwitchDead(rIter)) {
-            return false;
-        }
-
-        if (pActor->mStageSwitchCtrl == nullptr) {
-            pActor->initStageSwitch(rIter);
-        }
-
-        return true;
+    bool useStageSwitchWriteDead(LiveActor* pActor, const TableIter& rIter) {
+        return ::useStageSwitch(pActor, rIter, isExistStageSwitchDead);
     }
 
-    bool needStageSwitchReadA(LiveActor* pActor, const JMapInfoIter& rIter) {
+    bool needStageSwitchReadA(LiveActor* pActor, const TableIter& rIter) {
         return useStageSwitchReadA(pActor, rIter);
     }
 
-    bool needStageSwitchReadB(LiveActor* pActor, const JMapInfoIter& rIter) {
+    bool needStageSwitchReadB(LiveActor* pActor, const TableIter& rIter) {
         return useStageSwitchReadB(pActor, rIter);
     }
 
-    bool needStageSwitchReadAppear(LiveActor* pActor, const JMapInfoIter& rIter) {
+    bool needStageSwitchReadAppear(LiveActor* pActor, const TableIter& rIter) {
         return useStageSwitchReadAppear(pActor, rIter);
     }
 
-    bool needStageSwitchWriteA(LiveActor* pActor, const JMapInfoIter& rIter) {
+    bool needStageSwitchWriteA(LiveActor* pActor, const TableIter& rIter) {
         return useStageSwitchWriteA(pActor, rIter);
     }
 
-    bool needStageSwitchWriteB(LiveActor* pActor, const JMapInfoIter& rIter) {
+    bool needStageSwitchWriteB(LiveActor* pActor, const TableIter& rIter) {
         return useStageSwitchWriteB(pActor, rIter);
     }
 
-    bool needStageSwitchWriteDead(LiveActor* pActor, const JMapInfoIter& rIter) {
+    bool needStageSwitchWriteDead(LiveActor* pActor, const TableIter& rIter) {
         return useStageSwitchWriteDead(pActor, rIter);
     }
 

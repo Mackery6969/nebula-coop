@@ -7,12 +7,9 @@ class StageSwitchCtrl;
 
 class PurpleCoinStarter : public NameObj {
 public:
-    /// @brief Creates a new `PurpleCoinStarter`.
-    /// @param pName A pointer to the null-terminated name of the object.
     PurpleCoinStarter(const char* pName);
 
-    virtual ~PurpleCoinStarter();
-    virtual void init(const JMapInfoIter& rIter);
+    virtual void init(const TableIter& rIter) override;
 
     void setHost(PurpleCoinHolder* pHost);
     void start();

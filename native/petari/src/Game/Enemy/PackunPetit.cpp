@@ -1,4 +1,5 @@
 #include "Game/Enemy/PackunPetit.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Enemy/AnimScaleController.hpp"
 #include "Game/Enemy/WalkerStateBindStarPointer.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
@@ -10,7 +11,7 @@
 #include "Game/Util/ActorStateUtil.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/JointUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MapUtil.hpp"
@@ -20,8 +21,8 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
-#include "JSystem/JGeometry/TVec.hpp"
-#include "JSystem/JMath/JMath.hpp"
+#include <nebula_geometry.hpp>
+
 
 namespace NrvPackunPetit {
     NEW_NERVE_ONEND(PackunPetitNrvNonActive, PackunPetit, NonActive, NonActive);
@@ -40,28 +41,28 @@ namespace NrvPackunPetit {
     NEW_NERVE(PackunPetitNrvSwoonStart, PackunPetit, SwoonStart);
     NEW_NERVE(PackunPetitNrvSwoon, PackunPetit, Swoon);
     NEW_NERVE(PackunPetitNrvSwoonToThreat, PackunPetit, SwoonToThreat);
-    NEW_NERVE_ONEND(PackunPetitNrvDPDSwoon, PackunPetit, DPDSwoon, DPDSwoon);
+    NEW_NERVE_ONEND(PackunPetitNrvPointerSwoon, PackunPetit, PointerSwoon, PointerSwoon);
 };  // namespace NrvPackunPetit
 
 PackunPetit::PackunPetit(const char* pName)
-    : LiveActor(pName), mScaleController(nullptr), mStarPointerState(nullptr), _94(0.0f, 0.0f, 1.0f), mBlownModel(nullptr), mDontTurn(false) {
+    : LiveActor(pName), mScaleController(nullptr), mStarPointerState(nullptr), mFront(0.0f, 0.0f, 1.0f), mBlownModel(nullptr), mDontTurn(false) {
 }
 
 inline void PackunPetit::initStarPointer(const char* hitSensor) {
-    TVec3f offs;
+    Vec3f offs;
     offs.set(0.0f);
     MR::initStarPointerTargetAtJoint(this, hitSensor, 100.0f, offs);
 }
 
-void PackunPetit::init(const JMapInfoIter& rIter) {
+void PackunPetit::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("PackunPetit", nullptr, false);
     MR::connectToSceneEnemy(this);
     initHitSensor(3);
-    MR::addHitSensorAtJointMapObj(this, "body", "Head", 8, 90.0f, TVec3f(50.0f, 0.0f, 0.0f));
-    MR::addHitSensorAtJointEnemyAttack(this, "attack", "Head", 8, 50.0f, TVec3f(50.0f, 0.0f, 0.0f));
-    MR::addHitSensorMapObj(this, "stalk", 8, 100.0f, TVec3f(0.0f, 0.0f, 0.0f));
-    initEffectKeeper(2, nullptr, false);
+    MR::addHitSensorAtJointMapObj(this, "body", "Head", 8, 90.0f, Vec3f(50.0f, 0.0f, 0.0f));
+    MR::addHitSensorAtJointEnemyAttack(this, "attack", "Head", 8, 50.0f, Vec3f(50.0f, 0.0f, 0.0f));
+    MR::addHitSensorMapObj(this, "stalk", 8, 100.0f, Vec3f(0.0f, 0.0f, 0.0f));
+    initEffectKeeper(2, nullptr);
     MR::addEffectHitNormal(this, nullptr);
     initSound(4, false);
     MR::initLightCtrl(this);
@@ -73,8 +74,8 @@ void PackunPetit::init(const JMapInfoIter& rIter) {
     initStarPointer("Head");
     mScaleController = new AnimScaleController(nullptr);
     mStarPointerState = new WalkerStateBindStarPointer(this, mScaleController);
-    MR::getJMapInfoArg0NoInit(rIter, &mDontTurn);
-    MR::calcFrontVec(&_94, this);
+    MR::getPlacementArg0NoInit(rIter, &mDontTurn);
+    MR::calcFrontVec(&mFront, this);
     initBlowModel();
     initNerve(GET_NERVE(PackunPetit, PackunPetitNrvWait));
     makeActorAppeared();
@@ -136,11 +137,11 @@ void PackunPetit::exeThreat() {
             return;
         }
 
-        TVec3f* pos = MR::getPlayerPos();
-        MR::turnDirectionToTargetUseGroundNormalDegree(this, &_94, *pos, 2.0f);
+        Vec3f* pos = MR::getPlayerPos();
+        MR::turnDirectionToTargetUseGroundNormalDegree(this, &mFront, *pos, 2.0f);
     }
 
-    if (MR::isGreaterStep(this, 50) && MR::isNearPlayer(this, 1100.0f) && (MR::isFaceToPlayerHorizontalDegree(this, _94, 10.0f) || mDontTurn)) {
+    if (MR::isGreaterStep(this, 50) && MR::isNearPlayer(this, 1100.0f) && (MR::isFaceToPlayerHorizontalDegree(this, mFront, 10.0f) || mDontTurn)) {
         setNerve(GET_NERVE(PackunPetit, PackunPetitNrvAttackStart));
     } else if (!MR::isNearPlayer(this, 2000.0f)) {
         setNerve(GET_NERVE(PackunPetit, PackunPetitNrvWait));
@@ -161,8 +162,8 @@ void PackunPetit::exeTurn() {
     if (step < 2.0f) {
         step = 2.0f;
     }
-    TVec3f* pos = MR::getPlayerPos();
-    MR::turnDirectionToTargetUseGroundNormalDegree(this, &_94, *pos, step);
+    Vec3f* pos = MR::getPlayerPos();
+    MR::turnDirectionToTargetUseGroundNormalDegree(this, &mFront, *pos, step);
     if (MR::isBckStopped(this)) {
         setNerve(GET_NERVE(PackunPetit, PackunPetitNrvThreat));
     }
@@ -244,7 +245,7 @@ void PackunPetit::exePunchDown() {
         MR::hideModel(mBlownModel);
     }
 
-    if (MR::isStep(this, 30)) {
+    if (MR::isStep(this, NebulaFrameClock::stepsOfMilliseconds(500))) {
         kill();
     }
 }
@@ -281,13 +282,13 @@ void PackunPetit::exeSwoonToThreat() {
     }
 }
 
-void PackunPetit::exeDPDSwoon() {
+void PackunPetit::exePointerSwoon() {
     if (MR::updateActorState(this, mStarPointerState)) {
         selectNrvWait();
     }
 }
 
-void PackunPetit::endDPDSwoon() {
+void PackunPetit::endPointerSwoon() {
     mStarPointerState->kill();
 }
 
@@ -316,26 +317,26 @@ void PackunPetit::kill() {
 }
 
 void PackunPetit::calcAndSetBaseMtx() {
-    TVec3f up;
+    Vec3f up;
     MR::calcUpVec(&up, this);
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.identity();
-    MR::makeMtxUpFrontPos(&mtx, up, _94, mPosition);
+    MR::makeMtxUpFrontPos(&mtx, up, mFront, mPosition);
     MR::setBaseTRMtx(this, mtx);
-    TVec3f scale = mScaleController->_C * mScale;
+    Vec3f scale = mScaleController->mScale * mScale;
     MR::setBaseScale(this, scale);
 }
 
 void PackunPetit::control() {
     mScaleController->updateNerve();
-    tryDPDSwoon();
+    tryPointerSwoon();
 }
 
 void PackunPetit::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     if (MR::isSensorPlayer(pReceiver)) {
         bool isTrampleOrPunch =
             isNerve(GET_NERVE(PackunPetit, PackunPetitNrvTrampleDown)) || isNerve(GET_NERVE(PackunPetit, PackunPetitNrvPunchDown));
-        if (!isTrampleOrPunch && !isNerve(GET_NERVE(PackunPetit, PackunPetitNrvDPDSwoon)) && MR::isSensorEnemyAttack(pSender)) {
+        if (!isTrampleOrPunch && !isNerve(GET_NERVE(PackunPetit, PackunPetitNrvPointerSwoon)) && MR::isSensorEnemyAttack(pSender)) {
             if (MR::sendMsgEnemyAttackStrong(pReceiver, pSender) && !MR::isPlayerHipDropFalling()) {
                 MR::emitEffectHitBetweenSensors(this, pSender, pReceiver, 0.0f, nullptr);
                 setNerve(GET_NERVE(PackunPetit, PackunPetitNrvHitWaitForAttack));
@@ -346,7 +347,7 @@ void PackunPetit::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
         }
     }
 
-    if (isNerve(GET_NERVE(PackunPetit, PackunPetitNrvDPDSwoon)) && MR::isSensorPlayer(pReceiver)) {
+    if (isNerve(GET_NERVE(PackunPetit, PackunPetitNrvPointerSwoon)) && MR::isSensorPlayer(pReceiver)) {
         MR::sendMsgPush(pReceiver, pSender);
         return;
     }
@@ -452,7 +453,7 @@ bool PackunPetit::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pRecei
 }
 
 void PackunPetit::initBlowModel() {
-    mBlownModel = MR::createModelObjMapObjStrongLight("\220\201\202\301\224\362\202\321\203\202\203\146\203\213" /* 吹っ飛びモデル */, "PackunPetitHead", nullptr);
+    mBlownModel = MR::createModelObjMapObjStrongLight("吹っ飛びモデル", "PackunPetitHead", nullptr);
     mBlownModel->initWithoutIter();
     MR::initShadowVolumeSphere(mBlownModel, 70.0f);
     MR::invalidateClipping(mBlownModel);
@@ -461,15 +462,16 @@ void PackunPetit::initBlowModel() {
 }
 
 void PackunPetit::punchDown(HitSensor* pSender, HitSensor* pReceiver) {
-    TVec3f v6;
-    v6.sub(pReceiver->mPosition, pSender->mPosition);
-    v6.orthogonalize(mGravity);
-    MR::normalize(&v6);
+    // Knocked away from the hit at 20, up at 40.
+    Vec3f away;
+    away.sub(pReceiver->mPosition, pSender->mPosition);
+    away.orthogonalize(mGravity);
+    MR::normalize(&away);
 
-    TVec3f v5;
-    v5.scale(20.0f, v6);
-    v5.scaleAdd(-40.0f, mGravity, v5);
-    mBlownModel->mVelocity.set(v5);
+    Vec3f velocity;
+    velocity.scale(20.0f, away);
+    velocity.scaleAdd(-40.0f, mGravity, velocity);
+    mBlownModel->mVelocity.set(velocity);
     setNerve(GET_NERVE(PackunPetit, PackunPetitNrvPunchDown));
 }
 
@@ -497,12 +499,12 @@ bool PackunPetit::tryTurn() {
         return false;
     }
 
-    if (MR::isFaceToPlayerHorizontalDegree(this, _94, 90.0f)) {
+    if (MR::isFaceToPlayerHorizontalDegree(this, mFront, 90.0f)) {
         return false;
     }
-    TVec3f playerDist;
+    Vec3f playerDist;
     playerDist.sub(*MR::getPlayerPos(), mPosition);
-    TVec3f sideVec;
+    Vec3f sideVec;
     MR::calcSideVec(&sideVec, this);
 
     if (playerDist.dot(sideVec) > 0.0f) {
@@ -514,8 +516,8 @@ bool PackunPetit::tryTurn() {
     return true;
 }
 
-bool PackunPetit::tryDPDSwoon() {
-    if (isNerve(GET_NERVE(PackunPetit, PackunPetitNrvDPDSwoon))) {
+bool PackunPetit::tryPointerSwoon() {
+    if (isNerve(GET_NERVE(PackunPetit, PackunPetitNrvPointerSwoon))) {
         return false;
     }
 
@@ -535,6 +537,6 @@ bool PackunPetit::tryDPDSwoon() {
         return false;
     }
 
-    setNerve(GET_NERVE(PackunPetit, PackunPetitNrvDPDSwoon));
+    setNerve(GET_NERVE(PackunPetit, PackunPetitNrvPointerSwoon));
     return true;
 }

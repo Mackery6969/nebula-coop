@@ -1,217 +1,179 @@
 #include "Game/Util/FileUtil.hpp"
-#include "Game/System/FileLoader.hpp"
+#include "Game/System/AssetFolder.hpp"
+#include "Game/System/Arenas.hpp"
 #include "Game/System/Language.hpp"
+#include "Game/System/NebulaArena.hpp"
 #include "Game/System/ResourceHolderManager.hpp"
-#include "Game/Util/MemoryUtil.hpp"
+#include "Game/Util/SceneUtil.hpp"
 #include "Game/Util/SingletonHolder.hpp"
 #include "Game/Util/StringUtil.hpp"
 #include "Game/Util/SystemUtil.hpp"
-#include <cstdio>
-#include <cstring>
-#include "Game/System/GameAssets.hpp"
+
+namespace {
+    NebulaArena* getHoldingArena() {
+        NebulaArena* const pCurrent = NebulaArena::current();
+        if (Arenas::scene() == nullptr || pCurrent != Arenas::scene()) {
+            return pCurrent;
+        }
+
+        return MR::isStageFileSelect() ? Arenas::permanent() : Arenas::sceneFiles();
+    }
+
+    // `game`: the game's own files under the mods' (GameAssets::findGame).
+    s32 findIn(const char* pPath, bool game) {
+        return game ? GameAssets::findGame(pPath) : GameAssets::find(pPath);
+    }
+
+    bool isIn(const char* pFilePath, bool considerLanguage, bool game);
+
+    void languagePath(MR::FormattedName& rDst, const char* pFilePath, bool game) {
+        MR::addFilePrefix(rDst, pFilePath, MR::getCurrentLanguagePrefix());
+
+        if (!isIn(rDst.c_str(), false, game)) {
+            rDst.format("%s", pFilePath);
+        }
+    }
+
+    bool isIn(const char* pFilePath, bool considerLanguage, bool game) {
+        if (!considerLanguage) {
+            return findIn(pFilePath, game) >= 0;
+        }
+
+        MR::FormattedName filePath;
+        languagePath(filePath, pFilePath, game);
+        return findIn(filePath.c_str(), game) >= 0;
+    }
+
+    bool layoutPath(MR::FormattedName& rDst, const char* pFileName, bool game) {
+        rDst.format("/Region/LayoutData/%s", pFileName);
+
+        if (isIn(rDst.c_str(), false, game)) {
+            return true;
+        }
+
+        rDst.format("/LayoutData/%s", pFileName);
+
+        if (isIn(rDst.c_str(), true, game)) {
+            return true;
+        }
+
+        rDst.format("%s", pFileName);
+
+        return isIn(rDst.c_str(), false, game);
+    }
+
+    AssetFolder* archiveIn(const char* pFilePath, NebulaArena* pArena, bool game, NebulaArena** ppHeld) {
+        MR::FormattedName filePath;
+        languagePath(filePath, pFilePath, game);
+
+        AssetFolder* pFolder = GameAssets::findArchive(filePath.c_str(), ppHeld, game);
+        if (pFolder != nullptr) {
+            return pFolder;
+        }
+
+        const s32 entry = findIn(filePath.c_str(), game);
+        if (entry < 0) {
+            return nullptr;
+        }
+
+        // With no mod's file over it, the game's own is the one held for everyone.
+        if (game && GameAssets::find(filePath.c_str()) == entry) {
+            return archiveIn(filePath.c_str(), pArena, false, ppHeld);
+        }
+
+        if (pArena == nullptr) {
+            pArena = getHoldingArena();
+        }
+
+        pFolder = new (pArena, 0) AssetFolder(entry, GameAssets::load(entry, nullptr, 0, pArena, nullptr));
+        GameAssets::holdArchive(filePath.c_str(), pFolder, pArena, game);
+        if (ppHeld != nullptr) {
+            *ppHeld = pArena;
+        }
+        return pFolder;
+    }
+}  // namespace
 
 namespace MR {
     bool isFileExist(const char* pFilePath, bool considerLanguage) {
-        s32 entryNum;
-
-        if (considerLanguage) {
-            entryNum = convertPathToEntrynumConsideringLanguage(pFilePath);
-        } else {
-            entryNum = GameAssets::find(pFilePath);
-        }
-
-        return entryNum >= 0;
+        return isIn(pFilePath, considerLanguage, false);
     }
 
-    s32 convertPathToEntrynumConsideringLanguage(const char* pFilePath) {
-        char filePath[256];
-        makeFileNameConsideringLanguage(filePath, sizeof(filePath), pFilePath);
-
-        return GameAssets::find(filePath);
+    AssetFolder* getArchive(const char* pFilePath, NebulaArena* pArena) {
+        return archiveIn(pFilePath, pArena, false, nullptr);
     }
 
-    void* loadFile(const char* pFilePath, u8* pDst, NebulaArena* pHeap) {
-        char filePath[256];
-        makeFileNameConsideringLanguage(filePath, sizeof(filePath), pFilePath);
-
-        return SingletonHolder< FileLoader >::get()->loadFile(filePath, pDst, pHeap);
+    AssetFolder* getGameArchive(const char* pFilePath, NebulaArena** ppArena) {
+        return archiveIn(pFilePath, nullptr, true, ppArena);
     }
 
-    AssetFolder* mountArchive(const char* pFilePath, NebulaArena* pHeap) {
-        char filePath[256];
-        makeFileNameConsideringLanguage(filePath, sizeof(filePath), pFilePath);
+    NebulaArena* getArchiveArena(const char* pFilePath) {
+        MR::FormattedName filePath;
+        makeFileNameConsideringLanguage(filePath, pFilePath);
 
-        return SingletonHolder< FileLoader >::get()->mountArchive(filePath, pHeap);
+        NebulaArena* pArena = nullptr;
+        GameAssets::findArchive(filePath.c_str(), &pArena);
+        return pArena;
     }
 
-    void mountArchiveByObjectOrLayoutName(const char* pFilePrefix, NebulaArena* pHeap) {
-        NebulaArena* pLocalHeap;
-
-        if (pHeap != nullptr) {
-            pLocalHeap = pHeap;
-        } else {
-            pLocalHeap = getSceneArchiveHeap();
-        }
-
-        char objArcPath[256];
-        bool isExistObjArc = makeObjectArchiveFileNameFromPrefix(objArcPath, sizeof(objArcPath), pFilePrefix, false);
-
-        char layoutArcPath[256];
-        bool isExistLayoutArc = makeLayoutArchiveFileNameFromPrefix(layoutArcPath, sizeof(layoutArcPath), pFilePrefix, false);
-
-        if (isExistObjArc) {
-            mountArchive(objArcPath, pLocalHeap);
-        } else if (isExistLayoutArc) {
-            mountArchive(layoutArcPath, pLocalHeap);
-        }
+    void addArchive(AssetFolder* pFolder, NebulaArena* pArena, const char* pFilePath) {
+        GameAssets::holdArchive(pFilePath, pFolder, pArena);
     }
 
-    void* getLoadedFile(const char* pFilePath) {
-        char filePath[256];
-        makeFileNameConsideringLanguage(filePath, sizeof(filePath), pFilePath);
-
-        return SingletonHolder< FileLoader >::get()->getLoadedFile(filePath);
+    void removeResourceHolders(NebulaArena* pArena) {
+        SingletonHolder< ResourceHolderManager >::get()->removeArenaHolders(pArena);
     }
 
-    AssetFolder* getMountedArchive(const char* pFilePath) {
-        char filePath[256];
-        makeFileNameConsideringLanguage(filePath, sizeof(filePath), pFilePath);
-
-        return SingletonHolder< FileLoader >::get()->getMountedArchive(filePath);
+    bool isExistObjectOrLayoutArchive(const char* pName) {
+        MR::FormattedName path;
+        return makeObjectArchiveFileName(path, pName) || makeLayoutArchiveFileNameFromPrefix(path, pName, false);
     }
 
-    void createAndAddArchive(AssetFolder* pFolder, NebulaArena* pHeap, const char* pFilePath) {
-        SingletonHolder< FileLoader >::get()->createAndAddArchive(pFolder, pHeap, pFilePath);
+    void makeFileNameConsideringLanguage(FormattedName& rDst, const char* pFilePath) {
+        languagePath(rDst, pFilePath, false);
     }
 
-    void getMountedArchiveAndHeap(const char* pFilePath, AssetFolder** ppArchive, NebulaArena** ppHeap) {
-        char filePath[256];
-        makeFileNameConsideringLanguage(filePath, sizeof(filePath), pFilePath);
+    bool makeObjectArchiveFileName(FormattedName& rDst, const char* pName) {
+        rDst.format("/ObjectData/%s", pName);
 
-        SingletonHolder< FileLoader >::get()->getMountedArchiveAndHeap(filePath, ppArchive, ppHeap);
-    }
-
-    void removeFile(const char* pFilePath) {
-        SingletonHolder< FileLoader >::get()->removeFile(pFilePath);
-    }
-
-    void removeFileConsideringLanguage(const char* pFilePath) {
-        char filePath[256];
-        makeFileNameConsideringLanguage(filePath, sizeof(filePath), pFilePath);
-
-        SingletonHolder< FileLoader >::get()->removeFile(filePath);
-    }
-
-    void removeResourceAndFileHolderIfIsEqualHeap(NebulaArena* pHeap) {
-        SingletonHolder< ResourceHolderManager >::get()->removeIfIsEqualHeap(pHeap);
-        SingletonHolder< FileLoader >::get()->removeHolderIfIsEqualHeap(pHeap);
-    }
-
-    bool isLoadedFile(const char* pFilePath) {
-        char filePath[256];
-        makeFileNameConsideringLanguage(filePath, sizeof(filePath), pFilePath);
-
-        return SingletonHolder< FileLoader >::get()->isLoaded(filePath);
-    }
-
-    bool isLoadedObjectOrLayoutArchive(const char* pFilePrefix) {
-        char objArcPath[256];
-        bool isExistObjArc = makeObjectArchiveFileNameFromPrefix(objArcPath, sizeof(objArcPath), pFilePrefix, false);
-
-        char layoutArcPath[256];
-        makeLayoutArchiveFileNameFromPrefix(layoutArcPath, sizeof(layoutArcPath), pFilePrefix, false);
-
-        if (isExistObjArc) {
-            return isLoadedFile(objArcPath);
-        } else {
-            return isLoadedFile(layoutArcPath);
-        }
-    }
-
-    void makeFileNameConsideringLanguage(char* pDst, u32 size, const char* pFilePath) {
-        addFilePrefix(pDst, size, pFilePath, getCurrentLanguagePrefix());
-
-        if (!isFileExist(pDst, false)) {
-            nebula_snprintf(pDst, size, "%s", pFilePath);
-        }
-    }
-
-    bool makeObjectArchiveFileName(char* pDst, u32 size, const char* pFileName) {
-        nebula_snprintf(pDst, size, "/ObjectData/%s", pFileName);
-
-        if (isFileExist(pDst, true)) {
+        if (isFileExist(rDst.c_str(), true)) {
             return true;
         }
 
-        nebula_snprintf(pDst, size, "/MapPartsData/%s", pFileName);
+        rDst.format("/MapPartsData/%s", pName);
 
-        if (isFileExist(pDst, false)) {
+        if (isFileExist(rDst.c_str(), false)) {
             return true;
         }
 
-        nebula_snprintf(pDst, size, "%s", pFileName);
+        rDst.format("%s", pName);
 
-        return isFileExist(pDst, true);
+        return isFileExist(rDst.c_str(), true);
     }
 
-    bool makeObjectArchiveFileNameFromPrefix(char* pDst, u32 size, const char* pFilePrefix, bool) {
-        char fileName[256];
-        nebula_snprintf(fileName, sizeof(fileName), "%s.arc", pFilePrefix);
-
-        return makeObjectArchiveFileName(pDst, size, fileName);
+    bool makeLayoutArchiveFileName(FormattedName& rDst, const char* pName) {
+        return layoutPath(rDst, pName, false);
     }
 
-    bool makeLayoutArchiveFileName(char* pDst, u32 size, const char* pFileName) {
-        nebula_snprintf(pDst, size, "/Region/LayoutData/%s", pFileName);
+    bool makeGameLayoutArchiveFileName(FormattedName& rDst, const char* pName) {
+        return layoutPath(rDst, pName, true);
+    }
 
-        if (isFileExist(pDst, false)) {
+    bool makeLayoutArchiveFileNameFromPrefix(FormattedName& rDst, const char* pName, bool fallback) {
+        MR::FormattedName name("%s%s", pName, isScreen16Per9() ? "16x9" : "4x3");
+        if (makeLayoutArchiveFileName(rDst, name.c_str())) {
             return true;
         }
 
-        nebula_snprintf(pDst, size, "/LayoutData/%s", pFileName);
-
-        if (isFileExist(pDst, true)) {
+        name.format("%sReplace", pName);
+        if (makeLayoutArchiveFileName(rDst, name.c_str())) {
             return true;
         }
 
-        nebula_snprintf(pDst, size, "%s", pFileName);
-
-        return isFileExist(pDst, false);
+        return makeLayoutArchiveFileName(rDst, pName) || fallback;
     }
 
-    bool makeLayoutArchiveFileNameFromPrefix(char* pDst, u32 size, const char* pFilePrefix, bool fallback) {
-        char fileName[256];
-        nebula_snprintf(fileName, sizeof(fileName), "%s.arc", pFilePrefix);
-        bool isExistArc = makeLayoutArchiveFileName(pDst, size, fileName);
-
-        const char* pAspectSuffix = isScreen16Per9() ? "16x9" : "4x3";
-        nebula_snprintf(fileName, sizeof(fileName), "%s%s.arc", pFilePrefix, pAspectSuffix);
-        bool isExistAspectArc = makeLayoutArchiveFileName(pDst, size, fileName);
-
-        nebula_snprintf(fileName, sizeof(fileName), "%sReplace.arc", pFilePrefix);
-        bool isExistReplaceArc = makeLayoutArchiveFileName(pDst, size, fileName);
-
-        bool fileFound = isExistArc || isExistAspectArc || isExistReplaceArc;
-
-        if (!fileFound && !fallback) {
-            return false;
-        }
-
-        if (isExistAspectArc) {
-            pAspectSuffix = isScreen16Per9() ? "16x9" : "4x3";
-            nebula_snprintf(fileName, sizeof(fileName), "%s%s.arc", pFilePrefix, pAspectSuffix);
-        } else if (isExistReplaceArc) {
-            nebula_snprintf(fileName, sizeof(fileName), "%sReplace.arc", pFilePrefix);
-        } else {
-            nebula_snprintf(fileName, sizeof(fileName), "%s.arc", pFilePrefix);
-        }
-
-        makeLayoutArchiveFileName(pDst, size, fileName);
-
-        return true;
-    }
-
-    void makeScenarioArchiveFileName(char* pDst, u32 size, const char* pStageName) {
-        nebula_snprintf(pDst, size, "/StageData/%s/%sScenario.arc", pStageName, pStageName);
+    void makeScenarioArchiveFileName(FormattedName& rDst, const char* pGalaxyName) {
+        rDst.format("/StageData/%sScenario", pGalaxyName);
     }
 };  // namespace MR

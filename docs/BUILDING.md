@@ -59,6 +59,8 @@ With no arguments it finds `content\game.pak` next to it (or in the current fold
 .\NebulaNative.exe --pak D:\nebula\content\game.pak --saves "$env:LOCALAPPDATA\Nebula\saves"
 ```
 
+The other arguments are in COMMAND_LINE.md.
+
 ## Tests
 
 ```powershell

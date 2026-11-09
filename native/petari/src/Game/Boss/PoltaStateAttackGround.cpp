@@ -1,4 +1,5 @@
 #include "Game/Boss/PoltaStateAttackGround.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Boss/Polta.hpp"
 #include "Game/Boss/PoltaFunction.hpp"
 #include "Game/LiveActor/ActorStateBase.hpp"
@@ -14,15 +15,12 @@ namespace NrvPoltaStateAttackGround {
     NEW_NERVE(PoltaStateAttackGroundNrvToWait, PoltaStateAttackGround, ToWait);
 };  // namespace NrvPoltaStateAttackGround
 
-PoltaStateAttackGround::PoltaStateAttackGround(Polta* pPolta) : ActorStateBase< Polta >("[state]\222\156\226\312\222\100\202\253\215\125\214\202" /* [state]地面叩き攻撃 */, pPolta), mIsAffectBody(true) {
+PoltaStateAttackGround::PoltaStateAttackGround(Polta* pPolta) : ActorStateBase< Polta >("[state]地面叩き攻撃", pPolta), mIsAffectBody(true) {
     initNerve(GET_NERVE(PoltaStateAttackGround, PoltaStateAttackGroundNrvStart));
     mAttackStartLength = MR::getBckFrameMax(getHost(), "AttackFrontStart");
     mAttackLength = MR::getBckFrameMax(getHost(), "AttackFront");
     mAttackToWaitLength = MR::getBckFrameMax(getHost(), "AttackFrontToWait");
 };
-
-// Unused remnant also found in PoltaStatePunch?
-const char* unusedDamage = "Damage";
 
 void PoltaStateAttackGround::appear() {
     mIsDead = false;
@@ -37,7 +35,7 @@ void PoltaStateAttackGround::exeStart() {
         MR::startSound(getHost(), "SE_BV_POLTA_PREP_ARM_DOWN");
         MR::startSound(getHost(), "SE_BM_POLTA_ARM_LIFT_UP");
     }
-    if (MR::isLessStep(this, 60)) {
+    if (MR::isLessStep(this, NebulaFrameClock::stepsOfSeconds(1))) {
         getHost()->rotateToPlayer();
     }
     if (!PoltaFunction::isEnableAttackLeftArm(getHost()) && !PoltaFunction::isEnableAttackRightArm(getHost())) {
@@ -82,7 +80,4 @@ bool PoltaStateAttackGround::isEnableAttack(const HitSensor* pSensor) const {
     } else {
         return isNerve(GET_NERVE(PoltaStateAttackGround, PoltaStateAttackGroundNrvAttack));
     }
-}
-
-PoltaStateAttackGround::~PoltaStateAttackGround() {
 }

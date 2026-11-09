@@ -8,28 +8,27 @@ class PlantGroup : public LiveActor {
 public:
     PlantGroup(const char*);
 
-    virtual ~PlantGroup();
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void makeActorAppeared();
-    virtual void makeActorDead();
-    virtual void startClipped();
-    virtual void endClipped();
-    virtual void control();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
+    virtual void makeActorAppeared() override;
+    virtual void makeActorDead() override;
+    virtual void startClipped() override;
+    virtual void endClipped() override;
+    virtual void control() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
-    void initMember(s32, const JMapInfoIter&);
-    s32 placeOnCollisionFormCircle(TVec3f*, const TVec3f&, const TVec3f&, const TVec3f&);
-    f32 calcBoundingSphereRadius(const TVec3f&);
+    void initMember(s32, const TableIter&);
+    s32 placeOnCollisionFormCircle(Vec3f*, const Vec3f&, const Vec3f&, const Vec3f&);
+    f32 calcBoundingSphereRadius(const Vec3f&);
     void emitHintEffect();
 
     PlantMember** mMembers;
     s32 mMemberCount;
     s32 mPlantType;
     bool mIsStarPiece;
-    TVec3f mHintPosition;
-    TVec3f mHintRotation;
+    Vec3f mHintPosition;
+    Vec3f mHintRotation;
     s32 mHintTimer;
     s32 mHintIndex;
 };
@@ -39,8 +38,7 @@ public:
     PlantMember(const char* pName, const char* pModelName, bool useLight, MtxPtr pMtx) : CutBushModelObj(pName, pModelName, useLight, pMtx) {
     }
 
-    virtual ~PlantMember();
-    virtual void init(const JMapInfoIter&);
+    virtual void init(const TableIter&) override;
 
     bool tryEmitHint();
     void exeWait();
@@ -51,12 +49,9 @@ public:
     bool generateItem(PlantGroup*);
     void initPosture();
     bool tryShake(HitSensor*);
-    bool tryPush(const TVec3f&, f32, s32);
+    bool tryPush(const Vec3f&, f32, s32);
     void animControl(PlantGroup*);
 
-    f32 _90;
-    f32 _94;
     s32 mTouchType;
-    bool _9C;
     bool mHasItem;
 };

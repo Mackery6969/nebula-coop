@@ -1,4 +1,5 @@
 #include "Game/Boss/BossStinkBugBomb.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util/ActorMovementUtil.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
@@ -15,21 +16,21 @@ namespace NrvBossStinkBugBomb {
     NEW_NERVE(BossStinkBugBombNrvExplosion, BossStinkBugBomb, Explosion);
 };  // namespace NrvBossStinkBugBomb
 
-BossStinkBugBomb::BossStinkBugBomb(const char* pName) : LiveActor(pName), _8C(0.0f, 0.0f, 0.0f, 1.0f), _9C(0.0f, 0.0f, 0.0f) {
+BossStinkBugBomb::BossStinkBugBomb(const char* pName) : LiveActor(pName) {
 }
 
-void BossStinkBugBomb::init(const JMapInfoIter& rIter) {
+void BossStinkBugBomb::init(const TableIter& /*rIter*/) {
     initModelManagerWithAnm("BossStinkBugBomb", nullptr, false);
     MR::connectToSceneEnemy(this);
     MR::onCalcGravity(this);
     initHitSensor(2);
 
-    MR::addHitSensorEnemy(this, "body", 8, 60.0f, TVec3f(0.0f, 0.0f, 0.0f));
-    MR::addHitSensorEnemyAttack(this, "bomb", 8, 280.0f, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorEnemy(this, "body", 8, 60.0f, Vec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorEnemyAttack(this, "bomb", 8, 280.0f, Vec3f(0.0f, 0.0f, 0.0f));
     MR::invalidateHitSensor(this, "bomb");
 
     initBinder(60.0f, 0.0f, 0);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initSound(5, false);
     MR::initShadowVolumeSphere(this, 60.0f);
 
@@ -38,17 +39,13 @@ void BossStinkBugBomb::init(const JMapInfoIter& rIter) {
     makeActorDead();
 }
 
-void BossStinkBugBomb::control() {
-    _9C *= 0.96f;
-    MR::rotateQuatMoment(&_8C, _9C);
-}
-
+// The bomb never turns: its moment is zero from the start (BossStinkBugBomb.s:27/122/130).
 void BossStinkBugBomb::calcAndSetBaseMtx() {
-    MR::setBaseTRMtx(this, _8C);
+    MR::setBaseTRMtx(this, Quat4f(0.0f, 0.0f, 0.0f, 1.0f));
     MR::setBaseScale(this, mScale);
 }
 
-void BossStinkBugBomb::start(const TVec3f& startPos, const TVec3f& startVelocity) {
+void BossStinkBugBomb::start(const Vec3f& startPos, const Vec3f& startVelocity) {
     mPosition.set(startPos);
     MR::showModel(this);
 
@@ -71,7 +68,7 @@ void BossStinkBugBomb::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     }
 }
 
-bool BossStinkBugBomb::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool BossStinkBugBomb::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (MR::isMsgLockOnStarPieceShoot(msg)) {
         return true;
     }
@@ -85,7 +82,7 @@ bool BossStinkBugBomb::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSe
     return false;
 }
 
-bool BossStinkBugBomb::receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) {
+bool BossStinkBugBomb::receiveMsgPush(HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     return false;
 }
 
@@ -113,7 +110,7 @@ void BossStinkBugBomb::exeWait() {
 
     MR::attenuateVelocity(this, MR::isBinded(this) ? 0.9f : 0.98f);
 
-    if (MR::isGreaterStep(this, 150)) {
+    if (MR::isGreaterStep(this, NebulaFrameClock::stepsOfMilliseconds(2500))) {
         setNerve(GET_NERVE(BossStinkBugBomb, BossStinkBugBombNrvExplosion));
     }
 }

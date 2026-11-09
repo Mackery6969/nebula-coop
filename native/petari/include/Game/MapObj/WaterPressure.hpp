@@ -7,13 +7,12 @@ class ActorCameraInfo;
 class WaterPressure : public PressureBase {
 public:
     WaterPressure(const char*);
-    virtual ~WaterPressure();
 
-    virtual void init(const JMapInfoIter&);
-    virtual void initBullet(const JMapInfoIter&);
-    virtual bool shotBullet(f32);
+    virtual void init(const TableIter&) override;
+    virtual void initBullet(const TableIter&) override;
+    virtual bool shotBullet(f32) override;
 
-    void calcGunPointFromCannon(TPos3f*);
+    void calcGunPointFromCannon(Pos3f*);
 
     ActorCameraInfo* mCameraInfo;
     bool mIsInvalidSpinKill;

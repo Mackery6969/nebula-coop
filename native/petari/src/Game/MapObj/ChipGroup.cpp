@@ -3,7 +3,7 @@
 #include "Game/MapObj/ChipBase.hpp"
 #include "Game/MapObj/ChipHolder.hpp"
 #include "Game/Util/EventUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
@@ -26,14 +26,14 @@ ChipGroup::ChipGroup(const char* pName, s32 chipType) : NameObj(pName) {
 
 void ChipGroup::updateUIRange() {
     if (mUIRangeFixed < 0.0f) {
-        TBox3f range;
+        Box3f range;
 
         for (s32 i = 0; i < mTotalCount; i++) {
-            TBox3f currBound;
-            TVec3f pos = mChips[i].mChip->mPosition;
+            Box3f currBound;
+            Vec3f pos = mChips[i].mChip->mPosition;
 
-            TVec3f center = pos;
-            TVec3f pad(2000.0f);
+            Vec3f center = pos;
+            Vec3f pad(2000.0f);
             currBound.set(center - pad, center + pad);
 
             if (i == 0) {
@@ -46,7 +46,7 @@ void ChipGroup::updateUIRange() {
 
         range.getCenter(&mUIPos);
 
-        TVec3f diff;
+        Vec3f diff;
         diff.sub(range.f, range.i);
         mUIRange = diff.length() / 2.0f;
     } else {
@@ -111,25 +111,22 @@ bool ChipGroup::isComplete() const {
 BlueChipGroup::BlueChipGroup(const char* pName) : ChipGroup(pName, ChipBase::Type_Blue) {
 }
 
-ChipGroup::~ChipGroup() {
-}
-
 YellowChipGroup::YellowChipGroup(const char* pName) : ChipGroup(pName, ChipBase::Type_Yellow) {
 }
 
-void ChipGroup::init(const JMapInfoIter& rIter) {
-    MR::getJMapInfoTrans(rIter, &mUIPos);
-    MR::getJMapInfoArg0WithInit(rIter, &mStageSwitchArg);
-    MR::getJMapInfoArg1WithInit(rIter, &mFlashFrame);
+void ChipGroup::init(const TableIter& rIter) {
+    MR::getPlacementTrans(rIter, &mUIPos);
+    MR::getPlacementArg0WithInit(rIter, &mStageSwitchArg);
+    MR::getPlacementArg1WithInit(rIter, &mFlashFrame);
     mUIRangeFixed = -1.0f;
-    MR::getJMapInfoArg2NoInit(rIter, &mUIRangeFixed);
+    MR::getPlacementArg2NoInit(rIter, &mUIRangeFixed);
 
-    s32 arg3 = 0;
-    MR::getJMapInfoArg3NoInit(rIter, &arg3);
+    s32 useDoneFlag = 0;
+    MR::getPlacementArg3NoInit(rIter, &useDoneFlag);
 
-    if (arg3 == 1) {
+    if (useDoneFlag == 1) {
         mIsDeactivated = 0;
-        mAlreadyDoneFlag = MR::setupAlreadyDoneFlag("\203\140\203\142\203\166\217\127\202\337\215\317\202\335" /* チップ集め済み */, rIter, &mIsDeactivated);
+        mAlreadyDoneFlag = MR::setupAlreadyDoneFlag("チップ集め済み", rIter, &mIsDeactivated);
     } else {
         mIsDeactivated = 0;
         mAlreadyDoneFlag = -1;
@@ -223,10 +220,4 @@ void ChipGroup::receiveAppearRequest() {
     } else if (mChipType == 1) {
         MR::startSystemSE("SE_OJ_YELLOWCHIP_APPEAR");
     }
-}
-
-BlueChipGroup::~BlueChipGroup() {
-}
-
-YellowChipGroup::~YellowChipGroup() {
 }

@@ -19,15 +19,15 @@ SpinLeverSwitch::SpinLeverSwitch(const char* pName) : LiveActor(pName), mConnect
     mConnector = new MapObjConnector(this);
 }
 
-void SpinLeverSwitch::init(const JMapInfoIter& rIter) {
+void SpinLeverSwitch::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("SpinLeverSwitch", nullptr, false);
     MR::connectToSceneMapObj(this);
     initHitSensor(2);
     MR::addBodyMessageSensorMapObj(this);
-    MR::addHitSensorAtJointMapObj(this, "spin", "Spin", 4, 50.0f, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorAtJointMapObj(this, "spin", "Spin", 4, 50.0f, Vec3f(0.0f, 0.0f, 0.0f));
     MR::initCollisionParts(this, "SpinLeverSwitch", getSensor("body"), nullptr);
-    initEffectKeeper(0, 0, false);
+    initEffectKeeper(0, 0);
     initSound(4, false);
     bool isWait = MR::useStageSwitchWriteA(this, rIter);
     MR::setGroupClipping(this, rIter, 16);
@@ -68,7 +68,7 @@ void SpinLeverSwitch::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     }
 }
 
-bool SpinLeverSwitch::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool SpinLeverSwitch::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* pReceiver) {
     if (!isNerve(GET_NERVE(SpinLeverSwitch, SpinLeverSwitchNrvWait))) {
         return false;
     }
@@ -99,7 +99,7 @@ void SpinLeverSwitch::exeSwitchOn() {
         MR::startBck(this, "On");
         MR::startBrk(this, "On");
 
-        if (MR::isInWater(this, TVec3f(0.0f, 0.0f, 0.0f))) {
+        if (MR::isInWater(this, Vec3f(0.0f, 0.0f, 0.0f))) {
             MR::startSound(this, "SE_OJ_SPIN_LEVER_SW_HIT_W");
         } else {
             MR::startSound(this, "SE_OJ_SPIN_LEVER_SW_HIT");
@@ -110,7 +110,7 @@ void SpinLeverSwitch::exeSwitchOn() {
     }
 
     if (MR::isStep(this, ::sStepOnSE)) {
-        if (MR::isInWater(this, TVec3f(0.0f, 0.0f, 0.0f))) {
+        if (MR::isInWater(this, Vec3f(0.0f, 0.0f, 0.0f))) {
             MR::startSound(this, "SE_OJ_SPIN_LEVER_SW_ON_W");
         } else {
             MR::startSound(this, "SE_OJ_SPIN_LEVER_SW_ON");

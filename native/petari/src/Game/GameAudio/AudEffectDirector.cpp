@@ -10,7 +10,7 @@ struct AudEffectData {
     f32 mFxSend;
     s32 mCutoff;
     f32 mVolume;
-    u32 _C;
+    u32 mFadeFrames;
 };
 
 namespace {
@@ -19,49 +19,49 @@ namespace {
     };
 };  // namespace
 
-AudEffectDirector::AudEffectDirector() : NameObj("\203\111\201\133\203\146\203\102\203\111\203\107\203\164\203\106\203\116\203\147\203\146\203\102\203\214\203\116\203\136\201\133" /* オーディオエフェクトディレクター */), _C(0), _10(0), _14(0) {
+AudEffectDirector::AudEffectDirector() : NameObj("オーディオエフェクトディレクター"), mEffectType(0), mAppliedType(0), mPriority(0) {
 }
 
-void AudEffectDirector::init(const JMapInfoIter& rIter) {
+void AudEffectDirector::init(const TableIter& /*rIter*/) {
     MR::connectToScene(this, MR::MovementType_AudEffectDirector, MR::CalcAnimType_None, MR::DrawBufferType_None, MR::DrawType_None);
 }
 
 void AudEffectDirector::movement() {
-    if (_10 != _C) {
-        setAudioEffectParam(_C);
-        _10 = _C;
+    if (mAppliedType != mEffectType) {
+        setAudioEffectParam(mEffectType);
+        mAppliedType = mEffectType;
     }
 
-    playEffectSound(_C);
-    _14 = 0;
+    playEffectSound(mEffectType);
+    mPriority = 0;
 }
 
-void AudEffectDirector::setEffectType(s32 a1, s32 a2) {
-    if (a2 < 0) {
-        a2 = 0;
+void AudEffectDirector::setEffectType(s32 effectType, s32 priority) {
+    if (priority < 0) {
+        priority = 0;
     }
 
-    if (a2 > 127) {
-        a2 = 127;
+    if (priority > 127) {
+        priority = 127;
     }
 
-    if (a2 >= _14) {
-        _C = a1;
-        _14 = a2;
+    if (priority >= mPriority) {
+        mEffectType = effectType;
+        mPriority = priority;
     }
 }
 
-void AudEffectDirector::setAudioEffectParam(s32 a1) {
+void AudEffectDirector::setAudioEffectParam(s32 effectType) {
     AudEffector* pAudEffector = AudWrap::getSystem()->getAudEffector();
 
-    pAudEffector->setFxSend(::cAudEffectDataList[a1].mFxSend);
-    pAudEffector->setCutoff(::cAudEffectDataList[a1].mCutoff);
+    pAudEffector->setFxSend(::cAudEffectDataList[effectType].mFxSend);
+    pAudEffector->setCutoff(::cAudEffectDataList[effectType].mCutoff);
 
     if (!MR::isStageStateScenarioOpeningCamera()) {
-        MR::moveVolumeStageBGM(::cAudEffectDataList[a1].mVolume, ::cAudEffectDataList[a1]._C);
+        MR::moveVolumeStageBGM(::cAudEffectDataList[effectType].mVolume, ::cAudEffectDataList[effectType].mFadeFrames);
     }
 
-    switch (a1) {
+    switch (effectType) {
     case 1:
         pAudEffector->setSpecialFx(1);
         break;
@@ -74,8 +74,8 @@ void AudEffectDirector::setAudioEffectParam(s32 a1) {
     }
 }
 
-void AudEffectDirector::playEffectSound(s32 a1) {
-    switch (a1) {
+void AudEffectDirector::playEffectSound(s32 effectType) {
+    switch (effectType) {
     case 3:
         MR::startAtmosphereLevelSE("SE_AT_LV_WATERFALL_CAVE");
         break;

@@ -1,12 +1,13 @@
 #include "Game/Camera/CameraFix.hpp"
-#include "Game/Camera/CamTranslatorFix.hpp"
+#include "Game/Camera/CameraCalc.hpp"
+#include "Game/Camera/CameraParamChunk.hpp"
 #include "Game/Camera/CameraLocalUtil.hpp"
 #include "Game/Camera/CameraTargetMtx.hpp"
 #include "Game/Camera/CameraTargetObj.hpp"
 #include "Game/Util/MathUtil.hpp"
 
-CameraFix::CameraFix(const char* pName) : Camera(pName), mWPoint(0.0f, 0.0f, 0.0f), mAxis(0.0f, 0.0f, -2500.0f), mUp(0.0f, 1.0f, 0.0f) {
-    mTarget = new CameraTargetMtx("\203\112\203\201\203\211\203\136\201\133\203\121\203\142\203\147\203\137\203\176\201\133" /* カメラターゲットダミー */);
+CameraFix::CameraFix(const char* pName)
+    : Camera(pName), mWPoint(0.0f, 0.0f, 0.0f), mAxis(0.0f, 0.0f, -2500.0f), mUp(0.0f, 1.0f, 0.0f), mTarget(new CameraTargetMtx("カメラターゲットダミー")) {
 }
 
 void CameraFix::reset() {
@@ -14,22 +15,22 @@ void CameraFix::reset() {
 }
 
 CameraTargetObj* CameraFix::calc() {
-    TVec3f axis = mAxis;
-    TVec3f watchPos = mWPoint;
-    TVec3f up = mUp;
+    Vec3f axis = mAxis;
+    Vec3f watchPos = mWPoint;
+    Vec3f up = mUp;
     mZoneMatrix.mult33(axis);
     mZoneMatrix.mult(watchPos, watchPos);
     mZoneMatrix.mult33(up);
 
-    CameraLocalUtil::setLocalOffset(this, TVec3f(0.0f, 0.0f, 0.0f));
+    CameraLocalUtil::setLocalOffset(this, Vec3f(0.0f, 0.0f, 0.0f));
     mTarget->setMtx(mZoneMatrix);
     mTarget->mMatrix.setTrans(watchPos);
     mTarget->movement();
 
-    TVec3f watchPoint;
+    Vec3f watchPoint;
     CameraLocalUtil::makeWatchPointImm(&watchPoint, this, mTarget);
 
-    TVec3f front = axis;
+    Vec3f front = axis;
     if (MR::isNearZero(front)) {
         return nullptr;
     }
@@ -46,12 +47,15 @@ CameraTargetObj* CameraFix::calc() {
     return mTarget;
 }
 
-void CameraFix::setParam(const TVec3f& rWPoint, const TVec3f& rAxis, const TVec3f& rUp) {
+void CameraFix::setParam(const Vec3f& rWPoint, const Vec3f& rAxis, const Vec3f& rUp) {
     mWPoint.set(rWPoint);
     mAxis.set(rAxis);
     mUp.set(rUp);
 }
 
-CamTranslatorBase* CameraFix::createTranslator() {
-    return new CamTranslatorFix(this);
+void CameraFix::setParamFromChunk(const CameraParamChunk* pChunk) {
+    CameraGeneralParam* general = pChunk->mGeneralParam;
+    Vec3f offset;
+    MR::polarToCross(Vec3f(0.0f, 0.0f, 0.0f), &offset, general->mDist, general->mAxis.x, general->mAxis.y);
+    setParam(general->mWPoint, -offset, general->mUp);
 }

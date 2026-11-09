@@ -15,19 +15,17 @@ class TrickRabbitSnow : public LiveActor {
     friend class TrickRabbitSnowCollect;
 
 public:
-    /// @brief Creates a new `TrickRabbitSnow`.
-    /// @param pName A pointer to the null-terminated name of the object.
     TrickRabbitSnow(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void initAfterPlacement();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void initAfterPlacement() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     void setListener(TrickRabbitSnowListener*);
     void initSensor();
@@ -55,10 +53,10 @@ public:
     void exeGiveUp();
 
 private:
-    TQuat4f mFinishQuat;
-    TVec3f mFinishPos;
-    TQuat4f mRotateQuat;
-    TVec3f mFrontVec;
+    Quat4f mFinishQuat;
+    Vec3f mFinishPos;
+    Quat4f mRotateQuat;
+    Vec3f mFrontVec;
     RabbitStateWaitStart* mStateWaitStart;
     WalkerStateRunaway* mStateRunaway;
     WalkerStateBlowDamage* mStateBlowDamage;
@@ -73,7 +71,6 @@ private:
 
 class TrickRabbitSnowListener {
 public:
-    /// @brief Creates a new `TrickRabbitSnowListener`.
     TrickRabbitSnowListener();
 
     virtual void noticeStart(TrickRabbitSnow*) {

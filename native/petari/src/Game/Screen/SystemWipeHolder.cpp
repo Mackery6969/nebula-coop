@@ -1,4 +1,4 @@
-#include <JSystem/JUtility/JUTTexture.hpp>
+#include "Game/Render/GameTexture.hpp"
 #include "Game/Screen/SystemWipeHolder.hpp"
 #include "Game/Screen/WipeFade.hpp"
 #include "Game/Screen/WipeHolderBase.hpp"
@@ -6,13 +6,13 @@
 #include "Game/Util.hpp"
 #include "Game/System/NebulaFrameClock.hpp"
 
-SystemWipeHolder::SystemWipeHolder() : WipeHolderBase(4, "\203\126\203\130\203\145\203\200\203\217\203\103\203\166\225\333\216\235" /* システムワイプ保持 */), _1C(false) {
+SystemWipeHolder::SystemWipeHolder() : WipeHolderBase(4, "システムワイプ保持"), mIsCapturing(false) {
 }
 
-void SystemWipeHolder::init(const JMapInfoIter& rIter) {
-    addWipeLayout(new WipeFade("\203\164\203\106\201\133\203\150\203\217\203\103\203\166" /* フェードワイプ */, Color8(0, 0, 0, 255)));
-    addWipeLayout(new WipeRing(false, "\211\176\203\217\203\103\203\166" /* 円ワイプ */));
-    addWipeLayout(new WipeFade("\224\222\203\164\203\106\201\133\203\150\203\217\203\103\203\166" /* 白フェードワイプ */, Color8(255, 255, 255, 255)));
+void SystemWipeHolder::init(const TableIter& /*rIter*/) {
+    addWipeLayout(new WipeFade("フェードワイプ", Color8(0, 0, 0, 255)));
+    addWipeLayout(new WipeRing(false, "円ワイプ"));
+    addWipeLayout(new WipeFade("白フェードワイプ", Color8(255, 255, 255, 255)));
 }
 
 bool SystemWipeHolder::isCurrentAlive() const {
@@ -20,9 +20,9 @@ bool SystemWipeHolder::isCurrentAlive() const {
 }
 
 void SystemWipeHolder::movement() {
-    if (_1C) {
+    if (mIsCapturing) {
         if (!isCurrentAlive() || !getCurrent()->isWipeOut()) {
-            _1C = false;
+            mIsCapturing = false;
             MR::endToCaptureScreen("SystemWipe");
         }
     }
@@ -47,27 +47,27 @@ void SystemWipeHolder::draw() const {
     }
 }
 
-void SystemWipeHolder::setWipeRingCenter(const TVec3f& rCenter) {
-    static_cast< WipeRing* >(findWipe("\211\176\203\217\203\103\203\166" /* 円ワイプ */))->setCenterPos(rCenter);
+void SystemWipeHolder::setWipeRingCenter(const Vec3f& rCenter) {
+    static_cast< WipeRing* >(findWipe("円ワイプ"))->setCenterPos(rCenter);
 }
 
 void SystemWipeHolder::startGameScreenCapture() {
-    _1C = true;
+    mIsCapturing = true;
     MR::startToCaptureScreen("SystemWipe");
 }
 
 void SystemWipeHolder::drawGameScreenCapture() const {
-    if (!_1C) {
+    if (!mIsCapturing) {
         return;
     }
 
     MR::setupScreen2D();
-    JUTTexture texture(MR::getScreenResTIMG());
+    GameTexture texture(MR::getScreenResTIMG());
     MR::drawScreenPicture(texture);
 }
 
 void SystemWipeHolder::updateWipe(const char* pWipeName) {
-    _1C = false;
+    mIsCapturing = false;
     MR::endToCaptureScreen("SystemWipe");
     WipeHolderBase::updateWipe(pWipeName);
 }

@@ -25,7 +25,6 @@ enum SceneObj {
     SceneObj_AudEffectDirector = 0x12,
     SceneObj_AudBgmConductor = 0x13,
     SceneObj_MarioHolder = 0x14,
-    SceneObj_15 = 0x15,
     SceneObj_MirrorCamera = 0x16,
     SceneObj_CameraContext = 0x17,
     SceneObj_NameObjGroup = 0x18,
@@ -46,18 +45,15 @@ enum SceneObj {
     SceneObj_PlacementStateChecker = 0x27,
     SceneObj_NamePosHolder = 0x28,
     SceneObj_NPCDirector = 0x29,
-    SceneObj_ResourceShare = 0x2A,
     SceneObj_MoviePlayerSimple = 0x2B,
     SceneObj_WarpPodMgr = 0x2C,
     SceneObj_CenterScreenBlur = 0x2D,
-    SceneObj_OdhConverter = 0x2E,
     SceneObj_CometRetryButton = 0x2F,
     SceneObj_AllLiveActorGroup = 0x30,
     SceneObj_CameraDirector = 0x31,
     SceneObj_PlanetGravityManager = 0x32,
     SceneObj_BaseMatrixFollowTargetHolder = 0x33,
     SceneObj_GameSceneLayoutHolder = 0x34,
-    SceneObj_35 = 0x35,
     SceneObj_CoinHolder = 0x36,
     SceneObj_PurpleCoinHolder = 0x37,
     SceneObj_CoinRotater = 0x38,
@@ -79,14 +75,12 @@ enum SceneObj {
     SceneObj_PlantStalkDrawInit = 0x48,
     SceneObj_PlantLeafDrawInit = 0x49,
     SceneObj_TrapezeRopeDrawInit = 0x4A,
-    SceneObj_4B = 0x4B,
     SceneObj_VolumeModelDrawInit = 0x4C,
     SceneObj_SpinDriverPathDrawInit = 0x4D,
     SceneObj_NoteGroup = 0x4E,
     SceneObj_ClipAreaDropHolder = 0x4F,
     SceneObj_FallOutFieldDraw = 0x50,
     SceneObj_ClipFieldFillDraw = 0x51,
-    SceneObj_52 = 0x52,
     SceneObj_ClipAreaHolder = 0x53,
     SceneObj_ArrowSwitchMultiHolder = 0x54,
     SceneObj_MapPartsRailGuideHolder = 0x56,
@@ -95,7 +89,6 @@ enum SceneObj {
     SceneObj_ElectricRailHolder = 0x59,
     SceneObj_SpiderThread = 0x5A,
     SceneObj_QuakeEffectGenerator = 0x5B,
-    SceneObj_5C = 0x5C,
     SceneObj_HeatHazeDirector = 0x5D,
     SceneObj_BlueChipHolder = 0x5E,
     SceneObj_YellowChipHolder = 0x5F,
@@ -106,7 +99,6 @@ enum SceneObj {
     SceneObj_OceanHomeMapCtrl = 0x64,
     SceneObj_RaceManager = 0x65,
     SceneObj_GroupCheckManager = 0x66,
-    SceneObj_SkeletalFishBabyRailHolder = 0x67,
     SceneObj_SkeletalFishBossRailHolder = 0x68,
     SceneObj_WaterPressureBulletHolder = 0x69,
     SceneObj_FirePressureBulletHolder = 0x6A,
@@ -133,7 +125,6 @@ enum SceneObj {
 /// @brief The container for global scene objects.
 class SceneObjHolder {
 public:
-    /// @brief Creates a new `SceneObjHolder`.
     SceneObjHolder();
 
     /// @brief Creates the requested object, returning the existing instance if it has already been created.

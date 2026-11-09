@@ -1,23 +1,12 @@
 #pragma once
 
 #include "Game/NameObj/NameObj.hpp"
+#include "Game/Scene/MovementControlType.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/System/NerveExecutor.hpp"
 
-namespace MR {
-    enum MovementControlType {
-        MovementControlType_0,
-        MovementControlType_1,
-        MovementControlType_2,
-        MovementControlType_3,
-        MovementControlType_4,
-        MovementControlType_5,
-    };
-};  // namespace MR
-
 class StopSceneStateControl : public NerveExecutor {
 public:
-    /// @brief Creates a new `StopSceneStateControl`.
     StopSceneStateControl();
 
     void requestStopSceneFor(MR::MovementControlType, const NameObj*);
@@ -28,16 +17,15 @@ public:
     void exeStopped();
 
 private:
-    MR::MovementControlType _8;
-    const NameObj* _C;
+    MR::MovementControlType mMovementType;
+    const NameObj* mRequester;
 };
 
 class SceneNameObjMovementController : public NameObj {
 public:
-    /// @brief Creates a new `SceneNameObjMovementController`.
     SceneNameObjMovementController();
 
-    virtual void movement();
+    virtual void movement() override;
 
     void requestStopSceneFor(MR::MovementControlType, const NameObj*);
     void requestStopSceneOverwrite(const NameObj*);
@@ -45,7 +33,7 @@ public:
     void notifyRequestNameObjMovementOnOff(bool);
 
 private:
-    bool _C;
+    bool mIsSyncRequested;
     StopSceneStateControl* mStopSceneStateControl;
 };
 

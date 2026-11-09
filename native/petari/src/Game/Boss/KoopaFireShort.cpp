@@ -1,4 +1,5 @@
 #include "Game/Boss/KoopaFireShort.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Boss/Koopa.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util/ActorMovementUtil.hpp"
@@ -14,16 +15,13 @@
 #include "Game/Util/StarPointerUtil.hpp"
 
 namespace {
-    // static const f32 sFlySpeedSlow = _;
     static const f32 sFlySpeedNormal = 15.0f;
     static const f32 sFlySpeedFast = 30.0f;
-    // static const s32 sFallStep = _;
-    // static const f32 sFallSpeed = _;
-    static const s32 sFlyStepNormal = 180;
-    static const s32 sFlyStepLong = 900;
-    static const s32 sCurveLifeTime = 300;
+    static const s32 sFlyStepNormal = NebulaFrameClock::stepsOfSeconds(3);
+    static const s32 sFlyStepLong = NebulaFrameClock::stepsOfSeconds(15);
+    static const s32 sCurveLifeTime = NebulaFrameClock::stepsOfSeconds(5);
     static const f32 sCurveRotateSpeed = 0.1f;
-    static const s32 sStepToValidSensor = 30;
+    static const s32 sStepToValidSensor = NebulaFrameClock::stepsOfMilliseconds(500);
 };  // namespace
 
 namespace NrvKoopaFireShort {
@@ -33,10 +31,10 @@ namespace NrvKoopaFireShort {
 };  // namespace NrvKoopaFireShort
 
 KoopaFireShort::KoopaFireShort(const Koopa* pKoopa)
-    : LiveActor("\203\116\203\142\203\160\202\314\211\212\201\151\203\126\203\207\201\133\203\147\201\152" /* クッパの炎（ショート） */), mKoopa(pKoopa), mFront(0.0f, 0.0f, 1.0f), mSpeed(), mOffset() {
+    : LiveActor("クッパの炎（ショート）"), mKoopa(pKoopa), mFront(0.0f, 0.0f, 1.0f), mSpeed(), mDuration(), mOffset() {
 }
 
-void KoopaFireShort::init(const JMapInfoIter& rIter) {
+void KoopaFireShort::init(const TableIter& /*rIter*/) {
     mScale.set(1.0f, 1.0f, 1.0f);
 
     initModelManagerWithAnm("KoopaFire", nullptr, false);
@@ -45,21 +43,21 @@ void KoopaFireShort::init(const JMapInfoIter& rIter) {
     MR::connectToSceneEnemy(this);
     initHitSensor(1);
 
-    TVec3f sensorOffset = TVec3f(0.0f, 0.0f, 0.0f);
+    Vec3f sensorOffset = Vec3f(0.0f, 0.0f, 0.0f);
     MR::addHitSensor(this, "Attack", ATYPE_KOOPA_FIRE, 8, 130.0f, sensorOffset);
     initBinder(50.0f, 0.0f, 0);
 
     MR::offBind(this);
     MR::onCalcGravity(this);
 
-    initEffectKeeper(1, nullptr, false);
+    initEffectKeeper(1, nullptr);
 
     MR::addEffectHitNormal(this, "Hit");
 
     initSound(4, false);
     initNerve(GET_NERVE(KoopaFireShort, KoopaFireShortNrvFly));
 
-    TVec3f pointerOffset;
+    Vec3f pointerOffset;
     pointerOffset.set(0.0f);
     MR::initStarPointerTarget(this, 100.0f, pointerOffset);
     MR::initShadowVolumeSphere(this, 200.0f);
@@ -76,7 +74,7 @@ void KoopaFireShort::appear() {
 
     MR::calcGravity(this);
 
-    TPos3f transform;
+    Pos3f transform;
     transform.setInline(MR::getJointMtx(mKoopa, "Tongue2"));
     transform.getTrans(mPosition);
     transform.getYDir(mVelocity);
@@ -152,8 +150,8 @@ void KoopaFireShort::exeFly() {
         MR::validateHitSensors(this);
     }
 
-    if (MR::isStarPointerPointing2POnPressButton(this, "\216\343" /* 弱 */, true, false)) {
-        TVec3f gravity = -mGravity;
+    if (MR::isStarPointerPointing2POnPressButton(this, "弱", true, false)) {
+        Vec3f gravity = -mGravity;
         MR::calcStarPointerWorldVelocityDirectionOnPlane(&mVelocity, mPosition, gravity, 1);
 
         mSpeed = 80.0f;
@@ -232,7 +230,7 @@ void KoopaFireShort::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
 }
 
 void KoopaFireShort::updateFly() {
-    TVec3f difference = *MR::getPlayerPos() - mPosition;
+    Vec3f difference = *MR::getPlayerPos() - mPosition;
     MR::normalizeOrZero(&difference);
     difference.scale(0.0f);
     mVelocity.add(difference);
@@ -252,7 +250,4 @@ void KoopaFireShort::updateFrontAndVelocity() {
     }
 
     mVelocity.scale(mSpeed);
-}
-
-KoopaFireShort::~KoopaFireShort() {
 }

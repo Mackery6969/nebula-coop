@@ -6,10 +6,9 @@ class CutBushModelObj : public LiveActor {
 public:
     CutBushModelObj(const char*, const char*, bool, MtxPtr);
 
-    virtual ~CutBushModelObj();
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void calcAndSetBaseMtx();
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
+    virtual void calcAndSetBaseMtx() override;
 
     MtxPtr mMtx;
 };

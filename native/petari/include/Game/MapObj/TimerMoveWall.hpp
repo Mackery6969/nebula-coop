@@ -7,8 +7,8 @@ class TimerMoveWall : public MapObjActor {
 public:
     TimerMoveWall(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void initCaseUseSwitchB(const MapObjActorInitInfo&);
+    virtual void init(const TableIter&) override;
+    virtual void initCaseUseSwitchB(const MapObjActorInitInfo&) override;
 
     void startMove();
 
@@ -16,5 +16,5 @@ public:
     void exeMove();
 
     s32 mTimer;
-    f32 mMoveLenght;
+    f32 mMoveLength;
 };

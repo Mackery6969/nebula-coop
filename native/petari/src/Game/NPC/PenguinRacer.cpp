@@ -12,7 +12,7 @@
 #include "Game/Util/AreaObjUtil.hpp"
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MapUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
@@ -23,7 +23,6 @@
 #include "Game/Util/StarPointerUtil.hpp"
 
 namespace {
-    // static const f32 sBrake = ;
     static const f32 sGoalBrake = 0.005f;
     static const f32 sFallBrake = 0.002f;
     static const s32 sTurnFrame = 60;
@@ -31,12 +30,6 @@ namespace {
     static const f32 sSensorRadius = 80.0f;
     static const f32 sNearClipping = 200.0f;
     static const f32 sSwimSoundPlayDistance = 500.0f;
-
-    // TODO: this is an exact copy of MR::isInWater, except it needs to be inlined.
-    inline bool isInWater(const TVec3f& rPos) {
-        WaterInfo waterInfo;
-        return MR::getWaterAreaObj(&waterInfo, rPos);
-    }
 };  // namespace
 
 namespace NrvPenguinRacer {
@@ -55,7 +48,7 @@ namespace NrvPenguinRacer {
 PenguinRacer::PenguinRacer(const char* pName) : NPCActor(pName), mRaceDisabled(), mMoveSpeed(0.0f), mSpeed(1.0f), mRailPointNo() {
 }
 
-void PenguinRacer::init(const JMapInfoIter& rIter) {
+void PenguinRacer::init(const TableIter& rIter) {
     MR::initDefaultPose(this, rIter);
     initModel();
 
@@ -67,17 +60,17 @@ void PenguinRacer::init(const JMapInfoIter& rIter) {
     initSound(8, false);
     initShadow();
     initBind();
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     MR::onCalcGravity(this);
 
     initColor(rIter);
 
-    TVec3f target;
+    Vec3f target;
     target.set(0.0f);
     MR::initStarPointerTarget(this, 100.0f, target);
     initEtc(rIter);
 
-    mMsgCtrl = MR::createTalkCtrl(this, rIter, "PenguinRacer", TVec3f(0.0f, 130.0f, 0.0f), nullptr);
+    mMsgCtrl = MR::createTalkCtrl(this, rIter, "PenguinRacer", Vec3f(0.0f, 130.0f, 0.0f), nullptr);
     MR::onRootNodeAutomatic(mMsgCtrl);
 
     initNerve(GET_NERVE(PenguinRacer, PenguinRacerNrvWait));
@@ -102,7 +95,7 @@ void PenguinRacer::initModel() {
 
 void PenguinRacer::initSensor() {
     initHitSensor(1);
-    MR::addHitSensorPush(this, "push", 8, ::sSensorRadius, TVec3f(0.0f, ::sSensorRadius, 0.0f));
+    MR::addHitSensorPush(this, "push", 8, ::sSensorRadius, Vec3f(0.0f, ::sSensorRadius, 0.0f));
 }
 
 void PenguinRacer::initShadow() {
@@ -113,19 +106,19 @@ void PenguinRacer::initBind() {
     initBinder(::sSensorRadius, ::sSensorRadius, 0);
 }
 
-void PenguinRacer::initColor(const JMapInfoIter& rIter) {
+void PenguinRacer::initColor(const TableIter& rIter) {
     s32 color = 0;
-    MR::getJMapInfoArg7NoInit(rIter, &color);
+    MR::getPlacementArg7NoInit(rIter, &color);
 
     MR::startBrk(this, "ColorChange");
     MR::setBrkFrameAndStop(this, color);
 }
 
-void PenguinRacer::initEtc(const JMapInfoIter& rIter) {
+void PenguinRacer::initEtc(const TableIter& rIter) {
     mParam.setMoveAction("RacerWait", "Turn");
     mParam.setTalkAction("RacerTalk", "TalkTurn");
     setDefaults();
-    MR::getJMapInfoArg0NoInit(rIter, &mRaceDisabled);
+    MR::getPlacementArg0NoInit(rIter, &mRaceDisabled);
 }
 
 bool PenguinRacer::tryReaction() {
@@ -133,21 +126,21 @@ bool PenguinRacer::tryReaction() {
 }
 
 void PenguinRacer::exeReaction() {
-    if (_D8) {
+    if (mIsTrampledStart) {
         MR::startSound(this, "SE_SM_PENGUIN_TRAMPLED");
         MR::startSound(this, "SE_SV_PENGUIN_S_TRAMPLED");
     }
 
     if (isPointingSe()) {
         MR::startSound(this, "SE_SV_PENGUIN_S_POINTED_2P");
-        MR::startDPDHitSound();
+        MR::startPointerHitSound();
     }
 
-    if (_D9) {
+    if (mIsSpinAttackedStart) {
         MR::startSound(this, "SE_SV_PENGUIN_S_SPIN_HIT");
     }
 
-    if (_DB) {
+    if (mIsReactionStart) {
         MR::startSound(this, "SE_SV_PENGUIN_S_STAR_PIECE");
     }
 
@@ -175,21 +168,21 @@ void PenguinRacer::control() {
             if (!MR::isHiddenModel(this)) {
                 mLodCtrl->invalidate();
                 MR::hideModelAndOnCalcAnim(this);
-                if (_94 != nullptr) {
-                    MR::hideModel(_94);
+                if (mGoods0 != nullptr) {
+                    MR::hideModel(mGoods0);
                 }
-                if (_98 != nullptr) {
-                    MR::hideModel(_98);
+                if (mGoods1 != nullptr) {
+                    MR::hideModel(mGoods1);
                 }
             }
         } else {
             if (MR::isHiddenModel(this)) {
                 MR::showModel(this);
-                if (_94 != nullptr) {
-                    MR::showModel(_94);
+                if (mGoods0 != nullptr) {
+                    MR::showModel(mGoods0);
                 }
-                if (_98 != nullptr) {
-                    MR::showModel(_98);
+                if (mGoods1 != nullptr) {
+                    MR::showModel(mGoods1);
                 }
                 mLodCtrl->validate();
             }
@@ -208,7 +201,7 @@ void PenguinRacer::exeWait() {
 
 void PenguinRacer::exeRaceWait() {
     if (MR::isFirstStep(this)) {
-        if (::isInWater(mPosition)) {
+        if (MR::isInWater(mPosition)) {
             MR::startAction(this, "RacerSwimWaitSurface");
         } else {
             MR::startAction(this, "RacerWait");
@@ -330,7 +323,7 @@ void PenguinRacer::exeRaceGoal() {
 
 void PenguinRacer::exeRaceTurn() {
     if (MR::isFirstStep(this)) {
-        if (::isInWater(mPosition)) {
+        if (MR::isInWater(mPosition)) {
             MR::startAction(this, "RacerSwimWaitSurface");
         } else {
             MR::startAction(this, "RacerWait");
@@ -360,23 +353,23 @@ void PenguinRacer::updateMove() {
 
 void PenguinRacer::updateVelocity() {
     MR::moveCoordToNearestPos(this, mPosition);
-    TVec3f nextPointPos;
+    Vec3f nextPointPos;
     MR::calcRailPointPos(&nextPointPos, this, MR::getNextRailPointNo(this));
 
-    TVec3f toTarget = nextPointPos - mPosition;
+    Vec3f toTarget = nextPointPos - mPosition;
     MR::normalizeOrZero(&toTarget);
 
     mVelocity.add(toTarget * mSpeed);
 
-    TVec3f velV, velH;
-    TVec3f grav = mGravity;
+    Vec3f velV, velH;
+    Vec3f grav = mGravity;
 
     velV.zero();
     velH.zero();
 
     if (getMoveNerve() != GET_NERVE(PenguinRacer, PenguinRacerNrvRaceSwim)) {
         MR::normalizeOrZero(&grav);
-        const TVec3f& v = mVelocity;
+        const Vec3f& v = mVelocity;
         velV.scale(grav.dot(v), grav);
         velH.sub(v, velV);
     } else {
@@ -458,7 +451,7 @@ void PenguinRacer::initRacer() {
     AbstractRacer::initRacer();
 }
 
-void PenguinRacer::prepRacer(const RaceManager* pRaceManager) {
+void PenguinRacer::prepRacer(const RaceManager* /*pRaceManager*/) {
     MR::invalidateClipping(this);
     mBinder->mOffsetY = 60.0f;
 
@@ -470,10 +463,10 @@ void PenguinRacer::prepRacer(const RaceManager* pRaceManager) {
 
     MR::decidePose(this, -mGravity, MR::getRailDirection(this), mPosition, 1.0f, 1.0f, 1.0f);
 
-    if (::isInWater(mPosition)) {
+    if (MR::isInWater(mPosition)) {
         MR::startAction(this, "RacerSwimSurfaceSoon");
     } else {
-        TVec3f pos;
+        Vec3f pos;
         Triangle triangle;
         if (MR::getFirstPolyOnLineToMap(&pos, &triangle, mPosition, mGravity * 1000.0f)) {
             mPosition.set(pos);
@@ -484,11 +477,11 @@ void PenguinRacer::prepRacer(const RaceManager* pRaceManager) {
     MR::setBckFrameAtRandom(this);
     MR::resetPosition(this);
     MR::requestMovementOn(this);
-    if (_94 != nullptr) {
-        MR::requestMovementOn(_94);
+    if (mGoods0 != nullptr) {
+        MR::requestMovementOn(mGoods0);
     }
-    if (_98 != nullptr) {
-        MR::requestMovementOn(_98);
+    if (mGoods1 != nullptr) {
+        MR::requestMovementOn(mGoods1);
     }
 
     setNerve(GET_NERVE(PenguinRacer, PenguinRacerNrvRacePrep));
@@ -523,14 +516,14 @@ void PenguinRacer::loseRacer() {
     setNerve(GET_NERVE(PenguinRacer, PenguinRacerNrvRacePrep));
 }
 
-void PenguinRacer::resetRacer(const RaceManager* pRaceManager) {
+void PenguinRacer::resetRacer(const RaceManager* /*pRaceManager*/) {
     MR::onBind(this);
     mBinder->mOffsetY = 80.0f;
     MR::setDefaultPose(this);
     mVelocity.zero();
     MR::calcGravity(this);
 
-    if (::isInWater(mPosition)) {
+    if (MR::isInWater(mPosition)) {
         MR::startAction(this, "RacerSwimWaitSoon");
     } else {
         MR::startAction(this, "RacerWaitSoon");

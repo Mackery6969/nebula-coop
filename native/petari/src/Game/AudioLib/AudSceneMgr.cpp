@@ -2,8 +2,7 @@
 #include "Game/AudioLib/AudEffector.hpp"
 #include "Game/AudioLib/AudSystem.hpp"
 #include "Game/AudioLib/AudWrap.hpp"
-#include "Game/Speaker/SpkSystem.hpp"
-#include <JSystem/JAudio2/JAUAudioData.hpp>
+#include "Game/Sound/SoundArchive.hpp"
 
 namespace {
     // The groups of the voice bank, a bit each.
@@ -11,22 +10,19 @@ namespace {
     const u32 cLuigiVoices = 4;
 }  // namespace
 
-AudSceneMgr::AudSceneMgr(JAUAudioData* pAudioData) : mAudioData(pAudioData), _4(), mPlayerMode(), _1D() {
+AudSceneMgr::AudSceneMgr(SoundArchive* pAudioData) : mAudioData(pAudioData), mPlayerMode(), mIsCubeBgmChangeInvalid() {
 }
 
 void AudSceneMgr::startScene() {
-    _4 = 0;
-    AudWrap::getSystem()->_82A = false;
-    AudWrap::getSystem()->_82B = false;
-    AudWrap::getSystem()->_82C = false;
+    AudWrap::getSystem()->mIsTrigSeBlocked = false;
+    AudWrap::getSystem()->mIsLevelSeBlocked = false;
     AudWrap::getSystem()->initSceneVolume();
     AudEffector* effector = AudWrap::getSystem()->mAudEffector;
     if (effector != nullptr) {
         effector->initParams();
     }
 
-    _1D = false;
-    SpkSystem::reconnect(-1);
+    mIsCubeBgmChangeInvalid = false;
 }
 
 void AudSceneMgr::setPlayerLuigi(bool isLuigi) {
@@ -34,8 +30,8 @@ void AudSceneMgr::setPlayerLuigi(bool isLuigi) {
     if (mode == mPlayerMode) {
         return;
     }
-    mAudioData->eraseWaveArc(cPlayerVoiceBank, cMarioVoices | cLuigiVoices);
-    mAudioData->loadWaveArc(cPlayerVoiceBank, isLuigi ? cLuigiVoices : cMarioVoices);
+    mAudioData->setWaveGroups(cPlayerVoiceBank, cMarioVoices | cLuigiVoices, false);
+    mAudioData->setWaveGroups(cPlayerVoiceBank, isLuigi ? cLuigiVoices : cMarioVoices, true);
     mPlayerMode = mode;
 }
 

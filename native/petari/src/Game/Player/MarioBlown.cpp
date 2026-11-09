@@ -6,7 +6,7 @@
 #include "Game/Player/MarioState.hpp"
 #include "Game/Util/MathUtil.hpp"
 
-bool Mario::blown(const TVec3f& rVec) {
+bool Mario::blown(const Vec3f& rVec) {
     if (getCurrentStatus() == MarioStatus_Blown) {
         return false;
     }
@@ -15,46 +15,46 @@ bool Mario::blown(const TVec3f& rVec) {
         return false;
     }
 
-    if (getCurrentStatus() == MarioStatus_13) {
+    if (getCurrentStatus() == MarioStatus_RecoveryOrWarp) {
         return false;
     }
 
     stopWalk();
 
-    mBlown->vecKillActor240(rVec);
+    mBlown->setVelocityOffGravity(rVec);
 
-    mMovementStates._2C = true;
-    mMovementStates._A = false;
-    _430 = 3;
+    mMovementStates.blown = true;
+    mMovementStates.squat = false;
+    mJumpKind = 3;
 
     return true;
 }
 
-MarioBlown::MarioBlown(MarioActor* pActor) : MarioState(pActor, MarioStatus_Blown), mTimer(), _14() {
-    _18.zero();
-    _24 = false;
-    _25 = false;
+MarioBlown::MarioBlown(MarioActor* pActor) : MarioState(pActor, MarioStatus_Blown), mTimer(), mStep() {
+    mVelocity.zero();
+    mJumpedOut = false;
+    mAirLanding = false;
 }
 
 bool MarioBlown::start() {
     mTimer = 0;
-    _14 = 0;
-    _24 = false;
-    _25 = false;
+    mStep = 0;
+    mJumpedOut = false;
+    mAirLanding = false;
 
-    changeAnimation("\225\307\203\161\203\142\203\147" /* 壁ヒット */, "\212\356\226\173" /* 基本 */);
-    playSound("\220\272\225\307\221\314\223\226\202\275\202\350" /* 声壁体当たり */);
-    playSound("\225\307\217\325\223\313" /* 壁衝突 */);
+    changeAnimation("壁ヒット", "基本");
+    playSound("声壁体当たり");
+    playSound("壁衝突");
 
-    playEffectTrans("\225\307\203\161\203\142\203\147" /* 壁ヒット */, getPlayer()->getWallPos());
+    playEffectTrans("壁ヒット", getPlayer()->getWallPos());
 
-    getPlayer()->mMovementStates._1 = false;
+    getPlayer()->mMovementStates.onGround = false;
     getPlayer()->mMovementStates.jumping = true;
-    getPlayer()->mMovementStates._B = false;
+    getPlayer()->mMovementStates.hipDrop = false;
 
-    _18 += -mActor->_240 * mActor->getConst().getTable()->mJumpHeightBlown;
-    getPlayer()->setJumpVec(_18);
-    addVelocity(_18);
+    mVelocity += -mActor->mGravityVec * mActor->getConst().getTable()->mJumpHeightBlown;
+    getPlayer()->setJumpVec(mVelocity);
+    addVelocity(mVelocity);
     getPlayer()->lockGroundCheck(this, true);
     return true;
 }
@@ -66,94 +66,94 @@ bool MarioBlown::update() {
         return false;
     }
 
-    switch (_14) {
+    switch (mStep) {
     case 0:
     case 2:
-        addVelocity(_18);
-        _18 += mActor->_240 * mActor->getConst().getTable()->mGravityBlown;
+        addVelocity(mVelocity);
+        mVelocity += mActor->mGravityVec * mActor->getConst().getTable()->mGravityBlown;
         if (mTimer > 120) {
-            changeAnimation("\222\206\203\137\203\201\201\133\203\127\213\363\222\206" /* 中ダメージ空中 */);
+            changeAnimation("中ダメージ空中");
         }
 
         if (mTimer > 60) {
-            TVec3f killed;
-            if (MR::isNearZero(MR::vecKillElement(mActor->getLastMove(), mActor->_240, &killed))) {
+            Vec3f killed;
+            if (MR::isNearZero(MR::vecKillElement(mActor->getLastMove(), mActor->mGravityVec, &killed))) {
                 return false;
             }
         }
 
-        if (getPlayer()->getMovementStates()._1 || MR::isNearZero(getPlayer()->mVerticalSpeed)) {
+        if (getPlayer()->getMovementStates().onGround || MR::isNearZero(getPlayer()->mVerticalSpeed)) {
             getPlayer()->mMovementStates.jumping = false;
-            getPlayer()->mMovementStates._D = true;
+            getPlayer()->mMovementStates.forceGroundOnce = true;
 
             if (getPlayer()->damagePolygonCheck(getPlayer()->getGroundPolygon())) {
-                getPlayer()->_1C._16 = true;
-                _24 = true;
+                getPlayer()->mHitStates.blown = true;
+                mJumpedOut = true;
                 return false;
             }
 
-            if (_14 != 2 || mTimer >= 3) {
-                playSound("\220\201\202\301\224\362\202\321\223\174\202\352" /* 吹っ飛び倒れ */);
-                changeAnimation("\225\307\203\161\203\142\203\147\222\205\222\156" /* 壁ヒット着地 */);
-                playEffect("\213\244\222\312\225\307\203\161\203\142\203\147\222\205\222\156" /* 共通壁ヒット着地 */);
-                MR::vecKillElement(_18, mActor->_240, &_18);
+            if (mStep != 2 || mTimer >= 3) {
+                playSound("吹っ飛び倒れ");
+                changeAnimation("壁ヒット着地");
+                playEffect("共通壁ヒット着地");
+                MR::vecKillElement(mVelocity, mActor->mGravityVec, &mVelocity);
             }
 
-            _14 = 1;
+            mStep = 1;
             mTimer = 0;
         }
 
         break;
     case 1:
-        if (!getPlayer()->getMovementStates()._1 && !MR::isNearZero(getPlayer()->mVerticalSpeed)) {
-            _25 = true;
+        if (!getPlayer()->getMovementStates().onGround && !MR::isNearZero(getPlayer()->mVerticalSpeed)) {
+            mAirLanding = true;
             return false;
         }
 
-        addVelocity(_18);
-        _18.mult(0.95f);
+        addVelocity(mVelocity);
+        mVelocity.mult(0.95f);
 
-        if (!isAnimationRun("\225\307\203\161\203\142\203\147\222\205\222\156" /* 壁ヒット着地 */)) {
+        if (!isAnimationRun("壁ヒット着地")) {
             return false;
         }
 
         if (mTimer > 15 && checkTrgA()) {
             getPlayer()->stopJump();
             getPlayer()->tryJump();
-            _24 = true;
+            mJumpedOut = true;
             return false;
         }
 
         break;
     }
 
-    f32 dot = vecKillActor240(_18);
+    f32 dot = setVelocityOffGravity(mVelocity);
 
-    if (_18.length() > 10.0f) {
-        _18.mult(0.5f);
+    if (mVelocity.length() > 10.0f) {
+        mVelocity.mult(0.5f);
     }
 
-    _18 += mActor->_240 * MR::clamp(dot, 0.0f, 40.0f);
-    getPlayer()->setJumpVec(_18);
+    mVelocity += mActor->mGravityVec * MR::clamp(dot, 0.0f, 40.0f);
+    getPlayer()->setJumpVec(mVelocity);
     return true;
 }
 
 bool MarioBlown::close() {
-    if (!_24) {
+    if (!mJumpedOut) {
         getPlayer()->stopJump();
     }
 
-    stopAnimation("\225\307\203\161\203\142\203\147" /* 壁ヒット */);
+    stopAnimation("壁ヒット");
 
-    if (_25) {
-        stopAnimation("\225\307\203\161\203\142\203\147\222\205\222\156" /* 壁ヒット着地 */, "\212\356\226\173" /* 基本 */);
+    if (mAirLanding) {
+        stopAnimation("壁ヒット着地", "基本");
     }
 
     mActor->setBlendMtxTimer(6);
     getPlayer()->unlockGroundCheck(this);
 
-    if (!_24) {
-        getPlayer()->mMovementStates._36 = false;
+    if (!mJumpedOut) {
+        getPlayer()->mMovementStates.simpleGroundCheck = false;
     }
 
     return true;

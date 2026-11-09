@@ -1,5 +1,4 @@
 #include "Game/Util/SystemUtil.hpp"
-#include "Game/System/GameThreads.hpp"
 #include "Game/NameObj/NameObjHolder.hpp"
 #include "Game/NameObj/NameObj.hpp"  // complete for NameObjMethod's ABI size
 #include "Game/System/AudSystemWrapper.hpp"
@@ -12,14 +11,14 @@
 #include "Game/System/GameSystemObjHolder.hpp"
 #include "Game/System/GameSystemSceneController.hpp"
 #include "Game/System/MessageHolder.hpp"
-#include "Game/System/RenderMode.hpp"
+#include "Game/System/NebulaSystemSettings.hpp"
 #include "Game/Util/HashUtil.hpp"
 #include "Game/Util/MemoryUtil.hpp"
 #include "Game/Util/SceneUtil.hpp"
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/SingletonHolder.hpp"
-#include <nw4r/lyt/layout.h>
-#include <nw4r/ut/ResFont.h>
+#include <Game/Ui/Layout.hpp>
+#include <Game/Ui/ResFont.hpp>
 
 namespace MR {
     GameSystemObjHolder* getGameSystemObjHolder() {
@@ -38,36 +37,28 @@ namespace {
 };  // namespace
 
 namespace MR {
-    nw4r::ut::Font* getFontOnCurrentLanguage() {
+    Ui::Font* getFontOnCurrentLanguage() {
         return SingletonHolder< GameSystem >::get()->mFontHolder->getMessageFont();
     }
 
-    nw4r::ut::Font* getPictureFontNW4R() {
+    Ui::Font* getPictureFont() {
         return SingletonHolder< GameSystem >::get()->mFontHolder->mPictureFont;
     }
 
-    nw4r::ut::Font* getMenuFontNW4R() {
+    Ui::Font* getMenuFont() {
         return SingletonHolder< GameSystem >::get()->mFontHolder->mMenuFont;
     }
 
-    nw4r::ut::Font* getNumberFontNW4R() {
+    Ui::Font* getNumberFont() {
         return SingletonHolder< GameSystem >::get()->mFontHolder->mNumberFont;
     }
 
-    nw4r::ut::Font* getCinemaFontNW4R() {
+    Ui::Font* getCinemaFont() {
         return SingletonHolder< GameSystem >::get()->mFontHolder->mCinemaFont;
     }
 
     ParticleResourceHolder* getParticleResourceHolder() {
         return getGameSystemObjHolder()->mParticleResHolder;
-    }
-
-    void requestChangeArchivePlayer(bool isPlayerMario) {
-        GameSystemFunction::requestChangeArchivePlayer(isPlayerMario);
-    }
-
-    void waitEndChangeArchivePlayer() {
-        GameSystemFunction::waitEndChangeArchivePlayer();
     }
 
     void callMethodAllSceneNameObj(NameObjMethod pMethod) {
@@ -87,9 +78,7 @@ namespace MR {
     }
 
     void setRandomSeedFromStageName() {
-        u32 seed = getHashCode(getCurrentStageName());
-
-        getGameSystemObjHolder()->mRandom.mSeed = seed;
+        getGameSystemObjHolder()->mRandom.mSeed = getHashCode(getCurrentStageName());
     }
 
     void holdSceneInitialize() {
@@ -101,7 +90,7 @@ namespace MR {
     }
 
     bool isScreen16Per9() {
-        return isAspectRatioFlag16Per9();
+        return NebulaSystemSettings::isWidescreen();
     }
 
     void initSceneMessage() {
@@ -115,19 +104,17 @@ namespace MR {
     void resetSystemAndGameStatus() {
         GameDataFunction::resetAllGameData();
         GameSystemFunction::resetAllControllerRumble();
-        resetGlobalTimer();
     }
 
-    void stopAllSound(u32 param1) {
-        getGameSystemObjHolder()->mAudioSystem->stopAllSound(param1);
+    void stopAllSound(u32 time) {
+        getGameSystemObjHolder()->mAudioSystem->stopAllSound(time);
     }
 
-    // The output is 60 Hz: no PAL television to suggest PAL60 for.
-    JMapIdInfo* getPlayerRestartIdInfo() {
+    PlacementId* getPlayerRestartIdInfo() {
         return ::getGameDataTemporaryInGalaxy()->mPlayerRestartIdInfo;
     }
 
-    void setPlayerRestartIdInfo(const JMapIdInfo& rInfo) {
+    void setPlayerRestartIdInfo(const PlacementId& rInfo) {
         ::getGameDataTemporaryInGalaxy()->setPlayerRestartIdInfo(rInfo);
     }
 };  // namespace MR

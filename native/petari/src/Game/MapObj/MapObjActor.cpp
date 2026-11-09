@@ -16,8 +16,7 @@
 #include "Game/Util.hpp"
 #include "Game/Util/FurMulti.hpp"
 
-#include <cstdio>
-#include <cstring>
+#include "Game/Util/StringUtil.hpp"
 
 namespace NrvMapObjActor {
     NEW_NERVE(HostTypeWait, MapObjActor, Wait);
@@ -36,17 +35,19 @@ namespace {
 
 MapObjActor::MapObjActor(const char* pName)
     : LiveActor(pName), mObjectName(), mPlanetLodCtrl(), mBloomModel(), mModelObj(), mMatrixSetter(), mRailMover(), mRotator(), mRailRotator(),
-      mRailPosture(), mRailGuideDrawer(), _B4(), _B5(), _B6(), mWaitNrv(GET_NERVE(MapObjActor, HostTypeWait)),
-      mMoveNrv(GET_NERVE(MapObjActor, HostTypeMove)), mDoneNrv(GET_NERVE(MapObjActor, HostTypeDone)) {
+      mRailPosture(), mRailGuideDrawer(), mIsProjmapEveryFrame(), mIsMirrorFromModel(), mPlayRiddleSE(), mWaitNrv(GET_NERVE(MapObjActor, HostTypeWait)),
+      mMoveNrv(GET_NERVE(MapObjActor, HostTypeMove)), mDoneNrv(GET_NERVE(MapObjActor, HostTypeDone)), mStageEffectName(nullptr),
+      mStageEffectMovingSe(nullptr) {
 }
 
 MapObjActor::MapObjActor(const char* pName, const char* pObjName)
     : LiveActor(pName), mObjectName(pObjName), mPlanetLodCtrl(), mBloomModel(), mModelObj(), mMatrixSetter(), mRailMover(), mRotator(),
-      mRailRotator(), mRailPosture(), mRailGuideDrawer(), _B4(), _B6(), mWaitNrv(GET_NERVE(MapObjActor, HostTypeWait)),
-      mMoveNrv(GET_NERVE(MapObjActor, HostTypeMove)), mDoneNrv(GET_NERVE(MapObjActor, HostTypeDone)) {
+      mRailRotator(), mRailPosture(), mRailGuideDrawer(), mIsProjmapEveryFrame(), mPlayRiddleSE(), mWaitNrv(GET_NERVE(MapObjActor, HostTypeWait)),
+      mMoveNrv(GET_NERVE(MapObjActor, HostTypeMove)), mDoneNrv(GET_NERVE(MapObjActor, HostTypeDone)), mStageEffectName(nullptr),
+      mStageEffectMovingSe(nullptr) {
 }
 
-void MapObjActor::init(const JMapInfoIter& rIter) {
+void MapObjActor::init(const TableIter& rIter) {
     if (mObjectName != nullptr) {
         return;
     }
@@ -59,7 +60,7 @@ void MapObjActor::initAfterPlacement() {
         return;
     }
 
-    if (_B4) {
+    if (mIsProjmapEveryFrame) {
         return;
     }
 
@@ -88,7 +89,7 @@ void MapObjActor::appear() {
         }
     }
 
-    if (_B6) {
+    if (mPlayRiddleSE) {
         MR::startSystemSE("SE_SY_READ_RIDDLE_S");
     }
 }
@@ -109,7 +110,7 @@ void MapObjActor::kill() {
     LiveActor::kill();
 }
 
-void MapObjActor::initialize(const JMapInfoIter& rIter, const MapObjActorInitInfo& rInfo) {
+void MapObjActor::initialize(const TableIter& rIter, const MapObjActorInitInfo& rInfo) {
     bool hasRail = MR::isConnectedWithRail(rIter);
     if (rInfo.mSetDefaultPosition) {
         MR::initDefaultPos(this, rIter);
@@ -130,20 +131,20 @@ void MapObjActor::initialize(const JMapInfoIter& rIter, const MapObjActorInitInf
     bool hasCollision = MR::isExistCollisionResource(this, mObjectName);
     connectToScene(rInfo);
 
-    if (rInfo._8C) {
+    if (rInfo.mInitLightCtrl) {
         MR::initLightCtrl(this);
     }
 
     if (rInfo.mUseProjectMapMtx) {
         mMatrixSetter = MR::initMaterialProjmapEffectMtxSetter(this);
         MR::prepareMaterials(this);
-        _B4 = rInfo._48;
+        mIsProjmapEveryFrame = rInfo.mIsProjmapEveryFrame;
     }
 
     if (rInfo.mUseMirrorReflection) {
         MR::initMirrorReflection(this);
-        _B5 = rInfo._74;
-        TPos3f mtx(getBaseMtx());
+        mIsMirrorFromModel = rInfo.mIsMirrorFromModel;
+        Pos3f mtx(getBaseMtx());
         MR::setMirrorReflectionInfoFromMtxYUp(mtx);
     }
 
@@ -152,7 +153,7 @@ void MapObjActor::initialize(const JMapInfoIter& rIter, const MapObjActorInitInf
     }
 
     if (rInfo.mHasEffect) {
-        initEffectKeeper(0, rInfo.mEffectName, false);
+        initEffectKeeper(0, rInfo.mEffectName);
     }
 
     if (rInfo.mSound > 0) {
@@ -165,7 +166,7 @@ void MapObjActor::initialize(const JMapInfoIter& rIter, const MapObjActorInitInf
     }
 
     if (rInfo.mIsAppearRiddleSE) {
-        _B6 = true;
+        mPlayRiddleSE = true;
     }
 
     if (rInfo.mHasShadows && rInfo.mShadowLength != 0.0f) {
@@ -199,15 +200,15 @@ void MapObjActor::initialize(const JMapInfoIter& rIter, const MapObjActorInitInf
             radius *= mScale.x;
         }
 
-        TVec3f position(rInfo.mSensorPosition);
+        Vec3f position(rInfo.mSensorPosition);
         if (rInfo.mIsAffectedByScale) {
             position.mul(mScale);
         }
 
         if (rInfo.mHasHitSensorCB) {
-            MR::addHitSensorCallbackMapObj(this, "body", rInfo._1C, radius);
+            MR::addHitSensorCallbackMapObj(this, "body", rInfo.mSensorType, radius);
         } else {
-            MR::addHitSensorMapObj(this, "body", rInfo._1C, radius, position);
+            MR::addHitSensorMapObj(this, "body", rInfo.mSensorType, radius, position);
         }
     }
 
@@ -247,12 +248,12 @@ void MapObjActor::initialize(const JMapInfoIter& rIter, const MapObjActorInitInf
         mRailRotator->init(rIter);
     }
 
-    if (rInfo._C) {
+    if (rInfo.mHasSeesaw1AxisRotator) {
         mRotator = new MapPartsSeesaw1AxisRotator(this, rInfo.mSeesaw1AxisRotatorName, rInfo.mSeesaw1AxisRotatorRadius);
         mRotator->init(rIter);
     }
 
-    if (rInfo._D) {
+    if (rInfo.mHasSeesaw2AxisRotator) {
         mRotator = new MapPartsSeesaw2AxisRotator(this, rInfo.mSeesaw1AxisRotatorName, rInfo.mSeesaw1AxisRotatorRadius);
         mRotator->init(rIter);
     }
@@ -278,7 +279,7 @@ void MapObjActor::initialize(const JMapInfoIter& rIter, const MapObjActorInitInf
 
     MR::tryStartAllAnim(this, mObjectName);
 
-    if (rInfo.mColorChangeArg > -1) {
+    if (rInfo.mColorChangeArg > -1 && MR::isExistBrk(this, ::cBrkNameColorChange)) {
         MR::startBrk(this, ::cBrkNameColorChange);
         MR::setBrkFrameAndStop(this, rInfo.mColorChangeArg);
     }
@@ -322,10 +323,9 @@ void MapObjActor::initialize(const JMapInfoIter& rIter, const MapObjActorInitInf
     }
 
     if (MR::isExistSubModel(mObjectName, "Bloom")) {
-        char modelName[0x100];
-        nebula_snprintf(modelName, sizeof(modelName), "%sBloom", mObjectName);
+        MR::FormattedName modelName("%sBloom", mObjectName);
         const char* pName = mName;
-        mBloomModel = MR::createModelObjBloomModel(pName, modelName, getBaseMtx());
+        mBloomModel = MR::createModelObjBloomModel(pName, modelName.c_str(), getBaseMtx());
         mBloomModel->mScale.set(mScale);
         MR::calcModelBoundingRadius(&clippingRadius, this);
         MR::setClippingFarMax(mBloomModel);
@@ -336,7 +336,7 @@ void MapObjActor::initialize(const JMapInfoIter& rIter, const MapObjActorInitInf
     makeSubModels(rIter, rInfo);
 
     if (rInfo.mInitFur) {
-        MR::initMultiFur(this, rInfo._5C);
+        MR::initMultiFur(this, rInfo.mLightType);
     }
 
     makeActorAppeared();
@@ -359,7 +359,7 @@ void MapObjActor::initialize(const JMapInfoIter& rIter, const MapObjActorInitInf
         MR::syncStageSwitchAppear(this);
 
         if (rInfo.mIsAppearRiddleSE) {
-            _B6 = true;
+            mPlayRiddleSE = true;
         }
 
         makeActorDead();
@@ -374,7 +374,7 @@ void MapObjActor::initialize(const JMapInfoIter& rIter, const MapObjActorInitInf
 
         if (MR::isRegisteredDemoActionAppear(this)) {
             if (rInfo.mIsAppearRiddleSE) {
-                _B6 = true;
+                mPlayRiddleSE = true;
             }
 
             makeActorDead();
@@ -389,7 +389,7 @@ bool MapObjActor::isObjectName(const char* pName) const {
 void MapObjActor::connectToScene(const MapObjActorInitInfo& rInfo) {
     if (rInfo.mConnectToScene) {
         if (MR::isExistCollisionResource(this, mObjectName)) {
-            s32 type = rInfo._5C;
+            s32 type = rInfo.mLightType;
 
             if (type == 1) {
                 MR::connectToSceneCollisionMapObjStrongLight(this);
@@ -398,7 +398,7 @@ void MapObjActor::connectToScene(const MapObjActorInitInfo& rInfo) {
             } else {
                 MR::connectToSceneCollisionMapObj(this);
             }
-        } else if (rInfo._5C == 1) {
+        } else if (rInfo.mLightType == 1) {
             MR::connectToSceneMapObjStrongLight(this);
         } else {
             MR::connectToSceneMapObj(this);
@@ -413,11 +413,11 @@ void MapObjActor::initCaseUseSwitchA(const MapObjActorInitInfo&) {
 void MapObjActor::initCaseNoUseSwitchA(const MapObjActorInitInfo&) {
 }
 
-void MapObjActor::initCaseUseSwitchB(const MapObjActorInitInfo& rInfo) {
+void MapObjActor::initCaseUseSwitchB(const MapObjActorInitInfo& /*rInfo*/) {
     MR::listenStageSwitchOnOffB(this, MR::Functor(this, &MapObjActor::startMapPartsFunctions), MR::Functor(this, &MapObjActor::endMapPartsFunctions));
 }
 
-void MapObjActor::initCaseNoUseSwitchB(const MapObjActorInitInfo& rInfo) {
+void MapObjActor::initCaseNoUseSwitchB(const MapObjActorInitInfo& /*rInfo*/) {
     MapObjActorUtil::startAllMapPartsFunctions(this);
 }
 
@@ -438,7 +438,7 @@ void MapObjActor::control() {
         mRailMover->movement();
 
         if (mRailMover->isWorking()) {
-            mPosition.set(mRailMover->_28);
+            mPosition.set(mRailMover->mStartPos);
             mRailMover->tryResetPositionRepeat();
         }
     }
@@ -459,10 +459,15 @@ void MapObjActor::control() {
         mRailRotator->movement();
     }
 
-    if (mRailMover == nullptr && mRotator == nullptr && mRailRotator == nullptr && !MR::isEqualString(mObjectName, "OceanRingRuinsMove")) {
-        const char* movingSound = MR::StageEffect::getMovingSe(mObjectName);
-        if (movingSound != nullptr) {
-            MR::startLevelSound(this, movingSound);
+    if (mRailMover == nullptr && mRotator == nullptr && mRailRotator == nullptr) {
+        if (mStageEffectName != mObjectName) {
+            mStageEffectName = mObjectName;
+            mStageEffectMovingSe =
+                MR::isEqualString(mObjectName, "OceanRingRuinsMove") ? nullptr : MR::StageEffect::getMovingSe(mObjectName);
+        }
+
+        if (mStageEffectMovingSe != nullptr) {
+            MR::startLevelSound(this, mStageEffectMovingSe);
         }
     }
 
@@ -474,7 +479,7 @@ void MapObjActor::control() {
 void MapObjActor::calcAndSetBaseMtx() {
     updateProjmapMtx();
 
-    if (MR::isExistMirrorCamera() && _B5) {
+    if (MR::isExistMirrorCamera() && mIsMirrorFromModel) {
         MR::setMirrorReflectionInfoFromModel(this);
     }
 
@@ -513,11 +518,11 @@ void MapObjActor::calcAndSetBaseMtx() {
     if (!hasRotation) {
         LiveActor::calcAndSetBaseMtx();
     } else {
-        TPos3f mtx;
+        Pos3f mtx;
         mtx.identity();
 
         if (mRailPosture != nullptr && mRailPosture->isWorking()) {
-            mtx.concat(mRailPosture->_18);
+            mtx.concat(mRailPosture->mPostureMtx);
         }
 
         if (mRotator != nullptr && mRotator->isWorking()) {
@@ -525,7 +530,7 @@ void MapObjActor::calcAndSetBaseMtx() {
         }
 
         if (mRailRotator != nullptr && mRailRotator->isWorking()) {
-            mtx.concat(mRailRotator->_5C);
+            mtx.concat(mRailRotator->mRotateMtx);
         }
 
         mtx.mMtx[0][3] = mPosition.x;
@@ -546,24 +551,24 @@ void MapObjActor::endClipped() {
 }
 
 bool MapObjActor::tryCreateBreakModel(const MapObjActorInitInfo& rInfo) {
-    char buf[0x100];
+    MR::FormattedName buf;
 
-    if (rInfo._80 != nullptr) {
-        nebula_snprintf(buf, sizeof(buf), "%s", rInfo._80);
+    if (rInfo.mBreakModelName != nullptr) {
+        buf.format("%s", rInfo.mBreakModelName);
     } else {
-        nebula_snprintf(buf, sizeof(buf), "%sBreak", mObjectName);
+        buf.format("%sBreak", mObjectName);
     }
 
-    if (!MR::isExistModel(buf)) {
+    if (!MR::isExistModel(buf.c_str())) {
         return false;
     }
 
     if (MR::isEqualString(mObjectName, "SandUpDownTowerBreakableWallB")) {
         MtxPtr baseMtx = getBaseMtx();
-        mModelObj = MR::createModelObjMapObj("\211\363\202\352\203\202\203\146\203\213" /* 壊れモデル */, buf, baseMtx);
+        mModelObj = MR::createModelObjMapObj("壊れモデル", buf.c_str(), baseMtx);
     } else {
         MtxPtr baseMtx = getBaseMtx();
-        mModelObj = MR::createModelObjMapObjStrongLight("\211\363\202\352\203\202\203\146\203\213" /* 壊れモデル */, buf, baseMtx);
+        mModelObj = MR::createModelObjMapObjStrongLight("壊れモデル", buf.c_str(), baseMtx);
     }
 
     mModelObj->makeActorDead();
@@ -638,7 +643,7 @@ void MapObjActor::updateProjmapMtx() {
         return;
     }
 
-    if (!_B4) {
+    if (!mIsProjmapEveryFrame) {
         return;
     }
 
@@ -752,8 +757,8 @@ f32 MapObjActorUtil::getSeesaw1AxisAngularSpeed(const MapObjActor* pActor) {
     return static_cast< MapPartsSeesaw1AxisRotator* >(pActor->mRotator)->mAngularVelocity;
 }
 
-void MapObjActorUtil::forceRotateSeesaw1Axis(const MapObjActor* pActor, f32 a2) {
-    static_cast< MapPartsSeesaw1AxisRotator* >(pActor->mRotator)->mAngularAccel = a2;
+void MapObjActorUtil::forceRotateSeesaw1Axis(const MapObjActor* pActor, f32 angularAccel) {
+    static_cast< MapPartsSeesaw1AxisRotator* >(pActor->mRotator)->mAngularAccel = angularAccel;
 }
 
 void MapObjActorUtil::startRotator(const MapObjActor* pActor) {
@@ -839,13 +844,21 @@ bool MapObjActorUtil::isBreakStopped(const MapObjActor* pActor) {
     return false;
 }
 
+// An object without a "Bloom" sub model has no bloom model.
 void MapObjActorUtil::killBloomModel(MapObjActor* pActor) {
+    if (pActor->mBloomModel == nullptr) {
+        return;
+    }
+
     pActor->mBloomModel->kill();
 }
 
 void MapObjActorUtil::appearBloomModel(MapObjActor* pActor) {
+    if (pActor->mBloomModel == nullptr) {
+        return;
+    }
+
     pActor->mBloomModel->appear();
-    char buf[0x100];
-    nebula_snprintf(buf, sizeof(buf), "%sBloom", pActor->mObjectName);
-    MR::tryStartAllAnim(pActor->mBloomModel, buf);
+    MR::FormattedName buf("%sBloom", pActor->mObjectName);
+    MR::tryStartAllAnim(pActor->mBloomModel, buf.c_str());
 }

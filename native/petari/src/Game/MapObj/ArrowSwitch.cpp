@@ -5,19 +5,19 @@
 #include "Game/Util/ActorShadowUtil.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/AreaObjUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 namespace {
-    static const f32 sRotYTargetList[] = {0.0f, 90.0f, 180.0f, -90.0f};
+    const f32 sRotYTargetList[] = {0.0f, 90.0f, 180.0f, -90.0f};
 
-    static const f32 sTestScale = 1.0f;
-    static const f32 sPunchVelocit = 6.0f;
-    static const s32 sFreqRotY = 4;
+    const f32 sScale = 1.0f;
+    const f32 sPunchSpeed = 6.0f;
+    const s32 sRotYTargetNum = 4;
 };  // namespace
 
 namespace NrvArrowSwitch {
@@ -27,16 +27,16 @@ namespace NrvArrowSwitch {
 };  // namespace NrvArrowSwitch
 
 ArrowSwitch::ArrowSwitch(const char* pName)
-    : LiveActor(pName), mRotAngle(), mRotYTargetIndex(), mRotSpeed(), mSwitchType(-1), mLockAfterRotate(), mIsRotPlus(true), _9E(), mIsPunch() {
+    : LiveActor(pName), mRotAngle(), mRotYTargetIndex(), mRotSpeed(), mSwitchType(-1), mLockAfterRotate(), mIsRotPlus(true), mIsPunch() {
 }
 
-void ArrowSwitch::init(const JMapInfoIter& rIter) {
+void ArrowSwitch::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
-    mScale.set(::sTestScale);
+    mScale.set(::sScale);
     initModelManagerWithAnm("ArrowSwitch", nullptr, false);
     MR::connectToSceneNoSilhouettedMapObjStrongLight(this);
 
-    TVec3f up;
+    Vec3f up;
     MR::calcUpVec(&up, this);
     mGravity.set(-up);
 
@@ -46,21 +46,21 @@ void ArrowSwitch::init(const JMapInfoIter& rIter) {
 
     if (MR::isInAreaObj("PlaneModeCube", mPosition)) {
         initHitSensor(1);
-        MR::addHitSensorMapObj(this, "body", 8, 100.0f, TVec3f(0.0f, 50.0f, 250.0f));
+        MR::addHitSensorMapObj(this, "body", 8, 100.0f, Vec3f(0.0f, 50.0f, 250.0f));
     } else {
         initHitSensor(2);
-        MR::addHitSensorMapObj(this, "body", 8, 100.0f, TVec3f(0.0f, 50.0f, 250.0f));
-        MR::addHitSensorMapObjMoveCollision(this, "collision", 8, 0.0f, TVec3f(0.0f, 0.0f, 0.0f));
+        MR::addHitSensorMapObj(this, "body", 8, 100.0f, Vec3f(0.0f, 50.0f, 250.0f));
+        MR::addHitSensorMapObjMoveCollision(this, "collision", 8, 0.0f, Vec3f(0.0f, 0.0f, 0.0f));
         MR::initCollisionParts(this, "ArrowSwitch", getSensor("collision"), nullptr);
     }
 
     initSound(4, false);
     initNerve(GET_NERVE(ArrowSwitch, ArrowSwitchNrvWait));
-    MR::getJMapInfoArg0WithInit(rIter, &mSwitchType);
-    MR::getJMapInfoArg1WithInit(rIter, &mLockAfterRotate);
+    MR::getPlacementArg0WithInit(rIter, &mSwitchType);
+    MR::getPlacementArg1WithInit(rIter, &mLockAfterRotate);
 
     s32 shadowDropLength = -1;
-    MR::getJMapInfoArg2WithInit(rIter, &shadowDropLength);
+    MR::getPlacementArg2WithInit(rIter, &shadowDropLength);
 
     if (shadowDropLength >= 0) {
         MR::setShadowDropLength(this, nullptr, shadowDropLength);
@@ -80,9 +80,9 @@ void ArrowSwitch::control() {
 
 void ArrowSwitch::calcAndSetBaseMtx() {
     LiveActor::calcAndSetBaseMtx();
-    TPos3f pos;
+    Pos3f pos;
     pos.set(getBaseMtx());
-    TPos3f rot;
+    Pos3f rot;
     rot.identity();
     rot.setEulerY(MR::toRadian(mRotAngle));
     pos.concat(pos, rot);
@@ -103,7 +103,7 @@ bool ArrowSwitch::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor*
     return false;
 }
 
-bool ArrowSwitch::receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) {
+bool ArrowSwitch::receiveMsgPush(HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     return false;
 }
 
@@ -116,10 +116,10 @@ bool ArrowSwitch::requestPunch(HitSensor* pSender, HitSensor* pReceiver) {
         return false;
     }
 
-    TVec3f side;
+    Vec3f side;
     MR::calcSideVec(&side, this);
 
-    TVec3f sensorDir;
+    Vec3f sensorDir;
     MR::calcSensorDirection(&sensorDir, pSender, pReceiver);
 
     if (isPlusLimit()) {
@@ -133,8 +133,8 @@ bool ArrowSwitch::requestPunch(HitSensor* pSender, HitSensor* pReceiver) {
     }
 
     mRotYTargetIndex += mIsRotPlus ? getOneStep() : -getOneStep();
-    mRotYTargetIndex = (mRotYTargetIndex + ::sFreqRotY) % ::sFreqRotY;
-    mRotSpeed = mIsRotPlus ? ::sPunchVelocit : -::sPunchVelocit;
+    mRotYTargetIndex = (mRotYTargetIndex + ::sRotYTargetNum) % ::sRotYTargetNum;
+    mRotSpeed = mIsRotPlus ? ::sPunchSpeed : -::sPunchSpeed;
     mIsPunch = true;
 
     MR::invalidateClipping(this);
@@ -152,22 +152,22 @@ void ArrowSwitch::listenOnSwitch() {
     case -1:
     case SwitchType_HalfPlus:
         mIsRotPlus = true;
-        mRotSpeed = ::sPunchVelocit;
+        mRotSpeed = ::sPunchSpeed;
         mRotYTargetIndex = Direction_Down;
         break;
     case SwitchType_HalfMinus:
         mIsRotPlus = false;
-        mRotSpeed = -::sPunchVelocit;
+        mRotSpeed = -::sPunchSpeed;
         mRotYTargetIndex = Direction_Down;
         break;
     case SwitchType_QuarterPlus:
         mIsRotPlus = true;
-        mRotSpeed = ::sPunchVelocit;
+        mRotSpeed = ::sPunchSpeed;
         mRotYTargetIndex = Direction_Right;
         break;
     case SwitchType_QuarterMinus:
         mIsRotPlus = false;
-        mRotSpeed = -::sPunchVelocit;
+        mRotSpeed = -::sPunchSpeed;
         mRotYTargetIndex = Direction_Left;
         break;
     default:
@@ -190,12 +190,12 @@ void ArrowSwitch::listenOffSwitch() {
     case SwitchType_QuarterPlus:
     case SwitchType_HalfPlus:
         mIsRotPlus = false;
-        mRotSpeed = -::sPunchVelocit;
+        mRotSpeed = -::sPunchSpeed;
         break;
     case SwitchType_QuarterMinus:
     case SwitchType_HalfMinus:
         mIsRotPlus = true;
-        mRotSpeed = ::sPunchVelocit;
+        mRotSpeed = ::sPunchSpeed;
         break;
     default:
         return;

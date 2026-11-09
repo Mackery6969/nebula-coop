@@ -1,19 +1,19 @@
 #pragma once
 
 #include "Game/NameObj/NameObj.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
 struct ResTIMG;
-class JUTTexture;
+class GameTexture;
 class FootPrintInfo;
 
 class FootPrintInfo {
 public:
     FootPrintInfo();
 
-    TVec3f mPos;
-    TVec3f _C;
-    TVec3f _18;
+    Vec3f mPos;
+    Vec3f mUp;
+    Vec3f mNormal;
 
     /// @brief Frames left before becoming invalid. Also controls the footprint's alpha.
     s32 mTimeLeft;
@@ -21,7 +21,7 @@ public:
     /// @brief Invalid prints will no longer be updated nor drawn.
     bool mIsValid;
 
-    bool _29;
+    bool mIsFlipX;
 };
 
 class FootPrint : public NameObj {
@@ -29,24 +29,24 @@ public:
     FootPrint(const char*, s32);
     FootPrint(const char*, s32, s32);
 
-    virtual void movement();
-    virtual void draw() const;
+    virtual void movement() override;
+    virtual void draw() const override;
 
     void setTexture(ResTIMG*);
-    bool addPrint(const TVec3f&, const TVec3f&, const TVec3f&, bool);
+    bool addPrint(const Vec3f& rPos, const Vec3f& rUp, const Vec3f& rNormal, bool isFlipX);
     void clear();
     void initMember(s32, s32);
     void clearForce();
-    TVec3f* getPrintPos(u32) const;
+    Vec3f* getPrintPos(u32) const;
     void invalidate(u32);
     bool isValid(u32) const;
 
-    JUTTexture* _C;
+    GameTexture* mTexture;
 
     /// @brief Array of footprints.
     FootPrintInfo* mPrints;
 
-    TVec3f mLastPrintPos;
+    Vec3f mLastPrintPos;
 
     /// @brief Size of the mPrints array.
     s32 mPrintMaxNum;
@@ -57,12 +57,12 @@ public:
     /// @brief The index used when adding a new footprint. Will wrap around and overwrite the oldest footprints.
     s32 mRotatingPrintIndex;
 
-    f32 _2C;
-    f32 _30;
-    f32 _34;
+    f32 mSideOffset;
+    f32 mHeight;
+    f32 mWidth;
 
     /// @brief The minimum distance for a new print to be registered.
     f32 mMinPrintDistance;
 
-    bool _3C;
+    bool mIsFading;
 };

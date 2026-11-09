@@ -7,12 +7,11 @@
 #include "Game/LiveActor/Binder.hpp"
 #include "Game/Map/HitInfo.hpp"
 #include "Game/System/ResourceHolder.hpp"
-#include "Game/Util/HashUtil.hpp"
 #include "Game/Util/MapUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
+#include <nebula_module.h>
 #include <algorithm>
-#include <cstdio>
 
 namespace {
     const char* cAttributeEffectTag = "Attr";
@@ -20,44 +19,46 @@ namespace {
 
 namespace {
     const char* getMultiEmitterName(const MultiEmitter* pEmitter) {
-        return pEmitter->_28->getName();
+        return pEmitter->mAutoInfo->getName();
     }
 
-    bool makeAttibuteEffectBaseName(char* pDst, u32 size, const char* pSrc) {
+    bool makeAttibuteEffectBaseName(MR::FormattedName& rDst, const char* pSrc) {
         const char* tag = strstr(pSrc, cAttributeEffectTag);
 
         if (tag == nullptr) {
             return false;
         }
 
-        u32 tagLength = strlen(tag);
-        MR::extractString(pDst, pSrc, strlen(pSrc) - tagLength, size);
+        rDst.format("%.*s", static_cast< int >(tag - pSrc), pSrc);
 
         return true;
     }
 };  // namespace
 
-EffectKeeper::EffectKeeper(const char* pParam1, ResourceHolder* pParam2, int param3, const char* pParam4)
-    : _0(pParam1), _4(pParam2), _8(pParam4), _C(), _18(), _1C(), _20(), mBinder(), _28(), _2C(), _30() {
-    if (_8 == nullptr && _4 != nullptr) {
-        _8 = _4->getModelName();
+EffectKeeper::EffectKeeper(const char* pName, ResourceHolder* pResourceHolder, int extraEmitterNum, const char* pResourceName)
+    : mName(pName), mResourceHolder(pResourceHolder), mResourceName(pResourceName), mEmitters(), mSyncBckChecker(), mBinder(), mFloorCode(),
+      mEffectFloorCode(), mFloorCodeSteps(), mHasAttributeEffect() {
+    if (mResourceName == nullptr && mResourceHolder != nullptr) {
+        mResourceName = mResourceHolder->getModelName();
     }
 
-    _C.init(MR::Effect::getAutoEffectNum(_8) + param3);
+    const s32 capacity = MR::Effect::getAutoEffectNum(mResourceName) + extraEmitterNum;
+    mEmitters.init(capacity);
+    mNames.reset(capacity);
 }
 
 void EffectKeeper::init(LiveActor* pActor) {
-    if (_8 != nullptr) {
-        MR::Effect::registerAutoEffectInfoGroup(this, pActor, _8);
+    if (mResourceName != nullptr) {
+        MR::Effect::registerAutoEffectInfoGroup(this, pActor, mResourceName);
     }
 }
 
 namespace {
     s32 getFloorCodeBelow(MtxPtr pMtx, f32 distance) {
-        TVec3f direction;
-        TVec3f position;
-        TVec3f intersection;
-        TPos3f mtx;
+        Vec3f direction;
+        Vec3f position;
+        Vec3f intersection;
+        Pos3f mtx;
         mtx.set(pMtx);
         mtx.getYDir(direction);
         direction.negate();
@@ -80,11 +81,11 @@ void EffectKeeper::initAfterPlacementForAttributeEffect(MtxPtr pMtx) {
     }
 
     checkExistenceAttributeEffect();
-    if (_30 && pMtx != nullptr) {
+    if (mHasAttributeEffect && pMtx != nullptr) {
         s32 code = ::getFloorCodeBelow(pMtx, 100.0f);
         if (code >= 0) {
-            _28 = code;
-            _2C = code;
+            mFloorCode = code;
+            mEffectFloorCode = code;
         }
     }
 }
@@ -97,64 +98,65 @@ void EffectKeeper::setBinder(const Binder* pBinder) {
     }
 }
 
-void EffectKeeper::addEffect(const char* pParam1, LiveActor* pActor) {
-    MR::Effect::addAutoEffect(this, pActor, MR::Effect::createAutoEffect(_0, pParam1));
+void EffectKeeper::addEffect(const char* pEffectName, LiveActor* pActor) {
+    MR::Effect::addAutoEffect(this, pActor, MR::Effect::createAutoEffect(pEffectName));
 }
 
-void EffectKeeper::registerEffect(const char* pParam1, const TVec3f* pParam2, const TVec3f* pParam3, const TVec3f* pParam4, const char* pParam5) {
-    registMultiEmitter(new MultiEmitter(pParam1, pParam2, pParam3, pParam4, TVec3f(0.0f, 0.0f, 0.0f)), pParam1, pParam5);
+void EffectKeeper::registerEffect(const char* pName, const Vec3f* pTranslation, const Vec3f* pRotation, const Vec3f* pScale,
+                                  const char* pUniqueName) {
+    registMultiEmitter(new MultiEmitter(pName, pTranslation, pRotation, pScale, Vec3f(0.0f, 0.0f, 0.0f)), pName, pUniqueName);
 }
 
-void EffectKeeper::registerEffect(const char* pParam1, MtxPtr pParam2, const char* pParam3, const char*) {
-    registMultiEmitter(new MultiEmitter(pParam1, pParam2, TVec3f(0.0f, 0.0f, 0.0f)), pParam1, pParam3);
+void EffectKeeper::registerEffect(const char* pName, MtxPtr pMtx, const char* pUniqueName) {
+    registMultiEmitter(new MultiEmitter(pName, pMtx, Vec3f(0.0f, 0.0f, 0.0f)), pName, pUniqueName);
 }
 
-void EffectKeeper::registerEffect(const char* pParam1, MtxPtr pParam2, const TVec3f* pParam3, const char* pParam4, const char*) {
-    registMultiEmitter(new MultiEmitter(pParam1, pParam2, pParam3, TVec3f(0.0f, 0.0f, 0.0f)), pParam1, pParam4);
+void EffectKeeper::registerEffect(const char* pName, MtxPtr pMtx, const Vec3f* pScale, const char* pUniqueName) {
+    registMultiEmitter(new MultiEmitter(pName, pMtx, pScale, Vec3f(0.0f, 0.0f, 0.0f)), pName, pUniqueName);
 }
 
-void EffectKeeper::registerEffectWithoutSRT(const char* pParam1, const char* pParam2) {
-    registMultiEmitter(new MultiEmitter(pParam1), pParam1, pParam2);
+void EffectKeeper::registerEffectWithoutSRT(const char* pName, const char* pUniqueName) {
+    registMultiEmitter(new MultiEmitter(pName), pName, pUniqueName);
 }
 
-void EffectKeeper::registerSyncBckEffect(XanimePlayer* pParam1, const char* pParam2, const char* pParam3, s32 param4, f32 param5, f32 param6,
-                                         bool param7) {
-    if (_20 == nullptr) {
-        _20 = new SyncBckEffectChecker(pParam1);
+void EffectKeeper::registerSyncBckEffect(XanimePlayer* pPlayer, const char* pEffectName, const char* pBckName, s32 capacity, f32 startFrame,
+                                         f32 endFrame) {
+    if (mSyncBckChecker == nullptr) {
+        mSyncBckChecker = new SyncBckEffectChecker(pPlayer);
     }
 
-    MultiEmitter* emitter = getEmitter(pParam2);
+    MultiEmitter* emitter = getEmitter(pEffectName);
 
-    emitter->initSyncBck(pParam1, pParam3, param4, param5);
-    emitter->onDeleteSyncBck(param7, param6);
+    emitter->initSyncBck(pPlayer, pBckName, capacity, startFrame);
+    emitter->onDeleteSyncBck(endFrame);
 }
 
-MultiEmitter* EffectKeeper::createEmitter(const char* pParam1) {
+MultiEmitter* EffectKeeper::createEmitter(const char* pEffectName) {
     if (LiveActor::sClipScope == LiveActor::ClipScope_Run) {
-        return getEmitter(pParam1);  // the actor is seen throughout: its effects stay as they are
+        return getEmitter(pEffectName);  // the actor is seen throughout: its effects stay as they are
     }
 
-    MultiEmitter* emitter = getEmitter(pParam1);
+    MultiEmitter* emitter = getEmitter(pEffectName);
 
     emitter->createEmitter();
 
     return emitter;
 }
 
-void EffectKeeper::deleteEmitter(const char* pParam1) {
+void EffectKeeper::deleteEmitter(const char* pEffectName) {
     if (LiveActor::sClipScope == LiveActor::ClipScope_Run) {
         return;
     }
 
-    getEmitter(pParam1)->deleteEmitter();
+    getEmitter(pEffectName)->deleteEmitter();
 }
 
-void EffectKeeper::forceDeleteEmitter(const char* pParam1) {
+void EffectKeeper::forceDeleteEmitter(const char* pEffectName) {
     if (LiveActor::sClipScope == LiveActor::ClipScope_Run) {
         return;
     }
 
-    getEmitter(pParam1)->forceDeleteEmitter();
+    getEmitter(pEffectName)->forceDeleteEmitter();
 }
 
 void EffectKeeper::deleteEmitterAll() {
@@ -162,7 +164,7 @@ void EffectKeeper::deleteEmitterAll() {
         return;
     }
 
-    for (auto& item : _C) {
+    for (auto& item : mEmitters) {
         item->deleteEmitter();
     }
 }
@@ -172,55 +174,38 @@ void EffectKeeper::forceDeleteEmitterAll() {
         return;
     }
 
-    for (auto& item : _C) {
+    for (auto& item : mEmitters) {
         item->forceDeleteEmitter();
     }
 }
 
-MultiEmitter* EffectKeeper::getEmitter(const char* pParam1) const {
-    char buf[256];
+MultiEmitter* EffectKeeper::getEmitter(const char* pEffectName) const {
+    MR::FormattedName buf;
 
-    if (_30 && !MR::isEqualSubString(pParam1, ::cAttributeEffectTag) && isTypeAttributeEffect(pParam1)) {
-        const char* attributeName = MR::Effect::getEffectAttributeName(_28);
-        nebula_snprintf(buf, sizeof(buf), "%s%s%s", pParam1, ::cAttributeEffectTag, attributeName);
+    if (mHasAttributeEffect && !MR::isEqualSubString(pEffectName, ::cAttributeEffectTag) && isTypeAttributeEffect(pEffectName)) {
+        const char* attributeName = MR::Effect::getEffectAttributeName(mFloorCode);
+        buf.format("%s%s%s", pEffectName, ::cAttributeEffectTag, attributeName);
 
-        if (!isRegisteredEmitter(buf)) {
-            nebula_snprintf(buf, sizeof(buf), "%s%s%s", pParam1, ::cAttributeEffectTag, "Default");
+        if (!isRegisteredEmitter(buf.c_str())) {
+            buf.format("%s%s%s", pEffectName, ::cAttributeEffectTag, "Default");
         }
 
-        pParam1 = buf;
+        pEffectName = buf.c_str();
     }
 
-    if (_18 != nullptr && _18->mHasBeenSorted) {
-        // The table holds the emitter pointer (HashSortValue); a u32 would truncate it natively.
-        HashSortValue result = 0;
-
-        if (_18->search(pParam1, &result)) {
-            return reinterpret_cast< MultiEmitter* >(result);
-        }
-    }
-
-    u16 name = MR::getHashCode(pParam1);
-
-    for (MultiEmitter* const* it = _C.begin(); it != _C.end(); it++) {
-        if ((*it)->isEqualName(name)) {
-            return *it;
-        }
-    }
-
-    return nullptr;
+    const u32 index = mNames.find(pEffectName);
+    return index == MR::NameIndex::cNoValue ? nullptr : mEmitters[index];
 }
 
 MultiEmitter* EffectKeeper::getEmitter(s32 index) const {
-    return _C[index];
+    return mEmitters[index];
 }
 
-void EffectKeeper::changeEffectName(const char* pParam1, const char* pName) {
-    if (_18 != nullptr) {
-        _18->swap(pParam1, pName);
+void EffectKeeper::changeEffectName(const char* pEffectName, const char* pNewName) {
+    const bool renamed = mNames.rename(pEffectName, pNewName);
+    if (!renamed) {
+        nebula_log("effect %s of %s: not renamed to %s (absent, or the name is held)\n", pEffectName, mName != nullptr ? mName : "", pNewName);
     }
-
-    getEmitter(pParam1)->setName(pName);
 }
 
 void EffectKeeper::update() {
@@ -229,59 +214,67 @@ void EffectKeeper::update() {
 }
 
 void EffectKeeper::updateSyncBckEffect() {
-    if (_20 == nullptr) {
+    if (mSyncBckChecker == nullptr) {
         return;
     }
 
-    _20->updateBefore();
+    mSyncBckChecker->updateBefore();
 
-    for (MultiEmitter* const* it = _C.begin(); it != _C.end(); it++) {
+    for (MultiEmitter* const* it = mEmitters.begin(); it != mEmitters.end(); it++) {
         syncEffectBck(*it);
     }
 
-    _20->updateAfter();
+    mSyncBckChecker->updateAfter();
 }
 
 void EffectKeeper::syncEffectBck(MultiEmitter* pEmitter) {
-    SyncBckEffectInfo* pInfo = pEmitter->_24;
+    SyncBckEffectInfo* pInfo = pEmitter->mSyncBck;
 
     if (pInfo == 0) {
         return;
     }
 
-    bool b1 = _20->isCreate(pInfo, true);
-    bool b2 = _20->isCreate(pInfo, false);
+    // Forever emitters run while a registered animation plays; one-time emitters start at its frame.
+    const bool isForeverDue = mSyncBckChecker->isCreate(pInfo, false);
+    const bool isOneTimeDue = isForeverDue && mSyncBckChecker->isCreate(pInfo, true);
 
-    if (b1 || b2) {
+    if (isOneTimeDue || isForeverDue) {
         MultiEmitter* emitter = pEmitter;
         if (MR::isEqualSubString(::getMultiEmitterName(pEmitter), ::cAttributeEffectTag)) {
-            char buf[256];
-            ::makeAttibuteEffectBaseName(buf, sizeof(buf), ::getMultiEmitterName(pEmitter));
+            MR::FormattedName buf;
+            ::makeAttibuteEffectBaseName(buf, ::getMultiEmitterName(pEmitter));
 
-            emitter = getEmitter(buf);
+            emitter = getEmitter(buf.c_str());
         }
 
-        if (b1) {
+        if (isOneTimeDue) {
             emitter->createOneTimeEmitter();
         }
 
-        if (b2) {
+        if (isForeverDue) {
             emitter->createForeverEmitter();
         }
     }
 
-    if (_20->isDelete(pInfo)) {
+    if (mSyncBckChecker->isDelete(pInfo)) {
         pEmitter->deleteEmitter();
     }
 }
 
 void EffectKeeper::updateAttributeEffect() {
-    if (!_30) {
+    if (!mHasAttributeEffect) {
         return;
     }
 
-    if (_2C != _28) {
-        for (MultiEmitter* const* it = _C.begin(); it != _C.end(); it++) {
+    // The forever effects follow the ground's code once it has held cFloorCodeHoldSteps steps: a seam between two floors,
+    // or a ground ray that alternates between them, keeps one effect instead of re-making it every step.
+    const s32 cFloorCodeHoldSteps = 4;
+    if (mFloorCode == mEffectFloorCode) {
+        mFloorCodeSteps = 0;
+    } else if (++mFloorCodeSteps >= cFloorCodeHoldSteps) {
+        mEffectFloorCode = mFloorCode;
+        mFloorCodeSteps = 0;
+        for (MultiEmitter* const* it = mEmitters.begin(); it != mEmitters.end(); it++) {
             if (!(*it)->isValid()) {
                 continue;
             }
@@ -294,12 +287,17 @@ void EffectKeeper::updateAttributeEffect() {
                 continue;
             }
 
+            MR::FormattedName buf;
+            ::makeAttibuteEffectBaseName(buf, ::getMultiEmitterName(*it));
+
+            // Two codes with one effect (both the default, say): the running one stays.
+            MultiEmitter* pNext = getEmitter(buf.c_str());
+            if (pNext == *it) {
+                continue;
+            }
+
             (*it)->deleteForeverEmitter();
-
-            char buf[256];
-            ::makeAttibuteEffectBaseName(buf, sizeof(buf), ::getMultiEmitterName(*it));
-
-            getEmitter(buf)->createEmitter();
+            pNext->createEmitter();
         }
     }
 
@@ -307,84 +305,58 @@ void EffectKeeper::updateAttributeEffect() {
 }
 
 void EffectKeeper::stopEmitterOnClipped() {
-    for (auto& item : _C) {
+    for (auto& item : mEmitters) {
         item->stopEmitterOnClipped();
     }
 }
 
 void EffectKeeper::playEmitterOffClipped() {
-    for (auto& item : _C) {
+    for (auto& item : mEmitters) {
         item->playEmitterOffClipped();
     }
 }
 
 void EffectKeeper::clear() {
-    for (auto& item : _C) {
+    for (auto& item : mEmitters) {
         item->playCalcAndDeleteForeverEmitter();
     }
 }
 
 void EffectKeeper::changeBck() {
-    if (_20 != nullptr) {
-        _20->reset();
+    if (mSyncBckChecker != nullptr) {
+        mSyncBckChecker->reset();
     }
 }
 
 void EffectKeeper::onDraw() {
-    for (auto& item : _C) {
+    for (auto& item : mEmitters) {
         item->playDrawParticle(-1);
     }
 }
 
 void EffectKeeper::offDraw() {
-    for (auto& item : _C) {
+    for (auto& item : mEmitters) {
         item->stopDrawParticle(-1);
     }
 }
 
-void EffectKeeper::enableSort() {
-    _18 = new HashSortTable(_C.capacity());
-}
-
-void EffectKeeper::finalizeSort() {
-    _18->sort();
-}
-
-bool EffectKeeper::isRegisteredEmitter(const char* pParam1) const {
-    u16 name = MR::getHashCode(pParam1);
-
-    for (MultiEmitter* const* it = _C.begin(); it != _C.end(); it++) {
-        if ((*it)->isEqualName(name)) {
-            return true;
-        }
-    }
-
-    return false;
+bool EffectKeeper::isRegisteredEmitter(const char* pEffectName) const {
+    return mNames.find(pEffectName) != MR::NameIndex::cNoValue;
 }
 
 void EffectKeeper::checkExistenceAttributeEffect() {
-    for (MultiEmitter* const* it = _C.begin(); it != _C.end(); it++) {
+    for (MultiEmitter* const* it = mEmitters.begin(); it != mEmitters.end(); it++) {
         if (MR::isEqualSubString(::getMultiEmitterName(*it), ::cAttributeEffectTag)) {
-            _30 = true;
+            mHasAttributeEffect = true;
             break;
         }
     }
 }
 
-void EffectKeeper::registMultiEmitter(MultiEmitter* pEmitter, const char* pParam2, const char* pParam3) {
-    if (pParam3 != nullptr) {
-        pEmitter->setName(pParam3);
-
-        if (_18 != nullptr) {
-            _18->add(pParam3, reinterpret_cast< HashSortValue >(pEmitter), 0);
-        }
-    } else {
-        if (_18 != nullptr) {
-            _18->add(pParam2, reinterpret_cast< HashSortValue >(pEmitter), 0);
-        }
-    }
-
-    _C.push_back(pEmitter);
+void EffectKeeper::registMultiEmitter(MultiEmitter* pEmitter, const char* pName, const char* pUniqueName) {
+    // A later emitter of a name already held stays in mEmitters (it is updated and drawn) but isn't found by name.
+    mNames.add(pUniqueName != nullptr ? pUniqueName : pName, mEmitters.size());
+    mEmitters.push_back(pEmitter);
 }
 
 namespace {
@@ -402,7 +374,6 @@ void EffectKeeper::updateFloorCode() {
         return;
     }
 
-    _2C = _28;
     if (::isBinded(mBinder)) {
         updateFloorCode(&mBinder->mGroundInfo.mParentTriangle);
     }
@@ -413,20 +384,18 @@ void EffectKeeper::updateFloorCode(const Triangle* pTriangle) {
         return;
     }
 
-    _2C = _28;
-    _28 = MR::getFloorCodeIndex(pTriangle->getAttributes());
+    mFloorCode = MR::getFloorCodeIndex(pTriangle->getAttributes());
 }
 
-bool EffectKeeper::isTypeAttributeEffect(const char* pParam1) const {
-    char buf[256];
-    nebula_snprintf(buf, sizeof(buf), "%s%s", pParam1, ::cAttributeEffectTag);
+bool EffectKeeper::isTypeAttributeEffect(const char* pEffectName) const {
+    MR::FormattedName buf("%s%s", pEffectName, ::cAttributeEffectTag);
 
-    for (MultiEmitter* const* it = _C.begin(); it != _C.end(); it++) {
-        if ((*it)->_28 == nullptr) {
+    for (MultiEmitter* const* it = mEmitters.begin(); it != mEmitters.end(); it++) {
+        if ((*it)->mAutoInfo == nullptr) {
             continue;
         }
 
-        if (MR::isEqualSubString((*it)->_28->getName(), buf)) {
+        if (MR::isEqualSubString((*it)->mAutoInfo->getName(), buf.c_str())) {
             return true;
         }
     }

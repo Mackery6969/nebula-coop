@@ -8,16 +8,14 @@ class ProjmapEffectMtxSetter;
 
 class SurfRay : public LiveActor {
 public:
-    /// @brief Creates a new `SurfRay`.
-    /// @param pName A pointer to the null-terminated name of the object.
     /// @param padChannel The player.
     SurfRay(const char* pName, s32 padChannel = 0);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
     void exeWaitPlayer();
     void exeTurnToWait();
@@ -54,19 +52,18 @@ public:
     bool isRotateStart() const;
 
     f32 mSurfSpeed;
-    f32 mOrthoSpeed;
-    TVec3f mOrthoVelocity;
+    Vec3f mOrthoVelocity;
 
     f32 mSteerRate;
     f32 mSteerAccel;
 
-    TVec3f mFront;
-    TVec3f mUp;
-    TVec3f mSide;
-    TVec3f mBaseUp;    // base up vector for modification
-    TVec3f mBaseSide;  // base side vector for modification
-    TVec3f mGroundNormal;
-    TVec3f mWarpPos;
+    Vec3f mFront;
+    Vec3f mUp;
+    Vec3f mSide;
+    Vec3f mBaseUp;    // base up vector for modification
+    Vec3f mBaseSide;  // base side vector for modification
+    Vec3f mGroundNormal;
+    Vec3f mWarpPos;
 
     LiveActor* mRider;
 
@@ -74,9 +71,9 @@ public:
     f32 mRayTilt;
     bool mInWater;
     s32 mAirTime;
-    TVec3f mWaterNormal;
+    Vec3f mWaterNormal;
     WaterInfo mWaterInfo;
-    TVec3f mWaterShadowPos;
+    Vec3f mWaterShadowPos;
     f32 mShadowAlpha;
 
     s32 mTwistBufferSize;
@@ -86,7 +83,7 @@ public:
     bool mInTutorial;
     s32 mLectureIdx;
 
-    TPos3f mEffectHostMtx;
+    Pos3f mEffectHostMtx;
     ActorJointCtrl* mActorJointCtrl;
     ProjmapEffectMtxSetter* mProjmapFxMtxSetter;
 };

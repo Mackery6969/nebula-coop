@@ -1,4 +1,5 @@
 #include "Game/MapObj/LavaHomeVolcanoFlow.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
@@ -15,10 +16,10 @@ namespace NrvLavaHomeVolcanoFlow {
 LavaHomeVolcanoFlow::LavaHomeVolcanoFlow(const char* pName) : LiveActor(pName) {
 }
 
-void LavaHomeVolcanoFlow::init(const JMapInfoIter& rIter) {
+void LavaHomeVolcanoFlow::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("LavaHomeVolcanoFlow", nullptr, false);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initSound(4, false);
     MR::setClippingTypeSphereContainsModelBoundingBox(this, 100.0f);
     initNerve(GET_NERVE(LavaHomeVolcanoFlow, HostTypeWait));
@@ -57,14 +58,11 @@ void LavaHomeVolcanoFlow::exeMove() {
         MR::startBck(this, "LavaHomeVolcanoFlow");
     }
     MR::startLevelSound(this, "SE_OJ_LV_VOLCANO_EXPL_SIGN");
-    if (MR::isStep(this, 60)) {
+    if (MR::isStep(this, NebulaFrameClock::stepsOfSeconds(1))) {
         MR::emitEffect(this, "Active");
         MR::emitEffect(this, "Loop");
         MR::startSound(this, "SE_OJ_VOLCANO_EXPLODE");
         MR::tryRumblePadVeryStrong(this, PLAYER_1);
         setNerve(GET_NERVE(LavaHomeVolcanoFlow, HostTypeDone));
     }
-}
-
-LavaHomeVolcanoFlow::~LavaHomeVolcanoFlow() {
 }

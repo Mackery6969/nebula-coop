@@ -8,7 +8,8 @@ $ErrorActionPreference = 'Stop'
 $base = $Work
 $source = $Source
 $root = Join-Path $base 'Nebula'
-$data = Join-Path $base 'data'
+$setupLocalAppData = Join-Path $base 'setup-localappdata'
+$data = Join-Path $setupLocalAppData 'Nebula'
 $old = (Get-Content -Raw (Join-Path $source 'current.json') | ConvertFrom-Json).version
 $failures = 0
 function Check([bool]$ok, [string]$what) { if ($ok) { "PASS: $what" } else { "FAIL: $what"; $script:failures++ } }
@@ -28,18 +29,19 @@ function Version-Intact([string]$version) {
 }
 # -Interrupt: ended by force as soon as the new version's files begin to appear in staging (before the switch).
 function Run-Setup([string[]]$Arguments, [switch]$Interrupt) {
-    $env:NEBULA_DATA_ROOT = $data
+    $userLocalAppData = $env:LOCALAPPDATA
+    $env:LOCALAPPDATA = $setupLocalAppData
     $p = Start-Process -FilePath $Setup -ArgumentList (@('--unattended', '--root', "`"$root`"") + $Arguments) -PassThru -WindowStyle Hidden
     if ($Interrupt) {
         while (-not $p.HasExited) {
             $app = Get-ChildItem -LiteralPath (Join-Path $root 'staging') -Directory -ErrorAction SilentlyContinue |
                 ForEach-Object { Join-Path $_.FullName 'app' } | Where-Object { Test-Path -LiteralPath $_ }
-            if ($app) { Stop-Process -Id $p.Id -Force; $p.WaitForExit(); Remove-Item Env:NEBULA_DATA_ROOT; return 'killed' }
+            if ($app) { Stop-Process -Id $p.Id -Force; $p.WaitForExit(); $env:LOCALAPPDATA = $userLocalAppData; return 'killed' }
             Start-Sleep -Milliseconds 5
         }
     }
     $p.WaitForExit()
-    Remove-Item Env:NEBULA_DATA_ROOT
+    $env:LOCALAPPDATA = $userLocalAppData
     return $p.ExitCode
 }
 
@@ -48,10 +50,10 @@ if (Test-Path -LiteralPath $base) { Remove-Item -LiteralPath $base -Recurse -For
 New-Item -ItemType Directory -Force $root, $data | Out-Null
 & robocopy $source $root /E /XF game.pak /NFL /NDL /NJH /NJS /NP | Out-Null
 New-Item -ItemType HardLink -Path (Join-Path $root 'content\game.pak') -Target (Join-Path $source 'content\game.pak') | Out-Null
-New-Item -ItemType Directory -Force (Join-Path $data 'nand\title\00010000\524d4745\data'), (Join-Path $data 'settings') | Out-Null
-[IO.File]::WriteAllBytes((Join-Path $data 'nand\title\00010000\524d4745\data\GameData.bin'), [byte[]](1..200))
+New-Item -ItemType Directory -Force (Join-Path $data 'saves\title\00010000\524d4745\data'), (Join-Path $data 'settings') | Out-Null
+[IO.File]::WriteAllBytes((Join-Path $data 'saves\title\00010000\524d4745\data\GameData.bin'), [byte[]](1..200))
 [IO.File]::WriteAllText((Join-Path $data 'settings\config.ini'), "bloom = 140`n")
-$dataBefore = (Hash-Tree (Join-Path $data 'nand')) + (Hash-Tree (Join-Path $data 'settings'))
+$dataBefore = (Hash-Tree (Join-Path $data 'saves')) + (Hash-Tree (Join-Path $data 'settings'))
 "installed: $old; updating to $New"
 
 # 1. The update interrupted half way (Setup ended by force): the installed version is untouched and still current.
@@ -95,18 +97,16 @@ if ($hadSettings) { Move-Item -LiteralPath $fake $runner }
 # settings and app data.
 $bin = Join-Path $root "versions\$New"
 $appdata = Join-Path $base 'localappdata'
-New-Item -ItemType Directory -Force $appdata, (Join-Path $base 'nand') | Out-Null
-$env:NEBULA_WORK = $base; $env:NEBULA_APPDATA = $appdata; $env:NEBULA_NAND = Join-Path $base 'nand'; $env:NEBULA_SETTINGS = Join-Path $base 'settings'
-$env:GALAXY_HIDE_WINDOW = '1'; $env:GALAXY_XINPUT_REQUIRE_FOCUS = '1'; $env:LOCALAPPDATA = $appdata
+New-Item -ItemType Directory -Force $appdata, (Join-Path $base 'saves') | Out-Null
+$env:NEBULA_WORK = $base; $env:NEBULA_APPDATA = $appdata; $env:NEBULA_SAVES = Join-Path $base 'saves'; $env:NEBULA_SETTINGS = Join-Path $base 'settings'
+$env:LOCALAPPDATA = $appdata
 $env:GALAXY_AUDIO_WAV_DUMP_ONLY = '1'; $env:GALAXY_AUDIO_WAV_DUMP = Join-Path $base 'audio.wav'
-$env:GALAXY_RENDER_CONFIG_PATH = Join-Path $base 'config.ini'; $env:GALAXY_RUNTIME_SETTINGS_PATH = Join-Path $base 'runtime_settings.ini'
-$env:GALAXY_CRASH_DUMP_DIR = $base
 $log = Join-Path $base 'boot.log'
-$p = Start-Process -FilePath (Join-Path $bin 'NebulaNative.exe') -ArgumentList @('--pak', "`"$(Join-Path $root 'content\game.pak')`"", '--saves', "`"$(Join-Path $base 'nand')`"", '--seconds', '6') -PassThru -WindowStyle Hidden -RedirectStandardOutput $log -RedirectStandardError (Join-Path $base 'boot-err.log')
+$p = Start-Process -FilePath (Join-Path $bin 'NebulaNative.exe') -ArgumentList @('--pak', "`"$(Join-Path $root 'content\game.pak')`"", '--saves', "`"$(Join-Path $base 'saves')`"", '--settings', "`"$base`"", '--crash-dumps', "`"$base`"", '--seconds', '6') -PassThru -WindowStyle Hidden -RedirectStandardOutput $log -RedirectStandardError (Join-Path $base 'boot-err.log')
 $p.WaitForExit()
 Check ((Select-String -LiteralPath $log -Pattern 'boot: title screen' -Quiet)) "the installed $New starts and reaches the title"
 
-$dataAfter = (Hash-Tree (Join-Path $data 'nand')) + (Hash-Tree (Join-Path $data 'settings'))
+$dataAfter = (Hash-Tree (Join-Path $data 'saves')) + (Hash-Tree (Join-Path $data 'settings'))
 "setup logs written: $((Get-ChildItem -LiteralPath (Join-Path $data 'setup-logs') -File).Count)"
 Check ($dataBefore -eq $dataAfter) "saves and settings unchanged through it all"
 "$failures failure(s)"

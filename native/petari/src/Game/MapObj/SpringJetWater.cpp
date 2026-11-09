@@ -1,4 +1,5 @@
 #include "Game/MapObj/SpringJetWater.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util.hpp"
@@ -11,7 +12,7 @@ namespace {
     static const f32 sHitSphereRadius = 70.0f;
     static const f32 sHitSphereOffsetY = 350.0f;
     static const f32 sClippingRadius = 1000.0f;
-    static const s32 sEndTime = 60;
+    static const s32 sEndTime = NebulaFrameClock::stepsOfSeconds(1);
     static const f32 sHitCylinderHeight = 280.0f;
 };  // namespace
 
@@ -24,19 +25,19 @@ namespace NrvSpringJetWater {
 SpringJetWater::SpringJetWater(const char* pName) : LiveActor(pName), mObjName(), mUp(0.0f, 1.0f, 0.0f) {
 }
 
-void SpringJetWater::init(const JMapInfoIter& rIter) {
+void SpringJetWater::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.identity();
     mtx.setEuler(mRotation * (PI / 180.0f));
     mtx.getYDir(mUp);
     MR::normalize(&mUp);
     MR::getObjectName(&mObjName, rIter);
-    initEffectKeeper(0, mObjName, false);
+    initEffectKeeper(0, mObjName);
     initSound(4, false);
     initHitSensor(1);
 
-    MR::addHitSensorMapObj(this, "body", 0x10, ::sSensorRadius, TVec3f(0.0f, ::sSensorOffsetY, 0.0f));
+    MR::addHitSensorMapObj(this, "body", 0x10, ::sSensorRadius, Vec3f(0.0f, ::sSensorOffsetY, 0.0f));
     MR::setClippingTypeSphere(this, ::sClippingRadius);
     initNerve(GET_NERVE(SpringJetWater, HostTypeWait));
     MR::connectToSceneMapObjMovement(this);
@@ -98,7 +99,7 @@ void SpringJetWater::exeWait() {
 
     MR::startLevelSound(this, "SE_OJ_LV_SPR_JET_WATER_WAIT");
 
-    if (MR::isDemoPartFirstStep("\227\116\202\253\220\205\217\343\217\270" /* 湧き水上昇 */)) {
+    if (MR::isDemoPartFirstStep("湧き水上昇")) {
         MR::deleteEffect(this, "Wait");
         setNerve(GET_NERVE(SpringJetWater, HostTypeJet));
     }
@@ -114,7 +115,7 @@ void SpringJetWater::exeJet() {
 
     MR::startLevelSound(this, "SE_OJ_LV_SPR_JET_WATER_JET");
 
-    if (MR::isDemoPartLastStep("\227\116\202\253\220\205\217\343\217\270" /* 湧き水上昇 */)) {
+    if (MR::isDemoPartLastStep("湧き水上昇")) {
         setNerve(GET_NERVE(SpringJetWater, HostTypeEnd));
     }
 }

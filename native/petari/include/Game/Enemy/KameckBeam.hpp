@@ -16,25 +16,23 @@ public:
         BeamType_FireBall3,
     };
 
-    /// @brief Creates a new `KameckBeam`.
-    /// @param pName A pointer to the null-terminated name of the object.
     KameckBeam(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void calcAnim();
-    virtual void kill();
-    virtual void control();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void calcAnim() override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
-    void setWandLocalPosition(const TVec3f&);
+    void setWandLocalPosition(const Vec3f&);
     void setBeamKind(s32);
     void setEventListener(KameckBeamEventListener*);
     void resetBeam();
     bool requestFollowWand(MtxPtr, f32);
     void requestShootToPlayerGround(f32);
     void requestShootToPlayerCenter(f32);
-    void requestShoot(const TVec3f&, f32);
+    void requestShoot(const Vec3f&, f32);
     bool requestStorm(HitSensor*, HitSensor*);
     bool tryShootEnd();
     bool tryChangeTurtle();
@@ -52,15 +50,13 @@ public:
     KameckTurtle* mKameckTurtle;
     KameckFireBall* mKameckFireBalls[3];
     MtxPtr mFollowMtx;
-    TVec3f _A4;
-    TVec3f mWandLocalPosition;
+    Vec3f mShootDir;
+    Vec3f mWandLocalPosition;
     s32 mBeamKind;
-    u8 _C0[4];
 };
 
 class KameckBeamEventListener {
 public:
-    /// @brief Creates a new `KameckBeamEventListener`.
     KameckBeamEventListener();
 
     virtual void hitBeam(s32){};
@@ -68,12 +64,12 @@ public:
 
 class KameckBeamCollisionFilter : public CollisionPartsFilterBase {
 public:
-    KameckBeamCollisionFilter(const TVec3f*, f32);
+    KameckBeamCollisionFilter(const Vec3f*, f32);
 
-    virtual bool isInvalidParts(const CollisionParts*) const;
+    virtual bool isInvalidParts(const CollisionParts*) const override;
 
-    const TVec3f* _4;
-    f32 _8;
+    const Vec3f* mClipCenter;
+    f32 mClipRadius;
 };
 
 namespace MR {

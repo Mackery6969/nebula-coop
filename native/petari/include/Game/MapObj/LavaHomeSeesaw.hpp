@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include "JSystem/JGeometry/TVec.hpp"
+#include <nebula_geometry.hpp>
 
 class LavaHomeSeesawRotator;
 class ProjmapEffectMtxSetter;
@@ -10,13 +10,13 @@ class LavaHomeSeesaw : public LiveActor {
 public:
     LavaHomeSeesaw(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
 
     LavaHomeSeesawRotator* mSeesawRotator;
     ProjmapEffectMtxSetter* mMtxSetter;
-    TVec3f _94;
+    Vec3f mGroundPos;
     f32 mYOffset;
 };

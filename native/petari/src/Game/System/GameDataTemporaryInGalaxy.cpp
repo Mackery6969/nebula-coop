@@ -1,41 +1,36 @@
 #include "Game/System/NebulaHost.hpp"
 #include "Game/System/GameDataTemporaryInGalaxy.hpp"
 #include "Game/System/AlreadyDoneFlagInGalaxy.hpp"
-#include "Game/Util/JMapIdInfo.hpp"
+#include "Game/Util/PlacementId.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/SceneUtil.hpp"
-#include <cstdio>
+#include "Game/Util/StringUtil.hpp"
 
 GameDataTemporaryInGalaxy::GameDataTemporaryInGalaxy() : mPlayerRestartIdInfo(nullptr), mAlreadyDoneFlag(nullptr) {
-    mPlayerRestartIdInfo = new JMapIdInfo(MR::getInitializeStartIdInfo());
+    mPlayerRestartIdInfo = new PlacementId(MR::getInitializeStartIdInfo());
     mAlreadyDoneFlag = new AlreadyDoneFlagInGalaxy(64);
 
     resetStageResultParam();
 
-    _4 = false;
+    mIsRetry = false;
 }
 
 void GameDataTemporaryInGalaxy::resetPlayerRestartIdInfo() {
     *mPlayerRestartIdInfo = MR::getInitializeStartIdInfo();
 }
 
-void GameDataTemporaryInGalaxy::setPlayerRestartIdInfo(const JMapIdInfo& rPlayerRestartIdInfo) {
+void GameDataTemporaryInGalaxy::setPlayerRestartIdInfo(const PlacementId& rPlayerRestartIdInfo) {
     *mPlayerRestartIdInfo = rPlayerRestartIdInfo;
 }
 
-void GameDataTemporaryInGalaxy::resetRaceBestTime() {
-    _4C = 0;
-    _50 = 0;
-}
-
 bool GameDataTemporaryInGalaxy::isStageCleared() const {
-    return _8 == 1;
+    return mClearState == 1;
 }
 
 void GameDataTemporaryInGalaxy::resetStageResultPowerStarParam() {
-    _8 = 0;
+    mClearState = 0;
     mPowerStarId = 1;
-    mStageName[0] = '\0';
+    mStageName = "";
 }
 
 void GameDataTemporaryInGalaxy::resetStageResultStarPieceParam() {
@@ -71,21 +66,21 @@ void GameDataTemporaryInGalaxy::clearAlreadyDoneFlag() {
     mAlreadyDoneFlag->clear();
 }
 
-s32 GameDataTemporaryInGalaxy::setupAlreadyDoneFlag(const char* pZoneName, const JMapInfoIter& rIter, u32* pParam3) {
-    return mAlreadyDoneFlag->setupFlag(pZoneName, rIter, pParam3);
+s32 GameDataTemporaryInGalaxy::setupAlreadyDoneFlag(const char* pName, const TableIter& rIter, u32* pIsDone) {
+    return mAlreadyDoneFlag->setupFlag(pName, rIter, pIsDone);
 }
 
-void GameDataTemporaryInGalaxy::updateAlreadyDoneFlag(int index, u32 param2) {
-    mAlreadyDoneFlag->updateValue(index, param2);
+void GameDataTemporaryInGalaxy::updateAlreadyDoneFlag(int index, u32 isDone) {
+    mAlreadyDoneFlag->updateValue(index, isDone);
 }
 
 void GameDataTemporaryInGalaxy::receiveStageResultParam(const char* pStageName, s32 powerStarId, int starPieceNum, int coinNum) {
     resetStageResultParam();
 
     mPowerStarId = powerStarId;
-    _8 = 1;
+    mClearState = 1;
     mStarPieceNum = starPieceNum;
     mCoinNum = coinNum;
 
-    nebula_snprintf(mStageName, sizeof(mStageName), "%s", pStageName);
+    mStageName = MR::internName(pStageName);
 }

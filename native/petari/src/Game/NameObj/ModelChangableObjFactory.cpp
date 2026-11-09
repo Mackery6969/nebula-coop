@@ -11,8 +11,7 @@
 #include "Game/MapObj/MercatorRotateParts.hpp"
 #include "Game/MapObj/SimpleNormalMapObj.hpp"
 #include "Game/NameObj/NameObjFactory.hpp"
-#include "Game/Util/FileUtil.hpp"
-#include "Game/Util/MapPartsUtil.hpp"
+#include "Game/Util/StringUtil.hpp"
 #include <cstring>
 
 namespace {
@@ -82,15 +81,11 @@ namespace {
     const Model2CreateFunc* getModel2CreateFunc(const char* pName) {
         for (u32 i = 0; i < ARRAY_SIZE(cModelChangableObjCreatorTable); i++) {
             const Model2CreateFunc* pModel2CreateFunc = &cModelChangableObjCreatorTable[i];
-            bool v7;
+            const bool isMatch = pModel2CreateFunc->mNamePrefix != nullptr
+                                     ? MR::isEqualStringPrefix(pName, pModel2CreateFunc->mNamePrefix)
+                                     : MR::isEqualString(pName, pModel2CreateFunc->mArchiveName);
 
-            if (pModel2CreateFunc->_0 != nullptr) {
-                v7 = strncmp(pName, pModel2CreateFunc->_0, strlen(pModel2CreateFunc->_0)) == 0;
-            } else {
-                v7 = strcmp(pName, pModel2CreateFunc->mArchiveName) == 0;
-            }
-
-            if (v7) {
+            if (isMatch) {
                 return pModel2CreateFunc;
             }
         }
@@ -108,22 +103,5 @@ namespace MR {
         }
 
         return nullptr;
-    }
-
-    void requestMountModelChangableObjArchives(const char* pName, s32 a2) {
-        char objectName[256];
-
-        MR::getMapPartsObjectName(objectName, sizeof(objectName), pName, a2);
-        MR::mountArchiveByObjectOrLayoutName(objectName, nullptr);
-    }
-
-    bool isReadResourceFromStoreAtModelChangableObj(const char* pName, s32 a2) {
-        char objectName[256];
-        char archiveName[256];
-
-        MR::getMapPartsObjectName(objectName, sizeof(objectName), pName, a2);
-        MR::makeObjectArchiveFileNameFromPrefix(archiveName, sizeof(archiveName), objectName, true);
-
-        return !MR::isLoadedFile(archiveName);
     }
 };  // namespace MR

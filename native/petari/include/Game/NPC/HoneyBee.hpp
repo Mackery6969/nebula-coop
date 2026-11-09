@@ -17,15 +17,12 @@ public:
         InitAction_FlyLectureB,
     };
 
-    /// @brief Creates a new `HoneyBee`.
-    /// @param pName A pointer to the null-terminated name of the object.
     HoneyBee(const char* pName);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
+    virtual void init(const TableIter&) override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
 
-    static void makeArchiveList(NameObjArchiveListCollector*, const JMapInfoIter&);
 
     void exeWait();
     void exeReaction();
@@ -35,9 +32,9 @@ public:
     void exeFlyLectureA();
     void exeFlyLectureB();
 
-    s32 _15C;
-    TMtx34f _160;
-    TVec3f _190;
-    s32 mArg0;
-    f32 _1A0;
+    s32 mRailPointNo;
+    Mtx34f mTalkMtx;
+    Vec3f mClippingCenter;
+    s32 mInitAction;
+    f32 mFloatOffset;
 };

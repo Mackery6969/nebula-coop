@@ -66,7 +66,9 @@ The FSR 3 upscaler and its DX12 and Vulkan backends, built from <https://github.
 
 `third_party/archive/` holds the libraries the mod importer reads zip, 7z and rar archives with: libarchive (BSD-2-Clause,
 `third_party/archive/libarchive/COPYING`), xz's liblzma (0BSD, `third_party/archive/xz/COPYING.0BSD`) and zlib (Zlib,
-`third_party/archive/zlib/LICENSE`).
+`third_party/archive/zlib/LICENSE`). xz's shell scripts (`src/scripts`) are not included, so its `CMakeLists.txt`
+configures them only when they are built. libarchive's `contrib/` is not included either: on Android its headers
+include `android_lf.h`, which `cmake/android/android_lf.h` stands in for (64-bit ABIs only, where there is nothing to map).
 
 ## SMAA (MIT)
 
@@ -79,6 +81,12 @@ Belen Masia, Fernando Navarro and Diego Gutierrez. License: `third_party/smaa/LI
 `third_party/fidelityfx-fsr1/` holds the unmodified `ffx_a.h` and `ffx_fsr1.h` from
 <https://github.com/GPUOpen-Effects/FidelityFX-FSR>. Copyright (c) 2021 Advanced Micro Devices, Inc.
 License: `third_party/fidelityfx-fsr1/LICENSE.txt`.
+
+## Snapdragon Game Super Resolution 2 (BSD 3-clause)
+
+`runtime/src/render/sgsr2.hlsl` is adapted from the two-pass fragment shaders of
+<https://github.com/SnapdragonStudios/snapdragon-gsr> (d926f07). Copyright (c) 2023-2024, Qualcomm Innovation Center,
+Inc. License: `third_party/snapdragon-gsr/LICENSE.txt`.
 
 ## NVIDIA Streamline 2.14.1 headers (MIT)
 

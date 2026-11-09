@@ -1,4 +1,5 @@
 #include "Game/MapObj/ClipAreaDrop.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/ClipArea.hpp"
 #include "Game/MapObj/ClipAreaShape.hpp"
@@ -7,22 +8,20 @@
 #include "Game/Util/ObjUtil.hpp"
 
 namespace {
-    static const s32 sExtendsEndTime = 15;
-    static const s32 sShrinkStartTime = 60;
-    static const s32 sShrinkEndTime = 240;
+    const s32 sExtendsEndTime = 15;
+    const s32 sShrinkStartTime = NebulaFrameClock::stepsOfSeconds(1);
+    const s32 sShrinkEndTime = NebulaFrameClock::stepsOfSeconds(4);
 };  // namespace
 
 namespace NrvClipAreaDrop {
     NEW_NERVE(ClipAreaDropNrvWait, ClipAreaDrop, Wait);
 };  // namespace NrvClipAreaDrop
 
-ClipAreaDrop::ClipAreaDrop(const char* pName) : ClipArea(pName), mShapeSphere(), mBaseSize(500.0f) {
-    mShapeSphere = new ClipAreaShapeSphere();
-
+ClipAreaDrop::ClipAreaDrop(const char* pName) : ClipArea(pName), mShapeSphere(new ClipAreaShapeSphere()), mBaseSize(500.0f) {
     setShape(mShapeSphere);
 }
 
-void ClipAreaDrop::init(const JMapInfoIter& rIter) {
+void ClipAreaDrop::init(const TableIter& rIter) {
     initBaseMatrix(rIter);
     MR::connectToScene(this, MR::MovementType_ClippedMapParts, MR::CalcAnimType_None, MR::DrawBufferType_None, MR::DrawType_ClipArea);
     MR::invalidateClipping(this);
@@ -43,23 +42,14 @@ void ClipAreaDrop::appear() {
 }
 
 void ClipAreaDrop::control() {
-    TPos3f mtx;
-    mtx.identity();
-    mtx.setTrans(mPosition);
-
-    __builtin_memcpy(mBaseMtx, mtx, sizeof(Mtx));
+    mBaseMtx.identity();
+    mBaseMtx.setTrans(mPosition);
 }
 
 void ClipAreaDrop::exeWait() {
-    f32 radius = 0.0f;
-
-    if (MR::isLessStep(this, ::sExtendsEndTime)) {
-        radius = MR::calcNerveEaseOutValue(this, ::sExtendsEndTime, 0.0f, mBaseSize);
-    } else {
-        radius = MR::calcNerveEaseInOutValue(this, ::sShrinkStartTime, ::sShrinkEndTime, mBaseSize, 0.0f);
-    }
-
-    mShapeSphere->mRadius = radius;
+    mShapeSphere->mRadius = MR::isLessStep(this, ::sExtendsEndTime)
+                                ? MR::calcNerveEaseOutValue(this, ::sExtendsEndTime, 0.0f, mBaseSize)
+                                : MR::calcNerveEaseInOutValue(this, ::sShrinkStartTime, ::sShrinkEndTime, mBaseSize, 0.0f);
 
     if (MR::isGreaterStep(this, ::sShrinkEndTime)) {
         kill();

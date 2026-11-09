@@ -5,7 +5,67 @@
 #include "Game/System/NebulaArena.hpp"
 
 namespace MR {
-    /// @brief A full table: twice the room, in the heap it lies in, and the old one goes. Pointers into it do not survive this.
+    /// @brief Room for a list with no limit that can also be a static: no constructor (zero-initialised), it grows to at
+    /// least `count` (doubling, from 16), keeps what it held, and never shrinks. It grows in the arena that holds it, so a
+    /// member goes with its owner's arena; a static's room is the root arena's. Pointers into it do not survive a call
+    /// that grows it.
+    template < class T >
+    struct GrowBuffer {
+        T* mItems;
+        u32 mRoom;
+
+        T* room(u32 count) {
+            if (count > mRoom) {
+                u32 room = mRoom != 0 ? mRoom : 16;
+                while (room < count) {
+                    room *= 2;
+                }
+                NebulaArena* const pHome = NebulaArena::findFromRoot(this);
+                T* const pNew = new (pHome != nullptr ? pHome : NebulaArena::root(), 0) T[room];
+                for (u32 i = 0; i < mRoom; i++) {
+                    pNew[i] = mItems[i];
+                }
+                delete[] mItems;
+                mItems = pNew;
+                mRoom = room;
+            }
+            return mItems;
+        }
+
+        T& operator[](u32 index) {
+            return mItems[index];
+        }
+
+        const T& operator[](u32 index) const {
+            return mItems[index];
+        }
+    };
+
+    /// @brief Scratch for `count` items: room for N in itself, from the current arena past that, freed at scope end.
+    template < class T, int N >
+    class LocalArray {
+    public:
+        explicit LocalArray(u32 count) : mItems(count <= static_cast< u32 >(N) ? mRoom : new T[count]) {
+        }
+
+        ~LocalArray() {
+            if (mItems != mRoom) {
+                delete[] mItems;
+            }
+        }
+
+        LocalArray(const LocalArray&) = delete;
+        LocalArray& operator=(const LocalArray&) = delete;
+
+        T& operator[](u32 index) {
+            return mItems[index];
+        }
+
+        T mRoom[N];
+        T* const mItems;
+    };
+
+    /// @brief A full table: twice the room, in the arena it lies in, and the old one goes. Pointers into it do not survive this.
     template < class T >
     T* growArray(T* pOld, s32 num) {
         T* const pNew = new (NebulaArena::findFromRoot(pOld), 0) T[num * 2];  // num is never 0: see AssignableArray::grow
@@ -16,52 +76,43 @@ namespace MR {
         return pNew;
     }
 
-    /// @brief A contiguous reallocatable array.
+    /// @brief An arena array of mMaxSize; grow() doubles it (16 when empty).
     template < class T >
     class AssignableArray {
     public:
         typedef T Item;
 
-        /// @brief Creates a new `AssignableArray`.
         AssignableArray() {
             mArr = 0;
             mMaxSize = 0;
         }
 
-        /// @brief Creates a new `AssignableArray`.
-        /// @param num The number of elements.
         AssignableArray(s32 num) {
             init(num);
         }
 
-        /// @brief Destroys the `AssignableArray`.
         ~AssignableArray();
 
-        /// @brief Returns the element at the given position.
-        /// @param idx The position of the element.
-        /// @return The reference to the element.
         T& operator[](int idx) {
             return mArr[idx];
         }
 
-        /// @brief Returns the element at the given position.
-        /// @param idx The position of the element.
-        /// @return The reference to the element.
         const T& operator[](int idx) const {
             return mArr[idx];
         }
 
-        /// @brief Allocates memory for the array.
-        /// @param num The number of elements.
         void init(s32 num) {
             mArr = new T[num];
             mMaxSize = num;
         }
 
-        /// @brief Makes room for more elements.
+        // From empty, in the arena that holds this array (the current one for a static): a scene's list that first gets an
+        // item in a frame stays the scene's.
         void grow() {
             if (mMaxSize == 0) {
-                init(16);
+                delete[] mArr;
+                mArr = new (NebulaArena::findFromRoot(this), 0) T[16];
+                mMaxSize = 16;
                 return;
             }
 
@@ -69,64 +120,43 @@ namespace MR {
             mMaxSize *= 2;
         }
 
-        /// @brief Returns the number of elements.
-        /// @return The number of elements.
         int size() const {
             return mMaxSize;
         }
 
-        /// @brief Returns an iterator to the first element.
-        /// @return The pointer to the first element.
         T* begin() {
             return &mArr[0];
         }
 
-        /// @brief Returns an iterator to the first element.
-        /// @return The pointer to the first element.
         const T* begin() const {
             return &mArr[0];
         }
 
-        /// @brief Returns an iterator to the reverse first element.
-        /// @return The pointer to the reverse first element.
         T* rbegin() {
             return &mArr[mMaxSize - 1];
         }
 
-        /// @brief Returns an iterator to the reverse first element.
-        /// @return The pointer to the reverse first element.
         const T* rbegin() const {
             return &mArr[mMaxSize - 1];
         }
 
-        /// @brief Returns an iterator past the last element.
-        /// @return The pointer past the last element.
         T* end() {
             return &mArr[mMaxSize];
         }
 
-        /// @brief Returns an iterator past the last element.
-        /// @return The pointer past the last element.
         const T* end() const {
             return &mArr[mMaxSize];
         }
 
-        /// @brief Returns an iterator past the reverse last element.
-        /// @return The pointer past the reverse last element.
         T* rend() {
             return &mArr[0] - 1;
         }
 
-        /// @brief Returns an iterator past the reverse last element.
-        /// @return The pointer past the reverse last element.
         const T* rend() const {
             return &mArr[0] - 1;
         }
 
-        /// @brief The pointer to the array of elements.
         T* mArr;
-
-        /// @brief The number of elements.
         s32 mMaxSize;
     };
 
@@ -158,6 +188,10 @@ namespace MR {
             return begin()[idx];
         }
 
+        s32 size() const {
+            return mSize;
+        }
+
         T* begin() {
             return mMoved != nullptr ? mMoved : mArr;
         }
@@ -180,20 +214,12 @@ namespace MR {
         s32 mSize;
     };
 
-    /// @brief A contiguous array with room for N in itself; a Vector over it past that moves to the arena it lies in.
+    /// @brief A contiguous array with room for N in itself; grow() moves it to twice the room in the arena it lies in (an
+    /// InlineVector does when full).
     template < class T, int N >
-    class FixedArray {
+    class InlineArray {
     public:
         typedef T Item;
-        template < class X >
-        struct RemovePtr {
-            typedef X Type;
-        };
-        template < class X >
-        struct RemovePtr< X* > {
-            typedef X Type;
-        };
-        typedef typename RemovePtr< T >::Type Base;
 
         void grow() {
             const s32 num = size();
@@ -206,55 +232,32 @@ namespace MR {
             mMovedSize = num * 2;
         }
 
-        /// @brief Returns the element at the given position.
-        /// @param idx The position of the element.
-        /// @return The reference to the element.
         T& operator[](int idx) {
             return mMoved != nullptr ? mMoved[idx] : mArr[idx];
         }
 
-        /// @brief Returns the element at the given position.
-        /// @param idx The position of the element.
-        /// @return The reference to the element.
         const T& operator[](int idx) const {
             return mMoved != nullptr ? mMoved[idx] : mArr[idx];
         }
 
-        /// @brief Returns the number of elements.
-        /// @return The number of elements.
         int size() const {
             return mMoved != nullptr ? mMovedSize : N;
         }
 
-        /// @brief Returns an iterator to the first element.
-        /// @return The pointer to the first element.
         T* begin() {
             return &(*this)[0];
         }
 
-        /// @brief Returns an iterator to the first element.
-        /// @return The pointer to the first element.
         const T* begin() const {
             return &(*this)[0];
         }
 
-        /// @brief Returns an iterator past the last element.
-        /// @return The pointer past the last element.
         T* end() {
             return begin() + size();
         }
 
-        /// @brief Returns an iterator past the last element.
-        /// @return The pointer past the last element.
         const T* end() const {
             return begin() + size();
-        }
-
-        template < class U >
-        void callAllFunc(void (U::*pFunction)()) {
-            for (T* it = begin(); it != end(); it++) {
-                ((*it)->*pFunction)();
-            }
         }
 
         inline int indexOf(T* pItem) const {
@@ -262,58 +265,41 @@ namespace MR {
         }
 
     private:
-        /// @brief The array of elements.
         T mArr[N];
         T* mMoved = nullptr;
         s32 mMovedSize = 0;
     };
 
-    /// @brief A contiguous growable array.
+    /// @brief mCount items over a storage T (AssignableArray or InlineArray); push_back and insert grow the storage when full.
     template < class T >
     class Vector {
     public:
         typedef typename T::Item Item;
 
-        /// @brief Creates a new `Vector`.
         Vector();
 
-        /// @brief Destroys the `Vector`.
         ~Vector();
 
-        /// @brief Returns the element at the given position.
-        /// @param idx The position of the element.
-        /// @return The reference to the element.
         Item& operator[](int idx) {
             return mArray[idx];
         }
 
-        /// @brief Returns the element at the given position.
-        /// @param idx The position of the element.
-        /// @return The reference to the element.
         const Item& operator[](int idx) const {
             return mArray[idx];
         }
 
-        /// @brief Allocates memory for the array.
-        /// @param num The number of elements.
         void init(s32 num) {
             mArray.init(num);
         }
 
-        /// @brief Returns the number of elements.
-        /// @return The number of elements.
         int size() const {
             return mCount;
         }
 
-        /// @brief Returns the number of elements that can be stored without reallocating.
-        /// @return The number of elements that can be stored.
         int capacity() const {
             return mArray.size();
         }
 
-        /// @brief Appends a copy of `rItem` to the end of the container.
-        /// @param rItem The reference to the value to append.
         void push_back(const Item& rItem);
 
         Item* insert(Item* pIter, const Item& rItem) {
@@ -336,9 +322,7 @@ namespace MR {
             mCount--;
         }
 
-        /// @brief Removes the value at the given position from the container.
-        /// @param pIter The pointer to the position where the value should be removed.
-        /// @return The pointer to the position of the removed value.
+        // Keeps the order; returns the position that now holds the next item.
         Item* erase(Item* pIter) {
             if (end() - pIter - 1 > 0) {
                 for (Item* p = pIter; p + 1 != end(); p++) {
@@ -351,96 +335,49 @@ namespace MR {
             return pIter;
         }
 
-        /// @brief Removes all values from the container.
         void clear() {
             mCount = 0;
         }
 
-        /// @brief Returns an iterator to the first element.
-        /// @return The pointer to the first element.
         Item* begin() {
             return &mArray[0];
         }
 
-        /// @brief Returns an iterator to the first element.
-        /// @return The pointer to the first element.
         const Item* begin() const {
             return &mArray[0];
         }
 
-        /// @brief Returns an iterator to the reverse first element.
-        /// @return The pointer to the reverse first element.
         Item* rbegin() {
             return end() - 1;
         }
 
-        /// @brief Returns an iterator to the reverse first element.
-        /// @return The pointer to the reverse first element.
         const Item* rbegin() const {
             return end() - 1;
         }
 
-        /// @brief Returns an iterator past the last element.
-        /// @return The pointer past the last element.
         Item* end() {
             return &mArray[mCount];
         }
 
-        /// @brief Returns an iterator past the last element.
-        /// @return The pointer past the last element.
         const Item* end() const {
             return &mArray[mCount];
         }
 
-        /// @brief Returns an iterator past the reverse last element.
-        /// @return The pointer past the reverse last element.
         Item* rend() {
             return begin() - 1;
         }
 
-        /// @brief Returns an iterator past the reverse last element.
-        /// @return The pointer past the reverse last element.
         const Item* rend() const {
             return begin() - 1;
         }
 
-        /// @brief The array of elements.
         T mArray;
-
-        /// @brief The number of valid elements.
-        /* 0x? */ s32 mCount;
+        s32 mCount;
     };
 
-    template < class T, int S >
-    class FixedRingBuffer {
-    public:
-        class iterator {
-        public:
-            inline iterator() {
-            }
-
-            iterator(T* head, T* tail);
-
-            void operator++();
-
-            T* mHead;
-            T* mTail;
-            T* mEnd;
-        };
-
-        inline FixedRingBuffer() {
-        }
-
-        FixedRingBuffer(T* pBuffer, T* pBuffer2) : mHead(pBuffer, pBuffer2), mEnd(pBuffer, pBuffer2), mCount(0) {
-        }
-
-        void push_back(const T& val);
-
-        T mBuffer[S];
-        /* 0x40 for S=16 */ iterator mHead;
-        /* 0x4C for S=16 */ iterator mEnd;
-        /* 0x58 for S=16 */ s32 mCount;
-    };
+    /// @brief A Vector with room for N in itself before it moves to the arena it lies in.
+    template < class T, int N >
+    using InlineVector = Vector< InlineArray< T, N > >;
 
     template < class T >
     AssignableArray< T >::~AssignableArray() {

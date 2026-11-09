@@ -8,15 +8,14 @@ class MercatorRotateParts : public LiveActor {
 public:
     MercatorRotateParts(const char*);
 
-    virtual ~MercatorRotateParts();
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
     MapPartsRotator* mRotator;
     MapPartsAppearController* mAppearController;
-    TVec3f mLocalTrans;
-    TVec3f mLocalRotate;
+    Vec3f mLocalTrans;
+    Vec3f mLocalRotate;
 };

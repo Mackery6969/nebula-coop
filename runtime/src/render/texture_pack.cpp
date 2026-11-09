@@ -2,6 +2,7 @@
 // texture_pack.cpp: the texture-pack index, loaders, resident replacements and dump writer (texture_pack.h).
 
 #include "galaxy/render/texture_pack.h"
+#include "galaxy/cpu_count.h"
 #include "galaxy/texture_categories.h"
 
 #include "galaxy/crash_report.h"
@@ -43,11 +44,13 @@ bool parse_hex64(std::string_view text, std::uint64_t& out) noexcept {
 }
 
 bool parse_uint(std::string_view text, std::uint32_t limit, std::uint32_t& out) noexcept {
-    if (text.empty() || text.size() > 5u) return false;
+    if (text.empty()) return false;
     std::uint32_t value = 0;
     for (const char c : text) {
         if (c < '0' || c > '9') return false;
-        value = value * 10u + static_cast<std::uint32_t>(c - '0');
+        const auto digit = static_cast<std::uint32_t>(c - '0');
+        if (digit > limit || value > (limit - digit) / 10u) { return false; }
+        value = value * 10u + digit;
     }
     if (value > limit) return false;
     out = value;
@@ -80,12 +83,12 @@ std::optional<TexturePackName> parse_texture_pack_name(std::string_view stem) no
         const std::string_view size = parts[at++];
         const std::size_t x = size.find('x');
         std::uint32_t w = 0, h = 0;
-        if (x == std::string_view::npos || !parse_uint(size.substr(0, x), 1024u, w) ||
-            !parse_uint(size.substr(x + 1u), 1024u, h) || w == 0u || h == 0u) {
+        if (x == std::string_view::npos || !parse_uint(size.substr(0, x), UINT32_MAX, w) ||
+            !parse_uint(size.substr(x + 1u), UINT32_MAX, h) || w == 0u || h == 0u) {
             return std::nullopt;
         }
-        name.width = static_cast<std::uint16_t>(w);
-        name.height = static_cast<std::uint16_t>(h);
+        name.width = static_cast<std::uint32_t>(w);
+        name.height = static_cast<std::uint32_t>(h);
     }
     if (at < count && parts[at] == "m") {
         name.mipmapped = true;
@@ -124,7 +127,7 @@ std::optional<TexturePackName> parse_texture_pack_name(std::string_view stem) no
     if (at < count) {
         const std::string_view tail = parts[at++];
         std::uint32_t level = 0;
-        if (tail.size() > 3u && tail.substr(0, 3u) == "mip" && parse_uint(tail.substr(3u), 15u, level) &&
+        if (tail.size() > 3u && tail.substr(0, 3u) == "mip" && parse_uint(tail.substr(3u), NEBULA_TEXTURE_MAX_LEVELS - 1u, level) &&
             level != 0u) {
             name.level = static_cast<std::uint8_t>(level);
         } else {
@@ -243,7 +246,7 @@ bool parse_dds(std::span<const std::uint8_t> file, DdsLayout& out) noexcept {
     if (format == DdsFormat::Unknown || width == 0u || height == 0u || width > 16384u || height > 16384u || depth > 1u) {
         return false;
     }
-    levels = std::clamp<std::uint32_t>(levels, 1u, 16u);
+    levels = std::clamp<std::uint32_t>(levels, 1u, NEBULA_TEXTURE_MAX_LEVELS);
     levels = std::min(levels, static_cast<std::uint32_t>(std::bit_width(std::max(width, height))));
     out = DdsLayout{};
     out.format = format;
@@ -301,23 +304,19 @@ std::string display(const std::filesystem::path& path) {
 
 }  // namespace
 
-std::uint64_t TexturePacks::size_key(std::uint32_t width, std::uint32_t height, std::uint32_t format) noexcept {
-    return (static_cast<std::uint64_t>(width) << 32u) | (static_cast<std::uint64_t>(height) << 8u) | format;
+TexturePacks::SizeKey TexturePacks::size_key(std::uint32_t width, std::uint32_t height, std::uint32_t format) noexcept {
+    return {width, height, format};
 }
 
-std::uint64_t TexturePacks::name_key(std::uint64_t size, std::uint64_t hash, std::uint64_t palette, bool mipmapped) noexcept {
-    // _m (the game samples the texture with its own mipmaps) names another file than the same texture without.
-    size |= static_cast<std::uint64_t>(mipmapped) << 63u;
-    std::uint64_t key = hash;
-    key ^= (palette + 0x9E3779B97F4A7C15ull + (key << 6u) + (key >> 2u));
-    key ^= (size + 0x9E3779B97F4A7C15ull + (key << 6u) + (key >> 2u));
-    return key;
+TexturePacks::NameKey TexturePacks::name_key(SizeKey size, std::uint64_t hash, std::uint64_t palette, bool mipmapped) noexcept {
+    return {size, hash, palette, mipmapped};
 }
 
 void TexturePacks::start_workers() {
     if (!workers_.empty()) return;
     stopping_ = false;
-    const unsigned count = std::clamp(std::thread::hardware_concurrency() / 8u, 2u, 4u);
+    // An eighth of the logical processors decode in the background, at least two.
+    const unsigned count = std::max(2u, logical_cores() / 8u);
     for (unsigned i = 0; i < count; ++i) {
         workers_.emplace_back([this] { worker_main(); });
     }
@@ -342,6 +341,9 @@ void TexturePacks::stop_workers() noexcept {
         if (worker.joinable()) worker.join();
     }
     workers_.clear();
+    for (auto& chunk : free_staging_) TextureBackend::release_upload_chunk(chunk);
+    free_staging_.clear();
+    free_staging_bytes_ = 0u;
     std::lock_guard<std::mutex> lock(mutex_);
     finished_.clear();
     built_.reset();
@@ -374,6 +376,54 @@ void TexturePacks::worker_main() {
             std::cerr << "[texture-pack] loader error: " << error.what() << '\n';
         }
     }
+}
+
+TextureBackend::UploadChunk TexturePacks::take_staging(std::uint64_t size) {
+    {
+        const std::lock_guard lock(mutex_);
+        auto best = free_staging_.end();
+        for (auto it = free_staging_.begin(); it != free_staging_.end(); ++it) {
+            if (it->size >= size && (best == free_staging_.end() || it->size < best->size)) best = it;
+        }
+        if (best != free_staging_.end()) {
+            TextureBackend::UploadChunk chunk = std::move(*best);
+            free_staging_bytes_ -= chunk.size;
+            free_staging_.erase(best);
+            return chunk;
+        }
+    }
+    return stager_(size);
+}
+
+void TexturePacks::retire_uploads(std::vector<TextureBackend::UploadChunk> uploads) {
+    if (uploads.empty()) return;
+    {
+        const std::lock_guard lock(mutex_);
+        // Reuse mapped buffers after their fence. This avoids repeated allocation/unmap driver stalls.
+        constexpr std::uint64_t budget = 256ull << 20;
+        for (auto& chunk : uploads) {
+            if (chunk.size <= budget - free_staging_bytes_) {
+                free_staging_bytes_ += chunk.size;
+                free_staging_.push_back(std::move(chunk));
+                chunk = {};
+            }
+        }
+    }
+    uploads.erase(std::remove_if(uploads.begin(), uploads.end(), [](const auto& chunk) { return chunk.size == 0u; }), uploads.end());
+    if (uploads.empty()) return;
+    using Chunks = std::vector<TextureBackend::UploadChunk>;
+    // The deleter also runs if shutdown cancels a queued job. The buffers' fences have already passed.
+    auto retired = std::shared_ptr<Chunks>(new Chunks(std::move(uploads)), [](Chunks* chunks) {
+        for (auto& chunk : *chunks) TextureBackend::release_upload_chunk(chunk);
+        delete chunks;
+    });
+    start_workers();
+    {
+        const std::lock_guard lock(mutex_);
+        // Reclaim before decoding more images, keeping temporary upload memory bounded.
+        jobs_.push_front([retired] {});
+    }
+    wake_.notify_one();
 }
 
 void TexturePacks::configure(const TexturePackSettings& settings) {
@@ -430,7 +480,7 @@ std::shared_ptr<TexturePacks::Index> TexturePacks::build_index(std::span<const s
         std::filesystem::path path;
         TexturePackName name;
         bool dds;
-        std::size_t folder;  // priority: a later folder (and within one, a later pack by name) wins a name
+        std::pair<std::size_t, std::size_t> folder;  // priority: a later folder (and within one, a later pack by name) wins a name
     };
     std::vector<Found> found;
     for (std::size_t f = 0; f < packs.size(); ++f) {
@@ -469,7 +519,7 @@ std::shared_ptr<TexturePacks::Index> TexturePacks::build_index(std::span<const s
         std::sort(games.begin(), games.end());
         for (std::size_t g = 0; g < games.size(); ++g) {
             const std::filesystem::path& game = games[g];
-            const std::size_t priority = f * 65536u + std::min<std::size_t>(g, 65535u);
+            const auto priority = std::pair{f, g};
             for (auto it = std::filesystem::recursive_directory_iterator(
                      game, std::filesystem::directory_options::skip_permission_denied, error);
                  !error && it != std::filesystem::recursive_directory_iterator(); it.increment(error)) {
@@ -504,9 +554,9 @@ std::shared_ptr<TexturePacks::Index> TexturePacks::build_index(std::span<const s
     });
     for (const Found& f : found) {
         if (f.name.level != 0u) continue;
-        const std::uint64_t size = size_key(f.name.width, f.name.height, f.name.format);
+        const auto size = size_key(f.name.width, f.name.height, f.name.format);
         auto& map = f.name.any_palette ? index->any_palette : index->exact;
-        const std::uint64_t key = name_key(size, f.name.hash, f.name.any_palette ? 0u : f.name.palette, f.name.mipmapped);
+        const auto key = name_key(size, f.name.hash, f.name.any_palette ? 0u : f.name.palette, f.name.mipmapped);
         if (map.find(key) != map.end()) {
             ++index->shadowed;
             continue;
@@ -522,7 +572,7 @@ std::shared_ptr<TexturePacks::Index> TexturePacks::build_index(std::span<const s
     // Custom lower levels (PNG): _mip<n> beside a PNG base of the same folder.
     for (const Found& f : found) {
         if (f.name.level == 0u || f.dds) continue;
-        const std::uint64_t size = size_key(f.name.width, f.name.height, f.name.format);
+        const auto size = size_key(f.name.width, f.name.height, f.name.format);
         auto& map = f.name.any_palette ? index->any_palette : index->exact;
         const auto it = map.find(name_key(size, f.name.hash, f.name.any_palette ? 0u : f.name.palette, f.name.mipmapped));
         if (it == map.end()) continue;
@@ -546,7 +596,7 @@ bool TexturePacks::may_match(std::uint32_t width, std::uint32_t height, TextureP
 std::uint32_t TexturePacks::find(std::uint32_t width, std::uint32_t height, TexturePackFormat format, std::uint64_t hash,
                                  std::uint64_t palette, bool mipmapped) const {
     if (!may_match(width, height, format)) return kNone;
-    const std::uint64_t size = size_key(width, height, static_cast<std::uint32_t>(format));
+    const auto size = size_key(width, height, static_cast<std::uint32_t>(format));
     const auto matches = [&](std::uint32_t slot, bool any, bool mip) {
         const TexturePackName& name = index_->records[slot].name;
         return name.width == width && name.height == height && name.format == static_cast<std::uint8_t>(format) &&
@@ -606,7 +656,7 @@ void TexturePacks::request(std::uint32_t slot) {
 }
 
 std::unique_ptr<TexturePacks::Load> TexturePacks::load(const Record& record, std::uint32_t slot,
-                                                       std::uint64_t generation) const {
+                                                       std::uint64_t generation) {
     // A crash while this image loads names it (NEB-T01).
     const galaxy::crash::ScopedActivity activity(galaxy::crash::Activity::TexturePack, record.file);
     const auto start = std::chrono::steady_clock::now();
@@ -636,7 +686,7 @@ std::unique_ptr<TexturePacks::Load> TexturePacks::load(const Record& record, std
         const std::uint64_t size = texture_pack_staging_layout(pixels.width, pixels.height, pixels.level_count,
                                                                pixels.offsets, pixels.pitches);
         try {
-            TextureBackend::UploadChunk chunk = stager_(size);
+            TextureBackend::UploadChunk chunk = take_staging(size);
             if (chunk.cpu_base != nullptr) {
                 for (std::uint32_t l = 0; l < pixels.level_count; ++l) {
                     const std::uint32_t lw = std::max<std::uint32_t>(1u, pixels.width >> l);
@@ -785,7 +835,13 @@ bool TexturePacks::pump(std::vector<std::pair<std::uint32_t, TexturePackPixels>>
         Slot& s = slots_[i];
         if (s.state != SlotState::Ready || !s.ready) continue;
         --outstanding_;
-        std::uint64_t bytes = s.ready->pixels.staging ? s.ready->pixels.staging->size : 0u;
+        std::uint64_t bytes = 0u;
+        if (s.ready->pixels.staging) {
+            std::vector<std::uint64_t> offsets;
+            std::vector<std::uint32_t> pitches;
+            bytes = texture_pack_staging_layout(s.ready->pixels.width, s.ready->pixels.height,
+                                               s.ready->pixels.level_count, offsets, pitches);
+        }
         for (const auto& level : s.ready->pixels.levels) bytes += level.size();
         evict_to_budget(bytes);
         if (settings_.budget_bytes != 0u && resident_bytes_ + bytes > settings_.budget_bytes) {
@@ -821,13 +877,13 @@ void TexturePacks::make_resident(std::uint32_t slot, TextureReplacement&& replac
         return;
     }
     s.replacement = std::move(replacement);
-    // The scale over the source size the name gives: the samplers' LOD shift (pack_sampler_key).
+    // The scale over the source size the name gives: the samplers' LOD shift (make_sampler_key).
     const std::uint32_t source_width = index_ && slot < index_->records.size() ? index_->records[slot].name.width : 0u;
-    s.replacement.lod_shift_x16 = 0u;
+    s.replacement.lod_shift = 0u;
     s.replacement.arbitrary = index_ && slot < index_->records.size() && index_->records[slot].name.arbitrary;
     if (source_width != 0u && s.replacement.width > source_width) {
         const double scale = static_cast<double>(s.replacement.width) / static_cast<double>(source_width);
-        s.replacement.lod_shift_x16 = static_cast<std::uint8_t>(std::clamp(std::lround(16.0 * std::log2(scale)), 0l, 128l));
+        s.replacement.lod_shift = static_cast<float>(std::max(0.0, std::log2(scale)));
     }
     s.state = SlotState::Resident;
     s.last_use = frame_;

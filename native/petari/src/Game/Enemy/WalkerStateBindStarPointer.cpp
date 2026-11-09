@@ -17,7 +17,7 @@ namespace NrvWalkerStateBindStarPointer {
 };  // namespace NrvWalkerStateBindStarPointer
 
 WalkerStateBindStarPointer::WalkerStateBindStarPointer(LiveActor* pHost, AnimScaleController* pController)
-    : ActorStateBase("\225\340\215\163\214\136\203\130\203\136\201\133\203\174\203\103\203\223\203\136\215\123\221\251" /* 歩行型スターポインタ拘束 */, pHost), mScaleController(pController), mUpdateCounter(0), mHasEffect(false) {
+    : ActorStateBase("歩行型スターポインタ拘束", pHost), mScaleController(pController), mUpdateCounter(0), mHasEffect(false) {
     initNerve(GET_NERVE(WalkerStateBindStarPointer, WalkerStateBindStarPointerNrvBind));
 
     if (!MR::isRegisteredEffect(pHost, "Touch")) {
@@ -44,12 +44,12 @@ void WalkerStateBindStarPointer::kill() {
 }
 
 bool WalkerStateBindStarPointer::tryStartPointBind() const {
-    return MR::isStarPointerPointing2POnPressButton(getHost(), "\216\343" /* 弱 */, true, false);
+    return MR::isStarPointerPointing2POnPressButton(getHost(), "弱", true, false);
 }
 
 void WalkerStateBindStarPointer::exeBind() {
     if (MR::isFirstStep(this)) {
-        MR::startDPDHitSound();
+        MR::startPointerHitSound();
         mUpdateCounter = 0;
         MR::emitEffect(getHost(), mHasEffect ? "PointerTouch" : "Touch");
         if (MR::isExistBck(getHost(), nullptr)) {
@@ -57,13 +57,13 @@ void WalkerStateBindStarPointer::exeBind() {
         }
 
         if (mScaleController != nullptr) {
-            mScaleController->startDpdHitVibration();
+            mScaleController->startPointerHitVibration();
         }
     }
 
-    MR::startDPDFreezeLevelSound(getHost());
+    MR::startPointerFreezeLevelSound(getHost());
     MR::zeroVelocity(getHost());
-    if (MR::isStarPointerPointing2POnPressButton(getHost(), "\216\343" /* 弱 */, true, false)) {
+    if (MR::isStarPointerPointing2POnPressButton(getHost(), "弱", true, false)) {
         mUpdateCounter = 0;
     } else {
         mUpdateCounter++;

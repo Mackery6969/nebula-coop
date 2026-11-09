@@ -1,8 +1,8 @@
 #pragma once
 
-#include "Game/Util/NativeMesh.hpp"
-#include <JSystem/JGeometry.hpp>
-#include <JSystem/JUtility/JUTTexture.hpp>
+#include "Game/Render/TypedDraw.hpp"
+#include <nebula_geometry.hpp>
+#include "Game/Render/GameTexture.hpp"
 #include <NebulaGpu.h>
 #include <nebula_math.h>
 
@@ -10,27 +10,26 @@ class OceanRing;
 
 class OceanRingPartDrawer {
 public:
-    OceanRingPartDrawer(const OceanRing*, int, int, bool, f32*, f32*, f32*);
+    // pTexCoordU*: the running U of the ring's textures; the part starts there and advances them past its end.
+    OceanRingPartDrawer(const OceanRing* pRing, int startIndex, int numPoints, bool isClosed, f32* pTexCoordU0, f32* pTexCoordU1,
+                        f32* pTexCoordU2);
 
-    void initMesh(f32*, f32*, f32*);
-    void draw() const;
-    void drawGD(f32*, f32*, f32*);
-    void drawDynamic() const;
-    void drawDynamicBloom() const;
+    void initMesh(f32* pTexCoordU0, f32* pTexCoordU1, f32* pTexCoordU2);
+    void draw(TypedDraw& rDraw) const;
+    void drawGD(f32* pTexCoordU0, f32* pTexCoordU1, f32* pTexCoordU2);
+    void drawDynamic(TypedDraw& rDraw) const;
+    void drawDynamicBloom(TypedDraw& rDraw) const;
 
     const OceanRing* mOceanRing;
-    TVec3f mPosition;
-    int _10;
-    int _14;
-    bool _18;
-    u8 _19;
-    u8 _1A;
-    u8 _1B;
-    f32 _1C;
-    f32 _20;
-    f32 _24;
+    Vec3f mPosition;
+    int mStartIndex;
+    int mNumPoints;
+    bool mIsClosed;
+    f32 mTexU0;
+    f32 mTexU1;
+    f32 mTexU2;
     // The ring's surface as the renderer draws it from far away.
-    NativeMesh mMesh;
+    SiteMesh< VertexPCT3 > mMesh;
 };
 
 class OceanRingDrawer {
@@ -43,28 +42,23 @@ public:
     void initParts();
     void initMesh();
     void drawGD();
-    void loadMaterial() const;
-    void loadMaterialBloom() const;
+    SiteMaterial loadMaterial() const;
+    SiteMaterial loadMaterialBloom() const;
 
     OceanRingPartDrawer* getDrawer(int idx) const {
         return mPartDrawers[idx];
     }
 
-    inline f32 someInline(f32 a1, f32 a2, f32 a3) const {
-        return (a1 - a2) / a3;
-    }
-
     const OceanRing* mRing;
     s32 mDrawerCount;
     OceanRingPartDrawer** mPartDrawers;
-    f32 _C;
-    f32 _10;
-    f32 _14;
-    f32 _18;
-    f32 _1C;
-    f32 _20;
-    JUTTexture* mWaterTex;
-    JUTTexture* mWaterIndTex;
+    f32 mTex0U;
+    f32 mTex0V;
+    f32 mTex1U;
+    f32 mTex1V;
+    f32 mTex2V;
+    GameTexture* mWaterTex;
+    GameTexture* mWaterIndTex;
     // The ring's surface as the renderer draws it from far away.
-    NativeMesh mMesh;
+    SiteMesh< VertexPCT3 > mMesh;
 };

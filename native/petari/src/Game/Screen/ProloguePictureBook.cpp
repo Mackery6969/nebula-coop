@@ -6,7 +6,7 @@
 #include "Game/Util/LayoutUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
-#include <JSystem/J3DGraphAnimator/J3DAnimation.hpp>
+#include "Game/Render/Clip.hpp"
 
 namespace {
     static const s32 sBookPageInfo[] = {0, 350, 700, 1050, 1400, 1748, -1};
@@ -19,10 +19,10 @@ namespace NrvProloguePictureBook {
     NEW_NERVE(ProloguePictureBookEnd, ProloguePictureBook, End);
 };  // namespace NrvProloguePictureBook
 
-ProloguePictureBook::ProloguePictureBook() : LayoutActor("\203\166\203\215\203\215\201\133\203\117\202\314\212\107\226\173" /* プロローグの絵本 */, true), mIconAButton(), mPage() {
+ProloguePictureBook::ProloguePictureBook() : LayoutActor("プロローグの絵本", true), mIconAButton(), mPage() {
 }
 
-void ProloguePictureBook::init(const JMapInfoIter& rIter) {
+void ProloguePictureBook::init(const TableIter& /*rIter*/) {
     MR::connectToSceneLayout(this);
     initLayoutManager("PrologueDemo", 1);
     initNerve(GET_NERVE(ProloguePictureBook, ProloguePictureBookPlaying));
@@ -52,7 +52,7 @@ void ProloguePictureBook::exeActive() {
 }
 
 void ProloguePictureBook::exePlaying() {
-    J3DFrameCtrl* animCtrl = MR::getAnimCtrl(this, 0);
+    FrameCtrl* animCtrl = MR::getAnimCtrl(this, 0);
 
     if (MR::isAnimStopped(this, 0)) {
         setNerve(GET_NERVE(ProloguePictureBook, ProloguePictureBookEnd));
@@ -76,7 +76,7 @@ void ProloguePictureBook::exePlaying() {
 }
 
 void ProloguePictureBook::exeKeyWait() {
-    J3DFrameCtrl* animCtrl = MR::getAnimCtrl(this, 0);
+    FrameCtrl* animCtrl = MR::getAnimCtrl(this, 0);
 
     if (MR::isFirstStep(this)) {
         mIconAButton->openWithoutMessage();

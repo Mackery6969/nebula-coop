@@ -1,41 +1,27 @@
 #include "Game/AreaObj/CameraRepulsiveArea.hpp"
 #include "Game/Util/AreaObjUtil.hpp"
 
-namespace {
-    // static const s32 sPow = _;
-    // static const s32 sCylPower = _;
-};  // namespace
-
-CameraRepulsiveArea::~CameraRepulsiveArea() {
+Vec3f CameraRepulsiveSphere::getRepulsion(const Vec3f& /*rRep*/) {
+    return Vec3f(0.0f, 0.0f, 0.0f);
 }
 
-CameraRepulsiveSphere::~CameraRepulsiveSphere() {
-}
-
-CameraRepulsiveCylinder::~CameraRepulsiveCylinder() {
-}
-
-TVec3f CameraRepulsiveSphere::getRepulsion(const TVec3f& rRep) {
-    return TVec3f(0.0f, 0.0f, 0.0f);
-}
-
-TVec3f CameraRepulsiveCylinder::getRepulsion(const TVec3f& rRep) {
-    TVec3f position;
+Vec3f CameraRepulsiveCylinder::getRepulsion(const Vec3f& rRep) {
+    Vec3f position;
     MR::calcCylinderPos(&position, this);
-    TVec3f upVec;
+    Vec3f upVec;
     MR::calcCylinderUpVec(&upVec, this);
 
-    TVec3f ret(rRep);
+    Vec3f ret(rRep);
     ret -= position;
     f32 dot = upVec.dot(ret);
-    TVec3f _14;
-    TVec3f _8(upVec);
-    _8 *= dot;
-    ret -= _8;
+    Vec3f side;
+    Vec3f along(upVec);
+    along *= dot;
+    ret -= along;
 
-    _14.cross(ret, upVec);
+    side.cross(ret, upVec);
 
-    f32 base = (_14.length() * 2.0f) / MR::getCylinderRadius(this);
+    f32 base = (side.length() * 2.0f) / MR::getCylinderRadius(this);
 
     f32 denom = base;
 

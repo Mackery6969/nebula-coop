@@ -17,6 +17,16 @@
 
 namespace {
     static const f32 sTalkBalloonOffset = 950.0f;
+
+    struct CollisionPartInfo {
+        const char* mCollisionName;
+        const char* mJointName;
+    };
+
+    const CollisionPartInfo sCollisionPartInfo[] = {{"Center", "Center"}, {"CenterFur", "Center"}, {"Face", "Face"},
+                                                    {"LArm01", "LArm01"}, {"LArm02", "LArm02"},    {"LFoot001", "LFoot001"},
+                                                    {"RArm01", "RArm01"}, {"RArm02", "RArm02"},    {"RFoot001", "RFoot001"},
+                                                    {"Tactile", "Tactile"}};
 };  // namespace
 
 namespace NrvHoneyQueen {
@@ -33,7 +43,7 @@ namespace NrvHoneyQueen {
 HoneyQueen::HoneyQueen(const char* pName) : NPCActor(pName), mWing() {
 }
 
-void HoneyQueen::init(const JMapInfoIter& rIter) {
+void HoneyQueen::init(const TableIter& rIter) {
     NPCActorCaps caps = "HoneyQueen";
     caps.setDefault();
     caps.mWaitNerve = GET_NERVE(HoneyQueen, HoneyQueenNrvWait);
@@ -46,30 +56,16 @@ void HoneyQueen::init(const JMapInfoIter& rIter) {
     caps.mSensorMax = 2;
     NPCActor::initialize(rIter, caps);
 
-    mCollisionParts[0] =
-        MR::createCollisionPartsFromLiveActor(this, "Center", getSensor("Body"), MR::getJointMtx(this, "Center"), MR::CollisionScaleType_Unk2);
-    mCollisionParts[1] =
-        MR::createCollisionPartsFromLiveActor(this, "CenterFur", getSensor("Body"), MR::getJointMtx(this, "Center"), MR::CollisionScaleType_Unk2);
-    mCollisionParts[2] =
-        MR::createCollisionPartsFromLiveActor(this, "Face", getSensor("Body"), MR::getJointMtx(this, "Face"), MR::CollisionScaleType_Unk2);
-    mCollisionParts[3] =
-        MR::createCollisionPartsFromLiveActor(this, "LArm01", getSensor("Body"), MR::getJointMtx(this, "LArm01"), MR::CollisionScaleType_Unk2);
-    mCollisionParts[4] =
-        MR::createCollisionPartsFromLiveActor(this, "LArm02", getSensor("Body"), MR::getJointMtx(this, "LArm02"), MR::CollisionScaleType_Unk2);
-    mCollisionParts[5] =
-        MR::createCollisionPartsFromLiveActor(this, "LFoot001", getSensor("Body"), MR::getJointMtx(this, "LFoot001"), MR::CollisionScaleType_Unk2);
-    mCollisionParts[6] =
-        MR::createCollisionPartsFromLiveActor(this, "RArm01", getSensor("Body"), MR::getJointMtx(this, "RArm01"), MR::CollisionScaleType_Unk2);
-    mCollisionParts[7] =
-        MR::createCollisionPartsFromLiveActor(this, "RArm02", getSensor("Body"), MR::getJointMtx(this, "RArm02"), MR::CollisionScaleType_Unk2);
-    mCollisionParts[8] =
-        MR::createCollisionPartsFromLiveActor(this, "RFoot001", getSensor("Body"), MR::getJointMtx(this, "RFoot001"), MR::CollisionScaleType_Unk2);
-    mCollisionParts[9] =
-        MR::createCollisionPartsFromLiveActor(this, "Tactile", getSensor("Body"), MR::getJointMtx(this, "Tactile"), MR::CollisionScaleType_Unk2);
+    static_assert(ARRAY_SIZEU(::sCollisionPartInfo) == ARRAY_SIZEU(mCollisionParts));
+    for (s32 i = 0; i < ARRAY_SIZE(mCollisionParts); i++) {
+        mCollisionParts[i] = MR::createCollisionPartsFromLiveActor(this, ::sCollisionPartInfo[i].mCollisionName, getSensor("Body"),
+                                                                   MR::getJointMtx(this, ::sCollisionPartInfo[i].mJointName),
+                                                                   MR::CollisionScaleType_Default);
+    }
 
     MR::excludeCalcShadowToActorAll(this, this);
 
-    mWing = MR::createModelObjNpc("\211\110" /* 羽 */, "HoneyQueenWing", MR::getJointMtx(this, "Center"));
+    mWing = MR::createModelObjNpc("羽", "HoneyQueenWing", MR::getJointMtx(this, "Center"));
     mWing->makeActorAppeared();
     MR::startBck(mWing, "HoneyQueenWing");
     MR::startBtk(mWing, "HoneyQueenWing");
@@ -78,18 +74,15 @@ void HoneyQueen::init(const JMapInfoIter& rIter) {
         MR::validateCollisionParts(mCollisionParts[i]);
     }
 
-    if (MR::tryRegisterDemoCast(this, rIter)) {
-        MR::registerDemoActionFunctor(this, MR::Functor(this, &HoneyQueen::fadeOut), "\203\164\203\106\201\133\203\150\203\101\203\105\203\147" /* フェードアウト */);
-        MR::registerDemoActionFunctor(this, MR::Functor(this, &HoneyQueen::fadeIn), "\203\164\203\106\201\133\203\150\203\103\203\223" /* フェードイン */);
-        MR::registerDemoActionFunctor(this, MR::Functor(this, &HoneyQueen::talkEntry), "\211\171\214\251" /* 謁見 */);
+    const bool isDemoCast = MR::tryRegisterDemoCast(this, rIter);
+    if (isDemoCast) {
+        MR::registerDemoActionFunctor(this, MR::Functor(this, &HoneyQueen::fadeOut), "フェードアウト");
+        MR::registerDemoActionFunctor(this, MR::Functor(this, &HoneyQueen::fadeIn), "フェードイン");
+        MR::registerDemoActionFunctor(this, MR::Functor(this, &HoneyQueen::talkEntry), "謁見");
         MR::tryRegisterDemoCast(mWing, rIter);
-
-        _188 = 1;
-    } else {
-        _188 = 0;
     }
 
-    if (_188 == 1) {
+    if (isDemoCast) {
         setNerve(GET_NERVE(HoneyQueen, HoneyQueenNrvDemo));
         MR::listenStageSwitchOnA(this, MR::Functor(this, &HoneyQueen::switchFunc));
         MR::needStageSwitchWriteB(this, rIter);
@@ -199,9 +192,9 @@ void HoneyQueen::exeItch() {
         MR::tryStartBckAndBtp(this, "EventWait", nullptr);
     }
 
-    TVec3f vec;
-    _B0.getZDir(vec);
-    MR::faceToVector(&_A0, vec, 0.2f);
+    Vec3f vec;
+    mInitPoseQuat.getZDir(vec);
+    MR::faceToVector(&mPoseQuat, vec, 0.2f);
     MR::tryTalkNearPlayer(mMsgCtrl);
 }
 

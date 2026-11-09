@@ -2,110 +2,107 @@
 
 #include "Game/Screen/LayoutCoreUtil.hpp"
 #include "Game/System/LayoutHolder.hpp"
-#include <cstring>
-#include <nw4r/lyt/layout.h>
-#include <nw4r/lyt/pane.h>
-#include <nw4r/lyt/resources.h>
-#include <nw4r/lyt/textBox.h>
-#include <nw4r/lyt/window.h>
+#include "Game/Util/LayoutUtil.hpp"
+#include <nebula_module.h>
+#include <Game/Ui/Layout.hpp>
+#include <Game/Ui/Pane.hpp>
+#include <Game/Ui/TextBox.hpp>
+#include <Game/Ui/Window.hpp>
 
-NebulaPaneKit::NebulaPaneKit() : mLayout(nullptr) {
-    memset(&mBlocks, 0, sizeof(mBlocks));
+namespace {
+    // The holder's cooked layout, or none.
+    Ui::ResBlockSet blocksOf(LayoutHolder* pHolder) {
+        if (pHolder == nullptr || pHolder->mLayoutRes.mCount == 0) {
+            return Ui::ResBlockSet{nullptr, nullptr, nullptr};
+        }
+        const UiLayoutHeader* const pLayout = static_cast< const UiLayoutHeader* >(pHolder->mLayoutRes.getRes(0u));
+        if (pLayout == nullptr || pLayout->mMagic != cUiLayoutMagic || pLayout->mVersion != cUiDataVersion) {
+            if (pLayout != nullptr && pLayout->mMagic == cUiLayoutMagic) {
+                nebula_log("UiData: a layout of version %u; this game reads version %u (the pak needs a new cook)\n",
+                        static_cast< unsigned >(pLayout->mVersion), static_cast< unsigned >(cUiDataVersion));
+            }
+            return Ui::ResBlockSet{nullptr, nullptr, nullptr};
+        }
+        return Ui::ResBlockSet{pLayout, pHolder, nullptr};
+    }
+}  // namespace
+
+NebulaPaneKit::NebulaPaneKit()
+    : mBlocks{nullptr, nullptr, nullptr}, mGame{nullptr, nullptr, nullptr}, mGameOpened(false), mpArchive(nullptr), mpInto(nullptr) {
 }
 
-// As Layout::Build reads it: the texture, font and material lists every pane block refers to.
-bool NebulaPaneKit::init(LayoutHolder* pHolder) {
-    mLayout = nullptr;
-    if (pHolder == nullptr || pHolder->mLayoutRes.mCount == 0) {
+bool NebulaPaneKit::init(const char* pArchive, Ui::Layout* pInto) {
+    return init(MR::createAndAddLayoutHolder(pArchive), pArchive, pInto);
+}
+
+bool NebulaPaneKit::init(LayoutHolder* pHolder, const char* pArchive, Ui::Layout* pInto) {
+    mBlocks = blocksOf(pHolder);
+    mGame = Ui::ResBlockSet{nullptr, nullptr, nullptr};
+    mGameOpened = false;
+    mpArchive = pArchive;
+    mpInto = pInto;
+    if (pInto == nullptr) {
         return false;
     }
-    const void* pLayout = pHolder->mLayoutRes.getRes(0u);
-    const nw4r::lyt::res::BinaryFileHeader* pHeader = static_cast< const nw4r::lyt::res::BinaryFileHeader* >(pLayout);
-    if (pLayout == nullptr || !nw4r::lyt::detail::TestFileHeader(*pHeader, 'RLYT')) {
-        return false;
-    }
-    memset(&mBlocks, 0, sizeof(mBlocks));
-    mBlocks.pResAccessor = pHolder;
-    const u8* pBlock = static_cast< const u8* >(pLayout) + pHeader->headerSize;
-    for (s32 i = 0; i < pHeader->dataBlocks; i++) {
-        const nw4r::lyt::res::DataBlockHeader* pBlockHeader = reinterpret_cast< const nw4r::lyt::res::DataBlockHeader* >(pBlock);
-        switch (nw4r::lyt::detail::GetSignatureInt(pBlockHeader->kind)) {
-        case 'txl1':
-            mBlocks.pTextureList = reinterpret_cast< const nw4r::lyt::res::TextureList* >(pBlock);
-            break;
-        case 'fnl1':
-            mBlocks.pFontList = reinterpret_cast< const nw4r::lyt::res::FontList* >(pBlock);
-            break;
-        case 'mat1':
-            mBlocks.pMaterialList = reinterpret_cast< const nw4r::lyt::res::MaterialList* >(pBlock);
-            break;
-        default:
-            break;
+    if (mBlocks.pLayout == nullptr) {
+        mGameOpened = true;
+        mBlocks = blocksOf(MR::createAndAddGameLayoutHolder(pArchive));
+        if (mBlocks.pLayout == nullptr) {
+            return false;
         }
-        pBlock += pBlockHeader->size;
+        nebula_log("%s: a mod's copy has no usable layout; the game's own is used\n", pArchive);
     }
-    mLayout = pLayout;
     return true;
 }
 
-const void* NebulaPaneKit::findBlock(const char* pName, s32* pKind) const {
-    if (mLayout == nullptr) {
-        return nullptr;
+u32 NebulaPaneKit::find(const Ui::ResBlockSet& rBlocks, const char* pName, s32 kind) {
+    if (rBlocks.pLayout == nullptr) {
+        return cUiNone16;
     }
-    const nw4r::lyt::res::BinaryFileHeader* pHeader = static_cast< const nw4r::lyt::res::BinaryFileHeader* >(mLayout);
-    const u8* pBlock = static_cast< const u8* >(mLayout) + pHeader->headerSize;
-    for (s32 i = 0; i < pHeader->dataBlocks; i++) {
-        const nw4r::lyt::res::DataBlockHeader* pBlockHeader = reinterpret_cast< const nw4r::lyt::res::DataBlockHeader* >(pBlock);
-        const s32 kind = nw4r::lyt::detail::GetSignatureInt(pBlockHeader->kind);
-        if (kind == 'pan1' || kind == 'pic1' || kind == 'txt1' || kind == 'wnd1' || kind == 'bnd1') {
-            const nw4r::lyt::res::Pane* pPane = reinterpret_cast< const nw4r::lyt::res::Pane* >(pBlock);
-            if (strncmp(pPane->name, pName, sizeof(pPane->name)) == 0) {
-                *pKind = kind;
-                return pBlock;
-            }
-        }
-        pBlock += pBlockHeader->size;
-    }
-    return nullptr;
+    const u32 idx = uiFindPane(rBlocks.pLayout, pName);
+    return idx != cUiNone16 && (kind < 0 || rBlocks.PaneAt(idx)->mKind == kind) ? idx : cUiNone16;
 }
 
-nw4r::lyt::Pane* NebulaPaneKit::make(const char* pName, const char* pNewName) const {
-    s32 kind = 0;
-    const void* pBlock = findBlock(pName, &kind);
-    if (pBlock == nullptr) {
-        return nullptr;
+Ui::Pane* NebulaPaneKit::make(const char* pName, const char* pNewName) const {
+    return build(pName, pNewName, -1);
+}
+
+Ui::Pane* NebulaPaneKit::build(const char* pName, const char* pNewName, s32 kind) const {
+    const Ui::ResBlockSet* pBlocks = &mBlocks;
+    u32 idx = find(mBlocks, pName, kind);
+    if (idx == cUiNone16) {
+        if (!mGameOpened) {
+            mGameOpened = true;
+            mGame = blocksOf(MR::createAndAddGameLayoutHolder(mpArchive));
+        }
+        pBlocks = &mGame;
+        idx = find(mGame, pName, kind);
+        if (idx == cUiNone16) {
+            return nullptr;
+        }
+        nebula_log("%s: a mod's copy has no pane %s of its kind; the game's own is used\n", mpArchive, pName);
     }
-    nw4r::lyt::Pane* pPane = nw4r::lyt::Layout::BuildPaneObj(kind, pBlock, mBlocks);
+    Ui::Pane* pPane = mpInto->BuildPaneObj(pBlocks->PaneAt(idx), *pBlocks);
     if (pPane != nullptr) {
         pPane->SetName(pNewName);
-        pPane->mTranslate = nw4r::math::VEC3(0.0f, 0.0f, 0.0f);
+        pPane->mTranslate = Vec3f(0.0f, 0.0f, 0.0f);
         pPane->SetVisible(true);
         pPane->SetInfluencedAlpha(true);
         // Placed by its screen, which keeps its own 16:9 width (the authored location adjust would narrow it again).
-        nw4r::lyt::detail::SetBit(&pPane->mFlag, 2, false);
+        Ui::detail::SetBit(&pPane->mFlag, 2, false);
     }
     return pPane;
 }
 
-nw4r::lyt::Window* NebulaPaneKit::makeWindow(const char* pName, const char* pNewName) const {
-    nw4r::lyt::Pane* pPane = make(pName, pNewName);
-    nw4r::lyt::Window* pWindow = pPane != nullptr ? nw4r::ut::DynamicCast< nw4r::lyt::Window* >(pPane) : nullptr;
-    if (pPane != nullptr && pWindow == nullptr) {
-        nw4r::lyt::Layout::DeleteObj(pPane);
-    }
-    return pWindow;
+Ui::Window* NebulaPaneKit::makeWindow(const char* pName, const char* pNewName) const {
+    return Ui::PaneCast< Ui::Window >(build(pName, pNewName, UiPaneKind_Window));
 }
 
-nw4r::lyt::TextBox* NebulaPaneKit::makeText(const char* pName, const char* pNewName, u32 length) const {
-    nw4r::lyt::Pane* pPane = make(pName, pNewName);
-    if (pPane == nullptr) {
+Ui::TextBox* NebulaPaneKit::makeText(const char* pName, const char* pNewName, u32 length) const {
+    Ui::TextBox* pText = Ui::PaneCast< Ui::TextBox >(build(pName, pNewName, UiPaneKind_TextBox));
+    if (pText == nullptr) {
         return nullptr;
     }
-    if (!pPane->GetRuntimeTypeInfo()->IsDerivedFrom(&nw4r::lyt::TextBox::typeInfo)) {
-        nw4r::lyt::Layout::DeleteObj(pPane);
-        return nullptr;
-    }
-    nw4r::lyt::TextBox* pText = static_cast< nw4r::lyt::TextBox* >(pPane);
     LayoutCoreUtil::initTextBoxPane(pText, nullptr, length);
     LayoutCoreUtil::setTextBoxMessage(pText, u"");
     return pText;

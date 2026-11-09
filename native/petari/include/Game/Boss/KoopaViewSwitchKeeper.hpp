@@ -6,7 +6,6 @@ class KoopaViewSwitchKeeper : public LiveActor {
 public:
     KoopaViewSwitchKeeper(const char* pName);
 
-    virtual ~KoopaViewSwitchKeeper();
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
 };

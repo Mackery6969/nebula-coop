@@ -1,6 +1,7 @@
 #include "Game/Boss/BossKameckStateBattle.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Boss/BossKameck.hpp"
-#include "Game/Boss/BossKameckBattlePattarn.hpp"
+#include "Game/Boss/BossKameckBattlePattern.hpp"
 #include "Game/Boss/BossKameckMoveRail.hpp"
 #include "Game/Enemy/KameckBeam.hpp"
 #include "Game/Enemy/KameckBeamHolder.hpp"
@@ -17,28 +18,14 @@
 
 namespace {
     static const f32 sTurnPlayerDegree = 6.0f;
-    static const s32 sWaitTime = 60;
-    // static const _32 sNextMoveDistance = _;
-    // static const _32 sChangeTargetDistance = _;
-    // static const _32 sMoveAccel = _;
-    // static const _32 sMoveFreq = _;
-    // static const _32 sBrakeFreq = _;
-    static const s32 sMoveTime = 90;
-    // static const _32 sChangeTargetTime = _;
+    static const s32 sWaitTime = NebulaFrameClock::stepsOfSeconds(1);
+    static const s32 sMoveTime = NebulaFrameClock::stepsOfMilliseconds(1500);
     static const s32 sFinalMoveTime = 40;
-    // static const _32 sFinalChangeTargetTime = _;
-    // static const _32 sHideMoveAccel = _;
-    // static const _32 sHideMoveAccelLast = _;
-    // static const _32 sHideMoveFreq = _;
-    static const s32 sAttackWaitTime = 60;
-    static const s32 sAttackTime = 30;
-    // static const _32 sFinalAttackWaitTime = _;
-    // static const _32 sFinalAttackTime = _;
-    // static const _32 sAttackWaitFreq = _;
+    static const s32 sAttackWaitTime = NebulaFrameClock::stepsOfSeconds(1);
+    static const s32 sAttackTime = NebulaFrameClock::stepsOfMilliseconds(500);
     static const s32 sShootTiming = 23;
-    // static const _32 sWandLength = _;
     static const f32 sBeamSpeed = 20.0f;
-    static const s32 sRecoverMoveStartTime = 60;
+    static const s32 sRecoverMoveStartTime = NebulaFrameClock::stepsOfSeconds(1);
     static const s32 sSwingSeTiming = 12;
 };  // namespace
 
@@ -58,8 +45,8 @@ namespace NrvBossKameckStateBattle {
 };  // namespace NrvBossKameckStateBattle
 
 BossKameckStateBattle::BossKameckStateBattle(BossKameck* pBoss)
-    : ActorStateBase< BossKameck >("\203\173\203\130\203\112\203\201\203\142\203\116\220\355\223\254\217\363\221\324" /* ボスカメック戦闘状態 */, pBoss), mMoveRail(), mBattlePattarn(), mBeam(), mBeamEventListener(),
-      _20(0.0f, 0.0f, 0.0f), _2C(-1), _30(1), _34(), _38(), mIsFinal(), mIsVs2() {
+    : ActorStateBase< BossKameck >("ボスカメック戦闘状態", pBoss), mMoveRail(), mBattlePattern(), mBeam(), mBeamEventListener(),
+      mMoveTarget(0.0f, 0.0f, 0.0f), mMoveRailIndex(-1), mMoveNumMax(1), mMoveNum(), mBeamNumAlone(), mIsFinal(), mIsVs2() {
 }
 
 void BossKameckStateBattle::init() {
@@ -77,8 +64,8 @@ void BossKameckStateBattle::setMoveRail(BossKameckMoveRail* pMoveRail) {
     mMoveRail = pMoveRail;
 }
 
-void BossKameckStateBattle::setBattlePattarn(BossKameckBattlePattarn* pBattlePattarn) {
-    mBattlePattarn = pBattlePattarn;
+void BossKameckStateBattle::setBattlePattern(BossKameckBattlePattern* pBattlePattern) {
+    mBattlePattern = pBattlePattern;
 }
 
 void BossKameckStateBattle::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
@@ -128,7 +115,7 @@ bool BossKameckStateBattle::requestDamage(HitSensor* pSender, HitSensor* pReceiv
     return false;
 }
 
-bool BossKameckStateBattle::requestGuard(HitSensor* pSender, HitSensor* pReceiver) {
+bool BossKameckStateBattle::requestGuard(HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (isEnableGuard()) {
         if (mBeam != nullptr) {
             mBeam->kill();
@@ -148,8 +135,8 @@ void BossKameckStateBattle::control() {
 }
 
 bool BossKameckStateBattle::tryAttackWait() {
-    if (MR::isGreaterStep(this, 120) && MR::isNear(mHost, _20, 100.0f)) {
-        if (tryChargeBram()) {
+    if (MR::isGreaterStep(this, NebulaFrameClock::stepsOfSeconds(2)) && MR::isNear(mHost, mMoveTarget, 100.0f)) {
+        if (tryChargeBeam()) {
             setNerve(GET_NERVE(BossKameckStateBattle, BossKameckStateBattleNrvAttackWait));
         } else {
             startMove();
@@ -162,37 +149,37 @@ bool BossKameckStateBattle::tryAttackWait() {
 }
 
 bool BossKameckStateBattle::trySummonKameck() {
-    if (mBattlePattarn->_10 == false) {
+    if (!mBattlePattern->mCanSummon) {
         return false;
     }
 
-    if (_38 <= 3) {
+    if (mBeamNumAlone <= 3) {
         return false;
     }
 
     if (mHost->getLivingKameckNum() == 0) {
-        _38 = 0;
+        mBeamNumAlone = 0;
         return true;
     }
 
     return false;
 }
 
-bool BossKameckStateBattle::tryChargeBram() {
+bool BossKameckStateBattle::tryChargeBeam() {
     if (mHost->mActorList->isFull()) {
         return false;
     }
 
-    mBeam = MR::startFollowKameckBeam(mBattlePattarn->goNextPattarn(), MR::getJointMtx(mHost, "PowerStarC"), 1.0f, TVec3f(0.0f, 0.0f, 0.0f),
+    mBeam = MR::startFollowKameckBeam(mBattlePattern->goNextPattern(), MR::getJointMtx(mHost, "PowerStarC"), 1.0f, Vec3f(0.0f, 0.0f, 0.0f),
                                       mBeamEventListener);
 
     if (mBeam != nullptr) {
         mBeam->setEventListener(mHost->mBeamEventListener);
 
         if (mHost->getLivingKameckNum() == 0) {
-            _38++;
+            mBeamNumAlone++;
         } else {
-            _38 = 0;
+            mBeamNumAlone = 0;
         }
 
         return true;
@@ -232,7 +219,7 @@ void BossKameckStateBattle::exeMove() {
     s32 step = mIsFinal ? ::sFinalMoveTime : ::sMoveTime;
 
     if (MR::isLessEqualStep(this, step)) {
-        if (MR::isNear(mHost, _20, 100.0f) || MR::isNearPlayer(_20, 400.0f)) {
+        if (MR::isNear(mHost, mMoveTarget, 100.0f) || MR::isNearPlayer(mMoveTarget, 400.0f)) {
             selectPosition();
         }
 
@@ -240,9 +227,9 @@ void BossKameckStateBattle::exeMove() {
         MR::addVelocityAwayFromTarget(boss, *MR::getPlayerPos(), 1.5f, 0.0f, 0.0f, 500.0f);
     }
 
-    MR::turnDirectionToPlayerDegree(mHost, &mHost->_A0, ::sTurnPlayerDegree);
-    MR::addVelocityMoveToTarget(mHost, _20, 0.1f * 0.9f, 0.9f, 0.0f, 400.0f);
-    MR::addVelocityKeepHeight(mHost, _20, 0.0f, 0.5f, 50.0f);
+    MR::turnDirectionToPlayerDegree(mHost, &mHost->mFront, ::sTurnPlayerDegree);
+    MR::addVelocityMoveToTarget(mHost, mMoveTarget, 0.1f * 0.9f, 0.9f, 0.0f, 400.0f);
+    MR::addVelocityKeepHeight(mHost, mMoveTarget, 0.0f, 0.5f, 50.0f);
     MR::attenuateVelocity(mHost, 0.96f);
 
     if (tryAttackWait()) {
@@ -257,7 +244,7 @@ void BossKameckStateBattle::exeHideMoveStart() {
     }
 
     MR::zeroVelocity(mHost);
-    MR::turnDirectionToPlayerDegree(mHost, &mHost->_A0, ::sTurnPlayerDegree);
+    MR::turnDirectionToPlayerDegree(mHost, &mHost->mFront, ::sTurnPlayerDegree);
 
     if (MR::isActionEnd(mHost)) {
         MR::startSound(mHost, "SE_BM_KAMECK_HIDE_SMOKE");
@@ -270,31 +257,31 @@ void BossKameckStateBattle::exeHideMove() {
         MR::startAction(mHost, "Move");
         MR::hideModelAndOnCalcAnim(mHost);
         selectPosition();
-        _34 = 0;
+        mMoveNum = 0;
     }
 
     MR::startLevelSound(mHost, "SE_BM_LV_KAMECK_HIDE_MOVE");
 
-    f32 v2;
+    f32 maxSpeed;
 
     if (mIsFinal) {
-        v2 = 20.0f;
+        maxSpeed = 20.0f;
     } else {
-        v2 = 15.0f;
+        maxSpeed = 15.0f;
     }
 
-    MR::addVelocityMoveToTarget(mHost, _20, v2 * 0.1f, v2, 0.0f, 400.0f);
-    MR::addVelocityKeepHeight(mHost, _20, 0.0f, 0.5f, 50.0f);
+    MR::addVelocityMoveToTarget(mHost, mMoveTarget, maxSpeed * 0.1f, maxSpeed, 0.0f, 400.0f);
+    MR::addVelocityKeepHeight(mHost, mMoveTarget, 0.0f, 0.5f, 50.0f);
     MR::attenuateVelocity(mHost, 0.9f);
-    MR::turnDirectionToPlayerDegree(mHost, &mHost->_A0, ::sTurnPlayerDegree);
+    MR::turnDirectionToPlayerDegree(mHost, &mHost->mFront, ::sTurnPlayerDegree);
 
-    if (MR::isNear(mHost, _20, 100.0f)) {
-        if (_30 <= _34) {
+    if (MR::isNear(mHost, mMoveTarget, 100.0f)) {
+        if (mMoveNumMax <= mMoveNum) {
             setNerve(GET_NERVE(BossKameckStateBattle, BossKameckStateBattleNrvHideMoveEnd));
         } else {
-            _34++;
+            mMoveNum++;
 
-            if (_30 == _34) {
+            if (mMoveNumMax == mMoveNum) {
                 selectStoppablePosition();
             } else {
                 selectPosition();
@@ -312,12 +299,12 @@ void BossKameckStateBattle::exeHideMoveEnd() {
     }
 
     MR::zeroVelocity(mHost);
-    MR::turnDirectionToPlayerDegree(mHost, &mHost->_A0, ::sTurnPlayerDegree);
+    MR::turnDirectionToPlayerDegree(mHost, &mHost->mFront, ::sTurnPlayerDegree);
 
     if (MR::isActionEnd(mHost)) {
         if (trySummonKameck()) {
             setNerve(GET_NERVE(BossKameckStateBattle, BossKameckStateBattleNrvSummonKameckWait));
-        } else if (tryChargeBram()) {
+        } else if (tryChargeBeam()) {
             setNerve(GET_NERVE(BossKameckStateBattle, BossKameckStateBattleNrvAttackWait));
         } else {
             startMove();
@@ -331,7 +318,7 @@ void BossKameckStateBattle::exeSummonKameckWait() {
     }
 
     MR::zeroVelocity(mHost);
-    MR::turnDirectionToPlayerDegree(mHost, &mHost->_A0, ::sTurnPlayerDegree);
+    MR::turnDirectionToPlayerDegree(mHost, &mHost->mFront, ::sTurnPlayerDegree);
 
     if (MR::isActionEnd(mHost)) {
         setNerve(GET_NERVE(BossKameckStateBattle, BossKameckStateBattleNrvSummonKameck));
@@ -355,9 +342,9 @@ void BossKameckStateBattle::exeAttackWait() {
     }
 
     MR::startLevelSound(mHost, "SE_BM_LV_KAMECK_STAFF_TURN");
-    MR::turnDirectionToPlayerDegree(mHost, &mHost->_A0, ::sTurnPlayerDegree);
-    MR::addVelocityMoveToTarget(mHost, _20, 0.1f * 0.9f, 0.9f, 0.0f, 400.0f);
-    MR::addVelocityKeepHeight(mHost, _20, 0.0f, 0.2f, 50.0f);
+    MR::turnDirectionToPlayerDegree(mHost, &mHost->mFront, ::sTurnPlayerDegree);
+    MR::addVelocityMoveToTarget(mHost, mMoveTarget, 0.1f * 0.9f, 0.9f, 0.0f, 400.0f);
+    MR::addVelocityKeepHeight(mHost, mMoveTarget, 0.0f, 0.2f, 50.0f);
     MR::attenuateVelocity(mHost, 0.9f);
 
     if (MR::isGreaterStep(this, ::sAttackWaitTime)) {
@@ -376,9 +363,12 @@ void BossKameckStateBattle::exeAttack() {
     }
 
     if (MR::isStep(this, ::sShootTiming)) {
-        mBeam->requestShootToPlayerGround(::sBeamSpeed);
-        mHost->mActorList->addActor(mBeam);
-        mBeam = nullptr;
+        if (mBeam != nullptr) {
+            mBeam->requestShootToPlayerGround(::sBeamSpeed);
+            mHost->mActorList->addActor(mBeam);
+            mBeam = nullptr;
+        }
+
         MR::startSound(mHost, "SE_BM_KAMECK_STAFF_EFFECT");
     }
 
@@ -417,14 +407,14 @@ void BossKameckStateBattle::exeRecover() {
     }
 
     if (MR::isGreaterStep(this, ::sRecoverMoveStartTime)) {
-        MR::turnDirectionToPlayerDegree(mHost, &mHost->_A0, ::sTurnPlayerDegree);
-        MR::addVelocityMoveToTarget(mHost, _20, 0.1f * 0.9f, 0.9f, 0.0f, 400.0f);
-        MR::addVelocityKeepHeight(mHost, _20, 0.0f, 0.5f, 50.0f);
+        MR::turnDirectionToPlayerDegree(mHost, &mHost->mFront, ::sTurnPlayerDegree);
+        MR::addVelocityMoveToTarget(mHost, mMoveTarget, 0.1f * 0.9f, 0.9f, 0.0f, 400.0f);
+        MR::addVelocityKeepHeight(mHost, mMoveTarget, 0.0f, 0.5f, 50.0f);
         MR::attenuateVelocity(mHost, 0.96f);
     }
 
     if (MR::isGreaterStep(this, ::sRecoverMoveStartTime)) {
-        if (MR::isNear(mHost, _20, 100.0f)) {
+        if (MR::isNear(mHost, mMoveTarget, 100.0f)) {
             MR::validateHitSensors(mHost);
             startMove();
         }
@@ -434,7 +424,7 @@ void BossKameckStateBattle::exeRecover() {
 void BossKameckStateBattle::exeGuard() {
     if (MR::isFirstStep(this)) {
         MR::startAction(mHost, "Guard");
-        MR::turnDirectionToTarget(mHost, &mHost->_A0, *MR::getPlayerPos(), 0.3f);
+        MR::turnDirectionToTarget(mHost, &mHost->mFront, *MR::getPlayerPos(), 0.3f);
     }
 
     MR::attenuateVelocity(mHost, 0.96f);
@@ -445,13 +435,24 @@ void BossKameckStateBattle::exeGuard() {
 }
 
 void BossKameckStateBattle::selectStoppablePosition() {
-    _2C = mMoveRail->calcRandomStoppableIndex(_2C);
-    mMoveRail->calcMovePosition(&_20, _2C);
+    // A level with no move rail of this number keeps the boss where it is.
+    if (mMoveRail == nullptr) {
+        mMoveTarget.set(mHost->mPosition);
+        return;
+    }
+
+    mMoveRailIndex = mMoveRail->calcRandomStoppableIndex(mMoveRailIndex);
+    mMoveRail->calcMovePosition(&mMoveTarget, mMoveRailIndex);
 }
 
 void BossKameckStateBattle::selectPosition() {
-    _2C = mMoveRail->calcRandomIndex(_2C);
-    mMoveRail->calcMovePosition(&_20, _2C);
+    if (mMoveRail == nullptr) {
+        mMoveTarget.set(mHost->mPosition);
+        return;
+    }
+
+    mMoveRailIndex = mMoveRail->calcRandomIndex(mMoveRailIndex);
+    mMoveRail->calcMovePosition(&mMoveTarget, mMoveRailIndex);
 }
 
 bool BossKameckStateBattle::isEnableDamage() const {

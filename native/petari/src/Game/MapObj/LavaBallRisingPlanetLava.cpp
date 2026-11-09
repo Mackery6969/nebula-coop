@@ -1,4 +1,5 @@
 #include "Game/MapObj/LavaBallRisingPlanetLava.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/MapObjActorInitInfo.hpp"
 #include "Game/Util.hpp"
@@ -12,10 +13,15 @@ namespace NrvLavaBallRisingPlanetLava {
     NEW_NERVE(LavaBallRisingPlanetLavaNrvScaleDown, LavaBallRisingPlanetLava, ScaleDown);
 };  // namespace NrvLavaBallRisingPlanetLava
 
+namespace {
+    const s32 sWaitStep = NebulaFrameClock::stepsOfSeconds(2);
+    const s32 sScaleStep = NebulaFrameClock::stepsOfSeconds(4);
+};  // namespace
+
 LavaBallRisingPlanetLava::LavaBallRisingPlanetLava(const char* pName) : MapObjActor(pName) {
 }
 
-void LavaBallRisingPlanetLava::init(const JMapInfoIter& rIter) {
+void LavaBallRisingPlanetLava::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
     MapObjActorInitInfo info;
     info.setupDefaultPos();
@@ -29,7 +35,7 @@ void LavaBallRisingPlanetLava::init(const JMapInfoIter& rIter) {
 void LavaBallRisingPlanetLava::exeWait() {
     MR::startLevelSound(this, "SE_AT_LV_MAGMA_WIND_RISING");
 
-    if (!MR::isLessStep(this, 120)) {
+    if (!MR::isLessStep(this, ::sWaitStep)) {
         if (isNerve(GET_NERVE(LavaBallRisingPlanetLava, LavaBallRisingPlanetLavaNrvWaitSmall))) {
             setNerve(GET_NERVE(LavaBallRisingPlanetLava, LavaBallRisingPlanetLavaNrvScaleUp));
         } else {
@@ -39,24 +45,19 @@ void LavaBallRisingPlanetLava::exeWait() {
 }
 
 void LavaBallRisingPlanetLava::exeScaleUp() {
-    MR::startLevelSound(this, "SE_AT_LV_MAGMA_WIND_RISING");
-    MR::startLevelSound(this, "SE_OJ_LV_LAVA_MOVE_RISING");
-    mScale.setAll< f32 >(MR::calcNerveValue(this, 240, 1.0f, 1.1f));
-
-    if (MR::isStep(this, 240)) {
-        setNerve(GET_NERVE(LavaBallRisingPlanetLava, LavaBallRisingPlanetLavaNrvWaitBig));
-    }
+    updateScale(1.0f, 1.1f, GET_NERVE(LavaBallRisingPlanetLava, LavaBallRisingPlanetLavaNrvWaitBig));
 }
 
 void LavaBallRisingPlanetLava::exeScaleDown() {
-    MR::startLevelSound(this, "SE_AT_LV_MAGMA_WIND_RISING");
-    MR::startLevelSound(this, "SE_OJ_LV_LAVA_MOVE_RISING");
-    mScale.setAll< f32 >(MR::calcNerveValue(this, 240, 1.1f, 1.0f));
-
-    if (MR::isStep(this, 240)) {
-        setNerve(GET_NERVE(LavaBallRisingPlanetLava, LavaBallRisingPlanetLavaNrvWaitSmall));
-    }
+    updateScale(1.1f, 1.0f, GET_NERVE(LavaBallRisingPlanetLava, LavaBallRisingPlanetLavaNrvWaitSmall));
 }
 
-LavaBallRisingPlanetLava::~LavaBallRisingPlanetLava() {
+void LavaBallRisingPlanetLava::updateScale(f32 startScale, f32 endScale, const Nerve* pNextNerve) {
+    MR::startLevelSound(this, "SE_AT_LV_MAGMA_WIND_RISING");
+    MR::startLevelSound(this, "SE_OJ_LV_LAVA_MOVE_RISING");
+    mScale.setAll< f32 >(MR::calcNerveValue(this, ::sScaleStep, startScale, endScale));
+
+    if (MR::isStep(this, ::sScaleStep)) {
+        setNerve(pNextNerve);
+    }
 }

@@ -9,21 +9,10 @@ void AllLiveActorGroup::startInitActorSystemInfo() {
     mActorNum = getObjNum();
 }
 
-void AllLiveActorGroup::initActorSystemInfo(const JMapInfoIter& rIter) {
-    if (getObjNum() <= 0) {
-        return;
-    }
-
-    s32 actorNum = mActorNum;
-
-    if (actorNum == getObjNum()) {
-        return;
-    }
-
-    for (; actorNum < getObjNum(); actorNum++) {
-        LiveActor* pActor = getActor(mActorNum);
-        MR::getClippingDirector()->initActorSystemInfo(pActor, rIter);
-        mActorNum++;
+// The actors registered since the last call.
+void AllLiveActorGroup::initActorSystemInfo(const TableIter& rIter) {
+    for (; mActorNum < getObjNum(); mActorNum++) {
+        MR::getClippingDirector()->initActorSystemInfo(getActor(mActorNum), rIter);
     }
 }
 
@@ -40,7 +29,7 @@ namespace MR {
         getAllLiveActorGroup()->startInitActorSystemInfo();
     }
 
-    void initLiveActorSystemInfo(const JMapInfoIter& rIter) {
+    void initLiveActorSystemInfo(const TableIter& rIter) {
         getAllLiveActorGroup()->initActorSystemInfo(rIter);
     }
 

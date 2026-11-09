@@ -4,29 +4,29 @@
 
 class CocoNutBall : public LiveActor {
 public:
-    CocoNutBall(const char* pName = "\203\204\203\126\202\314\216\300\222\145" /* ヤシの実弾 */);
+    CocoNutBall(const char* pName = "ヤシの実弾");
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void appear();
-    virtual void kill();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void appear() override;
+    virtual void kill() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
-    void initSensors(const char*, const char*);
-    void appearAndThrow(const TVec3f&, f32);
+    void appearAndThrow(const Vec3f& rAppearPos, f32 angleDegree);
     void hitBackToPlayer();
-    void demoBreak(const TVec3f&);
+    void demoBreak(const Vec3f& rPos);
     HitSensor* isBindedAny() const;
     bool isValidReceivePunch() const;
-    bool isNerveTrowToOrFreeze() const;  // inline used several places
-    bool isSensorBody(HitSensor*) const;
-    void calcHitBackVelocitAndGravity();
+    bool isNerveThrowToOrFreeze() const;
+    bool isSensorBody(HitSensor* pSensor) const;
+    void calcHitBackVelocityAndGravity();
     bool isHitBackRight() const;
     bool isHitBackFront() const;
-    void calcHitBackDstPos(TVec3f*, bool, bool);
-    bool tryToKill(bool);
-    void setVelocityToPlayer(f32, f32);
+    void calcHitBackDstPos(Vec3f* pOut, bool isRight, bool isFront);
+    bool tryToKill(bool alwaysKill);
+    // angleDegree turns the aim about mUp.
+    void setVelocityToPlayer(f32 speed, f32 angleDegree);
     void freeze();
     bool isFreezable();
     void processApproachToPlayer();
@@ -37,18 +37,17 @@ public:
     void exeFreeze();
     void exeFreezeRelease();
 
-    LiveActor* _8C;
-    TVec3f _90;
-    s32 _9C;
-    s32 _A0;
-    TVec3f _A4;
-    TVec3f _B0;
-    bool _BC;
-    bool _BD;
-    bool _BE;
-    f32 _C0;
-    f32 _C4;
-    TVec3f _C8;
-    f32 _D4;
-    bool _D8;
+    LiveActor* mHost;
+    Vec3f mHitBackGravity;
+    s32 mRallyNum;
+    s32 mFreezeStep;
+    Vec3f mFreezePos;
+    Vec3f mFreezeVelocity;
+    bool mIsThrowRight;
+    bool mIsHeightLimited;
+    f32 mHeightMax;
+    f32 mHeightMin;
+    Vec3f mUp;
+    f32 mKillDistance;
+    bool mIsRallyBgm;
 };

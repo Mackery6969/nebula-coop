@@ -1,6 +1,6 @@
 #pragma once
 
-class JAUAudioData;
+class SoundArchive;
 
 class AudSceneMgr {
 public:
@@ -12,7 +12,7 @@ public:
     // The bank of the player's voices: a group for each player, with the same waves.
     static const u32 cPlayerVoiceBank = 34;
 
-    explicit AudSceneMgr(JAUAudioData*);
+    explicit AudSceneMgr(SoundArchive*);
 
     void startScene();
     void setPlayerLuigi(bool isLuigi);
@@ -27,8 +27,7 @@ public:
         return mPlayerMode == PlayerMode_Luigi;
     }
 
-    JAUAudioData* mAudioData;
-    u32 _4;
+    SoundArchive* mAudioData;
     s32 mPlayerMode;
-    bool _1D;
+    bool mIsCubeBgmChangeInvalid;
 };

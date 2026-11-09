@@ -1,5 +1,6 @@
 #include <nebula_game_api.h>
 #include "Game/Boss/DodoryuStateLv1.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Boss/Dodoryu.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
@@ -29,7 +30,6 @@ namespace {
     static const s32 sSpinOutEndFrame = 80;
     static const s32 sAppearSignFrame = 30;
     static const s32 sDiveAttackInvalidFrame = 20;
-    // static const f32 sPopSpeed = _;
 };  // namespace
 
 namespace {
@@ -45,20 +45,20 @@ namespace {
 };  // namespace
 
 DodoryuStateLv1::DodoryuStateLv1(Dodoryu* pHost, const char* pName)
-    : DodoryuStateBase(pHost, pName), mHideStep(), mAppearStep(), _A4(), mIsValidPop(), mPopAccel(), mPopSpeed(), mRailSpeed(::sSpeed),
+    : DodoryuStateBase(pHost, pName), mHideStep(), mAppearStep(), mIsSpinCountered(), mIsValidPop(), mPopAccel(), mPopSpeed(), mRailSpeed(::sSpeed),
       mRailSpeedMax(::sSpeed) {
     initWithoutIter();
 }
 
-void DodoryuStateLv1::init(const JMapInfoIter& rIter) {
+void DodoryuStateLv1::init(const TableIter& /*rIter*/) {
     MR::invalidateClipping(this);
     initNerve(GET_NERVE_ANON(DodoryuStateLv1NrvHide));
     makeActorAppeared();
 }
 
 void DodoryuStateLv1::control() {
-    if (_A4 && !MR::isPlayerStaggering()) {
-        _A4 = false;
+    if (mIsSpinCountered && !MR::isPlayerStaggering()) {
+        mIsSpinCountered = false;
     }
 
     if (mRailSpeedMax > mRailSpeed) {
@@ -231,18 +231,18 @@ void DodoryuStateLv1::exeSpinOut() {
         mHost->invalidateEyeSensor();
     }
 
-    TPos3f mtx = mHost->mBaseMtx;
-    TVec3f trans;
+    Pos3f mtx = mHost->mBaseMtx;
+    Vec3f trans;
     mtx.getTrans(trans);
-    trans.add(_98 * ::sKnockSpeed);
+    trans.add(mKnockDir * ::sKnockSpeed);
     mtx.setTrans(trans);
 
     mHost->setMtx(mtx);
     mHost->keepOffFromClosedArea(nullptr);
     mHost->snapToGround();
-    calcVerticalizedDir(&_98, _98);
+    calcVerticalizedDir(&mKnockDir, mKnockDir);
 
-    if (MR::isStep(this, 60)) {
+    if (MR::isStep(this, NebulaFrameClock::stepsOfSeconds(1))) {
         mHost->validateEyeSensor();
     }
 
@@ -273,12 +273,12 @@ void DodoryuStateLv1::catchAttackSensor(HitSensor* pSender, HitSensor* pReceiver
         return;
     }
 
-    if (!isAttackable() || _A4) {
+    if (!isAttackable() || mIsSpinCountered) {
         MR::sendMsgPush(pReceiver, pSender);
         return;
     }
 
-    TVec3f dir;
+    Vec3f dir;
     calcAttackDir(&dir, pSender->mPosition, pReceiver->mPosition);
 
     if (MR::sendMsgEnemyAttackStrongToDir(pReceiver, pSender, dir)) {
@@ -322,7 +322,7 @@ bool DodoryuStateLv1::catchPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* 
 
     if (isAppear && MR::isMsgPlayerSpinAttack(msg)) {
         if (MR::sendMsgEnemyAttackCounterSpin(pSender, pReceiver)) {
-            _A4 = true;
+            mIsSpinCountered = true;
 
             return true;
         }
@@ -346,11 +346,11 @@ bool DodoryuStateLv1::catchPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* 
 
     if (NebulaHost::codePatch(NEBULA_PATCH_DODORYU_SHELL_ONLY, nullptr) ? MR::isMsgJetTurtleAttack(msg)
                                                                       : MR::isMsgPlayerHitAll(msg)) {
-        _98.set(pReceiver->mPosition - pSender->mPosition);
+        mKnockDir.set(pReceiver->mPosition - pSender->mPosition);
 
-        if (!calcVerticalizedDir(&_98, _98)) {
-            mHost->mBaseMtx.getZDir(_98);
-            _98.negate();
+        if (!calcVerticalizedDir(&mKnockDir, mKnockDir)) {
+            mHost->mBaseMtx.getZDir(mKnockDir);
+            mKnockDir.negate();
         }
 
         MR::tryRumblePadMiddle(this, PLAYER_1);
@@ -392,8 +392,8 @@ void DodoryuStateLv1::updatePop() {
         return;
     }
 
-    TPos3f mtx = mHost->mBaseMtx;
-    TVec3f trans;
+    Pos3f mtx = mHost->mBaseMtx;
+    Vec3f trans;
     mtx.getTrans(trans);
     trans.add(-mHost->mGravity * mPopAccel);
 

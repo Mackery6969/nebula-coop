@@ -5,7 +5,7 @@
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/DrawUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ModelUtil.hpp"
@@ -15,7 +15,7 @@
 
 namespace {
     const Vec cJumpOutDemoRotate = {347.0f, 0.0f, 0.0f};
-    const char* cAstroDomeSkyTable[] = {"AstroDomeSkyA", "AstroDomeSkyB", "AstroDomeSkyC", "AstroDomeSkyA", "AstroDomeSkyB", "AstroDomeSkyC"};
+    const char* const cAstroDomeSkyTable[] = {"AstroDomeSkyA", "AstroDomeSkyB", "AstroDomeSkyC", "AstroDomeSkyA", "AstroDomeSkyB", "AstroDomeSkyC"};
     const s32 cAppearanceBrkTotalFrame = 200;
     const s32 cRotateDisappearBrkFrame = 30;
     const s32 cRotateAppearBrkFrame = 59;
@@ -39,11 +39,13 @@ namespace NrvAstroDomeSky {
 AstroDomeSky::AstroDomeSky(const char* pName) : LiveActor(pName), mBrkFrame(), mColor(0x00, 0x00, 0x00, 0xFF), mProjmap() {
 }
 
-void AstroDomeSky::init(const JMapInfoIter& rIter) {
-    s32 arg0 = -1;
-    MR::getJMapInfoArg0NoInit(rIter, &arg0);
+void AstroDomeSky::init(const TableIter& rIter) {
+    s32 domeId = -1;
+    MR::getPlacementArg0NoInit(rIter, &domeId);
 
-    const char* pSkyName = ::cAstroDomeSkyTable[arg0 - 1];
+    // A dome past the six (a mod's) takes the skies round again; no dome number takes the first.
+    const s32 skyCount = static_cast< s32 >(ARRAY_SIZE(::cAstroDomeSkyTable));
+    const char* pSkyName = ::cAstroDomeSkyTable[domeId >= 1 ? (domeId - 1) % skyCount : 0];
     initModelManagerWithAnm(pSkyName, nullptr, true);
 
     mProjmap = MR::initMaterialProjmapEffectMtxSetter(this);
@@ -57,9 +59,9 @@ void AstroDomeSky::init(const JMapInfoIter& rIter) {
     initNerve(GET_NERVE(AstroDomeSky, AstroDomeSkyNrvHide));
 
     MR::tryRegisterDemoCast(this, rIter);
-    MR::registerDemoActionNerve(this, GET_NERVE(AstroDomeSky, AstroDomeSkyNrvReturnDemoWait), "\210\332\223\256" /* 移動 */);
-    MR::registerDemoActionNerve(this, GET_NERVE(AstroDomeSky, AstroDomeSkyNrvDisappear), "\203\150\201\133\203\200\217\157\214\273" /* ドーム出現 */);
-    MR::registerDemoCast(this, "\203\175\203\212\203\111\224\362\202\321\217\157\202\265" /* マリオ飛び出し */, rIter);
+    MR::registerDemoActionNerve(this, GET_NERVE(AstroDomeSky, AstroDomeSkyNrvReturnDemoWait), "移動");
+    MR::registerDemoActionNerve(this, GET_NERVE(AstroDomeSky, AstroDomeSkyNrvDisappear), "ドーム出現");
+    MR::registerDemoCast(this, "マリオ飛び出し", rIter);
     MR::registerDemoSimpleCastAll(this);
 
     SphereSelectorFunction::registerTarget(this);
@@ -72,11 +74,11 @@ void AstroDomeSky::draw() const {
 }
 
 void AstroDomeSky::calcAndSetBaseMtx() {
-    TPos3f rotateMtx;
+    Pos3f rotateMtx;
     if (isNerve(GET_NERVE(AstroDomeSky, AstroDomeSkyNrvJumpOutDemo))) {
         MR::makeMtxRotate(rotateMtx, ::cJumpOutDemoRotate);
     } else {
-        SphereSelectorFunction::calcHandledRotateMtx(TVec3f(0.0f, 0.0f, 0.0f), &rotateMtx);
+        SphereSelectorFunction::calcHandledRotateMtx(Vec3f(0.0f, 0.0f, 0.0f), &rotateMtx);
     }
 
     rotateMtx.setTrans(MR::getCamPos());
@@ -85,7 +87,7 @@ void AstroDomeSky::calcAndSetBaseMtx() {
     mProjmap->updateMtxUseBaseMtx();
 }
 
-bool AstroDomeSky::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool AstroDomeSky::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (SphereSelectorFunction::isMsgSelectStart(msg)) {
         setNerve(GET_NERVE(AstroDomeSky, AstroDomeSkyNrvAppear));
         return true;

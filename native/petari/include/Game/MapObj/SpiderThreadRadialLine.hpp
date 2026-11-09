@@ -1,22 +1,22 @@
 #pragma once
 
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
 class SpiderThreadMainPoint;
 
 class SpiderThreadRadialLine {
 public:
-    SpiderThreadRadialLine(int);
+    SpiderThreadRadialLine(s32 bufferSize);
 
-    void addPoint(SpiderThreadMainPoint*);
+    void addPoint(SpiderThreadMainPoint* pPoint);
     void updateVelocity();
     void updatePos();
 
-    SpiderThreadMainPoint* getPoint(int idx) const {
+    SpiderThreadMainPoint* getPoint(s32 idx) const {
         return mPoints[idx];
     }
 
-    int mBufferSize;
     s32 mNumPoints;
     SpiderThreadMainPoint** mPoints;
+    s32 mBufferSize;
 };

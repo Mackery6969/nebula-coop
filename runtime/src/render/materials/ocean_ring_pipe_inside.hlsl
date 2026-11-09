@@ -7,21 +7,23 @@ struct MaterialConstants {
     float4 low;   // the colour where the texture is black (rgb)
     float4 high;  // and where it is white (rgb)
     float4 warp;  // x: texels per indirect step; zw: the texture's size
+    float4 coord[6];  // texture matrices, three rows each
 };
 
+#define NATIVE_COORDS 2
 #include "native_material.hlsli"
 
 void material_vertex(NativeVertex v, inout NativeVaryings o) {
     o.color = float4(1.0, 1.0, 1.0, 1.0);
     const float4 c0 = float4(v.uv[0], 1.0, 1.0);
     const float4 c1 = float4(v.uv[1], 1.0, 1.0);
-    o.uv[0] = float4(dot(c0, native_tex_row(0)), dot(c0, native_tex_row(1)),
-                     dot(c1, native_tex_row(3)), dot(c1, native_tex_row(4)));
+    o.uv[0] = float4(dot(c0, material.coord[0]), dot(c0, material.coord[1]),
+                     dot(c1, material.coord[3]), dot(c1, material.coord[4]));
 }
 
 float4 material_color(NativeVaryings i) {
-    const float2 step = round(tex[0].Sample(samp[0], i.uv[0].zw).ab * 255.0) - 128.0;
+    const float2 step = round(TEX(0).Sample(SAMP(0), i.uv[0].zw).ab * 255.0) - 128.0;
     const float2 texel = i.uv[0].xy * material.warp.zw + step * material.warp.x;
-    const float4 t = tex[0].Sample(samp[0], texel / material.warp.zw);
+    const float4 t = TEX(0).Sample(SAMP(0), texel / material.warp.zw);
     return saturate(float4(lerp(material.low.rgb, material.high.rgb, t.rgb), t.a * t.a) * 4.0);
 }

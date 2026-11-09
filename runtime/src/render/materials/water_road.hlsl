@@ -10,8 +10,10 @@ struct MaterialConstants {
     float4 tint;       // the screen's tint (rgb)
     float4 params;     // x: 1 high detail (highlight, warp), 0 low; y: screen texels per indirect step; z: alpha
     float4 screen;     // xy: the screen texture's size
+    float4 coord[15];  // texture matrices, three rows each
 };
 
+#define NATIVE_COORDS 3
 #include "native_material.hlsli"
 
 void material_vertex(NativeVertex v, inout NativeVaryings o) {
@@ -24,12 +26,12 @@ void material_vertex(NativeVertex v, inout NativeVaryings o) {
     const float4 n = float4(v.nrm, 1.0);
     const uint proj = high ? 9u : 6u;
     const uint env = high ? 12u : 9u;
-    o.uv[0] = float4(dot(c0, native_tex_row(0)), dot(c0, native_tex_row(1)),
-                     dot(c1, native_tex_row(3)), dot(c1, native_tex_row(4)));
-    o.uv[1] = float4(dot(c2, native_tex_row(6)), dot(c2, native_tex_row(7)),
-                     dot(n, native_tex_row(env)), dot(n, native_tex_row(env + 1u)));
-    o.uv[2] = float4(dot(p, native_tex_row(proj)), dot(p, native_tex_row(proj + 1u)),
-                     dot(p, native_tex_row(proj + 2u)), 1.0);
+    o.uv[0] = float4(dot(c0, material.coord[0]), dot(c0, material.coord[1]),
+                     dot(c1, material.coord[3]), dot(c1, material.coord[4]));
+    o.uv[1] = float4(dot(c2, material.coord[6]), dot(c2, material.coord[7]),
+                     dot(n, material.coord[env]), dot(n, material.coord[env + 1u]));
+    o.uv[2] = float4(dot(p, material.coord[proj]), dot(p, material.coord[proj + 1u]),
+                     dot(p, material.coord[proj + 2u]), 1.0);
 }
 
 float4 material_color(NativeVaryings i) {
@@ -37,16 +39,16 @@ float4 material_color(NativeVaryings i) {
         discard;
     }
     const bool high = material.params.x != 0.0;
-    float3 c8 = tex[0].Sample(samp[0], i.uv[0].xy).rgb * tex[0].Sample(samp[0], i.uv[0].zw).rgb * 127.5;
+    float3 c8 = TEX(0).Sample(SAMP(0), i.uv[0].xy).rgb * TEX(0).Sample(SAMP(0), i.uv[0].zw).rgb * 127.5;
     if (high) {
         c8 += material.highlight.rgb * 255.0 * level_line(c8.r, material.highlight.a * 255.0);
     }
     float2 screen = i.uv[2].z != 0.0 ? i.uv[2].xy / i.uv[2].z : i.uv[2].xy;
     if (high) {
-        const float2 step = round(tex[1].Sample(samp[1], i.uv[1].xy).ab * 255.0) - 128.0;
+        const float2 step = round(TEX(1).Sample(SAMP(1), i.uv[1].xy).ab * 255.0) - 128.0;
         screen += step * material.params.y / material.screen.xy;
     }
-    float3 c = saturate(c8 / 255.0 + tex[2].Sample(samp[2], screen).rgb * material.tint.rgb);
-    c = saturate(c + tex[3].Sample(samp[3], i.uv[1].zw).rgb);
+    float3 c = saturate(c8 / 255.0 + TEX(2).Sample(SAMP(2), screen).rgb * material.tint.rgb);
+    c = saturate(c + TEX(3).Sample(SAMP(3), i.uv[1].zw).rgb);
     return float4(c, i.color.a);
 }

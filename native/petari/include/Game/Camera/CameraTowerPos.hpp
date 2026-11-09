@@ -1,20 +1,19 @@
 #pragma once
 
-#include "Game/Camera/CameraTowerBase.hpp"
+#include "Game/Camera/Camera.hpp"
 
-class CameraTowerPos : public CameraTowerBase {
+class CameraTowerPos : public Camera {
 public:
-    CameraTowerPos(const char* pName = "\223\203\203\112\203\201\203\211\201\151\203\124\203\165\203\136\201\133\203\121\203\142\203\147\225\164\202\253\201\152" /* 塔カメラ（サブターゲット付き） */);
-    virtual ~CameraTowerPos();
+    CameraTowerPos(const char* pName = "塔カメラ（サブターゲット付き）");
 
-    virtual void reset();
-    virtual CameraTargetObj* calc();
-    virtual bool isEnableToReset() const {
+    virtual void reset() override;
+    virtual CameraTargetObj* calc() override;
+    virtual bool isEnableToReset() const override {
         return true;
     }
-    virtual CamTranslatorBase* createTranslator();
+    virtual void setParamFromChunk(const CameraParamChunk*) override;
 
-    void setParam(const TVec3f& wPoint, const TVec3f& axis, f32 dist, const TVec2f& angle, f32 angleXRate) {
+    void setParam(const Vec3f& wPoint, const Vec3f& axis, f32 dist, const Vec2f& angle, f32 angleXRate) {
         mWPoint.set(wPoint);
         mAxis.set(axis);
         mDist = dist;
@@ -24,14 +23,14 @@ public:
     }
 
     void calcIdealPose(bool);
-    void arrangeHorizontalPose(const TVec3f&, TVec3f&);
-    void arrangeWatchPos(TVec3f&, const TVec3f&);
+    void arrangeHorizontalPose(const Vec3f&, Vec3f&);
+    void arrangeWatchPos(Vec3f&, const Vec3f&);
 
-    TVec3f mWPoint;
-    TVec3f mAxis;
+    Vec3f mWPoint;
+    Vec3f mAxis;
     f32 mAngleYMaxSpeed;
     f32 mAngleX;
     f32 mDist;
     f32 mAngleXRate;
-    TVec3f mPos;
+    Vec3f mPos;
 };

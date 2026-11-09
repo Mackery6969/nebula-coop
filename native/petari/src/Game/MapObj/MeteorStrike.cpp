@@ -7,7 +7,7 @@
 #include "Game/Util/ActorShadowUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
 #include "Game/Util/GravityUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MapUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
@@ -41,17 +41,22 @@ MeteorStrike::MeteorStrike(const char* pName)
 }
 
 inline void MeteorStrike::initRailDirection() {
-    TVec3f pos0;
+    // A rail of one point has no direction: the meteor keeps its straight-down default.
+    if (MR::getRailPointNum(this) < 2) {
+        return;
+    }
+
+    Vec3f pos0;
     MR::calcRailPointPos(&pos0, this, 0);
 
-    TVec3f pos1;
+    Vec3f pos1;
     MR::calcRailPointPos(&pos1, this, 1);
 
     mRailDir.sub(pos1, pos0);
     MR::normalize(&mRailDir);
 }
 
-void MeteorStrike::init(const JMapInfoIter& rIter) {
+void MeteorStrike::init(const TableIter& rIter) {
     initMapToolInfo(rIter);
     initModel();
 
@@ -59,11 +64,11 @@ void MeteorStrike::init(const JMapInfoIter& rIter) {
 
     if (mType != MeteorStrikeType_Environment) {
         initHitSensor(1);
-        MR::addHitSensorMapObj(this, "body", 8, ::cSensorRadius, TVec3f(0.0f, 0.0f, 0.0f));
+        MR::addHitSensorMapObj(this, "body", 8, ::cSensorRadius, Vec3f(0.0f, 0.0f, 0.0f));
     }
 
     initBinder(::cBinderRadius, 0.0f, 0);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
 
     MR::setEffectHostMtx(this, "LavaColumnAttrDefault", mLavaColumnPos);
     MR::setEffectHostMtx(this, "LavaColumnAttrDamageFire", mLavaColumnPos);
@@ -85,10 +90,15 @@ void MeteorStrike::init(const JMapInfoIter& rIter) {
 }
 
 void MeteorStrike::initAfterPlacement() {
-    TVec3f pos0, pos1;
+    if (MR::getRailPointNum(this) < 2) {
+        mTotalSteps = 1;
+        return;
+    }
+
+    Vec3f pos0, pos1;
     MR::calcRailPointPos(&pos0, this, 0);
 
-    TVec3f gravityVec;
+    Vec3f gravityVec;
     MR::calcGravityVector(this, pos0, &gravityVec, nullptr, 0);
 
     gravityVec.scale(80.0f);
@@ -100,11 +110,11 @@ void MeteorStrike::initAfterPlacement() {
     gravityVec.scale(80.0f);
     pos1.add(gravityVec);
 
-    TVec3f toNextPos;
+    Vec3f toNextPos;
     toNextPos.sub(pos1, pos0);
 
     Triangle triangle = Triangle();
-    TVec3f nextPos;
+    Vec3f nextPos;
 
     if (!MR::getFirstPolyOnLineToMap(&nextPos, &triangle, pos0, toNextPos)) {
         nextPos.set(pos1);
@@ -112,7 +122,8 @@ void MeteorStrike::initAfterPlacement() {
         MR::offBind(this);
     }
 
-    mTotalSteps = static_cast< s32 >(pos0.distance(nextPos) / mStepSize) + 1;
+    // A speed of 0 or less (the map tool's speed) flies the whole way in one step.
+    mTotalSteps = mStepSize > 0.0f ? static_cast< s32 >(pos0.distance(nextPos) / mStepSize) + 1 : 1;
 }
 
 void MeteorStrike::appear() {
@@ -122,7 +133,7 @@ void MeteorStrike::appear() {
 void MeteorStrike::appear(s32 step) {
     mStepsLeft = mTotalSteps - step;
 
-    TVec3f movedPos;
+    Vec3f movedPos;
     getMovedPos(&movedPos, step);
 
     mPosition.set(movedPos);
@@ -147,36 +158,36 @@ void MeteorStrike::appear(s32 step) {
 void MeteorStrike::kill() {
     LiveActor::kill();
 
-    if (mType != MeteorStrikeType_Environment) {
+    if (mBrokenModel != nullptr) {
         mBrokenModel->kill();
     }
 
     MR::invalidateShadow(this, nullptr);
 }
 
-bool MeteorStrike::getMovedPos(TVec3f* pDst, s32 step) const {
+bool MeteorStrike::getMovedPos(Vec3f* pDst, s32 step) const {
     if (mTotalSteps < step) {
         return false;
     }
 
     MR::calcRailPointPos(pDst, this, 0);
 
-    TVec3f vec;
+    Vec3f vec;
     vec.scale(mStepSize * step, mRailDir);
     pDst->add(*pDst, vec);
 
     return true;
 }
 
-f32 MeteorStrike::getSpeed(const JMapInfoIter& rIter) {
-    f32 arg0 = 10.0f;
-    MR::getJMapInfoArg0NoInit(rIter, &arg0);
-    return arg0;
+f32 MeteorStrike::getSpeed(const TableIter& rIter) {
+    f32 speed = 10.0f;
+    MR::getPlacementArg0NoInit(rIter, &speed);
+    return speed;
 }
 
 void MeteorStrike::calcAndSetBaseMtx() {
-    TPos3f mtx;
-    TVec3f negGravity;
+    Pos3f mtx;
+    Vec3f negGravity;
     negGravity.negate(mGravity);
 
     if (MR::isSameDirection(mRailDir, negGravity)) {
@@ -185,8 +196,8 @@ void MeteorStrike::calcAndSetBaseMtx() {
         MR::makeMtxFrontUpPos(&mtx, mRailDir, negGravity, mPosition);
     }
 
-    TPos3f rotateMtx;
-    rotateMtx.makeRotate(TVec3f(1.0f, 0.0f, 0.0f), MR::toRadian(mRotation.x));
+    Pos3f rotateMtx;
+    rotateMtx.makeRotate(Vec3f(1.0f, 0.0f, 0.0f), MR::toRadian(mRotation.x));
     mtx.concat(rotateMtx);
     MR::setBaseTRMtx(this, mtx);
 }
@@ -208,18 +219,18 @@ void MeteorStrike::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
         MR::sendMsgEnemyAttackExplosion(pReceiver, pSender);
     }
 
-    TVec3f negGravity;
+    Vec3f negGravity;
     negGravity.negate(mGravity);
     calcBreakPosture(negGravity, nullptr);
 
     setNerve(GET_NERVE(MeteorStrike, MeteorStrikeNrvBreak));
 }
 
-bool MeteorStrike::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool MeteorStrike::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     return MR::isMsgStarPieceReflect(msg);
 }
 
-void MeteorStrike::initMapToolInfo(const JMapInfoIter& rIter) {
+void MeteorStrike::initMapToolInfo(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
 
     mStepSize = getSpeed(rIter);
@@ -239,9 +250,9 @@ void MeteorStrike::initModel() {
     }
 
     if (mType == MeteorStrikeType_Cannon) {
-        mBrokenModel = MR::createModelObjMapObjStrongLight("\203\201\203\145\203\111\203\114\203\203\203\155\203\223\211\363\202\352\203\202\203\146\203\213" /* メテオキャノン壊れモデル */, "MeteorCannonBreak", nullptr);
+        mBrokenModel = MR::createModelObjMapObjStrongLight("メテオキャノン壊れモデル", "MeteorCannonBreak", nullptr);
     } else {
-        mBrokenModel = MR::createModelObjMapObjStrongLight("\203\201\203\145\203\111\203\130\203\147\203\211\203\103\203\116\211\363\202\352\203\202\203\146\203\213" /* メテオストライク壊れモデル */, "MeteorStrikeBreak", nullptr);
+        mBrokenModel = MR::createModelObjMapObjStrongLight("メテオストライク壊れモデル", "MeteorStrikeBreak", nullptr);
     }
 
     mBrokenModel->mPosition.set(mPosition);
@@ -249,14 +260,14 @@ void MeteorStrike::initModel() {
     mBrokenModel->makeActorDead();
 }
 
-void MeteorStrike::calcBreakPosture(const TVec3f& rVec, TPos3f* pDst) {
-    TPos3f mtx;
+void MeteorStrike::calcBreakPosture(const Vec3f& rVec, Pos3f* pDst) {
+    Pos3f mtx;
 
     if (pDst == nullptr) {
         pDst = &mtx;
     }
 
-    TVec3f vec;
+    Vec3f vec;
     MR::normalize(rVec, &vec);
     MR::makeMtxUpNoSupportPos(pDst, vec, mPosition);
 
@@ -266,7 +277,7 @@ void MeteorStrike::calcBreakPosture(const TVec3f& rVec, TPos3f* pDst) {
 
     mBrokenModel->mPosition.set(mPosition);
 
-    TVec3f euler;
+    Vec3f euler;
     pDst->getEuler(euler);
     mBrokenModel->mRotation.x = ::toDegree(euler.x);
     mBrokenModel->mRotation.y = ::toDegree(euler.y);
@@ -274,7 +285,7 @@ void MeteorStrike::calcBreakPosture(const TVec3f& rVec, TPos3f* pDst) {
     mBrokenModel->mScale.set(mScale);
 }
 
-void MeteorStrike::emitEffectColumn(const TPos3f& rPos) {
+void MeteorStrike::emitEffectColumn(const Pos3f& rPos) {
     mLavaColumnPos.set(rPos);
     MR::emitEffect(this, "LavaColumn");
 }
@@ -282,15 +293,15 @@ void MeteorStrike::emitEffectColumn(const TPos3f& rPos) {
 void MeteorStrike::startRumble() {
     f32 strongDistMax = mType == MeteorStrikeType_Cannon ? ::cRumbleDistanceCannonL : ::cRumbleDistance;
     f32 mediumDistMax = mType == MeteorStrikeType_Cannon ? FLOAT_MAX : ::cRumbleDistance * 2;
-    MR::startRumbleWithShakeCameraWeak(this, "\213\255" /* 強 */, "\222\206" /* 中 */, strongDistMax, mediumDistMax);
+    MR::startRumbleWithShakeCameraWeak(this, "強", "中", strongDistMax, mediumDistMax);
 }
 
 bool MeteorStrike::isInScreen() const {
-    TVec3f vec2;
-    TVec3f vec(mRailDir * mStepSize);
-    vec2.add(mPosition, vec);
+    Vec3f nextPos;
+    Vec3f step(mRailDir * mStepSize);
+    nextPos.add(mPosition, step);
 
-    return MR::isJudgedToClipFrustum(vec2, 200.0f) == false;
+    return !MR::isJudgedToClipFrustum(nextPos, 200.0f);
 }
 
 void MeteorStrike::exeMove() {
@@ -342,7 +353,7 @@ void MeteorStrike::exeMove() {
             return;
         }
 
-        TPos3f pos;
+        Pos3f pos;
         calcBreakPosture(*MR::getGroundNormal(this), &pos);
         emitEffectColumn(pos);
 
@@ -382,13 +393,16 @@ void MeteorStrike::exeBreak() {
 
         startRumble();
 
-        mBrokenModel->appear();
-        MR::invalidateClipping(mBrokenModel);
-        MR::startBck(mBrokenModel, "Break");
-        MR::startBrk(mBrokenModel, "Break");
+        // The environment kind has no broken model (one set on solid ground just ends).
+        if (mBrokenModel != nullptr) {
+            mBrokenModel->appear();
+            MR::invalidateClipping(mBrokenModel);
+            MR::startBck(mBrokenModel, "Break");
+            MR::startBrk(mBrokenModel, "Break");
+        }
     }
 
-    if (MR::isBckStopped(mBrokenModel)) {
+    if (mBrokenModel == nullptr || MR::isBckStopped(mBrokenModel)) {
         kill();
     }
 }

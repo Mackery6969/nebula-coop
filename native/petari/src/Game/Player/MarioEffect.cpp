@@ -19,10 +19,10 @@
 #include "Game/Util/MtxUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/System/NebulaHost.hpp"
-#include <JSystem/JParticle/JPAEmitter.hpp>
-#include <JSystem/JParticle/JPAMath.hpp>
+#include "Game/Particle/EmitterCore.hpp"
+#include "Game/Particle/ParticleMath.hpp"
 #include <cstdio>
-#include <cstring>
+#include "Game/Util/StringUtil.hpp"
 
 // A table's flags, written 0xAABBCCDD: AA first. By value, on any machine.
 struct EffectFlagWord {
@@ -63,18 +63,17 @@ struct SmokeEffectEntry {
     u32 mHash;
     MultiEmitter* mEmitter;
     u8 mMaterial;
-    u8 _21[3];
 };
 
 MaterialEffectEntry cMaterialEffectTable[] = {
-    {"\221\256\220\253\220\113\203\150\203\215\203\142\203\166" /* 属性尻ドロップ */,
+    {"属性尻ドロップ",
      0x00000000,
      {"HipDropSmoke", "HipDropWater", "HipDropFlower", "HipDropSand", "HipDropSnow", "MudCircle", "HoneyCircle"},
      nullptr,
      nullptr},
-    {"\221\256\220\253\203\156\203\140\225\227" /* 属性ハチ風 */, 0x03000000, {"Hovering", "HoveringWater", "Hovering", "Hovering", "Hovering", "Hovering", "Hovering"}, nullptr, nullptr},
-    {"\221\256\220\253\203\130\203\163\203\223" /* 属性スピン */, 0x00000000, {nullptr, "WaterSpin", "FlowerSpin", "SandSpin", "SnowSpin", "MudCircle", "HoneyCircle"}, nullptr, nullptr},
-    {"\221\256\220\253\203\130\203\145\201\133\203\127\203\103\203\223" /* 属性ステージイン */,
+    {"属性ハチ風", 0x03000000, {"Hovering", "HoveringWater", "Hovering", "Hovering", "Hovering", "Hovering", "Hovering"}, nullptr, nullptr},
+    {"属性スピン", 0x00000000, {nullptr, "WaterSpin", "FlowerSpin", "SandSpin", "SnowSpin", "MudCircle", "HoneyCircle"}, nullptr, nullptr},
+    {"属性ステージイン",
      0x00000000,
      {"StageStartGroundSmoke", nullptr, nullptr, "StageStartGroundSand", nullptr, nullptr, nullptr},
      nullptr,
@@ -85,96 +84,94 @@ namespace {
 
     void addMarioEffectAtJoint(LiveActor* pActor, const char* pEffectName, const char* pJointName, const char* pGroupName) {
         MtxPtr mtx = pJointName != nullptr ? MR::getJointMtx(pActor, pJointName) : pActor->getBaseMtx();
-        pActor->mEffectKeeper->registerEffect(pEffectName, mtx, &pActor->mScale, pGroupName, pJointName);
+        pActor->mEffectKeeper->registerEffect(pEffectName, mtx, &pActor->mScale, pGroupName);
     }
 
 };  // namespace
 
-void MarioEffect::execute(JPABaseEmitter* pEmitter) {
-    s32 idx = 0;
-    for (s32 i = 0; i < 256; i++) {
-        if (_54[i]._68 == pEmitter) {
-            break;
+void MarioEffect::execute(EmitterCore* pEmitter) {
+    for (s32 i = 0; i < mFollowCount; i++) {
+        if (mFollows[i].mEmitter == pEmitter) {
+            updateFollowMtx(&mFollows[i]);
+            return;
         }
-
-        idx++;
     }
-
-    updateFollowMtx(&_54[idx]);
 }
 
-JPABaseEmitter* MarioEffect::addRequest(const char* pEffectName, MtxPtr pMtx) {
-    u32 requestIndex = 0;
-    for (; requestIndex < 256; requestIndex++) {
-        if (_54[requestIndex]._68 == nullptr) {
-            break;
-        }
-    }
+bool MarioEffect::isFollowing(const MovingFollowMtx& rFollow) const {
+    return rFollow.mEmitter != nullptr && rFollow.mEmitter->getEmitterCallBackPtr() == static_cast< const EmitterCallBack* >(this) &&
+           !rFollow.mEmitter->checkStatus(0x200);
+}
 
-    if (requestIndex == 256) {
-        requestIndex = 0;
-        for (s32 i = 1; i < 256; i++) {
-            if (_54[i]._0 > _54[requestIndex]._0) {
+EmitterCore* MarioEffect::addRequest(const char* pEffectName, MtxPtr pMtx) {
+    s32 requestIndex = mFollowCount;
+    for (s32 i = 0; i < mFollowCount; i++) {
+        if (!isFollowing(mFollows[i])) {
+            mFollows[i].mEmitter = nullptr;
+            if (requestIndex == mFollowCount) {
                 requestIndex = i;
             }
         }
     }
+    if (requestIndex == mFollowCount) {
+        mFollows.at(mFollowCount++).mEmitter = nullptr;
+    }
 
-    MovingFollowMtx* target = &_54[requestIndex];
+    MovingFollowMtx* target = &mFollows[requestIndex];
 
     MultiEmitter* emitter = MR::emitEffectWithEmitterCallBack(mActor, pEffectName, this);
     if (emitter->getParticleEmitter(0) == nullptr) {
         return nullptr;
     }
 
-    JPABaseEmitter* baseEmitter = emitter->getParticleEmitter(0)->mEmitter;
-    target->_68 = baseEmitter;
+    EmitterCore* baseEmitter = emitter->getParticleEmitter(0)->mEmitter;
+    target->mEmitter = baseEmitter;
 
-    for (s32 i = 0; i < 256; i++) {
-        if (requestIndex != i && _54[i]._68 == target->_68) {
-            _54[i]._68 = nullptr;
+    for (s32 i = 0; i < mFollowCount; i++) {
+        if (requestIndex != i && mFollows[i].mEmitter == target->mEmitter) {
+            mFollows[i].mEmitter = nullptr;
         }
     }
 
-    target->_0 = 0;
-    target->_64 = pMtx;
-    return target->_68;
+    target->mFrame = 0;
+    target->mBaseMtx = pMtx;
+    return target->mEmitter;
 }
 
 void MarioEffect::updateFollowMtx(MovingFollowMtx* pFollow) {
-    if (pFollow->_68->isEnableDeleteEmitter()) {
-        pFollow->_68 = nullptr;
+    if (pFollow->mEmitter->isEnableDeleteEmitter()) {
+        pFollow->mEmitter = nullptr;
         return;
     }
 
-    if (pFollow->_0 == 0) {
+    if (pFollow->mFrame == 0) {
         Mtx temp;
-        NebulaMtxCopy(_24, temp);
+        NebulaMtxCopy(mCommonEffectMtx, temp);
 
-        const TVec3f& rTrans = getTrans();
+        const Vec3f& rTrans = getTrans();
         MR::setMtxTrans(temp, rTrans.x, rTrans.y, rTrans.z);
 
-        if (pFollow->_64 == nullptr) {
-            pFollow->_64 = reinterpret_cast< MtxPtr >(getPlayer()->getMoveBaseMtx());
-            if (pFollow->_64 == nullptr) {
+        if (pFollow->mBaseMtx == nullptr) {
+            pFollow->mBaseMtx = reinterpret_cast< MtxPtr >(getPlayer()->getMoveBaseMtx());
+            if (pFollow->mBaseMtx == nullptr) {
                 return;
             }
         }
 
         Mtx inv;
-        NebulaMtxInverse(pFollow->_64, inv);
-        MR::multMtx(pFollow->_4, temp, inv);
-        NebulaMtxCopy(temp, pFollow->_34);
+        NebulaMtxInverse(pFollow->mBaseMtx, inv);
+        MR::multMtx(pFollow->mLocalMtx, temp, inv);
+        NebulaMtxCopy(temp, pFollow->mWorldMtx);
     } else {
-        MR::multMtx(pFollow->_34, pFollow->_4, pFollow->_64);
+        MR::multMtx(pFollow->mWorldMtx, pFollow->mLocalMtx, pFollow->mBaseMtx);
     }
 
-    pFollow->_68->setGlobalRTMatrix(pFollow->_34);
+    pFollow->mEmitter->setGlobalRTMatrix(pFollow->mWorldMtx);
 
-    pFollow->_0++;
-    if (pFollow->_0 == 2) {
-        pFollow->_68->playCalcEmitter();
-        pFollow->_68->becomeInvalidEmitter();
+    pFollow->mFrame++;
+    if (pFollow->mFrame == 2) {
+        pFollow->mEmitter->playCalcEmitter();
+        pFollow->mEmitter->becomeInvalidEmitter();
     }
 }
 
@@ -200,56 +197,53 @@ void MarioActor::initMaterialEffect() {
         entry++;
     }
 
-    _BA4 = new HashSortTable(entryCount);
-    entry = cMaterialEffectTable;
-    for (int i = 0; i < entryCount; i++) {
-        _BA4->add(cMaterialEffectTable[i].mName, reinterpret_cast< HashSortValue >(&cMaterialEffectTable[i]), false);
+    mMaterialEffects.reset(entryCount);
+    for (u32 i = 0; i < entryCount; i++) {
+        mMaterialEffects.add(cMaterialEffectTable[i].mName, i);
     }
-
-    _BA4->sort();
 }
 
 s32 MarioActor::getFloorMaterialIndex(u32 flags) const {
     s32 materialIndex = 0;
 
-    if (mMarioEffect->_10 == 0) {
+    if (mMarioEffect->mCubeArg1 == 0) {
         return 2;
     }
 
-    if (_3A8 != 0) {
+    if (mFloorMaterialHold != 0) {
         return 1;
     }
 
-    s32 floor = mMario->_960;
+    s32 floor = mMario->mFloorCode;
     if ((floor == 0x0D || floor == 0x1E) && !mMario->isCurrentFloorSand()) {
-        floor = mMario->_962;
+        floor = mMario->mPolygonFloorCode;
     }
 
     if (mMario->isStatusActive(MarioStatus_Wall)) {
-        if (mMario->mMovementStates._8) {
-            floor = mMario->_964[0];
-        } else if (mMario->mMovementStates._19) {
-            floor = mMario->_964[1];
-        } else if (mMario->mMovementStates._1A) {
-            floor = mMario->_964[2];
+        if (mMario->mMovementStates.frontWall) {
+            floor = mMario->mWallFloorCodes[0];
+        } else if (mMario->mMovementStates.backWall) {
+            floor = mMario->mWallFloorCodes[1];
+        } else if (mMario->mMovementStates.sideWall) {
+            floor = mMario->mWallFloorCodes[2];
         }
     }
 
-    if (mMario->mDrawStates.mIsUnderwater) {
+    if (mMario->mDrawStates.inWater) {
         floor = 0x17;
     }
 
-    if (mMario->mDrawStates._13) {
+    if (mMario->mDrawStates.inShallowWater) {
         floor = 0x17;
     }
 
     if (flags & 0x2) {
-        if (mMario->mDrawStates._1D) {
+        if (mMario->mDrawStates.onWaterFloor) {
             floor = 0x17;
         }
     }
 
-    if (mMario->_2D0 != 0.0f) {
+    if (mMario->mWalkingResist != 0.0f) {
         floor = 0x1A;
     }
 
@@ -276,14 +270,14 @@ s32 MarioActor::getFloorMaterialIndex(u32 flags) const {
         break;
     case 0x20:
         materialIndex = 5;
-        if (strcmp(MR::getSoundCodeString(mMario->_45C), "Honey") == 0) {
+        if (MR::getSoundCodeIndex(mMario->mShadowPolygon) == CollisionSoundCode_Honey) {
             materialIndex = 6;
         }
 
         break;
     case 0x1B:
     case 0x1C:
-        if (strcmp(MR::getSoundCodeString(mMario->_45C), "Sand") == 0) {
+        if (MR::getSoundCodeIndex(mMario->mShadowPolygon) == CollisionSoundCode_Sand) {
             materialIndex = 3;
         }
 
@@ -292,13 +286,13 @@ s32 MarioActor::getFloorMaterialIndex(u32 flags) const {
         break;
     }
 
-    if (mMario->mDrawStates.mIsUnderwater || mMario->mDrawStates._13) {
+    if (mMario->mDrawStates.inWater || mMario->mDrawStates.inShallowWater) {
         materialIndex = 1;
     }
 
-    if (!mMario->mMovementStates._1) {
-        if (mMario->mSwim->_1B2 != 0) {
-            if (mMario->mSwim->_1B8 < 400.0f) {
+    if (!mMario->mMovementStates.onGround) {
+        if (mMario->mSwim->mDeepWater != 0) {
+            if (mMario->mSwim->mSurfaceDepth < 400.0f) {
                 materialIndex = 1;
             }
         }
@@ -308,8 +302,11 @@ s32 MarioActor::getFloorMaterialIndex(u32 flags) const {
 }
 
 MultiEmitter* MarioActor::playMaterialEffect(const char* pName) {
-    MaterialEffectEntry* entry = nullptr;
-    _BA4->search(pName, reinterpret_cast< HashSortValue* >(&entry));
+    const u32 index = mMaterialEffects.find(pName);
+    if (index == MR::NameIndex::cNoValue) {
+        return nullptr;
+    }
+    MaterialEffectEntry* entry = &cMaterialEffectTable[index];
 
     const s32 materialIndex = getFloorMaterialIndex(entry->mFlag.byte0());
     if (materialIndex == -1) {
@@ -341,9 +338,9 @@ MultiEmitter* MarioActor::playMaterialEffect(const char* pName) {
 
     if (emitter != nullptr) {
         MarioEffect* marioEffect = mMarioEffect;
-        if (marioEffect->_18) {
-            emitter->setGlobalPrmColor(marioEffect->_1C.r, marioEffect->_1C.g, marioEffect->_1C.b, -1);
-            emitter->setGlobalEnvColor(marioEffect->_20.r, marioEffect->_20.g, marioEffect->_20.b, -1);
+        if (marioEffect->mCubeColorOn) {
+            emitter->setGlobalPrmColor(marioEffect->mCubePrmColor.r, marioEffect->mCubePrmColor.g, marioEffect->mCubePrmColor.b, -1);
+            emitter->setGlobalEnvColor(marioEffect->mCubeEnvColor.r, marioEffect->mCubeEnvColor.g, marioEffect->mCubeEnvColor.b, -1);
         } else {
             emitter->setGlobalPrmColor(0xFF, 0xFF, 0xFF, -1);
             emitter->setGlobalEnvColor(0xFF, 0xFF, 0xFF, -1);
@@ -354,8 +351,11 @@ MultiEmitter* MarioActor::playMaterialEffect(const char* pName) {
 }
 
 void MarioActor::stopMaterialEffect(const char* pName) {
-    MaterialEffectEntry* entry = nullptr;
-    _BA4->search(pName, reinterpret_cast< HashSortValue* >(&entry));
+    const u32 index = mMaterialEffects.find(pName);
+    if (index == MR::NameIndex::cNoValue) {
+        return;
+    }
+    MaterialEffectEntry* entry = &cMaterialEffectTable[index];
 
     if (entry->mCurrent != nullptr) {
         MR::deleteEffect(this, entry->mCurrent);
@@ -364,32 +364,40 @@ void MarioActor::stopMaterialEffect(const char* pName) {
     }
 }
 
-SmokeEffectEntry cSmokeTable[] = {{"\213\244\222\312\222\205\222\156\225\201\222\312" /* 共通着地普通 */, 0x08000000, 1.0f, 1.0f, 0x00000400, 0, 0, 0, nullptr, 0, {0, 0, 0}},
-                                  {"\213\244\222\312\222\205\222\156\221\345" /* 共通着地大 */, 0x03000000, 1.5f, 1.0f, 0x00000400, 0, 0, 0, nullptr, 0, {0, 0, 0}},
-                                  {"\213\244\222\312\225\307\203\127\203\203\203\223\203\166" /* 共通壁ジャンプ */, 0x03000000, 1.0f, 1.0f, 0x00000300, 0, 0, 0, nullptr, 0, {0, 0, 0}},
-                                  {"\213\244\222\312\215\273\211\214\203\214\203\170\203\213" /* 共通砂煙レベル */, 0x07000000, 0.65f, 1.0f, 0x00000000, 0, 0, 0, nullptr, 0, {0, 0, 0}},
-                                  {"\213\244\222\312\225\307\216\350\216\103\202\350" /* 共通壁手擦り */, 0x01000000, 0.35f, 1.0f, 0x02010000, 0, 0, 0, nullptr, 0, {0, 0, 0}},
-                                  {"\213\244\222\312\225\307\217\343\217\270" /* 共通壁上昇 */, 0x01000000, 1.0f, 1.0f, 0x00000200, 0, 0, 0, nullptr, 0, {0, 0, 0}},
-                                  {"\213\244\222\312\203\130\203\212\203\142\203\166\215\342" /* 共通スリップ坂 */, 0x02000000, 0.35f, 1.0f, 0x00010000, 2, 0, 0, nullptr, 0, {0, 0, 0}},
-                                  {"\213\244\222\312\203\130\203\212\203\142\203\166\213\363\223\135" /* 共通スリップ空転 */, 0x00000000, 1.0f, 1.0f, 0x00000000, 0, 0, 0, nullptr, 0, {0, 0, 0}},
-                                  {"\213\244\222\312\203\130\203\212\203\142\203\166\215\342\220\247\223\256" /* 共通スリップ坂制動 */, 0x02000000, 0.5f, 1.0f, 0x00000000, 2, 0, 0, nullptr, 0, {0, 0, 0}},
-                                  {"\213\244\222\312\225\307\203\161\203\142\203\147\222\205\222\156" /* 共通壁ヒット着地 */, 0x03000000, 1.0f, 1.0f, 0x00000400, 0, 0, 0, nullptr, 0, {0, 0, 0}},
-                                  {"\213\244\222\312\203\137\203\201\201\133\203\127\222\205\222\156" /* 共通ダメージ着地 */, 0x03000000, 1.0f, 1.0f, 0x00000400, 0, 0, 0, nullptr, 0, {0, 0, 0}},
-                                  {"\213\244\222\312\222\156\217\343\203\130\203\163\203\223" /* 共通地上スピン */, 0x03000000, 0.9f, 1.0f, 0x00000400, 0, 0, 0, nullptr, 0, {0, 0, 0}},
-                                  {"\213\244\222\312\203\165\203\214\201\133\203\114" /* 共通ブレーキ */, 0x02000000, 0.65f, 1.0f, 0x00010000, 15, 0, 0, nullptr, 0, {0, 0, 0}},
-                                  {"\213\244\222\312\203\156\203\103\203\127\203\203\203\223\203\166" /* 共通ハイジャンプ */, 0x02000000, 0.65f, 1.0f, 0x00010000, 6, 0, 0, nullptr, 0, {0, 0, 0}},
-                                  {"\213\244\222\312\203\165\203\211\203\142\203\116\203\172\201\133\203\213" /* 共通ブラックホール */, 0x01000000, 0.65f, 1.0f, 0x03030000, 0, 0, 0, nullptr, 0, {0, 0, 0}},
-                                  {"\213\244\222\312\210\370\202\253\226\337\202\265\222\205\222\156" /* 共通引き戻し着地 */, 0x03000000, 1.2f, 1.0f, 0x00000400, 0, 0, 0, nullptr, 0, {0, 0, 0}},
-                                  {"\213\244\222\312\220\205\222\352\220\332\220\107" /* 共通水底接触 */, 0x01000000, 6.0f, 0.5f, 0x00000400, 0, 0, 0, nullptr, 0, {0, 0, 0}},
-                                  {"\213\244\222\312\222\265\226\364" /* 共通跳躍 */, 0x08000000, 1.0f, 1.0f, 0x00000C00, 0, 0, 0, nullptr, 0, {0, 0, 0}},
-                                  {"\213\244\222\312\202\320\202\261\202\244\202\253\211\137" /* 共通ひこうき雲 */, 0x03000000, 0.3f, 0.2f, 0x00010000, 0, 0, 0, nullptr, 0, {0, 0, 0}},
-                                  {"\213\244\222\312\202\320\202\261\202\244\202\253\203\165\201\133\203\130\203\147" /* 共通ひこうきブースト */, 0x00000000, 2.0f, 1.0f, 0x00000000, 0, 0, 0, nullptr, 0, {0, 0, 0}},
-                                  {nullptr, 0, 0.0f, 0.0f, 0, 0, 0, 0, nullptr, 0, {0, 0, 0}}};
+SmokeEffectEntry cSmokeTable[] = {{"共通着地普通", 0x08000000, 1.0f, 1.0f, 0x00000400, 0, 0, 0, nullptr, 0},
+                                  {"共通着地大", 0x03000000, 1.5f, 1.0f, 0x00000400, 0, 0, 0, nullptr, 0},
+                                  {"共通壁ジャンプ", 0x03000000, 1.0f, 1.0f, 0x00000300, 0, 0, 0, nullptr, 0},
+                                  {"共通砂煙レベル", 0x07000000, 0.65f, 1.0f, 0x00000000, 0, 0, 0, nullptr, 0},
+                                  {"共通壁手擦り", 0x01000000, 0.35f, 1.0f, 0x02010000, 0, 0, 0, nullptr, 0},
+                                  {"共通壁上昇", 0x01000000, 1.0f, 1.0f, 0x00000200, 0, 0, 0, nullptr, 0},
+                                  {"共通スリップ坂", 0x02000000, 0.35f, 1.0f, 0x00010000, 2, 0, 0, nullptr, 0},
+                                  {"共通スリップ空転", 0x00000000, 1.0f, 1.0f, 0x00000000, 0, 0, 0, nullptr, 0},
+                                  {"共通スリップ坂制動", 0x02000000, 0.5f, 1.0f, 0x00000000, 2, 0, 0, nullptr, 0},
+                                  {"共通壁ヒット着地", 0x03000000, 1.0f, 1.0f, 0x00000400, 0, 0, 0, nullptr, 0},
+                                  {"共通ダメージ着地", 0x03000000, 1.0f, 1.0f, 0x00000400, 0, 0, 0, nullptr, 0},
+                                  {"共通地上スピン", 0x03000000, 0.9f, 1.0f, 0x00000400, 0, 0, 0, nullptr, 0},
+                                  {"共通ブレーキ", 0x02000000, 0.65f, 1.0f, 0x00010000, 15, 0, 0, nullptr, 0},
+                                  {"共通ハイジャンプ", 0x02000000, 0.65f, 1.0f, 0x00010000, 6, 0, 0, nullptr, 0},
+                                  {"共通ブラックホール", 0x01000000, 0.65f, 1.0f, 0x03030000, 0, 0, 0, nullptr, 0},
+                                  {"共通引き戻し着地", 0x03000000, 1.2f, 1.0f, 0x00000400, 0, 0, 0, nullptr, 0},
+                                  {"共通水底接触", 0x01000000, 6.0f, 0.5f, 0x00000400, 0, 0, 0, nullptr, 0},
+                                  {"共通跳躍", 0x08000000, 1.0f, 1.0f, 0x00000C00, 0, 0, 0, nullptr, 0},
+                                  {"共通ひこうき雲", 0x03000000, 0.3f, 0.2f, 0x00010000, 0, 0, 0, nullptr, 0},
+                                  {"共通ひこうきブースト", 0x00000000, 2.0f, 1.0f, 0x00000000, 0, 0, 0, nullptr, 0},
+                                  {nullptr, 0, 0.0f, 0.0f, 0, 0, 0, 0, nullptr, 0}};
 
 void MarioActor::initCommonEffect() {
-    _B9C = 0;
-    _B9E = 0;
-    _BA0 = new SmokeEffectEntry*[8];
+    mCommonEffectCount = 0;
+    mSmokeEntryCount = 0;
+
+    // The list holds the table's entries of types 2 and 5: the ones that time out.
+    s32 timedNum = 0;
+    for (const SmokeEffectEntry* pEntry = cSmokeTable; pEntry->mName != nullptr; pEntry++) {
+        if (pEntry->mType.byte0() == 2 || pEntry->mType.byte0() == 5) {
+            timedNum++;
+        }
+    }
+    mSmokeEntries = new SmokeEffectEntry*[timedNum];
 
     SmokeEffectEntry* entry = cSmokeTable;
     while (entry->mName != nullptr) {
@@ -430,10 +438,10 @@ void MarioActor::initCommonEffect() {
             break;
         }
 
-        char name[0x80];
+        // A material's effect is named by the entry's name from its materialIndex'th byte: the table's strings, which
+        // the keeper holds by pointer.
+        const char* const name = entry->mName;
         for (u32 materialIndex = 0; materialIndex < 7; materialIndex++) {
-            nebula_sprintf(name, "%s", entry->mName);
-
             const u8 flag2 = entry->mFlags.byte2();
             if ((flag2 & 0x8) && materialIndex != 1) {
                 continue;
@@ -474,8 +482,8 @@ void MarioActor::initCommonEffect() {
                     const char* effectName = effectList[variant];
                     const char* hostName = name + materialIndex;
                     mEffectKeeper->registerEffectWithoutSRT(effectName, hostName);
-                    const TVec3f* rot = &mRotation;
-                    const TVec3f* pos = &mPosition;
+                    const Vec3f* rot = &mRotation;
+                    const Vec3f* pos = &mPosition;
                     MR::setEffectHostSRT(this, hostName != nullptr ? hostName : effectName, pos, rot, nullptr);
                     break;
                 }
@@ -507,8 +515,8 @@ void MarioActor::initCommonEffect() {
         switch (entry->mType.byte0()) {
         case 2:
         case 5: {
-            _BA0[_B9E] = entry;
-            _B9E++;
+            mSmokeEntries[mSmokeEntryCount] = entry;
+            mSmokeEntryCount++;
             break;
         }
 
@@ -521,7 +529,7 @@ void MarioActor::initCommonEffect() {
         entry->mEmitter = nullptr;
         entry->mMaterial = 0;
         entry++;
-        _B9C++;
+        mCommonEffectCount++;
     }
 }
 
@@ -531,7 +539,7 @@ MultiEmitter* MarioActor::playCommonEffect(const char* pName) {
     }
 
     const u32 hash = MR::getHashCode(pName);
-    for (u32 i = 0; i < _B9C; i++) {
+    for (u32 i = 0; i < mCommonEffectCount; i++) {
         SmokeEffectEntry* entry = &cSmokeTable[i];
         if (entry->mHash == hash) {
             MultiEmitter* emitter = nullptr;
@@ -589,17 +597,17 @@ MultiEmitter* MarioActor::playCommonEffect(const char* pName) {
 
                 if (needsFollow) {
                     const Triangle* tri = mMario->getGroundPolygon();
-                    JPABaseEmitter* baseEmitter = mMarioEffect->addRequest(pName + materialIndex, tri->getBaseMtx()->toMtxPtr());
+                    EmitterCore* baseEmitter = mMarioEffect->addRequest(pName + materialIndex, tri->getBaseMtx()->toMtxPtr());
 
                     if (baseEmitter != nullptr) {
-                        baseEmitter->setGlobalScale(TVec3f(entry->mScale, entry->mScale, entry->mScale));
+                        baseEmitter->setGlobalScale(Vec3f(entry->mScale, entry->mScale, entry->mScale));
                     }
                 } else {
                     if (needsSRT) {
                         const u8 hostFlag = entry->mFlags.byte1();
-                        const TVec3f* hostPos = nullptr;
-                        const TVec3f* hostRot = nullptr;
-                        const TVec3f* hostScale = nullptr;
+                        const Vec3f* hostPos = nullptr;
+                        const Vec3f* hostRot = nullptr;
+                        const Vec3f* hostScale = nullptr;
 
                         if (hostFlag & 0x1) {
                             hostPos = &mPosition;
@@ -631,10 +639,10 @@ MultiEmitter* MarioActor::playCommonEffect(const char* pName) {
             }
 
             if (entry->mFlags.byte2() & 0x1) {
-                TVec3f dir(mMario->getWallNorm());
-                TPos3f mtx;
-                TVec3f rot;
-                MR::makeMtxUpNoSupportPos(&mtx, dir, TVec3f(0.0f, 0.0f, 0.0f));
+                Vec3f dir(mMario->getWallNorm());
+                Pos3f mtx;
+                Vec3f rot;
+                MR::makeMtxUpNoSupportPos(&mtx, dir, Vec3f(0.0f, 0.0f, 0.0f));
                 MR::makeRTFromMtxPtr(nullptr, &rot, mtx.toMtxPtr(), true);
 
                 if (emitter != nullptr) {
@@ -645,12 +653,12 @@ MultiEmitter* MarioActor::playCommonEffect(const char* pName) {
                     emitter->setGlobalTranslation(mPosition, -1);
                 }
             } else {
-                TVec3f dir(mMario->_368);
-                TPos3f mtx;
-                TVec3f rot;
-                MR::makeMtxUpNoSupportPos(&mtx, dir, TVec3f(0.0f, 0.0f, 0.0f));
+                Vec3f dir(mMario->mGroundNorm);
+                Pos3f mtx;
+                Vec3f rot;
+                MR::makeMtxUpNoSupportPos(&mtx, dir, Vec3f(0.0f, 0.0f, 0.0f));
                 MR::makeRTFromMtxPtr(nullptr, &rot, mtx.toMtxPtr(), true);
-                NebulaMtxCopy(mtx.toMtxPtr(), mMarioEffect->_24.toMtxPtr());
+                NebulaMtxCopy(mtx.toMtxPtr(), mMarioEffect->mCommonEffectMtx.toMtxPtr());
 
                 if (emitter != nullptr) {
                     emitter->setGlobalRotationDegree(rot, -1);
@@ -662,7 +670,7 @@ MultiEmitter* MarioActor::playCommonEffect(const char* pName) {
             }
 
             if (entry->mFlags.byte2() & 0x2) {
-                TVec3f trans(mMario->_4E8);
+                Vec3f trans(mMario->mFrontWallPos);
                 if (emitter != nullptr) {
                     emitter->setGlobalTranslation(trans, -1);
                 }
@@ -694,9 +702,9 @@ MultiEmitter* MarioActor::playCommonEffect(const char* pName) {
 
             if (emitter != nullptr) {
                 marioEffect = mMarioEffect;
-                if (marioEffect->_18) {
-                    emitter->setGlobalPrmColor(marioEffect->_1C.r, marioEffect->_1C.g, marioEffect->_1C.b, -1);
-                    emitter->setGlobalEnvColor(marioEffect->_20.r, marioEffect->_20.g, marioEffect->_20.b, -1);
+                if (marioEffect->mCubeColorOn) {
+                    emitter->setGlobalPrmColor(marioEffect->mCubePrmColor.r, marioEffect->mCubePrmColor.g, marioEffect->mCubePrmColor.b, -1);
+                    emitter->setGlobalEnvColor(marioEffect->mCubeEnvColor.r, marioEffect->mCubeEnvColor.g, marioEffect->mCubeEnvColor.b, -1);
                 } else {
                     emitter->setGlobalPrmColor(0xFF, 0xFF, 0xFF, -1);
                     emitter->setGlobalEnvColor(0xFF, 0xFF, 0xFF, -1);
@@ -715,219 +723,206 @@ MultiEmitter* MarioActor::playCommonEffect(const char* pName) {
 }
 
 void MarioActor::initEffect() {
-    _B98 = 0;
-    initEffectKeeper(0xB8, "Mario", true);
+    mEffectFlags = EffectFlags();
+    initEffectKeeper(0xB8, "Mario");
     initCommonEffect();
     initMaterialEffect();
 
-    MR::setEffectName(this, "SlipUp", "\203\130\203\212\203\142\203\166\203\101\203\142\203\166" /* スリップアップ */);
-    MR::setEffectName(this, "WallSpark", "\225\307\203\130\203\160\201\133\203\116" /* 壁スパーク */);
-    MR::setEffectName(this, "Damage", "\203\137\203\201\201\133\203\127" /* ダメージ */);
-    MR::setEffectName(this, "StepOn", "\202\323\202\335\202\302\202\324\202\265" /* ふみつぶし */);
-    MR::setEffectName(this, "SuperSpinDriverEnd", "\203\130\201\133\203\160\201\133\203\130\203\163\203\223\203\150\203\211\203\103\203\157\217\111\227\271" /* スーパースピンドライバ終了 */);
-    MR::setEffectName(this, "BringBubble", "\210\370\202\253\226\337\202\265\226\101" /* 引き戻し泡 */);
-    MR::setEffectName(this, "BringBubbleBreak", "\210\370\202\253\226\337\202\265\226\101\224\152\227\364" /* 引き戻し泡破裂 */);
-    MR::setEffectName(this, "WaterSplashRight", "\220\205\202\315\202\313\211\105" /* 水はね右 */);
-    MR::setEffectName(this, "WaterSplashLeft", "\220\205\202\315\202\313\215\266" /* 水はね左 */);
-    MR::setEffectName(this, "WaterSplashSRight", "\220\205\202\315\202\313\211\105\216\343" /* 水はね右弱 */);
-    MR::setEffectName(this, "WaterSplashSLeft", "\220\205\202\315\202\313\215\266\216\343" /* 水はね左弱 */);
-    MR::setEffectName(this, "SpinLightBurst", "\203\130\203\163\203\223\203\211\203\103\203\147\217\301\213\216" /* スピンライト消去 */);
-    MR::setEffectName(this, "ElectricDamage", "\203\162\203\212\203\162\203\212" /* ビリビリ */);
-    MR::setEffectName(this, "FireDamageSmoke", "\211\212\203\137\203\201\201\133\203\127\211\214" /* 炎ダメージ煙 */);
-    MR::setEffectName(this, "BlueFireDamageSmoke", "\211\212\203\137\203\201\201\133\203\127\220\302\211\214" /* 炎ダメージ青煙 */);
-    MR::setEffectName(this, "SpinLight", "\203\130\203\163\203\223\203\211\203\103\203\147" /* スピンライト */);
-    MR::setEffectName(this, "IceMarioSpinLight", "\203\101\203\103\203\130\203\130\203\163\203\223" /* アイススピン */);
-    MR::setEffectName(this, "FireMarioSpinLight", "\203\164\203\100\203\103\203\101\203\130\203\163\203\223" /* ファイアスピン */);
-    MR::setEffectName(this, "BeeMarioSpinLight", "\203\156\203\140\203\130\203\163\203\223" /* ハチスピン */);
-    MR::setEffectName(this, "BeeLuigiSpinLight", "\203\156\203\140\203\213\203\103\201\133\203\127\203\130\203\163\203\223" /* ハチルイージスピン */);
-    MR::setEffectName(this, "Sweat", "\202\242\202\242\212\276" /* いい汗 */);
-    MR::setEffectName(this, "CarryStartShort", "\202\320\202\353\202\242\203\116\203\103\203\142\203\116" /* ひろいクイック */);
-    MR::setEffectName(this, "AirRecover", "\216\137\221\146\211\361\225\234" /* 酸素回復 */);
-    MR::setEffectName(this, "Invincible", "\226\263\223\107\222\206" /* 無敵中 */);
-    MR::setEffectHostSRT(this, "\226\263\223\107\222\206" /* 無敵中 */, &mPosition, nullptr, nullptr);
-    MR::setEffectName(this, "Ice", "\203\101\203\103\203\130\222\206" /* アイス中 */);
-    MR::setEffectHostSRT(this, "\203\101\203\103\203\130\222\206" /* アイス中 */, &mPosition, nullptr, nullptr);
-    MR::setEffectName(this, "FireBallThrow", "\203\164\203\100\203\103\203\101\203\173\201\133\203\213\223\212\202\260" /* ファイアボール投げ */);
-    MR::setEffectName(this, "Throw", "\202\261\202\244\202\347\223\212\202\260" /* こうら投げ */);
-    MR::setEffectName(this, "DieBuryBody", "\215\273\226\204\202\334\202\350\221\314" /* 砂埋まり体 */);
-    MR::setEffectName(this, "DieBuryHand", "\215\273\226\204\202\334\202\350\216\350" /* 砂埋まり手 */);
-    MR::setEffectName(this, "DieDeathMudBody", "\223\104\226\204\202\334\202\350\221\314" /* 泥埋まり体 */);
-    MR::setEffectName(this, "DieDeathMudHand", "\223\104\226\204\202\334\202\350\216\350" /* 泥埋まり手 */);
-    MR::setEffectName(this, "SpinLightConcentrate", "\203\130\203\163\203\223\213\226\211\302" /* スピン許可 */);
-    MR::setEffectName(this, "FooMarioHandGlowL", "\203\164\201\133\203\175\203\212\203\111\203\117\203\215\201\133\215\266" /* フーマリオグロー左 */);
-    MR::setEffectName(this, "FooMarioHandGlowR", "\203\164\201\133\203\175\203\212\203\111\203\117\203\215\201\133\211\105" /* フーマリオグロー右 */);
-    MR::setEffectName(this, "FooMarioBrakeLampL", "\203\164\201\133\203\175\203\212\203\111\203\165\203\214\201\133\203\114\215\266" /* フーマリオブレーキ左 */);
-    MR::setEffectName(this, "FooMarioBrakeLampR", "\203\164\201\133\203\175\203\212\203\111\203\165\203\214\201\133\203\114\211\105" /* フーマリオブレーキ右 */);
-    MR::setEffectName(this, "FooMarioEndL", "\203\164\201\133\203\175\203\212\203\111\211\360\217\234\215\266" /* フーマリオ解除左 */);
-    MR::setEffectName(this, "FooMarioEndR", "\203\164\201\133\203\175\203\212\203\111\211\360\217\234\211\105" /* フーマリオ解除右 */);
-    MR::setEffectName(this, "WallHit", "\225\307\203\161\203\142\203\147" /* 壁ヒット */);
-    MR::setEffectName(this, "BarrierBound", "\214\213\212\105\203\161\203\142\203\147" /* 結界ヒット */);
-    MR::setEffectName(this, "WaterBound", "\220\205\225\307\203\161\203\142\203\147" /* 水壁ヒット */);
-    MR::setEffectName(this, "IceWallJump", "\225\130\225\307\203\127\203\203\203\223\203\166" /* 氷壁ジャンプ */);
-    MR::setEffectHostSRT(this, "\225\130\225\307\203\127\203\203\203\223\203\166" /* 氷壁ジャンプ */, nullptr, nullptr, nullptr);
-    MR::setEffectName(this, "CeilingCrash", "\223\126\210\344\203\161\203\142\203\147" /* 天井ヒット */);
-    MR::setEffectName(this, "Coin", "\203\122\203\103\203\223" /* コイン */);
-    MR::setEffectName(this, "PunchHit", "\203\160\203\223\203\140\203\161\203\142\203\147" /* パンチヒット */);
-    MR::setEffectName(this, "WaterRipple", "\220\205\224\147\226\344" /* 水波紋 */);
-    MR::setEffectName(this, "SwimWaitRipple", "\220\205\226\312\203\105\203\107\203\103\203\147\224\147\226\344" /* 水面ウエイト波紋 */);
-    MR::setEffectHostSRT(this, "\220\205\226\312\203\105\203\107\203\103\203\147\224\147\226\344" /* 水面ウエイト波紋 */, &_BAC, &_BB8, nullptr);
-    MR::setEffectName(this, "SwimSpinLight", "\220\205\211\152\203\130\203\163\203\223" /* 水泳スピン */);
-    MR::setEffectName(this, "DiveBubble", "\220\205\226\312\202\171\222\276\215\176" /* 水面Ｚ沈降 */);
+    MR::setEffectName(this, "SlipUp", "スリップアップ");
+    MR::setEffectName(this, "WallSpark", "壁スパーク");
+    MR::setEffectName(this, "Damage", "ダメージ");
+    MR::setEffectName(this, "StepOn", "ふみつぶし");
+    MR::setEffectName(this, "SuperSpinDriverEnd", "スーパースピンドライバ終了");
+    MR::setEffectName(this, "BringBubble", "引き戻し泡");
+    MR::setEffectName(this, "BringBubbleBreak", "引き戻し泡破裂");
+    MR::setEffectName(this, "WaterSplashRight", "水はね右");
+    MR::setEffectName(this, "WaterSplashLeft", "水はね左");
+    MR::setEffectName(this, "WaterSplashSRight", "水はね右弱");
+    MR::setEffectName(this, "WaterSplashSLeft", "水はね左弱");
+    MR::setEffectName(this, "SpinLightBurst", "スピンライト消去");
+    MR::setEffectName(this, "ElectricDamage", "ビリビリ");
+    MR::setEffectName(this, "FireDamageSmoke", "炎ダメージ煙");
+    MR::setEffectName(this, "BlueFireDamageSmoke", "炎ダメージ青煙");
+    MR::setEffectName(this, "SpinLight", "スピンライト");
+    MR::setEffectName(this, "IceMarioSpinLight", "アイススピン");
+    MR::setEffectName(this, "FireMarioSpinLight", "ファイアスピン");
+    MR::setEffectName(this, "BeeMarioSpinLight", "ハチスピン");
+    MR::setEffectName(this, "BeeLuigiSpinLight", "ハチルイージスピン");
+    MR::setEffectName(this, "Sweat", "いい汗");
+    MR::setEffectName(this, "CarryStartShort", "ひろいクイック");
+    MR::setEffectName(this, "AirRecover", "酸素回復");
+    MR::setEffectName(this, "Invincible", "無敵中");
+    MR::setEffectHostSRT(this, "無敵中", &mPosition, nullptr, nullptr);
+    MR::setEffectName(this, "Ice", "アイス中");
+    MR::setEffectHostSRT(this, "アイス中", &mPosition, nullptr, nullptr);
+    MR::setEffectName(this, "FireBallThrow", "ファイアボール投げ");
+    MR::setEffectName(this, "Throw", "こうら投げ");
+    MR::setEffectName(this, "DieBuryBody", "砂埋まり体");
+    MR::setEffectName(this, "DieBuryHand", "砂埋まり手");
+    MR::setEffectName(this, "DieDeathMudBody", "泥埋まり体");
+    MR::setEffectName(this, "DieDeathMudHand", "泥埋まり手");
+    MR::setEffectName(this, "SpinLightConcentrate", "スピン許可");
+    MR::setEffectName(this, "FooMarioHandGlowL", "フーマリオグロー左");
+    MR::setEffectName(this, "FooMarioHandGlowR", "フーマリオグロー右");
+    MR::setEffectName(this, "FooMarioBrakeLampL", "フーマリオブレーキ左");
+    MR::setEffectName(this, "FooMarioBrakeLampR", "フーマリオブレーキ右");
+    MR::setEffectName(this, "FooMarioEndL", "フーマリオ解除左");
+    MR::setEffectName(this, "FooMarioEndR", "フーマリオ解除右");
+    MR::setEffectName(this, "WallHit", "壁ヒット");
+    MR::setEffectName(this, "BarrierBound", "結界ヒット");
+    MR::setEffectName(this, "WaterBound", "水壁ヒット");
+    MR::setEffectName(this, "IceWallJump", "氷壁ジャンプ");
+    MR::setEffectHostSRT(this, "氷壁ジャンプ", nullptr, nullptr, nullptr);
+    MR::setEffectName(this, "CeilingCrash", "天井ヒット");
+    MR::setEffectName(this, "Coin", "コイン");
+    MR::setEffectName(this, "PunchHit", "パンチヒット");
+    MR::setEffectName(this, "WaterRipple", "水波紋");
+    MR::setEffectName(this, "SwimWaitRipple", "水面ウエイト波紋");
+    MR::setEffectHostSRT(this, "水面ウエイト波紋", &mWaterSurfacePos, &mWaterSurfaceRot, nullptr);
+    MR::setEffectName(this, "SwimSpinLight", "水泳スピン");
+    MR::setEffectName(this, "DiveBubble", "水面Ｚ沈降");
     MR::addEffect(this, "WaterColumnS");
-    MR::setEffectName(this, "WaterColumnS", "\220\205\226\312\203\127\203\203\203\223\203\166\220\205\222\214" /* 水面ジャンプ水柱 */);
-    MR::setEffectName(this, "SurfaceWave", "\220\205\226\312\211\152\202\254" /* 水面泳ぎ */);
-    MR::setEffectHostSRT(this, "\220\205\226\312\211\152\202\254" /* 水面泳ぎ */, &_BAC, &_BB8, nullptr);
-    MR::setEffectName(this, "BodyBubble", "\220\205\222\206\220\147\221\314\226\101" /* 水中身体泡 */);
-    MR::setEffectName(this, "MouthBubble", "\220\205\222\206\214\373\226\101" /* 水中口泡 */);
-    MR::setEffectName(this, "SeaSmoke", "\220\205\222\352\220\332\220\107" /* 水底接触 */);
-    MR::setEffectName(this, "Metamorphosis", "\225\317\220\147" /* 変身 */);
-    MR::setEffectName(this, "MetamorphosisEnd", "\225\317\220\147\211\360\217\234" /* 変身解除 */);
-    MR::setEffectName(this, "BeeFlowerPollen", "\203\156\203\140\211\324\202\255\202\301\202\302\202\253" /* ハチ花くっつき */);
-    MR::setEffectHostSRT(this, "\203\156\203\140\211\324\202\255\202\301\202\302\202\253" /* ハチ花くっつき */, nullptr, nullptr, nullptr);
-    MR::setEffectName(this, "SkateL", "\203\130\203\120\201\133\203\147\215\266" /* スケート左 */);
-    MR::setEffectName(this, "SkateR", "\203\130\203\120\201\133\203\147\211\105" /* スケート右 */);
-    MR::setEffectName(this, "IceJumpLand", "\203\130\203\120\201\133\203\147\222\205\222\156" /* スケート着地 */);
+    MR::setEffectName(this, "WaterColumnS", "水面ジャンプ水柱");
+    MR::setEffectName(this, "SurfaceWave", "水面泳ぎ");
+    MR::setEffectHostSRT(this, "水面泳ぎ", &mWaterSurfacePos, &mWaterSurfaceRot, nullptr);
+    MR::setEffectName(this, "BodyBubble", "水中身体泡");
+    MR::setEffectName(this, "MouthBubble", "水中口泡");
+    MR::setEffectName(this, "SeaSmoke", "水底接触");
+    MR::setEffectName(this, "Metamorphosis", "変身");
+    MR::setEffectName(this, "MetamorphosisEnd", "変身解除");
+    MR::setEffectName(this, "BeeFlowerPollen", "ハチ花くっつき");
+    MR::setEffectHostSRT(this, "ハチ花くっつき", nullptr, nullptr, nullptr);
+    MR::setEffectName(this, "SkateL", "スケート左");
+    MR::setEffectName(this, "SkateR", "スケート右");
+    MR::setEffectName(this, "IceJumpLand", "スケート着地");
 
-    MR::setEffectHostSRT(this, "\223\126\210\344\203\161\203\142\203\147" /* 天井ヒット */, nullptr, nullptr, nullptr);
-    MR::setEffectHostSRT(this, "\225\307\203\161\203\142\203\147" /* 壁ヒット */, nullptr, nullptr, nullptr);
-    MR::setEffectHostSRT(this, "\203\160\203\223\203\140\203\161\203\142\203\147" /* パンチヒット */, nullptr, nullptr, nullptr);
+    MR::setEffectHostSRT(this, "天井ヒット", nullptr, nullptr, nullptr);
+    MR::setEffectHostSRT(this, "壁ヒット", nullptr, nullptr, nullptr);
+    MR::setEffectHostSRT(this, "パンチヒット", nullptr, nullptr, nullptr);
     MR::setEffectHostSRT(this, "FlowerSpin", nullptr, nullptr, nullptr);
-    MR::setEffectHostSRT(this, "\220\205\224\147\226\344" /* 水波紋 */, nullptr, nullptr, nullptr);
-    MR::setEffectHostSRT(this, "\214\213\212\105\203\161\203\142\203\147" /* 結界ヒット */, nullptr, nullptr, nullptr);
-    MR::setEffectHostSRT(this, "\220\205\225\307\203\161\203\142\203\147" /* 水壁ヒット */, nullptr, nullptr, nullptr);
+    MR::setEffectHostSRT(this, "水波紋", nullptr, nullptr, nullptr);
+    MR::setEffectHostSRT(this, "結界ヒット", nullptr, nullptr, nullptr);
+    MR::setEffectHostSRT(this, "水壁ヒット", nullptr, nullptr, nullptr);
 
-    MR::setEffectName(this, "Blur", "\203\217\201\133\203\166\203\174\203\142\203\150\203\165\203\211\201\133" /* ワープポッドブラー */);
-    MR::setEffectName(this, "SpinRing", "\203\130\203\163\203\223\203\212\203\223\203\117" /* スピンリング */);
-    MR::setEffectName(this, "Vanish", "\203\165\203\211\203\142\203\116\203\172\201\133\203\213\217\301\226\305" /* ブラックホール消滅 */);
+    MR::setEffectName(this, "Blur", "ワープポッドブラー");
+    MR::setEffectName(this, "SpinRing", "スピンリング");
+    MR::setEffectName(this, "Vanish", "ブラックホール消滅");
 
     {
-        const char* groupName = "\220\341\211\214\203\214\203\170\203\213" /* 雪煙レベル */;
-        mEffectKeeper->registerEffect("CrestGetFlyC", _D1C.toMtxPtr(), groupName, nullptr);
+        const char* groupName = "雪煙レベル";
+        mEffectKeeper->registerEffect("CrestGetFlyC", mFootRMtx.toMtxPtr(), groupName);
     }
 
-    const TVec3f* scale = &mScale;
-    const TVec3f* rot = &mRotation;
-    const TVec3f* pos = &mPosition;
+    const Vec3f* scale = &mScale;
+    const Vec3f* rot = &mRotation;
+    const Vec3f* pos = &mPosition;
 
     {
-        const char* groupName = "\203\130\203\103\203\223\203\117\203\164\203\211\203\103" /* スイングフライ */;
+        const char* groupName = "スイングフライ";
         mEffectKeeper->registerEffect("CommonPhotonDustCircle", pos, rot, scale, groupName);
     }
 
     {
-        const char* groupName = "\211\106\222\210\227\126\211\152" /* 宇宙遊泳 */;
+        const char* groupName = "宇宙遊泳";
         mEffectKeeper->registerEffect("MarioSpaceDust", pos, rot, scale, groupName);
     }
 
     {
-        const char* groupName = "\203\127\203\203\203\223\203\166\203\164\203\106\203\101\203\212\201\133" /* ジャンプフェアリー */;
+        const char* groupName = "ジャンプフェアリー";
         mEffectKeeper->registerEffect("CrestGetFlyC", pos, rot, scale, groupName);
     }
 
     {
-        const char* groupName = "B\203\137\203\142\203\126\203\205" /* Bダッシュ */;
+        const char* groupName = "Bダッシュ";
         mEffectKeeper->registerEffect("MiniPandaSpinLoopLeg", pos, rot, scale, groupName);
     }
 
     {
-        const char* groupName = "\203\103\203\223\203\137\203\103\203\214\203\116\203\147\203\145\203\130\203\147" /* インダイレクトテスト */;
+        const char* groupName = "インダイレクトテスト";
         mEffectKeeper->registerEffect("IndTest", pos, rot, scale, groupName);
     }
 
     {
-        const char* groupName = "\203\211\203\120\203\142\203\147\217\301\213\216" /* ラケット消去 */;
-        mEffectKeeper->registerEffect("TestMarioBaobabooPowerDown", _DAC.toMtxPtr(), groupName, nullptr);
+        const char* groupName = "ラケット消去";
+        mEffectKeeper->registerEffect("TestMarioBaobabooPowerDown", mHipMtx.toMtxPtr(), groupName);
     }
 
     {
-        const char* groupName = "\203\140\203\203\201\133\203\127\212\256\227\271" /* チャージ完了 */;
+        const char* groupName = "チャージ完了";
         mEffectKeeper->registerEffect("TornadoChargeEnd", pos, rot, scale, groupName);
     }
 
     {
-        const char* groupName = "\203\140\203\203\201\133\203\127\222\206" /* チャージ中 */;
+        const char* groupName = "チャージ中";
         mEffectKeeper->registerEffect("TornadoCharge", pos, rot, scale, groupName);
     }
 
     {
-        const char* groupName = "\203\140\203\203\201\133\203\127\220\330\202\352" /* チャージ切れ */;
+        const char* groupName = "チャージ切れ";
         mEffectKeeper->registerEffect("AppleHit", pos, rot, scale, groupName);
     }
 
-    MR::setEffectName(this, "LandRubber", "\223\301\216\352\222\205\222\156" /* 特殊着地 */);
-    MR::setEffectName(this, "DieDarkMatter", "\203\137\201\133\203\116\203\175\203\136\201\133\216\200\226\123" /* ダークマター死亡 */);
-    MR::setEffectName(this, "HopperMarioHipDropBlur", "\203\172\203\142\203\160\201\133\220\113\227\216" /* ホッパー尻落 */);
-    MR::setEffectName(this, "HopperLuigiHipDropBlur", "\203\172\203\142\203\160\201\133\220\113\227\216\203\213\203\103\201\133\203\127" /* ホッパー尻落ルイージ */);
-    MR::setEffectName(this, "HipDropBlur", "\220\113\227\216" /* 尻落 */);
-    MR::setEffectName(this, "HipDropBlurLuigi", "\220\113\227\216\203\213\203\103\201\133\203\127" /* 尻落ルイージ */);
-    MR::setEffectName(this, "GetAgain", "\203\101\203\103\203\145\203\200\215\304\203\121\203\142\203\147" /* アイテム再ゲット */);
+    MR::setEffectName(this, "LandRubber", "特殊着地");
+    MR::setEffectName(this, "DieDarkMatter", "ダークマター死亡");
+    MR::setEffectName(this, "HopperMarioHipDropBlur", "ホッパー尻落");
+    MR::setEffectName(this, "HopperLuigiHipDropBlur", "ホッパー尻落ルイージ");
+    MR::setEffectName(this, "HipDropBlur", "尻落");
+    MR::setEffectName(this, "HipDropBlurLuigi", "尻落ルイージ");
+    MR::setEffectName(this, "GetAgain", "アイテム再ゲット");
 
     {
-        const char* groupName = "\203\160\203\223\203\140\203\165\203\211\201\133\215\266" /* パンチブラー左 */;
+        const char* groupName = "パンチブラー左";
         mEffectKeeper->registerEffect("MarioPunchLBlur", pos, rot, scale, groupName);
     }
 
-    MR::getEffect(this, "\203\160\203\223\203\140\203\165\203\211\201\133\215\266" /* パンチブラー左 */)->forceFollowOn();
+    MR::getEffect(this, "パンチブラー左")->forceFollowOn();
     {
-        const char* groupName = "\203\160\203\223\203\140\203\165\203\211\201\133\211\105" /* パンチブラー右 */;
+        const char* groupName = "パンチブラー右";
         mEffectKeeper->registerEffect("MarioPunchRBlur", pos, rot, scale, groupName);
     }
 
-    MR::getEffect(this, "\203\160\203\223\203\140\203\165\203\211\201\133\211\105" /* パンチブラー右 */)->forceFollowOn();
-
-    mEffectKeeper->finalizeSort();
+    MR::getEffect(this, "パンチブラー右")->forceFollowOn();
 
     ModelObj* obj = new ModelObj("WaterColumn", "WaterColumn", nullptr, -2, -2, -2, false);
-    _BA8 = obj;
+    mWaterColumn = obj;
     obj->kill();
 }
 
-void MarioActor::emitEffectWaterColumn(const TVec3f& rDir, const TVec3f& rTrans) {
+void MarioActor::emitEffectWaterColumn(const Vec3f& rDir, const Vec3f& rTrans) {
     if (MR::isNearZero(rDir)) {
         return;
     }
 
-    _BA8->appear();
-    MR::startBck(_BA8, "WaterColumn");
-    MR::startBrk(_BA8, "WaterColumn");
+    mWaterColumn->appear();
+    MR::startBck(mWaterColumn, "WaterColumn");
+    MR::startBrk(mWaterColumn, "WaterColumn");
 
-    TVec3f rot;
-    TPos3f mtx;
-    MR::makeMtxUpNoSupportPos(&mtx, rDir, TVec3f(0.0f, 0.0f, 0.0f));
+    Vec3f rot;
+    Pos3f mtx;
+    MR::makeMtxUpNoSupportPos(&mtx, rDir, Vec3f(0.0f, 0.0f, 0.0f));
     MR::makeRTFromMtxPtr(nullptr, &rot, mtx.toMtxPtr(), true);
 
-    _BA8->mPosition = rTrans;
-    _BA8->mRotation = rot;
-    _BA8->calcAnim();
+    mWaterColumn->mPosition = rTrans;
+    mWaterColumn->mRotation = rot;
+    mWaterColumn->calcAnim();
 
-    MR::emitEffect(_BA8, "WaterColumn");
+    MR::emitEffect(mWaterColumn, "WaterColumn");
     Mario* player = mMario;
     player->pushTask(&Mario::taskOnEffectCheck, 2);
 }
 
+// A common effect's name starts with 共, a material effect's with 属 (3 bytes each in UTF-8).
 bool MarioActor::isCommonEffect(const char* pName) const {
-    if (static_cast< u8 >(pName[0]) == 0x8B) {
-        if (static_cast< u8 >(pName[1]) == 0xA4) {
-            return true;
-        }
-    }
-
-    return false;
+    return MR::isHeadString(pName, "共");
 }
 
 bool MarioActor::isMaterialEffect(const char* pName) const {
-    if (static_cast< u8 >(pName[0]) == 0x91) {
-        if (static_cast< u8 >(pName[1]) == 0xAE) {
-            return true;
-        }
-    }
-
-    return false;
+    return MR::isHeadString(pName, "属");
 }
 
 MultiEmitter* MarioActor::playEffect(const char* pName) {
     s32 isBlocked = 0;
-    if (_482 || _483) {
+    if (mHidden || mMorphHidden) {
         isBlocked = 1;
     }
 
@@ -946,21 +941,21 @@ MultiEmitter* MarioActor::playEffect(const char* pName) {
     return MR::emitEffect(this, pName);
 }
 
-void MarioActor::playEffectTrans(const char* pName, const TVec3f& rTrans) {
+void MarioActor::playEffectTrans(const char* pName, const Vec3f& rTrans) {
     MultiEmitter* emitter = playEffect(pName);
     if (emitter != nullptr) {
         emitter->setGlobalTranslation(rTrans, -1);
     }
 }
 
-void MarioActor::playEffectRT(const char* pName, const TVec3f& rDir, const TVec3f& rTrans) {
+void MarioActor::playEffectRT(const char* pName, const Vec3f& rDir, const Vec3f& rTrans) {
     if (MR::isNearZero(rDir)) {
         return;
     }
 
-    TVec3f rot;
-    TPos3f mtx;
-    MR::makeMtxUpNoSupportPos(&mtx, rDir, TVec3f(0.0f, 0.0f, 0.0f));
+    Vec3f rot;
+    Pos3f mtx;
+    MR::makeMtxUpNoSupportPos(&mtx, rDir, Vec3f(0.0f, 0.0f, 0.0f));
     MR::makeRTFromMtxPtr(nullptr, &rot, mtx.toMtxPtr(), true);
 
     MultiEmitter* emitter = playEffect(pName);
@@ -971,14 +966,14 @@ void MarioActor::playEffectRT(const char* pName, const TVec3f& rDir, const TVec3
     }
 }
 
-void MarioActor::playEffectRTZ(const char* pName, const TVec3f& rDir, const TVec3f& rTrans) {
+void MarioActor::playEffectRTZ(const char* pName, const Vec3f& rDir, const Vec3f& rTrans) {
     if (MR::isNearZero(rDir)) {
         return;
     }
 
-    TVec3f rot;
-    TPos3f mtx;
-    MR::makeMtxUpNoSupportPos(&mtx, rDir, TVec3f(0.0f, 0.0f, 0.0f));
+    Vec3f rot;
+    Pos3f mtx;
+    MR::makeMtxUpNoSupportPos(&mtx, rDir, Vec3f(0.0f, 0.0f, 0.0f));
     MR::makeRTFromMtxPtr(nullptr, &rot, mtx.toMtxPtr(), true);
 
     MultiEmitter* emitter = playEffect(pName);
@@ -989,29 +984,29 @@ void MarioActor::playEffectRTZ(const char* pName, const TVec3f& rDir, const TVec
     }
 }
 
-void MarioActor::playEffectRTW(const char* pName, const TVec3f& rDir, const TVec3f& rTrans) {
+void MarioActor::playEffectRTW(const char* pName, const Vec3f& rDir, const Vec3f& rTrans) {
     if (MR::isNearZero(rDir)) {
         return;
     }
 
-    TVec3f rot;
-    TPos3f mtx;
-    MR::makeMtxUpNoSupportPos(&mtx, rDir, TVec3f(0.0f, 0.0f, 0.0f));
+    Vec3f rot;
+    Pos3f mtx;
+    MR::makeMtxUpNoSupportPos(&mtx, rDir, Vec3f(0.0f, 0.0f, 0.0f));
     MR::makeRTFromMtxPtr(nullptr, &rot, mtx.toMtxPtr(), true);
 
-    _BB8 = rot;
-    _BAC = rTrans;
+    mWaterSurfaceRot = rot;
+    mWaterSurfacePos = rTrans;
     playEffect(pName);
 }
 
-void MarioActor::playEffectSRT(const char* pName, f32 scale, const TVec3f& rDir, const TVec3f& rTrans) {
+void MarioActor::playEffectSRT(const char* pName, f32 scale, const Vec3f& rDir, const Vec3f& rTrans) {
     if (MR::isNearZero(rDir)) {
         return;
     }
 
-    TVec3f rot;
-    TPos3f mtx;
-    MR::makeMtxUpNoSupportPos(&mtx, rDir, TVec3f(0.0f, 0.0f, 0.0f));
+    Vec3f rot;
+    Pos3f mtx;
+    MR::makeMtxUpNoSupportPos(&mtx, rDir, Vec3f(0.0f, 0.0f, 0.0f));
     MR::makeRTFromMtxPtr(nullptr, &rot, mtx.toMtxPtr(), true);
 
     MultiEmitter* emitter = playEffect(pName);
@@ -1030,7 +1025,7 @@ void MarioActor::playEffectSRT(const char* pName, f32 scale, const TVec3f& rDir,
 
 void MarioActor::stopCommonEffect(const char* pName) {
     const u32 hash = MR::getHashCode(pName);
-    for (u32 i = 0; i < _B9C; i++) {
+    for (u32 i = 0; i < mCommonEffectCount; i++) {
         SmokeEffectEntry* entry = &cSmokeTable[i];
         if (entry->mHash == hash) {
             if (entry->mEmitter != nullptr) {
@@ -1074,15 +1069,15 @@ void MarioActor::updateEffect() {
     s32 effectB = 0;
     s32 effectC = 0;
 
-    if (mMario->mMovementStates._4) {
+    if (mMario->mMovementStates.turnBrake) {
         effectA = 1;
     }
 
-    if (mMario->mMovementStates._F && mMario->mMovementStates._1) {
+    if (mMario->mMovementStates.tornado && mMario->mMovementStates.onGround) {
         effectA = 1;
     }
 
-    if (mMario->mMovementStates._1 && mMario->_3F4 > 0.1f) {
+    if (mMario->mMovementStates.onGround && mMario->mSpinInertiaBlend > 0.1f) {
         effectA = 1;
     }
 
@@ -1090,7 +1085,7 @@ void MarioActor::updateEffect() {
         effectA = 1;
     }
 
-    if (getMovementStates()._34 || getMovementStates()._35) {
+    if (getMovementStates().onIce || getMovementStates().onSkatableFloor) {
         if (mMario->mWalkSpeed > 0.1f) {
             effectA = 1;
         }
@@ -1101,40 +1096,38 @@ void MarioActor::updateEffect() {
         }
     }
 
-    if (_3C0 || mPlayerMode == 1 || mMario->isStatusActive(MarioStatus_Swim) || mMario->isStatusActive(MarioStatus_FpView) || _934) {
+    if (mRemoteDemo || mPlayerMode == 1 || mMario->isStatusActive(MarioStatus_Swim) || mMario->isStatusActive(MarioStatus_FpView) || mInRush) {
         effectA = 0;
         effectB = 0;
-        effectC = 0;
     }
 
     if (effectA) {
-        playEffect("\213\244\222\312\215\273\211\214\203\214\203\170\203\213" /* 共通砂煙レベル */);
+        playEffect("共通砂煙レベル");
     } else if (!effectA) {
         if (mEffectFlags.mSmoke != 0) {
-            stopEffect("\213\244\222\312\215\273\211\214\203\214\203\170\203\213" /* 共通砂煙レベル */);
+            stopEffect("共通砂煙レベル");
         }
     }
 
     if (effectB && mEffectFlags.mSnow == 0) {
-        playEffect("\220\341\211\214\203\214\203\170\203\213" /* 雪煙レベル */);
+        playEffect("雪煙レベル");
     } else if (!effectB && mEffectFlags.mSnow != 0) {
-        stopEffect("\220\341\211\214\203\214\203\170\203\213" /* 雪煙レベル */);
+        stopEffect("雪煙レベル");
     }
 
     mEffectFlags.mSmoke = effectA;
     mEffectFlags.mSnow = effectB;
-    mEffectFlags._2 = effectC;
 
     effectA = 0;
-    if (getMovementStates()._23 && !getMovementStates()._18 && getMovementStates()._1) {
+    if (getMovementStates().slopeSlide && !getMovementStates().baseRotated && getMovementStates().onGround) {
         effectA = 1;
     }
 
     if (effectA) {
-        playEffect("\213\244\222\312\203\130\203\212\203\142\203\166\215\342" /* 共通スリップ坂 */);
+        playEffect("共通スリップ坂");
     } else if (!effectA) {
         if (mEffectFlags.mSlopeSlip != 0) {
-            stopEffect("\213\244\222\312\203\130\203\212\203\142\203\166\215\342" /* 共通スリップ坂 */);
+            stopEffect("共通スリップ坂");
         }
     }
 
@@ -1142,35 +1135,35 @@ void MarioActor::updateEffect() {
 
     if ((mHealth <= 1 || mWaterLife <= 1) && !MR::isDemoActive() && !MR::isPowerStarGetDemoActive() && !MR::isGalaxyDarkCometAppearInCurrentStage() &&
         MR::isPermitSE() && isEnableNerveChange() && !NebulaHost::codePatch(NEBULA_PATCH_NO_LOW_HEALTH_WARNING, nullptr)) {
-        playSound("\203\211\203\103\203\164\214\170\215\220" /* ライフ警告 */, -1);
+        playSound("ライフ警告", -1);
     }
 
     s32 nearZero = 0;
-    if (MR::isNearZero(_240)) {
+    if (MR::isNearZero(mGravityVec)) {
         nearZero = 1;
     }
 
     if (!nearZero && mEffectFlags.mIsStationary) {
-        playEffect("\211\106\222\210\227\126\211\152" /* 宇宙遊泳 */);
+        playEffect("宇宙遊泳");
     } else if (nearZero && !mEffectFlags.mIsStationary) {
-        stopEffect("\211\106\222\210\227\126\211\152" /* 宇宙遊泳 */);
+        stopEffect("宇宙遊泳");
     }
 
     mEffectFlags.mIsStationary = nearZero;
 
-    if (!isJumping() && _934 == 0) {
-        MR::deleteEffect(this, "\203\127\203\203\203\223\203\166\203\164\203\106\203\101\203\212\201\133" /* ジャンプフェアリー */);
+    if (!isJumping() && mInRush == 0) {
+        MR::deleteEffect(this, "ジャンプフェアリー");
     }
 
     mMarioEffect->doCubeEffect();
 
     effectC = 0;
     if (getMovementStates().jumping) {
-        if (mPlayerMode == 4 && mMario->checkLvlA() && mMario->_402 != 0 && ((_37C & 3) == 0)) {
+        if (mPlayerMode == 4 && mMario->checkLvlA() && mMario->mAirWalkTimer != 0 && ((mFrameCount & 3) == 0)) {
             if (mMario->mVerticalSpeed < 300.0f) {
                 effectC = 1;
-            } else if (mMario->mSwim->_1B2 != 0) {
-                f32 swimSpeed = mMario->mSwim->_1B8;
+            } else if (mMario->mSwim->mDeepWater != 0) {
+                f32 swimSpeed = mMario->mSwim->mSurfaceDepth;
                 if (swimSpeed < 300.0f) {
                     effectC = 1;
                 }
@@ -1179,18 +1172,18 @@ void MarioActor::updateEffect() {
     }
 
     if (effectC) {
-        playEffectRT("\221\256\220\253\203\156\203\140\225\227" /* 属性ハチ風 */, mMario->_368, mMario->mShadowPos);
+        playEffectRT("属性ハチ風", mMario->mGroundNorm, mMario->mShadowPos);
     } else {
         if (mEffectFlags.mBeeWind) {
-            stopEffect("\221\256\220\253\203\156\203\140\225\227" /* 属性ハチ風 */);
+            stopEffect("属性ハチ風");
         }
     }
 
     mEffectFlags.mBeeWind = effectC;
 
     u32 i = 0;
-    while (i < _B9E) {
-        SmokeEffectEntry* entry = _BA0[i];
+    while (i < mSmokeEntryCount) {
+        SmokeEffectEntry* entry = mSmokeEntries[i];
         if (entry->mTimer != 0) {
             entry->mTimer--;
             if (entry->mTimer == 0) {
@@ -1202,19 +1195,18 @@ void MarioActor::updateEffect() {
     }
 }
 
-MarioEffect::MarioEffect(MarioActor* pActor) : MarioModule(pActor) {
-    _C = -1;
-    _10 = -1;
-    _14 = -1;
-    _18 = 0;
-    _1C.set(0, 0, 0, 0);
-    _20.set(0, 0, 0, 0);
-    NebulaMtxIdentity(_24.toMtxPtr());
+MarioEffect::MarioEffect(MarioActor* pActor) : MarioModule(pActor), mFollowCount(0) {
+    mCubeArg0 = -1;
+    mCubeArg1 = -1;
+    mCubeColorOn = 0;
+    mCubePrmColor.set(0, 0, 0, 0);
+    mCubeEnvColor.set(0, 0, 0, 0);
+    NebulaMtxIdentity(mCommonEffectMtx.toMtxPtr());
 }
 
 void MarioEffect::playSwingEffect() {
-    if (_C == 1) {
-        switch (_10) {
+    if (mCubeArg0 == 1) {
+        switch (mCubeArg1) {
         default:
             break;
         case 0:
@@ -1224,26 +1216,20 @@ void MarioEffect::playSwingEffect() {
     }
 
     Mario* mario = getPlayer();
-    playEffectRT("\221\256\220\253\203\130\203\163\203\223" /* 属性スピン */, mario->_368, getTrans());
+    playEffectRT("属性スピン", mario->mGroundNorm, getTrans());
 }
 
 void MarioEffect::doCubeEffect() {
-    Mario* mario = getPlayer();
-    if (mario->mMovementStates.debugMode) {
-        return;
-    }
-
     s32 unsetArg = -1;
-    _10 = unsetArg;
-    _C = unsetArg;
+    mCubeArg1 = unsetArg;
+    mCubeArg0 = unsetArg;
 
     AreaObj* area = MR::getAreaObj("EffectCylinder", mActor->mPosition);
     if (area != nullptr) {
-        s32 arg0 = MR::getAreaObjArg(area, 0);
-        _10 = MR::getAreaObjArg(area, 1);
-        _C = arg0;
+        s32 cubeArg = MR::getAreaObjArg(area, 0);
+        mCubeArg1 = MR::getAreaObjArg(area, 1);
+        mCubeArg0 = cubeArg;
     } else {
-        _14 = unsetArg;
     }
 
     AreaObj* colorArea = MR::getAreaObj("SmokeEffectColorArea", mActor->mPosition);
@@ -1251,20 +1237,20 @@ void MarioEffect::doCubeEffect() {
         const s32 prmR = MR::getAreaObjArg(colorArea, 0);
         const s32 prmG = MR::getAreaObjArg(colorArea, 1);
         const s32 prmB = MR::getAreaObjArg(colorArea, 2);
-        _1C.set(prmR, prmG, prmB, 0);
+        mCubePrmColor.set(prmR, prmG, prmB, 0);
 
         const s32 envR = MR::getAreaObjArg(colorArea, 3);
         const s32 envG = MR::getAreaObjArg(colorArea, 4);
         const s32 envB = MR::getAreaObjArg(colorArea, 5);
-        _20.set(envR, envG, envB, 0);
-        _18 = 1;
+        mCubeEnvColor.set(envR, envG, envB, 0);
+        mCubeColorOn = 1;
     } else {
-        _18 = 0;
+        mCubeColorOn = 0;
     }
 
-    if (getPlayer()->_10._1) {
+    if (getPlayer()->mActionStates.swingEffectPending) {
         playSwingEffect();
-        getPlayer()->_10._1 = 0;
+        getPlayer()->mActionStates.swingEffectPending = 0;
     }
 }
 
@@ -1277,8 +1263,8 @@ bool Mario::taskOnEffectCheck(u32 flags) {
 }
 
 bool MarioActor::checkEffectWaterColumn() {
-    if (MR::isBckStopped(_BA8)) {
-        _BA8->kill();
+    if (MR::isBckStopped(mWaterColumn)) {
+        mWaterColumn->kill();
         return false;
     }
 
@@ -1286,22 +1272,22 @@ bool MarioActor::checkEffectWaterColumn() {
 }
 
 void MarioActor::stopSpinTicoEffect(bool force) {
-    _948 = 0;
-    _94C = 0;
-    _94E = 0;
-    _946 = 0;
+    mSpinTicoTimer = 0;
+    mSpinStarTimer = 0;
+    mSpinStarEndTimer = 0;
+    mSpinIntervalTimer = 0;
 
     if (force) {
-        stopEffectForce("\203\130\203\163\203\223\203\212\203\223\203\117" /* スピンリング */);
+        stopEffectForce("スピンリング");
     } else {
-        stopEffect("\203\130\203\163\203\223\203\212\203\223\203\117" /* スピンリング */);
+        stopEffect("スピンリング");
     }
 }
 
 MarioEffect::~MarioEffect() {
 }
 
-void MultiEmitter::setGlobalScale(f32 scale, s32 a2) {
-    TVec3f scaleVec(scale, scale, scale);
-    setGlobalScale(scaleVec, a2);
+void MultiEmitter::setGlobalScale(f32 scale, s32 idx) {
+    Vec3f scaleVec(scale, scale, scale);
+    setGlobalScale(scaleVec, idx);
 }

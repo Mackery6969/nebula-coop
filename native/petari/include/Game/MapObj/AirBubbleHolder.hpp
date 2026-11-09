@@ -1,24 +1,21 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActorGroup.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
 class AirBubble;
 
 class AirBubbleHolder : public DeriveActorGroup< AirBubble > {
 public:
-    /// @brief Creates a new `AirBubbleHolder`.
-    /// @param pName A pointer to the null-terminated name of the object.
     AirBubbleHolder(const char* pName);
-    virtual ~AirBubbleHolder();
 
-    virtual void init(const JMapInfoIter&);
+    virtual void init(const TableIter&);
 
-    void appearAirBubble(const TVec3f&, s32);
+    void appearAirBubble(const Vec3f&, s32);
     void createAirBubbles();
 };
 
 namespace MR {
     AirBubbleHolder* createAirBubbleHolder();
-    void appearAirBubble(const TVec3f&, s32);
+    void appearAirBubble(const Vec3f&, s32);
 };  // namespace MR

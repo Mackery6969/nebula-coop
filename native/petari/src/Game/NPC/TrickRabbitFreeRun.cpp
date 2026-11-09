@@ -1,4 +1,5 @@
 #include "Game/NPC/TrickRabbitFreeRun.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Enemy/WalkerStateBlowDamage.hpp"
 #include "Game/Enemy/WalkerStateRunaway.hpp"
 #include "Game/LiveActor/Nerve.hpp"
@@ -16,8 +17,6 @@ namespace {
     static const f32 sBindYOffset = 60.0f;
     static const f32 sUpVecBlendRate = 0.1f;
     static const f32 sFrontVecBlendRate = 0.2f;
-    // static const f32 sStarPieceHitAccelH = _;
-    // static const f32 sStarPieceHitAccelV = _;
     static const f32 sPressureRange = 600.0f;
     static const f32 sNormalAccel = 0.7f;
     static const f32 sPressureAccel = 1.5f;
@@ -40,7 +39,7 @@ TrickRabbitFreeRun::TrickRabbitFreeRun(const char* pName)
       mStateCaught(), mMsgCtrl(), mFootPrint(), mSpotMarkLight() {
 }
 
-void TrickRabbitFreeRun::init(const JMapInfoIter& rIter) {
+void TrickRabbitFreeRun::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("TrickRabbit", nullptr, false);
     MR::connectToSceneNpc(this);
@@ -54,13 +53,13 @@ void TrickRabbitFreeRun::init(const JMapInfoIter& rIter) {
 
     mFootPrint = TrickRabbitUtil::createRabbitFootPrint(this);
 
-    initEffectKeeper(0, nullptr, 0);
+    initEffectKeeper(0, nullptr);
     MR::onEmitEffectSyncClipping(this, "Light");
     MR::onForceDeleteEffectSyncClipping(this, "Light");
     initSensor();
     initBinder(::sBindRadius, ::sBindYOffset, 0);
 
-    mMsgCtrl = MR::createTalkCtrl(this, rIter, "TrickRabbit", TVec3f(0.0f, 120.0f, 0.0f), nullptr);
+    mMsgCtrl = MR::createTalkCtrl(this, rIter, "TrickRabbit", Vec3f(0.0f, 120.0f, 0.0f), nullptr);
 
     initState();
     initSound(4, false);
@@ -76,9 +75,9 @@ void TrickRabbitFreeRun::initAfterPlacement() {
 
 void TrickRabbitFreeRun::initSensor() {
     initHitSensor(2);
-    MR::addHitSensorAtJointEnemy(this, "Body", "Spine", 8, ::sBodyRadius, TVec3f(0.0f, 0.0f, 0.0f));
-    MR::addHitSensorAtJointEnemy(this, "Catch", "Spine", 8, ::sCatchRadius, TVec3f(0.0f, 0.0f, 0.0f));
-    MR::initStarPointerTargetAtJoint(this, "Spine", ::sBodyRadius, TVec3f(0.0f));
+    MR::addHitSensorAtJointEnemy(this, "Body", "Spine", 8, ::sBodyRadius, Vec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorAtJointEnemy(this, "Catch", "Spine", 8, ::sCatchRadius, Vec3f(0.0f, 0.0f, 0.0f));
+    MR::initStarPointerTargetAtJoint(this, "Spine", ::sBodyRadius, Vec3f(0.0f));
 }
 
 void TrickRabbitFreeRun::initState() {
@@ -91,7 +90,7 @@ void TrickRabbitFreeRun::initState() {
     mStateRunaway = new WalkerStateRunaway(this, &mFrontVec, nullptr);
     mStateRunaway->init();
 
-    mStateBlowDamage = new WalkerStateBlowDamage(this, &mFrontVec, nullptr);
+    mStateBlowDamage = new WalkerStateBlowDamage(this, &mFrontVec);
     mStateBlowDamage->init();
 }
 
@@ -119,7 +118,7 @@ void TrickRabbitFreeRun::attackSensor(HitSensor* pSender, HitSensor* pReceiver) 
     MR::sendMsgPush(pReceiver, pSender);
 }
 
-bool TrickRabbitFreeRun::receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) {
+bool TrickRabbitFreeRun::receiveMsgPush(HitSensor* pSender, HitSensor* /*pReceiver*/) {
     if (MR::isSensorPlayer(pSender)) {
         return !isEnableCaught();
     }
@@ -189,11 +188,11 @@ bool TrickRabbitFreeRun::requestCaught() {
 void TrickRabbitFreeRun::exeWaitStart() {
     if (MR::isFirstStep(this)) {
         mStateWaitStart->setTalkActionName("StartEvent");
-        mStateWaitStart->_1C = true;
+        mStateWaitStart->mIsKillAfterTalk = true;
     }
 
     if (MR::updateActorState(this, mStateWaitStart)) {
-        MR::requestStartDemoMarioPuppetable(this, "\223\246\221\226" /* 逃走 */, GET_NERVE(TrickRabbitFreeRun, TrickRabbitFreeRunNrvRunawayStart),
+        MR::requestStartDemoMarioPuppetable(this, "逃走", GET_NERVE(TrickRabbitFreeRun, TrickRabbitFreeRunNrvRunawayStart),
                                             GET_NERVE(TrickRabbitFreeRun, TrickRabbitFreeRunNrvTryDemo));
     }
 }
@@ -208,14 +207,14 @@ void TrickRabbitFreeRun::exeRunawayStart() {
         MR::startEventBGM(MR::EventBgmID_Chase);
     }
 
-    MR::escapeFromPlayer(this, &mFrontVec, ::sStartAwayParam._0, ::sStartAwayParam._4, ::sStartAwayParam._8, ::sStartAwayParam._C);
+    MR::escapeFromPlayer(this, &mFrontVec, ::sStartAwayParam);
 
     if (MR::checkPassBckFrame(this, 3.0f)) {
         startJumpSound();
     }
 
-    if (MR::isGreaterStep(this, 120)) {
-        MR::endDemo(this, "\223\246\221\226" /* 逃走 */);
+    if (MR::isGreaterStep(this, NebulaFrameClock::stepsOfSeconds(2))) {
+        MR::endDemo(this, "逃走");
         setNerve(GET_NERVE(TrickRabbitFreeRun, TrickRabbitFreeRunNrvRunaway));
     }
 }
@@ -260,7 +259,7 @@ void TrickRabbitFreeRun::exeCaught() {
 
 void TrickRabbitFreeRun::exePowerStarDemo() {
     if (MR::isFirstStep(this)) {
-        MR::endDemo(this, "\225\337\202\334\202\350" /* 捕まり */);
+        MR::endDemo(this, "捕まり");
         MR::startAfterBossBGM();
         MR::requestAppearPowerStar(this, mPosition - mGravity * 200.0f);
         MR::startAction(this, "Wait");
@@ -279,7 +278,7 @@ void TrickRabbitFreeRun::exePowerStarDemo() {
 void TrickRabbitFreeRun::exeGiveUp() {
     if (MR::isFirstStep(this)) {
         mStateWaitStart->setTalkActionName("GiveUpTalk");
-        mStateWaitStart->_1C = false;
+        mStateWaitStart->mIsKillAfterTalk = false;
     }
 
     MR::updateActorState(this, mStateWaitStart);

@@ -1,23 +1,21 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class TripodBossBaseJointPosition : public LiveActor {
 public:
-    /// @brief Creates a new `TripodBossBaseJointPosition`.
-    /// @param pName A pointer to the null-terminated name of the object.
     TripodBossBaseJointPosition(const char* pName);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
 
-    virtual MtxPtr getBaseMtx() const {
-        return (MtxPtr)&mMtx;
+    virtual MtxPtr getBaseMtx() const override {
+        return const_cast< MtxPtr >(mMtx.mMtx);
     }
 
-    virtual void control();
+    virtual void control() override;
 
     s32 mID;
-    TPos3f mMtx;
+    Pos3f mMtx;
 };

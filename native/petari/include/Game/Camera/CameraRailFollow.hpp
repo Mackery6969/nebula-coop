@@ -6,15 +6,15 @@ class RailRider;
 
 class CameraRailFollow : public Camera {
 public:
-    CameraRailFollow(const char* pName = "\203\214\201\133\203\213\203\164\203\110\203\215\201\133\203\112\203\201\203\211" /* レールフォローカメラ */);
+    CameraRailFollow(const char* pName = "レールフォローカメラ");
 
-    virtual void reset();
-    virtual CameraTargetObj* calc();
-    virtual CamTranslatorBase* createTranslator();
+    virtual void reset() override;
+    virtual CameraTargetObj* calc() override;
+    virtual void setParamFromChunk(const CameraParamChunk*) override;
 
-    void setParam(s32, s32, f32, f32, f32, s32);
+    void setParam(s32 zoneID, s32 railID, f32 stopMargin, f32 railSpeedMax, f32 accel, s32 marginScale);
 
-    f32 getStopLength() {
+    f32 getStopLength() const {
         return mRailSpeed * mRailSpeed / (mRailAccel * 2.0f);
     }
 

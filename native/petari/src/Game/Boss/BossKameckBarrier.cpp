@@ -13,7 +13,7 @@ namespace NrvBossKameckBarrier {
 BossKameckBarrier::BossKameckBarrier(const char* pName, const char* pModelName) : LiveActor(pName), mModelName(pModelName) {
 }
 
-void BossKameckBarrier::init(const JMapInfoIter& rIter) {
+void BossKameckBarrier::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     if (u32 bits = 0; NebulaHost::codePatch(NEBULA_PATCH_KAMECK_BARRIER_OFFSET_Y, &bits)) {
         f32 offset;
@@ -23,14 +23,11 @@ void BossKameckBarrier::init(const JMapInfoIter& rIter) {
     initModelManagerWithAnm(mModelName, nullptr, false);
     MR::connectToSceneEnemy(this);
     initHitSensor(1);
-    MR::addHitSensor(this, "body", ATYPE_KAMECK_BARRIER, 0, 0.0f, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensor(this, "body", ATYPE_KAMECK_BARRIER, 0, 0.0f, Vec3f(0.0f, 0.0f, 0.0f));
     MR::initCollisionParts(this, mModelName, getSensor("body"), nullptr);
     initNerve(GET_NERVE(BossKameckBarrier, BossKameckBarrierNrvWait));
     MR::invalidateClipping(this);
     makeActorDead();
-}
-
-void BossKameckBarrier::control() {
 }
 
 void BossKameckBarrier::exeWait() {

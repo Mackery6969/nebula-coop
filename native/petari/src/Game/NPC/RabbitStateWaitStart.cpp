@@ -1,4 +1,5 @@
 #include "Game/NPC/RabbitStateWaitStart.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util/ActorMovementUtil.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
@@ -10,8 +11,8 @@
 
 namespace {
     static const f32 sGravityAccel = 0.1f;
-    static const s32 sSmallTurnTime = 30;
-    static const s32 sSmallTurnStopTime = 30;
+    static const s32 sSmallTurnTime = NebulaFrameClock::stepsOfMilliseconds(500);
+    static const s32 sSmallTurnStopTime = NebulaFrameClock::stepsOfMilliseconds(500);
     static const f32 sSmallTurnDegree = 6.0f;
     static const f32 sSmallTurnStartDegree = 45.0f;
     static const f32 sSpinDegree = 2.0f;
@@ -28,8 +29,8 @@ namespace NrvRabbitStateWaitStart {
     NEW_NERVE(RabbitStateWaitStartNrvTalk, RabbitStateWaitStart, Talk);
 };  // namespace NrvRabbitStateWaitStart
 
-RabbitStateWaitStart::RabbitStateWaitStart(LiveActor* pHost, TVec3f* mHostFrontVec, TalkMessageCtrl* pTalkCtrl)
-    : ActorStateBase("\202\244\202\263\202\254\211\357\230\142\221\322\202\277\217\363\221\324" /* うさぎ会話待ち状態 */, pHost), mTalkActionName("Wait"), mHostFrontVec(mHostFrontVec), mTalkCtrl(pTalkCtrl), _1C(), _1D(true) {
+RabbitStateWaitStart::RabbitStateWaitStart(LiveActor* pHost, Vec3f* mHostFrontVec, TalkMessageCtrl* pTalkCtrl)
+    : ActorStateBase("うさぎ会話待ち状態", pHost), mTalkActionName("Wait"), mHostFrontVec(mHostFrontVec), mTalkCtrl(pTalkCtrl), mIsKillAfterTalk(), mIsFallByGravity(true) {
 }
 
 void RabbitStateWaitStart::setTalkActionName(const char* pName) {
@@ -68,7 +69,7 @@ bool RabbitStateWaitStart::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, H
     return false;
 }
 
-bool RabbitStateWaitStart::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool RabbitStateWaitStart::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (MR::isMsgSpinStormRange(msg)) {
         return requestSpin();
     }
@@ -146,7 +147,7 @@ bool RabbitStateWaitStart::tryPointing() {
         return false;
     }
 
-    if (MR::isStarPointerPointing2POnPressButton(mHost, "\216\343" /* 弱 */, true, false)) {
+    if (MR::isStarPointerPointing2POnPressButton(mHost, "弱", true, false)) {
         setNerve(GET_NERVE(RabbitStateWaitStart, RabbitStateWaitStartNrvPointing));
 
         return true;
@@ -162,7 +163,7 @@ void RabbitStateWaitStart::exeWait() {
         MR::zeroVelocity(mHost);
     }
 
-    if (_1D) {
+    if (mIsFallByGravity) {
         if (MR::isExistBinder(mHost) && !MR::isBindedGround(mHost)) {
             MR::addVelocityToGravity(mHost, ::sGravityAccel);
         } else {
@@ -239,7 +240,7 @@ void RabbitStateWaitStart::exeSpin() {
 void RabbitStateWaitStart::exePointing() {
     if (MR::isFirstStep(this)) {
         MR::startAction(mHost, "Pointing");
-        MR::startDPDHitSound();
+        MR::startPointerHitSound();
     }
 
     MR::startLevelSound(mHost, "SE_SM_LV_RABBIT_POINT");
@@ -260,7 +261,7 @@ void RabbitStateWaitStart::exeTalk() {
     MR::turnDirectionToPlayerDegreeHorizon(mHost, mHostFrontVec, 30.0f);
 
     if (MR::tryTalkNearPlayerAtEnd(mTalkCtrl)) {
-        if (_1C) {
+        if (mIsKillAfterTalk) {
             kill();
         } else {
             setNerve(GET_NERVE(RabbitStateWaitStart, RabbitStateWaitStartNrvWait));

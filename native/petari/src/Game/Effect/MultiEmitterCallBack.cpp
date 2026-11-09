@@ -4,7 +4,7 @@
 #include "Game/Effect/MultiEmitter.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
-#include <JSystem/JParticle/JPAEmitter.hpp>
+#include "Game/Particle/EmitterCore.hpp"
 
 namespace {
     Color8 getSyntheticColor(const Color8& rColor1, const Color8& rColor2) {
@@ -14,54 +14,73 @@ namespace {
 
         return Color8(r, g, b, 255);
     }
+
+    // The light colour a light-affected effect sits in. The game feeds none, so white: the effect keeps its own colours.
+    // A source (the blended ambient of the actor's light, ActorLightCtrl mLightInfo.mColor) goes here, not into setColor.
+    Color8 getEffectLight(const MultiEmitter* /*pEmitter*/) {
+        return Color8(255, 255, 255, 255);
+    }
+
+    // Per channel from white (affect 0) to the light colour (affect 1); LightAffectValue in the effect table.
+    Color8 getLightTint(const Color8& rLight, f32 affect) {
+        const f32 t = MR::clamp(affect, 0.0f, 1.0f);
+        const u8 r = static_cast< u8 >(255.0f + (static_cast< f32 >(rLight.r) - 255.0f) * t + 0.5f);
+        const u8 g = static_cast< u8 >(255.0f + (static_cast< f32 >(rLight.g) - 255.0f) * t + 0.5f);
+        const u8 b = static_cast< u8 >(255.0f + (static_cast< f32 >(rLight.b) - 255.0f) * t + 0.5f);
+        return Color8(r, g, b, 255);
+    }
+
+    s16 toS16(f32 deg) {
+        return (s32)(DEGREE_TO_S16 * deg);
+    }
 };  // namespace
 
-MultiEmitterCallBack::MultiEmitterCallBack(const MultiEmitter* pEmitter, const TVec3f& rVec)
-    : MultiEmitterCallBackBase(), mEmitter(pEmitter), mScale(), mRotation(), mTranslation(), mMtx(), _18(rVec), mBaseScale(1.0f),
-      mPrmColor(-1, -1, -1, -1), mEnvColor(-1, -1, -1, -1), mFlags() {
-}
-
-MultiEmitterCallBack::MultiEmitterCallBack(const MultiEmitter* pEmitter, const TVec3f* pScale, const TVec3f* pRotation, const TVec3f* pTranslation,
-                                           const TVec3f& rVec)
-    : MultiEmitterCallBackBase(), mEmitter(pEmitter), mScale(pScale), mRotation(pRotation), mTranslation(pTranslation), mMtx(), _18(rVec),
+MultiEmitterCallBack::MultiEmitterCallBack(const MultiEmitter* pEmitter, const Vec3f& rOffset)
+    : MultiEmitterCallBackBase(), mEmitter(pEmitter), mHostTranslation(), mHostRotation(), mHostScale(), mHostMtx(), mOffset(rOffset),
       mBaseScale(1.0f), mPrmColor(-1, -1, -1, -1), mEnvColor(-1, -1, -1, -1), mFlags() {
 }
 
-MultiEmitterCallBack::MultiEmitterCallBack(const MultiEmitter* pEmitter, MtxPtr pMtx, const TVec3f& rVec)
-    : MultiEmitterCallBackBase(), mEmitter(pEmitter), mScale(), mRotation(), mTranslation(), mMtx(pMtx), _18(rVec), mBaseScale(1.0f),
-      mPrmColor(-1, -1, -1, -1), mEnvColor(-1, -1, -1, -1), mFlags() {
+MultiEmitterCallBack::MultiEmitterCallBack(const MultiEmitter* pEmitter, const Vec3f* pTranslation, const Vec3f* pRotation, const Vec3f* pScale,
+                                           const Vec3f& rOffset)
+    : MultiEmitterCallBackBase(), mEmitter(pEmitter), mHostTranslation(pTranslation), mHostRotation(pRotation), mHostScale(pScale), mHostMtx(),
+      mOffset(rOffset), mBaseScale(1.0f), mPrmColor(-1, -1, -1, -1), mEnvColor(-1, -1, -1, -1), mFlags() {
 }
 
-MultiEmitterCallBack::MultiEmitterCallBack(const MultiEmitter* pEmitter, MtxPtr pMtx, const TVec3f* pTranslation, const TVec3f& rVec)
-    : MultiEmitterCallBackBase(), mEmitter(pEmitter), mScale(), mRotation(), mTranslation(pTranslation), mMtx(pMtx), _18(rVec), mBaseScale(1.0f),
-      mPrmColor(-1, -1, -1, -1), mEnvColor(-1, -1, -1, -1), mFlags() {
+MultiEmitterCallBack::MultiEmitterCallBack(const MultiEmitter* pEmitter, MtxPtr pMtx, const Vec3f& rOffset)
+    : MultiEmitterCallBackBase(), mEmitter(pEmitter), mHostTranslation(), mHostRotation(), mHostScale(), mHostMtx(pMtx), mOffset(rOffset),
+      mBaseScale(1.0f), mPrmColor(-1, -1, -1, -1), mEnvColor(-1, -1, -1, -1), mFlags() {
 }
 
-void MultiEmitterCallBack::execute(JPABaseEmitter* pEmitter) {
-    followSRT(pEmitter, false);
-    effectLight(pEmitter);
+MultiEmitterCallBack::MultiEmitterCallBack(const MultiEmitter* pEmitter, MtxPtr pMtx, const Vec3f* pScale, const Vec3f& rOffset)
+    : MultiEmitterCallBackBase(), mEmitter(pEmitter), mHostTranslation(), mHostRotation(), mHostScale(pScale), mHostMtx(pMtx), mOffset(rOffset),
+      mBaseScale(1.0f), mPrmColor(-1, -1, -1, -1), mEnvColor(-1, -1, -1, -1), mFlags() {
+}
+
+void MultiEmitterCallBack::execute(EmitterCore* pEmitter) {
+    follow(pEmitter, false);
     setColor(pEmitter);
 }
 
-void MultiEmitterCallBack::setHostSRT(const TVec3f* pScale, const TVec3f* pRotation, const TVec3f* pTranslation) {
-    mScale = pScale;
-    mRotation = pRotation;
-    mTranslation = pTranslation;
-    mMtx = nullptr;
+void MultiEmitterCallBack::init(EmitterCore* pEmitter) {
+    follow(pEmitter, true);
+}
+
+void MultiEmitterCallBack::setHostSRT(const Vec3f* pTranslation, const Vec3f* pRotation, const Vec3f* pScale) {
+    mHostTranslation = pTranslation;
+    mHostRotation = pRotation;
+    mHostScale = pScale;
+    mHostMtx = nullptr;
 }
 
 void MultiEmitterCallBack::setHostMtx(MtxPtr pMtx) {
-    mMtx = pMtx;
-    mScale = nullptr;
-    mRotation = nullptr;
-    mTranslation = nullptr;
+    mHostMtx = pMtx;
+    mHostTranslation = nullptr;
+    mHostRotation = nullptr;
+    mHostScale = nullptr;
 }
 
 void MultiEmitterCallBack::setBaseScale(f32 scale) {
-    if (isFlagOff(BASE_SCALE)) {
-        turnFlagOn(BASE_SCALE);
-    }
-
+    turnFlagOn(BASE_SCALE);
     mBaseScale = scale;
 }
 
@@ -77,180 +96,137 @@ void MultiEmitterCallBack::forceScaleOn() {
     turnFlagOn(FORCE_SCALE_ON);
 }
 
-void MultiEmitterCallBack::resetFollowCurrent() {
-    turnFlagOff(RESET_FOLLOW_CURRENT);
-}
-
-void MultiEmitterCallBack::init(JPABaseEmitter* pEmitter) {
-    followSRT(pEmitter, true);
-}
-
-void MultiEmitterCallBack::setSRTFromHostMtx(JPABaseEmitter* pEmitter, MtxPtr pMtx, const FlagSRT& rFlag, bool b2) {
-    TPos3f mtx = pMtx;
-    TRot3f mtx94;
-    TVec3f vecD0;
-    TVec3f vecDC;
-    JPASetRMtxSTVecfromMtx(mtx, mtx94, &vecDC, &vecD0);
-
-    if (rFlag.mScale) {
-        TVec3f vecE8;
-        mtx94.mult33(_18, vecE8);
-
-        if (rFlag.mTranslation) {
-            vecE8.mul(vecDC);
-        }
-
-        vecD0.add(vecE8);
-        pEmitter->mGlobalTrs.set(vecD0);
+MultiEmitterCallBack::Follow MultiEmitterCallBack::follows(bool atCreate) const {
+    Follow follow;
+    if (!atCreate && isFlagOn(FORCE_FOLLOW_OFF)) {
+        return follow;
     }
 
-    if (rFlag.mRotation) {
-        if (MR::Effect::isEffect2D(mEmitter)) {
-            TRot3f mtxC4;
-            mtxC4.identity();
-            mtxC4.setEulerZ(PI);
-            mtx94.concat(mtxC4);
-        }
-
-        JPASetRMtxfromMtx(mtx94, pEmitter->mGlobalRot);
-    }
-
-    setScaleFromHostScale(pEmitter, vecDC, rFlag.mTranslation, b2);
-}
-
-namespace {
-    inline s16 toS16(f32 deg) {
-        return (s32)(DEGREE_TO_S16 * deg);
-    }
-
-    inline void setScaleFromHostScaleOne(MultiEmitterCallBack* pCallBack, JPABaseEmitter* pEmitter, bool b1, bool b2) {
-        pCallBack->setScaleFromHostScale(pEmitter, TVec3f(1.0f, 1.0f, 1.0f), b1, b2);
-    }
-}
-
-void MultiEmitterCallBack::setSRTFromHostSRT(JPABaseEmitter* pEmitter, const FlagSRT& rFlag, bool b2) {
-    if (rFlag.mScale) {
-        TVec3f vecE0;
-        if (rFlag.mRotation) {
-            TRot3f mtxD4;
-            mtxD4.identity();
-            mtxD4.setRotateDegree(*mRotation);
-            mtxD4.mult33(_18, vecE0);
+    if (const AutoEffectInfo* pInfo = mEmitter->mAutoInfo; pInfo != nullptr) {
+        const u32 flag = pInfo->mFlag;
+        if (atCreate) {
+            follow.mTranslation = (flag & AutoEffectInfo::FLAG_AFFECT_TRANS) != 0;
+            follow.mRotation = (flag & AutoEffectInfo::FLAG_AFFECT_ROTATE) != 0;
+            follow.mScale = (flag & AutoEffectInfo::FLAG_AFFECT_SCALE) != 0;
         } else {
-            vecE0.set(_18);
+            follow.mTranslation = (flag & AutoEffectInfo::FLAG_FOLLOW_TRANS) != 0;
+            follow.mRotation = (flag & AutoEffectInfo::FLAG_FOLLOW_ROTATE) != 0;
+            follow.mScale = (flag & AutoEffectInfo::FLAG_FOLLOW_SCALE) != 0;
         }
-
-        if (rFlag.mTranslation && mTranslation != nullptr) {
-            vecE0.mul(*mTranslation);
-        }
-
-        vecE0.add(*mScale);
-
-        pEmitter->mGlobalTrs.set(vecE0);
     }
 
-    if (rFlag.mRotation) {
-        JPAGetXYZRotateMtx(toS16(mRotation->x), toS16(mRotation->y), toS16(mRotation->z), pEmitter->mGlobalRot);
-    }
-
-    setScaleFromHostScaleOne(this, pEmitter, rFlag.mTranslation, b2);
+    const bool hostMtx = mHostMtx != nullptr;
+    follow.mTranslation = (hostMtx || mHostTranslation != nullptr) && (follow.mTranslation || isFlagOn(FORCE_FOLLOW_ON));
+    follow.mRotation = (hostMtx || mHostRotation != nullptr) && follow.mRotation;
+    follow.mScale = (hostMtx || mHostScale != nullptr) && (follow.mScale || isFlagOn(FORCE_SCALE_ON));
+    return follow;
 }
 
-void MultiEmitterCallBack::setScaleFromHostScale(JPABaseEmitter* pEmitter, const TVec3f& rVec, bool b1, bool b2) {
-    TVec3f vec28(rVec);
+void MultiEmitterCallBack::follow(EmitterCore* pEmitter, bool atCreate) {
+    const Follow follow = follows(atCreate);
+    if (!follow.any() && !isFlagOn(BASE_SCALE)) {
+        return;
+    }
 
-    if (b1) {
-        if (mTranslation != nullptr) {
-            vec28.set(*mTranslation);
+    if (mHostMtx != nullptr) {
+        followHostMtx(pEmitter, follow, atCreate);
+    } else {
+        followHostSRT(pEmitter, follow, atCreate);
+    }
+}
+
+void MultiEmitterCallBack::followHostMtx(EmitterCore* pEmitter, const Follow& rFollow, bool atCreate) {
+    Pos3f mtx = mHostMtx;
+    Rot3f rotation;
+    Vec3f scale;
+    Vec3f translation;
+    ParticleMath::splitSRT(mtx, rotation, &scale, &translation);
+
+    if (rFollow.mTranslation) {
+        Vec3f offset;
+        rotation.mult33(mOffset, offset);
+        if (rFollow.mScale) {
+            offset.mul(scale);
+        }
+
+        translation.add(offset);
+        pEmitter->mGlobalTrs.set(translation);
+    }
+
+    if (rFollow.mRotation) {
+        if (MR::Effect::isEffect2D(mEmitter)) {
+            Rot3f flip;
+            flip.identity();
+            flip.setEulerZ(PI);
+            rotation.concat(flip);
+        }
+
+        ParticleMath::splitR(rotation, pEmitter->mGlobalRot);
+    }
+
+    setScale(pEmitter, scale, rFollow.mScale, atCreate);
+}
+
+void MultiEmitterCallBack::followHostSRT(EmitterCore* pEmitter, const Follow& rFollow, bool atCreate) {
+    if (rFollow.mTranslation) {
+        Vec3f offset;
+        if (rFollow.mRotation) {
+            Rot3f rotation;
+            rotation.identity();
+            rotation.setRotateDegree(*mHostRotation);
+            rotation.mult33(mOffset, offset);
+        } else {
+            offset.set(mOffset);
+        }
+
+        if (rFollow.mScale) {
+            offset.mul(*mHostScale);
+        }
+
+        offset.add(*mHostTranslation);
+        pEmitter->mGlobalTrs.set(offset);
+    }
+
+    if (rFollow.mRotation) {
+        ParticleMath::xyzRotateMtx(toS16(mHostRotation->x), toS16(mHostRotation->y), toS16(mHostRotation->z), pEmitter->mGlobalRot);
+    }
+
+    setScale(pEmitter, Vec3f(1.0f, 1.0f, 1.0f), rFollow.mScale, atCreate);
+}
+
+// A host scale vector wins over the matrix's.
+void MultiEmitterCallBack::setScale(EmitterCore* pEmitter, const Vec3f& rHostScale, bool followScale, bool atCreate) {
+    Vec3f scale(rHostScale);
+
+    if (followScale) {
+        if (mHostScale != nullptr) {
+            scale.set(*mHostScale);
         }
 
         if (isFlagOn(BASE_SCALE)) {
-            vec28.scale(mBaseScale);
+            scale.scale(mBaseScale);
         }
-        pEmitter->setGlobalScale(vec28);
-    } else if (b2 && isFlagOn(BASE_SCALE)) {
-        vec28.setAll< f32 >(mBaseScale);
-        pEmitter->setGlobalScale(vec28);
+        pEmitter->setGlobalScale(scale);
+    } else if (atCreate && isFlagOn(BASE_SCALE)) {
+        scale.setAll< f32 >(mBaseScale);
+        pEmitter->setGlobalScale(scale);
     }
 }
 
-void MultiEmitterCallBack::effectLight(JPABaseEmitter* pEmitter) {
-    if (MR::isNearZero(mEmitter->_2C)) {
-        return;
-    }
-}
-
-void MultiEmitterCallBack::followSRT(JPABaseEmitter* pEmitter, bool b2) {
-    FlagSRT flag;
-    isFollowSRT(&flag, b2);
-
-    if (flag.isTransform() || (isFlagOn(BASE_SCALE))) {
-        if (mMtx != nullptr) {
-            setSRTFromHostMtx(pEmitter, mMtx, flag, b2);
-        } else {
-            setSRTFromHostSRT(pEmitter, flag, b2);
-        }
-    }
-}
-
-void MultiEmitterCallBack::setColor(JPABaseEmitter* pEmitter) {
-    if (MR::isNearZero(mEmitter->_2C)) {
+// With a light affect the emitter's own colours are tinted; both tints take its prm colour.
+void MultiEmitterCallBack::setColor(EmitterCore* pEmitter) {
+    if (MR::isNearZero(mEmitter->mLightAffect)) {
         pEmitter->setGlobalPrmColor(mPrmColor.r, mPrmColor.g, mPrmColor.b);
         pEmitter->setGlobalEnvColor(mEnvColor.r, mEnvColor.g, mEnvColor.b);
         return;
     }
 
-    NebulaColor8 prmColor;
-    NebulaColor8 envColor;
-    prmColor = pEmitter->mGlobalPrmClr;
-    envColor = pEmitter->mGlobalEnvClr;
-    Color8 syntheticPrm = ::getSyntheticColor(prmColor, mPrmColor);
+    // The tint is the light mixed by the effect's light affect value times the effect's own colours, which are kept in
+    // mPrmColor/mEnvColor. It must not be read back from the emitter: that product was written there last step, so a
+    // tint of 200 went 200, 156, 122, ... black in 19 steps.
+    const Color8 tint = ::getLightTint(::getEffectLight(mEmitter), mEmitter->mLightAffect);
+    Color8 syntheticPrm = ::getSyntheticColor(tint, mPrmColor);
     pEmitter->setGlobalPrmColor(syntheticPrm.r, syntheticPrm.g, syntheticPrm.b);
-    Color8 syntheticEnv = ::getSyntheticColor(prmColor, mEnvColor);
+    Color8 syntheticEnv = ::getSyntheticColor(tint, mEnvColor);
     pEmitter->setGlobalEnvColor(syntheticEnv.r, syntheticEnv.g, syntheticEnv.b);
-}
-
-void MultiEmitterCallBack::isFollowSRT(FlagSRT* pFlag, bool b2) const {
-    if (b2) {
-        if (mEmitter->_28 != nullptr) {
-            pFlag->mScale = !((mEmitter->_28->mFlag & AutoEffectInfo::FLAG_AFFECT_TRANS) - AutoEffectInfo::FLAG_AFFECT_TRANS);
-            pFlag->mRotation = !((mEmitter->_28->mFlag & AutoEffectInfo::FLAG_AFFECT_ROTATE) - AutoEffectInfo::FLAG_AFFECT_ROTATE);
-            pFlag->mTranslation = !((mEmitter->_28->mFlag & AutoEffectInfo::FLAG_AFFECT_SCALE) - AutoEffectInfo::FLAG_AFFECT_SCALE);
-        }
-    } else {
-        if ((mFlags & (FORCE_FOLLOW_OFF | RESET_FOLLOW_CURRENT)) != 0) {
-            pFlag->mScale = pFlag->mRotation = pFlag->mTranslation = false;
-            return;
-        }
-
-        if (mEmitter->_28 != nullptr) {
-            pFlag->mScale = !((mEmitter->_28->mFlag & AutoEffectInfo::FLAG_FOLLOW_TRANS) - AutoEffectInfo::FLAG_FOLLOW_TRANS);
-            pFlag->mRotation = !((mEmitter->_28->mFlag & AutoEffectInfo::FLAG_FOLLOW_ROTATE) - AutoEffectInfo::FLAG_FOLLOW_ROTATE);
-            pFlag->mTranslation = !((mEmitter->_28->mFlag & AutoEffectInfo::FLAG_FOLLOW_SCALE) - AutoEffectInfo::FLAG_FOLLOW_SCALE);
-        }
-    }
-
-    if (mMtx == nullptr && mScale == nullptr) {
-        pFlag->mScale = false;
-    } else if (pFlag->mScale == false) {
-        pFlag->mScale = !((mFlags & 0x1) - 0x1);
-    }
-
-    if (mMtx == nullptr && mRotation == nullptr) {
-        pFlag->mRotation = false;
-    } else if (pFlag->mRotation == false) {
-        pFlag->mRotation = !((mFlags & 0x4) - 0x4);
-    }
-
-    if (mMtx == nullptr && mTranslation == nullptr) {
-        pFlag->mTranslation = false;
-
-        return;
-    }
-
-    if (pFlag->mTranslation) {
-        return;
-    }
-
-    pFlag->mTranslation = !((mFlags & 0x10) - 0x10);
 }

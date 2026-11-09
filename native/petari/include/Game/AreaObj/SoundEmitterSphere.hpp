@@ -8,12 +8,11 @@ class SoundEmitterSphere : public AreaObj {
 public:
     SoundEmitterSphere(int formType, const char* pName);
 
-    virtual ~SoundEmitterSphere();
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void movement();
+    virtual void init(const TableIter& rIter) override;
+    virtual void movement() override;
 
     AudAnmSoundObject* mSoundObj;
-    TVec3f _40;
+    Vec3f mSoundPos;
     const char* mSoundName;
     s32 mSoundIndex;
 };

@@ -1,8 +1,8 @@
-#include <JSystem/J3DGraphBase/J3DNativeMaterial.hpp>
+#include "Game/Render/Material.hpp"
 #include "Game/MapObj/ElectricRailMoving.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
+#include <nebula_format.h>
+#include "Game/Render/FrameList.hpp"
+#include "Game/Render/TypedDraw.hpp"
 #include "Game/AudioLib/AudAnmSoundObject.hpp"
 #include "Game/Gravity/GravityInfo.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
@@ -10,10 +10,12 @@
 #include "Game/MapObj/ElectricRailHolder.hpp"
 #include "Game/Util.hpp"
 #include "Game/Util/Color.hpp"
-#include <JSystem/JMath/JMATrigonometric.hpp>
+#include <nebula_geometry.hpp>
 
 namespace {
-    const char* cSensorNameTable[] = {"body0", "body1", "body2", "body3", "body4", "body5", "body6", "body7"};
+    // One sensor per stacked rail (obj_arg3).
+    const char* const cSensorNameTable[] = {"body0", "body1", "body2", "body3", "body4", "body5", "body6", "body7"};
+    const f32 sRailStep = 100.0f;  // between kept rail positions, and between stacked rails
 };  // namespace
 
 namespace NrvElectricRailMoving {
@@ -22,27 +24,25 @@ namespace NrvElectricRailMoving {
     NEW_NERVE(ElectricRailMovingNrvDisappeared, ElectricRailMoving, Disappeared);
 };  // namespace NrvElectricRailMoving
 
-ElectricRailMovingPoint::ElectricRailMovingPoint(const char* pName) : LiveActor(pName) {
-    _8C = 1;
-    _8D = 1;
+ElectricRailMovingPoint::ElectricRailMovingPoint(const char* pName) : LiveActor(pName), mHasShadow(true), mIsElectric(true) {
 }
 
-void ElectricRailMovingPoint::init(const JMapInfoIter& rIter) {
+void ElectricRailMovingPoint::init(const TableIter& /*rIter*/) {
     initModelManagerWithAnm("ElectricRailPoint", nullptr, 0);
     MR::connectToSceneMapObjDecoration(this);
 
-    if (_8C) {
+    if (mHasShadow) {
         MR::initShadowVolumeSphere(this, 35.0f);
         MR::onCalcGravity(this);
     }
 
     initHitSensor(1);
-    MR::addHitSensorMapObj(this, "body", 8, 35.0f, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorMapObj(this, "body", 8, 35.0f, Vec3f(0.0f, 0.0f, 0.0f));
     makeActorAppeared();
 }
 
 void ElectricRailMovingPoint::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
-    if (_8D) {
+    if (mIsElectric) {
         MR::sendMsgEnemyAttackElectric(pReceiver, pSender);
     } else {
         MR::sendMsgPush(pReceiver, pSender);
@@ -50,15 +50,15 @@ void ElectricRailMovingPoint::attackSensor(HitSensor* pSender, HitSensor* pRecei
 }
 
 ElectricRailMoving::ElectricRailMoving(const char* pName)
-    : LiveActor(pName), mSegmentNum(10), mMovementSpeed(10.0f), mSegmentLength(500.0f), mStackHeight(1), _CC(0x80), mSensorOffsets(),
-      _E4(), _E8(), _EC(), _F0(30.0f) {
-    _9C.identity();
+    : ElectricRailDrawn(pName), mSegmentNum(10), mMovementSpeed(10.0f), mSegmentLength(500.0f), mStackHeight(1), mAlpha(0x80), mSensorOffsets(),
+      mRailPosNum(), mRailPositions(), mCoord(), mRailWidth(30.0f) {
+    mTexMtx.identity();
 }
 
-void ElectricRailMoving::init(const JMapInfoIter& rIter) {
-    s32 arg = 0;
-    MR::getJMapInfoArg4NoInit(rIter, &arg);
-    ElectricRailFunction::registerRail(this, (ElectricRailType)(arg + 2));
+void ElectricRailMoving::init(const TableIter& rIter) {
+    s32 railType = 0;
+    MR::getPlacementArg4NoInit(rIter, &railType);
+    ElectricRailFunction::registerRail(this, static_cast< ElectricRailType >(railType + 2));
     MR::connectToSceneMapObjMovement(this);
     initMapToolInfo(rIter);
     initRail(rIter);
@@ -73,17 +73,20 @@ void ElectricRailMoving::init(const JMapInfoIter& rIter) {
     makeActorAppeared();
 }
 
-void ElectricRailMoving::draw() const {
-    if (MR::isValidDraw(this)) {
-        J3DPass::textureMatrix(1, 1);
-        J3DNativeShape::setTexture(1, _9C, 2);
-        J3DNativeMaterial::setCurrentRegister(1, Color8(0xFF, 0xFF, 0xFF, _CC));
+// While it waits the rail is the sent mesh; vanishing, it is drawn each frame at the shrinking width.
+void ElectricRailMoving::drawWith(MaterialDraw& rMaterial) const {
+    if (!MR::isValidDraw(this)) {
+        return;
+    }
 
-        if (isNerve(GET_NERVE(ElectricRailMoving, ElectricRailMovingNrvWait))) {
-            mMesh.draw();
-        } else {
-            drawRail(_F0);
-        }
+    rMaterial.setCoordinate(1, mTexMtx);
+    rMaterial.setRegister(MaterialRegister_1, Color8(0xFF, 0xFF, 0xFF, mAlpha));
+    TypedDraw site(rMaterial, nullptr, MR::getCameraViewMtx());
+
+    if (isNerve(GET_NERVE(ElectricRailMoving, ElectricRailMovingNrvWait))) {
+        mMesh.draw(site);
+    } else {
+        drawRail(site, mRailWidth);
     }
 }
 
@@ -91,43 +94,45 @@ void ElectricRailMoving::disappear() {
     setNerve(GET_NERVE(ElectricRailMoving, ElectricRailMovingNrvDisappear));
 }
 
-bool ElectricRailMoving::isTouchRail(const HitSensor* pSensor, TVec3f* pPos, TVec3f* pDirection) const {
-    f32 radius;
-    f32 coord;
-
-    TVec3f nearest;
-    coord = MR::calcNearestRailPos(&nearest, this, pSensor->mPosition);
-    radius = pSensor->mRadius;
+bool ElectricRailMoving::isTouchRail(const HitSensor* pSensor, Vec3f* pPos, Vec3f* pDirection) const {
+    Vec3f nearest;
+    f32 coord = MR::calcNearestRailPos(&nearest, this, pSensor->mPosition);
+    f32 radius = pSensor->mRadius;
     radius += ElectricRailFunction::getHitSensorRadius();
 
-    if (isValidCoord(coord) && nearest.squared(pSensor->mPosition) < radius * radius) {
-        if (pPos != nullptr) {
-            pPos->set(nearest);
-        }
-
-        if (pDirection != nullptr) {
-            MR::calcRailDirectionAtCoord(pDirection, this, coord);
-        }
-
-        return true;
+    if (!isValidCoord(coord) || !(nearest.squared(pSensor->mPosition) < radius * radius)) {
+        return false;
     }
 
-    return false;
+    if (pPos != nullptr) {
+        pPos->set(nearest);
+    }
+
+    if (pDirection != nullptr) {
+        MR::calcRailDirectionAtCoord(pDirection, this, coord);
+    }
+
+    return true;
 }
 
 void ElectricRailMoving::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
-    if (MR::isSensorPlayer(pReceiver)) {
-        if (!MR::isPlayerSquat()) {
-            MR::sendMsgEnemyAttackElectric(pReceiver, pSender);
-        }
+    if (MR::isSensorPlayer(pReceiver) && !MR::isPlayerSquat()) {
+        MR::sendMsgEnemyAttackElectric(pReceiver, pSender);
     }
 }
 
-void ElectricRailMoving::initMapToolInfo(const JMapInfoIter& rIter) {
+// obj_arg0 segments, arg1 speed, arg2 segment length, arg3 stacked rails, arg4 rail type.
+void ElectricRailMoving::initMapToolInfo(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
-    MR::getJMapInfoArg0NoInit(rIter, &mSegmentNum);
-    MR::getJMapInfoArg1NoInit(rIter, &mMovementSpeed);
-    MR::getJMapInfoArg3NoInit(rIter, &mStackHeight);
+    MR::getPlacementArg0NoInit(rIter, &mSegmentNum);
+    MR::getPlacementArg1NoInit(rIter, &mMovementSpeed);
+    MR::getPlacementArg3NoInit(rIter, &mStackHeight);
+    if (mSegmentNum < 1) {
+        mSegmentNum = 1;
+    }
+    if (mStackHeight < 1) {
+        mStackHeight = 1;
+    }
 
     if (MR::useStageSwitchReadA(this, rIter)) {
         MR::listenStageSwitchOnA(this, MR::Functor(this, &ElectricRailMoving::disappear));
@@ -136,154 +141,163 @@ void ElectricRailMoving::initMapToolInfo(const JMapInfoIter& rIter) {
 
 void ElectricRailMoving::initSensor() {
     initHitSensor(mStackHeight);
-    mSensorOffsets = new TVec3f[mStackHeight];
+    mSensorOffsets = new Vec3f[mStackHeight];
 
     for (s32 i = 0; i < mStackHeight; i++) {
-        MR::addHitSensorPosMapObj(this, ::cSensorNameTable[i], 8, ElectricRailFunction::getHitSensorRadius(), &mSensorOffsets[i],
-                                  TVec3f(0.0f, 0.0f, 0.0f));
+        // The sensor keeps its name: the table's for the first eight, a name made here (in this actor's arena) past them.
+        const char* pName;
+        if (i < static_cast< s32 >(ARRAY_SIZE(cSensorNameTable))) {
+            pName = cSensorNameTable[i];
+        } else {
+            char* const pMade = new char[16];
+            nebula_snprintf(pMade, 16, "body%d", static_cast< int >(i));
+            pName = pMade;
+        }
+        MR::addHitSensorPosMapObj(this, pName, 8, ElectricRailFunction::getHitSensorRadius(), &mSensorOffsets[i],
+                                  Vec3f(0.0f, 0.0f, 0.0f));
     }
 
     updateHitSensorPos();
 }
 
-void ElectricRailMoving::initRail(const JMapInfoIter& rIter) {
+// The rail is kept as positions every sRailStep along it, the last at its end.
+void ElectricRailMoving::initRail(const TableIter& rIter) {
     initRailRider(rIter);
-    f32 v11;
-    MR::calcRailClippingInfo(&mPosition, &v11, this, 100.0f, 500.0f);
-    MR::setClippingTypeSphere(this, v11, &mPosition);
+    f32 clipRadius;
+    MR::calcRailClippingInfo(&mPosition, &clipRadius, this, 100.0f, 500.0f);
+    MR::setClippingTypeSphere(this, clipRadius, &mPosition);
 
-    if (!MR::getJMapInfoArg2NoInit(rIter, &mSegmentLength)) {
+    if (!MR::getPlacementArg2NoInit(rIter, &mSegmentLength)) {
         mSegmentLength = MR::getRailTotalLength(this) / (2 * mSegmentNum);
     }
 
-    _E4 = static_cast< s32 >(MR::getRailTotalLength(this) / 100.0f) + 2;
-    _E8 = new TVec3f[_E4];
+    mRailPosNum = static_cast< s32 >(MR::getRailTotalLength(this) / sRailStep) + 2;
+    mRailPositions = new Vec3f[mRailPosNum];
 
-    for (s32 i = 0; i < _E4; i++) {
+    for (s32 i = 0; i < mRailPosNum; i++) {
         f32 totalLength = MR::getRailTotalLength(this);
-        f32 len = 100.0f * i >= totalLength ? totalLength : 100.0f * i;
+        f32 len = sRailStep * i >= totalLength ? totalLength : sRailStep * i;
 
-        MR::calcRailPosAtCoord(&_E8[i], this, len);
+        MR::calcRailPosAtCoord(&mRailPositions[i], this, len);
     }
 }
 
+// Each segment's front and back point, each with mStackHeight - 1 copies stacked sRailStep apart against gravity; an
+// open rail adds its two ends (and their stacks) last. Only the bottom front and back points cast shadows.
 void ElectricRailMoving::initPoints() {
-    _D8 = 2 * mSegmentNum;
+    mPointNum = 2 * mSegmentNum;
 
     if (!MR::isLoopRail(this)) {
-        _D8 += 2;
+        mPointNum += 2;
     }
 
-    _D8 *= mStackHeight;
-    mMovingPoints = new ElectricRailMovingPoint[_D8];
+    mPointNum *= mStackHeight;
+    mMovingPoints = new ElectricRailMovingPoint[mPointNum];
 
     if (!MR::isLoopRail(this)) {
-        u32 v4 = _D8 - 2 * mStackHeight;
-        TVec3f startPos, endPos;
+        u32 endIndex = mPointNum - 2 * mStackHeight;
+        Vec3f startPos, endPos;
         MR::calcRailStartPointPos(&startPos, this);
         MR::calcRailEndPointPos(&endPos, this);
 
-        mMovingPoints[v4++].mPosition.set(startPos);
-        mMovingPoints[v4++].mPosition.set(endPos);
-        u32 v6 = v4;
+        mMovingPoints[endIndex++].mPosition.set(startPos);
+        mMovingPoints[endIndex++].mPosition.set(endPos);
 
         if (mStackHeight > 1) {
-            TVec3f g;
-            MR::calcGravityVector(this, startPos, &g, nullptr, 0);
-            g.scale(-100.0f);
+            Vec3f stackStep;
+            MR::calcGravityVector(this, startPos, &stackStep, nullptr, 0);
+            stackStep.scale(-sRailStep);
 
-            TVec3f v16;
-            v16.set(startPos);
+            Vec3f stackPos;
+            stackPos.set(startPos);
 
             for (s32 i = 1; i < mStackHeight; i++) {
-                v16.add(g);
-                mMovingPoints[v6++].mPosition.set(v16);
+                stackPos.add(stackStep);
+                mMovingPoints[endIndex++].mPosition.set(stackPos);
             }
 
-            MR::calcGravityVector(this, endPos, &g, nullptr, 0);
-            g.scale(-100.0f);
-            v16.set(endPos);
+            MR::calcGravityVector(this, endPos, &stackStep, nullptr, 0);
+            stackStep.scale(-sRailStep);
+            stackPos.set(endPos);
 
             for (s32 i = 1; i < mStackHeight; i++) {
-                v16.add(g);
-                mMovingPoints[v6++].mPosition.set(v16);
+                stackPos.add(stackStep);
+                mMovingPoints[endIndex++].mPosition.set(stackPos);
             }
         }
     }
 
     updatePointPos();
-    s32 v14 = 0;
-    s32 v15 = 0;
 
-    while (v14 < _D8) {
-        if ((mStackHeight != 0 ? v14 % (2 * mStackHeight) : v14) >= 2) {
-            mMovingPoints[v15]._8C = 0;
+    for (s32 i = 0; i < mPointNum; i++) {
+        if (i % (2 * mStackHeight) >= 2) {
+            mMovingPoints[i].mHasShadow = false;
         }
 
-        mMovingPoints[v15].initWithoutIter();
-        v14++;
-        v15++;
+        mMovingPoints[i].initWithoutIter();
     }
 }
 
 void ElectricRailMoving::initMesh() {
-    mMesh.init(NEBULA_SHAPE_TEXCOORD0, _E4 * 4 * mStackHeight);
-    drawPlane(mMesh, 30.0f, 30.0f, -30.0f, -30.0f);
-    drawPlane(mMesh, -30.0f, 30.0f, 30.0f, -30.0f);
+    mMesh.init(mRailPosNum * 4 * mStackHeight);
+    drawPlane(30.0f, 30.0f, -30.0f, -30.0f);
+    drawPlane(-30.0f, 30.0f, 30.0f, -30.0f);
     mMesh.send();
 }
 
-void ElectricRailMoving::drawRail(f32 a1) const {
-    drawPlaneGX(a1, a1, -a1, -a1);
-    drawPlaneGX(-a1, a1, a1, -a1);
+// Two crossed planes (the diagonals of the width x width square around the rail).
+void ElectricRailMoving::drawRail(TypedDraw& rDraw, f32 width) const {
+    drawPlaneQuad(rDraw, width, width, -width, -width);
+    drawPlaneQuad(rDraw, -width, width, width, -width);
 }
 
-void ElectricRailMoving::drawPlane(NativeMesh& rMesh, f32 a2, f32 a3, f32 a4, f32 a5) const {
-    for (s32 i = 0; i < mStackHeight; i++) {
-        rMesh.begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, (2 * _E4) & 0xFFFE);
+void ElectricRailMoving::drawPlane(f32 side0, f32 up0, f32 side1, f32 up1) {
+    for (s32 level = 0; level < mStackHeight; level++) {
+        VertexPT* vtx = mMesh.strip(2 * mRailPosNum);
 
-        for (s32 j = 0; j < _E4; j++) {
-            setVertexAttribute(j, i, a2, a3, a4, a5, &rMesh);
+        for (s32 j = 0; j < mRailPosNum; j++) {
+            setVertexAttribute(j, level, side0, up0, side1, up1, vtx);
         }
     }
 }
 
-void ElectricRailMoving::drawPlaneGX(f32 a1, f32 a2, f32 a3, f32 a4) const {
-    for (s32 i = 0; i < mStackHeight; i++) {
-        J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, _E4 * 2, NEBULA_SHAPE_TEXCOORD0);
+void ElectricRailMoving::drawPlaneQuad(TypedDraw& rDraw, f32 side0, f32 up0, f32 side1, f32 up1) const {
+    for (s32 level = 0; level < mStackHeight; level++) {
+        VertexPT* vtx = rDraw.vertices< VertexPT >(NEBULA_PRIMITIVE_TRIANGLE_STRIP, mRailPosNum * 2);
 
-        for (s32 j = 0; j < _E4; j++) {
-            setVertexAttribute(j, i, a1, a2, a3, a4, nullptr);
+        for (s32 j = 0; j < mRailPosNum; j++) {
+            setVertexAttribute(j, level, side0, up0, side1, up1, vtx);
         }
     }
 }
 
-void ElectricRailMoving::setVertexAttribute(int a2, int a3, f32 a4, f32 a5, f32 a6, f32 a7, NativeMesh* pMesh) const {
+// Rail position pointIndex on stacked rail level: the corners (side0, up0) and (side1, up1) across the rail.
+void ElectricRailMoving::setVertexAttribute(int pointIndex, int level, f32 side0, f32 up0, f32 side1, f32 up1, VertexPT*& rVtx) const {
     f32 railLength = MR::getRailTotalLength(this);
 
-    if (100.0f * a2 < railLength) {
-        railLength = 100.0f * a2;
+    if (100.0f * pointIndex < railLength) {
+        railLength = 100.0f * pointIndex;
     }
 
     f32 texCoord = 0.25f * railLength / 100.0f;
-    TVec3f position;
-    position.set(_E8[a2]);
-    TVec3f railDirection;
-    TVec3f gravity;
+    Vec3f position;
+    position.set(mRailPositions[pointIndex]);
+    Vec3f railDirection;
+    Vec3f gravity;
 
     MR::calcRailDirectionAtCoord(&railDirection, this, railLength);
     MR::calcGravityVector(this, position, &gravity, 0, 0);
 
     gravity.negate();
 
-    if (a3 > 0) {
-        f32 height = 100.0f * a3;
+    if (level > 0) {
+        f32 height = 100.0f * level;
         position += gravity * height;
     }
 
-    TVec3f axis1;
-    TVec3f axis2;
-    TVec3f negRailDirection = -railDirection;
+    Vec3f axis1;
+    Vec3f axis2;
+    Vec3f negRailDirection = -railDirection;
 
     if (MR::isSameDirection(gravity, negRailDirection)) {
         MR::makeAxisCrossPlane(&axis1, &axis2, negRailDirection);
@@ -291,38 +305,27 @@ void ElectricRailMoving::setVertexAttribute(int a2, int a3, f32 a4, f32 a5, f32 
         MR::makeAxisFrontUp(&axis1, &axis2, negRailDirection, gravity);
     }
 
-    const f32 x0 = position.x + axis1.x * a4 + axis2.x * a5;
-    const f32 y0 = position.y + axis1.y * a4 + axis2.y * a5;
-    const f32 z0 = position.z + axis1.z * a4 + axis2.z * a5;
-    const f32 x1 = position.x + axis1.x * a6 + axis2.x * a7;
-    const f32 y1 = position.y + axis1.y * a6 + axis2.y * a7;
-    const f32 z1 = position.z + axis1.z * a6 + axis2.z * a7;
-    if (pMesh != nullptr) {
-        pMesh->position(x0, y0, z0);
-        pMesh->texCoord(0, texCoord, 0.0f);
-        pMesh->corner();
-        pMesh->position(x1, y1, z1);
-        pMesh->texCoord(0, texCoord, 1.0f);
-        pMesh->corner();
-    } else {
-        J3DNativeDraw::position(x0, y0, z0);
-        J3DNativeDraw::texCoord(texCoord, 0.0f);
-        J3DNativeDraw::position(x1, y1, z1);
-        J3DNativeDraw::texCoord(texCoord, 1.0f);
-    }
+    const f32 x0 = position.x + axis1.x * side0 + axis2.x * up0;
+    const f32 y0 = position.y + axis1.y * side0 + axis2.y * up0;
+    const f32 z0 = position.z + axis1.z * side0 + axis2.z * up0;
+    const f32 x1 = position.x + axis1.x * side1 + axis2.x * up1;
+    const f32 y1 = position.y + axis1.y * side1 + axis2.y * up1;
+    const f32 z1 = position.z + axis1.z * side1 + axis2.z * up1;
+    *rVtx++ = {x0, y0, z0, texCoord, 0.0f};
+    *rVtx++ = {x1, y1, z1, texCoord, 1.0f};
 }
 
+// The sensors sit at the rail point nearest the player, stacked; they are on only where a segment is.
 void ElectricRailMoving::updateHitSensorPos() {
     f32 nearestRailPos = MR::calcNearestRailPos(mSensorOffsets, this, *MR::getPlayerCenterPos());
 
     if (mStackHeight > 1) {
-        TVec3f v9;
-        MR::calcGravityVector(this, mSensorOffsets[0], &v9, nullptr, 0);
-        v9 *= -100.0f;
-
+        Vec3f stackStep;
+        MR::calcGravityVector(this, mSensorOffsets[0], &stackStep, nullptr, 0);
+        stackStep *= -sRailStep;
 
         for (s32 i = 1; i < mStackHeight; i++) {
-            mSensorOffsets[i].add(mSensorOffsets[i - 1], v9);
+            mSensorOffsets[i].add(mSensorOffsets[i - 1], stackStep);
         }
     }
 
@@ -337,93 +340,82 @@ void ElectricRailMoving::updateHitSensorPos() {
     }
 }
 
-namespace {
-    inline bool updateMovingPoints(ElectricRailMoving* pActor) {
-        s32 i;
-        f32 railTotalLength = MR::getRailTotalLength(pActor);
-        s32 segmentNum = pActor->mSegmentNum;
+// Places every segment's points from mCoord on; true when an open rail's first segment is near its end, so the end
+// points show.
+bool ElectricRailMoving::updatePointPos() {
+    f32 railTotalLength = MR::getRailTotalLength(this);
+    f32 segmentInterval = railTotalLength / mSegmentNum;
+    bool reachedEnd = false;
+    s32 pointIndex = 0;
+    f32 railCoord = mCoord;
 
-        f32 railCoord;
-        f32 segmentLength;
-        s32 pointIndex;
-        bool reachedEnd;
-        segmentLength = railTotalLength / segmentNum;
-        reachedEnd = false;
-        pointIndex = 0;
-        railCoord = pActor->_EC;
+    Vec3f stackPosition;
+    Vec3f gravity;
+    Vec3f previousPosition;
+    Vec3f position;
 
-        TVec3f stackPosition;
-        TVec3f gravity;
-        TVec3f previousPosition;
-        TVec3f position;
+    for (s32 i = 0; i < mSegmentNum; i++) {
+        f32 coord = getRepeatedCoord(railCoord);
 
-        for (i = 0; i < pActor->mSegmentNum; i++) {
-            f32 coord = pActor->getRepeatedCoord(railCoord);
+        calcPointPos(&position, coord);
+        f32 previousCoord = getRepeatedCoord(railCoord - mSegmentLength);
 
-            pActor->calcPointPos(&position, coord);
-            f32 previousCoord = pActor->getRepeatedCoord(railCoord - pActor->mSegmentLength);
+        calcPointPos(&previousPosition, previousCoord);
 
-            pActor->calcPointPos(&previousPosition, previousCoord);
+        mMovingPoints[pointIndex++].mPosition.set(position);
+        mMovingPoints[pointIndex++].mPosition.set(previousPosition);
 
-            pActor->mMovingPoints[pointIndex++].mPosition.set(position);
-            pActor->mMovingPoints[pointIndex++].mPosition.set(previousPosition);
+        if (mStackHeight > 1) {
+            MR::calcGravityVector(this, position, &gravity, nullptr, 0);
+            gravity *= -sRailStep;
 
-            if (pActor->mStackHeight > 1) {
-                MR::calcGravityVector(pActor, position, &gravity, nullptr, 0);
-                gravity *= -100.0f;
+            stackPosition.set(position);
 
-                stackPosition.set(position);
-
-                for (s32 j = 1; j < pActor->mStackHeight; j++) {
-                    stackPosition += gravity;
-                    pActor->mMovingPoints[pointIndex++].mPosition.set(stackPosition);
-                }
-
-                MR::calcGravityVector(pActor, previousPosition, &gravity, nullptr, 0);
-                gravity *= -100.0f;
-
-                stackPosition.set(previousPosition);
-
-                for (s32 j = 1; j < pActor->mStackHeight; j++) {
-                    stackPosition += gravity;
-                    pActor->mMovingPoints[pointIndex++].mPosition.set(stackPosition);
-                }
+            for (s32 j = 1; j < mStackHeight; j++) {
+                stackPosition += gravity;
+                mMovingPoints[pointIndex++].mPosition.set(stackPosition);
             }
 
-            if (!MR::isLoopRail(pActor) &&
-                (pActor->getRepeatedCoord(railCoord + pActor->mMovementSpeed) - (pActor->mSegmentLength + (3.0f * pActor->mMovementSpeed))) < 0.0f) {
-                reachedEnd = true;
-            }
+            MR::calcGravityVector(this, previousPosition, &gravity, nullptr, 0);
+            gravity *= -sRailStep;
 
-            railCoord = pActor->getRepeatedCoord(railCoord + segmentLength);
+            stackPosition.set(previousPosition);
+
+            for (s32 j = 1; j < mStackHeight; j++) {
+                stackPosition += gravity;
+                mMovingPoints[pointIndex++].mPosition.set(stackPosition);
+            }
         }
 
-        return reachedEnd;
-    }
-};  // namespace
+        if (!MR::isLoopRail(this) && (getRepeatedCoord(railCoord + mMovementSpeed) - (mSegmentLength + (3.0f * mMovementSpeed))) < 0.0f) {
+            reachedEnd = true;
+        }
 
-bool ElectricRailMoving::updatePointPos() {
-    return ::updateMovingPoints(this);
+        railCoord = getRepeatedCoord(railCoord + segmentInterval);
+    }
+
+    return reachedEnd;
 }
 
 void ElectricRailMoving::updatePointPosAndModel() {
-    bool updated = updatePointPos();
+    bool reachedEnd = updatePointPos();
 
-    if (!MR::isLoopRail(this)) {
-        if (updated) {
-            for (s32 i = 0; i < 2 * mStackHeight; i++) {
-                MR::showModelIfHidden(&mMovingPoints[_D8 - 1 - i]);
-            }
+    if (MR::isLoopRail(this)) {
+        return;
+    }
+
+    for (s32 i = 0; i < 2 * mStackHeight; i++) {
+        if (reachedEnd) {
+            MR::showModelIfHidden(&mMovingPoints[mPointNum - 1 - i]);
         } else {
-            for (s32 i = 0; i < 2 * mStackHeight; i++) {
-                MR::hideModelIfShown(&mMovingPoints[_D8 - 1 - i]);
-            }
+            MR::hideModelIfShown(&mMovingPoints[mPointNum - 1 - i]);
         }
     }
 }
 
+// On a segment: within mSegmentLength behind a segment front (fronts every length / mSegmentNum from mCoord).
 bool ElectricRailMoving::isValidCoord(f32 coord) const {
-    f32 repeated = getRepeatedCoord(coord - _EC);
+    f32 repeated = getRepeatedCoord(coord - mCoord);
     f32 interval = MR::getRailTotalLength(this) / mSegmentNum;
     f32 offset = MR::mod(repeated, interval);
     return interval - mSegmentLength < offset;
@@ -431,47 +423,65 @@ bool ElectricRailMoving::isValidCoord(f32 coord) const {
 
 f32 ElectricRailMoving::getRepeatedCoord(f32 coord) const {
     f32 len = MR::getRailTotalLength(this);
+
+    // A rail with no length has one coord (the repeat divides by the length).
+    if (!(len > 0.0f)) {
+        return 0.0f;
+    }
+
     return MR::repeat(coord, 0.0f, len);
 }
 
-void ElectricRailMoving::calcPointPos(TVec3f* pOutPos, f32 c) const {
-    s32 v5 = (c / 100.0f);
-    f32 v6 = MR::mod(c, 100.0f);
-    f32 v7 = 100.0f;
-
-    if ((_E4 - 3) < v5) {
-        v7 = (MR::getRailTotalLength(this) - (100.0f * v5));
+// Between the kept positions around coord; the last stretch is the rail's remainder.
+void ElectricRailMoving::calcPointPos(Vec3f* pOutPos, f32 coord) const {
+    // The pair of kept positions stays inside the table (a speed past the rail's length can leave coord outside it).
+    f32 indexValue = coord / 100.0f;
+    if (!(indexValue >= 0.0f)) {
+        indexValue = 0.0f;
+    } else if (indexValue > static_cast< f32 >(mRailPosNum - 2)) {
+        indexValue = static_cast< f32 >(mRailPosNum - 2);
     }
 
-    pOutPos->lerp(_E8[v5], _E8[v5 + 1], (v6 / v7));
+    s32 index = static_cast< s32 >(indexValue);
+    f32 within = MR::mod(coord, 100.0f);
+    f32 stretch = 100.0f;
+
+    if ((mRailPosNum - 3) < index) {
+        stretch = (MR::getRailTotalLength(this) - (100.0f * index));
+    }
+
+    pOutPos->lerp(mRailPositions[index], mRailPositions[index + 1], stretch > 0.0f ? (within / stretch) : 0.0f);
 }
 
+// Moves the segments on; the texture scrolls with them and the alpha follows the segments' share of the rail.
 void ElectricRailMoving::move() {
-    _EC = getRepeatedCoord(_EC + mMovementSpeed);
+    mCoord = getRepeatedCoord(mCoord + mMovementSpeed);
+
+    // A rail with no length keeps its first placement (the texture scale and segment share divide by the length).
+    if (!(MR::getRailTotalLength(this) > 0.0f)) {
+        return;
+    }
 
     f32 scale = (100.0f * mSegmentNum) / (0.25f * MR::getRailTotalLength(this));
 
-    _9C.identity();
+    mTexMtx.identity();
 
-    _9C.mMtx[0][0] = scale;
-    _9C.mMtx[0][3] = -((0.25f * (scale * _EC)) / 100.0f);
-    f32 railTotalLength2 = MR::getRailTotalLength(this);
-    f32 segmentLength = railTotalLength2 / mSegmentNum;
-    f32 angle = (-TWO_PI * mSegmentLength) / segmentLength;
-    f32 sinValue;
-    sinValue = JMASinRadian(angle);
-    f32 value = (15.0f * sinValue) + ((255.0f * mSegmentLength) / segmentLength);
+    mTexMtx.mMtx[0][0] = scale;
+    mTexMtx.mMtx[0][3] = -((0.25f * (scale * mCoord)) / 100.0f);
+    f32 railTotalLength = MR::getRailTotalLength(this);
+    f32 segmentInterval = railTotalLength / mSegmentNum;
+    f32 angle = (-TWO_PI * mSegmentLength) / segmentInterval;
+    f32 sinValue = Angle::sinRadian(angle);
+    f32 value = (15.0f * sinValue) + ((255.0f * mSegmentLength) / segmentInterval);
 
-    s32 c;
-    if (static_cast< s32 >(value) < 0) {
-        c = 0;
-    } else if (static_cast< s32 >(value) > 255) {
-        c = 255;
-    } else {
-        c = static_cast< s32 >(value);
+    s32 alpha = static_cast< s32 >(value);
+    if (alpha < 0) {
+        alpha = 0;
+    } else if (alpha > 255) {
+        alpha = 255;
     }
 
-    _CC = c;
+    mAlpha = alpha;
 
     updatePointPosAndModel();
 }
@@ -481,13 +491,13 @@ void ElectricRailMoving::exeDisappear() {
         MR::startSound(this, "SE_OJ_ELEC_RAIL_VANISH");
         MR::invalidateHitSensors(this);
 
-        for (s32 i = 0; i < _D8; i++) {
-            mMovingPoints[i]._8D = 0;
+        for (s32 i = 0; i < mPointNum; i++) {
+            mMovingPoints[i].mIsElectric = false;
         }
     }
 
     move();
-    _F0 = MR::calcNerveEaseInValue(this, 20, 30.0f, 0.0f);
+    mRailWidth = MR::calcNerveEaseInValue(this, 20, 30.0f, 0.0f);
 
     if (MR::isStep(this, 20)) {
         setNerve(GET_NERVE(ElectricRailMoving, ElectricRailMovingNrvDisappeared));
@@ -505,10 +515,3 @@ void ElectricRailMoving::exeWait() {
     updateHitSensorPos();
     MR::startLevelSound(this, "SE_OJ_LV_ELEC_RAIL_HAM");
 }
-
-ElectricRailMoving::~ElectricRailMoving() {
-}
-
-ElectricRailMovingPoint::~ElectricRailMovingPoint() {
-}
-

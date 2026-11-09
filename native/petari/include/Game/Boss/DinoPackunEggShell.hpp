@@ -6,13 +6,12 @@ class DinoPackunEggShell : public LiveActor {
 public:
     DinoPackunEggShell(const char*, HitSensor*, MtxPtr);
 
-    virtual ~DinoPackunEggShell();
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
+    virtual void init(const TableIter&) override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
 
     void exeWait();
 
-    HitSensor* _8C;
-    MtxPtr _90;
+    HitSensor* mSensor;
+    MtxPtr mFollowMtx;
 };

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class ActorCameraInfo;
 class PartsModel;
@@ -10,14 +10,14 @@ class EarthenPipe : public LiveActor {
 public:
     EarthenPipe(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void calcAnim() {};
-    virtual void makeActorAppeared();
-    virtual MtxPtr getBaseMtx() const {
+    virtual void init(const TableIter&) override;
+    virtual void calcAnim() override {};
+    virtual void makeActorAppeared() override;
+    virtual MtxPtr getBaseMtx() const override {
         return mTopJointMtx;
     }
-    virtual void control();
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void control() override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
     bool tryShowUp();
     bool tryHideDown();
@@ -34,40 +34,30 @@ public:
     void exeWaitToShowUp();
     void exeShowUp();
     void exeHideDown();
-    void calcTrans(f32);
+    void calcTrans(f32 rate);
     void processBgmPlayerIn();
     void processBgmPlayerOut();
 
-    TVec3f _8C;
-    TVec3f _98;
-    f32 _A4;
+    Vec3f mBasePos;
+    Vec3f mUp;
+    f32 mPipeLength;
     bool mIsIgnoreGravity;
-    bool _A9;
-    bool _AA;
-    bool _AB;
     s32 mPipeMode;
-    EarthenPipe* _B0;
+    EarthenPipe* mTargetPipe;
     MtxPtr mTopJointMtx;
     MtxPtr mBottomJointMtx;
-    TPos3f _BC;
+    Pos3f mLavaEffectMtx;
     LiveActor* mHostActor;
-    TPos3f _F0;
-    TMtx34f _120;
-    TPos3f _150;
-    f32 _180;
+    Pos3f mPlayerMtx;
+    Mtx34f mPlayerInStartMtx;
+    Pos3f mPlayerInEndMtx;
     f32 mHorizExitForce;
     f32 mVertExitForce;
     s32 mMusicChangeIdx;
     s32 mMusicState;
-    u8 _194;
-    u8 _195;
-    u8 _196;
-    u8 _197;
+    bool mIsRabbitWait;
     PartsModel* mPipeStreamModel;
-    bool _19C;
-    bool _19D;
-    bool _19E;
-    bool _19F;
+    bool mIsWaterFlowing;
     ActorCameraInfo* mCameraInfo;
 };
 
@@ -76,12 +66,12 @@ public:
     EarthenPipeMediator();
 
     struct Entry {
-        EarthenPipe* _0;
-        EarthenPipe* _4;
+        EarthenPipe* mFirst;
+        EarthenPipe* mSecond;
         s32 mPipeID;
     };
 
-    void entry(EarthenPipe*, const JMapInfoIter&);
+    void entry(EarthenPipe*, const TableIter&);
 
     s32 mNumEntries;
     Entry* mPipeEntries;

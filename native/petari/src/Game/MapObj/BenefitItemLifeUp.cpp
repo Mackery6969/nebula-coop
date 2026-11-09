@@ -5,40 +5,38 @@
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
 #include <nebula_format.h>
+#include "Game/Util/StringUtil.hpp"
 
+// Never on a stage where a dark comet shows.
 BenefitItemLifeUp::BenefitItemLifeUp(const char* pName) : BenefitItemObj(pName, "KinokoLifeUp") {
     if (MR::isGalaxyDarkCometAppearInCurrentStage()) {
-        _D8 = 1;
+        mIsDisabled = true;
     }
 }
 
 void BenefitItemLifeUp::exeCatch() {
     MR::hideModel(this);
-
-    MR::changePlayerItemStatus(0xA);
-
+    MR::changePlayerItemStatus(PlayerItemStatus_LifeUp);
     runEfx("Get");
-
     kill();
 }
 
 void BenefitItemLifeUp::initModelAndEfx() {
-    initModelManagerWithAnm(_120, nullptr, false);
-    initEffectKeeper(5, "BenefitItemObj", false);
+    initModelManagerWithAnm(mModelName, nullptr, false);
+    initEffectKeeper(5, "BenefitItemObj");
 
     initBinder(50.0f, 50.0f, 0);
     initHitSensor(1);
-    MR::addHitSensorMapObj(this, "body", 4, 50.0f, TVec3f(0.0f, 50.0f, 0.0f));
+    MR::addHitSensorMapObj(this, "body", 4, 50.0f, Vec3f(0.0f, 50.0f, 0.0f));
 }
 
+// The shared item effects under this item's names: `pName` + "LifeUp".
 void BenefitItemLifeUp::runEfx(const char* pName) {
-    char str[256];
-    nebula_snprintf(str, sizeof(str), "%sLifeUp", pName);
-    MR::emitEffect(this, str);
+    MR::FormattedName str("%sLifeUp", pName);
+    MR::emitEffect(this, str.c_str());
 }
 
 void BenefitItemLifeUp::stopEfx(const char* pName) {
-    char str[256];
-    nebula_snprintf(str, sizeof(str), "%sLifeUp", pName);
-    MR::emitEffect(this, str);
+    MR::FormattedName str("%sLifeUp", pName);
+    MR::emitEffect(this, str.c_str());
 }

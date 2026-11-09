@@ -4,8 +4,8 @@
 #include "Game/Util.hpp"
 
 namespace {
-    static const f32 sFallSpeed = 15.0f;
-    static const s32 sStepForFall = 350;
+    const f32 sFallSpeed = 15.0f;
+    const s32 sStepForFall = 350;
 };  // namespace
 
 namespace NrvCannonFortressBreakStep {
@@ -18,7 +18,7 @@ namespace NrvCannonFortressBreakStep {
 CannonFortressBreakStep::CannonFortressBreakStep(const char* pName) : MapObjActor(pName) {
 }
 
-void CannonFortressBreakStep::init(const JMapInfoIter& rIter) {
+void CannonFortressBreakStep::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
     MapObjActorInitInfo info;
     info.setupDefaultPos();
@@ -46,7 +46,7 @@ void CannonFortressBreakStep::exeFallStart() {
 }
 
 void CannonFortressBreakStep::exeFall() {
-    TVec3f upVec;
+    Vec3f upVec;
     MR::calcUpVec(&upVec, this);
     mVelocity.scale(-::sFallSpeed, upVec);
 
@@ -69,9 +69,10 @@ void CannonFortressBreakStep::startFall() {
     setNerve(GET_NERVE(CannonFortressBreakStep, CannonFortressBreakStepNrvFallStart));
 }
 
-void CannonFortressBreakStep::initCaseUseSwitchB(const MapObjActorInitInfo& rInfo) {
+void CannonFortressBreakStep::initCaseUseSwitchB(const MapObjActorInitInfo& /*rInfo*/) {
     MR::listenStageSwitchOnB(this, MR::Functor(this, &CannonFortressBreakStep::startFall));
 }
 
+// init starts the map parts functions itself.
 void CannonFortressBreakStep::initCaseNoUseSwitchB(const MapObjActorInitInfo&) {
 }

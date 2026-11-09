@@ -1,6 +1,6 @@
 #include "Game/Camera/CameraTripodPlanet.hpp"
-#include "Game/Camera/CamTranslatorTripodPlanet.hpp"
 #include "Game/Camera/CameraLocalUtil.hpp"
+#include "Game/Camera/CameraParamChunk.hpp"
 #include "Game/Camera/CameraTargetObj.hpp"
 #include "Game/Util/MathUtil.hpp"
 
@@ -8,62 +8,60 @@ CameraTripodPlanet::CameraTripodPlanet(const char* pName)
     : Camera(pName), mAxis(0.0f, 1.0f, 0.0f), mWPoint(0.0f, 0.0f, 0.0f), mAngleX(), mAngleY(), mDist(1000.0f) {
 }
 
-void CameraTripodPlanet::reset() {
-}
-
 CameraTargetObj* CameraTripodPlanet::calc() {
-    TVec3f watchPos;
-    CameraLocalUtil::makeWatchPoint(&watchPos, this, CameraLocalUtil::getTarget(this), 0.1f / 15.0f);
+    CameraTargetObj* target = CameraLocalUtil::getTarget(this);
 
-    TPos3f mtx = mZoneMatrix;
-    TPos3f inv = mtx;
+    Vec3f watchPos;
+    CameraLocalUtil::makeWatchPoint(&watchPos, this, target, 0.1f / 15.0f);
+
+    Pos3f mtx = mZoneMatrix;
+    Pos3f inv = mtx;
     inv.invert(inv);
 
-    TVec3f localWatchPos = watchPos;
+    Vec3f localWatchPos = watchPos;
     inv.mult(localWatchPos, localWatchPos);
 
-    TVec3f localPos = CameraLocalUtil::getTarget(this)->getPosition();
+    Vec3f localPos = target->getPosition();
     inv.mult(localPos, localPos);
 
-    TVec3f rotUp = localPos - mWPoint;
+    Vec3f rotUp = localPos - mWPoint;
     if (MR::isNearZero(rotUp)) {
         return nullptr;
     }
     MR::normalize(&rotUp);
 
-    TVec3f rotFront = mAxis;
+    Vec3f rotFront = mAxis;
     MR::normalize(&rotFront);
     rotFront.negate();
 
-    TVec3f rotSide = rotUp.cross(rotFront);
+    Vec3f rotSide = rotUp.cross(rotFront);
     MR::normalize(&rotSide);
 
     rotFront.cross(rotSide, rotUp);
 
-    TPos3f baseMtx;
-    baseMtx.identity();
+    Pos3f baseMtx;
     baseMtx.setXDir(rotSide);
     baseMtx.setYDir(rotUp);
     baseMtx.setZDir(rotFront);
     baseMtx.setTrans(localWatchPos);
 
-    TPos3f rotX;
-    rotX.makeRotate(TVec3f(1.0f, 0.0f, 0.0f), -mAngleX);
+    Pos3f rotX;
+    rotX.makeRotate(Vec3f(1.0f, 0.0f, 0.0f), -mAngleX);
 
-    TPos3f rotY;
-    rotY.makeRotate(TVec3f(0.0f, 1.0f, 0.0f), mAngleY);
+    Pos3f rotY;
+    rotY.makeRotate(Vec3f(0.0f, 1.0f, 0.0f), mAngleY);
 
-    TPos3f transMtx;
+    Pos3f transMtx;
     transMtx.makeTrans(0.0f, 0.0f, mDist);
 
-    TPos3f dstMtx;
+    Pos3f dstMtx;
     dstMtx.concat(rotX, transMtx);
     dstMtx.concat(rotY, dstMtx);
     dstMtx.concat(baseMtx, dstMtx);
 
-    TVec3f pos;
+    Vec3f pos;
     dstMtx.getTrans(pos);
-    TVec3f up;
+    Vec3f up;
     dstMtx.getYDir(up);
 
     mtx.mult(pos, pos);
@@ -72,11 +70,12 @@ CameraTargetObj* CameraTripodPlanet::calc() {
     CameraLocalUtil::setWatchPos(this, watchPos);
     CameraLocalUtil::setPos(this, pos);
     CameraLocalUtil::setUpVec(this, up);
-    CameraLocalUtil::setWatchUpVec(this, CameraLocalUtil::getTarget(this)->getUpVec());
+    CameraLocalUtil::setWatchUpVec(this, target->getUpVec());
 
-    return CameraLocalUtil::getTarget(this);
+    return target;
 }
 
-CamTranslatorBase* CameraTripodPlanet::createTranslator() {
-    return new CamTranslatorTripodPlanet(this);
+void CameraTripodPlanet::setParamFromChunk(const CameraParamChunk* pChunk) {
+    CameraGeneralParam* general = pChunk->mGeneralParam;
+    setParam(general->mWPoint, CameraLocalUtil::getNormalizedOr(general->mAxis, Vec3f(0.0f, 1.0f, 0.0f)), Vec2f(general->mAngleA, general->mAngleB), general->mDist);
 }

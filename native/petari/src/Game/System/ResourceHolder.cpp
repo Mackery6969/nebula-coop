@@ -1,52 +1,34 @@
 #include "Game/System/ResourceHolder.hpp"
-#include "Game/System/GameThreads.hpp"
-#include <JSystem/J3DGraphAnimator/J3DAnimation.hpp>
-#include "Game/Util/MemoryUtil.hpp"
+#include "Game/Render/Clip.hpp"
+#include "Game/Sound/SoundAnimator.hpp"
+#include "Game/System/NebulaArena.hpp"
 #include "Game/Util/ModelUtil.hpp"
-#include "Game/Util/MutexHolder.hpp"
 #include "Game/Util/StringUtil.hpp"
-#include <JSystem/J3DGraphBase/J3DMaterial.hpp>
-#include <JSystem/J3DGraphLoader/J3DAnmLoader.hpp>
-#include <JSystem/J3DGraphLoader/J3DModelLoader.hpp>
-#include <cstdio>
-#include <cstring>
+#include "Game/Render/Material.hpp"
 #include <NebulaGpu.h>
 #include <nebula_math.h>
 #include "Game/Util/MotionSignal.hpp"
-#include "JSystem/J3DGraphBase/J3DNativeShape.hpp"
-#include "JSystem/J3DGraphBase/J3DNativeMaterial.hpp"
+#include "Game/Render/TypedDraw.hpp"
+#include <nebula_game_api.h>
 
-namespace {
-    static const ArchiveName sModelExt[] = {".bdl", ".bmd", nullptr};
-    static const ArchiveName sMotionExt[] = {".bck", ".bca", nullptr};
-    static const ArchiveName sBtkExt[] = {".btk", nullptr};
-    static const ArchiveName sBpkExt[] = {".bpk", nullptr};
-    static const ArchiveName sBtpExt[] = {".btp", nullptr};
-    static const ArchiveName sBlkExt[] = {".blk", nullptr};
-    static const ArchiveName sBrkExt[] = {".brk", nullptr};
-    static const ArchiveName sBasExt[] = {".bas", nullptr};
-    static const ArchiveName sBmtExt[] = {".bmt", nullptr};
-    static const ArchiveName sBvaExt[] = {".bva", nullptr};
-    static const ArchiveName sBanmtExt[] = {".banmt", nullptr};
-
-    // static const bool cIgnoreCheckPosFormatList = ;
-    // static const bool cIgnoreCheckNrmCompressList = ;
-    // static const bool cIgnoreCheckPlanetKLowSizeList = ;
-    // static const bool cIgnoreCheckAll = ;
-
-    // static const __ sPlanetLowSizeBorder = ;
-};  // namespace
+// tableOf's order: a kind's table, then the file table.
+ResTable* ResourceHolder::* const ResourceHolder::cTables[ResourceHolder::cTableCount] = {
+    &ResourceHolder::mModelResTable, &ResourceHolder::mMotionResTable, &ResourceHolder::mBtkResTable, &ResourceHolder::mBpkResTable,
+    &ResourceHolder::mBtpResTable,   &ResourceHolder::mBlkResTable,    &ResourceHolder::mBrkResTable, &ResourceHolder::mBasResTable,
+    &ResourceHolder::mBmtResTable,   &ResourceHolder::mBvaResTable,    &ResourceHolder::mBanmtResTable, &ResourceHolder::mFileInfoTable,
+};
+static_assert(NEBULA_ASSET_KIND_MATERIAL_TABLE - NEBULA_ASSET_KIND_MODEL + 2 == ResourceHolder::cTableCount);
 
 ResourceHolder::ResourceHolder(AssetFolder& rArchive)
     : mModelResTable(&mDefaultTable), mMotionResTable(&mDefaultTable), mBtkResTable(&mDefaultTable), mBpkResTable(&mDefaultTable),
       mBtpResTable(&mDefaultTable), mBlkResTable(&mDefaultTable), mBrkResTable(&mDefaultTable), mBasResTable(&mDefaultTable),
-      mBmtResTable(&mDefaultTable), mBvaResTable(&mDefaultTable), mBanmtResTable(&mDefaultTable), mFileInfoTable(&mDefaultTable), mArchive(&rArchive),
-      mMaterialBound(false), mBckCtrl(nullptr), mBackupMaterialData(nullptr), mTotalResourceSize(0) {
-    mHeap = MR::getCurrentHeap();
+      mBmtResTable(&mDefaultTable), mBvaResTable(&mDefaultTable), mBanmtResTable(&mDefaultTable), mFileInfoTable(&mDefaultTable), mMaterialBound(false),
+      mBckCtrl(nullptr), mBackupMaterialData(nullptr), mBackupMaterialFirst(nullptr), mArchive(&rArchive) {
+    mArena = NebulaArena::current();
     initializeArc(*mArchive);
 
     if (mModelResTable->mCount != 0 && isExistMaterialAnm()) {
-        bindMaterialAnimations(reinterpret_cast< J3DModelData* >(mModelResTable->getRes(getModelName())));
+        bindMaterialAnimations(reinterpret_cast< ModelData* >(mModelResTable->getRes(getModelName())));
     }
 
     if (mMotionResTable->mCount != 0) {
@@ -54,7 +36,7 @@ ResourceHolder::ResourceHolder(AssetFolder& rArchive)
     }
 
     if (mModelResTable->mCount != 0) {
-        backupInitMaterialData(reinterpret_cast< J3DModelData* >(mModelResTable->getRes(getModelName())));
+        backupInitMaterialData(reinterpret_cast< ModelData* >(mModelResTable->getRes(getModelName())));
     }
 }
 
@@ -69,185 +51,139 @@ bool ResourceHolder::isExistMaterialAnm() const {
     return mBpkResTable->mCount != 0 || mBtpResTable->mCount != 0 || mBtkResTable->mCount != 0 || mBrkResTable->mCount != 0;
 }
 
-void ResourceHolder::bindMaterialAnimations(J3DModelData* pModelData) {
+void ResourceHolder::bindMaterialAnimations(ModelData* pModelData) {
     mMaterialBound = true;
     for (u32 r = 0; r < mBpkResTable->mCount; r++) {
-        static_cast< J3DAnmColorKey* >(mBpkResTable->getRes(r))->searchUpdateMaterialID(pModelData);
+        static_cast< Clip* >(mBpkResTable->getRes(r))->bind(pModelData);
     }
     for (u32 r = 0; r < mBtpResTable->mCount; r++) {
-        static_cast< J3DAnmTexPattern* >(mBtpResTable->getRes(r))->searchUpdateMaterialID(pModelData);
+        static_cast< Clip* >(mBtpResTable->getRes(r))->bind(pModelData);
     }
     for (u32 r = 0; r < mBtkResTable->mCount; r++) {
-        static_cast< J3DAnmTextureSRTKey* >(mBtkResTable->getRes(r))->searchUpdateMaterialID(pModelData);
+        static_cast< Clip* >(mBtkResTable->getRes(r))->bind(pModelData);
     }
     for (u32 r = 0; r < mBrkResTable->mCount; r++) {
-        static_cast< J3DAnmStageColorKey* >(mBrkResTable->getRes(r))->searchUpdateMaterialID(pModelData);
+        static_cast< Clip* >(mBrkResTable->getRes(r))->bind(pModelData);
     }
 }
 
 void ResourceHolder::newBckCtrl() {
-    MR::CurrentHeapRestorer heap(mHeap);
+    NebulaArena::CurrentScope scope(mArena);
     // Its table has the archive's name.
-    char name[256];
-    MR::copyString(name, mArchive->getName(), sizeof(name));
-    if (char* pDot = strrchr(name, '.')) {
-        *pDot = '\0';
-    }
-
-    mBckCtrl = new BckCtrl(this, name);
+    mBckCtrl = new BckCtrl(this, mArchive->getName());
 }
 
 Mtx44& ResourceHolder::getInitEffectMtx(int materialIndex, int mtxIndex) const {
-    return mBackupMaterialData[materialIndex * 8 + mtxIndex];
+    return mBackupMaterialData[mBackupMaterialFirst[materialIndex] + mtxIndex];
 }
 
 void ResourceHolder::initializeArc(AssetFolder& rArchive) {
-    u32 fileInfoSize = rArchive.countResource();
-    fileInfoSize -= initEachResTable(&mModelResTable, &rArchive, ::sModelExt);
-    fileInfoSize -= initEachResTable(&mMotionResTable, &rArchive, ::sMotionExt);
-    fileInfoSize -= initEachResTable(&mBlkResTable, &rArchive, ::sBlkExt);
-    fileInfoSize -= initEachResTable(&mBtkResTable, &rArchive, ::sBtkExt);
-    fileInfoSize -= initEachResTable(&mBpkResTable, &rArchive, ::sBpkExt);
-    fileInfoSize -= initEachResTable(&mBtpResTable, &rArchive, ::sBtpExt);
-    fileInfoSize -= initEachResTable(&mBrkResTable, &rArchive, ::sBrkExt);
-    fileInfoSize -= initEachResTable(&mBasResTable, &rArchive, ::sBasExt);
-    fileInfoSize -= initEachResTable(&mBmtResTable, &rArchive, ::sBmtExt);
-    fileInfoSize -= initEachResTable(&mBvaResTable, &rArchive, ::sBvaExt);
-    fileInfoSize -= initEachResTable(&mBanmtResTable, &rArchive, ::sBanmtExt);
+    u32 counts[NEBULA_ASSET_KIND_COUNT] = {};
+    count(rArchive, rArchive.getEntry(), counts);
 
-    if (fileInfoSize > 0) {
-        mFileInfoTable = new (mHeap, 0) ResTable();
-        mFileInfoTable->newFileInfoTable(fileInfoSize);
+    u32 sizes[cTableCount] = {};
+    for (u32 kind = 0; kind < NEBULA_ASSET_KIND_COUNT; kind++) {
+        sizes[tableOf(kind)] += counts[kind];
     }
 
-    mount(&rArchive, rArchive.getEntry());
-}
-
-u32 ResourceHolder::initEachResTable(ResTable** pResTable, AssetFolder* pArchive, const ArchiveName* pExtNames) {
-    u32 numResources = 0;
-    for (s32 idx = 0; pExtNames[idx] != nullptr; idx++) {
-        numResources += count(pArchive, pExtNames[idx], pArchive->getEntry());
-    }
-
-    if (numResources != 0) {
-        *pResTable = new (mHeap, 0) ResTable();
-        (*pResTable)->newFileInfoTable(numResources);
-    }
-
-    return numResources;
-}
-
-s32 ResourceHolder::count(AssetFolder* pArchive, const char* pExtName, s32 folder) {
-    s32 num = 0;
-    AssetFolder::Item item;
-
-    for (u32 i = 0; pArchive->getItem(folder, i, &item); i++) {
-        if (item.mIsFolder) {
-            num += count(pArchive, pExtName, item.mEntry);
-        } else if (pExtName == nullptr || strstr(item.mName, pExtName) != nullptr) {
-            num++;
+    for (u32 table = 0; table < cTableCount; table++) {
+        if (sizes[table] != 0) {
+            ResTable* const pTable = new (mArena, 0) ResTable();
+            pTable->newFileInfoTable(sizes[table]);
+            this->*cTables[table] = pTable;
         }
     }
 
-    return num;
+    mount(rArchive, rArchive.getEntry());
 }
 
-void ResourceHolder::mount(AssetFolder* pArchive, s32 folder) {
+u32 ResourceHolder::tableOf(u32 kind) {
+    // The model through material-table kinds have a table each, in that order; textures and the rest are files.
+    return kind >= NEBULA_ASSET_KIND_MODEL && kind <= NEBULA_ASSET_KIND_MATERIAL_TABLE ? kind - NEBULA_ASSET_KIND_MODEL : cTableCount - 1;
+}
+
+void ResourceHolder::count(const AssetFolder& rArchive, s32 folder, u32* pCounts) {
     AssetFolder::Item item;
 
-    for (u32 i = 0; pArchive->getItem(folder, i, &item); i++) {
+    for (u32 i = 0; rArchive.getItem(folder, i, &item); i++) {
         if (item.mIsFolder) {
-            mount(pArchive, item.mEntry);
+            count(rArchive, item.mEntry, pCounts);
         } else {
-            ResFileInfo* info = createAndRegisterObject(item.mName, item.mData);
-            info->_8 = item.mData;
-            info->_4 = item.mSize;
-            mTotalResourceSize += info->_4;
+            pCounts[item.mKind < NEBULA_ASSET_KIND_COUNT ? item.mKind : NEBULA_ASSET_KIND_OTHER]++;
         }
     }
 }
 
-ResFileInfo* ResourceHolder::createAndRegisterObject(const char* pName, void* pData) {
-    if (strstr(pName, ".btp") != nullptr) {
-        return mBtpResTable->add(pName, J3DAnmLoaderDataBase::load(pData), true);
-    }
+void ResourceHolder::mount(const AssetFolder& rArchive, s32 folder) {
+    AssetFolder::Item item;
 
-    if (strstr(pName, ".bpk") != nullptr) {
-        return mBpkResTable->add(pName, J3DAnmLoaderDataBase::load(pData), true);
+    for (u32 i = 0; rArchive.getItem(folder, i, &item); i++) {
+        if (item.mIsFolder) {
+            mount(rArchive, item.mEntry);
+        } else {
+            ResFileInfo* info = createAndRegisterObject(item);
+            info->mData = item.mData;
+            info->mSize = item.mSize;
+        }
     }
-
-    if (strstr(pName, ".btk") != nullptr) {
-        return mBtkResTable->add(pName, J3DAnmLoaderDataBase::load(pData), true);
-    }
-
-    if (strstr(pName, ".brk") != nullptr) {
-        return mBrkResTable->add(pName, J3DAnmLoaderDataBase::load(pData), true);
-    }
-
-    if (strstr(pName, ".blk") != nullptr) {
-        return mBlkResTable->add(pName, J3DAnmLoaderDataBase::load(pData), true);
-    }
-
-    if (strstr(pName, ".bck") != nullptr) {
-        return mMotionResTable->add(pName, pData == nullptr ? nullptr : J3DAnmLoaderDataBase::load(pData), true);
-    }
-
-    if (strstr(pName, ".bca") != nullptr) {
-        return mMotionResTable->add(pName, J3DAnmLoaderDataBase::load(pData), true);
-    }
-
-    if (strstr(pName, ".bas") != nullptr) {
-        return mBasResTable->add(pName, pData, true);
-    }
-
-    if (strstr(pName, ".bmt") != nullptr) {
-        (MR::MutexHolder< 0 >::sMutex).lock();
-        ResFileInfo* ret = mBmtResTable->add(pName, J3DModelLoaderDataBase::loadMaterialTable(pData), true);
-        (MR::MutexHolder< 0 >::sMutex).unlock();
-        return ret;
-    }
-
-    if (strstr(pName, ".bva") != nullptr) {
-        return mBvaResTable->add(pName, J3DAnmLoaderDataBase::load(pData), true);
-    }
-
-    if (strstr(pName, ".banmt") != nullptr) {
-        return mBanmtResTable->add(pName, pData, true);
-    }
-
-    if (strstr(pName, ".bdl") != nullptr) {
-        (MR::MutexHolder< 0 >::sMutex).lock();
-        J3DModelData* modelData = J3DModelLoaderDataBase::loadBinaryMaterials(pData, J3DMLF_Material_UseIndirect | J3DMLF_UseUniqueMaterials);
-        (MR::MutexHolder< 0 >::sMutex).unlock();
-        MR::initEnvelopeAndEnvMapOrProjMapModelData(modelData);
-        MotionSignal::modelResource(modelData, pName);
-        J3DNativeShape::registerModel(modelData);
-        return mModelResTable->add(pName, modelData, true);
-    }
-
-    if (strstr(pName, ".bmd") != nullptr) {
-        J3DModelData* modelData =
-            J3DModelLoaderDataBase::load(pData, J3DMLF_Material_PE_Full | J3DMLF_Material_UseIndirect | J3DMLF_UseUniqueMaterials | J3DMLF_21);
-        MotionSignal::modelResource(modelData, pName);
-        J3DNativeShape::registerModel(modelData);
-        return mModelResTable->add(pName, modelData, true);
-    }
-
-    return mFileInfoTable->add(pName, pData, false);
 }
 
-void ResourceHolder::backupInitMaterialData(const J3DModelData* pModelData) {
-    u16 numMaterials = pModelData->getMaterialNum();
-    mBackupMaterialData = new Mtx44[numMaterials * 8];
+ResFileInfo* ResourceHolder::createAndRegisterObject(const AssetFolder::Item& rItem) {
+    const char* const pName = rItem.mName;
+    void* const pData = rItem.mData;
 
-    for (u16 matIdx = 0; matIdx < numMaterials; matIdx++) {
-        J3DMaterial* material = pModelData->getMaterialNodePointer(matIdx);
-        for (u32 mtxIdx = 0; mtxIdx < 8; mtxIdx++) {
-            J3DTexMtx* texMtx = material->getTexMtx(mtxIdx);
+    switch (rItem.mKind) {
+    case NEBULA_ASSET_KIND_MODEL: {
+        ModelData* const pModelData = ModelData::load(pData);
+        pModelData->setResourceName(pName);
+        return mModelResTable->add(pName, pModelData, true);
+    }
+    case NEBULA_ASSET_KIND_MOTION:
+        return mMotionResTable->add(pName, Clip::load(pData), true);
+    case NEBULA_ASSET_KIND_TEXTURE_SRT:
+        return mBtkResTable->add(pName, Clip::load(pData), true);
+    case NEBULA_ASSET_KIND_COLOR_KEY:
+        return mBpkResTable->add(pName, Clip::load(pData), true);
+    case NEBULA_ASSET_KIND_TEXTURE_PATTERN:
+        return mBtpResTable->add(pName, Clip::load(pData), true);
+    case NEBULA_ASSET_KIND_CLUSTER_KEY:
+        return mBlkResTable->add(pName, Clip::load(pData), true);
+    case NEBULA_ASSET_KIND_REGISTER_COLOR:
+        return mBrkResTable->add(pName, Clip::load(pData), true);
+    case NEBULA_ASSET_KIND_SOUND_ANIMATION:
+        return mBasResTable->add(pName, SoundAnimation::load(pData, pName), true);
+    case NEBULA_ASSET_KIND_MATERIALS:
+        return mBmtResTable->add(pName, ModelData::loadMaterials(pData), true);
+    case NEBULA_ASSET_KIND_VISIBILITY:
+        return mBvaResTable->add(pName, Clip::load(pData), true);
+    case NEBULA_ASSET_KIND_MATERIAL_TABLE:
+        return mBanmtResTable->add(pName, pData, true);
+    case NEBULA_ASSET_KIND_TEXTURE:
+        // Found by its file name, extension and all.
+        return mFileInfoTable->add(pName, new ResTIMG(ResTIMG::fromNative(*static_cast< const NebulaTextureInfo* >(pData))), false);
+    default:
+        return mFileInfoTable->add(pName, pData, false);
+    }
+}
+
+void ResourceHolder::backupInitMaterialData(const ModelData* pModelData) {
+    u32 numMaterials = pModelData->getMaterialCount();
+    mBackupMaterialFirst = new u32[numMaterials];
+    u32 numMatrices = 0;
+    for (u32 matIdx = 0; matIdx < numMaterials; matIdx++) {
+        mBackupMaterialFirst[matIdx] = numMatrices;
+        numMatrices += pModelData->getMaterialAt(matIdx)->getSlotCount();
+    }
+    mBackupMaterialData = new Mtx44[numMatrices];
+
+    for (u32 matIdx = 0; matIdx < numMaterials; matIdx++) {
+        Material* material = pModelData->getMaterialAt(matIdx);
+        for (u32 mtxIdx = 0; mtxIdx < material->getSlotCount(); mtxIdx++) {
+            CoordMatrix* texMtx = material->getCoordMatrix(mtxIdx);
             if (texMtx != nullptr) {
-                NebulaMtx44Copy(texMtx->getTexMtxInfo().mEffectMtx, mBackupMaterialData[matIdx * 8 + mtxIdx]);
+                NebulaMtx44Copy(texMtx->getInfo().mEffectMtx, mBackupMaterialData[mBackupMaterialFirst[matIdx] + mtxIdx]);
             } else {
-                NebulaMtx44Identity(mBackupMaterialData[matIdx * 8 + mtxIdx]);
+                NebulaMtx44Identity(mBackupMaterialData[mBackupMaterialFirst[matIdx] + mtxIdx]);
             }
         }
     }

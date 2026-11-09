@@ -28,14 +28,14 @@ namespace NrvTripodBossGuardWallPart {
 TripodBossGuardWallPart::TripodBossGuardWallPart(const char* pName) : LiveActor(pName), mHostMtx(), mPlacementAngle(), mStartTiming() {
 }
 
-void TripodBossGuardWallPart::init(const JMapInfoIter& rIter) {
+void TripodBossGuardWallPart::init(const TableIter& /*rIter*/) {
     initModelManagerWithAnm("TripodBossGuardWall", nullptr, false);
     MR::connectToScene(this, MR::MovementType_MapObjDecoration, MR::CalcAnimType_MapObjDecoration, MR::DrawBufferType_TripodBoss, MR::DrawType_None);
     initHitSensor(2);
     MR::initCollisionParts(this, "TripodBossGuardWall",
-                           MR::addHitSensor(this, "collision", ATYPE_TRIPODBOSS_GUARD_WALL, 0, 1000.0f, TVec3f(0.0f, 0.0f, 0.0f)), nullptr);
+                           MR::addHitSensor(this, "collision", ATYPE_TRIPODBOSS_GUARD_WALL, 0, 1000.0f, Vec3f(0.0f, 0.0f, 0.0f)), nullptr);
     initSound(4, false);
-    initEffectKeeper(0, "TripodBoss", false);
+    initEffectKeeper(0, "TripodBoss");
     MR::invalidateClipping(this);
     MR::startBck(this, "2ndDemo");
     MR::setBckFrameAndStop(this, 0.0f);
@@ -59,14 +59,14 @@ void TripodBossGuardWallPart::control() {
 }
 
 void TripodBossGuardWallPart::calcAndSetBaseMtx() {
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.identity();
     mtx.setEulerY(MR::toRadian(mPlacementAngle));
     mtx.concat(*mHostMtx, mtx);
     MR::setBaseTRMtx(this, mtx);
 }
 
-bool TripodBossGuardWallPart::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool TripodBossGuardWallPart::receiveMsgEnemyAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* pReceiver) {
     if (MR::isSensorType(pReceiver, ATYPE_TRIPODBOSS_GUARD_WALL) && MR::isMsgExplosionAttack(msg)) {
         return requestBreak();
     }
@@ -136,7 +136,7 @@ void TripodBossGuardWallPart::exeRepair() {
     }
 }
 
-void TripodBossGuardWallPart::setHostMatrix(const TPos3f* pMtx) {
+void TripodBossGuardWallPart::setHostMatrix(const Pos3f* pMtx) {
     mHostMtx = pMtx;
 }
 

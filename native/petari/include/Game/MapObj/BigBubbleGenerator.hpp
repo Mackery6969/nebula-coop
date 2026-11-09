@@ -6,35 +6,32 @@ class BigBubble;
 
 class BigBubbleGenerator : public LiveActor {
 public:
-    BigBubbleGenerator(const char*);
+    BigBubbleGenerator(const char* pName, bool isObstruct);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void control();
-
-    void initFromJMapParam(const JMapInfoIter&);
-
-    void onActive();
-    void offActive();
-    bool tryActive();
-    bool tryNonActive();
-
-    bool isActiveRange();
-    bool isNonActiveRange();
+    virtual void init(const TableIter& rIter) override;
+    virtual void initAfterPlacement() override;
+    virtual void control() override;
 
     void exeNonActive();
     void exeActive();
 
+private:
+    void initFromPlacementParam(const TableIter& rIter);
+    void onActive();
+    void offActive();
+    void tryActive();
+    void tryNonActive();
+
     s32 mSpawnTimer;
     f32 mMinSize;
     f32 mMaxSize;
-    s32 mIsObstruct;  // NOTE: is a bool but stored as s32
+    const bool mIsObstruct;
     s32 mShape;
     s32 mLimitterID;
     BigBubble* mAttachedBubble;
 };
 
 namespace MR {
-    NameObj* createBigBubbleGenerator(const char*);
-    NameObj* createBigObstructBubbleGenerator(const char*);
+    NameObj* createBigBubbleGenerator(const char* pName);
+    NameObj* createBigObstructBubbleGenerator(const char* pName);
 };  // namespace MR

@@ -1,4 +1,5 @@
 #include "Game/MapObj/GCapture.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Camera/CameraTargetMtx.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/LiveActor.hpp"
@@ -13,7 +14,7 @@
 #include "Game/Util/EffectUtil.hpp"
 #include "Game/Util/PlayerInputUtil.hpp"
 #include "Game/Util/GravityUtil.hpp"
-#include "Game/Util/JMapInfo.hpp"
+#include "Game/Util/Table.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MapUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
@@ -21,52 +22,37 @@
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
-#include "Game/Util/SpringValue.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
 #include "math_types.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
+
 #include "Game/System/NebulaInput.hpp"
 
 namespace {
-    // sMinActiveTime
-    // sMaxHoldTime
-    // sHitEnableTime
-    // sPointRadius
-    // sBreakTime
-    // sWandSpinStartScreenSpeed
-    // sWandSpinMaxScreenSpeed
-    // sWandSpinPower
-    // sWandTouchRefrectPower
-    // sWandMaxSpinSpeed
-    // sRollMotionStartSpinSpeed
-    // sFreeSpinXPower
-    // sCaptureAccel
-    // sCaptureFric
-    // sCaptureTime
-    // sCaptureCancelTime
-    // sRecaptureTime
-    // sGapFillSpeed
-    // sInTouchableRangeMarginTime
-    // sNormalFreq
-    // sNearTargetFreq
-    // sTractionPower
-    // sNearParamStartRange
-    // sTractionPowerUpSpeed
-    // sTractionPowerDownSpeed
-    // sTractLineDispTime
-    // sTractSpinTime
-    // sTractSpinAccel
-    // sTractSpinFreq
-    // sGroundReboundRate
-    // sReflectAccel
-    // sMinBindRadius
-    // sMaxBindRadius
-    // sMaxBubbleRadius
-    // sBubbleGrowSpeed
-    // sStartActiveEffectTime
-    // sFreeSpinYPower
-    // sNearTargetTractionPower
+    const s32 sTargetKeepSteps = NebulaFrameClock::stepsOfMilliseconds(500);
+    const s32 sGuidanceSteps = 20;
+    const s32 sCaptureSteps = NebulaFrameClock::stepsOfMilliseconds(500);
+    const s32 sCaptureCancelSteps = 40;
+    const s32 sRecaptureSteps = 15;
+    const s32 sTractionSpinSteps = 35;
+    const s32 sReleaseHoldSteps = NebulaFrameClock::stepsOfMilliseconds(500);
+    const s32 sHoldReleaseSteps = NebulaFrameClock::stepsOfSeconds(3);
+    const s32 sCoolDownSteps = 10;
+    const s32 sBreakSteps = 5;
+    const f32 sRibbonLength = 180.0f;
+    const f32 sRibbonGrowSpeed = 0.033333335f;
+    const f32 sMinBindRadius = 75.0f;
+    const f32 sMaxBindRadius = 130.0f;
+    const f32 sTractSpinAccel = 0.002f;
+    const f32 sTractionAccel = 0.7f;
+    const f32 sNearTargetRange = 500.0f;
+    const f32 sFriction = 0.99f;
+    const f32 sNearTargetFriction = 0.75f;
+    const f32 sRotateFriction = 0.992f;
+    const f32 sPointerSpinPower = 0.055104f;
+    const f32 sMaxSpinSpeed = 0.2f;
+    const f32 sReflectSpeed = 25.0f;
+    const f32 sPointRadius = 200.0f;
 };  // namespace
 
 namespace NrvGCapture {
@@ -80,33 +66,33 @@ namespace NrvGCapture {
 };  // namespace NrvGCapture
 
 GCapture::GCapture(const char* pName)
-    : LiveActor(pName), _BC(0.0f, 0.0f, 0.0f, 1.0f), mEffectPos(0, 0, 0), _D8(0, 0, 0), _E4(0, 0, 0), _F0(0, 0, 0), _FC(0, 0, 1), _108(), mTarget(),
-      _110(), mCaptureRibbon(), mTractPower(), _124(), _128(0.1f), _12C(), _130(FLOAT_MAX), mGuidanceTime(), mIsStarPointerPointing(), _139() {
-    mCaptureRibbon = new GCaptureRibbon("G\203\114\203\203\203\166\203\140\203\203\201\133\203\212\203\173\203\223" /* Gキャプチャーリボン */);
-    mTargetMtx = new CameraTargetMtx("\203\112\203\201\203\211\203\136\201\133\203\121\203\142\203\147\203\137\203\176\201\133" /* カメラターゲットダミー */);
-    mSpringValue = new SpringValue(1.0f, 1.0f, 0.05f, 0.91f, 0.0f);
-    _8C.identity();
+    : LiveActor(pName), mBindQuat(0.0f, 0.0f, 0.0f, 1.0f), mEffectPos(0, 0, 0), mEffectOffset(0, 0, 0), mRotateVelocity(0, 0, 0), mRotateAxis(0, 0, 1), mBindActor(nullptr),
+      mTarget(nullptr), mTractTarget(nullptr), mCaptureRibbon(nullptr), mTargetMtx(nullptr), mTractPower(0.0f), mEffectBlend(0.0f), mRibbonRate(0.1f), mTargetKeepTime(0),
+      mTargetDist(FLOAT_MAX), mGuidanceTime(0) {
+    mCaptureRibbon = new GCaptureRibbon("Gキャプチャーリボン");
+    mTargetMtx = new CameraTargetMtx("カメラターゲットダミー");
+    mRibbonPointMtx.identity();
 }
 
-void GCapture::init(const JMapInfoIter& rIter) {
+void GCapture::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     MR::connectToScene(this, MR::MovementType_MapObj, MR::CalcAnimType_MapObj, MR::DrawBufferType_None, MR::DrawBufferType_EnemyDecoration);
     initSound(8, false);
     initHitSensor(2);
-    MR::addHitSensorRide(this, "body", 16, 200.0f, TVec3f(0.0f, 0.0f, 0.0f));
-    MR::addHitSensor(this, "bind", 104, 16, 80.0f, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorRide(this, "body", 16, sPointRadius, Vec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensor(this, "bind", 104, 16, 80.0f, Vec3f(0.0f, 0.0f, 0.0f));
     getSensor("bind")->invalidate();
-    initBinder(75.0f, 0.0f, 8);
-    initEffectKeeper(0, "GCapture", false);
+    initBinder(sMinBindRadius, 0.0f, 8);
+    initEffectKeeper(0, "GCapture");
     MR::setEffectHostSRT(this, "LightGrow", &mEffectPos, nullptr, nullptr);
     MR::setEffectHostSRT(this, "Light", &mEffectPos, nullptr, nullptr);
     MR::setEffectHostSRT(this, "LightBreak", &mEffectPos, nullptr, nullptr);
-    MR::setEffectHostMtx(this, "LightSplash", _8C.mMtx);
-    MR::setEffectHostMtx(this, "RibbonPoint", _8C.mMtx);
-    MR::setEffectHostMtx(this, "RibbonBreak", _8C.mMtx);
+    MR::setEffectHostMtx(this, "LightSplash", mRibbonPointMtx.mMtx);
+    MR::setEffectHostMtx(this, "RibbonPoint", mRibbonPointMtx.mMtx);
+    MR::setEffectHostMtx(this, "RibbonBreak", mRibbonPointMtx.mMtx);
     mCaptureRibbon->initWithoutIter();
     initNerve(GET_NERVE(GCapture, GCaptureNrvWait));
-    MR::initStarPointerTarget(this, 200.0f, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::initStarPointerTarget(this, sPointRadius, Vec3f(0.0f, 0.0f, 0.0f));
     makeActorAppeared();
     MR::invalidateClipping(this);
 }
@@ -121,36 +107,35 @@ void GCapture::control() {
         mGuidanceTime--;
     }
 
-    if (_12C > 30) {
+    // A target not requested again within the keep time is dropped.
+    if (mTargetKeepTime > sTargetKeepSteps) {
         mTarget = nullptr;
-        _12C = 0;
+        mTargetKeepTime = 0;
     }
 
-    _139 = false;
-    _130 = FLOAT_MAX;
+    mTargetDist = FLOAT_MAX;
 
     if (mTarget != nullptr) {
-        _12C++;
+        mTargetKeepTime++;
     }
 
-    if (_108 != nullptr) {
-        if (0.0f == _124) {
+    if (mBindActor != nullptr) {
+        // The bound actor slides from where it was caught to the capture point.
+        if (0.0f == mEffectBlend) {
             mEffectPos = mPosition;
         } else {
-            mEffectPos = mPosition + _E4 * MR::getEaseInOutValue(_124, 0.0f, 1.0f, 1.0f);
+            mEffectPos = mPosition + mEffectOffset * MR::getEaseInOutValue(mEffectBlend, 0.0f, 1.0f, 1.0f);
         }
 
         calcBindActorPose();
-        _F0.x *= 0.992f;
-        _F0.y *= 0.992f;
-        _F0.z *= 0.992f;
+        mRotateVelocity.scale(sRotateFriction);
         updateCameraTargetMatrix();
     }
 }
 
 void GCapture::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
-    if (_108 != nullptr && !MR::isSensorAutoRush(pSender) && MR::tryGetItem(pSender, pReceiver)) {
-        return;
+    if (mBindActor != nullptr && !MR::isSensorAutoRush(pSender)) {
+        MR::tryGetItem(pSender, pReceiver);
     }
 }
 
@@ -162,16 +147,20 @@ bool GCapture::receiveMsgEnemyAttack(u32 msg, HitSensor*, HitSensor*) {
     return requestDamageCancel(msg);
 }
 
-bool GCapture::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool GCapture::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* /*pReceiver*/) {
     if (msg == ACTMES_IS_RUSH_TAKEOVER) {
         return isNerve(GET_NERVE(GCapture, GCaptureNrvCapture));
-    } else if (msg == ACTMES_AUTORUSH_BEGIN) {
+    }
+
+    if (msg == ACTMES_AUTORUSH_BEGIN) {
         return requestBind(pSender);
-    } else if (msg == ACTMES_RUSH_CANCEL) {
+    }
+
+    if (msg == ACTMES_RUSH_CANCEL) {
         return requestCancelBind();
     }
 
-    if (msg == ACTMES_UPDATE_BASEMTX && _108 != nullptr) {
+    if (msg == ACTMES_UPDATE_BASEMTX && mBindActor != nullptr) {
         updateBindActorMatrix();
         return true;
     }
@@ -184,17 +173,16 @@ bool GCapture::requestBind(HitSensor* pSensor) {
         return false;
     }
 
-    _108 = pSensor->mHost;
-    _D8 = _108->mPosition;
-    mEffectPos = _D8;
-    _E4 = mEffectPos - mPosition;
-    _124 = 1.0f;
+    mBindActor = pSensor->mHost;
+    mEffectPos = mBindActor->mPosition;
+    mEffectOffset = mEffectPos - mPosition;
+    mEffectBlend = 1.0f;
     MR::zeroVelocity(this);
 
-    TPos3f pos;
-    pos.set(_108->getBaseMtx());
-    pos.getQuat(_BC);
-    _F0.zero();
+    Pos3f pos;
+    pos.set(mBindActor->getBaseMtx());
+    pos.getQuat(mBindQuat);
+    mRotateVelocity.zero();
     MR::startStarPointerModeBlueStar(this);
     MR::invalidateClipping(this);
     setNerve(GET_NERVE(GCapture, GCaptureNrvTraction));
@@ -203,22 +191,22 @@ bool GCapture::requestBind(HitSensor* pSensor) {
 }
 
 bool GCapture::requestCancelBind() {
-    if (_108 != nullptr && canCancelBind()) {
-        _108 = nullptr;
-        setNerve(GET_NERVE(GCapture, GCaptureNrvCoolDown));
-        releaseTractTarget();
-        MR::deleteEffectAll(this);
-        MR::emitEffect(this, "LightBreak");
-        MR::startSound(this, "SE_OJ_GCAPTURE_RELEASE");
-        MR::endStarPointerMode(this);
-        return true;
+    if (mBindActor == nullptr || !canCancelBind()) {
+        return false;
     }
 
-    return false;
+    mBindActor = nullptr;
+    setNerve(GET_NERVE(GCapture, GCaptureNrvCoolDown));
+    releaseTractTarget();
+    MR::deleteEffectAll(this);
+    MR::emitEffect(this, "LightBreak");
+    MR::startSound(this, "SE_OJ_GCAPTURE_RELEASE");
+    MR::endStarPointerMode(this);
+    return true;
 }
 
 bool GCapture::requestDamageCancel(u32 msg) {
-    if (_108 != nullptr && canCancelBind() && !MR::isPlayerElementModeInvincible()) {
+    if (mBindActor != nullptr && canCancelBind() && !MR::isPlayerElementModeInvincible()) {
         endBindByDamage(msg);
         setNerve(GET_NERVE(GCapture, GCaptureNrvCoolDown));
         return true;
@@ -228,9 +216,9 @@ bool GCapture::requestDamageCancel(u32 msg) {
 }
 
 void GCapture::reset() {
-    if (_108 != nullptr) {
+    if (mBindActor != nullptr) {
         MR::endBindAndPlayerWeakGravityLimitJump(this, mVelocity);
-        _108 = nullptr;
+        mBindActor = nullptr;
         MR::endStarPointerMode(this);
     }
 
@@ -241,8 +229,8 @@ void GCapture::reset() {
 bool GCapture::tryCapture() {
     if (mTarget != nullptr && MR::isPressedJump(PLAYER_1)) {
         decideTractTarget();
-        MR::setBinderRadius(this, 75.0f);
-        _110->getTargetPosition(&mPosition);
+        MR::setBinderRadius(this, sMinBindRadius);
+        mTractTarget->getTargetPosition(&mPosition);
         setNerve(GET_NERVE(GCapture, GCaptureNrvCapture));
         return true;
     }
@@ -251,17 +239,15 @@ bool GCapture::tryCapture() {
 }
 
 bool GCapture::tryCancelCapture() {
-    bool ret = false;
+    bool isOutOfRange = false;
 
-    if (_110 != nullptr) {
-        TVec3f position;
-        _110->getTargetPosition(&position);
-        if (MR::calcDistance(this, position) >= _110->getPointableRange()) {
-            ret = true;
-        }
+    if (mTractTarget != nullptr) {
+        Vec3f targetPos;
+        mTractTarget->getTargetPosition(&targetPos);
+        isOutOfRange = MR::calcDistance(this, targetPos) >= mTractTarget->getPointableRange();
     }
 
-    if (MR::isGreaterStep(this, 40) || (!MR::isHeldJump(PLAYER_1) && MR::isGreaterStep(this, 30)) || ret) {
+    if (MR::isGreaterStep(this, sCaptureCancelSteps) || (!MR::isHeldJump(PLAYER_1) && MR::isGreaterStep(this, sReleaseHoldSteps)) || isOutOfRange) {
         releaseTractTarget();
         setNerve(GET_NERVE(GCapture, GCaptureNrvWait));
         return true;
@@ -271,7 +257,7 @@ bool GCapture::tryCancelCapture() {
 }
 
 bool GCapture::tryEndTraction() {
-    if (!MR::isHeldJump(PLAYER_1) && MR::isGreaterStep(this, 30)) {
+    if (!MR::isHeldJump(PLAYER_1) && MR::isGreaterStep(this, sReleaseHoldSteps)) {
         releaseTractTarget();
         setNerve(GET_NERVE(GCapture, GCaptureNrvHold));
         return true;
@@ -291,7 +277,7 @@ bool GCapture::tryRecapture() {
 }
 
 bool GCapture::tryRetraction() {
-    if (MR::isGreaterStep(this, 15)) {
+    if (MR::isGreaterStep(this, sRecaptureSteps)) {
         setNerve(GET_NERVE(GCapture, GCaptureNrvTraction));
         return true;
     }
@@ -299,33 +285,31 @@ bool GCapture::tryRetraction() {
     return false;
 }
 
+// Spin and crouch break free with their own motion; a target can force the release, or release within its distance.
 bool GCapture::tryBreak() {
-    s32 channel = PLAYER_1;
+    bool isBreak = false;
 
-    if (MR::isSpin(channel)) {
+    if (MR::isSpin(PLAYER_1)) {
         MR::startBckPlayer("Spin2nd", "GCaptureCancel");
-        channel = PLAYER_2;
-    } else if (MR::isPressedCrouch(channel)) {
+        isBreak = true;
+    } else if (MR::isPressedCrouch(PLAYER_1)) {
         MR::startBckPlayer("GCaptureBreak", "GCaptureBreak");
-        channel = PLAYER_2;
-    } else if (_110 != nullptr) {
-        if (_110->isReleaseForce()) {
-            channel = PLAYER_2;
-        } else if ((_110->releaseDistance() >= 0.0f) != false) {
-            TVec3f targetPos;
-            _110->getTargetPosition(&targetPos);
-            if (mPosition.distance(targetPos) <= _110->releaseDistance()) {
-                channel = PLAYER_2;
-            }
+        isBreak = true;
+    } else if (mTractTarget != nullptr) {
+        if (mTractTarget->isReleaseForce()) {
+            isBreak = true;
+        } else if (mTractTarget->releaseDistance() >= 0.0f) {
+            Vec3f targetPos;
+            mTractTarget->getTargetPosition(&targetPos);
+            isBreak = mPosition.distance(targetPos) <= mTractTarget->releaseDistance();
         }
     }
 
-    if (channel != PLAYER_1) {
+    if (isBreak) {
         setNerve(GET_NERVE(GCapture, GCaptureNrvBreak));
-        return true;
     }
 
-    return false;
+    return isBreak;
 }
 
 bool GCapture::tryFireDamage() {
@@ -339,18 +323,18 @@ bool GCapture::tryFireDamage() {
 }
 
 bool GCapture::tryRelease() {
-    if (MR::isGreaterStep(this, 180) || MR::isBinded(this)) {
-        if (MR::sendMsgToBindedSensor(197, this, getSensor("body"))) {
-            return false;
-        }
-
-        MR::startBckPlayer("Fall", "GCaptureFall");
-        releaseTractTarget();
-        setNerve(GET_NERVE(GCapture, GCaptureNrvBreak));
-        return true;
+    if (!MR::isGreaterStep(this, sHoldReleaseSteps) && !MR::isBinded(this)) {
+        return false;
     }
 
-    return false;
+    if (MR::sendMsgToBindedSensor(197, this, getSensor("body"))) {
+        return false;
+    }
+
+    MR::startBckPlayer("Fall", "GCaptureFall");
+    releaseTractTarget();
+    setNerve(GET_NERVE(GCapture, GCaptureNrvBreak));
+    return true;
 }
 
 void GCapture::exeCoolDown() {
@@ -361,7 +345,7 @@ void GCapture::exeCoolDown() {
         MR::zeroVelocity(this);
     }
 
-    if (MR::isGreaterStep(this, 10)) {
+    if (MR::isGreaterStep(this, sCoolDownSteps)) {
         setNerve(GET_NERVE(GCapture, GCaptureNrvWait));
     }
 }
@@ -374,35 +358,30 @@ void GCapture::exeWait() {
         MR::forceDeleteEffect(this, "Light");
     }
 
-    if (tryCapture()) {
-        return;
-    }
+    tryCapture();
 }
 
 void GCapture::exeCapture() {
-    TVec3f pos;
-    _110->getTargetPosition(&pos);
+    Vec3f targetPos;
+    mTractTarget->getTargetPosition(&targetPos);
     mPosition.set(*MR::getPlayerCenterPos());
 
     if (MR::isFirstStep(this)) {
-        _128 = 0.1f;
-        _8C.identity();
-        _8C.setTrans(pos);
+        mRibbonRate = 0.1f;
+        mRibbonPointMtx.identity();
+        mRibbonPointMtx.setTrans(targetPos);
         MR::emitEffect(this, "RibbonPoint");
         MR::zeroVelocity(this);
         MR::onBind(this);
     }
 
-    if (MR::isStep(this, 30)) {
+    if (MR::isStep(this, sCaptureSteps)) {
         getSensor("bind")->validate();
     }
 
-    updateRibbon(pos, 30);
+    updateRibbon(targetPos, sCaptureSteps);
     MR::reboundVelocityFromCollision(this, 0.5f, 0.0f, 1.0f);
-
-    if (tryCancelCapture()) {
-        return;
-    }
+    tryCancelCapture();
 }
 
 void GCapture::endCapture() {
@@ -412,24 +391,24 @@ void GCapture::endCapture() {
 }
 
 void GCapture::exeRecapture() {
-    TVec3f targetPos;
-    _110->getTargetPosition(&targetPos);
+    Vec3f targetPos;
+    mTractTarget->getTargetPosition(&targetPos);
 
     if (MR::isFirstStep(this)) {
-        mCaptureRibbon->lengthen(targetPos, targetPos);
-        _128 = 1.0f;
-        _8C.identity();
-        _8C.setTrans(targetPos);
+        mCaptureRibbon->setLine(targetPos, targetPos);
+        mRibbonRate = 1.0f;
+        mRibbonPointMtx.identity();
+        mRibbonPointMtx.setTrans(targetPos);
         MR::emitEffect(this, "RibbonPoint");
         MR::onCalcGravity(this);
     } else {
-        updateRibbon(targetPos, 15);
+        updateRibbon(targetPos, sRecaptureSteps);
     }
 
     downTractPower();
     MR::reboundVelocityFromCollision(this, 0.5f, 0.0f, 1.0f);
     fillGapBindTrans();
-    MR::attenuateVelocity(this, 0.99f);
+    MR::attenuateVelocity(this, sFriction);
 
     if (tryFireDamage() || tryRecapture() || tryRetraction() || tryBreak()) {
         return;
@@ -437,72 +416,75 @@ void GCapture::exeRecapture() {
 }
 
 void GCapture::endRecapture() {
-    MR::deleteEffect(this, "RibbonPoint");
-    MR::emitEffect(this, "RibbonBreak");
-    getSensor("bind")->invalidate();
+    endCapture();
 }
 
 void GCapture::exeTraction() {
-    TVec3f targetPos, rand, v22, dir, v20;
-    _110->getTargetPosition(&targetPos);
+    Vec3f targetPos;
+    mTractTarget->getTargetPosition(&targetPos);
 
     if (MR::isFirstStep(this)) {
+        // Spins about a random axis square to the pull.
         MR::startBckPlayer("SpaceStruggle", "GCaptureTraction");
+        Vec3f rand;
         MR::getRandomVector(&rand, 1.0f);
         MR::normalizeOrZero(&rand);
-        v22.set(targetPos - mPosition);
-        MR::normalizeOrZero(&v22);
-        _FC.cross(v22, rand);
-        MR::normalizeOrZero(&_FC);
+        Vec3f toTarget(targetPos - mPosition);
+        MR::normalizeOrZero(&toTarget);
+        mRotateAxis.cross(toTarget, rand);
+        MR::normalizeOrZero(&mRotateAxis);
         MR::onCalcGravity(this);
         MR::emitEffect(this, "LightSplash");
     }
 
-    if (MR::isStep(this, 30)) {
+    if (MR::isStep(this, sCaptureSteps)) {
         MR::emitEffect(this, "Light");
     }
 
-    if (MR::isLessStep(this, 35)) {
-        _F0 += _FC * 0.002f;
+    if (MR::isLessStep(this, sTractionSpinSteps)) {
+        mRotateVelocity += mRotateAxis * sTractSpinAccel;
     }
 
-    f32 scalar;
-    MR::separateScalarAndDirection(&scalar, &dir, targetPos - mPosition);
+    f32 targetDist;
+    Vec3f dir;
+    MR::separateScalarAndDirection(&targetDist, &dir, targetPos - mPosition);
 
-    if (_128 < 1.0f) {
-        _128 += 0.033333335f;
-        if (_128 > 1.0f) {
-            _128 = 1.0f;
+    if (mRibbonRate < 1.0f) {
+        mRibbonRate += sRibbonGrowSpeed;
+        if (mRibbonRate > 1.0f) {
+            mRibbonRate = 1.0f;
         }
     }
 
-    if (scalar > 180.0f * _128) {
-        v20.set(mPosition + dir * _128 * 180.0f);
-        mCaptureRibbon->shorten(targetPos, v20);
+    // The ribbon reaches out from the capture point up to its length, then spans the whole way.
+    if (targetDist > sRibbonLength * mRibbonRate) {
+        Vec3f ribbonEnd(mPosition + dir * mRibbonRate * sRibbonLength);
+        mCaptureRibbon->setLine(targetPos, ribbonEnd);
         if (MR::isNearZero(dir)) {
-            _8C.setTrans(v20);
+            mRibbonPointMtx.setTrans(ribbonEnd);
         } else {
-            MR::makeMtxUpNoSupportPos(&_8C, dir, v20);
+            MR::makeMtxUpNoSupportPos(&mRibbonPointMtx, dir, ribbonEnd);
         }
     } else {
-        mCaptureRibbon->shorten(targetPos, targetPos);
-        _8C.identity();
-        _8C.setTrans(targetPos);
+        mCaptureRibbon->setLine(targetPos, targetPos);
+        mRibbonPointMtx.identity();
+        mRibbonPointMtx.setTrans(targetPos);
     }
 
-    MR::setBinderRadius(this, (75.0f * (1.0f - _128)) + (130.0f * _128));
-    f32 velocity;
+    MR::setBinderRadius(this, (sMinBindRadius * (1.0f - mRibbonRate)) + (sMaxBindRadius * mRibbonRate));
 
-    if (scalar < 500.0f) {
-        f32 tmp = scalar / 500.0f;
-        f32 tmp2 = 1.0f - tmp;
-        velocity = 0.99f * tmp + (0.75f * tmp2);  // lerp inline, cleanup needed
+    // Less friction near the target.
+    f32 friction;
+    if (targetDist < sNearTargetRange) {
+        f32 farRate = targetDist / sNearTargetRange;
+        f32 nearRate = 1.0f - farRate;
+        friction = sFriction * farRate + (sNearTargetFriction * nearRate);
     } else {
-        velocity = 0.99f;
+        friction = sFriction;
     }
 
-    mVelocity += dir * 0.7f * mTractPower;
-    MR::attenuateVelocity(this, velocity);
+    mVelocity += dir * sTractionAccel * mTractPower;
+    MR::attenuateVelocity(this, friction);
     upTractPower();
     MR::reboundVelocityFromCollision(this, 0.5f, 0.0f, 1.0f);
     tryAddVelocityReflectJumpCollision();
@@ -524,65 +506,67 @@ void GCapture::exeHold() {
     downTractPower();
     fillGapBindTrans();
     MR::reboundVelocityFromCollision(this, 0.5f, 0.0f, 1.0f);
-    bool tryAdd = tryAddVelocityReflectJumpCollision();
-    mIsStarPointerPointing = MR::isStarPointerPointing(this, 0, true, "\216\343" /* 弱 */);
+    bool isReflected = tryAddVelocityReflectJumpCollision();
+    // Rumbles while pointed at.
+    MR::isStarPointerPointing(this, 0, true, "弱");
     addRotateAccelPointing();
-    MR::attenuateVelocity(this, 0.99f);
-    MR::addTransMtx(_8C, mVelocity);
+    MR::attenuateVelocity(this, sFriction);
+    MR::addTransMtx(mRibbonPointMtx, mVelocity);
 
     if (tryFireDamage() || tryRecapture() || tryBreak()) {
         return;
     }
 
-    if (tryAdd || tryRelease()) {
-        return;
+    if (!isReflected) {
+        tryRelease();
     }
 }
 
 void GCapture::exeBreak() {
-    TVec3f dest, yDir;
-    TQuat4f rot;
     if (MR::isFirstStep(this)) {
-        MR::calcGravityVector(this, mEffectPos, &dest, nullptr, 0);
-        _BC.getYDir(yDir);
-        rot.setRotate(yDir, -dest);
-        _BC.mult(rot, _BC);
-        _F0.zero();
+        // The bound actor turns upright against gravity.
+        Vec3f gravity;
+        MR::calcGravityVector(this, mEffectPos, &gravity, nullptr, 0);
+        Vec3f yDir;
+        mBindQuat.getYDir(yDir);
+        Quat4f rot;
+        rot.setRotate(yDir, -gravity);
+        mBindQuat.mult(rot, mBindQuat);
+        mRotateVelocity.zero();
         MR::emitEffect(this, "LightBreak");
         MR::startSound(this, "SE_OJ_GCAPTURE_RELEASE");
     }
 
-    if (_124 > 0.0f) {
-        _124 -= 0.2f;
-        if (_124 < 0.0f) {
-            _124 = 0.0f;
+    if (mEffectBlend > 0.0f) {
+        mEffectBlend -= 0.2f;
+        if (mEffectBlend < 0.0f) {
+            mEffectBlend = 0.0f;
         }
     }
 
-    MR::attenuateVelocity(this, 0.99f);
+    MR::attenuateVelocity(this, sFriction);
 
-    if (MR::isGreaterStep(this, 5)) {
+    if (MR::isGreaterStep(this, sBreakSteps)) {
         setNerve(GET_NERVE(GCapture, GCaptureNrvWait));
         releaseTractTarget();
         MR::endBindAndPlayerWeakGravityLimitJump(this, mVelocity);
-        _108 = nullptr;
+        mBindActor = nullptr;
         MR::endStarPointerMode(this);
     }
 }
 
-void GCapture::endBindByDamage(s32 a1) {
-    MR::endBindAndPlayerDamageMsg(this, a1);
-    _108 = nullptr;
-    MR::deleteEffectAll(this);
-    MR::emitEffect(this, "LightBreak");
-    MR::startSound(this, "SE_OJ_GCAPTURE_RELEASE");
-    releaseTractTarget();
-    MR::endStarPointerMode(this);
+void GCapture::endBindByDamage(s32 msg) {
+    MR::endBindAndPlayerDamageMsg(this, msg);
+    endBindAfterDamage();
 }
 
 void GCapture::endBindByFireDamage() {
     MR::endBindAndPlayerFireDamage(this);
-    _108 = nullptr;
+    endBindAfterDamage();
+}
+
+void GCapture::endBindAfterDamage() {
+    mBindActor = nullptr;
     MR::deleteEffectAll(this);
     MR::emitEffect(this, "LightBreak");
     MR::startSound(this, "SE_OJ_GCAPTURE_RELEASE");
@@ -591,19 +575,19 @@ void GCapture::endBindByFireDamage() {
 }
 
 void GCapture::calcBindActorPose() {
-    f32 scalar;
-    TVec3f dir;
-    TQuat4f rot;
-    MR::separateScalarAndDirection(&scalar, &dir, _F0);
-    rot.setRotate(dir, scalar);
-    _BC.mult(rot, _BC);
-    _BC.normalize();
+    f32 angle;
+    Vec3f axis;
+    Quat4f rot;
+    MR::separateScalarAndDirection(&angle, &axis, mRotateVelocity);
+    rot.setRotate(axis, angle);
+    mBindQuat.mult(rot, mBindQuat);
+    mBindQuat.normalize();
 }
 
 void GCapture::updateBindActorMatrix() {
-    TPos3f pos;
-    pos.setQT(_BC, mEffectPos);
-    MR::setBaseTRMtx(_108, pos);
+    Pos3f pos;
+    pos.setQT(mBindQuat, mEffectPos);
+    MR::setBaseTRMtx(mBindActor, pos);
 }
 
 bool GCapture::canRequestTarget() const {
@@ -611,12 +595,8 @@ bool GCapture::canRequestTarget() const {
 }
 
 bool GCapture::canCancelBind() const {
-    if (isNerve(GET_NERVE(GCapture, GCaptureNrvTraction)) || isNerve(GET_NERVE(GCapture, GCaptureNrvHold)) ||
-        isNerve(GET_NERVE(GCapture, GCaptureNrvRecapture))) {
-        return true;
-    }
-
-    return false;
+    return isNerve(GET_NERVE(GCapture, GCaptureNrvTraction)) || isNerve(GET_NERVE(GCapture, GCaptureNrvHold)) ||
+           isNerve(GET_NERVE(GCapture, GCaptureNrvRecapture));
 }
 
 void GCapture::upTractPower() {
@@ -630,114 +610,114 @@ void GCapture::downTractPower() {
 }
 
 void GCapture::fillGapBindTrans() {
-    if (_124 > 0.0f) {
-        _124 -= 0.05f;
-        if (_124 < 0.0f) {
-            _124 = 0.0f;
+    if (mEffectBlend > 0.0f) {
+        mEffectBlend -= 0.05f;
+        if (mEffectBlend < 0.0f) {
+            mEffectBlend = 0.0f;
         }
     }
 }
 
-void GCapture::updateRibbon(const TVec3f& rVec, s32 step) {
-    TVec3f v13(mPosition - rVec);
-    TVec3f v12;
-    MR::normalizeOrZero(v13, &v12);
-    v13 -= v12 * _128 * 180.0f;
+// The ribbon shoots from the target toward the capture point, stopping its length short, easing in over `step`.
+void GCapture::updateRibbon(const Vec3f& rTargetPos, s32 step) {
+    Vec3f span(mPosition - rTargetPos);
+    Vec3f dir;
+    MR::normalizeOrZero(span, &dir);
+    span -= dir * mRibbonRate * sRibbonLength;
     f32 rate = MR::calcNerveRate(this, step);
-    TVec3f v11(rVec + v13 * (rate * rate));
-    mCaptureRibbon->lengthen(rVec, v11);
-    updateRibbonPointEffectMatrix(v11);
+    Vec3f ribbonEnd(rTargetPos + span * (rate * rate));
+    mCaptureRibbon->setLine(rTargetPos, ribbonEnd);
+    updateRibbonPointEffectMatrix(ribbonEnd);
 }
 
-void GCapture::updateRibbonPointEffectMatrix(const TVec3f& rVec) {
-    TVec3f v5;
-    _8C.getTrans(v5);
-    TVec3f v4 = v5 - rVec;
+// The point effect moves to `rPos`, its up along the way it moved.
+void GCapture::updateRibbonPointEffectMatrix(const Vec3f& rPos) {
+    Vec3f prevPos;
+    mRibbonPointMtx.getTrans(prevPos);
+    Vec3f up = prevPos - rPos;
 
-    if (MR::isNearZero(v4)) {
-        _8C.setTrans(rVec);
+    if (MR::isNearZero(up)) {
+        mRibbonPointMtx.setTrans(rPos);
     } else {
-        MR::makeMtxUpNoSupportPos(&_8C, v4, rVec);
+        MR::makeMtxUpNoSupportPos(&mRibbonPointMtx, up, rPos);
     }
 }
 
 void GCapture::addRotateAccelPointing() {
-    TVec3f rotate;
-    if (MR::calcStarPointerStrokeRotateMoment(&rotate, mPosition, 200.0f, 0)) {
-        _F0 += rotate * 0.055104f;
-        f32 mag = _F0.length();
-        if (mag > 0.2f) {
-            _F0.scale(0.2f / mag);
+    Vec3f rotate;
+    if (MR::calcStarPointerStrokeRotateMoment(&rotate, mPosition, sPointRadius, 0)) {
+        mRotateVelocity += rotate * sPointerSpinPower;
+        f32 speed = mRotateVelocity.length();
+        if (speed > sMaxSpinSpeed) {
+            mRotateVelocity.scale(sMaxSpinSpeed / speed);
         }
     }
 }
 
 bool GCapture::tryAddVelocityReflectJumpCollision() {
-    bool ret = MR::sendMsgToBindedSensor(196, this, getSensor("body"));
-    if (ret) {
-        MR::addVelocityToCollisionNormal(this, 25.0f);
+    bool isReflected = MR::sendMsgToBindedSensor(196, this, getSensor("body"));
+    if (isReflected) {
+        MR::addVelocityToCollisionNormal(this, sReflectSpeed);
 
-        f32 len = mVelocity.length();
-
-        if (len > 25.0f) {
-            mVelocity.scale(25.0f / len);
+        f32 speed = mVelocity.length();
+        if (speed > sReflectSpeed) {
+            mVelocity.scale(sReflectSpeed / speed);
         }
     }
 
-    return ret;
+    return isReflected;
 }
 
-bool GCapture::requestTarget(GCaptureTargetable* gCaptureTarget) {
-    TVec3f targetPos;
-    if (canRequestTarget()) {
-        TVec2f pointerPos = *MR::getStarPointerScreenPosition(PLAYER_1);
-        gCaptureTarget->getTargetPosition(&targetPos);
-        TVec2f screenPos;
-        MR::calcScreenPosition(&screenPos, targetPos);
-        f32 dist = screenPos.distance(pointerPos);
-        if (dist < _130) {
-            _130 = dist;
-            mTarget = gCaptureTarget;
-            _12C = false;
-            return true;
-        }
+// The target nearest the pointer on screen this frame wins.
+bool GCapture::requestTarget(GCaptureTargetable* pTarget) {
+    if (!canRequestTarget()) {
+        return false;
+    }
+
+    Vec2f pointerPos = *MR::getStarPointerScreenPosition(PLAYER_1);
+    Vec3f targetPos;
+    pTarget->getTargetPosition(&targetPos);
+    Vec2f screenPos;
+    MR::calcScreenPosition(&screenPos, targetPos);
+    f32 dist = screenPos.distance(pointerPos);
+    if (dist < mTargetDist) {
+        mTargetDist = dist;
+        mTarget = pTarget;
+        mTargetKeepTime = 0;
+        return true;
     }
 
     return false;
 }
 
-bool GCapture::isRequestedTarget(GCaptureTargetable* gCaptureTarget) {
-    if (gCaptureTarget == nullptr) {
-        return false;
-    }
-
-    return mTarget == gCaptureTarget;
+bool GCapture::isRequestedTarget(GCaptureTargetable* pTarget) {
+    return pTarget != nullptr && mTarget == pTarget;
 }
 
 void GCapture::decideTractTarget() {
-    if (_110 != mTarget) {
+    if (mTractTarget != mTarget) {
         releaseTractTarget();
         mTarget->decidedTarget();
-        _110 = mTarget;
+        mTractTarget = mTarget;
         mCaptureRibbon->reset();
         mTarget = nullptr;
     }
 }
 
 void GCapture::releaseTractTarget() {
-    if (_110 != nullptr) {
-        _110->releasedTarget();
+    if (mTractTarget != nullptr) {
+        mTractTarget->releasedTarget();
         mCaptureRibbon->reset();
     }
 
-    _110 = nullptr;
+    mTractTarget = nullptr;
 }
 
 void GCapture::updateCameraTargetMatrix() {
-    TPos3f pos;
+    Pos3f pos;
     pos.identity();
 
-    if (_108 != nullptr) {
+    if (mBindActor != nullptr) {
         pos.setTrans(*MR::getPlayerPos());
     } else {
         pos.setTrans(mEffectPos);
@@ -758,41 +738,38 @@ namespace MR {
         }
     }
 
-    bool requestGCaptureTarget(GCaptureTargetable* gCaptureTarget) {
+    bool requestGCaptureTarget(GCaptureTargetable* pTarget) {
         GCapture* gCapture = static_cast< GCapture* >(MR::getSceneObjHolder()->getObj(SceneObj_GCapture));
-        return gCapture->requestTarget(gCaptureTarget);
+        return gCapture->requestTarget(pTarget);
     }
 
-    void unrequestGCaptureTarget(GCaptureTargetable* gCaptureTarget) {
+    void unrequestGCaptureTarget(GCaptureTargetable* pTarget) {
         GCapture* gCapture = static_cast< GCapture* >(MR::getSceneObjHolder()->getObj(SceneObj_GCapture));
-        if (gCapture->isRequestedTarget(gCaptureTarget)) {
+        if (gCapture->isRequestedTarget(pTarget)) {
             gCapture->mTarget = nullptr;
         }
     }
 
-    bool isRequestedGCaptureTarget(GCaptureTargetable* gCaptureTarget) {
+    bool isRequestedGCaptureTarget(GCaptureTargetable* pTarget) {
         GCapture* gCapture = static_cast< GCapture* >(MR::getSceneObjHolder()->getObj(SceneObj_GCapture));
-        return gCapture->isRequestedTarget(gCaptureTarget);
+        return gCapture->isRequestedTarget(pTarget);
     }
 
     void noticeInTouchableRange() {
         GCapture* gCapture = static_cast< GCapture* >(MR::getSceneObjHolder()->getObj(SceneObj_GCapture));
-        gCapture->mGuidanceTime = 20;
+        gCapture->mGuidanceTime = sGuidanceSteps;
     }
 
     bool isOnTractTrigger() {
-        return MR::isPressedJump(PLAYER_1) != false;
+        return MR::isPressedJump(PLAYER_1);
     }
 
     bool isPlayerGCaptured() {
         if (!MR::isExistSceneObj(SceneObj_GCapture)) {
             return false;
         }
-        GCapture* gCapture = static_cast< GCapture* >(MR::getSceneObjHolder()->getObj(SceneObj_GCapture));
-        if (gCapture == nullptr) {
-            return false;
-        }
 
-        return gCapture->_108;
+        GCapture* gCapture = static_cast< GCapture* >(MR::getSceneObjHolder()->getObj(SceneObj_GCapture));
+        return gCapture != nullptr && gCapture->mBindActor != nullptr;
     }
 };  // namespace MR

@@ -1,19 +1,14 @@
 #include "Game/AreaObj/WaterArea.hpp"
 #include "Game/Map/WaterAreaHolder.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 
-WaterArea::WaterArea(int formType, const char* pName) : AreaObj(formType, pName), _3C() {
+WaterArea::WaterArea(int formType, const char* pName) : AreaObj(formType, pName) {
 }
 
-void WaterArea::init(const JMapInfoIter& rIter) {
+void WaterArea::init(const TableIter& rIter) {
     AreaObj::init(rIter);
-
-    if (MR::checkJMapDataEntries(rIter)) {
-        MR::getJMapInfoArg2NoInit(rIter, &_3C);
-    }
-
     WaterAreaFunction::createWaterAreaHolder();
 }
 
-WaterAreaMgr::WaterAreaMgr(s32 maxNum, const char* pName) : AreaObjMgr(maxNum, pName) {
+WaterAreaMgr::WaterAreaMgr(s32 firstCapacity, const char* pName) : AreaObjMgr(firstCapacity, pName) {
 }

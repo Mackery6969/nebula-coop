@@ -1,17 +1,17 @@
 #include "Game/NPC/NPCActor.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Enemy/AnimScaleController.hpp"
 #include "Game/LiveActor/LodCtrl.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/LiveActor/PartsModel.hpp"
 #include "Game/LiveActor/Spine.hpp"
 #include "Game/NPC/NPCActorItem.hpp"
-#include "Game/NameObj/NameObjArchiveListCollector.hpp"
 #include "Game/Util/ActorMovementUtil.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/ActorShadowUtil.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/DemoUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/JointController.hpp"
 #include "Game/Util/JointUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
@@ -23,8 +23,8 @@
 #include "Game/Util/RailUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
-#include <JSystem/JGeometry/TUtil.hpp>
-#include <JSystem/JMath/JMATrigonometric.hpp>
+#include <nebula_geometry.hpp>
+
 
 namespace NrvNPCActor {
     NEW_NERVE(NPCActorNrvReaction, NPCActor, Reaction);
@@ -34,12 +34,15 @@ namespace NrvNPCActor {
 };  // namespace NrvNPCActor
 
 namespace {
+    // Steps since the pointer's sound last played, held here (past the 60 it waits).
+    const s32 cPointingSeStepMax = 0x400;
+
     class NPCParam : public AnimScaleParam {
     public:
         NPCParam() : AnimScaleParam() {
-            _10 = 15.0f;
-            _14 = 1.4;
-            _20 = 0.3f;
+            mPointerTime = 15.0f;
+            mPointerBase = 1.4;
+            mHitReactionVelocity = 0.3f;
         };
     };
 
@@ -47,9 +50,7 @@ namespace {
 };  // namespace
 
 NPCActorCaps::NPCActorCaps(const char* pName) {
-    _0 = pName;
     mMakeActor = false;
-    mHostIO = false;
     mInterpole = false;
     mConnectTo = false;
     mLightCtrl = false;
@@ -66,9 +67,7 @@ NPCActorCaps::NPCActorCaps(const char* pName) {
     mRailRider = false;
     mSwitchDead = true;
     mSwitchAppear = false;
-    _67 = false;
     mMakeActor = false;
-    mHostIO = false;
     mInterpole = false;
     mConnectTo = false;
     mLightCtrl = false;
@@ -85,7 +84,6 @@ NPCActorCaps::NPCActorCaps(const char* pName) {
     mRailRider = false;
     mSwitchDead = true;
     mSwitchAppear = false;
-    _67 = false;
     mBinderSize = 50.0f;
     mSensorSize = 50.0f;
     mShadowSize = 50.0f;
@@ -98,15 +96,13 @@ NPCActorCaps::NPCActorCaps(const char* pName) {
     mStarPointerOffs.z = 0.0f;
     mModel = false;
     mMessage = false;
-    _F = false;
     mModel = false;
     mMessage = false;
-    _F = false;
     mMessageOffset.x = 0.0f;
     mMessageOffset.y = 150.0f;
     mMessageOffset.z = 0.0f;
     mSensorOffset.set< f32 >(0.0f, 50.0f, 0.0f);
-    _10 = pName;
+    mMessageId = pName;
     mTalkMtx = nullptr;
     mTalkJointName = nullptr;
     mTalkMtx = nullptr;
@@ -118,15 +114,14 @@ NPCActorCaps::NPCActorCaps(const char* pName) {
     mWaitNerve = GET_NERVE(NPCActor, NPCActorNrvWait);
     mTalkNerve = GET_NERVE(NPCActor, NPCActorNrvTalk);
     mReactionNerve = GET_NERVE(NPCActor, NPCActorNrvReaction);
-    _70 = nullptr;
-    _6C = nullptr;
-    _70 = nullptr;
-    _6C = nullptr;
+    mScaleJoint = nullptr;
+    mPointerJoint = nullptr;
+    mScaleJoint = nullptr;
+    mPointerJoint = nullptr;
 }
 
 void NPCActorCaps::setDefault() {
     mMakeActor = true;
-    mHostIO = true;
     mInterpole = true;
     mConnectTo = true;
     mLightCtrl = true;
@@ -146,7 +141,6 @@ void NPCActorCaps::setDefault() {
     mModel = true;
     mMessage = true;
     mMakeActor = true;
-    mHostIO = true;
     mInterpole = true;
     mConnectTo = true;
     mLightCtrl = true;
@@ -174,142 +168,107 @@ void NPCActorCaps::setIndirect() {
 NPCActor::NPCActor(const char* pName) : LiveActor(pName) {
     mLodCtrl = nullptr;
     mMsgCtrl = nullptr;
-    _94 = nullptr;
-    _98 = nullptr;
+    mGoods0 = nullptr;
+    mGoods1 = nullptr;
     mLodCtrl = nullptr;
     mMsgCtrl = nullptr;
-    _94 = nullptr;
-    _98 = nullptr;
-    _9C = 0;
-    _D8 = 0;
-    _D9 = 0;
-    _DA = 0;
-    _DB = 0;
-    _DC = 0;
-    _DD = 0;
-    _DE = 0;
-    _DF = 0;
-    _E0 = 0;
-    _E1 = 0;
-    _E2 = 0;
-    _E3 = 0;
-    _E4 = 0;
-    _E5 = 0;
-    _E6 = 0;
-    mParam._0 = 1;
-    mParam._1 = 1;
-    mParam._4 = 2000.0f;
-    mParam._8 = 4.0f;
-    mParam._C = 0.0f;
-    mParam._10 = 0.0f;
-    mParam._14 = nullptr;
-    mParam._18 = nullptr;
-    mParam._1C = nullptr;
-    mParam._20 = nullptr;
-    _11C = nullptr;
-    _120 = nullptr;
-    _10C = 2.0f;
-    _110 = 0.1f;
-    _114 = 0.08f;
-    _118 = 1.0f;
-    _124 = 0;
-    _128 = 1;
-    _12C = 0.0f;
-    _130 = 0;
-    _134 = 0;
-    _138 = 0;
-    _13C = 0;
+    mGoods0 = nullptr;
+    mGoods1 = nullptr;
+    mTrampleCoolDown = 0;
+    mIsTrampledStart = 0;
+    mIsSpinAttackedStart = 0;
+    mIsPointingStart = 0;
+    mIsReactionStart = 0;
+    mWasTrampled = 0;
+    mWasSpinAttacked = 0;
+    mWasPointed = 0;
+    mWasReaction = 0;
+    mIsTrampled = 0;
+    mIsSpinAttacked = 0;
+    mIsPointed = 0;
+    mIsReaction = 0;
+    mIsJetTurtleHit = 0;
+    mParam.mTurnWhenNear = 1;
+    mParam.mTurnOnTalk = 1;
+    mParam.mNearDistance = 2000.0f;
+    mParam.mTurnSpeed = 4.0f;
+    mParam.mTiltSpeed = 0.0f;
+    mParam.mTiltMaxAngle = 0.0f;
+    mParam.mWaitAction = nullptr;
+    mParam.mWaitTurnAction = nullptr;
+    mParam.mTalkAction = nullptr;
+    mParam.mTalkTurnAction = nullptr;
+    mMoveAction = nullptr;
+    mMoveTalkAction = nullptr;
+    mRailSpeed = 2.0f;
+    mRailAccel = 0.1f;
+    mRailPoseRate = 0.08f;
+    mMoveTalkBckRate = 1.0f;
+    mIsRailOnGround = 0;
+    mUseReactionActions = 1;
+    mSwingReactDist = 0.0f;
+    mSpinAction = 0;
+    mTrampleAction = 0;
+    mPointingAction = 0;
+    mReactionAction = 0;
     mScaleController = nullptr;
     mDelegator = nullptr;
     mCurNerve = nullptr;
-    _158 = 0x400;
-    _A0.set< f32 >(0.0f, 0.0f, 0.0f, 1.0f);
-    _B0.set< f32 >(0.0f, 0.0f, 0.0f, 1.0f);
-    _C0.zero();
-    _CC.zero();
+    mPointingSeStep = cPointingSeStepMax;
+    mPoseQuat.set< f32 >(0.0f, 0.0f, 0.0f, 1.0f);
+    mInitPoseQuat.set< f32 >(0.0f, 0.0f, 0.0f, 1.0f);
+    mInitPos.zero();
+    mPoseRotation.zero();
     mWaitNerve = GET_NERVE(NPCActor, NPCActorNrvWait);
     mTalkNerve = GET_NERVE(NPCActor, NPCActorNrvTalk);
     mReactionNerve = GET_NERVE(NPCActor, NPCActorNrvReaction);
 }
 
-void NPCActor::makeArchiveList(NameObjArchiveListCollector* pCollector, const JMapInfoIter& rIter) {
-    const char* name;
-    MR::getObjectName(&name, rIter);
-    NPCActorItem item(name);
-
-    s32 item_type = -1;
-    MR::getJMapInfoArg7NoInit(rIter, &item_type);
-
-    if (MR::getNPCItemData(&item, item_type)) {
-        NPCActor::addArchive(pCollector, item);
-    }
-}
-
-void NPCActor::addArchive(NameObjArchiveListCollector* pCollector, const NPCActorItem& rItem) {
-    if (!MR::isNullOrEmptyString(rItem.mGoods0) && MR::isNPCItemFileExist(rItem.mGoods0)) {
-        pCollector->addArchive(rItem.mGoods0);
-    }
-
-    if (!MR::isNullOrEmptyString(rItem.mGoods1) && MR::isNPCItemFileExist(rItem.mGoods1)) {
-        pCollector->addArchive(rItem.mGoods1);
-    }
-}
-
-void NPCActor::makeArchiveListDefault(NameObjArchiveListCollector* pCollector, const JMapInfoIter& rIter) {
-    const char* objName;
-    MR::getObjectName(&objName, rIter);
-    NPCActorItem item(objName);
-
-    if (MR::getNPCItemData(&item, 0)) {
-        NPCActor::addArchive(pCollector, item);
-    }
-}
-
-void NPCActor::setBaseMtx(const TPos3f& rPos) {
-    TVec3f trans;
+void NPCActor::setBaseMtx(const Pos3f& rPos) {
+    Vec3f trans;
     rPos.getTrans(trans);
 
-    TVec3f eulerXYZ;
+    Vec3f eulerXYZ;
     rPos.getEulerXYZ(eulerXYZ);
-    MR::makeQuatRotateRadian(&_A0, eulerXYZ);
-    _A0.normalize();
+    MR::makeQuatRotateRadian(&mPoseQuat, eulerXYZ);
+    mPoseQuat.normalize();
 
     mPosition.set(trans);
     eulerXYZ = eulerXYZ * 57.29578f;
     mRotation.set(eulerXYZ);
-    _CC.set(eulerXYZ);
+    mPoseRotation.set(eulerXYZ);
 
-    MR::setBaseTRMtx(this, _A0);
+    MR::setBaseTRMtx(this, mPoseQuat);
     MR::resetPosition(this);
 }
 
 void NPCActor::setBaseMtx(MtxPtr pMtx) {
-    TPos3f pos;
+    Pos3f pos;
     pos.setInline(pMtx);
     setBaseMtx(pos);
 }
 
 void NPCActor::setInitPose() {
-    _B0.x = _A0.x;
-    _B0.y = _A0.y;
-    _B0.z = _A0.z;
-    _B0.w = _A0.w;
+    mInitPoseQuat.x = mPoseQuat.x;
+    mInitPoseQuat.y = mPoseQuat.y;
+    mInitPoseQuat.z = mPoseQuat.z;
+    mInitPoseQuat.w = mPoseQuat.w;
 
-    _C0.set(mPosition);
+    mInitPos.set(mPosition);
 }
 
-void NPCActor::init(const JMapInfoIter& rIter) {
+void NPCActor::init(const TableIter& rIter) {
     LiveActor::init(rIter);
 }
 
 void NPCActor::initAfterPlacement() {
     MR::calcGravity(this);
 
-    if (!MR::isNullOrEmptyString(mParam._14)) {
-        MR::startAction(this, mParam._14);
+    if (!MR::isNullOrEmptyString(mParam.mWaitAction)) {
+        MR::startAction(this, mParam.mWaitAction);
 
-        if (MR::isExistBck(this, mParam._14)) {
-            MR::startBckNoInterpole(this, mParam._14);
+        if (MR::isExistBck(this, mParam.mWaitAction)) {
+            MR::startBckNoInterpole(this, mParam.mWaitAction);
         }
 
         MR::setBckFrameAtRandom(this);
@@ -317,7 +276,7 @@ void NPCActor::initAfterPlacement() {
     }
 }
 
-void NPCActor::initialize(const JMapInfoIter& rIter, const NPCActorCaps& rCaps) {
+void NPCActor::initialize(const TableIter& rIter, const NPCActorCaps& rCaps) {
     if (rCaps.mPosition) {
         MR::initDefaultPosAndQuat(this, rIter);
     }
@@ -372,7 +331,7 @@ void NPCActor::initialize(const JMapInfoIter& rIter, const NPCActorCaps& rCaps) 
     }
 
     if (rCaps.mEffect) {
-        initEffectKeeper(0, nullptr, false);
+        initEffectKeeper(0, nullptr);
     }
 
     if (rCaps.mUseShadow) {
@@ -391,8 +350,8 @@ void NPCActor::initialize(const JMapInfoIter& rIter, const NPCActorCaps& rCaps) 
     }
 
     if (rCaps.mPointer) {
-        if (rCaps._6C != nullptr) {
-            MR::initStarPointerTargetAtJoint(this, rCaps._6C, rCaps.mPointerSize, rCaps.mStarPointerOffs);
+        if (rCaps.mPointerJoint != nullptr) {
+            MR::initStarPointerTargetAtJoint(this, rCaps.mPointerJoint, rCaps.mPointerSize, rCaps.mStarPointerOffs);
         } else {
             MR::initStarPointerTarget(this, rCaps.mPointerSize, rCaps.mStarPointerOffs);
         }
@@ -406,12 +365,7 @@ void NPCActor::initialize(const JMapInfoIter& rIter, const NPCActorCaps& rCaps) 
             talkMtx = rCaps.mTalkMtx;
         }
 
-        if (rCaps._F) {
-            mMsgCtrl = MR::createTalkCtrlDirect(this, rIter, rCaps._10, rCaps.mMessageOffset, talkMtx);
-            MR::onRootNodeAutomatic(mMsgCtrl);
-        } else {
-            initTalkCtrl(rIter, rCaps._10, rCaps.mMessageOffset, talkMtx);
-        }
+        initTalkCtrl(rIter, rCaps.mMessageId, rCaps.mMessageOffset, talkMtx);
     }
 
     if (rCaps.mLodCtrl) {
@@ -426,14 +380,12 @@ void NPCActor::initialize(const JMapInfoIter& rIter, const NPCActorCaps& rCaps) 
         MR::useStageSwitchWriteDead(this, rIter);
     }
 
-    if (rCaps._70 != nullptr) {
+    if (rCaps.mScaleJoint != nullptr) {
         mScaleController = new AnimScaleController(&::sParam);
-        mDelegator = MR::createJointDelegatorWithNullChildFunc(this, &NPCActor::calcJointScale, rCaps._70);
+        mDelegator = MR::createJointDelegatorWithNullChildFunc(this, &NPCActor::calcJointScale, rCaps.mScaleJoint);
     }
 
-    if (rCaps._67) {
-        makeActorDead();
-    } else if (rCaps.mSwitchAppear && MR::useStageSwitchReadAppear(this, rIter)) {
+    if (rCaps.mSwitchAppear && MR::useStageSwitchReadAppear(this, rIter)) {
         MR::syncStageSwitchAppear(this);
         if (rCaps.mMakeActor) {
             makeActorDead();
@@ -445,30 +397,30 @@ void NPCActor::initialize(const JMapInfoIter& rIter, const NPCActorCaps& rCaps) 
 
 void NPCActor::equipment(const NPCActorItem& rItem, bool indirect) {
     if (indirect) {
-        _94 = MR::createIndirectNPCGoods(this, rItem.mGoods0, rItem.mGoodsJoint0);
-        _98 = MR::createIndirectNPCGoods(this, rItem.mGoods1, rItem.mGoodsJoint1);
+        mGoods0 = MR::createIndirectNPCGoods(this, rItem.mGoods0, rItem.mGoodsJoint0);
+        mGoods1 = MR::createIndirectNPCGoods(this, rItem.mGoods1, rItem.mGoodsJoint1);
     } else {
-        _94 = MR::createNPCGoods(this, rItem.mGoods0, rItem.mGoodsJoint0);
-        _98 = MR::createNPCGoods(this, rItem.mGoods1, rItem.mGoodsJoint1);
+        mGoods0 = MR::createNPCGoods(this, rItem.mGoods0, rItem.mGoodsJoint0);
+        mGoods1 = MR::createNPCGoods(this, rItem.mGoods1, rItem.mGoodsJoint1);
     }
 
-    if (_94 != nullptr) {
-        MR::registerDemoSimpleCastAll(_94);
+    if (mGoods0 != nullptr) {
+        MR::registerDemoSimpleCastAll(mGoods0);
     }
 
-    if (_98 != nullptr) {
-        MR::registerDemoSimpleCastAll(_98);
+    if (mGoods1 != nullptr) {
+        MR::registerDemoSimpleCastAll(mGoods1);
     }
 }
 
 void NPCActor::calcAndSetBaseMtx() {
-    _A0.normalize();
-    if (!(_CC == mRotation)) {
-        MR::makeQuatRotateDegree(&_A0, mRotation);
-        _CC = mRotation;
+    mPoseQuat.normalize();
+    if (!(mPoseRotation == mRotation)) {
+        MR::makeQuatRotateDegree(&mPoseQuat, mRotation);
+        mPoseRotation = mRotation;
     }
 
-    MR::setBaseTRMtx(this, _A0);
+    MR::setBaseTRMtx(this, mPoseQuat);
     if (mDelegator != nullptr) {
         mDelegator->registerCallBack();
     }
@@ -480,12 +432,12 @@ void NPCActor::makeActorAppeared() {
         mLodCtrl->appear();
     }
 
-    if (_94 != nullptr) {
-        _94->appear();
+    if (mGoods0 != nullptr) {
+        mGoods0->appear();
     }
 
-    if (_98 != nullptr) {
-        _98->appear();
+    if (mGoods1 != nullptr) {
+        mGoods1->appear();
     }
 }
 
@@ -494,12 +446,12 @@ void NPCActor::makeActorDead() {
         mLodCtrl->kill();
     }
 
-    if (_94 != nullptr) {
-        _94->kill();
+    if (mGoods0 != nullptr) {
+        mGoods0->kill();
     }
 
-    if (_98 != nullptr) {
-        _98->kill();
+    if (mGoods1 != nullptr) {
+        mGoods1->kill();
     }
 
     LiveActor::makeActorDead();
@@ -515,18 +467,15 @@ void NPCActor::kill() {
 
 void NPCActor::control() {
     if (isPointingSe()) {
-        _158 = 0;
-    } else {
-        _158++;
+        mPointingSeStep = 0;
+    } else if (mPointingSeStep < cPointingSeStepMax) {
+        mPointingSeStep++;
     }
-
-    const s32 count = _158;
-    _158 = count < 0x400 ? count : 0x400;
 
     updateReaction();
 
-    if (_9C > 0) {
-        _9C--;
+    if (mTrampleCoolDown > 0) {
+        mTrampleCoolDown--;
     }
 
     if (mLodCtrl != nullptr) {
@@ -537,12 +486,12 @@ void NPCActor::control() {
         mScaleController->update();
     }
 
-    if (mModelManager != nullptr && MR::checkPlayerSwingTrigger() && MR::isNearPlayer(this, _12C)) {
-        _E3 = true;
+    if (mModelManager != nullptr && MR::checkPlayerSwingTrigger() && MR::isNearPlayer(this, mSwingReactDist)) {
+        mIsSpinAttacked = true;
     }
 
-    if (mStarPointerTarget != nullptr && MR::isStarPointerPointing2POnPressButton(this, "\216\343" /* 弱 */, true, false)) {
-        _E4 = true;
+    if (mStarPointerTarget != nullptr && MR::isStarPointerPointing2POnPressButton(this, "弱", true, false)) {
+        mIsPointed = true;
     }
 
     if (mScaleController != nullptr && mDelegator != nullptr) {
@@ -550,9 +499,9 @@ void NPCActor::control() {
     }
 }
 
-bool NPCActor::initTalkCtrl(const JMapInfoIter& rIter, const char* pChar, const TVec3f& rVec, MtxPtr pMtx) {
+bool NPCActor::initTalkCtrl(const TableIter& rIter, const char* pChar, const Vec3f& rVec, MtxPtr pMtx) {
     s32 messageID;
-    MR::getJMapInfoMessageID(rIter, &messageID);
+    MR::getPlacementMessageID(rIter, &messageID);
     if (messageID < 0) {
         return false;
     }
@@ -562,14 +511,14 @@ bool NPCActor::initTalkCtrl(const JMapInfoIter& rIter, const char* pChar, const 
     return true;
 }
 
-bool NPCActor::initTalkCtrlDirect(const JMapInfoIter& rIter, const char* pChar, const TVec3f& rVec, MtxPtr pMtx) {
+bool NPCActor::initTalkCtrlDirect(const TableIter& rIter, const char* pChar, const Vec3f& rVec, MtxPtr pMtx) {
     mMsgCtrl = MR::createTalkCtrlDirect(this, rIter, pChar, rVec, pMtx);
     MR::onRootNodeAutomatic(mMsgCtrl);
     return true;
 }
 
-bool NPCActor::calcJointScale(TPos3f* pPos, const JointControllerInfo&) {
-    MR::preScaleMtx(pPos->toMtxPtr(), mScaleController->_C);
+bool NPCActor::calcJointScale(Pos3f* pPos, const JointControllerInfo&) {
+    MR::preScaleMtx(pPos->toMtxPtr(), mScaleController->mScale);
     return true;
 }
 
@@ -578,55 +527,56 @@ bool NPCActor::turnToPlayer() {
 }
 
 namespace {
-    void calcVecToPlayer(TVec3f* pOut, const LiveActor* pActor) {
-        TVec3f playerTrans;
+    void calcVecToPlayer(Vec3f* pOut, const LiveActor* pActor) {
+        Vec3f playerTrans;
         MR::extractMtxTrans(MR::getPlayerBaseMtx(), &playerTrans);
         MR::normalizeOrZero(playerTrans - pActor->mPosition, pOut);
     }
 };  // namespace
 
-bool NPCActor::turnToPlayer(f32 f1) {
-    TVec3f zDir;
-    TVec3f toPlayer;
+bool NPCActor::turnToPlayer(f32 turnSpeedDeg) {
+    Vec3f zDir;
+    Vec3f toPlayer;
     ::calcVecToPlayer(&toPlayer, this);
-    _A0.getZDir(zDir);
+    mPoseQuat.getZDir(zDir);
 
     if (MR::isOppositeDirection(-zDir, toPlayer)) {
         return true;
     }
 
-    return MR::faceToVector(&_A0, toPlayer, f1);
+    return MR::faceToVector(&mPoseQuat, toPlayer, turnSpeedDeg);
 }
 
-bool NPCActor::turnToPlayer(f32 f1, f32 f2, f32 f3) {
-    bool turned = turnToPlayer(f1);
-    if (f3 == 0.0f) {
+bool NPCActor::turnToPlayer(f32 turnSpeedDeg, f32 tiltSpeedDeg, f32 maxTiltDeg) {
+    bool turned = turnToPlayer(turnSpeedDeg);
+    if (maxTiltDeg == 0.0f) {
         return turned;
     }
 
-    TVec3f toPlayer;
-    TVec3f yDir;
-    _B0.getYDir(yDir);
+    Vec3f toPlayer;
+    Vec3f yDir;
+    mInitPoseQuat.getYDir(yDir);
     ::calcVecToPlayer(&toPlayer, this);
 
     if (MR::isSameDirection(toPlayer, yDir)) {
         return false;
     }
 
-    TVec3f vec1;
-    TVec3f vec2;
-    MR::makeAxisFrontUp(&vec1, &vec2, toPlayer, yDir);
-    MR::clampVecAngleDeg(&vec2, yDir, f3);
-    return MR::turnQuatYDirRad(&_A0, _A0, vec2, f2 * 0.017453292f) & turned;
+    // Tilt the up axis toward the player, at most maxTiltDeg from the initial up.
+    Vec3f front;
+    Vec3f tiltedUp;
+    MR::makeAxisFrontUp(&front, &tiltedUp, toPlayer, yDir);
+    MR::clampVecAngleDeg(&tiltedUp, yDir, maxTiltDeg);
+    return MR::turnQuatYDirRad(&mPoseQuat, mPoseQuat, tiltedUp, tiltSpeedDeg * 0.017453292f) & turned;
 }
 
-bool NPCActor::turnToDefault(f32 f1) {
-    TVec3f zDir;
-    TVec3f zDir2;
-    TVec3f yDir;
-    _B0.getZDir(zDir);
-    _B0.getYDir(yDir);
-    _A0.getZDir(zDir2);
+bool NPCActor::turnToDefault(f32 turnSpeedDeg) {
+    Vec3f zDir;
+    Vec3f zDir2;
+    Vec3f yDir;
+    mInitPoseQuat.getZDir(zDir);
+    mInitPoseQuat.getYDir(yDir);
+    mPoseQuat.getZDir(zDir2);
 
     if (MR::isOppositeDirection(-zDir, zDir2)) {
         return true;
@@ -635,25 +585,25 @@ bool NPCActor::turnToDefault(f32 f1) {
     f32 dot = zDir.dot(zDir2);
     dot = MR::clamp(dot, -1.0f, 1.0f);
 
-    f32 flt = MR::abs((f1 * 0.017453292f) / MR::acos(dot));
-    flt = MR::clamp(flt, 0.0f, 1.0f);
+    f32 rate = MR::abs((turnSpeedDeg * 0.017453292f) / MR::acos(dot));
+    rate = MR::clamp(rate, 0.0f, 1.0f);
 
-    MR::blendQuatUpFront(&_A0, yDir, zDir, flt, flt);
+    MR::blendQuatUpFront(&mPoseQuat, yDir, zDir, rate, rate);
     return MR::isSameDirection(zDir2, zDir);
 }
 
 void NPCActor::setToDefault() {
-    mPosition = _C0;
-    _A0 = _B0;
-    _A0.normalize();
+    mPosition = mInitPos;
+    mPoseQuat = mInitPoseQuat;
+    mPoseQuat.normalize();
 
-    TVec3f euler;
-    _A0.getEuler(euler);
+    Vec3f euler;
+    mPoseQuat.getEuler(euler);
     euler = euler * 57.29578f;
     mRotation = euler;
-    _CC = euler;
+    mPoseRotation = euler;
 
-    MR::setBaseTRMtx(this, _A0);
+    MR::setBaseTRMtx(this, mPoseQuat);
     MR::resetPosition(this);
 }
 
@@ -669,9 +619,9 @@ void NPCActor::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
 
 bool NPCActor::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
     if (MR::isMsgPlayerTrample(msg)) {
-        if (_9C == 0) {
-            _9C = 30;
-            _E2 = true;
+        if (mTrampleCoolDown == 0) {
+            mTrampleCoolDown = 30;
+            mIsTrampled = true;
             return true;
         }
 
@@ -679,27 +629,25 @@ bool NPCActor::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pR
     }
 
     if (MR::isMsgPlayerHipDrop(msg)) {
-        _E2 = true;
+        mIsTrampled = true;
         MR::sendMsgAwayJump(pSender, pReceiver);
         return true;
     }
 
-    if (MR::isMsgPlayerSpinAttack(msg) && MR::isNearZero(_12C)) {
-        _E3 = true;
+    if (MR::isMsgPlayerSpinAttack(msg) && MR::isNearZero(mSwingReactDist)) {
+        mIsSpinAttacked = true;
         return false;
     }
 
     if (MR::isMsgStarPieceReflect(msg)) {
-        _E5 = true;
+        mIsReaction = true;
         return true;
     }
 
-    if (MR::isMsgStarPieceAttack(msg)) {
-    }
 
     if (MR::isMsgJetTurtleAttack(msg)) {
-        _E5 = true;
-        _E6 = true;
+        mIsReaction = true;
+        mIsJetTurtleHit = true;
         return true;
     }
 
@@ -743,8 +691,8 @@ bool NPCActor::isScaleAnim() const {
         return false;
     }
 
-    bool isDefaultScale = (MR::isNearZero(1.0f - pScaleController->_C.x, 0.2f) && MR::isNearZero(1.0f - pScaleController->_C.y, 0.2f) &&
-                           MR::isNearZero(1.0f - pScaleController->_C.z, 0.2f));
+    bool isDefaultScale = (MR::isNearZero(1.0f - pScaleController->mScale.x, 0.2f) && MR::isNearZero(1.0f - pScaleController->mScale.y, 0.2f) &&
+                           MR::isNearZero(1.0f - pScaleController->mScale.z, 0.2f));
     if (isDefaultScale) {
         return false;
     }
@@ -753,7 +701,7 @@ bool NPCActor::isScaleAnim() const {
 }
 
 bool NPCActor::isPointingSe() const {
-    if (_DA && _158 >= 60) {
+    if (mIsPointingStart && mPointingSeStep >= NebulaFrameClock::stepsOfSeconds(1)) {
         return true;
     }
 
@@ -761,64 +709,61 @@ bool NPCActor::isPointingSe() const {
 }
 
 void NPCActor::updateReaction() {
-    _D8 = 0;
-    _D9 = 0;
-    _DA = 0;
-    _DB = 0;
-    _DC = 0;
+    mIsTrampledStart = 0;
+    mIsSpinAttackedStart = 0;
+    mIsPointingStart = 0;
+    mIsReactionStart = 0;
 
-    if (!_DD && _E2) {
-        _D8 = true;
-    } else if (!_E0 && _E5) {
-        _DB = true;
-        _DC = !_E1 && _E6;
-    } else if (!_DE && _E3) {
-        _D9 = true;
-    } else if (!_DF && _E4) {
-        _DA = true;
+    if (!mWasTrampled && mIsTrampled) {
+        mIsTrampledStart = true;
+    } else if (!mWasReaction && mIsReaction) {
+        mIsReactionStart = true;
+    } else if (!mWasSpinAttacked && mIsSpinAttacked) {
+        mIsSpinAttackedStart = true;
+    } else if (!mWasPointed && mIsPointed) {
+        mIsPointingStart = true;
     }
 
-    _DD = _E2;
-    _DE = _E3;
-    _DF = _E4;
-    _E0 = _E5;
-    _E1 = _E6;
-    _E2 = false;
-    _E3 = false;
-    _E4 = false;
-    _E5 = false;
-    _E6 = false;
+    mWasTrampled = mIsTrampled;
+    mWasSpinAttacked = mIsSpinAttacked;
+    mWasPointed = mIsPointed;
+    mWasReaction = mIsReaction;
+    mIsTrampled = false;
+    mIsSpinAttacked = false;
+    mIsPointed = false;
+    mIsReaction = false;
+    mIsJetTurtleHit = false;
 }
 
 void NPCActor::updateScaleCtrl() {
-    if (_128) {
-        if (_D9 && MR::isNullOrEmptyString(_130)) {
+    if (mUseReactionActions) {
+        if (mIsSpinAttackedStart && MR::isNullOrEmptyString(mSpinAction)) {
             mScaleController->startHitReaction();
         }
 
-        if (_D8 && MR::isNullOrEmptyString(_134)) {
+        if (mIsTrampledStart && MR::isNullOrEmptyString(mTrampleAction)) {
             mScaleController->startHitReaction();
         }
 
-        if (_DB && MR::isNullOrEmptyString(_13C)) {
+        if (mIsReactionStart && MR::isNullOrEmptyString(mReactionAction)) {
             mScaleController->startHitReaction();
         }
 
-        if (!_DF && _E4) {
-            if (MR::isNullOrEmptyString(_138)) {
-                mScaleController->startDpdHitVibration();
+        if (!mWasPointed && mIsPointed) {
+            if (MR::isNullOrEmptyString(mPointingAction)) {
+                mScaleController->startPointerHitVibration();
             }
-        } else if (_DF && !_E4 && MR::isNullOrEmptyString(_138)) {
+        } else if (mWasPointed && !mIsPointed && MR::isNullOrEmptyString(mPointingAction)) {
             mScaleController->startAnim();
         }
     } else {
-        if (_D9 || _D8 || _DB) {
+        if (mIsSpinAttackedStart || mIsTrampledStart || mIsReactionStart) {
             mScaleController->startHitReaction();
         }
 
-        if (!_DF && _E4) {
-            mScaleController->startDpdHitVibration();
-        } else if (_DF && !_E4) {
+        if (!mWasPointed && mIsPointed) {
+            mScaleController->startPointerHitVibration();
+        } else if (mWasPointed && !mIsPointed) {
             mScaleController->startAnim();
         }
     }

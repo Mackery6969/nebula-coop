@@ -6,8 +6,8 @@ class MogucchiShooter : public PartsModel {
 public:
     MogucchiShooter(LiveActor*, const char*);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void calcAndSetBaseMtx();
+    virtual void init(const TableIter& rIter) override;
+    virtual void calcAndSetBaseMtx() override;
 
     void panicDeath();
     void explosion();
@@ -34,5 +34,5 @@ public:
     void resetDirection();
     void faceToMario();
 
-    TVec3f mFront;
+    Vec3f mFront;
 };

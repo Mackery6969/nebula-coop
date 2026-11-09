@@ -1,27 +1,24 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class PartsModel;
 
 class LavaProminence : public LiveActor {
 public:
-    /// @brief Creates a new `LavaProminence`.
-    /// @param pName A pointer to the null-terminated name of the object.
     LavaProminence(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void initAfterPlacement();
-    virtual void appear();
-    virtual void kill();
-    virtual void startClipped();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void initAfterPlacement() override;
+    virtual void appear() override;
+    virtual void kill() override;
+    virtual void startClipped() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
 
     void moveOnRail();
-    void setGravityAndMakeMtx();
-    void updateEffectClipping(bool);
+    void updateEffectClipping(bool isMoving);
 
     void exeWaitSwitch();
     void exeWait();
@@ -38,17 +35,16 @@ public:
     f32 mMoveSpeed;
     f32 mMoveRailCoord;
     f32 mMoveRailEndOffset;
-    TVec3f mRailStartDir;
-    TVec3f mRailEndDir;
-    TVec3f mRailStartPos;
-    TVec3f mRailEndPos;
-    TPos3f mEffectStartMtx;
-    TPos3f mEffectEndMtx;
-    TVec3f _12C;
+    Vec3f mRailStartDir;
+    Vec3f mRailEndDir;
+    Vec3f mRailStartPos;
+    Vec3f mRailEndPos;
+    Pos3f mEffectStartMtx;
+    Pos3f mEffectEndMtx;
+    Vec3f mClipCenter;
     PartsModel* mBloomModel;
-    TPos3f mBloomModelMtx;
-    TQuat4f _16C;
-    TVec3f mRailDir;
+    Pos3f mBloomModelMtx;
+    Quat4f mRotateQuat;
+    Vec3f mRailDir;
     bool mEmitDropEffect;
-    TPos3f _18C;
 };

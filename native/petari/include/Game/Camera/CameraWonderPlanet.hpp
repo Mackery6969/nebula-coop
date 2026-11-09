@@ -4,15 +4,14 @@
 
 class CameraWonderPlanet : public Camera {
 public:
-    CameraWonderPlanet(const char* pName = "\203\217\203\223\203\137\201\133\203\166\203\211\203\154\203\142\203\147\203\112\203\201\203\211" /* ワンダープラネットカメラ */);
-    virtual ~CameraWonderPlanet();
+    CameraWonderPlanet(const char* pName = "ワンダープラネットカメラ");
 
-    virtual void reset();
-    virtual CameraTargetObj* calc();
-    virtual bool isEnableToReset() const {
+    virtual void reset() override;
+    virtual CameraTargetObj* calc() override;
+    virtual bool isEnableToReset() const override {
         return true;
     }
-    virtual CamTranslatorBase* createTranslator();
+    virtual void setParamFromChunk(const CameraParamChunk*) override;
 
     void updateCameraReset();
     void rotateCamera();

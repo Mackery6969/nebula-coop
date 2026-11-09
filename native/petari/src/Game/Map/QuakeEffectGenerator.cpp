@@ -7,10 +7,10 @@
 #include "Game/Util/SoundUtil.hpp"
 
 namespace {
-    static const s32 sQuakeInterval = 400;
-    static const f32 sCamShakeIntensity = 0.05f;
-    static const f32 sCamShakeSpeed = 1.5f;
-    static const s32 sCamShakeFrame = 120;
+    const s32 sQuakeInterval = 400;
+    const f32 sCamShakeIntensity = 0.05f;
+    const f32 sCamShakeSpeed = 1.5f;
+    const s32 sCamShakeFrame = 120;
 };  // namespace
 
 namespace NrvQuakeEffectGenerator {
@@ -19,10 +19,10 @@ namespace NrvQuakeEffectGenerator {
     NEW_NERVE(HostTypeQuaking, QuakeEffectGenerator, Quaking);
 };  // namespace NrvQuakeEffectGenerator
 
-QuakeEffectGenerator::QuakeEffectGenerator() : LiveActor("\222\156\220\153\214\370\211\312\220\266\220\254" /* 地震効果生成 */) {
+QuakeEffectGenerator::QuakeEffectGenerator() : LiveActor("地震効果生成") {
 }
 
-void QuakeEffectGenerator::init(const JMapInfoIter& rIter) {
+void QuakeEffectGenerator::init(const TableIter& /*rIter*/) {
     initNerve(GET_NERVE(QuakeEffectGenerator, HostTypeWait));
     MR::connectToSceneMapObjMovement(this);
     MR::invalidateClipping(this);

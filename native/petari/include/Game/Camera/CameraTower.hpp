@@ -4,19 +4,19 @@
 
 class CameraTower : public Camera {
 public:
-    CameraTower(const char* pName = "\223\203\203\112\203\201\203\211" /* 塔カメラ */);
+    CameraTower(const char* pName = "塔カメラ");
 
-    virtual void reset();
-    virtual CameraTargetObj* calc();
-    virtual bool isEnableToRoundLeft() const;
-    virtual bool isEnableToRoundRight() const;
-    virtual bool isEnableToReset() const {
+    virtual void reset() override;
+    virtual CameraTargetObj* calc() override;
+    virtual bool isEnableToRoundLeft() const override;
+    virtual bool isEnableToRoundRight() const override;
+    virtual bool isEnableToReset() const override {
         return true;
     }
-    virtual CamTranslatorBase* createTranslator();
+    virtual void setParamFromChunk(const CameraParamChunk*) override;
     virtual void arrangeRound();
 
-    void setParam(const TVec3f& wPoint, const TVec3f& axis, f32 dist, const TVec2f& angle) {
+    void setParam(const Vec3f& wPoint, const Vec3f& axis, f32 dist, const Vec2f& angle) {
         mWPoint.set(wPoint);
         mAxis.set(axis);
         mDist = dist;
@@ -29,12 +29,12 @@ public:
     void arrangeHorizontalPose();
     bool isUpsideDownByRoll() const;
 
-    TVec3f mWPoint;
-    TVec3f mAxis;
+    Vec3f mWPoint;
+    Vec3f mAxis;
     f32 mAngleX;
     f32 mAngleYRoundSpeed;
     f32 mDist;
-    TVec3f mPos;
+    Vec3f mPos;
     bool mIsRounding;
     s32 mRoundIntervalNum;
     f32 mAngleYSpeed;

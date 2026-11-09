@@ -2,6 +2,7 @@
 #include "Game/LiveActor/FlashingCtrl.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Util/ActorCameraUtil.hpp"
 #include "Game/Util/ActorMovementUtil.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
@@ -11,7 +12,7 @@
 #include "Game/Util/DemoUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
 #include "Game/Util/EventUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MapUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
@@ -23,88 +24,124 @@
 #include "Game/Util/SoundUtil.hpp"
 
 namespace {
-    f32 cAppearThrowUpSpd = 10.0f;
-    f32 cAppearThrowUpSpd2 = 15.0f;
-    f32 cGravity = 0.5f;
-    f32 cReflectWallX = 0.3f;
-    static f32 cSpdRotateY = JGeometry::TUtil< f32 >::PI() / 60.0f;
-    static u16 sVal = 0x0258;
+    const f32 cAppearThrowUpSpd = 10.0f;
+    const f32 cAppearThrowUpSpd2 = 15.0f;
+    const f32 cGravity = 0.5f;
+    const f32 cReflectWallX = 0.3f;
+    // Half a turn a second.
+    const f32 cSpdRotateY = FloatUtil::PI() / static_cast< f32 >(NebulaFrameClock::stepsOfSeconds(1));
+    const f32 cDefaultRailSpeed = 5.0f;
+    const f32 cDefaultShadowLength = 2000.0f;
+    const s32 cDefaultDemoFrames = 120;
+    const s32 cShootLandSteps = 10;
+    const s32 cShootSensorOnStep = NebulaFrameClock::stepsOfSeconds(1);
+    const s32 cGroundAppearStep = NebulaFrameClock::stepsOfSeconds(1);
+    const s32 cPreEscapeSteps = NebulaFrameClock::stepsOfMilliseconds(500);
+    const s16 cEscapeLifeSteps = NebulaFrameClock::stepsOfSeconds(10);
+    const f32 cEscapeSpeed = 7.0f;
+    const f32 cEscapeTurnAway = 0.02f;
+    const f32 cEscapeKeepAway = 0.01f;
+    const f32 cEscapeSpeedUp = 1.1f;
+    const f32 cEscapeAirFriction = 0.95f;
+    const f32 cEscapeGroundFall = 5.0f;
+    const f32 cEscapeFallAccel = 1.0f;
+    const f32 cEscapeFallSpeedMax = 20.0f;
+    const f32 cEscapeWallHop = 20.0f;
+
+    // Before the escape runs out the item blinks: from these steps left, hidden this many of every this many steps.
+    const s16 cBlinkSlowLife = 180;
+    const s16 cBlinkMidLife = 120;
+    const s16 cBlinkFastLife = 60;
+
+    u8 toShadowType(s32 shadowArg) {
+        switch (shadowArg) {
+        case -1:
+            return BenefitItemObj::ShadowBit_PrivateGravity;
+        case 1:
+            return BenefitItemObj::ShadowBit_EveryFrame;
+        case 2:
+            return BenefitItemObj::ShadowBit_PrivateGravity | BenefitItemObj::ShadowBit_EveryFrame;
+        case 3:
+            return BenefitItemObj::ShadowBit_Once;
+        default:
+            return 0;
+        }
+    }
 };  // namespace
 
 void ShadowClipActor::endClipped() {
     LiveActor::endClipped();
 
-    if (MR::isClipped(_8C)) {
-        _8C->endClipped();
+    if (MR::isClipped(mHost)) {
+        mHost->endClipped();
     }
 }
 
-BenefitItemObj::BenefitItemObj(const char* pName, const char* pPowerUp) : LiveActor(pName), _138() {
-    _D8 = 0;
-    _E2 = 0;
-    _E5 = 0;
-    _E6 = 0;
-    _E4 = 0;
-    _12C = 0;
-    _EC = 0;
+BenefitItemObj::BenefitItemObj(const char* pName, const char* pModelName) : LiveActor(pName) {
+    mIsDisabled = false;
+    mIsItemMoving = false;
+    mIsInAir = false;
+    mIsDemoPending = false;
+    mHasAppearCamera = false;
+    mCameraFrames = 0;
+    mRotateY = 0.0f;
     mFollowMtx = nullptr;
-    _DD = 0;
-    _DE = 0;
+    mIsThrownHigh = false;
+    mHasAppearPicture = false;
     mCameraInfo = nullptr;
     mHitSensorActor = nullptr;
-    _130 = 0;
-    _BC.zero();
-    _C8.zero();
-    _120 = pPowerUp;
-    NebulaMtxIdentity(_F0);
+    mEscapeVelocity.zero();
+    mFallVelocity.zero();
+    mModelName = pModelName;
+    NebulaMtxIdentity(mModelMtx);
 }
 
 void BenefitItemObj::initModelAndEfx() {
-    initModelManagerWithAnm(_120, nullptr, false);
-    initEffectKeeper(5, _120, false);
+    initModelManagerWithAnm(mModelName, nullptr, false);
+    initEffectKeeper(5, mModelName);
 
     initBinder(50.0f, 50.0f, 0);
     initHitSensor(1);
-    MR::addHitSensor(this, "body", ATYPE_KINOKO_ONEUP, 4, 50.0f, TVec3f(0.0f, 50.0f, 0.0f));
+    MR::addHitSensor(this, "body", ATYPE_KINOKO_ONEUP, 4, 50.0f, Vec3f(0.0f, 50.0f, 0.0f));
 }
 
-void BenefitItemObj::init(const JMapInfoIter& rIter) {
+// Unplaced (created by code) it waits for appear. Placed, the args: 0 above 0 turns in place per arg 6; 1 the appear
+// type in its low 4 bits, 0x80 the appear picture; 2 the escape type; 3 = 1 clips at the shadow length; 4 the shadow
+// (-1 along its own gravity once, 1 every frame, 2 both, 3 once, other none); 5 = 1 an appear camera; 6 the turn flags;
+// 7 the shadow length (else 2000, cut at the ground). A rail's arg 0 is the escape speed in tenths.
+void BenefitItemObj::init(const TableIter& rIter) {
     LiveActor::init(rIter);
 
-    if (MR::isValidInfo(rIter)) {
+    bool isPlaced = MR::isValidInfo(rIter);
+    if (isPlaced) {
         MR::initDefaultPos(this, rIter);
     }
 
     initModelAndEfx();
 
     MR::connectToSceneItemStrongLight(this);
-
     MR::offCalcGravity(this);
-
     MR::calcUpVec(&mGravity, this);
     mGravity = -mGravity;
 
     initSound(4, false);
-
     mFlashCtrl = new FlashingCtrl(this, true);
-
     MR::offBind(this);
 
-    _E3 = 0;
+    mIsOnRail = false;
 
-    if (MR::isValidInfo(rIter)) {
-        _E3 = MR::isConnectedWithRail(rIter);
+    if (isPlaced) {
+        mIsOnRail = MR::isConnectedWithRail(rIter);
 
-        if (_E3) {
+        if (mIsOnRail) {
             initRailRider(rIter);
         }
 
-        _E8 = 5.0f;
+        mRailSpeed = cDefaultRailSpeed;
 
-        s32 railArg;
-
-        if (_E3 && MR::getRailArg0NoInit(this, &railArg)) {
-            _E8 = railArg / 10.0f;
+        s32 railSpeed;
+        if (mIsOnRail && MR::getRailArg0NoInit(this, &railSpeed)) {
+            mRailSpeed = railSpeed / 10.0f;
         }
     }
 
@@ -113,190 +150,138 @@ void BenefitItemObj::init(const JMapInfoIter& rIter) {
 
     initNerve(GET_NERVE(BenefitItemObj, HostTypeNrvWait));
 
-    _DF = 1;
-    _D9 = 0;
-    _DA = 0;
-    _E1 = 0;
+    mIsActive = true;
+    mAppearType = AppearType_InPlace;
+    mEscapeType = EscapeType_None;
+    mIsWaitingAppear = false;
 
-    s32 arg0 = -1;
-    s32 arg1 = -1;
-    s32 arg2 = -1;
-    s32 arg3 = -1;
-    s32 arg4 = -1;
-    s32 arg5 = -1;
-    s32 arg6 = -1;
-    s32 arg7 = -1;
+    s32 activeArg = -1;
+    s32 appearArg = -1;
+    s32 escapeArg = -1;
+    s32 clipArg = -1;
+    s32 shadowArg = -1;
+    s32 cameraArg = -1;
+    s32 rotateArg = -1;
+    s32 shadowLengthArg = -1;
 
-    if (MR::isValidInfo(rIter)) {
-        MR::getJMapInfoArg0NoInit(rIter, &arg0);
-        MR::getJMapInfoArg1NoInit(rIter, &arg1);
-        MR::getJMapInfoArg2NoInit(rIter, &arg2);
-        MR::getJMapInfoArg3NoInit(rIter, &arg3);
-        MR::getJMapInfoArg4NoInit(rIter, &arg4);
-        MR::getJMapInfoArg5NoInit(rIter, &arg5);
-        MR::getJMapInfoArg6NoInit(rIter, &arg6);
-        MR::getJMapInfoArg7NoInit(rIter, &arg7);
+    if (isPlaced) {
+        MR::getPlacementArg0NoInit(rIter, &activeArg);
+        MR::getPlacementArg1NoInit(rIter, &appearArg);
+        MR::getPlacementArg2NoInit(rIter, &escapeArg);
+        MR::getPlacementArg3NoInit(rIter, &clipArg);
+        MR::getPlacementArg4NoInit(rIter, &shadowArg);
+        MR::getPlacementArg5NoInit(rIter, &cameraArg);
+        MR::getPlacementArg6NoInit(rIter, &rotateArg);
+        MR::getPlacementArg7NoInit(rIter, &shadowLengthArg);
     } else {
-        _E1 = 1;
-        _DF = 0;
-        _DA = 0;
-        _D9 = 0;
+        mIsWaitingAppear = true;
+        mIsActive = false;
     }
 
-    switch (arg0) {
-    case -1:
-    case 0:
-        _DF = 0;
-        break;
+    if (activeArg == -1 || activeArg == 0) {
+        mIsActive = false;
     }
 
-    switch (arg1 & 0xF) {
-    case 1:
-        _D9 = 1;
-        break;
-
-    case 2:
-        _D9 = 2;
-        break;
-
-    case 3:
-        _D9 = 3;
-        break;
+    s32 appearType = appearArg & 0xF;
+    if (appearType >= AppearType_Ground && appearType <= AppearType_ThrowUpQuestionBox) {
+        mAppearType = appearType;
     }
 
-    if (arg1 != -1 && (arg1 & 0x80) != 0) {
-        _DE = 1;
+    if (appearArg != -1 && (appearArg & 0x80) != 0) {
+        mHasAppearPicture = true;
     }
 
-    switch (arg2) {
-    case 1:
-        _DA = 1;
-        break;
-
-    case 2:
-        _DA = 2;
-        break;
-
-    case 3:
-        _DA = 3;
-        break;
+    if (escapeArg >= 1 && escapeArg <= 3) {
+        mEscapeType = escapeArg;
     }
 
-    bool setClipType = false;
+    bool isClipAtShadowLength = clipArg == 1;
+    mShadowType = toShadowType(shadowArg);
 
-    if (arg3 == 1) {
-        setClipType = true;
-    }
-
-    _DC = 0;
-
-    switch (arg4) {
-    case -1:
-        _DC = 1;
-        break;
-
-    case 1:
-        _DC = 2;
-        break;
-
-    case 2:
-        _DC = 3;
-        break;
-
-    case 3:
-        _DC = 4;
-        break;
-    }
-
-    if (arg5 == 1 && MR::isValidInfo(rIter)) {
+    if (cameraArg == 1 && isPlaced) {
         MR::initActorCamera(this, rIter, &mCameraInfo);
-        _E4 = 1;
+        mHasAppearCamera = true;
     }
 
-    if (arg6 == -1) {
-        arg6 = 0;
+    mRotateFlags = rotateArg == -1 ? 0 : rotateArg;
+
+    f32 shadowLength = cDefaultShadowLength;
+    if (shadowLengthArg != -1) {
+        shadowLength = shadowLengthArg;
     }
 
-    _DB = arg6;
-    f32 shadowDist = 2000.0f;
-
-    if (arg7 != -1) {
-        shadowDist = arg7;
-    }
-
-    if (!_D8 && MR::isValidInfo(rIter)) {
+    if (!mIsDisabled && isPlaced) {
         MR::useStageSwitchWriteDead(this, rIter);
 
         if (MR::useStageSwitchReadAppear(this, rIter)) {
             MR::listenStageSwitchOnAppear(this, MR::Functor(this, &BenefitItemObj::appear));
-            _E1 = 1;
+            mIsWaitingAppear = true;
         }
     }
 
-    if (_D8) {
-        _DF = 0;
-
+    if (mIsDisabled) {
+        mIsActive = false;
         makeActorDead();
-
         return;
     }
 
-    if (_DF) {
+    if (mIsActive) {
         makeActorAppeared();
 
-        if (_E1) {
+        if (mIsWaitingAppear) {
             MR::invalidateHitSensors(this);
         } else {
             runEfx("Glow");
         }
-    } else if (_E1) {
+    } else if (mIsWaitingAppear) {
         makeActorDead();
     } else {
         makeActorAppeared();
         runEfx("Glow");
     }
 
-    if (!MR::isDead(this) && MR::isValidInfo(rIter)) {
+    if (!MR::isDead(this) && isPlaced) {
         MR::useStageSwitchSleep(this, rIter);
     }
 
-    TVec3f rotY;
+    Vec3f rotY;
     MR::getRotatedAxisY(&rotY, mRotation);
-    _A4.set(rotY);
+    mUp.set(rotY);
 
-    if (!_DC) {
+    if (mShadowType == 0) {
         return;
     }
 
     MR::initShadowVolumeCylinder(this, 50.0f);
-    MR::setShadowDropLength(this, nullptr, shadowDist);
+    MR::setShadowDropLength(this, nullptr, shadowLength);
 
-    if (arg7 == -1) {
+    if (shadowLengthArg == -1) {
         MR::onShadowVolumeCutDropLength(this, nullptr);
         MR::setShadowVolumeEndDropOffset(this, nullptr, 50.0f);
     }
 
-    if ((_DC & 0x1) != 0) {
-        if ((_DC & 0x2) != 0) {
+    bool isEveryFrame = (mShadowType & ShadowBit_EveryFrame) != 0;
+    if ((mShadowType & ShadowBit_PrivateGravity) != 0) {
+        if (isEveryFrame) {
             MR::onCalcShadowDropPrivateGravity(this, nullptr);
             MR::onCalcShadow(this, nullptr);
         } else {
             MR::onCalcShadowDropPrivateGravityOneTime(this, nullptr);
             MR::onCalcShadowOneTime(this, nullptr);
         }
-    } else if ((_DC & 0x2) != 0) {
+    } else if (isEveryFrame) {
         MR::onCalcShadow(this, nullptr);
     } else {
         MR::onCalcShadowOneTime(this, nullptr);
     }
 
-    if (setClipType) {
-        MR::setClippingTypeSphere(this, shadowDist);
+    if (isClipAtShadowLength) {
+        MR::setClippingTypeSphere(this, shadowLength);
     }
 }
 
 void BenefitItemObj::initAfterPlacement() {
-    if (_E3) {
+    if (mIsOnRail) {
         MR::moveCoordAndTransToNearestRailPos(this);
     }
 }
@@ -309,57 +294,50 @@ void BenefitItemObj::makeActorAppeared() {
 void BenefitItemObj::appear() {
     LiveActor::appear();
 
-    _E1 = 0;
-    _DF = 1;
+    mIsWaitingAppear = false;
+    mIsActive = true;
 
-    switch (_D9) {
-    case 0:
-
-        if (_DA) {
+    switch (mAppearType) {
+    case AppearType_InPlace:
+        if (mEscapeType != EscapeType_None) {
             setNerve(GET_NERVE(BenefitItemObj, HostTypeNrvPreEscape));
         }
 
         MR::validateHitSensors(this);
         break;
-
-    case 1:
+    case AppearType_Ground:
         appearGround();
         break;
-
-    case 2:
+    case AppearType_ThrowUp:
         appearThrowUp();
         break;
-
-    case 3:
+    case AppearType_ThrowUpQuestionBox:
         appearThrowUpQuestionBox();
         break;
     }
 
     LiveActor::calcAndSetBaseMtx();
+    NebulaMtxCopy(getBaseMtx(), mModelMtx);
 
-    NebulaMtxCopy(getBaseMtx(), _F0);
-
-    if (_E4) {
-        _E6 = 1;
+    if (mHasAppearCamera) {
+        mIsDemoPending = true;
         MR::invalidateClipping(this);
     }
 
-    if (_DA) {
+    if (mEscapeType != EscapeType_None) {
         MR::invalidateClipping(this);
     }
 
-    if (_DE) {
+    if (mHasAppearPicture) {
         MR::emitEffect(this, "AppearPicture");
     }
 }
 
+// Grows out of the ground (see exeAppearGround).
 void BenefitItemObj::appearGround() {
     MR::startSystemSE("SE_SY_ITEM_APPEAR");
-
     setNerve(GET_NERVE(BenefitItemObj, HostTypeNrvAppearGround));
-
     MR::hideModel(this);
-
     MR::invalidateClipping(this);
 }
 
@@ -368,28 +346,28 @@ void BenefitItemObj::appearThrowUp() {
 
     runBck("Appear");
 
-    TVec3f rotY;
+    Vec3f rotY;
     MR::getRotatedAxisY(&rotY, mRotation);
-    _A4.set(rotY);
+    mUp.set(rotY);
 
     setNerve(GET_NERVE(BenefitItemObj, HostTypeNrvShoot));
 
-    if (!_DD) {
-        mVelocity = rotY * ::cAppearThrowUpSpd;
+    if (!mIsThrownHigh) {
+        mVelocity = rotY * cAppearThrowUpSpd;
     } else {
-        mVelocity = rotY * ::cAppearThrowUpSpd2;
+        mVelocity = rotY * cAppearThrowUpSpd2;
     }
 
     MR::invalidateClipping(this);
 }
 
-void BenefitItemObj::shoot(const TVec3f& rPosition, const TVec3f&, bool) {
+void BenefitItemObj::shoot(const Vec3f& rPosition, const Vec3f&, bool) {
     mPosition = rPosition;
 
-    if (!_DD) {
-        _D9 = 2;
+    if (!mIsThrownHigh) {
+        mAppearType = AppearType_ThrowUp;
     } else {
-        _D9 = 3;
+        mAppearType = AppearType_ThrowUpQuestionBox;
     }
 
     appear();
@@ -399,40 +377,37 @@ void BenefitItemObj::appearThrowUpQuestionBox() {
     appearThrowUp();
 }
 
+// Runs the appear camera demo once it can start; vanishes on fire ground or, moving, in a death area.
 void BenefitItemObj::control() {
-    if (_E6 && MR::tryStartDemoWithoutCinemaFrame(this, "\217\157\214\273" /* 出現 */)) {
-        _E6 = 0;
+    if (mIsDemoPending && MR::tryStartDemoWithoutCinemaFrame(this, "出現")) {
+        mIsDemoPending = false;
 
         MR::startActorCameraTargetSelf(this, mCameraInfo);
-
         MR::requestMovementOn(this);
-
         MR::pauseOffCameraDirector();
-        _12C = MR::getActorCameraFrames(this, mCameraInfo);
 
-        if (_12C == 0) {
-            _12C = 120;
+        mCameraFrames = MR::getActorCameraFrames(this, mCameraInfo);
+        if (mCameraFrames == 0) {
+            mCameraFrames = cDefaultDemoFrames;
         }
     }
 
-    TVec3f v9(mGravity);
     MR::calcGravityOrZero(this);
     calcAndSetBaseMtxInMovement();
 
-    if (_E4 && _12C != 0) {
-        _12C--;
+    if (mHasAppearCamera && mCameraFrames != 0) {
+        mCameraFrames--;
 
-        if (_12C == 0) {
-            _E4 = 0;
+        if (mCameraFrames == 0) {
+            mHasAppearCamera = false;
 
             MR::endActorCamera(this, mCameraInfo, false);
-            MR::endDemo(this, "\217\157\214\273" /* 出現 */);
-
+            MR::endDemo(this, "出現");
             MR::validateClipping(this);
         }
     }
 
-    if (_E2) {
+    if (mIsItemMoving) {
         return;
     }
 
@@ -441,65 +416,42 @@ void BenefitItemObj::control() {
         kill();
     }
 
-    if (!MR::isNearZero(mVelocity) && MR::isInDeath(this, TVec3f(0.0f, 0.0f, 0.0f))) {
+    if (!MR::isNearZero(mVelocity) && MR::isInDeath(this, Vec3f(0.0f, 0.0f, 0.0f))) {
         runEfx("Vanish");
         kill();
     }
 }
 
 void BenefitItemObj::exeWait() {
-    if (!_DF) {
-        return;
-    }
-
-    if (_E1) {
-        return;
-    }
-
-    if (_DB) {
-        doRotateY();
-        return;
-    }
-
-    if (_E1) {
-        return;
-    }
-
-    if (_DB & 0x2) {
-        doRotateY();
-        return;
-    }
-
-    if (_DB & 0x1) {
+    if (mIsActive && !mIsWaitingAppear && mRotateFlags != 0) {
         doRotateY();
     }
 }
 
 void BenefitItemObj::doRotateY() {
     if (isNerve(GET_NERVE(BenefitItemObj, HostTypeNrvAppearGround))) {
-        _EC = 0.0f;
+        mRotateY = 0.0f;
     } else {
-        _EC = MR::repeat(_EC + ::cSpdRotateY, 0.0f, TWO_PI);
+        mRotateY = MR::repeat(mRotateY + cSpdRotateY, 0.0f, TWO_PI);
     }
 }
 
+// Falls under gravity, losing part of its speed into walls; on landing waits (or escapes).
 void BenefitItemObj::exeShoot() {
     if (MR::isFirstStep(this)) {
         MR::onBind(this);
     }
 
-    TVec3f newVel(mVelocity);
-    f32 verticalSpeed = MR::vecKillElement(newVel, mGravity, &newVel);
+    Vec3f newVel(mVelocity);
+    f32 fallSpeed = MR::vecKillElement(newVel, mGravity, &newVel);
 
     if (MR::isBindedGround(this)) {
         runBck("Land");
-
         MR::validateHitSensors(this);
-
         mVelocity.zero();
 
-        if (_DA == 0) {
-            if (MR::isGreaterStep(this, 10)) {
+        if (mEscapeType == EscapeType_None) {
+            if (MR::isGreaterStep(this, cShootLandSteps)) {
                 setNerve(GET_NERVE(BenefitItemObj, HostTypeNrvWait));
             }
         } else {
@@ -509,32 +461,28 @@ void BenefitItemObj::exeShoot() {
         return;
     }
 
-    f32 val = verticalSpeed + ::cGravity;
+    f32 nextFallSpeed = fallSpeed + cGravity;
 
-    if (getNerveStep() == 60) {
+    if (getNerveStep() == cShootSensorOnStep) {
         MR::validateHitSensors(this);
     }
 
     if (MR::isBindedWall(this)) {
-        f32 speed = MR::vecKillElement(newVel, *MR::getWallNormal(this), &newVel);
-        newVel -= *MR::getWallNormal(this) * speed * ::cReflectWallX;
+        f32 intoWall = MR::vecKillElement(newVel, *MR::getWallNormal(this), &newVel);
+        newVel -= *MR::getWallNormal(this) * intoWall * cReflectWallX;
     }
 
-    newVel += mGravity * val;
+    newVel += mGravity * nextFallSpeed;
     mVelocity.set(newVel);
 }
 
 void BenefitItemObj::exeCatch() {
     if (MR::isFirstStep(this)) {
         runEfx("Get");
-
         MR::requestOneUp();
-
         MR::hideModel(this);
-
         MR::incPlayerLeft();
         MR::explainOneUpIfAtFirst();
-
         kill();
     }
 
@@ -551,39 +499,30 @@ bool BenefitItemObj::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pRe
         return false;
     }
 
-    if (MR::receiveItemShowMsg(msg, pSender, pReceiver)) {
-        return true;
-    }
-
-    if (MR::receiveItemHideMsg(msg, pSender, pReceiver)) {
+    if (MR::receiveItemShowMsg(msg, pSender, pReceiver) || MR::receiveItemHideMsg(msg, pSender, pReceiver)) {
         return true;
     }
 
     if (MR::isMsgItemStartMove(msg)) {
-        _E2 = 1;
+        mIsItemMoving = true;
         return true;
     }
 
     if (MR::isMsgItemEndMove(msg)) {
-        _E2 = 0;
+        mIsItemMoving = false;
         return true;
     }
 
-    if (msg == ACTMES_ITEM_GET) {
-        if (mHitSensorActor != nullptr) {
-            return false;
-        }
+    if (msg != ACTMES_ITEM_GET || mHitSensorActor != nullptr) {
+        return false;
+    }
 
-        if (isNerve(GET_NERVE(BenefitItemObj, HostTypeNrvWait)) || isNerve(GET_NERVE(BenefitItemObj, HostTypeNrvShoot)) ||
-            isNerve(GET_NERVE(BenefitItemObj, HostTypeNrvAppearGround)) || isNerve(GET_NERVE(BenefitItemObj, HostTypeNrvEscape))) {
-            mHitSensorActor = pSender->mHost;
-
-            setNerve(GET_NERVE(BenefitItemObj, HostTypeNrvCatch));
-
-            MR::tryRumblePadWeak(this, PLAYER_1);
-
-            return true;
-        }
+    if (isNerve(GET_NERVE(BenefitItemObj, HostTypeNrvWait)) || isNerve(GET_NERVE(BenefitItemObj, HostTypeNrvShoot)) ||
+        isNerve(GET_NERVE(BenefitItemObj, HostTypeNrvAppearGround)) || isNerve(GET_NERVE(BenefitItemObj, HostTypeNrvEscape))) {
+        mHitSensorActor = pSender->mHost;
+        setNerve(GET_NERVE(BenefitItemObj, HostTypeNrvCatch));
+        MR::tryRumblePadWeak(this, PLAYER_1);
+        return true;
     }
 
     return false;
@@ -594,15 +533,13 @@ void BenefitItemObj::exeAppearGround() {
         MR::onBind(this);
     }
 
-    if (getNerveStep() < 60) {
+    if (getNerveStep() < cGroundAppearStep) {
         return;
     }
 
-    if (getNerveStep() == 60) {
+    if (getNerveStep() == cGroundAppearStep) {
         MR::showModel(this);
-
         runBck("Appear");
-
         MR::startSound(this, "SE_OJ_KINOKO_1UP_GROW");
     }
 
@@ -610,7 +547,7 @@ void BenefitItemObj::exeAppearGround() {
         return;
     }
 
-    if (!_DA) {
+    if (mEscapeType == EscapeType_None) {
         setNerve(GET_NERVE(BenefitItemObj, HostTypeNrvWait));
     } else {
         setNerve(GET_NERVE(BenefitItemObj, HostTypeNrvPreEscape));
@@ -620,172 +557,148 @@ void BenefitItemObj::exeAppearGround() {
 }
 
 void BenefitItemObj::exePreEscape() {
-    if (getNerveStep() >= 30) {
+    if (getNerveStep() >= cPreEscapeSteps) {
         setNerve(GET_NERVE(BenefitItemObj, HostTypeNrvEscape));
     }
 }
 
 void BenefitItemObj::initEscape() {
-    _B0 = ::sVal;
-    _B2 = 0;
-    _B4 = 0;
-    _B6 = 0;
-    _B8 = 0;
+    mEscapeLife = cEscapeLifeSteps;
+    mFlashPeriod = 0;
+    mFlashHideTime = 0;
+    mFlashCounter = 0;
+    mHideCounter = 0;
 
-    TVec3f rotZ;
+    Vec3f rotZ;
     MR::getRotatedAxisZ(&rotZ, mRotation);
-    _BC = rotZ * 7.0f;
+    mEscapeVelocity = rotZ * cEscapeSpeed;
 
     MR::startSound(this, "SE_OJ_KINOKO_1UP_RUN_START");
 }
 
+// On the ground it runs along it (bending away from the player for EscapeType_FromPlayer); in the air it slows and
+// falls; into a wall it loses the speed into it and hops.
 void BenefitItemObj::doEscape() {
     MR::startLevelSound(this, "SE_OJ_LV_KINOKO_1UP_RUN");
 
-    bool val = false;
-
-    if (_DA == 2) {
-        val = true;
-    }
-
     if (MR::isBindedGround(this)) {
-        f32 length = _BC.length();
-        MR::vecKillElement(_BC, mGravity, &_BC);
-        _BC.setLength(length);
+        f32 speed = mEscapeVelocity.length();
+        MR::vecKillElement(mEscapeVelocity, mGravity, &mEscapeVelocity);
+        mEscapeVelocity.setLength(speed);
 
-        if (val) {
-            TVec3f vec38(mPosition - *MR::getPlayerPos());
-            MR::vecKillElement(vec38, mGravity, &vec38);
-            MR::normalizeOrZero(&vec38);
+        if (mEscapeType == EscapeType_FromPlayer) {
+            Vec3f awayFromPlayer(mPosition - *MR::getPlayerPos());
+            MR::vecKillElement(awayFromPlayer, mGravity, &awayFromPlayer);
+            MR::normalizeOrZero(&awayFromPlayer);
 
-            if (_BC.dot(vec38) < 0.0f) {
-                _BC += vec38 * 0.02f;
-                _BC.x *= 1.1f;
-                _BC.y *= 1.1f;
-                _BC.z *= 1.1f;
-            } else {
-                _BC += vec38 * 0.01f;
-                _BC.x *= 1.1f;
-                _BC.y *= 1.1f;
-                _BC.z *= 1.1f;
-            }
+            f32 turnRate = mEscapeVelocity.dot(awayFromPlayer) < 0.0f ? cEscapeTurnAway : cEscapeKeepAway;
+            mEscapeVelocity += awayFromPlayer * turnRate;
+            mEscapeVelocity.scale(cEscapeSpeedUp);
         }
 
-        if (_BC.length() > 7.0f) {
-            _BC.setLength(7.0f);
+        if (mEscapeVelocity.length() > cEscapeSpeed) {
+            mEscapeVelocity.setLength(cEscapeSpeed);
         }
 
-        if (_E5) {
-            _E5 = 0;
+        if (mIsInAir) {
+            mIsInAir = false;
             runBck("Land");
         }
 
-        _C8 = mGravity * 5.0f;
-
+        mFallVelocity = mGravity * cEscapeGroundFall;
         runEfx("Move");
     } else {
-        _BC.x *= 0.95f;
-        _BC.y *= 0.95f;
-        _BC.z *= 0.95f;
-        _E5 = 1;
+        mEscapeVelocity.scale(cEscapeAirFriction);
+        mIsInAir = true;
 
-        _C8 += mGravity * 1.0f;
-
-        if (_C8.length() > 20.0f) {
-            _C8.setLength(20.0f);
+        mFallVelocity += mGravity * cEscapeFallAccel;
+        if (mFallVelocity.length() > cEscapeFallSpeedMax) {
+            mFallVelocity.setLength(cEscapeFallSpeedMax);
         }
 
         stopEfx("Move");
     }
 
-    if (!MR::isBindedWall(this)) {
+    if (!MR::isBindedWall(this) || mIsInAir) {
         return;
     }
 
-    if (_E5) {
+    const Vec3f& rWallNormal = *MR::getWallNormal(this);
+    if (!(rWallNormal.dot(mVelocity) < 0.0f)) {
         return;
     }
 
-    if (!(MR::getWallNormal(this)->dot(mVelocity) < 0.0f)) {
-        return;
-    }
+    f32 intoWall = MR::vecKillElement(mEscapeVelocity, rWallNormal, &mEscapeVelocity);
+    mEscapeVelocity += -rWallNormal * intoWall;
+    mFallVelocity += -mGravity * cEscapeWallHop;
 
-    _BC += -*MR::getWallNormal(this) * MR::vecKillElement(_BC, *MR::getWallNormal(this), &_BC);
-    _C8 += -mGravity * 20.0f;
-
-    _E5 = 1;
+    mIsInAir = true;
 }
 
+// Escapes for a while (along its rail if it has one), blinking faster toward the end, then vanishes.
 void BenefitItemObj::exeEscape() {
     if (MR::isFirstStep(this)) {
         MR::invalidateClipping(this);
-
         MR::onBind(this);
-
         initEscape();
     }
 
     doEscape();
 
-    if (_B0) {
+    if (mEscapeLife != 0) {
         MR::showModel(this);
+        mEscapeLife--;
 
-        _B0--;
-
-        if (_B8 != 0) {
-            _B8--;
+        if (mHideCounter != 0) {
+            mHideCounter--;
             MR::hideModel(this);
         }
 
-        if (_B6 != 0) {
-            _B6--;
+        if (mFlashCounter != 0) {
+            mFlashCounter--;
 
-            if (_B6 == 0) {
-                _B6 = _B2;
-                _B8 = _B4;
+            if (mFlashCounter == 0) {
+                mFlashCounter = mFlashPeriod;
+                mHideCounter = mFlashHideTime;
             }
         }
 
-        if (_B0 == 0x3C) {
-            _B2 = 4;
-            _B4 = 2;
-        } else if (_B0 == 0x78) {
-            _B2 = 8;
-            _B4 = 3;
-        } else if (_B0 == 0xB4) {
-            _B2 = 12;
-            _B4 = 4;
-            _B6 = 12;
-            _B8 = 4;
+        if (mEscapeLife == cBlinkFastLife) {
+            mFlashPeriod = 4;
+            mFlashHideTime = 2;
+        } else if (mEscapeLife == cBlinkMidLife) {
+            mFlashPeriod = 8;
+            mFlashHideTime = 3;
+        } else if (mEscapeLife == cBlinkSlowLife) {
+            mFlashPeriod = 12;
+            mFlashHideTime = 4;
+            mFlashCounter = 12;
+            mHideCounter = 4;
         }
 
-        if (_B0 == 0) {
+        if (mEscapeLife == 0) {
             runEfx("Vanish");
             makeActorDead();
         }
     }
 
-    if (_E3) {
-        MR::moveCoord(this, _E8);
-        _BC = MR::getRailPos(this) - mPosition;
+    if (mIsOnRail) {
+        MR::moveCoord(this, mRailSpeed);
+        mEscapeVelocity = MR::getRailPos(this) - mPosition;
     }
 
-    mVelocity = _BC;
-    mVelocity += _C8;
+    mVelocity = mEscapeVelocity;
+    mVelocity += mFallVelocity;
 
-    if ((_DB & 0x4) != 0) {
+    if ((mRotateFlags & RotateBit_Escape) != 0) {
         doRotateY();
     }
 
-    if (!_DC) {
+    if (mShadowType == 0 || (mShadowType & ShadowBit_EveryFrame) != 0) {
         return;
     }
 
-    if ((_DC & 0x2) != 0) {
-        return;
-    }
-
-    if ((_DC & 0x1) != 0) {
+    if ((mShadowType & ShadowBit_PrivateGravity) != 0) {
         MR::onCalcShadowOneTime(this, nullptr);
     } else {
         MR::onCalcShadowDropPrivateGravityOneTime(this, nullptr);
@@ -795,49 +708,49 @@ void BenefitItemObj::exeEscape() {
 void BenefitItemObj::calcAndSetBaseMtx() {
 }
 
+// Waiting it stands (on its follow matrix if it has one) turned by its spin; moving it faces its velocity, up along the
+// ground or wall it touches, blending toward that pose.
 void BenefitItemObj::calcAndSetBaseMtxInMovement() {
     if (isNerve(GET_NERVE(BenefitItemObj, HostTypeNrvWait))) {
         LiveActor::calcAndSetBaseMtx();
-
-        NebulaMtxCopy(getBaseMtx(), _F0);
+        NebulaMtxCopy(getBaseMtx(), mModelMtx);
 
         if (mFollowMtx != nullptr) {
-            NebulaMtxCopy(mFollowMtx, _F0);
+            NebulaMtxCopy(mFollowMtx, mModelMtx);
             MR::extractMtxTrans(mFollowMtx, &mPosition);
         }
 
-        MR::multMtx(getBaseMtx(), MR::tmpMtxRotYRad(_EC), _F0);
-
+        MR::multMtx(getBaseMtx(), MR::tmpMtxRotYRad(mRotateY), mModelMtx);
         return;
     }
 
     if (MR::isBindedGround(this)) {
-        _A4 = *MR::getGroundNormal(this);
+        mUp = *MR::getGroundNormal(this);
     } else if (MR::isBindedWall(this)) {
-        _A4 = *MR::getWallNormal(this);
+        mUp = *MR::getWallNormal(this);
     }
 
-    TVec3f stack_8(mVelocity);
-    MR::normalizeOrZero(&stack_8);
+    Vec3f front(mVelocity);
+    MR::normalizeOrZero(&front);
 
     if (isNerve(GET_NERVE(BenefitItemObj, HostTypeNrvPreEscape))) {
-        MR::vecBlendSphere(_98, stack_8, &stack_8, 0.1f);
-        _98 = stack_8;
+        MR::vecBlendSphere(mBlendFront, front, &front, 0.1f);
+        mBlendFront = front;
     }
 
-    if (MR::isNearZero(stack_8)) {
+    if (MR::isNearZero(front)) {
         return;
     }
 
-    if (MR::isSameDirection(_A4, stack_8, 0.01f)) {
+    if (MR::isSameDirection(mUp, front, 0.01f)) {
         MR::setMtxTrans(getBaseMtx(), mPosition);
         return;
     }
 
-    TPos3f pos;
-    MR::makeMtxUpFrontPos(&pos, _A4, stack_8, mPosition);
-    MR::blendMtx(_F0, pos, 0.2f, _F0);
-    MR::multMtx(getBaseMtx(), MR::tmpMtxRotYRad(_EC), _F0);
+    Pos3f pose;
+    MR::makeMtxUpFrontPos(&pose, mUp, front, mPosition);
+    MR::blendMtx(mModelMtx, pose, 0.2f, mModelMtx);
+    MR::multMtx(getBaseMtx(), MR::tmpMtxRotYRad(mRotateY), mModelMtx);
     MR::setMtxTrans(getBaseMtx(), mPosition);
 }
 
@@ -856,8 +769,4 @@ void BenefitItemObj::runEfx(const char* pEfxName) {
 
 void BenefitItemObj::stopEfx(const char* pEfxName) {
     MR::deleteEffect(this, pEfxName);
-}
-
-void MR::setMtxTrans(MtxPtr pMtx, const TVec3f& rVec) {
-    setMtxTrans(pMtx, rVec.x, rVec.y, rVec.z);
 }

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// Mii faces (MiiLib MiiModel.c MiiDrawOpaCore / MiiDrawXluCore, and the stages the game adds for its Mii NPCs:
-// Game/NPC/MiiFacePartsHolder.cpp setStageOpa / setStageXlu). Stage 0 is the part's own form; the chain after it is Mii's
+// Mii heads (Game/Mii/MiiHead.cpp Head::drawOpa / drawXlu, and the stages the game adds for its Mii NPCs:
+// Game/NPC/MiiFacePartsHolder.cpp draw). Stage 0 is the part's own form; the chain after it is Mii's
 // lit stage or the NPC holder's two stages, in the same form. Texture 0 at the part's own coordinates.
 //   form (params.x): 0 the constant colour (beard, nose, forehead, hair); 1 the cap, (K + K tex) / 2; 2 the face
 //     texture over the faceline colour, lerp(K, tex.rab, tex.g) (swap table N + 1: R, A, B, G); 3 the mask, tex;
@@ -20,6 +20,7 @@ struct MaterialConstants {
     float4 lights;     // x the colour channel's light mask, y its diffuse function, z its attenuation form
 };
 
+#define NATIVE_COORDS 1
 #include "native_material.hlsli"
 
 void material_vertex(NativeVertex v, inout NativeVaryings o) {
@@ -29,7 +30,7 @@ void material_vertex(NativeVertex v, inout NativeVaryings o) {
     if (chain == 0u) {
         return;
     }
-    const uint nq = v.pn_row & 31u;
+    const uint nq = v.pn_row;
     const float3 nt = float3(dot(native_normal_row(nq).xyz, v.nrm), dot(native_normal_row(nq + 1u).xyz, v.nrm),
                              dot(native_normal_row(nq + 2u).xyz, v.nrm));
     const float3 nrm = dot(nt, nt) > 0.0 ? normalize(nt) : nt;
@@ -37,20 +38,20 @@ void material_vertex(NativeVertex v, inout NativeVaryings o) {
     const uint diffuse = uint(material.lights.y);
     const uint atten = uint(material.lights.z);
     float3 sum = float3(0.0, 0.0, 0.0);
-    [unroll] for (uint n = 0u; n < 8u; ++n) {
+    for (uint n = 0u; n < min(native_light_count(), 24u); ++n) {
         if ((mask & (1u << n)) != 0u) {
-            sum += j3d_light(n, atten, diffuse, v.eye, nrm).rgb;
+            sum += channel_light(n, atten, diffuse, v.eye, nrm).rgb;
         }
     }
     o.color.rgb = material.mat_color.rgb * saturate((material.amb_color.rgb * 255.0 + sum) / 255.0);
     if (chain == 2u) {
-        o.color.a = material.mat_color.a * saturate((material.amb_color.a * 255.0 + j3d_light(2u, 2u, 1u, v.eye, nrm).a) / 255.0);
+        o.color.a = material.mat_color.a * saturate((material.amb_color.a * 255.0 + channel_light(2u, 2u, 1u, v.eye, nrm).a) / 255.0);
     }
 }
 
 float4 material_color(NativeVaryings i) {
     const uint form = uint(material.params.x);
-    const float4 t = tex[0].Sample(samp[0], i.uv[0].xy);
+    const float4 t = TEX(0).Sample(SAMP(0), i.uv[0].xy);
     const float3 k = material.kcolor.rgb;
     float3 c;
     float a;

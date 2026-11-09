@@ -1,4 +1,5 @@
 #include "Game/NPC/RunawayRabbit.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Enemy/WalkerStateBlowDamage.hpp"
 #include "Game/Enemy/WalkerStateRunaway.hpp"
 #include "Game/LiveActor/Nerve.hpp"
@@ -15,7 +16,7 @@
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/DemoUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MapUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
@@ -49,7 +50,7 @@ namespace {
     static const f32 sPressureRange = 400.0f;
     static const s32 sPressureLimitTime = 2000;
     static const s32 sPressureDeccelStart = 200;
-    static const s32 sPressureDeccelTimeLv1 = 240;
+    static const s32 sPressureDeccelTimeLv1 = NebulaFrameClock::stepsOfSeconds(4);
     static const s32 sPressureDeccelTimeLv2 = 500;
     static const s32 sPressureDeccelTimeLv3 = 800;
     // f32 sRunawayTurnStartLimit;
@@ -102,10 +103,10 @@ RunawayRabbit::RunawayRabbit(const char* pName, RunawayRabbitCollect* pCollect)
       mPressureTimer(), mNotCaughtableTimer(), mIsActive(true), mIsLinked(), mNearSoundRadius(-1.0f) {
 }
 
-void RunawayRabbit::init(const JMapInfoIter& rIter) {
+void RunawayRabbit::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     s32 rabbitType = -1;
-    MR::getJMapInfoArg2WithInit(rIter, &rabbitType);
+    MR::getPlacementArg2WithInit(rIter, &rabbitType);
     initModelManagerWithAnm(rabbitType == 0 ? "TrickRabbitBaby" : "TrickRabbit", nullptr, false);
     MR::connectToSceneNpc(this);
     MR::initLightCtrl(this);
@@ -114,17 +115,17 @@ void RunawayRabbit::init(const JMapInfoIter& rIter) {
 
     MR::addBaseMatrixFollowTarget(this, rIter, nullptr, MR::createBaseMatrixFollowValidateDelegator(this, &RunawayRabbit::isValidFollow));
     mStateRunaway = new WalkerStateRunaway(this, &mFrontVec, &::sParam);
-    mStateBlowDamage = new WalkerStateBlowDamage(this, &mFrontVec, nullptr);
-    MR::getJMapInfoArg0WithInit(rIter, &mGroupId);
-    MR::getJMapInfoArg1WithInit(rIter, &mHideLocation);
-    MR::getJMapInfoArg3WithInit(rIter, &mNearSoundRadius);
+    mStateBlowDamage = new WalkerStateBlowDamage(this, &mFrontVec);
+    MR::getPlacementArg0WithInit(rIter, &mGroupId);
+    MR::getPlacementArg1WithInit(rIter, &mHideLocation);
+    MR::getPlacementArg3WithInit(rIter, &mNearSoundRadius);
 
     if (mNearSoundRadius <= 0.0f) {
         mNearSoundRadius = ::sNearSoundRadiusDefault;
     }
 
     s32 cameraRegisterVec = -1;
-    MR::getJMapInfoArg7WithInit(rIter, &cameraRegisterVec);
+    MR::getPlacementArg7WithInit(rIter, &cameraRegisterVec);
 
     if (cameraRegisterVec != -1) {
         MR::declareCameraRegisterVec(this, cameraRegisterVec, &mPosition);
@@ -138,7 +139,7 @@ void RunawayRabbit::init(const JMapInfoIter& rIter) {
     initShadow();
     initFootPrint();
     initSound(6, false);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     MR::hideModel(this);
     MR::invalidateHitSensors(this);
     initNerve(GET_NERVE(RunawayRabbit, RunawayRabbitNrvNoActive));
@@ -152,7 +153,7 @@ void RunawayRabbit::init(const JMapInfoIter& rIter) {
 
 void RunawayRabbit::initShadow() {
     MR::initShadowVolumeSphere(this, ::sShadowRadius);
-    TVec3f zeroVec(0.0f, 0.0f, 0.0f);
+    Vec3f zeroVec(0.0f, 0.0f, 0.0f);
     MR::setShadowDropPositionAtJoint(this, nullptr, "Spine", zeroVec);
 }
 
@@ -166,9 +167,9 @@ void RunawayRabbit::initAfterPlacement() {
 
 void RunawayRabbit::initSensor() {
     initHitSensor(2);
-    MR::addHitSensorAtJointEnemy(this, "Body", "Spine", 8, ::sBodyRadius, TVec3f(0.0f, 0.0f, 0.0f));
-    MR::addHitSensorAtJointEnemy(this, "Catch", "Spine", 8, ::sCatchRadius, TVec3f(0.0f, 0.0f, 0.0f));
-    MR::initStarPointerTargetAtJoint(this, "Spine", ::sBodyRadius, TVec3f(0, 0, 0));
+    MR::addHitSensorAtJointEnemy(this, "Body", "Spine", 8, ::sBodyRadius, Vec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorAtJointEnemy(this, "Catch", "Spine", 8, ::sCatchRadius, Vec3f(0.0f, 0.0f, 0.0f));
+    MR::initStarPointerTargetAtJoint(this, "Spine", ::sBodyRadius, Vec3f(0, 0, 0));
 }
 
 void RunawayRabbit::appear() {
@@ -198,7 +199,7 @@ void RunawayRabbit::updatePose() {
 }
 
 void RunawayRabbit::updateBindActorMatrix() {
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.setQT(mPlayerPoseQuat, mPlayerBindPos);
     MR::setPlayerBaseMtx(mtx);
 }
@@ -253,7 +254,7 @@ void RunawayRabbit::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     if (MR::isSensorPlayer(pReceiver)) {
         if (pSender == getSensor("Catch") && isCaughtable()) {
             mCollect->noticeCaughtRabbit(this);
-            MR::requestStartDemoMarioPuppetable(this, "\225\337\202\334\202\350" /* 捕まり */, GET_NERVE(RunawayRabbit, RunawayRabbitNrvCaught),
+            MR::requestStartDemoMarioPuppetable(this, "捕まり", GET_NERVE(RunawayRabbit, RunawayRabbitNrvCaught),
                                                 GET_NERVE(RunawayRabbit, RunawayRabbitNrvTryCaughtDemo));
         } else if (isCaught()) {
             MR::sendMsgPush(pReceiver, pSender);
@@ -301,7 +302,7 @@ bool RunawayRabbit::receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) {
     return false;
 }
 
-bool RunawayRabbit::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool RunawayRabbit::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     return MR::isMsgTouchPlantItem(msg);
 }
 
@@ -465,7 +466,7 @@ void RunawayRabbit::exeCaughtEnd() {
     }
     updateBindActorMatrix();
     if (MR::isBckStopped(this)) {
-        MR::endDemo(this, "\225\337\202\334\202\350" /* 捕まり */);
+        MR::endDemo(this, "捕まり");
         setNerve(GET_NERVE(RunawayRabbit, RunawayRabbitNrvStop));
     }
 }
@@ -523,7 +524,7 @@ bool RunawayRabbit::isEnableBlow() const {
     return isNerve(GET_NERVE(RunawayRabbit, RunawayRabbitNrvRunaway));
 }
 
-bool RunawayRabbit::isValidFollow(s32 id) const {
+bool RunawayRabbit::isValidFollow(s32 /*id*/) const {
     if (isNerve(GET_NERVE(RunawayRabbit, RunawayRabbitNrvNoActive)) || isNerve(GET_NERVE(RunawayRabbit, RunawayRabbitNrvHide)) ||
         isNerve(GET_NERVE(RunawayRabbit, RunawayRabbitNrvStop))) {
         return false;

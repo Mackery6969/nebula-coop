@@ -8,11 +8,8 @@ class CameraManSubjective : public CameraMan {
 public:
     CameraManSubjective(const char*);
 
-    virtual void init(const JMapInfoIter&);
-
-    virtual void calc();
-    virtual void notifyActivate();
-    virtual void notifyDeactivate();
+    virtual void calc() override;
+    virtual void notifyActivate() override;
 
     CameraSubjective* mCamera;
 };

@@ -1,8 +1,8 @@
 #pragma once
 
+#include "Game/Render/Material.hpp"
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/J3DGraphBase/J3DTexture.hpp>
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 enum MiniatureGalaxyType {
     MiniatureGalaxyType_Normal,
@@ -10,6 +10,7 @@ enum MiniatureGalaxyType {
     MiniatureGalaxyType_Koopa,
 };
 
+// Also the state index GalaxySelectInfo shows.
 enum MiniatureGalaxyState {
     MiniatureGalaxyState_Hatena,
     MiniatureGalaxyState_Unknown,
@@ -20,26 +21,23 @@ enum MiniatureGalaxyState {
 class AstroDomeOrbit;
 class GalaxyNamePlate;
 class ModelObj;
-class NameObjArchiveListCollector;
 class ProjmapEffectMtxSetter;
 
 class MiniatureGalaxy : public LiveActor {
 public:
     MiniatureGalaxy(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void appear();
-    virtual void kill();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
-
-    static void makeArchiveList(NameObjArchiveListCollector*, const JMapInfoIter&);
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
+    virtual void appear() override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
     void initPartsModel();
     void setScale(f32);
-    void tryZoomIn(bool);
+    void tryZoomIn(bool isDisappearSelect);
     void tryZoomOut();
     bool isZoomEnd() const;
     void updateZoomInOut();
@@ -48,9 +46,12 @@ public:
     void showUnknownModel();
     void showSelectModel();
     void hideUnknownModel();
+    void showOpenModel();
+    void hideOpenModel();
     void appearSelectModel();
     void disappearSelectModel();
-    void showNamePlate(bool);
+    // isAppearNow false leaves the plate ready but hidden.
+    void showNamePlate(bool isAppearNow);
     bool isUseKoopaFaceModel() const;
     void playPointedME();
     void playNeedStarME();
@@ -63,20 +64,20 @@ public:
 
     s32 mType;
     s32 mState;
-    ModelObj* mUnknownModel;
+    ModelObj* mMysteryModel;
     ModelObj* mShadowModel;
     ModelObj* mSelectModel;
     ModelObj* mStarPlateModel;
-    TPos3f mPosMtx;
-    TPos3f mShadowBaseMtx;
+    Pos3f mPosMtx;
+    Pos3f mShadowBaseMtx;
     ProjmapEffectMtxSetter* mProjmapEffectMtxSetter;
-    TVec3f mInitPos;
     const char* mObjectName;
     const char* mGalaxyName;
-    s32 mCanZoomIn;
-    s32 mZoomLevel;
-    J3DTexMtx mOnesTexMtx;
-    J3DTexMtx mTensTexMtx;
+    // Zoom target; mZoomStep counts up to the zoom frame count.
+    bool mIsZoomOut;
+    s32 mZoomStep;
+    CoordMatrix mOnesTexMtx;
+    CoordMatrix mTensTexMtx;
     AstroDomeOrbit* mOrbit;
     GalaxyNamePlate* mNamePlate;
 };

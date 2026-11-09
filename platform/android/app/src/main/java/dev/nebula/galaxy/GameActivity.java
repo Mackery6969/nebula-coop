@@ -4,15 +4,15 @@ package dev.nebula.galaxy;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.res.Configuration;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.hardware.display.DisplayManager;
 import android.hardware.input.InputManager;
 import android.os.Bundle;
 import android.os.Process;
-import android.system.ErrnoException;
-import android.system.Os;
 import android.util.Log;
 import android.view.Display;
 import android.view.InputDevice;
@@ -20,6 +20,7 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.Surface;
 import android.view.SurfaceHolder;
+import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
@@ -45,10 +46,29 @@ public class GameActivity extends SDLActivity implements SensorEventListener {
     private static final String TAG = "Nebula";
     private SensorManager sensors;
     private final float[] phoneGyro = new float[3];
+    // Controllers' own motion sensors, every sample, to libmain.so.
+    private final PadSensors padSensors = new PadSensors(this, new PadSensors.Sink() {
+        @Override
+        public void device(InputDevice device, Sensor gyroscope, Sensor accelerometer) {
+            nativePadSensorDevice(device.getId(), device.getName(), device.getDescriptor(), device.getVendorId(),
+                device.getProductId(), gyroscope != null, accelerometer != null);
+        }
+
+        @Override
+        public void removed(int deviceId) {
+            nativePadSensorRemoved(deviceId);
+        }
+
+        @Override
+        public void sample(int deviceId, int type, long timeNs, float x, float y, float z) {
+            nativePadSensor(deviceId, type, timeNs, x, y, z);
+        }
+    });
 
     // libmain.so (platform/sdl/host_window_sdl.cpp).
     static native void nativeTouchControls(int buttons, float stickX, float stickY);
     static native void nativeTouchSettings(int sizePercent, int opacityPercent, boolean vibration);
+    static native void nativeArrangingDone();
     static native int nativeTouchWanted(int which);
     static native void nativeInputDevices(boolean keyboard, boolean mouse);
     static native int nativeInputMode();
@@ -63,15 +83,37 @@ public class GameActivity extends SDLActivity implements SensorEventListener {
     static native void nativeSurfaceWithdrawn();
     static native void nativeSurfaceReturned();
     static native void nativePhoneMotion(float ax, float ay, float az, float gx, float gy, float gz, long timeNs);
+    static native void nativePanelRate(float hz);
+    static native void nativeTouchSlop(float px);
+    static native float nativeWantedFrameRate();
+    static native void nativePadSensorDevice(int id, String name, String descriptor, int vendor, int product, boolean gyro, boolean accel);
+    static native void nativePadSensorRemoved(int id);
+    static native void nativePadSensor(int id, int type, long timeNs, float x, float y, float z);
+    static native void nativeFilesPicked(byte[][] paths);
+
+    // The settings' Import (pickFiles): its own request code beside SDL's.
+    private static final int PICK_FILES_REQUEST = 0x4E42;
+    private int pickKind;
 
     private TouchControlsView controls;
     private boolean menuOpen;
     private String controlsMode = "auto";
+    private boolean realWiimote;  // a real Wii Remote (WiimoteUsb) is in the player's hand
     private boolean controlsWanted = true;   // the player's choice in the HOME Menu
 
     @Override
     protected String[] getLibraries() {
         return new String[] {"SDL3", "main"};
+    }
+
+    // A shell-launched profiling run uses copied saves/settings; never the player's writable data.
+    // BuildConfig.DEBUG is false (and this path removed by R8) in distributable release builds.
+    private boolean isProfileRun() {
+        return BuildConfig.DEBUG && getIntent().getBooleanExtra("nebula.profile", false);
+    }
+
+    private File nativeData() {
+        return isProfileRun() ? new File(GameFiles.data(this), "profiling") : GameFiles.data(this);
     }
 
     /** The game's language follows the device's where the disc has it (runtime_settings.cpp reads LANG). */
@@ -88,81 +130,84 @@ public class GameActivity extends SDLActivity implements SensorEventListener {
         passLocale();
         // The launcher's Record diagnostics: this run only.
         final SharedPreferences prefs = GameFiles.controls(this);
-        final boolean record = prefs.getBoolean(GameFiles.RECORD_NEXT_RUN, false);
-        if (record) {
+        final boolean record = isProfileRun() || prefs.getBoolean(GameFiles.RECORD_NEXT_RUN, false);
+        if (record && !isProfileRun()) {
             prefs.edit().remove(GameFiles.RECORD_NEXT_RUN).commit();
         }
+        // The native game's settings, saves and log: the app's private storage.
         return new String[] {
+            "--data", nativeData().getPath(),
             "--pak", GameFiles.pak(this).getPath(),
-            "--saves", GameFiles.nand(this).getPath(),
+            "--saves", GameFiles.savesIn(nativeData()).getPath(),
             "--module", getApplicationInfo().nativeLibraryDir + "/libsmg_game.so",
             "--diagnostics", record ? "1" : "0",
         };
     }
 
-    // The pipelines the whole game uses and their precompiled shaders (assets/vk_seed_*.bin) beside the pipeline cache,
-    // which builds them in the background from the first launch and then deletes them, keeping only what this GPU
-    // uses (PipelineCacheVk). Installed once per app update.
-    private void installPipelineSeed() {
-        final SharedPreferences prefs = getSharedPreferences("pipeline_seed", MODE_PRIVATE);
-        try {
-            final long installed = getPackageManager().getPackageInfo(getPackageName(), 0).lastUpdateTime;
-            if (prefs.getLong("installed_for", 0L) == installed) {
-                return;
-            }
-            final File dir = new File(GameFiles.data(this), "shadercache/RMGE01");
-            if (!dir.isDirectory() && !dir.mkdirs()) {
-                return;
-            }
-            final List<String> shipped = Arrays.asList(getAssets().list(""));
-            for (final String name : new String[] {"vk_seed_shaders.bin", "vk_seed_keys.bin"}) {
-                // A seed of an earlier version goes; this version's, if it has one, replaces it.
-                new File(dir, name).delete();
-                if (!shipped.contains(name)) {
-                    continue;
-                }
-                final File partial = new File(dir, name + ".tmp");
-                try (InputStream in = getAssets().open(name);
-                     OutputStream out = new FileOutputStream(partial)) {
-                    final byte[] buffer = new byte[1 << 16];
-                    for (int read; (read = in.read(buffer)) > 0; ) {
-                        out.write(buffer, 0, read);
-                    }
-                }
-                if (!partial.renameTo(new File(dir, name))) {
-                    partial.delete();
-                    return;
+    // The frame-rate setting saved last (config.ini max_fps; 0: the display's own), before the game has read it.
+    private float savedFrameRate() {
+        float maxFps = 60.0f;
+        try (BufferedReader reader = new BufferedReader(new FileReader(new File(nativeData(), "config.ini")))) {
+            for (String line; (line = reader.readLine()) != null; ) {
+                if (line.startsWith("max_fps=")) {
+                    maxFps = Float.parseFloat(line.substring("max_fps=".length()).trim());
                 }
             }
-            prefs.edit().putLong("installed_for", installed).apply();
         } catch (Exception e) {
-            Log.w(TAG, "pipeline seed not installed", e);
+            return 60.0f;
+        }
+        return maxFps;
+    }
+
+    // The display mode for a frame-rate setting (max_fps; 0: the display's own). Interpolated rates take the mode that
+    // shows them (DisplayRate.modeFor): without the request most variable-rate panels hold the game at 60 Hz. The
+    // game's own 30 or 60 frames leave the mode to the system.
+    private void applyDisplayRate(float maxFps) {
+        final Display display = getDisplay();
+        if (display == null) {
+            return;
+        }
+        final boolean own = maxFps > 0.0f && maxFps <= 61.0f;
+        final Display.Mode mode = own ? null : DisplayRate.modeFor(display, maxFps);
+        final int wanted = mode != null ? mode.getModeId() : 0;
+        final WindowManager.LayoutParams attributes = getWindow().getAttributes();
+        if (attributes.preferredDisplayModeId == wanted) {
+            return;
+        }
+        attributes.preferredDisplayModeId = wanted;
+        getWindow().setAttributes(attributes);
+        Log.i(TAG, "display mode " + (mode != null ? mode.getRefreshRate() + " Hz" : "the system's") + " for frame rate " +
+                maxFps + " (was " + display.getMode().getRefreshRate() + " Hz)");
+    }
+
+    // The panel's fastest rate, which the game's settings offer interpolation by.
+    private void reportPanelRate() {
+        final Display display = getDisplay();
+        if (display != null) {
+            nativePanelRate(DisplayRate.fastestMode(display).getRefreshRate());
         }
     }
 
-    // Frame rate set to the display's own (config.ini max_fps=0): DisplayRate's mode, so the renderer draws the frames in
-    // between at its rate. Without the request Android may hold the game at 60 Hz.
-    private void requestDisplayRate() {
-        String maxFps = "60";
-        try (BufferedReader reader = new BufferedReader(new FileReader(GameFiles.renderConfig(this)))) {
-            for (String line; (line = reader.readLine()) != null; ) {
-                if (line.startsWith("max_fps=")) {
-                    maxFps = line.substring("max_fps=".length()).trim();
-                }
+    private final DisplayManager.DisplayListener displayListener = new DisplayManager.DisplayListener() {
+        @Override
+        public void onDisplayAdded(int displayId) {}
+
+        @Override
+        public void onDisplayRemoved(int displayId) {}
+
+        @Override
+        public void onDisplayChanged(int displayId) {
+            final Display display = getDisplay();
+            if (display != null && display.getDisplayId() == displayId) {
+                reportPanelRate();
             }
-        } catch (Exception e) {
-            return;
         }
-        final Display display = getDisplay();
-        if (display == null || !"0".equals(maxFps)) {
-            return;
-        }
-        final Display.Mode current = display.getMode();
-        final Display.Mode best = DisplayRate.fastestMode(display);
-        final WindowManager.LayoutParams attributes = getWindow().getAttributes();
-        attributes.preferredDisplayModeId = best.getModeId();
-        getWindow().setAttributes(attributes);
-        Log.i(TAG, "display mode " + best.getRefreshRate() + " Hz requested (was " + current.getRefreshRate() + " Hz)");
+    };
+
+    // Called by libmain.so when the frame-rate setting changes (on SDL's thread).
+    public void displayRateChanged() {
+        final float maxFps = nativeWantedFrameRate();
+        runOnUiThread(() -> applyDisplayRate(maxFps));
     }
 
     @Override
@@ -172,20 +217,19 @@ public class GameActivity extends SDLActivity implements SensorEventListener {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        // The native game's settings, saves and log: the app's private storage.
-        try {
-            Os.setenv("NEBULA_DATA_DIR", GameFiles.data(this).getPath(), true);
-        } catch (ErrnoException e) {
-            Log.e(TAG, "NEBULA_DATA_DIR not set", e);
-        }
         GameFiles.lastError(this).delete();
-        installPipelineSeed();
+        // The last run's picked copies were imported then.
+        deleteTree(pickedFolder());
         super.onCreate(savedInstanceState);
         if (mBrokenLibraries || mLayout == null) {
             return;
         }
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        requestDisplayRate();
+        WiimoteUsb.init(this);
+        reportPanelRate();
+        nativeTouchSlop(ViewConfiguration.get(this).getScaledTouchSlop());
+        getSystemService(DisplayManager.class).registerDisplayListener(displayListener, null);
+        applyDisplayRate(savedFrameRate());
 
         final SharedPreferences prefs = GameFiles.controls(this);
         controls = new TouchControlsView(this, new TouchControlsView.Listener() {
@@ -219,6 +263,7 @@ public class GameActivity extends SDLActivity implements SensorEventListener {
 
             @Override
             public void arrangingDone() {
+                nativeArrangingDone();
                 applyControlsVisibility();
             }
 
@@ -278,6 +323,7 @@ public class GameActivity extends SDLActivity implements SensorEventListener {
         if (!mBrokenLibraries) {
             nativeSetVisible(true);
             listenToPhoneMotion(true);
+            padSensors.start();
         }
     }
 
@@ -330,13 +376,26 @@ public class GameActivity extends SDLActivity implements SensorEventListener {
     protected void onStop() {
         if (!mBrokenLibraries) {
             listenToPhoneMotion(false);
+            padSensors.stop();
             nativeSetVisible(false);
         }
         super.onStop();
     }
 
     @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        // Another density (an external display, a desktop mode): its touch slop.
+        if (!mBrokenLibraries) {
+            nativeTouchSlop(ViewConfiguration.get(this).getScaledTouchSlop());
+        }
+    }
+
+    @Override
     protected void onDestroy() {
+        if (!mBrokenLibraries) {
+            getSystemService(DisplayManager.class).unregisterDisplayListener(displayListener);
+        }
         super.onDestroy();
         // One game per process: the native game cannot start twice in it.
         if (isFinishing()) {
@@ -370,8 +429,23 @@ public class GameActivity extends SDLActivity implements SensorEventListener {
     // What the input mode says of the on-screen controls: Phone always, Auto while no controller is in hand, others never.
     private void applyInputMode() {
         final int mode = nativeInputMode();
-        controlsWanted = mode == INPUT_PHONE || (mode == INPUT_AUTO && !controllerConnected());
+        controlsWanted = mode == INPUT_PHONE || (mode == INPUT_AUTO && !controllerConnected() && !realWiimote);
         applyControlsVisibility();
+    }
+
+    // Called by libmain.so: the player took up a real Wii Remote, or let it go (on its input thread).
+    public void realWiimoteTaken() {
+        runOnUiThread(() -> {
+            realWiimote = true;
+            hideControlsForController();
+        });
+    }
+
+    public void realWiimoteLetGo() {
+        runOnUiThread(() -> {
+            realWiimote = false;
+            applyInputMode();
+        });
     }
 
     // Called by libmain.so when the player changes the input mode (on SDL's thread).
@@ -379,16 +453,44 @@ public class GameActivity extends SDLActivity implements SensorEventListener {
         runOnUiThread(this::applyInputMode);
     }
 
-    // Called by libmain.so: CONTROLS' Arrange (on SDL's thread).
+    // Called by libmain.so: CONTROLS' Arrange (on SDL's thread). The game's settings window shows the editor's words
+    // and its Save, Reset and Cancel until nativeArrangingDone.
     public void arrangeControls() {
         runOnUiThread(() -> {
             if (controls != null) {
                 controls.startArranging();
+            } else {
+                nativeArrangingDone();
             }
         });
     }
 
-    // Called by libmain.so: GENERAL's on-screen control rows (on SDL's thread).
+    // Called by libmain.so: the editor's answers in the game's window (on SDL's thread).
+    public void saveArrangedControls() {
+        runOnUiThread(() -> {
+            if (controls != null && controls.isArranging()) {
+                controls.finishArranging(true);
+            }
+        });
+    }
+
+    public void cancelArrangedControls() {
+        runOnUiThread(() -> {
+            if (controls != null && controls.isArranging()) {
+                controls.finishArranging(false);
+            }
+        });
+    }
+
+    public void resetArrangedControls() {
+        runOnUiThread(() -> {
+            if (controls != null && controls.isArranging()) {
+                controls.resetArranged();
+            }
+        });
+    }
+
+    // Called by libmain.so: CONTROLS' on-screen control rows, applied (on SDL's thread).
     public void touchSettingsChanged() {
         final int size = nativeTouchWanted(0);
         final int opacity = nativeTouchWanted(1);
@@ -400,13 +502,113 @@ public class GameActivity extends SDLActivity implements SensorEventListener {
         });
     }
 
-    // Called by libmain.so: GENERAL's Reset (on SDL's thread).
+    // Called by libmain.so: CONTROLS' BUTTON PLACES reset, applied (on SDL's thread).
     public void resetControlPlaces() {
         runOnUiThread(() -> {
             if (controls != null) {
                 controls.resetPlaces();
             }
         });
+    }
+
+    // Called by libmain.so: the settings' Import, Miis (kind 0) or mods and texture packs (1), on SDL's thread. The
+    // chosen documents are copied where the game reads them by path, then handed over (nativeFilesPicked); none when
+    // the picker is cancelled or cannot open.
+    public void pickFiles(int kind) {
+        runOnUiThread(() -> {
+            pickKind = kind;
+            final Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("*/*");
+            intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+            try {
+                startActivityForResult(intent, PICK_FILES_REQUEST);
+            } catch (android.content.ActivityNotFoundException e) {
+                Log.e(TAG, "no document picker", e);
+                nativeFilesPicked(new byte[0][]);
+            }
+        });
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode != PICK_FILES_REQUEST) {
+            super.onActivityResult(requestCode, resultCode, data);
+            return;
+        }
+        final java.util.ArrayList<android.net.Uri> uris = new java.util.ArrayList<>();
+        if (resultCode == RESULT_OK && data != null) {
+            if (data.getClipData() != null) {
+                for (int i = 0; i < data.getClipData().getItemCount(); ++i) {
+                    uris.add(data.getClipData().getItemAt(i).getUri());
+                }
+            } else if (data.getData() != null) {
+                uris.add(data.getData());
+            }
+        }
+        final File folder = new File(pickedFolder(), pickKind == 0 ? "miis" : "mods");
+        // Copied off the UI thread: a texture pack can be large.
+        new Thread(() -> {
+            deleteTree(folder);
+            final java.util.ArrayList<byte[]> paths = new java.util.ArrayList<>();
+            for (int i = 0; i < uris.size(); ++i) {
+                final File copy = copyDocument(uris.get(i), new File(folder, Integer.toString(i)));
+                if (copy != null) {
+                    paths.add(copy.getPath().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                }
+            }
+            nativeFilesPicked(paths.toArray(new byte[0][]));
+        }, "Nebula Picked Files").start();
+    }
+
+    private File pickedFolder() {
+        return new File(nativeData(), ".picked");
+    }
+
+    // A document into `folder` under its own name; null when it cannot be read or written.
+    private File copyDocument(android.net.Uri uri, File folder) {
+        String name = null;
+        try (android.database.Cursor cursor = getContentResolver().query(uri,
+                new String[] {android.provider.OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst() && !cursor.isNull(0)) {
+                name = cursor.getString(0);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "no name for a picked file", e);
+        }
+        name = name == null ? "" : name.replaceAll("[/\\\\:*?\"<>|]", "_").trim();
+        if (name.isEmpty()) {
+            name = "file";
+        }
+        if (!folder.mkdirs() && !folder.isDirectory()) {
+            return null;
+        }
+        final File copy = new File(folder, name);
+        try (InputStream from = getContentResolver().openInputStream(uri);
+             OutputStream to = new FileOutputStream(copy)) {
+            if (from == null) {
+                return null;
+            }
+            final byte[] buffer = new byte[1 << 20];
+            for (int read; (read = from.read(buffer)) >= 0; ) {
+                to.write(buffer, 0, read);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "a picked file could not be copied", e);
+            copy.delete();
+            return null;
+        }
+        return copy;
+    }
+
+    private static void deleteTree(File file) {
+        final File[] children = file.listFiles();
+        if (children != null) {
+            for (File child : children) {
+                deleteTree(child);
+            }
+        }
+        file.delete();
     }
 
     // Called by libmain.so: the game starts again, straight back into the game (on SDL's thread). One game per process, so
@@ -484,14 +686,10 @@ public class GameActivity extends SDLActivity implements SensorEventListener {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
-        if (controls != null && controls.isArranging()) {
-            // Only the icons and OK answer. Back is the phone's own way of saying OK; the volume keys stay the phone's.
-            final int key = event.getKeyCode();
-            if (key == KeyEvent.KEYCODE_VOLUME_UP || key == KeyEvent.KEYCODE_VOLUME_DOWN) {
-                return super.dispatchKeyEvent(event);
-            }
-            if (key == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_UP) {
-                controls.finishArranging();
+        if (controls != null && controls.isArranging() && event.getKeyCode() == KeyEvent.KEYCODE_BACK) {
+            // Back is the phone's own Cancel; a keyboard's and a controller's keys reach the editor's window in the game.
+            if (event.getAction() == KeyEvent.ACTION_UP) {
+                controls.finishArranging(false);
             }
             return true;
         }
@@ -503,9 +701,6 @@ public class GameActivity extends SDLActivity implements SensorEventListener {
 
     @Override
     public boolean dispatchGenericMotionEvent(MotionEvent event) {
-        if (controls != null && controls.isArranging()) {
-            return true;
-        }
         if (fromController(event.getSource()) && "auto".equals(controlsMode)) {
             hideControlsForController();
         }

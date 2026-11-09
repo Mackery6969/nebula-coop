@@ -1,17 +1,21 @@
 #include "Game/Enemy/BallBeamer.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Enemy/RingBeam.hpp"
 #include "Game/LiveActor/Nerve.hpp"
-#include "Game/NameObj/NameObjArchiveListCollector.hpp"
 #include "Game/Util/ActorMovementUtil.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/ActorShadowUtil.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/JointUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+
+namespace {
+    const s32 sBeamNum = 12;
+};  // namespace
 
 namespace NrvBallBeamer {
     NEW_NERVE(BallBeamerNrvWait, BallBeamer, Wait);
@@ -19,30 +23,20 @@ namespace NrvBallBeamer {
     NEW_NERVE(BallBeamerNrvInter, BallBeamer, Inter);
 };  // namespace NrvBallBeamer
 
-BallBeamer::BallBeamer(const char* pName) : LiveActor(pName), mBeams(), _90() {
-    _98.identity();
+BallBeamer::BallBeamer(const char* pName) : LiveActor(pName), mBeams(), mIsSwitchOn() {
+    mHeadCollisionMtx.identity();
 }
 
-void BallBeamer::makeArchiveList(NameObjArchiveListCollector* pCollector, const JMapInfoIter& rIter) {
-    s32 arg2 = -1;
-    MR::getJMapInfoArg2NoInit(rIter, &arg2);
-    pCollector->addArchive("JumpBeamerBeam");
-    pCollector->addArchive("JumpBeamerBeamBloom");
-    if (!arg2) {
-        pCollector->addArchive("JumpBeamerBeamShadow");
-    }
-}
-
-void BallBeamer::init(const JMapInfoIter& rIter) {
+void BallBeamer::init(const TableIter& rIter) {
     initModelManagerWithAnm("BallBeamer", nullptr, false);
     MR::initDefaultPos(this, rIter);
     mPosition.y = mPosition.y - 50.0f;
     MR::connectToSceneEnemy(this);
     MR::initLightCtrl(this);
     initHitSensor(1);
-    MR::addHitSensorPush(this, "Body", 8, 120.0f, TVec3f(0.0f, -20.0f, 0.0f));
+    MR::addHitSensorPush(this, "Body", 8, 120.0f, Vec3f(0.0f, -20.0f, 0.0f));
     MR::initShadowVolumeSphere(this, 120.0f);
-    initEffectKeeper(3, nullptr, false);
+    initEffectKeeper(3, nullptr);
     initSound(2, false);
     initNerve(GET_NERVE(BallBeamer, BallBeamerNrvWait));
     makeActorAppeared();
@@ -54,45 +48,38 @@ void BallBeamer::init(const JMapInfoIter& rIter) {
         MR::listenStageSwitchOnB(this, MR::Functor(this, &BallBeamer::syncSwitchOnB));
     }
 
-    mBeams = new RingBeam*[12];
-    for (int i = 0; i < 12; i++) {
-        mBeams[i] = nullptr;
-    }
-    f32 arg0 = 12.0f;
-    s32 arg1 = 530;
-    s32 arg2 = -1;
-    MR::getJMapInfoArg0NoInit(rIter, &arg0);
-    MR::getJMapInfoArg1NoInit(rIter, &arg1);
-    MR::getJMapInfoArg2NoInit(rIter, &arg2);
-    for (int i = 0; i < 12; i++) {
-        if (arg2 == 0) {
-            mBeams[i] = new RingBeam("\203\212\203\223\203\117\203\162\201\133\203\200" /* リングビーム */, this, true, true);
-        } else {
-            mBeams[i] = new RingBeam("\203\212\203\223\203\117\203\162\201\133\203\200" /* リングビーム */, this, true, false);
-        }
+    mBeams = new RingBeam*[::sBeamNum];
+    f32 beamSpeed = 12.0f;
+    s32 beamLife = 530;
+    s32 shadowMode = -1;
+    MR::getPlacementArg0NoInit(rIter, &beamSpeed);
+    MR::getPlacementArg1NoInit(rIter, &beamLife);
+    MR::getPlacementArg2NoInit(rIter, &shadowMode);
+    for (s32 i = 0; i < ::sBeamNum; i++) {
+        mBeams[i] = new RingBeam("リングビーム", this, true, shadowMode == 0);
         mBeams[i]->init(rIter);
-        mBeams[i]->setSpeed(arg0);
-        mBeams[i]->setLife(arg1);
+        mBeams[i]->setSpeed(beamSpeed);
+        mBeams[i]->setLife(beamLife);
     }
-    _98.setInline(MR::getJointMtx(this, "Head"));
-    MR::initCollisionParts(this, "Head", getSensor("Body"), _98.toMtxPtr());
+    mHeadCollisionMtx.setInline(MR::getJointMtx(this, "Head"));
+    MR::initCollisionParts(this, "Head", getSensor("Body"), mHeadCollisionMtx.toMtxPtr());
     MR::validateCollisionParts(this);
 }
 
 void BallBeamer::syncSwitchOnA() {
-    _90 = true;
+    mIsSwitchOn = true;
     BallBeamer::setupAttack();
 }
 
 void BallBeamer::syncSwitchOffA() {
-    _90 = false;
+    mIsSwitchOn = false;
 }
 
 void BallBeamer::syncSwitchOnB() {
     MR::deleteEffect(this, "Charge");
     MR::emitEffect(this, "Vanish");
     kill();
-    for (int i = 0; i < 12; i++) {
+    for (s32 i = 0; i < ::sBeamNum; i++) {
         if (mBeams[i]) {
             mBeams[i]->kill();
         }
@@ -109,7 +96,7 @@ void BallBeamer::setupAttack() {
 }
 
 bool BallBeamer::tryAttack() {
-    for (int i = 0; i < 12; i++) {
+    for (s32 i = 0; i < ::sBeamNum; i++) {
         if (MR::isDead(mBeams[i])) {
             mBeams[i]->appear();
             return true;
@@ -130,7 +117,7 @@ void BallBeamer::exeWait() {
 }
 
 void BallBeamer::exeAttack() {
-    if (MR::isGreaterEqualStep(this, 360)) {
+    if (MR::isGreaterEqualStep(this, NebulaFrameClock::stepsOfSeconds(6))) {
         setNerve(GET_NERVE(BallBeamer, BallBeamerNrvInter));
     } else {
         if (getNerveStep() % 120 >= 75 && getNerveStep() % 120 < 119) {
@@ -150,11 +137,9 @@ void BallBeamer::exeAttack() {
 }
 
 void BallBeamer::exeInter() {
-    if (MR::isFirstStep(this)) {
-    }
 
-    if (MR::isGreaterEqualStep(this, 120)) {
-        if (_90) {
+    if (MR::isGreaterEqualStep(this, NebulaFrameClock::stepsOfSeconds(2))) {
+        if (mIsSwitchOn) {
             setNerve(GET_NERVE(BallBeamer, BallBeamerNrvAttack));
         } else {
             setNerve(GET_NERVE(BallBeamer, BallBeamerNrvWait));
@@ -166,10 +151,10 @@ void BallBeamer::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     MR::sendMsgPush(pReceiver, pSender);
 }
 
-bool BallBeamer::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool BallBeamer::receiveOtherMsg(u32 /*msg*/, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     return false;
 }
 
-bool BallBeamer::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool BallBeamer::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     return MR::isMsgStarPieceReflect(msg);
 }

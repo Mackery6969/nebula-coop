@@ -1,4 +1,5 @@
 #include "Game/MapObj/WaterfallCaveCover.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/ModelObj.hpp"
 #include "Game/LiveActor/Nerve.hpp"
@@ -9,8 +10,8 @@
 #include "Game/Util/SoundUtil.hpp"
 
 namespace {
-    static const f32 sSensorRadius = 500.0f;
-    static const s32 sRiddleSeStep = 90;
+    const f32 sSensorRadius = 500.0f;
+    const s32 sRiddleSeStep = NebulaFrameClock::stepsOfMilliseconds(1500);
 };  // namespace
 
 namespace NrvWaterfallCaveCover {
@@ -18,21 +19,21 @@ namespace NrvWaterfallCaveCover {
     NEW_NERVE(HostTypeBreak, WaterfallCaveCover, Break);
 };  // namespace NrvWaterfallCaveCover
 
-void WaterfallCaveCover::init(const JMapInfoIter& rIter) {
+void WaterfallCaveCover::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
-    MapObjActorInitInfo rInitInfo;
-    rInitInfo.setupDefaultPos();
-    rInitInfo.setupConnectToScene();
-    rInitInfo.setupSound(4);
-    rInitInfo.setupGroupClipping(16);
-    rInitInfo.setupNerve(GET_NERVE(WaterfallCaveCover, HostTypeWait));
-    rInitInfo.setupHitSensor();
-    rInitInfo.setupHitSensorParam(8, ::sSensorRadius, TVec3f(0.0f, 0.0f, 0.0f));
-    rInitInfo.setupEffect(nullptr);
-    initialize(rIter, rInitInfo);
+    MapObjActorInitInfo info;
+    info.setupDefaultPos();
+    info.setupConnectToScene();
+    info.setupSound(4);
+    info.setupGroupClipping(16);
+    info.setupNerve(GET_NERVE(WaterfallCaveCover, HostTypeWait));
+    info.setupHitSensor();
+    info.setupHitSensorParam(8, ::sSensorRadius, Vec3f(0.0f, 0.0f, 0.0f));
+    info.setupEffect(nullptr);
+    initialize(rIter, info);
 }
 
-bool WaterfallCaveCover::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool WaterfallCaveCover::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (MR::isMsgJetTurtleAttack(msg) && isNerve(GET_NERVE(WaterfallCaveCover, HostTypeWait))) {
         setNerve(GET_NERVE(WaterfallCaveCover, HostTypeBreak));
         return true;
@@ -48,7 +49,7 @@ void WaterfallCaveCover::exeBreak() {
         MR::invalidateHitSensor(this, "body");
         MR::invalidateCollisionParts(this);
         MapObjActorUtil::startBreak(this);
-        MR::startRumbleWithShakeCameraStrong(this, "\222\206" /* 中 */, "\216\343" /* 弱 */, 1000.0f, FLOAT_MAX);
+        MR::startRumbleWithShakeCameraStrong(this, "中", "弱", 1000.0f, FLOAT_MAX);
         MR::startSound(this, "SE_OJ_WATERFALL_COVER_BREAK");
     }
 

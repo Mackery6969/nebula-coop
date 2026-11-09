@@ -1,7 +1,7 @@
 #include "Game/Screen/BloomEffect.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeView.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
+#include "Game/Render/FrameList.hpp"
+#include "Game/Render/FrameList.hpp"
+#include "Game/Render/TypedDraw.hpp"
 #include "Game/Screen/ImageEffectLocalUtil.hpp"
 #include "Game/Screen/ImageEffectSystemHolder.hpp"
 #include "Game/Util/CameraUtil.hpp"
@@ -11,7 +11,6 @@
 #include <NebulaGpuTypes.h>
 #include <nebula_game_api.h>
 #include <cstring>
-#include "Game/Util/RenderSignals.hpp"
 #include "Game/System/NebulaHost.hpp"
 
 namespace {
@@ -29,7 +28,7 @@ namespace {
     }
 };  // namespace
 
-BloomEffect::BloomEffect(const char* pName) : ImageEffectBase(pName), _14(255), _18(1.0f / ::sL1RoundPoints), _1C(1.0f / ::sL2RoundPoints), _20(128) {
+BloomEffect::BloomEffect(const char* pName) : ImageEffectBase(pName), mBloomIntensity(255), mIntensity1(1.0f / ::sL1RoundPoints), mIntensity2(1.0f / ::sL2RoundPoints), mThreshold(128) {
     MR::connectToSceneNormalBloom(this);
     MR::createImageEffectSystemHolder();
 }
@@ -43,7 +42,7 @@ void BloomEffect::preDraw() const {
     if (sBloomRoute == 0) {
         return;
     }
-    NebulaRender::bloomMarker(NebulaRender::kBloomHold, 0, 0);
+    Frame::bloom(NEBULA_PASS_BLOOM_HOLD, 0, 0);
 
     MR::fillScreen(Color8(0, 0, 0, 0xFF).mRGBA);
     MR::loadViewMtx();
@@ -57,13 +56,12 @@ void BloomEffect::postDraw() const {
 
     // Drawn by the renderer at the frame's own size: the threshold, both blurs' tap weights, the intensity and the
     // rings' horizontal radius per unit.
-    const u8 intensity = _14 * get_10();
-    const u32 tap1 = static_cast< u8 >(static_cast< s32 >(_18 * 255.0f));
-    const u32 tap2 = static_cast< u8 >(static_cast< s32 >(_1C * 255.0f));
-    NebulaRender::bloomMarker(NebulaRender::kBloomNormal, _20 | tap1 << 8 | tap2 << 16 | static_cast< u32 >(intensity) << 24,
+    const u8 intensity = mBloomIntensity * getFadeLevel();
+    const u32 tap1 = static_cast< u8 >(static_cast< s32 >(mIntensity1 * 255.0f));
+    const u32 tap2 = static_cast< u8 >(static_cast< s32 >(mIntensity2 * 255.0f));
+    Frame::bloom(NEBULA_PASS_BLOOM_NORMAL, mThreshold | tap1 << 8 | tap2 << 16 | static_cast< u32 >(intensity) << 24,
                               floatBits(1.0f / MR::getAspect()));
     initDraw();
-    J3DPass::blend(NEBULA_FACTOR_ONE, NEBULA_FACTOR_ONE);
 }
 
 u8 BloomEffect::getIntensity1Default() const {
@@ -80,21 +78,10 @@ bool BloomEffect::isForEachModel() const {
 
 void BloomEffect::initDraw() const {
     MR::resetDrawState();
-    J3DPass::depth(false, NEBULA_COMPARE_ALWAYS, false);
 
     Mtx44 projectionMtx;
     NebulaMtxOrtho(projectionMtx, 0.0f, MR::getScreenHeight(), 0.0f, MR::getScreenWidth(), -10000.0f, 10000.0f);
-    J3DNativeView::setOrthographic(projectionMtx);
+    Frame::setOrthographic(projectionMtx);
 
     MR::loadViewMtxFor2DModel();
-
-    TMtx34f posMtx;
-    posMtx.identity();
-    J3DNativeShape::setPosition(0, posMtx.toMtxPtr());
-    J3DPass::positionMatrix(0);
-
-    J3DPass::cull(NEBULA_CULL_NONE);
-    J3DPass::writeColor(true);
-    J3DPass::writeAlpha(false);
-    J3DPass::depth(false, NEBULA_COMPARE_ALWAYS, false);
 }

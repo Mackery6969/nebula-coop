@@ -11,11 +11,10 @@ namespace NrvTombSpiderThreadAttacher {
 };  // namespace NrvTombSpiderThreadAttacher
 
 TombSpiderThreadAttacher::TombSpiderThreadAttacher(LiveActor* pActor, const char* pJointName, f32 radius, f32 offset)
-    : LiveActor("\221\203\202\314\225\164\222\205\223\137" /* 巣の付着点 */), mJointMtx(nullptr), mRadius(radius), mZOffset(offset) {
-    mJointMtx = MR::getJointMtx(pActor, pJointName);
+    : LiveActor("巣の付着点"), mJointMtx(MR::getJointMtx(pActor, pJointName)), mRadius(radius), mZOffset(offset) {
 }
 
-void TombSpiderThreadAttacher::init(const JMapInfoIter& rIter) {
+void TombSpiderThreadAttacher::init(const TableIter& /*rIter*/) {
     MR::connectToSceneEnemyMovement(this);
     initNerve(GET_NERVE(TombSpiderThreadAttacher, TombSpiderThreadAttacherNrvFree));
     MR::invalidateClipping(this);
@@ -23,7 +22,7 @@ void TombSpiderThreadAttacher::init(const JMapInfoIter& rIter) {
 }
 
 void TombSpiderThreadAttacher::exeFree() {
-    TVec3f pos(mJointMtx[0][3], mJointMtx[1][3], mJointMtx[2][3] - mZOffset);
+    Vec3f pos(mJointMtx[0][3], mJointMtx[1][3], mJointMtx[2][3] - mZOffset);
     MR::tryPushSpiderThread(pos, mRadius);
 }
 

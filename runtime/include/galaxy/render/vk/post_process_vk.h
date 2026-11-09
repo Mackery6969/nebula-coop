@@ -21,7 +21,7 @@ namespace galaxy::render::vk {
 
 class PostProcessorVk {
 public:
-    // The renderer's descriptor sets for one draw (its frame pool, or a replay list's while one is recorded).
+    // The renderer's descriptor sets for one draw.
     using SetAllocator = std::function<VkDescriptorSet(VkDescriptorSetLayout)>;
 
     PostProcessorVk() = default;
@@ -54,10 +54,6 @@ public:
                            unsigned display_height, const SetAllocator& allocate);
     void finish_scene_aa(VkCommandBuffer commands, AaRun pass, unsigned width, unsigned height,
                          const SetAllocator& allocate, VkRenderPass scene_pass, unsigned samples_log2);
-    // The targets recorded scene AA reads, for a command buffer submitted again later (the interpolation replay):
-    // it keeps them alive.
-    void hold_scene_targets(std::vector<std::shared_ptr<Texture>>& held) const;
-
     // The scaling chain from `source` (shader-readable) to a `target_width` x `target_height` picture: prepare
     // records the passes outside the target's render pass (into the window-sized intermediate); finish draws the
     // last one in the target's pass (the present pass when `present`, else the RGBA8 pass, dithered either way) at `viewport`, whose
@@ -71,8 +67,14 @@ public:
     PresentStep prepare_present(VkCommandBuffer commands, const Texture& source, unsigned source_width,
                                 unsigned source_height, unsigned target_width, unsigned target_height,
                                 bool present, const SetAllocator& allocate);
+    // `output.hdr`: the target is an HDR10 swap chain image (the present pass made for its format); the default is the 8-bit
+    // window's write.
     void finish_present(VkCommandBuffer commands, const PresentStep& step, const VkRect2D& viewport,
-                        const SetAllocator& allocate);
+                        const SetAllocator& allocate, const PostOutput& output = PostOutput{});
+    // The chain's pipelines into the present pass exist (an HDR10 swap chain needs them: nothing else writes its encoding).
+    [[nodiscard]] bool present_ready() const noexcept {
+        return to_present_.rcas != VK_NULL_HANDLE && to_present_.rcas_scaled != VK_NULL_HANDLE && to_present_.resample != VK_NULL_HANDLE;
+    }
 
 private:
     // The passes' vertex and pixel shaders, compiled at build.
@@ -86,6 +88,7 @@ private:
         std::shared_ptr<Texture> texture;  // its framebuffer is the pass's (with the stencil for edges and weights)
         unsigned width = 0;
         unsigned height = 0;
+        std::uint64_t used = 0;  // clock_ when a pass last asked for it
     };
     // Target pipelines by the render pass they draw in.
     struct PassPipelines {
@@ -107,6 +110,9 @@ private:
                        bool with_stencil);
     // SMAA's edges and weights with the stencil both their framebuffers hold, made together.
     bool ensure_smaa_targets(unsigned width, unsigned height);
+    // Hands back the targets no pass has asked for in 600 scene AA calls (SMAA's after a switch to FXAA or off, the scaling
+    // intermediate after a window size that needs none); the next pass that wants one makes it again.
+    void trim_idle_targets();
     bool record_aa(VkCommandBuffer commands, AaRun pass, VkImageView source, unsigned width, unsigned height,
                    const SetAllocator& allocate);
     void begin_pass(VkCommandBuffer commands, VkRenderPass pass, const Target& target, bool clear_stencil) const;
@@ -157,6 +163,8 @@ private:
     Target stencil_;  // shared by edges and weights
     Target antialiased_;
     Target scaled_;
+    std::uint64_t clock_ = 0;      // scene AA calls so far
+    std::uint64_t smaa_used_ = 0;  // clock_ when SMAA's three targets were last asked for
 };
 
 }  // namespace galaxy::render::vk

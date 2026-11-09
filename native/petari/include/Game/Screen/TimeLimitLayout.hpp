@@ -9,26 +9,26 @@ struct Timing {
     u32 mScaleKeepFrame;
     bool mIsScaleUp;
     bool mIsScaleDown;
-    bool _A;
+    bool mIsFadeOut;  // after the scale-down the counter fades out instead of staying
 };
 
 class TimeUpLayout : public LayoutActor {
 public:
     /// @brief Creates a new `TimeUpLayout`.
-    TimeUpLayout() : LayoutActor("\203\136\203\103\203\200\203\101\203\142\203\166\211\346\226\312" /* タイムアップ画面 */, true) {
+    TimeUpLayout() : LayoutActor("タイムアップ画面", true) {
     }
 
-    virtual void init(const JMapInfoIter& rIter);
+    virtual void init(const TableIter& rIter) override;
 };
 
 class TimeLimitLayout : public LayoutActor {
 public:
     TimeLimitLayout(u32 timeLimit);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void appear();
-    virtual void kill();
-    virtual void control();
+    virtual void init(const TableIter& rIter) override;
+    virtual void appear() override;
+    virtual void kill() override;
+    virtual void control() override;
 
     void setTimeLimit(u32);
     void setDisplayModeOnNormal(bool);
@@ -53,5 +53,5 @@ private:
     ValueControl* mFadeControl;
     const Timing* mCurrentTiming;
     bool mIsSuspend;
-    bool _35;
+    bool mIsNormalDisplay;  // stays up instead of fading out after the scale down
 };

@@ -6,27 +6,24 @@ class KameckBeamEventListener;
 
 class KameckFireBall : public LiveActor {
 public:
-    /// @brief Creates a new `KameckFireBall`.
-    /// @param pName A pointer to the null-terminated name of the object.
     KameckFireBall(const char* pName);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void makeActorAppeared();
-    virtual void kill();
-    virtual void makeActorDead();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void makeActorAppeared() override;
+    virtual void kill() override;
+    virtual void makeActorDead() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
-    void appearDirection(const TVec3f&);
+    void appearDirection(const Vec3f&);
     void setEventListener(KameckBeamEventListener*);
 
     void exeWait();
     void exeSweep();
 
-    TQuat4f mRotateQuat;
+    Quat4f mRotateQuat;
     KameckBeamEventListener* mEventListener;
-    u8 _A0[4];
 };

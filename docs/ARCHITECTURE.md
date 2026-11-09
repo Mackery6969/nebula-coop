@@ -9,7 +9,7 @@ their code differs (Petari's `VERSION` switches between them, five places), the 
 
 | Path | Contents |
 |---|---|
-| `native/petari` | The game: Petari's game code, JSystem, NW4R and MiiLib (a fork, see [PROVENANCE.md](PROVENANCE.md)) |
+| `native/petari` | The game: Petari's game code and the engine code under it (layouts, sound, models), see [PROVENANCE.md](PROVENANCE.md); its Miis are native (`Game/Mii`) |
 | `native/math` | The game's math library |
 | `native/host` | `NebulaNative.exe`'s entry point: loads the game module and connects it to the services below |
 | `native/include/nebula_game_api.h` | The C interface between the game module and the host |
@@ -26,8 +26,9 @@ their code differs (Petari's `VERSION` switches between them, five places), the 
 `smg_game.dll` holds the game's code, compiled with clang. [NATIVE_PORT.md](NATIVE_PORT.md) records how the decompilation was made to run
 natively.
 
-- **Threads**: every game thread is a host thread; one at a time changes the game world (`GameThreads.hpp`). The host's renderer, audio,
-  input and file threads run free of it.
+- **Threads**: the game world runs on one thread, with no locks. The sound engine runs on the host's audio clock and hears
+  from the game only through its command ring (`Game/Sound/SoundCommand.hpp`). The host's renderer and input threads run
+  free of both.
 - **Memory**: the game's heaps sit on host memory; only the machine's memory limits them.
 - **Graphics**: typed records ([GRAPHICS_ARCHITECTURE.md](GRAPHICS_ARCHITECTURE.md)).
 - **Audio**: the game writes each voice's settings in floats and hertz; the host's mixer plays them.

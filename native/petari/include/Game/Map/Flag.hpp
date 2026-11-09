@@ -1,10 +1,11 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include "Game/Render/TypedDraw.hpp"
+#include <nebula_geometry.hpp>
 
 class Color8;
-class JUTTexture;
+class GameTexture;
 class SwingRopePoint;
 
 class Flag : public LiveActor {
@@ -14,25 +15,23 @@ public:
         FixPoints() {
         }
 
-        TVec3f mPos;
+        Vec3f mPos;
         SwingRopePoint** mPoints;
     };
 
     Flag(const char*);
 
-    virtual ~Flag();
+    virtual void init(const TableIter& rIter) override;
+    virtual void movement() override;
+    virtual void draw() const override;
+    virtual void appear() override;
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void movement();
-    virtual void draw() const;
-    virtual void appear();
-
-    void setInfoPos(const char* pObjName, const TVec3f* pPos, const TVec3f& rSide, f32 stickLength, f32 width, f32 height, s32 numPointsU,
-                    s32 numPointsV, f32);
+    void setInfoPos(const char* pObjName, const Vec3f* pPos, const Vec3f& rSide, f32 stickLength, f32 width, f32 height, s32 numPointsU,
+                    s32 numPointsV);
     void updateFlag();
-    void loadMaterial() const;
+    SiteMaterial loadMaterial() const;
     // Vertex `index`'s colour and texture coordinate (its mColors and mTexST entries) for the draw being sent.
-    void sendEntry(u8 index) const;
+    VertexPCT vertexOf(const Vec3f& rPos, u8 index) const;
 
     s32 getNumPointsU() const {
         return mNumPointsU;
@@ -42,15 +41,10 @@ public:
         return mNumPointsV;
     }
 
-    const FixPoints& getFixPoint(s32 idx) const {
-        return mFixPoints[idx];
-    }
-
     SwingRopePoint* getPoint(s32 idxV, s32 idxU) const {
         return mFixPoints[idxV].mPoints[idxU];
     }
 
-    u32 _8C;  // Note: unused?
     const char* mObjName;
     bool mDisableLighting;
     s32 mNumPointsV;
@@ -58,14 +52,14 @@ public:
     f32 mPointIntervalU;
     f32 mPointIntervalV;
     FixPoints* mFixPoints;
-    TVec3f mUp;
-    TVec3f mClipCenter;
-    const TVec3f* mBasePos;
-    TPos3f* mBaseMtx;
+    Vec3f mUp;
+    Vec3f mClipCenter;
+    const Vec3f* mBasePos;
+    Pos3f* mBaseMtx;
     f32 mStickLength;
     f32 mWavePhase;
-    TVec3f mSide;
-    TVec3f mFront;
+    Vec3f mSide;
+    Vec3f mFront;
     bool mIsVerticalFlag;
     s32 mWaitTime;
     f32 mGravityScale;
@@ -79,7 +73,7 @@ public:
     Color8* mColors;
     // Texture coordinates.
     f32* mTexST;
-    JUTTexture* mTexture;
+    GameTexture* mTexture;
     bool mUseAlpha;
     u8 mAlpha;
     f32 mAlphaDistanceNear;

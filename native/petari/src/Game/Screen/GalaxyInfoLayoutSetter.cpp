@@ -11,7 +11,7 @@
 #include <cstdio>
 
 namespace {
-    const char* const cTextureArcName = "GalaxyInfoTexture.arc";
+    const char* const cTextureArcName = "GalaxyInfoTexture";
 };  // namespace
 
 namespace {
@@ -34,7 +34,7 @@ namespace {
     }
 };  // namespace
 
-GalaxyInfoLayoutSetter::GalaxyInfoLayoutSetter(LayoutActor* pHost) : mHost(pHost), mReplaceTexture(), mUnknownTexture(), mIconComet() {
+GalaxyInfoLayoutSetter::GalaxyInfoLayoutSetter(LayoutActor* pHost) : mHost(pHost), mReplaceTexture(), mHiddenGalaxyTexture(), mIconComet() {
     MR::setInfluencedAlphaToChild(pHost);
     initReplaceTexture();
 
@@ -43,20 +43,21 @@ GalaxyInfoLayoutSetter::GalaxyInfoLayoutSetter(LayoutActor* pHost) : mHost(pHost
 }
 
 void GalaxyInfoLayoutSetter::replaceTexture(const char* pGalaxyName) {
-    char btiName[256];
+    MR::FormattedName btiName;
     ResTable* fileInfoTable = MR::createAndAddResourceHolder(::cTextureArcName)->mFileInfoTable;
-    nw4r::lyt::TexMap* texture = nullptr;
+    Ui::TexMap* texture = nullptr;
 
     for (s32 i = 0; i < fileInfoTable->mCount; i++) {
-        nebula_snprintf(btiName, sizeof(btiName), "%s.bti", pGalaxyName);
+        btiName.format("%s.bti", pGalaxyName);
 
-        if (MR::isEqualStringCase(btiName, fileInfoTable->getResName(i))) {
+        if (MR::isEqualStringCase(btiName.c_str(), fileInfoTable->getResName(i))) {
             texture = mReplaceTexture[i];
             break;
         }
     }
 
-    MR::replacePaneTexture(mHost, "PicDummy", texture, 0);
+    // A galaxy (a mod's) with no picture in the archive shows the unknown picture.
+    MR::replacePaneTexture(mHost, "PicDummy", texture != nullptr ? texture : mHiddenGalaxyTexture, 0);
 }
 
 void GalaxyInfoLayoutSetter::updateInfo(const char* pGalaxyName, GalaxyState galaxyState) {
@@ -94,15 +95,15 @@ u32 GalaxyInfoLayoutSetter::getAnimLayerNum() {
 void GalaxyInfoLayoutSetter::initReplaceTexture() {
     ResTable* fileInfoTable = MR::createAndAddResourceHolder(::cTextureArcName)->mFileInfoTable;
 
-    mReplaceTexture = new nw4r::lyt::TexMap*[fileInfoTable->mCount];
+    mReplaceTexture = new Ui::TexMap*[fileInfoTable->mCount];
 
     for (u32 i = 0; i < fileInfoTable->mCount; i++) {
         const char* resName = fileInfoTable->getResName(i);
 
-        mReplaceTexture[i] = MR::createLytTexMap("GalaxyInfoTexture.arc", resName);
+        mReplaceTexture[i] = MR::createLytTexMap("GalaxyInfoTexture", resName);
 
         if (MR::isEqualStringCase("GalaxyInfoTextureUnknown.bti", resName)) {
-            mUnknownTexture = mReplaceTexture[i];
+            mHiddenGalaxyTexture = mReplaceTexture[i];
         }
     }
 }
@@ -134,7 +135,7 @@ void GalaxyInfoLayoutSetter::updateInfoWithoutComet(const char* pGalaxyName, Gal
     if (isOpened) {
         replaceTexture(pGalaxyName);
     } else {
-        MR::replacePaneTexture(mHost, "PicDummy", mUnknownTexture, 0);
+        MR::replacePaneTexture(mHost, "PicDummy", mHiddenGalaxyTexture, 0);
     }
 
     if (isOpened) {
@@ -149,14 +150,20 @@ void GalaxyInfoLayoutSetter::updateInfoWithoutComet(const char* pGalaxyName, Gal
 void GalaxyInfoLayoutSetter::setTextBoxStarNum(const char* pGalaxyName) {
     GalaxyStatusAccessor accessor = MR::makeGalaxyStatusAccessor(pGalaxyName);
 
-    char16_t starBaseBuffer[16];
-    char16_t starIconBuffer[16];
-    
+    // One code per scenario in each text, and the terminator.
+    const s32 normalNum = accessor.getNormalScenarioNum();
+    const s32 powerStarNum = accessor.getPowerStarNum();
+    const u32 room = static_cast< u32 >(normalNum > powerStarNum ? normalNum : powerStarNum) + 1;
+    MR::Text16 starBaseText;
+    MR::Text16 starIconText;
+    char16_t* const starBaseBuffer = starBaseText.room(room);
+    char16_t* const starIconBuffer = starIconText.room(room);
+    // A galaxy with no scenarios shows empty texts.
+    starBaseBuffer[0] = 0;
+    starIconBuffer[0] = 0;
+
     char16_t* pStarBase = starIconBuffer;
     char16_t* pStarIcon = starBaseBuffer;
-
-    starIconBuffer[0] = '\0';
-    starBaseBuffer[0] = '\0';
 
     for (s32 i = 1; i <= accessor.getNormalScenarioNum(); i++) {
         if (MR::isOnGameEventFlagPowerStarSuccess(pGalaxyName, i)) {
@@ -217,14 +224,14 @@ void GalaxyInfoLayoutSetter::setTextBoxStarNum(const char* pGalaxyName) {
 }
 
 void GalaxyInfoLayoutSetter::showCometWindow(int cometId) {
-    char messageId[256];
+    MR::FormattedName messageId;
 
     MR::startAnim(mHost, "CometWindow", 1);
     MR::setAnimFrameAndStop(mHost, 1.0f, 1);
     MR::setCometAnimFromId(mHost, cometId, 2);
-    MR::makeCometMessageID(messageId, sizeof(messageId), MR::getCometNameFromId(cometId));
+    MR::makeCometMessageID(messageId, MR::getCometNameFromId(cometId));
     MR::setTextBoxGameMessageRecursive(mHost, "CometName", "GalaxyInfo_CometAppear");
-    MR::setTextBoxArgGameMessageRecursive(mHost, "CometName", messageId, 0);
+    MR::setTextBoxArgGameMessageRecursive(mHost, "CometName", messageId.c_str(), 0);
 }
 
 void GalaxyInfoLayoutSetter::hideCometWindow() {

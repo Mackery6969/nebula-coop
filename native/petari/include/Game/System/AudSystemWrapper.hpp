@@ -3,18 +3,14 @@
 
 class AudSystem;
 class NebulaArena;
-class NebulaArena;
 class AssetFolder;
-class NebulaArena;
 
 class AudSystemWrapper {
 public:
-    AudSystemWrapper(NebulaArena*, NebulaArena*);
+    explicit AudSystemWrapper(NebulaArena*);
 
-    void requestResourceForInitialize();
     void createAudioSystem();
     void createSoundNameConverter();
-    void updateRhythm();
     void movement();
     void stopAllSound(u32);
     void setPlayerLuigi(bool);
@@ -31,15 +27,12 @@ public:
     bool isLoadDoneScenarioWaveData() const;
 
     AudSystem* mAudSystem;
-    NebulaArena* mSolidHeap;
-    NebulaArena* mHeap;
-    void* mSmrRes;
-    AssetFolder* mJaiSeqRes;
-    AssetFolder* mJaiChordRes;
-    AssetFolder* mJaiMeRes;
-    AssetFolder* mJaiRemixSeqRes;
-    NebulaArena* mSpkHeap;
+    NebulaArena* mArena;
+    AssetFolder* mSeqArchive;
+    AssetFolder* mChordArchive;
+    AssetFolder* mMeArchive;
+    AssetFolder* mRemixArchive;
+    NebulaArena* mSpeakerArena;
     AssetFolder* mSpkRes;
-    bool _28;
     bool mIsResetDone;
 };

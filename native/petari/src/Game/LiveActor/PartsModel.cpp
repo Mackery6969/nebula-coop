@@ -6,8 +6,8 @@
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 
-PartsModel::PartsModel(LiveActor* pActor, const char* pName, const char* pModelName, MtxPtr pMtx, int drawBufferType, bool a6)
-    : LiveActor(pName), mHost(pActor), mFixedPosition(), mMtx(pMtx), mIsCalcOwnMtx(true), _99(), mIsDead() {
+PartsModel::PartsModel(LiveActor* pActor, const char* pName, const char* pModelName, MtxPtr pMtx, int drawBufferType, bool deferMaterials)
+    : LiveActor(pName), mHost(pActor), mFixedPosition(), mMtx(pMtx), mIsCalcOwnMtx(true), mIsShownWhileHostHidden(), mIsDead() {
     if (drawBufferType < 0) {
         drawBufferType = MR::DrawBufferType_MapObj;
     }
@@ -21,13 +21,13 @@ PartsModel::PartsModel(LiveActor* pActor, const char* pName, const char* pModelN
     mRotation.set(pActor->mRotation);
     mScale.set(pActor->mScale);
 
-    initModelManagerWithAnm(pModelName, nullptr, a6);
+    initModelManagerWithAnm(pModelName, nullptr, deferMaterials);
 
     u32 movementType = MR::MovementType_EnemyDecoration;
     u32 calcAnimType = MR::CalcAnimType_MapObjDecoration;
 
     if (drawBufferType == MR::DrawBufferType_PlayerDecoration || drawBufferType == MR::DrawBufferType_CrystalBox ||
-        drawBufferType == MR::DrawBufferType_UNK_0x17) {
+        drawBufferType == MR::DrawBufferType_PlayerParts) {
         movementType = MR::MovementType_PlayerDecoration;
         calcAnimType = MR::CalcAnimType_PlayerDecoration;
     }
@@ -52,8 +52,8 @@ void PartsModel::makeActorDead() {
     mIsDead = true;
 }
 
-void PartsModel::init(const JMapInfoIter& rIter) {
-    initEffectKeeper(8, nullptr, false);
+void PartsModel::init(const TableIter& /*rIter*/) {
+    initEffectKeeper(8, nullptr);
     initSound(8, false);
     MR::invalidateClipping(this);
     makeActorAppeared();
@@ -62,7 +62,7 @@ void PartsModel::init(const JMapInfoIter& rIter) {
 }
 
 void PartsModel::movement() {
-    if (MR::isDead(this) || MR::isDead(mHost) || (MR::isClipped(mHost) && !mHost->mFlag.mIsDrawnClipped) || (!_99 && MR::isHiddenModel(mHost))) {
+    if (MR::isDead(this) || MR::isDead(mHost) || (MR::isClipped(mHost) && !mHost->mFlag.mIsDrawnClipped) || (!mIsShownWhileHostHidden && MR::isHiddenModel(mHost))) {
         if (!mIsDead) {
             mIsDead = true;
 
@@ -107,7 +107,7 @@ void PartsModel::calcViewAndEntry() {
     LiveActor::calcViewAndEntry();
 }
 
-void PartsModel::initFixedPosition(const TVec3f& rLocalTrans, const TVec3f& rLocalRotate, const char* pJointName) {
+void PartsModel::initFixedPosition(const Vec3f& rLocalTrans, const Vec3f& rLocalRotate, const char* pJointName) {
     if (pJointName != nullptr) {
         mFixedPosition = new FixedPosition(mHost, pJointName, rLocalTrans, rLocalRotate);
     } else {
@@ -118,10 +118,10 @@ void PartsModel::initFixedPosition(const TVec3f& rLocalTrans, const TVec3f& rLoc
 }
 
 void PartsModel::initFixedPosition(const char* pJointName) {
-    initFixedPosition(TVec3f(0.0f, 0.0f, 0.0f), TVec3f(0.0f, 0.0f, 0.0f), pJointName);
+    initFixedPosition(Vec3f(0.0f, 0.0f, 0.0f), Vec3f(0.0f, 0.0f, 0.0f), pJointName);
 }
 
-void PartsModel::initFixedPosition(MtxPtr pMtx, const TVec3f& rLocalTrans, const TVec3f& rLocalRotate) {
+void PartsModel::initFixedPosition(MtxPtr pMtx, const Vec3f& rLocalTrans, const Vec3f& rLocalRotate) {
     mFixedPosition = new FixedPosition(pMtx, rLocalTrans, rLocalRotate);
     mMtx = mFixedPosition->mMtx;
 }

@@ -8,11 +8,11 @@ class MoguStone : public ModelObj {
 public:
     MoguStone(const char*, const char*);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void appear();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter& rIter) override;
+    virtual void appear() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
 
     virtual void doBehavior();
     virtual void startBreakSound();
@@ -21,28 +21,29 @@ public:
     void exeTaken();
     void exeThrow();
     void exeFall();
-    bool isTaken();
-    void emit(bool, const TVec3f&, const TVec3f&, f32);
+    bool isTaken() const;
+    void emit(bool isOnGravity, const Vec3f& rFrom, const Vec3f& rTo, f32 speed);
+    void breakAndKill();
 
-    TQuat4f _90;
-    TQuat4f _A0;
-    TVec3f _B0;
-    f32 _BC;
-    bool _C0;
+    Quat4f mPoseQuat;
+    Quat4f mRotateQuat;
+    Vec3f mThrowDir;
+    f32 mThrowSpeed;
+    bool mIsThrowHorizontal;
 };
 
 class ThrowingIce : public MoguStone {
 public:
     ThrowingIce(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual void doBehavior();
-    virtual void startBreakSound();
-    virtual void startThrowLevelSound();
+    virtual void init(const TableIter&) override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
+    virtual void doBehavior() override;
+    virtual void startBreakSound() override;
+    virtual void startThrowLevelSound() override;
 
-    void emitIce(const TVec3f&, const TVec3f&, f32, const TVec3f&);
+    void emitIce(const Vec3f& rFrom, const Vec3f& rTo, f32 speed, const Vec3f& rGravity);
 
     ParabolicPath* mPath;
 };

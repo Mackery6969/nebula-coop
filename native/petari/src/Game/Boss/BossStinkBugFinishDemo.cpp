@@ -1,4 +1,5 @@
 #include "Game/Boss/BossStinkBugFinishDemo.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Boss/BossStinkBug.hpp"
 #include "Game/Demo/DemoPositionController.hpp"
 #include "Game/LiveActor/ActorStateBase.hpp"
@@ -14,7 +15,7 @@
 #include "Game/Util/SoundUtil.hpp"
 
 namespace {
-    static const s32 sAppearPowerStarStep = 60;
+    static const s32 sAppearPowerStarStep = NebulaFrameClock::stepsOfSeconds(1);
 };  // namespace
 
 namespace NrvBossStinkBugFinishDemo {
@@ -23,8 +24,8 @@ namespace NrvBossStinkBugFinishDemo {
     NEW_NERVE(BossStinkBugFinishDemoNrvAppearPowerStar, BossStinkBugFinishDemo, AppearPowerStar);
 };  // namespace NrvBossStinkBugFinishDemo
 
-BossStinkBugFinishDemo::BossStinkBugFinishDemo(BossStinkBug* pHost, const JMapInfoIter& rIter)
-    : BossStinkBugActionBase("\217\111\227\271\203\146\203\202" /* 終了デモ */, pHost), mDemoPositionController(nullptr) {
+BossStinkBugFinishDemo::BossStinkBugFinishDemo(BossStinkBug* pHost, const TableIter& rIter)
+    : BossStinkBugActionBase("終了デモ", pHost), mDemoPositionController(nullptr) {
     initNerve(GET_NERVE(BossStinkBugFinishDemo, BossStinkBugFinishDemoNrvDemo));
     mDemoPositionController = new DemoPositionController("BossStinkBugDemo", rIter);
     mDemoPositionController->initAnimCamera("FinishDemo");
@@ -33,7 +34,7 @@ BossStinkBugFinishDemo::BossStinkBugFinishDemo(BossStinkBug* pHost, const JMapIn
 void BossStinkBugFinishDemo::appear() {
     ActorStateBase::appear();
     setNerve(GET_NERVE(BossStinkBugFinishDemo, BossStinkBugFinishDemoNrvTryStart));
-    MR::requestStartDemoMarioPuppetable(this, getHost(), "\203\173\203\130\203\112\203\201\203\200\203\126\217\111\227\271\203\146\203\202" /* ボスカメムシ終了デモ */, GET_NERVE(BossStinkBugFinishDemo, BossStinkBugFinishDemoNrvDemo),
+    MR::requestStartDemoMarioPuppetable(this, getHost(), "ボスカメムシ終了デモ", GET_NERVE(BossStinkBugFinishDemo, BossStinkBugFinishDemoNrvDemo),
                                         nullptr);
 }
 
@@ -68,7 +69,7 @@ void BossStinkBugFinishDemo::exeAppearPowerStar() {
     if (MR::isStep(this, ::sAppearPowerStarStep)) {
         mDemoPositionController->endDemo("FinishDemo");
         MR::requestAppearPowerStar(getHost(), getHost()->mPosition);
-        MR::endDemo(getHost(), "\203\173\203\130\203\112\203\201\203\200\203\126\217\111\227\271\203\146\203\202" /* ボスカメムシ終了デモ */);
+        MR::endDemo(getHost(), "ボスカメムシ終了デモ");
         MR::overlayWithPreviousScreen(2);
         MR::startAfterBossBGM();
     }

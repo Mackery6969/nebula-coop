@@ -64,6 +64,8 @@
                     const uint64_t frame = std::strtoull(entry.c_str() + at + 1, nullptr, 10);
                     if (kind == "kill") {
                         events.push_back({NEBULA_TEST_KILL_PLAYER, frame, 0});
+                    } else if (kind == "circleclose" || kind == "circleopen") {
+                        events.push_back({NEBULA_TEST_CIRCLE_WIPE, frame, kind == "circleopen" ? 1 : 0});
                     } else if (kind == "star") {
                         events.push_back({NEBULA_TEST_GET_STAR, frame, -1});
                     } else if (kind == "grandstar") {
@@ -74,6 +76,8 @@
                         events.push_back({NEBULA_TEST_SHAKE_CAMERA, frame, 0});
                     } else if (kind == "actors") {
                         events.push_back({NEBULA_TEST_LIST_ACTORS, frame, 0});
+                    } else if (kind == "domelaunch") {
+                        events.push_back({NEBULA_TEST_DOME_LAUNCH, frame, 0});
                     } else if (kind == "koopahit") {
                         events.push_back({NEBULA_TEST_KOOPA_HIT, frame, 0});
                     } else if (kind.rfind("materials:", 0) == 0) {
@@ -109,6 +113,7 @@
     }
     ++scene_frames;
     gSceneFrames.store(scene_frames, std::memory_order_relaxed);
+    gStopFrames.store(touring && stop_frame == 0 ? kNoStopFrames : scene_frames - stop_frame, std::memory_order_relaxed);
 #if defined(NEBULA_HOST_RENDERER)
     // The settings' galaxy select (ADVANCED page): a travel the player asked for, through the game's own stage change,
     // and the Grand Stars with the Observatory they power.
@@ -183,6 +188,7 @@
     if (touring && next < stops.size() && ++since_stop >= tour_frames) {
         since_stop = 0;
         stop_frame = scene_frames;
+        gStopFrames.store(0, std::memory_order_relaxed);
         const Stop& stop = stops[next++];
         action->kind = NEBULA_TEST_CHANGE_STAGE;
         action->scenario = stop.scenario;

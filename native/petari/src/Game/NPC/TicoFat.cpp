@@ -1,5 +1,5 @@
 #include "Game/NPC/TicoFat.hpp"
-#include <JSystem/JUtility/JUTNativeLog.hpp>
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Camera/CameraTargetArg.hpp"
 #include "Game/Demo/AstroDemoFunction.hpp"
 #include "Game/Effect/MultiEmitter.hpp"
@@ -23,7 +23,7 @@
 #include "Game/Util/EffectUtil.hpp"
 #include "Game/Util/EventUtil.hpp"
 #include "Game/Util/PlayerInputUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/JointUtil.hpp"
 #include "Game/Util/LightUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
@@ -35,9 +35,9 @@
 #include "Game/Util/RailUtil.hpp"
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#include "Game/Util/StringUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
 #include "Game/Util/TalkUtil.hpp"
-#include <cstdio>
 
 namespace NrvTicoFat {
     NEW_NERVE(TicoFatNrvReaction, TicoFat, Reaction);
@@ -61,96 +61,62 @@ namespace {
     class TicoFatParam : public AnimScaleParam {
     public:
         TicoFatParam() {
-            _20 = 0.12f;
-            _24 = 0.12f;
-            _28 = 0.9f;
+            mHitReactionVelocity = 0.12f;
+            mHitReactionSpring = 0.12f;
+            mHitReactionDamping = 0.9f;
         }
     };
 
     static const char* sInfoMessageID = "InformationPlanet";
     static TicoFatParam sParam;
-    static Color8 hPointLight = Color8(0xFF, 0x7D, 0xE6, 0xFF);
-};  // namespace
+    const Color8 hPointLight(0xFF, 0x7D, 0xE6, 0xFF);
 
-const char* TicoFat::getActionName(const char* pName) {
-    if (calcScale() > 1.6f) {
-        if (!strcmp(pName, "Eat")) {
-            return "eat2";
+    enum ScaledAction {
+        ACTION_EAT,
+        ACTION_EAT_START,
+        ACTION_WAIT,
+        ACTION_EXCITE,
+        ACTION_JOY,
+        ACTION_COUNT
+    };
+
+    // Action names per size step (scale up to 1.3, up to 1.6, above 1.6), in ScaledAction order.
+    const char* const sScaledActionNames[3][ACTION_COUNT] = {
+        {"eat0", "eatstart0", "wait0", "excite0", "joy0"},
+        {"eat1", "eatstart1", "wait1", "excite1", "joy1"},
+        {"eat2", "eatstart2", "wait2", "excite2", "joy2"},
+    };
+
+    // The action name for the actor's current size step; a table lookup with no name compare.
+    const char* getScaledActionName(TicoFat* pActor, ScaledAction action) {
+        f32 scale = pActor->calcScale();
+        s32 step = 0;
+        if (scale > 1.6f) {
+            step = 2;
+        } else if (scale > 1.3f) {
+            step = 1;
         }
-        if (!strcmp(pName, "EatStart")) {
-            return "eatstart2";
-        }
-        if (!strcmp(pName, "Wait")) {
-            return "wait2";
-        }
-        if (!strcmp(pName, "Excite")) {
-            return "excite2";
-        }
-        if (!strcmp(pName, "Joy")) {
-            return "joy2";
-        }
-    } else {
-        if (calcScale() > 1.3f) {
-            if (!strcmp(pName, "Eat")) {
-                return "eat1";
-            }
-            if (!strcmp(pName, "EatStart")) {
-                return "eatstart1";
-            }
-            if (!strcmp(pName, "Wait")) {
-                return "wait1";
-            }
-            if (!strcmp(pName, "Excite")) {
-                return "excite1";
-            }
-            if (!strcmp(pName, "Joy")) {
-                return "joy1";
-            }
-        } else {
-            if (!strcmp(pName, "Eat")) {
-                return "eat0";
-            }
-            if (!strcmp(pName, "EatStart")) {
-                return "eatstart0";
-            }
-            if (!strcmp(pName, "Wait")) {
-                return "wait0";
-            }
-            if (!strcmp(pName, "Excite")) {
-                return "excite0";
-            }
-            if (!strcmp(pName, "Joy")) {
-                return "joy0";
-            }
-        }
+
+        return sScaledActionNames[step][action];
     }
-
-    return pName;
-}
+};  // namespace
 
 TicoFat::TicoFat(const char* pName) : NPCActor(pName) {
     mCameraInfo = nullptr;
     mItem = nullptr;
     mShootPath = nullptr;
-    _170 = 0;
-    _1DC = -1;
-    _1EC = -1;
-    _1F0 = 5;
-    _1FC = 100.0f;
-    _200 = 0;
-    _204 = 0;
-    _17C.identity();
-    _1AC.identity();
+    mIsCameraOn = false;
+    mItemType = -1;
+    mTicoSeedId = -1;
+    mEatInterval = 5;
+    mFlySpeed = 100.0f;
+    mEatSoundStep = 0;
+    mAbsorbSoundStep = 0;
+    mScreenEffectMtx.identity();
+    mScreenLightMtx.identity();
 }
 
-void TicoFat::makeArchiveList(NameObjArchiveListCollector* pCollector, const JMapInfoIter& rIter) {
-    NPCActorItem item("TicoFat");
-    if (MR::getNPCItemData(&item, 0)) {
-        NPCActor::addArchive(pCollector, item);
-    }
-}
-
-void TicoFat::init(const JMapInfoIter& rIter) {
+void TicoFat::init(const TableIter& rIter) {
     NPCActorCaps caps("TicoFat");
     NPCActorItem item("TicoFat");
     caps.setDefault();
@@ -161,22 +127,22 @@ void TicoFat::init(const JMapInfoIter& rIter) {
     caps.mSensorJoint = "Center";
     caps.mUseShadow = true;
     caps.mRailRider = false;
-    caps._6C = "Center";
+    caps.mPointerJoint = "Center";
     caps.mPointerSize = 110.0f;
     caps.mBinder = 0;
     caps.mSoundSize = 6;
     caps.mSensorMax = 2;
-    _178 = 0;
-    _174 = 0;
+    mPointingStep = 0;
+    mNearStep = 0;
     mStartEat = false;
-    _1F4 = -1;
+    mGuidanceId = -1;
     mScaleController = new AnimScaleController(&::sParam);
     NPCActor::initialize(rIter, caps);
-    s32 itemType = _1DC;
-    MR::getJMapInfoArg0NoInit(rIter, &itemType);
-    _1DC = itemType;
+    s32 itemType = mItemType;
+    MR::getPlacementArg0NoInit(rIter, &itemType);
+    mItemType = itemType;
 
-    switch (_1DC) {
+    switch (mItemType) {
     case 0:
         mItem = MR::createKinokoOneUp();
         break;
@@ -194,51 +160,50 @@ void TicoFat::init(const JMapInfoIter& rIter) {
     }
 
     s32 numItem = 10;
-    MR::getJMapInfoArg1NoInit(rIter, &numItem);
-    _1E0 = _1E4 = numItem;
+    MR::getPlacementArg1NoInit(rIter, &numItem);
+    mStarPieceLeft = mStarPieceNeed = numItem;
     mCurrentFed = 0;
-    MR::addHitSensorAtJointEye(this, "Mouth", "Mouth", 8, 30.0f, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorAtJointEye(this, "Mouth", "Mouth", 8, 30.0f, Vec3f(0.0f, 0.0f, 0.0f));
     initStarPieceSaveData(rIter);
-    MR::declareStarPieceReceiver(this, _1E0);
-    mMsgCtrl = MR::createTalkCtrlDirect(this, rIter, "Common_TicoFat001", TVec3f(0.0f, 220.0f, 0.0f), nullptr);
-    _16C = MR::createTalkCtrlDirect(this, rIter, "Common_TicoFat000", TVec3f(0.0f, 220.0f, 0.0f), nullptr);
+    MR::declareStarPieceReceiver(this, mStarPieceLeft);
+    mMsgCtrl = MR::createTalkCtrlDirect(this, rIter, "Common_TicoFat001", Vec3f(0.0f, 220.0f, 0.0f), nullptr);
+    mHungryTalkCtrl = MR::createTalkCtrlDirect(this, rIter, "Common_TicoFat000", Vec3f(0.0f, 220.0f, 0.0f), nullptr);
     MR::registerEventFunc(mMsgCtrl, TalkMessageFunc_Inline(this, &TicoFat::eventFunc));
-    MR::setMessageArg(mMsgCtrl, _1E0);
-    MR::setMessageArg(_16C, _1E0);
+    MR::setMessageArg(mMsgCtrl, mStarPieceLeft);
+    MR::setMessageArg(mHungryTalkCtrl, mStarPieceLeft);
     MR::setDistanceToTalk(mMsgCtrl, 280.0f);
-    MR::setDistanceToTalk(_16C, 280.0f);
+    MR::setDistanceToTalk(mHungryTalkCtrl, 280.0f);
     MR::onRootNodeAutomatic(mMsgCtrl);
     MR::onStartOnlyFront(mMsgCtrl);
-    MR::onStartOnlyFront(_16C);
-    s32 arg2 = -1;
-    MR::getJMapInfoArg2NoInit(rIter, &arg2);
-    if (arg2 != -1) {
+    MR::onStartOnlyFront(mHungryTalkCtrl);
+    // Arg 2 set: starts eating at once. Arg 3: the guidance message.
+    s32 eatAtStart = -1;
+    MR::getPlacementArg2NoInit(rIter, &eatAtStart);
+    if (eatAtStart != -1) {
         startEat();
     }
 
-    s32 arg3 = -1;
-    MR::getJMapInfoArg3NoInit(rIter, &arg3);
-    _1F4 = arg3;
-    mMeter = new FullnessMeter(this, _1E4, _1E4 - _1E0);
+    MR::getPlacementArg3NoInit(rIter, &mGuidanceId);
+    mMeter = new FullnessMeter(this, mStarPieceNeed, mStarPieceNeed - mStarPieceLeft);
     mMeter->initWithoutIter();
-    mMeter->setNumber(_1E4 - _1E0);
-    MR::initMultiActorCamera(this, rIter, &mCameraInfo, "\225\317\220\147" /* 変身 */);
-    MR::initMultiActorCamera(this, rIter, &mCameraInfo, "\224\362\215\163" /* 飛行 */);
-    MR::initMultiActorCamera(this, rIter, &mCameraInfo, "\212\354\202\321" /* 喜び */);
-    MR::declareEventCameraProgrammable("\203\146\203\165\203\140\203\122\203\112\203\201\203\211" /* デブチコカメラ */);
+    mMeter->setNumber(mStarPieceNeed - mStarPieceLeft);
+    MR::initMultiActorCamera(this, rIter, &mCameraInfo, "変身");
+    MR::initMultiActorCamera(this, rIter, &mCameraInfo, "飛行");
+    MR::initMultiActorCamera(this, rIter, &mCameraInfo, "喜び");
+    MR::declareEventCameraProgrammable("デブチコカメラ");
     MR::useStageSwitchWriteA(this, rIter);
     MR::getNPCItemData(&item, 0);
     equipment(item, 0);
-    MR::startAction(_94, "TicoFatGoodsStarPiece");
-    MR::startAction(_98, "TicoFatGoodsStarPiece");
-    MR::setBpkFrame(_94, 0.0f);
-    MR::setBpkFrame(_98, 100.0f);
+    MR::startAction(mGoods0, "TicoFatGoodsStarPiece");
+    MR::startAction(mGoods1, "TicoFatGoodsStarPiece");
+    MR::setBpkFrame(mGoods0, 0.0f);
+    MR::setBpkFrame(mGoods1, 100.0f);
     if (MR::isConnectedWithRail(rIter)) {
         initRailRider(rIter);
-        if (_1DC == -1) {
+        if (mItemType == -1) {
             mShootPath = new SpinDriverShootPath();
             mShootPath->initUsingParabolic(rIter, mPosition);
-            MR::getJMapInfoArg4NoInit(rIter, &_1FC);
+            MR::getPlacementArg4NoInit(rIter, &mFlySpeed);
         }
     }
 
@@ -246,16 +211,16 @@ void TicoFat::init(const JMapInfoIter& rIter) {
     MR::startBrk(this, "Normal");
     MR::setBrkFrameAndStop(this, 0.0f);
     setScale(calcScale());
-    MR::joinToGroupArray(this, rIter, "\230\146\220\257\217\157\214\273" /* 惑星出現 */, 32);
+    MR::joinToGroupArray(this, rIter, "惑星出現", 32);
     AstroDemoFunction::tryRegisterSimpleCastIfAstroGalaxy(this);
     setDefaults();
-    _12C = 1000.0f;
-    const char* waitActionName = getActionName("Wait");
-    mParam._14 = waitActionName;
-    mParam._18 = waitActionName;
-    const char* talkActionName = getActionName("Talk");
-    mParam._1C = talkActionName;
-    mParam._20 = talkActionName;
+    mSwingReactDist = 1000.0f;
+    const char* waitActionName = getScaledActionName(this, ACTION_WAIT);
+    mParam.mWaitAction = waitActionName;
+    mParam.mWaitTurnAction = waitActionName;
+    const char* talkActionName = "Talk";
+    mParam.mTalkAction = talkActionName;
+    mParam.mTalkTurnAction = talkActionName;
 
     if (!enableAppear()) {
         makeActorDead();
@@ -265,7 +230,7 @@ void TicoFat::init(const JMapInfoIter& rIter) {
 void TicoFat::initAfterPlacement() {
     MR::extractMtxYDir(getBaseMtx(), &mGravity);
     mGravity.mult(-1.0f);
-    if (!_1E0) {
+    if (!mStarPieceLeft) {
         disappear(false);
         makeActorDead();
     }
@@ -278,25 +243,25 @@ void TicoFat::kill() {
 }
 
 void TicoFat::setCameraParam() {
-    TVec3f yDir, zDir, xDir, trans;
+    Vec3f yDir, zDir, xDir, trans;
     MR::extractMtxXYZDir(getBaseMtx(), &xDir, &yDir, &zDir);
     MR::extractMtxTrans(getBaseMtx(), &trans);
-    _B0.getXDir(xDir);
-    _B0.getYDir(yDir);
-    _B0.getZDir(zDir);
+    mInitPoseQuat.getXDir(xDir);
+    mInitPoseQuat.getYDir(yDir);
+    mInitPoseQuat.getZDir(zDir);
 
-    trans = _C0;
-    TVec3f* ptr = &trans;
+    trans = mInitPos;
+    Vec3f* ptr = &trans;
     MR::setProgrammableCameraParam(
-        "\203\146\203\165\203\140\203\122\203\112\203\201\203\211" /* デブチコカメラ */, (*ptr + (xDir * 0.0f) + (yDir * 0.0f)) + (zDir * 0.0f),
+        "デブチコカメラ", (*ptr + (xDir * 0.0f) + (yDir * 0.0f)) + (zDir * 0.0f),
         (*ptr + (xDir * 0.0f)) + ((yDir * 100.0f)) + (zDir * MR::getLinerValueFromMinMax(calcScale(), 1.0f, 1.9f, 1300.0f, 1680.0f)), yDir, false);
 }
 
 void TicoFat::control() {
     NPCActor::control();
-    TVec3f trans;
+    Vec3f trans;
     MR::extractMtxTrans(MR::getJointMtx(this, "Center"), &trans);
-    MR::requestPointLight(this, TVec3f(trans), ::hPointLight, 0.99864602f, -1);
+    MR::requestPointLight(this, Vec3f(trans), ::hPointLight, 0.99864602f, -1);
     if (isNerve(GET_NERVE(TicoFat, TicoFatNrvPrep)) || isNerve(GET_NERVE(TicoFat, TicoFatNrvWait)) || isNerve(GET_NERVE(TicoFat, TicoFatNrvPoint)) ||
         isNerve(GET_NERVE(TicoFat, TicoFatNrvEat)) || isNerve(GET_NERVE(TicoFat, TicoFatNrvChem)) ||
         isNerve(GET_NERVE(TicoFat, TicoFatNrvFullness)) || isNerve(GET_NERVE(TicoFat, TicoFatNrvDemo))) {
@@ -304,9 +269,9 @@ void TicoFat::control() {
     }
 
     updateGoods();
-    _204--;
+    mAbsorbSoundStep--;
     if (mStartEat) {
-        if (!_1E0) {
+        if (!mStarPieceLeft) {
             MR::invalidateClipping(this);
             if (isNerve(GET_NERVE(TicoFat, TicoFatNrvPoint)) || isNerve(GET_NERVE(TicoFat, TicoFatNrvEat)) ||
                 isNerve(GET_NERVE(TicoFat, TicoFatNrvChem)) || isNerve(GET_NERVE(TicoFat, TicoFatNrvWait))) {
@@ -314,37 +279,37 @@ void TicoFat::control() {
             }
         }
 
-        if (!_1E0 || MR::isPlayerElementModeInvincible() || MR::isPlayerFlying()) {
-            _178 = 0;
-            _174 = 0;
+        if (!mStarPieceLeft || MR::isPlayerElementModeInvincible() || MR::isPlayerFlying()) {
+            mPointingStep = 0;
+            mNearStep = 0;
         } else {
             updateGuidance();
-            if (_174 > 0) {
+            if (mNearStep > 0) {
                 updatePointing();
             } else {
-                _178 = 0;
+                mPointingStep = 0;
             }
         }
 
-        if (_174 > 0) {
-            if (_170 == 0) {
-                _170 = 1;
+        if (mNearStep > 0) {
+            if (!mIsCameraOn) {
+                mIsCameraOn = true;
                 CameraTargetArg arg(this);
-                MR::startGlobalEventCamera("\203\146\203\165\203\140\203\122\203\112\203\201\203\211" /* デブチコカメラ */, arg, 120);
+                MR::startGlobalEventCamera("デブチコカメラ", arg, 120);
                 setCameraParam();
             }
         } else {
-            if (_170) {
-                _170 = 0;
-                MR::endGlobalEventCamera("\203\146\203\165\203\140\203\122\203\112\203\201\203\211" /* デブチコカメラ */, 120, true);
+            if (mIsCameraOn) {
+                mIsCameraOn = false;
+                MR::endGlobalEventCamera("デブチコカメラ", 120, true);
             }
         }
 
-        if (_178 > 0) {
-            if (MR::isIntervalStep(this, _1F0)) {
+        if (mPointingStep > 0) {
+            if (MR::isIntervalStep(this, mEatInterval)) {
                 if (MR::isHeldFire(PLAYER_1)) {
                     if (!MR::isDemoActive() && !isNerve(GET_NERVE(TicoFat, TicoFatNrvReaction))) {
-                        if (_1E0 && MR::getStarPieceNum() > 0) {
+                        if (mStarPieceLeft && MR::getStarPieceNum() > 0) {
                             shootStarPiece();
                         }
                     }
@@ -365,7 +330,7 @@ bool TicoFat::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pRe
 
     if (MR::isMsgStarPieceAttack(msg)) {
         MR::limitedStarPieceHitSound();
-        _E5 = 1;
+        mIsReaction = 1;
         return true;
     } else if (MR::isMsgStarPieceGift(msg)) {
         receiveStarPiece(MR::getNumStarPieceGift(msg));
@@ -392,7 +357,7 @@ bool TicoFat::eventFunc(u32 var) {
 }
 
 f32 TicoFat::calcScale() {
-    return (1.0f + ((f32)(_1E4 - _1E0) / _1E4) * 0.9f);
+    return (1.0f + ((f32)(mStarPieceNeed - mStarPieceLeft) / mStarPieceNeed) * 0.9f);
 }
 
 void TicoFat::setScale(f32 scale) {
@@ -404,45 +369,43 @@ void TicoFat::setScale(f32 scale) {
         mScaleController->startHitReaction();
     }
 
-    f32 v5 = (scale - 1.0f) / 0.9f;
-    if (v5 > 1.0f) {
-        v5 = 1.0f;
+    // Reddens with fullness (scale 1 to 1.9); the talk distance grows with it up to scale 1.5.
+    f32 fullness = (scale - 1.0f) / 0.9f;
+    if (fullness > 1.0f) {
+        fullness = 1.0f;
     }
 
-    f32 frameMax = v5 * MR::getBrkFrameMax(this);
+    f32 frameMax = fullness * MR::getBrkFrameMax(this);
     MR::startBrk(this, "FatRed");
     MR::setBrkFrameAndStop(this, frameMax);
     MR::setSensorRadius(this, "Body", (100.0f * scale));
     MR::setStarPointerTargetRadius3d(this, 110.0f * scale);
-    f32 v7 = 1.5f;
+    f32 talkScale = 1.5f;
     if (scale < 1.5f) {
-        v7 = scale;
+        talkScale = scale;
     }
 
-    MR::setDistanceToTalk(mMsgCtrl, (280.0f * v7));
-    f32 v8 = 1.5f;
-    if (scale < 1.5f) {
-        v8 = scale;
-    }
-    MR::setDistanceToTalk(_16C, (280.0f * v8));
-    MR::setMessageBalloonFollowOffset(mMsgCtrl, TVec3f(0.0f, 220.0f * scale, 0.0f));
-    MR::setMessageBalloonFollowOffset(_16C, TVec3f(0.0f, 220.0f * scale, 0.0f));
+    MR::setDistanceToTalk(mMsgCtrl, (280.0f * talkScale));
+    MR::setDistanceToTalk(mHungryTalkCtrl, (280.0f * talkScale));
+    MR::setMessageBalloonFollowOffset(mMsgCtrl, Vec3f(0.0f, 220.0f * scale, 0.0f));
+    MR::setMessageBalloonFollowOffset(mHungryTalkCtrl, Vec3f(0.0f, 220.0f * scale, 0.0f));
 }
 
 void TicoFat::setMessage(s32 msg) {
     s32 nodeCount = 0;
-    f32 v5 = ((f32)_1E0 / (f32)_1E4);
-    MR::resetNode(_16C);
+    f32 leftRate = ((f32)mStarPieceLeft / (f32)mStarPieceNeed);
+    MR::resetNode(mHungryTalkCtrl);
 
     switch (msg) {
     case 1: {
-        if (1.0f == v5) {
+        // The hungrier, the earlier the message node.
+        if (1.0f == leftRate) {
             nodeCount = 1;
-        } else if (v5 >= 0.5f) {
+        } else if (leftRate >= 0.5f) {
             nodeCount = 2;
-        } else if (v5 >= 0.25f) {
+        } else if (leftRate >= 0.25f) {
             nodeCount = 3;
-        } else if (v5 >= 0.05f) {
+        } else if (leftRate >= 0.05f) {
             nodeCount = 4;
         } else {
             nodeCount = 5;
@@ -456,7 +419,7 @@ void TicoFat::setMessage(s32 msg) {
     }
 
     for (s32 i = 0; i < nodeCount; i++) {
-        MR::forwardNode(_16C);
+        MR::forwardNode(mHungryTalkCtrl);
     }
 }
 
@@ -468,26 +431,26 @@ void TicoFat::shootStarPiece() {
 }
 
 void TicoFat::receiveStarPiece(s32 num) {
-    s32 val = _1E0;
-    if (val >= num) {
-        val = num;
+    s32 taken = mStarPieceLeft;
+    if (taken >= num) {
+        taken = num;
     }
 
-    mCurrentFed -= val;
-    _1E0 -= val;
-    addStarPieceSaveData(val);
+    mCurrentFed -= taken;
+    mStarPieceLeft -= taken;
+    addStarPieceSaveData(taken);
     setScale(calcScale());
-    mMeter->setNumber(_1E4 - _1E0);
+    mMeter->setNumber(mStarPieceNeed - mStarPieceLeft);
     MR::tryRumblePadVeryWeak(this, PLAYER_1);
     startAbsorbSound();
-    MR::setMessageArg(mMsgCtrl, _1E0);
-    MR::setMessageArg(_16C, _1E0);
-    if (_174 > 0) {
+    MR::setMessageArg(mMsgCtrl, mStarPieceLeft);
+    MR::setMessageArg(mHungryTalkCtrl, mStarPieceLeft);
+    if (mNearStep > 0) {
         setCameraParam();
     }
 
     if (isNerve(GET_NERVE(TicoFat, TicoFatNrvEat))) {
-        MR::setBckRate(this, MR::calcNerveValue(this, 0, 180, 1.0f, 1.6f));
+        MR::setBckRate(this, MR::calcNerveValue(this, 0, NebulaFrameClock::stepsOfSeconds(3), 1.0f, 1.6f));
     } else {
         if (!isEmptyNerve()) {
             popNerve();
@@ -505,10 +468,10 @@ bool TicoFat::enableAppear() {
     return true;
 }
 
-void TicoFat::initStarPieceSaveData(const JMapInfoIter& rIter) {
-    if (MR::getJMapInfoArg7WithInit(rIter, &_1EC)) {
-        s32 starPieceNum = MR::getStarPieceNumGivingToTicoSeed(_1EC);
-        _1E0 = (_1E4 - starPieceNum <= 0) ? 0 : _1E4 - starPieceNum;
+void TicoFat::initStarPieceSaveData(const TableIter& rIter) {
+    if (MR::getPlacementArg7WithInit(rIter, &mTicoSeedId)) {
+        s32 starPieceNum = MR::getStarPieceNumGivingToTicoSeed(mTicoSeedId);
+        mStarPieceLeft = (mStarPieceNeed - starPieceNum <= 0) ? 0 : mStarPieceNeed - starPieceNum;
     }
 }
 
@@ -519,11 +482,12 @@ void TicoFat::appearInformation() const {
     MR::appearInformationMessage(MR::getGameMessageDirect(::sInfoMessageID), true);
 }
 
-void TicoFat::disappear(bool a1) {
+// isJustFed: fed in this visit (gives the pieces to the seed and brings the group in); false when it was fed before.
+void TicoFat::disappear(bool isJustFed) {
     if (mItem != nullptr) {
-        TPos3f pos;
+        Pos3f pos;
         pos.setInline(getBaseMtx());
-        TVec3f trans;
+        Vec3f trans;
         MR::extractMtxTrans(MR::getJointMtx(this, "Spine1"), &trans);
         pos.mMtx[0][3] = trans.x;
         pos.mMtx[1][3] = trans.y;
@@ -531,9 +495,9 @@ void TicoFat::disappear(bool a1) {
         MR::appearKinokoOneUpPop(mItem, pos, 15.0f);
     }
 
-    if (a1) {
-        if (_1EC != -1) {
-            MR::addStarPieceGivingToTicoSeed(_1EC, _1E4);
+    if (isJustFed) {
+        if (mTicoSeedId != -1) {
+            MR::addStarPieceGivingToTicoSeed(mTicoSeedId, mStarPieceNeed);
         }
         MR::callAppearAllGroupMember(this);
     } else {
@@ -546,11 +510,11 @@ void TicoFat::disappear(bool a1) {
 }
 
 bool TicoFat::tryMetamorphosis() {
-    if (_1DC == -1) {
+    if (mItemType == -1) {
         setNerve(GET_NERVE(TicoFat, TicoFatNrvDemo));
         MR::callRequestMovementOnAllGroupMember(this);
-        MR::requestMovementOn(_94);
-        MR::requestMovementOn(_98);
+        MR::requestMovementOn(mGoods0);
+        MR::requestMovementOn(mGoods1);
     } else {
         setNerve(GET_NERVE(TicoFat, TicoFatNrvMeta));
     }
@@ -559,49 +523,48 @@ bool TicoFat::tryMetamorphosis() {
 }
 
 void TicoFat::emitScreenEffect() {
-    MR::emitEffect(this, "TicoFatScreenEffect")->setHostMtx(_17C);
-    MR::emitEffect(this, "TicoFatScreenEffectLight")->setHostMtx(_1AC);
+    MR::emitEffect(this, "TicoFatScreenEffect")->setHostMtx(mScreenEffectMtx);
+    MR::emitEffect(this, "TicoFatScreenEffectLight")->setHostMtx(mScreenLightMtx);
 }
 
 void TicoFat::updateScreenEffect() {
-    TVec3f v19 = mPosition - MR::getCamPos();
-    MR::normalizeOrZero(&v19);
-    MR::makeMtxFrontUpPos(&_17C, -MR::getCamZdir(), MR::getCamYdir(), MR::getCamPos() + (v19 * 500.0f));
-    MR::makeMtxFrontUpPos(&_1AC, -MR::getCamZdir(), MR::getCamYdir(), mPosition);
+    // The screen effect faces the camera 500 in front of it toward the Tico.
+    Vec3f toTico = mPosition - MR::getCamPos();
+    MR::normalizeOrZero(&toTico);
+    MR::makeMtxFrontUpPos(&mScreenEffectMtx, -MR::getCamZdir(), MR::getCamYdir(), MR::getCamPos() + (toTico * 500.0f));
+    MR::makeMtxFrontUpPos(&mScreenLightMtx, -MR::getCamZdir(), MR::getCamYdir(), mPosition);
 }
 
 s32 TicoFat::getDanceSeTranspose() const {
-    s32 val = (_1E4 - _1E0 - 1) / 50;
-    if (val < 0) {
-        val = 0;
+    // The eating sound's transpose: one step up every 50 fed, at most 32.
+    s32 transpose = (mStarPieceNeed - mStarPieceLeft - 1) / 50;
+    if (transpose < 0) {
+        transpose = 0;
     }
 
-    if (val > 32) {
+    if (transpose > 32) {
         return 32;
     }
 
-    return val;
+    return transpose;
 }
 
 void TicoFat::startAbsorbSound() {
-    if (_204 <= 0) {
+    if (mAbsorbSoundStep <= 0) {
         MR::startSound(this, "SE_SM_TICOFAT_ABSORB");
-        _204 = 5;
+        mAbsorbSoundStep = 5;
     }
 }
 
-static s32 data_806B2194 = 0;
-static s32 data_806B2198 = 0;
-
 void TicoFat::updateGuidance() {
-    bool isNear = MR::isNearPlayer(_16C, -1.0f);
+    bool isNear = MR::isNearPlayer(mHungryTalkCtrl, -1.0f);
     if (isNear && MR::requestTicoSeedGuidanceForce()) {
         MR::requestCounterLayoutAppearanceForTicoEat(false);
     }
 
-    TVec3f screenPos;
+    Vec3f screenPos;
     if (MR::calcScreenPosition(&screenPos, mPosition)) {
-        bool req = MR::requestTicoSeedGuidance(_1F4);
+        bool req = MR::requestTicoSeedGuidance(mGuidanceId);
         isNear = (isNear | req) != 0;
         if (req) {
             MR::requestCounterLayoutAppearanceForTicoEat(0);
@@ -609,10 +572,10 @@ void TicoFat::updateGuidance() {
     }
 
     if (isNear) {
-        _174 = 8;
+        mNearStep = 8;
     } else {
-        s32 a = _174 - 1;
-        _174 = *(data_806B2194 < a ? &a : &data_806B2194);
+        s32 step = mNearStep - 1;
+        mNearStep = step > 0 ? step : 0;
     }
 }
 
@@ -626,43 +589,43 @@ void TicoFat::updatePointing() {
     }
 
     if (isPointing) {
-        _178 = 4;
+        mPointingStep = 4;
     } else {
-        s32 a = _178 - 1;
-        _178 = *(data_806B2198 < a ? &a : &data_806B2198);
+        s32 step = mPointingStep - 1;
+        mPointingStep = step > 0 ? step : 0;
     }
 }
 
 void TicoFat::updateGoods() {
     if (MR::isNearPlayer(this, 2000.0f)) {
-        MR::tryStartBck(_94, "TicoFatGoodsStarPiece");
-        MR::tryStartBck(_98, "TicoFatGoodsStarPiece");
+        MR::tryStartBck(mGoods0, "TicoFatGoodsStarPiece");
+        MR::tryStartBck(mGoods1, "TicoFatGoodsStarPiece");
     } else {
-        MR::tryStartBck(_94, "TicoFatGoodsStarPieceFar");
-        MR::tryStartBck(_98, "TicoFatGoodsStarPieceFar");
+        MR::tryStartBck(mGoods0, "TicoFatGoodsStarPieceFar");
+        MR::tryStartBck(mGoods1, "TicoFatGoodsStarPieceFar");
     }
 }
 
 void TicoFat::exeReaction() {
-    if (MR::isFirstStep(this) && !_D9) {
+    if (MR::isFirstStep(this) && !mIsSpinAttackedStart) {
         mScaleController->startHitReaction();
     }
 
-    if (_D8) {
+    if (mIsTrampledStart) {
         MR::startSound(this, "SE_SM_NPC_TRAMPLED");
         MR::startSound(this, "SE_SV_TICOFAT_TRAMPLED");
     }
 
     if (isPointingSe()) {
-        MR::startDPDHitSound();
+        MR::startPointerHitSound();
         MR::startSound(this, "SE_SV_TICOFAT_POINT");
     }
 
-    if (_D9) {
+    if (mIsSpinAttackedStart) {
         MR::startSound(this, "SE_SM_TICOFAT_SPIN");
     }
 
-    if (_DB) {
+    if (mIsReactionStart) {
         MR::startSound(this, "SE_SV_TICOFAT_STAR_PIECE_HIT");
     }
 
@@ -673,7 +636,7 @@ void TicoFat::exeReaction() {
 
 void TicoFat::exePrep() {
     if (MR::isFirstStep(this)) {
-        MR::startAction(this, getActionName("Wait"));
+        MR::startAction(this, getScaledActionName(this, ACTION_WAIT));
     }
 
     if (!MR::tryStartReactionAndPushNerve(this, GET_NERVE(TicoFat, TicoFatNrvReaction)) && !MR::isPlayerElementModeInvincible()) {
@@ -687,22 +650,22 @@ void TicoFat::exePrep() {
 
 void TicoFat::exeWait() {
     if (MR::isFirstStep(this)) {
-        const char* exciteAction = getActionName("Excite");
-        mParam._14 = getActionName("Wait");
-        mParam._1C = exciteAction;
-        mParam._18 = 0;
-        mParam._20 = 0;
-        mParam._0 = 0;
-        mParam._1 = 0;
+        const char* exciteAction = getScaledActionName(this, ACTION_EXCITE);
+        mParam.mWaitAction = getScaledActionName(this, ACTION_WAIT);
+        mParam.mTalkAction = exciteAction;
+        mParam.mWaitTurnAction = 0;
+        mParam.mTalkTurnAction = 0;
+        mParam.mTurnWhenNear = 0;
+        mParam.mTurnOnTalk = 0;
         setMessage(1);
     }
 
     if (!MR::tryStartReactionAndPushNerve(this, GET_NERVE(TicoFat, TicoFatNrvReaction))) {
-        if (_178 > 0) {
+        if (mPointingStep > 0) {
             setNerve(GET_NERVE(TicoFat, TicoFatNrvPoint));
         } else {
-            turnToDefault(mParam._8);
-            MR::tryTalkNearPlayer(_16C);
+            turnToDefault(mParam.mTurnSpeed);
+            MR::tryTalkNearPlayer(mHungryTalkCtrl);
             MR::tryStartTalkAction(this);
         }
     }
@@ -711,25 +674,25 @@ void TicoFat::exeWait() {
 void TicoFat::exePoint() {
     if (MR::isFirstStep(this)) {
         setMessage(0);
-        MR::startAction(this, getActionName("Excite"));
+        MR::startAction(this, getScaledActionName(this, ACTION_EXCITE));
     }
 
     if (!MR::tryStartReactionAndPushNerve(this, GET_NERVE(TicoFat, TicoFatNrvReaction))) {
-        if (_178 <= 0) {
+        if (mPointingStep <= 0) {
             setNerve(GET_NERVE(TicoFat, TicoFatNrvWait));
         } else {
-            turnToDefault(mParam._8);
-            MR::tryTalkForce(_16C);
+            turnToDefault(mParam.mTurnSpeed);
+            MR::tryTalkForce(mHungryTalkCtrl);
         }
     }
 }
 
 void TicoFat::exeEat() {
     if (MR::isFirstStep(this)) {
-        MR::startAction(this, getActionName("EatStart"));
+        MR::startAction(this, getScaledActionName(this, ACTION_EAT_START));
     } else {
         f32 frame = MR::getBckFrame(this);
-        if (MR::tryStartAction(this, getActionName("Eat"))) {
+        if (MR::tryStartAction(this, getScaledActionName(this, ACTION_EAT))) {
             MR::setBckFrame(this, frame);
         }
     }
@@ -742,21 +705,21 @@ void TicoFat::exeEat() {
 
 void TicoFat::exeChem() {
     if (MR::isFirstStep(this)) {
-        _200 = 5;
-        MR::startAction(this, getActionName("Chem"));
+        mEatSoundStep = 5;
+        MR::startAction(this, "Chem");
     }
 
-    if (_200 > 0) {
-        _200--;
+    if (mEatSoundStep > 0) {
+        mEatSoundStep--;
         MR::startLevelSound(this, "SE_SM_LV_TICOFAT_EATING", getDanceSeTranspose());
     }
 
     if (MR::isBckLooped(this)) {
-        if (_178 > 0) {
-            _174 = 8;
+        if (mPointingStep > 0) {
+            mNearStep = 8;
             setNerve(GET_NERVE(TicoFat, TicoFatNrvPoint));
         } else {
-            _174 = 0;
+            mNearStep = 0;
             setNerve(GET_NERVE(TicoFat, TicoFatNrvWait));
         }
     }
@@ -764,21 +727,21 @@ void TicoFat::exeChem() {
 
 void TicoFat::exeTest() {
     if (MR::isFirstStep(this)) {
-        MR::tryStartAction(this, getActionName("Excite"));
+        MR::tryStartAction(this, getScaledActionName(this, ACTION_EXCITE));
         setMessage(2);
     }
 
-    if (MR::tryStartDemo(this, "\225\317\220\147" /* 変身 */)) {
+    if (MR::tryStartDemo(this, "変身")) {
         MR::invalidateHitSensors(this);
         MR::stopPlayerFpView();
-        MR::tryTalkForceWithoutDemo(_16C);
+        MR::tryTalkForceWithoutDemo(mHungryTalkCtrl);
 
-        if (_1EC == 6) {
-            MR::startMultiActorCameraTargetSelf(this, mCameraInfo, "\212\354\202\321" /* 喜び */);
+        if (mTicoSeedId == 6) {
+            MR::startMultiActorCameraTargetSelf(this, mCameraInfo, "喜び");
         }
 
-        MR::requestMovementOn(_94);
-        MR::requestMovementOn(_98);
+        MR::requestMovementOn(mGoods0);
+        MR::requestMovementOn(mGoods1);
         mMeter->pauseOff();
         setNerve(GET_NERVE(TicoFat, TicoFatNrvFullness));
     }
@@ -786,19 +749,19 @@ void TicoFat::exeTest() {
 
 void TicoFat::exeFullness() {
     if (MR::isFirstStep(this)) {
-        MR::tryStartAction(this, getActionName("Joy"));
+        MR::tryStartAction(this, getScaledActionName(this, ACTION_JOY));
         MR::startSound(this, "SE_SM_TICOFAT_MAX");
     }
 
     MR::startLevelSound(this, "SE_SM_LV_TICOFAT_GLAD", getDanceSeTranspose());
-    if (MR::tryTalkForceWithoutDemoAtEnd(_16C)) {
+    if (MR::tryTalkForceWithoutDemoAtEnd(mHungryTalkCtrl)) {
         tryMetamorphosis();
     }
 }
 
 void TicoFat::exeMeta() {
     if (MR::isFirstStep(this)) {
-        MR::startAction(this, getActionName("Metamorphosis"));
+        MR::startAction(this, "Metamorphosis");
         MR::startSound(this, "SE_SM_TICOFAT_META");
         MR::startSound(this, "SE_SM_TICOFAT_META_ITEM");
     }
@@ -812,8 +775,8 @@ void TicoFat::exeMeta() {
 
 void TicoFat::exeDemo() {
     if (MR::isFirstStep(this)) {
-        MR::startMultiActorCameraTargetSelf(this, mCameraInfo, "\225\317\220\147" /* 変身 */);
-        MR::startAction(this, getActionName("Demo"));
+        MR::startMultiActorCameraTargetSelf(this, mCameraInfo, "変身");
+        MR::startAction(this, "Demo");
         MR::startSound(this, "SE_SM_TICOFAT_META");
     }
 
@@ -823,21 +786,21 @@ void TicoFat::exeDemo() {
         MR::setBrkFrameAndStop(this, 0.0f);
     }
 
-    if (MR::isStep(this, 90)) {
+    if (MR::isStep(this, NebulaFrameClock::stepsOfMilliseconds(1500))) {
         MR::startSound(this, "SE_SM_METAMORPHOSE_SMOKE");
         MR::hideModelAndOnCalcAnim(this);
-        if (_94) {
-            MR::hideModelAndOnCalcAnim(_94);
+        if (mGoods0) {
+            MR::hideModelAndOnCalcAnim(mGoods0);
         }
 
-        if (_98) {
-            MR::hideModelAndOnCalcAnim(_98);
+        if (mGoods1) {
+            MR::hideModelAndOnCalcAnim(mGoods1);
         }
     }
 
     if (MR::isBckStopped(this)) {
-        MR::endMultiActorCamera(this, mCameraInfo, "\225\317\220\147" /* 変身 */, false);
-        if (_1DC == -1 && MR::isExistRail(this)) {
+        MR::endMultiActorCamera(this, mCameraInfo, "変身", false);
+        if (mItemType == -1 && MR::isExistRail(this)) {
             setNerve(GET_NERVE(TicoFat, TicoFatNrvFly));
         } else {
             MR::setNPCActorPos(this, mPosition);
@@ -848,36 +811,37 @@ void TicoFat::exeDemo() {
 
 void TicoFat::exeFly() {
     if (MR::isFirstStep(this)) {
-        _1F8 = 0.0f;
-        MR::startMultiActorCameraTargetSelf(this, mCameraInfo, "\224\362\215\163" /* 飛行 */);
-        MR::startAction(this, getActionName("Fly"));
+        mFlyCoord = 0.0f;
+        MR::startMultiActorCameraTargetSelf(this, mCameraInfo, "飛行");
+        MR::startAction(this, "Fly");
         MR::startSound(this, "SE_DM_TICOFAT_MORPH_FLY");
         MR::tryRumblePadWeak(this, PLAYER_1);
     }
 
     MR::tryRumblePadVeryWeak(this, PLAYER_1);
-    f32 v4 = _1F8 / mShootPath->getTotalLength();
-    if (v4 > 1.0f) {
-        v4 = 1.0f;
+    // Eases in over the first half of the path and out over the second.
+    f32 pathRate = mFlyCoord / mShootPath->getTotalLength();
+    if (pathRate > 1.0f) {
+        pathRate = 1.0f;
     }
 
     f32 easeIn;
 
-    if (v4 < 0.5f) {
-        easeIn = MR::getEaseInValue((2.0f * v4) * (2.0f * v4), 0.0f, 0.5f, 1.0f);
+    if (pathRate < 0.5f) {
+        easeIn = MR::getEaseInValue((2.0f * pathRate) * (2.0f * pathRate), 0.0f, 0.5f, 1.0f);
     } else {
-        f32 v6 = (2.0f * (1.0f - v4));
-        easeIn = (1.0f - MR::getEaseInValue((v6 * v6), 0.0f, 0.5f, 1.0f));
+        f32 restRate = (2.0f * (1.0f - pathRate));
+        easeIn = (1.0f - MR::getEaseInValue((restRate * restRate), 0.0f, 0.5f, 1.0f));
     }
 
-    TVec3f shootPos, direction;
+    Vec3f shootPos, direction;
     mShootPath->calcPosition(&shootPos, easeIn);
     mShootPath->calcDirection(&direction, easeIn, 0.01f);
-    TVec3f up;
+    Vec3f up;
     MR::calcUpVec(&up, this);
-    MR::blendQuatFrontUp(&_A0, _A0, direction, up, 0.1f, 0.0f);
+    MR::blendQuatFrontUp(&mPoseQuat, mPoseQuat, direction, up, 0.1f, 0.0f);
     MR::setNPCActorPos(this, shootPos);
-    _1F8 += _1FC;
+    mFlyCoord += mFlySpeed;
     if (easeIn >= 1.0f) {
         setNerve(GET_NERVE(TicoFat, TicoFatNrvWipeOut));
     }
@@ -896,7 +860,7 @@ void TicoFat::exeWipeOut() {
     updateScreenEffect();
 
     if (!MR::isWipeActive()) {
-        MR::emitEffect(this, "TicoFatScreenEffectFog")->setHostMtx(_17C);
+        MR::emitEffect(this, "TicoFatScreenEffectFog")->setHostMtx(mScreenEffectMtx);
         MR::deleteEffect(this, "TicoFatScreenEffect");
         setNerve(GET_NERVE(TicoFat, TicoFatNrvWipeIn));
     }
@@ -907,23 +871,23 @@ void TicoFat::exeWipeIn() {
         MR::startSystemSE("SE_DM_TICOFAT_MORPH_WIPE_IN");
     }
 
-    if (!MR::isLessStep(this, 60)) {
-        if (MR::isStep(this, 60)) {
+    if (!MR::isLessStep(this, NebulaFrameClock::stepsOfSeconds(1))) {
+        if (MR::isStep(this, NebulaFrameClock::stepsOfSeconds(1))) {
             if (MR::isValidSwitchA(this)) {
                 MR::onSwitchA(this);
             }
 
-            MR::startBck(this, getActionName("Dummy"));
+            MR::startBck(this, "Dummy");
             MR::hideModelAndOnCalcAnim(this);
             MR::deleteEffect(this, "TicoFatLight");
-            if (_94) {
-                MR::stopBck(_94);
-                _94->kill();
+            if (mGoods0) {
+                MR::stopBck(mGoods0);
+                mGoods0->kill();
             }
 
-            if (_98) {
-                MR::stopBck(_98);
-                _98->kill();
+            if (mGoods1) {
+                MR::stopBck(mGoods1);
+                mGoods1->kill();
             }
 
             MR::openWipeWhiteFade(60);
@@ -949,16 +913,11 @@ void TicoFat::exeInfo() {
 }
 
 void TicoFat::exeAfter() {
-    if (MR::isFirstStep(this)) {
-    }
 
-    if (MR::isGreaterEqualStep(this, 60)) {
-        MR::endMultiActorCamera(this, mCameraInfo, "\224\362\215\163" /* 飛行 */, false);
-        MR::endDemo(this, "\225\317\220\147" /* 変身 */);
+    if (MR::isGreaterEqualStep(this, NebulaFrameClock::stepsOfSeconds(1))) {
+        MR::endMultiActorCamera(this, mCameraInfo, "飛行", false);
+        MR::endDemo(this, "変身");
         disappear(true);
         kill();
     }
-}
-
-TicoFat::~TicoFat() {
 }

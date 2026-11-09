@@ -1,8 +1,6 @@
 #include "Game/Ride/SpaceCocoon.hpp"
-#include "Game/Util/NativeShader.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
+#include "Game/Render/TypedDraw.hpp"
+#include "Game/Render/FrameList.hpp"
 #include "Game/Camera/CameraTargetArg.hpp"
 #include "Game/Camera/CameraTargetMtx.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
@@ -19,14 +17,14 @@
 #include "Game/Util/DemoUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
 #include "Game/Util/PlayerInputUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
-#include <JSystem/JUtility/JUTTexture.hpp>
+#include "Game/Render/GameTexture.hpp"
 #include <nebula_math.h>
 #include "Game/System/NebulaInput.hpp"
 
@@ -102,14 +100,14 @@ SpaceCocoon::SpaceCocoon(const char* pName)
     mTopMtx.identity();
 }
 
-void SpaceCocoon::init(const JMapInfoIter& rIter) {
+void SpaceCocoon::init(const TableIter& rIter) {
     MR::connectToScene(this, MR::MovementType_Ride, MR::CalcAnimType_Ride, MR::DrawBufferType_None, MR::DrawType_SpaceCocoon);
 
     MR::initDefaultPos(this, rIter);
 
-    MR::getJMapInfoArg0NoInit(rIter, &mAttackTime);
-    MR::getJMapInfoArg1NoInit(rIter, &mHeight);
-    MR::getJMapInfoArg3NoInit(rIter, &mIsKinopioCameraFocused);
+    MR::getPlacementArg0NoInit(rIter, &mAttackTime);
+    MR::getPlacementArg1NoInit(rIter, &mHeight);
+    MR::getPlacementArg3NoInit(rIter, &mIsKinopioCameraFocused);
 
     mBasePos.set(mPosition);
     MR::calcActorAxis(&mSide, &mUp, &mFront, this);
@@ -123,9 +121,9 @@ void SpaceCocoon::init(const JMapInfoIter& rIter) {
     mPointerPos.set(mNeutralPos);
 
     initHitSensor(3);
-    MR::addHitSensorTransferableBinder(this, "Bind", 8, 200.0f, TVec3f(0.0f, 100.0f, 0.0f));
-    MR::addHitSensorMapObj(this, "Push", 8, 50.0f, TVec3f(0.0f, -50.0f, 0.0f));
-    MR::addHitSensor(this, "Attack", ATYPE_SPRING_ATTACKER, 8, 150.0f, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorTransferableBinder(this, "Bind", 8, 200.0f, Vec3f(0.0f, 100.0f, 0.0f));
+    MR::addHitSensorMapObj(this, "Push", 8, 50.0f, Vec3f(0.0f, -50.0f, 0.0f));
+    MR::addHitSensor(this, "Attack", ATYPE_SPRING_ATTACKER, 8, 150.0f, Vec3f(0.0f, 0.0f, 0.0f));
     initBinder(50.0f, 50.0f, 8);
     MR::offBind(this);
 
@@ -138,15 +136,18 @@ void SpaceCocoon::init(const JMapInfoIter& rIter) {
     initNerve(GET_NERVE(SpaceCocoon, SpaceCocoonNrvStop));
 
     mNumPoints = mHeight / ::sPointInterval;
+    // At least one: the top point is read every frame (an arg1 height below the interval would leave none).
+    if (mNumPoints < 1) {
+        mNumPoints = 1;
+    }
     mPlantPoints = new PlantPoint*[mNumPoints];
 
     f32 delta = mHeight / (mNumPoints + 1);
 
     for (s32 idx = 0; idx < mNumPoints; idx++) {
-        TVec3f spawnPos = mUp;
+        Vec3f spawnPos = mUp;
         spawnPos.scale((mNumPoints - idx) * delta);
         spawnPos.add(mBasePos);
-
 
         f32 thickness = 1.0f;
         if ((mNumPoints - 1) - idx < ::sWidthBottomPointNum) {
@@ -160,23 +161,23 @@ void SpaceCocoon::init(const JMapInfoIter& rIter) {
     mTopMtx.setXYZDir(topPoint->mSide, topPoint->mUp, topPoint->mFront);
     mTopMtx.setTrans(topPoint->mPosition);
 
-    mCocoonModel = new PartsModel(this, "\220\346\222\133" /* 先端 */, "SpaceCocoon", mTopMtx, MR::DrawBufferType_NoSilhouettedMapObj, false);
+    mCocoonModel = new PartsModel(this, "先端", "SpaceCocoon", mTopMtx, MR::DrawBufferType_NoSilhouettedMapObj, false);
     mCocoonModel->initWithoutIter();
 
     updateDrawPoints();
-    MR::initStarPointerTarget(this, 300.0f, TVec3f(0.0f, 50.0f, 0.0f));
+    MR::initStarPointerTarget(this, 300.0f, Vec3f(0.0f, 50.0f, 0.0f));
 
     MR::calcGravity(this);
 
     MR::initShadowVolumeSphere(this, 100.0f);
     MR::setClippingFar200m(this);
 
-    mCameraTargetMtx = new CameraTargetMtx("\203\112\203\201\203\211\203\136\201\133\203\121\203\142\203\147\203\137\203\176\201\133" /* カメラターゲットダミー */);
-    MR::initMultiActorCamera(this, rIter, &mCameraInfo, "\203\105\203\106\203\103\203\147" /* ウェイト */);  // "wait"
-    MR::initMultiActorCamera(this, rIter, &mCameraInfo, "\221\137\202\242\222\206" /* 狙い中 */);    // "aim"
-    MR::initMultiActorCamera(this, rIter, &mCameraInfo, "\215\125\214\202\222\206" /* 攻撃中 */);    // "attack"
+    mCameraTargetMtx = new CameraTargetMtx("カメラターゲットダミー");
+    MR::initMultiActorCamera(this, rIter, &mCameraInfo, "ウェイト");  // "wait"
+    MR::initMultiActorCamera(this, rIter, &mCameraInfo, "狙い中");    // "aim"
+    MR::initMultiActorCamera(this, rIter, &mCameraInfo, "攻撃中");    // "attack"
 
-    mTexture = new JUTTexture(MR::loadTexFromArc("SpaceCocoon.arc", "SpaceCocoon.bti"));
+    mTexture = new GameTexture(MR::loadTexFromArc("SpaceCocoon", "SpaceCocoon.bti"));
     makeActorAppeared();
 }
 
@@ -185,9 +186,7 @@ void SpaceCocoon::exeStop() {
         mTouchTime = 0;
     }
 
-    if (tryTouch()) {
-        return;
-    }
+    tryTouch();
 }
 
 void SpaceCocoon::exeFree() {
@@ -229,7 +228,7 @@ void SpaceCocoon::exeBindLand() {
     if (MR::isFirstStep(this)) {
         if (!isKinopioAttached()) {
             MR::startBckPlayer("CocoonLand", 1);
-            MR::startMultiActorCameraTargetOther(this, mCameraInfo, "\203\105\203\106\203\103\203\147" /* ウェイト */, CameraTargetArg(mCameraTargetMtx));
+            MR::startMultiActorCameraTargetOther(this, mCameraInfo, "ウェイト", CameraTargetArg(mCameraTargetMtx));
             MR::startSound(mRider, "SE_PV_CATCH");
         } else {
             MR::startBckWithInterpole(mRider, "CocoonLand", 1);
@@ -281,8 +280,8 @@ void SpaceCocoon::exeBindWait() {
 }
 
 void SpaceCocoon::exeWaitKinopioAimDemo() {
-    if (MR::tryStartDemoWithoutCinemaFrameValidStarPointer(this, "\203\114\203\155\203\163\203\111\221\137\202\242\222\206" /* キノピオ狙い中 */)) {
-        MR::startMultiActorCameraTargetPlayer(this, mCameraInfo, "\221\137\202\242\222\206" /* 狙い中 */);
+    if (MR::tryStartDemoWithoutCinemaFrameValidStarPointer(this, "キノピオ狙い中")) {
+        MR::startMultiActorCameraTargetPlayer(this, mCameraInfo, "狙い中");
         setNerve(GET_NERVE(SpaceCocoon, SpaceCocoonNrvKinopioAim));
     }
 }
@@ -328,20 +327,17 @@ void SpaceCocoon::exeBindAttack() {
     updateBindAttack();
 
     if (tryAttackMap() || MR::isStep(this, mAttackTime)) {
-        MR::endMultiActorCamera(this, mCameraInfo, "\215\125\214\202\222\206" /* 攻撃中 */, true);
+        MR::endMultiActorCamera(this, mCameraInfo, "攻撃中", true);
 
         if (MR::isStep(this, mAttackTime) && !isKinopioAttached()) {
             MR::startBckPlayer("AirRotation");
         }
 
-        endBind(TVec3f(0.0f, 0.0f, 0.0f), false);
+        endBind(Vec3f(0.0f, 0.0f, 0.0f), false);
     }
 }
 
 void SpaceCocoon::exeBindAttackSuccess() {
-    if (MR::isFirstStep(this)) {
-    }
-
     updateBindAttack();
 
     if (MR::isStep(this, ::sStepToStopScene)) {
@@ -369,8 +365,8 @@ void SpaceCocoon::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     if (!isKinopioAttached() && mRider == nullptr && MR::isSensorNpc(pReceiver) && pReceiver->receiveMessage(ACTMES_NPC_EVENT_START, pSender)) {
         mRider = pReceiver->mHost;
         MR::emitEffect(mCocoonModel, "Stick");
-        TVec3f side = mSide;
-        TVec3f front = mFront;
+        Vec3f side = mSide;
+        Vec3f front = mFront;
         side.scale(mSide.dot(mRider->mVelocity));
         front.scale(mFront.dot(mRider->mVelocity));
         mSpringVel.set(side);
@@ -389,9 +385,7 @@ void SpaceCocoon::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
         return;
     }
 
-    if (MR::tryGetItem(pSender, pReceiver)) {
-        return;
-    }
+    MR::tryGetItem(pSender, pReceiver);
 }
 
 bool SpaceCocoon::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
@@ -411,7 +405,7 @@ bool SpaceCocoon::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor*
 bool SpaceCocoon::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
     if (mRider != nullptr && MR::isSensor(pReceiver, "Bind")) {
         MR::endBindAndPlayerDamageMsg(this, msg);
-        endBind(TVec3f(0.0f, 0.0f, 0.0f), true);
+        endBind(Vec3f(0.0f, 0.0f, 0.0f), true);
         return true;
     }
 
@@ -426,8 +420,8 @@ bool SpaceCocoon::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pRecei
 
         mRider = pSender->mHost;
         MR::invalidateClipping(this);
-        TVec3f side = mSide;
-        TVec3f front = mFront;
+        Vec3f side = mSide;
+        Vec3f front = mFront;
         side.scale(mSide.dot(*MR::getPlayerVelocity()));
         front.scale(mFront.dot(*MR::getPlayerVelocity()));
         mSpringVel.set(side);
@@ -455,7 +449,7 @@ bool SpaceCocoon::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pRecei
     }
 
     if (MR::isMsgRushCancel(msg)) {
-        endBind(TVec3f(::sCancelJumpSpeedXZ, ::sCancelJumpSpeedY, ::sCancelJumpSpeedXZ), false);
+        endBind(Vec3f(::sCancelJumpSpeedXZ, ::sCancelJumpSpeedY, ::sCancelJumpSpeedXZ), false);
         return true;
     }
 
@@ -465,19 +459,12 @@ bool SpaceCocoon::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pRecei
 bool SpaceCocoon::updateBindWait() {
     if (MR::getPlayerPos()->distance(mPosition) < ::sDistanceBindCancel && (!isKinopioAttached() || MR::isOnGroundPlayer())) {
         MR::reportStarPointerGrabTarget(this);
-        if (MR::isStarPointerPointing(this, PLAYER_1, true, "\216\343" /* 弱 */)) {
+        if (MR::isStarPointerPointing(this, PLAYER_1, true, "弱")) {
             MR::requestStarPointerModeBlueStarReady(this);
         }
 
-        bool set;
-        if (MR::isStarPointerPointing(this, PLAYER_1, true, "\216\343" /* 弱 */) && MR::isPressedJump(PLAYER_1) &&
+        if (MR::isStarPointerPointing(this, PLAYER_1, true, "弱") && MR::isPressedJump(PLAYER_1) &&
             MR::tryStartStarPointerCommandStream(this, &mPosition, PLAYER_1, false)) {
-            set = true;
-        } else {
-            set = false;
-        }
-
-        if (set) {
             mPadChannel = PLAYER_1;
         }
 
@@ -485,8 +472,8 @@ bool SpaceCocoon::updateBindWait() {
             if (isKinopioAttached()) {
                 setNerve(GET_NERVE(SpaceCocoon, SpaceCocoonNrvWaitKinopioAimDemo));
             } else {
-                MR::endMultiActorCamera(this, mCameraInfo, "\203\105\203\106\203\103\203\147" /* ウェイト */, true);
-                MR::startMultiActorCameraTargetOther(this, mCameraInfo, "\221\137\202\242\222\206" /* 狙い中 */, CameraTargetArg(mCameraTargetMtx));
+                MR::endMultiActorCamera(this, mCameraInfo, "ウェイト", true);
+                MR::startMultiActorCameraTargetOther(this, mCameraInfo, "狙い中", CameraTargetArg(mCameraTargetMtx));
                 setNerve(GET_NERVE(SpaceCocoon, SpaceCocoonNrvBindAim));
             }
             return true;
@@ -501,7 +488,7 @@ bool SpaceCocoon::updateBindWait() {
 bool SpaceCocoon::updateSpringPoint() {
     mSpringVel.mult(::sFrictionRate);
 
-    TVec3f springDiff = mNeutralPos - mCocoonPos;
+    Vec3f springDiff = mNeutralPos - mCocoonPos;
 
     mSpringVel.add(springDiff * ::sAccelRate);
     mCocoonPos.add(mSpringVel);
@@ -530,9 +517,8 @@ void SpaceCocoon::updateHang() {
         MR::calcStarPointerPosOnPlane(&mPointerPos, mNeutralPos, mUp, mPadChannel, false);
     }
 
-    TVec3f pos = mPointerPos;
+    Vec3f pos = mPointerPos;
     if (pos.distance(mNeutralPos) > ::sDistanceMax) {
-        pos.set(mPointerPos);
         pos.sub(mNeutralPos);
         MR::normalize(&pos);
         pos.scale(::sDistanceMax);
@@ -581,27 +567,27 @@ void SpaceCocoon::updateActorMtx() {
 }
 
 void SpaceCocoon::updateDrawPoints() {
-    TVec3f prevPos = mCocoonPos;
+    Vec3f prevPos = mCocoonPos;
     f32 delta = mHeight / (mNumPoints + 1);
 
     for (s32 idx = 0; idx < mNumPoints; idx++) {
         f32 t = MR::getEaseOutValue(static_cast< f32 >(idx + 1) / static_cast< f32 >(mNumPoints + 1), 0.0f, 1.0f, 1.0f);
         t = MR::getEaseOutValue(t, 0.0f, 1.0f, 1.0f);
 
-        TVec3f baseUp = mUp * ((idx + 1) * delta);
+        Vec3f baseUp = mUp * ((idx + 1) * delta);
 
-        TVec3f pos;
+        Vec3f pos;
         pos.x = mCocoonPos.x * (1.0f - t) + mNeutralPos.x * t;
         pos.y = mCocoonPos.y * (1.0f - t) + mNeutralPos.y * t;
         pos.z = mCocoonPos.z * (1.0f - t) + mNeutralPos.z * t;
 
         pos.sub(baseUp);
 
-        TVec3f up = prevPos - pos;
+        Vec3f up = prevPos - pos;
         MR::normalize(&up);
 
-        TVec3f side = mSide;
-        TVec3f front = mFront;
+        Vec3f side = mSide;
+        Vec3f front = mFront;
 
         if (MR::isNearZero(side.dot(up))) {
             side.cross(up, front);
@@ -620,17 +606,14 @@ void SpaceCocoon::updateDrawPoints() {
         prevPos.set(pos);
     }
 
-    PlantPoint* top = mPlantPoints[0];
-    mTopMtx.setXYZDir(mPlantPoints[0]->mSide, mPlantPoints[0]->mUp, mPlantPoints[0]->mFront);
+    const PlantPoint* top = mPlantPoints[0];
+    mTopMtx.setXYZDir(top->mSide, top->mUp, top->mFront);
     mTopMtx.setTrans(top->mPosition);
 }
 
 namespace {
     bool tryTouchPointer(LiveActor* pActor, s32 padChannel) {
-        if (MR::isStarPointerPointing(pActor, padChannel, false, "\216\343" /* 弱 */) && MR::getStarPointerScreenSpeed(padChannel) > ::sPointerSpeedMin) {
-            return true;
-        }
-        return false;
+        return MR::isStarPointerPointing(pActor, padChannel, false, "弱") && MR::getStarPointerScreenSpeed(padChannel) > ::sPointerSpeedMin;
     }
 };  // namespace
 
@@ -648,7 +631,7 @@ bool SpaceCocoon::tryTouch() {
     }
 
     if (touchChannel >= 0) {
-        TVec3f pointerVel(0.0f, 0.0f, 0.0f);
+        Vec3f pointerVel(0.0f, 0.0f, 0.0f);
         MR::calcStarPointerWorldVelocityDirectionOnPlane(&pointerVel, mNeutralPos, mUp, touchChannel);
         pointerVel.scale(::sPointerSpeedAccelRate);
         mSpringVel.add(pointerVel);
@@ -672,14 +655,14 @@ bool SpaceCocoon::tryRelease() {
     }
 
     endCommandStream();
-    MR::endMultiActorCamera(this, mCameraInfo, "\221\137\202\242\222\206" /* 狙い中 */, true);
+    MR::endMultiActorCamera(this, mCameraInfo, "狙い中", true);
 
     if (mPosition.distance(mNeutralPos) < ::sAimDistanceMin) {
         if (isKinopioAttached()) {
-            MR::endDemo(this, "\203\114\203\155\203\163\203\111\221\137\202\242\222\206" /* キノピオ狙い中 */);
+            MR::endDemo(this, "キノピオ狙い中");
             setNerve(GET_NERVE(SpaceCocoon, SpaceCocoonNrvKinopioWait));
         } else {
-            MR::startMultiActorCameraTargetOther(this, mCameraInfo, "\203\105\203\106\203\103\203\147" /* ウェイト */, CameraTargetArg(mCameraTargetMtx));
+            MR::startMultiActorCameraTargetOther(this, mCameraInfo, "ウェイト", CameraTargetArg(mCameraTargetMtx));
             setNerve(GET_NERVE(SpaceCocoon, SpaceCocoonNrvBindWait));
         }
         return true;
@@ -697,18 +680,20 @@ bool SpaceCocoon::tryRelease() {
     MR::normalize(&mVelocity);
 
     // turn mario so he flies feet-first
-    TVec3f reaxisUp = mVelocity * -1.0f;
-    TVec3f reaxisFront = mUp;
-    TVec3f reaxisSide = reaxisUp.cross(reaxisFront);
-    MR::normalize(&reaxisSide);
-    reaxisFront.cross(reaxisSide, reaxisUp);
-    MR::normalize(&reaxisFront);
-    mBaseMtx.setXYZDir(reaxisSide, reaxisUp, reaxisFront);
+    Vec3f reaxisUp = mVelocity * -1.0f;
+    Vec3f reaxisFront = mUp;
+    Vec3f reaxisSide = reaxisUp.cross(reaxisFront);
+    if (!MR::isNearZero(reaxisSide)) {
+        MR::normalize(&reaxisSide);
+        reaxisFront.cross(reaxisSide, reaxisUp);
+        MR::normalize(&reaxisFront);
+        mBaseMtx.setXYZDir(reaxisSide, reaxisUp, reaxisFront);
+    }
 
     mVelocity.mult(::sBindAttackSpeed);
     MR::emitEffect(mRider, "SpaceCocoonBlur");
 
-    MR::startMultiActorCameraNoTarget(this, mCameraInfo, "\215\125\214\202\222\206" /* 攻撃中 */);
+    MR::startMultiActorCameraNoTarget(this, mCameraInfo, "攻撃中");
 
     if (isKinopioAttached()) {
         setNerve(GET_NERVE(SpaceCocoon, SpaceCocoonNrvKinopioAttack));
@@ -751,19 +736,15 @@ bool SpaceCocoon::tryAttackMap() {
 }
 
 bool SpaceCocoon::isKinopioAttached() const {
-    if (isNerve(GET_NERVE(SpaceCocoon, SpaceCocoonNrvKinopioWait)) || isNerve(GET_NERVE(SpaceCocoon, SpaceCocoonNrvWaitKinopioAimDemo)) ||
-        isNerve(GET_NERVE(SpaceCocoon, SpaceCocoonNrvKinopioAim)) || isNerve(GET_NERVE(SpaceCocoon, SpaceCocoonNrvKinopioAttack)) ||
-        isNerve(GET_NERVE(SpaceCocoon, SpaceCocoonNrvKinopioAttackSuccess))) {
-        return true;
-    }
-
-    return false;
+    return isNerve(GET_NERVE(SpaceCocoon, SpaceCocoonNrvKinopioWait)) || isNerve(GET_NERVE(SpaceCocoon, SpaceCocoonNrvWaitKinopioAimDemo)) ||
+           isNerve(GET_NERVE(SpaceCocoon, SpaceCocoonNrvKinopioAim)) || isNerve(GET_NERVE(SpaceCocoon, SpaceCocoonNrvKinopioAttack)) ||
+           isNerve(GET_NERVE(SpaceCocoon, SpaceCocoonNrvKinopioAttackSuccess));
 }
 
-void SpaceCocoon::endBind(const TVec3f& rJumpVec, bool attackSuccess) {
-    MR::endMultiActorCamera(this, mCameraInfo, "\203\105\203\106\203\103\203\147" /* ウェイト */, true);
-    MR::endMultiActorCamera(this, mCameraInfo, "\221\137\202\242\222\206" /* 狙い中 */, true);
-    MR::endMultiActorCamera(this, mCameraInfo, "\215\125\214\202\222\206" /* 攻撃中 */, true);
+void SpaceCocoon::endBind(const Vec3f& rJumpVec, bool attackSuccess) {
+    MR::endMultiActorCamera(this, mCameraInfo, "ウェイト", true);
+    MR::endMultiActorCamera(this, mCameraInfo, "狙い中", true);
+    MR::endMultiActorCamera(this, mCameraInfo, "攻撃中", true);
     MR::deleteEffect(mRider, "SpaceCocoonBlur");
 
     if (!attackSuccess) {
@@ -771,7 +752,7 @@ void SpaceCocoon::endBind(const TVec3f& rJumpVec, bool attackSuccess) {
             MR::validateClipping(mRider);
             mRider->mVelocity.set(mVelocity);
             mRider->receiveMessage(ACTMES_NPC_EVENT_END, MR::getMessageSensor(), MR::getMessageSensor());
-            MR::endDemo(this, "\203\114\203\155\203\163\203\111\221\137\202\242\222\206" /* キノピオ狙い中 */);
+            MR::endDemo(this, "キノピオ狙い中");
         } else {
             MR::endBindAndPlayerJump(this, rJumpVec, 0);
         }
@@ -791,77 +772,70 @@ void SpaceCocoon::endCommandStream() {
 }
 
 void SpaceCocoon::draw() const {
-    initDraw();
+    const SiteMaterial material = loadMaterial();
+    TypedDraw site(material, nullptr, MR::getCameraViewMtx());
 
     f32 texU2 = ::sTexStartU;
     f32 texU1 = texU2 + ::sTexDiffU;
 
-    drawPlane(::sDrawScaleX, -::sDrawScaleZ0, 0.0f, -::sDrawScaleZ1, ::sColor, ::sColor, texU1, texU2);
+    drawPlane(site, ::sDrawScaleX, -::sDrawScaleZ0, 0.0f, -::sDrawScaleZ1, ::sColor, ::sColor, texU1, texU2);
     texU2 = texU1;
     texU1 += ::sTexDiffU;
-    drawPlane(::sDrawScaleX, ::sDrawScaleZ0, ::sDrawScaleX, -::sDrawScaleZ0, ::sColor, ::sColor, texU1, texU2);
+    drawPlane(site, ::sDrawScaleX, ::sDrawScaleZ0, ::sDrawScaleX, -::sDrawScaleZ0, ::sColor, ::sColor, texU1, texU2);
     texU2 = texU1;
     texU1 += ::sTexDiffU;
-    drawPlane(0.0f, ::sDrawScaleZ1, ::sDrawScaleX, ::sDrawScaleZ0, ::sColor, ::sColor, texU1, texU2);
+    drawPlane(site, 0.0f, ::sDrawScaleZ1, ::sDrawScaleX, ::sDrawScaleZ0, ::sColor, ::sColor, texU1, texU2);
     texU2 = texU1;
     texU1 += ::sTexDiffU;
-    drawPlane(-::sDrawScaleX, ::sDrawScaleZ0, 0.0f, ::sDrawScaleZ1, ::sColor, ::sColor, texU1, texU2);
+    drawPlane(site, -::sDrawScaleX, ::sDrawScaleZ0, 0.0f, ::sDrawScaleZ1, ::sColor, ::sColor, texU1, texU2);
     texU2 = texU1;
     texU1 += ::sTexDiffU;
-    drawPlane(-::sDrawScaleX, -::sDrawScaleZ0, -::sDrawScaleX, ::sDrawScaleZ0, ::sColor, ::sColor, texU1, texU2);
+    drawPlane(site, -::sDrawScaleX, -::sDrawScaleZ0, -::sDrawScaleX, ::sDrawScaleZ0, ::sColor, ::sColor, texU1, texU2);
     texU2 = texU1;
     texU1 += ::sTexDiffU;
-    drawPlane(0.0f, -::sDrawScaleZ1, -::sDrawScaleX, -::sDrawScaleZ0, ::sColor, ::sColor, texU1, texU2);
+    drawPlane(site, 0.0f, -::sDrawScaleZ1, -::sDrawScaleX, -::sDrawScaleZ0, ::sColor, ::sColor, texU1, texU2);
 }
 
 namespace {
-    void drawPoints(const TVec3f& rPos, const TVec3f& rSide, const TVec3f& rFront, f32 thickness, f32 x1, f32 y1, f32 x2, f32 y2, Color8 color1,
+    void drawPoints(VertexPCT*& rVtx, const Vec3f& rPos, const Vec3f& rSide, const Vec3f& rFront, f32 thickness, f32 x1, f32 y1, f32 x2, f32 y2, Color8 color1,
                     Color8 color2, f32 texX1, f32 texX2, f32 texY) {
-        TVec3f side = rSide;
-        TVec3f front = rFront;
+        Vec3f side = rSide;
+        Vec3f front = rFront;
         side.scale(thickness);
         front.scale(thickness);
 
-        J3DNativeDraw::position(rPos.x + side.x * x1 + front.x * y1, rPos.y + side.y * x1 + front.y * y1, rPos.z + side.z * x1 + front.z * y1);
-        J3DNativeDraw::color(color1);
-        J3DNativeDraw::texCoord(texX1, texY);
+        *rVtx++ = {rPos.x + side.x * x1 + front.x * y1, rPos.y + side.y * x1 + front.y * y1, rPos.z + side.z * x1 + front.z * y1, Rgba8(color1), texX1, texY};
 
-        J3DNativeDraw::position(rPos.x + side.x * x2 + front.x * y2, rPos.y + side.y * x2 + front.y * y2, rPos.z + side.z * x2 + front.z * y2);
-        J3DNativeDraw::color(color2);
-        J3DNativeDraw::texCoord(texX2, texY);
+        *rVtx++ = {rPos.x + side.x * x2 + front.x * y2, rPos.y + side.y * x2 + front.y * y2, rPos.z + side.z * x2 + front.z * y2, Rgba8(color2), texX2, texY};
     }
 };  // namespace
 
-void SpaceCocoon::drawPlane(f32 x1, f32 y1, f32 x2, f32 y2, Color8 color1, Color8 color2, f32 texX1, f32 texX2) const {
+void SpaceCocoon::drawPlane(TypedDraw& rDraw, f32 x1, f32 y1, f32 x2, f32 y2, Color8 color1, Color8 color2, f32 texX1, f32 texX2) const {
     s32 numPoints = mNumPoints + 2;
     f32 delta = 1.0f / numPoints;
 
-    J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, numPoints * 2, NEBULA_SHAPE_COLOR0 | NEBULA_SHAPE_TEXCOORD0);
+    VertexPCT* vtx = rDraw.vertices< VertexPCT >(NEBULA_PRIMITIVE_TRIANGLE_STRIP, numPoints * 2);
     {
-        ::drawPoints(mCocoonPos, mSide, mFront, ::sWidthBottom, x1, y1, x2, y2, color1, color2, texX1, texX2, 0.0f);
+        ::drawPoints(vtx, mCocoonPos, mSide, mFront, ::sWidthBottom, x1, y1, x2, y2, color1, color2, texX1, texX2, 0.0f);
 
         for (s32 idx = 0; idx < mNumPoints; idx++) {
             f32 thickness = mPlantPoints[idx]->mThickness;
 
-            ::drawPoints(mPlantPoints[idx]->mPosition, mPlantPoints[idx]->mSide, mPlantPoints[idx]->mFront, thickness, x1, y1, x2, y2, color1, color2,
+            ::drawPoints(vtx, mPlantPoints[idx]->mPosition, mPlantPoints[idx]->mSide, mPlantPoints[idx]->mFront, thickness, x1, y1, x2, y2, color1, color2,
                          texX1, texX2, (idx + 1) * delta);
         }
 
-        ::drawPoints(mBasePos, mSide, mFront, ::sWidthTop, x1, y1, x2, y2, color1, color2, texX1, texX2, 1.0f);
+        ::drawPoints(vtx, mBasePos, mSide, mFront, ::sWidthTop, x1, y1, x2, y2, color1, color2, texX1, texX2, 1.0f);
     }
 }
 
-void SpaceCocoon::initDraw() const {
-    J3DNativeShape::setPosition(0, MR::getCameraViewMtx());
+SiteMaterial SpaceCocoon::loadMaterial() const {
     // runtime/src/render/materials/tex_modulate.hlsl: the texture times the vertex colour, opaque; drawn where
     // the alpha is above 0, depth tested and written, back faces culled.
-    NebulaNativeMaterial material;
-    NativeShader::init(material, NEBULA_SHADER_TEX_MODULATE, NativeShader::BLEND_OPAQUE, NEBULA_COMPARE_LEQUAL, true,
-                       NEBULA_CULL_BACK);
-    material.early_depth = 1;
+    SiteMaterial material;
+    material.init(NEBULA_SHADER_TEX_MODULATE, SiteMaterial::BLEND_OPAQUE, NEBULA_COMPARE_LEQUAL, true, NEBULA_CULL_BACK);
     material.constants[0] = 1.0f;
     material.constants[1] = 1.0f;
-    NativeShader::setTexture(material, 0, mTexture);
-    NativeShader::send(material);
-    J3DNativeShape::setCurrentIdentity();
+    material.setTexture(0, mTexture);
+    return material;
 }

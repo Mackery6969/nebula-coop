@@ -1,5 +1,8 @@
 #include "Game/System/NebulaCutsceneSkip.hpp"
-#include <JSystem/JUtility/JUTNativeLog.hpp>
+#include "Game/System/NebulaFrameClock.hpp"
+#include "Game/System/Arenas.hpp"
+#include "Game/System/NebulaArena.hpp"
+#include <nebula_module.h>
 
 #include "Game/AudioLib/AudSystem.hpp"
 #include "Game/AudioLib/AudWrap.hpp"
@@ -14,14 +17,16 @@
 #include "Game/System/GameSystem.hpp"
 #include "Game/System/GameSystemSceneController.hpp"
 #include "Game/System/NebulaText.hpp"
+#include "Game/Util/Array.hpp"
 #include "Game/Util/DemoUtil.hpp"
 #include "Game/Util/PlayerInputUtil.hpp"
-#include "Game/Util/JMapIdInfo.hpp"
+#include "Game/Util/PlacementId.hpp"
 #include "Game/Util/LayoutUtil.hpp"
 #include "Game/Util/SceneUtil.hpp"
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/SingletonHolder.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
+#include "Game/Util/StringUtil.hpp"
 #include <cstring>
 #include "Game/System/NebulaClock.hpp"
 
@@ -34,9 +39,9 @@ namespace {
     };
 
     const s32 cEndQuietFrames = 2;        // frames with no cutscene before the picture returns
-    const u32 cStepBudgetMicros = 9000;   // the extra steps' share of a frame
+    const u32 cStepBudgetMicros = 9000;   // the extra steps' share of a frame, in microseconds of wall time (not of play)
     const s32 cStepsPerFrameMax = 40;
-    const s32 cStallSteps = 600;          // a demo's clock held this long waits on the player: the skip ends there
+    const s32 cStallSteps = NebulaFrameClock::stepsOfSeconds(10);          // a demo's clock held this long waits on the player: the skip ends there
     const u32 cSkipMaxMicros = 15000000;  // a skip that has not ended by then shows the game as it is
 
     // The demos + skips, by their time sheets; EscapeDriverApr only in the launch star lessons.
@@ -89,7 +94,7 @@ namespace {
         }
         GameSystemSceneController* pController = pSystem->mSceneController;
         return pController->isExistSceneObjHolder() && pController->isSceneInitializeState(SceneInitializeState_End) &&
-               strcmp(pController->mCurrSceneControlInfo.mScene, "Game") == 0;
+               pController->mCurrSceneControlInfo.mScene == SceneKind_Game;
     }
 
     const DemoDirector* getActiveDemo() {
@@ -97,17 +102,17 @@ namespace {
             return nullptr;
         }
         const DemoDirector* pDirector = DemoFunction::getDemoDirector();
-        return pDirector->mIsActive && pDirector->_30 != nullptr ? pDirector : nullptr;
+        return pDirector->mIsActive && pDirector->mDemoName != nullptr ? pDirector : nullptr;
     }
 
     // A time-keep demo's executor: the director's own, or the one its name finds (a demo the game requested).
     const DemoExecutor* getExecutor(const DemoDirector* pDirector) {
-        return pDirector->mExecutor != nullptr ? pDirector->mExecutor : DemoFunction::findDemoExecutor(pDirector->_30);
+        return pDirector->mExecutor != nullptr ? pDirector->mExecutor : DemoFunction::findDemoExecutor(pDirector->mDemoName);
     }
 
     bool isSkippableExecutor(const DemoExecutor* pExecutor) {
         if (pExecutor == sStallExecutor && sStallSteps >= cStallSteps && pExecutor->mTimeKeeper != nullptr &&
-            pExecutor->mTimeKeeper->mCurrentStep + pExecutor->mTimeKeeper->_10 * 0x10000 == sStallStep) {
+            pExecutor->mTimeKeeper->mCurrentStep + pExecutor->mTimeKeeper->mElapsedStep * 0x10000 == sStallStep) {
             return false;  // the last skip left it waiting on the player
         }
         const char* pSheet = pExecutor->mSheetName;
@@ -115,10 +120,10 @@ namespace {
             return false;
         }
         for (u32 i = 0; i < sizeof(cSkippableSheets) / sizeof(cSkippableSheets[0]); i++) {
-            if (strcmp(pSheet, cSkippableSheets[i]) != 0) {
+            if (!MR::isEqualString(pSheet, cSkippableSheets[i])) {
                 continue;
             }
-            if (strcmp(pSheet, "EscapeDriverApr") != 0) {
+            if (!MR::isEqualString(pSheet, "EscapeDriverApr")) {
                 return true;
             }
             // Its lesson (MarioLancherLecture3Zone), not a level's launch star appearing.
@@ -134,7 +139,7 @@ namespace {
             return false;
         }
         for (u32 i = 0; i < sizeof(cSkippableStarters) / sizeof(cSkippableStarters[0]); i++) {
-            if (strcmp(pStarter->mName, MR::getJapaneseObjectName(cSkippableStarters[i])) == 0) {
+            if (MR::isEqualString(pStarter->mName, MR::getJapaneseObjectName(cSkippableStarters[i]))) {
                 return true;
             }
         }
@@ -143,7 +148,7 @@ namespace {
 
     bool isSkippableDemo(const DemoDirector* pDirector) {
         const DemoExecutor* pExecutor = getExecutor(pDirector);
-        return pExecutor != nullptr ? isSkippableExecutor(pExecutor) : isSkippableStarter(pDirector->_2C);
+        return pExecutor != nullptr ? isSkippableExecutor(pExecutor) : isSkippableStarter(pDirector->mDemoStarter);
     }
 
     // What + skips now. Asked only when + is pressed and while a skip runs.
@@ -158,15 +163,15 @@ namespace {
         return pDirector != nullptr && isSkippableDemo(pDirector);
     }
 
-    // The log's name for what runs: a time sheet, or the starter's (Shift-JIS) name.
+    // The log's name for what runs: a time sheet, or the starter's name.
     void report(const char* pWhat) {
         const bool isScene = isGameSceneRunning();
         const DemoDirector* pDirector = isScene ? getActiveDemo() : nullptr;
         const DemoExecutor* pExecutor = pDirector != nullptr ? getExecutor(pDirector) : nullptr;
-        JUTNativeLog("cutscene skip: %s (%s%s%s%s)\n", pWhat, MR::isActiveMoviePlayer() ? "movie" : "",
+        nebula_log("cutscene skip: %s (%s%s%s%s)\n", pWhat, MR::isActiveMoviePlayer() ? "movie" : "",
                  isScene && GameSceneFunction::isExecScenarioOpeningCamera() ? "opening camera" : "",
                  pExecutor != nullptr && pExecutor->mSheetName != nullptr ? pExecutor->mSheetName : "",
-                 pExecutor == nullptr && pDirector != nullptr && pDirector->_2C != nullptr ? pDirector->_2C->mName : "");
+                 pExecutor == nullptr && pDirector != nullptr && pDirector->mDemoStarter != nullptr ? pDirector->mDemoStarter->mName : "");
     }
 
     // A time-keep demo whose clock has not moved for cStallSteps waits on the player (an action, not a page).
@@ -178,7 +183,7 @@ namespace {
             sStallSteps = 0;
             return false;
         }
-        const s32 step = pExecutor->mTimeKeeper->mCurrentStep + pExecutor->mTimeKeeper->_10 * 0x10000;
+        const s32 step = pExecutor->mTimeKeeper->mCurrentStep + pExecutor->mTimeKeeper->mElapsedStep * 0x10000;
         if (pExecutor != sStallExecutor || step != sStallStep) {
             sStallExecutor = pExecutor;
             sStallStep = step;
@@ -190,10 +195,10 @@ namespace {
 
     // The question in the played language (NebulaText; the game's own Yes and No answer it), its lines broken as
     // the game's messages are (its text boxes do not wrap).
+    MR::GrowBuffer< char16_t > sQuestion;
+
     const char16_t* promptText() {
-        static char16_t question[128];
-        NebulaText::get(question, 128, "SkipCutsceneQuestion");
-        return question;
+        return NebulaText::get(&sQuestion, "SkipCutsceneQuestion");
     }
 
     void mute(bool on) {
@@ -219,12 +224,14 @@ namespace {
         MR::openSystemWipeFade();
         mute(false);
         silenceSe(false);
-        JUTNativeLog("cutscene skip: done after %d steps (%s)\n", sSteps, pWhy);
+        nebula_log("cutscene skip: done after %d steps (%s)\n", sSteps, pWhy);
     }
 };  // namespace
 
 namespace NebulaCutsceneSkip {
     void init() {
+        // The window lasts as long as the process: made in the permanent arena, whatever is current.
+        NebulaArena::CurrentScope home(Arenas::permanent());
         sWindow = MR::createSysInfoWindow();
         sWindow->setBackAnswersNo(true);
         sWindow->kill();
@@ -279,7 +286,7 @@ namespace NebulaCutsceneSkip {
             if (!sWindow->isSelectedYes() || !isSkippableNow()) {
                 sState = State_Idle;
                 mute(false);
-                JUTNativeLog("cutscene skip: declined\n");
+                nebula_log("cutscene skip: declined\n");
                 break;
             }
             sState = State_FadeOut;

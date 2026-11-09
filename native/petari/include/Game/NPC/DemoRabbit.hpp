@@ -6,16 +6,15 @@ class DemoRabbit : public NPCActor {
 public:
     DemoRabbit(const char*);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void initAfterPlacement();
-    virtual void control();
+    virtual void init(const TableIter& rIter) override;
+    virtual void initAfterPlacement() override;
+    virtual void control() override;
 
-    static void makeArchiveList(NameObjArchiveListCollector*, const JMapInfoIter&);
     void fadeOut();
     void fadeIn();
     void updateStopVelocity();
     void updateNormalVelocity();
-    void updateRun(const TVec3f&, bool);
+    void updateRun(const Vec3f&, bool);
     void updateJump();
     bool tryGuide();
     bool tryWait();
@@ -31,6 +30,6 @@ public:
     void exeChange();
     void exeStartBGM();
 
-    TVec3f mFrontVec;
+    Vec3f mFrontVec;
     s32 mAirTimer;
 };

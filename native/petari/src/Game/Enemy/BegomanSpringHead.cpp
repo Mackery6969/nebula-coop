@@ -1,5 +1,6 @@
 #include "Game/Enemy/BegomanSpringHead.hpp"
 #include "Game/LiveActor/Nerve.hpp"
+#include "Game/Scene/SceneFunction.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ModelUtil.hpp"
@@ -15,21 +16,18 @@ namespace NrvBegomanSpringHead {
 
 void BegomanHead::calcAndSetBaseMtx() {
     PartsModel::calcAndSetBaseMtx();
-    TVec3f scale = *_9C * mScale;
+    Vec3f scale = *mHostScale * mScale;
     MR::setBaseScale(this, scale);
 }
 
-BegomanSpringHead::BegomanSpringHead(LiveActor* pActor, MtxPtr pMtx) : BegomanHead(pActor, "\203\157\203\154\223\252" /* バネ頭 */, "BegomanSpringHead", pMtx, 10, false) {
+BegomanSpringHead::BegomanSpringHead(LiveActor* pActor, MtxPtr pMtx) : BegomanHead(pActor, "バネ頭", "BegomanSpringHead", pMtx, MR::DrawBufferType_MapObjStrongLight, false) {
 }
 
-BegomanHead::~BegomanHead() {
-}
-
-void BegomanSpringHead::init(const JMapInfoIter& rIter) {
+void BegomanSpringHead::init(const TableIter& rIter) {
     initNerve(GET_NERVE(BegomanSpringHead, HostTypeNrvWait));
     MR::initLightCtrl(this);
     initHitSensor(1);
-    MR::addHitSensorAtJoint(this, "head", "SpringJoint5", ATYPE_MAP_OBJ_SIMPLE, 8, 100.0f, TVec3f(0.0f, 100.0f, 0.0f));
+    MR::addHitSensorAtJoint(this, "head", "SpringJoint5", ATYPE_MAP_OBJ_SIMPLE, 8, 100.0f, Vec3f(0.0f, 100.0f, 0.0f));
     PartsModel::init(rIter);
 }
 
@@ -37,7 +35,7 @@ bool BegomanSpringHead::isSpringHop() {
     return !LiveActor::isNerve(GET_NERVE(BegomanSpringHead, HostTypeNrvWait));
 }
 
-s16 BegomanSpringHead::getHopEndBckFrameMax() {
+s32 BegomanSpringHead::getHopEndBckFrameMax() {
     return MR::getBckFrameMax(this, "HopEnd");
 }
 
@@ -106,7 +104,4 @@ void BegomanSpringHead::exeHopJump() {
     }
 
     MR::setNerveAtBckStopped(this, GET_NERVE(BegomanSpringHead, HostTypeNrvHopWait));
-}
-
-BegomanSpringHead::~BegomanSpringHead() {
 }

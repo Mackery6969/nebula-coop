@@ -4,18 +4,16 @@
 
 class TicoStarRing : public Tico {
 public:
-    /// @brief Creates a new `TicoStarRing`.
-    /// @param pName A pointer to the null-terminated name of the object.
     TicoStarRing(const char* pName);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void kill();
+    virtual void init(const TableIter&) override;
+    virtual void kill() override;
 
-    void initialize(LiveActor*, LiveActor*, const char*);
+    void initialize(LiveActor* pTicoGalaxy, LiveActor* pAppearActor, const char* pGalaxyName);
 
     void exeWait();
 
     const char* mGalaxyName;
-    LiveActor* _194;
+    LiveActor* mAppearActor;
     LiveActor* mTicoGalaxy;
 };

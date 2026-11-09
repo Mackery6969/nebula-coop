@@ -1,4 +1,5 @@
 #include "Game/Enemy/Balloonfish.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Enemy/AnimScaleController.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
@@ -6,7 +7,7 @@
 #include "Game/Util/ActorShadowUtil.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
@@ -15,11 +16,11 @@
 #include "Game/Util/StarPointerUtil.hpp"
 
 namespace {
-    static const s32 hWaitTime = 120;
+    static const s32 hWaitTime = NebulaFrameClock::stepsOfSeconds(2);
     static const s32 hAttackBeginTime = 82;
     static const f32 hTargetPlayerVelocityMult = 10.0f;
     static const f32 hWaitMaxScale = 1.5f;
-    static const s32 hDashTime = 180;
+    static const s32 hDashTime = NebulaFrameClock::stepsOfSeconds(3);
     static const f32 hDashVel = 10.0f;
     static const f32 hDashScale = 0.5f;
     static const s32 hDashEndTime = 95;
@@ -37,7 +38,7 @@ Balloonfish::Balloonfish(const char* pName)
     : LiveActor(pName), mAnimScaleController(), mNerveBeforeBind(), mQuat(0.0f, 0.0f, 0.0f, 1.0f), mRotateAngle(::hRotateAngle) {
 }
 
-void Balloonfish::init(const JMapInfoIter& rIter) {
+void Balloonfish::init(const TableIter& rIter) {
     if (MR::isValidInfo(rIter)) {
         MR::initDefaultPos(this, rIter);
         MR::needStageSwitchReadAppear(this, rIter);
@@ -52,12 +53,12 @@ void Balloonfish::init(const JMapInfoIter& rIter) {
     f32 scale = mScale.y;
     initBinder(100.0f * scale, 0.0f, 0);
     initHitSensor(1);
-    MR::addHitSensorEnemy(this, "body", 32, 100.0f * scale, TVec3f(0.0f, 60.0f * scale, 0.0f));
-    initEffectKeeper(0, "Balloonfish", false);
+    MR::addHitSensorEnemy(this, "body", 32, 100.0f * scale, Vec3f(0.0f, 60.0f * scale, 0.0f));
+    initEffectKeeper(0, "Balloonfish");
     initSound(2, false);
     initNerve(GET_NERVE(Balloonfish, HostTypeNrvWait));
     f32 zero = 0.0f;
-    MR::initStarPointerTarget(this, 110.0f, TVec3f(zero, 80.0f, zero));
+    MR::initStarPointerTarget(this, 110.0f, Vec3f(zero, 80.0f, zero));
     mAnimScaleController = new AnimScaleController(nullptr);
     MR::onCalcGravity(this);
     MR::initShadowVolumeSphere(this, 80.0f * mScale.y);
@@ -94,12 +95,12 @@ void Balloonfish::exeWait() {
         mNerveBeforeBind = nullptr;
     }
 
-    TVec3f toPredictedPlayerPos(*MR::getPlayerCenterPos());
+    Vec3f toPredictedPlayerPos(*MR::getPlayerCenterPos());
     toPredictedPlayerPos += *MR::getPlayerVelocity() * ::hTargetPlayerVelocityMult;
     toPredictedPlayerPos -= mPosition;
 
     f32 ratio = static_cast< f32 >(mNotBoundStep) / ::hWaitTime;
-    f32 scale = (1.0f - ratio) * 1.0f + ratio * ::hWaitMaxScale;
+    f32 scale = (1.0f - ratio) + ratio * ::hWaitMaxScale;
     mScale.set(scale, scale, scale);
     MR::blendQuatFrontUp(&mQuat, -mGravity, toPredictedPlayerPos, 0.02f, 0.1f);
 
@@ -109,7 +110,7 @@ void Balloonfish::exeWait() {
     }
 
     // "weak"
-    if (MR::isStarPointerPointing2POnPressButton(this, "\216\343" /* 弱 */, true, false)) {
+    if (MR::isStarPointerPointing2POnPressButton(this, "弱", true, false)) {
         mNerveBeforeBind = mSpine->getCurrentNerve();
         setNerve(GET_NERVE(Balloonfish, HostTypeNrvStarPointerBind));
         return;
@@ -134,7 +135,7 @@ void Balloonfish::exeDash() {
             }
         }
 
-        TVec3f zDir;
+        Vec3f zDir;
         mQuat.getZDir(zDir);
         mVelocity.set(zDir * ::hDashVel);
 
@@ -168,7 +169,7 @@ void Balloonfish::exeDash() {
     }
 
     // "weak"
-    if (MR::isStarPointerPointing2POnPressButton(this, "\216\343" /* 弱 */, true, false)) {
+    if (MR::isStarPointerPointing2POnPressButton(this, "弱", true, false)) {
         mNerveBeforeBind = mSpine->getCurrentNerve();
         setNerve(GET_NERVE(Balloonfish, HostTypeNrvStarPointerBind));
         return;
@@ -179,17 +180,17 @@ void Balloonfish::exeDash() {
 
 void Balloonfish::exeStarPointerBind() {
     if (MR::isFirstStep(this)) {
-        MR::startDPDHitSound();
+        MR::startPointerHitSound();
         MR::setBckRate(this, 0.0f);
-        mAnimScaleController->startDpdHitVibration();
+        mAnimScaleController->startPointerHitVibration();
         MR::emitEffect(this, "Touch");
     }
 
-    MR::startDPDFreezeLevelSound(this);
+    MR::startPointerFreezeLevelSound(this);
     mVelocity.zero();
 
     // "weak"
-    if (!MR::isStarPointerPointing2POnPressButton(this, "\216\343" /* 弱 */, true, false)) {
+    if (!MR::isStarPointerPointing2POnPressButton(this, "弱", true, false)) {
         setNerve(mNerveBeforeBind);
     }
 }
@@ -205,12 +206,12 @@ void Balloonfish::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
         return;
     }
 
-    if (MR::sendMsgEnemyAttackMaximum(pReceiver, pSender) != true) {
+    if (!MR::sendMsgEnemyAttackMaximum(pReceiver, pSender)) {
         MR::sendMsgPush(pReceiver, pSender);
     }
 }
 
-bool Balloonfish::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool Balloonfish::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (MR::isMsgStarPieceReflect(msg)) {
         if (!isNerve(GET_NERVE(Balloonfish, HostTypeNrvStarPointerBind))) {
             mAnimScaleController->startHitReaction();
@@ -227,17 +228,17 @@ bool Balloonfish::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor*
 }
 
 void Balloonfish::calcAndSetBaseMtx() {
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.makeQuat(mQuat);
 
-    TPos3f mtx2;
-    mtx2.makeRotate(TVec3f(0.0f, 0.0f, 1.0f), mRotateAngle);
-    mtx.concat(mtx, mtx2);
+    Pos3f spinMtx;
+    spinMtx.makeRotate(Vec3f(0.0f, 0.0f, 1.0f), mRotateAngle);
+    mtx.concat(mtx, spinMtx);
 
     mtx.setTrans(mPosition);
     MR::setBaseTRMtx(this, mtx);
 
-    TVec3f scale(mAnimScaleController->_C * mScale);
+    Vec3f scale(mAnimScaleController->mScale * mScale);
     MR::setBaseScale(this, scale);
 }
 

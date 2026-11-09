@@ -1,11 +1,11 @@
 #include "Game/Screen/ImageEffectLocalUtil.hpp"
-#include "Game/Util/NativeShader.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeMaterial.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeTarget.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeView.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
+#include "Game/Render/TypedDraw.hpp"
+#include "Game/Render/Material.hpp"
+#include "Game/Render/FrameList.hpp"
+#include "Game/Render/FrameList.hpp"
+#include "Game/Render/FrameList.hpp"
+#include "Game/Render/TypedDraw.hpp"
+#include "Game/Render/TypedDraw.hpp"
 #include "Game/NameObj/NameObjAdaptor.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Screen/BloomEffect.hpp"
@@ -14,7 +14,7 @@
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/SystemUtil.hpp"
-#include <JSystem/JUtility/JUTTexture.hpp>
+#include "Game/Render/GameTexture.hpp"
 #include <nebula_game_api.h>
 #include <cstring>
 
@@ -30,6 +30,10 @@ void MR::connectToSceneImageEffectMovement(NameObj* pObj) {
 
 
 namespace {
+    // What the effects' draws write (setWrites).
+    bool sWriteColor = true;
+    bool sWriteAlpha = false;
+
     // The draws' mode (runtime/src/render/materials/image_effect.hlsl params.x) and the colours the fall-out passes give.
     u32 sMode = 0;
     NebulaColor8 sEdge = {0, 0, 0, 0};
@@ -38,36 +42,40 @@ namespace {
     // blur's offset) in the mode, the material colour the intensity (draw type 2: its alpha), blended by the draw type
     // (0 replace, 1 added, 2 by its alpha, 3 the frame times it), no depth or culling; the colour and alpha writes the
     // caller set.
-    void sendDrawMaterial(JUTTexture* pTexture, u8 intensity, u32 type) {
-        NebulaNativeMaterial material;
-        static const NativeShader::Blend kBlends[4] = {NativeShader::BLEND_OPAQUE, NativeShader::BLEND_ADD,
-                                                       NativeShader::BLEND_ALPHA, NativeShader::BLEND_OPAQUE};
-        NativeShader::init(material, NEBULA_SHADER_IMAGE_EFFECT, kBlends[type], NEBULA_COMPARE_ALWAYS, false,
+    SiteMaterial drawMaterial(GameTexture* pTexture, u8 intensity, u32 type) {
+        SiteMaterial material;
+        static const SiteMaterial::Blend kBlends[4] = {SiteMaterial::BLEND_OPAQUE, SiteMaterial::BLEND_ADD,
+                                                       SiteMaterial::BLEND_ALPHA, SiteMaterial::BLEND_OPAQUE};
+        material.init(NEBULA_SHADER_IMAGE_EFFECT, kBlends[type], NEBULA_COMPARE_ALWAYS, false,
                            NEBULA_CULL_NONE);
         if (type == ImageEffectLocalUtil::TexDrawType_3) {
-            NativeShader::setBlend(material, NEBULA_FACTOR_DST_COLOR, NEBULA_FACTOR_ZERO);
+            material.setBlend(NEBULA_FACTOR_DST_COLOR, NEBULA_FACTOR_ZERO);
         }
         if (type == ImageEffectLocalUtil::TexDrawType_2) {
-            NativeShader::setColor(material, 0, 255, 255, 255, intensity);
+            material.setColor(0, 255, 255, 255, intensity);
         } else {
-            NativeShader::setColor(material, 0, intensity, intensity, intensity, 255);
+            material.setColor(0, intensity, intensity, intensity, 255);
         }
-        NativeShader::setColor(material, 4, sEdge.r, sEdge.g, sEdge.b, sEdge.a);
+        material.setColor(4, sEdge.r, sEdge.g, sEdge.b, sEdge.a);
         material.constants[8] = static_cast< f32 >(sMode);
-        NativeShader::setTexture(material, 0, pTexture);
-        NativeShader::send(material);
+        material.setTexture(0, pTexture);
+        material.mState.color_write = sWriteColor;
+        material.mState.alpha_write = sWriteAlpha;
+        return material;
     }
 
-    void sendGaussianMaterial(JUTTexture* pTexture, f32 axisX, f32 axisY, f32 width, f32 alphaGain) {
-        NebulaNativeMaterial material;
-        NativeShader::init(material, NEBULA_SHADER_GAUSSIAN_BLUR, NativeShader::BLEND_OPAQUE, NEBULA_COMPARE_ALWAYS, false,
+    SiteMaterial gaussianMaterial(GameTexture* pTexture, f32 axisX, f32 axisY, f32 width, f32 alphaGain) {
+        SiteMaterial material;
+        material.init(NEBULA_SHADER_GAUSSIAN_BLUR, SiteMaterial::BLEND_OPAQUE, NEBULA_COMPARE_ALWAYS, false,
                            NEBULA_CULL_NONE);
         material.constants[0] = axisX;
         material.constants[1] = axisY;
         material.constants[2] = width;
         material.constants[3] = alphaGain;
-        NativeShader::setTexture(material, 0, pTexture);
-        NativeShader::send(material);
+        material.setTexture(0, pTexture);
+        material.mState.color_write = sWriteColor;
+        material.mState.alpha_write = sWriteAlpha;
+        return material;
     }
 }  // namespace
 
@@ -79,65 +87,59 @@ void ImageEffectLocalUtil::setMode(EMode mode, const NebulaColor8& rEdge) {
 void ImageEffectLocalUtil::setupDrawTexture() {
     Mtx44 projectionMtx;
     NebulaMtxOrtho(projectionMtx, 0.0f, 1.0f, 0.0f, 1.0f, -10000.0f, 10000.0f);
-    J3DNativeView::setOrthographic(projectionMtx);
+    Frame::setOrthographic(projectionMtx);
 
     MR::loadViewMtxFor2DModel();
 
-    TMtx34f posMtx;
-    posMtx.identity();
-    J3DNativeShape::setPosition(0, posMtx.toMtxPtr());
-    J3DPass::positionMatrix(0);
-
-    J3DPass::cull(NEBULA_CULL_NONE);
-    J3DPass::writeColor(true);
-    J3DPass::writeAlpha(false);
-    J3DPass::depth(false, NEBULA_COMPARE_ALWAYS, false);
+    setWrites(true, false);
     sMode = 0;
 }
 
-void ImageEffectLocalUtil::drawTexture(JUTTexture* pTexture, u8 intensity, ETexDrawType texDrawType) {
-    sendDrawMaterial(pTexture, intensity, static_cast< u32 >(texDrawType) & 3u);
-    sendTextureVertex();
+void ImageEffectLocalUtil::setWrites(bool color, bool alpha) {
+    sWriteColor = color;
+    sWriteAlpha = alpha;
 }
 
-JUTTexture* ImageEffectLocalUtil::createFrameKey() {
-    JUTTexture* pKey = new JUTTexture(4, 4);
-    pKey->mWrapS = NEBULA_WRAP_CLAMP;
-    pKey->mWrapT = NEBULA_WRAP_CLAMP;
-    pKey->mMinType = NEBULA_FILTER_LINEAR;
-    pKey->mMagType = NEBULA_FILTER_LINEAR;
+void ImageEffectLocalUtil::drawTexture(GameTexture* pTexture, u8 intensity, ETexDrawType texDrawType) {
+    drawQuad(drawMaterial(pTexture, intensity, static_cast< u32 >(texDrawType) & 3u));
+}
+
+GameTexture* ImageEffectLocalUtil::createFrameKey() {
+    GameTexture* pKey = GameTexture::createTarget(1.0f, 1.0f);
+    pKey->setSampling(NEBULA_WRAP_CLAMP, NEBULA_WRAP_CLAMP, NEBULA_FILTER_LINEAR, NEBULA_FILTER_LINEAR);
     return pKey;
 }
 
-void ImageEffectLocalUtil::drawFrameDepth(JUTTexture* pTarget, JUTTexture* pDepthKey) {
+void ImageEffectLocalUtil::drawFrameDepth(GameTexture* pTarget, GameTexture* pDepthKey) {
     setupDrawTexture();
-    J3DNativeTarget::beginOverFrame(pTarget->mImage, pTarget->mShareAcross, pTarget->mShareDown, 0, nullptr, NEBULA_TARGET_RGBA,
-                                    pDepthKey->mImage);
-    NebulaNativeMaterial material;
-    NativeShader::init(material, NEBULA_SHADER_FRAME_DEPTH, NativeShader::BLEND_OPAQUE, NEBULA_COMPARE_ALWAYS, false,
+    Frame::targetBeginOverFrame(pTarget->image(), pTarget->shareAcross(), pTarget->shareDown(), 0, nullptr, NEBULA_TARGET_RGBA,
+                                    pDepthKey->image());
+    SiteMaterial material;
+    material.init(NEBULA_SHADER_FRAME_DEPTH, SiteMaterial::BLEND_OPAQUE, NEBULA_COMPARE_ALWAYS, false,
                        NEBULA_CULL_NONE);
-    NativeShader::setTexture(material, 0, pDepthKey);
-    NativeShader::send(material);
-    sendTextureVertex();
-    J3DNativeTarget::end(pTarget->mImage, NEBULA_TARGET_RED);
+    material.setTexture(0, pDepthKey);
+    material.mState.alpha_write = 0;
+    drawQuad(material);
+    Frame::targetEnd(pTarget->image(), NEBULA_TARGET_RED);
 }
 
-void ImageEffectLocalUtil::sendTextureVertex() {
-    J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, 4, NEBULA_SHAPE_TEXCOORD0);
-    J3DNativeDraw::position(0.0f, 1.0f, 0.0f);
-    J3DNativeDraw::texCoord(0.0f, 1.0f);
-
-    J3DNativeDraw::position(0.0f, 0.0f, 0.0f);
-    J3DNativeDraw::texCoord(0.0f, 0.0f);
-
-    J3DNativeDraw::position(1.0f, 1.0f, 0.0f);
-    J3DNativeDraw::texCoord(1.0f, 1.0f);
-
-    J3DNativeDraw::position(1.0f, 0.0f, 0.0f);
-    J3DNativeDraw::texCoord(1.0f, 0.0f);
+void ImageEffectLocalUtil::drawQuad(const SiteMaterial& rMaterial) {
+    TypedDraw site = TypedDraw::eyeSpace(rMaterial, cIdentityMtx);
+    sendTextureVertex(site);
 }
 
-void ImageEffectLocalUtil::blurTexture(JUTTexture* pSource, JUTTexture* pScratch, JUTTexture* pTarget, f32 radius,
+void ImageEffectLocalUtil::sendTextureVertex(TypedDraw& rDraw) {
+    VertexPT* vtx = rDraw.vertices< VertexPT >(NEBULA_PRIMITIVE_TRIANGLE_STRIP, 4);
+    *vtx++ = {0.0f, 1.0f, 0.0f, 0.0f, 1.0f};
+
+    *vtx++ = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+
+    *vtx++ = {1.0f, 1.0f, 0.0f, 1.0f, 1.0f};
+
+    *vtx++ = {1.0f, 0.0f, 0.0f, 1.0f, 0.0f};
+}
+
+void ImageEffectLocalUtil::blurTexture(GameTexture* pSource, GameTexture* pScratch, GameTexture* pTarget, f32 radius,
                                        NebulaTargetChannels channels, f32 alphaGain) {
     // A ring of `radius` spreads radius^2 / 2 along each axis, and a tap's bilinear footprint at the picture this blur
     // was made for (160 x 114) adds texel^2 / 6: the same width at every resolution.
@@ -147,14 +149,12 @@ void ImageEffectLocalUtil::blurTexture(JUTTexture* pSource, JUTTexture* pScratch
     const f32 widthX = __builtin_sqrtf(radius * radius / 2.0f + texelX * texelX / 6.0f);
     const f32 widthY = __builtin_sqrtf(verticalRadius * verticalRadius / 2.0f + texelY * texelY / 6.0f);
     const bool alphaAlone = channels == NEBULA_TARGET_ALPHA;
-    J3DNativeTarget::begin(pScratch->mImage, pScratch->mShareAcross, pScratch->mShareDown, 0);
-    sendGaussianMaterial(pSource, 1.0f, 0.0f, widthX, alphaAlone ? 1.0f : 0.0f);
-    sendTextureVertex();
-    J3DNativeTarget::end(pScratch->mImage, channels);
-    J3DNativeTarget::begin(pTarget->mImage, pTarget->mShareAcross, pTarget->mShareDown, 0);
-    sendGaussianMaterial(pScratch, 0.0f, 1.0f, widthY, alphaAlone ? alphaGain : 0.0f);
-    sendTextureVertex();
-    J3DNativeTarget::end(pTarget->mImage, channels);
+    Frame::targetBegin(pScratch->image(), pScratch->shareAcross(), pScratch->shareDown(), 0);
+    drawQuad(gaussianMaterial(pSource, 1.0f, 0.0f, widthX, alphaAlone ? 1.0f : 0.0f));
+    Frame::targetEnd(pScratch->image(), channels);
+    Frame::targetBegin(pTarget->image(), pTarget->shareAcross(), pTarget->shareDown(), 0);
+    drawQuad(gaussianMaterial(pScratch, 0.0f, 1.0f, widthY, alphaAlone ? alphaGain : 0.0f));
+    Frame::targetEnd(pTarget->image(), channels);
 }
 
 void MR::connectToSceneNormalBloom(BloomEffect* pBloomEffect) {

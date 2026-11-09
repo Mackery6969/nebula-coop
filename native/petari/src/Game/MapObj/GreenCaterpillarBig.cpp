@@ -1,4 +1,5 @@
 #include "Game/MapObj/GreenCaterpillarBig.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/LodCtrl.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util.hpp"
@@ -12,7 +13,7 @@ namespace NrvGreenCaterpillarBig {
 };  // namespace NrvGreenCaterpillarBig
 
 GreenCaterpillarBigBody::GreenCaterpillarBigBody(LiveActor* pCaterpillar, MtxPtr mtx)
-    : ModelObj("\203\111\203\111\203\200\203\103\203\200\203\103\221\314" /* オオムイムイ体 */, "GreenCaterpillarBigBody", mtx, -2, -2, -2, false) {
+    : ModelObj("オオムイムイ体", "GreenCaterpillarBigBody", mtx, -2, -2, -2, false) {
     mCaterpillar = pCaterpillar;
     mFrontVec.x = 0.0f;
     mFrontVec.y = 0.0f;
@@ -20,7 +21,7 @@ GreenCaterpillarBigBody::GreenCaterpillarBigBody(LiveActor* pCaterpillar, MtxPtr
     mPlanetLOD = nullptr;
 }
 
-void GreenCaterpillarBigBody::init(const JMapInfoIter& rIter) {
+void GreenCaterpillarBigBody::init(const TableIter& rIter) {
     MR::invalidateClipping(this);
     mPlanetLOD = MR::createLodCtrlPlanet(this, rIter, -1.0f);
     mPlanetLOD->validate();
@@ -30,7 +31,7 @@ void GreenCaterpillarBigBody::init(const JMapInfoIter& rIter) {
 }
 
 void GreenCaterpillarBigBody::setPosAndDirection(LiveActor* pActor) {
-    TVec3f jointPos;
+    Vec3f jointPos;
     MR::copyJointPos(mCaterpillar, "FollowPoint", &jointPos);
     mPosition.set(jointPos);
     calcBodyDir(pActor, &mFrontVec);
@@ -49,21 +50,21 @@ void GreenCaterpillarBigBody::calcAndSetBaseMtx() {
         LiveActor::calcAndSetBaseMtx();
     } else {
         MtxPtr jointMtx = MR::getJointMtx(mCaterpillar, "FollowPoint");
-        TVec3f pos;
+        Vec3f pos;
         pos.set< f32 >(jointMtx[0][1], jointMtx[1][1], jointMtx[2][1]);
-        TPos3f frontUpPos;
+        Pos3f frontUpPos;
         MR::makeMtxFrontUpPos(&frontUpPos, mFrontVec, pos, mPosition);
         MR::setBaseTRMtx(this, frontUpPos);
     }
 }
 
-void GreenCaterpillarBigBody::calcBodyDir(LiveActor* pActor, TVec3f* pOutDir) {
+void GreenCaterpillarBigBody::calcBodyDir(LiveActor* pActor, Vec3f* pOutDir) {
     f32 nearRailCoord = MR::calcNearestRailCoord(pActor, mPosition);
     f32 coord = nearRailCoord - 300.0f;
     if (coord <= 0.0f) {
         MR::calcRailDirectionAtCoord(pOutDir, pActor, nearRailCoord);
     } else {
-        TVec3f railPos, endVec;
+        Vec3f railPos, endVec;
         MR::calcRailPosAtCoord(&railPos, pActor, coord);
         endVec.sub(mPosition, railPos);
         MR::normalize(&endVec);
@@ -75,19 +76,19 @@ GreenCaterpillarBig::GreenCaterpillarBig(const char* pName) : LiveActor(pName) {
     mBodyArray = nullptr;
     mBodyArrayLength = 0;
     mCurBodyParts = 0;
-    _98 = 0;
-    _9C = 0;
-    _9D = 0;
+    mRailPointNo = 0;
+    mIsEnteringHole = 0;
+    mIsLeavingApple = 0;
     mPlanetLOD = nullptr;
 }
 
-void GreenCaterpillarBig::init(const JMapInfoIter& rIter) {
+void GreenCaterpillarBig::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("GreenCaterpillarBigFace", nullptr, false);
     MR::connectToSceneMapObj(this);
     initHitSensor(1);
     MR::addBodyMessageSensorMapObj(this);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initSound(6, false);
     initRailRider(rIter);
     initBodyParts(rIter);
@@ -122,18 +123,18 @@ void GreenCaterpillarBig::exeWriggle() {
     if (MR::isRailReachedGoal(this)) {
         setNerve(GET_NERVE(GreenCaterpillarBig, GreenCaterpillarBigNrvEndAdjust));
     } else {
-        _9C = 0;
-        _9D = 0;
+        mIsEnteringHole = 0;
+        mIsLeavingApple = 0;
 
-        bool isNotEqual = MR::getCurrentRailPointNo(this) != _98;
+        bool isNotEqual = MR::getCurrentRailPointNo(this) != mRailPointNo;
 
         if (isNotEqual) {
-            _98 = MR::getCurrentRailPointNo(this);
+            mRailPointNo = MR::getCurrentRailPointNo(this);
             f32 point_arg = -1.0f;
-            MR::getRailPointArg0NoInit(this, _98, &point_arg);
+            MR::getRailPointArg0NoInit(this, mRailPointNo, &point_arg);
 
             if (point_arg == 0.0f) {
-                _9C = 1;
+                mIsEnteringHole = 1;
                 MR::tryRumblePadStrong(this, PLAYER_1);
                 MR::shakeCameraNormal();
                 MR::startSound(this, "SE_OJ_GRN_CATERP_IN");
@@ -151,7 +152,7 @@ void GreenCaterpillarBig::exeRest() {
 }
 
 void GreenCaterpillarBig::exeEndAdjust() {
-    if (MR::isStep(this, 120)) {
+    if (MR::isStep(this, NebulaFrameClock::stepsOfSeconds(2))) {
         setNerve(GET_NERVE(GreenCaterpillarBig, GreenCaterpillarBigNrvEnd));
     }
 }
@@ -162,7 +163,7 @@ void GreenCaterpillarBig::exeEnd() {
     }
 }
 
-void GreenCaterpillarBig::initBodyParts(const JMapInfoIter& rIter) {
+void GreenCaterpillarBig::initBodyParts(const TableIter& rIter) {
     s32 count = MR::getRailTotalLength(this) / 300.0f;
     mBodyArrayLength = count;
     mBodyArray = new GreenCaterpillarBigBody*[count];
@@ -204,7 +205,7 @@ void GreenCaterpillarBig::control() {
 }
 
 void GreenCaterpillarBig::calcAndSetBaseMtx() {
-    TPos3f mtx;
+    Pos3f mtx;
     MR::calcMtxFromGravityAndZAxis(&mtx, this, mGravity, MR::getRailDirection(this));
     MR::setBaseTRMtx(this, mtx);
 }
@@ -232,15 +233,9 @@ void GreenCaterpillarBig::fixBodyPartsOnRail() {
 }
 
 void GreenCaterpillarBig::leaveApple() {
-    _9D = 1;
+    mIsLeavingApple = 1;
     MR::tryRumblePadStrong(this, PLAYER_1);
     MR::shakeCameraNormal();
     MR::startSound(this, "SE_OJ_GRN_CATERP_DAMAGE");
     MR::startSound(this, "SE_OJ_GRN_CATERP_OUT");
-}
-
-GreenCaterpillarBigBody::~GreenCaterpillarBigBody() {
-}
-
-GreenCaterpillarBig::~GreenCaterpillarBig() {
 }

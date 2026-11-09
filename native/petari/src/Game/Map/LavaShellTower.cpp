@@ -10,8 +10,6 @@
 namespace {
     static const f32 sCamShakeIntensity = 0.1f;
     static const f32 sCamShakeSpeed = 2.2f;
-    // static const f32 sCamStartOffsetY = _;
-    // static const f32 sCamEndOffsetY = _;
 };  // namespace
 
 namespace NrvLavaShellTower {
@@ -23,7 +21,7 @@ namespace NrvLavaShellTower {
 LavaShellTower::LavaShellTower(const char* pName) : MapObjActor(pName) {
 }
 
-void LavaShellTower::init(const JMapInfoIter& rIter) {
+void LavaShellTower::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
     MapObjActorInitInfo info;
     info.setupDefaultPos();
@@ -32,7 +30,7 @@ void LavaShellTower::init(const JMapInfoIter& rIter) {
     info.setupGroupClipping(0x40);
     info.setupNerve(GET_NERVE(LavaShellTower, HostTypeWait));
     initialize(rIter, info);
-    MR::registerDemoActionNerve(this, GET_NERVE(LavaShellTower, HostTypeDemo), "\212\112\216\156" /* 開始 */);
+    MR::registerDemoActionNerve(this, GET_NERVE(LavaShellTower, HostTypeDemo), "開始");
     makeActorAppeared();
 }
 

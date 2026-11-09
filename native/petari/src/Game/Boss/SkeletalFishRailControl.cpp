@@ -3,162 +3,157 @@
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/RailUtil.hpp"
 
+namespace {
+    const f32 cDefaultSpeed = 20.0f;
+};  // namespace
+
 SkeletalFishRailControl::SkeletalFishRailControl() {
-    _0 = 2;
-    _4 = nullptr;
-    _8 = nullptr;
-    _10 = 0.0f;
-    _14 = 20.0f;
-    _18 = false;
+    mState = State_OnRail;
+    mJoinRail = nullptr;
+    mRail = nullptr;
+    mJoinCoord = 0.0f;
+    mSpeed = cDefaultSpeed;
 }
 
-void SkeletalFishRailControl::setRailActor(LiveActor* a1, LiveActor* a2, bool a3) {
-    _4 = a2;
-    _8 = a1;
+// With a join rail the fish swims it first and then onto `pRail` where the join rail ends.
+void SkeletalFishRailControl::setRailActor(LiveActor* pRail, LiveActor* pJoinRail, bool isResetRail) {
+    mJoinRail = pJoinRail;
+    mRail = pRail;
 
-    if (a2 != nullptr) {
-        _0 = 0;
-        MR::setRailCoord(a2, 0.0f);
-        MR::setRailDirectionToEnd(_4);
+    if (pJoinRail != nullptr) {
+        mState = State_OnJoinRail;
+        MR::setRailCoord(pJoinRail, 0.0f);
+        MR::setRailDirectionToEnd(mJoinRail);
     } else {
-        _0 = 2;
+        mState = State_OnRail;
     }
 
-    if (a3) {
-        MR::setRailCoord(_8, 0.0f);
-        MR::setRailDirectionToEnd(_8);
+    if (isResetRail) {
+        MR::setRailCoord(mRail, 0.0f);
+        MR::setRailDirectionToEnd(mRail);
     }
 }
 
+// While joining, the head is on the rail and mRailCoord runs on from the join point until the whole body (one rail
+// length) has crossed.
 void SkeletalFishRailControl::update() {
-    if (_4 != nullptr) {
-        MR::setRailCoordSpeed(_4, _14);
+    if (mJoinRail != nullptr) {
+        MR::setRailCoordSpeed(mJoinRail, mSpeed);
     }
 
-    MR::setRailCoordSpeed(_8, _14);
+    MR::setRailCoordSpeed(mRail, mSpeed);
 
-    switch (_0) {
-    case 0: {
-        f32 railLength = MR::getRailTotalLength(_4);
-        f32 v3 = ((_14 + MR::getRailCoord(_4) - railLength));
-        if (v3 >= 0.0f) {
-            f32 coord = MR::calcNearestRailCoord(_8, MR::getRailPointPosEnd(_4));
-            _10 = coord;
-            _C = (_10 - v3);
-            MR::setRailCoord(_8, _C);
-            _0 = 1;
+    switch (mState) {
+    case State_OnJoinRail: {
+        f32 railLength = MR::getRailTotalLength(mJoinRail);
+        f32 overshoot = ((mSpeed + MR::getRailCoord(mJoinRail) - railLength));
+        if (overshoot >= 0.0f) {
+            mJoinCoord = MR::calcNearestRailCoord(mRail, MR::getRailPointPosEnd(mJoinRail));
+            mRailCoord = (mJoinCoord - overshoot);
+            MR::setRailCoord(mRail, mRailCoord);
+            mState = State_Joining;
         }
         break;
     }
-
-    case 1:
-        if (_C - _10 >= MR::getRailTotalLength(_8)) {
-            _0 = 2;
+    case State_Joining:
+        if (mRailCoord - mJoinCoord >= MR::getRailTotalLength(mRail)) {
+            mState = State_OnRail;
         }
         break;
-    case 2:
+    case State_OnRail:
         break;
     }
 
-    _18 = false;
-
-    switch (_0) {
-    case 0:
-        MR::moveRailRider(_4);
+    switch (mState) {
+    case State_OnJoinRail:
+        MR::moveRailRider(mJoinRail);
         break;
-    case 1:
-        _C += _14;
-        MR::getRailTotalLength(_8);
-        MR::setRailCoord(_8, _C);
+    case State_Joining:
+        mRailCoord += mSpeed;
+        MR::setRailCoord(mRail, mRailCoord);
         break;
-    case 2:
-        if (MR::getRailCoord(_8) + MR::getRailCoordSpeed(_8) > MR::getRailTotalLength(_8)) {
-            _18 = true;
-        }
-
-        MR::moveRailRider(_8);
+    case State_OnRail:
+        MR::moveRailRider(mRail);
         break;
     }
 }
 
-void SkeletalFishRailControl::getRailInfo(SkeletalFishRailInfo* pOutInfo, f32 a2) {
-    switch (_0) {
-    case 0: {
-        f32 coord = MR::getRailCoord(_4);
-        pOutInfo->_0 = _4;
-        pOutInfo->_4 = coord - a2;
+// The rail and coordinate `behind` back from the head; while joining, a point not yet across is on the join rail.
+void SkeletalFishRailControl::getRailInfo(SkeletalFishRailInfo* pOutInfo, f32 behind) {
+    switch (mState) {
+    case State_OnJoinRail: {
+        f32 coord = MR::getRailCoord(mJoinRail);
+        pOutInfo->mRail = mJoinRail;
+        pOutInfo->mCoord = coord - behind;
         break;
     }
-    case 1: {
-        f32 dist = _C - a2;
-        if (dist < _10) {
-            f32 railLength = MR::getRailTotalLength(_4);
-            f32 diff = _10 - dist;
-            pOutInfo->_0 = _4;
-            dist = railLength - diff;
+    case State_Joining: {
+        f32 coord = mRailCoord - behind;
+        if (coord < mJoinCoord) {
+            f32 railLength = MR::getRailTotalLength(mJoinRail);
+            f32 beforeJoin = mJoinCoord - coord;
+            pOutInfo->mRail = mJoinRail;
+            coord = railLength - beforeJoin;
         } else {
-            pOutInfo->_0 = _8;
+            pOutInfo->mRail = mRail;
         }
 
-        pOutInfo->_4 = dist;
+        pOutInfo->mCoord = coord;
         break;
     }
-
-    case 2: {
-        f32 coord = MR::getRailCoord(_8);
-        pOutInfo->_0 = _8;
-        pOutInfo->_4 = coord - a2;
+    case State_OnRail: {
+        f32 coord = MR::getRailCoord(mRail);
+        pOutInfo->mRail = mRail;
+        pOutInfo->mCoord = coord - behind;
         break;
     }
     }
 }
 
-void SkeletalFishRailControl::getPos(TVec3f* pOut, f32 a2) {
+// Before an open rail's start the point continues straight back along its start direction.
+void SkeletalFishRailControl::getPos(Vec3f* pOut, f32 behind) {
     SkeletalFishRailInfo info;
-    getRailInfo(&info, a2);
+    getRailInfo(&info, behind);
 
-    if (info._4 < 0.0f && !MR::isLoopRail(info._0)) {
-        MR::calcRailPosAtCoord(pOut, info._0, 0.0f);
-        TVec3f railDir;
-        MR::calcRailDirectionAtCoord(&railDir, info._0, 0.0f);
-        railDir.scale(info._4);
+    if (info.mCoord < 0.0f && !MR::isLoopRail(info.mRail)) {
+        MR::calcRailPosAtCoord(pOut, info.mRail, 0.0f);
+        Vec3f railDir;
+        MR::calcRailDirectionAtCoord(&railDir, info.mRail, 0.0f);
+        railDir.scale(info.mCoord);
         pOut->add(railDir);
-
     } else {
-        MR::calcRailPosAtCoord(pOut, info._0, info._4);
+        MR::calcRailPosAtCoord(pOut, info.mRail, info.mCoord);
     }
 }
 
-void SkeletalFishRailControl::getMtx(TPos3f* pOut, f32 a2) {
-    SkeletalFishRailInfo normalRailInfo;
-    SkeletalFishRailInfo distRailInfo;
-    getRailInfo(&normalRailInfo, a2);
-    getRailInfo(&distRailInfo, a2 - 1000.0f);
+// The frame at that point: front along the rail, up against its gravity.
+void SkeletalFishRailControl::getMtx(Pos3f* pOut, f32 behind) {
+    SkeletalFishRailInfo info;
+    getRailInfo(&info, behind);
 
-    TVec3f railPos;
-    TVec3f railDir;
-    TVec3f gravityVec;
-    TVec3f stack_3C;
+    Vec3f railPos;
+    Vec3f railDir;
+    Vec3f gravityVec;
 
-    if (normalRailInfo._4 < 0.0f && !MR::isLoopRail(normalRailInfo._0)) {
-        MR::calcRailPosAtCoord(&railPos, normalRailInfo._0, 0.0f);
-        MR::calcRailDirectionAtCoord(&railDir, normalRailInfo._0, 0.0f);
-        stack_3C = railDir;
-        stack_3C.scale(normalRailInfo._4);
-        railPos.add(stack_3C);
+    if (info.mCoord < 0.0f && !MR::isLoopRail(info.mRail)) {
+        MR::calcRailPosAtCoord(&railPos, info.mRail, 0.0f);
+        MR::calcRailDirectionAtCoord(&railDir, info.mRail, 0.0f);
+        Vec3f beforeStart = railDir;
+        beforeStart.scale(info.mCoord);
+        railPos.add(beforeStart);
     } else {
-        MR::calcRailPosAtCoord(&railPos, normalRailInfo._0, normalRailInfo._4);
-        MR::calcRailDirectionAtCoord(&railDir, normalRailInfo._0, normalRailInfo._4);
+        MR::calcRailPosAtCoord(&railPos, info.mRail, info.mCoord);
+        MR::calcRailDirectionAtCoord(&railDir, info.mRail, info.mCoord);
     }
 
     MR::normalizeOrZero(&railDir);
-    MR::calcGravityVector(normalRailInfo._0, railPos, &gravityVec, nullptr, 0);
+    MR::calcGravityVector(info.mRail, railPos, &gravityVec, nullptr, 0);
 
-    TVec3f v15 = (-gravityVec).cross(railDir);
-    TVec3f v14 = railDir.cross(v15);
+    Vec3f side = (-gravityVec).cross(railDir);
+    Vec3f up = railDir.cross(side);
 
-    MR::normalizeOrZero(&v15);
-    MR::normalizeOrZero(&v14);
+    MR::normalizeOrZero(&side);
+    MR::normalizeOrZero(&up);
     MR::normalizeOrZero(&railDir);
-    pOut->setTR(v15, v14, railDir, railPos);
+    pOut->setTR(side, up, railDir, railPos);
 }

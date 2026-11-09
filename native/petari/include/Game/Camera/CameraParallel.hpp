@@ -4,19 +4,19 @@
 
 class CameraParallel : public Camera {
 public:
-    CameraParallel(const char* pName = "\225\275\215\163\203\112\203\201\203\211" /* 平行カメラ */);
+    CameraParallel(const char* pName = "平行カメラ");
 
-    virtual void reset();
-    virtual CameraTargetObj* calc();
-    virtual CamTranslatorBase* createTranslator();
-    virtual bool isEnableToRoundLeft() const;
-    virtual bool isEnableToRoundRight() const;
-    virtual bool isEnableToReset() const;
+    virtual void reset() override;
+    virtual CameraTargetObj* calc() override;
+    virtual void setParamFromChunk(const CameraParamChunk*) override;
+    virtual bool isEnableToRoundLeft() const override;
+    virtual bool isEnableToRoundRight() const override;
+    virtual bool isEnableToReset() const override;
 
     void calcIdealPose();
     void calcRound();
 
-    void setParam(const TVec2f& angle, f32 dist, bool enabled) {
+    void setParam(const Vec2f& angle, f32 dist, bool enabled) {
         mAngleX = angle.x;
         mAngleY = angle.y;
         mDist = dist;
@@ -30,5 +30,4 @@ public:
     bool mIsRounding;
     f32 mRoundTarget;
     f32 mRoundAngle;
-    f32 mRoundAddition;
 };

@@ -1,6 +1,5 @@
 #include "Game/Screen/PeachLetter.hpp"
 #include "Game/LiveActor/Nerve.hpp"
-#include "Game/NameObj/NameObjArchiveListCollector.hpp"
 #include "Game/Screen/IconAButton.hpp"
 #include "Game/Util/PlayerInputUtil.hpp"
 #include "Game/Util/LayoutUtil.hpp"
@@ -16,7 +15,7 @@ namespace NrvPeachLetter {
 PeachLetter::PeachLetter(const char* pName) : LayoutActor(pName, true), mAButtonIcon() {
 }
 
-void PeachLetter::init(const JMapInfoIter&) {
+void PeachLetter::init(const TableIter&) {
     initLayoutManager("PeachLetter", 1);
 
     mAButtonIcon = new IconAButton(false, false);
@@ -75,6 +74,3 @@ void PeachLetter::exeEnd() {
     }
 }
 
-void PeachLetter::makeArchiveList(NameObjArchiveListCollector* pCollector, const JMapInfoIter& rIter) {
-    pCollector->addArchive("PeachLetter");
-}

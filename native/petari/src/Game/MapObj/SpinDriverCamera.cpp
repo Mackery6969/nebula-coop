@@ -3,7 +3,7 @@
 #include "Game/Camera/CameraTargetMtx.hpp"
 #include "Game/LiveActor/ActorCameraInfo.hpp"
 #include "Game/Util/ActorCameraUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
 #include "Game/Util/MultiEventCamera.hpp"
@@ -11,21 +11,21 @@
 SpinDriverCamera::SpinDriverCamera() : mCamera(), mTargetMtx(), mCameraInfo(), mAppearCameraFrame() {
 }
 
-void SpinDriverCamera::startAppearCamera(LiveActor* pActor, const TVec3f& a2, const TVec3f& a3, const TVec3f& a4) {
+void SpinDriverCamera::startAppearCamera(LiveActor* pActor, const Vec3f& rUp, const Vec3f& rFront, const Vec3f& rPos) {
     if (mCameraInfo == nullptr) {
         return;
     }
 
-    mAppearCameraFrame = MR::getMultiActorCameraFrames(pActor, mCameraInfo, "\217\157\214\273\203\103\203\170\203\223\203\147\227\160" /* 出現イベント用 */);
+    mAppearCameraFrame = MR::getMultiActorCameraFrames(pActor, mCameraInfo, "出現イベント用");
 
     if (mAppearCameraFrame <= 0) {
         return;
     }
 
-    MR::startMultiActorCameraTargetOther(pActor, mCameraInfo, "\217\157\214\273\203\103\203\170\203\223\203\147\227\160" /* 出現イベント用 */, CameraTargetArg(mTargetMtx));
+    MR::startMultiActorCameraTargetOther(pActor, mCameraInfo, "出現イベント用", CameraTargetArg(mTargetMtx));
 
-    TPos3f upPos;
-    MR::makeMtxUpFrontPos(&upPos, a2, a3, a4);
+    Pos3f upPos;
+    MR::makeMtxUpFrontPos(&upPos, rUp, rFront, rPos);
     mTargetMtx->setMtx(upPos.toMtxPtr());
 }
 
@@ -38,32 +38,32 @@ void SpinDriverCamera::endAppearCamera(LiveActor* pActor) {
         return;
     }
 
-    MR::endMultiActorCamera(pActor, mCameraInfo, "\217\157\214\273\203\103\203\170\203\223\203\147\227\160" /* 出現イベント用 */, false);
+    MR::endMultiActorCamera(pActor, mCameraInfo, "出現イベント用", false);
 }
 
 s32 SpinDriverCamera::getAppearCameraFrames() const {
     return mAppearCameraFrame;
 }
 
-void SpinDriverCamera::start(const TVec3f& a1, const TVec3f& a2, const TVec3f& a3) {
+void SpinDriverCamera::start(const Vec3f& rUp, const Vec3f& rFront, const Vec3f& rPos) {
     if (mCamera == nullptr) {
         return;
     }
 
     mCamera->start(CameraTargetArg(mTargetMtx), 0);
 
-    TPos3f mtx;
-    MR::makeMtxUpFrontPos(&mtx, a1, a2, a3);
+    Pos3f mtx;
+    MR::makeMtxUpFrontPos(&mtx, rUp, rFront, rPos);
     mTargetMtx->setMtx(mtx.toMtxPtr());
 }
 
-void SpinDriverCamera::update(const TVec3f& a1, const TVec3f& a2) {
+void SpinDriverCamera::update(const Vec3f& rDir, const Vec3f& rPos) {
     if (mCamera == nullptr || mCamera->isEnd()) {
         return;
     }
 
     mCamera->update();
-    updateTargetMatrix(a1, a2);
+    updateTargetMatrix(rDir, rPos);
 }
 
 void SpinDriverCamera::cancel() {
@@ -83,25 +83,26 @@ void SpinDriverCamera::end() {
     mCamera->changeTargetPlayer();
 }
 
-void SpinDriverCamera::updateTargetMatrix(const TVec3f& rRot, const TVec3f& rTrans) {
-    if (MR::isNearZero(rRot)) {
+// Turns the target's up onto rDir and moves it to rPos; does nothing while rDir is near zero.
+void SpinDriverCamera::updateTargetMatrix(const Vec3f& rDir, const Vec3f& rPos) {
+    if (MR::isNearZero(rDir)) {
         return;
     }
 
-    TPos3f targetMtx = mTargetMtx->mMatrix;
+    Pos3f targetMtx = mTargetMtx->mMatrix;
 
-    TVec3f yDir;
+    Vec3f yDir;
     targetMtx.getYDir(yDir);
 
-    TVec3f rotVec;
-    MR::normalize(rRot, &rotVec);
+    Vec3f dir;
+    MR::normalize(rDir, &dir);
 
-    TPos3f rotMtx;
+    Pos3f rotMtx;
     rotMtx.identity();
-    rotMtx.setRotate(yDir, rotVec);
+    rotMtx.setRotate(yDir, dir);
 
     targetMtx.concat(rotMtx, targetMtx);
-    targetMtx.setTrans(rTrans);
+    targetMtx.setTrans(rPos);
 
     mTargetMtx->setMtx(targetMtx);
 }
@@ -111,34 +112,34 @@ bool SpinDriverCamera::isUseAppearCamera(LiveActor* pActor) const {
         return false;
     }
 
-    return MR::getMultiActorCameraFrames(pActor, mCameraInfo, "\217\157\214\273\203\103\203\170\203\223\203\147\227\160" /* 出現イベント用 */) > 0;
+    return MR::getMultiActorCameraFrames(pActor, mCameraInfo, "出現イベント用") > 0;
 }
 
-void SpinDriverCamera::init(const JMapInfoIter& rIter, LiveActor* pActor) {
+void SpinDriverCamera::init(const TableIter& rIter, LiveActor* pActor) {
     ActorCameraInfo info(rIter);
 
     if (info.mCameraSetID == -1) {
         return;
     }
 
-    s32 arg3 = 1;
-    MR::getJMapInfoArg3NoInit(rIter, &arg3);
+    s32 cameraNum = 1;
+    MR::getPlacementArg3NoInit(rIter, &cameraNum);
 
     mCamera = new MultiEventCamera();
-    mCamera->setUp(pActor->mName, new ActorCameraInfo(rIter), arg3);
+    mCamera->setUp(pActor->mName, new ActorCameraInfo(rIter), cameraNum);
     mCamera->setEndCameraTypeAtLanding();
 
-    mTargetMtx = new CameraTargetMtx("\203\112\203\201\203\211\203\136\201\133\203\121\203\142\203\147\203\137\203\176\201\133" /* カメラターゲットダミー */);
+    mTargetMtx = new CameraTargetMtx("カメラターゲットダミー");
 }
 
-void SpinDriverCamera::initAppearCamera(const JMapInfoIter& rIter, LiveActor* pActor) {
+void SpinDriverCamera::initAppearCamera(const TableIter& rIter, LiveActor* pActor) {
     ActorCameraInfo info(rIter);
 
     if (info.mCameraSetID == -1) {
         return;
     }
 
-    MR::initMultiActorCamera(pActor, rIter, &mCameraInfo, "\217\157\214\273\203\103\203\170\203\223\203\147\227\160" /* 出現イベント用 */);
+    MR::initMultiActorCamera(pActor, rIter, &mCameraInfo, "出現イベント用");
 
-    mAppearCameraFrame = MR::getMultiActorCameraFrames(pActor, mCameraInfo, "\217\157\214\273\203\103\203\170\203\223\203\147\227\160" /* 出現イベント用 */);
+    mAppearCameraFrame = MR::getMultiActorCameraFrames(pActor, mCameraInfo, "出現イベント用");
 }

@@ -24,17 +24,19 @@ struct MaterialConstants {
     float4 params2;  // x: light A (0 none, 1 one, 2 the gradient), y: light B (0 none, 1 one, 2 stage 0's alpha),
                      // z: 1 the raster is one (mode 4), w: 1 light B's alpha from stage 0
     float4 params3;  // x: 1 coordinate 0 through matrix 0 (the BTK), else the vertex's; y: K; zw: the gradient's size
+    float4 coord[9];  // texture matrices, three rows each
 };
 
+#define NATIVE_COORDS 2
 #include "native_material.hlsli"
 
 float2 normal_map_coord(NativeVertex v, uint i) {
     const float4 c = float4(v.uv[0], 1.0, 1.0);
-    return float2(dot(c, native_tex_row(3u * i)), dot(c, native_tex_row(3u * i + 1u)));
+    return float2(dot(c, material.coord[3u * i]), dot(c, material.coord[3u * i + 1u]));
 }
 
 void material_vertex(NativeVertex v, inout NativeVaryings o) {
-    const uint nq = v.pn_row & 31u;
+    const uint nq = v.pn_row;
     const float3 nt = float3(dot(native_normal_row(nq).xyz, v.nrm), dot(native_normal_row(nq + 1u).xyz, v.nrm),
                              dot(native_normal_row(nq + 2u).xyz, v.nrm));
     const float3 nrm = dot(nt, nt) > 0.0 ? normalize(nt) : nt;
@@ -43,12 +45,12 @@ void material_vertex(NativeVertex v, inout NativeVaryings o) {
     const uint src = uint(material.params.z);
     float3 litColor = float3(0.0, 0.0, 0.0);
     float litAlpha = 0.0;
-    for (uint n = 0u; n < 8u; ++n) {
+    for (uint n = 0u; n < min(native_light_count(), 24u); ++n) {
         if (((maskColor >> n) & 1u) != 0u) {
-            litColor += j3d_light(n, 2u, 2u, v.eye, nrm).rgb;
+            litColor += channel_light(n, 2u, 2u, v.eye, nrm).rgb;
         }
         if (((maskAlpha >> n) & 1u) != 0u) {
-            litAlpha += j3d_light(n, 2u, 1u, v.eye, nrm).a;
+            litAlpha += channel_light(n, 2u, 1u, v.eye, nrm).a;
         }
     }
     const float3 mat = (src & 1u) != 0u ? v.color0.rgb : material.mat0.rgb;
@@ -70,9 +72,9 @@ float4 material_color(NativeVaryings i) {
         return float4(i.color.rgb, k);
     }
     const float2 size = material.params3.zw;
-    const float3 ind = round(tex[0].Sample(samp[0], i.uv[0].xy).abg * 255.0) - 128.0;
+    const float3 ind = round(TEX(0).Sample(SAMP(0), i.uv[0].xy).abg * 255.0) - 128.0;
     const float2 offset = float2(dot(material.ind0.xyz, ind), dot(material.ind1.xyz, ind));
-    const float4 grad = tex[1].Sample(samp[1], (i.uv[0].zw * size + offset) / size);
+    const float4 grad = TEX(1).Sample(SAMP(1), (i.uv[0].zw * size + offset) / size);
     const float3 rasc = material.params2.z != 0.0 ? float3(1.0, 1.0, 1.0) : i.color.rgb;
 
     // Stage 0.
@@ -83,7 +85,7 @@ float4 material_color(NativeVaryings i) {
     const float lightB = material.params2.w != 0.0 ? alpha0 : i.color.a;
     const float alpha1 = saturate(material.reg0.a + k * (1.0 - lightB));
     // Stage 2.
-    const float3 t2 = tex[2].Sample(samp[2], i.uv[1].xy).rgb;
+    const float3 t2 = TEX(2).Sample(SAMP(2), i.uv[1].xy).rgb;
     const float3 mixed = lerp(material.reg1.rgb, c2, t2);
     if (mode == 4u || mode == 7u) {
         return float4(c2, k);

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // HLSL to SPIR-V through glslang (shader_compile_vk.h).
 #include "galaxy/render/vk/shader_compile_vk.h"
+#include "../materials/nebula_limits.hlsli"
 
 // The release libraries are built with the HLSL front end; this exposes its switch for semantic decorations.
 #define ENABLE_HLSL 1
@@ -25,11 +26,15 @@ namespace {
 constexpr RegisterBinding kDrawBindings[] = {
     {"b0", 0, 0},
     {"b1", 0, 1},
-    {"t0, space1", 0, 2},
-    {"t1, space1", 0, 3},  // vertex blending: the earlier draw's vertices
-    {"t2, space1", 0, 4},  // vertex blending: verdicts and the presented frame's values
-    {"t3, space1", 0, 5},  // the rows the draw's row table names
-    {"b2", 0, 0, true},    // vertex blending: the draw's (push constants)
+    {"b2", 0, 2},
+    {"t16", 0, 3},
+    {"t17", 0, 4},
+    {"t18", 0, 5},
+    {"b3", 0, 0, true},
+    // Set 1 the images and set 2 the samplers, as one array each over every texture and sampler (space1) or as a bound
+    // table (program.hlsli).
+    {"t0, space1", 1, 0},
+    {"s0, space1", 2, 0},
     {"t0", 1, 0},
     {"s0", 2, 0},
 };
@@ -70,8 +75,10 @@ std::string spirv_string(const std::vector<std::uint32_t>& spirv, std::size_t fi
 }
 
 // A semantic's location, as D3D12 matches stages by semantic: vertex attributes
-// (POSITION 0, NORMAL 1, TANGENT 2, BINORMAL 3, COLOR0-1 4-5, TEXCOORD0-7 6-13, BLENDINDICES0 14, BEND 15, BLENDINDICES1 16);
-// between stages COLOR0-1 at 0-1 and TEXCOORD0-16 at 2-18 (16: the curved stages' curve data); pixel outputs
+// (POSITION 0, NORMAL 1, TANGENT 2, BINORMAL 3, COLOR0-1 4-5, BLENDINDICES0 6, POSITION1 7, BLENDINDICES1 8, then
+// TEXCOORDn at 9 + n, as many as the program names);
+// between stages COLOR0-1 at 0-1 and TEXCOORDn at 2 + n (the program's coordinates, then the lit and motion varyings
+// its text numbers after them); pixel outputs
 // SV_TARGETn at n. `element`: the variable's element of an
 // array declared with this semantic, which takes the following indices.
 std::optional<std::uint32_t> semantic_location(std::string semantic, std::uint32_t element, bool vertex_input,
@@ -95,14 +102,15 @@ std::optional<std::uint32_t> semantic_location(std::string semantic, std::uint32
         if (name == "TANGENT" && index == 0u) return 2u;
         if (name == "BINORMAL" && index == 0u) return 3u;
         if (name == "COLOR" && index < 2u) return 4u + index;
-        if (name == "TEXCOORD" && index < 8u) return 6u + index;
-        if (name == "BLENDINDICES" && index == 0u) return 14u;
-        if (name == "BLENDINDICES" && index == 1u) return 16u;
-        if (name == "BEND" && index == 0u) return 15u;
+        if (name == "BLENDINDICES" && index == 0u) return 6u;
+        if (name == "POSITION" && index == 1u) return 7u;
+        if (name == "BEND" && index == 0u) return 7u;
+        if (name == "BLENDINDICES" && index == 1u) return 8u;
+        if (name == "TEXCOORD") return 9u + index;
         return std::nullopt;
     }
     if (name == "COLOR" && index < 2u) return index;
-    if (name == "TEXCOORD" && index < 17u) return 2u + index;
+    if (name == "TEXCOORD") return 2u + index;
     return std::nullopt;
 }
 
@@ -224,19 +232,6 @@ std::span<const RegisterBinding> draw_bindings() noexcept {
     return kDrawBindings;
 }
 
-std::string with_point_size(std::string_view vertex_hlsl) {
-    std::string text(vertex_hlsl);
-    const std::size_t output = text.find("struct VSOut {");
-    const std::size_t close = output == std::string::npos ? output : text.find("};", output);
-    const std::size_t init = text.find("VSOut o = (VSOut)0;");
-    if (close == std::string::npos || init == std::string::npos) {
-        return text;
-    }
-    text.insert(init + std::strlen("VSOut o = (VSOut)0;"), "\n    o.psize = 1.0;");
-    text.insert(close, "    [[vk::builtin(\"PointSize\")]] float psize : PSIZE;\n");
-    return text;
-}
-
 std::string annotate(std::string_view hlsl, std::span<const RegisterBinding> bindings) {
     // Each resource declaration names its register as ": register(<reg>)"; the attribute goes at the start of that
     // declaration (after the previous ';', '{', '}' or line break and any blanks). Several declarations may share a
@@ -307,6 +302,11 @@ std::vector<std::uint32_t> compile_hlsl(std::string_view hlsl, ShaderStage stage
     // Constant-buffer matrices are row-major, as the D3D12 compile's D3DCOMPILE_PACK_MATRIX_ROW_MAJOR: the shared code
     // writes them row by row and the shaders multiply mul(matrix, vector).
     std::string preamble = "#define NEBULA_VULKAN 1\n#pragma pack_matrix(row_major)\n";
+    if (compile_options.bound_tables) {
+        // A device without descriptor indexing: each draw binds its own table of maps (program.hlsli); else the arrays are
+        // runtime-sized (OpTypeRuntimeArray, capability RuntimeDescriptorArray).
+        preamble += "#define NEBULA_BOUND_TABLES 1\n#define NEBULA_TABLE_SLOTS " + std::to_string(kBoundTableSlots) + "\n";
+    }
     for (const char* define : defines) {
         const char* equals = std::strchr(define, '=');
         if (equals == nullptr) {

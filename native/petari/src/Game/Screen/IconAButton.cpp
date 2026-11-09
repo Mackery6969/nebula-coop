@@ -11,7 +11,7 @@ namespace NrvIconAButton {
     NEW_NERVE(IconAButtonNrvTerm, IconAButton, Term);
 };  // namespace NrvIconAButton
 
-IconAButton::IconAButton(bool connectToScene, bool connectToPause) : LayoutActor("A\203\173\203\136\203\223\203\101\203\103\203\122\203\223" /* Aボタンアイコン */, true), mFollowPos(0.0f, 0.0f), mFollowActor() {
+IconAButton::IconAButton(bool connectToScene, bool connectToPause) : LayoutActor("Aボタンアイコン", true), mFollowPos(0.0f, 0.0f), mFollowActor() {
     if (connectToScene) {
         if (connectToPause) {
             MR::connectToSceneLayoutOnPause(this);
@@ -19,11 +19,9 @@ IconAButton::IconAButton(bool connectToScene, bool connectToPause) : LayoutActor
             MR::connectToSceneTalkLayout(this);
         }
     }
-
-    mFollowPaneName[0] = '\0';
 }
 
-void IconAButton::init(const JMapInfoIter& rIter) {
+void IconAButton::init(const TableIter& /*rIter*/) {
     initLayoutManager("IconAButton", 1);
     initNerve(GET_NERVE(IconAButton, IconAButtonNrvOpen));
     MR::startAnim(this, "Appear", 0);
@@ -34,7 +32,7 @@ void IconAButton::init(const JMapInfoIter& rIter) {
 void IconAButton::setFollowActorPane(LayoutActor* pActor, const char* pName) {
     mFollowActor = pActor;
 
-    nebula_snprintf(mFollowPaneName, sizeof(mFollowPaneName), "%s", pName);
+    mFollowPaneName.format("%s", pName);
     MR::setFollowPos(&mFollowPos, this, nullptr);
 }
 
@@ -116,6 +114,6 @@ void IconAButton::draw() const {
 
 void IconAButton::updateFollowPos() {
     if (mFollowActor != nullptr) {
-        MR::copyPaneTrans(&mFollowPos, mFollowActor, mFollowPaneName);
+        MR::copyPaneTrans(&mFollowPos, mFollowActor, mFollowPaneName.c_str());
     }
 }

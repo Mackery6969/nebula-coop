@@ -8,17 +8,17 @@
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 
-DemoCtrlBase::DemoCtrlBase(LiveActor* pActor, const char* pName) : mActor(pActor), mCameraInfo(), mDemoName(pName), mCurrentFrame(-1), _10() {
+DemoCtrlBase::DemoCtrlBase(LiveActor* pActor, const char* pName) : mActor(pActor), mCameraInfo(), mDemoName(pName), mCurrentFrame(-1), mWasInvalidClipping() {
 }
 
-void DemoCtrlBase::init(const JMapInfoIter& rIter) {
+void DemoCtrlBase::init(const TableIter& rIter) {
     MR::initActorCamera(mActor, rIter, &mCameraInfo);
 }
 
 void DemoCtrlBase::end() {
     MR::endDemo(mActor, mDemoName);
 
-    if (!_10) {
+    if (!mWasInvalidClipping) {
         MR::validateClipping(mActor);
     }
 
@@ -61,9 +61,9 @@ bool DemoCtrlBase::tryStart() {
     }
 
     mCurrentFrame = 0;
-    _10 = MR::isInvalidClipping(mActor);
+    mWasInvalidClipping = MR::isInvalidClipping(mActor);
 
-    if (!_10) {
+    if (!mWasInvalidClipping) {
         MR::invalidateClipping(mActor);
     }
 

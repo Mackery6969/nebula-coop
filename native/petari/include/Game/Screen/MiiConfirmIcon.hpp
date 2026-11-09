@@ -2,11 +2,9 @@
 
 #include "Game/Screen/LayoutActor.hpp"
 
-namespace nw4r {
-    namespace lyt {
-        class TexMap;
-    };  // namespace lyt
-};  // namespace nw4r
+namespace Ui {
+    class TexMap;
+}  // namespace Ui
 
 class MiiConfirmIcon : public LayoutActor {
 public:
@@ -14,10 +12,10 @@ public:
     /// @param pName The pointer to the null-terminated name of the object.
     MiiConfirmIcon(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
+    virtual void init(const TableIter& rIter);
     virtual void appear();
 
-    void appear(nw4r::lyt::TexMap*, const char16_t*);
+    void appear(Ui::TexMap*, const char16_t*);
     void disappear();
     void exeAppear();
     void exeWait();

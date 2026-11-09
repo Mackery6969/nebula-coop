@@ -7,12 +7,10 @@ namespace NrvCollectCounter {
     NEW_NERVE(CollectCounterNrvShow, CollectCounter, Show);
 };  // namespace NrvCollectCounter
 
-CollectCounter::CollectCounter(const char* pName) : LayoutActor(pName, true) {
-    mFollowPosition.x = 0.0f;
-    mFollowPosition.y = 0.0f;
+CollectCounter::CollectCounter(const char* pName) : LayoutActor(pName, true), mFollowPosition(0.0f, 0.0f) {
 }
 
-void CollectCounter::init(const JMapInfoIter& rIter) {
+void CollectCounter::init(const TableIter& /*rIter*/) {
     MR::connectToSceneLayout(this);
     initLayoutManager("CollectCounter", 1);
     initNerve(GET_NERVE(CollectCounter, CollectCounterNrvHide));
@@ -32,7 +30,10 @@ void CollectCounter::exeShow() {
         MR::startAnim(this, "Appear", 0);
     }
 
-    tryEndShow();
+    if (MR::isAnimStopped(this, 0)) {
+        setNerve(GET_NERVE(CollectCounter, CollectCounterNrvHide));
+        kill();
+    }
 }
 
 void CollectCounter::setCount(s32 num) {
@@ -41,24 +42,10 @@ void CollectCounter::setCount(s32 num) {
     MR::setTextBoxNumberRecursive(this, "CollectCounter", num);
 }
 
-bool CollectCounter::tryEndShow() {
-    if (MR::isAnimStopped(this, 0)) {
-        setNerve(GET_NERVE(CollectCounter, CollectCounterNrvHide));
-        kill();
-        return true;
-    }
-
-    return false;
-}
-
 void CollectCounter::setPosition() {
-    f32 point_rad = MR::calcPointRadius2D(*MR::getPlayerCenterPos(), 75.0f);
-    TVec2f screen_pos;
-    MR::calcScreenPosition(&screen_pos, *MR::getPlayerCenterPos());
-    screen_pos.y -= point_rad;
-    mFollowPosition.x = screen_pos.x;
-    mFollowPosition.y = screen_pos.y;
-}
-
-CollectCounter::~CollectCounter() {
+    f32 pointRadius = MR::calcPointRadius2D(*MR::getPlayerCenterPos(), 75.0f);
+    Vec2f screenPos;
+    MR::calcScreenPosition(&screenPos, *MR::getPlayerCenterPos());
+    mFollowPosition.x = screenPos.x;
+    mFollowPosition.y = screenPos.y - pointRadius;
 }

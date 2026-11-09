@@ -3,38 +3,34 @@
 #include "Game/Util/StarPointerUtil.hpp"
 
 void MarioActor::resetPadSwing() {
-    _EF8 = 0;
-    _EFC = 0;
-    _F04 = 0;
-    _F08 = 0;
-    _F0C = false;
-    _F00 = 0;
-    _F1C = 10;
-    _F1E = 10;
+    mSubSpinTrigger = false;
+    mMainSpinTrigger = 0;
+    mMainSpinBlock = 10;
+    mSubSpinBlock = 10;
 }
 
 bool MarioActor::isRequestHipDrop() const {
-    if (_934 || _38C != 0) {
+    if (mInRush || mStunTimer != 0) {
         return false;
     }
 
-    if (_935) {
+    if (mRushJustEnded) {
         return false;
     }
 
-    return checkButtonType(_F0E, false);
+    return checkButtonType(mHipDropButton, false);
 }
 
 bool MarioActor::isRequestRush() const {
-    if (!_EEB) {
+    if (!mSwingPermission) {
         return false;
     }
 
-    if (_946 != 0) {
+    if (mSpinIntervalTimer != 0) {
         return false;
     }
 
-    if (_EF6 != 0) {
+    if (mSwingInhibitTimer != 0) {
         return false;
     }
 
@@ -42,7 +38,7 @@ bool MarioActor::isRequestRush() const {
         return false;
     }
 
-    if (_935) {
+    if (mRushJustEnded) {
         return false;
     }
 
@@ -50,10 +46,10 @@ bool MarioActor::isRequestRush() const {
         return false;
     }
 
-    bool out = checkButtonType(_F10, false);
-    if (mMario->_10._D) {
+    bool out = checkButtonType(mRushButton, false);
+    if (mMario->mActionStates.holdButtonAfterRush) {
         if (!out) {
-            mMario->_10._D = false;
+            mMario->mActionStates.holdButtonAfterRush = false;
         }
 
         out = false;
@@ -63,7 +59,7 @@ bool MarioActor::isRequestRush() const {
 }
 
 bool MarioActor::isRequestThrow() const {
-    if (!_EEB) {
+    if (!mSwingPermission) {
         return false;
     }
 
@@ -71,10 +67,10 @@ bool MarioActor::isRequestThrow() const {
         return false;
     }
 
-    bool out = checkButtonType(_F10, false);
-    if (mMario->_10._D) {
+    bool out = checkButtonType(mRushButton, false);
+    if (mMario->mActionStates.holdButtonAfterRush) {
         if (!out) {
-            mMario->_10._D = false;
+            mMario->mActionStates.holdButtonAfterRush = false;
         }
 
         out = false;
@@ -84,27 +80,27 @@ bool MarioActor::isRequestThrow() const {
 }
 
 bool MarioActor::isRequestSpin() const {
-    if (_935) {
+    if (mRushJustEnded) {
         return false;
     }
 
-    if (isJumping() && mMario->_3BC > 6 && MR::isStarPointerPointing2P(this, "\216\343" /* 弱 */, true, false) && MR::isPressedJump(1)) {
+    if (isJumping() && mMario->mAirTimer > 6 && MR::isStarPointerPointing2P(this, "弱", true, false) && MR::isPressedJump(1)) {
         return true;
     }
 
-    return checkButtonType(_F12, false);
+    return checkButtonType(mSpinButton, false);
 }
 
 bool MarioActor::isRequestJump() const {
-    if (_934 || _38C != 0) {
+    if (mInRush || mStunTimer != 0) {
         return false;
     }
 
-    if (_935) {
+    if (mRushJustEnded) {
         return false;
     }
 
-    return checkButtonType(_F1A, false);
+    return checkButtonType(mJumpButton, false);
 }
 
 bool MarioActor::isRequestJump2P() const {
@@ -112,19 +108,19 @@ bool MarioActor::isRequestJump2P() const {
         return false;
     }
 
-    if (_3C0) {
+    if (mRemoteDemo) {
         return false;
     }
 
-    if (_934 || _38C != 0) {
+    if (mInRush || mStunTimer != 0) {
         return false;
     }
 
-    if (_935) {
+    if (mRushJustEnded) {
         return false;
     }
 
-    if (MR::isStarPointerPointing2P(this, "\216\343" /* 弱 */, true, false) && MR::isPressedJump(1)) {
+    if (MR::isStarPointerPointing2P(this, "弱", true, false) && MR::isPressedJump(1)) {
         return true;
     }
 
@@ -140,7 +136,7 @@ bool MarioActor::isKeepJump2P() const {
         return false;
     }
 
-    if (_3C0) {
+    if (mRemoteDemo) {
         return false;
     }
 
@@ -152,27 +148,27 @@ bool MarioActor::checkButtonType(u16 type, bool isObeyDisable) const {
         return false;
     }
 
-    if (_3C0) {
+    if (mRemoteDemo) {
         return false;
     }
 
     switch (type) {
     case 2:
-        if (_F0C || _F00) {
+        if (mSubSpinTrigger || mMainSpinTrigger) {
             return true;
         }
 
         break;
 
     case 0:
-        if (_F0C) {
+        if (mSubSpinTrigger) {
             return true;
         }
 
         break;
 
     case 1:
-        if (_F00) {
+        if (mMainSpinTrigger) {
             return true;
         }
 
@@ -246,7 +242,7 @@ void MarioActor::getStickValue(f32* pStickX, f32* pStickY) {
         return;
     }
 
-    if (mMario->getDrawStates()._7) {
+    if (mMario->getDrawStates().stickLocked) {
         return;
     }
 
@@ -260,72 +256,68 @@ void MarioActor::getStickValue(f32* pStickX, f32* pStickY) {
 }
 
 void MarioActor::updateActionTrigger() {
-    _EED = false;
-    _EEE = false;
+    mActionTrigger = false;
 
-    if (checkButtonType(3, false) || _F00 != 0) {
-        if (_EEC) {
+    if (checkButtonType(3, false) || mMainSpinTrigger != 0) {
+        if (mActionHeld) {
             return;
         }
 
-        _EEC = true;
-        _EED = true;
+        mActionHeld = true;
+        mActionTrigger = true;
     } else {
-        _EEC = false;
+        mActionHeld = false;
     }
 
     if (mMario->checkLvlA()) {
-        _EEE = true;
     }
 }
 
 void MarioActor::updateControllerSwing() {
     if (checkButtonType(3, false) || checkButtonType(4, false)) {
-        _F1C = 10;
-        _EF8 = 0;
+        mMainSpinBlock = 10;
     }
 
-    bool F20 = _F20;
-    _F00 = false;
+    bool F20 = mMainSpinHeld;
+    mMainSpinTrigger = false;
 
     bool isMainSpin = !mMario->isSwimming() ? MR::isMainSpin(0) : MR::isMainSpinPressed(0);
-    _F20 = isMainSpin;
+    mMainSpinHeld = isMainSpin;
 
-    if (_F1C != 0) {
-        _F1C--;
+    if (mMainSpinBlock != 0) {
+        mMainSpinBlock--;
     } else if (isMainSpin && F20 == 0) {
-        _F00 = true;
+        mMainSpinTrigger = true;
     }
 
-    if (isMainSpin && _946 > 10 && _F1C < 8) {
-        _F1C = 8;
+    if (isMainSpin && mSpinIntervalTimer > 10 && mMainSpinBlock < 8) {
+        mMainSpinBlock = 8;
     }
 }
 
 void MarioActor::updateControllerSwingLeft() {
     if (checkButtonType(7, false) || checkButtonType(8, false)) {
-        _F1E = 10;
-        _F04 = 0;
+        mSubSpinBlock = 10;
     }
 
-    bool F21 = _F21;
-    _F0C = false;
+    bool F21 = mSubSpinHeld;
+    mSubSpinTrigger = false;
 
     bool isSubSpin = MR::isSubSpin(0);
-    _F21 = isSubSpin;
+    mSubSpinHeld = isSubSpin;
 
-    if (_F1E != 0) {
-        _F1E--;
+    if (mSubSpinBlock != 0) {
+        mSubSpinBlock--;
     } else if (isSubSpin && !F21) {
-        _F0C = true;
+        mSubSpinTrigger = true;
     }
 
-    if (isSubSpin && _946 > 10 && _F1E < 8) {
-        _F1E = 8;
+    if (isSubSpin && mSpinIntervalTimer > 10 && mSubSpinBlock < 8) {
+        mSubSpinBlock = 8;
     }
 }
 
-void MarioActor::lockOnDPD() {
+void MarioActor::lockOnPointer() {
 }
 
 bool MarioActor::isRequestSpinJump2P() const {
@@ -333,19 +325,19 @@ bool MarioActor::isRequestSpinJump2P() const {
         return false;
     }
 
-    if (_3C0) {
+    if (mRemoteDemo) {
         return false;
     }
 
-    if (!_EEB) {
+    if (!mSwingPermission) {
         return false;
     }
 
-    if (_946) {
+    if (mSpinIntervalTimer) {
         return false;
     }
 
-    if (_EF6) {
+    if (mSwingInhibitTimer) {
         return false;
     }
 
@@ -353,7 +345,7 @@ bool MarioActor::isRequestSpinJump2P() const {
         return false;
     }
 
-    if (_935) {
+    if (mRushJustEnded) {
         return false;
     }
 
@@ -361,11 +353,11 @@ bool MarioActor::isRequestSpinJump2P() const {
         return false;
     }
 
-    if (mMario->getMovementStates().jumping && mMario->_430 == 2 && mMario->_10._1F) {
+    if (mMario->getMovementStates().jumping && mMario->mJumpKind == 2 && mMario->mActionStates.jump2P) {
         return false;
     }
 
-    if (isJumping() && mMario->_3BC > 6 && MR::isStarPointerPointing2P(this, "\216\343" /* 弱 */, true, false) && MR::isPressedJump(1)) {
+    if (isJumping() && mMario->mAirTimer > 6 && MR::isStarPointerPointing2P(this, "弱", true, false) && MR::isPressedJump(1)) {
         return true;
     }
 

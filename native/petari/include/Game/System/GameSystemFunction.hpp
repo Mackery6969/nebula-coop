@@ -1,17 +1,16 @@
 #pragma once
 
 namespace GameSystemFunction {
-    void initAfterStationedResourceLoaded();
     void setSceneNameObjHolderToNameObjRegister();
     bool isCreatedGameDataHolder();
     bool isCreatedSystemWipe();
     bool isDoneLoadSystemArchive();
     bool tryToLoadSystemArchive();
-    void requestChangeArchivePlayer(bool);
-    void waitEndChangeArchivePlayer();
     void activateScreenPreserver();
     void deactivateScreenPreserver();
     bool isOccurredSystemWarning();
+    // True for the one frame the scene goes on after the HOME Menu, a warning, the skip's question or the settings menu held it.
+    bool isSceneResumed();
     bool isResetProcessing();
     void setResetOperationApplicationReset();
     void setResetOperationQuit();
@@ -26,7 +25,6 @@ namespace GameSystemFunction {
     bool isDoneResetAudioSystem();
     void resumeResetAudioSystem();
     void resetAllControllerRumble();
-    void setInputSleepTime(bool);
     bool setPermissionToCheckInput(bool);
     void onPauseBeginAllRumble();
     void onPauseEndAllRumble();

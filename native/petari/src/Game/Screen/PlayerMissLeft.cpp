@@ -1,4 +1,5 @@
 #include "Game/Screen/PlayerMissLeft.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Screen/CountUpPaneRumbler.hpp"
 #include "Game/Screen/CounterLayoutAppearer.hpp"
@@ -8,7 +9,7 @@
 
 namespace {
     const s32 hCountDownTime = 15;
-    const s32 hEndTime = 90;
+    const s32 hEndTime = NebulaFrameClock::stepsOfMilliseconds(1500);
 };  // namespace
 
 namespace NrvPlayerMissLeft {
@@ -21,11 +22,11 @@ namespace NrvPlayerMissLeft {
 PlayerMissLeft::PlayerMissLeft(const char* pName) : LayoutActor(pName, true), mLayoutAppearer(), mPaneRumbler() {
 }
 
-void PlayerMissLeft::init(const JMapInfoIter& rIter) {
+void PlayerMissLeft::init(const TableIter& /*rIter*/) {
     initLayoutManager("PlayerLeft", 3);
     MR::createAndAddPaneCtrl(this, "CenterPlayerLeft", 1);
 
-    mLayoutAppearer = new CounterLayoutAppearer(this, TVec2f(-50.0f, 0.0f));
+    mLayoutAppearer = new CounterLayoutAppearer(this, Vec2f(-50.0f, 0.0f));
     mPaneRumbler = new CountUpPaneRumbler(this, "CenterPlayerLeft");
 
     initNerve(GET_NERVE(PlayerMissLeft, HostTypeNrvAppearWait));
@@ -56,7 +57,7 @@ void PlayerMissLeft::exeAppear() {
     if (MR::isFirstStep(this)) {
         MR::showLayout(this);
         MR::setTextBoxNumberRecursive(this, "CenterPlayerLeft", MR::getPlayerLeft() + 1);
-        mLayoutAppearer->appear(TVec2f(0.0f, 0.0f));
+        mLayoutAppearer->appear(Vec2f(0.0f, 0.0f));
         MR::startAnim(this, "Wait", 1);
 
         if (MR::isPlayerLuigi()) {

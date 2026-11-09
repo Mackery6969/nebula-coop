@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
-// Shaders a converted mod brings (a .luma's shaders/ folder): the renderer asks native_shader_bytes for a material, and a
-// number past the built-in set is answered from here. One file per graphics interface, compiled when the mod was converted.
-//   Header: "NBSHADER", version u32, count u32, the shader interface it was compiled for (40 hexadecimal digits). Entry:
-//   material number u32 (as a cooked file holds it), variant u8, stage u8 (0 vertex, 1 pixel), 2 reserved, offset u64 from
-//   the file's start, size u64. Then one u32 per entry: the material's constants (j3d_compact.py's slots).
+// Programs a converted mod brings (a .luma's shaders/ folder): the program table asks here for an id it doesn't hold. One file
+// per graphics interface, compiled when the mod was converted.
+//   Header: "NBSHADER", version u32, count u32, the program interface it was compiled for (40 hexadecimal digits).
+//   Entry: program id u64 (its text's hash), variant u8, stage u8 (0 vertex, 1 pixel), 6 reserved, offset u64 from the file's
+//   start, size u64.
 
-#include "galaxy/render/native_shaders.h"
+#include "galaxy/render/program_table.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -17,31 +17,31 @@
 namespace galaxy::render {
 
 enum class ModShadersResult { Loaded, Unreadable, OtherInterface };
-// Loads one file before the renderer starts; anything else adds nothing. OtherInterface: compiled for a build whose shader
-// interface differs (the headers changed since): the mod must be converted again.
+// Loads one file before the renderer starts; anything else adds nothing. OtherInterface: compiled for a build whose program
+// headers differ: the mod must be converted again.
 ModShadersResult load_mod_shaders(const std::filesystem::path& file);
-[[nodiscard]] NativeShaderBytes mod_shader_bytes(std::uint32_t shader, unsigned variant, bool pixel) noexcept;
-// A J3D material's constants: the built-in set's or a mod's (tools/dev/j3d_compact.py SLOTS). 0 when none is known.
-[[nodiscard]] std::uint32_t native_material_layout(std::uint32_t shader) noexcept;
-// The same from a material's source: the members of its struct MaterialConstants.
-[[nodiscard]] std::uint32_t material_layout_of_source(const std::string& source);
-// What building a mod's missing shaders came to.
+[[nodiscard]] ProgramBytes mod_program_bytes(std::uint64_t id, unsigned variant, bool pixel) noexcept;
+// What building a mod's missing programs came to.
 struct ModShaderBuild {
-    unsigned wanted = 0;  // materials none of `brought` holds for this build
+    unsigned wanted = 0;  // programs neither the build nor `brought` holds
     unsigned built = 0;
     std::string problem;  // the first thing that went wrong
 };
-// Every material in `sources` (the cooker's m<number>.hlsl and the headers they include) that no file of `brought` holds for this
-// build's interface, built into `output` in this format.
+// Every program in `sources` (the cooker's v<hash>.hlsl and p<hash>.hlsl, and the headers they include) that neither this build
+// nor a file of `brought` holds, built into `output` in this format.
 ModShaderBuild build_missing_mod_shaders(const std::filesystem::path& sources, const std::vector<std::filesystem::path>& brought,
                                          const std::filesystem::path& output, const std::function<void(unsigned, unsigned)>& progress);
-// One stage of a material for this build's graphics interface; empty, with the reason, when it can't be.
+// What, besides the program interface, decides compile_mod_shader_stage's bytes for the same text: Vulkan's HLSL front
+// end and its location rules (vk::kCompilerRevision); 0 for D3D12, whose programs bind by name. Shaders built for
+// mods on this device are built again when it changes.
+[[nodiscard]] std::uint32_t mod_shader_compiler_revision() noexcept;
+// Vulkan: a pixel program is also built in its bound-table form (program.hlsli NEBULA_BOUND_TABLES), for a device without
+// descriptor indexing, stored at the variant + kProgramBoundOffset. The cooking machine need not be the one that plays.
+[[nodiscard]] bool mod_shader_has_bound_form() noexcept;
+// One stage of a program for this build's graphics interface; empty, with the reason, when it can't be. `bound_tables`: the
+// bound-table form (only where mod_shader_has_bound_form).
 std::vector<std::uint8_t> compile_mod_shader_stage(const std::string& source, const std::filesystem::path& includes, bool pixel,
-                                                   const std::vector<const char*>& defines, std::string& problem);
-
-// The file of this build's graphics interface in a mod's shaders/ folder: "dxil.shaders" or "spirv.shaders".
-[[nodiscard]] const char* native_shader_file_name() noexcept;
-// SHA-1 of this build's material headers.
-[[nodiscard]] const char* native_shader_interface() noexcept;
+                                                   const std::vector<const char*>& defines, std::string& problem,
+                                                   bool bound_tables = false);
 
 }  // namespace galaxy::render

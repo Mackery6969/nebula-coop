@@ -1,22 +1,21 @@
 #include "Game/Camera/CameraTripodBoss.hpp"
-#include "Game/Camera/CamTranslatorTripodBoss.hpp"
 #include "Game/Camera/CameraLocalUtil.hpp"
-
-CameraTripodBoss::~CameraTripodBoss() {
-}
+#include "Game/Camera/CameraParamChunk.hpp"
 
 CameraTripodBoss::CameraTripodBoss(const char* pName) : CameraTower(pName), mAngleY() {
 }
 
-CamTranslatorBase* CameraTripodBoss::createTranslator() {
-    return new CamTranslatorTripodBoss(this);
+void CameraTripodBoss::setParamFromChunk(const CameraParamChunk* pChunk) {
+    CameraGeneralParam* general = pChunk->mGeneralParam;
+    setParam(general->mWPoint, general->mAxis, general->mDist, Vec2f(general->mUp.x, general->mUp.y));
+    mAngleY = general->mUp.z;
 }
 
 void CameraTripodBoss::arrangeRound() {
-    TVec3f offset = CameraLocalUtil::getPos(this) - CameraLocalUtil::getWatchPos(this);
+    Vec3f offset = CameraLocalUtil::getPos(this) - CameraLocalUtil::getWatchPos(this);
 
-    TQuat4f rot;
-    rot.setRotate(TVec3f(0.0f, 1.0f, 0.0f), mAngleY);
+    Quat4f rot;
+    rot.setRotate(Vec3f(0.0f, 1.0f, 0.0f), mAngleY);
     rot.transform(offset);
 
     CameraLocalUtil::setPos(this, CameraLocalUtil::getWatchPos(this) + offset);

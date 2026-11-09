@@ -4,7 +4,7 @@
 #include "Game/Animation/XanimeResource.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/ModelManager.hpp"
-#include "Game/Player/J3DModelX.hpp"
+#include "Game/Player/PlayerModel.hpp"
 #include "Game/Player/MarioActor.hpp"
 #include "Game/Player/MarioAnimatorData.hpp"
 #include "Game/Player/MarioConst.hpp"
@@ -18,8 +18,7 @@
 #include "Game/Util/ModelUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
-#include <JSystem/JMath/JMATrigonometric.hpp>
-#include <cstring>
+#include <nebula_geometry.hpp>
 
 MarioAnimator::MarioAnimator(MarioActor* pActor) : MarioModule(pActor) {
     init();
@@ -49,49 +48,49 @@ void MarioAnimator::init() {
                                              reinterpret_cast< XanimeBckTable* >(singleAnimeTable), doubleAnimeTable, tripleAnimeTable,
                                              quadAnimeTable, luigiAnimations);
 
-    _14 = 0;
-    _15 = 0;
-    _16 = 1;
+    mWalkState = 0;
+    mPrevWalkState = 0;
+    mWaitPhase = 1;
 
-    _18 = 0.0f;
-    _1C = 0.0f;
-    _20 = 0.0f;
-    _24 = 1.0f;
+    mWalkWeights[0] = 0.0f;
+    mWalkWeights[1] = 0.0f;
+    mWalkWeights[2] = 0.0f;
+    mWalkWeights[3] = 1.0f;
 
-    NebulaMtxIdentity(_28.toMtxPtr());
-    NebulaMtxIdentity(_7C.toMtxPtr());
-    NebulaMtxIdentity(_AC.toMtxPtr());
+    NebulaMtxIdentity(mTiltMtx.toMtxPtr());
+    NebulaMtxIdentity(mHomingMtx.toMtxPtr());
+    NebulaMtxIdentity(mHipMtx.toMtxPtr());
 
-    _58 = 0.0f;
-    _5C = 0.0f;
-    _60.zero();
+    mTiltSide = 0.0f;
+    mTiltDown = 0.0f;
+    mTiltPrevFront.zero();
 
-    _6C = false;
-    _10C = 0;
-    _10D = 0;
+    mUpperRunning = false;
+    mMirrorChecked = 0;
+    mMirror = 0;
     mUpperDefaultSet = false;
     mCurrBck = nullptr;
-    _118 = 0.0f;
-    _70 = 0.0f;
-    _74 = 0;
-    _78 = 0;
-    _110 = 0.0f;
+    mRumbleHipRot = 0.0f;
+    mRumblePower = 0.0f;
+    mRumbleTimer = 0;
+    mWaitHoldTimer = 0;
+    mHomingAngle = 0.0f;
 
     initCallbackTable();
 
-    mXanimePlayer = new XanimePlayer(MR::getJ3DModel(mActor), mResourceTable);
+    mXanimePlayer = new XanimePlayer(MR::getModel(mActor), mResourceTable);
 
-    changeDefault("\212\356\226\173" /* 基本 */);
-    change("\212\356\226\173" /* 基本 */);
+    changeDefault("基本");
+    change("基本");
 
-    mXanimePlayer->getCore()->enableJointTransform(MR::getJ3DModelData(mActor));
+    mXanimePlayer->getCore()->enableJointTransform(MR::getModelData(mActor));
 
     mActor->mModelManager->mXanimePlayer = mXanimePlayer;
-    mXanimePlayerUpper = new XanimePlayer(MR::getJ3DModel(mActor), mResourceTable, mXanimePlayer);
-    changeDefaultUpper("\212\356\226\173" /* 基本 */);
-    mXanimePlayerUpper->changeAnimation("\212\356\226\173" /* 基本 */);
+    mXanimePlayerUpper = new XanimePlayer(MR::getModel(mActor), mResourceTable, mXanimePlayer);
+    changeDefaultUpper("基本");
+    mXanimePlayerUpper->changeAnimation("基本");
     mXanimePlayerUpper->mCore->shareJointTransform(mXanimePlayer->mCore);
-    NebulaMtxCopy(MR::tmpMtxRotYRad(PI), _DC.toMtxPtr());
+    NebulaMtxCopy(MR::tmpMtxRotYRad(PI), mMirrorMtx.toMtxPtr());
 }
 
 bool MarioAnimator::isAnimationStop() const {
@@ -101,7 +100,7 @@ bool MarioAnimator::isAnimationStop() const {
 void MarioAnimator::targetWeight(f32* pWeight, f32 target, f32 rate) {
     if (getPlayer()->isSwimming()) {
         *pWeight = *pWeight * (1.0f - mActor->mConst->getTable()->mWeightBlendRatioSwim) + target * mActor->mConst->getTable()->mWeightBlendRatioSwim;
-    } else if (getPlayer()->_3FA != 0) {
+    } else if (getPlayer()->mStartSpinTimer != 0) {
         *pWeight = *pWeight * 0.5f + target * 0.5f;
     } else {
         *pWeight = *pWeight * (1.0f - rate) + target * rate;
@@ -110,7 +109,7 @@ void MarioAnimator::targetWeight(f32* pWeight, f32 target, f32 rate) {
 
 void MarioAnimator::setWalkWeight(const f32* pWeights) {
     f32 rate = mActor->mConst->getTable()->mWeightBlendRatio;
-    if (getPlayer()->_3FA != 0) {
+    if (getPlayer()->mStartSpinTimer != 0) {
         rate = 0.5f;
     }
 
@@ -118,28 +117,24 @@ void MarioAnimator::setWalkWeight(const f32* pWeights) {
 }
 
 void MarioAnimator::setBlendWeight(const f32* pWeights, f32 rate) {
-    targetWeight(&_18, pWeights[0], rate);
-    targetWeight(&_1C, pWeights[1], rate);
-    targetWeight(&_20, pWeights[2], rate);
-    targetWeight(&_24, pWeights[3], rate);
-
     for (u32 i = 0; i < 4; i++) {
-        mXanimePlayer->changeTrackWeight(i, *(&_18 + i));
+        targetWeight(&mWalkWeights[i], pWeights[i], rate);
+        mXanimePlayer->changeTrackWeight(i, mWalkWeights[i]);
     }
 }
 
 void MarioAnimator::forceSetBlendWeight(const f32* pWeights) {
     for (u32 i = 0; i < 4; i++) {
-        (&_18)[i] = pWeights[i];
-        mXanimePlayer->changeTrackWeight(i, (&_18)[i]);
+        mWalkWeights[i] = pWeights[i];
+        mXanimePlayer->changeTrackWeight(i, mWalkWeights[i]);
     }
 }
 
 void MarioAnimator::initWalkWeight() {
-    _18 = 0.0f;
-    _1C = 0.0f;
-    _20 = 0.0f;
-    _24 = 1.0f;
+    mWalkWeights[0] = 0.0f;
+    mWalkWeights[1] = 0.0f;
+    mWalkWeights[2] = 0.0f;
+    mWalkWeights[3] = 1.0f;
 }
 
 bool MarioAnimator::isLandingAnimationRun() const {
@@ -147,28 +142,28 @@ bool MarioAnimator::isLandingAnimationRun() const {
         return false;
     }
 
-    if (isAnimationRun("\222\205\222\156" /* 着地 */) || isAnimationRun("\222\205\222\156B" /* 着地B */) || isAnimationRun("\222\205\222\156C" /* 着地C */) || isAnimationRun("\222\205\222\156\203\136\201\133\203\223" /* 着地ターン */) ||
-        isAnimationRun("\222\205\222\156\225\235\202\306\202\321" /* 着地幅とび */)) {
+    if (isAnimationRun("着地") || isAnimationRun("着地B") || isAnimationRun("着地C") || isAnimationRun("着地ターン") ||
+        isAnimationRun("着地幅とび")) {
         return true;
     }
 
-    if (isAnimationRun("\202\267\202\327\202\350\222\205\222\156" /* すべり着地 */)) {
+    if (isAnimationRun("すべり着地")) {
         return true;
     }
 
-    if (isAnimationRun(getPlayer()->_728)) {
+    if (isAnimationRun(getPlayer()->mHipDropLandAnim)) {
         return true;
     }
 
-    if (isAnimationRun("\203\156\201\133\203\150\222\205\222\156" /* ハード着地 */)) {
+    if (isAnimationRun("ハード着地")) {
         return true;
     }
 
-    if (isAnimationRun("\213\164\222\205\222\156" /* 逆着地 */)) {
+    if (isAnimationRun("逆着地")) {
         return true;
     }
 
-    if (isAnimationRun("\203\126\203\207\201\133\203\147\222\205\222\156" /* ショート着地 */)) {
+    if (isAnimationRun("ショート着地")) {
         return true;
     }
 
@@ -180,12 +175,12 @@ bool MarioAnimator::isLandingAnimationRun() const {
 }
 
 bool MarioAnimator::isCancelableAnimationRun() const {
-    if (isAnimationRun("\222\205\222\156" /* 着地 */) || isAnimationRun("\222\205\222\156B" /* 着地B */) || isAnimationRun("\222\205\222\156C" /* 着地C */) || isAnimationRun("\222\205\222\156\203\136\201\133\203\223" /* 着地ターン */) ||
-        isAnimationRun("\222\205\222\156\225\235\202\306\202\321" /* 着地幅とび */)) {
+    if (isAnimationRun("着地") || isAnimationRun("着地B") || isAnimationRun("着地C") || isAnimationRun("着地ターン") ||
+        isAnimationRun("着地幅とび")) {
         return true;
     }
 
-    if (isAnimationRun("\202\267\202\327\202\350\222\205\222\156" /* すべり着地 */)) {
+    if (isAnimationRun("すべり着地")) {
         return true;
     }
 
@@ -198,24 +193,24 @@ bool MarioAnimator::isCancelableAnimationRun() const {
 
 bool MarioAnimator::isWalkOrWaitingMotion() const {
     if (isAnimationStop()) {
-        if (isAnimationRun("\212\356\226\173" /* 基本 */) || isAnimationRun("\203\145\203\152\203\130\212\356\226\173" /* テニス基本 */)) {
+        if (isAnimationRun("基本") || isAnimationRun("テニス基本")) {
             return true;
         }
     }
 
-    if (isAnimationRun("\215\342\221\117\214\343\203\105\203\107\203\103\203\147" /* 坂前後ウエイト */)) {
+    if (isAnimationRun("坂前後ウエイト")) {
         return true;
     }
 
-    if (isAnimationRun("\215\342\215\266\211\105\203\105\203\107\203\103\203\147" /* 坂左右ウエイト */)) {
+    if (isAnimationRun("坂左右ウエイト")) {
         return true;
     }
 
-    if (isAnimationRun("\203\112\203\212\203\112\203\212\214\300\212\105" /* カリカリ限界 */)) {
+    if (isAnimationRun("カリカリ限界")) {
         return true;
     }
 
-    if (isAnimationRun("\224\362\202\321\215\236\202\335\217\200\224\365" /* 飛び込み準備 */)) {
+    if (isAnimationRun("飛び込み準備")) {
         return true;
     }
 
@@ -224,12 +219,12 @@ bool MarioAnimator::isWalkOrWaitingMotion() const {
 
 void MarioAnimator::update() {
     if (mXanimePlayer->isAnimationRunSimple()) {
-        if (!mActor->_EA4 && !mActor->_3C0) {
+        if (!mActor->mInDemo && !mActor->mRemoteDemo) {
             Mario* player = getPlayer();
-            if (!player->mMovementStates._22) {
-                if (!mActor->_934) {
+            if (!player->mMovementStates.inputLocked) {
+                if (!mActor->mInRush) {
                     player = getPlayer();
-                    if (player->mMovementStates._1) {
+                    if (player->mMovementStates.onGround) {
                         stopAnimation(nullptr);
                     }
                 }
@@ -240,7 +235,7 @@ void MarioAnimator::update() {
     runningCallback();
 
     bool specialMode = false;
-    if (mActor->_482 || mActor->_483) {
+    if (mActor->mHidden || mActor->mMorphHidden) {
         specialMode = true;
     }
 
@@ -254,17 +249,17 @@ void MarioAnimator::update() {
     Mario* player = getPlayer();
     u8 prevWalkState = player->mTargetWalkSpeedIndex;
     player = getPlayer();
-    player->_71D = prevWalkState;
+    player->mPrevWalkSpeedIndex = prevWalkState;
 
-    if (isWalkOrWaitingMotion() || isAnimationRun("\202\265\202\341\202\252\202\335\212\356\226\173" /* しゃがみ基本 */)) {
+    if (isWalkOrWaitingMotion() || isAnimationRun("しゃがみ基本")) {
         player = getPlayer();
-        _14 = walkStateTable[player->mTargetWalkSpeedIndex];
+        mWalkState = walkStateTable[player->mTargetWalkSpeedIndex];
     } else {
-        _15 = 0xFF;
+        mPrevWalkState = 0xFF;
     }
 
     player = getPlayer();
-    if (player->mDrawStates._A) {
+    if (player->mDrawStates.atEdge) {
         bool normalMode = !isPlayerModeHopper();
         if (normalMode) {
             player = getPlayer();
@@ -274,14 +269,14 @@ void MarioAnimator::update() {
                 }
 
                 player = getPlayer();
-                if (player->mMovementStates._B) {
+                if (player->mMovementStates.hipDrop) {
                     getPlayer()->mMovementStates.jumping = false;
-                    getPlayer()->mMovementStates._B = false;
-                    stopAnimation(nullptr, "\212\356\226\173" /* 基本 */);
+                    getPlayer()->mMovementStates.hipDrop = false;
+                    stopAnimation(nullptr, "基本");
                 }
 
                 if (isAnimationStop()) {
-                    changeAnimation("\212\122\202\323\202\361\202\316\202\350" /* 崖ふんばり */);
+                    changeAnimation("崖ふんばり");
                 }
             }
         }
@@ -289,14 +284,14 @@ void MarioAnimator::update() {
         goto afterBrake;
     }
 
-    if (isAnimationRun("\212\122\202\323\202\361\202\316\202\350" /* 崖ふんばり */)) {
+    if (isAnimationRun("崖ふんばり")) {
         player = getPlayer();
-        if (!player->mMovementStates._1) {
-            stopAnimation("\212\122\202\323\202\361\202\316\202\350" /* 崖ふんばり */, "\227\216\211\272" /* 落下 */);
+        if (!player->mMovementStates.onGround) {
+            stopAnimation("崖ふんばり", "落下");
             player = getPlayer();
-            player->_414 = 15;
+            player->mLedgeFallTimer = 15;
         } else {
-            stopAnimation("\212\122\202\323\202\361\202\316\202\350" /* 崖ふんばり */);
+            stopAnimation("崖ふんばり");
         }
     }
 
@@ -310,7 +305,7 @@ void MarioAnimator::update() {
         }
 
         player = getPlayer();
-        if (player->mMovementStates._A) {
+        if (player->mMovementStates.squat) {
             stopAnimation(nullptr);
         }
 
@@ -318,16 +313,16 @@ void MarioAnimator::update() {
     }
 
     player = getPlayer();
-    if (player->mMovementStates._A) {
+    if (player->mMovementStates.squat) {
         goto squatWalk;
     }
 
     player = getPlayer();
-    if (player->_20._A) {
+    if (player->mPrevMovementStates.squat) {
         player = getPlayer();
         if (!player->mMovementStates.jumping) {
             player = getPlayer();
-            if (player->mMovementStates._1 == 1) {
+            if (player->mMovementStates.onGround == 1) {
                 goto squatWalk;
             }
         }
@@ -337,21 +332,21 @@ void MarioAnimator::update() {
 
 squatWalk:
     player = getPlayer();
-    if (player->mMovementStates._23) {
+    if (player->mMovementStates.slopeSlide) {
         goto afterBrake;
     }
 
     player = getPlayer();
     player->decideSquatWalkAnimation();
 
-    if (_14 != _15) {
-        switch (_14) {
+    if (mWalkState != mPrevWalkState) {
+        switch (mWalkState) {
         case 0:
             player = getPlayer();
             player->startBas(nullptr, false, 0.0f, 0.0f);
             break;
         default: {
-            if (!isAnimationRun("\225\235\202\306\202\321" /* 幅とび */)) {
+            if (!isAnimationRun("幅とび")) {
                 player = getPlayer();
                 player->startBas("SquatWalk", false, 0.0f, 79.0f);
             } else {
@@ -366,12 +361,12 @@ squatWalk:
         player->skipBas(frame);
     }
 
-    _15 = _14;
+    mPrevWalkState = mWalkState;
     goto afterBrake;
 
 notSquat:
     player = getPlayer();
-    if (player->mMovementStates._34) {
+    if (player->mMovementStates.onIce) {
         player = getPlayer();
         player->decideWalkSpeed();
         player = getPlayer();
@@ -394,12 +389,12 @@ notSquat:
         goto afterBrake;
     }
 
-    if (isAnimationRun("\225\130\217\343\212\265\220\253\221\226\215\163" /* 氷上慣性走行 */)) {
+    if (isAnimationRun("氷上慣性走行")) {
         stopAnimation(nullptr);
         goto doBrake;
     }
 
-    if (isAnimationRun("\225\307\211\237\202\265" /* 壁押し */, 0)) {
+    if (isAnimationRun("壁押し", MarioIndexedAnime_WallPush)) {
         player = getPlayer();
         player->decideWalkSpeed();
         player = getPlayer();
@@ -408,20 +403,20 @@ notSquat:
     }
 
     player = getPlayer();
-    if (player->mMovementStates.turning || getPlayer()->mMovementStates._4) {
+    if (player->mMovementStates.turning || getPlayer()->mMovementStates.turnBrake) {
         player = getPlayer();
         player->decideWalkSpeed();
         goto doBrake;
     }
 
-    if (!isAnimationRun("\203\156\201\133\203\150\222\205\222\156" /* ハード着地 */)) {
-        if (isAnimationRun("\202\252\202\361\202\316\202\350\221\226\202\350" /* がんばり走り */)) {
+    if (!isAnimationRun("ハード着地")) {
+        if (isAnimationRun("がんばり走り")) {
             player = getPlayer();
-            if (player->_8F0 < 1.0f) {
+            if (player->mSlipPower < 1.0f) {
                 stopAnimation(nullptr);
             }
         } else {
-            _15 = 0;
+            mPrevWalkState = 0;
         }
     }
 
@@ -430,32 +425,32 @@ doBrake:
     player->updateBrakeAnimation();
 
 afterBrake:
-    if (isAnimationRun("\212\356\226\173" /* 基本 */) || isAnimationRun("\202\252\202\361\202\316\202\350\221\226\202\350" /* がんばり走り */)) {
+    if (isAnimationRun("基本") || isAnimationRun("がんばり走り")) {
         setTilt();
     } else {
         resetTilt();
     }
 
-    if (isAnimationRun("\203\130\203\211\203\103\203\137\201\133\220\113" /* スライダー尻 */)) {
+    if (isAnimationRun("スライダー尻")) {
         setHipSliderTilt();
     }
 
-    if (isAnimationRun("\215\342\202\267\202\327\202\350\211\272\214\374\202\253\202\240\202\250\202\336\202\257" /* 坂すべり下向きあおむけ */, 3)) {
+    if (isAnimationRun("坂すべり下向きあおむけ", MarioIndexedAnime_SlideDownFaceUp)) {
         setHipSlipTilt();
     }
 
     setHoming();
     setHand();
 
-    if (_6C) {
+    if (mUpperRunning) {
         XanimePlayer* upperPlayer = mXanimePlayerUpper;
         upperPlayer->updateBeforeMovement();
         upperPlayer->updateAfterMovement();
 
-        u8 idx = mXanimePlayerUpper->_54;
-        XanimeFrameCtrl& track = mXanimePlayerUpper->_24[idx];
+        u8 idx = mXanimePlayerUpper->mFrameCtrlIndex;
+        XanimeFrameCtrl& track = mXanimePlayerUpper->mFrameCtrls[idx];
         if (track.mState & 1) {
-            XanimeFrameCtrl* ctrl = mXanimePlayerUpper->_20;
+            XanimeFrameCtrl* ctrl = mXanimePlayerUpper->mFrameCtrl;
             if (ctrl->mAttribute != 1) {
                 if (!mUpperDefaultSet) {
                     stopUpper(nullptr);
@@ -476,13 +471,13 @@ void MarioAnimator::updateWalkBas(const char* pAnimName, f32 speed) {
     bool shouldStart = false;
 
     // Check if player has a special animation queued
-    if (getPlayer()->_970) {
+    if (getPlayer()->mRunningBas) {
         Mario* player = getPlayer();
         const char* currentBck = mXanimePlayer->getCurrentBckName();
 
-        if (strcmp(currentBck, player->_970) != 0) {
+        if (!MR::isEqualString(currentBck, player->mRunningBas)) {
             shouldStart = true;
-            if (MR::strcasecmp("DamageWait", getPlayer()->_970) == 0) {
+            if (MR::strcasecmp("DamageWait", getPlayer()->mRunningBas) == 0) {
                 if (mActor->mHealth == 1) {
                     shouldStart = false;
                 }
@@ -491,14 +486,14 @@ void MarioAnimator::updateWalkBas(const char* pAnimName, f32 speed) {
     }
 
     // Check animation state transition
-    if (_14 == _15) {
-        if (_14 != 0) {
+    if (mWalkState == mPrevWalkState) {
+        if (mWalkState != 0) {
             if (!getPlayer()->isRunningBas(pAnimName)) {
                 goto startBas;
             }
         }
 
-        if (_14 != 0) {
+        if (mWalkState != 0) {
             goto updatePrevState;
         }
 
@@ -509,7 +504,7 @@ void MarioAnimator::updateWalkBas(const char* pAnimName, f32 speed) {
 
     // Start or continue animation
 startBas:
-    switch (_14) {
+    switch (mWalkState) {
     case 0:
         getPlayer()->startBas(nullptr, false, 0.0f, 0.0f);
         break;
@@ -524,22 +519,22 @@ startBas:
     }
 
 updatePrevState:
-    _15 = _14;
+    mPrevWalkState = mWalkState;
 }
 
 void MarioAnimator::setHand() {
-    TVec3f scale;
-    scale.x = getPlayer()->_3F0;
+    Vec3f scale;
+    scale.x = getPlayer()->mHandScaleX;
     scale.y = 1.0f;
     scale.z = 1.0f;
     XanimeCore* core = mXanimePlayer->mCore;
-    u8 armR = MR::getJointIndex(mActor, "ArmR1");
+    u32 armR = MR::getJointIndex(mActor, "ArmR1");
     XjointTransform* armRJoint = core->getJointTransform(armR);
-    armRJoint->_14 = scale;
+    armRJoint->mExtraScale = scale;
     core = mXanimePlayer->mCore;
-    u8 armL = MR::getJointIndex(mActor, "ArmL1");
+    u32 armL = MR::getJointIndex(mActor, "ArmL1");
     XjointTransform* armLJoint = core->getJointTransform(armL);
-    armLJoint->_14 = scale;
+    armLJoint->mExtraScale = scale;
 }
 
 extern const char* jname_chest;
@@ -547,12 +542,12 @@ extern const char* jname_chest;
 void MarioAnimator::setTilt() {
     f32 tiltAngle = 0.0f;
 
-    if (!MR::isNearZero(_60)) {
-        f32 frontDot = _60.dot(getFrontVec());
+    if (!MR::isNearZero(mTiltPrevFront)) {
+        f32 frontDot = mTiltPrevFront.dot(getFrontVec());
         tiltAngle = 1.0f - frontDot;
 
         if (tiltAngle > 0.001f) {
-            TVec3f cross = _60.cross(getFrontVec());
+            Vec3f cross = mTiltPrevFront.cross(getFrontVec());
 
             f32 gravDot = cross.dot(*getPlayer()->getGravityVec());
             if (gravDot < 0.0f) {
@@ -563,7 +558,7 @@ void MarioAnimator::setTilt() {
         }
     }
 
-    _60 = getFrontVec();
+    mTiltPrevFront = getFrontVec();
 
     Mario* player = getPlayer();
     MarioConstTable* table = mActor->mConst->getTable();
@@ -578,13 +573,13 @@ void MarioAnimator::setTilt() {
         tiltAngle *= (maxTilt / absTilt);
     }
 
-    f32 absOld = MR::abs(_58);
+    f32 absOld = MR::abs(mTiltSide);
     f32 absNew = MR::abs(tiltAngle);
 
     if (absNew > absOld) {
-        _58 = 0.9f * _58 + 0.1f * tiltAngle;
+        mTiltSide = 0.9f * mTiltSide + 0.1f * tiltAngle;
     } else {
-        _58 = 0.95f * _58 + 0.05f * tiltAngle;
+        mTiltSide = 0.95f * mTiltSide + 0.05f * tiltAngle;
     }
 
     table = mActor->mConst->getTable();
@@ -592,32 +587,32 @@ void MarioAnimator::setTilt() {
     f32 lookDown = player2->mWalkSpeed * table->mLookDownRatio;
 
     Mario* player3 = getPlayer();
-    f32 vertAngle = -player3->_3F4;
+    f32 vertAngle = -player3->mSpinInertiaBlend;
     vertAngle *= PI;
-    f32 f4 = 0.9f * _5C + 0.1f * lookDown;
-    f32 f5 = vertAngle / 4.0f;
-    _5C = 0.97f * f4 + 0.03f * f5;
+    f32 eased = 0.9f * mTiltDown + 0.1f * lookDown;
+    f32 target = vertAngle / 4.0f;
+    mTiltDown = 0.97f * eased + 0.03f * target;
 
-    TVec3f rotation(0.0f, _58, _5C);
-    MR::orderRotateMtx(0, rotation, _28.toMtxPtr());
+    Vec3f rotation(0.0f, mTiltSide, mTiltDown);
+    MR::orderRotateMtx(0, rotation, mTiltMtx.toMtxPtr());
 
     XanimeCore* core = mXanimePlayer->mCore;
-    u8 chestIdx = MR::getJointIndex(mActor, jname_chest);
+    u32 chestIdx = MR::getJointIndex(mActor, jname_chest);
     XjointTransform* jt = core->getJointTransform(chestIdx);
-    jt->_64 = _28.toMtxPtr();
+    jt->mBaseMtx = mTiltMtx.toMtxPtr();
 }
 
 void MarioAnimator::resetTilt() {
-    NebulaMtxIdentity(_28.toMtxPtr());
-    _58 = 0.0f;
-    _5C = 0.0f;
-    _60.zero();
+    NebulaMtxIdentity(mTiltMtx.toMtxPtr());
+    mTiltSide = 0.0f;
+    mTiltDown = 0.0f;
+    mTiltPrevFront.zero();
 }
 
 void MarioAnimator::setHoming() {
     f32 angleH = 0.0f;
     s32 hasTarget = 0;
-    TVec3f targetPos;
+    Vec3f targetPos;
     if (mActor->getLookTargetSensor()) {
         HitSensor* lookTarget = mActor->getLookTargetSensor();
         targetPos = lookTarget->mPosition;
@@ -632,10 +627,10 @@ void MarioAnimator::setHoming() {
     }
 
     if (hasTarget) {
-        TVec3f toTarget = targetPos - mActor->_2AC;
+        Vec3f toTarget = targetPos - mActor->mHeadPos;
 
         Mario* player = getPlayer();
-        angleH = MR::vecKillElement(toTarget, player->_1FC, &toTarget);
+        angleH = MR::vecKillElement(toTarget, player->mPostureUpVec, &toTarget);
 
         f32 dist = toTarget.length();
         f32 vAngle;
@@ -644,7 +639,7 @@ void MarioAnimator::setHoming() {
             vAngle = 0.0f;
         } else {
             f32 dist2 = toTarget.length();
-            vAngle = JMAATan2(angleH, dist2);
+            vAngle = Angle::atan2Radian(angleH, dist2);
 
             if (isStatusActiveID(MarioStatus_Talk)) {
                 if (vAngle > 1.0f) {
@@ -671,32 +666,32 @@ void MarioAnimator::setHoming() {
             angleH = table->mLookMaxAngleH;
         }
 
-        TVec3f cross = toTarget.cross(getFrontVec());
+        Vec3f cross = toTarget.cross(getFrontVec());
         Mario* player2 = getPlayer();
-        f32 gravDot = cross.dot(player2->_1FC);
+        f32 gravDot = cross.dot(player2->mPostureUpVec);
         if (gravDot < 0.0f) {
             angleH = -angleH;
         }
 
         Mtx rotMtx;
-        MR::orderRotateMtx(5, TVec3f(0.0f, angleH, -vAngle), rotMtx);
+        MR::orderRotateMtx(5, Vec3f(0.0f, angleH, -vAngle), rotMtx);
 
-        MR::blendMtx(_7C.toMtxPtr(), rotMtx, 0.1f, _7C.toMtxPtr());
+        MR::blendMtx(mHomingMtx.toMtxPtr(), rotMtx, 0.1f, mHomingMtx.toMtxPtr());
 
         XanimeCore* core = mXanimePlayer->getCore();
-        u8 headIdx = MR::getJointIndex(mActor, "Head");
+        u32 headIdx = MR::getJointIndex(mActor, "Head");
         XjointTransform* jt = core->getJointTransform(headIdx);
-        jt->_64 = _7C.toMtxPtr();
+        jt->mBaseMtx = mHomingMtx.toMtxPtr();
     } else {
         Mtx identMtx;
         NebulaMtxIdentity(identMtx);
-        MR::blendMtx(_7C.toMtxPtr(), identMtx, 0.1f, _7C.toMtxPtr());
+        MR::blendMtx(mHomingMtx.toMtxPtr(), identMtx, 0.1f, mHomingMtx.toMtxPtr());
     }
 
     MarioConstTable* table = mActor->mConst->getTable();
 
-    f32 blend = 0.9f * _110 + 0.1f * angleH;
-    _110 = blend;
+    f32 blend = 0.9f * mHomingAngle + 0.1f * angleH;
+    mHomingAngle = blend;
 
     f32 leftShoulderRot = 0.0f;
     f32 rightShoulderRot = 0.0f;
@@ -712,25 +707,25 @@ void MarioAnimator::setHoming() {
     }
 
     XanimeCore* core = mXanimePlayer->getCore();
-    u8 leftIdx = MR::getJointIndex(mActor, "ShoulderL");
-    core->getJointTransform(leftIdx)->_2C.x = leftShoulderRot;
+    u32 leftIdx = MR::getJointIndex(mActor, "ShoulderL");
+    core->getJointTransform(leftIdx)->mTranslateOffset.x = leftShoulderRot;
 
     core = mXanimePlayer->getCore();
-    u8 rightIdx = MR::getJointIndex(mActor, "ShoulderR");
-    core->getJointTransform(rightIdx)->_2C.x = rightShoulderRot;
+    u32 rightIdx = MR::getJointIndex(mActor, "ShoulderR");
+    core->getJointTransform(rightIdx)->mTranslateOffset.x = rightShoulderRot;
 }
 
 void MarioAnimator::setHipSlidingTilt(f32 stickX, f32 stickY) {
-    TVec2f input(stickX, stickY);
+    Vec2f input(stickX, stickY);
     f32 weights[4];
 
-    weights[0] = (TVec2f(0.0f, 1.0f) - input).length();
+    weights[0] = (Vec2f(0.0f, 1.0f) - input).length();
 
-    weights[1] = (TVec2f(0.0f, -1.0f) - input).length();
+    weights[1] = (Vec2f(0.0f, -1.0f) - input).length();
 
-    weights[2] = (TVec2f(-1.0f, 0.0f) - input).length();
+    weights[2] = (Vec2f(-1.0f, 0.0f) - input).length();
 
-    weights[3] = (TVec2f(1.0f, 0.0f) - input).length();
+    weights[3] = (Vec2f(1.0f, 0.0f) - input).length();
 
     const f32 maxDist = 1.414213f;
     for (s32 i = 0; i < 4; i++) {
@@ -764,7 +759,7 @@ void MarioAnimator::setHipSliderTilt() {
 }
 
 void MarioAnimator::setHipSlipTilt() {
-    TVec3f worldPadDir(getWorldPadDir());
+    Vec3f worldPadDir(getWorldPadDir());
     f32 frontDot = MR::vecKillElement(worldPadDir, getFrontVec(), &worldPadDir);
     Mario* player = getPlayer();
     f32 gravDot = MR::vecKillElement(worldPadDir, player->mSideVec, &worldPadDir);
@@ -784,30 +779,30 @@ f32 MarioAnimator::getUpperFrame() const {
 }
 
 void MarioAnimator::setWalkMode() {
-    if (!getPlayer()->mMovementStates._F && getPlayer()->mMovementStates._10 && !getPlayer()->mMovementStates._A && 0.0f == getPlayer()->_8F0 &&
+    if (!getPlayer()->mMovementStates.tornado && getPlayer()->mMovementStates.turnStickNeutral && !getPlayer()->mMovementStates.squat && 0.0f == getPlayer()->mSlipPower &&
         static_cast< u8 >(getPlayer()->checkStickFrontBack()) == 2) {
         if (!isStatusActiveID(MarioStatus_Magic) && !isStatusActiveID(MarioStatus_Skate)) {
-            if (getPlayer()->mMovementStates._35) {
-                change("\203\165\203\214\201\133\203\114\212\212\202\350\217\260" /* ブレーキ滑り床 */);
+            if (getPlayer()->mMovementStates.onSkatableFloor) {
+                change("ブレーキ滑り床");
             } else {
-                change("\203\165\203\214\201\133\203\114" /* ブレーキ */);
+                change("ブレーキ");
             }
         }
-    } else if (isAnimationRun("\203\165\203\214\201\133\203\114" /* ブレーキ */)) {
+    } else if (isAnimationRun("ブレーキ")) {
         getPlayer()->doBrakingAnimation();
         getPlayer()->mTargetWalkSpeedIndex = 0;
     } else {
-        mXanimePlayer->stopAnimation("\203\165\203\214\201\133\203\114\212\212\202\350\217\260" /* ブレーキ滑り床 */);
+        mXanimePlayer->stopAnimation("ブレーキ滑り床");
     }
 
-    if (getPlayer()->mMovementStates._4 && !getPlayer()->mMovementStates._23) {
+    if (getPlayer()->mMovementStates.turnBrake && !getPlayer()->mMovementStates.slopeSlide) {
         getPlayer();
     }
 }
 
 void MarioAnimator::calc() {
     bool specialMode = false;
-    if (mActor->_482 || mActor->_483) {
+    if (mActor->mHidden || mActor->mMorphHidden) {
         specialMode = true;
     }
 
@@ -816,41 +811,41 @@ void MarioAnimator::calc() {
     }
 
     Mario* player = getPlayer();
-    TVec3f playerPos(player->_13C);
+    Vec3f playerPos(player->mLookOfs);
     XjointTransform* joint0 = mXanimePlayer->mCore->getJointTransform(0);
-    joint0->_38 = playerPos;
-    if (_6C) {
+    joint0->mWorldTranslate = playerPos;
+    if (mUpperRunning) {
         // Both players animation calculation
         mXanimePlayer->calcAnm(0);
-        u16 spineIdx = MR::getJointIndex(mActor, "Spine1");
+        u32 spineIdx = MR::getJointIndex(mActor, "Spine1");
         mXanimePlayerUpper->calcAnm((u16)spineIdx);
-        u16 partsIdx = MR::getJointIndex(mActor, "PartsControl");
+        u32 partsIdx = MR::getJointIndex(mActor, "PartsControl");
         mXanimePlayerUpper->overWriteMtxCalc((u16)partsIdx);
     } else {
-        u16 spineIdx = MR::getJointIndex(mActor, "Spine1");
-        J3DModelData* modelData = mActor->getModelData();
-        J3DJoint* joint = modelData->mJointTree.mJointNodePointer[spineIdx];
+        u32 spineIdx = MR::getJointIndex(mActor, "Spine1");
+        ModelData* modelData = mActor->getModelData();
+        Joint* joint = modelData->getJointAt(spineIdx);
         joint->setMtxCalc(nullptr);
         mXanimePlayer->calcAnm(0);
     }
 
-    mXanimePlayer->mCore->_6 = 1;
-    MR::calcJ3DModel(mActor);
+    mXanimePlayer->mCore->mCalcMode = XanimeCore::CalcMode_BlendSpecial;
+    MR::calcModel(mActor);
 
-    mXanimePlayer->mCore->_6 = 2;
-    MR::calcJ3DModel(mActor);
+    mXanimePlayer->mCore->mCalcMode = XanimeCore::CalcMode_ScaleBlendSpecial;
+    MR::calcModel(mActor);
     mXanimePlayer->clearAnm(0);
 
-    if (_6C) {
-        u16 spineIdx = MR::getJointIndex(mActor, "Spine1");
+    if (mUpperRunning) {
+        u32 spineIdx = MR::getJointIndex(mActor, "Spine1");
         mXanimePlayer->clearAnm((u16)spineIdx);
-        u16 partsIdx = MR::getJointIndex(mActor, "PartsControl");
+        u32 partsIdx = MR::getJointIndex(mActor, "PartsControl");
         mXanimePlayerUpper->clearMtxCalc((u16)partsIdx);
     }
 }
 
 void MarioAnimator::change(const char* pName) {
-    if (mActor->_B90) {
+    if (mActor->mAnimationFrozen) {
         return;
     }
 
@@ -862,8 +857,8 @@ void MarioAnimator::change(const char* pName) {
     if (bck != nullptr) {
         const XanimeGroupInfo* info = mXanimePlayer->mCurrentAnimation;
         if (info->mAttribute == 2) {
-            f32 arg1 = info->mLoop, arg2 = info->mEnd;
-            getPlayer()->startBas(bck, false, arg1, arg2);
+            f32 loopFrame = info->mLoop, endFrame = info->mEnd;
+            getPlayer()->startBas(bck, false, loopFrame, endFrame);
         } else {
             getPlayer()->startBas(bck, false, 0.0f, 0.0f);
         }
@@ -881,11 +876,11 @@ void MarioAnimator::change(const char* pName) {
 
 void MarioAnimator::changeUpper(const char* pName) {
     mXanimePlayerUpper->changeAnimation(pName);
-    _6C = true;
+    mUpperRunning = true;
 }
 
 void MarioAnimator::stopUpper(const char* pName) {
-    if (!_6C) {
+    if (!mUpperRunning) {
         return;
     }
 
@@ -897,13 +892,13 @@ void MarioAnimator::stopUpper(const char* pName) {
     }
 
     if (shouldStop) {
-        u16 jointID = MR::getJointIndex(mActor, "Spine1");
+        u32 jointID = MR::getJointIndex(mActor, "Spine1");
         XanimeCore* upperCore = mXanimePlayerUpper->getCore();
-        J3DModelData* modelData = mActor->getModelData();
+        ModelData* modelData = mActor->getModelData();
         XanimeCore* lowerCore = mXanimePlayer->getCore();
-        upperCore->freezeCopy(modelData, lowerCore, (u16)jointID, 8);
+        upperCore->freezeCopy(modelData, lowerCore, jointID, 8);
         mXanimePlayerUpper->stopAnimation();
-        _6C = false;
+        mUpperRunning = false;
     }
 }
 
@@ -914,7 +909,7 @@ void MarioAnimator::changeDefault(const char* pName) {
 }
 
 bool MarioAnimator::isDefaultAnimationRun(const char* pName) const {
-    return strcmp(mXanimePlayer->getDefaultAnimationName(), pName) == 0;
+    return MR::isEqualString(mXanimePlayer->getDefaultAnimationName(), pName);
 }
 
 void MarioAnimator::changeDefaultUpper(const char* pName) {
@@ -926,192 +921,191 @@ void MarioAnimator::changeDefaultUpper(const char* pName) {
     }
 }
 
-u16 MarioAnimator::getUpperJointID() const {
+u32 MarioAnimator::getUpperJointID() const {
     return MR::getJointIndex(mActor, "Spine1");
 }
 
 const char* jname_chest = "Spine1";
 
 void MarioAnimator::updateJointRumble() {
-    u32 timer = _74;
+    u32 timer = mRumbleTimer;
     if (timer == 0) {
-        _118 = 0.0f;
+        mRumbleHipRot = 0.0f;
         return;
     }
 
     u32 newTimer = timer - 1;
-    _74 = newTimer;
+    mRumbleTimer = newTimer;
 
-    f32 t = (f32)newTimer * JMath::TAngleConstant_< f32 >::RADIAN_DEG360() / 30.0f;
-    f32 sineVal = JMASinRadian(t);
+    f32 t = (f32)newTimer * Angle::cRadian360 / 30.0f;
+    f32 sineVal = Angle::sinRadian(t);
 
-    f32 power = -_70;
+    f32 power = -mRumblePower;
 
-    if (_74 < 30) {
-        f32 fade = (f32)_74 / 30.0f;
+    if (mRumbleTimer < 30) {
+        f32 fade = (f32)mRumbleTimer / 30.0f;
         sineVal *= fade;
     }
 
     MarioActor* actor = mActor;
     XanimeCore* core = mXanimePlayer->mCore;
-    XjointTransform* larmJt = core->getJointTransform(static_cast< u16 >(MR::getJointIndex(actor, "ArmL1")));
-    larmJt->_2C.y = sineVal * power;
+    XjointTransform* larmJt = core->getJointTransform(MR::getJointIndex(actor, "ArmL1"));
+    larmJt->mTranslateOffset.y = sineVal * power;
 
     core = mXanimePlayer->mCore;
-    XjointTransform* rarmJt = core->getJointTransform(static_cast< u16 >(MR::getJointIndex(mActor, "ArmR2")));
-    rarmJt->_2C.y = sineVal * power;
+    XjointTransform* rarmJt = core->getJointTransform(MR::getJointIndex(mActor, "ArmR2"));
+    rarmJt->mTranslateOffset.y = sineVal * power;
 
-    f32 hipRot = 0.7f * ((f32)_74 / 60.0f);
+    f32 hipRot = 0.7f * ((f32)mRumbleTimer / 60.0f);
 
-    if (getPlayer()->mMovementStates._1 && !getPlayer()->mMovementStates._37 && getPlayer()->mTargetWalkSpeedIndex == 0 &&
-        getPlayer()->calcAngleD(getPlayer()->_368) > 5.0f) {
-        TVec3f dir;
-        const TVec3f* airGrav = &getAirGravityVec();
+    if (getPlayer()->mMovementStates.onGround && !getPlayer()->mMovementStates.mode2D && getPlayer()->mTargetWalkSpeedIndex == 0 &&
+        getPlayer()->calcAngleD(getPlayer()->mGroundNorm) > 5.0f) {
+        Vec3f dir;
+        const Vec3f* airGrav = &getAirGravityVec();
         Mario* playerVec = getPlayer();
-        MR::vecKillElement(playerVec->_368, *airGrav, &dir);
+        MR::vecKillElement(playerVec->mGroundNorm, *airGrav, &dir);
         MR::normalizeOrZero(&dir);
 
         if (getFrontVec().dot(dir) < -0.707f) {
             hipRot = -hipRot;
         } else {
-            hipRot = getFrontVec().dot(dir) > 0.707f ? hipRot : 0.9f * _118;
+            hipRot = getFrontVec().dot(dir) > 0.707f ? hipRot : 0.9f * mRumbleHipRot;
         }
 
-        NebulaMtxRotRad(_AC.toMtxPtr(), 'Z', hipRot);
+        NebulaMtxRotRad(mHipMtx.toMtxPtr(), 'Z', hipRot);
     } else {
-        NebulaMtxIdentity(_AC.toMtxPtr());
+        NebulaMtxIdentity(mHipMtx.toMtxPtr());
     }
 
-    _118 = hipRot;
+    mRumbleHipRot = hipRot;
 
     core = mXanimePlayer->mCore;
-    XjointTransform* hipJt = core->getJointTransform(static_cast< u16 >(MR::getJointIndex(mActor, "Spine2")));
-    hipJt->_64 = _AC.toMtxPtr();
+    XjointTransform* hipJt = core->getJointTransform(MR::getJointIndex(mActor, "Spine2"));
+    hipJt->mBaseMtx = mHipMtx.toMtxPtr();
 }
 
 void MarioAnimator::addRumblePower(f32 power, u32 time) {
-    if (_70 < power) {
-        _70 = power;
+    if (mRumblePower < power) {
+        mRumblePower = power;
     }
 
-    _74 = time;
+    mRumbleTimer = time;
 }
 
 void MarioAnimator::setUpperRotateY(f32 angle) {
-    NebulaMtxRotRad(_AC.toMtxPtr(), 'X', angle);
+    NebulaMtxRotRad(mHipMtx.toMtxPtr(), 'X', angle);
     XanimeCore* core = mXanimePlayer->mCore;
-    XjointTransform* jt = core->getJointTransform(static_cast< u16 >(MR::getJointIndex(mActor, "Spine2")));
-    jt->_64 = _AC.toMtxPtr();
+    XjointTransform* jt = core->getJointTransform(MR::getJointIndex(mActor, "Spine2"));
+    jt->mBaseMtx = mHipMtx.toMtxPtr();
 }
 
 void MarioAnimator::clearAllJointTransform() {
     {
         XanimeCore* core = mXanimePlayer->mCore;
-        XjointTransform* jt = core->getJointTransform(static_cast< u16 >(MR::getJointIndex(mActor, "ShoulderL")));
-        jt->_64 = nullptr;
+        XjointTransform* jt = core->getJointTransform(MR::getJointIndex(mActor, "ShoulderL"));
+        jt->mBaseMtx = nullptr;
     }
 
     {
         XanimeCore* core = mXanimePlayer->mCore;
-        XjointTransform* jt = core->getJointTransform(static_cast< u16 >(MR::getJointIndex(mActor, "ShoulderR")));
-        jt->_64 = nullptr;
+        XjointTransform* jt = core->getJointTransform(MR::getJointIndex(mActor, "ShoulderR"));
+        jt->mBaseMtx = nullptr;
     }
 
     {
         XanimeCore* core = mXanimePlayer->mCore;
-        XjointTransform* jt = core->getJointTransform(static_cast< u16 >(MR::getJointIndex(mActor, "Head")));
-        jt->_64 = nullptr;
+        XjointTransform* jt = core->getJointTransform(MR::getJointIndex(mActor, "Head"));
+        jt->mBaseMtx = nullptr;
     }
 
     {
         XanimeCore* core = mXanimePlayer->mCore;
-        XjointTransform* jt = core->getJointTransform(static_cast< u16 >(MR::getJointIndex(mActor, "Spine2")));
-        jt->_64 = nullptr;
+        XjointTransform* jt = core->getJointTransform(MR::getJointIndex(mActor, "Spine2"));
+        jt->mBaseMtx = nullptr;
     }
 
     {
         XanimeCore* core = mXanimePlayer->mCore;
-        XjointTransform* jt = core->getJointTransform(static_cast< u16 >(MR::getJointIndex(mActor, "ArmL1")));
-        jt->_2C.y = 0.0f;
+        XjointTransform* jt = core->getJointTransform(MR::getJointIndex(mActor, "ArmL1"));
+        jt->mTranslateOffset.y = 0.0f;
     }
 
     {
         XanimeCore* core = mXanimePlayer->mCore;
-        XjointTransform* jt = core->getJointTransform(static_cast< u16 >(MR::getJointIndex(mActor, "ArmR2")));
-        jt->_2C.y = 0.0f;
+        XjointTransform* jt = core->getJointTransform(MR::getJointIndex(mActor, "ArmR2"));
+        jt->mTranslateOffset.y = 0.0f;
     }
 
     {
         XanimeCore* core = mXanimePlayer->mCore;
-        u8 chestIdx = MR::getJointIndex(mActor, jname_chest);
+        u32 chestIdx = MR::getJointIndex(mActor, jname_chest);
         XjointTransform* jt = core->getJointTransform(chestIdx);
-        jt->_64 = nullptr;
+        jt->mBaseMtx = nullptr;
     }
 
     {
         XanimeCore* core = mXanimePlayer->mCore;
-        u8 hipIdx = MR::getJointIndex(mActor, "Hip");
+        u32 hipIdx = MR::getJointIndex(mActor, "Hip");
         XjointTransform* jt = core->getJointTransform(hipIdx);
-        jt->_64 = nullptr;
+        jt->mBaseMtx = nullptr;
     }
 
-    TVec3f zeroVec(0.0f, 0.0f, 0.0f);
+    Vec3f zeroVec(0.0f, 0.0f, 0.0f);
     XjointTransform* jt = mXanimePlayer->mCore->getJointTransform(0);
-    jt->_38 = zeroVec;
+    jt->mWorldTranslate = zeroVec;
 
-    _74 = 0;
-    _70 = 0.0f;
+    mRumbleTimer = 0;
+    mRumblePower = 0.0f;
 }
 
 bool MarioAnimator::isMirrorAnimation() {
-    if (mActor->_468) {
+    if (mActor->mTakeCount) {
         return false;
     }
 
-    TVec3f camDir = getCamDirX();
+    Vec3f camDir = getCamDirX();
     Mario* player = getPlayer();
-    f32 dot = player->_1FC.dot(getCamDirY());
+    f32 dot = player->mPostureUpVec.dot(getCamDirY());
     if (dot < 0.0f) {
         camDir = -camDir;
     }
 
-    if (isAnimationRun("\225\307\202\267\202\327\202\350" /* 壁すべり */) || isAnimationRun("\225\307\202\255\202\301\202\302\202\253" /* 壁くっつき */)) {
-        if (!_10C) {
-            const TVec3f& wallNorm = getPlayer()->getWallNorm();
+    if (isAnimationRun("壁すべり") || isAnimationRun("壁くっつき")) {
+        if (!mMirrorChecked) {
+            const Vec3f& wallNorm = getPlayer()->getWallNorm();
             f32 wallDot = camDir.dot(wallNorm);
             if (wallDot < -0.5f) {
-                _10D = true;
+                mMirror = true;
             } else {
-                _10D = false;
+                mMirror = false;
             }
 
-            _10C = true;
+            mMirrorChecked = true;
         }
 
-        return _10D;
+        return mMirror;
     }
 
-    // Check if walling (player mMovementStates._37 bit check)
-    if (getPlayer()->mMovementStates._37) {
-        if (isAnimationRun("\203\165\203\214\201\133\203\114" /* ブレーキ */) || isAnimationRun("\203\136\201\133\203\223\203\165\203\214\201\133\203\114" /* ターンブレーキ */) || isAnimationRun("\203\136\201\133\203\223\203\127\203\203\203\223\203\166" /* ターンジャンプ */)) {
-            if (!_10C) {
+    if (getPlayer()->mMovementStates.mode2D) {
+        if (isAnimationRun("ブレーキ") || isAnimationRun("ターンブレーキ") || isAnimationRun("ターンジャンプ")) {
+            if (!mMirrorChecked) {
                 f32 frontDot = camDir.dot(getPlayer()->mFrontVec);
                 if (frontDot > 0.0f) {
-                    _10D = true;
+                    mMirror = true;
                 } else {
-                    _10D = false;
+                    mMirror = false;
                 }
 
-                _10C = true;
+                mMirrorChecked = true;
             }
 
-            return _10D;
+            return mMirror;
         }
     }
 
     // Clear cache flag
-    _10C = false;
-    if (isAnimationRun("\215\266\213\363\203\160\203\223\203\140" /* 左空パンチ */)) {
+    mMirrorChecked = false;
+    if (isAnimationRun("左空パンチ")) {
         return true;
     }
 
@@ -1120,36 +1114,36 @@ bool MarioAnimator::isMirrorAnimation() {
 
 void MarioAnimator::switchMirrorMode() {
     f32 scale = 1.0f;
-    J3DModelX* model = static_cast< J3DModelX* >(MR::getJ3DModel(mActor));
+    PlayerModel* model = static_cast< PlayerModel* >(MR::getModel(mActor));
     if (isMirrorAnimation()) {
         u32* modelFlags = (u32*)&model->mFlags;
         *modelFlags |= 1;
         XjointTransform* jt = mXanimePlayer->mCore->getJointTransform(0);
-        TVec3f mirrorScale;
+        Vec3f mirrorScale;
         mirrorScale.x = scale;
         mirrorScale.y = scale;
         mirrorScale.z = -scale;
-        jt->_14 = mirrorScale;
+        jt->mExtraScale = mirrorScale;
 
         Mtx invBase;
         MtxPtr base = mActor->getBaseMtx();
         NebulaMtxInverse(base, invBase);
-        MR::multMtx(_DC, invBase, MR::tmpMtxRotYRad(PI));
+        MR::multMtx(mMirrorMtx, invBase, MR::tmpMtxRotYRad(PI));
 
         base = mActor->getBaseMtx();
-        MR::multMtx(_DC, _DC, base);
+        MR::multMtx(mMirrorMtx, mMirrorMtx, base);
 
-        jt->_6C = _DC;
+        jt->mMirrorMtx = mMirrorMtx;
     } else {
         u32* modelFlags = (u32*)&model->mFlags;
         *modelFlags &= ~1;
         XjointTransform* jt = mXanimePlayer->mCore->getJointTransform(0);
-        TVec3f normalScale;
+        Vec3f normalScale;
         normalScale.x = scale;
         normalScale.y = scale;
         normalScale.z = scale;
-        jt->_14 = normalScale;
-        jt->_6C = 0;
+        jt->mExtraScale = normalScale;
+        jt->mMirrorMtx = nullptr;
     }
 }
 
@@ -1157,26 +1151,26 @@ void MarioAnimator::changePickupAnimation(const HitSensor* pSensor) {
     u32 type = pSensor->mType;
     switch (type) {
     case ACTMES_STAR_PIECE_GIFT_MAX:
-        mActor->_494 = mActor->_49C;
-        changeAnimation("\203\112\203\165\224\262\202\253" /* カブ抜き */);
+        mActor->mTakingFixedPos = mActor->mHandHoldFixedPos;
+        changeAnimation("カブ抜き");
         mActor->changeNullAnimation("PullOut", -2);
         getPlayer()->stopWalk();
         break;
     case ACTMES_STAR_PIECE_GIFT:
     case ACTMES_STAR_PIECE_GIFT_1:
-        mActor->_494 = mActor->_498;
+        mActor->mTakingFixedPos = mActor->mHandFixedPos;
         if (!getPlayer()->isSwimming()) {
-            if (mActor->_424 == pSensor) {
-                changeAnimationUpper("\202\320\202\353\202\242\203\116\203\103\203\142\203\116" /* ひろいクイック */);
-                playEffect("\202\320\202\353\202\242\203\116\203\103\203\142\203\116" /* ひろいクイック */);
+            if (mActor->mTakenSensor == pSensor) {
+                changeAnimationUpper("ひろいクイック");
+                playEffect("ひろいクイック");
                 mActor->clearNullAnimation(-3);
                 startPadVib(2);
-            } else if (getPlayer()->mMovementStates.jumping && !getPlayer()->mMovementStates._B) {
-                changeAnimation("\202\320\202\353\202\242\213\363\222\206" /* ひろい空中 */);
+            } else if (getPlayer()->mMovementStates.jumping && !getPlayer()->mMovementStates.hipDrop) {
+                changeAnimation("ひろい空中");
                 mActor->clearNullAnimation(-3);
                 getPlayer()->stopWalk();
             } else {
-                changeAnimation("\202\320\202\353\202\242" /* ひろい */);
+                changeAnimation("ひろい");
                 mActor->changeNullAnimation("CarryStart", -2);
                 getPlayer()->stopWalk();
             }
@@ -1196,7 +1190,7 @@ void MarioAnimator::updateTakingAnimation(const HitSensor* pSensor) {
 
     LiveActor* sensorActor = pSensor->mHost;
     if (MR::isDead(sensorActor)) {
-        if (mActor->_468 != 0) {
+        if (mActor->mTakeCount != 0) {
             mActor->rushDropThrowMemoSensor();
         }
 
@@ -1207,7 +1201,7 @@ void MarioAnimator::updateTakingAnimation(const HitSensor* pSensor) {
     switch (type) {
     case ACTMES_STAR_PIECE_GIFT_MAX:
         stopAnimation(nullptr);
-        changeAnimationUpper("\203\112\203\165\203\105\203\107\203\103\203\147" /* カブウエイト */);
+        changeAnimationUpper("カブウエイト");
         mActor->clearNullAnimation(0);
         mActor->offTakingFlag();
         break;
@@ -1215,13 +1209,13 @@ void MarioAnimator::updateTakingAnimation(const HitSensor* pSensor) {
     case ACTMES_STAR_PIECE_GIFT_1:
         if (!getPlayer()->isSwimming()) {
             s32 shouldChange = 1;
-            if (isAnimationRun("\202\320\202\353\202\242\203\116\203\103\203\142\203\116" /* ひろいクイック */)) {
+            if (isAnimationRun("ひろいクイック")) {
                 shouldChange = isAnimationTerminateUpper(nullptr);
             }
 
             if (shouldChange) {
-                if (!isAnimationRun("\202\320\202\353\202\242\213\363\222\206" /* ひろい空中 */) && mActor->isStopNullAnimation()) {
-                    changeAnimationUpper("\202\320\202\353\202\242\203\105\203\107\203\103\203\147" /* ひろいウエイト */);
+                if (!isAnimationRun("ひろい空中") && mActor->isStopNullAnimation()) {
+                    changeAnimationUpper("ひろいウエイト");
                     startPadVib(2);
                     mActor->clearNullAnimation(0);
                     mActor->offTakingFlag();
@@ -1240,29 +1234,29 @@ void MarioAnimator::changeThrowAnimation(const HitSensor* pSensor) {
     switch (type) {
     case ACTMES_STAR_PIECE_GIFT_MAX:
         stopAnimationUpper(nullptr);
-        changeAnimation("\227\274\216\350\223\212\202\260" /* 両手投げ */);
-        startPadVib("\203\175\203\212\203\111[\213\124\223\212\202\260]" /* マリオ[亀投げ] */);
+        changeAnimation("両手投げ");
+        startPadVib("マリオ[亀投げ]");
         break;
     case ACTMES_STAR_PIECE_GIFT:
     case ACTMES_STAR_PIECE_GIFT_1:
         stopAnimationUpper(nullptr);
         if (getPlayer()->isSwimming()) {
-            changeAnimation("\220\205\211\152\213\124\223\212\202\260" /* 水泳亀投げ */, "\220\205\211\152\212\356\226\173" /* 水泳基本 */);
+            changeAnimation("水泳亀投げ", "水泳基本");
         } else {
-            changeAnimation("\223\212\202\260" /* 投げ */);
+            changeAnimation("投げ");
         }
 
-        startPadVib("\203\175\203\212\203\111[\213\124\223\212\202\260]" /* マリオ[亀投げ] */);
+        startPadVib("マリオ[亀投げ]");
         break;
     }
 }
 
 void MarioAnimator::waterToGround() {
     HitSensor* swimSensor;
-    if (mActor->_468 == 0) {
+    if (mActor->mTakeCount == 0) {
         swimSensor = nullptr;
     } else {
-        swimSensor = mActor->_428[0];
+        swimSensor = mActor->mTakeSensors[0];
     }
 
     if (swimSensor == nullptr) {
@@ -1273,19 +1267,19 @@ void MarioAnimator::waterToGround() {
     switch (state) {
     case ACTMES_STAR_PIECE_GIFT:
     case ACTMES_STAR_PIECE_GIFT_1:
-        changeAnimationUpper("\202\320\202\353\202\242\203\105\203\107\203\103\203\147" /* ひろいウエイト */);
+        changeAnimationUpper("ひろいウエイト");
         mActor->clearNullAnimation(0);
         MR::deleteEffect(swimSensor->mHost, "SwimBubble");
         break;
     case ACTMES_STAR_PIECE_GIFT_MAX:
-        changeAnimationUpper("\203\112\203\165\203\105\203\107\203\103\203\147" /* カブウエイト */);
+        changeAnimationUpper("カブウエイト");
         mActor->clearNullAnimation(0);
         break;
     }
 }
 
 HitSensor* MarioActor::getLookTargetSensor() const {
-    if (_934) {
+    if (mInRush) {
         return nullptr;
     }
 
@@ -1293,13 +1287,5 @@ HitSensor* MarioActor::getLookTargetSensor() const {
         return nullptr;
     }
 
-    return _46C;
-}
-
-f32 XanimePlayer::tellAnimationFrame() const {
-    if (isTerminate()) {
-        return _20->getEnd();
-    }
-
-    return _20->getFrame();
+    return mTakeCandidate;
 }

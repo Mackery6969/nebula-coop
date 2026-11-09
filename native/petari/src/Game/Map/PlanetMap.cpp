@@ -6,21 +6,20 @@
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/DemoUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/JointUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ModelUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
-#include <cstdio>
 
 namespace {
     const char* cFollowJointName = "Move";
 
-    static PlanetMapClippingInfo sClippingInfo[] = {{"PhantomShipA", 3000.0f, {800.0f, 1300.0f, 0.0f}, 0}};
-    PlanetMapClippingInfo* findClippingInfo(const char* pName) {
+    const PlanetMapClippingInfo sClippingInfo[] = {{"PhantomShipA", 3000.0f, {800.0f, 1300.0f, 0.0f}}};
+    const PlanetMapClippingInfo* findClippingInfo(const char* pName) {
         for (u32 i = 0; i < ARRAY_SIZE(::sClippingInfo); i++) {
-            PlanetMapClippingInfo* pInfo = &::sClippingInfo[i];
+            const PlanetMapClippingInfo* pInfo = &::sClippingInfo[i];
             if (MR::isEqualStringCase(pName, pInfo->mName)) {
                 return pInfo;
             }
@@ -31,18 +30,16 @@ namespace {
 };  // namespace
 
 PlanetMap::PlanetMap(const char* pName, const char* pModelName)
-    : LiveActor(pName), mModelName(pModelName), _90(0.0f, 0.0f, 0.0f), mLODCtrl(), mBloomModel(), mWaterModel(), mIndirectModel() {
+    : LiveActor(pName), mModelName(pModelName), mClippingCenter(0.0f, 0.0f, 0.0f), mLODCtrl(), mBloomModel() {
 }
 
-void PlanetMap::init(const JMapInfoIter& rIter) {
+void PlanetMap::init(const TableIter& rIter) {
     MR::getObjectName(&mModelName, rIter);
-    if (MR::isValidInfo(rIter)) {
-    }
 
     MR::initDefaultPos(this, rIter);
     initModel(mModelName, rIter);
     MR::connectToScenePlanet(this);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initHitSensor(1);
     MR::addBodyMessageSensorMapObj(this);
 
@@ -93,18 +90,18 @@ void PlanetMap::makeActorDead() {
     LiveActor::makeActorDead();
 }
 
-void PlanetMap::initClipping(const JMapInfoIter& rIter) {
+void PlanetMap::initClipping(const TableIter& rIter) {
     f32 radius = 0.0f;
     if (MR::isValidInfo(rIter)) {
-        MR::getJMapInfoArg1NoInit(rIter, &radius);
+        MR::getPlacementArg1NoInit(rIter, &radius);
     }
 
-    PlanetMapClippingInfo* pInfo = ::findClippingInfo(mModelName);
+    const PlanetMapClippingInfo* pInfo = ::findClippingInfo(mModelName);
 
     if (pInfo != nullptr) {
         radius = pInfo->mRadius;
-        _90.set(mPosition + TVec3f(pInfo->mOffset));
-        MR::setClippingTypeSphere(this, pInfo->mRadius, &_90);
+        mClippingCenter.set(mPosition + Vec3f(pInfo->mOffset));
+        MR::setClippingTypeSphere(this, pInfo->mRadius, &mClippingCenter);
     } else {
         if (radius <= 0.0f) {
             MR::calcModelBoundingRadius(&radius, this);
@@ -119,13 +116,13 @@ void PlanetMap::initClipping(const JMapInfoIter& rIter) {
     }
 }
 
-void PlanetMap::initModel(const char* pModelName, const JMapInfoIter& rIter) {
+void PlanetMap::initModel(const char* pModelName, const TableIter& rIter) {
     initModelManagerWithAnm(pModelName, nullptr, false);
     f32 farClippingDistance = getFarClipDistance();
     mLODCtrl = MR::createLodCtrlPlanet(this, rIter, farClippingDistance);
     initBloomModel(pModelName);
-    mWaterModel = MR::createWaterModel(this, nullptr);
-    mIndirectModel = MR::createIndirectPlanetModel(this, nullptr);
+    MR::createWaterModel(this, nullptr);
+    MR::createIndirectPlanetModel(this, nullptr);
 }
 
 void PlanetMap::initBloomModel(const char* pModelName) {
@@ -134,10 +131,9 @@ void PlanetMap::initBloomModel(const char* pModelName) {
         return;
     }
 
-    char str[256];
-    nebula_snprintf(str, 256, "%sBloom", mModelName);
+    MR::FormattedName str("%sBloom", mModelName);
     const char* name = mName;
-    mBloomModel = MR::createModelObjBloomModel(name, str, getBaseMtx());
+    mBloomModel = MR::createModelObjBloomModel(name, str.c_str(), getBaseMtx());
     mBloomModel->mScale.set(mScale);
 
     f32 radiusBound = 500.0f;
@@ -181,10 +177,7 @@ bool PlanetMap::tryDeleteMyEffect() {
 FurPlanetMap::FurPlanetMap(const char* pName) : PlanetMap(pName, nullptr) {
 }
 
-PlanetMap::~PlanetMap() {
-}
-
-void FurPlanetMap::init(const JMapInfoIter& rIter) {
+void FurPlanetMap::init(const TableIter& rIter) {
     PlanetMap::init(rIter);
     MR::initFurPlanet(this);
 }
@@ -192,14 +185,9 @@ void FurPlanetMap::init(const JMapInfoIter& rIter) {
 RailPlanetMap::RailPlanetMap(const char* pName) : PlanetMap(pName, nullptr) {
 }
 
-void RailPlanetMap::init(const JMapInfoIter& rIter) {
+void RailPlanetMap::init(const TableIter& rIter) {
     PlanetMap::init(rIter);
     initRailRider(rIter);
-}
-
-FurPlanetMap::~FurPlanetMap() {
-}
-RailPlanetMap::~RailPlanetMap() {
 }
 
 f32 PlanetMap::getFarClipDistance() const {

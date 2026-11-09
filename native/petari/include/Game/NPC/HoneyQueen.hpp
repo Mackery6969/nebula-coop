@@ -7,15 +7,13 @@ class ModelObj;
 
 class HoneyQueen : public NPCActor {
 public:
-    /// @brief Creates a new `HoneyQueen`.
-    /// @param pName A pointer to the null-terminated name of the object.
     HoneyQueen(const char* pName);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void calcAnim();
-    virtual void control();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void calcAnim() override;
+    virtual void control() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
 
     void fadeOut();
     void fadeIn();
@@ -33,5 +31,4 @@ public:
 
     ModelObj* mWing;
     CollisionParts* mCollisionParts[10];
-    s32 _188;
 };

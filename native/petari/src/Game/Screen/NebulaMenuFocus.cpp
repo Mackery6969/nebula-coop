@@ -6,13 +6,13 @@
 #include "Game/Screen/LayoutManager.hpp"
 #include "Game/Util/PlayerInputUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
-#include <nw4r/lyt/pane.h>
+#include <Game/Ui/Pane.hpp>
 #include "Game/System/NebulaInput.hpp"
+#include "Game/Util/Array.hpp"
 
 namespace {
     using NebulaMenuFocus::Direction;
 
-    const s32 cEntriesMax = 64;
     const s32 cRepeatDelay = 18;         // frames a direction is held before it repeats
     const s32 cRepeatInterval = 5;       // then a step every this many frames
     const f32 cStickHold = 0.6f;         // the stick's deflection that counts as a press
@@ -23,18 +23,18 @@ namespace {
     struct Entry {
         ButtonPaneController* mButton;
         const void* mKey;
-        TVec2f mCentre;
+        Vec2f mCentre;
     };
 
     // Offered during a frame; at the next update they are the places the highlight can move to.
-    Entry sOffered[cEntriesMax];
+    MR::GrowBuffer< Entry > sOffered;
     s32 sOfferedCount = 0;
-    Entry sEntries[cEntriesMax];
+    MR::GrowBuffer< Entry > sEntries;
     s32 sEntryCount = 0;
 
     const void* sFocus = nullptr;  // the button or target highlighted
     bool sActive = false;
-    TVec2f sPointerAnchor(0.0f, 0.0f);  // where the pointer was when the D-pad or stick took over
+    Vec2f sPointerAnchor(0.0f, 0.0f);  // where the pointer was when the D-pad or stick took over
     NebulaMenuFocus::Repeat sRepeat = {NebulaMenuFocus::Direction_None, 0};
     bool sHadEntries = false;
     s32 sGapFrames = 0;
@@ -58,13 +58,13 @@ namespace {
     }
 
     // The centre in layout space (y up): a button's bounding pane from its last calculated matrix, or the target's own.
-    bool getCentre(const Entry& rEntry, TVec2f* pCentre) {
+    bool getCentre(const Entry& rEntry, Vec2f* pCentre) {
         if (rEntry.mButton == nullptr) {
             *pCentre = rEntry.mCentre;
             return true;
         }
         const ButtonPaneController* pButton = rEntry.mButton;
-        const nw4r::lyt::Pane* pPane = pButton->mHost->getLayoutManager()->findPaneByName(pButton->mBoundingPaneName);
+        const Ui::Pane* pPane = pButton->mBoundingPane;
         if (pPane == nullptr) {
             return false;
         }
@@ -72,23 +72,23 @@ namespace {
         f32 y = 0.0f;
         switch (pPane->mBasePosition % 3) {
         case 0:
-            x = pPane->mSize.width / 2.0f;
+            x = pPane->GetDrawSize().width / 2.0f;
             break;
         case 2:
-            x = -pPane->mSize.width / 2.0f;
+            x = -pPane->GetDrawSize().width / 2.0f;
             break;
         }
         switch (pPane->mBasePosition / 3) {
         case 0:
-            y = -pPane->mSize.height / 2.0f;
+            y = -pPane->GetDrawSize().height / 2.0f;
             break;
         case 2:
-            y = pPane->mSize.height / 2.0f;
+            y = pPane->GetDrawSize().height / 2.0f;
             break;
         }
-        const nw4r::math::MTX34& rMtx = pPane->mGlbMtx;
-        pCentre->x = rMtx._00 * x + rMtx._01 * y + rMtx._03;
-        pCentre->y = rMtx._10 * x + rMtx._11 * y + rMtx._13;
+        const Mtx34f& rMtx = pPane->mGlbMtx;
+        pCentre->x = rMtx.mMtx[0][0] * x + rMtx.mMtx[0][1] * y + rMtx.mMtx[0][3];
+        pCentre->y = rMtx.mMtx[1][0] * x + rMtx.mMtx[1][1] * y + rMtx.mMtx[1][3];
         return true;
     }
 
@@ -110,7 +110,7 @@ namespace {
             }
         }
         for (s32 i = 0; i < sEntryCount; i++) {
-            TVec2f centre;
+            Vec2f centre;
             if (!getCentre(sEntries[i], &centre)) {
                 continue;
             }
@@ -128,7 +128,7 @@ namespace {
     // The nearest place in the pressed direction: distance along it plus twice the distance across it, so one
     // straight ahead wins over a closer one off to the side. None ahead: the highlight stays.
     const Entry* findNext(const Entry& rFrom, Direction direction) {
-        TVec2f from;
+        Vec2f from;
         if (!getCentre(rFrom, &from)) {
             return &rFrom;
         }
@@ -137,7 +137,7 @@ namespace {
         const Entry* pBest = &rFrom;
         f32 bestScore = 0.0f;
         for (s32 i = 0; i < sEntryCount; i++) {
-            TVec2f centre;
+            Vec2f centre;
             if (&sEntries[i] == &rFrom || !getCentre(sEntries[i], &centre)) {
                 continue;
             }
@@ -163,9 +163,8 @@ namespace {
                 return;
             }
         }
-        if (sOfferedCount < cEntriesMax) {
-            sOffered[sOfferedCount++] = rEntry;
-        }
+        Entry* const pOffered = sOffered.room(sOfferedCount + 1);
+        pOffered[sOfferedCount++] = rEntry;
     }
 };  // namespace
 
@@ -220,9 +219,10 @@ namespace NebulaMenuFocus {
         sPress = Direction_None;
         sUnmoved = Direction_None;
         sEntryCount = 0;
+        Entry* const pEntries = sEntries.room(sOfferedCount);
         for (s32 i = 0; i < sOfferedCount; i++) {
             if (isFocusable(sOffered[i])) {
-                sEntries[sEntryCount++] = sOffered[i];
+                pEntries[sEntryCount++] = sOffered[i];
             }
         }
         sOfferedCount = 0;
@@ -237,7 +237,7 @@ namespace NebulaMenuFocus {
             sFocus = nullptr;
         }
 
-        const TVec2f* pPointer = MR::getStarPointerScreenPosition(PLAYER_1);
+        const Vec2f* pPointer = MR::getStarPointerScreenPosition(PLAYER_1);
         if (sActive && MR::isStarPointerInScreen(PLAYER_1) &&
             (absolute(pPointer->x - sPointerAnchor.x) > cPointerHandBack ||
              absolute(pPointer->y - sPointerAnchor.y) > cPointerHandBack)) {
@@ -279,12 +279,12 @@ namespace NebulaMenuFocus {
     }
 
     void offer(ButtonPaneController* pButton) {
-        const Entry entry = {pButton, nullptr, TVec2f(0.0f, 0.0f)};
+        const Entry entry = {pButton, nullptr, Vec2f(0.0f, 0.0f)};
         addOffered(entry);
     }
 
-    void offerTarget(const void* pKey, const TVec2f& rScreenPos) {
-        Entry entry = {nullptr, pKey, TVec2f(0.0f, 0.0f)};
+    void offerTarget(const void* pKey, const Vec2f& rScreenPos) {
+        Entry entry = {nullptr, pKey, Vec2f(0.0f, 0.0f)};
         MR::convertScreenPosToLayoutPos(&entry.mCentre, rScreenPos);
         addOffered(entry);
     }

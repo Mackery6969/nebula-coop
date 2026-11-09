@@ -6,16 +6,14 @@ class LodCtrl;
 
 class TicoRail : public LiveActor {
 public:
-    /// @brief Creates a new `TicoRail`.
-    /// @param pName A pointer to the null-terminated name of the object.
     TicoRail(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void kill();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     void exeWait();
     void exeLookAround();
@@ -26,10 +24,11 @@ public:
     void exeTalk();
     void exeTalkCancel();
     void exeGoodBye();
-    bool isGreaterEqualStepAndRandom(s32) const;
-    bool isSameRailActor(const LiveActor*) const;
+    bool isGreaterEqualStepAndRandom(s32 step) const;
+    bool isNrvTalking() const;
+    bool isSameRailActor(const LiveActor* pActor) const;
 
-    TVec3f _8C;
-    LiveActor* _98;
+    Vec3f mFront;
+    LiveActor* mTalkPartner;
     LodCtrl* mLodCtrl;
 };

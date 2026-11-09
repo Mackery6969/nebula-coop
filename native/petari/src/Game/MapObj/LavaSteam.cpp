@@ -1,4 +1,5 @@
 #include "Game/MapObj/LavaSteam.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util.hpp"
@@ -6,12 +7,11 @@
 #include "Game/Util/CollisionShapeUtil.hpp"
 
 namespace {
-    // static const s32 sIntervalTime = 120;
-    static const s32 sSteamTime = 90;
+    static const s32 sSteamTime = NebulaFrameClock::stepsOfMilliseconds(1500);
     static const s32 sAppearTime = 82;
-    static const s32 sDisappearTime = 90;
-    static const s32 sSteamWaitTime = 120;
-    static const s32 sSteamEndTime = 90;
+    static const s32 sDisappearTime = NebulaFrameClock::stepsOfMilliseconds(1500);
+    static const s32 sSteamWaitTime = NebulaFrameClock::stepsOfSeconds(2);
+    static const s32 sSteamEndTime = NebulaFrameClock::stepsOfMilliseconds(1500);
     static const f32 sSensorRadius = 250.0f;
     static const f32 sSensorOffsetY = 250.0f;
     static const f32 sHitCylinderRange = 10.0f;
@@ -31,14 +31,14 @@ namespace NrvLavaSteam {
 LavaSteam::LavaSteam(const char* pName) : LiveActor(pName), mUp(0.0f, 1.0f, 0.0f), mEffectScale(1.0f, 1.0f, 1.0f) {
 }
 
-void LavaSteam::init(const JMapInfoIter& rIter) {
+void LavaSteam::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("LavaSteam", nullptr, false);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     MR::setEffectHostSRT(this, "Sign", &mPosition, &mRotation, &mEffectScale);
 
     initHitSensor(1);
-    HitSensor* pSensor = MR::addHitSensorMapObj(this, "body", 8, ::sSensorRadius, TVec3f(0.0f, ::sSensorOffsetY, 0.0f));
+    HitSensor* pSensor = MR::addHitSensorMapObj(this, "body", 8, ::sSensorRadius, Vec3f(0.0f, ::sSensorOffsetY, 0.0f));
     MR::setClippingTypeSphere(this, ::sSensorRadius, &pSensor->mPosition);
 
     MR::setGroupClipping(this, rIter, ::sMaxNumGroupClipping);
@@ -61,7 +61,7 @@ void LavaSteam::init(const JMapInfoIter& rIter) {
 }
 
 void LavaSteam::initAfterPlacement() {
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.identity();
     mtx.setRotateDegree(mRotation);
     mtx.getYDir(mUp);

@@ -7,49 +7,44 @@
 #include "Game/System/AudSystemWrapper.hpp"
 #include "Game/System/AssetFolder.hpp"
 #include "Game/System/ErrorMessageArchive.hpp"
-#include "Game/System/FileLoader.hpp"
-#include "Game/System/HeapMemoryWatcher.hpp"
+#include "Game/System/Arenas.hpp"
 #include "Game/System/Language.hpp"
 #include "Game/System/MessageHolder.hpp"
-#include "Game/System/RenderMode.hpp"
 #include "Game/System/ResourceHolderManager.hpp"
 #include "Game/System/PlayerInputs.hpp"
 #include "Game/Util/FileUtil.hpp"
 #include "Game/Util/LayoutUtil.hpp"
-#include "Game/Util/MemoryUtil.hpp"
 #include "Game/Util/SingletonHolder.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
 #include "Game/System/NebulaArena.hpp"
 #include "Game/System/NebulaFrameClock.hpp"
+#include "Game/Util/StringUtil.hpp"
 
 GameSystemObjHolder::GameSystemObjHolder()
-    : mObjHolder(), mParticleResHolder(), mCaptureScreenDirector(), mScreenPreserver(), mAudioSystem(), mPlayerInputs(), mMessageHolder(), mStarPointerDirector(), mRandom(0), mLanguage(MR::getDecidedLanguageFromIPL()) {
-    initStore();
+    : mObjHolder(), mParticleResHolder(), mCaptureScreenDirector(), mScreenPreserver(), mAudioSystem(), mPlayerInputs(), mMessageHolder(), mStarPointerDirector(), mRandom(0), mLanguage(MR::decideLanguage()) {
     initNameObj();
-    MR::createAndAddArchive(AssetFolder::mount("/NebulaData/ErrorMessageArchive.arc", MR::getPermanentHeap()), MR::getPermanentHeap(),
-                            "ErrorMessageArchive.arc");
+    MR::addArchive(AssetFolder::mount("/NebulaData/ErrorMessageArchive", Arenas::permanent()), Arenas::permanent(), "ErrorMessageArchive");
 }
 
-void GameSystemObjHolder::initAfterStationedResourceLoaded() {
+void GameSystemObjHolder::initAfterSystemArchiveLoaded() {
     SingletonHolder< NameObjRegister >::get()->setCurrentHolder(mObjHolder);
-    mParticleResHolder = new ParticleResourceHolder("/ParticleData/Effect.arc");
+    mParticleResHolder = new ParticleResourceHolder("/ParticleData/Effect");
     mMessageHolder->initGameData();
     MR::createStarPointerLayout();
 }
 
 void GameSystemObjHolder::initMessageResource() {
-    AssetFolder* pArchive = nullptr;
-    NebulaArena* pHeap = nullptr;
-    MR::getMountedArchiveAndHeap("ErrorMessageArchive.arc", &pArchive, &pHeap);
+    AssetFolder* pArchive = MR::getArchive("ErrorMessageArchive");
+    NebulaArena* pArena = MR::getArchiveArena("ErrorMessageArchive");
 
-    char systemMessagePath[256];
+    MR::FormattedName systemMessagePath;
     const char* languagePrefix = MR::getCurrentLanguagePrefix();
-    nebula_snprintf(systemMessagePath, sizeof(systemMessagePath), "/%s/MessageData/System.arc", languagePrefix);
+    systemMessagePath.format("/%s/MessageData/System", languagePrefix);
 
-    MR::createAndAddArchive(pArchive->getSubFolder(systemMessagePath, pHeap), pHeap, "/Memory/SystemMessage.arc");
-    MR::createAndAddArchive(pArchive->getSubFolder("/LayoutData/ErrorMessageWindow.arc", pHeap), pHeap, "/Memory/ErrorMessageWindow.arc");
+    MR::addArchive(pArchive->getSubFolder(systemMessagePath.c_str(), pArena), pArena, "/Memory/SystemMessage");
+    MR::addArchive(pArchive->getSubFolder("/LayoutData/ErrorMessageWindow", pArena), pArena, "/Memory/ErrorMessageWindow");
 
-    MR::createAndAddLayoutHolderRawData("/Memory/ErrorMessageWindow.arc");
+    MR::createAndAddLayoutHolderRawData("/Memory/ErrorMessageWindow");
 
     mMessageHolder = new MessageHolder();
     mMessageHolder->initSystemData();
@@ -71,7 +66,6 @@ void GameSystemObjHolder::createAudioSystem() {
 }
 
 void GameSystemObjHolder::update() {
-    mAudioSystem->updateRhythm();
     mPlayerInputs->update();
     mStarPointerDirector->update();
 }
@@ -94,13 +88,8 @@ void GameSystemObjHolder::captureIfAllowForScreenPreserver() {
     mScreenPreserver->captureIfAllow();
 }
 
-void GameSystemObjHolder::initStore() {
-    SingletonHolder< FileLoader >::init();
-}
-
 void GameSystemObjHolder::initAudio() {
-    mAudioSystem = new AudSystemWrapper(SingletonHolder< HeapMemoryWatcher >::get()->getPermanentHeap(), MR::getPermanentHeap());
-    mAudioSystem->requestResourceForInitialize();
+    mAudioSystem = new AudSystemWrapper(Arenas::permanent());
 }
 
 void GameSystemObjHolder::initPicture() {

@@ -2,17 +2,17 @@
 #include "Game/Util.hpp"
 
 namespace {
-    static f32 cRadius = 50.0f;
+    const f32 cRadius = 50.0f;
 };  // namespace
 
 CollisionBlocker::CollisionBlocker(const char* pName) : LiveActor(pName) {
 }
 
-void CollisionBlocker::init(const JMapInfoIter& rIter) {
+void CollisionBlocker::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initHitSensor(1);
 
-    MR::addHitSensorEye(this, "eye", 4, ::cRadius * mScale.x, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorEye(this, "eye", 4, ::cRadius * mScale.x, Vec3f(0.0f, 0.0f, 0.0f));
     MR::connectToSceneMapObjMovement(this);
     MR::setClippingFar50m(this);
     makeActorAppeared();

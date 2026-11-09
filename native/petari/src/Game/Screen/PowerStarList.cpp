@@ -18,8 +18,8 @@
 #include "Game/Util/SceneUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
-#include <nw4r/lyt/drawInfo.h>
-#include <nw4r/lyt/pane.h>
+#include <Game/Ui/DrawInfo.hpp>
+#include <Game/Ui/Pane.hpp>
 
 
 #define ITEMS_PER_PAGE 15
@@ -201,14 +201,14 @@ namespace NrvPowerStarList {
 };  // namespace NrvPowerStarList
 
 PowerStarList::PowerStarList()
-    : LayoutActor("\221\123\203\160\203\217\201\133\203\130\203\136\201\133\203\212\203\130\203\147" /* 全パワースターリスト */, true), mArrowUpButtonCtrl(), mArrowDownButtonCtrl(), mSysInfoWindow(), mPageNo() {
+    : LayoutActor("全パワースターリスト", true), mArrowUpButtonCtrl(), mArrowDownButtonCtrl(), mSysInfoWindow(), mPageNo() {
     mSeparatorArray = new Separator[4]();
 }
 
 PowerStarList::Separator::Separator() {
 }
 
-void PowerStarList::init(const JMapInfoIter& rIter) {
+void PowerStarList::init(const TableIter& /*rIter*/) {
     initLayoutManager("AllStarList", 1);
     MR::createAndAddPaneCtrl(this, "PicBG", 1);
     MR::createAndAddPaneCtrl(this, "List1", 1);
@@ -220,7 +220,7 @@ void PowerStarList::init(const JMapInfoIter& rIter) {
     for (u32 i = 0; i < ARRAY_SIZE(::cSeparatorPaneTable); i++) {
         pPaneName = ::cSeparatorPaneTable[i];
         MR::createAndAddPaneCtrl(this, pPaneName, 1);
-        MR::setFollowPos(&mSeparatorArray[i]._4, this, pPaneName);
+        MR::setFollowPos(&mSeparatorArray[i].mOffset, this, pPaneName);
         MR::setFollowTypeAdd(this, pPaneName);
     }
 
@@ -287,8 +287,8 @@ void PowerStarList::resetButtonAll() {
 
 void PowerStarList::updateButtonAppearance() {
     if (mPageNum == 1) {
-        mArrowDownButtonCtrl->_24 = false;
-        mArrowUpButtonCtrl->_24 = false;
+        mArrowDownButtonCtrl->mIsActive = false;
+        mArrowUpButtonCtrl->mIsActive = false;
 
         MR::hidePane(this, "ArrowDownButton");
         MR::hidePane(this, "ArrowUpButton");
@@ -299,18 +299,18 @@ void PowerStarList::updateButtonAppearance() {
         MR::showPane(this, "PageNumber");
 
         if (mPageNo < mPageNum - 1) {
-            mArrowDownButtonCtrl->_24 = true;
+            mArrowDownButtonCtrl->mIsActive = true;
             MR::setPaneAlpha(this, "ArrowDownButton", -1);
         } else {
-            mArrowDownButtonCtrl->_24 = false;
+            mArrowDownButtonCtrl->mIsActive = false;
             MR::setPaneAlpha(this, "ArrowDownButton", 80);
         }
 
         if (mPageNo > 0) {
-            mArrowUpButtonCtrl->_24 = true;
+            mArrowUpButtonCtrl->mIsActive = true;
             MR::setPaneAlpha(this, "ArrowUpButton", -1);
         } else {
-            mArrowUpButtonCtrl->_24 = false;
+            mArrowUpButtonCtrl->mIsActive = false;
             MR::setPaneAlpha(this, "ArrowUpButton", 80);
         }
 
@@ -324,15 +324,23 @@ namespace {
     class TextBuffer {
     public:
         TextBuffer(LayoutActor* pActor, const char* const* pPaneNames, s32 rowsPerPane)
-            : mActor(pActor), mPaneNames(pPaneNames), mRowsPerPane(rowsPerPane), mTail(mBuffer) {
-            MR::formatText(mBuffer, ARRAY_SIZE(mBuffer), u"");
+            : mActor(pActor), mPaneNames(pPaneNames), mRowsPerPane(rowsPerPane), mTail(0) {
+        }
+
+        // The tail, with room for `units` more units after it (the text may move).
+        char16_t* tailFor(u32 units) {
+            return mBuffer.grow(mTail + 1, mTail + units + 1) + mTail;
+        }
+
+        void setTail(const char16_t* pTail) {
+            mTail = static_cast< u32 >(pTail - mBuffer.c_str());
         }
 
         void addNewLine(s32 row) {
             s32 paneIndex = row / mRowsPerPane;
 
             if (row - paneIndex * mRowsPerPane != 0) {
-                mTail = MR::addNewLine(mTail);
+                setTail(MR::addNewLine(tailFor(2)));
             }
         }
 
@@ -340,9 +348,9 @@ namespace {
             s32 paneIndex = row / mRowsPerPane;
 
             if (row - paneIndex * mRowsPerPane == 0) {
-                MR::setTextBoxMessageRecursive(mActor, mPaneNames[paneIndex - 1], mBuffer);
-                mTail = mBuffer;
-                MR::formatText(mBuffer, ARRAY_SIZE(mBuffer), u"");
+                MR::setTextBoxMessageRecursive(mActor, mPaneNames[paneIndex - 1], mBuffer.c_str());
+                mTail = 0;
+                mBuffer.room(1);
             }
         }
 
@@ -353,20 +361,16 @@ namespace {
                 return;
             }
 
-            MR::setTextBoxMessageRecursive(mActor, mPaneNames[paneIndex], mBuffer);
+            MR::setTextBoxMessageRecursive(mActor, mPaneNames[paneIndex], mBuffer.c_str());
         }
 
         LayoutActor* mActor;
         const char* const* mPaneNames;
         s32 mRowsPerPane;
-        char16_t mBuffer[256];
-        char16_t* mTail;
+        MR::Text16 mBuffer;
+        u32 mTail;  // where the text ends
     };
 };  // namespace
-
-namespace {
-    ListItem* sListItems = nullptr;
-}  // namespace
 
 void PowerStarList::updateList(s32 pageNumber, bool isSinglePage) {
     if (pageNumber >= 0) {
@@ -397,10 +401,8 @@ void PowerStarList::updateList(s32 pageNumber, bool isSinglePage) {
         MR::hidePaneRecursive(this, ::cSeparatorPaneTable[idx]);
     }
 
-    if (sListItems == nullptr) {
-        sListItems = new ListItem[::listRoom()];
-    }
-    ListItem* const listItems = sListItems;
+    // Built for this page and freed at its end: the list belongs to the scene showing it.
+    ListItem* const listItems = new ListItem[::listRoom()];
 
     s32 itemCount = ::getSortedList(listItems);
     mPageNum = (itemCount - 1) / ITEMS_PER_PAGE + 1;
@@ -424,13 +426,16 @@ void PowerStarList::updateList(s32 pageNumber, bool isSinglePage) {
     s32 separatorRows = 0;
     galaxyCount = 0;
 
-    for (; pItem != pEnd; pItem++) {
+    // A page past the list's end has no rows (it was a != compare).
+    for (; pItem < pEnd; pItem++) {
         switch (pItem->mType) {
         case 0: {
             galaxyBuffer.mTail = makeGalaxyNameText(galaxyBuffer.mBuffer, &pItem->mGalaxyAccessor, row % 4 == 0);
-            starBuffer.mTail = makeStarNumText(starBuffer.mTail, &pItem->mGalaxyAccessor, row % 8 == 0);
-            coinBuffer.mTail = makeCoinText(coinBuffer.mTail, &pItem->mGalaxyAccessor, row % 8 == 0);
-            crownBuffer.mTail = makeCrownText(crownBuffer.mTail, &pItem->mGalaxyAccessor, row % 8 == 0);
+            // A newline, a code for each star, and the terminator.
+            starBuffer.setTail(makeStarNumText(starBuffer.tailFor(pItem->mGalaxyAccessor.getPowerStarNum() + 2), &pItem->mGalaxyAccessor, row % 8 == 0));
+            // A newline, the tag, three digits and the terminator.
+            coinBuffer.setTail(makeCoinText(coinBuffer.tailFor(16), &pItem->mGalaxyAccessor, row % 8 == 0));
+            crownBuffer.setTail(makeCrownText(crownBuffer.tailFor(3), &pItem->mGalaxyAccessor, row % 8 == 0));
             timeBuffer.addNewLine(row);
 
             s32 priority = ::getSortPriority(&pItem->mGalaxyAccessor);
@@ -446,7 +451,7 @@ void PowerStarList::updateList(s32 pageNumber, bool isSinglePage) {
                     tryShowSeparator(prevSeparator, ::cSeparatorOffset * separatorRows);
                 }
 
-                TVec2f& rOffset = mSeparatorArray[separator]._4;
+                Vec2f& rOffset = mSeparatorArray[separator].mOffset;
                 rOffset.x = 0.0f;
                 rOffset.y = ::cSeparatorOffset * row;
                 prevSeparator = separator;
@@ -465,7 +470,7 @@ void PowerStarList::updateList(s32 pageNumber, bool isSinglePage) {
             crownBuffer.addNewLine(row);
 
             if (tryShowSeparator(3, ::cTimePaneDefaultHeight + ::cSeparatorOffset * (bestTimeNum - 1))) {
-                TVec2f& rOffset = mSeparatorArray[3]._4;
+                Vec2f& rOffset = mSeparatorArray[3].mOffset;
                 rOffset.x = 0.0f;
                 rOffset.y = ::cSeparatorOffset * row;
             }
@@ -502,19 +507,25 @@ void PowerStarList::updateList(s32 pageNumber, bool isSinglePage) {
     coinBuffer.finish(row);
     crownBuffer.finish(row);
     timeBuffer.finish(row);
+    delete[] listItems;
 }
 
-char16_t* PowerStarList::makeGalaxyNameText(char16_t* pBuffer, const GalaxyStatusAccessor* pAccessor, bool isFirstLine) const {
-    s32 offset;
-    if (isFirstLine) {
-        const char16_t* pName = MR::getGalaxyNameShortOnCurrentLanguage(pAccessor->getName());
-        offset = MR::formatText(pBuffer, 0x100, pName);
-    } else {
-        const char16_t* pName = MR::getGalaxyNameShortOnCurrentLanguage(pAccessor->getName());
-        offset = MR::formatText(pBuffer, 0x100, u"%ls%s%ls", pBuffer, "\n", pName);
+namespace {
+    // `rBuffer`'s text with `pName` as a line after it (a new text when `isFirstLine`); its length.
+    u32 addLine(MR::Text16& rBuffer, const char16_t* pName, bool isFirstLine) {
+        const u32 nameLength = static_cast< u32 >(MR::textLength(pName));
+        const u32 used = isFirstLine ? 0 : static_cast< u32 >(MR::textLength(rBuffer.c_str())) + 1;
+        char16_t* const pText = rBuffer.grow(used, used + nameLength + 1);
+        if (!isFirstLine) {
+            pText[used - 1] = u'\n';
+        }
+        MR::copyText(pText + used, pName, nameLength + 1);
+        return used + nameLength;
     }
+};  // namespace
 
-    return pBuffer + offset;
+u32 PowerStarList::makeGalaxyNameText(MR::Text16& rBuffer, const GalaxyStatusAccessor* pAccessor, bool isFirstLine) const {
+    return addLine(rBuffer, MR::getGalaxyNameShortOnCurrentLanguage(pAccessor->getName()), isFirstLine);
 }
 
 char16_t* PowerStarList::makeStarNumText(char16_t* pBuffer, const GalaxyStatusAccessor* pAccessor, bool isFirstLine) const {
@@ -558,6 +569,12 @@ char16_t* PowerStarList::makeCoinText(char16_t* pBuffer, const GalaxyStatusAcces
     }
 
     s32 coinScore = MR::getCoinBestScore(pAccessor->getName());
+    // Three digits: a save's score outside 0..999 is held to them.
+    if (coinScore < 0) {
+        coinScore = 0;
+    } else if (coinScore > 999) {
+        coinScore = 999;
+    }
 
     pBuffer = MR::addPictureFontTag(pBuffer, u'A');
 
@@ -589,31 +606,13 @@ char16_t* PowerStarList::makeCrownText(char16_t* pBuffer, const GalaxyStatusAcce
     return pBuffer;
 }
 
-char16_t* PowerStarList::makeRaceNameText(char16_t* pBuffer, int raceId, bool isFirstLine) const {
-    s32 offset;
-    if (isFirstLine) {
-        const char16_t* pName = MR::getRaceNameOnCurrentLanguage(raceId);
-        offset = MR::formatText(pBuffer, 0x100, pName);
-    } else {
-        const char16_t* pName = MR::getRaceNameOnCurrentLanguage(raceId);
-        offset = MR::formatText(pBuffer, 0x100, u"%ls%s%ls", pBuffer, "\n", pName);
-    }
-
-    return pBuffer + offset;
+u32 PowerStarList::makeRaceNameText(MR::Text16& rBuffer, int raceId, bool isFirstLine) const {
+    return addLine(rBuffer, MR::getRaceNameOnCurrentLanguage(raceId), isFirstLine);
 }
 
-char16_t* PowerStarList::makeRaceTimeText(char16_t* pBuffer, int raceId, bool isFirstLine) const {
-    char16_t raceBest[10];
-    MR::makeRaceBestTimeString(raceBest, raceId);
-
-    s32 offset;
-    if (isFirstLine) {
-        offset = MR::formatText(pBuffer, 0x100, raceBest);
-    } else {
-        offset = MR::formatText(pBuffer, 0x100, u"%ls%s%ls", pBuffer, "\n", raceBest);
-    }
-
-    return pBuffer + offset;
+u32 PowerStarList::makeRaceTimeText(MR::Text16& rBuffer, int raceId, bool isFirstLine) const {
+    MR::Text16 raceBest;
+    return addLine(rBuffer, MR::makeRaceBestTimeString(raceBest, raceId), isFirstLine);
 }
 
 void PowerStarList::startScrollAnimNext(bool set) {
@@ -642,11 +641,16 @@ void PowerStarList::startScrollAnimPrev() {
 }
 
 bool PowerStarList::tryShowSeparator(s32 separatorIdx, f32 myFloat) {
+    // A page with no galaxy row (the race page) has no separator yet (-1).
+    if (separatorIdx < 0 || separatorIdx >= 4) {
+        return false;
+    }
+
     const char* pPaneName = ::cSeparatorPaneTable[separatorIdx];
 
     if (MR::isHiddenPane(this, pPaneName)) {
         MR::showPaneRecursive(this, pPaneName);
-        mSeparatorArray[separatorIdx]._0 = myFloat;
+        mSeparatorArray[separatorIdx].mHeight = myFloat;
 
         return true;
     }
@@ -663,9 +667,9 @@ void PowerStarList::setSeparatorPaneSize() {
             continue;
         }
 
-        nw4r::lyt::Pane* pPane = MR::getPane(this, pPaneName);
-        nw4r::lyt::Size size = pPane->mSize;
-        size.height = mSeparatorArray[idx]._0;
+        Ui::Pane* pPane = MR::getPane(this, pPaneName);
+        Ui::Size size = pPane->mSize;
+        size.height = mSeparatorArray[idx].mHeight;
         pPane->mSize = size;
     }
 }
@@ -676,19 +680,19 @@ void PowerStarList::exeAppear() {
     if (MR::isFirstStep(this)) {
         pController = mArrowUpButtonCtrl;
         pController->appear();
-        pController->_24 = false;
+        pController->mIsActive = false;
 
         pController = mArrowDownButtonCtrl;
         pController->appear();
-        pController->_24 = false;
+        pController->mIsActive = false;
 
         updateButtonAppearance();
         MR::startAnim(this, "Appear", 0);
     }
 
     if (MR::isAnimStopped(this, 0)) {
-        mArrowUpButtonCtrl->_24 = true;
-        mArrowDownButtonCtrl->_24 = true;
+        mArrowUpButtonCtrl->mIsActive = true;
+        mArrowDownButtonCtrl->mIsActive = true;
         setNerve(GET_NERVE(PowerStarList, PowerStarListNrvWait));
     }
 }
@@ -709,8 +713,8 @@ void PowerStarList::exeWait() {
 
 void PowerStarList::exeDisappear() {
     if (MR::isFirstStep(this)) {
-        mArrowUpButtonCtrl->_24 = false;
-        mArrowDownButtonCtrl->_24 = false;
+        mArrowUpButtonCtrl->mIsActive = false;
+        mArrowDownButtonCtrl->mIsActive = false;
 
         updateList(-1, true);
 

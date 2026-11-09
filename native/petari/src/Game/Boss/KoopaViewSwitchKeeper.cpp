@@ -5,7 +5,7 @@
 KoopaViewSwitchKeeper::KoopaViewSwitchKeeper(const char* pName) : LiveActor(pName) {
 }
 
-void KoopaViewSwitchKeeper::init(const JMapInfoIter& rIter) {
+void KoopaViewSwitchKeeper::init(const TableIter& rIter) {
     MR::useStageSwitchReadAppear(this, rIter);
     MR::useStageSwitchReadA(this, rIter);
 
@@ -14,7 +14,4 @@ void KoopaViewSwitchKeeper::init(const JMapInfoIter& rIter) {
 
 void KoopaViewSwitchKeeper::initAfterPlacement() {
     KoopaFunction::registerKoopaViewSwitchKeeper(this);
-}
-
-KoopaViewSwitchKeeper::~KoopaViewSwitchKeeper() {
 }

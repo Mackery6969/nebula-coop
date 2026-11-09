@@ -1,4 +1,5 @@
 #include "Game/MapObj/SpaceMine.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/MapObjActorInitInfo.hpp"
 #include "Game/Util.hpp"
@@ -6,12 +7,10 @@
 namespace {
     const f32 sRotateSpeedNormal = 1.0f;
     const f32 sRotateSpeedFast = 1.0f;
-    // sDeadTime
-    // sAppearValidDistance
     const f32 sSensorRadius = 100.0f;
     const f32 sDistanceNear = 1500.0f;
     const f32 sDistanceFar = 1450.0f;
-    const s32 sAppearEffectTime = 120;
+    const s32 sAppearEffectTime = NebulaFrameClock::stepsOfSeconds(2);
 };  // namespace
 
 namespace NrvSpaceMine {
@@ -23,7 +22,7 @@ SpaceMine::SpaceMine(const char* pName)
     : MapObjActor(pName), mRotateSpeed(::sRotateSpeedNormal), mClippingRange(gZeroVec), mShadowType(-1), mIsPlayerNear() {
 }
 
-void SpaceMine::init(const JMapInfoIter& rIter) {
+void SpaceMine::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
     MapObjActorInitInfo info;
     info.setupDefaultPos();
@@ -33,13 +32,13 @@ void SpaceMine::init(const JMapInfoIter& rIter) {
     info.setupNerve(GET_NERVE(SpaceMine, HostTypeWait));
     info.setupRailMover();
     info.setupHitSensor();
-    TVec3f sensorOffs;
+    Vec3f sensorOffs;
     sensorOffs.x = 0.0f;
     sensorOffs.y = 0.0f;
     sensorOffs.z = 0.0f;
     info.setupHitSensorParam(8, ::sSensorRadius, sensorOffs);
     info.setupGroupClipping(0x10);
-    MR::getJMapInfoArg0NoInit(rIter, &mShadowType);
+    MR::getPlacementArg0NoInit(rIter, &mShadowType);
 
     bool isValid = isShadowValid(mShadowType);
 
@@ -47,10 +46,10 @@ void SpaceMine::init(const JMapInfoIter& rIter) {
         info.setupShadow(nullptr);
     }
 
-    s32 arg1 = -1;
-    MR::getJMapInfoArg1NoInit(rIter, &arg1);
+    s32 useBinder = -1;
+    MR::getPlacementArg1NoInit(rIter, &useBinder);
 
-    if (arg1 != -1) {
+    if (useBinder != -1) {
         info.setupBinder(::sSensorRadius, 0.0f);
     }
 
@@ -69,7 +68,7 @@ bool SpaceMine::isCalcShadowAlways() const {
 void SpaceMine::kill() {
     MR::emitEffect(this, "Explosion");
     MR::startSound(this, "SE_OJ_SPACEMINE_EXPLOSION");
-    MR::tryRumblePad(this, "\222\206" /* 中 */, 0);
+    MR::tryRumblePad(this, "中", 0);
     MapObjActor::kill();
 }
 
@@ -89,7 +88,7 @@ void SpaceMine::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     }
 }
 
-bool SpaceMine::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool SpaceMine::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (MR::isMsgInvincibleAttack(msg)) {
         kill();
         return true;
@@ -159,7 +158,4 @@ void SpaceMine::exeAppear() {
             setNerve(GET_NERVE(SpaceMine, HostTypeWait));
         }
     }
-}
-
-SpaceMine::~SpaceMine() {
 }

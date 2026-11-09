@@ -6,8 +6,8 @@ class SubMeterLayout : public LayoutActor {
 public:
     SubMeterLayout(const char*, const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
+    virtual void init(const TableIter&) override;
+    virtual void control() override;
 
     void setLifeRatio(f32);
     void requestDeactivate();
@@ -15,9 +15,7 @@ public:
     void requestFrameIn();
     void requestFrameOut();
 
-    u8 _20;
-    u8 _21;
-    u16 _22;
-    u16 _24;
-    u16 _26;
+    u8 mPhase;
+    u16 mLifeFrame;
+    u16 mFullLifeFrame;
 };

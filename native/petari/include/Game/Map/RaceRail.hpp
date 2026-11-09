@@ -5,24 +5,30 @@
 class ActorCameraInfo;
 class RaceManager;
 
+// The player's side of a race: progress is the player's nearest coord on the race rail.
 class PlayerRacer : public LiveActor, public AbstractRacer {
 public:
     PlayerRacer(const char*);
 
-    virtual ~PlayerRacer();
-    virtual void init(const JMapInfoIter&);
-    virtual void appear();
-    virtual void initRacer();
-    virtual void prepRacer(const RaceManager*);
-    virtual void startRacer();
-    virtual bool updateRacer(const RaceManager*);
-    virtual bool goalRacer();
-    virtual void loseRacer();
-    virtual void resetRacer(const RaceManager*);
-    virtual void exitRacer();
+    virtual void init(const TableIter&) override;
+    virtual void appear() override;
+    virtual void initRacer() override;
+    virtual void prepRacer(const RaceManager*) override;
+    virtual void startRacer() override;
+    virtual bool updateRacer(const RaceManager*) override;
 
-    u32 _B0;
-    u32 _B4;
+    virtual bool goalRacer() override {
+        return true;
+    }
+
+    virtual void loseRacer() override {
+    }
+
+    virtual void resetRacer(const RaceManager*) override;
+
+    virtual void exitRacer() override {
+    }
+
     ActorCameraInfo* mCameraInfo;
 };
 
@@ -30,8 +36,7 @@ class RaceRail : public NameObj {
 public:
     RaceRail(const char*);
 
-    virtual ~RaceRail();
-    virtual void init(const JMapInfoIter&);
+    virtual void init(const TableIter&) override;
 
     PlayerRacer* mPlayerRacer;
 };

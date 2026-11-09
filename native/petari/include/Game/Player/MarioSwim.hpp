@@ -29,8 +29,8 @@ public:
     virtual bool close();
     virtual bool update();
     virtual bool notice();
-    virtual void hitWall(const TVec3f&, HitSensor*);
-    virtual void hitPoly(u8, const TVec3f&, HitSensor*);
+    virtual void hitWall(const Vec3f&, HitSensor*);
+    virtual void hitPoly(u8, const Vec3f&, HitSensor*);
     virtual bool passRing(const HitSensor*);
     virtual f32 getBlurOffset() const {
         return mBlurOffset;
@@ -38,9 +38,9 @@ public:
 
     virtual void draw3D() const;
     virtual f32 getStickY() const;
-    virtual const TVec3f& getGravityVec() const;
-    virtual void addVelocity(const TVec3f& rVelocity);
-    virtual void addVelocity(const TVec3f& rVelocity, f32);
+    virtual const Vec3f& getGravityVec() const;
+    virtual void addVelocity(const Vec3f& rVelocity);
+    virtual void addVelocity(const Vec3f& rVelocity, f32);
 
     bool checkWaterCube(bool);
     void onSurface();
@@ -57,18 +57,18 @@ public:
     void updateTilt();
     void jet();
     void pushedByWaterWall();
-    void setDamage(const TVec3f&, u16);
+    void setDamage(const Vec3f&, u16);
     void updateUnderWater();
     bool startJet(u32);
-    void addDamage(const TVec3f&);
-    void addFaint(const TVec3f&);
-    bool getWaterAreaInfo(WaterInfo*, const TVec3f&, TVec2f*);
+    void addDamage(const Vec3f&);
+    void addFaint(const Vec3f&);
+    bool getWaterAreaInfo(WaterInfo*, const Vec3f&, Vec2f*);
     void decOxygen(u16 amount);
     void incOxygen();
     void incLife();
     void decLife();
     f32 calcRingAcc();
-    void hitPunch(const TVec3f& rPunchDir);
+    void hitPunch(const Vec3f& rPunchDir);
     f32 getSurface() const;
     f32 getWaterEdgeDist() const {
         if (isOnWaterSurface()) {
@@ -87,7 +87,7 @@ public:
     void resetJet();
     void forceStopSpin();
     void resetAndFixPose();
-    f32 checkUnderWaterFull(const TVec3f&);
+    f32 checkUnderWaterFull(const Vec3f&);
     void hitHead(const HitInfo*);
 
     f32 calcWaterEdgeDist() const {
@@ -117,7 +117,7 @@ public:
             worthlesser = true;
         } else {
             if (mIdleWaitTimer > 0x1E) {
-                _1E = 1;
+                mUpStrokeAllowed = 1;
             }
 
             worthlesser = false;
@@ -139,11 +139,11 @@ public:
         worthlesser = true;
     }
 
-    inline TVec3f getPlayer380() const {
-        return getPlayer()->_380;
+    inline Vec3f getTouchedWallNorm() const {
+        return getPlayer()->mWallNorm;
     }
 
-    inline bool check7Aand7C() const {
+    inline bool isSpinning() const {
         return mSpinTimer || mSpinDashTimer;
     }
 
@@ -152,17 +152,17 @@ public:
     }
 
     MarineSnow* mMarineSnow;
-    u8 _18;
+    u8 mHoldOnSurface;  // kept on the surface: no sinking; nothing sets it
     bool mIsOnSurface;
     bool mEnteredWater;
-    bool _1B;
-    bool _1C;
-    bool _1D;
-    bool _1E;
-    bool _1F;
+    bool mSurfaceStartAnim;  // the surface's first-move animation is due
+    bool mPaddleJumpReady;  // the surface paddle is ready to jump
+    bool mStrokeQueued;  // an A press waits for the stroke's connect window
+    bool mUpStrokeAllowed;  // the upward stroke's angle applies (after 30 idle frames)
+    bool mWallHit;  // a wall was hit: the bottom check runs
     bool mIsSwimmingAtSurface;
     bool mIsSinking;
-    bool _22;
+    bool mSlideOut;  // a slide polygon or wall: the swim ends in a slide
     u32 mStateTimer;
     u32 mSurfacePaddleHoldTimer;
     u16 mActionLockTimer;
@@ -171,42 +171,40 @@ public:
     u16 mZSinkTimer;
     u16 mJumpDiveTimer;
     u16 mDashTimer;
-    u16 _38;
+    u16 mSurfaceStickTimer;  // after a dive or a sink: frames before the stick steers at the surface again
     u16 mBuoyancyDelayTimer;
     u16 mIdleWaitTimer;
     u16 mWaveFlowTimer;
     u16 mJetCooldownTimer;
     u16 mFloorContactTimer;
-    u16 _44;
+    u16 mWaterWallTimer;  // frames the water wall pushes straight out
     f32 mSurfaceOffset;
     f32 mStickInputYInertia;
     f32 mStickInputXInertia;
     f32 mForwardSpeed;
     f32 mBuoyancySpeed;
     f32 mVerticalAngle;
-    TVec3f mFrontVec;
-    TVec3f mUpVec;
-    bool _78;
+    Vec3f mFrontVec;
+    Vec3f mUpVec;
+    bool mSpinPunchHit;  // the spin hit something: the spin dash stops its animation
     u16 mSpinTimer;
     u16 mSpinDashTimer;
-    f32 _80;
-    f32 _84;
-    u8 _88;
+    u8 mJetKind;  // the jet's kind (startJet)
     u16 mJetTimer;
     u16 mRingDashTimer;
     u16 mRingDashChargeTimer;
     u16 mRingDashMaxDuration;
     f32 mRingDashSpeedScale;
     f32 mBlurOffset;
-    bool _9C;
-    u8 _9D;
+    bool mPaddleReleased;  // A was let go since the last paddle
+    u8 mEntryKind;  // how he went in: 0 walking, 1 jumping, 4 damaged
     u8 mNextAction;
     u8 mEffectState;
-    TVec3f mKnockbackVel;
+    Vec3f mKnockbackVel;
     u8 mDamageType;
-    u8 _AD;
+    u8 mLargeDamage;  // the next damage is large (damageLarge, flipLarge)
     u16 mKnockbackTimer;
-    TMtx34f mUpperBodyJointMtx;
+    Mtx34f mUpperBodyJointMtx;
     f32 mCurrentTiltX;
     f32 mCurrentTiltY;
     u16 mDrownTimer;
@@ -216,20 +214,17 @@ public:
     u16 mColdWaterDamageInterval;
     WaterInfo mWaterInfo;
     s32 mSwimState;
-    TVec3f _148;
-    TVec3f mAreaFollowMtxPos;
-    TVec3f mSurfacePos;
-    TVec3f mSurfaceNorm;
-    TVec3f _178;
-    TVec3f mWaterStreamVel;
-    TVec3f mWaterStreamDir;
+    Vec3f mAreaFollowMtxPos;
+    Vec3f mSurfacePos;
+    Vec3f mSurfaceNorm;
+    Vec3f mWaterEdgePos;  // the water area's edge (the reflection, the water wall)
+    Vec3f mWaterStreamVel;
+    Vec3f mWaterStreamDir;
     f32 mWaterDepth;
-    f32 _1A0;
     f32 mDistToFloor;
-    f32 _1A8;
     f32 mDistanceToWaterSurface;
     u16 mWallStickTimer;
-    u8 _1B2;
+    u8 mDeepWater;  // the surface is over 300 below (the walk and the floor effects)
     f32 mWaterDistanceTarget;
-    f32 _1B8;
+    f32 mSurfaceDepth;  // the distance to the surface along the gravity
 };

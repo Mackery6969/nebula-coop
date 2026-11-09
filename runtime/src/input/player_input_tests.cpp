@@ -3,6 +3,9 @@
 // loses the pointer). Hidden window: no live keyboard or mouse.
 
 #include "galaxy/runtime_settings.h"
+#include "galaxy/launch_args.h"
+#include "galaxy/test_temp.h"
+#include "galaxy/input/controls_engine.h"
 #include "galaxy/input/host_input.h"
 #include "galaxy/native_input.h"
 
@@ -33,8 +36,8 @@ void set_env(const char* name, const char* value) {
     _putenv_s(name, value != nullptr ? value : "");
 }
 
-galaxy::input::PlayerInput input_at(std::uint64_t vi, std::uint8_t tilt = 0) {
-    return galaxy::host::native_game_input(vi, -1, tilt);
+galaxy::input::PlayerInput input_at(std::uint64_t frame, std::uint8_t tilt = 0) {
+    return galaxy::host::native_game_input(frame, -1, tilt);
 }
 
 void scripted_input() {
@@ -57,6 +60,14 @@ void scripted_input() {
     set_env("GALAXY_INPUT_AUTOPRESS_SCRIPT", nullptr);
     set_env("GALAXY_INPUT_STICK_SCRIPT", nullptr);
 
+    // The stop clock before the first stop holds the scripts; the first stop lets them act.
+    set_env("GALAXY_INPUT_AUTOPRESS_SCRIPT", "0:10:A");
+    galaxy::host::controls::g_native_input_script_held.store(true);
+    expect(!input_at(5).buttons.a, "a held script presses nothing");
+    galaxy::host::controls::g_native_input_script_held.store(false);
+    expect(input_at(5).buttons.a, "a released script presses again");
+    set_env("GALAXY_INPUT_AUTOPRESS_SCRIPT", nullptr);
+
     set_env("GALAXY_INPUT_POINTER_X", "-0.26");
     set_env("GALAXY_INPUT_POINTER_Y", "0.3");
     in = input_at(400);
@@ -78,7 +89,7 @@ void scripted_input() {
 
 // A replay log (key_order as the recorder writes it): `rows` tab-separated after the header.
 std::filesystem::path write_replay(const char* name, const char* rows) {
-    const std::filesystem::path path = std::filesystem::temp_directory_path() / name;
+    const std::filesystem::path path = galaxy::test_temp_path(name);
     std::ofstream out(path, std::ios::binary);
     out << "meta\tkey_order\tLButton,RButton,Space,Enter,Shift,LShift,RShift,Left,Up,Right,Down,1,2,A,B,C,D,E,I,J,K,L,"
            "Q,R,S,W,Z,Ctrl,LCtrl,RCtrl\n";
@@ -115,7 +126,7 @@ void replayed_input() {
 }  // namespace
 
 int main() {
-    set_env("GALAXY_HIDE_WINDOW", "1");
+    galaxy::g_launch_args.started_hidden = true;
     try {
         scripted_input();
         replayed_input();

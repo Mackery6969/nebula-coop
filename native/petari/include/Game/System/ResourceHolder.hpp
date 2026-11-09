@@ -5,9 +5,7 @@
 #include "Game/System/AssetFolder.hpp"
 #include "Game/System/NebulaArena.hpp"
 
-class J3DModelData;
-
-typedef const char* ArchiveName;
+class ModelData;
 
 class ResourceHolder {
 public:
@@ -16,50 +14,24 @@ public:
     const char* getMotionName(u32) const;
     bool isExistMaterialAnm() const;
     // Its material animations find their materials in the model.
-    void bindMaterialAnimations(J3DModelData*);
+    void bindMaterialAnimations(ModelData*);
     void newBckCtrl();
 
     Mtx44& getInitEffectMtx(int, int) const;
     void initializeArc(AssetFolder&);
-    u32 initEachResTable(ResTable**, AssetFolder*, const ArchiveName*);
 
-    static s32 count(AssetFolder*, const char*, s32);
-    void mount(AssetFolder*, s32);
+    // The tables: one per kind from NEBULA_ASSET_KIND_MODEL to _MATERIAL_TABLE, then the file table.
+    static constexpr u32 cTableCount = 12;
+    static ResTable* ResourceHolder::* const cTables[cTableCount];
+    // The cTables slot of a NEBULA_ASSET_KIND_*.
+    static u32 tableOf(u32);
+    // The files below a folder, by kind (NEBULA_ASSET_KIND_COUNT counts).
+    static void count(const AssetFolder&, s32, u32*);
+    void mount(const AssetFolder&, s32);
 
-    ResFileInfo* createAndRegisterObject(const char*, void*);
-    void backupInitMaterialData(const J3DModelData*);
+    ResFileInfo* createAndRegisterObject(const AssetFolder::Item&);
+    void backupInitMaterialData(const ModelData*);
 
-    // bool checkCorrectMotionsAndModel(J3DModelData*, const char*) const;
-
-    bool isCreatedAtSameHeap(ResourceHolder* pOther) const {
-        return mHeap == pOther->mHeap;
-    }
-
-    // void makeStringAnmInfoAll(char*, u32) const;
-    // bool verifyBckData(J3DModelData*, const char*) const;
-    // bool verifyBvaData(J3DModelData*, const char*) const;
-    // bool verifyBtpData(J3DModelData*, const char*) const;
-    // bool verifyModelData(J3DModelData*, const char*) const;
-    // bool verifyFileSize(u32, const char*) const;
-
-    static int findBckIndex(const ResourceHolder* pResHolder, const char* pName) {
-        return pResHolder->mMotionResTable->getResIndex(pName);
-    }
-    static int findBpkIndex(const ResourceHolder* pResHolder, const char* pName) {
-        return pResHolder->mBpkResTable->getResIndex(pName);
-    }
-    static int findBtkIndex(const ResourceHolder* pResHolder, const char* pName) {
-        return pResHolder->mBtkResTable->getResIndex(pName);
-    }
-    static int findBtpIndex(const ResourceHolder* pResHolder, const char* pName) {
-        return pResHolder->mBtpResTable->getResIndex(pName);
-    }
-    static int findBrkIndex(const ResourceHolder* pResHolder, const char* pName) {
-        return pResHolder->mBrkResTable->getResIndex(pName);
-    }
-    static int findBvaIndex(const ResourceHolder* pResHolder, const char* pName) {
-        return pResHolder->mBvaResTable->getResIndex(pName);
-    }
 
     const ResTable* getBvaResTable() const {
         return mBvaResTable;
@@ -84,8 +56,8 @@ public:
     ResTable mDefaultTable;
     bool mMaterialBound;
     BckCtrl* mBckCtrl;
-    Mtx44* mBackupMaterialData;
+    Mtx44* mBackupMaterialData;  // material n's slots from mBackupMaterialFirst[n]
+    u32* mBackupMaterialFirst;
     AssetFolder* mArchive;
-    NebulaArena* mHeap;
-    u32 mTotalResourceSize;
+    NebulaArena* mArena;
 };

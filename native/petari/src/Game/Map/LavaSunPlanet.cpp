@@ -4,7 +4,7 @@
 #include "Game/LiveActor/ModelObj.hpp"
 #include "Game/MapObj/MapPartsRotator.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ModelUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
@@ -25,14 +25,14 @@ void LavaSunPlanet::calcAndSetBaseMtx() {
     if (mRotator == nullptr) {
         LiveActor::calcAndSetBaseMtx();
     } else {
-        TPos3f mtx;
+        Pos3f mtx;
         mtx.set(mRotator->getRotateMtx());
         mtx.setTrans(mPosition);
         MR::setBaseTRMtx(this, mtx);
     }
 }
 
-void LavaSunPlanet::init(const JMapInfoIter& rIter) {
+void LavaSunPlanet::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     MR::getObjectName(&mObjName, rIter);
     initModelManagerWithAnm(mObjName, nullptr, true);

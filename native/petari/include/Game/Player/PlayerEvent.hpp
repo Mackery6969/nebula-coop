@@ -1,7 +1,8 @@
 #pragma once
 
 #include "Game/NameObj/NameObj.hpp"
-#include "Game/Util/HashUtil.hpp"
+#include "Game/Util/Array.hpp"
+#include "Game/Util/NameIndex.hpp"
 
 class EventSequence;
 
@@ -56,7 +57,6 @@ public:
     bool checkAndRun(u32 sequenceFrame);
     void playSound(const char* pName);
     void playAnimation(const char* pName);
-    void setSpot(f32, u32);
 
     bool isMissLayoutClosed(u16 sequenceFrame);
     void decLeft(u16 eventFrame, u16 sequenceFrame);
@@ -83,18 +83,23 @@ public:
     EventSequencer();
 
     virtual ~EventSequencer();
-    virtual void init(const JMapInfoIter& rIter);
+    virtual void init(const TableIter& rIter);
     virtual void movement();
 
     void startEvent(const char* pName);
 
     template < typename T >
     void addEventSequence(const char* pName) {
-        mHashTable->add(pName, reinterpret_cast< HashSortValue >(new T()), false);
+        mNames.add(pName, mNumSequences);
+        mSequences.at(mNumSequences++) = new T();
     }
 
 private:
-    HashSortTable* mHashTable;
+    static const u32 cSequenceNum = 6;  // the ones init adds; more grow the table
+
+    MR::NameIndex mNames;  // an event's name to its index in mSequences
+    MR::GrowTable< EventSequence*, cSequenceNum > mSequences;
+    u32 mNumSequences;
     EventSequence* mSequence;
     u16 mSequenceFrame;
 };

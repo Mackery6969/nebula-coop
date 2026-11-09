@@ -1,4 +1,5 @@
 #include "Game/Boss/TripodBossKillerGenerater.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Boss/TripodBossAccesser.hpp"
 #include "Game/Boss/TripodBossFixPartsBase.hpp"
 #include "Game/Enemy/HomingKiller.hpp"
@@ -9,7 +10,7 @@
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
@@ -17,14 +18,9 @@
 #include "Game/Util/SoundUtil.hpp"
 
 namespace {
-    // static const s32 sForceKillTime = _;
-    static const s32 sDemoAnimStartDelayTime = 90;
-    static const s32 sStopTime = 300;
+    static const s32 sDemoAnimStartDelayTime = NebulaFrameClock::stepsOfMilliseconds(1500);
+    static const s32 sStopTime = NebulaFrameClock::stepsOfSeconds(5);
     static const f32 sCanRestartPlayerDistance = 230.0f;
-    // static const f32 sStrongPadRumbleDistance = _;
-    // static const f32 sMiddlePadRumbleDistance = _;
-    // static const s32 sDemoAnimTime = _;
-    // static const s32 sCoolDownTime = _;
 };  // namespace
 
 namespace NrvTripodBossKillerGenerater {
@@ -41,35 +37,35 @@ namespace NrvTripodBossKillerGenerater {
 };  // namespace NrvTripodBossKillerGenerater
 
 TripodBossKillerGenerater::TripodBossKillerGenerater(const char* pName)
-    : TripodBossFixPartsBase(pName), mKiller(), mCanShootSettingPlayerDistance(2000.0f), mActiveLabel(), mHasCollision(true), _121() {
-    _E4.identity();
+    : TripodBossFixPartsBase(pName), mKiller(), mCanShootSettingPlayerDistance(2000.0f), mActiveLabel(), mHasCollision(true), mIsWaitPlayerAway() {
+    mLocalMtx.identity();
 }
 
-void TripodBossKillerGenerater::init(const JMapInfoIter& rIter) {
+void TripodBossKillerGenerater::init(const TableIter& rIter) {
     TripodBossFixPartsBase::init(rIter);
-    MR::makeMtxTR(_E4, this);
+    MR::makeMtxTR(mLocalMtx, this);
     initModelManagerWithAnm("TripodBossKillerCannon", nullptr, false);
     MR::connectToScene(this, MR::MovementType_MapObjDecoration, MR::CalcAnimType_MapObjDecoration, MR::DrawBufferType_TripodBoss, MR::DrawType_None);
-    MR::getJMapInfoArg1NoInit(rIter, &mCanShootSettingPlayerDistance);
+    MR::getPlacementArg1NoInit(rIter, &mCanShootSettingPlayerDistance);
     initClippingSphere();
 
-    mKiller = new HomingKiller("\203\172\201\133\203\176\203\223\203\117\203\114\203\211\201\133" /* ホーミングキラー */);
+    mKiller = new HomingKiller("ホーミングキラー");
     mKiller->initWithoutIter();
 
-    s32 arg2;
-    MR::getJMapInfoArg2WithInit(rIter, &arg2);
+    s32 chase;
+    MR::getPlacementArg2WithInit(rIter, &chase);
 
-    if (arg2 == 0) {
+    if (chase == 0) {
         mKiller->mDisableChase = true;
     }
 
     if (mHasCollision) {
         initHitSensor(1);
-        MR::addHitSensor(this, "body", ATYPE_TRIPODBOSS_KILLER_GENERATER, 0, 0.0f, TVec3f(0.0f, 0.0f, 0.0f));
+        MR::addHitSensor(this, "body", ATYPE_TRIPODBOSS_KILLER_GENERATER, 0, 0.0f, Vec3f(0.0f, 0.0f, 0.0f));
         MR::initCollisionParts(this, "TripodBossKillerCannon", getSensor("body"), nullptr);
     }
 
-    initEffectKeeper(0, "TripodBoss", false);
+    initEffectKeeper(0, "TripodBoss");
     initSound(4, false);
     initNerve(GET_NERVE(TripodBossKillerGenerater, TripodBossKillerGeneraterNrvNonActive));
     MR::useStageSwitchReadAppear(this, rIter);
@@ -94,7 +90,7 @@ void TripodBossKillerGenerater::kill() {
     MR::emitEffect(this, "ExplosionM");
 }
 
-bool TripodBossKillerGenerater::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool TripodBossKillerGenerater::receiveMsgEnemyAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (MR::isMsgExplosionAttack(msg)) {
         return requestBreak();
     }
@@ -102,8 +98,8 @@ bool TripodBossKillerGenerater::receiveMsgEnemyAttack(u32 msg, HitSensor* pSende
     return false;
 }
 
-void TripodBossKillerGenerater::calcTripodLocalMatrix(TPos3f* pMtx) {
-    pMtx->set(_E4);
+void TripodBossKillerGenerater::calcTripodLocalMatrix(Pos3f* pMtx) {
+    pMtx->set(mLocalMtx);
 }
 
 void TripodBossKillerGenerater::activateTripodBoss() {
@@ -123,12 +119,11 @@ void TripodBossKillerGenerater::activateTripodBoss() {
         }
     }
 
-    _E0 = true;
-    _E1 = true;
+    mIsActive = true;
 }
 
-void TripodBossKillerGenerater::setLocalMatrix(const TPos3f& rPMtx) {
-    _E4.set(rPMtx);
+void TripodBossKillerGenerater::setLocalMatrix(const Pos3f& rPMtx) {
+    mLocalMtx.set(rPMtx);
 }
 
 void TripodBossKillerGenerater::setActiveLebel(s32 label) {
@@ -148,16 +143,16 @@ bool TripodBossKillerGenerater::tryShootSetting() {
         return false;
     }
 
-    TVec3f trans;
-    _8C.getTrans(trans);
+    Vec3f trans;
+    mMtx.getTrans(trans);
 
     if (MR::isDead(mKiller)) {
         if (MR::getPlayerPos()->distance(trans) < mCanShootSettingPlayerDistance) {
-            TVec3f front;
+            Vec3f front;
             MR::calcFrontVec(&front, this);
 
-            TVec3f trans;
-            _8C.getTrans(trans);
+            Vec3f trans;
+            mMtx.getTrans(trans);
 
             mKiller->appear(trans, front);
 
@@ -274,8 +269,6 @@ void TripodBossKillerGenerater::exeShowDemo() {
 
     updateTripodMatrix();
 
-    if (MR::isStep(this, 110)) {
-    }
 
     if (!MR::isDamageDemoTripodBoss()) {
         setNerve(GET_NERVE(TripodBossKillerGenerater, TripodBossKillerGeneraterNrvReady));
@@ -293,11 +286,11 @@ void TripodBossKillerGenerater::exeReady() {
 void TripodBossKillerGenerater::exeShootSetting() {
     updateTripodMatrix();
 
-    TVec3f front;
+    Vec3f front;
     MR::calcFrontVec(&front, this);
 
-    TVec3f trans;
-    _8C.getTrans(trans);
+    Vec3f trans;
+    mMtx.getTrans(trans);
 
     HomingKiller* killer = mKiller;
     killer->mBasePos.set(trans);
@@ -348,10 +341,10 @@ void TripodBossKillerGenerater::exeStop() {
 
 void TripodBossKillerGenerater::exeRestart() {
     if (MR::isFirstStep(this)) {
-        _121 = true;
+        mIsWaitPlayerAway = true;
     }
 
-    if (_121) {
+    if (mIsWaitPlayerAway) {
         if (MR::getPlayerPos()->distance(mPosition) >= ::sCanRestartPlayerDistance) {
             MR::startBck(this, "2ndDemo");
             MR::startSound(this, "SE_BM_TRIPOD_CANNON_RESTART");
@@ -360,13 +353,13 @@ void TripodBossKillerGenerater::exeRestart() {
                 MR::validateCollisionParts(this);
             }
 
-            _121 = false;
+            mIsWaitPlayerAway = false;
         }
     }
 
     updateTripodMatrix();
 
-    if (!_121) {
+    if (!mIsWaitPlayerAway) {
         if (MR::isBckStopped(this)) {
             setNerve(GET_NERVE(TripodBossKillerGenerater, TripodBossKillerGeneraterNrvReady));
         }

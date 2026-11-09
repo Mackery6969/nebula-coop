@@ -10,17 +10,22 @@ namespace {
 };  // namespace
 
 FaceJointCtrl::FaceJointCtrl(LiveActor* pActor)
-    : mHostActor(pActor), mDegreeMax(::sDefaultDegreeMax), _8(0.0f, 0.0f, 1.0f), _14(0.0f, 0.0f, 1.0f), mJointController() {
+    : mHostActor(pActor), mDegreeMax(::sDefaultDegreeMax), mJointController() {
     mJointCtrlRate = new JointCtrlRate();
 }
 
 void FaceJointCtrl::init() {
     const ResourceHolder* resourceHolder = MR::getResourceHolder(mHostActor);
-    JMapInfo* csv = MR::tryCreateCsvParser(resourceHolder, "%s.bcsv", ::sTextOutFileName);
+    Table* csv = MR::tryCreateCsvParser(resourceHolder, "%s.bcsv", ::sTextOutFileName);
     if (csv) {
         const char* jointName = nullptr;
         csv->getValue(0, "JointName", &jointName);
         csv->getValue(0, "DegreeMax", &mDegreeMax);
+        // A table with no joint name has no joint to turn.
+        if (jointName == nullptr) {
+            return;
+        }
+
         mJointController = MR::createJointDelegator< FaceJointCtrl >(this, mHostActor, &FaceJointCtrl::updateJointMtxCallBack, nullptr, jointName);
     }
 }
@@ -55,13 +60,10 @@ void FaceJointCtrl::setCallBackFunction() {
     mJointController->registerCallBack();
 }
 
-bool FaceJointCtrl::updateJointMtxCallBack(TPos3f* pMtx, const JointControllerInfo& rInfo) {
-    pMtx->getXDir(_14);
-    MR::normalize(&_14);
-
-    TVec3f position;
+bool FaceJointCtrl::updateJointMtxCallBack(Pos3f* pMtx, const JointControllerInfo& /*rInfo*/) {
+    Vec3f position;
     pMtx->getTrans(position);
-    TVec3f direction(*MR::getPlayerPos());
+    Vec3f direction(*MR::getPlayerPos());
     direction.sub(position);
 
     if (MR::isNearZero(direction)) {
@@ -69,7 +71,7 @@ bool FaceJointCtrl::updateJointMtxCallBack(TPos3f* pMtx, const JointControllerIn
     }
 
     MR::normalize(&direction);
-    f32 rate = mJointCtrlRate->_0;
+    f32 rate = mJointCtrlRate->mRate;
     MR::turnMtxToXDirDegree(pMtx, direction, mDegreeMax * rate);
     return true;
 }

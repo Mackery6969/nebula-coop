@@ -7,7 +7,7 @@
 #include "Game/Util/JointController.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
-#include <JSystem/JMath/JMath.hpp>
+#include <nebula_geometry.hpp>
 
 namespace NrvDinoPackunTailPart {
     NEW_NERVE(DinoPackunTailPartNrvWait, DinoPackunTailPart, Wait);
@@ -15,18 +15,16 @@ namespace NrvDinoPackunTailPart {
 };  // namespace NrvDinoPackunTailPart
 
 DinoPackunTailPart::DinoPackunTailPart(const char* pName, DinoPackun* pParent) : DinoPackunTailNode(pName, pParent) {
-    _D4 = 50.0f;
-    _D8 = 0;
-    _D9 = 1;
+    mRadius = 50.0f;
 }
 
-void DinoPackunTailPart::init(const JMapInfoIter& rIter) {
+void DinoPackunTailPart::init(const TableIter& /*rIter*/) {
     initNerve(GET_NERVE(DinoPackunTailPart, DinoPackunTailPartNrvWait));
     MR::onCalcGravity(this);
-    initBinder(_D4, 0.0f, 0);
+    initBinder(mRadius, 0.0f, 0);
     MR::connectToSceneEnemyDecorationMovement(this);
     initHitSensor(1);
-    MR::addHitSensorEnemy(this, "body", 8, (1.25f + _D4), TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorEnemy(this, "body", 8, 1.25f + mRadius, Vec3f(0.0f, 0.0f, 0.0f));
     MR::invalidateClipping(this);
     makeActorAppeared();
 }
@@ -35,20 +33,20 @@ void DinoPackunTailPart::control() {
 }
 
 JointController* DinoPackunTailPart::createJointControllerOwn(LiveActor* pActor, const char* pJointName) {
-    // we only do this because we already know it's a tail node type since it inherits
-    return MR::createJointDelegator((DinoPackunTailNode*)this, pActor, &DinoPackunTailNode::turnJointLocalXDir, &DinoPackunTailNode::calcJointScale,
+    return MR::createJointDelegator(static_cast< DinoPackunTailNode* >(this),pActor, &DinoPackunTailNode::turnJointLocalXDir, &DinoPackunTailNode::calcJointScale,
                                     pJointName);
 }
 
 void DinoPackunTailPart::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     mParent->attackSensorTail(pSender, pReceiver);
-    bool push = MR::sendMsgPush(pReceiver, pSender);
-    if (MR::isSensorPlayer(pReceiver) && push) {
-        TVec3f v16;
-        MR::calcSensorDirectionNormalize(&v16, pReceiver, pSender);
+    bool isPushed = MR::sendMsgPush(pReceiver, pSender);
+    if (MR::isSensorPlayer(pReceiver) && isPushed) {
+        // Gives way to the player, up to 3 a step.
+        Vec3f away;
+        MR::calcSensorDirectionNormalize(&away, pReceiver, pSender);
 
-        if (mVelocity.dot(v16) < 3.0f) {
-            mVelocity.add(v16 * 1.0f);
+        if (mVelocity.dot(away) < 3.0f) {
+            mVelocity.add(away);
         }
     }
 }
@@ -61,7 +59,9 @@ bool DinoPackunTailPart::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, Hit
     if (MR::isMsgPlayerHipDrop(msg)) {
         MR::sendMsgAwayJump(pSender, pReceiver);
         return true;
-    } else if (MR::isMsgPlayerTrample(msg)) {
+    }
+
+    if (MR::isMsgPlayerTrample(msg)) {
         return true;
     }
 
@@ -86,7 +86,4 @@ void DinoPackunTailPart::exeWait() {
     MR::addVelocityToGravity(this, 0.7f);
     MR::attenuateVelocity(this, 0.88f);
     MR::reboundVelocityFromCollision(this, 0.0f, 0.0f, 1.0f);
-}
-
-DinoPackunTailPart::~DinoPackunTailPart() {
 }

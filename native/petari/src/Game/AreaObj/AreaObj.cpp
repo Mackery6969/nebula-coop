@@ -4,12 +4,11 @@
 #include "Game/Map/SleepControllerHolder.hpp"
 #include "Game/Map/StageSwitch.hpp"
 #include "Game/Util/AreaObjUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
-#include <algorithm>
 
 AreaObj::AreaObj(int formType, const char* pName)
-    : NameObj(pName), mFormType(formType), mIsValid(true), _15(true), mIsAwake(true), mObjArg0(-1), mObjArg1(-1), mObjArg2(-1), mObjArg3(-1),
+    : NameObj(pName), mFormType(formType), mIsValid(true), mIsFollowValid(true), mIsAwake(true), mObjArg0(-1), mObjArg1(-1), mObjArg2(-1), mObjArg3(-1),
       mObjArg4(-1), mObjArg5(-1), mObjArg6(-1), mObjArg7(-1), mSwitchCtrl() {
     switch (formType) {
     case AreaForm::Type_Cube1:
@@ -30,17 +29,17 @@ AreaObj::AreaObj(int formType, const char* pName)
     }
 }
 
-void AreaObj::init(const JMapInfoIter& rIter) {
+void AreaObj::init(const TableIter& rIter) {
     mForm->init(rIter);
     MR::addBaseMatrixFollowerAreaObj(this, rIter);
-    MR::getJMapInfoArg0WithInit(rIter, &mObjArg0);
-    MR::getJMapInfoArg1WithInit(rIter, &mObjArg1);
-    MR::getJMapInfoArg2WithInit(rIter, &mObjArg2);
-    MR::getJMapInfoArg3WithInit(rIter, &mObjArg3);
-    MR::getJMapInfoArg4WithInit(rIter, &mObjArg4);
-    MR::getJMapInfoArg5WithInit(rIter, &mObjArg5);
-    MR::getJMapInfoArg6WithInit(rIter, &mObjArg6);
-    MR::getJMapInfoArg7WithInit(rIter, &mObjArg7);
+    MR::getPlacementArg0WithInit(rIter, &mObjArg0);
+    MR::getPlacementArg1WithInit(rIter, &mObjArg1);
+    MR::getPlacementArg2WithInit(rIter, &mObjArg2);
+    MR::getPlacementArg3WithInit(rIter, &mObjArg3);
+    MR::getPlacementArg4WithInit(rIter, &mObjArg4);
+    MR::getPlacementArg5WithInit(rIter, &mObjArg5);
+    MR::getPlacementArg6WithInit(rIter, &mObjArg6);
+    MR::getPlacementArg7WithInit(rIter, &mObjArg7);
 
     mSwitchCtrl = MR::createStageSwitchCtrl(this, rIter);
 
@@ -56,11 +55,10 @@ void AreaObj::init(const JMapInfoIter& rIter) {
     }
 
     MR::getAreaObjManager(getManagerName())->entry(this);
-    MR::getAreaObjManager(getManagerName());
     SleepControlFunc::addSleepControl(this, rIter);
 }
 
-bool AreaObj::isInVolume(const TVec3f& rPos) const {
+bool AreaObj::isInVolume(const Vec3f& rPos) const {
     return isValid() && mForm->isInVolume(rPos);
 }
 
@@ -88,26 +86,26 @@ bool AreaObj::isValidSwitchB() const {
     return mSwitchCtrl->isValidSwitchB();
 }
 
-void AreaObj::setFollowMtx(const TPos3f* pMtx) {
-    mForm->_4 = const_cast< TPos3f* >(pMtx);
+void AreaObj::setFollowMtx(const Pos3f* pMtx) {
+    mForm->mFollowMtx = const_cast< Pos3f* >(pMtx);
 }
 
-TPos3f* AreaObj::getFollowMtx() const {
-    return mForm->_4;
+Pos3f* AreaObj::getFollowMtx() const {
+    return mForm->mFollowMtx;
 }
 
-AreaObjMgr::AreaObjMgr(s32 count, const char* pName) : NameObj(pName), mArray(), _18(count) {
+AreaObjMgr::AreaObjMgr(s32 firstCapacity, const char* pName) : NameObj(pName), mArray(), mFirstCapacity(firstCapacity) {
 }
 
 void AreaObjMgr::entry(AreaObj* pAreaObj) {
     if (mArray.capacity() == 0) {
-        mArray.init(_18);
+        mArray.init(mFirstCapacity);
     }
 
     mArray.push_back(pAreaObj);
 }
 
-AreaObj* AreaObjMgr::find_in(const TVec3f& rVec) const {
+AreaObj* AreaObjMgr::find_in(const Vec3f& rVec) const {
     // The last one added wins.
     for (AreaObj* const* p = mArray.end(); p != mArray.begin();) {
         p--;

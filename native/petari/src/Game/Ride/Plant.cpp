@@ -1,5 +1,7 @@
+#include "Game/Render/Material.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Ride/Plant.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
+#include "Game/Render/TypedDraw.hpp"
 #include "Game/Camera/CameraTargetArg.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
@@ -17,7 +19,7 @@
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/DemoUtil.hpp"
 #include "Game/Util/PlayerInputUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
@@ -25,7 +27,6 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/RailUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
-#include <JSystem/J3DGraphBase/J3DShapeDraw.hpp>
 #include <nebula_math.h>
 #include "Game/System/NebulaInput.hpp"
 
@@ -33,14 +34,13 @@ namespace {
     static const f32 sDistanceNear = 700.0f;
     static const f32 sDistanceBody = 300.0f;
     static const f32 sDistancePush = 50.0f;
-    static const s32 sStepDemoAppearEffect = 60;
-    static const s32 sStepDemoWaitGrowUp = 90;
+    static const s32 sStepDemoAppearEffect = NebulaFrameClock::stepsOfSeconds(1);
+    static const s32 sStepDemoWaitGrowUp = NebulaFrameClock::stepsOfMilliseconds(1500);
     static const f32 sHangUpStartTopLength = 150.0f;
     static const f32 sHangUpPlayerSpeedMin = 10.0f;
     static const f32 sHangStartRotateSpeed = 15.0f;
     static const f32 sGrowUpPlayerSpeed = 10.0f;
     static const f32 sHangUpAccel = 1.0f;
-    // static const f32 sHangUpAccel2P =
     static const f32 sHangUpSpeedStartMin = -2.0f;
     static const f32 sHangDownGravity = 0.3f;
     static const f32 sHangUpSpeedMin = 15.0f;
@@ -51,7 +51,7 @@ namespace {
     static const f32 sHangRotateSpeedRate = 1.3f;
     static const f32 sHangReachedDistance = 10.0f;
     static const f32 sDefaultJumpSpeed = 30.0f;
-    static const s32 sTimeInvalid = 60;
+    static const s32 sTimeInvalid = NebulaFrameClock::stepsOfSeconds(1);
     static const f32 sLeafIntervalMin = 100.0f;
     static const f32 sLeafIntervalMax = 300.0f;
     static const f32 sLeafPosOffsetStart = 100.0f;
@@ -61,7 +61,6 @@ namespace {
     static const f32 sLeafRotateMin = 90.0f;
     static const f32 sLeafRotateMax = 270.0f;
     static const f32 sLeafAxisDotMax = 0.7f;
-    // static const f32 sPlayerPosOffset =
 
     static const s32 sHangAccelInvalidTime = 0;
     static const f32 sDefaultJumpSpeedOffsetY = 0.0f;
@@ -84,24 +83,22 @@ namespace NrvPlant {
 };  // namespace NrvPlant
 
 Plant::Plant(const char* pName)
-    : LiveActor(pName), mSeedPartsModel(), mStalk(), mTopPartsModel(), mNumLeaves(), mLeaves(), mShapeDraw(), mRider(), mRailCoord(),
+    : LiveActor(pName), mSeedPartsModel(), mStalk(), mTopPartsModel(), mNumLeaves(), mLeaves(), mRider(), mRailCoord(),
       mUp(0.0f, 1.0f, 0.0f), mFront(0.0f, 0.0f, 1.0f), mRideVelocity(), mAccelTimer(), mJumpSpeed(::sDefaultJumpSpeed),
       mJumpSpeedOffsetY(::sDefaultJumpSpeedOffsetY), mClippingCenter(0.0f, 0.0f, 0.0f), mCameraInfo(), mPlayAppearDemo(), mGrabbedTop() {
     mSeedMtx.identity();
     mTopMtx.identity();
 }
 
-void Plant::init(const JMapInfoIter& pMapInfoIter) {
+void Plant::init(const TableIter& pMapInfoIter) {
     MR::createSceneObj(SceneObj_PlantStalkDrawInit);
     MR::createSceneObj(SceneObj_PlantLeafDrawInit);
 
-    mShapeDraw = MR::getSceneObj< PlantLeafDrawInit >(SceneObj_PlantLeafDrawInit)->mShapeDraw;
+    MR::connectToScene(this, MR::MovementType_Ride, MR::CalcAnimType_None, MR::DrawBufferType_None, MR::DrawType_Plant);
 
-    MR::connectToScene(this, MR::MovementType_Ride, MR::CalcAnimType_Ride, MR::DrawBufferType_None, MR::DrawType_Plant);
-
-    MR::getJMapInfoArg0NoInit(pMapInfoIter, &mJumpSpeed);
-    MR::getJMapInfoArg1NoInit(pMapInfoIter, &mJumpSpeedOffsetY);
-    MR::getJMapInfoArg2NoInit(pMapInfoIter, &mPlayAppearDemo);
+    MR::getPlacementArg0NoInit(pMapInfoIter, &mJumpSpeed);
+    MR::getPlacementArg1NoInit(pMapInfoIter, &mJumpSpeedOffsetY);
+    MR::getPlacementArg2NoInit(pMapInfoIter, &mPlayAppearDemo);
 
     initSound(8, false);
     initNerve(GET_NERVE(Plant, PlantNrvWaitFar));
@@ -113,25 +110,25 @@ void Plant::init(const JMapInfoIter& pMapInfoIter) {
     mStalk = new PlantStalk();
     mStalk->init(pMapInfoIter);
 
-    mSeedPartsModel = new PartsModel(this, "\216\355\201\151\220\114\202\321\220\101\225\250\201\152" /* 種（伸び植物） */, "PlantSeed", mSeedMtx, -1, false);
+    mSeedPartsModel = new PartsModel(this, "種（伸び植物）", "PlantSeed", mSeedMtx, -1, false);
     mSeedPartsModel->initWithoutIter();
     MR::initShadowVolumeSphere(mSeedPartsModel, 50.0f);
     mSeedPartsModel->mPosition.set(mPosition);
     mSeedMtx.setTrans(mPosition);
 
     updateTopMtx();
-    mTopPartsModel = new PartsModel(this, "\220\346\222\133\201\151\220\114\202\321\220\101\225\250\201\152" /* 先端（伸び植物） */, "PlantTop", mTopMtx, -1, false);
+    mTopPartsModel = new PartsModel(this, "先端（伸び植物）", "PlantTop", mTopMtx, -1, false);
     mTopPartsModel->initWithoutIter();
     mTopPartsModel->kill();
 
     initLeaf();
     initHitSensor(3);
     MR::addHitSensorCallbackBinder(this, "bind", 5, 100.0f);
-    MR::addHitSensorMapObj(this, "seed", 5, 300.0f, TVec3f(0.0f, 50.0f, 0.0f));
-    MR::addHitSensorRide(this, "Ride", 8, 50.0f, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorMapObj(this, "seed", 5, 300.0f, Vec3f(0.0f, 50.0f, 0.0f));
+    MR::addHitSensorRide(this, "Ride", 8, 50.0f, Vec3f(0.0f, 0.0f, 0.0f));
 
-    MR::initMultiActorCamera(this, pMapInfoIter, &mCameraInfo, "\217\157\214\273\203\146\203\202" /* 出現デモ */);
-    MR::initMultiActorCamera(this, pMapInfoIter, &mCameraInfo, "\222\315\202\334\202\350" /* 掴まり */);
+    MR::initMultiActorCamera(this, pMapInfoIter, &mCameraInfo, "出現デモ");
+    MR::initMultiActorCamera(this, pMapInfoIter, &mCameraInfo, "掴まり");
 
     if (MR::useStageSwitchReadAppear(this, pMapInfoIter)) {
         MR::syncStageSwitchAppear(this);
@@ -174,8 +171,8 @@ void Plant::exeSeedWait() {
 }
 
 void Plant::exeWaitDemoWaitGrowUp() {
-    if (MR::tryStartDemoWithoutCinemaFrame(this, "\220\114\202\321\220\101\225\250\201\151\220\254\222\267\201\152" /* 伸び植物（成長） */)) {
-        MR::startMultiActorCameraTargetOther(this, mCameraInfo, "\217\157\214\273\203\146\203\202" /* 出現デモ */, CameraTargetArg(mTopPartsModel));
+    if (MR::tryStartDemoWithoutCinemaFrame(this, "伸び植物（成長）")) {
+        MR::startMultiActorCameraTargetOther(this, mCameraInfo, "出現デモ", CameraTargetArg(mTopPartsModel));
         MR::requestMovementOn(mSeedPartsModel);
         setNerve(GET_NERVE(Plant, PlantNrvDemoWaitGrowUp));
     }
@@ -200,9 +197,7 @@ void Plant::exeGrowUp() {
         MR::startSound(this, "SE_OJ_PLANT_GROW_START");
     }
 
-    if (updateGrowUp()) {
-        return;
-    }
+    updateGrowUp();
 }
 
 void Plant::exeHangWaitGrowUp() {
@@ -338,9 +333,9 @@ void Plant::exeHangDown() {
     updateBindLeaf();
 
     if (MR::isRailReachedNearGoal(this, ::sHangReachedDistance)) {
-        MR::endMultiActorCameraAtLanding(this, mCameraInfo, "\222\315\202\334\202\350" /* 掴まり */);
+        MR::endMultiActorCameraAtLanding(this, mCameraInfo, "掴まり");
         MR::startBckPlayer("GrowPlantJump");
-        MR::endBindAndPlayerJump(this, TVec3f(0.0f, 0.0f, 0.0f), 0);
+        MR::endBindAndPlayerJump(this, Vec3f(0.0f, 0.0f, 0.0f), 0);
         mRider = nullptr;
         setNerve(GET_NERVE(Plant, PlantNrvGrowthWaitInvalid));
         return;
@@ -362,56 +357,45 @@ void Plant::exeHangDown() {
 }
 
 void Plant::initLeaf() {
-    f32 leafRatio, leafScale, leafPos;
-
     mNumLeaves = (s32)((MR::getRailTotalLength(this) - ::sLeafPosOffsetStart - ::sLeafPosOffsetEnd) / (::sLeafIntervalMax - ::sLeafIntervalMin)) + 2;
     mLeaves = new PlantLeaf*[mNumLeaves];
 
-    TRot3f mtx;
+    Rot3f mtx;
     mtx.identity();
 
-    TVec3f baseRotate(0.0f, 0.0f, 1.0f);
-    leafPos = MR::getRailTotalLength(this) - ::sLeafPosOffsetStart;
-
-    MR::getRailTotalLength(this);
+    Vec3f baseRotate(0.0f, 0.0f, 1.0f);
+    f32 leafPos = MR::getRailTotalLength(this) - ::sLeafPosOffsetStart;
 
     for (s32 leaf = 0; leaf < mNumLeaves; leaf++) {
-        leafRatio = static_cast< f32 >(leaf) / static_cast< f32 >(mNumLeaves);
-        TVec3f railDirection;
+        f32 leafRatio = static_cast< f32 >(leaf) / static_cast< f32 >(mNumLeaves);
+        Vec3f railDirection;
         MR::calcRailDirectionAtCoord(&railDirection, this, leafPos);
 
-        TVec3f growDirection = baseRotate;
+        Vec3f growDirection = baseRotate;
         f32 dot = growDirection.dot(railDirection);
         if (MR::abs(dot) > ::sLeafAxisDotMax) {
             if (dot > 0.0f) {
-                growDirection.cross(TVec3f(0.0f, 1.0f, 0.0f), railDirection);
+                growDirection.cross(Vec3f(0.0f, 1.0f, 0.0f), railDirection);
             } else {
-                growDirection.cross(railDirection, TVec3f(0.0f, 1.0f, 0.0f));
+                growDirection.cross(railDirection, Vec3f(0.0f, 1.0f, 0.0f));
             }
 
             MR::normalize(&growDirection);
         }
 
-        leafScale = MR::getEaseOutValue(leafRatio, ::sLeafScaleMin, ::sLeafScaleMax, 1.0f);
+        f32 leafScale = MR::getEaseOutValue(leafRatio, ::sLeafScaleMin, ::sLeafScaleMax, 1.0f);
 
         mLeaves[leaf] = new PlantLeaf(leafPos, mPosition, growDirection, leafScale);
         mLeaves[leaf]->initWithoutIter();
         leafPos -= MR::getInterpolateValue(leafRatio, ::sLeafIntervalMin, ::sLeafIntervalMax);
 
-        mtx.setRotate(TVec3f(0.0f, 1.0f, 0.0f), MR::toRadian(MR::getRandom(::sLeafRotateMin, ::sLeafRotateMax)));
+        mtx.setRotate(Vec3f(0.0f, 1.0f, 0.0f), MR::toRadian(MR::getRandom(::sLeafRotateMin, ::sLeafRotateMax)));
         mtx.mult(baseRotate, baseRotate);
     }
 }
 
+// The stalk, leaves and parts models animate themselves; the plant has no model of its own.
 void Plant::calcAnim() {
-    if (!MR::isValidCalcViewAndEntry(this) || isNerve(GET_NERVE(Plant, PlantNrvWaitFar)) || isNerve(GET_NERVE(Plant, PlantNrvSeedWait))) {
-        return;
-    }
-
-    for (s32 leaf = 0; leaf < mNumLeaves; leaf++) {
-        MtxPtr mtx = mLeaves[leaf]->getPosMtx();
-        MR::multMtx(mtx, mLeaves[leaf]->getBaseMtx(), MR::getCameraViewMtx());
-    }
 }
 
 void Plant::startClipped() {
@@ -453,7 +437,7 @@ void Plant::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     }
 }
 
-bool Plant::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool Plant::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (MR::isMsgPlayerSpinAttack(msg)) {
         if (isNerve(GET_NERVE(Plant, PlantNrvSeedWait))) {
             MR::invalidateClipping(this);
@@ -468,7 +452,7 @@ bool Plant::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pRece
     return false;
 }
 
-bool Plant::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool Plant::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* /*pReceiver*/) {
     if (MR::isMsgAutoRushBegin(msg)) {
         if ((isNerve(GET_NERVE(Plant, PlantNrvWaitFar)) || isNerve(GET_NERVE(Plant, PlantNrvSeedWait))) ||
             (!MR::isPlayerSwingAction() && MR::isOnGroundPlayer()) || (isNerve(GET_NERVE(Plant, PlantNrvGrowUp)) && MR::isOnGroundPlayer()) ||
@@ -501,25 +485,24 @@ bool Plant::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
             if (mRideVelocity >= ::sHangUpSpeedStartMin) {
                 mRideVelocity = MR::clamp(mRideVelocity, ::sHangUpSpeedMin, ::sHangUpSpeedMax);
                 MR::setRailDirectionToEnd(this);
-                setNerve(GET_NERVE(Plant, PlantNrvHangStart));
             } else {
                 mRideVelocity = 0.0f;
                 MR::setRailDirectionToStart(this);
-                setNerve(GET_NERVE(Plant, PlantNrvHangStart));
             }
+            setNerve(GET_NERVE(Plant, PlantNrvHangStart));
         }
 
         MR::tryRumblePadMiddle(this, PLAYER_1);
         MR::startSound(mRider, "SE_PM_GRAB_OBJ");
         MR::startSound(mRider, "SE_PV_CATCH");
-        MR::startMultiActorCameraNoTarget(this, mCameraInfo, "\222\315\202\334\202\350" /* 掴まり */);
+        MR::startMultiActorCameraNoTarget(this, mCameraInfo, "掴まり");
         return true;
     }
 
     if (MR::isMsgUpdateBaseMtx(msg)) {
-        TVec3f side;
+        Vec3f side;
         MR::makeAxisUpFront(&side, &mFront, mUp, mFront);
-        TPos3f mtx;
+        Pos3f mtx;
         mtx.setXYZDir(side, mUp, mFront);
         mtx.setTrans(mPosition);
         MR::setBaseTRMtx(mRider, mtx);
@@ -527,7 +510,7 @@ bool Plant::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
     }
 
     if (MR::isMsgRushCancel(msg)) {
-        MR::endMultiActorCamera(this, mCameraInfo, "\222\315\202\334\202\350" /* 掴まり */, false);
+        MR::endMultiActorCamera(this, mCameraInfo, "掴まり", false);
         mRider = nullptr;
         setNerve(GET_NERVE(Plant, PlantNrvGrowthWaitInvalid));
         return true;
@@ -549,10 +532,9 @@ bool Plant::updateGrowUp() {
     f32 growthPercent = mStalk->mGrowthPercent;
     mTopPartsModel->mScale.set(growthPercent);
     for (s32 leaf = 0; leaf < mNumLeaves; leaf++) {
-        TVec3f axisY;
-        TVec3f pos;
-        f32 leafCoord = mLeaves[leaf]->mLeafCoord;
-        mStalk->calcPosAndAxisY(&pos, &axisY, leafCoord * mStalk->mGrowthPercent);
+        Vec3f axisY;
+        Vec3f pos;
+        mStalk->calcPosAndAxisY(&pos, &axisY, mLeaves[leaf]->mLeafCoord * growthPercent);
         mLeaves[leaf]->updateGrowUp(pos, axisY, growthPercent, 10.0f);
     }
 
@@ -561,8 +543,8 @@ bool Plant::updateGrowUp() {
 
     if (growStalk) {
         if (mPlayAppearDemo) {
-            MR::endDemo(this, "\220\114\202\321\220\101\225\250\201\151\220\254\222\267\201\152" /* 伸び植物（成長） */);
-            MR::endMultiActorCamera(this, mCameraInfo, "\217\157\214\273\203\146\203\202" /* 出現デモ */, false);
+            MR::endDemo(this, "伸び植物（成長）");
+            MR::endMultiActorCamera(this, mCameraInfo, "出現デモ", false);
         }
 
         if (mRider != nullptr) {
@@ -613,15 +595,15 @@ void Plant::updateBindLeaf() {
         springPower *= -1.0f;
     }
 
-    TVec3f railDir = MR::getRailDirection(this) * 20.0f;
+    Vec3f railDir = MR::getRailDirection(this) * 20.0f;
     if (MR::isRailGoingToEnd(this)) {
         railDir.scale(-1.0f);
     }
 
     railDir.add(mPosition);
 
+    const f32 growthPercent = mStalk->mGrowthPercent;
     for (s32 leaf = 0; leaf < mNumLeaves; leaf++) {
-        f32 growthPercent = mStalk->mGrowthPercent;
         mLeaves[leaf]->updateSpring(railDir, springPower, growthPercent);
     }
 }
@@ -636,10 +618,7 @@ void Plant::startGrowUp() {
 
 bool Plant::tryHangUp() {
     if (!MR::isSpin(PLAYER_1)) {
-        if (mGrabbedTop) {
-            mGrabbedTop = false;
-        }
-
+        mGrabbedTop = false;
         return false;
     }
 
@@ -660,11 +639,11 @@ bool Plant::tryReachGoal() {
     }
 
     MR::moveCoordToEndPos(this);
-    TVec3f endPoint;
+    Vec3f endPoint;
     MR::calcRailEndPointPos(&endPoint, this);
     MR::setPlayerPos(endPoint);
 
-    TVec3f endFront = mStalk->mPlantPoints[0]->mUp;
+    Vec3f endFront = mStalk->mPlantPoints[0]->mUp;
     MR::vecKillElement(endFront, mGravity, &endFront);
 
     if (!MR::isNearZero(endFront)) {
@@ -672,7 +651,7 @@ bool Plant::tryReachGoal() {
         MR::setPlayerFrontTargetVec(endFront, 1);
     }
 
-    TVec3f endUp = mStalk->mPlantPoints[0]->mUp;
+    Vec3f endUp = mStalk->mPlantPoints[0]->mUp;
     endUp.scale(mJumpSpeed);
 
     endUp.add(mGravity * -mJumpSpeedOffsetY);
@@ -682,7 +661,7 @@ bool Plant::tryReachGoal() {
     MR::startSound(mRider, "SE_PM_JUMP_L");
     MR::startSound(mRider, "SE_PV_JUMP_JOY");
 
-    MR::endMultiActorCameraAtLanding(this, mCameraInfo, "\222\315\202\334\202\350" /* 掴まり */);
+    MR::endMultiActorCameraAtLanding(this, mCameraInfo, "掴まり");
     MR::endBindAndPlayerForceWeakGravityJump(this, endUp);
     mRider = nullptr;
 
@@ -699,14 +678,7 @@ bool Plant::tryAccelHangUp() {
         mAccelTimer = ::sHangAccelInvalidTime;
         mRideVelocity += ::sHangUpAccel;
         MR::tryRumblePadMiddle(this, PLAYER_1);
-        f32 speed;
-        if (mRideVelocity >= ::sHangUpPlayerSpeedMin) {
-            speed = mRideVelocity;
-        } else {
-            speed = ::sHangUpPlayerSpeedMin;
-        }
-
-        mRideVelocity = speed;
+        mRideVelocity = mRideVelocity >= ::sHangUpPlayerSpeedMin ? mRideVelocity : ::sHangUpPlayerSpeedMin;
         return true;
     }
 
@@ -718,9 +690,11 @@ void Plant::draw() const {
         return;
     }
 
+    PlantLeafDrawInit* pInit = MR::getSceneObj< PlantLeafDrawInit >(SceneObj_PlantLeafDrawInit);
+    MaterialDraw material(pInit->mMaterial);
+    TypedDraw site(material, nullptr, MR::getCameraViewMtx());
     for (s32 leaf = 0; leaf < mNumLeaves; leaf++) {
-        J3DNativeShape::setPosition(0, mLeaves[leaf]->mPosMtx);
-        J3DNativeShape::setNormal(0, mLeaves[leaf]->mPosMtx);
-        mShapeDraw->draw();
+        site.setWorld(mLeaves[leaf]->getBaseMtx());
+        material.drawUnder(site, pInit->mShape);
     }
 }

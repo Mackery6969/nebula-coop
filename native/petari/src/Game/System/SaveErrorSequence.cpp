@@ -2,7 +2,10 @@
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Screen/SysInfoWindow.hpp"
 #include "Game/System/NebulaText.hpp"
+#include "Game/Screen/NebulaUi.hpp"
+#include "Game/Util/StringUtil.hpp"
 #include "Game/System/SaveDataHandleSequence.hpp"
+#include "Game/Util/Array.hpp"
 #include "Game/Util/LayoutUtil.hpp"
 #include "Game/Util/NerveUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
@@ -13,25 +16,24 @@ namespace {
     NEW_NERVE(SaveErrorSequenceDamagedConfirm, SaveErrorSequence, DamagedConfirm);
     NEW_NERVE(SaveErrorSequenceNoSaveConfirm, SaveErrorSequence, NoSaveConfirm);
 
-    char16_t sText[256];
+    MR::GrowBuffer< char16_t > sText;
 };  // namespace
 
-SaveErrorSequence::SaveErrorSequence(SaveDataHandleSequence* pHost, SysInfoWindow* pConfirm, SysInfoWindow* pSave)
-    : ActorStateBase("SaveError", pHost), mResult(0), mSysInfoWindow(pConfirm) {
-    (void)pSave;
+SaveErrorSequence::SaveErrorSequence(SaveDataHandleSequence* pHost, SysInfoWindow* pConfirm)
+    : ActorStateBase("SaveError", pHost), mResult(Result_None), mSysInfoWindow(pConfirm) {
     initNerve(GET_NERVE_ANON(SaveErrorSequenceIdle));
     kill();
 }
 
 void SaveErrorSequence::startSaveFailed() {
     appear();
-    mResult = 0;
+    mResult = Result_None;
     setNerve(GET_NERVE_ANON(SaveErrorSequenceError));
 }
 
 void SaveErrorSequence::startDamaged() {
     appear();
-    mResult = 0;
+    mResult = Result_None;
     setNerve(GET_NERVE_ANON(SaveErrorSequenceDamagedConfirm));
 }
 
@@ -45,7 +47,7 @@ bool SaveErrorSequence::tryUnrecoverable(SaveRequest::Result result) {
 }
 
 void SaveErrorSequence::restoreFromReset() {
-    mResult = 0;
+    mResult = Result_None;
 
     setNerve(GET_NERVE_ANON(SaveErrorSequenceIdle));
     kill();
@@ -57,8 +59,7 @@ void SaveErrorSequence::exeIdle() {
 // The drive refused: said once; the game goes on.
 void SaveErrorSequence::exeError() {
     if (MR::isFirstStep(this)) {
-        NebulaText::get(sText, ARRAY_SIZE(sText), "SaveFailed");
-        mSysInfoWindow->appearKeyWithText(sText);
+        mSysInfoWindow->appearKeyWithText(NebulaText::get(&sText, "SaveFailed"));
     }
 
     if (MR::isDead(mSysInfoWindow)) {
@@ -68,8 +69,7 @@ void SaveErrorSequence::exeError() {
 
 void SaveErrorSequence::exeDamagedConfirm() {
     if (MR::isFirstStep(this)) {
-        NebulaText::get(sText, ARRAY_SIZE(sText), "SaveDamaged");
-        mSysInfoWindow->appearYesNoWithText(sText);
+        mSysInfoWindow->appearYesNoWithText(NebulaText::get(&sText, "SaveDamaged"));
         MR::startSystemSE("SE_SY_SAVE_CONFIRM_INFO");
     }
 
@@ -78,7 +78,7 @@ void SaveErrorSequence::exeDamagedConfirm() {
     }
 
     if (mSysInfoWindow->isSelectedYes()) {
-        mResult = 1;
+        mResult = Result_NewFile;
         kill();
     } else {
         setNerve(GET_NERVE_ANON(SaveErrorSequenceNoSaveConfirm));
@@ -96,7 +96,7 @@ void SaveErrorSequence::exeNoSaveConfirm() {
     }
 
     if (mSysInfoWindow->isSelectedYes()) {
-        mResult = 3;
+        mResult = Result_NoSave;
         kill();
     } else {
         setNerve(GET_NERVE_ANON(SaveErrorSequenceDamagedConfirm));
@@ -109,8 +109,5 @@ bool SaveErrorSequence::isEnablePointer() const {
 }
 
 bool SaveErrorSequence::isResultFileCorrupted() const {
-    return mResult == 3;
-}
-
-void SaveErrorSequence::control() {
+    return mResult == Result_NoSave;
 }

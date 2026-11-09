@@ -1,4 +1,5 @@
 #include "Game/Enemy/Karikari.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Enemy/KarikariDirector.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
@@ -17,16 +18,13 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
-#include <JSystem/JGeometry/TUtil.hpp>
+#include <nebula_geometry.hpp>
 
 namespace {
-    volatile static const f32 sSize = 30.0f;  // TODO: is this really volatile or is this just a hack
+    static const f32 sSize = 30.0f;
 
     static const f32 sGravity = 2.4f;
     static const f32 sTurnRatio = 0.25f;
-    // static const f32 sTornadoPower = ; // unused
-    // static const f32 sTornadoUpPower = ; // unused
-    // static const f32 sTornadoTangentPower = ; // unused
     static const f32 sVelocityDampGround = 0.8f;
     static const f32 sVelocityDampAir = 0.98f;
     static const f32 sStopVelocitySquared = 100.0f;
@@ -48,24 +46,18 @@ namespace {
     static const f32 sDistToCling = 80.0f;
     static const s32 sSpinAttackedTime = 8;
     static const f32 sVelocityDampSpinAttacked = 0.9f;
-    // static const f32 sSpinAttackedVel = ;
-    // static const f32 sSpinAttackedVerticalVel = ;
-    static const s32 sBlowOutTime = 60;
+    static const s32 sBlowOutTime = NebulaFrameClock::stepsOfSeconds(1);
     static const f32 sBlowOutGravity = 1.3f;
     static const f32 sBlowOutVel = 10.0f;
     static const f32 sBlowOutVerticalVel = 38.0f;
-    static const f32 sDPDAttackedGravity = 2.4f;
+    static const f32 sPointerAttackedGravity = 2.4f;
     static const f32 sVelocityDampAttacked = 0.9f;
     static const f32 sAttackedVel = 43.0f;
     static const f32 sAttackedVerticalVel = 33.0f;
-    static const s32 sFrozenLimitTime = 180;
-    // static const f32 sSpinFrozenAttackedVel = ;
-    // static const f32 sFrozenAttackedBySpinRadius = ;
-    // static const f32 sDeathEffectScale = ;
-    // static const f32 sIceShadowSize = ;
+    static const s32 sFrozenLimitTime = NebulaFrameClock::stepsOfSeconds(3);
     static const f32 sFrozenRecoverGravity = 2.4f;
     static const f32 sJumpToFrozenRecoverVel = 40.0f;
-    static const s32 sPreWaitTime = 90;
+    static const s32 sPreWaitTime = NebulaFrameClock::stepsOfMilliseconds(1500);
     static const s32 sBeginWaitMotionFrame = 20;
     static const s32 sPressTime = 40;
     static const f32 sExplosionBlowOutVel = 30.0f;
@@ -92,7 +84,7 @@ namespace NrvKarikari {
     NEW_NERVE(HostTypeNrvCling, Karikari, Cling);
     NEW_NERVE(HostTypeNrvRelease, Karikari, Release);
     NEW_NERVE(HostTypeNrvSpinAttacked, Karikari, SpinAttacked);
-    NEW_NERVE(HostTypeNrvDPDAttacked, Karikari, DPDAttacked);
+    NEW_NERVE(HostTypeNrvPointerAttacked, Karikari, PointerAttacked);
     NEW_NERVE(HostTypeNrvFrozen, Karikari, Frozen);
     NEW_NERVE(HostTypeNrvFrozenRecover, Karikari, FrozenRecover);
     NEW_NERVE(HostTypeNrvBlowOut, Karikari, BlowOut);
@@ -102,13 +94,13 @@ namespace NrvKarikari {
 };  // namespace NrvKarikari
 
 Karikari::Karikari(const char* pName)
-    : LiveActor(pName), mFront(0.0f, 0.0f, 1.0f), mClingPosition(nullptr), mIsReadyToLandTornado(false), _9D(false), _9E(true), mIsPushable(true),
-      mFrozenTime(0), _A4(0) {
+    : LiveActor(pName), mFront(0.0f, 0.0f, 1.0f), mClingPosition(nullptr), mIsReadyToLandTornado(false), mCanAttack(true), mIsPushable(true),
+      mFrozenTime(0) {
 }
 
-void Karikari::init(const JMapInfoIter& rIter) {
+void Karikari::init(const TableIter& rIter) {
     MR::createSceneObj(SceneObj_KarikariDirector);
-    MR::joinToGroup(this, "\203\112\203\212\203\112\203\212\203\146\203\102\203\214\203\116\203\136\201\133" /* カリカリディレクター */);
+    MR::joinToGroup(this, "カリカリディレクター");
     MR::initDefaultPos(this, rIter);
     MR::useStageSwitchWriteDead(this, rIter);
     if (MR::useStageSwitchReadAppear(this, rIter)) {
@@ -120,14 +112,14 @@ void Karikari::init(const JMapInfoIter& rIter) {
     initSound(4, false);
     f32 size = ::sSize * mScale.y;
     initBinder(size, size, 0);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
 
     initHitSensor(1);
-    MR::addHitSensor(this, "body", ATYPE_KARIKARI, 32, 100.0f, TVec3f(0.0f, 30.0f, 0.0f));
+    MR::addHitSensor(this, "body", ATYPE_KARIKARI, 32, 100.0f, Vec3f(0.0f, 30.0f, 0.0f));
     MR::initShadowVolumeSphere(this, ::sSize);
     MR::onCalcShadowOneTime(this, nullptr);
     initNerve(GET_NERVE(Karikari, HostTypeNrvFall));
-    MR::initStarPointerTarget(this, 40.0f, TVec3f(0.0f, 25.0f, 0.0f));
+    MR::initStarPointerTarget(this, 40.0f, Vec3f(0.0f, 25.0f, 0.0f));
 
     if (MR::isValidSwitchAppear(this)) {
         makeActorDead();
@@ -143,8 +135,8 @@ void Karikari::applyEnvironmentInfluenceToVelocity() {
     if (MR::isOnGround(this)) {
         MR::reboundVelocityFromCollision(this, 0.0f, 0.0f, 1.0f);
         mVelocity.mult(::sVelocityDampGround);
-        TVec3f norm(*MR::getGroundNormal(this));
-        TVec3f velH(mVelocity);
+        Vec3f norm(*MR::getGroundNormal(this));
+        Vec3f velH(mVelocity);
         MR::vecKillElement(velH, norm, &velH);
         if (velH.squared() < ::sStopVelocitySquared) {
             mVelocity.scale(norm.dot(mVelocity), norm);
@@ -157,7 +149,7 @@ void Karikari::applyEnvironmentInfluenceToVelocity() {
         return;
     }
 
-    if (isNerve(GET_NERVE(Karikari, HostTypeNrvDPDAttacked))) {
+    if (isNerve(GET_NERVE(Karikari, HostTypeNrvPointerAttacked))) {
         mVelocity.mult(::sVelocityDampAttacked);
         return;
     }
@@ -176,7 +168,7 @@ void Karikari::killedInFrozenState() {
 }
 
 void Karikari::control() {
-    if (MR::isInDeath(this, TVec3f(0.0f, 0.0f, 0.0f)) || MR::isInWater(mPosition)) {
+    if (MR::isInDeath(this, Vec3f(0.0f, 0.0f, 0.0f)) || MR::isInWater(mPosition)) {
         kill();
     }
 }
@@ -184,7 +176,7 @@ void Karikari::control() {
 void Karikari::exeFall() {
     if (MR::isFirstStep(this)) {
         MR::startBck(this, "Wait");
-        _9E = false;
+        mCanAttack = false;
         mIsPushable = true;
         MR::onBind(this);
         MR::onCalcShadow(this, nullptr);
@@ -209,7 +201,7 @@ void Karikari::exeLand() {
     if (MR::isFirstStep(this)) {
         MR::startBck(this, "Land");
         MR::startBtp(this, "Land");
-        _9E = false;
+        mCanAttack = false;
         mIsPushable = true;
         MR::onBind(this);
         MR::onCalcShadow(this, nullptr);
@@ -217,12 +209,12 @@ void Karikari::exeLand() {
         mVelocity.zero();
     }
 
-    if (tryDPDAttacked() == true) {
+    if (tryPointerAttacked()) {
         return;
     }
 
     if (MR::isGreaterStep(this, ::sPreWaitTime)) {
-        TVec3f diff(*MR::getPlayerPos());
+        Vec3f diff(*MR::getPlayerPos());
         diff.sub(mPosition);
         if (diff.squared() < ::sDistToPursue * ::sDistToPursue) {
             setNerve(GET_NERVE(Karikari, HostTypeNrvPursue));
@@ -241,7 +233,7 @@ void Karikari::exeLand() {
     }
 
     if (MR::isGreaterStep(this, ::sBeginWaitMotionFrame)) {
-        TVec3f toPlayerH(*MR::getPlayerPos() - mPosition);
+        Vec3f toPlayerH(*MR::getPlayerPos() - mPosition);
         MR::vecKillElement(toPlayerH, mGravity, &toPlayerH);
         MR::normalizeOrZero(&toPlayerH);
         tryTurnToDirection(toPlayerH, ::sTurnRatio);
@@ -253,7 +245,7 @@ void Karikari::exeNoCalcWait() {
         MR::offBind(this);
         MR::offCalcShadow(this, nullptr);
         MR::offCalcGravity(this);
-        _9E = false;
+        mCanAttack = false;
         mIsPushable = false;
     }
 
@@ -275,15 +267,15 @@ void Karikari::exeWait() {
         MR::startBck(this, "Wait");
         MR::startBtp(this, "Bite");
         MR::setBtpFrameAndStop(this, 0.0f);
-        _9E = true;
+        mCanAttack = true;
         mIsPushable = true;
     }
 
-    if (tryDPDAttacked() == true) {
+    if (tryPointerAttacked()) {
         return;
     }
 
-    TVec3f diff(*MR::getPlayerPos());
+    Vec3f diff(*MR::getPlayerPos());
     diff.sub(mPosition);
     if (diff.squared() < ::sDistToPursue * ::sDistToPursue) {
         setNerve(GET_NERVE(Karikari, HostTypeNrvPrePursue));
@@ -305,19 +297,19 @@ void Karikari::exePrePursue() {
         MR::startBck(this, "Search");
         MR::startBtp(this, "Bite");
         MR::setBtpFrameAndStop(this, 0.0f);
-        _9E = true;
+        mCanAttack = true;
         mIsPushable = false;
     }
 
     applyEnvironmentInfluenceToVelocity();
     mVelocity += mGravity * ::sGravity;
 
-    if (tryDPDAttacked() == true) {
+    if (tryPointerAttacked()) {
         return;
     }
 
     if (MR::isLessStep(this, ::sJumpAgainTime)) {
-        TVec3f toPlayer(*MR::getPlayerPos() - mPosition);
+        Vec3f toPlayer(*MR::getPlayerPos() - mPosition);
         tryTurnToDirection(toPlayer, ::sTurnRatio);
         mIsPushable = true;
         return;
@@ -345,18 +337,18 @@ void Karikari::exePursue() {
         MR::setBckRate(this, ::sJumpAnimRate);
         MR::startBtp(this, "Bite");
         MR::setBtpFrameAndStop(this, 0.0f);
-        _9E = true;
+        mCanAttack = true;
         mIsPushable = true;
     }
 
     applyEnvironmentInfluenceToVelocity();
     mVelocity += mGravity * ::sGravity;
 
-    if (tryDPDAttacked() == true) {
+    if (tryPointerAttacked()) {
         return;
     }
 
-    TVec3f toPlayerH(*MR::getPlayerPos() - mPosition);
+    Vec3f toPlayerH(*MR::getPlayerPos() - mPosition);
     f32 dist = toPlayerH.squared();
     MR::vecKillElement(toPlayerH, mGravity, &toPlayerH);
     MR::normalizeOrZero(&toPlayerH);
@@ -403,14 +395,14 @@ void Karikari::exeWatchFor() {
         MR::startBck(this, "Glad");
         MR::startBtp(this, "Bite");
         MR::setBtpFrameAndStop(this, 0.0f);
-        _9E = false;
+        mCanAttack = false;
         mIsPushable = true;
     }
 
     applyEnvironmentInfluenceToVelocity();
     mVelocity += mGravity * ::sWatchForGravity;
 
-    if (tryDPDAttacked() == true) {
+    if (tryPointerAttacked()) {
         return;
     }
 
@@ -419,7 +411,7 @@ void Karikari::exeWatchFor() {
     }
 
     if (MR::isLessStep(this, ::sWatchForJumpTime)) {
-        TVec3f toPlayer(*MR::getPlayerPos() - mPosition);
+        Vec3f toPlayer(*MR::getPlayerPos() - mPosition);
         tryTurnToDirection(toPlayer, ::sTurnRatio);
 
         if (!::getKarikariDirector()->isMaxNumCling() || ::sWatchForDistance * ::sWatchForDistance < toPlayer.squared()) {
@@ -447,15 +439,15 @@ void Karikari::exePreCling() {
         MR::startBck(this, "Wait");
         MR::startBtp(this, "Bite");
         MR::setBtpFrameAndStop(this, 0.0f);
-        _9E = false;
+        mCanAttack = false;
         mIsPushable = false;
     }
 
-    if (tryDPDAttacked() == true) {
+    if (tryPointerAttacked()) {
         return;
     }
 
-    TVec3f toClingPos;
+    Vec3f toClingPos;
     f32 t = getNerveStep() / static_cast< f32 >(::sPreClingTime);
     mClingPosition->copyTrans(&toClingPos);
     toClingPos.sub(mPosition);
@@ -475,7 +467,7 @@ void Karikari::exeCling() {
         MR::invalidateShadow(this, nullptr);
         MR::offCalcGravity(this);
         MR::validateHitSensors(this);
-        _9E = false;
+        mCanAttack = false;
         mIsPushable = false;
         MR::setBckRate(this, 1.0f);
         MR::startBck(this, "Bite");
@@ -484,7 +476,7 @@ void Karikari::exeCling() {
         mVelocity.zero();
     }
 
-    if (tryDPDAttacked() == true) {
+    if (tryPointerAttacked()) {
         return;
     }
 
@@ -498,7 +490,7 @@ void Karikari::exeRelease() {
         MR::setBtpFrameAndStop(this, 0.0f);
     }
 
-    TVec3f away(mPosition);
+    Vec3f away(mPosition);
     away.sub(*MR::getPlayerPos());
     MR::vecKillElement(away, mGravity, &away);
     away.setLength(::sAttackedVel);
@@ -519,9 +511,8 @@ void Karikari::exeSpinAttacked() {
         MR::startBtp(this, "Bite");
         MR::setBtpFrameAndStop(this, 0.0f);
         MR::startSystemME("ME_MAGIC");
-        _9E = false;
+        mCanAttack = false;
         mIsPushable = true;
-        _A4 = 0;
     }
 
     applyEnvironmentInfluenceToVelocity();
@@ -532,7 +523,7 @@ void Karikari::exeSpinAttacked() {
     }
 }
 
-void Karikari::exeDPDAttacked() {
+void Karikari::exePointerAttacked() {
     if (MR::isFirstStep(this)) {
         MR::onBind(this);
         MR::onCalcShadow(this, nullptr);
@@ -543,15 +534,14 @@ void Karikari::exeDPDAttacked() {
         MR::setBckRate(this, ::sSpinXAnimRate);
         MR::startBtp(this, "Bite");
         MR::setBtpFrameAndStop(this, 0.0f);
-        _9E = false;
+        mCanAttack = false;
         mIsPushable = true;
-        _A4 = 0;
         MR::startSound(this, "SE_EM_KARIKARI_RELEASE");
         MR::emitEffect(this, "Touch");
     }
 
     applyEnvironmentInfluenceToVelocity();
-    mVelocity += mGravity * ::sDPDAttackedGravity;
+    mVelocity += mGravity * ::sPointerAttackedGravity;
 
     if (MR::isOnGround(this)) {
         MR::emitEffect(this, "SmokeLand");
@@ -565,7 +555,7 @@ void Karikari::exeFrozen() {
         MR::offCalcShadow(this, nullptr);
         MR::offCalcGravity(this);
         MR::validateHitSensors(this);
-        _9E = true;
+        mCanAttack = true;
         mIsPushable = false;
         MR::startBtp(this, "Bite");
         MR::setBtpFrameAndStop(this, 0.0f);
@@ -594,7 +584,7 @@ void Karikari::exeFrozenRecover() {
         MR::onCalcGravity(this);
         MR::validateShadow(this, nullptr);
         MR::validateHitSensors(this);
-        _9E = true;
+        mCanAttack = true;
         mIsPushable = true;
 
         mVelocity = (-mGravity) * ::sJumpToFrozenRecoverVel;
@@ -624,7 +614,7 @@ void Karikari::exeBlowOut() {
         MR::onCalcGravity(this);
         MR::validateShadow(this, nullptr);
         MR::validateHitSensors(this);
-        _9E = false;
+        mCanAttack = false;
         mIsPushable = true;
         MR::startSound(this, "SE_EM_KARIKARI_BLOW");
         MR::startBck(this, "SpinX");
@@ -657,7 +647,7 @@ void Karikari::exeInTornado() {
         MR::setBckRate(this, 2.0f);
         MR::startBtp(this, "Bite");
         MR::setBtpFrameAndStop(this, 0.0f);
-        _9E = false;
+        mCanAttack = false;
         mIsPushable = true;
     }
 
@@ -699,14 +689,14 @@ bool Karikari::inClingNerve() const {
     return isNerve(GET_NERVE(Karikari, HostTypeNrvPreCling)) || isNerve(GET_NERVE(Karikari, HostTypeNrvCling));
 }
 
-bool Karikari::tryBlowOut(const TVec3f& rPos, bool spawnMultipleStarPieces) {
+bool Karikari::tryBlowOut(const Vec3f& rPos, bool spawnMultipleStarPieces) {
     if (isNerve(GET_NERVE(Karikari, HostTypeNrvBlowOut)) || isNerve(GET_NERVE(Karikari, HostTypeNrvBlowOutStarPiece)) ||
         isNerve(GET_NERVE(Karikari, HostTypeNrvRelease)) || isNerve(GET_NERVE(Karikari, HostTypeNrvSpinAttacked)) ||
-        isNerve(GET_NERVE(Karikari, HostTypeNrvDPDAttacked)) || isNerve(GET_NERVE(Karikari, HostTypeNrvPress))) {
+        isNerve(GET_NERVE(Karikari, HostTypeNrvPointerAttacked)) || isNerve(GET_NERVE(Karikari, HostTypeNrvPress))) {
         return false;
     }
 
-    TVec3f toPosition(mPosition);
+    Vec3f toPosition(mPosition);
     toPosition.sub(rPos);
     MR::vecKillElement(toPosition, mGravity, &toPosition);
     toPosition.setLength(::sBlowOutVel);
@@ -739,35 +729,35 @@ bool Karikari::tryElectricKill() {
 }
 
 bool Karikari::tryHipDropRelease() {
-    TVec3f away(mPosition);
+    Vec3f away(mPosition);
     away.sub(*MR::getPlayerPos());
     MR::vecKillElement(away, mGravity, &away);
     away.setLength(::sAttackedVel);
     away.sub(mGravity * ::sAttackedVerticalVel);
     mVelocity.set(away);
-    setNerve(GET_NERVE(Karikari, HostTypeNrvDPDAttacked));
+    setNerve(GET_NERVE(Karikari, HostTypeNrvPointerAttacked));
     return true;
 }
 
-bool Karikari::tryDPDRelease(const TVec2f& rVel) {
+bool Karikari::tryPointerRelease(const Vec2f& rVel) {
     setVelocityFromCursorMove(rVel);
-    setNerve(GET_NERVE(Karikari, HostTypeNrvDPDAttacked));
+    setNerve(GET_NERVE(Karikari, HostTypeNrvPointerAttacked));
     return true;
 }
 
-bool Karikari::tryDPDAttacked() {
+bool Karikari::tryPointerAttacked() {
 
-    if (MR::isStarPointerPointing2POnPressButton(this, "\216\343" /* 弱 */, true, false)) {
-        MR::startDPDHitSound();
+    if (MR::isStarPointerPointing2POnPressButton(this, "弱", true, false)) {
+        MR::startPointerHitSound();
         s32 padChannel = *MR::getStarPointerLastPointedPort(this);
-        TVec2f pointerVel(*MR::getStarPointerScreenVelocity(padChannel));
-        TVec2f pointingPos;
-        TVec2f screenPos;
+        Vec2f pointerVel(*MR::getStarPointerScreenVelocity(padChannel));
+        Vec2f pointingPos;
+        Vec2f screenPos;
         MR::getPointerPosOnScreen(&pointingPos, padChannel);
         MR::calcScreenPosition(&screenPos, mPosition);
-        TVec2f fromCursorPos = screenPos;
+        Vec2f fromCursorPos = screenPos;
         fromCursorPos.sub(pointingPos);
-        TVec2f vel(pointerVel);
+        Vec2f vel(pointerVel);
         if (MR::isNearZero(pointerVel)) {
             vel = fromCursorPos;
             vel.setLength(::sFromCursorVelScale);
@@ -777,7 +767,7 @@ bool Karikari::tryDPDAttacked() {
             ::getKarikariDirector()->requestRelease(this, vel, fromCursorPos.squared());
         } else {
             setVelocityFromCursorMove(vel);
-            setNerve(GET_NERVE(Karikari, HostTypeNrvDPDAttacked));
+            setNerve(GET_NERVE(Karikari, HostTypeNrvPointerAttacked));
         }
         return true;
     }
@@ -785,9 +775,9 @@ bool Karikari::tryDPDAttacked() {
     return false;
 }
 
-void Karikari::setVelocityFromCursorMove(const TVec2f& rVel) {
-    TVec3f camX = MR::getCamXdir();
-    TVec3f camY = -MR::getCamYdir();
+void Karikari::setVelocityFromCursorMove(const Vec2f& rVel) {
+    Vec3f camX = MR::getCamXdir();
+    Vec3f camY = -MR::getCamYdir();
     mVelocity = camX * rVel.x + camY * rVel.y;
     if (mVelocity.dot(mGravity) > 0.0f) {
         MR::vecKillElement(mVelocity, mGravity, &mVelocity);
@@ -814,8 +804,8 @@ void Karikari::kill() {
 }
 
 void Karikari::generateItem(s32 numStarPieces) {
-    TVec3f up = -mGravity;
-    TVec3f pos = up * 80.0f;
+    Vec3f up = -mGravity;
+    Vec3f pos = up * 80.0f;
     pos += mPosition;
     MR::startSound(this, "SE_OJ_STAR_PIECE_BURST");
     MR::appearStarPiece(this, pos, numStarPieces, 10.0f, 40.0f, false);
@@ -837,13 +827,13 @@ void Karikari::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
         return;
     }
 
-    if (_9E && MR::isSensorPlayer(pReceiver)) {
+    if (mCanAttack && MR::isSensorPlayer(pReceiver)) {
         if (isNerve(GET_NERVE(Karikari, HostTypeNrvFrozen))) {
             killedInFrozenState();
             return;
         }
 
-        TVec3f diff = pSender->mPosition - pReceiver->mPosition;
+        Vec3f diff = pSender->mPosition - pReceiver->mPosition;
         f32 dist = diff.squared();
         f32 clingDist = ::sDistToCling;
         if (dist < clingDist * clingDist) {
@@ -855,7 +845,7 @@ void Karikari::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     }
 }
 
-bool Karikari::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool Karikari::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (MR::isMsgHitmarkEmit(msg)) {
         return true;
     }
@@ -868,7 +858,7 @@ bool Karikari::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver
     return false;
 }
 
-bool Karikari::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool Karikari::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* /*pReceiver*/) {
     if (MR::isMsgLockOnStarPieceShoot(msg)) {
         return true;
     }
@@ -900,7 +890,7 @@ bool Karikari::receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) {
     }
 
     if (MR::isSensorEnemy(pSender) || MR::isSensorMapObj(pSender)) {
-        TVec3f diff(mPosition);
+        Vec3f diff(mPosition);
         diff.sub(pSender->mHost->mPosition);
         MR::normalizeOrZero(&diff);
         mVelocity += diff;
@@ -927,7 +917,7 @@ bool Karikari::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pRe
             ::getKarikariDirector()->unregistCling(this);
         }
         // blow away from enemy
-        TVec3f vel(pReceiver->mPosition);
+        Vec3f vel(pReceiver->mPosition);
         vel.sub(pSender->mPosition);
         MR::normalizeOrZero(&vel);
         vel.scale(::sEnemyAttackHitVel);
@@ -955,7 +945,7 @@ bool Karikari::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pRe
             ::getKarikariDirector()->unregistCling(this);
         }
         // blow away from explosion
-        TVec3f vel(pReceiver->mPosition);
+        Vec3f vel(pReceiver->mPosition);
         vel.sub(pSender->mPosition);
         vel.setLength(::sExplosionBlowOutVel);
         mVelocity = vel;
@@ -966,8 +956,8 @@ bool Karikari::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pRe
     return false;
 }
 
-void Karikari::tryTurnToDirection(const TVec3f& rDir, f32 turnRatio) {
-    TQuat4f rot;
+void Karikari::tryTurnToDirection(const Vec3f& rDir, f32 turnRatio) {
+    Quat4f rot;
     rot.setRotate(mFront, rDir, turnRatio);
     rot.transform(mFront);
 }
@@ -978,10 +968,7 @@ void Karikari::calcAndSetBaseMtx() {
         return;
     }
 
-    TPos3f mtx;
+    Pos3f mtx;
     MR::calcMtxFromGravityAndZAxis(&mtx, this, mGravity, mFront);
     MR::setBaseTRMtx(this, mtx);
-}
-
-Karikari::~Karikari() {
 }

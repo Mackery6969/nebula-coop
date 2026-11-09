@@ -6,14 +6,13 @@ class TicoDomeLecture : public LiveActor {
 public:
     TicoDomeLecture(const char*);
 
-    virtual ~TicoDomeLecture();
-    virtual void init(const JMapInfoIter&);
-    virtual void appear();
+    virtual void init(const TableIter&) override;
+    virtual void appear() override;
 
     void exeWait();
     void exeMove();
     void exeMetamorphosis();
 
-    TVec3f _8C;
-    TVec3f _98;
+    Vec3f mInitPos;
+    Vec3f mInitRotation;
 };

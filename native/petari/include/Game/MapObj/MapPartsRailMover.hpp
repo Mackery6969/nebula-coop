@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/MapObj/MapPartsFunction.hpp"
-#include <JSystem/JGeometry.hpp>
+#include <nebula_geometry.hpp>
 
 class MapPartsRailPointPassChecker;
 
@@ -9,13 +9,13 @@ class MapPartsRailMover : public MapPartsFunction {
 public:
     MapPartsRailMover(LiveActor*);
 
-    virtual ~MapPartsRailMover();
-    virtual void init(const JMapInfoIter&);
-    virtual void movement();
-    virtual bool isWorking() const;
-    virtual void start();
-    virtual void end();
-    virtual bool receiveMsg(u32);
+    virtual ~MapPartsRailMover() override;
+    virtual void init(const TableIter&) override;
+    virtual void movement() override;
+    virtual bool isWorking() const override;
+    virtual void start() override;
+    virtual void end() override;
+    virtual bool receiveMsg(u32) override;
 
     void moveToInitPos();
     void startWithSignalMotion();
@@ -52,11 +52,11 @@ public:
     s32 mMoveConditionType;
     s32 mMoveStopType;
     s32 mSignMotionType;
-    TVec3f _28;
-    f32 _34;
+    Vec3f mStartPos;
+    f32 mInitCoord;
     s32 mStopTime;
     f32 mSpeed;
     s32 mAccelTime;
     f32 mAcceleration;
-    f32 _48;
+    f32 mSignCoord;
 };

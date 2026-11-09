@@ -5,7 +5,7 @@
 KoopaPowerUpSwitch::KoopaPowerUpSwitch(const char* pName) : LiveActor(pName) {
 }
 
-void KoopaPowerUpSwitch::init(const JMapInfoIter& rIter) {
+void KoopaPowerUpSwitch::init(const TableIter& rIter) {
     MR::useStageSwitchWriteA(this, rIter);
     MR::useStageSwitchWriteB(this, rIter);
     makeActorDead();
@@ -13,7 +13,4 @@ void KoopaPowerUpSwitch::init(const JMapInfoIter& rIter) {
 
 void KoopaPowerUpSwitch::initAfterPlacement() {
     KoopaFunction::registerKoopaPowerUpSwitch(this);
-}
-
-KoopaPowerUpSwitch::~KoopaPowerUpSwitch() {
 }

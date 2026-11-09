@@ -34,18 +34,18 @@ namespace NrvBossKameckBeamFire {
 KameckFireBall::KameckFireBall(const char* pName) : LiveActor(pName), mRotateQuat(0.0f, 0.0f, 0.0f, 1.0f), mEventListener() {
 }
 
-void KameckFireBall::init(const JMapInfoIter& rIter) {
+void KameckFireBall::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("BossKameckFireBall", nullptr, false);
     MR::connectToSceneEnemy(this);
     initNerve(GET_NERVE(BossKameckBeamFire, KameckFireBallNrvWait));
     initHitSensor(1);
-    TVec3f sensorOffs;
+    Vec3f sensorOffs;
     sensorOffs.x = 0.0f;
     sensorOffs.y = 0.0f;
     sensorOffs.z = 0.0f;
     MR::addHitSensorEnemyAttack(this, "attack", 8, ::sFireRadius, sensorOffs);
-    TVec3f pointerOffs;
+    Vec3f pointerOffs;
     pointerOffs.x = 0.0f;
     pointerOffs.y = 0.0f;
     pointerOffs.z = 0.0f;
@@ -54,7 +54,7 @@ void KameckFireBall::init(const JMapInfoIter& rIter) {
     MR::setKameckBeamCollisionFilter(this);
     MR::initShadowVolumeSphere(this, ::sFireRadius);
     MR::onCalcShadow(this, nullptr);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initSound(4, false);
     MR::invalidateClipping(this);
     makeActorDead();
@@ -78,7 +78,7 @@ void KameckFireBall::makeActorDead() {
 }
 
 void KameckFireBall::control() {
-    MR::requestPointLight(this, TVec3f(mPosition), ::sPointLightColor, 1.0f, -1);
+    MR::requestPointLight(this, Vec3f(mPosition), ::sPointLightColor, 1.0f, -1);
 }
 
 void KameckFireBall::calcAndSetBaseMtx() {
@@ -98,7 +98,7 @@ void KameckFireBall::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     }
 }
 
-bool KameckFireBall::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool KameckFireBall::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (MR::isMsgLockOnStarPieceShoot(msg)) {
         return true;
     }
@@ -111,7 +111,7 @@ bool KameckFireBall::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSens
     return false;
 }
 
-bool KameckFireBall::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool KameckFireBall::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (MR::isMsgStartPowerStarGet(msg)) {
         makeActorDead();
         return true;
@@ -120,7 +120,7 @@ bool KameckFireBall::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pRe
     return false;
 }
 
-void KameckFireBall::appearDirection(const TVec3f& rDirection) {
+void KameckFireBall::appearDirection(const Vec3f& rDirection) {
     appear();
     MR::onCalcGravity(this);
     MR::calcGravity(this);
@@ -147,7 +147,7 @@ void KameckFireBall::exeWait() {
         }
     }
 
-    if (MR::isStarPointerPointing2POnPressButton(this, "\216\343" /* 弱 */, 1, 0)) {
+    if (MR::isStarPointerPointing2POnPressButton(this, "弱", 1, 0)) {
         kill();
     } else if (MR::isGreaterStep(this, ::sLife) || MR::isInWater(mPosition)) {
         kill();

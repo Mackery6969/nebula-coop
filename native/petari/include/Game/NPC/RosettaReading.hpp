@@ -2,20 +2,15 @@
 
 #include "Game/LiveActor/LiveActor.hpp"
 
-class NameObjArchiveListCollector;
 class PictureBookLayout;
 
 class RosettaReading : public LiveActor {
 public:
-    /// @brief Creates a new `RosettaReading`.
-    /// @param pName A pointer to the null-terminated name of the object.
     RosettaReading(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void appear();
-    virtual void kill();
+    virtual void init(const TableIter& rIter) override;
+    virtual void appear() override;
 
-    static void makeArchiveList(NameObjArchiveListCollector* pCollector, const JMapInfoIter& rIter);
 
     void exePictureBookBefore();
     void exePictureBook();

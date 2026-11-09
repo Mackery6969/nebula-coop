@@ -1,3 +1,4 @@
+#include "Game/Util/CameraUtil.hpp"
 #include "Game/LiveActor/ShadowSurfaceOval.hpp"
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/LiveActor/ShadowController.hpp"
@@ -7,14 +8,14 @@
 #include "Game/Util/DrawUtil.hpp"
 #include "Game/Util/ModelUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
+
 
 ShadowSurfaceOval::~ShadowSurfaceOval() {
 }
 
-ShadowSurfaceOval::ShadowSurfaceOval() : ShadowSurfaceDrawer("\211\145\225\140\211\346[\220\205\226\312\221\310\211\176\211\145]" /* 影描画[水面楕円影] */), mModelData(), mSize(100.0f, 100.0f, 200.0f), mColor(0, 0, 0, 64) {
-    mModelData = MR::getJ3DModelData("ShadowVolumeSphere");
+ShadowSurfaceOval::ShadowSurfaceOval() : ShadowSurfaceDrawer("影描画[水面楕円影]"), mModelData(), mSize(100.0f, 100.0f, 200.0f), mColor(0, 0, 0, 64) {
+    mModelData = MR::getModelData("ShadowVolumeSphere");
 }
 
 void ShadowSurfaceOval::setColor(Color8 color) {
@@ -25,40 +26,41 @@ void ShadowSurfaceOval::setAlpha(u8 alpha) {
     mColor.a = alpha;
 }
 
-void ShadowSurfaceOval::setSize(const TVec3f& pSize) {
+void ShadowSurfaceOval::setSize(const Vec3f& pSize) {
     mSize = pSize;
 }
 
 void ShadowSurfaceOval::draw() const {
     MtxPtr baseMtx;
     ShadowController* controller = getController();
-    baseMtx = controller->_18;
+    baseMtx = controller->mHostMtx;
 
     if (!controller->isProjected() || !controller->isDraw()) {
         return;
     }
 
-    TVec3f size(mSize / 100.0f);
+    beginDrawObject();
+    Vec3f size(mSize / 100.0f);
     if (controller->isFollowHostScale()) {
         size *= controller->getHost()->mScale;
     }
 
-    TVec3f pos, normal;
+    Vec3f pos, normal;
     controller->getProjectionPos(&pos);
     controller->getProjectionNormal(&normal);
     ShadowSurfaceDrawInit::sendColor(mColor);
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.setInline(baseMtx);
     MR::preScaleMtx(mtx, size);
     MR::flattenMtx(mtx, normal);
     mtx.setTrans(pos);
-    TDDraw::setModelMtx(mtx.toMtxPtr());
-    MR::drawSimpleModel(mModelData);
+    TypedDraw site(ShadowSurfaceDrawInit::material(), mtx.toMtxPtr(), MR::getCameraViewMtx());
+    site.drawModelFile(mModelData);
     MR::preScaleMtx(mtx, 0.9f);
-    TDDraw::setModelMtx(mtx.toMtxPtr());
-    MR::drawSimpleModel(mModelData);
+    site.setWorld(mtx.toMtxPtr());
+    site.drawModelFile(mModelData);
     MR::preScaleMtx(mtx.toMtxPtr(), 0.9f);
-    TDDraw::setModelMtx(mtx.toMtxPtr());
-    MR::drawSimpleModel(mModelData);
+    site.setWorld(mtx.toMtxPtr());
+    site.drawModelFile(mModelData);
     ShadowSurfaceDrawInit::sendColor(Color8(128));
 }

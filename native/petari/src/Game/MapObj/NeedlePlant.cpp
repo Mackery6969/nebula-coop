@@ -5,14 +5,13 @@
 #include "Game/Util/ActorMovementUtil.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
 
 namespace {
-    // static const f32 sBreakSensorSize = _;
     static const f32 sAttackSensorSize = 70.0f;
 };  // namespace
 
@@ -24,22 +23,22 @@ namespace NrvNeedlePlant {
 NeedlePlant::NeedlePlant(const char* pName) : MapObjActor(pName), mObjArg0(-1) {
 }
 
-void NeedlePlant::init(const JMapInfoIter& rIter) {
+void NeedlePlant::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
     MapObjActorInitInfo info;
     info.setupDefaultPos();
     info.setupConnectToScene();
     info.setupAffectedScale();
     info.setupHitSensor();
-    info.setupHitSensorParam(4, 180.0f, TVec3f(0.0f, mScale.x * 150.0f, 0.0f));
+    info.setupHitSensorParam(4, 180.0f, Vec3f(0.0f, mScale.x * 150.0f, 0.0f));
     info.setupShadow(nullptr);
     info.setupNerve(GET_NERVE(NeedlePlant, NeedlePlantNrvWait));
     initialize(rIter, info);
-    initEffectKeeper(1, "NeedlePlant", false);
+    initEffectKeeper(1, "NeedlePlant");
     MR::addEffectHitNormal(this, nullptr);
     initSound(4, 0);
-    MR::initStarPointerTarget(this, mScale.x * 150.0f, TVec3f(0.0f, mScale.x * 150.0f, 0.0f));
-    MR::getJMapInfoArg0NoInit(rIter, &mObjArg0);
+    MR::initStarPointerTarget(this, mScale.x * 150.0f, Vec3f(0.0f, mScale.x * 150.0f, 0.0f));
+    MR::getPlacementArg0NoInit(rIter, &mObjArg0);
 
     if (mObjArg0 == -1) {
         MR::declareCoin(this, 1);
@@ -99,7 +98,7 @@ void NeedlePlant::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     }
 }
 
-bool NeedlePlant::receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) {
+bool NeedlePlant::receiveMsgPush(HitSensor* pSender, HitSensor* /*pReceiver*/) {
     if (isNerve(GET_NERVE(NeedlePlant, NeedlePlantNrvShake))) {
         return false;
     }
@@ -113,7 +112,7 @@ bool NeedlePlant::receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) {
     return true;
 }
 
-bool NeedlePlant::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool NeedlePlant::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (MR::isMsgStarPieceReflect(msg)) {
         setNerve(GET_NERVE(NeedlePlant, NeedlePlantNrvShake));
 
@@ -129,7 +128,7 @@ bool NeedlePlant::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor*
     return false;
 }
 
-bool NeedlePlant::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool NeedlePlant::receiveMsgEnemyAttack(u32 /*msg*/, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     kill();
 
     return true;

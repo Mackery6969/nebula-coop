@@ -1,5 +1,5 @@
 #include "Game/LiveActor/ShadowVolumeSphere.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
+#include "Game/Render/TypedDraw.hpp"
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/Util/CameraUtil.hpp"
 #include <NebulaGpu.h>
@@ -11,7 +11,7 @@ namespace {
 ShadowVolumeSphere::~ShadowVolumeSphere() {
 }
 
-ShadowVolumeSphere::ShadowVolumeSphere() : ShadowVolumeModel("\211\145\225\140\211\346[\203\173\203\212\203\205\201\133\203\200\213\205]" /* 影描画[ボリューム球] */), mRadius(100.0f) {
+ShadowVolumeSphere::ShadowVolumeSphere() : ShadowVolumeModel("影描画[ボリューム球]"), mRadius(100.0f) {
     initVolumeModel("ShadowVolumeSphere");
 }
 
@@ -25,14 +25,19 @@ bool ShadowVolumeSphere::isDraw() const {
     return controller->isProjected() && controller->isDraw();
 }
 
-void ShadowVolumeSphere::loadModelDrawMtx() const {
+// The sphere stands where the drop meets the ground: that point jumping at a ledge starts a new object.
+void ShadowVolumeSphere::calcDrawAnchor(Vec3f* pOut) const {
+    getController()->getProjectionPos(pOut);
+}
+
+void ShadowVolumeSphere::loadModelDrawMtx(TypedDraw& rDraw) const {
     ShadowController* controller = getController();
     f32 radius = mRadius / ::sModelScale;
     if (controller->isFollowHostScale()) {
         radius *= controller->getHost()->mScale.x;
     }
 
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.identity();
     mtx.mMtx[0][0] = radius;
     mtx.mMtx[0][1] = 0.0f;
@@ -43,10 +48,9 @@ void ShadowVolumeSphere::loadModelDrawMtx() const {
     mtx.mMtx[2][0] = 0.0f;
     mtx.mMtx[2][1] = 0.0f;
     mtx.mMtx[2][2] = radius;
-    TVec3f position;
+    Vec3f position;
     controller->getProjectionPos(&position);
     mtx.setTrans(position);
 
-    NebulaMtxConcat(MR::getCameraViewMtx(), mtx, mtx);
-    J3DNativeShape::setPosition(0, mtx);
+    rDraw.setWorld(mtx);
 }

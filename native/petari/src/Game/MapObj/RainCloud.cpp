@@ -1,11 +1,11 @@
 #include "Game/MapObj/RainCloud.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/LiveActorGroup.hpp"
 #include "Game/LiveActor/LodCtrl.hpp"
 #include "Game/LiveActor/ModelObj.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/MapPartsRailMover.hpp"
-#include "Game/NameObj/NameObjArchiveListCollector.hpp"
 #include "Game/Util.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/ActorShadowUtil.hpp"
@@ -18,7 +18,7 @@ namespace {
     const f32 sNoShadowDropLengthMax = 2000.0f;
     const f32 sRainCylinderBaseLength = 1000.0f;
     const f32 sSwitchEffectBorder = 1500.0f;
-    static s32 sThunderStep = 140;
+    const s32 sThunderStep = 140;
 };  // namespace
 
 namespace NrvRainCloud {
@@ -37,14 +37,14 @@ RainCloud::RainCloud(const char* pName)
     mSplashMtx.identity();
 }
 
-void RainCloud::init(const JMapInfoIter& rIter) {
+void RainCloud::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("RainCloud", nullptr, false);
-    MR::getJMapInfoArg3NoInit(rIter, &mNoRain);
+    MR::getPlacementArg3NoInit(rIter, &mNoRain);
 
     if (!mNoRain) {
         mRainCylinderMtx.set(getBaseMtx());
-        mCloudCylinder = new ModelObj("\211\112\211\137\211\112\224\315\210\315" /* 雨雲雨範囲 */, "RainCloudCylinder", mRainCylinderMtx, -2, -2, -2, false);
+        mCloudCylinder = new ModelObj("雨雲雨範囲", "RainCloudCylinder", mRainCylinderMtx, -2, -2, -2, false);
         mCloudCylinder->initWithoutIter();
         MR::invalidateClipping(mCloudCylinder);
     }
@@ -61,7 +61,7 @@ void RainCloud::init(const JMapInfoIter& rIter) {
     }
 
     MR::initCollisionParts(this, "RainCloud", getSensor("body"), nullptr);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
 
     if (!mNoRain) {
         MR::setEffectHostMtx(this, "Splash", mSplashMtx);
@@ -78,7 +78,7 @@ void RainCloud::init(const JMapInfoIter& rIter) {
 
     mLodCtrl = MR::createLodCtrlPlanet(this, rIter, -1.0f);
     MR::initShadowVolumeFlatModel(this, "RainCloudVolume", MR::getJointMtx(this, "Shadow"));
-    MR::getJMapInfoArg0NoInit(rIter, &mShadowDropLength);
+    MR::getPlacementArg0NoInit(rIter, &mShadowDropLength);
 
     f32 dropLength;
     if ((dropLength = mShadowDropLength) != -1.0f) {
@@ -93,7 +93,7 @@ void RainCloud::init(const JMapInfoIter& rIter) {
         MR::invalidateShadow(this, nullptr);
     }
 
-    TVec3f clippingCenter;
+    Vec3f clippingCenter;
     clippingCenter = mPosition;
     f32 boundRadius;
     MR::calcModelBoundingRadius(&boundRadius, this);
@@ -108,7 +108,7 @@ void RainCloud::init(const JMapInfoIter& rIter) {
     mClippingCenter.scaleAdd(0.5f * mRainLength, mGravity, mPosition);
     MR::setClippingTypeSphere(this, boundRadius, &mClippingCenter);
     MR::setGroupClipping(this, rIter, 16);
-    MR::joinToGroupArray(this, rIter, "\211\137\217\127\222\143" /* 雲集団 */, 16);
+    MR::joinToGroupArray(this, rIter, "雲集団", 16);
     MR::startBck(this, "Wait");
 
     if (!mNoRain) {
@@ -121,25 +121,16 @@ void RainCloud::init(const JMapInfoIter& rIter) {
     makeActorAppeared();
 }
 
-void RainCloud::makeArchiveList(NameObjArchiveListCollector* pCollector, const JMapInfoIter& rIter) {
-    bool arg3 = false;
-    MR::getJMapInfoArg3NoInit(rIter, &arg3);
-
-    pCollector->addArchive("RainCloud");
-    pCollector->addArchive("RainCloudVolume");
-    pCollector->addArchive("RainCloudLow");
-
-    if (!arg3) {
-        pCollector->addArchive("RainCloudCylinder");
-    }
-}
-
 void RainCloud::exeAppear() {
     if (MR::isFirstStep(this)) {
         MR::startBck(this, "Appear");
         MR::startBpk(this, "Appear");
         MR::validateCollisionParts(this);
-        mCloudCylinder->appear();
+        // A cloud with no rain (arg 3) has no cylinder.
+        if (mCloudCylinder != nullptr) {
+            mCloudCylinder->appear();
+        }
+
         MR::startSound(this, "SE_OJ_RAIN_CLOUD_APPEAR");
     }
 
@@ -173,7 +164,10 @@ void RainCloud::exeDisappear() {
     }
 
     if (MR::isBckStopped(this)) {
-        mCloudCylinder->kill();
+        if (mCloudCylinder != nullptr) {
+            mCloudCylinder->kill();
+        }
+
         mIsOnPlayer = false;
     }
 
@@ -210,7 +204,7 @@ void RainCloud::exeHardTouch() {
         MR::shakeCameraNormal();
     }
 
-    if (MR::isStep(this, 60)) {
+    if (MR::isStep(this, NebulaFrameClock::stepsOfSeconds(1))) {
         MR::validateCollisionParts(this);
         setNerve(GET_NERVE(RainCloud, RainCloudNrvWait));
     }
@@ -221,7 +215,7 @@ void RainCloud::control() {
 
     if (mRailMover != nullptr && !isNerve(GET_NERVE(RainCloud, RainCloudNrvEnd))) {
         mRailMover->movement();
-        mPosition.set(mRailMover->_28);
+        mPosition.set(mRailMover->mStartPos);
         if (MR::isMapPartsRailMovePassedEndPointRepeat(mRailMover)) {
             setNerve(GET_NERVE(RainCloud, RainCloudNrvDisappear));
             return;
@@ -251,7 +245,7 @@ void RainCloud::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     }
 }
 
-bool RainCloud::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool RainCloud::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (msg == ACTMES_END_DEMO && !mNoRain) {
         switchEffect();
         return true;
@@ -286,9 +280,9 @@ bool RainCloud::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceive
 
 void RainCloud::updateHitSensor(HitSensor* pSensor) {
     f32 radius = pSensor->mRadius;
-    TVec3f start;
+    Vec3f start;
     start.scaleAdd(radius, mGravity, mPosition);
-    TVec3f end;
+    Vec3f end;
     end.scaleAdd(mRainLength - radius, mGravity, mPosition);
 
     MR::calcPerpendicFootToLineInside(&pSensor->mPosition, *MR::getPlayerPos(), start, end);
@@ -335,9 +329,9 @@ void RainCloud::switchEffect() {
         bool isLongRain;
         if (MR::isShadowProjected(this, nullptr)) {
             isLongRain = mRainLength > ::sSwitchEffectBorder;
-            TVec3f projectionPos;
+            Vec3f projectionPos;
             MR::getShadowProjectionPos(this, nullptr, &projectionPos);
-            TVec3f projectionNormal;
+            Vec3f projectionNormal;
             MR::getShadowProjectionNormal(this, nullptr, &projectionNormal);
             MR::makeMtxUpNoSupportPos(&mSplashMtx, projectionNormal, projectionPos);
 
@@ -377,7 +371,7 @@ void RainCloud::updateRainCylinder() {
         widthScale = MR::clamp(widthScale, 0.1f, 1.0f);
     }
 
-    MR::preScaleMtx(mRainCylinderMtx, TVec3f(widthScale, lengthScale, widthScale));
+    MR::preScaleMtx(mRainCylinderMtx, Vec3f(widthScale, lengthScale, widthScale));
     MR::startLevelSound(this, "SE_OJ_LV_FOREST_RAIN");
 }
 
@@ -397,7 +391,4 @@ bool RainCloud::isNextStartOK() const {
     }
 
     return true;
-}
-
-RainCloud::~RainCloud() {
 }

@@ -1,4 +1,5 @@
 #include "Game/Enemy/MogucchiShooter.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Enemy/WaterBazooka.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Scene/SceneFunction.hpp"
@@ -16,12 +17,12 @@
 #include "Game/Util/SoundUtil.hpp"
 
 namespace {
-    static const s32 sStepForLaugh = 120;
+    static const s32 sStepForLaugh = NebulaFrameClock::stepsOfSeconds(2);
     static const s32 sStepToAngerBlur = 40;
-    static const s32 sAngerBlurTime = 60;
-    volatile static const f32 sAngerBlurOffset = 100.0f;
+    static const s32 sAngerBlurTime = NebulaFrameClock::stepsOfSeconds(1);
+    static const f32 sAngerBlurOffset = 100.0f;
     static const s32 sExplosionBlurTime = 50;
-    volatile static const f32 sExplosionBlurOffset = 100.0f;
+    static const f32 sExplosionBlurOffset = 100.0f;
     static const f32 sTurnRate = 1.0f;
     static const f32 sLimitAngleOfTurn = 30.0f;
 };  // namespace
@@ -46,8 +47,8 @@ MogucchiShooter::MogucchiShooter(LiveActor* pActor, const char* pName)
     : PartsModel(pActor, pName, "MogucchiShooter", nullptr, MR::DrawBufferType_Enemy, false), mFront(0.0f, 0.0f, 0.0f) {
 }
 
-void MogucchiShooter::init(const JMapInfoIter& rIter) {
-    initEffectKeeper(1, nullptr, false);
+void MogucchiShooter::init(const TableIter& /*rIter*/) {
+    initEffectKeeper(1, nullptr);
     MR::addEffectHitNormal(this, nullptr);
     initSound(1, false);
     MR::calcFrontVec(&mFront, this);
@@ -275,12 +276,12 @@ void MogucchiShooter::calcAndSetBaseMtx() {
         return;
     }
 
-    TPos3f posMtx;
-    TPos3f copyMtx;
+    Pos3f posMtx;
+    Pos3f copyMtx;
     posMtx.identity();
     copyMtx.setInline(mFixedPosition->mMtx);
 
-    TVec3f up;
+    Vec3f up;
     copyMtx.getYDir(up);
 
     mFixedPosition->mMtx.getTrans(mPosition);
@@ -289,7 +290,7 @@ void MogucchiShooter::calcAndSetBaseMtx() {
 }
 
 void MogucchiShooter::resetDirection() {
-    TPos3f mtx(MR::getJointMtx(mHost, "Cockpit"));
+    Pos3f mtx(MR::getJointMtx(mHost, "Cockpit"));
     mtx.getZDir(mFront);
 }
 
@@ -306,10 +307,10 @@ void MogucchiShooter::faceToMario() {
         return;
     }
 
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.setInline(mFixedPosition->mMtx);
     MR::turnDirectionToTargetDegree(this, &mFront, *MR::getPlayerPos(), ::sTurnRate);
-    TVec3f front;
+    Vec3f front;
     mtx.getZDir(front);
     MR::clampVecAngleDeg(&mFront, front, ::sLimitAngleOfTurn);
 }

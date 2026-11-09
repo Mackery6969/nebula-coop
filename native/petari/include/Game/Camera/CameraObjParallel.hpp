@@ -4,11 +4,10 @@
 
 class CameraObjParallel : public Camera {
 public:
-    CameraObjParallel(const char* pName = "\203\111\203\165\203\127\203\106\225\300\215\163\203\112\203\201\203\211" /* オブジェ並行カメラ */);
+    CameraObjParallel(const char* pName = "オブジェ並行カメラ");
 
-    virtual void reset();
-    virtual CameraTargetObj* calc();
-    virtual CamTranslatorBase* createTranslator();
+    virtual CameraTargetObj* calc() override;
+    virtual void setParamFromChunk(const CameraParamChunk*) override;
 
     void setParam(f32 dist, f32 angleX, f32 angleY) {
         mDist = dist;

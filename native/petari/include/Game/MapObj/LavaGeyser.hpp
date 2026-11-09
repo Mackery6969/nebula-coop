@@ -6,10 +6,10 @@ class LavaGeyser : public LiveActor {
 public:
     LavaGeyser(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void startClipped();
-    virtual void updateHitSensor(HitSensor*);
-    virtual void attackSensor(HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void startClipped() override;
+    virtual void updateHitSensor(HitSensor*) override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
 
     void exeWait();
     void exeWaitSwitch();
@@ -20,10 +20,6 @@ public:
 
     s32 mArg0;
     s32 mArg1;
-    TVec3f _94;
-    TVec3f _A0;
-    f32 _AC;
-    f32 _B0;  // one of these may be a different data type
-    f32 _B4;
-    f32 _B8;
+    Vec3f mTopPos;
+    Vec3f mUp;
 };

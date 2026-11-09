@@ -8,12 +8,10 @@ class SoundEmitterCube : public AreaObj {
 public:
     SoundEmitterCube(int formType, const char* pName);
 
-    virtual ~SoundEmitterCube();
-
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void movement();
+    virtual void init(const TableIter& rIter) override;
+    virtual void movement() override;
 
     AudAnmSoundObject* mSoundObj;
-    TVec3f _40;
+    Vec3f mSoundPos;
     const char* mSoundName;
 };

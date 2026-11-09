@@ -1,32 +1,36 @@
 #pragma once
 
-#include <JSystem/JGeometry.hpp>
+#include <nebula_geometry.hpp>
 
 class NameObj;
 
-// Gravity vector calculation flags
-#define GRAVITY_TYPE_NORMAL 1
-#define GRAVITY_TYPE_SHADOW 2
-#define GRAVITY_TYPE_MAGNET 4
-#define GRAVITY_TYPE_MARIO_LAUNCHER 8
+// PlanetGravity::mGravityType bits; a gravity query names the types it takes.
+enum GravityType {
+    GravityType_Normal = 1,
+    GravityType_Shadow = 2,
+    GravityType_Magnet = 4,
+    GravityType_MarioLauncher = 8,
+};
 
-// Gravity power types
-#define GRAVITY_POWER_LIGHT 0
-#define GRAVITY_POWER_NORMAL 1
-#define GRAVITY_POWER_HEAVY 2
+// PlanetGravity::mGravityPower.
+enum GravityPower {
+    GravityPower_Light = 0,
+    GravityPower_Normal = 1,
+    GravityPower_Heavy = 2,
+};
 
 class PlanetGravity {
 public:
     PlanetGravity();
 
-    virtual void updateMtx(const TPos3f& rMtx);
+    virtual void updateMtx(const Pos3f& rMtx);
 
-    virtual bool calcOwnGravityVector(TVec3f* pDest, f32* pScalar, const TVec3f& rPosition) const {
+    virtual bool calcOwnGravityVector(Vec3f* /*pDest*/, f32* /*pScalar*/, const Vec3f& /*rPosition*/) const {
         return false;
     }
 
-    bool calcGravity(TVec3f* pDest, const TVec3f& rPosition) const;
-    bool calcGravityFromMassPosition(TVec3f* pDirection, f32* pScalar, const TVec3f& rPosition, const TVec3f& rMassPosition) const;
+    bool calcGravity(Vec3f* pDest, const Vec3f& rPosition) const;
+    bool calcGravityFromMassPosition(Vec3f* pDirection, f32* pScalar, const Vec3f& rPosition, const Vec3f& rMassPosition) const;
 
     bool isInRangeSquare(f32 radius) const;
     bool isInRangeDistance(f32 radius) const;
@@ -41,8 +45,7 @@ public:
     f32 mRange;
     f32 mDistant;
     s32 mPriority;
-    s32 mGravityId;     // read from the stage files but never used
-    const void* mHost;  // host object pointer, can be any pointer
+    const void* mHost;  // the gravity itself, or the actor it follows
     u32 mGravityType;   // gravity type bits
     s32 mGravityPower;  // gravity power type
     bool mActivated;    // corresponding GlobalGravityObj has switch activated?

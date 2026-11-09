@@ -144,10 +144,74 @@ void motion_context_and_instances() {
     pad.sample.buttons = pad::bit(pad::kEastBit); host.advance(); result = context.sample(frame, host);
     check(!result.input.buttons.a && result.input.buttons.b, "fresh menu press goes back");
 }
+
+// The SDL hosts' inputs: on-screen controls, the device's own sensors, the finger as the mouse, the default R recenter.
+void host_controls_and_device_motion() {
+    auto config = default_controls_config();
+    LiveControlsEngine engine; Host host;
+    LiveControlsFrame frame{config}; frame.window_focused = true;
+    frame.extra.pressed = game_input_bit(GameInput::A); frame.extra.stick_x = 0.5f;
+    auto result = engine.sample(frame, host);
+    check(result.input.buttons.a && result.input.stick_x == nunchuk_stick(0.5f, 0).x, "on-screen controls merge");
+    frame.extra = {};
+    frame.device_shake = true;
+    const tilt::Vec3 up{0.0f, 1.0f, 0.0f};
+    frame.device_up = &up; frame.tilt_section = tilt::Section::StarBall;
+    host.advance(); result = engine.sample(frame, host);
+    check(result.input.shake && result.input.gravity[1] < -0.8f, "device sensors shake and steer without a controller");
+
+    const auto scheme = ControlScheme::SwitchPro;
+    config.tune(scheme).gyro_pointer = true;
+    config.tune(scheme).pointer_hide_seconds = 0;
+    LiveControlsEngine shared; Host finger;
+    LivePad pad; pad.sample.connected = true; pad.sample.scheme = scheme; pad.device_slot = 0; pad.imu_live = true;
+    LiveControlsFrame pads{config}; pads.use_pads = true; pads.window_focused = true; pads.allow_absolute_pointer = true;
+    pads.pads = std::span(&pad, 1);
+    finger.state.polled = true; finger.state.absolute_valid = true; finger.state.inside_client = true;
+    finger.state.raw_motion = true; finger.state.projected = {0.4f, 0.2f, true};
+    result = shared.sample(pads, finger);
+    check(result.pointer_owner == PointerSource::Mouse && result.input.pointer_x == 0.4f, "finger owns the pointer");
+    finger.state.raw_motion = false; finger.state.inside_client = false; finger.state.projected.visible = false;
+    pad.gyro_x = 0.1f;
+    for (int i = 0; i < 20; ++i) { finger.advance(); result = shared.sample(pads, finger); }
+    check(result.pointer_owner == PointerSource::Gyro && result.input.pointer_x > 0.4f,
+          "gyro takes the pointer from where the finger left it");
+    pad.sample.buttons = pad::bit(pad::kRightShoulderBit);
+    finger.advance(); result = shared.sample(pads, finger);
+    check(result.input.pointer_on && near(result.input.pointer_x, 0) && near(result.input.pointer_y, 0),
+          "R recenters by default");
+
+    // A controller held while the mouse aims: its hand tremor (about 10 degrees a second) never takes the pointer.
+    LiveControlsEngine aim; Host mouse;
+    pad.sample.buttons = 0;
+    pad.gyro_x = 0.5f * 0.016667f;
+    mouse.state = finger.state;
+    mouse.state.raw_motion = true; mouse.state.inside_client = true; mouse.state.projected = {-0.3f, 0.1f, true};
+    result = aim.sample(pads, mouse);
+    mouse.state.raw_motion = false;
+    for (int i = 0; i < 60; ++i) { mouse.advance(); result = aim.sample(pads, mouse); }
+    check(result.pointer_owner == PointerSource::Mouse && result.input.pointer_x == -0.3f,
+          "a resting mouse keeps the pointer from a hand-held gyro");
+
+    // Turned half a picture past the top and back, the pointer comes back where it was: the hand and the pointer stay
+    // together.
+    LiveControlsEngine turn; Host clock;
+    pad.gyro_x = 0.0f;
+    pad.gyro_y = 0.0f;
+    (void)turn.sample(pads, clock);
+    pad.gyro_y = 0.1f;
+    for (int i = 0; i < 15; ++i) { clock.advance(); result = turn.sample(pads, clock); }
+    check(!result.input.pointer_on, "pointed past the top the pointer hides");
+    pad.gyro_y = -0.1f;
+    for (int i = 0; i < 15; ++i) { clock.advance(); result = turn.sample(pads, clock); }
+    check(result.input.pointer_on && std::fabs(result.input.pointer_y) < 0.001f,
+          "turned back, the pointer is where the controller points");
+}
 }
 int main() {
     try {
-        families_and_keyboard(); mouse_samples(); motion_context_and_instances();
-        std::cout << "live controls families, mouse, motion, context and independent state passed\n"; return 0;
+        families_and_keyboard(); mouse_samples(); motion_context_and_instances(); host_controls_and_device_motion();
+        std::cout << "live controls families, mouse, motion, context, host controls and independent state passed\n";
+        return 0;
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

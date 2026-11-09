@@ -1,18 +1,19 @@
 #include "Game/MapObj/TypicalDoor.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/MapObjActorInitInfo.hpp"
 #include "Game/MapObj/StageEffectDataTable.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/DemoUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ModelUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 
 namespace {
-    static const s32 sCollisionChangeTimeOpen = 30;
+    static const s32 sCollisionChangeTimeOpen = NebulaFrameClock::stepsOfMilliseconds(500);
 };  // namespace
 
 namespace NrvTypicalDoor {
@@ -24,7 +25,7 @@ namespace NrvTypicalDoor {
 TypicalDoor::TypicalDoor(const char* pName) : MapObjActor(pName), mCloseCollision(), mOpenCollision() {
 }
 
-void TypicalDoor::init(const JMapInfoIter& rIter) {
+void TypicalDoor::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
     MapObjActorInitInfo info;
     info.setupDefaultPos();
@@ -40,24 +41,24 @@ void TypicalDoor::init(const JMapInfoIter& rIter) {
     }
 
     if (MR::isExistCollisionResource(this, "Close")) {
-        mCloseCollision = MR::createCollisionPartsFromLiveActor(this, "Close", getSensor("body"), MR::CollisionScaleType_Unk2);
+        mCloseCollision = MR::createCollisionPartsFromLiveActor(this, "Close", getSensor("body"), MR::CollisionScaleType_Default);
         MR::invalidateCollisionParts(mCloseCollision);
     }
 
     if (MR::isExistCollisionResource(this, "Open")) {
-        mOpenCollision = MR::createCollisionPartsFromLiveActor(this, "Open", getSensor("body"), MR::CollisionScaleType_Unk2);
+        mOpenCollision = MR::createCollisionPartsFromLiveActor(this, "Open", getSensor("body"), MR::CollisionScaleType_Default);
         MR::invalidateCollisionParts(mOpenCollision);
     }
 
-    if (MR::isDemoPartExist(this, "\224\340\212\112\202\255" /* 扉開く */)) {
-        MR::registerDemoActionNerve(this, GET_NERVE(TypicalDoor, HostTypeOpen), "\224\340\212\112\202\255" /* 扉開く */);
+    if (MR::isDemoPartExist(this, "扉開く")) {
+        MR::registerDemoActionNerve(this, GET_NERVE(TypicalDoor, HostTypeOpen), "扉開く");
         setNerve(GET_NERVE(TypicalDoor, HostTypeCloseForDemo));
     }
 
     makeActorAppeared();
 }
 
-void TypicalDoor::initCaseUseSwitchB(const MapObjActorInitInfo& rInfo) {
+void TypicalDoor::initCaseUseSwitchB(const MapObjActorInitInfo& /*rInfo*/) {
     MR::listenStageSwitchOnB(this, MR::Functor(this, &TypicalDoor::open));
 }
 
@@ -117,32 +118,29 @@ void TypicalDoor::exeOpen() {
     }
 }
 
-void TypicalDoorOpen::init(const JMapInfoIter& rIter) {
+void TypicalDoorOpen::init(const TableIter& rIter) {
     TypicalDoor::init(rIter);
     open();
 }
 
-void TypicalDoorOpen::initCaseUseSwitchB(const MapObjActorInitInfo& rInfo) {
+void TypicalDoorOpen::initCaseUseSwitchB(const MapObjActorInitInfo& /*rInfo*/) {
     MR::listenStageSwitchOnB(this, MR::Functor< TypicalDoor >(this, &TypicalDoor::close));
 }
 
-DarknessRoomDoor::DarknessRoomDoor(const char* pName) : TypicalDoor(pName), _CC() {
+DarknessRoomDoor::DarknessRoomDoor(const char* pName) : TypicalDoor(pName), mIsNormalDraw() {
 }
 
-TypicalDoor::~TypicalDoor() {
-}
-
-void DarknessRoomDoor::init(const JMapInfoIter& rIter) {
-    s32 arg0 = -1;
-    MR::getJMapInfoArg0NoInit(rIter, &arg0);
-    _CC = arg0 != -1;
+void DarknessRoomDoor::init(const TableIter& rIter) {
+    s32 normalDraw = -1;
+    MR::getPlacementArg0NoInit(rIter, &normalDraw);
+    mIsNormalDraw = normalDraw != -1;
     TypicalDoor::init(rIter);
     MR::useStageSwitchReadA(this, rIter);
 }
 
 void DarknessRoomDoor::control() {
     MapObjActor::control();
-    if (!_CC && MR::isValidSwitchA(this)) {
+    if (!mIsNormalDraw && MR::isValidSwitchA(this)) {
         if (MR::isOnSwitchA(this)) {
             validateCollision();
         } else {
@@ -152,7 +150,7 @@ void DarknessRoomDoor::control() {
 }
 
 void DarknessRoomDoor::connectToScene(const MapObjActorInitInfo& rIter) {
-    if (_CC) {
+    if (mIsNormalDraw) {
         MapObjActor::connectToScene(rIter);
     } else {
         MR::connectToClippedMapParts(this);

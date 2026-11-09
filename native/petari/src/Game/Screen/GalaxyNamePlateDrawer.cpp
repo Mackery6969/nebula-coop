@@ -4,7 +4,7 @@
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/Screen/LayoutActor.hpp"
-#include "Game/Util/JMapInfo.hpp"
+#include "Game/Util/Table.hpp"
 #include "Game/Util/MemoryUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include <algorithm>
@@ -17,28 +17,31 @@ namespace {
     };
 };  // namespace
 
-GalaxyNamePlateDrawer::GalaxyNamePlateDrawer() : NameObj("\203\115\203\203\203\211\203\116\203\126\201\133\226\274\203\166\203\214\201\133\203\147\225\140\211\346" /* ギャラクシー名プレート描画 */) {
-    MR::zeroMemory(&mPlateArray, sizeof(mPlateArray.mArray));
+GalaxyNamePlateDrawer::GalaxyNamePlateDrawer() : NameObj("ギャラクシー名プレート描画") {
 }
 
-void GalaxyNamePlateDrawer::init(const JMapInfoIter&) {
+void GalaxyNamePlateDrawer::init(const TableIter&) {
     MR::connectToScene(this, -1, -1, -1, MR::DrawType_GalaxyNamePlate);
 }
 
 void GalaxyNamePlateDrawer::draw() const {
-    const GalaxyNamePlatePrioritied* sortArray[16];
-    MR::copyMemory(sortArray, &mPlateArray[0], mPlateArray.size() * sizeof(GalaxyNamePlatePrioritied*));
-    MR::sort(sortArray, sortArray + mPlateArray.size(), ::PlatePriorityLt());
+    mDrawOrder.clear();
+    for (s32 i = 0; i < mPlateArray.size(); i++) {
+        mDrawOrder.push_back(mPlateArray[i]);
+    }
+    if (mDrawOrder.size() == 0) {
+        return;
+    }
+    MR::sort(&mDrawOrder[0], &mDrawOrder[0] + mDrawOrder.size(), ::PlatePriorityLt());
 
-    for(int i = 0; i < mPlateArray.size(); i++) {
-        sortArray[i]->mHostActor->draw();
+    for (s32 i = 0; i < mDrawOrder.size(); i++) {
+        mDrawOrder[i]->mHostActor->draw();
     }
 }
 
 GalaxyNamePlatePrioritied* GalaxyNamePlateDrawer::registerPlate(const LayoutActor* pPlate) {
     GalaxyNamePlatePrioritied* newEntry = new GalaxyNamePlatePrioritied(pPlate);
-    mPlateArray.mArray[mPlateArray.mCount] = newEntry;
-    mPlateArray.mCount++;
+    mPlateArray.push_back(newEntry);
     return newEntry;
 }
 

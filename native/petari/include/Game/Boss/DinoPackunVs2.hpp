@@ -11,13 +11,12 @@ class DinoPackunVs2 : public DinoPackunSequencer {
 public:
     DinoPackunVs2(DinoPackun*);
 
-    virtual ~DinoPackunVs2();
-    virtual void start();
-    virtual void init();
-    virtual bool isUseEggShell() const {
+    virtual void start() override;
+    virtual void init() override;
+    virtual bool isUseEggShell() const override {
         return true;
     };
-    virtual s32 getVsCount() const {
+    virtual s32 getVsCount() const override {
         return 2;
     };
 

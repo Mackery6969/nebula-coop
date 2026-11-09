@@ -1,4 +1,5 @@
 #include "Game/Enemy/TakoHeiInk.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util.hpp"
 
@@ -7,7 +8,7 @@ namespace {
     static const f32 sNormalFric = 0.99f;
     static const f32 sGravityAccel = 0.8f;
     static const s32 sBindOnTime = 10;
-    static const s32 sForceBreakTime = 240;
+    static const s32 sForceBreakTime = NebulaFrameClock::stepsOfSeconds(4);
 };  // namespace
 
 namespace NrvTakoHeiInk {
@@ -17,16 +18,16 @@ namespace NrvTakoHeiInk {
 TakoHeiInk::TakoHeiInk(const char* pName) : LiveActor(pName) {
 }
 
-void TakoHeiInk::init(const JMapInfoIter& rIter) {
+void TakoHeiInk::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("TakoHeiInk", nullptr, false);
     MR::connectToSceneEnemy(this);
     MR::onCalcGravity(this);
     initHitSensor(1);
 
-    MR::addHitSensorEnemy(this, "Body", 8, ::sModelSize, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorEnemy(this, "Body", 8, ::sModelSize, Vec3f(0.0f, 0.0f, 0.0f));
     initBinder(::sModelSize, 0.0f, 0);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initSound(1, false);
     MR::initShadowVolumeSphere(this, ::sModelSize);
     initNerve(GET_NERVE(TakoHeiInk, TakoHeiInkNrvWait));
@@ -42,7 +43,7 @@ void TakoHeiInk::kill() {
 void TakoHeiInk::control() {
 }
 
-void TakoHeiInk::start(const TVec3f& startPos, const TVec3f& startVelocity, bool startOffBind) {
+void TakoHeiInk::start(const Vec3f& startPos, const Vec3f& startVelocity, bool startOffBind) {
     mPosition.set(startPos);
     setNerve(GET_NERVE(TakoHeiInk, TakoHeiInkNrvWait));
     appear();
