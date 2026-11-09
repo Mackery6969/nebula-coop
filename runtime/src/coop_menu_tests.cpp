@@ -125,7 +125,7 @@ void test_menu(const fs::path& scratch) {
     host.press(0u);
     expect(host.take_command() == MenuCommand::None, "Host opens its page, nothing to play yet");
     view = host.view();
-    expect(view.pages[0] == "HOST" && view.rows.size() == 13u && view.selected == 0u, "the Host page, Save selected");
+    expect(view.pages[0] == "HOST" && view.rows.size() == 14u && view.selected == 0u, "the Host page, Save selected");
     expect(view.rows[0].value == "ONE" && view.rows[0].changes && view.rows[0].name, "the last played save first");
     host.change(1);
     expect(host.view().rows[0].value == "TWO", "right: the next save");
@@ -156,7 +156,7 @@ void test_menu(const fs::path& scratch) {
     host.press(0u);
     view = host.view();
     expect(view.editing && view.selected == 0u && view.rows[0].value == "ONE_", "Rename edits the save's name");
-    host.select_row(5u);
+    host.select_row(6u);
     expect(host.view().selected == 0u, "the row being edited keeps the selection");
     host.type(galaxy::coop::kTextBackspace);
     host.type(U'!');
@@ -180,12 +180,21 @@ void test_menu(const fs::path& scratch) {
     host.back();
     expect(!host.view().editing && store.find(first)->name == "ONA", "B drops the edit");
 
-    // The port and password.
+    // The network: NebulaNet (a room code) unless the host picks Direct.
     host.select_row(2u);
+    expect(host.view().rows[2].label == "NETWORK" && host.view().rows[2].value == "NEBULANET" && host.room().nebulanet,
+           "NebulaNet by default");
+    host.change(1);
+    expect(host.view().rows[2].value == "DIRECT" && !host.room().nebulanet, "right: Direct");
+    host.reset();
+    expect(host.room().nebulanet, "Tab: NebulaNet again");
+
+    // The port and password.
+    host.select_row(3u);
     host.press(0u);
     host.type(U'x');
     host.type(U'1');
-    expect(host.view().rows[2].value == "77771_", "a port takes digits");
+    expect(host.view().rows[3].value == "77771_", "a port takes digits");
     host.type(galaxy::coop::kTextEnter);
     expect(host.view().editing && host.room().port == 7777u, "a port past 65535 isn't kept");
     host.type(galaxy::coop::kTextBackspace);
@@ -195,8 +204,8 @@ void test_menu(const fs::path& scratch) {
     expect(!host.view().editing && host.room().port == 7778u, "Enter keeps the port");
     host.reset();
     expect(host.room().port == galaxy::kCoopDefaultPort, "Tab puts it back to 7777");
-    host.select_row(3u);
-    expect(host.view().rows[3].value == "NONE", "no password");
+    host.select_row(4u);
+    expect(host.view().rows[4].value == "NONE", "no password");
     host.press(0u);
     host.type(U'p');
     host.type(U'w');
@@ -206,16 +215,16 @@ void test_menu(const fs::path& scratch) {
     host.type(U'p');
     host.type(U'w');
     host.press(0u);
-    expect(host.room().password == "pw" && host.view().rows[3].value == "**", "kept, and hidden");
+    expect(host.room().password == "pw" && host.view().rows[4].value == "**", "kept, and hidden");
 
     const galaxy::RuntimeCoopSettings before = host.room();
-    host.select_row(4u);
+    host.select_row(5u);
     host.change(1);
-    host.select_row(9u);
+    host.select_row(10u);
     host.change(1);
     const galaxy::RuntimeCoopSettings after = host.room();
     expect(after.max_players == before.max_players + 1u && after.cheats, "the room's settings change");
-    host.select_row(6u);
+    host.select_row(7u);
     host.change(1);
     host.change(1);
     expect(host.room().knockback_strength == galaxy::kCoopKnockbackTooMuch,
@@ -225,30 +234,30 @@ void test_menu(const fs::path& scratch) {
     host.reset();
     expect(host.room().knockback_strength == galaxy::kCoopKnockbackNormal, "Tab resets the selected setting");
     expect(host.room().cheats, "and only it");
-    host.select_row(9u);
+    host.select_row(10u);
     host.reset();
     expect(!host.room().cheats, "cheats reset to off");
-    host.select_row(8u);
-    expect(host.view().rows[8].label == "BUBBLE ON DEATH" && host.view().rows[8].value == "ON", "bubbles on by default");
+    host.select_row(9u);
+    expect(host.view().rows[9].label == "BUBBLE ON DEATH" && host.view().rows[9].value == "ON", "bubbles on by default");
     host.change(-1);
-    expect(!host.room().bubble_death && host.view().rows[8].value == "OFF", "left turns bubble on death off");
+    expect(!host.room().bubble_death && host.view().rows[9].value == "OFF", "left turns bubble on death off");
     host.reset();
     expect(host.room().bubble_death, "and back on, its default");
     host.select_row(0u);
     host.reset();
     expect(host.view().rows[0].value == "ONA", "the save has no default");
 
-    host.select_row(11u);
+    host.select_row(12u);
     host.press(0u);
     expect(host.take_command() == MenuCommand::Play && host.chosen_save() == first, "Host plays the picked save");
 
-    host.select_row(12u);
+    host.select_row(13u);
     host.press(0u);
     expect(host.view().pages[0] == "PLAY" && host.view().selected == 0u, "Back returns to the main page, on Host");
     host.press(0u);
     host.select_row(0u);
     host.change(1);
-    host.select_row(11u);
+    host.select_row(12u);
     host.press(0u);
     expect(host.take_command() == MenuCommand::Play && host.chosen_save().empty(), "Host on New save: a new one");
     host.back();
@@ -368,8 +377,8 @@ void test_mods() {
     });
     menu.open();
     menu.press(0u);
-    expect(menu.view().rows[10].value == "2 ON" && !menu.mods_changed(), "the Host page counts the mods on");
-    menu.select_row(10u);
+    expect(menu.view().rows[11].value == "2 ON" && !menu.mods_changed(), "the Host page counts the mods on");
+    menu.select_row(11u);
     menu.press(0u);
     galaxy::coop::MenuView view = menu.view();
     expect(view.pages[0] == "MODS" && view.rows.size() == 6u && view.rows[0].label == "Textures" &&
@@ -390,7 +399,7 @@ void test_mods() {
     expect(menu.mods_changed() && menu.room_mods()[1].id == "Alpha" && !menu.room_mods()[1].on,
            "Tab turns a mod off");
     menu.back();
-    expect(menu.view().pages[0] == "HOST" && menu.view().selected == 10u && menu.view().rows[10].value == "1 ON",
+    expect(menu.view().pages[0] == "HOST" && menu.view().selected == 11u && menu.view().rows[11].value == "1 ON",
            "B: back to the Host page, its mods kept");
     menu.press(0u);
     view = menu.view();
@@ -405,7 +414,7 @@ void test_mods() {
     menu.change(1);
     expect(menu.room().star_counter, "left and right turn it over");
     menu.back();
-    expect(menu.view().rows[10].value == "2 ON", "the Host page counts it with the mods on");
+    expect(menu.view().rows[11].value == "2 ON", "the Host page counts it with the mods on");
     menu.press(0u);
     menu.select_row(4u);
     menu.reset();
@@ -417,7 +426,7 @@ void test_mods() {
     MainMenu none(true);
     none.open();
     none.press(0u);
-    none.select_row(10u);
+    none.select_row(11u);
     none.press(0u);
     expect(none.view().rows.size() == 3u && none.view().rows[0].label == "NO MODS YET" &&
                none.view().rows[1].label == "PERSONAL STAR COUNTER",
