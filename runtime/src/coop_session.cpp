@@ -196,6 +196,11 @@ struct Session::State {
     Nat nat = Nat::None;
     std::string room_code;
     std::size_t listed_players = 0u;
+    // A joiner's join by code, until it's told NebulaNet how it went (CoopNet's PEER_FAILED): the code, the server and
+    // this player's addresses.
+    std::string report_code;
+    std::string report_server;
+    std::vector<std::string> report_candidates;
     // The name this player asked for (cleaned), which the room may have numbered: set_name only acts when it changes.
     std::string wanted_name;
 
@@ -233,8 +238,19 @@ struct Session::State {
         return transport->send_to(to, channel, out.bytes());
     }
 
+    // Tells NebulaNet how a join by code went, once: the host reached (ok), or not.
+    void report_join(bool ok) {
+        if (report_code.empty()) return;
+        NebulaNetLink::report(the_web(), std::move(report_server), std::move(report_code), ok,
+                              ok ? std::vector<std::string>{} : std::move(report_candidates));
+        report_code.clear();
+        report_server.clear();
+        report_candidates.clear();
+    }
+
     // The room ends for this player: back to idle, `kind` with `why`.
     void end(SessionEvent::Kind kind, std::string why) {
+        report_code.clear();
         nebulanet.reset();
         nat = Nat::None;
         room_code.clear();
@@ -787,6 +803,7 @@ struct Session::State {
         if (error == net::NetError::PeerFailed && state == SessionState::Joined) why = "the host stopped answering";
         for (char& c : why) c = static_cast<char>(c >= 'a' && c <= 'z' ? c - 'a' + 'A' : c);
         if (state == SessionState::Connecting) {
+            report_join(false);
             end(SessionEvent::Kind::JoinFailed, std::move(why));
         } else if (state != SessionState::Idle) {
             end(SessionEvent::Kind::Closed, std::move(why));
@@ -830,8 +847,13 @@ struct Session::State {
         case Nat::HostDiscovering: {
             if (transport->discovering()) return;
             NebulaNetRoom listing;
-            listing.name = clean_name(host_config.name);
+            // The Host page's ROOM NAME, or the host's own name (CoopNet's lobbies go by their host's).
+            listing.name = clean_name(room.room_name.empty() ? host_config.name : room.room_name);
             listing.version = host_config.game_version;
+            listing.mode = room.player_interaction == CoopPlayerInteraction::FriendlyFire ? "PVP" : "CO-OP";
+            listing.description = host_config.mods.empty() ? std::string() : "MODS: " + mods_text(host_config.mods);
+            if (listing.description.size() > 256u) listing.description = listing.description.substr(0u, 253u) + "...";
+            listing.password = room.password;
             listing.players = static_cast<unsigned>(players.size());
             listing.max = room.max_players;
             listing.candidates = own_candidates();
@@ -859,6 +881,7 @@ struct Session::State {
                 } else if (news.kind == NebulaNetEvent::Kind::Failed) {
                     event(SessionEvent::Kind::NebulaNetLost, {}, news.text);
                 }
+                // JoinerFailed: a joiner couldn't get through; its own game says so, and the host keeps going.
             }
             if (players.size() != listed_players) {
                 listed_players = players.size();
@@ -872,7 +895,8 @@ struct Session::State {
                 end(SessionEvent::Kind::JoinFailed, "NO NETWORK TO REACH NEBULANET");
                 return;
             }
-            nebulanet->join(join_config.nebulanet, join_config.code, std::move(candidates));
+            report_candidates = candidates;
+            nebulanet->join(join_config.nebulanet, join_config.code, std::move(candidates), join_config.password);
             nat = Nat::JoinAsking;
             return;
         }
@@ -883,6 +907,11 @@ struct Session::State {
                     return;
                 }
                 if (news.kind != NebulaNetEvent::Kind::Answer) continue;
+                // Another version is refused by the host anyway: no need to punch through for that.
+                if (!news.room.version.empty() && news.room.version != join_config.game_version) {
+                    end(SessionEvent::Kind::JoinFailed, "THE ROOM PLAYS ANOTHER VERSION OF NEBULA");
+                    return;
+                }
                 // The host's addresses, all tried at once; the host punches toward this player meanwhile.
                 net::JoinConfig lobby;
                 for (const std::string& text : news.room.candidates) {
@@ -897,6 +926,8 @@ struct Session::State {
                 }
                 lobby.password = join_config.password;
                 lobby.timeout = kNatJoinTimeout;
+                report_code = join_config.code;
+                report_server = join_config.nebulanet;
                 nebulanet.reset();
                 nat = Nat::None;
                 join_started = Clock::now();
@@ -953,6 +984,7 @@ Session::Session(std::unique_ptr<net::Transport> transport) : state_(std::make_u
             return;
         }
         s->wanted_name = clean_name(s->join_config.name);
+        s->report_join(true);
         ByteWriter body;
         body.u16(kSessionProtocol)
             .str(s->join_config.game_version)
