@@ -821,7 +821,7 @@ runtime/src/render/host_window_win32.cpp
     endif()
 
     add_executable(NebulaNativeVk native/host/host_main.cpp runtime/src/frame_phase.cpp)
-    nebula_file_details(NebulaNativeVk NebulaNative.exe "Super Mario Galaxy on PC" ICON "${CMAKE_CURRENT_SOURCE_DIR}/installer/assets/nebula.ico" DPI_MANIFEST)
+    nebula_file_details(NebulaNativeVk NebulaNativeVk.exe "Super Mario Galaxy on PC" ICON "${CMAKE_CURRENT_SOURCE_DIR}/installer/assets/nebula.ico" DPI_MANIFEST)
     target_sources(NebulaNativeVk PRIVATE ${galaxy_programs_spirv})
     target_include_directories(NebulaNativeVk PRIVATE native/include runtime/include "${CMAKE_BINARY_DIR}/generated")
     target_compile_definitions(NebulaNativeVk PRIVATE NEBULA_HOST_RENDERER=1 _CRT_SECURE_NO_WARNINGS)

@@ -13,7 +13,10 @@ function(nebula_file_details target file description)
         return()
     endif()
     cmake_parse_arguments(arg "DPI_MANIFEST" "ICON" "" ${ARGN})
+    # OriginalFilename and InternalName name the file as shipped: a program whose details name another file reads, to
+    # antivirus heuristics, like a renamed one.
     set(NEBULA_RC_FILE "${file}")
+    get_filename_component(NEBULA_RC_INTERNAL "${file}" NAME_WE)
     set(NEBULA_RC_DESCRIPTION "${description}")
     set(NEBULA_RC_ICON "")
     if(arg_ICON)
