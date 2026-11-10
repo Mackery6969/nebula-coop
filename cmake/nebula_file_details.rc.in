@@ -10,6 +10,7 @@ BEGIN
       VALUE "CompanyName", "keepvaibin"
       VALUE "FileDescription", "@NEBULA_RC_DESCRIPTION@"
       VALUE "FileVersion", "@NEBULA_RC_MAJOR@.@NEBULA_RC_MINOR@.@NEBULA_RC_PATCH@"
+      VALUE "InternalName", "@NEBULA_RC_INTERNAL@"
       VALUE "LegalCopyright", "Copyright 2026 keepvaibin"
       VALUE "OriginalFilename", "@NEBULA_RC_FILE@"
       VALUE "ProductName", "Nebula"

@@ -60,6 +60,23 @@ On Windows up to four games run at once. The first plays as always; each one sta
 so the two don't cover each other), and later starts keep what it has; delete the folder to copy again. All of them
 share the shader cache and the installed mods. The keyboard and Xbox controllers only reach the focused window.
 
+### Windows Defender
+
+Test builds aren't code-signed, and every build is a new file Microsoft has never seen, so Defender's machine-learning
+checks sometimes flag `NebulaNative.exe` or `NebulaNativeVk.exe` (names ending in `!ml`, such as
+`Program:Win32/Contebrew.A!ml`). To report one:
+
+1. Open <https://www.microsoft.com/en-us/wdsi/filesubmission>, choose **Home customer**, and upload the flagged `.exe`
+   from the extracted folder (not the archive).
+2. Pick **Incorrectly detected as malware/malicious**, give the detection name from **Protection history**, and say
+   it's an open-source game built by GitHub Actions in this repository.
+3. When Microsoft replies that the file is clean, update Defender (`MpCmdRun.exe -RemoveDefinitions -DynamicSignatures`
+   then `MpCmdRun.exe -SignatureUpdate`, from `%ProgramFiles%\Windows Defender`, as administrator) and restore the file
+   from **Protection history**.
+
+Until then, **Protection history** > the detection > **Actions** > **Allow** allows that one detection only. Don't turn
+off real-time protection or exclude the whole folder.
+
 ## Android
 
 Install `Nebula.apk` (allow installs from unknown sources), open it, and pick your disc image in its setup. A test
