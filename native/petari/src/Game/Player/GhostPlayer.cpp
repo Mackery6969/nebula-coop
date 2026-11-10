@@ -12,6 +12,7 @@
 #include "Game/Player/GhostPacket.hpp"
 #include "Game/Player/J3DModelX.hpp"
 #include "Game/Player/JetTurtleShadow.hpp"
+#include "Game/Player/NebulaRemotePlayer.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Util/ActorCameraUtil.hpp"
 #include "Game/Util/ActorMovementUtil.hpp"
@@ -222,6 +223,12 @@ void GhostPlayer::appear() {
 }
 
 void GhostPlayer::control() {
+    // Online co-op: from the cosmic racer's entrance until one of you takes the star, the other players are
+    // see-through and don't touch this one (docs/COOP_PLAN.md "Races and timers").
+    if (!MR::isDead(this) && !isNerve(GET_NERVE(GhostPlayer, HostTypeNrvWait)) &&
+        !isNerve(GET_NERVE(GhostPlayer, HostTypeNrvWinDemo)) && !isNerve(GET_NERVE(GhostPlayer, HostTypeNrvLostDemo))) {
+        NebulaRemotePlayer::noteLocalRacing();
+    }
     if (mWaitingToStart) {
         return;
     }

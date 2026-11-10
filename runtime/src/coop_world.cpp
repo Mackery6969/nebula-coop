@@ -23,6 +23,12 @@ constexpr std::size_t kSavePerMessage = 1024u;
 // What the game hasn't taken yet is kept up to this many.
 constexpr std::size_t kMaxPending = 32768u;
 
+// The host's clock, for owners' silences and mission clocks.
+std::uint64_t steady_ms() {
+    return static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+}
+
 // A name the game can look up: no terminator inside, not empty, short.
 bool plain_name(const std::string& name) {
     return !name.empty() && name.size() <= kSaveNameLimit && name.find('\0') == std::string::npos;
@@ -271,10 +277,16 @@ void queue_switches(std::vector<Outgoing>& out, PeerId to, std::uint16_t epoch, 
     }
 }
 
+void queue_clock(std::vector<Outgoing>& out, PeerId to, std::uint16_t epoch, std::uint32_t elapsed_ms) {
+    ByteWriter body;
+    body.u16(epoch).u32(elapsed_ms);
+    out.push_back({kWorldClockMessage, to, body.take()});
+}
+
 // A host's record of an instance, for one of its players: what is gone in messages of kGonePerMessage, then its
-// switches, each with the player's scene (its epoch), then the end.
+// switches and its mission clock, each with the player's scene (its epoch), then the end.
 void queue_record(std::vector<Outgoing>& out, PeerId to, std::uint16_t epoch, std::span<const Gone> gone,
-                  std::span<const SwitchChange> switches) {
+                  std::span<const SwitchChange> switches, std::optional<std::uint32_t> clock_ms) {
     for (std::size_t at = 0; at < gone.size(); at += kGonePerMessage) {
         ByteWriter body;
         body.u16(epoch);
@@ -282,6 +294,7 @@ void queue_record(std::vector<Outgoing>& out, PeerId to, std::uint16_t epoch, st
         out.push_back({kWorldGoneMessage, to, body.take()});
     }
     if (!switches.empty()) queue_switches(out, to, epoch, switches);
+    if (clock_ms) queue_clock(out, to, epoch, *clock_ms);
     ByteWriter ready;
     ready.u16(epoch);
     out.push_back({kWorldReadyMessage, to, ready.take()});
@@ -375,6 +388,7 @@ std::vector<Gone> WorldAuthority::enter(Player player, const Instance& instance)
         record.gone.clear();
         record.owners.clear();
         record.switches.clear();
+        record.clock_ms.reset();
     }
     record.players.insert(player);
     where_[player] = instance;
@@ -500,6 +514,34 @@ std::vector<SwitchChange> WorldAuthority::switches_of(const Instance& instance) 
     return switches;
 }
 
+WorldAuthority::Clocked WorldAuthority::clock(Player player, std::uint32_t elapsed_ms, std::uint64_t now_ms) {
+    Clocked clocked;
+    Record* playing_in = playing(player);
+    if (playing_in == nullptr) return clocked;
+    Record& record = *playing_in;
+    if (!record.clock_ms) {
+        // The first to start: the instance's, and the others there are told how long it ran.
+        record.clock_ms = now_ms > elapsed_ms ? now_ms - elapsed_ms : 0u;
+        clocked.elapsed_ms = elapsed_ms;
+        for (const Player other : record.players) {
+            if (other != player && record.missed.count(other) == 0u) clocked.tell.push_back(other);
+        }
+        return clocked;
+    }
+    // Started already: the player counts from the instance's (it is told only if its own began later).
+    const std::uint64_t ran = now_ms > *record.clock_ms ? now_ms - *record.clock_ms : 0u;
+    clocked.elapsed_ms = static_cast<std::uint32_t>(std::min<std::uint64_t>(ran, 0xFFFFFFFFull));
+    if (clocked.elapsed_ms > elapsed_ms) clocked.tell.push_back(player);
+    return clocked;
+}
+
+std::optional<std::uint32_t> WorldAuthority::clock_of(const Instance& instance, std::uint64_t now_ms) const {
+    const auto it = instances_.find(instance);
+    if (it == instances_.end() || !it->second.clock_ms) return std::nullopt;
+    const std::uint64_t started = *it->second.clock_ms;
+    return static_cast<std::uint32_t>(std::min<std::uint64_t>(now_ms > started ? now_ms - started : 0u, 0xFFFFFFFFull));
+}
+
 bool WorldAuthority::save(const SaveChange& change, bool from_host) {
     if (!valid_change(change)) return false;
     // The bank's changes aren't kept (World::host_save gives a joiner's to the host's game).
@@ -553,7 +595,8 @@ void World::attach(Session& session) {
             if (!active_ || !host_) return;
             const std::vector<Gone> gone = authority_.enter(from.id, *instance);
             epochs_[from.id] = epoch;
-            queue_record(out, from.id, epoch, gone, authority_.switches_of(*instance));
+            queue_record(out, from.id, epoch, gone, authority_.switches_of(*instance),
+                         authority_.clock_of(*instance, steady_ms()));
         }
         flush(session_, out);
     });
@@ -684,6 +727,27 @@ void World::attach(Session& session) {
         }
         flush(session_, out);
     });
+    // Mission clocks: a joiner's started (host), or how long the instance's ran (joiner).
+    session.on_message(kWorldClockMessage, [this](const SessionPlayer& from, std::span<const std::uint8_t> data) {
+        ByteReader in(data);
+        const std::uint16_t epoch = in.u16();
+        const std::uint32_t elapsed_ms = in.u32();
+        if (!in.ok()) return;
+        std::vector<Outgoing> out;
+        {
+            const std::lock_guard<std::recursive_mutex> lock(lock_);
+            if (!active_) return;
+            if (!host_) {
+                if (!from.host || epoch != epoch_) return;
+                push({WorldEvent::Kind::Clock, {}, {}, {}, {}, {}, elapsed_ms});
+                return;
+            }
+            const auto it = epochs_.find(from.id);
+            if (it == epochs_.end() || it->second != epoch) return;
+            host_clock(from.id, elapsed_ms, out);
+        }
+        flush(session_, out);
+    });
     // A joiner missed: it doesn't keep the instance its scene (the epoch) was in going, until it enters again.
     session.on_message(kWorldMissMessage, [this](const SessionPlayer& from, std::span<const std::uint8_t> data) {
         ByteReader in(data);
@@ -795,6 +859,9 @@ void World::enter(const Instance& instance) {
             for (const Gone& thing : authority_.enter(self, instance)) push({WorldEvent::Kind::Gone, thing, {}});
             for (const SwitchChange& change : authority_.switches_of(instance)) {
                 push({WorldEvent::Kind::Switch, {}, {}, {}, {}, change});
+            }
+            if (const std::optional<std::uint32_t> clock = authority_.clock_of(instance, steady_ms())) {
+                push({WorldEvent::Kind::Clock, {}, {}, {}, {}, {}, *clock});
             }
             push({WorldEvent::Kind::Ready, {}, {}});
         } else {
@@ -953,6 +1020,22 @@ void World::report_switch(const SwitchChange& change) {
     flush(session_, out);
 }
 
+void World::report_clock(std::uint32_t elapsed_ms) {
+    const PeerId self = self_peer();
+    const PeerId host = host_peer();
+    std::vector<Outgoing> out;
+    {
+        const std::lock_guard<std::recursive_mutex> lock(lock_);
+        if (!active_ || !entered_) return;
+        if (host_) {
+            host_clock(self, elapsed_ms, out);
+        } else {
+            queue_clock(out, host, epoch_, elapsed_ms);
+        }
+    }
+    flush(session_, out);
+}
+
 std::vector<ObjectState> World::take_states() {
     const std::lock_guard<std::recursive_mutex> lock(lock_);
     state_index_.clear();
@@ -1069,10 +1152,7 @@ void World::host_save(PeerId from, const SaveChange& change) {
 
 // The world's lock held, the host's: the states the host lets `from` move, to the others in its instance.
 void World::host_states(PeerId from, unsigned number, std::span<const ObjectState> states, std::vector<Outgoing>& out) {
-    const auto now_ms = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
-                                                       std::chrono::steady_clock::now().time_since_epoch())
-                                                       .count());
-    const WorldAuthority::Claimed claimed = authority_.claim(from, states, now_ms);
+    const WorldAuthority::Claimed claimed = authority_.claim(from, states, steady_ms());
     if (claimed.states.empty()) return;
     const PeerId self = self_peer();
     for (const PeerId to : claimed.tell) {
@@ -1117,6 +1197,20 @@ void World::host_switches(PeerId from, std::span<const SwitchChange> switches, s
         const auto it = epochs_.find(to);
         if (it == epochs_.end()) continue;
         queue_switches(out, to, it->second, switched.news);
+    }
+}
+
+void World::host_clock(PeerId from, std::uint32_t elapsed_ms, std::vector<Outgoing>& out) {
+    const WorldAuthority::Clocked clocked = authority_.clock(from, elapsed_ms, steady_ms());
+    const PeerId self = self_peer();
+    for (const PeerId to : clocked.tell) {
+        if (to == self) {
+            push({WorldEvent::Kind::Clock, {}, {}, {}, {}, {}, clocked.elapsed_ms});
+            continue;
+        }
+        const auto it = epochs_.find(to);
+        if (it == epochs_.end()) continue;
+        queue_clock(out, to, it->second, clocked.elapsed_ms);
     }
 }
 

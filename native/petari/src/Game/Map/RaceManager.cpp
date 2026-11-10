@@ -2,6 +2,7 @@
 #include "Game/Map/RaceManager.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Map/RaceRail.hpp"
+#include "Game/Player/NebulaRemotePlayer.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/DemoUtil.hpp"
@@ -184,6 +185,11 @@ void RaceManager::init(const JMapInfoIter& rIter) {
 
 void RaceManager::movement() {
     LiveActor::movement();
+    // Online co-op: from the wipe before the race to the one after it, the other players are see-through and don't
+    // touch this one (docs/COOP_PLAN.md "Races and timers").
+    if (!isNerve(GET_NERVE(RaceManager, RaceManagerNrvWait))) {
+        NebulaRemotePlayer::noteLocalRacing();
+    }
 }
 
 void RaceManager::exeWait() {
