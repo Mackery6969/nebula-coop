@@ -221,10 +221,15 @@ if (-not $BuildHostOnly) {
 
 if (-not $BuildGameModuleOnly) {
     Write-Step "Building host (NebulaNative - D3D12)"
-    $sccache_flags = if ($UseSccache) {
-        " -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache"
-    } else { "" }
-    cmake -S . -B build\host -G Ninja -DCMAKE_BUILD_TYPE=Release$sccache_flags
+    # Each flag its own array element: PowerShell passes "-DX=Release$var" to cmake without expanding $var.
+    $configure_args = @("-S", ".", "-B", "build\host", "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release")
+    if ($UseSccache) {
+        $configure_args += "-DCMAKE_C_COMPILER_LAUNCHER=sccache", "-DCMAKE_CXX_COMPILER_LAUNCHER=sccache"
+    }
+    cmake @configure_args
+    if ($LASTEXITCODE -ne 0) {
+        Write-ErrorCustom "Host configure failed"
+    }
     cmake --build build\host --target NebulaNative --parallel
     if ($LASTEXITCODE -ne 0) {
         Write-ErrorCustom "Host build failed"
@@ -238,8 +243,13 @@ if (-not $BuildGameModuleOnly) {
 
 if (-not $BuildHostOnly) {
     Write-Step "Building game module (smg_game.dll)"
-    $sccache_arg = if ($UseSccache) { "-UseSccache" } else { "" }
-    & "$PSScriptRoot\native\build.ps1" -Petari "$PSScriptRoot\native\petari" -Build "$PSScriptRoot\build\game" @sccache_arg
+    # A hashtable binds -UseSccache by name (a splatted string would bind to -Config by position).
+    $build_args = @{
+        Petari     = "$PSScriptRoot\native\petari"
+        Build      = "$PSScriptRoot\build\game"
+        UseSccache = [bool]$UseSccache
+    }
+    & "$PSScriptRoot\native\build.ps1" @build_args
     if ($LASTEXITCODE -ne 0) {
         Write-ErrorCustom "Game module build failed"
     }
