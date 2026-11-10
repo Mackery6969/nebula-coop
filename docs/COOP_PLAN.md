@@ -490,6 +490,29 @@ the Online tab (Bubble on Death, `coop_bubble_death`, on by default), sent with 
   copy, bursting as it's let out (game API 120, session protocol 7).
 - Not yet: Mario keeps a power-up form in the bubble (a miss would have taken it).
 
+## Races and timers
+
+Galaxy's races are each player's own race against the game's rival, and a mission's time limit is the instance's.
+
+- **Races.** The cosmic racer (`GhostPlayer`), both Boo races, the penguins' swim race and the surfing rays
+  (`RaceManager`), and the swim through the rings (`Syati`) run in the racer's game alone: each player races their own
+  rival. From the race's start to its end, the racer and every other player are see-through to each other (the
+  copy drawn as the local Mario is with the camera right on him, its shadow off) and nothing between them touches:
+  no push, bounce or attack, whatever the room's Player Interaction. Enemies still see a racer. The racing actors
+  note it each frame they run a race (`NebulaRemotePlayer::noteLocalRacing`) and the snapshot says it
+  (`NEBULA_COOP_PLAYER_RACING`), so it costs no message.
+- **Winning.** A race won is a Power Star like any other: the save's, everyone's. The race's best time is the fastest
+  anyone ran ([Shared world state](#shared-world-state)'s RaceTime).
+- **No bubble in a race.** A miss in a race of one's own starts it over as alone; nobody racing is a bubble's
+  rescuer either.
+- **Mission clocks.** A speedy comet's time limit (`CometEventExecutorTimeLimit`) is one clock for everyone in the
+  instance: the first player's to start is the instance's (`WorldAuthority::clock`, session message 44). A player
+  coming later is told how long it has run with the instance's record and counts from there; one whose own started
+  after it is told too, and a clock more than 1.5 seconds behind is moved on (never back, never past the time up).
+  At the time up every game kills its own Mario, so everyone misses, and the mission starts over with a fresh
+  clock ([Instances](#instances-one-per-galaxy-and-mission)). Challenges an NPC starts with a timer of their own
+  (the bomb timers: the rabbits, the caretaker) stay each player's.
+
 ## Shared world state
 
 The server decides everything but the visuals (`galaxy/coop_world.h`, the game's `NebulaCoopWorld`, game API 40's
@@ -636,6 +659,8 @@ Each phase ships on its own and leaves the game playable.
 - [x] [Player collisions](#player-collisions): non-solid, solid and friendly fire, knockback strength and PvP mode,
       with lag compensation.
 - [x] [Bubble on death](#bubble-on-death): a player who dies near another flies to them in a bubble, for a life.
+- [x] [Races and timers](#races-and-timers): each player races their own rival, see-through to the others and
+      untouchable; a speedy comet's clock is the instance's.
 - [x] Remote players stomp, spin and touch objects: each hit is played again in every game in the instance
       ([Shared objects](#shared-objects)).
 

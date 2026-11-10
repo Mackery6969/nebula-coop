@@ -3,6 +3,7 @@
 #include "Game/LiveActor/LiveActorGroup.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Map/RaceManager.hpp"
+#include "Game/Player/NebulaRemotePlayer.hpp"
 #include "Game/MapObj/PrizeRing.hpp"
 #include "Game/NPC/TalkMessageCtrl.hpp"
 #include "Game/Util.hpp"
@@ -233,6 +234,10 @@ void Syati::exeTalkStartMission() {
 }
 
 void Syati::exeReadyToStart() {
+    // Online co-op: through the countdown and the swim the other players are see-through and don't touch this one
+    // (docs/COOP_PLAN.md "Races and timers").
+    NebulaRemotePlayer::noteLocalRacing();
+
     if (MR::isFirstStep(this)) {
         MR::invalidateClipping(this);
         resetScore();
@@ -254,6 +259,8 @@ void Syati::exeReadyToStart() {
 }
 
 void Syati::exeCountDown() {
+    NebulaRemotePlayer::noteLocalRacing();
+
     if (MR::isFirstStep(this)) {
         MR::startBck(this, "Swim");
         mRaceManagerLayout->appear();
@@ -279,6 +286,8 @@ void Syati::exeCountDown() {
 }
 
 void Syati::exeSwim() {
+    NebulaRemotePlayer::noteLocalRacing();
+
     if (MR::isFirstStep(this)) {
         MR::startBck(this, "Swim");
     }
@@ -294,6 +303,8 @@ void Syati::exeSwim() {
 }
 
 void Syati::exeEmitRing() {
+    NebulaRemotePlayer::noteLocalRacing();
+
     if (MR::isFirstStep(this)) {
         MR::startBck(this, "Screw");
         MR::startSound(this, "SE_SM_SYATI_ROLL");
