@@ -276,7 +276,7 @@ std::vector<RemotePlayer> RemotePlayers::sample(const std::string& stage, int sc
         const Received& latest = player.received.back();
         if (now - latest.at > kSnapshotStale) continue;
         if (latest.snapshot.stage != stage || latest.snapshot.scenario != scenario) continue;
-        // The two either side of `at`; before the first, the first; past the last, the last.
+        // The two either side of `at`; before the first, the first; past the last, the last, its animation played on.
         PlayerSnapshot snapshot = player.received.front().snapshot;
         for (std::size_t i = 1; i < player.received.size(); ++i) {
             const Received& before = player.received[i - 1u];
@@ -296,6 +296,16 @@ std::vector<RemotePlayer> RemotePlayers::sample(const std::string& stage, int sc
                                : after.snapshot;
             }
             break;
+        }
+        // A player standing still sends a snapshot only every kSnapshotIdleInterval, as long as kSnapshotDelay, so
+        // `at` is often a little past their last one (and further when one is lost). Their animation goes on all the
+        // while (asleep, an idle's sway): its frame moves on at its speed, as the game moves it, for up to
+        // kAnimationExtrapolate, rather than standing still on the last one's and then jumping on (the copy wraps or
+        // holds a frame past its animation's end as the game does). Where they are stays the last one's.
+        if (latest.at < at) {
+            const float past = std::min(std::chrono::duration<float>(at - latest.at).count(),
+                                        std::chrono::duration<float>(kAnimationExtrapolate).count());
+            snapshot.frame += snapshot.rate * past * kGameFramesPerSecond;
         }
         // The instance as now: a player still drawn from where they were before moving here waits for the new one.
         if (snapshot.stage != stage || snapshot.scenario != scenario) continue;
