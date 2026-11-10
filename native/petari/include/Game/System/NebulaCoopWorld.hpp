@@ -75,6 +75,15 @@ namespace NebulaCoopWorld {
     // Around switches that follow the local player alone (an area turning one while he is in it).
     void beginLocalSwitches();
     void endLocalSwitches();
+    // One-time things of the instance (NebulaCoopBoss: a boss's fight reaching a phase), `mark` a number of the
+    // placed actor's own: noteMark tells it to the instance once (the server keeps it in the record, for players
+    // coming later), hasMark says whether anyone's game in the instance had it. Out of a room: nothing, false.
+    void noteMark(const NameObj* pActor, u32 mark);
+    bool hasMark(const NameObj* pActor, u32 mark);
+    // Whether another player's hit is being played again here (HitSensor messages it sends are its).
+    bool isReplayingHit();
+    // The local player's actor while this scene's objects are followed (in a room), nullptr otherwise.
+    const LiveActor* getLocalPlayer();
     // CoinHolder::appearCoin: a coin `pHost` let out (an enemy's drop).
     void noteCoinDrop(const NameObj* pHost, LiveActor* pCoin);
     // CoinHolder::hopCoin, StarPieceDirector::hopPiece: whether `pHost`'s last hit was another player's, played again

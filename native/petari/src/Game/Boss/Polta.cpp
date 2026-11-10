@@ -220,6 +220,18 @@ void Polta::kill() {
     }
 }
 
+// As kill, the Power Star placed at once rather than flown out in its scene.
+void Polta::coopDefeat() {
+    LiveActor::kill();
+    mLeftArm->kill();
+    mRightArm->kill();
+    MR::appearPowerStarWithoutDemo(this);
+
+    if (MR::isValidSwitchDead(this)) {
+        MR::onSwitchDead(this);
+    }
+}
+
 void Polta::control() {
     updateAction();
 }
@@ -234,7 +246,7 @@ void Polta::calcAndSetBaseMtx() {
 
 void Polta::updateAction() {
     if (mSequencer != nullptr) {
-        mSequencer->updateNerve();
+        mSequencer->update();
     }
 }
 

@@ -55,6 +55,8 @@ public:
     void updatePose(f32, f32);
     void start();
     void setStartPose();
+    // Online co-op: beaten where the local player didn't see it (gone, its Power Star out without its scene).
+    void coopDefeat();
 
     PoltaSensorCtrl* mSensorCtrl;
     PoltaArm* mLeftArm;

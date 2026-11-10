@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Game/System/NebulaCoopBoss.hpp"
 #include "Game/System/NerveExecutor.hpp"
 #include "Game/Util/Table.hpp"
 
@@ -23,6 +24,9 @@ public:
     bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
     bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
     bool startAction();
+    // Each frame (BossStinkBug::updateAction): online co-op's room phase followed, then the nerve.
+    void update();
+    void coopJump(s32 from, s32 phase);
     void exeWaitStart();
     void exeOpeningDemo();
     void exeGround();
@@ -42,4 +46,5 @@ public:
     BossStinkBugAngryDemo* mAngryDemo;
     BossStinkBugActionFlyHigh* mActionFlyHigh;
     BossStinkBugFinishDemo* mFinishDemo;
+    NebulaCoopBossPhases mCoop;  // online co-op: the fight as the room's
 };

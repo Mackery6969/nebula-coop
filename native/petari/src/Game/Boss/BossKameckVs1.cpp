@@ -26,6 +26,19 @@ namespace NrvBossKameckVs1 {
     NEW_NERVE(BossKameckVs1NrvEndDemo, BossKameckVs1, EndDemo);
 };  // namespace NrvBossKameckVs1
 
+namespace {
+    // The fight's phases in order (online co-op, NebulaCoopBossPhases); the power-up scene is phase 4.
+    const Nerve* const cPhases[] = {
+        GET_NERVE(BossKameckVs1, BossKameckVs1NrvOpeningDemo),
+        GET_NERVE(BossKameckVs1, BossKameckVs1NrvBattleLv1),
+        GET_NERVE(BossKameckVs1, BossKameckVs1NrvBattleLv2),
+        GET_NERVE(BossKameckVs1, BossKameckVs1NrvPowerUpDemo),
+        GET_NERVE(BossKameckVs1, BossKameckVs1NrvBattleLv3),
+        GET_NERVE(BossKameckVs1, BossKameckVs1NrvEndDemo),
+    };
+    const s32 cPhaseNum = sizeof(cPhases) / sizeof(cPhases[0]);
+};  // namespace
+
 BossKameckVs1::BossKameckVs1() : BossKameckSequencer("ボスカメックVs1"), mStateBattle() {
 }
 
@@ -36,10 +49,15 @@ void BossKameckVs1::init(BossKameck* pBoss, const TableIter& rIter) {
     mStateBattle->init();
 
     initNerve(GET_NERVE(BossKameckVs1, BossKameckVs1NrvOpeningDemo));
+    coopInit(cPhases, cPhaseNum, 4);
     MR::declareStarPiece(mBossKameck, 24);
 }
 
 void BossKameckVs1::start() {
+    if (coopStart()) {
+        return;
+    }
+
     setNerve(GET_NERVE(BossKameckVs1, BossKameckVs1NrvOpeningDemo));
 }
 

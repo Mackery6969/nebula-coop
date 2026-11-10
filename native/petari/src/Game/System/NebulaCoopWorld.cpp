@@ -269,6 +269,34 @@ namespace {
         return true;
     }
 
+    // The instance's one-time things (a boss's fight reaching a phase, NebulaCoopBoss): each is a stage switch id no
+    // stage has (a zone of 0x8000 or more, never the global 0xffff), from its actor's key and its number, so the
+    // server keeps them in the instance's record and tells them as it tells switches, and a player coming later gets
+    // them before READY. Once on, never off.
+    const s32 cMaxMarks = 512;
+    u32 sMarks[cMaxMarks];
+    s32 sMarkNum = 0;
+
+    bool isMarkId(u32 id) {
+        const u32 zone = id >> 16;
+        return zone >= 0x8000u && zone != 0xffffu;
+    }
+
+    bool hasMarkId(u32 id) {
+        for (s32 i = 0; i < sMarkNum; i++) {
+            if (sMarks[i] == id) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    void rememberMark(u32 id) {
+        if (sMarkNum < cMaxMarks && !hasMarkId(id)) {
+            sMarks[sMarkNum++] = id;
+        }
+    }
+
     // The Star Chips in this scene (another player's take is applied only to a chip).
     const s32 cMaxChips = 256;
     LiveActor* sChips[cMaxChips];
@@ -336,6 +364,15 @@ namespace {
 
     u32 hashValue(u32 hash, u32 value) {
         return hashBytes(hash, &value, sizeof(value));
+    }
+
+    // A one-time thing's switch id (see sMarks).
+    u32 markId(u32 key, u32 mark) {
+        u32 id = 0x80000000u | (hashValue(hashValue(key, 0x4d41524bu /* MARK */), mark) & 0x7fffffffu);
+        if ((id >> 16) == 0xffffu) {
+            id &= ~0x00010000u;
+        }
+        return id;
     }
 
     // A placement's key: its name, zone, link id and place, as the stage's files have them.
@@ -777,6 +814,10 @@ namespace {
                     sReady = true;
                 } else if (events[i].kind == NEBULA_COOP_WORLD_HIT) {
                     replayHit(events[i]);
+                } else if (events[i].kind == NEBULA_COOP_WORLD_SWITCH && isMarkId(events[i].object)) {
+                    if (events[i].value != 0) {
+                        rememberMark(events[i].object);
+                    }
                 } else if (events[i].kind == NEBULA_COOP_WORLD_SWITCH) {
                     rememberRoomSwitch(events[i].object, events[i].value != 0);
                     applySwitch(events[i].object, events[i].value != 0);
@@ -1189,6 +1230,7 @@ namespace NebulaCoopWorld {
         sRoomSwitchNum = 0;
         sLocalSwitches = 0;
         sFlipNum = 0;
+        sMarkNum = 0;
         memset(sPending, 0, sizeof(sPending));
         sChaseStartPending = -1;
         sChipNum = 0;
@@ -1675,6 +1717,38 @@ namespace NebulaCoopWorld {
         if (index >= 0) {
             applyPending(index);
         }
+    }
+
+    void noteMark(const NameObj* pActor, u32 mark) {
+        if (!sObjectsActive || sApplying) {
+            return;
+        }
+        const s32 index = findActor(pActor);
+        if (index < 0) {
+            return;
+        }
+        const u32 id = markId(sEntries[index].mKey, mark);
+        if (hasMarkId(id)) {
+            return;
+        }
+        rememberMark(id);
+        report(NEBULA_COOP_WORLD_SWITCH, id, 1, 0, nullptr);
+    }
+
+    bool hasMark(const NameObj* pActor, u32 mark) {
+        if (!sObjectsActive || sMarkNum == 0) {
+            return false;
+        }
+        const s32 index = findActor(pActor);
+        return index >= 0 && hasMarkId(markId(sEntries[index].mKey, mark));
+    }
+
+    bool isReplayingHit() {
+        return sReplaying;
+    }
+
+    const LiveActor* getLocalPlayer() {
+        return sObjectsActive ? sMario : nullptr;
     }
 
     bool isOtherPlayersHit(const NameObj* pHost) {

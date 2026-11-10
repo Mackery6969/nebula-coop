@@ -13,6 +13,7 @@ public:
 
     virtual void start() override;
     virtual void init() override;
+    virtual void update() override;
     virtual bool isUseEggShell() const override {
         return true;
     };
@@ -20,6 +21,7 @@ public:
         return 1;
     };
 
+    void coopJump(s32 phase);
     void exeWaitStart();
     void exeOpeningDemo();
     void exeBattleEgg();

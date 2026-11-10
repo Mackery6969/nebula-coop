@@ -2,6 +2,7 @@
 #include "Game/Boss/DinoPackun.hpp"
 #include "Game/Boss/DinoPackunBall.hpp"
 #include "Game/LiveActor/Nerve.hpp"
+#include "Game/LiveActor/Spine.hpp"
 #include "Game/LiveActor/PartsModel.hpp"
 #include "Game/Util/ActorStateUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
@@ -21,6 +22,26 @@ namespace NrvDinoPackunVs2 {
     NEW_NERVE(DinoPackunVs2NrvDownDemo, DinoPackunVs2, DownDemo);
 };  // namespace NrvDinoPackunVs2
 
+namespace {
+    // The fight's phases in order (online co-op, NebulaCoopBossPhases); DinoPackun::coopStartMusic counts them alike.
+    enum {
+        Phase_Opening = 1,
+        Phase_Egg,
+        Phase_Cry,
+        Phase_Lv1,
+        Phase_Angry,
+        Phase_Lv2,
+        Phase_Lv3,
+        Phase_Down,
+    };
+    const Nerve* const cPhases[] = {
+        GET_NERVE(DinoPackunVs2, DinoPackunVs2NrvOpeningDemo), GET_NERVE(DinoPackunVs2, DinoPackunVs2NrvBattleEgg), GET_NERVE(DinoPackunVs2, DinoPackunVs2NrvCryDemo),
+        GET_NERVE(DinoPackunVs2, DinoPackunVs2NrvBattleLv1), GET_NERVE(DinoPackunVs2, DinoPackunVs2NrvAngryDemo), GET_NERVE(DinoPackunVs2, DinoPackunVs2NrvBattleLv2),
+        GET_NERVE(DinoPackunVs2, DinoPackunVs2NrvBattleLv3), GET_NERVE(DinoPackunVs2, DinoPackunVs2NrvDownDemo),
+    };
+    const s32 cPhaseNum = sizeof(cPhases) / sizeof(cPhases[0]);
+};  // namespace
+
 DinoPackunVs2::DinoPackunVs2(DinoPackun* pPackun) : DinoPackunSequencer("ディノパックン2戦目進行", pPackun) {
     mDemo = nullptr;
     mEgg = nullptr;
@@ -31,6 +52,7 @@ DinoPackunVs2::DinoPackunVs2(DinoPackun* pPackun) : DinoPackunSequencer("ディ�
 
 void DinoPackunVs2::init() {
     initNerve(GET_NERVE(DinoPackunVs2, DinoPackunVs2NrvWaitStart));
+    mCoop.init(mParent, cPhases, cPhaseNum);
     mTrackFireHolder = new DinoPackunTrackFireHolder(64);
     mFireHolder = new DinoPackunFireHolder(16);
     mDemo = new DinoPackunDemo(mParent);
@@ -48,8 +70,77 @@ void DinoPackunVs2::init() {
 
 void DinoPackunVs2::start() {
     if (isNerve(GET_NERVE(DinoPackunVs2, DinoPackunVs2NrvWaitStart))) {
+        // Online co-op: another player's game began the fight. This one goes on from the room's phase (update), the
+        // opening not played again: the player lands as on any planet.
+        if (mCoop.getRoomPhase() > 0) {
+            return;
+        }
+
         setNerve(GET_NERVE(DinoPackunVs2, DinoPackunVs2NrvOpeningDemo));
     }
+}
+
+void DinoPackunVs2::update() {
+    if (const s32 phase = mCoop.update(this)) {
+        coopJump(phase);
+    }
+
+    if (const s32 music = mCoop.takeMusic()) {
+        DinoPackun::coopStartMusic(music);
+    }
+
+    DinoPackunSequencer::update();
+}
+
+// Online co-op: the room's fight is at `phase`, ahead of this game's. The scenes between are skipped, their outcomes
+// applied; the scene at `phase` plays if the local player is in the fight (the opening never: it was the first
+// player's), else it is skipped too.
+void DinoPackunVs2::coopJump(s32 phase) {
+    const s32 from = mCoop.phaseOf(mSpine->getCurrentNerve());
+    const bool watching = mCoop.isWatching();
+    s32 to = phase == Phase_Opening ? Phase_Egg : phase;
+    if (!watching && (to == Phase_Cry || to == Phase_Angry)) {
+        to++;
+    }
+
+    mCurrentAction = nullptr;
+    mParent->endDamageCamera();
+    mTrackFireHolder->killAll();
+    mFireHolder->killAll();
+    if (from == 0) {
+        mParent->coopStart();
+    }
+
+    if (from <= Phase_Opening && to > Phase_Opening) {
+        mParent->coopSkipOpening();
+        MR::startBrk(mParent, "Awake");
+        MR::emitEffect(mParent->getBallModel(), "TailFire");
+        MR::startBrk(mParent->getBallModel(), "Heat");
+    }
+    if (from <= Phase_Egg && to > Phase_Egg) {
+        mParent->coopBreakEgg();
+    }
+
+    if (from <= Phase_Angry && to > Phase_Angry) {
+        MR::emitEffect(mParent->getBallModel(), "TailFire");
+        MR::startBrk(mParent->getBallModel(), "Heat");
+    }
+
+    mCoop.jumped(to);
+    if (to == Phase_Down && !watching) {
+        // Beaten where nobody here saw it: gone, its Power Star out; the music after a boss once the player comes.
+        mCoop.keepMusic(Phase_Down);
+        mParent->coopDefeat();
+        setNerve(GET_NERVE(DinoPackunVs2, DinoPackunVs2NrvWaitStart));
+        return;
+    }
+
+    if (to != Phase_Cry && to != Phase_Angry && to != Phase_Down) {
+        // A fight phase: the music its scene started, once the player is in the fight.
+        mCoop.keepMusic(to);
+    }
+
+    setNerve(mCoop.nerveOf(to));
 }
 
 void DinoPackunVs2::exeOpeningDemo() {

@@ -225,8 +225,15 @@ void BossStinkBug::calcAnim() {
 
 void BossStinkBug::updateAction() {
     if (mActionSequencer != nullptr) {
-        mActionSequencer->updateNerve();
+        mActionSequencer->update();
     }
+}
+
+void BossStinkBug::coopEndPose(LiveActor* pPosition, const char* pName) {
+    MR::startBck(pPosition, pName);
+    MR::setBckFrameAndStop(pPosition, MR::getBckFrameMax(pPosition));
+    pPosition->calcAnim();
+    setPose(MR::getJointMtx(pPosition, "Boss"));
 }
 
 void BossStinkBug::updatePose() {

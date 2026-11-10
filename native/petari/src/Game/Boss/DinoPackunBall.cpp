@@ -1,4 +1,5 @@
 #include "Game/Boss/DinoPackunBall.hpp"
+#include "Game/System/NebulaCoopBoss.hpp"
 #include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util/ActorMovementUtil.hpp"
@@ -208,6 +209,12 @@ void DinoPackunBall::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
 }
 
 bool DinoPackunBall::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+    // Online co-op: another player's punch begins a hit only their game plays out (the tail stretched, the boss pulled
+    // with their camera); the phase it ends in comes here instead (NebulaCoopBossPhases).
+    if (NebulaCoopBoss::isOtherPlayersHit()) {
+        return false;
+    }
+
     if (MR::isMsgStarPieceReflect(msg)) {
         return true;
     }

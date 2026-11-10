@@ -83,9 +83,10 @@ BossKameckMoveRail* BossKameck::getMoveRail(s32 no) {
 }
 
 void BossKameck::startSequence() {
-    mSequencer->start();
+    // Shown and hidden first: online co-op's start may go on to the room's phase, the boss shown (NebulaCoopBossPhases).
     appear();
     MR::hideModel(this);
+    mSequencer->start();
 }
 
 void BossKameck::startDemoAppearKameck() {

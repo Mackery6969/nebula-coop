@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Game/System/NebulaCoopBoss.hpp"
 #include "Game/System/NerveExecutor.hpp"
 
 class Polta;
@@ -22,6 +23,9 @@ public:
 
     bool updateAction();
     bool startAction();
+    // Each frame (Polta::updateAction): online co-op's room phase followed, then the nerve.
+    void update();
+    void coopJump(s32 from, s32 phase);
 
     void exeWaitStart();
     void exeOpeningDemo();
@@ -36,4 +40,5 @@ public:
     PoltaWaitStart* mActionWaitStart;
     PoltaBattleLv1* mActionPoltaBattleLv1;
     PoltaBattleLv2* mActionPoltaBattleLv2;
+    NebulaCoopBossPhases mCoop;  // online co-op: the fight as the room's
 };

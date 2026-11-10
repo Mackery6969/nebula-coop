@@ -21,6 +21,8 @@ public:
     void exeBattleLv3();
     void exeBattleLv4();
     void exeEndDemo();
+    virtual void coopAfterOpening() override;
+    virtual void coopBeforeDown() override;
     bool isBattle() const;
 
     BossKameckStateBattle* mStateBattle;
