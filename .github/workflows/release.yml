@@ -1,0 +1,242 @@
+# Publishes a release when a version tag is pushed (git tag -a v2.0.0 -m "Nebula 2.0.0" && git push origin v2.0.0), as
+# upstream's releases are made: Nebula-Setup.exe and its release-key signature, Nebula-Setup.exe.sig, built by
+# installer/build-native-setup.ps1 and checked by tools/release_check.ps1 (docs/BUILDING.md, "Releases").
+# A tag with "-beta." in it (v2.0.0-beta.1) makes Nebula-Beta-Setup.exe instead, which only betas update to; any tag
+# with a "-" part is published as a pre-release.
+# A pull request that changes how a release is built, and Run workflow, build the same Setup without publishing it.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - installer/**
+      - native/build.ps1
+      - tools/release_check.ps1
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # A release is never cancelled half published.
+  cancel-in-progress: ${{ github.event_name != 'push' }}
+
+permissions:
+  contents: read
+
+env:
+  # The DirectX Shader Compiler Setup ships (a mod's shaders are built with it): the release cmake/rt_shaders.cmake pins.
+  DXC_URL: https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2609/dxc_2026_09_29.zip
+  DXC_SHA256: ad31b1fc8443175d204f77a611fdb3ef2ec42759bdc2f1167368de24a4a7e7f1
+
+jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      setup: ${{ steps.version.outputs.setup }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      publish: ${{ steps.version.outputs.publish }}
+    steps:
+      - id: version
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            version=${REF_NAME#v}
+            publish=true
+          else
+            version=0.0.0-test.$GITHUB_RUN_NUMBER
+            publish=false
+          fi
+          if ! printf '%s' "$version" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "::error::$REF_NAME is not a version tag (v1.2.3, or v1.2.3-beta.1)"
+            exit 1
+          fi
+          # Installer/src/Common/Updater.cs: a beta's Setup has its own name (IsBetaVersion).
+          case "${version,,}" in
+            *-beta.*) setup=Nebula-Beta-Setup.exe ;;
+            *) setup=Nebula-Setup.exe ;;
+          esac
+          case "$version" in
+            *-*) prerelease=true ;;
+            *) prerelease=false ;;
+          esac
+          {
+            echo "version=$version"
+            echo "setup=$setup"
+            echo "prerelease=$prerelease"
+            echo "publish=$publish"
+          } >> "$GITHUB_OUTPUT"
+          echo "Nebula $version: $setup (pre-release: $prerelease, publish: $publish)"
+
+  host:
+    name: Host
+    # Visual Studio 2022's MSVC, as the Build workflow's host job uses.
+    runs-on: windows-2022
+    steps:
+      - uses: actions/Checkout@v7
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      # The libraries CMake builds at configure time, from the Build workflow's Direct3D 12 job: restored only, so a
+      # release never writes the cache.
+      - name: Configure-time dependencies
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            build/host/archive-deps
+            build/host/fidelityfx.built
+            build/host/_deps
+          key: host-deps-OFF-${{ hashFiles('cmake/**', 'third_party/archive/**') }}
+      - name: Configure
+        # A release build: cross-file optimization on (NEBULA_HOST_IPO's default) and the test hooks left out.
+        run: cmake -S . -B build/host -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEBULA_RELEASE=ON
+      - name: Build
+        # The program Setup ships, not the tests.
+        run: cmake --build build/host --target NebulaNative
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-host
+          path: build/host/NebulaNative.exe
+          retention-days: 1
+          if-no-files-found: error
+      # Kept for reading crash dumps of this release (docs/DIAGNOSTICS.md); not published.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-symbols
+          path: build/host/NebulaNative.pdb
+          retention-days: 90
+          if-no-files-found: warn
+
+  game:
+    name: Game module
+    runs-on: windows-2025
+    steps:
+      - uses: actions/Checkout@v7
+      - name: Configure-time dependencies
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            build/game/archive-deps
+          key: game-archive-deps-${{ hashFiles('cmake/**', 'third_party/archive/**') }}
+      - name: Build
+        run: .\native\build.ps1 -Petari native\petari -Build build\game -Release
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-game
+          path: build/game/smg_game.dll
+          retention-days: 1
+          if-no-files-found: error
+
+  setup:
+    name: Setup
+    needs: [version, host, game]
+    runs-on: windows-2025
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      SETUP: ${{ needs.version.outputs.setup }}
+    steps:
+      - uses: actions/Checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: false
+      # Outside the tree, so that build-native-setup.ps1 records a clean commit.
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-host
+          path: ${{ runner.temp }}/bin
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-game
+          path: ${{ runner.temp }}/bin
+      - name: DirectX Shader Compiler
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'dxc.zip'
+          Invoke-WebRequest -Uri $env:DXC_URL -OutFile $zip
+          $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne $env:DXC_SHA256) { throw "dxc.zip is $hash, not the pinned $env:DXC_SHA256" }
+          Expand-Archive -LiteralPath $zip -DestinationPath (Join-Path $env:RUNNER_TEMP 'dxc')
+      - name: Ray tracing tables
+        # The tables describe the game's own data, so they are kept outside the repository (docs/RAY_TRACING_STATUS.md)
+        # and nothing traces yet: Setup ships them empty, as the test builds run without them.
+        run: |
+          $tables = New-Item -ItemType Directory -Force (Join-Path $env:RUNNER_TEMP 'bin\tables')
+          foreach ($name in 'material-names.tsv', 'rt-materials.tsv', 'rt-suns.tsv') {
+              [IO.File]::WriteAllBytes((Join-Path $tables $name), [byte[]]@())
+          }
+      - name: Release key
+        # The private half of installer/release-public-key.xml, where build-native-setup.ps1 and release_check.ps1
+        # look for it. Without it Setup is published unsigned, and the launcher's update check skips the release.
+        if: needs.version.outputs.publish == 'true'
+        env:
+          NEBULA_RELEASE_KEY: ${{ secrets.NEBULA_RELEASE_KEY }}
+        run: |
+          if (-not $env:NEBULA_RELEASE_KEY) {
+              Write-Output "::warning::No NEBULA_RELEASE_KEY secret: $env:SETUP is published unsigned, so installed copies won't update to it."
+              exit 0
+          }
+          $folder = New-Item -ItemType Directory -Force (Join-Path $env:USERPROFILE '.nebula-release-key')
+          [IO.File]::WriteAllText((Join-Path $folder 'nebula-release-private.xml'), $env:NEBULA_RELEASE_KEY)
+      - name: Setup
+        run: >-
+          .\installer\build-native-setup.ps1 -Version $env:VERSION -Bin (Join-Path $env:RUNNER_TEMP 'bin')
+          -Dxc (Join-Path $env:RUNNER_TEMP 'dxc') -OutputDirectory (Join-Path $env:RUNNER_TEMP 'dist')
+          -SetupName $env:SETUP -Repository $env:GITHUB_REPOSITORY
+      - name: Release check
+        # Defender isn't run here: the runner's definitions say nothing about players' PCs.
+        run: >-
+          .\tools\release_check.ps1 -Path (Join-Path $env:RUNNER_TEMP 'bin')
+          -Installer (Join-Path $env:RUNNER_TEMP "dist\$env:SETUP") -SkipDefender
+      - name: Remove the release key
+        if: always()
+        run: Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path $env:USERPROFILE '.nebula-release-key')
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nebula-setup
+          path: ${{ runner.temp }}/dist/${{ env.SETUP }}*
+          retention-days: 14
+          if-no-files-found: error
+
+  publish:
+    name: Publish
+    needs: [version, setup]
+    if: needs.version.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: nebula-setup
+          path: dist
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.version.outputs.version }}
+          SETUP: ${{ needs.version.outputs.setup }}
+          PRERELEASE: ${{ needs.version.outputs.prerelease }}
+        run: |
+          ls -l dist
+          # A release made by hand for this tag keeps its notes: only the files are added (or replaced).
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber -R "$GITHUB_REPOSITORY"
+            exit 0
+          fi
+          {
+            echo '## Install or update'
+            echo
+            echo "1. Download \`$SETUP\` below and run it. It isn't code-signed, so Windows SmartScreen shows \"Unknown publisher\": choose **More info**, then **Run anyway**."
+            echo '2. A new install: choose your own copy of the game (a disc image or an extracted folder), then **Install**.'
+            echo '3. An update: choose **Update**. Saves and settings are kept.'
+            echo
+          } > notes.md
+          flags=()
+          if [ "$PRERELEASE" = true ]; then flags+=(--prerelease); fi
+          # GitHub's generated notes (the pull requests since the last release) follow notes.md.
+          gh release create "$TAG" dist/* -R "$GITHUB_REPOSITORY" --verify-tag --title "Nebula $VERSION" \
+            --notes-file notes.md --generate-notes "${flags[@]}"

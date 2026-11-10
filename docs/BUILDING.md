@@ -79,3 +79,36 @@ sh native/tests/run_tests.sh
 
 Builds the disc import tool, the launcher and Setup, and writes `Nebula-Setup.exe` with the host and game module
 inside it.
+
+## Releases
+
+Pushing a version tag publishes a release (`.github/workflows/release.yml`):
+
+```powershell
+git tag -a v2.0.0 -m "Nebula 2.0.0"
+git push origin v2.0.0
+```
+
+The Release workflow builds the host and the game module as a release (`NEBULA_RELEASE`, without the test hooks, and the
+host with cross-file optimization), makes Setup with the script above, runs `tools/release_check.ps1` on it (without
+Defender), and publishes `Nebula-Setup.exe` and `Nebula-Setup.exe.sig` as the GitHub release `Nebula 2.0.0`, with
+install steps and the pull requests since the last release as its notes. A tag with `-beta.` in it (`v2.0.0-beta.1`)
+makes `Nebula-Beta-Setup.exe`, which only betas update to; any tag with a `-` part is a pre-release. When a release for
+the tag already exists (made by hand on GitHub), its notes are kept and only the files are added. Setup's update check
+reads this repository's releases. Its ray-tracing tables are empty: they describe the game's own data and are kept
+outside the repository. `NebulaNative.pdb` is kept as the run's `release-symbols` download for 90 days.
+
+Updates run only a Setup signed with the release key, the private half of `installer/release-public-key.xml`. Put
+that private key (RSA XML) in the repository secret `NEBULA_RELEASE_KEY`; without it Setup is published unsigned and
+installed copies don't update to it. To make a new key pair (keep `nebula-release-private.xml` out of the repository):
+
+```powershell
+$rsa = New-Object System.Security.Cryptography.RSACryptoServiceProvider 4096
+$rsa.PersistKeyInCsp = $false
+[IO.File]::WriteAllText("$env:USERPROFILE\.nebula-release-key\nebula-release-private.xml", $rsa.ToXmlString($true))
+[IO.File]::WriteAllText("$PWD\installer\release-public-key.xml", $rsa.ToXmlString($false))
+```
+
+(Create the `.nebula-release-key` folder first.) A pull request that changes the Release workflow, the installer,
+`native/build.ps1` or `tools/release_check.ps1` builds Setup the same way without publishing it (the `nebula-setup`
+download), and so does **Actions** > **Release** > **Run workflow**.
