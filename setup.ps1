@@ -1,21 +1,21 @@
 # Nebula Co-Op Setup Script
-# Sets up the build environment, builds all components, and creates instance directories
-# for testing co-op with multiple instances.
+# Sets up the build environment, builds all components, and creates a shared
+# instance directory for testing co-op (run multiple copies from the same dir).
 #
-# Usage (PowerShell, run as Administrator not required):
+# Usage (PowerShell):
 #   .\setup.ps1                          # Full setup: check tools, init submodules, build everything
 #   .\setup.ps1 -SkipTools               # Skip tool detection, assume everything is installed
 #   .\setup.ps1 -SkipBuild               # Just check tools and init submodules, don't build
 #   .\setup.ps1 -BuildHostOnly           # Only build the host (CMake), skip game module and import tool
 #   .\setup.ps1 -BuildGameModuleOnly     # Only build the game module, skip host and import tool
-#   .\setup.ps1 -CreateInstances 2       # Create N instance directories after building (default: 2)
+#   .\setup.ps1 -CreateInstances 1       # Create the shared instance directory (default: 1)
 
 param(
     [switch]$SkipTools,
     [switch]$SkipBuild,
     [switch]$BuildHostOnly,
     [switch]$BuildGameModuleOnly,
-    [int]$CreateInstances = 2
+    [int]$CreateInstances = 1
 )
 
 $ErrorActionPreference = "Stop"
@@ -49,7 +49,7 @@ function Test-Command($name) {
 if (-not $SkipTools) {
     Write-Step "Detecting build tools"
 
-    # Visual Studio 2022 C++ tools
+    # Visual Studio 2022/2026 C++ tools
     $VsWhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
     $VsRoot = $null
     if (Test-Path $VsWhere) {
@@ -58,7 +58,14 @@ if (-not $SkipTools) {
             -property installationPath 2>$null
     }
     if (-not $VsRoot) {
-        @("C:\Program Files\Microsoft Visual Studio\2022\Community",
+        # Check VS 2026 and VS 2022 locations (including D:/Programs)
+        @("D:\Programs\Microsoft Visual Studio\2026\Community",
+          "D:\Programs\Microsoft Visual Studio\2026\BuildTools",
+          "C:\Program Files\Microsoft Visual Studio\2026\Community",
+          "C:\Program Files\Microsoft Visual Studio\2026\BuildTools",
+          "D:\Programs\Microsoft Visual Studio\2022\Community",
+          "D:\Programs\Microsoft Visual Studio\2022\BuildTools",
+          "C:\Program Files\Microsoft Visual Studio\2022\Community",
           "C:\Program Files\Microsoft Visual Studio\2022\BuildTools",
           "C:\Program Files (x86)\Microsoft Visual Studio\2022\Community",
           "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools") | ForEach-Object {
@@ -68,9 +75,9 @@ if (-not $SkipTools) {
         }
     }
     if (-not $VsRoot) {
-        Write-ErrorCustom "Visual Studio 2022 with C++ tools not found. Install from Visual Studio Installer with 'Desktop development with C++' workload."
+        Write-ErrorCustom "Visual Studio 2022/2026 with C++ tools not found. Install from Visual Studio Installer with 'Desktop development with C++' workload."
     }
-    Write-Ok "Visual Studio 2022 found at: $VsRoot"
+    Write-Ok "Visual Studio found at: $VsRoot"
 
     # MSVC environment (for CMake host build)
     Write-Step "Entering MSVC environment"
@@ -155,7 +162,11 @@ if (-not $SkipTools) {
             }
         }
     }
-    Write-Ok "Windows SDK bin path: $($WindowsSdkVerBin ?: 'not in PATH (will search default locations)')"
+    if ($WindowsSdkVerBin) {
+        Write-Ok "Windows SDK bin path: $WindowsSdkVerBin"
+    } else {
+        Write-Ok "Windows SDK bin path: not in PATH (will search default locations)"
+    }
 }
 
 # ── 2. Git Submodules ────────────────────────────────────────────────────────
@@ -226,10 +237,10 @@ if (-not $BuildGameModuleOnly) {
     if ($LASTEXITCODE -ne 0) { Write-Warn "Some cargo tests failed" }
 }
 
-# ── 7. Create Instance Directories for Co-Op Testing ────────────────────────
+# ── 7. Create Shared Instance Directory for Co-Op Testing ────────────────────
 
 if ($CreateInstances -gt 0) {
-    Write-Step "Creating $CreateInstances instance directory(ies) for co-op testing"
+    Write-Step "Creating shared instance directory for co-op testing"
 
     $HostBin = if (Test-Path "build\host\NebulaNative.exe") {
         "build\host\NebulaNative.exe"
@@ -247,195 +258,128 @@ if ($CreateInstances -gt 0) {
     } elseif (-not $GameDll) {
         Write-Warn "Game DLL not found; skipping instance creation"
     } else {
-        # Determine content folder path
+        $InstanceDir = "$PSScriptRoot\instances\instance-1"
+        New-Item -ItemType Directory -Force -Path $InstanceDir | Out-Null
+
+        # Copy binaries into the shared instance directory
+        Copy-Item $HostBin (Join-Path $InstanceDir "NebulaNative.exe") -Force
+        Copy-Item $GameDll (Join-Path $InstanceDir "smg_game.dll") -Force
+
+        # content/ and saves/ live at repo root (both gitignored) -- launch scripts point to them
         $ContentPath = "$PSScriptRoot\content"
+        $SavesPath = "$PSScriptRoot\saves"
+
         if (-not (Test-Path (Join-Path $ContentPath "game.pak"))) {
             Write-Warn "content\game.pak not found. Run the import tool first:"
-            Write-Host "  .\target\release\nebula-import.exe --key common.key import <disc-image> --output content" -ForegroundColor Yellow
-            $ContentPath = $null
+            Write-Host "  .\target\release\n ebula-import.exe --key common.key import <disc-image> --output content" -ForegroundColor Yellow
         }
 
-        for ($i = 0; $i -lt $CreateInstances; $i++) {
-            $InstanceNum = $i + 1
-            $InstanceDir = "$PSScriptRoot\instances\instance-$InstanceNum"
-            New-Item -ItemType Directory -Force -Path $InstanceDir | Out-Null
+        # Create saves directory if it doesn't exist
+        New-Item -ItemType Directory -Force -Path $SavesPath | Out-Null
 
-            # Copy binaries
-            Copy-Item $HostBin (Join-Path $InstanceDir "NebulaNative.exe") -Force
-            Copy-Item $GameDll (Join-Path $InstanceDir "smg_game.dll") -Force
+        # Create a README
+        $Readme = @"
+# Nebula Co-Op - Shared Instance
 
-            # Each instance gets a unique port: instance 1 hosts on 7777,
-            # instance 2 joins to it, etc. Alternate instances can host too.
-            $PortBase = 7777 + ($i * 100)  # Each instance gets a unique port range
-            $IsHost = ($i % 2 -eq 0)  # Even instances host, odd ones join
-
-            # Create a short README for each instance
-            $InstanceReadme = @"
-# Nebula Co-Op - Instance $InstanceNum
+This is a shared instance directory. Run several copies of NebulaNative.exe
+from here with different --host/--join flags and different --saves paths.
 
 ## Quick Launch
-# Host mode:
-#   .\launch-instance-$InstanceNum.ps1
+
+    # Launch a co-op pair (host + join):
+    .\launch-coop.ps1
+
+    # Host a co-op session on port 7777:
+    .\instances\instance-1\NebulaNative.exe --host 7777
+
+    # Join the host on port 7777:
+    .\instances\instance-1\NebulaNative.exe --join 127.0.0.1:7777
+
+    # With explicit content and saves (repo-root paths):
+    .\instances\instance-1\NebulaNative.exe --pak content\game.pak --saves saves --host 7777
+
+## Multiple simultaneous instances
+
+Run several copies of NebulaNative.exe from this same directory:
+
+    # Terminal 1 (host, port 7777):
+    Start-Process .\instances\instance-1\NebulaNative.exe -ArgumentList @("--host", "7777", "--saves", "saves\coop-1")
+
+    # Terminal 2 (join host on 7777):
+    Start-Process .\instances\instance-1\NebulaNative.exe -ArgumentList @("--join", "127.0.0.1:7777", "--saves", "saves\coop-2")
 
 ## Arguments
-# --pak       Path to game.pak (auto-found if in the same folder)
-# --saves     Path to this instance's saves folder
-# --module    Path to smg_game.dll (auto-found if in the same folder)
-# --host <N>  Start as host on port N (co-op host)
-# --join <X>  Join a co-op session (room code, address, or address:port)
 
-## Networking
-# Port: $PortBase
-# Mode: $(if ($IsHost) { "HOST" } else { "JOIN" })
+    --pak <path>       Path to game.pak (auto-found if content\game.pak exists)
+    --saves <path>     Saves directory (repo-root saves/ by default)
+    --module <path>    Game module DLL (auto-found as smg_game.dll beside executable)
+    --host <port>      Start as co-op host on port
+    --join <addr>      Join a co-op session (room code, address, or address:port)
 "@
-            Set-Content (Join-Path $InstanceDir "README.md") $InstanceReadme
+        Set-Content (Join-Path $InstanceDir "README.md") $Readme
 
-            # Create saves directory
-            $SavesDir = Join-Path $InstanceDir "saves"
-            New-Item -ItemType Directory -Force -Path $SavesDir | Out-Null
+        Write-Ok "Shared instance directory created: $InstanceDir"
+        Write-Ok "Content: $($ContentPath)\game.pak  Saves: $SavesPath"
 
-            # Copy content if available
-            if ($ContentPath) {
-                Copy-Item (Join-Path $ContentPath "*") $InstanceDir -Recurse -Force -Exclude "*.git*"
-            }
-
-            Write-Ok "Instance $InstanceNum created at: $InstanceDir (port: $PortBase)"
-        }
-
-        # Create launch script for all instances
+        # Create a convenience launch script that opens two windows (host + join)
         $LaunchScript = @"
-# Launch all co-op instances for local testing
+# Launch a co-op pair: one host + one join instance
 # Generated by setup.ps1
-#
-# Instance 1 hosts on port 7777
-# Instance 2 joins to 127.0.0.1:7777
-# Instance 3 hosts on port 7877
-# Instance 4 joins to 127.0.0.1:7877
-# ...and so on (even = host, odd = join)
-#
-# Usage: .\launch-instances.ps1
 
 `$ErrorActionPreference = "Continue"
 `$root = "$PSScriptRoot"
+`$exe = Join-Path `$root "instances\instance-1\NebulaNative.exe"
+`$saves = Join-Path `$root "saves"
 
-Write-Host "`nLaunching $CreateInstances Nebula Co-Op instance(s) for local testing..." -ForegroundColor Cyan
-Write-Host "Each instance runs with its own saves folder and a unique port.`n" -ForegroundColor Gray
+Write-Host "Starting co-op pair (host + join)..." -ForegroundColor Cyan
 
-$hosts = @()
-for (`$i = 1; `$i -le `$CreateInstances; `$i++) {
-    `$dir = Join-Path `$root "instances\instance-`$i"
-    `$port = 7777 + ((`$i - 1) * 100)
-    `$isHost = ((`$i - 1) % 2 -eq 0)
+# Host on port 7777
+Start-Process -WorkingDirectory `$root -FilePath `$exe `
+    -ArgumentList "--host", "7777", "--saves", (Join-Path `$saves "coop-1")
+Write-Host "  Host started on port 7777" -ForegroundColor Green
 
-    `$args = @()
-    `$args += "--saves"
-    `$args += "`"`$(Join-Path `$dir 'saves')`""
-    `$args += "--module"
-    `$args += "`"`$(Join-Path `$dir 'smg_game.dll')`""
+Start-Sleep -Milliseconds 500
 
-    if (`$isHost) {
-        `$args += "--host"
-        `$args += "`$$($port)"
-        `$hosts += @{ Port = `$port }
-        Write-Host "  Instance `$i -> HOST on port `$port" -ForegroundColor Green
-    } else {
-        # Join the previous (hosting) instance
-        `$prevHost = `$hosts[(`$hosts.Count - 1)]
-        `$args += "--join"
-        `$args += "127.0.0.1:`$$($prevHost.Port)"
-        Write-Host "  Instance `$i -> JOIN 127.0.0.1:`$$($prevHost.Port)" -ForegroundColor Yellow
-    }
+# Join the host
+Start-Process -WorkingDirectory `$root -FilePath `$exe `
+    -ArgumentList "--join", "127.0.0.1:7777", "--saves", (Join-Path `$saves "coop-2")
+Write-Host "  Join started (connected to 127.0.0.1:7777)" -ForegroundColor Yellow
 
-    Write-Host "`n--- Starting Instance `$i ---" -ForegroundColor Cyan
-    Start-Process -WorkingDirectory `$dir -FilePath (Join-Path `$dir "NebulaNative.exe") `
-        -ArgumentList `$args -WindowStyle Normal
-    Start-Sleep -Milliseconds 500
-}
-
-Write-Host "`nAll instances launched. Close all game windows to stop.`n" -ForegroundColor Green
+Write-Host "`nBoth windows open. Close them to stop." -ForegroundColor White
 "@
-        Set-Content "$PSScriptRoot\launch-instances.ps1" $LaunchScript
-        Write-Ok "Launch script created: launch-instances.ps1"
-
-        # Create individual launch scripts per instance
-        for ($i = 1; $i -le $CreateInstances; $i++) {
-            $PortBase = 7777 + (($i - 1) * 100)
-            $IsHost = (($i - 1) % 2 -eq 0)
-
-            $IndivLaunch = @"
-# Launch Nebula Co-Op Instance $i
-# Port: $PortBase
-# Mode: $(if ($IsHost) { "HOST" } else { "JOIN" })
-
-`$ErrorActionPreference = "Stop"
-`$dir = "$PSScriptRoot\instances\instance-$i"
-`$port = $PortBase
-
-`$args = @()
-`$args += "--saves"
-`$args += "`"`$(Join-Path `$dir 'saves')`""
-`$args += "--module"
-`$args += "`"`$(Join-Path `$dir 'smg_game.dll')`""
-
-$(if ($IsHost) {
-    @"
-# Host mode: start a co-op session on this port
-`$args += "--host"
-`$args += "`$$($port)"
-"@
-} else {
-    @"
-# Join mode: connect to the previous instance (host on port 7777 + $((($i - 2) * 100)))
-`$args += "--join"
-`$args += "127.0.0.1:`$(7777 + $((($i - 2) * 100)))"
-"@
-})
-
-Write-Host "Starting Nebula Co-Op Instance $i ($('HOST' if $IsHost else 'JOIN'))..." -ForegroundColor Cyan
-Write-Host "  Directory: `$dir" -ForegroundColor Gray
-Write-Host "  Port: `$port" -ForegroundColor Gray
-Write-Host "  Saves: `$dir\saves" -ForegroundColor Gray
-
-Start-Process -WorkingDirectory `$dir -FilePath (Join-Path `$dir "NebulaNative.exe") `
-    -ArgumentList `$args
-
-Write-Host "Instance $i launched.`n" -ForegroundColor Green
-"@
-            Set-Content "$PSScriptRoot\instances\launch-instance-$i.ps1" $IndivLaunch
-        }
-        Write-Ok "Individual launch scripts created in instances\"
+        Set-Content "$PSScriptRoot\launch-coop.ps1" $LaunchScript
+        Write-Ok "Launch script created: launch-coop.ps1"
     }
 }
 
 # ── Done ─────────────────────────────────────────────────────────────────────
 
 Write-Step "Setup complete!"
+$ContentPath = "$PSScriptRoot\content"
+$SavesPath = "$PSScriptRoot\saves"
 Write-Host @"
 
 Build artifacts:
-  - Host:     $HostBin
-  - Game DLL: $GameDll
-  - Importer: .\target\release\nebula-import.exe
+  - Host:     build\host\NebulaNative.exe
+  - Game DLL: build\game\smg_game.dll
+  - Importer: .\target\release\n ebula-import.exe
 
 To import game content (if not already done):
-  .\target\release\nebula-import.exe --key common.key import <disc-path> --output content
+  .\target\release\n ebula-import.exe --key common.key import <disc-image> --output content
 
-To launch all co-op instances together:
-  .\launch-instances.ps1
-
-To launch a single instance:
-  .\instances\launch-instance-1.ps1
-  .\instances\launch-instance-2.ps1
+To launch a co-op pair (host + join):
+  .\launch-coop.ps1
 
 Manual launch examples:
   # Host a co-op session on port 7777:
-  .\build\host\Release\NebulaNative.exe --host 7777
+  .\instances\instance-1\NebulaNative.exe --host 7777
 
   # Join the host on port 7777:
-  .\build\host\Release\NebulaNative.exe --join 127.0.0.1:7777
+  .\instances\instance-1\NebulaNative.exe --join 127.0.0.1:7777
 
-  # With explicit saves and module paths:
-  .\build\host\Release\NebulaNative.exe --pak content\game.pak --saves my-saves --module build\game\smg_game.dll --host 7777
+  # With explicit saves paths:
+  Start-Process .\instances\instance-1\NebulaNative.exe -ArgumentList @("--host", "7777", "--saves", "saves\coop-1")
+  Start-Process .\instances\instance-1\NebulaNative.exe -ArgumentList @("--join", "127.0.0.1:7777", "--saves", "saves\coop-2")
 
 CLI options:
   --pak <path>       Path to game.pak (auto-found if content\game.pak exists)
