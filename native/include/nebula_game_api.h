@@ -563,6 +563,9 @@ enum {
                                                     a bubble...), a Boo, or out of the player's control */
     NEBULA_COOP_PLAYER_BUBBLED = 1u << 6,        /* (API 44) in a bubble after a death, flying to another player
                                                     (sm64coopdx's bubble on death); DEAD and INTANGIBLE too */
+    NEBULA_COOP_PLAYER_RACING = 1u << 7,         /* in a race of their own (a cosmic racer, a Boo, the penguins,
+                                                    the surfing rays, the swim through the rings): see-through to
+                                                    everyone, and no player touches them until it ends */
 };
 
 /* Another player in the same instance (the stage and the scenario) as the local one, for its copy to draw
@@ -650,7 +653,11 @@ enum {
    - NEBULA_COOP_WORLD_TELEPORT (host to game): a cheat command (/tp, docs/COOP_PLAN.md "Chat commands") moves the
      local player to a place in this stage: its x, y and z are the float bits of `object`, `value` and `scenario`. The
      game puts the player there standing, as soon as nothing holds them (a demo, a death, a bubble, a launch), or not
-     at all within a few seconds. A game without it ignores it. */
+     at all within a few seconds. A game without it ignores it.
+   - NEBULA_COOP_WORLD_CLOCK (both ways, docs/COOP_PLAN.md "Races and timers"): the mission's clock (a speedy comet's
+     time limit), one for the whole instance. Game to host: the local one started `value` ms ago. Host to game: the
+     instance's has run `value` ms (in the record before READY, as another player's starts, or when the local one
+     started after it); the game counts its own from there. */
 typedef struct NebulaCoopWorldEvent {
     uint32_t kind;     /* NEBULA_COOP_WORLD_* */
     uint32_t object;   /* GONE, HIT, SWITCH; STAR_BITS and STAR_BITS_ADD: the bank's change (signed) */
@@ -677,6 +684,7 @@ enum {
     NEBULA_COOP_WORLD_STAR_BITS,
     NEBULA_COOP_WORLD_STAR_BITS_ADD,
     NEBULA_COOP_WORLD_TELEPORT,
+    NEBULA_COOP_WORLD_CLOCK,
 };
 
 enum {
