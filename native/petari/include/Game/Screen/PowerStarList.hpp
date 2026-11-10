@@ -5,7 +5,6 @@
 
 class ButtonPaneController;
 class GalaxyStatusAccessor;
-class SysInfoWindow;
 
 class PowerStarList : public LayoutActor {
 public:
@@ -53,7 +52,6 @@ public:
 private:
     ButtonPaneController* mArrowUpButtonCtrl;
     ButtonPaneController* mArrowDownButtonCtrl;
-    SysInfoWindow* mSysInfoWindow;
     s32 mPageNo;
     s32 mPageNum;
     Separator* mSeparatorArray;
