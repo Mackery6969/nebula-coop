@@ -56,9 +56,15 @@ introduces players, as sm64coopdx's CoopNet does, so nobody has to forward a por
   `galaxy/coop_nebulanet.h`. The Host page's NETWORK picks NebulaNet (the default) or Direct, as sm64coopdx's CoopNet or
   direct connection; the room's code shows in the host's chat and on the Online tab, and the Join page takes a code or
   an address. `coop_network=direct` and `coop_nebulanet=<url>` (another NebulaNet, to test one's own) are its settings.
+- **NebulaNet as CoopNet.** NebulaNet offers what CoopNet offers sm64coopdx, for Nebula's star of players: a room has
+  a name (the Host page's ROOM NAME, `coop_room_name`, else the host's name), a mode (CO-OP, or PVP with friendly
+  fire), a description (its mods) and the room's password, which makes it private. The Join page's ROOMS lists the
+  public rooms, or with a password typed the private ones that have it, as sm64coopdx's lobby list does; pressing one
+  joins it by its code. NebulaNet checks a join's password and protocol first, and a joiner tells it whether it got
+  through (CoopNet's PEER_FAILED, the host always staying). The Host page's NEBULANET SERVER picks another NebulaNet.
 - **Relay fallback (next).** Where both routers are too strict for punching (carrier NAT, some campus networks),
-  NebulaNet hands out Cloudflare TURN credentials and the joiner goes through the relay. Later still: a Discord Join
-  button carrying the room code, and a public room list.
+  the joiner goes through a TURN relay: NebulaNet already hands TURN servers out (`ice` in its answers, as CoopNet's
+  STUN_TURN); the game doesn't use them yet. Later still: a Discord Join button carrying the room code.
 - **Dedicated server (later).** The world simulation *is* the game, so a server with nobody playing on it needs a
   headless Nebula: the game module running with no window, renderer or audio output, and no local Mario (or a hidden
   one). That's a real but separate project after Phase 2. The protocol is designed so the authority doesn't have to be
@@ -495,6 +501,29 @@ the Online tab (Bubble on Death, `coop_bubble_death`, on by default), sent with 
   copy, bursting as it's let out (game API 120, session protocol 7).
 - Not yet: Mario keeps a power-up form in the bubble (a miss would have taken it).
 
+## Races and timers
+
+Galaxy's races are each player's own race against the game's rival, and a mission's time limit is the instance's.
+
+- **Races.** The cosmic racer (`GhostPlayer`), both Boo races, the penguins' swim race and the surfing rays
+  (`RaceManager`), and the swim through the rings (`Syati`) run in the racer's game alone: each player races their own
+  rival. From the race's start to its end, the racer and every other player are see-through to each other (the
+  copy drawn as the local Mario is with the camera right on him, its shadow off) and nothing between them touches:
+  no push, bounce or attack, whatever the room's Player Interaction. Enemies still see a racer. The racing actors
+  note it each frame they run a race (`NebulaRemotePlayer::noteLocalRacing`) and the snapshot says it
+  (`NEBULA_COOP_PLAYER_RACING`), so it costs no message.
+- **Winning.** A race won is a Power Star like any other: the save's, everyone's. The race's best time is the fastest
+  anyone ran ([Shared world state](#shared-world-state)'s RaceTime).
+- **No bubble in a race.** A miss in a race of one's own starts it over as alone; nobody racing is a bubble's
+  rescuer either.
+- **Mission clocks.** A speedy comet's time limit (`CometEventExecutorTimeLimit`) is one clock for everyone in the
+  instance: the first player's to start is the instance's (`WorldAuthority::clock`, session message 44). A player
+  coming later is told how long it has run with the instance's record and counts from there; one whose own started
+  after it is told too, and a clock more than 1.5 seconds behind is moved on (never back, never past the time up).
+  At the time up every game kills its own Mario, so everyone misses, and the mission starts over with a fresh
+  clock ([Instances](#instances-one-per-galaxy-and-mission)). Challenges an NPC starts with a timer of their own
+  (the bomb timers: the rabbits, the caretaker) stay each player's.
+
 ## Shared world state
 
 The server decides everything but the visuals (`galaxy/coop_world.h`, the game's `NebulaCoopWorld`, game API 40's
@@ -644,6 +673,8 @@ Each phase ships on its own and leaves the game playable.
 - [x] [Player collisions](#player-collisions): non-solid, solid and friendly fire, knockback strength and PvP mode,
       with lag compensation.
 - [x] [Bubble on death](#bubble-on-death): a player who dies near another flies to them in a bubble, for a life.
+- [x] [Races and timers](#races-and-timers): each player races their own rival, see-through to the others and
+      untouchable; a speedy comet's clock is the instance's.
 - [x] Remote players stomp, spin and touch objects: each hit is played again in every game in the instance
       ([Shared objects](#shared-objects)).
 

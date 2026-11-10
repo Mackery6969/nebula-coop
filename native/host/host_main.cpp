@@ -2163,6 +2163,30 @@ bool open_coop_room() {
     return true;
 }
 
+// The Rooms page's list (MenuCommand::ListRooms): NebulaNet's public rooms, or the private ones with the Join page's
+// password, asked on a thread of its own and given to the menu as they come (poll_coop_rooms).
+std::unique_ptr<galaxy::coop::NebulaNetLink> gCoopRoomList;
+
+void start_coop_rooms() {
+    static const std::shared_ptr<galaxy::net::Web> web = galaxy::net::platform_web();
+    if (!gCoopRoomList) gCoopRoomList = std::make_unique<galaxy::coop::NebulaNetLink>(web);
+    gCoopRoomList->list(coop_nebulanet_server(), gCoopMenu.room().password);
+}
+
+void poll_coop_rooms() {
+    if (!gCoopRoomList) return;
+    for (galaxy::coop::NebulaNetEvent& event : gCoopRoomList->take_events()) {
+        if (event.kind != galaxy::coop::NebulaNetEvent::Kind::Rooms) continue;
+        std::vector<galaxy::coop::ListedRoom> rooms;
+        for (galaxy::coop::NebulaNetRoom& room : event.rooms) {
+            rooms.push_back({std::move(room.code), std::move(room.name), std::move(room.version), std::move(room.mode),
+                             std::move(room.description), room.locked, room.players, room.max});
+        }
+        gCoopMenu.set_rooms(std::move(rooms), std::move(event.text), kCoopGameVersion);
+        gCoopRoomList->stop();
+    }
+}
+
 // Join: finds the Join page's room code on NebulaNet, or connects to its address. How it goes comes to
 // poll_coop_join.
 void start_coop_join() {
@@ -2661,6 +2685,7 @@ int32_t svc_coop_menu(void*, uint32_t what) {
         // What the player changed is kept as they change it, a text once kept.
         if (!gCoopMenu.editing()) keep_coop_settings();
         if (poll_coop_join()) return NEBULA_COOP_MENU_PLAY;
+        poll_coop_rooms();
         switch (gCoopMenu.take_command()) {
         case galaxy::coop::MenuCommand::Play:
             if (gCoopMenu.joining()) return NEBULA_COOP_MENU_NONE;
@@ -2673,6 +2698,9 @@ int32_t svc_coop_menu(void*, uint32_t what) {
             gCoopSession.leave();
             (void)gCoopSession.take_events();
             std::fprintf(stderr, "[coop] the join was cancelled\n");
+            return NEBULA_COOP_MENU_NONE;
+        case galaxy::coop::MenuCommand::ListRooms:
+            start_coop_rooms();
             return NEBULA_COOP_MENU_NONE;
         case galaxy::coop::MenuCommand::Quit: return NEBULA_COOP_MENU_QUIT;
         case galaxy::coop::MenuCommand::Settings:
@@ -2839,6 +2867,7 @@ void svc_coop_world_report(void*, const NebulaCoopWorldEvent* event) {
                                static_cast<std::uint8_t>(copy.scenario), 0u});
         return;
     case NEBULA_COOP_WORLD_SWITCH: gCoopWorld.report_switch({copy.object, copy.value != 0u}); return;
+    case NEBULA_COOP_WORLD_CLOCK: gCoopWorld.report_clock(copy.value); return;
     case NEBULA_COOP_WORLD_MISS:
         std::fprintf(stderr, "[coop] world: a miss, the instance goes on without this player until its scene starts over\n");
         gCoopWorld.report_miss();
@@ -2895,6 +2924,9 @@ uint32_t svc_coop_world_take(void*, NebulaCoopWorldEvent* events, uint32_t capac
             to.kind = NEBULA_COOP_WORLD_SWITCH;
             to.object = from.change.id;
             to.value = from.change.on ? 1u : 0u;
+        } else if (from.kind == Kind::Clock) {
+            to.kind = NEBULA_COOP_WORLD_CLOCK;
+            to.value = from.clock_ms;
         } else {
             using galaxy::coop::SaveKind;
             switch (from.save.kind) {

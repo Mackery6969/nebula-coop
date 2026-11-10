@@ -62,6 +62,11 @@ namespace {
     NebulaCoopRules sRules = {};
     s32 sSceneFrames = 0;
     bool sLocalIntangible = true;
+    // Races: noted by the racing actors as they run (sRacingNoted), and taken once a frame (sLocalRacing).
+    bool sRacingNoted = false;
+    bool sLocalRacing = false;
+    // How opaque another player is while either of you races (the see-through Mario's colour 2 alpha).
+    const u8 cGhostAlpha = 0x60;
     // sm64coopdx keeps players from touching in their first 60 frames in an area: here the scene's and each copy's.
     const s32 cContactAfter = 60;
 
@@ -163,6 +168,14 @@ namespace {
     }
 };  // namespace
 
+void NebulaRemotePlayer::noteLocalRacing() {
+    sRacingNoted = true;
+}
+
+bool NebulaRemotePlayer::isLocalRacing() {
+    return sLocalRacing;
+}
+
 bool NebulaRemotePlayer::isLocalIntangible() {
     const MarioActor* pMario = getLocalMario();
     return pMario == nullptr || MR::isPlayerDead() || MR::isDemoActive() || MR::isPlayerInRush() ||
@@ -175,6 +188,9 @@ NebulaRemotePlayer::NebulaRemotePlayer(bool isLuigi)
       mStompTimer(0), mSolid(false), mBubble(nullptr) {
     mName[0] = '\0';
     mGroup[0] = '\0';
+    mGhosted = false;
+    mGhostTint.kind = MarioModelTint::Kind_Alpha;
+    mGhostTint.color0.a = cGhostAlpha;
     memset(&mState, 0, sizeof(mState));
     memset(mTrackName, 0, sizeof(mTrackName));
     memset(mTrackBck, 0, sizeof(mTrackBck));
@@ -185,6 +201,8 @@ void NebulaRemotePlayer::forgetAll() {
     sOtherTable = nullptr;
     sSceneFrames = 0;
     sHistoryNum = 0;
+    sRacingNoted = false;
+    sLocalRacing = false;
 }
 
 void NebulaRemotePlayer::tryCreate() {
@@ -208,8 +226,9 @@ void NebulaRemotePlayer::tryCreate() {
     // Each character plays its own animations (Luigi's wait, run and jumps are his), whichever the local player is:
     // the other character's from a table of their own, on the animation archive where Luigi's BCK files actually
     // live (MarioAnime.arc). The model's own arc (Mario.arc / Luigi.arc) doesn't have them, so lookups silently fail
-    // and the model's joints stay in bind pose, which makes the head and arms disappear.
-    sOtherTable = MarioAnimator::newCharacterResourceTable(MR::createAndAddResourceHolder("MarioAnime"), !MR::isPlayerLuigi());
+    // and the model's joints stay in bind pose, which makes the head and arms disappear. Named with ".arc", as
+    // GameSystemStationedArchiveLoader loads it: the holders are found by that name, and the file has no other.
+    sOtherTable = MarioAnimator::newCharacterResourceTable(MR::createAndAddResourceHolder("MarioAnime.arc"), !MR::isPlayerLuigi());
     for (s32 i = 0; i < perCharacter * 2; i++) {
         NebulaRemotePlayer* pCopy = new NebulaRemotePlayer(i >= perCharacter);
         pCopy->init(JMapInfoIter{});
@@ -254,6 +273,9 @@ TVec3f NebulaRemotePlayer::getNametagPos() const {
 }
 
 void NebulaRemotePlayer::updateAll() {
+    // Whether a race ran this frame (or the last, by the order things move in), taken even with nobody to show.
+    sLocalRacing = sRacingNoted;
+    sRacingNoted = false;
     if (sCopyNum == 0) {
         return;
     }
@@ -323,6 +345,16 @@ void NebulaRemotePlayer::updateAll() {
         }
         if (solid) {
             pCopy->tryAttackLocal();
+        }
+        // See-through while either races, without the shadow that would give them away.
+        const bool ghosted = pCopy->isGhosted();
+        if (ghosted != pCopy->mGhosted) {
+            if (ghosted) {
+                MR::offCalcShadow(pCopy, nullptr);
+            } else {
+                MR::onCalcShadow(pCopy, nullptr);
+            }
+            pCopy->mGhosted = ghosted;
         }
     }
 }
@@ -599,10 +631,14 @@ bool NebulaRemotePlayer::isTouchable() const {
     if (sRules.interaction == NEBULA_COOP_INTERACTION_NONSOLID || sLocalIntangible) {
         return false;
     }
-    if (sSceneFrames < cContactAfter || mShownFrames < cContactAfter) {
+    if (sSceneFrames < cContactAfter || mShownFrames < cContactAfter || isGhosted()) {
         return false;
     }
     return (mState.flags & (NEBULA_COOP_PLAYER_INTANGIBLE | NEBULA_COOP_PLAYER_DEAD)) == 0 && mState.mode != PlayerMode_Teresa;
+}
+
+bool NebulaRemotePlayer::isGhosted() const {
+    return sLocalRacing || (mState.flags & NEBULA_COOP_PLAYER_RACING) != 0;
 }
 
 void NebulaRemotePlayer::tryAttackLocal() {
@@ -713,7 +749,12 @@ void NebulaRemotePlayer::draw() const {
     J3DModelX* pModel = reinterpret_cast< J3DModelX* >(MR::getJ3DModel(this));
     pModel->viewCalc2();
     pModel->mFlags.clear();
-    pModel->setDynamicList(mLightTint.kind != MarioModelTint::Kind_None ? &mLightTint : nullptr);
+    // While either races: see-through, as the local Mario is with the camera right on him (MarioActor's alpha list).
+    if (mGhosted) {
+        pModel->setDynamicList(&mGhostTint);
+    } else {
+        pModel->setDynamicList(mLightTint.kind != MarioModelTint::Kind_None ? &mLightTint : nullptr);
+    }
     // No setDrawView: it points the draw matrices at the extra buffers only the local Mario has (MarioActor's
     // initExtraMtxBuffer); this copy has none, so it drew from a null array and crashed. GhostPlayer draws the same way.
     pModel->directDraw(nullptr);

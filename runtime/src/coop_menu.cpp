@@ -17,6 +17,8 @@ enum HostRow : unsigned {
     RowSave,
     RowSaveEdit,
     RowNetwork,
+    RowRoomName,
+    RowServer,
     RowPort,
     RowPassword,
     RowPlayers,
@@ -30,7 +32,7 @@ enum HostRow : unsigned {
     RowBack,
     HostRowCount
 };
-enum JoinRow : unsigned { RowAddress, RowJoinPassword, RowJoinStart, RowJoinBack, JoinRowCount };
+enum JoinRow : unsigned { RowAddress, RowJoinPassword, RowJoinStart, RowRooms, RowJoinBack, JoinRowCount };
 enum JoiningRow : unsigned { RowJoinStep, RowJoinBar, RowJoinCancel, JoiningRowCount };
 
 constexpr unsigned kKnockbacks[] = {kCoopKnockbackWeak, kCoopKnockbackNormal, kCoopKnockbackTooMuch};
@@ -41,10 +43,12 @@ constexpr std::string_view kPasswordLetters =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.!?#$%&*+=@";
 constexpr std::string_view kAddressLetters = "0123456789.:abcdefghijklmnopqrstuvwxyz-[]";
 constexpr std::string_view kPortLetters = "0123456789";
+constexpr std::string_view kServerLetters = "abcdefghijklmnopqrstuvwxyz0123456789.:/-[]";
 
 std::string_view kind_letters(TextKind kind) {
     switch (kind) {
     case TextKind::Port: return kPortLetters;
+    case TextKind::Server: return kServerLetters;
     case TextKind::Password: return kPasswordLetters;
     case TextKind::Address: return kAddressLetters;
     default: return kNameLetters;
@@ -54,7 +58,8 @@ std::string_view kind_letters(TextKind kind) {
 std::size_t kind_limit(TextKind kind) {
     switch (kind) {
     case TextKind::Port: return 5u;
-    case TextKind::Address: return kCoopAddressLimit;
+    case TextKind::Address:
+    case TextKind::Server: return kCoopAddressLimit;
     case TextKind::PlayerName: return kPlayerNameLimit;
     default: return kCoopTextLimit;
     }
@@ -172,6 +177,7 @@ TextEdit::Result TextEdit::type(char32_t key) {
     bool allowed = true;
     if (kind_ == TextKind::Port) allowed = letter >= '0' && letter <= '9';
     if (kind_ == TextKind::Address) allowed = letter != ' ' && letter != '/';
+    if (kind_ == TextKind::Server) allowed = letter != ' ';
     if (allowed && text_.size() < kind_limit(kind_)) text_.insert(cursor_++, 1u, letter);
     return Result::Editing;
 }
@@ -209,6 +215,22 @@ void MainMenu::finish_join(std::string step) {
     joining_ = false;
     join_done_ = true;
     set_join_status(std::move(step), {}, 100u);
+}
+
+void MainMenu::set_rooms(std::vector<ListedRoom> rooms, std::string failed, std::string version) {
+    rooms_ = std::move(rooms);
+    rooms_failed_ = std::move(failed);
+    version_ = std::move(version);
+    rooms_searching_ = false;
+    if (screen_ == Screen::Rooms) selected_ = std::min(selected_, row_count() - 1u);
+}
+
+void MainMenu::search_rooms() {
+    show(Screen::Rooms, 0u);
+    rooms_.clear();
+    rooms_failed_.clear();
+    rooms_searching_ = true;
+    command_ = MenuCommand::ListRooms;
 }
 
 void MainMenu::close() {
@@ -257,6 +279,7 @@ unsigned MainMenu::row_count() const {
     case Screen::Mods: return star_counter_row() + 2u;
     case Screen::Join: return JoinRowCount;
     case Screen::Joining: return JoiningRowCount;
+    case Screen::Rooms: return static_cast<unsigned>(std::max<std::size_t>(rooms_.size(), 1u)) + 1u;
     }
     return 0u;
 }
@@ -271,7 +294,8 @@ std::vector<MenuRow> MainMenu::rows() const {
     case Screen::Main: {
         std::vector<MenuRow> rows(MainRowCount);
         rows[RowHost] = {"HOST", "OPEN", "PICK A SAVE AND THE ROOM'S SETTINGS, THEN PLAY", true};
-        rows[RowJoin] = {"JOIN", "OPEN", "THE ADDRESS OF ANOTHER PLAYER'S GAME", true};
+        rows[RowJoin] = {"JOIN", "OPEN", "A ROOM'S CODE, A ROOM FROM NEBULANET'S LIST, OR ANOTHER PLAYER'S ADDRESS",
+                         true};
         rows[RowOptions] = settings_
             ? MenuRow{"OPTIONS", "OPEN", "YOUR NAME AND CHARACTER, AND NEBULA'S SETTINGS: DISPLAY, GRAPHICS, AUDIO",
                       true}
@@ -301,6 +325,19 @@ std::vector<MenuRow> MainMenu::rows() const {
                                            : "DIRECT: FRIENDS JOIN BY YOUR ADDRESS AND PORT. FORWARD THE PORT ON YOUR "
                                              "ROUTER, OR PLAY OVER A VPN",
                             false, true};
+        const bool naming = edit_.field == Field::RoomName;
+        rows[RowRoomName] = {"ROOM NAME",
+                             naming                    ? text_value(Field::RoomName, RowRoomName, {})
+                             : coop.room_name.empty() ? "YOUR NAME"
+                                                      : coop.room_name,
+                             "THE NAME NEBULANET'S ROOM LIST SHOWS. NONE: YOUR PLAYER NAME", false, false,
+                             naming || !coop.room_name.empty(), true};
+        rows[RowServer] = {"NEBULANET SERVER",
+                           text_value(Field::Server, RowServer,
+                                      coop.nebulanet_server.empty() ? kCoopNebulaNetDefault : coop.nebulanet_server),
+                           coop.nebulanet ? "THE NEBULANET THAT LISTS THE ROOM, AND THAT JOIN USES TOO. TAB: NEBULA'S"
+                                          : "ONLY USED WITH NEBULANET: THE ONE THAT LISTS ROOMS AND JOIN USES",
+                           false, false, true, true};
         rows[RowPort] = {"PORT", text_value(Field::Port, RowPort, std::to_string(coop.port)),
                          coop.nebulanet ? "THE UDP PORT THE ROOM PLAYS ON. WITH NEBULANET NOTHING NEEDS FORWARDING"
                                         : "THE UDP PORT PLAYERS JOIN ON. FORWARD IT ON YOUR ROUTER, OR PLAY OVER A VPN",
@@ -310,7 +347,10 @@ std::vector<MenuRow> MainMenu::rows() const {
                                  ? text_value(Field::Password, RowPassword, {})
                              : coop.password.empty() ? "NONE"
                                                      : std::string(coop.password.size(), '*'),
-                             "PLAYERS WHO JOIN MUST GIVE IT. NONE: ANYONE WITH THE ADDRESS MAY JOIN", false, false,
+                             coop.nebulanet ? "PLAYERS WHO JOIN MUST GIVE IT, AND THE ROOM IS PRIVATE: NEBULANET LISTS "
+                                              "IT ONLY TO THOSE WHO SEARCH WITH IT. NONE: A PUBLIC ROOM"
+                                            : "PLAYERS WHO JOIN MUST GIVE IT. NONE: ANYONE WITH THE ADDRESS MAY JOIN",
+                             false, false,
                              !coop.password.empty() || edit_.field == Field::Password, true};
         rows[RowPlayers] = {"MAX PLAYERS", std::to_string(coop.max_players),
                             "HOW MANY PLAYERS THE ROOM HOLDS, YOU INCLUDED", false, true};
@@ -336,7 +376,10 @@ std::vector<MenuRow> MainMenu::rows() const {
                                          : "PLAYS THE SAVE AND OPENS THE ROOM: OTHERS JOIN YOUR ADDRESS AND PORT",
                           true};
         rows[RowBack] = {"BACK", "BACK", "BACK TO THE MAIN MENU", true};
-        if (edit_.field == Field::Port || edit_.field == Field::Password) rows[edit_.row].help = kEditHelp;
+        if (edit_.field == Field::Port || edit_.field == Field::Password || edit_.field == Field::RoomName ||
+            edit_.field == Field::Server) {
+            rows[edit_.row].help = kEditHelp;
+        }
         return rows;
     }
     case Screen::Mods: {
@@ -375,7 +418,8 @@ std::vector<MenuRow> MainMenu::rows() const {
                                  edit_.field == Field::Password ? text_value(Field::Password, RowJoinPassword, {})
                                  : coop.password.empty()        ? "NONE"
                                                                 : std::string(coop.password.size(), '*'),
-                                 "THE ROOM'S PASSWORD, WHEN IT HAS ONE", false, false,
+                                 "THE ROOM'S PASSWORD, WHEN IT HAS ONE. ROOMS THEN LISTS THE PRIVATE ROOMS WITH IT",
+                                 false, false,
                                  !coop.password.empty() || edit_.field == Field::Password, true};
         if (joining_) {
             rows[RowJoinStart] = MenuRow{"JOIN", "CANCEL", "CONNECTING TO THE HOST...", true};
@@ -384,6 +428,10 @@ std::vector<MenuRow> MainMenu::rows() const {
         } else {
             rows[RowJoinStart] = MenuRow{"JOIN", "JOIN", "CONNECTS TO THE HOST AND PLAYS IN THEIR ROOM", true};
         }
+        rows[RowRooms] = {"ROOMS", "BROWSE",
+                          coop.password.empty() ? "NEBULANET'S PUBLIC ROOMS: PICK ONE TO JOIN IT"
+                                                : "NEBULANET'S PRIVATE ROOMS THAT HAVE THE PASSWORD ABOVE",
+                          true};
         rows[RowJoinBack] = {"BACK", "BACK", "BACK TO THE MAIN MENU", true};
         if (editing()) rows[edit_.row].help = kEditHelp;
         return rows;
@@ -399,6 +447,35 @@ std::vector<MenuRow> MainMenu::rows() const {
                                          : MenuRow{"", "CANCEL", "STOPS JOINING, BACK TO THE JOIN PAGE", true};
         return rows;
     }
+    case Screen::Rooms: {
+        std::vector<MenuRow> rows;
+        const bool locked = !room_.password.empty();
+        for (const ListedRoom& room : rooms_) {
+            const bool full = room.players >= room.max;
+            const bool other = !version_.empty() && room.version != version_;
+            std::string about = room.mode.empty() ? std::string("CO-OP") : room.mode;
+            if (!room.description.empty()) about += ". " + room.description;
+            MenuRow row{room.name,
+                        full ? "FULL" : std::to_string(room.players) + "/" + std::to_string(room.max),
+                        other ? "ANOTHER VERSION OF NEBULA (" + room.version + "): IT CAN'T BE JOINED FROM THIS ONE"
+                              : about + ". CODE " + room.code};
+            row.label_name = true;
+            row.name = true;
+            rows.push_back(std::move(row));
+        }
+        if (rooms_.empty()) {
+            rows.push_back({rooms_searching_          ? "SEARCHING NEBULANET..."
+                            : !rooms_failed_.empty() ? rooms_failed_
+                            : locked                 ? "NO PRIVATE ROOM HAS THAT PASSWORD"
+                                                     : "NO PUBLIC ROOMS RIGHT NOW",
+                            {},
+                            locked ? "PRIVATE ROOMS SHOW ONLY TO THOSE WHO SEARCH WITH THEIR PASSWORD"
+                                   : "HOST ONE, OR TYPE A FRIEND'S ROOM CODE ON THE JOIN PAGE"});
+        }
+        rows.push_back({"", rooms_searching_ ? "-REFRESH|BACK" : "REFRESH|BACK",
+                        "REFRESH: ASK NEBULANET AGAIN. BACK: THE JOIN PAGE", true});
+        return rows;
+    }
     }
     return {};
 }
@@ -410,11 +487,12 @@ unsigned MainMenu::button_count(unsigned row) const {
 }
 
 MenuView MainMenu::view() const {
-    static const char* const titles[] = {"PLAY", "HOST", "MODS", "JOIN", "JOINING"};
+    static const char* const titles[] = {"PLAY", "HOST", "MODS", "JOIN", "JOINING", "ROOMS"};
     MenuView view;
     view.open = open_;
     view.page = 0u;
-    view.pages = {titles[static_cast<unsigned>(screen_)]};
+    view.pages = {screen_ == Screen::Rooms && !room_.password.empty() ? "PRIVATE ROOMS"
+                                                                      : titles[static_cast<unsigned>(screen_)]};
     view.rows = rows();
     view.selected = selected_;
     view.selected_button = selected_button_;
@@ -527,7 +605,13 @@ void MainMenu::press(unsigned button) {
     const MenuRow& row = all[selected_];
     if (row.text) {
         switch (screen_) {
-        case Screen::Host: start_edit(selected_ == RowPort ? Field::Port : Field::Password, selected_); break;
+        case Screen::Host:
+            start_edit(selected_ == RowPort       ? Field::Port
+                       : selected_ == RowRoomName ? Field::RoomName
+                       : selected_ == RowServer   ? Field::Server
+                                                  : Field::Password,
+                       selected_);
+            break;
         case Screen::Join: start_edit(selected_ == RowAddress ? Field::Address : Field::Password, selected_); break;
         default: break;
         }
@@ -539,6 +623,10 @@ void MainMenu::press(unsigned button) {
     }
     if (screen_ == Screen::Mods && selected_ == star_counter_row()) {
         room_.star_counter = !room_.star_counter;
+        return;
+    }
+    if (screen_ == Screen::Rooms && selected_ + 1u < row_count()) {
+        press_rooms(selected_, 0u);
         return;
     }
     if (button >= button_count(selected_)) return;
@@ -553,8 +641,10 @@ void MainMenu::press(unsigned button) {
     case Screen::Mods: press_mods(selected_); return;
     case Screen::Join:
         if (selected_ == RowJoinStart) command_ = joining_ ? MenuCommand::CancelJoin : MenuCommand::Join;
+        if (selected_ == RowRooms && !joining_) search_rooms();
         if (selected_ == RowJoinBack) back();
         return;
+    case Screen::Rooms: press_rooms(selected_, button); return;
     case Screen::Joining:
         if (selected_ == RowJoinCancel && joining_) command_ = MenuCommand::CancelJoin;
         return;
@@ -601,6 +691,31 @@ void MainMenu::press_host(unsigned row, unsigned button) {
     }
 }
 
+void MainMenu::press_rooms(unsigned row, unsigned button) {
+    if (row + 1u == row_count()) {
+        // REFRESH|BACK
+        if (button == 0u) {
+            search_rooms();
+        } else {
+            back();
+        }
+        return;
+    }
+    if (row >= rooms_.size()) return;
+    const ListedRoom& room = rooms_[row];
+    if (!version_.empty() && room.version != version_) {
+        message_ = "THAT ROOM PLAYS ANOTHER VERSION OF NEBULA";
+        return;
+    }
+    if (room.players >= room.max) {
+        message_ = "THAT ROOM IS FULL";
+        return;
+    }
+    // Joins it by its code, as the Join page would (with its password), the joining screen in this page's place.
+    room_.join_address = room.code;
+    command_ = MenuCommand::Join;
+}
+
 void MainMenu::press_mods(unsigned row) {
     if (row + 1u == row_count()) show(Screen::Host, RowMods);
 }
@@ -611,6 +726,11 @@ void MainMenu::start_edit(Field field, unsigned row) {
     switch (field) {
     case Field::SaveName:
         edit_.text = TextEdit(TextKind::Name, save_ < save_names_.size() ? save_names_[save_] : std::string());
+        break;
+    case Field::RoomName: edit_.text = TextEdit(TextKind::Name, room_.room_name); break;
+    case Field::Server:
+        edit_.text = TextEdit(TextKind::Server,
+                              room_.nebulanet_server.empty() ? kCoopNebulaNetDefault : room_.nebulanet_server);
         break;
     case Field::Port: edit_.text = TextEdit(TextKind::Port, std::to_string(room_.port)); break;
     case Field::Password: edit_.text = TextEdit(TextKind::Password, room_.password); break;
@@ -632,6 +752,18 @@ void MainMenu::finish_edit() {
             save_names_[save_] = saves_->find(save_ids_[save_])->name;
         }
         break;
+    case Field::RoomName: room_.room_name = text; break;
+    case Field::Server: {
+        if (!text.empty() && !text.starts_with("https://") && !text.starts_with("http://")) {
+            message_ = "A NEBULANET SERVER STARTS WITH HTTPS://";
+            return;
+        }
+        std::string server = text;
+        while (!server.empty() && server.back() == '/') server.pop_back();
+        // Nebula's own is kept as none, so a game that changes it later follows.
+        room_.nebulanet_server = server == kCoopNebulaNetDefault ? std::string() : server;
+        break;
+    }
     case Field::Port: {
         std::uint16_t port = 0u;
         if (!parse_port(text, port)) {
@@ -681,6 +813,7 @@ void MainMenu::reset() {
         if (selected_ == RowJoinPassword) room_.password.clear();
         return;
     }
+    if (screen_ == Screen::Rooms) return;
     if (screen_ == Screen::Mods) {
         if (selected_ < mods_.size() && mods_[selected_].on) {
             toggle_mod(selected_);
@@ -693,6 +826,8 @@ void MainMenu::reset() {
     switch (selected_) {
     case RowPort: room_.port = defaults.port; break;
     case RowPassword: room_.password.clear(); break;
+    case RowRoomName: room_.room_name.clear(); break;
+    case RowServer: room_.nebulanet_server.clear(); break;
     case RowPlayers: room_.max_players = defaults.max_players; break;
     case RowInteraction: room_.player_interaction = defaults.player_interaction; break;
     case RowKnockback: room_.knockback_strength = defaults.knockback_strength; break;
@@ -723,6 +858,7 @@ void MainMenu::back() {
         // The host stops the join and shows the Join page again (set_joining).
         if (joining_) command_ = MenuCommand::CancelJoin;
         return;
+    case Screen::Rooms: show(Screen::Join, RowRooms); return;
     }
 }
 

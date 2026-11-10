@@ -47,6 +47,9 @@ inline constexpr std::uint8_t kWorldSwitchMessage = 42u;  // player to host: swi
                                                           // the instance's record, at its enter): the same
 inline constexpr std::uint8_t kWorldMissMessage = 43u;    // player to host: its player missed: the instance goes on
                                                           // without it until its scene starts over
+// Mission clocks (docs/COOP_PLAN.md "Races and timers"): a speedy comet's clock is the instance's, one for everyone.
+inline constexpr std::uint8_t kWorldClockMessage = 44u;   // player to host: its mission clock started (ran this long);
+                                                          // host to a player: the instance's clock ran this long
 
 // Most things an instance's record keeps, and the most save changes a session keeps: a player can't grow the
 // host's memory past them.
@@ -206,6 +209,16 @@ public:
     Switched switches(Player player, std::span<const SwitchChange> switches);
     // An instance's switches as its record has them, for a player entering it.
     [[nodiscard]] std::vector<SwitchChange> switches_of(const Instance& instance) const;
+    // A player's mission clock (a speedy comet's) started `elapsed_ms` ago (`now_ms` the host's clock). The instance
+    // has one clock, the first to start: the others in the instance are told of it as it starts, and a player whose
+    // own started later is told how long the instance's has run, to count from there.
+    struct Clocked {
+        std::uint32_t elapsed_ms = 0u;
+        std::vector<Player> tell;
+    };
+    Clocked clock(Player player, std::uint32_t elapsed_ms, std::uint64_t now_ms);
+    // How long an instance's mission clock has run, for a player entering it: none before anyone's started.
+    [[nodiscard]] std::optional<std::uint32_t> clock_of(const Instance& instance, std::uint64_t now_ms) const;
     // A change to the session's save: true when it is news (a star, flag or achievement not had yet, a value
     // changed), now in save_changes() for everyone. Event values are the host's game's alone (`from_host`): each
     // player's game keeps its own count of misses, comets and the like, and the host's is the session's.
@@ -224,6 +237,7 @@ private:
         std::map<std::uint32_t, bool> switches;       // switch, on
         std::set<Player> players;
         std::set<Player> missed;                      // those of players whose miss goes on
+        std::optional<std::uint64_t> clock_ms;        // when its mission clock started, by the host's clock
     };
     void drop_player(Player player);
     // The record of the instance `player` plays in: none for a player in no instance, or whose miss goes on.
@@ -245,13 +259,14 @@ struct StarGot {
 // What the game is told (World::take): things gone from its instance, the record's end, save changes, and stars
 // others in the instance took.
 struct WorldEvent {
-    enum class Kind : std::uint8_t { Gone, Ready, Save, StarGot, Hit, Switch };
+    enum class Kind : std::uint8_t { Gone, Ready, Save, StarGot, Hit, Switch, Clock };
     Kind kind = Kind::Gone;
     Gone gone;
     SaveChange save;
     StarGot star;
     ObjectHit hit;
     SwitchChange change;
+    std::uint32_t clock_ms = 0u;  // Clock: how long the instance's mission clock has run
 };
 
 // The world over a session, for this player's game. The game's calls (enter, report_gone, report_save, take) come
@@ -292,6 +307,9 @@ public:
     void report_hit(const ObjectHit& hit);
     // The game turned a switch: the instance's record keeps it and the others there are told.
     void report_switch(const SwitchChange& change);
+    // The game's mission clock (a speedy comet's) started `elapsed_ms` ago: the instance's is the first to start
+    // (WorldAuthority::clock), and a Clock event comes when that is another's.
+    void report_clock(std::uint32_t elapsed_ms);
     [[nodiscard]] std::vector<WorldEvent> take();
     // The others' objects' states as they came, the latest of each object (unreliable: some never come).
     [[nodiscard]] std::vector<ObjectState> take_states();
@@ -316,6 +334,7 @@ private:
     void host_states(net::PeerId from, unsigned number, std::span<const ObjectState> states, std::vector<Outgoing>& out);
     void host_hit(net::PeerId from, ObjectHit hit, std::vector<Outgoing>& out);
     void host_switches(net::PeerId from, std::span<const SwitchChange> switches, std::vector<Outgoing>& out);
+    void host_clock(net::PeerId from, std::uint32_t elapsed_ms, std::vector<Outgoing>& out);
     void push_state(const ObjectState& state);
     void host_save(net::PeerId from, const SaveChange& change);
     // The others in `from`'s instance told of its star: the host's own game here, the rest as messages to send once

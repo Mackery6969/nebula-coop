@@ -43,6 +43,12 @@ public:
     // Nothing touches the local Mario now: dead, in a demo, bound to something (a Launch Star, a bubble...), a Boo,
     // hidden or out of the player's control. GameScene sends it as NEBULA_COOP_PLAYER_INTANGIBLE.
     static bool isLocalIntangible();
+    // Races (docs/COOP_PLAN.md "Races and timers"): each player races their own rival, and while either the local
+    // player or another one races, the two are see-through to each other and don't touch. The racing actors note it
+    // each frame they run a race (the race manager, the cosmic racer, the ring swim); GameScene sends it as
+    // NEBULA_COOP_PLAYER_RACING.
+    static void noteLocalRacing();
+    static bool isLocalRacing();
 
     virtual void init(const JMapInfoIter& rIter);
     virtual void control();
@@ -56,6 +62,8 @@ public:
     void hide();
     // Whether the local Mario and this player may touch now (the rules, the first second of either, intangibility).
     bool isTouchable() const;
+    // See-through and untouchable: the local player or this one races.
+    bool isGhosted() const;
     // This player's attack, as they saw the local Mario, onto him.
     void tryAttackLocal();
     // The animation the snapshot names onto the copy: changed when it differs, played on at its speed here and eased
@@ -83,6 +91,8 @@ public:
     char mTrackName[4][32];   // the swapped-in bck each track was last told to play ("" none), and that bck
     J3DAnmTransform* mTrackBck[4];
     MarioModelTint mLightTint; // updateLightTint's
+    MarioModelTint mGhostTint; // its see-through look while isGhosted
+    bool mGhosted;             // drawn so (its shadow off)
     TVec3f mFront;
     TVec3f mUp;
     u32 mRewindMs;    // NebulaCoopRemotePlayer::rewind_ms

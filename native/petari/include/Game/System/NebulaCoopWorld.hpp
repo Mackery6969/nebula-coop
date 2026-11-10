@@ -109,6 +109,12 @@ namespace NebulaCoopWorld {
     // NebulaRemotePlayer::show: where another player standing on a moving thing stands on this game's copy of it
     // (each game moves its own, not always in step), false when this game doesn't have it.
     bool placeOnPlatform(const NebulaCoopPlayer& rPlayer, TVec3f* pPosition, TVec3f* pFront, TVec3f* pUp);
+    // The mission's clock (docs/COOP_PLAN.md "Races and timers"): a speedy comet's time limit is the instance's, one
+    // for everyone in it, as the first player's started. startMissionClock, as the local clock starts: the server is
+    // told, and the frames the instance's has run come back (0 when this one is the first). getMissionClock: the
+    // frames it has run since, -1 when none is known (or the scene isn't in a room).
+    s32 startMissionClock();
+    s32 getMissionClock();
 
     // GameDataHolder: the current save got a Power Star, an event flag, an event value.
     void noticePowerStar(const GameDataHolder* pHolder, const char* pGalaxyName, s32 scenarioNo);
