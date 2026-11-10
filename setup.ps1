@@ -6,6 +6,7 @@
 #   .\setup.ps1                          # Full setup: check tools, init submodules, build everything
 #   .\setup.ps1 -SkipTools               # Skip tool detection, assume everything is installed
 #   .\setup.ps1 -SkipBuild               # Just check tools and init submodules, don't build
+#   .\setup.ps1 -SkipTests               # Build everything but skip running tests
 #   .\setup.ps1 -BuildHostOnly           # Only build the host (CMake), skip game module and import tool
 #   .\setup.ps1 -BuildGameModuleOnly     # Only build the game module, skip host and import tool
 #   .\setup.ps1 -CreateInstances 2       # Create N instance directories after building (default: 2)
@@ -13,6 +14,7 @@
 param(
     [switch]$SkipTools,
     [switch]$SkipBuild,
+    [switch]$SkipTests,
     [switch]$BuildHostOnly,
     [switch]$BuildGameModuleOnly,
     [int]$CreateInstances = 2
@@ -212,18 +214,20 @@ if (-not $BuildHostOnly) {
 
 # ── 6. Run Tests ─────────────────────────────────────────────────────────────
 
-Write-Step "Running tests"
+if (-not $SkipTests) {
+    Write-Step "Running tests"
 
-if (-not $BuildHostOnly) {
-    Write-Host "CMake tests..."
-    ctest --test-dir build\host --output-on-failure
-    if ($LASTEXITCODE -ne 0) { Write-Warn "Some CMake tests failed" }
-}
+    if (-not $BuildHostOnly) {
+        Write-Host "CMake tests..."
+        ctest --test-dir build\host --output-on-failure
+        if ($LASTEXITCODE -ne 0) { Write-Warn "Some CMake tests failed" }
+    }
 
-if (-not $BuildGameModuleOnly) {
-    Write-Host "Cargo tests..."
-    cargo test -p nebula-import
-    if ($LASTEXITCODE -ne 0) { Write-Warn "Some cargo tests failed" }
+    if (-not $BuildGameModuleOnly) {
+        Write-Host "Cargo tests..."
+        cargo test -p nebula-import
+        if ($LASTEXITCODE -ne 0) { Write-Warn "Some cargo tests failed" }
+    }
 }
 
 # ── 7. Create Instance Directories for Co-Op Testing ────────────────────────
