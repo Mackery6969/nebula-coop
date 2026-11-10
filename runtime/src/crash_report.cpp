@@ -15,7 +15,7 @@ namespace {
 thread_local Activity t_activity = Activity::None;
 thread_local char t_activity_file[512];
 
-// The last mod file read: written by the disc thread, read by the crash handler (a sequence count: odd while written).
+// The last mod file read: written by the game-file reader thread, read by the crash handler (a sequence count: odd while written).
 std::atomic<std::uint32_t> s_mod_read_sequence{0u};
 std::atomic<std::int64_t> s_mod_read_ms{-1};
 char s_mod_read[640];
@@ -49,7 +49,7 @@ bool gpu_lost(std::string_view text) noexcept {
     // DXGI_ERROR_DEVICE_REMOVED, _HUNG, _RESET, _DRIVER_INTERNAL_ERROR; Vulkan's device loss.
     return has(text, "887A0005") || has(text, "887A0006") || has(text, "887A0007") || has(text, "887A0020") ||
            has(text, "DEVICE REMOVED") || has(text, "DEVICE_REMOVED") || has(text, "DEVICE_HUNG") ||
-           has(text, "DEVICE_LOST") || has(text, "device lost") || has(text, "device removed") || has(text, "VkResult -4");
+           has(text, "DEVICE_LOST") || has(text, "device lost") || has(text, "device was lost") || has(text, "device removed") || has(text, "VkResult -4");
 }
 
 bool renderer_error(std::string_view text) noexcept {
@@ -94,12 +94,12 @@ Activity current_activity(char* file, std::size_t size) noexcept {
     return t_activity;
 }
 
-void note_mod_read(std::string_view mod, std::string_view disc_path) noexcept {
+void note_mod_read(std::string_view mod, std::string_view game_path) noexcept {
     s_mod_read_sequence.fetch_add(1u, std::memory_order_acq_rel);
     char line[sizeof(s_mod_read)];
-    std::snprintf(line, sizeof(line), "%.*s: %.*s", static_cast<int>(std::min<std::size_t>(mod.size(), 200u)),
-                  mod.data(), static_cast<int>(std::min<std::size_t>(disc_path.size(), 400u)), disc_path.data());
-    std::memcpy(s_mod_read, line, sizeof(line));
+    put(line, sizeof(line), "%.*s: %.*s", static_cast<int>(std::min<std::size_t>(mod.size(), 200u)), mod.data(),
+        static_cast<int>(std::min<std::size_t>(game_path.size(), 400u)), game_path.data());
+    copy(s_mod_read, sizeof(s_mod_read), std::string_view(line));
     s_mod_read_ms.store(now_ms(), std::memory_order_relaxed);
     s_mod_read_sequence.fetch_add(1u, std::memory_order_acq_rel);
 }

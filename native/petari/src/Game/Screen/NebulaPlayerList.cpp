@@ -15,10 +15,10 @@
 #include <cstdio>
 #include <cstring>
 #include <nebula_game_api.h>
-#include <nw4r/lyt/layout.h>
-#include <nw4r/lyt/pane.h>
-#include <nw4r/lyt/textBox.h>
-#include <nw4r/lyt/window.h>
+#include <Game/Ui/Layout.hpp>
+#include <Game/Ui/Pane.hpp>
+#include <Game/Ui/TextBox.hpp>
+#include <Game/Ui/Window.hpp>
 
 using namespace NebulaUi;
 
@@ -187,7 +187,7 @@ namespace {
             rRow.mStars->SetVisible((rPlayer.flags & NEBULA_COOP_LIST_STARS) != 0);
 
             f32 width, height;
-            rRow.mPlace->mScale = nw4r::math::VEC2(1.0f, 1.0f);
+            rRow.mPlace->mScale = Vec2f(1.0f, 1.0f);
             measure(rRow.mNumber, 4000.0f, &width, &height);
             measure(rRow.mName, 4000.0f, &rRow.mNameWidth, &height);
             measure(rRow.mTag, 4000.0f, &rRow.mTagWidth, &height);
@@ -255,8 +255,8 @@ namespace {
         const f32 left = -panelWidth * 0.5f + cPad;
         const f32 right = panelWidth * 0.5f - cPad;
         const f32 headerY = top - cPad - cHeaderHeight * 0.5f;
-        p->mTitle->mTranslate = nw4r::math::VEC3(left + cRowInset, textCentre(headerY, cTitleSize), 0.0f);
-        p->mRoomText->mTranslate = nw4r::math::VEC3(right - cRowInset, textCentre(headerY, cTextSize), 0.0f);
+        p->mTitle->mTranslate = Vec3f(left + cRowInset, textCentre(headerY, cTitleSize), 0.0f);
+        p->mRoomText->mTranslate = Vec3f(right - cRowInset, textCentre(headerY, cTextSize), 0.0f);
 
         for (s32 i = 0; i < cRowsMax; i++) {
             Row& rRow = p->mRows[i];
@@ -268,32 +268,32 @@ namespace {
             const bool you = (rPlayer.flags & NEBULA_COOP_LIST_YOU) != 0;
             const f32 y = top - cPad - cHeaderHeight - i * (cRowHeight + cRowGap) - cRowHeight * 0.5f;
             rRow.mRoot->SetVisible(true);
-            rRow.mRoot->mTranslate = nw4r::math::VEC3(0.0f, y, 0.0f);
+            rRow.mRoot->mTranslate = Vec3f(0.0f, y, 0.0f);
             shape(rRow.mFrame, 0.0f, 0.0f, right - left, cRowHeight, cRowRadius);
             paint(rRow.mFrame, you ? cYouFill : cRowFill, you ? cYouRing : cRowRing);
 
             // Number, name and Host from the left; the round trip at the right, the stars and the place before it,
             // the place narrowed to fit.
             f32 x = left + cRowInset;
-            rRow.mNumber->mTranslate = nw4r::math::VEC3(x, textCentre(0.0f, cSmallSize), 0.0f);
+            rRow.mNumber->mTranslate = Vec3f(x, textCentre(0.0f, cSmallSize), 0.0f);
             x += cNumberWidth;
-            rRow.mName->mTranslate = nw4r::math::VEC3(x, textCentre(0.0f, cTextSize), 0.0f);
+            rRow.mName->mTranslate = Vec3f(x, textCentre(0.0f, cTextSize), 0.0f);
             x += rRow.mNameWidth;
             if (rRow.mTagWidth > 0.0f) {
                 x += 6.0f;
-                rRow.mTag->mTranslate = nw4r::math::VEC3(x, textCentre(0.0f, cSmallSize), 0.0f);
+                rRow.mTag->mTranslate = Vec3f(x, textCentre(0.0f, cSmallSize), 0.0f);
                 x += rRow.mTagWidth;
             }
             const f32 pingRight = right - cRowInset;
-            rRow.mPing->mTranslate = nw4r::math::VEC3(pingRight, textCentre(0.0f, cSmallSize), 0.0f);
+            rRow.mPing->mTranslate = Vec3f(pingRight, textCentre(0.0f, cSmallSize), 0.0f);
             const f32 starsRight = pingRight - cPingWidth - cColumnGap;
-            rRow.mStars->mTranslate = nw4r::math::VEC3(starsRight, textCentre(0.0f, cSmallSize), 0.0f);
+            rRow.mStars->mTranslate = Vec3f(starsRight, textCentre(0.0f, cSmallSize), 0.0f);
             // Without the room's Personal Star Counter the place takes the stars' column.
             const f32 placeRight = rRow.mStars->IsVisible() ? starsRight - cStarsWidth - cColumnGap : starsRight;
             const f32 room = placeRight - (x + cColumnGap);
             const f32 squeeze = rRow.mPlaceWidth > room && rRow.mPlaceWidth > 0.0f ? (room > 0.0f ? room : 0.0f) / rRow.mPlaceWidth : 1.0f;
-            rRow.mPlace->mScale = nw4r::math::VEC2(squeeze, 1.0f);
-            rRow.mPlace->mTranslate = nw4r::math::VEC3(placeRight, textCentre(0.0f, cSmallSize), 0.0f);
+            rRow.mPlace->mScale = Vec2f(squeeze, 1.0f);
+            rRow.mPlace->mTranslate = Vec3f(placeRight, textCentre(0.0f, cSmallSize), 0.0f);
             rRow.mPlace->SetVisible(squeeze > 0.2f);
         }
     }
@@ -302,7 +302,7 @@ namespace {
 NebulaPlayerList::NebulaPlayerList() : LayoutActor("NebulaPlayerList", true), mParts(nullptr) {
 }
 
-void NebulaPlayerList::init(const JMapInfoIter& rIter) {
+void NebulaPlayerList::init(const TableIter& rIter) {
     // A reset while the last scene's list showed never let go of the sharp 2D.
     setSharp(SharpPlayerList, false);
     initLayoutManager("InformationWindow", 0);
@@ -317,13 +317,13 @@ void NebulaPlayerList::init(const JMapInfoIter& rIter) {
     new (&p->mText) NebulaPaneKit();
     new (&p->mWindow) NebulaPaneKit();
     Pane* pRoot = pManager->mLayout->mpRootPane;
-    if (pRoot == nullptr || !p->mText.init(pManager->mLayoutHolder)) {
+    if (pRoot == nullptr || !p->mText.init(pManager->mLayoutHolder, "InformationWindow", pManager->mLayout)) {
         nebula_log("NebulaPlayerList: no InformationWindow layout\n");
         return;
     }
-    p->mWindow.init(MR::createAndAddLayoutHolder("SysInfoWindowMini.arc"));
+    p->mWindow.init("SysInfoWindowMini", pManager->mLayout);
     // The information window's own panes stay hidden; the list is built beside them.
-    for (nw4r::lyt::PaneList::Iterator it = pRoot->GetChildList().GetBeginIter(); it != pRoot->GetChildList().GetEndIter(); ++it) {
+    for (Ui::Pane* it : pRoot->GetChildList()) {
         it->SetVisible(false);
     }
 
@@ -386,8 +386,6 @@ void NebulaPlayerList::init(const JMapInfoIter& rIter) {
     p->mRoot->SetVisible(false);
     mParts = p;
 
-    // The layout's pane list, counted when it was built, again for the added panes.
-    pManager->rebuildPaneInfo();
     LayoutActor::appear();
 }
 
@@ -446,7 +444,7 @@ void NebulaPlayerList::control() {
 
     const f32 t = easeOut(static_cast< f32 >(p->mFade) / cFadeFrames);
     p->mRoot->SetVisible(true);
-    p->mRoot->mScale = nw4r::math::VEC2(p->mScaleX, 1.0f);
+    p->mRoot->mScale = Vec2f(p->mScaleX, 1.0f);
     p->mRoot->mAlpha = toAlpha(t);
-    p->mRoot->mTranslate = nw4r::math::VEC3(0.0f, (1.0f - t) * cDrop, 0.0f);
+    p->mRoot->mTranslate = Vec3f(0.0f, (1.0f - t) * cDrop, 0.0f);
 }

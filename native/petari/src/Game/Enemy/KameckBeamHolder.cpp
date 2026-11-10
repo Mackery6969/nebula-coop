@@ -3,39 +3,34 @@
 #include "Game/Enemy/KameckFireBall.hpp"
 #include "Game/Enemy/KameckTurtle.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const s32 sMaxKameckBeam = 16;
-    static const s32 sMaxKameckFireBall = 16;
-    static const s32 sMaxKameckBeamTurtle = 16;
+    NEBULA_TUNABLE(s32, sMaxKameckBeam, 16);
+    NEBULA_TUNABLE(s32, sMaxKameckFireBall, 16);
+    NEBULA_TUNABLE(s32, sMaxKameckBeamTurtle, 16);
 };  // namespace
 
-KameckBeamHolder::KameckBeamHolder() : DeriveActorGroup< KameckBeam >("\203\112\203\201\203\142\203\116\203\162\201\133\203\200\212\307\227\235" /* カメックビーム管理 */, ::sMaxKameckBeam) {
-    KameckBeam* pBeam;
-
+KameckBeamHolder::KameckBeamHolder() : DeriveActorGroup< KameckBeam >("カメックビーム管理", ::sMaxKameckBeam) {
     for (s32 i = 0; i < ::sMaxKameckBeam; i++) {
-        pBeam = new KameckBeam("\203\112\203\201\203\142\203\116\203\162\201\133\203\200" /* カメックビーム */);
+        KameckBeam* const pBeam = new KameckBeam("カメックビーム");
         pBeam->initWithoutIter();
         registerActor(pBeam);
     }
 }
 
-KameckFireBallHolder::KameckFireBallHolder() : DeriveActorGroup< KameckFireBall >("\203\112\203\201\203\142\203\116\211\316\202\314\213\312\212\307\227\235" /* カメック火の玉管理 */, ::sMaxKameckFireBall) {
-    KameckFireBall* pFireBall;
-
+KameckFireBallHolder::KameckFireBallHolder() : DeriveActorGroup< KameckFireBall >("カメック火の玉管理", ::sMaxKameckFireBall) {
     for (s32 i = 0; i < ::sMaxKameckFireBall; i++) {
-        pFireBall = new KameckFireBall("\203\112\203\201\203\142\203\116\203\162\201\133\203\200\227\160\211\212" /* カメックビーム用炎 */);
+        KameckFireBall* const pFireBall = new KameckFireBall("カメックビーム用炎");
         pFireBall->initWithoutIter();
         pFireBall->makeActorDead();
         registerActor(pFireBall);
     }
 }
 
-KameckBeamTurtleHolder::KameckBeamTurtleHolder() : DeriveActorGroup< KameckTurtle >("\203\112\203\201\203\142\203\116\203\162\201\133\203\200\227\160\203\112\203\201\212\307\227\235" /* カメックビーム用カメ管理 */, ::sMaxKameckBeamTurtle) {
-    KameckTurtle* pTurtle;
-
+KameckBeamTurtleHolder::KameckBeamTurtleHolder() : DeriveActorGroup< KameckTurtle >("カメックビーム用カメ管理", ::sMaxKameckBeamTurtle) {
     for (s32 i = 0; i < ::sMaxKameckBeamTurtle; i++) {
-        pTurtle = new KameckTurtle("\203\112\203\201\203\142\203\116\203\162\201\133\203\200\227\160\203\112\203\201" /* カメックビーム用カメ */);
+        KameckTurtle* const pTurtle = new KameckTurtle("カメックビーム用カメ");
         pTurtle->initWithoutIter();
         pTurtle->makeActorDead();
         registerActor(pTurtle);
@@ -55,7 +50,7 @@ namespace MR {
         MR::createSceneObj(SceneObj_KameckBeamTurtleHolder);
     }
 
-    KameckBeam* startFollowKameckBeam(s32 beamKind, MtxPtr pMtx, f32 scale, const TVec3f& rWandLocalPos, KameckBeamEventListener* pEventListener) {
+    KameckBeam* startFollowKameckBeam(s32 beamKind, MtxPtr pMtx, f32 scale, const Vec3f& rWandLocalPos, KameckBeamEventListener* pEventListener) {
         KameckBeam* pBeam = getKameckBeam();
 
         if (pBeam == nullptr) {

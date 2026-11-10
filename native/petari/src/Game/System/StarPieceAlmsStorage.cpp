@@ -4,28 +4,27 @@
 #include "Game/Util/HashUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/MemoryUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    const static u32 sMaxValueArray[] = {32767, 32767, 32767, 32767, 32767, 32767, 32767, 32767, 400, 400, 600, 1200, 1600, 1000, 800, 32767};
-};  // namespace
+    NEBULA_TUNABLE_LIST(u32, sMaxValueArray, , {32767, 32767, 32767, 32767, 32767, 32767, 32767, 32767, 400, 400, 600, 1200, 1600, 1000, 800, 32767});
 
-namespace {
     // The game's sixteen, and past them the slots mods add.
     s32 valueCount() {
         const s32 count = 8 + NebulaMods::hungryLumaSlots();
         return count > 16 ? count : 16;
     }
-}  // namespace
+};  // namespace
 
-StarPieceAlmsStorage::StarPieceAlmsStorage() : mValueArray() {
-    mValueArray = new u16[valueCount()];
-
-    for (s32 idx = 0; idx < valueCount(); idx++) {
-        mValueArray[idx] = 0;
-    }
+StarPieceAlmsStorage::StarPieceAlmsStorage() : mValueArray(nullptr), mValueNum(valueCount()) {
+    mValueArray = new u16[mValueNum]();
 }
 
 s32 StarPieceAlmsStorage::getValue(int idx) const {
+    if (idx < 0 || idx >= mValueNum) {
+        return 0;
+    }
+
     return mValueArray[idx];
 }
 
@@ -35,6 +34,10 @@ s32 StarPieceAlmsStorage::getMaxValue(int idx) const {
 }
 
 void StarPieceAlmsStorage::addValue(int idx, int add) {
+    if (idx < 0 || idx >= mValueNum) {
+        return;
+    }
+
     s32 value = mValueArray[idx];
     s32 maxValue = getMaxValue(idx);
 
@@ -51,10 +54,10 @@ u32 StarPieceAlmsStorage::getSignature() const {
 
 s32 StarPieceAlmsStorage::serialize(u8* pData, u32) const {
     // Sixteen u16 values in the save file, and any more that mods add.
-    for (s32 idx = 0; idx < valueCount(); idx++) {
+    for (s32 idx = 0; idx < mValueNum; idx++) {
         MR::storeSaveU16(pData + idx * sizeof(u16), mValueArray[idx]);
     }
-    return valueCount() * sizeof(u16);
+    return mValueNum * sizeof(u16);
 }
 
 s32 StarPieceAlmsStorage::deserialize(const u8* pData, u32 dataSize) {
@@ -62,14 +65,14 @@ s32 StarPieceAlmsStorage::deserialize(const u8* pData, u32 dataSize) {
         return -1;
     }
 
-    for (s32 idx = 0; idx < valueCount() && (idx + 1) * sizeof(u16) <= dataSize; idx++) {
+    for (s32 idx = 0; idx < mValueNum && (idx + 1) * sizeof(u16) <= dataSize; idx++) {
         mValueArray[idx] = MR::loadSaveU16(pData + idx * sizeof(u16));
     }
     return 0;
 }
 
 void StarPieceAlmsStorage::initializeData() {
-    for (s32 idx = 0; idx < valueCount(); idx++) {
+    for (s32 idx = 0; idx < mValueNum; idx++) {
         mValueArray[idx] = 0;
     }
 }

@@ -15,8 +15,8 @@ namespace NrvMapPartsRotator {
     NEW_NERVE(HostTypeStopAtEnd, MapPartsRotator, StopAtEnd);
 };  // namespace NrvMapPartsRotator
 
-MapPartsRotator::MapPartsRotator(LiveActor* pActor) : MapPartsRotatorBase(pActor, "\216\251\220\147\211\361\223\135" /* 自身回転 */) {
-    _18 = 0.0f;
+MapPartsRotator::MapPartsRotator(LiveActor* pActor) : MapPartsRotatorBase(pActor, "自身回転") {
+    mTargetRotateSpeed = 0.0f;
     mRotateAngle = 0.0f;
     mRotateStopTime = 0;
     mTargetAngle = 0.0f;
@@ -26,7 +26,7 @@ MapPartsRotator::MapPartsRotator(LiveActor* pActor) : MapPartsRotatorBase(pActor
     mRotateAccelType = 0;
     mRotateType = 1;
     mSignMotionType = 0;
-    _A0 = 0.0f;
+    mSignAngle = 0.0f;
     mIsOnReverse = false;
     mBaseHostMtx.identity();
     mRotateMtx.identity();
@@ -34,7 +34,7 @@ MapPartsRotator::MapPartsRotator(LiveActor* pActor) : MapPartsRotatorBase(pActor
     mRotateMtx.set(mBaseHostMtx);
 }
 
-void MapPartsRotator::init(const JMapInfoIter& rIter) {
+void MapPartsRotator::init(const TableIter& rIter) {
     MR::getMapPartsArgRotateAngle(&mRotateAngle, rIter);
     MR::getMapPartsArgRotateAxis(&mRotateAxis, rIter);
     MR::getMapPartsArgRotateAccelType(&mRotateAccelType, rIter);
@@ -43,7 +43,7 @@ void MapPartsRotator::init(const JMapInfoIter& rIter) {
     MR::getMapPartsArgRotateType(&mRotateType, rIter);
     MR::getMapPartsArgSignMotionType(&mSignMotionType, rIter);
 
-    if (MR::isNearZero(_18)) {
+    if (MR::isNearZero(mTargetRotateSpeed)) {
         initNerve(GET_NERVE(MapPartsRotator, HostTypeNeverMove));
     } else {
         initNerve(GET_NERVE(MapPartsRotator, HostTypeWait));
@@ -85,8 +85,8 @@ void MapPartsRotator::startWithSignalMotion() {
 }
 
 void MapPartsRotator::cancelSignalMotion() {
-    mAngle = _A0;
-    updateRotateMtx((AxisType)mRotateAxis, _A0);
+    mAngle = mSignAngle;
+    updateRotateMtx((AxisType)mRotateAxis, mSignAngle);
     setNerve(GET_NERVE(MapPartsRotator, HostTypeWait));
 }
 
@@ -101,7 +101,7 @@ bool MapPartsRotator::isMoving() const {
 void MapPartsRotator::updateVelocity() {
     if (MR::isNearZero(mRotateAngle) || isAccelTypeConstantSpeed()) {
         mIsOnReverse = false;
-        mRotateSpeed = _18;
+        mRotateSpeed = mTargetRotateSpeed;
         return;
     }
 
@@ -109,7 +109,7 @@ void MapPartsRotator::updateVelocity() {
         return;
     }
 
-    f32 rotateAccel = (_18 * _18 * MR::sign(_18)) / mRotateAngle;
+    f32 rotateAccel = (mTargetRotateSpeed * mTargetRotateSpeed * MR::sign(mTargetRotateSpeed)) / mRotateAngle;
     bool invert;
 
     if (isRotateClockwise()) {
@@ -155,7 +155,7 @@ void MapPartsRotator::updateTargetAngle() {
 void MapPartsRotator::restartAtEnd() {
     if (mRotateType != 0) {
         if (mRotateType == 1) {
-            _18 *= -1.0f;
+            mTargetRotateSpeed *= -1.0f;
         }
 
         updateTargetAngle();
@@ -168,18 +168,19 @@ void MapPartsRotator::restartAtEnd() {
     }
 }
 
-void MapPartsRotator::initRotateSpeed(const JMapInfoIter& rIter) {
+void MapPartsRotator::initRotateSpeed(const TableIter& rIter) {
     if (mRotateAccelType == 2) {
         s32 rotate_time = 0;
         MR::getMapPartsArgRotateTime(&rotate_time, rIter);
-        _18 = mRotateAngle / rotate_time;
+        // A time under one step turns the whole angle in one step.
+        mTargetRotateSpeed = rotate_time > 0 ? mRotateAngle / rotate_time : mRotateAngle;
     } else {
-        MR::getMapPartsArgRotateSpeed(&_18, rIter);
-        _18 *= 0.01f;
+        MR::getMapPartsArgRotateSpeed(&mTargetRotateSpeed, rIter);
+        mTargetRotateSpeed *= 0.01f;
     }
 
     if (mRotateAngle < 0.0f) {
-        _18 = 0.0f;
+        mTargetRotateSpeed = 0.0f;
     }
 }
 
@@ -196,14 +197,14 @@ bool MapPartsRotator::isReachedTargetAngle() const {
 }
 
 void MapPartsRotator::updateRotateMtx(AxisType type, f32 angle) {
-    TVec3f rotateAxisDir;
+    Vec3f rotateAxisDir;
     calcRotateAxisDir(type, &rotateAxisDir);
     mRotateMtx.identity();
     mRotateMtx.makeRotateDegree(rotateAxisDir, angle);
     mRotateMtx.concat(mRotateMtx, mBaseHostMtx);
 }
 
-void MapPartsRotator::calcRotateAxisDir(AxisType type, TVec3f* pDir) const {
+void MapPartsRotator::calcRotateAxisDir(AxisType type, Vec3f* pDir) const {
     switch (type) {
     case AxisType_XAxis:
         mBaseHostMtx.getXDir(*pDir);
@@ -250,14 +251,14 @@ void MapPartsRotator::exeRotate() {
 
 void MapPartsRotator::exeRotateStart() {
     if (isFirstStep()) {
-        _A0 = mAngle;
+        mSignAngle = mAngle;
     }
 
     mAngle += 0.5f * (getStep() / 3 % 2 == 0 ? 1.0f : -1.0f);
     updateRotateMtx((AxisType)mRotateAxis, mAngle);
 
     if (isStep(MapParts::getMoveStartSignalTime())) {
-        mAngle = _A0;
+        mAngle = mSignAngle;
         updateRotateMtx((AxisType)mRotateAxis, mAngle);
         setNerve(GET_NERVE(MapPartsRotator, HostTypeRotate));
     }

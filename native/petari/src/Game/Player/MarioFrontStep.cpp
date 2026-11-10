@@ -18,19 +18,19 @@ bool Mario::doFrontStep() {
         return false;
     }
 
-    if (checkWallCode("NotSideStep", false)) {
+    if (checkWallCode(CollisionWallCode_NotSideStep, false)) {
         return false;
     }
 
-    if (checkWallCode("NoAction", false)) {
+    if (checkWallCode(CollisionWallCode_NoAction, false)) {
         return false;
     }
 
-    if (mActor->_468 != 0) {
+    if (mActor->mTakeCount != 0) {
         return false;
     }
 
-    if (_1C._5) {
+    if (mHitStates.karikariClinging) {
         return false;
     }
 
@@ -42,21 +42,21 @@ bool Mario::doFrontStep() {
         return false;
     }
 
-    if (_960 == 2) {
+    if (mFloorCode == 2) {
         return false;
     }
 
-    if (calcAngleD(_368) >= 30.0f) {
+    if (calcAngleD(mGroundNorm) >= 30.0f) {
         return false;
     }
 
-    if (mAirGravityVec.dot(_374) >= 0.25f) {
+    if (mAirGravityVec.dot(mGroundDown) >= 0.25f) {
         return false;
     }
 
     Triangle triangle = Triangle();
     MarioActor* pMario = mActor;
-    TVec3f* vec = &pMario->_2A0;
+    Vec3f* vec = &pMario->mCenterPos;
     if (!MR::getFirstPolyOnLineToMap(nullptr, &triangle, *vec, mFrontVec * 200.0f)) {
         return false;
     }
@@ -72,7 +72,7 @@ bool Mario::doFrontStep() {
 }
 
 bool MarioFrontStep::start() {
-    changeAnimation("\221\117\225\307\203\105\203\107\203\103\203\147" /* 前壁ウエイト */);
+    changeAnimation("前壁ウエイト");
 
     mActor->setBlendMtxTimer(10);
 
@@ -90,23 +90,23 @@ MarioFrontStep::MarioFrontStep(MarioActor* pActor) : MarioState(pActor, MarioSta
 bool MarioFrontStep::update() {
     getPlayer()->stopWalk();
 
-    if (getPlayer()->_1C._5) {
+    if (getPlayer()->mHitStates.karikariClinging) {
         return false;
     }
 
     MarioActor* pMario = mActor;
-    TVec3f* vec = &pMario->_2A0;
+    Vec3f* vec = &pMario->mCenterPos;
     if (!MR::isExistMapCollision(*vec, getFrontVec() * 200.0f)) {
         return false;
     }
 
     if (!(getStickP() < 0.1f)) {
-        TVec3f worldDir(getWorldPadDir());
+        Vec3f worldDir(getWorldPadDir());
         MR::vecKillElement(worldDir, getPlayer()->getAirGravityVec(), &worldDir);
 
         MR::normalizeOrZero(&worldDir);
 
-        TVec3f vec;
+        Vec3f vec;
         f32 val = MR::vecKillElement(worldDir, -getPlayer()->mFrontVec, &vec);
         if (!(val < -0.866f) && val > 0.0f) {
             return false;
@@ -128,7 +128,7 @@ bool MarioFrontStep::update() {
         return false;
     }
 
-    if (!getPlayer()->getMovementStates()._1) {
+    if (!getPlayer()->getMovementStates().onGround) {
         getPlayer()->tryDrop();
         return false;
     }
@@ -137,7 +137,7 @@ bool MarioFrontStep::update() {
 }
 
 bool MarioFrontStep::close() {
-    stopAnimation("\221\117\225\307\203\105\203\107\203\103\203\147" /* 前壁ウエイト */);
+    stopAnimation("前壁ウエイト");
 
     getPlayer()->lockGroundCheck(this, false);
 
@@ -145,14 +145,14 @@ bool MarioFrontStep::close() {
 }
 
 bool MarioFrontStep::postureCtrl(MtxPtr pMtx) {
-    TVec3f blendVec;
+    Vec3f blendVec;
     if (MR::vecBlendSphere(-getPlayer()->getAirGravityVec(), -getPlayer()->mFrontVec, &blendVec, 0.25f)) {
         MR::normalizeOrZero(&blendVec);
     } else {
         blendVec = -getPlayer()->getAirGravityVec();
     }
 
-    MR::makeMtxUpFront(reinterpret_cast< TPos3f* >(pMtx), blendVec, getPlayer()->mFrontVec);
+    MR::makeMtxUpFront(pMtx, blendVec, getPlayer()->mFrontVec);
 
     return true;
 }

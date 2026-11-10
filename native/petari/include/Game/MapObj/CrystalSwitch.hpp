@@ -6,11 +6,10 @@ class CrystalSwitch : public LiveActor {
 public:
     CrystalSwitch(const char*);
 
-    virtual ~CrystalSwitch();
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void control() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
 
     bool trySwitchDown();
     bool tryOn();
@@ -21,8 +20,6 @@ public:
     void exeSwitchUp();
     void calcRotSpeed();
 
-    u32 _8C;
-    s32 _90;
     f32 mRotateSpeed;
-    u8 _98;
+    u8 mIsHit;
 };

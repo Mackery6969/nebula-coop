@@ -1,6 +1,7 @@
 // Tests for galaxy/save_files.h: a save written and read back whole, replaced by a shorter one, a buffer too small,
 // missing files, deletes, and names that would leave the save folder.
 #include "galaxy/save_files.h"
+#include "galaxy/test_temp.h"
 
 #include <array>
 #include <chrono>
@@ -24,8 +25,8 @@ int main() {
     using namespace galaxy::saves;
     namespace fs = std::filesystem;
     bool passed = true;
-    const fs::path root = fs::temp_directory_path() /
-        ("galaxy_save_files_tests_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    const fs::path root = galaxy::test_temp_path("galaxy_save_files_tests");
+    fs::remove_all(root);  // left by an earlier run that had this process id
     // The save folder does not exist until the first save.
     const fs::path folder = root / "title" / "data";
 
@@ -72,30 +73,6 @@ int main() {
     passed &= expect(remove(folder, "GameData.bin") == kNoFile &&
                          read(folder, "GameData.bin", buffer.data(), kBufferSize, &length) == kNoFile,
                      "a deleted save is gone");
-
-    // The first version 3 save over a version 2 one keeps the old file, once.
-    const fs::path upgrade = root / "upgrade";
-    std::array<unsigned char, 64> old_save{}, native_save{}, other_old{};
-    old_save[7] = 2;
-    old_save[63] = 0x11;
-    other_old[7] = 2;
-    other_old[63] = 0x22;
-    native_save[4] = 3;
-    const auto kept_is = [&](const std::array<unsigned char, 64>& expected) {
-        return read(upgrade, "GameData.bin.v2", buffer.data(), kBufferSize, &length) == kDone && length == expected.size() &&
-            std::memcmp(buffer.data(), expected.data(), expected.size()) == 0;
-    };
-    passed &= expect(write(upgrade, "GameData.bin", old_save.data(), 64) == kDone &&
-                         write(upgrade, "GameData.bin", other_old.data(), 64) == kDone && !fs::exists(upgrade / "GameData.bin.v2"),
-                     "a version 2 save keeps no copy");
-    passed &= expect(write(upgrade, "GameData.bin", native_save.data(), 64) == kDone && kept_is(other_old),
-                     "the first version 3 save keeps the version 2 file");
-    passed &= expect(write(upgrade, "GameData.bin", old_save.data(), 64) == kDone &&
-                         write(upgrade, "GameData.bin", native_save.data(), 64) == kDone && kept_is(other_old),
-                     "the copy is made once");
-    passed &= expect(write(upgrade, "Other.bin", old_save.data(), 64) == kDone &&
-                         write(upgrade, "Other.bin", native_save.data(), 64) == kDone && !fs::exists(upgrade / "Other.bin.v2"),
-                     "only GameData.bin keeps a copy");
 
     std::error_code error;
     fs::remove_all(root, error);

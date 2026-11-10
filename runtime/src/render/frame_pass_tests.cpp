@@ -100,62 +100,6 @@ int main() {
     passed &= test_scaled_display_resource_allocation();
 
     {
-        galaxy::render::DisplaySerialAccountingState state{};
-        std::uint64_t texture_a = ~std::uint64_t{0};
-        std::uint64_t texture_b = ~std::uint64_t{0};
-        const auto first_100 =
-            galaxy::render::account_display_present_serial(state, texture_a, 100u);
-        const auto first_101 =
-            galaxy::render::account_display_present_serial(state, texture_b, 101u);
-        const auto replay_100 =
-            galaxy::render::account_display_present_serial(state, texture_a, 100u);
-        const auto replay_101 =
-            galaxy::render::account_display_present_serial(state, texture_b, 101u);
-        const auto repeat_101 =
-            galaxy::render::account_display_present_serial(state, texture_b, 101u);
-        const auto first_102 =
-            galaxy::render::account_display_present_serial(state, texture_a, 102u);
-
-        passed &= expect(
-            first_100.first_presentation &&
-                first_101.first_presentation && first_101.delta_one &&
-                first_102.first_presentation && first_102.delta_one,
-            "monotonically newer copy serials are counted on first presentation");
-        passed &= expect(
-            !replay_100.first_presentation &&
-                replay_100.not_first_presentation &&
-                !replay_101.first_presentation &&
-                replay_101.not_first_presentation,
-            "an A/B replay below the serial high-water mark is never counted as new");
-        passed &= expect(
-            replay_100.nonfirst_run == 1u &&
-                replay_101.nonfirst_run == 2u &&
-                repeat_101.adjacent_repeat &&
-                repeat_101.nonfirst_run == 3u,
-            "alternating stale serials extend the non-fresh run instead of resetting it");
-    }
-
-    {
-        galaxy::render::DisplaySerialAccountingState state{};
-        std::uint64_t texture_10 = ~std::uint64_t{0};
-        std::uint64_t texture_12 = ~std::uint64_t{0};
-        std::uint64_t texture_11 = ~std::uint64_t{0};
-        static_cast<void>(
-            galaxy::render::account_display_present_serial(
-                state, texture_10, 10u));
-        const auto first_12 =
-            galaxy::render::account_display_present_serial(state, texture_12, 12u);
-        const auto late_11 =
-            galaxy::render::account_display_present_serial(state, texture_11, 11u);
-        passed &= expect(
-            first_12.first_presentation && first_12.delta_multi,
-            "a skipped serial is reported as a multi-serial production gap");
-        passed &= expect(
-            late_11.first_presentation && late_11.below_high_water,
-            "a late serial below the diagnostic high-water mark is still counted exactly on first presentation");
-    }
-
-    {
         const galaxy::render::FrameMap frame(1280u, 912u);
         const galaxy::render::FrameExtent whole = galaxy::render::frame_pass_extent(frame);
         passed &= expect(whole.width == 1280u && whole.height == 912u, "a capture is the frame's size");
@@ -183,6 +127,43 @@ int main() {
         passed &= expect_near(viewport.width, 2560.0f, "a full viewport spans the target's width");
         passed &= expect_near(viewport.height, 1824.0f, "a full viewport spans the target's height");
         passed &= expect(viewport.valid() && viewport.min_depth <= viewport.max_depth, "the depth range stays valid");
+    }
+
+    {
+        // A screen probe names a point in frame units; the pixel is the one holding it, at any render scale.
+        const float units = static_cast<float>(galaxy::render::kFrameUnits);
+        const auto probe_at = [units](float fx, float fy) {
+            galaxy::render::ScreenProbe probe{};
+            probe.x = fx * units;
+            probe.y = fy * units;
+            return probe;
+        };
+        for (const galaxy::render::FrameMap frame : {galaxy::render::FrameMap(1920u, 1368u), galaxy::render::FrameMap(1067u, 760u),
+                                                     galaxy::render::FrameMap(3840u, 2736u)}) {
+            const auto middle = galaxy::render::screen_probe_pixel(probe_at(0.5f, 0.5f), frame);
+            passed &= expect(middle.x == frame.width / 2u && middle.y == frame.height / 2u,
+                             "a probe at the middle of the frame reads the pixel there at any render scale");
+            const auto first = galaxy::render::screen_probe_pixel(probe_at(0.0f, 0.0f), frame);
+            passed &= expect(first.x == 0u && first.y == 0u, "a probe at the top left reads pixel 0, 0");
+            const auto last = galaxy::render::screen_probe_pixel(probe_at(1.0f, 1.0f), frame);
+            passed &= expect(last.x == frame.width - 1u && last.y == frame.height - 1u,
+                             "a probe on the far edge reads the last pixel, not past it");
+            const auto quarter = galaxy::render::screen_probe_pixel(probe_at(0.25f, 0.75f), frame);
+            passed &= expect(quarter.x == frame.width / 4u && quarter.y == (frame.height * 3u) / 4u,
+                             "a probe reads the row and column that hold its point, top down");
+        }
+        galaxy::render::ScreenProbe off{};
+        off.x = -1.0f;
+        off.y = -1.0f;
+        passed &= expect(galaxy::render::screen_probe_pixel(off, galaxy::render::FrameMap(1920u, 1368u)).x == ~0u,
+                         "a point the game did not ask about names no pixel");
+        galaxy::render::ScreenProbe nan_probe{};
+        nan_probe.x = std::numeric_limits<float>::quiet_NaN();
+        nan_probe.y = 0.0f;
+        passed &= expect(galaxy::render::screen_probe_pixel(nan_probe, galaxy::render::FrameMap(1920u, 1368u)).x == ~0u,
+                         "a point that is not a number names no pixel");
+        passed &= expect(galaxy::render::screen_probe_pixel(probe_at(0.5f, 0.5f), galaxy::render::FrameMap()).x == ~0u,
+                         "an empty target names no pixel");
     }
 
     if (!passed) {

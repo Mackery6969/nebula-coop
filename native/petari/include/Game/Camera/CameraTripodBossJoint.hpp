@@ -4,17 +4,16 @@
 
 class CameraTripodBossJoint : public Camera {
 public:
-    CameraTripodBossJoint(const char* pName = "\216\117\213\162\203\173\203\130\212\326\220\337\203\112\203\201\203\211" /* 三脚ボス関節カメラ */);
-    virtual ~CameraTripodBossJoint();
+    CameraTripodBossJoint(const char* pName = "三脚ボス関節カメラ");
 
-    virtual void reset();
-    virtual CameraTargetObj* calc();
-    virtual bool isEnableToReset() const {
+    virtual void reset() override;
+    virtual CameraTargetObj* calc() override;
+    virtual bool isEnableToReset() const override {
         return true;
     }
-    virtual CamTranslatorBase* createTranslator();
+    virtual void setParamFromChunk(const CameraParamChunk*) override;
 
-    void setParam(const TVec2f& angle, f32 dist, s32 jointID, const TVec3f& axis) {
+    void setParam(const Vec2f& angle, f32 dist, s32 jointID, const Vec3f& axis) {
         mAngleX = angle.x;
         mAngleY = angle.y;
         mDist = dist;
@@ -28,7 +27,7 @@ public:
     f32 mAngleY;
     f32 mDist;
     s32 mJointID;
-    TVec3f mAxis;
+    Vec3f mAxis;
     bool mIsRounding;
     f32 mRoundTarget;
     f32 mRoundAngle;

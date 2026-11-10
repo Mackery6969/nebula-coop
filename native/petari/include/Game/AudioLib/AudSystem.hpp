@@ -1,14 +1,12 @@
 #pragma once
 
-#include "Game/AudioLib/AudAudience.hpp"
 #include "Game/AudioLib/AudBgmMgr.hpp"
 #include "Game/AudioLib/AudLimitedSound.hpp"
-#include <JSystem/JAudio2/JAIAudible.hpp>
-#include <JSystem/JAudio2/JAIAudience.hpp>
-#include <JSystem/JAudio2/JAUStdSoundInfo.hpp>
-#include <JSystem/JAudio2/JASAudioReseter.hpp>
-#include <JSystem/JAudio2/JAUSoundMgr.hpp>
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include "Game/Sound/SoundAudible.hpp"
+#include "Game/Sound/SoundAudience.hpp"
+#include "Game/Sound/SoundSystem.hpp"
+#include "Game/Sound/SoundManager.hpp"
+#include <nebula_geometry.hpp>
 
 class AudChordInfo;
 class AudEffector;
@@ -16,26 +14,31 @@ class AudMeObject;
 class AudRemixMgr;
 class AudRhythmMeSystem;
 class AudSceneMgr;
-class AudSeStrategyMgr;
 class AudSoundObjHolder;
 class AudSoundObject;
 class AudSystemVolumeController;
-class JAISoundHandle;
-class JAISoundID;
-class JAUSectionHeap;
+class SoundHandle;
+class SoundID;
+class SoundArchive;
 class AssetFolder;
 class NebulaArena;
 class SpkSystem;
 
-extern const char sAudioResFile[];
-extern const char sJaiSeqArc[];
-extern const char sJaiChordArc[];
-extern const char sJaiMeArc[];
-extern const char sJaiRemixArc[];
-extern const char sJaiAudioArc[];
-extern const char sJaiSeqResArc[];
+// SoundID groups (an id's top byte), which are also the SE categories; AudSoundId.hpp lists each group's sounds.
+enum AudGroup {
+    AudGroup_SystemSe = 0x0,  // SE_SY
+    AudGroup_VoiceSe = 0x1,   // SE_PV, the player's voice
+    AudGroup_HomeSe = 0xD,    // HOMESE, the HOME menu's
+};
 
-class AudSystem : public JAUSoundMgr {
+// The sound data and the sequence, chord, ME and remix archives in the store.
+extern const char cSoundDataPath[];
+extern const char cSeqArchivePath[];
+extern const char cChordArchivePath[];
+extern const char cMeArchivePath[];
+extern const char cRemixArchivePath[];
+
+class AudSystem : public SoundManager {
 public:
     enum MenuState {
         MenuState_Off = 0,
@@ -50,17 +53,17 @@ public:
         MenuType_Error = 2,
     };
 
-    AudSystem(JAUSectionHeap*, AssetFolder*, AssetFolder*, AssetFolder*);
+    AudSystem(SoundArchive*, AssetFolder*, AssetFolder*, AssetFolder*);
 
     virtual void frameWork();
     virtual void calc();
-    virtual bool startSound(JAISoundID, JAISoundHandle*, const TVec3f*);
-    virtual bool startLevelSound(JAISoundID, JAISoundHandle*, const TVec3f*);
+    virtual bool startSound(SoundID, SoundHandle*, const Vec3f*);
+    virtual bool startLevelSound(SoundID, SoundHandle*, const Vec3f*);
 
     AudChordInfo* getChordInfo();
     void setSpeakerResource(AssetFolder*);
-    void switchToLuigi(JAISoundID, JAISoundHandle*);
-    bool isSubmitSeByVolumeSetting(JAISoundID);
+    void switchToLuigi(SoundID, SoundHandle*);
+    bool isSubmitSeByVolumeSetting(SoundID);
     void updateOutputMode();
     void preProcessToReset();
     void resetAudio(u32, bool);
@@ -81,13 +84,13 @@ public:
     void exitPauseMenu();
     void updatePauseMenu();
     bool isPauseMenuActive() const;
-    bool isEnableStartSound(JAISoundID);
+    bool isEnableStartSound(SoundID);
     void pauseForErrorWindow();
     void resumeFromErrorWindow();
-    s32 getNumOfPlaying(JAISoundID);
-    u32 getPlayCountMin(JAISoundID);
+    s32 getNumOfPlaying(SoundID);
+    u32 getPlayCountMin(SoundID);
     void setMicMtx(MtxPtr, s32);
-    const TVec3f& getMicPos(s32);
+    const Vec3f& getMicPos(s32);
     void setFarCamera(bool);
     void setSeVolumeSet(s32, u32);
     void recoverSeVolumeSet(u32);
@@ -96,15 +99,16 @@ public:
     void setMeResource(AssetFolder*, u16, u16);
     void seFanfareProcess();
     bool isFanfareSePlaying();
-    void registerLimitedSound(JAISoundID, s32);
+    void registerLimitedSound(SoundID, s32);
     void clearAllLimitedSound();
-    bool isRegisteredLimitedSound(JAISoundID);
+    bool isRegisteredLimitedSound(SoundID);
     void updateLimitedSound();
-    bool isAlreadyPlayingSoundNear(JAISoundID, const TVec3f*, f32);
+    bool isAlreadyPlayingSoundNear(SoundID, const Vec3f*, f32);
     void setVolumeZeroForce(s32);
 
-    void set830(u32 var) {
-        _830 = var;
+    // Sounds other than the system groups stay silent for this many frames.
+    void setSeMuteFrames(s32 frames) {
+        mSeMuteFrames = frames;
     }
 
     AudEffector* getAudEffector() const {
@@ -119,18 +123,14 @@ public:
 
     bool mIsResetReady;
     bool mIsReset;
-    bool mStopThreads;
-    JASAudioReseter mReseter;
-    bool _828;
+    bool mStopClock;  // the reset stops the engine's clock (a restart or quit): nothing waits for sounds to end
+    SoundReset mReseter;
     bool mIsPaused;
-    bool _82A;
-    bool _82B;  // blocks startSound
-    bool _82C;  // blocks startLevelSound
-    s32 _830;
-    JAUStdSoundInfo* mSoundInfo;
-    JAUSectionHeap* mSectionHeap;
-    AudAudience< 4 > mAudience;
-    AudDopplerAudible< 4 >* mAudible;  // TODO: should this be merged into AudAudience<>??
+    bool mIsTrigSeBlocked;  // blocks startSound
+    bool mIsLevelSeBlocked;  // blocks startLevelSound
+    s32 mSeMuteFrames;
+    SoundArchive* mSoundArchive;
+    SoundAudience mAudience;
     AudSoundObject* mSystemSeObject;
     AudSoundObject* mAtmosphereSeObject;
     AudMeObject* mSystemMeObject;
@@ -140,7 +140,6 @@ public:
     AudRhythmMeSystem* mRhythmMeSystem;
     AudRemixMgr* mRemixMgr;
     AudEffector* mAudEffector;
-    AudSeStrategyMgr* mSeStrategyMgr;
     AudSystemVolumeController* mVolumeController;
     s32 mHomeButtonMenuState;
     s32 mHomeButtonToggleTime;
@@ -151,5 +150,5 @@ public:
     SpkSystem* mSpkSystem;
 };
 
-AudSystem* AudNewAudSystem(NebulaArena*, void*, AssetFolder*, AssetFolder*, AssetFolder*, AssetFolder*);
-AudSystem* AudNewAudSystem_(JAUSectionHeap*, AssetFolder*, AssetFolder*, AssetFolder*, int);
+AudSystem* AudNewAudSystem(NebulaArena*, AssetFolder*, AssetFolder*, AssetFolder*, AssetFolder*);
+AudSystem* AudNewAudSystem_(SoundArchive*, AssetFolder*, AssetFolder*, AssetFolder*, int);

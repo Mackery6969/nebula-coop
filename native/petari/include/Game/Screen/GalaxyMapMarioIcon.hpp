@@ -6,12 +6,12 @@ class GalaxyMapMarioIcon : public LayoutActor {
 public:
     GalaxyMapMarioIcon(LayoutActor*, const char*);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void control();
+    virtual void init(const TableIter& rIter) override;
+    virtual void control() override;
 
     void showBlink();
 
 private:
-    LayoutActor* _20;
-    const char* _24;
+    LayoutActor* mTargetLayout;  // layout whose pane this icon follows
+    const char* mTargetPaneName;  // the pane it follows
 };

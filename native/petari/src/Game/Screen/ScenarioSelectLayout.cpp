@@ -21,6 +21,7 @@
 #include "Game/Util/StarPointerUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
 #include "Game/Screen/NebulaSelectPlayers.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
     const char* const cStarPaneName[] = {"Star1", "Star2", "Star3", "Star4", "Star5", "Star6", "Star7"};
@@ -29,22 +30,22 @@ namespace {
         "NewStar2",
     };
     const Vec cSkyTrans = {0.0f, 0.0f, -10000.0f};
-    const f32 cPointingTargetRadius = 60.0f;
-    const s32 cDecideFrame = 40;
-    const s32 cSelectedAccelStartStep = 60;
-    const s32 cSelectedAccelFrame = 150;
-    const f32 cSelectedEffectRateMin = 2.0f;
-    const f32 cSelectedEffectRateMax = 15.0f;
-    const f32 cSelectedEffectSpeedMin = 9.0f;
-    const f32 cSelectedEffectSpeedMax = 15.0f;
-    const s32 cSelectedEndAnimStartStep = 60;
-    const s32 cSelectedFadeOutStartStep = 180;
-    const s32 cSelectedFadeOutFrame = 30;
-    const s32 cSelectedFadeInFrame = 180;
-    const s32 cCancelFadeOutFrame = 90;
-    const f32 cSkyScale = 10.0f;
-    const s32 cCometWarningWaitFrame = 15;
-    const s32 cCometWarningFrame = 180;
+    NEBULA_TUNABLE(f32, cPointingTargetRadius, 60.0f);
+    NEBULA_TUNABLE(s32, cDecideFrame, 40);
+    const s32 cSelectedAccelStartStep = NebulaFrameClock::stepsOfSeconds(1);
+    NEBULA_TUNABLE(s32, cSelectedAccelFrame, 150);
+    NEBULA_TUNABLE(f32, cSelectedEffectRateMin, 2.0f);
+    NEBULA_TUNABLE(f32, cSelectedEffectRateMax, 15.0f);
+    NEBULA_TUNABLE(f32, cSelectedEffectSpeedMin, 9.0f);
+    NEBULA_TUNABLE(f32, cSelectedEffectSpeedMax, 15.0f);
+    const s32 cSelectedEndAnimStartStep = NebulaFrameClock::stepsOfSeconds(1);
+    const s32 cSelectedFadeOutStartStep = NebulaFrameClock::stepsOfSeconds(3);
+    NEBULA_TUNABLE(s32, cSelectedFadeOutFrame, 30);
+    NEBULA_TUNABLE(s32, cSelectedFadeInFrame, 180);
+    NEBULA_TUNABLE(s32, cCancelFadeOutFrame, 90);
+    NEBULA_TUNABLE(f32, cSkyScale, 10.0f);
+    NEBULA_TUNABLE(s32, cCometWarningWaitFrame, 15);
+    NEBULA_TUNABLE(s32, cCometWarningFrame, 180);
     const f32 cCoopPlayersDrop = 50.0f;  // online co-op's names under a star: below its pointing circle's middle
 };  // namespace
 
@@ -76,9 +77,9 @@ namespace NrvScenarioSelectLayout {
 };  // namespace NrvScenarioSelectLayout
 
 ScenarioSelectLayout::ScenarioSelectLayout(EffectSystem* pEffectSystem, const CameraContext* pCameraContext)
-    : LayoutActor("\203\126\203\151\203\212\203\111\221\111\221\360\203\214\203\103\203\101\203\105\203\147" /* シナリオ選択レイアウト */, true), mSelectedScenarioNo(-1), _24(), _28(), mStar(), mScenarioSky(), mEffectSystem(pEffectSystem),
+    : LayoutActor("シナリオ選択レイアウト", true), mSelectedScenarioNo(-1), mIsDecided(), mStar(), mScenarioSky(), mEffectSystem(pEffectSystem),
       mCameraContext(pCameraContext), mNewTextFollowPos(0.0f, 0.0f), mNewGreenTextFollowPos(0.0f, 0.0f), mStarTopFollowPos(0.0f, 0.0f), mBackButton(),
-      mMarioPaneFollowPos(0.0f, 0.0f), mMarioPaneName(), _A4(), _A8(-1) {
+      mMarioPaneFollowPos(0.0f, 0.0f), mMarioPaneName(), mTextFadeState(), mTextScenarioNo(-1) {
     mEffectHostMtx.identity();
     mCoopPlayers = nullptr;
 
@@ -87,7 +88,7 @@ ScenarioSelectLayout::ScenarioSelectLayout(EffectSystem* pEffectSystem, const Ca
     }
 }
 
-void ScenarioSelectLayout::init(const JMapInfoIter& rIter) {
+void ScenarioSelectLayout::init(const TableIter& /*rIter*/) {
     initLayoutManager("ScenarioSelect", 1);
     MR::createAndAddPaneCtrl(this, "ScenarioSelect", 1);
     MR::createAndAddPaneCtrl(this, "ScenarioFrame", 1);
@@ -121,19 +122,19 @@ void ScenarioSelectLayout::init(const JMapInfoIter& rIter) {
         mStar[i] = new ScenarioSelectStar(mEffectSystem);
         mStar[i]->initWithoutIter();
 
-        MR::addStarPointerTargetCircle(this, ::cStarPaneName[i], ::cPointingTargetRadius, TVec2f(0.0f, 0.0f), nullptr);
+        MR::addStarPointerTargetCircle(this, ::cStarPaneName[i], ::cPointingTargetRadius, Vec2f(0.0f, 0.0f), nullptr);
     }
 
-    mScenarioSky = new MultiSceneActor("\203\126\203\151\203\212\203\111\221\111\221\360\202\314\213\363" /* シナリオ選択の空 */, "ScenarioSelectSky", false);
+    mScenarioSky = new MultiSceneActor("シナリオ選択の空", "ScenarioSelectSky", false);
     mScenarioSky->initWithoutIter();
 
-    mBackButton = new BackButton("\226\337\202\351\203\173\203\136\203\223" /* 戻るボタン */, false);
+    mBackButton = new BackButton("戻るボタン", false);
     mBackButton->initWithoutIter();
 
     mCoopPlayers = new NebulaSelectPlayers(false);
     mCoopPlayers->initWithoutIter();
 
-    if (!NebulaRegion::isPal()) {
+    if (!NebulaRegion::isEurope()) {
         MR::hidePaneRecursive(this, "CometAppear");
     }
 
@@ -222,13 +223,12 @@ void ScenarioSelectLayout::appear() {
     mScenarioSky->appear();
     MultiScene::startBtk(mScenarioSky, "ScenarioSelectSky");
 
-    if (NebulaRegion::isPal()) {
+    if (NebulaRegion::isEurope()) {
         MR::hidePaneRecursive(this, "CometAppear");
     }
 
     mSelectedScenarioNo = -1;
-    _24 = 0;
-    _28 = 0;
+    mIsDecided = false;
 
     setNerve(GET_NERVE(ScenarioSelectLayout, ScenarioSelectLayoutNrvAppearStar));
 }
@@ -237,7 +237,7 @@ void ScenarioSelectLayout::kill() {
     for (s32 i = 0; i < 7; i++) {
         ScenarioSelectStar* pStar = mStar[i];
 
-        if (pStar->_30) {
+        if (pStar->mIsDead) {
             continue;
         }
 
@@ -293,7 +293,7 @@ s32 ScenarioSelectLayout::getSelectedScenarioNo() const {
 
 bool ScenarioSelectLayout::isReadyToDisappear() const {
     if (isNerve(GET_NERVE(ScenarioSelectLayout, ScenarioSelectLayoutNrvAfterScenarioSelected))) {
-        return MR::isGreaterStep(this, 210);
+        return MR::isGreaterStep(this, NebulaFrameClock::stepsOfMilliseconds(3500));
     }
 
     return false;
@@ -320,8 +320,12 @@ bool ScenarioSelectLayout::isCanceled() const {
 }
 
 void ScenarioSelectLayout::control() {
-    if (!_28 && mSelectedScenarioNo > 0) {
-        getSelectedStar()->tryPointing();
+    if (!mIsDecided && mSelectedScenarioNo > 0) {
+        // No star shows the selected number (null) after a page change or a kill.
+        ScenarioSelectStar* pSelected = getSelectedStar();
+        if (pSelected != nullptr) {
+            pSelected->tryPointing();
+        }
     }
 
     MR::copyPaneTrans(&mMarioPaneFollowPos, this, mMarioPaneName);
@@ -331,7 +335,7 @@ void ScenarioSelectLayout::control() {
     if (isNerve(GET_NERVE(ScenarioSelectLayout, ScenarioSelectLayoutNrvAppear)) ||
         isNerve(GET_NERVE(ScenarioSelectLayout, ScenarioSelectLayoutNrvWaitScenarioSelect))) {
         for (s32 i = 0; i < 7; i++) {
-            if (!mStar[i]->_30) {
+            if (!mStar[i]->mIsDead) {
                 mCoopPlayers->showAtPane(i, MR::getCurrentStageName(), mStar[i]->mScenarioNo, MR::getPane(this, ::cStarPaneName[i]),
                                          ::cCoopPlayersDrop);
             }
@@ -346,32 +350,25 @@ void ScenarioSelectLayout::updateSelectedScenario() {
         for (s32 i = 0; i < 7; i++) {
             star = mStar[i];
 
-            if (!star->_30 && MR::isStarPointerPointingTarget(this, ::cStarPaneName[i], 0, true, "\216\343" /* 弱 */)) {
+            if (!star->mIsDead && MR::isStarPointerPointingTarget(this, ::cStarPaneName[i], 0, true, "弱")) {
                 mSelectedScenarioNo = star->mScenarioNo;
-                _24 = 0;
                 return;
             }
         }
     }
 
-    if (_24 < 0) {
-        _24++;
-    }
-
-    if (_24 >= 0) {
-        mSelectedScenarioNo = -1;
-    }
+    mSelectedScenarioNo = -1;
 }
 
 void ScenarioSelectLayout::updateScenarioText() {
     bool isEndAnimStep = isNerve(GET_NERVE(ScenarioSelectLayout, ScenarioSelectLayoutNrvAfterScenarioSelected)) &&
                          MR::isGreaterEqualStep(this, ::cSelectedEndAnimStartStep);
 
-    if (MR::isHiddenPane(this, "Scenario") || (mSelectedScenarioNo > 0 && getSelectedScenarioNo() != _A8)) {
+    if (MR::isHiddenPane(this, "Scenario") || (mSelectedScenarioNo > 0 && getSelectedScenarioNo() != mTextScenarioNo)) {
         if (!isEndAnimStep && mSelectedScenarioNo > 0) {
             fadeInText();
         }
-    } else if (_A4 == 0) {
+    } else if (mTextFadeState == 0) {
         if (MR::isPaneAnimStopped(this, "Scenario", 0) && mSelectedScenarioNo <= 0) {
             fadeOutText();
         }
@@ -383,8 +380,8 @@ void ScenarioSelectLayout::updateScenarioText() {
 void ScenarioSelectLayout::fadeInText() {
     const char* stageName = MR::getCurrentStageName();
 
-    _A4 = 0;
-    _A8 = mSelectedScenarioNo;
+    mTextFadeState = 0;
+    mTextScenarioNo = mSelectedScenarioNo;
 
     MR::setTextBoxMessageRecursive(this, "Scenario", MR::getScenarioNameOnCurrentLanguage(stageName, mSelectedScenarioNo));
     MR::showPaneRecursive(this, "Scenario");
@@ -404,9 +401,9 @@ void ScenarioSelectLayout::fadeInText() {
     MR::startPaneAnim(this, "BestTime", "SelectIn", 0);
 
     if (::isCurrentStageRaceComplete(mSelectedScenarioNo)) {
-        char16_t bestTime[16];
-        MR::makeRaceBestTimeString(bestTime, RaceManagerFunction::getRaceId(stageName, mSelectedScenarioNo));
-        MR::setTextBoxMessageRecursive(this, "ShaTime", bestTime);
+        MR::Text16 bestTime;
+        MR::setTextBoxMessageRecursive(this, "ShaTime",
+                                       MR::makeRaceBestTimeString(bestTime, RaceManagerFunction::getRaceId(stageName, mSelectedScenarioNo)));
     } else {
         MR::setPaneAnimFrameAndStop(this, "BestTime", 0.0f, 0);
         MR::clearTextBoxMessageRecursive(this, "ShaTime");
@@ -415,28 +412,28 @@ void ScenarioSelectLayout::fadeInText() {
 
 void ScenarioSelectLayout::fadeOutText() {
 
-    _A4 = 1;
+    mTextFadeState = 1;
 
     MR::startPaneAnim(this, "Scenario", "SelectOut", 0);
 
-    if (MR::isPlacedCoin(MR::getCurrentStageName(), _A8)) {
+    if (MR::isPlacedCoin(MR::getCurrentStageName(), mTextScenarioNo)) {
         MR::startPaneAnim(this, "BestScore", "SelectOut", 0);
     }
 
-    if (::isCurrentStageRaceComplete(_A8)) {
+    if (::isCurrentStageRaceComplete(mTextScenarioNo)) {
         MR::startPaneAnim(this, "BestTime", "SelectOut", 0);
     }
 }
 
 bool ScenarioSelectLayout::trySelect() {
-    if (MR::testDPDMenuPadDecideTrigger()) {
+    if (MR::testPointerMenuPadDecideTrigger()) {
         if (mSelectedScenarioNo > 0) {
             return true;
         }
 
         if (!MR::isStarPointerInScreen(PLAYER_1)) {
             for (s32 i = 0; i < 7; i++) {
-                if (mStar[i]->_30) {
+                if (mStar[i]->mIsDead) {
                     continue;
                 }
 
@@ -456,7 +453,7 @@ bool ScenarioSelectLayout::trySelect() {
 
 ScenarioSelectStar* ScenarioSelectLayout::getSelectedStar() const {
     for (s32 i = 0; i < 7; i++) {
-        if (mStar[i]->_30) {
+        if (mStar[i]->mIsDead) {
             continue;
         }
 
@@ -470,9 +467,9 @@ ScenarioSelectStar* ScenarioSelectLayout::getSelectedStar() const {
     return nullptr;
 }
 
-void ScenarioSelectLayout::calcWorldPositionFromScreenPos(TVec3f* pWorldPos, const TVec2f& rScreenPos, f32 depth) const {
+void ScenarioSelectLayout::calcWorldPositionFromScreenPos(Vec3f* pWorldPos, const Vec2f& rScreenPos, f32 depth) const {
     f32 fovy = mCameraContext->getFovy() * (PI / 180.0f);
-    f32 height = static_cast< s32 >(NebulaFrameClock::cScreenUnitsDown);
+    f32 height = static_cast< s32 >(NebulaFrameClock::cScreenLines);
     f32 focalLength = (height * 0.5f) / MR::tan(fovy * 0.5f);
     f32 distance;
 
@@ -484,8 +481,8 @@ void ScenarioSelectLayout::calcWorldPositionFromScreenPos(TVec3f* pWorldPos, con
     }
 
     f32 scale = distance / focalLength;
-    TVec3f pos(scale * (rScreenPos.x - MR::getScreenWidth() * 0.5f), scale * -(rScreenPos.y - height * 0.5f), -distance);
-    TPos3f invView(mCameraContext->getInvViewMtx());
+    Vec3f pos(scale * (rScreenPos.x - MR::getScreenWidth() * 0.5f), scale * -(rScreenPos.y - height * 0.5f), -distance);
+    Pos3f invView(mCameraContext->getInvViewMtx());
     invView.mult(pos, *pWorldPos);
 }
 
@@ -522,7 +519,7 @@ bool ScenarioSelectLayout::calcDisplayScenarioNum(s32* pNormalScenarioCompleteNu
     return isNewScenario;
 }
 
-void ScenarioSelectLayout::appearAllStar(s32 normalScenarioCompleteNum, s32 extraScenarioCompleteNum, bool isNewScenario) {
+void ScenarioSelectLayout::appearAllStar(s32 normalScenarioCompleteNum, s32 /*extraScenarioCompleteNum*/, bool isNewScenario) {
     if (MR::isScenarioDecided()) {
         s32 starState = 2;
 
@@ -568,7 +565,8 @@ void ScenarioSelectLayout::appearAllStar(s32 normalScenarioCompleteNum, s32 extr
         if (mListNum <= 7) {
             s32 starIndex = 0;
             for (s32 i = 0; i < mListNum; i++) {
-                if (i == normalScenarioCompleteNum && starIndex < 3) {
+                // The jump to the fourth place only when the rest still fits the seven (a mod's galaxy with many extras).
+                if (i == normalScenarioCompleteNum && starIndex < 3 && 3 + (mListNum - i) <= 7) {
                     starIndex = 3;
                 }
                 appearStar(starIndex++, mListScenario[i], mListState[i]);
@@ -581,7 +579,7 @@ void ScenarioSelectLayout::appearAllStar(s32 normalScenarioCompleteNum, s32 extr
 
 void ScenarioSelectLayout::appearPage(s32 page) {
     for (s32 i = 0; i < 7; i++) {
-        if (!mStar[i]->_30) {
+        if (!mStar[i]->mIsDead) {
             mStar[i]->kill();
         }
     }
@@ -593,10 +591,16 @@ void ScenarioSelectLayout::appearPage(s32 page) {
     }
 
     // The page, after the galaxy's name.
-    char16_t text[256];
     const char16_t* pName = MR::getGalaxyNameOnCurrentLanguage(MR::getCurrentStageName());
+    s32 nameLength = 0;
+    while (pName != nullptr && pName[nameLength] != 0) {
+        nameLength++;
+    }
+    // The name, then " < " and up to two digits, "/", up to two digits, " >" and the terminator.
+    MR::Text16 textBuffer;
+    char16_t* const text = textBuffer.room(static_cast< u32 >(nameLength) + 16);
     s32 at = 0;
-    while (pName != nullptr && pName[at] != 0 && at < 200) {
+    while (at < nameLength) {
         text[at] = pName[at];
         at++;
     }
@@ -627,7 +631,7 @@ void ScenarioSelectLayout::tryChangePage() {
     }
     const s32 pages = (mListNum + 5) / 6;
     // A pointer: pressing with it at either side of the screen, on no star.
-    const f32 pointerX = MR::isStarPointerInScreen(0) && MR::testDPDMenuPadDecideTrigger() && mSelectedScenarioNo <= 0 ? MR::getStarPointerScreenPosition(0)->x : MR::getScreenWidth() * 0.5f;
+    const f32 pointerX = MR::isStarPointerInScreen(0) && MR::testPointerMenuPadDecideTrigger() && mSelectedScenarioNo <= 0 ? MR::getStarPointerScreenPosition(0)->x : MR::getScreenWidth() * 0.5f;
     const bool left = MR::isHeldLeft(0) || MR::isMoveStickPressedLeft(0) || pointerX < MR::getScreenWidth() * 0.15f;
     const bool right = MR::isHeldRight(0) || MR::isMoveStickPressedRight(0) || pointerX > MR::getScreenWidth() * 0.85f;
     if (!left && !right) {
@@ -645,10 +649,10 @@ void ScenarioSelectLayout::tryChangePage() {
 void ScenarioSelectLayout::appearStar(s32 starId, s32 scenarioNo, int a3) {
     ScenarioSelectStar* pStar = mStar[starId];
 
-    TVec2f starPaneTrans;
+    Vec2f starPaneTrans;
     MR::copyPaneTrans(&starPaneTrans, this, ::cStarPaneName[starId]);
 
-    TVec3f worldPos;
+    Vec3f worldPos;
     calcWorldPositionFromScreenPos(&worldPos, starPaneTrans, 1000.0f);
 
     pStar->setup(scenarioNo, a3, worldPos, starId);
@@ -657,7 +661,7 @@ void ScenarioSelectLayout::appearStar(s32 starId, s32 scenarioNo, int a3) {
 
 bool ScenarioSelectLayout::isAppearStarEndAll() const {
     for (s32 i = 0; i < 7; i++) {
-        if (mStar[i]->_30) {
+        if (mStar[i]->mIsDead) {
             continue;
         }
 
@@ -672,7 +676,7 @@ bool ScenarioSelectLayout::isAppearStarEndAll() const {
 }
 
 bool ScenarioSelectLayout::tryCancel() {
-    if (mBackButton->_24) {
+    if (mBackButton->isSelected()) {
         setNerve(GET_NERVE(ScenarioSelectLayout, ScenarioSelectLayoutNrvCancel));
         return true;
     }
@@ -791,7 +795,7 @@ void ScenarioSelectLayout::exeWaitScenarioSelect() {
     }
 
     if (trySelect()) {
-        _28 = true;
+        mIsDecided = true;
         MR::startSystemSE("SE_SY_DECIDE_1");
         MR::startCSSound("CS_CLICK_CLOSE", nullptr, 0);
         mBackButton->disappear();
@@ -802,7 +806,7 @@ void ScenarioSelectLayout::exeWaitScenarioSelect() {
 void ScenarioSelectLayout::exeDecide() {
     if (MR::isFirstStep(this)) {
         for (s32 i = 0; i < 7; i++) {
-            if (mStar[i]->_30) {
+            if (mStar[i]->mIsDead) {
                 continue;
             }
 
@@ -847,7 +851,7 @@ void ScenarioSelectLayout::exeDisappear() {
         for (s32 i = 0; i < 7; i++) {
             ScenarioSelectStar* star = mStar[i];
 
-            if (!star->_30) {
+            if (!star->mIsDead) {
                 star->kill();
             }
         }
@@ -881,10 +885,10 @@ void ScenarioSelectLayout::exeAppearCometWarning() {
     if (MR::isStep(this, ::cCometWarningWaitFrame)) {
         int id = MR::getEncounterGalaxyCometNameId(MR::getCurrentStageName());
         const char* cometName = MR::getCometNameFromId(id);
-        char cometMsg[256];
-        MR::makeCometMessageID(cometMsg, sizeof(cometMsg), cometName);
+        MR::FormattedName cometMsg;
+        MR::makeCometMessageID(cometMsg, cometName);
         MR::setTextBoxGameMessageRecursive(this, "TextComet", "GalaxyInfo_CometAppearR");
-        MR::setTextBoxArgGameMessageRecursive(this, "TextComet", cometMsg, 0);
+        MR::setTextBoxArgGameMessageRecursive(this, "TextComet", cometMsg.c_str(), 0);
         MR::showPaneRecursive(this, "CometAppear");
         MR::startPaneAnim(this, "CometAppear", "CometAppear", 0);
         MR::setCometPaneAnimFromId(this, "CometAppear", id, 1);

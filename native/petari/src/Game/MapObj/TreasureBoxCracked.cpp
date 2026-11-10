@@ -9,6 +9,10 @@
 #include "Game/MapObj/YellowChip.hpp"
 #include "Game/Util.hpp"
 #include "Game/System/NebulaMods.hpp"
+#include "Game/Util/Tunable.hpp"
+
+// The step counts of this file's functions, as tunables: "<file>.<function>.<k>".
+NEBULA_TUNABLE_NAMED(s32, cStep_exeOpenWait_1, "exeOpenWait.1", 10);
 
 namespace NrvTreasureBoxCracked {
     NEW_NERVE(TreasureBoxCrackedNrvWait, TreasureBoxCracked, Wait);
@@ -27,13 +31,13 @@ namespace {
     const Vec sKinokoOneUpOffset = {0.0f, 130.0f, 0.0f};
     const Vec sKinokoLifeUpOffset = {0.0f, 130.0f, 0.0f};
     const Vec sAirBubbleOffset = {0.0f, 220.0f, 0.0f};
-    const f32 sFirstSpeed = 15.0f;
-    const f32 sAccelRate = 1.2f;
-    const f32 sBoundSpeedMax = 15.0f;
-    const s32 sBoundTime = 20;
-    const s32 sDefaultWaitForSwitchOn = 5;
-    const f32 sPointLightBrightness = 0.99f;
-    const f32 sStepForCollisionMove = 15.0f;
+    NEBULA_TUNABLE(f32, sFirstSpeed, 15.0f);
+    NEBULA_TUNABLE(f32, sAccelRate, 1.2f);
+    NEBULA_TUNABLE(f32, sBoundSpeedMax, 15.0f);
+    NEBULA_TUNABLE(s32, sBoundTime, 20);
+    NEBULA_TUNABLE(s32, sDefaultWaitForSwitchOn, 5);
+    NEBULA_TUNABLE(f32, sPointLightBrightness, 0.99f);
+    NEBULA_TUNABLE(f32, sStepForCollisionMove, 15.0f);
 };  // namespace
 
 TreasureBoxCracked::TreasureBoxCracked(const char* pName)
@@ -42,11 +46,11 @@ TreasureBoxCracked::TreasureBoxCracked(const char* pName)
     mTopMtx.identity();
 }
 
-void TreasureBoxCracked::init(const JMapInfoIter& rIter) {
+void TreasureBoxCracked::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     MR::useStageSwitchWriteA(this, rIter);
     MR::useStageSwitchWriteDead(this, rIter);
-    MR::getJMapInfoArg2NoInit(rIter, &mOpenCondition);
+    MR::getPlacementArg2NoInit(rIter, &mOpenCondition);
     const char* objectName;
     MR::getObjectName(&objectName, rIter);
 
@@ -68,12 +72,12 @@ void TreasureBoxCracked::init(const JMapInfoIter& rIter) {
 
     MR::connectToSceneMapObjStrongLight(this);
     initHitSensor(1);
-    MR::addHitSensor(this, "body", ATYPE_KILLER_TARGET_MAPOBJ, 8, 200.0f, TVec3f(0.0f, 50.0f, 0.0f));
+    MR::addHitSensor(this, "body", ATYPE_KILLER_TARGET_MAPOBJ, 8, 200.0f, Vec3f(0.0f, 50.0f, 0.0f));
     mTopMtx.set(MR::getJointMtx(this, "Top"));
     MR::initCollisionParts(this, "Top", getSensor("body"), mTopMtx.toMtxPtr());
-    mBoxCollider = MR::createCollisionPartsFromLiveActor(this, "Box", getSensor("body"), MR::CollisionScaleType_Unk2);
+    mBoxCollider = MR::createCollisionPartsFromLiveActor(this, "Box", getSensor("body"), MR::CollisionScaleType_Default);
     MR::validateCollisionParts(mBoxCollider);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initSound(4, false);
 
     if (mBoxType == 2) {
@@ -107,14 +111,14 @@ void TreasureBoxCracked::exeWait() {
 }
 
 void TreasureBoxCracked::exeOpen() {
-    TVec3f up;
+    Vec3f up;
     MR::calcUpVec(&up, this);
 
     if (MR::isFirstStep(this)) {
         MR::startBck(this, "Open");
         MR::emitEffect(this, "Open");
 
-        if (MR::isInWater(this, TVec3f(0.0f, 0.0f, 0.0f))) {
+        if (MR::isInWater(this, Vec3f(0.0f, 0.0f, 0.0f))) {
             MR::startSound(this, "SE_OJ_TREASURE_BOX_OPEN_W");
         } else {
             MR::startSound(this, "SE_OJ_TREASURE_BOX_OPEN");
@@ -164,11 +168,11 @@ void TreasureBoxCracked::exeOpen() {
 }
 
 void TreasureBoxCracked::exeItemBound() {
-    TVec3f up;
+    Vec3f up;
     MR::calcUpVec(&up, this);
     f32 amplitude = ::sBoundSpeedMax - (::sBoundSpeedMax / ::sBoundTime) * getNerveStep();
     f32 height = amplitude * MR::sinDegree((720.0f / ::sBoundTime) * getNerveStep());
-    TVec3f position;
+    Vec3f position;
     position.scaleAdd(height, up, mItemTargetPos);
     mItem->mPosition.set(position);
 
@@ -185,7 +189,7 @@ void TreasureBoxCracked::exeOpenWait() {
         if (MR::isValidSwitchA(this)) {
             MR::onSwitchA(this);
         }
-    } else if (mItemType == 7 && MR::isStep(this, 10)) {
+    } else if (mItemType == 7 && MR::isStep(this, cStep_exeOpenWait_1)) {
         if (mPowerStarId == -1) {
             MR::requestAppearPowerStar(this, mPosition);
         } else {
@@ -207,7 +211,7 @@ void TreasureBoxCracked::exeAlwaysOpen() {
         MR::invalidateHitSensors(this);
         MR::startBck(this, "Open");
         MR::setBckFrameAndStop(this, MR::getBckCtrl(this)->getEnd());
-        TVec3f position;
+        Vec3f position;
         NebulaMtxMultVec(getBaseMtx(), &::sTopOpenEndOffset, &position);
         mTopMtx.setTrans(position);
     }
@@ -219,9 +223,9 @@ void TreasureBoxCracked::control() {
 
         if (!(frame >= ::sStepForCollisionMove)) {
             f32 rate = frame / ::sStepForCollisionMove;
-            TVec3f offset;
-            MR::vecBlend(TVec3f(::sTopOpenStartOffset), TVec3f(::sTopOpenEndOffset), &offset, rate);
-            TVec3f position;
+            Vec3f offset;
+            MR::vecBlend(Vec3f(::sTopOpenStartOffset), Vec3f(::sTopOpenEndOffset), &offset, rate);
+            Vec3f position;
             NebulaMtxMultVec(getBaseMtx(), &offset, &position);
             mTopMtx.setTrans(position);
 
@@ -234,10 +238,10 @@ void TreasureBoxCracked::control() {
 
 void TreasureBoxCracked::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     if (isHalfOpen() && MR::isSensorPlayerOrRide(pReceiver)) {
-        TVec3f direction;
+        Vec3f direction;
         direction.sub(pReceiver->mPosition, pSender->mPosition);
         MR::normalize(&direction);
-        TVec3f front;
+        Vec3f front;
         MR::calcFrontVec(&front, this);
 
         if (front.dot(direction) < 0.0f && !MR::isPlayerDamaging()) {
@@ -246,7 +250,7 @@ void TreasureBoxCracked::attackSensor(HitSensor* pSender, HitSensor* pReceiver) 
     }
 }
 
-bool TreasureBoxCracked::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool TreasureBoxCracked::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* /*pReceiver*/) {
     if (isNerve(GET_NERVE(TreasureBoxCracked, TreasureBoxCrackedNrvOpenWait))) {
         return false;
     }
@@ -270,7 +274,7 @@ bool TreasureBoxCracked::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, Hit
     return false;
 }
 
-bool TreasureBoxCracked::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool TreasureBoxCracked::receiveMsgEnemyAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (MR::isMsgExplosionAttack(msg) && isNerve(GET_NERVE(TreasureBoxCracked, TreasureBoxCrackedNrvWait))) {
         if (mOpenCondition == 1) {
             MR::startSound(this, "SE_OJ_TERAS_BOX_GOLD_REFUSE");
@@ -284,13 +288,13 @@ bool TreasureBoxCracked::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitS
     return false;
 }
 
-void TreasureBoxCracked::initItem(const JMapInfoIter& rIter) {
+void TreasureBoxCracked::initItem(const TableIter& rIter) {
     const char* objectName;
     MR::getObjectName(&objectName, rIter);
 
     if (MR::isEqualSubString(objectName, "Empty")) {
         mItemType = 0;
-        MR::getJMapInfoArg0NoInit(rIter, &mWaitForSwitchOn);
+        MR::getPlacementArg0NoInit(rIter, &mWaitForSwitchOn);
         return;
     }
 
@@ -308,7 +312,7 @@ void TreasureBoxCracked::initItem(const JMapInfoIter& rIter) {
         mItemType = 6;
     } else if (MR::isEqualSubString(objectName, "PowerStar")) {
         mItemType = 7;
-        MR::getJMapInfoArg3WithInit(rIter, &mPowerStarId);
+        MR::getPlacementArg3WithInit(rIter, &mPowerStarId);
 
         if (mPowerStarId != -1) {
             MR::declarePowerStar(this, mPowerStarId);
@@ -332,7 +336,7 @@ void TreasureBoxCracked::initItem(const JMapInfoIter& rIter) {
     }
 
     if (mItemType == 1) {
-        mItem = static_cast< LiveActor* >(MR::createCoin(this, "\203\122\203\103\203\223" /* コイン */));
+        mItem = static_cast< LiveActor* >(MR::createCoin(this, "コイン"));
     } else if (mItemType == 2) {
         mItem = initYellowChip(rIter);
     } else if (mItemType == 3) {
@@ -340,9 +344,9 @@ void TreasureBoxCracked::initItem(const JMapInfoIter& rIter) {
     } else if (mItemType == 4) {
         mItem = initKinokoOneUp(rIter);
     } else if (mItemType == 5) {
-        mItem = new BenefitItemLifeUp("\203\211\203\103\203\164\202\164\202\157\203\114\203\155\203\122" /* ライフＵＰキノコ */);
+        mItem = new BenefitItemLifeUp("ライフＵＰキノコ");
     } else if (mItemType == 6) {
-        mItem = new AirBubble("\213\363\213\103\226\101" /* 空気泡 */);
+        mItem = new AirBubble("空気泡");
     }
 
     initItemTrans();
@@ -377,32 +381,32 @@ void TreasureBoxCracked::initItemTrans() {
     mItem->mRotation.set(mRotation);
 }
 
-LiveActor* TreasureBoxCracked::initYellowChip(const JMapInfoIter& rIter) {
+LiveActor* TreasureBoxCracked::initYellowChip(const TableIter& rIter) {
     s32 groupId;
-    MR::getJMapInfoArg0WithInit(rIter, &groupId);
-    YellowChip* chip = new YellowChip("\203\103\203\107\203\215\201\133\203\140\203\142\203\166" /* イエローチップ */);
+    MR::getPlacementArg0WithInit(rIter, &groupId);
+    YellowChip* chip = new YellowChip("イエローチップ");
     chip->setHost(this);
     chip->setGroupID(groupId);
     return chip;
 }
 
-LiveActor* TreasureBoxCracked::initBlueChip(const JMapInfoIter& rIter) {
+LiveActor* TreasureBoxCracked::initBlueChip(const TableIter& rIter) {
     s32 groupId;
-    MR::getJMapInfoArg0WithInit(rIter, &groupId);
-    BlueChip* chip = new BlueChip("\203\165\203\213\201\133\203\140\203\142\203\166" /* ブルーチップ */);
+    MR::getPlacementArg0WithInit(rIter, &groupId);
+    BlueChip* chip = new BlueChip("ブルーチップ");
     chip->setHost(this);
     chip->setGroupID(groupId);
     return chip;
 }
 
-LiveActor* TreasureBoxCracked::initKinokoOneUp(const JMapInfoIter& rIter) {
-    return new BenefitItemOneUp("\202\120\202\164\202\157\203\114\203\155\203\122" /* １ＵＰキノコ */);
+LiveActor* TreasureBoxCracked::initKinokoOneUp(const TableIter& /*rIter*/) {
+    return new BenefitItemOneUp("１ＵＰキノコ");
 }
 
 bool TreasureBoxCracked::checkItemPos() {
     f32 distance = mPosition.distance(mItem->mPosition);
     f32 targetDistance = mPosition.distance(mItemTargetPos);
-    TVec3f up;
+    Vec3f up;
     MR::calcUpVec(&up, this);
 
     if (mItemVelocity.dot(up) >= 0.0f) {
@@ -422,7 +426,4 @@ bool TreasureBoxCracked::isHalfOpen() const {
     }
 
     return !MR::isBckStopped(this);
-}
-
-TreasureBoxCracked::~TreasureBoxCracked() {
 }

@@ -9,7 +9,7 @@
 #include "Game/Util/SoundUtil.hpp"
 
 bool MarioActor::isEnableSpinPunch() {
-    if (getMovementStates()._23) {
+    if (getMovementStates().slopeSlide) {
         return false;
     }
 
@@ -22,19 +22,19 @@ bool MarioActor::isEnableSpinPunch() {
     }
 
     if (mMario->getCurrentStatus() == MarioStatus_Flip) {
-        return mMario->mFlip->_14 >= 2;  // FIXME
+        return mMario->mFlip->mStep >= 2;
     }
 
     if (mMario->getCurrentStatus() == MarioStatus_Stun) {
         bool out = false;
-        if (mMario->mStun->_12 || mMario->mStun->_14 < 15) {
+        if (mMario->mStun->mRecovering || mMario->mStun->mRecoverTimer < 15) {
             out = true;
         }
 
         return out;
     }
 
-    if (getMovementStates()._A && mMario->calcDistToCeil(false) < 160.0f) {
+    if (getMovementStates().squat && mMario->calcDistToCeil(false) < 160.0f) {
         return false;
     }
 
@@ -44,19 +44,19 @@ bool MarioActor::isEnableSpinPunch() {
 bool MarioActor::trySpinPunch() {
     bool out = true;
     if (getMovementStates().jumping) {
-        changeAnimation("\213\363\203\160\203\223\203\140" /* 空パンチ */);
+        changeAnimation("空パンチ");
         setPunchHitTimer(15);
         mMario->mWalkSpeed = 0.0f;
     } else if (isEnableSpinPunch()) {
         if (mMario->isStatusActive(MarioStatus_Bury)) {
-            playSound("\203\130\203\120\203\114\203\210\217\111\227\271\203\130\203\163\203\223" /* スケキヨ終了スピン */, -1);
+            playSound("スケキヨ終了スピン", -1);
         }
 
-        if (getMovementStates()._A) {
+        if (getMovementStates().squat) {
             if (mMario->calcDistToCeil(false) > 160.0f) {
-                changeAnimation("\203\124\203\175\201\133\203\134\203\213\203\147" /* サマーソルト */);
-                playSound("\203\130\203\163\203\223\203\127\203\203\203\223\203\166" /* スピンジャンプ */, -1);
-                playSound("\220\272\203\130\203\163\203\223" /* 声スピン */, -1);
+                changeAnimation("サマーソルト");
+                playSound("スピンジャンプ", -1);
+                playSound("声スピン", -1);
             } else {
                 return false;
             }
@@ -70,15 +70,14 @@ bool MarioActor::trySpinPunch() {
     }
 
     tryReleaseBombTeresa();
-    _950 = false;
 
     return out;
 }
 
 void MarioActor::printHitMark(HitSensor* pSensor) {
-    TVec3f vec(pSensor->mPosition - _2A0);
+    Vec3f vec(pSensor->mPosition - mCenterPos);
     vec.setLength(200.0f);
-    playEffectTrans("\203\160\203\223\203\140\203\161\203\142\203\147" /* パンチヒット */, _2A0 + vec);
+    playEffectTrans("パンチヒット", mCenterPos + vec);
 }
 
 void MarioActor::reactionPunch(HitSensor* pSensor) {
@@ -87,16 +86,16 @@ void MarioActor::reactionPunch(HitSensor* pSensor) {
     }
 
     if (isJumping()) {
-        _38C = 5;
+        mStunTimer = 5;
     } else {
-        _38C = 5;
+        mStunTimer = 5;
         if (mMario->mWalkSpeed > 0.1f) {
             mMario->mWalkSpeed = 0.1f;
             mMario->mTargetWalkSpeedIndex = 1;
         }
     }
 
-    if (!getMovementStates()._2B) {
+    if (!getMovementStates().spinBlocked) {
         jumpHop();
     }
 
@@ -109,26 +108,26 @@ void MarioActor::reactionPunch(HitSensor* pSensor) {
     if (pSensor->isType(ATYPE_BEGOMAN)) {
         mMario->stopWalk();
 
-        TVec3f reactDir(_2A0 - pSensor->mPosition);
+        Vec3f reactDir(mCenterPos - pSensor->mPosition);
         MR::vecKillElement(reactDir, getGravityVector(), &reactDir);
         reactDir.setLength(20.0f);
         mMario->addReaction(reactDir);
     }
 
     if (mMario->isSwimming()) {
-        TVec3f punchDir(_2A0 - pSensor->mPosition);
+        Vec3f punchDir(mCenterPos - pSensor->mPosition);
         punchDir.setLength(5.0f);
         mMario->mSwim->hitPunch(punchDir);
     }
 }
 
-bool MarioActor::sendPunch(HitSensor* pSensor, bool myBool) {
+bool MarioActor::sendPunch(HitSensor* pSensor, bool isSpinAttack) {
     if (isDamaging()) {
-        _944 = false;
+        mPunchHitTimer = false;
         return false;
     }
 
-    if (myBool && mPlayerMode == 3) {
+    if (isSpinAttack && mPlayerMode == PlayerMode_Ice) {
         bool out = doFreezeAttack(pSensor);
 
         if (out && !selectCustomEffectSpinHitSound(pSensor->mHost->mName)) {
@@ -138,11 +137,11 @@ bool MarioActor::sendPunch(HitSensor* pSensor, bool myBool) {
         return out;
     }
 
-    _FCC = true;
+    mAttacking = true;
     bool out = MR::sendMsgPlayerPunch(pSensor, getSensor("body"));
-    _FCC = false;
+    mAttacking = false;
 
-    if (myBool && out && !selectCustomEffectSpinHitSound(pSensor->mHost->mName)) {
+    if (isSpinAttack && out && !selectCustomEffectSpinHitSound(pSensor->mHost->mName)) {
         MR::startSpinHitSound(this);
     }
 
@@ -158,18 +157,14 @@ bool MarioActor::tryPunchAirAfter(HitSensor* pSensor) {
         return false;
     }
 
-    for (u32 idx = 0; idx < _974; idx++) {
-        if (_954[idx] == pSensor) {
+    for (u32 idx = 0; idx < mAirPunchHitCount; idx++) {
+        if (mAirPunchHits[idx] == pSensor) {
             return false;
         }
     }
 
-    if (_974 >= 8) {
-        return false;
-    }
-
-    if (!_3E5 && mPlayerMode != 1) {
-        TVec3f vec(pSensor->mPosition - getSensor("body")->mPosition);
+    if (!mPunchSensorOn && mPlayerMode != 1) {
+        Vec3f vec(pSensor->mPosition - getSensor("body")->mPosition);
         MR::vecKillElement(vec, getGravityVector(), &vec);
 
         if (MR::diffAngleAbs(vec, mMario->mFrontVec) >= MR::pi() / 4.0f) {
@@ -178,9 +173,9 @@ bool MarioActor::tryPunchAirAfter(HitSensor* pSensor) {
     }
 
     if (sendPunch(pSensor, true)) {
-        _954[_974] = pSensor;
-        _924 = pSensor;
-        _974++;
+        mAirPunchHits.at(mAirPunchHitCount) = pSensor;
+        mRushSensor = pSensor;
+        mAirPunchHitCount++;
 
         reactionPunch(pSensor);
 
@@ -196,16 +191,16 @@ bool MarioActor::sendBodyAttack(HitSensor* pSensor) {
         isStatus = false;
     }
 
-    if (isStatus && !getMovementStates()._8 && !isDamaging() && !getMovementStates()._B) {
-        TVec3f newPos(pSensor->mPosition - getSensor("body")->mPosition);
-        TVec3f* frontVec = &mMario->mFrontVec;
+    if (isStatus && !getMovementStates().frontWall && !isDamaging() && !getMovementStates().hipDrop) {
+        Vec3f newPos(pSensor->mPosition - getSensor("body")->mPosition);
+        Vec3f* frontVec = &mMario->mFrontVec;
         if (MR::diffAngleAbsHorizontal(newPos, *frontVec, getGravityVector()) >= HALF_PI) {
             return false;
         }
 
         if (MR::sendArbitraryMsg(ACTMES_KICK, pSensor, getSensor("body"))) {
-            playSound("\220\272\203\211\203\223\203\152\203\223\203\117\203\114\203\142\203\116" /* 声ランニングキック */, -1);
-            changeAnimation("\203\211\203\223\203\152\203\223\203\117\203\114\203\142\203\116" /* ランニングキック */);
+            playSound("声ランニングキック", -1);
+            changeAnimation("ランニングキック");
             mMario->startPadVib(2);
 
             if (!MR::sendArbitraryMsg(ACTMES_HITMARK_EMIT, pSensor, getSensor("body"))) {
@@ -227,19 +222,19 @@ bool MarioActor::sendBodyAttack(HitSensor* pSensor) {
 }
 
 void MarioActor::doFreezeAttack() {
-    if (isAnimationRun("\203\101\203\103\203\130\202\320\202\313\202\350\213\363\222\206" /* アイスひねり空中 */)) {
+    if (isAnimationRun("アイスひねり空中")) {
         return;
     }
 
     if (isJumping()) {
-        if (mMario->_430 != 13) {
-            changeAnimation("\203\101\203\103\203\130\202\320\202\313\202\350\213\363\222\206" /* アイスひねり空中 */);
-            playSound("\203\130\203\163\203\223\203\127\203\203\203\223\203\166" /* スピンジャンプ */, -1);
-            playSound("\220\272\203\130\203\163\203\223" /* 声スピン */, -1);
+        if (mMario->mJumpKind != 13) {
+            changeAnimation("アイスひねり空中");
+            playSound("スピンジャンプ", -1);
+            playSound("声スピン", -1);
 
-            if (mMario->_42C == 0) {
+            if (mMario->mFireShotCount == 0) {
                 jumpHop();
-                mMario->_42C++;
+                mMario->mFireShotCount++;
             }
         }
 
@@ -251,11 +246,11 @@ void MarioActor::doFreezeAttack() {
         return;
     }
 
-    if (!isAnimationRun("\203\101\203\103\203\130\202\320\202\313\202\350" /* アイスひねり */)) {
-        playSound("\203\130\203\120\201\133\203\147\203\130\203\163\203\223" /* スケートスピン */, -1);
-        playSound("\203\130\203\163\203\223\203\127\203\203\203\223\203\166" /* スピンジャンプ */, -1);
-        playSound("\220\272\203\160\203\223\203\140" /* 声パンチ */, -1);
+    if (!isAnimationRun("アイスひねり")) {
+        playSound("スケートスピン", -1);
+        playSound("スピンジャンプ", -1);
+        playSound("声パンチ", -1);
     }
 
-    changeAnimation("\203\101\203\103\203\130\202\320\202\313\202\350" /* アイスひねり */);
+    changeAnimation("アイスひねり");
 }

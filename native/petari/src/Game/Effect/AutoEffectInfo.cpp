@@ -1,5 +1,5 @@
 #include "Game/Effect/AutoEffectInfo.hpp"
-#include "Game/Util/JMapInfo.hpp"
+#include "Game/Util/Table.hpp"
 #include "Game/Util/StringUtil.hpp"
 
 #include <cstdlib>
@@ -9,23 +9,23 @@ namespace {
         return strtoul(pStr + 1, nullptr, 16) * 256;
     }
 
-    bool isValueOnR(const JMapInfoIter& rIter, const char* pName) {
+    bool isValueOnR(const TableIter& rIter, const char* pName) {
         const char* value = "";
         rIter.getValue(pName, &value);
 
         return strchr(value, 'R') != nullptr;
     }
 
-    bool isValueOnS(const JMapInfoIter& rIter, const char* pName) {
+    bool isValueOnS(const TableIter& rIter, const char* pName) {
         const char* value = "";
         rIter.getValue(pName, &value);
 
         return strchr(value, 'S') != nullptr;
     }
 
-    bool isValueOnT(const JMapInfoIter& rIter, const char* pName);
+    bool isValueOnT(const TableIter& rIter, const char* pName);
 
-    const char* getStringValue(const JMapInfoIter& rIter, const char* pName) {
+    const char* getStringValue(const TableIter& rIter, const char* pName) {
         const char* value = "";
         rIter.getValue(pName, &value);
 
@@ -39,19 +39,19 @@ namespace {
 
 namespace {
     struct DrawOrderData {
-        s32 _0;
-        const char* _4;
+        s32 mDrawOrder;
+        const char* mName;
     };
 
-    static const DrawOrderData sDrawOrderDataTable[] = {
+    const DrawOrderData sDrawOrderDataTable[] = {
         {0, "3D"}, {1, "PAUSE_IGNORE"},    {2, "INDIRECT"},     {3, "AFTER_INDIRECT"}, {4, "BLOOM_EFFECT"}, {5, "AFTER_IMAGE_EFFECT"},
         {6, "2D"}, {7, "2D_PAUSE_IGNORE"}, {8, "FOR_2D_MODEL"},
     };
 
     s32 getDrawOrderData(const char* pDrawOrder) {
         for (u32 i = 0; i < ARRAY_SIZE(sDrawOrderDataTable); i++) {
-            if (MR::isEqualString(pDrawOrder, sDrawOrderDataTable[i]._4)) {
-                return sDrawOrderDataTable[i]._0;
+            if (MR::isEqualString(pDrawOrder, sDrawOrderDataTable[i].mName)) {
+                return sDrawOrderDataTable[i].mDrawOrder;
             }
         }
 
@@ -61,7 +61,7 @@ namespace {
 };  // namespace
 
 namespace {
-    bool isValueOn(const JMapInfoIter& rIter, const char* pName) {
+    bool isValueOn(const TableIter& rIter, const char* pName) {
         const char* pValue = "";
         rIter.getValue(pName, &pValue);
         return MR::isEqualString(pValue, "on");
@@ -78,7 +78,7 @@ AutoEffectInfo::AutoEffectInfo()
     mIsValidEnvColor = false;
 }
 
-void AutoEffectInfo::init(const JMapInfoIter& rIter) {
+void AutoEffectInfo::init(const TableIter& rIter) {
     mGroupName = ::getStringValue(rIter, "GroupName");
     mUniqueName = ::getStringValue(rIter, "UniqueName");
     mAnimName = ::getStringValue(rIter, "AnimName");
@@ -168,7 +168,7 @@ const char* AutoEffectInfo::getName() const {
 }
 
 namespace {
-    bool isValueOnT(const JMapInfoIter& rIter, const char* pName) {
+    bool isValueOnT(const TableIter& rIter, const char* pName) {
         const char* value = "";
         rIter.getValue(pName, &value);
 

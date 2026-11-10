@@ -2,7 +2,7 @@
 
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/Util/Color.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class OctahedronBezierSurface;
 class BigBubbleMoveLimitter;
@@ -13,23 +13,23 @@ public:
 
     BigBubble(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void makeActorAppeared();
-    virtual void makeActorDead();
-    virtual void control();
-    virtual void calcAnim();
-    virtual void draw() const;
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual MtxPtr getBaseMtx() const {
-        return (MtxPtr)&mBaseMtx;
+    virtual void init(const TableIter&) override;
+    virtual void makeActorAppeared() override;
+    virtual void makeActorDead() override;
+    virtual void control() override;
+    virtual void calcAnim() override;
+    virtual void draw() const override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual MtxPtr getBaseMtx() const override {
+        return const_cast< MtxPtr >(mBaseMtx.mMtx);
     }
 
     void initSensor();
-    void generate(const TVec3f&, const TVec3f&, f32, bool, s32, s32, const BigBubbleMoveLimitter*);
+    void generate(const Vec3f&, const Vec3f&, f32, bool, s32, s32, const BigBubbleMoveLimitter*);
     void setActionType(s32);
     void setShapeType(s32);
     f32 getBaseRadius() const;
@@ -59,8 +59,8 @@ public:
 
     void endCapture();
 
-    void addDeformVelocityOuter(const TVec3f&, bool);
-    void addDeformVelocityInternalOressure();
+    void addDeformVelocityOuter(const Vec3f&, bool);
+    void addDeformVelocityInternalPressure();
     void addDeformVelocityRebound();
     void addCoriolisAccel();
     void addAccelMoment(s32 padChannel);
@@ -74,10 +74,10 @@ public:
     void updateMeshPoint();
     void updateCaptureReduceVolume();
     void updateCaptureWarningColor();
-    void calcMergePosition(TVec3f*, TVec3f*, const BigBubble*) const;
-    void calcLocalDirection(TVec3f*, s32) const;
-    s32 getNearAxisIndex(const TVec3f&) const;
-    s32 getMergeIndex(const TVec3f&) const;
+    void calcMergePosition(Vec3f*, Vec3f*, const BigBubble*) const;
+    void calcLocalDirection(Vec3f*, s32) const;
+    s32 getNearAxisIndex(const Vec3f&) const;
+    s32 getMergeIndex(const Vec3f&) const;
 
     bool isPushable() const;
     bool isBindMario() const;
@@ -106,36 +106,31 @@ public:
     LiveActor* mRider;
     BigBubble* mMergeBubble;
     BigBubble* mMergeBubbles[6];
-    TPos3f mEffectMtx;
-    TPos3f _E8;
-    TPos3f mBaseMtx;
-    TQuat4f mBubbleQuat;
-    TQuat4f mRiderQuat;
-    TVec3f mRiderBasePos;
-    TVec3f mRiderPos;
-    TVec3f mSpawnPosition;
-    TVec3f _18C;
-    TVec3f mPointerPos;
-    TVec3f mPushDirection;
-    TVec3f mMoment;
-    TVec3f mCoriolisAccel;
+    Pos3f mEffectMtx;
+    Pos3f mBaseMtx;
+    Quat4f mBubbleQuat;
+    Quat4f mRiderQuat;
+    Vec3f mRiderBasePos;
+    Vec3f mRiderPos;
+    Vec3f mSpawnPosition;
+    Vec3f mPointerPos;
+    Vec3f mPushDirection;
+    Vec3f mMoment;
+    Vec3f mCoriolisAccel;
     f32 mDeformCoeff[6];
     f32 mDeformSpeed[6];
     f32 mInterpolateRate;
     f32 mPointAccel;
     s32 mPushInvalidTime;  // some timer
     s32 mReduceVolumeTimer;
-    s32 _208;  // some timer
     s32 mMergeIndex;
     s32 mShapeType;
-    s32 _214;
     f32 mAppearRadius;
     f32 mVolume;
     f32 mDrawZ;
     f32 mBinderRadius;
     Color8 mWarningColor;
     bool mIsObstruct;
-    bool _22D;
     bool mIsHidden;
     bool mIsExitLimitter;
     bool mIsBroken;

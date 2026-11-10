@@ -2,26 +2,24 @@
 
 #include "Game/LiveActor/LiveActor.hpp"
 
-class JUTTexture;
+class GameTexture;
 
+// The G-capture line: a textured ribbon from the capture point to its target.
 class GCaptureRibbon : public LiveActor {
 public:
     GCaptureRibbon(const char*);
 
-    virtual ~GCaptureRibbon();
-    virtual void init(const JMapInfoIter&);
-    virtual void draw() const;
+    virtual void init(const TableIter&) override;
+    virtual void draw() const override;
 
     void reset();
-    void lengthen(const TVec3f&, const TVec3f&);
-    void shorten(const TVec3f&, const TVec3f&);
-    void updateAxis();
+    void setLine(const Vec3f&, const Vec3f&);
     f32 calcLineWidth() const;
 
-    JUTTexture* mTexture;
-    TVec3f _90[0x40];
-    TVec3f _390[0x40];
-    TVec3f _690[0x40];
-    s32 _990;
-    s32 _994;
+    GameTexture* mTexture;
+    Vec3f mStart;
+    Vec3f mEnd;
+    Vec3f mSide;
+    Vec3f mUp;
+    bool mIsLineSet;
 };

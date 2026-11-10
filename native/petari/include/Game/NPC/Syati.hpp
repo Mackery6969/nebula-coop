@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class ActorCameraInfo;
 class LiveActorGroup;
@@ -17,11 +17,11 @@ class Syati : public LiveActor {
 public:
     Syati(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     void exeWait();
     void exeFadeoutBeforeTalk();
@@ -42,9 +42,9 @@ public:
     void exeWaitTalkNormal();
     void exeTalkNormal();
     void exeStart();
-    void initRings(const JMapInfoIter& rIter);
+    void initRings(const TableIter& rIter);
     void initPose();
-    void initTalking(const JMapInfoIter& rIter);
+    void initTalking(const TableIter& rIter);
     void updateSwimCommon();
     void updatePoseByRail();
     void updateNumRingPassed();
@@ -54,22 +54,21 @@ public:
     void resetScore();
     void killAllRings();
     void emitRing();
-    void setupBalloonFollowMtx(const TVec3f& rVec);
-    bool calcHeadJoint(TPos3f* pPos, const JointControllerInfo& rInfo);
+    void setupBalloonFollowMtx(const Vec3f& rVec);
+    bool calcHeadJoint(Pos3f* pPos, const JointControllerInfo& rInfo);
 
-    TQuat4f _8C;
-    TVec3f _9C;
+    Quat4f mPoseQuat;
+    Vec3f mRailDirBlend;
     f32 mClippingRange;
-    TVec3f mClippingVec;
+    Vec3f mClippingVec;
     TalkMessageCtrl* mTalkMessageCtrl;
     ActorCameraInfo* mActorCameraInfo;
     s32 mHideOnShoreMode;
     PlayerPoseSetterInWater* mPlayerPoseSetterInWater;
     s32 mBlinkTimer;
-    TVec3f mMarioMoveLocalOffsetVec;
-    TPos3f mBalloonFollowMtx;
+    Vec3f mMarioMoveLocalOffsetVec;
+    Pos3f mBalloonFollowMtx;
     JointControlDelegator< Syati >* mJointControlDelegator;
-    TMtx34f _10C;
     RaceManagerLayout* mRaceManagerLayout;
     LiveActorGroup* mPrizeRingGroup;
     s32 mNumRings;
@@ -82,11 +81,11 @@ public:
 
 class PlayerPoseSetterInWater {
 public:
-    inline PlayerPoseSetterInWater(const TVec3f& rVec, Syati* pSyati);
+    inline PlayerPoseSetterInWater(const Vec3f& rVec, Syati* pSyati);
     void update();
 
-    TVec3f _0;
-    TQuat4f _C;
-    s32 _1C;
-    Vec* _20;
+    Vec3f mSyatiPos;
+    Quat4f mSyatiQuat;
+    s32 mStep;
+    Vec* mOffset;
 };

@@ -1,8 +1,15 @@
-#include "Game/System/NebulaHost.hpp"
 #include "Game/System/GameDataPlayerStatus.hpp"
+#include "Game/System/GameRules.hpp"
 #include "Game/Util/MathUtil.hpp"
-#include <JSystem/JSupport/JSUMemoryInputStream.hpp>
-#include <JSystem/JSupport/JSUMemoryOutputStream.hpp>
+#include "Game/System/SaveBytes.hpp"
+#include "Game/Util/Tunable.hpp"
+
+namespace {
+    // The lives the player starts with and has again on every load (4).
+    NEBULA_TUNABLE(s32, cStartingPlayerLeft, 4);
+    // The most lives (99).
+    NEBULA_TUNABLE(s32, cMaxPlayerLeft, 99);
+};  // namespace
 
 GameDataPlayerStatus::GameDataPlayerStatus() {
     initializeData();
@@ -17,24 +24,18 @@ u32 GameDataPlayerStatus::getSignature() const {
 }
 
 s32 GameDataPlayerStatus::serialize(u8* pBuffer, u32 size) const {
-    JSUMemoryOutputStream stream = JSUMemoryOutputStream(pBuffer, size);
-
-    u8 storyProgress = mStoryProgress;
-    stream.write(&storyProgress, sizeof(mStoryProgress));
-
-    u32 stockedStarPiece = mStockedStarPiece;
-    stream.write(&stockedStarPiece, sizeof(mStockedStarPiece));
-
-    u16 playerLeft = mPlayerLeft;
-    stream.write(&playerLeft, sizeof(mPlayerLeft));
-
-    return stream.mPosition;
+    SaveWriter stream(pBuffer, size);
+    stream.write(&mStoryProgress, sizeof(mStoryProgress));
+    stream.write(&mStockedStarPiece, sizeof(mStockedStarPiece));
+    // Read back as mPlayerLeftSupply; the lives start again on every load.
+    stream.write(&mPlayerLeft, sizeof(mPlayerLeft));
+    return stream.getPosition();
 }
 
 s32 GameDataPlayerStatus::deserialize(const u8* pBuffer, u32 size) {
     initializeData();
 
-    JSUMemoryInputStream stream = JSUMemoryInputStream(pBuffer, size);
+    SaveReader stream(pBuffer, size);
 
     stream.read(&mStoryProgress, sizeof(mStoryProgress));
     stream.read(&mStockedStarPiece, sizeof(mStockedStarPiece));
@@ -43,13 +44,13 @@ s32 GameDataPlayerStatus::deserialize(const u8* pBuffer, u32 size) {
         stream.read(&mPlayerLeftSupply, sizeof(mPlayerLeftSupply));
     }
 
-    mPlayerLeft = NebulaHost::setting(NEBULA_PATCH_STARTING_LIVES, 4);
+    mPlayerLeft = ::cStartingPlayerLeft;
 
     return 0;
 }
 
 void GameDataPlayerStatus::initializeData() {
-    mPlayerLeft = NebulaHost::setting(NEBULA_PATCH_STARTING_LIVES, 4);
+    mPlayerLeft = ::cStartingPlayerLeft;
     mPlayerLeftSupply = 4;
     mStockedStarPiece = 0;
     mStoryProgress = 0;
@@ -58,13 +59,13 @@ void GameDataPlayerStatus::initializeData() {
 s32 GameDataPlayerStatus::getPlayerLeft() const {
     s32 playerLeft = mPlayerLeft;
 
-    return MR::clamp(playerLeft, 0, NebulaHost::setting(NEBULA_PATCH_MAX_LIVES, 99));
+    return MR::clamp(playerLeft, 0, ::cMaxPlayerLeft);
 }
 
 void GameDataPlayerStatus::addPlayerLeft(int num) {
     s32 playerLeft = mPlayerLeft + num;
 
-    mPlayerLeft = MR::clamp(playerLeft, 0, NebulaHost::setting(NEBULA_PATCH_MAX_LIVES, 99));
+    mPlayerLeft = MR::clamp(playerLeft, 0, ::cMaxPlayerLeft);
 }
 
 bool GameDataPlayerStatus::isPlayerLeftSupply() const {
@@ -78,5 +79,5 @@ void GameDataPlayerStatus::offPlayerLeftSupply() {
 void GameDataPlayerStatus::addStockedStarPiece(int num) {
     s32 stockedStarPiece = mStockedStarPiece + num;
 
-    mStockedStarPiece = MR::clamp(stockedStarPiece, 0, NebulaHost::setting(NEBULA_PATCH_MAX_STAR_BITS, 9999));
+    mStockedStarPiece = MR::clamp(stockedStarPiece, 0, GameRules::maxStarBits());
 }

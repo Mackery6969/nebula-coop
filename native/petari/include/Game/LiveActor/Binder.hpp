@@ -7,72 +7,70 @@ class CollisionPartsFilterBase;
 
 class Binder {
 public:
-    Binder(MtxPtr, const TVec3f*, const TVec3f*, f32, f32, u32);
+    // planeCapacity 0: a bind keeps every plane it meets in a buffer the binders share. Otherwise the binder keeps them in
+    // a list of its own (room for planeCapacity to start, grown when a bind meets more), which getPlane reads.
+    Binder(MtxPtr pHostMtx, const Vec3f* pHostPos, const Vec3f* pGravity, f32 radius, f32 offsetY, u32 planeCapacity);
 
     void setTriangleFilter(TriangleFilterBase*);
     void setCollisionPartsFilter(CollisionPartsFilterBase*);
 
     void setExCollisionParts(CollisionParts* pParts) {
         mExCollisionParts = pParts;
-        if (pParts == nullptr) {
-            _1EC._2 = false;
-        } else {
-            _1EC._2 = true;
-        }
+        mIsExCollisionValid = pParts != nullptr;
     }
 
     void clear();
     const HitInfo* getPlane(int) const;
     u32 copyPlaneArrayAndSortingSensor(HitInfo**, u32);
     static bool compSensor(const HitInfo*, const HitInfo*);
-    const TVec3f bind(const TVec3f&);
-    void moveAlongHittedPlanes(TVec3f*, TVec3f*, TVec3f*, const TVec3f&, const TVec3f&, HitInfo*, u32, bool*);
-    u32 findBindedPos(TVec3f*, TVec3f*, bool*, HitInfo*, u32, bool, bool);
-    bool moveWithCollisionParts(TVec3f*, TVec3f*);
-    u32 storeCurrentHitInfo(HitInfo*, u32, bool);
-    void obtainMomentFixReaction(HitInfo*, u32, TVec3f*, u32);
-    void storeContactPlane(HitInfo*, u32);
+    const Vec3f bind(const Vec3f&);
+    void moveAlongHittedPlanes(Vec3f*, Vec3f*, Vec3f*, const Vec3f&, const Vec3f&, bool*);
+    u32 findBindedPos(Vec3f*, Vec3f*, bool*, bool, bool);
+    bool moveWithCollisionParts(Vec3f*, Vec3f*);
+    u32 storeCurrentHitInfo(bool);
+    void obtainMomentFixReaction(Vec3f*, u32);
+    void storeContactPlane();
+    // The planes of the current bind: the binder's own list, or the shared one.
+    HitInfo* planes();
+    // planes() with room for `count`; it may move.
+    HitInfo* planeRoom(u32 count);
 
     inline bool isBindedGround() const {
-        return 0.0f <= _C8;
+        return 0.0f <= mGroundDepth;
     }
 
     inline bool isBindedWall() const {
-        return 0.0f <= _158;
+        return 0.0f <= mWallDepth;
     }
 
     inline bool isBindedRoof() const {
-        return 0.0f <= _1E8;
+        return 0.0f <= mRoofDepth;
     }
 
     TriangleFilterBase* mTriangleFilter;
     CollisionPartsFilterBase* mCollisionPartsFilter;
     CollisionParts* mExCollisionParts;
-    MtxPtr _C;
-    const TVec3f* _10;
-    const TVec3f* _14;
+    MtxPtr mHostMtx;
+    const Vec3f* mHostPos;
+    const Vec3f* mGravity;
     f32 mRadius;
     f32 mOffsetY;
-    const TVec3f* mOffsetVec;
-    u32 _24;
+    const Vec3f* mOffsetVec;
+    u32 mPlaneCapacity;  // the room of mPlane; 0: the shared list
     u32 mPlaneNum;
     HitInfo* mPlane;
-    TVec3f mFixReactionVector;
+    Vec3f mFixReactionVector;
+    // The deepest plane of each kind the last bind touched; below 0: none.
     HitInfo mGroundInfo;
-    f32 _C8;
+    f32 mGroundDepth;
     HitInfo mWallInfo;
-    f32 _158;
+    f32 mWallDepth;
     HitInfo mRoofInfo;
-    f32 _1E8;
-    struct {
-        // MR:: utilities mask this as a byte (0x80 is _0): fields from the least significant bit up, so each has the
-        // bit those masks name.
-        u8 : 2;
-        u8 _5 : 1;
-        u8 _4 : 1;
-        u8 _3 : 1;
-        u8 _2 : 1;
-        u8 _1 : 1;
-        u8 _0 : 1;
-    } _1EC;
+    f32 mRoofDepth;
+    bool mIsMoveWithCollision;   // carried by the collision parts it stands on
+    bool mIsMovingReaction;      // strike checks against moving collision react to its movement
+    bool mIsExCollisionValid;    // mExCollisionParts takes part in binds
+    bool mIsSkipFirstCheck;      // no strike check before the first step
+    bool mIsOffsetInHostFrame;   // mOffsetVec is in the host matrix's frame
+    bool mIsStopAtFirstHit;      // for the next bind only
 };

@@ -9,15 +9,15 @@ class WalkerStateBindStarPointer;
 
 class SearchBeamer : public LiveActor {
 public:
-    SearchBeamer(const char*);
+    SearchBeamer(const char* pName);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void updateHitSensor(HitSensor*);
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter& rIter) override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void updateHitSensor(HitSensor* pSensor) override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     void exeNonActive();
     void exeCloseWaitFar();
@@ -31,39 +31,40 @@ public:
     void exeStopStart();
     void exeStop();
     void exeRecover();
-    void exeDPDSwoon();
-    void endDPDSwoon();
+    void exePointerSwoon();
+    void endPointerSwoon();
     void exeStopForPlayerOff();
-    bool calcJointPropeller(TPos3f*, const JointControllerInfo&);
-    bool calcJointBeamStart(TPos3f*, const JointControllerInfo&);
-    bool calcJointBeamEnd(TPos3f*, const JointControllerInfo&);
+    bool calcJointPropeller(Pos3f* pPos, const JointControllerInfo& rInfo);
+    bool calcJointBeamStart(Pos3f* pPos, const JointControllerInfo& rInfo);
+    bool calcJointBeamEnd(Pos3f* pPos, const JointControllerInfo& rInfo);
     void updatePropeller();
-    void updateBeamEffect(bool);
+    void updateBeamEffect(bool isHitMap);
     void updateBeamShadow();
     void initBeamPos();
-    void reformDirection(bool);
+    void stopBeam();
+    void reformDirection(bool isFast);
     void bowToPlayer();
-    bool checkBeamDistiny(TVec3f*, TVec3f) const;
+    bool checkBeamDestination(Vec3f* pHitPos, Vec3f dir) const;
     bool isPlayerInTerritory() const;
+    bool isStopNerve() const;
     bool tryNonActive();
     bool tryStopStart();
-    bool tryDPDSwoon();
+    bool tryPointerSwoon();
     void endNonActive();
 
     AnimScaleController* mScaleController;
     WalkerStateBindStarPointer* mBindStarPointer;
-    TVec3f _94;
-    TVec3f _A0;
-    f32 _AC;
-    f32 _B0;
+    Vec3f mFront;
+    Vec3f mUp;
+    f32 mPropellerAngle;
+    f32 mPropellerSpeed;
     JointController* mPropellerJointCtrl;
-    TMtx34f _B8;
-    TMtx34f _E8;
-    JointController* mBeanStartJointCtrl;
+    Mtx34f mCollisionMtx;
+    JointController* mBeamStartJointCtrl;
     JointController* mBeamEndJointCtrl;
-    TVec3f mBeamStart;
-    TVec3f mBeamEnd;
-    f32 _138;
-    f32 _13C;
-    f32 _140;
+    Vec3f mBeamStart;
+    Vec3f mBeamEnd;
+    f32 mBeamAimSpeed;     // Obj_arg0
+    f32 mTerritoryRadius;  // Obj_arg1
+    f32 mBeamLength;
 };

@@ -5,18 +5,14 @@
 class GameSequenceDirector;
 class GameSystemErrorWatcher;
 class GameSystemFontHolder;
-class GameSystemFrameControl;
 class GameSystemObjHolder;
 class GameSystemSceneController;
-class GameSystemStationedArchiveLoader;
 class HomeButtonLayout;
-class HomeButtonStateNotifier;
 class SystemWipeHolder;
 
 
 class GameSystem : public NerveExecutor {
 public:
-    /// @brief Creates a new `GameSystem`.
     GameSystem();
 
     void init();
@@ -24,12 +20,10 @@ public:
     bool isDoneLoadSystemArchive() const;
     void startToLoadSystemArchive();
     void exeInitializeAudio();
-    void exeInitializeLogoScene();
-    void exeLoadStationedArchive();
-    void exeWaitForReboot();
+    void exeInitializeBootScene();
+    void exeLoadSystemArchive();
     void exeNormal();
-    void initGX();
-    void initAfterStationedResourceLoaded();
+    void initAfterSystemArchiveLoaded();
     void prepareReset();
     bool isPreparedReset() const;
     void frameLoop();
@@ -42,12 +36,11 @@ public:
     GameSequenceDirector* mSequenceDirector;
     GameSystemErrorWatcher* mErrorWatcher;
     GameSystemFontHolder* mFontHolder;
-    GameSystemFrameControl* mFrameControl;
     GameSystemObjHolder* mObjHolder;
     GameSystemSceneController* mSceneController;
-    GameSystemStationedArchiveLoader* mStationedArchiveLoader;
     HomeButtonLayout* mHomeButtonLayout;
     SystemWipeHolder* mSystemWipeHolder;
-    HomeButtonStateNotifier* mHomeButtonStateNotifier;
     bool mIsExecuteLoadSystemArchive;
+    bool mWasSceneHeld;  // last frame, the HOME Menu, a warning, the skip's question or the settings menu held the scene
+    bool mIsSceneResumed;  // this frame the scene goes on after such a hold
 };

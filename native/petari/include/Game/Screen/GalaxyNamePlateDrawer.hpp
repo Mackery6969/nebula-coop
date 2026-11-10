@@ -18,13 +18,15 @@ public:
     /// @brief Creates a new `GalaxyNamePlateDrawer`.
     GalaxyNamePlateDrawer();
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void draw() const;
+    virtual void init(const TableIter& rIter) override;
+    virtual void draw() const override;
 
     GalaxyNamePlatePrioritied* registerPlate(const LayoutActor*);
 
 private:
-    MR::Vector< MR::FixedArray< GalaxyNamePlatePrioritied*, 16 > > mPlateArray;
+    MR::InlineVector< GalaxyNamePlatePrioritied*, 16 > mPlateArray;
+    // The plates in drawing order, sorted again at each draw.
+    mutable MR::InlineVector< const GalaxyNamePlatePrioritied*, 16 > mDrawOrder;
 };
 
 namespace MR {

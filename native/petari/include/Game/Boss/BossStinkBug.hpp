@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class ActorCameraInfo;
 class ActorJointCtrl;
@@ -22,26 +22,26 @@ public:
 
     BossStinkBug(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void calcAnim();
-    virtual void makeActorAppeared();
-    virtual void kill();
-    virtual void makeActorDead();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter&) override;
+    virtual void calcAnim() override;
+    virtual void makeActorAppeared() override;
+    virtual void kill() override;
+    virtual void makeActorDead() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     void start();
-    void initCamera(const JMapInfoIter&);
+    void initCamera(const TableIter&);
     void initSensor();
     void initCollision();
     void disposeBomb();
     void reuestMovementOnParts();
     LiveActor* getWingModel();
     LiveActor* getBombLauncher();
-    void calcUpVec(TVec3f*) const;
+    void calcUpVec(Vec3f*) const;
     void updateAction();
     void updatePose();
     void setPose(MtxPtr);
@@ -61,21 +61,21 @@ public:
     bool isSensorBody(const HitSensor*) const;
     bool throwBomb(f32, f32);
 
-    CollisionParts** _8C;
-    GroundChecker** _90;
-    BossStinkBugBombHolder* _94;
-    ActorJointCtrl* _98;
-    TPos3f _9C;
-    ActorCameraInfo* _CC;
+    CollisionParts** mBodyCollisions;
+    GroundChecker** mLegGroundCheckers;
+    BossStinkBugBombHolder* mBombHolder;
+    ActorJointCtrl* mJointCtrl;
+    Pos3f mFollowMtx;
+    ActorCameraInfo* mCameraInfo;
     BossStinkBugActionSequencer* mActionSequencer;
-    PartsModel* _D4;
+    PartsModel* mWingModel;
     PartsModel* mBombLauncher;
-    TQuat4f _DC;
-    TVec3f _EC;
-    TVec3f _F8;
-    s32 _104;
-    f32 _108;
-    f32 _10C;
-    bool _110;
-    bool _111;
+    Quat4f mPoseQuat;
+    Vec3f mFront;
+    Vec3f mCameraRegisterPos;
+    s32 mCameraRegisterId;
+    f32 mLegFriction;
+    f32 mLegIKRate;
+    bool mIsPoseUpdated;
+    bool mIsLegBound;
 };

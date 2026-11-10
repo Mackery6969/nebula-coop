@@ -5,6 +5,10 @@
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/NerveUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
+#include "Game/Util/Tunable.hpp"
+
+// The step counts of this file's functions, as tunables: "<file>.<function>.<k>".
+NEBULA_TUNABLE_NAMED(s32, cStep_exeFindJump_1, "exeFindJump.1", 5);
 
 namespace {
     WalkerStateFindPlayerParam sDefaultParam;
@@ -20,9 +24,9 @@ namespace NrvWalkerStateFindPlayer {
 WalkerStateFindPlayerParam::WalkerStateFindPlayerParam() : mJumpStartStep(30), mJumpVelocity(20.0f), mTurnMaxRateDegree(5.0f) {
 }
 
-WalkerStateFindPlayer::WalkerStateFindPlayer(LiveActor* pHost, TVec3f* pDirection, WalkerStateParam* pStateParam,
+WalkerStateFindPlayer::WalkerStateFindPlayer(LiveActor* pHost, Vec3f* pDirection, WalkerStateParam* pStateParam,
                                              WalkerStateFindPlayerParam* pFindPlayerParam)
-    : ActorStateBase< LiveActor >("\225\340\215\163\214\136\203\166\203\214\203\103\203\204\201\133\224\255\214\251\213\223\223\256" /* 歩行型プレイヤー発見挙動 */, pHost), mDirection(pDirection), mStateParam(pStateParam),
+    : ActorStateBase< LiveActor >("歩行型プレイヤー発見挙動", pHost), mDirection(pDirection), mStateParam(pStateParam),
       mFindPlayerParam(pFindPlayerParam) {
     initNerve(GET_NERVE(WalkerStateFindPlayer, WalkerStateFindPlayerNrvFind));
     if (mFindPlayerParam == nullptr) {
@@ -69,7 +73,7 @@ void WalkerStateFindPlayer::exeFindJump() {
 
     WalkerStateFunction::calcPassiveMovement(getHost(), mStateParam);
 
-    if (MR::isBindedGround(getHost()) && MR::isGreaterStep(this, 5)) {
+    if (MR::isBindedGround(getHost()) && MR::isGreaterStep(this, cStep_exeFindJump_1)) {
         setNerve(GET_NERVE(WalkerStateFindPlayer, WalkerStateFindPlayerNrvFindJumpEnd));
     }
 }

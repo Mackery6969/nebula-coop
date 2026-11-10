@@ -15,24 +15,22 @@ class TalkMessageCtrl;
 
 class TrickRabbit : public LiveActor {
 public:
-    /// @brief Creates a new `TrickRabbit`.
-    /// @param pName A pointer to the null-terminated name of the object.
     TrickRabbit(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void initAfterPlacement();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void initAfterPlacement() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     void initModel();
     void initSensor();
     void initBind();
-    void initRoute(const JMapInfoIter& rIter);
-    void initDemoCamera(const JMapInfoIter& rIter);
+    void initRoute(const TableIter& rIter);
+    void initDemoCamera(const TableIter& rIter);
     void initState();
     bool receiveMsgTrample();
     bool requestCaught();
@@ -85,28 +83,26 @@ public:
     void doJumpStart();
     void doJump();
     void tearDownWait();
-    bool checkDivingThicket(const TVec3f& rVec1, const TVec3f& rVec2);
+    bool checkDivingThicket(const Vec3f& rStart, const Vec3f& rSegment);
     bool selectEdgeStartEvent(RailGraphIter* pIter);
-    void selectEdgeRunnaway(RailGraphIter* pIter, const TVec3f& rVec, f32 f);
-    void startRouteLevelControl(s32 l1, s32 l2);
+    void selectEdgeRunnaway(RailGraphIter* pIter, const Vec3f& rAway, f32 minDot);
+    void startRouteLevelControl(s32 level, s32 delaySteps);
     void controlRouteLevel();
-    void addMovingAccel(const TVec3f& rVec, f32 f);
-    void addKeepRouteRange(f32 f1, f32 f2, f32 f3);
+    void addMovingAccel(const Vec3f& rToNode, f32 accel);
+    void addKeepRouteRange(f32 rate, f32 nearDist, f32 farDist);
     void updateFootPrint();
     bool isCaughtable() const;
     bool isTumbable() const;
     bool isNextEdgeJump() const;
     void setUpJumpParam();
-    void setUpJumpParamFromJMap();
+    void setUpJumpParamFromPlacement();
     s32 calcDefaultJumpTime() const;
     s32 calcJumpStartTime() const;
     s32 calcJumpTime() const;
     f32 calcJumpHeight() const;
-    void initTimer();
-    void updateTime();
 
-    TQuat4f _8C;
-    TVec3f _9C;
+    Quat4f mPoseQuat;
+    Vec3f mFront;
     RabbitStateWaitStart* mRabbitStateWaitStart;
     RabbitStateCaught* mRabbitStateCaught;
     MultiEventCamera* mMultiEventCamera;
@@ -116,14 +112,11 @@ public:
     RailGraphIter* mRailGraphIter;
     ParabolicPath* mParabolicPath;
     SpotMarkLight* mSpotMarkLight;
-    s32 _CC;
-    f32 _D0;
-    s32 _D4;
-    s32 _D8;
-    s32 _DC;
-    bool _E0;
-    bool _E1;
-    s32 _E4;
-    bool _E8;
-    bool _E9;
+    s32 mPhaseSteps;        // steps of the current crouch or jump
+    f32 mNextNodeDistance;  // off the gravity axis
+    s32 mRouteLevelStep;    // steps until mRouteLevelTarget applies
+    s32 mRouteLevel;        // edges of other levels (edge arg 7) are passed over while running
+    s32 mRouteLevelTarget;
+    bool mIsRouteLevelControl;
+    bool mIsGhost;
 };

@@ -1,4 +1,5 @@
 #include "Game/Boss/KoopaStateAttackHipDrop.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Boss/Koopa.hpp"
 #include "Game/Boss/KoopaBattleBase.hpp"
 #include "Game/Boss/KoopaFunction.hpp"
@@ -11,25 +12,24 @@
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
     static MR::ActorMoveParam sParamRunStart = {3.0f, 1.0f, 0.9f, 3.0f};
     static MR::ActorMoveParam sParamJumpStart = {0.0f, 1.0f, 0.95f, 0.0f};
     static MR::ActorMoveParam sFallParam = {0.0f, 1.0f, 1.0f, 0.0f};
-    static const f32 sDistanceToJump = 1000.0f;
-    static const f32 sDistanceToJumpVs3 = 2000.0f;
-    static const s32 sRunStepMax = 180;
-    static const f32 sRunWallJumpSpeed = 10.0f;
-    static const f32 sJumpUpSpeedFrontMax = 20.0f;
-    static const f32 sJumpUpSpeedUp = 50.0f;
-    static const f32 sJumpUpGravity = 1.0f;
-    static const f32 sJumpUpTurnSpeed = 3.0f;
-    static const s32 sJumpWaitAirStep = 30;
-    static const s32 sJumpWaitAirStepVs2 = 15;
-    static const s32 sJumpWaitAirStepVs3 = 15;
-    static const f32 sJumpWaitAirTurnSpeed = 2.0f;
-    // static const f32 sJumpAttackDownSpeed = _;
-    // static const f32 sJumpAttackGravity = _;
+    NEBULA_TUNABLE(f32, sDistanceToJump, 1000.0f);
+    NEBULA_TUNABLE(f32, sDistanceToJumpVs3, 2000.0f);
+    static const s32 sRunStepMax = NebulaFrameClock::stepsOfSeconds(3);
+    NEBULA_TUNABLE(f32, sRunWallJumpSpeed, 10.0f);
+    NEBULA_TUNABLE(f32, sJumpUpSpeedFrontMax, 20.0f);
+    NEBULA_TUNABLE(f32, sJumpUpSpeedUp, 50.0f);
+    NEBULA_TUNABLE(f32, sJumpUpGravity, 1.0f);
+    NEBULA_TUNABLE(f32, sJumpUpTurnSpeed, 3.0f);
+    static const s32 sJumpWaitAirStep = NebulaFrameClock::stepsOfMilliseconds(500);
+    NEBULA_TUNABLE(s32, sJumpWaitAirStepVs2, 15);
+    NEBULA_TUNABLE(s32, sJumpWaitAirStepVs3, 15);
+    NEBULA_TUNABLE(f32, sJumpWaitAirTurnSpeed, 2.0f);
 };  // namespace
 
 namespace NrvKoopaStateAttackHipDrop {
@@ -43,14 +43,14 @@ namespace NrvKoopaStateAttackHipDrop {
 };  // namespace NrvKoopaStateAttackHipDrop
 
 KoopaStateAttackHipDrop::KoopaStateAttackHipDrop(Koopa* pKoopa)
-    : ActorStateBase< Koopa >("State[\203\161\203\142\203\166\203\150\203\215\203\142\203\166\215\125\214\202]" /* State[ヒップドロップ攻撃] */, pKoopa), mGroundPosition(0.0f, 0.0f, 0.0f), mMaxAttacks(1), mAttacks(), mAttackDelay(30),
+    : ActorStateBase< Koopa >("State[ヒップドロップ攻撃]", pKoopa), mGroundPosition(0.0f, 0.0f, 0.0f), mMaxAttacks(1), mAttacks(), mAttackDelay(30),
       mJumpTime() {
 }
 
 void KoopaStateAttackHipDrop::init() {
-    KoopaFunction::initKoopaCamera(mHost, "\203\161\203\142\203\166\203\150\203\215\203\142\203\166\215\125\214\202" /* ヒップドロップ攻撃 */);
-    KoopaFunction::initKoopaCamera(mHost, "\203\161\203\142\203\166\203\150\203\215\203\142\203\166\222\205\222\156" /* ヒップドロップ着地 */);
-    KoopaFunction::initKoopaCamera(mHost, "\203\161\203\142\203\166\203\150\203\215\203\142\203\166\222\205\222\156\201\151\203\175\203\212\203\111\341\203\202\352\201\152" /* ヒップドロップ着地（マリオ痺れ） */);
+    KoopaFunction::initKoopaCamera(mHost, "ヒップドロップ攻撃");
+    KoopaFunction::initKoopaCamera(mHost, "ヒップドロップ着地");
+    KoopaFunction::initKoopaCamera(mHost, "ヒップドロップ着地（マリオ痺れ）");
 
     initNerve(GET_NERVE(KoopaStateAttackHipDrop, KoopaStateAttackHipDropNrvRun));
 
@@ -95,9 +95,9 @@ void KoopaStateAttackHipDrop::appear() {
 }
 
 void KoopaStateAttackHipDrop::kill() {
-    KoopaFunction::endKoopaCamera(mHost, "\203\161\203\142\203\166\203\150\203\215\203\142\203\166\215\125\214\202" /* ヒップドロップ攻撃 */, false);
-    KoopaFunction::endKoopaCamera(mHost, "\203\161\203\142\203\166\203\150\203\215\203\142\203\166\222\205\222\156" /* ヒップドロップ着地 */, false);
-    KoopaFunction::endKoopaCamera(mHost, "\203\161\203\142\203\166\203\150\203\215\203\142\203\166\222\205\222\156\201\151\203\175\203\212\203\111\341\203\202\352\201\152" /* ヒップドロップ着地（マリオ痺れ） */, false);
+    KoopaFunction::endKoopaCamera(mHost, "ヒップドロップ攻撃", false);
+    KoopaFunction::endKoopaCamera(mHost, "ヒップドロップ着地", false);
+    KoopaFunction::endKoopaCamera(mHost, "ヒップドロップ着地（マリオ痺れ）", false);
 
     MR::invalidateHitSensor(mHost, "AttackHipDrop");
 
@@ -140,7 +140,7 @@ bool KoopaStateAttackHipDrop::isEnableGuard() const {
 void KoopaStateAttackHipDrop::exeRun() {
     if (MR::isFirstStep(this)) {
         MR::startAction(mHost, "Run");
-        KoopaFunction::startKoopaCamera(mHost, "\203\161\203\142\203\166\203\150\203\215\203\142\203\166\215\125\214\202" /* ヒップドロップ攻撃 */);
+        KoopaFunction::startKoopaCamera(mHost, "ヒップドロップ攻撃");
     }
 
     MR::moveAndTurnToPlayer(mHost, &mHost->mFront, ::sParamRunStart);
@@ -180,7 +180,7 @@ void KoopaStateAttackHipDrop::exeJumpUp() {
         MR::restrictVelocity(mHost, ::sJumpUpSpeedFrontMax);
         MR::addVelocityJump(mHost, ::sJumpUpSpeedUp);
 
-        KoopaFunction::startKoopaCamera(mHost, "\203\161\203\142\203\166\203\150\203\215\203\142\203\166\215\125\214\202" /* ヒップドロップ攻撃 */);
+        KoopaFunction::startKoopaCamera(mHost, "ヒップドロップ攻撃");
     }
 
     MR::addVelocityToGravity(mHost, ::sJumpUpGravity);
@@ -213,7 +213,7 @@ void KoopaStateAttackHipDrop::exeJumpAttackDown() {
     if (MR::isFirstStep(this)) {
         MR::startAction(mHost, "HipDropAttackDown");
 
-        TVec3f difference = mGroundPosition;
+        Vec3f difference = mGroundPosition;
         difference.sub(mHost->mPosition);
 
         mJumpTime = static_cast< s32 >(difference.length() / 35.0f) + 10;
@@ -265,7 +265,7 @@ void KoopaStateAttackHipDrop::exeJumpAttackDown() {
 
     KoopaFunction::emitKoopaShockWave(mHost);
 
-    KoopaFunction::startKoopaCamera(mHost, "\203\161\203\142\203\166\203\150\203\215\203\142\203\166\222\205\222\156" /* ヒップドロップ着地 */);
+    KoopaFunction::startKoopaCamera(mHost, "ヒップドロップ着地");
     MR::startSound(mHost, "SE_BM_KOOPA_LAND");
 
     setNerve(GET_NERVE(KoopaStateAttackHipDrop, KoopaStateAttackHipDropNrvLand));
@@ -290,7 +290,4 @@ void KoopaStateAttackHipDrop::exeLand() {
 }
 
 void KoopaStateAttackHipDrop::exeDamage() {
-}
-
-KoopaStateAttackHipDrop::~KoopaStateAttackHipDrop() {
 }

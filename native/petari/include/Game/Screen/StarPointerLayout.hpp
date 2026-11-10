@@ -1,7 +1,11 @@
 #pragma once
 
 #include "Game/Screen/LayoutActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
+
+namespace Ui {
+    class Pane;
+}  // namespace Ui
 
 class LiveActor;
 class StarPointerCommandStream;
@@ -9,7 +13,7 @@ class StarPointerDirector;
 class StarPointerBlur;
 class StarPointerNumber;
 
-// TODO: what are the missing values?
+// The pointer pictures the layout switches on; kinds 2 and 5 have no name of their own in its branches.
 enum StarPointerKind {
     StarPointerKind_NULL = -1,
     StarPointerKind_StarPointer = 0,
@@ -31,16 +35,16 @@ enum AnimType {
 
 class StarPointerLayout : public LayoutActor {
 public:
-    StarPointerLayout(const char* pName = "\203\130\203\136\201\133\203\174\203\103\203\223\203\136\203\214\203\103\203\101\203\105\203\147" /* スターポインタレイアウト */);
+    StarPointerLayout(const char* pName = "スターポインタレイアウト");
 
-    virtual void draw() const;
-    virtual void calcAnim();
-    virtual void appear();
-    virtual void kill();
-    virtual void control();
+    virtual void draw() const override;
+    virtual void calcAnim() override;
+    virtual void appear() override;
+    virtual void kill() override;
+    virtual void control() override;
 
     void initWithPort(s32);
-    bool startCommandStream(const LiveActor*, const TVec3f*, bool);
+    bool startCommandStream(const LiveActor*, const Vec3f*, bool);
     void endCommandStream(const LiveActor*);
     void forceEndCommandStream();
     bool isCommandStream(const LiveActor*);
@@ -54,7 +58,6 @@ public:
     void exeRelease();
     void exeOutScreen();
     void exeNotConnected();
-    void endNotConnected();
     void exeHide();
     void endHide();
 
@@ -66,7 +69,7 @@ public:
     void drawDecoration() const;
     void setPosition();
     void rotateTest();
-    void calcPoseNozzle(const TVec2f&, const TVec2f&);
+    void calcPoseNozzle(const Vec2f&, const Vec2f&);
     void changeLayout(StarPointerKind);
     bool isChanceToRumble() const;
     void hideBlur();
@@ -114,13 +117,12 @@ public:
         return mRadius;
     }
 
-    TVec2f mPosition;
+    Vec2f mPosition;
     StarPointerKind mPointerKind;
     AnimType mAnimType;
     s32 mTouchTimer;
     s32 mPadChannel;
     f32 mRadius;
-    f32 _3C;
     StarPointerDirector* mDirector;
     StarPointerBlur* mBlur;
     StarPointerCommandStream* mCommandStream;
@@ -140,14 +142,18 @@ public:
     bool mIsPointerValid;
     bool mIsAppear;
     s32 mAppearTime;
-    u32 _74;
+    // The panes shown, hidden and tested every frame, bound in initWithPort.
+    Ui::Pane* mStarPointerPane = nullptr;
+    Ui::Pane* mHandPointerPane = nullptr;
+    Ui::Pane* mHandArrowPane = nullptr;
+    Ui::Pane* mPicNozzlePane = nullptr;
 };
 
 class StarPointerNumber : public LayoutActor {
 public:
     StarPointerNumber(StarPointerLayout*, s32, const char*);
 
-    virtual void control();
+    virtual void control() override;
 
     bool isOffState() const;
     void startAnimPosition(u32);

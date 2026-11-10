@@ -9,6 +9,7 @@ struct MaterialConstants {
     float4 scroll;  // the two scrolls of the water texture (xy, zw)
 };
 
+#define NATIVE_COORDS 2
 #include "native_material.hlsli"
 
 void material_vertex(NativeVertex v, inout NativeVaryings o) {
@@ -17,8 +18,8 @@ void material_vertex(NativeVertex v, inout NativeVaryings o) {
 }
 
 float4 material_color(NativeVaryings i) {
-    const float4 t0 = tex[0].Sample(samp[0], i.uv[0].xy);
-    const float4 t1 = tex[0].Sample(samp[0], i.uv[0].zw);
+    const float4 t0 = TEX(0).Sample(SAMP(0), i.uv[0].xy);
+    const float4 t1 = TEX(0).Sample(SAMP(0), i.uv[0].zw);
     const float3 c = saturate(saturate(material.c1.rgb + t0.rgb * material.c0.rgb) + t1.rgb * material.c0.rgb);
     const float a = saturate(saturate(t0.a * i.color.a) + t1.a * i.color.a);
     if (round(a * 255.0) <= 0.0) {

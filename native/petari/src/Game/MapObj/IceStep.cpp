@@ -1,4 +1,5 @@
 #include "Game/MapObj/IceStep.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util/ActorMovementUtil.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
@@ -15,23 +16,18 @@ namespace NrvIceStep {
 IceStep::IceStep(const char* pName) : LiveActor(pName) {
 }
 
-IceStep::~IceStep() {
-}
-
-void IceStep::init(const JMapInfoIter& rIter) {
+void IceStep::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("IceStep", nullptr, false);
 
     MR::connectToSceneMapObjStrongLight(this);
 
     initSound(4, false);
-    initEffectKeeper(1, nullptr, false);
+    initEffectKeeper(1, nullptr);
 
     f32 radius = 90.0f * mScale.x;
     initHitSensor(1);
-    MR::addHitSensorMapObj(this, "body", 8, radius, TVec3f(0.0f, radius, 0.0f));
-
-    NebulaMtxIdentity(_8C);
+    MR::addHitSensorMapObj(this, "body", 8, radius, Vec3f(0.0f, radius, 0.0f));
 
     MR::initCollisionParts(this, "IceStep", getSensor("body"), nullptr);
 
@@ -84,29 +80,29 @@ void IceStep::exeHit() {
     }
 }
 
-void IceStep::setOn(u32 a1, const TVec3f& rPosition, const TVec3f& rRotation) {
+void IceStep::setOn(u32 stepIndex, const Vec3f& rPosition, const Vec3f& rRotation) {
     mPosition = rPosition;
     mRotation = rRotation;
 
     MR::offUpdateCollisionParts(this);
     MR::onUpdateCollisionPartsOnetimeImmediately(this);
 
-    s32 scale = a1 / 2;
-    if (a1 % 2) {
+    s32 scale = stepIndex / 2;
+    if (stepIndex % 2) {
         scale -= 10;
     }
 
-    TVec3f upVec;
+    Vec3f upVec;
     MR::calcUpVec(&upVec, this);
 
-    TVec3f offset = upVec * static_cast< f32 >(scale) * 0.2f;
+    Vec3f offset = upVec * static_cast< f32 >(scale) * 0.2f;
     mPosition = rPosition + offset;
 
     MR::startBck(this, "Start");
     MR::startBpk(this, "Start");
     MR::startSound(this, "SE_OJ_ICE_FLOOR_FREEZE");
 
-    mTimer = 1200;
+    mTimer = NebulaFrameClock::stepsOfSeconds(20);
 
     MR::invalidateClipping(this);
 
@@ -140,11 +136,11 @@ void IceStep::doHit() {
     mTimer = 0;
 }
 
-bool IceStep::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool IceStep::receiveMsgPlayerAttack(u32 /*msg*/, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     return false;
 }
 
-bool IceStep::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool IceStep::receiveMsgEnemyAttack(u32 /*msg*/, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (MR::isOnPlayer(this)) {
         return false;
     }

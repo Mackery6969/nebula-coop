@@ -1,15 +1,17 @@
 #include "Game/MapObj/ItemBubble.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/StarPiece.hpp"
+#include "Game/Scene/SceneFunction.hpp"
 #include "Game/Util.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    const f32 cHitSensorRadius = 120.f;
-    const f32 cSwingRange = 120.0f;
-    const f32 cShootStarSpeed = 24.0f;
+    NEBULA_TUNABLE(f32, cHitSensorRadius, 120.f);
+    NEBULA_TUNABLE(f32, cSwingRange, 120.0f);
+    NEBULA_TUNABLE(f32, cShootStarSpeed, 24.0f);
 };  // namespace
 
 namespace NrvItemBubble {
@@ -17,11 +19,11 @@ namespace NrvItemBubble {
     NEW_NERVE(ItemBubbleNrvBreak, ItemBubble, Break);
 };  // namespace NrvItemBubble
 
-ItemBubble::ItemBubble(const char* pName) : LiveActor(pName), _90(), _94() {
-    _8C = 0.0f;
+ItemBubble::ItemBubble(const char* pName) : LiveActor(pName), mCoins(), mStarPieces() {
+    mSwing = 0.0f;
 }
 
-void ItemBubble::init(const JMapInfoIter& rIter) {
+void ItemBubble::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     MR::useStageSwitchWriteDead(this, rIter);
 
@@ -31,13 +33,13 @@ void ItemBubble::init(const JMapInfoIter& rIter) {
     initModelManagerWithAnm("ItemBubble", nullptr, false);
     MR::connectToSceneMapObj(this);
     mScale.mult(1.2f);
-    NebulaMtxScale(_9C, mScale.x, mScale.y, mScale.z);
-    MR::setMtxTrans(_9C, mPosition.x, mPosition.y, mPosition.z);
-    NebulaMtxCopy(_9C, _CC);
-    _108 = mPosition;
+    NebulaMtxScale(mTargetMtx, mScale.x, mScale.y, mScale.z);
+    MR::setMtxTrans(mTargetMtx, mPosition.x, mPosition.y, mPosition.z);
+    NebulaMtxCopy(mTargetMtx, mItemMtx);
+    mBasePos = mPosition;
     initHitSensor(1);
-    MR::addHitSensorMapObj(this, "body", 8, mScale.x * ::cHitSensorRadius, TVec3f(0.0f, 0.0f, 0.0f));
-    initEffectKeeper(0, nullptr, false);
+    MR::addHitSensorMapObj(this, "body", 8, mScale.x * ::cHitSensorRadius, Vec3f(0.0f, 0.0f, 0.0f));
+    initEffectKeeper(0, nullptr);
     initSound(4, false);
     initNerve(GET_NERVE(ItemBubble, ItemBubbleNrvWait));
 
@@ -45,38 +47,38 @@ void ItemBubble::init(const JMapInfoIter& rIter) {
     s32 itemCount = 1;
 
     if (MR::isValidInfo(rIter)) {
-        MR::getJMapInfoArg0WithInit(rIter, &itemType);
-        MR::getJMapInfoArg1WithInit(rIter, &itemCount);
+        MR::getPlacementArg0WithInit(rIter, &itemType);
+        MR::getPlacementArg1WithInit(rIter, &itemCount);
     }
 
     if (itemCount < 1) {
         itemCount = 1;
     }
 
-    _90 = new RotPartsModel*[itemCount];
+    mCoins = new RotPartsModel*[itemCount];
 
     if (itemType == 1) {
-        _94 = new StarPiece*[itemCount];
+        mStarPieces = new StarPiece*[itemCount];
     }
 
-    for (u32 i = 0; i < itemCount; i++) {
+    for (s32 i = 0; i < itemCount; i++) {
         switch (itemType) {
         case 0:
-            _90[i] = new RotPartsModel(this, "\203\137\203\176\201\133\203\122\203\103\203\223" /* ダミーコイン */, "Coin", nullptr, 15, false);
-            _90[i]->initWithoutIter();
+            mCoins[i] = new RotPartsModel(this, "ダミーコイン", "Coin", nullptr, MR::DrawBufferType_NoSilhouettedMapObjStrongLight, false);
+            mCoins[i]->initWithoutIter();
 
             switch (itemCount) {
             case 1:
-                _90[i]->initFixedPosition(_CC, TVec3f(0.0f, -67.379997f, 0.0f), TVec3f(0.0f, 0.0f, 0.0f));
+                mCoins[i]->initFixedPosition(mItemMtx, Vec3f(0.0f, -67.379997f, 0.0f), Vec3f(0.0f, 0.0f, 0.0f));
                 continue;
             case 2:
 
                 switch (i) {
                 case 0:
-                    _90[i]->initFixedPosition(_CC, TVec3f(-55.66f, -92.290001f, 0.0f), TVec3f(0.0f, 0.0f, 0.0f));
+                    mCoins[i]->initFixedPosition(mItemMtx, Vec3f(-55.66f, -92.290001f, 0.0f), Vec3f(0.0f, 0.0f, 0.0f));
                     continue;
                 case 1:
-                    _90[i]->initFixedPosition(_CC, TVec3f(55.66f, -43.950001f, 0.0f), TVec3f(0.0f, 0.0f, 0.0f));
+                    mCoins[i]->initFixedPosition(mItemMtx, Vec3f(55.66f, -43.950001f, 0.0f), Vec3f(0.0f, 0.0f, 0.0f));
                     continue;
                 }
 
@@ -85,13 +87,13 @@ void ItemBubble::init(const JMapInfoIter& rIter) {
 
                 switch (i) {
                 case 0:
-                    _90[i]->initFixedPosition(_CC, TVec3f(0.0f, -19.040001f, 0.0f), TVec3f(0.0f, 0.0f, 0.0f));
+                    mCoins[i]->initFixedPosition(mItemMtx, Vec3f(0.0f, -19.040001f, 0.0f), Vec3f(0.0f, 0.0f, 0.0f));
                     continue;
                 case 1:
-                    _90[i]->initFixedPosition(_CC, TVec3f(-55.66f, -130.37f, 0.0f), TVec3f(0.0f, 0.0f, 0.0f));
+                    mCoins[i]->initFixedPosition(mItemMtx, Vec3f(-55.66f, -130.37f, 0.0f), Vec3f(0.0f, 0.0f, 0.0f));
                     continue;
                 case 2:
-                    _90[i]->initFixedPosition(_CC, TVec3f(67.379997f, -130.37f, 0.0f), TVec3f(0.0f, 0.0f, 0.0f));
+                    mCoins[i]->initFixedPosition(mItemMtx, Vec3f(67.379997f, -130.37f, 0.0f), Vec3f(0.0f, 0.0f, 0.0f));
                     continue;
                 }
 
@@ -100,22 +102,22 @@ void ItemBubble::init(const JMapInfoIter& rIter) {
 
             break;
         case 1:
-            _94[i] = new StarPiece("\203\101\203\103\203\145\203\200\203\157\203\165\203\213\203\163\201\133\203\130" /* アイテムバブルピース */);
-            _94[i]->initWithoutIter();
-            _90[i] = new RotPartsModel(this, "\203\130\203\136\201\133\203\163\201\133\203\130" /* スターピース */, "StarPiece", nullptr, 13, true);
-            MR::initMaterialColor0(_90[i], "StarPiece1_v", &_94[i]->mColor);
-            MR::newDifferedMaterials(_90[i]);
-            _90[i]->initWithoutIter();
+            mStarPieces[i] = new StarPiece("アイテムバブルピース");
+            mStarPieces[i]->initWithoutIter();
+            mCoins[i] = new RotPartsModel(this, "スターピース", "StarPiece", nullptr, MR::DrawBufferType_NoSilhouettedMapObj, true);
+            MR::initMaterialColor0(mCoins[i], "StarPiece1_v", &mStarPieces[i]->mColor);
+            MR::prepareMaterials(mCoins[i]);
+            mCoins[i]->initWithoutIter();
 
             switch (itemCount) {
             case 1:
-                _90[i]->initFixedPosition(_CC, TVec3f(0.0f, 0.0f, 0.0f), TVec3f(0.0f, 0.0f, 0.0f));
+                mCoins[i]->initFixedPosition(mItemMtx, Vec3f(0.0f, 0.0f, 0.0f), Vec3f(0.0f, 0.0f, 0.0f));
                 continue;
             }
 
             break;
         default:
-            _90[i] = nullptr;
+            mCoins[i] = nullptr;
         }
     }
 
@@ -127,27 +129,27 @@ void ItemBubble::init(const JMapInfoIter& rIter) {
     }
 
     if ((itemType == 0 && itemCount > 3) || (itemType == 1 && itemCount > 1)) {
-        TVec3f vec3;
-        TVec3f vec(0.0f, 60.0f, 0.0f);
-        TVec3f vec2;
-        vec2.zero();
+        Vec3f ringOffset;
+        Vec3f ringPos(0.0f, 60.0f, 0.0f);
+        Vec3f zeroVelocity;
+        zeroVelocity.zero();
 
-        TRot3f mtx;
-        NebulaMtxRotRad(mtx, (char)90, TWO_PI / static_cast< f32 >(itemCount));
+        Rot3f ringStep;
+        NebulaMtxRotRad(ringStep, (char)90, TWO_PI / static_cast< f32 >(itemCount));
 
         if (itemType == 0) {
-            vec3.set< f32 >(0.0f, -60.0f, 0.0f);
+            ringOffset.set< f32 >(0.0f, -60.0f, 0.0f);
         } else {
-            vec3.zero();
+            ringOffset.zero();
         }
 
-        for (u32 i = 0; i < itemCount; i++) {
-            if (_90[i] == nullptr) {
+        for (s32 i = 0; i < itemCount; i++) {
+            if (mCoins[i] == nullptr) {
                 continue;
             }
 
-            _90[i]->initFixedPosition(_CC, vec + vec3, vec2);
-            NebulaMtxMultVec(mtx, vec, vec);
+            mCoins[i]->initFixedPosition(mItemMtx, ringPos + ringOffset, zeroVelocity);
+            NebulaMtxMultVec(ringStep, ringPos, ringPos);
         }
     }
 
@@ -158,7 +160,7 @@ void ItemBubble::init(const JMapInfoIter& rIter) {
 
         if (mUseRail) {
             initRailRider(rIter);
-            MR::initAndSetRailClipping(&_FC, this, 100.0f, 500.0f);
+            MR::initAndSetRailClipping(&mClipCenter, this, 100.0f, 500.0f);
         }
     }
 
@@ -168,11 +170,11 @@ void ItemBubble::init(const JMapInfoIter& rIter) {
 }
 
 void ItemBubble::initAfterPlacement() {
-    TVec3f grav;
+    Vec3f grav;
     MR::calcGravityVector(this, &grav, nullptr, 0);
-    TPos3f mtx;
+    Pos3f mtx;
     MR::makeMtxRotate(mtx, mRotation);
-    TVec3f vec;
+    Vec3f vec;
     mtx.getZDir(vec);
 
     if (mUseRail) {
@@ -191,11 +193,11 @@ void ItemBubble::kill() {
     }
 
     if (mItemCount != 0) {
-        TVec3f grav;
+        Vec3f grav;
         MR::calcGravityVector(this, &grav, nullptr, 0);
 
         for (u32 i = 0; i < mItemCount; i++) {
-            if (_90[i] == nullptr) {
+            if (mCoins[i] == nullptr) {
                 continue;
             }
 
@@ -216,7 +218,7 @@ void ItemBubble::kill() {
 }
 
 void ItemBubble::calcAndSetBaseMtx() {
-    TVec3f camPos = MR::getCamPos();
+    Vec3f camPos = MR::getCamPos();
     camPos.sub(mPosition);
 
     if (MR::isNearZero(camPos)) {
@@ -224,16 +226,16 @@ void ItemBubble::calcAndSetBaseMtx() {
     }
 
     MR::normalize(&camPos);
-    TVec3f YDir(MR::getCamYdir());
-    TVec3f camcross(YDir.cross(camPos));
+    Vec3f YDir(MR::getCamYdir());
+    Vec3f camcross(YDir.cross(camPos));
 
     if (MR::isNearZero(camcross)) {
         return;
     }
 
     MR::normalize(&camcross);
-    reinterpret_cast< TPos3f* >(getBaseMtx())->setXYZDir(camcross, YDir, camPos);
-    reinterpret_cast< TPos3f* >(getBaseMtx())->setTrans(mPosition);
+    MR::setMtxAxisXYZ(getBaseMtx(), camcross, YDir, camPos);
+    MR::setMtxTrans(getBaseMtx(), mPosition);
 }
 
 void ItemBubble::exeWait() {
@@ -241,7 +243,7 @@ void ItemBubble::exeWait() {
         // Useless...
     }
 
-    _8C = MR::sin(2.0f * ((static_cast< f32 >(getNerveStep()) / ::cSwingRange) * MR::pi()));
+    mSwing = MR::sin(2.0f * ((static_cast< f32 >(getNerveStep()) / ::cSwingRange) * MR::pi()));
 
     if (mUseRail) {
         if (MR::isRailReachedGoal(this)) {
@@ -257,28 +259,28 @@ void ItemBubble::exeWait() {
         MR::moveCoordAndFollowTrans(this, mRailSpeed);
     }
 
-    NebulaMtxScale(_9C, mScale.x, mScale.y, mScale.z);
+    NebulaMtxScale(mTargetMtx, mScale.x, mScale.y, mScale.z);
     MtxPtr pMtx = MR::tmpMtxRotZDeg(mRotation.z);
-    MR::multMtx(_9C, pMtx, _9C);
+    MR::multMtx(mTargetMtx, pMtx, mTargetMtx);
 
-    mPosition = _108 + TVec3f(0.0f, 1.0f, 0.0f).multInLine2(_8C).multInLine2(30.0f);
+    mPosition = mBasePos + Vec3f(0.0f, 1.0f, 0.0f).multInLine2(mSwing).multInLine2(30.0f);
 
-    MR::setMtxTrans(_9C, mPosition.x, mPosition.y, mPosition.z);
+    MR::setMtxTrans(mTargetMtx, mPosition.x, mPosition.y, mPosition.z);
 
     if (mUseRail) {
-        NebulaMtxCopy(_9C, _CC);
+        NebulaMtxCopy(mTargetMtx, mItemMtx);
     } else {
-        MR::blendMtx(_CC, _9C, 0.1f, _CC);
+        MR::blendMtx(mItemMtx, mTargetMtx, 0.1f, mItemMtx);
     }
 
     for (u32 i = 0; i < mItemCount; i++) {
-        if (_90[i] == nullptr) {
+        if (mCoins[i] == nullptr) {
             continue;
         }
 
-        _90[i]->mRotation.x = 0.0f;
-        _90[i]->mRotation.z = 0.0f;
-        _90[i]->mRotation.y += 8.0f;
+        mCoins[i]->mRotation.x = 0.0f;
+        mCoins[i]->mRotation.z = 0.0f;
+        mCoins[i]->mRotation.y += 8.0f;
     }
 }
 
@@ -290,7 +292,7 @@ void ItemBubble::exeBreak() {
     }
 }
 
-bool ItemBubble::receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) {
+bool ItemBubble::receiveMsgPush(HitSensor* pSender, HitSensor* /*pReceiver*/) {
     if (MR::isSensorPlayer(pSender)) {
         setNerve(GET_NERVE(ItemBubble, ItemBubbleNrvBreak));
         return true;
@@ -299,14 +301,11 @@ bool ItemBubble::receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) {
     return false;
 }
 
-bool ItemBubble::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool ItemBubble::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (MR::isMsgStarPieceAttack(msg)) {
         setNerve(GET_NERVE(ItemBubble, ItemBubbleNrvBreak));
         return true;
     }
 
     return false;
-}
-
-ItemBubble::~ItemBubble() {
 }

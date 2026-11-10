@@ -4,13 +4,13 @@
 
 class CameraGround : public Camera {
 public:
-    CameraGround(const char* pName = "\222\156\226\312\203\112\203\201\203\211" /* 地面カメラ */);
+    CameraGround(const char* pName = "地面カメラ");
 
-    virtual void reset();
-    virtual CameraTargetObj* calc();
-    virtual CamTranslatorBase* createTranslator();
+    virtual void reset() override;
+    virtual CameraTargetObj* calc() override;
+    virtual void setParamFromChunk(const CameraParamChunk*) override;
 
-    void setParam(const TVec2f& angle, f32 dist, const TVec3f& rUp) {
+    void setParam(const Vec2f& angle, f32 dist, const Vec3f& rUp) {
         mAngleA = angle.x;
         mAngleB = angle.y;
         mDist = dist;
@@ -20,7 +20,7 @@ public:
     f32 mAngleA;
     f32 mAngleB;
     f32 mDist;
-    TVec3f mUp;
-    TVec3f mLastWatchPoint;
+    Vec3f mUp;
+    Vec3f mLastWatchPoint;
     bool mIsNotInitialized;
 };

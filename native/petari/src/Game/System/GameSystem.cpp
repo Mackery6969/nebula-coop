@@ -3,8 +3,7 @@
 #include "Game/System/NebulaMods.hpp"
 #include "Game/System/NebulaLoadTrace.hpp"
 #include "Game/System/NebulaArena.hpp"
-#include "Game/System/GameThreads.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include "Game/Render/FrameList.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/NameObj/NameObjRegister.hpp"
 #include "Game/Screen/HomeButtonLayout.hpp"
@@ -14,27 +13,23 @@
 #include "Game/System/GameSequenceFunction.hpp"
 #include "Game/System/GameSystemErrorWatcher.hpp"
 #include "Game/System/GameSystemFontHolder.hpp"
-#include "Game/System/GameSystemFrameControl.hpp"
 #include "Game/System/GameSystemFunction.hpp"
 #include "Game/System/GameSystemObjHolder.hpp"
-#include "Game/System/GameSystemResetAndPowerProcess.hpp"
+#include "Game/System/GameSystemRestartProcess.hpp"
 #include "Game/System/GameSystemSceneController.hpp"
-#include "Game/System/GameSystemStationedArchiveLoader.hpp"
-#include "Game/System/HeapMemoryWatcher.hpp"
-#include "Game/System/HomeButtonStateNotifier.hpp"
-#include "Game/System/MainLoopFramework.hpp"
+#include "Game/System/Arenas.hpp"
+#include "Game/System/GameFrame.hpp"
 #include "Game/Util/MathUtil.hpp"
-#include "Game/Util/MemoryUtil.hpp"
-#include "Game/Util/MutexHolder.hpp"
 #include "Game/Util/NerveUtil.hpp"
+#include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/SequenceUtil.hpp"
 #include "Game/Util/SingletonHolder.hpp"
 #include "Game/Util/SystemUtil.hpp"
-#include <nw4r/lyt/init.h>
+#include <Game/Ui/UiInit.hpp>
 #include <NebulaGpu.h>
 #include <nebula_math.h>
 #include "Game/Screen/NebulaMenuFocus.hpp"
-#include "Game/Screen/NebulaRtPrepare.hpp"
+#include "Game/Screen/NebulaPrepare.hpp"
 #include "Game/Screen/NebulaSettingsMenu.hpp"
 #include "Game/Screen/NebulaIcons.hpp"
 #include "Game/System/NebulaCutsceneSkip.hpp"
@@ -43,25 +38,35 @@
 #include "Game/System/PlayerInputs.hpp"
 
 
-#define INIT_AUDIO_KEY "\203\111\201\133\203\146\203\102\203\111\217\211\212\372\211\273" /* オーディオ初期化 */  // "Audio Initialization"
 
 namespace NrvGameSystem {
     NEW_NERVE(GameSystemInitializeAudio, GameSystem, InitializeAudio);
-    NEW_NERVE(GameSystemInitializeLogoScene, GameSystem, InitializeLogoScene);
-    NEW_NERVE(GameSystemLoadStationedArchive, GameSystem, LoadStationedArchive);
-    NEW_NERVE(GameSystemWaitForReboot, GameSystem, WaitForReboot);
+    NEW_NERVE(GameSystemInitializeBootScene, GameSystem, InitializeBootScene);
+    NEW_NERVE(GameSystemLoadSystemArchive, GameSystem, LoadSystemArchive);
     NEW_NERVE(GameSystemNormal, GameSystem, Normal);
 };  // namespace NrvGameSystem
+
+namespace {
+    // The drawers GameSystem::draw calls itself, outside the object lists, each under a draw slot of its own: they pair from
+    // frame to frame by it, not by the numbers of whichever object drew before them (a full-screen fill would take a pane's
+    // matrix when that pane's draw count changed).
+    enum { Own_Sequence, Own_CutsceneSkip, Own_ScreenPreserver, Own_SystemWipe, Own_ErrorWatcher, Own_Overlay, Own_Prepare, Own_Settings, Own_Restart, Own_Count };
+    u32 sOwnSlots[Own_Count];
+
+    void drawOwn(u32 which) {
+        if (sOwnSlots[which] == 0) {
+            sOwnSlots[which] = Frame::newSlot();
+        }
+        Frame::setObject(sOwnSlots[which], 0);
+    }
+}  // namespace
 
 // The game thread's entry; the native platform layer starts it.
 extern "C" void nebula_game_main(void) {
     NebulaArena::create(nullptr);
-    (MR::MutexHolder< 0 >::sMutex).init();
-    (MR::MutexHolder< 2 >::sMutex).init();
-    nw4r::lyt::LytInit();
-    SingletonHolder< HeapMemoryWatcher >::init();
-    SingletonHolder< HeapMemoryWatcher >::get()->setCurrentHeapToStationedHeap();
-    MR::initAcosTable();
+    Ui::LytInit();
+    Arenas::create();
+    Arenas::permanent()->makeCurrent();
     SingletonHolder< GameSystem >::init();
     SingletonHolder< GameSystem >::get()->init();
 
@@ -76,27 +81,26 @@ extern "C" void nebula_game_main(void) {
 
 GameSystem::GameSystem()
     : NerveExecutor("GameSystem"), mSequenceDirector(nullptr), mErrorWatcher(nullptr), mFontHolder(nullptr),
-      mFrameControl(nullptr), mObjHolder(nullptr), mSceneController(nullptr), mStationedArchiveLoader(nullptr), mHomeButtonLayout(nullptr),
-      mSystemWipeHolder(nullptr), mHomeButtonStateNotifier(nullptr), mIsExecuteLoadSystemArchive(false) {
+      mObjHolder(nullptr), mSceneController(nullptr), mHomeButtonLayout(nullptr),
+      mSystemWipeHolder(nullptr), mIsExecuteLoadSystemArchive(false), mWasSceneHeld(false), mIsSceneResumed(false) {
 }
 
 void GameSystem::init() {
-    nebula_host()->mods_start(nebula_host()->user);
+    const NebulaHostServices* const pHost = nebula_host();
+    pHost->mods_start(pHost->user);
+    Frame::registerPipelineList();
     mObjHolder = new GameSystemObjHolder();
     mFontHolder = new GameSystemFontHolder();
     mFontHolder->createFontFromEmbeddedData();
     initNerve(GET_NERVE(GameSystem, GameSystemInitializeAudio));
     mSequenceDirector = new GameSequenceDirector();
-    initGX();
+    Frame::initDefaults();
     mSceneController = new GameSystemSceneController();
     mObjHolder->init();
     mErrorWatcher = new GameSystemErrorWatcher();
-    mFrameControl = new GameSystemFrameControl();
-    SingletonHolder< GameSystemResetAndPowerProcess >::init();
-    SingletonHolder< GameSystemResetAndPowerProcess >::get()->initWithoutIter();
-    mStationedArchiveLoader = new GameSystemStationedArchiveLoader();
+    SingletonHolder< GameSystemRestartProcess >::init();
+    SingletonHolder< GameSystemRestartProcess >::get()->initWithoutIter();
     mHomeButtonLayout = new HomeButtonLayout();
-    mHomeButtonStateNotifier = new HomeButtonStateNotifier();
     setNerve(GET_NERVE(GameSystem, GameSystemInitializeAudio));
 }
 
@@ -111,69 +115,54 @@ bool GameSystem::isDoneLoadSystemArchive() const {
 void GameSystem::startToLoadSystemArchive() {
     mIsExecuteLoadSystemArchive = true;
 
-    SingletonHolder< HeapMemoryWatcher >::get()->setCurrentHeapToStationedHeap();
+    Arenas::permanent()->makeCurrent();
     SingletonHolder< NameObjRegister >::get()->setCurrentHolder(mObjHolder->mObjHolder);
-    setNerve(GET_NERVE(GameSystem, GameSystemLoadStationedArchive));
+    setNerve(GET_NERVE(GameSystem, GameSystemLoadSystemArchive));
 }
 
 void GameSystem::exeInitializeAudio() {
     if (MR::isFirstStep(this)) {
-        MR::startFunctionAsyncExecute(MR::Functor(mObjHolder, &GameSystemObjHolder::createAudioSystem), INIT_AUDIO_KEY);
+        mObjHolder->createAudioSystem();
     }
 
     updateSceneController();
 
-    if (MR::isEndFunctionAsyncExecute(INIT_AUDIO_KEY) && mObjHolder->mAudioSystem->isLoadDoneWaveDataAtSystemInit()) {
-        MR::waitForEndFunctionAsyncExecute(INIT_AUDIO_KEY);
-        setNerve(GET_NERVE(GameSystem, GameSystemInitializeLogoScene));
+    if (mObjHolder->mAudioSystem->isCreated()) {
+        setNerve(GET_NERVE(GameSystem, GameSystemInitializeBootScene));
     }
 }
 
-void GameSystem::exeInitializeLogoScene() {
-    if (GameSystemFunction::isResetProcessing()) {
-        setNerve(GET_NERVE(GameSystem, GameSystemWaitForReboot));
-    } else {
-        if (MR::isFirstStep(this)) {
-            MR::requestChangeScene("Logo");
-        }
-
-        updateSceneController();
+void GameSystem::exeInitializeBootScene() {
+    if (MR::isFirstStep(this)) {
+        MR::requestChangeScene(SceneKind_Boot);
     }
-}
 
-void GameSystem::exeLoadStationedArchive() {
-    mStationedArchiveLoader->update();
     updateSceneController();
-
-    if (mStationedArchiveLoader->isDone()) {
-        setNerve(GET_NERVE(GameSystem, GameSystemNormal));
-    }
 }
 
-void GameSystem::exeWaitForReboot() {
+void GameSystem::exeLoadSystemArchive() {
+    initAfterSystemArchiveLoaded();
+    Arenas::permanent()->makeCurrent();
+    GameSystemFunction::setSceneNameObjHolderToNameObjRegister();
+    updateSceneController();
+    setNerve(GET_NERVE(GameSystem, GameSystemNormal));
 }
 
 void GameSystem::exeNormal() {
     updateSceneController();
-    mStationedArchiveLoader->update();
 }
 
-void GameSystem::initGX() {
-    // The drawing state the game starts from, before anything is drawn.
-    J3DNativeState::initDefaults();
-}
-
-void GameSystem::initAfterStationedResourceLoaded() {
+void GameSystem::initAfterSystemArchiveLoaded() {
     mFontHolder->createFontFromFile();
-    mObjHolder->initAfterStationedResourceLoaded();
+    mObjHolder->initAfterSystemArchiveLoaded();
     mHomeButtonLayout->initWithoutIter();
     mErrorWatcher->initAfterResourceLoaded();
     mSystemWipeHolder = MR::createSystemWipeHolder();
     NebulaIcons::init();
     NebulaCutsceneSkip::init();
     NebulaSettingsMenu::init();
-    NebulaRtPrepare::init();
-    mSceneController->initAfterStationedResourceLoaded();
+    NebulaPrepare::init();
+    mSceneController->initAfterSystemArchiveLoaded();
     mSequenceDirector->initAfterResourceLoaded();
 }
 
@@ -194,44 +183,51 @@ void GameSystem::frameLoop() {
 }
 
 void GameSystem::drawFrame() {
-    MainLoopFramework::sManager->beginRender();
+    GameFrame::begin();
     draw();
-    MainLoopFramework::sManager->endRender();
-    MainLoopFramework::sManager->endFrame();
+    GameFrame::end();
 }
 
 void GameSystem::draw() {
     mSceneController->drawScene();
+    drawOwn(Own_Sequence);
     mSequenceDirector->draw();
+    drawOwn(Own_CutsceneSkip);
     NebulaCutsceneSkip::draw();
     // The settings menu covers everything, the wipes too; the pointer is drawn over it.
     const bool isSettingsShown = NebulaSettingsMenu::isShown();
     if (!isSettingsShown) {
         mObjHolder->drawStarPointer();
     }
+    drawOwn(Own_ScreenPreserver);
     mObjHolder->drawBeforeEndRender();
 
     if (mSystemWipeHolder != nullptr) {
+        drawOwn(Own_SystemWipe);
         mSystemWipeHolder->draw();
     }
 
+    drawOwn(Own_ErrorWatcher);
     mErrorWatcher->draw();
+    drawOwn(Own_Overlay);
     mSceneController->drawSceneOverlay();
-    NebulaRtPrepare::draw();
+    drawOwn(Own_Prepare);
+    NebulaPrepare::draw();
     if (isSettingsShown) {
+        drawOwn(Own_Settings);
         NebulaSettingsMenu::draw();
         mObjHolder->drawStarPointer();
     }
-    mHomeButtonLayout->draw();
-    SingletonHolder< GameSystemResetAndPowerProcess >::get()->draw();
+    drawOwn(Own_Restart);
+    SingletonHolder< GameSystemRestartProcess >::get()->draw();
 }
 
 void GameSystem::update() {
-    SingletonHolder< GameSystemResetAndPowerProcess >::get()->movement();
+    SingletonHolder< GameSystemRestartProcess >::get()->movement();
     mSceneController->checkRequestAndChangeScene();
     mObjHolder->update();
     NebulaMenuFocus::update();
-    NebulaRtPrepare::update();
+    NebulaPrepare::update();
     NebulaMods::fire(NEBULA_MOD_EVENT_FRAME);
     NebulaSettingsMenu::update();
     NebulaIcons::update();
@@ -252,7 +248,7 @@ void GameSystem::update() {
 
 void GameSystem::updateSceneController() {
     bool isSceneUpdate = true;
-    bool isResetProcessing = SingletonHolder< GameSystemResetAndPowerProcess >::get()->isActive();
+    bool isResetProcessing = SingletonHolder< GameSystemRestartProcess >::get()->isActive();
 
     if (isResetProcessing) {
         isSceneUpdate = false;
@@ -272,7 +268,9 @@ void GameSystem::updateSceneController() {
     if (isSkipPrompt) {
         isSceneUpdate = false;
     }
-    mHomeButtonStateNotifier->update(mHomeButtonLayout->isActive() || GameSystemFunction::isOccurredSystemWarning() || isSkipPrompt);
+    const bool isSceneHeld = mHomeButtonLayout->isActive() || GameSystemFunction::isOccurredSystemWarning() || isSkipPrompt;
+    mIsSceneResumed = mWasSceneHeld && !isSceneHeld;
+    mWasSceneHeld = isSceneHeld;
 
     if (isSceneUpdate || isResetProcessing) {
         mSequenceDirector->update();
@@ -296,6 +294,8 @@ void GameSystem::updateSceneController() {
 
     // After the scene: what it asked for this frame starts now, not a frame later.
     mObjHolder->updateAudioSystem();
+
+    NebulaHost::gameContext(NEBULA_CONTEXT_SCREEN_COVERED, MR::isScreenCoveredByWipe() ? 1 : 0);
 }
 
 void GameSystem::calcAnim() {

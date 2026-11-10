@@ -2,13 +2,13 @@
 #include "Game/LiveActor/ActorCameraInfo.hpp"
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
-#include <cstdio>
+#include "Game/Util/StringUtil.hpp"
 
-MultiEventCamera::MultiEventCamera() : mName(), mCameraNum(), _8(-1), _C(), _10(), mCameraType(), mCameraInfo(), mTarget() {
+MultiEventCamera::MultiEventCamera() : mName(), mCameraNum(), mCameraIndex(-1), mFrame(), mFrameNum(), mCameraType(), mCameraInfo(), mTarget() {
 }
 
 bool MultiEventCamera::isEnd() const {
-    return _8 < 0;
+    return mCameraIndex < 0;
 }
 
 void MultiEventCamera::setUp(const char* pName, const ActorCameraInfo* pCameraInfo, s32 cameraNum) {
@@ -29,20 +29,20 @@ void MultiEventCamera::setEndCameraTypeAtLanding() {
     mCameraType = CameraType_AtLanding;
 }
 
-void MultiEventCamera::start(s32 param1) {
+void MultiEventCamera::start(s32 cameraIndex) {
     CameraTargetArg target = CameraTargetArg();
 
-    start(target, param1);
+    start(target, cameraIndex);
 }
 
-void MultiEventCamera::start(const CameraTargetArg& rParam1, s32 param2) {
+void MultiEventCamera::start(const CameraTargetArg& rTarget, s32 cameraIndex) {
     if (mCameraNum <= 0) {
         return;
     }
 
-    _C = 0;
-    _8 = param2;
-    mTarget = rParam1;
+    mFrame = 0;
+    mCameraIndex = cameraIndex;
+    mTarget = rTarget;
 
     startCamera();
 }
@@ -52,14 +52,14 @@ void MultiEventCamera::update() {
         return;
     }
 
-    if (_10 <= _C && _8 < mCameraNum - 1) {
-        _C = 0;
-        _8++;
+    if (mFrameNum <= mFrame && mCameraIndex < mCameraNum - 1) {
+        mFrame = 0;
+        mCameraIndex++;
 
         startCamera();
     }
 
-    _C++;
+    mFrame++;
 }
 
 void MultiEventCamera::nextForce() {
@@ -67,9 +67,9 @@ void MultiEventCamera::nextForce() {
         return;
     }
 
-    if (_8 < mCameraNum - 1) {
-        _C = 0;
-        _8++;
+    if (mCameraIndex < mCameraNum - 1) {
+        mFrame = 0;
+        mCameraIndex++;
 
         startCamera();
     } else {
@@ -108,48 +108,43 @@ void MultiEventCamera::changeTargetPlayer() {
     changeTarget(target);
 }
 
-bool MultiEventCamera::isActive(s32 param1) const {
-    char name[256];
-    nebula_snprintf(name, sizeof(name), "%s:%03d:%02d\224\324\226\332" /* %s:%03d:%02d番目 */, mName, mCameraInfo->mCameraSetID, param1);
+bool MultiEventCamera::isActive(s32 cameraIndex) const {
+    MR::FormattedName name("%s:%03d:%02d番目", mName, mCameraInfo->mCameraSetID, cameraIndex);
 
-    return MR::isEventCameraActive(mCameraInfo, name);
+    return MR::isEventCameraActive(mCameraInfo, name.c_str());
 }
 
-void MultiEventCamera::declareEventCamera(s32 param1) {
-    char name[256];
-    nebula_snprintf(name, sizeof(name), "%s:%03d:%02d\224\324\226\332" /* %s:%03d:%02d番目 */, mName, mCameraInfo->mCameraSetID, param1);
+void MultiEventCamera::declareEventCamera(s32 cameraIndex) {
+    MR::FormattedName name("%s:%03d:%02d番目", mName, mCameraInfo->mCameraSetID, cameraIndex);
 
-    return MR::declareEventCamera(mCameraInfo, name);
+    return MR::declareEventCamera(mCameraInfo, name.c_str());
 }
 
 void MultiEventCamera::startCamera() {
-    char name[256];
-    nebula_snprintf(name, sizeof(name), "%s:%03d:%02d\224\324\226\332" /* %s:%03d:%02d番目 */, mName, mCameraInfo->mCameraSetID, _8);
+    MR::FormattedName name("%s:%03d:%02d番目", mName, mCameraInfo->mCameraSetID, mCameraIndex);
 
-    MR::startEventCamera(mCameraInfo, name, mTarget);
+    MR::startEventCamera(mCameraInfo, name.c_str(), mTarget);
 
-    _10 = MR::getEventCameraFrames(mCameraInfo, name);
+    mFrameNum = MR::getEventCameraFrames(mCameraInfo, name.c_str());
 }
 
 void MultiEventCamera::endCamera(s32 type) {
-    char name[256];
-    nebula_snprintf(name, sizeof(name), "%s:%03d:%02d\224\324\226\332" /* %s:%03d:%02d番目 */, mName, mCameraInfo->mCameraSetID, _8);
+    MR::FormattedName name("%s:%03d:%02d番目", mName, mCameraInfo->mCameraSetID, mCameraIndex);
 
     switch (type) {
     case CameraType_Soon:
-        MR::endEventCamera(mCameraInfo, name, true);
+        MR::endEventCamera(mCameraInfo, name.c_str(), true);
         break;
     case CameraType_AtLanding:
-        MR::endEventCameraAtLanding(mCameraInfo, name, -1);
+        MR::endEventCameraAtLanding(mCameraInfo, name.c_str(), -1);
         break;
     }
 
-    _8 = -1;
+    mCameraIndex = -1;
 }
 
 void MultiEventCamera::changeTarget(const CameraTargetArg& rTarget) {
-    char name[256];
-    nebula_snprintf(name, sizeof(name), "%s:%03d:%02d\224\324\226\332" /* %s:%03d:%02d番目 */, mName, mCameraInfo->mCameraSetID, _8);
+    MR::FormattedName name("%s:%03d:%02d番目", mName, mCameraInfo->mCameraSetID, mCameraIndex);
 
-    MR::changeEventCameraTarget(mCameraInfo, name, rTarget);
+    MR::changeEventCameraTarget(mCameraInfo, name.c_str(), rTarget);
 }

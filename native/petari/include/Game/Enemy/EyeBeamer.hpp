@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class MapPartsRailMover;
 class ModelObj;
@@ -9,26 +9,27 @@ class VolumeModelDrawer;
 
 class EyeBeamer : public LiveActor {
 public:
-    EyeBeamer(const char*);
+    EyeBeamer(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void initAfterPlacement();
-    virtual void draw() const;
-    virtual void calcAnim();
-    virtual void startClipped();
-    virtual void endClipped();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void initAfterPlacement() override;
+    virtual void draw() const override;
+    virtual void calcAnim() override;
+    virtual void startClipped() override;
+    virtual void endClipped() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
 
-    void initStartNerve(const JMapInfoIter& rIter);
+    void initStartNerve(const TableIter& rIter);
     void initModel();
-    void initRailMoveFunction(const JMapInfoIter& rIter);
+    void initRailMoveFunction(const TableIter& rIter);
     void updatePoseAndTrans();
     void updateWaterSurfaceMtx();
     void requestStartPatrol();
     bool tryGotoPatrol();
     bool tryPatrol();
+    void setPoseTurned(f32 angle);
     void exeDemoStartWait();
     void exeDemoWait();
     void exeDemoTurn();
@@ -37,26 +38,22 @@ public:
     void exeTurn();
     void exeGotoPatrol();
     void exePatrol();
-    bool isInBeamRange(const TVec3f& rVec) const;
+    bool isInBeamRange(const Vec3f& rPos) const;
     bool isOnBeam() const;
 
     MapPartsRailMover* mRailMover;
     ModelObj* mBeamBloom;
     ModelObj* mBeamMdl;
     VolumeModelDrawer* mBeamVolumeDrawer;
-    TPos3f _9C;
-    TQuat4f _CC;
-    TQuat4f _DC;
-    TVec3f _EC;
-    TVec3f _F8;
-    TVec3f _104;
-    TPos3f mWaterSurfaceMtx;
-    TVec3f _140;
-    u32 _14C;
-    u32 _150;
-    u32 _154;
-    u32 _158;
-    f32 _15C;
-    f32 _160;
+    Pos3f mBeamMtx;
+    Quat4f mInitQuat;
+    Quat4f mPoseQuat;
+    Vec3f mBasePos;
+    Vec3f mGotoStartPos;
+    Vec3f mRailStartPos;
+    Pos3f mWaterSurfaceMtx;
+    Vec3f mClipCenter;
+    f32 mBeamLength;          // Obj_arg0
+    f32 mWaterSurfaceHeight;  // Obj_arg1; below 0 has no surface
     bool mIsInMercatorCube;
 };

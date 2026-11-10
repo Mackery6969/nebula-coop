@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Game/Scene/SceneFactory.hpp"
 #include "Game/System/NerveExecutor.hpp"
 
 class FindingLuigiEventScheduler;
@@ -12,7 +13,6 @@ class StorySequenceExecutor;
 
 class GameSequenceProgress : public NerveExecutor {
 public:
-    /// @brief Creates a new `GameSequenceProgress`.
     GameSequenceProgress();
 
     void initAfterResourceLoaded();
@@ -20,13 +20,13 @@ public:
     void draw();
     void startScene();
     void endScene();
-    void requestChangeScene(const char*);
+    void requestChangeScene(SceneKind);
     void requestGalaxyMove(const GalaxyMoveArgument&);
     void requestCancelScenarioSelect();
     GalaxyCometScheduler* getGalaxyCometScheduler();
 
     void exeBooting();
-    void exeLogo();
+    void exeBoot();
     void exeWaitGoToFirstScene();
     void exeNormal();
     void exeGalaxyMove();
@@ -34,7 +34,6 @@ public:
 
     inline static bool isCometStar(GalaxyMoveArgument);
     static bool isScenePermittedUpdateInputStatus();
-    static bool isSceneLongInputSleep();
     void updateGameDataBeforeChangeScene();
     void resetGameDataAfterChangeScene(const GalaxyMoveArgument&);
     void updateGameDataGalaxyVisitedFlag();
@@ -53,4 +52,6 @@ public:
     bool mIsPlayTicoSound;
     bool mIsCancelScenarioSelect;
     bool mIsForceWipe;
+    // Updates left before the system wipe a scene start opens (startScene): it opens with the scene's first frame.
+    s32 mOpenWipeDelay;
 };

@@ -1,67 +1,17 @@
-//! A modern model in place of the game's own format: glTF 2.0 (`.gltf` with its files, or `.glb`) written out as a J3D
-//! model, which then cooks as any other, with a `.bck` for each animation. Triangles, one texture and colour per material,
-//! skins and node animation. Lengths are metres in glTF: one metre is 100 of the game's units. A glTF triangle winds
-//! counter-clockwise; the game's wind clockwise (measured on Kuribo, Coin and Mario: 650 to 2, 268 to 0, 4514 to 363).
+//! A modern model in place of the game's own format: glTF 2.0 (`.gltf` with its files, or `.glb`) read straight into
+//! `ModelIr` and `ClipIr`, with a clip for each animation. Triangles, a colour and up to sixteen texture layers per
+//! material (the base colour texture, then `extras.nebula.textures`), skins and node animation. Lengths are metres in glTF: one metre is 100 of the game's units. A glTF triangle winds counter-clockwise;
+//! the game's wind clockwise (measured on Kuribo, Coin and Mario: 650 to 2, 268 to 0, 4514 to 363).
 
+use super::clip::{ClipIr, Target, Track, KIND_COLORS, KIND_JOINTS, KIND_PATTERN, KIND_TEXTURE_MATRICES, STEP};
+use super::model_ir::{CoordIr, CoordMatrixIr};
+use super::model_ir::{important_joints, plain_material, plain_texture, ArraysIr, Corner, GroupIr, JointIr, ModelIr, ShapeIr, ATTR_MATRIX, ATTR_NORMAL, NONE};
 use anyhow::{bail, Context, Result};
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 const UNITS_PER_METRE: f32 = 100.0;
-const MATRICES_PER_PACKET: usize = 10;
-
-fn put16(out: &mut Vec<u8>, v: u16) {
-    out.extend_from_slice(&v.to_be_bytes());
-}
-
-fn put32(out: &mut Vec<u8>, v: u32) {
-    out.extend_from_slice(&v.to_be_bytes());
-}
-
-fn putf(out: &mut Vec<u8>, v: f32) {
-    out.extend_from_slice(&v.to_be_bytes());
-}
-
-fn set32(out: &mut [u8], at: usize, v: u32) {
-    out[at..at + 4].copy_from_slice(&v.to_be_bytes());
-}
-
-fn pad(out: &mut Vec<u8>, to: usize) {
-    while out.len() % to != 0 {
-        out.push(0);
-    }
-}
-
-/// A name table: its hashes are the game's.
-fn name_table(names: &[String]) -> Vec<u8> {
-    let mut out = Vec::new();
-    put16(&mut out, names.len() as u16);
-    put16(&mut out, 0xFFFF);
-    let mut at = 4 + names.len() * 4;
-    for name in names {
-        let hash = name.bytes().fold(0u16, |h, b| h.wrapping_mul(3).wrapping_add(u16::from(b)));
-        put16(&mut out, hash);
-        put16(&mut out, at as u16);
-        at += name.len() + 1;
-    }
-    for name in names {
-        out.extend_from_slice(name.as_bytes());
-        out.push(0);
-    }
-    out
-}
-
-/// A block: its kind, its size, then `body`, on a 32-byte boundary.
-fn block(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
-    let mut out = kind.to_vec();
-    out.extend_from_slice(&[0; 4]);
-    out.extend_from_slice(body);
-    pad(&mut out, 32);
-    let size = out.len() as u32;
-    set32(&mut out, 4, size);
-    out
-}
 
 struct Document {
     root: Value,
@@ -165,37 +115,94 @@ impl Document {
         let normalized = accessor["normalized"].as_bool().unwrap_or(false);
         let (size, read): (usize, fn(&[u8]) -> f32) = match kind {
             5126 => (4, |b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])),
+            5120 => (1, |b| f32::from(b[0] as i8)),
             5121 => (1, |b| f32::from(b[0])),
+            5122 => (2, |b| f32::from(i16::from_le_bytes([b[0], b[1]]))),
             5123 => (2, |b| f32::from(u16::from_le_bytes([b[0], b[1]]))),
             5125 => (4, |b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as f32),
             other => bail!("numbers of type {other}"),
         };
-        let view = self.view(accessor["bufferView"].as_u64().context("a sparse or empty accessor")? as usize)?;
-        let start = accessor["byteOffset"].as_u64().unwrap_or(0) as usize;
-        let stride = self.root["bufferViews"][accessor["bufferView"].as_u64().unwrap_or(0) as usize]["byteStride"]
-            .as_u64()
-            .map_or(size * width, |s| s as usize);
-        let mut out = Vec::with_capacity(count * width);
-        for element in 0..count {
+        // Normalized integers as glTF reads them: unsigned to 0..1, signed to -1..1.
+        let scale = |value: f32| match (normalized, kind) {
+            (true, 5120) => (value / 127.0).max(-1.0),
+            (true, 5121) => value / 255.0,
+            (true, 5122) => (value / 32767.0).max(-1.0),
+            (true, 5123) => value / 65535.0,
+            _ => value,
+        };
+        // No buffer view: all zero, unless sparse values say otherwise.
+        let mut out = match accessor["bufferView"].as_u64() {
+            Some(view_index) => {
+                let view = self.view(view_index as usize)?;
+                let start = accessor["byteOffset"].as_u64().unwrap_or(0) as usize;
+                let stride = self.root["bufferViews"][view_index as usize]["byteStride"].as_u64().map_or(size * width, |s| s as usize);
+                let mut out = Vec::with_capacity(count * width);
+                for element in 0..count {
+                    for c in 0..width {
+                        let at = start + element * stride + c * size;
+                        out.push(scale(read(view.get(at..at + size).context("an accessor past its buffer view")?)));
+                    }
+                }
+                out
+            }
+            None => vec![0.0; count * width],
+        };
+        self.sparse_into(accessor, &mut out, width, size, read, scale)?;
+        Ok(out)
+    }
+
+    /// An accessor's sparse values over its others.
+    fn sparse_into(&self, accessor: &Value, out: &mut [f32], width: usize, size: usize, read: fn(&[u8]) -> f32, scale: impl Fn(f32) -> f32) -> Result<()> {
+        let sparse = &accessor["sparse"];
+        if sparse.is_null() {
+            return Ok(());
+        }
+        let count = sparse["count"].as_u64().context("sparse values with no count")? as usize;
+        let indices = &sparse["indices"];
+        let index_view = self.view(indices["bufferView"].as_u64().context("sparse values with no indices")? as usize)?;
+        let index_start = indices["byteOffset"].as_u64().unwrap_or(0) as usize;
+        let index_size = match indices["componentType"].as_u64() {
+            Some(5121) => 1,
+            Some(5123) => 2,
+            Some(5125) => 4,
+            _ => bail!("sparse indices that aren't whole numbers"),
+        };
+        let values = &sparse["values"];
+        let value_view = self.view(values["bufferView"].as_u64().context("sparse values with no values")? as usize)?;
+        let value_start = values["byteOffset"].as_u64().unwrap_or(0) as usize;
+        for k in 0..count {
+            let at = index_start + k * index_size;
+            let b = index_view.get(at..at + index_size).context("sparse indices past their buffer view")?;
+            let element = match index_size {
+                1 => usize::from(b[0]),
+                2 => usize::from(u16::from_le_bytes([b[0], b[1]])),
+                _ => u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize,
+            };
             for c in 0..width {
-                let at = start + element * stride + c * size;
-                let bytes = view.get(at..at + size).context("an accessor past its buffer view")?;
-                let value = read(bytes);
-                out.push(if normalized && kind == 5121 {
-                    value / 255.0
-                } else if normalized && kind == 5123 {
-                    value / 65535.0
-                } else {
-                    value
-                });
+                let at = value_start + (k * width + c) * size;
+                let value = scale(read(value_view.get(at..at + size).context("sparse values past their buffer view")?));
+                *out.get_mut(element * width + c).context("a sparse value past its accessor")? = value;
             }
         }
-        Ok(out)
+        Ok(())
     }
 
     fn indices(&self, primitive: &Value, vertices: usize) -> Result<Vec<u32>> {
         match primitive["indices"].as_u64() {
-            Some(index) => Ok(self.floats(index as usize, 1)?.into_iter().map(|v| v as u32).collect()),
+            Some(index) => {
+                let a = &self.root["accessors"][index as usize];
+                let kind = a["componentType"].as_u64().context("index component type")?;
+                let size = match kind { 5121 => 1, 5123 => 2, 5125 => 4, _ => bail!("non-integer triangle indices") };
+                let view_index = a["bufferView"].as_u64().context("index buffer view")? as usize;
+                let view = self.view(view_index)?;
+                let start = a["byteOffset"].as_u64().unwrap_or(0) as usize;
+                let count = a["count"].as_u64().context("index count")? as usize;
+                let stride = self.root["bufferViews"][view_index]["byteStride"].as_u64().map_or(size, |n| n as usize);
+                (0..count).map(|i| {
+                    let b = view.get(start + i * stride..start + i * stride + size).context("indices past their buffer view")?;
+                    Ok(match size { 1 => u32::from(b[0]), 2 => u32::from(u16::from_le_bytes(b.try_into().unwrap())), _ => u32::from_le_bytes(b.try_into().unwrap()) })
+                }).collect()
+            },
             None => Ok((0..vertices as u32).collect()),
         }
     }
@@ -210,6 +217,19 @@ impl Document {
         };
         decode_image(&bytes)
     }
+}
+
+/// The extensions a file can require and still be read as made: anything else would cook into something it isn't.
+const EXTENSIONS_READ: [&str; 3] = ["KHR_texture_transform", "KHR_animation_pointer", "KHR_mesh_quantization"];
+
+fn required_extensions(root: &Value) -> Result<()> {
+    for name in root["extensionsRequired"].as_array().map(Vec::as_slice).unwrap_or_default() {
+        let name = name.as_str().unwrap_or("");
+        if !EXTENSIONS_READ.contains(&name) {
+            bail!("the file needs {name}, which Nebula doesn't read: export without it (it reads {})", EXTENSIONS_READ.join(", "));
+        }
+    }
+    Ok(())
 }
 
 /// A model as solid ground: its triangles in the game's units, and a table of attributes with one row per material.
@@ -236,7 +256,7 @@ pub fn to_collision(bytes: &[u8], folder: Option<&Path>) -> Result<(Vec<u8>, Vec
             }
             let positions = document.floats(primitive["attributes"]["POSITION"].as_u64().context("a mesh with no positions")? as usize, 3)?;
             let indices = document.indices(primitive, positions.len() / 3)?;
-            let attribute = primitive["material"].as_u64().unwrap_or(0) as u16;
+            let attribute = u16::try_from(primitive["material"].as_u64().unwrap_or(0)).context("collision attribute outside its source domain")?;
             let corner = |index: u32| -> [f32; 3] {
                 let at = index as usize * 3;
                 let p = transform(&matrix, [positions[at], positions[at + 1], positions[at + 2]], 1.0);
@@ -259,14 +279,17 @@ pub fn to_collision(bytes: &[u8], folder: Option<&Path>) -> Result<(Vec<u8>, Vec
             "Camera_through": number("Camera_through"),
         }));
     }
-    let table = super::merge::table_from_json(serde_json::json!({ "rows": rows }).to_string().as_bytes())?;
+    let table = super::table::TableIr::from_json(serde_json::json!({ "rows": rows }).to_string().as_bytes())?.to_ntbl();
     Ok((super::kcl::from_triangles(&triangles)?, table))
 }
 
 /// A PNG as RGBA, top row first.
 pub fn decode_image(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>)> {
+    if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        return decode_jpeg(bytes);
+    }
     if !bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
-        bail!("images have to be PNG");
+        bail!("images have to be PNG or JPEG");
     }
     let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
     decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16 | png::Transformations::ALPHA);
@@ -285,6 +308,20 @@ pub fn decode_image(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>)> {
         other => bail!("a PNG of {other:?}"),
     }
     Ok((info.width, info.height, rgba))
+}
+
+/// A JPEG as RGBA, top row first.
+fn decode_jpeg(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>)> {
+    use zune_jpeg::zune_core::{bytestream::ZCursor, colorspace::ColorSpace, options::DecoderOptions};
+    let options = DecoderOptions::default().jpeg_set_out_colorspace(ColorSpace::RGBA).set_max_width(1 << 16).set_max_height(1 << 16);
+    let mut decoder = zune_jpeg::JpegDecoder::new_with_options(ZCursor::new(bytes), options);
+    let rgba = decoder.decode().map_err(|e| anyhow::anyhow!("the JPEG can't be read: {e:?}"))?;
+    let info = decoder.info().context("the JPEG can't be read")?;
+    let (width, height) = (u32::from(info.width), u32::from(info.height));
+    if rgba.len() != width as usize * height as usize * 4 {
+        bail!("the JPEG can't be read: {} bytes for {width} by {height}", rgba.len());
+    }
+    Ok((width, height, rgba))
 }
 
 /// A BTI-format image: RGBA8, in the console's 4x4 tiles, in big-endian order. `header` is ResTIMG's 32 bytes before
@@ -329,9 +366,11 @@ pub fn image_header(width: u32, height: u32, data_offset: u32, wrap: u8, has_alp
 /// A standalone image file (`.bti`) from a PNG, as the game's own images are.
 pub fn png_to_bti(bytes: &[u8]) -> Result<Vec<u8>> {
     let (width, height, rgba) = decode_image(bytes)?;
-    let has_alpha = rgba.chunks_exact(4).any(|p| p[3] != 255);
-    let mut out = image_header(width, height, 32, 0, has_alpha).to_vec();
-    out.extend_from_slice(&rgba8_tiled(width, height, &rgba));
+    let record = super::texture::cook_rgba(width, height, &rgba)?;
+    let mut out = Vec::with_capacity(64 + record.len());
+    for word in [0x4954_424Eu32, 1, width, height, 1, 64, 0, 0, 0] { out.extend_from_slice(&word.to_le_bytes()); }
+    out.extend_from_slice(&[6, u8::from(rgba.chunks_exact(4).any(|p| p[3] != 255)), 0, 0, 0, 0, 1, 1]);
+    out.resize(64, 0); out.extend(record);
     Ok(out)
 }
 
@@ -439,13 +478,13 @@ fn node_matrix(node: &Value) -> Matrix {
     }
 }
 
-/// A rotation as the game's three angles: Z then Y then X, in 1/32768ths of half a turn.
-fn angles(q: [f32; 4]) -> [i16; 3] {
+/// Euler angles in radians, Z then Y then X, without source-format quantization.
+fn angles(q: [f32; 4]) -> [f32; 3] {
     let [x, y, z, w] = q.map(f64::from);
     let (sinr, cosr) = (2.0 * (w * x + y * z), 1.0 - 2.0 * (x * x + y * y));
     let sinp = (2.0 * (w * y - z * x)).clamp(-1.0, 1.0);
     let (siny, cosy) = (2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z));
-    let to = |radians: f64| (radians / std::f64::consts::PI * 32768.0).round().clamp(-32768.0, 32767.0) as i16;
+    let to = |radians: f64| radians as f32;
     [to(sinr.atan2(cosr)), to(sinp.atan2((1.0 - sinp * sinp).max(0.0).sqrt())), to(siny.atan2(cosy))]
 }
 
@@ -456,33 +495,7 @@ struct Joint {
     inverse: Matrix,
 }
 
-/// What a vertex's corner is drawn with: which matrix (a joint or a blend of them), position, normal, coordinate.
-#[derive(Clone, Copy)]
-struct Corner {
-    matrix: u32,
-    position: u32,
-    normal: u32,
-    coordinate: u32,
-}
-
-struct Group {
-    material: usize,
-    corners: Vec<Corner>,
-    radius: f32,
-    low: [f32; 3],
-    high: [f32; 3],
-}
-
-struct MaterialOut {
-    name: String,
-    color: [u8; 4],
-    texture: Option<usize>,
-    blend: bool,
-    cutoff: Option<u8>,
-    two_sided: bool,
-}
-
-/// Keeps one copy of each value, by its bytes.
+/// Keeps one copy of each value, by its bytes: the curve analysis finds shared corners by these numbers.
 struct Pool<const N: usize> {
     values: Vec<[f32; N]>,
     seen: BTreeMap<[u32; N], u32>,
@@ -502,15 +515,98 @@ impl<const N: usize> Pool<N> {
     }
 }
 
-/// glTF 2 to a J3D model. `folder`: where a `.gltf` finds its other files.
-pub fn to_j3d(bytes: &[u8], folder: Option<&Path>) -> Result<Vec<u8>> {
-    Ok(to_files(bytes, folder)?.0)
+/// A file's material: colour, one image, how it blends.
+struct SourceMaterial {
+    name: String,
+    color: [u8; 4],
+    images: Vec<(usize, u8)>,
+    blend: bool,
+    cutoff: Option<u8>,
+    two_sided: bool,
+    /// Its base colour texture's KHR_texture_transform, still or animated: scale x, y, rotation, offset x, y.
+    transform: Option<[f32; 5]>,
 }
 
-/// The model, and each animation by its name.
-pub fn to_files(bytes: &[u8], folder: Option<&Path>) -> Result<(Vec<u8>, Vec<(String, Vec<u8>)>)> {
+/// The texture transform no KHR_texture_transform gives.
+const NO_TRANSFORM: [f32; 5] = [1.0, 1.0, 0.0, 0.0, 0.0];
+
+/// A texture transform as the game's texture matrix (the classic one, about no centre): glTF's turns the other way, and
+/// scales before it turns where the game scales after, which is the same only when both scales are equal.
+fn texture_transform(t: &[f32; 5], material: &str) -> Result<[f32; 5]> {
+    if t[2].abs() > 1e-6 && (t[0] - t[1]).abs() > 1e-5 * t[0].abs().max(t[1].abs()).max(1.0) {
+        bail!("material {material}: a texture turned with unequal scales ({} and {}): scale it evenly, or not turn it", t[0], t[1]);
+    }
+    Ok([t[0], t[1], -t[2], t[3], t[4]])
+}
+
+/// A KHR_animation_pointer channel's pointer, if it is one.
+fn pointer_of(channel: &Value) -> Option<&str> {
+    (channel["target"]["path"].as_str() == Some("pointer")).then(|| channel["target"]["extensions"]["KHR_animation_pointer"]["pointer"].as_str()).flatten()
+}
+
+/// "/materials/<n>/<rest>" as (n, rest).
+fn material_pointer(pointer: &str) -> Option<(usize, &str)> {
+    let rest = pointer.strip_prefix("/materials/")?;
+    let (number, rest) = rest.split_once('/')?;
+    Some((number.parse().ok()?, rest))
+}
+
+const BASE_COLOR: &str = "pbrMetallicRoughness/baseColorFactor";
+const TEXTURE_TRANSFORM: &str = "pbrMetallicRoughness/baseColorTexture/extensions/KHR_texture_transform/";
+
+/// The materials whose texture transform an animation moves, and the textures (glTF texture numbers) animations swap in.
+fn animated_materials(root: &Value) -> (BTreeSet<usize>, BTreeSet<usize>) {
+    let (mut moved, mut swapped) = (BTreeSet::new(), BTreeSet::new());
+    for animation in root["animations"].as_array().map(Vec::as_slice).unwrap_or_default() {
+        for channel in animation["channels"].as_array().map(Vec::as_slice).unwrap_or_default() {
+            if let Some((material, rest)) = pointer_of(channel).and_then(material_pointer) {
+                if rest.starts_with(TEXTURE_TRANSFORM) {
+                    moved.insert(material);
+                }
+            }
+        }
+        for swap in animation["extras"]["nebula"]["texture_swaps"].as_array().map(Vec::as_slice).unwrap_or_default() {
+            for key in swap["keys"].as_array().map(Vec::as_slice).unwrap_or_default() {
+                if let Some(texture) = key[1].as_u64() {
+                    swapped.insert(texture as usize);
+                }
+            }
+        }
+    }
+    (moved, swapped)
+}
+
+/// The model's texture number of a glTF image, cooked into the model the first time it is wanted.
+fn texture_number(document: &Document, ir: &mut ModelIr, image_of: &mut BTreeMap<usize, u32>, image: usize) -> Result<u32> {
+    if let Some(number) = image_of.get(&image) {
+        return Ok(*number);
+    }
+    let (width, height, rgba) = document.image(image)?;
+    let number = ir.textures.len() as u32;
+    ir.records.push(super::texture::cook_rgba(width, height, &rgba)?);
+    ir.textures.push(plain_texture(format!("image{image}"), width, height, ir.records.len() - 1));
+    image_of.insert(image, number);
+    Ok(number)
+}
+
+fn bounds_radius(low: &[f32; 3], high: &[f32; 3]) -> f32 {
+    let center = [0, 1, 2].map(|c| (low[c] + high[c]) / 2.0);
+    let far = [0, 1, 2].map(|c| (high[c] - center[c]).abs().max((low[c] - center[c]).abs()));
+    (far[0] * far[0] + far[1] * far[1] + far[2] * far[2]).sqrt()
+}
+
+fn widen(low: &mut [f32; 3], high: &mut [f32; 3], at: [f32; 3]) {
+    for c in 0..3 {
+        low[c] = low[c].min(at[c]);
+        high[c] = high[c].max(at[c]);
+    }
+}
+
+/// A glTF document as typed values: the model, and each animation by its name.
+pub fn to_ir(bytes: &[u8], folder: Option<&Path>) -> Result<(ModelIr, Vec<(String, ClipIr)>)> {
     let document = Document::parse(bytes, folder)?;
     let root = &document.root;
+    required_extensions(root)?;
     let scene = &root["scenes"][root["scene"].as_u64().unwrap_or(0) as usize];
     let nodes = root["nodes"].as_array().map(Vec::as_slice).unwrap_or_default();
 
@@ -553,7 +649,7 @@ pub fn to_files(bytes: &[u8], folder: Option<&Path>) -> Result<(Vec<u8>, Vec<(St
             bail!("a skin names a joint outside the scene");
         }
     }
-    if listed.len() + 1 > 0xFFFF {
+    if listed.len() + 1 >= NONE as usize {
         bail!("too many joints");
     }
     let roots = listed.iter().filter(|n| parents[**n].is_none_or(|p| !listed.contains(&p))).count();
@@ -572,37 +668,62 @@ pub fn to_files(bytes: &[u8], folder: Option<&Path>) -> Result<(Vec<u8>, Vec<(St
     }
 
     // Materials.
-    let mut materials: Vec<MaterialOut> = Vec::new();
+    let (moved, swapped) = animated_materials(root);
+    let mut materials: Vec<SourceMaterial> = Vec::new();
     for (i, material) in root["materials"].as_array().map(Vec::as_slice).unwrap_or_default().iter().enumerate() {
         let pbr = &material["pbrMetallicRoughness"];
         let factor: [f32; 4] = numbers(&pbr["baseColorFactor"], [1.0; 4]);
-        let texture = pbr["baseColorTexture"]["index"].as_u64().and_then(|t| root["textures"][t as usize]["source"].as_u64()).map(|s| s as usize);
-        materials.push(MaterialOut {
+        let image = pbr["baseColorTexture"]["index"].as_u64().and_then(|t| root["textures"][t as usize]["source"].as_u64()).map(|s| s as usize);
+        let still = &pbr["baseColorTexture"]["extensions"]["KHR_texture_transform"];
+        let transform = (still.is_object() || moved.contains(&i)).then(|| {
+            let [sx, sy]: [f32; 2] = numbers(&still["scale"], [1.0; 2]);
+            let [ox, oy]: [f32; 2] = numbers(&still["offset"], [0.0; 2]);
+            [sx, sy, still["rotation"].as_f64().unwrap_or(0.0) as f32, ox, oy]
+        });
+        let mut images = Vec::new();
+        if let Some(image) = image {
+            let coordinates = still["texCoord"].as_u64().or(pbr["baseColorTexture"]["texCoord"].as_u64()).unwrap_or(0);
+            images.push((image, coordinates));
+        } else if transform.is_some() {
+            bail!("material {i}: a texture transform with no base colour texture");
+        }
+        // Additional authored multiply layers use ordinary glTF texture indices
+        // and UV sets, through the same material programs as the game's models.
+        for layer in material["extras"]["nebula"]["textures"].as_array().map(Vec::as_slice).unwrap_or_default() {
+            let index = layer["index"].as_u64().context("a material layer with no texture index")? as usize;
+            let image = root["textures"][index]["source"].as_u64().context("a material layer with no image")? as usize;
+            images.push((image, layer["texCoord"].as_u64().unwrap_or(0)));
+        }
+        // A program's inputs name coordinates in a byte past NEBULA_INPUT_COORD0, maps and coordinates in a byte.
+        if images.len() > 240 || images.iter().any(|(_, uv)| *uv >= 240) {
+            bail!("a material with more than 240 textures or coordinates");
+        }
+        let images = images.into_iter().map(|(image, uv)| (image, uv as u8)).collect();
+        materials.push(SourceMaterial {
             name: material["name"].as_str().map_or_else(|| format!("material{i}"), str::to_string),
             color: factor.map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8),
-            texture,
+            images,
             blend: material["alphaMode"].as_str() == Some("BLEND"),
             cutoff: (material["alphaMode"].as_str() == Some("MASK")).then(|| (material["alphaCutoff"].as_f64().unwrap_or(0.5).clamp(0.0, 1.0) * 255.0) as u8),
             two_sided: material["doubleSided"].as_bool().unwrap_or(false),
+            transform,
         });
     }
     let default_material = materials.len();
-    materials.push(MaterialOut { name: "material".to_string(), color: [255; 4], texture: None, blend: false, cutoff: None, two_sided: false });
+    materials.push(SourceMaterial { name: "material".to_string(), color: [255; 4], images: Vec::new(), blend: false, cutoff: None, two_sided: false, transform: None });
 
-    // Geometry: rigid models are placed by their node; skinned ones stand in the pose the inverse matrices name.
+    let mut ir = ModelIr::default();
     let mut positions = Pool::<3>::new();
     let mut normals = Pool::<3>::new();
-    let mut coordinates = Pool::<2>::new();
-    // A vertex's matrix: draw entries are joints first (index in the joint list), then envelopes.
-    let mut envelopes: Vec<Vec<(u16, f32)>> = Vec::new();
-    let mut envelope_ids: BTreeMap<Vec<(u16, u32)>, u32> = BTreeMap::new();
-    let mut groups: Vec<Group> = Vec::new();
-    let mut vertex_count = 0u32;
+    let mut coordinates: Vec<Pool<2>> = Vec::new();
+    // A vertex's draw matrix: joints first (by joint number), then envelopes.
+    let mut envelope_ids: BTreeMap<Vec<(u32, u32)>, u32> = BTreeMap::new();
+    let mut first_of_material: BTreeMap<usize, u32> = BTreeMap::new();
+    let mut image_of: BTreeMap<usize, u32> = BTreeMap::new();
+    let (mut whole_low, mut whole_high) = ([f32::MAX; 3], [f32::MIN; 3]);
     for node in &order {
         let Some(mesh) = nodes[*node]["mesh"].as_u64() else { continue };
         let skinned = nodes[*node]["skin"].is_u64();
-        // A node of its own: its joint places it. A skinned mesh's vertices stand where its matrices say.
-        let place = IDENTITY;
         let skin_joints: Vec<usize> = if skinned {
             root["skins"][nodes[*node]["skin"].as_u64().unwrap_or(0) as usize]["joints"].as_array().map(Vec::as_slice).unwrap_or_default().iter().filter_map(|j| j.as_u64().map(|v| v as usize)).collect()
         } else {
@@ -619,150 +740,472 @@ pub fn to_files(bytes: &[u8], folder: Option<&Path>) -> Result<(Vec<u8>, Vec<(St
                 Some(index) => document.floats(index as usize, 3)?,
                 None => [0.0, 1.0, 0.0].repeat(count),
             };
-            let coordinate_values = match attributes["TEXCOORD_0"].as_u64() {
-                Some(index) => document.floats(index as usize, 2)?,
-                None => vec![0.0; count * 2],
-            };
             let weights = match (attributes["JOINTS_0"].as_u64(), attributes["WEIGHTS_0"].as_u64(), skinned) {
                 (Some(j), Some(w), true) => Some((document.floats(j as usize, 4)?, document.floats(w as usize, 4)?)),
                 _ => None,
             };
             let material = primitive["material"].as_u64().map_or(default_material, |m| m as usize);
-            let indices = document.indices(primitive, count)?;
-            let mut corners = Vec::with_capacity(indices.len());
-            let mut low = [f32::MAX; 3];
-            let mut high = [f32::MIN; 3];
-            let mut map: BTreeMap<u32, Corner> = BTreeMap::new();
-            for index in &indices {
-                let i = *index as usize;
-                let corner = *match map.entry(*index) {
-                    std::collections::btree_map::Entry::Occupied(found) => found.into_mut(),
-                    std::collections::btree_map::Entry::Vacant(slot) => {
-                        if i >= count {
-                            bail!("a triangle naming a vertex past the mesh");
-                        }
-                        let p = transform(&place, position_values[i * 3..i * 3 + 3].try_into()?, 1.0).map(|v| v * UNITS_PER_METRE);
-                        let placed = transform(&world[*node], position_values[i * 3..i * 3 + 3].try_into()?, 1.0).map(|v| v * UNITS_PER_METRE);
-                        for c in 0..3 {
-                            low[c] = low[c].min(placed[c]);
-                            high[c] = high[c].max(placed[c]);
-                        }
-                        let n = transform(&place, normal_values[i * 3..i * 3 + 3].try_into()?, 0.0);
-                        let matrix = match &weights {
-                            Some((joint_values, weight_values)) => {
-                                let mut set: Vec<(u16, f32)> = Vec::new();
-                                for k in 0..4 {
-                                    let weight = weight_values[i * 4 + k];
-                                    if weight > 0.001 {
-                                        let node_of = *skin_joints.get(joint_values[i * 4 + k] as usize).context("a vertex naming a joint past the skin")?;
-                                        set.push((*joint_of_node.get(&node_of).context("a vertex's joint isn't in the skin")? as u16, weight));
-                                    }
-                                }
-                                set.sort_by_key(|(j, _)| *j);
-                                let total: f32 = set.iter().map(|(_, w)| w).sum();
-                                if set.is_empty() {
-                                    0
-                                } else if set.len() == 1 {
-                                    u32::from(set[0].0)
-                                } else {
-                                    for item in &mut set {
-                                        item.1 /= total;
-                                    }
-                                    let key: Vec<(u16, u32)> = set.iter().map(|(j, w)| (*j, w.to_bits())).collect();
-                                    let id = *envelope_ids.entry(key).or_insert_with(|| {
-                                        envelopes.push(set.clone());
-                                        envelopes.len() as u32 - 1
-                                    });
-                                    joints.len() as u32 + id
-                                }
-                            }
-                            None => joint_of_node.get(node).map_or(0, |j| *j as u32),
-                        };
-                        // One joint's vertex is in that joint's space; a blended one stays in the model's.
-                        let (p, n) = if weights.is_some() && (matrix as usize) < joints.len() {
-                            let inverse = &joints[matrix as usize].inverse;
-                            let local = transform(inverse, position_values[i * 3..i * 3 + 3].try_into()?, 1.0).map(|v| v * UNITS_PER_METRE);
-                            (local, transform(inverse, normal_values[i * 3..i * 3 + 3].try_into()?, 0.0))
-                        } else {
-                            (p, n)
-                        };
-                        let length = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt().max(1e-6);
-                        vertex_count += 1;
-                        slot.insert(Corner {
-                            matrix,
-                            position: positions.add(p),
-                            normal: normals.add(n.map(|v| v / length)),
-                            coordinate: coordinates.add(coordinate_values[i * 2..i * 2 + 2].try_into()?),
-                        })
-                    }
+            let source = materials.get(material).context("a mesh naming a material it doesn't have")?;
+            // Every TEXCOORD_n the primitive has, and every set its material's images read (zeros where it has none).
+            let named = attributes.as_object().map_or(0, |a| {
+                a.keys().filter_map(|k| k.strip_prefix("TEXCOORD_")?.parse::<usize>().ok()).map(|k| k + 1).max().unwrap_or(0)
+            });
+            let read = source.images.iter().map(|&(_, uv)| usize::from(uv) + 1).max().unwrap_or(0);
+            let room = named.max(read);
+            let mut coordinate_present = vec![false; room];
+            let mut coordinate_values = Vec::with_capacity(room);
+            for (k, present) in coordinate_present.iter_mut().enumerate() {
+                let values = match attributes[format!("TEXCOORD_{k}")].as_u64() {
+                    Some(index) => { *present = true; document.floats(index as usize, 2)? },
+                    None => vec![0.0; count * 2],
                 };
-                corners.push(corner);
+                coordinate_values.push(values);
             }
-            if corners.len() < 3 {
+            for &(_, uv) in &source.images { coordinate_present[usize::from(uv)] = true; }
+            if coordinates.len() < room {
+                coordinates.resize_with(room, Pool::new);
+            }
+            let source_indices = document.indices(primitive, count)?;
+            let mut corners: Vec<Corner> = Vec::new();
+            let mut draws: Vec<u32> = Vec::new();
+            let mut indices: Vec<u32> = Vec::with_capacity(source_indices.len());
+            let mut corner_of: BTreeMap<u32, u32> = BTreeMap::new();
+            let (mut low, mut high) = ([f32::MAX; 3], [f32::MIN; 3]);
+            for index in &source_indices {
+                if let Some(found) = corner_of.get(index) {
+                    indices.push(*found);
+                    continue;
+                }
+                let i = *index as usize;
+                if i >= count {
+                    bail!("a triangle naming a vertex past the mesh");
+                }
+                let position: [f32; 3] = position_values[i * 3..i * 3 + 3].try_into()?;
+                let normal: [f32; 3] = normal_values[i * 3..i * 3 + 3].try_into()?;
+                let draw = match &weights {
+                    Some((joint_values, weight_values)) => {
+                        let mut set: Vec<(u32, f32)> = Vec::new();
+                        for k in 0..4 {
+                            let weight = weight_values[i * 4 + k];
+                            if weight > 0.001 {
+                                let node_of = *skin_joints.get(joint_values[i * 4 + k] as usize).context("a vertex naming a joint past the skin")?;
+                                set.push((*joint_of_node.get(&node_of).context("a vertex's joint isn't in the skin")? as u32, weight));
+                            }
+                        }
+                        set.sort_by_key(|(j, _)| *j);
+                        let total: f32 = set.iter().map(|(_, w)| w).sum();
+                        if set.is_empty() {
+                            0
+                        } else if set.len() == 1 {
+                            u32::from(set[0].0)
+                        } else {
+                            for item in &mut set {
+                                item.1 /= total;
+                            }
+                            let key: Vec<(u32, u32)> = set.iter().map(|(j, w)| (*j, w.to_bits())).collect();
+                            let id = *envelope_ids.entry(key).or_insert_with(|| {
+                                ir.envelopes.push(set.clone());
+                                ir.envelopes.len() as u32 - 1
+                            });
+                            joints.len() as u32 + id
+                        }
+                    }
+                    None => joint_of_node.get(node).map_or(0, |j| *j as u32),
+                };
+                if draw >= u32::from(NONE) {
+                    bail!("too many blended vertices");
+                }
+                // One joint's vertex is in that joint's space; a blended one stays in the model's.
+                let (place, turned) = if weights.is_some() && (draw as usize) < joints.len() {
+                    let inverse = &joints[draw as usize].inverse;
+                    (transform(inverse, position, 1.0), transform(inverse, normal, 0.0))
+                } else {
+                    (position, normal)
+                };
+                let place = place.map(|v| v * UNITS_PER_METRE);
+                widen(&mut low, &mut high, place);
+                widen(&mut whole_low, &mut whole_high, transform(&world[*node], position, 1.0).map(|v| v * UNITS_PER_METRE));
+                let length = (turned[0] * turned[0] + turned[1] * turned[1] + turned[2] * turned[2]).sqrt().max(1e-6);
+                let normal_number = normals.add(turned.map(|v| v / length));
+                let mut coord = vec![0u32; room];
+                for k in 0..room {
+                    coord[k] = coordinates[k].add(coordinate_values[k][i * 2..i * 2 + 2].try_into()?);
+                }
+                let number = corners.len() as u32;
+                corners.push(Corner {
+                    position: positions.add(place),
+                    normal: normal_number,
+                    tangent: normal_number,
+                    binormal: normal_number,
+                    color: [0; 2],
+                    coord,
+                    matrix: 0,
+                    texture_matrix: Vec::new(),
+                });
+                draws.push(draw);
+                corner_of.insert(*index, number);
+                indices.push(number);
+            }
+            ir.source_vertex_count += corners.len() as u32;
+            indices.truncate(indices.len() / 3 * 3);
+            if indices.is_empty() {
                 continue;
             }
-            for triangle in corners.chunks_exact_mut(3) {
+            for triangle in indices.chunks_exact_mut(3) {
                 triangle.swap(1, 2);
             }
-            let center = [0, 1, 2].map(|c| (low[c] + high[c]) / 2.0);
-            let radius = positions_radius(&center, &low, &high);
-            groups.push(Group { material, corners, radius, low, high });
+
+            // The draw matrices this mesh's corners name, by first use.
+            let mut use_table: Vec<u32> = Vec::new();
+            for (corner, draw) in corners.iter_mut().zip(&draws) {
+                let draw = *draw as u32;
+                let local = use_table.iter().position(|u| *u == draw).unwrap_or_else(|| {
+                    use_table.push(draw);
+                    use_table.len() - 1
+                });
+                corner.matrix = local as u32;
+            }
+            let blended = use_table.len() > 1;
+            let mut places = 0u32;
+            if blended {
+                for corner in &corners {
+                    places |= 1u32.checked_shl(u32::from(corner.matrix)).unwrap_or(0);
+                }
+            }
+
+            // Its own material: a mesh's draw and the material drawing it are one to one.
+            let shape = ir.shapes.len() as u32;
+            if ir.shapes.len() + 1 >= NONE as usize {
+                bail!("too many meshes");
+            }
+            let mut texture_ids = Vec::new();
+            for &(image, _) in &source.images {
+                texture_ids.push(texture_number(&document, &mut ir, &mut image_of, image)?);
+            }
+            let texture = texture_ids.first().copied();
+            let same_as = *first_of_material.entry(material).or_insert(shape);
+            let mut made = plain_material(&source.name, source.color, texture, source.blend, source.cutoff, source.two_sided);
+            if !texture_ids.is_empty() {
+                made.coords.clear();
+                made.textures = texture_ids.clone();
+                made.coordinate_maps = (0..texture_ids.len()).map(|map| map as u8).collect();
+                let first = made.stages[0];
+                made.stages.clear();
+                for (map, &(_, uv)) in source.images.iter().enumerate() {
+                    made.coords.push(CoordIr { kind: 1, source: 4 + uv, matrix: NONE });
+                    let mut stage = first;
+                    stage.map = map as u8; stage.coord = map as u8;
+                    if map != 0 { stage.color_in = [15, 8, 0, 15]; stage.alpha_in = [7, 4, 0, 7]; stage.channel = 255; }
+                    made.stages.push(stage);
+                }
+                made.pixel_stage_count = made.stages.len() as u32;
+            }
+            // Its base texture's transform: texture matrix 0 on its first coordinates.
+            if let Some(t) = source.transform {
+                let [sx, sy, rotation, tx, ty] = texture_transform(&t, &source.name)?;
+                made.coords[0].matrix = 0;
+                let mut effect = [[0.0f32; 4]; 4];
+                for (k, row) in effect.iter_mut().enumerate() {
+                    row[k] = 1.0;
+                }
+                made.matrices.push(CoordMatrixIr { slot: 0, projection: 1, info: 0, center: [0.0; 3], scale: [sx, sy], rotation, translation: [tx, ty], effect });
+            }
+            made.same_as = same_as;
+            made.mesh = shape;
+            made.joint = 0;
+            ir.materials.push(made);
+            ir.shapes.push(ShapeIr {
+                matrix_type: if blended { 3 } else { 0 },
+                radius: bounds_radius(&low, &high),
+                min: low,
+                max: high,
+                groups: vec![GroupIr {
+                    attributes: ATTR_NORMAL | if blended { ATTR_MATRIX } else { 0 },
+                    coordinates: coordinate_present,
+                    corners,
+                    indices,
+                    places,
+                    use_table,
+                }],
+                material: shape,
+            });
         }
     }
-    if groups.is_empty() {
+    if ir.shapes.is_empty() {
         bail!("the model has no triangles");
     }
-    if positions.values.len() > 0xFFFF || normals.values.len() > 0xFFFF || coordinates.values.len() > 0xFFFF {
-        bail!("too many vertices: at most 65535 of each kind");
+    // Textures an animation swaps in, which no material shows to begin with.
+    for texture in &swapped {
+        let image = root["textures"][*texture]["source"].as_u64().with_context(|| format!("an animation swaps in texture {texture}, which has no image"))?;
+        texture_number(&document, &mut ir, &mut image_of, image as usize)?;
     }
 
-    // Only the materials used, in order.
-    let mut used: Vec<usize> = groups.iter().map(|g| g.material).collect();
-    used.sort_unstable();
-    used.dedup();
-    let material_index = |m: usize| used.iter().position(|u| *u == m).unwrap();
+    ir.arrays = ArraysIr { normal_floats: 3, ..Default::default() };
+    ir.arrays.positions = positions.values;
+    ir.arrays.normals = normals.values;
+    ir.arrays.coords = coordinates.into_iter().map(|pool| pool.values).collect();
 
-    // Images.
-    let mut images: Vec<(String, u32, u32, Vec<u8>, bool)> = Vec::new();
-    let mut image_of: BTreeMap<usize, usize> = BTreeMap::new();
-    for m in &used {
-        if let Some(source) = materials[*m].texture {
-            if let std::collections::btree_map::Entry::Vacant(slot) = image_of.entry(source) {
-                let (width, height, rgba) = document.image(source)?;
-                let has_alpha = rgba.chunks_exact(4).any(|p| p[3] != 255);
-                slot.insert(images.len());
-                images.push((format!("image{source}"), width, height, rgba8_tiled(width, height, &rgba), has_alpha));
+    let whole_radius = bounds_radius(&whole_low, &whole_high);
+    ir.joints = joints
+        .iter()
+        .map(|joint| JointIr {
+            name: joint.name.clone(),
+            kind: 0,
+            scale_compensate: 0,
+            billboard: 0,
+            scale: joint.trs.scale,
+            rotation: angles(joint.trs.rotation),
+            translation: joint.trs.translation.map(|v| v * UNITS_PER_METRE),
+            radius: whole_radius,
+            min: whole_low,
+            max: whole_high,
+            parent: joint.parent.map_or(NONE, |p| p as u32),
+            child: NONE,
+            younger: NONE,
+            meshes: Vec::new(),
+        })
+        .collect();
+    let mut last_child: BTreeMap<usize, u32> = BTreeMap::new();
+    for (number, joint) in joints.iter().enumerate() {
+        if let Some(parent) = joint.parent {
+            match last_child.insert(parent, number as u32) {
+                Some(before) => ir.joints[before as usize].younger = number as u32,
+                None => ir.joints[parent].child = number as u32,
             }
         }
     }
+    ir.joints[0].meshes = (0..ir.shapes.len() as u32).rev().collect();
 
-    let inf1 = write_inf1(&joints, &groups, &material_index, vertex_count);
-    let vtx1 = write_vtx1(&positions.values, &normals.values, &coordinates.values);
-    let evp1 = write_evp1(&envelopes, &joints);
-    let drw1 = write_drw1(joints.len(), envelopes.len());
-    let jnt1 = write_jnt1(&joints, &groups);
-    let (shp1, packets) = write_shp1(&groups);
-    let mat3 = write_mat3(&used, &materials, &image_of);
-    let tex1 = write_tex1(&images);
-
-    let blocks = [inf1, vtx1, evp1, drw1, jnt1, shp1, mat3, tex1];
-    let mut out = b"J3D2bmd3".to_vec();
-    put32(&mut out, 0);
-    put32(&mut out, blocks.len() as u32);
-    out.extend_from_slice(b"SVR3");
-    out.extend_from_slice(&[0xFF; 12]);
-    for block in &blocks {
-        out.extend_from_slice(block);
+    ir.draw_matrices = (0..joints.len() as u32).map(|j| (0u8, j)).chain((0..ir.envelopes.len() as u32).map(|e| (1u8, e))).collect();
+    ir.full_weight_count = joints.len() as u32;
+    ir.important = important_joints(&ir.draw_matrices, ir.full_weight_count, &ir.envelopes);
+    if !ir.envelopes.is_empty() {
+        ir.inverse_binds = joints
+            .iter()
+            .map(|joint| {
+                let m = &joint.inverse;
+                let u = UNITS_PER_METRE;
+                [m[0], m[4], m[8], m[12] * u, m[1], m[5], m[9], m[13] * u, m[2], m[6], m[10], m[14] * u]
+            })
+            .collect();
     }
-    let size = out.len() as u32;
-    set32(&mut out, 8, size);
-    let _ = packets;
-    let mut animations = Vec::new();
+
+    // Each animation: what moves the skeleton (.bck), a material's colour (.bpk), its texture's transform (.btk), its
+    // texture swaps (.btp), each by the animation's name; one moving nothing is a still .bck.
+    let mut clips = Vec::new();
     for (i, animation) in root["animations"].as_array().map(Vec::as_slice).unwrap_or_default().iter().enumerate() {
         let name = animation["name"].as_str().map_or_else(|| format!("animation{i}"), str::to_string);
-        animations.push((name, write_animation(&document, animation, &joints, &joint_of_node)?));
+        let timing = Timing::of(&document, animation)?;
+        let of_materials = material_clips(&document, animation, &materials, &first_of_material, &image_of, &timing)?;
+        let moves_joints = animation["channels"].as_array().map(Vec::as_slice).unwrap_or_default().iter().any(|c| {
+            c["target"]["node"].as_u64().is_some_and(|n| joint_of_node.contains_key(&(n as usize)))
+                && matches!(c["target"]["path"].as_str(), Some("translation" | "rotation" | "scale"))
+        });
+        if moves_joints || of_materials.is_empty() {
+            clips.push((name.clone(), clip_of(&document, animation, &joints, &joint_of_node, &timing)?));
+        }
+        clips.extend(of_materials.into_iter().map(|clip| (name.clone(), clip)));
     }
-    Ok((out, animations))
+    Ok((ir, clips))
+}
+
+/// An animation's length and how it plays, the same for each of its files.
+struct Timing {
+    frames: usize,
+    /// The frames sampled: every other one, and the last.
+    samples: Vec<usize>,
+    loop_mode: u8,
+}
+
+impl Timing {
+    fn of(document: &Document, animation: &Value) -> Result<Timing> {
+        let samplers = animation["samplers"].as_array().map(Vec::as_slice).unwrap_or_default();
+        let mut length = 0.0f32;
+        for channel in animation["channels"].as_array().map(Vec::as_slice).unwrap_or_default() {
+            let sampler = samplers.get(channel["sampler"].as_u64().unwrap_or(0) as usize).context("a channel naming a sampler it doesn't have")?;
+            let times = document.floats(sampler["input"].as_u64().context("a sampler with no times")? as usize, 1)?;
+            length = length.max(times.last().copied().unwrap_or(0.0));
+        }
+        for swap in animation["extras"]["nebula"]["texture_swaps"].as_array().map(Vec::as_slice).unwrap_or_default() {
+            for key in swap["keys"].as_array().map(Vec::as_slice).unwrap_or_default() {
+                length = length.max(key[0].as_f64().unwrap_or(0.0) as f32);
+            }
+        }
+        // How it plays: `extras.nebula.play` once, once_then_first (back to its first frame), loop, there_and_back (once
+        // each way) or loop_there_and_back; left out, loop. One standing for a game class's animation of the same name
+        // (a mod's class made like it) plays as that one does, as the class's code waits for it (the game sets it).
+        let loop_mode = match animation["extras"]["nebula"]["play"].as_str() {
+            None | Some("loop") => 2,
+            Some("once") => 0,
+            Some("once_then_first") => 1,
+            Some("there_and_back") => 3,
+            Some("loop_there_and_back") => 4,
+            Some(other) => bail!("an animation plays {other:?}: once, once_then_first, loop, there_and_back or loop_there_and_back"),
+        };
+        let frames = ((length * FRAMES_PER_SECOND).ceil() as usize).max(1);
+        let samples = (0..=frames).step_by(2).chain(std::iter::once(frames)).collect::<BTreeSet<_>>().into_iter().collect();
+        Ok(Timing { frames, samples, loop_mode })
+    }
+}
+
+/// The file a cooked animation is, by what it moves.
+fn clip_extension(kind: u8) -> &'static str {
+    match kind {
+        KIND_COLORS => "bpk",
+        KIND_TEXTURE_MATRICES => "btk",
+        KIND_PATTERN => "btp",
+        _ => "bck",
+    }
+}
+
+/// A material's curve read from a pointer channel.
+fn pointer_curve(document: &Document, samplers: &[Value], channel: &Value, width: usize) -> Result<Curve> {
+    let sampler = samplers.get(channel["sampler"].as_u64().unwrap_or(0) as usize).context("a channel naming a sampler it doesn't have")?;
+    let times = document.floats(sampler["input"].as_u64().context("a sampler with no times")? as usize, 1)?;
+    let values = document.floats(sampler["output"].as_u64().context("a sampler with no values")? as usize, width)?;
+    if times.is_empty() {
+        bail!("an animation channel with no times");
+    }
+    let mode = sampler["interpolation"].as_str().unwrap_or("LINEAR");
+    Ok(Curve { times, values, width, step: mode == "STEP", cubic: mode == "CUBICSPLINE", turns: false })
+}
+
+/// What an animation does to materials: their colours, their textures' transforms, their texture swaps.
+fn material_clips(
+    document: &Document,
+    animation: &Value,
+    materials: &[SourceMaterial],
+    first_of_material: &BTreeMap<usize, u32>,
+    image_of: &BTreeMap<usize, u32>,
+    timing: &Timing,
+) -> Result<Vec<ClipIr>> {
+    let samplers = animation["samplers"].as_array().map(Vec::as_slice).unwrap_or_default();
+    let mut colours: BTreeMap<usize, Curve> = BTreeMap::new();
+    let mut moves: BTreeMap<usize, BTreeMap<&str, Curve>> = BTreeMap::new();
+    for channel in animation["channels"].as_array().map(Vec::as_slice).unwrap_or_default() {
+        if channel["target"]["path"].as_str() != Some("pointer") {
+            continue;
+        }
+        let pointer = pointer_of(channel).context("an animation channel with a pointer path and no KHR_animation_pointer pointer")?;
+        let animates = "Nebula animates a material's baseColorFactor and its base colour texture's KHR_texture_transform offset, scale and rotation";
+        let Some((material, rest)) = material_pointer(pointer) else { bail!("an animation moves {pointer}: {animates}") };
+        if material + 1 >= materials.len() {
+            bail!("an animation moves {pointer}, a material the file doesn't have");
+        }
+        if rest == BASE_COLOR {
+            colours.insert(material, pointer_curve(document, samplers, channel, 4)?);
+        } else if let Some(part @ ("offset" | "scale" | "rotation")) = rest.strip_prefix(TEXTURE_TRANSFORM) {
+            let width = if part == "rotation" { 1 } else { 2 };
+            moves.entry(material).or_default().insert(part, pointer_curve(document, samplers, channel, width)?);
+        } else {
+            bail!("an animation moves {pointer}: {animates}");
+        }
+    }
+    let drawn = |material: usize| {
+        first_of_material.get(&material).copied().with_context(|| format!("an animation changes material {}, which no mesh draws", materials[material].name))
+    };
+    let target = |material: usize, number: u32| Target { name: materials[material].name.as_bytes().to_vec(), material: number, slot: 0, center: [0.0; 3] };
+    let clip = |kind: u8, count: usize| ClipIr { kind, loop_mode: timing.loop_mode, frames: timing.frames as i32, first_count: count as u32, ..ClipIr::default() };
+    let mut out = Vec::new();
+
+    if !colours.is_empty() {
+        let mut c = clip(KIND_COLORS, colours.len());
+        for (&material, curve) in &colours {
+            let number = drawn(material)?;
+            let mut channels: [Vec<f32>; 4] = Default::default();
+            for frame in &timing.samples {
+                let value = curve.at(*frame as f32 / FRAMES_PER_SECOND);
+                for (k, channel) in channels.iter_mut().enumerate() {
+                    channel.push(value[k].clamp(0.0, 1.0) * 255.0);
+                }
+            }
+            for channel in &channels {
+                let track = axis_track(&mut c.values, &timing.samples, channel)?;
+                c.tracks.push(track);
+            }
+            c.targets.push(target(material, number));
+        }
+        out.push(c);
+    }
+
+    if !moves.is_empty() {
+        let mut c = clip(KIND_TEXTURE_MATRICES, moves.len());
+        for (&material, curves) in &moves {
+            let number = drawn(material)?;
+            let rest = materials[material].transform.unwrap_or(NO_TRANSFORM);
+            let mut parts: [Vec<f32>; 5] = Default::default();
+            for frame in &timing.samples {
+                let time = *frame as f32 / FRAMES_PER_SECOND;
+                let mut t = rest;
+                if let Some(curve) = curves.get("scale") {
+                    let v = curve.at(time);
+                    t[0] = v[0];
+                    t[1] = v[1];
+                }
+                if let Some(curve) = curves.get("rotation") {
+                    t[2] = curve.at(time)[0];
+                }
+                if let Some(curve) = curves.get("offset") {
+                    let v = curve.at(time);
+                    t[3] = v[0];
+                    t[4] = v[1];
+                }
+                for (part, value) in parts.iter_mut().zip(texture_transform(&t, &materials[material].name)?) {
+                    part.push(value);
+                }
+            }
+            for part in &parts {
+                let track = axis_track(&mut c.values, &timing.samples, part)?;
+                c.tracks.push(track);
+            }
+            c.targets.push(target(material, number));
+        }
+        out.push(c);
+    }
+
+    // Texture swaps: `extras.nebula.texture_swaps`, each { "material": <n>, "keys": [[<second>, <texture>], ...] }, the
+    // texture shown from that second on (before the first key, the first key's).
+    let swaps = animation["extras"]["nebula"]["texture_swaps"].as_array().map(Vec::as_slice).unwrap_or_default();
+    if !swaps.is_empty() {
+        let mut c = clip(KIND_PATTERN, swaps.len());
+        for swap in swaps {
+            let material = swap["material"].as_u64().context("a texture swap with no material number")? as usize;
+            if material + 1 >= materials.len() {
+                bail!("a texture swap of material {material}, which the file doesn't have");
+            }
+            if materials[material].images.is_empty() {
+                bail!("material {}: texture swaps with no base colour texture to swap", materials[material].name);
+            }
+            let number = drawn(material)?;
+            let mut keys: Vec<(f32, u32)> = Vec::new();
+            for key in swap["keys"].as_array().map(Vec::as_slice).unwrap_or_default() {
+                let second = key[0].as_f64().context("a texture swap's key is [second, texture]")? as f32;
+                let texture = key[1].as_u64().context("a texture swap's key is [second, texture]")? as usize;
+                let image = document.root["textures"][texture]["source"].as_u64().with_context(|| format!("texture {texture} has no image"))?;
+                keys.push((second * FRAMES_PER_SECOND, *image_of.get(&(image as usize)).context("a swapped texture the model lacks")?));
+            }
+            if keys.is_empty() {
+                bail!("material {}: a texture swap with no keys", materials[material].name);
+            }
+            keys.sort_by(|a, b| a.0.total_cmp(&b.0));
+            let at = c.indices.len() as u32;
+            for frame in 0..=timing.frames {
+                let shown = keys.iter().rev().find(|(from, _)| *from <= frame as f32 + 1e-3).unwrap_or(&keys[0]);
+                c.indices.push(shown.1);
+            }
+            c.tracks.push(Track { count: (timing.frames + 1) as u32, stride: STEP, integer_keys: false, at });
+            c.targets.push(target(material, number));
+        }
+        out.push(c);
+    }
+    Ok(out)
+}
+
+/// A glTF document as the store's blocks: the model, and each animation by its name.
+pub fn to_files(bytes: &[u8], folder: Option<&Path>, stem: &str) -> Result<(Vec<u8>, Vec<(String, Vec<u8>)>)> {
+    let (ir, clips) = to_ir(bytes, folder)?;
+    let model = super::model_write::write(&ir, stem, &super::programs::written_or_unknown())?;
+    Ok((model, clips.iter().map(|(name, c)| (format!("{name}.{}", clip_extension(c.kind)), super::clip::write(c))).collect()))
 }
 
 /// The game counts animation frames at 60 a second.
@@ -775,6 +1218,8 @@ struct Curve {
     width: usize,
     step: bool,
     cubic: bool,
+    /// A rotation (a quaternion): blended the shorter way, and kept a rotation.
+    turns: bool,
 }
 
 impl Curve {
@@ -796,9 +1241,9 @@ impl Curve {
         let f = (time - self.times[k]) / (self.times[k + 1] - self.times[k]).max(1e-6);
         let (a, b) = (value(k), value(k + 1));
         // Rotations by the shorter way, then renormalized.
-        let flip = if self.width == 4 && a.iter().zip(b).map(|(x, y)| x * y).sum::<f32>() < 0.0 { -1.0 } else { 1.0 };
+        let flip = if self.turns && a.iter().zip(b).map(|(x, y)| x * y).sum::<f32>() < 0.0 { -1.0 } else { 1.0 };
         let mut out: Vec<f32> = a.iter().zip(b).map(|(x, y)| x + (y * flip - x) * f).collect();
-        if self.width == 4 {
+        if self.turns {
             let length = out.iter().map(|v| v * v).sum::<f32>().sqrt().max(1e-6);
             out.iter_mut().for_each(|v| *v /= length);
         }
@@ -806,11 +1251,26 @@ impl Curve {
     }
 }
 
+/// One axis of a joint: a single value if it never changes, else time, value and slope per sample.
+fn axis_track(out: &mut Vec<f32>, frames: &[usize], values: &[f32]) -> Result<Track> {
+    let at = out.len() as u32;
+    if values.iter().all(|v| (*v - values[0]).abs() < 1e-5) {
+        out.push(values[0]);
+        return Ok(Track { count: 1, stride: 3, integer_keys: false, at });
+    }
+    let count = u32::try_from(values.len()).context("an animation with too many samples")?;
+    for (k, value) in values.iter().enumerate() {
+        let (a, b) = (k.saturating_sub(1), (k + 1).min(values.len() - 1));
+        let slope = (values[b] - values[a]) / ((frames[b] - frames[a]).max(1) as f32);
+        out.extend_from_slice(&[frames[k] as f32, *value, slope]);
+    }
+    Ok(Track { count, stride: 3, integer_keys: false, at })
+}
+
 /// An animation, each joint sampled on every other frame.
-fn write_animation(document: &Document, animation: &Value, joints: &[Joint], joint_of_node: &BTreeMap<usize, usize>) -> Result<Vec<u8>> {
+fn clip_of(document: &Document, animation: &Value, joints: &[Joint], joint_of_node: &BTreeMap<usize, usize>, timing: &Timing) -> Result<ClipIr> {
     let samplers = animation["samplers"].as_array().context("an animation with no samplers")?;
     let mut curves: BTreeMap<(usize, &str), Curve> = BTreeMap::new();
-    let mut length = 0.0f32;
     for channel in animation["channels"].as_array().map(Vec::as_slice).unwrap_or_default() {
         let Some(node) = channel["target"]["node"].as_u64() else { continue };
         let Some(&joint) = joint_of_node.get(&(node as usize)) else { continue };
@@ -827,54 +1287,16 @@ fn write_animation(document: &Document, animation: &Value, joints: &[Joint], joi
         if times.is_empty() {
             continue;
         }
-        length = length.max(*times.last().unwrap());
         let mode = sampler["interpolation"].as_str().unwrap_or("LINEAR");
-        curves.insert((joint, key), Curve { times, values, width, step: mode == "STEP", cubic: mode == "CUBICSPLINE" });
+        curves.insert((joint, key), Curve { times, values, width, step: mode == "STEP", cubic: mode == "CUBICSPLINE", turns: width == 4 });
     }
-    let frames = ((length * FRAMES_PER_SECOND).ceil() as usize).max(1);
-    if frames > 0x7FFF {
-        bail!("an animation over nine minutes long");
-    }
-    let samples: Vec<usize> = (0..=frames).step_by(2).chain(std::iter::once(frames)).collect::<std::collections::BTreeSet<_>>().into_iter().collect();
-
-    let mut scales: Vec<f32> = Vec::new();
-    let mut rotations: Vec<i16> = Vec::new();
-    let mut translations: Vec<f32> = Vec::new();
-    let mut table: Vec<u8> = Vec::new();
-
-    // One axis: a single value if it never changes, else time, value and slope per sample. Returns (count, offset).
-    fn float_axis(out: &mut Vec<f32>, frames: &[usize], values: &[f32]) -> (u16, u16) {
-        let at = out.len() as u16;
-        if values.iter().all(|v| (*v - values[0]).abs() < 1e-5) {
-            out.push(values[0]);
-            return (1, at);
-        }
-        for (k, value) in values.iter().enumerate() {
-            let (a, b) = (k.saturating_sub(1), (k + 1).min(values.len() - 1));
-            let slope = (values[b] - values[a]) / ((frames[b] - frames[a]).max(1) as f32);
-            out.extend_from_slice(&[frames[k] as f32, *value, slope]);
-        }
-        (values.len() as u16, at)
-    }
-    fn angle_axis(out: &mut Vec<i16>, frames: &[usize], values: &[i32]) -> (u16, u16) {
-        let at = out.len() as u16;
-        if values.iter().all(|v| *v == values[0]) {
-            out.push(values[0] as i16);
-            return (1, at);
-        }
-        for (k, value) in values.iter().enumerate() {
-            let (a, b) = (k.saturating_sub(1), (k + 1).min(values.len() - 1));
-            let slope = (values[b] - values[a]) / ((frames[b] - frames[a]).max(1) as i32);
-            out.extend_from_slice(&[frames[k] as i16, *value as i16, slope.clamp(-32768, 32767) as i16]);
-        }
-        (values.len() as u16, at)
-    }
-
+    let samples = &timing.samples;
+    let mut clip = ClipIr { kind: KIND_JOINTS, loop_mode: timing.loop_mode, frames: timing.frames as i32, first_count: joints.len() as u32, ..ClipIr::default() };
     for (index, joint) in joints.iter().enumerate() {
         let mut scale_values = [vec![], vec![], vec![]];
-        let mut angle_values = [vec![], vec![], vec![]];
+        let mut angle_values: [Vec<f32>; 3] = [vec![], vec![], vec![]];
         let mut translate_values = [vec![], vec![], vec![]];
-        for frame in &samples {
+        for frame in samples {
             let time = *frame as f32 / FRAMES_PER_SECOND;
             let s = curves.get(&(index, "s")).map_or(joint.trs.scale.to_vec(), |c| c.at(time));
             let r = curves.get(&(index, "r")).map_or(joint.trs.rotation.to_vec(), |c| c.at(time));
@@ -883,502 +1305,138 @@ fn write_animation(document: &Document, animation: &Value, joints: &[Joint], joi
             for axis in 0..3 {
                 scale_values[axis].push(s[axis]);
                 translate_values[axis].push(t[axis] * UNITS_PER_METRE);
-                // The nearest way round from the last sample: the game interpolates the numbers.
-                let values: &mut Vec<i32> = &mut angle_values[axis];
-                let mut value = i32::from(turned[axis]);
+                // The nearest way round from the last sample: the clip's numbers run on past a half turn, and the
+                // float rotations remain continuous through a full turn.
+                let values = &mut angle_values[axis];
+                let mut value = turned[axis];
                 if let Some(last) = values.last() {
-                    while value - last > 32768 {
-                        value -= 65536;
+                    let last = *last;
+                    while value - last > std::f32::consts::PI {
+                        value -= std::f32::consts::TAU;
                     }
-                    while value - last < -32768 {
-                        value += 65536;
+                    while value - last < -std::f32::consts::PI {
+                        value += std::f32::consts::TAU;
                     }
                 }
                 values.push(value);
             }
         }
         for axis in 0..3 {
-            // Angles past half a turn wrap in 16 bits, as the game's own do when read back into s16.
-            let (sc, so) = float_axis(&mut scales, &samples, &scale_values[axis]);
-            let wrapped: Vec<i32> = angle_values[axis].iter().map(|v| ((*v + 32768).rem_euclid(65536)) - 32768).collect();
-            let (rc, ro) = angle_axis(&mut rotations, &samples, &wrapped);
-            let (tc, to) = float_axis(&mut translations, &samples, &translate_values[axis]);
-            for (count, offset) in [(sc, so), (rc, ro), (tc, to)] {
-                put16(&mut table, count);
-                put16(&mut table, offset);
-                put16(&mut table, 0);
-            }
+            let scale = axis_track(&mut clip.values, samples, &scale_values[axis])?;
+            let rotation = axis_track(&mut clip.values, samples, &angle_values[axis])?;
+            let translation = axis_track(&mut clip.values, samples, &translate_values[axis])?;
+            clip.tracks.extend_from_slice(&[scale, rotation, translation]);
         }
     }
+    Ok(clip)
+}
 
-    let mut body = Vec::new();
-    body.push(2); // loops
-    body.push(0);
-    put16(&mut body, frames as u16);
-    put16(&mut body, joints.len() as u16);
-    put16(&mut body, scales.len() as u16);
-    put16(&mut body, rotations.len() as u16);
-    put16(&mut body, translations.len() as u16);
-    body.extend_from_slice(&[0; 16]);
-    let align = |body: &mut Vec<u8>| {
-        while (body.len() + 8) % 32 != 0 {
-            body.push(0xFF);
+/// A camera animation (the game's CameraAnim, NCAM) from the first camera of a glTF file and the first animation that
+/// moves it. Its node's place and turn at each frame (1/60 s) give the eye, the point it watches (`watch_distance`
+/// metres ahead, `extras.nebula.watch_distance` on the camera's node, default 10) and the twist about the view; the
+/// camera's `yfov` (or an animation of it, `/cameras/<n>/perspective/yfov`) the field of view. The game plays the clip
+/// relative to what it follows (a cutscene's actor or point): the glTF's origin is that, its +Y that one's up. Parents
+/// of the camera's node may place it but not move. Cuts are found as a disc clip's are.
+pub fn to_camera(bytes: &[u8], folder: Option<&Path>) -> Result<Vec<u8>> {
+    let document = Document::parse(bytes, folder)?;
+    let root = &document.root;
+    let nodes = root["nodes"].as_array().map(Vec::as_slice).unwrap_or_default();
+    let node = nodes.iter().position(|n| n["camera"].is_u64()).context("no camera: a node with a \"camera\"")?;
+    let camera_index = nodes[node]["camera"].as_u64().unwrap_or(0) as usize;
+    let camera = &root["cameras"][camera_index];
+    if camera["type"].as_str() != Some("perspective") {
+        bail!("camera {camera_index} is not a perspective camera");
+    }
+    let yfov = camera["perspective"]["yfov"].as_f64().context("the camera has no yfov")? as f32;
+    let watch = nodes[node]["extras"]["nebula"]["watch_distance"].as_f64().map_or(10.0, |d| d as f32) * UNITS_PER_METRE;
+    // Its parents' placing, root first.
+    let mut parent_of = BTreeMap::new();
+    for (p, n) in nodes.iter().enumerate() {
+        for c in n["children"].as_array().map(Vec::as_slice).unwrap_or_default() {
+            parent_of.insert(c.as_u64().unwrap_or(0) as usize, p);
         }
+    }
+    let mut chain = Vec::new();
+    let mut at = node;
+    while let Some(&p) = parent_of.get(&at) {
+        chain.push(p);
+        at = p;
+    }
+    let parents = chain.iter().rev().fold(IDENTITY, |m, &p| multiply(&m, &node_matrix(&nodes[p])));
+    let animations = root["animations"].as_array().map(Vec::as_slice).unwrap_or_default();
+    let fov_pointer = format!("/cameras/{camera_index}/perspective/yfov");
+    let moves = |a: &Value| {
+        a["channels"].as_array().map(Vec::as_slice).unwrap_or_default().iter().any(|c| {
+            c["target"]["node"].as_u64() == Some(node as u64) || pointer_of(c) == Some(fov_pointer.as_str())
+        })
     };
-    align(&mut body);
-    let table_at = body.len() + 8;
-    body.extend_from_slice(&table);
-    align(&mut body);
-    let scales_at = body.len() + 8;
-    scales.iter().for_each(|v| putf(&mut body, *v));
-    align(&mut body);
-    let rotations_at = body.len() + 8;
-    rotations.iter().for_each(|v| put16(&mut body, *v as u16));
-    align(&mut body);
-    let translations_at = body.len() + 8;
-    translations.iter().for_each(|v| putf(&mut body, *v));
-    for (field, value) in [(12, table_at), (16, scales_at), (20, rotations_at), (24, translations_at)] {
-        set32(&mut body, field, value as u32);
-    }
-    let block = block(b"ANK1", &body);
-    let mut out = b"J3D1bck1".to_vec();
-    put32(&mut out, (0x20 + block.len()) as u32);
-    put32(&mut out, 1);
-    out.extend_from_slice(&[0xFF; 16]);
-    out.extend_from_slice(&block);
-    Ok(out)
-}
-
-fn positions_radius(center: &[f32; 3], low: &[f32; 3], high: &[f32; 3]) -> f32 {
-    let far = [0, 1, 2].map(|c| (high[c] - center[c]).abs().max((low[c] - center[c]).abs()));
-    (far[0] * far[0] + far[1] * far[1] + far[2] * far[2]).sqrt()
-}
-
-fn write_inf1(joints: &[Joint], groups: &[Group], material_index: &impl Fn(usize) -> usize, vertices: u32) -> Vec<u8> {
-    let mut tree = Vec::new();
-    let mut node = |kind: u16, index: u16| {
-        put16(&mut tree, kind);
-        put16(&mut tree, index);
-    };
-    // The joints as a tree, every shape under the root with its material.
-    fn walk(joint: usize, joints: &[Joint], tree: &mut dyn FnMut(u16, u16), shapes: &mut dyn FnMut(&mut dyn FnMut(u16, u16))) {
-        tree(0x10, joint as u16);
-        tree(0x01, 0);
-        if joint == 0 {
-            shapes(tree);
-        }
-        for (i, child) in joints.iter().enumerate() {
-            if child.parent == Some(joint) {
-                walk(i, joints, tree, shapes);
-            }
-        }
-        tree(0x02, 0);
-    }
-    let mut shapes = |tree: &mut dyn FnMut(u16, u16)| {
-        for (s, group) in groups.iter().enumerate() {
-            tree(0x11, material_index(group.material) as u16);
-            tree(0x01, 0);
-            tree(0x12, s as u16);
-            tree(0x02, 0);
-        }
-    };
-    walk(0, joints, &mut node, &mut shapes);
-    node(0, 0);
-    let packets = groups.len() as u32;
-    let mut body = Vec::new();
-    put16(&mut body, 0);
-    put16(&mut body, 0xFFFF);
-    put32(&mut body, packets);
-    put32(&mut body, vertices);
-    put32(&mut body, 0x18);
-    body.extend_from_slice(&tree);
-    block(b"INF1", &body)
-}
-
-fn write_vtx1(positions: &[[f32; 3]], normals: &[[f32; 3]], coordinates: &[[f32; 2]]) -> Vec<u8> {
-    let mut body = vec![0u8; 0x38];
-    set32(&mut body, 0, 0x40);
-    for (attribute, count) in [(9u32, 1u32), (10, 0), (13, 1), (0xFF, 1)] {
-        put32(&mut body, attribute);
-        put32(&mut body, count);
-        put32(&mut body, if attribute == 0xFF { 0 } else { 4 });
-        body.extend_from_slice(&[0, 0xFF, 0xFF, 0xFF]);
-    }
-    let start = |body: &Vec<u8>| body.len() as u32 + 8;
-    pad_to(&mut body, 24);
-    let position_at = start(&body);
-    for p in positions {
-        p.iter().for_each(|v| putf(&mut body, *v));
-    }
-    pad_to(&mut body, 24);
-    let normal_at = start(&body);
-    for n in normals {
-        n.iter().for_each(|v| putf(&mut body, *v));
-    }
-    pad_to(&mut body, 24);
-    let coordinate_at = start(&body);
-    for c in coordinates {
-        c.iter().for_each(|v| putf(&mut body, *v));
-    }
-    set32(&mut body, 4, position_at);
-    set32(&mut body, 8, normal_at);
-    // nbt 12, colours 16 and 20, then the coordinate arrays from 24.
-    set32(&mut body, 24, coordinate_at);
-    block(b"VTX1", &body)
-}
-
-/// Pads a block's body so that, after the block's 8-byte head, it reaches a 32-byte boundary.
-fn pad_to(body: &mut Vec<u8>, _unused: usize) {
-    while (body.len() + 8) % 32 != 0 {
-        body.push(0);
-    }
-}
-
-fn write_evp1(envelopes: &[Vec<(u16, f32)>], joints: &[Joint]) -> Vec<u8> {
-    let mut body = Vec::new();
-    put16(&mut body, envelopes.len() as u16);
-    put16(&mut body, 0xFFFF);
-    if envelopes.is_empty() {
-        body.extend_from_slice(&[0; 16]);
-        return block(b"EVP1", &body);
-    }
-    body.extend_from_slice(&[0; 16]);
-    let counts_at = body.len() + 8;
-    for envelope in envelopes {
-        body.push(envelope.len() as u8);
-    }
-    pad_to(&mut body, 0);
-    let indices_at = body.len() + 8;
-    for envelope in envelopes {
-        envelope.iter().for_each(|(j, _)| put16(&mut body, *j));
-    }
-    pad_to(&mut body, 0);
-    let weights_at = body.len() + 8;
-    for envelope in envelopes {
-        envelope.iter().for_each(|(_, w)| putf(&mut body, *w));
-    }
-    pad_to(&mut body, 0);
-    let matrices_at = body.len() + 8;
-    for joint in joints {
-        let m = &joint.inverse;
-        for r in 0..3 {
-            putf(&mut body, m[r]);
-            putf(&mut body, m[4 + r]);
-            putf(&mut body, m[8 + r]);
-            putf(&mut body, m[12 + r] * UNITS_PER_METRE);
+    let animation = animations.iter().find(|a| moves(a)).context("no animation moves the camera")?;
+    for c in animation["channels"].as_array().map(Vec::as_slice).unwrap_or_default() {
+        if c["target"]["node"].as_u64().is_some_and(|n| chain.contains(&(n as usize))) {
+            bail!("the camera's parent node {} moves: animate the camera's own node", c["target"]["node"]);
         }
     }
-    set32(&mut body, 4, counts_at as u32);
-    set32(&mut body, 8, indices_at as u32);
-    set32(&mut body, 12, weights_at as u32);
-    set32(&mut body, 16, matrices_at as u32);
-    block(b"EVP1", &body)
-}
-
-fn write_drw1(joints: usize, envelopes: usize) -> Vec<u8> {
-    // The game takes the table's own entries as its count less the envelopes' (J3DModelLoader::readDraw): blended
-    // entries come twice.
-    let listed = joints + envelopes;
-    let count = listed + envelopes;
-    let entry = |i: usize| if i < joints { (0u8, i as u16) } else { (1u8, ((i - joints) % envelopes.max(1)) as u16) };
-    let mut body = Vec::new();
-    put16(&mut body, count as u16);
-    put16(&mut body, 0xFFFF);
-    put32(&mut body, 0x14);
-    put32(&mut body, 0);
-    for i in 0..count {
-        body.push(entry(i).0);
-    }
-    while (body.len() + 8) % 2 != 0 {
-        body.push(0xFF);
-    }
-    let table = body.len() + 8;
-    for i in 0..count {
-        put16(&mut body, entry(i).1);
-    }
-    set32(&mut body, 8, table as u32);
-    block(b"DRW1", &body)
-}
-
-fn write_jnt1(joints: &[Joint], groups: &[Group]) -> Vec<u8> {
-    let mut low = [f32::MAX; 3];
-    let mut high = [f32::MIN; 3];
-    for group in groups {
-        for c in 0..3 {
-            low[c] = low[c].min(group.low[c]);
-            high[c] = high[c].max(group.high[c]);
-        }
-    }
-    let center = [0, 1, 2].map(|c| (low[c] + high[c]) / 2.0);
-    let radius = positions_radius(&center, &low, &high);
-    let mut body = Vec::new();
-    put16(&mut body, joints.len() as u16);
-    put16(&mut body, 0xFFFF);
-    put32(&mut body, 0x18);
-    put32(&mut body, 0);
-    put32(&mut body, 0);
-    for joint in joints {
-        put16(&mut body, 0);
-        body.push(0);
-        body.push(0xFF);
-        joint.trs.scale.iter().for_each(|v| putf(&mut body, *v));
-        angles(joint.trs.rotation).iter().for_each(|v| put16(&mut body, *v as u16));
-        put16(&mut body, 0xFFFF);
-        joint.trs.translation.iter().for_each(|v| putf(&mut body, *v * UNITS_PER_METRE));
-        putf(&mut body, radius);
-        low.iter().for_each(|v| putf(&mut body, *v));
-        high.iter().for_each(|v| putf(&mut body, *v));
-    }
-    let remap = body.len() + 8;
-    for i in 0..joints.len() {
-        put16(&mut body, i as u16);
-    }
-    while (body.len() + 8) % 4 != 0 {
-        body.push(0xFF);
-    }
-    let names = body.len() + 8;
-    let list: Vec<String> = joints.iter().map(|j| j.name.clone()).collect();
-    body.extend_from_slice(&name_table(&list));
-    set32(&mut body, 8, remap as u32);
-    set32(&mut body, 12, names as u32);
-    block(b"JNT1", &body)
-}
-
-/// Each group's triangles, packets of at most ten matrices: what the game's draw reads.
-fn write_shp1(groups: &[Group]) -> (Vec<u8>, usize) {
-    let mut shapes = Vec::new();
-    let mut matrix_table: Vec<u16> = Vec::new();
-    let mut matrix_data = Vec::new();
-    let mut packets = Vec::new();
-    let mut lists = Vec::new();
-    let mut first_group_data = 0u16;
-    let mut first_packet = 0u16;
-    let many = groups.iter().any(|g| g.corners.iter().any(|c| c.matrix != g.corners[0].matrix));
-    for group in groups {
-        // Triangles in order, a new packet when one would pass ten matrices.
-        let mut parts: Vec<(Vec<u16>, Vec<Corner>)> = Vec::new();
-        let mut matrices: Vec<u16> = Vec::new();
-        let mut corners: Vec<Corner> = Vec::new();
-        for triangle in group.corners.chunks_exact(3) {
-            let needed: Vec<u16> = triangle.iter().map(|c| c.matrix as u16).filter(|m| !matrices.contains(m)).collect();
-            let mut distinct = needed.clone();
-            distinct.sort_unstable();
-            distinct.dedup();
-            if matrices.len() + distinct.len() > MATRICES_PER_PACKET {
-                parts.push((std::mem::take(&mut matrices), std::mem::take(&mut corners)));
-                distinct = triangle.iter().map(|c| c.matrix as u16).collect();
-                distinct.sort_unstable();
-                distinct.dedup();
-            }
-            matrices.extend(distinct);
-            corners.extend_from_slice(triangle);
-        }
-        parts.push((matrices, corners));
-
-        shapes.push(if many { 3u8 } else { 0u8 });
-        shapes.push(0xFF);
-        put16(&mut shapes, parts.len() as u16);
-        put16(&mut shapes, 0);
-        put16(&mut shapes, first_group_data);
-        put16(&mut shapes, first_packet);
-        put16(&mut shapes, 0xFFFF);
-        putf(&mut shapes, group.radius);
-        group.low.iter().for_each(|v| putf(&mut shapes, *v));
-        group.high.iter().for_each(|v| putf(&mut shapes, *v));
-        first_group_data += parts.len() as u16;
-        first_packet += parts.len() as u16;
-
-        for (matrices, corners) in parts {
-            // The matrix a shape of one uses; the list a shape of many does.
-            put16(&mut matrix_data, matrices[0]);
-            put16(&mut matrix_data, matrices.len() as u16);
-            put32(&mut matrix_data, matrix_table.len() as u32);
-            matrix_table.extend_from_slice(&matrices);
-            let start = lists.len();
-            lists.push(0x90);
-            put16(&mut lists, corners.len() as u16);
-            for corner in &corners {
-                if many {
-                    let place = matrices.iter().position(|m| *m == corner.matrix as u16).unwrap_or(0);
-                    lists.push((place * 3) as u8);
+    let samplers = animation["samplers"].as_array().map(Vec::as_slice).unwrap_or_default();
+    let (mut translation, mut rotation, mut fov) = (None, None, None);
+    for c in animation["channels"].as_array().map(Vec::as_slice).unwrap_or_default() {
+        if pointer_of(c) == Some(fov_pointer.as_str()) {
+            fov = Some(pointer_curve(&document, samplers, c, 1)?);
+        } else if c["target"]["node"].as_u64() == Some(node as u64) {
+            match c["target"]["path"].as_str() {
+                Some("translation") => translation = Some(pointer_curve(&document, samplers, c, 3)?),
+                Some("rotation") => {
+                    let mut curve = pointer_curve(&document, samplers, c, 4)?;
+                    curve.turns = true;
+                    rotation = Some(curve);
                 }
-                put16(&mut lists, corner.position as u16);
-                put16(&mut lists, corner.normal as u16);
-                put16(&mut lists, corner.coordinate as u16);
+                _ => {}
             }
-            while lists.len() % 32 != 0 {
-                lists.push(0);
-            }
-            put32(&mut packets, (lists.len() - start) as u32);
-            put32(&mut packets, start as u32);
         }
     }
-    let mut body = Vec::new();
-    put16(&mut body, groups.len() as u16);
-    put16(&mut body, 0xFFFF);
-    body.extend_from_slice(&[0; 32]);
-    let shapes_at = body.len() + 8;
-    body.extend_from_slice(&shapes);
-    let remap_at = body.len() + 8;
-    for i in 0..groups.len() {
-        put16(&mut body, i as u16);
-    }
-    while (body.len() + 8) % 4 != 0 {
-        body.push(0xFF);
-    }
-    let attributes_at = body.len() + 8;
-    if many {
-        put32(&mut body, 0);
-        put32(&mut body, 1);
-    }
-    for attribute in [9u32, 10, 13] {
-        put32(&mut body, attribute);
-        put32(&mut body, 3);
-    }
-    put32(&mut body, 0xFF);
-    put32(&mut body, 0);
-    let matrix_table_at = body.len() + 8;
-    matrix_table.iter().for_each(|m| put16(&mut body, *m));
-    pad_to(&mut body, 0);
-    let lists_at = body.len() + 8;
-    body.extend_from_slice(&lists);
-    let matrix_data_at = body.len() + 8;
-    body.extend_from_slice(&matrix_data);
-    let packets_at = body.len() + 8;
-    body.extend_from_slice(&packets);
-    for (field, value) in [(4, shapes_at), (8, remap_at), (12, 0), (16, attributes_at), (20, matrix_table_at), (24, lists_at), (28, matrix_data_at), (32, packets_at)] {
-        set32(&mut body, field, value as u32);
-    }
-    (block(b"SHP1", &body), packets.len() / 8)
-}
-
-/// One record per material: lit by the stage's lights, times its colour and texture.
-fn write_mat3(used: &[usize], materials: &[MaterialOut], image_of: &BTreeMap<usize, usize>) -> Vec<u8> {
-    const INIT: usize = 0x14C;
-    let count = used.len();
-    let mut init = vec![0u8; INIT * count];
-    let mut colors: Vec<u8> = Vec::new();
-    let mut texture_numbers: Vec<u16> = Vec::new();
-    for (i, m) in used.iter().enumerate() {
-        let material = &materials[*m];
-        let r = &mut init[i * INIT..(i + 1) * INIT];
-        r.fill(0xFF);
-        r[0] = if material.blend { 4 } else { 1 };
-        r[1] = u8::from(!material.two_sided); // the cull table: 0 none, 1 back
-        r[2] = 0; // one channel pair
-        r[3] = u8::from(material.texture.is_some()); // texture coordinates: table index 1 is one, 0 none
-        r[4] = 0; // one stage
-        r[5] = 0;
-        r[6] = u8::from(material.blend); // depth: 0 writes, 1 doesn't
-        r[7] = 0;
-        let put = |r: &mut [u8], at: usize, v: u16| r[at..at + 2].copy_from_slice(&v.to_be_bytes());
-        put(r, 0x08, i as u16); // colour
-        put(r, 0x0C, 0); // lit colour
-        put(r, 0x0E, 1); // unlit alpha
-        put(r, 0x14, 0); // ambient
-        if let Some(source) = material.texture {
-            put(r, 0x28, 0); // coordinate 0 from the first set
-            put(r, 0x84, texture_numbers.len() as u16);
-            texture_numbers.push(image_of[&source] as u16);
-            put(r, 0xBC, 0); // stage order: textured
-            put(r, 0xE4, 0); // stage: texture times lit
-        } else {
-            put(r, 0xBC, 1); // stage order: colour only
-            put(r, 0xE4, 1); // stage: lit
+    let length = [&translation, &rotation, &fov].iter().filter_map(|c| c.as_ref().and_then(|c| c.times.last().copied())).fold(0.0f32, f32::max);
+    let frames = (length * FRAMES_PER_SECOND).round() as usize + 1;
+    let rest = node_trs(&nodes[node]);
+    let mut tracks: [Vec<f32>; super::camera::TRACKS] = Default::default();
+    for frame in 0..frames {
+        let time = frame as f32 / FRAMES_PER_SECOND;
+        let place = translation.as_ref().map_or(rest.translation, |c| { let v = c.at(time); [v[0], v[1], v[2]] });
+        let turn = rotation.as_ref().map_or(rest.rotation, |c| { let v = c.at(time); [v[0], v[1], v[2], v[3]] });
+        let m = multiply(&parents, &trs_matrix(&Trs { translation: place, rotation: turn, scale: [1.0; 3] }));
+        let unit = |v: [f32; 3]| { let l = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt().max(1e-6); v.map(|x| x / l) };
+        let eye = transform(&m, [0.0; 3], 1.0).map(|v| v * UNITS_PER_METRE);
+        let front = unit(transform(&m, [0.0, 0.0, -1.0], 0.0));
+        let up = unit(transform(&m, [0.0, 1.0, 0.0], 0.0));
+        // The twist CameraDirector::calcViewMtxFromPoseParam turns the untwisted view by (about its Z) to reach this up:
+        // untwisted, X is -(world up x front), Y is front x side.
+        let cross = |a: [f32; 3], b: [f32; 3]| [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+        let dot = |a: [f32; 3], b: [f32; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+        let side = unit(cross([0.0, 1.0, 0.0], front));
+        let (x0, y0) = (side.map(|v| -v), unit(cross(front, side)));
+        let twist = (-dot(up, x0)).atan2(dot(up, y0)).to_degrees();
+        let fovy = fov.as_ref().map_or(yfov, |c| c.at(time)[0]).to_degrees();
+        let values = [eye[0], eye[1], eye[2], eye[0] + front[0] * watch, eye[1] + front[1] * watch, eye[2] + front[2] * watch, twist, fovy];
+        for (track, v) in tracks.iter_mut().zip(values) {
+            track.push(v);
         }
-        put(r, 0x104, 0); // swap mode
-        put(r, 0x124, 0); // swap tables
-        put(r, 0x126, 0);
-        put(r, 0x128, 0);
-        put(r, 0x12A, 0);
-        put(r, 0x146, match material.cutoff { Some(_) => (i + 1) as u16, None => 0 }); // alpha test
-        put(r, 0x148, u16::from(material.blend)); // blend
-        colors.extend_from_slice(&material.color);
     }
-    let mut alpha_tests: Vec<u8> = vec![7, 0, 0, 7, 0, 0xFF, 0xFF, 0xFF];
-    for m in used {
-        let reference = materials[*m].cutoff.unwrap_or(0);
-        alpha_tests.extend_from_slice(&[if materials[*m].cutoff.is_some() { 6 } else { 7 }, reference, 0, 7, 0, 0xFF, 0xFF, 0xFF]);
+    let mut ncam = super::camera::Ncam { frames: frames as u32, ..Default::default() };
+    for (i, values) in tracks.iter().enumerate() {
+        // A track that never changes is one value.
+        let held = values.iter().all(|v| (v - values[0]).abs() < 1e-4);
+        let kept: &[f32] = if held { &values[..1] } else { values };
+        ncam.tracks[i] = super::camera::Track { count: kept.len() as u32, first: ncam.values.len() as u32, stride: 1 };
+        ncam.values.extend_from_slice(kept);
     }
-    let names: Vec<String> = used.iter().map(|m| materials[*m].name.clone()).collect();
-    let remap: Vec<u8> = (0..count as u16).flat_map(u16::to_be_bytes).collect();
-    let textures: Vec<u8> = texture_numbers.iter().flat_map(|t| t.to_be_bytes()).collect();
-    // Each table in the block's header order, from 0x0C.
-    let tables: Vec<(usize, Vec<u8>)> = vec![
-        (0x0C, init),
-        (0x10, remap),
-        (0x14, name_table(&names)),
-        (0x1C, vec![0, 0, 0, 0, 0, 0, 0, 2]),
-        (0x20, colors),
-        (0x24, vec![1]),
-        (0x28, vec![1, 0, 3, 2, 2, 0, 0xFF, 0xFF, 0, 0, 0, 2, 2, 0, 0xFF, 0xFF]),
-        (0x2C, vec![0x32, 0x32, 0x32, 0xFF]),
-        (0x34, vec![0, 1]),
-        (0x38, vec![1, 4, 60, 0xFF]),
-        (0x48, textures),
-        (0x4C, vec![0, 0, 4, 0xFF, 0xFF, 0xFF, 4, 0xFF]),
-        (0x50, vec![0, 0, 0, 0xFF, 0, 0xFF, 0, 0xFF]),
-        (0x58, vec![1]),
-        (0x5C, vec![
-            // Texture times lit, colour and alpha.
-            0xFF, 15, 8, 10, 15, 0, 0, 0, 1, 0, 7, 4, 5, 7, 0, 0, 0, 1, 0, 0xFF,
-            // Lit alone.
-            0xFF, 10, 15, 15, 15, 0, 0, 0, 1, 0, 5, 7, 7, 7, 0, 0, 0, 1, 0, 0xFF,
-        ]),
-        (0x60, vec![0, 0, 0xFF, 0xFF]),
-        (0x64, vec![0, 1, 2, 3]),
-        (0x6C, alpha_tests),
-        (0x70, vec![0, 1, 0, 3, 1, 4, 5, 3]),
-        (0x74, vec![1, 3, 1, 0xFF, 1, 3, 0, 0xFF]),
-        (0x78, vec![1, 0xFF, 0xFF, 0xFF]),
-        (0x7C, vec![0, 0xFF, 0xFF, 0xFF]),
-    ];
-    let mut body = Vec::new();
-    put16(&mut body, count as u16);
-    put16(&mut body, 0xFFFF);
-    body.extend_from_slice(&[0; 0x78]);
-    for (field, table) in tables {
-        while (body.len() + 8) % 4 != 0 {
-            body.push(0xFF);
-        }
-        let at = body.len() + 8;
-        set32(&mut body, field - 8, at as u32);
-        body.extend_from_slice(&table);
-    }
-    block(b"MAT3", &body)
-}
-
-fn write_tex1(images: &[(String, u32, u32, Vec<u8>, bool)]) -> Vec<u8> {
-    let mut body = Vec::new();
-    put16(&mut body, images.len() as u16);
-    put16(&mut body, 0xFFFF);
-    put32(&mut body, 0x20);
-    put32(&mut body, 0);
-    body.extend_from_slice(&[0; 12]);
-    let headers_at = body.len();
-    body.resize(headers_at + images.len() * 32, 0);
-    for (i, (_, width, height, data, has_alpha)) in images.iter().enumerate() {
-        while (body.len() + 8) % 32 != 0 {
-            body.push(0);
-        }
-        let header_at = headers_at + i * 32;
-        let offset = (body.len() - header_at) as u32;
-        body[header_at..header_at + 32].copy_from_slice(&image_header(*width, *height, offset, 1, *has_alpha));
-        body.extend_from_slice(data);
-    }
-    let names_at = body.len() + 8;
-    let names: Vec<String> = images.iter().map(|(n, ..)| n.clone()).collect();
-    body.extend_from_slice(&name_table(&names));
-    set32(&mut body, 8, names_at as u32);
-    block(b"TEX1", &body)
+    ncam.cuts = super::camera::find_cuts(&ncam);
+    Ok(ncam.to_bytes())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// A triangle, as a `.gltf` with its data in place.
-    fn triangle() -> Vec<u8> {
+    /// A triangle, as a `.gltf` with its data in place. `primitives`: how many draw it.
+    fn triangle(primitives: usize) -> Vec<u8> {
         let mut data = Vec::new();
         for v in [0.0f32, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0] {
             data.extend_from_slice(&v.to_le_bytes());
@@ -1387,12 +1445,40 @@ mod tests {
             data.extend_from_slice(&v.to_le_bytes());
         }
         let encoded = encode(&data);
+        let drawn = vec![r#"{"attributes":{"POSITION":0},"indices":1,"material":0}"#; primitives].join(",");
         format!(
             r#"{{"asset":{{"version":"2.0"}},"scene":0,"scenes":[{{"nodes":[0]}}],"nodes":[{{"mesh":0}}],
-            "meshes":[{{"primitives":[{{"attributes":{{"POSITION":0}},"indices":1}}]}}],
+            "materials":[{{"name":"material"}}],
+            "meshes":[{{"primitives":[{drawn}]}}],
             "accessors":[{{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3"}},{{"bufferView":1,"componentType":5123,"count":3,"type":"SCALAR"}}],
             "bufferViews":[{{"buffer":0,"byteLength":36}},{{"buffer":0,"byteOffset":36,"byteLength":6}}],
             "buffers":[{{"byteLength":42,"uri":"data:application/octet-stream;base64,{encoded}"}}]}}"#
+        )
+        .into_bytes()
+    }
+
+    /// `triangles` separate triangles, every vertex its own.
+    fn many_triangles(triangles: usize) -> Vec<u8> {
+        let count = triangles * 3;
+        let mut data = Vec::with_capacity(count * 16);
+        for i in 0..count {
+            for v in [i as f32 * 0.01, (i % 3) as f32, 0.0] {
+                data.extend_from_slice(&v.to_le_bytes());
+            }
+        }
+        let indices_at = data.len();
+        for i in 0..count as u32 {
+            data.extend_from_slice(&i.to_le_bytes());
+        }
+        let encoded = encode(&data);
+        let total = data.len();
+        let indices = total - indices_at;
+        format!(
+            r#"{{"asset":{{"version":"2.0"}},"scene":0,"scenes":[{{"nodes":[0]}}],"nodes":[{{"mesh":0}}],
+            "meshes":[{{"primitives":[{{"attributes":{{"POSITION":0}},"indices":1}}]}}],
+            "accessors":[{{"bufferView":0,"componentType":5126,"count":{count},"type":"VEC3"}},{{"bufferView":1,"componentType":5125,"count":{count},"type":"SCALAR"}}],
+            "bufferViews":[{{"buffer":0,"byteLength":{indices_at}}},{{"buffer":0,"byteOffset":{indices_at},"byteLength":{indices}}}],
+            "buffers":[{{"byteLength":{total},"uri":"data:application/octet-stream;base64,{encoded}"}}]}}"#
         )
         .into_bytes()
     }
@@ -1417,26 +1503,81 @@ mod tests {
     }
 
     #[test]
-    fn a_triangle_is_a_model_the_cooker_reads() {
-        let model = to_j3d(&triangle(), None).unwrap();
-        assert!(model.starts_with(b"J3D2bmd3"));
-        assert_eq!(u32::from_be_bytes(model[8..12].try_into().unwrap()) as usize, model.len());
-        // What the cook reads: its materials, then its blocks in host order.
-        let shaders = super::super::material::generated_shaders(&model).unwrap();
-        assert_eq!(shaders.len(), 1);
-        assert_eq!(shaders[0].0, "material");
-        super::super::native_data::j3d_model(&model).unwrap();
+    fn a_triangle_is_a_model() {
+        let (model, clips) = to_files(&triangle(1), None, "Triangle").unwrap();
+        assert_eq!(u32::from_le_bytes(model[0..4].try_into().unwrap()), super::super::model_write::MAGIC);
+        assert!(clips.is_empty());
+        let (ir, _) = to_ir(&triangle(1), None).unwrap();
+        assert_eq!(ir.materials.len(), 1);
+        assert_eq!(ir.materials[0].name, "material");
+        assert_eq!(ir.joints.len(), 1);
+        // Its names read back from the cooked model, as `lumalink list models` reads the game's.
+        let names = super::super::model_write::names(&model).unwrap();
+        assert_eq!(names.joints, ir.joints.iter().map(|j| j.name.clone()).collect::<Vec<_>>());
+        assert_eq!(names.materials, ["material"]);
+        assert_eq!(names.textures, ir.textures.iter().map(|t| t.name.clone()).collect::<Vec<_>>());
+        assert!(super::super::model_write::names(&model[..8]).is_err());
+    }
+
+    #[test]
+    fn two_meshes_of_one_material_both_draw() {
+        let (ir, _) = to_ir(&triangle(2), None).unwrap();
+        assert_eq!(ir.shapes.len(), 2);
+        assert_eq!(ir.materials.len(), 2);
+        assert_eq!((ir.materials[0].mesh, ir.materials[1].mesh), (0, 1));
+        assert_eq!((ir.shapes[0].material, ir.shapes[1].material), (0, 1));
+        assert_eq!(ir.materials[1].same_as, 0);
+        assert_eq!(ir.joints[0].meshes.len(), 2);
+    }
+
+    #[test]
+    fn more_vertices_than_sixteen_bits_count() {
+        let bytes = many_triangles(24_000);
+        let (ir, _) = to_ir(&bytes, None).unwrap();
+        assert_eq!(ir.arrays.positions.len() > 0x1_0000, true);
+        assert_eq!(ir.shapes[0].groups[0].corners.len(), 72_000);
+        to_files(&bytes, None, "Many").unwrap();
+    }
+
+    #[test]
+    fn an_animation_plays_as_its_extras_say() {
+        let mut keys = Vec::new();
+        for v in [0.0f32, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0] {
+            keys.extend_from_slice(&v.to_le_bytes());
+        }
+        let mut document: serde_json::Value = serde_json::from_slice(&triangle(1)).unwrap();
+        document["buffers"].as_array_mut().unwrap().push(serde_json::json!({
+            "byteLength": 32, "uri": format!("data:application/octet-stream;base64,{}", encode(&keys)) }));
+        document["bufferViews"].as_array_mut().unwrap().extend([
+            serde_json::json!({ "buffer": 1, "byteLength": 8 }),
+            serde_json::json!({ "buffer": 1, "byteOffset": 8, "byteLength": 24 }),
+        ]);
+        document["accessors"].as_array_mut().unwrap().extend([
+            serde_json::json!({ "bufferView": 2, "componentType": 5126, "count": 2, "type": "SCALAR" }),
+            serde_json::json!({ "bufferView": 3, "componentType": 5126, "count": 2, "type": "VEC3" }),
+        ]);
+        let animation = |name: &str, play: Option<&str>| {
+            let mut a = serde_json::json!({ "name": name, "samplers": [ { "input": 2, "output": 3 } ],
+                "channels": [ { "sampler": 0, "target": { "node": 0, "path": "translation" } } ] });
+            if let Some(play) = play {
+                a["extras"] = serde_json::json!({ "nebula": { "play": play } });
+            }
+            a
+        };
+        document["animations"] = serde_json::json!([animation("Plain", None), animation("Once", Some("once")),
+            animation("Back", Some("once_then_first")), animation("Mirror", Some("loop_there_and_back"))]);
+        let (_, clips) = to_ir(&serde_json::to_vec(&document).unwrap(), None).unwrap();
+        let modes: Vec<(String, u8)> = clips.iter().map(|(name, clip)| (name.clone(), clip.loop_mode)).collect();
+        assert_eq!(modes, [("Plain".to_string(), 2), ("Once".to_string(), 0), ("Back".to_string(), 1), ("Mirror".to_string(), 4)]);
+        document["animations"] = serde_json::json!([animation("Odd", Some("sideways"))]);
+        let Err(error) = to_ir(&serde_json::to_vec(&document).unwrap(), None) else { panic!("an unknown play mode cooked") };
+        assert!(format!("{error:#}").contains("sideways"), "{error:#}");
     }
 
     #[test]
     fn triangles_wind_as_the_games_do() {
-        let model = to_j3d(&triangle(), None).unwrap();
-        let shp = model.windows(4).position(|w| w == b"SHP1").unwrap();
-        let word = |at: usize| u32::from_be_bytes(model[at..at + 4].try_into().unwrap()) as usize;
-        let lists = shp + word(shp + 0x20);
-        assert_eq!(model[lists], 0x90);
-        let corner = |n: usize| u16::from_be_bytes(model[lists + 3 + n * 6..lists + 5 + n * 6].try_into().unwrap());
-        assert_eq!((corner(0), corner(1), corner(2)), (0, 2, 1));
+        let (ir, _) = to_ir(&triangle(1), None).unwrap();
+        assert_eq!(ir.shapes[0].groups[0].indices, vec![0, 2, 1]);
     }
 
     #[test]
@@ -1444,9 +1585,9 @@ mod tests {
         // A quarter turn about Y.
         let half = std::f32::consts::FRAC_1_SQRT_2;
         let quarter = angles([0.0, half, 0.0, half]);
-        assert_eq!(quarter[0], 0);
-        assert!((i32::from(quarter[1]) - 16384).abs() <= 8, "{quarter:?}");
-        assert_eq!(angles([0.0, 0.0, 0.0, 1.0]), [0, 0, 0]);
+        assert!(quarter[0].abs() < 1e-6);
+        assert!((quarter[1] - std::f32::consts::FRAC_PI_2).abs() < 0.001, "{quarter:?}");
+        assert_eq!(angles([0.0, 0.0, 0.0, 1.0]), [0.0, 0.0, 0.0]);
     }
 
     #[test]
@@ -1460,9 +1601,224 @@ mod tests {
     }
 
     #[test]
+    fn twelve_texture_layers_cook_without_losing_slots_or_coordinates() {
+        let mut document: Value = serde_json::from_slice(&triangle(1)).unwrap();
+        document["images"] = serde_json::json!((0..12).map(|_| serde_json::json!({"uri": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGP4DwQACfsD/fteaysAAAAASUVORK5CYII="})).collect::<Vec<_>>());
+        document["textures"] = serde_json::json!((0..12).map(|i| serde_json::json!({"source": i})).collect::<Vec<_>>());
+        document["materials"] = serde_json::json!([{"extras": {"nebula": {"textures":
+            (0..12).map(|i| serde_json::json!({"index": i, "texCoord": i})).collect::<Vec<_>>()}}}]);
+        let (ir, _) = to_ir(&serde_json::to_vec(&document).unwrap(), None).unwrap();
+        let material = &ir.materials[0];
+        assert_eq!(material.stages.len(), 12);
+        assert_eq!(material.coords.len(), 12);
+        assert_eq!(material.textures[11], 11);
+        let forms = super::super::programs::forms_of("fixture", material, 0).unwrap();
+        let text = super::super::programs::generate(material, forms[0], false, &super::super::programs::Registers::of(material)).unwrap();
+        assert_eq!(text.textures.len(), 12);
+        assert!(text.inputs.contains(&super::super::programs::Input::Coord(11)));
+        let block = super::super::model_write::write(&ir, "fixture", &super::super::programs::Written::unknown()).unwrap();
+        let word = |at| u32::from_le_bytes(block[at..at + 4].try_into().unwrap());
+        assert_eq!(word(4), super::super::model_write::VERSION);
+        let at = word(24 * 4) as usize;
+        assert_eq!(word(at + 36), 12);
+        let slots = word(at + super::super::model_write::MATERIAL_BYTES - 16) as usize;
+        for n in 0..12 {
+            let slot = slots + n * super::super::model_write::SLOT_BYTES;
+            assert_eq!(word(slot), n as u32);
+            assert_eq!(block[slot + 6], super::super::model_write::SLOT_USES_MAP | super::super::model_write::SLOT_USES_COORD);
+        }
+    }
+
+    #[test]
+    fn a_gltf_camera_is_a_camera_animation() {
+        // A camera 5 m behind the origin turning from looking at it to looking left over one second, rolled 90 degrees at
+        // the end; 40 degrees of view.
+        let half = std::f32::consts::FRAC_PI_4.sin();
+        let mut document = serde_json::json!({
+            "asset": { "version": "2.0" }, "buffers": [], "bufferViews": [], "accessors": [],
+            "nodes": [{ "camera": 0, "translation": [0, 0, 5] }],
+            "cameras": [{ "type": "perspective", "perspective": { "yfov": 40f32.to_radians(), "znear": 0.1 } }],
+            "animations": [{ "channels": [{ "sampler": 0, "target": { "node": 0, "path": "rotation" } }],
+                             "samplers": [{ "input": 0, "output": 1 }] }]
+        });
+        // From no turn to a quarter turn about Y then a quarter turn about Z (its own view axis).
+        let q_y = [0.0, half, 0.0, half];
+        let q_z = [0.0, 0.0, half, half];
+        let product = |a: [f32; 4], b: [f32; 4]| [
+            a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
+            a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
+            a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3],
+            a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2],
+        ];
+        let last = product(q_y, q_z);
+        let views = add_floats(&mut document, &[(2, "SCALAR", vec![0.0, 1.0]), (2, "VEC4", [[0.0, 0.0, 0.0, 1.0], last].concat())]);
+        document["animations"][0]["samplers"][0] = serde_json::json!({ "input": views[0], "output": views[1] });
+        let ncam = super::super::camera::Ncam::from_ncam(&to_camera(document.to_string().as_bytes(), None).unwrap()).unwrap();
+        assert_eq!(ncam.frames, 61);
+        let read = |track: usize, frame: f32| super::super::camera::read(&ncam, track, frame).unwrap();
+        // The eye stands still: one value each, in the game's units.
+        assert_eq!(ncam.tracks[2].count, 1);
+        assert!((read(2, 0.0) - 500.0).abs() < 1e-3);
+        // At first it watches 10 m ahead, the origin's way, untwisted; at the end to its left (-X), twisted a quarter.
+        assert!((read(5, 0.0) - (500.0 - 1000.0)).abs() < 1e-2, "{}", read(5, 0.0));
+        assert!(read(6, 0.0).abs() < 1e-3);
+        assert!((read(3, 60.0) - -1000.0).abs() < 1e-1, "{}", read(3, 60.0));
+        assert!((read(6, 60.0).abs() - 90.0).abs() < 1e-2, "{}", read(6, 60.0));
+        assert!((read(7, 30.0) - 40.0).abs() < 1e-3);
+        let error = to_camera(serde_json::json!({ "asset": { "version": "2.0" }, "nodes": [{}] }).to_string().as_bytes(), None).unwrap_err();
+        assert!(error.to_string().contains("no camera"));
+    }
+
+    #[test]
     fn a_bad_file_says_what_is_wrong() {
-        assert!(format!("{:#}", to_j3d(b"nope", None).unwrap_err()).contains("JSON"));
+        assert!(format!("{:#}", to_ir(b"nope", None).err().unwrap()).contains("JSON"));
         let old = br#"{"asset":{"version":"1.0"}}"#;
-        assert!(format!("{:#}", to_j3d(old, None).unwrap_err()).contains("glTF 2"));
+        assert!(format!("{:#}", to_ir(old, None).err().unwrap()).contains("glTF 2"));
+    }
+
+    /// One more buffer of little-endian floats, its views and accessors (`(count, type, floats)`), numbered after the
+    /// document's; the accessors' numbers.
+    fn add_floats(document: &mut Value, accessors: &[(usize, &str, Vec<f32>)]) -> Vec<usize> {
+        let buffer = document["buffers"].as_array().unwrap().len();
+        let mut data = Vec::new();
+        let mut numbers = Vec::new();
+        for (count, kind, floats) in accessors {
+            let view = document["bufferViews"].as_array().unwrap().len();
+            document["bufferViews"].as_array_mut().unwrap().push(serde_json::json!({ "buffer": buffer, "byteOffset": data.len(), "byteLength": floats.len() * 4 }));
+            numbers.push(document["accessors"].as_array().unwrap().len());
+            document["accessors"].as_array_mut().unwrap().push(serde_json::json!({ "bufferView": view, "componentType": 5126, "count": count, "type": kind }));
+            for v in floats {
+                data.extend_from_slice(&v.to_le_bytes());
+            }
+        }
+        document["buffers"].as_array_mut().unwrap().push(serde_json::json!({
+            "byteLength": data.len(), "uri": format!("data:application/octet-stream;base64,{}", encode(&data)) }));
+        numbers
+    }
+
+    const PIXEL: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGP4DwQACfsD/fteaysAAAAASUVORK5CYII=";
+
+    /// The triangle with a texture of two images to choose from, and a texture transform.
+    fn textured(transform: Value) -> Value {
+        let mut document: Value = serde_json::from_slice(&triangle(1)).unwrap();
+        document["images"] = serde_json::json!([{ "uri": PIXEL }, { "uri": PIXEL }]);
+        document["textures"] = serde_json::json!([{ "source": 0 }, { "source": 1 }]);
+        document["materials"] = serde_json::json!([{ "name": "Face", "pbrMetallicRoughness": {
+            "baseColorTexture": { "index": 0, "extensions": { "KHR_texture_transform": transform } } } }]);
+        document
+    }
+
+    #[test]
+    fn a_material_s_colour_scroll_and_swaps_cook_as_the_games() {
+        let mut document = textured(serde_json::json!({ "scale": [2.0, 2.0], "rotation": 0.5, "offset": [0.25, 0.0] }));
+        let a = add_floats(&mut document, &[
+            (2, "SCALAR", vec![0.0, 1.0]),
+            (2, "VEC4", vec![1.0, 1.0, 1.0, 1.0, 1.0, 0.5, 0.0, 1.0]),
+            (2, "VEC2", vec![0.0, 0.0, 1.0, 0.0]),
+        ]);
+        let pointer = |sampler: usize, to: &str| serde_json::json!({ "sampler": sampler,
+            "target": { "path": "pointer", "extensions": { "KHR_animation_pointer": { "pointer": to } } } });
+        document["animations"] = serde_json::json!([
+            { "name": "Glow", "samplers": [{ "input": a[0], "output": a[1] }],
+              "channels": [pointer(0, "/materials/0/pbrMetallicRoughness/baseColorFactor")] },
+            { "name": "Scroll", "extras": { "nebula": { "play": "once" } }, "samplers": [{ "input": a[0], "output": a[2] }],
+              "channels": [pointer(0, "/materials/0/pbrMetallicRoughness/baseColorTexture/extensions/KHR_texture_transform/offset")] },
+            { "name": "Blink", "extras": { "nebula": { "texture_swaps": [{ "material": 0, "keys": [[0.0, 0], [0.5, 1]] }] } } },
+        ]);
+        let bytes = serde_json::to_vec(&document).unwrap();
+        let (ir, clips) = to_ir(&bytes, None).unwrap();
+
+        // The still transform: texture matrix 0 on the base texture, turned the game's way.
+        let material = &ir.materials[0];
+        assert_eq!(material.coords[0].matrix, 0);
+        let m = &material.matrices[0];
+        assert_eq!((m.slot, m.info, m.scale, m.rotation, m.translation), (0, 0, [2.0, 2.0], -0.5, [0.25, 0.0]));
+        // The swapped-in image is a texture of the model's too.
+        assert_eq!(ir.textures.len(), 2);
+
+        let kinds: Vec<(&str, u8)> = clips.iter().map(|(name, c)| (name.as_str(), c.kind)).collect();
+        assert_eq!(kinds, [("Glow", KIND_COLORS), ("Scroll", KIND_TEXTURE_MATRICES), ("Blink", KIND_PATTERN)]);
+        let glow = &clips[0].1;
+        assert_eq!((glow.frames, glow.loop_mode, glow.tracks.len(), glow.targets[0].name.as_slice()), (60, 2, 4, b"Face".as_slice()));
+        // Red stays 255; green falls from 255 to half by the end.
+        assert_eq!((glow.tracks[0].count, glow.values[glow.tracks[0].at as usize]), (1, 255.0));
+        let green = &glow.tracks[1];
+        let last = green.at as usize + (green.count as usize - 1) * 3;
+        assert_eq!((glow.values[last], glow.values[last + 1]), (60.0, 127.5));
+        let scroll = &clips[1].1;
+        assert_eq!((scroll.loop_mode, scroll.tracks.len()), (0, 5));
+        // Scale and turn stay as the material has them; the offset moves.
+        assert_eq!(scroll.values[scroll.tracks[0].at as usize], 2.0);
+        assert_eq!(scroll.values[scroll.tracks[2].at as usize], -0.5);
+        assert!(scroll.tracks[3].count > 1);
+        let blink = &clips[2].1;
+        assert_eq!((blink.frames, blink.tracks[0].stride, blink.tracks[0].count), (30, STEP, 31));
+        assert_eq!((blink.indices[0], blink.indices[29], blink.indices[30]), (0, 0, 1));
+
+        // Each a file of its kind, by the animation's name.
+        let (_, files) = to_files(&bytes, None, "Swap").unwrap();
+        let names: Vec<&str> = files.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(names, ["Glow.bpk", "Scroll.btk", "Blink.btp"]);
+        for (_, file) in &files {
+            assert_eq!(&file[0..4], b"NCLP");
+        }
+    }
+
+    #[test]
+    fn what_a_material_animation_cannot_be_says_so() {
+        let error = |document: &Value| format!("{:#}", to_ir(&serde_json::to_vec(document).unwrap(), None).err().expect("it cooked"));
+        // Turned with uneven scales: glTF and the game scale and turn in different orders.
+        let uneven = textured(serde_json::json!({ "scale": [2.0, 1.0], "rotation": 0.5 }));
+        assert!(error(&uneven).contains("unequal"), "{}", error(&uneven));
+        // Something else of a material.
+        let mut other = textured(serde_json::json!({}));
+        let a = add_floats(&mut other, &[(1, "SCALAR", vec![0.0]), (1, "VEC3", vec![1.0, 0.0, 0.0])]);
+        other["animations"] = serde_json::json!([{ "name": "Shine", "samplers": [{ "input": a[0], "output": a[1] }],
+            "channels": [{ "sampler": 0, "target": { "path": "pointer",
+                "extensions": { "KHR_animation_pointer": { "pointer": "/materials/0/emissiveFactor" } } } }] }]);
+        assert!(error(&other).contains("baseColorFactor"), "{}", error(&other));
+        // A swap of a material that isn't there.
+        let mut missing = textured(serde_json::json!({}));
+        missing["animations"] = serde_json::json!([{ "name": "Blink", "extras": { "nebula": { "texture_swaps": [{ "material": 3, "keys": [[0.0, 1]] }] } } }]);
+        assert!(error(&missing).contains("material 3"), "{}", error(&missing));
+        // An extension the file needs and Nebula doesn't read.
+        let mut draco = textured(serde_json::json!({}));
+        draco["extensionsRequired"] = serde_json::json!(["KHR_draco_mesh_compression"]);
+        assert!(error(&draco).contains("KHR_draco_mesh_compression"), "{}", error(&draco));
+        draco["extensionsRequired"] = serde_json::json!(["KHR_texture_transform"]);
+        to_ir(&serde_json::to_vec(&draco).unwrap(), None).unwrap();
+    }
+
+    #[test]
+    fn signed_and_sparse_numbers_read_as_gltf_says() {
+        // Two signed normalized shorts, then sparse: element 1 of a three-float accessor with no view is 7.
+        let mut data = Vec::new();
+        for v in [32767i16, -32768] {
+            data.extend_from_slice(&v.to_le_bytes());
+        }
+        data.extend_from_slice(&1u16.to_le_bytes());
+        data.extend_from_slice(&[0, 0]);
+        data.extend_from_slice(&7.0f32.to_le_bytes());
+        let json = serde_json::json!({ "asset": { "version": "2.0" },
+            "buffers": [{ "byteLength": data.len(), "uri": format!("data:application/octet-stream;base64,{}", encode(&data)) }],
+            "bufferViews": [{ "buffer": 0, "byteLength": 4 }, { "buffer": 0, "byteOffset": 4, "byteLength": 2 }, { "buffer": 0, "byteOffset": 8, "byteLength": 4 }],
+            "accessors": [
+                { "bufferView": 0, "componentType": 5122, "normalized": true, "count": 2, "type": "SCALAR" },
+                { "componentType": 5126, "count": 3, "type": "SCALAR", "sparse": { "count": 1,
+                    "indices": { "bufferView": 1, "componentType": 5123 }, "values": { "bufferView": 2 } } },
+            ] });
+        let document = Document::parse(&serde_json::to_vec(&json).unwrap(), None).unwrap();
+        assert_eq!(document.floats(0, 1).unwrap(), [1.0, -1.0]);
+        assert_eq!(document.floats(1, 1).unwrap(), [0.0, 7.0, 0.0]);
+    }
+
+    #[test]
+    fn a_jpeg_is_an_image() {
+        // A 2 by 1 baseline JPEG of orange (200, 100, 50).
+        let jpeg = base64("/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAIBAQEBAQIBAQECAgICAgQDAgICAgUEBAMEBgUGBgYFBgYGBwkIBgcJBwYGCAsICQoKCgoKBggLDAsKDAkKCgr/2wBDAQICAgICAgUDAwUKBwYHCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgr/wAARCAABAAIDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDPooor+Vz+2D//2Q==").unwrap();
+        let (width, height, rgba) = decode_image(&jpeg).unwrap();
+        assert_eq!((width, height, rgba.len()), (2, 1, 8));
+        assert!(rgba[0].abs_diff(200) < 8 && rgba[1].abs_diff(100) < 8 && rgba[2].abs_diff(50) < 8 && rgba[3] == 255, "{rgba:?}");
+        assert!(format!("{:#}", decode_image(b"GIF89a").err().unwrap()).contains("PNG or JPEG"));
     }
 }

@@ -3,42 +3,47 @@
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/Util/Array.hpp"
 
-enum ElectricRailType { ElectricRail_Red, ElectricRail_Yellow, ElectricRail_YellowMoving, ElectricRail_RedMoving };
+// ElectricRail's arg 3, ElectricRailMoving's arg 4 + 2.
+enum ElectricRailType { ElectricRail_Yellow, ElectricRail_Red, ElectricRail_YellowMoving, ElectricRail_RedMoving };
 
-class ElectricRailMoving;
-class J3DMatPacket;
+class MaterialDraw;
+class MaterialEntry;
 class ModelObj;
+
+// A rail the holder draws, through its model's material.
+class ElectricRailDrawn : public LiveActor {
+public:
+    ElectricRailDrawn(const char* pName) : LiveActor(pName) {
+    }
+    virtual void drawWith(MaterialDraw& rMaterial) const = 0;
+};
 
 struct RailItem {
     ElectricRailType mRailType;
-    const ElectricRailMoving* mHost;
-    J3DMatPacket* mMatPacket;
+    const ElectricRailDrawn* mHost;
+    MaterialEntry* mMatPacket;
 };
 
 class ElectricRailHolder : public LiveActor {
 public:
-    /// @brief Creates a new `ElectricRailHolder`.
-    /// @param pName A pointer to the null-terminated name of the object.
     ElectricRailHolder(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void calcAnim();
-    virtual void draw() const;
-    virtual void control();
+    virtual void init(const TableIter& rIter) override;
+    virtual void calcAnim() override;
+    virtual void draw() const override;
+    virtual void control() override;
 
-    bool isTouchRail(const HitSensor*, TVec3f*, TVec3f*) const;
-    void initDraw() const;
+    bool isTouchRail(const HitSensor*, Vec3f*, Vec3f*) const;
     void registerRail(const LiveActor*, ElectricRailType);
     ModelObj* createModel(ElectricRailType) const;
 
-    MR::FixedArray< ModelObj*, 4 > mRailModels;
-    MR::Vector< MR::FixedArray< RailItem*, 64 > > mRailItems;
+    MR::InlineArray< ModelObj*, 4 > mRailModels;
+    MR::InlineVector< RailItem*, 64 > mRailItems;
     bool mIsActive;
 };
 
 namespace ElectricRailFunction {
     void registerRail(const LiveActor*, ElectricRailType);
-    bool isTouchRail(const HitSensor*, TVec3f*, TVec3f*);
+    bool isTouchRail(const HitSensor*, Vec3f*, Vec3f*);
     f32 getHitSensorRadius();
-    u32 calcMeshSize(u32, s32);
 };  // namespace ElectricRailFunction

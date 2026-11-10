@@ -1,7 +1,8 @@
 #pragma once
 
+#include "Game/Util/Array.hpp"
 
-class JAISoundID;
+class SoundID;
 struct RemixNoteData;
 struct RemixNoteTrackData;
 
@@ -11,13 +12,13 @@ public:
 
     void initData();
     void setData(const RemixNoteTrackData*, const RemixNoteData*);
-    bool update(f32);
-    JAISoundID getFreeSeID();
+    bool update(f32 ticks);
+    SoundID getFreeSeID();
 
-    f32 _0;
-    f32 _4;
-    const RemixNoteData* _8;
-    const RemixNoteTrackData* _C;
+    f32 mDelay;
+    f32 mRemaining;
+    const RemixNoteData* mNote;
+    const RemixNoteTrackData* mTrack;
 };
 
 class AudRemixSequencer {
@@ -26,11 +27,12 @@ public:
 
     void initNoteOnBuff();
     void update();
-    void setTempo(f32);
+    void setTempo(f32 tempo);
     AudRmxSeqNoteOnTimer* newNoteOnTimer();
     void addNoteData(const RemixNoteTrackData*, const RemixNoteData*);
 
-    AudRmxSeqNoteOnTimer _0[0x20];
-    f32 _200;
-    f32 _204;
+    // Slots, a note taking the first free one; full, the pool doubles (it never drops a note).
+    MR::AssignableArray< AudRmxSeqNoteOnTimer > mTimers;
+    f32 mTempo;
+    f32 mTicksPerFrame;
 };

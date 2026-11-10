@@ -7,13 +7,7 @@
 #include <cstdint>
 
 #if defined(_WIN32)
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <Windows.h>
+#include "galaxy/windows_api.h"
 #else
 #include <time.h>
 #endif
@@ -52,6 +46,13 @@ namespace galaxy {
 #else
     return static_cast<std::uint64_t>(qpc_now() / 1000000);
 #endif
+}
+
+// Microseconds since an arbitrary start, from the high-resolution clock.
+[[nodiscard]] inline std::uint64_t steady_us() noexcept {
+    const std::int64_t ticks = qpc_now();
+    const std::int64_t frequency = qpc_frequency();
+    return static_cast<std::uint64_t>(ticks / frequency * 1000000 + ticks % frequency * 1000000 / frequency);
 }
 
 }  // namespace galaxy

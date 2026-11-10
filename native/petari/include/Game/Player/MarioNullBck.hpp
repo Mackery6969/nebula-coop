@@ -8,11 +8,11 @@ public:
 
     virtual ~MarioNullBck();
 
-    virtual void init(const JMapInfoIter&);
+    virtual void init(const TableIter&);
     virtual void appear();
 
-    void getLastPos(TVec3f*);
-    bool getFramePos(f32, TVec3f*, TVec3f*);
+    void getLastPos(Vec3f*);
+    bool getFramePos(f32, Vec3f*, Vec3f*);
 
-    u16 _8C;
+    u16 mLastFrame;  // the frame last set (getFramePos)
 };

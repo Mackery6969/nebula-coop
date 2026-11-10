@@ -4,12 +4,23 @@
 
 class CubeGravity : public PlanetGravity {
 public:
+    // mActiveFaces bits: a face that is off pulls nothing beyond it.
+    enum {
+        Face_PositiveX = 1 << 0,
+        Face_NegativeX = 1 << 1,
+        Face_PositiveY = 1 << 2,
+        Face_NegativeY = 1 << 3,
+        Face_PositiveZ = 1 << 4,
+        Face_NegativeZ = 1 << 5,
+        Face_All = 0x3F,
+    };
+
     CubeGravity();
 
-    virtual void updateMtx(const TPos3f& rMtx);
-    virtual bool calcOwnGravityVector(TVec3f* pDest, f32* pScalar, const TVec3f& rPosition) const;
+    virtual void updateMtx(const Pos3f& rMtx) override;
+    virtual bool calcOwnGravityVector(Vec3f* pDest, f32* pScalar, const Vec3f& rPosition) const override;
 
-    void setCube(const TPos3f&);
+    void setCube(const Pos3f&);
 
     /*
      * Area as in region, not area as in Area = Base * h
@@ -24,13 +35,13 @@ public:
      *
      * `calcGravityArea` returns the encoded region
      */
-    int calcGravityArea(const TVec3f& rPosition) const;
-    bool calcFaceGravity(const TVec3f& rPosition, s32, TVec3f* pDest, f32* pScalar) const;
-    bool calcEdgeGravity(const TVec3f& rPosition, s32, TVec3f* pDest, f32* pScalar) const;
-    bool calcCornerGravity(const TVec3f& rPosition, s32, TVec3f* pDest, f32* pScalar) const;
+    int calcGravityArea(const Vec3f& rPosition) const;
+    bool calcFaceGravity(const Vec3f& rPosition, s32, Vec3f* pDest, f32* pScalar) const;
+    bool calcEdgeGravity(const Vec3f& rPosition, s32, Vec3f* pDest, f32* pScalar) const;
+    bool calcCornerGravity(const Vec3f& rPosition, s32, Vec3f* pDest, f32* pScalar) const;
 
-    TPos3f mCube;
-    TPos3f mPosition;
+    Pos3f mCube;
+    Pos3f mPosition;
     f32 lenX;
     f32 lenY;
     f32 lenZ;

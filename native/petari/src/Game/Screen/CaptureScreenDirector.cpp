@@ -1,45 +1,53 @@
 #include "Game/Screen/CaptureScreenDirector.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include "Game/Render/FrameList.hpp"
 #include "Game/Scene/SceneFunction.hpp"
-#include "Game/Util/MemoryUtil.hpp"
+#include "Game/System/Arenas.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/ScreenUtil.hpp"
+#include "Game/Util/StringUtil.hpp"
 #include "Game/System/NebulaArena.hpp"
-#include <JSystem/JUtility/JUTTexture.hpp>
+#include "Game/Render/GameTexture.hpp"
 #include "Game/System/NebulaFrameClock.hpp"
 #include <cstring>
 
 namespace {
-    const TimingInfo cTimingInfo[] = {{"GameScreen", 32, true, 1}, {"Indirect", 1, false, 0},    {"Camera", 4, true, 1},
-                                      {"WipeMap", 5, true, 1},     {"SystemWipe", 20, false, 1}, {"Unused", 16, false, 0}};
+    const TimingInfo cTimingInfo[] = {{"GameScreen", 32, 1}, {"Indirect", 1, 0},    {"Camera", 4, 1},
+                                      {"WipeMap", 5, 1},     {"SystemWipe", 20, 1}, {"Unused", 16, 0}};
 };  // namespace
 
-CaptureScreenDirector::CaptureScreenDirector() : NameObj("\211\346\226\312\203\114\203\203\203\166\203\140\203\203" /* 画面キャプチャ */), _C(nullptr), mTimingType("Indirect"), mTexture(nullptr), _18(false) {
-    MR::CurrentHeapRestorer heapRestorer(MR::getStationedHeap());
+CaptureScreenDirector::CaptureScreenDirector() : NameObj("画面キャプチャ"), mRequestedTiming(nullptr), mTimingType("Indirect"), mTexture(nullptr), mIsCaptureRequested(false), mRequestedInfo(nullptr), mTimingInfo(nullptr) {
+    NebulaArena::CurrentScope heapRestorer(Arenas::permanent());
 
-    mTexture = new JUTTexture(NebulaFrameClock::cScreenUnitsAcross, NebulaFrameClock::cScreenUnitsDown);
+    mTexture = GameTexture::createTarget(1.0f, 1.0f);
+    mTimingInfo = findFromName(mTimingType);
 }
 
 void CaptureScreenDirector::captureIfAllow(const char* pName) {
     const TimingInfo* pInfo = findFromName(pName);
 
-    if (getUsingTiming() == pInfo && (getUsingTiming()->_C == 0 || _18)) {
+    if (getUsingTiming() == pInfo && (getUsingTiming()->mRequestOnly == 0 || mIsCaptureRequested)) {
         capture();
 
-        _18 = false;
+        mIsCaptureRequested = false;
     }
 }
 
 void CaptureScreenDirector::capture() {
-    mTexture->frameColor();
+    mTexture->copyFrame();
 }
 
 void CaptureScreenDirector::requestCaptureTiming(const char* pName) {
     const TimingInfo* pInfo = findFromName(pName);
 
+    // A timing name the table lacks asks for nothing.
+    if (pInfo == nullptr) {
+        return;
+    }
+
     if (getCurrentTiming() == nullptr || getCurrentTiming()->mTiming < pInfo->mTiming) {
-        _C = pName;
-        _18 = true;
+        mRequestedTiming = pName;
+        mRequestedInfo = pInfo;
+        mIsCaptureRequested = true;
     }
 }
 
@@ -47,27 +55,28 @@ void CaptureScreenDirector::invalidateCaptureTiming(const char* pName) {
     const TimingInfo* pInfo = getCurrentTiming();
 
     if (pInfo != nullptr) {
-        if (strcmp(pInfo->mName, pName) == 0) {
-            _C = nullptr;
+        if (MR::isEqualString(pInfo->mName, pName)) {
+            mRequestedTiming = nullptr;
+            mRequestedInfo = nullptr;
         }
     }
 }
 
 const ResTIMG* CaptureScreenDirector::getResTIMG() const {
-    return mTexture->mTIMG;
+    return mTexture->info();
 }
 
 const TimingInfo* CaptureScreenDirector::getUsingTiming() const {
-    if (_C != nullptr) {
-        return findFromName(_C);
+    if (mRequestedTiming != nullptr) {
+        return mRequestedInfo;
     }
 
-    return findFromName(mTimingType);
+    return mTimingInfo;
 }
 
 const TimingInfo* CaptureScreenDirector::getCurrentTiming() const {
-    if (_C != nullptr) {
-        return findFromName(_C);
+    if (mRequestedTiming != nullptr) {
+        return mRequestedInfo;
     }
 
     return nullptr;
@@ -75,7 +84,7 @@ const TimingInfo* CaptureScreenDirector::getCurrentTiming() const {
 
 const TimingInfo* CaptureScreenDirector::findFromName(const char* pName) const {
     for (u32 i = 0; i < ARRAY_SIZE(::cTimingInfo); i++) {
-        if (strcmp(::cTimingInfo[i].mName, pName) == 0) {
+        if (MR::isEqualString(::cTimingInfo[i].mName, pName)) {
             return &::cTimingInfo[i];
         }
     }
@@ -83,7 +92,7 @@ const TimingInfo* CaptureScreenDirector::findFromName(const char* pName) const {
     return nullptr;
 }
 
-CaptureScreenActor::CaptureScreenActor(u32 drawType, const char* pCameraName) : NameObj("\211\346\226\312\203\114\203\203\203\166\203\140\203\203" /* 画面キャプチャ */), mCameraName(pCameraName) {
+CaptureScreenActor::CaptureScreenActor(u32 drawType, const char* pCameraName) : NameObj("画面キャプチャ"), mCameraName(pCameraName) {
     MR::connectToScene(this, MR::MovementType_None, MR::CalcAnimType_None, MR::DrawBufferType_None, drawType);
 }
 

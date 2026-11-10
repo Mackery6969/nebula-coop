@@ -6,19 +6,19 @@ class Birikyu : public LiveActor {
 public:
     Birikyu(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void appear();
-    virtual void startClipped();
-    virtual void endClipped();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
+    virtual void appear() override;
+    virtual void startClipped() override;
+    virtual void endClipped() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
     virtual f32 getHitRadius() const;
     virtual const char* getCenterJointName() const;
 
-    void initFromJmpArgs(const JMapInfoIter&);
-    void initRail(const JMapInfoIter&);
+    void initFromJmpArgs(const TableIter&);
+    void initRail(const TableIter&);
     void initCollision();
     void initShadow();
     bool tryStopPointing();
@@ -30,25 +30,25 @@ public:
     void exeAttackWait();
     void exeStopPointing();
 
-    const char* _8C;
-    TVec3f _90;
-    TVec3f _9C;
-    bool _A8;
-    bool _A9;
-    TVec3f _AC;
-    TVec3f _B8;
-    f32 _C4;
-    f32 _C8;
+    const char* mObjName;
+    Vec3f mClipCenter;
+    Vec3f mCircleCenter;
+    bool mHasShadow;
+    bool mHasRail;
+    Vec3f mCircleAxis;
+    Vec3f mCircleFront;
+    f32 mCircleAngle;
+    f32 mSpeed;
 };
 
 class BirikyuWithFace : public Birikyu {
 public:
     BirikyuWithFace(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void calcAndSetBaseMtx();
-    virtual f32 getHitRadius() const;
-    virtual const char* getCenterJointName() const;
+    virtual void init(const TableIter&) override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual f32 getHitRadius() const override;
+    virtual const char* getCenterJointName() const override;
 
-    bool _CC;
+    bool mIsFaceReversed;
 };

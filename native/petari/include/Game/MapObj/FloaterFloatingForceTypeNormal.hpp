@@ -6,10 +6,10 @@ class FloaterFloatingForceTypeNormal : public FloaterFloatingForce {
 public:
     FloaterFloatingForceTypeNormal(LiveActor*, const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void start();
-    virtual void updateHostTrans(TVec3f*) const;
-    virtual const TVec3f& getCurrentVelocity() const {
+    virtual void init(const TableIter&) override;
+    virtual void start() override;
+    virtual void updateHostTrans(Vec3f*) const override;
+    virtual const Vec3f& getCurrentVelocity() const override {
         return mVelocity;
     }
 
@@ -20,10 +20,9 @@ public:
     void exeMoveFirst();
     void exeMove();
 
-    f32 mRotateAngle;
-    f32 mRotateSpeed;
-    f32 _40;
-    f32 _44;
-    TVec3f mVelocity;
-    f32 _54;
+    f32 mRiseAccel;  // the placement's rotate-angle argument
+    f32 mSinkAccel;  // the placement's rotate-speed argument
+    f32 mSinkDepth;
+    f32 mSinkSpeed;
+    Vec3f mVelocity;
 };

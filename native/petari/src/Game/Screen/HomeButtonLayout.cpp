@@ -1,12 +1,8 @@
-#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Screen/HomeButtonLayout.hpp"
 #include "Game/Screen/NebulaHomeMenu.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeView.hpp>
 #include "Game/AudioLib/AudSystem.hpp"
 #include "Game/AudioLib/AudWrap.hpp"
 #include "Game/LiveActor/Nerve.hpp"
-#include "Game/Speaker/SpkSystem.hpp"
 #include "Game/System/GameSystemFunction.hpp"
 #include "Game/System/Language.hpp"
 #include "Game/System/PlayerInputs.hpp"
@@ -24,10 +20,10 @@ namespace NrvHomeButtonLayout {
     NEW_NERVE(HomeButtonLayoutActive, HomeButtonLayout, Active);
 };  // namespace NrvHomeButtonLayout
 
-HomeButtonLayout::HomeButtonLayout() : LayoutActor("HOME\203\173\203\136\203\223" /* HOMEボタン */, false), mIsInitialized(false), _24(), _25() {
+HomeButtonLayout::HomeButtonLayout() : LayoutActor("HOMEボタン", false), mIsInitialized(false), mForcedClosed(false) {
 }
 
-void HomeButtonLayout::init(const JMapInfoIter& rIter) {
+void HomeButtonLayout::init(const TableIter& /*rIter*/) {
     // The host keeps the menu (NebulaHomeMenu).
     mIsInitialized = true;
     initNerve(GET_NERVE(HomeButtonLayout, HomeButtonLayoutDeactive));
@@ -49,7 +45,6 @@ void HomeButtonLayout::exeDeactive() {
     if (MR::isFirstStep(this)) {
         mFlag.mIsHidden = true;
         mFlag.mIsOffCalcAnim = true;
-        _24 = false;
     }
 
     if (GameSystemFunction::isResetProcessing()) {
@@ -71,9 +66,6 @@ void HomeButtonLayout::exeActive() {
         // Natively the game draws the menu (NebulaSettingsMenu), under the game's own pointer.
         GameSystemFunction::onHomeButtonMenuBeginAllRumble();
         MR::setPlayerInputsModeHome();
-
-        if (_24) {
-        }
 
         mFlag.mIsHidden = false;
         mFlag.mIsOffCalcAnim = false;
@@ -100,7 +92,7 @@ void HomeButtonLayout::exeActive() {
         MR::setStarPointerModeBase();
         break;
     case NebulaHomeMenu::cChoiceReset:
-        if (!_25) {
+        if (!mForcedClosed) {
             AudWrap::getSystem()->preProcessToReset();
         }
 
@@ -115,7 +107,6 @@ void HomeButtonLayout::exeActive() {
 
     if (!bVar1) {
         AudWrap::getSystem()->exitHomeButtonMenu();
-        SpkSystem::reconnect(-1);
     }
 
     if (MR::isStarPointerModeHomeButton()) {
@@ -124,28 +115,9 @@ void HomeButtonLayout::exeActive() {
 
     MR::setPlayerInputsModeGame();
 
-    if (_24) {
-    }
-
-    _25 = false;
+    mForcedClosed = false;
 
     setNerve(GET_NERVE(HomeButtonLayout, HomeButtonLayoutDeactive));
-}
-
-void HomeButtonLayout::draw() const {
-    if (MR::isDead(this) || MR::isHiddenLayout(this)) {
-        return;
-    }
-
-    Mtx44 projectionMtx;
-    f32 screenHalfHeight = static_cast< s32 >(NebulaFrameClock::cScreenUnitsDown) / 2.0f;
-    f32 screenHalfWidth = MR::getScreenWidth() / 2.0f;
-    NebulaMtxOrtho(projectionMtx, screenHalfHeight, -screenHalfHeight, -screenHalfWidth, screenHalfWidth, 0.0f, 500.0f);
-    J3DNativeView::setOrthographic(projectionMtx);
-
-    J3DPass::cull(NEBULA_CULL_NONE);
-    J3DPass::depth(false, NEBULA_COMPARE_NEVER, false);
-    // The library drew the menu here; the game draws it with its settings menu (NebulaSettingsMenu).
 }
 
 void HomeButtonLayout::forceToDeactive() {
@@ -154,7 +126,7 @@ void HomeButtonLayout::forceToDeactive() {
     }
 
     NebulaHomeMenu::close();
-    _25 = true;
+    mForcedClosed = true;
 }
 
 bool HomeButtonLayout::isActive() const {
@@ -167,7 +139,7 @@ bool HomeButtonLayout::isActive() const {
 
 
 bool HomeButtonLayout::tryPressedHome() {
-    for (s32 i = 0; i < MR::getPlayerMaxCount(); i++) {
+    for (u32 i = 0; i < MR::getPlayerMaxCount(); i++) {
         if (MR::isPressedHome(i)) {
             return true;
         }

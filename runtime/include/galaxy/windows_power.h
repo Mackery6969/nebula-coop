@@ -1,15 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// Thread naming, the power-throttling opt-out and performance-core selection for the host's threads.
+// Thread naming, the timer-resolution hold and the power-throttling opt-out for the host's threads.
 #pragma once
 
 #if defined(_WIN32)
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <Windows.h>
+#include "galaxy/windows_api.h"
 #include <atomic>
 
 #include <cstddef>
@@ -29,17 +23,31 @@ inline void name_current_thread(const wchar_t* name) noexcept {
                  static_cast<unsigned long>(GetCurrentThreadId()));
 }
 
-// Background work (the shape builder): the calling thread runs where the game's and the renderer's threads leave a
-// core idle.
-inline void lower_current_thread_priority() noexcept {
-    (void)SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_LOWEST);
+// Whether the machine runs on its battery, as the OS says (SYSTEM_POWER_STATUS: ACLineStatus 0 offline, 1 online, 255 not
+// known); false when it cannot say.
+[[nodiscard]] inline bool running_on_battery() noexcept {
+    SYSTEM_POWER_STATUS status{};
+    return GetSystemPowerStatus(&status) != FALSE && status.ACLineStatus == 0;
 }
 
-// Request execution-speed QoS for the process and calling thread, and retain
-// the process's timer-resolution requests when Windows supports that policy.
-// This does not select a core or override thermal/power limits. The timer flag
-// requires a newer OS than execution-speed control, so retry the older policy
-// if the combined request is rejected. Unsupported OS versions may reject both.
+// The calling thread asks the OS for efficiency (EcoQoS: efficiency cores and lower clocks), or takes the request back.
+inline void set_current_thread_efficiency(bool efficient) noexcept {
+    THREAD_POWER_THROTTLING_STATE state{};
+    state.Version = THREAD_POWER_THROTTLING_CURRENT_VERSION;
+    state.ControlMask = THREAD_POWER_THROTTLING_EXECUTION_SPEED;
+    state.StateMask = efficient ? THREAD_POWER_THROTTLING_EXECUTION_SPEED : 0u;
+    (void)SetThreadInformation(GetCurrentThread(), ThreadPowerThrottling, &state, sizeof(state));
+}
+
+// Background work (the shape builder, loaders): the calling thread runs where the game's and the renderer's threads leave a
+// core idle, and on battery asks for efficiency too (the frame threads never do: the frame's time is what the battery buys).
+inline void lower_current_thread_priority() noexcept {
+    (void)SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_LOWEST);
+    if (running_on_battery()) {
+        set_current_thread_efficiency(true);
+    }
+}
+
 // timeBeginPeriod(1) while held; repeated calls with the same value do nothing.
 inline void hold_high_resolution_timer(bool hold) noexcept {
     static std::atomic<bool> held{false};
@@ -52,6 +60,10 @@ inline void hold_high_resolution_timer(bool hold) noexcept {
     }
 }
 
+// Request execution-speed QoS for the process, and retain its timer-resolution requests when Windows supports that
+// policy. This does not select a core or override thermal/power limits. The timer flag requires a newer OS than
+// execution-speed control, so the older policy is requested if the combined request is rejected. Unsupported OS
+// versions may reject both.
 inline void opt_out_of_power_throttling_process() noexcept {
     PROCESS_POWER_THROTTLING_STATE state{};
     state.Version = PROCESS_POWER_THROTTLING_CURRENT_VERSION;
@@ -66,91 +78,32 @@ inline void opt_out_of_power_throttling_process() noexcept {
     }
 }
 
-// On a hybrid CPU (performance plus efficiency cores), restrict the calling
-// thread to the CPU set of the highest efficiency class so a critical-path
-// thread is never scheduled onto an efficiency core. Returns the number of
-// cores selected, or 0 when the machine is homogeneous or the query fails, in
-// which case nothing changes. Uses the documented CPU-set API rather than a
-// hard affinity mask so the scheduler keeps its freedom inside the set.
-inline unsigned pin_current_thread_to_performance_cores() noexcept {
-    using GetSystemCpuSetInformationFn = BOOL (WINAPI*)(
-        PSYSTEM_CPU_SET_INFORMATION, ULONG, PULONG, HANDLE, ULONG);
-    using SetThreadSelectedCpuSetsFn = BOOL (WINAPI*)(HANDLE, const ULONG*, ULONG);
-    const HMODULE kernel32 = GetModuleHandleW(L"kernel32.dll");
-    if (kernel32 == nullptr) {
-        return 0u;
+// The process asks the OS for efficiency (EcoQoS: efficiency cores, lower clocks, and no wish to keep the timer fast), or goes
+// back to the opt-out above. A thread that must keep its time (the audio device's) opts out on its own with
+// set_current_thread_efficiency(false); that wins over the process. The same fallback as the opt-out: the combined request first,
+// then execution speed alone.
+inline void set_process_efficiency(bool efficient) noexcept {
+    if (!efficient) {
+        opt_out_of_power_throttling_process();
+        return;
     }
-    const auto get_cpu_sets = reinterpret_cast<GetSystemCpuSetInformationFn>(
-        GetProcAddress(kernel32, "GetSystemCpuSetInformation"));
-    const auto set_cpu_sets = reinterpret_cast<SetThreadSelectedCpuSetsFn>(
-        GetProcAddress(kernel32, "SetThreadSelectedCpuSets"));
-    if (get_cpu_sets == nullptr || set_cpu_sets == nullptr) {
-        return 0u;
+    PROCESS_POWER_THROTTLING_STATE state{};
+    state.Version = PROCESS_POWER_THROTTLING_CURRENT_VERSION;
+    state.ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED | 0x4u;
+    state.StateMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED | 0x4u;
+    if (!SetProcessInformation(
+            GetCurrentProcess(), ProcessPowerThrottling, &state, sizeof(state))) {
+        state.ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED;
+        state.StateMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED;
+        (void)SetProcessInformation(
+            GetCurrentProcess(), ProcessPowerThrottling, &state, sizeof(state));
     }
-    ULONG required = 0;
-    (void)get_cpu_sets(nullptr, 0, &required, GetCurrentProcess(), 0);
-    if (required == 0 || required > (1u << 20)) {
-        return 0u;
-    }
-    unsigned char* storage = static_cast<unsigned char*>(
-        HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, required));
-    if (storage == nullptr) {
-        return 0u;
-    }
-    unsigned selected = 0u;
-    if (get_cpu_sets(
-            reinterpret_cast<PSYSTEM_CPU_SET_INFORMATION>(storage), required,
-            &required, GetCurrentProcess(), 0)) {
-        unsigned char best_class = 0;
-        unsigned char worst_class = 255;
-        ULONG count = 0;
-        for (ULONG offset = 0; offset + sizeof(SYSTEM_CPU_SET_INFORMATION) <= required;) {
-            const auto* info =
-                reinterpret_cast<const SYSTEM_CPU_SET_INFORMATION*>(storage + offset);
-            if (info->Size == 0) {
-                break;
-            }
-            if (info->Type == CpuSetInformation) {
-                const unsigned char cls = info->CpuSet.EfficiencyClass;
-                best_class = cls > best_class ? cls : best_class;
-                worst_class = cls < worst_class ? cls : worst_class;
-                ++count;
-            }
-            offset += info->Size;
-        }
-        // Homogeneous machines have one class; leave the scheduler alone.
-        if (count != 0 && best_class != worst_class) {
-            ULONG* ids = static_cast<ULONG*>(
-                HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(ULONG) * count));
-            if (ids != nullptr) {
-                ULONG id_count = 0;
-                for (ULONG offset = 0;
-                     offset + sizeof(SYSTEM_CPU_SET_INFORMATION) <= required;) {
-                    const auto* info = reinterpret_cast<const SYSTEM_CPU_SET_INFORMATION*>(
-                        storage + offset);
-                    if (info->Size == 0) {
-                        break;
-                    }
-                    // Parked is a transient power state, not a capability:
-                    // the scheduler unparks cores under load, so every
-                    // logical CPU of the class belongs in the set.
-                    if (info->Type == CpuSetInformation &&
-                        info->CpuSet.EfficiencyClass == best_class) {
-                        ids[id_count++] = info->CpuSet.Id;
-                    }
-                    offset += info->Size;
-                }
-                // Fewer than four logical CPUs cannot host the simulation and
-                // render threads plus their helpers without contention.
-                if (id_count >= 4u && set_cpu_sets(GetCurrentThread(), ids, id_count)) {
-                    selected = static_cast<unsigned>(id_count);
-                }
-                HeapFree(GetProcessHeap(), 0, ids);
-            }
-        }
-    }
-    HeapFree(GetProcessHeap(), 0, storage);
-    return selected;
+}
+
+// The display (and with it the system) stays awake while held, or the OS's own idle timers rule again. Per thread: call both from
+// the same thread (the host's main thread).
+inline void keep_display_on(bool keep) noexcept {
+    (void)SetThreadExecutionState(keep ? (ES_CONTINUOUS | ES_DISPLAY_REQUIRED) : ES_CONTINUOUS);
 }
 
 }  // namespace galaxy::host
@@ -180,15 +133,5 @@ inline void name_current_thread(const wchar_t* name) noexcept {
 #endif
 }
 inline void opt_out_of_power_throttling_process() noexcept {}
-inline unsigned pin_current_thread_to_performance_cores() noexcept { return 0u; }
-// Background work (the shape builder): the calling thread runs where the game's and the renderer's threads leave a
-// core idle.
-inline void lower_current_thread_priority() noexcept {
-#if defined(__APPLE__)
-    (void)pthread_set_qos_class_self_np(QOS_CLASS_UTILITY, 0);
-#else
-    (void)setpriority(PRIO_PROCESS, static_cast<id_t>(syscall(SYS_gettid)), 10);
-#endif
-}
 }  // namespace galaxy::host
 #endif

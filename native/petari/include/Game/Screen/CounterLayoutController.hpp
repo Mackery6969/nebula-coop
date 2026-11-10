@@ -14,10 +14,10 @@ public:
     /// @brief Creates a new `CounterLayoutController`.
     CounterLayoutController();
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void appear();
-    virtual void kill();
-    virtual void control();
+    virtual void init(const TableIter& rIter) override;
+    virtual void appear() override;
+    virtual void kill() override;
+    virtual void control() override;
 
     void forceAppear();
     void setHPMeter(MarioMeter*);
@@ -35,7 +35,7 @@ public:
     void exePlayerNotMoving();
 
     s32 mPlayerNotMovingFrame;
-    bool _24;
+    bool mIsTicoEatRequested;
     CoinCounter* mCoinCounter;
     StarPieceCounter* mStarPieceCounter;
     PlayerLeft* mPlayerLeft;

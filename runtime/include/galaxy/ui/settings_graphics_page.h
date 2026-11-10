@@ -8,7 +8,8 @@ struct TexturePackSummary {
     std::uint64_t textures = 0;
     std::uint64_t levels = 0;
     bool indexed = false;
-    std::vector<std::string> unreadable;
+    std::vector<std::string> dolphin;  // tex1_ files outside the mods (not converted)
+    std::vector<std::string> unknown;  // files naming none of the game's textures
 };
 
 struct GraphicsPageState {
@@ -22,6 +23,7 @@ struct GraphicsPageState {
     bool temporal_upscaling = false;
     bool spatial_upscaling = false;
     bool curved_surfaces_offered = false;
+    bool folders_open = true;  // the platform shows a folder's files (host_window::folders_open)
     double measured_fps = 0;
     FrameRateCaps frame_rates;
     std::string anti_aliasing_text;

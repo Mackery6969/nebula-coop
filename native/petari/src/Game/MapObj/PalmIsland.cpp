@@ -8,25 +8,22 @@
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
-#include <JSystem/JMath/JMATrigonometric.hpp>
+#include <nebula_geometry.hpp>
 
 namespace NrvPalmIsland {
     NEW_NERVE(PalmIslandNrvWait, PalmIsland, Wait);
     NEW_NERVE(PalmIslandNrvFloat, PalmIsland, Float);
 };  // namespace NrvPalmIsland
 
-PalmIsland::~PalmIsland() {
-}
-
 PalmIsland::PalmIsland(const char* pName) : LiveActor(pName) {
-    _8C = 0;
-    _90.x = 0.0f;
-    _90.y = 0.0f;
-    _90.z = 0.0f;
-    _9C = 0;
+    mFloatStartStep = 0;
+    mRipplePos.x = 0.0f;
+    mRipplePos.y = 0.0f;
+    mRipplePos.z = 0.0f;
+    mIsRising = 0;
 }
 
-void PalmIsland::init(const JMapInfoIter& rIter) {
+void PalmIsland::init(const TableIter& rIter) {
     HitSensor* sensor;
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("PalmIsland", nullptr, false);
@@ -35,38 +32,34 @@ void PalmIsland::init(const JMapInfoIter& rIter) {
     MR::addBodyMessageSensorMapObj(this);
     sensor = getSensor("body");
     MR::initCollisionParts(this, "PalmIsland", sensor, nullptr);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initSound(2, false);
     MR::setClippingTypeSphereContainsModelBoundingBox(this, 100.0f);
-    _8C = MR::getRandom(0, 60);
+    mFloatStartStep = MR::getRandom(0, 60);
     initNerve(GET_NERVE(PalmIsland, PalmIslandNrvWait));
     makeActorAppeared();
 }
 
 inline void PalmIsland::exeWait() {
-    if (MR::isStep(this, _8C)) {
+    if (MR::isStep(this, mFloatStartStep)) {
         setNerve(GET_NERVE(PalmIsland, PalmIslandNrvFloat));
     }
 }
 
 void PalmIsland::exeFloat() {
     if (MR::isFirstStep(this)) {
-        _90 = mPosition;
+        mRipplePos = mPosition;
         MR::emitEffect(this, "Ripple");
-        MR::setEffectHostSRT(this, "Ripple", &_90, nullptr, nullptr);
+        MR::setEffectHostSRT(this, "Ripple", &mRipplePos, nullptr, nullptr);
     }
 
     f32 value = MR::sinDegree(90.0f + 1.44f * getNerveStep()) * 1.5f;
-    bool temp = false;
+    bool isRising = value > 0.0f;
 
-    if (value > 0.0f) {
-        temp = true;
-    }
-
-    if (temp != _9C) {
+    if (isRising != mIsRising) {
         MR::startSound(this, "SE_OJ_PALM_ISLAND_WAVE");
     }
 
-    _9C = temp;
+    mIsRising = isRising;
     mVelocity.scale(value, *getGravity());
 }

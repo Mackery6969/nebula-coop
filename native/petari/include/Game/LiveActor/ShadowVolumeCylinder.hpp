@@ -6,8 +6,8 @@ class ShadowVolumeCylinder : public ShadowVolumeModel {
 public:
     ShadowVolumeCylinder();
 
-    virtual ~ShadowVolumeCylinder();
-    virtual void loadModelDrawMtx() const;
+    virtual ~ShadowVolumeCylinder() override;
+    virtual void loadModelDrawMtx(TypedDraw& rDraw) const override;
 
     void setRadius(f32);
 

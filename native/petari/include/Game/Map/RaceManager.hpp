@@ -3,7 +3,7 @@
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/Util/Array.hpp"
 #include "Game/Screen/LayoutActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class PlayerRacer;
 class RaceManager;
@@ -18,13 +18,11 @@ enum RaceID {
 
 class RaceManagerLayout : public LayoutActor {
 public:
-    /// @brief Creates a new `RaceManagerLayout`.
-    /// @param pName A pointer to the null-terminated name of the object.
     RaceManagerLayout(const char* pName);
 
     /// @brief Intializes the `RaceManagerLayout` while being placed into a scene.
-    /// @param rIter The reference to an iterator over a `JMapInfo`.
-    virtual void init(const JMapInfoIter& rIter);
+    /// @param rIter The reference to an iterator over a `Table`.
+    virtual void init(const TableIter& rIter) override;
 
     void playCountAndGo();
     void playGo();
@@ -44,14 +42,12 @@ public:
 
 class AbstractRacer {
 public:
-    /// @brief Creates a new `AbstractRacer`.
     AbstractRacer() {
         initRacer();
     }
 
     virtual void initRacer() {
         mRailCoord = 0.0f;
-        _8 = 0.0f;
         mCurrPosition.zero();
         mPrevPosition.zero();
     }
@@ -68,14 +64,12 @@ public:
     }
 
     f32 mRailCoord;
-    f32 _8;
-    TVec3f mCurrPosition;
-    TVec3f mPrevPosition;
+    Vec3f mCurrPosition;
+    Vec3f mPrevPosition;
 };
 
 class AbstractAudience {
 public:
-    /// @brief Creates a new `AbstractAudience`.
     AbstractAudience() {
     }
 
@@ -85,14 +79,13 @@ public:
 
 class RaceManager : public LiveActor {
 public:
-    /// @brief Creates a new `RaceManager`.
     RaceManager();
 
     /// @brief Intializes the `RaceManager` while being placed into a scene.
-    /// @param rIter The reference to an iterator over a `JMapInfo`.
-    virtual void init(const JMapInfoIter& rIter);
+    /// @param rIter The reference to an iterator over a `Table`.
+    virtual void init(const TableIter& rIter) override;
 
-    virtual void movement();
+    virtual void movement() override;
 
     void exeWait();
     void exePrep();
@@ -121,15 +114,15 @@ public:
 
     s32 mCurrentRace;
     RaceManagerLayout* mLayout;
-    MR::FixedArray< AbstractRacer*, 10 > mRacer;
-    MR::FixedArray< AbstractAudience*, 10 > mAudience;
+    MR::InlineArray< AbstractRacer*, 10 > mRacer;
+    MR::InlineArray< AbstractAudience*, 10 > mAudience;
     u32 mRacerNum;
     u32 mAudienceNum;
     u32 mRank;
     u32 mBestTime;
     u32 mTime;
     PlayerRacer* mPlayerRacer;
-    TPos3f _FC;
+    Pos3f mGoalInvMtx;
 };
 
 namespace RaceManagerFunction {

@@ -1,4 +1,5 @@
 #include "Game/NPC/PenguinCoach.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/LiveActorGroup.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Map/RaceManager.hpp"
@@ -11,7 +12,7 @@
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/DemoUtil.hpp"
 #include "Game/Util/EventUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/JointUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/NPCUtil.hpp"
@@ -20,9 +21,10 @@
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/TalkUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const f32 sTurnSpeed = 180.0f;
+    NEBULA_TUNABLE(f32, sTurnSpeed, 180.0f);
 };  // namespace
 
 namespace NrvPenguinCoach {
@@ -39,7 +41,7 @@ namespace NrvPenguinCoach {
 PenguinCoach::PenguinCoach(const char* pName) : NPCActor(pName), mIsRaceComplete(), mTakeOutStar(), mBehavior(-1), mCameraInfo() {
 }
 
-void PenguinCoach::init(const JMapInfoIter& rIter) {
+void PenguinCoach::init(const TableIter& rIter) {
     NPCActorCaps caps("PenguinCoach");
     caps.setDefault();
     caps.mWaitNerve = GET_NERVE(PenguinCoach, PenguinCoachNrvWait);
@@ -47,11 +49,11 @@ void PenguinCoach::init(const JMapInfoIter& rIter) {
     caps.mShadowSize = 130.0f;
     caps.mSensor = false;
     caps.mMakeActor = false;
-    caps.mMessageOffset = TVec3f(0.0f, 430.0f, 0.0f);
+    caps.mMessageOffset = Vec3f(0.0f, 430.0f, 0.0f);
     caps.mPointerSize = 180.0f;
     caps.mStarPointerOffs.set(0.0f, 200.0f, 80.0f);
 
-    MR::getJMapInfoArg0NoInit(rIter, &mBehavior);
+    MR::getPlacementArg0NoInit(rIter, &mBehavior);
 
     initialize(rIter, caps);
 
@@ -66,14 +68,14 @@ void PenguinCoach::init(const JMapInfoIter& rIter) {
     }
 
     initHitSensor(2);
-    MR::addHitSensorPush(this, "body", 8, 160.0f, TVec3f(0.0f, 150.0f, 0.0f));
-    MR::addHitSensorPush(this, "head", 8, 150.0f, TVec3f(0.0f, 300.0f, 40.0f));
+    MR::addHitSensorPush(this, "body", 8, 160.0f, Vec3f(0.0f, 150.0f, 0.0f));
+    MR::addHitSensorPush(this, "head", 8, 150.0f, Vec3f(0.0f, 300.0f, 40.0f));
 
     if (mBehavior == Behavior_Tutorial || mBehavior == Behavior_Race) {
         if (mBehavior == Behavior_Tutorial) {
-            MR::initMultiActorCamera(this, rIter, &mCameraInfo, "\203\140\203\205\201\133\203\147\203\212\203\101\203\213" /* チュートリアル */);  // tutorial
+            MR::initMultiActorCamera(this, rIter, &mCameraInfo, "チュートリアル");  // tutorial
         }
-        MR::initMultiActorCamera(this, rIter, &mCameraInfo, "\211\357\230\142" /* 会話 */);  // conversation
+        MR::initMultiActorCamera(this, rIter, &mCameraInfo, "会話");  // conversation
 
         MR::joinToGroupArray(this, rIter, nullptr, 0x20);
         MR::invalidateClipping(this);
@@ -88,17 +90,17 @@ void PenguinCoach::init(const JMapInfoIter& rIter) {
     mTurnJointCtrl = new TurnJointCtrl(this);
     mTurnJointCtrl->init(90.0f, 10.0f, 40.0f);
     mTurnJointCtrl->addFace("Head", 1.0f, TurnJointCtrl::X, TurnJointCtrl::Y, TurnJointCtrl::Z);
-    mTurnJointCtrl->_60 = 0.1f;
-    mTurnJointCtrl->_5C = 800.0f;
+    mTurnJointCtrl->mStareRate = 0.1f;
+    mTurnJointCtrl->mStareDist = 800.0f;
     makeActorAppeared();
 
     mParam.setMoveAction("Wait", "Turn");
     mParam.setTalkAction("Talk", "TalkTurn");
-    mParam._8 = 1.0f;
-    _134 = "Trampled";
-    _13C = "Reaction";
-    _130 = "Reaction";
-    _138 = "Pointing";
+    mParam.mTurnSpeed = 1.0f;
+    mTrampleAction = "Trampled";
+    mReactionAction = "Reaction";
+    mSpinAction = "Reaction";
+    mPointingAction = "Pointing";
 
     if (mMsgCtrl != nullptr) {
         MR::registerBranchFunc(getMsgCtrl(), TalkMessageFunc(this, &PenguinCoach::branchFunc));
@@ -110,7 +112,10 @@ void PenguinCoach::init(const JMapInfoIter& rIter) {
 void PenguinCoach::initAfterPlacement() {
     if (mBehavior == Behavior_Tutorial) {
         LiveActorGroup* group = MR::getGroupFromArray(this);
-        mActor = group->getActor(0) == this ? group->getActor(1) : group->getActor(0);
+        // A coach placed without its group (or alone in it) has no student to watch.
+        if (group != nullptr && group->getObjNum() > 1) {
+            mActor = group->getActor(0) == this ? group->getActor(1) : group->getActor(0);
+        }
     }
 }
 
@@ -121,7 +126,7 @@ void PenguinCoach::calcAndSetBaseMtx() {
 
 bool PenguinCoach::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
     if (MR::isMsgPlayerSpinAttack(msg)) {
-        _E3 = true;
+        mIsSpinAttacked = true;
         return true;
     }
 
@@ -129,7 +134,7 @@ bool PenguinCoach::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor
 }
 
 void PenguinCoach::control() {
-    TVec3f starePos;
+    Vec3f starePos;
     MR::calcPlayerFaceStarePos(&starePos, MR::getJointMtx(this, "Head"), getBaseMtx());
     mTurnJointCtrl->setStarePos(starePos);
     mTurnJointCtrl->update();
@@ -140,30 +145,30 @@ bool PenguinCoach::branchFunc(u32 state) {
     if (state == 0) {
         return MR::isPlayerCarryAny();
     } else if (state == 1) {
-        return MR::isPlayerCarryAny() && MR::isPlayerTakingActor("\203\123\201\133\203\213\203\146\203\223\215\142\227\205" /* ゴールデン甲羅 */);
+        return MR::isPlayerCarryAny() && MR::isPlayerTakingActor("ゴールデン甲羅");
     } else if (state == 2) {
         return MR::isOnGameEventFlagSurfingTutorialAtFirst();
     } else if (state == 3) {
         return mIsRaceComplete;
     } else if (state == 4) {
-        return MR::getRaceCurrentTime() < 90 * 60;
+        return MR::getRaceCurrentTime() < NebulaFrameClock::stepsOfSeconds(90);
     } else if (state == 5) {
-        return MR::getRaceCurrentTime() < 180 * 60;
+        return MR::getRaceCurrentTime() < NebulaFrameClock::stepsOfSeconds(180);
     }
 
     return false;
 }
 
 void PenguinCoach::setTutorialPos() {
-    MR::setNPCActorPos(this, "\203\122\201\133\203\140\203\140\203\205\201\133\203\147\203\212\203\101\203\213\210\312\222\165" /* コーチチュートリアル位置 */);
+    MR::setNPCActorPos(this, "コーチチュートリアル位置");
 }
 
 void PenguinCoach::setPlayerNoSelectionPos() {
-    MR::setPlayerPos("\202\242\202\242\202\246\221\111\221\360\210\332\223\256\210\312\222\165" /* いいえ選択移動位置 */);
+    MR::setPlayerPos("いいえ選択移動位置");
 }
 
 void PenguinCoach::setFinishPos() {
-    MR::setNPCActorPos(this, "\203\122\201\133\203\140\203\214\201\133\203\130\217\111\227\271\214\343\210\312\222\165" /* コーチレース終了後位置 */);
+    MR::setNPCActorPos(this, "コーチレース終了後位置");
 }
 
 bool PenguinCoach::eventFunc(u32 state) {
@@ -211,7 +216,7 @@ void PenguinCoach::exeRace() {
 void PenguinCoach::exePrep() {
     if (mBehavior == Behavior_Race) {
         if (MR::isTalkStart(mMsgCtrl)) {
-            MR::startMultiActorCameraTargetSelf(this, mCameraInfo, "\211\357\230\142" /* 会話 */);
+            MR::startMultiActorCameraTargetSelf(this, mCameraInfo, "会話");
         }
 
         if (MR::isTalkEnd(mMsgCtrl)) {
@@ -225,7 +230,7 @@ void PenguinCoach::exePrep() {
             MR::closeWipeFade();
             setNerve(GET_NERVE(PenguinCoach, PenguinCoachNrvFade));
         } else if (mBehavior == Behavior_Race && MR::tryTalkSelectRight(mMsgCtrl)) {
-            MR::endMultiActorCamera(this, mCameraInfo, "\211\357\230\142" /* 会話 */, false);
+            MR::endMultiActorCamera(this, mCameraInfo, "会話", false);
         }
     }
 }
@@ -247,7 +252,7 @@ void PenguinCoach::exeFade() {
     if (mBehavior == Behavior_Tutorial) {
         if (MR::isOnGameEventFlagSurfingTutorialAtFirst()) {
             if (MR::tryTalkSelectLeft(mMsgCtrl)) {
-                MR::startMultiActorCameraTargetSelf(this, mCameraInfo, "\203\140\203\205\201\133\203\147\203\212\203\101\203\213" /* チュートリアル */, 0);
+                MR::startMultiActorCameraTargetSelf(this, mCameraInfo, "チュートリアル", 0);
                 setTutorialPos();
                 setNerve(GET_NERVE(PenguinCoach, PenguinCoachNrvTutorial));
             } else {
@@ -257,7 +262,7 @@ void PenguinCoach::exeFade() {
             }
         } else {
             if (MR::tryTalkSelectLeft(mMsgCtrl)) {
-                MR::startMultiActorCameraTargetSelf(this, mCameraInfo, "\203\140\203\205\201\133\203\147\203\212\203\101\203\213" /* チュートリアル */, 0);
+                MR::startMultiActorCameraTargetSelf(this, mCameraInfo, "チュートリアル", 0);
                 setTutorialPos();
                 setNerve(GET_NERVE(PenguinCoach, PenguinCoachNrvTutorial));
             } else {
@@ -267,8 +272,8 @@ void PenguinCoach::exeFade() {
             }
         }
     } else {
-        MR::setPlayerPos("\203\130\203\136\201\133\203\147\210\312\222\165\201\151\203\124\201\133\203\164\203\102\203\223\201\152" /* スタート位置（サーフィン） */);
-        MR::endMultiActorCamera(this, mCameraInfo, "\211\357\230\142" /* 会話 */, false, 0);
+        MR::setPlayerPos("スタート位置（サーフィン）");
+        MR::endMultiActorCamera(this, mCameraInfo, "会話", false, 0);
         setNerve(GET_NERVE(PenguinCoach, PenguinCoachNrvRace));
     }
 }
@@ -278,22 +283,22 @@ void PenguinCoach::exeReaction() {
         mTurnJointCtrl->endCtrl(4);
     }
 
-    if (_D8) {
+    if (mIsTrampledStart) {
         MR::startSound(this, "SE_SM_PENGUIN_TRAMPLED");
         MR::startSound(this, "SE_SV_PENGUIN_L_TRAMPLED");
     }
 
     if (isPointingSe()) {
         MR::startSound(this, "SE_SV_PENGUIN_L_POINTED_2P");
-        MR::startDPDHitSound();
+        MR::startPointerHitSound();
     }
 
-    if (_D9) {
+    if (mIsSpinAttackedStart) {
         MR::startSound(this, "SE_SV_PENGUIN_L_SPIN_HIT");
         MR::startSound(this, "SE_SM_PENGUIN_L_SPIN_HIT");
     }
 
-    if (_DB) {
+    if (mIsReactionStart) {
         MR::startSound(this, "SE_SV_PENGUIN_L_STAR_PIECE");
         MR::startSound(this, "SE_SM_PENGUIN_L_SPIN_HIT");
     }
@@ -306,18 +311,18 @@ void PenguinCoach::exeReaction() {
 void PenguinCoach::exeTutorial() {
     if (mTutorial->update()) {
         setNerve(GET_NERVE(PenguinCoach, PenguinCoachNrvRace));
-        MR::endMultiActorCamera(this, mCameraInfo, "\203\140\203\205\201\133\203\147\203\212\203\101\203\213" /* チュートリアル */, true, 120);
+        MR::endMultiActorCamera(this, mCameraInfo, "チュートリアル", true, 120);
         MR::onGameEventFlagSurfingTutorialAtFirst();
     }
 }
 
 void PenguinCoach::exePraise() {
     if (MR::isFirstStep(this)) {
-        MR::startMultiActorCameraTargetSelf(this, mCameraInfo, "\211\357\230\142" /* 会話 */, 0);
+        MR::startMultiActorCameraTargetSelf(this, mCameraInfo, "会話", 0);
     }
 
     if (MR::isWipeOpen() && MR::tryTalkForceAtEndAndStartTalkAction(this)) {
-        MR::endMultiActorCamera(this, mCameraInfo, "\211\357\230\142" /* 会話 */, true);
+        MR::endMultiActorCamera(this, mCameraInfo, "会話", true);
         setNerve(GET_NERVE(PenguinCoach, PenguinCoachNrvWait));
     }
 }

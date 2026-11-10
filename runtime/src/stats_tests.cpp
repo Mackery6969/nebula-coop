@@ -1,5 +1,6 @@
 // Stats: counting, names, keeping them across sessions, the background write (galaxy/stats.h).
 #include "galaxy/stats.h"
+#include "galaxy/test_temp.h"
 
 #include <chrono>
 #include <cstdio>
@@ -25,7 +26,7 @@ std::string read(const std::filesystem::path& path) {
 
 int main() {
     namespace st = galaxy::stats;
-    const std::filesystem::path path = std::filesystem::temp_directory_path() / "nebula_stats_test.ini";
+    const std::filesystem::path path = galaxy::test_temp_path("nebula_stats_test.ini");
     std::filesystem::remove(path);
     st::set_path_for_tests(path);
 
@@ -66,7 +67,10 @@ int main() {
     expect(st::get("coins") == 12u && st::get("deaths") == 2u && st::get("spins") == 0u, "a damaged file keeps its good lines");
 
     for (int i = 0; i < 80; ++i) st::add("c" + std::to_string(i), 1);
-    expect(st::get("c70") == 0u && st::get("c10") == 1u, "at most 64 counters");
+    expect(st::get("c70") == 1u && st::get("c10") == 1u && st::get("c79") == 1u, "any number of counters");
+    st::flush();
+    st::set_path_for_tests(path);
+    expect(st::get("c70") == 1u && st::get("c79") == 1u && st::get("coins") == 12u, "every counter in the file is kept");
 
     st::set_path_for_tests(path);
     std::filesystem::remove(path);

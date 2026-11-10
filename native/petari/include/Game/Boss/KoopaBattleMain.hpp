@@ -12,7 +12,6 @@ class KoopaBattleMain : public KoopaBattleBase {
 public:
     KoopaBattleMain(const char* pName, Koopa* pKoopa);
 
-    virtual ~KoopaBattleMain();
     virtual void init();
     virtual void appear();
 
@@ -33,7 +32,7 @@ public:
     bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
     bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
 
-#if !defined(NEBULA_RELEASE)
+#if defined(NEBULA_DEV)
     void testHit(HitSensor* pPlayer);
 #endif
     void startMainAttack();
@@ -46,5 +45,5 @@ public:
     KoopaStateAttackShockWave* mStateAttackShockWave;
     KoopaStateAttackRoll* mStateAttackRoll;
     KoopaStateAttackSpin* mStateAttackSpin;
-    bool _2C;
+    bool mIsMainAttackStarted;
 };

@@ -17,10 +17,11 @@
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Screen/NebulaPauseSettingsButton.hpp"
 #include "Game/Screen/NebulaSettingsMenu.hpp"
+#include "Game/Util/Tunable.hpp"
 
 
 namespace {
-    const s32 cBackSequenceFadeFrame = 90;
+    NEBULA_TUNABLE(s32, cBackSequenceFadeFrame, 90);
 
     bool isInvalidBackAstroDome() {
         return !MR::isOnGameEventFlagUseAstroDome() || (MR::isStageAstroLocation() && !MR::isEqualStageName("HeavensDoorGalaxy"));
@@ -50,12 +51,12 @@ namespace NrvPauseMenu {
 };  // namespace NrvPauseMenu
 
 PauseMenu::PauseMenu()
-    : LayoutActor("\203\174\201\133\203\131\203\201\203\152\203\205\201\133" /* ポーズメニュー */, true), _20(), _24(), _28(0.0f, 50.0f), _30(), mLuigiLetter(), _38(), mStageTitleOffset(0.0f, 39.0f),
-      mCoinNumPos(0.0f, 0.0f), mStarPieceNumPos(0.0f, 0.0f), _54(true) {
+    : LayoutActor("ポーズメニュー", true), mUpperButton(), mLowerButton(), mConfirmWindow(), mLuigiLetter(), mLetterButton(), mStageTitleOffset(0.0f, 39.0f),
+      mCoinNumPos(0.0f, 0.0f), mStarPieceNumPos(0.0f, 0.0f), mWasDefaultLayoutActive(true) {
     mSettingsButton = nullptr;
 }
 
-void PauseMenu::init(const JMapInfoIter& rIter) {
+void PauseMenu::init(const TableIter& /*rIter*/) {
     initLayoutManager("PauseMenu", 1);
     MR::createAndAddPaneCtrl(this, "BG", 1);
     MR::createAndAddPaneCtrl(this, "PicStagebase", 1);
@@ -79,11 +80,11 @@ void PauseMenu::init(const JMapInfoIter& rIter) {
 
     MR::connectToSceneLayoutOnPause(this);
 
-    _20 = new ButtonPaneController(this, "NBackUp", "BoxButton1", 0, true);
-    _20->_22 = false;
+    mUpperButton = new ButtonPaneController(this, "NBackUp", "BoxButton1", 0, true);
+    mUpperButton->mDisappearsAfterDecide = false;
 
-    _24 = new ButtonPaneController(this, "NBackDown", "BoxButton2", 0, true);
-    _24->_22 = false;
+    mLowerButton = new ButtonPaneController(this, "NBackDown", "BoxButton2", 0, true);
+    mLowerButton->mDisappearsAfterDecide = false;
 
     MR::setTextBoxGameMessageRecursive(this, "NBackDown", ::isInvalidBackAstroDome() ? "PauseMenu_ButtonEndGame" : "PauseMenu_ButtonBackAstroDome");
 
@@ -101,16 +102,16 @@ void PauseMenu::init(const JMapInfoIter& rIter) {
 
     updateStarPane();
 
-    _30 = MR::createSysInfoWindow();
+    mConfirmWindow = MR::createSysInfoWindow();
 
-    MR::connectToSceneLayoutOnPause(_30);
+    MR::connectToSceneLayoutOnPause(mConfirmWindow);
 
     if (MR::getLuigiLetterGalaxyName()) {
         mLuigiLetter = MR::createLuigiLetterForMenu();
         mLuigiLetter->initWithoutIter();
 
-        _38 = new ButtonPaneController(this, "LetterButton", "BoxButton3", 0, true);
-        _38->_22 = false;
+        mLetterButton = new ButtonPaneController(this, "LetterButton", "BoxButton3", 0, true);
+        mLetterButton->mDisappearsAfterDecide = false;
     } else {
         MR::hidePaneRecursive(this, "LetterButton");
     }
@@ -125,9 +126,9 @@ void PauseMenu::appear() {
     s32 coinNum = MR::getCoinNum();
     s32 starPieceNum = MR::getStarPieceNum();
 
-    _54 = MR::isActiveDefaultGameLayout();
+    mWasDefaultLayoutActive = MR::isActiveDefaultGameLayout();
 
-    if (_54) {
+    if (mWasDefaultLayoutActive) {
         MR::deactivateDefaultGameLayout();
     }
 
@@ -137,7 +138,7 @@ void PauseMenu::appear() {
     MR::setTextBoxNumberRecursive(this, "ShaPieceNum", starPieceNum);
     MR::setTextBoxGameMessageRecursive(this, "ShaMario", "PlayerLeft");
 
-    char16_t starPieceMessage[3];
+    char16_t starPieceMessage[3];  // two picture font codes and the terminator
 
     starPieceMessage[0] = MR::isStageAstroLocation() ? 0x57 : 0x3B;
     starPieceMessage[1] = 0x40;
@@ -145,14 +146,15 @@ void PauseMenu::appear() {
 
     MR::setTextBoxMessageRecursive(this, "ShaPiece", starPieceMessage);
     startPaneAnimWithoutButton("Appear");
-    _20->appear();
+    mUpperButton->appear();
 
-    if (_24 != nullptr) {
-        _24->appear();
+    if (mLowerButton != nullptr) {
+        mLowerButton->appear();
     }
 
-    if (MR::isOnLuigiHiding()) {
-        _38->appear();
+    // A stage with no letter galaxy made no letter button.
+    if (MR::isOnLuigiHiding() && mLetterButton != nullptr) {
+        mLetterButton->appear();
     }
 
     mSettingsButton->show();
@@ -198,23 +200,20 @@ void PauseMenu::kill() {
     LayoutActor::kill();
     mSettingsButton->kill();
 
-    if (_54) {
+    if (mWasDefaultLayoutActive) {
         MR::activateDefaultGameLayout();
     }
 }
 
 void PauseMenu::control() {
-    _20->update();
+    mUpperButton->update();
 
-    if (_24 != nullptr) {
-        _24->update();
-    } else {
-        _28.x = 0.0f;
-        _28.y = 50.0f;
+    if (mLowerButton != nullptr) {
+        mLowerButton->update();
     }
 
-    if (_38 != nullptr) {
-        _38->update();
+    if (mLetterButton != nullptr) {
+        mLetterButton->update();
     }
 
     mStageTitleOffset.y = 39.0f;
@@ -276,24 +275,24 @@ bool PauseMenu::isPaneAnimStoppedWithoutButton() const {
 }
 
 void PauseMenu::forceToWaitAllButton() {
-    _20->forceToWait();
+    mUpperButton->forceToWait();
 
-    if (_24 != nullptr) {
-        _24->forceToWait();
+    if (mLowerButton != nullptr) {
+        mLowerButton->forceToWait();
     }
 
-    bool b = _38 == nullptr || _38->isHidden();
+    bool b = mLetterButton == nullptr || mLetterButton->isHidden();
 
     if (!b) {
-        _38->forceToWait();
+        mLetterButton->forceToWait();
     }
 
     mSettingsButton->getButton()->forceToWait();
 }
 
 void PauseMenu::exeSelecting() {
-    bool isPointingTrigger = _20->isPointingTrigger() || (_24 != nullptr && _24->isPointingTrigger()) ||
-                             (!(_38 == nullptr || _38->isHidden()) && _38->isPointingTrigger());
+    bool isPointingTrigger = mUpperButton->isPointingTrigger() || (mLowerButton != nullptr && mLowerButton->isPointingTrigger()) ||
+                             (!(mLetterButton == nullptr || mLetterButton->isHidden()) && mLetterButton->isPointingTrigger());
     isPointingTrigger = isPointingTrigger || mSettingsButton->getButton()->isPointingTrigger();
 
     if (isPointingTrigger) {
@@ -302,7 +301,7 @@ void PauseMenu::exeSelecting() {
 
     bool isLetterHidden;
 
-    if (_20->trySelect() || (_24 != nullptr && _24->trySelect()) || (!(isLetterHidden = (_38 == nullptr || _38->isHidden())) && _38->trySelect())) {
+    if (mUpperButton->trySelect() || (mLowerButton != nullptr && mLowerButton->trySelect()) || (!(isLetterHidden = (mLetterButton == nullptr || mLetterButton->isHidden())) && mLetterButton->trySelect())) {
         setNerve(GET_NERVE(PauseMenu, PauseMenuNrvDecided));
         return;
     }
@@ -312,8 +311,8 @@ void PauseMenu::exeSelecting() {
         return;
     }
 
-    bool isAnimStopped = isPaneAnimStoppedWithoutButton() && !_20->isAppearing() && (_24 == nullptr || !_24->isAppearing()) &&
-                         ((_38 == nullptr || _38->isHidden()) || !_38->isAppearing());
+    bool isAnimStopped = isPaneAnimStoppedWithoutButton() && !mUpperButton->isAppearing() && (mLowerButton == nullptr || !mLowerButton->isAppearing()) &&
+                         ((mLetterButton == nullptr || mLetterButton->isHidden()) || !mLetterButton->isAppearing());
 
     if (isAnimStopped && (MR::isPressedPause(0) || MR::isPressedMap(0))) {
         MR::startSystemSE("SE_SY_PAUSE_OFF");
@@ -323,22 +322,22 @@ void PauseMenu::exeSelecting() {
 }
 
 void PauseMenu::exeDecided() {
-    if (_20->mIsSelected) {
-        if (_20->isTimingForSelectedSe()) {
+    if (mUpperButton->mIsSelected) {
+        if (mUpperButton->isTimingForSelectedSe()) {
             MR::startSystemSE("SE_SY_PAUSE_OFF");
             MR::startCSSound("CS_CLICK_CLOSE", nullptr, 0);
         }
 
-        if (_20->isDecidedWait()) {
+        if (mUpperButton->isDecidedWait()) {
             setNerve(GET_NERVE(PauseMenu, PauseMenuNrvDisappear));
         }
-    } else if (_24 != nullptr && _24->mIsSelected) {
-        if (_24->isTimingForSelectedSe()) {
+    } else if (mLowerButton != nullptr && mLowerButton->mIsSelected) {
+        if (mLowerButton->isTimingForSelectedSe()) {
             MR::startSystemSE("SE_SY_PAUSE_OFF");
             MR::startCSSound("CS_CLICK_CLOSE", nullptr, 0);
         }
 
-        if (_24->isDecidedWait()) {
+        if (mLowerButton->isDecidedWait()) {
             if (::isInvalidBackAstroDome() && ::isEndGameSave()) {
                 setNerve(GET_NERVE(PauseMenu, PauseMenuNrvGameDataSave));
             } else {
@@ -355,15 +354,15 @@ void PauseMenu::exeDecided() {
         }
     }
     else {
-        bool isLetterHidden = _38 == nullptr || _38->isHidden();
+        bool isLetterHidden = mLetterButton == nullptr || mLetterButton->isHidden();
 
-        if (!isLetterHidden && _38->mIsSelected) {
-            if (_38->isTimingForSelectedSe()) {
+        if (!isLetterHidden && mLetterButton->mIsSelected) {
+            if (mLetterButton->isTimingForSelectedSe()) {
                 MR::startSystemSE("SE_SY_FILE_SEL_UPPER_DECIDE");
                 MR::startCSSound("CS_CLICK_CLOSE", nullptr, 0);
             }
 
-            if (_38->isDecidedWait()) {
+            if (mLetterButton->isDecidedWait()) {
                 setNerve(GET_NERVE(PauseMenu, PauseMenuNrvLuigiLetter));
             }
         }
@@ -373,23 +372,23 @@ void PauseMenu::exeDecided() {
 void PauseMenu::exeDisappear() {
     if (MR::isFirstStep(this)) {
         startPaneAnimWithoutButton("End");
-        _20->disappear();
+        mUpperButton->disappear();
 
-        if (_24 != nullptr) {
-            _24->disappear();
+        if (mLowerButton != nullptr) {
+            mLowerButton->disappear();
         }
 
-        bool b = _38 == nullptr || _38->isHidden();
+        bool b = mLetterButton == nullptr || mLetterButton->isHidden();
 
         if (!b) {
-            _38->disappear();
+            mLetterButton->disappear();
         }
 
         mSettingsButton->hide();
     }
 
-    if (isPaneAnimStoppedWithoutButton() && _20->isHidden() && (_24 == nullptr || _24->isHidden())) {
-        bool b = _38 == nullptr || _38->isHidden();
+    if (isPaneAnimStoppedWithoutButton() && mUpperButton->isHidden() && (mLowerButton == nullptr || mLowerButton->isHidden())) {
+        bool b = mLetterButton == nullptr || mLetterButton->isHidden();
 
         if (b) {
             kill();
@@ -401,13 +400,13 @@ void PauseMenu::exeConfirm() {
     if (MR::isFirstStep(this)) {
         const char* pMessageId = ::isInvalidBackAstroDome() ? "PauseMenu_ConfirmEndGame" : "PauseMenu_ConfirmBackAstroDome";
 
-        _30->appear(pMessageId, SysInfoWindow::Type_YesNo, SysInfoWindow::TextPos_Center, SysInfoWindow::MessageType_System);
+        mConfirmWindow->appear(pMessageId, SysInfoWindow::Type_YesNo, SysInfoWindow::TextPos_Center, SysInfoWindow::MessageType_System);
         // Yes fades the screen out from a capture of it: the dim stays in that capture instead of lifting first.
-        _30->setDimHandOver(SysInfoWindow::DimHandOver_Yes);
+        mConfirmWindow->setDimHandOver(SysInfoWindow::DimHandOver_Yes);
     }
 
-    if (MR::isDead(_30)) {
-        if (_30->isSelectedYes()) {
+    if (MR::isDead(mConfirmWindow)) {
+        if (mConfirmWindow->isSelectedYes()) {
             MR::closeSystemWipeFadeWithCaptureScreen(::cBackSequenceFadeFrame);
 
             if (::isInvalidBackAstroDome()) {

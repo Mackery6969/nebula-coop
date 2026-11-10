@@ -8,18 +8,18 @@
 #include "Game/NameObj/NameObjExecuteHolder.hpp"
 #include "Game/Util.hpp"
 #include "Game/System/NebulaHost.hpp"
+#include "Game/Util/Tunable.hpp"
 
-ClippingActorInfo::ClippingActorInfo(LiveActor* pActor) {
-    mActor = pActor;
-    _4 = 0;
-    _8 = 0.0f;
-    mInfo = 0;
-    mFarClipLevel = 6;
-    _12 = -1;
-    _14 = 0;
-    mGround = nullptr;
-    mGroundFound = false;
-    setTypeToSphere(300.0f, 0);
+namespace {
+    // Distance a clipping sphere must pass beyond the view volume before an actor that runs is clipped (or stops being
+    // drawn while clipped); about the width of a large enemy, more than any camera or actor jitter at an edge.
+    NEBULA_TUNABLE(f32, sClipLeaveMargin, 150.0f);
+};  // namespace
+
+ClippingActorInfo::ClippingActorInfo(LiveActor* pActor)
+    : mActor(pActor), mCenter(), mRadius(0.0f), mInfo(), mFarClipLevel(6), mViewGroupId(-1), mViewGroup(), mGround(), mGroundFound(false), mList(),
+      mIndex(-1) {
+    setTypeToSphere(300.0f, nullptr);
 }
 
 void ClippingActorInfo::judgeClipping() {
@@ -34,15 +34,12 @@ void ClippingActorInfo::judgeClipping() {
     }
 }
 
+// An actor that runs leaves the frustum only once its sphere is a margin outside it; it comes back at the frustum itself.
+// With one test for both, a camera or actor moving by less than a unit across the edge started and stopped the actor's
+// effects every step (an emitter stopped and started leaves gaps, one deleted and made again restarts its particles).
 bool ClippingActorInfo::isJudgedToClip() const {
-    s32 farClipLevel = mFarClipLevel;
-    if (_14->_0 == 1) {
-        farClipLevel = 0;
-    }
-
-    f32 val = _8;
-    ClippingJudge* judge = MR::getClippingJudge();
-    return judge->isJudgedToClipFrustum(*_4, val, farClipLevel);
+    const f32 radius = MR::isClipped(mActor) ? mRadius : mRadius + ::sClipLeaveMargin;
+    return MR::getClippingJudge()->isJudgedToClipFrustum(*mCenter, radius, mViewGroup->mIsPlayerInside ? 0 : mFarClipLevel);
 }
 
 // The level's distances say when an actor runs; the camera says whether it is seen. Past its distance and in view it
@@ -50,9 +47,11 @@ bool ClippingActorInfo::isJudgedToClip() const {
 // in or goes dark. Scenery always; coins, enemies and characters once they have run: a level may place them where only
 // another scenario uses them (Space Junk's web coins), relying on their staying clipped there. Never over a planet that
 // is not there: view cubes and switches hide a planet and leave what stands on it to its distance.
+// A clipped actor already drawn stays so until its sphere is a margin outside the frustum (same reason as isJudgedToClip).
 bool ClippingActorInfo::isDrawnWhileClipped() const {
-    return !_14->_4 && !MR::isNoEntryDrawBuffer(mActor) && MR::isDrawnFarWhenClipped(mActor, mActor->mFlag.mHasPose) &&
-           !MR::getClippingJudge()->isJudgedToClipFrustum(*_4, _8, 0) && const_cast< ClippingActorInfo* >(this)->isGroundShown();
+    const f32 radius = mActor->mFlag.mIsDrawnClipped ? mRadius + ::sClipLeaveMargin : mRadius;
+    return !mViewGroup->mIsHidden && !MR::isNoEntryDrawBuffer(mActor) && MR::isDrawnFarWhenClipped(mActor, mActor->mFlag.mHasPose) &&
+           !MR::getClippingJudge()->isJudgedToClipFrustum(*mCenter, radius, 0) && const_cast< ClippingActorInfo* >(this)->isGroundShown();
 }
 
 bool ClippingActorInfo::isGroundShown() {
@@ -63,7 +62,7 @@ bool ClippingActorInfo::isGroundShown() {
     if (mGround == nullptr) {
         return true;
     }
-    return !mGround->_14->_4 && !MR::isDead(mGround->mActor) && !MR::isHiddenModel(mGround->mActor);
+    return !mGround->mViewGroup->mIsHidden &&!MR::isDead(mGround->mActor) && !MR::isHiddenModel(mGround->mActor);
 }
 
 void ClippingActorInfo::startClipped() {
@@ -118,89 +117,34 @@ bool ClippingActorInfo::isGroupClipping() const {
     return mInfo;
 }
 
-void ClippingActorInfo::setTypeToSphere(f32 radius, const TVec3f* pCenter) {
-    _8 = radius;
-    if (!pCenter) {
-        _4 = &mActor->mPosition;
-    } else {
-        _4 = pCenter;
-    }
+void ClippingActorInfo::setTypeToSphere(f32 radius, const Vec3f* pCenter) {
+    mRadius = radius;
+    mCenter = pCenter != nullptr ? pCenter : &mActor->mPosition;
 }
 
-void ClippingActorInfo::setGroupClippingNo(const JMapInfoIter& rIter) {
-    mInfo = new JMapIdInfo(MR::createJMapIdInfoFromClippingGroupId(rIter));
+void ClippingActorInfo::setGroupClippingNo(const TableIter& rIter) {
+    mInfo = new PlacementId(MR::createPlacementIdFromClippingGroupId(rIter));
 }
 
-ClippingActorInfoList::ClippingActorInfoList(int a1) {
-    _0 = a1;
-    _4 = 0;
-    mClippingActorList = 0;
-
-    mClippingActorList = new ClippingActorInfo*[a1];
-
-    for (s32 i = 0; i < _0; i++) {
-        mClippingActorList[i] = 0;
-    }
+ClippingActorInfoList::ClippingActorInfoList(s32 capacity)
+    : mCapacity(capacity), mCount(0), mClippingActorList(new ClippingActorInfo*[capacity]()) {
 }
 
 void ClippingActorInfoList::add(ClippingActorInfo* pInfo) {
-    if (_4 >= _0) {
-        const s32 grown = _0 * 2;
-        ClippingActorInfo** pList = new ClippingActorInfo*[grown]();
-        for (s32 i = 0; i < _4; i++) {
-            pList[i] = mClippingActorList[i];
-        }
-        delete[] mClippingActorList;
-        mClippingActorList = pList;
-        _0 = grown;
-    }
-    mClippingActorList[_4] = pInfo;
-    _4++;
-}
-
-ClippingActorInfo* ClippingActorInfoList::remove(LiveActor* pActor) {
-    s32 index = 0;
-    ClippingActorInfo* info = find(pActor, &index);
-    s32 lastIndex = _4 - 1;
-    mClippingActorList[index] = mClippingActorList[lastIndex];
-    _4--;
-    return info;
-}
-
-ClippingActorInfo* ClippingActorInfoList::find(const LiveActor* pActor, s32* pIndex) const {
-    for (s32 i = 0; i < _4; i++) {
-        ClippingActorInfo* inf = mClippingActorList[i];
-
-        if (inf->mActor == pActor) {
-            if (pIndex) {
-                *pIndex = i;
-            }
-
-            return mClippingActorList[i];
-        }
+    if (mCount >= mCapacity) {
+        mClippingActorList = MR::growArray(mClippingActorList, mCapacity);
+        mCapacity *= 2;
     }
 
-    return mClippingActorList[0];
+    pInfo->mList = this;
+    pInfo->mIndex = mCount;
+    mClippingActorList[mCount++] = pInfo;
 }
 
-ClippingActorInfo* ClippingActorInfoList::findOrNone(const LiveActor* pActor) const {
-    for (s32 i = _4 - 1; i >= 0; i--) {
-        ClippingActorInfo* info = mClippingActorList[i];
-        if (info->mActor == pActor) {
-            return info;
-        }
-    }
-
-    return nullptr;
-}
-
-bool ClippingActorInfoList::isInList(const LiveActor* pActor) const {
-    for (s32 i = 0; i < _4; i++) {
-        ClippingActorInfo* inf = mClippingActorList[i];
-        if (inf->mActor == pActor) {
-            return true;
-        }
-    }
-
-    return false;
+void ClippingActorInfoList::remove(ClippingActorInfo* pInfo) {
+    ClippingActorInfo* pLast = mClippingActorList[--mCount];
+    mClippingActorList[pInfo->mIndex] = pLast;
+    pLast->mIndex = pInfo->mIndex;
+    pInfo->mList = nullptr;
+    pInfo->mIndex = -1;
 }

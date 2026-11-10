@@ -28,12 +28,12 @@ has the same key as the installed one.
 
 ## On the device
 
-The app's private storage (`NEBULA_DATA_DIR` for the native game):
+The app's private storage (`--data` for the native game):
 
 | Path | |
 | --- | --- |
 | `game/game.pak`, `game/install.properties` | the game, written by setup; the second last, so its presence means a complete game |
-| `nand/` | saves and the Mii database |
+| `saves/` | saves and the Mii database (earlier builds named it `nand/`; it is renamed on first use) |
 | `config.ini` | renderer settings (`runtime/src/render/render_config.cpp`); the launcher writes its keys only |
 | `logs/game.log`, `logs/game.previous.log` | the game's output, this run and the one before |
 | `last_error.txt` | a fatal error's message, shown by the launcher |
@@ -51,7 +51,7 @@ Uninstalling asks whether to keep this data (`hasFragileUserData`).
 - Not yet on the SDL hosts (Android, Linux): the settings menu over the game (the Windows host's pages, draft and
   keys, `host_window_win32.cpp`); its view stays closed. The button icons follow the controller in use, as on
   Windows (`button_icons` in `host_window_sdl.cpp`).
-- Out of sight, the host stops the display and audio clocks, so the game waits at its next retrace
+- Out of sight, the host stops the display and audio clocks, so the game waits at its next frame
   (`SDL_HINT_ANDROID_BLOCK_ON_PAUSE` is off: SDL's thread keeps pumping events).
 - When Android takes the window's surface away (the app leaving the screen, a fold moving it to the other display),
   `surfaceDestroyed` returns once no present uses it; the renderer drops its swap chain and surface and makes new
@@ -60,15 +60,15 @@ Uninstalling asks whether to keep this data (`hasFragileUserData`).
   the picture into it, so the compositor does no rotation of its own.
 - Every GPU and driver: docs/VULKAN.md, "Driver compatibility". Before a release, `vk_profile_matrix.sh` runs every
   Android GPU profile under validation on the PC.
-- The surface asks for 60 frames a second (`ANativeWindow_setFrameRate`). The game's retrace runs on the display's
+- The surface asks for 60 frames a second (`ANativeWindow_setFrameRate`). The game's frame clock runs on the display's
   vsync grid, predicted from Choreographer's vsync times (every second vsync at 120 Hz, `display_clock.cpp`), so a
   late callback never delays it; the host's clock takes over when the display gives no vsync or runs at a rate 60
-  does not divide. Each frame is presented for the retrace slot after its retrace (`VK_GOOGLE_display_timing`), so
-  the compositor shows it for exactly one retrace period.
+  does not divide. Each frame is presented for the vsync slot after its game frame (`VK_GOOGLE_display_timing`), so
+  the compositor shows it for exactly one frame period.
 - The game and render threads are a performance-hint session (ADPF, Android 13+): each frame's work (the busier
   thread's CPU time) is reported against 16.7 ms, so the CPU clocks rise before a frame runs late.
-- The log reports every 10 s: `[pacing]` (retraces on the display's vsync, frame work), `[present-timing]` (frames
-  the display showed at their slot, and one retrace after the frame before), `[vk-cpu]` (the render thread's CPU and
+- The log reports every 10 s: `[pacing]` (game frames on the display's vsync, frame work), `[present-timing]` (frames
+  the display showed at their slot, and one frame period after the frame before), `[vk-cpu]` (the render thread's CPU and
   the driver calls' share), `[host-events]` (the main thread).
 - Profiling over adb: the app is `profileable` (simpleperf, Android Studio), and
   `adb shell setprop debug.nebula.profile <seconds>` makes the next launch sample its busy threads that many seconds

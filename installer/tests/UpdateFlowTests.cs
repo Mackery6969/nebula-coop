@@ -16,7 +16,7 @@ namespace Nebula.Setup
     /// and a release can have), signed with a key made for the run: the check and its notes, offline and slow
     /// answers, the download and its signature, corrupt, truncated, cancelled and missing downloads, a release
     /// published again, then switching to the previous version and back on an install of the test's own. Nothing
-    /// touches the player's install, saves or settings (NEBULA_DATA_ROOT and every folder are the test's).
+    /// touches the player's install, saves or settings (%LOCALAPPDATA% and every folder are the test's).
     /// </summary>
     internal static class UpdateFlowTests
     {
@@ -274,22 +274,33 @@ namespace Nebula.Setup
             File.WriteAllText(Path.Combine(dir, "install.json"), "{\"schema\":\"nebula.install.v1\",\"version\":\"" + version + "\",\"contentFormatVersion\":" + format + ",\"files\":{}}");
         }
 
+        // This version's format holds a store of this store version (the header Setup reads), then the text; older formats
+        // hold the text alone.
         static void WriteContent(string folder, int format, string text)
         {
             Directory.CreateDirectory(folder);
             File.WriteAllText(Path.Combine(folder, "content.json"), "{\"formatVersion\":" + format + "}");
-            File.WriteAllText(Path.Combine(folder, "game.pak"), text);
+            using (var writer = new BinaryWriter(File.Create(Path.Combine(folder, "game.pak"))))
+            {
+                if (format == InstallEngine.ContentFormatVersion)
+                {
+                    writer.Write(System.Text.Encoding.ASCII.GetBytes(StoreMagic));
+                    writer.Write(BuildInfo.StoreVersion);
+                }
+                writer.Write(System.Text.Encoding.UTF8.GetBytes(text));
+            }
         }
 
-        static string Pak(string folder) { return File.ReadAllText(Path.Combine(folder, "game.pak")); }
+        const string StoreMagic = "NBSTORE\0";
 
-        // A save's first bytes: only its version word (at 4) matters here.
-        static byte[] Save(byte[] versionWord, int seed)
+        // The text WriteContent put in a game.pak, past a store header.
+        static string Pak(string folder)
         {
-            byte[] bytes = Payload(64, seed);
-            versionWord.CopyTo(bytes, 4);
-            return bytes;
+            byte[] bytes = File.ReadAllBytes(Path.Combine(folder, "game.pak"));
+            int skip = bytes.Length >= 12 && System.Text.Encoding.ASCII.GetString(bytes, 0, 8) == StoreMagic ? 12 : 0;
+            return System.Text.Encoding.UTF8.GetString(bytes, skip, bytes.Length - skip);
         }
+
 
         static void CheckRollback()
         {
@@ -340,7 +351,7 @@ namespace Nebula.Setup
             Check(InstalledInfo.Read(layout).Version == "2.0.8-beta.1" && Pak(layout.Content) == "cooked", "and changes nothing");
         }
 
-        // Rollback between content formats: the game files and the save each version reads.
+        // Rollback between content formats: the game files each version reads; the saves stay.
         static void CheckFormatRollback()
         {
             int newest = InstallEngine.ContentFormatVersion;
@@ -351,34 +362,19 @@ namespace Nebula.Setup
             string keptOld = layout.KeptContent(1), keptNew = layout.KeptContent(newest);
             WriteContent(keptOld, 1, "raw");
             File.WriteAllText(layout.Current, "{\"version\":\"2.0.8-beta.1\",\"previous\":\"2.0.0-beta.1\"}");
-            string saveFolder = Path.Combine(NebulaPaths.Saves, "title", "00010000", "524d4745", "data");
+            // The saves are the player's: a rollback never touches them (each version reads its own file).
+            string saveFolder = Path.Combine(NebulaPaths.Saves, "RMGE01");
             Directory.CreateDirectory(saveFolder);
-            string save = Path.Combine(saveFolder, "GameData.bin"), v2 = save + ".v2", v3 = save + ".v3";
-            byte[] oldWord = { 0, 0, 0, 2 }, nativeWord = { 3, 0, 0, 0 };
-            byte[] oldSave = Save(oldWord, 10), nativeSave = Save(nativeWord, 11), playedOld = Save(oldWord, 12);
-            File.WriteAllBytes(v2, oldSave);
-            File.WriteAllBytes(save, nativeSave);
+            string save = Path.Combine(saveFolder, "Nebula.sav");
+            byte[] saveBytes = Payload(64, 11);
+            File.WriteAllBytes(save, saveBytes);
 
             Check(Integration.Rollback(layout) == "2.0.0-beta.1" && Pak(layout.Content) == "raw" && Pak(keptNew) == "cooked" && !Directory.Exists(keptOld),
                   "rollback to a format-1 version swaps its game files in and keeps the newer ones");
-            Check(FileEquals(save, oldSave) && FileEquals(v3, nativeSave), "its save is the old one again; the native one waits");
+            Check(FileEquals(save, saveBytes), "its saves are as they were");
             Check(Integration.Rollback(layout) == "2.0.8-beta.1" && Pak(layout.Content) == "cooked" && Pak(keptOld) == "raw" && !Directory.Exists(keptNew),
                   "forward again swaps them back");
-            Check(FileEquals(save, nativeSave) && !File.Exists(v3) && FileEquals(v2, oldSave), "and the native save returns");
-
-            // The older version saved meanwhile: its save is the newest, and the next native save keeps it.
-            Integration.Rollback(layout);
-            File.WriteAllBytes(save, playedOld);
-            Integration.Rollback(layout);
-            Check(FileEquals(save, playedOld) && !File.Exists(v2) && FileEquals(v3, nativeSave), "a save the older version wrote stays");
-
-            // Only ever a native save: the older version finds none, and it returns.
-            File.WriteAllBytes(save, nativeSave);
-            File.Delete(v3);
-            Integration.Rollback(layout);
-            Check(!File.Exists(save) && FileEquals(v3, nativeSave), "a native save with no old one waits aside");
-            Integration.Rollback(layout);
-            Check(FileEquals(save, nativeSave) && !File.Exists(v3), "and returns");
+            Check(FileEquals(save, saveBytes), "and the saves are still as they were");
 
             // Back on the older version, this version's folder is reused by an update.
             Integration.Rollback(layout);
@@ -386,16 +382,15 @@ namespace Nebula.Setup
             Integration.Rollback(layout);
 
             // A file held in the kept folder: the content returns and nothing has changed.
-            File.WriteAllBytes(v2, oldSave);
             using (new FileStream(Path.Combine(keptOld, "game.pak"), FileMode.Open, FileAccess.Read, FileShare.Read))
                 Throws<IOException>(() => Integration.Rollback(layout), "kept game files that cannot move in: rollback fails");
             Check(InstalledInfo.Read(layout).Version == "2.0.8-beta.1" && Pak(layout.Content) == "cooked" && Pak(keptOld) == "raw" &&
-                  !Directory.Exists(keptNew) && FileEquals(save, nativeSave), "and everything is as it was");
+                  !Directory.Exists(keptNew) && FileEquals(save, saveBytes), "and everything is as it was");
 
             // The kept game files gone: refused, nothing changed.
             FileUtil.DeleteTree(keptOld);
             Throws<InvalidOperationException>(() => Integration.Rollback(layout), "the previous version's game files not kept: rollback refuses");
-            Check(InstalledInfo.Read(layout).Version == "2.0.8-beta.1" && Pak(layout.Content) == "cooked" && FileEquals(save, nativeSave), "and changes nothing");
+            Check(InstalledInfo.Read(layout).Version == "2.0.8-beta.1" && Pak(layout.Content) == "cooked" && FileEquals(save, saveBytes), "and changes nothing");
 
             // A version that does not say what it reads: refused.
             string dir = layout.VersionDir("2.0.0-beta.1");
@@ -433,13 +428,61 @@ namespace Nebula.Setup
             Check(Directory.Exists(update.KeptContent(1)) && !Directory.Exists(update.KeptContent(3)), "with no previous version only format 1 stays");
         }
 
+        // An update of a packed game of an older store packs it again from the image it was made from, when that is still there;
+        // the saves, settings and the mods' small files are copied aside once per version.
+        static void CheckRememberedSourceAndSnapshot()
+        {
+            var layout = new InstallLayout(Path.Combine(scratch, "install-remember"));
+            Directory.CreateDirectory(layout.Root);
+            Check(InstallEngine.RememberedSource(layout) == null && !InstallEngine.RetainedGameValid(layout), "no note of where the game came from: the disc is asked for");
+            string image = Path.Combine(scratch, "game-image.iso");
+            File.WriteAllBytes(image, new byte[1000]);
+            string note = Path.Combine(layout.Root, "game-source.json");
+            Json.Save(note, new Dictionary<string, object> { { "path", image }, { "folder", false }, { "size", 1000L } });
+            Check(InstallEngine.RememberedSource(layout) == image && InstallEngine.RetainedGameValid(layout), "the image is still there as it was: an update packs the game again from it");
+            File.WriteAllBytes(image, new byte[1001]);
+            Check(InstallEngine.RememberedSource(layout) == null, "the image changed size: the disc is asked for");
+            File.Delete(image);
+            Check(InstallEngine.RememberedSource(layout) == null, "the image is gone: the disc is asked for");
+            string folder = Path.Combine(scratch, "game-folder");
+            Directory.CreateDirectory(folder);
+            Json.Save(note, new Dictionary<string, object> { { "path", folder }, { "folder", true }, { "size", 0L } });
+            Check(InstallEngine.RememberedSource(layout) == folder, "an extracted folder is found while it is there");
+            File.WriteAllText(note, "not json");
+            Check(InstallEngine.RememberedSource(layout) == null, "a damaged note is no note");
+
+            string data = NebulaPaths.DataRoot;
+            string save = Path.Combine(data, "saves", "RMGE01", "Nebula.sav");
+            Directory.CreateDirectory(Path.GetDirectoryName(save));
+            File.WriteAllBytes(save, new byte[] { 1, 2, 3 });
+            File.WriteAllText(Path.Combine(data, "runtime_settings.ini"), "focus_loss=keep\n");
+            Directory.CreateDirectory(Path.Combine(data, "mods", "a"));
+            File.WriteAllText(Path.Combine(data, "mods", "a", "mod.json"), "{}");
+            File.WriteAllBytes(Path.Combine(data, "mods", "a", "big.bin"), new byte[(1 << 20) + 1]);
+            var log = new List<string>();
+            string copy = UserDataSnapshot.Take("2.0.1-beta.1", log.Add);
+            Check(copy != null && File.Exists(Path.Combine(copy, "saves", "RMGE01", "Nebula.sav")) && File.Exists(Path.Combine(copy, "runtime_settings.ini")) &&
+                  File.Exists(Path.Combine(copy, "mods", "a", "mod.json")) && !File.Exists(Path.Combine(copy, "mods", "a", "big.bin")),
+                  "the saves, settings and the mods' small files are copied aside, the large mod file is not");
+            File.WriteAllBytes(save, new byte[] { 9 });
+            Check(UserDataSnapshot.Take("2.0.1-beta.1", log.Add) == copy && File.ReadAllBytes(Path.Combine(copy, "saves", "RMGE01", "Nebula.sav")).Length == 3, "one copy per version: it is not taken again");
+            Check(File.ReadAllBytes(save).Length == 1, "and the player's save is where it was");
+            Check(UserDataSnapshot.Take(null, log.Add) == null, "no version to name a copy by: none");
+            Thread.Sleep(50);
+            UserDataSnapshot.Take("2.0.2-beta.1", log.Add);
+            Thread.Sleep(50);
+            UserDataSnapshot.Take("2.0.3-beta.1", log.Add);
+            Check(Directory.GetDirectories(UserDataSnapshot.Folder).Length == 2 && Directory.Exists(Path.Combine(UserDataSnapshot.Folder, "2.0.3-beta.1")),
+                  "the newest two copies stay");
+        }
+
         public static int Main(string[] args)
         {
             scratch = args[0];
             key = new RSACryptoServiceProvider();
             key.PersistKeyInCsp = false;
             key.FromXmlString(File.ReadAllText(args[1]));
-            Environment.SetEnvironmentVariable("NEBULA_DATA_ROOT", Path.Combine(scratch, "data"));
+            Environment.SetEnvironmentVariable("LOCALAPPDATA", Path.Combine(scratch, "localappdata"));
             var listener = new TcpListener(IPAddress.Loopback, 0);
             listener.Start();
             port = ((IPEndPoint)listener.LocalEndpoint).Port;
@@ -450,6 +493,7 @@ namespace Nebula.Setup
                 CheckDownloads();
                 CheckRollback();
                 CheckFormatRollback();
+                CheckRememberedSourceAndSnapshot();
             }
             catch (Exception error)
             {

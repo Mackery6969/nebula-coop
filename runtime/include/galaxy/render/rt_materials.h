@@ -6,7 +6,7 @@
 // emission: a point or spot light at the object (Lumas, star bits, a headlamp) or light from the surface itself
 // (lava, magma). The table holds hashes and numbers only, no game data.
 //
-// Files: GALAXY_RT_MATERIALS_FILE (several separated by ';'), else rt-materials.tsv then rt-materials-lights.tsv
+// Files: rt-materials.tsv then rt-materials-lights.tsv
 // beside the executable. Tab-separated, with a header row naming the columns:
 //   hash  class  roughness  metallic  r  g  b  intensity  range  pulse  cone  shadow  glow  stage  region  object
 //   material  (others ignored)
@@ -148,7 +148,7 @@ public:
     // elsewhere stays water). Per material index, its stage material.
     [[nodiscard]] std::vector<std::pair<std::uint16_t, const RtMaterial*>> stage_materials(
         std::string_view stage) const;
-    // A row with a `material` ("Model/material": the model's resource name and J3D's material name, models apart by
+    // A row with a `material` ("Model/material": the model's resource name and its material name, models apart by
     // spaces) names those models' material alone (MotionSignal::drawMaterial's identity): its texture's material with
     // that row on top (the Observatory's white star lamps, not every white plastic its texture is on). 0: none.
     // With a `stage` as well, the row holds on that stage alone (stage_identities).
@@ -177,7 +177,7 @@ private:
     std::size_t skipped_ = 0;
 };
 
-// A stage's sun: GALAXY_RT_SUNS_FILE, else rt-suns.tsv beside the executable. Tab-separated, with a header row naming
+// A stage's sun: rt-suns.tsv beside the executable. Tab-separated, with a header row naming
 // the columns:
 //   stage  source  x  y  z  r  g  b  strength  size  shafts  day  ambient  core  (others ignored)
 // stage: the game's stage name (EggStarGalaxy).
@@ -188,9 +188,9 @@ private:
 //   moon: x y z its world direction, the `strength` share of the stage's key in r g b, the camera exposed for the
 //   stage's full light).
 // r g b: its colour (0-1). strength: its light relative to the default. size: the disc's radius in degrees.
-// shafts: the light shafts' strength (times GALAXY_RT_CAMERA_SHAFTS). day: 1 the day model (the art as drawn, with
+// shafts: the light shafts' strength. day: 1 the day model (the art as drawn, with
 //   modern shadows), 0 the night model (lit by its lights), a blend between; empty: from the sky's brightness.
-// ambient: the night model's open-art level (times GALAXY_RT_NIGHT_LEVEL). Empty fields keep the defaults.
+// ambient: the night model's open-art level. Empty fields keep the defaults.
 struct RtStageSun {
     enum class Source : std::uint8_t { Game = 0, Table = 1, None = 2, Core = 3, Moon = 4 };
     Source source = Source::Game;
@@ -201,7 +201,7 @@ struct RtStageSun {
     float size = -1.0f;                   // < 0: the default
     float shafts = -1.0f;                 // < 0: the default
     float day = -1.0f;                    // < 0: by the sky's brightness
-    float ambient = 1.0f;                 // the night model's open-art level for this stage (x GALAXY_RT_NIGHT_LEVEL)
+    float ambient = 1.0f;                 // the night model's open-art level for this stage
     float core = 0.0f;                    // source core: the star core's radiance (white under the full light: 1)
 };
 
@@ -220,7 +220,7 @@ private:
 // XXH64 with seed 0 of a texture's base level: the texture-pack key.
 [[nodiscard]] std::uint64_t texture_pack_hash(const std::uint8_t* data, std::size_t bytes) noexcept;
 
-// The table is loaded on first use; false when it is missing or empty (nothing is hashed then).
+// The table is loaded on the first call of this or of any reader below (not at start); false when it is missing or empty.
 [[nodiscard]] bool rt_materials_loaded() noexcept;
 // 0: not in the table; else its index + 1.
 [[nodiscard]] std::uint16_t rt_material_index(std::uint64_t hash) noexcept;
@@ -234,7 +234,7 @@ private:
 // models such as the Observatory's power cables) take it, since no texture row can name them.
 inline constexpr std::uint64_t kRtUntexturedHash = 0xFFFFFFFFFFFFFFFFull;
 // The rows of the game's particle effects (`effect` in the hash column): no texture of their own; each row's `material`
-// names the effects ("Effect/<ParticleNames.bcsv name>", motion::kMarkerEffect) its properties hold for.
+// names the effects ("Effect/<ParticleNames.bcsv name>") its properties hold for.
 inline constexpr std::uint64_t kRtEffectHash = 0xFFFFFFFFFFFFFFFEull;
 // The loaded stage's material for its untextured surfaces (0: the stage has no `untextured` row).
 [[nodiscard]] std::uint16_t rt_stage_untextured_material() noexcept;

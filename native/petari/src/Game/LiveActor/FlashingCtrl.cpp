@@ -1,10 +1,11 @@
 #include "Game/LiveActor/FlashingCtrl.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Util/DemoUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 
-FlashingCtrl::FlashingCtrl(LiveActor* pActor, bool toggleDraw) : NameObj("\223\137\226\305" /* 点滅 */) {
+FlashingCtrl::FlashingCtrl(LiveActor* pActor, bool toggleDraw) : NameObj("点滅") {
     mActor = pActor;
     mToggleDraw = toggleDraw;
     mIsEnded = true;
@@ -33,7 +34,7 @@ void FlashingCtrl::movement() {
 void FlashingCtrl::start(int timer) {
     mIsEnded = false;
     mTimer = timer;
-    mFlashStartTime = 180;
+    mFlashStartTime = NebulaFrameClock::stepsOfSeconds(3);
     mOverrideInterval = 0;
 }
 
@@ -50,13 +51,8 @@ s32 FlashingCtrl::getCurrentInterval() const {
     if (mOverrideInterval) {
         return 8;
     }
-    s32 curTimer = mTimer;
-    s32 ret = 10;
-
-    if (curTimer < 90) {
-        ret = 5;
-    }
-    return ret;
+    // Faster in the last 90 steps.
+    return mTimer < 90 ? 5 : 10;
 }
 
 bool FlashingCtrl::isNowFlashing() const {
@@ -75,7 +71,4 @@ void FlashingCtrl::updateFlashing() {
             MR::onEntryDrawBuffer(mActor);
         }
     }
-}
-
-FlashingCtrl::~FlashingCtrl() {
 }

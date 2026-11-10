@@ -6,16 +6,15 @@ class GreenCaterpillarBigBody : public ModelObj {
 public:
     GreenCaterpillarBigBody(LiveActor*, MtxPtr);
 
-    virtual ~GreenCaterpillarBigBody();
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
+    virtual void init(const TableIter&) override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
 
     void setPosAndDirection(LiveActor*);
-    void calcBodyDir(LiveActor*, TVec3f*);
+    void calcBodyDir(LiveActor*, Vec3f*);
 
     LiveActor* mCaterpillar;
-    TVec3f mFrontVec;
+    Vec3f mFrontVec;
     LodCtrl* mPlanetLOD;
 };
 
@@ -23,12 +22,11 @@ class GreenCaterpillarBig : public LiveActor {
 public:
     GreenCaterpillarBig(const char*);
 
-    virtual ~GreenCaterpillarBig();
-    virtual void init(const JMapInfoIter&);
-    virtual void startClipped();
-    virtual void endClipped();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
+    virtual void init(const TableIter&) override;
+    virtual void startClipped() override;
+    virtual void endClipped() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
 
     void startWriggle();
     void exeHide();
@@ -36,7 +34,7 @@ public:
     void exeRest();
     void exeEndAdjust();
     void exeEnd();
-    void initBodyParts(const JMapInfoIter&);
+    void initBodyParts(const TableIter&);
     bool tryGenerateBodyParts();
     void fixBodyPartsOnRail();
     void leaveApple();
@@ -44,8 +42,8 @@ public:
     GreenCaterpillarBigBody** mBodyArray;
     s32 mBodyArrayLength;
     s32 mCurBodyParts;
-    s32 _98;
-    u8 _9C;
-    u8 _9D;
+    s32 mRailPointNo;
+    u8 mIsEnteringHole;
+    u8 mIsLeavingApple;
     LodCtrl* mPlanetLOD;
 };

@@ -6,9 +6,8 @@ class SkeletalFishBossRail : public LiveActor {
 public:
     SkeletalFishBossRail(const char*);
 
-    virtual ~SkeletalFishBossRail();
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
 
     bool isFillUpPoint(s32) const;
     s32 getFillUpNamePos(s32) const;
@@ -16,8 +15,7 @@ public:
     void createFillUpNamePosID();
     void linkFillUpNamePosID();
 
-    s32 _8C;
+    s32 mRailId;
     bool* mFillUpFlags;
     s32* mNamePosIDs;
-    f32 _98;
 };

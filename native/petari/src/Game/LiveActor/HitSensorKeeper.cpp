@@ -2,44 +2,37 @@
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/HitSensorInfo.hpp"
 #include "Game/Util/HashUtil.hpp"
+#include "Game/Util/StringUtil.hpp"
 #include <cstring>
 
-HitSensorKeeper::HitSensorKeeper(int sensorCount) {
-    mSensorCount = sensorCount;
-    mSensorInfosSize = 0;
-    mSensorInfos = nullptr;
-    mTaking = nullptr;
-    mTaken = nullptr;
-    mSensorInfos = new HitSensorInfo*[sensorCount];
-
-    for (s32 i = 0; i < mSensorCount; i++) {
-        mSensorInfos[i] = nullptr;
-    }
+HitSensorKeeper::HitSensorKeeper(s32 capacity)
+    : mSensorInfosSize(0), mSensorInfos(), mTaking(), mTaken() {
+    mSensorInfos.room(capacity > 0 ? static_cast< u32 >(capacity) : 1);
 }
 
-HitSensor* HitSensorKeeper::add(const char* pName, u32 sensorType, u16 sensorGroupSize, f32 radius, LiveActor* pActor, const TVec3f& a6) {
-    HitSensorInfo* pInfo = new HitSensorInfo(pName, new HitSensor(sensorType, sensorGroupSize, radius, pActor), nullptr, nullptr, a6, false);
+HitSensor* HitSensorKeeper::add(const char* pName, u32 sensorType, u32 sensorGroupSize, f32 radius, LiveActor* pActor, const Vec3f& rOffset) {
+    HitSensorInfo* pInfo = new HitSensorInfo(pName, new HitSensor(sensorType, sensorGroupSize, radius, pActor), nullptr, nullptr, rOffset, false);
     registHitSensorInfo(pInfo);
     return pInfo->mSensor;
 }
 
-HitSensor* HitSensorKeeper::addPos(const char* pName, u32 sensorType, u16 sensorGroupSize, f32 radius, LiveActor* pActor, const TVec3f* pPos,
-                                   const TVec3f& a7) {
-    HitSensorInfo* pInfo = new HitSensorInfo(pName, new HitSensor(sensorType, sensorGroupSize, radius, pActor), pPos, nullptr, a7, false);
+HitSensor* HitSensorKeeper::addPos(const char* pName, u32 sensorType, u32 sensorGroupSize, f32 radius, LiveActor* pActor, const Vec3f* pPos,
+                                   const Vec3f& rOffset) {
+    HitSensorInfo* pInfo = new HitSensorInfo(pName, new HitSensor(sensorType, sensorGroupSize, radius, pActor), pPos, nullptr, rOffset, false);
     registHitSensorInfo(pInfo);
     return pInfo->mSensor;
 }
 
-HitSensor* HitSensorKeeper::addMtx(const char* pName, u32 sensorType, u16 sensorGroupSize, f32 radius, LiveActor* pActor, MtxPtr mtx,
-                                   const TVec3f& a7) {
-    HitSensorInfo* pInfo = new HitSensorInfo(pName, new HitSensor(sensorType, sensorGroupSize, radius, pActor), nullptr, mtx, a7, false);
+HitSensor* HitSensorKeeper::addMtx(const char* pName, u32 sensorType, u32 sensorGroupSize, f32 radius, LiveActor* pActor, MtxPtr mtx,
+                                   const Vec3f& rOffset) {
+    HitSensorInfo* pInfo = new HitSensorInfo(pName, new HitSensor(sensorType, sensorGroupSize, radius, pActor), nullptr, mtx, rOffset, false);
     registHitSensorInfo(pInfo);
     return pInfo->mSensor;
 }
 
-HitSensor* HitSensorKeeper::addCallback(const char* pName, u32 sensorType, u16 sensorGroupSize, f32 radius, LiveActor* pActor) {
+HitSensor* HitSensorKeeper::addCallback(const char* pName, u32 sensorType, u32 sensorGroupSize, f32 radius, LiveActor* pActor) {
     HitSensorInfo* pInfo =
-        new HitSensorInfo(pName, new HitSensor(sensorType, sensorGroupSize, radius, pActor), nullptr, nullptr, TVec3f(0.0f, 0.0f, 0.0f), true);
+        new HitSensorInfo(pName, new HitSensor(sensorType, sensorGroupSize, radius, pActor), nullptr, nullptr, Vec3f(0.0f, 0.0f, 0.0f), true);
     registHitSensorInfo(pInfo);
     return pInfo->mSensor;
 }
@@ -52,7 +45,7 @@ HitSensor* HitSensorKeeper::getSensor(const char* pSensorName) const {
     u32 hashCode = MR::getHashCode(pSensorName);
 
     for (s32 i = 0; i < mSensorInfosSize; i++) {
-        if (hashCode == mSensorInfos[i]->mHashCode && !strcmp(mSensorInfos[i]->mName, pSensorName)) {
+        if (hashCode == mSensorInfos[i]->mHashCode && MR::isEqualString(mSensorInfos[i]->mName, pSensorName)) {
             return mSensorInfos[i]->mSensor;
         }
     }
@@ -115,7 +108,7 @@ HitSensorInfo* HitSensorKeeper::getSensorInfo(const char* pSensorName) const {
     u32 hashCode = MR::getHashCode(pSensorName);
 
     for (s32 i = 0; i < mSensorInfosSize; i++) {
-        if (hashCode == mSensorInfos[i]->mHashCode && !strcmp(mSensorInfos[i]->mName, pSensorName)) {
+        if (hashCode == mSensorInfos[i]->mHashCode && MR::isEqualString(mSensorInfos[i]->mName, pSensorName)) {
             return mSensorInfos[i];
         }
     }
@@ -124,7 +117,6 @@ HitSensorInfo* HitSensorKeeper::getSensorInfo(const char* pSensorName) const {
 }
 
 void HitSensorKeeper::registHitSensorInfo(HitSensorInfo* pInfo) {
-    mSensorInfos[mSensorInfosSize] = pInfo;
-    mSensorInfosSize++;
+    mSensorInfos.room(mSensorInfosSize + 1)[mSensorInfosSize++] = pInfo;
     pInfo->update();
 }

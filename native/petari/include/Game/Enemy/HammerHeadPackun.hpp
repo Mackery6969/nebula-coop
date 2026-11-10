@@ -1,8 +1,8 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include "Game/Util/JMapInfo.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include "Game/Util/Table.hpp"
+#include <nebula_geometry.hpp>
 
 class PartsModel;
 class JointRumbler;
@@ -11,14 +11,14 @@ class HammerHeadPackun : public LiveActor {
 public:
     HammerHeadPackun(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void makeActorAppeared();
-    virtual void kill();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void makeActorAppeared() override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*) override;
 
     void exeWait();
     void exeSearch();
@@ -36,13 +36,13 @@ public:
     void initPosture();
     void initSensor();
     void initShadow();
-    void initLeaf(const JMapInfoIter&);
+    void initLeaf(const TableIter&);
     bool isTargetInRange() const;
-    bool isInFieldOfView(const TVec3f&) const;
+    bool isInFieldOfView(const Vec3f&) const;
     bool isAttackSensorValid() const;
     bool isChance() const;
-    bool calcPlayerDir(TVec3f*) const;
-    void turnTo(const TVec3f&, f32);
+    bool calcPlayerDir(Vec3f*) const;
+    void turnTo(const Vec3f&, f32);
     void turnToAttackVec(s32);
     void verticalizeFrontVec();
     bool tryShiftNumb();
@@ -52,9 +52,9 @@ public:
 
     PartsModel* mLeafModel;
     s32 mImmunityTime;
-    TVec3f _94;
-    TVec3f _A0;
-    TVec3f _AC;
+    Vec3f mUp;
+    Vec3f mFront;
+    Vec3f mAttackDir;
     JointRumbler* mJointRumbler;
     s32 mNumbTime;
 };

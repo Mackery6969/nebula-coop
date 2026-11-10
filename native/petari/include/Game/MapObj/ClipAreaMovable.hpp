@@ -7,16 +7,14 @@ class MapPartsRotator;
 
 class ClipAreaMovable : public ClipArea {
 public:
-    /// @brief Creates a new `ClipAreaMovable`.
-    /// @param pName A pointer to the null-terminated name of the object.
     ClipAreaMovable(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void makeActorAppeared();
-    virtual void makeActorDead();
-    virtual void control();
+    virtual void init(const TableIter& rIter) override;
+    virtual void makeActorAppeared() override;
+    virtual void makeActorDead() override;
+    virtual void control() override;
 
-    void initMoveFunction(const JMapInfoIter& rIter);
+    void initMoveFunction(const TableIter& rIter);
     void startMoveFunction();
     void endMoveFunction();
     void movementMoveFunction();

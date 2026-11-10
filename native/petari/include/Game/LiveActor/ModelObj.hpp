@@ -7,9 +7,11 @@ class LodCtrl;
 
 class ModelObj : public LiveActor {
 public:
-    ModelObj(const char*, const char*, MtxPtr, int, int, int, bool);
+    // A category below its None value (-2) takes the default: MapObj draw buffer, MapObjDecoration movement and calc-anim.
+    ModelObj(const char* pName, const char* pModelName, MtxPtr pMtx, int drawBufferType, int movementType, int calcAnimType,
+             bool deferMaterials);
 
-    virtual void init(const JMapInfoIter&) override;
+    virtual void init(const TableIter&) override;
     virtual void calcAndSetBaseMtx() override;
 
     MtxPtr mMtx;
@@ -19,8 +21,7 @@ class ModelObjNpc : public LiveActor {
 public:
     ModelObjNpc(const char*, const char*, MtxPtr);
 
-    virtual ~ModelObjNpc();
-    virtual void init(const JMapInfoIter&) override;
+    virtual void init(const TableIter&) override;
     virtual void control() override;
     virtual void calcAndSetBaseMtx() override;
 

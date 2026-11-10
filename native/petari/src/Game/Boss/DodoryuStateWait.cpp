@@ -1,4 +1,5 @@
 #include "Game/Boss/DodoryuStateWait.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Boss/Dodoryu.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util/ActorShadowUtil.hpp"
@@ -17,7 +18,7 @@ DodoryuStateWait::DodoryuStateWait(Dodoryu* pHost, const char* pName) : DodoryuS
     initWithoutIter();
 }
 
-void DodoryuStateWait::init(const JMapInfoIter& rIter) {
+void DodoryuStateWait::init(const TableIter& /*rIter*/) {
     MR::invalidateClipping(this);
     initNerve(GET_NERVE_ANON(DodoryuStateWaitNrvWait));
     makeActorAppeared();
@@ -39,13 +40,13 @@ void DodoryuStateWait::exeWait() {
 
     MR::startLevelSound(mHost, "SE_BM_LV_DODORYU_MOVE_U_SHALLOW");
 
-    if (mHost->_144 && !MR::isPlayerInBind()) {
+    if (mHost->mIsSwitchOn && !MR::isPlayerInBind()) {
         mNextStateCounter++;
     } else {
         mNextStateCounter = 0;
     }
 
-    if (mNextStateCounter > 30) {
+    if (mNextStateCounter > NebulaFrameClock::stepsOfMilliseconds(500)) {
         if (MR::isStageSuddenDeathDodoryu() && MR::hasRetryGalaxySequence()) {
             MR::openWipeCircle();
         }

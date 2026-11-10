@@ -13,10 +13,10 @@
 #include "Game/Util/ObjUtil.hpp"
 #include <cstdio>
 #include <cstring>
-#include <nw4r/lyt/layout.h>
-#include <nw4r/lyt/pane.h>
-#include <nw4r/lyt/textBox.h>
-#include <nw4r/lyt/window.h>
+#include <Game/Ui/Layout.hpp>
+#include <Game/Ui/Pane.hpp>
+#include <Game/Ui/TextBox.hpp>
+#include <Game/Ui/Window.hpp>
 
 using namespace NebulaUi;
 
@@ -61,9 +61,9 @@ namespace {
     // Where a copy's name goes on the screen (screen units, from the centre, up), and how large: false when it can't be
     // seen (off the screen, behind the camera or a wall, too far).
     bool place(const NebulaRemotePlayer* pCopy, f32 width, f32 height, f32* pX, f32* pY, f32* pScale) {
-        const TVec3f head = pCopy->getNametagPos();
-        const TVec3f camera = MR::getCamPos();
-        const TVec3f toHead(head.x - camera.x, head.y - camera.y, head.z - camera.z);
+        const Vec3f head = pCopy->getNametagPos();
+        const Vec3f camera = MR::getCamPos();
+        const Vec3f toHead(head.x - camera.x, head.y - camera.y, head.z - camera.z);
         if (toHead.dot(MR::getCamZdir()) <= 0.0f) {
             return false;
         }
@@ -71,7 +71,7 @@ namespace {
         if (distance > cFar) {
             return false;
         }
-        TVec3f screen;
+        Vec3f screen;
         MR::calcNormalizedScreenPosition(&screen, head);
         if (__builtin_fabsf(screen.x) > 1.1f || __builtin_fabsf(screen.y) > 1.1f) {
             return false;
@@ -105,14 +105,14 @@ namespace {
         f32 height;
         measure(rTag.mName, 4000.0f, &rTag.mWidth, &height);
         shape(rTag.mFrame, 0.0f, 0.0f, rTag.mWidth + cPadX * 2.0f, cHeight, cRadius);
-        rTag.mName->mTranslate = nw4r::math::VEC3(0.0f, textCentre(0.0f, cTextSize), 0.0f);
+        rTag.mName->mTranslate = Vec3f(0.0f, textCentre(0.0f, cTextSize), 0.0f);
     }
 };  // namespace
 
 NebulaNametags::NebulaNametags() : LayoutActor("NebulaNametags", true), mParts(nullptr) {
 }
 
-void NebulaNametags::init(const JMapInfoIter& rIter) {
+void NebulaNametags::init(const TableIter& rIter) {
     initLayoutManager("InformationWindow", 0);
     LayoutManager* pManager = getLayoutManager();
     static const char cLayoutName[] = "NebulaNametags";
@@ -126,13 +126,13 @@ void NebulaNametags::init(const JMapInfoIter& rIter) {
     new (&p->mText) NebulaPaneKit();
     new (&p->mWindow) NebulaPaneKit();
     Pane* pRoot = pManager->mLayout->mpRootPane;
-    if (pRoot == nullptr || !p->mText.init(pManager->mLayoutHolder)) {
+    if (pRoot == nullptr || !p->mText.init(pManager->mLayoutHolder, "InformationWindow", pManager->mLayout)) {
         nebula_log("NebulaNametags: no InformationWindow layout\n");
         return;
     }
-    p->mWindow.init(MR::createAndAddLayoutHolder("SysInfoWindowMini.arc"));
+    p->mWindow.init("SysInfoWindowMini", pManager->mLayout);
     // The information window's own panes stay hidden; the tags are built beside them.
-    for (nw4r::lyt::PaneList::Iterator it = pRoot->GetChildList().GetBeginIter(); it != pRoot->GetChildList().GetEndIter(); ++it) {
+    for (Ui::Pane* it : pRoot->GetChildList()) {
         it->SetVisible(false);
     }
 
@@ -165,8 +165,6 @@ void NebulaNametags::init(const JMapInfoIter& rIter) {
     setInfluencedAlphaRecursive(p->mRoot, 0);
     mParts = p;
 
-    // The layout's pane list, counted when it was built, again for the added panes.
-    pManager->rebuildPaneInfo();
     LayoutActor::appear();
 }
 
@@ -177,7 +175,7 @@ void NebulaNametags::control() {
     }
     f32 scaleX, width, height;
     readScreen(&scaleX, &width, &height);
-    p->mRoot->mScale = nw4r::math::VEC2(scaleX, 1.0f);
+    p->mRoot->mScale = Vec2f(scaleX, 1.0f);
     // The game's cutscenes are its own: no names over them.
     const bool demo = MR::isDemoActive();
     const s32 copyNum = NebulaRemotePlayer::getCopyNum();
@@ -205,8 +203,8 @@ void NebulaNametags::control() {
         rTag.mRoot->SetVisible(true);
         // Where it was last seen while it fades out.
         if (seen) {
-            rTag.mRoot->mTranslate = nw4r::math::VEC3(x, y + cHeight * 0.5f * scale, 0.0f);
-            rTag.mRoot->mScale = nw4r::math::VEC2(scale, scale);
+            rTag.mRoot->mTranslate = Vec3f(x, y + cHeight * 0.5f * scale, 0.0f);
+            rTag.mRoot->mScale = Vec2f(scale, scale);
         }
         rTag.mRoot->mAlpha = toAlpha(easeOut(static_cast< f32 >(rTag.mFade) / cFadeFrames));
     }

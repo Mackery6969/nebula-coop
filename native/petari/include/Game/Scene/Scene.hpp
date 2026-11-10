@@ -8,8 +8,9 @@ class Scene : public NerveExecutor {
 public:
     Scene(const char*);
 
-    virtual ~Scene();
+    virtual ~Scene() override;
     virtual void init();
+    virtual bool initAfterScenarioChosen() { return true; }
     virtual void start();
     virtual void update();
     virtual void draw() const;
@@ -19,6 +20,5 @@ public:
     void initSceneObjHolder();
 
     SceneNameObjListExecutor* mListExecutor;
-    u32 _C;
     SceneObjHolder* mSceneObjHolder;
 };

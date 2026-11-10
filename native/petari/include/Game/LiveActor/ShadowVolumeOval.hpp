@@ -6,10 +6,11 @@ class ShadowVolumeOval : public ShadowVolumeModel {
 public:
     ShadowVolumeOval();
 
-    virtual void loadModelDrawMtx() const;
-    virtual bool isDraw() const;
+    virtual void loadModelDrawMtx(TypedDraw& rDraw) const override;
+    virtual bool isDraw() const override;
+    virtual void calcDrawAnchor(Vec3f* pOut) const override;
 
-    void setSize(const TVec3f&);
+    void setSize(const Vec3f&);
 
-    TVec3f mSize;
+    Vec3f mSize;
 };

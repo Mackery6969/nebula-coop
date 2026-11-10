@@ -8,19 +8,15 @@
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
 #include "Game/Util/SystemUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    // static const _32 hFlashShiftNum =
-    // static const _32 hTexSpeed =
-    // static const _32 hTexRate =
-    // static const _32 hDrawHalfWidth =
-    static const f32 sMinWidth = 6.0f;
-    static const f32 sMaxWidth = 32.0f;
-    static const f32 sMinLineWidthDistance = 40.0f;
-    static const f32 sMaxLineWidthDistance = 400.0f;
-    static const f32 hDefaultLength = 80.0f;
-    static const f32 hDefaultWidth = 30.0f;
-    // static const _32 h16x9ScaleX =
+    NEBULA_TUNABLE(f32, sMinWidth, 6.0f);
+    NEBULA_TUNABLE(f32, sMaxWidth, 32.0f);
+    NEBULA_TUNABLE(f32, sMinLineWidthDistance, 40.0f);
+    NEBULA_TUNABLE(f32, sMaxLineWidthDistance, 400.0f);
+    NEBULA_TUNABLE(f32, hDefaultLength, 80.0f);
+    NEBULA_TUNABLE(f32, hDefaultWidth, 30.0f);
 };  // namespace
 
 namespace NrvStarPointerCommandStream {
@@ -28,20 +24,15 @@ namespace NrvStarPointerCommandStream {
     NEW_NERVE(HostTypeNrvSignal, StarPointerCommandStream, Signal);
 };  // namespace NrvStarPointerCommandStream
 
-namespace {
-    static Color8 hOutColor = Color8((NebulaColor8){0xFF, 0x00, 0x00, 0xFF});
-};  // namespace
-
-StarPointerCommandStream::StarPointerCommandStream(const TVec2f* pScreenPos)
-    : LayoutActor("\203\130\203\136\201\133\203\174\203\103\203\223\203\136\216\167\216\246\220\374" /* スターポインタ指示線 */, true), _20(false), mOffScreenTime(), _28(), mScreenPos(pScreenPos), mWorldPos(), mPadChannel(-1), mColor() {
+StarPointerCommandStream::StarPointerCommandStream(const Vec2f* pScreenPos)
+    : LayoutActor("スターポインタ指示線", true), mOffScreenTime(), mScreenPos(pScreenPos), mWorldPos(), mPadChannel(-1), mColor() {
 }
 
-void StarPointerCommandStream::start(const TVec3f* pPos, bool b) {
+void StarPointerCommandStream::start(const Vec3f* pPos, bool /*b*/) {
     mWorldPos = pPos;
-    _20 = b;
     MR::showLayout(this);
     MR::startAnim(this, "Wait", 0);
-    TVec2f screenPos;
+    Vec2f screenPos;
     MR::calcScreenPosition(&screenPos, *mWorldPos);
     calcPose(screenPos, screenPos);
     calcAnim();
@@ -58,10 +49,9 @@ void StarPointerCommandStream::hide() {
 
 void StarPointerCommandStream::clear() {
     mWorldPos = nullptr;
-    _20 = false;
 }
 
-void StarPointerCommandStream::init(const JMapInfoIter& rIter) {
+void StarPointerCommandStream::init(const TableIter& /*rIter*/) {
     initLayoutManager("CommandStream", 1);
     MR::createAndAddPaneCtrl(this, "CommandStream", 1);
     MR::createAndAddPaneCtrl(this, "PicRibbon", 1);
@@ -77,7 +67,6 @@ void StarPointerCommandStream::init(const JMapInfoIter& rIter) {
 void StarPointerCommandStream::control() {
     if (MR::isStarPointerInScreen(mPadChannel)) {
         mOffScreenTime = 0;
-        _28 -= 0.05f;
     } else {
         mOffScreenTime++;
         if ((mOffScreenTime & 0x10) != 0 && (mOffScreenTime & 0x0F) == 0) {
@@ -85,16 +74,16 @@ void StarPointerCommandStream::control() {
         }
     }
 
-    TVec2f screenPos;
+    Vec2f screenPos;
     MR::calcScreenPosition(&screenPos, *mWorldPos);
-    TVec2f insidePos = *mScreenPos;
+    Vec2f insidePos = *mScreenPos;
     StarPointerFunction::forceInsideScreenEdge(&insidePos);
     calcPose(screenPos, insidePos);
 }
 
-void StarPointerCommandStream::calcPose(const TVec2f& rPos, const TVec2f& rInsidePos) {
+void StarPointerCommandStream::calcPose(const Vec2f& rPos, const Vec2f& rInsidePos) {
     mFollowPos = rPos;
-    TVec2f diff;
+    Vec2f diff;
     diff.x = rInsidePos.x - rPos.x;
     diff.y = rInsidePos.y - rPos.y;
 
@@ -126,8 +115,6 @@ void StarPointerCommandStream::exeWait() {
 }
 
 void StarPointerCommandStream::exeSignal() {
-    if (MR::isFirstStep(this)) {
-    }
 
     if (MR::isStarPointerInScreen(mPadChannel)) {
         setNerve(GET_NERVE(StarPointerCommandStream, HostTypeNrvWait));

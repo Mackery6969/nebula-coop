@@ -2,7 +2,7 @@
 #include "Game/Map/CollisionParts.hpp"
 #include "Game/Map/KCollision.hpp"
 #include "Game/Util/MathUtil.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 Triangle::Triangle() {
     mParts = nullptr;
@@ -23,7 +23,7 @@ void Triangle::fillData(CollisionParts* pParts, u32 index, HitSensor* pSensor) {
     mSensor = pSensor;
 
     KCollisionServer* pServer = pParts->mServer;
-    TPos3f* pMatrix;
+    Pos3f* pMatrix;
     KC_PrismData* pPrism = pServer->getPrismData(index);
 
     mNormals[0].set(*pServer->getFaceNormal(pPrism));
@@ -61,107 +61,55 @@ s32 Triangle::getHostPlacementZoneID() const {
 }
 
 bool Triangle::isHostMoved() const {
-    return mParts->_D4 == 0;
+    return mParts->mStillCount == 0;
 }
 
 bool Triangle::isValid() const {
     return mIdx != 0xFFFFFFFF;
 }
 
-const TVec3f* Triangle::getNormal(int index) const {
+const Vec3f* Triangle::getNormal(int index) const {
     return &mNormals[index];
 }
 
-const TVec3f* Triangle::getFaceNormal() const {
+const Vec3f* Triangle::getFaceNormal() const {
     return &mNormals[0];
 }
 
-const TVec3f* Triangle::getEdgeNormal(int index) const {
+const Vec3f* Triangle::getEdgeNormal(int index) const {
     return &mNormals[index + 1];
 }
 
-const TVec3f* Triangle::getPos(int index) const {
+const Vec3f* Triangle::getPos(int index) const {
     return &mPos[index];
 }
 
-const TVec3f* Triangle::calcAndGetNormal(int index) {
-    KCollisionServer* server = mParts->mServer;
-    KC_PrismData* prism = server->getPrismData(mIdx);
-
-    MtxPtr matrix = reinterpret_cast< MtxPtr >(&mParts->mBaseMatrix);
-
-    switch (index) {
-    case 0: {
-        mNormals[0].set(*server->getFaceNormal(prism));
-        NebulaMtxMultVecSR(matrix, &mNormals[0], &mNormals[0]);
-        MR::normalize(&mNormals[0]);
-
-        return &mNormals[0];
-    } break;
-    case 1: {
-        mNormals[1].set(*server->getEdgeNormal1(prism));
-        NebulaMtxMultVecSR(matrix, &mNormals[1], &mNormals[1]);
-        MR::normalize(&mNormals[1]);
-
-        return &mNormals[1];
-    } break;
-    case 2: {
-        mNormals[2].set(*server->getEdgeNormal2(prism));
-        NebulaMtxMultVecSR(matrix, &mNormals[2], &mNormals[2]);
-        MR::normalize(&mNormals[2]);
-
-        return &mNormals[2];
-    } break;
-    case 3: {
-        mNormals[3].set(*server->getEdgeNormal3(prism));
-        NebulaMtxMultVecSR(matrix, &mNormals[3], &mNormals[3]);
-        MR::normalize(&mNormals[3]);
-
-        return &mNormals[3];
-    } break;
+// Normal 0 the face's, 1-3 edge plane 0-2's, recomputed from the parts' current matrix.
+const Vec3f* Triangle::calcAndGetNormal(int index) {
+    if (0 <= index && index <= 3) {
+        KCollisionServer* server = mParts->mServer;
+        KC_PrismData* prism = server->getPrismData(mIdx);
+        mNormals[index].set(*server->getNormal(index == 0 ? prism->mNormalIndex : prism->mEdgeIndices[index - 1]));
+        NebulaMtxMultVecSR(mParts->mBaseMatrix.mMtx, &mNormals[index], &mNormals[index]);
+        MR::normalize(&mNormals[index]);
     }
 
     return &mNormals[index];
 }
 
-const TVec3f* Triangle::calcAndGetEdgeNormal(int index) {
-    KCollisionServer* server = mParts->mServer;
-    KC_PrismData* prism = server->getPrismData(mIdx);
-
-    MtxPtr matrix = reinterpret_cast< MtxPtr >(&mParts->mBaseMatrix);
-
-    switch (index) {
-    case 0: {
-        mNormals[1].set(*server->getEdgeNormal1(prism));
-        NebulaMtxMultVecSR(matrix, &mNormals[1], &mNormals[1]);
-        MR::normalize(&mNormals[1]);
-
-        return &mNormals[1];
-    } break;
-    case 1: {
-        mNormals[2].set(*server->getEdgeNormal2(prism));
-        NebulaMtxMultVecSR(matrix, &mNormals[2], &mNormals[2]);
-        MR::normalize(&mNormals[2]);
-
-        return &mNormals[2];
-    } break;
-    case 2: {
-        mNormals[3].set(*server->getEdgeNormal3(prism));
-        NebulaMtxMultVecSR(matrix, &mNormals[3], &mNormals[3]);
-        MR::normalize(&mNormals[3]);
-
-        return &mNormals[3];
-    } break;
+const Vec3f* Triangle::calcAndGetEdgeNormal(int index) {
+    if (0 <= index && index <= 2) {
+        return calcAndGetNormal(index + 1);
     }
 
     return &mNormals[index + 1];
 }
 
-const TVec3f* Triangle::calcAndGetPos(int index) {
+const Vec3f* Triangle::calcAndGetPos(int index) {
     KCollisionServer* server = mParts->mServer;
     KC_PrismData* prism = server->getPrismData(mIdx);
 
-    TVec3f* pos = &mPos[index];
+    Vec3f* pos = &mPos[index];
 
     pos->set(server->getPos(prism, index));
 
@@ -170,42 +118,42 @@ const TVec3f* Triangle::calcAndGetPos(int index) {
     return pos;
 }
 
-void Triangle::calcForceMovePower(TVec3f* a1, const TVec3f& a2) const {
-    mParts->calcForceMovePower(a1, a2);
+void Triangle::calcForceMovePower(Vec3f* pMovement, const Vec3f& rPos) const {
+    mParts->calcForceMovePower(pMovement, rPos);
 }
 
-JMapInfoIter Triangle::getAttributes() const {
+TableIter Triangle::getAttributes() const {
     if (mIdx == -1) {
-        return JMapInfoIter();
+        return TableIter();
     }
 
     return mParts->mServer->getAttributes(mIdx);
 }
 
-TPos3f* Triangle::getBaseMtx() const {
+Pos3f* Triangle::getBaseMtx() const {
     return &mParts->mBaseMatrix;
 }
 
-TPos3f* Triangle::getBaseInvMtx() const {
+Pos3f* Triangle::getBaseInvMtx() const {
     return &mParts->mInvBaseMatrix;
 }
 
-TPos3f* Triangle::getPrevBaseMtx() const {
+Pos3f* Triangle::getPrevBaseMtx() const {
     return &mParts->mPrevBaseMatrix;
 }
 
-HitInfo::HitInfo() : mParentTriangle(), _60(0.0f), mHitPos(0, 0, 0), _70(0, 0, 0), _7C(0, 0, 0) {
-    _88 = 0;
+HitInfo::HitInfo() : mParentTriangle(), mDepth(0.0f), mHitPos(0, 0, 0), mNormalMove(0, 0, 0) {
+    mHitPart = 0;
 }
 
 bool HitInfo::isCollisionAtFace() const {
-    return _88 == 1;
+    return mHitPart == 1;
 }
 
 bool HitInfo::isCollisionAtEdge() const {
-    return _88 == 2 || _88 == 3 || _88 == 4;
+    return mHitPart == 2 || mHitPart == 3 || mHitPart == 4;
 }
 
 bool HitInfo::isCollisionAtCorner() const {
-    return _88 == 5 || _88 == 6 || _88 == 7;
+    return mHitPart == 5 || mHitPart == 6 || mHitPart == 7;
 }

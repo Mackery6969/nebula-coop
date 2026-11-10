@@ -7,10 +7,11 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/VectorUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    const f32 sInertiaConstDefault = 500.0f;
-    const f32 sRestoreForceDefault = 100.0f;
+    NEBULA_TUNABLE(f32, sInertiaConstDefault, 500.0f);
+    NEBULA_TUNABLE(f32, sRestoreForceDefault, 100.0f);
 };  // namespace
 
 namespace NrvMapPartsSeesaw2AxisRotator {
@@ -21,14 +22,14 @@ namespace NrvMapPartsSeesaw2AxisRotator {
 };  // namespace NrvMapPartsSeesaw2AxisRotator
 
 MapPartsSeesaw2AxisRotator::MapPartsSeesaw2AxisRotator(LiveActor* pHost, const char* pMoveSound, f32 moveSoundSpeed)
-    : MapPartsRotatorBase(pHost, "\203\126\201\133\203\134\201\133(2\216\262)" /* シーソー(2軸) */), mRotateAngle(), mInertiaConst(::sInertiaConstDefault), mRestoreForce(::sRestoreForceDefault),
+    : MapPartsRotatorBase(pHost, "シーソー(2軸)"), mRotateAngle(), mInertiaConst(::sInertiaConstDefault), mRestoreForce(::sRestoreForceDefault),
       mUp(0.0f, 1.0f, 0.0f), mHipDrop(), mRotateSpeed(), mMoveSound(pMoveSound), mMoveSoundSpeed(moveSoundSpeed) {
     mRotateMtx.identity();
     mBaseMtx.identity();
     mBaseMtxInv.identity();
 }
 
-void MapPartsSeesaw2AxisRotator::init(const JMapInfoIter& rIter) {
+void MapPartsSeesaw2AxisRotator::init(const TableIter& rIter) {
     initNerve(GET_NERVE(MapPartsSeesaw2AxisRotator, HostTypeWait));
     MR::getMapPartsArgRotateAngle(&mRotateAngle, rIter);
     s32 inertia = 0;
@@ -61,33 +62,35 @@ bool MapPartsSeesaw2AxisRotator::isWorking() const {
 }
 
 bool MapPartsSeesaw2AxisRotator::receiveMsg(u32 msg) {
-    if (msg == ACTMES_PLAYER_HIP_DROP_FLOOR) {
-        if (!MR::isOnPlayer(MR::getBodySensor(mHost))) {
-            return false;
-        }
+    if (msg != ACTMES_PLAYER_HIP_DROP_FLOOR || !MR::isOnPlayer(MR::getBodySensor(mHost))) {
+        return false;
+    }
 
-        mHipDrop = true;
+    mHipDrop = true;
 
-        if (isNerve(GET_NERVE(MapPartsSeesaw2AxisRotator, HostTypeMove)) || isNerve(GET_NERVE(MapPartsSeesaw2AxisRotator, HostTypeStay))) {
-            setNerve(GET_NERVE(MapPartsSeesaw2AxisRotator, HostTypeHipDrop));
-            return true;
-        }
+    if (isNerve(GET_NERVE(MapPartsSeesaw2AxisRotator, HostTypeMove)) || isNerve(GET_NERVE(MapPartsSeesaw2AxisRotator, HostTypeStay))) {
+        setNerve(GET_NERVE(MapPartsSeesaw2AxisRotator, HostTypeHipDrop));
+        return true;
     }
 
     return false;
 }
 
 void MapPartsSeesaw2AxisRotator::rotate() {
-    TVec3f position(*MR::getPlayerPos());
+    Vec3f position(*MR::getPlayerPos());
     mBaseMtxInv.mult(position, position);
     f32 distance = position.length();
-    TVec3f axis;
+    Vec3f axis;
     axis.cross(mUp, position);
-    MR::normalize(&axis);
-    TPos3f tilt;
+
+    // A player on the up line through the seesaw's origin gives no tilt axis (normalising it made the whole matrix NaN).
+    if (MR::normalizeOrZero(&axis)) {
+        return;
+    }
+    Pos3f tilt;
     tilt.identity();
     tilt.setRotate(axis, MR::toRadian(mRotateAngle));
-    TPos3f target;
+    Pos3f target;
     target.concat(mBaseMtx, tilt);
     target.zeroTrans();
 
@@ -104,7 +107,7 @@ void MapPartsSeesaw2AxisRotator::rotate() {
 
 void MapPartsSeesaw2AxisRotator::restoreMove() {
     f32 speed = MR::clamp(0.0001f * mRestoreForce, 0.0f, 1.0f);
-    TPos3f target;
+    Pos3f target;
     target.set(mBaseMtx);
     target.zeroTrans();
     MR::blendMtxRotate(mRotateMtx.toMtxPtr(), target.toMtxPtr(), speed, mRotateMtx.toMtxPtr());
@@ -129,11 +132,10 @@ void MapPartsSeesaw2AxisRotator::exeMove() {
 void MapPartsSeesaw2AxisRotator::exeHipDrop() {
     if (!mHipDrop) {
         setNerve(GET_NERVE(MapPartsSeesaw2AxisRotator, HostTypeMove));
-        mHipDrop = false;
-        return;
+    } else {
+        rotate();
     }
 
-    rotate();
     mHipDrop = false;
 }
 
@@ -141,7 +143,4 @@ void MapPartsSeesaw2AxisRotator::exeStay() {
     if (MR::isOnPlayer(MR::getBodySensor(mHost))) {
         setNerve(GET_NERVE(MapPartsSeesaw2AxisRotator, HostTypeMove));
     }
-}
-
-MapPartsSeesaw2AxisRotator::~MapPartsSeesaw2AxisRotator() {
 }

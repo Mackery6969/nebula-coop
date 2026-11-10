@@ -3,6 +3,8 @@
 #include "Game/Util/ActorCameraUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
     // const Vec cTitleTargetPos = {};
@@ -11,9 +13,9 @@ namespace {
     const Vec cFarPoint = {0.0f, 0.0f, 15000.0f};
     const Vec cNearTargetOffset = {0.0f, 1100.0f, 0.0f};
     const Vec cNearPointOffset = {0.0f, 0.0f, 4800.0f};
-    const f32 cTitleFovy = 60.0f;
-    const f32 cFarFovy = 40.0f;
-    const f32 cNearFovy = 50.0f;
+    NEBULA_TUNABLE(f32, cTitleFovy, 60.0f);
+    NEBULA_TUNABLE(f32, cFarFovy, 40.0f);
+    NEBULA_TUNABLE(f32, cNearFovy, 50.0f);
 };  // namespace
 
 namespace {
@@ -29,7 +31,7 @@ FileSelectCameraController::FileSelectCameraController(const char* pName)
       mUpVec(0.0f, 1.0f, 0.0f) {
 }
 
-void FileSelectCameraController::init(const JMapInfoIter& rIter) {
+void FileSelectCameraController::init(const TableIter& /*rIter*/) {
     MR::connectToSceneMapObjMovement(this);
     MR::invalidateClipping(this);
     MR::initActorCameraProgrammable(this);
@@ -52,8 +54,8 @@ void FileSelectCameraController::goToFarPoint() {
     setNerve(GET_NERVE_ANON(FileSelectCameraControllerNrvMoveToFarPoint));
 }
 
-void FileSelectCameraController::goToNearPoint(const TVec3f& rPoint) {
-    mNearTarget.set(rPoint + TVec3f(::cNearTargetOffset));
+void FileSelectCameraController::goToNearPoint(const Vec3f& rPoint) {
+    mNearTarget.set(rPoint + Vec3f(::cNearTargetOffset));
 
     setNerve(GET_NERVE_ANON(FileSelectCameraControllerNrvMoveToNearPoint));
 }
@@ -87,36 +89,36 @@ void FileSelectCameraController::exeMoveToFarPoint() {
         mUpVec.set(0.0f, 1.0f, 0.0f);
     }
 
-    f32 squaredTime = getNerveStep() / 60.0f;
+    f32 squaredTime = NebulaFrameClock::secondsOfSteps(getNerveStep());
 
     squaredTime *= squaredTime;
-    mWPoint += (TVec3f(::cFarTarget) - mWPoint) * squaredTime;
+    mWPoint += (Vec3f(::cFarTarget) - mWPoint) * squaredTime;
     mFovy += (::cFarFovy - mFovy) * squaredTime;
-    mPosition.add((TVec3f(::cFarPoint) - mPosition) * squaredTime);
+    mPosition.add((Vec3f(::cFarPoint) - mPosition) * squaredTime);
 
-    MR::setNerveAtStep(this, GET_NERVE_ANON(FileSelectCameraControllerNrvFarPoint), 60);
+    MR::setNerveAtStep(this, GET_NERVE_ANON(FileSelectCameraControllerNrvFarPoint), NebulaFrameClock::stepsOfSeconds(1));
 }
 
 void FileSelectCameraController::exeFarPoint() {
     mWPoint = ::cFarTarget;
     mFovy = ::cFarFovy;
-    mPosition.set(TVec3f(::cFarPoint));
+    mPosition.set(Vec3f(::cFarPoint));
 }
 
 void FileSelectCameraController::exeMoveToNearPoint() {
-    TVec3f nearPoint = mNearTarget + ::cNearPointOffset;
-    f32 squaredTime = getNerveStep() / 60.0f;
+    Vec3f nearPoint = mNearTarget + ::cNearPointOffset;
+    f32 squaredTime = NebulaFrameClock::secondsOfSteps(getNerveStep());
 
     squaredTime *= squaredTime;
     mWPoint += (mNearTarget - mWPoint) * squaredTime;
     mFovy += (::cNearFovy - mFovy) * squaredTime;
     mPosition += (nearPoint - mPosition) * squaredTime;
 
-    MR::setNerveAtStep(this, GET_NERVE_ANON(FileSelectCameraControllerNrvNearPoint), 60);
+    MR::setNerveAtStep(this, GET_NERVE_ANON(FileSelectCameraControllerNrvNearPoint), NebulaFrameClock::stepsOfSeconds(1));
 }
 
 void FileSelectCameraController::exeNearPoint() {
-    TVec3f nearPoint = mNearTarget + ::cNearPointOffset;
+    Vec3f nearPoint = mNearTarget + ::cNearPointOffset;
 
     mFovy = ::cNearFovy;
     mPosition.set(nearPoint);

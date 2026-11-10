@@ -1,35 +1,31 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class SpringValue;
 
 class TripodBossBreakMovement : public LiveActor {
 public:
-    /// @brief Creates a new `TripodBossBreakMovement`.
-    /// @param pName A pointer to the null-terminated name of the object.
     TripodBossBreakMovement(const char* pName);
 
-    virtual void movement();
+    virtual void movement() override;
 
-    void start(const TPos3f&, s32);
+    void start(const Pos3f& rMtx, s32 jointIndex);
     void setBreakDownLevel(s32);
 
     void exeWait();
     void exeStartBreak();
     void exeBreak();
 
-    TPos3f _8C;
+    Pos3f mMtx;
     SpringValue* mSpring;
-    TVec3f _C0;
-    TVec3f _CC;
-    TVec3f _D8;
-    TVec3f _E4;
-    f32 _F0;
-    f32 _F4;
-    f32 _F8;
-    u32 _FC;
-    s32 _100;
-    u32 _104;
+    Vec3f mPos;
+    Vec3f mMoment;
+    Vec3f mBreakVelocity;
+    Vec3f mFlyDir;
+    f32 mFlyDirRandomRate;
+    f32 mFlySpeed;
+    f32 mDamping;
+    s32 mJointIndex;
 };

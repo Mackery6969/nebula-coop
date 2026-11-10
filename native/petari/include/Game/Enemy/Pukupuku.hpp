@@ -4,7 +4,7 @@
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/RailUtil.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class ParabolicPath;
 class ValueControl;
@@ -16,41 +16,40 @@ class PukupukuStateLanding : public ActorStateBase< Pukupuku > {
 public:
     PukupukuStateLanding(Pukupuku* pParent);
 
-    virtual ~PukupukuStateLanding();
-
     void exeLandingMoveLand();
     void exeLandingJumpFromWater();
     void exeLandingJumpFromLand();
-    void updatePoseByJumpPath(f32);
+    void tryEndJumpOnLand();
+    void updatePoseByJumpPath(f32 rate);
     void setNerveAfterJumpAccordingToNextPoint();
-    void setupJumping(f32, f32);
+    void setupJumping(f32 height, f32 averageSpeed);
     void updateJumping();
-    void emitWaterColumIfNeed(bool, bool);
+    void emitWaterColumnIfNeed(bool isFromWater, bool isForce);
     void emitGroundHitEffect();
 
     ParabolicPath* mPath;
     ValueControl* mValueCtrl;
-    u8 _18;
+    bool mIsWaterColumnEmitted;
 };
 
 class Pukupuku : public LiveActor {
 public:
     Pukupuku(const char* pName);
 
-    virtual ~Pukupuku();
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void kill();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     void updatePoseByRailIgnoreUpScale();
     void rotatePoseByLocalZ();
-    void calcGroundHitMtx(TPos3f* pMtx) const;
+    void calcGroundHitMtx(Pos3f* pMtx) const;
     bool isReadyToJumpFromLand() const;
     bool isDamaged() const;
+    bool isInWater() const;
     void exeWait();
     void exeMoveWater();
     void exeMoveWaterAfterJump();
@@ -62,18 +61,20 @@ public:
     void updateMoveWaterAfterJump();
     bool tryBindStarPointer();
     void exeMoveWaterCommon();
+    void startLanding(const Nerve* pLandingNerve);
     f32 getBlownOffSpeedRate() const;
+    void startBlownOff(HitSensor* pAttacker, HitSensor* pVictim);
 
     inline void startAnim(const char* pBck, const char* pBtp) {
         MR::startBck(this, pBck);
         MR::startBtp(this, pBtp);
     }
 
-    inline void getCurrentRailPointPos(TVec3f* pOut) {
+    inline void getCurrentRailPointPos(Vec3f* pOut) {
         MR::calcRailPointPos(pOut, this, MR::getCurrentRailPointNo(this));
     }
 
-    inline void getNextRailPointPos(TVec3f* pOut) {
+    inline void getNextRailPointPos(Vec3f* pOut) {
         MR::calcRailPointPos(pOut, this, MR::getNextRailPointNo(this));
     }
 
@@ -82,17 +83,14 @@ public:
     }
 
     PukupukuStateLanding* mStateLanding;
-    TVec3f _90;
-    TVec3f _9C;
-    TQuat4f _A8;
+    Vec3f mClipCenter;
+    Vec3f mBinderOffset;
+    Quat4f mPoseQuat;
     AnimScaleController* mScaleCtrl;
     WalkerStateBindStarPointer* mStarPointer;
-    const char* _C0;
-    Nerve* _C4;
-    f32 _C8;
-    f32 _CC;
-    u8 _D0;
-    u8 _D1;
-    u8 _D2;
-    u8 _D3;
+    const char* mBckBeforeBind;
+    Nerve* mNerveAfterBind;
+    f32 mBckFrameBeforeBind;
+    f32 mBtpFrameBeforeBind;
+    bool mIsTrampled;
 };

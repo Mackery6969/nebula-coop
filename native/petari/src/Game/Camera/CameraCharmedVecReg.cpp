@@ -1,13 +1,14 @@
 #include "Game/Camera/CameraCharmedVecReg.hpp"
-#include "Game/Camera/CamTranslatorCharmedVecReg.hpp"
 #include "Game/Camera/CameraCalc.hpp"
 #include "Game/Camera/CameraLocalUtil.hpp"
+#include "Game/Camera/CameraParamChunk.hpp"
 #include "Game/Camera/CameraTargetObj.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/VectorUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const f32 sRate = 0.02f;
+    NEBULA_TUNABLE(f32, sRate, 0.02f);
 };  // namespace
 
 CameraCharmedVecReg::CameraCharmedVecReg(const char* pName)
@@ -21,17 +22,19 @@ void CameraCharmedVecReg::reset() {
 }
 
 CameraTargetObj* CameraCharmedVecReg::calc() {
-    TVec3f watchPoint;
-    CameraLocalUtil::makeWatchPoint(&watchPoint, this, CameraLocalUtil::getTarget(this), 0.1f / 15.0f);
+    CameraTargetObj* target = CameraLocalUtil::getTarget(this);
 
-    TVec3f watchOffs = watchPoint - CameraLocalUtil::getTarget(this)->getPosition();
+    Vec3f watchPoint;
+    CameraLocalUtil::makeWatchPoint(&watchPoint, this, target, 0.1f / 15.0f);
 
-    const TVec3f& vecReg = CameraLocalUtil::getVecReg(mName);
+    Vec3f watchOffs = watchPoint - target->getPosition();
 
-    TVec3f basePos = CameraLocalUtil::getTarget(this)->getPosition() * (1.0f - mCamDistRatio) + vecReg * mCamDistRatio;
+    const Vec3f& vecReg = CameraLocalUtil::getVecReg(mName);
 
-    TVec3f up = -CameraLocalUtil::getTarget(this)->getGravityVector();
-    TVec3f front = CameraLocalUtil::getTarget(this)->getPosition() - vecReg;
+    Vec3f basePos = target->getPosition() * (1.0f - mCamDistRatio) + vecReg * mCamDistRatio;
+
+    Vec3f up = -target->getGravityVector();
+    Vec3f front = target->getPosition() - vecReg;
     MR::projectVecOnPlane(&front, front, up);
 
     if (MR::isNearZero(front)) {
@@ -39,24 +42,24 @@ CameraTargetObj* CameraCharmedVecReg::calc() {
     }
     MR::normalize(&front);
 
-    TVec3f side = up.cross(front);
+    Vec3f side = up.cross(front);
     if (MR::isNearZero(side)) {
         return nullptr;
     }
     MR::normalize(&side);
 
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.identity();
     mtx.setXYZDir(side, up, front);
 
-    TVec3f camDir = CameraLocalUtil::getPos(this) - CameraLocalUtil::getTarget(this)->getPosition();
+    Vec3f camDir = CameraLocalUtil::getPos(this) - target->getPosition();
     MR::projectVecOnPlane(&camDir, camDir, up);
     if (MR::isNearZero(camDir)) {
         return nullptr;
     }
     MR::normalize(&camDir);
 
-    TVec3f camUp = front.cross(camDir);
+    Vec3f camUp = front.cross(camDir);
     f32 angleDiff = camDir.angle(front);
     f32 angle = angleDiff;
     if (angle < mAngleYMin) {
@@ -71,26 +74,27 @@ CameraTargetObj* CameraCharmedVecReg::calc() {
     }
     angle = angleDiff * (1.0f - mCamAngleRate) + angle * mCamAngleRate;
 
-    TPos3f rotX;
-    rotX.makeRotate(TVec3f(1.0f, 0.0f, 0.0f), -mAngleX);
+    Pos3f rotX;
+    rotX.makeRotate(Vec3f(1.0f, 0.0f, 0.0f), -mAngleX);
 
-    TPos3f rotY;
-    rotY.makeRotate(TVec3f(0.0f, 1.0f, 0.0f), angle);
+    Pos3f rotY;
+    rotY.makeRotate(Vec3f(0.0f, 1.0f, 0.0f), angle);
 
     mtx.concat(rotY);
     mtx.concat(rotX);
 
-    TVec3f posOffs(0.0f, 0.0f, mDist);
+    Vec3f posOffs(0.0f, 0.0f, mDist);
     mtx.mult33(posOffs);
 
     CameraLocalUtil::setWatchPos(this, basePos + watchOffs);
-    CameraLocalUtil::setPos(this, posOffs + CameraLocalUtil::getTarget(this)->getPosition());
+    CameraLocalUtil::setPos(this, posOffs + target->getPosition());
     CameraLocalUtil::setUpVec(this, up);
     CameraLocalUtil::setWatchUpVec(this, up);
 
-    return CameraLocalUtil::getTarget(this);
+    return target;
 }
 
-CamTranslatorBase* CameraCharmedVecReg::createTranslator() {
-    return new CamTranslatorCharmedVecReg(this);
+void CameraCharmedVecReg::setParamFromChunk(const CameraParamChunk* pChunk) {
+    CameraGeneralParam* general = pChunk->mGeneralParam;
+    setParam(general->mString.getCharPtr(), general->mDist, general->mAxis.x, general->mAxis.y, general->mAxis.z, general->mAngleA, general->mAngleB);
 }

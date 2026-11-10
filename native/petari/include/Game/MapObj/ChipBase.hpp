@@ -4,7 +4,6 @@
 
 class FlashingCtrl;
 class MapPartsRailMover;
-class NameObjArchiveListCollector;
 class PartsModel;
 
 class ChipBase : public LiveActor {
@@ -13,25 +12,25 @@ public:
 
     ChipBase(const char*, s32, const char*);
 
-    virtual ~ChipBase() {
+    virtual ~ChipBase() override {
     }
 
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void makeActorAppeared();
-    virtual void makeActorDead();
-    virtual void control();
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
+    virtual void makeActorAppeared() override;
+    virtual void makeActorDead() override;
+    virtual void control() override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
-    void initModel(const JMapInfoIter&);
+    void initModel(const TableIter&);
     void initSensor();
-    void initShadow(const JMapInfoIter&);
-    void initJMapParam(const JMapInfoIter&);
+    void initShadow(const TableIter&);
+    void initPlacementParam(const TableIter&);
     void deactive();
     void setGroupID(s32);
     void setHost(LiveActor*);
     void appearWait();
-    void appearFlashing(s32);
+    void appearFlashing(s32 timer);
     bool requestGet(HitSensor*, HitSensor*);
     bool requestShow();
     bool requestHide();
@@ -50,17 +49,15 @@ public:
     // Online co-op: another player in the instance took this chip. It counts toward its group here too (the group's
     // Launch Star appears for everyone), without the oxygen or the sound it gives its taker.
     void takeForOtherPlayer();
-    static bool isNeedBubble(const JMapInfoIter&);
-    static void makeArchiveList(NameObjArchiveListCollector*, const JMapInfoIter&);
+    static bool isNeedBubble(const TableIter&);
 
     FlashingCtrl* mFlashingCtrl;
     MapPartsRailMover* mRailMover;
     PartsModel* mAirBubble;
     const char* mChipName;
     LiveActor* mHost;
-    TVec3f mClippingRange;
+    Vec3f mClippingRange;
     s32 mGroupID;
     s32 mChipType;
-    bool _B4;
     bool mIsCalcShadow;
 };

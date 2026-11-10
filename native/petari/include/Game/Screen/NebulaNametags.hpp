@@ -12,7 +12,7 @@ class NebulaNametags : public LayoutActor {
 public:
     NebulaNametags();
 
-    virtual void init(const JMapInfoIter& rIter);
+    virtual void init(const TableIter& rIter);
     virtual void control();
 
 private:

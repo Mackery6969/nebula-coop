@@ -4,13 +4,12 @@
 
 class CameraTrundle : public Camera {
 public:
-    CameraTrundle(const char* pName = "\203\147\203\211\203\223\203\150\203\213\203\112\203\201\203\211" /* トランドルカメラ */);
+    CameraTrundle(const char* pName = "トランドルカメラ");
 
-    virtual void reset();
-    virtual CameraTargetObj* calc();
-    virtual CamTranslatorBase* createTranslator();
+    virtual CameraTargetObj* calc() override;
+    virtual void setParamFromChunk(const CameraParamChunk*) override;
 
-    void setParam(const TVec3f& wPoint, const TVec3f& axis, f32 dist, f32 angleX, f32 angleY, f32 dotMax) {
+    void setParam(const Vec3f& wPoint, const Vec3f& axis, f32 dist, f32 angleX, f32 angleY, f32 dotMax) {
         mWPoint.set(wPoint);
         mAxis.set(axis);
         mDist = dist;
@@ -19,8 +18,8 @@ public:
         mDotMax = dotMax;
     }
 
-    TVec3f mWPoint;
-    TVec3f mAxis;
+    Vec3f mWPoint;
+    Vec3f mAxis;
     f32 mDist;
     f32 mAngleX;
     f32 mAngleY;

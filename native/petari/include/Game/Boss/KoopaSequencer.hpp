@@ -3,7 +3,7 @@
 #include "Game/System/NerveExecutor.hpp"
 
 class HitSensor;
-class JMapInfoIter;
+class TableIter;
 class Koopa;
 class KoopaBattleStairsBase;
 class KoopaDemoJumpToPlanet;
@@ -13,8 +13,7 @@ class KoopaSequencer : public NerveExecutor {
 public:
     KoopaSequencer(const char* pName, s32 vs);
 
-    virtual ~KoopaSequencer() {};
-    virtual void init(Koopa* pKoopa, const JMapInfoIter& rIter);
+    virtual void init(Koopa* pKoopa, const TableIter& rIter);
     virtual void update();
     virtual void calcAndSetBaseMtx();
     virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
@@ -22,12 +21,14 @@ public:
     virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
     virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
 
-#if !defined(NEBULA_RELEASE)
-    virtual void testHit(HitSensor* pPlayer) {}
+#if defined(NEBULA_DEV)
+    virtual void testHit(HitSensor* /*pPlayer*/) {}
 #endif
 
     void startBattleLevel2();
     void startBattleLevel3();
+    void updateFallVoice();
+    void updateDemoDown(const char* pPlayerPosName);
 
     Koopa* mKoopa;
     KoopaDemoPowerUp* mPowerUp;

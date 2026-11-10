@@ -3,45 +3,28 @@
 #include <NebulaGpu.h>
 #include <nebula_math.h>
 
-class JMapInfo;
+class Table;
 
+// A link between two nodes of a RailGraph. Node and edge indices are -1 when unset.
 class RailGraphEdge {
 public:
+    static const s32 cPointArgNum = 8;
+
     RailGraphEdge();
 
     void clearConnectInfo();
-    s32 getNextNode(s32) const;
-    s32 getNextEdge(s32) const;
-    void setNextEdge(s32, s32);
-    void setArgs(const JMapInfo*, s32);
-
-    void operator=(const RailGraphEdge& rEdge) {
-        mDistance = rEdge.mDistance;
-        _4 = rEdge._4;
-        _8 = rEdge._8;
-        _C = rEdge._C;
-        _10 = rEdge._10;
-        mPointArg0 = rEdge.mPointArg0;
-        mPointArg1 = rEdge.mPointArg1;
-        mPointArg2 = rEdge.mPointArg2;
-        mPointArg3 = rEdge.mPointArg3;
-        mPointArg4 = rEdge.mPointArg4;
-        mPointArg5 = rEdge.mPointArg5;
-        mPointArg6 = rEdge.mPointArg6;
-        mPointArg7 = rEdge.mPointArg7;
-    }
+    // The other end from node, or -1 when node is neither end.
+    s32 getNextNode(s32 node) const;
+    // The edge that follows this one past node, or -1.
+    s32 getNextEdge(s32 node) const;
+    void setNextEdge(s32 edge, s32 node);
+    // The rail point's point_arg0 to point_arg7.
+    void setArgs(const Table* pPoints, s32 pointIndex);
 
     f32 mDistance;
-    s32 _4;
-    s32 _8;
-    s32 _C;
-    s32 _10;
-    s32 mPointArg0;
-    s32 mPointArg1;
-    s32 mPointArg2;
-    s32 mPointArg3;
-    s32 mPointArg4;
-    s32 mPointArg5;
-    s32 mPointArg6;
-    s32 mPointArg7;
+    s32 mNodeA;
+    s32 mNodeB;
+    s32 mNextEdgeA;
+    s32 mNextEdgeB;
+    s32 mPointArg[cPointArgNum];
 };

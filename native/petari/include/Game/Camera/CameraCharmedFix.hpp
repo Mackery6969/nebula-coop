@@ -4,19 +4,19 @@
 
 class CameraCharmedFix : public Camera {
 public:
-    CameraCharmedFix(const char* pName = "\203\124\203\223\203\173\203\112\203\201\203\211" /* サンボカメラ */);
+    CameraCharmedFix(const char* pName = "サンボカメラ");
 
-    virtual void reset();
-    virtual CameraTargetObj* calc();
-    virtual CamTranslatorBase* createTranslator();
+    virtual void reset() override;
+    virtual CameraTargetObj* calc() override;
+    virtual void setParamFromChunk(const CameraParamChunk*) override;
 
-    void setParam(const TVec3f& rBasePos, const TVec3f& rUp, const TVec3f& rWPoint) {
+    void setParam(const Vec3f& rBasePos, const Vec3f& rUp, const Vec3f& rWPoint) {
         mBasePos.set(rBasePos);
         mUp.set(rUp);
         mWPoint.set(rWPoint);
     }
 
-    TVec3f mBasePos;
-    TVec3f mUp;
-    TVec3f mWPoint;
+    Vec3f mBasePos;
+    Vec3f mUp;
+    Vec3f mWPoint;
 };

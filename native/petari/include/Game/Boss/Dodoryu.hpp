@@ -2,7 +2,7 @@
 
 #include "Game/LiveActor/ModelObj.hpp"
 #include "Game/Util/Array.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class AnimScaleController;
 class AreaObj;
@@ -24,45 +24,43 @@ class TalkMessageCtrl;
 
 class Dodoryu : public LiveActor {
 public:
-    /// @brief Creates a new `Dodoryu`.
-    /// @param pName A pointer to the null-terminated name of the object.
     Dodoryu(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void initAfterPlacement();
-    virtual void startClipped();
-    virtual void endClipped();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter& rIter) override;
+    virtual void initAfterPlacement() override;
+    virtual void startClipped() override;
+    virtual void endClipped() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
 
     void snapToGround();
     bool snapToWall();
-    void setMtx(const TPos3f&);
+    void setMtx(const Pos3f&);
     void notifyOnSwitchA();
     void nextState();
     void pauseOff();
     void startPlayerCenterCamera();
     void endPlayerCenterCamera();
-    void getPlayerResetMtx(TPos3f*, u32) const;
+    void getPlayerResetMtx(Pos3f* pMtx, u32 index) const;
     bool checkWallWithVelocity();
     void reactJumpOutCommon() const;
     void startSpinOutCamera();
     void endSpinOutCamera();
-    bool keepOffFromClosedArea(TVec3f*);
+    bool keepOffFromClosedArea(Vec3f*);
     void tryRumblePad();
     void invalidateEyeSensor();
     void validateEyeSensor();
     void invalidateStarPieceSensor();
     void validateStarPieceSensor();
     bool isHeadNeedle(HitSensor*, HitSensor*) const;
-    void shiftMoveStateRail(f32);
-    void shiftMoveStateChase(f32, f32, f32, f32);
-    void shiftMoveStateEscape(f32, s32, s32, f32, f32);
-    void shiftMoveStateJumpOut(f32, f32);
+    void shiftMoveStateRail(f32 speed);
+    void shiftMoveStateChase(f32 accel, f32 lateralDamping, f32 maxSpeed, f32 turnAngle);
+    void shiftMoveStateEscape(f32 speed, s32 dirStepMin, s32 dirStepMax, f32 dirAngleMax, f32 turnAngle);
+    void shiftMoveStateJumpOut(f32 speed, f32 turnAngle);
     void shiftMoveStateNull();
-    void setMoveRailSpeed(f32);
+    void setMoveRailSpeed(f32 railSpeed);
     void startHill();
     void stopHill();
     void stopHillForce();
@@ -74,62 +72,60 @@ public:
     void appearBank();
     void leaveRabbit();
     void resetRabbit();
-    void calcRabbitDir(TVec3f*) const;
+    void calcRabbitDir(Vec3f*) const;
     void displayRabbitMessage();
     void initHitSensor();
-    void initSwitch(const JMapInfoIter&);
+    void initSwitch(const TableIter&);
     void createMogucchiHill();
     void createDodoryuBank();
-    void turnUpVecTo(const TVec3f&);
+    void turnUpVecTo(const Vec3f& rUp);
     void checkHipDrop();
     void initState();
     void updateRumblePad();
     void updateCameraTarget();
 
-    TPos3f mBaseMtx;
-    TVec3f _BC;
-    u8 _C8;
-    u32 _CC;
-    MR::Vector< MR::FixedArray< DodoryuStateBase*, 16 > > mState;
+    Pos3f mBaseMtx;
+    Vec3f mCameraRegisterPos;
+    u32 mStateIndex;
+    MR::InlineVector< DodoryuStateBase*, 16 > mState;
     DodoryuSub::MoveStateHolder* mMoveStateHolder;
     DodoryuHill* mHill;
     DodoryuLeadHill* mLeadHill;
     DodoryuBank* mBank;
     DodoryuRabbit* mRabbit;
-    TVec3f _128;
-    TVec3f _134;
+    Vec3f mGroundNormal;
+    Vec3f mWallNormal;
     AreaObj* mClosedAreaObj;
-    u8 _144;
-    CameraTargetMtx* _148;
-    CameraTargetMtx* _14C;
-    u8 _150;
-    u32 _154;
+    bool mIsSwitchOn;
+    CameraTargetMtx* mDemoCameraTarget;
+    CameraTargetMtx* mSpinOutCameraTarget;
+    bool mIsRumbling;
     AnimScaleController* mAnimScaleCtrl;
 };
 
 class DodoryuBank : public ModelObj {
 public:
-    /// @brief Creates a new `DodoryuBank`.
     DodoryuBank();
 
-    virtual void init(const JMapInfoIter& rIter);
+    virtual void init(const TableIter& rIter) override;
 
     void exeAppear();
 
-    TMtx34f _90;
+    Mtx34f mBankMtx;
 };
 
 class DodoryuRabbit : public ModelObj {
 public:
-    DodoryuRabbit(Dodoryu* pDodoryu, const JMapInfoIter& rIter);
+    DodoryuRabbit(Dodoryu* pDodoryu, const TableIter& rIter);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void control();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter& rIter) override;
+    virtual void control() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
 
-    void reset(bool);
-    void updatePos(f32);
+    // isPlace also moves the rabbit onto its new rail point.
+    void reset(bool isPlace);
+    void updatePos(f32 speed);
     f32 calcCoordDiff() const;
     bool tryTalk();
 
@@ -143,29 +139,29 @@ public:
     void exePleasure();
 
     Dodoryu* mHost;
-    TPos3f _94;
-    f32 _C4;
+    Pos3f mRabbitMtx;
+    f32 mRailCoord;
     TalkMessageCtrl* mTalkCtrl;
-    s32 _CC;
-    s32 _D0;
-    JointRumbler* _D4;
-    JointRumbler* _D8;
+    s32 mTalkSwitchStep;
+    s32 mTalkNode;
+    JointRumbler* mTrampleRumbler;
+    JointRumbler* mStarPieceRumbler;
     bool mIsDisplayMessage;
-    TPos3f _E0;
+    Pos3f mTalkMtx;
 };
 
 class DodoryuLeadHill : public LiveActor {
 public:
     DodoryuLeadHill(Dodoryu* pHost);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
+    virtual void init(const TableIter& rIter) override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
 
     void initJoint();
-    bool calcJoint(TPos3f*, const JointControllerInfo&);
+    bool calcJoint(Pos3f*, const JointControllerInfo&);
 
     MtxPtr mHostBaseMtx;
-    f32 _90;
-    JointController* _94[17];
+    f32 mSpinAngle;
+    JointController* mJointCtrls[17];
 };

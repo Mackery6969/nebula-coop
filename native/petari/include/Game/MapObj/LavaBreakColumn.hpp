@@ -6,10 +6,10 @@ class LavaBreakColumn : public AnmModelSwitchMoveEndKill {
 public:
     LavaBreakColumn(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void makeActorAppeared();
-    virtual void control();
+    virtual void init(const TableIter&) override;
+    virtual void makeActorAppeared() override;
+    virtual void control() override;
 
-    TVec3f mEffectPos;
+    Vec3f mEffectPos;
     bool mIsPillarFallen;
 };

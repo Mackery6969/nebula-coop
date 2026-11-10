@@ -1,4 +1,5 @@
 #include "Game/Enemy/BombBirdBomb.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util/ActorMovementUtil.hpp"
@@ -9,22 +10,21 @@
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#include "Game/Util/Tunable.hpp"
+
+// The numbers this file's functions give the game's motion and animation calls, as tunables: "<file>.<function>.<call>.<k>".
+NEBULA_TUNABLE_NAMED(f32, cNum_exeWait_reboundVelocityFromCollision_1, "exeWait.reboundVelocityFromCollision.1", 1.0f);
 
 namespace {
-    static const f32 sGroundFric = 1.0f;
-    // static const f32 sAirFric = _;
-    static const f32 sMomentFric = 0.96f;
-    static const f32 sGravityAccel = 1.2f;
-    static const f32 sReboundRate = 0.4f;
-    static const f32 sReboundSpeedMin = 5.0f;
-    static const s32 sWaitTime = 150;
-    static const s32 sExplosionMaxTime = 10;
-    static const s32 sExplosionTime = 20;
-    static const f32 sExplosionRadius = 280.0f;
-    // static const f32 sBombBoundNoteOffVel = _;
-    // static const f32 sBombBoundVolMinVel = _;
-    // static const f32 sBombBoundVolMaxVel = _;
-    // static const f32 hShiftingSandVel = _;
+    NEBULA_TUNABLE(f32, sGroundFric, 1.0f);
+    NEBULA_TUNABLE(f32, sMomentFric, 0.96f);
+    NEBULA_TUNABLE(f32, sGravityAccel, 1.2f);
+    NEBULA_TUNABLE(f32, sReboundRate, 0.4f);
+    NEBULA_TUNABLE(f32, sReboundSpeedMin, 5.0f);
+    static const s32 sWaitTime = NebulaFrameClock::stepsOfMilliseconds(2500);
+    NEBULA_TUNABLE(s32, sExplosionMaxTime, 10);
+    NEBULA_TUNABLE(s32, sExplosionTime, 20);
+    NEBULA_TUNABLE(f32, sExplosionRadius, 280.0f);
 };  // namespace
 
 namespace NrvBombBirdBomb {
@@ -33,19 +33,19 @@ namespace NrvBombBirdBomb {
     NEW_NERVE(HostTypeNrvExplosion, BombBirdBomb, Explosion);
 };  // namespace NrvBombBirdBomb
 
-BombBirdBomb::BombBirdBomb(const char* pName) : LiveActor(pName), _8C(0.0f, 0.0f, 0.0f, 1.0f), _9C(0.0f, 0.0f, 0.0f) {
+BombBirdBomb::BombBirdBomb(const char* pName) : LiveActor(pName), mRotateQuat(0.0f, 0.0f, 0.0f, 1.0f), mRotateMoment(0.0f, 0.0f, 0.0f) {
 }
 
-void BombBirdBomb::init(const JMapInfoIter& rIter) {
+void BombBirdBomb::init(const TableIter& /*rIter*/) {
     initModelManagerWithAnm("BombBirdBomb", nullptr, false);
     MR::connectToSceneEnemy(this);
     MR::onCalcGravity(this);
     initHitSensor(2);
-    MR::addHitSensorEnemy(this, "body", 8, 60.0f, TVec3f(0.0f, 0.0f, 0.0f));
-    MR::addHitSensorEnemyAttack(this, "bomb", 8, ::sExplosionRadius, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorEnemy(this, "body", 8, 60.0f, Vec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorEnemyAttack(this, "bomb", 8, ::sExplosionRadius, Vec3f(0.0f, 0.0f, 0.0f));
     MR::invalidateHitSensor(this, "bomb");
     initBinder(getSensor("body")->mRadius, 0.0f, 0);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initSound(3, false);
     f32 radius = getSensor("body")->mRadius;
     MR::initShadowVolumeSphere(this, radius);
@@ -60,23 +60,23 @@ void BombBirdBomb::kill() {
 }
 
 void BombBirdBomb::control() {
-    _9C.mult(::sMomentFric);
-    MR::rotateQuatMoment(&_8C, _9C);
+    mRotateMoment.mult(::sMomentFric);
+    MR::rotateQuatMoment(&mRotateQuat, mRotateMoment);
 }
 
 void BombBirdBomb::calcAndSetBaseMtx() {
-    MR::setBaseTRMtx(this, _8C);
+    MR::setBaseTRMtx(this, mRotateQuat);
     MR::setBaseScale(this, mScale);
 }
 
-void BombBirdBomb::hold(const TVec3f& rPos) {
+void BombBirdBomb::hold(const Vec3f& rPos) {
     MR::resetPosition(this, rPos);
     appear();
     MR::showModel(this);
     setNerve(GET_NERVE(BombBirdBomb, HostTypeNrvHold));
 }
 
-void BombBirdBomb::start(const TVec3f& rTrans, const TVec3f& rVelocity) {
+void BombBirdBomb::start(const Vec3f& rTrans, const Vec3f& rVelocity) {
     mPosition.set(rTrans);
     MR::showModel(this);
     MR::validateHitSensor(this, "body");
@@ -109,11 +109,11 @@ void BombBirdBomb::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     kill();
 }
 
-bool BombBirdBomb::receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) {
+bool BombBirdBomb::receiveMsgPush(HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     return false;
 }
 
-bool BombBirdBomb::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool BombBirdBomb::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     return MR::isMsgStarPieceReflect(msg);
 }
 
@@ -131,7 +131,7 @@ void BombBirdBomb::exeWait() {
     }
 
     f32 dotP = mGravity.dot(mVelocity);
-    TVec3f velocity;
+    Vec3f velocity;
     velocity.set(0.0f);
 
     if (MR::calcVelocityAreaOrRailMoveOnGround(&velocity, this)) {
@@ -144,7 +144,7 @@ void BombBirdBomb::exeWait() {
     } else {
         MR::addVelocityToGravity(this, ::sGravityAccel);
 
-        if (MR::reboundVelocityFromCollision(this, ::sReboundRate, ::sReboundSpeedMin, 1.0f) && dotP >= 5.5f) {
+        if (MR::reboundVelocityFromCollision(this, ::sReboundRate, ::sReboundSpeedMin, cNum_exeWait_reboundVelocityFromCollision_1) && dotP >= 5.5f) {
             MR::startSound(this, "SE_EM_BOMBBIRDBOMB_LAND");
         }
     }

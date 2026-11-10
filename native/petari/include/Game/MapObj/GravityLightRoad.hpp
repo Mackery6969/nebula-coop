@@ -6,9 +6,9 @@ class GravityLightRoad : public LiveActor {
 public:
     GravityLightRoad(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void updateHitSensor(HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void updateHitSensor(HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
     void updateBindActorMtx();
     void endBind();
@@ -23,5 +23,5 @@ public:
     LiveActor* mHost;
     f32 mSpeed;
     f32 mRadius;
-    TVec3f mEndPos;
+    Vec3f mEndPos;
 };

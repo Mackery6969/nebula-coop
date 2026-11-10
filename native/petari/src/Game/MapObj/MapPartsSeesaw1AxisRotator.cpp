@@ -1,6 +1,3 @@
-
-f32 JMAAcosRadian(f32);
-
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/MapObj/MapPartsSeesaw1AxisRotator.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
@@ -10,14 +7,15 @@ f32 JMAAcosRadian(f32);
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/VectorUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    const f32 sAngularVelocityFric = 0.99f;
-    const f32 sAngularAccelHipDrop = 40.0f;
-    const f32 sCollisionEfficiency = -0.5f;
-    const f32 sAngularSpeedMin = 0.1f;
-    const s32 sMoveStartFrame = 2;
-    const f32 sInertiaConstDefault = 1000.0f;
+    NEBULA_TUNABLE(f32, sAngularVelocityFric, 0.99f);
+    NEBULA_TUNABLE(f32, sAngularAccelHipDrop, 40.0f);
+    NEBULA_TUNABLE(f32, sCollisionEfficiency, -0.5f);
+    NEBULA_TUNABLE(f32, sAngularSpeedMin, 0.1f);
+    NEBULA_TUNABLE(s32, sMoveStartFrame, 2);
+    NEBULA_TUNABLE(f32, sInertiaConstDefault, 1000.0f);
 };  // namespace
 
 namespace NrvMapPartsSeesaw1AxisRotator {
@@ -29,13 +27,13 @@ namespace NrvMapPartsSeesaw1AxisRotator {
 };  // namespace NrvMapPartsSeesaw1AxisRotator
 
 MapPartsSeesaw1AxisRotator::MapPartsSeesaw1AxisRotator(LiveActor* pHost, const char* pMoveSound, f32 moveSoundSpeed)
-    : MapPartsRotatorBase(pHost, "\203\126\201\133\203\134\201\133(1\216\262)" /* シーソー(1軸) */), mAngularSpeedMax(), mInertiaConst(::sInertiaConstDefault), mRotateAngle(), mRestoreForce(),
+    : MapPartsRotatorBase(pHost, "シーソー(1軸)"), mAngularSpeedMax(), mInertiaConst(::sInertiaConstDefault), mRotateAngle(), mRestoreForce(),
       mHipDrop(), mRotateAxis(0.0f, 0.0f, 1.0f), mAngularVelocity(), mAngularAccel(), mInitialUp(0.0f, 1.0f, 0.0f), mMoveSound(pMoveSound),
       mMoveSoundSpeed(moveSoundSpeed) {
     mRotateMtx.identity();
 }
 
-void MapPartsSeesaw1AxisRotator::init(const JMapInfoIter& rIter) {
+void MapPartsSeesaw1AxisRotator::init(const TableIter& rIter) {
     initNerve(GET_NERVE(MapPartsSeesaw1AxisRotator, HostTypeWait));
     MR::getMapPartsArgRotateSpeed(&mAngularSpeedMax, rIter);
     mAngularSpeedMax *= 0.01f;
@@ -51,30 +49,27 @@ void MapPartsSeesaw1AxisRotator::init(const JMapInfoIter& rIter) {
     MR::getMapPartsArgRotateStopTime(&restoreForce, rIter);
     mRestoreForce = restoreForce;
 
-    TPos3f baseMtx;
+    Pos3f baseMtx;
     baseMtx.set(mHost->getBaseMtx());
     baseMtx.getYDir(mInitialUp);
     MR::normalize(&mInitialUp);
 }
 
 void MapPartsSeesaw1AxisRotator::start() {
-    TPos3f rotateMtx;
+    Pos3f rotateMtx;
     rotateMtx.identity();
     rotateMtx.setRotateDegree(mHost->mRotation);
     mRotateMtx.set(rotateMtx);
 
-    TPos3f baseMtx;
-    baseMtx.identity();
-    baseMtx.set(mHost->getBaseMtx());
+    Pos3f baseMtx(mHost->getBaseMtx());
     baseMtx.getZDir(mRotateAxis);
     MR::normalize(&mRotateAxis);
 
     f32 angle = 0.0f;
     calcRotatedAngle(&angle, mRotateMtx);
-    bool hasAngleLimit = isAngleLimited();
 
-    if (hasAngleLimit && mRotateAngle < angle) {
-        TPos3f correction;
+    if (isAngleLimited() && mRotateAngle < angle) {
+        Pos3f correction;
         correction.identity();
         correction.setRotate(mRotateAxis, 1.05f * (PI_180 * (angle - mRotateAngle)));
         mRotateMtx.concat(correction);
@@ -92,19 +87,12 @@ void MapPartsSeesaw1AxisRotator::end() {
 }
 
 bool MapPartsSeesaw1AxisRotator::receiveMsg(u32 msg) {
-    if (msg == ACTMES_PLAYER_HIP_DROP_FLOOR) {
-        if (!MR::isOnPlayer(MR::getBodySensor(mHost))) {
-            return false;
-        }
-
-        mHipDrop = true;
-
-        if (tryHipDrop()) {
-            return true;
-        }
+    if (msg != ACTMES_PLAYER_HIP_DROP_FLOOR || !MR::isOnPlayer(MR::getBodySensor(mHost))) {
+        return false;
     }
 
-    return false;
+    mHipDrop = true;
+    return tryHipDrop();
 }
 
 void MapPartsSeesaw1AxisRotator::exeMove() {
@@ -139,17 +127,13 @@ void MapPartsSeesaw1AxisRotator::exeHipDrop() {
 
     if (!mHipDrop) {
         setNerve(GET_NERVE(MapPartsSeesaw1AxisRotator, HostTypeMove));
-        mHipDrop = false;
-        return;
     }
 
     mHipDrop = false;
 }
 
 void MapPartsSeesaw1AxisRotator::rotate() {
-    TPos3f baseMtx;
-    baseMtx.identity();
-    baseMtx.set(mHost->getBaseMtx());
+    Pos3f baseMtx(mHost->getBaseMtx());
     baseMtx.getZDir(mRotateAxis);
     mAngularVelocity += mAngularAccel;
     updateVelocity();
@@ -166,23 +150,22 @@ void MapPartsSeesaw1AxisRotator::rotate() {
         return;
     }
 
-    TPos3f rotation;
+    Pos3f rotation;
     rotation.identity();
     rotation.setRotate(mRotateAxis, PI_180 * mAngularVelocity);
     rotation.concat(rotation, mRotateMtx);
     mRotateMtx.set(rotation);
-    TVec3f angles;
+    Vec3f angles;
     mRotateMtx.getEuler(angles);
-    TVec3f& rotationAngles = mHost->mRotation;
-    rotationAngles.set(angles * _180_PI);
+    mHost->mRotation.set(angles * _180_PI);
 }
 
 void MapPartsSeesaw1AxisRotator::updateVelocity() {
     if (MR::isOnPlayer(MR::getBodySensor(mHost))) {
-        TVec3f gravity;
+        Vec3f gravity;
         MR::calcGravityVector(mHost, &gravity, nullptr, 0);
-        TVec3f offset(*MR::getPlayerPos() - mHost->mPosition);
-        TVec3f torque;
+        Vec3f offset(*MR::getPlayerPos() - mHost->mPosition);
+        Vec3f torque;
         torque.cross(offset, gravity);
         f32 direction = MR::sign(torque.dot(mRotateAxis));
         mAngularVelocity += direction * (getDistanceFromRotAxis() / (0.1f * mInertiaConst));
@@ -197,13 +180,11 @@ void MapPartsSeesaw1AxisRotator::updateVelocity() {
 }
 
 void MapPartsSeesaw1AxisRotator::updateRestoreForce() {
-    TPos3f baseMtx;
-    baseMtx.identity();
-    baseMtx.set(mHost->getBaseMtx());
-    TVec3f up;
+    Pos3f baseMtx(mHost->getBaseMtx());
+    Vec3f up;
     baseMtx.getYDir(up);
     MR::normalize(&up);
-    TVec3f torque;
+    Vec3f torque;
     torque.cross(up, mInitialUp);
     f32 force = torque.dot(mRotateAxis);
 
@@ -222,23 +203,20 @@ void MapPartsSeesaw1AxisRotator::clampAngularSpeed() {
 }
 
 f32 MapPartsSeesaw1AxisRotator::getDistanceFromRotAxis() const {
-    TVec3f position(mHost->mPosition);
-    TVec3f offset(*MR::getPlayerPos() - position);
-    TPos3f baseMtx;
-    baseMtx.identity();
-    baseMtx.set(mHost->getBaseMtx());
-    TVec3f axis;
+    Vec3f offset(*MR::getPlayerPos() - mHost->mPosition);
+    Pos3f baseMtx(mHost->getBaseMtx());
+    Vec3f axis;
     baseMtx.getXDir(axis);
-    TVec3f projection;
+    Vec3f projection;
     projection.scale(axis.dot(offset), axis);
     return 0.001f * projection.length();
 }
 
 void MapPartsSeesaw1AxisRotator::addForceHipDrop() {
-    TVec3f gravity;
+    Vec3f gravity;
     MR::calcGravityVector(mHost, &gravity, nullptr, 0);
-    TVec3f offset(*MR::getPlayerPos() - mHost->mPosition);
-    TVec3f torque;
+    Vec3f offset(*MR::getPlayerPos() - mHost->mPosition);
+    Vec3f torque;
     torque.cross(offset, gravity);
     f32 direction = MR::sign(torque.dot(mRotateAxis));
     f32 inertia = 0.1f * mInertiaConst;
@@ -246,13 +224,11 @@ void MapPartsSeesaw1AxisRotator::addForceHipDrop() {
 }
 
 bool MapPartsSeesaw1AxisRotator::isGoingToReachTargetAngle() const {
-    bool hasAngleLimit = isAngleLimited();
-
-    if (!hasAngleLimit) {
+    if (!isAngleLimited()) {
         return false;
     }
 
-    TPos3f rotation;
+    Pos3f rotation;
     rotation.identity();
     rotation.setRotate(mRotateAxis, PI_180 * mAngularVelocity);
     rotation.concat(rotation, mRotateMtx);
@@ -261,24 +237,22 @@ bool MapPartsSeesaw1AxisRotator::isGoingToReachTargetAngle() const {
     return mRotateAngle <= angle;
 }
 
-void MapPartsSeesaw1AxisRotator::calcRotatedAngle(f32* pAngle, const TPos3f& rMtx) const {
-    TVec3f up;
+void MapPartsSeesaw1AxisRotator::calcRotatedAngle(f32* pAngle, const Pos3f& rMtx) const {
+    Vec3f up;
     rMtx.getYDir(up);
     MR::normalize(&up);
-    TVec3f gravityUp;
-    TVec3f gravity;
+    Vec3f gravity;
     MR::calcGravityVector(mHost, &gravity, nullptr, 0);
 
+    Vec3f gravityUp;
     if (!gravity.isZero()) {
-        TVec3f oppositeGravity(-gravity);
-        gravityUp.set(oppositeGravity);
+        gravityUp.set(-gravity);
     } else {
         gravityUp.set< f32 >(0.0f, 1.0f, 0.0f);
     }
 
     MR::normalize(&gravityUp);
-    TVec3f normal(gravityUp);
-    f32 cosine = up.dot(normal);
+    f32 cosine = up.dot(gravityUp);
 
     if (MR::isNearZero(1.0f - cosine)) {
         cosine = 1.0f;
@@ -288,7 +262,7 @@ void MapPartsSeesaw1AxisRotator::calcRotatedAngle(f32* pAngle, const TPos3f& rMt
         cosine = 0.0f;
     }
 
-    *pAngle = _180_PI * JMAAcosRadian(cosine);
+    *pAngle = _180_PI * Angle::acosRadian(cosine);
 }
 
 bool MapPartsSeesaw1AxisRotator::tryHipDrop() {
@@ -299,9 +273,6 @@ bool MapPartsSeesaw1AxisRotator::tryHipDrop() {
     }
 
     return false;
-}
-
-MapPartsSeesaw1AxisRotator::~MapPartsSeesaw1AxisRotator() {
 }
 
 bool MapPartsSeesaw1AxisRotator::isWorking() const {

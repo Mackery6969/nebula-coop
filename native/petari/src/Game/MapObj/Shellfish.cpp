@@ -1,4 +1,5 @@
 #include "Game/MapObj/Shellfish.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Enemy/AnimScaleController.hpp"
 #include "Game/Enemy/WalkerStateBindStarPointer.hpp"
 #include "Game/LiveActor/Nerve.hpp"
@@ -7,6 +8,7 @@
 #include "Game/MapObj/Coin.hpp"
 #include "Game/MapObj/YellowChip.hpp"
 #include "Game/Util.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
     const Vec sBodyHitOffset = {0.0f, 100.0f, 0.0f};
@@ -14,17 +16,17 @@ namespace {
     const Vec sCoinOffset = {0.0f, 50.0f, 30.0f};
     const Vec sChipOffset = {0.0f, 100.0f, 50.0f};
     const Vec sKinokoOneUpOffset = {0.0f, 70.0f, 30.0f};
-    const s32 sStepToOpen = 150;
-    const s32 sStepToSetPosItem = 100;
-    const s32 sStepToCloseSignal = 170;
-    const s32 sStepToClose = 150;
-    const s32 sStepToHitSensorOn = 0;
-    const s32 sStepToHitSensorOff = 15;
-    const s32 sStepToApperItem = 40;
-    const s32 sStepToDeadItem = 5;
-    const s32 sStepToRecover = 540;
-    const s32 sShockToInterpole = 2;
-    const f32 sHitPushPower = 40.0f;
+    const s32 sStepToOpen = NebulaFrameClock::stepsOfMilliseconds(2500);
+    NEBULA_TUNABLE(s32, sStepToSetPosItem, 100);
+    NEBULA_TUNABLE(s32, sStepToCloseSignal, 170);
+    const s32 sStepToClose = NebulaFrameClock::stepsOfMilliseconds(2500);
+    NEBULA_TUNABLE(s32, sStepToHitSensorOn, 0);
+    NEBULA_TUNABLE(s32, sStepToHitSensorOff, 15);
+    NEBULA_TUNABLE(s32, sStepToApperItem, 40);
+    NEBULA_TUNABLE(s32, sStepToDeadItem, 5);
+    const s32 sStepToRecover = NebulaFrameClock::stepsOfSeconds(9);
+    NEBULA_TUNABLE(s32, sShockToInterpole, 2);
+    NEBULA_TUNABLE(f32, sHitPushPower, 40.0f);
 };  // namespace
 
 namespace NrvShellfish {
@@ -34,39 +36,39 @@ namespace NrvShellfish {
     NEW_NERVE(ShellfishNrvCloseSignal, Shellfish, CloseSignal);
     NEW_NERVE(ShellfishNrvClose, Shellfish, Close);
     NEW_NERVE(ShellfishNrvShock, Shellfish, Shock);
-    NEW_NERVE_ONEND(ShellfishNrvDPDOpen, Shellfish, DPDOpen, DPDOpen);
+    NEW_NERVE_ONEND(ShellfishNrvPointerOpen, Shellfish, PointerOpen, PointerOpen);
 };  // namespace NrvShellfish
 
 Shellfish::Shellfish(const char* pName)
-    : LiveActor(pName), mScaleController(), mStarPointerState(), mItem(), mItemType(), mIsItemBound(), mLowCollision(), _A4() {
+    : LiveActor(pName), mScaleController(), mStarPointerState(), mItem(), mItemType(), mIsItemBound(), mLowCollision() {
 }
 
-void Shellfish::init(const JMapInfoIter& rIter) {
+void Shellfish::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("Shellfish", nullptr, false);
     MR::connectToSceneMapObjStrongLight(this);
     initHitSensor(2);
-    MR::addHitSensorEnemy(this, "body", 8, 400.0f, TVec3f(::sBodyHitOffset));
-    MR::addHitSensorAtJointEnemyAttack(this, "core", "Lid", 8, 120.0f, TVec3f(::sSandHitOffset));
+    MR::addHitSensorEnemy(this, "body", 8, 400.0f, Vec3f(::sBodyHitOffset));
+    MR::addHitSensorAtJointEnemyAttack(this, "core", "Lid", 8, 120.0f, Vec3f(::sSandHitOffset));
     MR::invalidateHitSensor(this, "core");
     MR::initCollisionPartsAutoEqualScaleOne(this, "Hi", getSensor("body"), MR::getJointMtx(this, "Lid"));
     mLowCollision = MR::createCollisionPartsFromLiveActor(this, "Low", getSensor("body"), MR::CollisionScaleType_NotUsingScale);
     MR::validateCollisionParts(mLowCollision);
     MR::initLightCtrlNoDrawEnemy(this);
     MR::initShadowVolumeCylinder(this, 170.0f);
-    TVec3f front;
+    Vec3f front;
     MR::calcFrontVec(&front, this);
-    TVec3f up;
+    Vec3f up;
     MR::calcUpVec(&up, this);
-    TVec3f shadowPosition;
+    Vec3f shadowPosition;
     shadowPosition.scaleAdd(30.0f, front, mPosition);
     shadowPosition.scaleAdd(5.0f, up, shadowPosition);
     MR::setShadowDropPosition(this, nullptr, shadowPosition);
     MR::offCalcShadow(this, nullptr);
-    initEffectKeeper(2, nullptr, false);
+    initEffectKeeper(2, nullptr);
     MR::addEffectHitNormal(this, nullptr);
     initSound(4, false);
-    MR::initStarPointerTarget(this, 260.0f, TVec3f(0.0f, 130.0f, -50.0f));
+    MR::initStarPointerTarget(this, 260.0f, Vec3f(0.0f, 130.0f, -50.0f));
     mScaleController = new AnimScaleController(nullptr);
     mScaleController->setParamTight();
     mStarPointerState = new WalkerStateBindStarPointer(this, mScaleController);
@@ -82,8 +84,8 @@ void Shellfish::initAfterPlacement() {
 
 void Shellfish::calcAndSetBaseMtx() {
     LiveActor::calcAndSetBaseMtx();
-    TVec3f scale;
-    scale.mul(mScaleController->_C, mScale);
+    Vec3f scale;
+    scale.mul(mScaleController->mScale, mScale);
     MR::setBaseScale(this, scale);
 }
 
@@ -92,7 +94,7 @@ void Shellfish::control() {
 
     if ((isNerve(GET_NERVE(Shellfish, ShellfishNrvOpenWait)) || isNerve(GET_NERVE(Shellfish, ShellfishNrvCloseSignal))) &&
         mStarPointerState->tryStartPointBind()) {
-        setNerve(GET_NERVE(Shellfish, ShellfishNrvDPDOpen));
+        setNerve(GET_NERVE(Shellfish, ShellfishNrvPointerOpen));
     }
 }
 
@@ -120,7 +122,7 @@ void Shellfish::exeOpen() {
 
     if (mIsItemBound && MR::isLessStep(this, ::sStepToSetPosItem) && MR::isGreaterStep(this, ::sStepToApperItem)) {
         f32 speed = 0.5f;
-        TVec3f up;
+        Vec3f up;
         MR::calcUpVec(&up, this);
         mItem->mPosition.scaleAdd(speed, up, mItem->mPosition);
     }
@@ -184,11 +186,11 @@ void Shellfish::exeShock() {
     }
 }
 
-void Shellfish::exeDPDOpen() {
+void Shellfish::exePointerOpen() {
     MR::updateActorStateAndNextNerve(this, mStarPointerState, GET_NERVE(Shellfish, ShellfishNrvOpenWait));
 }
 
-void Shellfish::endDPDOpen() {
+void Shellfish::endPointerOpen() {
     mStarPointerState->kill();
 }
 
@@ -196,13 +198,13 @@ void Shellfish::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     if (MR::isSensorEnemyAttack(pSender) && MR::isSensorPlayer(pReceiver)) {
         MR::emitEffectHitBetweenSensors(this, pSender, pReceiver, 0.0f, nullptr);
         MtxPtr mtx = getBaseMtx();
-        TVec3f direction(mtx[0][2], mtx[1][2], mtx[2][2]);
+        Vec3f direction(mtx[0][2], mtx[1][2], mtx[2][2]);
 
         if (MR::sendMsgEnemyAttackStrongToDir(pReceiver, pSender, direction)) {
             MR::invalidateCollisionParts(this);
         }
 
-        TVec3f push;
+        Vec3f push;
         push.scale(::sHitPushPower, direction);
         MR::pushPlayer(push);
     }
@@ -233,7 +235,7 @@ bool Shellfish::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* p
     return false;
 }
 
-void Shellfish::initItem(const JMapInfoIter& rIter) {
+void Shellfish::initItem(const TableIter& rIter) {
     const char* pObjectName;
     MR::getObjectName(&pObjectName, rIter);
 
@@ -262,33 +264,33 @@ void Shellfish::initItem(const JMapInfoIter& rIter) {
     MR::sendArbitraryMsg(ACTMES_ITEM_HIDE, mItem->getSensor(nullptr), getSensor("body"));
 }
 
-void Shellfish::initCoin(const JMapInfoIter&) {
-    mItem = static_cast< Coin* >(MR::createCoin(this, "\203\122\203\103\203\223" /* コイン */));
+void Shellfish::initCoin(const TableIter&) {
+    mItem = static_cast< Coin* >(MR::createCoin(this, "コイン"));
     mItem->initWithoutIter();
 }
 
-void Shellfish::initYellowChip(const JMapInfoIter& rIter) {
+void Shellfish::initYellowChip(const TableIter& rIter) {
     s32 groupId;
-    MR::getJMapInfoArg0WithInit(rIter, &groupId);
-    YellowChip* chip = new YellowChip("\203\103\203\107\203\215\201\133\203\140\203\142\203\166" /* イエローチップ */);
+    MR::getPlacementArg0WithInit(rIter, &groupId);
+    YellowChip* chip = new YellowChip("イエローチップ");
     chip->setHost(this);
     chip->setGroupID(groupId);
     mItem = chip;
     chip->initWithoutIter();
 }
 
-void Shellfish::initBlueChip(const JMapInfoIter& rIter) {
+void Shellfish::initBlueChip(const TableIter& rIter) {
     s32 groupId;
-    MR::getJMapInfoArg0WithInit(rIter, &groupId);
-    BlueChip* chip = new BlueChip("\203\165\203\213\201\133\203\140\203\142\203\166" /* ブルーチップ */);
+    MR::getPlacementArg0WithInit(rIter, &groupId);
+    BlueChip* chip = new BlueChip("ブルーチップ");
     chip->setHost(this);
     chip->setGroupID(groupId);
     mItem = chip;
     chip->initWithoutIter();
 }
 
-void Shellfish::initKinokoOneUp(const JMapInfoIter&) {
-    mItem = new BenefitItemOneUp("\202\120\202\164\202\157\203\114\203\155\203\122" /* １ＵＰキノコ */);
+void Shellfish::initKinokoOneUp(const TableIter&) {
+    mItem = new BenefitItemOneUp("１ＵＰキノコ");
     mItem->initWithoutIter();
 }
 
@@ -298,7 +300,7 @@ void Shellfish::startBindItem() {
 
 void Shellfish::endBindItem() {
     putItem();
-    TVec3f up;
+    Vec3f up;
     MR::calcUpVec(&up, this);
     mItem->mPosition.scaleAdd(30.0f, up, mItem->mPosition);
     MR::sendArbitraryMsg(ACTMES_ITEM_END_MOVE, mItem->getSensor(nullptr), getSensor("body"));
@@ -319,7 +321,4 @@ void Shellfish::putItem() {
     }
 
     NebulaMtxMultVec(getBaseMtx(), pOffset, &mItem->mPosition);
-}
-
-Shellfish::~Shellfish() {
 }

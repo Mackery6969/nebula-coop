@@ -1,11 +1,12 @@
 #pragma once
 
+#include "Game/Render/TypedDraw.hpp"
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class ActorCameraInfo;
-class JUTTexture;
+class GameTexture;
 class PartsModel;
 class SwingRopePoint;
 
@@ -13,11 +14,11 @@ class Trapeze : public LiveActor {
 public:
     Trapeze(const char*);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void draw() const;
-    virtual void updateHitSensor(HitSensor* pSensor);
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void draw() const override;
+    virtual void updateHitSensor(HitSensor* pSensor) override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     void exeStop();
     virtual void exeFree();
@@ -32,7 +33,7 @@ public:
 
     bool tryJump();
 
-    void updateStick(const TVec3f&, f32);
+    void updateStick(const Vec3f&, f32);
     void updateStickMtx();
     void updateHangPoint();
     bool updateBind();
@@ -42,15 +43,15 @@ public:
     bool isStartSwingFront() const;
     bool isStartSwingBack() const;
 
-    void drawRope(const TVec3f&, const TVec3f&, const TVec3f&, const TVec3f&, f32, f32) const;
+    void drawRope(TypedDraw&, const Vec3f&, const Vec3f&, const Vec3f&, const Vec3f&, f32, f32) const;
 
-    TVec3f mSide;
-    TVec3f mUp;
-    TVec3f mFront;
+    Vec3f mSide;
+    Vec3f mUp;
+    Vec3f mFront;
     f32 mRopeLength;
     SwingRopePoint* mStickPoint;
     PartsModel* mTrapezeModel;
-    TPos3f mPosMtx;
+    Pos3f mPosMtx;
     LiveActor* mRider;
     SwingRopePoint* mHangPoint;
     f32 mGrabCoord;
@@ -68,12 +69,13 @@ class TrapezeRopeDrawInit : public NameObj {
 public:
     TrapezeRopeDrawInit(const char*);
 
-    virtual void initDraw() const;
+    virtual SiteMaterial makeMaterial() const;
+    // What its objects draw with.
+    SiteMaterial mMaterial;
 
-    JUTTexture* mTexture;
+    GameTexture* mTexture;
 };
 
-// these have to be header bodies because for some reason they are actually linked in NameObjFactory
 namespace NrvTrapeze {
     NEW_NERVE(TrapezeNrvStop, Trapeze, Stop);
     NEW_NERVE(TrapezeNrvFree, Trapeze, Free);

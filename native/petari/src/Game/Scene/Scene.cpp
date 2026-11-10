@@ -2,18 +2,12 @@
 
 Scene::Scene(const char* pName) : NerveExecutor(pName) {
     mListExecutor = nullptr;
-    _C = 0;
     mSceneObjHolder = nullptr;
 }
 
 Scene::~Scene() {
-    if (mSceneObjHolder != nullptr) {
-        delete mSceneObjHolder;
-    }
-
-    if (mListExecutor != nullptr) {
-        delete mListExecutor;
-    }
+    delete mSceneObjHolder;
+    delete mListExecutor;
 }
 
 void Scene::init() {

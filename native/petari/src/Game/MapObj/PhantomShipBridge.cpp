@@ -4,6 +4,13 @@
 #include "Game/Map/CollisionParts.hpp"
 #include "Game/Util.hpp"
 #include "Game/Util/ObjUtil.hpp"
+#include "Game/Util/Tunable.hpp"
+
+// The step counts of this file's functions, as tunables: "<file>.<function>.<k>".
+NEBULA_TUNABLE_NAMED(s32, cStep_exeMoveA_1, "exeMoveA.1", 55);
+NEBULA_TUNABLE_NAMED(s32, cStep_exeMoveA_2, "exeMoveA.2", 55);
+NEBULA_TUNABLE_NAMED(s32, cStep_exeMoveB_1, "exeMoveB.1", 55);
+NEBULA_TUNABLE_NAMED(s32, cStep_exeMoveB_2, "exeMoveB.2", 55);
 
 namespace NrvPhantomShipBridge {
     NEW_NERVE(HostTypeWait, PhantomShipBridge, Wait);
@@ -12,11 +19,11 @@ namespace NrvPhantomShipBridge {
 };  // namespace NrvPhantomShipBridge
 
 PhantomShipBridge::PhantomShipBridge(const char* pName) : LiveActor(pName) {
-    _8C = nullptr;
+    mMoveCollision = nullptr;
     mIsNutShipBridge = 0;
 }
 
-void PhantomShipBridge::init(const JMapInfoIter& rIter) {
+void PhantomShipBridge::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     const char* objName;
     MR::getObjectName(&objName, rIter);
@@ -27,13 +34,13 @@ void PhantomShipBridge::init(const JMapInfoIter& rIter) {
 
     MR::connectToSceneCollisionMapObj(this);
     initNerve(GET_NERVE(PhantomShipBridge, HostTypeWait));
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initHitSensor(2);
     MR::addBodyMessageSensorMapObj(this);
     MR::initCollisionParts(this, objName, getSensor("body"), nullptr);
     MR::addMessageSensorMapObjMoveCollision(this, "move");
-    _8C = MR::createCollisionPartsFromLiveActor(this, "Move", getSensor("move"), MR::getJointMtx(this, "Move"), MR::CollisionScaleType_Unk2);
-    MR::validateCollisionParts(_8C);
+    mMoveCollision = MR::createCollisionPartsFromLiveActor(this, "Move", getSensor("move"), MR::getJointMtx(this, "Move"), MR::CollisionScaleType_Default);
+    MR::validateCollisionParts(mMoveCollision);
     initSound(4, false);
     MR::setClippingTypeSphere(this, 2000.0f);
     makeActorAppeared();
@@ -51,7 +58,7 @@ void PhantomShipBridge::init(const JMapInfoIter& rIter) {
 
 void PhantomShipBridge::calcAnim() {
     LiveActor::calcAnim();
-    _8C->setMtx();
+    mMoveCollision->setMtx();
 }
 
 void PhantomShipBridge::startMoveA() {
@@ -66,7 +73,7 @@ void PhantomShipBridge::setStateMoveA() {
     MR::startBck(this, "MoveA");
     MR::setBckFrameAndStop(this, MR::getBckCtrl(this)->getEnd());
     MR::calcAnimDirect(this);
-    _8C->forceResetAllMtxAndSetUpdateMtxOneTime();
+    mMoveCollision->forceResetAllMtxAndSetUpdateMtxOneTime();
     setNerve(GET_NERVE(PhantomShipBridge, HostTypeWait));
 }
 
@@ -79,7 +86,7 @@ void PhantomShipBridge::exeMoveA() {
         MR::startBck(this, "MoveA");
     }
 
-    if (MR::isLessStep(this, 55)) {
+    if (MR::isLessStep(this, cStep_exeMoveA_1)) {
         if (mIsNutShipBridge == 1) {
             MR::startLevelSound(this, "SE_OJ_LV_NUT_SHIP_BRIDGE_MV");
         } else {
@@ -87,7 +94,7 @@ void PhantomShipBridge::exeMoveA() {
         }
     }
 
-    if (MR::isStep(this, 55)) {
+    if (MR::isStep(this, cStep_exeMoveA_2)) {
         if (mIsNutShipBridge == 1) {
             MR::startSound(this, "SE_OJ_NUT_SHIP_BRIDGE_ED");
         } else {
@@ -109,7 +116,7 @@ void PhantomShipBridge::exeMoveB() {
         MR::startBck(this, "MoveB");
     }
 
-    if (MR::isLessStep(this, 55)) {
+    if (MR::isLessStep(this, cStep_exeMoveB_1)) {
         if (mIsNutShipBridge == 1) {
             MR::startLevelSound(this, "SE_OJ_LV_NUT_SHIP_BRIDGE_MV");
         } else {
@@ -117,7 +124,7 @@ void PhantomShipBridge::exeMoveB() {
         }
     }
 
-    if (MR::isStep(this, 55)) {
+    if (MR::isStep(this, cStep_exeMoveB_2)) {
         if (mIsNutShipBridge == 1) {
             MR::startSound(this, "SE_OJ_NUT_SHIP_BRIDGE_ED");
         } else {

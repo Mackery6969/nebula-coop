@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/MapObj/SpiderThreadPoint.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
 class SpiderThreadPart;
 class SpiderThreadRadialLine;
@@ -11,9 +11,9 @@ class SpiderThreadPointNearInfo {
 public:
     SpiderThreadPointNearInfo();
 
-    void setInfo(f32, SpiderThreadPart*, const TVec3f&);
+    void setInfo(f32, SpiderThreadPart*, const Vec3f&);
     void clear();
-    const TVec3f* getPos() const;
+    const Vec3f* getPos() const;
 
     SpiderThreadMainPoint* mMainPoint;
     SpiderThreadPoint* mPartPoint;
@@ -24,14 +24,14 @@ public:
 
 class SpiderThreadMainPoint : public SpiderThreadPoint {
 public:
-    SpiderThreadMainPoint(const TVec3f&, int);
+    SpiderThreadMainPoint(const Vec3f&, int);
 
     void addNearMainPoint(SpiderThreadMainPoint*, SpiderThreadPart*);
     void addNearPartPoint(SpiderThreadPoint*, f32);
     void removeNearPoint(const SpiderThreadPoint*);
     void addNearPointToRadial(SpiderThreadPoint*);
     void removeNearPointFromRadial(const SpiderThreadPoint*);
-    void cutNearPoints(s32*, SpiderThreadMainPoint**);
+    void cutNearPoints(s32*, SpiderThreadMainPoint**, s32);
     void updateVelocity();
     void closeToNearPoint(const SpiderThreadPointNearInfo*);
 
@@ -44,7 +44,7 @@ public:
     }
 
     SpiderThreadRadialLine* mRadialLine;
-    s32 mNearInfoBufferSize;
     s32 mNumNearInfos;
     SpiderThreadPointNearInfo* mNearInfos;  // array
+    s32 mNearInfoCapacity;
 };

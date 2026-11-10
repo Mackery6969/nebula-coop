@@ -12,20 +12,17 @@
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/SequenceUtil.hpp"
 
-EventSequencer::EventSequencer() : NameObj("\203\103\203\170\203\223\203\147\203\126\201\133\203\120\203\223\203\124\201\133" /* イベントシーケンサー */), mSequence() {
+EventSequencer::EventSequencer() : NameObj("イベントシーケンサー"), mNames(cSequenceNum), mSequences(), mNumSequences(0), mSequence() {
     MR::connectToSceneMapObjMovement(this);
-    mHashTable = new HashSortTable(16);
 }
 
-void EventSequencer::init(const JMapInfoIter& rIter) {
-    addEventSequence< EventDown >("\203\175\203\212\203\111\203\137\203\105\203\223" /* マリオダウン */);
-    addEventSequence< EventAbyss >("\203\175\203\212\203\111\223\336\227\216" /* マリオ奈落 */);
-    addEventSequence< EventFireDown >("\203\175\203\212\203\111\211\212\203\137\203\105\203\223" /* マリオ炎ダウン */);
-    addEventSequence< EventRaceDown >("\203\214\201\133\203\130\225\211\202\257" /* レース負け */);
-    addEventSequence< EventGhostRaceDown >("\203\123\201\133\203\130\203\147\203\214\201\133\203\130\225\211\202\257" /* ゴーストレース負け */);
-    addEventSequence< EventGameOver >("\203\121\201\133\203\200\203\111\201\133\203\157\201\133" /* ゲームオーバー */);
-
-    mHashTable->sort();
+void EventSequencer::init(const TableIter& rIter) {
+    addEventSequence< EventDown >("マリオダウン");
+    addEventSequence< EventAbyss >("マリオ奈落");
+    addEventSequence< EventFireDown >("マリオ炎ダウン");
+    addEventSequence< EventRaceDown >("レース負け");
+    addEventSequence< EventGhostRaceDown >("ゴーストレース負け");
+    addEventSequence< EventGameOver >("ゲームオーバー");
 }
 
 void EventSequencer::movement() {
@@ -41,8 +38,9 @@ void EventSequencer::movement() {
 }
 
 void EventSequencer::startEvent(const char* pName) {
-    EventSequence* sequence;
-    if (mHashTable->search(pName, reinterpret_cast< HashSortValue* >(&sequence))) {
+    const u32 index = mNames.find(pName);
+    if (index != MR::NameIndex::cNoValue) {
+        EventSequence* sequence = mSequences[index];
         mSequence = sequence;
         mSequenceFrame = 0;
         sequence->clearFlag();
@@ -155,10 +153,6 @@ void EventSequence::playAnimation(const char* pName) {
 
 bool EventSequence::isMissLayoutClosed(u16 sequenceFrame) {
     return (MR::isMissLayoutAnimEnd() && sequenceFrame > 15);
-}
-
-void EventSequence::setSpot(f32 param1, u32 param2) {
-    MR::setPlayerSpot(param1, param2);
 }
 
 void EventSequence::decLeft(u16 eventFrame, u16 sequenceFrame) {

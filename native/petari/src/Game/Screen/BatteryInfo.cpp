@@ -5,13 +5,15 @@
 #include "Game/Util/LayoutUtil.hpp"
 #include "Game/Util/NerveUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
+#include "Game/Util/Tunable.hpp"
 
 #define INPUT_BATTERY_EMPTY -1
 
 namespace {
-    static const s32 sDisplayFrameBatteryLow = 120;
-    static const s32 sLowIntervalFrame = 18000;
-    static const s32 sDisplayFrameBatteryNone = 450;
+    NEBULA_TUNABLE(s32, sDisplayFrameBatteryLow, 120);
+    static const s32 sLowIntervalFrame = NebulaFrameClock::stepsOfSeconds(300);
+    NEBULA_TUNABLE(s32, sDisplayFrameBatteryNone, 450);
 };  // namespace
 
 namespace {
@@ -197,7 +199,7 @@ bool BatteryInfo::tryChangeNerveWithBatteryLeftAlreadyAppear() {
 BatteryLayout::BatteryLayout() : LayoutActor("BatteryLayout", true), mInfo1P(nullptr), mInfo2P(nullptr) {
 }
 
-void BatteryLayout::init(const JMapInfoIter& rIter) {
+void BatteryLayout::init(const TableIter& /*rIter*/) {
     initLayoutManager("BatteryInfo", 1);
 
     mInfo1P = new BatteryInfo(this, "WinBattery1", 0);

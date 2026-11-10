@@ -6,15 +6,15 @@ class DragonHeadFlower : public LiveActor {
 public:
     DragonHeadFlower(const char*);
 
-    virtual ~DragonHeadFlower() {
+    virtual ~DragonHeadFlower() override {
     }
 
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void control() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
-    void initParabola(const TVec3f&);
+    void initParabola(const Vec3f&);
 
     void exeWait();
     void exeSetCenter();
@@ -23,11 +23,11 @@ public:
 
     HitSensor* mPlayerSensor;
     f32 mParabolaProgress;
-    TVec3f mParabolaStartPos;
-    TVec3f mTargetVelocity;
-    TVec3f mCurrentGravity;
-    TVec3f mEndGravity;
-    TVec3f mParabolaDirection;
+    Vec3f mParabolaStartPos;
+    Vec3f mTargetVelocity;
+    Vec3f mCurrentGravity;
+    Vec3f mEndGravity;
+    Vec3f mParabolaDirection;
     u32 mParabolaSteps;
     f32 mParabolaDistance;
     f32 mParabolaAccel;

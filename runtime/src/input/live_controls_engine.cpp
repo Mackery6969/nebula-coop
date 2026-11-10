@@ -40,7 +40,7 @@ LiveControlsResult LiveControlsEngine::sample(const LiveControlsFrame& frame, Li
     s_device_input_suspended = !use_pads;
     const bool window_focused = frame.window_focused, allow_absolute_pointer = frame.allow_absolute_pointer;
     const bool drop_injected = frame.drop_injected;
-    const auto current_vi = frame.vi;
+    const auto current_frame = frame.game_frame;
     const auto play_context = frame.context;
     const auto tilt_section = frame.tilt_section;
     const float trigger_threshold = static_cast<float>(kXInputTriggerThreshold) / 255.0f;
@@ -69,7 +69,7 @@ LiveControlsResult LiveControlsEngine::sample(const LiveControlsFrame& frame, Li
     // sections (tilt.h) its tilt steers when it has motion sensors (Pro Controller 1/2); otherwise the
     // stick steers (Xbox, keyboard). Vibration goes to it.
     const auto pad_key = [](const LivePad& pad) {
-        return (static_cast<std::uint32_t>(pad.sample.scheme) << 8u) | pad.device_slot;
+        return (static_cast<std::uint64_t>(pad.sample.scheme) << 32u) | pad.device_slot;
     };
     galaxy::input::tilt::Vec3 tilt_up_value{0.0f, 1.0f, 0.0f};
     const galaxy::input::tilt::Vec3* tilt_up = nullptr;
@@ -159,15 +159,16 @@ LiveControlsResult LiveControlsEngine::sample(const LiveControlsFrame& frame, Li
     }
     result.rumble.focused = window_focused;
     if (use_pads && s_driving_pad != kDrivingNone && s_driving_pad != kDrivingKeyboard) {
-        const auto scheme = static_cast<galaxy::input::ControlScheme>((s_driving_pad >> 8u) & 0xFFu);
-        const auto slot = static_cast<std::uint8_t>(s_driving_pad & 0xFFu);
+        const auto scheme = static_cast<galaxy::input::ControlScheme>((s_driving_pad >> 32u) & 0xFFu);
+        const auto slot = static_cast<std::uint32_t>(s_driving_pad & 0xFFFFFFFFu);
         result.rumble.device = galaxy::input::DeviceKey{scheme, slot};
         if (static_cast<std::size_t>(scheme) < galaxy::input::kControlSchemeCount) {
             const auto& tuning = config.tune(scheme);
             result.rumble.strength = tuning.vibration ? tuning.rumble : std::uint8_t{0};
         }
     }
-    logic = galaxy::input::merge_logical_input(pad_logic_all, keyboard_logic);
+    logic = galaxy::input::merge_logical_input(galaxy::input::merge_logical_input(pad_logic_all, keyboard_logic),
+                                               frame.extra);
     const float pad_pointer_x = pad_logic_all.pointer_x;
     const float pad_pointer_y = pad_logic_all.pointer_y;
     const float keyboard_pointer_x = keyboard_logic.pointer_x;
@@ -333,13 +334,18 @@ LiveControlsResult LiveControlsEngine::sample(const LiveControlsFrame& frame, Li
     // The gyro counts as moving above about 5 degrees per second, so hand
     // tremor and rest noise never take the pointer from the mouse or stick.
     constexpr float kGyroActiveUnitsPerSecond = 0.25f;
+    // From the mouse (or the finger) the gyro takes the pointer only with a deliberate turn, about 20 degrees a
+    // second: a controller held while the mouse aims never pulls the pointer away.
+    constexpr float kGyroTakesMouseUnitsPerSecond = 1.0f;
+    const float gyro_threshold = s_pointer_owner.owner == galaxy::input::PointerSource::Mouse
+        ? kGyroTakesMouseUnitsPerSecond
+        : kGyroActiveUnitsPerSecond;
     const float gyro_motion = std::sqrt(gyro_x * gyro_x + gyro_y * gyro_y);
     galaxy::input::PointerActivity activity{};
     activity.mouse = mouse_moved;
     activity.keys = std::fabs(keyboard_pointer_x) > 0.001f || std::fabs(keyboard_pointer_y) > 0.001f;
     activity.stick = stick_velocity.x != 0.0f || stick_velocity.y != 0.0f;
-    activity.gyro = pad_gyro_pointing && dt > 0.0f &&
-                    gyro_motion > kGyroActiveUnitsPerSecond * dt;
+    activity.gyro = pad_gyro_pointing && dt > 0.0f && gyro_motion > gyro_threshold * dt;
     activity.touch = pad_touch_pointing && std::fabs(touch_x) + std::fabs(touch_y) > 0.0f;
     // Recenter (pointer_control.h RecenterHold): the press gives the pointer to the recentering device
     // at the picture centre. While the button is held, the pointer stays there and that device keeps it.
@@ -448,14 +454,19 @@ LiveControlsResult LiveControlsEngine::sample(const LiveControlsFrame& frame, Li
         pointer_active = true;
     }
     galaxy::input::set_pointer(snapshot, s_pointer_x, s_pointer_y, pointer_active);
+    result.pointer_owner = owner;
 
+    if (tilt_up == nullptr) {
+        tilt_up = frame.device_up;
+    }
     apply_tilt_accel(snapshot, s_tilt, tilt_section, tilt_up, stick_x, stick_y, recenter.pressed);
 
+    const bool device_shake = !discard_accumulated_motion && frame.device_shake;
     const bool shake_pressed =
-        script.shake || held(GameInput::Shake) || motion_shake_remote;
+        script.shake || held(GameInput::Shake) || motion_shake_remote || device_shake;
     if (shake_pressed && !s_previous_shake) {
-        std::cerr << "[input-shake] vi=" << current_vi << " source="
-                  << (motion_shake_remote ? "motion" : held(GameInput::Shake) ? "binding" : "script")
+        std::cerr << "[input-shake] frame=" << current_frame << " source="
+                  << (motion_shake_remote || device_shake ? "motion" : held(GameInput::Shake) ? "binding" : "script")
                   << " tilt-section=" << galaxy::input::tilt::section_name(tilt_section) << '\n';
     }
     s_previous_shake = shake_pressed;

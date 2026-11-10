@@ -1,27 +1,25 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class ClipAreaShape;
 
 class ClipArea : public LiveActor {
 public:
-    /// @brief Creates a new `ClipArea`.
-    /// @param pName A pointer to the null-terminated name of the object.
     ClipArea(const char* pName);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void draw() const;
-    virtual MtxPtr getBaseMtx() const {
-        return (MtxPtr)&mBaseMtx;
+    virtual void init(const TableIter&) override;
+    virtual void draw() const override;
+    virtual MtxPtr getBaseMtx() const override {
+        return const_cast< MtxPtr >(mBaseMtx.mMtx);
     }
-    virtual bool isInArea(const TVec3f&, f32) const;
+    virtual bool isInArea(const Vec3f&, f32) const;
 
-    void initBaseMatrix(const JMapInfoIter&);
+    void initBaseMatrix(const TableIter&);
     void setShape(ClipAreaShape*);
 
-    TPos3f mBaseMtx;
+    Pos3f mBaseMtx;
     ClipAreaShape* mShape;
 };
 

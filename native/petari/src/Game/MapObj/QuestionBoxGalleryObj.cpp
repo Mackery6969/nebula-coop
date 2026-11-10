@@ -3,7 +3,7 @@
 #include "Game/MapObj/MapObjActorInitInfo.hpp"
 #include "Game/MapObj/StageEffectDataTable.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MapPartsUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
@@ -19,14 +19,12 @@ namespace NrvQuestionBoxGalleryObj {
 QuestionBoxGalleryObj::QuestionBoxGalleryObj(const char* pName) : MapObjActor(pName) {
 }
 
-void QuestionBoxGalleryObj::init(const JMapInfoIter& rIter) {
+void QuestionBoxGalleryObj::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
     MapObjActorInitInfo rInitInfo;
 
     if (MR::isEqualSubString(mObjectName, "Planet")) {
-        rInitInfo.setupHioNode("\230\146\220\257" /* 惑星 */);
     } else {
-        rInitInfo.setupHioNode("\222\156\214\140\203\111\203\165\203\127\203\106" /* 地形オブジェ */);
     }
 
     rInitInfo.setupDefaultPos();
@@ -54,10 +52,10 @@ void QuestionBoxGalleryObj::init(const JMapInfoIter& rIter) {
     initialize(rIter, rInitInfo);
     startMapPartsFunctions();
 
-    bool arg0 = false;
-    MR::getJMapInfoArg0NoInit(rIter, &arg0);
+    bool isOn = false;
+    MR::getPlacementArg0NoInit(rIter, &isOn);
 
-    if (arg0) {
+    if (isOn) {
         initNerve(GET_NERVE(QuestionBoxGalleryObj, QuestionBoxGalleryObjNrvOnWait));
     } else {
         initNerve(GET_NERVE(QuestionBoxGalleryObj, QuestionBoxGalleryObjNrvOffWait));
@@ -98,11 +96,11 @@ void QuestionBoxGalleryObj::exeOffWait() {
     }
 }
 
-void QuestionBoxGalleryObj::initCaseUseSwitchA(const MapObjActorInitInfo& pInitInfo) {
+void QuestionBoxGalleryObj::initCaseUseSwitchA(const MapObjActorInitInfo& /*pInitInfo*/) {
     MR::listenStageSwitchOnA(this, MR::Functor(this, &QuestionBoxGalleryObj::startSwitchOn));
 }
 
-void QuestionBoxGalleryObj::initCaseUseSwitchB(const MapObjActorInitInfo& pInitInfo) {
+void QuestionBoxGalleryObj::initCaseUseSwitchB(const MapObjActorInitInfo& /*pInitInfo*/) {
     MR::listenStageSwitchOnB(this, MR::Functor(this, &QuestionBoxGalleryObj::startSwitchOff));
 }
 

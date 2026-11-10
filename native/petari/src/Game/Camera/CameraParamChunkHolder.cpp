@@ -8,29 +8,24 @@
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/SceneUtil.hpp"
 #include "Game/System/NebulaArena.hpp"
-#include <cstring>
-
-#define CHUNK_CAPACITY 0x400
+#include "Game/Util/StringUtil.hpp"
 
 CameraParamChunkHolder::CameraParamChunkHolder(CameraHolder* pCameraHolder, const char* pName)
-    : NameObj(pName), mCameraHolder(pCameraHolder), mChunkCapacity(CHUNK_CAPACITY), mNrChunks(), mChunks(new CameraParamChunk*[CHUNK_CAPACITY]),
-      mIsSorted() {
+    : NameObj(pName), mCameraHolder(pCameraHolder), mChunkCapacity(cInitialCapacity), mNrChunks(),
+      mChunks(new CameraParamChunk*[cInitialCapacity]), mIsSorted() {
 }
 
-CameraParamChunkHolder::~CameraParamChunkHolder() {
-}
-
-CameraParamChunk* CameraParamChunkHolder::createChunk(const CameraParamChunkID& rID, NebulaArena* pHeap) {
+CameraParamChunk* CameraParamChunkHolder::createChunk(const CameraParamChunkID& rID, NebulaArena* pArena) {
     if (isNewAttribute(rID)) {
         char firstChar = rID.mName[0];
         CameraParamChunk* chunk;
 
         if (firstChar == 'e') {
-            chunk = new (pHeap, 0) CameraParamChunkEvent(mCameraHolder, rID);
+            chunk = new (pArena, 0) CameraParamChunkEvent(mCameraHolder, rID);
         } else if (firstChar == 'g' || firstChar == 'c' || firstChar == 's') {
-            chunk = new (pHeap, 0) CameraParamChunkGame(mCameraHolder, rID);
+            chunk = new (pArena, 0) CameraParamChunkGame(mCameraHolder, rID);
         } else {
-            chunk = new (pHeap, 0) CameraParamChunk(mCameraHolder, rID);
+            chunk = new (pArena, 0) CameraParamChunk(mCameraHolder, rID);
         }
 
         if (mNrChunks == mChunkCapacity) {
@@ -132,10 +127,10 @@ CameraParamChunk* CameraParamChunkHolder::findChunk(s32 zoneID, const char* pNam
 
 void CameraParamChunkHolder::loadFile(s32 zoneID) {
     void* data;
-    s32 local44;
-    MR::getStageCameraData(&data, &local44, zoneID);
+    s32 dataSize;
+    MR::getStageCameraData(&data, &dataSize, zoneID);
 
-    if (local44 != 0) {
+    if (dataSize != 0) {
         DotCamReaderInBin reader = DotCamReaderInBin(data);
         mCameraVersion = reader.mVersion;
 
@@ -145,7 +140,7 @@ void CameraParamChunkHolder::loadFile(s32 zoneID) {
 
             CameraParamChunk* chunk = findChunk(zoneID, id);
 
-            if (chunk != nullptr && chunk->_64) {
+            if (chunk != nullptr && chunk->mIsCodeChunk) {
                 reader.nextToChunk();
             } else {
                 if (chunk != nullptr) {
@@ -178,8 +173,8 @@ void CameraParamChunkHolder::arrangeChunk(CameraParamChunk* pChunk) {
     if (mCameraVersion < 0x30003) {
         const char* className = pChunk->getClassName();
 
-        if (strcmp(className, "Game") == 0) {
-            CameraParamChunkGame* pGameChunk = reinterpret_cast< CameraParamChunkGame* >(pChunk);
+        if (MR::isEqualString(className, "Game")) {
+            CameraParamChunkGame* pGameChunk = static_cast< CameraParamChunkGame* >(pChunk);
             pGameChunk->mThru = 0;
         }
     }
@@ -197,7 +192,7 @@ void CameraParamChunkHolder::arrangeChunk(CameraParamChunk* pChunk) {
     }
 
     if (mCameraVersion < 0x30008) {
-        pChunk->mExParam.mVPanAxis.set(TVec3f(0.0f, 1.0f, 0.0f));
+        pChunk->mExParam.mVPanAxis.set(Vec3f(0.0f, 1.0f, 0.0f));
     }
 
     if (mCameraVersion < 0x3000A) {

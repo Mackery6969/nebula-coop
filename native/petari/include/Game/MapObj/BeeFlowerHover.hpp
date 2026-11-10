@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class LodCtrl;
 class MapPartsRailMover;
@@ -11,11 +11,10 @@ class BeeFlowerHover : public LiveActor {
 public:
     BeeFlowerHover(const char*);
 
-    virtual ~BeeFlowerHover();
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
     void exeWait();
     void exeSoftTouch();
@@ -23,10 +22,10 @@ public:
     void exeHardTouch();
     void exeRecover();
 
-    TMtx34f _8C;
-    f32 _BC;
+    Mtx34f mRotateMtx;
+    f32 mRotateSpeed;
     LodCtrl* mLodCtrlPlanet;
     MapPartsRailMover* mRailMover;
     MapPartsRailPosture* mRailPosture;
-    TVec3f _CC;
+    Vec3f mClipCenter;
 };

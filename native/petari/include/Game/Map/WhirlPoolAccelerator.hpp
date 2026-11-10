@@ -1,45 +1,51 @@
 #pragma once
 
+#include "Game/Render/TypedDraw.hpp"
+
 #include "Game/LiveActor/LiveActor.hpp"
 
-class JUTTexture;
+class GameTexture;
 
 class WhirlPoolPoint {
 public:
-    WhirlPoolPoint(const TVec3f& rPosition, const TVec3f& rDirection, const TVec3f& rNormal, f32 radius, f32 texCoord, u8 alpha);
+    WhirlPoolPoint(const Vec3f& rPosition, const Vec3f& rDirection, const Vec3f& rNormal, f32 radius, f32 texCoord, u8 alpha);
 
-    TVec3f mPosition;
-    TVec3f mSide;
-    TVec3f mNormal;
-    TVec3f mDirection;
+    Vec3f mPosition;
+    Vec3f mSide;
+    Vec3f mNormal;
+    Vec3f mDirection;
     f32 mRadius;
     f32 mTexCoord;
     u8 mAlpha;
-    bool _39;
+};
+
+// The six-sided outline both whirlpool surfaces sweep, as (side, normal) weights; the first corner repeats to close it.
+const f32 cWhirlPoolOutline[7][2] = {
+    {0.5f, 0.70710677f}, {-0.5f, 0.70710677f}, {-1.0f, 0.0f}, {-0.5f, -0.70710677f},
+    {0.5f, -0.70710677f}, {1.0f, 0.0f},        {0.5f, 0.70710677f},
 };
 
 class WhirlPoolAccelerator : public LiveActor {
 public:
     WhirlPoolAccelerator(const char* pName);
 
-    virtual ~WhirlPoolAccelerator();
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void movement();
-    virtual void draw() const;
+    virtual void init(const TableIter& rIter) override;
+    virtual void movement() override;
+    virtual void draw() const override;
 
-    bool calcInfo(const TVec3f& rPosition, TVec3f* pAcceleration) const;
+    bool calcInfo(const Vec3f& rPosition, Vec3f* pAcceleration) const;
     void initPoints();
-    void drawPlane(f32 x0, f32 y0, f32 x1, f32 y1, f32 u0, f32 u1) const;
-    void loadMaterial() const;
+    void drawPlane(TypedDraw& rDraw, f32 side0, f32 normal0, f32 side1, f32 normal1, f32 u0, f32 u1) const;
+    SiteMaterial loadMaterial() const;
 
     f32 mRadius;
     f32 mHeight;
-    TVec3f mAxis;
+    Vec3f mAxis;
     s32 mPointCount;
     WhirlPoolPoint** mPoints;
     f32 mRotation;
     f32 mTexOffsetU0;
     f32 mTexOffsetV0;
-    JUTTexture* mTexture;
-    TVec3f mClippingCenter;
+    GameTexture* mTexture;
+    Vec3f mClippingCenter;
 };

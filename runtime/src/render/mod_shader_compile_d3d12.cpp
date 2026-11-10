@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// One stage of a mod's material as DXIL, with Microsoft's compiler where the game's installer puts it (dxc\ beside the game).
+// One stage of a mod's program as DXIL, with Microsoft's compiler where the game's installer puts it (dxc\ beside the game).
 #include "galaxy/render/mod_shaders.h"
 
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <windows.h>
+#include "galaxy/windows_api.h"
+#include "galaxy/windows_paths.h"
 
 #include <atomic>
 #include <fstream>
@@ -13,12 +12,18 @@
 
 namespace galaxy::render {
 
+std::uint32_t mod_shader_compiler_revision() noexcept {
+    return 0u;
+}
+
+bool mod_shader_has_bound_form() noexcept {
+    return false;
+}
+
 std::vector<std::uint8_t> compile_mod_shader_stage(const std::string& source, const std::filesystem::path& includes, bool pixel,
-                                                   const std::vector<const char*>& defines, std::string& problem) {
+                                                   const std::vector<const char*>& defines, std::string& problem, bool) {
     namespace fs = std::filesystem;
-    wchar_t exe[MAX_PATH] = {};
-    GetModuleFileNameW(nullptr, exe, MAX_PATH);
-    const fs::path compiler = fs::path(exe).parent_path() / "dxc" / "dxc.exe";
+    const fs::path compiler = fs::path(windows::executable_path()).parent_path() / "dxc" / "dxc.exe";
     std::error_code error;
     if (!fs::is_regular_file(compiler, error)) {
         problem = "the shader compiler isn't installed";
@@ -34,7 +39,7 @@ std::vector<std::uint8_t> compile_mod_shader_stage(const std::string& source, co
         std::ofstream out(input, std::ios::binary);
         out.write(source.data(), static_cast<std::streamsize>(source.size()));
     }
-    std::wstring command = L"\"" + compiler.wstring() + L"\" -nologo -T " + (pixel ? L"ps_6_0 -E native_ps" : L"vs_6_0 -E native_vs") +
+    std::wstring command = L"\"" + compiler.wstring() + L"\" -nologo -T " + (pixel ? L"ps_6_0 -E program_ps" : L"vs_6_0 -E program_vs") +
                            L" -O3 -WX -Qstrip_debug -Qstrip_reflect";
     for (const char* define : defines) {
         command += L" -D";
@@ -46,18 +51,26 @@ std::vector<std::uint8_t> compile_mod_shader_stage(const std::string& source, co
     startup.cb = sizeof(startup);
     PROCESS_INFORMATION process{};
     DWORD exit_code = 1;
+    bool timed_out = false;
     if (CreateProcessW(compiler.c_str(), command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process)) {
-        WaitForSingleObject(process.hProcess, INFINITE);
-        GetExitCodeProcess(process.hProcess, &exit_code);
+        // A compiler that hangs ends here, not the conversion with it.
+        constexpr DWORD kCompileMs = 120000u;
+        if (WaitForSingleObject(process.hProcess, kCompileMs) == WAIT_OBJECT_0) {
+            GetExitCodeProcess(process.hProcess, &exit_code);
+        } else {
+            timed_out = true;
+            TerminateProcess(process.hProcess, 1u);
+            WaitForSingleObject(process.hProcess, 5000u);
+        }
         CloseHandle(process.hThread);
         CloseHandle(process.hProcess);
     }
     std::vector<std::uint8_t> bytes;
-    if (exit_code == 0u) {
+    if (exit_code == 0u && !timed_out) {
         std::ifstream in(output, std::ios::binary);
         bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
     } else {
-        problem = "a material didn't compile";
+        problem = timed_out ? "a program took too long to compile" : "a program didn't compile";
     }
     fs::remove(input, error);
     fs::remove(output, error);

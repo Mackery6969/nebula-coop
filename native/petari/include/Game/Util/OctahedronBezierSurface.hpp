@@ -1,24 +1,27 @@
 #pragma once
 
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
 class BezierSurface;
 
+class TypedDraw;
+
 class OctahedronBezierSurface {
 public:
-    OctahedronBezierSurface(u32);
+    // flags: BezierSurface's, for each face.
+    OctahedronBezierSurface(u32 flags);
 
     virtual void movement();
     virtual void calcAnim();
-    virtual void draw() const;
+    void draw(TypedDraw& rDraw) const;
 
-    const TVec3f& getVertex(s32) const;
-    TVec3f* getVertexPtr(s32);
+    const Vec3f& getVertex(s32) const;
+    Vec3f* getVertexPtr(s32);
     void setDiagonalRate(f32);
     void setDivideLevel(s32);
     void calcControlPoint();
 
-    TVec3f mVertices[6];  // top, right, back, left, front, bottom
+    Vec3f mVertices[6];  // top, right, back, left, front, bottom
     BezierSurface* mSurfaces[8];
     f32 mDiagonalRate;
 };

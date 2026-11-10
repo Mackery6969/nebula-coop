@@ -2,6 +2,7 @@
 
 #include "Game/System/BinaryDataChunkHolder.hpp"
 #include "Game/Util/Array.hpp"
+#include "Game/Util/NameIndex.hpp"
 
 class BinaryDataContentAccessor;
 class BinaryDataContentHeaderSerializer;
@@ -10,26 +11,33 @@ class GalaxyStatusAccessor;
 class GameDataSomeGalaxyStorage {
 public:
     GameDataSomeGalaxyStorage(const GalaxyStatusAccessor&);
+    // No missions: what a galaxy the save keeps nothing for reads (nothing owned, nothing kept).
+    GameDataSomeGalaxyStorage();
 
     void resetAllData();
     s32 getPowerStarNumOwned() const;
     s32 deserialize(const BinaryDataContentAccessor&, const u8*);
     void serialize(const BinaryDataContentAccessor&, u8*) const;
 
+    // A mission index (scenario number - 1) it has room for; scenario 0 gives -1, which has none.
+    bool hasSlot(int scenarioNo) const {
+        return static_cast< u32 >(scenarioNo) < static_cast< u32 >(mSlots);
+    }
+
     bool hasPowerStar(int scenarioNo) const {
-        return scenarioNo < mSlots && (mPowerStarOwnedFlags[scenarioNo >> 3] & (1 << (scenarioNo & 7))) != 0;
+        return hasSlot(scenarioNo) && (mPowerStarOwnedFlags[scenarioNo >> 3] & (1 << (scenarioNo & 7))) != 0;
     }
 
     bool isAlreadyVisited(int scenarioNo) const {
-        return scenarioNo < mSlots && (mAlreadyVisitedFlags[scenarioNo >> 3] & (1 << (scenarioNo & 7))) != 0;
+        return hasSlot(scenarioNo) && (mAlreadyVisitedFlags[scenarioNo >> 3] & (1 << (scenarioNo & 7))) != 0;
     }
 
     u16 getMaxCoinNum(int scenarioNo) const {
-        return scenarioNo < mSlots ? mMaxCoinNum[scenarioNo] : 0;
+        return hasSlot(scenarioNo) ? mMaxCoinNum[scenarioNo] : 0;
     }
 
     void setMaxCoinNum(s32 scenarioNo, u16 coinNum) {
-        if (scenarioNo < mSlots) {
+        if (hasSlot(scenarioNo)) {
             mMaxCoinNum[scenarioNo] = coinNum;
         }
     }
@@ -51,36 +59,27 @@ public:
     bool hasPowerStar() const;
     bool isAlreadyVisited() const;
     s32 getMaxCoinNum() const;
-    void setPowerStarFlag(bool);
-    void setFlagAlreadyVisited(bool);
-    void updateMaxCoinNum(int);
+    void setPowerStarFlag(bool isOwned);
+    void setFlagAlreadyVisited(bool isVisited);
+    void updateMaxCoinNum(int coinNum);
 
-    void setBitFlagAccordingToBool(u8*, bool);
+    void setBitFlagAccordingToBool(u8* pFlags, bool isOn);
 
     GameDataSomeGalaxyStorage* mSomeGalaxyStorage;
     u32 mScenarioNum;
 };
 
-// NOTE/TODO: This dummy is here to ensure vtable alignment in GameDataAllGalaxyStorage.
-// This double-inheritance with BinaryDataChunkBase behavior is repeated for a few
-// different classes. What actually is the class that takes this role?
-class Dummy1 {
+class GameDataAllGalaxyStorage : public BinaryDataChunkBase {
 public:
-    Dummy1() {};
-};
-
-class GameDataAllGalaxyStorage : public Dummy1, public BinaryDataChunkBase {
-public:
-    // Missions past eight in the galaxy with the most, and what they add to the save.
+    // Missions past eight in the galaxy with the most.
     s32 getExtraStars() const;
-    u32 getExtraBytes() const;
     GameDataAllGalaxyStorage();
 
-    virtual u32 makeHeaderHashCode() const;
-    virtual u32 getSignature() const;
-    virtual s32 serialize(u8*, u32) const;
-    virtual s32 deserialize(const u8*, u32);
-    virtual void initializeData();
+    virtual u32 makeHeaderHashCode() const override;
+    virtual u32 getSignature() const override;
+    virtual s32 serialize(u8*, u32) const override;
+    virtual s32 deserialize(const u8*, u32) override;
+    virtual void initializeData() override;
 
     bool isExistAccessor(const char*, int) const;
     GameDataSomeScenarioAccessor makeAccessor(const char*, int) const;
@@ -98,4 +97,7 @@ public:
 
     MR::Vector< MR::AssignableArray< GameDataSomeGalaxyStorage* > > mSomeGalaxyStorages;
     BinaryDataContentHeaderSerializer* mHeaderSerializer;
+    MR::NameIndex mNames;       // galaxy name -> index in mSomeGalaxyStorages
+    MR::NameIndex mSaveHashes;  // keyed by the 16-bit name hash a save holds, first galaxy of a hash
+    GameDataSomeGalaxyStorage* mNoGalaxy;  // makeAccessor's for a name it holds none for
 };

@@ -8,12 +8,12 @@ class MeteorStrikeLauncher : public LiveActor {
 public:
     MeteorStrikeLauncher(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void appear();
-    virtual void kill();
+    virtual void init(const TableIter&) override;
+    virtual void appear() override;
+    virtual void kill() override;
 
-    void initMapToolInfo(const JMapInfoIter&);
-    bool initRail(const JMapInfoIter&);
+    void initMapToolInfo(const TableIter&);
+    bool initRail(const TableIter&);
     MeteorStrike* getUnusedMeteorStrike();
     bool create();
 

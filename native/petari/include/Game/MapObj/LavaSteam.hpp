@@ -5,11 +5,11 @@ class LavaSteam : public LiveActor {
 public:
     LavaSteam(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void initAfterPlacement();
-    virtual void startClipped();
-    virtual void endClipped();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void initAfterPlacement() override;
+    virtual void startClipped() override;
+    virtual void endClipped() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
 
     void startSteam();
     void exeWait();
@@ -17,6 +17,6 @@ public:
     void exeSteam();
     void exeSteamEnd();
 
-    TVec3f mUp;
-    TVec3f mEffectScale;
+    Vec3f mUp;
+    Vec3f mEffectScale;
 };

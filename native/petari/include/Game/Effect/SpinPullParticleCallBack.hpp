@@ -4,16 +4,16 @@
 #include <NebulaGpu.h>
 #include <nebula_math.h>
 
+// Particles pulled toward the player's spin, by the square of their age.
 class SpinPullParticleCallBack : public MultiEmitterParticleCallBack {
 public:
     SpinPullParticleCallBack();
 
-    virtual void execute(JPABaseEmitter*, JPABaseParticle*);
-
-    f32 _4;
+    virtual void execute(EmitterCore*, ParticleCore*) override;
 };
 
+// Pulled by the spin velocity alone.
 class MerameraParticleCallBack : public SpinPullParticleCallBack {
 public:
-    virtual void execute(JPABaseEmitter*, JPABaseParticle*);
+    virtual void execute(EmitterCore*, ParticleCore*) override;
 };

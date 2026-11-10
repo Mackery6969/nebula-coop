@@ -1,4 +1,5 @@
 #include "Game/Enemy/Kabokuri.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Enemy/AnimScaleController.hpp"
 #include "Game/Enemy/KabokuriFireHolder.hpp"
 #include "Game/Enemy/Kuribo.hpp"
@@ -12,8 +13,8 @@
 #include "Game/Util/ActorStateUtil.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapInfo.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/Table.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
@@ -21,29 +22,37 @@
 #include "Game/Util/RailUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
+#include "Game/Util/Tunable.hpp"
+
+// The numbers this file's functions give the game's motion and animation calls, as tunables: "<file>.<function>.<call>.<k>".
+NEBULA_TUNABLE_NAMED(f32, cNum_addVelocityBase_reboundVelocityFromCollision_1, "addVelocityBase.reboundVelocityFromCollision.1", 0.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_addVelocityBase_reboundVelocityFromCollision_2, "addVelocityBase.reboundVelocityFromCollision.2", 0.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_addVelocityBase_reboundVelocityFromCollision_3, "addVelocityBase.reboundVelocityFromCollision.3", 1.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeHitAttacked_turnDirectionToPlayerDegree_1, "exeHitAttacked.turnDirectionToPlayerDegree.1", 160.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeHitAttacked_reboundVelocityFromCollision_1, "exeHitAttacked.reboundVelocityFromCollision.1", 0.9f);
 
 namespace {
-    static const f32 sBodyHitRadius = 100.0f;
-    static const f32 sBodyHitYOffset = 100.0f;
-    static const f32 sAttackHitRadius = 70.0f;
-    static const f32 sAttackHitYOffset = 70.0f;
-    static const f32 sBinderRadius = 90.0f;
-    static const f32 sShadowRadius = 90.0f;
-    static const f32 sFrontVecBlendRate = 0.2f;
-    static const f32 sUpVecBlendRate = 0.1f;
-    static const f32 sNormalFreq = 0.9f;
-    static const f32 sNormalGravity = 0.2f;
-    static const f32 sRailCoordStepInterval = 50.0f;
-    static const s32 sWaitTime = 60;
-    static const f32 sWalkSpeed = 0.2f;
-    static const f32 sWalkTurnDegree = 2.0f;
-    static const f32 sWalkGoalRange = 25.0f;
-    static const s32 sHitAttackedMinTime = 1;
-    static const s32 sHitAttackedMaxTime = 1;
-    static const f32 sHitAttackedAccelH = 15.0f;
-    static const f32 sHitAttackedAccelV = 30.0f;
-    static const f32 sHitAttackedGravity = 1.6f;
-    static const f32 sHitAttackedFreq = 0.99f;
+    NEBULA_TUNABLE(f32, sBodyHitRadius, 100.0f);
+    NEBULA_TUNABLE(f32, sBodyHitYOffset, 100.0f);
+    NEBULA_TUNABLE(f32, sAttackHitRadius, 70.0f);
+    NEBULA_TUNABLE(f32, sAttackHitYOffset, 70.0f);
+    NEBULA_TUNABLE(f32, sBinderRadius, 90.0f);
+    NEBULA_TUNABLE(f32, sShadowRadius, 90.0f);
+    NEBULA_TUNABLE(f32, sFrontVecBlendRate, 0.2f);
+    NEBULA_TUNABLE(f32, sUpVecBlendRate, 0.1f);
+    NEBULA_TUNABLE(f32, sNormalFreq, 0.9f);
+    NEBULA_TUNABLE(f32, sNormalGravity, 0.2f);
+    NEBULA_TUNABLE(f32, sRailCoordStepInterval, 50.0f);
+    static const s32 sWaitTime = NebulaFrameClock::stepsOfSeconds(1);
+    NEBULA_TUNABLE(f32, sWalkSpeed, 0.2f);
+    NEBULA_TUNABLE(f32, sWalkTurnDegree, 2.0f);
+    NEBULA_TUNABLE(f32, sWalkGoalRange, 25.0f);
+    NEBULA_TUNABLE(s32, sHitAttackedMinTime, 1);
+    NEBULA_TUNABLE(s32, sHitAttackedMaxTime, 1);
+    NEBULA_TUNABLE(f32, sHitAttackedAccelH, 15.0f);
+    NEBULA_TUNABLE(f32, sHitAttackedAccelV, 30.0f);
+    NEBULA_TUNABLE(f32, sHitAttackedGravity, 1.6f);
+    NEBULA_TUNABLE(f32, sHitAttackedFreq, 0.99f);
 };  // namespace
 
 namespace NrvKabokuri {
@@ -61,11 +70,11 @@ namespace NrvKabokuri {
 
 Kabokuri::Kabokuri(const char* pName)
     : LiveActor(pName), mKuribo(), mBreakModel(), mAnimeScale(), mStateBindStartPointer(), mRotationQuat(0.0f, 0.0f, 0.0f, 1.0f),
-      mFrontVec(0.0f, 0.0f, 1.0f), _B8(-1), mIsValidDropFire() {
+      mFrontVec(0.0f, 0.0f, 1.0f), mIsValidDropFire() {
     KabokuriFireHolderFunc::createHolder();
 }
 
-void Kabokuri::init(const JMapInfoIter& rIter) {
+void Kabokuri::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initRailRider(rIter);
     MR::moveCoordAndTransToNearestRailPos(this);
@@ -73,7 +82,7 @@ void Kabokuri::init(const JMapInfoIter& rIter) {
     initModelManagerWithAnm("Kabokuri", nullptr, false);
     MR::connectToSceneEnemy(this);
     MR::initLightCtrl(this);
-    MR::getJMapInfoArg0WithInit(rIter, &mIsFloating);
+    MR::getPlacementArg0WithInit(rIter, &mIsFloating);
 
     if (!mIsFloating) {
         MR::onCalcGravity(this);
@@ -81,18 +90,18 @@ void Kabokuri::init(const JMapInfoIter& rIter) {
     } else {
         MR::offCalcGravity(this);
 
-        TVec3f upVec;
+        Vec3f upVec;
         mRotationQuat.getYDir(upVec);
         mGravity.set(-upVec);
     }
 
     initBinder(::sBinderRadius * mScale.y, ::sBinderRadius * mScale.y, 0);
-    initEffectKeeper(1, nullptr, false);
+    initEffectKeeper(1, nullptr);
     initSound(2, false);
     initSensor();
     MR::initShadowVolumeSphere(this, ::sShadowRadius);
     initNerve(GET_NERVE(Kabokuri, KabokuriNrvWait));
-    MR::initStarPointerTarget(this, 90.0f * mScale.y, TVec3f(0.0f, 90.0f * mScale.y, 0.0f));
+    MR::initStarPointerTarget(this, 90.0f * mScale.y, Vec3f(0.0f, 90.0f * mScale.y, 0.0f));
 
     mAnimeScale = new AnimScaleController(nullptr);
     mAnimeScale->setParamTight();
@@ -100,7 +109,7 @@ void Kabokuri::init(const JMapInfoIter& rIter) {
     mStateBindStartPointer = new WalkerStateBindStarPointer(this, mAnimeScale);
 
     // "Kabokuri kuribo"
-    mKuribo = new Kuribo("\203\112\203\173\203\116\203\212\203\116\203\212\203\173\201\133" /* カボクリクリボー */);
+    mKuribo = new Kuribo("カボクリクリボー");
 
     if (mIsFloating) {
         mKuribo->onNoGravitySupport();
@@ -110,7 +119,7 @@ void Kabokuri::init(const JMapInfoIter& rIter) {
     mKuribo->makeActorDead();
 
     // "Broken model"
-    mBreakModel = MR::createModelObjMapObjStrongLight("\211\363\202\352\203\202\203\146\203\213" /* 壊れモデル */, "KabokuriBreak", getBaseMtx());
+    mBreakModel = MR::createModelObjMapObjStrongLight("壊れモデル", "KabokuriBreak", getBaseMtx());
     mBreakModel->kill();
 
     MR::useStageSwitchWriteDead(this, rIter);
@@ -128,8 +137,8 @@ void Kabokuri::initSensor() {
 
     initHitSensor(2);
 
-    MR::addHitSensorEnemy(this, "body", 8, ::sBodyHitRadius * scale, TVec3f(0.0f, ::sBodyHitYOffset * scale, 0.0f));
-    MR::addHitSensorEnemyAttack(this, "attack", 8, ::sAttackHitRadius * scale, TVec3f(0.0f, ::sAttackHitYOffset * scale, 0.0f));
+    MR::addHitSensorEnemy(this, "body", 8, ::sBodyHitRadius * scale, Vec3f(0.0f, ::sBodyHitYOffset * scale, 0.0f));
+    MR::addHitSensorEnemyAttack(this, "attack", 8, ::sAttackHitRadius * scale, Vec3f(0.0f, ::sAttackHitYOffset * scale, 0.0f));
 }
 
 void Kabokuri::control() {
@@ -145,7 +154,7 @@ void Kabokuri::control() {
 
 void Kabokuri::calcAndSetBaseMtx() {
     MR::setBaseTRMtx(this, mRotationQuat);
-    MR::setBaseScale(this, mAnimeScale->_C * mScale);
+    MR::setBaseScale(this, mAnimeScale->mScale * mScale);
 }
 
 void Kabokuri::updatePose() {
@@ -169,7 +178,7 @@ void Kabokuri::addVelocityBase() {
         MR::attenuateVelocity(this, ::sNormalFreq);
     }
 
-    MR::reboundVelocityFromCollision(this, 0.0f, 0.0f, 1.0f);
+    MR::reboundVelocityFromCollision(this, cNum_addVelocityBase_reboundVelocityFromCollision_1, cNum_addVelocityBase_reboundVelocityFromCollision_2, cNum_addVelocityBase_reboundVelocityFromCollision_3);
 }
 
 void Kabokuri::addVelocityHitAttacked() {
@@ -194,7 +203,7 @@ void Kabokuri::addVelocityToRailPoint(f32 speed) {
         }
     }
 
-    TVec3f velocity;
+    Vec3f velocity;
     MR::calcVelocityMoveToTarget(&velocity, this, MR::getRailPos(this), 1.0f);
     if (velocity.dot(mFrontVec) > 0.4f) {
         mVelocity.add(velocity * speed);
@@ -386,13 +395,13 @@ void Kabokuri::exeHitAttacked() {
         MR::startAction(this, "Wait");
 
         for (int i = 0; i < 6; i++) {
-            MR::turnDirectionToPlayerDegree(this, &mFrontVec, 160.0f);
+            MR::turnDirectionToPlayerDegree(this, &mFrontVec, cNum_exeHitAttacked_turnDirectionToPlayerDegree_1);
             updatePose();
         }
     }
 
     addVelocityHitAttacked();
-    MR::reboundVelocityFromCollision(this, 0.9f);
+    MR::reboundVelocityFromCollision(this, cNum_exeHitAttacked_reboundVelocityFromCollision_1);
 
     if (MR::isGreaterStep(this, ::sHitAttackedMaxTime) || (MR::isGreaterStep(this, ::sHitAttackedMinTime) && MR::isBinded(this))) {
         mKuribo->appearBlowed(mPosition, mRotationQuat, mVelocity);

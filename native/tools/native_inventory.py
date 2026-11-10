@@ -6,8 +6,9 @@ other than the release-hygiene ones counts zero and no file is left in a replace
 Signals are counted per file from source text, comments excluded: calls into the console's SDK (GX, GD, OS, VI, DVD,
 NAND, WPAD/KPAD, AI/DSP/AR, cache and processor calls, SYSCONF, NWC24, HBM, RSO, RFL, THP, TPL, MTX/VEC), console
 byte order and addresses, the renderer's emulation of the console (command stream, register state, EFB/XFB, TEV,
-precision), the host's console shapes (guest memory, Wii Remote reports, the DSP program, the disc image) and test
-hooks, which must compile out of release builds."""
+precision), the host's console shapes (guest memory, Wii Remote reports, the DSP program, the disc image), test
+hooks, and test or trace options in product code (run options, NEBULA_DEV blocks, test-only game options), which tests
+reach from outside through the mod and host-extension interfaces instead."""
 import collections
 import os
 import re
@@ -56,8 +57,7 @@ SIGNALS = [
     ("thp_tpl", r"\b(?:THP|TPL)[A-Z][A-Za-z0-9_]*\s*\(", "THP/TPL"),
     ("kernel_api", r"\b(?:NebulaKernel::|NebulaThread\b|NebulaThreadQueue\b|NebulaMutex\b|NebulaMessageQueue\b|NebulaAlarm\b|"
                    r"nebula_raise_event\b|nebula_note_event\b|nebula_switch_stack\b)", "the console scheduler under its new name"),
-    ("audio_shape", r"\b(?:NebulaAudioVoice\b|audio_mix\b|JASDsp\b|JASDSPChannel\b|JASAudioThread\b|JASCriticalSection\b|"
-                    r"sDacRate\b|nebula_game_audio_tick\b)", "DSP-shaped audio interface"),
+    ("audio_shape", r"\b(?:NebulaAudioVoice\b|audio_mix\b|sDacRate\b|nebula_game_audio_tick\b)", "DSP-shaped audio interface"),
     ("byte_order", r"\bNEBULA_BE\b|\bNEBULA_OFFSET\b|\bBE\s*<|\bBEOffset\s*<|\bSelfRel\s*<|\bbswap\w*|"
                    r"\b__builtin_bswap\w*|\bbyteswap\w*|\bRFLI_(?:LD|ST)\w*", "big-endian access"),
     ("hw_register", r"\b__(?:GXData|cpReg|peReg|piReg|memReg|VIRegs|DSPRegs|AIRegs|EXIRegs|SIRegs|PIRegs|MEMRegs)\b|"
@@ -87,6 +87,8 @@ SIGNALS = [
                     r"\baudio_dsp\b|\bai_dma\b", "DSP program model"),
     ("test_seam", r"\bnebula_switch::|tools/test_driver/", "call into the test driver, compiled out of a release"),
     ("env_read", r"L?\"(?:GALAXY|NEBULA)_[A-Z0-9_]+\"", "an environment name a release can still read"),
+    ("test_option", r"\brun_options\(\)|\brun_option_\w+\(|\bNEBULA_DEV\b|\bNEBULA_OPTION_TEST_\w+|\bNebulaTestAction\b",
+     "a test or trace option, or code only a test build has, in product code"),
     ("test_hook", r"\bGALAXY_(?:TEST|TRACE|EXPORT|DEBUG|DUMP)_[A-Z0-9_]+|\bNEBULA_TEST_[A-Z0-9_]+",
      "test/trace hook (release hygiene)"),
     ("decomp_residue", r"\bTARGET_PC\b|\b__MWERKS__\b|\basm\s*\{|\b__asm\b|\bnofralloc\b|\bfralloc\b",
@@ -148,23 +150,12 @@ AREAS = [
      "packets as native draw records; loaders read cooked native data."),
     (r"^native/petari/src/JSystem/J2DGraph|^native/petari/libs/JSystem/include/JSystem/J2DGraph", "j2d", "CONVERT",
      "J2D panes/pictures/text: native 2D records at window resolution."),
-    (r"^native/petari/src/JSystem/JParticle|^native/petari/libs/JSystem/include/JSystem/JParticle", "jpa", "CONVERT",
-     "JPA particles: native particle records (instanced), cooked JPC data."),
-    (r"^native/petari/src/JSystem/JAudio2|^native/petari/libs/JSystem/include/JSystem/JAudio2", "jaudio", "CONVERT",
-     "JAudio2: keep the sound logic (JAI*, JAS sequencing); replace the DSP/AI/ARAM side with the native mixer."),
     (r"^native/petari/src/JSystem/JKernel|^native/petari/libs/JSystem/include/JSystem/JKernel", "jkernel", "CONVERT",
      "JKernel: heaps sized natively, archives from the cooked store, no ARAM, no Yaz0, JKRThread on host threads."),
     (r"^native/petari/src/JSystem/JUtility|^native/petari/libs/JSystem/include/JSystem/JUtility", "jutility", "CONVERT",
      "JUtility: video/XFB go, fonts/textures/palettes become native resources, debug consoles out of release."),
     (r"^native/petari/src/JSystem/|^native/petari/libs/JSystem/", "jsystem-support", "CONVERT",
-     "JSystem support (JMath, JGeometry, JSupport, JGadget, JFramework): native math/SIMD, cooked data."),
-    (r"^native/petari/src/nw4r/lyt|^native/petari/libs/nw4r/include/nw4r/lyt", "nw4r-lyt", "CONVERT",
-     "Layouts: native 2D records; cooked BRLYT/BRLAN."),
-    (r"^native/petari/src/nw4r/ut|^native/petari/libs/nw4r/include/nw4r/ut", "nw4r-ut", "CONVERT",
-     "Fonts and resources: cooked BRFNT as native textures; the ROM font replaced."),
-    (r"^native/petari/src/nw4r/db|^native/petari/libs/nw4r/include/nw4r/db", "nw4r-db", "CONVERT",
-     "Debug console/exception: native crash reports; out of release."),
-    (r"^native/petari/src/nw4r/|^native/petari/libs/nw4r/", "nw4r-other", "CONVERT", "nw4r math: native math library."),
+     "JSystem support (JSupport, JGadget, JFramework): native math/SIMD, cooked data."),
     (r"^native/petari/src/RVLFaceLib/|^native/petari/libs/RVLFaceLib/", "mii", "CONVERT",
      "Mii library: native database file, faces rendered with native passes, no NAND, no big-endian loads."),
     (r"^native/petari/(?:src|include)/Game/System/", "game-system", "CONVERT",
@@ -206,13 +197,11 @@ AREAS = [
     (r"^runtime/(?:src|include/galaxy)/render/(?:post_process|game_bloom|ambient_occlusion|enhanced_lighting|"
      r"curved_surfaces|game_lights|galaxy_select)", "feature-graphics", "CONVERT",
      "Graphics features: on native targets and native data (phase 2)."),
-    (r"^runtime/(?:src|include/galaxy)/render/(?:texture_pack|movie_replacement|game_asset_extract)", "feature-packs", "CONVERT",
+    (r"^runtime/(?:src|include/galaxy)/render/(?:texture_pack|movie_playback)", "feature-packs", "CONVERT",
      "Texture packs and HD movies: names from the cooker (Dolphin hashes of original data), native textures/video."),
     (r"^runtime/(?:src|include/galaxy)/render/host_window_win32", "host-ui-win32", "CONVERT",
      "Window, settings and achievements overlay: move the UI model to shared code for every host."),
     (r"^runtime/(?:src|include/galaxy)/render/", "renderer-other", "CONVERT", "Renderer: native records."),
-    (r"^runtime/(?:src|include/galaxy)/jaudio_host_mixer", "host-dsp", "REPLACE",
-     "Host copy of the JAudio DSP program: replace with a native float mixer."),
     (r"^runtime/(?:src|include/galaxy)/(?:virtual_disc|native_thp_video)",
      "host-console-model", "REPLACE",
      "Disc image, software THP: replace with cooked assets and native video."),
@@ -235,9 +224,9 @@ AREAS = [(re.compile(p), a, d, w) for p, a, d, w in AREAS]
 # Requirement IDs per area (the requirements document's map from areas to requirements).
 REQUIREMENTS = {
     "game": "B-01..B-07", "game-system": "B-10..B-17", "game-screen": "B-20..B-22, E-12", "game-util": "B-25, B-26",
-    "game-audio": "B-30, H", "game-nwc24": "B-31", "j3d": "B-40, E-04, E-05", "j2d": "B-41, E-12", "jpa": "B-42",
+    "game-audio": "B-30, H", "game-nwc24": "B-31", "j3d": "B-40, E-04, E-05", "j2d": "B-41, E-12",
     "jaudio": "B-43, H", "jkernel": "B-44, D-01", "jutility": "B-45", "jsystem-support": "B-46, C-08",
-    "nw4r-lyt": "B-50", "nw4r-ut": "B-51", "nw4r-db": "B-52", "nw4r-other": "B-52", "mii": "B-55",
+    "mii": "B-55",
     "petari-other": "B-04, P-05", "msl": "C-07", "byte-order": "C-05", "host-api": "C-06",
     "host-module-bridge": "C-06", "native-build": "C-09", "tools": "N-03", "dev-tools": "N-03",
     "renderer-translation": "E-02", "renderer-core": "E-01, E-03", "renderer-d3d12": "E-04..E-17",
@@ -283,7 +272,7 @@ for rel in files:
             if area == "importer" and key in ("dol", "disc"):
                 continue
             # A test file is not in a release.
-            if key == "env_read" and re.search(r"(_tests?\.|/tests/)", rel):
+            if key in ("env_read", "test_option") and re.search(r"(_tests?\.|/tests/)", rel):
                 continue
             n = len(rx.findall(body))
             if n:

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class ActorCameraInfo;
 
@@ -9,15 +9,15 @@ class Pole : public LiveActor {
 public:
     Pole(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void appear();
-    virtual void calcAnim();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
-    virtual MtxPtr getBaseMtx() const {
+    virtual void init(const TableIter&) override;
+    virtual void appear() override;
+    virtual void calcAnim() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
+    virtual MtxPtr getBaseMtx() const override {
         if (mNoModel) {
-            return (MtxPtr)&mBaseMtx;
+            return const_cast< MtxPtr >(mBaseMtx.mMtx);
         } else {
             return LiveActor::getBaseMtx();
         }
@@ -42,13 +42,13 @@ public:
     bool tryHandstandTurn();
     bool isEnableTurn() const;
     void updateBindTrans();
-    void calcGravityMtx(TPos3f*);
+    void calcGravityMtx(Pos3f*);
     void updateTopPos(f32);
     f32 getPoleMoveStickX() const;
     f32 getPoleMoveStickY() const;
 
-    TVec3f mBasePos;
-    TVec3f mTopPos;
+    Vec3f mBasePos;
+    Vec3f mTopPos;
     f32 mHeight;
     bool mDisableHandstand;
     bool mIsSquare;
@@ -59,12 +59,12 @@ public:
     f32 mClimbSpeed;
     LiveActor* mRider;
     ActorCameraInfo* mCameraInfo;
-    TVec3f mCenterPos;
-    TVec3f mSide;
-    TVec3f mUp;
-    TVec3f mFront;
-    TPos3f mPosMtx;
+    Vec3f mCenterPos;
+    Vec3f mSide;
+    Vec3f mUp;
+    Vec3f mFront;
+    Pos3f mPosMtx;
     MtxPtr mTopMtx;
     MtxPtr mBottomMtx;
-    TMtx34f mBaseMtx;
+    Mtx34f mBaseMtx;
 };

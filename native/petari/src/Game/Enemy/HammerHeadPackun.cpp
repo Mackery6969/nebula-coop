@@ -1,15 +1,17 @@
 #include "Game/Enemy/HammerHeadPackun.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/EffectKeeper.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/LiveActor/PartsModel.hpp"
+#include "Game/Scene/SceneFunction.hpp"
 #include "Game/Util/ActorMovementUtil.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/ActorShadowUtil.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapInfo.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/Table.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/JointRumbler.hpp"
 #include "Game/Util/JointUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
@@ -18,24 +20,34 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
-#include <JSystem/JGeometry/TVec.hpp>
-#include <JSystem/JMath/JMATrigonometric.hpp>
-#include <JSystem/JMath/JMath.hpp>
+#include "Game/Util/StringUtil.hpp"
+#include <nebula_geometry.hpp>
+
+
+
 #include <nebula_math.h>
+#include "Game/Util/Tunable.hpp"
+
+// The step counts of this file's functions, as tunables: "<file>.<function>.<k>".
+NEBULA_TUNABLE_NAMED(s32, cStep_exeAttack_1, "exeAttack.1", 156);
+NEBULA_TUNABLE_NAMED(s32, cStep_exeDamage_1, "exeDamage.1", 76);
+NEBULA_TUNABLE_NAMED(s32, cStep_exeRise_1, "exeRise.1", 56);
+NEBULA_TUNABLE_NAMED(s32, cStep_exeCrow_1, "exeCrow.1", 45);
+NEBULA_TUNABLE_NAMED(s32, cStep_isAttackSensorValid_1, "isAttackSensorValid.1", 40);
+NEBULA_TUNABLE_NAMED(s32, cStep_isChance_1, "isChance.1", 50);
 
 HammerHeadPackun::HammerHeadPackun(const char* pName) : LiveActor(pName) {
     mLeafModel = nullptr;
     mImmunityTime = 0;
-    _94.x = 0.0f;
-    _94.y = 1.0f;
-    _94.z = 0.0f;
-    _A0.x = 0.0f;
-    _A0.y = 0.0f;
-    _A0.z = 1.0f;
-    _AC.x = 0.0f;
-    _AC.y = 0.0f;
-    _AC.z = 1.0f;
+    mUp.x = 0.0f;
+    mUp.y = 1.0f;
+    mUp.z = 0.0f;
+    mFront.x = 0.0f;
+    mFront.y = 0.0f;
+    mFront.z = 1.0f;
+    mAttackDir.x = 0.0f;
+    mAttackDir.y = 0.0f;
+    mAttackDir.z = 1.0f;
     mJointRumbler = nullptr;
     mNumbTime = 0;
 }
@@ -55,14 +67,14 @@ namespace {
     NEW_NERVE_ONEND(HammerHeadPackunNrvNumb, HammerHeadPackun, Numb, Numb);
 };  // namespace
 
-void HammerHeadPackun::init(const JMapInfoIter& rIter) {
+void HammerHeadPackun::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initPosture();
     initModelManagerWithAnm("PackunFlower", nullptr, false);
     MR::connectToSceneEnemy(this);
     MR::initLightCtrl(this);
     initSensor();
-    initEffectKeeper(1, nullptr, false);
+    initEffectKeeper(1, nullptr);
     MR::addEffect(this, "PointerTouchManual");
     MR::setEffectHostMtx(this, "PointerTouchManual", MR::getJointMtx(this, "MouthUp"));
     initSound(4, false);
@@ -70,7 +82,7 @@ void HammerHeadPackun::init(const JMapInfoIter& rIter) {
     MR::useStageSwitchWriteDead(this, rIter);
     initShadow();
     initLeaf(rIter);
-    MR::initStarPointerTargetAtJoint(this, "Head", 169.0f, TVec3f(120.0f, 0.0f, 0.0f));
+    MR::initStarPointerTargetAtJoint(this, "Head", 169.0f, Vec3f(120.0f, 0.0f, 0.0f));
     MR::declareStarPiece(this, 9);
     mJointRumbler = new JointRumbler(this, "AllRoot", 8.0f, 0.06f, 60, true, 0);
     makeActorAppeared();
@@ -87,7 +99,7 @@ void HammerHeadPackun::kill() {
     }
 
     MR::startSound(this, "SE_EM_HHPACKUN_DEAD");
-    TVec3f pos;
+    Vec3f pos;
     MR::copyJointPos(this, "Head", &pos);
     MR::appearStarPiece(this, pos, 9, 10.0f, 40.0f, false);
     MR::startSound(this, "SE_OJ_STAR_PIECE_BURST");
@@ -111,7 +123,7 @@ void HammerHeadPackun::exeWait() {
 }
 
 void HammerHeadPackun::exeSearch() {
-    TVec3f dir;
+    Vec3f dir;
     if (calcPlayerDir(&dir) && !tryShiftNumb()) {
         turnTo(dir, 1.0f);
         if (isInFieldOfView(dir)) {
@@ -127,14 +139,14 @@ void HammerHeadPackun::exeAttack() {
         MR::startBck(mLeafModel, attack);
     }
 
-    TVec3f dir;
+    Vec3f dir;
     if (!tryShiftNumb()) {
-        if (MR::isStep(this, 156)) {
+        if (MR::isStep(this, cStep_exeAttack_1)) {
             MR::shakeCameraNormalStrong();
             MR::tryRumblePadStrong(this, PLAYER_1);
         }
 
-        if (MR::isLessEqualStep(this, 60)) {
+        if (MR::isLessEqualStep(this, NebulaFrameClock::stepsOfSeconds(1))) {
             if (calcPlayerDir(&dir)) {
                 turnTo(dir, 1.0f);
             }
@@ -154,7 +166,7 @@ void HammerHeadPackun::exeRest() {
     }
 
     if (!tryShiftNumb()) {
-        MR::setNerveAtStep(this, GET_NERVE_ANON(HammerHeadPackunNrvRecover), 90);
+        MR::setNerveAtStep(this, GET_NERVE_ANON(HammerHeadPackunNrvRecover), NebulaFrameClock::stepsOfMilliseconds(1500));
     }
 }
 
@@ -180,7 +192,7 @@ void HammerHeadPackun::exeDamage() {
         mImmunityTime++;
     }
 
-    if (MR::isStep(this, 76)) {
+    if (MR::isStep(this, cStep_exeDamage_1)) {
         MR::shakeCameraNormal();
         MR::tryRumblePadMiddle(this, PLAYER_1);
     }
@@ -191,10 +203,10 @@ void HammerHeadPackun::exeDamage() {
         MR::startBck(mLeafModel, swoon);
     }
 
-    if (MR::isGreaterEqualStep(this, 60)) {
+    if (MR::isGreaterEqualStep(this, NebulaFrameClock::stepsOfSeconds(1))) {
         MR::startLevelSound(this, "SE_EM_LV_SWOON_S");
     }
-    MR::setNerveAtStep(this, GET_NERVE_ANON(HammerHeadPackunNrvRise), 180);
+    MR::setNerveAtStep(this, GET_NERVE_ANON(HammerHeadPackunNrvRise), NebulaFrameClock::stepsOfSeconds(3));
 }
 
 void HammerHeadPackun::exeRise() {
@@ -205,7 +217,7 @@ void HammerHeadPackun::exeRise() {
     }
 
     if (!tryShiftNumb()) {
-        if (MR::isStep(this, 56)) {
+        if (MR::isStep(this, cStep_exeRise_1)) {
             MR::shakeCameraNormalWeak();
             MR::tryRumblePadWeak(this, PLAYER_1);
         }
@@ -237,7 +249,7 @@ void HammerHeadPackun::exeCrow() {
     }
 
     if (!tryShiftNumb()) {
-        if (MR::isStep(this, 45)) {
+        if (MR::isStep(this, cStep_exeCrow_1)) {
             MR::shakeCameraNormalWeak();
             MR::tryRumblePadWeak(this, PLAYER_1);
         }
@@ -276,7 +288,7 @@ void HammerHeadPackun::exeBlowKill() {
 
 void HammerHeadPackun::exeNumb() {
     if (MR::isFirstStep(this)) {
-        MR::startDPDHitSound();
+        MR::startPointerHitSound();
         mEffectKeeper->forceDeleteEmitterAll();
         MR::stopBck(this);
         MR::stopBck(mLeafModel);
@@ -284,12 +296,12 @@ void HammerHeadPackun::exeNumb() {
         mNumbTime = 0;
     }
 
-    MR::startDPDFreezeLevelSound(this);
-    if (!(getNerveStep() % 30)) {
+    MR::startPointerFreezeLevelSound(this);
+    if (!(getNerveStep() % NebulaFrameClock::stepsOfMilliseconds(500))) {
         mJointRumbler->start();
     }
 
-    if (MR::isStarPointerPointing2POnPressButton(this, "\216\343" /* 弱 */, true, false)) {
+    if (MR::isStarPointerPointing2POnPressButton(this, "弱", true, false)) {
         mNumbTime = 0;
     }
 
@@ -305,18 +317,18 @@ void HammerHeadPackun::endNumb() {
 }
 
 void HammerHeadPackun::calcAndSetBaseMtx() {
-    TVec3f vec;
-    TPos3f mtx;
-    vec.cross(_94, _A0);
+    Vec3f vec;
+    Pos3f mtx;
+    vec.cross(mUp, mFront);
     mtx[0][0] = vec.x;
     mtx[1][0] = vec.y;
     mtx[2][0] = vec.z;
-    mtx[0][1] = _94.x;
-    mtx[1][1] = _94.y;
-    mtx[2][1] = _94.z;
-    mtx[0][2] = _A0.x;
-    mtx[1][2] = _A0.y;
-    mtx[2][2] = _A0.z;
+    mtx[0][1] = mUp.x;
+    mtx[1][1] = mUp.y;
+    mtx[2][1] = mUp.z;
+    mtx[0][2] = mFront.x;
+    mtx[1][2] = mFront.y;
+    mtx[2][2] = mFront.z;
     mtx[0][3] = mPosition.x;
     mtx[1][3] = mPosition.y;
     mtx[2][3] = mPosition.z;
@@ -329,13 +341,13 @@ inline bool HammerHeadPackun::checkBlowAttack() const {
 
 void HammerHeadPackun::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     if (!checkBlowAttack() && MR::isSensor(pSender, "blow") && MR::getSensorHost(pReceiver) &&
-        !strcmp(MR::getSensorHost(pReceiver)->mName, "\203\160\203\223\203\140\203\223\203\117\203\114\203\155\203\122" /* パンチングキノコ */)) {
+        MR::isEqualString(MR::getSensorHost(pReceiver)->mName, "パンチングキノコ")) {
         f32 recvRadius = pReceiver->mRadius;
         f32 sendRadius = pSender->mRadius;
-        f32 temp = recvRadius / (sendRadius + recvRadius);
-        TVec3f hitMtx = pSender->mPosition * temp + (pReceiver->mPosition) * (1.0f - temp);
+        f32 senderWeight = recvRadius / (sendRadius + recvRadius);
+        Vec3f hitPos = pSender->mPosition * senderWeight + (pReceiver->mPosition) * (1.0f - senderWeight);
         MR::tryRumblePadMiddle(this, PLAYER_1);
-        MR::emitEffectHit(this, hitMtx, nullptr);
+        MR::emitEffectHit(this, hitPos, nullptr);
         MR::stopScene(8);
         setNerve(GET_NERVE_ANON(HammerHeadPackunNrvBlowKill));
         MR::sendMsgPush(pReceiver, pSender);
@@ -373,10 +385,10 @@ bool HammerHeadPackun::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSe
     if (!checkBlowAttack() && (MR::isMsgJetTurtleAttack(msg) || MR::isMsgFireBallAttack(msg))) {
         f32 sendRadius = pReceiver->mRadius;
         f32 recvRadius = pSender->mRadius;
-        f32 temp = recvRadius / (recvRadius + sendRadius);
-        TVec3f hitMtx = pReceiver->mPosition * temp + (pSender->mPosition) * (1.0f - temp);
+        f32 receiverWeight = recvRadius / (recvRadius + sendRadius);
+        Vec3f hitPos = pReceiver->mPosition * receiverWeight + (pSender->mPosition) * (1.0f - receiverWeight);
         MR::tryRumblePadMiddle(this, PLAYER_1);
-        MR::emitEffectHit(this, hitMtx, nullptr);
+        MR::emitEffectHit(this, hitPos, nullptr);
         MR::stopScene(8);
         setNerve(GET_NERVE_ANON(HammerHeadPackunNrvBlowKill));
         return true;
@@ -407,10 +419,10 @@ bool HammerHeadPackun::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSen
     if (MR::isMsgToEnemyAttackBlow(msg) && !checkBlowAttack()) {
         f32 sendRadius = pReceiver->mRadius;
         f32 recvRadius = pSender->mRadius;
-        f32 temp = recvRadius / (recvRadius + sendRadius);
-        TVec3f hitMtx = pReceiver->mPosition * temp + (pSender->mPosition) * (1.0f - temp);
+        f32 receiverWeight = recvRadius / (recvRadius + sendRadius);
+        Vec3f hitPos = pReceiver->mPosition * receiverWeight + (pSender->mPosition) * (1.0f - receiverWeight);
         MR::tryRumblePadMiddle(this, PLAYER_1);
-        MR::emitEffectHit(this, hitMtx, nullptr);
+        MR::emitEffectHit(this, hitPos, nullptr);
         MR::stopScene(8);
         setNerve(GET_NERVE_ANON(HammerHeadPackunNrvBlowKill));
         return true;
@@ -419,61 +431,61 @@ bool HammerHeadPackun::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSen
 }
 
 void HammerHeadPackun::initPosture() {
-    TPos3f mtx;
+    Pos3f mtx;
     MR::makeMtxTR(mtx, this);
-    mtx.getYDir(_94);
-    mtx.getZDir(_A0);
+    mtx.getYDir(mUp);
+    mtx.getZDir(mFront);
 }
 
 void HammerHeadPackun::initSensor() {
     initHitSensor(6);
-    MR::addHitSensorAtJointMapObj(this, "body", "Head", 32, 130.0f, TVec3f(120.0f, 0.0f, 0.0f));
-    MR::addHitSensorAtJointMapObj(this, "blow", "Spin1", 32, 120.0f, TVec3f(0.0f, 0.0f, 0.0f));
-    MR::addHitSensorAtJointMapObj(this, "push1", "Spin2", 8, 45.0f, TVec3f(0.0f, 0.0f, 0.0f));
-    MR::addHitSensorAtJointMapObj(this, "push2", "Spin2", 8, 45.0f, TVec3f(50.0f, 0.0f, 0.0f));
-    MR::addHitSensorAtJointMapObj(this, "push3", "Spin3", 8, 45.0f, TVec3f(0.0f, 0.0f, 0.0f));
-    MR::addHitSensorAtJointMapObj(this, "push4", "Spin3", 8, 60.0f, TVec3f(80.0f, 0.0f, 0.0f));
+    MR::addHitSensorAtJointMapObj(this, "body", "Head", 32, 130.0f, Vec3f(120.0f, 0.0f, 0.0f));
+    MR::addHitSensorAtJointMapObj(this, "blow", "Spin1", 32, 120.0f, Vec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorAtJointMapObj(this, "push1", "Spin2", 8, 45.0f, Vec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorAtJointMapObj(this, "push2", "Spin2", 8, 45.0f, Vec3f(50.0f, 0.0f, 0.0f));
+    MR::addHitSensorAtJointMapObj(this, "push3", "Spin3", 8, 45.0f, Vec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorAtJointMapObj(this, "push4", "Spin3", 8, 60.0f, Vec3f(80.0f, 0.0f, 0.0f));
 }
 
 void HammerHeadPackun::initShadow() {
     MR::initShadowFromCSV(this, "Shadow");
-    mGravity.set(-_94);
+    mGravity.set(-mUp);
 }
 
-inline s32 JMapInfo_getEntries(const JMapInfo* jmap) {
-    return jmap->mData ? (s32)jmap->mData->mNumEntries : 0;
+inline s32 tableEntries(const Table* table) {
+    return table->getNumEntries();
 }
 
-inline bool JMapInfo_inRange(const JMapInfoIter& rIter) {
-    return rIter.mInfo && rIter.mIndex >= 0 && rIter.mIndex < JMapInfo_getEntries(rIter.mInfo);
+inline bool Placement_inRange(const TableIter& rIter) {
+    return rIter.mInfo && rIter.mIndex >= 0 && rIter.mIndex < tableEntries(rIter.mInfo);
 }
 
-void HammerHeadPackun::initLeaf(const JMapInfoIter& rIter) {
-    mLeafModel = new PartsModel(this, "\203\160\203\142\203\116\203\223\202\314\227\164" /* パックンの葉 */, "PackunLeaf", nullptr, 18, false);
+void HammerHeadPackun::initLeaf(const TableIter& rIter) {
+    mLeafModel = new PartsModel(this, "パックンの葉", "PackunLeaf", nullptr, MR::DrawBufferType_Enemy, false);
     MR::initLightCtrl(mLeafModel);
     s32 arg = -1;
-    if (JMapInfo_inRange(rIter)) {
-        MR::getJMapInfoArg0NoInit(rIter, &arg);
+    if (Placement_inRange(rIter)) {
+        MR::getPlacementArg0NoInit(rIter, &arg);
     }
 
     if (arg > 0) {
-        mLeafModel->initFixedPosition(TVec3f(100.0f, 0.0f, 0.0f), TVec3f(0.0f, -90.0f, -90.0f), "Spin1");
+        mLeafModel->initFixedPosition(Vec3f(100.0f, 0.0f, 0.0f), Vec3f(0.0f, -90.0f, -90.0f), "Spin1");
     } else {
-        mLeafModel->initFixedPosition(TVec3f(0.0f, 0.0f, 0.0f), TVec3f(0.0f, -90.0f, -90.0f), "Spin1");
+        mLeafModel->initFixedPosition(Vec3f(0.0f, 0.0f, 0.0f), Vec3f(0.0f, -90.0f, -90.0f), "Spin1");
     }
 
     mLeafModel->initWithoutIter();
 }
 
 bool HammerHeadPackun::isTargetInRange() const {
-    TVec3f vec;
+    Vec3f vec;
     MR::getPlayerUpVec(&vec);
     MtxPtr baseMtx1 = getBaseMtx();
     MtxPtr baseMtx2 = getBaseMtx();
     MtxPtr baseMtx3 = getBaseMtx();
-    TVec3f a2(baseMtx3[0][1], baseMtx2[1][1], baseMtx1[2][1]);
+    Vec3f up(baseMtx3[0][1], baseMtx2[1][1], baseMtx1[2][1]);
 
-    if (vec.dot(a2) <= 0.0f) {
+    if (vec.dot(up) <= 0.0f) {
         return false;
     } else if (MR::calcDistanceToPlayer(mPosition) < 800.0f) {
         return true;
@@ -482,20 +494,20 @@ bool HammerHeadPackun::isTargetInRange() const {
     return false;
 }
 
-bool HammerHeadPackun::isInFieldOfView(const TVec3f& rPos) const {
+bool HammerHeadPackun::isInFieldOfView(const Vec3f& rPos) const {
     f32 deg = 30.0f;
     if (30.0f < 0.0f) {
         deg = -30.0f;
     }
 
-    return rPos.dot(_A0) >= MR::cosDegree(deg);
+    return rPos.dot(mFront) >= MR::cosDegree(deg);
 }
 
 bool HammerHeadPackun::isAttackSensorValid() const {
     bool isValid = false;
     if ((!isNerve(GET_NERVE_ANON(HammerHeadPackunNrvAttack)) || !MR::isNewNerve(this)) && !isNerve(GET_NERVE_ANON(HammerHeadPackunNrvRest)) &&
-        (!isNerve(GET_NERVE_ANON(HammerHeadPackunNrvRecover)) || !MR::isLessEqualStep(this, 40)) &&
-        !isNerve(GET_NERVE_ANON(HammerHeadPackunNrvDamage)) && (!isNerve(GET_NERVE_ANON(HammerHeadPackunNrvRise)) || !MR::isLessStep(this, 60)) &&
+        (!isNerve(GET_NERVE_ANON(HammerHeadPackunNrvRecover)) || !MR::isLessEqualStep(this, cStep_isAttackSensorValid_1)) &&
+        !isNerve(GET_NERVE_ANON(HammerHeadPackunNrvDamage)) && (!isNerve(GET_NERVE_ANON(HammerHeadPackunNrvRise)) || !MR::isLessStep(this, NebulaFrameClock::stepsOfSeconds(1))) &&
         !isNerve(GET_NERVE_ANON(HammerHeadPackunNrvNumb)) && !isNerve(GET_NERVE_ANON(HammerHeadPackunNrvSmashKill)) &&
         !isNerve(GET_NERVE_ANON(HammerHeadPackunNrvBlowKill))) {
         isValid = true;
@@ -506,16 +518,16 @@ bool HammerHeadPackun::isAttackSensorValid() const {
 bool HammerHeadPackun::isChance() const {
     bool isChance = false;
     if ((isNerve(GET_NERVE_ANON(HammerHeadPackunNrvRest)) && !MR::isNewNerve(this)) || isNerve(GET_NERVE_ANON(HammerHeadPackunNrvDamage)) ||
-        (isNerve(GET_NERVE_ANON(HammerHeadPackunNrvRecover)) && MR::isLessEqualStep(this, 50)) ||
-        (isNerve(GET_NERVE_ANON(HammerHeadPackunNrvRise)) && MR::isLessEqualStep(this, 30)) || isNerve(GET_NERVE_ANON(HammerHeadPackunNrvNumb))) {
+        (isNerve(GET_NERVE_ANON(HammerHeadPackunNrvRecover)) && MR::isLessEqualStep(this, cStep_isChance_1)) ||
+        (isNerve(GET_NERVE_ANON(HammerHeadPackunNrvRise)) && MR::isLessEqualStep(this, NebulaFrameClock::stepsOfMilliseconds(500))) || isNerve(GET_NERVE_ANON(HammerHeadPackunNrvNumb))) {
         isChance = true;
     }
     return isChance;
 }
 
-bool HammerHeadPackun::calcPlayerDir(TVec3f* pPos) const {
+bool HammerHeadPackun::calcPlayerDir(Vec3f* pPos) const {
     pPos->set(*MR::getPlayerPos() - mPosition);
-    pPos->orthogonalize2(_94);
+    pPos->orthogonalize2(mUp);
     if (MR::isNearZero(*pPos)) {
         return false;
     }
@@ -524,40 +536,40 @@ bool HammerHeadPackun::calcPlayerDir(TVec3f* pPos) const {
     return true;
 }
 
-void HammerHeadPackun::turnTo(const TVec3f& rFrom, f32 rate) {
-    f32 absAngle = _A0.angle(rFrom);
+void HammerHeadPackun::turnTo(const Vec3f& rFrom, f32 rate) {
+    f32 absAngle = mFront.angle(rFrom);
     f32 ratio = 1.0f;
     f32 maxAngle = rate * MR::pi() / 180.0f;
     if (absAngle > maxAngle) {
         ratio = maxAngle / absAngle;
     }
-    TQuat4f quat;
-    quat.setRotate(_A0, rFrom, ratio);
-    quat.transform(_A0);
+    Quat4f quat;
+    quat.setRotate(mFront, rFrom, ratio);
+    quat.transform(mFront);
     verticalizeFrontVec();
 }
 
 void HammerHeadPackun::turnToAttackVec(s32 rate) {
-    TQuat4f mtx;
+    Quat4f mtx;
     if (getNerveStep() <= rate) {
         f32 step = (f32)getNerveStep() / rate;
         if (step > 1.0f) {
             step = 1.0f;
         }
 
-        mtx.setRotate(_A0, _AC, (step * step));
-        mtx.transform(_A0);
+        mtx.setRotate(mFront, mAttackDir, (step * step));
+        mtx.transform(mFront);
         verticalizeFrontVec();
     }
 }
 
 void HammerHeadPackun::verticalizeFrontVec() {
-    _A0.orthogonalize2(_94);
-    MR::normalize(&_A0);
+    mFront.orthogonalize2(mUp);
+    MR::normalize(&mFront);
 }
 
 bool HammerHeadPackun::tryShiftNumb() {
-    if (MR::isStarPointerPointing2POnPressButton(this, "\216\343" /* 弱 */, true, false)) {
+    if (MR::isStarPointerPointing2POnPressButton(this, "弱", true, false)) {
         setNerve(GET_NERVE_ANON(HammerHeadPackunNrvNumb));
         return true;
     }

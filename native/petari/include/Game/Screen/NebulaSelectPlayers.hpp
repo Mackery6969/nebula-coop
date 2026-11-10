@@ -1,15 +1,13 @@
 #pragma once
 
 #include "Game/Screen/LayoutActor.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
 struct NebulaSelectPlayersParts;
 
-namespace nw4r {
-    namespace lyt {
-        class Pane;
-    };  // namespace lyt
-};  // namespace nw4r
+namespace Ui {
+    class Pane;
+}  // namespace Ui
 
 // Online co-op on the galaxy select and the star select (docs/COOP_PLAN.md "Instances"), as sm64coopdx's act select
 // shows a player's head over the act they play: under a galaxy, or a star, the other players inside it, their names in
@@ -26,15 +24,15 @@ public:
     // star select, a scene of its own).
     NebulaSelectPlayers(bool scene);
 
-    virtual void init(const JMapInfoIter& rIter);
+    virtual void init(const TableIter& rIter);
     virtual void control();
 
     // The players in `pStage`, in its star `scenario` (or any of its stars when 0), under a point of the stage's
     // world (a miniature galaxy in the dome): nothing when it is off the screen or behind the camera.
-    void showAtWorld(s32 spot, const char* pStage, s32 scenario, const TVec3f& rPos);
+    void showAtWorld(s32 spot, const char* pStage, s32 scenario, const Vec3f& rPos);
     // The same under a pane of another layout drawn on the same screen (a star of the star select), `drop` screen units
     // below its middle.
-    void showAtPane(s32 spot, const char* pStage, s32 scenario, const nw4r::lyt::Pane* pPane, f32 drop);
+    void showAtPane(s32 spot, const char* pStage, s32 scenario, const Ui::Pane* pPane, f32 drop);
 
 private:
     void request(s32 spot, const char* pStage, s32 scenario, f32 x, f32 y);

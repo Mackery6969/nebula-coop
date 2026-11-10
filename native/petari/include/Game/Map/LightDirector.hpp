@@ -12,21 +12,20 @@ class LightAreaHolder;
 
 class LightDirector : public NameObj {
 public:
-    /// @brief Creates a new `LightDirector`.
     LightDirector();
 
-    virtual void init(const JMapInfoIter&);
-    virtual void movement();
+    virtual void init(const TableIter&) override;
+    virtual void movement() override;
 
     void initData();
     void loadLightPlayer() const;
     void loadLightCoin() const;
 
-    LightAreaHolder* _C;
+    LightAreaHolder* mAreaHolder;
     LightDataHolder* mDataHolder;
     LightZoneDataHolder* mZoneDataHolder;
     AreaLightInfo* mDefaultAreaLight;
-    const ActorLightCtrl* _1C;
+    const ActorLightCtrl* mPlayerLightCtrl;
     LightPointCtrl* mPointCtrl;
     ResourceHolder* mResourceHolder;
 };

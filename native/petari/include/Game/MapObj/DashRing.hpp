@@ -7,27 +7,22 @@ public:
     DashRing(const char* pName) : LiveActor(pName) {
     }
 
-    virtual ~DashRing();
-    virtual void init(const JMapInfoIter& rIter) {
-        initCommon(rIter, "DashRing");
-    }
-    virtual void draw() const;
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
+    virtual void init(const TableIter& rIter) override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
 
-    void initCommon(const JMapInfoIter&, const char*);
     void calcAxis();
     void calcSubAxis();
 
-    TVec3f mAxis;
-    TVec3f mSubAxis;
-    u16 mActiveTime;
-    u16 mRevivalTime;
+    Vec3f mAxis;
+    Vec3f mSubAxis;
+    s32 mActiveTime;
+    s32 mRevivalTime;
+    // Read by MarioSwim and MarioFoo when the player passes.
     s32 mBoostTime;
     s32 mMaxDuration;
     f32 mSpeedScale;
-    bool mDoLoop;
     bool mDoTurn;
-    TVec3f mInitialPosition;
+    Vec3f mInitialPosition;
 };

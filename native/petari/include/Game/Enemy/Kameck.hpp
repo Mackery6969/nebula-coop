@@ -12,21 +12,21 @@ class Kameck : public LiveActor {
 public:
     Kameck(const char*);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void makeActorDead();
-    virtual void appear();
-    virtual void kill();
-    virtual void control();
-    virtual void startClipped();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void makeActorDead() override;
+    virtual void appear() override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void startClipped() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     void initBeam();
-    void initJMapParam(const JMapInfoIter& rIter);
-    void initDemo(const JMapInfoIter& rIter);
+    void initPlacementParam(const TableIter& rIter);
+    void initDemo(const TableIter& rIter);
     void exeWait();
     void exeAppear();
     void exeHit();
@@ -77,8 +77,8 @@ public:
     SmallKameckBeamEventListener* mBeamEventListener;
     AnimScaleController* mAnimScaleController;
     WalkerStateBindStarPointer* mStateBindStarPointer;
-    TQuat4f mRotateQuat;
-    TVec3f mFrontVec;
+    Quat4f mRotateQuat;
+    Vec3f mFrontVec;
     s32 mBeamType;
     s32 mMoveStep;
     f32 mRailCoord;
@@ -91,7 +91,7 @@ public:
     SmallKameckBeamEventListener(Kameck* pHost) : mHost(pHost) {
     }
 
-    virtual void hitBeam(s32 beamType);
+    virtual void hitBeam(s32 beamType) override;
 
     Kameck* mHost;
 };

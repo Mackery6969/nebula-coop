@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Game/NameObj/NameObj.hpp"
+#include "Game/Scene/MovementControlType.hpp"
 
 class DemoCastGroupHolder;
 class DemoExecutor;
@@ -12,38 +13,36 @@ class ResourceHolder;
 
 class DemoDirector : public NameObj {
 public:
-    /// @brief Creates a new `DemoDirector`.
-    /// @param pName A pointer to the null-terminated name of the object.
     DemoDirector(const char* pName);
 
-    virtual void movement();
+    virtual void movement() override;
 
-    void startDemoProgrammable(NameObj*, const char*, bool, s32);
-    void startDemoTimeKeep(NameObj*, const char*, s32, bool, const char*);
-    void startDemoExecutor(NameObj*, const char*, s32, const char*);
+    void startDemoProgrammable(NameObj*, const char*, bool, MR::MovementControlType);
+    void startDemoTimeKeep(NameObj*, const char*, MR::MovementControlType, bool, const char*);
+    void startDemoExecutor(NameObj*, const char*, MR::MovementControlType, const char*);
     const char* getCurrentDemoName() const;
-    void endDemo(NameObj*, const char*, bool);
-    bool isExistTimeKeepDemo(const char*) const;
-    bool registerDemoCast(LiveActor*, const JMapInfoIter&);
-    bool registerDemoCast(LiveActor*, const char*, const JMapInfoIter&);
+    void endDemo(NameObj* pRequester, const char* pDemoName, bool waitCameraInterpolating);
+    bool isExistTimeKeepDemo(const char* pDemoName) const;
+    bool registerDemoCast(LiveActor*, const TableIter&);
+    bool registerDemoCast(LiveActor*, const char* pDemoName, const TableIter&);
     void registerDemoSimpleCast(LiveActor*);
     void registerDemoSimpleCast(LayoutActor*);
     void registerDemoSimpleCast(NameObj*);
     bool tryStartDemoRequested();
-    void startDemo(NameObj*, const char*, bool, s32);
+    void startDemo(NameObj*, const char*, bool, MR::MovementControlType);
     void startDemoRequested();
     void doDemoEndRequest();
 
     bool mIsActive;
     DemoExecutor* mExecutor;
-    bool _14;
-    DemoCastGroupHolder* _18;
+    bool mIsWaitingCamera;
+    DemoCastGroupHolder* mCastGroupHolder;
     DemoCastGroupHolder* mCastSubGroupHolder;
-    DemoSimpleCastHolder* _20;
+    DemoSimpleCastHolder* mSimpleCastHolder;
     ResourceHolder* mResourceHolder;
     DemoStartRequestHolder* mStartRequestHolder;
-    NameObj* _2C;
-    const char* _30;
-    s32 _34;
-    bool _38;
+    NameObj* mDemoStarter;
+    const char* mDemoName;
+    MR::MovementControlType mMovementType;
+    bool mUseCinemaFrame;
 };

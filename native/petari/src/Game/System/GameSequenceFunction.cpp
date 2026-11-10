@@ -58,10 +58,6 @@ namespace GameSequenceFunction {
         return ::getGameSequenceProgress()->getGalaxyCometScheduler()->getEncounterCometName(pGalaxyName);
     }
 
-    s32 getGalaxyCometState(const char* pGalaxyName) {
-        return ::getGameSequenceProgress()->getGalaxyCometScheduler()->getStateValueIncluded(pGalaxyName);
-    }
-
     bool isNeedMoviePlayerForStorySequenceEvent() {
         return ::getGameSequenceProgress()->mStorySequenceExecutor->isNeedMoviePlayerExecutingEventEnum();
     }
@@ -110,8 +106,8 @@ namespace GameSequenceFunction {
         ::getGameSequenceProgress()->endScene();
     }
 
-    void requestChangeScene(const char* pSceneName) {
-        ::getGameSequenceProgress()->requestChangeScene(pSceneName);
+    void requestChangeScene(SceneKind kind) {
+        ::getGameSequenceProgress()->requestChangeScene(kind);
     }
 
     void requestGalaxyMove(const GalaxyMoveArgument& rArgument) {
@@ -147,7 +143,7 @@ namespace GameSequenceFunction {
     }
 
     bool hasPowerStarYetAtResultSequence() {
-        if (hasStageResultSequence() == false) {
+        if (!hasStageResultSequence()) {
             return false;
         }
 
@@ -157,7 +153,7 @@ namespace GameSequenceFunction {
     }
 
     bool isPowerStarAtResultSequence(const char* pClearedStageName, s32 clearedPowerStarId) {
-        if (hasStageResultSequence() == false) {
+        if (!hasStageResultSequence()) {
             return false;
         }
 
@@ -177,7 +173,7 @@ namespace GameSequenceFunction {
     }
 
     bool hasRetryGalaxySequence() {
-        return ::getGameDataTemporaryInGalaxy()->_4;
+        return ::getGameDataTemporaryInGalaxy()->mIsRetry;
     }
 
     bool isNeedToReflectStageResultSequenceStarPiece() {
@@ -242,7 +238,7 @@ namespace GameSequenceFunction {
     }
 
     bool isSuccessSaveDataHandleSequence() {
-        return ::getSaveDataHandleSequence()->_24 == 2;
+        return ::getSaveDataHandleSequence()->mSucceeded;
     }
 
     void restoreUserFile(UserFile* pUserFile, int userFileIndex) {
@@ -262,7 +258,7 @@ namespace GameSequenceFunction {
 
 
     void storeSceneStartGameDataHolder() {
-        if (!GameDataFunction::isPassedStoryEvent("\203\140\203\122\203\113\203\103\203\150\203\146\203\202\217\111\227\271" /* チコガイドデモ終了 */) || GameDataFunction::hasGrandStar(1)) {
+        if (!GameDataFunction::isPassedStoryEvent("チコガイドデモ終了") || GameDataFunction::hasGrandStar(1)) {
             ::getSaveDataHandleSequence()->backupCurrentUserFile();
         }
     }
@@ -280,7 +276,7 @@ namespace GameSequenceFunction {
         NebulaMods::fire(NEBULA_MOD_EVENT_GAME_SAVE);
         ::getGameSequenceProgress()->getGalaxyCometScheduler()->updateStateToGameData();
 
-        if (GameDataFunction::isPassedStoryEvent("\203\163\201\133\203\140\217\351\225\202\217\343\214\343" /* ピーチ城浮上後 */) && !GameDataFunction::hasGrandStar(1)) {
+        if (GameDataFunction::isPassedStoryEvent("ピーチ城浮上後") && !GameDataFunction::hasGrandStar(1)) {
             ::getSaveDataHandleSequence()->startSaveBackup(isConfirmRemind, isSaveAndQuitMsg);
         } else {
             ::getSaveDataHandleSequence()->startSave(isConfirmRemind, isSaveAndQuitMsg);

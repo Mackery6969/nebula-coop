@@ -9,17 +9,14 @@ class TakeOutStar;
 
 class Caretaker : public NPCActor {
 public:
-    /// @brief Creates a new `Caretaker`.
-    /// @param pName A pointer to the null-terminated name of the object.
     Caretaker(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void initAfterPlacement();
-    virtual void kill();
-    virtual void control();
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void initAfterPlacement() override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
-    static void makeArchiveList(NameObjArchiveListCollector*, const JMapInfoIter&);
 
     bool branchFuncStar(u32);
     bool branchFuncComet(u32);
@@ -50,9 +47,5 @@ private:
     TakeOutStar* mTakeOutStar;
     ActorCameraInfo* mCameraInfo;
     BombTimerLayout* mBombTimerLayout;
-    MsgSharedGroup* _168;
-    s32 mObjArg0;
-    s32 mObjArg4;
-    s32 mBodyColorFrame;
     s32 mTidyTimeLimit;
 };

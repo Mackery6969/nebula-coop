@@ -9,9 +9,9 @@ class MiniatureGalaxyHolder : public LiveActor {
 public:
     MiniatureGalaxyHolder();
 
-    virtual void init(const JMapInfoIter&);
+    virtual void init(const TableIter&) override;
 
-    void registerActor(LiveActor*, const JMapInfoIter&);
+    void registerActor(LiveActor*, const TableIter&);
     bool isRegisteredActor(const LiveActor*);
     MiniatureGalaxy* findMiniatureGalaxy(const char*) const;
     void killAllMiniatureGalaxy();
@@ -19,15 +19,14 @@ public:
     void updateCometStatus();
 
     LiveActorGroup* mMiniatureGalaxyGroup;
-    bool _90;
+    bool mIsRegistered;
     MiniatureGalaxy* mCometGalaxy;
     s32 mCometID;
-    s32 _9C;
 };
 
 class MiniatureGalaxyFunction {
 public:
-    static void registerMiniatureGalaxyToHolder(LiveActor*, const JMapInfoIter&);
+    static void registerMiniatureGalaxyToHolder(LiveActor*, const TableIter&);
     static s32 getMiniatureGalaxyNum();
     static s32 calcMiniatureGalaxyIndex(const LiveActor*);
     static void updateCometStatus();

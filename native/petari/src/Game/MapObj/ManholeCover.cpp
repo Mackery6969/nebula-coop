@@ -5,10 +5,11 @@
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const f32 sSensorRadius = 150.0f;
-    static const s32 sRattleTime = 45;
+    NEBULA_TUNABLE(f32, sSensorRadius, 150.0f);
+    NEBULA_TUNABLE(s32, sRattleTime, 45);
 };  // namespace
 
 namespace NrvManholeCover {
@@ -17,21 +18,20 @@ namespace NrvManholeCover {
     NEW_NERVE(HostTypeRattle, ManholeCover, Rattle);
 };  // namespace NrvManholeCover
 
-void ManholeCover::init(const JMapInfoIter& rIter) {
+void ManholeCover::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
     MapObjActorInitInfo info;
-    info.setupHioNode("\222\156\214\140\203\111\203\165\203\127\203\106" /* 地形オブジェ */);
     info.setupDefaultPos();
     info.setupConnectToScene();
-    info.setupEffect(0);
+    info.setupEffect(nullptr);
     info.setupSound(4);
     info.setupHitSensor();
-    info.setupHitSensorParam(1, ::sSensorRadius, TVec3f(0.0f, 0.0f, 0.0f));
+    info.setupHitSensorParam(1, ::sSensorRadius, Vec3f(0.0f, 0.0f, 0.0f));
     info.setupNerve(GET_NERVE(ManholeCover, HostTypeWait));
     MapObjActor::initialize(rIter, info);
 }
 
-bool ManholeCover::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool ManholeCover::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if ((MR::isMsgPlayerHipDropFloor(msg) || MR::isMsgPlayerUpperPunch(msg)) &&
         (isNerve(GET_NERVE(ManholeCover, HostTypeWait)) || isNerve(GET_NERVE(ManholeCover, HostTypeRattle)))) {
         setNerve(GET_NERVE(ManholeCover, HostTypeOpen));
@@ -42,7 +42,7 @@ bool ManholeCover::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor
     return false;
 }
 
-bool ManholeCover::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool ManholeCover::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (MR::isMsgSpinStormRange(msg) && isNerve(GET_NERVE(ManholeCover, HostTypeWait))) {
         setNerve(GET_NERVE(ManholeCover, HostTypeRattle));
 

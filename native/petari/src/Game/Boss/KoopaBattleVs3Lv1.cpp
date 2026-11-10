@@ -23,23 +23,23 @@ namespace NrvKoopaBattleVs3Lv1 {
 };  // namespace NrvKoopaBattleVs3Lv1
 
 KoopaBattleVs3Lv1::KoopaBattleVs3Lv1(Koopa* pKoopa)
-    : KoopaBattleBase("\203\116\203\142\203\160\220\355\223\254\201\151\202\165\202\223\202\122\202\153\202\226\202\120\201\152" /* クッパ戦闘（Ｖｓ３Ｌｖ１） */, pKoopa), mStateChaseRoll(), mStateAttackShockWave() {
+    : KoopaBattleBase("クッパ戦闘（Ｖｓ３Ｌｖ１）", pKoopa), mStateChaseRoll(), mStateAttackShockWave() {
 }
 
 void KoopaBattleVs3Lv1::init() {
     KoopaBattleBase::init();
     initNerve(GET_NERVE(KoopaBattleVs3Lv1, KoopaBattleVs3Lv1NrvAttackShockWave));
-    MR::initActorStateKeeper(this, 16);
+    MR::initActorStateKeeper(this);
 
     mStateChaseRoll = new KoopaStateChaseRoll(mHost);
     mStateAttackShockWave = new KoopaStateAttackShockWave(mHost);
 
-    MR::initActorState(this, mStateChaseRoll, GET_NERVE(KoopaBattleVs3Lv1, KoopaBattleVs3Lv1NrvChaseRoll), "ChaseRoll");
-    MR::initActorState(this, new KoopaStateAttackFireShort(mHost), GET_NERVE(KoopaBattleVs3Lv1, KoopaBattleVs3Lv1NrvAttackFire), "AttackFire");
-    MR::initActorState(this, mStateAttackShockWave, GET_NERVE(KoopaBattleVs3Lv1, KoopaBattleVs3Lv1NrvAttackShockWave), "AttackShockWave");
-    MR::initActorState(this, mStateDamageEscape, GET_NERVE(KoopaBattleVs3Lv1, KoopaBattleVs3Lv1NrvDamageReverse), "Damage");
-    MR::initActorState(this, new KoopaStateJumpAway(mHost), GET_NERVE(KoopaBattleVs3Lv1, KoopaBattleVs3Lv1NrvJumpAway), "JumpAway");
-    MR::initActorState(this, mStateGuard, GET_NERVE(KoopaBattleVs3Lv1, KoopaBattleVs3Lv1NrvGuard), "Guard");
+    MR::initActorState(this, mStateChaseRoll, GET_NERVE(KoopaBattleVs3Lv1, KoopaBattleVs3Lv1NrvChaseRoll));
+    MR::initActorState(this, new KoopaStateAttackFireShort(mHost), GET_NERVE(KoopaBattleVs3Lv1, KoopaBattleVs3Lv1NrvAttackFire));
+    MR::initActorState(this, mStateAttackShockWave, GET_NERVE(KoopaBattleVs3Lv1, KoopaBattleVs3Lv1NrvAttackShockWave));
+    MR::initActorState(this, mStateDamageEscape, GET_NERVE(KoopaBattleVs3Lv1, KoopaBattleVs3Lv1NrvDamageReverse));
+    MR::initActorState(this, new KoopaStateJumpAway(mHost), GET_NERVE(KoopaBattleVs3Lv1, KoopaBattleVs3Lv1NrvJumpAway));
+    MR::initActorState(this, mStateGuard, GET_NERVE(KoopaBattleVs3Lv1, KoopaBattleVs3Lv1NrvGuard));
 }
 
 void KoopaBattleVs3Lv1::appear() {
@@ -73,35 +73,15 @@ void KoopaBattleVs3Lv1::exeAttackShockWave() {
 }
 
 void KoopaBattleVs3Lv1::exeDamageReverse() {
-    if (MR::isFirstStep(this)) {
-        mStateDamageEscape->appear();
-        mStateDamageEscape->startDamageReverse();
-    }
-
-    if (mStateDamageEscape->update()) {
-        setNerve(GET_NERVE(KoopaBattleVs3Lv1, KoopaBattleVs3Lv1NrvAttackShockWave));
-        return;
-    }
-
-    if (!mStateDamageEscape->isDownEnd()) {
-        return;
-    }
-
-    if (KoopaFunction::isKoopaAngry(mHost)) {
+    if (updateDamageReverse(GET_NERVE(KoopaBattleVs3Lv1, KoopaBattleVs3Lv1NrvAttackShockWave),
+                            GET_NERVE(KoopaBattleVs3Lv1, KoopaBattleVs3Lv1NrvRecover))) {
         KoopaFunction::changeBgmStateNormal(120);
         kill();
-    } else {
-        KoopaFunction::startKoopaAngry(mHost);
-        setNerve(GET_NERVE(KoopaBattleVs3Lv1, KoopaBattleVs3Lv1NrvRecover));
     }
 }
 
 bool KoopaBattleVs3Lv1::tryCalcAndSetBaseMtx() {
-    if (isNerve(GET_NERVE(KoopaBattleVs3Lv1, KoopaBattleVs3Lv1NrvChaseRoll)) && mStateChaseRoll->tryCalcAndSetBaseMtx()) {
-        return true;
-    }
-
-    return false;
+    return isNerve(GET_NERVE(KoopaBattleVs3Lv1, KoopaBattleVs3Lv1NrvChaseRoll)) && mStateChaseRoll->tryCalcAndSetBaseMtx();
 }
 
 void KoopaBattleVs3Lv1::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
@@ -114,8 +94,8 @@ void KoopaBattleVs3Lv1::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     } else if (!isNerve(GET_NERVE(KoopaBattleVs3Lv1, KoopaBattleVs3Lv1NrvJumpAway)) || !KoopaFunction::tryKoopaAttackMapObj(pSender, pReceiver)) {
         if (isNerve(GET_NERVE(KoopaBattleVs3Lv1, KoopaBattleVs3Lv1NrvDamageReverse))) {
             mStateDamageEscape->attackSensor(pSender, pReceiver);
-        } else if (!KoopaFunction::tryKoopaPushPlayer(pSender, pReceiver) && KoopaFunction::tryKoopaBodyAttackPlayer(pSender, pReceiver)) {
-            return;
+        } else if (!KoopaFunction::tryKoopaPushPlayer(pSender, pReceiver)) {
+            KoopaFunction::tryKoopaBodyAttackPlayer(pSender, pReceiver);
         }
     }
 }
@@ -141,11 +121,7 @@ bool KoopaBattleVs3Lv1::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitS
         return true;
     }
 
-    if (KoopaFunction::tryKoopaReflectStarPiece(msg, pSender, pReceiver)) {
-        return true;
-    }
-
-    return false;
+    return KoopaFunction::tryKoopaReflectStarPiece(msg, pSender, pReceiver);
 }
 
 void KoopaBattleVs3Lv1::exeAttackFire() {
@@ -164,7 +140,4 @@ void KoopaBattleVs3Lv1::exeGuard() {
 
 void KoopaBattleVs3Lv1::exeRecover() {
     updateRecover(GET_NERVE(KoopaBattleVs3Lv1, KoopaBattleVs3Lv1NrvAttackShockWave));
-}
-
-KoopaBattleVs3Lv1::~KoopaBattleVs3Lv1() {
 }

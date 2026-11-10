@@ -22,10 +22,13 @@
 #include "Game/Util/ActorMovementUtil.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
-#include "Game/Util/MemoryUtil.hpp"
+#include "Game/System/NebulaArena.hpp"
+#include "Game/System/ResourceHolder.hpp"
+#include "Game/Util/FileUtil.hpp"
+#include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/ModelUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
-#include <JSystem/J3DGraphAnimator/J3DModel.hpp>
+#include "Game/Render/Model.hpp"
 
 LiveActor::LiveActor(const char* pName)
     : NameObj(pName), mPosition(0.0f, 0.0f, 0.0f), mRotation(0.0f, 0.0f, 0.0f), mScale(1.0f, 1.0f, 1.0f), mVelocity(0.0f, 0.0f, 0.0f),
@@ -37,7 +40,7 @@ LiveActor::LiveActor(const char* pName)
     NebulaCoopWorld::noteMade(this);
 }
 
-void LiveActor::init(const JMapInfoIter& rIter) {
+void LiveActor::init(const TableIter& /*rIter*/) {
 }
 
 void LiveActor::appear() {
@@ -188,7 +191,7 @@ void LiveActor::calcAnmMtx() {
         return;
     }
 
-    MR::getJ3DModel(this)->setBaseScale(mScale);
+    MR::getModel(this)->setBaseScale(mScale);
     calcAndSetBaseMtx();
     // Online co-op: turned as the game moving it has it.
     if (NebulaCoopWorld::sObjectsActive) {
@@ -203,10 +206,6 @@ void LiveActor::calcViewAndEntry() {
     }
 
     if (mModelManager == nullptr) {
-        return;
-    }
-
-    if (mFlag.mIsNoCalcView) {
         return;
     }
 
@@ -253,7 +252,7 @@ void LiveActor::calcAndSetBaseMtx() {
     if (MR::getTaken(this)) {
         MR::setBaseTRMtx(this, MR::getTaken(this)->mHost->getTakingMtx());
     } else {
-        TPos3f mtx;
+        Pos3f mtx;
 
         if (mRotation.x == 0.0f && mRotation.z == 0.0f) {
             MR::makeMtxTransRotateY(mtx, this);
@@ -294,8 +293,8 @@ HitSensor* LiveActor::getSensor(const char* pName) const {
 }
 
 MtxPtr LiveActor::getBaseMtx() const {
-    if (MR::getJ3DModel(this) != nullptr) {
-        return MR::getJ3DModel(this)->mBaseTransformMtx;
+    if (MR::getModel(this) != nullptr) {
+        return MR::getModel(this)->mBaseTransformMtx;
     }
 
     return nullptr;
@@ -365,7 +364,7 @@ void LiveActor::endClipped() {
 void LiveActor::prepareDrawClipped() {
     if (!mFlag.mHasPose && mModelManager != nullptr) {
         LiveActor::calcAndSetBaseMtx();
-        MR::calcJ3DModel(this);
+        MR::calcModel(this);
     }
 
     if (mActorLightCtrl != nullptr) {
@@ -373,18 +372,27 @@ void LiveActor::prepareDrawClipped() {
     }
 }
 
-void LiveActor::initModelManagerWithAnm(const char* pModelName, const char* pAnimName, bool a3) {
+void LiveActor::initModelManagerWithAnm(const char* pModelName, const char* pAnimName, bool deferMaterials) {
     mModelManager = new ModelManager();
     // A class of the mod's: its files in place of those the object it is made as asks for.
+    const char* const pAskedName = pAnimName != nullptr ? pAnimName : pModelName;
     pModelName = NebulaMods::modelFor(mName, pModelName);
     if (pAnimName != nullptr) {
         pAnimName = NebulaMods::modelFor(mName, pAnimName);
     }
-    mModelManager->init(pModelName, pAnimName, a3);
+    mModelManager->init(pModelName, pAnimName, deferMaterials);
 
-    MR::getJ3DModel(this)->setBaseScale(mScale);
+    // The tables and sound animations its archive lacks are those of the archive it stands for.
+    ResourceHolder* const pHolder = mModelManager->getResourceHolder();
+    const char* const pGivenName = pAnimName != nullptr ? pAnimName : pModelName;
+    if (pGivenName != pAskedName && pHolder->mLender == nullptr && MR::isExistObjectOrLayoutArchive(pAskedName)) {
+        pHolder->mLender = MR::createAndAddResourceHolder(pAskedName);
+        pHolder->takePlayModesFromLender();
+    }
+
+    MR::getModel(this)->setBaseScale(mScale);
     LiveActor::calcAndSetBaseMtx();
-    MR::calcJ3DModel(this);
+    MR::calcModel(this);
 
     mAnimKeeper = ActorAnimKeeper::tryCreate(this);
     mCameraCtrl = ActorPadAndCameraCtrl::tryCreate(mModelManager, &mPosition);
@@ -408,17 +416,12 @@ void LiveActor::initBinder(f32 radius, f32 offsetY, u32 planeNum) {
     }
 }
 
-void LiveActor::initRailRider(const JMapInfoIter& rIter) {
+void LiveActor::initRailRider(const TableIter& rIter) {
     mRailRider = new RailRider(rIter);
 }
 
-void LiveActor::initEffectKeeper(int a1, const char* a2, bool doSort) {
-    mEffectKeeper = new EffectKeeper(getName(), MR::getModelResourceHolder(this), a1, a2);
-
-    if (doSort) {
-        mEffectKeeper->enableSort();
-    }
-
+void LiveActor::initEffectKeeper(int extraEmitterNum, const char* pResourceName) {
+    mEffectKeeper = new EffectKeeper(getName(), MR::getModelResourceHolder(this), extraEmitterNum, pResourceName);
     mEffectKeeper->init(this);
 
     if (mBinder != nullptr) {
@@ -426,11 +429,11 @@ void LiveActor::initEffectKeeper(int a1, const char* a2, bool doSort) {
     }
 }
 
-void LiveActor::initSound(int param1, bool is2D) {
+void LiveActor::initSound(int numHandles, bool is2D) {
     if (!is2D) {
-        mSoundObject = new AudAnmSoundObject(&mPosition, param1, MR::getCurrentHeap());
+        mSoundObject = new AudAnmSoundObject(&mPosition, numHandles, NebulaArena::current());
     } else {
-        mSoundObject = new AudAnmSoundObject(nullptr, param1, MR::getCurrentHeap());
+        mSoundObject = new AudAnmSoundObject(nullptr, numHandles, NebulaArena::current());
     }
 }
 
@@ -438,44 +441,43 @@ void LiveActor::initShadowControllerList(u32 shadowNum) {
     mShadowControllerList = new ShadowControllerList(this, shadowNum);
 }
 
-void LiveActor::initActorCollisionParts(const char* pParam1, HitSensor* pParam2, ResourceHolder* pParam3, MtxPtr pParam4, bool param5, bool param6) {
-    pParam1 = NebulaMods::modelFor(mName, pParam1);
+void LiveActor::initActorCollisionParts(const char* pName, HitSensor* pSensor, ResourceHolder* pResHolder, MtxPtr pMtx, bool isAutoEqualScale,
+                                        bool isNotUsingScale) {
+    pName = NebulaMods::modelFor(mName, pName);
     MR::CollisionScaleType scaleType;
 
-    if (param6) {
+    if (isNotUsingScale) {
         scaleType = MR::CollisionScaleType_NotUsingScale;
+    } else if (isAutoEqualScale) {
+        scaleType = MR::CollisionScaleType_AutoEqualScale;
     } else {
-        scaleType = MR::CollisionScaleType_Unk2;
-
-        if (param5) {
-            scaleType = MR::CollisionScaleType_AutoEqualScale;
-        }
+        scaleType = MR::CollisionScaleType_Default;
     }
 
-    if (pParam3 != nullptr) {
-        TPos3f mtx;
+    if (pResHolder != nullptr) {
+        Pos3f mtx;
 
-        if (pParam4 != nullptr) {
-            mtx.set(pParam4);
+        if (pMtx != nullptr) {
+            mtx.set(pMtx);
         } else {
             MR::makeMtxTRS(mtx.toMtxPtr(), this);
         }
 
-        mCollisionParts = MR::createCollisionPartsFromResourceHolder(pParam3, pParam1, pParam2, mtx, scaleType);
-    } else if (pParam4 == nullptr) {
-        mCollisionParts = MR::createCollisionPartsFromLiveActor(this, pParam1, pParam2, scaleType);
+        mCollisionParts = MR::createCollisionPartsFromResourceHolder(pResHolder, pName, pSensor, mtx, scaleType);
+    } else if (pMtx == nullptr) {
+        mCollisionParts = MR::createCollisionPartsFromLiveActor(this, pName, pSensor, scaleType);
     } else {
-        mCollisionParts = MR::createCollisionPartsFromLiveActor(this, pParam1, pParam2, pParam4, scaleType);
+        mCollisionParts = MR::createCollisionPartsFromLiveActor(this, pName, pSensor, pMtx, scaleType);
     }
 
     MR::invalidateCollisionParts(this);
 }
 
-void LiveActor::initStageSwitch(const JMapInfoIter& rIter) {
+void LiveActor::initStageSwitch(const TableIter& rIter) {
     mStageSwitchCtrl = MR::createStageSwitchCtrl(this, rIter);
 }
 
-void LiveActor::initActorStarPointerTarget(f32 radius, const TVec3f* pTrans, MtxPtr pMtx, TVec3f offset) {
+void LiveActor::initActorStarPointerTarget(f32 radius, const Vec3f* pTrans, MtxPtr pMtx, Vec3f offset) {
     mStarPointerTarget = new StarPointerTarget(radius, pTrans, pMtx, offset);
 }
 
@@ -483,7 +485,7 @@ void LiveActor::initActorLightCtrl() {
     mActorLightCtrl = new ActorLightCtrl(this);
 }
 
-void LiveActor::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
+void LiveActor::attackSensor(HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
 }
 
 bool LiveActor::receiveMsgApart(HitSensor* pSender, HitSensor* pReceiver) {

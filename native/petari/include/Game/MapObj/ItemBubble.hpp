@@ -1,22 +1,22 @@
 #pragma once
 
 #include "Game/LiveActor/PartsModel.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class StarPiece;
 
-// This class may not belong in this file
 class RotPartsModel : public PartsModel {
 public:
-    RotPartsModel(LiveActor* a1, const char* a2, const char* a3, MtxPtr a4, int a5, bool a6) : PartsModel(a1, a2, a3, a4, a5, a6) {
+    RotPartsModel(LiveActor* pActor, const char* pName, const char* pModelName, MtxPtr pMtx, int drawBufferType, bool deferMaterials)
+        : PartsModel(pActor, pName, pModelName, pMtx, drawBufferType, deferMaterials) {
     }
 
-    virtual ~RotPartsModel() {
+    virtual ~RotPartsModel() override {
     }
 
-    virtual void calcAndSetBaseMtx() {
+    virtual void calcAndSetBaseMtx() override {
         PartsModel::calcAndSetBaseMtx();
-        TRot3f mtx;
+        Rot3f mtx;
         mtx.identity();
 
         mtx.setRotateDegree(mRotation);
@@ -29,35 +29,34 @@ class ItemBubble : public LiveActor {
 public:
     ItemBubble(const char*);
 
-    virtual ~ItemBubble();
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void initAfterPlacement();
-    virtual void appear();
-    virtual void kill();
-    virtual void calcAndSetBaseMtx();
-    virtual bool receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void initAfterPlacement() override;
+    virtual void appear() override;
+    virtual void kill() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual bool receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     void exeWait();
     void exeBreak();
 
-    const TVec3f& getRotPartsPosition(int index) const {
-        return _90[index]->mPosition;
+    const Vec3f& getRotPartsPosition(int index) const {
+        return mCoins[index]->mPosition;
     }
 
     StarPiece* getStarPiece(int index) const {
-        return _94[index];
+        return mStarPieces[index];
     }
 
-    f32 _8C;
-    RotPartsModel** _90;
-    StarPiece** _94;
-    u16 mItemCount;
-    u16 mItemType;
-    TPos3f _9C;
-    TPos3f _CC;
-    TVec3f _FC;
-    TVec3f _108;
+    f32 mSwing;
+    RotPartsModel** mCoins;
+    StarPiece** mStarPieces;
+    u32 mItemCount;
+    u32 mItemType;
+    Pos3f mTargetMtx;
+    Pos3f mItemMtx;
+    Vec3f mClipCenter;
+    Vec3f mBasePos;
     f32 mRailSpeed;
     bool mUseRail;
 };

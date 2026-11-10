@@ -1,12 +1,13 @@
 #pragma once
 
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class TombSpider;
+class TombSpiderGland;
 
 class TombSpiderAcid {
 public:
-    TombSpiderAcid(TombSpider*);
+    TombSpiderAcid(TombSpider* pParent);
 
     void start();
     void startGland();
@@ -14,16 +15,16 @@ public:
     void update();
     void updateEmitAcid();
     void updateDeleteAcid();
-    void updateGroundMtx(TPos3f*, MtxPtr);
+    void updateGroundMtx(Pos3f* pDstMtx, MtxPtr pSrcMtx);
+    void updateGlandGroundMtx(const TombSpiderGland* pGland, Pos3f* pDstMtx, MtxPtr pSrcMtx);
 
     TombSpider* mParent;
-    bool mIsGlandReady;
     bool mIsEmitOn;
     bool mIsActive;
     s32 mStateChangeTimer;
-    TPos3f mMouthEffectMtx;
-    TPos3f mGlandFrontLEffectMtx;
-    TPos3f mGlandFrontREffectMtx;
-    TPos3f mGlandRearLEffectMtx;
-    TPos3f mGlandRearREffectMtx;
+    Pos3f mMouthEffectMtx;
+    Pos3f mGlandFrontLEffectMtx;
+    Pos3f mGlandFrontREffectMtx;
+    Pos3f mGlandRearLEffectMtx;
+    Pos3f mGlandRearREffectMtx;
 };

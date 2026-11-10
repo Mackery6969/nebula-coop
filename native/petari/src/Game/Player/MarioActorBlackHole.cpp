@@ -16,19 +16,19 @@
 void MarioActor::initBlackHoleOut() {
     mPosRelativeToBlackHole = mPosition - mBlackHolePosition;
 
-    TVec3f normalisedRelativePos(mPosRelativeToBlackHole);
-    TVec3f normalisedRelativeCameraPos = mCamPos - mBlackHolePosition;
+    Vec3f normalisedRelativePos(mPosRelativeToBlackHole);
+    Vec3f normalisedRelativeCameraPos = mCamPos - mBlackHolePosition;
 
     MR::normalizeOrZero(&normalisedRelativeCameraPos);
     MR::normalizeOrZero(&normalisedRelativePos);
 
     Mtx rotation;
-    TVec3f rotateAxis;
+    Vec3f rotateAxis;
 
     rotateAxis.cross(normalisedRelativeCameraPos, normalisedRelativePos);
 
     f32 mag = mPosRelativeToBlackHole.length();
-    TVec3f killed;
+    Vec3f killed;
     f32 flt = MR::vecKillElement(mCamPos - mPosition, mCamDirZ, &killed);
     flt *= mConst->getTable()->mBlackHoleFirstRadius;
 
@@ -49,19 +49,19 @@ void MarioActor::exeGameOverBlackHole2() {
         MR::setCubeBgmChangeInvalid();
         MR::clearBgmQueue();
 
-        if (!(mBlackHole->tryStartDemoCamera()) && !mMario->getMovementStates()._37) {
-            MR::startBlackHoleCamera("\203\165\203\211\203\142\203\116\203\172\201\133\203\213" /* ブラックホール */, mBlackHolePosition, mPosition);
+        if (!(mBlackHole->tryStartDemoCamera()) && !mMario->getMovementStates().mode2D) {
+            MR::startBlackHoleCamera("ブラックホール", mBlackHolePosition, mPosition);
         }
 
-        _F44 = false;
+        mBindOn = false;
 
-        changeAnimationNonStop("\203\165\203\211\203\142\203\116\203\172\201\133\203\213\227\216\211\272" /* ブラックホール落下 */);
-        playEffect("\213\244\222\312\203\165\203\211\203\142\203\116\203\172\201\133\203\213" /* 共通ブラックホール */);
-        playSound("\203\165\203\211\203\142\203\116\203\172\201\133\203\213\213\172\202\242\215\236\202\334\202\352" /* ブラックホール吸い込まれ */, -1);
+        changeAnimationNonStop("ブラックホール落下");
+        playEffect("共通ブラックホール");
+        playSound("ブラックホール吸い込まれ", -1);
         playEffect(changeMorphString("DieBlackHole"));
         initBlackHoleOut();
 
-        mMario->mMovementStates._3C = true;
+        mMario->mMovementStates.scaleBody = true;
 
         MR::startStarPointerModeDemoMarioDeath(this);
         MR::deactivateDefaultGameLayout();
@@ -69,17 +69,17 @@ void MarioActor::exeGameOverBlackHole2() {
 
     if (getNerveStep() == 60) {
         if (!MR::getPlayerLeft()) {
-            MR::startPlayerEvent("\203\121\201\133\203\200\203\111\201\133\203\157\201\133" /* ゲームオーバー */);
+            MR::startPlayerEvent("ゲームオーバー");
         } else {
-            MR::startPlayerEvent("\203\175\203\212\203\111\223\336\227\216" /* マリオ奈落 */);
+            MR::startPlayerEvent("マリオ奈落");
         }
     }
 
     if (getNerveStep() == mConst->getTable()->mBlackHoleHideTime) {
-        _482 = true;
+        mHidden = true;
 
         MR::hidePlayer();
-        MR::emitEffect(this, "\203\165\203\211\203\142\203\116\203\172\201\133\203\213\217\301\226\305" /* ブラックホール消滅 */);
+        MR::emitEffect(this, "ブラックホール消滅");
     }
 
     f32 nervestepfloat = getNerveStep();

@@ -5,7 +5,7 @@
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MapPartsUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
@@ -26,7 +26,7 @@ struct TripodBossSetting {
 };
 
 namespace {
-    static TripodBossSetting sTripodBossSettingTable[] = {{"TripodBossBodyABloom", 3},
+    const TripodBossSetting sTripodBossSettingTable[] = {{"TripodBossBodyABloom", 3},
                                                           {"TripodBossFootBloom", 3},
                                                           {"TriPodBossLeg2ABloom", 3},
                                                           {"TripodBossEyeLight", 2},
@@ -45,27 +45,28 @@ namespace {
 };  // namespace
 
 TripodBossFixParts::TripodBossFixParts(const char* pName)
-    : TripodBossFixPartsBase(pName), _E4(-1), _E8(180), mHasCollision(), _ED(true), _EE(), mIsPlayingWarning() {
+    : TripodBossFixPartsBase(pName), mBreakType(-1), mBreakKillStep(180), mHasCollision(), mHasBreakMovement(true), mIsMarioOn(), mIsPlayingWarning() {
 }
 
-void TripodBossFixParts::init(const JMapInfoIter& rIter) {
+void TripodBossFixParts::init(const TableIter& rIter) {
     const char* objName;
     MR::getObjectName(&objName, rIter);
     setName(objName);
     TripodBossFixPartsBase::init(rIter);
-    bool val = false;
+    // Setting type bit 0: drawn as bloom; bit 1: no break movement.
+    bool isBloom = false;
     const TripodBossSetting* setting = ::getSetting(objName);
 
     if (setting != nullptr) {
-        val = (setting->mType & 0x1);
-        _ED = !(setting->mType & 0x2);
+        isBloom = (setting->mType & 0x1);
+        mHasBreakMovement = !(setting->mType & 0x2);
     }
 
-    char mapPartsID[0x100];
-    MR::getMapPartsObjectNameIfExistShapeID(mapPartsID, sizeof(mapPartsID), rIter);
-    initModelManagerWithAnm(mapPartsID, nullptr, false);
+    MR::FormattedName mapPartsID;
+    MR::getMapPartsObjectNameIfExistShapeID(mapPartsID, rIter);
+    initModelManagerWithAnm(mapPartsID.c_str(), nullptr, false);
 
-    if (val) {
+    if (isBloom) {
         MR::connectToScene(this, MR::MovementType_MapObjDecoration, MR::CalcAnimType_MapObjDecoration, MR::DrawBufferType_BloomModel,
                            MR::DrawType_None);
     } else {
@@ -74,26 +75,26 @@ void TripodBossFixParts::init(const JMapInfoIter& rIter) {
     }
 
     if (MR::isEqualString(objName, "TriPodBossBodyA")) {
-        setClippingSphere(TVec3f(250.0f, 1000.0f, 0.0f), 3750.0f);
+        setClippingSphere(Vec3f(250.0f, 1000.0f, 0.0f), 3750.0f);
     } else {
         initClippingSphere();
     }
 
-    MR::getJMapInfoArg1NoInit(rIter, &_E4);
-    MR::getJMapInfoArg2NoInit(rIter, &_E8);
+    MR::getPlacementArg1NoInit(rIter, &mBreakType);
+    MR::getPlacementArg2NoInit(rIter, &mBreakKillStep);
 
-    if (_ED) {
-        initBreakMovement(_E4);
+    if (mHasBreakMovement) {
+        initBreakMovement(mBreakType);
     }
 
-    mHasCollision = MR::isExistKcl(this, mapPartsID);
+    mHasCollision = MR::isExistKcl(this, mapPartsID.c_str());
 
     if (mHasCollision) {
         initSensor(rIter);
-        MR::initCollisionParts(this, mapPartsID, getSensor("body"), nullptr);
+        MR::initCollisionParts(this, mapPartsID.c_str(), getSensor("body"), nullptr);
     }
 
-    initEffectKeeper(0, "TripodBoss", false);
+    initEffectKeeper(0, "TripodBoss");
     initSound(5, false);
     initNerve(GET_NERVE(TripodBossFixParts, TripodBossFixPartsNrvNonActive));
 
@@ -104,7 +105,7 @@ void TripodBossFixParts::init(const JMapInfoIter& rIter) {
     makeActorDead();
 }
 
-void TripodBossFixParts::initSensor(const JMapInfoIter& rIter) {
+void TripodBossFixParts::initSensor(const TableIter& rIter) {
     initHitSensor(1);
 
     if (MR::isMapPartsPressOn(rIter)) {
@@ -115,7 +116,7 @@ void TripodBossFixParts::initSensor(const JMapInfoIter& rIter) {
 }
 
 void TripodBossFixParts::kill() {
-    switch (_E4) {
+    switch (mBreakType) {
     case 0:
         MR::emitEffect(this, "ExplosionS");
         MR::startSound(this, "SE_BM_TRIPOD_KILL_S");
@@ -150,8 +151,7 @@ void TripodBossFixParts::activateTripodBoss() {
             MR::validateCollisionParts(this);
         }
 
-        _E0 = 1;
-        _E1 = 0;
+        mIsActive = 1;
 
         if (MR::isExistAnim(this, "StartDemo")) {
             setNerve(GET_NERVE(TripodBossFixParts, TripodBossFixPartsNrvStartDemo));
@@ -179,15 +179,15 @@ void TripodBossFixParts::exeStartDemo() {
 void TripodBossFixParts::exeWait() {
     if (MR::isFirstStep(this)) {
         MR::tryStartAllAnim(this, "Wait");
-        _EE = false;
+        mIsMarioOn = false;
     }
 
     exeWaitOwn();
     updateTripodMatrix();
 
-    if (MR::isRideMarioTripodBoss() && MR::isOnGroundPlayer() && !_EE) {
+    if (MR::isRideMarioTripodBoss() && MR::isOnGroundPlayer() && !mIsMarioOn) {
         MR::tryStartAllAnim(this, "Warning");
-        _EE = true;
+        mIsMarioOn = true;
 
         if (MR::isExistAnim(this, "Warning") && !mIsPlayingWarning) {
             MR::startSound(this, "SE_BM_TRIPOD_MARKER");
@@ -195,7 +195,7 @@ void TripodBossFixParts::exeWait() {
         }
     }
 
-    if (MR::isLeaveMarioNowTripodBoss() && _EE) {
+    if (MR::isLeaveMarioNowTripodBoss() && mIsMarioOn) {
         MR::tryStartAllAnim(this, "Wait");
 
         if (mIsPlayingWarning) {
@@ -203,11 +203,11 @@ void TripodBossFixParts::exeWait() {
         }
 
         mIsPlayingWarning = false;
-        _EE = false;
+        mIsMarioOn = false;
     }
 
     if (MR::isEndBreakDownDemoTripodBoss()) {
-        if (_ED) {
+        if (mHasBreakMovement) {
             setNerve(GET_NERVE(TripodBossFixParts, TripodBossFixPartsNrvBreak));
         } else {
             kill();
@@ -226,7 +226,7 @@ void TripodBossFixParts::exeBreak() {
 
     updateBreakMovementMatrix();
 
-    if (MR::isGreaterStep(this, _E8)) {
+    if (MR::isGreaterStep(this, mBreakKillStep)) {
         kill();
     }
 }

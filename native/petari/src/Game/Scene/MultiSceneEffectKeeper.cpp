@@ -6,16 +6,15 @@
 #include "Game/System/ResourceHolder.hpp"
 #include "Game/Util/HashUtil.hpp"
 #include "Game/Util/SystemUtil.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
-#include <algorithm>
+#include <nebula_geometry.hpp>
 
-MultiSceneEffectKeeper::MultiSceneEffectKeeper(const char*, ModelManager* pModelManager, int a3, const char* pResName)
+MultiSceneEffectKeeper::MultiSceneEffectKeeper(ModelManager* pModelManager, int extraEmitterNum, const char* pResName)
     : mEmitter(), mResName(pResName) {
     if (mResName == nullptr) {
         mResName = pModelManager->getModelResourceHolder()->getModelName();
     }
 
-    s32 num = a3 + MR::getParticleResourceHolder()->getAutoEffectNum(mResName);
+    s32 num = extraEmitterNum + MR::getParticleResourceHolder()->getAutoEffectNum(mResName);
     mEmitter.init(num);
 }
 
@@ -27,19 +26,23 @@ void MultiSceneEffectKeeper::init(const MultiSceneActor* pActor, const EffectSys
     MR::Effect::registerAutoEffectInfoGroup(this, pSystem, pActor, mResName);
 }
 
-void MultiSceneEffectKeeper::add(const char* pName, const TVec3f* pScale, const TVec3f* pRotation, const TVec3f* pTranslation,
+void MultiSceneEffectKeeper::add(const char* pName, const Vec3f* pScale, const Vec3f* pRotation, const Vec3f* pTranslation,
                                  const char* pEmitterName) {
-    MultiEmitter* pEmitter = new MultiEmitter(pName, pScale, pRotation, pTranslation, TVec3f(0.0f, 0.0f, 0.0f));
+    MultiEmitter* pEmitter = new MultiEmitter(pName, pScale, pRotation, pTranslation, Vec3f(0.0f, 0.0f, 0.0f));
     registerEmitter(pEmitter, pEmitterName);
 }
 
 void MultiSceneEffectKeeper::add(const char* pName, MtxPtr pMtx, const char* pEmitterName) {
-    MultiEmitter* pEmitter = new MultiEmitter(pName, pMtx, TVec3f(0.0f, 0.0f, 0.0f));
+    MultiEmitter* pEmitter = new MultiEmitter(pName, pMtx, Vec3f(0.0f, 0.0f, 0.0f));
     registerEmitter(pEmitter, pEmitterName);
 }
 
 MultiEmitter* MultiSceneEffectKeeper::create(const char* pName, EffectSystem* pSystem) {
     MultiEmitter* pEmitter = find(pName);
+    // An emitter name never registered makes nothing.
+    if (pEmitter == nullptr) {
+        return nullptr;
+    }
     pEmitter->create(pSystem);
     return pEmitter;
 }
@@ -71,12 +74,11 @@ MultiEmitter* MultiSceneEffectKeeper::find(const char* pName) const {
         return nullptr;
     }
 
-    u16 hash = MR::getHashCode(pName);
-    MultiEmitter* const* pEmitter =
-        std::find_if(mEmitter.begin(), mEmitter.end(), [&](const auto& item) { return item->isEqualName(hash); });
-
-    if (pEmitter != mEmitter.end()) {
-        return *pEmitter;
+    const u32 hash = MR::getHashCode(pName);
+    for (MultiEmitter* const* pEmitter = mEmitter.begin(); pEmitter != mEmitter.end(); pEmitter++) {
+        if ((*pEmitter)->isEqualName(pName, hash)) {
+            return *pEmitter;
+        }
     }
 
     return nullptr;

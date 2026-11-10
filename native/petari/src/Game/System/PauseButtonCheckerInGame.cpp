@@ -2,9 +2,6 @@
 #include "Game/Util/PlayerInputUtil.hpp"
 #include "Game/System/NebulaHost.hpp"
 
-namespace {
-};  // namespace
-
 PauseButtonCheckerInGame::PauseButtonCheckerInGame()
     : mPlusHoldFrame(0), mMinusHoldFrame(0)
       ,

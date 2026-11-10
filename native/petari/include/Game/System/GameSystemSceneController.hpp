@@ -1,12 +1,12 @@
 #pragma once
 
+#include "Game/Scene/SceneFactory.hpp"
 
 class IntermissionScene;
-class JMapIdInfo;
+class PlacementId;
 class NameObjHolder;
 class NameObjListExecutor;
 class Nerve;
-class PlayTimerScene;
 class ScenarioDataParser;
 class ScenarioSelectScene;
 class Scene;
@@ -15,18 +15,16 @@ class Spine;
 
 class SceneControlInfo {
 public:
-    /// @brief Creates a new `SceneControlInfo`.
     SceneControlInfo();
 
-    void setScene(const char*);
     void setStage(const char*);
-    void setStartIdInfo(const JMapIdInfo&);
+    void setStartIdInfo(const PlacementId&);
 
-    char mScene[32];
-    char mStage[32];
+    SceneKind mScene;
+    const char* mStage;
     s32 mScenarioNo;
     s32 mSelectedScenarioNo;
-    JMapIdInfo* mStartIdInfo;
+    PlacementId* mStartIdInfo;
 };
 
 enum SceneInitializeState {
@@ -41,10 +39,11 @@ enum SceneInitializeState {
 
 class GameSystemSceneController {
 public:
-    /// @brief Creates a new `GameSystemSceneController`.
+    void holdSceneInitialize();
+    bool resumeSceneInitialize();
     GameSystemSceneController();
 
-    void initAfterStationedResourceLoaded();
+    void initAfterSystemArchiveLoaded();
     void requestChangeScene();
     void checkRequestAndChangeScene();
     void initializeScene();
@@ -71,13 +70,11 @@ public:
     void setCurrentScenarioNo(s32, s32);
     void resetCurrentScenarioNo();
     bool isScenarioDecided() const;
-    void loadScenarioWaveData();
-    bool isLoadDoneScenarioWaveData() const;
     void exeNotInitialized();
     void exeNormal();
     void exeWaitDrawDoneScene();
     void exeDestroyScene();
-    void exeChangeWaveBank();
+    void exeChoosePlayerVoices();
     void exeInitializeScene();
     void exeInvalidateSystemWipe();
     void exeDestroyed();
@@ -90,7 +87,9 @@ public:
     void updateSceneControlInfo();
     Scene* getCurrentSceneForExecute() const;
     const Nerve* getNextNerveOnResetProcessing() const;
-    bool tryDestroyFileCacheHeap(bool);
+    // Drops the scene files' resource holders and returns true, unless (not forced) the next scene is the same scene and
+    // stage: then they stay for it.
+    bool releaseSceneFiles(bool isForce);
     void requestChangeNerve(const Nerve*);
 
     bool isCurrentNerve(const Nerve*) const;
@@ -105,7 +104,8 @@ public:
     NameObjHolder* mObjHolder;
     Scene* mScene;
     SceneInitializeState mSceneInitializeState;
+    bool mSceneInitializeHeld = false;
+    bool mSceneInitializeDone = false;
     IntermissionScene* mIntermissionScene;
-    PlayTimerScene* mPlayTimerScene;
     ScenarioSelectScene* mScenarioSelectScene;
 };

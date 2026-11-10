@@ -1,14 +1,13 @@
 #include "Game/AudioLib/AudTrackController.hpp"
-#include <JSystem/JAudio2/JAISound.hpp>
-#include <JSystem/JAudio2/JAISoundChild.hpp>
-#include <JSystem/JAudio2/JAISoundParams.hpp>
-#include "Game/System/GameThreads.hpp"
-#include <JSystem/JAudio2/JASTrack.hpp>
+#include "Game/Sound/Sound.hpp"
+#include "Game/Sound/SoundChild.hpp"
+#include "Game/Sound/SoundControls.hpp"
+#include "Game/Sound/PlayerLink.hpp"
 
-AudTrackController::AudTrackController() : mTrackNo(-1), mHandle(nullptr), mAutoMute(false), mVolume(1.0f) {
+AudTrackController::AudTrackController() : mTrackNo(-1), mHandle(nullptr), mVolume(1.0f), mAutoMute(false) {
 }
 
-void AudTrackController::start(JAISoundHandle* pHandle) {
+void AudTrackController::start(SoundHandle* pHandle) {
     mHandle = pHandle;
     mAutoMute = false;
 }
@@ -18,46 +17,31 @@ void AudTrackController::stop() {
     mAutoMute = false;
 }
 
+namespace {
+    void muteTrack(SoundHandle* pHandle, s32 trackNo, bool isMute) {
+        if (pHandle == nullptr) {
+            return;
+        }
+
+        Sound* sound = pHandle->getSound();
+        if (sound == nullptr || trackNo < 0) {
+            return;
+        }
+
+        TrackPath path;
+        PlayerLink* player = sound->getChildTrack(trackNo, &path);
+        if (player != nullptr) {
+            player->mute(path, isMute);
+        }
+    }
+}  // namespace
+
 void AudTrackController::mute() {
-    if (mHandle == nullptr) {
-        return;
-    }
-
-    JAISound* sound = mHandle->getSound();
-    if (sound == nullptr) {
-        return;
-    }
-
-    if (mTrackNo < 0) {
-        return;
-    }
-
-    JASTrack* track = sound->getChildTrack(mTrackNo);
-    if (track == nullptr) {
-        return;
-    }
-    track->mute(true);
+    ::muteTrack(mHandle, mTrackNo, true);
 }
 
 void AudTrackController::unmute() {
-    if (mHandle == nullptr) {
-        return;
-    }
-
-    JAISound* sound = mHandle->getSound();
-    if (sound == nullptr) {
-        return;
-    }
-
-    if (mTrackNo < 0) {
-        return;
-    }
-
-    JASTrack* track = sound->getChildTrack(mTrackNo);
-    if (track == nullptr) {
-        return;
-    }
-    track->mute(false);
+    ::muteTrack(mHandle, mTrackNo, false);
 }
 
 void AudTrackController::setMuteState(u8 state, s32 fadeTime, bool autoMute) {
@@ -91,7 +75,7 @@ void AudTrackController::update() {
         mFader.update();
 
         f32 volume = mVolume * mFader.getVolume();
-        JAISoundParamsMove* params = mHandle->getSound()->getChild(mTrackNo)->getMoveParams();
+        SoundMove* params = mHandle->getSound()->getChild(mTrackNo)->getMoveParams();
         if (params == nullptr) {
             return;
         }
@@ -114,26 +98,21 @@ void AudTrackController::muteIfVolumeZero() {
         return;
     }
 
-    JAISound* sound = mHandle->getSound();
+    Sound* sound = mHandle->getSound();
     if (sound == nullptr) {
         return;
     }
 
-    JAISoundChild* child = sound->getChild(mTrackNo);
+    SoundChild* child = sound->getChild(mTrackNo);
     if (child == nullptr) {
         return;
     }
 
-    JASTrack* track = mHandle->getSound()->getChildTrack(mTrackNo);
-    if (track == nullptr) {
+    TrackPath path;
+    PlayerLink* player = mHandle->getSound()->getChildTrack(mTrackNo, &path);
+    if (player == nullptr) {
         return;
     }
 
-    if (child->mParams.mVolume == 0.0f) {
-        GameAudioExclusion crit;
-        track->mute(true);
-    } else {
-        GameAudioExclusion crit;
-        track->mute(false);
-    }
+    player->mute(path, child->mParams.mVolume == 0.0f);
 }

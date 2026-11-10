@@ -12,13 +12,13 @@ namespace NrvTombSpiderVitalSpot {
     NEW_NERVE(TombSpiderVitalSpotNrvRecover, TombSpiderVitalSpot, Recover);
 };  // namespace NrvTombSpiderVitalSpot
 
-TombSpiderVitalSpot::TombSpiderVitalSpot(LiveActor* pActor, const char* pName, const TVec3f& rPos, const TVec3f& a1, const char* pJointName)
+TombSpiderVitalSpot::TombSpiderVitalSpot(LiveActor* pActor, const char* pName, const Vec3f& rPos, const Vec3f& rRotate, const char* pJointName)
     : PartsModel(pActor, pName, "TombSpiderVitalSpot", nullptr, MR::DrawBufferType_Enemy, false) {
     MR::initLightCtrl(this);
-    initFixedPosition(rPos, a1, pJointName);
+    initFixedPosition(rPos, rRotate, pJointName);
 }
 
-void TombSpiderVitalSpot::init(const JMapInfoIter& rIter) {
+void TombSpiderVitalSpot::init(const TableIter& rIter) {
     PartsModel::init(rIter);
     initNerve(GET_NERVE(TombSpiderVitalSpot, TombSpiderVitalSpotNrvWait));
     makeActorAppeared();
@@ -45,11 +45,8 @@ void TombSpiderVitalSpot::recover() {
 }
 
 bool TombSpiderVitalSpot::isDamage() const {
-    if (isNerve(GET_NERVE(TombSpiderVitalSpot, TombSpiderVitalSpotNrvDamageStart)) ||
-        isNerve(GET_NERVE(TombSpiderVitalSpot, TombSpiderVitalSpotNrvDamageWait))) {
-        return true;
-    }
-    return false;
+    return isNerve(GET_NERVE(TombSpiderVitalSpot, TombSpiderVitalSpotNrvDamageStart)) ||
+           isNerve(GET_NERVE(TombSpiderVitalSpot, TombSpiderVitalSpotNrvDamageWait));
 }
 
 void TombSpiderVitalSpot::exeWait() {

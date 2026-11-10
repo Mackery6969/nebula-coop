@@ -8,28 +8,27 @@ struct MarioAnimationCallback {
     void (MarioAnimator::*mEntry)();
     void (MarioAnimator::*mUpdate)();
     void (MarioAnimator::*mClose)();
-    u32 _2C;
 };
 
 MarioAnimationCallback marioCallbackTable[] = {
-    {"\213\363\222\206\202\320\202\313\202\350" /* 空中ひねり */, 0, &MarioAnimator::spinEntry, &MarioAnimator::spinUpdate, &MarioAnimator::spinClose, 0},
-    {"\222\156\217\343\202\320\202\313\202\350" /* 地上ひねり */, 0, &MarioAnimator::spinEntry, nullptr, &MarioAnimator::spinClose, 0},
-    {"\203\101\203\103\203\130\202\320\202\313\202\350" /* アイスひねり */, 1, &MarioAnimator::spinEntry, nullptr, &MarioAnimator::spinClose, 0},
-    {"\203\101\203\103\203\130\202\320\202\313\202\350\220\303\216\176" /* アイスひねり静止 */, 1, &MarioAnimator::spinEntry, nullptr, &MarioAnimator::spinClose, 0},
-    {"\203\164\203\100\203\103\203\101\203\130\203\163\203\223" /* ファイアスピン */, 2, &MarioAnimator::spinEntry, nullptr, &MarioAnimator::spinClose, 0},
-    {"\203\164\203\100\203\103\203\101\203\130\203\163\203\223\213\363\222\206" /* ファイアスピン空中 */, 2, &MarioAnimator::spinEntry, nullptr, &MarioAnimator::spinClose, 0},
-    {"\203\156\203\140\203\130\203\163\203\223" /* ハチスピン */, 3, &MarioAnimator::spinEntry, nullptr, &MarioAnimator::spinClose, 0},
-    {"\203\156\203\140\203\130\203\163\203\223\213\363\222\206" /* ハチスピン空中 */, 3, &MarioAnimator::spinEntry, nullptr, &MarioAnimator::spinClose, 0},
-    {"\203\130\203\145\201\133\203\127\203\103\203\223A" /* ステージインA */, 0, nullptr, &MarioAnimator::stageInCheck, nullptr, 0},
-    {"\223\212\202\260" /* 投げ */, 0, &MarioAnimator::throwEntry, &MarioAnimator::throwCheck, &MarioAnimator::throwClose, 0},
-    {"\203\164\203\100\203\103\203\101\223\212\202\260" /* ファイア投げ */, 1, &MarioAnimator::throwEntry, nullptr, &MarioAnimator::throwClose, 0},
-    {"\203\124\203\175\201\133\203\134\203\213\203\147" /* サマーソルト */, 0, nullptr, &MarioAnimator::squatSpinCheck, nullptr, 0},
-    {"\203\105\203\110\201\133\203\116\203\103\203\223" /* ウォークイン */, 0, nullptr, nullptr, &MarioAnimator::walkinClose, 0},
-    {"\214\251\202\351" /* 見る */, 0, nullptr, nullptr, &MarioAnimator::walkinClose, 0},
-    {"ResultWait", 0, nullptr, nullptr, &MarioAnimator::walkinClose, 0},
-    {"ResultWaitGrandStar", 0, nullptr, nullptr, &MarioAnimator::walkinClose, 0},
-    {"WatchUpMore", 0, nullptr, nullptr, &MarioAnimator::walkinClose, 0},
-    {"", 0, nullptr, nullptr, nullptr, 0},
+    {"空中ひねり", 0, &MarioAnimator::spinEntry, &MarioAnimator::spinUpdate, &MarioAnimator::spinClose},
+    {"地上ひねり", 0, &MarioAnimator::spinEntry, nullptr, &MarioAnimator::spinClose},
+    {"アイスひねり", 1, &MarioAnimator::spinEntry, nullptr, &MarioAnimator::spinClose},
+    {"アイスひねり静止", 1, &MarioAnimator::spinEntry, nullptr, &MarioAnimator::spinClose},
+    {"ファイアスピン", 2, &MarioAnimator::spinEntry, nullptr, &MarioAnimator::spinClose},
+    {"ファイアスピン空中", 2, &MarioAnimator::spinEntry, nullptr, &MarioAnimator::spinClose},
+    {"ハチスピン", 3, &MarioAnimator::spinEntry, nullptr, &MarioAnimator::spinClose},
+    {"ハチスピン空中", 3, &MarioAnimator::spinEntry, nullptr, &MarioAnimator::spinClose},
+    {"ステージインA", 0, nullptr, &MarioAnimator::stageInCheck, nullptr},
+    {"投げ", 0, &MarioAnimator::throwEntry, &MarioAnimator::throwCheck, &MarioAnimator::throwClose},
+    {"ファイア投げ", 1, &MarioAnimator::throwEntry, nullptr, &MarioAnimator::throwClose},
+    {"サマーソルト", 0, nullptr, &MarioAnimator::squatSpinCheck, nullptr},
+    {"ウォークイン", 0, nullptr, nullptr, &MarioAnimator::walkinClose},
+    {"見る", 0, nullptr, nullptr, &MarioAnimator::walkinClose},
+    {"ResultWait", 0, nullptr, nullptr, &MarioAnimator::walkinClose},
+    {"ResultWaitGrandStar", 0, nullptr, nullptr, &MarioAnimator::walkinClose},
+    {"WatchUpMore", 0, nullptr, nullptr, &MarioAnimator::walkinClose},
+    {"", 0, nullptr, nullptr, nullptr},
 };
 
 void MarioAnimator::initCallbackTable() {
@@ -41,13 +40,11 @@ void MarioAnimator::initCallbackTable() {
         }
     }
 
-    mCallbackTable = new HashSortTable(count);
-    callback = marioCallbackTable;
-    for (u32 i = 0; i < count; callback++, i++) {
-        mCallbackTable->add(callback->mAnimation, i, false);
+    mCallbackTable.reset(count);
+    for (u32 i = 0; i < count; i++) {
+        mCallbackTable.add(marioCallbackTable[i].mAnimation, i);
     }
 
-    mCallbackTable->sort();
     mCallbackId = -1;
     mCallbackEnded = false;
 }
@@ -55,8 +52,8 @@ void MarioAnimator::initCallbackTable() {
 void MarioAnimator::entryCallback(const char* pName) {
     mCallbackEnded = false;
     closeCallback();
-    u32 index;
-    if (mCallbackTable->search(pName, &index)) {
+    const u32 index = mCallbackTable.find(pName);
+    if (index != MR::NameIndex::cNoValue) {
         mCallbackId = index;
         if (marioCallbackTable[mCallbackId].mEntry != nullptr) {
             (this->*marioCallbackTable[mCallbackId].mEntry)();
@@ -97,19 +94,19 @@ void MarioAnimator::closeCallback() {
 void MarioAnimator::spinEntry() {
     switch (marioCallbackTable[mCallbackId].mType) {
     case 0:
-        playEffect("\203\130\203\163\203\223\203\211\203\103\203\147" /* スピンライト */);
+        playEffect("スピンライト");
         break;
     case 1:
-        playEffect("\203\101\203\103\203\130\203\130\203\163\203\223" /* アイススピン */);
+        playEffect("アイススピン");
         break;
     case 2:
-        playEffect("\203\164\203\100\203\103\203\101\203\130\203\163\203\223" /* ファイアスピン */);
+        playEffect("ファイアスピン");
         break;
     case 3:
         if (gIsLuigi) {
-            playEffect("\203\156\203\140\203\213\203\103\201\133\203\127\203\130\203\163\203\223" /* ハチルイージスピン */);
+            playEffect("ハチルイージスピン");
         } else {
-            playEffect("\203\156\203\140\203\130\203\163\203\223" /* ハチスピン */);
+            playEffect("ハチスピン");
         }
 
         break;
@@ -118,26 +115,26 @@ void MarioAnimator::spinEntry() {
 
 void MarioAnimator::spinUpdate() {
     if (getFrame() > 30.0f) {
-        stopEffect("\203\130\203\163\203\223\203\211\203\103\203\147" /* スピンライト */);
+        stopEffect("スピンライト");
     }
 }
 
 void MarioAnimator::spinClose() {
     switch (marioCallbackTable[mCallbackId].mType) {
     case 0:
-        stopEffect("\203\130\203\163\203\223\203\211\203\103\203\147" /* スピンライト */);
+        stopEffect("スピンライト");
         break;
     case 1:
-        stopEffect("\203\101\203\103\203\130\203\130\203\163\203\223" /* アイススピン */);
+        stopEffect("アイススピン");
         break;
     case 2:
-        stopEffect("\203\164\203\100\203\103\203\101\203\130\203\163\203\223" /* ファイアスピン */);
+        stopEffect("ファイアスピン");
         break;
     case 3:
         if (gIsLuigi) {
-            stopEffect("\203\156\203\140\203\213\203\103\201\133\203\127\203\130\203\163\203\223" /* ハチルイージスピン */);
+            stopEffect("ハチルイージスピン");
         } else {
-            stopEffect("\203\156\203\140\203\130\203\163\203\223" /* ハチスピン */);
+            stopEffect("ハチスピン");
         }
 
         break;
@@ -147,12 +144,12 @@ void MarioAnimator::spinClose() {
 void MarioAnimator::stageInCheck() {
     if (static_cast< s32 >(getFrame()) == 50) {
         Mario* player = getPlayer();
-        playEffectRT("\221\256\220\253\203\130\203\145\201\133\203\127\203\103\203\223" /* 属性ステージイン */, player->_368, getTrans());
+        playEffectRT("属性ステージイン", player->mGroundNorm, getTrans());
     }
 }
 
 void MarioAnimator::throwCheck() {
-    if (mActor->_38C == 0 && getStickP() && !getPlayer()->mMovementStates.jumping) {
+    if (mActor->mStunTimer == 0 && getStickP() && !getPlayer()->mMovementStates.jumping) {
         stopAnimation(nullptr);
     }
 }
@@ -160,10 +157,10 @@ void MarioAnimator::throwCheck() {
 void MarioAnimator::throwEntry() {
     switch (marioCallbackTable[mCallbackId].mType) {
     case 0:
-        playEffect("\202\261\202\244\202\347\223\212\202\260" /* こうら投げ */);
+        playEffect("こうら投げ");
         break;
     case 1:
-        playEffect("\203\164\203\100\203\103\203\101\203\173\201\133\203\213\223\212\202\260" /* ファイアボール投げ */);
+        playEffect("ファイアボール投げ");
         break;
     }
 }
@@ -171,16 +168,16 @@ void MarioAnimator::throwEntry() {
 void MarioAnimator::throwClose() {
     switch (marioCallbackTable[mCallbackId].mType) {
     case 0:
-        stopEffect("\202\261\202\244\202\347\223\212\202\260" /* こうら投げ */);
+        stopEffect("こうら投げ");
         break;
     case 1:
-        stopEffect("\203\164\203\100\203\103\203\101\203\173\201\133\203\213\223\212\202\260" /* ファイアボール投げ */);
+        stopEffect("ファイアボール投げ");
         break;
     }
 }
 
 void MarioAnimator::squatSpinCheck() {
-    if (!getPlayer()->mMovementStates._A && getFrame() >= 40.0f) {
+    if (!getPlayer()->mMovementStates.squat && getFrame() >= 40.0f) {
         stopAnimation(nullptr);
     }
 }

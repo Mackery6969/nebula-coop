@@ -1,43 +1,41 @@
 #pragma once
 
 #include "Game/System/NerveExecutor.hpp"
-#include <JSystem/JGeometry.hpp>
+#include <nebula_geometry.hpp>
 
 class AnimScaleParam {
 public:
     AnimScaleParam();
 
-    f32 _0;
-    f32 _4;
-    f32 _8;
-    f32 _C;
-    f32 _10;
-    f32 _14;
-    f32 _18;
-    f32 _1C;
-    f32 _20;
-    f32 _24;
-    f32 _28;
-    u32 _2C;
-    f32 _30;
+    f32 mAnimSpring;
+    f32 mAnimDamping;
+    f32 mScaleMin;
+    f32 mScaleMax;
+    f32 mPointerTime;
+    f32 mPointerBase;
+    f32 mPointerAmplitude;
+    f32 mPointerFreq;
+    f32 mHitReactionVelocity;
+    f32 mHitReactionSpring;
+    f32 mHitReactionDamping;
+    u32 mCrushStep;
+    f32 mCrushEnd;
 };
 
 class AnimScaleController : public NerveExecutor {
 public:
     AnimScaleController(AnimScaleParam*);
 
-    virtual ~AnimScaleController();
-
     void update();
-    void updateScale(f32, f32);
+    void updateScale(f32 spring, f32 damping);
     void startCrush();
     void startAnim();
-    void startAndAddScaleVelocityY(f32);
+    void startAndAddScaleVelocityY(f32 velocity);
 
     void setParamTight();
     void startHitReaction();
-    void startDpdHitVibration();
-    bool isHitReaction(s32) const;
+    void startPointerHitVibration();
+    bool isHitReaction(s32 maxStep) const;
 
     void stopAndReset();
     void resetScale();
@@ -46,11 +44,11 @@ public:
 
     void exeAnim();
     inline void exeStop();
-    void exeDpdVibration();
+    void exePointerVibration();
     void exeHitReaction();
     void exeCrush();
 
-    AnimScaleParam* _8;
-    TVec3f _C;
-    f32 _18;
+    AnimScaleParam* mParam;
+    Vec3f mScale;
+    f32 mScaleVelocity;
 };

@@ -11,52 +11,51 @@ class OceanRingBloomDrawer;
 
 class OceanRing : public LiveActor {
 public:
-    OceanRing(const char*);
+    OceanRing(const char* pName);
 
-    virtual ~OceanRing();
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void movement();
-    virtual void draw() const;
-    virtual void startClipped();
-    virtual void endClipped();
+    virtual void init(const TableIter& rIter) override;
+    virtual void initAfterPlacement() override;
+    virtual void movement() override;
+    virtual void draw() const override;
+    virtual void startClipped() override;
+    virtual void endClipped() override;
 
-    bool isInWater(const TVec3f&) const;
-    bool calcWaterInfo(const TVec3f&, const TVec3f&, WaterInfo*) const;
-    f32 calcNearestPos(const TVec3f&, TVec3f*, TVec3f*, TVec3f*) const;
-    f32 calcWaveHeight(const TVec3f&, f32, TVec3f*) const;
-    void calcStreamVec(const TVec3f&, f32, TVec3f*) const;
+    bool isInWater(const Vec3f& rPos) const;
+    bool calcWaterInfo(const Vec3f& rPos, const Vec3f& rGravity, WaterInfo* pInfo) const;
+    f32 calcNearestPos(const Vec3f& rPos, Vec3f* pNearPos, Vec3f* pDir, Vec3f* pCrossPos) const;
+    f32 calcWaveHeight(const Vec3f& rPos, f32 coord, Vec3f* pNormal) const;
+    void calcStreamVec(const Vec3f& rPos, f32 coord, Vec3f* pStreamVec) const;
     void initPoints();
     void updatePoints();
-    void updatePointsInLine(s32, s32, s32, s32);
-    f32 calcCurrentWidthRate(f32) const;
-    f32 calcCurrentFlowSpeedRate(f32) const;
+    void updatePointsInLine(s32 first, s32 end, s32 fadeInSegs, s32 fadeOutSegs);
+    f32 calcCurrentWidthRate(f32 coord) const;
+    f32 calcCurrentFlowSpeedRate(f32 coord) const;
     void calcClippingBox();
-    WaterPoint* getPoint(int) const;
-    WaterPoint* getPoint(int, int) const;
+    WaterPoint* getPoint(int index) const;
+    WaterPoint* getPoint(int point, int seg) const;
 
     s32 mWaterPointNum;
     s32 mSegCount;
-    s32 mStride;
+    s32 mStride;  // points per cross-section
     WaterPoint** mWaterPoints;
     f32 mWidthMax;
-    s32 mObjArg1;
+    s32 mUpdateSegsAhead;  // Obj_arg1
     f32 mWaveTheta0;
     f32 mWaveTheta1;
     f32 mWaveHeight1;
     f32 mWaveHeight2;
-    bool mIsClipped;
-    f32 mNearPosToPlayer;
-    TVec3f mNearestPos;
-    TVec3f mNearestDir;
+    bool mIsClipped;  // the player is too far for the waves to update
+    f32 mPlayerCoord;
+    Vec3f mNearestPos;  // nearest the player
+    Vec3f mNearestDir;
     OceanRingDrawer* mRingDrawer;
-    TBox3f mBox;
-    TBox3f mClippingBox;
-    TVec3f _108;
-    TVec3f mNearestToWatchCam;
-    AudSoundObject* mSoundObj1;
-    TVec3f mNerarestToCam;
-    AudSoundObject* mSoundObj2;
+    Box3f mUpdateBox;
+    Box3f mClippingBox;
+    Vec3f mClippingCenter;
+    Vec3f mNearestToWatchCam;
+    AudSoundObject* mWatchSoundObj;
+    Vec3f mNearestToCam;
+    AudSoundObject* mCamSoundObj;
     OceanRingPipe* mOceanRingPipe;
     OceanRingBloomDrawer* mBloomDrawer;
 };

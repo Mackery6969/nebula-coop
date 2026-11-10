@@ -4,9 +4,10 @@
 #include "Game/Util/DemoUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    const f32 cBckRate = 1.0f;
+    NEBULA_TUNABLE(f32, cBckRate, 1.0f);
 };  // namespace
 
 namespace NrvAstroDomeAsteroid {
@@ -17,7 +18,7 @@ AstroDomeAsteroid::AstroDomeAsteroid(const char* pName) : LiveActor(pName) {
     mBaseMtx.identity();
 }
 
-void AstroDomeAsteroid::init(const JMapInfoIter& rIter) {
+void AstroDomeAsteroid::init(const TableIter& rIter) {
     initModelManagerWithAnm("AstroDomeAsteroid", nullptr, false);
     MR::connectToSceneMapObj(this);
     MR::invalidateClipping(this);
@@ -42,17 +43,16 @@ void AstroDomeAsteroid::exeWait() {
 }
 
 void AstroDomeAsteroid::control() {
-    SphereSelectorFunction::calcHandledTrans(TVec3f(0.0f, 0.0f, 0.0f), &mPosition);
-    SphereSelectorFunction::calcHandledRotateMtx(TVec3f(0.0f, 0.0f, 0.0f), &mBaseMtx);
+    SphereSelectorFunction::calcHandledTrans(Vec3f(0.0f, 0.0f, 0.0f), &mPosition);
+    SphereSelectorFunction::calcHandledRotateMtx(Vec3f(0.0f, 0.0f, 0.0f), &mBaseMtx);
 }
 
 void AstroDomeAsteroid::calcAndSetBaseMtx() {
-    TPos3f mtx;
-    mtx = mBaseMtx;
+    Pos3f mtx(mBaseMtx);
     mtx.setTrans(mPosition);
     MR::setBaseTRMtx(this, mtx);
 }
 
-bool AstroDomeAsteroid::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool AstroDomeAsteroid::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     return SphereSelectorFunction::trySyncAppearMsgSelectStart(this, msg);
 }

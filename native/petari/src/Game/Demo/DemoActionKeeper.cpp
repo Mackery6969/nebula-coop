@@ -11,10 +11,6 @@
 #include "Game/Util/StringUtil.hpp"
 #include "Game/Util/TalkUtil.hpp"
 
-// done due to inlining
-template const bool JMapInfo::getValue< s32 >(int, const char*, s32*) const;
-template const bool JMapInfo::getValue< const char* >(int, const char*, const char**) const;
-
 namespace {
     TalkMessageCtrl* findTalkMessageCtrl(LiveActor* pActor) {
         DemoExecutor* executor = DemoFunction::findDemoExecutorActive(pActor);
@@ -27,8 +23,12 @@ namespace {
 
     void setTalkAnimCtrlInterpole(LiveActor* pActor, s32 interpole) {
         DemoExecutor* executor = DemoFunction::findDemoExecutorActive(pActor);
+        // No active demo for the actor: nothing to set.
+        if (executor == nullptr) {
+            return;
+        }
         for (s32 i = 0; i < executor->mTalkAnimCtrl.size(); i++) {
-            executor->mTalkAnimCtrl[i]->_38 = interpole;
+            executor->mTalkAnimCtrl[i]->mInterpole = interpole;
         }
     }
 };  // namespace
@@ -40,16 +40,12 @@ DemoActionInfo::DemoActionInfo() {
     mActionType = 0;
     mPosName = nullptr;
     mAnimName = nullptr;
-    _18 = 128;
+    mCastCapacity = 128;
     mCastCount = 0;
-    mCastList = nullptr;
-    mFunctors = nullptr;
-    mNerves = nullptr;
-    _2C = 0;
-    mCastList = new LiveActor*[_18];
-    mFunctors = new MR::FunctorBase*[_18];
-    mNerves = new const Nerve*[_18];
-    for (s32 i = 0; i < _18; i++) {
+    mCastList = new LiveActor*[mCastCapacity];
+    mFunctors = new MR::FunctorBase*[mCastCapacity];
+    mNerves = new const Nerve*[mCastCapacity];
+    for (s32 i = 0; i < mCastCapacity; i++) {
         mCastList[i] = nullptr;
         mFunctors[i] = nullptr;
         mNerves[i] = nullptr;
@@ -57,15 +53,15 @@ DemoActionInfo::DemoActionInfo() {
 }
 
 void DemoActionInfo::registerCast(LiveActor* pActor) {
-    if (mCastCount == _18) {
-        mCastList = MR::growArray(mCastList, _18);
-        mFunctors = MR::growArray(mFunctors, _18);
-        mNerves = MR::growArray(mNerves, _18);
-        for (s32 i = _18; i < _18 * 2; i++) {
+    if (mCastCount == mCastCapacity) {
+        mCastList = MR::growArray(mCastList, mCastCapacity);
+        mFunctors = MR::growArray(mFunctors, mCastCapacity);
+        mNerves = MR::growArray(mNerves, mCastCapacity);
+        for (s32 i = mCastCapacity; i < mCastCapacity * 2; i++) {
             mFunctors[i] = nullptr;
             mNerves[i] = nullptr;
         }
-        _18 *= 2;
+        mCastCapacity *= 2;
     }
 
     mCastList[mCastCount] = pActor;
@@ -151,7 +147,7 @@ void DemoActionInfo::executeActionLast() const {
     }
 }
 
-void DemoActionKeeper::initCast(LiveActor* pActor, const JMapInfoIter& rIter) {
+void DemoActionKeeper::initCast(LiveActor* pActor, const TableIter& rIter) {
     if (mNumInfos <= 0) {
         return;
     }
@@ -237,18 +233,18 @@ DemoActionKeeper::DemoActionKeeper(const DemoExecutor* pExector) {
     mDemoExecutor = pExector;
     mNumInfos = 0;
     mInfoArray = nullptr;
-    JMapInfo* jmap = nullptr;
-    mNumInfos = DemoFunction::createSheetParser(mDemoExecutor, "Action", &jmap);
+    Table* table = nullptr;
+    mNumInfos = DemoFunction::createSheetParser(mDemoExecutor, "Action", &table);
     mInfoArray = new DemoActionInfo*[mNumInfos];
 
     for (s32 i = 0; i < mNumInfos; i++) {
         mInfoArray[i] = new DemoActionInfo();
         DemoActionInfo* info = mInfoArray[i];
-        jmap->getValue< const char* >(i, "PartName", &info->mPartName);
-        jmap->getValue< const char* >(i, "CastName", &info->mCastName);
-        jmap->getValue< s32 >(i, "CastID", &info->mCastID);
-        jmap->getValue< s32 >(i, "ActionType", &info->mActionType);
-        jmap->getValue< const char* >(i, "PosName", &info->mPosName);
-        jmap->getValue< const char* >(i, "AnimName", &info->mAnimName);
+        table->getValue< const char* >(i, "PartName", &info->mPartName);
+        table->getValue< const char* >(i, "CastName", &info->mCastName);
+        table->getValue< s32 >(i, "CastID", &info->mCastID);
+        table->getValue< s32 >(i, "ActionType", &info->mActionType);
+        table->getValue< const char* >(i, "PosName", &info->mPosName);
+        table->getValue< const char* >(i, "AnimName", &info->mAnimName);
     }
 }

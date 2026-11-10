@@ -1,20 +1,19 @@
 #include "Game/Map/PlanetMapCreator.hpp"
 #include "Game/Map.hpp"
 #include "Game/MapObj.hpp"
-#include "Game/NameObj/NameObjArchiveListCollector.hpp"
 #include "Game/NameObj/NameObjFactory.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/Util/ModelUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SceneUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
-#include <cstdio>
+#include "Game/Util/Table.hpp"
 
 namespace {
-    static const char* const sArcName = "PlanetMapDataTable.arc";
+    static const char* const sArcName = "PlanetMapDataTable";
     static const char* const sFileName = "PlanetMapDataTable.bcsv";
 
-    void makeSubModelName(const char** ppDst, const JMapInfo* pIter, s32 idx, const char* pKey, const char* pSuffix) {
+    void makeSubModelName(const char** ppDst, const Table* pIter, s32 idx, const char* pKey, const char* pSuffix) {
         s32 data;
         MR::getCsvDataS32(&data, pIter, pKey, idx);
 
@@ -191,70 +190,6 @@ namespace {
         },
     };
 
-    static const UniqueEntry sUniquePlanetUniqueArchiveName[] = {
-        {
-            "BeamGoRoundPlanet",
-            "BeamGoRoundBeam",
-        },
-        {
-            "BeamGoRoundPlanet",
-            "BeamGoRoundBeamVolume",
-        },
-        {
-            "BeamGoRoundPlanet",
-            "BeamGoRoundBeamBloom",
-        },
-        {
-            "MarblePlanet",
-            "MarblePlanetCore",
-        },
-        {
-            "MarblePlanet",
-            "MarblePlanetElectron",
-        },
-        {
-            "MarblePlanet",
-            "MarblePlanetElectronShadow",
-        },
-        {
-            "OceanRingPlanet",
-            "OceanRingPlanetLowInWater",
-        },
-        {
-            "WormEatenPlanet",
-            "GreenCaterpillarBigFace",
-        },
-        {
-            "WormEatenPlanet",
-            "GreenCaterpillarBigFaceLow",
-        },
-        {
-            "WormEatenPlanet",
-            "GreenCaterpillarBigBody",
-        },
-        {
-            "WormEatenPlanet",
-            "GreenCaterpillarBigBodyLow",
-        },
-        {
-            "WormEatenPlanet",
-            "WormEatenHill",
-        },
-        {
-            "WormEatenPlanet",
-            "WormEatenPlanetLow",
-        },
-    };
-
-    inline void addUniqueArchive(NameObjArchiveListCollector* pCollector, const char* pPlanetName) {
-        for (u32 i = 0; i < ARRAY_SIZE(::sUniquePlanetUniqueArchiveName); i++) {
-            const UniqueEntry* pUniqueEntry = &::sUniquePlanetUniqueArchiveName[i];
-            if (MR::isEqualString(pPlanetName, pUniqueEntry->_0)) {
-                pCollector->addArchive(pUniqueEntry->_4);
-            }
-        }
-    }
-
     const PlanetEntry* findUniquePlanetEntry(const char* pName) {
         for (u32 i = 0; i < ARRAY_SIZE(::sUniquePlanetCreateFuncTable); i++) {
             const PlanetEntry* pEntry = &::sUniquePlanetCreateFuncTable[i];
@@ -267,7 +202,7 @@ namespace {
     }
 
     static bool isDataForceLow(const PlanetMapData* pMapData) {
-        for (int i = 0; i < 8; i++) {
+        for (s32 i = 0; i < pMapData->mForceScenarioNum; i++) {
             if (!MR::isEqualString(pMapData->mForceScenarioData[i], "Low")) {
                 return true;
             }
@@ -277,20 +212,20 @@ namespace {
     }
 };  // namespace
 
-PlanetMapCreator::PlanetMapCreator(const char* pName) : NameObj(pName), mPlanetMapData() {
-    JMapInfo* pIter = MR::createCsvParser(::sArcName, ::sFileName);
+PlanetMapCreator::PlanetMapCreator(const char* pName) : NameObj(pName), mPlanetMapData(), mIndex() {
+    Table* pIter = MR::createCsvParser(::sArcName, ::sFileName);
 
     mTableCount = MR::getCsvDataElementNum(pIter);
     mPlanetMapData = new PlanetMapData*[mTableCount];
     createPlanetMapDataTable(pIter);
 }
 
-CreatorFuncPtr PlanetMapCreator::getCreateFunc(const char* pParam1) {
-    if (isScenarioForceLow(getTableData(pParam1))) {
+CreatorFuncPtr PlanetMapCreator::getCreateFunc(const char* pName) {
+    if (isScenarioForceLow(getTableData(pName))) {
         return createNameObj< PlanetMapWithoutHighModel >;
     }
 
-    const PlanetEntry* pEntry = ::findUniquePlanetEntry(pParam1);
+    const PlanetEntry* pEntry = ::findUniquePlanetEntry(pName);
 
     if (pEntry != nullptr) {
         return pEntry->mCreateFunc;
@@ -299,52 +234,26 @@ CreatorFuncPtr PlanetMapCreator::getCreateFunc(const char* pParam1) {
     return createNameObj< PlanetMap >;
 }
 
-void PlanetMapCreator::makeArchiveListPlanet(NameObjArchiveListCollector* pCollector, const JMapInfoIter& rIter, const char* pName) {
-    PlanetMapData* pTableData = getTableData(pName);
-    if (isScenarioForceLow(pTableData)) {
-        pCollector->addArchive(pTableData->mData[0]);
-        return;
+void PlanetMapCreator::createPlanetMapDataTable(Table* pInfo) {
+    // ForceLowScenarioName0, 1, ... up to the first the table lacks.
+    s32 forceNum = 0;
+    while (pInfo->searchItemInfo(MR::FormattedName("ForceLowScenarioName%d", forceNum).c_str()) >= 0) {
+        forceNum++;
     }
 
-    pCollector->addArchive(pTableData->mPlanetName);
-
-    const char* pData0 = pTableData->mData[0];
-    if (pData0 != nullptr) {
-        pCollector->addArchive(pData0);
-    }
-
-    const char* pData1 = pTableData->mData[1];
-    if (pData1 != nullptr) {
-        pCollector->addArchive(pData1);
-    }
-
-    const char* pData2 = pTableData->mData[2];
-    if (pData2 != nullptr) {
-        pCollector->addArchive(pData2);
-    }
-
-    const char* pData3 = pTableData->mData[3];
-    if (pData3 != nullptr) {
-        pCollector->addArchive(pData3);
-    }
-
-    const char* pData4 = pTableData->mData[4];
-    if (pData4 != nullptr) {
-        pCollector->addArchive(pData4);
-    }
-
-    ::addUniqueArchive(pCollector, pTableData->mPlanetName);
-}
-
-void PlanetMapCreator::createPlanetMapDataTable(JMapInfo* pInfo) {
+    mIndex.reset(static_cast< u32 >(mTableCount));
     for (int i = 0; i < mTableCount; i++) {
         mPlanetMapData[i] = new PlanetMapData();
+        mPlanetMapData[i]->mForceScenarioNum = forceNum;
 
         addTableData(pInfo, i);
+        if (mPlanetMapData[i]->mPlanetName != nullptr) {
+            mIndex.add(mPlanetMapData[i]->mPlanetName, static_cast< u32 >(i));
+        }
     }
 }
 
-void PlanetMapCreator::addTableData(const JMapInfo* pInfo, s32 idx) {
+void PlanetMapCreator::addTableData(const Table* pInfo, s32 idx) {
     PlanetMapData* curData = mPlanetMapData[idx];
     MR::getCsvDataStr(&curData->mPlanetName, pInfo, "PlanetName", idx);
     ::makeSubModelName(&curData->mData[0], pInfo, idx, "LowFlag", "Low");
@@ -361,40 +270,37 @@ void PlanetMapCreator::addTableData(const JMapInfo* pInfo, s32 idx) {
         }
     }
 
-    for (int i = 0; i < 8; i++) {
-        char data[256];
-        nebula_snprintf(data, sizeof(data), "ForceLowScenarioName%d", i);
-
-        MR::getCsvDataStr(&curData->mForceScenarioData[i], pInfo, data, idx);
+    curData->mForceScenarioData = new const char*[curData->mForceScenarioNum];
+    for (s32 i = 0; i < curData->mForceScenarioNum; i++) {
+        MR::getCsvDataStr(&curData->mForceScenarioData[i], pInfo, MR::FormattedName("ForceLowScenarioName%d", i).c_str(), idx);
     }
 }
 
 PlanetMapData* PlanetMapCreator::getTableData(const char* pName) const {
-    for (int i = 0; i < mTableCount; i++) {
-        if (MR::isEqualString(pName, mPlanetMapData[i]->mPlanetName)) {
-            return mPlanetMapData[i];
-        }
-    }
-
-    return nullptr;
+    const u32 row = mIndex.find(pName);
+    return row != MR::NameIndex::cNoValue ? mPlanetMapData[row] : nullptr;
 }
 
 bool PlanetMapCreator::isScenarioForceLow(const PlanetMapData* pData) const {
+    // A planet the table does not list (a mod's) has no forced scenarios.
+    if (pData == nullptr) {
+        return false;
+    }
+
     bool isForce = ::isDataForceLow(pData);
 
     if (!isForce) {
         return false;
     }
 
-    char name[256];
-    nebula_snprintf(name, sizeof(name), "%s_%d", MR::getCurrentStageName(), MR::getCurrentScenarioNo());
+    MR::FormattedName name("%s_%d", MR::getCurrentStageName(), MR::getCurrentScenarioNo());
 
-    for (int i = 0; i < 8; i++) {
+    for (s32 i = 0; i < pData->mForceScenarioNum; i++) {
         if (MR::isEqualString(pData->mForceScenarioData[i], "Low")) {
             return false;
         }
 
-        if (MR::isEqualString(name, pData->mForceScenarioData[i])) {
+        if (MR::isEqualString(name.c_str(), pData->mForceScenarioData[i])) {
             return true;
         }
     }
@@ -402,22 +308,18 @@ bool PlanetMapCreator::isScenarioForceLow(const PlanetMapData* pData) const {
     return false;
 }
 
-void PlanetMapCreatorFunction::makeArchiveList(NameObjArchiveListCollector* pCollector, const JMapInfoIter& rIter, const char* pName) {
-    MR::getSceneObj< PlanetMapCreator >(SceneObj_PlanetMapCreator)->makeArchiveListPlanet(pCollector, rIter, pName);
-}
-
-CreatorFuncPtr PlanetMapCreatorFunction::getPlanetMapCreator(const char* pParam1) {
-    return MR::getSceneObj< PlanetMapCreator >(SceneObj_PlanetMapCreator)->getCreateFunc(pParam1);
+CreatorFuncPtr PlanetMapCreatorFunction::getPlanetMapCreator(const char* pName) {
+    return MR::getSceneObj< PlanetMapCreator >(SceneObj_PlanetMapCreator)->getCreateFunc(pName);
 }
 
 bool PlanetMapCreatorFunction::isLoadArchiveAfterScenarioSelected(const char* pArchive) {
-    bool isExistTableData = MR::getSceneObj< PlanetMapCreator >(SceneObj_PlanetMapCreator)->getTableData(pArchive) != nullptr;
+    const PlanetMapData* pData = MR::getSceneObj< PlanetMapCreator >(SceneObj_PlanetMapCreator)->getTableData(pArchive);
 
-    if (!isExistTableData) {
+    if (pData == nullptr) {
         return false;
     }
 
-    return ::isDataForceLow(MR::getSceneObj< PlanetMapCreator >(SceneObj_PlanetMapCreator)->getTableData(pArchive));
+    return ::isDataForceLow(pData);
 }
 
 bool PlanetMapCreatorFunction::isRegisteredObj(const char* pArchive) {

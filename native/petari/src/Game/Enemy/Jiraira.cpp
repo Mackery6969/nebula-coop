@@ -1,23 +1,25 @@
 #include "Game/Enemy/Jiraira.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Map/CollisionParts.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/JointUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MapUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const s32 hPreRecoverTime = 188;
-    static const s32 hBeginExplodeTime = 30;
-    static const s32 hExplodeTime = 8;
-    static const s32 hExplodeInvalidTime = 120;
+    NEBULA_TUNABLE(s32, hPreRecoverTime, 188);
+    static const s32 hBeginExplodeTime = NebulaFrameClock::stepsOfMilliseconds(500);
+    NEBULA_TUNABLE(s32, hExplodeTime, 8);
+    static const s32 hExplodeInvalidTime = NebulaFrameClock::stepsOfSeconds(2);
 };  // namespace
 
 namespace NrvJiraira {
@@ -29,38 +31,38 @@ namespace NrvJiraira {
     NEW_NERVE(HostTypeNrvExplode, Jiraira, Explode);
 };  // namespace NrvJiraira
 
-Jiraira::Jiraira(const char* pName) : LiveActor(pName), _8C(), _90(500.0f) {
+Jiraira::Jiraira(const char* pName) : LiveActor(pName), mBodyCollision(), mExplodeRadius(500.0f) {
 }
 
-void Jiraira::init(const JMapInfoIter& rIter) {
+void Jiraira::init(const TableIter& rIter) {
     if (MR::isValidInfo(rIter)) {
         MR::initDefaultPos(this, rIter);
-        s32 arg1 = _90;
-        MR::getJMapInfoArg1NoInit(rIter, &arg1);
-        _90 = arg1;
+        s32 explodeRadius = mExplodeRadius;
+        MR::getPlacementArg1NoInit(rIter, &explodeRadius);
+        mExplodeRadius = explodeRadius;
         MR::useStageSwitchWriteDead(this, rIter);
     }
     initModelManagerWithAnm("Jiraira", nullptr, false);
     MR::connectToSceneCollisionEnemy(this);
     initHitSensor(2);
     f32 scaleY = mScale.y;
-    TVec3f offset;
+    Vec3f offset;
     offset.x = 0.0f;
     offset.y = 30.0f;
     offset.z = 0.0f;
     MR::addHitSensorMapObjMoveCollision(this, "body", 16, scaleY * 100.0f, offset);
-    TVec3f offset2;
+    Vec3f offset2;
     offset2.x = 0.0f;
     offset2.y = 30.0f * scaleY;
     offset2.z = 0.0f;
-    MR::addHitSensorEnemyAttack(this, "explode", 16, (_90 * scaleY), offset2);
+    MR::addHitSensorEnemyAttack(this, "explode", 16, (mExplodeRadius * scaleY), offset2);
     MR::initCollisionPartsAutoEqualScaleOne(this, "Jiraira", getSensor("body"), MR::getJointMtx(this, "Jiraira"));
     CollisionParts* colPart = MR::createCollisionPartsFromLiveActor(this, "Button", getSensor("body"), MR::getJointMtx(this, "Button"),
                                                                     MR::CollisionScaleType_NotUsingScale);
-    _8C = colPart;
+    mBodyCollision = colPart;
     MR::validateCollisionParts(colPart);
     initSound(6, false);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initNerve(GET_NERVE(Jiraira, HostTypeNrvWait));
     MR::invalidateClipping(this);
     appear();
@@ -79,7 +81,7 @@ void Jiraira::kill() {
 }
 
 void Jiraira::control() {
-    _8C->setMtx();
+    mBodyCollision->setMtx();
 }
 
 void Jiraira::exeWait() {
@@ -121,7 +123,7 @@ void Jiraira::exeExplode() {
     if (MR::isStep(this, ::hExplodeTime)) {
         getSensor("explode")->invalidate();
     } else if (MR::isLessStep(this, ::hExplodeTime)) {
-        getSensor("explode")->mRadius = _90 * getNerveStep() / 8.0f;
+        getSensor("explode")->mRadius = mExplodeRadius * getNerveStep() / 8.0f;
     }
 
     if (MR::isGreaterStep(this, ::hPreRecoverTime)) {
@@ -171,7 +173,7 @@ void Jiraira::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     }
 }
 
-bool Jiraira::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool Jiraira::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (isNerve(GET_NERVE(Jiraira, HostTypeNrvExplode)) || isNerve(GET_NERVE(Jiraira, HostTypeNrvSteppedExplode)) ||
         isNerve(GET_NERVE(Jiraira, HostTypeNrvPreRecover))) {
         return false;
@@ -188,7 +190,7 @@ bool Jiraira::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pRe
     return false;
 }
 
-bool Jiraira::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool Jiraira::receiveMsgEnemyAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (isNerve(GET_NERVE(Jiraira, HostTypeNrvExplode)) || isNerve(GET_NERVE(Jiraira, HostTypeNrvSteppedExplode))) {
         return false;
     }
@@ -199,7 +201,4 @@ bool Jiraira::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pRec
     }
 
     return false;
-}
-
-Jiraira::~Jiraira() {
 }

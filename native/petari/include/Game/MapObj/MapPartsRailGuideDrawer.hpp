@@ -9,12 +9,12 @@ class MapPartsRailGuideDrawer : public MapPartsFunction {
 public:
     MapPartsRailGuideDrawer(LiveActor* pHost, const char* pModelName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual bool isWorking() const;
-    virtual void start();
-    virtual void end();
+    virtual void init(const TableIter& rIter) override;
+    virtual bool isWorking() const override;
+    virtual void start() override;
+    virtual void end() override;
 
-    void initGuidePoints(const JMapInfoIter& rIter);
+    void initGuidePoints(const TableIter& rIter);
 
     void show();
     void hide();
@@ -22,7 +22,7 @@ public:
     void exeDrawAll();
     void exeDrawForward();
 
-    MR::Vector< MR::FixedArray< MapPartsRailGuidePoint*, 256 > > mGuidePoints;
+    MR::InlineVector< MapPartsRailGuidePoint*, 256 > mGuidePoints;
     s32 mGuideType;
     s32 mRailId;
     const char* mModelName;

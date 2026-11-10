@@ -4,16 +4,14 @@
 #include "Game/System/DrawBuffer.hpp"
 #include "Game/Util.hpp"
 
-ActorLightCtrl::ActorLightCtrl(const LiveActor* pActor) : mActor(pActor), _4(-1), _8(), _C(), mAreaLightInf(), mLightID() {
-    _1C = 0;
-    mInterpolate = -1;
-    _54 = -1;
+ActorLightCtrl::ActorLightCtrl(const LiveActor* pActor)
+    : mActor(pActor), mLightType(-1), mDrawBuffer(), mHasFixedType(), mAreaLightInf(), mLightID(), mBlendFrom(), mInterpolate(-1), mBlendStep(-1) {
 }
 
-void ActorLightCtrl::init(int interpolate, bool /* unused */) {
-    if (interpolate >= 0) {
-        _4 = interpolate;
-        _C = 1;
+void ActorLightCtrl::init(int lightType, bool /* unused */) {
+    if (lightType >= 0) {
+        mLightType = lightType;
+        mHasFixedType = true;
     }
 
     initActorLightInfo();
@@ -31,7 +29,7 @@ void ActorLightCtrl::update(bool direct) {
 
 void ActorLightCtrl::loadLight() const {
     if (mAreaLightInf) {
-        if (_1C) {
+        if (mBlendFrom) {
             LightFunction::loadActorLightInfo(&mLightInfo);
         } else {
             LightFunction::loadActorLightInfo(getTargetActorLight(mAreaLightInf));
@@ -44,27 +42,30 @@ void ActorLightCtrl::reset() {
 
     if (LightFunction::tryFindNewAreaLightID(mActor->mPosition, &mLightID)) {
         resetCurrentLightInfo();
-        _1C = nullptr;
+        mBlendFrom = nullptr;
         mLightInfo = *getTargetActorLight(mAreaLightInf);
     }
 
     mAreaLightInf = LightFunction::getAreaLightInfo(mLightID);
 
-    if (!_C) {
-        _8->resetLightSort(this);
+    if (!mHasFixedType) {
+        mDrawBuffer->resetLightSort(this);
     }
 }
 
+// Packets share a light run (one load for all) only when both lights load the same thing: a blending light loads its
+// own mix, so neither side may be blending (a packet joining a blending head took its mix and popped when the blend
+// ended), and the area light's entry is picked by the type.
 bool ActorLightCtrl::isSameLight(const ActorLightCtrl* pLight) const {
-    if (_1C) {
+    if (mBlendFrom || pLight->mBlendFrom) {
         return false;
     }
 
-    return mAreaLightInf == pLight->mAreaLightInf;
+    return mAreaLightInf == pLight->mAreaLightInf && mLightType == pLight->mLightType;
 }
 
 const ActorLightInfo* ActorLightCtrl::getActorLight() const {
-    if (_1C) {
+    if (mBlendFrom) {
         return &mLightInfo;
     }
 
@@ -72,7 +73,7 @@ const ActorLightInfo* ActorLightCtrl::getActorLight() const {
 }
 
 void ActorLightCtrl::initActorLightInfo() {
-    if (_C) {
+    if (mHasFixedType) {
         return;
     }
 
@@ -80,19 +81,20 @@ void ActorLightCtrl::initActorLightInfo() {
     return;
 }
 
-void ActorLightCtrl::tryFindNewAreaLight(bool a2) {
+void ActorLightCtrl::tryFindNewAreaLight(bool isImmediate) {
     if (LightFunction::tryFindNewAreaLightID(mActor->mPosition, &mLightID)) {
         if (mAreaLightInf != nullptr) {
-            const ActorLightInfo* inf = getTargetActorLight(mAreaLightInf);
-            _1C = inf;
-            mLightInfo = *inf;
+            // From the light shown now: the old area's, or where a blend still running has got to.
+            mBlendStart = *getActorLight();
+            mBlendFrom = &mBlendStart;
+            mLightInfo = mBlendStart;
         }
 
         resetCurrentLightInfo();
 
-        if (!mInterpolate || a2) {
+        if (!mInterpolate || isImmediate) {
             mInterpolate = 0;
-            _1C = nullptr;
+            mBlendFrom = nullptr;
             mLightInfo = *getTargetActorLight(mAreaLightInf);
         }
 
@@ -100,30 +102,29 @@ void ActorLightCtrl::tryFindNewAreaLight(bool a2) {
             mInterpolate = LightFunction::getDefaultStepInterpolate();
         }
 
-        if (!_C) {
-            _8->resetLightSort(this);
+        if (!mHasFixedType) {
+            mDrawBuffer->resetLightSort(this);
         }
     }
 }
 
 void ActorLightCtrl::updateLightBlend() {
-    if (_1C) {
-        s32 v = _54;
-        _54++;
+    if (mBlendFrom) {
+        mBlendStep++;
 
-        if (v + 1 >= mInterpolate) {
+        if (mBlendStep >= mInterpolate) {
             mLightInfo = *getTargetActorLight(mAreaLightInf);
-            _1C = nullptr;
-            _54 = -1;
+            mBlendFrom = nullptr;
+            mBlendStep = -1;
 
-            if (!_C) {
-                _8->resetLightSort(this);
+            if (!mHasFixedType) {
+                mDrawBuffer->resetLightSort(this);
             }
 
         } else {
-            f32 v = (f32)_54 / mInterpolate;
+            f32 blend = (f32)mBlendStep / mInterpolate;
             const ActorLightInfo* info = getTargetActorLight(mAreaLightInf);
-            LightFunction::blendActorLightInfo(&mLightInfo, *_1C, *info, v);
+            LightFunction::blendActorLightInfo(&mLightInfo, *mBlendFrom, *info, blend);
         }
     }
 }
@@ -133,11 +134,11 @@ void ActorLightCtrl::resetCurrentLightInfo() {
     mInterpolate = mAreaLightInf->mInterpolate;
     mLightInfo.mInfo0.mIsFollowCamera = getTargetActorLight(mAreaLightInf)->mInfo0.mIsFollowCamera;
     mLightInfo.mInfo1.mIsFollowCamera = getTargetActorLight(mAreaLightInf)->mInfo1.mIsFollowCamera;
-    _54 = 0;
+    mBlendStep = 0;
 }
 
 const ActorLightInfo* ActorLightCtrl::getTargetActorLight(const AreaLightInfo* pInfo) const {
-    s32 type = _4;
+    s32 type = mLightType;
 
     if (type == 0) {
         return &pInfo->mPlayerLight;

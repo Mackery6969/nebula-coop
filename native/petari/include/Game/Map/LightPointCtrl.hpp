@@ -1,8 +1,8 @@
 #pragma once
 
 #include "Game/Util/Color.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
-#include <JSystem/JGeometry.hpp>
+#include "Game/Render/FrameList.hpp"
+#include <nebula_geometry.hpp>
 #include <NebulaGpu.h>
 #include <nebula_math.h>
 
@@ -13,7 +13,7 @@ struct PointLightInfo {
     NebulaColor8 mColor;
     f32 mRefDistance;
     f32 mRefBrightness;
-    J3DLightFalloff mDistAttnFn;
+    LightFalloff mDistAttnFn;
 };
 
 class LightPointCtrl {
@@ -22,7 +22,7 @@ public:
 
     void loadPointLight();
     void update();
-    void requestPointLight(const LiveActor* pActor, TVec3f pos, Color8 color, f32 intensity, s32 duration);
+    void requestPointLight(const LiveActor* pActor, Vec3f pos, Color8 color, f32 intensity, s32 duration);
     void clearPointLight(PointLightInfo* pInfo);
     void blendPointLight(PointLightInfo* pDst, const PointLightInfo& rStart, const PointLightInfo& rEnd, f32 t);
 

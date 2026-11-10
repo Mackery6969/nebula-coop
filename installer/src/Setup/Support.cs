@@ -149,6 +149,125 @@ namespace Nebula.Setup
         }
     }
 
+    /// <summary>
+    /// The player's saves, settings and the mods' small files, copied aside once before an update replaces the version they
+    /// were last used with (a new version may convert a save in place the first time it reads it). Nothing moves: the data
+    /// stays in the user data folder, which no install, update or rollback touches; this copy is what a person goes back to.
+    /// One copy per version it was taken from; the newest two stay.
+    /// </summary>
+    internal static class UserDataSnapshot
+    {
+        private const long SmallFile = 1L << 20;
+        private const long ModsBudget = 64L << 20;
+        private const int KeptCopies = 2;
+
+        public static string Folder { get { return Path.Combine(NebulaPaths.DataRoot, "update-backup"); } }
+
+        /// <summary>
+        /// Takes the copy for <paramref name="from"/> unless one is there. Its folder, or null when there was nothing to copy,
+        /// no version to name it by, or it could not be made (logged; the update goes on, the data is not touched either way).
+        /// </summary>
+        public static string Take(string from, Action<string> log)
+        {
+            string data = NebulaPaths.DataRoot;
+            if (string.IsNullOrEmpty(from) || !Directory.Exists(data)) return null;
+            string target = Path.Combine(Folder, SafeName(from));
+            if (Directory.Exists(target))
+            {
+                log("The saves and settings were copied aside before: " + target);
+                return target;
+            }
+            string partial = target + ".partial";
+            try
+            {
+                FileUtil.DeleteTree(partial);
+                Directory.CreateDirectory(partial);
+                int copied = 0;
+                foreach (var name in new[] { "saves", "settings", "nand" })
+                {
+                    string source = Path.Combine(data, name);
+                    if (!Directory.Exists(source)) continue;
+                    FileUtil.CopyTreeWithStreams(source, Path.Combine(partial, name), null);
+                    copied++;
+                }
+                foreach (var file in Directory.GetFiles(data))
+                {
+                    try
+                    {
+                        if (new FileInfo(file).Length > SmallFile) continue;
+                        File.Copy(file, Path.Combine(partial, Path.GetFileName(file)));
+                        copied++;
+                    }
+                    catch (IOException) { log("Left out " + file + ": it is in use."); }
+                    catch (UnauthorizedAccessException) { log("Left out " + file + ": it is in use."); }
+                }
+                copied += CopyModsFiles(Path.Combine(data, "mods"), Path.Combine(partial, "mods"), log);
+                if (copied == 0)
+                {
+                    FileUtil.DeleteTree(partial);
+                    return null;
+                }
+                Directory.Move(partial, target);
+                log("Copied the saves, settings and the mods' small files to " + target + ".");
+                Prune(target, log);
+                return target;
+            }
+            catch (Exception error)
+            {
+                log("Could not copy the saves and settings aside (the update goes on; they are not touched): " + error.Message);
+                try { FileUtil.DeleteTree(partial); } catch (Exception) { }
+                return null;
+            }
+        }
+
+        /// <summary>The mods' configuration is small; the packs and movies beside it are not copied (they are not touched either).</summary>
+        private static int CopyModsFiles(string mods, string target, Action<string> log)
+        {
+            if (!Directory.Exists(mods)) return 0;
+            int copied = 0, skipped = 0;
+            long left = ModsBudget;
+            foreach (var file in Directory.GetFiles(mods, "*", SearchOption.AllDirectories))
+            {
+                long length = new FileInfo(file).Length;
+                if (length > SmallFile || length > left) { skipped++; continue; }
+                left -= length;
+                string destination = Path.Combine(target, file.Substring(mods.Length).TrimStart(Path.DirectorySeparatorChar));
+                try
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(destination));
+                    File.Copy(file, destination);
+                    copied++;
+                }
+                catch (IOException) { skipped++; }
+                catch (UnauthorizedAccessException) { skipped++; }
+            }
+            if (skipped != 0) log(skipped + " larger files of the mods were left where they are.");
+            return copied;
+        }
+
+        private static string SafeName(string text)
+        {
+            foreach (var c in Path.GetInvalidFileNameChars()) text = text.Replace(c, '_');
+            return text;
+        }
+
+        /// <summary>The newest <see cref="KeptCopies"/> copies stay, and the one just made always.</summary>
+        private static void Prune(string keep, Action<string> log)
+        {
+            var folders = new List<DirectoryInfo>();
+            foreach (var dir in new DirectoryInfo(Folder).GetDirectories())
+                if (!dir.Name.EndsWith(".partial", StringComparison.Ordinal)) folders.Add(dir);
+            folders.Sort(delegate(DirectoryInfo a, DirectoryInfo b) { return b.CreationTimeUtc.CompareTo(a.CreationTimeUtc); });
+            string keepPath = Path.GetFullPath(keep);
+            for (int i = KeptCopies; i < folders.Count; i++)
+            {
+                if (string.Equals(folders[i].FullName, keepPath, StringComparison.OrdinalIgnoreCase)) continue;
+                try { FileUtil.DeleteTree(folders[i].FullName); log("Removed the older copy " + folders[i].FullName); }
+                catch (Exception error) { log("Could not remove " + folders[i].FullName + ": " + error.Message); }
+            }
+        }
+    }
+
     /// <summary>Start Menu shortcuts, the Add/Remove Programs entry and uninstall.</summary>
     internal static class Integration
     {
@@ -170,8 +289,9 @@ namespace Nebula.Setup
         {
             string app = layout.VersionDir(version);
             var failures = new List<string>();
-            // Automated tests (NEBULA_DATA_ROOT) install into their own folders: the user's shortcuts and registry stay.
-            if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("NEBULA_DATA_ROOT"))) return failures;
+            // A run whose %LOCALAPPDATA% is another folder than the user's (sandboxed, or a test) installs into its own
+            // folders: the user's shortcuts and registry stay.
+            if (NebulaPaths.LocalAppDataRedirected) return failures;
             Action<string, string, string, string, string> link = (path, target, arguments, directory, description) =>
             {
                 try { Shortcut(path, target, arguments, directory, description); }
@@ -225,7 +345,7 @@ namespace Nebula.Setup
         }
 
         /// <summary>
-        /// Switch back to the retained previous version, with the game files it reads and, for a format-1 one, its save.
+        /// Switch back to the retained previous version, with the game files it reads. The saves stay as they are: each version reads its own file.
         /// A recompiled 1.x version is never restored: an update removes it and its compiler, so normally none is retained.
         /// A refusal changes nothing.
         /// </summary>
@@ -246,17 +366,11 @@ namespace Nebula.Setup
             if (swap) SwapContent(layout, format, active);
             try
             {
-                if (swap) SaveRollback.To(format, NebulaPaths.Saves);
                 Json.Save(layout.Current, new Dictionary<string, object> { { "version", previous }, { "previous", current.Version } });
             }
             catch (Exception)
             {
-                if (swap)
-                {
-                    try { SaveRollback.To(active, NebulaPaths.Saves); }
-                    catch (Exception) { }  // its copies stay beside the save
-                    SwapContent(layout, active, format);
-                }
+                if (swap) SwapContent(layout, active, format);
                 throw;
             }
             Register(layout, previous, false);

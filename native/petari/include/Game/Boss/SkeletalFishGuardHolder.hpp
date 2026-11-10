@@ -10,8 +10,7 @@ class SkeletalFishGuardHolder : public NameObj {
 public:
     SkeletalFishGuardHolder(SkeletalFishBoss*, s32, const char*);
 
-    virtual ~SkeletalFishGuardHolder();
-    virtual void movement();
+    virtual void movement() override;
 
     void forceAppearAll();
     void forceKillAll();
@@ -30,6 +29,6 @@ public:
     SkeletalFishBossRail* mBossRail;
     s32 mNumGuards;
     SkeletalFishGuard** mGuards;
-    f32 _1C;
-    u8 _20;
+    f32 mAppearRailCoord;
+    u8 mIsValid;
 };

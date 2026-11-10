@@ -1,10 +1,11 @@
 #pragma once
 
+#include "Game/Render/TypedDraw.hpp"
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class ActorCameraInfo;
-class JUTTexture;
+class GameTexture;
 class SledRopePoint;
 class SwingRopePoint;
 
@@ -12,11 +13,11 @@ class SwingRope : public LiveActor {
 public:
     SwingRope(const char*);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void draw() const;
-    virtual void updateHitSensor(HitSensor* pSensor);
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void draw() const override;
+    virtual void updateHitSensor(HitSensor* pSensor) override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     void exeStop();
     void exeFree();
@@ -32,8 +33,8 @@ public:
     f32 calcFriction(s32) const;
 
     void addPointGravity();
-    void restrictPointToTail(s32, const TVec3f*, f32 length = 0.0f);
-    void restrictPointToHead(s32, const TVec3f&, f32 length = 0.0f);
+    void restrictPointToTail(s32, const Vec3f*, f32 length = 0.0f);
+    void restrictPointToHead(s32, const Vec3f&, f32 length = 0.0f);
 
     bool isAllPointsStop() const;
     bool isStretched() const;
@@ -49,15 +50,14 @@ public:
     void updateHangLowerPoints();
     void updateHangLowerPointPos(s32);
 
-    void drawStop() const;
-    void drawFree() const;
-    void drawBind() const;
+    void drawStop(TypedDraw& rDraw) const;
+    void drawFree(TypedDraw& rDraw) const;
 
-    const TVec3f& getBasePos() const {
+    const Vec3f& getBasePos() const {
         return mBasePos;
     }
 
-    TVec3f mBasePos;
+    Vec3f mBasePos;
     f32 mRopeLength;
     bool mIsStretched;
     s32 mStretchTime;  // Time since start of stretch condition
@@ -65,18 +65,14 @@ public:
     s32 mNumPoints;
     SwingRopePoint** mPoints;
     LiveActor* mRider;
-    TPos3f mRideMtx;
+    Pos3f mRideMtx;
     f32 mGrabCoord;
     f32 mGrabPointNum;
     f32 mSlideSpeed;
     SledRopePoint* mSledPoint;
     ActorCameraInfo* mCameraInfo;
-    f32 mFootCoord;
-    f32 mFootPointNum;
-    f32 mGrabToFootDist;
-    TVec3f mFootPos;
-    TVec3f mShadowDropPos;
-    f32 mShadowDropOffset;
+    Vec3f mFootPos;
+    Vec3f mShadowDropPos;
     s32 mPrevSoundLvl;
 };
 
@@ -84,7 +80,9 @@ class SwingRopeGroup : public NameObj {
 public:
     SwingRopeGroup(const char*);
 
-    virtual void initDraw() const;
+    virtual SiteMaterial makeMaterial() const;
+    // What its objects draw with.
+    SiteMaterial mMaterial;
 
-    JUTTexture* mTexture;
+    GameTexture* mTexture;
 };

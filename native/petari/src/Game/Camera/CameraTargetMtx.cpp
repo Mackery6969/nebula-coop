@@ -9,31 +9,31 @@ CameraTargetMtx::CameraTargetMtx(const char* pName)
     mMatrix.identity();
 }
 
-const TVec3f& CameraTargetMtx::getPosition() const {
+const Vec3f& CameraTargetMtx::getPosition() const {
     return mPosition;
 }
 
-const TVec3f& CameraTargetMtx::getUpVec() const {
+const Vec3f& CameraTargetMtx::getUpVec() const {
     return mUp;
 }
 
-const TVec3f& CameraTargetMtx::getFrontVec() const {
+const Vec3f& CameraTargetMtx::getFrontVec() const {
     return mFront;
 }
 
-const TVec3f& CameraTargetMtx::getSideVec() const {
+const Vec3f& CameraTargetMtx::getSideVec() const {
     return mSide;
 }
 
-const TVec3f& CameraTargetMtx::getLastMove() const {
+const Vec3f& CameraTargetMtx::getLastMove() const {
     return mLastMove;
 }
 
-const TVec3f& CameraTargetMtx::getGroundPos() const {
+const Vec3f& CameraTargetMtx::getGroundPos() const {
     return mPosition;
 }
 
-const TVec3f& CameraTargetMtx::getGravityVector() const {
+const Vec3f& CameraTargetMtx::getGravityVector() const {
     return mGravityVector;
 }
 
@@ -45,15 +45,12 @@ void CameraTargetMtx::invalidateLastMove() {
     mInvalidLastMove = true;
 }
 
-CameraTargetMtx::~CameraTargetMtx() {
-}
-
 void CameraTargetMtx::movement() {
     mMatrix.getYDir(mUp);
     mMatrix.getZDir(mFront);
     mMatrix.getXDir(mSide);
 
-    TVec3f position;
+    Vec3f position;
     mMatrix.getTrans(position);
 
     if (mInvalidLastMove) {
@@ -65,13 +62,7 @@ void CameraTargetMtx::movement() {
 
     mPosition.set(position);
 
-    AreaObj* area = MR::getAreaObj("CubeCamera", mPosition);
-
-    if (area == nullptr) {
-        mCameraArea = nullptr;
-    } else {
-        mCameraArea = static_cast< CubeCameraArea* >(area);
-    }
+    mCameraArea = static_cast< CubeCameraArea* >(MR::getAreaObj("CubeCamera", mPosition));
 
     MR::calcGravityVectorOrZero(this, mPosition, &mGravityVector, nullptr, 0);
 }

@@ -6,16 +6,15 @@ class LavaHomeSeesawRotator : public MapPartsRotatorBase {
 public:
     LavaHomeSeesawRotator(LiveActor*, const char*, f32);
 
-    virtual ~LavaHomeSeesawRotator();
-    virtual void init(const JMapInfoIter&);
-    virtual bool isWorking() const {
+    virtual void init(const TableIter&) override;
+    virtual bool isWorking() const override {
         return true;
     }
 
-    virtual void start();
-    virtual void end();
-    virtual bool receiveMsg(u32);
-    virtual const TMtx34f& getRotateMtx() const {
+    virtual void start() override;
+    virtual void end() override;
+    virtual bool receiveMsg(u32) override;
+    virtual const Mtx34f& getRotateMtx() const override {
         return mRotateMtx;
     }
 
@@ -32,22 +31,29 @@ public:
     void addForceHipDrop();
     bool isAngleLimited() const;
     bool isGoingToReachTargetAngle() const;
-    void calcRotatedAngle(f32*, const TPos3f&) const;
+    void calcRotatedAngle(f32*, const Pos3f&) const;
     bool tryHipDrop();
     bool tryStay();
     bool tryRebound();
     void soundMoveSE();
 
+private:
+    void updateRotateAxis();
+    f32 calcPlayerTorqueSign() const;
+    f32 calcTiltFromRest() const;
+
+public:
+
     f32 mAngularSpeedMax;
     f32 mInertia;
     f32 mRotateAngle;
     f32 mRestoreForce;
-    TPos3f mRotateMtx;
-    TQuat4f mRotateQuat;
+    Pos3f mRotateMtx;
+    Quat4f mRotateQuat;
     bool mIsHipDropped;
-    TVec3f mRotateAxis;
+    Vec3f mRotateAxis;
     f32 mAngularVelocity;
-    TVec3f mInitialUp;
+    Vec3f mInitialUp;
     const char* mMoveSound;
     f32 mMoveSoundSpeed;
 };

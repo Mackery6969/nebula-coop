@@ -1,18 +1,18 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class SphereSelectorHandle : public LiveActor {
 public:
     SphereSelectorHandle(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void appear();
-    virtual void control();
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual MtxPtr getBaseMtx() const {
-        return (MtxPtr)&_90;
+    virtual void init(const TableIter& rIter) override;
+    virtual void appear() override;
+    virtual void control() override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual MtxPtr getBaseMtx() const override {
+        return const_cast< MtxPtr >(mBaseMtx.mMtx);
     }
 
     void validateRotate();
@@ -29,7 +29,7 @@ public:
     void setStateConfirmStartAtFirstStep();
     bool tryRelease();
     void stackPointerVelocity();
-    TVec2f* getPointerVelocity();
+    Vec2f* getPointerVelocity();
 
     void exeWait();
     void exeHold();
@@ -47,17 +47,15 @@ public:
 
 public:
     bool mIsFileSelectMode;
-    TPos3f _90;
-    TVec3f _C0;
+    Pos3f mBaseMtx;
+    Vec3f mFront;
     f32 mRotateSpeed;
     f32 mTargetRotateSpeed;
-    f32 _D4;
-    f32 _D8;
-    TVec3f _DC;
-    TVec3f _E8;
-    TVec2f _F4[3];
-    s32 _10C;
-    TVec3f _110;
-    TVec3f _11C;
-    bool _128;
+    f32 mRotateSpeedX;
+    f32 mPrevRotateSpeedX;
+    Vec3f mSide;
+    Vec3f mUp;
+    Vec2f mPointerVelocities[3];  // the last updates' pointer velocities, newest first; the fastest turns the sphere
+    s32 mNotPointingStep;
+    bool mIsRotateBgm;
 };

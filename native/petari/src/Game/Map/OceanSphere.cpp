@@ -1,8 +1,6 @@
 #include "Game/Map/OceanSphere.hpp"
-#include "Game/Util/NativeShader.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
+#include "Game/Render/TypedDraw.hpp"
+#include "Game/Render/FrameList.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Map/OceanSpherePoint.hpp"
 #include "Game/Map/WaterAreaHolder.hpp"
@@ -14,23 +12,22 @@
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SceneUtil.hpp"
-#include "Game/Util/NativeMesh.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 #include "Game/System/NebulaArena.hpp"
-#include <JSystem/JUtility/JUTTexture.hpp>
+#include "Game/Render/GameTexture.hpp"
 
-NebulaColor8 sOceanSphereTevReg0Face = {0x48, 0x80, 0xBE, 0x1C};
-NebulaColor8 sOceanSphereTevReg1FrontDefault = {0x00, 0x51, 0x70, 0x6F};
-NebulaColor8 sOceanSphereTevReg1FrontTear = {0x00, 0x64, 0xFF, 0x6F};
-NebulaColor8 sOceanSphereTevReg2Face = {0xFF, 0xFF, 0xFF, 0xFF};
+NebulaColor8 sOceanSphereStageColor0Face = {0x48, 0x80, 0xBE, 0x1C};
+NebulaColor8 sOceanSphereStageColor1FrontDefault = {0x00, 0x51, 0x70, 0x6F};
+NebulaColor8 sOceanSphereStageColor1FrontTear = {0x00, 0x64, 0xFF, 0x6F};
+NebulaColor8 sOceanSphereStageColor2Face = {0xFF, 0xFF, 0xFF, 0xFF};
 NebulaColor8 sOceanSphereKColor0Face = {0x78, 0xFF, 0xFF, 0x00};
-NebulaColor8 sOceanSphereTevReg0Back = {0x48, 0x80, 0xBE, 0x1C};
-NebulaColor8 sOceanSphereTevReg1BackDefault = {0x00, 0x51, 0x70, 0x6F};
-NebulaColor8 sOceanSphereTevReg1BackTear = {0x00, 0xC3, 0xFF, 0x6F};
-NebulaColor8 sOceanSphereTevReg2Back = {0xFF, 0xFF, 0xFF, 0xFF};
+NebulaColor8 sOceanSphereStageColor0Back = {0x48, 0x80, 0xBE, 0x1C};
+NebulaColor8 sOceanSphereStageColor1BackDefault = {0x00, 0x51, 0x70, 0x6F};
+NebulaColor8 sOceanSphereStageColor1BackTear = {0x00, 0xC3, 0xFF, 0x6F};
+NebulaColor8 sOceanSphereStageColor2Back = {0xFF, 0xFF, 0xFF, 0xFF};
 NebulaColor8 sOceanSphereKColor0Back = {0x78, 0xFF, 0xFF, 0x00};
-NebulaColor8 sOceanSphereTevReg0Env = {0x00, 0x69, 0xB8, 0x14};
-NebulaColor8 sOceanSphereTevReg1Env = {0x00, 0x00, 0x00, 0xFF};
+NebulaColor8 sOceanSphereStageColor0Env = {0x00, 0x69, 0xB8, 0x14};
+NebulaColor8 sOceanSphereStageColor1Env = {0x00, 0x00, 0x00, 0xFF};
 
 namespace NrvOceanSphere {
     NEW_NERVE(OceanSphereNrvRiseUp, OceanSphere, RiseUp);
@@ -42,48 +39,43 @@ namespace {
     Vec sAxisY = {0.0f, 1.0f, 0.0f};
     Vec sAxisZ = {0.0f, 0.0f, 1.0f};
 
-    TVec3f sPosAxisX(sAxisX);
-    TVec3f sPosAxisY(sAxisY);
-    TVec3f sPosAxisZ(sAxisZ);
+    Vec3f sPosAxisX(sAxisX);
+    Vec3f sPosAxisY(sAxisY);
+    Vec3f sPosAxisZ(sAxisZ);
 };  // namespace
 
 namespace {
     // `pMesh`: the mesh recording the sphere (null to draw it now, its vertices giving `attributes`).
-    void beginDrawPolygon(int idx, s32 pointCount, NativeMesh* pMesh, u32 attributes) {
-        const u16 vtxCount = (u16)(((pointCount - 1 - idx) * 2 + 1));
-        if (pMesh != nullptr) {
-            pMesh->begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, vtxCount);
-        } else {
-            J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, vtxCount, attributes);
-        }
+    u16 stripCount(int idx, s32 pointCount) {
+        return (u16)(((pointCount - 1 - idx) * 2 + 1));
     }
 };  // namespace
 
-OceanSpherePlane::OceanSpherePlane(s32 pointCount, const TVec3f* pCenter, const TVec3f& rAxis1, const TVec3f& rAxis2, const TVec2f& rTex1,
-                                   const TVec2f& rTex2, const TVec2f& rTex3) {
+OceanSpherePlane::OceanSpherePlane(s32 pointCount, const Vec3f* pCenter, const Vec3f& rAxis1, const Vec3f& rAxis2, const Vec2f& rTex1,
+                                   const Vec2f& rTex2, const Vec2f& rTex3) {
     mPoints = nullptr;
     mAxisPointCount = pointCount - 2;
     mGridPointCount = mAxisPointCount * mAxisPointCount;
     mPoints = new OceanSpherePoint*[mGridPointCount];
 
-    TRot3f rot;
+    Rot3f rot;
     rot.identity();
-    TVec2f texCenter(0.5f, 0.5f);
+    Vec2f texCenter(0.5f, 0.5f);
 
     for (s32 row = 1; row < pointCount - 1; row++) {
         rot.setRotate(rAxis2, (static_cast< f32 >(row) / (pointCount - 1)) * (MR::pi() / 2.0f));
-        TVec3f vec(rAxis1);
+        Vec3f vec(rAxis1);
         rot.mult(vec, vec);
         f32 rowRate = static_cast< f32 >(row) / (pointCount - 1);
-        TVec2f texA = texCenter * (1.0f - rowRate) + rTex1 * rowRate;
-        TVec2f texB = texCenter * (1.0f - rowRate) + rTex2 * rowRate;
-        TVec2f texC = texCenter * (1.0f - rowRate) + rTex3 * rowRate;
+        Vec2f texA = texCenter * (1.0f - rowRate) + rTex1 * rowRate;
+        Vec2f texB = texCenter * (1.0f - rowRate) + rTex2 * rowRate;
+        Vec2f texC = texCenter * (1.0f - rowRate) + rTex3 * rowRate;
 
         for (s32 col = 1; col < 2 * row; col++) {
             rot.setRotate(rAxis1, (static_cast< f32 >(col) / (2 * row)) * MR::pi());
-            TVec3f normal(vec);
+            Vec3f normal(vec);
             rot.mult(normal, normal);
-            TVec2f tex(0.0f, 0.0f);
+            Vec2f tex(0.0f, 0.0f);
             s32 index;
 
             if (col <= row) {
@@ -109,22 +101,22 @@ void OceanSpherePlane::update(f32 radius, f32 wave1Time, f32 wave2Time) {
     }
 }
 
-OceanSpherePlaneEdge::OceanSpherePlaneEdge(s32 pointCount, const TVec3f* pCenter, const TVec3f& rAxis1, const TVec3f& rAxis2, const TVec2f& rTex1,
-                                           const TVec2f& rTex2) {
+OceanSpherePlaneEdge::OceanSpherePlaneEdge(s32 pointCount, const Vec3f* pCenter, const Vec3f& rAxis1, const Vec3f& rAxis2, const Vec2f& rTex1,
+                                           const Vec2f& rTex2) {
     mPoints = nullptr;
     mPointCount = pointCount - 2;
     mPoints = new OceanSpherePoint*[mPointCount];
-    TVec3f axis = rAxis1.cross(rAxis2);
+    Vec3f axis = rAxis1.cross(rAxis2);
     MR::normalize(&axis);
-    TRot3f rot;
+    Rot3f rot;
     rot.identity();
     rot.setRotate(axis, (1.0f / (pointCount - 1)) * (MR::pi() / 2.0f));
-    TVec3f vec(rAxis1);
+    Vec3f vec(rAxis1);
 
     for (s32 i = 0; i < mPointCount; i++) {
         rot.mult(vec, vec);
         f32 rate = static_cast< f32 >(i + 1) / (pointCount - 1);
-        TVec2f tex = rTex1 * (1.0f - rate) + rTex2 * rate;
+        Vec2f tex = rTex1 * (1.0f - rate) + rTex2 * rate;
         mPoints[i] = new OceanSpherePoint(pCenter, vec, i, i, tex);
     }
 }
@@ -139,21 +131,20 @@ OceanSphere::OceanSphere(const char* pName)
     : LiveActor(pName), mRadius(), mRadiusTarget(), mPointCount(), mAxisPointPX(), mAxisPointNX(), mAxisPointPY(), mAxisPointNY(), mAxisPointPZ(),
       mAxisPointNZ(), mPlaneLeftUpper(), mPlaneRightUpper(), mPlaneLeftLower(), mPlaneRightLower(), mEdge0(), mEdge1(), mEdge2(), mEdge3(), mEdge4(),
       mEdge5(), mEdge6(), mEdge7(), mWaveTime1(), mWaveTime2(), mTexOffs0X(), mTexOffs0Y(), mTexOffs1X(), mTexOffs1Y(), mWaterTex(), mWaterEnvTex() {
-    NebulaColor8 front = sOceanSphereTevReg1FrontDefault;
-    mTevReg1Front = front;
+    NebulaColor8 front = sOceanSphereStageColor1FrontDefault;
+    mStageColor1Front = front;
 
-    NebulaColor8 back = sOceanSphereTevReg1BackDefault;
-    mTevReg1Back = back;
+    NebulaColor8 back = sOceanSphereStageColor1BackDefault;
+    mStageColor1Back = back;
 
     mUseMesh = false;
     mAlwaysUseRealDrawing = false;
     mIsCameraInside = false;
     mIsStartPosCamera = true;
-    mIsTearDrop = false;
     mEnableStartPosCameraSwitch = false;
 }
 
-void OceanSphere::init(const JMapInfoIter& rIter) {
+void OceanSphere::init(const TableIter& rIter) {
     MR::connectToScene(this, MR::MovementType_MapObj, MR::CalcAnimType_None, MR::DrawBufferType_None, MR::DrawType_OceanSphere);
     MR::initDefaultPos(this, rIter);
     mRadius = 100.0f * mScale.x;
@@ -163,8 +154,8 @@ void OceanSphere::init(const JMapInfoIter& rIter) {
     initMesh();
     WaterAreaFunction::entryOceanSphere(this);
 
-    mWaterTex = new JUTTexture(MR::loadTexFromArc("WaterWave.arc", "OceanSphere.bti"));
-    mWaterEnvTex = new JUTTexture(MR::loadTexFromArc("WaterWave.arc", "OceanSphereEnvRef.bti"));
+    mWaterTex = new GameTexture(MR::loadTexFromArc("WaterWave", "OceanSphere.bti"));
+    mWaterEnvTex = new GameTexture(MR::loadTexFromArc("WaterWave", "OceanSphereEnvRef.bti"));
 
     MR::setClippingTypeSphere(this, mRadius);
     MR::setClippingFarMax(this);
@@ -176,18 +167,17 @@ void OceanSphere::init(const JMapInfoIter& rIter) {
     }
 
     if (MR::isEqualStageName("TearDropGalaxy")) {
-        mIsTearDrop = true;
         mAlwaysUseRealDrawing = true;
         mIsStartPosCamera = false;
         NebulaColor8 front;
         NebulaColor8 back;
-        NebulaColor8 frontTear = sOceanSphereTevReg1FrontTear;
+        NebulaColor8 frontTear = sOceanSphereStageColor1FrontTear;
         front = frontTear;
-        mTevReg1Front = front;
+        mStageColor1Front = front;
 
-        NebulaColor8 backTear = sOceanSphereTevReg1BackTear;
+        NebulaColor8 backTear = sOceanSphereStageColor1BackTear;
         back = backTear;
-        mTevReg1Back = back;
+        mStageColor1Back = back;
     }
 
     if (MR::tryRegisterDemoCast(this, rIter)) {
@@ -208,15 +198,15 @@ void OceanSphere::exeWait() {
 }
 
 void OceanSphere::exeRiseUp() {
-    f32 rate = MR::calcDemoPartStepRate("\227\116\202\253\220\205\217\343\217\270" /* 湧き水上昇 */);
+    f32 rate = MR::calcDemoPartStepRate("湧き水上昇");
     mRadius = 1000.0f + (rate * (mRadiusTarget - 1000.0f));
 
-    if (MR::isDemoPartLastStep("\227\116\202\253\220\205\217\343\217\270" /* 湧き水上昇 */)) {
+    if (MR::isDemoPartLastStep("湧き水上昇")) {
         setNerve(GET_NERVE(OceanSphere, OceanSphereNrvWait));
     }
 }
 
-bool OceanSphere::isInWater(const TVec3f& rPos) const {
+bool OceanSphere::isInWater(const Vec3f& rPos) const {
     if (MR::isDead(this)) {
         return false;
     }
@@ -224,16 +214,18 @@ bool OceanSphere::isInWater(const TVec3f& rPos) const {
     return rPos.distance(mPosition) <= mRadius;
 }
 
-bool OceanSphere::calcWaterInfo(const TVec3f& rPos, const TVec3f& rGravity, WaterInfo* pInfo) const {
-    const TVec3f& rPosition = mPosition;
+bool OceanSphere::calcWaterInfo(const Vec3f& rPos, const Vec3f& rGravity, WaterInfo* pInfo) const {
+    const Vec3f& rPosition = mPosition;
     const f32 radius = mRadius;
-    TVec3f offset = rPos - rPosition;
+    Vec3f offset = rPos - rPosition;
     const f32 alongGravity = MR::vecKillElement(offset, -rGravity, &offset);
-    const f32 height = radius * MR::cos(offset.length() / radius * MR::pi() / 2.0f);
+    // A sphere placed with no scale (radius 0) holds no water: height 0, not a division by 0.
+    const f32 reach = radius > 0.0f ? offset.length() / radius : 1.0f;
+    const f32 height = radius * MR::cos(reach * MR::pi() / 2.0f);
     pInfo->mCamWaterDepth = height - alongGravity;
-    pInfo->_4 = height + alongGravity;
+    pInfo->mDepth = height + alongGravity;
 
-    TVec3f normal = rPos - rPosition;
+    Vec3f normal = rPos - rPosition;
     MR::normalizeOrZero(&normal);
     pInfo->mSurfaceNormal.set(normal);
     pInfo->mSurfacePos.set(rPosition + normal * radius);
@@ -253,63 +245,151 @@ void OceanSphere::initPoints() {
 
     OceanSpherePoint* pPoint;
 
-    pPoint = new OceanSpherePoint(&mPosition, ::sPosAxisX, 0.0f, 0.0f, TVec2f(1.0f, 0.0f));
+    pPoint = new OceanSpherePoint(&mPosition, ::sPosAxisX, 0.0f, 0.0f, Vec2f(1.0f, 0.0f));
     mAxisPointPX = pPoint;
 
-    pPoint = new OceanSpherePoint(&mPosition, -::sPosAxisX, 0.0f, 0.0f, TVec2f(0.0f, 1.0f));
+    pPoint = new OceanSpherePoint(&mPosition, -::sPosAxisX, 0.0f, 0.0f, Vec2f(0.0f, 1.0f));
     mAxisPointNX = pPoint;
 
-    pPoint = new OceanSpherePoint(&mPosition, ::sPosAxisY, 0.0f, 0.0f, TVec2f(0.5f, 0.5f));
+    pPoint = new OceanSpherePoint(&mPosition, ::sPosAxisY, 0.0f, 0.0f, Vec2f(0.5f, 0.5f));
     mAxisPointPY = pPoint;
 
-    pPoint = new OceanSpherePoint(&mPosition, -::sPosAxisY, 0.0f, 0.0f, TVec2f(0.5f, 0.5f));
+    pPoint = new OceanSpherePoint(&mPosition, -::sPosAxisY, 0.0f, 0.0f, Vec2f(0.5f, 0.5f));
     mAxisPointNY = pPoint;
 
-    pPoint = new OceanSpherePoint(&mPosition, ::sPosAxisZ, 0.0f, 0.0f, TVec2f(1.0f, 1.0f));
+    pPoint = new OceanSpherePoint(&mPosition, ::sPosAxisZ, 0.0f, 0.0f, Vec2f(1.0f, 1.0f));
     mAxisPointPZ = pPoint;
 
-    pPoint = new OceanSpherePoint(&mPosition, -::sPosAxisZ, 0.0f, 0.0f, TVec2f(0.0f, 0.0f));
+    pPoint = new OceanSpherePoint(&mPosition, -::sPosAxisZ, 0.0f, 0.0f, Vec2f(0.0f, 0.0f));
     mAxisPointNZ = pPoint;
 
     OceanSpherePlane* pPlane;
 
-    pPlane = new OceanSpherePlane(mPointCount, &mPosition, ::sPosAxisY, -::sPosAxisX, TVec2f(0.0f, 1.0f), TVec2f(0.0f, 0.0f), TVec2f(1.0f, 1.0f));
+    pPlane = new OceanSpherePlane(mPointCount, &mPosition, ::sPosAxisY, -::sPosAxisX, Vec2f(0.0f, 1.0f), Vec2f(0.0f, 0.0f), Vec2f(1.0f, 1.0f));
     mPlaneLeftUpper = pPlane;
 
-    pPlane = new OceanSpherePlane(mPointCount, &mPosition, ::sPosAxisY, ::sPosAxisX, TVec2f(1.0f, 0.0f), TVec2f(1.0f, 1.0f), TVec2f(0.0f, 0.0f));
+    pPlane = new OceanSpherePlane(mPointCount, &mPosition, ::sPosAxisY, ::sPosAxisX, Vec2f(1.0f, 0.0f), Vec2f(1.0f, 1.0f), Vec2f(0.0f, 0.0f));
     mPlaneRightUpper = pPlane;
 
-    pPlane = new OceanSpherePlane(mPointCount, &mPosition, -::sPosAxisY, -::sPosAxisX, TVec2f(0.0f, 1.0f), TVec2f(1.0f, 1.0f), TVec2f(0.0f, 0.0f));
+    pPlane = new OceanSpherePlane(mPointCount, &mPosition, -::sPosAxisY, -::sPosAxisX, Vec2f(0.0f, 1.0f), Vec2f(1.0f, 1.0f), Vec2f(0.0f, 0.0f));
     mPlaneLeftLower = pPlane;
 
-    pPlane = new OceanSpherePlane(mPointCount, &mPosition, -::sPosAxisY, ::sPosAxisX, TVec2f(1.0f, 0.0f), TVec2f(0.0f, 0.0f), TVec2f(1.0f, 1.0f));
+    pPlane = new OceanSpherePlane(mPointCount, &mPosition, -::sPosAxisY, ::sPosAxisX, Vec2f(1.0f, 0.0f), Vec2f(0.0f, 0.0f), Vec2f(1.0f, 1.0f));
     mPlaneRightLower = pPlane;
 
-    mEdge0 = new OceanSpherePlaneEdge(mPointCount, &mPosition, ::sPosAxisY, ::sPosAxisZ, TVec2f(0.5f, 0.5f), TVec2f(1.0f, 1.0f));
+    mEdge0 = new OceanSpherePlaneEdge(mPointCount, &mPosition, ::sPosAxisY, ::sPosAxisZ, Vec2f(0.5f, 0.5f), Vec2f(1.0f, 1.0f));
 
-    mEdge1 = new OceanSpherePlaneEdge(mPointCount, &mPosition, ::sPosAxisY, -::sPosAxisZ, TVec2f(0.5f, 0.5f), TVec2f(0.0f, 0.0f));
+    mEdge1 = new OceanSpherePlaneEdge(mPointCount, &mPosition, ::sPosAxisY, -::sPosAxisZ, Vec2f(0.5f, 0.5f), Vec2f(0.0f, 0.0f));
 
-    mEdge2 = new OceanSpherePlaneEdge(mPointCount, &mPosition, -::sPosAxisY, ::sPosAxisZ, TVec2f(0.5f, 0.5f), TVec2f(1.0f, 1.0f));
+    mEdge2 = new OceanSpherePlaneEdge(mPointCount, &mPosition, -::sPosAxisY, ::sPosAxisZ, Vec2f(0.5f, 0.5f), Vec2f(1.0f, 1.0f));
 
-    mEdge3 = new OceanSpherePlaneEdge(mPointCount, &mPosition, -::sPosAxisY, -::sPosAxisZ, TVec2f(0.5f, 0.5f), TVec2f(0.0f, 0.0f));
+    mEdge3 = new OceanSpherePlaneEdge(mPointCount, &mPosition, -::sPosAxisY, -::sPosAxisZ, Vec2f(0.5f, 0.5f), Vec2f(0.0f, 0.0f));
 
-    mEdge4 = new OceanSpherePlaneEdge(mPointCount, &mPosition, ::sPosAxisZ, -::sPosAxisX, TVec2f(1.0f, 1.0f), TVec2f(0.0f, 1.0f));
+    mEdge4 = new OceanSpherePlaneEdge(mPointCount, &mPosition, ::sPosAxisZ, -::sPosAxisX, Vec2f(1.0f, 1.0f), Vec2f(0.0f, 1.0f));
 
-    mEdge5 = new OceanSpherePlaneEdge(mPointCount, &mPosition, ::sPosAxisZ, ::sPosAxisX, TVec2f(1.0f, 1.0f), TVec2f(1.0f, 0.0f));
+    mEdge5 = new OceanSpherePlaneEdge(mPointCount, &mPosition, ::sPosAxisZ, ::sPosAxisX, Vec2f(1.0f, 1.0f), Vec2f(1.0f, 0.0f));
 
-    mEdge6 = new OceanSpherePlaneEdge(mPointCount, &mPosition, -::sPosAxisZ, -::sPosAxisX, TVec2f(0.0f, 0.0f), TVec2f(0.0f, 1.0f));
+    mEdge6 = new OceanSpherePlaneEdge(mPointCount, &mPosition, -::sPosAxisZ, -::sPosAxisX, Vec2f(0.0f, 0.0f), Vec2f(0.0f, 1.0f));
 
-    mEdge7 = new OceanSpherePlaneEdge(mPointCount, &mPosition, -::sPosAxisZ, ::sPosAxisX, TVec2f(0.0f, 0.0f), TVec2f(1.0f, 0.0f));
+    mEdge7 = new OceanSpherePlaneEdge(mPointCount, &mPosition, -::sPosAxisZ, ::sPosAxisX, Vec2f(0.0f, 0.0f), Vec2f(1.0f, 0.0f));
+}
+
+template < class T, class Begin >
+void OceanSphere::writeSphere(Begin begin) const {
+    T* vtx;
+    const OceanSpherePoint* pPoint;
+
+    for (s32 i = 0; i < mPointCount - 1; i++) {
+        vtx = begin(::stripCount(i, mPointCount));
+        writeVertex(getPlanePointLeftUpper(i, i), vtx);
+
+        for (s32 j = i + 1; j < mPointCount; j++) {
+            pPoint = getPlanePointLeftUpper(i, j);
+            writeVertex(getPlanePointLeftUpper(i + 1, j), vtx);
+            writeVertex(pPoint, vtx);
+        }
+
+
+        vtx = begin(::stripCount(i, mPointCount));
+
+        for (s32 j = 0; j < mPointCount - i - 1; j++) {
+            pPoint = getPlanePointLeftUpper(mPointCount - 1 - j, i + 1);
+            writeVertex(getPlanePointLeftUpper(mPointCount - 1 - j, i), vtx);
+            writeVertex(pPoint, vtx);
+        }
+
+        writeVertex(getPlanePointLeftUpper(i, i), vtx);
+
+        vtx = begin(::stripCount(i, mPointCount));
+        writeVertex(getPlanePointRightUpper(i, i), vtx);
+
+        for (s32 j = i + 1; j < mPointCount; j++) {
+            pPoint = getPlanePointRightUpper(i, j);
+            writeVertex(getPlanePointRightUpper(i + 1, j), vtx);
+            writeVertex(pPoint, vtx);
+        }
+
+
+        vtx = begin(::stripCount(i, mPointCount));
+
+        for (s32 j = 0; j < mPointCount - i - 1; j++) {
+            pPoint = getPlanePointRightUpper(mPointCount - 1 - j, i + 1);
+            writeVertex(getPlanePointRightUpper(mPointCount - 1 - j, i), vtx);
+            writeVertex(pPoint, vtx);
+        }
+
+        writeVertex(getPlanePointRightUpper(i, i), vtx);
+
+        vtx = begin(::stripCount(i, mPointCount));
+        writeVertex(getPlanePointLeftLower(i, i), vtx);
+
+        for (s32 j = i + 1; j < mPointCount; j++) {
+            pPoint = getPlanePointLeftLower(i, j);
+            writeVertex(getPlanePointLeftLower(i + 1, j), vtx);
+            writeVertex(pPoint, vtx);
+        }
+
+
+        vtx = begin(::stripCount(i, mPointCount));
+
+        for (s32 j = 0; j < mPointCount - i - 1; j++) {
+            pPoint = getPlanePointLeftLower(mPointCount - 1 - j, i + 1);
+            writeVertex(getPlanePointLeftLower(mPointCount - 1 - j, i), vtx);
+            writeVertex(pPoint, vtx);
+        }
+
+        writeVertex(getPlanePointLeftLower(i, i), vtx);
+
+        vtx = begin(::stripCount(i, mPointCount));
+        writeVertex(getPlanePointRightLower(i, i), vtx);
+
+        for (s32 j = i + 1; j < mPointCount; j++) {
+            pPoint = getPlanePointRightLower(i, j);
+            writeVertex(getPlanePointRightLower(i + 1, j), vtx);
+            writeVertex(pPoint, vtx);
+        }
+
+
+        vtx = begin(::stripCount(i, mPointCount));
+
+        for (s32 j = 0; j < mPointCount - i - 1; j++) {
+            pPoint = getPlanePointRightLower(mPointCount - 1 - j, i + 1);
+            writeVertex(getPlanePointRightLower(mPointCount - 1 - j, i), vtx);
+            writeVertex(pPoint, vtx);
+        }
+
+        writeVertex(getPlanePointRightLower(i, i), vtx);
+    }
 }
 
 void OceanSphere::initMesh() {
     // The face's corners carry the sphere's normals too (loadMaterialFace), the back's only them.
     const u32 corners = 8 * mPointCount * (mPointCount + 1);
-    mMeshFace.init(NEBULA_SHAPE_NORMAL | NEBULA_SHAPE_TEXCOORD0 | NEBULA_SHAPE_TEXCOORD0 << 1, corners);
-    drawSphere(false, &mMeshFace);
+    mMeshFace.init(corners);
+    writeSphere< VertexPNT2 >([this](u32 count) { return mMeshFace.strip(count); });
     mMeshFace.send();
-    mMeshBack.init(NEBULA_SHAPE_NORMAL, corners);
-    drawSphere(true, &mMeshBack);
+    mMeshBack.init(corners);
+    writeSphere< VertexPN >([this](u32 count) { return mMeshBack.strip(count); });
     mMeshBack.send();
 }
 
@@ -549,17 +629,17 @@ OceanSpherePoint* OceanSphere::getPlanePointRightLower(int row, int col) const {
 namespace {
     // runtime/src/render/materials/ocean_sphere.hlsl with its four colours: blended by alpha, depth tested and not
     // written, `cull` (NEBULA_CULL_*), no fog.
-    void sendFaceMaterial(JUTTexture* pTexture, const NebulaColor8& rHighlight, const NebulaColor8& rDeep, const NebulaColor8& rShallow,
+    SiteMaterial faceMaterial(GameTexture* pTexture, const NebulaColor8& rHighlight, const NebulaColor8& rDeep, const NebulaColor8& rShallow,
                           const NebulaColor8& rTint, u8 cull) {
-        NebulaNativeMaterial material;
-        NativeShader::init(material, NEBULA_SHADER_OCEAN_SPHERE, NativeShader::BLEND_ALPHA, NEBULA_COMPARE_LEQUAL, false,
+        SiteMaterial material;
+        material.init(NEBULA_SHADER_OCEAN_SPHERE, SiteMaterial::BLEND_ALPHA, NEBULA_COMPARE_LEQUAL, false,
                            cull);
-        NativeShader::setColor(material, 0, rHighlight.r, rHighlight.g, rHighlight.b, rHighlight.a);
-        NativeShader::setColor(material, 4, rDeep.r, rDeep.g, rDeep.b, rDeep.a);
-        NativeShader::setColor(material, 8, rShallow.r, rShallow.g, rShallow.b, rShallow.a);
-        NativeShader::setColor(material, 12, rTint.r, rTint.g, rTint.b, rTint.a);
-        NativeShader::setTexture(material, 0, pTexture);
-        NativeShader::send(material);
+        material.setColor(0, rHighlight.r, rHighlight.g, rHighlight.b, rHighlight.a);
+        material.setColor(4, rDeep.r, rDeep.g, rDeep.b, rDeep.a);
+        material.setColor(8, rShallow.r, rShallow.g, rShallow.b, rShallow.a);
+        material.setColor(12, rTint.r, rTint.g, rTint.b, rTint.a);
+        material.setTexture(0, pTexture);
+        return material;
     }
 }  // namespace
 
@@ -569,180 +649,86 @@ void OceanSphere::draw() const {
     }
 
     if (mIsStartPosCamera && !mIsCameraInside) {
-        loadMaterialBack();
+        const SiteMaterial back = loadMaterialBack();
+        TypedDraw site(back, nullptr, MR::getCameraViewMtx());
 
         if (mUseMesh) {
-            mMeshBack.draw();
+            mMeshBack.draw(site);
         } else {
-            drawSphere(true, nullptr);
+            drawBack(site);
         }
     }
 
-    loadMaterialFace();
+    const SiteMaterial face = loadMaterialFace();
+    TypedDraw site(face, nullptr, MR::getCameraViewMtx());
 
     if (mIsStartPosCamera) {
         if (mIsCameraInside) {
-            sendFaceMaterial(mWaterTex, sOceanSphereTevReg0Face, mTevReg1Front, sOceanSphereTevReg2Face,
-                             sOceanSphereKColor0Face, NEBULA_CULL_FRONT);
+            site.setMaterial(faceMaterial(mWaterTex, sOceanSphereStageColor0Face, mStageColor1Front, sOceanSphereStageColor2Face,
+                                          sOceanSphereKColor0Face, NEBULA_CULL_FRONT));
         }
 
         if (mUseMesh) {
-            mMeshFace.draw();
+            mMeshFace.draw(site);
         } else {
-            drawSphere(false, nullptr);
+            drawFace(site);
         }
 
         return;
     }
 
-    sendFaceMaterial(mWaterTex, sOceanSphereTevReg0Face, mTevReg1Front, sOceanSphereTevReg2Face, sOceanSphereKColor0Face,
-                     NEBULA_CULL_FRONT);
-    drawSphere(false, nullptr);
+    site.setMaterial(faceMaterial(mWaterTex, sOceanSphereStageColor0Face, mStageColor1Front, sOceanSphereStageColor2Face, sOceanSphereKColor0Face,
+                                  NEBULA_CULL_FRONT));
+    drawFace(site);
 
     if (mIsCameraInside) {
         return;
     }
 
-    sendFaceMaterial(mWaterTex, sOceanSphereTevReg0Back, mTevReg1Back, sOceanSphereTevReg2Back, sOceanSphereKColor0Back,
-                     NEBULA_CULL_BACK);
-    drawSphere(false, nullptr);
+    site.setMaterial(faceMaterial(mWaterTex, sOceanSphereStageColor0Back, mStageColor1Back, sOceanSphereStageColor2Back, sOceanSphereKColor0Back,
+                                  NEBULA_CULL_BACK));
+    drawFace(site);
+}
+
+void OceanSphere::drawFace(TypedDraw& rDraw) const {
+    writeSphere< VertexPNT2 >([&rDraw](u32 count) { return rDraw.vertices< VertexPNT2 >(NEBULA_PRIMITIVE_TRIANGLE_STRIP, count); });
+}
+
+void OceanSphere::drawBack(TypedDraw& rDraw) const {
+    writeSphere< VertexPN >([&rDraw](u32 count) { return rDraw.vertices< VertexPN >(NEBULA_PRIMITIVE_TRIANGLE_STRIP, count); });
 }
 
 
-void OceanSphere::loadMaterialFace() const {
-    J3DNativeShape::setPosition(0, MR::getCameraViewMtx());
-    J3DNativeShape::setNormal(0, MR::getCameraViewMtx());
-    J3DNativeShape::setCurrentIdentity();
-    sendFaceMaterial(mWaterTex, sOceanSphereTevReg0Face, mTevReg1Front, sOceanSphereTevReg2Face, sOceanSphereKColor0Face,
+SiteMaterial OceanSphere::loadMaterialFace() const {
+    return faceMaterial(mWaterTex, sOceanSphereStageColor0Face, mStageColor1Front, sOceanSphereStageColor2Face, sOceanSphereKColor0Face,
                      NEBULA_CULL_BACK);
 }
 
-void OceanSphere::loadMaterialBack() const {
-    J3DNativeShape::setPosition(0, MR::getCameraViewMtx());
-    TPos3f pos;
+SiteMaterial OceanSphere::loadMaterialBack() const {
+    Pos3f pos;
     pos.set(MR::getCameraViewMtx());
     pos.zeroTrans();
     pos.scale(0.779175f);
-    J3DNativeShape::setTexture(0, pos.toMtxPtr(), 2);
-    static const u8 kPlaces[8] = {0, J3DNativeShape::kIdentityTexture, J3DNativeShape::kIdentityTexture, J3DNativeShape::kIdentityTexture,
-                                  J3DNativeShape::kIdentityTexture, J3DNativeShape::kIdentityTexture, J3DNativeShape::kIdentityTexture, J3DNativeShape::kIdentityTexture};
-    J3DNativeShape::setCurrent(0, kPlaces);
-    // runtime/src/render/materials/ocean_sphere_env.hlsl: the environment map by the normal from sOceanSphereTevReg0Env
-    // toward sOceanSphereTevReg1Env; opaque, depth tested and written, front faces culled, no fog.
-    NebulaNativeMaterial material;
-    NativeShader::init(material, NEBULA_SHADER_OCEAN_SPHERE_ENV, NativeShader::BLEND_OPAQUE, NEBULA_COMPARE_LEQUAL, true,
+    // runtime/src/render/materials/ocean_sphere_env.hlsl: the environment map by the normal from sOceanSphereStageColor0Env
+    // toward sOceanSphereStageColor1Env; opaque, depth tested and written, front faces culled, no fog.
+    SiteMaterial material;
+    material.init(NEBULA_SHADER_OCEAN_SPHERE_ENV, SiteMaterial::BLEND_OPAQUE, NEBULA_COMPARE_LEQUAL, true,
                        NEBULA_CULL_FRONT);
-    const NebulaColor8& rLow = sOceanSphereTevReg0Env;
-    const NebulaColor8& rHigh = sOceanSphereTevReg1Env;
-    NativeShader::setColor(material, 0, rLow.r, rLow.g, rLow.b, rLow.a);
-    NativeShader::setColor(material, 4, rHigh.r, rHigh.g, rHigh.b, rHigh.a);
-    NativeShader::setTexture(material, 0, mWaterEnvTex);
-    NativeShader::send(material);
+    material.setMatrix(2, 0, pos.toMtxPtr());
+    const NebulaColor8& rLow = sOceanSphereStageColor0Env;
+    const NebulaColor8& rHigh = sOceanSphereStageColor1Env;
+    material.setColor(0, rLow.r, rLow.g, rLow.b, rLow.a);
+    material.setColor(4, rHigh.r, rHigh.g, rHigh.b, rHigh.a);
+    material.setTexture(0, mWaterEnvTex);
+    return material;
 }
 
-void OceanSphere::drawSphere(bool useEnvMap, NativeMesh* pMesh) const {
-    const OceanSpherePoint* pPoint;
-    const u32 attributes = useEnvMap ? NEBULA_SHAPE_NORMAL : NEBULA_SHAPE_NORMAL | NEBULA_SHAPE_TEXCOORD0 | NEBULA_SHAPE_TEXCOORD0 << 1;
 
-    for (s32 i = 0; i < mPointCount - 1; i++) {
-        ::beginDrawPolygon(i, mPointCount, pMesh, attributes);
-        sendVertex(getPlanePointLeftUpper(i, i), useEnvMap, pMesh);
-
-        for (s32 j = i + 1; j < mPointCount; j++) {
-            pPoint = getPlanePointLeftUpper(i, j);
-            sendVertex(getPlanePointLeftUpper(i + 1, j), useEnvMap, pMesh);
-            sendVertex(pPoint, useEnvMap, pMesh);
-        }
-
-
-        ::beginDrawPolygon(i, mPointCount, pMesh, attributes);
-
-        for (s32 j = 0; j < mPointCount - i - 1; j++) {
-            pPoint = getPlanePointLeftUpper(mPointCount - 1 - j, i + 1);
-            sendVertex(getPlanePointLeftUpper(mPointCount - 1 - j, i), useEnvMap, pMesh);
-            sendVertex(pPoint, useEnvMap, pMesh);
-        }
-
-        sendVertex(getPlanePointLeftUpper(i, i), useEnvMap, pMesh);
-
-        ::beginDrawPolygon(i, mPointCount, pMesh, attributes);
-        sendVertex(getPlanePointRightUpper(i, i), useEnvMap, pMesh);
-
-        for (s32 j = i + 1; j < mPointCount; j++) {
-            pPoint = getPlanePointRightUpper(i, j);
-            sendVertex(getPlanePointRightUpper(i + 1, j), useEnvMap, pMesh);
-            sendVertex(pPoint, useEnvMap, pMesh);
-        }
-
-
-        ::beginDrawPolygon(i, mPointCount, pMesh, attributes);
-
-        for (s32 j = 0; j < mPointCount - i - 1; j++) {
-            pPoint = getPlanePointRightUpper(mPointCount - 1 - j, i + 1);
-            sendVertex(getPlanePointRightUpper(mPointCount - 1 - j, i), useEnvMap, pMesh);
-            sendVertex(pPoint, useEnvMap, pMesh);
-        }
-
-        sendVertex(getPlanePointRightUpper(i, i), useEnvMap, pMesh);
-
-        ::beginDrawPolygon(i, mPointCount, pMesh, attributes);
-        sendVertex(getPlanePointLeftLower(i, i), useEnvMap, pMesh);
-
-        for (s32 j = i + 1; j < mPointCount; j++) {
-            pPoint = getPlanePointLeftLower(i, j);
-            sendVertex(getPlanePointLeftLower(i + 1, j), useEnvMap, pMesh);
-            sendVertex(pPoint, useEnvMap, pMesh);
-        }
-
-
-        ::beginDrawPolygon(i, mPointCount, pMesh, attributes);
-
-        for (s32 j = 0; j < mPointCount - i - 1; j++) {
-            pPoint = getPlanePointLeftLower(mPointCount - 1 - j, i + 1);
-            sendVertex(getPlanePointLeftLower(mPointCount - 1 - j, i), useEnvMap, pMesh);
-            sendVertex(pPoint, useEnvMap, pMesh);
-        }
-
-        sendVertex(getPlanePointLeftLower(i, i), useEnvMap, pMesh);
-
-        ::beginDrawPolygon(i, mPointCount, pMesh, attributes);
-        sendVertex(getPlanePointRightLower(i, i), useEnvMap, pMesh);
-
-        for (s32 j = i + 1; j < mPointCount; j++) {
-            pPoint = getPlanePointRightLower(i, j);
-            sendVertex(getPlanePointRightLower(i + 1, j), useEnvMap, pMesh);
-            sendVertex(pPoint, useEnvMap, pMesh);
-        }
-
-
-        ::beginDrawPolygon(i, mPointCount, pMesh, attributes);
-
-        for (s32 j = 0; j < mPointCount - i - 1; j++) {
-            pPoint = getPlanePointRightLower(mPointCount - 1 - j, i + 1);
-            sendVertex(getPlanePointRightLower(mPointCount - 1 - j, i), useEnvMap, pMesh);
-            sendVertex(pPoint, useEnvMap, pMesh);
-        }
-
-        sendVertex(getPlanePointRightLower(i, i), useEnvMap, pMesh);
-    }
+void OceanSphere::writeVertex(const OceanSpherePoint* pPoint, VertexPN*& rVtx) const {
+    *rVtx++ = {pPoint->mPos.x, pPoint->mPos.y, pPoint->mPos.z, pPoint->mNormal.x, pPoint->mNormal.y, pPoint->mNormal.z};
 }
 
-void OceanSphere::sendVertex(const OceanSpherePoint* pPoint, bool useEnvMap, NativeMesh* pMesh) const {
-    if (pMesh != nullptr) {
-        pMesh->position(pPoint->mPos.x, pPoint->mPos.y, pPoint->mPos.z);
-        pMesh->normal(pPoint->mNormal.x, pPoint->mNormal.y, pPoint->mNormal.z);
-        if (!useEnvMap) {
-            pMesh->texCoord(0, mTexOffs0X + pPoint->mTexCoord.x, mTexOffs0Y + pPoint->mTexCoord.y);
-            pMesh->texCoord(1, mTexOffs1X + pPoint->mTexCoord.x, mTexOffs1Y + pPoint->mTexCoord.y);
-        }
-        pMesh->corner();
-    } else {
-        // The face's vertices carry the sphere's normals too (loadMaterialFace), the back's only them.
-        J3DNativeDraw::position(pPoint->mPos.x, pPoint->mPos.y, pPoint->mPos.z);
-        J3DNativeDraw::normal(pPoint->mNormal.x, pPoint->mNormal.y, pPoint->mNormal.z);
-        if (!useEnvMap) {
-            J3DNativeDraw::texCoord(mTexOffs0X + pPoint->mTexCoord.x, mTexOffs0Y + pPoint->mTexCoord.y);
-            J3DNativeDraw::texCoord(mTexOffs1X + pPoint->mTexCoord.x, mTexOffs1Y + pPoint->mTexCoord.y);
-        }
-    }
+void OceanSphere::writeVertex(const OceanSpherePoint* pPoint, VertexPNT2*& rVtx) const {
+    *rVtx++ = {pPoint->mPos.x, pPoint->mPos.y, pPoint->mPos.z, pPoint->mNormal.x, pPoint->mNormal.y, pPoint->mNormal.z,
+               mTexOffs0X + pPoint->mTexCoord.x, mTexOffs0Y + pPoint->mTexCoord.y, mTexOffs1X + pPoint->mTexCoord.x, mTexOffs1Y + pPoint->mTexCoord.y};
 }

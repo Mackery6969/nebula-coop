@@ -20,7 +20,7 @@
 #include "Game/System/GameEventFlagTable.hpp"
 #include "Game/System/GameEventValueChecker.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Player/MarioActor.hpp"
 #include "Game/Player/MarioHolder.hpp"
@@ -105,7 +105,7 @@ namespace {
 
     // How long the instance's clock has run, as the server says: the earliest start is everyone's.
     void applyMissionClock(u32 ms) {
-        const s32 frames = static_cast< s32 >((static_cast< u64 >(ms) * 60u) / 1000u);
+        const s32 frames = static_cast< s32 >((static_cast< u64 >(ms) * NEBULA_STEPS_PER_SECOND) / 1000u);
         if (frames > missionClockNow()) {
             sMissionClock = frames;
             sMissionClockAt = sClock;
@@ -143,7 +143,7 @@ namespace {
         u8 mClassNum;
         s32 mSendIn;         // frames to its next state, as its owner
         u32 mSentNerve;
-        TVec3f mSentPosition;
+        Vec3f mSentPosition;
     };
     const s32 cMaxMotions = 512;
     const u32 cMotionTableSize = 1024;
@@ -297,14 +297,14 @@ namespace {
     }
 
     // A placement's key: its name, zone, link id and place, as the stage's files have them.
-    u32 placementKey(const char* pName, const JMapInfoIter& rIter) {
+    u32 placementKey(const char* pName, const TableIter& rIter) {
         u32 hash = hashBytes(2166136261u, pName, strlen(pName));
         hash = hashValue(hash, static_cast< u32 >(MR::getPlacedZoneId(rIter)));
         s32 linkId = -1;
-        MR::getJMapInfoLinkID(rIter, &linkId);
+        MR::getPlacementLinkID(rIter, &linkId);
         hash = hashValue(hash, static_cast< u32 >(linkId));
-        TVec3f trans(0.0f, 0.0f, 0.0f);
-        MR::getJMapInfoTrans(rIter, &trans);
+        Vec3f trans(0.0f, 0.0f, 0.0f);
+        MR::getPlacementTrans(rIter, &trans);
         hash = hashBytes(hash, &trans.x, sizeof(f32));
         hash = hashBytes(hash, &trans.y, sizeof(f32));
         hash = hashBytes(hash, &trans.z, sizeof(f32));
@@ -537,7 +537,7 @@ namespace {
         if (pKeeper == nullptr) {
             return -1;
         }
-        for (s32 i = 0; i < pKeeper->mSensorCount && i < 256; i++) {
+        for (s32 i = 0; i < pKeeper->mSensorInfosSize && i < 256; i++) {
             if (pKeeper->mSensorInfos[i] != nullptr && pKeeper->mSensorInfos[i]->mSensor == pSensor) {
                 return i;
             }
@@ -557,7 +557,7 @@ namespace {
             return;
         }
         const HitSensorKeeper* pKeeper = pActor->mSensorKeeper;
-        if (rEvent.scenario < 0 || rEvent.scenario >= pKeeper->mSensorCount || pKeeper->mSensorInfos[rEvent.scenario] == nullptr) {
+        if (rEvent.scenario < 0 || rEvent.scenario >= pKeeper->mSensorInfosSize || pKeeper->mSensorInfos[rEvent.scenario] == nullptr) {
             return;
         }
         HitSensor* pReceiver = pKeeper->mSensorInfos[rEvent.scenario]->mSensor;
@@ -653,7 +653,7 @@ namespace {
         sApplying = false;
     }
 
-    TVec3f sTeleportTo(0.0f, 0.0f, 0.0f);
+    Vec3f sTeleportTo(0.0f, 0.0f, 0.0f);
     s32 sTeleportFrames = 0;
 
     f32 floatFromBits(u32 bits) {
@@ -770,10 +770,10 @@ namespace {
     }
 
     MtxPtr baseMtxOf(LiveActor* pActor) {
-        if (pActor->mModelManager == nullptr || MR::getJ3DModel(pActor) == nullptr) {
+        if (pActor->mModelManager == nullptr || MR::getModel(pActor) == nullptr) {
             return nullptr;
         }
-        return reinterpret_cast< MtxPtr >(&MR::getJ3DModel(pActor)->mBaseTransformMtx);
+        return reinterpret_cast< MtxPtr >(&MR::getModel(pActor)->mBaseTransformMtx);
     }
 
     bool isKnownClass(const Motion& rMotion, u32 nerveClass) {
@@ -828,7 +828,7 @@ namespace {
         setFollowing(rMotion, pActor, true);
         // Its speed as the owner's; its place glides there each frame (afterMovement), or jumps when far off.
         pActor->mVelocity.set(rState.velocity[0], rState.velocity[1], rState.velocity[2]);
-        const TVec3f there(rState.position[0], rState.position[1], rState.position[2]);
+        const Vec3f there(rState.position[0], rState.position[1], rState.position[2]);
         if (pActor->mPosition.distance(there) > cSnapDistance) {
             pActor->mPosition.set(there);
         }
@@ -901,7 +901,7 @@ namespace {
         // Static: the module links without __chkstk, so no frame may need a stack probe.
         static NebulaCoopObjectState states[64];
         u32 stateNum = 0;
-        const TVec3f* pMarioPos = sMario != nullptr ? &sMario->mPosition : nullptr;
+        const Vec3f* pMarioPos = sMario != nullptr ? &sMario->mPosition : nullptr;
         for (s32 i = 0; i < sMotionNum; i++) {
             Motion& rMotion = sMotions[i];
             Entry& rEntry = sEntries[rMotion.mEntry];
@@ -1065,7 +1065,7 @@ namespace NebulaCoopWorld {
         }
     }
 
-    void notePlaced(const char* pName, NameObj* pObj, const JMapInfoIter& rIter) {
+    void notePlaced(const char* pName, NameObj* pObj, const TableIter& rIter) {
         sPlacing = false;
         if (!sInRoom || pName == nullptr || pObj == nullptr) {
             return;
@@ -1205,7 +1205,7 @@ namespace NebulaCoopWorld {
         }
         const s32 frames = missionClockNow();
         // As this game has it; the server answers only if the instance's began earlier (applyMissionClock).
-        report(NEBULA_COOP_WORLD_CLOCK, 0, static_cast< u32 >((static_cast< u64 >(frames) * 1000u) / 60u), 0, nullptr);
+        report(NEBULA_COOP_WORLD_CLOCK, 0, static_cast< u32 >((static_cast< u64 >(frames) * 1000u) / NEBULA_STEPS_PER_SECOND), 0, nullptr);
         return frames;
     }
 
@@ -1275,7 +1275,7 @@ namespace NebulaCoopWorld {
         const NebulaCoopObjectState& rState = pMotion->mState;
         const f32 ahead = static_cast< f32 >(pMotion->mAge < cAheadFrames ? pMotion->mAge : cAheadFrames);
         pMotion->mAge++;
-        const TVec3f there(rState.position[0] + rState.velocity[0] * ahead, rState.position[1] + rState.velocity[1] * ahead,
+        const Vec3f there(rState.position[0] + rState.velocity[0] * ahead, rState.position[1] + rState.velocity[1] * ahead,
                            rState.position[2] + rState.velocity[2] * ahead);
         if (pActor->mPosition.distance(there) > cSnapDistance) {
             pActor->mPosition.set(there);

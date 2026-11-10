@@ -13,10 +13,10 @@
 #include "Game/Util/PlayerUtil.hpp"
 
 namespace {
-    static TVec3f sZeroVec(0.0f, 0.0f, 0.0f);
+    const Vec3f sZeroVec(0.0f, 0.0f, 0.0f);
 };  // namespace
 
-CameraTargetObj::CameraTargetObj(const char* pName) : NameObj(pName), mCameraWall() {
+CameraTargetObj::CameraTargetObj(const char* pName) : NameObj(pName) {
 }
 
 CameraTargetActor::CameraTargetActor(const char* pName)
@@ -33,7 +33,7 @@ void CameraTargetActor::movement() {
         MR::calcFrontVec(&mFront, mActor);
         MR::calcSideVec(&mSide, mActor);
     } else {
-        TRot3f matrix;
+        Rot3f matrix;
         MR::makeMtxRotate(matrix, mActor->mRotation.x, mActor->mRotation.y, mActor->mRotation.z);
 
         matrix.getYDir(mUp);
@@ -41,40 +41,34 @@ void CameraTargetActor::movement() {
         matrix.getXDir(mSide);
     }
 
-    CubeCameraArea* area = static_cast< CubeCameraArea* >(MR::getAreaObj("CubeCamera", mActor->mPosition));
-
-    if (area == nullptr) {
-        mCameraArea = nullptr;
-    } else {
-        mCameraArea = area;
-    }
+    mCameraArea = static_cast< CubeCameraArea* >(MR::getAreaObj("CubeCamera", mActor->mPosition));
 }
 
-const TVec3f& CameraTargetActor::getPosition() const {
+const Vec3f& CameraTargetActor::getPosition() const {
     return mActor->mPosition;
 }
 
-const TVec3f& CameraTargetActor::getUpVec() const {
+const Vec3f& CameraTargetActor::getUpVec() const {
     return mUp;
 }
 
-const TVec3f& CameraTargetActor::getFrontVec() const {
+const Vec3f& CameraTargetActor::getFrontVec() const {
     return mFront;
 }
 
-const TVec3f& CameraTargetActor::getSideVec() const {
+const Vec3f& CameraTargetActor::getSideVec() const {
     return mSide;
 }
 
-const TVec3f& CameraTargetActor::getLastMove() const {
+const Vec3f& CameraTargetActor::getLastMove() const {
     return mActor->mVelocity;
 }
 
-const TVec3f& CameraTargetActor::getGroundPos() const {
+const Vec3f& CameraTargetActor::getGroundPos() const {
     return mActor->mPosition;
 }
 
-const TVec3f& CameraTargetActor::getGravityVector() const {
+const Vec3f& CameraTargetActor::getGravityVector() const {
     if (getGravityInfo() != nullptr) {
         return getGravityInfo()->mGravityVector;
     } else {
@@ -101,7 +95,7 @@ void CameraTargetPlayer::movement() {
     }
 
     if (MR::isPlayerInBind()) {
-        TPos3f mtx;
+        Pos3f mtx;
         mtx.set(MR::getPlayerBaseMtx());
         mtx.getXDir(mSide);
         mtx.getYDir(mUp);
@@ -120,13 +114,7 @@ void CameraTargetPlayer::movement() {
 
     mGroundPos.set(*mActor->getShadowPos());
 
-    CubeCameraArea* area = MR::getCameraCube();
-    if (area != nullptr) {
-        mCameraArea = area;
-    } else {
-        mCameraArea = nullptr;
-    }
-
+    mCameraArea = MR::getCameraCube();
     mGroundTriangle = MR::getPlayerGroundingPolygon();
 
     if (MR::isNearZero(mUp)) {
@@ -135,40 +123,35 @@ void CameraTargetPlayer::movement() {
         MR::normalize(&mUp);
     }
 
-    if (mPlayerMovementTimer != MR::getPlayerMovementTimer()) {
-        mIsPlayerMoving = true;
-    } else {
-        mIsPlayerMoving = false;
-    }
-
+    mIsPlayerMoving = mPlayerMovementTimer != MR::getPlayerMovementTimer();
     mPlayerMovementTimer = MR::getPlayerMovementTimer();
 }
 
-const TVec3f& CameraTargetPlayer::getPosition() const {
+const Vec3f& CameraTargetPlayer::getPosition() const {
     return mActor->getTransForCamera();
 }
 
-const TVec3f& CameraTargetPlayer::getUpVec() const {
+const Vec3f& CameraTargetPlayer::getUpVec() const {
     return mUp;
 }
 
-const TVec3f& CameraTargetPlayer::getFrontVec() const {
+const Vec3f& CameraTargetPlayer::getFrontVec() const {
     return mFront;
 }
 
-const TVec3f& CameraTargetPlayer::getSideVec() const {
+const Vec3f& CameraTargetPlayer::getSideVec() const {
     return mSide;
 }
 
-const TVec3f& CameraTargetPlayer::getGroundPos() const {
+const Vec3f& CameraTargetPlayer::getGroundPos() const {
     return mGroundPos;
 }
 
-const TVec3f& CameraTargetPlayer::getGravityVector() const {
+const Vec3f& CameraTargetPlayer::getGravityVector() const {
     return mGravity;
 }
 
-const TVec3f& CameraTargetPlayer::getLastMove() const {
+const Vec3f& CameraTargetPlayer::getLastMove() const {
     if (MR::isDemoActive() && !mIsPlayerMoving) {
         return ::sZeroVec;
     } else {
@@ -228,19 +211,11 @@ GravityInfo* CameraTargetPlayer::getGravityInfo() const {
     return mActor->getGravityInfo();
 }
 
-bool CameraTargetPlayer::isDebugMode() const {
-    return mActor->isDebugMode();
-}
-
-TPos3f* CameraTargetPlayer::getMapBaseMtx() const {
-    return reinterpret_cast< TPos3f* >(mActor->getMapBaseMtx());
-}
-
 CameraTargetDemoActor::CameraTargetDemoActor(MtxPtr pMtx, const char* pName) : LiveActor(pName) {
     mMtx.set(pMtx);
 }
 
-void CameraTargetDemoActor::init(const JMapInfoIter& rIter) {
+void CameraTargetDemoActor::init(const TableIter& rIter) {
     LiveActor::init(rIter);
     makeActorAppeared();
 }

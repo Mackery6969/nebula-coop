@@ -1,20 +1,19 @@
 #pragma once
 
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
 class PlayerInput;
 
+// How a hand's controller is tilted, in g, as the host keeps it.
 class InputTilt {
 public:
-    InputTilt(const PlayerInput* pPad, u32 device);
+    InputTilt(const PlayerInput* pPad, u32 hand);
 
-    bool getAcceleration(TVec3f* pOut) const;
-    bool getPastAcceleration(TVec3f* pOut, s32 index) const;
+    bool getAcceleration(Vec3f* pOut) const;
     void update();
 
-    /* 0x000 */ const PlayerInput* mPad;
-    /* 0x004 */ u32 _4;
-    /* 0x024 */ TVec3f mHistory[128];
-    /* 0x624 */ s32 _624;
-    /* 0x628 */ s32 _628;
+    const PlayerInput* mPad;
+    u32 mHand;
+    Vec3f mTilt;
+    bool mValid;
 };

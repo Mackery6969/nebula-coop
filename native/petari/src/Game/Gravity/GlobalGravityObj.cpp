@@ -5,9 +5,9 @@ GlobalGravityObj::GlobalGravityObj(const char* pName) : LiveActor(pName) {
     mGravityCreator = nullptr;
 }
 
-void GlobalGravityObj::init(const JMapInfoIter& rIter) {
+void GlobalGravityObj::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
-    mGravityCreator->createFromJMap(rIter);
+    mGravityCreator->createFromPlacement(rIter);
 
     MR::useStageSwitchReadA(this, rIter);
     MR::useStageSwitchReadB(this, rIter);
@@ -46,7 +46,7 @@ void GlobalGravityObj::updateSwitch() {
             switchA = MR::isOnSwitchA(this);
         }
         if (MR::isValidSwitchB(this)) {
-            switchB = MR::isOnSwitchB(this) == false;
+            switchB = !MR::isOnSwitchB(this);
         }
 
         PlanetGravity* pGravity = mGravityCreator->getGravity();

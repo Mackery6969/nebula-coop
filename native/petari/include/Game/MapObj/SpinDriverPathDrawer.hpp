@@ -1,19 +1,23 @@
 #pragma once
 
+#include "Game/Render/TypedDraw.hpp"
+
 #include "Game/LiveActor/LiveActor.hpp"
 
-class JUTTexture;
+class GameTexture;
 class SpinDriverShootPath;
 
 class SpinDriverPathDrawer : public LiveActor {
 public:
     SpinDriverPathDrawer(SpinDriverShootPath*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void draw() const;
+    virtual void init(const TableIter&) override;
+    virtual void draw() const override;
 
-    s32 calcPositionCount(f32, f32) const;
-    void initPositionList(f32, f32);
+    // The path sampled every sampleStep of length; a sample is kept once it leaves the last kept point's direction line
+    // by more than minSideOffset.
+    s32 calcPositionCount(f32 sampleStep, f32 minSideOffset) const;
+    void initPositionList(f32 sampleStep, f32 minSideOffset);
     void initClipping();
     void initPathEnd();
     f32 calcDrawCode() const;
@@ -24,20 +28,18 @@ public:
     void setColorPink();
     void setMaskLength(f32);
     void setFadeScale(f32);
-    void sendPoint(const TVec3f&, f32, f32) const;
+    void sendPoint(VertexPT*&, const Vec3f& rPos, f32 u, f32 v) const;
 
     SpinDriverShootPath* mShootPath;
-    TVec3f* _90;
-    TVec3f* _94;
-    TVec3f* _98;
-    f32* _9C;
+    Vec3f* mPositions;
+    Vec3f* mSides;
+    Vec3f* mUps;
+    f32* mCoords;
     s32 mPositionCount;
-    u32 _A4;
-    u32 _A8;
-    f32 _AC;
-    f32 _B0;
+    f32 mCoord;
+    f32 mMaxCoord;
     s32 mColor;
-    f32 _B8;
+    f32 mEndCut;
     f32 mFadeScale;
     f32 mMaskLength;
 };
@@ -48,10 +50,10 @@ public:
 
     void initDraw();
 
-    JUTTexture* mOrangeTexture;
-    JUTTexture* mGreenTexture;
-    JUTTexture* mPinkTexture;
-    JUTTexture* mMaskTexture;
+    GameTexture* mOrangeTexture;
+    GameTexture* mGreenTexture;
+    GameTexture* mPinkTexture;
+    GameTexture* mMaskTexture;
     bool mIsPathAtOpa;
 };
 

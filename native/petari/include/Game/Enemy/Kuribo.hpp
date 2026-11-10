@@ -4,8 +4,8 @@
 #include "Game/Enemy/WalkerStateBindStarPointer.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/LiveActor.hpp"
-#include "Game/Util/JMapInfo.hpp"
-#include <JSystem/JGeometry/TQuat.hpp>
+#include "Game/Util/Table.hpp"
+#include <nebula_geometry.hpp>
 
 class ItemGenerator;
 class WalkerStateStagger;
@@ -15,25 +15,29 @@ class WalkerStateFindPlayer;
 
 class Kuribo : public LiveActor {
 public:
+    enum SeVersion {
+        SeVersion_NORMAL = 0,
+        SeVersion_2D = 1,
+    };
+
     Kuribo(const char*);
 
-    virtual ~Kuribo();
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void makeActorAppeared();
-    virtual void kill();
-    virtual void makeActorDead();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPush(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
+    virtual void makeActorAppeared() override;
+    virtual void kill() override;
+    virtual void makeActorDead() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPush(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
     void initState();
     void initSensor();
-    void initAppearState(const JMapInfoIter&);
+    void initAppearState(const TableIter&);
     bool requestDead();
     bool requestFlatDown(HitSensor*, HitSensor*);
     bool requestHipDropDown(HitSensor*, HitSensor*);
@@ -42,9 +46,9 @@ public:
     bool requestBlowDown(HitSensor*, HitSensor*);
     bool requestAttackSuccess();
     void onNoGravitySupport();
-    void setUp(const TVec3f&, const TQuat4f&, const TVec3f&);
-    void appearBlowed(const TVec3f&, const TQuat4f&, const TVec3f&);
-    void appearHipDropped(const TVec3f&, const TQuat4f&);
+    void setUp(const Vec3f& rPosition, const Quat4f& rPose, const Vec3f& rVelocity);
+    void appearBlowed(const Vec3f& rPosition, const Quat4f& rPose, const Vec3f& rVelocity);
+    void appearHipDropped(const Vec3f& rPosition, const Quat4f& rPose);
     bool tryNonActive();
     bool tryActive();
     bool tryEndBlow();
@@ -85,10 +89,10 @@ public:
     WalkerStateBindStarPointer* mBindStarPointer;
     WalkerStateStagger* mStateStagger;
     WalkerStateChase* mStateChase;
-    TQuat4f _A8;
-    TVec3f _B8;
-    bool _C4;
-    u8 _C5;
+    Quat4f mPoseQuat;
+    Vec3f mFront;
+    bool mIsNoGravitySupport;
+    bool mHasItem;
 };
 
 namespace MR {

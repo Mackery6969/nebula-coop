@@ -3,7 +3,7 @@
 #include "Game/Enemy/WaterBazookaCapsule.hpp"
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class ActorCameraInfo;
 class CameraTargetDemoActor;
@@ -18,14 +18,14 @@ class WaterBazooka : public LiveActor {
 public:
     WaterBazooka(const char*);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void kill();
-    virtual void makeActorDead();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void kill() override;
+    virtual void makeActorDead() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     bool isFirstShoot() const;
     bool isTired() const;
@@ -59,7 +59,7 @@ public:
     void switchShowOrHide();
     void updateElectricLeak();
     void damageBazooka(HitSensor*, HitSensor*);
-    bool calcJointCannon(TPos3f*, const JointControllerInfo&);
+    bool calcJointCannon(Pos3f*, const JointControllerInfo&);
     s32 getSmokeLevel() const;  // enum?
 
     bool tryWaitForBattle();
@@ -72,12 +72,12 @@ public:
     void initBazookaCapsule();
     void initBreakModel();
     void initCameraTarget();
-    void initBullet(const JMapInfoIter&);
+    void initBullet(const TableIter&);
     bool tryShotBullet();
     ElectricPressureBullet* selectBulletElectric();
     bool tryJumpBackPlayerFromBazooka() const;
-    void calcNearDropPoint(TVec3f*) const;
-    void calcGunPointFromCannon(TPos3f*);
+    void calcNearDropPoint(Vec3f*) const;
+    void calcGunPointFromCannon(Pos3f*);
     void setCameraTargetMtx();
 
     inline void startBrk(const char* pName) {
@@ -95,7 +95,7 @@ public:
     s32 mShotNum;
     CollisionParts* mCannonCollisionParts;
     JointController* mJointCtrl;
-    TPos3f mBaseMtx;
+    Pos3f mBaseMtx;
     bool mIsPinchBGMStarted;
     bool mHasPowerStar;
     bool mIsElectric;

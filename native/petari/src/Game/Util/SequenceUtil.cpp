@@ -7,51 +7,56 @@
 #include "Game/System/GameSystem.hpp"
 #include "Game/System/GameSystemSceneController.hpp"
 #include "Game/Util/EventUtil.hpp"
-#include "Game/Util/JMapIdInfo.hpp"
+#include "Game/Util/PlacementId.hpp"
 #include "Game/Util/SceneUtil.hpp"
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/SingletonHolder.hpp"
 #include "Game/Util/SystemUtil.hpp"
-#include "Game/System/NebulaHost.hpp"
+#include "Game/Util/Tunable.hpp"
+
+namespace {
+    // Star bits given after a miss (0).
+    NEBULA_TUNABLE(s32, cMissStarPieceNum, 0);
+};  // namespace
 
 namespace MR {
-    void requestChangeScene(const char* pName) {
-        GameSequenceFunction::requestChangeScene(pName);
+    void requestChangeScene(SceneKind kind) {
+        GameSequenceFunction::requestChangeScene(kind);
     }
 
     void requestChangeSceneTitle() {
-        GameSequenceFunction::requestGalaxyMove(GalaxyMoveArgument(7, nullptr, 1, nullptr));
+        GameSequenceFunction::requestGalaxyMove(GalaxyMoveArgument(GalaxyMoveArgument::Type_Title, nullptr, 1, nullptr));
     }
 
     void requestChangeStageInGameAfterLoadingGameData() {
-        GameSequenceFunction::requestGalaxyMove(GalaxyMoveArgument(6, nullptr, 1, nullptr));
+        GameSequenceFunction::requestGalaxyMove(GalaxyMoveArgument(GalaxyMoveArgument::Type_AfterLoadingGameData, nullptr, 1, nullptr));
     }
 
     void requestChangeStageAfterStageClear() {
-        GameSequenceFunction::requestGalaxyMove(GalaxyMoveArgument(4, nullptr, 1, nullptr));
+        GameSequenceFunction::requestGalaxyMove(GalaxyMoveArgument(GalaxyMoveArgument::Type_AfterStageClear, nullptr, 1, nullptr));
     }
 
     void requestChangeStageAfterMiss() {
-        JMapIdInfo info = *getPlayerRestartIdInfo();
+        PlacementId info = *getPlayerRestartIdInfo();
 
         if (isGalaxyAnyCometAppearInCurrentStage()) {
-            const JMapIdInfo& rInitialInfo = getInitializeStartIdInfo();
-            info._0 = rInitialInfo._0;
+            const PlacementId& rInitialInfo = getInitializeStartIdInfo();
+            info.mId = rInitialInfo.mId;
             info.mZoneID = rInitialInfo.mZoneID;
         }
 
         GameSystemSceneController* pSceneController = SingletonHolder< GameSystem >::get()->mSceneController;
-        GalaxyMoveArgument argument(5, pSceneController->mCurrSceneControlInfo.mStage, pSceneController->getCurrentScenarioNo(), &info);
-        argument._C = pSceneController->getCurrentSelectedScenarioNo();
+        GalaxyMoveArgument argument(GalaxyMoveArgument::Type_AfterMiss, pSceneController->mCurrSceneControlInfo.mStage, pSceneController->getCurrentScenarioNo(), &info);
+        argument.mSelectedScenarioNo = pSceneController->getCurrentSelectedScenarioNo();
 
         GameSequenceFunction::requestGalaxyMove(argument);
-        if (u32 pieces = 0; NebulaHost::codePatch(NEBULA_PATCH_MISS_STAR_PIECES, &pieces)) {
-            GameDataFunction::addStarPiece(static_cast< s32 >(pieces));
+        if (::cMissStarPieceNum != 0) {
+            GameDataFunction::addStarPiece(::cMissStarPieceNum);
         }
     }
 
-    void requestChangeStageInGameMoving(const char* pStageName, s32 scenarioNo, const JMapIdInfo& rInfo) {
-        GameSequenceFunction::requestGalaxyMove(GalaxyMoveArgument(0, pStageName, scenarioNo, &rInfo));
+    void requestChangeStageInGameMoving(const char* pStageName, s32 scenarioNo, const PlacementId& rInfo) {
+        GameSequenceFunction::requestGalaxyMove(GalaxyMoveArgument(GalaxyMoveArgument::Type_InGame, pStageName, scenarioNo, &rInfo));
     }
 
     void requestChangeStageInGameMoving(const char* pStageName, s32 scenarioNo) {
@@ -68,15 +73,15 @@ namespace MR {
     }
 
     void requestChangeStageGoBackAstroDome() {
-        GameSequenceFunction::requestGalaxyMove(GalaxyMoveArgument(3, nullptr, 1, nullptr));
+        GameSequenceFunction::requestGalaxyMove(GalaxyMoveArgument(GalaxyMoveArgument::Type_GoBackAstroDome, nullptr, 1, nullptr));
     }
 
     void requestStartScenarioSelect(const char* pStageName) {
-        GameSequenceFunction::requestGalaxyMove(GalaxyMoveArgument(2, pStageName, -1, nullptr));
+        GameSequenceFunction::requestGalaxyMove(GalaxyMoveArgument(GalaxyMoveArgument::Type_ScenarioSelect, pStageName, -1, nullptr));
     }
 
     void requestStartScenarioSelectForComet(const char* pStageName, s32 scenarioNo) {
-        GameSequenceFunction::requestGalaxyMove(GalaxyMoveArgument(2, pStageName, scenarioNo, nullptr));
+        GameSequenceFunction::requestGalaxyMove(GalaxyMoveArgument(GalaxyMoveArgument::Type_ScenarioSelect, pStageName, scenarioNo, nullptr));
     }
 
     bool hasRetryGalaxySequence() {
@@ -116,15 +121,15 @@ namespace MR {
         requestForceAppearHPMeter();
     }
 
-    void requestGoToAstroGalaxy(s32 param1) {
-        JMapIdInfo info(param1, 0);
+    void requestGoToAstroGalaxy(s32 startId) {
+        PlacementId info(startId, 0);
 
-        GameSequenceFunction::requestGalaxyMove(GalaxyMoveArgument(0, "AstroGalaxy", -1, &info));
+        GameSequenceFunction::requestGalaxyMove(GalaxyMoveArgument(GalaxyMoveArgument::Type_InGame, "AstroGalaxy", -1, &info));
     }
 
-    void requestGoToAstroDomeFromAstroGalaxy(s32 scenarioNo, s32 param2) {
-        JMapIdInfo info(param2, 0);
+    void requestGoToAstroDomeFromAstroGalaxy(s32 scenarioNo, s32 startId) {
+        PlacementId info(startId, 0);
 
-        GameSequenceFunction::requestGalaxyMove(GalaxyMoveArgument(0, "AstroDome", scenarioNo, &info));
+        GameSequenceFunction::requestGalaxyMove(GalaxyMoveArgument(GalaxyMoveArgument::Type_InGame, "AstroDome", scenarioNo, &info));
     }
 };  // namespace MR

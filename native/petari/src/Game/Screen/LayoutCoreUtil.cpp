@@ -13,34 +13,43 @@ static const char16_t sDefaultMsg[] = u"XXXXXXXX";
 
 namespace LayoutCoreUtil {
 
-    const char* getPaneUserData(const nw4r::lyt::Pane* pPane, char* pUserData) {
+    const char* getPaneUserData(const Ui::Pane* pPane, char* pUserData) {
         MR::copyMemory(pUserData, pPane->mUserData, 8);
         pUserData[8] = '\0';
         return pUserData;
     }
 
-    u16 setTextBoxMessage(nw4r::lyt::TextBox* pTextBox, const char16_t* pMsg) {
-        char16_t buffer[512];
+    u32 setTextBoxMessage(Ui::TextBox* pTextBox, const char16_t* pMsg) {
+        char16_t stack[512];  // the common case on the stack; past it the text is made in a Text16, whole
+        MR::Text16 heap;
+        const u32 room = ReplaceTagProcessor::getReplaceRoom(pMsg);
+        char16_t* const buffer = room <= 512 ? stack : heap.room(room);
         ReplaceTagProcessor::Replace(buffer, pMsg);
-        return pTextBox->SetString(buffer, 0, MR::getStringLengthWithMessageTag(buffer));
+        const u32 length = static_cast< u32 >(MR::getStringLengthWithMessageTag(buffer));
+        // A box that has a string buffer holds whatever is set; its buffer grows to the text.
+        if (pTextBox->GetStringBufferLength() != 0 && length > pTextBox->GetStringBufferLength()) {
+            pTextBox->AllocStringBuffer(length);
+        }
+
+        return pTextBox->SetString(buffer, 0, length);
     }
 
-    void initTextBoxPane(nw4r::lyt::TextBox* pTextBox, const char* pMessageId, u32 allocSize) {
+    void initTextBoxPane(Ui::TextBox* pTextBox, const char* pMessageId, u32 allocSize) {
         CustomTagProcessor* processor = new CustomTagProcessor(pTextBox);
 
-        if (strncmp(pTextBox->mName, "Sha", 3) == 0) {
+        if (MR::isEqualStringPrefix(pTextBox->mName, "Sha")) {
             processor->mIsShadow = true;
         } else {
             processor->mIsShadow = false;
         }
 
-        if (strncmp(pTextBox->mName, "Txt", 3) == 0) {
+        if (MR::isEqualStringPrefix(pTextBox->mName, "Txt")) {
             processor->mIsText = true;
         } else {
             processor->mIsText = false;
         }
 
-        if (strncmp(pTextBox->mName, "Inf", 3) == 0) {
+        if (MR::isEqualStringPrefix(pTextBox->mName, "Inf")) {
             processor->mIsInfo = true;
         } else {
             processor->mIsInfo = false;
@@ -63,14 +72,14 @@ namespace LayoutCoreUtil {
         }
     }
 
-    void reallocateTextBoxMessage(nw4r::lyt::TextBox* pTextBox, u32 allocSize) {
+    void reallocateTextBoxMessage(Ui::TextBox* pTextBox, u32 allocSize) {
         pTextBox->AllocStringBuffer(allocSize + 1);
     }
 };  // namespace LayoutCoreUtil
 
 namespace MR {
-    void convertScreenPosToLayoutPos(TVec2f* pLayoutPos, const TVec2f& rScreenPos) {
-        // The layout canvas setupDrawForNW4RLayout projects (pointer hit tests, panes following screen positions).
+    void convertScreenPosToLayoutPos(Vec2f* pLayoutPos, const Vec2f& rScreenPos) {
+        // The layout canvas setupDrawForLayout projects (pointer hit tests, panes following screen positions).
         if (MR::isScreen16Per9() && MR::getDisplay().wide) {
             const NebulaDisplay& display = MR::getDisplay();
             pLayoutPos->x = rScreenPos.x * display.layout_width / MR::getScreenWidth() - display.layout_width * 0.5f;
@@ -78,11 +87,11 @@ namespace MR {
                             display.vertical_fit;
             return;
         }
-        pLayoutPos->x = rScreenPos.x * NebulaFrameClock::cLayoutWidth / MR::getScreenWidth() - 304.0f;
+        pLayoutPos->x = rScreenPos.x * NebulaFrameClock::cLayoutWidth / MR::getScreenWidth() - NebulaFrameClock::cLayoutWidth * 0.5f;
         pLayoutPos->y = -(rScreenPos.y * MR::getScreenHeight() / MR::getScreenHeight() - (MR::getScreenHeight() * 0.5f));
     }
 
-    void convertLayoutPosToScreenPos(TVec2f* pScreenPos, const TVec2f& rLayoutPos) {
+    void convertLayoutPosToScreenPos(Vec2f* pScreenPos, const Vec2f& rLayoutPos) {
         if (MR::isScreen16Per9() && MR::getDisplay().wide) {
             const NebulaDisplay& display = MR::getDisplay();
             pScreenPos->x = rLayoutPos.x * MR::getScreenWidth() / display.layout_width + MR::getScreenWidth() * 0.5f;
@@ -94,9 +103,9 @@ namespace MR {
         pScreenPos->y = MR::getScreenHeight() * 0.5f + -rLayoutPos.y * MR::getScreenHeight() / MR::getScreenHeight();
     }
 
-    void convertPaneLocalPosToScreenPos(TVec2f* pScreenPos, const nw4r::lyt::Pane* pPane, const TVec2f& rLocalPos) {
-        TVec3f pos(rLocalPos);
-        TVec3f layoutPos;
+    void convertPaneLocalPosToScreenPos(Vec2f* pScreenPos, const Ui::Pane* pPane, const Vec2f& rLocalPos) {
+        Vec3f pos(rLocalPos);
+        Vec3f layoutPos;
         NebulaMtxMultVec(pPane->mGlbMtx, pos, layoutPos);
         convertLayoutPosToScreenPos(pScreenPos, layoutPos);
     }

@@ -42,8 +42,8 @@ namespace {
     s32 sRestoreFrames = 0;
     char sStage[48];
     s32 sScenario = 0;
-    TVec3f sPos(0.0f, 0.0f, 0.0f);
-    TVec3f sFront(0.0f, 0.0f, 1.0f);
+    Vec3f sPos(0.0f, 0.0f, 0.0f);
+    Vec3f sFront(0.0f, 0.0f, 1.0f);
     u32 sHealth = 0;
     u32 sMaxHealth = 0;
 

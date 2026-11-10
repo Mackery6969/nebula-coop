@@ -2,10 +2,11 @@
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/MapObjActorInitInfo.hpp"
 #include "Game/Util.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const f32 sFallSpeed = 15.0f;
-    static const s32 sStepForFall = 350;
+    NEBULA_TUNABLE(f32, sFallSpeed, 15.0f);
+    NEBULA_TUNABLE(s32, sStepForFall, 350);
 };  // namespace
 
 namespace NrvCannonFortressBreakStep {
@@ -18,10 +19,9 @@ namespace NrvCannonFortressBreakStep {
 CannonFortressBreakStep::CannonFortressBreakStep(const char* pName) : MapObjActor(pName) {
 }
 
-void CannonFortressBreakStep::init(const JMapInfoIter& rIter) {
+void CannonFortressBreakStep::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
     MapObjActorInitInfo info;
-    info.setupHioNode("\222\156\214\140\203\111\203\165\203\127\203\106" /* 地形オブジェ */);
     info.setupDefaultPos();
     info.setupConnectToScene();
     info.setupRotator();
@@ -47,7 +47,7 @@ void CannonFortressBreakStep::exeFallStart() {
 }
 
 void CannonFortressBreakStep::exeFall() {
-    TVec3f upVec;
+    Vec3f upVec;
     MR::calcUpVec(&upVec, this);
     mVelocity.scale(-::sFallSpeed, upVec);
 
@@ -70,9 +70,10 @@ void CannonFortressBreakStep::startFall() {
     setNerve(GET_NERVE(CannonFortressBreakStep, CannonFortressBreakStepNrvFallStart));
 }
 
-void CannonFortressBreakStep::initCaseUseSwitchB(const MapObjActorInitInfo& rInfo) {
+void CannonFortressBreakStep::initCaseUseSwitchB(const MapObjActorInitInfo& /*rInfo*/) {
     MR::listenStageSwitchOnB(this, MR::Functor(this, &CannonFortressBreakStep::startFall));
 }
 
+// init starts the map parts functions itself.
 void CannonFortressBreakStep::initCaseNoUseSwitchB(const MapObjActorInitInfo&) {
 }

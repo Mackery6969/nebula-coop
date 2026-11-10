@@ -25,9 +25,9 @@ public:
     /// @brief Creates a new `StageResultInformer`.
     StageResultInformer();
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void appear();
-    virtual void kill();
+    virtual void init(const TableIter& rIter) override;
+    virtual void appear() override;
+    virtual void kill() override;
 
     void exeAppearGetPowerStar();
     void exeWaitBeforeCountUpPowerStar();
@@ -59,6 +59,6 @@ private:
     StageResultSequenceChecker* mSequenceChecker;
     IconAButton* mIconAButton;
     s32 mClearedStarPieceNum;
-    bool _30;
-    bool _31;
+    bool mHasBufferedDecide;  // decide was pressed before the key wait
+    bool mIsNewBestCoin;  // the coin count beat the saved best
 };

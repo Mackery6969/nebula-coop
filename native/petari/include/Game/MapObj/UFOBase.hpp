@@ -11,28 +11,38 @@ class UFOBase : public LiveActor {
 public:
     UFOBase(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void kill();
-    virtual void makeActorDead();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
+    virtual void init(const TableIter&) override;
+    virtual void kill() override;
+    virtual void makeActorDead() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
     virtual void initSensorType();
 
-    void initSubModel(const JMapInfoIter&, const char*);
+    void initSubModel(const TableIter&, const char*);
     void exeWaitForPlayerOn();
     void exeMove();
     void exeWait();
     void exeBreak();
 
-    CollisionParts* mCollisionParts;  // _84
-    LodCtrl* mLODCtrl;                // _90
-    ModelObj* mModel;                 // _94
-    MapPartsRailMover* mRailMover;    // _98
-    TVec3f _9C;
-    f32 _A8;
-    s32 _AC;
-    bool _B0;
-    const char* _B4;
+    CollisionParts* mCollisionParts;
+    LodCtrl* mLODCtrl;
+    ModelObj* mModel;
+    MapPartsRailMover* mRailMover;
+    Vec3f mFront;
+    f32 mRotateSpeed;
+    s32 mMoveConditionType;
+    bool mIsRailDone;
+
+private:
+    // The UFOs with their own sounds, resolved from the object name at init.
+    enum Kind {
+        Kind_Other,
+        Kind_NormalB,
+        Kind_BattleStageC,
+        Kind_BattleStageD,
+    };
+
+    Kind mKind;
 };
 
 class UFOSolid : public UFOBase {
@@ -44,6 +54,6 @@ class UFOBreakable : public UFOBase {
 public:
     UFOBreakable(const char*);
 
-    virtual void initSensorType();
-    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*);
+    virtual void initSensorType() override;
+    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*) override;
 };

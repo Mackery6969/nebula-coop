@@ -1,7 +1,7 @@
+#include <nebula_game_api.h>
 #include "Game/Map/OceanRingPipeInside.hpp"
-#include "Game/Util/NativeShader.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
+#include "Game/Render/TypedDraw.hpp"
+#include "Game/Render/FrameList.hpp"
 #include "Game/Map/OceanRingPipe.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Util/CameraUtil.hpp"
@@ -9,36 +9,33 @@
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/System/NebulaArena.hpp"
-#include <JSystem/JUtility/JUTTexture.hpp>
-#include <nebula_game_api.h>
-#include <cstring>
-
-extern "C" const NebulaHostServices* nebula_host(void);
+#include "Game/Render/GameTexture.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    const f32 sTexRateU0 = 0.08f;
-    const f32 sTexRateV0 = 0.3f;
-    const f32 sTexRateU1 = 0.04f;
-    const f32 sTexRateV1 = 0.3f;
-    const f32 sTexSpeedU0 = -0.006f;
-    const f32 sTexSpeedU1 = -0.006f;
-    const f32 sIndirectScale = 0.3f;
-    const f32 sTexSpeedV0 = 0.0f;
-    const f32 sTexSpeedV1 = 0.0f;
+    NEBULA_TUNABLE(f32, sTexRateU0, 0.08f);
+    NEBULA_TUNABLE(f32, sTexRateV0, 0.3f);
+    NEBULA_TUNABLE(f32, sTexRateU1, 0.04f);
+    NEBULA_TUNABLE(f32, sTexRateV1, 0.3f);
+    NEBULA_TUNABLE(f32, sTexSpeedU0, -0.006f);
+    NEBULA_TUNABLE(f32, sTexSpeedU1, -0.006f);
+    NEBULA_TUNABLE(f32, sIndirectScale, 0.3f);
+    NEBULA_TUNABLE(f32, sTexSpeedV0, 0.0f);
+    NEBULA_TUNABLE(f32, sTexSpeedV1, 0.0f);
 
-    static NebulaColor8 sTevReg0 = {0x00, 0x1C, 0x00, 0xFF};
-    static NebulaColor8 sTevReg1 = {0x78, 0xA0, 0xF6, 0xFF};
+    static NebulaColor8 sStageColor0 = {0x00, 0x1C, 0x00, 0xFF};
+    static NebulaColor8 sStageColor1 = {0x78, 0xA0, 0xF6, 0xFF};
 };  // namespace
 
 OceanRingPipeInside::OceanRingPipeInside(const OceanRingPipe* pPipe)
-    : LiveActor("\203\111\201\133\203\126\203\203\203\223\203\212\203\223\203\117\202\314\223\340\221\244" /* オーシャンリングの内側 */), mRingPipe(pPipe), mTexU0(), mTexV0(), mTexU1(), mTexV1(), mWaterPipeInsideTex() {
+    : LiveActor("オーシャンリングの内側"), mRingPipe(pPipe), mTexU0(), mTexV0(), mTexU1(), mTexV1(), mWaterPipeInsideTex() {
 }
 
-void OceanRingPipeInside::init(const JMapInfoIter& rIter) {
+void OceanRingPipeInside::init(const TableIter& /*rIter*/) {
     MR::connectToScene(this, MR::MovementType_None, MR::CalcAnimType_None, MR::DrawBufferType_None, MR::DrawType_OceanRingPipeInside);
     initMesh();
     MR::invalidateClipping(this);
-    mWaterPipeInsideTex = new JUTTexture(MR::loadTexFromArc("OceanRing.arc", "WaterPipeInside.bti"));
+    mWaterPipeInsideTex = new GameTexture(MR::loadTexFromArc("OceanRing", "WaterPipeInside.bti"));
     makeActorAppeared();
 }
 
@@ -50,96 +47,72 @@ void OceanRingPipeInside::movement() {
 }
 
 void OceanRingPipeInside::initMesh() {
-    mMesh.init(NEBULA_SHAPE_TEXCOORD0 | NEBULA_SHAPE_TEXCOORD0 << 1, 2 * mRingPipe->_98 * (mRingPipe->_9C - 1));
-    mMesh.useArray(NativeMesh::SLOT_POSITION, mRingPipe->_A0);
+    mMesh.init(2 * mRingPipe->mNumSegments * (mRingPipe->mNumSides - 1));
     sendGD();
     mMesh.send();
 }
 
 void OceanRingPipeInside::draw() const {
-    if (!MR::isValidDraw(mRingPipe) || !mRingPipe->_90) {
+    if (!MR::isValidDraw(mRingPipe) || !mRingPipe->mIsCameraInside) {
         return;
     }
 
-    loadMaterial();
-    mMesh.draw();
+    const SiteMaterial material = loadMaterial();
+    TypedDraw site(material, nullptr, MR::getCameraViewMtx());
+    mMesh.draw(site);
 }
 
-void OceanRingPipeInside::loadMaterial() const {
-    J3DNativeShape::setPosition(0, MR::getCameraViewMtx());
-    J3DNativeShape::setNormal(0, MR::getCameraViewMtx());
-    J3DPass::positionMatrix(0);
+SiteMaterial OceanRingPipeInside::loadMaterial() const {
 
-    TMtx34f mtx;
+    // runtime/src/render/materials/ocean_ring_pipe_inside.hlsl: the texture warped by itself (sIndirectScale texels a
+    // step), sStageColor0 toward sStageColor1 by its colour, its alpha squared, both times four; blended by alpha, depth tested
+    // and not written, back faces culled, no fog.
+    SiteMaterial material;
+    material.init(NEBULA_SHADER_OCEAN_RING_PIPE_INSIDE, SiteMaterial::BLEND_ALPHA, NEBULA_COMPARE_LEQUAL,
+                       false, NEBULA_CULL_BACK);
+    Mtx34f mtx;
     mtx.identity();
     mtx.mMtx[0][2] = mTexU0;
     mtx.mMtx[1][2] = mTexV0;
-    J3DNativeShape::setTexture(0, mtx.toMtxPtr(), 2);
+    material.setMatrix(3, 0, mtx.toMtxPtr());
     mtx.mMtx[0][2] = mTexU1;
     mtx.mMtx[1][2] = mTexV1;
-    J3DNativeShape::setTexture(1, mtx.toMtxPtr(), 2);
-
-    // runtime/src/render/materials/ocean_ring_pipe_inside.hlsl: the texture warped by itself (sIndirectScale texels a
-    // step), sTevReg0 toward sTevReg1 by its colour, its alpha squared, both times four; blended by alpha, depth tested
-    // and not written, back faces culled, no fog.
-    NebulaNativeMaterial material;
-    NativeShader::init(material, NEBULA_SHADER_OCEAN_RING_PIPE_INSIDE, NativeShader::BLEND_ALPHA, NEBULA_COMPARE_LEQUAL,
-                       false, NEBULA_CULL_BACK);
-    NativeShader::setColor(material, 0, ::sTevReg0.r, ::sTevReg0.g, ::sTevReg0.b, ::sTevReg0.a);
-    NativeShader::setColor(material, 4, ::sTevReg1.r, ::sTevReg1.g, ::sTevReg1.b, ::sTevReg1.a);
+    material.setMatrix(3, 1, mtx.toMtxPtr());
+    material.setColor(0, ::sStageColor0.r, ::sStageColor0.g, ::sStageColor0.b, ::sStageColor0.a);
+    material.setColor(4, ::sStageColor1.r, ::sStageColor1.g, ::sStageColor1.b, ::sStageColor1.a);
     material.constants[8] = ::sIndirectScale;
     material.constants[10] = static_cast< f32 >(mWaterPipeInsideTex->getWidth());
     material.constants[11] = static_cast< f32 >(mWaterPipeInsideTex->getHeight());
-    NativeShader::setTexture(material, 0, mWaterPipeInsideTex);
-    NativeShader::send(material);
-    static const u8 kPlaces[8] = {0, 1, J3DNativeShape::kIdentityTexture, J3DNativeShape::kIdentityTexture,
-                                  J3DNativeShape::kIdentityTexture, J3DNativeShape::kIdentityTexture, J3DNativeShape::kIdentityTexture, J3DNativeShape::kIdentityTexture};
-    J3DNativeShape::setCurrent(0, kPlaces);
+    material.setTexture(0, mWaterPipeInsideTex);
+    return material;
 }
 
 void OceanRingPipeInside::sendGD() {
-    s32 vv;
-    s32 v;
-    f32 f30;
-    f32 f29;
-    f32 f28;
-    f32 f27;
-    f32 f26;
-    f32 f25;
-    f29 = ::sTexRateU0;
-    f30 = ::sTexRateU1;
-    f26 = 0.0f;
-    f25 = 0.0f;
-    f28 = ::sTexRateV0;
-    f27 = ::sTexRateV1;
+    // One strip per side band, along the segments; U steps per segment, V per side. Sums run step by step (the order
+    // fixes their rounding).
+    f32 nearV0 = 0.0f;
+    f32 nearV1 = 0.0f;
+    f32 farV0 = ::sTexRateV0;
+    f32 farV1 = ::sTexRateV1;
 
-    for (s32 i = 0; i < mRingPipe->_9C - 1; i++) {
-        f32 f24 = 0.0f;
-        f32 f23 = 0.0f;
-        vv = mRingPipe->_98;
-        mMesh.begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, (u16)(vv << 1));
-        for (s32 j = 0; j < mRingPipe->_98; j++) {
-            v = j * mRingPipe->_9C;
-            mMesh.index(NativeMesh::SLOT_POSITION, i + v);
-            mMesh.texCoord(0, f24, f26);
-            mMesh.texCoord(1, f23, f25);
-            mMesh.corner();
+    for (s32 i = 0; i < mRingPipe->mNumSides - 1; i++) {
+        f32 u0 = 0.0f;
+        f32 u1 = 0.0f;
+        VertexPT2* vtx = mMesh.strip((u16)(mRingPipe->mNumSegments << 1));
+        for (s32 j = 0; j < mRingPipe->mNumSegments; j++) {
+            const s32 segStart = j * mRingPipe->mNumSides;
+            const Vec3f& rNear = mRingPipe->mPositions[i + segStart];
+            const Vec3f& rFar = mRingPipe->mPositions[i + (segStart + 1)];
+            *vtx++ = {rNear.x, rNear.y, rNear.z, u0, nearV0, u1, nearV1};
+            *vtx++ = {rFar.x, rFar.y, rFar.z, u0, farV0, u1, farV1};
 
-            mMesh.index(NativeMesh::SLOT_POSITION, i + (v + 1));
-            mMesh.texCoord(0, f24, f28);
-            mMesh.texCoord(1, f23, f27);
-            mMesh.corner();
-
-            f24 += f29;
-            f23 += f30;
+            u0 += ::sTexRateU0;
+            u1 += ::sTexRateU1;
         }
 
-        f26 = f28;
-        f25 = f27;
-        f28 += ::sTexRateV0;
-        f27 += ::sTexRateV1;
+        nearV0 = farV0;
+        nearV1 = farV1;
+        farV0 += ::sTexRateV0;
+        farV1 += ::sTexRateV1;
     }
-}
-
-OceanRingPipeInside::~OceanRingPipeInside() {
 }

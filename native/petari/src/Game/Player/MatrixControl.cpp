@@ -1,95 +1,77 @@
 #include "Game/Player/MatrixControl.hpp"
-#include "Game/Util/HashUtil.hpp"
 
-MatrixControl::MatrixControl(const char* pName, MatrixMap* pMap, MatrixSelectList* pSelectList, s32 selectCount)
-    : NameObj(pName), _C(pMap), _10(pSelectList), _18(selectCount), _1C(true), _1D() {
-    for (u32 i = 0; i < selectCount; i++) {
-        if (_10[i + 1].mCount > 2) {
-            _1C = false;
-            break;
-        }
-    }
-
+MatrixControl::MatrixControl(const char* pName, MatrixMap* pMap, bool values) : NameObj(pName), mMap(pMap) {
     u32 size;
-    for (size = 0; _C[size].mName[0] != '\0'; size++) {
-        if (!_1C) {
-            _C[size]._8 = new u8[8];
+    for (size = 0; mMap[size].mName[0] != '\0'; size++) {
+        if (values) {
+            mMap[size].mValues = new u8[8];
 
             for (u32 i = 0; i < 8; i++) {
-                _C[size]._8[i] = (_C[size]._4 >> ((7 - i) * 4)) & 0xF;
+                mMap[size].mValues[i] = (mMap[size].mBits >> ((7 - i) * 4)) & 0xF;
             }
         }
     }
 
-    _14 = new HashSortTable(size);
-
+    mIndex.reset(size);
     for (u32 i = 0; i < size; i++) {
-        _14->add(_C[i].mName, i, false);
+        mIndex.add(mMap[i].mName, i);
     }
-
-    _14->sort();
 }
 
+// getValue and getBit take a row the table has.
 u8 MatrixControl::getValue(const char* pName, u8 value) const {
-    u32 index;
-    _14->search(pName, &index);
-    return _C[index]._8[value];
+    return mMap[mIndex.find(pName)].mValues[value];
 }
 
 bool MatrixControl::getValueOrNone(const char* pName, u8 idx, u8* pValue) const {
-    u32 index;
-    if (!_14->search(pName, &index)) {
+    const u32 index = mIndex.find(pName);
+    if (index == MR::NameIndex::cNoValue) {
         return false;
     }
 
     if (pValue != nullptr) {
-        *pValue = _C[index]._8[idx];
+        *pValue = mMap[index].mValues[idx];
     }
 
     return true;
 }
 
 bool MatrixControl::getBit(const char* pName, u8 bit) const {
-    u32 index;
-    _14->search(pName, &index);
-    return _C[index]._4 & (1 << (31 - bit));
+    return mMap[mIndex.find(pName)].mBits & (1 << (31 - bit));
 }
 
 bool MatrixControl::isExist(const char* pName) const {
-    u32 index;
-    return _14->search(pName, &index);
+    return mIndex.find(pName) != MR::NameIndex::cNoValue;
 }
 
 bool MatrixControl::getBitOrNone(const char* pName, u8 bit) const {
-    u32 index;
-    if (_14->search(pName, &index) == false) {
-        return _1D;
+    const u32 index = mIndex.find(pName);
+    if (index == MR::NameIndex::cNoValue) {
+        return false;
     }
 
-    return _C[index]._4 & (1 << (31 - bit));
+    return mMap[index].mBits & (1 << (31 - bit));
 }
 
-MatrixValueGetter::MatrixValueGetter(const char* pName, MatrixValueTable* pTable) : NameObj(pName), _C(pTable) {
-    s32 size;
-    for (size = 0; _C[size].mName[0] != '\x00'; size++)
-        ;
+MatrixValueGetter::MatrixValueGetter(const char* pName, MatrixValueTable* pTable) : NameObj(pName), mTable(pTable) {
+    u32 size;
+    for (size = 0; mTable[size].mName[0] != '\0'; size++) {
+    }
 
-    _10 = new HashSortTable(size);
-
-    for (u32 idx = 0; idx < size; idx++) {
-        _10->add(_C[idx].mName, idx, false);
-        _10->sort();
+    mIndex.reset(size);
+    for (u32 i = 0; i < size; i++) {
+        mIndex.add(mTable[i].mName, i);
     }
 }
 
 bool MatrixValueGetter::getValue(const char* pName, f32* pValue) const {
-    u32 index;
-    if (!_10->search(pName, &index)) {
+    const u32 index = mIndex.find(pName);
+    if (index == MR::NameIndex::cNoValue) {
         return false;
     }
 
     if (pValue != nullptr) {
-        *pValue = _C[index].mValue;
+        *pValue = mTable[index].mValue;
     }
 
     return true;

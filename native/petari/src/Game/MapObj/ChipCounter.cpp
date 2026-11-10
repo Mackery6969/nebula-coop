@@ -9,8 +9,8 @@
 #include "Game/Util/ObjUtil.hpp"
 
 namespace {
-    static const char* sChipPainName[] = {"Chip1", "Chip2", "Chip3", "Chip4", "Chip5"};
-    static s32 sChipPainCount = ARRAY_SIZE(sChipPainName);
+    const char* const sChipPainName[] = {"Chip1", "Chip2", "Chip3", "Chip4", "Chip5"};
+    const s32 sChipPainCount = ARRAY_SIZE(sChipPainName);
 };  // namespace
 
 namespace NrvChipCounter {
@@ -23,10 +23,10 @@ namespace NrvChipCounter {
     NEW_NERVE(ChipCounterNrvCompleteOut, ChipCounter, CompleteOut);
 };  // namespace NrvChipCounter
 
-ChipCounter::ChipCounter(const char* pName, s32 type) : LayoutActor(pName, true), mCollectCounter(), mCount(), mType(type), mGroupId(-1), _30(1.0f) {
+ChipCounter::ChipCounter(const char* pName, s32 type) : LayoutActor(pName, true), mCollectCounter(), mCount(), mType(type), mGroupId(-1), mShowRate(1.0f) {
 }
 
-void ChipCounter::init(const JMapInfoIter& rIter) {
+void ChipCounter::init(const TableIter& /*rIter*/) {
     MR::connectToSceneLayout(this);
 
     switch (mType) {
@@ -48,9 +48,9 @@ void ChipCounter::init(const JMapInfoIter& rIter) {
     }
 
     MR::startAnim(this, "ShowHide", 1);
-    MR::setAnimFrameAndStop(this, _30 * 20.0f, 1);
+    MR::setAnimFrameAndStop(this, mShowRate * 20.0f, 1);
 
-    mCollectCounter = new CollectCounter("\217\127\202\337\220\224\216\232" /* 集め数字 */);
+    mCollectCounter = new CollectCounter("集め数字");
     mCollectCounter->initWithoutIter();
 
     kill();
@@ -58,20 +58,20 @@ void ChipCounter::init(const JMapInfoIter& rIter) {
 
 void ChipCounter::control() {
     if (MR::isActiveTalkBalloonShort()) {
-        _30 -= 0.05f;
+        mShowRate -= 0.05f;
 
-        if (_30 < 0.0f) {
-            _30 = 0.0f;
+        if (mShowRate < 0.0f) {
+            mShowRate = 0.0f;
         }
     } else {
-        _30 += 0.05f;
+        mShowRate += 0.05f;
 
-        if (_30 > 1.0f) {
-            _30 = 1.0f;
+        if (mShowRate > 1.0f) {
+            mShowRate = 1.0f;
         }
     }
 
-    MR::setAnimFrameAndStop(this, _30 * 20.0f, 1);
+    MR::setAnimFrameAndStop(this, mShowRate * 20.0f, 1);
 }
 
 void ChipCounter::setCount(s32 count) {
@@ -108,11 +108,11 @@ inline bool ChipCounter::isComplete() {
            isNerve(GET_NERVE(ChipCounter, ChipCounterNrvCompleteOut));
 }
 
-void ChipCounter::requestShow(s32 a1, s32 a2) {
+void ChipCounter::requestShow(s32 groupId, s32 count) {
     if (isHidden()) {
         appear();
 
-        mCount = a2;
+        mCount = count;
 
         for (s32 i = 0; i < ::sChipPainCount; i++) {
             if (i < mCount) {
@@ -125,22 +125,22 @@ void ChipCounter::requestShow(s32 a1, s32 a2) {
         setNerve(GET_NERVE(ChipCounter, ChipCounterNrvFrameIn));
     }
 
-    mGroupId = a1;
+    mGroupId = groupId;
 }
 
-void ChipCounter::requestComplete(s32 a1) {
+void ChipCounter::requestComplete(s32 groupId) {
     if (isHidden()) {
         appear();
     }
 
-    mGroupId = a1;
+    mGroupId = groupId;
 
-    MR::requestStartDemoWithoutCinemaFrame(this, "\203\140\203\142\203\166\203\122\203\223\203\166\203\212\201\133\203\147" /* チップコンプリート */, GET_NERVE(ChipCounter, ChipCounterNrvComplete),
+    MR::requestStartDemoWithoutCinemaFrame(this, "チップコンプリート", GET_NERVE(ChipCounter, ChipCounterNrvComplete),
                                            GET_NERVE(ChipCounter, ChipCounterNrvTryDemo));
 }
 
-void ChipCounter::requestHide(s32 a1) {
-    if (mGroupId != a1) {
+void ChipCounter::requestHide(s32 groupId) {
+    if (mGroupId != groupId) {
         return;
     }
 
@@ -248,7 +248,7 @@ void ChipCounter::exeCompleteOut() {
 
         mCollectCounter->kill();
 
-        MR::endDemo(this, "\203\140\203\142\203\166\203\122\203\223\203\166\203\212\201\133\203\147" /* チップコンプリート */);
+        MR::endDemo(this, "チップコンプリート");
 
         MR::noticeEndChipCompleteDemo(mType, mGroupId);
     }

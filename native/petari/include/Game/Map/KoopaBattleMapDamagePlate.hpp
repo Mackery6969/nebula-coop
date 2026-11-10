@@ -1,21 +1,20 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry.hpp>
+#include <nebula_geometry.hpp>
 
 class KoopaBattleMapDamagePlate : public LiveActor {
 public:
     KoopaBattleMapDamagePlate(const char*);
 
-    virtual ~KoopaBattleMapDamagePlate();
-    virtual void init(const JMapInfoIter&);
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
     void exeWait();
     void exeBreak();
     void exeRecover();
 
-    TPos3f mBaseMtx;
+    Pos3f mBaseMtx;
 };

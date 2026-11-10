@@ -6,7 +6,7 @@
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/DemoUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
@@ -23,7 +23,7 @@ namespace NrvSky {
 Sky::Sky(const char* pName) : LiveActor(pName), mSpaceInner(), mReflectionModel() {
 }
 
-void Sky::init(const JMapInfoIter& rIter) {
+void Sky::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
 
     const char* objName = nullptr;
@@ -36,7 +36,7 @@ void Sky::init(const JMapInfoIter& rIter) {
     MR::useStageSwitchReadAppear(this, rIter);
 
     if (MR::isEqualString(objName, "SummerSky")) {
-        mSpaceInner = new SpaceInner("\223\340\221\244\211\106\222\210" /* 内側宇宙 */);
+        mSpaceInner = new SpaceInner("内側宇宙");
         mSpaceInner->initWithoutIter();
 
         if (MR::isValidSwitchB(this)) {
@@ -44,11 +44,12 @@ void Sky::init(const JMapInfoIter& rIter) {
         }
     }
 
-    s32 arg0 = -1;
-    MR::getJMapInfoArg0NoInit(rIter, &arg0);
+    // 0: also drawn in the mirror.
+    s32 mirrorType = -1;
+    MR::getPlacementArg0NoInit(rIter, &mirrorType);
 
-    if (arg0 == 0) {
-        mReflectionModel = new MirrorReflectionModel(this, "\213\276\223\340\203\202\203\146\203\213" /* 鏡内モデル */, objName, getBaseMtx());
+    if (mirrorType == 0) {
+        mReflectionModel = new MirrorReflectionModel(this, "鏡内モデル", objName, getBaseMtx());
         mReflectionModel->initWithoutIter();
     }
 
@@ -130,6 +131,6 @@ void ProjectionMapSky::initModel(const char* pName) {
     initModelManagerWithAnm(pName, 0, true);
 
     mProjmapEffectMtxSetter = MR::initMaterialProjmapEffectMtxSetter(this);
-    MR::newDifferedMaterials(this);
+    MR::prepareMaterials(this);
     mProjmapEffectMtxSetter->updateMtxUseBaseMtx();
 }

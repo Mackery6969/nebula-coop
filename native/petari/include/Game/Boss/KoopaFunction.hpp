@@ -1,6 +1,6 @@
 #pragma once
 
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
 class HitSensor;
 class Koopa;
@@ -20,9 +20,9 @@ class PartsModel;
 
 namespace MR {
     struct ActorSightParam {
-        f32 _0;
-        f32 _4;
-        f32 _8;
+        f32 mDistance;
+        f32 mHorizontalDegree;
+        f32 mVerticalDegree;
     };
 
     struct ActorMoveParam;
@@ -39,21 +39,24 @@ namespace KoopaFunction {
     void createKoopaRollBall(Koopa* pKoopa);
     s32 registerBattleMapStair(KoopaBattleMapStair* pBattleMapStair);
     void setKoopaPos(Koopa* pKoopa, const char* pDemoName);
-    TVec3f& getPlanetCenterPos(const Koopa* pKoopa);
+    Vec3f& getPlanetCenterPos(const Koopa* pKoopa);
     f32 getPlanetRadius(const Koopa* pKoopa);
-    const TVec3f& getKoopaFront(const Koopa* pKoopa);
-    TVec3f* getKoopaFrontPtr(Koopa* pKoopa);
+    const Vec3f& getKoopaFront(const Koopa* pKoopa);
+    Vec3f* getKoopaFrontPtr(Koopa* pKoopa);
     bool isKoopaSightPlayer(const Koopa* pKoopa, const MR::ActorSightParam& rSightParam);
     bool escapeKoopaFromPlayer(Koopa* pKoopa, const MR::ActorMoveParam& rMoveParam);
     bool isKoopaVs1(const Koopa* pKoopa);
     bool isKoopaVs2(const Koopa* pKoopa);
-    bool isKoopaVs3(const Koopa* pKoopa);  // otherwise inlines in startKoopaPlateDamageAnimPowerStarAppear
+    bool isKoopaVs3(const Koopa* pKoopa);
     bool isKoopaLv1(const Koopa* pKoopa);
     bool isKoopaLv2(const Koopa* pKoopa);
     bool isKoopaLv3(const Koopa* pKoopa);
     bool isKoopaAngry(const Koopa* pKoopa);
     void startKoopaAngry(Koopa* pKoopa);
     void startFaceCtrl(Koopa* pKoopa);
+    void startLandDemo(Koopa* pKoopa);
+    void turnToPlayerFalling(Koopa* pKoopa);
+    void turnToPlayerWaiting(Koopa* pKoopa);
     void endFaceCtrl(Koopa* pKoopa, s32 val);
     void endFaceCtrlDirect(Koopa* pKoopa);
     void startRecoverKoopaArmor(Koopa* pKoopa);
@@ -66,7 +69,7 @@ namespace KoopaFunction {
     void emitKoopaFireShortFast(Koopa* pKoopa);
     void emitKoopaFireShortCurve(Koopa* pKoopa);
     void emitKoopaFireLongTime(Koopa* pKoopa);
-    KoopaFireStairs* emitFireStairsToTarget(Koopa* pKoopa, const KoopaBattleMapStair* pStair, const TVec3f& rPosition, bool useFront);
+    KoopaFireStairs* emitFireStairsToTarget(Koopa* pKoopa, const KoopaBattleMapStair* pStair, const Vec3f& rPosition, bool useFront);
     void killKoopaFireStairsAll(Koopa* pKoopa);
     void emitKoopaShockWave(Koopa* pKoopa);
     KoopaBattleMapPlanet* getKoopaPlanet(Koopa* pKoopa);
@@ -104,11 +107,11 @@ namespace KoopaFunction {
     void initKoopaAnimCamera(Koopa* pKoopa, const char* pName);
     void startKoopaCamera(Koopa* pKoopa, const char* pName);
     void startKoopaTargetCamera(Koopa* pKoopa, const char* pName);
-    void startKoopaAnimCamera(Koopa* pKoopa, const char* pName, s32);
-    void endKoopaCamera(Koopa* pKoopa, const char* pName, bool, s32 = -1);
-    void endKoopaAnimCamera(Koopa* pKoopa, const char* pName, s32);
+    void startKoopaAnimCamera(Koopa* pKoopa, const char* pName, s32 frame);
+    void endKoopaCamera(Koopa* pKoopa, const char* pName, bool resetView, s32 frame = -1);
+    void endKoopaAnimCamera(Koopa* pKoopa, const char* pName, s32 frame);
     void startKoopaPlateDamageAnimPowerStarAppear(Koopa* pKoopa);
-    void changeBgmStateNormal(u32);
+    void changeBgmStateNormal(u32 time);
     void changeBgmStateEscape();
     void changeBgmStateDamageTail();
     void changeBgmStateFlyAway();

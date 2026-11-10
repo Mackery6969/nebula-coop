@@ -2,6 +2,7 @@
 package dev.nebula.galaxy
 
 import android.content.Intent
+import android.hardware.usb.UsbManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -23,9 +24,20 @@ class LauncherActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
         )
         super.onCreate(savedInstanceState)
+        if (BuildConfig.DEBUG && intent?.getBooleanExtra("nebula.profile", false) == true) {
+            startActivity(Intent(this, GameActivity::class.java).putExtra("nebula.profile", true))
+            finish()
+            return
+        }
         // The app's icon while a game runs: some home screens start another launcher over it. The task as it was
         // (the game in front) is what the player wants back.
         if (!isTaskRoot && intent?.action == Intent.ACTION_MAIN && intent.hasCategory(Intent.CATEGORY_LAUNCHER)) {
+            finish()
+            return
+        }
+        // A DolphinBar plugged in (the manifest's USB filter): its permission is granted by now. A running game takes
+        // the bar itself (WiimoteUsb), so the game stays in front.
+        if (intent?.action == UsbManager.ACTION_USB_DEVICE_ATTACHED && (!isTaskRoot || SaveTransfer.gameRunning(this))) {
             finish()
             return
         }

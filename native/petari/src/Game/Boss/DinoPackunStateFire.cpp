@@ -15,7 +15,7 @@ namespace NrvDinoPackunStateFire {
     NEW_NERVE(DinoPackunStateFireNrvCool, DinoPackunStateFire, Cool);
 };  // namespace NrvDinoPackunStateFire
 
-DinoPackunStateFire::DinoPackunStateFire(DinoPackun* pBoss) : ActorStateBase< DinoPackun >("\203\146\203\102\203\155\203\160\203\142\203\116\203\223\202\314\211\212\217\363\221\324\212\307\227\235" /* ディノパックンの炎状態管理 */, pBoss) {
+DinoPackunStateFire::DinoPackunStateFire(DinoPackun* pBoss) : ActorStateBase< DinoPackun >("ディノパックンの炎状態管理", pBoss) {
 }
 
 void DinoPackunStateFire::init() {
@@ -105,26 +105,14 @@ bool DinoPackunStateFire::isFire() const {
 }
 
 bool DinoPackunStateFire::isEnableFire() const {
-    if (isNerve(GET_NERVE(DinoPackunStateFire, DinoPackunStateFireNrvNormal)) ||
-        isNerve(GET_NERVE(DinoPackunStateFire, DinoPackunStateFireNrvCool))) {
-        return true;
-    }
-
-    return false;
+    return isNerve(GET_NERVE(DinoPackunStateFire, DinoPackunStateFireNrvNormal)) ||
+           isNerve(GET_NERVE(DinoPackunStateFire, DinoPackunStateFireNrvCool));
 }
 
 bool DinoPackunStateFire::isEnableCool() const {
-    if (isNerve(GET_NERVE(DinoPackunStateFire, DinoPackunStateFireNrvFireSign)) ||
-        isNerve(GET_NERVE(DinoPackunStateFire, DinoPackunStateFireNrvFire))) {
-        return true;
-    }
-
-    return false;
+    return isNerve(GET_NERVE(DinoPackunStateFire, DinoPackunStateFireNrvFireSign)) ||
+           isNerve(GET_NERVE(DinoPackunStateFire, DinoPackunStateFireNrvFire));
 }
 
 void DinoPackunStateFire::exeFire() {
-    return;
-}
-
-DinoPackunStateFire::~DinoPackunStateFire() {
 }

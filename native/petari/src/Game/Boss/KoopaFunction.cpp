@@ -2,7 +2,6 @@
 #include "Game/Boss/BossAccessor.hpp"
 #include "Game/Boss/Koopa.hpp"
 #include "Game/Boss/KoopaBattleStairsBase.hpp"
-#include "Game/Boss/KoopaBattleStairsVs1.hpp"
 #include "Game/Boss/KoopaParts.hpp"
 #include "Game/Boss/KoopaPowerUpSwitch.hpp"
 #include "Game/Boss/KoopaSequencerVs1.hpp"
@@ -23,9 +22,12 @@
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const s32 sKoopaHitBlowStopSceneStep = 10;
+    NEBULA_TUNABLE(s32, sKoopaHitBlowStopSceneStep, 10);
+    const MR::ActorMoveParam sDemoFallParam = {0.0f, 1.0f, 0.98f, 0.0f};
+    const MR::ActorMoveParam sDemoWaitParam = {0.0f, 1.0f, 0.9f, 1.0f};
 };  // namespace
 
 NameObj* KoopaFunction::createKoopaVs1(const char* pName) {
@@ -64,15 +66,21 @@ void KoopaFunction::createKoopaRollBall(Koopa* pKoopa) {
 }
 
 s32 KoopaFunction::registerBattleMapStair(KoopaBattleMapStair* pMapStair) {
-    KoopaBattleStairsVs1* pBattleStairsBase = static_cast< KoopaBattleStairsVs1* >(BossAccess::getBossAccessorKoopa()->mSequencer->mBattleStairs);
-    return pBattleStairsBase->registerStair(pMapStair);
+    // A stair placed where no Koopa battle with stairs runs has no fire step (-1).
+    Koopa* pKoopa = BossAccess::getBossAccessorKoopa();
+
+    if (pKoopa == nullptr || pKoopa->mSequencer == nullptr || pKoopa->mSequencer->mBattleStairs == nullptr) {
+        return -1;
+    }
+
+    return pKoopa->mSequencer->mBattleStairs->registerStair(pMapStair);
 }
 
 void KoopaFunction::setKoopaPos(Koopa* pKoopa, const char* pDemoName) {
-    TPos3f transform;
+    Pos3f transform;
     MR::findNamePos(pDemoName, transform);
 
-    TVec3f yDir;
+    Vec3f yDir;
     transform.getYDir(yDir);
 
     pKoopa->mGravity.set(-yDir);
@@ -88,7 +96,7 @@ void KoopaFunction::setKoopaPos(Koopa* pKoopa, const char* pDemoName) {
     }
 }
 
-TVec3f& KoopaFunction::getPlanetCenterPos(const Koopa* pKoopa) {
+Vec3f& KoopaFunction::getPlanetCenterPos(const Koopa* pKoopa) {
     return pKoopa->mParts->getPlanetPos();
 }
 
@@ -96,20 +104,20 @@ f32 KoopaFunction::getPlanetRadius(const Koopa* pKoopa) {
     return pKoopa->mParts->getPlanetRadius();
 }
 
-const TVec3f& KoopaFunction::getKoopaFront(const Koopa* pKoopa) {
+const Vec3f& KoopaFunction::getKoopaFront(const Koopa* pKoopa) {
     return pKoopa->mFront;
 }
 
-TVec3f* KoopaFunction::getKoopaFrontPtr(Koopa* pKoopa) {
+Vec3f* KoopaFunction::getKoopaFrontPtr(Koopa* pKoopa) {
     return &pKoopa->mFront;
 }
 
 bool KoopaFunction::isKoopaSightPlayer(const Koopa* pKoopa, const MR::ActorSightParam& rSightParam) {
-    return MR::isInSightFanPlayer(pKoopa, pKoopa->mFront, rSightParam._0, rSightParam._4, rSightParam._8);
+    return MR::isInSightFanPlayer(pKoopa, pKoopa->mFront, rSightParam.mDistance, rSightParam.mHorizontalDegree, rSightParam.mVerticalDegree);
 }
 
 bool KoopaFunction::escapeKoopaFromPlayer(Koopa* pKoopa, const MR::ActorMoveParam& rMoveParam) {
-    MR::escapeFromPlayer(pKoopa, &pKoopa->mFront, rMoveParam._0, rMoveParam._4, rMoveParam._8, rMoveParam._C);
+    MR::escapeFromPlayer(pKoopa, &pKoopa->mFront, rMoveParam);
     return MR::sendMsgEnemyAttackToBindedSensor(pKoopa, getKoopaMessageSensor(pKoopa));
 }
 
@@ -147,6 +155,24 @@ void KoopaFunction::startKoopaAngry(Koopa* pKoopa) {
 
 void KoopaFunction::startFaceCtrl(Koopa* pKoopa) {
     pKoopa->mJointCtrl->startFaceCtrl(-1);
+}
+
+// The heavy landing that ends each jump or fall onto a planet.
+void KoopaFunction::startLandDemo(Koopa* pKoopa) {
+    MR::startAction(pKoopa, "Land");
+    MR::startSound(pKoopa, "SE_BM_KOOPA_FLIP_RECOVER_END");
+    MR::startSound(pKoopa, "SE_BV_KOOPA_LAND_HEAVY");
+
+    MR::tryRumblePadStrong(pKoopa, PLAYER_1);
+    MR::shakeCameraNormalStrong();
+}
+
+void KoopaFunction::turnToPlayerFalling(Koopa* pKoopa) {
+    MR::moveAndTurnToPlayer(pKoopa, &pKoopa->mFront, ::sDemoFallParam);
+}
+
+void KoopaFunction::turnToPlayerWaiting(Koopa* pKoopa) {
+    MR::moveAndTurnToPlayer(pKoopa, &pKoopa->mFront, ::sDemoWaitParam);
 }
 
 void KoopaFunction::endFaceCtrl(Koopa* pKoopa, s32 val) {
@@ -200,7 +226,7 @@ void KoopaFunction::emitKoopaFireLongTime(Koopa* pKoopa) {
     pKoopa->mParts->emitFireLongTime();
 }
 
-KoopaFireStairs* KoopaFunction::emitFireStairsToTarget(Koopa* pKoopa, const KoopaBattleMapStair* pMapStair, const TVec3f& rPosition, bool useFront) {
+KoopaFireStairs* KoopaFunction::emitFireStairsToTarget(Koopa* pKoopa, const KoopaBattleMapStair* pMapStair, const Vec3f& rPosition, bool useFront) {
     return pKoopa->mParts->emitFireStairsToPos(pMapStair, rPosition, useFront);
 }
 
@@ -292,8 +318,8 @@ bool KoopaFunction::tryKoopaAttackMapObj(HitSensor* pSender, HitSensor* pReceive
     return false;
 }
 
-bool KoopaFunction::tryKoopaReflectStarPiece(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
-    if (MR::isMsgStarPieceReflect(msg) == false) {
+bool KoopaFunction::tryKoopaReflectStarPiece(u32 msg, HitSensor* /*pSender*/, HitSensor* pReceiver) {
+    if (!MR::isMsgStarPieceReflect(msg)) {
         return false;
     }
 
@@ -305,7 +331,14 @@ HitSensor* KoopaFunction::getKoopaMessageSensor(Koopa* pKoopa) {
 }
 
 void KoopaFunction::registerKoopaSwitchKeeper(LiveActor* pActor) {
-    BossAccess::getBossAccessorKoopa()->mParts->mKoopaSwitchKeeper = static_cast< KoopaSwitchKeeper* >(pActor);
+    // A keeper placed in a stage with no Koopa has nobody to register with.
+    Koopa* pKoopa = BossAccess::getBossAccessorKoopa();
+
+    if (pKoopa == nullptr || pKoopa->mParts == nullptr) {
+        return;
+    }
+
+    pKoopa->mParts->mKoopaSwitchKeeper = static_cast< KoopaSwitchKeeper* >(pActor);
 }
 
 KoopaSwitchKeeper* KoopaFunction::getKoopaSwitchKeeper(Koopa* pKoopa) {
@@ -313,7 +346,13 @@ KoopaSwitchKeeper* KoopaFunction::getKoopaSwitchKeeper(Koopa* pKoopa) {
 }
 
 void KoopaFunction::registerKoopaViewSwitchKeeper(LiveActor* pActor) {
-    BossAccess::getBossAccessorKoopa()->mParts->mKoopaViewSwitchKeeper = static_cast< KoopaViewSwitchKeeper* >(pActor);
+    Koopa* pKoopa = BossAccess::getBossAccessorKoopa();
+
+    if (pKoopa == nullptr || pKoopa->mParts == nullptr) {
+        return;
+    }
+
+    pKoopa->mParts->mKoopaViewSwitchKeeper = static_cast< KoopaViewSwitchKeeper* >(pActor);
 }
 
 KoopaViewSwitchKeeper* KoopaFunction::getKoopaViewSwitchKeeper(Koopa* pKoopa) {
@@ -321,7 +360,13 @@ KoopaViewSwitchKeeper* KoopaFunction::getKoopaViewSwitchKeeper(Koopa* pKoopa) {
 }
 
 void KoopaFunction::registerKoopaPowerUpSwitch(LiveActor* pActor) {
-    BossAccess::getBossAccessorKoopa()->mParts->mKoopaPowerUpSwitch = static_cast< KoopaPowerUpSwitch* >(pActor);
+    Koopa* pKoopa = BossAccess::getBossAccessorKoopa();
+
+    if (pKoopa == nullptr || pKoopa->mParts == nullptr) {
+        return;
+    }
+
+    pKoopa->mParts->mKoopaPowerUpSwitch = static_cast< KoopaPowerUpSwitch* >(pActor);
 }
 
 KoopaPowerUpSwitch* KoopaFunction::getKoopaPowerUpSwitch(Koopa* pKoopa) {
@@ -443,16 +488,16 @@ void KoopaFunction::startKoopaTargetCamera(Koopa* pKoopa, const char* pName) {
     MR::startMultiActorCameraTargetSelf(pKoopa, pKoopa->mParts->mActorCameraInfo, pName);
 }
 
-void KoopaFunction::startKoopaAnimCamera(Koopa* pKoopa, const char* pName, s32 a1) {
-    MR::startAnimCameraTargetSelf(pKoopa, pKoopa->mParts->mActorCameraInfo, pName, a1, 1.0f);
+void KoopaFunction::startKoopaAnimCamera(Koopa* pKoopa, const char* pName, s32 frame) {
+    MR::startAnimCameraTargetSelf(pKoopa, pKoopa->mParts->mActorCameraInfo, pName, frame, 1.0f);
 }
 
-void KoopaFunction::endKoopaCamera(Koopa* pKoopa, const char* pName, bool a1, s32 a2) {
-    MR::endMultiActorCamera(pKoopa, pKoopa->mParts->mActorCameraInfo, pName, a1, a2);
+void KoopaFunction::endKoopaCamera(Koopa* pKoopa, const char* pName, bool resetView, s32 frame) {
+    MR::endMultiActorCamera(pKoopa, pKoopa->mParts->mActorCameraInfo, pName, resetView, frame);
 }
 
-void KoopaFunction::endKoopaAnimCamera(Koopa* pKoopa, const char* pName, s32 a1) {
-    MR::endAnimCamera(pKoopa, pKoopa->mParts->mActorCameraInfo, pName, a1, true);
+void KoopaFunction::endKoopaAnimCamera(Koopa* pKoopa, const char* pName, s32 frame) {
+    MR::endAnimCamera(pKoopa, pKoopa->mParts->mActorCameraInfo, pName, frame, true);
 }
 
 void KoopaFunction::startKoopaPlateDamageAnimPowerStarAppear(Koopa* pKoopa) {
@@ -463,8 +508,8 @@ void KoopaFunction::startKoopaPlateDamageAnimPowerStarAppear(Koopa* pKoopa) {
     }
 }
 
-void KoopaFunction::changeBgmStateNormal(u32 a1) {
-    MR::setStageBGMState(1, a1);
+void KoopaFunction::changeBgmStateNormal(u32 time) {
+    MR::setStageBGMState(1, time);
 }
 
 void KoopaFunction::changeBgmStateEscape() {
@@ -497,7 +542,7 @@ void KoopaFunction::tryRestartKoopa() {
 }
 
 bool KoopaFunction::moveAndTurnKoopaToPlayer(Koopa* pKoopa, const MR::ActorMoveParam& rMoveParam) {
-    MR::moveAndTurnToPlayer(pKoopa, &pKoopa->mFront, rMoveParam._0, rMoveParam._4, rMoveParam._8, rMoveParam._C);
+    MR::moveAndTurnToPlayer(pKoopa, &pKoopa->mFront, rMoveParam);
     return MR::sendMsgEnemyAttackToBindedSensor(pKoopa, getKoopaMessageSensor(pKoopa));
 }
 

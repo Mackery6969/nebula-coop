@@ -21,48 +21,48 @@ bool MarioActor::canTakePowerUp(s32 playerMode) const {
     case PlayerMode_Ice: return mModels[3] != nullptr;
     case PlayerMode_Bee: return mModels[2] != nullptr;
     case PlayerMode_Hopper: return mModels[5] != nullptr;
-    case PlayerMode_Teresa: return _9A4 != nullptr;
+    case PlayerMode_Teresa: return mTeresaModel != nullptr;
     case PlayerMode_Tornado: return mTornadoMario != nullptr;
     default: return true;
     }
 }
 
-void MarioActor::setPlayerMode(u16 playerMode, bool myBool) {
+void MarioActor::setPlayerMode(u16 playerMode, bool withMorph) {
     playerMode = static_cast< u16 >(NebulaMods::fire(NEBULA_MOD_EVENT_POWER_UP, playerMode));
 
     if (mPlayerMode == playerMode) {
         // A mod's power-up again: its time starts over.
         if (playerMode >= NebulaMods::cFirstPowerUp) {
-            _3DC = NebulaMods::powerUpStart(playerMode, this);
+            mPlayerModeTimer = NebulaMods::powerUpStart(playerMode, this);
             return;
         }
 
         if (playerMode == 1) {
-            _3DC = mConst->getTable()->mMetalHoldTime;
+            mPlayerModeTimer = mConst->getTable()->mMetalHoldTime;
             MR::startSubBGM("BGM_MUTEKI_A", false);
         }
 
         if (playerMode == 9) {
-            _3DC = mConst->getTable()->mTornadoHoldTime;
+            mPlayerModeTimer = mConst->getTable()->mTornadoHoldTime;
         }
 
         if (playerMode == 3) {
-            _3DC = mConst->getTable()->mIceModeTime;
+            mPlayerModeTimer = mConst->getTable()->mIceModeTime;
             MR::startSubBGM("BGM_ICE_A", false);
         }
 
         if (playerMode == 2) {
-            _3DC = mConst->getTable()->mFireModeTime;
+            mPlayerModeTimer = mConst->getTable()->mFireModeTime;
             MR::startSubBGM("BGM_FIRE_A", false);
         }
 
         if (playerMode == 7) {
-            _3DC = 3600;
+            mPlayerModeTimer = 3600;
             MR::startStageBGM("BGM_FLYING_A", false);
         }
 
         if (playerMode != 0) {
-            playEffect("\203\101\203\103\203\145\203\200\215\304\203\121\203\142\203\147" /* アイテム再ゲット */);
+            playEffect("アイテム再ゲット");
         }
 
         return;
@@ -72,8 +72,8 @@ void MarioActor::setPlayerMode(u16 playerMode, bool myBool) {
         mMario->closeStatus(nullptr);
     }
 
-    _3DC = 0;
-    _A6E = 0;
+    mPlayerModeTimer = 0;
+    mBlurState = 0;
 
     switch (mPlayerMode) {
     case 5:
@@ -84,15 +84,15 @@ void MarioActor::setPlayerMode(u16 playerMode, bool myBool) {
         break;
 
     case 6:
-        MR::deleteEffect(_9A4, "Glow");
+        MR::deleteEffect(mTeresaModel, "Glow");
 
         if (playerMode == 0) {
-            MR::offCalcAnim(_9A4);
+            MR::offCalcAnim(mTeresaModel);
         } else {
-            _9A4->kill();
+            mTeresaModel->kill();
         }
 
-        _483 = false;
+        mMorphHidden = false;
 
         mMario->resetTeresaMode();
         break;
@@ -105,18 +105,18 @@ void MarioActor::setPlayerMode(u16 playerMode, bool myBool) {
         break;
 
     case 4:
-        stopAnimation("\203\156\203\140\224\362\215\163\222\206" /* ハチ飛行中 */);
+        stopAnimation("ハチ飛行中");
 
         if (!mMario->isSwimming()) {
             MR::getGameSceneLayoutHolder()->changeLifeMeterModeGround();
         }
 
-        _9E4->kill();
-        _9E8->kill();
+        mBeeModel->kill();
+        mBeeWing->kill();
         break;
 
     case 3:
-        stopEffect("\203\101\203\103\203\130\222\206" /* アイス中 */);
+        stopEffect("アイス中");
 
         changeHandMaterial();
 
@@ -128,9 +128,9 @@ void MarioActor::setPlayerMode(u16 playerMode, bool myBool) {
         break;
 
     case 1:
-        stopEffect("\226\263\223\107\222\206" /* 無敵中 */);
+        stopEffect("無敵中");
 
-        _A6E = 0;
+        mBlurState = 0;
 
         MR::stopSubBGM(30);
 
@@ -142,42 +142,42 @@ void MarioActor::setPlayerMode(u16 playerMode, bool myBool) {
         break;
     }
 
-    _3D6 = mPlayerMode;
+    mPrevPlayerMode = mPlayerMode;
     NebulaMods::powerUpEnd(mPlayerMode, this);
     mPlayerMode = playerMode;
     if (playerMode >= NebulaMods::cFirstPowerUp) {
-        _3DC = NebulaMods::powerUpStart(playerMode, this);
+        mPlayerModeTimer = NebulaMods::powerUpStart(playerMode, this);
     }
 
     switch (playerMode) {
     case 9:
-        _3DC = mConst->getTable()->mTornadoHoldTime;
+        mPlayerModeTimer = mConst->getTable()->mTornadoHoldTime;
 
         MR::startBtp(this, "TornadoElement");
 
         if (isJumping()) {
-            changeAnimation("\203\107\203\214\203\201\203\223\203\147\203\121\203\142\203\147" /* エレメントゲット */);
+            changeAnimation("エレメントゲット");
         } else {
-            changeAnimation("\203\107\203\214\203\201\203\223\203\147\203\121\203\142\203\147\220\332\222\156\222\206" /* エレメントゲット接地中 */);
+            changeAnimation("エレメントゲット接地中");
         }
         break;
 
     case 1:
-        _3DC = mConst->getTable()->mMetalHoldTime;
+        mPlayerModeTimer = mConst->getTable()->mMetalHoldTime;
 
-        playEffect("\226\263\223\107\222\206" /* 無敵中 */);
+        playEffect("無敵中");
 
         MR::startSubBGM("BGM_MUTEKI_A", false);
 
         changeHandMaterial();
 
-        MR::stopBrk(_9C8);
-        MR::stopBrk(_A50);
-        MR::stopBrk(_A54);
+        MR::stopBrk(mInvincibleModel);
+        MR::stopBrk(mInvincibleHandL);
+        MR::stopBrk(mInvincibleHandR);
 
-        MR::startBrk(_9C8, "InvincibleMario");
-        MR::startBrk(_A50, "InvincibleMarioHandL");
-        MR::startBrk(_A54, "InvincibleMarioHandR");
+        MR::startBrk(mInvincibleModel, "InvincibleMario");
+        MR::startBrk(mInvincibleHandL, "InvincibleMarioHandL");
+        MR::startBrk(mInvincibleHandR, "InvincibleMarioHandR");
 
         MR::removeAllClingingKarikari();
         break;
@@ -185,36 +185,36 @@ void MarioActor::setPlayerMode(u16 playerMode, bool myBool) {
     case 0:
         MR::startBtp(this, "ElementEnd");
 
-        if (myBool) {
-            switch (_3D6) {
+        if (withMorph) {
+            switch (mPrevPlayerMode) {
             case 4:
             case 5:
             case 6:
-                playSound("\216\364\202\242\211\360\217\234" /* 呪い解除 */, -1);
+                playSound("呪い解除", -1);
                 break;
 
             default:
-                playSound("\225\317\220\147\211\360\217\234" /* 変身解除 */, -1);
+                playSound("変身解除", -1);
                 break;
             }
         }
 
-        _3DC = 0;
-        mMario->_76C = 0;
+        mPlayerModeTimer = 0;
+        mMario->mBeeGravityReviveTimer = 0;
 
         if (mMario->isSwimming()) {
-            if (_468 == 0) {
-                changeAnimation(nullptr, "\220\205\211\152\212\356\226\173" /* 水泳基本 */);
+            if (mTakeCount == 0) {
+                changeAnimation(nullptr, "水泳基本");
             }
         } else if (isJumping()) {
-            changeAnimation(nullptr, "\227\216\211\272" /* 落下 */);
+            changeAnimation(nullptr, "落下");
         } else {
-            changeAnimation(nullptr, "\212\356\226\173" /* 基本 */);
+            changeAnimation(nullptr, "基本");
         }
 
-        if (_4A4 != nullptr) {
-            _4A4->mHost->kill();
-            _4A4 = nullptr;
+        if (mMorphItemSensor != nullptr) {
+            mMorphItemSensor->mHost->kill();
+            mMorphItemSensor = nullptr;
         }
         break;
 
@@ -224,44 +224,44 @@ void MarioActor::setPlayerMode(u16 playerMode, bool myBool) {
         break;
 
     case 6:
-        _9A4->appear();
+        mTeresaModel->appear();
 
-        MR::onCalcAnim(_9A4);
+        MR::onCalcAnim(mTeresaModel);
 
         runTeresaBaseAnimation();
 
-        MR::startBrk(_9A4, "Erase");
-        MR::setBrkFrameAndStop(_9A4, 0.0f);
+        MR::startBrk(mTeresaModel, "Erase");
+        MR::setBrkFrameAndStop(mTeresaModel, 0.0f);
 
-        _483 = true;
+        mMorphHidden = true;
 
-        _9A8 = 0.0f;
-        _9AC = 0.0f;
+        mTeresaAlpha = 0.0f;
+        mTeresaTilt = 0.0f;
 
         rushDropThrowMemoSensor();
 
         mMario->startTeresaMode();
 
-        _9A4->calcAnim();
+        mTeresaModel->calcAnim();
 
-        MR::emitEffect(_9A4, "Glow");
-        MR::emitEffect(_9A4, "Appear");
+        MR::emitEffect(mTeresaModel, "Glow");
+        MR::emitEffect(mTeresaModel, "Appear");
         break;
 
     case 2:
         MR::startSubBGM("BGM_FIRE_A", false);
 
-        _3DC = mConst->getTable()->mFireModeTime;
+        mPlayerModeTimer = mConst->getTable()->mFireModeTime;
         break;
 
     case 3:
-        playEffect("\203\101\203\103\203\130\222\206" /* アイス中 */);
+        playEffect("アイス中");
 
         MR::startSubBGM("BGM_ICE_A", false);
 
         changeHandMaterial();
 
-        _3DC = mConst->getTable()->mIceModeTime;
+        mPlayerModeTimer = mConst->getTable()->mIceModeTime;
         break;
 
     case 4:
@@ -269,64 +269,64 @@ void MarioActor::setPlayerMode(u16 playerMode, bool myBool) {
 
         rushDropThrowMemoSensor();
 
-        _9E4->appear();
-        MR::showModel(_9E4);
+        mBeeModel->appear();
+        MR::showModel(mBeeModel);
 
-        mMario->_402 = mConst->getTable()->mAirWalkTime;
-        mMario->_42A = 0;
+        mMario->mAirWalkTimer = mConst->getTable()->mAirWalkTime;
+        mMario->mInvincibleJump = 0;
 
-        _9E8->appear();
-        _9F0 = 0;
+        mBeeWing->appear();
+        mBeeWingAnim = 0;
 
-        MR::startBck(_9E8, "Wait");
-        MR::startBva(_9E8, "Wait");
+        MR::startBck(mBeeWing, "Wait");
+        MR::startBva(mBeeWing, "Wait");
 
-        MR::stopBtk(_9E8);
+        MR::stopBtk(mBeeWing);
         break;
 
     case 7:
         MR::startStageBGM("BGM_FLYING_A", false);
-        _3DC = 3600;
+        mPlayerModeTimer = 3600;
         break;
     }
 
     if (mPlayerMode == 0) {
         if (mTransforming) {
-            MR::endDemo(this, "\203\175\203\212\203\111\225\317\220\147" /* マリオ変身 */);
+            MR::endDemo(this, "マリオ変身");
             mTransforming = false;
         }
 
-        if (myBool) {
-            _3D8 = 30;
-            mMario->startPadVib("\203\175\203\212\203\111[\225\317\220\147\211\360\217\234]" /* マリオ[変身解除] */);
+        if (withMorph) {
+            mMorphTimer = 30;
+            mMario->startPadVib("マリオ[変身解除]");
         } else {
-            _3D8 = 2;
+            mMorphTimer = 2;
         }
 
-        playEffect("\225\317\220\147\211\360\217\234" /* 変身解除 */);
+        playEffect("変身解除");
     } else {
-        if (_3D8 == 0 || _3D6 == 0) {
+        if (mMorphTimer == 0 || mPrevPlayerMode == 0) {
             mPowerupCollected = true;
         } else {
-            _3D8 = 64;
+            mMorphTimer = 64;
 
             MR::stopAnimFrame(this);
 
-            playEffect("\225\317\220\147" /* 変身 */);
+            playEffect("変身");
 
-            mMario->startPadVib("\203\175\203\212\203\111[\225\317\220\147]" /* マリオ[変身] */);
+            mMario->startPadVib("マリオ[変身]");
 
             mPowerupCollected = false;
         }
 
-        _945 = 0;
-        _946 = 0;
+        mPunchFrame = 0;
+        mSpinIntervalTimer = 0;
 
-        _6D4 = 0.0f;
-        _6D8 = 0.0f;
+        mSpinEffectRadius = 0.0f;
+        mSpinEffectHeight = 0.0f;
 
-        _94C = 0;
-        _94E = 0;
+        mSpinStarTimer = 0;
+        mSpinStarEndTimer = 0;
 
         updateFairyStar();
     }
@@ -335,13 +335,13 @@ void MarioActor::setPlayerMode(u16 playerMode, bool myBool) {
 }
 
 void MarioActor::resetPlayerModeOnDamage() {
-    if (isActionOk("\203\137\203\201\201\133\203\127\211\360\217\234" /* ダメージ解除 */)) {
+    if (isActionOk("ダメージ解除")) {
         setPlayerMode(0, true);
     }
 }
 
 void MarioActor::resetPlayerModeOnNoDamage() {
-    if (isActionOk("\203\155\201\133\203\137\203\201\201\133\203\127\211\360\217\234" /* ノーダメージ解除 */)) {
+    if (isActionOk("ノーダメージ解除")) {
         setPlayerMode(0, true);
     }
 }
@@ -349,30 +349,30 @@ void MarioActor::resetPlayerModeOnNoDamage() {
 void MarioActor::updatePlayerMode() {
     NebulaMods::powerUpUpdate(mPlayerMode);
 
-    if (_3DC == 0) {
+    if (mPlayerModeTimer == 0) {
         return;
     }
 
-    _3DC--;
+    mPlayerModeTimer--;
 
-    if (_3DC != 0) {
+    if (mPlayerModeTimer != 0) {
         return;
     }
 
     setPlayerMode(0, true);
 }
 
-struct myStruct {
-    const char* _0[9];
-    u32 _24;
+struct MorphString {
+    const char* mNames[9];  // by player mode; [0] the normal one, [8] Luigi's
+    u32 mHash;  // of mNames[0]
 };
 
-static myStruct cMorphStringTable[] = {{{"DieBlackHole", 0, 0, 0, "DieBlackHoleBee", 0, 0, 0, "DieBlackHoleLuigi"}, 0}, {}};
+static MorphString cMorphStringTable[] = {{{"DieBlackHole", 0, 0, 0, "DieBlackHoleBee", 0, 0, 0, "DieBlackHoleLuigi"}, 0}, {}};
 
 void MarioActor::touchSensor(HitSensor* pSensor) {
     switch (pSensor->mType) {
     case ATYPE_WATER_PRESSURE_BULLET_BIND:
-        if (MR::isExistMapCollision(_2A0, pSensor->mPosition - _2A0)) {
+        if (MR::isExistMapCollision(mCenterPos, pSensor->mPosition - mCenterPos)) {
             return;
         }
 
@@ -385,30 +385,30 @@ void MarioActor::touchSensor(HitSensor* pSensor) {
 }
 
 void MarioActor::initMorphStringTable() {
-    for (myStruct* item = cMorphStringTable;; item++) {
-        if (item->_0[0] == nullptr) {
+    for (MorphString* item = cMorphStringTable;; item++) {
+        if (item->mNames[0] == nullptr) {
             break;
         }
 
-        item->_24 = MR::getHashCode(item->_0[0]);
+        item->mHash = MR::getHashCode(item->mNames[0]);
     }
 }
 
 const char* MarioActor::changeMorphString(const char* name) const {
     u32 hash = MR::getHashCode(name);
-    for (myStruct* item = cMorphStringTable;; item++) {
-        if (item->_0[0] == nullptr) {
+    for (MorphString* item = cMorphStringTable;; item++) {
+        if (item->mNames[0] == nullptr) {
             break;
         }
-        if (item->_24 == hash) {
-            const char* morph = item->_0[mPlayerMode];
+        if (item->mHash == hash) {
+            const char* morph = item->mNames[mPlayerMode];
             if (morph == nullptr || mPlayerMode == PlayerMode_Normal) {
                 if (gIsLuigi) {
-                    if (item->_0[8] != nullptr) {
-                        return item->_0[8];
+                    if (item->mNames[8] != nullptr) {
+                        return item->mNames[8];
                     }
                 }
-                return item->_0[0];
+                return item->mNames[0];
             }
             return morph;
         }

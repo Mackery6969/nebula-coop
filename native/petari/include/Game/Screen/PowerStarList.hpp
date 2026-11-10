@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Game/Screen/LayoutActor.hpp"
+#include "Game/Util/StringUtil.hpp"
 
 class ButtonPaneController;
 class GalaxyStatusAccessor;
@@ -13,29 +14,30 @@ public:
         /// @brief Creates a new `Separator`.
         Separator();
 
-        f32 _0;
-        TVec2f _4;
+        f32 mHeight;    // the separator pane's height once shown
+        Vec2f mOffset;  // the pane's follow position: its offset in the list
     };
 
     /// @brief Creates a new `PowerStarList`.
     PowerStarList();
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void calcAnim();
-    virtual void appear();
-    virtual void control();
+    virtual void init(const TableIter& rIter) override;
+    virtual void calcAnim() override;
+    virtual void appear() override;
+    virtual void control() override;
 
     bool isAppearing() const;
     ButtonPaneController* createButtonController(const char*, const char*);
     void resetButtonAll();
     void updateButtonAppearance();
     void updateList(s32, bool);
-    char16_t* makeGalaxyNameText(char16_t*, const GalaxyStatusAccessor*, bool) const;
+    // The names and times add a line to the text; they return its length.
+    u32 makeGalaxyNameText(MR::Text16&, const GalaxyStatusAccessor*, bool) const;
     char16_t* makeStarNumText(char16_t*, const GalaxyStatusAccessor*, bool) const;
     char16_t* makeCoinText(char16_t*, const GalaxyStatusAccessor*, bool) const;
     char16_t* makeCrownText(char16_t*, const GalaxyStatusAccessor*, bool) const;
-    char16_t* makeRaceNameText(char16_t*, int, bool) const;
-    char16_t* makeRaceTimeText(char16_t*, int, bool) const;
+    u32 makeRaceNameText(MR::Text16&, int, bool) const;
+    u32 makeRaceTimeText(MR::Text16&, int, bool) const;
     void startScrollAnimNext(bool);
     void startScrollAnimPrev();
     bool tryShowSeparator(s32, f32);

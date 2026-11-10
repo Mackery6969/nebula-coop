@@ -4,25 +4,23 @@
 
 class BombBirdBomb : public LiveActor {
 public:
-    /// @brief Creates a new `BombBirdBomb`.
-    /// @param pName A pointer to the null-terminated name of the object.
     BombBirdBomb(const char* pName);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void kill();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPush(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPush(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
 
-    void hold(const TVec3f&);
-    void start(const TVec3f&, const TVec3f&);
+    void hold(const Vec3f&);
+    void start(const Vec3f&, const Vec3f&);
 
     void exeHold();
     void exeWait();
     void exeExplosion();
 
-    TQuat4f _8C;
-    TVec3f _9C;
+    Quat4f mRotateQuat;
+    Vec3f mRotateMoment;
 };

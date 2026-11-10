@@ -21,9 +21,10 @@
 #include "Game/Util/MtxUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const f32 sPlanetInsideRadius = 1800.0f;
+    NEBULA_TUNABLE(f32, sPlanetInsideRadius, 1800.0f);
 };  // namespace
 
 TombSpiderGland* TombSpiderFunction::getGlandFrontL(const TombSpider* pParent) {
@@ -132,7 +133,7 @@ bool TombSpiderFunction::isAttackEnable(const TombSpiderGland* pGland) {
 }
 
 bool TombSpiderFunction::isAttackDirection(HitSensor* pSender, HitSensor* pReceiver) {
-    TVec3f diff(pReceiver->mPosition);
+    Vec3f diff(pReceiver->mPosition);
     diff.sub(pSender->mPosition);
     return diff.dot(pSender->mHost->mVelocity) > 0.0f;
 }
@@ -306,14 +307,14 @@ void TombSpiderFunction::startTombSpiderDemo(TombSpider* pParent, const char* pD
     MR::setBckRate(MR::getPlayerDemoActor(), 0.0f);
 }
 
-void TombSpiderFunction::startTombSpiderAnimCameraDemo(TombSpider* pParent, const char* pDemoName, const char* pCameraName, s32 a1) {
+void TombSpiderFunction::startTombSpiderAnimCameraDemo(TombSpider* pParent, const char* pDemoName, const char* pCameraName, s32 frame) {
     if (pCameraName == nullptr) {
         pCameraName = pDemoName;
     }
 
     pauseOffTombSpiderParts(pParent);
     MR::setBckRate(MR::getPlayerDemoActor(), 0.0f);
-    MR::startAnimCameraTargetSelf(getPlanet(pParent), pParent->mCameraInfo, pCameraName, a1, 1.0f);
+    MR::startAnimCameraTargetSelf(getPlanet(pParent), pParent->mCameraInfo, pCameraName, frame, 1.0f);
 }
 
 void TombSpiderFunction::endTombSpiderDemo(TombSpider* pParent, const char* pDemoName, const char* pCameraName) {
@@ -349,10 +350,10 @@ void TombSpiderFunction::pauseOffTombSpiderParts(const TombSpider* pParent) {
 }
 
 void TombSpiderFunction::resetPlayerPosTombSpider(const TombSpider* pParent, bool useCurrentPos) {
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.identity();
-    TVec3f pos(pParent->mPosition.x, pParent->mPosition.y - ::sPlanetInsideRadius, pParent->mPosition.z);
-    TVec3f dirOut(*MR::getPlayerPos());
+    Vec3f pos(pParent->mPosition.x, pParent->mPosition.y - ::sPlanetInsideRadius, pParent->mPosition.z);
+    Vec3f dirOut(*MR::getPlayerPos());
     dirOut.sub(pParent->mPosition);
 
     if (useCurrentPos && !MR::isNearZero(dirOut)) {
@@ -360,27 +361,26 @@ void TombSpiderFunction::resetPlayerPosTombSpider(const TombSpider* pParent, boo
         pos.set(pParent->mPosition + dirOut * (::sPlanetInsideRadius - 200.0f));
     }
 
-    TVec3f up;
+    Vec3f up;
     MR::calcGravityVector(pParent, pos, &up, nullptr, 0);
     up.scale(-1.0f);
 
-    MR::makeMtxFrontUpPos(&mtx, TVec3f(0.0f, 0.0f, 1.0f), up, pos);
+    MR::makeMtxFrontUpPos(&mtx, Vec3f(0.0f, 0.0f, 1.0f), up, pos);
     MR::setPlayerBaseMtx(mtx);
 }
 
 bool TombSpiderFunction::isRotateLeftToPlayer(const TombSpider* pParent) {
-    TVec2f frontXY(1.0f, 0.0f);
+    Vec2f frontXY(1.0f, 0.0f);
     MR::rotateVecDegree(&frontXY, pParent->mRotation.z - 90.0f);
-    TVec3f front(frontXY.x, frontXY.y, 0.0f);
-    TVec3f dir(*MR::getPlayerPos());
+    Vec3f front(frontXY.x, frontXY.y, 0.0f);
+    Vec3f dir(*MR::getPlayerPos());
     dir.sub(pParent->mPosition);
     dir.z = 0.0f;
     return front.cross(dir).z > 0.0f;
 }
 
+// Unwraps the rotation by a turn so the step toward the player's angle goes the way isRotateLeftToPlayer says.
 f32 TombSpiderFunction::calcRotateSpeedToPlayer(TombSpider* pParent, s32 ratio) {
-    // TODO: this matches but is probably written differently
-
     MR::repeatDegree(&pParent->mRotation.z);
     f32 angle = MR::repeatDegree(MR::calcRotateZ(pParent->mPosition, *MR::getPlayerPos()) + 90.0f);
 

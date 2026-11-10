@@ -10,20 +10,20 @@ class StrayTico : public LiveActor {
 public:
     StrayTico(const char*, CollectTico*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void appear();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPush(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void appear() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPush(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
     void initSensor();
     void setShadowDrop(const char*);
     void initShadow();
     void startGlad();
-    bool requestCompleteDemo(const TVec3f&, const TVec3f&, f32);
+    bool requestCompleteDemo(const Vec3f& rCenter, const Vec3f& rUp, f32 angle);
     void updateWarp();
     void updateChase();
     bool isEnableSpin() const;
@@ -39,13 +39,12 @@ public:
 
     CollectTico* mHost;
     PartsModel* mItemBubbleModel;
-    TQuat4f mRotateQuat;
-    TVec3f mFrontVec;
-    TVec3f _B0;
-    TVec3f _BC;
-    TVec3f _C8;
-    TVec3f _D4;
-    TVec3f _E0;
-    f32 _EC;
-    f32 _F0;
+    Quat4f mRotateQuat;
+    Vec3f mFrontVec;
+    Vec3f mWarpPos;
+    Vec3f mDemoCenter;
+    Vec3f mDemoUp;
+    Vec3f mDemoFront;
+    Vec3f mDemoStartPos;
+    f32 mDemoAngle;
 };

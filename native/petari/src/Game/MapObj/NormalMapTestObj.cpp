@@ -6,11 +6,9 @@
 
 NormalMapTestObj::NormalMapTestObj(const char* pName) : NormalMapBase(pName) {
 }
-NormalMapTestObj::~NormalMapTestObj() {
-}
 
-void NormalMapTestObj::init(const JMapInfoIter& rrIter) {
-    MR::initDefaultPos(this, rrIter);
+void NormalMapTestObj::init(const TableIter& rIter) {
+    MR::initDefaultPos(this, rIter);
     NormalMapBase::setup("NormalMapTestObj");
     initHitSensor(1);
     MR::addBodyMessageSensorMapObj(this);

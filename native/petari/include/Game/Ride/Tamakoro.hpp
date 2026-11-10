@@ -3,31 +3,28 @@
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class AudTamakoroBgmCtrl;
 class JointController;
 struct JointControllerInfo;
-class SphereAccelSensorController;
 class TamakoroTutorial;
 
 class Tamakoro : public LiveActor {
 public:
-    /// @brief Creates a new `Tamakoro`.
-    /// @param pName A pointer to the null-terminated name of the object.
     Tamakoro(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter& rIter) override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
     void initSensor();
     void initJointControl();
-    bool ringMtxCallBack(TPos3f*, const JointControllerInfo&);
+    bool ringMtxCallBack(Pos3f*, const JointControllerInfo&);
     void updateBindActorMatrix();
     void updateRingUpVec();
     bool requestBind(HitSensor*);
@@ -105,21 +102,19 @@ public:
     }
 
 private:
-    SphereAccelSensorController* mAccelSensorCtrl;
     TamakoroTutorial* mTutorial;
     JointController* mJointCtrl;
-    TQuat4f mBallRotateQuat;
-    TQuat4f mMarioRotateQuat;
-    TVec3f mRingUp;
-    TVec3f _C4;  // unused
-    TVec3f mKickVel;
-    TVec3f mMarioBindRequestPos;
-    TVec3f mMarioUp;
-    TVec3f mMarioPos;
-    TVec3f mMoment;
-    TVec3f mMarioFront;
-    TVec3f mDirectionToMario;
-    TVec3f mAccelDir;
+    Quat4f mBallRotateQuat;
+    Quat4f mMarioRotateQuat;
+    Vec3f mRingUp;
+    Vec3f mKickVel;
+    Vec3f mMarioBindRequestPos;
+    Vec3f mMarioUp;
+    Vec3f mMarioPos;
+    Vec3f mMoment;
+    Vec3f mMarioFront;
+    Vec3f mDirectionToMario;
+    Vec3f mAccelDir;
     f32 mAccelRate;
     f32 mMarioRotateYAngle;
     f32 mMarioOffset;

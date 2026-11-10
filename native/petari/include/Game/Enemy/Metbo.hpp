@@ -9,18 +9,23 @@ class WalkerStateBindStarPointer;
 
 class Metbo : public LiveActor {
 public:
+    enum SeVersion {
+        SeVersion_NORMAL = 0,
+        SeVersion_2D = 1,
+    };
+
     Metbo(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void kill();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPush(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPush(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
     void exeNonActive();
     void endNonActive();
@@ -40,23 +45,22 @@ public:
     void exeSwoonSpin();
     void exeSwoonWait();
     void exeRecover();
-    void exeDPDSwoon();
-    void endDPDSwoon();
-    void moveOrFall(const MR::ActorMoveParam&, const TVec3f*);
-    void startSwoon(bool);
+    void exePointerSwoon();
+    void endPointerSwoon();
+    void moveOrFall(const MR::ActorMoveParam& rParam, const Vec3f* pTarget);
+    void startSwoon(bool isFromPlayer);
     bool tryNonActive();
     bool trySearch();
-    bool tryDPDSwoon();
+    bool tryPointerSwoon();
     bool isNrvNormal() const;
-
-    inline bool isNrvDown() const;
-    inline bool isNrvSwoon() const;
+    bool isNrvDown() const;
+    bool isNrvSwoon() const;
 
     SpinHitController* mSpinHitController;
     AnimScaleController* mAnimScaleController;
     WalkerStateBindStarPointer* mStarPointerBind;
-    TVec3f _98;
-    TVec3f _A4;
-    TVec3f _B0;
+    Vec3f mWalkCenter;
+    Vec3f mFront;
+    Vec3f mWalkDir;
     bool mIsClipped;
 };

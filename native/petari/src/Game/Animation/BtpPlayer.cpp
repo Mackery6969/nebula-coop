@@ -1,16 +1,20 @@
 #include "Game/Animation/BtpPlayer.hpp"
 #include "Game/System/ResourceHolder.hpp"
-#include <JSystem/J3DGraphAnimator/J3DMaterialAttach.hpp>
-#include <JSystem/J3DGraphAnimator/J3DModelData.hpp>
+#include "Game/Render/Model.hpp"
+#include "Game/Render/Material.hpp"
+#include "Game/Render/ModelData.hpp"
 
-BtpPlayer::BtpPlayer(const ResourceHolder* pResourceHolder, J3DModelData* pModelData)
+BtpPlayer::BtpPlayer(const ResourceHolder* pResourceHolder, ModelData* pModelData)
     : MaterialAnmPlayerBase(pResourceHolder->mBtpResTable, pModelData) {
 }
 
-void BtpPlayer::attach(J3DAnmBase* pAnmRes, J3DModelData* pModelData) {
-    pModelData->mMaterialTable.entryTexNoAnimator(static_cast< J3DAnmTexPattern* >(pAnmRes));
-}
-
-void BtpPlayer::detach(J3DAnmBase* pAnmRes, J3DModelData* pModelData) {
-    pModelData->mMaterialTable.removeTexNoAnimator(static_cast< J3DAnmTexPattern* >(pAnmRes));
+void BtpPlayer::apply(Clip* pClip, Model* pModel) {
+    const u32 num = pClip->getEntryCount();
+    for (u32 i = 0; i < num; i++) {
+        if (pClip->hasMaterial(i)) {
+            u32 texNo;
+            pClip->getTexture(i, &texNo);
+            pModel->ownMaterial(pClip->getMaterial(i))->setTextureIndex(pClip->getSlot(i), texNo);
+        }
+    }
 }

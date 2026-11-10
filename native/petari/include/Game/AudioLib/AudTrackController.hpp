@@ -2,16 +2,13 @@
 
 #include "Game/AudioLib/AudFader.hpp"
 
-class JAISoundHandle;
+class SoundHandle;
 
 class AudTrackController {
 public:
-    /// @brief Creates a new `AudTrackController`.
     AudTrackController();
 
-    ~AudTrackController() {};
-
-    void start(JAISoundHandle*);
+    void start(SoundHandle*);
     void stop();
     void mute();
     void unmute();
@@ -20,7 +17,7 @@ public:
     void muteIfVolumeZero();
 
     s32 mTrackNo;
-    JAISoundHandle* mHandle;
+    SoundHandle* mHandle;
     AudFader mFader;
     f32 mVolume;
     bool mAutoMute;

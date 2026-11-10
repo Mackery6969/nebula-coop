@@ -1,14 +1,15 @@
 #pragma once
 
 #include "Game/Screen/LayoutActor.hpp"
+#include "Game/Util/StringUtil.hpp"
 
 class IconAButton : public LayoutActor {
 public:
     IconAButton(bool, bool);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
-    virtual void draw() const;
+    virtual void init(const TableIter&) override;
+    virtual void control() override;
+    virtual void draw() const override;
 
     void setFollowActorPane(LayoutActor*, const char*);
     bool isOpen();
@@ -24,7 +25,7 @@ public:
     void exeTerm();
     void updateFollowPos();
 
-    TVec2f mFollowPos;
+    Vec2f mFollowPos;
     LayoutActor* mFollowActor;
-    char mFollowPaneName[24];
+    MR::FormattedName mFollowPaneName;
 };

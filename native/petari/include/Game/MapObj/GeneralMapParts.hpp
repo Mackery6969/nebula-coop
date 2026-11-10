@@ -16,20 +16,20 @@ class GeneralMapParts : public MapParts {
 public:
     GeneralMapParts(const char* pName);
 
-    virtual ~GeneralMapParts() {
+    virtual ~GeneralMapParts() override {
     }
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void initAfterPlacement();
-    virtual void appear();
-    virtual void kill();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void initAfterPlacement() override;
+    virtual void appear() override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
-    void initMapPartsFunction(const JMapInfoIter& rIter);
-    void initSensorType(const JMapInfoIter& rIter);
-    void initGravity(const JMapInfoIter& rIter);
+    void initMapPartsFunction(const TableIter& rIter);
+    void initSensorType(const TableIter& rIter);
+    void initGravity(const TableIter& rIter);
     void receiveMsgSwitchBOn();
     void receiveMsgSwitchBOff();
     void broadcastMsgToAllFunctions(u32 msg);
@@ -43,7 +43,7 @@ public:
     s32 mMoveConditionType;
     s32 mSignMotionType;
     s32 mShadowType;
-    MR::Vector< MR::FixedArray< MapPartsFunction*, 8 > > mFunctionArray;
+    MR::InlineVector< MapPartsFunction*, 8 > mFunctionArray;
     MapPartsAppearController* mAppearController;
     MapPartsRailRotator* mRailRotator;
     MapPartsRailMover* mRailMover;

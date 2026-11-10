@@ -1,4 +1,5 @@
 #include <nebula_game_api.h>
+#include "Game/Util/StringUtil.hpp"
 #include "Game/Boss/SkeletalFishBaby.hpp"
 #include "Game/Boss/SkeletalFishJointCalc.hpp"
 #include "Game/Boss/SkeletalFishRailControl.hpp"
@@ -10,7 +11,7 @@
 #include "Game/Util/ActorShadowUtil.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/JointController.hpp"
 #include "Game/Util/JointUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
@@ -18,12 +19,14 @@
 #include "Game/Util/RailUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
-#include <JSystem/J3DGraphAnimator/J3DJoint.hpp>
-#include <cstdio>
-#include "Game/System/NebulaHost.hpp"
+#include "Game/Render/ModelData.hpp"
+#include "Game/Util/StringUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const char* sStarPointerTargetJoint[] = {"Joint00", "Joint01", "Joint02", "Joint03"};
+    // A broken baby skeletal fish leaves an air bubble.
+    NEBULA_TUNABLE(bool, cBreakAirBubble, true);
+    const char* const sStarPointerTargetJoint[] = {"Joint00", "Joint01", "Joint02", "Joint03"};
     static const Vec sStarPointerTargetOffset[] = {{
                                                        0.0f,
                                                        0.0f,
@@ -32,19 +35,14 @@ namespace {
                                                    {0.0f, 0.0f, 0.0f},
                                                    {0.0f, 0.0f, 0.0f},
                                                    {0.0f, 0.0f, 0.0f}};
-    static const f32 sStarPointerTargetSize[] = {220.0f, 150.0f, 120.0f, 120.0f};
-    static const f32 sSensorRadius = 190.0f;
-    static const f32 sBustSensorRadius = 120.0f;
-    static const f32 sWaistSensorRadius = 120.0f;
-    static const f32 sTailSensorRadius = 100.0f;
-    static const f32 sSpeed = 20.0f;
-    // static const f32 sOpenRadius = _;
-    // static const f32 sCloseRadius = _;
-    // static const f32 sShadowOffDegree = _;
-    // static const f32 sLength = _;
-    // static const f32 sScaleTest = _;
-    static const s32 sStarPieceNum = 10;
-    static const f32 sAccel = 0.1f;
+    NEBULA_TUNABLE_LIST(f32, sStarPointerTargetSize, , {220.0f, 150.0f, 120.0f, 120.0f});
+    NEBULA_TUNABLE(f32, sSensorRadius, 190.0f);
+    NEBULA_TUNABLE(f32, sBustSensorRadius, 120.0f);
+    NEBULA_TUNABLE(f32, sWaistSensorRadius, 120.0f);
+    NEBULA_TUNABLE(f32, sTailSensorRadius, 100.0f);
+    NEBULA_TUNABLE(f32, sSpeed, 20.0f);
+    NEBULA_TUNABLE(s32, sStarPieceNum, 10);
+    NEBULA_TUNABLE(f32, sAccel, 0.1f);
 };  // namespace
 
 namespace {
@@ -55,22 +53,21 @@ namespace {
 };  // namespace
 
 SkeletalFishBaby::SkeletalFishBaby(const char* pName)
-    : LiveActor(pName), mJointIndicies(), mSpeedMax(::sSpeed), mSpeed(::sSpeed), mRailControl(new SkeletalFishRailControl()), mObjArg1(3000.0f),
+    : LiveActor(pName), mJointIndicies(), mSpeedMax(::sSpeed), mSpeed(::sSpeed), mRailControl(new SkeletalFishRailControl()),
       mScaleController(new AnimScaleController(nullptr)) {
     for (s32 i = 0; i < ARRAY_SIZE(mControllers); i++) {
         mControllers[i] = nullptr;
     }
 
-    _AC.identity();
+    mRailMtxInv.identity();
 }
 
-void SkeletalFishBaby::init(const JMapInfoIter& rIter) {
+void SkeletalFishBaby::init(const TableIter& rIter) {
     MR::createAirBubbleHolder();
     MR::initDefaultPos(this, rIter);
 
     if (rIter.isValid()) {
-        MR::getJMapInfoArg0NoInit(rIter, &mSpeedMax);
-        MR::getJMapInfoArg1NoInit(rIter, &mObjArg1);
+        MR::getPlacementArg0NoInit(rIter, &mSpeedMax);
     }
 
     mSpeed = mSpeedMax;
@@ -86,7 +83,7 @@ void SkeletalFishBaby::init(const JMapInfoIter& rIter) {
     initSound(6, false);
     MR::initShadowFromCSV(this, "Shadow");
     MR::setGroupClipping(this, rIter, 32);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
 
     if (MR::useStageSwitchReadAppear(this, rIter)) {
         MR::syncStageSwitchAppear(this);
@@ -103,7 +100,7 @@ void SkeletalFishBaby::init(const JMapInfoIter& rIter) {
         mStarPieceTargets[i] = new LiveActor("StarPointerTargetDummy");
         mStarPieceTargets[i]->makeActorDead();
 
-        TVec3f ptrTarget(::sStarPointerTargetOffset[i]);
+        Vec3f ptrTarget(::sStarPointerTargetOffset[i]);
         MR::initStarPointerTargetAtMtx(mStarPieceTargets[i], ::sStarPointerTargetSize[i], MR::getJointMtx(this, ::sStarPointerTargetJoint[i]),
                                        ptrTarget);
     }
@@ -130,9 +127,13 @@ void SkeletalFishBaby::kill() {
 }
 
 void SkeletalFishBaby::control() {
-    mRailControl->_14 = mSpeed;
-    mRailControl->update();
-    mRailControl->getPos(&mPosition, 0.0f);
+    // A fish placed without a rail (initRail needs a valid placement) stays where it is.
+    if (mRailControl->mRail != nullptr) {
+        mRailControl->mSpeed = mSpeed;
+        mRailControl->update();
+        mRailControl->getPos(&mPosition, 0.0f);
+    }
+
     mScaleController->updateNerve();
 
     if (isNerve(GET_NERVE_ANON(SkeletalFishBabyNrvSwim))) {
@@ -154,7 +155,7 @@ void SkeletalFishBaby::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     }
 }
 
-bool SkeletalFishBaby::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool SkeletalFishBaby::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* /*pReceiver*/) {
     if (MR::isMsgJetTurtleAttack(msg)) {
         return damage(pSender->mPosition, true);
     }
@@ -167,11 +168,11 @@ bool SkeletalFishBaby::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSe
     return false;
 }
 
-bool SkeletalFishBaby::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool SkeletalFishBaby::receiveMsgEnemyAttack(u32 /*msg*/, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     return false;
 }
 
-bool SkeletalFishBaby::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool SkeletalFishBaby::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     switch (msg) {
     case ACTMES_SKELETAL_FISH_BOSS_BATTLE_START:
         MR::invalidateClipping(this);
@@ -202,13 +203,13 @@ void SkeletalFishBaby::exeSwim() {
 
 void SkeletalFishBaby::exeBind() {
     if (MR::isFirstStep(this)) {
-        mScaleController->startDpdHitVibration();
-        MR::startDPDHitSound();
+        mScaleController->startPointerHitVibration();
+        MR::startPointerHitSound();
         mSpeed = 0.0f;
         MR::emitEffect(this, "StarPointerHold");
     }
 
-    MR::startDPDFreezeLevelSound(this);
+    MR::startPointerFreezeLevelSound(this);
 
     if (!isStarPointerPointing()) {
         setNerve(GET_NERVE_ANON(SkeletalFishBabyNrvSwim));
@@ -235,7 +236,7 @@ void SkeletalFishBaby::exeBreak() {
 
 void SkeletalFishBaby::exeDead() {
     if (MR::isFirstStep(this)) {
-        TVec3f jointPos;
+        Vec3f jointPos;
         MR::copyJointPos(this, "Center", &jointPos);
         MR::appearStarPiece(this, jointPos, ::sStarPieceNum, 10.0f, 40.0f, false);
         MR::startSound(this, "SE_OJ_STAR_PIECE_BURST_W_F");
@@ -243,16 +244,16 @@ void SkeletalFishBaby::exeDead() {
     }
 }
 
-bool SkeletalFishBaby::calcJoint(TPos3f* pJointPos, const JointControllerInfo& rInfo) {
+bool SkeletalFishBaby::calcJoint(Pos3f* pJointPos, const JointControllerInfo& rInfo) {
     if (mJointIndicies[rInfo.mJoint->getJntNo()] == -1) {
         return false;
     }
 
-    SkeletalFishJointCalc::calcJoint(pJointPos, &_AC, mRailControl, rInfo);
+    SkeletalFishJointCalc::calcJoint(pJointPos, &mRailMtxInv, mRailControl, rInfo);
     return true;
 }
 
-bool SkeletalFishBaby::damage(const TVec3f& rAirBubblePos, bool shakeCameraNormal) {
+bool SkeletalFishBaby::damage(const Vec3f& rAirBubblePos, bool shakeCameraNormal) {
     bool isDeadOrBroke = isNerve(GET_NERVE_ANON(SkeletalFishBabyNrvDead)) || isNerve(GET_NERVE_ANON(SkeletalFishBabyNrvBreak));
 
     if (!isDeadOrBroke) {
@@ -262,8 +263,9 @@ bool SkeletalFishBaby::damage(const TVec3f& rAirBubblePos, bool shakeCameraNorma
             MR::shakeCameraWeak();
         }
 
-        if (!NebulaHost::codePatch(NEBULA_PATCH_SKELETAL_FISH_BABY_NO_BUBBLE, nullptr))
-        MR::appearAirBubble(rAirBubblePos, -1);
+        if (::cBreakAirBubble) {
+            MR::appearAirBubble(rAirBubblePos, -1);
+        }
         setNerve(GET_NERVE_ANON(SkeletalFishBabyNrvBreak));
         return true;
     }
@@ -272,26 +274,26 @@ bool SkeletalFishBaby::damage(const TVec3f& rAirBubblePos, bool shakeCameraNorma
 }
 
 void SkeletalFishBaby::calcAndSetBaseMtx() {
-    if (mRailControl->_8 != nullptr) {
+    if (mRailControl->mRail != nullptr) {
         for (u32 i = 0; i < ARRAY_SIZE(mControllers); i++) {
             mControllers[i]->registerCallBack();
         }
 
-        TPos3f railMtx;
+        Pos3f railMtx;
         mRailControl->getMtx(&railMtx, 0.0f);
         MR::setBaseTRMtx(this, railMtx);
-        _AC.set(railMtx);
-        _AC.invert(_AC);
-        TVec3f scale = mScaleController->_C * mScale;
+        mRailMtxInv.set(railMtx);
+        mRailMtxInv.invert(mRailMtxInv);
+        Vec3f scale = mScaleController->mScale * mScale;
         MR::setBaseScale(this, scale);
     }
 }
 
-void SkeletalFishBaby::initRail(const JMapInfoIter& rIter) {
+void SkeletalFishBaby::initRail(const TableIter& rIter) {
     if (rIter.isValid()) {
         initRailRider(rIter);
         mRailControl->setRailActor(this, nullptr, true);
-        mRailControl->_14 = mSpeed;
+        mRailControl->mSpeed = mSpeed;
         MR::moveCoordToNearestPos(this, mPosition);
     }
 }
@@ -304,19 +306,18 @@ void SkeletalFishBaby::initJoint() {
     }
 
     for (s32 i = 0; i < ARRAY_SIZE(mControllers); i++) {
-        char jointName[16];
-        nebula_snprintf(jointName, sizeof(jointName), "Joint%02d", i);
-        mControllers[i] = MR::createJointDelegatorWithNullMtxFunc(this, &SkeletalFishBaby::calcJoint, jointName);
-        mJointIndicies[MR::getJointIndex(this, jointName)] = i;
+        const MR::FormattedName jointName("Joint%02d", i);
+        mControllers[i] = MR::createJointDelegatorWithNullMtxFunc(this, &SkeletalFishBaby::calcJoint, jointName.c_str());
+        mJointIndicies[MR::getJointIndex(this, jointName.c_str())] = i;
     }
 }
 
 void SkeletalFishBaby::initSensor() {
     initHitSensor(4);
-    MR::addHitSensorAtJointEnemy(this, "head", "Joint00", 16, ::sSensorRadius, TVec3f(0.0f, 20.0f, 100.0f));
-    MR::addHitSensorAtJointEnemy(this, "bust", "Joint01", 16, ::sBustSensorRadius, TVec3f(0.0f, 00.0f, 30.0f));
-    MR::addHitSensorAtJointEnemy(this, "waist", "Joint02", 16, ::sWaistSensorRadius, TVec3f(0.0f, 00.0f, 20.0f));
-    MR::addHitSensorAtJointEnemy(this, "tail", "Joint03", 16, ::sTailSensorRadius, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorAtJointEnemy(this, "head", "Joint00", 16, ::sSensorRadius, Vec3f(0.0f, 20.0f, 100.0f));
+    MR::addHitSensorAtJointEnemy(this, "bust", "Joint01", 16, ::sBustSensorRadius, Vec3f(0.0f, 00.0f, 30.0f));
+    MR::addHitSensorAtJointEnemy(this, "waist", "Joint02", 16, ::sWaistSensorRadius, Vec3f(0.0f, 00.0f, 20.0f));
+    MR::addHitSensorAtJointEnemy(this, "tail", "Joint03", 16, ::sTailSensorRadius, Vec3f(0.0f, 0.0f, 0.0f));
 }
 
 bool SkeletalFishBaby::isAttackable() const {
@@ -326,7 +327,7 @@ bool SkeletalFishBaby::isAttackable() const {
 
 bool SkeletalFishBaby::isStarPointerPointing() const {
     for (u32 i = 0; i < ARRAY_SIZE(mStarPieceTargets); i++) {
-        if (MR::isStarPointerPointing2POnPressButton(mStarPieceTargets[i], "\216\343" /* 弱 */, true, false)) {
+        if (MR::isStarPointerPointing2POnPressButton(mStarPieceTargets[i], "弱", true, false)) {
             return true;
         }
     }

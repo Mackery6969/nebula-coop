@@ -2,7 +2,7 @@
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/FloaterFloatingForceTypeSpring.hpp"
 #include "Game/Util.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 namespace {
     const char* const cEffectName = "Ripple";
@@ -14,20 +14,32 @@ namespace NrvPhantomShipBoxFloater {
     NEW_NERVE(HostTypeMoveUnderWater, PhantomShipBoxFloater, MoveUnderWater);
 };  // namespace NrvPhantomShipBoxFloater
 
-PhantomShipBoxFloater::PhantomShipBoxFloater(const char* pName) : LiveActor(pName), mObjectName(), mFloaterOffset(gZeroVec), mRippleSeCounter() {
+PhantomShipBoxFloater::PhantomShipBoxFloater(const char* pName)
+    : LiveActor(pName), mObjectName(), mFloaterOffset(gZeroVec), mRippleSeCounter(), mSinkDepthUnder(0.0f), mSinkDepthOver(0.0f) {
 }
 
 inline bool floaterIsMoving(FloaterFloatingForceTypeSpring* force) {
     return 0.1f < force->getCurrentVelocity().length();
 }
 
-void PhantomShipBoxFloater::init(const JMapInfoIter& rIter) {
+void PhantomShipBoxFloater::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     mFloaterOffset.set(mPosition);
     MR::getObjectName(&mObjectName, rIter);
+    if (MR::isEqualString("PhantomShipBoxFloaterA", mObjectName)) {
+        mSinkDepthUnder = 580.0f;
+        mSinkDepthOver = 575.0f;
+    } else if (MR::isEqualString("PhantomShipBoxFloaterB", mObjectName)) {
+        mSinkDepthUnder = 380.0f;
+        mSinkDepthOver = 375.0f;
+    } else if (MR::isEqualString("PhantomShipBoxFloaterC", mObjectName)) {
+        mSinkDepthUnder = 180.0f;
+        mSinkDepthOver = 175.0f;
+    }
+
     initModelManagerWithAnm(mObjectName, nullptr, false);
     MR::connectToSceneMapObj(this);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     MR::setEffectHostSRT(this, ::cEffectName, &mFloaterOffset, nullptr, nullptr);
     initSound(4, false);
     mRippleSeCounter = MR::getRandom(20, 90);
@@ -48,8 +60,8 @@ void PhantomShipBoxFloater::control() {
 }
 
 f32 PhantomShipBoxFloater::getCurrentSinkDepth() const {
-    TVec3f zDir, yDir;
-    TPos3f depthMtx;
+    Vec3f zDir, yDir;
+    Pos3f depthMtx;
     depthMtx.setInline(getBaseMtx());
     depthMtx.getTrans(zDir);
     depthMtx.getYDir(yDir);
@@ -72,20 +84,7 @@ void PhantomShipBoxFloater::exeMove() {
     playRippleSe();
 
     if (MR::isOnPlayer(this)) {
-        const char* objectName = mObjectName;
-        f32 sinkDepth;
-
-        if (MR::isEqualString("PhantomShipBoxFloaterA", objectName)) {
-            sinkDepth = 580.0f;
-        } else if (MR::isEqualString("PhantomShipBoxFloaterB", objectName)) {
-            sinkDepth = 380.0f;
-        } else if (MR::isEqualString("PhantomShipBoxFloaterC", objectName)) {
-            sinkDepth = 180.0f;
-        } else {
-            sinkDepth = 0.0f;
-        }
-
-        if (sinkDepth < getCurrentSinkDepth()) {
+        if (mSinkDepthUnder < getCurrentSinkDepth()) {
             MR::deleteEffect(this, ::cEffectName);
             setNerve(GET_NERVE(PhantomShipBoxFloater, HostTypeMoveUnderWater));
         }
@@ -99,20 +98,7 @@ void PhantomShipBoxFloater::exeMove() {
 
 void PhantomShipBoxFloater::exeMoveUnderWater() {
     if (!MR::isOnPlayer(this)) {
-        const char* objectName = mObjectName;
-        f32 sinkDepth;
-
-        if (MR::isEqualString("PhantomShipBoxFloaterA", objectName)) {
-            sinkDepth = 575.0f;
-        } else if (MR::isEqualString("PhantomShipBoxFloaterB", objectName)) {
-            sinkDepth = 375.0f;
-        } else if (MR::isEqualString("PhantomShipBoxFloaterC", objectName)) {
-            sinkDepth = 175.0f;
-        } else {
-            sinkDepth = 0.0f;
-        }
-
-        if (getCurrentSinkDepth() < sinkDepth) {
+        if (getCurrentSinkDepth() < mSinkDepthOver) {
             setNerve(GET_NERVE(PhantomShipBoxFloater, HostTypeMove));
         }
     }
@@ -123,7 +109,4 @@ void PhantomShipBoxFloater::playRippleSe() {
         MR::startSound(this, "SE_OJ_BOX_FLOATER_RIPPLE");
         mRippleSeCounter = MR::getRandom(20, 90);
     }
-}
-
-PhantomShipBoxFloater::~PhantomShipBoxFloater() {
 }

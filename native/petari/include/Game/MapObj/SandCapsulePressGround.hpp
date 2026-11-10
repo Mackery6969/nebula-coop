@@ -1,24 +1,24 @@
 #pragma once
 
 #include "Game/MapObj/MapObjActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class SandCapsulePressGround : public MapObjActor {
 public:
     SandCapsulePressGround(const char*);
 
-    virtual void init(const JMapInfoIter&);
+    virtual void init(const TableIter&) override;
 
-    virtual void initCaseUseSwitchA(const MapObjActorInitInfo&) {
+    virtual void initCaseUseSwitchA(const MapObjActorInitInfo&) override {
     }
 
-    virtual void initCaseUseSwitchB(const MapObjActorInitInfo&) {
+    virtual void initCaseUseSwitchB(const MapObjActorInitInfo&) override {
     }
 
-    virtual void initCaseNoUseSwitchA(const MapObjActorInitInfo&) {
+    virtual void initCaseNoUseSwitchA(const MapObjActorInitInfo&) override {
     }
 
-    virtual void initCaseNoUseSwitchB(const MapObjActorInitInfo&) {
+    virtual void initCaseNoUseSwitchB(const MapObjActorInitInfo&) override {
     }
 
     void exeWait();
@@ -30,7 +30,7 @@ public:
     void calcMoveVelocity();
     bool tryStop();
 
-    TVec3f _C4;
-    TVec3f _D0;
-    TPos3f _DC;
+    Vec3f mLowerPos;
+    Vec3f mUpperPos;
+    Pos3f mEffectMtx;
 };

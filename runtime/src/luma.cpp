@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <variant>
 
@@ -347,13 +348,30 @@ bool contains(const std::vector<std::string>& list, std::string_view wanted) {
     return std::find(list.begin(), list.end(), wanted) != list.end();
 }
 
+// A manifest's number as a whole one: a fraction is cut and a value past the type's range stops at its end (a plain
+// cast of such a double is undefined).
+int whole_int(double value) {
+    if (!(value == value)) return 0;
+    if (value >= 2147483647.0) return std::numeric_limits<int>::max();
+    if (value <= -2147483648.0) return std::numeric_limits<int>::min();
+    return static_cast<int>(value);
+}
+
+// The same as 32 bits that wrap: a negative number counts back from 2^32.
+std::uint32_t whole_u32(double value) {
+    if (!(value == value)) return 0u;
+    if (value >= 4294967295.0) return 0xFFFFFFFFu;
+    if (value >= 0.0) return static_cast<std::uint32_t>(value);
+    return static_cast<std::uint32_t>(whole_int(value));
+}
+
 bool read_rows(const Value& from, Rows& out) {
     if (const Value* story = from.get("story"); story != nullptr && story->object() != nullptr) {
         for (const auto& [key, value] : *story->object()) {
             if (const std::string* words = value.string()) {
                 out.story[key] = *words;
             } else if (const double* number = value.number()) {
-                out.story[key] = std::to_string(static_cast<int>(*number));
+                out.story[key] = std::to_string(whole_int(*number));
             } else if (const bool* flag = std::get_if<bool>(&value.data)) {
                 out.story[key] = *flag ? "on" : "off";
             }
@@ -361,7 +379,13 @@ bool read_rows(const Value& from, Rows& out) {
     }
     if (const Value* messages = from.get("text"); messages != nullptr && messages->object() != nullptr) {
         for (const auto& [id, words] : *messages->object()) {
-            out.text[id] = read_text(&words);
+            Text read = read_text(&words);
+            // "like" names a game message, not a language.
+            if (const auto like = read.languages.find("like"); like != read.languages.end()) {
+                out.text_like[id] = like->second;
+                read.languages.erase(like);
+            }
+            out.text[id] = std::move(read);
         }
     }
     if (const Value* galaxies = from.get("galaxies"); galaxies != nullptr && galaxies->array() != nullptr) {
@@ -375,14 +399,15 @@ bool read_rows(const Value& from, Rows& out) {
                     if (condition.string() != nullptr && galaxy.open_conditions.size() < 3u) galaxy.open_conditions.push_back(*condition.string());
                 }
             }
-            if (const Value* stars = entry.get("stars_to_open"); stars != nullptr && stars->number() != nullptr) galaxy.stars_to_open = static_cast<int>(*stars->number());
-            if (const Value* dome = entry.get("dome"); dome != nullptr && dome->number() != nullptr) galaxy.dome = static_cast<int>(*dome->number());
+            if (const Value* stars = entry.get("stars_to_open"); stars != nullptr && stars->number() != nullptr) galaxy.stars_to_open = whole_int(*stars->number());
+            if (const Value* dome = entry.get("dome"); dome != nullptr && dome->number() != nullptr) galaxy.dome = whole_int(*dome->number());
+            if (galaxy.stars_to_open < 0 || galaxy.stars_to_open > 255 || galaxy.dome < 0 || galaxy.dome > 255) return false;
             if (const Value* hungry = entry.get("hungry_luma"); hungry != nullptr && hungry->object() != nullptr) {
                 const Value* slot = hungry->get("slot");
                 const Value* bits = hungry->get("star_bits");
                 if (slot == nullptr || slot->number() == nullptr || bits == nullptr || bits->number() == nullptr) return false;
-                galaxy.hungry_slot = static_cast<int>(*slot->number());
-                galaxy.hungry_star_bits = static_cast<int>(*bits->number());
+                galaxy.hungry_slot = whole_int(*slot->number());
+                galaxy.hungry_star_bits = whole_int(*bits->number());
             }
             if (const Value* place = entry.get("map_position"); place != nullptr && place->array() != nullptr && place->array()->size() == 2u) {
                 const Value& x = (*place->array())[0];
@@ -406,8 +431,8 @@ bool read_rows(const Value& from, Rows& out) {
                     MusicPlace place;
                     place.stage = text_field(row, "stage");
                     if (place.stage.empty()) return false;
-                    if (const Value* scenario = row.get("scenario"); scenario != nullptr && scenario->number() != nullptr) place.scenario = static_cast<int>(*scenario->number());
-                    if (const Value* area = row.get("change_area"); area != nullptr && area->number() != nullptr) place.change_area = static_cast<int>(*area->number());
+                    if (const Value* scenario = row.get("scenario"); scenario != nullptr && scenario->number() != nullptr) place.scenario = whole_int(*scenario->number());
+                    if (const Value* area = row.get("change_area"); area != nullptr && area->number() != nullptr) place.change_area = whole_int(*area->number());
                     track.places.push_back(std::move(place));
                 }
             }
@@ -421,7 +446,7 @@ bool read_rows(const Value& from, Rows& out) {
             if (flag.name.empty()) return false;
             const auto whole = [&entry](const char* key) {
                 const Value* value = entry.get(key);
-                return value != nullptr && value->number() != nullptr ? static_cast<int>(*value->number()) : 0;
+                return value != nullptr && value->number() != nullptr ? whole_int(*value->number()) : 0;
             };
             flag.kind = whole("kind");
             flag.a = whole("a");
@@ -434,14 +459,14 @@ bool read_rows(const Value& from, Rows& out) {
     if (const Value* schedule = from.get("comet_schedule"); schedule != nullptr && schedule->array() != nullptr) {
         for (const Value& entry : *schedule->array()) {
             CometSchedule dome;
-            if (const Value* number = entry.get("dome"); number != nullptr && number->number() != nullptr) dome.dome = static_cast<int>(*number->number());
-            if (dome.dome < 1 || dome.dome > 16) return false;
+            if (const Value* number = entry.get("dome"); number != nullptr && number->number() != nullptr) dome.dome = whole_int(*number->number());
+            if (dome.dome < 1) return false;
             if (const Value* comets = entry.get("comets"); comets != nullptr && comets->array() != nullptr) {
                 for (const Value& comet : *comets->array()) {
                     std::string galaxy = text_field(comet, "galaxy");
                     if (galaxy.empty()) return false;
                     const Value* coins = comet.get("coins");
-                    dome.comets.emplace_back(std::move(galaxy), coins != nullptr && coins->number() != nullptr ? static_cast<int>(*coins->number()) : 0);
+                    dome.comets.emplace_back(std::move(galaxy), coins != nullptr && coins->number() != nullptr ? whole_int(*coins->number()) : 0);
                 }
             }
             if (dome.comets.empty()) return false;
@@ -468,7 +493,7 @@ std::optional<Manifest> parse_manifest(std::string_view text) {
     Manifest out;
     const Value* format = root->get("format");
     if (format == nullptr || format->number() == nullptr || *format->number() < 1.0) return std::nullopt;
-    out.format = static_cast<std::uint32_t>(*format->number());
+    out.format = whole_u32(*format->number());
     // A newer format's other fields may mean anything: the number is all a reader can say of it.
     if (out.format > kFormat) return out;
     out.id = text_field(*root, "id");
@@ -503,7 +528,8 @@ std::optional<Manifest> parse_manifest(std::string_view text) {
                     if (!read.id.empty()) option.choices.push_back(std::move(read));
                 }
             }
-            // A choice for each number of a range: { "from": 1, "to": 20, "step": 1 }. Its id is the number.
+            // A choice for each number of a range: { "from": 1, "to": 20, "step": 1 }. Its id is the number; a range from
+            // a larger number to a smaller one counts down.
             if (const Value* range = entry.get("range"); range != nullptr && range->object() != nullptr) {
                 const auto number = [range](const char* key, double missing) {
                     const Value* value = range->get(key);
@@ -512,8 +538,13 @@ std::optional<Manifest> parse_manifest(std::string_view text) {
                 const double from = number("from", 0.0);
                 const double to = number("to", from);
                 const double step = number("step", 1.0);
-                if (step > 0.0 && (to - from) / step <= 10000.0) {
-                    for (double at = from; at <= to + step * 0.001; at += step) {
+                const double span = to >= from ? to - from : from - to;
+                const double toward = to >= from ? step : -step;
+                if (step > 0.0 && span / step <= 10000.0) {
+                    // Counted, so that a step too small for the numbers' size (1e300 + 1) cannot loop for ever.
+                    const std::size_t count = static_cast<std::size_t>(span / step + 0.001) + 1u;
+                    for (std::size_t i = 0; i < count; ++i) {
+                        const double at = from + static_cast<double>(i) * toward;
                         char id[32];
                         std::snprintf(id, sizeof(id), "%g", at);
                         Choice choice;
@@ -561,8 +592,8 @@ std::optional<Manifest> parse_manifest(std::string_view text) {
                 const Value* mission = row.get("mission");
                 const Value* seconds = row.get("seconds");
                 if (mission == nullptr || mission->number() == nullptr || seconds == nullptr || seconds->number() == nullptr) return std::nullopt;
-                limit.mission = static_cast<int>(*mission->number());
-                limit.seconds = static_cast<int>(*seconds->number());
+                limit.mission = whole_int(*mission->number());
+                limit.seconds = whole_int(*seconds->number());
                 layer.comet_time_limits.push_back(std::move(limit));
             }
         }
@@ -571,7 +602,7 @@ std::optional<Manifest> parse_manifest(std::string_view text) {
                 StageRule rule;
                 rule.stage = text_field(row, "stage");
                 if (rule.stage.empty()) return std::nullopt;
-                if (const Value* scenario = row.get("scenario"); scenario != nullptr && scenario->number() != nullptr) rule.scenario = static_cast<int>(*scenario->number());
+                if (const Value* scenario = row.get("scenario"); scenario != nullptr && scenario->number() != nullptr) rule.scenario = whole_int(*scenario->number());
                 rule.acts_as = string_list(row.get("acts_as"));
                 if (const Value* own = row.get("own_rules"); own != nullptr) {
                     if (const bool* flag = std::get_if<bool>(&own->data)) rule.own_rules = *flag;
@@ -602,11 +633,58 @@ std::optional<Manifest> parse_manifest(std::string_view text) {
                 }
             }
         }
+        if (const Value* tunables = entry.get("tunables"); tunables != nullptr) {
+            // { "Kuribo.cWalkSpeed": 2.0, "Kuribo.cIsDead": true, "Kuribo.cTurn": {"option": "turn"}, "Kuribo.cSteps": [4, null, 9] }
+            if (tunables->object() == nullptr) return std::nullopt;
+            for (const auto& [key, value] : *tunables->object()) {
+                if (key.find('.') == std::string::npos) return std::nullopt;
+                if (const double* number = value.number()) {
+                    layer.tunables.push_back({key, *number, {}});
+                } else if (const bool* flag = std::get_if<bool>(&value.data)) {
+                    layer.tunables.push_back({key, *flag ? 1.0 : 0.0, {}});
+                } else if (const Value* option = value.get("option"); option != nullptr && option->string() != nullptr) {
+                    layer.tunables.push_back({key, 0.0, *option->string()});
+                } else if (const Array* list = value.array()) {
+                    // A list's places; a null keeps the game's number there.
+                    for (std::size_t i = 0; i < list->size(); ++i) {
+                        if (const double* item = (*list)[i].number()) {
+                            layer.tunables.push_back({key + "[" + std::to_string(i) + "]", *item, {}});
+                        } else if (const bool* item_flag = std::get_if<bool>(&(*list)[i].data)) {
+                            layer.tunables.push_back({key + "[" + std::to_string(i) + "]", *item_flag ? 1.0 : 0.0, {}});
+                        } else if (!std::holds_alternative<std::monostate>((*list)[i].data)) {
+                            return std::nullopt;
+                        }
+                    }
+                } else {
+                    return std::nullopt;
+                }
+            }
+        }
         if (const Value* sounds = entry.get("sound_effects"); sounds != nullptr && sounds->array() != nullptr) {
             for (const Value& row : *sounds->array()) {
                 SoundEffect sound{text_field(row, "name"), text_field(row, "file")};
                 if (sound.name.empty() || sound.file.empty()) return std::nullopt;
                 layer.sound_effects.push_back(std::move(sound));
+            }
+        }
+        if (const Value* animations = entry.get("player_animations"); animations != nullptr) {
+            if (animations->array() == nullptr) return std::nullopt;
+            for (const Value& row : *animations->array()) {
+                PlayerAnimation animation{text_field(row, "name"), text_field(row, "file")};
+                if (animation.name.empty() || animation.file.empty()) return std::nullopt;
+                if (const Value* rate = row.get("rate"); rate != nullptr) {
+                    const double* number = rate->number();
+                    if (number == nullptr || !(*number > 0.0 && *number <= 100.0)) return std::nullopt;
+                    animation.rate = *number;
+                }
+                if (const Value* blend = row.get("blend_frames"); blend != nullptr) {
+                    const double* number = blend->number();
+                    if (number == nullptr || !(*number >= 0.0 && *number <= 600.0) || *number != static_cast<double>(static_cast<int>(*number))) {
+                        return std::nullopt;
+                    }
+                    animation.blend_frames = static_cast<int>(*number);
+                }
+                layer.player_animations.push_back(std::move(animation));
             }
         }
         if (const Value* classes = entry.get("object_classes"); classes != nullptr && classes->array() != nullptr) {
@@ -616,10 +694,14 @@ std::optional<Manifest> parse_manifest(std::string_view text) {
                 layer.object_classes.push_back(std::move(object));
             }
         }
-        if (const Value* switches = entry.get("switches"); switches != nullptr && switches->object() != nullptr) {
-            for (const auto& [name, value] : *switches->object()) {
-                if (const double* number = value.number()) layer.switches[name] = static_cast<std::uint32_t>(*number);
-                else if (const Value* option = value.get("option"); option != nullptr && option->string() != nullptr) layer.switch_options[name] = *option->string();
+        // "switches" gave way to "tunables": the mod is refused, naming the tunable for its first switch.
+        if (const Value* switches = entry.get("switches"); switches != nullptr && out.retired.empty()) {
+            out.retired = "\"SWITCHES\" ARE NOW \"TUNABLES\"";
+            if (switches->object() != nullptr && !switches->object()->empty()) {
+                const std::string& name = switches->object()->begin()->first;
+                if (const SwitchTunable tunable = switch_tunable(name); !tunable.key.empty()) {
+                    out.retired += ": " + name + " IS " + std::string(tunable.key) + (tunable.opposite ? " (THE OPPOSITE SENSE)" : "");
+                }
             }
         }
         if (const Value* materials = entry.get("materials"); materials != nullptr && materials->object() != nullptr) {
@@ -654,7 +736,7 @@ std::optional<Manifest> parse_manifest(std::string_view text) {
                 }
             }
             const Value* api = entry.get("api");
-            plugin.api = api != nullptr && api->number() != nullptr ? static_cast<std::uint32_t>(*api->number()) : 0u;
+            plugin.api = api != nullptr && api->number() != nullptr ? whole_u32(*api->number()) : 0u;
             plugin.when = read_when(entry.get("when"));
             out.plugins.push_back(std::move(plugin));
         }
@@ -662,7 +744,13 @@ std::optional<Manifest> parse_manifest(std::string_view text) {
     return out;
 }
 
+// A luma.json past this is not read: real ones are kilobytes.
+constexpr std::uintmax_t kManifestLimit = 16u << 20u;
+
 std::optional<Manifest> read_manifest(const std::filesystem::path& folder) {
+    std::error_code size_error;
+    const std::uintmax_t size = std::filesystem::file_size(folder / "luma.json", size_error);
+    if (size_error || size > kManifestLimit) return std::nullopt;
     std::ifstream in(folder / "luma.json", std::ios::binary);
     if (!in) return std::nullopt;
     const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
@@ -688,9 +776,11 @@ int compare_versions(std::string_view a, std::string_view b) {
 
 std::string refusal(const Manifest& manifest, const std::string& game_id, std::string_view nebula_version, std::string_view) {
     if (manifest.format > kFormat) return "THIS MOD NEEDS A NEWER NEBULA";
-    // No feature names exist yet beyond the format itself: any is one this game lacks.
+    if (!manifest.retired.empty()) return manifest.retired;
+    // The features this Nebula has; any other is one it lacks. "tunables": the game's tuning numbers by "<file>.<name>";
+    // "player-animations": a layer's player_animations.
     for (const std::string& feature : manifest.requires_features) {
-        if (feature != "custom-shaders") return "THIS MOD NEEDS A NEWER NEBULA";
+        if (feature != "custom-shaders" && feature != "tunables" && feature != "player-animations") return "THIS MOD NEEDS A NEWER NEBULA";
     }
     if (!manifest.nebula.empty() && compare_versions(nebula_version, manifest.nebula) < 0) return "THIS MOD NEEDS A NEWER NEBULA";
     if (manifest.game.starts_with("SB4") || manifest.game.starts_with("SB5")) return "THIS MOD IS FOR SUPER MARIO GALAXY 2";
@@ -700,6 +790,7 @@ std::string refusal(const Manifest& manifest, const std::string& game_id, std::s
     }
     for (const Plugin& plugin : manifest.plugins) {
         if (plugin.api > kPluginApi) return "THIS MOD NEEDS A NEWER NEBULA";
+        if (plugin.api != 0u && plugin.api < kPluginApi) return "THIS MOD'S CODE IS FOR AN OLDER NEBULA: REBUILD IT WITH THIS NEBULA'S NEBULA_MOD_API.H";
         if (plugin.binaries.find(std::string(plugin_target())) == plugin.binaries.end()) return "THIS MOD HAS NO VERSION FOR THIS DEVICE";
     }
     return {};
@@ -773,41 +864,40 @@ std::string_view this_platform() noexcept {
 #endif
 }
 
-std::uint32_t switch_number(std::string_view name) noexcept {
-    // Numbered as NEBULA_PATCH_* is: the host checks them against each other.
-    static constexpr std::pair<std::string_view, std::uint32_t> kSwitches[] = {
-        {"flip_panel_group", 1u},
-        {"flip_panel_observer_group", 2u},
-        {"water_bazooka_shot_flag", 3u},
-        {"kamek_barrier_offset_y", 4u},
-        {"skeletal_fish_baby_no_bubble", 5u},
-        {"dodoryu_shell_only", 6u},
-        {"miss_star_pieces", 7u},
-        {"no_hidden_star_table", 8u},
-        {"no_sudden_death_dodoryu", 9u},
-        {"begoman_fire_proof", 10u},
-        {"messenger_always_ex", 11u},
-        {"messenger_ex_one_ups", 12u},
-        {"player_health", 13u},
-        {"player_health_fixed", 14u},
-        {"hit_takes_all", 15u},
-        {"life_up_health", 16u},
-        {"no_low_health_warning", 17u},
-        {"no_dark_comet_rules", 18u},
-        {"max_lives", 19u},
-        {"max_star_bits", 20u},
-        {"max_carried_star_bits", 21u},
-        {"max_coins", 22u},
-        {"coins_per_one_up", 23u},
-        {"star_bits_per_one_up", 24u},
-        {"starting_lives", 25u},
-        {"purple_coins_for_star", 26u},
-        {"water_air", 27u},
+SwitchTunable switch_tunable(std::string_view name) noexcept {
+    static constexpr std::pair<std::string_view, SwitchTunable> kSwitches[] = {
+        {"flip_panel_group", {"FlipPanel.cPanelGroupSize"}},
+        {"flip_panel_observer_group", {"FlipPanel.cObserverGroupSize"}},
+        {"water_bazooka_shot_flag", {"WaterBazooka.cShotInvalidSpinKill"}},
+        {"kamek_barrier_offset_y", {"BossKameckBarrier.cOffsetY"}},
+        {"skeletal_fish_baby_no_bubble", {"SkeletalFishBaby.cBreakAirBubble", true}},
+        {"dodoryu_shell_only", {"GameRules.cDodoryuShellOnly"}},
+        {"miss_star_pieces", {"SequenceUtil.cMissStarPieceNum"}},
+        {"no_hidden_star_table", {"SceneUtil.cHiddenStarTable", true}},
+        {"no_sudden_death_dodoryu", {"SceneUtil.cSuddenDeathDodoryu", true}},
+        {"begoman_fire_proof", {"GameRules.cBegomanFireProof"}},
+        {"messenger_always_ex", {"KinopioAstro.cMessangerAlwaysEx"}},
+        {"messenger_ex_one_ups", {"KinopioAstro.sMessangerOneUpExNum"}},
+        {"player_health", {"GameRules.cPlayerHealth"}},
+        {"player_health_fixed", {"MarioActor.cDarkCometOneHealth", true}},
+        {"hit_takes_all", {"MarioActor.cHitTakesAll"}},
+        {"life_up_health", {"GameRules.cLifeUpHealth"}},
+        {"no_low_health_warning", {"MarioEffect.cLowHealthWarning", true}},
+        {"no_dark_comet_rules", {"EventUtil.cDarkCometRules", true}},
+        {"max_lives", {"GameDataPlayerStatus.cMaxPlayerLeft"}},
+        {"max_star_bits", {"GameRules.cMaxStarBits"}},
+        {"max_carried_star_bits", {"GameDataTemporaryInGalaxy.cMaxCarriedStarPieceNum"}},
+        {"max_coins", {"GameRules.cMaxCoins"}},
+        {"coins_per_one_up", {"ScenePlayingResult.cCoinStepNum"}},
+        {"star_bits_per_one_up", {"ScenePlayingResult.cStarPieceStepNum"}},
+        {"starting_lives", {"GameDataPlayerStatus.cStartingPlayerLeft"}},
+        {"purple_coins_for_star", {"ScenePlayingResult.cPurpleCoinPowerStarAppearNum"}},
+        {"water_air", {"MarioActor.cWaterAir"}},
     };
-    for (const auto& [known, number] : kSwitches) {
-        if (known == name) return number;
+    for (const auto& [known, tunable] : kSwitches) {
+        if (known == name) return tunable;
     }
-    return 0u;
+    return {};
 }
 
 }  // namespace galaxy::luma

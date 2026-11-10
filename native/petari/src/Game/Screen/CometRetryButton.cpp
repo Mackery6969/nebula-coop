@@ -21,7 +21,7 @@ CometRetryButton::CometRetryButton(const char* pName)
     : LayoutActor(pName, true), mButtonYesPaneCtrl(nullptr), mButtonNoPaneCtrl(nullptr), mPlayerMissLeft(nullptr) {
 }
 
-void CometRetryButton::init(const JMapInfoIter& rIter) {
+void CometRetryButton::init(const TableIter& /*rIter*/) {
     initLayoutManager("RetryButton", 1);
     MR::connectToSceneLayout(this);
     initNerve(GET_NERVE(CometRetryButton, HostTypeNrvMissLeftWait));
@@ -30,8 +30,8 @@ void CometRetryButton::init(const JMapInfoIter& rIter) {
 
     mButtonYesPaneCtrl = new ButtonPaneController(this, "NBackUp", "BoxButton1", 0, true);
     mButtonNoPaneCtrl = new ButtonPaneController(this, "NBackDown", "BoxButton2", 0, true);
-    mButtonYesPaneCtrl->_22 = false;
-    mButtonNoPaneCtrl->_22 = false;
+    mButtonYesPaneCtrl->mDisappearsAfterDecide = false;
+    mButtonNoPaneCtrl->mDisappearsAfterDecide = false;
 
     const char* pAppear = "ButtonAppear";
     const char* pWait = "ButtonWait";
@@ -53,7 +53,7 @@ void CometRetryButton::init(const JMapInfoIter& rIter) {
     mButtonNoPaneCtrl->mNotPointingAnimName = pSelectOut;
     mButtonNoPaneCtrl->mDisappearAnimName = pEnd;
 
-    mPlayerMissLeft = new PlayerMissLeft("\203\176\203\130\216\236\202\314\203\166\203\214\203\103\203\204\201\133\216\143\213\100\225\134\216\246" /* ミス時のプレイヤー残機表示 */);
+    mPlayerMissLeft = new PlayerMissLeft("ミス時のプレイヤー残機表示");
     mPlayerMissLeft->initWithoutIter();
     mPlayerMissLeft->kill();
 

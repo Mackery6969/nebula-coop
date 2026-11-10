@@ -19,7 +19,7 @@ namespace {
     NEW_NERVE(GameSceneScenarioOpeningCameraStatePlay, GameSceneScenarioOpeningCameraState, Play);
 };  // namespace
 
-GameSceneScenarioOpeningCameraState::GameSceneScenarioOpeningCameraState() : NerveExecutor("\203\126\203\151\203\212\203\111\212\112\216\156\203\112\203\201\203\211\215\304\220\266" /* シナリオ開始カメラ再生 */) {
+GameSceneScenarioOpeningCameraState::GameSceneScenarioOpeningCameraState() : NerveExecutor("シナリオ開始カメラ再生") {
     mBaseMtx.identity();
     initNerve(GET_NERVE_ANON(GameSceneScenarioOpeningCameraStatePlay));
     mScenarioTitle = new ScenarioTitle();
@@ -45,10 +45,10 @@ void GameSceneScenarioOpeningCameraState::start() {
     MR::startStageBGM("BGM_START_DEMO", false);
     NebulaMtxCopy(MR::getPlayerBaseMtx(), mBaseMtx);
 
-    TVec3f namePos;
+    Vec3f namePos;
 
-    if (MR::tryFindNamePos("\203\130\203\136\201\133\203\147\203\112\203\201\203\211\203\175\203\212\203\111\215\300\225\127" /* スタートカメラマリオ座標 */, &namePos, nullptr)) {
-        MR::setPlayerPos("\203\130\203\136\201\133\203\147\203\112\203\201\203\211\203\175\203\212\203\111\215\300\225\127" /* スタートカメラマリオ座標 */);
+    if (MR::tryFindNamePos("スタートカメラマリオ座標", &namePos, nullptr)) {
+        MR::setPlayerPos("スタートカメラマリオ座標");
     }
 }
 
@@ -83,7 +83,7 @@ void GameSceneScenarioOpeningCameraState::exePlay() {
         }
 
         if (MR::isStep(this, MR::getStartAnimCameraFrame() - 20)) {
-            AudWrap::getSystem()->set830(30);
+            AudWrap::getSystem()->setSeMuteFrames(30);
         }
 
         if (MR::isStartAnimCameraEnd() && MR::isStopCinemaFrame()) {
@@ -98,5 +98,5 @@ bool GameSceneScenarioOpeningCameraState::trySkipTrigger() const {
         return false;
     }
 
-    return !MR::isAlreadyVisitedCurrentStageAndScenario() ? false : MR::testSystemPadTriggerDecide();
+    return MR::isAlreadyVisitedCurrentStageAndScenario() && MR::testSystemPadTriggerDecide();
 }

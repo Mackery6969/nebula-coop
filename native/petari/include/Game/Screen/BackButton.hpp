@@ -6,20 +6,23 @@ class ButtonPaneController;
 
 class BackButton : public LayoutActor {
 public:
-    BackButton(const char* pName, bool param2);
+    BackButton(const char* pName, bool connectToDecoration);
 
-    virtual ~BackButton();
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void appear();
-    virtual void control();
+    virtual ~BackButton() override;
+    virtual void init(const TableIter& rIter) override;
+    virtual void appear() override;
+    virtual void control() override;
 
     void disappear();
     bool isHidden() const;
     bool isAppearing() const;
     bool isDisappearing() const;
     bool isPointing() const;
+    // Chosen since it last appeared.
+    bool isSelected() const {
+        return mIsSelected;
+    }
 
     ButtonPaneController* mPaneCtrl;
-    bool _24;
-    bool _25;
+    bool mIsSelected;
 };

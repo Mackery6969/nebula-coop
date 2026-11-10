@@ -11,9 +11,9 @@ public:
     /// @param pName The pointer to the null-terminated name of the object.
     Manual2P(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void appear();
-    virtual void control();
+    virtual void init(const TableIter& rIter) override;
+    virtual void appear() override;
+    virtual void control() override;
 
     bool isClosed() const;
     void exeAppear();
@@ -31,7 +31,7 @@ private:
     s32 mPageNum;
     ButtonPaneController* mLeftPaneCtrl;
     ButtonPaneController* mRightPaneCtrl;
-    bool _30;
-    bool _31;
+    bool mCanScrollLeft;  // not on the first page
+    bool mCanScrollRight;  // not on the last page
     BackButton* mBackButton;
 };

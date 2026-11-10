@@ -3,16 +3,16 @@
 #include "Game/MapObj/SpiderThreadMainPoint.hpp"
 #include "Game/Util.hpp"
 
-SpiderThreadRadialLine::SpiderThreadRadialLine(int bufferSize) : mBufferSize(bufferSize), mNumPoints(), mPoints() {
-    mPoints = new SpiderThreadMainPoint*[mBufferSize];
-    for (s32 idx = 0; idx < mBufferSize; idx++) {
-        mPoints[idx] = nullptr;
-    }
+SpiderThreadRadialLine::SpiderThreadRadialLine(s32 bufferSize)
+    : mNumPoints(), mPoints(new SpiderThreadMainPoint*[bufferSize > 0 ? bufferSize : 0]()), mBufferSize(bufferSize > 0 ? bufferSize : 0) {
 }
 
 void SpiderThreadRadialLine::addPoint(SpiderThreadMainPoint* pPoint) {
-    mPoints[mNumPoints] = pPoint;
-    mNumPoints++;
+    if (mNumPoints >= mBufferSize) {
+        return;
+    }
+
+    mPoints[mNumPoints++] = pPoint;
 }
 
 void SpiderThreadRadialLine::updateVelocity() {

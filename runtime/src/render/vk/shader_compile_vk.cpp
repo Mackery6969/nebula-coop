@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // HLSL to SPIR-V through glslang (shader_compile_vk.h).
 #include "galaxy/render/vk/shader_compile_vk.h"
+#include "../materials/nebula_limits.hlsli"
 
 // The release libraries are built with the HLSL front end; this exposes its switch for semantic decorations.
 #define ENABLE_HLSL 1
@@ -25,11 +26,15 @@ namespace {
 constexpr RegisterBinding kDrawBindings[] = {
     {"b0", 0, 0},
     {"b1", 0, 1},
-    {"t0, space1", 0, 2},
-    {"t1, space1", 0, 3},  // vertex blending: the earlier draw's vertices
-    {"t2, space1", 0, 4},  // vertex blending: verdicts and the presented frame's values
-    {"t3, space1", 0, 5},  // the rows the draw's row table names
-    {"b2", 0, 0, true},    // vertex blending: the draw's (push constants)
+    {"b2", 0, 2},
+    {"t16", 0, 3},
+    {"t17", 0, 4},
+    {"t18", 0, 5},
+    {"b3", 0, 0, true},
+    // Set 1 the images and set 2 the samplers, as one array each over every texture and sampler (space1) or as a bound
+    // table (program.hlsli).
+    {"t0, space1", 1, 0},
+    {"s0, space1", 2, 0},
     {"t0", 1, 0},
     {"s0", 2, 0},
 };
@@ -39,7 +44,7 @@ void initialize_glslang() {
     std::call_once(once, [] { glslang::InitializeProcess(); });
 }
 
-// SPIR-V's words for the location and dual-source rewrites.
+// SPIR-V's words for the location rewrites.
 constexpr std::uint32_t kOpName = 5;
 constexpr std::uint32_t kOpExtension = 10;
 constexpr std::uint32_t kOpVariable = 59;
@@ -69,9 +74,11 @@ std::string spirv_string(const std::vector<std::uint32_t>& spirv, std::size_t fi
     return text;
 }
 
-// A semantic's location, as D3D12 matches stages by semantic: vertex attributes in RenderVertex's order
-// (POSITION 0, NORMAL 1, TANGENT 2, BINORMAL 3, COLOR0-1 4-5, TEXCOORD0-7 6-13, BLENDINDICES 14, BEND 15);
-// between stages COLOR0-1 at 0-1 and TEXCOORD0-16 at 2-18 (16: the curved stages' curve data); pixel outputs
+// A semantic's location, as D3D12 matches stages by semantic: vertex attributes
+// (POSITION 0, NORMAL 1, TANGENT 2, BINORMAL 3, COLOR0-1 4-5, BLENDINDICES0 6, POSITION1 7, BLENDINDICES1 8, then
+// TEXCOORDn at 9 + n, as many as the program names);
+// between stages COLOR0-1 at 0-1 and TEXCOORDn at 2 + n (the program's coordinates, then the lit and motion varyings
+// its text numbers after them); pixel outputs
 // SV_TARGETn at n. `element`: the variable's element of an
 // array declared with this semantic, which takes the following indices.
 std::optional<std::uint32_t> semantic_location(std::string semantic, std::uint32_t element, bool vertex_input,
@@ -95,13 +102,15 @@ std::optional<std::uint32_t> semantic_location(std::string semantic, std::uint32
         if (name == "TANGENT" && index == 0u) return 2u;
         if (name == "BINORMAL" && index == 0u) return 3u;
         if (name == "COLOR" && index < 2u) return 4u + index;
-        if (name == "TEXCOORD" && index < 8u) return 6u + index;
-        if (name == "BLENDINDICES" && index == 0u) return 14u;
-        if (name == "BEND" && index == 0u) return 15u;
+        if (name == "BLENDINDICES" && index == 0u) return 6u;
+        if (name == "POSITION" && index == 1u) return 7u;
+        if (name == "BEND" && index == 0u) return 7u;
+        if (name == "BLENDINDICES" && index == 1u) return 8u;
+        if (name == "TEXCOORD") return 9u + index;
         return std::nullopt;
     }
     if (name == "COLOR" && index < 2u) return index;
-    if (name == "TEXCOORD" && index < 17u) return 2u + index;
+    if (name == "TEXCOORD") return 2u + index;
     return std::nullopt;
 }
 
@@ -207,42 +216,6 @@ void strip_debug_names(std::vector<std::uint32_t>& spirv) {
     spirv = std::move(out);
 }
 
-// The output at location 1 moves to location 0, index 1. False when the module has none.
-bool make_dual_source_output(std::vector<std::uint32_t>& spirv) {
-    std::vector<std::uint32_t> outputs;
-    for (std::size_t at = 5; at < spirv.size();) {
-        const std::uint32_t count = spirv[at] >> 16u;
-        if (count == 0u || at + count > spirv.size()) {
-            return false;
-        }
-        if ((spirv[at] & 0xffffu) == kOpVariable && count >= 4u && spirv[at + 3] == kStorageOutput) {
-            outputs.push_back(spirv[at + 2]);
-        }
-        at += count;
-    }
-    std::vector<std::uint32_t> out(spirv.begin(), spirv.begin() + 5);
-    out.reserve(spirv.size() + 4u);
-    bool moved = false;
-    for (std::size_t at = 5; at < spirv.size();) {
-        const std::uint32_t count = spirv[at] >> 16u;
-        const bool second_target = (spirv[at] & 0xffffu) == kOpDecorate && count == 4u &&
-            spirv[at + 2] == kDecorationLocation && spirv[at + 3] == 1u &&
-            std::find(outputs.begin(), outputs.end(), spirv[at + 1]) != outputs.end();
-        out.insert(out.end(), spirv.begin() + static_cast<std::ptrdiff_t>(at),
-                   spirv.begin() + static_cast<std::ptrdiff_t>(at + count));
-        if (second_target) {
-            out[out.size() - 1u] = 0u;
-            out.insert(out.end(), {(4u << 16u) | kOpDecorate, spirv[at + 1], kDecorationIndex, 1u});
-            moved = true;
-        }
-        at += count;
-    }
-    if (moved) {
-        spirv = std::move(out);
-    }
-    return moved;
-}
-
 EShLanguage language(ShaderStage stage) {
     switch (stage) {
     case ShaderStage::Vertex: return EShLangVertex;
@@ -257,19 +230,6 @@ EShLanguage language(ShaderStage stage) {
 
 std::span<const RegisterBinding> draw_bindings() noexcept {
     return kDrawBindings;
-}
-
-std::string with_point_size(std::string_view vertex_hlsl) {
-    std::string text(vertex_hlsl);
-    const std::size_t output = text.find("struct VSOut {");
-    const std::size_t close = output == std::string::npos ? output : text.find("};", output);
-    const std::size_t init = text.find("VSOut o = (VSOut)0;");
-    if (close == std::string::npos || init == std::string::npos) {
-        return text;
-    }
-    text.insert(init + std::strlen("VSOut o = (VSOut)0;"), "\n    o.psize = 1.0;");
-    text.insert(close, "    [[vk::builtin(\"PointSize\")]] float psize : PSIZE;\n");
-    return text;
 }
 
 std::string annotate(std::string_view hlsl, std::span<const RegisterBinding> bindings) {
@@ -342,6 +302,11 @@ std::vector<std::uint32_t> compile_hlsl(std::string_view hlsl, ShaderStage stage
     // Constant-buffer matrices are row-major, as the D3D12 compile's D3DCOMPILE_PACK_MATRIX_ROW_MAJOR: the shared code
     // writes them row by row and the shaders multiply mul(matrix, vector).
     std::string preamble = "#define NEBULA_VULKAN 1\n#pragma pack_matrix(row_major)\n";
+    if (compile_options.bound_tables) {
+        // A device without descriptor indexing: each draw binds its own table of maps (program.hlsli); else the arrays are
+        // runtime-sized (OpTypeRuntimeArray, capability RuntimeDescriptorArray).
+        preamble += "#define NEBULA_BOUND_TABLES 1\n#define NEBULA_TABLE_SLOTS " + std::to_string(kBoundTableSlots) + "\n";
+    }
     for (const char* define : defines) {
         const char* equals = std::strchr(define, '=');
         if (equals == nullptr) {
@@ -391,16 +356,12 @@ std::vector<std::uint32_t> compile_hlsl(std::string_view hlsl, ShaderStage stage
     if (stage != ShaderStage::Compute && !assign_semantic_locations(spirv, stage, error)) {
         return {};
     }
-    if (compile_options.dual_source && !make_dual_source_output(spirv)) {
-        error = "dual-source pixel shader without SV_Target1";
-        return {};
-    }
     if (!compile_options.keep_names) {
         strip_debug_names(spirv);
     }
     std::string messages_out = logger.getAllMessages();
     if (compile_options.validate) {
-        // The module as it is used (after the dual-source rewrite), for a Vulkan 1.1 device.
+        // The module as it is used for a Vulkan 1.1 device.
         spv_context context = spvContextCreate(SPV_ENV_VULKAN_1_1);
         spv_diagnostic diagnostic = nullptr;
         if (spvValidateBinary(context, spirv.data(), spirv.size(), &diagnostic) != SPV_SUCCESS) {

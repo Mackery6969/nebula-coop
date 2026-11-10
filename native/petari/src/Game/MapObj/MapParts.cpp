@@ -2,18 +2,19 @@
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util.hpp"
-#include <JSystem/JMath/JMath.hpp>
+#include <nebula_geometry.hpp>
 #include "math_types.hpp"
+#include "Game/Util/StringUtil.hpp"
 
 namespace {
     const char* cFollowJointName = "Move";
 };  // namespace
 
 MapParts::MapParts(const char* pName) : LiveActor(pName) {
-    _8C.setPSZeroVec();
+    mClipCenter.setZeroVec();
 }
 
-void MapParts::init(const JMapInfoIter& rIter) {
+void MapParts::init(const TableIter& rIter) {
     if (MR::isConnectedWithRail(rIter)) {
         initRailRider(rIter);
     }
@@ -21,7 +22,7 @@ void MapParts::init(const JMapInfoIter& rIter) {
     MR::initDefaultPosNoRepeat(this, rIter);
     initModelAndCollision(rIter);
     connectToScene();
-    MR::initMapPartsClipping(this, rIter, &_8C, false);
+    MR::initMapPartsClipping(this, rIter, &mClipCenter, false);
     MR::joinToGroupArray(this, rIter, "MapParts", 0x40);
     initSound(4, false);
 }
@@ -43,28 +44,28 @@ void MapParts::connectToScene() {
     MR::connectToSceneMapParts(this);
 }
 
-void MapParts::initModelAndCollision(const JMapInfoIter& rIter) {
-    char name[256];
-    MR::getMapPartsObjectName(name, sizeof(name), rIter);
-    initModelManagerWithAnm(name, nullptr, false);
+void MapParts::initModelAndCollision(const TableIter& rIter) {
+    MR::FormattedName name;
+    MR::getMapPartsObjectName(name, rIter);
+    initModelManagerWithAnm(name.c_str(), nullptr, false);
     initHitSensor(2);
-    TVec3f dist;
-    TVec3f lerpVec;
-    TVec3f sensor_offs(0.0f, 0.0f, 0.0f);
+    Vec3f dist;
+    Vec3f lerpVec;
+    Vec3f sensor_offs(0.0f, 0.0f, 0.0f);
     u32 sensorNum = getSensorNumMax();
     HitSensor* sensor = MR::addHitSensorMapObj(this, "body", sensorNum, 100.0f, sensor_offs);
     if (MR::isExistJoint(this, ::cFollowJointName)) {
         MtxPtr jointMtx = MR::getJointMtx(this, ::cFollowJointName);
-        MR::initCollisionParts(this, name, sensor, jointMtx);
+        MR::initCollisionParts(this, name.c_str(), sensor, jointMtx);
         MR::tryCreateCollisionAllOtherCategory(this, jointMtx, sensor, nullptr, nullptr, nullptr);
     } else {
-        MR::initCollisionParts(this, name, sensor, nullptr);
+        MR::initCollisionParts(this, name.c_str(), sensor, nullptr);
         MR::tryCreateCollisionAllOtherCategory(this, sensor, nullptr, nullptr, nullptr);
     }
 
     f32 sensorRange;
-    if (MR::getJ3DModel(this)) {
-        TBox3f box;
+    if (MR::getModel(this)) {
+        Box3f box;
         MR::calcModelBoundingBox(&box, this);
         dist.sub(box.f, box.i);
         sensorRange = 0.5f * dist.length();

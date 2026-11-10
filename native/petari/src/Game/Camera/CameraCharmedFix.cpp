@@ -1,5 +1,5 @@
 #include "Game/Camera/CameraCharmedFix.hpp"
-#include "Game/Camera/CamTranslatorCharmedFix.hpp"
+#include "Game/Camera/CameraParamChunk.hpp"
 #include "Game/Camera/CameraLocalUtil.hpp"
 #include "Game/Camera/CameraTargetObj.hpp"
 #include "Game/Util/MathUtil.hpp"
@@ -17,21 +17,21 @@ void CameraCharmedFix::reset() {
 CameraTargetObj* CameraCharmedFix::calc() {
     CameraTargetObj* target = CameraLocalUtil::getTarget(this);
 
-    const TPos3f& zoneMtx = mZoneMatrix;
-    TVec3f watchPoint;
-    CameraLocalUtil::makeWatchPoint(&watchPoint, this, CameraLocalUtil::getTarget(this), 0.1f / 15.0f);
+    const Pos3f& zoneMtx = mZoneMatrix;
+    Vec3f watchPoint;
+    CameraLocalUtil::makeWatchPoint(&watchPoint, this, target, 0.1f / 15.0f);
 
-    TVec3f pos = mBasePos;
+    Vec3f pos = mBasePos;
     zoneMtx.mult(pos, pos);
-    TVec3f front = CameraLocalUtil::getTarget(this)->getPosition() - pos;
+    Vec3f front = target->getPosition() - pos;
     if (MR::isNearZero(front)) {
         return target;
     }
 
     MR::normalize(&front);
-    TVec3f up = mUp;
+    Vec3f up = mUp;
     zoneMtx.mult33(up, up);
-    TVec3f side = up.cross(front);
+    Vec3f side = up.cross(front);
     if (MR::isNearZero(side)) {
         return target;
     }
@@ -39,22 +39,22 @@ CameraTargetObj* CameraCharmedFix::calc() {
     MR::normalize(&side);
     up.cross(front, side);
 
-    TPos3f mtx;
-    mtx.identity();
+    Pos3f mtx;
     mtx.setXYZDir(side, up, front);
-    mtx.setTrans(CameraLocalUtil::getTarget(this)->getPosition());
+    mtx.setTrans(target->getPosition());
 
-    TVec3f watchPos = mWPoint;
+    Vec3f watchPos = mWPoint;
     mtx.mult(watchPos, watchPos);
     watchPoint = watchPos - front * mWPoint.z;
     CameraLocalUtil::setPos(this, watchPos);
     CameraLocalUtil::setWatchPos(this, watchPoint);
     CameraLocalUtil::setUpVec(this, up);
-    CameraLocalUtil::setWatchUpVec(this, CameraLocalUtil::getTarget(this)->getUpVec());
+    CameraLocalUtil::setWatchUpVec(this, target->getUpVec());
 
     return target;
 }
 
-CamTranslatorBase* CameraCharmedFix::createTranslator() {
-    return new CamTranslatorCharmedFix(this);
+void CameraCharmedFix::setParamFromChunk(const CameraParamChunk* pChunk) {
+    CameraGeneralParam* general = pChunk->mGeneralParam;
+    setParam(general->mAxis, CameraLocalUtil::getNormalizedOr(general->mUp, Vec3f(0.0f, 1.0f, 0.0f)), general->mWPoint);
 }

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
 class LodCtrl;
 class ModelObj;
@@ -11,48 +11,42 @@ class PlanetMap : public LiveActor {
 public:
     PlanetMap(const char*, const char* = nullptr);
 
-    virtual ~PlanetMap();
-    virtual void init(const JMapInfoIter&);
-    virtual void makeActorAppeared();
-    virtual void makeActorDead();
-    virtual void startClipped();
-    virtual void endClipped();
-    virtual void control();
+    virtual void init(const TableIter&) override;
+    virtual void makeActorAppeared() override;
+    virtual void makeActorDead() override;
+    virtual void startClipped() override;
+    virtual void endClipped() override;
+    virtual void control() override;
     virtual f32 getFarClipDistance() const;
 
-    void initClipping(const JMapInfoIter&);
-    void initModel(const char*, const JMapInfoIter&);
+    void initClipping(const TableIter&);
+    void initModel(const char*, const TableIter&);
     void initBloomModel(const char*);
     bool tryEmitMyEffect();
     bool tryDeleteMyEffect();
 
     const char* mModelName;
-    TVec3f _90;
+    Vec3f mClippingCenter;
     LodCtrl* mLODCtrl;
     ModelObj* mBloomModel;
-    PartsModel* mWaterModel;
-    PartsModel* mIndirectModel;
 };
 
 class FurPlanetMap : public PlanetMap {
 public:
     FurPlanetMap(const char*);
 
-    virtual ~FurPlanetMap();
-    virtual void init(const JMapInfoIter&);
+    virtual void init(const TableIter&) override;
 };
 
 class RailPlanetMap : public PlanetMap {
 public:
     RailPlanetMap(const char*);
 
-    virtual ~RailPlanetMap();
-    virtual void init(const JMapInfoIter&);
+    virtual void init(const TableIter&) override;
 };
 
 struct PlanetMapClippingInfo {
     const char* mName;
     f32 mRadius;
     Vec mOffset;
-    s32 _14;
 };

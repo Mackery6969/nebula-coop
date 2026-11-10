@@ -31,9 +31,6 @@ public:
     void exeDamageTailRunStart();
     void exeDamageTailRun();
     void exeDamageTailRunEnd();
-    void exeDamageTailRunStartFinal();
-    void exeDamageTailRunFinal();
-    void exeDamageTailRunEndFinal();
     void exeDown();
     void exeDownLand();
     void exeDownEnd();
@@ -41,7 +38,6 @@ public:
 private:
     s32 mEscapeTime;
     s32 mMaxEscapeTime;
-    s32 _18;
     bool mIsTurnClockwise;
     bool mIsLastHit;
     MR::ActorMoveParam* mEscapeRunParam;

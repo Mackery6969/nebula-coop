@@ -1,6 +1,6 @@
 #pragma once
 
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
 class CameraShakePattern {
 public:
@@ -11,7 +11,7 @@ public:
     }
 
     virtual bool isEnd() const = 0;
-    virtual void getOffset(TVec2f*) const = 0;
+    virtual void getOffset(Vec2f*) const = 0;
     virtual void start() = 0;
     virtual void update() = 0;
 
@@ -22,28 +22,28 @@ class CameraShakePatternSingly : public CameraShakePattern {
 public:
     CameraShakePatternSingly(f32);
 
-    virtual bool isEnd() const;
-    virtual void getOffset(TVec2f*) const;
-    virtual void start();
-    virtual void update();
+    virtual bool isEnd() const override;
+    virtual void getOffset(Vec2f*) const override;
+    virtual void start() override;
+    virtual void update() override;
 
-    void setDirection(const TVec2f&);
+    void setDirection(const Vec2f&);
 
     f32 mIntensity;
-    TVec2f mOffset;
-    TVec2f mDirection;
+    Vec2f mOffset;
+    Vec2f mDirection;
 };
 
 class CameraShakePatternVerticalSin : public CameraShakePattern {
 public:
     CameraShakePatternVerticalSin(f32, f32);
 
-    virtual bool isEnd() const;
-    virtual void getOffset(TVec2f*) const;
-    virtual void start();
-    virtual void update();
+    virtual bool isEnd() const override;
+    virtual void getOffset(Vec2f*) const override;
+    virtual void start() override;
+    virtual void update() override;
 
     f32 mIntensity;
     f32 mSpeed;
-    TVec2f mOffset;
+    Vec2f mOffset;
 };

@@ -15,15 +15,15 @@ bool Mario::isDisableStayHere() const {
         return true;
     }
 
-    if (!getMovementStates()._1) {
+    if (!getMovementStates().onGround) {
         return true;
     }
 
-    if (_3CE < 5) {
+    if (mLandTimer < 5) {
         return true;
     }
 
-    if (getMovementStates()._A) {
+    if (getMovementStates().squat) {
         return true;
     }
 
@@ -31,7 +31,7 @@ bool Mario::isDisableStayHere() const {
         return true;
     }
 
-    if (getMovementStates()._1B) {
+    if (getMovementStates().damaged) {
         return true;
     }
 
@@ -39,7 +39,7 @@ bool Mario::isDisableStayHere() const {
         return true;
     }
 
-    if (getPlayer()->getMovementStates()._23) {
+    if (getPlayer()->getMovementStates().slopeSlide) {
         return true;
     }
 
@@ -51,39 +51,35 @@ bool Mario::isDisableStayHere() const {
         return true;
     }
 
-    if (_10.debugMode) {
+    if (mFloorCode == 27) {
         return true;
     }
 
-    if (_960 == 27) {
+    if (mFloorCode == 28) {
         return true;
     }
 
-    if (_960 == 28) {
+    if (getDrawStates().enforcedMove) {
         return true;
     }
 
-    if (getDrawStates()._B) {
+    if (getMovementStates().baseRotated) {
         return true;
     }
 
-    if (getMovementStates()._18) {
+    if (!MR::isNearZero(mReactionVec)) {
         return true;
     }
 
-    if (!MR::isNearZero(_928)) {
+    if (!MR::isNearZero(mPushVec)) {
         return true;
     }
 
-    if (!MR::isNearZero(_350)) {
+    if (!MR::isNearZero(mPushVelocity)) {
         return true;
     }
 
-    if (!MR::isNearZero(_35C)) {
-        return true;
-    }
-
-    if (!MR::isNearZero(_184)) {
+    if (!MR::isNearZero(mRelativeMove)) {
         return true;
     }
 
@@ -91,15 +87,15 @@ bool Mario::isDisableStayHere() const {
         return true;
     }
 
-    if (getMovementStates()._37) {
+    if (getMovementStates().mode2D) {
         return true;
     }
 
-    if (getMovementStates()._3A) {
+    if (getMovementStates().mode25D) {
         return true;
     }
 
-    if (_10._15) {
+    if (mActionStates.circular2D) {
         return true;
     }
 
@@ -107,15 +103,15 @@ bool Mario::isDisableStayHere() const {
         return true;
     }
 
-    if (mActor->_EA4) {
+    if (mActor->mInDemo) {
         return true;
     }
 
-    return mActor->_3C0;
+    return mActor->mRemoteDemo;
 }
 
 bool Mario::isDisableFpViewMode() const {
-    if (_97C) {
+    if (mCurrentState) {
         return true;
     }
 
@@ -127,7 +123,7 @@ MarioFpView::MarioFpView(MarioActor* pActor) : MarioState(pActor, MarioStatus_Fp
 
 bool MarioFpView::start() {
     MR::startSubjectiveCamera(-1);
-    changeAnimation("\214\251\202\351" /* 見る */);
+    changeAnimation("見る");
 
     ::sIsDisabled = true;
 
@@ -174,7 +170,7 @@ bool MarioFpView::close() {
         MR::endSubjectiveCamera(15);
     }
 
-    stopAnimation("\214\251\202\351" /* 見る */);
+    stopAnimation("見る");
 
     mActor->showBeeFur();
 

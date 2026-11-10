@@ -6,6 +6,7 @@ struct MaterialConstants {
     float4 params;  // x: the effect's alpha (0-1); y: the depth beyond which the blur shows (0-1, 8-bit)
 };
 
+#define NATIVE_COORDS 1
 #include "native_material.hlsli"
 
 void material_vertex(NativeVertex v, inout NativeVaryings o) {
@@ -14,9 +15,9 @@ void material_vertex(NativeVertex v, inout NativeVaryings o) {
 }
 
 float4 material_color(NativeVaryings i) {
-    const float depth = tex[1].Sample(samp[1], i.uv[0].xy).r;
+    const float depth = TEX(1).Sample(SAMP(1), i.uv[0].xy).r;
     if (round(depth * 255.0) <= round(material.params.y * 255.0)) {
         return float4(0.0, 0.0, 0.0, 0.0);
     }
-    return float4(tex[0].Sample(samp[0], i.uv[0].xy).rgb, i.color.a);
+    return float4(TEX(0).Sample(SAMP(0), i.uv[0].xy).rgb, i.color.a);
 }

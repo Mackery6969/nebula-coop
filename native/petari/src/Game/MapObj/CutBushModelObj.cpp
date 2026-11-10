@@ -19,12 +19,12 @@ CutBushModelObj::CutBushModelObj(const char* pName, const char* pModelName, bool
     }
 }
 
-void CutBushModelObj::init(const JMapInfoIter& rIter) {
+void CutBushModelObj::init(const TableIter& /*rIter*/) {
     makeActorAppeared();
 }
 
 void CutBushModelObj::initAfterPlacement() {
-    if (MR::getLightCtrl(this)) {
+    if (MR::getLightCtrl(this) != nullptr) {
         MR::updateLightCtrlDirect(this);
     }
 }
@@ -36,7 +36,4 @@ void CutBushModelObj::calcAndSetBaseMtx() {
     } else {
         LiveActor::calcAndSetBaseMtx();
     }
-}
-
-CutBushModelObj::~CutBushModelObj() {
 }

@@ -1,4 +1,5 @@
 #include "Game/Demo/PrologueDirector.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Camera/CameraTargetArg.hpp"
 #include "Game/Camera/CameraTargetMtx.hpp"
 #include "Game/LiveActor/ActorCameraInfo.hpp"
@@ -18,19 +19,20 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const char* sPictureBookDemoName = "\203\166\203\215\203\215\201\133\203\117\203\146\203\202" /* プロローグデモ */;
-    static const char* sArriveDemoName = "\216\345\220\154\214\366\203\163\201\133\203\140\217\351\202\311\223\236\222\205" /* 主人公ピーチ城に到着 */;
-    static const s32 sPicBookStartWipeFrame = 60;
-    static const s32 sPeachLetterWait = 20;
-    static const s32 sPeachLetterStartWipeFrame = 60;
-    static const s32 sPeachLetterEndWipeFrame = 60;
-    static const s32 sArriveStartWipeFrame = 30;
-    static const s32 sArriveEndWipeFrame = 30;
-    static const s32 sGameStartWipeFrame = 30;
-    static const s32 sGameStartFrame = 15;
-    static const s32 sFallingStarStep = 130;
+    static const char* sPictureBookDemoName = "プロローグデモ";
+    static const char* sArriveDemoName = "主人公ピーチ城に到着";
+    NEBULA_TUNABLE(s32, sPicBookStartWipeFrame, 60);
+    NEBULA_TUNABLE(s32, sPeachLetterWait, 20);
+    NEBULA_TUNABLE(s32, sPeachLetterStartWipeFrame, 60);
+    NEBULA_TUNABLE(s32, sPeachLetterEndWipeFrame, 60);
+    NEBULA_TUNABLE(s32, sArriveStartWipeFrame, 30);
+    NEBULA_TUNABLE(s32, sArriveEndWipeFrame, 30);
+    NEBULA_TUNABLE(s32, sGameStartWipeFrame, 30);
+    NEBULA_TUNABLE(s32, sGameStartFrame, 15);
+    NEBULA_TUNABLE(s32, sFallingStarStep, 130);
 
     PrologueHolder* getPrologueHolder() {
         return MR::getSceneObj< PrologueHolder >(SceneObj_PrologueHolder);
@@ -50,13 +52,13 @@ namespace {
 };  // namespace
 
 PrologueDirector::PrologueDirector(const char* pName)
-    : LiveActor(pName), mPictureBook(nullptr), mLetter(nullptr), mScenery(nullptr), mMarioPosDummyModel(nullptr), mCameraTarget(nullptr), _D0(false) {
-    _A0.identity();
+    : LiveActor(pName), mPictureBook(nullptr), mLetter(nullptr), mScenery(nullptr), mMarioPosDummyModel(nullptr), mCameraTarget(nullptr), mUseSwitchA(false) {
+    mPlayerBaseMtx.identity();
 }
 
-void PrologueDirector::init(const JMapInfoIter& rIter) {
+void PrologueDirector::init(const TableIter& rIter) {
     if (MR::useStageSwitchWriteA(this, rIter)) {
-        _D0 = true;
+        mUseSwitchA = true;
     }
 
     MR::connectToSceneMapObjMovement(this);
@@ -74,7 +76,7 @@ void PrologueDirector::init(const JMapInfoIter& rIter) {
 }
 
 void PrologueDirector::initAfterPlacement() {
-    if (_D0) {
+    if (mUseSwitchA) {
         MR::onSwitchA(this);
     }
 }
@@ -85,7 +87,7 @@ void PrologueDirector::appear() {
     MR::forceCloseWipeFade();
     MR::forceOffImageEffect();
 
-    if (_D0) {
+    if (mUseSwitchA) {
         MR::offSwitchA(this);
     }
 }
@@ -93,7 +95,7 @@ void PrologueDirector::appear() {
 void PrologueDirector::kill() {
     LiveActor::kill();
 
-    if (_D0) {
+    if (mUseSwitchA) {
         MR::onSwitchA(this);
     }
 }
@@ -103,7 +105,7 @@ void PrologueDirector::exeWait() {
         MR::submitLevelSE();
         setNerve(GET_NERVE_ANON(PrologueDirectorNrvPictureBook));
         pauseOff();
-        _A0.set(MR::getPlayerBaseMtx());
+        mPlayerBaseMtx.set(MR::getPlayerBaseMtx());
     }
 }
 
@@ -133,7 +135,7 @@ void PrologueDirector::exePeachLetterStart() {
         MR::openWipeFade(::sPeachLetterStartWipeFrame);
     }
 
-    if (MR::isStep(this, 90)) {
+    if (MR::isStep(this, NebulaFrameClock::stepsOfMilliseconds(1500))) {
         setNerve(GET_NERVE_ANON(PrologueDirectorNrvPeachLetter));
     }
 }
@@ -198,10 +200,10 @@ void PrologueDirector::exeArrive() {
     if (MR::isFirstStep(this)) {
         MR::permitLevelSE();
 
-        TPos3f baseMtx;
+        Pos3f baseMtx;
         baseMtx.set(MR::getJointMtx(mMarioPosDummyModel, "MarioPosition"));
 
-        TVec3f trans;
+        Vec3f trans;
         baseMtx.getTrans(trans);
 
         MR::setPlayerBaseMtx(baseMtx);
@@ -210,7 +212,7 @@ void PrologueDirector::exeArrive() {
         MR::setImageEffectControlAuto();
     }
 
-    TMtx34f baseMtx;
+    Mtx34f baseMtx;
     baseMtx.set(MR::getJointMtx(mMarioPosDummyModel, "MarioPosition"));
 
     MR::setPlayerBaseMtx(baseMtx);
@@ -232,7 +234,7 @@ void PrologueDirector::exeArrive() {
 
 void PrologueDirector::exeGameStart() {
     if (MR::isFirstStep(this)) {
-        MR::setPlayerBaseMtx(_A0);
+        MR::setPlayerBaseMtx(mPlayerBaseMtx);
         MR::forceCloseWipeFade();
     }
 
@@ -251,12 +253,12 @@ void PrologueDirector::createPictureBook() {
 }
 
 void PrologueDirector::createLetter() {
-    mLetter = new PrologueLetter("\203\163\201\133\203\140\202\251\202\347\202\314\216\350\216\206" /* ピーチからの手紙 */);
+    mLetter = new PrologueLetter("ピーチからの手紙");
     mLetter->initWithoutIter();
 }
 
 void PrologueDirector::createScenery() {
-    mScenery = new ModelObj("\224\167\214\151\217\221\212\204" /* 背景書割 */, "DemoLetter", nullptr, MR::DrawBufferType_MapObjStrongLight, -2, -2, false);
+    mScenery = new ModelObj("背景書割", "DemoLetter", nullptr, MR::DrawBufferType_MapObjStrongLight, -2, -2, false);
 
     MR::invalidateClipping(mScenery);
     mScenery->initWithoutIter();
@@ -269,7 +271,7 @@ void PrologueDirector::createScenery() {
 }
 
 void PrologueDirector::createMarioPosDummyModel() {
-    mMarioPosDummyModel = new ModelObj("\203\175\203\212\203\111\202\314\214\157\230\110" /* マリオの経路 */, "DemoPeachCastleGate", nullptr, -2, -2, -2, false);
+    mMarioPosDummyModel = new ModelObj("マリオの経路", "DemoPeachCastleGate", nullptr, -2, -2, -2, false);
     mMarioPosDummyModel->initWithoutIter();
 
     MR::invalidateClipping(mMarioPosDummyModel);
@@ -283,7 +285,7 @@ void PrologueDirector::createMarioPosDummyModel() {
 }
 
 void PrologueDirector::createCameraTarget() {
-    mCameraTarget = new CameraTargetMtx("\203\112\203\201\203\211\203\136\201\133\203\121\203\142\203\147\203\137\203\176\201\133" /* カメラターゲットダミー */);
+    mCameraTarget = new CameraTargetMtx("カメラターゲットダミー");
     mCameraTarget->mMatrix.identity();
 }
 

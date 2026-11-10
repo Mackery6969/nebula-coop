@@ -1,11 +1,10 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class ActorCameraInfo;
-class TombSpiderAction1st;
-class TombSpiderAction2nd;
+class TombSpiderActionBattle;
 class TombSpiderActionCocoon;
 class TombSpiderDemo;
 class TombSpiderEnvironment;
@@ -16,12 +15,12 @@ class TombSpider : public LiveActor {
 public:
     TombSpider(const char*);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void control();
-    virtual void updateHitSensor(HitSensor* pSensor);
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void control() override;
+    virtual void updateHitSensor(HitSensor* pSensor) override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     void exeWaitPlayer();
     void exeDemoGateOpen();
@@ -36,7 +35,7 @@ public:
     void exeDemoDeath();
     void exeWaitDemo();
 
-    inline const f32 getRotate() const {
+    inline f32 getRotate() const {
         return mRotation.z;
     }
 
@@ -44,8 +43,8 @@ public:
     TombSpiderParts* mParts;
     TombSpiderEnvironment* mEnvironment;
     TombSpiderActionCocoon* mActionCocoon;
-    TombSpiderAction1st* mAction1st;
-    TombSpiderAction2nd* mAction2nd;
+    TombSpiderActionBattle* mAction1st;
+    TombSpiderActionBattle* mAction2nd;
     TombSpiderDemo* mDemo;
     bool mNoctilucaActive;
     ActorCameraInfo* mCameraInfo;

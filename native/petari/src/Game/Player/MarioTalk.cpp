@@ -5,7 +5,7 @@
 void Mario::startTalk(const LiveActor* pActor) {
     stopWalk();
 
-    mTalk->_14 = pActor;
+    mTalk->mPartner = pActor;
 
     changeStatus(mTalk);
 }
@@ -14,18 +14,18 @@ void Mario::endTalk() {
     closeStatus(mTalk);
 }
 
-MarioTalk::MarioTalk(MarioActor* pActor) : MarioState(pActor, MarioStatus_Talk), _14(), mIsUpdate() {
+MarioTalk::MarioTalk(MarioActor* pActor) : MarioState(pActor, MarioStatus_Talk), mPartner(), mIsUpdate() {
 }
 
 bool MarioTalk::update() {
     if (mIsUpdate) {
-        TVec3f vec;
-        MR::vecKillElement(_14->mPosition - getTrans(), getAirGravityVec(), &vec);
+        Vec3f vec;
+        MR::vecKillElement(mPartner->mPosition - getTrans(), getAirGravityVec(), &vec);
 
         if (!MR::normalizeOrZero(&vec)) {
             getPlayer()->setFrontVecKeepUp(vec, static_cast< u32 >(16));
 
-            if (!getPlayer()->getMovementStates()._37) {
+            if (!getPlayer()->getMovementStates().mode2D) {
                 getPlayer()->setLastNonFixMoveVec(vec);
             } else if (isPlayerModeTeresa()) {
                 MR::vecKillElement(vec, getCamDirZ(), &vec);
@@ -46,25 +46,25 @@ bool MarioTalk::notice() {
 }
 
 bool MarioTalk::close() {
-    if (getPlayer()->getMovementStates()._37) {
-        getPlayer()->setFrontVecKeepUp(getPlayer()->_334);
+    if (getPlayer()->getMovementStates().mode2D) {
+        getPlayer()->setFrontVecKeepUp(getPlayer()->mPrevMoveFrontVec);
     }
 
     return true;
 }
 
 bool MarioTalk::start() {
-    bool val = mActor->_B90;
-    mActor->_B90 = false;
+    bool val = mActor->mAnimationFrozen;
+    mActor->mAnimationFrozen = false;
 
-    if (mActor->_468 == 0) {
+    if (mActor->mTakeCount == 0) {
         stopAnimationUpper(nullptr);
     }
 
-    changeAnimationNonStop("\214\251\202\351" /* 見る */);
+    changeAnimationNonStop("見る");
 
     if (val) {
-        mActor->_B90 = true;
+        mActor->mAnimationFrozen = true;
     }
 
     mIsUpdate = true;
@@ -72,6 +72,6 @@ bool MarioTalk::start() {
     return true;
 }
 
-void Mario::setLastNonFixMoveVec(const TVec3f& rVec) {
-    _334 = rVec;
+void Mario::setLastNonFixMoveVec(const Vec3f& rVec) {
+    mPrevMoveFrontVec = rVec;
 }

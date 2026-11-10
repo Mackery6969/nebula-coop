@@ -11,10 +11,10 @@
 #include <cstdio>
 #include <cstring>
 #include <nebula_game_api.h>
-#include <nw4r/lyt/layout.h>
-#include <nw4r/lyt/pane.h>
-#include <nw4r/lyt/textBox.h>
-#include <nw4r/lyt/window.h>
+#include <Game/Ui/Layout.hpp>
+#include <Game/Ui/Pane.hpp>
+#include <Game/Ui/TextBox.hpp>
+#include <Game/Ui/Window.hpp>
 
 using namespace NebulaUi;
 
@@ -128,7 +128,7 @@ namespace {
             f32 nameWidth;
             measure(pName, 4000.0f, &nameWidth, &height);
             width += (i > 0 ? cNameGap : 0.0f);
-            pName->mTranslate = nw4r::math::VEC3(width, textCentre(0.0f, cTextSize), 0.0f);
+            pName->mTranslate = Vec3f(width, textCentre(0.0f, cTextSize), 0.0f);
             width += nameWidth;
         }
         rTag.mShownMore = more;
@@ -142,14 +142,14 @@ namespace {
             f32 moreWidth;
             measure(rTag.mMore, 4000.0f, &moreWidth, &height);
             width += cNameGap;
-            rTag.mMore->mTranslate = nw4r::math::VEC3(width, textCentre(0.0f, cTextSize), 0.0f);
+            rTag.mMore->mTranslate = Vec3f(width, textCentre(0.0f, cTextSize), 0.0f);
             width += moreWidth;
         }
 
         // The line from its left, centred on the tag; narrowed when it runs past cMaxWidth.
         const f32 squeeze = width > cMaxWidth ? cMaxWidth / width : 1.0f;
-        rTag.mLine->mScale = nw4r::math::VEC2(squeeze, 1.0f);
-        rTag.mLine->mTranslate = nw4r::math::VEC3(-width * squeeze * 0.5f, 0.0f, 0.0f);
+        rTag.mLine->mScale = Vec2f(squeeze, 1.0f);
+        rTag.mLine->mTranslate = Vec3f(-width * squeeze * 0.5f, 0.0f, 0.0f);
         shape(rTag.mFrame, 0.0f, 0.0f, width * squeeze + cPadX * 2.0f, cHeight, cRadius);
         return true;
     }
@@ -158,7 +158,7 @@ namespace {
 NebulaSelectPlayers::NebulaSelectPlayers(bool scene) : LayoutActor("NebulaSelectPlayers", true), mParts(nullptr), mScene(scene) {
 }
 
-void NebulaSelectPlayers::init(const JMapInfoIter& rIter) {
+void NebulaSelectPlayers::init(const TableIter& rIter) {
     initLayoutManager("InformationWindow", 0);
     LayoutManager* pManager = getLayoutManager();
     static const char cLayoutName[] = "NebulaSelectPlayers";
@@ -174,13 +174,13 @@ void NebulaSelectPlayers::init(const JMapInfoIter& rIter) {
     new (&p->mText) NebulaPaneKit();
     new (&p->mWindow) NebulaPaneKit();
     Pane* pRoot = pManager->mLayout->mpRootPane;
-    if (pRoot == nullptr || !p->mText.init(pManager->mLayoutHolder)) {
+    if (pRoot == nullptr || !p->mText.init(pManager->mLayoutHolder, "InformationWindow", pManager->mLayout)) {
         nebula_log("NebulaSelectPlayers: no InformationWindow layout\n");
         return;
     }
-    p->mWindow.init(MR::createAndAddLayoutHolder("SysInfoWindowMini.arc"));
+    p->mWindow.init("SysInfoWindowMini", pManager->mLayout);
     // The information window's own panes stay hidden; the tags are built beside them.
-    for (nw4r::lyt::PaneList::Iterator it = pRoot->GetChildList().GetBeginIter(); it != pRoot->GetChildList().GetEndIter(); ++it) {
+    for (Ui::Pane* it : pRoot->GetChildList()) {
         it->SetVisible(false);
     }
 
@@ -223,8 +223,6 @@ void NebulaSelectPlayers::init(const JMapInfoIter& rIter) {
     setInfluencedAlphaRecursive(p->mRoot, 0);
     mParts = p;
 
-    // The layout's pane list, counted when it was built, again for the added panes.
-    pManager->rebuildPaneInfo();
     LayoutActor::appear();
 }
 
@@ -246,14 +244,14 @@ void NebulaSelectPlayers::request(s32 spot, const char* pStage, s32 scenario, f3
     rTag.mY = y;
 }
 
-void NebulaSelectPlayers::showAtWorld(s32 spot, const char* pStage, s32 scenario, const TVec3f& rPos) {
-    const TVec3f under(rPos.x, rPos.y - cWorldDrop, rPos.z);
-    const TVec3f camera = MR::getCamPos();
-    const TVec3f toUnder(under.x - camera.x, under.y - camera.y, under.z - camera.z);
+void NebulaSelectPlayers::showAtWorld(s32 spot, const char* pStage, s32 scenario, const Vec3f& rPos) {
+    const Vec3f under(rPos.x, rPos.y - cWorldDrop, rPos.z);
+    const Vec3f camera = MR::getCamPos();
+    const Vec3f toUnder(under.x - camera.x, under.y - camera.y, under.z - camera.z);
     if (toUnder.dot(MR::getCamZdir()) <= 0.0f) {
         return;
     }
-    TVec3f screen;
+    Vec3f screen;
     MR::calcNormalizedScreenPosition(&screen, under);
     if (__builtin_fabsf(screen.x) > 1.0f || __builtin_fabsf(screen.y) > 1.0f) {
         return;
@@ -263,14 +261,14 @@ void NebulaSelectPlayers::showAtWorld(s32 spot, const char* pStage, s32 scenario
     request(spot, pStage, scenario, screen.x * width * 0.5f, -screen.y * height * 0.5f);
 }
 
-void NebulaSelectPlayers::showAtPane(s32 spot, const char* pStage, s32 scenario, const nw4r::lyt::Pane* pPane, f32 drop) {
+void NebulaSelectPlayers::showAtPane(s32 spot, const char* pStage, s32 scenario, const Ui::Pane* pPane, f32 drop) {
     if (pPane == nullptr) {
         return;
     }
     // The pane's place on the layout's canvas, from its middle (up), into screen units.
     f32 scaleX, width, height;
     readScreen(&scaleX, &width, &height);
-    request(spot, pStage, scenario, pPane->mGlbMtx._03 / scaleX, pPane->mGlbMtx._13 - drop);
+    request(spot, pStage, scenario, pPane->mGlbMtx.mMtx[0][3] / scaleX, pPane->mGlbMtx.mMtx[1][3] - drop);
 }
 
 void NebulaSelectPlayers::control() {
@@ -294,7 +292,7 @@ void NebulaSelectPlayers::control() {
     f32 scaleX, width, height;
     readScreen(&scaleX, &width, &height);
     p->mRoot->SetVisible(true);
-    p->mRoot->mScale = nw4r::math::VEC2(scaleX, 1.0f);
+    p->mRoot->mScale = Vec2f(scaleX, 1.0f);
     for (s32 i = 0; i < cSpotsMax; i++) {
         Tag& rTag = p->mTags[i];
         if (rTag.mRoot == nullptr) {
@@ -310,7 +308,7 @@ void NebulaSelectPlayers::control() {
             continue;
         }
         rTag.mRoot->SetVisible(true);
-        rTag.mRoot->mTranslate = nw4r::math::VEC3(rTag.mX, rTag.mY - cHeight * 0.5f, 0.0f);
+        rTag.mRoot->mTranslate = Vec3f(rTag.mX, rTag.mY - cHeight * 0.5f, 0.0f);
         rTag.mRoot->mAlpha = toAlpha(easeOut(static_cast< f32 >(rTag.mFade) / cFadeFrames));
     }
 }

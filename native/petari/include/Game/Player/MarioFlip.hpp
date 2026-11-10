@@ -12,11 +12,11 @@ public:
     virtual bool close();
     virtual bool update();
 
-    void setVec(const TVec3f&);
+    void setVec(const Vec3f&);
 
-    u16 _12;
-    u16 _14;
-    TVec3f _18;
-    f32 _24;
-    f32 _28;
+    u16 mTimer;  // frames since the flip
+    u16 mStep;  // update's step (2 on: the spin punch may start)
+    Vec3f mVelocity;  // the slide's velocity
+    f32 mYAngle;  // the spin's angle offset
+    f32 mYSpeed;  // the spin's angular speed
 };

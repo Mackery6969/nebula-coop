@@ -1,31 +1,26 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class AnimScaleController;
 class CocoNutBall;
 class FireBall;
 class FixedPosition;
-class NameObjArchiveListCollector;
 
 class OtaRock : public LiveActor {
 public:
-    /// @brief Creates a new `OtaRock`.
-    /// @param pName A pointer to the null-terminated name of the object.
     OtaRock(const char* pName);
 
-    virtual ~OtaRock();
-    virtual void init(const JMapInfoIter&);
-    virtual void appear();
-    virtual void kill();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter&) override;
+    virtual void appear() override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
-    static void makeArchiveList(NameObjArchiveListCollector*, const JMapInfoIter&);
 
     void initModel();
     void initSensor();
@@ -55,7 +50,7 @@ private:
     FixedPosition* mFixedPosition;
     s32 mThrowCocoNutCounter;
     u32 mWaitFrame;
-    TPos3f _A4;
-    TVec3f _D4;
+    Pos3f mBaseMtx;
+    Vec3f mFront;
     AnimScaleController* mAnimScaleController;
 };

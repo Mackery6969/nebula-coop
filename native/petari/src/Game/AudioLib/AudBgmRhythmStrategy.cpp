@@ -8,26 +8,20 @@
 
 bool AudBgmRhythmStrategy::set(AudBgm* pBgm, s32 bgmIndex) {
     AudSoundInfo* info = AudWrap::getSoundInfo();
-    if (info == nullptr) {
-        return false;
-    }
-
-    JAISoundHandle* handle = pBgm->getRhythmHandle();
+    SoundHandle* handle = pBgm->getRhythmHandle();
     if (handle == nullptr) {
         return false;
     }
 
-    u32 soundID = handle->getSound()->getID();
-    if (handle->isSoundAttached()) {
-        if (info->isRhythmBgm(soundID)) {
-            AudWrap::getRhythmMeSystem()->setSeq(*handle, bgmIndex);
-            mBgmIdx = bgmIndex;
-            mBgm = pBgm;
-            return true;
-        }
+    const u32 soundID = handle->getSound()->getID();
+    if (!handle->isSoundAttached() || !info->isRhythmBgm(soundID)) {
+        return false;
     }
 
-    return false;
+    AudWrap::getRhythmMeSystem()->setSeq(*handle, bgmIndex);
+    mBgmIdx = bgmIndex;
+    mBgm = pBgm;
+    return true;
 }
 
 void AudBgmRhythmStrategy::reject() {
@@ -37,7 +31,7 @@ void AudBgmRhythmStrategy::reject() {
 
     AudWrap::getRhythmMeSystem()->rejectSeq(mBgmIdx);
     if (isDominant()) {
-        AudWrap::getSystem()->getChordInfo()->invalidiate();  // [sic]
+        AudWrap::getSystem()->getChordInfo()->invalidate();
     }
     mBgm = nullptr;
     mBgmIdx = -1;
@@ -49,11 +43,7 @@ bool AudBgmRhythmStrategy::setDominant() {
     }
 
     AudSoundInfo* info = AudWrap::getSoundInfo();
-    if (info == nullptr) {
-        return false;
-    }
-
-    JAISoundHandle* handle = mBgm->getRhythmHandle();
+    SoundHandle* handle = mBgm->getRhythmHandle();
     if (handle == nullptr) {
         return false;
     }
@@ -70,18 +60,13 @@ bool AudBgmRhythmStrategy::setDominant() {
     if (id != 0xFFFF) {
         AudWrap::getSystem()->getChordInfo()->loadChordInfo(id, false);
     } else {
-        AudWrap::getSystem()->getChordInfo()->invalidiate();  // [sic]
+        AudWrap::getSystem()->getChordInfo()->invalidate();
     }
 
     return true;
 }
 
 bool AudBgmRhythmStrategy::isDominant() const {
-    if (mBgmIdx < 0) {
-        return false;
-    }
-
-    return mBgmIdx == AudWrap::getRhythmMeSystem()->getBgmIdx();
+    return mBgmIdx >= 0 && mBgmIdx == AudWrap::getRhythmMeSystem()->getBgmIdx();
 }
 
-// TODO: static init of pool memory for AudMe and AudMeTrack

@@ -5,7 +5,7 @@
 // draft and its apply), named in the played language. It drops in over anything (F1, View+Menu, Minus+Plus, or the
 // pause menu's Settings) over a game that plays on, without the player's input until it has risen away again.
 namespace NebulaSettingsMenu {
-    void init();             // GameSystem, once the stationed layouts are loaded
+    void init();             // GameSystem::initAfterSystemArchiveLoaded
     void update();           // GameSystem::update, once a frame
     void draw();             // GameSystem::draw, over the scene and its wipes
     bool isHoldingInput();   // open or opening or closing: the game plays on without the player's input

@@ -1,8 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // luma.json as docs/format.md has it: every field, every refusal, and what a person might get wrong.
 #include "galaxy/luma.h"
+#include "galaxy/test_temp.h"
+#include "nebula_text_tags.h"
 
+#include <algorithm>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
+#include <limits>
+#include <optional>
 #include <string>
 
 namespace {
@@ -33,7 +40,7 @@ constexpr const char* kGood = R"({
     { "id": "bad", "name": "Falls back", "default": "nope", "choices": [ { "id": "first", "name": "F" } ] }
   ],
   "layers": [
-    { "path": "layers/base", "switches": { "dodoryu_shell_only": 1, "miss_star_pieces": 4294966297 } },
+    { "path": "layers/base", "tunables": { "GameRules.cDodoryuShellOnly": true, "SequenceUtil.cMissStarPieceNum": -999 } },
     { "path": "layers/one", "when": { "option": { "lives": ["one"] } } },
     { "path": "layers/jp", "when": { "version": ["J"], "language": ["JpJapanese"], "platform": ["android", "windows"] } },
     { "when": { "someday": true } }
@@ -65,7 +72,10 @@ int main() {
     check(m.load_after.size() == 1u, "load_after");
     check(m.options.size() == 2u && m.options[0].fallback == "one", "options");
     check(m.options[1].fallback == "first", "a default that isn't a choice falls back to the first");
-    check(m.layers.size() == 4u && m.layers[0].switches.at("miss_star_pieces") == 4294966297u, "a switch's value");
+    check(m.layers.size() == 4u && std::any_of(m.layers[0].tunables.begin(), m.layers[0].tunables.end(), [](const Tunable& t) {
+              return t.key == "SequenceUtil.cMissStarPieceNum" && t.value == -999.0;
+          }),
+          "a layer's tunable");
     check(m.save_path == "save" && m.save_mode == SaveMode::Copy && m.save_tag == "family" && m.save_player_can_change, "save");
     const std::optional<Manifest> plain = parse_manifest(R"({"format":1,"id":"a","name":"b","game":"RMG","layers":[]})");
     check(plain && plain->save_mode == SaveMode::Shared && plain->save_tag == "a" && !plain->save_player_can_change, "normal saves unless it says");
@@ -110,6 +120,9 @@ int main() {
     check(refusal(later, "RMGE01", "2.1.0", "windows").empty(), "a plugin with a build for this device");
     later.plugins[0].api = kPluginApi + 1u;
     check(refusal(later, "RMGE01", "2.1.0", "windows") == "THIS MOD NEEDS A NEWER NEBULA", "a plugin for a later game");
+    later.plugins[0].api = kPluginApi - 1u;
+    check(refusal(later, "RMGE01", "2.1.0", "windows") == "THIS MOD'S CODE IS FOR AN OLDER NEBULA: REBUILD IT WITH THIS NEBULA'S NEBULA_MOD_API.H",
+          "a plugin for plugin API 1 names the replacement");
 
     const std::optional<Manifest> newer = parse_manifest(R"({"format":2,"everything":"different"})");
     check(newer && refusal(*newer, "RMGE01", "2.1.0", "windows") == "THIS MOD NEEDS A NEWER NEBULA", "a newer format is named, not damaged");
@@ -128,8 +141,168 @@ int main() {
     check(compare_versions("2.1", "2.1.0") == 0, "2.1 equals 2.1.0");
     check(compare_versions("1", "1.0.1") < 0, "1 is below 1.0.1");
 
-    check(switch_number("dodoryu_shell_only") != 0u && switch_number("nope") == 0u, "switches by name");
+    check(switch_tunable("dodoryu_shell_only").key == "GameRules.cDodoryuShellOnly" && !switch_tunable("dodoryu_shell_only").opposite &&
+              switch_tunable("no_low_health_warning").opposite && switch_tunable("nope").key.empty(),
+          "a switch's tunable by its name");
     check(language_code("EuFrench") == "fr" && language_code("JpJapanese") == "ja" && language_code("?") == "en", "language codes");
+
+    // Rows: a dome is any number from 1 (the game checks it against the domes its data has), a number is cut to its type.
+    const auto with_rows = [](const std::string& rows) {
+        return std::string(R"({"format":1,"id":"a","name":"b","version":"1.0.0","game":"RMG",)") + rows + R"(,"layers":[]})";
+    };
+    {
+        const std::optional<Manifest> comets = parse_manifest(with_rows(
+            R"("comet_schedule":[{"dome":1,"comets":[{"galaxy":"EggStarGalaxy","coins":0}]},{"dome":17,"comets":[{"galaxy":"Other","coins":1}]}])"));
+        check(comets && comets->comet_schedule.size() == 2u && comets->comet_schedule[0].dome == 1 && comets->comet_schedule[1].dome == 17 &&
+                  comets->comet_schedule[1].comets.size() == 1u && comets->comet_schedule[1].comets[0].second == 1,
+              "comet domes past 16 are read");
+        const std::optional<Manifest> huge = parse_manifest(with_rows(R"("comet_schedule":[{"dome":1e300,"comets":[{"galaxy":"G","coins":0}]}])"));
+        check(huge && huge->comet_schedule.size() == 1u && huge->comet_schedule[0].dome == std::numeric_limits<int>::max(),
+              "a dome past the int range stops at its end");
+        check(!parse_manifest(with_rows(R"("comet_schedule":[{"dome":0,"comets":[{"galaxy":"G","coins":0}]}])")).has_value(), "dome 0 is refused");
+        check(!parse_manifest(with_rows(R"("comet_schedule":[{"dome":-5,"comets":[{"galaxy":"G","coins":0}]}])")).has_value(), "a negative dome is refused");
+        check(!parse_manifest(with_rows(R"("comet_schedule":[{"dome":2,"comets":[]}])")).has_value(), "a dome with no comets is refused");
+    }
+    {
+        check(parse_manifest(with_rows(R"("galaxies":[{"name":"G","stars_to_open":255,"dome":255}])")).has_value(), "stars and dome up to a byte");
+        check(!parse_manifest(with_rows(R"("galaxies":[{"name":"G","stars_to_open":256}])")).has_value(), "stars past a byte are refused");
+        check(!parse_manifest(with_rows(R"("galaxies":[{"name":"G","dome":256}])")).has_value(), "a galaxy's dome past a byte is refused");
+        check(!parse_manifest(with_rows(R"("galaxies":[{"name":"G","dome":-1}])")).has_value(), "a negative dome is refused");
+        check(!parse_manifest(with_rows(R"("galaxies":[{"name":"G","stars_to_open":1e300}])")).has_value(), "a number past the int range is refused, not cast");
+    }
+    {
+        // A file's tuning numbers: a number, a bool, or an option's choice; a key without a file, or another kind of value, refuses the file.
+        const auto with_layer = [](const std::string& layer) {
+            return std::string(R"({"format":1,"id":"a","name":"b","version":"1.0.0","game":"RMG","layers":[{)") + layer + "}]}";
+        };
+        const std::optional<Manifest> tuned = parse_manifest(with_layer(R"("tunables":{"Kuribo.cWalkSpeed":2.5,"Kuribo.cIsSmall":true,"Koopa.cHp":{"option":"hp"}})"));
+        check(tuned && tuned->layers.size() == 1u && tuned->layers[0].tunables.size() == 3u, "tunables read");
+        if (tuned && tuned->layers.size() == 1u && tuned->layers[0].tunables.size() == 3u) {
+            const std::vector<Tunable>& rows = tuned->layers[0].tunables;
+            const auto find = [&](const char* key) -> const Tunable* {
+                for (const Tunable& row : rows) {
+                    if (row.key == key) return &row;
+                }
+                return nullptr;
+            };
+            const Tunable* walk = find("Kuribo.cWalkSpeed");
+            const Tunable* small = find("Kuribo.cIsSmall");
+            const Tunable* hp = find("Koopa.cHp");
+            check(walk != nullptr && walk->value == 2.5 && walk->option.empty(), "a number");
+            check(small != nullptr && small->value == 1.0, "a bool is 1 or 0");
+            check(hp != nullptr && hp->option == "hp", "an option's choice");
+        }
+        check(!parse_manifest(with_layer(R"("tunables":{"cWalkSpeed":2.0})")).has_value(), "a key without its file is refused");
+        check(!parse_manifest(with_layer(R"("tunables":{"Kuribo.cWalkSpeed":"fast"})")).has_value(), "text is refused");
+        check(!parse_manifest(with_layer(R"("tunables":[1,2])")).has_value(), "tunables as a list is refused");
+        const std::optional<Manifest> listed = parse_manifest(with_layer(R"("tunables":{"Kuribo.cSteps":[4,null,9]})"));
+        check(listed && listed->layers.size() == 1u && listed->layers[0].tunables.size() == 2u &&
+              listed->layers[0].tunables[0].key == "Kuribo.cSteps[0]" && listed->layers[0].tunables[0].value == 4.0 &&
+              listed->layers[0].tunables[1].key == "Kuribo.cSteps[2]" && listed->layers[0].tunables[1].value == 9.0,
+              "a list sets its places, a null keeps one");
+        check(!parse_manifest(with_layer(R"("tunables":{"Kuribo.cSteps":[4,"x"]})")).has_value(), "text in a list is refused");
+        const std::optional<Manifest> needs = parse_manifest(R"({"format":1,"id":"a","name":"b","version":"1.0.0","game":"RMG","requires":["tunables"],"layers":[]})");
+        check(needs && refusal(*needs, "RMGE01", "2.1.0", "windows").empty(), "a mod needing tunables is usable");
+        // Player animations: name and file, a rate over 0 up to 100, whole blend frames up to 600.
+        const std::optional<Manifest> moves = parse_manifest(with_layer(
+            R"("player_animations":[{"name":"GoldSpin","file":"GoldSpin","rate":0.5,"blend_frames":4},{"name":"Jump","file":"MyJump"}])"));
+        check(moves && moves->layers.size() == 1u && moves->layers[0].player_animations.size() == 2u &&
+              moves->layers[0].player_animations[0].name == "GoldSpin" && moves->layers[0].player_animations[0].rate == 0.5 &&
+              moves->layers[0].player_animations[0].blend_frames == 4 && moves->layers[0].player_animations[1].file == "MyJump" &&
+              moves->layers[0].player_animations[1].rate == 1.0 && moves->layers[0].player_animations[1].blend_frames == 0,
+              "player animations read");
+        for (const char* bad : {R"("player_animations":[{"name":"A"}])", R"("player_animations":[{"name":"A","file":"B","rate":0}])",
+                                R"("player_animations":[{"name":"A","file":"B","rate":"fast"}])", R"("player_animations":[{"name":"A","file":"B","blend_frames":2.5}])",
+                                R"("player_animations":[{"name":"A","file":"B","blend_frames":601}])", R"("player_animations":{"name":"A"})"}) {
+            check(!parse_manifest(with_layer(bad)).has_value(), bad);
+        }
+        const std::optional<Manifest> animated = parse_manifest(R"({"format":1,"id":"a","name":"b","version":"1.0.0","game":"RMG","requires":["player-animations"],"layers":[]})");
+        check(animated && refusal(*animated, "RMGE01", "2.1.0", "windows").empty(), "a mod needing player animations is usable");
+    }
+    {
+        // A range of choices: counted, so numbers too large for the step cannot loop for ever.
+        const std::optional<Manifest> ranged = parse_manifest(std::string(R"({"format":1,"id":"a","name":"b","version":"1.0.0","game":"RMG","options":[)") +
+            R"({"id":"r1","name":"R","range":{"from":1,"to":5,"step":1}},)" +
+            R"({"id":"r2","name":"R","range":{"from":1e300,"to":1e300,"step":1}},)" +
+            R"({"id":"r3","name":"R","range":{"from":5,"to":1,"step":1}},)" +
+            R"({"id":"r4","name":"R","range":{"from":0,"to":1,"step":0.25}}],"layers":[]})");
+        check(ranged && ranged->options.size() == 4u, "options with ranges read");
+        if (ranged && ranged->options.size() == 4u) {
+            check(ranged->options[0].choices.size() == 5u && ranged->options[0].choices[4].id == "5", "1 to 5 gives five choices");
+            check(ranged->options[1].choices.size() == 1u, "a range of one huge number gives one choice and ends");
+            check(ranged->options[2].choices.size() == 5u && ranged->options[2].choices[0].id == "5" &&
+                      ranged->options[2].choices[4].id == "1",
+                  "a range from a larger number to a smaller one counts down");
+            check(ranged->options[3].choices.size() == 5u && ranged->options[3].choices[1].id == "0.25", "fractional steps");
+        }
+    }
+    {
+        // A layer's "switches" are refused, naming the tunable that took the first one's place.
+        const std::optional<Manifest> switches = parse_manifest(std::string(R"({"format":1,"id":"a","name":"b","version":"1.0.0","game":"RMG","layers":[)") +
+            R"({"switches":{"no_low_health_warning":1}}]})");
+        check(switches && refusal(*switches, "RMGE01", "2.1.0", "windows") ==
+                              "\"SWITCHES\" ARE NOW \"TUNABLES\": no_low_health_warning IS MarioEffect.cLowHealthWarning (THE OPPOSITE SENSE)",
+              "switches refused with their tunable");
+        const std::optional<Manifest> unknown = parse_manifest(std::string(R"({"format":1,"id":"a","name":"b","version":"1.0.0","game":"RMG","layers":[)") +
+            R"({"switches":{"nope":1}}]})");
+        check(unknown && refusal(*unknown, "RMGE01", "2.1.0", "windows") == "\"SWITCHES\" ARE NOW \"TUNABLES\"", "a switch this game never had");
+    }
+    {
+        // The manifest file is read only when it is a sensible size.
+        const std::filesystem::path folder = galaxy::test_temp_path("nebula_luma_test_manifest");
+        std::error_code error;
+        std::filesystem::create_directories(folder, error);
+        {
+            std::ofstream out(folder / "luma.json", std::ios::binary);
+            out << R"({"format":1,"id":"a","name":"b","version":"1.0.0","game":"RMG","layers":[]})";
+        }
+        check(read_manifest(folder).has_value(), "a small luma.json is read");
+        {
+            std::ofstream out(folder / "luma.json", std::ios::binary | std::ios::trunc);
+            out << R"({"format":1,"id":"a","name":"b","version":"1.0.0","game":"RMG","description":")";
+            const std::string filler(17u << 20u, 'x');
+            out << filler << R"(","layers":[]})";
+        }
+        check(!read_manifest(folder).has_value(), "a luma.json past 16 MB is not read");
+        std::filesystem::remove_all(folder, error);
+    }
+
+    {
+        // A message's words: "like" names the game message whose talk a new line takes; it is not a language.
+        const std::optional<Manifest> talk = parse_manifest(std::string(R"({"format":1,"id":"a","name":"b","version":"1.0.0","game":"RMG","layers":[],)") +
+            R"("text":{"MyNpc_001":{"default":"Hi [player]!","fr":"Salut [player] !","like":"AstroGalaxy_Tico034"},"GalaxyName_X":"X"}})");
+        check(talk.has_value(), "text with like reads");
+        if (talk) {
+            check(talk->text.size() == 2u, "two lines");
+            check(talk->text_like.size() == 1u && talk->text_like.at("MyNpc_001") == "AstroGalaxy_Tico034", "like read");
+            check(talk->text.at("MyNpc_001").languages.size() == 1u && talk->text.at("MyNpc_001").in("fr") == "Salut [player] !", "like is not a language");
+            check(talk->text.at("MyNpc_001").in("de") == "Hi [player]!", "the default");
+        }
+    }
+    {
+        // Mod text as the game's message text: the game's tags in brackets, as its own messages hold them.
+        const auto encoded = [](const char* utf8) {
+            std::u16string out(nebula_text::encode(utf8, nullptr, 0), u'\0');
+            std::u16string buffer(out.size() + 1u, u'\0');
+            nebula_text::encode(utf8, buffer.data(), static_cast<uint32_t>(buffer.size()));
+            out.assign(buffer.data(), out.size());
+            return out;
+        };
+        // A tag: 0x1A, length and group (length in the low byte), tag number, parameters.
+        check(encoded("A[wait 30]B") == std::u16string({u'A', 0x1A, 8 | (1 << 8), 0, 30, u'B'}), "wait");
+        check(encoded("[page]") == std::u16string({0x1A, 6 | (1 << 8), 1}), "page");
+        check(encoded("[color 1]x[color 0]") == std::u16string({0x1A, 8 | (255 << 8), 0, 0x100, u'x', 0x1A, 8 | (255 << 8), 0, 0}),
+              "colour in the parameter's high byte, as the game's 2359 colour tags");
+        check(encoded("[player]") == std::u16string({0x1A, 8 | (5 << 8), 0, 0}), "the player's name");
+        check(encoded("[icon 7][LARGE]") == std::u16string({0x1A, 6 | (3 << 8), 7, 0x1A, 6 | (4 << 8), 2}), "icon and size, any case");
+        check(encoded("[sound SE_A]") == std::u16string({0x1A, 14 | (2 << 8), 0, u'S', u'E', u'_', u'A'}), "a sound by name");
+        check(encoded("[tag 6 5 0 0x1 2]") == std::u16string({0x1A, 12 | (6 << 8), 5, 0, 1, 2}), "any tag");
+        check(encoded("[[a] [nope 1] [wait] [wait x] [color 256]") == u"[a] [nope 1] [wait] [wait x] [color 256]", "anything else stays as written");
+        check(encoded("[wait 1") == u"[wait 1", "an unclosed bracket stays");
+        check(encoded("\xC3\xA9\xF0\x9F\x98\x80") == std::u16string({0xE9, 0xD83D, 0xDE00}), "UTF-8 to UTF-16");
+        char16_t small[4];
+        check(nebula_text::encode("abcdef", small, 4) == 6u && small[2] == u'c' && small[3] == 0, "cut to its room, with its 0");
+    }
 
     if (failed == 0) std::puts("luma: all passed");
     return failed == 0 ? 0 : 1;

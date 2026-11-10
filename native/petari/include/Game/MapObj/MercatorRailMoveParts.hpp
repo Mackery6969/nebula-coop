@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class MapPartsAppearController;
 class MapPartsRailMover;
@@ -11,12 +11,11 @@ class MercatorRailMoveParts : public LiveActor {
 public:
     MercatorRailMoveParts(const char*);
 
-    virtual ~MercatorRailMoveParts();
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
     void startMove();
     void endMove();
@@ -25,9 +24,8 @@ public:
     MapPartsRailMover* mRailMover;
     MapPartsRailRotator* mRailRotator;
     MapPartsAppearController* mAppearController;
-    TMtx34f mRotateMtx;
-    TVec3f mLocalTrans;
-    TVec3f mLocalRotation;
-    TVec3f _E0;
+    Mtx34f mRotateMtx;
+    Vec3f mLocalTrans;
+    Vec3f mLocalRotation;
     bool mIsNotMoving;
 };

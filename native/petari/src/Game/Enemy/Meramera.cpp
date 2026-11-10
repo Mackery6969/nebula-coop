@@ -1,4 +1,5 @@
 #include "Game/Enemy/Meramera.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Enemy/AnimScaleController.hpp"
 #include "Game/Enemy/WalkerStateBindStarPointer.hpp"
 #include "Game/LiveActor/Nerve.hpp"
@@ -9,7 +10,7 @@
 #include "Game/Util/ActorStateUtil.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/JointUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MapUtil.hpp"
@@ -20,47 +21,144 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
-enum { ElementType_Fire, ElementType_Ice };
-enum { EffectType_Null, EffectType_Wait, EffectType_Chase, EffectType_Escape };
-enum { BodyEffectType_Heat = 0x1, BodyEffectType_CoolDown = 0x2, BodyEffectType_Cold = 0x3 };
-enum { Status_Runaway, Status_Float };
-
-namespace {
-    const char* sElementArcName[] = {"Meramera", "IceMeramera", "ChildMeramera", "ChildIceMeramera"};
-    s32 sElementList[] = {ElementType_Fire, ElementType_Ice, ElementType_Fire, ElementType_Ice};
-    const TVec3f sAttackHitOffset = TVec3f(50.0f, 0.0f, 0.0f);
-
-    static const f32 sBodyHitRadius = 55.0f;
-    static const f32 sBreakHitRadius = 10.0f;
-    static const f32 sAttackHitRadius = 70.0f;
-    static const f32 sBindRadius = 45.0f;
-    static const f32 sShadowRadius = 50.0f;
-    static const f32 sBaseScale = 150.0f;
-    static const f32 sRecoveryDistance = 1500.0f;
-    static const f32 sOverWallAccel = 0.9f;
-    static const f32 sMaxOverWallHeight = 250.0f;
-    static const s32 sWaitTime = 300;
-    static const s32 sWalkTime = 120;
-    static const s32 sAttackSuccessTime = 180;
-    static const s32 sShrinkTime = 20;
-    static const f32 sTerritoryChaseRange = 3000.0f;
-    static const s32 sChaseEndTime = 240;
-    static const f32 sChaseDashAccel = 0.98f;
-    static const f32 sChaseTurnAccel = 0.97f;
-    static const f32 sChaseTurnGravityAccel = 0.99f;
-    static const f32 sChaseTurnFloatAccel = 0.05f;
-    static const s32 sFloatTime = 30;
-    static const s32 sIgnitionTime = 20;
-    static const s32 sRunawayTime = 30;
-    static const s32 sDivingDelayTime = 35;
-    static const s32 sDivingTime = 40;
-    static const s32 sDownStopFrame = 2;
-    static const f32 sDownGravityAccel = 0.5f;
-};  // namespace
+// The numbers this file's functions give the game's motion and animation calls, as tunables: "<file>.<function>.<call>.<k>".
+NEBULA_TUNABLE_NAMED(f32, cNum_exeDamage_reboundVelocityFromEachCollision_1, "exeDamage.reboundVelocityFromEachCollision.1", 0.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeDamage_reboundVelocityFromEachCollision_2, "exeDamage.reboundVelocityFromEachCollision.2", 0.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeDamage_reboundVelocityFromEachCollision_3, "exeDamage.reboundVelocityFromEachCollision.3", 0.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeDamage_reboundVelocityFromEachCollision_4, "exeDamage.reboundVelocityFromEachCollision.4", 0.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeRunaway_reboundVelocityFromEachCollision_1, "exeRunaway.reboundVelocityFromEachCollision.1", 0.5f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeRunaway_reboundVelocityFromEachCollision_2, "exeRunaway.reboundVelocityFromEachCollision.2", 0.3f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeRunaway_reboundVelocityFromEachCollision_3, "exeRunaway.reboundVelocityFromEachCollision.3", 0.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeRunaway_reboundVelocityFromEachCollision_4, "exeRunaway.reboundVelocityFromEachCollision.4", 10.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeStartDiving_setBckRate_1, "exeStartDiving.setBckRate.1", 0.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeDiving_setBckRate_1, "exeDiving.setBckRate.1", 1.4f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeDown_reboundVelocityFromEachCollision_1, "exeDown.reboundVelocityFromEachCollision.1", 0.0f);
 
 namespace {
-    s32 getElementList(const JMapInfoIter& rIter) {
+    enum { ElementType_Fire, ElementType_Ice };
+    enum { EffectType_Null, EffectType_Wait, EffectType_Chase, EffectType_Escape };
+    enum { BodyEffectType_Heat = 1, BodyEffectType_CoolDown = 2, BodyEffectType_Cold = 3 };
+    // Placement arg0.
+    enum { Status_Runaway, Status_Float };
+
+    const char* const sElementArcName[] = {"Meramera", "IceMeramera", "ChildMeramera", "ChildIceMeramera"};
+    const s32 sElementList[] = {ElementType_Fire, ElementType_Ice, ElementType_Fire, ElementType_Ice};
+    // Indexed by EffectType.
+    const char* const sHeadEffectName[] = {nullptr, "Wait", "Chase", "Escape"};
+    const Vec3f sAttackHitOffset = Vec3f(50.0f, 0.0f, 0.0f);
+
+    // Hover over the shadow: target height, rise and fall accel, speed limit.
+    struct KeepHeightParam {
+        f32 mHeight;
+        f32 mUpAccel;
+        f32 mDownAccel;
+        f32 mSpeedMax;
+    };
+
+    const KeepHeightParam sWaitHeight = {130.0f, 0.5f, 0.1f, 15.0f};
+    const KeepHeightParam sChaseStartHeight = {300.0f, 0.5f, 0.2f, 15.0f};
+    const KeepHeightParam sChaseDashLowHeight = {150.0f, 0.5f, 0.1f, 15.0f};
+    const KeepHeightParam sChaseDashHeight = {190.0f, 0.5f, 0.2f, 20.0f};
+    const KeepHeightParam sChaseTurnHeight = {190.0f, 0.3f, 0.3f, 20.0f};
+    const KeepHeightParam sDamageHeight = {140.0f, 0.0f, 1.2f, 15.0f};
+    const KeepHeightParam sFloatHeight = {100.0f, 0.9f, 0.1f, 50.0f};
+    const KeepHeightParam sIgnitionHeight = {100.0f, 0.5f, 0.1f, 50.0f};
+    const KeepHeightParam sAttackSuccessHeight = {50.0f, 0.5f, 0.1f, 15.0f};
+
+    NEBULA_TUNABLE(f32, sBodyHitRadius, 55.0f);
+    NEBULA_TUNABLE(f32, sBreakHitRadius, 10.0f);
+    NEBULA_TUNABLE(f32, sAttackHitRadius, 70.0f);
+    NEBULA_TUNABLE(f32, sPointerRadius, 55.0f);
+    NEBULA_TUNABLE(f32, sBindRadius, 45.0f);
+    NEBULA_TUNABLE(f32, sShadowRadius, 50.0f);
+    NEBULA_TUNABLE(f32, sBaseScale, 150.0f);
+    NEBULA_TUNABLE(f32, sRecoveryDistance, 1500.0f);
+    NEBULA_TUNABLE(f32, sRecoveryClipRadius, 100.0f);
+    NEBULA_TUNABLE(f32, sOverWallAccel, 0.9f);
+    NEBULA_TUNABLE(f32, sOverWallProbe, 200.0f);
+    NEBULA_TUNABLE(f32, sMaxOverWallHeight, 250.0f);
+    const s32 sWaitTime = NebulaFrameClock::stepsOfSeconds(5);
+    const s32 sWalkTime = NebulaFrameClock::stepsOfSeconds(2);
+    NEBULA_TUNABLE(f32, sWalkRadius, 200.0f);
+    NEBULA_TUNABLE(f32, sWalkArriveDistance, 100.0f);
+    const s32 sAttackSuccessTime = NebulaFrameClock::stepsOfSeconds(3);
+    NEBULA_TUNABLE(s32, sShrinkTime, 20);
+    NEBULA_TUNABLE(f32, sChaseDistance, 900.0f);
+    NEBULA_TUNABLE(f32, sTerritoryChaseRange, 3000.0f);
+    const s32 sChaseEndTime = NebulaFrameClock::stepsOfSeconds(4);
+    const s32 sChaseStartTime = NebulaFrameClock::stepsOfSeconds(1);
+    NEBULA_TUNABLE(s32, sChaseDashTime, 45);
+    NEBULA_TUNABLE(s32, sChaseTurnTime, 50);
+    const s32 sChaseDashLowTime = NebulaFrameClock::stepsOfMilliseconds(500);
+    NEBULA_TUNABLE(f32, sChaseDashMoveAccel, 0.175f);
+    NEBULA_TUNABLE(f32, sChaseDashAccel, 0.98f);
+    NEBULA_TUNABLE(f32, sChaseTurnAccel, 0.97f);
+    NEBULA_TUNABLE(f32, sChaseTurnGravityAccel, 0.99f);
+    NEBULA_TUNABLE(f32, sChaseTurnFloatAccel, 0.05f);
+    NEBULA_TUNABLE(f32, sWalkMoveAccel, 0.05f);
+    NEBULA_TUNABLE(f32, sWalkTurnCos, 0.995f);
+    NEBULA_TUNABLE(f32, sChaseStartTurnCos, 0.99f);
+    NEBULA_TUNABLE(f32, sDefaultAttenuate, 0.98f);
+    NEBULA_TUNABLE(f32, sChaseStartAttenuate, 0.97f);
+    NEBULA_TUNABLE(f32, sDamageAttenuate, 0.9f);
+    NEBULA_TUNABLE(f32, sFloatAttenuate, 0.94f);
+    NEBULA_TUNABLE(f32, sDownAttenuate, 0.99f);
+    NEBULA_TUNABLE(s32, sSinkTime, 50);
+    const s32 sFloatTime = NebulaFrameClock::stepsOfMilliseconds(500);
+    NEBULA_TUNABLE(f32, sFloatUpSpeed, 50.0f);
+    NEBULA_TUNABLE(s32, sIgnitionStartStep, 15);
+    NEBULA_TUNABLE(f32, sIgnitionUpSpeed, 25.0f);
+    NEBULA_TUNABLE(f32, sIgnitionForceJump, 15.0f);
+    NEBULA_TUNABLE(s32, sIgnitionTime, 20);
+    const s32 sRunawayTime = NebulaFrameClock::stepsOfMilliseconds(500);
+    NEBULA_TUNABLE(s32, sDivingDelayTime, 35);
+    NEBULA_TUNABLE(s32, sDivingTime, 40);
+    NEBULA_TUNABLE(f32, sDivingHeight, 300.0f);
+    const f32 sDivingProbeRate = 1.0f / 0.35f;
+    NEBULA_TUNABLE(f32, sDivingFireTurnDegree, 180.0f);
+    NEBULA_TUNABLE(s32, sDownStopFrame, 2);
+    NEBULA_TUNABLE(f32, sDownGravityAccel, 0.5f);
+    // The down bounce has no backward part; the zero term keeps the result bit-exact.
+    NEBULA_TUNABLE(f32, sDownBackSpeed, 0.0f);
+    NEBULA_TUNABLE(f32, sDownUpSpeed, 25.0f);
+    NEBULA_TUNABLE(f32, sDownRebound, 0.9f);
+    const s32 sReadyRestartTime = NebulaFrameClock::stepsOfSeconds(3);
+    NEBULA_TUNABLE(f32, sSpinNearDistance, 300.0f);
+    NEBULA_TUNABLE(f32, sSpinTurnDegree, 5.0f);
+    NEBULA_TUNABLE(f32, sExtinguishTurnDegree, 10.0f);
+    NEBULA_TUNABLE(f32, sSpinBlowSpeed, 35.0f);
+    NEBULA_TUNABLE(f32, sPushSpeed, 0.5f);
+    NEBULA_TUNABLE(s32, sDamageExtinguishStep, 3);
+    NEBULA_TUNABLE(f32, sFireTurnDegree, 1.0f);
+    NEBULA_TUNABLE(s32, sRunawayEscapeEffectStep, 10);
+    NEBULA_TUNABLE(f32, sRunawayBoundSpeed, 12.0f);
+    NEBULA_TUNABLE(s32, sRunawayJumpStep, 70);
+    // On the ground slower than this, the jump timer counts down.
+    NEBULA_TUNABLE(f32, sRunawayJumpSpeedH, 3.0f);
+    NEBULA_TUNABLE(s32, sRunawayJumpIntervalRandom, 10);
+    const s32 sRunawayJumpInterval = NebulaFrameClock::stepsOfMilliseconds(500);
+    NEBULA_TUNABLE(f32, sRunawayDiveProbe, 250.0f);
+    NEBULA_TUNABLE(f32, sRunawayDiveSpread, 80.0f);
+    NEBULA_TUNABLE(f32, sRunawayGravity, 2.0f);
+    NEBULA_TUNABLE(f32, sRunawayGroundAttenuate, 0.8f);
+    NEBULA_TUNABLE(f32, sRunawayAirAttenuate, 0.98f);
+    NEBULA_TUNABLE(f32, sJumpDiveNear, 10.0f);
+    NEBULA_TUNABLE(f32, sJumpDiveFar, 500.0f);
+    NEBULA_TUNABLE(f32, sJumpFleeDistance, 1000.0f);
+    NEBULA_TUNABLE(f32, sJumpRandom, 0.5f);
+    NEBULA_TUNABLE(f32, sJumpSpeedH, 20.0f);
+    NEBULA_TUNABLE(f32, sJumpSpeedVMin, 45.0f);
+    NEBULA_TUNABLE(f32, sJumpSpeedVMax, 50.0f);
+    NEBULA_TUNABLE(f32, sDiveProbeLift, 100.0f);
+    NEBULA_TUNABLE(f32, sDiveProbeDepth, 600.0f);
+    NEBULA_TUNABLE(f32, sRollRadius, 50.0f);
+    NEBULA_TUNABLE(f32, sPoseBlendRate, 0.25f);
+    NEBULA_TUNABLE(f32, sExtinguishPullRate, 0.9f);
+    NEBULA_TUNABLE(f32, sExtinguishMinDistance, 100.0f);
+
+    s32 getElementList(const TableIter& rIter) {
         for (s32 idx = 0; idx < ARRAY_SIZE(::sElementArcName); idx++) {
             if (MR::isEqualObjectName(rIter, ::sElementArcName[idx])) {
                 return ::sElementList[idx];
@@ -68,6 +166,18 @@ namespace {
         }
 
         return 0;
+    }
+
+    const char* getHeadEffectName(s32 effectType) {
+        if (effectType < EffectType_Wait || effectType > EffectType_Escape) {
+            return nullptr;
+        }
+
+        return ::sHeadEffectName[effectType];
+    }
+
+    void keepHeight(LiveActor* pActor, const KeepHeightParam& rParam) {
+        MR::addVelocityKeepHeightUseShadow(pActor, rParam.mHeight, rParam.mUpAccel, rParam.mDownAccel, rParam.mSpeedMax, nullptr);
     }
 };  // namespace
 
@@ -80,7 +190,7 @@ namespace NrvMeramera {
     NEW_NERVE(MerameraNrvDamage, Meramera, Damage);
     NEW_NERVE(MerameraNrvShrink, Meramera, Shrink);
     NEW_NERVE_ONEND(MerameraNrvRunaway, Meramera, Runaway, Runaway);
-    NEW_NERVE_ONEND(MerameraNrvStartDiving, Meramera, StartDiving, StartDiving);
+    NEW_NERVE_ONEND(MerameraNrvStartDiving, Meramera, StartDiving, Runaway);
     NEW_NERVE(MerameraNrvDiving, Meramera, Diving);
     NEW_NERVE(MerameraNrvSink, Meramera, Sink);
     NEW_NERVE(MerameraNrvFloat, Meramera, Float);
@@ -88,15 +198,11 @@ namespace NrvMeramera {
     NEW_NERVE(MerameraNrvIgnitionForce, Meramera, IgnitionForce);
     NEW_NERVE(MerameraNrvAttackSuccess, Meramera, AttackSuccess);
     NEW_NERVE_ONEND(MerameraNrvBindStarPointer, Meramera, BindStarPointer, BindStarPointer);
-    NEW_NERVE_ONEND(MerameraNrvBindStarPointerNoFire, Meramera, BindStarPointerNoFire, BindStarPointerNoFire);
+    NEW_NERVE_ONEND(MerameraNrvBindStarPointerNoFire, Meramera, BindStarPointerNoFire, BindStarPointer);
     NEW_NERVE(MerameraNrvDown, Meramera, Down);
     NEW_NERVE(MerameraNrvFlatDown, Meramera, FlatDown);
     NEW_NERVE(MerameraNrvReadyRestart, Meramera, ReadyRestart);
 };  // namespace NrvMeramera
-
-f32 lerp(f32 start, f32 end, f32 t) {
-    return start + (end - start) * t;
-}
 
 inline bool Meramera::isSensor(const HitSensor* pSensor, const char* pName) const {
     return getSensor(pName) == pSensor;
@@ -107,28 +213,26 @@ inline bool Meramera::isActionDisabled() const {
            isNerve(GET_NERVE(Meramera, MerameraNrvDiving)) || isNerve(GET_NERVE(Meramera, MerameraNrvBindStarPointerNoFire));
 }
 
-inline TVec3f Meramera::getDistanceToPlayer() const {
-    TVec3f playerPos(*MR::getPlayerPos());
-    playerPos -= mPosition;
-    return playerPos;
+inline Vec3f Meramera::calcVecToPlayer() const {
+    Vec3f toPlayer(*MR::getPlayerPos());
+    toPlayer -= mPosition;
+    return toPlayer;
 }
 
 Meramera::Meramera(const char* pName)
-    : LiveActor(pName), mAnimScaleController(), mWalkerStateBindStarPointer(), _128(0.0f, 1.0f), _138(0, 0, 1), _144(0, 1, 0), mHomePosition(0, 0, 0),
-      _15C(0, 0, 1), _174(0, 0, 0), _180(0, 0, 0), _18C(0, 0, 1), _198(0, 1, 0), _1A4(-1.0f), mChaseDistance(900.0f), mAppearStatus(-1),
-      mElementType(), mEffectType(), mBodyEffectType(), mRunawayTimer(), mCanDive(), mIsValidRestart() {
-    _98.identity();
+    : LiveActor(pName), mAnimScaleController(), mWalkerStateBindStarPointer(), mPoseQuat(0.0f, 1.0f), mFront(0, 0, 1), mFireUp(0, 1, 0), mHomePosition(0, 0, 0),
+      mDashDir(0, 0, 1), mWalkTarget(0, 0, 0), mDivePos(0, 0, 0), mDiveDir(0, 0, 1), mDiveUp(0, 1, 0), mTargetDistance(-1.0f), mChaseDistance(::sChaseDistance),
+      mAppearStatus(-1), mElementType(), mEffectType(), mBodyEffectType(), mRunawayTimer(), mCanDive(), mIsValidRestart() {
+    mEffectMtx.identity();
     mExtinguishMtx.identity();
-    _F8.identity();
+    mFallEffectMtx.identity();
 
     mParabolicPath = new ParabolicPath();
 }
 
-void Meramera::init(const JMapInfoIter& rIter) {
+void Meramera::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initElementType(rIter);
-
-    mScale.mult(1.0f);
 
     initModelManagerWithAnm(::sElementArcName[mElementType], nullptr, false);
 
@@ -158,24 +262,24 @@ void Meramera::init(const JMapInfoIter& rIter) {
     initAppearState(rIter);
 }
 
-void Meramera::initElementType(const JMapInfoIter& rIter) {
+void Meramera::initElementType(const TableIter& rIter) {
     mElementType = ::getElementList(rIter);
 }
 
 void Meramera::initEffect() {
-    initEffectKeeper(1, nullptr, false);
+    initEffectKeeper(1, nullptr);
 
     MR::setEffectHostMtx(this, "ExtinguishSide", mExtinguishMtx);
     MR::setEffectHostMtx(this, "ExtinguishSideLight", mExtinguishMtx);
 
-    MR::setEffectHostMtx(this, "Wait", _98);
-    MR::setEffectHostMtx(this, "Escape", _98);
-    MR::setEffectHostMtx(this, "ExtinguishSmoke", _98);
-    MR::setEffectHostMtx(this, "ChaseStart", _98);
-    MR::setEffectHostMtx(this, "Chase", _98);
-    MR::setEffectHostMtx(this, "Attack", _98);
+    MR::setEffectHostMtx(this, "Wait", mEffectMtx);
+    MR::setEffectHostMtx(this, "Escape", mEffectMtx);
+    MR::setEffectHostMtx(this, "ExtinguishSmoke", mEffectMtx);
+    MR::setEffectHostMtx(this, "ChaseStart", mEffectMtx);
+    MR::setEffectHostMtx(this, "Chase", mEffectMtx);
+    MR::setEffectHostMtx(this, "Attack", mEffectMtx);
 
-    MR::setEffectHostMtx(this, "Fall", _F8);
+    MR::setEffectHostMtx(this, "Fall", mFallEffectMtx);
 }
 
 void Meramera::initSensor() {
@@ -183,14 +287,14 @@ void Meramera::initSensor() {
 
     LiveActor::initHitSensor(3);
 
-    MR::addHitSensorEnemy(this, "body", 8, scale * ::sBodyHitRadius, TVec3f(0.0f, 0.0f, 0.0f));
-    MR::addHitSensorEnemy(this, "break", 8, scale * ::sBreakHitRadius, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorEnemy(this, "body", 8, scale * ::sBodyHitRadius, Vec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorEnemy(this, "break", 8, scale * ::sBreakHitRadius, Vec3f(0.0f, 0.0f, 0.0f));
 
     MR::addHitSensorAtJointEnemy(this, "attack", "JointRoot", 8, scale * ::sAttackHitRadius, ::sAttackHitOffset * scale);
 
     MR::invalidateHitSensor(this, "break");
 
-    MR::initStarPointerTarget(this, scale * 55.0f, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::initStarPointerTarget(this, scale * ::sPointerRadius, Vec3f(0.0f, 0.0f, 0.0f));
 }
 
 void Meramera::initBind() {
@@ -205,17 +309,17 @@ void Meramera::initShadow() {
 
     MR::initShadowController(this, 2);
 
-    MR::addShadowSurfaceCircle(this, "\220\205\226\312\227\160" /* 水面用 */, scale * ::sShadowRadius);
-    MR::setShadowDropStartOffset(this, "\220\205\226\312\227\160" /* 水面用 */, ::sBaseScale);
-    MR::addShadowVolumeSphere(this, "\222\156\226\312\227\160" /* 地面用 */, scale * ::sShadowRadius);
+    MR::addShadowSurfaceCircle(this, "水面用", scale * ::sShadowRadius);
+    MR::setShadowDropStartOffset(this, "水面用", ::sBaseScale);
+    MR::addShadowVolumeSphere(this, "地面用", scale * ::sShadowRadius);
 }
 
-void Meramera::initAppearState(const JMapInfoIter& rIter) {
-    MR::getJMapInfoArg0WithInit(rIter, &mAppearStatus);
+void Meramera::initAppearState(const TableIter& rIter) {
+    MR::getPlacementArg0WithInit(rIter, &mAppearStatus);
 
     resetAppear();
 
-    MR::getJMapInfoArg2NoInit(rIter, &mIsValidRestart);
+    MR::getPlacementArg2NoInit(rIter, &mIsValidRestart);
 
     if (MR::useStageSwitchReadAppear(this, rIter)) {
         MR::syncStageSwitchAppear(this);
@@ -223,10 +327,6 @@ void Meramera::initAppearState(const JMapInfoIter& rIter) {
     } else {
         makeActorAppeared();
     }
-}
-
-void Meramera::makeActorAppeared() {
-    LiveActor::makeActorAppeared();
 }
 
 void Meramera::kill() {
@@ -238,15 +338,16 @@ void Meramera::kill() {
         MR::onSwitchDead(this);
     }
 
-    if (mIsValidRestart) {
-        MR::invalidateClipping(this);
-        MR::hideModel(this);
-        MR::deleteEffectAll(this);
-
-        setNerve(GET_NERVE(Meramera, MerameraNrvReadyRestart));
-    } else {
+    if (!mIsValidRestart) {
         LiveActor::kill();
+        return;
     }
+
+    MR::invalidateClipping(this);
+    MR::hideModel(this);
+    MR::deleteEffectAll(this);
+
+    setNerve(GET_NERVE(Meramera, MerameraNrvReadyRestart));
 }
 
 void Meramera::startClipped() {
@@ -267,16 +368,16 @@ void Meramera::control() {
     mAnimScaleController->updateNerve();
     updatePose();
 
-    MR::turnVecToVecDegree(&_144, _144, -mGravity, 1.0f, _138);
+    MR::turnVecToVecDegree(&mFireUp, mFireUp, -mGravity, ::sFireTurnDegree, mFront);
 
-    MR::makeMtxUpNoSupportPos(&_98, _144, MR::getJointPos(this, "Sin"));
+    MR::makeMtxUpNoSupportPos(&mEffectMtx, mFireUp, MR::getJointPos(this, "Sin"));
 
     tryPointBind();
 }
 
 void Meramera::calcAndSetBaseMtx() {
-    MR::setBaseTRMtx(this, _128);
-    MR::setBaseScale(this, mAnimScaleController->_C * mScale);
+    MR::setBaseTRMtx(this, mPoseQuat);
+    MR::setBaseScale(this, mAnimScaleController->mScale * mScale);
 }
 
 void Meramera::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
@@ -297,17 +398,17 @@ bool Meramera::receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) {
         return true;
     }
 
-    if (MR::isSensorEnemy(pSender) || MR::isSensorPlayer(pSender)) {
-        if (isPushMoved()) {
-            TVec3f dir;
-            MR::calcSensorDirectionNormalize(&dir, pSender, pReceiver);
-            MR::vecScaleAdd(&mVelocity, &dir, 0.5f);
-        }
-
-        return true;
+    if (!MR::isSensorEnemy(pSender) && !MR::isSensorPlayer(pSender)) {
+        return false;
     }
 
-    return false;
+    if (isPushMoved()) {
+        Vec3f dir;
+        MR::calcSensorDirectionNormalize(&dir, pSender, pReceiver);
+        MR::vecScaleAdd(&mVelocity, &dir, ::sPushSpeed);
+    }
+
+    return true;
 }
 
 bool Meramera::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
@@ -339,11 +440,7 @@ bool Meramera::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pR
 }
 
 bool Meramera::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
-    if (MR::isMsgExplosionAttack(msg)) {
-        return requestDownForce(pReceiver, pSender);
-    }
-
-    return false;
+    return MR::isMsgExplosionAttack(msg) && requestDownForce(pReceiver, pSender);
 }
 
 bool Meramera::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
@@ -353,7 +450,6 @@ bool Meramera::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver
 
     if (MR::isMsgStartPowerStarGet(msg)) {
         makeActorDead();
-
         return true;
     }
 
@@ -361,23 +457,14 @@ bool Meramera::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver
 }
 
 bool Meramera::requestDamage(HitSensor* pSender, HitSensor* pReceiver) {
-    if (!isSensor(pSender, "body")) {
+    if (!isSensor(pSender, "body") || !MR::isSensorPlayer(pReceiver) || !isAffectedSpin()) {
         return false;
     }
 
-    if (!MR::isSensorPlayer(pReceiver)) {
-        return false;
-    }
-
-    if (!isAffectedSpin()) {
-        return false;
-    }
-
-    bool isFar = MR::isNear(pSender, pReceiver, 300.0f) == false;
-    if (isFar) {
+    // A spin out of reach only leans the flame toward the player.
+    if (!MR::isNear(pSender, pReceiver, ::sSpinNearDistance)) {
         emitEffectHead(EffectType_Wait);
-        turnFireDirectionToSpin(5.0f);
-
+        turnFireDirectionToSpin(::sSpinTurnDegree);
         return false;
     }
 
@@ -385,10 +472,8 @@ bool Meramera::requestDamage(HitSensor* pSender, HitSensor* pReceiver) {
         return false;
     }
 
-    MR::setVelocitySeparateHV(this, pReceiver, pSender, 35.0f, 0.0f);
-
+    MR::setVelocitySeparateHV(this, pReceiver, pSender, ::sSpinBlowSpeed, 0.0f);
     setNerve(GET_NERVE(Meramera, MerameraNrvDamage));
-
     return true;
 }
 
@@ -399,17 +484,11 @@ bool Meramera::requestFire(HitSensor* pSender, HitSensor* pReceiver) {
             setNerve(GET_NERVE(Meramera, MerameraNrvIgnitionForce));
             return true;
         }
-        break;
+
+        return false;
 
     case ElementType_Ice:
-        if (requestForceRunaway()) {
-            return true;
-        }
-
-        if (requestDownForce(pSender, pReceiver)) {
-            return true;
-        }
-        break;
+        return requestForceRunaway() || requestDownForce(pSender, pReceiver);
     }
 
     return false;
@@ -421,9 +500,7 @@ bool Meramera::requestForceRunaway() {
     }
 
     MR::startBck(this, "Damage");
-
     setNerve(GET_NERVE(Meramera, MerameraNrvRunaway));
-
     return true;
 }
 
@@ -434,30 +511,20 @@ bool Meramera::requestDownForce(HitSensor* pSender, HitSensor* pReceiver) {
 
     MR::emitEffectHitBetweenSensors(this, pSender, pReceiver, 0.0f, "HitMark");
 
-    TVec3f horizon;
+    Vec3f horizon;
     MR::calcSensorHorizonNormalize(&horizon, mGravity, pSender, pReceiver);
 
     if (!MR::isNearZero(horizon)) {
-        _138.set(horizon);
+        mFront.set(horizon);
     }
 
     MR::zeroVelocity(this);
-
     setNerve(GET_NERVE(Meramera, MerameraNrvDown));
-
     return true;
 }
 
 bool Meramera::requestDown(HitSensor* pSender, HitSensor* pReceiver) {
-    if (!MR::isSensorPlayer(pReceiver)) {
-        return false;
-    }
-
-    if (isActionDisabled()) {
-        return requestDownForce(pSender, pReceiver);
-    }
-
-    return false;
+    return MR::isSensorPlayer(pReceiver) && isActionDisabled() && requestDownForce(pSender, pReceiver);
 }
 
 bool Meramera::requestAttack(HitSensor* pSender, HitSensor* pReceiver) {
@@ -465,31 +532,27 @@ bool Meramera::requestAttack(HitSensor* pSender, HitSensor* pReceiver) {
         return false;
     }
 
-    if (MR::isSensorPlayer(pReceiver)) {
-        if (sendMsgElementAttack(pReceiver, pSender)) {
-            setNerve(GET_NERVE(Meramera, MerameraNrvAttackSuccess));
-            return true;
-        }
-    } else {
+    if (!MR::isSensorPlayer(pReceiver)) {
         sendMsgElementAttack(pReceiver, pSender);
-    }
-    return false;
-}
-
-bool Meramera::requestFlatDown(HitSensor* pSender, HitSensor* pReceiver) {
-    if (!isSensor(pSender, "body")) {
         return false;
     }
 
-    if (isActionDisabled()) {
-        MR::emitEffectHitBetweenSensors(this, pSender, pReceiver, 0.0f, "HitMark");
-
-        setNerve(GET_NERVE(Meramera, MerameraNrvFlatDown));
-
-        return true;
+    if (!sendMsgElementAttack(pReceiver, pSender)) {
+        return false;
     }
 
-    return false;
+    setNerve(GET_NERVE(Meramera, MerameraNrvAttackSuccess));
+    return true;
+}
+
+bool Meramera::requestFlatDown(HitSensor* pSender, HitSensor* pReceiver) {
+    if (!isSensor(pSender, "body") || !isActionDisabled()) {
+        return false;
+    }
+
+    MR::emitEffectHitBetweenSensors(this, pSender, pReceiver, 0.0f, "HitMark");
+    setNerve(GET_NERVE(Meramera, MerameraNrvFlatDown));
+    return true;
 }
 
 bool Meramera::sendMsgElementAttack(HitSensor* pSender, HitSensor* pReceiver) {
@@ -506,26 +569,25 @@ bool Meramera::sendMsgElementAttack(HitSensor* pSender, HitSensor* pReceiver) {
 }
 
 bool Meramera::tryWalk() {
-    if (getNerveStep() > ::sWalkTime) {
-        TVec3f randomVec;
-        MR::getRandomVector(&randomVec, 1.0f);
-        MR::normalizeOrZero(&randomVec);
-        randomVec.killElement(randomVec, mGravity);
-        randomVec *= 200.0f;
-        _174 = randomVec + mHomePosition;
-
-        setNerve(GET_NERVE(Meramera, MerameraNrvWalk));
-
-        return true;
+    if (getNerveStep() <= ::sWalkTime) {
+        return false;
     }
 
-    return false;
+    // A random point on the ground plane around home.
+    Vec3f randomVec;
+    MR::getRandomVector(&randomVec, 1.0f);
+    MR::normalizeOrZero(&randomVec);
+    randomVec.killElement(randomVec, mGravity);
+    randomVec *= ::sWalkRadius;
+    mWalkTarget = randomVec + mHomePosition;
+
+    setNerve(GET_NERVE(Meramera, MerameraNrvWalk));
+    return true;
 }
 
 bool Meramera::tryWalkEnd() {
-    if (getNerveStep() > ::sWaitTime || (0.0f <= _1A4 && _1A4 <= 100.0f)) {
+    if (getNerveStep() > ::sWaitTime || (0.0f <= mTargetDistance && mTargetDistance <= ::sWalkArriveDistance)) {
         setNerve(GET_NERVE(Meramera, MerameraNrvWait));
-
         return true;
     }
 
@@ -533,17 +595,17 @@ bool Meramera::tryWalkEnd() {
 }
 
 bool Meramera::tryEndShrink() {
-    if (MR::isGreaterStep(this, ::sShrinkTime)) {
-        if (isEnableChase()) {
-            setNerve(GET_NERVE(Meramera, MerameraNrvChaseStart));
-        } else {
-            setNerve(GET_NERVE(Meramera, MerameraNrvWait));
-        }
-
-        return true;
+    if (!MR::isGreaterStep(this, ::sShrinkTime)) {
+        return false;
     }
 
-    return false;
+    if (isEnableChase()) {
+        setNerve(GET_NERVE(Meramera, MerameraNrvChaseStart));
+    } else {
+        setNerve(GET_NERVE(Meramera, MerameraNrvWait));
+    }
+
+    return true;
 }
 
 bool Meramera::tryChase() {
@@ -556,7 +618,7 @@ bool Meramera::tryChase() {
 }
 
 bool Meramera::tryChaseStartToDash() {
-    if (MR::isGreaterStep(this, 60)) {
+    if (MR::isGreaterStep(this, ::sChaseStartTime)) {
         setNerve(GET_NERVE(Meramera, MerameraNrvChaseDash));
         return true;
     }
@@ -565,7 +627,7 @@ bool Meramera::tryChaseStartToDash() {
 }
 
 bool Meramera::tryChaseDashToTurn() {
-    if (MR::isGreaterStep(this, 45)) {
+    if (MR::isGreaterStep(this, ::sChaseDashTime)) {
         setNerve(GET_NERVE(Meramera, MerameraNrvChaseTurn));
         return true;
     }
@@ -574,7 +636,7 @@ bool Meramera::tryChaseDashToTurn() {
 }
 
 bool Meramera::tryChaseTurnToDash() {
-    if (MR::isGreaterStep(this, 50)) {
+    if (MR::isGreaterStep(this, ::sChaseTurnTime)) {
         setNerve(GET_NERVE(Meramera, MerameraNrvChaseDash));
         return true;
     }
@@ -583,8 +645,7 @@ bool Meramera::tryChaseTurnToDash() {
 }
 
 bool Meramera::tryEndChase() {
-    bool isFarFromPlayer = MR::isNearPlayer(this, mChaseDistance) == false;
-    if (isFarFromPlayer || MR::isGreaterStep(this, ::sChaseEndTime) || mHomePosition.distance(mPosition) > ::sTerritoryChaseRange) {
+    if (!MR::isNearPlayer(this, mChaseDistance) || MR::isGreaterStep(this, ::sChaseEndTime) || mHomePosition.distance(mPosition) > ::sTerritoryChaseRange) {
         setNerve(GET_NERVE(Meramera, MerameraNrvWait));
         return true;
     }
@@ -593,6 +654,7 @@ bool Meramera::tryEndChase() {
 }
 
 bool Meramera::tryRunaway() {
+    // getRandom(0, 0) is 0 but still draws from the random sequence.
     if (MR::isGreaterStep(this, MR::getRandom(0, 0) + ::sRunawayTime)) {
         setNerve(GET_NERVE(Meramera, MerameraNrvRunaway));
         return true;
@@ -604,9 +666,7 @@ bool Meramera::tryRunaway() {
 bool Meramera::tryStartDiving() {
     if (mCanDive && MR::isBindedGround(this)) {
         MR::zeroVelocity(this);
-
         setNerve(GET_NERVE(Meramera, MerameraNrvStartDiving));
-
         return true;
     }
 
@@ -632,7 +692,7 @@ bool Meramera::tryEndDiving() {
 }
 
 bool Meramera::tryFloat() {
-    if (MR::isGreaterStep(this, 50)) {
+    if (MR::isGreaterStep(this, ::sSinkTime)) {
         setNerve(GET_NERVE(Meramera, MerameraNrvFloat));
         return true;
     }
@@ -650,41 +710,40 @@ bool Meramera::tryEndFloat() {
 }
 
 bool Meramera::tryEndIgnition() {
-    if (MR::isGreaterStep(this, ::sIgnitionTime)) {
-        if (isEnableChase()) {
-            setNerve(GET_NERVE(Meramera, MerameraNrvChaseDash));
-        } else {
-            setNerve(GET_NERVE(Meramera, MerameraNrvWait));
-        }
-        return true;
+    if (!MR::isGreaterStep(this, ::sIgnitionTime)) {
+        return false;
     }
-    return false;
+
+    if (isEnableChase()) {
+        setNerve(GET_NERVE(Meramera, MerameraNrvChaseDash));
+    } else {
+        setNerve(GET_NERVE(Meramera, MerameraNrvWait));
+    }
+
+    return true;
 }
 
 bool Meramera::tryForceSink() {
-    if (isHitRecover()) {
-        _180.set(mPosition);
-        _198.set(-mGravity);
-
-        MR::zeroVelocity(this);
-
-        setNerve(GET_NERVE(Meramera, MerameraNrvSink));
-        return true;
+    if (!isHitRecover()) {
+        return false;
     }
 
-    return false;
+    mDivePos.set(mPosition);
+    mDiveUp.set(-mGravity);
+
+    MR::zeroVelocity(this);
+    setNerve(GET_NERVE(Meramera, MerameraNrvSink));
+    return true;
 }
 
 bool Meramera::tryRecovery() {
+    // Out of the player's reach and out of view both here and at home: start over at home.
     f32 scale = mScale.x;
-    bool isThisFarFromPlayer = MR::isNearPlayer(this, ::sRecoveryDistance) == false;
-    if (isThisFarFromPlayer) {
-        bool isHomeFarFromPlayer = MR::isNearPlayer(mHomePosition, ::sRecoveryDistance) == false;
-        if (isHomeFarFromPlayer && MR::isJudgedToClipFrustum(mPosition, scale * 100.0f) && MR::isJudgedToClipFrustum(mHomePosition, scale * 100.0f)) {
-            resetAppear();
 
-            return true;
-        }
+    if (!MR::isNearPlayer(this, ::sRecoveryDistance) && !MR::isNearPlayer(mHomePosition, ::sRecoveryDistance) &&
+        MR::isJudgedToClipFrustum(mPosition, scale * ::sRecoveryClipRadius) && MR::isJudgedToClipFrustum(mHomePosition, scale * ::sRecoveryClipRadius)) {
+        resetAppear();
+        return true;
     }
 
     return false;
@@ -709,6 +768,7 @@ bool Meramera::tryPointBind() {
         return true;
     }
 
+    // Running away or diving, the flame is out: the bind ends back in Runaway.
     if ((isNerve(GET_NERVE(Meramera, MerameraNrvRunaway)) || isNerve(GET_NERVE(Meramera, MerameraNrvStartDiving))) &&
         mWalkerStateBindStarPointer->tryStartPointBind()) {
         setNerve(GET_NERVE(Meramera, MerameraNrvBindStarPointerNoFire));
@@ -721,105 +781,89 @@ bool Meramera::tryPointBind() {
 void Meramera::exeWait() {
     if (MR::isFirstStep(this)) {
         MR::validateClipping(this);
-
         MR::startBck(this, "Wait");
-
         emitEffectHead(EffectType_Wait);
         emitEffectHeatBody();
     }
 
     startWaitLevelSound();
 
-    MR::addVelocityKeepHeightUseShadow(this, 130.0f, 0.5f, 0.1f, 15.0f, nullptr);
-    MR::attenuateVelocity(this, 0.98f);
+    ::keepHeight(this, ::sWaitHeight);
+    MR::attenuateVelocity(this, ::sDefaultAttenuate);
     MR::reboundVelocityFromCollision(this);
 
-    if (!tryChase() && tryWalk()) {
-        return;
+    if (!tryChase()) {
+        tryWalk();
     }
 }
 
 void Meramera::exeWalk() {
     if (MR::isFirstStep(this)) {
         MR::validateClipping(this);
-
         emitEffectHead(EffectType_Wait);
         emitEffectHeatBody();
     }
 
     startWaitLevelSound();
 
-    MR::addVelocityKeepHeightUseShadow(this, 130.0f, 0.5f, 0.1f, 15.0f, nullptr);
-    addToTargetMovingAccel(_174, 0.05f, 0.995f);
-    MR::attenuateVelocity(this, 0.98f);
-
+    ::keepHeight(this, ::sWaitHeight);
+    addToTargetMovingAccel(mWalkTarget, ::sWalkMoveAccel, ::sWalkTurnCos);
+    MR::attenuateVelocity(this, ::sDefaultAttenuate);
     MR::reboundVelocityFromCollision(this);
 
-    if (!tryChase() && tryWalkEnd()) {
-        return;
+    if (!tryChase()) {
+        tryWalkEnd();
     }
 }
 
 void Meramera::exeShrink() {
     if (MR::isFirstStep(this)) {
         MR::invalidateClipping(this);
-
         MR::startBck(this, "Wait");
-
         emitEffectHead(EffectType_Wait);
         emitEffectHeatBody();
     }
 
-    turnFireDirectionToSpin(5.0f);
+    turnFireDirectionToSpin(::sSpinTurnDegree);
 
-    MR::addVelocityKeepHeightUseShadow(this, 130.0f, 0.5f, 0.1f, 15.0f, nullptr);
-    MR::attenuateVelocity(this, 0.98f);
+    ::keepHeight(this, ::sWaitHeight);
+    MR::attenuateVelocity(this, ::sDefaultAttenuate);
     MR::reboundVelocityFromCollision(this);
 
-    if (tryEndShrink()) {
-        return;
-    }
+    tryEndShrink();
 }
 
 void Meramera::exeChaseStart() {
     if (MR::isFirstStep(this)) {
         MR::validateClipping(this);
-
         MR::startBck(this, "ChaseStart");
         MR::startSound(this, "SE_EM_MERAMERA_FIND");
-
-        if (mElementType == ElementType_Ice) {
-            MR::startSound(this, "SE_EM_ICEMERA_POWER_UP");
-        } else {
-            MR::startSound(this, "SE_EM_MERAMERA_FIREPOWER_UP");
-        }
-
+        MR::startSound(this, mElementType == ElementType_Ice ? "SE_EM_ICEMERA_POWER_UP" : "SE_EM_MERAMERA_FIREPOWER_UP");
         deleteEffectHead(false);
         emitEffectHeatBody();
     }
 
     startWaitLevelSound();
 
-    MR::addVelocityKeepHeightUseShadow(this, 300.0f, 0.5f, 0.2f, 15.0f, nullptr);
-    addToTargetMovingAccel(*MR::getPlayerPos(), 0.05f, 0.99f);
-    MR::attenuateVelocity(this, 0.97f);
+    ::keepHeight(this, ::sChaseStartHeight);
+    addToTargetMovingAccel(*MR::getPlayerPos(), ::sWalkMoveAccel, ::sChaseStartTurnCos);
+    MR::attenuateVelocity(this, ::sChaseStartAttenuate);
     MR::reboundVelocityFromCollision(this);
 
-    if (!tryEndChase() && tryChaseStartToDash()) {
-        return;
+    if (!tryEndChase()) {
+        tryChaseStartToDash();
     }
 }
 
 void Meramera::exeChaseDash() {
     if (MR::isFirstStep(this)) {
         MR::invalidateClipping(this);
-
         MR::startBck(this, "ChaseDash");
-
         MR::startSound(this, "SE_EM_MERAMERA_DASH");
 
+        // The dash keeps the direction to where the player was when it started.
         mPlayerPosition = *MR::getPlayerPos();
-        _15C = mPlayerPosition - mPosition;
+        mDashDir = mPlayerPosition - mPosition;
 
         emitEffectHead(EffectType_Chase);
         emitEffectHeatBody();
@@ -827,63 +871,47 @@ void Meramera::exeChaseDash() {
 
     startChaseLevelSound();
 
-    if (MR::isLessStep(this, 30)) {
-        MR::addVelocityKeepHeightUseShadow(this, 150.0f, 0.5f, 0.1f, 15.0f, nullptr);
-    } else {
-        MR::addVelocityKeepHeightUseShadow(this, 190.0f, 0.5f, 0.2f, 20.0f, nullptr);
-    }
+    ::keepHeight(this, MR::isLessStep(this, ::sChaseDashLowTime) ? ::sChaseDashLowHeight : ::sChaseDashHeight);
 
-    addMovingAccel(_15C, 0.175f, ::sChaseDashAccel);
-    addOverWallAccel(_15C);
+    addMovingAccel(mDashDir, ::sChaseDashMoveAccel, ::sChaseDashAccel);
+    addOverWallAccel(mDashDir);
     MR::attenuateVelocity(this, ::sChaseDashAccel);
     MR::reboundVelocityFromCollision(this);
 
-    if (tryChaseDashToTurn()) {
-        return;
-    }
+    tryChaseDashToTurn();
 }
 
 void Meramera::exeChaseTurn() {
     if (MR::isFirstStep(this)) {
         MR::validateClipping(this);
-
         MR::startBck(this, "ChaseTurn");
-
         emitEffectHead(EffectType_Chase);
         emitEffectHeatBody();
     }
 
     startChaseLevelSound();
 
-    MR::addVelocityKeepHeightUseShadow(this, 190.0f, 0.3f, 0.3f, 20.0f, nullptr);
+    ::keepHeight(this, ::sChaseTurnHeight);
     addToTargetMovingAccel(*MR::getPlayerPos(), ::sChaseTurnFloatAccel, ::sChaseTurnGravityAccel);
     MR::attenuateVelocity(this, ::sChaseTurnAccel);
     MR::reboundVelocityFromCollision(this);
 
-    if (!tryEndChase() && tryChaseTurnToDash()) {
-        return;
+    if (!tryEndChase()) {
+        tryChaseTurnToDash();
     }
 }
 
 void Meramera::exeDamage() {
     if (MR::isFirstStep(this)) {
         MR::invalidateClipping(this);
-
         MR::startBck(this, "Damage");
-
-        MR::turnVecToVecCosOnPlane(&_138, getDistanceToPlayer(), mGravity, -1.0f);
-
-        if (mElementType == ElementType_Ice) {
-            MR::startSound(this, "SE_EM_ICEMERA_BLOW_COLD");
-        } else {
-            MR::startSound(this, "SE_EM_MERAMERA_BLOW_FIRE");
-        }
-
+        MR::turnVecToVecCosOnPlane(&mFront, calcVecToPlayer(), mGravity, -1.0f);
+        MR::startSound(this, mElementType == ElementType_Ice ? "SE_EM_ICEMERA_BLOW_COLD" : "SE_EM_MERAMERA_BLOW_FIRE");
         emitEffectHead(EffectType_Chase);
         emitEffectHeatBody();
     }
 
-    if (MR::isStep(this, 3)) {
+    if (MR::isStep(this, ::sDamageExtinguishStep)) {
         mExtinguishMtx.makeTrans(MR::getJointPos(this, "Sin"));
 
         deleteEffectHead(true);
@@ -894,17 +922,15 @@ void Meramera::exeDamage() {
         MR::startSound(this, "SE_EM_MERAMERA_SMOKE");
     }
 
-    if (MR::isGreaterEqualStep(this, 3)) {
+    if (MR::isGreaterEqualStep(this, ::sDamageExtinguishStep)) {
         updateExtinguishMtx();
     }
 
-    MR::addVelocityKeepHeightUseShadow(this, 140.0f, 0.0f, 1.2f, 15.0f, nullptr);
-    MR::attenuateVelocity(this, 0.9f);
-    MR::reboundVelocityFromEachCollision(this, 0.0f, 0.0f, 0.0f, 0.0f);
+    ::keepHeight(this, ::sDamageHeight);
+    MR::attenuateVelocity(this, ::sDamageAttenuate);
+    MR::reboundVelocityFromEachCollision(this, cNum_exeDamage_reboundVelocityFromEachCollision_1, cNum_exeDamage_reboundVelocityFromEachCollision_2, cNum_exeDamage_reboundVelocityFromEachCollision_3, cNum_exeDamage_reboundVelocityFromEachCollision_4);
 
-    if (tryRunaway()) {
-        return;
-    }
+    tryRunaway();
 }
 
 void Meramera::exeRunaway() {
@@ -924,13 +950,13 @@ void Meramera::exeRunaway() {
         return;
     }
 
-    f32 dot = mGravity.dot(mVelocity);
+    f32 fallSpeed = mGravity.dot(mVelocity);
 
-    if (MR::isStep(this, 10)) {
+    if (MR::isStep(this, ::sRunawayEscapeEffectStep)) {
         emitEffectHead(EffectType_Escape);
     }
 
-    if (MR::isBindedGround(this) && dot > 12.0f) {
+    if (MR::isBindedGround(this) && fallSpeed > ::sRunawayBoundSpeed) {
         MR::emitEffect(this, "EscapeRock");
         MR::startSound(this, "SE_EM_MERAMERA_BOUND");
     }
@@ -939,50 +965,43 @@ void Meramera::exeRunaway() {
         return;
     }
 
-    if (MR::isGreaterStep(this, 70)) {
+    if (MR::isGreaterStep(this, ::sRunawayJumpStep)) {
         if (MR::isBindedGround(this)) {
-            TVec3f vec;
-            TVec3f& vec1 = mVelocity;
-            TVec3f& vec2 = mGravity;
-            vec.scaleAdd(-vec2.dot(vec1), vec2, vec1);  // Looks like killElement but I can't make it match
+            Vec3f velocityH;
+            velocityH.scaleAdd(-mGravity.dot(mVelocity), mGravity, mVelocity);
 
-            f32 scalar;
-            MR::separateScalarAndDirection(&scalar, &vec, vec);
-
-            if (scalar < 3.0f) {
+            if (velocityH.length() < ::sRunawayJumpSpeedH) {
                 mRunawayTimer--;
             }
 
             if (mRunawayTimer <= 0) {
                 addRunawayJumpPower();
-
                 MR::emitEffect(this, "EscapeRock");
-
                 MR::startSound(this, "SE_EM_MERAMERA_JUMP");
-
-                mRunawayTimer = MR::getRandom(0, 10) + 30;
+                mRunawayTimer = MR::getRandom(0, ::sRunawayJumpIntervalRandom) + ::sRunawayJumpInterval;
             }
         }
 
+        // Probe for a dive point ahead, sweeping alternately left and right.
         if (!mCanDive) {
-            f32 val = (getNerveStep() % 5 * 80.0f) / 5.0f;
+            f32 angleDegree = (getNerveStep() % 5 * ::sRunawayDiveSpread) / 5.0f;
+
             if (getNerveStep() % 2 == 1) {
-                val = -val;
+                angleDegree = -angleDegree;
             }
-            checkDivingPoint(250.0f, val);
+
+            checkDivingPoint(::sRunawayDiveProbe, angleDegree);
         }
     }
 
     if (!MR::isBindedGround(this)) {
-        MR::addVelocityToGravity(this, 2.0f);
+        MR::addVelocityToGravity(this, ::sRunawayGravity);
     }
 
-    MR::attenuateVelocity(this, MR::isBindedGround(this) ? 0.8f : 0.98f);
-    MR::reboundVelocityFromEachCollision(this, 0.5f, 0.3f, 0.0f, 10.0f);
+    MR::attenuateVelocity(this, MR::isBindedGround(this) ? ::sRunawayGroundAttenuate : ::sRunawayAirAttenuate);
+    MR::reboundVelocityFromEachCollision(this, cNum_exeRunaway_reboundVelocityFromEachCollision_1, cNum_exeRunaway_reboundVelocityFromEachCollision_2, cNum_exeRunaway_reboundVelocityFromEachCollision_3, cNum_exeRunaway_reboundVelocityFromEachCollision_4);
 
-    if (tryRecovery()) {
-        return;
-    }
+    tryRecovery();
 }
 
 void Meramera::exeStartDiving() {
@@ -993,43 +1012,40 @@ void Meramera::exeStartDiving() {
         deleteEffectHead(false);
         emitEffectColdBody();
 
-        MR::setBckRate(this, 0.0f);
+        MR::setBckRate(this, cNum_exeStartDiving_setBckRate_1);
     }
 
-    if (MR::isLessStep(this, 35)) {
-        checkDivingPointMore(1.0f / 0.35f);
+    if (MR::isLessStep(this, ::sDivingDelayTime)) {
+        checkDivingPointMore(::sDivingProbeRate);
     }
 
-    if (tryDiving()) {
-        return;
-    }
+    tryDiving();
 }
 
 void Meramera::exeDiving() {
     if (MR::isFirstStep(this)) {
-        mParabolicPath->initFromUpVector(mPosition, _180, _198, 300.0f);
+        mParabolicPath->initFromUpVector(mPosition, mDivePos, mDiveUp, ::sDivingHeight);
 
         deleteEffectHead(false);
         emitEffectColdBody();
 
-        MR::turnVecToVecCosOnPlane(&_138, _180 - mPosition, mGravity, -1.0f);
+        MR::turnVecToVecCosOnPlane(&mFront, mDivePos - mPosition, mGravity, -1.0f);
 
         MR::invalidateClipping(this);
 
-        MR::setBckRate(this, 1.4f);
+        MR::setBckRate(this, cNum_exeDiving_setBckRate_1);
         MR::emitEffect(this, "EscapeRock");
         MR::startSound(this, "SE_EM_MERAMERA_JUMP");
     }
 
-    TVec3f pos;
-    mParabolicPath->calcPosition(&pos, getNerveStep() / 40.0f);
-    const TVec3f& vel = pos - mPosition;
-    mVelocity.set(vel);
+    Vec3f pos;
+    mParabolicPath->calcPosition(&pos, getNerveStep() / static_cast< f32 >(::sDivingTime));
+    mVelocity.set(pos - mPosition);
 
-    MR::turnVecToVecDegree(&_144, _144, -mGravity, 180.0f, _138);
+    MR::turnVecToVecDegree(&mFireUp, mFireUp, -mGravity, ::sDivingFireTurnDegree, mFront);
 
-    if (!tryForceSink() && tryEndDiving()) {
-        return;
+    if (!tryForceSink()) {
+        tryEndDiving();
     }
 }
 
@@ -1049,13 +1065,13 @@ void Meramera::exeSink() {
         MR::hideModel(this);
         MR::offBind(this);
 
-        MR::makeMtxUpNoSupportPos(&_F8, -mGravity, mPosition);
+        MR::makeMtxUpNoSupportPos(&mFallEffectMtx, -mGravity, mPosition);
 
         deleteEffectHead(false);
         emitEffectColdBody();
     }
 
-    MR::turnVecToVecCosOnPlane(&_138, getDistanceToPlayer(), mGravity, -1.0f);
+    MR::turnVecToVecCosOnPlane(&mFront, calcVecToPlayer(), mGravity, -1.0f);
 
     if (tryFloat() && mElementType == ElementType_Ice) {
         MR::deleteEffect(this, "Revival");
@@ -1065,9 +1081,7 @@ void Meramera::exeSink() {
 void Meramera::exeFloat() {
     if (MR::isFirstStep(this)) {
         MR::invalidateClipping(this);
-
         MR::showModel(this);
-
         MR::onBind(this);
 
         MR::startBck(this, "Float");
@@ -1077,58 +1091,44 @@ void Meramera::exeFloat() {
         deleteEffectHead(false);
         emitEffectHeatBody();
 
-        MR::setVelocity(this, _198 * 50.0f);
+        MR::setVelocity(this, mDiveUp * ::sFloatUpSpeed);
     }
 
-    MR::addVelocityKeepHeightUseShadow(this, 100.0f, 0.9f, 0.1f, 50.0f, nullptr);
-    MR::attenuateVelocity(this, 0.94f);
+    ::keepHeight(this, ::sFloatHeight);
+    MR::attenuateVelocity(this, ::sFloatAttenuate);
     MR::reboundVelocityFromCollision(this);
 
-    MR::turnVecToVecCosOnPlane(&_138, getDistanceToPlayer(), mGravity, -1.0f);
+    MR::turnVecToVecCosOnPlane(&mFront, calcVecToPlayer(), mGravity, -1.0f);
 
-    if (tryEndFloat()) {
-        return;
-    }
+    tryEndFloat();
 }
 
 void Meramera::exeIgnition() {
-    if (MR::isStep(this, 15)) {
+    if (MR::isStep(this, ::sIgnitionStartStep)) {
         MR::invalidateClipping(this);
-
         MR::startBck(this, "FloatIgnition");
-
-        if (mElementType == ElementType_Ice) {
-            MR::startSound(this, "SE_EM_ICEMERA_IGNITION");
-        } else {
-            MR::startSound(this, "SE_EM_MERAMERA_IGNITION");
-        }
-
-        MR::addVelocity(this, _198 * 25.0f);
+        MR::startSound(this, mElementType == ElementType_Ice ? "SE_EM_ICEMERA_IGNITION" : "SE_EM_MERAMERA_IGNITION");
+        MR::addVelocity(this, mDiveUp * ::sIgnitionUpSpeed);
     }
 
-    MR::addVelocityKeepHeightUseShadow(this, 100.0f, 0.5f, 0.1f, 50.0f, nullptr);
-    MR::attenuateVelocity(this, 0.98f);
+    ::keepHeight(this, ::sIgnitionHeight);
+    MR::attenuateVelocity(this, ::sDefaultAttenuate);
     MR::reboundVelocityFromCollision(this);
 
-    if (tryEndIgnition()) {
-        return;
-    }
+    tryEndIgnition();
 }
 
 void Meramera::exeIgnitionForce() {
     if (MR::isFirstStep(this)) {
         MR::invalidateClipping(this);
-
         MR::startBck(this, "FloatIgnition");
-
-        MR::setVelocityJump(this, 15.0f);
-
+        MR::setVelocityJump(this, ::sIgnitionForceJump);
         emitEffectHead(EffectType_Wait);
         emitEffectHeatBody();
     }
 
-    MR::addVelocityKeepHeightUseShadow(this, 130.0f, 0.5f, 0.1f, 15.0f, nullptr);
-    MR::attenuateVelocity(this, 0.98f);
+    ::keepHeight(this, ::sWaitHeight);
+    MR::attenuateVelocity(this, ::sDefaultAttenuate);
     MR::reboundVelocityFromCollision(this);
 
     if (MR::isBckStopped(this)) {
@@ -1139,81 +1139,58 @@ void Meramera::exeIgnitionForce() {
 void Meramera::exeAttackSuccess() {
     if (MR::isFirstStep(this)) {
         MR::invalidateClipping(this);
-
         MR::startBck(this, "Attack");
-
         MR::zeroVelocity(this);
-
         deleteEffectHead(false);
         emitEffectHeatBody();
     }
 
-    MR::addVelocityKeepHeightUseShadow(this, 50.0f, 0.5f, 0.1f, 15.0f, nullptr);
-    MR::attenuateVelocity(this, 0.98f);
+    ::keepHeight(this, ::sAttackSuccessHeight);
+    MR::attenuateVelocity(this, ::sDefaultAttenuate);
     MR::reboundVelocityFromCollision(this);
 
-    if (tryEndAttackSuccess()) {
-        return;
-    }
+    tryEndAttackSuccess();
 }
 
 void Meramera::exeDown() {
     if (MR::isFirstStep(this)) {
         MR::invalidateClipping(this);
-
         MR::startBck(this, "Down");
-
         MR::stopScene(::sDownStopFrame);
-
         MR::startSound(this, "SE_EM_MERAMERA_STOMPED");
-
         deleteEffectHead(false);
         emitEffectColdBody();
-
         MR::zeroVelocity(this);
+
+        mVelocity = -mFront * ::sDownBackSpeed - mGravity * ::sDownUpSpeed;
     }
 
-    if (MR::isStep(this, 0)) {
-        mVelocity = -_138 * 0.0f - mGravity * 25.0f;
+    if (!MR::isBindedGround(this)) {
+        MR::addVelocityToGravity(this, ::sDownGravityAccel);
     }
 
-    if (MR::isGreaterEqualStep(this, 0)) {
-        if (!MR::isBindedGround(this)) {
-            MR::addVelocityToGravity(this, ::sDownGravityAccel);
-        }
+    MR::attenuateVelocity(this, ::sDownAttenuate);
+    MR::reboundVelocityFromEachCollision(this, ::sDownRebound, ::sDownRebound, ::sDownRebound, cNum_exeDown_reboundVelocityFromEachCollision_1);
 
-        MR::attenuateVelocity(this, 0.99f);
-        MR::reboundVelocityFromEachCollision(this, 0.9f, 0.9f, 0.9f, 0.0f);
+    if (MR::isGreaterStep(this, 0)) {
+        MR::startSound(this, "SE_EM_MERAMERA_EXPLODE");
+        kill();
     }
-
-    if ((!MR::isGreaterStep(this, 0) || !MR::isBinded(this)) && !MR::isGreaterStep(this, 0)) {
-        return;
-    }
-
-    MR::startSound(this, "SE_EM_MERAMERA_EXPLODE");
-
-    kill();
 }
 
 void Meramera::exeFlatDown() {
     if (MR::isFirstStep(this)) {
         MR::invalidateClipping(this);
-
         MR::startBck(this, "FlatDown");
-
         MR::stopScene(::sDownStopFrame);
-
         MR::startSound(this, "SE_EM_MERAMERA_STOMPED");
-
         MR::zeroVelocity(this);
-
         deleteEffectHead(false);
         emitEffectColdBody();
     }
 
     if (MR::isGreaterStep(this, 0)) {
         MR::startSound(this, "SE_EM_EXPLODE_S");
-
         kill();
     }
 }
@@ -1239,105 +1216,105 @@ bool Meramera::isPushMoved() const {
 }
 
 bool Meramera::isEnableFireball() const {
-    if (isNerve(GET_NERVE(Meramera, MerameraNrvFloat)) || isNerve(GET_NERVE(Meramera, MerameraNrvIgnition)) ||
-        isNerve(GET_NERVE(Meramera, MerameraNrvIgnitionForce)) || isNerve(GET_NERVE(Meramera, MerameraNrvDown)) ||
-        isNerve(GET_NERVE(Meramera, MerameraNrvFlatDown)) || isNerve(GET_NERVE(Meramera, MerameraNrvReadyRestart))) {
-        return false;
-    }
-
-    return true;
+    return !isNerve(GET_NERVE(Meramera, MerameraNrvFloat)) && !isNerve(GET_NERVE(Meramera, MerameraNrvIgnition)) &&
+           !isNerve(GET_NERVE(Meramera, MerameraNrvIgnitionForce)) && !isNerve(GET_NERVE(Meramera, MerameraNrvDown)) &&
+           !isNerve(GET_NERVE(Meramera, MerameraNrvFlatDown)) && !isNerve(GET_NERVE(Meramera, MerameraNrvReadyRestart));
 }
 
 bool Meramera::isEnableChase() const {
-    return MR::isNearPlayer(this, mChaseDistance) && mHomePosition.distance(mPosition) <= 3000.0f;
+    return MR::isNearPlayer(this, mChaseDistance) && mHomePosition.distance(mPosition) <= ::sTerritoryChaseRange;
 }
 
-void Meramera::addToTargetMovingAccel(const TVec3f& rVec, f32 velocityAccel, f32 gravityAccel) {
-    addMovingAccel(rVec - mPosition, velocityAccel, gravityAccel);
+void Meramera::addToTargetMovingAccel(const Vec3f& rTarget, f32 accel, f32 turnCos) {
+    addMovingAccel(rTarget - mPosition, accel, turnCos);
 }
 
-void Meramera::addMovingAccel(const TVec3f& rVec, f32 velocityAccel, f32 gravityAccel) {
-    TVec3f vec(mGravity);
-    TVec3f vec2;
-    vec2.killElement(rVec, vec);
+void Meramera::addMovingAccel(const Vec3f& rDir, f32 accel, f32 turnCos) {
+    Vec3f gravity(mGravity);
+    Vec3f dirH;
+    dirH.killElement(rDir, gravity);
 
-    MR::separateScalarAndDirection(&_1A4, &vec2, vec2);
+    MR::separateScalarAndDirection(&mTargetDistance, &dirH, dirH);
 
-    if (!MR::isNearZero(vec2)) {
-        if (-1.0f < gravityAccel && gravityAccel < 1.0f) {
-            MR::turnVecToVecCos(&_138, _138, vec2, gravityAccel, vec);
+    // turnCos outside (-1, 1) snaps the front to the direction.
+    if (!MR::isNearZero(dirH)) {
+        if (-1.0f < turnCos && turnCos < 1.0f) {
+            MR::turnVecToVecCos(&mFront, mFront, dirH, turnCos, gravity);
         } else {
-            _138 = vec2;
+            mFront = dirH;
         }
     }
 
-    mVelocity += _138 * velocityAccel;
+    mVelocity += mFront * accel;
 }
 
 void Meramera::addRunawayJumpPower() {
-    TVec3f vec;
-    f32 val = 1.0f;
+    // Toward a dive point (harder the farther it is), else away from a near player, else home.
+    Vec3f dir;
+    f32 rate = 1.0f;
+
     if (mCanDive) {
-        vec.set(_180 - mPosition);
+        dir.set(mDivePos - mPosition);
 
-        TVec3f vec2;
-        vec2.killElement(vec, mGravity);
+        Vec3f dirH;
+        dirH.killElement(dir, mGravity);
 
-        val = MR::normalize(vec2.length(), 10.0f, 500.0f);
-    } else if (MR::isNearPlayer(this, 1000.0f)) {
-        vec.set(mPosition - *MR::getPlayerPos());
+        rate = MR::normalize(dirH.length(), ::sJumpDiveNear, ::sJumpDiveFar);
+    } else if (MR::isNearPlayer(this, ::sJumpFleeDistance)) {
+        dir.set(mPosition - *MR::getPlayerPos());
     } else {
-        vec.set(mHomePosition - mPosition);
+        dir.set(mHomePosition - mPosition);
     }
 
-    MR::normalizeOrZero(&vec);
-    MR::addRandomVector(&vec, vec, 0.5f * val);
+    MR::normalizeOrZero(&dir);
+    MR::addRandomVector(&dir, dir, ::sJumpRandom * rate);
 
-    f32 val2 = 20.0f * (0.1f + val * 0.9f);
-    f32 randomVal = MR::getRandom(45.0f, 50.0f);
-    val = (0.2f + val * 0.8f) * randomVal;
-    addMovingAccel(vec, val2, -1.0f);
-    mVelocity -= mGravity * val;
+    f32 speedH = ::sJumpSpeedH * (0.1f + rate * 0.9f);
+    f32 randomSpeedV = MR::getRandom(::sJumpSpeedVMin, ::sJumpSpeedVMax);
+    f32 speedV = (0.2f + rate * 0.8f) * randomSpeedV;
+    addMovingAccel(dir, speedH, -1.0f);
+    mVelocity -= mGravity * speedV;
 }
 
-void Meramera::addOverWallAccel(const TVec3f& rVec) {
-    TVec3f gravity;
+void Meramera::addOverWallAccel(const Vec3f& rDir) {
+    Vec3f gravity;
     gravity.set(mGravity);
 
-    TVec3f vec;
-    vec.killElement(rVec, gravity);
-    MR::normalizeOrZero(&vec);
+    Vec3f dirH;
+    dirH.killElement(rDir, gravity);
+    MR::normalizeOrZero(&dirH);
 
-    if (MR::getFirstPolyOnLineToMap(nullptr, nullptr, mPosition, vec * 200.0f) && MR::getShadowNearProjectionLength(this) < ::sMaxOverWallHeight) {
+    // A wall ahead and low enough to clear: rise.
+    if (MR::getFirstPolyOnLineToMap(nullptr, nullptr, mPosition, dirH * ::sOverWallProbe) && MR::getShadowNearProjectionLength(this) < ::sMaxOverWallHeight) {
         mVelocity -= gravity * ::sOverWallAccel;
     }
 }
 
 void Meramera::updatePose() {
     if (isActionDisabled()) {
-        MR::rotateQuatRollBall(&_128, mVelocity, -mGravity, 50.0f);
+        MR::rotateQuatRollBall(&mPoseQuat, mVelocity, -mGravity, ::sRollRadius);
     } else {
-        MR::blendQuatUpFront(&_128, -mGravity, _138, 0.25f, 0.25f);
+        MR::blendQuatUpFront(&mPoseQuat, -mGravity, mFront, ::sPoseBlendRate, ::sPoseBlendRate);
     }
 }
 
 void Meramera::updateExtinguishMtx() {
-    turnFireDirectionToSpin(10.0f);
+    turnFireDirectionToSpin(::sExtinguishTurnDegree);
 
-    TVec3f trans;
+    Vec3f trans;
     mExtinguishMtx.getTrans(trans);
 
-    TVec3f pullVelocity;
+    Vec3f pullVelocity;
     MR::calcPlayerSpinPullVelocity(&pullVelocity, trans);
 
-    trans += pullVelocity * 0.9f;
+    trans += pullVelocity * ::sExtinguishPullRate;
 
-    TVec3f vec48;
-    vec48.set(*MR::getPlayerPos() - trans);
-    f32 length = vec48.length();
+    Vec3f toPlayer;
+    toPlayer.set(*MR::getPlayerPos() - trans);
+    f32 length = toPlayer.length();
 
-    if (0.0f < length && length < 100.0f) {
-        trans = *MR::getPlayerPos() + vec48 * (100.0f / length);
+    if (0.0f < length && length < ::sExtinguishMinDistance) {
+        trans = *MR::getPlayerPos() + toPlayer * (::sExtinguishMinDistance / length);
     }
 
     if (MR::isNearZero(pullVelocity)) {
@@ -1352,89 +1329,75 @@ bool Meramera::checkDirectDivingPoint() {
     mCanDive = isHitRecover();
 
     if (mCanDive) {
-        _180.set(mPosition);
-        _198.set(-mGravity);
-
-        mCanDive = true;
+        mDivePos.set(mPosition);
+        mDiveUp.set(-mGravity);
     }
 
     return mCanDive;
 }
 
-bool Meramera::checkDivingPoint(f32 f1, f32 accel) {
+bool Meramera::checkDivingPoint(f32 dist, f32 angleDegree) {
     mCanDive = false;
 
     if (checkDirectDivingPoint()) {
         return true;
     }
 
-    TVec3f vec3C(mPosition);
-    TVec3f vec48(_138 * f1);
-    MR::rotateVecDegree(&vec48, mGravity, accel);
-    vec3C += vec48;
-    vec3C -= mGravity * 100.0f;
+    // Down from a point dist ahead, turned by angleDegree.
+    Vec3f start(mPosition);
+    Vec3f ahead(mFront * dist);
+    MR::rotateVecDegree(&ahead, mGravity, angleDegree);
+    start += ahead;
+    start -= mGravity * ::sDiveProbeLift;
 
-    TVec3f vec2(mGravity * 600.0f + vec48);
-    mCanDive = findDivingPoint(vec3C, vec2);
+    Vec3f probe(mGravity * ::sDiveProbeDepth + ahead);
+    mCanDive = findDivingPoint(start, probe);
 
     return mCanDive;
 }
 
-bool Meramera::checkDivingPointMore(f32 f1) {
-    TVec3f vec30;
-    vec30.set(_180);
-    vec30 += _18C * f1;
+bool Meramera::checkDivingPointMore(f32 dist) {
+    Vec3f start;
+    start.set(mDivePos);
+    start += mDiveDir * dist;
 
-    vec30 -= mGravity * 100.0f;
+    start -= mGravity * ::sDiveProbeLift;
 
-    TVec3f vec2(mGravity * 600.0f + _18C * f1);
-    return findDivingPoint(vec30, vec2);
+    Vec3f probe(mGravity * ::sDiveProbeDepth + mDiveDir * dist);
+    return findDivingPoint(start, probe);
 }
 
 bool Meramera::isHitRecover() const {
     switch (mElementType) {
     case ElementType_Fire:
-        if (MR::isBindedGroundDamageFire(this)) {
-            return true;
-        }
-        break;
+        return MR::isBindedGroundDamageFire(this);
 
     case ElementType_Ice:
-        if (MR::isBindedGroundWater(this) || MR::isInWater(mPosition)) {
-            return true;
-        }
-        break;
+        return MR::isBindedGroundWater(this) || MR::isInWater(mPosition);
     }
 
     return false;
 }
 
-bool Meramera::findDivingPoint(TVec3f vec, const TVec3f& rVec) {
-    Triangle triangle = Triangle();
-    TVec3f vec84;
-
-    bool myBool = false;
-
-    switch (mElementType) {
-    case ElementType_Fire:
-        if (!MR::isExistMapCollision(mPosition, vec - mPosition) && MR::getFirstPolyOnLineToMap(&vec84, &triangle, vec, rVec) &&
-            MR::isGroundCodeDamageFire(&triangle)) {
-            myBool = true;
-        }
-        break;
-
-    case ElementType_Ice:
+bool Meramera::findDivingPoint(Vec3f start, const Vec3f& rProbe) {
+    // Only fire dives, into lava with a clear line to it.
+    if (mElementType != ElementType_Fire) {
         return false;
     }
 
-    if(myBool) {
-        _180.set(vec84);
-        _198.set(-mGravity);
-        _18C.killElement2(vec84 - mPosition, _198);
-        MR::normalizeOrZero(&_18C);
+    Triangle triangle = Triangle();
+    Vec3f hitPos;
+
+    if (MR::isExistMapCollision(mPosition, start - mPosition) || !MR::getFirstPolyOnLineToMap(&hitPos, &triangle, start, rProbe) ||
+        !MR::isGroundCodeDamageFire(&triangle)) {
+        return false;
     }
 
-    return myBool;
+    mDivePos.set(hitPos);
+    mDiveUp.set(-mGravity);
+    mDiveDir.killElement2(hitPos - mPosition, mDiveUp);
+    MR::normalizeOrZero(&mDiveDir);
+    return true;
 }
 
 void Meramera::resetAppear() {
@@ -1452,13 +1415,13 @@ void Meramera::resetAppear() {
         MR::hideModel(this);
         MR::offBind(this);
 
-        MR::makeMtxUpNoSupportPos(&_F8, -mGravity, mPosition);
+        MR::makeMtxUpNoSupportPos(&mFallEffectMtx, -mGravity, mPosition);
 
         deleteEffectHead(false);
         emitEffectColdBody();
 
-        _198.set(-mGravity);
-        _180.set(mPosition);
+        mDiveUp.set(-mGravity);
+        mDivePos.set(mPosition);
 
         setNerve(GET_NERVE(Meramera, MerameraNrvFloat));
         break;
@@ -1480,43 +1443,17 @@ void Meramera::emitEffectHead(s32 effectType) {
 
     mEffectType = effectType;
 
-    switch (mEffectType) {
-    case EffectType_Null:
-        return;
+    const char* pEffectName = ::getHeadEffectName(mEffectType);
 
-    case EffectType_Wait:
-        MR::emitEffect(this, "Wait");
-        break;
-
-    case EffectType_Chase:
-        MR::emitEffect(this, "Chase");
-        break;
-
-    case EffectType_Escape:
-        MR::emitEffect(this, "Escape");
-        break;
+    if (pEffectName != nullptr) {
+        MR::emitEffect(this, pEffectName);
     }
 }
 
 void Meramera::deleteEffectHead(bool useForce) {
-    const char* pEffectName;
-    switch (mEffectType) {
-    case EffectType_Null:
-        return;
+    const char* pEffectName = ::getHeadEffectName(mEffectType);
 
-    case EffectType_Wait:
-        pEffectName = "Wait";
-        break;
-
-    case EffectType_Chase:
-        pEffectName = "Chase";
-        break;
-
-    case EffectType_Escape:
-        pEffectName = "Escape";
-        break;
-
-    default:
+    if (pEffectName == nullptr) {
         return;
     }
 
@@ -1529,44 +1466,34 @@ void Meramera::deleteEffectHead(bool useForce) {
     mEffectType = EffectType_Null;
 }
 
-void Meramera::emitEffectHeatBody() {
-    if (mBodyEffectType == BodyEffectType_Heat) {
+void Meramera::startBodyEffect(s32 bodyEffectType, const char* pAnimName) {
+    if (mBodyEffectType == bodyEffectType) {
         return;
     }
 
-    mBodyEffectType = BodyEffectType_Heat;
+    mBodyEffectType = bodyEffectType;
 
-    MR::startBtp(this, "OnFire");
-    MR::startBrk(this, "OnFire");
+    MR::startBtp(this, pAnimName);
+    MR::startBrk(this, pAnimName);
+}
+
+void Meramera::emitEffectHeatBody() {
+    startBodyEffect(BodyEffectType_Heat, "OnFire");
 }
 
 void Meramera::emitEffectCoolDownBody() {
-    if (mBodyEffectType == BodyEffectType_CoolDown) {
-        return;
-    }
-
-    mBodyEffectType = BodyEffectType_CoolDown;
-
-    MR::startBtp(this, "RedToBlack");
-    MR::startBrk(this, "RedToBlack");
+    startBodyEffect(BodyEffectType_CoolDown, "RedToBlack");
 }
 
 void Meramera::emitEffectColdBody() {
-    if (mBodyEffectType == BodyEffectType_Cold) {
-        return;
-    }
-
-    mBodyEffectType = BodyEffectType_Cold;
-
-    MR::startBtp(this, "OffFire");
-    MR::startBrk(this, "OffFire");
+    startBodyEffect(BodyEffectType_Cold, "OffFire");
 }
 
-void Meramera::turnFireDirectionToSpin(f32 f1) {
-    TVec3f jointPos;
+void Meramera::turnFireDirectionToSpin(f32 degree) {
+    Vec3f jointPos;
     MR::copyJointPos(this, "Sin", &jointPos);
 
-    TVec3f pullVelocity;
+    Vec3f pullVelocity;
     MR::calcPlayerSpinPullVelocity(&pullVelocity, jointPos);
 
     if (MR::isNearZero(pullVelocity)) {
@@ -1574,32 +1501,18 @@ void Meramera::turnFireDirectionToSpin(f32 f1) {
     }
 
     MR::normalize(pullVelocity, &pullVelocity);
-    MR::turnVecToVecDegree(&_144, _144, pullVelocity, f1, _138);
+    MR::turnVecToVecDegree(&mFireUp, mFireUp, pullVelocity, degree, mFront);
 }
 
 void Meramera::startWaitLevelSound() {
-    if (mElementType == ElementType_Ice) {
-        MR::startLevelSound(this, "SE_EM_LV_ICEMERA_WAIT");
-        return;
-    }
-
-    MR::startLevelSound(this, "SE_EM_LV_MERAMERA_WAIT");
+    MR::startLevelSound(this, mElementType == ElementType_Ice ? "SE_EM_LV_ICEMERA_WAIT" : "SE_EM_LV_MERAMERA_WAIT");
 }
 
 void Meramera::startChaseLevelSound() {
-    if (mElementType == ElementType_Ice) {
-        MR::startLevelSound(this, "SE_EM_LV_ICEMERA_CHASE");
-        return;
-    }
-
-    MR::startLevelSound(this, "SE_EM_LV_MERAMERA_CHASE");
+    MR::startLevelSound(this, mElementType == ElementType_Ice ? "SE_EM_LV_ICEMERA_CHASE" : "SE_EM_LV_MERAMERA_CHASE");
 }
 
 void Meramera::endRunaway() {
-    MR::invalidateHitSensor(this, "break");
-}
-
-void Meramera::endStartDiving() {
     MR::invalidateHitSensor(this, "break");
 }
 
@@ -1615,15 +1528,9 @@ void Meramera::exeBindStarPointerNoFire() {
     MR::updateActorStateAndNextNerve(this, mWalkerStateBindStarPointer, GET_NERVE(Meramera, MerameraNrvRunaway));
 }
 
-void Meramera::endBindStarPointerNoFire() {
-    mWalkerStateBindStarPointer->kill();
-}
-
 void Meramera::exeReadyRestart() {
-    if (!MR::isGreaterStep(this, 180)) {
-        return;
+    if (MR::isGreaterStep(this, ::sReadyRestartTime)) {
+        MR::showModel(this);
+        resetAppear();
     }
-
-    MR::showModel(this);
-    resetAppear();
 }

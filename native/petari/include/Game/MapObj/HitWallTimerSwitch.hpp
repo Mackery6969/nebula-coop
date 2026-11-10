@@ -8,14 +8,13 @@ class HitWallTimerSwitch : public LiveActor {
 public:
     HitWallTimerSwitch(const char*);
 
-    virtual ~HitWallTimerSwitch();
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void calcAnim();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
+    virtual void calcAnim() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
     bool trySwitchDown();
     bool tryOn();
@@ -26,8 +25,8 @@ public:
     void exeOn();
     void exeSwitchUp();
 
-    CollisionParts* _8C;
+    CollisionParts* mMoveCollision;
     MapObjConnector* mConnector;
     s32 mTimer;
-    u8 _98;
+    u8 mIsHit;
 };

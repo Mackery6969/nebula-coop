@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/LiveActor/ActorStateBase.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
 class BossStinkBug;
 class HitSensor;
@@ -11,41 +11,39 @@ class BossStinkBugActionBase : public ActorStateBase< BossStinkBug > {
 public:
     BossStinkBugActionBase(const char*, BossStinkBug*);
 
-    virtual ~BossStinkBugActionBase();
-
-    virtual bool isValidFollowId(s32 id) const {
+    virtual bool isValidFollowId(s32 /*id*/) const {
         return false;
     };
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) {};
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+    virtual void attackSensor(HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {};
+    virtual bool receiveMsgPlayerAttack(u32 /*msg*/, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
         return false;
     };
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+    virtual bool receiveOtherMsg(u32 /*msg*/, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
         return false;
     };
     virtual bool isAngry() const {
         return false;
     };
 
-    bool updateGroundWalk(f32);
+    bool updateGroundWalk(f32 speed);
     bool updateFlyRoll();
-    bool updateFlyRollWait(s32);
+    bool updateFlyRollWait(s32 waitSteps);
     bool updateFlyRollEnd();
-    bool updateFlyDash(f32);
-    void throwBomb(s32);
+    bool updateFlyDash(f32 startSpeed);
+    void throwBomb(s32 newWaitTime);
     void resetThrowBombTiming();
-    f32 calcShakeOffSignSpeed(s32) const;
+    f32 calcShakeOffSignSpeed(s32 numSteps) const;
     f32 calcShakeOffSpeed() const;
     f32 calcShakeOffEndSpeed() const;
-    s32 calcKeepRollTime(s32) const;
+    s32 calcKeepRollTime(s32 waitTime) const;
     s32 calcFlySoundVol() const;
     s32 calcIIRCutOff() const;
     void updateSound();
     void updateSoundFly();
-    bool updateGroundRegainRail(f32);
+    bool updateGroundRegainRail(f32 speed);
     bool updateGroundFind();
     bool updateGroundShakeOff();
-    bool updateGroundRun(f32);
+    bool updateGroundRun(f32 maxSpeed);
     bool updateGroundAttackSuccess();
     bool updateGroundCoolDown();
     bool updateGroundTurn();
@@ -66,21 +64,18 @@ public:
     void startSoundFly(s32);
 
     SpringValue* mSpringValue;
-    TVec3f _14;
-    TVec3f _20;
-    f32 _2C;
-    f32 _30;
-    f32 _34;
-    f32 _38;
-    f32 _3C;
-    f32 _40;
-    f32 _44;
-    f32 _48;
+    Vec3f mRailDiff;
+    Vec3f mTurnFront;
+    f32 mLandingHeight;
+    f32 mToFlyStartSpeed;
+    f32 mLandingHeightSpeed;
+    f32 mFlySpeed;
+    f32 mHeightOffset;
+    f32 mLocalHeightOffset;
+    f32 mSpeed;
     u32 mThrowBombTimer;
-    bool _50;
-    f32 _54;
-    f32 _58;
-    s32 _5C;
-    bool _60;
-    bool _61;
+    bool mIsRailToEnd;
+    f32 mCameraDistance;
+    f32 mPrevCameraDistance;
+    s32 mApproachStep;
 };

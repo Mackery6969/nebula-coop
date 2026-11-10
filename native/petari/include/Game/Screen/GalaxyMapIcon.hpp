@@ -2,11 +2,9 @@
 
 #include "Game/Screen/LayoutActor.hpp"
 
-namespace nw4r {
-    namespace lyt {
-        class DrawInfo;
-    };  // namespace lyt
-};  // namespace nw4r
+namespace Ui {
+    class DrawInfo;
+}  // namespace Ui
 
 class ButtonPaneController;
 
@@ -14,13 +12,13 @@ class GalaxyMapIcon : public LayoutActor {
 public:
     GalaxyMapIcon(const char*, LayoutActor*, const char*);
 
-    virtual ~GalaxyMapIcon();
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void calcAnim();
-    virtual void appear();
-    virtual void control();
+    virtual ~GalaxyMapIcon() override;
+    virtual void init(const TableIter& rIter) override;
+    virtual void calcAnim() override;
+    virtual void appear() override;
+    virtual void control() override;
 
-    void calcAnimForCapture(const nw4r::lyt::DrawInfo&);
+    void calcAnimForCapture(const Ui::DrawInfo&);
     void setModeNormal();
     void setModeNewGalaxyDiscover();
     bool isStatusNew() const;

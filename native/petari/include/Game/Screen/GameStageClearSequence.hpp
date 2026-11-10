@@ -9,7 +9,7 @@ public:
     /// @brief Creates a new `GameStageClearSequence`.
     GameStageClearSequence();
 
-    virtual void init(const JMapInfoIter& rIter);
+    virtual void init(const TableIter& rIter) override;
 
     void startPowerStarGetDemo();
     void startGrandStarGetDemo();
@@ -18,5 +18,5 @@ public:
     void exeGrandStarGetDemo();
 
     SimpleEffectLayout* mEffectLayout;
-    TVec2f mEffectFollowPos;
+    Vec2f mEffectFollowPos;
 };

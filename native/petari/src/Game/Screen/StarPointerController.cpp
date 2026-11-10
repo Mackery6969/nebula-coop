@@ -6,24 +6,19 @@
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
 #include "Game/System/NebulaFrameClock.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-// static const _32 hMarginH =
-// static const _32 hMarginV =
-// static const _32 hForcePointerOutVel =
-    static const s32 hIsOutScreenCounter = 5;
-    // static const _32 hNearValue =
-    // static const _32 hDrawDebugRadius =
+    NEBULA_TUNABLE(s32, hIsOutScreenCounter, 5);
 };  // namespace
 
-DpdInfo::DpdInfo() : mPos(0.0f, 0.0f), mInScreen(), mDrawReady(), mZDepth(), mViewDistZ() {
+PointerInfo::PointerInfo() : mPos(0.0f, 0.0f), mInScreen(), mDrawReady(), mZDepth(), mViewDistZ() {
 }
 
 StarPointerController::StarPointerController()
-    : mPadChannel(-1), mScreenPos(0.0f, 0.0f), mOutScreenTime(), mPastPosition(), mPastPointNum(), mNextPastPosition(), mNextPastPointNum(),
+    : mPadChannel(-1), mScreenPos(0.0f, 0.0f), mOutScreenTime(), mNextPastPosition(), mNextPastPointNum(),
       mScreenDist(), mScreenSpeed(), mScreenVel(0.0f, 0.0f), mWorldVel(0.0f, 0.0f, 0.0f), mWorldPos(0.0f, 0.0f, 0.0f) {
-    mPastPosition = new TVec2f[16];
-    mNextPastPosition = new TVec2f[16];
+    mNextPastPosition = new Vec2f[16];
 }
 
 bool StarPointerController::isOutScreenLong() const {
@@ -37,11 +32,11 @@ void StarPointerController::initAndSetPort(s32 padChannel) {
 void StarPointerController::movement(const f32* pProjectionParams, const f32* pViewportParams) {
     storeDataFromCallback(pProjectionParams, pViewportParams);
     storePastPointingData();
-    updateDpdInfo();
+    updatePointerInfo();
 }
 
 void StarPointerController::storeDataFromCallback(const f32* pProjectionParams, const f32* pViewportParams) {
-    TVec3f v1(mInfo.mPos.x, mInfo.mPos.y, mInfo.mZDepth);
+    Vec3f v1(mInfo.mPos.x, mInfo.mPos.y, mInfo.mZDepth);
 
     if (mInfo.mDrawReady == true) {
         TDDraw::invProject(&mWorldPos, v1, MR::getStarPointerViewMtx(), pProjectionParams, pViewportParams, true);
@@ -59,11 +54,6 @@ void StarPointerController::storeDataFromCallback(const f32* pProjectionParams, 
 }
 
 void StarPointerController::storePastPointingData() {
-    mPastPointNum = mNextPastPointNum;
-    for (s32 idx = 0; idx < mNextPastPointNum; idx++) {
-        mPastPosition[idx] = mNextPastPosition[idx];
-    }
-
     s32 pastCount = MR::min(MR::getPointerPastCount(mPadChannel), 16);
     mNextPastPointNum = pastCount;
 
@@ -72,17 +62,17 @@ void StarPointerController::storePastPointingData() {
     }
 }
 
-void StarPointerController::calcPastPointingPosOnScreen(TVec2f* pPos, s32 idx) const {
+void StarPointerController::calcPastPointingPosOnScreen(Vec2f* pPos, s32 idx) const {
     MR::getPointerPastPos(pPos, idx, mPadChannel);
     pPos->x += 1.0f;
     pPos->y += 1.0f;
     pPos->x *= MR::getScreenWidth() * 0.5f;
-    pPos->y *= static_cast< s32 >(NebulaFrameClock::cScreenUnitsDown) * 0.5f;
+    pPos->y *= static_cast< s32 >(NebulaFrameClock::cScreenLines) * 0.5f;
 }
 
-void StarPointerController::updateDpdInfo() {
+void StarPointerController::updatePointerInfo() {
     if (!MR::isPointerInScreen(mPadChannel)) {
-        TVec2f vec;
+        Vec2f vec;
         vec.x = mInfo.mPos.x;
         vec.y = mInfo.mPos.y;
 
@@ -97,7 +87,7 @@ void StarPointerController::updateDpdInfo() {
         mScreenPos.set(mInfo.mPos);
         mInfo.mInScreen = true;
         mInfo.mPos.set(mNextPastPosition[0]);
-        mNotInScreen = StarPointerFunction::forceInsideScreenEdge(&mInfo.mPos);
+        StarPointerFunction::forceInsideScreenEdge(&mInfo.mPos);
         mScreenDist = MR::getPointerDistance(mPadChannel);
         updateAdditionalInfo();
     }
@@ -108,7 +98,7 @@ void StarPointerController::updateAdditionalInfo() {
     mScreenVel.sub(mScreenPos);
     mScreenSpeed = mScreenVel.length();
     mWorldVel.set< f32 >(mScreenVel.x, -mScreenVel.y, 0.0f);
-    TPos3f mtx;
+    Pos3f mtx;
     NebulaMtxCopy(MR::getStarPointerViewMtx(), mtx);
     NebulaMtxInverse(mtx, mtx);
     NebulaMtxMultVecSR(mtx, &mWorldVel, &mWorldVel);
@@ -120,13 +110,13 @@ void StarPointerController::forcePointerOut() {
         return;
     }
 
-    TVec2f vec;
+    Vec2f vec;
     vec.set(mInfo.mPos);
     vec.sub(mScreenPos);
     StarPointerFunction::forceOutsideScreenEdge(&mInfo.mPos, mInfo.mPos, vec, -20.0f, -20.0f);
 }
 
-f32 StarPointerController::calcViewDistanceZ(const TVec3f& rPos, MtxPtr pMtx) {
+f32 StarPointerController::calcViewDistanceZ(const Vec3f& rPos, MtxPtr pMtx) {
     return MR::abs(rPos.x * pMtx[2][0] + rPos.y * pMtx[2][1] + rPos.z * pMtx[2][2] + pMtx[2][3]);
 }
 

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class JointController;
 struct JointControllerInfo;
@@ -11,14 +11,13 @@ class FirePressureRadiate : public LiveActor {
 public:
     FirePressureRadiate(const char*);
 
-    virtual ~FirePressureRadiate();
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void updateHitSensor(HitSensor*);
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void updateHitSensor(HitSensor*) override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
     void exeRadiateMargin();
     void exeRadiate();
@@ -29,16 +28,16 @@ public:
     void startWait();
     void startRelax();
     void calcRadiateEffectMtx();
-    bool calcJointCannon(TPos3f*, const JointControllerInfo&);
+    bool calcJointCannon(Pos3f*, const JointControllerInfo&);
 
     JointController* mJointController;
-    TPos3f mRadiateMtx;
+    Pos3f mRadiateMtx;
     f32 mCannonRotation;
     s32 mWaitTime;
     s32 mShootTime;
-    s32 _CC;
-    f32 _D0;
-    f32 _D4;
+    s32 mRadiateStep;
+    f32 mRadiateLength;
+    f32 mRadiateMaxLength;
     MsgSharedGroup* mGroup;
-    bool _DC;
+    bool mIsGroupLeader;
 };

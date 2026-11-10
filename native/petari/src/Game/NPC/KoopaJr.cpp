@@ -9,11 +9,12 @@
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SceneUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const f32 sSensorSize = 175.0f;
-    static const f32 sShadowRadius = 100.0f;
-    static const s32 sStarPieceNum = 20;
+    NEBULA_TUNABLE(f32, sSensorSize, 175.0f);
+    NEBULA_TUNABLE(f32, sShadowRadius, 100.0f);
+    NEBULA_TUNABLE(s32, sStarPieceNum, 20);
 };  // namespace
 
 namespace NrvKoopaJr {
@@ -31,12 +32,11 @@ namespace NrvKoopaJr {
 KoopaJr::KoopaJr(const char* pName) : NPCActor(pName), mIsInvalidAppearStarPiece(), mIsShipBattleTalk() {
 }
 
-void KoopaJr::init(const JMapInfoIter& rIter) {
+void KoopaJr::init(const TableIter& rIter) {
     NPCActor::init(rIter);
     initModelManagerWithAnm("KoopaJr", nullptr, false);
 
     NPCActorCaps caps("KoopaJr");
-    caps.mHostIO = true;
     caps.mConnectTo = true;
     caps.mPosition = true;
     caps.mLodCtrl = true;
@@ -53,15 +53,15 @@ void KoopaJr::init(const JMapInfoIter& rIter) {
     caps.mShadowSize = ::sShadowRadius;
     caps.mEffect = true;
     mParam.setSingleAction("Wait");
-    mParam._0 = 0;
-    mParam._1 = 0;
-    _13C = "Damage";
+    mParam.mTurnWhenNear = 0;
+    mParam.mTurnOnTalk = 0;
+    mReactionAction = "Damage";
     initialize(rIter, caps);
 
     MR::declareStarPiece(this, ::sStarPieceNum);
 
     if (MR::tryRegisterDemoCast(this, rIter)) {
-        MR::tryRegisterDemoActionFunctor(this, MR::Functor(this, &KoopaJr::startShipBattleTalk), "\203\116\203\142\203\160Jr\211\357\230\142" /* クッパJr会話 */);
+        MR::tryRegisterDemoActionFunctor(this, MR::Functor(this, &KoopaJr::startShipBattleTalk), "クッパJr会話");
     }
 
     MR::onCalcShadow(this, nullptr);
@@ -104,7 +104,7 @@ void KoopaJr::control() {
 }
 
 void KoopaJr::calcAndSetBaseMtx() {
-    MR::setBaseTRMtx(this, _A0);
+    MR::setBaseTRMtx(this, mPoseQuat);
 }
 
 void KoopaJr::startShipBattleTalk() {
@@ -120,7 +120,7 @@ void KoopaJr::startShipBattleTalk() {
 
 void KoopaJr::exeWait() {
     if (MR::tryStartReaction(this)) {
-        if (!_E6) {
+        if (!mIsJetTurtleHit) {
             MR::startSound(this, "SE_OJ_STAR_PIECE_HIT_ENM_F");
         }
 

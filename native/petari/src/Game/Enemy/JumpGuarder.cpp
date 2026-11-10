@@ -1,4 +1,5 @@
 #include "Game/Enemy/JumpGuarder.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/ActorCameraInfo.hpp"
 #include "Game/LiveActor/LiveActorGroup.hpp"
 #include "Game/LiveActor/Nerve.hpp"
@@ -7,7 +8,7 @@
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/ActorShadowUtil.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/JointUtil.hpp"
 #include "Game/Util/LayoutUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
@@ -17,26 +18,29 @@
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#include "Game/Util/Tunable.hpp"
+
+// The step counts of this file's functions, as tunables: "<file>.<function>.<k>".
+NEBULA_TUNABLE_NAMED(s32, cStep_exeHopStart_1, "exeHopStart.1", 10);
 
 namespace {
-    static const f32 sRotateDegree = 3.0f;
-    static const s32 sHopStep = 300;
-    static const s32 sOpenInt = 74;
-    static const s32 sAttack = 360;
-    // static const ??? sSensorRes = ???;
-    static const s32 sBabyNum = 4;
-    static const f32 sAppearHeight = 500.0f;
-    static const f32 sAppearDistance = 2000.0f;
-    static const f32 sDisappearDistance = 2200.0f;
-    static const f32 sHeadOffset = -100.0f;
-    static const f32 sBabyVelocity = 16.0f;
-    static const f32 sBabyOffset = 64.0f;
-    static const f32 sShadowRadius = 140.0f;
-    static const f32 sHideShadowRadius = 110.0f;
-    static const s32 sHitInt = 60;
-    static const s32 sCoinDefault = 4;
-    static const f32 sCameraLimitLength = 6250000.0f;
-    static const s32 sOpen = 70;
+    NEBULA_TUNABLE(f32, sRotateDegree, 3.0f);
+    static const s32 sHopStep = NebulaFrameClock::stepsOfSeconds(5);
+    NEBULA_TUNABLE(s32, sOpenInt, 74);
+    NEBULA_TUNABLE(s32, sAttack, 360);
+    NEBULA_TUNABLE(s32, sBabyNum, 4);
+    NEBULA_TUNABLE(f32, sAppearHeight, 500.0f);
+    NEBULA_TUNABLE(f32, sAppearDistance, 2000.0f);
+    NEBULA_TUNABLE(f32, sDisappearDistance, 2200.0f);
+    NEBULA_TUNABLE(f32, sHeadOffset, -100.0f);
+    NEBULA_TUNABLE(f32, sBabyVelocity, 16.0f);
+    NEBULA_TUNABLE(f32, sBabyOffset, 64.0f);
+    NEBULA_TUNABLE(f32, sShadowRadius, 140.0f);
+    NEBULA_TUNABLE(f32, sHideShadowRadius, 110.0f);
+    NEBULA_TUNABLE(s32, sHitInt, 60);
+    NEBULA_TUNABLE(s32, sCoinDefault, 4);
+    NEBULA_TUNABLE(f32, sCameraLimitLength, 6250000.0f);
+    NEBULA_TUNABLE(s32, sOpen, 70);
 };  // namespace
 
 namespace NrvJumpGuarder {
@@ -55,8 +59,8 @@ namespace NrvJumpGuarder {
 };  // namespace NrvJumpGuarder
 
 JumpEmitter::JumpEmitter(const char* pName)
-    : LiveActor(pName), mBodyJointMtx(), mHeadModel(), _C4(0.0f, 0.0f, 0.0f), mIsEventCamera(), mCameraInfo(), mMultEventCamera() {
-    _90.identity();
+    : LiveActor(pName), mBodyJointMtx(), mHeadModel(), mCameraCenter(0.0f, 0.0f, 0.0f), mIsEventCamera(), mCameraInfo(), mMultEventCamera() {
+    mHeadMtx.identity();
 }
 
 void JumpEmitter::kill() {
@@ -64,7 +68,7 @@ void JumpEmitter::kill() {
     endEventCamera();
 }
 
-void JumpEmitter::initEventCamera(const JMapInfoIter& rIter) {
+void JumpEmitter::initEventCamera(const TableIter& rIter) {
     mCameraInfo = new ActorCameraInfo(rIter);
 
     if (mCameraInfo->mCameraSetID != -1) {
@@ -81,7 +85,7 @@ void JumpEmitter::startEventCamera() {
 
     mMultEventCamera->start(0);
     mIsEventCamera = true;
-    _C4.set(mPosition);
+    mCameraCenter.set(mPosition);
 }
 
 void JumpEmitter::updateEventCamera() {
@@ -95,7 +99,7 @@ void JumpEmitter::updateEventCamera() {
         mMultEventCamera->nextForce();
     }
 
-    if (::sCameraLimitLength < _C4.squared(*MR::getPlayerCenterPos()) || MR::isOnGroundPlayer() || MR::isPlayerInRush()) {
+    if (::sCameraLimitLength < mCameraCenter.squared(*MR::getPlayerCenterPos()) || MR::isOnGroundPlayer() || MR::isPlayerInRush()) {
         endEventCamera();
     }
 }
@@ -114,12 +118,12 @@ void JumpEmitter::endEventCamera() {
 void JumpEmitter::updateRotate() {
     PartsModel* head = mHeadModel;
 
-    TRot3f mtx;
+    Rot3f mtx;
     mtx.identity();
     mtx.set(getBaseMtx());
     mtx.invert(mtx);
 
-    TVec3f playerPos(*MR::getPlayerPos());
+    Vec3f playerPos(*MR::getPlayerPos());
     mtx.mult(playerPos, playerPos);
 
     playerPos.y = 0.0f;
@@ -129,7 +133,6 @@ void JumpEmitter::updateRotate() {
 
     MR::normalize(&playerPos);
 
-    // Possible inline.
     f32 newAngle;
     if (playerPos.z == 0.0f) {
         if (playerPos.x >= 0.0f) {
@@ -154,10 +157,10 @@ void JumpEmitter::updateRotate() {
     head->mRotation.y = MR::repeat(head->mRotation.y, -180.0f, 360.0f);
 }
 
-bool JumpGuarder::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool JumpGuarder::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* pReceiver) {
     if (MR::isMsgPlayerTrample(msg)) {
         if (pReceiver->isType(ATYPE_PLAYER_AUTO_JUMP)) {
-            TVec3f upVec;
+            Vec3f upVec;
             MR::calcUpVec(&upVec, this);
             MR::setPlayerJumpVec(upVec);
             startEventCamera();
@@ -185,7 +188,7 @@ bool JumpGuarder::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor*
     return MR::isMsgStarPieceReflect(msg);
 }
 
-bool JumpGuarder::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool JumpGuarder::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (msg == ACTMES_GROUP_ATTACK) {
         MR::invalidateClipping(this);
         setNerve(GET_NERVE(JumpGuarder, JumpGuarderNrvUp));
@@ -202,16 +205,16 @@ bool JumpGuarder::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pRecei
 
 void JumpGuarder::control() {
     PartsModel* head = mHeadModel;
-    TMtx34f mtx;
+    Mtx34f mtx;
     mtx.identity();
 
-    MR::makeMtxTRS(mtx.mMtx, TVec3f(0.0f, 44.0f, 0.0f), head->mRotation, head->mScale);
+    MR::makeMtxTRS(mtx.mMtx, Vec3f(0.0f, 44.0f, 0.0f), head->mRotation, head->mScale);
 
-    _90.set(mBodyJointMtx);
+    mHeadMtx.set(mBodyJointMtx);
 
-    TMtx34f mtx2;
-    mtx2.concat(_90, mtx);
-    _90.set(mtx2);
+    Mtx34f headMtx;
+    headMtx.concat(mHeadMtx, mtx);
+    mHeadMtx.set(headMtx);
 
     mBumpCooldown = MR::max(mBumpCooldown - 1, 0);
 
@@ -239,7 +242,8 @@ void JumpGuarder::exeUp() {
         MR::startSound(this, "SE_EM_JGUARDER_APPEAR");
     }
 
-    f32 ratio = MR::getBckFrame(this) / MR::getBckCtrl(this)->getEnd();
+    f32 bckEnd = static_cast< f32 >(MR::getBckCtrl(this)->getEnd());
+    f32 ratio = bckEnd > 0.0f ? MR::getBckFrame(this) / bckEnd : 1.0f;
     MR::setShadowVolumeSphereRadius(this, nullptr, (::sShadowRadius - ::sHideShadowRadius) * ratio + ::sHideShadowRadius);
 
     if (MR::isBckStopped(this)) {
@@ -264,7 +268,8 @@ void JumpGuarder::exeDown() {
         MR::startSound(this, "SE_EM_JGUARDER_HIDE");
     }
 
-    f32 ratio = 1.0f - MR::getBckFrame(this) / MR::getBckCtrl(this)->getEnd();
+    f32 bckEnd = static_cast< f32 >(MR::getBckCtrl(this)->getEnd());
+    f32 ratio = bckEnd > 0.0f ? 1.0f - MR::getBckFrame(this) / bckEnd : 0.0f;
     MR::setShadowVolumeSphereRadius(this, nullptr, (::sShadowRadius - ::sHideShadowRadius) * ratio + ::sHideShadowRadius);
 
     if (MR::isBckStopped(this)) {
@@ -284,7 +289,7 @@ void JumpGuarder::exeHopStart() {
 
     MR::startLevelSound(this, "SE_EM_LV_JGUARDER_SHAKE");
 
-    if (MR::isStep(this, 10)) {
+    if (MR::isStep(this, cStep_exeHopStart_1)) {
         for (u32 i = 0; i < mNumActiveBabies; i++) {
             mActiveBabies[i]->makeActorDead();
         }
@@ -369,9 +374,9 @@ void JumpGuarder::exeOpen() {
             }
         }
 
-        TVec3f yDir;
+        Vec3f yDir;
         MR::extractMtxYDir(mHeadModel->getBaseMtx(), &yDir);
-        TVec3f zDir;
+        Vec3f zDir;
         MR::extractMtxZDir(mHeadModel->getBaseMtx(), &zDir);
 
         for (u32 i = 0; i < mNumActiveBabies; i++) {
@@ -379,7 +384,7 @@ void JumpGuarder::exeOpen() {
             MR::rotateVecDegree(&zDir, yDir, 360.0f / mNumActiveBabies);
 
             baby->mPosition.set(mPosition + zDir * ::sBabyOffset);
-            baby->mVelocity.set(TVec3f(0.0f, 0.0f, 0.0f));
+            baby->mVelocity.set(Vec3f(0.0f, 0.0f, 0.0f));
 
             if (mNumCoins > 0) {
                 mNumCoins -= 1;
@@ -391,9 +396,9 @@ void JumpGuarder::exeOpen() {
     }
 
     if (MR::isLessStep(this, ::sOpen)) {
-        TVec3f yDir;
+        Vec3f yDir;
         MR::extractMtxYDir(mHeadModel->getBaseMtx(), &yDir);
-        TVec3f zDir;
+        Vec3f zDir;
         MR::extractMtxZDir(mHeadModel->getBaseMtx(), &zDir);
 
         for (u32 i = 0; i < mNumActiveBabies; i++) {
@@ -401,14 +406,14 @@ void JumpGuarder::exeOpen() {
             MR::rotateVecDegree(&zDir, yDir, 360.0f / mNumActiveBabies);
 
             baby->mPosition.set(mPosition + zDir * ::sBabyOffset);
-            baby->mVelocity.set(TVec3f(0.0f, 0.0f, 0.0f));
+            baby->mVelocity.set(Vec3f(0.0f, 0.0f, 0.0f));
         }
     }
 
     if (MR::isStep(this, ::sOpen)) {
-        TVec3f yDir;
+        Vec3f yDir;
         MR::extractMtxYDir(mHeadModel->getBaseMtx(), &yDir);
-        TVec3f zDir;
+        Vec3f zDir;
         MR::extractMtxZDir(mHeadModel->getBaseMtx(), &zDir);
 
         for (u32 i = 0; i < mNumActiveBabies; i++) {
@@ -453,15 +458,15 @@ void JumpGuarder::exeInter() {
 }
 
 JumpGuarder::JumpGuarder(const char* pName)
-    : JumpEmitter(pName), mBabies(), mNumBabies(::sBabyNum), mBumpCooldown(), mNumActiveBabies(), mNumCoins(::sCoinDefault),
+    : JumpEmitter(pName), mBabies(), mNumBabies(::sBabyNum), mBumpCooldown(), mActiveBabies(), mNumActiveBabies(), mNumCoins(::sCoinDefault),
       mBabyVelocity(::sBabyVelocity) {
     mNumActiveBabies = 0;
 }
 
-void JumpGuarder::init(const JMapInfoIter& rIter) {
+void JumpGuarder::init(const TableIter& rIter) {
     initModelManagerWithAnm("JumpGuarder", nullptr, false);
     // "Jump guarder head"
-    mHeadModel = MR::createPartsModelNoSilhouettedMapObj(this, "\203\127\203\203\203\223\203\166\203\113\201\133\203\137\201\133\223\252" /* ジャンプガーダー頭 */, "JumpGuarderHead", _90);
+    mHeadModel = MR::createPartsModelNoSilhouettedMapObj(this, "ジャンプガーダー頭", "JumpGuarderHead", mHeadMtx);
     MR::initLightCtrl(mHeadModel);
     MR::initDefaultPos(this, rIter);
     MR::connectToSceneEnemy(this);
@@ -469,14 +474,14 @@ void JumpGuarder::init(const JMapInfoIter& rIter) {
     initHitSensor(2);
 
     MR::addHitSensorMtx(this, "Jump", ATYPE_PLAYER_AUTO_JUMP, 8, 145.0f, MR::getJointMtx(mHeadModel, "SpringJoint3"),
-                        TVec3f(0.0f, ::sHeadOffset, 0.0f));
+                        Vec3f(0.0f, ::sHeadOffset, 0.0f));
 
-    MR::addHitSensorMtxEnemy(this, "Body", 8, 145.0f, MR::getJointMtx(this, "Body"), TVec3f(0.0f, 35.0f, 0.0f));
+    MR::addHitSensorMtxEnemy(this, "Body", 8, 145.0f, MR::getJointMtx(this, "Body"), Vec3f(0.0f, 35.0f, 0.0f));
     getSensor("Body")->setType(29);
     getSensor("Body")->validate();
     getSensor("Jump")->invalidate();
     MR::initShadowVolumeSphere(this, ::sShadowRadius);
-    initEffectKeeper(1, nullptr, false);
+    initEffectKeeper(1, nullptr);
     initSound(8, false);
     MR::invalidateClipping(this);
     initNerve(GET_NERVE(JumpGuarder, JumpGuarderNrvHide));
@@ -490,9 +495,9 @@ void JumpGuarder::init(const JMapInfoIter& rIter) {
     MR::joinToGroupArray(this, rIter, nullptr, 32);
     makeActorAppeared();
     s32 babySpeedModifier = 0;
-    MR::getJMapInfoArg0NoInit(rIter, &mNumCoins);
-    MR::getJMapInfoArg1NoInit(rIter, &babySpeedModifier);
-    MR::getJMapInfoArg2NoInit(rIter, &mNumBabies);
+    MR::getPlacementArg0NoInit(rIter, &mNumCoins);
+    MR::getPlacementArg1NoInit(rIter, &babySpeedModifier);
+    MR::getPlacementArg2NoInit(rIter, &mNumBabies);
 
     switch (babySpeedModifier) {
     case 0:
@@ -506,10 +511,12 @@ void JumpGuarder::init(const JMapInfoIter& rIter) {
         break;
     }
 
-    mBabies = new JumpGuarderBaby[::sBabyNum];
+    const s32 babyRoom = mNumBabies > ::sBabyNum ? mNumBabies : ::sBabyNum;
+    mBabies = new JumpGuarderBaby[babyRoom];
+    mActiveBabies = new JumpGuarderBaby*[babyRoom];
     MR::declareCoin(this, mNumCoins);
 
-    for (int i = 0; i < ::sBabyNum; i++) {
+    for (int i = 0; i < babyRoom; i++) {
         JumpGuarderBaby* baby = &mBabies[i];
         baby->mHost = this;
         baby->mPosition.set(mPosition);
@@ -519,7 +526,7 @@ void JumpGuarder::init(const JMapInfoIter& rIter) {
 }
 
 // "Baby Begoman"
-JumpGuarderBaby::JumpGuarderBaby() : BegomanBaby("\203\170\203\162\201\133\203\170\201\133\203\123\203\175\203\223" /* ベビーベーゴマン */) {
+JumpGuarderBaby::JumpGuarderBaby() : BegomanBaby("ベビーベーゴマン") {
 }
 
 void JumpGuarder::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
@@ -564,7 +571,7 @@ bool JumpGuarder::isHit(const LiveActor* pActor) const {
     return true;
 }
 
-bool MR::enableGroupAttack(LiveActor* pActor, f32 arg2, f32 arg3) {
+bool MR::enableGroupAttack(LiveActor* pActor, f32 radius, f32 height) {
     LiveActorGroup* group = MR::getGroupFromArray(pActor);
 
     if (isValidSwitchA(pActor) && !isOnSwitchA(pActor)) {
@@ -585,5 +592,5 @@ bool MR::enableGroupAttack(LiveActor* pActor, f32 arg2, f32 arg3) {
         }
     }
 
-    return isNearPlayerPose(closest, arg2, arg3);
+    return isNearPlayerPose(closest, radius, height);
 }

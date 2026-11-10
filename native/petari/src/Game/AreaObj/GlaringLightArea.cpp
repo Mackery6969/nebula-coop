@@ -1,7 +1,7 @@
 #include "Game/AreaObj/GlaringLightArea.hpp"
 #include "Game/AudioLib/AudSoundObject.hpp"
 #include "Game/Util/AreaObjUtil.hpp"
-#include "Game/Util/MemoryUtil.hpp"
+#include "Game/System/NebulaArena.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 
@@ -11,27 +11,19 @@ GlaringLightAreaMgr::GlaringLightAreaMgr(s32 maxNum, const char* pName) : AreaOb
 GlaringLightArea::GlaringLightArea(int formType, const char* pName) : AreaObj(formType, pName), mSoundObj(), mPos(0.0f, 0.0f, 0.0f) {
 }
 
-void GlaringLightArea::init(const JMapInfoIter& rIter) {
+void GlaringLightArea::init(const TableIter& rIter) {
     AreaObj::init(rIter);
 
-    TVec3f pos;
+    Vec3f pos;
     MR::calcCylinderPos(&pos, this);
 
-    mPos.x = pos.x;
-    mPos.y = pos.y;
-    mPos.z = pos.z;
+    mPos.set(pos);
 
-    mSoundObj = new AudSoundObject(&mPos, 4, MR::getCurrentHeap());
+    mSoundObj = new AudSoundObject(&mPos, 4, NebulaArena::current());
 
     if (isValidSwitchA()) {
         MR::connectToSceneAreaObj(this);
     }
-}
-
-GlaringLightArea::~GlaringLightArea() {
-}
-
-GlaringLightAreaMgr::~GlaringLightAreaMgr() {
 }
 
 void GlaringLightArea::movement() {

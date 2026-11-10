@@ -9,12 +9,12 @@ class Kiraira : public LiveActor {
 public:
     Kiraira(const char*);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter& rIter) override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
     void openEyes();
     void closeEyes();
@@ -35,9 +35,9 @@ public:
 
 private:
     f32 mRailCoordSpeed;
-    TVec3f mRailVec;
-    TVec3f mFront;
-    f32 _A8;
+    Vec3f mRailVec;
+    Vec3f mFront;
+    f32 mDriftStep;
     bool mIsRail;
     bool mIsForceDetonated;
     bool mEyesOpen;

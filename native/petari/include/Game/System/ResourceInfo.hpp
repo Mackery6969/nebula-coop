@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Game/Util/NameIndex.hpp"
 
 class ResFileInfo {
 public:
@@ -12,8 +13,8 @@ public:
     }
 
     void* mResource;
-    u32 _4;
-    void* _8;
+    u32 mSize;
+    void* mData;
     char* mName;
     u32 mHashCode;
 };
@@ -31,12 +32,13 @@ public:
     ResFileInfo* getFileInfo(u32) const;
     bool isExistRes(const char*) const;
     int getResIndex(const char*) const;
-    const char* findResName(const void*) const;
-    const char* getResName(const void*) const;
 
     ResFileInfo* mFileInfoTable;
     u32 mCount;
 
 private:
+    // Keyed by each entry's case-folded name hash; a lookup by name takes the first entry of its hash.
+    MR::NameIndexOf< MR::NameKeyCase > mIndex;
+
     void* findRes(const char*) const;
 };

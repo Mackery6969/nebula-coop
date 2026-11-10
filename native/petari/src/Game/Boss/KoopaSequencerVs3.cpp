@@ -1,4 +1,5 @@
 #include "Game/Boss/KoopaSequencerVs3.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Boss/Koopa.hpp"
 #include "Game/Boss/KoopaBattleMain.hpp"
 #include "Game/Boss/KoopaBattleStairsVs3.hpp"
@@ -24,15 +25,15 @@
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const s32 sKoopaFallVoiceStep = 20;
-    static const s32 sLastImpactSeStep = 70;
-    static const s32 sFallSeStartStep = 471;
-    static const s32 sFallAmbientSeStartStep = 544;
-    static const s32 sFallBurnStartStep = 930;
-    static const s32 sFallEndStep = 1049;
-    static const s32 sDownCameraCoverStep = 640;
+    NEBULA_TUNABLE(s32, sLastImpactSeStep, 70);
+    NEBULA_TUNABLE(s32, sFallSeStartStep, 471);
+    NEBULA_TUNABLE(s32, sFallAmbientSeStartStep, 544);
+    const s32 sFallBurnStartStep = NebulaFrameClock::stepsOfMilliseconds(15500);
+    NEBULA_TUNABLE(s32, sFallEndStep, 1049);
+    NEBULA_TUNABLE(s32, sDownCameraCoverStep, 640);
 };  // namespace
 
 namespace NrvKoopaSequencerVs3 {
@@ -54,10 +55,10 @@ namespace NrvKoopaSequencerVs3 {
 };  // namespace NrvKoopaSequencerVs3
 
 KoopaSequencerVs3::KoopaSequencerVs3()
-    : KoopaSequencer("\203\116\203\142\203\160\220\355\201\151\202\165\202\223\202\122\220\151\215\163\226\360\201\152" /* クッパ戦（Ｖｓ３進行役） */, 3), mBattleLv1(), mBattleLv2(), mBattleMain(), mDemoFallToPlanetLv2(), mDemoFallToPlanetLv3() {
+    : KoopaSequencer("クッパ戦（Ｖｓ３進行役）", 3), mBattleLv1(), mBattleLv2(), mBattleMain(), mDemoFallToPlanetLv2(), mDemoFallToPlanetLv3() {
 }
 
-void KoopaSequencerVs3::init(Koopa* pKoopa, const JMapInfoIter& rIter) {
+void KoopaSequencerVs3::init(Koopa* pKoopa, const TableIter& rIter) {
     KoopaSequencer::init(pKoopa, rIter);
     initNerve(GET_NERVE(KoopaSequencerVs3, KoopaSequencerVs3NrvWaitPlayer));
     KoopaFunction::initKoopaVs3(mKoopa);
@@ -76,22 +77,19 @@ void KoopaSequencerVs3::init(Koopa* pKoopa, const JMapInfoIter& rIter) {
     mBattleLv2 = new KoopaBattleVs3Lv2(mKoopa);
     mBattleLv2->init();
 
-    mBattleMain = new KoopaBattleMain("\203\116\203\142\203\160\220\355\223\254\201\151\202\165\202\223\202\122\202\153\202\226\202\122\201\152" /* クッパ戦闘（Ｖｓ３Ｌｖ３） */, mKoopa);
+    mBattleMain = new KoopaBattleMain("クッパ戦闘（Ｖｓ３Ｌｖ３）", mKoopa);
     mBattleMain->init();
 
-    MR::initDemoSheetTalkAnim(KoopaFunction::getKoopaDemoKoopaJr(mKoopa), rIter, "\203\116\203\142\203\160\202\165\202\223\202\122\203\163\201\133\203\140\223\157\217\352" /* クッパＶｓ３ピーチ登場 */, "DemoKoopaMeetPeach", nullptr);
-
-    MR::initTalkAnimDemoCast(mKoopa, rIter, "\203\116\203\142\203\160\202\165\202\223\202\122\203\163\201\133\203\140\223\157\217\352" /* クッパＶｓ３ピーチ登場 */, "DemoKoopaMeetPeach");
-    MR::initTalkAnimDemoCast(KoopaFunction::getKoopaDemoPeach(mKoopa), rIter, "\203\116\203\142\203\160\202\165\202\223\202\122\203\163\201\133\203\140\223\157\217\352" /* クッパＶｓ３ピーチ登場 */, "DemoKoopaMeetPeach");
-    MR::initTalkAnimDemoCast(KoopaFunction::getKoopaDemoKoopaJrShip(mKoopa), rIter, "\203\116\203\142\203\160\202\165\202\223\202\122\203\163\201\133\203\140\223\157\217\352" /* クッパＶｓ３ピーチ登場 */, "DemoKoopaMeetPeach");
+    // Each demo's sheet is on one cast; the other three join it, in this order.
+    MR::initDemoSheetTalkAnim(KoopaFunction::getKoopaDemoKoopaJr(mKoopa), rIter, "クッパＶｓ３ピーチ登場", "DemoKoopaMeetPeach", nullptr);
+    MR::initTalkAnimDemoCast(mKoopa, rIter, "クッパＶｓ３ピーチ登場", "DemoKoopaMeetPeach");
+    initDemoCasts(rIter, "クッパＶｓ３ピーチ登場", "DemoKoopaMeetPeach");
 
     KoopaFunction::initKoopaAnimCamera(mKoopa, "DemoKoopaBattleStairsVs3Start");
 
-    MR::initDemoSheetTalkAnim(mKoopa, rIter, "\203\116\203\142\203\160\202\165\202\223\202\122\226\173\220\355\212\112\216\156" /* クッパＶｓ３本戦開始 */, "DemoKoopaVs3Start", nullptr);
-
-    MR::initTalkAnimDemoCast(KoopaFunction::getKoopaDemoKoopaJr(mKoopa), rIter, "\203\116\203\142\203\160\202\165\202\223\202\122\226\173\220\355\212\112\216\156" /* クッパＶｓ３本戦開始 */, "DemoKoopaVs3Start");
-    MR::initTalkAnimDemoCast(KoopaFunction::getKoopaDemoPeach(mKoopa), rIter, "\203\116\203\142\203\160\202\165\202\223\202\122\226\173\220\355\212\112\216\156" /* クッパＶｓ３本戦開始 */, "DemoKoopaVs3Start");
-    MR::initTalkAnimDemoCast(KoopaFunction::getKoopaDemoKoopaJrShip(mKoopa), rIter, "\203\116\203\142\203\160\202\165\202\223\202\122\226\173\220\355\212\112\216\156" /* クッパＶｓ３本戦開始 */, "DemoKoopaVs3Start");
+    MR::initDemoSheetTalkAnim(mKoopa, rIter, "クッパＶｓ３本戦開始", "DemoKoopaVs3Start", nullptr);
+    MR::initTalkAnimDemoCast(KoopaFunction::getKoopaDemoKoopaJr(mKoopa), rIter, "クッパＶｓ３本戦開始", "DemoKoopaVs3Start");
+    initDemoCasts(rIter, "クッパＶｓ３本戦開始", "DemoKoopaVs3Start");
 
     KoopaFunction::initKoopaAnimCamera(mKoopa, "DemoKoopaVs3Down");
 
@@ -99,19 +97,23 @@ void KoopaSequencerVs3::init(Koopa* pKoopa, const JMapInfoIter& rIter) {
 }
 
 void KoopaSequencerVs3::exeWaitPlayer() {
+    // A stage that places no keeper reads as both switches off.
+    KoopaViewSwitchKeeper* pViewKeeper = KoopaFunction::getKoopaViewSwitchKeeper(mKoopa);
+    KoopaSwitchKeeper* pKeeper = KoopaFunction::getKoopaSwitchKeeper(mKoopa);
+
     if (MR::isFirstStep(this)) {
-        KoopaFunction::setKoopaPos(mKoopa, "\203\146\203\202\222\206\220\123" /* デモ中心 */);
+        KoopaFunction::setKoopaPos(mKoopa, "デモ中心");
 
         MR::startAction(mKoopa, "Wait");
 
         MR::hideModel(KoopaFunction::getKoopaPlanetLv3(mKoopa));
     }
 
-    if (MR::isOnSwitchAppear(KoopaFunction::getKoopaViewSwitchKeeper(mKoopa)) && MR::isHiddenModel(mKoopa)) {
+    if (pViewKeeper != nullptr && MR::isOnSwitchAppear(pViewKeeper) && MR::isHiddenModel(mKoopa)) {
         MR::showModel(mKoopa);
     }
 
-    if (MR::isOnSwitchA(KoopaFunction::getKoopaViewSwitchKeeper(mKoopa))) {
+    if (pViewKeeper != nullptr && MR::isOnSwitchA(pViewKeeper)) {
         if (!MR::isHiddenModel(KoopaFunction::getKoopaPlanet(mKoopa))) {
             MR::hideModel(KoopaFunction::getKoopaPlanet(mKoopa));
             MR::hideModel(KoopaFunction::getKoopaPlanetLv2(mKoopa));
@@ -125,11 +127,11 @@ void KoopaSequencerVs3::exeWaitPlayer() {
         }
     }
 
-    if (MR::isDemoActive("\203\116\203\142\203\160\202\165\202\223\202\122\203\163\201\133\203\140\223\157\217\352" /* クッパＶｓ３ピーチ登場 */) && MR::isDemoLastStep()) {
+    if (MR::isDemoActive("クッパＶｓ３ピーチ登場") && MR::isDemoLastStep()) {
         KoopaFunction::endKoopaDemoMeetPeach(mKoopa);
     }
 
-    if (MR::isOnSwitchAppear(KoopaFunction::getKoopaSwitchKeeper(mKoopa))) {
+    if (pKeeper != nullptr && MR::isOnSwitchAppear(pKeeper)) {
         MR::overlayWithPreviousScreen(2);
 
         setNerve(GET_NERVE(KoopaSequencerVs3, KoopaSequencerVs3NrvBattleStairs));
@@ -144,7 +146,7 @@ void KoopaSequencerVs3::exeBattleStairs() {
 
         setNerve(GET_NERVE(KoopaSequencerVs3, KoopaSequencerVs3NrvWaitDemo));
 
-        MR::requestStartTimeKeepDemoMarioPuppetable(this, mKoopa, "\203\116\203\142\203\160\202\165\202\223\202\122\226\173\220\355\212\112\216\156" /* クッパＶｓ３本戦開始 */,
+        MR::requestStartTimeKeepDemoMarioPuppetable(this, mKoopa, "クッパＶｓ３本戦開始",
                                                     GET_NERVE(KoopaSequencerVs3, KoopaSequencerVs3NrvDemoBattleStart), nullptr, nullptr);
     }
 }
@@ -179,15 +181,7 @@ void KoopaSequencerVs3::exeBattleVs3Lv1() {
 }
 
 void KoopaSequencerVs3::exeFallToPlanetLv2() {
-    if (MR::isFirstStep(this)) {
-        MR::startAtmosphereSE("SE_AT_KOOPA_FALLDOWN_LV1");
-    }
-
-    if (MR::isStep(this, ::sKoopaFallVoiceStep)) {
-        MR::startSound(mKoopa, "SE_BV_KOOPA_BATTLE_END_FALL");
-    }
-
-    MR::updateActorStateAndNextNerve(this, mDemoFallToPlanetLv2, GET_NERVE(KoopaSequencerVs3, KoopaSequencerVs3NrvBattleVs3Lv2));
+    updateFallToPlanet(mDemoFallToPlanetLv2, GET_NERVE(KoopaSequencerVs3, KoopaSequencerVs3NrvBattleVs3Lv2));
 }
 
 void KoopaSequencerVs3::exeBattleVs3Lv2() {
@@ -202,15 +196,7 @@ void KoopaSequencerVs3::exeBattleVs3Lv2() {
 }
 
 void KoopaSequencerVs3::exeFallToPlanetLv3() {
-    if (MR::isFirstStep(this)) {
-        MR::startAtmosphereSE("SE_AT_KOOPA_FALLDOWN_LV1");
-    }
-
-    if (MR::isStep(this, ::sKoopaFallVoiceStep)) {
-        MR::startSound(mKoopa, "SE_BV_KOOPA_BATTLE_END_FALL");
-    }
-
-    MR::updateActorStateAndNextNerve(this, mDemoFallToPlanetLv3, GET_NERVE(KoopaSequencerVs3, KoopaSequencerVs3NrvBattleVs3Lv3));
+    updateFallToPlanet(mDemoFallToPlanetLv3, GET_NERVE(KoopaSequencerVs3, KoopaSequencerVs3NrvBattleVs3Lv3));
 }
 
 void KoopaSequencerVs3::exeBattleVs3Lv3() {
@@ -242,7 +228,7 @@ void KoopaSequencerVs3::exeBattleFinal() {
 }
 
 void KoopaSequencerVs3::exeWaitDemoDown() {
-    if (KoopaFunction::tryStartKoopaAndMarioCameraDemo(mKoopa, "\203\116\203\142\203\160\202\165\202\223\202\122\203\137\203\105\203\223" /* クッパＶｓ３ダウン */, "DemoKoopaVs3Down", "\203\137\203\105\203\223\203\146\203\202" /* ダウンデモ */)) {
+    if (KoopaFunction::tryStartKoopaAndMarioCameraDemo(mKoopa, "クッパＶｓ３ダウン", "DemoKoopaVs3Down", "ダウンデモ")) {
         setNerve(GET_NERVE(KoopaSequencerVs3, KoopaSequencerVs3NrvDemoDown));
     }
 }
@@ -285,8 +271,8 @@ void KoopaSequencerVs3::exeDemoDown() {
         MR::overlayWithPreviousScreen(3);
     }
 
-    if (KoopaFunction::tryEndKoopaCameraDemo(mKoopa, "\203\116\203\142\203\160\202\165\202\223\202\122\203\137\203\105\203\223" /* クッパＶｓ３ダウン */, "DemoKoopaVs3Down")) {
-        MR::setPlayerPosAndWait("\203\137\203\105\203\223\203\146\203\202\214\343\201\151\203\175\203\212\203\111\201\152" /* ダウンデモ後（マリオ） */);
+    if (KoopaFunction::tryEndKoopaCameraDemo(mKoopa, "クッパＶｓ３ダウン", "DemoKoopaVs3Down")) {
+        MR::setPlayerPosAndWait("ダウンデモ後（マリオ）");
 
         MR::requestAppearPowerStar(mKoopa, KoopaFunction::getKoopaPlanetLv3(mKoopa)->mPosition);
         KoopaFunction::startKoopaPlateDamageAnimPowerStarAppear(mKoopa);
@@ -301,14 +287,41 @@ void KoopaSequencerVs3::exeDead() {
 void KoopaSequencerVs3::exeWaitDemo() {
 }
 
-void KoopaSequencerVs3::calcAndSetBaseMtx() {
-    if (!(((isNerve(GET_NERVE(KoopaSequencerVs3, KoopaSequencerVs3NrvBattleVs3Lv1)) && mBattleLv1->tryCalcAndSetBaseMtx()) ||
-           (isNerve(GET_NERVE(KoopaSequencerVs3, KoopaSequencerVs3NrvBattleVs3Lv2)) && mBattleLv2->tryCalcAndSetBaseMtx())) ||
-          ((isNerve(GET_NERVE(KoopaSequencerVs3, KoopaSequencerVs3NrvBattleVs3Lv3)) ||
-            isNerve(GET_NERVE(KoopaSequencerVs3, KoopaSequencerVs3NrvBattleFinal))) &&
-           mBattleMain->tryCalcAndSetBaseMtx()))) {
-        KoopaSequencer::calcAndSetBaseMtx();
+void KoopaSequencerVs3::initDemoCasts(const TableIter& rIter, const char* pDemoName, const char* pPartName) {
+    MR::initTalkAnimDemoCast(KoopaFunction::getKoopaDemoPeach(mKoopa), rIter, pDemoName, pPartName);
+    MR::initTalkAnimDemoCast(KoopaFunction::getKoopaDemoKoopaJrShip(mKoopa), rIter, pDemoName, pPartName);
+}
+
+void KoopaSequencerVs3::updateFallToPlanet(ActorStateBaseInterface* pDemo, const Nerve* pNextNerve) {
+    if (MR::isFirstStep(this)) {
+        MR::startAtmosphereSE("SE_AT_KOOPA_FALLDOWN_LV1");
     }
+
+    updateFallVoice();
+
+    MR::updateActorStateAndNextNerve(this, pDemo, pNextNerve);
+}
+
+// Level 3 and the final battle share mBattleMain.
+bool KoopaSequencerVs3::isNerveBattleMain() const {
+    return isNerve(GET_NERVE(KoopaSequencerVs3, KoopaSequencerVs3NrvBattleVs3Lv3)) ||
+           isNerve(GET_NERVE(KoopaSequencerVs3, KoopaSequencerVs3NrvBattleFinal));
+}
+
+void KoopaSequencerVs3::calcAndSetBaseMtx() {
+    if (isNerve(GET_NERVE(KoopaSequencerVs3, KoopaSequencerVs3NrvBattleVs3Lv1)) && mBattleLv1->tryCalcAndSetBaseMtx()) {
+        return;
+    }
+
+    if (isNerve(GET_NERVE(KoopaSequencerVs3, KoopaSequencerVs3NrvBattleVs3Lv2)) && mBattleLv2->tryCalcAndSetBaseMtx()) {
+        return;
+    }
+
+    if (isNerveBattleMain() && mBattleMain->tryCalcAndSetBaseMtx()) {
+        return;
+    }
+
+    KoopaSequencer::calcAndSetBaseMtx();
 }
 
 void KoopaSequencerVs3::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
@@ -316,8 +329,7 @@ void KoopaSequencerVs3::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
         mBattleLv1->attackSensor(pSender, pReceiver);
     } else if (isNerve(GET_NERVE(KoopaSequencerVs3, KoopaSequencerVs3NrvBattleVs3Lv2))) {
         mBattleLv2->attackSensor(pSender, pReceiver);
-    } else if (isNerve(GET_NERVE(KoopaSequencerVs3, KoopaSequencerVs3NrvBattleVs3Lv3)) ||
-               isNerve(GET_NERVE(KoopaSequencerVs3, KoopaSequencerVs3NrvBattleFinal))) {
+    } else if (isNerveBattleMain()) {
         mBattleMain->attackSensor(pSender, pReceiver);
     }
 }
@@ -335,8 +347,7 @@ bool KoopaSequencerVs3::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitS
         return mBattleLv2->receiveMsgPlayerAttack(msg, pSender, pReceiver);
     }
 
-    if (isNerve(GET_NERVE(KoopaSequencerVs3, KoopaSequencerVs3NrvBattleVs3Lv3)) ||
-        isNerve(GET_NERVE(KoopaSequencerVs3, KoopaSequencerVs3NrvBattleFinal))) {
+    if (isNerveBattleMain()) {
         return mBattleMain->receiveMsgPlayerAttack(msg, pSender, pReceiver);
     }
 
@@ -352,21 +363,5 @@ bool KoopaSequencerVs3::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSe
 }
 
 bool KoopaSequencerVs3::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
-    if (isNerve(GET_NERVE(KoopaSequencerVs3, KoopaSequencerVs3NrvBattleVs3Lv1))) {
-        return false;
-    }
-
-    if (isNerve(GET_NERVE(KoopaSequencerVs3, KoopaSequencerVs3NrvBattleVs3Lv2))) {
-        return false;
-    }
-
-    if (isNerve(GET_NERVE(KoopaSequencerVs3, KoopaSequencerVs3NrvBattleVs3Lv3)) ||
-        isNerve(GET_NERVE(KoopaSequencerVs3, KoopaSequencerVs3NrvBattleFinal))) {
-        return mBattleMain->receiveOtherMsg(msg, pSender, pReceiver);
-    }
-
-    return false;
-}
-
-KoopaSequencerVs3::~KoopaSequencerVs3() {
+    return isNerveBattleMain() && mBattleMain->receiveOtherMsg(msg, pSender, pReceiver);
 }

@@ -1,4 +1,5 @@
 #include "Game/Boss/KoopaStateJumpAway.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Boss/Koopa.hpp"
 #include "Game/Boss/KoopaFunction.hpp"
 #include "Game/LiveActor/Nerve.hpp"
@@ -8,12 +9,13 @@
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/NerveUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const f32 sJumpFrontSpeed = 20.0f;
-    static const f32 sJumpFlyUpSpeed = 35.0f;
-    static const f32 sJumpGravity = 1.0f;
-    static const s32 sLandStepVs3Lv3 = 30;
+    NEBULA_TUNABLE(f32, sJumpFrontSpeed, 20.0f);
+    NEBULA_TUNABLE(f32, sJumpFlyUpSpeed, 35.0f);
+    NEBULA_TUNABLE(f32, sJumpGravity, 1.0f);
+    const s32 sLandStepVs3Lv3 = NebulaFrameClock::stepsOfMilliseconds(500);
 };  // namespace
 
 namespace NrvKoopaStateJumpAway {
@@ -22,7 +24,7 @@ namespace NrvKoopaStateJumpAway {
     NEW_NERVE(KoopaStateJumpAwayNrvLand, KoopaStateJumpAway, Land);
 };  // namespace NrvKoopaStateJumpAway
 
-KoopaStateJumpAway::KoopaStateJumpAway(Koopa* pKoopa) : ActorStateBase< Koopa >("State[\203\127\203\203\203\223\203\166\202\305\227\243\202\352\202\351]" /* State[ジャンプで離れる] */, pKoopa) {
+KoopaStateJumpAway::KoopaStateJumpAway(Koopa* pKoopa) : ActorStateBase< Koopa >("State[ジャンプで離れる]", pKoopa) {
 }
 
 void KoopaStateJumpAway::init() {
@@ -53,9 +55,7 @@ void KoopaStateJumpAway::exeJump() {
     if (MR::isFirstStep(this)) {
         MR::startAction(mHost, "JumpAway");
 
-        Koopa* pKoopa = mHost;
-
-        MR::setVelocity(pKoopa, KoopaFunction::getKoopaFront(pKoopa) * -::sJumpFrontSpeed);
+        MR::setVelocity(mHost, KoopaFunction::getKoopaFront(mHost) * -::sJumpFrontSpeed);
         MR::addVelocityJump(mHost, ::sJumpFlyUpSpeed);
 
         MR::startSound(mHost, "SE_BM_KOOPA_JUMP");
@@ -63,7 +63,7 @@ void KoopaStateJumpAway::exeJump() {
     }
 
     MR::addVelocityToGravity(mHost, ::sJumpGravity);
-    TVec3f newFront = mHost->mVelocity;
+    Vec3f newFront = mHost->mVelocity;
     MR::vecKillElement(newFront, mHost->mGravity, &newFront);
 
     if (!MR::isNearZero(newFront)) {
@@ -72,8 +72,7 @@ void KoopaStateJumpAway::exeJump() {
         KoopaFunction::getKoopaFrontPtr(mHost)->set(-newFront);
     }
 
-    Koopa* pKoopa = mHost;
-    if (!MR::sendMsgEnemyAttackToBindedSensor(pKoopa, pKoopa->getSensor("Body")) && !MR::isFirstStep(this) &&
+    if (!MR::sendMsgEnemyAttackToBindedSensor(mHost, mHost->getSensor("Body")) && !MR::isFirstStep(this) &&
         mHost->mVelocity.dot(mHost->mGravity) >= 0.0f && MR::isBindedGround(mHost)) {
         MR::tryRumblePadAndCameraDistanceStrong(mHost, 1500.0f, 2000.0f, 2000.0f);
         MR::startSound(mHost, "SE_BM_KOOPA_LAND");
@@ -89,12 +88,8 @@ void KoopaStateJumpAway::exeLand() {
         MR::startAction(mHost, "JumpAwayLand");
     }
 
-    if (KoopaFunction::isKoopaVs3(mHost) && KoopaFunction::isKoopaLv3(mHost) && MR::isGreaterStep(this, ::sLandStepVs3Lv3)) {
-        kill();
-    } else if (MR::isActionEnd(mHost)) {
+    if ((KoopaFunction::isKoopaVs3(mHost) && KoopaFunction::isKoopaLv3(mHost) && MR::isGreaterStep(this, ::sLandStepVs3Lv3)) ||
+        MR::isActionEnd(mHost)) {
         kill();
     }
-}
-
-KoopaStateJumpAway::~KoopaStateJumpAway() {
 }

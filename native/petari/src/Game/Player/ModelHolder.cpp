@@ -1,8 +1,8 @@
 #include "Game/Player/ModelHolder.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ModelUtil.hpp"
-#include <JSystem/J3DGraphAnimator/J3DModel.hpp>
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include "Game/Render/Model.hpp"
+#include <nebula_geometry.hpp>
 #include <nebula_math.h>
 
 ModelHolder::ModelHolder(const char* pName, bool b) : LiveActor(pName) {
@@ -12,7 +12,7 @@ ModelHolder::ModelHolder(const char* pName, bool b) : LiveActor(pName) {
 }
 
 void ModelHolder::updateMtx(MtxPtr mtxPtr) {
-    J3DModel* model = MR::getJ3DModel(this);
+    Model* model = MR::getModel(this);
     NebulaMtxCopy(mtxPtr, model->mBaseTransformMtx);
     model->calc();      // 0x10
     model->viewCalc();  // 0x1C

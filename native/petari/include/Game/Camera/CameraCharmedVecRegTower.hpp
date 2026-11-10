@@ -6,11 +6,11 @@ class CameraCharmedVecRegTower : public Camera {
 public:
     CameraCharmedVecRegTower(const char* pName = "CameraCharmedVecRegTower");
 
-    virtual void reset();
-    virtual CameraTargetObj* calc();
-    virtual CamTranslatorBase* createTranslator();
+    virtual void reset() override;
+    virtual CameraTargetObj* calc() override;
+    virtual void setParamFromChunk(const CameraParamChunk*) override;
 
-    void setParam(const char* pName, const TVec3f& rWPoint, const TVec3f& rAxis, f32 angleX, f32 angleYMax, f32 dist, bool arrange) {
+    void setParam(const char* pName, const Vec3f& rWPoint, const Vec3f& rAxis, f32 angleX, f32 angleYMax, f32 dist, bool arrange) {
         mName = pName;
         mWPoint.set(rWPoint);
         mAxis.set(rAxis);
@@ -20,8 +20,8 @@ public:
         mArrange = arrange;
     }
 
-    TVec3f mWPoint;
-    TVec3f mAxis;
+    Vec3f mWPoint;
+    Vec3f mAxis;
     f32 mAngleX;
     f32 mAngleYMax;
     f32 mDist;

@@ -3,7 +3,7 @@
 
 class GameDataHolder;
 class HitSensor;
-class JMapInfoIter;
+class TableIter;
 class LiveActor;
 class NameObj;
 class Nerve;
@@ -75,7 +75,7 @@ namespace NebulaCoopWorld {
     // this scene is in a room.
     void startScene();
     // PlacementInfoOrdered: an object placed from the stage's files, just made.
-    void notePlaced(const char* pName, NameObj* pObj, const JMapInfoIter& rIter);
+    void notePlaced(const char* pName, NameObj* pObj, const TableIter& rIter);
     // GameScene::init, once everything is placed: this scene's instance is told to the server, whose record of it
     // comes back.
     void endPlacement();

@@ -2,31 +2,29 @@
 
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/LiveActor/LiveActorGroup.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class DinoPackunTrackFire : public LiveActor {
 public:
     DinoPackunTrackFire(const char*);
 
-    virtual ~DinoPackunTrackFire();
-    virtual void init(const JMapInfoIter&);
-    virtual MtxPtr getBaseMtx() const {
-        return (MtxPtr)&_8C;
+    virtual void init(const TableIter&) override;
+    virtual MtxPtr getBaseMtx() const override {
+        return const_cast< MtxPtr >(mMtx.mMtx);
     };
-    virtual void control();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
+    virtual void control() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
 
-    void appearAndSetPos(const TVec3f&);
+    void appearAndSetPos(const Vec3f&);
     void exeWait();
     void exeGround();
 
-    TPos3f _8C;
+    Pos3f mMtx;
 };
 
 class DinoPackunTrackFireHolder : public DeriveActorGroup< DinoPackunTrackFire > {
 public:
     DinoPackunTrackFireHolder(s32);
 
-    virtual ~DinoPackunTrackFireHolder();
 };

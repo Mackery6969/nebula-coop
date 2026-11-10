@@ -6,7 +6,7 @@
 SwitchArea::SwitchArea(int formType, const char* pName) : AreaObj(formType, pName) {
 }
 
-void SwitchArea::init(const JMapInfoIter& rIter) {
+void SwitchArea::init(const TableIter& rIter) {
     AreaObj::init(rIter);
     MR::connectToSceneAreaObj(this);
 }
@@ -16,7 +16,7 @@ void SwitchArea::movement() {
         return;
     }
 
-    bool bVar1 = !isValidSwitchB() || isOnSwitchB();
+    bool enabled = !isValidSwitchB() || isOnSwitchB();
 
     // Online co-op: an area that turns its switch back as the player leaves follows the local player alone; one that
     // turns it once is everyone's.
@@ -24,7 +24,7 @@ void SwitchArea::movement() {
     if (local) {
         NebulaCoopWorld::beginLocalSwitches();
     }
-    if (bVar1 && isInVolume(*MR::getPlayerPos())) {
+    if (enabled && isInVolume(*MR::getPlayerPos())) {
         if (mObjArg1 == -1) {
             onSwitchA();
         } else {

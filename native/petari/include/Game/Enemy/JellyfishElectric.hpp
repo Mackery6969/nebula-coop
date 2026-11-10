@@ -9,14 +9,13 @@ class JellyfishElectric : public LiveActor {
 public:
     JellyfishElectric(const char*);
 
-    virtual ~JellyfishElectric();
-    virtual void init(const JMapInfoIter&);
-    virtual void kill();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*) override;
 
     void exeWait();
     void exeWaitWithLeftTurn();
@@ -25,22 +24,22 @@ public:
     void exeDeath();
     void exeAttack();
     void exeRailGoal();
-    void exeDPDSwoon();
-    void endDPDSwoon();
+    void exePointerSwoon();
+    void endPointerSwoon();
     void waitTurn();
     void knockOut();
     bool tryToAttackElectric(HitSensor*, HitSensor*);
-    bool tryDPDSwoon();
+    bool tryPointerSwoon();
     bool selectNerveAfterWait();
 
     AnimScaleController* mController;
     WalkerStateBindStarPointer* mBindStarPtr;
-    s32 _94;
-    TVec3f _98;
-    bool _A4;
+    s32 mWaveStep;
+    Vec3f mFront;
+    bool mIsDanger;
     bool mIsConnectedRail;
-    f32 _A8;
-    s32 _AC;
-    bool _B0;
-    TVec3f _B4;
+    f32 mRailSpeed;
+    s32 mRailGoalWaitStep;
+    bool mIsRailTurnBack;
+    Vec3f mClipCenter;
 };

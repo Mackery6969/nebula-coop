@@ -4,6 +4,8 @@
 #include "galaxy/render/scene_camera_shape.h"
 #include "galaxy/render/vk/utility_spirv.h"
 
+#include "barriers_vk.h"
+
 #include <algorithm>
 #include <iostream>
 
@@ -65,7 +67,7 @@ bool SceneCameraVk::initialize() {
         shutdown();
         return false;
     }
-    exposure_ = Context::get().create_texture(1u, 1u, 1u, VK_FORMAT_R32_SFLOAT,
+    exposure_ = Context::get().create_texture(2u, 1u, 1u, VK_FORMAT_R32_SFLOAT,
                                               VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, false,
                                               "scene camera exposure");
     if (!exposure_) {
@@ -109,13 +111,14 @@ VkPipeline SceneCameraVk::pipeline(Kind kind, VkRenderPass pass, unsigned sample
     const VkShaderModule vs = module_of(UtilitySpirv::CameraVs);
     const VkShaderModule ps = module_of(kind == kWiden           ? UtilitySpirv::CameraWidenPs
                                         : kind == kCameraSamples ? UtilitySpirv::CameraSamplesPs
+                                        : kind == kCameraResolve ? UtilitySpirv::CameraResolvePs
                                                                  : UtilitySpirv::CameraPs);
     if (vs != VK_NULL_HANDLE && ps != VK_NULL_HANDLE) {
         VkPipelineShaderStageCreateInfo stages[2]{};
         stages[0] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, vs,
                      "CameraVS", nullptr};
         stages[1] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, ps,
-                     kind == kWiden ? "WidenPS" : "CameraPS", nullptr};
+                     kind == kWiden ? "WidenPS" : kind == kCameraResolve ? "CameraResolvePS" : "CameraPS", nullptr};
         VkPipelineVertexInputStateCreateInfo vertex_input{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
         VkPipelineInputAssemblyStateCreateInfo input_assembly{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
         input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -214,16 +217,11 @@ void SceneCameraVk::widen(VkCommandBuffer commands, VkRenderPass pass, unsigned 
 
 void SceneCameraVk::meter(VkCommandBuffer commands, const Texture& wide, const Texture& depth, VkImageLayout depth_layout,
                           float seconds, const SetAllocator& allocate) {
-    VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
-    barrier.srcAccessMask = exposure_ready_ ? VK_ACCESS_SHADER_READ_BIT : 0u;
-    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-    barrier.oldLayout = exposure_ready_ ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_UNDEFINED;
-    barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-    barrier.srcQueueFamilyIndex = barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = exposure_->image;
-    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    vkCmdPipelineBarrier(commands, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+    // The last frame's reads finish before the meter writes (a read before a write needs the execution dependency alone).
+    image_barrier(commands, exposure_->image, VK_IMAGE_ASPECT_COLOR_BIT,
+                  exposure_ready_ ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+                  VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_NONE, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                  VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, 1u);
     camera::Constants constants{};
     constants.width = static_cast<float>(wide.width);
     constants.height = static_cast<float>(wide.height);
@@ -234,24 +232,16 @@ void SceneCameraVk::meter(VkCommandBuffer commands, const Texture& wide, const T
     vkCmdBindDescriptorSets(commands, VK_PIPELINE_BIND_POINT_COMPUTE, layout_, 0, 1, &set, 0, nullptr);
     vkCmdPushConstants(commands, layout_, kStages, 0, sizeof(constants), &constants);
     vkCmdDispatch(commands, 1u, 1u, 1u);
-    barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-    vkCmdPipelineBarrier(commands, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0,
-                         nullptr, 0, nullptr, 1, &barrier);
+    image_barrier(commands, exposure_->image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_GENERAL,
+                  VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+                  VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, 1u);
 }
 
 void SceneCameraVk::draw(VkCommandBuffer commands, VkRenderPass pass, unsigned samples_log2, const Texture& wide,
-                         bool per_sample, const SetAllocator& allocate) {
-    const VkPipeline camera = pipeline(per_sample ? kCameraSamples : kCamera, pass, samples_log2);
+                         bool per_sample, const SetAllocator& allocate, bool resolve) {
+    const VkPipeline camera = pipeline(resolve ? kCameraResolve : per_sample ? kCameraSamples : kCamera, pass, samples_log2);
     if (camera != VK_NULL_HANDLE) {
         full_screen(commands, camera, set_of(allocate, wide), wide.width, wide.height);
-    }
-}
-
-void SceneCameraVk::hold(std::vector<std::shared_ptr<Texture>>& held) const {
-    if (exposure_) {
-        held.push_back(exposure_);
     }
 }
 

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/Camera/CameraParamString.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
 class CameraHolder;
 class CameraParamChunkID;
@@ -10,16 +10,16 @@ class DotCamReader;
 class CameraGeneralParam {
 public:
     CameraGeneralParam()
-        : mString(), mDist(1200.0f), mAxis(0.0f, 1.0f, 0.0f), mWPoint(0.0f, 0.0f, 0.0f), mUp(0.0f, 1.0f, 0.0f), mAngleA(), mAngleB(0.3f), mNum1(),
-          mNum2() {
+        : mDist(1200.0f), mAxis(0.0f, 1.0f, 0.0f), mWPoint(0.0f, 0.0f, 0.0f), mUp(0.0f, 1.0f, 0.0f), mAngleA(), mAngleB(0.3f), mNum1(), mNum2(),
+          mString() {
     }
 
     CameraGeneralParam& operator=(const CameraGeneralParam&);
 
     f32 mDist;
-    TVec3f mAxis;
-    TVec3f mWPoint;
-    TVec3f mUp;
+    Vec3f mAxis;
+    Vec3f mWPoint;
+    Vec3f mUp;
     f32 mAngleA;
     f32 mAngleB;
     s32 mNum1;
@@ -56,11 +56,11 @@ public:
             mVPanAxis.set(0.0f, 1.0f, 0.0f);
         }
 
-        void setWOffset(const TVec3f& rWOffset) {
+        void setWOffset(const Vec3f& rWOffset) {
             mWOffset.set(rWOffset);
         }
 
-        TVec3f mWOffset;
+        Vec3f mWOffset;
         f32 mLOffset;
         f32 mLOffsetV;
         f32 mRoll;
@@ -76,7 +76,7 @@ public:
         s32 mPushDelayLow;
         s32 mUDown;
         s32 mVPanUse;
-        TVec3f mVPanAxis;
+        Vec3f mVPanAxis;
     };
 
     CameraParamChunk(CameraHolder*, const CameraParamChunkID&);
@@ -95,7 +95,7 @@ public:
     bool isAntiBlurOff() const;
     bool isCollisionOff() const;
     bool isSubjectiveCameraOff() const;
-    void getVPanAxis(TVec3f*) const;
+    void getVPanAxis(Vec3f*) const;
 
     void setCameraType(const char*, const CameraHolder*);
     void setUseFovy(bool);
@@ -116,17 +116,17 @@ public:
     u8 mCameraTypeIndex;
     ExParam mExParam;
     CameraGeneralParam* mGeneralParam;
-    bool _64;
+    bool mIsCodeChunk;
 };
 
 class CameraParamChunkGame : public CameraParamChunk {
 public:
     CameraParamChunkGame(CameraHolder*, const CameraParamChunkID&);
 
-    virtual void copy(const CameraParamChunk*);
-    virtual void load(DotCamReader*, CameraHolder*);
-    virtual void initiate();
-    virtual const char* getClassName() const {
+    virtual void copy(const CameraParamChunk*) override;
+    virtual void load(DotCamReader*, CameraHolder*) override;
+    virtual void initiate() override;
+    virtual const char* getClassName() const override {
         return "Game";
     }
 
@@ -139,10 +139,10 @@ class CameraParamChunkEvent : public CameraParamChunk {
 public:
     CameraParamChunkEvent(CameraHolder*, const CameraParamChunkID&);
 
-    virtual void copy(const CameraParamChunk*);
-    virtual void load(DotCamReader*, CameraHolder*);
-    virtual void initiate();
-    virtual const char* getClassName() const {
+    virtual void copy(const CameraParamChunk*) override;
+    virtual void load(DotCamReader*, CameraHolder*) override;
+    virtual void initiate() override;
+    virtual const char* getClassName() const override {
         return "Event";
     }
 

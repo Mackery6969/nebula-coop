@@ -1,16 +1,16 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include "Game/Util/NativeMesh.hpp"
+#include "Game/Render/TypedDraw.hpp"
 
-class JUTTexture;
+class GameTexture;
 class OceanSpherePoint;
 class WaterInfo;
 
 class OceanSpherePlane {
 public:
-    OceanSpherePlane(s32 pointCount, const TVec3f* pCenter, const TVec3f& rAxis1, const TVec3f& rAxis2, const TVec2f& rTex1, const TVec2f& rTex2,
-                     const TVec2f& rTex3);
+    OceanSpherePlane(s32 pointCount, const Vec3f* pCenter, const Vec3f& rAxis1, const Vec3f& rAxis2, const Vec2f& rTex1, const Vec2f& rTex2,
+                     const Vec2f& rTex3);
 
     void update(f32 radius, f32 wave1Time, f32 wave2Time);
     OceanSpherePoint* getPoint(int col, int row) const {
@@ -24,7 +24,7 @@ public:
 
 class OceanSpherePlaneEdge {
 public:
-    OceanSpherePlaneEdge(s32 pointCount, const TVec3f* pCenter, const TVec3f& rAxis1, const TVec3f& rAxis2, const TVec2f& rTex1, const TVec2f& rTex2);
+    OceanSpherePlaneEdge(s32 pointCount, const Vec3f* pCenter, const Vec3f& rAxis1, const Vec3f& rAxis2, const Vec2f& rTex1, const Vec2f& rTex2);
 
     void update(f32 radius, f32 wave1Time, f32 wave2Time);
 
@@ -36,13 +36,13 @@ class OceanSphere : public LiveActor {
 public:
     OceanSphere(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void appear();
-    virtual void control();
-    virtual void draw() const;
+    virtual void init(const TableIter& rIter) override;
+    virtual void appear() override;
+    virtual void control() override;
+    virtual void draw() const override;
 
-    bool isInWater(const TVec3f& rPos) const;
-    bool calcWaterInfo(const TVec3f& rPos, const TVec3f& rGravity, WaterInfo* pInfo) const;
+    bool isInWater(const Vec3f& rPos) const;
+    bool calcWaterInfo(const Vec3f& rPos, const Vec3f& rGravity, WaterInfo* pInfo) const;
     void exeWait();
     void exeRiseUp();
     void initPoints();
@@ -52,10 +52,15 @@ public:
     OceanSpherePoint* getPlanePointRightUpper(int row, int col) const;
     OceanSpherePoint* getPlanePointLeftLower(int row, int col) const;
     OceanSpherePoint* getPlanePointRightLower(int row, int col) const;
-    void loadMaterialFace() const;
-    void loadMaterialBack() const;
-    void drawSphere(bool useEnvMap, NativeMesh* pMesh) const;
-    void sendVertex(const OceanSpherePoint* pPoint, bool useEnvMap, NativeMesh* pMesh) const;
+    SiteMaterial loadMaterialFace() const;
+    SiteMaterial loadMaterialBack() const;
+    // Every corner of the sphere in order, through `begin(count)` for each strip.
+    template < class T, class Begin >
+    void writeSphere(Begin begin) const;
+    void writeVertex(const OceanSpherePoint* pPoint, VertexPN*& rVtx) const;
+    void writeVertex(const OceanSpherePoint* pPoint, VertexPNT2*& rVtx) const;
+    void drawFace(TypedDraw& rDraw) const;
+    void drawBack(TypedDraw& rDraw) const;
 
     f32 mRadius;
     f32 mRadiusTarget;
@@ -84,20 +89,16 @@ public:
     f32 mTexOffs0Y;
     f32 mTexOffs1X;
     f32 mTexOffs1Y;
-    JUTTexture* mWaterTex;
-    JUTTexture* mWaterEnvTex;
-    NebulaColor8 mTevReg1Front;
-    NebulaColor8 mTevReg1Back;
+    GameTexture* mWaterTex;
+    GameTexture* mWaterEnvTex;
+    NebulaColor8 mStageColor1Front;
+    NebulaColor8 mStageColor1Back;
     bool mUseMesh;
-    u8 _109;
-    u8 _10A;
-    u8 _10B;
     // The sphere's face and back as the renderer draws them.
-    NativeMesh mMeshFace;
-    NativeMesh mMeshBack;
+    SiteMesh< VertexPNT2 > mMeshFace;
+    SiteMesh< VertexPN > mMeshBack;
     bool mAlwaysUseRealDrawing;
     bool mIsCameraInside;
     bool mIsStartPosCamera;
-    bool mIsTearDrop;
     bool mEnableStartPosCameraSwitch;
 };

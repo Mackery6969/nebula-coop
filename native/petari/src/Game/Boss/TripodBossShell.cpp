@@ -13,14 +13,14 @@
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const f32 sHitSensorRadius = 900.0f;
-    static const s32 sBreakStopStep = 4;
-    static const s32 sBreakStopFrame = 30;
-    static const f32 sBreakStopDistance = 1000.0f;
-    // static const f32 sStartEventForceJumpRange = _;
-    static const f32 sStartEventForceJumpPlayerPower = 40.0f;
+    NEBULA_TUNABLE(f32, sHitSensorRadius, 900.0f);
+    NEBULA_TUNABLE(s32, sBreakStopStep, 4);
+    NEBULA_TUNABLE(s32, sBreakStopFrame, 30);
+    NEBULA_TUNABLE(f32, sBreakStopDistance, 1000.0f);
+    NEBULA_TUNABLE(f32, sStartEventForceJumpPlayerPower, 40.0f);
 };  // namespace
 
 namespace NrvTripodBossShell {
@@ -29,23 +29,20 @@ namespace NrvTripodBossShell {
     NEW_NERVE(TripodBossShellNrvBreak, TripodBossShell, Break);
 };  // namespace NrvTripodBossShell
 
-TripodBossShell::~TripodBossShell() {
-}
-
 TripodBossShell::TripodBossShell(const char* pName) : TripodBossFixPartsBase(pName), mBreakModel() {
 }
 
-void TripodBossShell::init(const JMapInfoIter& rIter) {
+void TripodBossShell::init(const TableIter& rIter) {
     TripodBossFixPartsBase::init(rIter);
     initModelManagerWithAnm("TripodBossShell", nullptr, false);
     MR::connectToScene(this, MR::MovementType_MapObjDecoration, MR::CalcAnimType_MapObjDecoration, MR::DrawBufferType_TripodBoss, MR::DrawType_None);
     initHitSensor(2);
-    MR::addHitSensorMapObj(this, "body", 16, ::sHitSensorRadius, TVec3f(0.0f, 300.0f, 0.0f));
-    MR::addHitSensor(this, "killer_terget", ATYPE_BREAKABLE_CAGE, 8, ::sHitSensorRadius * mScale.x, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorMapObj(this, "body", 16, ::sHitSensorRadius, Vec3f(0.0f, 300.0f, 0.0f));
+    MR::addHitSensor(this, "killer_terget", ATYPE_BREAKABLE_CAGE, 8, ::sHitSensorRadius * mScale.x, Vec3f(0.0f, 0.0f, 0.0f));
     MR::initCollisionParts(this, "TripodBossShell", getSensor("killer_terget"), nullptr);
     initSound(4, false);
 
-    mBreakModel = MR::createModelObjMapObjStrongLight("\211\363\202\352\203\202\203\146\203\213" /* 壊れモデル */, "TripodBossShellBreak", getBaseMtx());
+    mBreakModel = MR::createModelObjMapObjStrongLight("壊れモデル", "TripodBossShellBreak", getBaseMtx());
     mBreakModel->initWithoutIter();
     MR::invalidateClipping(mBreakModel);
     mBreakModel->makeActorDead();
@@ -63,7 +60,7 @@ void TripodBossShell::kill() {
     mBreakModel->kill();
 }
 
-bool TripodBossShell::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool TripodBossShell::receiveMsgEnemyAttack(u32 /*msg*/, HitSensor* /*pSender*/, HitSensor* pReceiver) {
     if (pReceiver == getSensor("killer_terget") && !isNerve(GET_NERVE(TripodBossShell, TripodBossShellNrvBreak))) {
         setNerve(GET_NERVE(TripodBossShell, TripodBossShellNrvBreak));
 
@@ -102,11 +99,11 @@ void TripodBossShell::exeBreak() {
         MR::startBck(mBreakModel, "Break");
 
         f32 playerDistance;
-        TVec3f toPlayerDir = *MR::getPlayerPos() - mPosition;
+        Vec3f toPlayerDir = *MR::getPlayerPos() - mPosition;
         MR::separateScalarAndDirection(&playerDistance, &toPlayerDir, toPlayerDir);
 
         if (playerDistance <= ::sBreakStopDistance) {
-            TVec3f up;
+            Vec3f up;
             MR::calcUpVec(&up, this);
 
             if (toPlayerDir.dot(up) > 0.0f) {

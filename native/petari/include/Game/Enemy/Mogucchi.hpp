@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class ModelObj;
 class MogucchiHill;
@@ -9,15 +9,14 @@ class MogucchiHill;
 class Mogucchi : public LiveActor {
 public:
     Mogucchi(const char*);
-    virtual ~Mogucchi();
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void initAfterPlacement();
-    virtual void makeActorAppeared();
-    virtual void kill();
-    virtual void control();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void initAfterPlacement() override;
+    virtual void makeActorAppeared() override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     void exeStroll();
     void endStroll();
@@ -35,19 +34,19 @@ public:
     void updateStrollSpeed();
     void reflectStarPointer2P();
     void makeEulerRotation();
-    void calcAttackDir(TVec3f*, const TVec3f&, const TVec3f&) const;
+    void calcAttackDir(Vec3f*, const Vec3f&, const Vec3f&) const;
     bool receiveAttackBySpinSensor(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
     bool receiveAttackByBodySensor(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    void calcScatterVec(const TVec3f&, const TVec3f&);
+    void calcScatterVec(const Vec3f&, const Vec3f&);
+    bool isHittableDown() const;
+    void startScatter(HitSensor* pSender, HitSensor* pReceiver);
 
     MogucchiHill* mHill;
     ModelObj* mHole;
-    TPos3f mNewHolePos;
-    TVec3f mRailGravity;
-    bool mGrounded;
-    f32 mScatterPropulsionSpeed;
-    TVec3f mScatterNormal;
-    f32 _E4;
+    Pos3f mHoleMtx;
+    Vec3f mRailGravity;
+    f32 mScatterUpSpeed;
+    Vec3f mScatterDir;
     f32 mStrollSpeed;
     f32 mMaxStrollSpeed;
     bool mIsStoppedByP2;

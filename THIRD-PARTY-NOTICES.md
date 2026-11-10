@@ -66,7 +66,9 @@ The FSR 3 upscaler and its DX12 and Vulkan backends, built from <https://github.
 
 `third_party/archive/` holds the libraries the mod importer reads zip, 7z and rar archives with: libarchive (BSD-2-Clause,
 `third_party/archive/libarchive/COPYING`), xz's liblzma (0BSD, `third_party/archive/xz/COPYING.0BSD`) and zlib (Zlib,
-`third_party/archive/zlib/LICENSE`).
+`third_party/archive/zlib/LICENSE`). xz's shell scripts (`src/scripts`) are not included, so its `CMakeLists.txt`
+configures them only when they are built. libarchive's `contrib/` is not included either: on Android its headers
+include `android_lf.h`, which `cmake/android/android_lf.h` stands in for (64-bit ABIs only, where there is nothing to map).
 
 ## SMAA (MIT)
 
@@ -79,6 +81,12 @@ Belen Masia, Fernando Navarro and Diego Gutierrez. License: `third_party/smaa/LI
 `third_party/fidelityfx-fsr1/` holds the unmodified `ffx_a.h` and `ffx_fsr1.h` from
 <https://github.com/GPUOpen-Effects/FidelityFX-FSR>. Copyright (c) 2021 Advanced Micro Devices, Inc.
 License: `third_party/fidelityfx-fsr1/LICENSE.txt`.
+
+## Snapdragon Game Super Resolution 2 (BSD 3-clause)
+
+`runtime/src/render/sgsr2.hlsl` is adapted from the two-pass fragment shaders of
+<https://github.com/SnapdragonStudios/snapdragon-gsr> (d926f07). Copyright (c) 2023-2024, Qualcomm Innovation Center,
+Inc. License: `third_party/snapdragon-gsr/LICENSE.txt`.
 
 ## NVIDIA Streamline 2.14.1 headers (MIT)
 
@@ -140,7 +148,7 @@ Setup's game importer, `nebula-import.exe` (`crates/nebula-import`), reads disc 
 `nod` crate 1.4.4 by Luke Street (<https://github.com/encounter/nod>, MIT OR Apache-2.0). `nod`
 contains the Wii common keys needed to read a Wii disc partition.
 
-`nebula-import.exe` links 62 crates (`Cargo.lock`) under MIT, Apache-2.0, BSD-2-Clause,
+`nebula-import.exe` links 64 crates (`Cargo.lock`) under MIT, Apache-2.0, BSD-2-Clause,
 BSD-3-Clause, Zlib or 0BSD terms, and the C libraries zstd (BSD-3-Clause), liblzma (0BSD) and
 bzip2 (bzip2 license). Their license texts are in
 [docs/licenses/rust-dependencies.txt](docs/licenses/rust-dependencies.txt). The `nod` crate ships
@@ -181,7 +189,7 @@ game activity. Copyright (C) 1997-2026 Sam Lantinga. License: Zlib, its `LICENSE
   <https://github.com/Kotlin/kotlinx.coroutines>: Apache-2.0. Copyright JetBrains s.r.o. and
   Kotlin Programming Language contributors.
 - `libnebula_import.so` (`crates/nebula-import`, setup from the player's disc image) links `nod`
-  and 41 other crates; their license texts are in
+  and 60 other crates; their license texts are in
   [docs/licenses/rust-dependencies-android.txt](docs/licenses/rust-dependencies-android.txt)
   (`tools/rust_licenses.py`), which the app shows under Open source licenses.
 

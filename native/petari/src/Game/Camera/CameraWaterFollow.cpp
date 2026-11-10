@@ -1,16 +1,14 @@
 #include "Game/Camera/CameraWaterFollow.hpp"
-#include "Game/Camera/CamTranslatorWaterFollow.hpp"
+#include "Game/Camera/CameraParamChunk.hpp"
 #include "Game/Camera/CameraLocalUtil.hpp"
 #include "Game/Camera/CameraMan.hpp"
 #include "Game/Camera/CameraTargetObj.hpp"
 #include "Game/Util/MapUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const f32 sCollideRate = 0.03f;
-    static const s32 sCollideCountMax = 60;
-    static const f32 sLastMoveLen = 5.0f;
-    static const s32 sRoundingFrame = 60;
+    NEBULA_TUNABLE(s32, sRoundingFrame, 60);
 };  // namespace
 
 CameraWaterFollow::CameraWaterFollow(const char* pName)
@@ -30,57 +28,14 @@ void CameraWaterFollow::reset() {
 }
 
 CameraTargetObj* CameraWaterFollow::calc() {
-    TVec3f watchPos;
+    Vec3f watchPos;
     CameraLocalUtil::makeWatchPoint(&watchPos, this, CameraLocalUtil::getTarget(this), 0.1f / 15.0f);
 
-    TVec3f gravUp = -CameraLocalUtil::getTarget(this)->getGravityVector();
-    TVec3f watchFront = watchPos - CameraLocalUtil::getPos(this);
-    f32 camDist = watchFront.length();
+    Vec3f gravUp = -CameraLocalUtil::getTarget(this)->getGravityVector();
+    Vec3f front, up, side;
+    f32 dist = CameraLocalUtil::calcFollowFrame(this, watchPos, gravUp, mDistMin, mDistMax, true, &front, &up, &side);
 
-    f32 dist;
-    if (MR::isNearZero(watchFront)) {
-        watchFront.cross(CameraLocalUtil::getTarget(this)->getSideVec(), gravUp);
-        dist = camDist;
-    } else {
-        dist = camDist;
-        if (dist < mDistMin) {
-            dist = mDistMin;
-        } else if (dist > mDistMax) {
-            dist = mDistMax;
-        }
-    }
-    MR::normalize(&watchFront);
-
-    TVec3f camUp = CameraLocalUtil::getUpVec(this);
-    TVec3f camFront = CameraLocalUtil::getWatchPos(this) - CameraLocalUtil::getPos(this);
-    MR::normalize(&camFront);
-    TQuat4f rotFront;
-    rotFront.setRotate(camFront, watchFront);
-
-    TVec3f front, up, side;
-    front.set(watchFront);
-    up.set(camUp);
-    rotFront.transform(up);
-    side.cross(up, front);
-    side -= gravUp * gravUp.dot(side);
-    MR::normalize(&side);
-
-    up.cross(front, side);
-    side.cross(up, front);
-
-    if (gravUp.dot(up) < 0.0f) {
-        TQuat4f upsideDownRot;
-        if (front.dot(gravUp) < 0.0f) {
-            upsideDownRot.setRotate(front, -gravUp);
-        } else {
-            upsideDownRot.setRotate(front, gravUp);
-        }
-        upsideDownRot.transform(front);
-        upsideDownRot.transform(side);
-        upsideDownRot.transform(up);
-    }
-
-    TVec3f gravSide = CameraLocalUtil::getTarget(this)->getSideVec();
+    Vec3f gravSide = CameraLocalUtil::getTarget(this)->getSideVec();
     gravSide -= gravUp * gravUp.dot(gravSide);
     MR::normalize(&gravSide);
 
@@ -119,32 +74,16 @@ CameraTargetObj* CameraWaterFollow::calc() {
         }
     }
 
-    TQuat4f rot;
+    Quat4f rot;
     rot.setRotate(side, gravSide, mSideBlendRate);
     rot.transform(front);
     rot.transform(up);
 
-    TVec3f pos = watchPos - front * dist;
-    f32 lastMoveLen = CameraLocalUtil::getTarget(this)->getLastMove().length();
-    if (lastMoveLen > ::sLastMoveLen) {
-        mLastMoveDir.set(CameraLocalUtil::getTarget(this)->getLastMove());
-        MR::normalize(&mLastMoveDir);
-    }
-
-    if (lastMoveLen > ::sLastMoveLen && Collision::checkStrikeLineToMap(pos, front * dist, 0, nullptr, nullptr) != 0) {
-        mCollideCount++;
-        if (mCollideCount > ::sCollideCountMax) {
-            mCollideCount = ::sCollideCountMax;
-        }
-    } else {
-        mCollideCount--;
-        if (mCollideCount < 0) {
-            mCollideCount = 0;
-        }
-    }
+    Vec3f pos = watchPos - front * dist;
+    f32 collideRate = CameraLocalUtil::updateMoveCollision(&mCollideCount, &mLastMoveDir, CameraLocalUtil::getTarget(this), pos, front * dist);
 
     if (mCollideCount > 0) {
-        rot.setRotate(front, mLastMoveDir, mCollideCount * ::sCollideRate / ::sCollideCountMax);
+        rot.setRotate(front, mLastMoveDir, collideRate);
         rot.transform(front);
         rot.transform(up);
     }
@@ -156,6 +95,7 @@ CameraTargetObj* CameraWaterFollow::calc() {
     return CameraLocalUtil::getTarget(this);
 }
 
-CamTranslatorBase* CameraWaterFollow::createTranslator() {
-    return new CamTranslatorWaterFollow(this);
+void CameraWaterFollow::setParamFromChunk(const CameraParamChunk* pChunk) {
+    CameraGeneralParam* general = pChunk->mGeneralParam;
+    setParam(general->mAxis.y, general->mAxis.x, general->mDist);
 }

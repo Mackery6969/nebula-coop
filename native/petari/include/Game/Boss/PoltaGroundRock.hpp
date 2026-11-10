@@ -9,16 +9,16 @@ class PoltaGroundRock : public LiveActor {
 public:
     PoltaGroundRock(const char*);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     void initBreakModel();
-    void start(LiveActor*, const TVec3f&);
+    void start(LiveActor*, const Vec3f&);
     void requestBreak();
     bool isEnableAttack() const;
     bool isEnableBreak() const;
@@ -30,6 +30,6 @@ public:
 
     LiveActor* mOwner;
     ModelObj* mBreakModel;
-    TQuat4f _94;
-    TVec3f _A4;
+    Quat4f mPoseQuat;
+    Vec3f mGroundPos;
 };

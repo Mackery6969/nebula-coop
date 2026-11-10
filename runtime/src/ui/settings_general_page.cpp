@@ -56,7 +56,7 @@ std::vector<SettingsRow> general_page(const RuntimeSettings& runtime, RuntimeSet
     rows.push_back({"LANGUAGE", game_language_name(state.display_language),
                     [&draft_runtime, &host](RenderConfig&, int delta) {
                         // Saved when applied; the game switches at the next start (game_language_for_boot).
-                        // The languages on the disc as it is read (galaxy::set_disc_languages); Auto shows the one
+                        // The languages the game's data holds (galaxy::set_game_languages); Auto shows the one
                         // it plays in, and a step chooses from there.
                         if (delta == 0) return;
                         RuntimeSettings& settings = draft_runtime;
@@ -77,43 +77,21 @@ std::vector<SettingsRow> general_page(const RuntimeSettings& runtime, RuntimeSet
                                                                                                          : chosen;
                     },
                     "THE GAME'S TEXT AND MENUS"});
+    if (state.focus_loss_offered) {
+        static constexpr const char* kFocus[] = {"KEEP RUNNING", "PAUSE", "MUTE"};
+        rows.push_back({"ON LOSING FOCUS", kFocus[std::min<std::size_t>(static_cast<std::size_t>(runtime.focus_loss), 2u)],
+                        [&draft_runtime](RenderConfig&, int delta) {
+                            draft_runtime.focus_loss = static_cast<FocusLoss>(
+                                settings_step(static_cast<unsigned>(draft_runtime.focus_loss), 3u, delta));
+                        },
+                        "WHEN ANOTHER PROGRAM COMES IN FRONT. PAUSE USES THE GAME'S OWN PAUSE MENU. MINIMISING ALWAYS HOLDS THE GAME"});
+    }
     rows.push_back({"DISCORD STATUS", runtime.discord_status ? std::string("ON") : std::string("OFF"),
                     [&draft_runtime, &host](RenderConfig&, int delta) {
                         if (delta == 0) return;
                         draft_runtime.discord_status = !draft_runtime.discord_status;
                     },
                     "SHOWS YOUR CURRENT GALAXY AND MISSION IN DISCORD"});
-    if (state.touch_controls) {
-        // Kept for the screen as it is now: each size and turn of a screen has its own.
-        static constexpr unsigned kSizes[] = {0u, 40u, 50u, 60u, 70u, 80u, 90u, 100u, 110u, 120u, 130u, 140u, 150u, 160u, 180u, 200u};
-        rows.push_back({"ON-SCREEN CONTROLS", {}, nullptr, {}, true});
-        rows.push_back({"BUTTON SIZE", state.touch_size == 0u ? std::string("AUTO") : std::to_string(state.touch_size) + "%",
-                        [state, &host](RenderConfig&, int delta) {
-                            if (delta == 0) return;
-                            unsigned index = 0u;
-                            for (unsigned i = 0u; i < std::size(kSizes); ++i) {
-                                if (kSizes[i] == state.touch_size) index = i;
-                            }
-                            host.set_touch_controls(kSizes[settings_step(index, static_cast<unsigned>(std::size(kSizes)), delta)],
-                                                    state.touch_opacity, state.touch_vibration);
-                        },
-                        "REMEMBERED FOR EACH SIZE AND TURN OF THE SCREEN. AUTO: FOR THIS SCREEN'S SIZE"});
-        rows.push_back({"BUTTON OPACITY", std::to_string(state.touch_opacity) + "%",
-                        [state, &host](RenderConfig&, int delta) {
-                            if (delta == 0) return;
-                            const unsigned step = settings_step((std::clamp(state.touch_opacity, 20u, 100u) - 20u) / 10u, 9u, delta);
-                            host.set_touch_controls(state.touch_size, 20u + step * 10u, state.touch_vibration);
-                        },
-                        "HOW SOLID THE BUTTONS ARE DRAWN"});
-        rows.push_back({"VIBRATION", state.touch_vibration ? std::string("ON") : std::string("OFF"),
-                        [state, &host](RenderConfig&, int delta) {
-                            if (delta == 0) return;
-                            host.set_touch_controls(state.touch_size, state.touch_opacity, !state.touch_vibration);
-                        },
-                        "A SHORT BUZZ WHEN A BUTTON IS PRESSED"});
-        rows.push_back(button_row("BUTTON PLACES", {"RESET"}, [&host](RenderConfig&, unsigned) { host.act(GeneralPageAction::ResetTouchPlaces); },
-                                  "PUTS THE BUTTONS BACK WHERE THE GAME PLACES THEM ON THIS SCREEN"));
-    }
     {
         rows.push_back({"MIIS", {}, nullptr, {}, true});
         std::string status = state.choosing_miis ? "CHOOSING FILES" : state.mii_status;
@@ -125,8 +103,10 @@ std::vector<SettingsRow> general_page(const RuntimeSettings& runtime, RuntimeSet
         char mii_text[32]{};
         std::snprintf(mii_text, sizeof(mii_text), "%d OF 100", count);
         rows.push_back({"YOUR MIIS", mii_text, nullptr, "THE MII ICON PICKER ON THE FILE SELECT SHOWS THEM"});
-        rows.push_back(button_row("MIIS FOLDER", {"OPEN"}, [&draft_runtime, &host](RenderConfig&, unsigned) { host.act(GeneralPageAction::OpenMiiFolder); },
-                                  "FILES PUT HERE ARE IMPORTED AT EVERY START"));
+        if (state.folders_open) {
+            rows.push_back(button_row("MIIS FOLDER", {"OPEN"}, [&host](RenderConfig&, unsigned) { host.act(GeneralPageAction::OpenMiiFolder); },
+                                      "FILES PUT HERE ARE IMPORTED AT EVERY START"));
+        }
     }
     return rows;
 }

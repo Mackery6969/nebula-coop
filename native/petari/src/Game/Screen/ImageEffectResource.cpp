@@ -1,47 +1,44 @@
 #include "Game/Screen/ImageEffectResource.hpp"
-#include "Game/Util/MemoryUtil.hpp"
+#include "Game/System/Arenas.hpp"
 #include "Game/System/NebulaArena.hpp"
-#include <JSystem/JUtility/JUTTexture.hpp>
+#include "Game/Render/GameTexture.hpp"
 #include "Game/System/NebulaFrameClock.hpp"
 
 ImageEffectResource::ImageEffectResource()
-    : _0(nullptr), _8(nullptr), _C(nullptr) {
+    : mFullTexture(nullptr), mHalfTexture(nullptr), mQuarterTexture(nullptr) {
 }
 
 void ImageEffectResource::createBlurTexture() {
-    if (_0 == nullptr) {
-        _0 = createTexture(1.0f);
+    if (mFullTexture == nullptr) {
+        mFullTexture = createTexture(1.0f);
     }
 
-    if (_8 == nullptr) {
-        _8 = createTexture(0.5f);
+    if (mHalfTexture == nullptr) {
+        mHalfTexture = createTexture(0.5f);
     }
 }
 
 void ImageEffectResource::createDOFTexture() {
-    if (_0 == nullptr) {
-        _0 = createTexture(1.0f);
+    if (mFullTexture == nullptr) {
+        mFullTexture = createTexture(1.0f);
     }
 
-    if (_C == nullptr) {
-        _C = createTexture(0.25f);
+    if (mQuarterTexture == nullptr) {
+        mQuarterTexture = createTexture(0.25f);
     }
 
-    if (_8 == nullptr) {
-        _8 = createTexture(0.5f);
+    if (mHalfTexture == nullptr) {
+        mHalfTexture = createTexture(0.5f);
     }
 }
 
-JUTTexture* ImageEffectResource::createTexture(f32 scale) {
-    JUTTexture* pTexture;
+GameTexture* ImageEffectResource::createTexture(f32 scale) {
+    GameTexture* pTexture;
 
-    MR::CurrentHeapRestorer heapRestorer(MR::getSceneHeap());
+    NebulaArena::CurrentScope heapRestorer(Arenas::scene());
 
-    pTexture = new JUTTexture(scale * (s32)NebulaFrameClock::cScreenUnitsAcross, scale * (s32)NebulaFrameClock::cScreenUnitsDown);
-    pTexture->mWrapS = NEBULA_WRAP_CLAMP;
-    pTexture->mWrapT = NEBULA_WRAP_CLAMP;
-    pTexture->mMinType = NEBULA_FILTER_LINEAR;
-    pTexture->mMagType = NEBULA_FILTER_LINEAR;
+    pTexture = GameTexture::createTarget(scale, scale);
+    pTexture->setSampling(NEBULA_WRAP_CLAMP, NEBULA_WRAP_CLAMP, NEBULA_FILTER_LINEAR, NEBULA_FILTER_LINEAR);
 
     return pTexture;
 }

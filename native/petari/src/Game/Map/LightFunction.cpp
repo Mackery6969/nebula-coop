@@ -1,5 +1,6 @@
+#include "Game/Render/Material.hpp"
 #include "Game/Map/LightFunction.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include "Game/Render/FrameList.hpp"
 #include "Game/Util/GameLightSignal.hpp"
 #include "Game/Util/MotionSignal.hpp"
 #include "Game/AreaObj/LightAreaHolder.hpp"
@@ -9,24 +10,22 @@
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
-#include <cstdio>
+#include "Game/Util/StringUtil.hpp"
 
-
-namespace {};  // namespace
 
 void LightFunction::initLightRegisterAll() {
     Color8 c(255, 255, 255, 255);
 
     for (s32 i = 0; i < 8; i++) {
-        J3DNativeLight obj;
-        J3DNativeState::initLightColor(&obj, c);
-        J3DNativeState::initLightPos(&obj, 0.0f, 0.0f, 0.0f);
-        J3DNativeState::initLightDir(&obj, 0.0f, -1.0f, 0.0f);
-        J3DNativeState::initLightAttn(&obj, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f);
-        J3DNativeState::initSpecularDir(&obj, 0.0f, -1.0f, 0.0f);
-        J3DNativeState::initSpecularDirHA(&obj, 0.0f, -1.0f, 0.0f, 0.0f, -1.0f, 0.0f);
-        J3DNativeState::initLightAttn(&obj, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f);
-        J3DNativeState::sendLight(&obj, i);
+        NebulaLight obj = {};
+        LightValues::color(&obj, c);
+        LightValues::pos(&obj, 0.0f, 0.0f, 0.0f);
+        LightValues::dir(&obj, 0.0f, -1.0f, 0.0f);
+        LightValues::attn(&obj, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f);
+        LightValues::specularDir(&obj, 0.0f, -1.0f, 0.0f);
+        LightValues::specularDirHA(&obj, 0.0f, -1.0f, 0.0f, 0.0f, -1.0f, 0.0f);
+        LightValues::attn(&obj, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f);
+        Frame::setLight(i, obj);
     }
 }
 
@@ -35,74 +34,63 @@ void LightFunction::initLightData() {
 }
 
 ResourceHolder* LightFunction::loadLightArchive() {
-    char buf[0x100];
-    nebula_snprintf(buf, sizeof(buf), "LightData.arc");
-    return MR::createAndAddResourceHolder(buf);
+    return MR::createAndAddResourceHolder("LightData");
 }
 
-s32 LightFunction::createLightDataParser(JMapInfo** pOut) {
+s32 LightFunction::createLightDataParser(Table** pOut) {
     ResourceHolder* holder = MR::getSceneObj< LightDirector >(SceneObj_LightDirector)->mResourceHolder;
-    JMapInfo* info = MR::tryCreateCsvParser(holder, "LightData.bcsv");
+    Table* info = MR::tryCreateCsvParser(holder, "LightData.bcsv");
     *pOut = info;
-    if (info->mData != nullptr) {
-        return info->mData->mNumEntries;
+
+    // A light archive with no LightData table holds no lights.
+    if (info == nullptr) {
+        return 0;
     }
 
-    return 0;
+    return info->getNumEntries();
 }
 
-s32 LightFunction::createZoneDataParser(const char* pZone, JMapInfo** pOut) {
+s32 LightFunction::createZoneDataParser(const char* pZone, Table** pOut) {
     ResourceHolder* holder = MR::getSceneObj< LightDirector >(SceneObj_LightDirector)->mResourceHolder;
-    JMapInfo* info = MR::tryCreateCsvParser(holder, "Light%s.bcsv", pZone);
+    Table* info = MR::tryCreateCsvParser(holder, "Light%s.bcsv", pZone);
     *pOut = info;
 
     if (info != nullptr) {
-        if (info->mData != nullptr) {
-            return info->mData->mNumEntries;
-        }
-
-        return 0;
+        return info->getNumEntries();
     }
 
     return 0;
 }
 
 namespace {
-    void getDataLightInfo(JMapInfo* pInfo, int id, LightInfo* pLightInfo, const char* pName) {
-        char colorBuf[256];
-        nebula_snprintf(colorBuf, sizeof(colorBuf), "%sColor", pName);
-        MR::getCsvDataColor(&pLightInfo->mColor, pInfo, colorBuf, id);
-        char posBuf[256];
-        nebula_snprintf(posBuf, sizeof(posBuf), "%sPos", pName);
-        MR::getCsvDataVec(&pLightInfo->mPos, pInfo, posBuf, id);
-        char camBuf[256];
-        nebula_snprintf(camBuf, sizeof(camBuf), "%sFollowCamera", pName);
-        MR::getCsvDataBool(&pLightInfo->mIsFollowCamera, pInfo, camBuf, id);
+    void getDataLightInfo(Table* pInfo, int id, LightInfo* pLightInfo, const char* pName) {
+        MR::FormattedName colorBuf("%sColor", pName);
+        MR::getCsvDataColor(&pLightInfo->mColor, pInfo, colorBuf.c_str(), id);
+        MR::FormattedName posBuf("%sPos", pName);
+        MR::getCsvDataVec(&pLightInfo->mPos, pInfo, posBuf.c_str(), id);
+        MR::FormattedName camBuf("%sFollowCamera", pName);
+        MR::getCsvDataBool(&pLightInfo->mIsFollowCamera, pInfo, camBuf.c_str(), id);
     }
 
-    void getDataActorLightInfo(JMapInfo* pInfo, int lightID, ActorLightInfo* pActorInfo, const char* pName) {
-        char lightBuf[256];
-        nebula_snprintf(lightBuf, sizeof(lightBuf), "%sLight%d", pName, 0);
-        getDataLightInfo(pInfo, lightID, &pActorInfo->mInfo0, lightBuf);
-        nebula_snprintf(lightBuf, sizeof(lightBuf), "%sLight%d", pName, 1);
-        getDataLightInfo(pInfo, lightID, &pActorInfo->mInfo1, lightBuf);
-        char alphaBuf[256];
-        nebula_snprintf(alphaBuf, sizeof(alphaBuf), "%sAlpha2", pName);
-        MR::getCsvDataU8(&pActorInfo->mAlpha2, pInfo, alphaBuf, lightID);
-        char ambBuf[256];
-        nebula_snprintf(ambBuf, sizeof(ambBuf), "%sAmbient", pName);
-        MR::getCsvDataColor(&pActorInfo->mColor, pInfo, ambBuf, lightID);
+    void getDataActorLightInfo(Table* pInfo, int lightID, ActorLightInfo* pActorInfo, const char* pName) {
+        MR::FormattedName lightBuf("%sLight%d", pName, 0);
+        getDataLightInfo(pInfo, lightID, &pActorInfo->mInfo0, lightBuf.c_str());
+        lightBuf.format("%sLight%d", pName, 1);
+        getDataLightInfo(pInfo, lightID, &pActorInfo->mInfo1, lightBuf.c_str());
+        MR::FormattedName alphaBuf("%sAlpha2", pName);
+        MR::getCsvDataU8(&pActorInfo->mAlpha2, pInfo, alphaBuf.c_str(), lightID);
+        MR::FormattedName ambBuf("%sAmbient", pName);
+        MR::getCsvDataColor(&pActorInfo->mColor, pInfo, ambBuf.c_str(), lightID);
     }
 };  // namespace
 
-void LightFunction::getAreaLightLightData(JMapInfo* pInfo, int idx, AreaLightInfo* pLightInfo) {
+void LightFunction::getAreaLightLightData(Table* pInfo, int idx, AreaLightInfo* pLightInfo) {
     MR::getCsvDataStr(&pLightInfo->mAreaLightName, pInfo, "AreaLightName", idx);
     MR::getCsvDataS32(&pLightInfo->mInterpolate, pInfo, "Interpolate", idx);
     ::getDataActorLightInfo(pInfo, idx, &pLightInfo->mPlayerLight, "Player");
     ::getDataActorLightInfo(pInfo, idx, &pLightInfo->mStrongLight, "Strong");
     ::getDataActorLightInfo(pInfo, idx, &pLightInfo->mWeakLight, "Weak");
     ::getDataActorLightInfo(pInfo, idx, &pLightInfo->mPlanetLight, "Planet");
-    MR::getCsvDataBool(&pLightInfo->mFix, pInfo, "Fix", idx);
 }
 
 const char* LightFunction::getDefaultAreaLightName() {
@@ -114,15 +102,15 @@ s32 LightFunction::getDefaultStepInterpolate() {
 }
 
 void LightFunction::registerPlayerLightCtrl(const ActorLightCtrl* pCtrl) {
-    MR::getSceneObj< LightDirector >(SceneObj_LightDirector)->_1C = pCtrl;
+    MR::getSceneObj< LightDirector >(SceneObj_LightDirector)->mPlayerLightCtrl = pCtrl;
 }
 
 void LightFunction::registerLightAreaHolder(LightAreaHolder* pHolder) {
-    MR::getSceneObj< LightDirector >(SceneObj_LightDirector)->_C = pHolder;
+    MR::getSceneObj< LightDirector >(SceneObj_LightDirector)->mAreaHolder = pHolder;
 }
 
-bool LightFunction::tryFindNewAreaLightID(const TVec3f& rPos, ZoneLightID* pId) {
-    return MR::getSceneObj< LightDirector >(SceneObj_LightDirector)->_C->tryFindLightID(rPos, pId);
+bool LightFunction::tryFindNewAreaLightID(const Vec3f& rPos, ZoneLightID* pId) {
+    return MR::getSceneObj< LightDirector >(SceneObj_LightDirector)->mAreaHolder->tryFindLightID(rPos, pId);
 }
 
 AreaLightInfo* LightFunction::getAreaLightInfo(const ZoneLightID& rId) {
@@ -136,12 +124,12 @@ namespace {
             if (rFrom.mIsFollowCamera) {
                 MR::blendVec(&pResult->mPos, rFrom.mPos, rTo.mPos, rate);
             } else {
-                TVec3f pos(rFrom.mPos);
+                Vec3f pos(rFrom.mPos);
                 MR::getCameraViewMtx().mult(pos, pos);
                 MR::blendVec(&pResult->mPos, pos, rTo.mPos, rate);
             }
         } else if (rFrom.mIsFollowCamera) {
-            TVec3f pos(rFrom.mPos);
+            Vec3f pos(rFrom.mPos);
             MR::getCameraInvViewMtx().mult(pos, pos);
             MR::blendVec(&pResult->mPos, pos, rTo.mPos, rate);
         } else {
@@ -160,19 +148,19 @@ void LightFunction::blendActorLightInfo(ActorLightInfo* pResult, const ActorLigh
 }
 
 namespace {
-    void loadLightDiffuse(NebulaColor8 color, const TVec3f& rPos, u8 light) {
-        J3DNativeLight lightObj;
+    void loadLightDiffuse(NebulaColor8 color, const Vec3f& rPos, u8 light) {
+        NebulaLight lightObj = {};
 
-        J3DNativeState::initLightPos(&lightObj, rPos.x, rPos.y, rPos.z);
-        J3DNativeState::initLightAttn(&lightObj, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f);
+        LightValues::pos(&lightObj, rPos.x, rPos.y, rPos.z);
+        LightValues::attn(&lightObj, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f);
 
         NebulaColor8 new_color(color);
-        J3DNativeState::initLightColor(&lightObj, new_color);
-        J3DNativeState::sendLight(&lightObj, light);
+        LightValues::color(&lightObj, new_color);
+        Frame::setLight(light, lightObj);
     }
 
     inline void loadCameraLight(const LightInfo& rInfo, u8 light) {
-        TVec3f position(rInfo.mPos);
+        Vec3f position(rInfo.mPos);
         ::loadLightDiffuse(NebulaColor8(rInfo.mColor), position, light);
     }
 
@@ -180,70 +168,80 @@ namespace {
         if (rInfo.mIsFollowCamera) {
             ::loadCameraLight(rInfo, light);
         } else {
-            TVec3f v14(rInfo.mPos);
-            MR::getCameraViewMtx().mult(v14, v14);
-            ::loadLightDiffuse(NebulaColor8(rInfo.mColor), v14, light);
+            Vec3f viewPos(rInfo.mPos);
+            MR::getCameraViewMtx().mult(viewPos, viewPos);
+            ::loadLightDiffuse(NebulaColor8(rInfo.mColor), viewPos, light);
         }
     }
 };  // namespace
 
+// Each loader marks only the lights it writes (Frame::setLightFollows): a light another loader wrote keeps its own mark,
+// so the host carries every light across a camera move as what it is, fixed to the camera or to the world.
 void LightFunction::loadActorLightInfo(const ActorLightInfo* pInfo) {
-    MotionSignal::actorLight(pInfo);
+    Frame::setLightFollows(0, pInfo->mInfo0.mIsFollowCamera);
+    Frame::setLightFollows(1, pInfo->mInfo1.mIsFollowCamera);
+    // Light 2 (the alpha light) sits at the eye.
+    Frame::setLightFollows(2, true);
     GameLightSignal::actorLight(pInfo);
     ::loadLightInfoDiffuse(pInfo->mInfo0, 0);
     ::loadLightInfoDiffuse(pInfo->mInfo1, 1);
 
     u8 alpha = pInfo->mAlpha2;
     NebulaColor8 c = {0, 0, 0, alpha};
-    ::loadLightDiffuse(c, TVec3f(0.0f, 0.0f, 0.0f), 2);
-    J3DPass::lightAmbient(0, NebulaColor8(pInfo->mColor));
+    ::loadLightDiffuse(c, Vec3f(0.0f, 0.0f, 0.0f), 2);
+    MaterialAmbient::set(0, NebulaColor8(pInfo->mColor));
 }
 
 void LightFunction::loadLightInfoCoin(const LightInfoCoin* pInfo) {
-    MotionSignal::coinLight(pInfo);
+    Frame::setLightFollows(0, pInfo->base.mIsFollowCamera);
+    // The shine: a direction fixed in view space.
+    Frame::setLightFollows(3, true);
+    GameLightSignal::coinLight(pInfo);
     ::loadLightInfoDiffuse(pInfo->base, 0);
-    TVec3f v7(0.0f, 0.0f, -1.0f);
-    J3DNativeLight obj;
-    f32 v = pInfo->_18;
-    J3DNativeState::initLightColor(&obj, NebulaColor8(pInfo->_14));
-    J3DNativeState::initSpecularDir(&obj, v7.x, v7.y, v7.z);
-    J3DNativeState::initLightAttn(&obj, 0.0f, 0.0f, 1.0f, (v / 2.0f), 0.0f, (1.0f - (v / 2.0f)));
-    J3DNativeState::sendLight(&obj, 3);
+    NebulaLight obj = {};
+    f32 shininess = pInfo->mShininess;
+    LightValues::color(&obj, NebulaColor8(pInfo->mSpecularColor));
+    LightValues::specularDir(&obj, 0.0f, 0.0f, -1.0f);
+    LightValues::attn(&obj, 0.0f, 0.0f, 1.0f, (shininess / 2.0f), 0.0f, (1.0f - (shininess / 2.0f)));
+    Frame::setLight(3, obj);
 }
 
 void LightFunction::loadPointLightInfo(const PointLightInfo* pInfo) {
-    MotionSignal::pointLight(pInfo);
+    // A world point (moved into view space below).
+    Frame::setLightFollows(4, false);
     GameLightSignal::pointLight(pInfo);
-    TVec3f v7(pInfo->mPos);
-    MR::getCameraViewMtx().mult(v7, v7);
-    J3DNativeLight obj;
-    J3DNativeState::initLightPos(&obj, v7.x, v7.y, v7.z);
-    J3DNativeState::initLightDistAttn(&obj, pInfo->mRefDistance, pInfo->mRefBrightness, pInfo->mDistAttnFn);
-    J3DNativeState::initLightNoSpot(&obj);
-    J3DNativeState::initLightColor(&obj, pInfo->mColor);
-    J3DNativeState::sendLight(&obj, 4);
+    Vec3f viewPos(pInfo->mPos);
+    MR::getCameraViewMtx().mult(viewPos, viewPos);
+    NebulaLight obj = {};
+    LightValues::pos(&obj, viewPos.x, viewPos.y, viewPos.z);
+    LightValues::distAttn(&obj, pInfo->mRefDistance, pInfo->mRefBrightness, pInfo->mDistAttnFn);
+    LightValues::noSpot(&obj);
+    LightValues::color(&obj, pInfo->mColor);
+    Frame::setLight(4, obj);
 }
 
 void LightFunction::loadAllLightWhite() {
-    MotionSignal::allLightWhite();
+    // All eight at the eye.
+    Frame::setLightFollowsCamera(0xffu);
+    GameLightSignal::noLight();
 
     for (u32 i = 0; i < 8; i++) {
-        J3DNativeLight lightObj;
-        J3DNativeState::initLightPos(&lightObj, 0.0f, 0.0f, 0.0f);
+        NebulaLight lightObj = {};
+        LightValues::pos(&lightObj, 0.0f, 0.0f, 0.0f);
 
         NebulaColor8 color = {255, 255, 255, 255};
-        J3DNativeState::initLightColor(&lightObj, color);
-        J3DNativeState::sendLight(&lightObj, i);
+        LightValues::color(&lightObj, color);
+        Frame::setLight(i, lightObj);
     }
 }
 
-void LightFunction::calcLightWorldPos(TVec3f* pPos, const LightInfo& rInfo) {
+void LightFunction::calcLightWorldPos(Vec3f* pPos, const LightInfo& rInfo) {
     pPos->x = rInfo.mPos.x;
     pPos->y = rInfo.mPos.y;
     pPos->z = rInfo.mPos.z;
 
     if (rInfo.mIsFollowCamera) {
-        TPos3f mtx;
+        Pos3f mtx;
         mtx.setInline(MR::getCameraViewMtx());
         mtx.invert(mtx);
         mtx.mult(*pPos, *pPos);

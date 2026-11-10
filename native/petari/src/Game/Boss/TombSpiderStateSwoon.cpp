@@ -1,11 +1,12 @@
 #include "Game/Boss/TombSpiderStateSwoon.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Boss/TombSpider.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/NerveUtil.hpp"
 
 namespace {
-    static const s32 sLoopStep = 180;
+    static const s32 sLoopStep = NebulaFrameClock::stepsOfSeconds(3);
 };  // namespace
 
 namespace NrvTombSpiderStateSwoon {
@@ -14,7 +15,7 @@ namespace NrvTombSpiderStateSwoon {
     NEW_NERVE(TombSpiderStateSwoonNrvEnd, TombSpiderStateSwoon, End);
 };  // namespace NrvTombSpiderStateSwoon
 
-TombSpiderStateSwoon::TombSpiderStateSwoon(TombSpider* pParent) : ActorStateBase< TombSpider >("State[\213\103\220\342]" /* State[気絶] */, pParent) {
+TombSpiderStateSwoon::TombSpiderStateSwoon(TombSpider* pParent) : ActorStateBase< TombSpider >("State[気絶]", pParent) {
 }
 
 void TombSpiderStateSwoon::init() {

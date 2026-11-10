@@ -13,16 +13,21 @@
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
+#include "Game/Util/Tunable.hpp"
+
+// The numbers this file's functions give the game's motion and animation calls, as tunables: "<file>.<function>.<call>.<k>".
+NEBULA_TUNABLE_NAMED(f32, cNum_exeWait_reboundVelocityFromCollision_1, "exeWait.reboundVelocityFromCollision.1", 0.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeWait_reboundVelocityFromCollision_2, "exeWait.reboundVelocityFromCollision.2", 1.0f);
 
 namespace {
-    static const f32 sFireRadius = 58.0f;
-    static const s32 sLife = 180;
-    static const f32 sInitVerticalSpeed = 15.0f;
-    static const f32 sInitHorizonSpeed = 15.0f;
-    static const f32 sGravityAccel = 0.5f;
-    static const f32 sFreqRate = 0.995f;
-    static const f32 sReboundRate = 0.4f;
-    static const s32 sSweepTime = 40;
+    NEBULA_TUNABLE(f32, sFireRadius, 58.0f);
+    NEBULA_TUNABLE(s32, sLife, 180);
+    NEBULA_TUNABLE(f32, sInitVerticalSpeed, 15.0f);
+    NEBULA_TUNABLE(f32, sInitHorizonSpeed, 15.0f);
+    NEBULA_TUNABLE(f32, sGravityAccel, 0.5f);
+    NEBULA_TUNABLE(f32, sFreqRate, 0.995f);
+    NEBULA_TUNABLE(f32, sReboundRate, 0.4f);
+    NEBULA_TUNABLE(s32, sSweepTime, 40);
     static Color8 sPointLightColor(0xFF, 0x64, 0, 0xFF);
 };  // namespace
 
@@ -34,18 +39,18 @@ namespace NrvBossKameckBeamFire {
 KameckFireBall::KameckFireBall(const char* pName) : LiveActor(pName), mRotateQuat(0.0f, 0.0f, 0.0f, 1.0f), mEventListener() {
 }
 
-void KameckFireBall::init(const JMapInfoIter& rIter) {
+void KameckFireBall::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("BossKameckFireBall", nullptr, false);
     MR::connectToSceneEnemy(this);
     initNerve(GET_NERVE(BossKameckBeamFire, KameckFireBallNrvWait));
     initHitSensor(1);
-    TVec3f sensorOffs;
+    Vec3f sensorOffs;
     sensorOffs.x = 0.0f;
     sensorOffs.y = 0.0f;
     sensorOffs.z = 0.0f;
     MR::addHitSensorEnemyAttack(this, "attack", 8, ::sFireRadius, sensorOffs);
-    TVec3f pointerOffs;
+    Vec3f pointerOffs;
     pointerOffs.x = 0.0f;
     pointerOffs.y = 0.0f;
     pointerOffs.z = 0.0f;
@@ -54,7 +59,7 @@ void KameckFireBall::init(const JMapInfoIter& rIter) {
     MR::setKameckBeamCollisionFilter(this);
     MR::initShadowVolumeSphere(this, ::sFireRadius);
     MR::onCalcShadow(this, nullptr);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initSound(4, false);
     MR::invalidateClipping(this);
     makeActorDead();
@@ -78,7 +83,7 @@ void KameckFireBall::makeActorDead() {
 }
 
 void KameckFireBall::control() {
-    MR::requestPointLight(this, TVec3f(mPosition), ::sPointLightColor, 1.0f, -1);
+    MR::requestPointLight(this, Vec3f(mPosition), ::sPointLightColor, 1.0f, -1);
 }
 
 void KameckFireBall::calcAndSetBaseMtx() {
@@ -98,7 +103,7 @@ void KameckFireBall::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     }
 }
 
-bool KameckFireBall::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool KameckFireBall::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (MR::isMsgLockOnStarPieceShoot(msg)) {
         return true;
     }
@@ -111,7 +116,7 @@ bool KameckFireBall::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSens
     return false;
 }
 
-bool KameckFireBall::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool KameckFireBall::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (MR::isMsgStartPowerStarGet(msg)) {
         makeActorDead();
         return true;
@@ -120,7 +125,7 @@ bool KameckFireBall::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pRe
     return false;
 }
 
-void KameckFireBall::appearDirection(const TVec3f& rDirection) {
+void KameckFireBall::appearDirection(const Vec3f& rDirection) {
     appear();
     MR::onCalcGravity(this);
     MR::calcGravity(this);
@@ -141,13 +146,13 @@ void KameckFireBall::exeWait() {
     MR::addVelocityToGravity(this, ::sGravityAccel);
     MR::attenuateVelocity(this, ::sFreqRate);
 
-    if (MR::reboundVelocityFromCollision(this, ::sReboundRate, 0.0f, 1.0f)) {
+    if (MR::reboundVelocityFromCollision(this, ::sReboundRate, cNum_exeWait_reboundVelocityFromCollision_1, cNum_exeWait_reboundVelocityFromCollision_2)) {
         if (mVelocity.dot(-mGravity) >= 1.0f) {
             MR::startSound(this, "SE_BM_KAMECK_FIRE_BOUND");
         }
     }
 
-    if (MR::isStarPointerPointing2POnPressButton(this, "\216\343" /* 弱 */, 1, 0)) {
+    if (MR::isStarPointerPointing2POnPressButton(this, "弱", 1, 0)) {
         kill();
     } else if (MR::isGreaterStep(this, ::sLife) || MR::isInWater(mPosition)) {
         kill();

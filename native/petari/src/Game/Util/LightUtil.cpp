@@ -35,19 +35,18 @@ namespace MR {
     }
 
     void loadLightPlayer() {
-        MotionSignal::playerLight();
         MR::getSceneObj< LightDirector >(SceneObj_LightDirector)->loadLightPlayer();
     }
 
-    void initActorLightInfoLightType(LiveActor* pActor, s32 a2) {
-        pActor->mActorLightCtrl->_4 = a2;
+    void initActorLightInfoLightType(LiveActor* pActor, s32 lightType) {
+        pActor->mActorLightCtrl->mLightType = lightType;
     }
 
     void initActorLightInfoDrawBuffer(LiveActor* pActor, DrawBuffer* pDrawBuffer) {
-        pActor->mActorLightCtrl->_8 = pDrawBuffer;
+        pActor->mActorLightCtrl->mDrawBuffer = pDrawBuffer;
     }
 
-    void requestPointLight(const LiveActor* pActor, TVec3f pos, Color8 color, f32 intensity, s32 duration) {
+    void requestPointLight(const LiveActor* pActor, Vec3f pos, Color8 color, f32 intensity, s32 duration) {
         GameLightSignal::pointRequest(pActor, pos, color, intensity);
         return MR::getSceneObj< LightDirector >(SceneObj_LightDirector)->mPointCtrl->requestPointLight(pActor, pos, color, intensity, duration);
     }

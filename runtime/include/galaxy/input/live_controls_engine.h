@@ -3,6 +3,7 @@
 #include "galaxy/input/controls_engine.h"
 #include "galaxy/controller_roster.h"
 #include "galaxy/host_pointer_events.h"
+#include "galaxy/input_bindings.h"
 #include "galaxy/pointer_control.h"
 #include <optional>
 #include <span>
@@ -25,7 +26,7 @@ struct LivePad {
     bool gravity_valid = false;
     galaxy::input::tilt::Vec3 gravity{0.0f, 1.0f, 0.0f};
     // XInput user index or Switch worker slot (with the scheme: identity).
-    std::uint8_t device_slot = 0xFF;
+    std::uint32_t device_slot = galaxy::input::kKeyboardSlot;
 };
 
 
@@ -58,7 +59,7 @@ struct LiveControlsFrame {
     std::span<const LivePad> pads;
     galaxy::input::KeyboardMouseLevels keyboard_levels{};
     NativeInputScriptOverlay script{};
-    std::uint64_t vi = 0;
+    std::uint64_t game_frame = 0;
     std::uint64_t script_pointer_grace_ms = 250;
     bool window_focused = false;
     bool use_keyboard = false;
@@ -69,6 +70,12 @@ struct LiveControlsFrame {
     bool script_pointer_force = false;
     galaxy::input::PlayContext context = galaxy::input::PlayContext::Play;
     galaxy::input::tilt::Section tilt_section = galaxy::input::tilt::Section::None;
+    // The host's own controls with no binding table (a phone's on-screen buttons and stick), merged with the bindings'.
+    galaxy::input::LogicalInput extra{};
+    // The device's own motion sensors (a phone) when no controller is in hand: its up steers the tilt sections and its
+    // shake spins.
+    const galaxy::input::tilt::Vec3* device_up = nullptr;
+    bool device_shake = false;
 };
 struct RumbleSelection {
     std::optional<galaxy::input::DeviceKey> device;
@@ -78,20 +85,22 @@ struct RumbleSelection {
 struct LiveControlsResult {
     galaxy::input::PlayerInput input{};
     RumbleSelection rumble{};
+    galaxy::input::PointerSource pointer_owner = galaxy::input::PointerSource::None;
 };
 class LiveControlsEngine {
 public:
     LiveControlsResult sample(const LiveControlsFrame& frame, LiveControlsHost& host);
 private:
-    static constexpr std::uint32_t kDrivingNone = 0xFFFFFFFFu;
-    static constexpr std::uint32_t kDrivingKeyboard = 0xFFFFFFFEu;
+    // A pad's key is its scheme in the high 32 bits and its slot in the low 32.
+    static constexpr std::uint64_t kDrivingNone = ~std::uint64_t{0};
+    static constexpr std::uint64_t kDrivingKeyboard = ~std::uint64_t{0} - 1u;
     struct PadHistory {
         galaxy::input::DeviceKey device;
         std::uint32_t pressed = 0;
         bool seen = false;
     };
     std::vector<PadHistory> s_pad_history;
-    std::uint32_t s_driving_pad = kDrivingNone;
+    std::uint64_t s_driving_pad = kDrivingNone;
     galaxy::input::JumpBackLatch s_jump_back{};
     float s_pointer_x = 0.0f;
     float s_pointer_y = 0.0f;

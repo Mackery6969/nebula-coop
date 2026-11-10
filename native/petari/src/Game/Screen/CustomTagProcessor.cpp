@@ -9,15 +9,16 @@
 #include "Game/Util/SystemUtil.hpp"
 #include <algorithm>
 #include <cstdio>
-#include <nw4r/lyt/material.h>
-#include <nw4r/lyt/textBox.h>
-#include <nw4r/ut/TextWriterBase.h>
+#include <Game/Ui/Material.hpp>
+#include <Game/Ui/TextBox.hpp>
+#include <Game/Ui/TextWriterBase.hpp>
 #include "Game/Util/ByteView.hpp"
+#include "Game/Util/Tunable.hpp"
 
 
 namespace {
-    const f32 mRubyBaseLineOffset = 3.0f;
-    const f32 mRubyCharSpace = 2.0f;
+    NEBULA_TUNABLE(f32, mRubyBaseLineOffset, 3.0f);
+    NEBULA_TUNABLE(f32, mRubyCharSpace, 2.0f);
 
     NebulaColor8 sTextColor[] = {{255, 255, 255, 255}, {220, 130, 130, 255}, {80, 170, 80, 255},   {80, 140, 210, 255},
                             {235, 200, 0, 255},   {180, 110, 200, 255}, {255, 190, 190, 255}, {110, 243, 70, 255},
@@ -26,7 +27,7 @@ namespace {
 
     u8 clampU8(s32 value);
 
-    NebulaColor8 setGXColor(NebulaColor16 color) {
+    NebulaColor8 toColor8(NebulaColor16 color) {
         NebulaColor8 result;
         result.r = clampU8(color.r);
         result.g = clampU8(color.g);
@@ -40,10 +41,15 @@ namespace {
     }
 
     const NebulaColor8& getTextColor(s32 index) {
+        // A colour number past the table (an edited message) is the default colour.
+        if (index < 0 || index >= ARRAY_SIZE(::sTextColor)) {
+            index = 0;
+        }
+
         return ::sTextColor[index];
     }
 
-    void setTextColor(nw4r::ut::TextWriterBase< char16_t >* writer, s32 index) {
+    void setTextColor(Ui::TextWriterBase< char16_t >* writer, s32 index) {
         NebulaColor8 color = getTextColor(index);
         color.a = writer->GetTextColor().a;
         writer->SetTextColor(color);
@@ -128,164 +134,162 @@ CustomTagProcessor::Impl::GroupFunctionInfo* CustomTagProcessor::Impl::findGroup
     return nullptr;
 }
 
-namespace nw4r {
-    namespace ut {
-        template <>
-        f32 TextWriterBase< char16_t >::PrintImpl(StreamType str, int length) {
+namespace Ui {
+    template <>
+    f32 TextWriterBase< char16_t >::PrintImpl(StreamType str, int length) {
 
-            f32 xOrigin = GetCursorX();
-            f32 yOrigin = GetCursorY();
-            const bool bUseLimit = (mWidthLimit < nw4r::math::F_MAX);
-            const f32 orgCursorY = yOrigin;
-            f32 yCursorAdj = 0.0f;
-            f32 textWidth = 0;
-            bool bCharSpace = false;
-            StreamType prevStreamPos = str;
-            StreamType prevNewLinePos = str;
+        f32 xOrigin = GetCursorX();
+        f32 yOrigin = GetCursorY();
+        const bool bUseLimit = (mWidthLimit < Ui::cWidthUnlimited);
+        const f32 orgCursorY = yOrigin;
+        f32 yCursorAdj = 0.0f;
+        f32 textWidth = 0;
+        bool bCharSpace = false;
+        StreamType prevStreamPos = str;
+        StreamType prevNewLinePos = str;
 
-            {
-                textWidth = AdjustCursor(&xOrigin, &yOrigin, str, length);
-                yCursorAdj = orgCursorY - GetCursorY();
-            }
-
-            PrintContext< CharType > context = {this, str, xOrigin, yOrigin, 0};
-            CharStrmReader reader = GetFont()->GetCharStrmReader();
-            reader.Set(str);
-
-            CustomTagProcessor* processor = nullptr;
-            const u8 alpha = GetAlpha();
-            if (&mDefaultTagProcessor != mTagProcessor) {
-                processor = static_cast< CustomTagProcessor* >(mTagProcessor);
-                processor->reset(str);
-            }
-
-            for (CharCode code = reader.Next(); reinterpret_cast< StreamType >(reader.GetCurrentPos()) - str <= length;) {
-                if (code < ' ')
-
-                {
-                    typename TagProcessor::Operation operation;
-                    context.str = reinterpret_cast< StreamType >(reader.GetCurrentPos());
-                    context.flags = 0;
-                    context.flags |= bCharSpace ? 0 : CONTEXT_NO_CHAR_SPACE;
-
-                    if (bUseLimit && (code != '\n') && (prevStreamPos != prevNewLinePos)) {
-                        PrintContext< CharType > context2 = context;
-                        TextWriterBase< CharType > myCopy = *this;
-                        Rect rect;
-
-                        context2.writer = &myCopy;
-                        operation = mTagProcessor->CalcRect(&rect, code, &context2);
-
-                        if ((rect.GetWidth() > 0.0f) && (myCopy.GetCursorX() - context.xOrigin > mWidthLimit)) {
-                            code = '\n';
-                            reader.Set(prevStreamPos);
-                            continue;
-                        }
-                    }
-
-                    operation = mTagProcessor->Process(code, &context);
-
-                    if (operation == TagProcessor::OPERATION_NEXT_LINE) {
-
-                        if (IsDrawFlagSet(HORIZONTAL_ALIGN_MASK, HORIZONTAL_ALIGN_CENTER)) {
-                            const int remain = length - (context.str - str);
-                            const f32 width = CalcLineWidth(context.str, remain);
-                            const f32 offset = (textWidth - width) / 2;
-                            SetCursorX(context.xOrigin + offset);
-                        } else if (IsDrawFlagSet(HORIZONTAL_ALIGN_MASK, HORIZONTAL_ALIGN_RIGHT)) {
-                            const int remain = length - (context.str - str);
-                            const f32 width = CalcLineWidth(context.str, remain);
-                            const f32 offset = textWidth - width;
-                            SetCursorX(context.xOrigin + offset);
-                        } else {
-                            const f32 width = GetCursorX() - context.xOrigin;
-                            textWidth = Max(textWidth, width);
-
-                            SetCursorX(context.xOrigin);
-                        }
-
-                        if (bUseLimit) {
-                            prevNewLinePos = reinterpret_cast< StreamType >(reader.GetCurrentPos());
-                        }
-                        bCharSpace = false;
-                    } else if (operation == TagProcessor::OPERATION_NO_CHAR_SPACE) {
-                        bCharSpace = false;
-                    } else if (operation == TagProcessor::OPERATION_CHAR_SPACE) {
-                        bCharSpace = true;
-                    } else if (operation == TagProcessor::OPERATION_END_DRAW) {
-                        break;
-                    }
-
-                    reader.Set(context.str);
-                } else
-
-                {
-                    if (processor) {
-                        SetAlpha(processor->mAlphaCtrl.alpha());
-                        processor->mAlphaCtrl.mCharIndex++;
-                    }
-
-                    const f32 baseY = GetCursorY();
-
-                    if (bUseLimit && (prevStreamPos != prevNewLinePos)) {
-                        f32 baseX = GetCursorX();
-                        f32 charSpace = bCharSpace ? GetCharSpace() : 0.0f;
-                        f32 charWidth = IsWidthFixed() ? GetFixedWidth() : GetFont()->GetCharWidth(code) * GetScaleH();
-
-                        if (baseX - xOrigin + charSpace + charWidth > mWidthLimit) {
-                            code = '\n';
-                            reader.Set(prevStreamPos);
-                            continue;
-                        }
-                    }
-
-                    if (bCharSpace) {
-                        MoveCursorX(GetCharSpace());
-                    }
-                    bCharSpace = true;
-
-                    {
-                        const Font* pFont = GetFont();
-                        const f32 adj = -pFont->GetBaselinePos() * GetScaleV();
-                        MoveCursorY(adj);
-                    }
-
-                    CharWriter::Print(code);
-
-
-                    SetCursorY(baseY);
-                }
-
-                if (bUseLimit) {
-                    prevStreamPos = reinterpret_cast< StreamType >(reader.GetCurrentPos());
-                }
-
-                code = reader.Next();
-            }
-
-            {
-                const f32 width = GetCursorX() - context.xOrigin;
-                textWidth = Max(textWidth, width);
-            }
-
-            if (IsDrawFlagSet(VERTICAL_ORIGIN_MASK, VERTICAL_ORIGIN_MIDDLE) || IsDrawFlagSet(VERTICAL_ORIGIN_MASK, VERTICAL_ORIGIN_BOTTOM)) {
-                SetCursorY(orgCursorY);
-            } else {
-                MoveCursorY(yCursorAdj);
-            }
-
-            if (processor) {
-                SetAlpha(alpha);
-            }
-
-            return textWidth;
+        {
+            textWidth = AdjustCursor(&xOrigin, &yOrigin, str, length);
+            yCursorAdj = orgCursorY - GetCursorY();
         }
-    };  // namespace ut
-};  // namespace nw4r
 
-CustomTagProcessor::CustomTagProcessor(nw4r::lyt::TextBox* textBox)
-    : mAlphaCtrl(), mPlayedSounds(), mColorMappingMin(::setGXColor(textBox->GetMaterial()->GetTevColor(0))),
-      mColorMappingMax(::setGXColor(textBox->GetMaterial()->GetTevColor(1))) {
+        PrintContext< CharType > context = {this, str, xOrigin, yOrigin, 0};
+        CharStrmReader reader = GetFont()->GetCharStrmReader();
+        reader.Set(str);
+
+        CustomTagProcessor* processor = nullptr;
+        const u8 alpha = GetAlpha();
+        if (&mDefaultTagProcessor != mTagProcessor) {
+            processor = static_cast< CustomTagProcessor* >(mTagProcessor);
+            processor->reset(str);
+        }
+
+        for (CharCode code = reader.Next(); reinterpret_cast< StreamType >(reader.GetCurrentPos()) - str <= length;) {
+            if (code < ' ')
+
+            {
+                typename TagProcessor::Operation operation;
+                context.str = reinterpret_cast< StreamType >(reader.GetCurrentPos());
+                context.flags = 0;
+                context.flags |= bCharSpace ? 0 : CONTEXT_NO_CHAR_SPACE;
+
+                if (bUseLimit && (code != '\n') && (prevStreamPos != prevNewLinePos)) {
+                    PrintContext< CharType > context2 = context;
+                    TextWriterBase< CharType > myCopy = *this;
+                    Rect rect;
+
+                    context2.writer = &myCopy;
+                    operation = mTagProcessor->CalcRect(&rect, code, &context2);
+
+                    if ((rect.GetWidth() > 0.0f) && (myCopy.GetCursorX() - context.xOrigin > mWidthLimit)) {
+                        code = '\n';
+                        reader.Set(prevStreamPos);
+                        continue;
+                    }
+                }
+
+                operation = mTagProcessor->Process(code, &context);
+
+                if (operation == TagProcessor::OPERATION_NEXT_LINE) {
+
+                    if (IsDrawFlagSet(HORIZONTAL_ALIGN_MASK, HORIZONTAL_ALIGN_CENTER)) {
+                        const int remain = length - (context.str - str);
+                        const f32 width = CalcLineWidth(context.str, remain);
+                        const f32 offset = (textWidth - width) / 2;
+                        SetCursorX(context.xOrigin + offset);
+                    } else if (IsDrawFlagSet(HORIZONTAL_ALIGN_MASK, HORIZONTAL_ALIGN_RIGHT)) {
+                        const int remain = length - (context.str - str);
+                        const f32 width = CalcLineWidth(context.str, remain);
+                        const f32 offset = textWidth - width;
+                        SetCursorX(context.xOrigin + offset);
+                    } else {
+                        const f32 width = GetCursorX() - context.xOrigin;
+                        textWidth = Max(textWidth, width);
+
+                        SetCursorX(context.xOrigin);
+                    }
+
+                    if (bUseLimit) {
+                        prevNewLinePos = reinterpret_cast< StreamType >(reader.GetCurrentPos());
+                    }
+                    bCharSpace = false;
+                } else if (operation == TagProcessor::OPERATION_NO_CHAR_SPACE) {
+                    bCharSpace = false;
+                } else if (operation == TagProcessor::OPERATION_CHAR_SPACE) {
+                    bCharSpace = true;
+                } else if (operation == TagProcessor::OPERATION_END_DRAW) {
+                    break;
+                }
+
+                reader.Set(context.str);
+            } else
+
+            {
+                if (processor) {
+                    SetAlpha(processor->mAlphaCtrl.alpha());
+                    processor->mAlphaCtrl.mCharIndex++;
+                }
+
+                const f32 baseY = GetCursorY();
+
+                if (bUseLimit && (prevStreamPos != prevNewLinePos)) {
+                    f32 baseX = GetCursorX();
+                    f32 charSpace = bCharSpace ? GetCharSpace() : 0.0f;
+                    f32 charWidth = IsWidthFixed() ? GetFixedWidth() : GetFont()->GetCharWidth(code) * GetScaleH();
+
+                    if (baseX - xOrigin + charSpace + charWidth > mWidthLimit) {
+                        code = '\n';
+                        reader.Set(prevStreamPos);
+                        continue;
+                    }
+                }
+
+                if (bCharSpace) {
+                    MoveCursorX(GetCharSpace());
+                }
+                bCharSpace = true;
+
+                {
+                    const Font* pFont = GetFont();
+                    const f32 adj = -pFont->GetBaselinePos() * GetScaleV();
+                    MoveCursorY(adj);
+                }
+
+                CharWriter::Print(code);
+
+
+                SetCursorY(baseY);
+            }
+
+            if (bUseLimit) {
+                prevStreamPos = reinterpret_cast< StreamType >(reader.GetCurrentPos());
+            }
+
+            code = reader.Next();
+        }
+
+        {
+            const f32 width = GetCursorX() - context.xOrigin;
+            textWidth = Max(textWidth, width);
+        }
+
+        if (IsDrawFlagSet(VERTICAL_ORIGIN_MASK, VERTICAL_ORIGIN_MIDDLE) || IsDrawFlagSet(VERTICAL_ORIGIN_MASK, VERTICAL_ORIGIN_BOTTOM)) {
+            SetCursorY(orgCursorY);
+        } else {
+            MoveCursorY(yCursorAdj);
+        }
+
+        if (processor) {
+            SetAlpha(alpha);
+        }
+
+        return textWidth;
+    }
+}  // namespace Ui
+
+CustomTagProcessor::CustomTagProcessor(Ui::TextBox* textBox)
+    : mAlphaCtrl(), mPlayedSounds(), mColorMappingMin(::toColor8(textBox->GetMaterial()->GetStageColor(0))),
+      mColorMappingMax(::toColor8(textBox->GetMaterial()->GetStageColor(1))) {
     mRubyFontWidth = 0.5f * textBox->mFontSize.width;
     mRubyFontHeight = 0.5f * textBox->mFontSize.height;
     mFontWidth = textBox->mFontSize.width;
@@ -301,7 +305,7 @@ CustomTagProcessor::CustomTagProcessor(nw4r::lyt::TextBox* textBox)
     mTextBox = textBox;
 }
 
-CustomTagProcessor::Operation CustomTagProcessor::CalcRect(nw4r::ut::Rect* rect, u16 code, ContextType* context) {
+CustomTagProcessor::Operation CustomTagProcessor::CalcRect(Ui::Rect* rect, u16 code, ContextType* context) {
     if (isIgnoreTag(code, context)) {
         return MessageTagSkipTagProcessor::CalcRect(rect, code, context);
     }
@@ -413,8 +417,8 @@ bool CustomTagProcessor::isIgnoreTag(u16 code, ContextType* context) const {
     return !Impl::findGroupFunctionInfo(tag.getGroup());
 }
 
-bool CustomTagProcessor::writeString(nw4r::ut::Rect* rect, const char16_t* string, ContextType* context) {
-    nw4r::ut::TextWriterBase< char16_t >* writer = context->writer;
+bool CustomTagProcessor::writeString(Ui::Rect* rect, const char16_t* string, ContextType* context) {
+    Ui::TextWriterBase< char16_t >* writer = context->writer;
     if (!string) {
         return false;
     }
@@ -424,7 +428,7 @@ bool CustomTagProcessor::writeString(nw4r::ut::Rect* rect, const char16_t* strin
         writer->Print(string, MR::getStringLengthWithMessageTag(string));
         writer->MoveCursorY(writer->GetFontAscent());
     } else {
-        nw4r::ut::TextWriterBase< char16_t > copy = *writer;
+        Ui::TextWriterBase< char16_t > copy = *writer;
         f32 x = copy.GetCursorX();
         f32 y = copy.GetCursorY();
         copy.CalcStringRect(rect, string, MR::getStringLengthWithMessageTag(string));
@@ -439,7 +443,7 @@ bool CustomTagProcessor::writeString(nw4r::ut::Rect* rect, const char16_t* strin
     return true;
 }
 
-CustomTagProcessor::Operation CustomTagProcessor::exeDisplayGroup(nw4r::ut::Rect* rect, const MessageEditorMessageTag& tag, ContextType* context) {
+CustomTagProcessor::Operation CustomTagProcessor::exeDisplayGroup(Ui::Rect* rect, const MessageEditorMessageTag& tag, ContextType* context) {
     switch (tag.getTag()) {
     case 0:
         return exeDisplayGroupWait(rect, tag.getParam16(0), context);
@@ -454,17 +458,23 @@ CustomTagProcessor::Operation CustomTagProcessor::exeDisplayGroup(nw4r::ut::Rect
     return OPERATION_NO_CHAR_SPACE;
 }
 
-CustomTagProcessor::Operation CustomTagProcessor::exeSoundGroup(nw4r::ut::Rect* rect, const MessageEditorMessageTag& tag, ContextType* context) {
+CustomTagProcessor::Operation CustomTagProcessor::exeSoundGroup(Ui::Rect* rect, const MessageEditorMessageTag& tag, ContextType* /*context*/) {
     if (rect || mIsText || !mAlphaCtrl.alpha()) {
+        return OPERATION_NO_CHAR_SPACE;
+    }
+
+    // Only the first eight sounds of a message are tracked (a ninth made no mask before either).
+    if (mSoundIndex >= 8) {
         return OPERATION_NO_CHAR_SPACE;
     }
 
     u8 mask = 1 << mSoundIndex;
 
     if (mask != static_cast< u8 >(mPlayedSounds & mask)) {
-        char name[256];
-        MR::convertUTF16ToASCII(name, tag.getParamPtr(0), static_cast< s32 >(tag.getParamLength()) / 2 + 1);
-        MR::startSystemSE(name);
+        MR::FormattedName name;
+        const s32 length = static_cast< s32 >(tag.getParamLength()) / 2 + 1;
+        MR::convertUTF16ToASCII(name.room(length), tag.getParamPtr(0), length);
+        MR::startSystemSE(name.c_str());
         mPlayedSounds |= static_cast< u8 >(1 << mSoundIndex);
     }
 
@@ -472,9 +482,9 @@ CustomTagProcessor::Operation CustomTagProcessor::exeSoundGroup(nw4r::ut::Rect* 
     return OPERATION_NO_CHAR_SPACE;
 }
 
-CustomTagProcessor::Operation CustomTagProcessor::exePictureGroup(nw4r::ut::Rect* rect, const MessageEditorMessageTag& tag, ContextType* context) {
-    nw4r::ut::TextWriterBase< char16_t > writer = *context->writer;
-    writer.SetFont(*MR::getPictureFontNW4R());
+CustomTagProcessor::Operation CustomTagProcessor::exePictureGroup(Ui::Rect* rect, const MessageEditorMessageTag& tag, ContextType* context) {
+    Ui::TextWriterBase< char16_t > writer = *context->writer;
+    writer.SetFont(*MR::getPictureFont());
     // The text writer reads one character past the length it is given (its loop's next read precedes the bound
     // check); a terminator keeps that read inside the buffer.
     const char16_t pictureText[2] = {static_cast< char16_t >(tag.getTag() + u'0'), 0};
@@ -505,12 +515,12 @@ CustomTagProcessor::Operation CustomTagProcessor::exePictureGroup(nw4r::ut::Rect
     return OPERATION_DEFAULT;
 }
 
-CustomTagProcessor::Operation CustomTagProcessor::exeFontSizeGroup(nw4r::ut::Rect* rect, const MessageEditorMessageTag& tag, ContextType* context) {
+CustomTagProcessor::Operation CustomTagProcessor::exeFontSizeGroup(Ui::Rect* rect, const MessageEditorMessageTag& tag, ContextType* context) {
     if (rect != nullptr) {
         return OPERATION_NO_CHAR_SPACE;
     }
 
-    nw4r::ut::TextWriterBase< char16_t >* writer = context->writer;
+    Ui::TextWriterBase< char16_t >* writer = context->writer;
     switch (tag.getTag()) {
     case 0:
         writer->SetFontSize(0.75f * mFontWidth, 0.75f * mFontHeight);
@@ -527,7 +537,7 @@ CustomTagProcessor::Operation CustomTagProcessor::exeFontSizeGroup(nw4r::ut::Rec
     return OPERATION_NO_CHAR_SPACE;
 }
 
-CustomTagProcessor::Operation CustomTagProcessor::exeSystemGroup(nw4r::ut::Rect* rect, const MessageEditorMessageTag& tag, ContextType* context) {
+CustomTagProcessor::Operation CustomTagProcessor::exeSystemGroup(Ui::Rect* rect, const MessageEditorMessageTag& tag, ContextType* context) {
     switch (tag.getTag()) {
     case 0:
         return exeSystemGroupColor(rect, tag.getParam8(0), context);
@@ -538,41 +548,47 @@ CustomTagProcessor::Operation CustomTagProcessor::exeSystemGroup(nw4r::ut::Rect*
     return OPERATION_NO_CHAR_SPACE;
 }
 
-CustomTagProcessor::Operation CustomTagProcessor::exeLocalizeGroup(nw4r::ut::Rect* rect, const MessageEditorMessageTag& tag, ContextType* context) {
-    char16_t string[32];
-    ReplaceTagProcessor::exeLocalizeGroup(string, tag);
-    writeString(rect, string, context);
+CustomTagProcessor::Operation CustomTagProcessor::exeLocalizeGroup(Ui::Rect* rect, const MessageEditorMessageTag& tag, ContextType* context) {
+    MR::Text16 string;
+    ReplaceTagProcessor::exeLocalizeGroup(string.room(ReplaceTagProcessor::getLocalizeGroupRoom(tag)), tag);
+    writeString(rect, string.c_str(), context);
     return OPERATION_DEFAULT;
 }
 
-CustomTagProcessor::Operation CustomTagProcessor::exeNumberGroup(nw4r::ut::Rect* rect, const MessageEditorMessageTag& tag, ContextType* context) {
-    char16_t string[16];
+CustomTagProcessor::Operation CustomTagProcessor::exeNumberGroup(Ui::Rect* rect, const MessageEditorMessageTag& tag, ContextType* context) {
+    char16_t string[16];  // an s32 is at most 11 characters, "-2147483648", with the terminator
     s32 number = readBytes< s32 >(tag.getParamPtr(0));
     switch (tag.getTag()) {
     case 5:
-        MR::formatText(string, 256, u"%02d", number);
+        MR::formatText(string, ARRAY_SIZEU(string), u"%02d", number);
+        break;
     case 6:
-        MR::formatText(string, 256, u"%03d", number);
+        MR::formatText(string, ARRAY_SIZEU(string), u"%03d", number);
+        break;
     case 7:
-        MR::formatText(string, 256, u"%04d", number);
+        MR::formatText(string, ARRAY_SIZEU(string), u"%04d", number);
+        break;
     case 8:
-        MR::formatText(string, 256, u"%05d", number);
+        MR::formatText(string, ARRAY_SIZEU(string), u"%05d", number);
+        break;
     case 9:
-        MR::formatText(string, 256, u"%06d", number);
+        MR::formatText(string, ARRAY_SIZEU(string), u"%06d", number);
+        break;
     default:
-        MR::formatText(string, 256, u"%d", number);
+        MR::formatText(string, ARRAY_SIZEU(string), u"%d", number);
+        break;
     }
 
     writeString(rect, string, context);
     return OPERATION_DEFAULT;
 }
 
-CustomTagProcessor::Operation CustomTagProcessor::exeStringGroup(nw4r::ut::Rect* rect, const MessageEditorMessageTag& tag, ContextType* context) {
+CustomTagProcessor::Operation CustomTagProcessor::exeStringGroup(Ui::Rect* rect, const MessageEditorMessageTag& tag, ContextType* context) {
     writeString(rect, tag.getParamString(), context);
     return OPERATION_DEFAULT;
 }
 
-CustomTagProcessor::Operation CustomTagProcessor::exeSystemGroupColor(nw4r::ut::Rect* rect, int index, ContextType* context) {
+CustomTagProcessor::Operation CustomTagProcessor::exeSystemGroupColor(Ui::Rect* rect, int index, ContextType* context) {
     if (mIsShadow) {
         return OPERATION_NO_CHAR_SPACE;
     }
@@ -598,25 +614,32 @@ CustomTagProcessor::Operation CustomTagProcessor::exeSystemGroupColor(nw4r::ut::
     return OPERATION_NO_CHAR_SPACE;
 }
 
-CustomTagProcessor::Operation CustomTagProcessor::exeSystemGroupRuby(nw4r::ut::Rect* rect, const MessageEditorMessageTag& tag, ContextType* context) {
-    if (MR::getLanguage() != LANGUAGE_JPJAPANESE) {
+CustomTagProcessor::Operation CustomTagProcessor::exeSystemGroupRuby(Ui::Rect* rect, const MessageEditorMessageTag& tag, ContextType* context) {
+    if (MR::getLanguage() != LanguageId_JpJapanese) {
+        return OPERATION_NO_CHAR_SPACE;
+    }
+
+    // A ruby tag with no room for its text (an edited message) draws no ruby.
+    if (tag.getParamLength() < 2 + static_cast< s32 >(sizeof(char16_t))) {
         return OPERATION_NO_CHAR_SPACE;
     }
 
     s32 baseLength = tag.getParam8(0);
     const char16_t* rubyText = tag.getParamPtr(1);
     s32 rubyLength = (tag.getParamLength() - 2) / sizeof(char16_t);
-    char16_t ruby[32];
+    MR::Text16 rubyString;
+    char16_t* const ruby = rubyString.room(static_cast< u32 >(rubyLength) + 1);
     MR::copyMemory(ruby, rubyText, rubyLength * sizeof(char16_t));
     ruby[rubyLength] = u'\0';
-    char16_t base[32];
+    MR::Text16 baseString;
+    char16_t* const base = baseString.room(static_cast< u32 >(baseLength) + 1);
     MR::copyMemory(base, context->str + tag.getTagLength() / 2, baseLength * sizeof(char16_t));
     base[baseLength] = u'\0';
-    nw4r::ut::TextWriterBase< char16_t >* writer = context->writer;
+    Ui::TextWriterBase< char16_t >* writer = context->writer;
     writer->GetDrawFlag();
     writer->GetCharSpace();
-    nw4r::ut::TextWriterBase< char16_t > rubyWriter = *writer;
-    rubyWriter.SetDrawFlag(nw4r::ut::TextWriterBase< char16_t >::VERTICAL_ORIGIN_BASELINE);
+    Ui::TextWriterBase< char16_t > rubyWriter = *writer;
+    rubyWriter.SetDrawFlag(Ui::TextWriterBase< char16_t >::VERTICAL_ORIGIN_BASELINE);
     rubyWriter.SetLineSpace(0.0f);
     rubyWriter.SetCharSpace(mRubyCharSpace);
     rubyWriter.SetFontSize(mRubyFontWidth, mRubyFontHeight);
@@ -646,7 +669,7 @@ CustomTagProcessor::Operation CustomTagProcessor::exeSystemGroupRuby(nw4r::ut::R
     return OPERATION_NO_CHAR_SPACE;
 }
 
-CustomTagProcessor::Operation CustomTagProcessor::exeDisplayGroupWait(nw4r::ut::Rect* rect, u16 frames, ContextType* context) {
+CustomTagProcessor::Operation CustomTagProcessor::exeDisplayGroupWait(Ui::Rect* rect, u16 frames, ContextType* /*context*/) {
     if (!rect) {
         mAlphaCtrl.mWaitTime += frames;
     }
@@ -654,34 +677,34 @@ CustomTagProcessor::Operation CustomTagProcessor::exeDisplayGroupWait(nw4r::ut::
     return OPERATION_NO_CHAR_SPACE;
 }
 
-CustomTagProcessor::Operation CustomTagProcessor::exeDisplayGroupOffset(nw4r::ut::Rect* rect, const MessageEditorMessageTag& tag,
+CustomTagProcessor::Operation CustomTagProcessor::exeDisplayGroupOffset(Ui::Rect* /*rect*/, const MessageEditorMessageTag& tag,
                                                                         ContextType* context) {
-    nw4r::ut::TextWriterBase< char16_t >* writer = context->writer;
+    Ui::TextWriterBase< char16_t >* writer = context->writer;
     const char16_t* string = context->str + tag.getSkipLength();
-    nw4r::ut::Rect bounds;
+    Ui::Rect bounds;
     if (mTextBox->GetTextPositionV() == 0) {
         writer->CalcStringRect(&bounds, string, MR::getStringLengthWithMessageTag(string));
-        writer->MoveCursorY((mTextBox->mSize.height - bounds.GetHeight()) / 2.0f);
+        writer->MoveCursorY((mTextBox->GetDrawSize().height - bounds.GetHeight()) / 2.0f);
     }
 
     return OPERATION_NO_CHAR_SPACE;
 }
 
-CustomTagProcessor::Operation CustomTagProcessor::exeDisplayGroupCenter(nw4r::ut::Rect* rect, const MessageEditorMessageTag& tag,
+CustomTagProcessor::Operation CustomTagProcessor::exeDisplayGroupCenter(Ui::Rect* /*rect*/, const MessageEditorMessageTag& tag,
                                                                         ContextType* context) {
-    nw4r::ut::TextWriterBase< char16_t > writer = *context->writer;
+    Ui::TextWriterBase< char16_t > writer = *context->writer;
     const char16_t* string = context->str + tag.getSkipLength();
-    nw4r::ut::Rect bounds;
+    Ui::Rect bounds;
     writer.CalcStringRect(&bounds, string, MR::getStringLengthWithMessageTag(string));
-    f32 offset = (mTextBox->mSize.width - bounds.GetWidth()) / 2.0f;
+    f32 offset = (mTextBox->GetDrawSize().width - bounds.GetWidth()) / 2.0f;
     context->writer->MoveCursorX(offset);
     context->xOrigin += offset;
     return OPERATION_NO_CHAR_SPACE;
 }
 
-CustomTagProcessor::Operation CustomTagProcessor::exeFontGroup(nw4r::ut::Rect* rect, const MessageEditorMessageTag& tag, ContextType* context) {
-    nw4r::ut::TextWriterBase< char16_t > writer = *context->writer;
-    writer.SetFont(*MR::getNumberFontNW4R());
+CustomTagProcessor::Operation CustomTagProcessor::exeFontGroup(Ui::Rect* rect, const MessageEditorMessageTag& tag, ContextType* context) {
+    Ui::TextWriterBase< char16_t > writer = *context->writer;
+    writer.SetFont(*MR::getNumberFont());
     const char16_t* string = tag.getParamPtr(0);
     s32 length = static_cast< s32 >(tag.getParamLength()) / 2;
     f32 width = writer.CalcStringWidth(string, length) + writer.GetCharSpace();

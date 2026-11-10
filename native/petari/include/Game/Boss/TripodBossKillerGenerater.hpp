@@ -6,18 +6,16 @@ class HomingKiller;
 
 class TripodBossKillerGenerater : public TripodBossFixPartsBase {
 public:
-    /// @brief Creates a new `TripodBossKillerGenerater`.
-    /// @param pName A pointer to the null-terminated name of the object.
-    TripodBossKillerGenerater(const char* pName = "\216\117\213\162\203\173\203\130\203\114\203\211\201\133\224\255\220\266\214\271" /* 三脚ボスキラー発生源 */);
+    TripodBossKillerGenerater(const char* pName = "三脚ボスキラー発生源");
 
-    virtual void init(const JMapInfoIter&);
-    virtual void kill();
-    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void kill() override;
+    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*) override;
 
-    virtual void calcTripodLocalMatrix(TPos3f*);
-    virtual void activateTripodBoss();
+    virtual void calcTripodLocalMatrix(Pos3f*) override;
+    virtual void activateTripodBoss() override;
 
-    void setLocalMatrix(const TPos3f&);
+    void setLocalMatrix(const Pos3f&);
     void setActiveLebel(s32);
     void setHasCollision(bool);
     bool tryShootSetting();
@@ -39,10 +37,10 @@ public:
     void exeRestart();
     void exeBreak();
 
-    TPos3f _E4;
+    Pos3f mLocalMtx;
     HomingKiller* mKiller;
     f32 mCanShootSettingPlayerDistance;
     s32 mActiveLabel;
     bool mHasCollision;
-    bool _121;
+    bool mIsWaitPlayerAway;
 };

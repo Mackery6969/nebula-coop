@@ -11,19 +11,19 @@ class Teresa : public LiveActor {
 public:
     Teresa(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void appear();
-    virtual void makeActorAppeared();
-    virtual void kill();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPush(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void appear() override;
+    virtual void makeActorAppeared() override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPush(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
-    void initDummyModel(const JMapInfoIter&);
-    void initFromJMapParam(const JMapInfoIter&);
+    void initDummyModel(const TableIter&);
+    void initFromPlacementParam(const TableIter&);
     void initSensor();
     void initBind();
     bool filterBind(const Triangle*);
@@ -32,14 +32,13 @@ public:
     bool requestLoveHit(HitSensor*, HitSensor*);
     bool requestSearchLightDead();
     void setStartNerve();
-    bool tryAppearFromWallEnd();
-    bool tryAppearFromGroundEnd();
+    bool tryAppearEnd();
     bool tryRailTurn();
     bool tryRailTurnEnd();
     bool tryWalk();
     bool tryWalkEnd();
     bool tryChase();
-    bool tryCheseEnd();
+    bool tryChaseEnd();
     bool tryShay();
     bool tryShayEnd();
     bool tryLoveFind();
@@ -55,6 +54,7 @@ public:
     bool tryHideWallEnd();
     bool tryAscension();
     void endAppear();
+    void updateAppear(const Vec3f& rDir, const char* pAction);
     void exeAppearFromWall();
     void exeAppearFromGround();
     void exeWait();
@@ -79,7 +79,9 @@ public:
     void updateDriftAnimScale();
     void updateDriftTransparency();
     void updateNormalTransparency();
-    void setTransparency(f32);
+    void setTransparency(f32 val);
+    bool isAppearing() const;
+    bool isHidden() const;
     bool canAttack() const;
     bool canDrift() const;
     bool canSearchLightDead() const;
@@ -91,24 +93,20 @@ public:
     void endAppearFromWall();
 
     inline bool isNotNear() const {
-        bool isNearPlayer = MR::isNearPlayer(this, 2000.0f) == false;
-        return isNearPlayer;
+        return !MR::isNearPlayer(this, 2000.0f);
     }
 
     PartsModel* mDisplayModel;
     KeySwitch* mKeySwitch;
-    TQuat4f _94;
-    TVec3f mWallNormal;
-    TVec3f mWallHitPos;
-    TVec3f _BC;
-    TVec3f _C8;
-    TVec3f _D4;
-    TVec3f _E0;
-    f32 _EC;
-    f32 _F0;
-    f32 _F4;
+    Quat4f mPoseQuat;
+    Vec3f mWallNormal;
+    Vec3f mWallHitPos;
+    Vec3f mInitPos;
+    Vec3f mAnimScale;
+    Vec3f mWalkTarget;
+    f32 mWalkRange;
+    f32 mTransparency;
     s32 mAppearanceType;
-    u8 _FC;
-    u8 _FD;
-    u8 _FE;
+    bool mHasCoin;
+    bool mIsChief;
 };

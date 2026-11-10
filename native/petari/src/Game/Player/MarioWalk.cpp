@@ -11,6 +11,7 @@
 #include "Game/Player/MarioMove.hpp"
 #include "Game/Player/MarioSwim.hpp"
 #include "Game/Util.hpp"
+#include "Game/Util/StringUtil.hpp"
 #include <cstdio>
 
 namespace {
@@ -26,61 +27,61 @@ namespace {
 void Mario::stopWalk() {
     mTargetWalkSpeedIndex = 0;
     mWalkSpeed = 0.0f;
-    _71E = 0;
-    _71F = 0;
-    _3D4 = 0;
+    mBrakeFirstTimer = 0;
+    mBrakeTimer = 0;
+    mWeakTurnTimer = 0;
 
     getAnimator()->initWalkWeight();
     getAnimator()->resetTilt();
 
-    mMovementStates._10 = false;
-    mMovementStates._23 = false;
+    mMovementStates.turnStickNeutral = false;
+    mMovementStates.slopeSlide = false;
     cancelSquatMode();
 
     mMovementStates.turning = false;
-    _3D2 = 0;
-    _8F0 = 0.0f;
-    _3F4 = 0.0f;
+    mTurnReadyTimer = 0;
+    mSlipPower = 0.0f;
+    mSpinInertiaBlend = 0.0f;
 
-    stopEffect("\213\244\222\312\203\130\203\212\203\142\203\166\215\342" /* 共通スリップ坂 */);
-    stopAnimation("\225\340\215\163\220\247\223\256\203\165\203\214\201\133\203\114" /* 歩行制動ブレーキ */, 1);
-    stopAnimation("\203\165\203\214\201\133\203\114" /* ブレーキ */);
+    stopEffect("共通スリップ坂");
+    stopAnimation("歩行制動ブレーキ", MarioIndexedAnime_WalkBrake);
+    stopAnimation("ブレーキ");
 }
 
 void Mario::cancelSquatMode() {
-    if (!mMovementStates._A) {
+    if (!mMovementStates.squat) {
         return;
     }
 
     calcDistToCeil(false);
 
-    if (_20._A || mMovementStates._A) {
-        _10._F = true;
+    if (mPrevMovementStates.squat || mMovementStates.squat) {
+        mActionStates.squatEnded = true;
     }
 
-    mMovementStates._A = false;
-    _20._A = false;
-    stopAnimation("\202\265\202\341\202\252\202\335\212\356\226\173" /* しゃがみ基本 */);
+    mMovementStates.squat = false;
+    mPrevMovementStates.squat = false;
+    stopAnimation("しゃがみ基本");
 
-    if (mMovementStates._1 || !mMovementStates.jumping) {
+    if (mMovementStates.onGround || !mMovementStates.jumping) {
         if (!isSwimming()) {
-            changeAnimation(nullptr, "\212\356\226\173" /* 基本 */);
+            changeAnimation(nullptr, "基本");
         }
 
-        if (!isAnimationRun("\203\124\203\175\201\133\203\134\203\213\203\147" /* サマーソルト */) && _10._F) {
+        if (!isAnimationRun("サマーソルト") && mActionStates.squatEnded) {
             if (mWalkSpeed > 0.1f) {
-                changeAnimationUpperWeak("\202\265\202\341\202\252\202\335\217\111\227\271" /* しゃがみ終了 */);
+                changeAnimationUpperWeak("しゃがみ終了");
             } else {
-                changeAnimation("\202\265\202\341\202\252\202\335\217\111\227\271" /* しゃがみ終了 */);
+                changeAnimation("しゃがみ終了");
             }
         }
     }
 
-    mMovementStates._26 = false;
+    mMovementStates.squatWalk = false;
 }
 
 f32 Mario::getTargetWalkSpeed() const {
-    if (mMovementStates._A) {
+    if (mMovementStates.squat) {
         return 0.0f;
     }
 
@@ -96,9 +97,9 @@ f32 Mario::getTargetWalkSpeed() const {
         }
     }
 
-    targetWalkSpeed *= 1.0f - _2D0;
+    targetWalkSpeed *= 1.0f - mWalkingResist;
 
-    if (_434 != 0) {
+    if (mItemDashTimer != 0) {
         targetWalkSpeed *= mActor->getConst().getTable()->mItemDashRatio;
     }
 
@@ -108,32 +109,32 @@ f32 Mario::getTargetWalkSpeed() const {
 void Mario::decideSquatWalkAnimation() {
     const f32 walkWeights1[] = {1.0f, 0.0f, 0.0f, 0.0f};
     const f32 walkWeights2[] = {0.0f, 1.0f, 0.0f, 0.0f};
-    _3F4 = 0.0f;
+    mSpinInertiaBlend = 0.0f;
 
-    if (!mMovementStates._A) {
+    if (!mMovementStates.squat) {
         if (mWalkSpeed > 0.1f) {
-            stopAnimation("\202\265\202\341\202\252\202\335" /* しゃがみ */, "\212\356\226\173" /* 基本 */);
-            changeAnimationUpperWeak("\202\265\202\341\202\252\202\335\217\111\227\271" /* しゃがみ終了 */);
+            stopAnimation("しゃがみ", "基本");
+            changeAnimationUpperWeak("しゃがみ終了");
         } else {
-            changeAnimation("\202\265\202\341\202\252\202\335\217\111\227\271" /* しゃがみ終了 */, "\212\356\226\173" /* 基本 */);
+            changeAnimation("しゃがみ終了", "基本");
         }
 
-        mMovementStates._26 = false;
+        mMovementStates.squatWalk = false;
         return;
     }
 
-    if (isAnimationRun("\225\307\211\237\202\265" /* 壁押し */, 0)) {
+    if (isAnimationRun("壁押し", MarioIndexedAnime_WallPush)) {
         stopAnimation(nullptr);
     }
 
-    if (!_20._A || !isAnimationRun("\202\265\202\341\202\252\202\335\212\356\226\173" /* しゃがみ基本 */)) {
-        stopAnimation("\225\340\215\163\220\247\223\256\203\165\203\214\201\133\203\114" /* 歩行制動ブレーキ */, 1);
-        changeAnimation(nullptr, "\202\265\202\341\202\252\202\335\212\356\226\173" /* しゃがみ基本 */);
-        stopAnimation("\224\362\202\321\215\236\202\335\217\200\224\365" /* 飛び込み準備 */, 4);
+    if (!mPrevMovementStates.squat || !isAnimationRun("しゃがみ基本")) {
+        stopAnimation("歩行制動ブレーキ", MarioIndexedAnime_WalkBrake);
+        changeAnimation(nullptr, "しゃがみ基本");
+        stopAnimation("飛び込み準備", MarioIndexedAnime_DiveReady);
         getAnimator()->setWalkWeight(&walkWeights1[0]);
-        mMovementStates._26 = false;
-        if (!mMovementStates.jumping && !isAnimationRun("\203\124\203\175\201\133\203\134\203\213\203\147" /* サマーソルト */)) {
-            playSound("\220\272\202\265\202\341\202\252\202\336" /* 声しゃがむ */);
+        mMovementStates.squatWalk = false;
+        if (!mMovementStates.jumping && !isAnimationRun("サマーソルト")) {
+            playSound("声しゃがむ");
         }
     }
 
@@ -142,26 +143,26 @@ void Mario::decideSquatWalkAnimation() {
             mWalkSpeed = mActor->getConst().getTable()->mSquatWalkMinSpeed;
             getAnimator()->setWalkWeight(&walkWeights2[0]);
             mTargetWalkSpeedIndex = 1;
-            mMovementStates._26 = true;
+            mMovementStates.squatWalk = true;
         } else {
             getAnimator()->setWalkWeight(&walkWeights1[0]);
             mTargetWalkSpeedIndex = 0;
-            mMovementStates._26 = false;
+            mMovementStates.squatWalk = false;
         }
     } else if (!isStickOn()) {
         getAnimator()->setWalkWeight(&walkWeights1[0]);
         mTargetWalkSpeedIndex = 0;
-    } else if (mMovementStates._26) {
+    } else if (mMovementStates.squatWalk) {
         MarioConstTable* table = mActor->getConst().getTable();
         mWalkSpeed = (table->mSquatWalkMaxSpeed - table->mSquatWalkMinSpeed) * mStickPos.z + table->mSquatWalkMinSpeed;
         getAnimator()->setWalkWeight(&walkWeights2[0]);
         mTargetWalkSpeedIndex = 1;
     }
 
-    if (isAnimationRun("\202\265\202\341\202\252\202\335\212\356\226\173" /* しゃがみ基本 */)) {
+    if (isAnimationRun("しゃがみ基本")) {
         f32 animspeed = mActor->getConst().getTable()->mSquatWalkStep;
         animspeed = 60.0f / animspeed * mWalkSpeed;
-        if (!mMovementStates._26) {
+        if (!mMovementStates.squatWalk) {
             animspeed = 1.0f;
         }
 
@@ -169,27 +170,27 @@ void Mario::decideSquatWalkAnimation() {
     }
 
     if (getFloorCode() == 32 && mTargetWalkSpeedIndex != 0) {
-        _3F4 = 0.2f;
+        mSpinInertiaBlend = 0.2f;
     }
 
     f32 animFrame = getAnimator()->getFrame();
 
     if (mTargetWalkSpeedIndex != 0) {
-        if (mDrawStates.mIsUnderwater || mDrawStates._13) {
+        if (mDrawStates.inWater || mDrawStates.inShallowWater) {
             if (mPrevAnimFrame > animFrame) {
-                playSound("\220\205\222\265\202\313\215\266\221\253\217\254" /* 水跳ね左足小 */);
-                playEffect("\220\205\202\315\202\313\215\266\216\343" /* 水はね左弱 */);
-                playEffectSRT("\220\205\224\147\226\344" /* 水波紋 */, 0.2f, _73C, (mGroundPos - mSideVec * 20.0f) + _368 * _738);
+                playSound("水跳ね左足小");
+                playEffect("水はね左弱");
+                playEffectSRT("水波紋", 0.2f, mRippleRotate, (mGroundPos - mSideVec * 20.0f) + mGroundNorm * mRippleHeight);
             }
 
             if (mPrevAnimFrame < 30.0f && animFrame >= 30.0f) {
-                playSound("\220\205\222\265\202\313\211\105\221\253\217\254" /* 水跳ね右足小 */);
-                playEffect("\220\205\202\315\202\313\211\105\216\343" /* 水はね右弱 */);
-                playEffectSRT("\220\205\224\147\226\344" /* 水波紋 */, 0.2f, _73C, (mGroundPos + mSideVec * 20.0f) + _368 * _738);
+                playSound("水跳ね右足小");
+                playEffect("水はね右弱");
+                playEffectSRT("水波紋", 0.2f, mRippleRotate, (mGroundPos + mSideVec * 20.0f) + mGroundNorm * mRippleHeight);
             }
         }
-    } else if (mDrawStates.mIsUnderwater && mActor->_37C % 64 == 0) {
-        playEffectSRT("\220\205\224\147\226\344" /* 水波紋 */, 0.2f, _73C, (mShadowPos + mSideVec * (MR::getRandom() - 0.5f) * 20.0f) + _368 * _738);
+    } else if (mDrawStates.inWater && mActor->mFrameCount % 64 == 0) {
+        playEffectSRT("水波紋", 0.2f, mRippleRotate, (mShadowPos + mSideVec * (MR::getRandom() - 0.5f) * 20.0f) + mGroundNorm * mRippleHeight);
     }
 
     mPrevAnimFrame = animFrame;
@@ -226,7 +227,7 @@ void Mario::decideWalkSpeed() {
         }
     }
 
-    if (mDrawStates.mIsUnderwater && mTargetWalkSpeedIndex > 6) {
+    if (mDrawStates.inWater && mTargetWalkSpeedIndex > 6) {
         mTargetWalkSpeedIndex = 6;
     }
 
@@ -234,7 +235,7 @@ void Mario::decideWalkSpeed() {
         mTargetWalkSpeedIndex = 4;
     }
 
-    if (_960 == 32) {
+    if (mFloorCode == 32) {
         if (mTargetWalkSpeedIndex > 3) {
             mTargetWalkSpeedIndex = 3;
         }
@@ -244,12 +245,12 @@ void Mario::decideWalkSpeed() {
         }
 
         if (mTargetWalkSpeedIndex > 2) {
-            getAnimator()->getXanimePlayer()->_0C = 0.5f;
+            getAnimator()->getXanimePlayer()->mPoseBlendRatio = 0.5f;
         } else {
-            getAnimator()->getXanimePlayer()->_0C = 1.0f;
+            getAnimator()->getXanimePlayer()->mPoseBlendRatio = 1.0f;
         }
     } else {
-        f32 speed = getAnimator()->getXanimePlayer()->_0C;
+        f32 speed = getAnimator()->getXanimePlayer()->mPoseBlendRatio;
         f32 new0C = speed;
         new0C += 0.1f;
 
@@ -257,7 +258,7 @@ void Mario::decideWalkSpeed() {
             new0C = 1.0f;
         }
 
-        getAnimator()->getXanimePlayer()->_0C = new0C;
+        getAnimator()->getXanimePlayer()->mPoseBlendRatio = new0C;
     }
 }
 
@@ -265,12 +266,12 @@ void Mario::decideWalkAnimation() {
     if (mTargetWalkSpeedIndex == 0 && mWalkSpeed < 0.2f && isBlendWaitGround()) {
         getAnimator()->controlWaitAnimation();
     } else {
-        getPlayer()->_10._F = false;
+        getPlayer()->mActionStates.squatEnded = false;
 
-        if (getPlayer()->mTargetWalkSpeedIndex == 0 && mSwim->_1B2) {
+        if (getPlayer()->mTargetWalkSpeedIndex == 0 && mSwim->mDeepWater) {
             bool prepare = !isPlayerModeBee();
             if (prepare) {
-                changeAnimation("\224\362\202\321\215\236\202\335\217\200\224\365" /* 飛び込み準備 */, 4);
+                changeAnimation("飛び込み準備", MarioIndexedAnime_DiveReady);
                 return;
             }
         }
@@ -284,26 +285,26 @@ void Mario::decideWalkAnimation() {
         } else {
             f32 weights[] = {0, 0, 0, 0};
             if (mTargetWalkSpeedIndex != 0) {
-                f32 f1 = 1.0f;
+                f32 sinkBlend = 1.0f;
                 if (mTargetWalkSpeedIndex <= 3) {
                     if (mTargetWalkSpeedIndex == 2) {
-                        f1 = 0.75f;
+                        sinkBlend = 0.75f;
                     }
 
                     if (mTargetWalkSpeedIndex == 3) {
-                        f1 = 0.5f;
+                        sinkBlend = 0.5f;
                     }
 
-                    weights[0] = f1;
-                    weights[1] = 1.0f - f1;
+                    weights[0] = sinkBlend;
+                    weights[1] = 1.0f - sinkBlend;
                 } else {
                     if (mTargetWalkSpeedIndex >= 5) {
-                        f1 = static_cast< f32 >(mSinkTimer) / 100.0f;
+                        sinkBlend = static_cast< f32 >(mSinkTimer) / 100.0f;
                     }
 
-                    f1 = MR::clamp(f1, 0.0f, 1.0f);
-                    weights[1] = f1;
-                    weights[2] = 1.0f - f1;
+                    sinkBlend = MR::clamp(sinkBlend, 0.0f, 1.0f);
+                    weights[1] = sinkBlend;
+                    weights[2] = 1.0f - sinkBlend;
                 }
             } else {
                 weights[3] = 1.0f;
@@ -313,74 +314,74 @@ void Mario::decideWalkAnimation() {
         }
     }
 
-    stopAnimation("\224\362\202\321\215\236\202\335\217\200\224\365" /* 飛び込み準備 */, 4);
+    stopAnimation("飛び込み準備", MarioIndexedAnime_DiveReady);
 
     f32 animFrame = getAnimator()->getFrame();
     if (mTargetWalkSpeedIndex != 0) {
-        if (mDrawStates.mIsUnderwater || mDrawStates._13) {
+        if (mDrawStates.inWater || mDrawStates.inShallowWater) {
             if (mPrevAnimFrame > animFrame) {
                 if (mTargetWalkSpeedIndex >= 2) {
                     if (mTargetWalkSpeedIndex < 6) {
-                        playSound("\220\205\222\265\202\313\215\266\221\253\217\254" /* 水跳ね左足小 */);
-                        playEffect("\220\205\202\315\202\313\215\266\216\343" /* 水はね左弱 */);
+                        playSound("水跳ね左足小");
+                        playEffect("水はね左弱");
                     } else {
-                        playSound("\220\205\222\265\202\313\215\266\221\253" /* 水跳ね左足 */);
-                        playEffect("\220\205\202\315\202\313\215\266" /* 水はね左 */);
+                        playSound("水跳ね左足");
+                        playEffect("水はね左");
                     }
                 }
 
-                playEffectSRT("\220\205\224\147\226\344" /* 水波紋 */, 0.2f, _73C, (mGroundPos - mSideVec * 20.0f) + _368 * _738);
+                playEffectSRT("水波紋", 0.2f, mRippleRotate, (mGroundPos - mSideVec * 20.0f) + mGroundNorm * mRippleHeight);
             }
 
             if (mPrevAnimFrame < 30.0f && animFrame >= 30.0f) {
                 if (mTargetWalkSpeedIndex >= 2) {
                     if (mTargetWalkSpeedIndex < 6) {
-                        playSound("\220\205\222\265\202\313\211\105\221\253\217\254" /* 水跳ね右足小 */);
-                        playEffect("\220\205\202\315\202\313\211\105\216\343" /* 水はね右弱 */);
+                        playSound("水跳ね右足小");
+                        playEffect("水はね右弱");
                     } else {
-                        playSound("\220\205\222\265\202\313\211\105\221\253" /* 水跳ね右足 */);
-                        playEffect("\220\205\202\315\202\313\211\105" /* 水はね右 */);
+                        playSound("水跳ね右足");
+                        playEffect("水はね右");
                     }
                 }
 
-                playEffectSRT("\220\205\224\147\226\344" /* 水波紋 */, 0.2f, _73C, (mGroundPos + mSideVec * 20.0f) + _368 * _738);
+                playEffectSRT("水波紋", 0.2f, mRippleRotate, (mGroundPos + mSideVec * 20.0f) + mGroundNorm * mRippleHeight);
             }
         }
-    } else if (mDrawStates.mIsUnderwater && mActor->_37C % 64 == 0) {
-        playEffectSRT("\220\205\224\147\226\344" /* 水波紋 */, 0.2f, _73C, (mShadowPos + mSideVec * (MR::getRandom() - 0.5f) * 20.0f) + _368 * _738);
+    } else if (mDrawStates.inWater && mActor->mFrameCount % 64 == 0) {
+        playEffectSRT("水波紋", 0.2f, mRippleRotate, (mShadowPos + mSideVec * (MR::getRandom() - 0.5f) * 20.0f) + mGroundNorm * mRippleHeight);
     }
 
     mPrevAnimFrame = animFrame;
 
     f32* footStep = ::sFootStep;
-    f32 f3 = 0.0f;
+    f32 stepLength = 0.0f;
 
     if (mActor->mBeeWallWalk != 0) {
         footStep = ::sFootStepBeeWallWalk;
     }
 
     for (int i = 0; i < ARRAY_SIZE(*::sWeightTable); i++) {
-        f3 += footStep[i] * ::sWeightTable[mTargetWalkSpeedIndex][i];
+        stepLength += footStep[i] * ::sWeightTable[mTargetWalkSpeedIndex][i];
     }
 
     f32 animationSpeed;
 
-    if (f3 == 0.0f) {
+    if (stepLength == 0.0f) {
         animationSpeed = 0.33f;
     } else {
-        animationSpeed = 0.5f * (60.0f * ((0.01f * (mWalkSpeed * mActor->getConst().getTable()->mWalkSpeed)) / f3));
+        animationSpeed = 0.5f * (60.0f * ((0.01f * (mWalkSpeed * mActor->getConst().getTable()->mWalkSpeed)) / stepLength));
     }
 
-    if (_8F0 > 0.0f && !mDrawStates._4) {
-        animationSpeed *= 1.0f + ((_8F0 / 10.0f) * mActor->getConst().getTable()->mSlopeAnimeRatio);
+    if (mSlipPower > 0.0f && !mDrawStates.slopeRunUp) {
+        animationSpeed *= 1.0f + ((mSlipPower / 10.0f) * mActor->getConst().getTable()->mSlopeAnimeRatio);
 
-        if (_8F0 > 5.0f && animationSpeed > 4.0f) {
+        if (mSlipPower > 5.0f && animationSpeed > 4.0f) {
             animationSpeed *= mActor->getConst().getTable()->mSlopeSpinAnimeRatio;
-            changeAnimation("\202\252\202\361\202\316\202\350\221\226\202\350" /* がんばり走り */);
+            changeAnimation("がんばり走り");
             startBas("RunSlope", false, 0.0f, 0.0f);
         }
-    } else if (_3FE != 0) {
-        animationSpeed *= _8F4;
+    } else if (mSlopeDashTimer != 0) {
+        animationSpeed *= mSlopeDashSpeed;
     }
 
     f32 diffFromTargetSpeed = getTargetWalkSpeed() - mWalkSpeed;
@@ -395,96 +396,96 @@ void Mario::decideWalkAnimation() {
         diffFromTargetSpeed = (diffFromTargetSpeed * factor) + (sqrt * (1.0f - factor));
     }
 
-    f32 f4 = mActor->getConst().getTable()->mStartSpinAnimeRatio;
-    f32 f5 = 1.0f + 4.0f * diffFromTargetSpeed;
+    f32 spinStartRatio = mActor->getConst().getTable()->mStartSpinAnimeRatio;
+    f32 spinInertia = 1.0f + 4.0f * diffFromTargetSpeed;
 
-    if (f5 > 2.0f) {
-        f5 = 2.0f;
+    if (spinInertia > 2.0f) {
+        spinInertia = 2.0f;
     }
 
-    if (f5 < 1.0f) {
-        f5 = 1.0f;
+    if (spinInertia < 1.0f) {
+        spinInertia = 1.0f;
     }
 
     if (getTargetWalkSpeed() < ::sWalkTargetTable[6]) {
-        f5 = 1.0f;
+        spinInertia = 1.0f;
     }
 
     if (getFloorCode() == 32 && mTargetWalkSpeedIndex != 0) {
-        f5 = 1.2f;
+        spinInertia = 1.2f;
     }
 
-    f32 f6 = f4 * (0.5f * (60.0f * ((getTargetWalkSpeed() * mActor->getConst().getTable()->mWalkSpeed * 0.01f) / footStep[2])));
-    f32 factor2 = 2.0f - f5;
+    f32 spinStartSpeed = spinStartRatio * (0.5f * (60.0f * ((getTargetWalkSpeed() * mActor->getConst().getTable()->mWalkSpeed * 0.01f) / footStep[2])));
+    f32 factor2 = 2.0f - spinInertia;
 
-    if (animationSpeed < f6) {
-        animationSpeed = animationSpeed * factor2 + f6 * (1.0f - factor2);
+    if (animationSpeed < spinStartSpeed) {
+        animationSpeed = animationSpeed * factor2 + spinStartSpeed * (1.0f - factor2);
     }
 
     if (mSinkTimer != 0 && mTargetWalkSpeedIndex != 0 && animationSpeed < 1.0f) {
         animationSpeed = 1.0f;
     }
 
-    animationSpeed *= (1.0f - _2D0);
-    _3F4 = f5 - 1.0f;
+    animationSpeed *= (1.0f - mWalkingResist);
+    mSpinInertiaBlend = spinInertia - 1.0f;
     getAnimator()->getXanimePlayer()->changeSpeed(animationSpeed);
 
-    if (!mActor->_EA4 && mTargetWalkSpeedIndex == 0 && mActor->mHealth == 1 && mActor->mMaxHealth > 2 &&
-        (_970 == nullptr || strcmp(_970, "DamageWait"))) {
-        getAnimator()->getXanimePlayer()->changeTrackAnimation(3, "\203\137\203\201\201\133\203\127\203\105\203\107\203\103\203\147" /* ダメージウエイト */);
+    if (!mActor->mInDemo && mTargetWalkSpeedIndex == 0 && mActor->mHealth == 1 && mActor->mMaxHealth > 2 &&
+        (mRunningBas == nullptr || !mRunningDamageWait)) {
+        getAnimator()->getXanimePlayer()->changeTrackAnimation(3, "ダメージウエイト");
         startBas("DamageWait", false, 0.0f, 0.0f);
         mActor->setBlink("DamageWait");
     }
 
     checkWallPush();
 
-    f32 f7 = 0.9f;
+    f32 runSpeedMin = 0.9f;
 
     if (gIsLuigi) {
-        f7 = 0.3f;
+        runSpeedMin = 0.3f;
     }
 
-    if (mTargetWalkSpeedIndex > 5 && mWalkSpeed > f7 && !mDrawStates._4 && !mMovementStates._35) {
-        _71E = mActor->getConst().getTable()->mBrakeFirstTimer;
+    if (mTargetWalkSpeedIndex > 5 && mWalkSpeed > runSpeedMin && !mDrawStates.slopeRunUp && !mMovementStates.onSkatableFloor) {
+        mBrakeFirstTimer = mActor->getConst().getTable()->mBrakeFirstTimer;
     }
 
-    if (_71E != 0) {
-        _71E--;
+    if (mBrakeFirstTimer != 0) {
+        mBrakeFirstTimer--;
     }
 
     if (mTargetWalkSpeedIndex == 0) {
-        if (_71E != 0 && !isSlipPolygon(mGroundPolygon) && !mDrawStates._5) {
+        if (mBrakeFirstTimer != 0 && !isSlipPolygon(mGroundPolygon) && !mDrawStates.homingLockOn) {
             doBrakingAnimation();
-            _71F = mActor->getConst().getTable()->mBrakeSecondTimer;
+            mBrakeTimer = mActor->getConst().getTable()->mBrakeSecondTimer;
         }
 
-        _71E = 0;
+        mBrakeFirstTimer = 0;
 
         s32 clingNum = MR::getKarikariClingNum();
         if (clingNum >= 1) {
-            changeAnimationUpper("\203\112\203\212\203\112\203\212\214\300\212\105" /* カリカリ限界 */);
-            stopAnimation("\225\340\215\163\220\247\223\256\203\165\203\214\201\133\203\114" /* 歩行制動ブレーキ */, 1);
+            changeAnimationUpper("カリカリ限界");
+            stopAnimation("歩行制動ブレーキ", MarioIndexedAnime_WalkBrake);
         }
 
-        if (clingNum < 1 && isAnimationRun("\203\112\203\212\203\112\203\212\214\300\212\105" /* カリカリ限界 */)) {
-            stopAnimationUpper("\203\112\203\212\203\112\203\212\214\300\212\105" /* カリカリ限界 */);
+        if (clingNum < 1 && isAnimationRun("カリカリ限界")) {
+            stopAnimationUpper("カリカリ限界");
         }
     }
 }
 
 void Mario::doBrakingAnimation() {
-    changeAnimation("\225\340\215\163\220\247\223\256\203\165\203\214\201\133\203\114" /* 歩行制動ブレーキ */, 1);
-    getAnimator()->getXanimePlayer()->_20->mAttribute = 1;
+    changeAnimation("歩行制動ブレーキ", MarioIndexedAnime_WalkBrake);
+    getAnimator()->getXanimePlayer()->mFrameCtrl->mAttribute = 1;
     if (gIsLuigi) {
         getAnimator()->getXanimePlayer()->changeSpeed(0.5f);
     }
 
-    playEffect("\213\244\222\312\203\165\203\214\201\133\203\114" /* 共通ブレーキ */);
-    _71F = 0;
+    playEffect("共通ブレーキ");
+    mBrakeTimer = 0;
 }
 
 void Mario::checkWallPush() {
-    if (mTargetWalkSpeedIndex != 0 && (mMovementStates._8 || mMovementStates._32) && checkWallJumpCode()) {
+    if (mTargetWalkSpeedIndex != 0 && (mMovementStates.frontWall || mMovementStates.frontWallGlancing) && checkWallJumpCode()) {
         return;
     }
 
@@ -492,49 +493,49 @@ void Mario::checkWallPush() {
     bool sideStep = false;
     f32 wallPushAngleRange = getActor()->getConst().getTable()->mWallPushAngleRange;
 
-    bool checkAngle = mTargetWalkSpeedIndex != 0 && mMovementStates._8;
+    bool checkAngle = mTargetWalkSpeedIndex != 0 && mMovementStates.frontWall;
 
     if (checkAngle && angle < MR::toRadian(wallPushAngleRange)) {
         sideStep = true;
     }
 
-    if (mDrawStates._A) {
+    if (mDrawStates.atEdge) {
         sideStep = false;
     }
 
-    if (mDrawStates._C) {
+    if (mDrawStates.onSlipFloor) {
         sideStep = false;
     }
 
     if (calcAngleD(getWallNorm()) < getActor()->getConst().getTable()->mForceWallAngle) {
         sideStep = false;
-        if (mMovementStates._8 && mTargetWalkSpeedIndex != 0) {
+        if (mMovementStates.frontWall && mTargetWalkSpeedIndex != 0) {
             mTargetWalkSpeedIndex = 1;
             mWalkSpeed = 0.0f;
         }
     }
 
-    if (!isAnimationRun("\225\307\211\237\202\265" /* 壁押し */, 0) && sideStep) {
+    if (!isAnimationRun("壁押し", MarioIndexedAnime_WallPush) && sideStep) {
         doSideStep();
     }
 }
 
 void Mario::updateBrakeAnimation() {
-    if (_71F != 0) {
-        if (!isAnimationRun("\225\340\215\163\220\247\223\256\203\165\203\214\201\133\203\114" /* 歩行制動ブレーキ */, 1)) {
-            _71F = 0;
+    if (mBrakeTimer != 0) {
+        if (!isAnimationRun("歩行制動ブレーキ", MarioIndexedAnime_WalkBrake)) {
+            mBrakeTimer = 0;
         } else {
-            _71F--;
+            mBrakeTimer--;
             if (!MR::isNearZero(mStickPos.z)) {
-                _71F = 0;
+                mBrakeTimer = 0;
             }
 
-            if (_71F == 0) {
+            if (mBrakeTimer == 0) {
                 stopAnimation(nullptr);
                 stopWalk();
             }
         }
-    } else if (isAnimationRun("\225\340\215\163\220\247\223\256\203\165\203\214\201\133\203\114" /* 歩行制動ブレーキ */, 1) && (isAnimationTerminate(nullptr) || mTargetWalkSpeedIndex != 0)) {
+    } else if (isAnimationRun("歩行制動ブレーキ", MarioIndexedAnime_WalkBrake) && (isAnimationTerminate(nullptr) || mTargetWalkSpeedIndex != 0)) {
         stopAnimation(nullptr);
     }
 
@@ -542,109 +543,109 @@ void Mario::updateBrakeAnimation() {
         return;
     }
 
-    if (!isAnimationRun("\225\340\215\163\220\247\223\256\203\165\203\214\201\133\203\114" /* 歩行制動ブレーキ */, 1) && !isAnimationRun("\203\165\203\214\201\133\203\114" /* ブレーキ */)) {
+    if (!isAnimationRun("歩行制動ブレーキ", MarioIndexedAnime_WalkBrake) && !isAnimationRun("ブレーキ")) {
         return;
     }
 
-    if (mMovementStates._8 || mMovementStates._32) {
+    if (mMovementStates.frontWall || mMovementStates.frontWallGlancing) {
         stopAnimation(nullptr);
-        _71F = 0;
-        _71E = 0;
-        _3D0 = 0;
-        _3D2 = 0;
-    } else if (!MR::isDemoActive() && mMovementStates._1) {
-        playSound("\203\213\203\103\201\133\203\127\212\212\202\350" /* ルイージ滑り */);
+        mBrakeTimer = 0;
+        mBrakeFirstTimer = 0;
+        mTurnSlipTimer = 0;
+        mTurnReadyTimer = 0;
+    } else if (!MR::isDemoActive() && mMovementStates.onGround) {
+        playSound("ルイージ滑り");
     }
 }
 
 void Mario::updateWalkSpeed() {
     f32 targetWalkSpeed = getTargetWalkSpeed();
-    f32 f2 = 1.0f;
+    f32 slowStart = 1.0f;
 
     if (targetWalkSpeed == 0.0f) {
-        _404 = getActor()->getConst().getTable()->mSlowStartTime;
+        mSlowStartTimer = getActor()->getConst().getTable()->mSlowStartTime;
     }
 
-    if (_404 != 0) {
-        f2 = getActor()->getConst().getTable()->mSlowStartTime - _404;
-        f2 /= getActor()->getConst().getTable()->mSlowStartTime;
-        _404--;
+    if (mSlowStartTimer != 0) {
+        slowStart = getActor()->getConst().getTable()->mSlowStartTime - mSlowStartTimer;
+        slowStart /= getActor()->getConst().getTable()->mSlowStartTime;
+        mSlowStartTimer--;
     }
 
-    targetWalkSpeed *= f2 * f2;
-    if (mMovementStates._F || isStatusActive(17)) {
+    targetWalkSpeed *= slowStart * slowStart;
+    if (mMovementStates.tornado || isStatusActive(17)) {
         targetWalkSpeed *= getActor()->getConst().getTable()->mTornadoMultiply;
     }
 
-    bool press = mMovementStates._A;
-    if (mMovementStates._A && _1C._F) {
+    bool press = mMovementStates.squat;
+    if (mMovementStates.squat && mHitStates.ceilingNear) {
         press = false;
-        if (_95C->getCode(_4C8) == 29) {
+        if (mFloorCodeReader->getCode(mCeilPolygon) == 29) {
             press = true;
-        } else if (MR::isSensorPressObj(_730)) {
-            TVec3f result;
-            if (MR::vecKillElement(_184, *getGravityVec(), &result) < -0.5f) {
+        } else if (MR::isSensorPressObj(mCeilSensor)) {
+            Vec3f result;
+            if (MR::vecKillElement(mRelativeMove, *getGravityVec(), &result) < -0.5f) {
                 press = true;
             } else {
-                TVec3f collisionTrans;
-                TVec3f collisionPrevTrans;
-                MR::extractMtxTrans(_730->mHost->mCollisionParts->mBaseMatrix, &collisionTrans);
-                MR::extractMtxTrans(_730->mHost->mCollisionParts->mPrevBaseMatrix, &collisionPrevTrans);
+                Vec3f collisionTrans;
+                Vec3f collisionPrevTrans;
+                MR::extractMtxTrans(mCeilSensor->mHost->mCollisionParts->mBaseMatrix, &collisionTrans);
+                MR::extractMtxTrans(mCeilSensor->mHost->mCollisionParts->mPrevBaseMatrix, &collisionPrevTrans);
                 if (MR::vecKillElement(collisionTrans - collisionPrevTrans, *getGravityVec(), &result) < -0.5f) {
                     press = true;
                 }
             }
         }
 
-        if (mMovementStates._1 && (strstr(getGroundPolygon()->mSensor->mHost->mName, "TriPod") != nullptr ||
-                                   strstr(getGroundPolygon()->mSensor->mHost->mName, "Tripod") != nullptr)) {
+        if (mMovementStates.onGround && (MR::isEqualSubString(getGroundPolygon()->mSensor->mHost->mName, "TriPod") ||
+                                   MR::isEqualSubString(getGroundPolygon()->mSensor->mHost->mName, "Tripod"))) {
             press = false;
         }
 
-        if (mMovementStates._1 && _730 == getGroundPolygon()->getSensor()) {
+        if (mMovementStates.onGround && mCeilSensor == getGroundPolygon()->getSensor()) {
             press = false;
         }
 
-        if (_730 != nullptr && press) {
-            mActor->_3B4 = _368;
+        if (mCeilSensor != nullptr && press) {
+            mActor->mPressAxis = mGroundNorm;
             mActor->setPress(0, 0);
         }
     } else {
-        mMovementStates._A = false;
+        mMovementStates.squat = false;
 
-        if (_436 == 0 && _434 == 0 && checkSquat(false) && mSinkTimer <= 32 && !isStatusActive(31)) {
+        if (mDashChanceTimer == 0 && mItemDashTimer == 0 && checkSquat(false) && mSinkTimer <= 32 && !isStatusActive(31)) {
             if (!checkLockOnHoming()) {
-                mMovementStates._A = true;
+                mMovementStates.squat = true;
             }
 
-            if (!press && mMovementStates._A && (mMovementStates._8 || mMovementStates._32)) {
+            if (!press && mMovementStates.squat && (mMovementStates.frontWall || mMovementStates.frontWallGlancing)) {
                 mTargetWalkSpeedIndex = 0;
                 mWalkSpeed = 0.0f;
             }
         }
 
-        if (_1C._F && !mMovementStates._A && isAnimationRun("\202\265\202\341\202\252\202\335\217\111\227\271" /* しゃがみ終了 */)) {
-            mMovementStates._A = true;
+        if (mHitStates.ceilingNear && !mMovementStates.squat && isAnimationRun("しゃがみ終了")) {
+            mMovementStates.squat = true;
         }
 
-        if (!mMovementStates._A && press) {
-            mMovementStates._A = true;
+        if (!mMovementStates.squat && press) {
+            mMovementStates.squat = true;
             cancelSquatMode();
-            _71E = 0;
+            mBrakeFirstTimer = 0;
         }
     }
 
-    if (_3D0 != 0) {
+    if (mTurnSlipTimer != 0) {
         targetWalkSpeed = 0.0f;
     }
 
-    if (mMovementStates._10) {
+    if (mMovementStates.turnStickNeutral) {
         targetWalkSpeed = 0.0f;
     }
 
     f32 inertia = decideInertia(targetWalkSpeed);
 
-    if (!mMovementStates._A && getPlayerMode() == 1) {
+    if (!mMovementStates.squat && getPlayerMode() == 1) {
         if (mWalkSpeed >= 0.9999f) {
             targetWalkSpeed *= getActor()->getConst().getTable()->mDashMultiply;
             if (targetWalkSpeed > mWalkSpeed) {
@@ -652,7 +653,7 @@ void Mario::updateWalkSpeed() {
             }
 
             if (getPlayer()->mWalkSpeed >= 1.5f) {
-                getAnimator()->getXanimePlayer()->changeTrackAnimation(2, "\203\201\203\136\203\213\203\137\203\142\203\126\203\205" /* メタルダッシュ */);
+                getAnimator()->getXanimePlayer()->changeTrackAnimation(2, "メタルダッシュ");
             }
         } else {
             getAnimator()->stopWaitAnimation();
@@ -665,8 +666,8 @@ void Mario::updateWalkSpeed() {
 
 void Mario::decideOnIceAnimation() {
     if (mTargetWalkSpeedIndex == 0) {
-        if (mWalkSpeed > 0.2f && !isAnimationRun("\225\130\217\343\212\265\220\253\221\226\215\163" /* 氷上慣性走行 */)) {
-            changeAnimationWithAttr("\225\130\217\343\212\265\220\253\221\226\215\163" /* 氷上慣性走行 */, 1);
+        if (mWalkSpeed > 0.2f && !isAnimationRun("氷上慣性走行")) {
+            changeAnimationWithAttr("氷上慣性走行", 1);
             mIceAnimFoot = 1 - mIceAnimFoot;
         }
     } else {
@@ -674,61 +675,61 @@ void Mario::decideOnIceAnimation() {
         if (mWalkSpeed > 0.7f) {
             switch (mIceAnimFoot) {
             case 0:
-                getAnimator()->getXanimePlayer()->changeTrackAnimation(2, "\225\130\217\343\227\315\215\163\215\266" /* 氷上力行左 */);
+                getAnimator()->getXanimePlayer()->changeTrackAnimation(2, "氷上力行左");
                 break;
             default:
-                getAnimator()->getXanimePlayer()->changeTrackAnimation(2, "\225\130\217\343\227\315\215\163\211\105" /* 氷上力行右 */);
+                getAnimator()->getXanimePlayer()->changeTrackAnimation(2, "氷上力行右");
             }
         }
     }
 
     if (mTargetWalkSpeedIndex != 0 || mWalkSpeed <= 0.2f) {
-        stopAnimation("\225\130\217\343\212\265\220\253\221\226\215\163" /* 氷上慣性走行 */);
+        stopAnimation("氷上慣性走行");
     }
 }
 
 void Mario::updateOnSand() {
-    if (mMovementStates._1F) {
+    if (mMovementStates.invincible) {
         return;
     }
 
-    if (mMovementStates._1) {
-        if (_960 == 27 || _960 == 28) {
-            if (!strcmp(MR::getSoundCodeString(_45C), "Sand") && mSinkTimer < 64) {
+    if (mMovementStates.onGround) {
+        if (mFloorCode == 27 || mFloorCode == 28) {
+            if (MR::getSoundCodeIndex(mShadowPolygon) == CollisionSoundCode_Sand && mSinkTimer < 64) {
                 mSinkTimer++;
             }
         } else if (isCurrentFloorSink()) {
             if (mSinkTimer < 255) {
                 mSinkTimer++;
-                if (_960 == 25 || _960 == 31) {
-                    if (_960 == 31) {
+                if (mFloorCode == 25 || mFloorCode == 31) {
+                    if (mFloorCode == 31) {
                         if (mSinkTimer == 1) {
-                            playSound("\220\272\217\300\222\276\202\335" /* 声沼沈み */);
+                            playSound("声沼沈み");
                         }
 
-                        playSound("\217\300\213\255\220\247\222\276\202\335" /* 沼強制沈み */);
+                        playSound("沼強制沈み");
                     } else {
                         if (mSinkTimer == 1) {
-                            playSound("\220\272\215\273\222\276\202\335" /* 声砂沈み */);
+                            playSound("声砂沈み");
                         }
 
-                        playSound("\215\273\213\255\220\247\222\276\202\335" /* 砂強制沈み */);
+                        playSound("砂強制沈み");
                     }
 
                     stopWalk();
                     mSinkTimer = MR::clamp(static_cast< s32 >(mSinkTimer) + 3, 0, 255);
 
-                    if (getAirGravityVec().dot(_368) > -0.99f) {
-                        TVec3f vec1;
-                        MR::vecKillElement(_368, getAirGravityVec(), &vec1);
-                        TVec3f vec2;
-                        vec2.cross(vec1, _368);
+                    if (getAirGravityVec().dot(mGroundNorm) > -0.99f) {
+                        Vec3f vec1;
+                        MR::vecKillElement(mGroundNorm, getAirGravityVec(), &vec1);
+                        Vec3f vec2;
+                        vec2.cross(vec1, mGroundNorm);
                         MR::normalize(&vec2);
-                        vec1.cross(_368, vec2);
+                        vec1.cross(mGroundNorm, vec2);
                         addVelocity(vec1 * 6.0f);
                     }
                 } else {
-                    playSound("\215\273\222\276\202\335" /* 砂沈み */);
+                    playSound("砂沈み");
                 }
             } else {
                 mActor->forceGameOverSink();
@@ -736,11 +737,11 @@ void Mario::updateOnSand() {
             }
 
             if (!isAnimationRun(nullptr)) {
-                getAnimator()->getXanimePlayer()->changeTrackAnimation(1, "\226\204\202\334\202\350\225\340\215\163" /* 埋まり歩行 */);
+                getAnimator()->getXanimePlayer()->changeTrackAnimation(1, "埋まり歩行");
             }
         } else {
             if (mSinkTimer != 0 && !isAnimationRun(nullptr)) {
-                getAnimator()->getXanimePlayer()->changeTrackAnimation(1, "\225\340\215\163" /* 歩行 */);
+                getAnimator()->getXanimePlayer()->changeTrackAnimation(1, "歩行");
             }
 
             mSinkTimer = 0;
@@ -757,19 +758,19 @@ void Mario::updateOnSand() {
 }
 
 void Mario::updateOnPoison() {
-    if (mMovementStates._1) {
+    if (mMovementStates.onGround) {
         if (checkCurrentFloorCodeSevere(18)) {
             if (mPoisonTimer == 0) {
                 mActor->decLife(0);
-                playSound("\223\305\217\300\203\137\203\201\201\133\203\127" /* 毒沼ダメージ */);
-                playSound("\203\137\203\201\201\133\203\127" /* ダメージ */);
-                playSound("\220\272\217\254\203\137\203\201\201\133\203\127" /* 声小ダメージ */);
+                playSound("毒沼ダメージ");
+                playSound("ダメージ");
+                playSound("声小ダメージ");
                 if (mActor->mHealth == 0) {
                     mActor->forceGameOver();
                 }
 
                 startCamVib(0);
-                mActor->_BC4 = 1;
+                mActor->mDamageFlashTimer = 1;
             }
 
             if (mPoisonTimer < 255) {
@@ -780,7 +781,7 @@ void Mario::updateOnPoison() {
         } else {
             mPoisonTimer = 0;
         }
-    } else if (mMovementStates.jumping && _3BC > 10) {
+    } else if (mMovementStates.jumping && mAirTimer > 10) {
         mPoisonTimer = 0;
     }
 
@@ -790,38 +791,38 @@ void Mario::updateOnPoison() {
 }
 
 void Mario::updateOnWater() {
-    if (mMovementStates._1) {
-        switch (_960) {
+    if (mMovementStates.onGround) {
+        switch (mFloorCode) {
         case 20:
         case 21:
         case 22:
             touchWater();
-            _738 = 20.0f;
-            _73C = _368;
+            mRippleHeight = 20.0f;
+            mRippleRotate = mGroundNorm;
 
-            switch (_962) {
+            switch (mPolygonFloorCode) {
             case 20:
-                _738 += 20.0f;
+                mRippleHeight += 20.0f;
             case 21:
-                _738 += 20.0f;
+                mRippleHeight += 20.0f;
             case 22:
-                mDrawStates.mIsUnderwater = true;
+                mDrawStates.inWater = true;
             }
         }
 
-        if (_960 == 23 && _962 == 23) {
+        if (mFloorCode == 23 && mPolygonFloorCode == 23) {
             touchWater();
-            mDrawStates._13 = true;
-            _738 = 3.0f;
-            _73C = _368;
+            mDrawStates.inShallowWater = true;
+            mRippleHeight = 3.0f;
+            mRippleRotate = mGroundNorm;
         }
     }
 
-    switch (_962) {
+    switch (mPolygonFloorCode) {
     case 20:
     case 21:
     case 22:
     case 23:
-        mDrawStates._1D = true;
+        mDrawStates.onWaterFloor = true;
     }
 }

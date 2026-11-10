@@ -1,11 +1,11 @@
 #include "Game/MapObj/MorphItemObjNeo.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Camera/CameraTargetArg.hpp"
 #include "Game/Camera/CameraTargetMtx.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/LiveActor/ModelObj.hpp"
 #include "Game/LiveActor/Nerve.hpp"
-#include "Game/NameObj/NameObjArchiveListCollector.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Util/ActorCameraUtil.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
@@ -15,7 +15,7 @@
 #include "Game/Util/DemoUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
 #include "Game/Util/EventUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/JointUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MapPartsUtil.hpp"
@@ -25,143 +25,75 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    const char* cxNameList[] = {"-----", "PowerupHopper", "PowerUpBee", "PowerupTeresa", "PowerupIce", "PowerupFire", "PowerupFoo", "END"};
-    static u16 sUnknown = 60;
-    static u16 sUnknown2 = 30;
-    static f32 cRotateRadiusPower = 2.0f;
-    static f32 cRotateRadiusMini = 30.0f;
+    // Model per PlayerItemStatus.
+    const char* const cxNameList[] = {"-----", "PowerupHopper", "PowerUpBee", "PowerupTeresa", "PowerupIce", "PowerupFire", "PowerupFoo", "END"};
+    // A switch-appear spirals in for cSpiralFrames, one turn per cSpiralTurnFrames, the radius shrinking to cSpiralRadiusMin.
+    NEBULA_TUNABLE(u16, cSpiralFrames, 60);
+    NEBULA_TUNABLE(u16, cSpiralTurnFrames, 30);
+    NEBULA_TUNABLE(f32, cSpiralRadiusPerFrame, 2.0f);
+    NEBULA_TUNABLE(f32, cSpiralRadiusMin, 30.0f);
+
+    HitSensor* getBodySensor(LiveActor* pActor) {
+        return pActor->getSensor("body");
+    }
 };  // namespace
 
-void MorphItemObjNeo::makeArchiveList(NameObjArchiveListCollector* pCollector, const JMapInfoIter& rIter) {
-    if (MR::isEqualObjectName(rIter, "MorphItemNeoHopper") || MR::isEqualObjectName(rIter, "Hopper")) {
-        if (MR::isPlayerLuigi()) {
-            pCollector->addArchive("HopperLuigi");
-        } else {
-            pCollector->addArchive("HopperMario");
-        }
-    }
-
-    if (MR::isEqualObjectName(rIter, "MorphItemNeoBee")) {
-        pCollector->addArchive("BeeMarioWing");
-
-        if (MR::isPlayerLuigi()) {
-            pCollector->addArchive("BeeLuigi");
-        } else {
-            pCollector->addArchive("BeeMario");
-        }
-    }
-
-    if (MR::isEqualObjectName(rIter, "MorphItemNeoTeresa")) {
-        if (MR::isPlayerLuigi()) {
-            pCollector->addArchive("TeresaLuigi");
-        } else {
-            pCollector->addArchive("TeresaMario");
-        }
-    }
-
-    if (MR::isEqualObjectName(rIter, "MorphItemNeoIce")) {
-        pCollector->addArchive("IceMarioHandL");
-        pCollector->addArchive("IceMarioHandR");
-
-        if (MR::isPlayerLuigi()) {
-            pCollector->addArchive("IceLuigi");
-        } else {
-            pCollector->addArchive("IceMario");
-        }
-    }
-
-    if (MR::isEqualObjectName(rIter, "BenefitItemInvincible")) {
-        pCollector->addArchive("InvincibleMarioHandL");
-        pCollector->addArchive("InvincibleMarioHandR");
-
-        if (MR::isPlayerLuigi()) {
-            pCollector->addArchive("InvincibleLuigi");
-            return;
-        } else {
-            pCollector->addArchive("InvincibleMario");
-            return;
-        }
-    }
-
-    s32 arg3 = -1;
-
-    if (MR::isValidInfo(rIter)) {
-        MR::getJMapInfoArg3WithInit(rIter, &arg3);
-    }
-
-    if (MR::isEqualObjectName(rIter, "Hopper")) {
-        return;
-    }
-
-    if (arg3 == 0) {
-        pCollector->addArchive("ItemBubble");
-    } else if (arg3 == -1) {
-        pCollector->addArchive("CrystalBox");
-        pCollector->addArchive("CrystalBoxBreak");
-    }
-}
-
 MorphItemObjNeo::MorphItemObjNeo(const char* pName, s32 type) : LiveActor(pName), mMorphType(type), mActorCameraInfo() {
-    mAppearMode = 0;
+    mSpiralTime = 0;
     mAppearFrames = 0;
-    _92 = false;
+    mIsDemoPending = false;
 }
 
-void MorphItemObjNeo::init(const JMapInfoIter& rIter) {
+void MorphItemObjNeo::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
 
     mSpawnPosition = mPosition;
     mAngle = 0.0f;
-    _97 = 0;
+    mBoundCount = 0;
 
     initModelManagerWithAnm(::cxNameList[mMorphType], nullptr, false);
 
     initHitSensor(1);
-    MR::addHitSensor(this, "body", ATYPE_MORPH_ITEM, 4, 80.0f, TVec3f(0.0f, 60.0f, 0.0f));
+    MR::addHitSensor(this, "body", ATYPE_MORPH_ITEM, 4, 80.0f, Vec3f(0.0f, 60.0f, 0.0f));
 
-    MR::initStarPointerTargetAtPos(this, 80.0f, &mPosition, TVec3f(0.0f, 60.0f, 0.0f));
+    MR::initStarPointerTargetAtPos(this, 80.0f, &mPosition, Vec3f(0.0f, 60.0f, 0.0f));
 
     initBinder(70.0f, 60.0f, 0);
     MR::offBind(this);
 
-    s32 arg0 = -1;
-    MR::getJMapInfoArg0NoInit(rIter, &arg0);
+    s32 spiralAppear = -1;
+    MR::getPlacementArg0NoInit(rIter, &spiralAppear);
 
-    s32 arg1 = -1;
-    MR::getJMapInfoArg1NoInit(rIter, &arg1);
+    s32 bind = -1;
+    MR::getPlacementArg1NoInit(rIter, &bind);
 
-    s32 arg2 = -1;
-    MR::getJMapInfoArg2NoInit(rIter, &arg2);
+    s32 noFloat = -1;
+    MR::getPlacementArg2NoInit(rIter, &noFloat);
 
-    s32 arg3 = -1;
-    MR::getJMapInfoArg3NoInit(rIter, &arg3);
+    s32 container = -1;
+    MR::getPlacementArg3NoInit(rIter, &container);
 
-    s32 arg4 = -1;
-    MR::getJMapInfoArg4NoInit(rIter, &arg4);
+    s32 shadow = -1;
+    MR::getPlacementArg4NoInit(rIter, &shadow);
 
-    s32 arg5 = -1;
-    MR::getJMapInfoArg5NoInit(rIter, &arg5);
+    s32 cameras = -1;
+    MR::getPlacementArg5NoInit(rIter, &cameras);
 
-    s32 arg6 = -1;
-    MR::getJMapInfoArg6NoInit(rIter, &arg6);
+    s32 rotate = -1;
+    MR::getPlacementArg6NoInit(rIter, &rotate);
 
-    s32 arg7 = -1;
-    MR::getJMapInfoArg7NoInit(rIter, &arg7);
+    s32 needsRedDriver = -1;
+    MR::getPlacementArg7NoInit(rIter, &needsRedDriver);
 
     NebulaMtxCopy(getBaseMtx(), mBaseMtx);
 
-    _95 = false;
+    mIsSwitchAppearOnce = spiralAppear == 1;
 
-    switch (arg0) {
-    case 1:
-        _95 = true;
-
-        break;
-    }
-
-    mIsBind = arg1;
+    // -1 (unset) binds on appear but not at placement.
+    mIsBind = bind;
 
     if (mIsBind == 1) {
         MR::onBind(this);
@@ -169,41 +101,37 @@ void MorphItemObjNeo::init(const JMapInfoIter& rIter) {
         MR::offBind(this);
     }
 
-    mIsFloating = true;
+    mIsFloating = noFloat != 1;
 
-    if (arg2 == 1) {
-        mIsFloating = false;
-    }
-
-    if (mMorphType == 1) {
+    if (mMorphType == PlayerItemStatus_Hopper) {
         MR::connectToSceneIndirectMapObjStrongLight(this);
     } else {
         MR::connectToSceneNoSilhouettedMapObjStrongLight(this);
     }
 
-    mContainerType = 0;
-
-    switch (arg3) {
+    // Unset: a crystal box; 0: a bubble; anything else: bare.
+    switch (container) {
     case 0:
-        mContainerType = 1;
-
+        mContainerType = Container_Bubble;
         break;
     case -1:
-        mContainerType = 2;
-
+        mContainerType = Container_CrystalBox;
+        break;
+    default:
+        mContainerType = Container_None;
         break;
     }
 
-    if (mContainerType == 2) {
-        mContainerModel = new ModelObj("\203\116\203\212\203\130\203\136\203\213\203\173\203\142\203\116\203\130" /* クリスタルボックス */, "CrystalBox", mBaseMtx, MR::DrawBufferType_CrystalBox, -2, -2, false);
+    if (mContainerType == Container_CrystalBox) {
+        mContainerModel = new ModelObj("クリスタルボックス", "CrystalBox", mBaseMtx, MR::DrawBufferType_CrystalBox, -2, -2, false);
         mContainerModel->initWithoutIter();
         mContainerModel->appear();
         MR::startBck(mContainerModel, "CrystalBox");
 
-        mContainerBreakModel = new ModelObj("\203\116\203\212\203\130\203\136\203\213\224\152\211\363" /* クリスタル破壊 */, "CrystalBoxBreak", mBaseMtx, MR::DrawBufferType_CrystalBox, -2, -2, false);
+        mContainerBreakModel = new ModelObj("クリスタル破壊", "CrystalBoxBreak", mBaseMtx, MR::DrawBufferType_CrystalBox, -2, -2, false);
         mContainerBreakModel->makeActorDead();
-    } else if (mContainerType == 1) {
-        mContainerModel = new ModelObj("\203\101\203\103\203\145\203\200\226\101" /* アイテム泡 */, "ItemBubble", nullptr, -2, -2, -2, false);
+    } else if (mContainerType == Container_Bubble) {
+        mContainerModel = new ModelObj("アイテム泡", "ItemBubble", nullptr, -2, -2, -2, false);
         mContainerModel->initWithoutIter();
         mContainerModel->mPosition = mPosition;
         mContainerModel->mRotation = mRotation;
@@ -217,76 +145,69 @@ void MorphItemObjNeo::init(const JMapInfoIter& rIter) {
         mContainerBreakModel = nullptr;
     }
 
-    mShadowType = 0;
-
-    switch (arg4) {
+    // The shadow drops along the item's own gravity or the scene's, once or every frame; 3 and 4 also clip at 2000.
+    bool hasShadow = true;
+    bool ownGravity = false;
+    bool everyFrame = false;
+    switch (shadow) {
     case -1:
-        mShadowType = 1;
-
+        ownGravity = true;
         break;
     case 1:
-        mShadowType = 2;
-
+        everyFrame = true;
         break;
     case 2:
-        mShadowType = 3;
-
+        ownGravity = true;
+        everyFrame = true;
         break;
     case 3:
-        mShadowType = 4;
-
-        break;
     case 4:
-        mShadowType = 5;
-
+        MR::setClippingTypeSphere(this, 2000.0f);
+        ownGravity = true;
+        break;
+    default:
+        hasShadow = false;
         break;
     }
 
-    if (mShadowType != 0) {
-        if ((mShadowType & 4) != 0) {
-            MR::setClippingTypeSphere(this, 2000.0f);
-            mShadowType = 1;
-        }
-
+    if (hasShadow) {
         MR::initShadowVolumeSphere(this, 40.0f);
         MR::setShadowDropLength(this, nullptr, 2000.0f);
         MR::onShadowVolumeCutDropLength(this, nullptr);
 
-        if ((mShadowType & 1) != 0) {
-            if ((mShadowType & 2) != 0) {
+        if (ownGravity) {
+            if (everyFrame) {
                 MR::onCalcShadowDropPrivateGravity(this, nullptr);
             } else {
                 MR::onCalcShadowDropPrivateGravityOneTime(this, nullptr);
             }
+        } else if (everyFrame) {
+            MR::onCalcShadow(this, nullptr);
         } else {
-            if ((mShadowType & 2) != 0) {
-                MR::onCalcShadow(this, nullptr);
-            } else {
-                MR::onCalcShadowOneTime(this, nullptr);
-            }
+            MR::onCalcShadowOneTime(this, nullptr);
         }
     }
 
-    initEffectKeeper(4, "MorphItemObj", false);
+    initEffectKeeper(4, "MorphItemObj");
     initSound(4, false);
 
     mCameraMode = 0;
 
-    if (arg5 > 0) {
-        if (arg5 == 1) {
-            MR::initMultiActorCamera(this, rIter, &mActorCameraInfo, "\217\157\214\2731" /* 出現1 */);
+    if (cameras > 0) {
+        if (cameras == 1) {
+            MR::initMultiActorCamera(this, rIter, &mActorCameraInfo, "出現1");
             mCameraMode = 1;
         } else {
-            MR::initMultiActorCamera(this, rIter, &mActorCameraInfo, "\217\157\214\2731" /* 出現1 */);
-            MR::initMultiActorCamera(this, rIter, &mActorCameraInfo, "\217\157\214\2732" /* 出現2 */);
+            MR::initMultiActorCamera(this, rIter, &mActorCameraInfo, "出現1");
+            MR::initMultiActorCamera(this, rIter, &mActorCameraInfo, "出現2");
 
             mCameraMode = 2;
         }
 
-        mCameraTargetMtx = new CameraTargetMtx("\203\112\203\201\203\211\203\136\201\133\203\121\203\142\203\147\203\137\203\176\201\133" /* カメラターゲットダミー */);
+        mCameraTargetMtx = new CameraTargetMtx("カメラターゲットダミー");
     }
 
-    mRotateMode = arg6;
+    mRotateMode = rotate;
 
     MR::getRotatedAxisZ(&mZRotation, mRotation);
 
@@ -313,7 +234,7 @@ void MorphItemObjNeo::init(const JMapInfoIter& rIter) {
         }
     }
 
-    if (mMorphType == 6 && arg7 == 1 && !MR::isOnGameEventFlagRedDriver()) {
+    if (mMorphType == PlayerItemStatus_Foo && needsRedDriver == 1 && !MR::isOnGameEventFlagRedDriver()) {
         makeActorDead();
     }
 
@@ -327,20 +248,14 @@ void MorphItemObjNeo::appear() {
     LiveActor::appear();
 
     if (mCameraMode != 0) {
-        _92 = true;
+        mIsDemoPending = true;
     }
 
-    mAppearMode = 0;
+    mSpiralTime = mIsSwitchAppearOnce ? ::cSpiralFrames : 0;
 
-    if (_95 == true) {
-        mAppearMode = ::sUnknown;
-    }
+    const bool switchAppear = mCameraMode != 0 || mIsSwitchAppearOnce;
 
-    bool b1 = false;
-
-    if (mCameraMode != 0 || _95) {
-        b1 = true;
-
+    if (switchAppear) {
         setNerve(GET_NERVE(MorphItemObjNeo, MorphItemObjNeoNrvSwitchAppear));
 
         MR::invalidateHitSensors(this);
@@ -349,45 +264,38 @@ void MorphItemObjNeo::appear() {
         setNerve(GET_NERVE(MorphItemObjNeo, MorphItemObjNeoNrvWait2));
     }
 
-    _95 = false;
+    mIsSwitchAppearOnce = false;
     mIsUseSwitch = false;
 
     if (mIsBind != 0) {
         MR::onBind(this);
     }
 
-    if (!b1) {
-        if (mMorphType == 4) {
+    if (!switchAppear) {
+        switch (mMorphType) {
+        case PlayerItemStatus_Ice:
             MR::emitEffect(this, "AppearIceFlower");
             MR::startSound(this, "SE_OJ_MORPH_FLOWER_APPEAR");
-        }
-
-        if (mMorphType == 5) {
+            break;
+        case PlayerItemStatus_Fire:
             MR::emitEffect(this, "AppearFireFlower");
             MR::startSound(this, "SE_OJ_MORPH_FLOWER_APPEAR");
-        }
-
-        if (mMorphType == 1) {
+            break;
+        case PlayerItemStatus_Hopper:
             MR::emitEffect(this, "AppearHopper");
             MR::startSound(this, "SE_OJ_MORPH_ITEM_APPEAR");
-        }
-
-        if (mMorphType == 6) {
+            break;
+        case PlayerItemStatus_Foo:
             MR::emitEffect(this, "AppearFoo");
             MR::startSound(this, "SE_OJ_MORPH_FLOWER_APPEAR");
+            break;
+        default:
+            break;
         }
     }
 
-    switch (mMorphType) {
-    case 1:
-    case 2:
-    case 3:
-    case 4:
-    case 5:
-    case 6:
+    if (mMorphType >= PlayerItemStatus_Hopper && mMorphType <= PlayerItemStatus_Foo) {
         MR::startBck(this, "Appear");
-
-        break;
     }
 }
 
@@ -396,13 +304,13 @@ void MorphItemObjNeo::control() {
         return;
     }
 
-    if (_92 && MR::tryStartDemoWithoutCinemaFrame(this, "\217\157\214\273" /* 出現 */)) {
-        _92 = false;
+    if (mIsDemoPending && MR::tryStartDemoWithoutCinemaFrame(this, "出現")) {
+        mIsDemoPending = false;
 
-        TPos3f* pMtx = &mCameraTargetMtx->mMatrix;
+        Pos3f* pMtx = &mCameraTargetMtx->mMatrix;
         pMtx->set(getBaseMtx());
-        MR::startMultiActorCameraTargetSelf(this, mActorCameraInfo, "\217\157\214\2731" /* 出現1 */);
-        mAppearFrames = MR::getMultiActorCameraFrames(this, mActorCameraInfo, "\217\157\214\2731" /* 出現1 */);
+        MR::startMultiActorCameraTargetSelf(this, mActorCameraInfo, "出現1");
+        mAppearFrames = MR::getMultiActorCameraFrames(this, mActorCameraInfo, "出現1");
 
         if (mAppearFrames != 0) {
             mAppearFrames--;
@@ -413,9 +321,10 @@ void MorphItemObjNeo::control() {
         MR::pauseOffCameraDirector();
     }
 
+    // mRotateMode bit 1: spins when free; bit 2: spins inside its container or while its switch is unread.
     if (!isNerve(GET_NERVE(MorphItemObjNeo, MorphItemObjNeoNrvAppear)) && !isNerve(GET_NERVE(MorphItemObjNeo, MorphItemObjNeoNrvSwitchAppear))) {
         if (isNerve(GET_NERVE(MorphItemObjNeo, MorphItemObjNeoNrvWait))) {
-            if (mContainerType == 0 && !mIsUseSwitch) {
+            if (mContainerType == Container_None && !mIsUseSwitch) {
                 if ((mRotateMode & 1) != 0) {
                     mAngle += 2.0f;
                 }
@@ -432,22 +341,22 @@ void MorphItemObjNeo::control() {
 
 void MorphItemObjNeo::calcAndSetBaseMtx() {
     if (isNerve(GET_NERVE(MorphItemObjNeo, MorphItemObjNeoNrvWait))) {
-        if (mContainerType == 2) {
+        if (mContainerType == Container_CrystalBox) {
             MtxPtr pMtx = MR::getJointMtx(mContainerModel, "CrystalBox");
             NebulaMtxCopy(pMtx, getBaseMtx());
 
-            TVec3f yDir;
-            reinterpret_cast< TPos3f* >(getBaseMtx())->getYDir(yDir);
+            Vec3f yDir;
+            MR::extractMtxYDir(getBaseMtx(), &yDir);
             MR::addTransMtx(getBaseMtx(), yDir * -60.0f);
 
             pMtx = MR::tmpMtxScale(0.8f, 0.8f, 0.8f);
             NebulaMtxConcat(getBaseMtx(), pMtx, getBaseMtx());
-        } else if (mContainerType == 1) {
+        } else if (mContainerType == Container_Bubble) {
             MtxPtr pMtx = mContainerModel->getBaseMtx();
             NebulaMtxCopy(pMtx, getBaseMtx());
 
-            TVec3f yDir;
-            reinterpret_cast< TPos3f* >(getBaseMtx())->getYDir(yDir);
+            Vec3f yDir;
+            MR::extractMtxYDir(getBaseMtx(), &yDir);
             MR::addTransMtx(getBaseMtx(), yDir * -50.0f);
 
             pMtx = MR::tmpMtxScale(0.8f, 0.8f, 0.8f);
@@ -462,25 +371,21 @@ void MorphItemObjNeo::calcAndSetBaseMtx() {
 
         NebulaMtxConcat(getBaseMtx(), MR::tmpMtxRotYDeg(mAngle), getBaseMtx());
 
-        if (mAppearMode != 0) {
-            TPos3f rotMtx;
-            NebulaMtxRotAxisRad(rotMtx, mVelocity, mAppearMode * (TWO_PI / ::sUnknown2));
+        if (mSpiralTime != 0) {
+            Pos3f rotMtx;
+            NebulaMtxRotAxisRad(rotMtx, mVelocity, mSpiralTime * (TWO_PI / ::cSpiralTurnFrames));
 
-            TVec3f rotVec;
-            NebulaMtxMultVec(rotMtx, mZRotation, rotVec);
+            Vec3f offset;
+            NebulaMtxMultVec(rotMtx, mZRotation, offset);
 
-            rotVec.setLength(mAppearMode * ::cRotateRadiusPower + ::cRotateRadiusMini);
-            MR::addTransMtx(getBaseMtx(), rotVec);
+            offset.setLength(mSpiralTime * ::cSpiralRadiusPerFrame + ::cSpiralRadiusMin);
+            MR::addTransMtx(getBaseMtx(), offset);
         }
     }
 }
 
 void MorphItemObjNeo::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
-    if (mContainerType != 2) {
-        return;
-    }
-
-    if (mContainerModel == 0) {
+    if (mContainerType != Container_CrystalBox || mContainerModel == nullptr) {
         return;
     }
 
@@ -491,7 +396,7 @@ void MorphItemObjNeo::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     MR::sendMsgPush(pReceiver, pSender);
 }
 
-bool MorphItemObjNeo::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool MorphItemObjNeo::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (isNerve(GET_NERVE(MorphItemObjNeo, MorphItemObjNeoNrvAppear))) {
         return false;
     }
@@ -538,7 +443,7 @@ bool MorphItemObjNeo::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pR
 
     if (MR::isMsgItemGet(msg)) {
         if (isNerve(GET_NERVE(MorphItemObjNeo, MorphItemObjNeoNrvWait))) {
-            if (mContainerType == 1) {
+            if (mContainerType == Container_Bubble) {
                 MR::startSound(this, "SE_OJ_ITEM_BUBBLE_BREAK");
 
                 if (mContainerModel != nullptr) {
@@ -552,14 +457,14 @@ bool MorphItemObjNeo::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pR
                 }
             }
 
-            if (mContainerType != 0) {
+            if (mContainerType != Container_None) {
                 return false;
             }
         }
 
         if (MR::isPlayerElementModeInvincible()) {
             if (isNerve(GET_NERVE(MorphItemObjNeo, MorphItemObjNeoNrvWait2)) ||
-                ((isNerve(GET_NERVE(MorphItemObjNeo, MorphItemObjNeoNrvWait)) && mContainerType == 0))) {
+                (isNerve(GET_NERVE(MorphItemObjNeo, MorphItemObjNeoNrvWait)) && mContainerType == Container_None)) {
                 setNerve(GET_NERVE(MorphItemObjNeo, MorphItemObjNeoNrvFly));
 
                 mVelocity = MR::getSensorPos(pReceiver) - MR::getSensorPos(pSender);
@@ -573,52 +478,38 @@ bool MorphItemObjNeo::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pR
             return false;
         }
 
-        if (mMorphType > 0) {
-            bool isInvalid = false;
-
-            switch (mMorphType) {
-            case 4:
-            case 5:
-            case 6:
-            case 7:
-                MR::startSystemSE("SE_SY_POWER_UP_2");
-
-                break;
-            case 1:
-
-                if (MR::isPlayerElementModeHopper()) {
-                    isInvalid = true;
-                } else {
-                    MR::startSystemSE("SE_SY_MORPH");
-                }
-
-                break;
-            case 2:
-
-                if (MR::isPlayerElementModeBee()) {
-                    isInvalid = true;
-                } else {
-                    MR::startSystemSE("SE_SY_MORPH");
-                }
-
-                break;
-            case 3:
-
-                if (MR::isPlayerElementModeTeresa()) {
-                    isInvalid = true;
-                } else {
-                    MR::startSystemSE("SE_SY_MORPH");
-                }
-
-                break;
-            default:
+        // The morphs the player already has only make the invalid sound.
+        bool alreadyHas = false;
+        switch (mMorphType) {
+        case PlayerItemStatus_Normal:
+            break;
+        case PlayerItemStatus_Ice:
+        case PlayerItemStatus_Fire:
+        case PlayerItemStatus_Foo:
+        case PlayerItemStatus_Invincible:
+            MR::startSystemSE("SE_SY_POWER_UP_2");
+            break;
+        case PlayerItemStatus_Hopper:
+            alreadyHas = MR::isPlayerElementModeHopper();
+            break;
+        case PlayerItemStatus_Bee:
+            alreadyHas = MR::isPlayerElementModeBee();
+            break;
+        case PlayerItemStatus_Teresa:
+            alreadyHas = MR::isPlayerElementModeTeresa();
+            break;
+        default:
+            if (mMorphType > 0) {
                 MR::startSystemSE("SE_SY_POWER_UP");
-
-                break;
             }
+            break;
+        }
 
-            if (isInvalid) {
+        if (mMorphType >= PlayerItemStatus_Hopper && mMorphType <= PlayerItemStatus_Teresa) {
+            if (alreadyHas) {
                 MR::startSound(this, "SE_OJ_MORPH_ITEM_INVALID");
+            } else {
+                MR::startSystemSE("SE_SY_MORPH");
             }
         }
 
@@ -646,7 +537,7 @@ void MorphItemObjNeo::kill() {
     mPosition = mSpawnPosition;
     mVelocity.zero();
 
-    _97 = 0;
+    mBoundCount = 0;
 
     mScale.set(1.0f);
 
@@ -677,35 +568,27 @@ void MorphItemObjNeo::makeActorDead() {
 
 void MorphItemObjNeo::glowEffect() {
     switch (mMorphType) {
-    case 1:
+    case PlayerItemStatus_Hopper:
         MR::emitEffect(this, "GlowHopper");
-
         break;
-    case 2:
+    case PlayerItemStatus_Bee:
         MR::emitEffect(this, "GlowBee");
-
         break;
-    case 3:
+    case PlayerItemStatus_Teresa:
         MR::emitEffect(this, "GlowTeresa");
-
         break;
-    case 4:
+    case PlayerItemStatus_Ice:
         MR::emitEffect(this, "GlowIce");
-
         break;
-    case 5:
+    case PlayerItemStatus_Fire:
         MR::emitEffect(this, "GlowFire");
-
         break;
-    case 6:
+    case PlayerItemStatus_Foo:
         MR::emitEffect(this, "GlowFoo");
-
+        break;
+    default:
         break;
     }
-}
-
-HitSensor* getBodySensor(LiveActor* pActor) {
-    return pActor->getSensor("body");
 }
 
 void MorphItemObjNeo::exeWait() {
@@ -715,18 +598,18 @@ void MorphItemObjNeo::exeWait() {
     }
 
     if (isNerve(GET_NERVE(MorphItemObjNeo, MorphItemObjNeoNrvWait))) {
-        if (mContainerType == 2) {
+        if (mContainerType == Container_CrystalBox) {
             ::getBodySensor(this)->mRadius = 130.0f;
-            MR::setSensorOffset(this, "body", TVec3f(0.0f, 190.0f, 0.0f));
-        } else if (mContainerType == 1) {
+            MR::setSensorOffset(this, "body", Vec3f(0.0f, 190.0f, 0.0f));
+        } else if (mContainerType == Container_Bubble) {
             ::getBodySensor(this)->mRadius = 110.0f;
-            MR::setSensorOffset(this, "body", TVec3f(0.0f, 0.0f, 0.0f));
+            MR::setSensorOffset(this, "body", Vec3f(0.0f, 0.0f, 0.0f));
         } else {
             glowEffect();
         }
     } else {
         ::getBodySensor(this)->mRadius = 80.0f;
-        MR::setSensorOffset(this, "body", TVec3f(0.0f, 60.0f, 0.0f));
+        MR::setSensorOffset(this, "body", Vec3f(0.0f, 60.0f, 0.0f));
 
         glowEffect();
     }
@@ -735,7 +618,7 @@ void MorphItemObjNeo::exeWait() {
         return;
     }
 
-    if (isNerve(GET_NERVE(MorphItemObjNeo, MorphItemObjNeoNrvWait2)) && mIsFloating && _97 <= 3) {
+    if (isNerve(GET_NERVE(MorphItemObjNeo, MorphItemObjNeoNrvWait2)) && mIsFloating && mBoundCount <= 3) {
         if (MR::isBindedGround(this) && mVelocity.dot(mGravity) > 0.0f) {
             if (mVelocity.length() < 2.0f) {
                 mVelocity.zero();
@@ -743,13 +626,13 @@ void MorphItemObjNeo::exeWait() {
                 return;
             }
 
-            if (_97 < 3) {
+            if (mBoundCount < 3) {
                 mVelocity = mVelocity * -0.5f;
             } else {
                 mVelocity.zero();
             }
 
-            _97++;
+            mBoundCount++;
 
             return;
         }
@@ -779,7 +662,7 @@ void MorphItemObjNeo::exeAppear() {
     }
 
     if (mContainerBreakModel != nullptr) {
-        if (MR::isBckStopped(mContainerBreakModel) && getNerveStep() > 30) {
+        if (MR::isBckStopped(mContainerBreakModel) && getNerveStep() > NebulaFrameClock::stepsOfMilliseconds(500)) {
             setNerve(GET_NERVE(MorphItemObjNeo, MorphItemObjNeoNrvWait2));
         }
 
@@ -793,18 +676,18 @@ void MorphItemObjNeo::exeSwitchAppear() {
     if (MR::isFirstStep(this)) {
         MR::calcGravity(this);
 
-        if (mAppearMode != 0) {
+        if (mSpiralTime != 0) {
             MR::startBck(this, "Appear");
 
-            if (mMorphType == 3) {
+            if (mMorphType == PlayerItemStatus_Teresa) {
                 MR::emitEffect(this, "AppearTeresa");
-            } else if (mMorphType == 1) {
+            } else if (mMorphType == PlayerItemStatus_Hopper) {
                 MR::emitEffect(this, "AppearHopper");
             } else {
                 MR::emitEffect(this, "AppearBee");
             }
 
-            if (mMorphType != 4 && mMorphType != 5) {
+            if (mMorphType != PlayerItemStatus_Ice && mMorphType != PlayerItemStatus_Fire) {
                 MR::startSound(this, "SE_OJ_MORPH_ITEM_APPEAR");
             }
         } else {
@@ -816,16 +699,16 @@ void MorphItemObjNeo::exeSwitchAppear() {
         mVelocity = mGravity * -10.0f;
     }
 
-    if (getNerveStep() == 60) {
+    if (getNerveStep() == NebulaFrameClock::stepsOfSeconds(1)) {
         MR::showModel(this);
 
-        if (mMorphType == 4) {
+        if (mMorphType == PlayerItemStatus_Ice) {
             MR::startBck(this, "Appear");
             MR::emitEffect(this, "AppearIceFlower");
             MR::startSound(this, "SE_OJ_MORPH_FLOWER_APPEAR");
         }
 
-        if (mMorphType == 5) {
+        if (mMorphType == PlayerItemStatus_Fire) {
             MR::startBck(this, "Appear");
             MR::emitEffect(this, "AppearFireFlower");
             MR::startSound(this, "SE_OJ_MORPH_FLOWER_APPEAR");
@@ -833,42 +716,36 @@ void MorphItemObjNeo::exeSwitchAppear() {
     }
 
     if (mCameraMode != 0 && mAppearFrames != 0 && --mAppearFrames == 0) {
-        MR::endMultiActorCamera(this, mActorCameraInfo, "\217\157\214\2731" /* 出現1 */, false);
-        MR::endMultiActorCamera(this, mActorCameraInfo, "\217\157\214\2732" /* 出現2 */, false);
+        MR::endMultiActorCamera(this, mActorCameraInfo, "出現1", false);
+        MR::endMultiActorCamera(this, mActorCameraInfo, "出現2", false);
 
         mCameraMode--;
 
         if (mCameraMode == 0) {
-            MR::endDemo(this, "\217\157\214\273" /* 出現 */);
+            MR::endDemo(this, "出現");
             MR::validateClipping(this);
         } else {
-            TPos3f* pMtx = &mCameraTargetMtx->mMatrix;
+            Pos3f* pMtx = &mCameraTargetMtx->mMatrix;
             pMtx->set(getBaseMtx());
 
-            MR::startMultiActorCameraTargetOther(this, mActorCameraInfo, "\217\157\214\2732" /* 出現2 */, CameraTargetArg(nullptr, mCameraTargetMtx, nullptr, nullptr));
+            MR::startMultiActorCameraTargetOther(this, mActorCameraInfo, "出現2", CameraTargetArg(nullptr, mCameraTargetMtx, nullptr, nullptr));
 
-            mAppearFrames = MR::getMultiActorCameraFrames(this, mActorCameraInfo, "\217\157\214\2732" /* 出現2 */);
+            mAppearFrames = MR::getMultiActorCameraFrames(this, mActorCameraInfo, "出現2");
         }
     }
 
-    if (mAppearMode != 0) {
-        mAppearMode--;
+    if (mSpiralTime != 0) {
+        mSpiralTime--;
     }
 
-    if (mAppearMode == 0) {
+    if (mSpiralTime == 0) {
         MR::validateHitSensors(this);
         mVelocity.zero();
-    }
 
-    if (mCameraMode != 0) {
-        return;
+        if (mCameraMode == 0) {
+            setNerve(GET_NERVE(MorphItemObjNeo, MorphItemObjNeoNrvWait2));
+        }
     }
-
-    if (mAppearMode != 0) {
-        return;
-    }
-
-    setNerve(GET_NERVE(MorphItemObjNeo, MorphItemObjNeoNrvWait2));
 }
 
 void MorphItemObjNeo::exeFly() {
@@ -882,18 +759,12 @@ void MorphItemObjNeo::exeFly() {
 
     mVelocity += mGravity * 0.2f;
 
-    if (getNerveStep() == 300) {
+    if (getNerveStep() == NebulaFrameClock::stepsOfSeconds(5)) {
         kill();
         setNerve(GET_NERVE(MorphItemObjNeo, MorphItemObjNeoNrvWait));
     }
 }
 
 bool MorphItemObjNeo::isDemo() const {
-    bool ret = false;
-
-    if (mAppearMode != 0 || mAppearFrames != 0) {
-        ret = true;
-    }
-
-    return ret;
+    return mSpiralTime != 0 || mAppearFrames != 0;
 }

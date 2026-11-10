@@ -2,8 +2,9 @@
 // xess_library.h.
 #include "galaxy/render/xess_library.h"
 
+#include "locked_file.h"
+
 #include "galaxy/platform_paths.h"
-#include "galaxy/run_options.h"
 
 #include <SoftPub.h>
 #include <WinTrust.h>
@@ -40,9 +41,6 @@ bool signature_trusted(const wchar_t* path) {
 }  // namespace
 
 std::wstring directory() {
-    if (const wchar_t* const test = ::galaxy::run_options().xess_dir_w; test != nullptr && test[0] != L'\0') {
-        return test;
-    }
     const std::filesystem::path data = galaxy::nebula_data_directory();
     return data.empty() ? std::wstring{} : (data / L"vendor" / L"xess-3.0.2").wstring();
 }
@@ -57,6 +55,12 @@ HMODULE module() noexcept {
         }
         const std::wstring path = folder + L"\\libxess.dll";
         if (GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) {
+            return;
+        }
+        // Held from the check to the load: the file checked is the file loaded.
+        const LockedFile held(path.c_str());
+        if (!held.held()) {
+            std::cerr << "[xess] libxess.dll could not be opened: not loaded\n";
             return;
         }
         if (!signature_trusted(path.c_str())) {

@@ -12,18 +12,18 @@ namespace NrvFullnessMeter {
     NEW_NERVE(FullnessMeterNrvEnd, FullnessMeter, End);
 };  // namespace NrvFullnessMeter
 
-FullnessMeter::FullnessMeter(LiveActor* pHost, s32 a2, s32 a3) : LayoutActor("\226\236\225\240\214\166" /* 満腹計 */, true), _20(a3), _24(a2), mHost(pHost) {
+FullnessMeter::FullnessMeter(LiveActor* pHost, s32 a2, s32 a3) : LayoutActor("満腹計", true), mNumber(a3), mNumberMax(a2), mHost(pHost) {
     MR::connectToSceneTalkLayout(this);
     initLayoutManager("StarPieceTargetMeter", 1);
     MR::createAndAddPaneCtrl(this, "TargetMeter", 1);
     MR::createAndAddPaneCtrl(this, "PicFrameShine", 1);
-    mTargetCounter = MR::createSimpleLayoutTalkParts("\226\236\225\240\203\112\203\105\203\223\203\136\201\133" /* 満腹カウンター */, "StarPieceTargetCounter", 1);
-    MR::setTextBoxNumberRecursive(mTargetCounter, "NumberMax", _24);
+    mTargetCounter = MR::createSimpleLayoutTalkParts("満腹カウンター", "StarPieceTargetCounter", 1);
+    MR::setTextBoxNumberRecursive(mTargetCounter, "NumberMax", mNumberMax);
     setNumber(a3);
     initNerve(GET_NERVE(FullnessMeter, FullnessMeterNrvAppear));
 }
 
-void FullnessMeter::init(const JMapInfoIter& rIter) {
+void FullnessMeter::init(const TableIter& /*rIter*/) {
     MR::startPaneAnim(this, "TargetMeter", "Count", 0);
     MR::setPaneAnimFrameAndStop(this, "TargetMeter", 0.0f, 0);
 }
@@ -33,9 +33,11 @@ void FullnessMeter::control() {
 }
 
 void FullnessMeter::setNumber(s32 num) {
-    _20 = num;
+    mNumber = num;
 
-    s32 frame = 128 - (u16)(s32)((128.0f * (1.0f - (static_cast< f32 >(_20) / _24))));
+    // A target of 0 or less (placement data) is already full, not a division by 0.
+    const f32 fullness = mNumberMax > 0 ? static_cast< f32 >(mNumber) / mNumberMax : 1.0f;
+    s32 frame = 128 - (u16)(s32)((128.0f * (1.0f - fullness)));
 
     MR::startPaneAnim(this, "TargetMeter", "Count", 0);
     MR::setPaneAnimFrameAndStop(this, "TargetMeter", frame, 0);
@@ -45,7 +47,7 @@ void FullnessMeter::setNumber(s32 num) {
         MR::startAnim(mTargetCounter, "Flash", 0);
     }
 
-    MR::setTextBoxNumberRecursive(mTargetCounter, "Number", _20);
+    MR::setTextBoxNumberRecursive(mTargetCounter, "Number", mNumber);
 }
 
 void FullnessMeter::requestAppear() {
@@ -88,8 +90,6 @@ void FullnessMeter::exeAppear() {
 }
 
 void FullnessMeter::exeWait() {
-    if (MR::isFirstStep(this)) {
-    }
 }
 
 void FullnessMeter::exeEnd() {

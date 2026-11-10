@@ -13,10 +13,10 @@ class AstroDomeGalaxySelector : public LiveActor {
 public:
     AstroDomeGalaxySelector(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void appear();
-    virtual void kill();
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void appear() override;
+    virtual void kill() override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
     void showGalaxyInfo(const MiniatureGalaxy*);
     bool tryStartLectureDemo(const Nerve*);
@@ -37,7 +37,7 @@ public:
     GalaxySelectBackButton* mBackButton;
     GalaxySelectInfo* mInfo;
     GalaxyConfirmLayout* mConfirmLayout;
-    bool _9C;
+    bool mIsBackButtonPointed;
     // Online co-op: who plays in each miniature galaxy, under it, while the player picks one.
     NebulaSelectPlayers* mCoopPlayers;
 };

@@ -1,7 +1,7 @@
 #include "Game/Player/MarioFoo.hpp"
-#include "Game/Util/NativeShader.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
+#include "Game/Render/TypedDraw.hpp"
+#include "Game/Render/FrameList.hpp"
+#include "Game/Render/TypedDraw.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/MapObj/DashRing.hpp"
 #include "Game/Player/Mario.hpp"
@@ -11,192 +11,187 @@
 #include "Game/Util/AreaObjUtil.hpp"
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/DirectDraw.hpp"
-#include "Game/Util/DirectDrawUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ModelUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
-#include <JSystem/JUtility/JUTTexture.hpp>
+#include "Game/Render/GameTexture.hpp"
 
 namespace {
     f32 cTurnMotionSpeed = 5.0f;
     f32 cWidth = 70.0f;
-    f32 cLimitAngleSink = JGeometry::TUtil< f32 >::PI() / 1.0001f;
-    f32 cNeutralAngleWait = JGeometry::TUtil< f32 >::PI() / 2.0f - JGeometry::TUtil< f32 >::PI() / 6.0f;
-    f32 cLimitAngleWait = JGeometry::TUtil< f32 >::PI() / 1.0001f;
-    f32 cUpperAngleWait = JGeometry::TUtil< f32 >::PI() / 100.0f;
+    f32 cLimitAngleSink = FloatUtil::PI() / 1.0001f;
+    f32 cNeutralAngleWait = FloatUtil::PI() / 2.0f - FloatUtil::PI() / 6.0f;
+    f32 cLimitAngleWait = FloatUtil::PI() / 1.0001f;
+    f32 cUpperAngleWait = FloatUtil::PI() / 100.0f;
 };  // namespace
 
 void Mario::tryStartFoo() {
-    if (MR::getAreaObj("CelestrialSphere", getTrans()) || !mFoo->_48) {
+    if (MR::getAreaObj("CelestrialSphere", getTrans()) || !mFoo->mCelestialSphere) {
         changeStatus(mFoo);
         mFoo->setStartSpeed(mActor->getConst().getTable()->mSwimFrontMaxSpeed);
     }
 }
 
 MarioFoo::MarioFoo(MarioActor* pActor) : MarioState(pActor, MarioStatus_Foo) {
-    _11 = 0;
-    _12 = 0;
-    _14 = 0;
-    _18 = 0;
-    _1A = 0;
-    _1C = 0;
-    _1E = 0;
-    _20 = 0.0f;
-    _24 = 0.0f;
-    _28 = 0.0f;
-    _2C = 0.0f;
-    _30.zero();
-    _3C.zero();
-    _48 = nullptr;
-    _4C = 0;
-    _4E = 0;
-    _50 = 0;
-    _54 = 0.0f;
-    _58 = 0;
-    _59 = 0;
-    _5A = 0;
-    _5C = 0.0f;
-    _60 = 0;
-    _64.zero();
-    _70 = 0.0f;
-    _74 = 0.0f;
-    NebulaMtxIdentity(_78);
-    _A8 = 0;
-    _AA = 0;
-    _6B0 = 0;
-    _6B4 = 0;
-    _6B8 = nullptr;
-    _AC = 0;
-    _AE = 0;
+    mBraked = 0;
+    mJetHeldFromStart = 0;
+    mFrameCount = 0;
+    mPitchTimer = 0;
+    mVerticalTimer = 0;
+    mIdleTimer = 0;
+    mSphereHitTimer = 0;
+    mStickPitch = 0.0f;
+    mStickRoll = 0.0f;
+    mSpeed = 0.0f;
+    mPitch = 0.0f;
+    mFrontVec.zero();
+    mUpVec.zero();
+    mCelestialSphere = nullptr;
+    mSpinTimer = 0;
+    mRingBoostTimer = 0;
+    mRingChargeTimer = 0;
+    mBlurOffset = 0.0f;
+    mEndKind = 0;
+    mRingBoostLength = 0;
+    mRingBoostScale = 0.0f;
+    mPushTimer = 0;
+    mPushVelocity.zero();
+    mSideTilt = 0.0f;
+    mFrontTilt = 0.0f;
+    NebulaMtxIdentity(mTiltMtx);
+    mTrailLength = 0;
+    mTrailIndex = 0;
+    mTrailTexture = nullptr;
+    mBrakeTimer = 0;
+    mBraking = 0;
 
-    for (u32 i = 0; i < 64; i++) {
-        _B0[i].zero();
-        _3B0[i].zero();
+    for (u32 i = 0; i < cTrailNum; i++) {
+        mTrailPos[i].zero();
+        mTrailSide[i].zero();
     }
 }
 
 void MarioFoo::init() {
-    _6B8 = new JUTTexture(MR::getTexture(MR::getModelResourceHolder(mActor), "FooLine.bti"));
+    mTrailTexture = new GameTexture(MR::getTexture(MR::getModelResourceHolder(mActor), "FooLine.bti"));
 }
 
 bool MarioFoo::start() {
-    _20 = 0.0f;
-    _24 = 0.0f;
-    _28 = 0.0f;
-    _4C = 30;
-    _A8 = 0;
-    _11 = 0;
-    _6B0 = 0;
-    _6B4 = 0;
-    _4E = 0;
-    _50 = 0;
-    _54 = 0.0f;
-    _1C = 0;
-    _1E = 0;
-    _60 = 0;
-    _64.zero();
-    _70 = 0.0f;
-    _74 = 0.0f;
-    _14 = 0;
-    _2C = 0.5235988f;
-    _30 = getFrontVec();
-    MR::normalize(&_30);
+    mStickPitch = 0.0f;
+    mStickRoll = 0.0f;
+    mSpeed = 0.0f;
+    mSpinTimer = 30;
+    mBraked = 0;
+    mTrailLength = 0;
+    mTrailIndex = 0;
+    mRingBoostTimer = 0;
+    mRingChargeTimer = 0;
+    mBlurOffset = 0.0f;
+    mIdleTimer = 0;
+    mSphereHitTimer = 0;
+    mPushTimer = 0;
+    mPushVelocity.zero();
+    mSideTilt = 0.0f;
+    mFrontTilt = 0.0f;
+    mFrameCount = 0;
+    mPitch = 0.5235988f;
+    mFrontVec = getFrontVec();
+    MR::normalize(&mFrontVec);
 
     stopAnimationUpper(nullptr);
-    getPlayer()->mMovementStates._1 = false;
-    getPlayer()->mMovementStates._A = false;
-    _18 = 0;
+    getPlayer()->mMovementStates.onGround = false;
+    getPlayer()->mMovementStates.squat = false;
+    mPitchTimer = 0;
     if (checkLvlA()) {
-        _12 = 1;
+        mJetHeldFromStart = 1;
     }
 
-    changeAnimation("\203\164\201\133\203\164\203\100\203\103\203\136\201\133\224\362\215\163\212\112\216\156" /* フーファイター飛行開始 */, "\203\164\201\133\203\164\203\100\203\103\203\136\201\133\224\362\215\163" /* フーファイター飛行 */);
+    changeAnimation("フーファイター飛行開始", "フーファイター飛行");
     startPadVib(2);
-    _48 = MR::getAreaObj("CelestrialSphere", getTrans());
-    _AC = 0;
-    _AE = 0;
+    mCelestialSphere = MR::getAreaObj("CelestrialSphere", getTrans());
+    mBrakeTimer = 0;
+    mBraking = 0;
     return true;
 }
 
 bool MarioFoo::update() {
-    _14++;
+    mFrameCount++;
     if (checkTrgZ()) {
-        playSound("\220\272\220\113\203\150\203\215\203\142\203\166" /* 声尻ドロップ */);
-        playSound("\203\164\201\133\203\165\203\214\201\133\203\114" /* フーブレーキ */);
-        _11 = 1;
-        _59 = 3;
+        playSound("声尻ドロップ");
+        playSound("フーブレーキ");
+        mBraked = 1;
+        mEndKind = 3;
     }
 
     if (!checkLvlA()) {
-        _12 = 0;
+        mJetHeldFromStart = 0;
     }
 
-    if (_11) {
+    if (mBraked) {
         return false;
     }
 
-    _3C = -getGravityVec();
+    mUpVec = -getGravityVec();
     jet();
-    if (getPlayer()->_1C._9) {
-        if (_6B0) {
-            _6B0--;
+    if (getPlayer()->mHitStates.jet) {
+        if (mTrailLength) {
+            mTrailLength--;
         }
     } else {
-        _B0[_6B4] = getTrans();
-        TVec3f leftHand;
-        TVec3f rightHand;
-        TVec3f handDirection;
+        mTrailPos[mTrailIndex] = getTrans();
+        Vec3f leftHand;
+        Vec3f rightHand;
+        Vec3f handDirection;
         mActor->getRealPos("HandL", &leftHand);
         mActor->getRealPos("HandR", &rightHand);
         handDirection = rightHand - leftHand;
         MR::normalizeOrZero(&handDirection);
-        _3B0[_6B4] = handDirection;
-        if (_6B0 < 64) {
-            _6B0++;
+        mTrailSide[mTrailIndex] = handDirection;
+        if (mTrailLength < cTrailNum) {
+            mTrailLength++;
         }
 
-        _6B4 = (_6B4 + 1) % 64;
+        mTrailIndex = (mTrailIndex + 1) % cTrailNum;
     }
 
-    f32 speedRatio = 1.0f - MR::clamp(_28 / mActor->getConst().getTable()->mSwimFrontMaxSpeed, 0.0f, 1.0f);
-    _20 = _20 * mActor->getConst().getTable()->mSwimRotXIne + getStickY() * (1.0f - mActor->mConst->getTable()->mSwimRotXIne);
-    _24 = _24 * mActor->getConst().getTable()->mSwimRotZIne + getStickX() * (1.0f - mActor->mConst->getTable()->mSwimRotZIne);
-    if (!_1C && _18) {
-        _2C += speedRatio * (_20 * mActor->getConst().getTable()->mSwimRotSpeedX);
+    f32 speedRatio = 1.0f - MR::clamp(mSpeed / mActor->getConst().getTable()->mSwimFrontMaxSpeed, 0.0f, 1.0f);
+    mStickPitch = mStickPitch * mActor->getConst().getTable()->mSwimRotXIne + getStickY() * (1.0f - mActor->mConst->getTable()->mSwimRotXIne);
+    mStickRoll = mStickRoll * mActor->getConst().getTable()->mSwimRotZIne + getStickX() * (1.0f - mActor->mConst->getTable()->mSwimRotZIne);
+    if (!mIdleTimer && mPitchTimer) {
+        mPitch += speedRatio * (mStickPitch * mActor->getConst().getTable()->mSwimRotSpeedX);
     }
 
-    if (!checkLvlA() && !checkLvlZ() && !_18 && _28 < ::cTurnMotionSpeed) {
-        if (!_60) {
-            _1C++;
+    if (!checkLvlA() && !checkLvlZ() && !mPitchTimer && mSpeed < ::cTurnMotionSpeed) {
+        if (!mPushTimer) {
+            mIdleTimer++;
         }
 
-        if (_1C >= 120) {
-            _1C = 120;
+        if (mIdleTimer >= 120) {
+            mIdleTimer = 120;
         }
     } else {
-        _1C = 0;
+        mIdleTimer = 0;
     }
 
     f32 blend;
     f32 targetAngle = 0.0f;
     if (MR::isNearZero(getStickY(), 0.1f)) {
-        f32 ratio = _1C / 120.0f;
+        f32 ratio = mIdleTimer / 120.0f;
         if (ratio > 1.0f) {
             ratio = 1.0f;
         }
 
-        targetAngle = _2C + ratio * (::cNeutralAngleWait - _2C);
+        targetAngle = mPitch + ratio * (::cNeutralAngleWait - mPitch);
     } else {
         if (getStickY() > 0.0f) {
             f32 slowRatio = 0.0f;
-            f32 ratio = _1C / 120.0f;
-            if (_28 < 2.0f) {
+            f32 ratio = mIdleTimer / 120.0f;
+            if (mSpeed < 2.0f) {
                 slowRatio = 1.0f;
-            } else if (_28 > 10.0f) {
+            } else if (mSpeed > 10.0f) {
                 slowRatio = 0.0f;
             } else {
-                slowRatio = 1.0f - (_28 - 2.0f) / 8.0f;
+                slowRatio = 1.0f - (mSpeed - 2.0f) / 8.0f;
             }
 
             if (ratio < slowRatio) {
@@ -216,8 +211,8 @@ bool MarioFoo::update() {
     }
 
     blend = 0.05f;
-    if (_28 > 5.0f) {
-        blend = 0.05f - 0.05f * (5.0f / _28);
+    if (mSpeed > 5.0f) {
+        blend = 0.05f - 0.05f * (5.0f / mSpeed);
         if (blend < 0.0f) {
             blend = 0.0f;
         }
@@ -229,7 +224,7 @@ bool MarioFoo::update() {
         blend *= 0.5f;
     }
 
-    if (getPlayer()->_1C._9) {
+    if (getPlayer()->mHitStates.jet) {
         targetAngle = 1.0471976f;
         if (getStickY() > 0.1f) {
             f32 ratio = 1.1f * (getStickY() - 0.1f);
@@ -242,88 +237,88 @@ bool MarioFoo::update() {
         blend = 0.01f;
     }
 
-    _2C = _2C * (1.0f - blend) + targetAngle * blend;
+    mPitch = mPitch * (1.0f - blend) + targetAngle * blend;
     bool stopTurn = true;
-    if (_1C && !_60 && getStickY() > 0.0f) {
+    if (mIdleTimer && !mPushTimer && getStickY() > 0.0f) {
         f32 angle = 3.1415927f / mActor->getConst().getTable()->mSwimTiltReal;
         f32 stick = getStickY();
         targetAngle = 0.5235988f + stick * (angle - 0.5235988f);
-        if (_2C < targetAngle) {
+        if (mPitch < targetAngle) {
             f32 ratio = mActor->getConst().getTable()->mSwimTiltSpd;
-            _2C = _2C * ratio + targetAngle * (1.0f - ratio);
+            mPitch = mPitch * ratio + targetAngle * (1.0f - ratio);
         } else {
-            _2C = _2C * (1.0f - blend) + targetAngle * blend;
+            mPitch = mPitch * (1.0f - blend) + targetAngle * blend;
         }
 
         stopTurn = false;
     }
 
     if (stopTurn) {
-        stopAnimation("\220\205\211\152\203\136\201\133\203\223\211\272" /* 水泳ターン下 */);
+        stopAnimation("水泳ターン下");
     }
 
-    _2C = MR::clamp(_2C, ::cUpperAngleWait, ::cLimitAngleSink);
+    mPitch = MR::clamp(mPitch, ::cUpperAngleWait, ::cLimitAngleSink);
 
     f32 turnRatio = speedRatio + mActor->getConst().getTable()->mSwimRotSpeedZStop;
-    MR::rotAxisVecRad(_30, -_3C, &_30, turnRatio * (_24 * mActor->mConst->getTable()->mSwimRotSpeedZ));
-    MR::vecKillElement(_30, _3C, &_30);
-    MR::normalize(&_30);
-    TVec3f side = _3C.cross(_30);
+    MR::rotAxisVecRad(mFrontVec, -mUpVec, &mFrontVec, turnRatio * (mStickRoll * mActor->mConst->getTable()->mSwimRotSpeedZ));
+    MR::vecKillElement(mFrontVec, mUpVec, &mFrontVec);
+    MR::normalize(&mFrontVec);
+    Vec3f side = mUpVec.cross(mFrontVec);
     MR::normalize(&side);
     getPlayer()->setSideVec(side);
-    TVec3f front;
-    MR::rotAxisVecRad(_30, side, &front, _2C);
-    TVec3f head(getPlayer()->mHeadVec);
-    TVec3f oldFront(getFrontVec());
-    TVec3f blendedFront;
+    Vec3f front;
+    MR::rotAxisVecRad(mFrontVec, side, &front, mPitch);
+    Vec3f head(getPlayer()->mHeadVec);
+    Vec3f oldFront(getFrontVec());
+    Vec3f blendedFront;
     MR::vecBlendSphere(oldFront, front, &blendedFront, 0.1f);
     getPlayer()->setFrontVecKeepSide(blendedFront);
     spin();
 
-    TVec3f direction;
-    direction = getPlayer()->_1FC;
-    TVec3f velocity = direction * _28;
-    f32 vertical = MR::vecKillElement(velocity, _3C, &velocity);
+    Vec3f direction;
+    direction = getPlayer()->mPostureUpVec;
+    Vec3f velocity = direction * mSpeed;
+    f32 vertical = MR::vecKillElement(velocity, mUpVec, &velocity);
     f32 ratio;
-    if (_1A > 25) {
-        ratio = (50 - _1A) / 25.0f;
+    if (mVerticalTimer > 25) {
+        ratio = (50 - mVerticalTimer) / 25.0f;
     } else {
-        ratio = _1A / 25.0f;
+        ratio = mVerticalTimer / 25.0f;
     }
 
     f32 verticalRatio = ratio + (1.0f - ratio) * mActor->getConst().getTable()->mSwimSpdYratio;
-    velocity += _3C * vertical * verticalRatio;
+    velocity += mUpVec * vertical * verticalRatio;
     addVelocity(velocity);
-    if (_60) {
-        _60--;
-        addVelocity(_64);
-        if (_60 < 120) {
-            _64.x *= 0.98f;
-            _64.y *= 0.98f;
-            _64.z *= 0.98f;
+    if (mPushTimer) {
+        mPushTimer--;
+        addVelocity(mPushVelocity);
+        if (mPushTimer < 120) {
+            mPushVelocity.x *= 0.98f;
+            mPushVelocity.y *= 0.98f;
+            mPushVelocity.z *= 0.98f;
         }
     }
 
-    if (_18) {
-        _18--;
+    if (mPitchTimer) {
+        mPitchTimer--;
     }
 
-    if (_1A) {
-        _1A--;
+    if (mVerticalTimer) {
+        mVerticalTimer--;
     }
 
     updateTilt();
 
-    if (_48 != nullptr) {
-        TVec3f center;
-        MR::calcSpherePos(&center, _48);
-        f32 radius = MR::getSphereRadius(_48);
-        TVec3f distance = getTrans() - center;
-        if (!_1E && distance.length() > radius) {
-            _1E = 30;
+    if (mCelestialSphere != nullptr) {
+        Vec3f center;
+        MR::calcSpherePos(&center, mCelestialSphere);
+        f32 radius = MR::getSphereRadius(mCelestialSphere);
+        Vec3f distance = getTrans() - center;
+        if (!mSphereHitTimer && distance.length() > radius) {
+            mSphereHitTimer = 30;
             hitWall(-distance, nullptr);
-        } else if (_1E) {
-            _1E--;
+        } else if (mSphereHitTimer) {
+            mSphereHitTimer--;
         }
     }
 
@@ -339,54 +334,54 @@ bool MarioFoo::notice() {
 }
 
 bool MarioFoo::close() {
-    stopEffect("\203\164\201\133\203\175\203\212\203\111\203\165\203\214\201\133\203\114\215\266" /* フーマリオブレーキ左 */);
-    stopEffect("\203\164\201\133\203\175\203\212\203\111\203\165\203\214\201\133\203\114\211\105" /* フーマリオブレーキ右 */);
-    stopEffect("\203\164\201\133\203\175\203\212\203\111\203\117\203\215\201\133\215\266" /* フーマリオグロー左 */);
-    stopEffect("\203\164\201\133\203\175\203\212\203\111\203\117\203\215\201\133\211\105" /* フーマリオグロー右 */);
-    playEffect("\203\164\201\133\203\175\203\212\203\111\211\360\217\234\215\266" /* フーマリオ解除左 */);
-    playEffect("\203\164\201\133\203\175\203\212\203\111\211\360\217\234\211\105" /* フーマリオ解除右 */);
+    stopEffect("フーマリオブレーキ左");
+    stopEffect("フーマリオブレーキ右");
+    stopEffect("フーマリオグロー左");
+    stopEffect("フーマリオグロー右");
+    playEffect("フーマリオ解除左");
+    playEffect("フーマリオ解除右");
     stopAnimationUpper(nullptr);
     setYangleOffset(0.0f);
-    u16 upperJoint = getAnimator()->getUpperJointID();
+    u32 upperJoint = getAnimator()->getUpperJointID();
     setJointGlobalMtx(upperJoint, nullptr);
 
-    switch (_59) {
+    switch (mEndKind) {
     case 0:
-        changeAnimation("\224\362\202\321\215\236\202\335\216\270\224\163\211\361\223\135\222\205\222\156" /* 飛び込み失敗回転着地 */);
+        changeAnimation("飛び込み失敗回転着地");
         break;
     case 1:
-        changeAnimation("\203\164\201\133\203\164\203\100\203\103\203\136\201\133\222\205\222\156" /* フーファイター着地 */);
+        changeAnimation("フーファイター着地");
         break;
     case 2:
         stopAnimation(nullptr);
         break;
     case 3:
-        changeAnimation("\203\164\201\133\203\164\203\100\203\103\203\136\201\133\211\360\217\234" /* フーファイター解除 */);
-        getPlayer()->mJumpVec = TVec3f(0.0f, 0.0f, 0.0f);
-        getPlayer()->_10._21 = true;
+        changeAnimation("フーファイター解除");
+        getPlayer()->mJumpVec = Vec3f(0.0f, 0.0f, 0.0f);
+        getPlayer()->mActionStates.fooFlying = true;
         break;
     }
 
     if (getPlayer()->mMovementStates.jumping) {
-        changeAnimation(nullptr, "\227\216\211\272" /* 落下 */);
+        changeAnimation(nullptr, "落下");
     } else {
-        changeAnimation(nullptr, "\212\356\226\173" /* 基本 */);
+        changeAnimation(nullptr, "基本");
     }
 
     Mario* player = getPlayer();
-    player->_4B0 = player->mPosition;
+    player->mJumpStartPos = player->mPosition;
     getPlayer()->forceSetHeadVecKeepSide(-getGravityVec());
     changeAnimationInterpoleFrame(6);
     mActor->setBlendMtxTimer(4);
     getPlayer()->unlockGroundCheck(this);
-    mActor->_F44 = true;
+    mActor->mBindOn = true;
     mActor->resetWaterLife();
-    _54 = 0.0f;
-    getPlayer()->_10._7 = true;
+    mBlurOffset = 0.0f;
+    getPlayer()->mActionStates.swimExited = true;
     return true;
 }
 
-const TVec3f& MarioFoo::getGravityVec() const {
+const Vec3f& MarioFoo::getGravityVec() const {
     return MarioModule::getGravityVec();
 }
 
@@ -401,130 +396,130 @@ void MarioFoo::jet() {
 
     f32 speedUp = 1.02f;
     f32 slowDown = 0.98f;
-    if (checkLvlA() && !_12) {
+    if (checkLvlA() && !mJetHeldFromStart) {
         speed = 0.0f;
         slowDown = 0.9f;
-        _AC++;
-        if (!isAnimationRun("\203\164\201\133\203\164\203\100\203\103\203\136\201\133\203\130\203\163\203\223" /* フーファイタースピン */)) {
-            changeAnimation("\203\164\201\133\203\164\203\100\203\103\203\136\201\133\220\303\216\176" /* フーファイター静止 */);
+        mBrakeTimer++;
+        if (!isAnimationRun("フーファイタースピン")) {
+            changeAnimation("フーファイター静止");
         }
 
-        playEffect("\203\164\201\133\203\175\203\212\203\111\203\165\203\214\201\133\203\114\215\266" /* フーマリオブレーキ左 */);
-        playEffect("\203\164\201\133\203\175\203\212\203\111\203\165\203\214\201\133\203\114\211\105" /* フーマリオブレーキ右 */);
-        stopEffect("\203\164\201\133\203\175\203\212\203\111\203\117\203\215\201\133\215\266" /* フーマリオグロー左 */);
-        stopEffect("\203\164\201\133\203\175\203\212\203\111\203\117\203\215\201\133\211\105" /* フーマリオグロー右 */);
-        if (!_AE) {
-            playSound("\203\164\201\133\203\165\203\214\201\133\203\114" /* フーブレーキ */);
+        playEffect("フーマリオブレーキ左");
+        playEffect("フーマリオブレーキ右");
+        stopEffect("フーマリオグロー左");
+        stopEffect("フーマリオグロー右");
+        if (!mBraking) {
+            playSound("フーブレーキ");
         }
 
-        _AE = 1;
-        getPlayer()->_1C._9 = true;
-    } else if (_14 < 8) {
-        _AC++;
-        _AE = 1;
-        _28 = 0.0f;
-    } else if (_AC) {
-        if (_AC < 8) {
-            _AC = 0;
-            _AE = 0;
+        mBraking = 1;
+        getPlayer()->mHitStates.jet = true;
+    } else if (mFrameCount < 8) {
+        mBrakeTimer++;
+        mBraking = 1;
+        mSpeed = 0.0f;
+    } else if (mBrakeTimer) {
+        if (mBrakeTimer < 8) {
+            mBrakeTimer = 0;
+            mBraking = 0;
         } else {
-            if (_AE) {
-                playEffect("\213\244\222\312\202\320\202\261\202\244\202\253\203\165\201\133\203\130\203\147" /* 共通ひこうきブースト */);
-                playSound("\203\164\201\133\211\301\221\254" /* フー加速 */);
-                _AE = 0;
-                if (isAnimationRun("\203\164\201\133\203\164\203\100\203\103\203\136\201\133\220\303\216\176" /* フーファイター静止 */)) {
-                    changeAnimation("\203\164\201\133\203\164\203\100\203\103\203\136\201\133\224\362\215\163\215\304\212\112" /* フーファイター飛行再開 */);
+            if (mBraking) {
+                playEffect("共通ひこうきブースト");
+                playSound("フー加速");
+                mBraking = 0;
+                if (isAnimationRun("フーファイター静止")) {
+                    changeAnimation("フーファイター飛行再開");
                 }
             }
 
-            if (_AC > 20) {
-                _AC = 20;
+            if (mBrakeTimer > 20) {
+                mBrakeTimer = 20;
             }
 
-            _AC--;
+            mBrakeTimer--;
             speed *= 2.0f;
             speedUp = 1.2f;
         }
 
-        stopAnimation("\203\164\201\133\203\164\203\100\203\103\203\136\201\133\220\303\216\176" /* フーファイター静止 */);
-        playEffect("\203\164\201\133\203\175\203\212\203\111\203\117\203\215\201\133\215\266" /* フーマリオグロー左 */);
-        playEffect("\203\164\201\133\203\175\203\212\203\111\203\117\203\215\201\133\211\105" /* フーマリオグロー右 */);
-        stopEffect("\203\164\201\133\203\175\203\212\203\111\203\165\203\214\201\133\203\114\215\266" /* フーマリオブレーキ左 */);
-        stopEffect("\203\164\201\133\203\175\203\212\203\111\203\165\203\214\201\133\203\114\211\105" /* フーマリオブレーキ右 */);
+        stopAnimation("フーファイター静止");
+        playEffect("フーマリオグロー左");
+        playEffect("フーマリオグロー右");
+        stopEffect("フーマリオブレーキ左");
+        stopEffect("フーマリオブレーキ右");
     }
 
     f32 soundSpeed = 50.0f * (1.0f + getStickY());
-    if (!_AE) {
-        playSound("\203\164\201\133\224\362\215\163\222\206" /* フー飛行中 */, soundSpeed);
+    if (!mBraking) {
+        playSound("フー飛行中", soundSpeed);
     }
 
-    playSound("\203\164\201\133\221\330\213\363\222\206" /* フー滞空中 */, soundSpeed);
-    if (_28 < speed) {
-        if (_28 < 1.0f) {
-            _28 = 1.0f;
+    playSound("フー滞空中", soundSpeed);
+    if (mSpeed < speed) {
+        if (mSpeed < 1.0f) {
+            mSpeed = 1.0f;
         }
 
-        _28 *= speedUp;
-        if (_4E) {
-            _28 *= 1.5f;
+        mSpeed *= speedUp;
+        if (mRingBoostTimer) {
+            mSpeed *= 1.5f;
         }
-    } else if (_28 > speed) {
-        _28 *= slowDown;
+    } else if (mSpeed > speed) {
+        mSpeed *= slowDown;
     } else {
-        _28 = speed;
+        mSpeed = speed;
     }
 }
 
 void MarioFoo::updateTilt() {
     f32 sideTilt;
     f32 blend = 0.1f;
-    sideTilt = getStickX() * JGeometry::TUtil< f32 >::PI() / 5.0f;
+    sideTilt = getStickX() * FloatUtil::PI() / 5.0f;
     f32 frontTilt = 0.0f;
-    if (!_1C) {
-        frontTilt = getStickY() * JGeometry::TUtil< f32 >::PI() / 12.0f;
-        if (getStickY() > 0.0f && _2C <= 2.0943952f) {
-            frontTilt = getStickY() * JGeometry::TUtil< f32 >::PI() / 8.0f;
+    if (!mIdleTimer) {
+        frontTilt = getStickY() * FloatUtil::PI() / 12.0f;
+        if (getStickY() > 0.0f && mPitch <= 2.0943952f) {
+            frontTilt = getStickY() * FloatUtil::PI() / 8.0f;
         }
     } else if (getStickY() < 0.0f) {
-        frontTilt = getStickY() * JGeometry::TUtil< f32 >::PI() / mActor->getConst().getTable()->mSwimTiltZup;
+        frontTilt = getStickY() * FloatUtil::PI() / mActor->getConst().getTable()->mSwimTiltZup;
     } else if (getStickY() > 0.0f) {
-        frontTilt = getStickY() * JGeometry::TUtil< f32 >::PI() / mActor->getConst().getTable()->mSwimTiltZdown;
-    } else if (_1C) {
-        f32 ratio = _1C / 120.0f;
+        frontTilt = getStickY() * FloatUtil::PI() / mActor->getConst().getTable()->mSwimTiltZdown;
+    } else if (mIdleTimer) {
+        f32 ratio = mIdleTimer / 120.0f;
         if (ratio > 1.0f) {
             ratio = 1.0f;
         }
 
-        frontTilt -= (JGeometry::TUtil< f32 >::PI() / 10.0f) * ratio;
+        frontTilt -= (FloatUtil::PI() / 10.0f) * ratio;
     } else {
         frontTilt = 0.0f;
     }
 
-    _70 = blend * sideTilt + (1.0f - blend) * _70;
-    _74 = 0.1f * frontTilt + 0.9f * _74;
-    TMtx34f sideMtx;
-    TMtx34f frontMtx;
-    NebulaMtxRotRad(sideMtx, 'X', _70);
-    NebulaMtxRotRad(frontMtx, 'Z', _74);
-    NebulaMtxConcat(sideMtx, frontMtx, _78);
-    u16 upperJoint = getAnimator()->getUpperJointID();
-    setJointGlobalMtx(upperJoint, _78);
+    mSideTilt = blend * sideTilt + (1.0f - blend) * mSideTilt;
+    mFrontTilt = 0.1f * frontTilt + 0.9f * mFrontTilt;
+    Mtx34f sideMtx;
+    Mtx34f frontMtx;
+    NebulaMtxRotRad(sideMtx, 'X', mSideTilt);
+    NebulaMtxRotRad(frontMtx, 'Z', mFrontTilt);
+    NebulaMtxConcat(sideMtx, frontMtx, mTiltMtx);
+    u32 upperJoint = getAnimator()->getUpperJointID();
+    setJointGlobalMtx(upperJoint, mTiltMtx);
 }
 
-void MarioFoo::hitWall(const TVec3f& rNormal, HitSensor* pSensor) {
+void MarioFoo::hitWall(const Vec3f& rNormal, HitSensor* pSensor) {
     if (sendPunch(pSensor, false) != true) {
-        _11 = 1;
+        mBraked = 1;
         if (MR::diffAngleAbs(rNormal, -getGravityVec()) <= 0.7853982f) {
-            if (MR::diffAngleAbs(rNormal, -getPlayer()->_1FC) <= 0.7853982f) {
-                _59 = 0;
+            if (MR::diffAngleAbs(rNormal, -getPlayer()->mPostureUpVec) <= 0.7853982f) {
+                mEndKind = 0;
             } else {
-                _59 = 1;
+                mEndKind = 1;
             }
         } else {
-            _59 = 2;
+            mEndKind = 2;
         }
 
-        playSound("\203\164\201\133\203\165\203\214\201\133\203\114" /* フーブレーキ */);
+        playSound("フーブレーキ");
     }
 }
 
@@ -533,160 +528,164 @@ f32 MarioFoo::getStickY() const {
 }
 
 void MarioFoo::spin() {
-    if (!_60) {
-        if (mActor->isRequestSpin() && !_4C) {
-            _4C = 20;
-            if (!isAnimationRun("\203\164\201\133\203\164\203\100\203\103\203\136\201\133\203\130\203\163\203\223" /* フーファイタースピン */) && !checkLvlA()) {
-                playSound("\220\272\203\130\203\163\203\223" /* 声スピン */);
-                playSound("\203\130\203\163\203\223\203\127\203\203\203\223\203\166" /* スピンジャンプ */);
+    if (!mPushTimer) {
+        if (mActor->isRequestSpin() && !mSpinTimer) {
+            mSpinTimer = 20;
+            if (!isAnimationRun("フーファイタースピン") && !checkLvlA()) {
+                playSound("声スピン");
+                playSound("スピンジャンプ");
             }
 
-            changeAnimation("\203\164\201\133\203\164\203\100\203\103\203\136\201\133\203\130\203\163\203\223" /* フーファイタースピン */);
+            changeAnimation("フーファイタースピン");
             MarioActor* actor = mActor;
-            if (!actor->_944) {
-                actor->_945 = 0;
-                actor->_974 = 0;
+            if (!actor->mPunchHitTimer) {
+                actor->mPunchFrame = 0;
+                actor->mAirPunchHitCount = 0;
             }
 
-            actor->_944 = 30;
-            mActor->_946 = 60;
+            actor->mPunchHitTimer = 30;
+            mActor->mSpinIntervalTimer = 60;
         }
 
-        if (_4C) {
-            _4C--;
+        if (mSpinTimer) {
+            mSpinTimer--;
         }
     }
 }
 
 bool MarioFoo::passRing(const HitSensor* pSensor) {
-    const TVec3f& center = pSensor->mPosition;
-    if (!_4E) {
-        _50 = mActor->getConst().getTable()->mSwimRingDashChargeTime;
-        changeAnimation("\203\212\203\223\203\117\203\137\203\142\203\126\203\205\217\200\224\365" /* リングダッシュ準備 */);
+    const Vec3f& center = pSensor->mPosition;
+    if (!mRingBoostTimer) {
+        mRingChargeTimer = mActor->getConst().getTable()->mSwimRingDashChargeTime;
+        changeAnimation("リングダッシュ準備");
     }
 
-    if (_50) {
+    if (mRingChargeTimer) {
         getPlayer()->push((center - getTrans()) * 0.25f);
     }
 
     const DashRing* ring = static_cast< const DashRing* >(pSensor->mHost);
-    _5A = ring->mMaxDuration;
-    _5C = ring->mSpeedScale;
-    _4E = ring->mBoostTime;
+    mRingBoostLength = ring->mMaxDuration;
+    mRingBoostScale = ring->mSpeedScale;
+    mRingBoostTimer = ring->mBoostTime;
     return true;
 }
 
 f32 MarioFoo::calcRingAcc() {
-    if (_4E) {
-        if (_50) {
-            _50--;
-            if (_50 == 1) {
+    if (mRingBoostTimer) {
+        if (mRingChargeTimer) {
+            mRingChargeTimer--;
+            if (mRingChargeTimer == 1) {
                 MarioActor* actor = mActor;
-                actor->_1AA = actor->getConst().getTable()->mStarPieceFogTime;
-                actor->_1AC = 1.0f;
-                actor->_1B0.set(255, 255, 255, 0);
-                actor->_1B5 = false;
+                actor->mFlashFogTimer = actor->getConst().getTable()->mStarPieceFogTime;
+                actor->mFlashFogRate = 1.0f;
+                actor->mFlashFogColor.set(255, 255, 255, 0);
+                actor->mFlashFogOn = false;
             }
 
-            if (!_50) {
+            if (!mRingChargeTimer) {
                 startPadVib(3);
-                changeAnimation("\203\212\203\223\203\117\203\137\203\142\203\126\203\205" /* リングダッシュ */);
+                changeAnimation("リングダッシュ");
             }
 
             return 1.0f;
         }
 
-        _54 += 0.5f;
-        if (_54 > 30.0f) {
-            _54 = 30.0f;
+        mBlurOffset += 0.5f;
+        if (mBlurOffset > 30.0f) {
+            mBlurOffset = 30.0f;
         }
 
-        u16 duration = _5A;
-        u16 remaining = _4E;
-        f32 acceleration = _5C;
+        u16 duration = mRingBoostLength;
+        u16 remaining = mRingBoostTimer;
+        f32 acceleration = mRingBoostScale;
         if (remaining < duration) {
             f32 ratio = static_cast< f32 >(remaining) / static_cast< f32 >(duration);
             acceleration = (1.0f - ratio) + acceleration * ratio;
         }
 
-        _4E--;
+        mRingBoostTimer--;
         return acceleration;
     }
 
-    if (_54 > 0.0f) {
-        _54 -= 0.5f;
+    if (mBlurOffset > 0.0f) {
+        mBlurOffset -= 0.5f;
     } else {
-        _54 = 0.0f;
+        mBlurOffset = 0.0f;
     }
 
     return 1.0f;
 }
 
+namespace {
+    void sendVertex(VertexPT*& rVtx, const Vec3f& rPosition, const Vec2f& rCoord) {
+        *rVtx++ = {rPosition.x, rPosition.y, rPosition.z, rCoord.x, rCoord.y};
+    }
+}  // namespace
+
 void MarioFoo::draw3D() const {
-    TVec3f beamVertices[4];
-    TVec3f leftEdge[2];
-    TVec3f rightEdge[2];
-    TVec3f nextLeftEdge[2];
-    TVec3f nextRightEdge[2];
+    Vec3f beamVertices[4];
+    Vec3f leftEdge[2];
+    Vec3f rightEdge[2];
+    Vec3f nextLeftEdge[2];
+    Vec3f nextRightEdge[2];
 
-    if (getPlayer()->_1C._9) {
-        NebulaNativeMaterial material;
+    if (getPlayer()->mHitStates.jet) {
+        SiteMaterial material;
         TDDraw::setupNative(&material, 1, 2, 0);
-        MR::ddSetVtxFormat(2);
-        material.shader = NEBULA_SHADER_TEX_ALPHA_LERP;
+        material.setShader(NEBULA_SHADER_TEX_ALPHA_LERP);
         material.constants[9] = 2.0f;
-        NativeShader::setTexture(material, 0, _6B8);
+        material.setTexture(0, mTrailTexture);
         const Color8 color0(255, 32, 32, 128);
-        NativeShader::setColor(material, 0, color0.r, color0.g, color0.b, color0.a);
+        material.setColor(0, color0.r, color0.g, color0.b, color0.a);
         const Color8 color1(255, 64, 64, 255);
-        NativeShader::setColor(material, 4, color1.r, color1.g, color1.b, color1.a);
-        NativeShader::send(material);
+        material.setColor(4, color1.r, color1.g, color1.b, color1.a);
 
-        TVec3f center = mActor->_2A0 + getPlayer()->getUpVec() * 50.0f;
-        TVec3f back = -getPlayer()->getUpVec();
-        TVec3f side(getPlayer()->mSideVec);
-        TVec3f up;
+        Vec3f center = mActor->mCenterPos + getPlayer()->getUpVec() * 50.0f;
+        Vec3f back = -getPlayer()->getUpVec();
+        Vec3f side(getPlayer()->mSideVec);
+        Vec3f up;
         up.cross(back, side);
         MR::normalizeOrZero(&up);
-        TVec3f front = -back;
-        f32 length = (64 - _6B0) / 64.0f;
+        Vec3f front = -back;
+        f32 length = (cTrailNum - mTrailLength) / static_cast< f32 >(cTrailNum);
 
         beamVertices[0] = center - side * 70.0f;
         beamVertices[1] = center - side * 70.0f + front * 2000.0f * length;
         beamVertices[2] = center - side * 50.0f + front * 2000.0f * length;
         beamVertices[3] = center - side * 50.0f;
-        J3DNativeDraw::begin(NEBULA_PRIMITIVE_QUADS, 4, MR::ddVtxAttributes());
-        MR::ddSendVtxData(beamVertices[0], TVec2f(0.0f, 0.0f));
-        MR::ddSendVtxData(beamVertices[1], TVec2f(0.5f, 0.0f));
-        MR::ddSendVtxData(beamVertices[2], TVec2f(0.5f, 1.0f));
-        MR::ddSendVtxData(beamVertices[3], TVec2f(0.0f, 1.0f));
+        TypedDraw site(material, nullptr, MR::getCameraViewMtx());
+        VertexPT* vtx = site.vertices< VertexPT >(NEBULA_PRIMITIVE_QUADS, 4);
+        sendVertex(vtx, beamVertices[0], Vec2f(0.0f, 0.0f));
+        sendVertex(vtx, beamVertices[1], Vec2f(0.5f, 0.0f));
+        sendVertex(vtx, beamVertices[2], Vec2f(0.5f, 1.0f));
+        sendVertex(vtx, beamVertices[3], Vec2f(0.0f, 1.0f));
 
         beamVertices[0] = center + side * 70.0f;
         beamVertices[1] = center + side * 70.0f + front * 2000.0f * length;
         beamVertices[2] = center + side * 50.0f + front * 2000.0f * length;
         beamVertices[3] = center + side * 50.0f;
-        J3DNativeDraw::begin(NEBULA_PRIMITIVE_QUADS, 4, MR::ddVtxAttributes());
-        MR::ddSendVtxData(beamVertices[0], TVec2f(0.0f, 0.0f));
-        MR::ddSendVtxData(beamVertices[1], TVec2f(0.5f, 0.0f));
-        MR::ddSendVtxData(beamVertices[2], TVec2f(0.5f, 1.0f));
-        MR::ddSendVtxData(beamVertices[3], TVec2f(0.0f, 1.0f));
+        vtx = site.vertices< VertexPT >(NEBULA_PRIMITIVE_QUADS, 4);
+        sendVertex(vtx, beamVertices[0], Vec2f(0.0f, 0.0f));
+        sendVertex(vtx, beamVertices[1], Vec2f(0.5f, 0.0f));
+        sendVertex(vtx, beamVertices[2], Vec2f(0.5f, 1.0f));
+        sendVertex(vtx, beamVertices[3], Vec2f(0.0f, 1.0f));
     }
 
     const Color8 color2(255, 64, 64, 255);
-    if (_6B0) {
-        NebulaNativeMaterial material;
+    if (mTrailLength) {
+        SiteMaterial material;
         TDDraw::setupNative(&material, 1, 2, 0);
-        MR::ddSetVtxFormat(2);
-        material.shader = NEBULA_SHADER_TEX_ALPHA_LERP;
+        material.setShader(NEBULA_SHADER_TEX_ALPHA_LERP);
         material.constants[9] = 2.0f;
-        NativeShader::setTexture(material, 0, _6B8);
+        material.setTexture(0, mTrailTexture);
 
         u32 midpoint;
-        u32 count = _6B0;
+        u32 count = mTrailLength;
         midpoint = count / 2;
-        TVec3f previous;
-        TVec2f nextTexCoords[2];
-        TVec2f texCoords[2];
+        Vec3f previous;
+        Vec2f nextTexCoords[2];
+        Vec2f texCoords[2];
         for (u32 i = 0; i < count; i++) {
             u8 alpha;
             if (i > midpoint) {
@@ -696,24 +695,25 @@ void MarioFoo::draw3D() const {
             }
 
             const Color8 color3(255, 0, 0, alpha);
-            NativeShader::setColor(material, 0, color3.r, color3.g, color3.b, color3.a);
-            NativeShader::setColor(material, 4, color2.r, color2.g, color2.b, color2.a);
-            NativeShader::send(material);
-            u32 index = (_6B4 + 127 - i) % 64;
+            material.setColor(0, color3.r, color3.g, color3.b, color3.a);
+            material.setColor(4, color2.r, color2.g, color2.b, color2.a);
+            TypedDraw site(material, nullptr, MR::getCameraViewMtx());
+            VertexPT* vtx;
+            u32 index = (mTrailIndex + cTrailNum * 2 - 1 - i) % cTrailNum;
             if (i == 0) {
                 u32 j;
                 for (j = 1; j < count; j++) {
-                    TVec3f direction = _B0[(_6B4 + 127 - j) % 64] - _B0[index];
-                    TVec3f horizontal;
+                    Vec3f direction = mTrailPos[(mTrailIndex + cTrailNum * 2 - 1 - j) % cTrailNum] - mTrailPos[index];
+                    Vec3f horizontal;
                     MR::vecKillElement(direction, MR::getCamZdir(), &horizontal);
                     if (!MR::normalizeOrZero(&horizontal)) {
-                        TVec3f width;
+                        Vec3f width;
                         width.cross(horizontal, MR::getCamZdir());
                         width.scale(10.0f);
-                        leftEdge[0] = _B0[index] + width - _3B0[index] * ::cWidth;
-                        leftEdge[1] = _B0[index] - width - _3B0[index] * ::cWidth;
-                        rightEdge[0] = _B0[index] + width + _3B0[index] * ::cWidth;
-                        rightEdge[1] = _B0[index] - width + _3B0[index] * ::cWidth;
+                        leftEdge[0] = mTrailPos[index] + width - mTrailSide[index] * ::cWidth;
+                        leftEdge[1] = mTrailPos[index] - width - mTrailSide[index] * ::cWidth;
+                        rightEdge[0] = mTrailPos[index] + width + mTrailSide[index] * ::cWidth;
+                        rightEdge[1] = mTrailPos[index] - width + mTrailSide[index] * ::cWidth;
                         break;
                     }
                 }
@@ -722,31 +722,31 @@ void MarioFoo::draw3D() const {
                     break;
                 }
 
-                previous = _B0[index];
+                previous = mTrailPos[index];
                 texCoords[0].set(0.0f, 0.0f);
                 texCoords[1].set(1.0f, 0.0f);
             } else {
                 f32 textureY = static_cast< f32 >(i + 1) / static_cast< f32 >(count);
                 nextTexCoords[0].set(0.0f, textureY);
                 nextTexCoords[1].set(1.0f, textureY);
-                const TVec3f& rPosition = _B0[index];
-                TVec3f width(_3B0[index]);
+                const Vec3f& rPosition = mTrailPos[index];
+                Vec3f width(mTrailSide[index]);
                 width.setLength(10.0f);
-                nextLeftEdge[0] = rPosition + width - _3B0[index] * ::cWidth;
-                nextLeftEdge[1] = rPosition - width - _3B0[index] * ::cWidth;
-                J3DNativeDraw::begin(NEBULA_PRIMITIVE_QUADS, 4, MR::ddVtxAttributes());
-                MR::ddSendVtxData(leftEdge[0], texCoords[0]);
-                MR::ddSendVtxData(nextLeftEdge[0], nextTexCoords[0]);
-                MR::ddSendVtxData(nextLeftEdge[1], nextTexCoords[1]);
-                MR::ddSendVtxData(leftEdge[1], texCoords[1]);
+                nextLeftEdge[0] = rPosition + width - mTrailSide[index] * ::cWidth;
+                nextLeftEdge[1] = rPosition - width - mTrailSide[index] * ::cWidth;
+                vtx = site.vertices< VertexPT >(NEBULA_PRIMITIVE_QUADS, 4);
+                sendVertex(vtx, leftEdge[0], texCoords[0]);
+                sendVertex(vtx, nextLeftEdge[0], nextTexCoords[0]);
+                sendVertex(vtx, nextLeftEdge[1], nextTexCoords[1]);
+                sendVertex(vtx, leftEdge[1], texCoords[1]);
 
-                nextRightEdge[0] = rPosition + width + _3B0[index] * ::cWidth;
-                nextRightEdge[1] = rPosition - width + _3B0[index] * ::cWidth;
-                J3DNativeDraw::begin(NEBULA_PRIMITIVE_QUADS, 4, MR::ddVtxAttributes());
-                MR::ddSendVtxData(rightEdge[0], texCoords[0]);
-                MR::ddSendVtxData(nextRightEdge[0], nextTexCoords[0]);
-                MR::ddSendVtxData(nextRightEdge[1], nextTexCoords[1]);
-                MR::ddSendVtxData(rightEdge[1], texCoords[1]);
+                nextRightEdge[0] = rPosition + width + mTrailSide[index] * ::cWidth;
+                nextRightEdge[1] = rPosition - width + mTrailSide[index] * ::cWidth;
+                vtx = site.vertices< VertexPT >(NEBULA_PRIMITIVE_QUADS, 4);
+                sendVertex(vtx, rightEdge[0], texCoords[0]);
+                sendVertex(vtx, nextRightEdge[0], nextTexCoords[0]);
+                sendVertex(vtx, nextRightEdge[1], nextTexCoords[1]);
+                sendVertex(vtx, rightEdge[1], texCoords[1]);
 
                 leftEdge[0] = nextLeftEdge[0];
                 texCoords[0] = nextTexCoords[0];
@@ -761,5 +761,5 @@ void MarioFoo::draw3D() const {
 }
 
 f32 MarioFoo::getBlurOffset() const {
-    return _54;
+    return mBlurOffset;
 }

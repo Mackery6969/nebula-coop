@@ -27,6 +27,7 @@
         std::string name;  // NEBULA_TEST_KILL_ACTOR's model
     };
     static std::vector<Event> events;
+    constexpr uint32_t kAudioCounters = 0xFFFFFFFFu;  // audio@frame: the host's, no game action
     static uint64_t tour_frames = 1200;
     static bool touring = false;
     static bool loaded = false;
@@ -64,6 +65,8 @@
                     const uint64_t frame = std::strtoull(entry.c_str() + at + 1, nullptr, 10);
                     if (kind == "kill") {
                         events.push_back({NEBULA_TEST_KILL_PLAYER, frame, 0});
+                    } else if (kind == "circleclose" || kind == "circleopen") {
+                        events.push_back({NEBULA_TEST_CIRCLE_WIPE, frame, kind == "circleopen" ? 1 : 0});
                     } else if (kind == "star") {
                         events.push_back({NEBULA_TEST_GET_STAR, frame, -1});
                     } else if (kind == "grandstar") {
@@ -74,6 +77,8 @@
                         events.push_back({NEBULA_TEST_SHAKE_CAMERA, frame, 0});
                     } else if (kind == "actors") {
                         events.push_back({NEBULA_TEST_LIST_ACTORS, frame, 0});
+                    } else if (kind == "domelaunch") {
+                        events.push_back({NEBULA_TEST_DOME_LAUNCH, frame, 0});
                     } else if (kind == "koopahit") {
                         events.push_back({NEBULA_TEST_KOOPA_HIT, frame, 0});
                     } else if (kind.rfind("materials:", 0) == 0) {
@@ -84,6 +89,8 @@
                         events.push_back({NEBULA_TEST_KILL_ACTOR, frame, 0, kind.substr(7)});
                     } else if (kind == "wait") {
                         events.push_back({0, frame, 0});
+                    } else if (kind == "audio") {
+                        events.push_back({kAudioCounters, frame, 0});
                     } else if (kind.rfind("movie", 0) == 0) {
                         events.push_back({NEBULA_TEST_START_MOVIE, frame, std::atoi(kind.c_str() + 5)});
                     }
@@ -109,6 +116,7 @@
     }
     ++scene_frames;
     gSceneFrames.store(scene_frames, std::memory_order_relaxed);
+    gStopFrames.store(touring && stop_frame == 0 ? kNoStopFrames : scene_frames - stop_frame, std::memory_order_relaxed);
 #if defined(NEBULA_HOST_RENDERER)
     // The settings' galaxy select (ADVANCED page): a travel the player asked for, through the game's own stage change,
     // and the Grand Stars with the Observatory they power.
@@ -175,11 +183,15 @@
     if (touring && next == stops.size() && !gTourDone.load(std::memory_order_relaxed) &&
         ++since_stop >= std::max(tour_frames, last_frame)) {
         gTourDone.store(true, std::memory_order_relaxed);  // the run ends once the last stop has had its frames
+#if defined(_WIN32) && defined(NEBULA_HOST_RENDERER) && !defined(NEBULA_HOST_SDL)
+        SetEvent(gHostWake);
+#endif
         log_line("tour:", "done");
     }
     if (touring && next < stops.size() && ++since_stop >= tour_frames) {
         since_stop = 0;
         stop_frame = scene_frames;
+        gStopFrames.store(0, std::memory_order_relaxed);
         const Stop& stop = stops[next++];
         action->kind = NEBULA_TEST_CHANGE_STAGE;
         action->scenario = stop.scenario;
@@ -187,13 +199,32 @@
         char text[128];
         std::snprintf(text, sizeof(text), "%zu/%zu %s %d", next, stops.size(), stop.stage.c_str(), stop.scenario);
         log_line("tour:", text);
+#if defined(NEBULA_HOST_RENDERER)
+        if (nebula_switch::present_snapshot_by_stop() != nullptr) {
+            galaxy::render::number_present_snapshots(0u);
+        }
+#endif
         return 1;
     }
+#if defined(NEBULA_HOST_RENDERER)
+    // Pictures named by stop and scene frame: a build's load frames do not move them.
+    if (touring && nebula_switch::present_snapshot_by_stop() != nullptr) {
+        galaxy::render::number_present_snapshots(next * 1000u + since_stop);
+    }
+#endif
     if (touring && stop_frame == 0) {
         return 0;
     }
     const uint64_t frame = scene_frames - stop_frame;
     for (const Event& event : events) {
+        if (frame == event.frame && event.kind == kAudioCounters) {
+#if defined(NEBULA_HOST_RENDERER)
+            if (gAudio != nullptr) {
+                log_line("host:", ("jaudio " + gAudio->stats_line()).c_str());
+            }
+#endif
+            continue;
+        }
         if (frame == event.frame && event.kind != 0) {
             action->kind = event.kind;
             action->scenario = event.value >= 0 ? event.value : (next > 0 ? stops[next - 1].scenario : 1);

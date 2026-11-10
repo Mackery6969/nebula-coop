@@ -10,12 +10,14 @@
 #include "Game/Util/MtxUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
-#include <JSystem/JMath/JMATrigonometric.hpp>
+#include <nebula_geometry.hpp>
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    // static const f32 sFlyUpHeight = _;
-    static const f32 sFlyUpDirDegreeMax = 45.0f;
-    static const f32 sRotateSpeed = 15.0f;
+    NEBULA_TUNABLE(f32, sFlyUpDirDegreeMax, 45.0f);
+    NEBULA_TUNABLE(f32, sRotateSpeed, 15.0f);
+    NEBULA_TUNABLE(f32, sArcHeight, 1500.0f);
+    NEBULA_TUNABLE(f32, sHitEffectAhead, 100.0f);
 };  // namespace
 
 namespace NrvKoopaFireStairs {
@@ -23,33 +25,28 @@ namespace NrvKoopaFireStairs {
     NEW_NERVE(KoopaFireStairsNrvBreak, KoopaFireStairs, Break);
 };  // namespace NrvKoopaFireStairs
 
-KoopaFireStairs::~KoopaFireStairs() {
+KoopaFireStairs::KoopaFireStairs(const char* pName, bool isKoopaJr)
+    : LiveActor(pName), mIsKoopaJr(isKoopaJr), mStair(nullptr), mFront(0.0f, 0.0f, 1.0f), mStartPos(0.0f, 0.0f, 0.0f), mFlyUpDir(0.0f, 1.0f, 0.0f),
+      mBreakModel(nullptr) {
 }
 
-KoopaFireStairs::KoopaFireStairs(const char* pName, bool a2)
-    : LiveActor(pName), mIsKoopaJr(a2), mStair(), _94(0.0f, 0.0f, 1.0f), _A0(0.0f, 0.0f, 0.0f), _AC(0.0f, 1.0f, 0.0f), mBreakModel() {
-}
-
-void KoopaFireStairs::init(const JMapInfoIter& rIter) {
+void KoopaFireStairs::init(const TableIter& /*rIter*/) {
     initModelManagerWithAnm("MeteorStrike", nullptr, false);
     MR::startBrk(this, "MeteorStrike");
-
     MR::connectToSceneEnemy(this);
 
     initHitSensor(1);
-    MR::addHitSensorEnemyAttack(this, "Fire", 8, 100.0f, TVec3f(0.0f, 0.0f, 0.0f));
-    initEffectKeeper(1, nullptr, false);
-
+    MR::addHitSensorEnemyAttack(this, "Fire", 8, 100.0f, Vec3f(0.0f, 0.0f, 0.0f));
+    initEffectKeeper(1, nullptr);
     MR::addEffectHitNormal(this, "Hit");
     MR::setEffectBaseScale(this, "Hit", 2.0f);
 
     initSound(4, false);
     MR::initShadowVolumeSphere(this, 60.0f);
     initNerve(GET_NERVE(KoopaFireStairs, KoopaFireStairsNrvFly));
-
     MR::invalidateClipping(this);
 
-    mBreakModel = MR::createModelObjEnemy("\203\116\203\142\203\160\203\201\203\145\203\111\201\151\211\363\202\352\201\152" /* クッパメテオ（壊れ） */, "MeteorStrikeBreak", getBaseMtx());
+    mBreakModel = MR::createModelObjEnemy("クッパメテオ（壊れ）", "MeteorStrikeBreak", getBaseMtx());
     mBreakModel->kill();
     MR::invalidateClipping(mBreakModel);
 
@@ -60,13 +57,7 @@ void KoopaFireStairs::appear() {
     LiveActor::appear();
     MR::showModel(this);
     MR::emitEffect(this, "MeteorStrike");
-
-    if (mIsKoopaJr) {
-        MR::startSound(this, "SE_BM_KOOPAJR_SHIP_METEORSHOT_F");
-    } else {
-        MR::startSound(this, "SE_OJ_KOOPA_FIRE_SHOT");
-    }
-
+    MR::startSound(this, mIsKoopaJr ? "SE_BM_KOOPAJR_SHIP_METEORSHOT_F" : "SE_OJ_KOOPA_FIRE_SHOT");
     setNerve(GET_NERVE(KoopaFireStairs, KoopaFireStairsNrvFly));
 }
 
@@ -75,53 +66,49 @@ void KoopaFireStairs::makeActorDead() {
     mBreakModel->makeActorDead();
 }
 
-void KoopaFireStairs::setInfo(const KoopaBattleMapStair* pStair, const TVec3f* pAxis) {
+// Bowser's shot flies straight at the stair, arriving as it breaks. Bowser Jr.'s arcs over: with `pAxis`, the arc leans a
+// random angle up to 45 degrees about it, toward the side of the stair's path.
+void KoopaFireStairs::setInfo(const KoopaBattleMapStair* pStair, const Vec3f* pAxis) {
     mStair = pStair;
-
-    _A0.set(mPosition);
-
+    mStartPos.set(mPosition);
     MR::calcGravity(this);
 
     if (pAxis != nullptr) {
-        TVec3f vec1 = mStair->mPosition - _A0;
-        TVec3f vec2 = mStair->_AC - _A0;
-        TVec3f vec;
-        vec.cross(vec1, vec2);
+        Vec3f toStair = mStair->mPosition - mStartPos;
+        Vec3f toTarget = mStair->mTargetPos - mStartPos;
+        Vec3f normal;
+        normal.cross(toStair, toTarget);
 
-        if (vec.dot(pStair->mGravity) > 0.0f) {
-            MR::rotateVecDegree(&_AC, *pAxis, MR::getRandom(0.0f, ::sFlyUpDirDegreeMax));
+        if (normal.dot(pStair->mGravity) > 0.0f) {
+            MR::rotateVecDegree(&mFlyUpDir, *pAxis, MR::getRandom(0.0f, sFlyUpDirDegreeMax));
         } else {
-            MR::rotateVecDegree(&_AC, *pAxis, MR::getRandom(-::sFlyUpDirDegreeMax, 0.0f));
+            MR::rotateVecDegree(&mFlyUpDir, *pAxis, MR::getRandom(-sFlyUpDirDegreeMax, 0.0f));
         }
     }
 
     if (mIsKoopaJr) {
         mVelocity.zero();
-
-        _94.set(mStair->_AC - _A0);
-        MR::normalize(&_94);
+        mFront.set(mStair->mTargetPos - mStartPos);
+        MR::normalize(&mFront);
     } else {
         s32 breakTime = mStair->calcRemainTimeToBreak();
-        TVec3f v10 = mStair->_AC - mPosition;
-        f32 length = v10.length();
+        Vec3f toTarget = mStair->mTargetPos - mPosition;
+        f32 length = toTarget.length();
 
-        mVelocity.set(v10);
+        mVelocity.set(toTarget);
         MR::normalize(&mVelocity);
-        _94.set(mVelocity);
-        mVelocity.scale(length / (breakTime - 1));
+        mFront.set(mVelocity);
+        mVelocity.scale(length / (breakTime > 2 ? breakTime - 1 : 1));
     }
 }
 
-// this is the only way I could match this
-// TODO fix
 void KoopaFireStairs::exeFly() {
     if (mStair->isBreak()) {
-        TVec3f v15(mVelocity);
-        MR::normalizeOrZero(&v15);
-        v15.scale(100.0f);
-        const TVec3f& rPosition = mPosition;
-        v15.add(rPosition);
-        MR::emitEffectHit(this, v15, "Hit");
+        Vec3f hitPos(mVelocity);
+        MR::normalizeOrZero(&hitPos);
+        hitPos.scale(sHitEffectAhead);
+        hitPos.add(mPosition);
+        MR::emitEffectHit(this, hitPos, "Hit");
         MR::emitEffect(this, "MeteorStrikeBreak");
         mVelocity.zero();
         MR::startSound(this, "SE_OJ_KOOPA_FIRE_EXPLODE");
@@ -129,31 +116,28 @@ void KoopaFireStairs::exeFly() {
         MR::shakeCameraWeak();
         MR::hideModel(this);
         setNerve(GET_NERVE(KoopaFireStairs, KoopaFireStairsNrvBreak));
-    } else {
-        if (mIsKoopaJr) {
-            TVec3f v14(mPosition);
-            f32 rate = mStair->calcTimeRate();
+        return;
+    }
 
-            mPosition = _A0 * (1.0f - rate) + mStair->_AC * rate;
+    if (mIsKoopaJr) {
+        // Along the line by the stair's timer, plus a half sine up the arc; faces the way it moved.
+        Vec3f prevPos(mPosition);
+        f32 rate = mStair->calcTimeRate();
+        mPosition = mStartPos * (1.0f - rate) + mStair->mTargetPos * rate;
+        f32 arc = MR::sinDegree(180.0f * rate);
+        mPosition.add(mFlyUpDir * arc * sArcHeight);
 
-            f32 v5 = (180.0f * mStair->calcTimeRate());
-            f32 v6 = MR::sinDegree(v5);
-
-            mPosition.add(_AC * v6 * 1500.0f);
-
-            TVec3f v13 = mPosition - v14;
-
-            if (!MR::isNearZero(v13)) {
-                MR::normalize(&v13);
-                _94.set(v13);
-            }
-
-            MR::startLevelSound(this, "SE_BM_LV_KOOPAJR_SHIP_METEOR");
+        Vec3f moved = mPosition - prevPos;
+        if (!MR::isNearZero(moved)) {
+            MR::normalize(&moved);
+            mFront.set(moved);
         }
 
-        mRotation.x += ::sRotateSpeed;
-        mRotation.x = MR::repeatDegree(mRotation.x);
+        MR::startLevelSound(this, "SE_BM_LV_KOOPAJR_SHIP_METEOR");
     }
+
+    mRotation.x += sRotateSpeed;
+    mRotation.x = MR::repeatDegree(mRotation.x);
 }
 
 void KoopaFireStairs::exeBreak() {
@@ -168,9 +152,9 @@ void KoopaFireStairs::exeBreak() {
 }
 
 void KoopaFireStairs::calcAndSetBaseMtx() {
-    TPos3f v5;
-    v5.identity();
-    MR::makeMtxFrontUpPos(&v5, _94, -mGravity, mPosition);
-    MR::rotateMtxLocalXDegree(v5, mRotation.x);
-    MR::setBaseTRMtx(this, v5);
+    Pos3f mtx;
+    mtx.identity();
+    MR::makeMtxFrontUpPos(&mtx, mFront, -mGravity, mPosition);
+    MR::rotateMtxLocalXDegree(mtx, mRotation.x);
+    MR::setBaseTRMtx(this, mtx);
 }

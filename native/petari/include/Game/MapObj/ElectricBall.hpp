@@ -2,7 +2,7 @@
 
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/Util/Array.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class MapPartsRailMover;
 class PartsModel;
@@ -14,26 +14,26 @@ public:
         Ball();
 
         void init(LiveActor*);
-        void updatePosition(const TPos3f&);
+        void updatePosition(const Pos3f&);
         void activate();
 
         PartsModel* mHost;
-        TVec3f mPosition;
+        Vec3f mPosition;
         bool mIsActive;
     };
 
     ElectricBall(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual MtxPtr getBaseMtx() const {
-        return (MtxPtr)mBaseMtx.mMtx;
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
+    virtual MtxPtr getBaseMtx() const override {
+        return const_cast< MtxPtr >(mBaseMtx.mMtx);
     };
-    virtual void control();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
+    virtual void control() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
 
-    void initBalls(const JMapInfoIter&);
+    void initBalls(const TableIter&);
     Ball* getNearestBall();
     void startMove();
 
@@ -41,9 +41,9 @@ public:
     void exeMove() {};
     void exeAttack();
 
-    TPos3f mBaseMtx;
+    Pos3f mBaseMtx;
     MR::AssignableArray< Ball > mBalls;
-    TVec3f mClosestBallPos;
+    Vec3f mClosestBallPos;
     f32 mRadius;        // Obj_arg1
     f32 mAngularSpeed;  // Obj_arg2
     MapPartsRailMover* mRailMover;

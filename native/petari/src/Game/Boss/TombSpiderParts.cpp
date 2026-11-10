@@ -9,12 +9,13 @@
 #include "Game/Util/JointUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const f32 sAttachBodyBackRadius = 500.0f;
-    static const f32 sAttachBodyBackOffset = 100.0f;
-    static const f32 sAttachFootRadius = 300.0f;
-    static const f32 sAttachFootOffset = 100.0f;
+    NEBULA_TUNABLE(f32, sAttachBodyBackRadius, 500.0f);
+    NEBULA_TUNABLE(f32, sAttachBodyBackOffset, 100.0f);
+    NEBULA_TUNABLE(f32, sAttachFootRadius, 300.0f);
+    NEBULA_TUNABLE(f32, sAttachFootOffset, 100.0f);
 };  // namespace
 
 TombSpiderParts::TombSpiderParts(TombSpider* pParent)
@@ -62,39 +63,42 @@ void TombSpiderParts::init() {
 }
 
 namespace {
-    TombSpiderGland* createGland(TombSpider* pParent, const char* pName, const TVec3f& rPos, const TVec3f& a1, const char* pJointName) {
-        TombSpiderGland* gland = new TombSpiderGland(pParent, pName, rPos, a1, pJointName);
+    TombSpiderGland* createGland(TombSpider* pParent, const char* pName, const Vec3f& rPos, const Vec3f& rRotate, const char* pJointName) {
+        TombSpiderGland* gland = new TombSpiderGland(pParent, pName, rPos, rRotate, pJointName);
         gland->initWithoutIter();
         MR::registerDemoSimpleCastAll(gland);
         return gland;
     }
 
-    TombSpiderVitalSpot* createVitalSpot(TombSpider* pParent, const char* pName, const TVec3f& rPos, const TVec3f& a1, const char* pJointName) {
-        TombSpiderVitalSpot* vitalSpot = new TombSpiderVitalSpot(pParent, pName, rPos, a1, pJointName);
+    TombSpiderVitalSpot* createVitalSpot(TombSpider* pParent, const char* pName, const Vec3f& rPos, const Vec3f& rRotate, const char* pJointName) {
+        TombSpiderVitalSpot* vitalSpot = new TombSpiderVitalSpot(pParent, pName, rPos, rRotate, pJointName);
         vitalSpot->initWithoutIter();
         MR::registerDemoSimpleCastAll(vitalSpot);
         return vitalSpot;
     }
 
-    TombSpiderThreadAttacher* createThreadAttacherFoot(TombSpider* pParent, const char* pName) {
-        TombSpiderThreadAttacher* threadAttacherFoot = new TombSpiderThreadAttacher(pParent, pName, ::sAttachFootRadius, ::sAttachFootOffset);
-        threadAttacherFoot->initWithoutIter();
-        return threadAttacherFoot;
+    TombSpiderThreadAttacher* createThreadAttacher(TombSpider* pParent, const char* pJointName, f32 radius, f32 offset) {
+        TombSpiderThreadAttacher* pAttacher = new TombSpiderThreadAttacher(pParent, pJointName, radius, offset);
+        pAttacher->initWithoutIter();
+        return pAttacher;
+    }
+
+    TombSpiderThreadAttacher* createThreadAttacherFoot(TombSpider* pParent, const char* pJointName) {
+        return createThreadAttacher(pParent, pJointName, ::sAttachFootRadius, ::sAttachFootOffset);
     }
 };  // namespace
 
 void TombSpiderParts::initParts() {
-    mGlandFrontL = ::createGland(mParent, "\223\305\221\102[\215\266\221\117]" /* 毒腺[左前] */, TVec3f(30.0f, 0.0f, -10.0f), TVec3f(-35.0f, -5.0f, 0.0f), "FrontL");
-    mGlandFrontR = ::createGland(mParent, "\223\305\221\102[\211\105\221\117]" /* 毒腺[右前] */, TVec3f(-30.0f, 0.0f, -10.0f), TVec3f(-35.0f, 5.0f, 0.0f), "FrontR");
-    mGlandRearL = ::createGland(mParent, "\223\305\221\102[\215\266\214\343]" /* 毒腺[左後] */, TVec3f(30.0f, 0.0f, -10.0f), TVec3f(-33.0f, -5.0f, 0.0f), "RearL");
-    mGlandRearR = ::createGland(mParent, "\223\305\221\102[\211\105\214\343]" /* 毒腺[右後] */, TVec3f(-30.0f, 0.0f, -10.0f), TVec3f(-33.0f, 5.0f, 0.0f), "RearR");
+    mGlandFrontL = ::createGland(mParent, "毒腺[左前]", Vec3f(30.0f, 0.0f, -10.0f), Vec3f(-35.0f, -5.0f, 0.0f), "FrontL");
+    mGlandFrontR = ::createGland(mParent, "毒腺[右前]", Vec3f(-30.0f, 0.0f, -10.0f), Vec3f(-35.0f, 5.0f, 0.0f), "FrontR");
+    mGlandRearL = ::createGland(mParent, "毒腺[左後]", Vec3f(30.0f, 0.0f, -10.0f), Vec3f(-33.0f, -5.0f, 0.0f), "RearL");
+    mGlandRearR = ::createGland(mParent, "毒腺[右後]", Vec3f(-30.0f, 0.0f, -10.0f), Vec3f(-33.0f, 5.0f, 0.0f), "RearR");
 
-    mVitalSpotC = ::createVitalSpot(mParent, "\213\175\217\212[\222\206]" /* 急所[中] */, TVec3f(0.0f, 0.0f, -320.0f), TVec3f(0.0f, 180.0f, 0.0f), "Body5");
-    mVitalSpotL = ::createVitalSpot(mParent, "\213\175\217\212[\215\266]" /* 急所[左] */, TVec3f(130.0f, -280.0f, -200.0f), TVec3f(10.0f, 167.0f, 0.0f), "Body1");
-    mVitalSpotR = ::createVitalSpot(mParent, "\213\175\217\212[\211\105]" /* 急所[右] */, TVec3f(130.0f, 280.0f, -200.0f), TVec3f(-10.0f, 167.0f, 0.0f), "Body1");
+    mVitalSpotC = ::createVitalSpot(mParent, "急所[中]", Vec3f(0.0f, 0.0f, -320.0f), Vec3f(0.0f, 180.0f, 0.0f), "Body5");
+    mVitalSpotL = ::createVitalSpot(mParent, "急所[左]", Vec3f(130.0f, -280.0f, -200.0f), Vec3f(10.0f, 167.0f, 0.0f), "Body1");
+    mVitalSpotR = ::createVitalSpot(mParent, "急所[右]", Vec3f(130.0f, 280.0f, -200.0f), Vec3f(-10.0f, 167.0f, 0.0f), "Body1");
 
-    mThreadAttacherWing = new TombSpiderThreadAttacher(mParent, "WingL", ::sAttachBodyBackRadius, ::sAttachBodyBackOffset);
-    mThreadAttacherWing->initWithoutIter();
+    mThreadAttacherWing = ::createThreadAttacher(mParent, "WingL", ::sAttachBodyBackRadius, ::sAttachBodyBackOffset);
 
     mThreadAttacherFrontL = ::createThreadAttacherFoot(mParent, "FrontHandL3");
     mThreadAttacherCenterL = ::createThreadAttacherFoot(mParent, "CenterHandL3");

@@ -5,26 +5,24 @@
 
 class OnimasuPivot : public Onimasu {
 public:
-    /// @brief Creates a new `OnimasuPivot`.
-    /// @param pName A pointer to the null-terminated name of the object.
     OnimasuPivot(const char* pName);
 
-    virtual void initFromRailPoint();
-    virtual void incrementNextPoint();
-    virtual void collectRailPointInfo();
-    virtual s32 getNextPointNo() const;
-    virtual s32 getLastPointNo() const;
-    virtual const TVec3f& getLastPointNormal() const;
-    virtual const TVec3f& getNextPointNormal() const;
-    virtual void startMoveInner();
-    virtual void updatePoseInner();
+    virtual void initFromRailPoint() override;
+    virtual void incrementNextPoint() override;
+    virtual void collectRailPointInfo() override;
+    virtual s32 getNextPointNo() const override;
+    virtual s32 getLastPointNo() const override;
+    virtual const Vec3f& getLastPointNormal() const override;
+    virtual const Vec3f& getNextPointNormal() const override;
+    virtual void startMoveInner() override;
+    virtual void updatePoseInner() override;
 
-    const TVec3f getLastPointPos() const;
-    const TVec3f getPivotPointPos() const;
-    const TVec3f getNextPointPos() const;
+    const Vec3f getLastPointPos() const;
+    const Vec3f getPivotPointPos() const;
+    const Vec3f getNextPointPos() const;
 
     s32 mCurNormal;
-    MR::AssignableArray< TVec3f > mNormals;
-    TQuat4f _110;
-    TQuat4f _120;
+    MR::AssignableArray< Vec3f > mNormals;
+    Quat4f mLastPointQuat;
+    Quat4f mNextPointQuat;
 };

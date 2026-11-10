@@ -11,12 +11,13 @@ class GameScene : public Scene {
 public:
     GameScene();
 
-    virtual ~GameScene();
-    virtual void init();
-    virtual void start();
-    virtual void update();
-    virtual void draw() const;
-    virtual void calcAnim();
+    virtual ~GameScene() override;
+    virtual void init() override;
+    virtual bool initAfterScenarioChosen() override;
+    virtual void start() override;
+    virtual void update() override;
+    virtual void draw() const override;
+    virtual void calcAnim() override;
 
     void notifyEndScenarioStarter();
     void requestPlayMovieDemo();
@@ -39,7 +40,6 @@ public:
     void exeCometRetryAfterMiss();
     void exeSaveAfterGameOver();
     void exePlayMovie();
-    void exeTimeUp();
     void exeGalaxyMap();
     void exeStaffRoll();
     void exeNebulaBoard();
@@ -67,11 +67,11 @@ public:
     void stageClear();
     inline bool isPlayMovie() const;
 
-    u32 _14;
     GameSceneScenarioOpeningCameraState* mScenarioCamera;
     GameScenePauseControl* mPauseCtrl;
     GamePauseSequence* mPauseSeq;
     GameStageClearSequence* mStageClearSeq;
     bool mDraw3D;
-    u8 _29;
+    unsigned mInitializePhase = 0;
+    unsigned mReservePiecesLeft = 70;
 };

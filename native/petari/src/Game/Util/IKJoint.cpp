@@ -2,10 +2,10 @@
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
 
-IKJoint::IKJoint() : _0(), _30(), _60(), mRootBoneLength(100.0f), mMiddleBoneLength(100.0f) {
-    _0.identity();
-    _60.identity();
-    _30.identity();
+IKJoint::IKJoint() : mPose(), mRootMtx(), mMiddleMtx(), mRootBoneLength(100.0f), mMiddleBoneLength(100.0f) {
+    mPose.identity();
+    mMiddleMtx.identity();
+    mRootMtx.identity();
 }
 
 void IKJoint::setRootBoneLength(f32 boneLength) {
@@ -16,8 +16,8 @@ void IKJoint::setMiddleBoneLength(f32 boneLength) {
     mMiddleBoneLength = boneLength;
 }
 
-void IKJoint::setFirstPose(const TVec3f& rSide, const TVec3f& rUp) {
-    MR::makeMtxSideUp(&_0, rSide, rUp);
+void IKJoint::setFirstPose(const Vec3f& rSide, const Vec3f& rUp) {
+    MR::makeMtxSideUp(&mPose, rSide, rUp);
 }
 
 s32 IKJoint::checkReachIKTarget(f32 distance, f32 rootLength, f32 middleLength) {
@@ -59,62 +59,62 @@ f32 IKJoint::calcIKRootAngleCosign(f32 distance, f32 rootLength, f32 middleLengt
     return MR::clamp(value, -1.0f, 1.0f);
 }
 
-void IKJoint::update(MtxPtr pRootMatrix, MtxPtr pMiddleMatrix, MtxPtr pEndMatrix, const TVec3f& rTarget) {
-    TPos3f rootMatrix;
-    TVec3f rootPosition;
-    TVec3f middlePosition;
-    TVec3f endPosition;
+void IKJoint::update(MtxPtr pRootMatrix, MtxPtr pMiddleMatrix, MtxPtr pEndMatrix, const Vec3f& rTarget) {
+    Pos3f rootMatrix;
+    Vec3f rootPosition;
+    Vec3f middlePosition;
+    Vec3f endPosition;
     MR::extractMtxTrans(pRootMatrix, &rootPosition);
     MR::extractMtxTrans(pMiddleMatrix, &middlePosition);
     MR::extractMtxTrans(pEndMatrix, &endPosition);
     mRootBoneLength = rootPosition.distance(middlePosition);
     mMiddleBoneLength = middlePosition.distance(endPosition);
 
-    TVec3f targetDirection(rTarget - rootPosition);
-    TVec3f side(endPosition - rootPosition);
+    Vec3f targetDirection(rTarget - rootPosition);
+    Vec3f side(endPosition - rootPosition);
     if (MR::normalizeOrZero(&side)) {
         MR::extractMtxXDir(pRootMatrix, &side);
     }
 
-    TVec3f up(middlePosition - rootPosition);
+    Vec3f up(middlePosition - rootPosition);
     if (MR::isSameDirection(side, up, 0.01f)) {
         MR::extractMtxYDir(pRootMatrix, &up);
     }
 
-    MR::makeMtxSideUp(&_0, side, up);
+    MR::makeMtxSideUp(&mPose, side, up);
     rootMatrix.identity();
     updateByLocalRootAndDirection(rootMatrix, rootPosition, targetDirection);
 }
 
-void IKJoint::updateByLocalRootAndWorldTarget(const TPos3f& rRootMatrix, const TVec3f& rRootPosition, const TVec3f& rTarget) {
-    TPos3f inverseRoot = rRootMatrix;
+void IKJoint::updateByLocalRootAndWorldTarget(const Pos3f& rRootMatrix, const Vec3f& rRootPosition, const Vec3f& rTarget) {
+    Pos3f inverseRoot = rRootMatrix;
     inverseRoot.invert(rRootMatrix);
-    TVec3f localTarget;
+    Vec3f localTarget;
     inverseRoot.mult(rTarget, localTarget);
     updateByLocalRootAndDirection(rRootMatrix, rRootPosition, localTarget - rRootPosition);
 }
 
-s32 IKJoint::updateByLocalRootAndDirection(const TPos3f& rRootMatrix, const TVec3f& rRootPosition, const TVec3f& rDirection) {
-    TPos3f matrix;
-    TVec3f direction(rDirection);
+s32 IKJoint::updateByLocalRootAndDirection(const Pos3f& rRootMatrix, const Vec3f& rRootPosition, const Vec3f& rDirection) {
+    Pos3f matrix;
+    Vec3f direction(rDirection);
     f32 distance;
     MR::separateScalarAndDirection(&distance, &direction, direction);
     s32 result = updateByDistanceOnly(distance);
     calcToTargetMatrixByFirstPose(&matrix, rRootMatrix, rRootPosition, direction);
-    _30.concat(matrix, _30);
-    _60.concat(matrix, _60);
+    mRootMtx.concat(matrix, mRootMtx);
+    mMiddleMtx.concat(matrix, mMiddleMtx);
     return result;
 }
 
-s32 IKJoint::updateByUpVector(const TVec3f& rRootPosition, const TVec3f& rTarget, const TVec3f& rUp) {
+s32 IKJoint::updateByUpVector(const Vec3f& rRootPosition, const Vec3f& rTarget, const Vec3f& rUp) {
     f32 distance;
-    TPos3f matrix;
-    TVec3f direction = rTarget - rRootPosition;
+    Pos3f matrix;
+    Vec3f direction = rTarget - rRootPosition;
     MR::separateScalarAndDirection(&distance, &direction, direction);
     s32 result = updateByDistanceOnly(distance);
     MR::makeMtxSideUpPos(&matrix, direction, rUp, rRootPosition);
-    _30.concat(matrix, _30);
-    _60.concat(matrix, _60);
+    mRootMtx.concat(matrix, mRootMtx);
+    mMiddleMtx.concat(matrix, mMiddleMtx);
     return result;
 }
 
@@ -122,43 +122,43 @@ s32 IKJoint::updateByDistanceOnly(f32 distance) {
     s32 result = checkReachIKTarget(distance, mRootBoneLength, mMiddleBoneLength);
     f32 cosine = calcIKRootAngleCosign(distance, mRootBoneLength, mMiddleBoneLength);
     f32 sine = NebulaSqrt(1.0f - cosine * cosine);
-    TVec3f rootSide(cosine, sine, 0.0f);
-    TVec3f rootUp(-sine, cosine, 0.0f);
-    _30.identity();
-    _30.setXDir(rootSide);
-    _30.setYDir(rootUp);
+    Vec3f rootSide(cosine, sine, 0.0f);
+    Vec3f rootUp(-sine, cosine, 0.0f);
+    mRootMtx.identity();
+    mRootMtx.setXDir(rootSide);
+    mRootMtx.setYDir(rootUp);
 
-    TVec3f middlePosition(rootSide * mRootBoneLength);
-    TVec3f middleSide(TVec3f(distance, 0.0f, 0.0f) - middlePosition);
+    Vec3f middlePosition(rootSide * mRootBoneLength);
+    Vec3f middleSide(Vec3f(distance, 0.0f, 0.0f) - middlePosition);
     MR::normalizeOrZero(&middleSide);
-    TVec3f middleUp(-middleSide.y, middleSide.x, 0.0f);
-    _60.identity();
-    _60.setXDir(middleSide);
-    _60.setYDir(middleUp);
-    _60.setTrans(middlePosition);
+    Vec3f middleUp(-middleSide.y, middleSide.x, 0.0f);
+    mMiddleMtx.identity();
+    mMiddleMtx.setXDir(middleSide);
+    mMiddleMtx.setYDir(middleUp);
+    mMiddleMtx.setTrans(middlePosition);
     return result;
 }
 
-void IKJoint::calcToTargetMatrixByFirstPose(TPos3f* pMatrix, const TPos3f& rRootMatrix, const TVec3f& rRootPosition, const TVec3f& rDirection) const {
-    TPos3f matrix;
-    TVec3f side;
-    _0.getXDir(side);
+void IKJoint::calcToTargetMatrixByFirstPose(Pos3f* pMatrix, const Pos3f& rRootMatrix, const Vec3f& rRootPosition, const Vec3f& rDirection) const {
+    Pos3f matrix;
+    Vec3f side;
+    mPose.getXDir(side);
     matrix.identity();
     matrix.setRotate(side, rDirection);
-    matrix.concat(matrix, _0);
+    matrix.concat(matrix, mPose);
     matrix.setTrans(rRootPosition);
     matrix.concat(rRootMatrix, matrix);
     pMatrix->set(matrix);
 }
 
-void IKJoint::getRootJointPosition(TVec3f* pPos) const {
-    _30.getTrans(*pPos);
+void IKJoint::getRootJointPosition(Vec3f* pPos) const {
+    mRootMtx.getTrans(*pPos);
 }
 
-void IKJoint::getEndJointPosition(TVec3f* pPos) const {
-    TVec3f xDir;
-    _60.getXDir(xDir);
-    _60.getTrans(*pPos);
+void IKJoint::getEndJointPosition(Vec3f* pPos) const {
+    Vec3f xDir;
+    mMiddleMtx.getXDir(xDir);
+    mMiddleMtx.getTrans(*pPos);
     pPos->add(xDir * mMiddleBoneLength);
 }
 

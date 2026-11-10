@@ -7,9 +7,8 @@ public:
     /// @brief Creates a new `HomeButtonLayout`.
     HomeButtonLayout();
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void movement();
-    virtual void draw() const;
+    virtual void init(const TableIter& rIter) override;
+    virtual void movement() override;
 
     void forceToDeactive();
     bool isActive() const;
@@ -19,6 +18,5 @@ public:
     void exeActive();
 
     bool mIsInitialized;
-    bool _24;
-    bool _25;
+    bool mForcedClosed;
 };

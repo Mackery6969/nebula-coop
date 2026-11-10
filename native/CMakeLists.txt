@@ -27,7 +27,7 @@ file(GLOB_RECURSE game_sources CONFIGURE_DEPENDS
     "${petari}/src/MiiLib/*.c" "${petari}/src/MiiLib/*.cpp")
 
 # What a plugin built with the game's headers must match: any change to them may move a field or a virtual function.
-file(GLOB_RECURSE nebula_game_headers "${petari}/include/*" "${petari}/libs/*.h" "${petari}/libs/*.hpp"
+file(GLOB_RECURSE nebula_game_headers "${petari}/include/*"
     "${CMAKE_CURRENT_SOURCE_DIR}/math/include/*" "${CMAKE_CURRENT_SOURCE_DIR}/include/nebula_prelude.h")
 list(SORT nebula_game_headers)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${nebula_game_headers})
@@ -64,9 +64,6 @@ target_include_directories(smg_game BEFORE PRIVATE
     "${CMAKE_CURRENT_BINARY_DIR}/generated"
     "${CMAKE_CURRENT_SOURCE_DIR}/math/include"
     "${petari}/include"
-    "${petari}/libs/JSystem/include"
-    "${petari}/libs/MiiLib/include"
-    "${petari}/libs/nw4r/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/include")
 
 set(version_ids RMGJ01=0 RMGE01=1 RMGP01=2 RMGK01=3)
@@ -99,16 +96,17 @@ if(NEBULA_AUDIT_FLOAT_CASTS AND Python3_Interpreter_FOUND)
         VERBATIM)
 endif()
 
-# The game builds warning free: a new warning stops the build. The names turned off are style in code kept as
-# written (field order, packed comparisons) or layouts the compiler handles (offsetof on the intrusive lists).
+# The game builds warning free: a new warning stops the build. The names turned off are the ones still to be cleared
+# (rows in helpers/warnings_b11.tsv); offsetof, register, pragmas, constructor initializer order and unused private
+# fields are on.
 # An audit build replaces all of it, e.g. -Wshorten-64-to-32 for tools/narrowing.py.
 set(NEBULA_AUDIT_FLAGS "" CACHE STRING "Diagnostics for an audit build")
 if(NEBULA_AUDIT_FLAGS)
     separate_arguments(diagnostics UNIX_COMMAND "${NEBULA_AUDIT_FLAGS}")
 else()
     set(diagnostics -Wall -Wextra -Werror -Wconditional-uninitialized
-        -Wno-unused-parameter -Wno-unused-private-field -Wno-missing-field-initializers -Wno-sign-compare
-        -Wno-reorder-ctor -Wno-unknown-pragmas -Wno-ignored-qualifiers -Wno-microsoft-anon-tag -Wno-invalid-offsetof
+        -Wno-unused-parameter -Wno-missing-field-initializers -Wno-sign-compare
+        -Wno-ignored-qualifiers -Wno-microsoft-anon-tag
         -Wno-deprecated-copy-with-user-provided-copy -Wno-undefined-var-template -D_CRT_SECURE_NO_WARNINGS)
 endif()
 
@@ -135,10 +133,9 @@ target_compile_options(smg_game PRIVATE
     "-ffile-prefix-map=${petari}=petari" "-ffile-prefix-map=${CMAKE_CURRENT_SOURCE_DIR}=native"
     $<$<COMPILE_LANGUAGE:CXX>:-fno-rtti -fno-exceptions -fno-c++-static-destructors -fno-sized-deallocation -fno-aligned-allocation
 >
-    # Every new-expression tests the allocation before constructing, as the console's compiler does: JKRHeap's
-    # operator new and the sound pools' (JASPoolAllocObject) return null when full, and the game checks
-    # (JAISeMgr::newSe_). Standard C++ lets the compiler drop those checks for an operator new that is not
-    # noexcept, which would run JAISe's constructor on null when a sound pool is full.
+    # Every new-expression tests the allocation before constructing: the arenas' operator new returns null when the
+    # system has no memory left, and the game checks. Standard C++ lets the compiler drop those checks for an operator new that
+    # is not noexcept, which would run a constructor on null.
     $<$<COMPILE_LANGUAGE:CXX>:-fcheck-new>
     # The Microsoft C++ ABI sizes a member pointer by its class's inheritance, known only where the class is complete;
     # a unit seeing just a declaration would use another size than its callers.
@@ -167,6 +164,8 @@ endif()
 option(NEBULA_RELEASE "Leave the test hooks out" OFF)
 if(NEBULA_RELEASE)
     target_compile_definitions(smg_game PRIVATE NEBULA_RELEASE=1)
+else()
+    target_compile_definitions(smg_game PRIVATE NEBULA_DEV=1)
 endif()
 
 option(NEBULA_PGO "Build the game with ThinLTO and its profile" OFF)
@@ -176,6 +175,24 @@ if(NEBULA_PGO)
                            -Wno-profile-instr-unprofiled -Wno-profile-instr-out-of-date -Wno-backend-plugin)
     target_link_options(smg_game PRIVATE -flto=thin "-fprofile-instr-use=${game_profile}")
 endif()
+
+# CPU level. The Windows package needs AVX2 (Setup checks it; the host is built for it), and every AVX2 CPU also has
+# FMA3, BMI1, BMI2, F16C, LZCNT and MOVBE: the module is built for that level, x86-64-v3, not the x86-64 baseline.
+# -ffp-contract=off (above) keeps every multiply and add a separate rounding with FMA3 present: the results stay
+# those of the baseline build.
+if(WIN32 AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|x86_64|amd64)$")
+    set(nebula_cpu_level_default "x86-64-v3")
+else()
+    set(nebula_cpu_level_default "")
+endif()
+set(NEBULA_CPU_LEVEL "${nebula_cpu_level_default}" CACHE STRING "Game module CPU level (-march): x86-64-v3, x86-64, or empty for the compiler's default")
+if(NEBULA_CPU_LEVEL)
+    if(NOT NEBULA_CPU_LEVEL MATCHES "^x86-64(-v[234])?$")
+        message(FATAL_ERROR "NEBULA_CPU_LEVEL must be x86-64, x86-64-v2, x86-64-v3, x86-64-v4 or empty")
+    endif()
+    target_compile_options(smg_game PRIVATE -march=${NEBULA_CPU_LEVEL})
+endif()
+message(STATUS "Nebula game module CPU level: ${NEBULA_CPU_LEVEL}")
 
 # Sanitizer builds (tests only): e.g. -DNEBULA_SANITIZE=address for the module and the host.
 set(NEBULA_SANITIZE "" CACHE STRING "Sanitizers for a test build (clang -fsanitize=...)")
@@ -208,9 +225,9 @@ if(WIN32)
 endif()
 add_executable(nebula_native_host host/host_main.cpp ../tools/test_driver/run_options.cpp
     ../runtime/src/mod_plugins.cpp ${nebula_minhook_sources}
-    ../runtime/src/luma.cpp ../runtime/src/mods.cpp ../runtime/src/texture_categories.cpp ../runtime/src/mod_xml.cpp ../runtime/src/atomic_file.cpp ../runtime/src/save_files.cpp ../runtime/src/disc_files.cpp
+    ../runtime/src/luma.cpp ../runtime/src/mods.cpp ../runtime/src/texture_categories.cpp ../runtime/src/dolphin_pack.cpp ../runtime/src/mod_xml.cpp ../runtime/src/atomic_file.cpp ../runtime/src/save_files.cpp ../runtime/src/asset_store.cpp
     ../runtime/src/crash_report.cpp ../runtime/src/discord_presence.cpp ../runtime/src/mii_import.cpp
-    ../runtime/src/mii_formats.cpp ../runtime/src/coop_menu.cpp ../runtime/src/coop_saves.cpp ../runtime/src/coop_mods.cpp
+    ../runtime/src/mii_formats.cpp ../runtime/src/pointer_control.cpp ../runtime/src/coop_menu.cpp ../runtime/src/coop_saves.cpp ../runtime/src/coop_mods.cpp
     ../runtime/src/coop_session.cpp ../runtime/src/coop_snapshot.cpp ../runtime/src/coop_chat.cpp
     ../runtime/src/coop_commands.cpp ../runtime/src/coop_teleport.cpp ../runtime/src/coop_popups.cpp ../runtime/src/coop_world.cpp ../runtime/src/runtime_settings.cpp
     ../runtime/src/input_bindings.cpp ../runtime/src/net/udp.cpp ../runtime/src/net/link.cpp

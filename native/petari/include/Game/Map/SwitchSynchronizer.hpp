@@ -6,12 +6,10 @@ class StageSwitchCtrl;
 
 class SwitchSynchronizer : public NameObj {
 public:
-    /// @brief Creates a new `SwitchSynchronizer`.
-    /// @param pName A pointer to the null-terminated name of the object.
     SwitchSynchronizer(const char* pName);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void movement();
+    virtual void init(const TableIter&) override;
+    virtual void movement() override;
 
     StageSwitchCtrl* mSwitchCtrl;
     bool mIsCheckSameSwitchState;

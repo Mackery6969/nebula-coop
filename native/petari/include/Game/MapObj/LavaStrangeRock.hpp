@@ -7,25 +7,22 @@ class LodCtrl;
 class LavaStrangeRock : public LiveActor {
 public:
     enum Type {
-        Type_0,
-        Type_1,
-        Type_2,
-        Type_3,
+        Type_Normal,
+        Type_Large,  // LavaStrangeRockL
+        Type_Table,  // LavaStrangeRockTable
+        Type_None,
     };
 
-    /// @brief Creates a new `LavaStrangeRock`.
-    /// @param pName A pointer to the null-terminated name of the object.
     LavaStrangeRock(const char* pName);
 
-    virtual ~LavaStrangeRock();
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
+    virtual void init(const TableIter&) override;
+    virtual void control() override;
 
-    void initModelAndClipping(const JMapInfoIter&);
+    void initModelAndClipping(const TableIter&);
     void initEffect();
     void exeWait();
 
     s32 mRockType;
-    s32 _90;
+    s32 mHitType;
     LodCtrl* mLodCtrlPlanet;
 };

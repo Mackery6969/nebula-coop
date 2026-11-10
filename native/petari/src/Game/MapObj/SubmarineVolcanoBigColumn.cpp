@@ -1,15 +1,17 @@
 #include "Game/MapObj/SubmarineVolcanoBigColumn.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/ModelObj.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/AirBubbleHolder.hpp"
 #include "Game/Util.hpp"
-#include <cstdio>
+#include "Game/Util/StringUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const f32 sShakeDistance = 800.0f;
-    static const s32 sGenerateInterval = 360;
-    static const s32 sGenerateLife = 360;
-    static const f32 sGenerateOffsetY = 1250.0f;
+    NEBULA_TUNABLE(f32, sShakeDistance, 800.0f);
+    static const s32 sGenerateInterval = NebulaFrameClock::stepsOfSeconds(6);
+    NEBULA_TUNABLE(s32, sGenerateLife, 360);
+    NEBULA_TUNABLE(f32, sGenerateOffsetY, 1250.0f);
 };  // namespace
 
 namespace NrvSubmarineVolcanoBigColumn {
@@ -22,7 +24,7 @@ SubmarineVolcanoBigColumn::SubmarineVolcanoBigColumn(const char* pName) : LiveAc
     mIsSmallColumn = false;
 }
 
-void SubmarineVolcanoBigColumn::init(const JMapInfoIter& rIter) {
+void SubmarineVolcanoBigColumn::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     const char* objName;
     MR::getObjectName(&objName, rIter);
@@ -33,7 +35,7 @@ void SubmarineVolcanoBigColumn::init(const JMapInfoIter& rIter) {
     initHitSensor(1);
     MR::addBodyMessageSensorMapObj(this);
     MR::initCollisionParts(this, objName, getSensor("body"), nullptr);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initSound(2, false);
     MR::setClippingTypeSphereContainsModelBoundingBox(this, 100.0f);
     MR::joinToGroupArray(this, rIter, nullptr, 32);
@@ -58,11 +60,11 @@ void SubmarineVolcanoBigColumn::kill() {
 void SubmarineVolcanoBigColumn::exeWait() {
     if (mIsSmallColumn) {
         if (MR::isStep(this, ::sGenerateInterval)) {
-            TVec3f v11;
-            TVec3f upVec;
+            Vec3f offset;
+            Vec3f upVec;
             MR::calcUpVec(&upVec, this);
-            v11.scale(::sGenerateOffsetY, upVec);
-            MR::appearAirBubble(mPosition + v11, ::sGenerateLife);
+            offset.scale(::sGenerateOffsetY, upVec);
+            MR::appearAirBubble(mPosition + offset, ::sGenerateLife);
             setNerve(GET_NERVE(SubmarineVolcanoBigColumn, SubmarineVolcanoBigColumnNrvWait));
         }
     }
@@ -70,7 +72,7 @@ void SubmarineVolcanoBigColumn::exeWait() {
 
 void SubmarineVolcanoBigColumn::exeBreak() {
     if (MR::isFirstStep(this)) {
-        MR::startRumbleWithShakeCameraWeak(this, "\213\255" /* 強 */, "\216\343" /* 弱 */, ::sShakeDistance, FLOAT_MAX);
+        MR::startRumbleWithShakeCameraWeak(this, "強", "弱", ::sShakeDistance, FLOAT_MAX);
         MR::hideModel(this);
         MR::invalidateHitSensors(this);
         MR::invalidateCollisionParts(this);
@@ -94,7 +96,7 @@ void SubmarineVolcanoBigColumn::pauseOff() {
     MR::requestMovementOn(mBreakModel);
 }
 
-bool SubmarineVolcanoBigColumn::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool SubmarineVolcanoBigColumn::receiveMsgEnemyAttack(u32 /*msg*/, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (isNerve(GET_NERVE(SubmarineVolcanoBigColumn, SubmarineVolcanoBigColumnNrvWait))) {
         setNerve(GET_NERVE(SubmarineVolcanoBigColumn, SubmarineVolcanoBigColumnNrvBreak));
         return true;
@@ -104,12 +106,8 @@ bool SubmarineVolcanoBigColumn::receiveMsgEnemyAttack(u32 msg, HitSensor* pSende
 }
 
 void SubmarineVolcanoBigColumn::initBreakModel(const char* pModelName) {
-    char modelName[256];
-    nebula_snprintf(modelName, sizeof(modelName), "%sBreak", pModelName);
-    mBreakModel = MR::createModelObjMapObj("\212\103\222\352\211\316\216\122\220\316\222\214\211\363\202\352\203\202\203\146\203\213" /* 海底火山石柱壊れモデル */, modelName, getBaseMtx());
+    MR::FormattedName modelName("%sBreak", pModelName);
+    mBreakModel = MR::createModelObjMapObj("海底火山石柱壊れモデル", modelName.c_str(), getBaseMtx());
     MR::invalidateClipping(mBreakModel);
     mBreakModel->makeActorDead();
-}
-
-SubmarineVolcanoBigColumn::~SubmarineVolcanoBigColumn() {
 }

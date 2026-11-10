@@ -89,10 +89,22 @@ struct PlayerConstantToSet {
     int index = 0;
     float value = 0.0f;
 };
+struct TunableToSet {
+    std::string mod_id;
+    std::string key;  // "Kuribo.cWalkSpeed"
+    double value = 0.0;
+};
 struct SoundEffectToAdd {
     std::string mod_id;
     std::string name;
     std::string file;
+};
+struct PlayerAnimationToAdd {
+    std::string mod_id;
+    std::string name;
+    std::string file;
+    double rate = 1.0;
+    int blend_frames = 0;
 };
 struct ObjectClassToSet {
     std::string mod_id;
@@ -104,18 +116,25 @@ struct ObjectClassToSet {
 struct ModRows {
     std::vector<GalaxyToAdd> galaxies;
     std::vector<MusicToAdd> music;
-    std::vector<std::pair<std::string, std::string>> texts;  // a message's id: its words in the language play
+    struct TextToAdd {
+        std::string id;
+        std::string words;  // in the language of play
+        std::string like;   // the game message whose talk a new line takes; empty: none
+    };
+    std::vector<TextToAdd> texts;
     std::vector<EventFlagToSet> event_flags;
     std::vector<CometsToSet> comets;
     std::vector<ObjectChangeToSet> object_changes;
     std::vector<CometLimitToSet> comet_limits;
     std::vector<StageRuleToSet> stage_rules;
     std::vector<PlayerConstantToSet> player_constants;
+    std::vector<TunableToSet> tunables;
     std::vector<ObjectClassToSet> object_classes;
     std::vector<SoundEffectToAdd> sound_effects;
+    std::vector<PlayerAnimationToAdd> player_animations;
     std::map<std::string, std::string> story;
 
-    [[nodiscard]] bool empty() const noexcept { return story.empty() && sound_effects.empty() && stage_rules.empty() && player_constants.empty() && object_classes.empty() && object_changes.empty() && comet_limits.empty() && galaxies.empty() && music.empty() && texts.empty() && event_flags.empty() && comets.empty(); }
+    [[nodiscard]] bool empty() const noexcept { return story.empty() && sound_effects.empty() && player_animations.empty() && stage_rules.empty() && player_constants.empty() && tunables.empty() && object_classes.empty() && object_changes.empty() && comet_limits.empty() && galaxies.empty() && music.empty() && texts.empty() && event_flags.empty() && comets.empty(); }
 };
 
 // `game_api`: the game module's nebula_game_mod_api(); `find_symbol`: a name in the game module, or null. Each plugin that
@@ -123,6 +142,9 @@ struct ModRows {
 std::size_t start_plugins(const std::vector<PluginFile>& plugins, const ModRows& rows, const NebulaModApi* game_api,
                           void* (*find_symbol)(const char*),
                           void (*log)(const char*));
+// Every tuning number mods can set, one "<key>\t<kind>\t<game's number>" line each (a list's places as <key>[i]),
+// written to `list_file` (--dump-tunables). False when the game module has no list or the file can't be written.
+bool dump_tunables(const NebulaModApi* game_api, const std::filesystem::path& list_file);
 // The plugin an address is in: its mod's id, or null.
 [[nodiscard]] const char* plugin_at(const void* address) noexcept;
 

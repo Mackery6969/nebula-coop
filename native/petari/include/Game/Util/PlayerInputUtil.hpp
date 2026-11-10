@@ -1,21 +1,21 @@
 #pragma once
 
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 #include "Game/System/NebulaInput.hpp"
 
 class InputRumble;
 
 namespace MR {
-    void getPointerPosOnScreen(TVec2f* pPos, s32 channel);
-    void getPointerPos(TVec2f* pPos, s32 channel);
-    void getPointerPastPos(TVec2f* pPos, s32 idx, s32 channel);
+    void getPointerPosOnScreen(Vec2f* pPos, s32 channel);
+    void getPointerPos(Vec2f* pPos, s32 channel);
+    void getPointerPastPos(Vec2f* pPos, s32 idx, s32 channel);
     s32 getPointerPastCount(s32 channel);
 
     bool isPointerInScreen(s32 channel);
 
     f32 getPointerDistance(s32 channel);
 
-    void getMainTilt(TVec3f* pAccel, s32 channel);
+    void getMainTilt(Vec3f* pAccel, s32 channel);
 
     bool isHeldUp(s32 channel);
 
@@ -55,8 +55,6 @@ namespace MR {
 
     bool isPressedMap(s32 channel);
 
-    bool isPressedAnyWithoutHome(s32 channel);
-
     bool isPressedHome(s32 channel);
 
     bool isPressedCamera(s32 channel);
@@ -81,8 +79,6 @@ namespace MR {
 
     bool isMoveStickPressedRight(s32 channel);
 
-    void getSubTilt(TVec3f* pAccel, s32 channel);
-
     bool isSubSpin(s32 channel);
 
     bool isSpin(s32 channel);
@@ -93,7 +89,7 @@ namespace MR {
 
     bool testSystemTriggerB();
 
-    bool testDPDMenuPadDecideTrigger();
+    bool testPointerMenuPadDecideTrigger();
 
     bool testFpViewStartTrigger();
 
@@ -122,7 +118,7 @@ namespace MR {
     bool isMoveStickOperated(s32 channel);
 
     void calcWorldStickDirectionXZ(f32* pDirX, f32* pDirZ, s32 channel);
-    void calcWorldStickDirectionXZ(TVec3f* pDir, s32 channel);
+    void calcWorldStickDirectionXZ(Vec3f* pDir, s32 channel);
 
     u32 getPlayerMaxCount();
 

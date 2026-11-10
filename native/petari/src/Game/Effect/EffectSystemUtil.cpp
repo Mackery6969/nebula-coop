@@ -14,23 +14,22 @@
 #include "Game/Scene/MultiSceneActor.hpp"
 #include "Game/Scene/MultiSceneEffectKeeper.hpp"
 #include "Game/Screen/PaneEffectKeeper.hpp"
-#include "Game/Util/JMapInfo.hpp"
+#include "Game/Util/Table.hpp"
 #include "Game/Util/JointUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/MemoryUtil.hpp"
 #include "Game/Util/ModelUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
 #include "Game/Util/SystemUtil.hpp"
-#include <JSystem/JParticle/JPAEmitter.hpp>
-#include <JSystem/JParticle/JPAEmitterManager.hpp>
-#include <cstdio>
+#include "Game/Particle/EmitterCore.hpp"
+#include "Game/Particle/EmitterManager.hpp"
 #include <cstring>
 
 namespace {
     s32 countAnimNames(const char* pNames) {
-        s32 count = 0;
-        for (u32 i = 0; i <= strlen(pNames); i++) {
-            if (pNames[i] == ' ' || pNames[i] == '\0') {
+        s32 count = 1;
+        for (const char* p = pNames; *p != '\0'; p++) {
+            if (*p == ' ') {
                 count++;
             }
         }
@@ -39,7 +38,7 @@ namespace {
     }
 
     void setupMultiEmitter(MultiEmitter* pEmitter, const AutoEffectInfo* pInfo) {
-        pEmitter->_28 = pInfo;
+        pEmitter->mAutoInfo = pInfo;
         pEmitter->setDrawOrder(pInfo->mDrawOrder);
         pEmitter->setOffset(pInfo->mOffset);
 
@@ -62,7 +61,7 @@ namespace {
         }
 
         if (!MR::isNearZero(pInfo->mLightAffectValue)) {
-            pEmitter->_2C = pInfo->mLightAffectValue;
+            pEmitter->mLightAffect = pInfo->mLightAffectValue;
         }
     }
 };  // namespace
@@ -86,7 +85,7 @@ namespace MR {
             pSystem->mCalcExec->movementNormal();
         }
 
-        void drawEffect3D(const EffectSystem* pSystem, const TPos3f& rViewMtx) {
+        void drawEffect3D(const EffectSystem* pSystem, const Pos3f& rViewMtx) {
             pSystem->mDrawExec->drawWithViewMtx3D(rViewMtx);
         }
 
@@ -103,20 +102,20 @@ namespace MR {
         }
 
         bool isEffect2D(const MultiEmitter* pEmitter) {
-            if (pEmitter->_28 == nullptr) {
+            if (pEmitter->mAutoInfo == nullptr) {
                 return false;
             }
 
-            return pEmitter->_28->mDrawOrder == 6 || pEmitter->_28->mDrawOrder == 7;
+            return pEmitter->mAutoInfo->mDrawOrder == 6 || pEmitter->mAutoInfo->mDrawOrder == 7;
         }
 
         void initEffectSyncBck(EffectKeeper* pKeeper, const ModelManager* pModelManager, const char* pEffectName, const char* pAnimName,
-                               s32 animCount, f32 startFrame, f32 endFrame, bool deleteOnEnd) {
+                               s32 animCount, f32 startFrame, f32 endFrame) {
             // A mod's model with no animations: the effect is played by name.
             if (pModelManager->mXanimePlayer == nullptr) {
                 return;
             }
-            pKeeper->registerSyncBckEffect(pModelManager->mXanimePlayer, pEffectName, pAnimName, animCount, startFrame, endFrame, deleteOnEnd);
+            pKeeper->registerSyncBckEffect(pModelManager->mXanimePlayer, pEffectName, pAnimName, animCount, startFrame, endFrame);
         }
 
         void addEffectSyncBck(MultiEmitter* pEmitter, const ModelManager* pModelManager, const char* pAnimName) {
@@ -129,7 +128,7 @@ namespace MR {
             return getParticleResourceHolder()->getAutoEffectNum(pName);
         }
 
-        JMapInfo* getAutoEffectListBinary() {
+        Table* getAutoEffectListBinary() {
             return getParticleResourceHolder()->getAutoEffectListBinary();
         }
 
@@ -152,33 +151,28 @@ namespace MR {
             MultiEmitter* pEmitter = pKeeper->getEmitter(pInfo->getName());
             if (!hasStringSpace(pInfo->mAnimName)) {
                 const char* pAnimName = pInfo->mAnimName;
-                initEffectSyncBck(pKeeper, pModelManager, pInfo->getName(), pAnimName, 1, pInfo->mStartFrame, pInfo->mEndFrame, false);
+                initEffectSyncBck(pKeeper, pModelManager, pInfo->getName(), pAnimName, 1, pInfo->mStartFrame, pInfo->mEndFrame);
             } else {
                 const char* const pAnimNames = pInfo->mAnimName;
-                char name[256];
-                zeroMemory(name, sizeof(name));
-                s32 nameLength = 0;
-                for (u32 i = 0; i <= strlen(pAnimNames); i++) {
+                u32 start = 0;
+                const u32 length = static_cast< u32 >(strlen(pAnimNames));
+                for (u32 i = 0; i <= length; i++) {
                     if (pAnimNames[i] == ' ' || pAnimNames[i] == '\0') {
-                        name[nameLength] = '\0';
+                        const FormattedName name("%.*s", static_cast< int >(i - start), pAnimNames + start);
                         const char* pAnimName = nullptr;
-                        findBckNameStringInResource(&pAnimName, pModelManager->getResourceHolder(), name);
-                        if (pEmitter->_24 == nullptr) {
-                            initEffectSyncBck(pKeeper, pModelManager, pInfo->getName(), pAnimName, ::countAnimNames(pAnimNames), 0.0f, -1.0f, false);
+                        findBckNameStringInResource(&pAnimName, pModelManager->getResourceHolder(), name.c_str());
+                        if (pEmitter->mSyncBck == nullptr) {
+                            initEffectSyncBck(pKeeper, pModelManager, pInfo->getName(), pAnimName, ::countAnimNames(pAnimNames), 0.0f, -1.0f);
                         } else {
                             addEffectSyncBck(pEmitter, pModelManager, pAnimName);
                         }
 
-                        nameLength = 0;
-                        zeroMemory(name, sizeof(name));
-                    } else {
-                        name[nameLength] = pAnimNames[i];
-                        nameLength++;
+                        start = i + 1;
                     }
                 }
             }
 
-            pEmitter->setContinueBckEnd(!((pInfo->mFlag & AutoEffectInfo::FLAG_CONTINUE_ANIM_END) - AutoEffectInfo::FLAG_CONTINUE_ANIM_END));
+            pEmitter->setContinueBckEnd((pInfo->mFlag & AutoEffectInfo::FLAG_CONTINUE_ANIM_END) != 0);
         }
 
         void registerAutoEffectInfoGroup(EffectKeeper* pKeeper, const LiveActor* pActor, const char* pName) {
@@ -187,7 +181,7 @@ namespace MR {
         }
 
         void requestMovementOn(EffectKeeper* pKeeper) {
-            for (s32 i = 0; i < pKeeper->_C.size(); i++) {
+            for (s32 i = 0; i < pKeeper->mEmitters.size(); i++) {
                 MultiEmitter* pEmitter = pKeeper->getEmitter(i);
                 if (pEmitter != nullptr && pEmitter->isValid()) {
                     pEmitter->pauseOff(-1);
@@ -207,10 +201,10 @@ namespace MR {
         void addAutoEffect(EffectKeeper* pKeeper, const LiveActor* pActor, const AutoEffectInfo* pInfo) {
             if (pInfo->mJointName != nullptr) {
                 const char* pEffectName = pInfo->mEffectName;
-                pKeeper->registerEffect(pEffectName, getJointMtx(pActor, pInfo->mJointName), pInfo->mUniqueName, nullptr);
+                pKeeper->registerEffect(pEffectName, getJointMtx(pActor, pInfo->mJointName), pInfo->mUniqueName);
             } else if (pActor->getBaseMtx() != nullptr) {
                 const char* pEffectName = pInfo->mEffectName;
-                pKeeper->registerEffect(pEffectName, pActor->getBaseMtx(), &pActor->mScale, pInfo->mUniqueName, nullptr);
+                pKeeper->registerEffect(pEffectName, pActor->getBaseMtx(), &pActor->mScale, pInfo->mUniqueName);
             } else {
                 pKeeper->registerEffect(pInfo->mEffectName, &pActor->mPosition, &pActor->mRotation, &pActor->mScale, pInfo->mUniqueName);
             }
@@ -218,7 +212,7 @@ namespace MR {
             setupMultiEmitter(pKeeper, pActor->mModelManager, pInfo);
         }
 
-        void addAutoEffect(PaneEffectKeeper* pKeeper, const LayoutActor* pActor, const AutoEffectInfo* pInfo) {
+        void addAutoEffect(PaneEffectKeeper* pKeeper, const LayoutActor* /*pActor*/, const AutoEffectInfo* pInfo) {
             pKeeper->add(pInfo->mJointName, pInfo->mEffectName, pInfo->mUniqueName);
             ::setupMultiEmitter(pKeeper->getEmitter(pInfo->mUniqueName), pInfo);
         }
@@ -251,7 +245,7 @@ namespace MR {
             pEmitter->mEmitter->setUserWork(reinterpret_cast< uintptr_t >(pSingleEmitter));
         }
 
-        SingleEmitter* getLinkSingleEmitter(const JPABaseEmitter* pEmitter) {
+        SingleEmitter* getLinkSingleEmitter(const EmitterCore* pEmitter) {
             return reinterpret_cast< SingleEmitter* >(pEmitter->getUserWork());
         }
 
@@ -259,19 +253,18 @@ namespace MR {
             getEffectSystem()->mEmitterHolder->forceDeleteAllOneTimeEmitters();
         }
 
-        void createParticleEmitter(ParticleEmitter* pEmitter, JPAEmitterManager* pManager, const TVec3f& rPosition, u16 resourceId, u8 groupId,
+        void createParticleEmitter(ParticleEmitter* pEmitter, EmitterManager* pManager, const Vec3f& rPosition, u16 resourceId, u8 groupId,
                                    u8 resourceManagerId) {
-            JPABaseEmitter* pBaseEmitter = pManager->createSimpleEmitterID(rPosition, resourceId, groupId, resourceManagerId, nullptr, nullptr);
+            EmitterCore* pBaseEmitter = pManager->createSimpleEmitterID(rPosition, resourceId, groupId, resourceManagerId, nullptr, nullptr);
             if (pBaseEmitter != nullptr) {
                 pEmitter->mEmitter = pBaseEmitter;
-                pEmitter->init(resourceId);
+                pEmitter->init();
             }
         }
 
         bool isExistInResource(u16* pIndex, const char* pName, s32 number) {
-            char name[42];
-            nebula_snprintf(name, sizeof(name), "%s%02d", pName, number);
-            return isExistInResource(pIndex, name);
+            MR::FormattedName name("%s%02d", pName, number);
+            return isExistInResource(pIndex, name.c_str());
         }
 
         const char* getEffectAttributeName(s32 floorCode) {
@@ -296,11 +289,9 @@ namespace MR {
             }
         }
 
-        AutoEffectInfo* createAutoEffect(const char* pGroupName, const char* pUniqueName) {
-            JMapInfo* pInfo = getAutoEffectListBinary();
-            JMapInfoIter iter = pInfo->findElement("UniqueName", pUniqueName, 0);
-            const char* pName = "";
-            iter.getValue("GroupName", &pName);
+        AutoEffectInfo* createAutoEffect(const char* pUniqueName) {
+            Table* pInfo = getAutoEffectListBinary();
+            TableIter iter = pInfo->findElement("UniqueName", pUniqueName, 0);
             AutoEffectInfo* pEffectInfo = new AutoEffectInfo();
             pEffectInfo->init(iter);
             return pEffectInfo;

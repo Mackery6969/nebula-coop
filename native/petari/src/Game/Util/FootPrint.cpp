@@ -1,18 +1,21 @@
 #include "Game/Util/FootPrint.hpp"
-#include "Game/Util/NativeShader.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include "Game/System/NebulaFrameClock.hpp"
+#include "Game/Render/TypedDraw.hpp"
+#include "Game/Render/FrameList.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Util/Color.hpp"
 #include "Game/Util/DirectDraw.hpp"
 #include "Game/Util/MathUtil.hpp"
-#include "Game/Util/MemoryUtil.hpp"
+#include "Game/System/Arenas.hpp"
+#include "Game/System/NebulaArena.hpp"
 #include "Game/Util/ObjUtil.hpp"
-#include <JSystem/JUtility/JUTTexture.hpp>
+#include "Game/Render/GameTexture.hpp"
 #include <NebulaGpuTypes.h>
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const s32 sFadeBufferCount = 10;
-    static const s32 sFadeOutTime = 60;
+    NEBULA_TUNABLE(s32, sFadeBufferCount, 10);
+    static const s32 sFadeOutTime = NebulaFrameClock::stepsOfSeconds(1);
 };  // namespace
 
 FootPrint::FootPrint(const char* pName, s32 amount, s32 drawType) : NameObj(pName) {
@@ -20,20 +23,20 @@ FootPrint::FootPrint(const char* pName, s32 amount, s32 drawType) : NameObj(pNam
 }
 
 FootPrint::FootPrint(const char* pName, s32 amount) : NameObj(pName) {
-    initMember(amount, MR::DrawType_0x17);
+    initMember(amount, MR::DrawType_FootPrint);
 }
 
 void FootPrint::initMember(s32 amount, s32 drawType) {
-    _C = nullptr;
+    mTexture = nullptr;
     mPrints = nullptr;
     mPrintMaxNum = 0;
     mPrintNum = 0;
     mRotatingPrintIndex = 0;
-    _3C = false;
+    mIsFading = false;
 
-    _2C = 20.0f;
-    _30 = 20.0f;
-    _34 = 20.0f;
+    mSideOffset = 20.0f;
+    mHeight = 20.0f;
+    mWidth = 20.0f;
     mMinPrintDistance = 80.0f;
 
     mLastPrintPos.zero();
@@ -52,12 +55,12 @@ FootPrintInfo::FootPrintInfo() {
 }
 
 void FootPrint::setTexture(ResTIMG* img) {
-    MR::CurrentHeapRestorer heapRestorer = MR::CurrentHeapRestorer(reinterpret_cast< NebulaArena* >(MR::getSceneHeap()));
-    _C = new JUTTexture(img);
+    NebulaArena::CurrentScope scope(Arenas::scene());
+    mTexture = new GameTexture(img);
 }
 
 void FootPrint::movement() {
-    if (_3C) {
+    if (mIsFading) {
         for (int i = 0; i < mPrintNum; i++) {
             if (!mPrints[i].mIsValid) {
                 continue;
@@ -91,8 +94,8 @@ void FootPrint::movement() {
     }
 }
 
-bool FootPrint::addPrint(const TVec3f& rPos, const TVec3f& rArg2, const TVec3f& rArg3, bool arg4) {
-    _3C = false;
+bool FootPrint::addPrint(const Vec3f& rPos, const Vec3f& rUp, const Vec3f& rNormal, bool isFlipX) {
+    mIsFading = false;
 
     if (mPrintNum > 0 && rPos.distance(mLastPrintPos) < mMinPrintDistance) {
         return false;
@@ -100,11 +103,11 @@ bool FootPrint::addPrint(const TVec3f& rPos, const TVec3f& rArg2, const TVec3f& 
 
     mLastPrintPos = rPos;
     mPrints[mRotatingPrintIndex].mPos = rPos;
-    mPrints[mRotatingPrintIndex]._C = rArg2;
-    mPrints[mRotatingPrintIndex]._18 = rArg3;
+    mPrints[mRotatingPrintIndex].mUp = rUp;
+    mPrints[mRotatingPrintIndex].mNormal = rNormal;
     mPrints[mRotatingPrintIndex].mTimeLeft = ::sFadeOutTime;
     mPrints[mRotatingPrintIndex].mIsValid = true;
-    mPrints[mRotatingPrintIndex]._29 = arg4;
+    mPrints[mRotatingPrintIndex].mIsFlipX = isFlipX;
 
     mRotatingPrintIndex++;
     mPrintNum++;
@@ -125,10 +128,10 @@ void FootPrint::draw() const {
         return;
     }
 
-    NebulaNativeMaterial material;
+    SiteMaterial material;
     TDDraw::setupNative(&material, 2, 1, 0);
-    NativeShader::setDepth(material, true, NEBULA_COMPARE_LEQUAL, false);
-    NativeShader::setTexture(material, 0, _C);
+    material.setDepth(true, NEBULA_COMPARE_LEQUAL, false);
+    material.setTexture(0, mTexture);
 
     Color8 color(0, 0, 0, 255);
 
@@ -138,27 +141,30 @@ void FootPrint::draw() const {
         }
 
         color.a = (s32)(255.0f * MR::normalize(mPrints[i].mTimeLeft, 0.0f, ::sFadeOutTime));
-        NativeShader::setColor(material, 0, color.r, color.g, color.b, color.a);
-        NativeShader::send(material);
+        material.setColor(0, color.r, color.g, color.b, color.a);
 
-        TVec3f cross = mPrints[i]._C.cross(mPrints[i]._18);
-        TVec3f v1;
+        Vec3f cross = mPrints[i].mUp.cross(mPrints[i].mNormal);
+        // Prints alternate sides; each sits 5 units off the ground.
+        Vec3f printPos;
         if ((i & 1) != 0) {
-            v1 = mPrints[i].mPos + cross * _2C;
+            printPos = mPrints[i].mPos + cross * mSideOffset;
         } else {
-            v1 = mPrints[i].mPos - cross * _2C;
+            printPos = mPrints[i].mPos - cross * mSideOffset;
         }
 
-        v1 += mPrints[i]._18 * 5.0f;
+        printPos += mPrints[i].mNormal * 5.0f;
 
-        TDDraw::drawTexture3D(v1, mPrints[i]._18, mPrints[i]._C, _34, _30, nullptr, mPrints[i]._29 != false, false);
+        TypedDraw site = TDDraw::site(material, 0);
+        // An expired print draws nothing; each print keeps its own number so the prints after it pair with themselves.
+        site.setPart(static_cast< u32 >(i));
+        TDDraw::drawTexture3D(site, printPos, mPrints[i].mNormal, mPrints[i].mUp, mWidth, mHeight, nullptr, mPrints[i].mIsFlipX, false);
     }
 
     TDDraw::close();
 }
 
 void FootPrint::clear() {
-    _3C = true;
+    mIsFading = true;
 }
 
 void FootPrint::clearForce() {
@@ -166,7 +172,7 @@ void FootPrint::clearForce() {
     mRotatingPrintIndex = 0;
 }
 
-TVec3f* FootPrint::getPrintPos(u32 index) const {
+Vec3f* FootPrint::getPrintPos(u32 index) const {
     return &mPrints[index % mPrintMaxNum].mPos;
 }
 
@@ -175,5 +181,5 @@ void FootPrint::invalidate(u32 index) {
 }
 
 bool FootPrint::isValid(u32 index) const {
-    return mPrints[index % mPrintMaxNum].mIsValid != false;
+    return mPrints[index % mPrintMaxNum].mIsValid;
 }

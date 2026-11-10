@@ -1,14 +1,15 @@
 #include "Game/Effect/AutoEffectGroup.hpp"
 #include "Game/Effect/AutoEffectInfo.hpp"
 #include "Game/Effect/EffectSystemUtil.hpp"
-#include "Game/Util/JMapInfo.hpp"
+#include "Game/Effect/ParticleResourceHolder.hpp"
+#include "Game/Util/SystemUtil.hpp"
+#include "Game/Util/Table.hpp"
 
-AutoEffectGroup::AutoEffectGroup(const char* pName, int capacity) : mName(pName), mEffects(), mCapacity(), mCount() {
+AutoEffectGroup::AutoEffectGroup(const char* pName, int capacity) : mName(pName), mEffects(), mCount() {
     mEffects = new AutoEffectInfo*[capacity];
-    mCapacity = capacity;
 }
 
-void AutoEffectGroup::add(const JMapInfoIter& rIter) {
+void AutoEffectGroup::add(const TableIter& rIter) {
     AutoEffectInfo* pInfo = new AutoEffectInfo;
     pInfo->init(rIter);
     const s32 index = mCount++;
@@ -36,17 +37,17 @@ namespace MR {
         }
 
         AutoEffectGroup* createAutoEffectGroup(const char* pName) {
-            JMapInfoIter iter = findJMapInfoElementNoCase(getAutoEffectListBinary(), "GroupName", pName, 0);
+            const ParticleResourceHolder* pHolder = getParticleResourceHolder();
+            s32 row = pHolder->getAutoEffectFirstRow(pName);
 
-            if (!iter.isValid()) {
+            if (row < 0) {
                 return nullptr;
             }
 
-            AutoEffectGroup* pGroup = new AutoEffectGroup(pName, getAutoEffectNum(pName));
+            AutoEffectGroup* pGroup = new AutoEffectGroup(pName, pHolder->getAutoEffectNum(pName));
 
-            while (iter != getAutoEffectListBinary()->end()) {
-                pGroup->add(iter);
-                iter = findJMapInfoElementNoCase(getAutoEffectListBinary(), "GroupName", pName, iter.mIndex + 1);
+            for (; row >= 0; row = pHolder->getAutoEffectNextRow(row)) {
+                pGroup->add(TableIter(pHolder->getAutoEffectListBinary(), row));
             }
 
             return pGroup;

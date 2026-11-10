@@ -13,8 +13,8 @@ public:
     /// @param pArcName The pointer to the null-terminated base name of the resource archive.
     LensFlareModel(const char* pName, const char* pArcName);
 
-    virtual void appear();
-    virtual void control();
+    virtual void appear() override;
+    virtual void control() override;
     virtual void appearAnim() {
     }
     virtual void controlAnim() {
@@ -30,11 +30,11 @@ public:
 
     void notifyInArea();
 
-    f32 _8C;
-    f32 _90;
-    f32 _94;
-    TriggerChecker* _98;
-    TriggerChecker* _9C;
+    f32 mFlareStrength;  // visibility from the bright object and the distance to the screen centre
+    f32 mFadeLevel;  // 0 to 1
+    f32 mFadeStep;  // fade level change per frame
+    TriggerChecker* mAreaChecker;  // inside the lens flare area
+    TriggerChecker* mVisibleChecker;  // inside the area with a bright object showing
 };
 
 class LensFlareRing : public LensFlareModel {
@@ -42,10 +42,10 @@ public:
     /// @brief Creates a new `LensFlareRing`.
     LensFlareRing();
 
-    virtual void appearAnim();
-    virtual void controlAnim();
+    virtual void appearAnim() override;
+    virtual void controlAnim() override;
 
-    f32 _A0;
+    f32 mRingFrame;  // ring animation position, 0 to 1
 };
 
 class LensFlareGlow : public LensFlareModel {
@@ -53,8 +53,8 @@ public:
     /// @brief Creates a new `LensFlareGlow`.
     LensFlareGlow();
 
-    virtual void appearAnim();
-    virtual void controlAnim();
+    virtual void appearAnim() override;
+    virtual void controlAnim() override;
 };
 
 class LensFlareLine : public LensFlareModel {
@@ -62,8 +62,8 @@ public:
     /// @brief Creates a new `LensFlareLine`.
     LensFlareLine();
 
-    virtual void appearAnim();
-    virtual void controlAnim();
+    virtual void appearAnim() override;
+    virtual void controlAnim() override;
 };
 
 class LensFlareDirector : public NameObj {
@@ -71,17 +71,19 @@ public:
     /// @brief Creates a new `LensFlareDirector`.
     LensFlareDirector();
 
-    virtual ~LensFlareDirector();
+    virtual ~LensFlareDirector() override;
 
     /// @brief Intializes the `LensFlareDirector` while being placed into a scene.
-    /// @param rIter The reference to an iterator over a `JMapInfo`.
-    virtual void init(const JMapInfoIter& rIter);
+    /// @param rIter The reference to an iterator over a `Table`.
+    virtual void init(const TableIter& rIter) override;
 
-    virtual void movement();
+    virtual void movement() override;
     void pauseOff();
     // The picture where the drawing has reached, as this frame's readback; the bright objects measure their
     // visibility in it.
     void setDrawSyncToken();
+    void readAnswers();
+    void reserveProbes();
     s32 checkArea();
     bool checkBrightObj(bool);
     void controlFlare(s32, bool);
@@ -89,15 +91,15 @@ public:
     LensFlareRing* mRing;
     LensFlareGlow* mGlow;
     LensFlareLine* mLine;
-    MR::FixedArray< BrightObjBase*, 16 > mBrightObjArray;
+    MR::InlineArray< BrightObjBase*, 16 > mBrightObjArray;
     u32 mBrightObjCount;
     struct NebulaScreenProbe* mProbes = nullptr;
     u32 mProbeCapacity = 0;
-    TVec2f _60;
-    f32 _68;
-    TVec2f _6C;
-    TVec2f _74;
-    u16 _7C;
+    u32 mAsker;  // the asker its probes carry
+    Vec2f mBrightCenter;  // bright centre of the first visible bright object
+    f32 mBrightLevel;  // its brightness
+    Vec2f mObjCenter;  // its centre
+    Vec2f mNowCenter;  // its centre this frame
 };
 
 namespace MR {

@@ -1,10 +1,11 @@
+#include <stdint.h>
 #pragma once
 
-#include "Game/Util/BothDirList.hpp"
-#include "Game/Util/JMapInfo.hpp"
-#include "Game/Util/StringUtil.hpp"
-
 class NameObj;
+
+#include "Game/System/NebulaList.hpp"
+#include "Game/Util/Table.hpp"
+#include "Game/Util/StringUtil.hpp"
 
 typedef NameObj* (*CreationFuncPtr)(const char*);
 
@@ -26,56 +27,54 @@ public:
         s32 mShapeId;
     };
 
-    class Index : public MR::BothDirLink< Index > {
+    class Index : public NebulaListLink< Index > {
     public:
         Index();
 
-        ~Index();
-
-        const JMapInfoIter& getInfoIter() const {
+        const TableIter& getInfoIter() const {
             return mInfoIter;
         }
 
-        JMapInfoIter mInfoIter;
+        TableIter mInfoIter;
     };
 
     class SameIdSet : public Identifier {
     public:
         SameIdSet();
 
-        ~SameIdSet();
-
         bool operator<(const SameIdSet& rOther) const {
             if (mPriority == rOther.mPriority) {
-                return rOther.mList.mCount < mList.mCount;
+                return rOther.mList.getNum() < mList.getNum();
             }
 
             return mPriority < rOther.mPriority;
         }
 
         s32 mPriority;
-        MR::BothDirList< Index > mList;
+        NebulaList< Index > mList;
     };
 
     PlacementInfoOrdered(int);
 
     void sort();
-    void requestFileLoad();
     void initPlacement();
-    void insert(const Identifier&, const JMapInfoIter&);
-    SameIdSet* getSameIdSet(int index) const {
-        return mOrderedSetArray[index];
-    }
-
-    s32 getUsedArrayNum() const;
+    bool initPlacementStep(uint64_t deadline);
+    void insert(const Identifier&, const TableIter&);
     SameIdSet* find(const Identifier&) const;
     SameIdSet* createSameIdSet(const Identifier&);
-    Index* createIndex(const JMapInfoIter&);
-    void attach(const JMapInfo*, PlacementInfoOrdered*);
+    Index* createIndex(const TableIter&);
+    void attach(const Table*, PlacementInfoOrdered*);
+    // The entries attach() sends to its after-scenario list.
+    static s32 countAfterScenario(const Table*);
 
     Index* mIndexArray;
     u32 mIndexCount;
     SameIdSet* mSetArray;
-    SameIdSet** mOrderedSetArray;
+    SameIdSet** mOrderedSetArray;  // the first mSetNum are set
     int mCount;
+    s32 mSetNum = 0;
+    s32 mPlacementSet = 0;
+    NebulaListLink< Index >* mPlacementLink = nullptr;
+    bool mPlacementStarted = false;
+    NameObj* mInitializing = nullptr;
 };

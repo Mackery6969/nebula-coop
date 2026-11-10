@@ -4,6 +4,7 @@
 #include <cstring>
 #include <fstream>
 #include <memory>
+#include <new>
 #include <unordered_map>
 #include <vector>
 
@@ -11,11 +12,22 @@ namespace galaxy::render {
 namespace {
 
 constexpr std::size_t kHeaderBytes = 56u;
-constexpr std::size_t kEntryBytes = 24u;
+constexpr std::size_t kEntryBytes = 32u;
+
+struct Key {
+    std::uint64_t id;
+    std::uint32_t form;
+    bool operator==(const Key&) const = default;
+};
+struct KeyHash {
+    std::size_t operator()(const Key& key) const noexcept {
+        return static_cast<std::size_t>(key.id ^ (std::uint64_t{key.form} * 0x9E3779B97F4A7C15ull));
+    }
+};
 
 struct Registry {
     std::vector<std::unique_ptr<std::vector<std::uint64_t>>> files;  // words: SPIR-V and DXIL both align
-    std::unordered_map<std::uint64_t, NativeShaderBytes> shaders;
+    std::unordered_map<Key, ProgramBytes, KeyHash> programs;
 };
 
 Registry& registry() {
@@ -23,8 +35,8 @@ Registry& registry() {
     return r;
 }
 
-std::uint64_t key_of(std::uint32_t shader, unsigned variant, bool pixel) noexcept {
-    return static_cast<std::uint64_t>(shader) << 16u | static_cast<std::uint64_t>(variant) << 1u | (pixel ? 1u : 0u);
+Key key_of(std::uint64_t id, unsigned variant, bool pixel) noexcept {
+    return {id, variant << 1u | (pixel ? 1u : 0u)};
 }
 
 }  // namespace
@@ -38,7 +50,12 @@ ModShadersResult load_mod_shaders(const std::filesystem::path& file) {
     if (size < static_cast<std::streamoff>(kHeaderBytes)) {
         return ModShadersResult::Unreadable;
     }
-    auto words = std::make_unique<std::vector<std::uint64_t>>(static_cast<std::size_t>(size + 7) / 8u);
+    std::unique_ptr<std::vector<std::uint64_t>> words;
+    try {
+        words = std::make_unique<std::vector<std::uint64_t>>(static_cast<std::size_t>(size + 7) / 8u);
+    } catch (const std::bad_alloc&) {
+        return ModShadersResult::Unreadable;  // a file larger than the memory there is
+    }
     in.seekg(0);
     const auto bytes = reinterpret_cast<const unsigned char*>(words->data());
     if (!in.read(reinterpret_cast<char*>(words->data()), size) || std::memcmp(bytes, "NBSHADER", 8) != 0) {
@@ -49,41 +66,44 @@ ModShadersResult load_mod_shaders(const std::filesystem::path& file) {
     std::memcpy(&version, bytes + 8, 4);
     std::memcpy(&count, bytes + 12, 4);
     const auto total = static_cast<std::uint64_t>(size);
-    if (version != 1u || kHeaderBytes + std::uint64_t{count} * kEntryBytes > total) {
+    if (version != 3u || kHeaderBytes + std::uint64_t{count} * kEntryBytes > total) {
         return ModShadersResult::Unreadable;
     }
-    if (std::memcmp(bytes + 16, native_shader_interface(), 40) != 0) {
+    if (std::memcmp(bytes + 16, program_interface(), 40) != 0) {
         return ModShadersResult::OtherInterface;
     }
     // Nothing of a file that is wrong anywhere is used.
-    std::vector<std::pair<std::uint64_t, NativeShaderBytes>> found;
+    std::vector<std::pair<Key, ProgramBytes>> found;
     found.reserve(count);
     for (std::uint32_t i = 0u; i < count; ++i) {
         const unsigned char* entry = bytes + kHeaderBytes + i * kEntryBytes;
-        std::uint32_t shader = 0u;
+        std::uint64_t id = 0u;
         std::uint64_t offset = 0u;
         std::uint64_t length = 0u;
-        std::memcpy(&shader, entry, 4);
-        std::memcpy(&offset, entry + 8, 8);
-        std::memcpy(&length, entry + 16, 8);
-        if (entry[4] >= kNativeVariants || entry[5] > 1u || offset > total || length > total - offset || length == 0u) {
+        std::memcpy(&id, entry, 8);
+        std::memcpy(&offset, entry + 16, 8);
+        std::memcpy(&length, entry + 24, 8);
+        // A program starts on a word of 8 bytes (the writer pads to it) and is whole 32-bit words: SPIR-V is read as words.
+        if (entry[8] >= kProgramStored || entry[9] > 1u || offset > total || length > total - offset || length == 0u ||
+            (offset & 7u) != 0u || (length & 3u) != 0u) {
             return ModShadersResult::Unreadable;
         }
-        found.emplace_back(key_of(shader, entry[4], entry[5] != 0u), NativeShaderBytes{bytes + offset, static_cast<std::size_t>(length)});
+        found.emplace_back(key_of(id, entry[8], entry[9] != 0u), ProgramBytes{bytes + offset, static_cast<std::size_t>(length)});
     }
     Registry& r = registry();
-    // The same material in two mods is the same shader: the first stays.
-    for (const auto& [key, shader] : found) {
-        r.shaders.emplace(key, shader);
+    // The same text in two mods is the same program: the first stays.
+    for (const auto& [key, program] : found) {
+        r.programs.emplace(key, program);
     }
     r.files.push_back(std::move(words));
     return ModShadersResult::Loaded;
 }
 
-NativeShaderBytes mod_shader_bytes(std::uint32_t shader, unsigned variant, bool pixel) noexcept {
+
+ProgramBytes mod_program_bytes(std::uint64_t id, unsigned variant, bool pixel) noexcept {
     const Registry& r = registry();
-    const auto it = r.shaders.find(key_of(shader - kNativeShaderJ3DFirst + 1u, variant, pixel));
-    return it != r.shaders.end() ? it->second : NativeShaderBytes{};
+    const auto it = r.programs.find(key_of(id, variant, pixel));
+    return it != r.programs.end() ? it->second : ProgramBytes{};
 }
 
 }  // namespace galaxy::render

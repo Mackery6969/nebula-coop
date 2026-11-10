@@ -10,9 +10,9 @@ public:
     /// @brief Creates a new `GalaxyMapSelectButton`.
     GalaxyMapSelectButton();
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void appear();
-    virtual void control();
+    virtual void init(const TableIter& rIter) override;
+    virtual void appear() override;
+    virtual void control() override;
 
     void startAstroMap();
     bool isPointingAnything() const;
@@ -28,6 +28,6 @@ public:
     void exeBetweenMapToListFadein();
 
 private:
-    Nerve* _20;
+    Nerve* mNextNerve;  // where the fade-in nerve goes next
     ButtonPaneController* mPaneCtrl;
 };

@@ -7,17 +7,18 @@
 #include "Game/NPC/TalkMessageFunc.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/ActorShadowUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const s32 sStarPieceNeed = 30;
-    static const f32 sMouthSize = 30.0f;
-    static const f32 sSensorSize = 100.0f;
-    static const f32 sSensorOffset = 100.0f;
-    static const f32 sShadowLength = 500.0f;
+    NEBULA_TUNABLE(s32, sStarPieceNeed, 30);
+    NEBULA_TUNABLE(f32, sMouthSize, 30.0f);
+    NEBULA_TUNABLE(f32, sSensorSize, 100.0f);
+    NEBULA_TUNABLE(f32, sSensorOffset, 100.0f);
+    NEBULA_TUNABLE(f32, sShadowLength, 500.0f);
 };  // namespace
 
 namespace NrvTicoShop {
@@ -39,7 +40,7 @@ void TicoShop::kill() {
     NPCActor::kill();
 }
 
-void TicoShop::init(const JMapInfoIter& rIter) {
+void TicoShop::init(const TableIter& rIter) {
     NPCActorCaps caps("TicoShop");
     NPCActorItem item("TicoShop");
     caps.setDefault();
@@ -49,29 +50,29 @@ void TicoShop::init(const JMapInfoIter& rIter) {
     caps.mSoundSize = 6;
     caps.mSensorMax = 2;
     caps.mSensorJoint = "Center";
-    caps._6C = "Center";
+    caps.mPointerJoint = "Center";
     initialize(rIter, caps);
-    MR::addHitSensorAtJointEye(this, "Mouth", "Mouth", 8, ::sMouthSize, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorAtJointEye(this, "Mouth", "Mouth", 8, ::sMouthSize, Vec3f(0.0f, 0.0f, 0.0f));
     MR::getNPCItemData(&item, 0);
     equipment(item, false);
 
-    if (_94 != nullptr) {
-        MR::startAction(_94, "Shake");
+    if (mGoods0 != nullptr) {
+        MR::startAction(mGoods0, "Shake");
     }
 
-    if (_98 != nullptr) {
-        MR::startAction(_98, "Shake");
+    if (mGoods1 != nullptr) {
+        MR::startAction(mGoods1, "Shake");
     }
 
     s32 starPieceNeed = ::sStarPieceNeed;
-    MR::getJMapInfoArg0NoInit(rIter, &starPieceNeed);
+    MR::getPlacementArg0NoInit(rIter, &starPieceNeed);
     initStarPiece(starPieceNeed);
     initMessage("Common_TicoShop000");
-    MR::setMessageArg(mMsgCtrl, _194);
+    MR::setMessageArg(mMsgCtrl, mStarPieceNeed);
     MR::registerBranchFunc(getMsgCtrl(), TalkMessageFunc(this, &TicoShop::branchFunc));
     MR::registerEventFunc(getMsgCtrl(), TalkMessageFunc(this, &TicoShop::eventFunc));
     MR::setDistanceToTalk(mMsgCtrl, 350.0f);
-    _180 = GET_NERVE(TicoShop, TicoShopNrvDemo);
+    mMetaNerve = GET_NERVE(TicoShop, TicoShopNrvDemo);
     mOneUp = MR::createKinokoOneUp();
     mLifeUp = MR::createKinokoSuper();
     MR::setShadowDropLength(mOneUp, nullptr, ::sShadowLength);
@@ -81,23 +82,24 @@ void TicoShop::init(const JMapInfoIter& rIter) {
     MR::setBrkFrameAndStop(this, 0.0f);
     MR::setClippingFar200m(this);
     TicoEat::init(rIter);
-    _17C.set(0, 0xE6, 0xFF, 0xFF);
+    mLightColor.set(0, 0xE6, 0xFF, 0xFF);
 }
 
 bool TicoShop::branchFunc(u32) {
     return hasEnoughStarPiece();
 }
 
-bool TicoShop::eventFunc(u32 var) {
-    if (var < 3) {
-        return TicoComet::eventFunc(var);
+bool TicoShop::eventFunc(u32 event) {
+    // Events 0-2 are the eating Tico's; 3 and 4 the two purchases.
+    if (event < 3) {
+        return TicoComet::eventFunc(event);
     }
 
-    if (var == 3) {
+    if (event == 3) {
         mChoseLifeUp = true;
     }
 
-    if (var == 4) {
+    if (event == 4) {
         mChoseOneUp = true;
     }
 
@@ -105,21 +107,21 @@ bool TicoShop::eventFunc(u32 var) {
 }
 
 void TicoShop::startReactionSound() {
-    if (_D8) {
+    if (mIsTrampledStart) {
         MR::startSound(this, "SE_SM_NPC_TRAMPLED");
         MR::startSound(this, "SE_SV_TICOSHOP_TRAMPLED");
     }
 
     if (isPointingSe()) {
-        MR::startDPDHitSound();
+        MR::startPointerHitSound();
         MR::startSound(this, "SE_SV_TICOSHOP_POINT");
     }
 
-    if (_D9) {
+    if (mIsSpinAttackedStart) {
         MR::startSound(this, "SE_SM_TICOSHOP_SPIN");
     }
 
-    if (_DB) {
+    if (mIsReactionStart) {
         MR::startSound(this, "SE_SV_TICOSHOP_STAR_PIECE_HIT");
     }
 }

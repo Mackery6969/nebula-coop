@@ -13,7 +13,7 @@ class NebulaPlayerList : public LayoutActor {
 public:
     NebulaPlayerList();
 
-    virtual void init(const JMapInfoIter& rIter);
+    virtual void init(const TableIter& rIter);
     virtual void control();
 
     // GameScene: one frame, and the drawing over everything else.

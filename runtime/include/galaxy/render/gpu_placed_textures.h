@@ -8,13 +8,8 @@
 // releases it with the resource. Callers release a texture only after the GPU
 // has finished with it.
 
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <Windows.h>
+#include "galaxy/render/gpu_use.h"
+#include "galaxy/windows_api.h"
 #include <d3d12.h>
 #include <wrl/client.h>
 
@@ -35,8 +30,10 @@ public:
 
     // `heap_flags` selects the resource class: D3D12_HEAP_FLAG_ALLOW_ONLY_
     // NON_RT_DS_TEXTURES for sampled textures, ..._ALLOW_ONLY_RT_DS_TEXTURES
-    // for render targets. Requests larger than half a heap are committed.
-    PlacedTextureAllocator(D3D12_HEAP_FLAGS heap_flags, std::uint64_t heap_bytes);
+    // for render targets. Requests larger than half a heap are committed. `properties`: the heaps' (and the committed
+    // fallback's) properties; none means the DEFAULT heap type. A custom CPU-visible heap is for WriteToSubresource.
+    PlacedTextureAllocator(D3D12_HEAP_FLAGS heap_flags, std::uint64_t heap_bytes,
+                           const D3D12_HEAP_PROPERTIES* properties = nullptr);
     ~PlacedTextureAllocator();
     PlacedTextureAllocator(const PlacedTextureAllocator&) = delete;
     PlacedTextureAllocator& operator=(const PlacedTextureAllocator&) = delete;
@@ -46,12 +43,12 @@ public:
     // Drops the allocator's heap references; live resources keep theirs.
     void shutdown() noexcept;
 
-    // Creates `desc` in `initial_state`. `allocation_bytes` receives the
+    // Creates `desc` in `initial` (its layout or legacy state: barriers_d3d12.h). `allocation_bytes` receives the
     // resource's allocation size for budgeting. A render-target texture is
     // placed over memory with undefined contents: the caller must clear,
     // discard or fully copy it before reading it (D3D12 placed-RT rule).
     HRESULT create(const D3D12_RESOURCE_DESC& desc,
-                   D3D12_RESOURCE_STATES initial_state,
+                   gpu::Use initial,
                    const D3D12_CLEAR_VALUE* clear_value,
                    Microsoft::WRL::ComPtr<ID3D12Resource>& resource,
                    std::uint64_t& allocation_bytes,

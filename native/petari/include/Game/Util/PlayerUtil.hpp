@@ -1,16 +1,30 @@
 #pragma once
 
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class BckCtrlData;
 class CameraTargetArg;
 class CubeCameraArea;
 class HitSensor;
-class JUTTexture;
+class GameTexture;
 class LiveActor;
 class NameObj;
 class Triangle;
 class XanimeResourceTable;
+
+// What MR::changePlayerItemStatus gives the player; the power-up items carry theirs.
+enum PlayerItemStatus {
+    PlayerItemStatus_Normal = 0,
+    PlayerItemStatus_Hopper = 1,
+    PlayerItemStatus_Bee = 2,
+    PlayerItemStatus_Teresa = 3,
+    PlayerItemStatus_Ice = 4,
+    PlayerItemStatus_Fire = 5,
+    PlayerItemStatus_Foo = 6,
+    PlayerItemStatus_Invincible = 7,
+    PlayerItemStatus_Cure = 8,  // back to normal from any element mode
+    PlayerItemStatus_LifeUp = 10,
+};
 
 namespace MR {
     bool isOnGroundPlayer();
@@ -23,34 +37,34 @@ namespace MR {
     bool isPlayerRefuseTalk();
     bool isPlayerTeresaDisappear();
     bool isPlayerInAreaObj(const char*);
-    TVec3f* getPlayerPos();
-    TVec3f* getPlayerCenterPos();
-    void getPlayerTakePos(TVec3f*);
+    Vec3f* getPlayerPos();
+    Vec3f* getPlayerCenterPos();
+    void getPlayerTakePos(Vec3f*);
     // Co-op (docs/COOP_PLAN.md, Phase 3): the position of the player nearest pActor, the local Mario or another player
     // in this instance who can be touched now. Single player, the local Mario's (getPlayerPos).
-    const TVec3f* getNearestPlayerPos(const LiveActor* pActor);
-    void setPlayerPos(const TVec3f&);
+    const Vec3f* getNearestPlayerPos(const LiveActor* pActor);
+    void setPlayerPos(const Vec3f&);
     void setPlayerUpperRotateY(f32);
-    TVec3f* getPlayerRotate();
-    TVec3f* getPlayerShadowRotate();
-    TVec3f* getPlayerVelocity();
-    TVec3f* getPlayerLastMove();
-    void setPlayerJumpVec(const TVec3f&);
+    Vec3f* getPlayerRotate();
+    Vec3f* getPlayerShadowRotate();
+    Vec3f* getPlayerVelocity();
+    Vec3f* getPlayerLastMove();
+    void setPlayerJumpVec(const Vec3f&);
     f32 getPlayerHitRadius();
     void setPlayerWalkingResist(f32);
-    const TVec3f* getPlayerGravity();
-    void calcPlayerSpinPullVelocity(TVec3f*, const TVec3f&);
+    const Vec3f* getPlayerGravity();
+    void calcPlayerSpinPullVelocity(Vec3f*, const Vec3f&);
     bool checkPlayerActionTrigger();
     bool checkPlayerSwingTrigger();
-    f32 calcDistanceToPlayer(const TVec3f&);
-    void getPlayerUpVec(TVec3f*);
-    void getPlayerFrontVec(TVec3f*);
-    void getPlayerSideVec(TVec3f*);
-    void getPlayerThrowVec(TVec3f*);
-    void getPlayerGroundPos(TVec3f*);
-    const TVec3f* getPlayerGroundNormal();
-    void setPlayerFrontTargetVec(const TVec3f&, s32);
-    void setPlayerFrontVec(const TVec3f&, s32);
+    f32 calcDistanceToPlayer(const Vec3f&);
+    void getPlayerUpVec(Vec3f*);
+    void getPlayerFrontVec(Vec3f*);
+    void getPlayerSideVec(Vec3f*);
+    void getPlayerThrowVec(Vec3f*);
+    void getPlayerGroundPos(Vec3f*);
+    const Vec3f* getPlayerGroundNormal();
+    void setPlayerFrontTargetVec(const Vec3f&, s32);
+    void setPlayerFrontVec(const Vec3f&, s32);
     void setPlayerSwingInhibitTimer(u16);
     void setPlayerSwingPermission(bool);
     void setPlayerStateWait();
@@ -60,7 +74,7 @@ namespace MR {
     bool isBckStoppedPlayer();
     bool isBckOneTimeAndStoppedPlayer();
     f32 getBckFrameMaxPlayer();
-    s16 getBckFrameMaxPlayer(const char*);
+    s32 getBckFrameMaxPlayer(const char*);
     void startBckPlayerJ(const char*);
     void becomeContinuousBckPlayer();
     void progressPlayerBckOnPause();
@@ -70,9 +84,9 @@ namespace MR {
     void setBckBlendWeight(f32, f32, f32, f32);
     void setBckRatePlayer(f32);
     XanimeResourceTable* getPlayerXanimeResource();
-    void jumpPlayer(const TVec3f&);
-    void forceJumpPlayer(const TVec3f&);
-    void forceFlyPlayer(const TVec3f&, const TVec3f&, s32);
+    void jumpPlayer(const Vec3f&);
+    void forceJumpPlayer(const Vec3f&);
+    void forceFlyPlayer(const Vec3f&, const Vec3f&, s32);
     void tornadoJumpPlayer();
     void miniTornadoJumpPlayer();
     void becomePlayerNormalJumpStatus();
@@ -81,7 +95,7 @@ namespace MR {
     bool isOnPlayerShadow(const LiveActor*);
     f32 getPlayerShadowHeight();
     void setPlayerPos(const char*);
-    void setPlayerPosAndWait(const TVec3f&);
+    void setPlayerPosAndWait(const Vec3f&);
     void setPlayerPosAndWait(const char*);
     void setPlayerLinkPosAndWait(const NameObj*, const char*);
     void setPlayerPosOnGround(const char*);
@@ -109,7 +123,7 @@ namespace MR {
     bool isPlayerElementModeIce();
     bool isPlayerElementModeNormal();
     bool isPlayerSkating();
-    void changePlayerItemStatus(s32);
+    void changePlayerItemStatus(s32 status);
     void curePlayerElementMode();
     bool isPlayerParalyzing();
     bool isPlayerDamaging();
@@ -120,18 +134,18 @@ namespace MR {
     void validatePlayerSensor();
     bool isPlayerInBind();
     void endBindAndPlayerWait(LiveActor*);
-    void endBindAndPlayerJump(LiveActor*, const TVec3f&, u32);
-    void endBindAndPlayerForceJump(LiveActor*, const TVec3f&, u32);
-    void endBindAndPlayerWeakGravityJump(LiveActor*, const TVec3f&);
-    void endBindAndPlayerForceWeakGravityJump(LiveActor*, const TVec3f&);
-    void endBindAndPlayerForceWeakGravityJumpInputOff(LiveActor*, const TVec3f&);
-    void endBindAndPlayerWeakGravityLimitJump(LiveActor*, const TVec3f&);
-    void endBindAndSpinDriverJump(LiveActor*, const TVec3f&);
-    void endBindAndPlayerDamage(LiveActor*, const TVec3f&);
-    void endBindAndPlayerFlip(LiveActor*, const TVec3f&);
-    void endBindAndPlayerJumpWithRollLanding(LiveActor*, const TVec3f&, u32);
+    void endBindAndPlayerJump(LiveActor*, const Vec3f&, u32);
+    void endBindAndPlayerForceJump(LiveActor*, const Vec3f&, u32);
+    void endBindAndPlayerWeakGravityJump(LiveActor*, const Vec3f&);
+    void endBindAndPlayerForceWeakGravityJump(LiveActor*, const Vec3f&);
+    void endBindAndPlayerForceWeakGravityJumpInputOff(LiveActor*, const Vec3f&);
+    void endBindAndPlayerWeakGravityLimitJump(LiveActor*, const Vec3f&);
+    void endBindAndSpinDriverJump(LiveActor*, const Vec3f&);
+    void endBindAndPlayerDamage(LiveActor*, const Vec3f&);
+    void endBindAndPlayerFlip(LiveActor*, const Vec3f&);
+    void endBindAndPlayerJumpWithRollLanding(LiveActor*, const Vec3f&, u32);
     void endBindAndPlayerDamageMsg(LiveActor*, u32);
-    void endBindAndPlayerDamageMsg(LiveActor*, u32, const TVec3f&);
+    void endBindAndPlayerDamageMsg(LiveActor*, u32, const Vec3f&);
     void endBindAndPlayerAcidDamage(LiveActor*);
     void endBindAndPlayerFreezeDamage(LiveActor*);
     void endBindAndPlayerFireDamage(LiveActor*);
@@ -152,7 +166,6 @@ namespace MR {
     void hidePlayer();
     void showPlayerJoint(const char*);
     void hidePlayerJoint(const char*);
-    void setPlayerSpot(f32, u32);
     void startPlayerDownWipe();
     void setCameraTargetToPlayer(CameraTargetArg*);
     bool isPlayerDisableFpView();
@@ -178,15 +191,15 @@ namespace MR {
     void readyPlayerDemo();
     void onFollowDemoEffect();
     void requestMovementOnPlayer();
-    void calcPlayerJointMtx(TPos3f*, const char*);
+    void calcPlayerJointMtx(Pos3f*, const char*);
     bool isPlayerOnPress();
-    void pushPlayer(const TVec3f&);
-    void pushPlayerFromArea(const TVec3f&);
+    void pushPlayer(const Vec3f&);
+    void pushPlayerFromArea(const Vec3f&);
     bool isPlayerInWaterMode();
     bool isPlayerOnWaterSurface();
     bool isPlayerHidden();
-    void calcPlayerWorldPadDir(TVec3f*, f32, f32);
-    JUTTexture* getFullScreenBlurTexture();
+    void calcPlayerWorldPadDir(Vec3f*, f32, f32);
+    GameTexture* getFullScreenBlurTexture();
     u16 getPlayerMovementTimer();
     CubeCameraArea* getCameraCube();
 };  // namespace MR

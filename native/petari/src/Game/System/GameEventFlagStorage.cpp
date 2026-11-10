@@ -3,8 +3,7 @@
 #include "Game/System/GameEventFlagTable.hpp"
 #include "Game/Util/BitArray.hpp"
 #include "Game/Util/HashUtil.hpp"
-#include <JSystem/JSupport/JSUMemoryInputStream.hpp>
-#include <JSystem/JSupport/JSUMemoryOutputStream.hpp>
+#include "Game/System/SaveBytes.hpp"
 
 GameEventFlagStorage::GameEventFlagStorage() : mFlagBitArray(nullptr) {
     mFlagBitArray = new MR::BitArray(GameEventFlagTable::getTableSize());
@@ -23,7 +22,7 @@ u32 GameEventFlagStorage::getSignature() const {
 }
 
 s32 GameEventFlagStorage::serialize(u8* pData, u32 size) const {
-    JSUMemoryOutputStream stream(pData, size);
+    SaveWriter stream(pData, size);
 
     for (GameEventFlagIter iter = GameEventFlagTable::getBeginIter(); !iter.isEnd(); iter.goNext()) {
         if ((iter.getFlag()->mSaveFlag & 0x1) != 0) {
@@ -31,40 +30,37 @@ s32 GameEventFlagStorage::serialize(u8* pData, u32 size) const {
         }
 
         GameEventFlagAccessor accessor(iter.getFlag());
-        u16 hash = MR::getHashCode(accessor.getName()) & 0x7FFF;
+        u16 hash = GameEventFlagTable::getSaveHash(accessor.getName());
         u16 data = hash | (isOn(iter.getFlag()) ? 0x8000 : 0);
         stream.write(&data, sizeof(data));
     }
 
-    return stream.mPosition;
+    return stream.getPosition();
 }
 
 s32 GameEventFlagStorage::deserialize(const u8* pData, u32 size) {
-    bool isOn;
-    s32 deserializationFailed = false;
-    JSUMemoryInputStream stream(pData, size);
+    bool isFailed = false;
+    SaveReader stream(pData, size);
+    const s32 num = static_cast< s32 >(size) / static_cast< s32 >(sizeof(u16));
 
-    int num = (int)size / (int)sizeof(u16);
-
+    // Each u16: the flag's save hash in the low 15 bits, on in the top bit.
     for (s32 i = 0; i < num; i++) {
         u16 data;
         stream.read(&data, sizeof(data));
 
-        isOn = ((data >> 15) & 0x1) != 0;
-        int index = GameEventFlagTable::getIndexFromHashCode(data & 0x7FFF);
-
+        const s32 index = GameEventFlagTable::getIndexFromHashCode(data & 0x7FFF);
         if (index >= 0) {
-            mFlagBitArray->set(index, isOn);
+            mFlagBitArray->set(index, (data & 0x8000) != 0);
         } else {
-            deserializationFailed = true;
+            isFailed = true;
         }
     }
 
-    return deserializationFailed ? true : false;
+    return isFailed;
 }
 
 void GameEventFlagStorage::initializeData() {
-    for (int i = 0; i < mFlagBitArray->size(); i++) {
+    for (s32 i = 0; i < mFlagBitArray->size(); i++) {
         mFlagBitArray->set(i, false);
     }
 }

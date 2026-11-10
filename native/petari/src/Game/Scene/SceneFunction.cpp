@@ -16,29 +16,19 @@ namespace {
     }
 };  // namespace
 
-void SceneFunction::startStageFileLoad() {
-    MR::createSceneObj(SceneObj_SceneDataInitializer);
-    ::getSceneDataInitializer()->startStageFileLoad();
-}
-
-void SceneFunction::waitDoneStageFileLoad() {
-    ::getSceneDataInitializer()->waitDoneStageFileLoad();
-}
-
-void SceneFunction::startActorFileLoadCommon() {
-    ::getSceneDataInitializer()->startActorFileLoadCommon();
-}
-
-void SceneFunction::startActorFileLoadScenario() {
-    ::getSceneDataInitializer()->startActorFileLoadScenario();
+void SceneFunction::createStageDataHolder() {
+    ::getSceneDataInitializer()->createStageDataHolder();
 }
 
 void SceneFunction::startActorPlacement() {
     ::getSceneDataInitializer()->startActorPlacement();
 }
 
+bool SceneFunction::startActorPlacementStep(uint64_t deadline) {
+    return ::getSceneDataInitializer()->startActorPlacementStep(deadline);
+}
+
 void SceneFunction::initAfterScenarioSelected() {
-    ::getSceneDataInitializer()->startStageFileLoadAfterScenarioSelected();
     ::getSceneDataInitializer()->initAfterScenarioSelected();
 }
 
@@ -67,9 +57,9 @@ void SceneFunction::initForLiveActor() {
     MR::createSceneObj(SceneObj_NPCDirector);
 }
 
-void SceneFunction::initEffectSystem(u32 a1, u32 a2) {
+void SceneFunction::initEffectSystem(u32 emitterCount) {
     MR::createSceneObj(SceneObj_EffectSystem);
-    MR::getEffectSystem()->entry(MR::getParticleResourceHolder(), a1, a2);
+    MR::getEffectSystem()->entry(MR::getParticleResourceHolder(), emitterCount);
 }
 
 void SceneFunction::allocateDrawBufferActorList() {
@@ -92,7 +82,6 @@ void CategoryList::execute(MR::CalcAnimType type) {
 }
 
 void CategoryList::execute(MR::DrawType type) {
-    MotionSignal::drawType(type);
     NameObjListExecutor* pListExecutor = SingletonHolder< GameSystem >::get()->mSceneController->getNameObjListExecutor();
 
     pListExecutor->executeDraw(type);
@@ -117,14 +106,12 @@ void CategoryList::entryDrawBufferMirror() {
 }
 
 void CategoryList::drawOpa(MR::DrawBufferType type) {
-    MotionSignal::drawBufferOpa(type);
     NameObjListExecutor* pListExecutor = SingletonHolder< GameSystem >::get()->mSceneController->getNameObjListExecutor();
 
     pListExecutor->drawOpa(type);
 }
 
 void CategoryList::drawXlu(MR::DrawBufferType type) {
-    MotionSignal::drawBufferXlu(type);
     NameObjListExecutor* pListExecutor = SingletonHolder< GameSystem >::get()->mSceneController->getNameObjListExecutor();
 
     pListExecutor->drawXlu(type);
@@ -138,5 +125,3 @@ void CategoryList::requestMovementOff(MR::MovementType type) {
     MR::requestMovementOffWithCategory(type);
 }
 
-void SceneFunction::createHioBasicNode(Scene*) {
-}

@@ -1,11 +1,10 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class CameraTargetMtx;
 class GCaptureRibbon;
-class SpringValue;
 
 class GCaptureTargetable {
 public:
@@ -14,7 +13,7 @@ public:
 
     virtual void decidedTarget() = 0;
     virtual void releasedTarget() = 0;
-    virtual void getTargetPosition(TVec3f*) = 0;
+    virtual void getTargetPosition(Vec3f*) = 0;
     virtual bool canEndHold() const {
         return true;
     }
@@ -33,12 +32,12 @@ class GCapture : public LiveActor {
 public:
     GCapture(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void draw() const;
-    virtual void control();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void draw() const override;
+    virtual void control() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
     bool requestBind(HitSensor*);
     bool requestCancelBind();
@@ -54,6 +53,7 @@ public:
     bool tryRelease();
     void endBindByDamage(s32);
     void endBindByFireDamage();
+    void endBindAfterDamage();
     void calcBindActorPose();
     void updateBindActorMatrix();
     bool canRequestTarget() const;
@@ -61,8 +61,8 @@ public:
     void upTractPower();
     void downTractPower();
     void fillGapBindTrans();
-    void updateRibbon(const TVec3f&, s32);
-    void updateRibbonPointEffectMatrix(const TVec3f&);
+    void updateRibbon(const Vec3f&, s32);
+    void updateRibbonPointEffectMatrix(const Vec3f&);
     void addRotateAccelPointing();
     bool tryAddVelocityReflectJumpCollision();
     bool requestTarget(GCaptureTargetable*);
@@ -81,27 +81,23 @@ public:
     void exeHold();
     void exeBreak();
 
-    TPos3f _8C;
-    TQuat4f _BC;
-    TVec3f mEffectPos;
-    TVec3f _D8;
-    TVec3f _E4;
-    TVec3f _F0;
-    TVec3f _FC;
-    LiveActor* _108;
+    Pos3f mRibbonPointMtx;
+    Quat4f mBindQuat;
+    Vec3f mEffectPos;
+    Vec3f mEffectOffset;
+    Vec3f mRotateVelocity;
+    Vec3f mRotateAxis;
+    LiveActor* mBindActor;
     GCaptureTargetable* mTarget;
-    GCaptureTargetable* _110;
+    GCaptureTargetable* mTractTarget;
     GCaptureRibbon* mCaptureRibbon;
     CameraTargetMtx* mTargetMtx;
-    SpringValue* mSpringValue;
     f32 mTractPower;
-    f32 _124;
-    f32 _128;
-    s32 _12C;
-    f32 _130;
+    f32 mEffectBlend;
+    f32 mRibbonRate;
+    s32 mTargetKeepTime;
+    f32 mTargetDist;
     s32 mGuidanceTime;
-    bool mIsStarPointerPointing;  // useless
-    bool _139;                    // useless
 };
 
 namespace MR {

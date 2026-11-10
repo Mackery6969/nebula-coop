@@ -1,4 +1,5 @@
 #include "Game/Enemy/Mogu.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Enemy/AnimScaleController.hpp"
 #include "Game/Enemy/MoguStone.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
@@ -10,7 +11,7 @@
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
 #include "Game/Util/FixedPosition.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
@@ -20,11 +21,46 @@
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
 #include "math_types.hpp"
-#include <JSystem/JMath/JMath.hpp>
+#include <nebula_geometry.hpp>
+#include "Game/Util/Tunable.hpp"
+
+// The numbers this file's functions give the game's motion and animation calls, as tunables: "<file>.<function>.<call>.<k>".
+NEBULA_TUNABLE_NAMED(f32, cNum_exeHitBlow_applyVelocityDampAndGravity_1, "exeHitBlow.applyVelocityDampAndGravity.1", 2.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeHitBlow_applyVelocityDampAndGravity_2, "exeHitBlow.applyVelocityDampAndGravity.2", 0.8f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeHitBlow_applyVelocityDampAndGravity_3, "exeHitBlow.applyVelocityDampAndGravity.3", 0.98f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeHitBlow_applyVelocityDampAndGravity_4, "exeHitBlow.applyVelocityDampAndGravity.4", 0.98f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeHitBlow_applyVelocityDampAndGravity_5, "exeHitBlow.applyVelocityDampAndGravity.5", 1.0f);
 
 namespace {
-    const f32 hThrowableSightParam[] = {900.0f, 10.0f, 90.0f};
-    const f32 hCannonFleetSightParam[] = {1500.0f, 10.0f, 90.0f};
+    struct SightParam {
+        f32 mRange;
+        f32 mAngleH;
+        f32 mAngleV;
+    };
+
+    const SightParam sThrowableSightParam = {900.0f, 10.0f, 90.0f};
+    const SightParam sCannonFleetSightParam = {1500.0f, 10.0f, 90.0f};
+
+    NEBULA_TUNABLE(f32, sHideNearDistance, 400.0f);
+    NEBULA_TUNABLE(f32, sHideFarDistance, 2000.0f);
+    NEBULA_TUNABLE(f32, sPlayerAboveDot, -0.75f);
+    const s32 sHideWaitSteps = NebulaFrameClock::stepsOfSeconds(2);
+    NEBULA_TUNABLE(f32, sFastHidePlayerSpeed, 8.0f);
+    NEBULA_TUNABLE(f32, sFastHideDistance, 200.0f);
+    NEBULA_TUNABLE(f32, sFastHideRate, 1.5f);
+    const s32 sAppearHipDropSteps = NebulaFrameClock::stepsOfMilliseconds(500);
+    NEBULA_TUNABLE(f32, sTurnSpeed, 0.03f);
+    NEBULA_TUNABLE(s32, sThrowAfterSteps, 45);
+    NEBULA_TUNABLE(s32, sThrowReleaseStep, 47);
+    NEBULA_TUNABLE(f32, sThrowSpeed, 15.0f);
+    const s32 sSwoonSteps = NebulaFrameClock::stepsOfSeconds(2);
+    const s32 sStampDeathSteps = NebulaFrameClock::stepsOfSeconds(1);
+    NEBULA_TUNABLE(s32, sHitBlowSteps, 20);
+    NEBULA_TUNABLE(f32, sHipDropNearDistance, 130.0f);
+    NEBULA_TUNABLE(f32, sHipDropFarDistance, 1500.0f);
+    NEBULA_TUNABLE(f32, sPunchSpeedH, 30.0f);
+    NEBULA_TUNABLE(f32, sPunchSpeedUp, 50.0f);
+    NEBULA_TUNABLE(f32, sPunchLift, 5.0f);
 };  // namespace
 
 namespace NrvMogu {
@@ -43,65 +79,59 @@ namespace NrvMogu {
 };  // namespace NrvMogu
 
 Mogu::Mogu(const char* pName)
-    : LiveActor(pName), mAnimScaleController(nullptr), _90(nullptr), mStone(nullptr), mHole(nullptr), mSight(0, 0, 1), _A8(0, 1, 0), _B4(true),
+    : LiveActor(pName), mAnimScaleController(nullptr), mStoneHoldPos(nullptr), mStone(nullptr), mHole(nullptr), mSight(0, 0, 1), mUp(0, 1, 0), mThrowOnGravity(true),
       mIsCannonFleet(false) {
 }
 
-void Mogu::init(const JMapInfoIter& rIter) {
+// Arg 0 other than -1 throws the stone straight instead of along gravity.
+void Mogu::init(const TableIter& rIter) {
     if (MR::isValidInfo(rIter)) {
         MR::initDefaultPos(this, rIter);
         MR::useStageSwitchWriteDead(this, rIter);
         MR::useStageSwitchReadA(this, rIter);
         MR::useStageSwitchSleep(this, rIter);
 
-        s32 value = -1;
-        MR::getJMapInfoArg0NoInit(rIter, &value);
-
-        if (value != -1) {
-            _B4 = false;
-        } else {
-            _B4 = true;
-        }
+        s32 throwStraight = -1;
+        MR::getPlacementArg0NoInit(rIter, &throwStraight);
+        mThrowOnGravity = throwStraight == -1;
     }
 
     initModelManagerWithAnm("Mogu", nullptr, false);
 
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.setInline(getBaseMtx());
-    mtx.getYDir(_A8);
+    mtx.getYDir(mUp);
 
     MR::connectToSceneEnemy(this);
     MR::declareStarPiece(this, 3);
     MR::declareCoin(this, 1);
 
     f32 scaleY = mScale.y;
-    f32 f1 = scaleY * 160.0f;
-    initBinder(f1, f1, 0);
+    f32 binderRadius = scaleY * 160.0f;
+    initBinder(binderRadius, binderRadius, 0);
     initHitSensor(2);
 
-    TVec3f v2(TVec3f(TVec3f(-55.0f, 0.0f, 13.0f)));
-    v2 *= scaleY;
+    Vec3f sensorOffset(-55.0f, 0.0f, 13.0f);
+    sensorOffset *= scaleY;
 
-    MR::addHitSensorAtJointEnemy(this, "body", "Head", 32, 150.0f * scaleY, v2);
-    initEffectKeeper(false, nullptr, false);
-    MR::initStarPointerTarget(this, 100.0f, TVec3f(0.0f, 50.0f, 0.0f));
-    initSound(4, 0);
+    MR::addHitSensorAtJointEnemy(this, "body", "Head", 32, 150.0f * scaleY, sensorOffset);
+    initEffectKeeper(0, nullptr);
+    MR::initStarPointerTarget(this, 100.0f, Vec3f(0.0f, 50.0f, 0.0f));
+    initSound(4, false);
     initNerve(GET_NERVE(Mogu, HostTypeNrvSearch));
-    mGravity.set(-_A8);
+    mGravity.set(-mUp);
     MR::initShadowVolumeSphere(this, 60.0f * mScale.y);
     MR::invalidateShadow(this, nullptr);
     MR::initLightCtrl(this);
     mAnimScaleController = new AnimScaleController(nullptr);
     makeActorAppeared();
 
-    _90 = new FixedPosition(this, "ArmR2", TVec3f(67.38f, 0.0f, 0.0f), TVec3f(0.0f, 0.0f, 0.0f));
+    mStoneHoldPos = new FixedPosition(this, "ArmR2", Vec3f(67.38f, 0.0f, 0.0f), Vec3f(0.0f, 0.0f, 0.0f));
 
-    // "Rock-throwing stone"
-    mStone = new MoguStone("\223\212\220\316\227\160\202\314\220\316" /* 投石用の石 */, "MoguStone");
+    mStone = new MoguStone("投石用の石", "MoguStone");
     mStone->initWithoutIter();
 
-    // "Burrow model"
-    mHole = new ModelObj("\221\203\214\212\203\202\203\146\203\213" /* 巣穴モデル */, "MoguHole", nullptr, -2, -2, -2, false);
+    mHole = new ModelObj("巣穴モデル", "MoguHole", nullptr, -2, -2, -2, false);
     mHole->mPosition.set(mPosition);
     mHole->mRotation.set(mRotation);
     mHole->initWithoutIter();
@@ -122,6 +152,7 @@ void Mogu::control() {
     mAnimScaleController->updateNerve();
 }
 
+// Back from clipping, a turning one starts its turn again.
 void Mogu::endClipped() {
     LiveActor::endClipped();
 
@@ -130,39 +161,42 @@ void Mogu::endClipped() {
     }
 }
 
+// Stays under while the player is well above it, then comes up once the player is in range.
 void Mogu::exeHideWait() {
-    TVec3f toPlayerDir = *MR::getPlayerPos() - mPosition;
+    Vec3f toPlayerDir = *MR::getPlayerPos() - mPosition;
     MR::normalizeOrZero(&toPlayerDir);
 
-    if (mGravity.dot(toPlayerDir) < -0.75f) {
+    if (mGravity.dot(toPlayerDir) < sPlayerAboveDot) {
         return;
     }
 
     f32 distanceToPlayer = MR::calcDistanceToPlayer(this);
 
-    if (MR::isGreaterStep(this, 120) && 400.0f < distanceToPlayer && distanceToPlayer < 2000.0f) {
+    if (MR::isGreaterStep(this, sHideWaitSteps) && sHideNearDistance < distanceToPlayer && distanceToPlayer < sHideFarDistance) {
         setNerve(GET_NERVE(Mogu, HostTypeNrvAppear));
     }
 }
 
+// Hides faster when the player runs at it or is close.
 void Mogu::exeHide() {
     if (MR::isFirstStep(this)) {
         MR::startAction(this, "Hide");
         MR::startAction(mHole, "Hide");
         MR::startSound(this, "SE_EM_MOGU_HIDE");
 
-        TVec3f v1(mPosition);
-        v1 -= *MR::getPlayerCenterPos();
-        f32 length = v1.length();
+        Vec3f fromPlayer(mPosition);
+        fromPlayer -= *MR::getPlayerCenterPos();
+        f32 distance = fromPlayer.length();
 
-        MR::vecKillElement(v1, mGravity, &v1);
-        MR::normalizeOrZero(&v1);
+        MR::vecKillElement(fromPlayer, mGravity, &fromPlayer);
+        MR::normalizeOrZero(&fromPlayer);
 
-        f32 dot = MR::getPlayerVelocity()->dot(v1);
-        if (8.0f < dot || length < 200.0f) {
-            MR::setBckRate(this, 1.5f);
+        f32 approachSpeed = MR::getPlayerVelocity()->dot(fromPlayer);
+        if (sFastHidePlayerSpeed < approachSpeed || distance < sFastHideDistance) {
+            MR::setBckRate(this, sFastHideRate);
         }
     }
+
     if (MR::isActionEnd(this)) {
         MR::startSound(this, "SE_EM_MOGUHOLE_CLOSE");
         setNerve(GET_NERVE(Mogu, HostTypeNrvHideWait));
@@ -175,25 +209,16 @@ void Mogu::exeAppear() {
         MR::startAction(mHole, "Open");
         MR::startSound(this, "SE_EM_MOGUHOLE_OPEN");
         MR::startSound(this, "SE_EM_MOGU_APPEAR");
-        TVec3f v1;
-        MR::calcVecToPlayerH(&v1, this, nullptr);
-        MR::turnVecToVecRadian(&mSight, mSight, v1, PI, _A8);
+        Vec3f toPlayerH;
+        MR::calcVecToPlayerH(&toPlayerH, this, nullptr);
+        MR::turnVecToVecRadian(&mSight, mSight, toPlayerH, PI, mUp);
     }
 
-    // "Strong"
-    if (MR::isStarPointerPointing2POnTriggerButton(this, "\213\255" /* 強 */, true, false)) {
-        MR::start2PAttackAssistSound();
-        setNerve(GET_NERVE(Mogu, HostTypeNrvSwoonStart));
+    if (tryStartSwoon(MR::isGreaterStep(this, sAppearHipDropSteps))) {
         return;
     }
 
-    if (MR::isGreaterStep(this, 30) && isNearPlayerHipDrop()) {
-        setNerve(GET_NERVE(Mogu, HostTypeNrvSwoonStart));
-        return;
-    }
-
-    f32 distanceToPlayer = MR::calcDistanceToPlayer(this);
-    if (distanceToPlayer < 400.0f || isPlayerExistUp()) {
+    if (isPlayerTooNear(MR::calcDistanceToPlayer(this))) {
         setNerve(GET_NERVE(Mogu, HostTypeNrvHide));
         return;
     }
@@ -203,85 +228,88 @@ void Mogu::exeAppear() {
     }
 }
 
-bool Mogu::isPlayerExistUp() {
-    TVec3f toPlayerCenter = *MR::getPlayerCenterPos() - mPosition;
+// The player stands over the hole.
+bool Mogu::isPlayerExistUp() const {
+    Vec3f toPlayerCenter = *MR::getPlayerCenterPos() - mPosition;
 
-    if (_A8.dot(toPlayerCenter) < 0.0f) {
+    if (mUp.dot(toPlayerCenter) < 0.0f) {
         return false;
     }
 
     MR::vecKillElement(toPlayerCenter, *MR::getPlayerGravity(), &toPlayerCenter);
 
-    return toPlayerCenter.length() < 400.0f;
+    return toPlayerCenter.length() < sHideNearDistance;
 }
 
+bool Mogu::isPlayerTooNear(f32 distanceToPlayer) const {
+    return distanceToPlayer < sHideNearDistance || isPlayerExistUp();
+}
+
+// The second player's pointer with the trigger, or a hip drop nearby (when `isHipDropFelt`), knocks it over.
+bool Mogu::tryStartSwoon(bool isHipDropFelt) {
+    if (MR::isStarPointerPointing2POnTriggerButton(this, "強", true, false)) {
+        MR::start2PAttackAssistSound();
+        setNerve(GET_NERVE(Mogu, HostTypeNrvSwoonStart));
+        return true;
+    }
+
+    if (isHipDropFelt && isNearPlayerHipDrop()) {
+        setNerve(GET_NERVE(Mogu, HostTypeNrvSwoonStart));
+        return true;
+    }
+
+    return false;
+}
+
+// Search waits; within sight range it turns toward the player (the Turn nerve runs this too) and throws once the player
+// is in its sight fan and the stone is back; the stage's switch A, when set, must be on for both.
 void Mogu::exeSearch() {
+    bool isTurn = isNerve(GET_NERVE(Mogu, HostTypeNrvTurn));
     if (MR::isFirstStep(this)) {
-        if (isNerve(GET_NERVE(Mogu, HostTypeNrvTurn))) {
+        if (isTurn) {
             MR::startAction(this, "Turn");
         } else {
             MR::startAction(this, "Wait");
         }
     }
 
-    if (MR::isStarPointerPointing2POnTriggerButton(this, "\213\255" /* 強 */, true, false)) {
-        MR::start2PAttackAssistSound();
-        setNerve(GET_NERVE(Mogu, HostTypeNrvSwoonStart));
+    if (tryStartSwoon(true)) {
         return;
     }
 
-    if (isNearPlayerHipDrop()) {
-        setNerve(GET_NERVE(Mogu, HostTypeNrvSwoonStart));
-        return;
-    }
-
-    if (isNerve(GET_NERVE(Mogu, HostTypeNrvTurn))) {
-        TVec3f v1;
-        MR::calcVecToPlayerH(&v1, this, nullptr);
-        MR::turnVecToVecRadian(&mSight, mSight, v1, 0.03f, _A8);
+    if (isTurn) {
+        Vec3f toPlayerH;
+        MR::calcVecToPlayerH(&toPlayerH, this, nullptr);
+        MR::turnVecToVecRadian(&mSight, mSight, toPlayerH, sTurnSpeed, mUp);
     }
 
     f32 distanceToPlayer = MR::calcDistanceToPlayer(this);
+    const SightParam& rSight = mIsCannonFleet ? sCannonFleetSightParam : sThrowableSightParam;
 
-    f32 sightParam;
-    if (mIsCannonFleet) {
-        sightParam = ::hCannonFleetSightParam[0];
-    } else {
-        sightParam = ::hThrowableSightParam[0];
-    }
-
-    if (distanceToPlayer < 400.0f || isPlayerExistUp()) {
+    if (isPlayerTooNear(distanceToPlayer) || sHideFarDistance < distanceToPlayer) {
         setNerve(GET_NERVE(Mogu, HostTypeNrvHide));
         return;
     }
 
-    if (2000.0f < distanceToPlayer) {
-        setNerve(GET_NERVE(Mogu, HostTypeNrvHide));
-        return;
-    }
-
-    if (isNerve(GET_NERVE(Mogu, HostTypeNrvSearch)) && distanceToPlayer < sightParam) {
-        if (!MR::isValidSwitchA(this) || MR::isOnSwitchA(this)) {
+    bool isAwake = !MR::isValidSwitchA(this) || MR::isOnSwitchA(this);
+    if (!isTurn && distanceToPlayer < rSight.mRange) {
+        if (isAwake) {
             setNerve(GET_NERVE(Mogu, HostTypeNrvTurn));
             return;
         }
-    } else if (isNerve(GET_NERVE(Mogu, HostTypeNrvTurn)) && sightParam < distanceToPlayer) {
+    } else if (isTurn && rSight.mRange < distanceToPlayer) {
         setNerve(GET_NERVE(Mogu, HostTypeNrvSearch));
         return;
     }
 
-    if (!MR::isValidSwitchA(this) || MR::isOnSwitchA(this)) {
-        const f32* sight2 = ::hThrowableSightParam;
-        if (mIsCannonFleet) {
-            sight2 = ::hCannonFleetSightParam;
-        }
-
-        if (MR::isInSightFanPlayer(this, mSight, sight2[0], sight2[1], sight2[2]) && MR::isGreaterStep(this, 45) && MR::isDead(mStone)) {
-            setNerve(GET_NERVE(Mogu, HostTypeNrvThrow));
-        }
+    if (isAwake && MR::isInSightFanPlayer(this, mSight, rSight.mRange, rSight.mAngleH, rSight.mAngleV) && MR::isGreaterStep(this, sThrowAfterSteps) &&
+        MR::isDead(mStone)) {
+        setNerve(GET_NERVE(Mogu, HostTypeNrvThrow));
     }
 }
 
+// The stone rides the right hand (see calcAndSetBaseMtx) until the release step, then flies along the sight as far as
+// the player is across, and as far up or down as the player is.
 void Mogu::exeThrow() {
     if (MR::isFirstStep(this)) {
         MR::startAction(this, "Throw");
@@ -290,45 +318,30 @@ void Mogu::exeThrow() {
         MR::startSound(this, "SE_EM_MOGU_TAKE_ITEM");
     }
 
-    if (MR::isStarPointerPointing2POnTriggerButton(this, "\213\255" /* 強 */, true, false)) {
-        MR::start2PAttackAssistSound();
-        setNerve(GET_NERVE(Mogu, HostTypeNrvSwoonStart));
+    if (tryStartSwoon(true)) {
         return;
     }
 
-    if (isNearPlayerHipDrop()) {
-        setNerve(GET_NERVE(Mogu, HostTypeNrvSwoonStart));
-        return;
-    }
-
-    if (MR::isStep(this, 47)) {
-        TVec3f upVec;
+    if (MR::isStep(this, sThrowReleaseStep)) {
+        Vec3f upVec;
         MR::calcUpVec(&upVec, this);
 
-        TVec3f stoneToPlayer(*MR::getPlayerCenterPos());
+        Vec3f stoneToPlayer(*MR::getPlayerCenterPos());
         stoneToPlayer -= mStone->mPosition;
 
-        TVec3f killElementOut;
-        MR::vecKillElement(stoneToPlayer, upVec, &killElementOut);
+        Vec3f across;
+        MR::vecKillElement(stoneToPlayer, upVec, &across);
 
-        f32 dot = upVec.dot(stoneToPlayer);
+        f32 upDistance = upVec.dot(stoneToPlayer);
+        Vec3f upPart;
+        upPart.scale(upDistance, upVec);
 
-        TVec3f v4;
-        v4.scale(dot, upVec);
-
-        TVec3f* stonePos = &mStone->mPosition;
-
-        mStone->emit(_B4, *stonePos, mStone->mPosition + mSight * killElementOut.length() + v4, 15.0f);
+        mStone->emit(mThrowOnGravity, mStone->mPosition, mStone->mPosition + mSight * across.length() + upPart, sThrowSpeed);
         MR::startSound(this, "SE_EM_MOGU_THROW");
     }
 
     f32 distanceToPlayer = MR::calcDistanceToPlayer(this);
-    if (distanceToPlayer < 400.0f || isPlayerExistUp()) {
-        setNerve(GET_NERVE(Mogu, HostTypeNrvHide));
-        return;
-    }
-
-    if (2000.0f < distanceToPlayer) {
+    if (isPlayerTooNear(distanceToPlayer) || sHideFarDistance < distanceToPlayer) {
         setNerve(GET_NERVE(Mogu, HostTypeNrvHide));
         return;
     }
@@ -338,14 +351,11 @@ void Mogu::exeThrow() {
     }
 }
 
-void Mogu::tearDownThrow() {
+// A stone still in hand goes with the throw.
+void Mogu::endThrow() {
     if (mStone->isTaken()) {
         mStone->kill();
     }
-}
-
-void Mogu::endThrow() {
-    tearDownThrow();
 }
 
 void Mogu::exeSwoonStart() {
@@ -378,7 +388,7 @@ void Mogu::exeSwoon() {
         return;
     }
 
-    if (MR::isGreaterStep(this, 120)) {
+    if (MR::isGreaterStep(this, sSwoonSteps)) {
         setNerve(GET_NERVE(Mogu, HostTypeNrvSwoonEnd));
     }
 }
@@ -407,6 +417,7 @@ void Mogu::exeSwoonEnd() {
     }
 }
 
+// Stomped: a coin.
 void Mogu::exeStampDeath() {
     if (MR::isFirstStep(this)) {
         MR::startAction(this, "Down");
@@ -414,17 +425,17 @@ void Mogu::exeStampDeath() {
         MR::startSound(this, "SE_EM_STOMPED_S");
     }
 
-    if (MR::isGreaterStep(this, 60)) {
+    if (MR::isGreaterStep(this, sStampDeathSteps)) {
         kill();
         MR::emitEffect(this, "Death");
         MR::startSound(this, "SE_EM_EXPLODE_S");
         MR::startAction(mHole, "Down");
-        TVec3f coinPos(mPosition);
-        MR::appearCoinPop(this, coinPos, 1);
+        MR::appearCoinPop(this, mPosition, 1);
         MR::startSound(this, "SE_OJ_STAR_PIECE_BURST");
     }
 }
 
+// Punched away: star pieces.
 void Mogu::exeHitBlow() {
     if (MR::isFirstStep(this)) {
         MR::startAction(this, "PunchDown");
@@ -432,13 +443,14 @@ void Mogu::exeHitBlow() {
         MR::startSound(this, "SE_EM_MOGUHOLE_CLOSE");
         MR::startBlowHitSound(this);
         MR::validateShadow(this, nullptr);
-        TVec3f vecToPlayerH;
-        MR::calcVecToPlayerH(&vecToPlayerH, this, nullptr);
-        MR::turnVecToVecRadian(&mSight, mSight, vecToPlayerH, PI, _A8);
+        Vec3f toPlayerH;
+        MR::calcVecToPlayerH(&toPlayerH, this, nullptr);
+        MR::turnVecToVecRadian(&mSight, mSight, toPlayerH, PI, mUp);
     }
-    MR::applyVelocityDampAndGravity(this, 2.0f, 0.8f, 0.98f, 0.98f, 1.0f);
 
-    if (MR::isGreaterStep(this, 20)) {
+    MR::applyVelocityDampAndGravity(this, cNum_exeHitBlow_applyVelocityDampAndGravity_1, cNum_exeHitBlow_applyVelocityDampAndGravity_2, cNum_exeHitBlow_applyVelocityDampAndGravity_3, cNum_exeHitBlow_applyVelocityDampAndGravity_4, cNum_exeHitBlow_applyVelocityDampAndGravity_5);
+
+    if (MR::isGreaterStep(this, sHitBlowSteps)) {
         MR::startSound(this, "SE_EM_EXPLODE_S");
         kill();
         MR::startAction(mHole, "Down");
@@ -447,18 +459,28 @@ void Mogu::exeHitBlow() {
     }
 }
 
-bool Mogu::isNearPlayerHipDrop() {
+bool Mogu::isNearPlayerHipDrop() const {
     if (!MR::isPlayerHipDropLand()) {
         return false;
     }
 
     f32 distanceToPlayer = MR::calcDistanceToPlayer(this);
-    return 130.0f < distanceToPlayer && distanceToPlayer < 1500.0f;
+    return sHipDropNearDistance < distanceToPlayer && distanceToPlayer < sHipDropFarDistance;
+}
+
+// Under the ground or already beaten.
+bool Mogu::isHiddenOrDown() const {
+    return isNerve(GET_NERVE(Mogu, HostTypeNrvHideWait)) || isNerve(GET_NERVE(Mogu, HostTypeNrvHide)) || isNerve(GET_NERVE(Mogu, HostTypeNrvStampDeath)) ||
+           isNerve(GET_NERVE(Mogu, HostTypeNrvHitBlow));
+}
+
+bool Mogu::isSwoon() const {
+    return isNerve(GET_NERVE(Mogu, HostTypeNrvSwoonStart)) || isNerve(GET_NERVE(Mogu, HostTypeNrvSwoonEnd)) || isNerve(GET_NERVE(Mogu, HostTypeNrvSwoon)) ||
+           isNerve(GET_NERVE(Mogu, HostTypeNrvHipDropReaction));
 }
 
 void Mogu::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
-    if (pSender != getSensor("body") || isNerve(GET_NERVE(Mogu, HostTypeNrvHideWait)) || isNerve(GET_NERVE(Mogu, HostTypeNrvHide)) ||
-        isNerve(GET_NERVE(Mogu, HostTypeNrvStampDeath)) || isNerve(GET_NERVE(Mogu, HostTypeNrvHitBlow))) {
+    if (pSender != getSensor("body") || isHiddenOrDown()) {
         return;
     }
 
@@ -467,10 +489,11 @@ void Mogu::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     }
 }
 
+// A star piece knocks over one that is up; a shell or invincible attack sends it flying; swooning, a stomp kills it and a
+// spin sends it flying.
 bool Mogu::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
     if (MR::isMsgStarPieceAttack(msg)) {
-        if (isNerve(GET_NERVE(Mogu, HostTypeNrvSwoonStart)) || isNerve(GET_NERVE(Mogu, HostTypeNrvSwoonEnd)) ||
-            isNerve(GET_NERVE(Mogu, HostTypeNrvSwoon)) || isNerve(GET_NERVE(Mogu, HostTypeNrvHipDropReaction))) {
+        if (isSwoon()) {
             mAnimScaleController->startHitReaction();
         } else if (isNerve(GET_NERVE(Mogu, HostTypeNrvAppear)) || isNerve(GET_NERVE(Mogu, HostTypeNrvSearch)) ||
                    isNerve(GET_NERVE(Mogu, HostTypeNrvThrow))) {
@@ -480,16 +503,15 @@ bool Mogu::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pRecei
     }
 
     if (MR::isMsgJetTurtleAttack(msg) || MR::isMsgInvincibleAttack(msg)) {
-        if (isNerve(GET_NERVE(Mogu, HostTypeNrvHideWait)) || isNerve(GET_NERVE(Mogu, HostTypeNrvHide)) ||
-            isNerve(GET_NERVE(Mogu, HostTypeNrvStampDeath)) || isNerve(GET_NERVE(Mogu, HostTypeNrvHitBlow))) {
+        if (isHiddenOrDown()) {
             return false;
-        } else {
-            return tryPunchHitted(pSender, pReceiver, true);
         }
+
+        startHitBlow(pSender, pReceiver);
+        return true;
     }
 
-    if (!isNerve(GET_NERVE(Mogu, HostTypeNrvSwoonStart)) && !isNerve(GET_NERVE(Mogu, HostTypeNrvSwoonEnd)) &&
-        !isNerve(GET_NERVE(Mogu, HostTypeNrvSwoon)) && !isNerve(GET_NERVE(Mogu, HostTypeNrvHipDropReaction))) {
+    if (!isSwoon()) {
         return false;
     }
 
@@ -499,45 +521,46 @@ bool Mogu::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pRecei
     }
 
     if (MR::isMsgPlayerSpinAttack(msg)) {
-        return tryPunchHitted(pSender, pReceiver, true);
+        startHitBlow(pSender, pReceiver);
+        return true;
     }
 
     return false;
 }
 
-bool Mogu::tryPunchHitted(HitSensor* pSender, HitSensor* pReceiver, bool arg3) {
-    TVec3f direction(pReceiver->mPosition);
-    direction -= pSender->mPosition;
+// Flies away from the attacker and up; hit from straight above it is stomped instead.
+void Mogu::startHitBlow(HitSensor* pAttacker, HitSensor* pVictim) {
+    Vec3f direction(pVictim->mPosition);
+    direction -= pAttacker->mPosition;
     MR::vecKillElement(direction, mGravity, &direction);
     MR::normalizeOrZero(&direction);
     if (MR::isNearZero(direction)) {
         setNerve(GET_NERVE(Mogu, HostTypeNrvStampDeath));
-    } else {
-        direction *= 30.0f;
-        TVec3f gravity(mGravity);
-        gravity *= 50.0f;
-        direction -= gravity;
-        mVelocity = direction;
-
-        if (MR::isOnGround(this)) {
-            mPosition += -mGravity * 5.0f;
-        }
-
-        setNerve(GET_NERVE(Mogu, HostTypeNrvHitBlow));
+        return;
     }
 
-    return true;
+    direction *= sPunchSpeedH;
+    Vec3f gravity(mGravity);
+    gravity *= sPunchSpeedUp;
+    direction -= gravity;
+    mVelocity = direction;
+
+    if (MR::isOnGround(this)) {
+        mPosition += -mGravity * sPunchLift;
+    }
+
+    setNerve(GET_NERVE(Mogu, HostTypeNrvHitBlow));
 }
 
 void Mogu::calcAndSetBaseMtx() {
-    TPos3f mtx;
-    MR::makeMtxUpFrontPos(&mtx, _A8, mSight, mPosition);
+    Pos3f mtx;
+    MR::makeMtxUpFrontPos(&mtx, mUp, mSight, mPosition);
     MR::setBaseTRMtx(this, mtx);
-    TVec3f scale = mAnimScaleController->_C * mScale;
+    Vec3f scale = mAnimScaleController->mScale * mScale;
     MR::setBaseScale(this, scale);
 
-    if (isNerve(GET_NERVE(Mogu, HostTypeNrvThrow)) && MR::isLessStep(this, 47)) {
-        _90->calc();
-        _90->mMtx.getTrans(mStone->mPosition);
+    if (isNerve(GET_NERVE(Mogu, HostTypeNrvThrow)) && MR::isLessStep(this, sThrowReleaseStep)) {
+        mStoneHoldPos->calc();
+        mStoneHoldPos->mMtx.getTrans(mStone->mPosition);
     }
 }

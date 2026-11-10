@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // AmbientOcclusion: GTAO from the scene target depth, multiplied into the scene colour (ambient_occlusion.h).
 #include "galaxy/render/ambient_occlusion.h"
+#include "barriers_d3d12.h"
 #include "galaxy/render/ambient_occlusion_shape.h"
 
 #include "galaxy/render/renderer_d3d12.h"
@@ -117,11 +118,9 @@ void AmbientOcclusion::shutdown() noexcept {
     device_ = nullptr;
 }
 
-// The multiply: the shader's output times the scene target's colour (RGB; the game's alpha stays), no depth. `view`: the
-// shader's output replaces the colour (GALAXY_AO_VIEW).
-ID3D12PipelineState* AmbientOcclusion::apply_pipeline(unsigned samples, bool hdr, bool view) {
-    const unsigned index = std::min(static_cast<unsigned>(std::countr_zero(std::max(samples, 1u))), 3u) +
-                           (hdr ? 4u : 0u) + (view ? 8u : 0u);
+// The multiply: the shader's output times the scene target's colour (RGB; the game's alpha stays), no depth.
+ID3D12PipelineState* AmbientOcclusion::apply_pipeline(unsigned samples, bool hdr) {
+    const unsigned index = std::min(static_cast<unsigned>(std::countr_zero(std::max(samples, 1u))), 3u) + (hdr ? 4u : 0u);
     if (apply_[index]) {
         return apply_[index].Get();
     }
@@ -130,7 +129,7 @@ ID3D12PipelineState* AmbientOcclusion::apply_pipeline(unsigned samples, bool hdr
     pd.VS = code(g_ao_apply_vs, sizeof(g_ao_apply_vs));
     pd.PS = code(g_ao_apply_ps, sizeof(g_ao_apply_ps));
     D3D12_RENDER_TARGET_BLEND_DESC& blend = pd.BlendState.RenderTarget[0];
-    blend.BlendEnable = false ? FALSE : TRUE;
+    blend.BlendEnable = TRUE;
     blend.SrcBlend = D3D12_BLEND_ZERO;
     blend.DestBlend = D3D12_BLEND_SRC_COLOR;
     blend.BlendOp = D3D12_BLEND_OP_ADD;
@@ -162,6 +161,7 @@ bool AmbientOcclusion::ensure_target(Target& target, DXGI_FORMAT format, unsigne
                                   [&](const Retired& r) { return frame_index > r.release_after_frame; }),
                    retired_.end());
     if (target.resource && target.width == width && target.height == height) {
+        target.used_frame = frame_index;
         return true;
     }
     if (target.resource) {
@@ -179,30 +179,38 @@ bool AmbientOcclusion::ensure_target(Target& target, DXGI_FORMAT format, unsigne
     rd.Format = format;
     rd.SampleDesc.Count = 1;
     rd.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-    if (FAILED(device_->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &rd,
-                                                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, nullptr,
+    if (FAILED(create_texture(device_, &heap, D3D12_HEAP_FLAG_NONE, &rd,
+                                                gpu::Use::ComputeRead, nullptr,
                                                 IID_PPV_ARGS(&target.resource)))) {
         return false;
     }
     target.resource->SetName(L"ambient occlusion");
     target.width = width;
     target.height = height;
-    target.state = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+    target.use = gpu::Use::ComputeRead;
+    target.used_frame = frame_index;
     return true;
 }
 
-void AmbientOcclusion::transition(ID3D12GraphicsCommandList* list, Target& target, D3D12_RESOURCE_STATES state) {
-    if (target.state == state) {
+void AmbientOcclusion::trim_idle(std::uint64_t frame_index, unsigned frames_in_flight) {
+    constexpr std::uint64_t kIdleFrames = 600u;
+    std::erase_if(retired_, [&](const Retired& r) { return frame_index > r.release_after_frame; });
+    for (Target* target : {&distance_, &raw_, &denoised_, &scale_}) {
+        if (target->resource && frame_index > target->used_frame + kIdleFrames) {
+            retired_.push_back({std::move(target->resource), frame_index + frames_in_flight});
+            *target = {};
+        }
+    }
+}
+
+void AmbientOcclusion::transition(ID3D12GraphicsCommandList* list, Target& target, gpu::Use use) {
+    if (target.use == use) {
         return;
     }
-    D3D12_RESOURCE_BARRIER barrier{};
-    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    barrier.Transition.pResource = target.resource.Get();
-    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    barrier.Transition.StateBefore = target.state;
-    barrier.Transition.StateAfter = state;
-    list->ResourceBarrier(1, &barrier);
-    target.state = state;
+    BarriersD3D12 uses{list};
+    uses.texture(target.resource.Get(), target.use, use);
+    uses.issue();
+    target.use = use;
 }
 
 bool AmbientOcclusion::record(ID3D12GraphicsCommandList* list, DescriptorRing& ring, const Inputs& in,
@@ -210,7 +218,7 @@ bool AmbientOcclusion::record(ID3D12GraphicsCommandList* list, DescriptorRing& r
     if (!ready_ || in.depth == nullptr || in.width == 0u || in.height == 0u) {
         return false;
     }
-    ID3D12PipelineState* const apply = apply_pipeline(in.samples, in.hdr, false);
+    ID3D12PipelineState* const apply = apply_pipeline(in.samples, in.hdr);
     const unsigned divisor = ao::occlusion_divisor(in.height);
     const unsigned width = (in.width + divisor - 1u) / divisor;
     const unsigned height = (in.height + divisor - 1u) / divisor;
@@ -272,7 +280,7 @@ bool AmbientOcclusion::record(ID3D12GraphicsCommandList* list, DescriptorRing& r
 
     list->SetComputeRootSignature(root_signature_.Get());
     list->SetComputeRoot32BitConstants(0, sizeof(Constants) / 4u, &c, 0);
-    ao::bin_objects(*in.objects, c, object_values_, object_tiles_);
+    ao::bin_objects(*in.objects, c, object_values_, object_tiles_, object_scratch_);
     const UploadRing::Allocation objects = in.ring->allocate(object_values_.size() * sizeof(float), 16u);
     const UploadRing::Allocation tiles = in.ring->allocate(object_tiles_.size() * sizeof(std::uint32_t), 16u);
     std::memcpy(objects.cpu, object_values_.data(), object_values_.size() * sizeof(float));
@@ -281,29 +289,30 @@ bool AmbientOcclusion::record(ID3D12GraphicsCommandList* list, DescriptorRing& r
     list->SetComputeRootShaderResourceView(4, tiles.gpu);
     const UINT groups_x = (width + 7u) / 8u;
     const UINT groups_y = (height + 7u) / 8u;
-    transition(list, distance_, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    transition(list, distance_, gpu::Use::ComputeWrite);
     list->SetPipelineState(distance_pass_.Get());
+    ring.bind(list);
     list->SetComputeRootDescriptorTable(1, gpu(0));
     list->SetComputeRootDescriptorTable(2, gpu(9));
     list->Dispatch(groups_x, groups_y, 1);
-    transition(list, distance_, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-    transition(list, raw_, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    transition(list, distance_, gpu::Use::ComputeRead);
+    transition(list, raw_, gpu::Use::ComputeWrite);
     list->SetPipelineState(in.ssao ? ssao_.Get() : occlusion_.Get());
     list->SetComputeRootDescriptorTable(2, gpu(10));
     list->Dispatch(groups_x, groups_y, 1);
-    transition(list, raw_, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-    transition(list, denoised_, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    transition(list, raw_, gpu::Use::ComputeRead);
+    transition(list, denoised_, gpu::Use::ComputeWrite);
     list->SetPipelineState(denoise_.Get());
     list->SetComputeRootDescriptorTable(1, gpu(3));
     list->SetComputeRootDescriptorTable(2, gpu(11));
     list->Dispatch(groups_x, groups_y, 1);
-    transition(list, denoised_, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-    transition(list, scale_, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    transition(list, denoised_, gpu::Use::ComputeRead);
+    transition(list, scale_, gpu::Use::ComputeWrite);
     list->SetPipelineState(upsample_.Get());
     list->SetComputeRootDescriptorTable(1, gpu(0));
     list->SetComputeRootDescriptorTable(2, gpu(12));
     list->Dispatch((in.width + 7u) / 8u, (in.height + 7u) / 8u, 1);
-    transition(list, scale_, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    transition(list, scale_, gpu::Use::PixelRead);
 
     list->SetGraphicsRootSignature(root_signature_.Get());
     list->SetGraphicsRoot32BitConstants(0, sizeof(Constants) / 4u, &c, 0);

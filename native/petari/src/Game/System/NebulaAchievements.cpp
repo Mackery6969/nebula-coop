@@ -1,19 +1,22 @@
 #include "Game/System/NebulaAchievements.hpp"
-#include "nebula_module.h"
-#include <JSystem/JUtility/JUTNativeLog.hpp>
+#include "Game/System/NebulaFrameClock.hpp"
+#include <nebula_module.h>
 
 #include "Game/System/GalaxyInfoTable.hpp"
 #include "Game/System/GalaxyStatusAccessor.hpp"
 #include "Game/System/GameDataFunction.hpp"
 #include "Game/System/GameDataHolder.hpp"
 #include "Game/System/GameSequenceFunction.hpp"
+#include "Game/System/NebulaArena.hpp"
 #include "Game/System/NebulaText.hpp"
 #include "Game/Util/EventUtil.hpp"
-#include "Game/Util/JMapInfo.hpp"
+#include "Game/Util/Array.hpp"
+#include "Game/Util/Table.hpp"
 #include "Game/Util/SceneUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
-#include <cstdio>
 #include "Game/System/NebulaHost.hpp"
+#include <cstring>
+#include "Game/Util/Tunable.hpp"
 
 namespace {
     // Glyphs of the picture font (MR::addPictureFontTag's codes).
@@ -38,16 +41,16 @@ namespace {
     // Bedroom, Engine Room and Garden), the faces of the file select's Mii choices, and the storybook's front cover
     // (the right half of its cover texture).
     const NebulaAchievementIcon cTextureIcons[] = {
-        {0, "MapDomeIcon.arc", true, "mymapdome1.tpl", 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f},
-        {0, "MapDomeIcon.arc", true, "mymapdome2.tpl", 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f},
-        {0, "MapDomeIcon.arc", true, "mymapdome3.tpl", 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f},
-        {0, "MapDomeIcon.arc", true, "mymapdome4.tpl", 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f},
-        {0, "MapDomeIcon.arc", true, "mymapdome5.tpl", 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f},
-        {0, "MapDomeIcon.arc", true, "mymapdome6.tpl", 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f},
-        {0, "MiiIcon.arc", true, "mymiimario.tpl", 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.2f},
-        {0, "MiiIcon.arc", true, "mymiiluigi.tpl", 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.2f},
-        {0, "MiiIcon.arc", true, "mymiipeach.tpl", 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.2f},
-        {0, "PictureBookTexture.arc", false, "PictureBookCoverFront.bti", 0.5f, 0.0f, 1.0f, 1.0f, 208.0f, 240.0f},
+        {0, "MapDomeIcon", true, "mymapdome1.tpl", 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f},
+        {0, "MapDomeIcon", true, "mymapdome2.tpl", 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f},
+        {0, "MapDomeIcon", true, "mymapdome3.tpl", 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f},
+        {0, "MapDomeIcon", true, "mymapdome4.tpl", 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f},
+        {0, "MapDomeIcon", true, "mymapdome5.tpl", 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f},
+        {0, "MapDomeIcon", true, "mymapdome6.tpl", 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f},
+        {0, "MiiIcon", true, "mymiimario.tpl", 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.2f},
+        {0, "MiiIcon", true, "mymiiluigi.tpl", 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.2f},
+        {0, "MiiIcon", true, "mymiipeach.tpl", 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.2f},
+        {0, "PictureBookTexture", false, "PictureBookCoverFront.bti", 0.5f, 0.0f, 1.0f, 1.0f, 208.0f, 240.0f},
     };
     const NebulaAchievementIcon* const cIconDome = &cTextureIcons[0];
     const NebulaAchievementIcon& cIconMario = cTextureIcons[6];
@@ -106,17 +109,22 @@ namespace {
     };
     const s32 cEntryNum = sizeof(cEntries) / sizeof(cEntries[0]);
 
-    const s32 cQueueMax = 40;
-    const s32 cBatchMin = 3;  // this many unlocked together show as one pop-up
-    const s32 cNameLength = 64;
+    NEBULA_TUNABLE(s32, cBatchMin, 3);  // this many unlocked together show as one pop-up
 
     struct Waiting {
-        char16_t mName[cNameLength];
+        char16_t* mName;  // in the root arena: it waits across scenes
         const NebulaAchievementIcon* mIcon;
     };
 
-    Waiting sQueue[cQueueMax];
+    MR::GrowBuffer< Waiting > sQueue;
     s32 sQueued = 0;
+
+    Waiting& pushWaiting(u32 nameUnits) {
+        sQueue.room(sQueued + 1);
+        Waiting& rWaiting = sQueue[sQueued++];
+        rWaiting.mName = new (NebulaArena::root(), 0) char16_t[nameUnits];
+        return rWaiting;
+    }
     s32 sUpdateFrames = 0;
 
     // galaxy::stats' names, in NebulaStat's order.
@@ -126,7 +134,7 @@ namespace {
     u32 sStatWaiting[NebulaStat_Num];
     bool sFileInPlay = false;  // the stage is not the title and file select
     s32 sPlayFrames = 0;
-    const s32 cStatFlushFrames = 60;
+    NEBULA_TUNABLE(s32, cStatFlushFrames, 60);
     s32 sStatFlushFrames = 0;
 
     // The star collected in this galaxy (sent with its get sequence) while the save does not hold it yet: the hub's
@@ -160,9 +168,7 @@ namespace {
         static const char* const cGrandStarGalaxies[] = {"HeavensDoorGalaxy",    "TriLegLv1Galaxy",      "KoopaBattleVs1Galaxy",
                                                          "KoopaJrShipLv1Galaxy", "KoopaBattleVs2Galaxy", "FloaterOtaKingGalaxy",
                                                          "KoopaBattleVs3Galaxy"};
-        char flag[24];
-        nebula_snprintf(flag, sizeof(flag), "SpecialStarGrand%d", n);
-        return GameDataFunction::isOnGameEventFlag(flag) || hasStar(cGrandStarGalaxies[n - 1], 1);
+        return GameDataFunction::isOnGameEventFlag(MR::FormattedName("SpecialStarGrand%d", n).c_str()) || hasStar(cGrandStarGalaxies[n - 1], 1);
     }
 
     s32 countStars() {
@@ -179,22 +185,20 @@ namespace {
     }
 
     // Its name in the played language: NebulaText's Achievement.<id>, or Achievement.<id>.Luigi playing Luigi.
-    s32 getEntryName(char16_t* pDst, s32 capacity, const char* pId) {
-        char textId[64];
-        nebula_snprintf(textId, sizeof(textId), "Achievement.%s.Luigi", pId);
-        if (!MR::isPlayerLuigi() || !NebulaText::has(textId)) {
-            nebula_snprintf(textId, sizeof(textId), "Achievement.%s", pId);
+    void getEntryTextId(MR::FormattedName* pTextId, const char* pId) {
+        pTextId->format("Achievement.%s.Luigi", pId);
+        if (!MR::isPlayerLuigi() || !NebulaText::has(pTextId->c_str())) {
+            pTextId->format("Achievement.%s", pId);
         }
-        return NebulaText::get(pDst, capacity, textId);
     }
 
     // Waits for its pop-up, with its name in the played language.
     void enqueue(const Entry& rEntry) {
-        if (sQueued >= cQueueMax) {
-            return;
-        }
-        Waiting& rWaiting = sQueue[sQueued++];
-        getEntryName(rWaiting.mName, cNameLength, rEntry.mId);
+        MR::FormattedName textId;
+        getEntryTextId(&textId, rEntry.mId);
+        const s32 units = NebulaText::length(textId.c_str()) + 1;
+        Waiting& rWaiting = pushWaiting(units);
+        NebulaText::get(rWaiting.mName, units, textId.c_str());
         rWaiting.mIcon = rEntry.mIcon;
     }
 
@@ -203,11 +207,11 @@ namespace {
     // Asks the host to unlock what is met; a new one waits for its pop-up.
     void tryUnlock(bool met, const char* pId) {
         const Entry* pEntry = met ? findEntry(pId) : nullptr;
-        if (pEntry == nullptr || sQueued >= cQueueMax || NebulaHost::achievement(pId, nullptr, 0) == 0) {
+        if (pEntry == nullptr || NebulaHost::achievement(pId, nullptr, 0) == 0) {
             return;
         }
         enqueue(*pEntry);
-        JUTNativeLog("achievement: %s\n", pId);
+        nebula_log("achievement: %s\n", pId);
     }
 
     void tryUnlock(const char* pId) {
@@ -236,7 +240,7 @@ namespace {
     Galaxies checkGalaxies() {
         Galaxies result = {false, true, true, true, true, true, true, true, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
         s32 comets = 0, daredevil = 0, cosmic = 0, speedy = 0, purpleCoins = 0, hidden = 0, galaxyNum = 0;
-        JMapInfo galaxies;
+        Table galaxies;
         galaxies.attach(NebulaDataTables::getGalaxyInfoTable());
         for (s32 i = 0; i < galaxies.getNumEntries(); i++) {
             const char* pPane = nullptr;
@@ -332,9 +336,7 @@ namespace {
     s32 countGreenStars() {
         s32 count = 0;
         for (s32 i = 1; i <= 3; i++) {
-            char flag[32];
-            nebula_snprintf(flag, sizeof(flag), "SpecialStarGreen%d", i);
-            count += GameDataFunction::isOnGameEventFlag(flag) ? 1 : 0;
+            count += GameDataFunction::isOnGameEventFlag(MR::FormattedName("SpecialStarGreen%d", i).c_str()) ? 1 : 0;
         }
         return count;
     }
@@ -349,16 +351,31 @@ namespace {
         if (unlocked < cBatchMin) {
             return;
         }
+        for (s32 i = queuedBefore; i < sQueued; i++) {
+            delete[] sQueue[i].mName;
+        }
         sQueued = queuedBefore;
-        Waiting& rWaiting = sQueue[sQueued++];
-        char16_t pattern[cNameLength];
-        NebulaText::get(pattern, cNameLength, "AchievementsUnlocked");
-        char digits[8];
+        const s32 patternUnits = NebulaText::length("AchievementsUnlocked") + 1;
+        MR::Text16 pattern;
+        NebulaText::get(pattern.room(patternUnits), patternUnits, "AchievementsUnlocked");
+        char digits[12];  // any s32
         nebula_snprintf(digits, sizeof(digits), "%d", unlocked);
-        s32 length = 0;
-        for (const char16_t* q = pattern; *q != 0 && length + 1 < cNameLength; q++) {
+        const s32 digitCount = static_cast< s32 >(strlen(digits));
+        // {n} is the count.
+        s32 units = 1;
+        for (const char16_t* q = pattern.c_str(); *q != 0; q++) {
             if (q[0] == u'{' && q[1] == u'n' && q[2] == u'}') {
-                for (const char* d = digits; *d != 0 && length + 1 < cNameLength; d++) {
+                units += digitCount;
+                q += 2;
+            } else {
+                units++;
+            }
+        }
+        Waiting& rWaiting = pushWaiting(units);
+        s32 length = 0;
+        for (const char16_t* q = pattern.c_str(); *q != 0; q++) {
+            if (q[0] == u'{' && q[1] == u'n' && q[2] == u'}') {
+                for (const char* d = digits; *d != 0; d++) {
                     rWaiting.mName[length++] = static_cast< char16_t >(*d);
                 }
                 q += 2;
@@ -375,7 +392,7 @@ namespace {
     void takeShared() {
         const s32 queuedBefore = sQueued;
         char id[32];
-        while (sQueued < cQueueMax && NebulaHost::coopAchievementTake(id, sizeof(id)) != 0) {
+        while (NebulaHost::coopAchievementTake(id, sizeof(id)) != 0) {
             if (const Entry* pEntry = findEntry(id)) {
                 enqueue(*pEntry);
                 nebula_log("achievement (the room's): %s\n", id);
@@ -465,7 +482,7 @@ namespace NebulaAchievements {
 
     void update() {
         // Play time: the game's 60 steps a second, in any stage with a file (not the title and file select).
-        if (sFileInPlay && ++sPlayFrames >= 60) {
+        if (sFileInPlay && ++sPlayFrames >= NebulaFrameClock::stepsOfSeconds(1)) {
             sPlayFrames = 0;
             countStat(NebulaStat_PlaySeconds, 1);
         }
@@ -473,7 +490,7 @@ namespace NebulaAchievements {
             flushStats();
         }
         takeShared();
-        if (++sUpdateFrames < 60) {
+        if (++sUpdateFrames < NebulaFrameClock::stepsOfSeconds(1)) {
             return;
         }
         sUpdateFrames = 0;
@@ -501,6 +518,7 @@ namespace NebulaAchievements {
         if (sQueued == 0) {
             return;
         }
+        delete[] sQueue[0].mName;
         for (s32 i = 1; i < sQueued; i++) {
             sQueue[i - 1] = sQueue[i];
         }
@@ -515,7 +533,7 @@ namespace NebulaAchievements {
         if (const Entry* pEntry = findEntry(pId)) {
             enqueue(*pEntry);
         } else {
-            JUTNativeLog("test: no achievement %s\n", pId);
+            nebula_log("test: no achievement %s\n", pId);
         }
     }
 
@@ -527,8 +545,11 @@ namespace NebulaAchievements {
         return index >= 0 && index < cEntryNum ? cEntries[index].mId : nullptr;
     }
 
-    s32 getName(char16_t* pDst, s32 capacity, const char* pId) {
-        return getEntryName(pDst, capacity, pId);
+    s32 getName(MR::Text16& rText, const char* pId) {
+        MR::FormattedName textId;
+        getEntryTextId(&textId, pId);
+        const s32 units = NebulaText::length(textId.c_str()) + 1;
+        return NebulaText::get(rText.room(units), units, textId.c_str());
     }
 
     s32 getGroup(s32 index) {

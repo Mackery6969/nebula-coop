@@ -1,26 +1,43 @@
 #include "Game/Player/MarineSnow.hpp"
-#include "Game/Util/NativeShader.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
+#include "Game/Render/TypedDraw.hpp"
+#include "Game/Render/FrameList.hpp"
+#include "Game/Render/TypedDraw.hpp"
+#include "Game/Render/TypedDraw.hpp"
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/DirectDraw.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/System/NebulaArena.hpp"
-#include <JSystem/JUtility/JUTTexture.hpp>
+#include "Game/Render/GameTexture.hpp"
 
-MarineSnow::MarineSnow() : mParticleCount(16), mParticlePositions(new (32) TVec3f[mParticleCount]), mCellSize(1000.0f) {
+namespace {
+    // The cell's opacity is the draw's constant (flakes.constants[1]), not a vertex colour.
+    void sendFlake(VertexPCT*& rVtx, const Vec3f& rPoint, f32 s, f32 t) {
+        *rVtx++ = {rPoint.x, rPoint.y, rPoint.z, Rgba8(255), s, t};
+    }
+
+    // The draw object of the cell at world cell (x, y, z): the same cell is the same object from step to step, whichever
+    // cells around the player are drawn and wherever the player's own cell is.
+    u32 cellObject(s32 x, s32 y, s32 z) {
+        u32 h = static_cast< u32 >(x) * 73856093u ^ static_cast< u32 >(y) * 19349663u ^ static_cast< u32 >(z) * 83492791u;
+        h ^= h >> 15;
+        h *= 0x2C1B3C6Du;
+        h ^= h >> 12;
+        return h | 0x80000000u;
+    }
+}  // namespace
+
+MarineSnow::MarineSnow() : mParticleCount(16), mParticlePositions(new Vec3f[mParticleCount]), mCellSize(1000.0f) {
     for (s32 idx = 0; idx < mParticleCount; idx++) {
-        TVec3f randVec;
+        Vec3f randVec;
         randVec.set(MR::getRandom() * mCellSize, MR::getRandom() * mCellSize, MR::getRandom() * mCellSize);
         mParticlePositions[idx] = randVec;
     }
 
     mFadeStep = 0;
 
-    mTexture = new JUTTexture(MR::loadTexFromArc("MarineSnow"));
+    mTexture = new GameTexture(MR::loadTexFromArc("MarineSnow"));
 }
 
 void MarineSnow::view() {
@@ -35,7 +52,7 @@ void MarineSnow::clear() {
     }
 }
 
-void MarineSnow::draw(const TVec3f& rPosition, const TVec3f& rUp, f32 surfaceDistance) const {
+void MarineSnow::draw(const Vec3f& rPosition, const Vec3f& rUp, f32 surfaceDistance) const {
     if (mFadeStep == 0) {
         return;
     }
@@ -49,11 +66,10 @@ void MarineSnow::draw(const TVec3f& rPosition, const TVec3f& rUp, f32 surfaceDis
     s32 cellZ = static_cast< s32 >((rPosition.z + mCellSize / 2.0f) / mCellSize);
     s32 originZ = cellZ * mCellSize;
 
-    NebulaNativeMaterial material;
+    SiteMaterial material;
     TDDraw::setupNative(&material, 0, 1, 0);
-    NativeShader::setDepth(material, true, NEBULA_COMPARE_LEQUAL, false);
-    NativeShader::send(material);
-    J3DPass::pointSize(4.5f);
+    material.setDepth(true, NEBULA_COMPARE_LEQUAL, false);
+    material.mState.point_size = 4.5f;
 
     static u8 phase = 0;
     phase = (phase + 1) & 3;
@@ -62,38 +78,45 @@ void MarineSnow::draw(const TVec3f& rPosition, const TVec3f& rUp, f32 surfaceDis
     u32 end = start + mParticleCount / 2;
     pointCount = mParticleCount;
 
-    TVec3f cameraForward = -MR::getCamZdir();
-    TVec3f cameraUp = MR::getCamYdir();
+    Vec3f cameraForward = -MR::getCamZdir();
+    Vec3f cameraUp = MR::getCamYdir();
 
-    TVec3f billboardRight;
+    Vec3f billboardRight;
     billboardRight.cross(cameraForward, cameraUp);
     MR::normalizeOrZero(&billboardRight);
 
-    TVec3f billboardUp;
+    Vec3f billboardUp;
     billboardUp.cross(billboardRight, cameraForward);
     MR::normalizeOrZero(&billboardUp);
 
-    TVec3f diagonalUp = (billboardRight + billboardUp) * 10.0f;
-    TVec3f diagonalDown = (billboardRight - billboardUp) * 10.0f;
+    Vec3f diagonalUp = (billboardRight + billboardUp) * 10.0f;
+    Vec3f diagonalDown = (billboardRight - billboardUp) * 10.0f;
+
+    // Each cell draws as an object of its own (the caller's slot, a generation from the cell's place in the world), and
+    // the caller's object and numbers are back when the snow is done: a cell left out, or the player crossing into
+    // another cell, renumbers neither the other cells nor what the caller draws after.
+    const u32 callerSlot = Frame::objectSlot();
+    const u32 callerGeneration = Frame::objectGeneration();
+    const u32 callerPart = Frame::nextPart();
 
     // runtime/src/render/materials/tex_vertex_alpha.hlsl: the flake texture, its alpha times the cell's opacity (the
-    // vertices' alpha); blended by alpha, depth tested.
-    NebulaNativeMaterial flakes;
+    // constant alpha scale, so a generated frame blends the fade of a cell between two steps); blended by alpha, depth
+    // tested. The vertices' alpha is 1.
+    SiteMaterial flakes;
     TDDraw::setupNative(&flakes, 1, 1, 0);
-    flakes.shader = NEBULA_SHADER_TEX_VERTEX_ALPHA;
+    flakes.setShader(NEBULA_SHADER_TEX_VERTEX_ALPHA);
     flakes.constants[0] = 1.0f;
-    NativeShader::setDepth(flakes, true, NEBULA_COMPARE_LEQUAL, false);
-    NativeShader::setTexture(flakes, 0, mTexture);
-    NativeShader::send(flakes);
+    flakes.setDepth(true, NEBULA_COMPARE_LEQUAL, false);
+    flakes.setTexture(0, mTexture);
 
     for (s32 i = -4; i < 4; i++) {
         for (s32 j = -4; j < 4; j++) {
             for (s32 k = -4; k < 4; k++) {
-                TVec3f cellOrigin;
+                Vec3f cellOrigin;
                 cellOrigin.x = originX + i * mCellSize;
                 cellOrigin.y = originY + j * mCellSize;
                 cellOrigin.z = originZ + k * mCellSize;
-                TVec3f surfaceOffset = cellOrigin + rUp * mCellSize - rPosition;
+                Vec3f surfaceOffset = cellOrigin + rUp * mCellSize - rPosition;
 
                 if (surfaceOffset.dot(rUp) > surfaceDistance) {
                     continue;
@@ -126,11 +149,9 @@ void MarineSnow::draw(const TVec3f& rPosition, const TVec3f& rUp, f32 surfaceDis
                     continue;
                 }
 
-
-                TMtx34f mtx;
-                MtxPtr pTranslationMtx = MR::tmpMtxTrans(cellOrigin);
-                MR::multMtx(mtx, pTranslationMtx, MR::getCameraViewMtx());
-                J3DNativeShape::setPosition(0, mtx);
+                Frame::setObject(callerSlot, ::cellObject(cellX + i, cellY + j, cellZ + k));
+                flakes.constants[1] = static_cast< f32 >(alpha) / 255.0f;
+                TypedDraw site(flakes, MR::tmpMtxTrans(cellOrigin), MR::getCameraViewMtx());
 
                 u16 lastParticle;
                 u16 firstParticle;
@@ -144,23 +165,24 @@ void MarineSnow::draw(const TVec3f& rPosition, const TVec3f& rUp, f32 surfaceDis
                 }
 
                 for (u16 point = firstParticle; point < lastParticle; point += particleStride) {
-                    J3DNativeDraw::begin(NEBULA_PRIMITIVE_QUADS, 4, NEBULA_SHAPE_COLOR0 | NEBULA_SHAPE_TEXCOORD0);
+                    // A flake keeps its number when the cell's stride (its distance from the player) changes.
+                    site.setPart(point);
+                    VertexPCT* vtx = site.vertices< VertexPCT >(NEBULA_PRIMITIVE_QUADS, 4);
                     {
-                        TDDraw::sendPoint(mParticlePositions[point] - diagonalDown, alpha);
-                        J3DNativeDraw::texCoord(0.0f, 0.0f);
+                        sendFlake(vtx, mParticlePositions[point] - diagonalDown, 0.0f, 0.0f);
 
-                        TDDraw::sendPoint(mParticlePositions[point] + diagonalUp, alpha);
-                        J3DNativeDraw::texCoord(1.0f, 0.0f);
+                        sendFlake(vtx, mParticlePositions[point] + diagonalUp, 1.0f, 0.0f);
 
-                        TDDraw::sendPoint(mParticlePositions[point] + diagonalDown, alpha);
-                        J3DNativeDraw::texCoord(1.0f, 1.0f);
+                        sendFlake(vtx, mParticlePositions[point] + diagonalDown, 1.0f, 1.0f);
 
-                        TDDraw::sendPoint(mParticlePositions[point] - diagonalUp, alpha);
-                        J3DNativeDraw::texCoord(0.0f, 1.0f);
+                        sendFlake(vtx, mParticlePositions[point] - diagonalUp, 0.0f, 1.0f);
                     }
                 }
             }
         }
     }
+
+    Frame::setObject(callerSlot, callerGeneration);
+    Frame::setPart(callerPart);
 }
 

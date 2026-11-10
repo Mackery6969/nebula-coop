@@ -6,20 +6,17 @@ class ActorCameraInfo;
 
 class RunawayTico : public Tico {
 public:
-    /// @brief Creates a new `RunawayTico`.
-    /// @param pName A pointer to the null-terminated name of the object.
     RunawayTico(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void initAfterPlacement();
+    virtual void init(const TableIter& rIter) override;
+    virtual void initAfterPlacement() override;
 
-    static void makeArchiveList(NameObjArchiveListCollector*, const JMapInfoIter&);
 
-    void appearBushComment(const TVec3f&);
-    void appearHoleComment(const TVec3f&);
-    void appearPipeComment(const TVec3f&);
-    void appearMamaComment(const TVec3f&);
-    void setPosAfterCaught(const TVec3f&);
+    void appearBushComment(const Vec3f&);
+    void appearHoleComment(const Vec3f&);
+    void appearPipeComment(const Vec3f&);
+    void appearMamaComment(const Vec3f&);
+    void setPosAfterCaught(const Vec3f&);
     void setPosAllCaught();
     bool isStartRunaway() const;
     void startRunaway();
@@ -33,8 +30,11 @@ public:
     void exeAppear();
     void exeTalk();
 
+    // Placement arg 1, overridden by a demo cast: the meeting demo's Tico, or the one placed when all are caught.
+    enum Role { Role_Meet = 1, Role_AllCaught = 2 };
+
     ActorCameraInfo* mCameraInfo;
-    s32 mObjArg1;
+    s32 mRole;
     s32 mDemoCastID;
     bool mIsStartRunaway;
     bool mIsAllCaught;

@@ -9,8 +9,7 @@ class Shellfish : public LiveActor {
 public:
     Shellfish(const char*);
 
-    virtual ~Shellfish();
-    virtual void init(const JMapInfoIter&) override;
+    virtual void init(const TableIter&) override;
     virtual void initAfterPlacement() override;
     virtual void calcAndSetBaseMtx() override;
     virtual void control() override;
@@ -23,13 +22,13 @@ public:
     void exeCloseSignal();
     void exeClose();
     void exeShock();
-    void exeDPDOpen();
-    void endDPDOpen();
-    void initItem(const JMapInfoIter&);
-    void initCoin(const JMapInfoIter&);
-    void initYellowChip(const JMapInfoIter&);
-    void initBlueChip(const JMapInfoIter&);
-    void initKinokoOneUp(const JMapInfoIter&);
+    void exePointerOpen();
+    void endPointerOpen();
+    void initItem(const TableIter&);
+    void initCoin(const TableIter&);
+    void initYellowChip(const TableIter&);
+    void initBlueChip(const TableIter&);
+    void initKinokoOneUp(const TableIter&);
     void startBindItem();
     void endBindItem();
     void putItem();
@@ -40,5 +39,4 @@ public:
     s32 mItemType;
     bool mIsItemBound;
     CollisionParts* mLowCollision;
-    bool _A4;
 };

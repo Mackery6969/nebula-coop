@@ -5,17 +5,17 @@
 #include "Game/Util/MtxUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 TornadoMario::TornadoMario(const char* pName) : LiveActor(pName), mUp(0.0f, 1.0f, 0.0f) {
 }
 
-void TornadoMario::init(const JMapInfoIter& rIter) {
+void TornadoMario::init(const TableIter& rIter) {
     initModelManagerWithAnm(mName, nullptr, true);
     initSound(4, false);
     MR::connectToScene(this, MR::MovementType_Player, MR::CalcAnimType_Player, MR::DrawBufferType_PlayerDecoration, MR::DrawType_None);
     MR::initMaterialFog(this, true);
-    MR::newDifferedMaterials(this);
+    MR::prepareMaterials(this);
     MR::initJointTransform(this);
     MR::initShadowVolumeCylinder(this, 80.0f);
     MR::setShadowDropLength(this, nullptr, 3000.0f);
@@ -40,7 +40,7 @@ void TornadoMario::calcAnim() {
     LiveActor::calcAnim();
 }
 
-void TornadoMario::setTrHeight(const TVec3f& rPos, const TVec3f& rFront, const TVec3f& rUp, const TVec3f& rShadowDir) {
+void TornadoMario::setTrHeight(const Vec3f& rPos, const Vec3f& rFront, const Vec3f& rUp, const Vec3f& rShadowDir) {
     mPosition = rPos;
     mUp = rUp;
     mFront = rFront;
@@ -48,7 +48,7 @@ void TornadoMario::setTrHeight(const TVec3f& rPos, const TVec3f& rFront, const T
 }
 
 void TornadoMario::calcAndSetBaseMtx() {
-    TPos3f pos;
+    Pos3f pos;
     MR::makeMtxUpFrontPos(&pos, mUp, mFront, mPosition);
     MR::setBaseTRMtx(this, pos);
 }
@@ -61,9 +61,7 @@ void TornadoMario::show() {
         mIsVisible = true;
         MR::startBck(this, "MarioTornadoStart");
         MR::startBtk(this, "MarioTornadoStart");
-        _8E = false;
         MR::showModel(this);
-        _8C = true;
     }
 }
 

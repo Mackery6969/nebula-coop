@@ -3,12 +3,11 @@
 
 class ActorCameraInfo;
 class DemoExecutor;
-class JMapInfoIter;
+class TableIter;
 class LiveActor;
 
 class DemoCameraInfo {
 public:
-    /// @brief Creates a new `DemoCameraInfo`.
     DemoCameraInfo();
 
     const char* mPartName;
@@ -18,28 +17,28 @@ public:
     s32 mAnimCameraStartFrame;
     s32 mAnimCameraEndFrame;
     u8 mIsContinuous;
-    const char* _1C;
-    ActorCameraInfo* _20;
-    LiveActor* _24;
+    const char* mCameraName;
+    ActorCameraInfo* mCameraInfo;
+    LiveActor* mTargetActor;
 };
 
 class DemoCameraKeeper {
 public:
-    DemoCameraKeeper(DemoExecutor*, const JMapInfoIter&);
+    DemoCameraKeeper(DemoExecutor*, const TableIter&);
 
-    void initCast(LiveActor*, const JMapInfoIter&);
+    void initCast(LiveActor*, const TableIter&);
     void start();
     void update();
     void end();
-    void initActorCamera(DemoCameraInfo*, const JMapInfoIter&);
+    void initActorCamera(DemoCameraInfo*, const TableIter&);
     void executeType(const DemoCameraInfo*);
     void executeFirst(const DemoCameraInfo*);
     void executeLast(const DemoCameraInfo*);
     void endCurrentCamera();
 
     DemoExecutor* mExecutor;
-    s32 _4;
-    DemoCameraInfo* _8;
-    s32 _C;
-    const DemoCameraInfo* _10;
+    s32 mNumInfos;
+    DemoCameraInfo* mInfos;
+    s32 mCurrentIndex;
+    const DemoCameraInfo* mCurrentInfo;
 };

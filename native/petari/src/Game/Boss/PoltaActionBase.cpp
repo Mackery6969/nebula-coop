@@ -1,4 +1,5 @@
 #include "Game/Boss/PoltaActionBase.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Boss/Polta.hpp"
 #include "Game/Boss/PoltaArm.hpp"
 #include "Game/Boss/PoltaFunction.hpp"
@@ -11,20 +12,17 @@
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 
-PoltaActionBase::PoltaActionBase(const char* pName, Polta* pPolta) : ActorStateBase< Polta >(pName, pPolta), _10() {
+PoltaActionBase::PoltaActionBase(const char* pName, Polta* pPolta) : ActorStateBase< Polta >(pName, pPolta) {
     MR::createCenterScreenBlur();
 }
 
 void PoltaActionBase::updateScreamSensor() {
-    if (MR::isLessStep(this, 30)) {
-        f32 size = MR::calcNerveValue(this, 30, 0.0f, 3200.0f);
+    if (MR::isLessStep(this, NebulaFrameClock::stepsOfMilliseconds(500))) {
+        f32 size = MR::calcNerveValue(this, NebulaFrameClock::stepsOfMilliseconds(500), 0.0f, 3200.0f);
         PoltaFunction::setScreamSensorSize(getHost(), size);
     } else {
         PoltaFunction::setScreamSensorSize(getHost(), 0.0f);
     }
-}
-
-PoltaActionBase::~PoltaActionBase() {
 }
 
 bool PoltaActionBase::updateWait() {
@@ -46,7 +44,7 @@ bool PoltaActionBase::updateDamageBody(bool isFirst) {
         MR::tryRumblePadStrong(this, PLAYER_1);
         MR::shakeCameraNormalStrong();
         MR::stopScene(3);
-        getHost()->_EC = 0.0f;
+        getHost()->mRotateSpeed = 0.0f;
         if (isFirst) {
             getHost()->appearBreakModelFirst(getHost()->mPosition);
         } else {
@@ -79,7 +77,7 @@ bool PoltaActionBase::updateBreakBody() {
         MR::zeroVelocity(getHost());
         MR::shakeCameraNormalStrong();
         MR::stopScene(3);
-        getHost()->_EC = 0.0f;
+        getHost()->mRotateSpeed = 0.0f;
         getHost()->appearBreakModelLast(getHost()->mPosition);
     }
     this->updateScreamSensor();
@@ -94,20 +92,13 @@ bool PoltaActionBase::updateBreakBody() {
     return false;
 }
 
-// Remnants from an unused attack
-const char* sinkUnused = "Sink";
-const char* popSignUnsued = "PopSign";
-const char* poltaShoutUnused = "SE_BV_POLTA_SHOUT";
-const char* screamUnused = "Scream";
-const char* repairUnusued = "Repair";
-
 bool PoltaActionBase::updateDamageCore() {
     if (MR::isFirstStep(this)) {
         PoltaFunction::startAction(getHost(), "DamageCore", 1);
         MR::tryRumblePadStrong(this, PLAYER_1);
         MR::shakeCameraNormalStrong();
         MR::stopScene(3);
-        getHost()->_EC = 0.0f;
+        getHost()->mRotateSpeed = 0.0f;
         MR::zeroVelocity(getHost());
         PoltaFunction::disperseBombTeresa(getHost());
     }
@@ -120,17 +111,17 @@ bool PoltaActionBase::updateDamageCore() {
     return false;
 }
 
-bool PoltaActionBase::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool PoltaActionBase::receiveOtherMsg(u32 /*msg*/, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     return false;
 }
 
-bool PoltaActionBase::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool PoltaActionBase::receiveMsgEnemyAttack(u32 /*msg*/, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     return false;
 }
 
-bool PoltaActionBase::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool PoltaActionBase::receiveMsgPlayerAttack(u32 /*msg*/, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     return false;
 }
 
-void PoltaActionBase::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
+void PoltaActionBase::attackSensor(HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
 }

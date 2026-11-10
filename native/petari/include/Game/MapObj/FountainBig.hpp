@@ -6,10 +6,9 @@ class FountainBig : public LiveActor {
 public:
     FountainBig(const char*);
 
-    virtual ~FountainBig();
-    virtual void init(const JMapInfoIter&);
-    virtual void updateHitSensor(HitSensor*);
-    virtual void attackSensor(HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void updateHitSensor(HitSensor*) override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
 
     void exeWait();
     void exeSign();
@@ -17,6 +16,6 @@ public:
     void exeSpout();
     void exeSpoutEnd();
 
-    TVec3f mClippingRadius;
+    Vec3f mClippingRadius;
     s32 mSpoutTimer;
 };

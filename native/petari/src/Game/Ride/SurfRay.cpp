@@ -1,4 +1,5 @@
 #include "Game/Ride/SurfRay.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include <nebula_game_api.h>
 #include "Game/LiveActor/ActorJointCtrl.hpp"
 #include "Game/LiveActor/MaterialCtrl.hpp"
@@ -23,6 +24,15 @@
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
 #include "Game/System/NebulaHost.hpp"
+#include "Game/Util/Tunable.hpp"
+
+// The numbers this file's functions give the game's motion and animation calls, as tunables: "<file>.<function>.<call>.<k>".
+NEBULA_TUNABLE_NAMED(f32, cNum_updateInfo_reboundVelocityFromCollision_1, "updateInfo.reboundVelocityFromCollision.1", 0.3f);
+NEBULA_TUNABLE_NAMED(f32, cNum_updateInfo_reboundVelocityFromCollision_2, "updateInfo.reboundVelocityFromCollision.2", 10.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_updateInfo_reboundVelocityFromCollision_3, "updateInfo.reboundVelocityFromCollision.3", 1.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_updateInfo_reboundVelocityFromCollision_4, "updateInfo.reboundVelocityFromCollision.4", 0.8f);
+NEBULA_TUNABLE_NAMED(f32, cNum_updateInfo_reboundVelocityFromCollision_5, "updateInfo.reboundVelocityFromCollision.5", 10.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_updateInfo_reboundVelocityFromCollision_6, "updateInfo.reboundVelocityFromCollision.6", 1.0f);
 
 namespace NrvSurfRay {
     NEW_NERVE(SurfRayNrvWaitPlayer, SurfRay, WaitPlayer);
@@ -43,82 +53,30 @@ namespace NrvSurfRay {
 };  // namespace NrvSurfRay
 
 namespace {
-    static const f32 sDistancePlayerNear = 1300.0f;
-    // static const f32 sGravity
-    // static const f32 sGroundReboundRate
-    // static const f32 sWallReboundRate
-    // static const f32 sReboundSpeedMin
-    // static const f32 sRunAccel
-    // static const f32 sRunSpeedMax
-    // static const f32 sFlyUpSpeedMaxY
-    // static const f32 sFallSpeedMaxY
-    // static const f32 sRunGroundFrictionRate
-    // static const f32 sRunAirFrictionRate
-    static const f32 sSpeedToRumble = 5.0f;
-    // static const f32 sWaterFriction
-    // static const f32 sWaterGravity
-    // static const f32 sWaterPressureRate
-    // static const f32 sWaterWaveNrmAccelRate
-    // static const f32 sWaterUpSideSpeedMax
-    // static const f32 sWaterBottomReboundRate
-    // static const f32 sWaterUpperPosOffset
-    // static const f32 sWaterJudgeFront
-    // static const f32 sWaterJudgeUp
-    // static const f32 sWaterJudgeWidth
-    // static const f32 sUpSideGroundFrictionRate
-    // static const f32 sUpSideAirFrictionRate
-    // static const f32 sUpSideSpeedMin
-    // static const s32 sStepEnableJumpAtAir
-    // static const s32 sStepToFallAtAir
-    // static const f32 sJumpAccelMinY
-    // static const f32 sJumpAccelMaxY
-    // static const f32 sJumpSpeedMaxY
-    // static const f32 sJumpSpeedHigh
-    // static const f32 sRunSpeedMinToRotate
-    // static const f32 sRotateAccelRate
-    // static const f32 sPadAccelAddRateZ
-    // static const f32 sPadAccelClamp
-    // static const f32 sPadAccelInvalidMaxZ
-    // static const f32 sPadAccelInvalidMinX
-    // static const f32 sPadAccelInvalidFrictionRate
-    // static const f32 sRotateSpeedFrictionRate
-    // static const f32 sRotateFrictionRate
-    // static const f32 sRotateSpeedMin
-    // static const f32 sRotateSpeedMax
-    // static const f32 sRotateMaxZ
-    // static const f32 sRotateSpeedRate
-    static const f32 sBlendRatioAxisUpAir = 0.02f;
-    static const f32 sBlendRatioAxisUpGround = 0.1f;
-    static const f32 sBlendRatioAxisFrontWall = 0.1f;
-    // static const f32 sPlayerPosOffsetY
-    // static const f32 sPlayerPosOffsetZ
-    // static const f32 sRiderRotateInterpolateRate
-    // static const f32 sRiderRotateRateScale
-    static const f32 sTwistStartDiffMin = 0.2f;
-    static const f32 sBtkSpeedMin = 1.0f;
-    static const f32 sBtkSpeedMax = 4.0f;
-    static const f32 sBtkSpeedRate = 0.4f;
-    static const f32 sShadowAlphaMax = 64.0f;
-    static const f32 sShadowAlphaSpeed = 10.0f;
-    static const f32 sSpeedToEmitEffect = 6.0f;
-    static const f32 sSpeedToEmitEffectFast = 20.0f;
-    // static const f32 sMoveSeRotRate
-    static const f32 sMoveSe0StartSpeed = 2.5f;
-    static const f32 sMoveSe1StartSpeed = 7.5f;
-    static const f32 sMoveSe2StartSpeed = 14.0f;
-    static const f32 sMoveSe3StartSpeed = 25.0f;
-    static const f32 sMoveSe3MaxSpeed = 35.0f;
-    static const f32 sWindSeStartSpeed = 32.0f;
-    static const f32 sWindSeMaxSpeed = 50.0f;
-    // static const f32 sJumpInSoundMaxSpeed
-    // static const f32 sHitSoundStartVelocity
-    // static const f32 sVelocityUpSideScale
-    // static const f32 sRotateZFrictionRate
-    // static const f32 sMarioAnimeBlendRate
+    NEBULA_TUNABLE(f32, sDistancePlayerNear, 1300.0f);
+    NEBULA_TUNABLE(f32, sSpeedToRumble, 5.0f);
+    NEBULA_TUNABLE(f32, sBlendRatioAxisUpAir, 0.02f);
+    NEBULA_TUNABLE(f32, sBlendRatioAxisUpGround, 0.1f);
+    NEBULA_TUNABLE(f32, sBlendRatioAxisFrontWall, 0.1f);
+    NEBULA_TUNABLE(f32, sTwistStartDiffMin, 0.2f);
+    NEBULA_TUNABLE(f32, sBtkSpeedMin, 1.0f);
+    NEBULA_TUNABLE(f32, sBtkSpeedMax, 4.0f);
+    NEBULA_TUNABLE(f32, sBtkSpeedRate, 0.4f);
+    NEBULA_TUNABLE(f32, sShadowAlphaMax, 64.0f);
+    NEBULA_TUNABLE(f32, sShadowAlphaSpeed, 10.0f);
+    NEBULA_TUNABLE(f32, sSpeedToEmitEffect, 6.0f);
+    NEBULA_TUNABLE(f32, sSpeedToEmitEffectFast, 20.0f);
+    NEBULA_TUNABLE(f32, sMoveSe0StartSpeed, 2.5f);
+    NEBULA_TUNABLE(f32, sMoveSe1StartSpeed, 7.5f);
+    NEBULA_TUNABLE(f32, sMoveSe2StartSpeed, 14.0f);
+    NEBULA_TUNABLE(f32, sMoveSe3StartSpeed, 25.0f);
+    NEBULA_TUNABLE(f32, sMoveSe3MaxSpeed, 35.0f);
+    NEBULA_TUNABLE(f32, sWindSeStartSpeed, 32.0f);
+    NEBULA_TUNABLE(f32, sWindSeMaxSpeed, 50.0f);
 
-    bool calcWaterShadowPos(TVec3f* pShadowPos, const TVec3f& rStartPos, const TVec3f& rShadowDir) {
+    bool calcWaterShadowPos(Vec3f* pShadowPos, const Vec3f& rStartPos, const Vec3f& rShadowDir) {
         pShadowPos->set(rStartPos);
-        TVec3f sample(rStartPos);
+        Vec3f sample(rStartPos);
 
         for (s32 i = 0; i < 10; i++) {
             WaterInfo waterInfo = WaterInfo();
@@ -138,26 +96,26 @@ namespace {
 };  // namespace
 
 SurfRay::SurfRay(const char* pName, s32 channel)
-    : LiveActor(pName), mSurfSpeed(0.0f), mOrthoSpeed(0.0f), mOrthoVelocity(0.0f, 0.0f, 0.0f), mSteerRate(0.0f), mSteerAccel(0.0f),
+    : LiveActor(pName), mSurfSpeed(0.0f), mOrthoVelocity(0.0f, 0.0f, 0.0f), mSteerRate(0.0f), mSteerAccel(0.0f),
       mFront(0.0f, 0.0f, 1.0f), mUp(0.0f, 1.0f, 0.0f), mSide(1.0f, 0.0f, 0.0f), mBaseUp(0.0f, 1.0f, 0.0f), mBaseSide(1.0f, 0.0f, 0.0f),
       mGroundNormal(0.0f, 1.0f, 0.0f), mWarpPos(0.0f, 0.0f, 0.0f), mRider(nullptr), mPadChannel(channel), mRayTilt(0.0f), mInWater(false),
-      mAirTime(0), mWaterNormal(0.0f, 1.0f, 0.0f), mTwistBufferSize(8), mWaterShadowPos(0.0f, 0.0f, 0.0f), mShadowAlpha(0.0f), mTwistBuffer(nullptr),
+      mAirTime(0), mWaterNormal(0.0f, 1.0f, 0.0f), mWaterShadowPos(0.0f, 0.0f, 0.0f), mShadowAlpha(0.0f), mTwistBufferSize(8), mTwistBuffer(nullptr),
       mInTutorialArea(false), mInTutorial(false), mLectureIdx(0), mActorJointCtrl(nullptr), mProjmapFxMtxSetter(nullptr) {
     mEffectHostMtx.identity();
 }
 
-void SurfRay::init(const JMapInfoIter& pMapInfoIter) {
+void SurfRay::init(const TableIter& rIter) {
     if (MR::hasRetryGalaxySequence()) {
-        MR::resetPosition(this, "\203\130\203\136\201\133\203\147\210\312\222\165\201\151\203\124\201\133\203\164\203\102\203\223\201\152" /* スタート位置（サーフィン） */);
+        MR::resetPosition(this, "スタート位置（サーフィン）");
     } else {
-        MR::initDefaultPos(this, pMapInfoIter);
+        MR::initDefaultPos(this, rIter);
     }
 
     resetAllInfo();
     initModelManagerWithAnm("SurfRay", nullptr, true);
 
     mProjmapFxMtxSetter = MR::initMaterialProjmapEffectMtxSetter(this);
-    MR::newDifferedMaterials(this);
+    MR::prepareMaterials(this);
     mProjmapFxMtxSetter->updateMtxUseBaseMtx();
 
     MR::startBtk(this, "SurfRay");
@@ -166,34 +124,33 @@ void SurfRay::init(const JMapInfoIter& pMapInfoIter) {
     MR::initLightCtrl(this);
 
     initHitSensor(2);
-    MR::addHitSensorRide(this, "body", 8, 260.0f, TVec3f(0.0f, 0.0f, 0.0f));
-    MR::addHitSensorBinder(this, "bind", 8, 300.0f, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorRide(this, "body", 8, 260.0f, Vec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorBinder(this, "bind", 8, 300.0f, Vec3f(0.0f, 0.0f, 0.0f));
 
     initBinder(200.0f, 50.0f, 8);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     MR::setEffectHostMtx(this, "Ripple", mEffectHostMtx);
     initSound(15, false);
 
     MR::initShadowFromCSV(this, "Shadow");
     Color8 shadowColor(0, 40, 128, 64);
     MR::setShadowSurfaceOvalColor(this, 0, shadowColor);
-    MR::setShadowSurfaceOvalAlpha(this, 0, 64);
     MR::setShadowProjectionPtr(this, 0, &mWaterShadowPos, &mWaterNormal);
-    MR::setShadowSurfaceOvalAlpha(this, 0, (u8)(s32)(mShadowAlpha) & 0xff);
+    MR::setShadowSurfaceOvalAlpha(this, 0, (u8)(s32)mShadowAlpha);
 
     initNerve(GET_NERVE(SurfRay, SurfRayNrvWaitPlayer));
 
-    MR::useStageSwitchWriteA(this, pMapInfoIter);
-    MR::tryFindNamePos("\203\217\201\133\203\166\210\312\222\165\201\151\203\124\201\133\203\164\203\102\203\223\201\152" /* ワープ位置（サーフィン） */, &mWarpPos, nullptr);
+    MR::useStageSwitchWriteA(this, rIter);
+    MR::tryFindNamePos("ワープ位置（サーフィン）", &mWarpPos, nullptr);
 
     mActorJointCtrl = new ActorJointCtrl(this);
     mTwistBuffer = new f32[mTwistBufferSize];
 
-    for (s32 count = 0; count < mTwistBufferSize; count++) {
-        mTwistBuffer[count] = 0.0f;
+    for (s32 i = 0; i < mTwistBufferSize; i++) {
+        mTwistBuffer[i] = 0.0f;
     }
 
-    MR::joinToGroupArray(this, pMapInfoIter, 0, 32);
+    MR::joinToGroupArray(this, rIter, 0, 32);
 
     if (!MR::hasRetryGalaxySequence()) {
         mInTutorialArea = true;
@@ -234,7 +191,7 @@ void SurfRay::exeWait() {
 
 void SurfRay::exeRideAccel() {
     if (MR::isFirstStep(this)) {
-        MR::startBckPlayerJ("\203\124\201\133\203\164\203\102\203\223\201\151\211\301\221\254\201\152" /* サーフィン（加速） */);
+        MR::startBckPlayerJ("サーフィン（加速）");
         MR::startBck(this, "RunDash");
     }
 
@@ -245,7 +202,7 @@ void SurfRay::exeRideAccel() {
 
 void SurfRay::exeRideAccelTwist() {
     if (MR::isFirstStep(this)) {
-        MR::startBckPlayerJ("\203\124\201\133\203\164\203\102\203\223\214\130\202\253\212\112\216\156\201\151\211\301\221\254\201\152" /* サーフィン傾き開始（加速） */);
+        MR::startBckPlayerJ("サーフィン傾き開始（加速）");
     }
 
     if (!updateRideAccel() && MR::isBckStoppedPlayer()) {
@@ -256,7 +213,7 @@ void SurfRay::exeRideAccelTwist() {
 void SurfRay::exeRideFree() {
     if (MR::isFirstStep(this)) {
         MR::startBck(this, "Run");
-        MR::startBckPlayerJ("\203\124\201\133\203\164\203\102\203\223" /* サーフィン */);
+        MR::startBckPlayerJ("サーフィン");
     }
 
     if (!updateRideFree() && isTwistStart()) {
@@ -266,7 +223,7 @@ void SurfRay::exeRideFree() {
 
 void SurfRay::exeRideFreeTwist() {
     if (MR::isFirstStep(this)) {
-        MR::startBckPlayerJ("\203\124\201\133\203\164\203\102\203\223\214\130\202\253\212\112\216\156" /* サーフィン傾き開始 */);
+        MR::startBckPlayerJ("サーフィン傾き開始");
     }
 
     if (!updateRideFree() && MR::isBckStoppedPlayer()) {
@@ -276,7 +233,7 @@ void SurfRay::exeRideFreeTwist() {
 
 void SurfRay::exeRideJump() {
     if (MR::isFirstStep(this)) {
-        MR::startBckPlayerJ("\203\124\201\133\203\164\203\102\203\223\203\127\203\203\203\223\203\166" /* サーフィンジャンプ */);
+        MR::startBckPlayerJ("サーフィンジャンプ");
         MR::startBck(this, "Jump");
         MR::startSound(mRider, "SE_PV_JUMP_S");
     }
@@ -288,7 +245,7 @@ void SurfRay::exeRideJump() {
 
 void SurfRay::exeRideJumpHigh() {
     if (MR::isFirstStep(this)) {
-        MR::startBckPlayerJ("\203\124\201\133\203\164\203\102\203\223\203\156\203\103\203\127\203\203\203\223\203\166" /* サーフィンハイジャンプ */);
+        MR::startBckPlayerJ("サーフィンハイジャンプ");
         MR::startBck(this, "Jump");
         MR::startSound(mRider, "SE_PV_JUMP_JOY");
     }
@@ -300,7 +257,7 @@ void SurfRay::exeRideJumpHigh() {
 
 void SurfRay::exeRideFall() {
     if (MR::isFirstStep(this)) {
-        MR::startBckPlayerJ("\203\124\201\133\203\164\203\102\203\223\227\216\211\272" /* サーフィン落下 */);
+        MR::startBckPlayerJ("サーフィン落下");
         MR::startBck(this, "Fall");
     }
 
@@ -312,7 +269,7 @@ void SurfRay::exeRideFall() {
 
 void SurfRay::exeRideLand() {
     if (MR::isFirstStep(this)) {
-        MR::startBckPlayerJ("\203\124\201\133\203\164\203\102\203\223\222\205\222\156" /* サーフィン着地 */);
+        MR::startBckPlayerJ("サーフィン着地");
         MR::startBck(this, "Land");
     }
 
@@ -322,10 +279,11 @@ void SurfRay::exeRideLand() {
 }
 
 void SurfRay::exeTutorial() {
-    TVec3f v1(mFront);
+    // The ray rides in place during the lesson, holding its heading.
+    Vec3f heldFront(mFront);
     updateRide();
     mOrthoVelocity.mult(0.5f);
-    mFront.set(v1);
+    mFront.set(heldFront);
 
     mSurfSpeed = 0.0f;
     mRotation.z *= 0.85f;
@@ -333,7 +291,7 @@ void SurfRay::exeTutorial() {
     switch (mLectureIdx) {
     case 0:
         if (MR::isFirstStep(this)) {
-            MR::startBckPlayerJ("\203\124\201\133\203\164\203\102\203\223\222\205\222\156" /* サーフィン着地 */);
+            MR::startBckPlayerJ("サーフィン着地");
             MR::startBck(this, "Land");
         }
 
@@ -386,7 +344,7 @@ void SurfRay::exeTutorial() {
     case 7:
     case 11: {
         if (MR::isFirstStep(this)) {
-            MR::startBckPlayerJ("\203\124\201\133\203\164\203\102\203\223\214\130\202\253\212\112\216\156" /* サーフィン傾き開始 */);
+            MR::startBckPlayerJ("サーフィン傾き開始");
         }
 
         f32 rot = MR::abs((mRotation.z / 70.0f) * 0.6f);
@@ -398,8 +356,6 @@ void SurfRay::exeTutorial() {
         }
         break;
     }
-    case 13:
-        break;
     default:
         break;
     }
@@ -411,7 +367,7 @@ void SurfRay::exeWipeOut() {
     }
 
     if (!updateRide() && !MR::isWipeActive()) {
-        MR::resetPosition(this, "\203\130\203\136\201\133\203\147\210\312\222\165\201\151\203\124\201\133\203\164\203\102\203\223\201\152" /* スタート位置（サーフィン） */);
+        MR::resetPosition(this, "スタート位置（サーフィン）");
         resetAllInfo();
         MR::startBckPlayer("SurfRide", 0);
         MR::resetCameraMan();
@@ -460,10 +416,16 @@ void SurfRay::control() {
 }
 
 void SurfRay::calcAndSetBaseMtx() {
-    mBaseSide.cross(mBaseUp, mFront);
-    MR::normalize(&mBaseSide);
-    mBaseUp.cross(mFront, mBaseSide);
-    MR::normalize(&mBaseUp);
+    // A base up along the front keeps the last base axes.
+    Vec3f baseSide;
+    baseSide.cross(mBaseUp, mFront);
+    if (!MR::isNearZero(baseSide)) {
+        MR::normalize(&baseSide);
+        mBaseSide.set(baseSide);
+        mBaseUp.cross(mFront, mBaseSide);
+        MR::normalize(&mBaseUp);
+    }
+
     mUp.set(mBaseUp);
     MR::rotateVecDegree(&mUp, mFront, mRotation.z);
     mSide.cross(mUp, mFront);
@@ -471,8 +433,7 @@ void SurfRay::calcAndSetBaseMtx() {
     mUp.cross(mFront, mSide);
     MR::normalize(&mUp);
 
-    TPos3f mtx;
-    mtx.identity();
+    Pos3f mtx;
     mtx.setTR(mSide, mUp, mFront, mPosition);
     MR::setBaseTRMtx(this, mtx);
     mActorJointCtrl->setCallBackFunction();
@@ -483,9 +444,9 @@ void SurfRay::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     MR::tryGetItem(pSender, pReceiver);
 }
 
-bool SurfRay::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool SurfRay::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* /*pReceiver*/) {
     if (MR::isMsgAutoRushBegin(msg)) {
-        if (MR::getPlayerVelocity()->y > 0.0f) {  // inline MarioAccess::getVelocity ??
+        if (MR::getPlayerVelocity()->y > 0.0f) {
             return false;
         }
 
@@ -550,7 +511,7 @@ bool SurfRay::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver)
 
     if (MR::isMsgTutorialOmit(msg)) {
         mInTutorialArea = false;
-        MR::resetPosition(this, "\203\130\203\136\201\133\203\147\210\312\222\165\201\151\203\124\201\133\203\164\203\102\203\223\201\152" /* スタート位置（サーフィン） */);
+        MR::resetPosition(this, "スタート位置（サーフィン）");
         resetAllInfo();
         MR::setPlayerPos(mPosition);
         MR::startBckPlayer("SurfRide", 0);
@@ -581,8 +542,7 @@ bool SurfRay::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver)
 }
 
 void SurfRay::resetAllInfo() {
-    TRot3f rotMtx;
-    rotMtx.identity();
+    Rot3f rotMtx;
     MR::makeMtxRotate(rotMtx, mRotation);
 
     rotMtx.getXDir(mSide);
@@ -598,7 +558,6 @@ void SurfRay::resetAllInfo() {
 
     mInWater = false;
     mSurfSpeed = 0.0f;
-    mOrthoSpeed = 0.0f;
     mSteerRate = 0.0f;
     mSteerAccel = 0.0f;
     mAirTime = 0;
@@ -666,7 +625,7 @@ void SurfRay::updateInfo() {
 
         MR::startLevelSound(this, "SE_SM_LV_SURF_RAY_LAND", sfxLvl);
 
-        if (MR::reboundVelocityFromCollision(this, 0.3f, 10.0f, 1.0f) && mVelocity.length() > ::sSpeedToRumble) {
+        if (MR::reboundVelocityFromCollision(this, cNum_updateInfo_reboundVelocityFromCollision_1, cNum_updateInfo_reboundVelocityFromCollision_2, cNum_updateInfo_reboundVelocityFromCollision_3) && mVelocity.length() > ::sSpeedToRumble) {
             MR::tryRumblePadMiddle(this, mPadChannel);
         }
     }
@@ -676,29 +635,28 @@ void SurfRay::updateInfo() {
             MR::startSound(this, "SE_SM_SURF_RAY_HIT_WALL");
         }
 
-        if (MR::reboundVelocityFromCollision(this, 0.8f, 10.0f, 1.0f) && mVelocity.length() > ::sSpeedToRumble) {
+        if (MR::reboundVelocityFromCollision(this, cNum_updateInfo_reboundVelocityFromCollision_4, cNum_updateInfo_reboundVelocityFromCollision_5, cNum_updateInfo_reboundVelocityFromCollision_6) && mVelocity.length() > ::sSpeedToRumble) {
             MR::tryRumblePadMiddle(this, mPadChannel);
         }
     }
 
     mSurfSpeed = mFront.dot(mVelocity);
-    TVec3f proj(mFront);
+    Vec3f proj(mFront);
     proj.scale(mSurfSpeed);
     mOrthoVelocity.set(mVelocity);
     mOrthoVelocity.sub(proj);
-    mOrthoSpeed = mOrthoVelocity.length();
 }
 
 void SurfRay::updateToMap() {
-    TVec3f v1(mGravity);
+    Vec3f fall(mGravity);
 
     if (mInWater) {
-        v1.scale(0.1f);
+        fall.scale(0.1f);
     } else {
-        v1.scale(0.8f);
+        fall.scale(0.8f);
     }
 
-    mOrthoVelocity.add(v1);
+    mOrthoVelocity.add(fall);
 
     if (MR::isBinded(this)) {
         if (MR::isBindedGround(this)) {
@@ -707,13 +665,14 @@ void SurfRay::updateToMap() {
         }
 
         if (MR::isBindedWall(this)) {
-            TVec3f v2(mVelocity);
-            MR::normalize(&v2);
-            MR::turnVecToPlane(&v2, v2, *MR::getWallNormal(this));
-            MR::turnVecToPlane(&v2, v2, mGravity);
-            TVec3f v3;
-            MR::vecBlend(mFront, v2, &v3, ::sBlendRatioAxisFrontWall);
-            mBaseSide.cross(mBaseUp, v3);
+            // Turns along the wall.
+            Vec3f wallDir(mVelocity);
+            MR::normalize(&wallDir);
+            MR::turnVecToPlane(&wallDir, wallDir, *MR::getWallNormal(this));
+            MR::turnVecToPlane(&wallDir, wallDir, mGravity);
+            Vec3f blendedFront;
+            MR::vecBlend(mFront, wallDir, &blendedFront, ::sBlendRatioAxisFrontWall);
+            mBaseSide.cross(mBaseUp, blendedFront);
         }
     } else if (mInWater) {
         MR::vecBlendSphere(mBaseUp, mWaterNormal, &mBaseUp, ::sBlendRatioAxisUpGround);
@@ -721,8 +680,12 @@ void SurfRay::updateToMap() {
         MR::vecBlendSphere(mBaseUp, mGravity * -1.0f, &mBaseUp, ::sBlendRatioAxisUpAir);
     }
 
-    mFront.cross(mBaseSide, mBaseUp);
-    MR::normalize(&mFront);
+    Vec3f front;
+    front.cross(mBaseSide, mBaseUp);
+    if (!MR::isNearZero(front)) {
+        MR::normalize(&front);
+        mFront.set(front);
+    }
 }
 
 void SurfRay::updateToWater() {
@@ -730,7 +693,7 @@ void SurfRay::updateToWater() {
         if (!mInWater) {
             f32 lvl = MR::getLinerValueFromMinMax(mOrthoVelocity.length(), 0.0f, 20.0f, 100.0f, 1000.0f);
 
-            if (mAirTime > 30) {
+            if (mAirTime > NebulaFrameClock::stepsOfMilliseconds(500)) {
                 MR::tryRumblePadMiddle(this, mPadChannel);
             }
 
@@ -754,14 +717,12 @@ void SurfRay::updateToWater() {
         mWaterNormal.set(mWaterInfo.mSurfaceNormal);
         f32 innerProd = mGravity.dot(mVelocity);
 
-        if (innerProd > 0.0f && mWaterInfo._4 < innerProd) {
-            TVec3f v2(mGravity);
+        // Sinking deeper than it falls in one step bounces it back up; otherwise it floats toward the wave top.
+        if (innerProd > 0.0f && mWaterInfo.mDepth < innerProd) {
             mVelocity.sub(mGravity * innerProd * 1.5f);
         } else {
-            f32 camWaterDepth = mWaterInfo.mCamWaterDepth;
-            f32 waveHeight = mWaterInfo.mWaveHeight;
-            f32 f0 = camWaterDepth + waveHeight;
-            mVelocity.sub(mGravity * f0 * 0.01f);
+            f32 waveDepth = mWaterInfo.mCamWaterDepth + mWaterInfo.mWaveHeight;
+            mVelocity.sub(mGravity * waveDepth * 0.01f);
         }
     } else {
         if (mInWater) {
@@ -774,7 +735,7 @@ void SurfRay::updateToWater() {
     }
 
     WaterInfo waterInfo;
-    TVec3f v(mPosition + mGravity * 20.0f);
+    Vec3f v(mPosition + mGravity * 20.0f);
 
     if (MR::getWaterAreaObj(&waterInfo, v)) {
         mShadowAlpha -= ::sShadowAlphaSpeed;
@@ -785,7 +746,7 @@ void SurfRay::updateToWater() {
     }
 
     mShadowAlpha = MR::clamp(mShadowAlpha, 0.0f, ::sShadowAlphaMax);
-    MR::setShadowSurfaceOvalAlpha(this, 0, (u8)(s32)(mShadowAlpha) & 0xff);
+    MR::setShadowSurfaceOvalAlpha(this, 0, (u8)(s32)mShadowAlpha);
 }
 
 void SurfRay::updateAccel() {
@@ -836,7 +797,7 @@ void SurfRay::updateRotate() {
     f32 accelX = 0.0f;
 
     if (isRotateStart()) {
-        TVec3f accel(0.0f, 0.0f, 0.0f);
+        Vec3f accel(0.0f, 0.0f, 0.0f);
         MR::getMainTilt(&accel, mPadChannel);
 
         if (accel.z > -0.7f || MR::abs(accel.x) > 0.15f) {
@@ -852,12 +813,9 @@ void SurfRay::updateRotate() {
             steerAccel = MR::clamp(twistAngle, -1.5f, 1.5f);
             accelX = accel.x;
 
-            if (accelX < 0.0f) {
-                f32 tiltClamp = MR::clamp(accelX, -1.0f, 0.0f);
-                mRayTilt = MR::getInterpolateValue(0.3f, mRayTilt, tiltClamp);
-            } else if (accelX > 0.0f) {
-                f32 tiltClamp = MR::clamp(accelX, 0.0f, 1.0f);
-                mRayTilt = MR::getInterpolateValue(0.3f, mRayTilt, tiltClamp);
+            // Not for 0 or NaN.
+            if (accelX < 0.0f || accelX > 0.0f) {
+                mRayTilt = MR::getInterpolateValue(0.3f, mRayTilt, MR::clamp(accelX, -1.0f, 1.0f));
             }
         } else {
             mRayTilt = MR::getInterpolateValue(0.3f, mRayTilt, 0.0f);
@@ -873,9 +831,7 @@ void SurfRay::updateRotate() {
     }
 
     mSteerRate *= 0.95f;
-    f32 abs = MR::abs(mSteerRate);
-
-    if (abs < 0.1f) {
+    if (MR::abs(mSteerRate) < 0.1f) {
         mSteerRate = 0.0f;
     }
 
@@ -891,7 +847,7 @@ void SurfRay::updateRotate() {
         MR::setBckBlendWeight(rayTilt + 1.0f, -rayTilt, 0.0f);
     }
 
-    TRot3f mtx;
+    Rot3f mtx;
     mtx.identity();
     mtx.setRotate(mBaseUp, -mRotation.z * 0.00028f);
     mtx.mult(mFront, mFront);
@@ -919,23 +875,16 @@ void SurfRay::updateSound() {
     if (mInWater) {
         if (mSurfSpeed > ::sMoveSe1StartSpeed) {
             lvl = MR::getLinerValueFromMinMax(mSurfSpeed, ::sMoveSe1StartSpeed, ::sMoveSe2StartSpeed, 0.1f, 1.0f);
-
             MR::startLevelSound(this, "SE_SM_LV_SURF_RAY_MOVE1", lvl * 1000.0f);
         }
-    }
 
-    if (mInWater) {
         if (mSurfSpeed > ::sMoveSe2StartSpeed) {
             lvl = MR::getLinerValueFromMinMax(mSurfSpeed, ::sMoveSe2StartSpeed, ::sMoveSe3StartSpeed, 0.1f, 1.0f);
-
             MR::startLevelSound(this, "SE_SM_LV_SURF_RAY_MOVE2", lvl * 1000.0f);
         }
-    }
 
-    if (mSurfSpeed > ::sMoveSe3StartSpeed) {
-        lvl = MR::getLinerValueFromMinMax(mSurfSpeed, ::sMoveSe3StartSpeed, ::sMoveSe3MaxSpeed, 0.1f, 1.0f);
-
-        if (mInWater) {
+        if (mSurfSpeed > ::sMoveSe3StartSpeed) {
+            lvl = MR::getLinerValueFromMinMax(mSurfSpeed, ::sMoveSe3StartSpeed, ::sMoveSe3MaxSpeed, 0.1f, 1.0f);
             MR::startLevelSound(this, "SE_SM_LV_SURF_RAY_MOVE3", lvl * 1000.0f);
         }
     }
@@ -956,75 +905,57 @@ void SurfRay::updateSound() {
 }
 
 void SurfRay::updateRiderMtx() {
-    MtxPtr mtx1 = MR::getJointMtx(this, "Center");
-    TPos3f mtx;
-    mtx.setInline(mtx1);
+    MtxPtr centerMtx = MR::getJointMtx(this, "Center");
+    Pos3f riderMtx;
+    riderMtx.setInline(centerMtx);
 
-    mtx[0][3] += mtx1[0][1] * 55.0f + mtx1[0][2] * 12.0f;
-    mtx[1][3] += mtx1[1][1] * 55.0f + mtx1[1][2] * 12.0f;
-    mtx[2][3] += mtx1[2][1] * 55.0f + mtx1[2][2] * 12.0f;
+    riderMtx[0][3] += centerMtx[0][1] * 55.0f + centerMtx[0][2] * 12.0f;
+    riderMtx[1][3] += centerMtx[1][1] * 55.0f + centerMtx[1][2] * 12.0f;
+    riderMtx[2][3] += centerMtx[2][1] * 55.0f + centerMtx[2][2] * 12.0f;
 
-    MR::setBaseTRMtx(mRider, mtx);
+    MR::setBaseTRMtx(mRider, riderMtx);
 }
 
+// Probes the body, 100 ahead, 150 above, 150 to each side across gravity and 150 to each side of the board; the
+// first hit fills mWaterInfo.
 bool SurfRay::tryInWater() {
-    if (MR::getWaterAreaObj(&mWaterInfo, mPosition)) {
+    if (MR::getWaterAreaObj(&mWaterInfo, mPosition) || MR::getWaterAreaObj(&mWaterInfo, mFront * 100.0f + mPosition) ||
+        MR::getWaterAreaObj(&mWaterInfo, mUp * 150.0f + mPosition)) {
         return true;
     }
 
-    TVec3f v1(mFront * 100.0f + mPosition);
-    if (MR::getWaterAreaObj(&mWaterInfo, v1)) {
+    Vec3f rightDir(mFront);
+    MR::rotateVecDegree(&rightDir, -mGravity, -90.0f);
+    if (MR::getWaterAreaObj(&mWaterInfo, rightDir * 150.0f + mPosition)) {
         return true;
     }
 
-    TVec3f v2(mUp * 150.0f + mPosition);
-    if (MR::getWaterAreaObj(&mWaterInfo, v2)) {
+    Vec3f leftDir(mFront);
+    MR::rotateVecDegree(&leftDir, -mGravity, 90.0f);
+    if (MR::getWaterAreaObj(&mWaterInfo, leftDir * 150.0f + mPosition)) {
         return true;
     }
 
-    TVec3f v3(mFront);
-    MR::rotateVecDegree(&v3, -mGravity, -90.0f);
-    TVec3f v3a(v3 * 150.0f + mPosition);
-    if (MR::getWaterAreaObj(&mWaterInfo, v3a)) {
-        return true;
-    }
-
-    TVec3f v4(mFront);
-    MR::rotateVecDegree(&v4, -mGravity, 90.0f);
-    TVec3f v4a(v4 * 150.0f + mPosition);
-    if (MR::getWaterAreaObj(&mWaterInfo, v4a)) {
-        return true;
-    }
-
-    TVec3f v5(mSide * 150.0f + mPosition);
-    if (MR::getWaterAreaObj(&mWaterInfo, v5)) {
-        return true;
-    }
-
-    TVec3f v6(-mSide * 150.0f + mPosition);
-    if (MR::getWaterAreaObj(&mWaterInfo, v6)) {
-        return true;
-    }
-
-    return false;
+    return MR::getWaterAreaObj(&mWaterInfo, mSide * 150.0f + mPosition) || MR::getWaterAreaObj(&mWaterInfo, -mSide * 150.0f + mPosition);
 }
 
 bool SurfRay::tryJumpOrFall() {
     if (MR::isSpin(PLAYER_1) && (MR::isBinded(this) || mWaterInfo.isInWater() || mAirTime < 15)) {
-        f32 f0 = (mSurfSpeed / 40.0f) * (((70.0f - MR::abs(mRotation.z)) * 5.0f) / 70.0f) + 15.0f;
-        TVec3f v1(mGroundNormal);
+        // Jumps off the surface at 15, plus 5 per 40 of speed when level, none at a 70 degree roll.
+        f32 jumpSpeed = (mSurfSpeed / 40.0f) * (((70.0f - MR::abs(mRotation.z)) * 5.0f) / 70.0f) + 15.0f;
+        Vec3f jumpVel(mGroundNormal);
 
         if (mWaterInfo.isInWater()) {
-            v1.set(mWaterInfo.mSurfaceNormal);
+            jumpVel.set(mWaterInfo.mSurfaceNormal);
         }
 
-        v1.scale(f0);
+        jumpVel.scale(jumpSpeed);
 
         if (mOrthoVelocity.dot(mGravity) > 0.0f) {
             MR::vecKillElement(mOrthoVelocity, mGravity, &mOrthoVelocity);
         }
 
-        mOrthoVelocity.add(v1);
+        mOrthoVelocity.add(jumpVel);
 
         if (mOrthoVelocity.length() > 25.0f) {
             MR::normalize(&mOrthoVelocity);
@@ -1064,11 +995,7 @@ bool SurfRay::isTwistStart() const {
 
 bool SurfRay::isRotateStart() const {
     if (mInTutorial) {
-        if (mLectureIdx == 7 || mLectureIdx == 11) {
-            return true;
-        }
-
-        return false;
+        return mLectureIdx == 7 || mLectureIdx == 11;
     }
 
     return mSurfSpeed > 3.0f || MR::isHeldJump(mPadChannel);

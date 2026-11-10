@@ -1,4 +1,5 @@
 #include "Game/MapObj/LavaProminence.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/LiveActor/PartsModel.hpp"
@@ -8,8 +9,8 @@
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
 #include "Game/Util/GravityUtil.hpp"
-#include "Game/Util/JMapInfo.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/Table.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
@@ -17,16 +18,14 @@
 #include "Game/Util/RailUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const s32 sDefaultTimeWait = 180;
-    static const s32 sTimeSign = 90;
-    static const f32 sDefaultMoveSpeed = 20.0f;
-    // sSubScale
-    // sScaleMin
-    // sSubNum
-    // sExtraMoveLength
-    // sDefaultCoordBeforeLanding
+    static const s32 sDefaultTimeWait = NebulaFrameClock::stepsOfSeconds(3);
+    static const s32 sTimeSign = NebulaFrameClock::stepsOfMilliseconds(1500);
+    NEBULA_TUNABLE(f32, sDefaultMoveSpeed, 20.0f);
+    // Distance the body's sphere must pass beyond the view before the drop effect is deleted (it is made at the view's edge).
+    NEBULA_TUNABLE(f32, sDropClipLeaveMargin, 150.0f);
 };  // namespace
 
 namespace NrvLavaProminence {
@@ -42,20 +41,19 @@ namespace NrvLavaProminence {
 
 LavaProminence::LavaProminence(const char* pName)
     : LiveActor(pName), mWaitTime(::sDefaultTimeWait), mMoveSpeed(::sDefaultMoveSpeed), mMoveRailCoord(), mMoveRailEndOffset(),
-      mRailStartDir(0, 0, 0), mRailEndDir(0, 0, 0), mRailStartPos(0.0f), mRailEndPos(0.0f), _12C(0, 0, 0), mBloomModel(),
-      _16C(0.0f, 0.0f, 0.0f, 1.0f), mRailDir(0, 0, 1), mEmitDropEffect(true) {
+      mRailStartDir(0, 0, 0), mRailEndDir(0, 0, 0), mRailStartPos(0.0f), mRailEndPos(0.0f), mClipCenter(0, 0, 0), mBloomModel(),
+      mRotateQuat(0.0f, 0.0f, 0.0f, 1.0f), mRailDir(0, 0, 1), mEmitDropEffect(true) {
     mEffectStartMtx.identity();
     mEffectEndMtx.identity();
     mBloomModelMtx.identity();
-    _18C.identity();
 }
 
-void LavaProminence::init(const JMapInfoIter& rIter) {
+void LavaProminence::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
-    _16C.setEuler(mRotation);
-    MR::getJMapInfoArg0NoInit(rIter, &mWaitTime);
-    MR::getJMapInfoArg1NoInit(rIter, &mMoveSpeed);
-    MR::getJMapInfoArg3NoInit(rIter, &mMoveRailEndOffset);
+    mRotateQuat.setEuler(mRotation);
+    MR::getPlacementArg0NoInit(rIter, &mWaitTime);
+    MR::getPlacementArg1NoInit(rIter, &mMoveSpeed);
+    MR::getPlacementArg3NoInit(rIter, &mMoveRailEndOffset);
     MR::useStageSwitchReadA(this, rIter);
     const char* name = nullptr;
     MR::getObjectName(&name, rIter);
@@ -69,7 +67,7 @@ void LavaProminence::init(const JMapInfoIter& rIter) {
 
     MR::connectToSceneMapObj(this);
     initHitSensor(1);
-    TVec3f offset;
+    Vec3f offset;
     offset.set(0.0f);
     MR::addHitSensorMapObjSimple(this, "body", 8, 120.0f, offset);
     initRailRider(rIter);
@@ -79,7 +77,7 @@ void LavaProminence::init(const JMapInfoIter& rIter) {
     MR::calcRailDirectionAtCoord(&mRailEndDir, this, MR::getRailTotalLength(this));
     initSound(6, false);
     MR::setGroupClipping(this, rIter, 16);
-    MR::initAndSetRailClipping(&_12C, this, 300.0f, 300.0f);
+    MR::initAndSetRailClipping(&mClipCenter, this, 300.0f, 300.0f);
 
     if (MR::isValidSwitchA(this)) {
         initNerve(GET_NERVE(LavaProminence, HostTypeNrvWaitSwitch));
@@ -87,7 +85,7 @@ void LavaProminence::init(const JMapInfoIter& rIter) {
         initNerve(GET_NERVE(LavaProminence, HostTypeNrvWait));
     }
 
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     MR::setEffectHostMtx(this, "Sign", mEffectStartMtx);
     MR::setEffectHostMtx(this, "Start", mEffectStartMtx);
     MR::setEffectHostMtx(this, "End", mEffectEndMtx);
@@ -111,8 +109,8 @@ void LavaProminence::kill() {
 }
 
 void LavaProminence::initAfterPlacement() {
-    TVec3f initPosVec(mPosition);
-    TVec3f upVec;
+    Vec3f initPosVec(mPosition);
+    Vec3f upVec;
 
     mPosition.set(mRailStartPos);
     MR::calcGravityVectorOrZero(this, &upVec, nullptr, 0);
@@ -153,34 +151,18 @@ void LavaProminence::moveOnRail() {
     MR::moveTransToCurrentRailPos(this);
     updateEffectClipping(isNrvMove());
     MR::calcGravity(this);
-    setGravityAndMakeMtx();
 }
 
-void LavaProminence::setGravityAndMakeMtx() {
-    MR::makeMtxUpNoSupportPos(&_18C, -mGravity, mPosition);
-
-    // TODO: TRot3f::setScale inline?
-    f32 z = mScale.z;
-    f32 y = mScale.y;
-    f32 x = mScale.x;
-    _18C[0][1] = 0.0f;
-    _18C[0][0] = x;
-    _18C[0][2] = 0.0f;
-    _18C[1][0] = 0.0f;
-    _18C[1][1] = y;
-    _18C[1][2] = 0.0f;
-    _18C[2][0] = 0.0f;
-    _18C[2][1] = 0.0f;
-    _18C[2][2] = z;
-}
-
-void LavaProminence::updateEffectClipping(bool a1) {
+void LavaProminence::updateEffectClipping(bool isMoving) {
+    // The drops go when the body is a margin outside the view and come back at its edge: one test for both deleted and
+    // made the effect again at every crossing of a camera or body at the edge, restarting its particles.
+    const f32 radius = getSensor("body")->getRadius();
     if (!mEmitDropEffect) {
-        if (!a1 || MR::isJudgedToClipFrustum(mPosition, getSensor("body")->getRadius())) {
+        if (!isMoving || MR::isJudgedToClipFrustum(mPosition, radius + ::sDropClipLeaveMargin)) {
             MR::deleteEffect(this, "DropEffect");
             mEmitDropEffect = true;
         }
-    } else if (a1 && !MR::isJudgedToClipFrustum(mPosition, getSensor("body")->getRadius())) {
+    } else if (isMoving && !MR::isJudgedToClipFrustum(mPosition, radius)) {
         MR::emitEffect(this, "DropEffect");
         mEmitDropEffect = false;
     }
@@ -248,8 +230,8 @@ void LavaProminence::exeMoveStartExtra() {
     MR::startLevelSound(this, "SE_OJ_LV_PROMINENCE_MOVE");
     mPosition.add(mRailStartDir * mMoveSpeed);
     MR::calcGravity(this);
-    setGravityAndMakeMtx();
-    s32 endStartStep = 300.0f / mMoveSpeed;
+    // A speed of 0 or less (placement arg 1) ends the start at once, not at 300 / 0.
+    s32 endStartStep = mMoveSpeed > 0.0f ? static_cast< s32 >(300.0f / mMoveSpeed) : 0;
 
     if (MR::isGreaterStep(this, endStartStep - 1)) {
         MR::deleteEffect(this, "Start");
@@ -322,20 +304,20 @@ void LavaProminence::exeMoveEndExtra() {
 }
 
 void LavaProminence::calcAndSetBaseMtx() {
-    TPos3f mtx;
-    TVec3f vec(mRailDir);
-    TVec3f front;
-    TQuat4f quat;
+    Pos3f mtx;
+    Vec3f vec(mRailDir);
+    Vec3f front;
+    Quat4f quat;
 
     MR::normalizeOrZero(&vec);
 
     if (!MR::isNearZero(vec)) {
-        _16C.getZDir(front);
+        mRotateQuat.getZDir(front);
         quat.setRotate(front, vec);
-        _16C.mult(quat);
+        mRotateQuat.mult(quat);
     }
 
-    mtx.makeQuat(_16C);
+    mtx.makeQuat(mRotateQuat);
     mtx.setTrans(mPosition);
     MR::setBaseTRMtx(this, mtx);
     mBloomModelMtx.set(mtx);

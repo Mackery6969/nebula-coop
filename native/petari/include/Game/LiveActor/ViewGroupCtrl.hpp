@@ -4,15 +4,23 @@
 class AreaObjMgr;
 class ClippingActorInfo;
 class ClippingActorInfoList;
-class JMapInfoIter;
+class TableIter;
 class LodCtrl;
 
+// This frame's view cubes of one group around the player.
 struct ViewGroupCtrlDataEntry {
-    bool _0;
-    bool _1;
-    bool _2;
-    bool _3;
-    bool _4;
+    void clear() {
+        mIsPlayerInside = false;
+        mIsNear = false;
+        mIsFar = false;
+        mIsHidden = false;
+    }
+
+    bool mIsPlayerInside;  // in a cube that does not hide the group
+    bool mIsNear;          // models at their near level
+    bool mIsFar;           // models at their far level
+    bool mIsHidden;
+    s32 mInsideHold = 0;  // steps mIsPlayerInside is kept after the player leaves the cubes; survives clear()
 };
 
 class ViewGroupCtrl {
@@ -24,7 +32,7 @@ public:
     // An actor made once the table stands (a plugin's spawn) is in no view group, as an actor without one.
     void initMadeDuringPlay(ClippingActorInfo*);
     void endInitViewGroupTable();
-    void entryLodCtrl(LodCtrl*, const JMapInfoIter&);
+    void entryLodCtrl(LodCtrl*, const TableIter&);
     void update();
     void startInitViewGroupTable();
 

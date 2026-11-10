@@ -1,4 +1,5 @@
 #include "Game/Screen/NoteCounter.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Screen/GameSceneLayoutHolder.hpp"
@@ -6,12 +7,13 @@
 #include "Game/Util/LayoutUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const s32 sStepShowWait = 180;
-    static const s32 sStepMove = 10;
-    static const f32 sTransMinY = -100.0f;
-    static const f32 sTransMaxY = 0.0f;
+    static const s32 sStepShowWait = NebulaFrameClock::stepsOfSeconds(3);
+    NEBULA_TUNABLE(s32, sStepMove, 10);
+    NEBULA_TUNABLE(f32, sTransMinY, -100.0f);
+    NEBULA_TUNABLE(f32, sTransMaxY, 0.0f);
 };  // namespace
 
 namespace NrvNoteCounter {
@@ -26,7 +28,7 @@ NoteCounter::NoteCounter(const char* pName)
     : LayoutActor(pName, true), mNoteNum(), mNoteAddNum(), mNoteMissNum(), mMelodyNo(-1), mRailLength(), mHost() {
 }
 
-void NoteCounter::init(const JMapInfoIter& rIter) {
+void NoteCounter::init(const TableIter& /*rIter*/) {
     initNerve(GET_NERVE(NoteCounter, NoteCounterNrvHide));
     appear();
 }
@@ -67,7 +69,8 @@ void NoteCounter::add() {
     }
 
     mNoteAddNum++;
-    if (mNoteAddNum >= mNoteNum) {
+    // A note taken before any host declared the count has no one to tell.
+    if (mNoteAddNum >= mNoteNum && mHost != nullptr) {
         mHost->receiveMessage(0x66, MR::getMessageSensor(), MR::getMessageSensor());
     }
 
@@ -85,7 +88,7 @@ void NoteCounter::exeShowWait() {
 
 void NoteCounter::exeShowToHide() {
     f32 y = MR::getEaseOutValue(getNerveStep() / 10.0f, ::sTransMaxY, ::sTransMinY, 1.0f);
-    setTrans(TVec2f(getTrans().x, y));
+    setTrans(Vec2f(getTrans().x, y));
 
     if (MR::isStep(this, ::sStepMove)) {
         setNerve(GET_NERVE(NoteCounter, NoteCounterNrvHide));
@@ -98,7 +101,7 @@ void NoteCounter::exeHideToShow() {
     }
 
     f32 y = MR::getEaseOutValue(getNerveStep() / 10.0f, ::sTransMinY, ::sTransMaxY, 1.0f);
-    setTrans(TVec2f(getTrans().x, y));
+    setTrans(Vec2f(getTrans().x, y));
 
     if (MR::isStep(this, ::sStepMove)) {
         setNerve(GET_NERVE(NoteCounter, NoteCounterNrvShow));

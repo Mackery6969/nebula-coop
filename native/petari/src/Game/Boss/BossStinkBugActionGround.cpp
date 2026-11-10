@@ -10,15 +10,16 @@
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/RailUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const f32 sWalkSpeed = 5.0f;
-    static const f32 sFindDegreeH = 45.0f;
-    static const f32 sFindDegreeV = 15.0f;
-    static const f32 sFindMinDistance = 500.0f;
-    static const f32 sFindMaxDistance = 1900.0f;
-    static const f32 sRunSpeed = 20.0f;
-    static const f32 sTurnStartDistance = 2500.0f;
+    NEBULA_TUNABLE(f32, sWalkSpeed, 5.0f);
+    NEBULA_TUNABLE(f32, sFindDegreeH, 45.0f);
+    NEBULA_TUNABLE(f32, sFindDegreeV, 15.0f);
+    NEBULA_TUNABLE(f32, sFindMinDistance, 500.0f);
+    NEBULA_TUNABLE(f32, sFindMaxDistance, 1900.0f);
+    NEBULA_TUNABLE(f32, sRunSpeed, 20.0f);
+    NEBULA_TUNABLE(f32, sTurnStartDistance, 2500.0f);
 };  // namespace
 
 namespace NrvBossStinkBugGroundBattle {
@@ -34,7 +35,7 @@ namespace NrvBossStinkBugGroundBattle {
     NEW_NERVE(BossStinkBugActionGroundNrvTurn, BossStinkBugActionGround, Turn);
 };  // namespace NrvBossStinkBugGroundBattle
 
-BossStinkBugActionGround::BossStinkBugActionGround(BossStinkBug* pStinkBug) : BossStinkBugActionBase("\203\173\203\130\203\112\203\201\203\200\203\126\222\156\217\343\220\355" /* ボスカメムシ地上戦 */, pStinkBug) {
+BossStinkBugActionGround::BossStinkBugActionGround(BossStinkBug* pStinkBug) : BossStinkBugActionBase("ボスカメムシ地上戦", pStinkBug) {
     initNerve(GET_NERVE(BossStinkBugGroundBattle, BossStinkBugActionGroundNrvWalk));
 }
 
@@ -59,10 +60,10 @@ bool BossStinkBugActionGround::isValidFollowId(s32 id) const {
     return id == 0;
 }
 
-void BossStinkBugActionGround::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
+void BossStinkBugActionGround::attackSensor(HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
 }
 
-bool BossStinkBugActionGround::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool BossStinkBugActionGround::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* /*pReceiver*/) {
     if (MR::isMsgPlayerHipDropFloor(msg) && isEnableHipDrop()) {
         MR::tryRumblePadStrong(this, PLAYER_1);
         MR::shakeCameraNormal();
@@ -87,8 +88,8 @@ bool BossStinkBugActionGround::receiveOtherMsg(u32 msg, HitSensor* pSender, HitS
     } else if (MR::isMsgWallTouch(msg) || MR::isMsgCeilTouch(msg)) {
         if (isNerve(GET_NERVE(BossStinkBugGroundBattle, BossStinkBugActionGroundNrvRun)) ||
             isNerve(GET_NERVE(BossStinkBugGroundBattle, BossStinkBugActionGroundNrvShakeOffRun))) {
-            if (MR::isFaceToTargetDegree(getHost(), MR::getSensorPos(pSender), getHost()->_EC, 45.0f)) {
-                TVec3f railPosFrontCoord;
+            if (MR::isFaceToTargetDegree(getHost(), MR::getSensorPos(pSender), getHost()->mFront, 45.0f)) {
+                Vec3f railPosFrontCoord;
                 MR::calcRailPosFrontCoord(&railPosFrontCoord, getHost(), 2000.0f);
 
                 if (MR::sendMsgEnemyAttackMaximumToDir(pSender, pReceiver, railPosFrontCoord - getHost()->mPosition)) {
@@ -116,7 +117,7 @@ void BossStinkBugActionGround::exeWalk() {
     f32 findDistance = MR::calcDistanceToPlayer(getHost());
 
     if (::sFindMinDistance <= findDistance && findDistance <= ::sFindMaxDistance &&
-        MR::isFaceToPlayerDegreeHV(getHost(), getHost()->_EC, ::sFindDegreeH, ::sFindDegreeV)) {
+        MR::isFaceToPlayerDegreeHV(getHost(), getHost()->mFront, ::sFindDegreeH, ::sFindDegreeV)) {
         setNerve(GET_NERVE(BossStinkBugGroundBattle, BossStinkBugActionGroundNrvFind));
     } else if (BossStinkBugFunction::isExistPlayerBack(getHost(), ::sTurnStartDistance)) {
         setNerve(GET_NERVE(BossStinkBugGroundBattle, BossStinkBugActionGroundNrvTurn));
@@ -165,7 +166,7 @@ void BossStinkBugActionGround::exeAttackSuccess() {
 
 void BossStinkBugActionGround::exeCoolDown() {
     if (updateGroundCoolDown()) {
-        if (MR::isFaceToPlayerHorizontalDegree(getHost(), getHost()->_EC, 90.0f)) {
+        if (MR::isFaceToPlayerHorizontalDegree(getHost(), getHost()->mFront, 90.0f)) {
             setNerve(GET_NERVE(BossStinkBugGroundBattle, BossStinkBugActionGroundNrvWalk));
         } else {
             setNerve(GET_NERVE(BossStinkBugGroundBattle, BossStinkBugActionGroundNrvTurn));

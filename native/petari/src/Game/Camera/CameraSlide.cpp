@@ -1,6 +1,6 @@
 #include "Game/Camera/CameraSlide.hpp"
-#include "Game/Camera/CamTranslatorSlide.hpp"
 #include "Game/Camera/CameraLocalUtil.hpp"
+#include "Game/Camera/CameraParamChunk.hpp"
 #include "Game/Camera/CameraTargetObj.hpp"
 #include "Game/Util/MathUtil.hpp"
 
@@ -8,50 +8,62 @@ CameraSlide::CameraSlide(const char* pName)
     : Camera(pName), mAxis(1.0f, 0.0f, 0.0f), mUp(0.0f, 1.0f, 0.0f), mWPoint(0.0f, 0.0f, 0.0f), mAngleA(0.0f), mDist(1000.0f) {
 }
 
-void CameraSlide::reset() {
-}
-
 CameraTargetObj* CameraSlide::calc() {
-    TVec3f front = mAxis.cross(mUp);
+    Vec3f front = mAxis.cross(mUp);
     if (MR::isNearZero(front)) {
         return nullptr;
     }
     MR::normalize(&front);
 
-    TVec3f up = front.cross(mAxis);
+    Vec3f up = front.cross(mAxis);
     MR::normalize(&up);
 
-    TQuat4f rot;
+    Quat4f rot;
     rot.setRotate(front, mAngleA * MR::pi() / 180.0f);
 
-    TVec3f side = mAxis;
+    Vec3f side = mAxis;
     rot.transform(side);
 
-    const TPos3f& mtx = mZoneMatrix;
+    const Pos3f& mtx = mZoneMatrix;
 
     mtx.mult33(front);
     mtx.mult33(up);
     mtx.mult33(side);
 
-    TVec3f watchPoint = mWPoint;
+    Vec3f watchPoint = mWPoint;
     mtx.mult(watchPoint, watchPoint);
 
-    TVec3f camZ = CameraLocalUtil::getTarget(this)->getPosition() - watchPoint;
-    TVec3f watchPos = side * side.dot(camZ) + watchPoint;
+    CameraTargetObj* target = CameraLocalUtil::getTarget(this);
+    Vec3f camZ = target->getPosition() - watchPoint;
+    Vec3f watchPos = side * side.dot(camZ) + watchPoint;
 
-    TVec3f watchOffset;
-    CameraLocalUtil::makeWatchOffset(&watchOffset, this, CameraLocalUtil::getTarget(this), 0.1f / 15.0f);
+    Vec3f watchOffset;
+    CameraLocalUtil::makeWatchOffset(&watchOffset, this, target, 0.1f / 15.0f);
     watchPos.add(watchOffset);
 
-    TVec3f pos = watchPos + front * mDist;
+    Vec3f pos = watchPos + front * mDist;
     CameraLocalUtil::setWatchPos(this, watchPos);
     CameraLocalUtil::setPos(this, pos);
     CameraLocalUtil::setUpVec(this, up);
-    CameraLocalUtil::setWatchUpVec(this, CameraLocalUtil::getTarget(this)->getUpVec());
+    CameraLocalUtil::setWatchUpVec(this, target->getUpVec());
 
-    return CameraLocalUtil::getTarget(this);
+    return target;
 }
 
-CamTranslatorBase* CameraSlide::createTranslator() {
-    return new CamTranslatorSlide(this);
+void CameraSlide::setParamFromChunk(const CameraParamChunk* pChunk) {
+    CameraGeneralParam* general = pChunk->mGeneralParam;
+    Vec3f axis = general->mAxis;
+    if (MR::isNearZero(axis)) {
+        axis.set< f32 >(1.0f, 0.0f, 0.0f);
+    }
+    MR::normalize(&axis);
+    Vec3f up = general->mUp;
+    if (MR::isNearZero(axis) || MR::isSameDirection(axis, up)) {
+        up.set< f32 >(0.0f, 1.0f, 0.0f);
+        Quat4f rot;
+        rot.setRotate(Vec3f(1.0f, 0.0f, 0.0f), axis);
+        rot.transform(up);
+    }
+    MR::normalize(&up);
+    setParam(axis, up, general->mWPoint, general->mAngleA, general->mDist);
 }

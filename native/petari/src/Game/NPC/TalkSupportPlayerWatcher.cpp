@@ -3,25 +3,16 @@
 #include "Game/Util/PlayerInputUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const f32 sPlayerSpeedMin = 4.0f;
-    // static const s32 sStepToTalkStart = _;
-    // static const s32 sStepToTalkEnd = _;
-    // static const s32 sStepToTalkRestart = _;
+    NEBULA_TUNABLE(f32, sPlayerSpeedMin, 4.0f);
 };  // namespace
 
-TalkSupportPlayerWatcher::TalkSupportPlayerWatcher() : mEnableTalkCounter(), mDisableTalkCounter() {
+TalkSupportPlayerWatcher::TalkSupportPlayerWatcher() {
 }
 
 void TalkSupportPlayerWatcher::update() {
-    if (isEnableTalkPlayerSpeed()) {
-        mEnableTalkCounter++;
-        mDisableTalkCounter = 0;
-    } else {
-        mDisableTalkCounter++;
-        mEnableTalkCounter = 0;
-    }
 }
 
 bool TalkSupportPlayerWatcher::isEnableTalkPlayerStateNormal() const {
@@ -53,7 +44,7 @@ bool TalkSupportPlayerWatcher::isEnableTalkPlayerStateEvent() const {
         return true;
     }
 
-    if (MR::isPlayerInWaterMode() || MR::isInWater(MR::getPlayerDemoActor(), TVec3f(0.0f, 0.0f, 0.0f))) {
+    if (MR::isPlayerInWaterMode() || MR::isInWater(MR::getPlayerDemoActor(), Vec3f(0.0f, 0.0f, 0.0f))) {
         return true;
     }
 

@@ -2,16 +2,14 @@
 
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/MapPartsFunction.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class MapPartsRotatorBase : public MapPartsFunction {
 public:
     inline MapPartsRotatorBase(LiveActor* pActor, const char* pName) : MapPartsFunction(pActor, pName) {
     }
 
-    virtual ~MapPartsRotatorBase();
-
-    virtual const TMtx34f& getRotateMtx() const = 0;
+    virtual const Mtx34f& getRotateMtx() const = 0;
 
     virtual bool isMoving() const {
         return false;
@@ -32,18 +30,18 @@ public:
 
     enum AxisType { AxisType_XAxis, AxisType_YAxis, AxisType_ZAxis };
 
-    virtual void init(const JMapInfoIter&);
-    virtual bool isWorking() const;
-    virtual void start();
-    virtual void end();
-    virtual const TMtx34f& getRotateMtx() const {
+    virtual void init(const TableIter&) override;
+    virtual bool isWorking() const override;
+    virtual void start() override;
+    virtual void end() override;
+    virtual const Mtx34f& getRotateMtx() const override {
         return mRotateMtx;
     }
-    virtual bool isMoving() const;
-    virtual f32 getRotateSpeed() const {
+    virtual bool isMoving() const override;
+    virtual f32 getRotateSpeed() const override {
         return mRotateSpeed;
     }
-    virtual bool isOnReverse() const {
+    virtual bool isOnReverse() const override {
         return mIsOnReverse;
     }
 
@@ -54,10 +52,10 @@ public:
     void updateAngle();
     void updateTargetAngle();
     void restartAtEnd();
-    void initRotateSpeed(const JMapInfoIter&);
+    void initRotateSpeed(const TableIter&);
     bool isReachedTargetAngle() const;
     void updateRotateMtx(AxisType, f32);
-    void calcRotateAxisDir(AxisType, TVec3f*) const;
+    void calcRotateAxisDir(AxisType, Vec3f*) const;
 
     void exeNeverMove();
     void exeWait();
@@ -70,10 +68,10 @@ public:
     }
 
     bool isRotateClockwise() const {
-        return 0.0f < _18;
+        return 0.0f < mTargetRotateSpeed;
     }
 
-    f32 _18;
+    f32 mTargetRotateSpeed;
     f32 mRotateAngle;
     s32 mRotateStopTime;
     f32 mTargetAngle;
@@ -83,8 +81,8 @@ public:
     s32 mRotateAccelType;
     s32 mRotateType;
     s32 mSignMotionType;
-    TPos3f mBaseHostMtx;
-    TPos3f mRotateMtx;
-    f32 _A0;
+    Pos3f mBaseHostMtx;
+    Pos3f mRotateMtx;
+    f32 mSignAngle;
     bool mIsOnReverse;
 };
