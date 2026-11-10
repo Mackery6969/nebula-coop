@@ -74,6 +74,8 @@ inline constexpr unsigned kCoopMaxPlayersLimit = 16u;
 inline constexpr std::size_t kCoopTextLimit = 32u;
 // The longest remembered join address ("host:port", "[ipv6]:port"), in bytes.
 inline constexpr std::size_t kCoopAddressLimit = 64u;
+// The NebulaNet games use unless coop_nebulanet names another (galaxy/coop_nebulanet.h).
+inline constexpr const char* kCoopNebulaNetDefault = "https://nebulanet.mackery.com";
 
 // How players touch one another, sm64coopdx's options (docs/COOP_PLAN.md, "Player collisions"). Non-solid: they pass
 // through. Solid: they push apart, bounce off each other's heads and knock one another back with attacks, with no
@@ -91,6 +93,7 @@ struct RuntimeCoopSettings {
     std::uint16_t port = kCoopDefaultPort;
     unsigned max_players = 8u;  // 2 to kCoopMaxPlayersLimit, the host included
     std::string player_name;    // empty: PLAYER
+    std::string room_name;      // the Host page's ROOM NAME, as NebulaNet lists the room; empty: the player's name
     CoopCharacter character = CoopCharacter::Mario;
     std::string password;       // a host's: joining needs it; a joiner's: sent to the host. Empty: none
     std::string join_address;   // the Join page's last room code or address, "host[:port]" (empty: none yet)

@@ -125,7 +125,7 @@ void test_menu(const fs::path& scratch) {
     host.press(0u);
     expect(host.take_command() == MenuCommand::None, "Host opens its page, nothing to play yet");
     view = host.view();
-    expect(view.pages[0] == "HOST" && view.rows.size() == 14u && view.selected == 0u, "the Host page, Save selected");
+    expect(view.pages[0] == "HOST" && view.rows.size() == 16u && view.selected == 0u, "the Host page, Save selected");
     expect(view.rows[0].value == "ONE" && view.rows[0].changes && view.rows[0].name, "the last played save first");
     host.change(1);
     expect(host.view().rows[0].value == "TWO", "right: the next save");
@@ -190,11 +190,11 @@ void test_menu(const fs::path& scratch) {
     expect(host.room().nebulanet, "Tab: NebulaNet again");
 
     // The port and password.
-    host.select_row(3u);
+    host.select_row(5u);
     host.press(0u);
     host.type(U'x');
     host.type(U'1');
-    expect(host.view().rows[3].value == "77771_", "a port takes digits");
+    expect(host.view().rows[5].value == "77771_", "a port takes digits");
     host.type(galaxy::coop::kTextEnter);
     expect(host.view().editing && host.room().port == 7777u, "a port past 65535 isn't kept");
     host.type(galaxy::coop::kTextBackspace);
@@ -204,8 +204,8 @@ void test_menu(const fs::path& scratch) {
     expect(!host.view().editing && host.room().port == 7778u, "Enter keeps the port");
     host.reset();
     expect(host.room().port == galaxy::kCoopDefaultPort, "Tab puts it back to 7777");
-    host.select_row(4u);
-    expect(host.view().rows[4].value == "NONE", "no password");
+    host.select_row(6u);
+    expect(host.view().rows[6].value == "NONE", "no password");
     host.press(0u);
     host.type(U'p');
     host.type(U'w');
@@ -215,16 +215,16 @@ void test_menu(const fs::path& scratch) {
     host.type(U'p');
     host.type(U'w');
     host.press(0u);
-    expect(host.room().password == "pw" && host.view().rows[4].value == "**", "kept, and hidden");
+    expect(host.room().password == "pw" && host.view().rows[6].value == "**", "kept, and hidden");
 
     const galaxy::RuntimeCoopSettings before = host.room();
-    host.select_row(5u);
+    host.select_row(7u);
     host.change(1);
-    host.select_row(10u);
+    host.select_row(12u);
     host.change(1);
     const galaxy::RuntimeCoopSettings after = host.room();
     expect(after.max_players == before.max_players + 1u && after.cheats, "the room's settings change");
-    host.select_row(7u);
+    host.select_row(9u);
     host.change(1);
     host.change(1);
     expect(host.room().knockback_strength == galaxy::kCoopKnockbackTooMuch,
@@ -234,30 +234,31 @@ void test_menu(const fs::path& scratch) {
     host.reset();
     expect(host.room().knockback_strength == galaxy::kCoopKnockbackNormal, "Tab resets the selected setting");
     expect(host.room().cheats, "and only it");
-    host.select_row(10u);
+    host.select_row(12u);
     host.reset();
     expect(!host.room().cheats, "cheats reset to off");
-    host.select_row(9u);
-    expect(host.view().rows[9].label == "BUBBLE ON DEATH" && host.view().rows[9].value == "ON", "bubbles on by default");
+    host.select_row(11u);
+    expect(host.view().rows[11].label == "BUBBLE ON DEATH" && host.view().rows[11].value == "ON",
+           "bubbles on by default");
     host.change(-1);
-    expect(!host.room().bubble_death && host.view().rows[9].value == "OFF", "left turns bubble on death off");
+    expect(!host.room().bubble_death && host.view().rows[11].value == "OFF", "left turns bubble on death off");
     host.reset();
     expect(host.room().bubble_death, "and back on, its default");
     host.select_row(0u);
     host.reset();
     expect(host.view().rows[0].value == "ONA", "the save has no default");
 
-    host.select_row(12u);
+    host.select_row(14u);
     host.press(0u);
     expect(host.take_command() == MenuCommand::Play && host.chosen_save() == first, "Host plays the picked save");
 
-    host.select_row(13u);
+    host.select_row(15u);
     host.press(0u);
     expect(host.view().pages[0] == "PLAY" && host.view().selected == 0u, "Back returns to the main page, on Host");
     host.press(0u);
     host.select_row(0u);
     host.change(1);
-    host.select_row(12u);
+    host.select_row(14u);
     host.press(0u);
     expect(host.take_command() == MenuCommand::Play && host.chosen_save().empty(), "Host on New save: a new one");
     host.back();
@@ -279,7 +280,7 @@ void test_join() {
     menu.select_row(1u);
     menu.press(0u);
     galaxy::coop::MenuView view = menu.view();
-    expect(view.pages[0] == "JOIN" && view.rows.size() == 4u && view.rows[0].value == "NONE" &&
+    expect(view.pages[0] == "JOIN" && view.rows.size() == 5u && view.rows[0].value == "NONE" &&
                view.rows[2].value == "-JOIN",
            "the Join page: no address yet, so no joining");
     menu.press(0u);
@@ -338,6 +339,126 @@ void test_join() {
 
 }
 
+// The Host page's NebulaNet rows: the room's name and the server.
+void test_room_rows() {
+    using galaxy::coop::MainMenu;
+    MainMenu menu(true);
+    menu.open();
+    menu.press(0u);
+    galaxy::coop::MenuView view = menu.view();
+    expect(view.rows[3].label == "ROOM NAME" && view.rows[3].value == "YOUR NAME" && view.rows[3].text,
+           "the room goes by the player's name until it's named");
+    menu.select_row(3u);
+    menu.press(0u);
+    for (const char c : std::string("Star Hunt")) menu.type(static_cast<char32_t>(c));
+    menu.press(0u);
+    expect(menu.room().room_name == "Star Hunt" && menu.view().rows[3].value == "Star Hunt" &&
+               menu.view().rows[3].name,
+           "a name is kept, shown as typed");
+    menu.reset();
+    expect(menu.room().room_name.empty(), "Tab: the player's name again");
+
+    view = menu.view();
+    expect(view.rows[4].label == "NEBULANET SERVER" && view.rows[4].value == galaxy::kCoopNebulaNetDefault,
+           "Nebula's own NebulaNet by default");
+    menu.select_row(4u);
+    menu.press(0u);
+    for (int i = 0; i < 64; ++i) menu.type(galaxy::coop::kTextBackspace);
+    for (const char c : std::string("example.com")) menu.type(static_cast<char32_t>(c));
+    menu.press(0u);
+    expect(menu.view().editing && menu.room().nebulanet_server.empty() &&
+               menu.view().rows[4].help == "A NEBULANET SERVER STARTS WITH HTTPS://",
+           "a server without its scheme isn't kept");
+    for (int i = 0; i < 64; ++i) menu.type(galaxy::coop::kTextBackspace);
+    for (const char c : std::string("http://127.0.0.1:8787/")) menu.type(static_cast<char32_t>(c));
+    menu.press(0u);
+    expect(!menu.view().editing && menu.room().nebulanet_server == "http://127.0.0.1:8787",
+           "another server is kept, without a trailing slash");
+    menu.press(0u);
+    for (int i = 0; i < 64; ++i) menu.type(galaxy::coop::kTextBackspace);
+    for (const char c : std::string(galaxy::kCoopNebulaNetDefault)) menu.type(static_cast<char32_t>(c));
+    menu.press(0u);
+    expect(menu.room().nebulanet_server.empty(), "Nebula's own is kept as none");
+}
+
+// The Rooms page: NebulaNet's list, as sm64coopdx's lobby browser shows CoopNet's.
+void test_rooms() {
+    using galaxy::coop::ListedRoom;
+    using galaxy::coop::MainMenu;
+    using galaxy::coop::MenuCommand;
+    MainMenu menu(true);
+    menu.open();
+    menu.select_row(1u);
+    menu.press(0u);
+    galaxy::coop::MenuView view = menu.view();
+    expect(view.rows[3].label == "ROOMS" && view.rows[3].value == "BROWSE", "the Join page lists rooms");
+    menu.select_row(3u);
+    menu.press(0u);
+    view = menu.view();
+    expect(menu.take_command() == MenuCommand::ListRooms && menu.listing_rooms() && view.pages[0] == "ROOMS" &&
+               view.rows.size() == 2u && view.rows[0].label == "SEARCHING NEBULANET..." &&
+               view.rows[1].value == "-REFRESH|BACK",
+           "browsing asks NebulaNet, searching meanwhile");
+
+    menu.set_rooms({}, {}, "v1");
+    expect(menu.view().rows[0].label == "NO PUBLIC ROOMS RIGHT NOW" && menu.view().rows[1].value == "REFRESH|BACK",
+           "none yet");
+    menu.set_rooms({}, "NEBULANET COULD NOT BE REACHED", "v1");
+    expect(menu.view().rows[0].label == "NEBULANET COULD NOT BE REACHED", "or why there are none");
+
+    menu.set_rooms({ListedRoom{"K7QX2M", "Star Hunt", "v1", "CO-OP", "MODS: A", false, 2u, 8u},
+                    ListedRoom{"ABCDEF", "Full", "v1", "PVP", "", false, 4u, 4u},
+                    ListedRoom{"GHJKLM", "Old", "v0", "CO-OP", "", false, 1u, 4u}},
+                   {}, "v1");
+    view = menu.view();
+    expect(view.rows.size() == 4u && view.rows[0].label == "Star Hunt" && view.rows[0].label_name &&
+               view.rows[0].value == "2/8" && view.rows[0].help == "CO-OP. MODS: A. CODE K7QX2M" &&
+               view.rows[1].value == "FULL",
+           "each room: its name, players, mode, description and code");
+    menu.select_row(1u);
+    menu.press(0u);
+    expect(menu.take_command() == MenuCommand::None && menu.view().rows[1].help == "THAT ROOM IS FULL",
+           "a full room can't be joined");
+    menu.select_row(2u);
+    menu.press(0u);
+    expect(menu.take_command() == MenuCommand::None &&
+               menu.view().rows[2].help == "THAT ROOM PLAYS ANOTHER VERSION OF NEBULA",
+           "nor one of another version");
+    menu.select_row(0u);
+    menu.press(0u);
+    expect(menu.take_command() == MenuCommand::Join && menu.room().join_address == "K7QX2M",
+           "pressing a room joins it by its code");
+    menu.set_joining(true);
+    expect(menu.view().pages[0] == "JOINING", "on the joining screen");
+    menu.set_joining(false);
+    expect(menu.view().pages[0] == "JOIN", "stopped: the Join page");
+
+    // With a password: the private rooms that have it.
+    menu.select_row(1u);
+    menu.press(0u);
+    for (const char c : std::string("pw")) menu.type(static_cast<char32_t>(c));
+    menu.press(0u);
+    menu.select_row(3u);
+    menu.press(0u);
+    expect(menu.take_command() == MenuCommand::ListRooms && menu.view().pages[0] == "PRIVATE ROOMS",
+           "with a password, the private rooms");
+    menu.set_rooms({}, {}, "v1");
+    expect(menu.view().rows[0].label == "NO PRIVATE ROOM HAS THAT PASSWORD", "none have it");
+    menu.select_row(1u);
+    menu.press(0u);
+    expect(menu.take_command() == MenuCommand::ListRooms, "Refresh asks again");
+    menu.set_rooms({}, {}, "v1");
+    menu.select_row(1u);
+    menu.change(1);
+    menu.press(1u);
+    expect(menu.view().pages[0] == "JOIN" && menu.view().selected == 3u, "Back: the Join page, on Rooms");
+    menu.select_row(3u);
+    menu.press(0u);
+    (void)menu.take_command();
+    menu.back();
+    expect(menu.view().pages[0] == "JOIN", "as B does");
+}
+
 // A text row's editing, as Options' PLAYER page and the main menu's text rows have it.
 void test_text_edit() {
     using galaxy::coop::TextEdit;
@@ -377,8 +498,8 @@ void test_mods() {
     });
     menu.open();
     menu.press(0u);
-    expect(menu.view().rows[11].value == "2 ON" && !menu.mods_changed(), "the Host page counts the mods on");
-    menu.select_row(11u);
+    expect(menu.view().rows[13].value == "2 ON" && !menu.mods_changed(), "the Host page counts the mods on");
+    menu.select_row(13u);
     menu.press(0u);
     galaxy::coop::MenuView view = menu.view();
     expect(view.pages[0] == "MODS" && view.rows.size() == 6u && view.rows[0].label == "Textures" &&
@@ -399,7 +520,7 @@ void test_mods() {
     expect(menu.mods_changed() && menu.room_mods()[1].id == "Alpha" && !menu.room_mods()[1].on,
            "Tab turns a mod off");
     menu.back();
-    expect(menu.view().pages[0] == "HOST" && menu.view().selected == 11u && menu.view().rows[11].value == "1 ON",
+    expect(menu.view().pages[0] == "HOST" && menu.view().selected == 13u && menu.view().rows[13].value == "1 ON",
            "B: back to the Host page, its mods kept");
     menu.press(0u);
     view = menu.view();
@@ -414,7 +535,7 @@ void test_mods() {
     menu.change(1);
     expect(menu.room().star_counter, "left and right turn it over");
     menu.back();
-    expect(menu.view().rows[11].value == "2 ON", "the Host page counts it with the mods on");
+    expect(menu.view().rows[13].value == "2 ON", "the Host page counts it with the mods on");
     menu.press(0u);
     menu.select_row(4u);
     menu.reset();
@@ -426,7 +547,7 @@ void test_mods() {
     MainMenu none(true);
     none.open();
     none.press(0u);
-    none.select_row(11u);
+    none.select_row(13u);
     none.press(0u);
     expect(none.view().rows.size() == 3u && none.view().rows[0].label == "NO MODS YET" &&
                none.view().rows[1].label == "PERSONAL STAR COUNTER",
@@ -445,6 +566,8 @@ int main() {
     test_saves(scratch);
     test_menu(scratch);
     test_join();
+    test_room_rows();
+    test_rooms();
     test_text_edit();
     test_mods();
     fs::remove_all(scratch, error);
