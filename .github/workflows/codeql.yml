@@ -4,8 +4,14 @@ name: "CodeQL Advanced"
 #
 # Replaces GitHub's default setup so the scan can skip code Nebula does not own: the Petari
 # decompilation (native/petari, which mirrors the original game's code) and the unmodified
-# libraries in third_party (THIRD-PARTY-NOTICES.md). Every language is extracted without a
+# libraries in third_party (THIRD-PARTY-NOTICES.md). Every language but C# is extracted without a
 # build (build-mode none), which is what lets paths-ignore apply to C/C++ as well.
+#
+# C# (the launcher, Nebula Settings and Setup in installer/) is built: it has no project file and
+# targets .NET Framework with Windows Forms, so without a build CodeQL resolves too few of its
+# calls and types ("Low C# analysis quality"). Its job runs on Windows and compiles the sources
+# with the in-box csc.exe as installer/build-native-setup.ps1 and installer/tests do, and CodeQL
+# watches those compiles. Nothing it ignores is C#, so paths-ignore not applying there is fine.
 #
 # paths-ignore only skips those files as sources: a header Nebula's code includes (stb_image.h,
 # Petari's headers) is still analyzed with it, and its results reported. So the results are
@@ -33,7 +39,7 @@ permissions:
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.language == 'csharp' && 'windows-latest' || 'ubuntu-latest' }}
     permissions:
       contents: read
       security-events: write
@@ -47,11 +53,52 @@ jobs:
       - uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
-          build-mode: none
+          build-mode: ${{ matrix.language == 'csharp' && 'manual' || 'none' }}
           config: |
             paths-ignore:
               - native/petari
               - third_party
+      - name: Build the C# programs
+        if: matrix.language == 'csharp'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $env:GITHUB_WORKSPACE 'installer'
+          $scratch = Join-Path $env:RUNNER_TEMP 'csharp'
+          New-Item -ItemType Directory -Force $scratch | Out-Null
+          # build-native-setup.ps1 writes BuildInfo.cs at release time.
+          $storeVersion = [uint32](Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'runtime\include\galaxy\store_version.inc') -Raw).Trim()
+          $buildInfo = Join-Path $scratch 'BuildInfo.cs'
+          Set-Content -LiteralPath $buildInfo -Value @"
+          namespace Nebula { internal static class BuildInfo {
+           public const string Version="0.0.0-codeql";
+           public const string Commit="$env:GITHUB_SHA";
+           public const string Repository="keepvaibin/nebula";
+           public const string ReleasePublicKeyXml="";
+           public const uint StoreVersion=$storeVersion;
+          }}
+          "@
+          function Sources([string]$Folder) { @(Get-ChildItem -LiteralPath (Join-Path $installer $Folder) -Filter *.cs | ForEach-Object FullName) }
+          $common = (Sources 'src\Common') + $buildInfo
+          $launcher = Sources 'src\Launcher'
+          $setup = Sources 'src\Setup'
+          $tests = Join-Path $installer 'tests'
+          $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          $refs = @('/r:System.Web.Extensions.dll', '/r:System.IO.Compression.dll', '/r:System.IO.Compression.FileSystem.dll',
+                    '/r:System.Windows.Forms.dll', '/r:System.Drawing.dll', '/r:System.Core.dll')
+          $builds = [ordered]@{
+            'Nebula.exe'           = @('/target:winexe') + $common + $launcher
+            'NebulaSettings.exe'   = @('/target:winexe', '/define:NEBULA_SETTINGS_APP') + $common + $launcher
+            'Setup.exe'            = @('/target:winexe') + $common + $setup
+            'LauncherTests.exe'    = @('/target:exe', '/main:Nebula.Launcher.LauncherTests') + $common + $launcher + (Join-Path $tests 'LauncherTests.cs')
+            'SetupTests.exe'       = @('/target:exe', '/main:Nebula.Setup.SetupTests') + $common + $setup + (Join-Path $tests 'SetupTests.cs')
+            'BetaChannelTests.exe' = @('/target:exe', '/main:Nebula.Setup.BetaChannelTests') + $common + $setup + (Join-Path $tests 'BetaChannelTests.cs')
+            'UpdateFlowTests.exe'  = @('/target:exe', '/main:Nebula.Setup.UpdateFlowTests') + $common + $setup + (Join-Path $tests 'UpdateFlowTests.cs')
+          }
+          foreach ($build in $builds.GetEnumerator()) {
+            & $csc /nologo /platform:x64 "/out:$(Join-Path $scratch $build.Key)" @refs @($build.Value)
+            if ($LASTEXITCODE -ne 0) { throw "$($build.Key) failed to compile." }
+          }
       - uses: github/codeql-action/analyze@v4
         with:
           category: /language:${{ matrix.language }}
