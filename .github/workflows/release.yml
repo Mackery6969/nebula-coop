@@ -168,6 +168,12 @@ jobs:
           foreach ($name in 'material-names.tsv', 'rt-materials.tsv', 'rt-suns.tsv') {
               [IO.File]::WriteAllBytes((Join-Path $tables $name), [byte[]]@())
           }
+      - name: Private terms
+        # release_check.ps1 expects .nebula-release-key\private-terms.txt (one term per line).
+        # An empty file means no personal terms to check — the file just needs to exist.
+        run: |
+          $folder = New-Item -ItemType Directory -Force (Join-Path $env:USERPROFILE '.nebula-release-key')
+          [IO.File]::WriteAllText((Join-Path $folder 'private-terms.txt'), '')
       - name: Release key
         # The private half of installer/release-public-key.xml, where build-native-setup.ps1 and release_check.ps1
         # look for it. Without it Setup is published unsigned, and the launcher's update check skips the release.
@@ -190,10 +196,13 @@ jobs:
         # Defender isn't run here: the runner's definitions say nothing about players' PCs.
         # Windows PowerShell, as the script is run by hand: its scanner is compiled against .NET Framework, which
         # PowerShell 7 (pwsh) is not, and there it misses System.Text.RegularExpressions.
+        # -Allow whitelists known-good strings from third-party binaries (false-positive emails, etc.).
         shell: powershell
         run: >-
           .\tools\release_check.ps1 -Path (Join-Path $env:RUNNER_TEMP 'bin')
-          -Installer (Join-Path $env:RUNNER_TEMP "dist\$env:SETUP") -SkipDefender
+          -Installer (Join-Path $env:RUNNER_TEMP "dist\$env:SETUP")
+          -Allow (Join-Path $env:GITHUB_WORKSPACE 'tools\release-allow.txt')
+          -SkipDefender
       - name: Remove the release key
         if: always()
         run: Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path $env:USERPROFILE '.nebula-release-key')

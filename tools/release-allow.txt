@@ -1,0 +1,12 @@
+# Known-good strings that appear in compiled binaries but are not from Nebula's source code.
+# One literal match per line. The release scanner does case-insensitive substring matching
+# against each raw finding. If the allowed string appears anywhere in the match, it is skipped.
+
+# False positive from third-party compiled binaries (DXC / Streamline / other embedded libs).
+# The release check reads raw bytes as Latin-1; random binary data accidentally forms
+# patterns that look like email addresses.
+@C.pa
+
+# User paths baked into third-party compiled binaries (DXC DLLs, Rust binary metadata, etc.).
+# Nebula's own source code has no hardcoded user paths, so this is safe.
+C:\Users\
