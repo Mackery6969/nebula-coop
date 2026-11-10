@@ -169,7 +169,7 @@ public:
 
 private:
     enum class Screen { Main, Host, Mods, Join, Joining };
-    enum class Field { None, SaveName, Port, Password, Address, NebulaNetCode, JoinNebulaNetCode };
+    enum class Field { None, SaveName, Port, Password, Address, NebulaNetCode, JoinNebulaNetCode, NebulaNetServer };
     struct Edit {
         Field field = Field::None;
         unsigned row = 0u;

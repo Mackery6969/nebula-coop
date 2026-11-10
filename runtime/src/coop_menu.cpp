@@ -1,5 +1,6 @@
 #include "galaxy/coop_menu.h"
 
+#include "galaxy/coop_nebulanet.h"
 #include "galaxy/coop_saves.h"
 
 #include <algorithm>
@@ -17,6 +18,7 @@ enum HostRow : unsigned {
     RowSave,
     RowSaveEdit,
     RowNetwork,
+    RowNebulaNetServer,
     RowPort,
     RowPassword,
     RowPlayers,
@@ -41,12 +43,14 @@ constexpr std::string_view kPasswordLetters =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.!?#$%&*+=@";
 constexpr std::string_view kAddressLetters = "0123456789.:abcdefghijklmnopqrstuvwxyz-[]";
 constexpr std::string_view kPortLetters = "0123456789";
+constexpr std::string_view kServerLetters = "0123456789.:abcdefghijklmnopqrstuvwxyz-[]/";
 
 std::string_view kind_letters(TextKind kind) {
     switch (kind) {
     case TextKind::Port: return kPortLetters;
     case TextKind::Password: return kPasswordLetters;
     case TextKind::Address: return kAddressLetters;
+    case TextKind::NebulaNetServer: return kServerLetters;
     default: return kNameLetters;
     }
 }
@@ -55,6 +59,7 @@ std::size_t kind_limit(TextKind kind) {
     switch (kind) {
     case TextKind::Port: return 5u;
     case TextKind::Address: return kCoopAddressLimit;
+    case TextKind::NebulaNetServer: return kCoopAddressLimit;
     case TextKind::PlayerName: return kPlayerNameLimit;
     default: return kCoopTextLimit;
     }
@@ -301,6 +306,12 @@ std::vector<MenuRow> MainMenu::rows() const {
                                            : "DIRECT: FRIENDS JOIN BY YOUR ADDRESS AND PORT. FORWARD THE PORT ON YOUR "
                                              "ROUTER, OR PLAY OVER A VPN",
                             false, true};
+        if (coop.nebulanet) {
+            rows[RowNebulaNetServer] = {"SERVER",
+                                        text_value(Field::NebulaNetServer, RowNebulaNetServer,
+                                                   coop.nebulanet_server.empty() ? kNebulaNetServer : coop.nebulanet_server),
+                                        "THE NEBULANET SERVER USED FOR ROOM LISTING, WITH NO PORT TO FORWARD", false, false};
+        }
         rows[RowPort] = {"PORT", text_value(Field::Port, RowPort, std::to_string(coop.port)),
                          coop.nebulanet ? "THE UDP PORT THE ROOM PLAYS ON. WITH NEBULANET NOTHING NEEDS FORWARDING"
                                         : "THE UDP PORT PLAYERS JOIN ON. FORWARD IT ON YOUR ROUTER, OR PLAY OVER A VPN",
