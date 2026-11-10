@@ -162,6 +162,12 @@ void test_remote_players() {
     send(2u, 99.0f, 260ms);
     seen = players.sample("EggStarGalaxy", 1, start + 400ms);
     expect(!seen.empty() && near(seen[0].snapshot.position[0], 20.0f), "a late snapshot is dropped; past the last, it");
+    expect(!seen.empty() && near(seen[0].snapshot.frame, 20.0f + 0.1f * 60.0f * seen[0].snapshot.rate),
+           "its animation played on at its speed for the 100 ms since");
+    seen = players.sample("EggStarGalaxy", 1, start + 900ms);
+    expect(!seen.empty() && near(seen[0].snapshot.position[0], 20.0f) &&
+               near(seen[0].snapshot.frame, 20.0f + 0.2f * 60.0f * seen[0].snapshot.rate),
+           "for 200 ms at most");
     expect(players.sample("EggStarGalaxy", 1, start + 1300ms).empty(), "nothing heard for a second: not drawn");
     send(4u, 0.0f, 1400ms, "AstroGalaxy");
     expect(players.sample("EggStarGalaxy", 1, start + 1450ms).empty(), "gone to another galaxy");

@@ -185,9 +185,10 @@ bool NebulaRemotePlayer::isLocalIntangible() {
 NebulaRemotePlayer::NebulaRemotePlayer(bool isLuigi)
     : LiveActor(isLuigi ? "NebulaRemoteLuigi" : "NebulaRemoteMario"), mIsLuigi(isLuigi), mNumber(0), mXanimePlayer(nullptr),
       mLastFrame(0.0f), mFront(0.0f, 0.0f, 1.0f), mUp(0.0f, 1.0f, 0.0f), mRewindMs(0), mShownFrames(0),
-      mStompTimer(0), mSolid(false), mBubble(nullptr) {
+      mStompTimer(0), mSolid(false), mBubble(nullptr), mWantedInfo(nullptr) {
     mName[0] = '\0';
     mGroup[0] = '\0';
+    mWantedGroup[0] = '\0';
     mGhosted = false;
     mGhostTint.kind = MarioModelTint::Kind_Alpha;
     mGhostTint.color0.a = cGhostAlpha;
@@ -484,17 +485,25 @@ void NebulaRemotePlayer::control() {
 
 void NebulaRemotePlayer::updateAnimation() {
     // The animation the snapshot names, when the copy plays another: its group, else (Mario's code played a bck of its
-    // own) the bck. What the copy plays is asked of it, not remembered, so one it ended by itself (back to its default)
-    // starts again when the player plays it again.
+    // own: his "non-group", which no table has) the bck. What the copy plays is asked of it, not remembered, so one it
+    // ended by itself (back to its default) starts again when the player plays it again. A group's bck is never played
+    // on its own: the player's game names the bck it last told (MarioAnimator::mCurrBck), which a group it changed to
+    // another way doesn't update, and playing that bck bare each frame put the group back the next, over and over.
     bool changed = false;
-    if (mState.group[0] != '\0' && strcmp(mXanimePlayer->getCurrentAnimationName(), mState.group) != 0) {
-        mXanimePlayer->changeAnimation(mState.group);
-        changed = true;
+    if (strcmp(mWantedGroup, mState.group) != 0) {
+        nebula_snprintf(mWantedGroup, sizeof(mWantedGroup), "%s", mState.group);
+        mWantedInfo = mWantedGroup[0] != '\0' ? mXanimePlayer->mResourceTable->getGroupInfo(mWantedGroup) : nullptr;
     }
-    const char* pPlaying = mXanimePlayer->getCurrentBckName();
-    if (mState.animation[0] != '\0' && (pPlaying == nullptr || strcmp(pPlaying, mState.animation) != 0)) {
-        mXanimePlayer->changeSimpleBck(mState.animation);
-        changed = true;
+    if (mWantedInfo != nullptr) {
+        if (mXanimePlayer->mCurrentAnimation != mWantedInfo) {
+            mXanimePlayer->changeAnimation(mWantedInfo);
+            changed = true;
+        }
+    } else if (mState.animation[0] != '\0') {
+        const char* pPlaying = mXanimePlayer->getCurrentBckName();
+        if (!mXanimePlayer->isAnimationRunSimple() || pPlaying == nullptr || strcmp(pPlaying, mState.animation) != 0) {
+            changed = mXanimePlayer->changeSimpleBck(mState.animation);
+        }
     }
     updateTracks();
     for (u32 i = 0; i < 4; i++) {
@@ -502,25 +511,36 @@ void NebulaRemotePlayer::updateAnimation() {
     }
 
     // Played on here at the player's speed (ModelManager::update moves it along each frame), and kept on the
-    // snapshot's frame: eased onto it, or put there when far off, as when it starts or starts again. Round a loop the
-    // short way: its end and its loop's start are the same pose.
+    // snapshot's frame: eased onto it, or put there when far off, as when it starts or starts again.
+    //
+    // A looping animation may play a part once before it loops (falling asleep sits him down, then loops his snoring:
+    // 0 to 375, then 375 to 494 over and over). Only the loop's part (its loop frame to its end) goes round, the short
+    // way, as the game's FrameCtrl::update does; the part before it is played as any other. Wrapping a frame there
+    // into the loop threw the copy 119 frames on each frame, then back onto the snapshot's, for as long as it lasted.
     FrameCtrl* pCtrl = mXanimePlayer->getFrameCtrl();
     f32 target = mState.animation_frame;
-    // The same animation started again (a second spin): its frame went back.
-    const bool restarted = !changed && strcmp(mGroup, mState.group) == 0 && target + cFrameSnap < mLastFrame;
+    bool restarted = false;
     if (pCtrl != nullptr) {
         pCtrl->setRate(mState.animation_rate);
         const f32 loopStart = pCtrl->getLoop();
         const f32 end = pCtrl->getEnd();
-        const bool loops = pCtrl->getAttribute() == FrameCtrl::EMode_LOOP && end > loopStart;
-        if (loops && target > end) {
-            target = loopStart + fmodf(target - loopStart, end - loopStart);
+        const f32 length = end - loopStart;
+        const bool loops = pCtrl->getAttribute() == FrameCtrl::EMode_LOOP && length > 0.0f;
+        // Past the end (the snapshot's frame played on, RemotePlayers::sample's): round the loop, or held at the end.
+        if (target < static_cast< f32 >(pCtrl->getStart())) {
+            target = static_cast< f32 >(pCtrl->getStart());
+        } else if (loops && target >= end) {
+            target = loopStart + fmodf(target - loopStart, length);
         } else if (target > end) {
             target = end;
         }
-        f32 drift = target - pCtrl->getFrame();
-        if (loops) {
-            const f32 length = end - loopStart;
+        const f32 current = pCtrl->getFrame();
+        const bool bothInLoop = loops && current >= loopStart && target >= loopStart;
+        // The same animation started again (a second spin): its frame went back, other than round its loop.
+        restarted = !changed && strcmp(mGroup, mState.group) == 0 && target + cFrameSnap < mLastFrame &&
+                    !(loops && mLastFrame >= loopStart && target >= loopStart);
+        f32 drift = target - current;
+        if (bothInLoop) {
             if (drift > length * 0.5f) {
                 drift -= length;
             } else if (drift < -length * 0.5f) {
@@ -530,11 +550,11 @@ void NebulaRemotePlayer::updateAnimation() {
         if (changed || restarted || drift > cFrameSnap || drift < -cFrameSnap) {
             pCtrl->setFrame(target);
         } else {
-            f32 frame = pCtrl->getFrame() + drift * cFrameEase;
+            f32 frame = current + drift * cFrameEase;
             if (loops && frame >= end) {
-                frame -= end - loopStart;
-            } else if (loops && frame < loopStart) {
-                frame += end - loopStart;
+                frame -= length;
+            } else if (bothInLoop && frame < loopStart) {
+                frame += length;
             }
             pCtrl->setFrame(frame);
         }
@@ -542,6 +562,12 @@ void NebulaRemotePlayer::updateAnimation() {
         // when it plays again or this copy got to its end first: moving again.
         if (mState.animation_rate != 0.0f && target < end) {
             pCtrl->mState &= ~1;
+        }
+        // Drawn on that frame now: this frame's ModelManager::update already moved the animation along and keeps the
+        // frame before it for calcAnm (XanimePlayer::mPrevFrame), so the frame put here showed a frame late, and an
+        // animation just changed to showed its first frame before the one the player is on.
+        if (mXanimePlayer->mHasPrevFrame) {
+            mXanimePlayer->mPrevFrame = pCtrl->getFrame();
         }
     }
 
@@ -553,7 +579,7 @@ void NebulaRemotePlayer::updateAnimation() {
     } else {
         updateAnimationEffect();
     }
-    mLastFrame = mState.animation_frame;
+    mLastFrame = target;
 }
 
 void NebulaRemotePlayer::updateTracks() {

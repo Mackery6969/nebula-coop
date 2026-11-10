@@ -37,6 +37,9 @@ inline constexpr std::chrono::milliseconds kSnapshotIdleInterval{100};
 inline constexpr std::chrono::milliseconds kSnapshotDelay{100};
 // A player whose last snapshot is older than this isn't drawn (they're loading, or their datagrams stopped).
 inline constexpr std::chrono::milliseconds kSnapshotStale{1000};
+// How long past a player's last snapshot their animation still plays on (RemotePlayers::sample): two idle snapshots,
+// so one lost costs nothing.
+inline constexpr std::chrono::milliseconds kAnimationExtrapolate{200};
 
 struct PlayerSnapshot {
     std::uint32_t sequence = 0u;  // counted up by the sender: an older one than the last is dropped

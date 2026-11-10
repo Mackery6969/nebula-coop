@@ -6,6 +6,7 @@
 
 class NebulaBubble;
 class XanimePlayer;
+class XanimeGroupInfo;
 class Clip;
 
 // Online co-op (docs/COOP_PLAN.md "Remote players"): another player in this instance, drawn as their Mario or Luigi
@@ -67,7 +68,8 @@ public:
     // This player's attack, as they saw the local Mario, onto him.
     void tryAttackLocal();
     // The animation the snapshot names onto the copy: changed when it differs, played on at its speed here and eased
-    // onto the snapshot's frame (snapped when far off), so it runs smoothly between snapshots and through its loops.
+    // onto the snapshot's frame (snapped when far off), so it runs smoothly between snapshots, into its loop and
+    // round it.
     void updateAnimation();
     // The bcks Mario's code swapped onto the group's tracks (NebulaCoopPlayer::tracks), the group's own elsewhere.
     void updateTracks();
@@ -100,4 +102,8 @@ public:
     s32 mStompTimer;  // frames until their landing on the local Mario's head may squash him again
     bool mSolid;      // its sensor is on
     NebulaBubble* mBubble;  // round them while they're in a bubble (NebulaCoopBubble)
+    // The group the snapshot last named, and that group in this copy's table (none for a bare bck: Mario's
+    // "non-group"), looked up as the name changes, not each frame.
+    char mWantedGroup[48];
+    const XanimeGroupInfo* mWantedInfo;
 };
