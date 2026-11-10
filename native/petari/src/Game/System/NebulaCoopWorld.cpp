@@ -12,6 +12,7 @@
 #include "Game/Map/HitInfo.hpp"
 #include "Game/Map/StageSwitch.hpp"
 #include "Game/MapObj/ChipBase.hpp"
+#include "Game/NPC/DemoRabbit.hpp"
 #include "Game/NPC/RunawayRabbit.hpp"
 #include "Game/NPC/RunawayRabbitCollect.hpp"
 #include "Game/MapObj/Coin.hpp"
@@ -54,6 +55,7 @@ namespace {
         Kind_Object,  // any other placed actor (a boss, a box, a switch, a platform): hits shared
         Kind_Part,    // an actor a placed one made as it was placed (a boss's part, a group's member): hits shared
         Kind_Rabbit,  // a star bunny to catch (the Gateway's): moved by its owner's game as an enemy, caught once for all
+        Kind_Guide,   // the Gateway's guide bunny (DemoRabbit): moved by its owner's game while it runs ahead, never gone
     };
 
     struct Entry {
@@ -576,7 +578,7 @@ namespace {
 
     bool isHitShared(const Entry& rEntry) {
         return rEntry.mKind == Kind_Enemy || rEntry.mKind == Kind_Object || rEntry.mKind == Kind_Part ||
-               rEntry.mKind == Kind_Rabbit;
+               rEntry.mKind == Kind_Rabbit || rEntry.mKind == Kind_Guide;
     }
 
     s32 sensorIndex(const LiveActor* pActor, const HitSensor* pSensor) {
@@ -899,6 +901,19 @@ namespace {
         return owner;
     }
 
+    // Whether this game's copy of a thing and another game's state of it are in a part both games share. The guide
+    // bunny's cutscene parts (appearing, talking, which hold the local player) are each player's own: only its run
+    // ahead of the players is moved by its owner.
+    bool isSharedPart(const Entry& rEntry, u32 nerve) {
+        if (rEntry.mKind != Kind_Guide) {
+            return true;
+        }
+        const DemoRabbit* pRabbit = static_cast< const DemoRabbit* >(rEntry.mActor);
+        const Spine* pSpine = pRabbit->mSpine;
+        return pSpine != nullptr && DemoRabbit::isSharedNerve(pSpine->getCurrentNerve()) &&
+               (nerve == 0 || DemoRabbit::isSharedNerve(NebulaNerves::find(nerve)));
+    }
+
     // Another game's state of an enemy, as sm64ex-coop's object packets: unless this game moves it, its owner's place,
     // speed and nerve overwrite this game's copy as they come (the place eased in over a few frames). Between states
     // the copy runs its own AI, as a non-owner's object runs its behavior there; nothing here holds it.
@@ -910,6 +925,9 @@ namespace {
         Entry& rEntry = sEntries[index];
         Motion& rMotion = sMotions[rEntry.mMotion];
         LiveActor* pActor = rEntry.mActor;
+        if (pActor == nullptr || !isSharedPart(rEntry, rState.nerve)) {
+            return;
+        }
         const u16 event = static_cast< u16 >(rState.event);
         if (rMotion.mSender == rState.player && rMotion.mHeard < cNeverHeard) {
             // Came late (sm64coopdx's eventId check): a newer one from the same player was applied already.
@@ -1047,7 +1065,10 @@ namespace {
             }
             const bool alive = !rEntry.mGone && !MR::isDead(pActor);
             const f32 distance = pMarioPos != nullptr ? pMarioPos->distance(pActor->mPosition) : 1.0e9f;
-            const u32 owner = sOtherNum > 0 && alive ? findOwner(rMotion, pActor, distance, canOwn) : (canOwn ? sSelf : 0);
+            // A thing in a part only this game plays (the guide bunny in its cutscene) isn't moved for the others.
+            const bool canOwnThis = canOwn && isSharedPart(rEntry, 0);
+            const u32 owner =
+                sOtherNum > 0 && alive ? findOwner(rMotion, pActor, distance, canOwnThis) : (canOwnThis ? sSelf : 0);
             const bool wasOwned = rMotion.mOwner == sSelf;
             rMotion.mOwner = owner;
             if (owner != sSelf) {
@@ -1234,6 +1255,15 @@ namespace NebulaCoopWorld {
                 }
             }
             nebula_log("[coop] star bunnies: %d of %d shared\n", shared, pCollect->getRabbitNum());
+        }
+        if (isName(pName, "DemoRabbit")) {
+            // The guide bunny the player wakes to: once it runs ahead, the nearest player's game moves it.
+            const s32 index = findActor(static_cast< LiveActor* >(pObj));
+            if (index >= 0 && sEntries[index].mMotion < 0 && sEntries[index].mActor->mSpine != nullptr) {
+                sEntries[index].mKind = Kind_Guide;
+                addMotion(index);
+            }
+            nebula_log("[coop] guide bunny %s\n", index >= 0 && sEntries[index].mKind == Kind_Guide ? "shared" : "not shared");
         }
         sMadeNum = 0;
     }

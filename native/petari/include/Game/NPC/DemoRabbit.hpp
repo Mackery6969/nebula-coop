@@ -19,6 +19,9 @@ public:
     bool tryGuide();
     bool tryWait();
     bool tryGoal();
+    // Co-op: whether `pNerve` is one of its run ahead of the player (to the Luma), which the nearest player's game
+    // moves for everyone, not one of its cutscenes (appearing, talking), which are each player's own.
+    static bool isSharedNerve(const Nerve* pNerve);
 
     void exeAppear();
     void exeDemo();
