@@ -389,6 +389,7 @@ namespace {
             player.flags |= NEBULA_COOP_PLAYER_RACING;
         }
         player.area = NebulaCoopBubble::getArea();
+        NebulaCoopWorld::notePlatform(&player);
         NebulaHost::coopPlayer(&player);
     }
 };  // namespace

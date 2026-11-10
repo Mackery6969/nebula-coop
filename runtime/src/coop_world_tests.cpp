@@ -65,7 +65,8 @@ void test_bytes() {
     states[0].object = 7u;
     states[0].nerve = 0x1234abcdu;
     states[0].step = 42u;
-    states[0].flags = kObjectHitClaim;
+    states[0].event = 65535u;
+    states[0].flags = kObjectHitNerve;
     states[0].position = {1.5f, -2000.25f, 3.0f};
     states[0].velocity = {1.0f, -0.5f, 600.0f};
     states[0].rotation = {0.0f, 0.70710678f, 0.0f, 0.70710678f};
@@ -75,8 +76,9 @@ void test_bytes() {
     expect(moved && moved->size() == 2u, "object states round trip");
     if (moved && moved->size() == 2u) {
         const ObjectState& got = (*moved)[0];
-        expect(got.object == 7u && got.nerve == 0x1234abcdu && got.step == 42u && got.flags == kObjectHitClaim,
-               "with their object, nerve, step and flags");
+        expect(got.object == 7u && got.nerve == 0x1234abcdu && got.step == 42u && got.event == 65535u &&
+                   got.flags == kObjectHitNerve,
+               "with their object, nerve, step, event and flags");
         expect(got.position[1] == -2000.25f && got.velocity[0] == 1.0f && got.velocity[1] == -0.5f,
                "where they are and how fast they go");
         expect(got.velocity[2] > 511.0f && got.velocity[2] < 512.0f, "a speed past the wire's is clamped");
@@ -92,11 +94,11 @@ void test_bytes() {
     expect(!decode_gone(cut), "a cut list is dropped");
 }
 
-ObjectState state_of(std::uint32_t object, float distance, std::uint8_t flags = 0u) {
+ObjectState state_of(std::uint32_t object, float distance, std::uint16_t event = 0u) {
     ObjectState state;
     state.object = object;
     state.distance = distance;
-    state.flags = flags;
+    state.event = event;
     return state;
 }
 
@@ -135,11 +137,10 @@ void test_authority() {
     (void)misses.enter(2u, kEgg1);
     (void)misses.gone(1u, std::vector<Gone>{{20u, 1u}});
     std::vector<ObjectState> owned{state_of(30u, 100.0f)};
-    (void)misses.claim(1u, owned, 0u);
+    expect(misses.states(1u, 1u, owned).tell.size() == 1u, "what a player moves reaches the other");
     misses.miss(1u);
-    expect(!misses.owner(2u, 30u), "what a player moved is let go at its miss");
-    expect(misses.gone(1u, std::vector<Gone>{{22u, 0u}}).news.empty() && misses.claim(1u, owned, 1u).states.empty(),
-           "and nothing more it does there counts");
+    expect(misses.gone(1u, std::vector<Gone>{{22u, 0u}}).news.empty() && misses.states(1u, 1u, owned).states.empty(),
+           "but nothing more it does there counts after its miss");
     const std::vector<WorldAuthority::Player> heard = misses.star_got(2u);
     expect(heard.size() == 1u && heard[0] == 1u, "though it still hears of a star taken there");
     expect(misses.enter(1u, kEgg1).size() == 1u, "back from a miss, the instance is as the others left it");
@@ -207,36 +208,38 @@ void test_object_authority() {
     (void)world.enter(1u, kEgg1);
     (void)world.enter(2u, kEgg1);
     (void)world.enter(3u, kEgg2);
-    const std::vector<ObjectState> near{state_of(5u, 1000.0f)};
-    WorldAuthority::Claimed claimed = world.claim(1u, near, 0u);
-    expect(claimed.states.size() == 1u && claimed.tell.size() == 1u && claimed.tell[0] == 2u,
-           "the first to move an object moves it, for the others in its instance");
-    expect(world.owner(2u, 5u) == 1u, "it owns it");
-    expect(world.claim(2u, std::vector<ObjectState>{state_of(5u, 900.0f)}, 100u).states.empty(),
-           "a player a little nearer doesn't take it over");
-    expect(world.claim(1u, std::vector<ObjectState>{state_of(5u, 1200.0f)}, 200u).states.size() == 1u,
-           "its owner keeps moving it");
-    expect(world.claim(2u, std::vector<ObjectState>{state_of(5u, 700.0f)}, 300u).states.size() == 1u,
-           "a quarter nearer takes it over");
-    expect(world.owner(1u, 5u) == 2u, "now the nearer player's");
-    expect(world.claim(1u, std::vector<ObjectState>{state_of(5u, 5000.0f, kObjectHitClaim)}, 400u).states.size() == 1u,
-           "a player who hits it takes it, however far");
-    expect(world.claim(2u, std::vector<ObjectState>{state_of(5u, 4000.0f)}, 400u + kObjectOwnerSilenceMs).states.size() ==
-               1u,
-           "an owner silent for long lets it go to anyone");
-    expect(world.claim(3u, std::vector<ObjectState>{state_of(5u, 1.0f)}, 2000u).tell.empty(),
+    // As sm64coopdx's server: each game works out who moves an object (the player nearest it), the host passes each
+    // player's states on to the others in its instance.
+    WorldAuthority::Relayed relayed = world.states(1u, 1u, std::vector<ObjectState>{state_of(5u, 1000.0f, 1u)});
+    expect(relayed.states.size() == 1u && relayed.tell.size() == 1u && relayed.tell[0] == 2u &&
+               relayed.states[0].player == 1u,
+           "a player's object state reaches the others in its instance, as theirs");
+    expect(world.states(2u, 2u, std::vector<ObjectState>{state_of(5u, 900.0f, 7u)}).states.size() == 1u,
+           "another player who has it nearer moves it from then on");
+    expect(world.states(2u, 2u, std::vector<ObjectState>{state_of(5u, 900.0f, 6u)}).states.empty(),
+           "a state that came late from the same player is dropped");
+    expect(world.states(2u, 2u, std::vector<ObjectState>{state_of(5u, 900.0f, 0u)}).states.empty(),
+           "counting round past 65535 too");
+    expect(world.states(1u, 1u, std::vector<ObjectState>{state_of(5u, 1000.0f, 2u)}).states.size() == 1u,
+           "each player's events are their own");
+    expect(world.states(3u, 3u, std::vector<ObjectState>{state_of(5u, 1.0f)}).tell.empty(),
            "another instance's object 5 is another object");
-    expect(world.owner(3u, 5u) == 3u && world.owner(1u, 5u) == 2u, "with its own owner");
-    WorldAuthority::Settled settled = world.gone(1u, std::vector<Gone>{{5u, 0u}});
-    expect(world.claim(2u, std::vector<ObjectState>{state_of(5u, 1.0f)}, 3000u).states.empty(),
+    std::vector<ObjectState> latest = world.states_of(kEgg1);
+    expect(latest.size() == 1u && latest[0].object == 5u && latest[0].player == 1u && latest[0].event == 2u,
+           "the instance keeps each object's latest state, for a player coming later");
+    (void)world.states(2u, 2u, std::vector<ObjectState>{state_of(9u, 10.0f)});
+    latest = world.states_of(kEgg1);
+    expect(latest.size() == 2u && latest[0].player == 1u && latest[1].player == 2u, "by whose they are");
+    (void)world.gone(1u, std::vector<Gone>{{5u, 0u}});
+    expect(world.states(2u, 2u, std::vector<ObjectState>{state_of(5u, 1.0f, 8u)}).states.empty(),
            "a thing gone moves for nobody");
-    world.leave(2u);
-    expect(world.owner(1u, 6u) == std::nullopt, "nothing owns what nobody moved");
-    (void)world.claim(1u, std::vector<ObjectState>{state_of(6u, 10.0f)}, 3000u);
-    (void)world.enter(2u, kEgg1);
-    expect(world.claim(2u, std::vector<ObjectState>{state_of(6u, 9.0f)}, 3001u).states.empty(), "6 is player 1's");
+    expect(world.states_of(kEgg1).size() == 1u, "and its latest state is forgotten");
+    expect(world.states(4u, 4u, std::vector<ObjectState>{state_of(9u, 1.0f)}).states.empty(),
+           "a player in no instance moves nothing");
     world.leave(1u);
-    expect(world.owner(2u, 6u) == std::nullopt, "what a player who left moved is let go");
+    world.leave(2u);
+    (void)world.enter(1u, kEgg1);
+    expect(world.states_of(kEgg1).empty(), "an instance everyone left starts with the stage's own places");
 
     // Switches: the instance's record, news only.
     WorldAuthority switches;
@@ -425,7 +428,7 @@ void test_session_world() {
     expect(has(at_host.gone, 102u), "while the host, still there, hears it");
 
     // Shared objects: a joiner's hit and switch reach the host in its instance, not Luigi elsewhere; the host's reach
-    // the joiner. States: the one moving an object is followed, the host settling who.
+    // the joiner. States: each player's are passed on to the others in its instance (the games settle who moves what).
     // Mario's number is his index + 1: the joins race, so it's 2 or 3.
     unsigned mario_number = 0u;
     for (const auto& player : mario.players()) {
@@ -461,7 +464,6 @@ void test_session_world() {
     expect(at_host.states[0].object == 400u && at_host.states[0].player == mario_number &&
                at_host.states[0].position[2] == 30.0f,
            "with who moves it and where");
-    at_host.world.report_states(std::vector<ObjectState>{state_of(400u, 450.0f)});
     at_host.world.report_states(std::vector<ObjectState>{state_of(401u, 450.0f)});
     expect(wait_for([&] {
                pump_all();
@@ -471,7 +473,7 @@ void test_session_world() {
     std::this_thread::sleep_for(100ms);
     pump_all();
     expect(at_mario.states.size() == 1u && at_mario.states[0].object == 401u && at_mario.states[0].player == 1u,
-           "but not one the joiner moves and the host is hardly nearer to");
+           "from player 1");
     std::this_thread::sleep_for(100ms);
     pump_all();
     expect(at_luigi.hits.empty() && at_luigi.switches.empty() && at_luigi.states.empty(),
@@ -484,6 +486,12 @@ void test_session_world() {
            }),
            "Luigi enters the instance");
     expect(at_luigi.switches.size() == 2u, "and gets its switches before the record ends");
+    bool mario_moves = false, host_moves = false;
+    for (const ObjectState& state : at_luigi.states) {
+        mario_moves = mario_moves || (state.object == 400u && state.player == mario_number && state.position[2] == 30.0f);
+        host_moves = host_moves || (state.object == 401u && state.player == 1u);
+    }
+    expect(mario_moves && host_moves, "and the latest state of each object moving there, as whose it is");
     at_luigi.enter(kEgg2);
     expect(wait_for([&] {
                pump_all();

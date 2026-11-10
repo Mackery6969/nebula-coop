@@ -28,8 +28,11 @@ inline constexpr std::uint8_t kSnapshotMessage = 32u;
 // A joiner's snapshot as the host passes it on to the others in its instance (a joiner sends its own to the host
 // alone, which passes it to who should see it): who it is from, then its bytes.
 inline constexpr std::uint8_t kSnapshotRelayMessage = 33u;
-// How often a player sends its own.
+// How often a player sends its own: as sm64coopdx's network_update_player, each frame it changed (at most every
+// kSnapshotInterval), and otherwise every kSnapshotIdleInterval (sm64coopdx's every third tick), so a player standing
+// still costs a third as much.
 inline constexpr std::chrono::milliseconds kSnapshotInterval{33};
+inline constexpr std::chrono::milliseconds kSnapshotIdleInterval{100};
 // How far behind the latest snapshot the others are drawn: a little over two snapshots, so one may be lost.
 inline constexpr std::chrono::milliseconds kSnapshotDelay{100};
 // A player whose last snapshot is older than this isn't drawn (they're loading, or their datagrams stopped).
@@ -56,6 +59,12 @@ struct PlayerSnapshot {
     std::uint32_t mode = 0u;
     std::uint32_t flags = 0u;  // NEBULA_COOP_PLAYER_*
     std::uint32_t area = 0u;   // the part of the stage they're in (NebulaCoopPlayer::area): bubbles stay within one
+    // The moving thing they stand on (NebulaCoopPlayer::platform, sm64coopdx's platformSyncID), 0 for none, and where
+    // and how they stand on it, in its own space.
+    std::uint32_t platform = 0u;
+    std::array<float, 3> platform_position{};
+    std::array<float, 3> platform_front{};
+    std::array<float, 3> platform_up{};
 };
 
 // Longest names kept from a snapshot.

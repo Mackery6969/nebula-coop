@@ -85,7 +85,7 @@ namespace MR {
             return FLOAT_MAX;
         }
 
-        return pActor->mPosition.distance(*MR::getPlayerPos());
+        return pActor->mPosition.distance(*MR::getTargetPlayerPos(pActor));
     }
 
     f32 calcDistanceToPlayerH(const LiveActor* pActor) {
@@ -93,7 +93,7 @@ namespace MR {
             return FLOAT_MAX;
         }
 
-        Vec3f toPlayer = *MR::getPlayerPos() - pActor->mPosition;
+        Vec3f toPlayer = *MR::getTargetPlayerPos(pActor) - pActor->mPosition;
         MR::vecKillElement(toPlayer, pActor->mGravity, &toPlayer);
 
         return toPlayer.length();
@@ -126,7 +126,7 @@ namespace MR {
     }
 
     bool isNearPlayerAnyTime(const LiveActor* pActor, f32 distance) {
-        return isNear(pActor, *MR::getPlayerPos(), distance);
+        return isNear(pActor, *MR::getTargetPlayerPos(pActor), distance);
     }
 
     bool isNearPlayer(const Vec3f& rPos, f32 distance) {
@@ -148,7 +148,7 @@ namespace MR {
         Vec3f up;
         Vec3f across;
         MR::extractMtxYDir(pActor->getBaseMtx(), &up);
-        Vec3f fromPlayer = pActor->mPosition - *MR::getPlayerPos();
+        Vec3f fromPlayer = pActor->mPosition - *MR::getTargetPlayerPos(pActor);
         f32 along = MR::abs(vecKillElement(fromPlayer, up, &across));
         if (height < along) {
             return false;
@@ -163,7 +163,7 @@ namespace MR {
             return false;
         }
 
-        Vec3f fromPlayer = pActor->mPosition - *MR::getPlayerPos();
+        Vec3f fromPlayer = pActor->mPosition - *MR::getTargetPlayerPos(pActor);
         vecKillElement(fromPlayer, pActor->mGravity, &horizontal);
         return (horizontal.squared() < distance * distance);
     }
@@ -191,11 +191,11 @@ namespace MR {
     }
 
     void calcVecToPlayerH(Vec3f* pToPlayerHVec, const LiveActor* pActor, const Vec3f* pUp) {
-        calcVecToTargetPosH(pToPlayerHVec, pActor, *MR::getPlayerPos(), pUp);
+        calcVecToTargetPosH(pToPlayerHVec, pActor, *MR::getTargetPlayerPos(pActor), pUp);
     }
 
     void calcVecFromPlayerH(Vec3f* pFromPlayerHVec, const LiveActor* pActor) {
-        calcVecToTargetPosH(pFromPlayerHVec, pActor, *MR::getPlayerPos(), nullptr);
+        calcVecToTargetPosH(pFromPlayerHVec, pActor, *MR::getTargetPlayerPos(pActor), nullptr);
         pFromPlayerHVec->scale(-1.0f);
     }
 
@@ -223,7 +223,7 @@ namespace MR {
     }
 
     bool isFaceToPlayerDegree(const LiveActor* pActor, const Vec3f& rFront, f32 angle) {
-        return isFaceToTargetDegree(pActor, *MR::getPlayerPos(), rFront, angle);
+        return isFaceToTargetDegree(pActor, *MR::getTargetPlayerPos(pActor), rFront, angle);
     }
 
     bool isFaceToTargetDegree(const LiveActor* pActor, const Vec3f& rTarget, f32 angle) {
@@ -237,11 +237,11 @@ namespace MR {
         Vec3f frontVec;
         MR::calcFrontVec(&frontVec, pActor);
 
-        return isFaceToTargetDegree(pActor, *MR::getPlayerPos(), frontVec, angle);
+        return isFaceToTargetDegree(pActor, *MR::getTargetPlayerPos(pActor), frontVec, angle);
     }
 
     bool isFaceToPlayerDegreeHV(const LiveActor* pActor, const Vec3f& rFront, f32 angleH, f32 angleV) {
-        return MR::isNearAngleDegreeHV(*MR::getPlayerPos() - pActor->mPosition, rFront, pActor->mGravity, angleH, angleV);
+        return MR::isNearAngleDegreeHV(*MR::getTargetPlayerPos(pActor) - pActor->mPosition, rFront, pActor->mGravity, angleH, angleV);
     }
 
     bool isFaceToTargetHorizontalDegree(const LiveActor* pActor, const Vec3f& rTarget, const Vec3f& rFront, f32 angle) {
@@ -252,7 +252,7 @@ namespace MR {
     }
 
     bool isFaceToPlayerHorizontalDegree(const LiveActor* pActor, const Vec3f& rFront, f32 angle) {
-        return MR::isFaceToTargetHorizontalDegree(pActor, *MR::getPlayerPos(), rFront, angle);
+        return MR::isFaceToTargetHorizontalDegree(pActor, *MR::getTargetPlayerPos(pActor), rFront, angle);
     }
 
     bool isClockwiseToDir(const LiveActor* pActor, const Vec3f& rFront, const Vec3f& rDir) {
@@ -263,7 +263,7 @@ namespace MR {
     }
 
     bool isClockwiseToPlayer(const LiveActor* pActor, const Vec3f& rFront) {
-        Vec3f toPlayer = *MR::getPlayerPos() - pActor->mPosition;
+        Vec3f toPlayer = *MR::getTargetPlayerPos(pActor) - pActor->mPosition;
         Vec3f cross = pActor->mGravity.cross(toPlayer);
         Vec3f side;
         normalizeOrZero(cross, &side);
@@ -273,7 +273,7 @@ namespace MR {
     bool isPlayerLeftSide(const LiveActor* pActor) {
         MtxPtr mtx = pActor->getBaseMtx();
         Vec3f sideVec = Vec3f(mtx[0][0], mtx[1][0], mtx[2][0]);
-        Vec3f toPlayer = *MR::getPlayerPos() - pActor->mPosition;
+        Vec3f toPlayer = *MR::getTargetPlayerPos(pActor) - pActor->mPosition;
         return (toPlayer.dot(sideVec) >= 0.0f);
     }
 
@@ -303,7 +303,7 @@ namespace MR {
 
     // From a point `offset` up the actor, the player's centre is within `cosine` of the side plane.
     bool isPlayerExistSide(const LiveActor* pActor, f32 offset, f32 cosine) {
-        Vec3f toPlayer = *getPlayerCenterPos();
+        Vec3f toPlayer = *getTargetPlayerCenterPos(pActor);
         Vec3f upVec;
         calcUpVec(&upVec, pActor);
         Vec3f origin = pActor->mPosition + upVec * offset;
@@ -322,7 +322,7 @@ namespace MR {
     }
 
     bool isPlayerExistUp(const LiveActor* pActor, f32 offset, f32 cosine) {
-        Vec3f toPlayer = *getPlayerCenterPos();
+        Vec3f toPlayer = *getTargetPlayerCenterPos(pActor);
         Vec3f upVec;
         calcUpVec(&upVec, pActor);
         Vec3f origin = pActor->mPosition + upVec * offset;
@@ -332,7 +332,7 @@ namespace MR {
     }
 
     bool isPlayerExistDown(const LiveActor* pActor, f32 offset, f32 cosine) {
-        Vec3f toPlayer = *getPlayerCenterPos();
+        Vec3f toPlayer = *getTargetPlayerCenterPos(pActor);
         Vec3f upVec;
         calcUpVec(&upVec, pActor);
         upVec = -upVec;
@@ -658,7 +658,7 @@ namespace MR {
     }
 
     void addVelocityClockwiseToPlayer(LiveActor* pActor, f32 speed) {
-        addVelocityClockwiseToDirection(pActor, *getPlayerPos() - pActor->mPosition, speed);
+        addVelocityClockwiseToDirection(pActor, *getTargetPlayerPos(pActor) - pActor->mPosition, speed);
     }
 
     void addVelocityJump(LiveActor* pActor, f32 speed) {
@@ -971,7 +971,7 @@ namespace MR {
 
     void setVelocityJumpAwayFromPlayer(LiveActor* pActor, f32 speedH, f32 speedJump) {
         Vec3f* pVelocity = &pActor->mVelocity;
-        calcVecToTargetPosH(pVelocity, pActor, *getPlayerPos(), nullptr);
+        calcVecToTargetPosH(pVelocity, pActor, *getTargetPlayerPos(pActor), nullptr);
         pVelocity->scale(-speedH);
         addVelocityJump(pActor, speedJump);
     }
@@ -1098,11 +1098,11 @@ namespace MR {
     }
 
     void turnDirectionToPlayerDegree(const LiveActor* pActor, Vec3f* pDir, f32 degree) {
-        turnDirectionToTargetDegree(pActor, pDir, *getPlayerPos(), degree);
+        turnDirectionToTargetDegree(pActor, pDir, *getTargetPlayerPos(pActor), degree);
     }
 
     void turnDirectionToPlayerDegreeHorizon(const LiveActor* pActor, Vec3f* pDir, f32 degree) {
-        turnDirectionToTargetDegreeHorizon(pActor, pDir, *getPlayerPos(), degree);
+        turnDirectionToTargetDegreeHorizon(pActor, pDir, *getTargetPlayerPos(pActor), degree);
     }
 
     void turnDirectionFromTargetDegree(const LiveActor* pActor, Vec3f* pDir, const Vec3f& rTarget, f32 degree) {
@@ -1117,11 +1117,11 @@ namespace MR {
     }
 
     void turnDirectionFromPlayerDegree(const LiveActor* pActor, Vec3f* pDir, f32 degree) {
-        turnDirectionFromTargetDegree(pActor, pDir, *getPlayerPos(), degree);
+        turnDirectionFromTargetDegree(pActor, pDir, *getTargetPlayerPos(pActor), degree);
     }
 
     void turnDirectionFromPlayerDegreeHorizon(const LiveActor* pActor, Vec3f* pDir, f32 degree) {
-        turnDirectionFromTargetDegreeHorizon(pActor, pDir, *getPlayerPos(), degree);
+        turnDirectionFromTargetDegreeHorizon(pActor, pDir, *getTargetPlayerPos(pActor), degree);
     }
 
     void turnDirectionAndGravityH(Quat4f* pDst, const LiveActor* pActor, const Vec3f& rDir, f32 radian, f32 upVecBlendRate) {
@@ -1181,11 +1181,11 @@ namespace MR {
     }
 
     void moveAndTurnToPlayer(LiveActor* pActor, Vec3f* pFront, const ActorMoveParam& rParam) {
-        moveAndTurnToDirection(pActor, pFront, *getPlayerPos() - pActor->mPosition, rParam);
+        moveAndTurnToDirection(pActor, pFront, *getTargetPlayerPos(pActor) - pActor->mPosition, rParam);
     }
 
     void flyAndTurnAlongRailSearchingPlayer(LiveActor* pActor, Vec3f* pFront, f32 curveRatio, const ActorMoveParam& rParam, bool horizontal) {
-        setRailDirectionCloseToNearestPos(pActor, *getPlayerCenterPos());
+        setRailDirectionCloseToNearestPos(pActor, *getTargetPlayerCenterPos(pActor));
         Vec3f railDir;
         calcMovingDirectionAlongRail(pActor, &railDir, pActor->mPosition, curveRatio, horizontal, nullptr);
         turnVecToVecDegree(pFront, *pFront, railDir, rParam.mTurnDegree, Vec3f(0, 1, 0));
@@ -1196,7 +1196,7 @@ namespace MR {
     }
 
     void escapeFromPlayer(LiveActor* pActor, Vec3f* pFront, const ActorMoveParam& rParam) {
-        moveAndTurnToDirection(pActor, pFront, pActor->mPosition - *MR::getPlayerPos(), rParam);
+        moveAndTurnToDirection(pActor, pFront, pActor->mPosition - *MR::getTargetPlayerPos(pActor), rParam);
     }
 
 };  // namespace MR
@@ -1247,7 +1247,7 @@ namespace MR {
     }
 
     void moveAndTurnToPlayer(LiveActor* pActor, const ActorMoveParam& rParam) {
-        moveAndTurnToTarget(pActor, *getPlayerPos(), rParam);
+        moveAndTurnToTarget(pActor, *getTargetPlayerPos(pActor), rParam);
     }
 
     void moveAndTurnAlongRail(LiveActor* pActor, f32 curveRatio, const ActorMoveParam& rParam, bool* pReachedGoal) {

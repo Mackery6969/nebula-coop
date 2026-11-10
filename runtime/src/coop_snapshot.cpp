@@ -74,6 +74,13 @@ std::vector<std::uint8_t> encode_snapshot(const PlayerSnapshot& snapshot) {
         if (!track.empty()) out.str(track.substr(0, kSnapshotTrackLimit));
     }
     out.u32(snapshot.health).u32(snapshot.mode).u32(snapshot.flags).u32(snapshot.area);
+    // The platform's key, then (only when on one) where on it.
+    out.u32(snapshot.platform);
+    if (snapshot.platform != 0u) {
+        put3(out, snapshot.platform_position);
+        put3(out, snapshot.platform_front);
+        put3(out, snapshot.platform_up);
+    }
     return out.take();
 }
 
@@ -103,10 +110,17 @@ std::optional<PlayerSnapshot> decode_snapshot(std::span<const std::uint8_t> data
     snapshot.mode = in.u32();
     snapshot.flags = in.u32();
     snapshot.area = in.u32();
+    snapshot.platform = in.u32();
+    if (snapshot.platform != 0u) {
+        snapshot.platform_position = get3(in);
+        snapshot.platform_front = get3(in);
+        snapshot.platform_up = get3(in);
+    }
     if (!in.ok()) return std::nullopt;
     // Nothing the game would choke on: no infinities, no names with a NUL inside.
     if (!finite(snapshot.position) || !finite(snapshot.rotation) || !finite(snapshot.front) || !finite(snapshot.up) ||
-        !finite(snapshot.gravity) ||
+        !finite(snapshot.gravity) || !finite(snapshot.platform_position) || !finite(snapshot.platform_front) ||
+        !finite(snapshot.platform_up) ||
         !finite(snapshot.velocity) || !std::isfinite(snapshot.frame) || !std::isfinite(snapshot.rate) ||
         !std::all_of(snapshot.weights.begin(), snapshot.weights.end(), [](float w) { return std::isfinite(w); })) {
         return std::nullopt;
@@ -202,6 +216,14 @@ PlayerSnapshot blend_snapshots(const PlayerSnapshot& from, const PlayerSnapshot&
     out.front = lerp_direction(from.front, to.front, t);
     out.up = lerp_direction(from.up, to.up, t);
     out.gravity = lerp_direction(from.gravity, to.gravity, t);
+    // On the same platform in both: along the way on it (otherwise the nearer one's, with its platform or none).
+    if (from.platform != 0u && from.platform == to.platform) {
+        for (std::size_t i = 0; i < 3u; ++i) {
+            out.platform_position[i] = lerp(from.platform_position[i], to.platform_position[i], t);
+        }
+        out.platform_front = lerp_direction(from.platform_front, to.platform_front, t);
+        out.platform_up = lerp_direction(from.platform_up, to.platform_up, t);
+    }
     // The same animation in both, not looped round in between: its frame along the way, its tracks' weights too.
     // Otherwise (another animation, or round its loop) the nearer one's frame, moved on or back at its speed by the
     // game frames between it and `t` (the game wraps a loop's frame).

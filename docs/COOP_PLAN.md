@@ -238,14 +238,19 @@ plays whatever animation the network names, at the position, rotation and gravit
 packets. It has no physics or state machine of its own. It collides with the local Mario as the room's
 [player collision](#player-collisions) options say; collision with enemies comes later.
 
-- **Snapshots** (`galaxy/coop_snapshot.h`). Each player sends its own (the game's `coop_player` report) 30 times a
-  second on the unreliable channel, as the session's message 32, to the players in its instance (a joiner's through
+- **Snapshots** (`galaxy/coop_snapshot.h`). Each player sends its own (the game's `coop_player` report) as
+  sm64coopdx's `network_update_player` does: each frame it changed, at most 30 times a second, and otherwise 10 times
+  a second (its animation's frame moving on doesn't count: the copies play it on), on the unreliable channel, as the session's message 32, to the players in its instance (a joiner's through
   the host, which passes it on as message 33). It holds the instance, the position, the model's facing and up (its
   base matrix with the turn Mario's root joint gets on top, as in a quick turn round: the true turn on any planet),
   gravity, velocity, and the animation: its group as Mario's `XanimePlayer` names it, the bck, the frame, the speed
   and the group's track weights (walking into running), and the bck on any track Mario's code swapped
   (`changeTrackAnimation`: standing on a slope plays a slope wait on the run's track; walking in mud), by its motion
   resource's name (one byte when none is). An older snapshot than the last is dropped.
+- **Moving platforms** (sm64coopdx's `platformSyncID`). A player standing on a placed actor's own collision that has
+  been seen moving sends its key and where they stand on it (place, facing and up in its collision's space). Each
+  game moves its own copy of a platform on its own timer, so the others draw them standing where they are on their
+  own copy of it, rather than floating beside it; one a game doesn't have falls back to the world place.
 - **Drawn 100 ms behind.** The host keeps the last second of each player's snapshots and gives the game
   (`coop_remote`, each scene frame) the others in its own instance as they were 100 ms ago, between the two snapshots
   either side: one lost snapshot doesn't show. The animation and what the player does are the nearer snapshot's; the
@@ -569,16 +574,18 @@ keys from it and their order. Messages 40-42 of `galaxy/coop_world.h`, game API 
 | What | How | As sm64coopdx |
 |---|---|---|
 | A hit (stomp, spin, ground pound, kick, upper punch, freeze, star power, a star bit, a fireball) | The local Mario's hit on a followed thing, or his star bit's or fireball's, is played again in each other game in the instance, sent from his copy there, so the thing runs the same reaction: a Goomba squashed with its animation, a block broken, a boss hurt. Things a hit kills stay until their death has played | `packet_object.c`'s interactions |
-| An enemy's movement | One game moves each plain enemy: its owner, the nearest player, the host settling who. The owner's states steer the others' copies (speed, and its nerve when that changed; they glide to its place, a third of the way each frame, jumping when 600 units off) while each copy runs its own AI, as a non-owner's object runs its behavior. A followed copy isn't clipped, as a synced object stays active, so a far one moves and animates rather than standing frozen. Copies are drawn turned as the owner's | `sync_object` owners, `packet_object` |
+| An enemy's movement | One game moves each plain enemy: its owner, the player nearest it, worked out in every game alike from where the players are (the owner favoured by a quarter, so it doesn't hop between two about as near). The owner sends its state when its nerve changes and otherwise every distance / 1000 seconds, a third of a second at least, while its player is within 4000 units; each state is counted, and one older than the last from that player is dropped. A state pulls the others' copies to the owner's place (eased in over a few frames, jumping when 600 units off), sets their speed and, when it changed, their nerve, while each copy runs its own AI; the owner's turn is drawn for half a second after each state. An enemy followed or owned isn't clipped, as a synced object stays active. A player entering the instance gets each enemy's latest state with its record | `sync_object_should_own`, `network_update_objects`, `packet_object`'s event ids, the area packet's last reliable packets |
+| Who an enemy goes for | A shared enemy chases, faces and runs from the nearest player in every game, not only the local Mario (the actor movement helpers: `MR::getTargetPlayerPos`) | behaviors' `nearest_player_to_object` |
 | A stage switch | Turned in one game, turned in the others in the instance; the instance's record keeps them, given to a player entering it before it is ready | `packet_level_*`, the respawn info |
 | An enemy's coins | Keyed by the enemy and their order, so one taken is gone for everyone (counted for its taker) | spawned objects' sync ids |
 | Star bits a thing lets out (a crystal broken, an enemy defeated) | Keyed by the thing and their order, so one taken is gone for everyone (counted for its taker); one nobody takes falls away in each game alone | spawned objects' sync ids |
 | A "?" block's coin or star bit | Given straight to whoever hit the block: the hit played again in the others' games hops nothing there | |
 
-- **Who owns an enemy.** The host takes a claim when the enemy has no owner, the claim is its owner's, its owner has
-  been silent for half a second, the claimant is a quarter nearer, or the claimant hit it. Owners send their enemies
-  15 times a second while they move (3 times still), unreliably, only enemies within 6000 units; the host
-  sends a taken claim on to the others in the instance. A player leaving gives up what they owned.
+- **Who owns an enemy.** As sm64coopdx's: no message settles it. Each game counts the local player (once the
+  instance's record has come, not in a miss) and the other players shown in the instance (not in a miss), and the
+  nearest one owns it; the host only passes states on to the others in the instance, as sm64coopdx's server passes
+  object packets on, and keeps each enemy's latest. A player leaving stops counting at once. A hit doesn't take an
+  enemy over: the hit is played again in every game, the owner's too.
 - **Nerves.** A nerve's id is a hash of its class and name (`NEW_NERVE`), the same in every build; a nerve another
   game sends is used only on an actor of the class it belongs to.
 - **Local switches.** Switches an area turns while the local player is in it (`SwitchArea` with a player condition,
@@ -588,7 +595,8 @@ keys from it and their order. Messages 40-42 of `galaxy/coop_world.h`, game API 
   so bosses hurt by them (Kaliente's coconuts, Kingfin's shells) can differ between games. Holding the pointer on an
   enemy (it stops in place) stays the pointing player's. Bosses get the
   shared hits but not shared movement; platforms on their own timers stay each game's (switch-driven ones are shared).
-  Enemies don't yet target the nearest player in every game (Phase 3's second item).
+  Enemy code that reads the local Mario's place itself rather than through the movement helpers still goes for him
+  alone.
 
 ## Phases
 

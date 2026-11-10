@@ -76,6 +76,19 @@ void test_bytes() {
     PlayerSnapshot broken = snapshot;
     broken.position[0] = std::nanf("");
     expect(!galaxy::coop::decode_snapshot(galaxy::coop::encode_snapshot(broken)), "one with a NaN is dropped");
+    PlayerSnapshot riding = snapshot;
+    riding.platform = 0xBEEF0001u;
+    riding.platform_position = {10.0f, 20.0f, -30.0f};
+    riding.platform_front = {0.0f, 0.0f, 1.0f};
+    riding.platform_up = {0.0f, 1.0f, 0.0f};
+    const std::vector<std::uint8_t> ridden = galaxy::coop::encode_snapshot(riding);
+    const std::optional<PlayerSnapshot> rode = galaxy::coop::decode_snapshot(ridden);
+    expect(rode && rode->platform == 0xBEEF0001u && rode->platform_position[2] == -30.0f &&
+               rode->platform_front[2] == 1.0f && rode->platform_up[1] == 1.0f,
+           "a player on a moving platform: which, and where on it");
+    expect(ridden.size() == bytes.size() + 36u, "costing nothing but its key when on none");
+    riding.platform_position[1] = std::nanf("");
+    expect(!galaxy::coop::decode_snapshot(galaxy::coop::encode_snapshot(riding)), "a NaN on a platform is dropped too");
     std::vector<std::uint8_t> other = bytes;
     other[0] = 99u;
     expect(!galaxy::coop::decode_snapshot(other), "one of another version is dropped");
@@ -110,6 +123,23 @@ void test_blend() {
     round.frame = 1.0f;
     expect(near(galaxy::coop::blend_snapshots(looped, round, 0.25f, 4.0f).frame, 59.0f),
            "round a loop: moved on past its end, not back through it");
+    PlayerSnapshot on = at(5u, 0.0f);
+    on.platform = 9u;
+    on.platform_position = {0.0f, 0.0f, 0.0f};
+    on.platform_front = {0.0f, 0.0f, 1.0f};
+    on.platform_up = {0.0f, 1.0f, 0.0f};
+    PlayerSnapshot still_on = on;
+    still_on.platform_position = {100.0f, 0.0f, 0.0f};
+    still_on.platform_front = {1.0f, 0.0f, 0.0f};
+    const PlayerSnapshot along = galaxy::coop::blend_snapshots(on, still_on, 0.5f);
+    expect(along.platform == 9u && near(along.platform_position[0], 50.0f) &&
+               near(along.platform_front[0], along.platform_front[2]),
+           "on the same platform: along the way on it");
+    PlayerSnapshot off = still_on;
+    off.platform = 0u;
+    expect(galaxy::coop::blend_snapshots(on, off, 0.75f).platform == 0u &&
+               galaxy::coop::blend_snapshots(on, off, 0.25f).platform == 9u,
+           "stepping off: the nearer one's");
 }
 
 void test_remote_players() {

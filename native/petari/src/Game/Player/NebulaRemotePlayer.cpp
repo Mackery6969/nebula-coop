@@ -1,4 +1,5 @@
 #include "Game/Player/NebulaRemotePlayer.hpp"
+#include "Game/System/NebulaCoopWorld.hpp"
 #include "nebula_module.h"
 #include "Game/System/NebulaHost.hpp"
 #include "Game/Animation/XanimeCore.hpp"
@@ -245,6 +246,10 @@ const NebulaRemotePlayer* NebulaRemotePlayer::getCopy(s32 index) {
     return index >= 0 && index < sCopyNum ? sCopies[index] : nullptr;
 }
 
+Vec3f NebulaRemotePlayer::getCenterPos() const {
+    return mPosition + mUp * cBodyCenter;
+}
+
 HitSensor* NebulaRemotePlayer::getHitSender(u32 number) {
     for (s32 i = 0; i < sCopyNum; i++) {
         NebulaRemotePlayer* pCopy = sCopies[i];
@@ -433,6 +438,9 @@ void NebulaRemotePlayer::show(const NebulaCoopRemotePlayer& rRemote) {
         mFront.set(mState.front[0], mState.front[1], mState.front[2]);
         mUp.set(mState.up[0], mState.up[1], mState.up[2]);
     }
+    // Standing on something that moves: where they stand on this game's copy of it (sm64coopdx's platformSyncID), so
+    // they ride it here even when it isn't where it is in their game.
+    NebulaCoopWorld::placeOnPlatform(mState, &mPosition, &mFront, &mUp);
     if (isNew) {
         // Another player on this copy: their animation starts afresh.
         stopAnimationEffect();

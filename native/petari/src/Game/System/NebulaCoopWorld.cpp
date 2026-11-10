@@ -8,6 +8,8 @@
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/LiveActor/Spine.hpp"
+#include "Game/Map/CollisionParts.hpp"
+#include "Game/Map/HitInfo.hpp"
 #include "Game/Map/StageSwitch.hpp"
 #include "Game/MapObj/ChipBase.hpp"
 #include "Game/MapObj/Coin.hpp"
@@ -22,6 +24,7 @@
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
+#include "Game/Util/MathUtil.hpp"
 #include "Game/Player/MarioActor.hpp"
 #include "Game/Player/MarioHolder.hpp"
 #include "Game/Player/NebulaCoopBubble.hpp"
@@ -58,6 +61,7 @@ namespace {
         bool mGone;   // reported, or the server said so: kept dead
         bool mGot;    // a coin or star bit the local player took
         bool mHitByOther;  // its last hit was another player's, played again here
+        bool mMoved;       // its collision was seen moving with the local player on it (a platform)
         s16 mMotion;     // its slot in sMotions, -1 for none
         s16 mGoneDelay;  // frames before the server's gone removes it: its own death (a hit played again) may still play
         s16 mHitFrames;  // frames since a hit last played on it, up to cHitFrames
@@ -127,43 +131,72 @@ namespace {
     // Movement (sm64coopdx's sync objects): a slot for each enemy that moves.
     struct Motion {
         s32 mEntry;
-        u32 mOwner;          // the player who moves it (their number), 0 for none known
-        s32 mHeard;          // frames since its owner's last state, or since this game took it over
-        f32 mOwnerDistance;  // how far the owner's player was from it
-        NebulaCoopObjectState mState;  // the owner's last state
-        u32 mOwnerNerve;               // the nerve the owner's last state named (it is taken here when it changes)
-        f32 mRotation[4];              // the turn drawn, eased toward the owner's
+        u32 mOwner;          // who moves it, as this game works it out (sm64coopdx's sync_object_should_own): the
+                             // player nearest it, sSelf for the local one, 0 for nobody yet
+        u32 mSender;         // the player its last state came from, 0 for none
+        u16 mSenderEvent;    // that state's event (sm64coopdx's rxEventId): an older one from them came late
+        s32 mHeard;          // frames since that state came
+        f32 mOwnerDistance;  // how far the sender's player was from it
+        NebulaCoopObjectState mState;  // the sender's last state
+        u32 mOwnerNerve;               // the nerve the sender's last state named (it is taken here when it changes)
+        Vec3f mCorrection;  // the rest of the way to where the sender had it, eased off each frame
+        f32 mRotation[4];    // the turn drawn, eased toward the sender's for a while after each state
         bool mRotationSet;
         bool mFollowing;     // another player's game moves it: its states put it where they have it
-        bool mNoClip;        // its clipping held off here while it is followed (it runs and moves where it is seen)
-        s32 mAge;            // frames since the owner's last state came
-        bool mHitClaim;      // the local player just hit it: taken over, whoever was nearer
+        bool mNoClip;        // its clipping held off here (it runs where nobody here sees it, as a synced object does)
+        s32 mAge;            // frames since the sender's last state came
         const Nerve* mHitNerve;  // the nerve a hit began (the others get it by playing the hit again)
         u32 mClasses[4];     // the nerve classes its own code has set (a nerve from another game must be one)
         u8 mClassNum;
         s32 mSendIn;         // frames to its next state, as its owner
+        s32 mSentAgo;        // frames since its last state went
         u32 mSentNerve;
-        Vec3f mSentPosition;
+        u16 mTxEvent;        // its states' count (sm64coopdx's txEventId)
     };
     const s32 cMaxMotions = 512;
+    const s32 cNeverHeard = 1 << 24;
     const u32 cMotionTableSize = 1024;
     Motion sMotions[cMaxMotions];
     s32 sMotionNum = 0;
     ActorSlot sMotionTable[cMotionTableSize];
-    // An owner silent this long has let it go (the host lets another take it after half a second; a follower keeps
-    // following through a late state or two); a player this far from it doesn't take it over; a quarter nearer than
-    // its owner does. States go out 15 times a second while it moves, 4 when it doesn't.
-    const s32 cFollowFrames = 45;
-    const f32 cSyncDistance = 6000.0f;
+    // As sm64coopdx's sync objects: an owner sends an enemy's state when its nerve changes (its behavior's
+    // network_send_object) and otherwise every distance / 1000 seconds, a third of a second at least
+    // (sync_object's update rate and minUpdateRate), only while its player is within cSyncDistance of it (most
+    // enemies' maxSyncDistance). Not more often than every cMinSendFrames whatever its nerve does.
+    const f32 cSyncDistance = 4000.0f;
+    const s32 cMinUpdateFrames = 20;
+    const f32 cUpdateFramesPerUnit = 60.0f / 1000.0f;
+    const s32 cMinSendFrames = 2;
+    // Who owns it moves only when another player is a quarter nearer (it doesn't hop between two players about as
+    // near, restarting its nerve each time).
     const f32 cNearerRatio = 1.25f;
-    const s32 cSendMoving = 4;
-    const s32 cSendStill = 15;
-    // A follower glides to where its owner has it now (its last place moved on as fast as it went, a few frames at
-    // most), a third of the way each frame; one this far off jumps there.
+    // A follower is pulled to where its owner had it (moved on by a few frames of its speed), the rest of the way
+    // eased off a third each frame while its own AI runs on, as a non-owner's object runs its behavior after a packet;
+    // one this far off jumps there. Its owner's turn is drawn for a while after each state, easing back to its own.
     const f32 cSnapDistance = 600.0f;
     const f32 cGlide = 0.3f;
-    const s32 cAheadFrames = 8;
-    const s32 cClaimEvery = 15;
+    const f32 cAheadFrames = 8.0f;
+    const s32 cTurnFrames = 30;
+
+    // How often an owner sends an object `distance` from its player, and how long its followers wait for the next.
+    s32 updateFrames(f32 distance) {
+        const f32 frames = distance * cUpdateFramesPerUnit;
+        return frames > static_cast< f32 >(cMinUpdateFrames) ? static_cast< s32 >(frames) : cMinUpdateFrames;
+    }
+
+    s32 followFrames(f32 distance) {
+        return updateFrames(distance) * 2 + 30;
+    }
+
+    // The other players in this instance who may own an object (shown, not in a miss), as this frame has them.
+    struct Other {
+        u32 mNumber;
+        Vec3f mPosition;
+    };
+    const s32 cMaxOthers = 16;
+    Other sOthers[cMaxOthers];
+    s32 sOtherNum = 0;
+
     u32 sSelf = 0;  // the local player's number
     bool sHost = false;  // the local player hosts the room: this game keeps the observatory's star bit bank
     MarioActor* sMario = nullptr;
@@ -395,7 +428,7 @@ namespace {
         Motion& rMotion = sMotions[sMotionNum];
         memset(static_cast< void* >(&rMotion), 0, sizeof(rMotion));
         rMotion.mEntry = index;
-        rMotion.mHeard = cFollowFrames;
+        rMotion.mHeard = cNeverHeard;
         LiveActor* pActor = sEntries[index].mActor;
         if (pActor->mSpine != nullptr) {
             noteClass(rMotion, pActor->mSpine->getCurrentNerve());
@@ -785,26 +818,76 @@ namespace {
         return false;
     }
 
-    // Following another game's copy, or not. A followed enemy isn't clipped here, as a synced object stays active in
-    // sm64ex-coop: it runs, so its animation plays and it glides along, rather than standing frozen where it was last
-    // drawn (a far one is drawn while clipped) and jumping as states come.
-    void setFollowing(Motion& rMotion, LiveActor* pActor, bool following) {
+    // Following another game's copy, or not.
+    void setFollowing(Motion& rMotion, bool following) {
+        if (!following && rMotion.mFollowing) {
+            rMotion.mCorrection.zero();
+            rMotion.mRotationSet = false;
+        }
         rMotion.mFollowing = following;
+    }
+
+    // Its clipping held off, or given back. An enemy another game moves, or one this game moves for the others, runs
+    // here wherever the local camera is, as a synced object stays active in sm64ex-coop: a followed one moves and
+    // animates rather than standing frozen where it was last drawn (a far one is drawn while clipped) and jumping as
+    // states come, and an owned one keeps running and sending for players who see it.
+    void setRunning(Motion& rMotion, LiveActor* pActor, bool running) {
         if (pActor == nullptr) {
             return;
         }
-        if (following && !rMotion.mNoClip && !MR::isInvalidClipping(pActor)) {
+        if (running && !rMotion.mNoClip && !MR::isInvalidClipping(pActor)) {
             MR::invalidateClipping(pActor);
             rMotion.mNoClip = true;
-        } else if (!following && rMotion.mNoClip) {
+        } else if (!running && rMotion.mNoClip) {
             MR::validateClipping(pActor);
             rMotion.mNoClip = false;
         }
     }
 
-    // Another game's state of an enemy, as sm64ex-coop's object packets: its owner's place, speed and nerve
-    // overwrite this game's copy as they come. Between states the copy runs its own AI, as a non-owner's object runs
-    // its behavior there; nothing here holds it.
+    // The other players who may own an object this frame: shown here (in this instance), not in a miss. As
+    // sm64coopdx's sync_object_should_own, players elsewhere don't count.
+    void gatherOthers() {
+        sOtherNum = 0;
+        const s32 copyNum = NebulaRemotePlayer::getCopyNum();
+        for (s32 i = 0; i < copyNum && sOtherNum < cMaxOthers; i++) {
+            const NebulaRemotePlayer* pCopy = NebulaRemotePlayer::getCopy(i);
+            if (pCopy == nullptr || pCopy->mNumber == 0 || MR::isDead(pCopy) ||
+                (pCopy->mState.flags & NEBULA_COOP_PLAYER_DEAD) != 0) {
+                continue;
+            }
+            sOthers[sOtherNum].mNumber = pCopy->mNumber;
+            sOthers[sOtherNum].mPosition = pCopy->mPosition;
+            sOtherNum++;
+        }
+    }
+
+    // Who moves an object (sm64coopdx's sync_object_should_own): the player nearest it, worked out alike in every
+    // game from where the players are. Its owner is favoured by cNearerRatio. `localDistance` is the local player's,
+    // `canOwn` whether this game may (its record has come and its player is playing).
+    u32 findOwner(const Motion& rMotion, const LiveActor* pActor, f32 localDistance, bool canOwn) {
+        u32 owner = 0;
+        f32 nearest = 0.0f;
+        if (canOwn) {
+            owner = sSelf;
+            nearest = rMotion.mOwner == sSelf ? localDistance / cNearerRatio : localDistance;
+        }
+        for (s32 i = 0; i < sOtherNum; i++) {
+            f32 distance = sOthers[i].mPosition.distance(pActor->mPosition);
+            if (rMotion.mOwner == sOthers[i].mNumber) {
+                distance /= cNearerRatio;
+            }
+            // A tie is the local player's, as sm64coopdx's (both send for a moment, which is harmless).
+            if (owner == 0 || distance < nearest) {
+                owner = sOthers[i].mNumber;
+                nearest = distance;
+            }
+        }
+        return owner;
+    }
+
+    // Another game's state of an enemy, as sm64ex-coop's object packets: unless this game moves it, its owner's place,
+    // speed and nerve overwrite this game's copy as they come (the place eased in over a few frames). Between states
+    // the copy runs its own AI, as a non-owner's object runs its behavior there; nothing here holds it.
     void applyState(const NebulaCoopObjectState& rState) {
         const s32 index = findIndex(rState.object);
         if (index < 0 || sEntries[index].mMotion < 0 || rState.player == 0 || rState.player == sSelf) {
@@ -813,32 +896,46 @@ namespace {
         Entry& rEntry = sEntries[index];
         Motion& rMotion = sMotions[rEntry.mMotion];
         LiveActor* pActor = rEntry.mActor;
-        const bool newOwner = rMotion.mOwner != rState.player || !rMotion.mFollowing;
+        const u16 event = static_cast< u16 >(rState.event);
+        if (rMotion.mSender == rState.player && rMotion.mHeard < cNeverHeard) {
+            // Came late (sm64coopdx's eventId check): a newer one from the same player was applied already.
+            const u16 ahead = static_cast< u16 >(rMotion.mSenderEvent - event);
+            if (ahead != 0 && ahead < 0x8000) {
+                return;
+            }
+        }
+        const bool newSender = rMotion.mSender != rState.player || !rMotion.mFollowing;
         const u32 lastNerve = rMotion.mOwnerNerve;
-        rMotion.mOwner = rState.player;
+        rMotion.mSender = rState.player;
+        rMotion.mSenderEvent = event;
         rMotion.mHeard = 0;
-        rMotion.mHitClaim = false;
         rMotion.mOwnerDistance = rState.distance;
         rMotion.mState = rState;
         rMotion.mOwnerNerve = rState.nerve;
         rMotion.mAge = 0;
-        if (pActor == nullptr || rEntry.mGone || MR::isDead(pActor)) {
+        // This game moves it (its player is nearest): the others' states for it, sent before they knew, don't move it.
+        if (rMotion.mOwner == sSelf || pActor == nullptr || rEntry.mGone || MR::isDead(pActor)) {
             return;
         }
-        setFollowing(rMotion, pActor, true);
-        // Its speed as the owner's; its place glides there each frame (afterMovement), or jumps when far off.
+        setFollowing(rMotion, true);
+        // Its speed as the owner's; its place eased toward where the owner has it by now, or jumping when far off.
         pActor->mVelocity.set(rState.velocity[0], rState.velocity[1], rState.velocity[2]);
-        const Vec3f there(rState.position[0], rState.position[1], rState.position[2]);
+        const Vec3f there(rState.position[0] + rState.velocity[0] * cAheadFrames,
+                           rState.position[1] + rState.velocity[1] * cAheadFrames,
+                           rState.position[2] + rState.velocity[2] * cAheadFrames);
         if (pActor->mPosition.distance(there) > cSnapDistance) {
             pActor->mPosition.set(there);
+            rMotion.mCorrection.zero();
+        } else {
+            rMotion.mCorrection.set(there - pActor->mPosition);
         }
-        // Its nerve when the owner's changed (or it was just taken over), so this copy makes the same move once, its
-        // first step's animation and sound with it; not again each state, which would start that move over. Not one
-        // a hit began (that comes as the hit, played again here), nor one of a class this game's code never set on it
-        // (another class's nerve would run this actor as something else).
+        // Its nerve when the owner's changed (or another player just took it over), so this copy makes the same move
+        // once, its first step's animation and sound with it; not again each state, which would start that move over.
+        // Not one a hit began (that comes as the hit, played again here), nor one of a class this game's code never
+        // set on it (another class's nerve would run this actor as something else).
         Spine* pSpine = pActor->mSpine;
         if (rState.nerve == 0 || (rState.flags & NEBULA_COOP_OBJECT_HIT_NERVE) != 0 || pSpine == nullptr ||
-            (!newOwner && rState.nerve == lastNerve)) {
+            (!newSender && rState.nerve == lastNerve)) {
             return;
         }
         const Nerve* pCurrent = pSpine->getCurrentNerve();
@@ -874,9 +971,6 @@ namespace {
         const Nerve* pNerve = pActor->mSpine != nullptr ? pActor->mSpine->getCurrentNerve() : nullptr;
         pState->nerve = pNerve != nullptr ? pNerve->nebulaId() : 0;
         pState->step = pActor->mSpine != nullptr && pActor->mSpine->mStep > 0 ? static_cast< u32 >(pActor->mSpine->mStep) : 0;
-        if (rMotion.mHitClaim) {
-            pState->flags |= NEBULA_COOP_OBJECT_HIT_CLAIM;
-        }
         if (pNerve != nullptr && pNerve == rMotion.mHitNerve) {
             pState->flags |= NEBULA_COOP_OBJECT_HIT_NERVE;
         }
@@ -890,30 +984,39 @@ namespace {
             quatFromMtx(pMtx, pState->rotation);
         }
         pState->distance = distance;
+        pState->event = ++rMotion.mTxEvent;
     }
 
-    // Each frame: which enemies this game moves (sm64coopdx's sync_object_should_own: the nearest player's, the host
-    // settling it), their states sent, and which ones follow another game's.
+    // Each frame: who moves each enemy (sm64coopdx's sync_object_should_own, worked out here as in every game), the
+    // states of those this game moves sent as sm64coopdx's network_update_objects sends them, and which ones follow
+    // another game's.
     void updateMotions() {
         if (sMotionNum == 0 || sSelf == 0) {
             return;
         }
+        gatherOthers();
         // Static: the module links without __chkstk, so no frame may need a stack probe.
         static NebulaCoopObjectState states[64];
         u32 stateNum = 0;
         const Vec3f* pMarioPos = sMario != nullptr ? &sMario->mPosition : nullptr;
+        // As sm64coopdx: nothing is sent before the instance's record has come (its area's sync is valid), nor by a
+        // player whose miss goes on (out of the level), nor while nobody else is here to follow it.
+        const bool canOwn = sReady && !sMissed && pMarioPos != nullptr && !MR::isPlayerDead();
         for (s32 i = 0; i < sMotionNum; i++) {
             Motion& rMotion = sMotions[i];
             Entry& rEntry = sEntries[rMotion.mEntry];
             LiveActor* pActor = rEntry.mActor;
-            if (rMotion.mHeard < cFollowFrames) {
+            if (rMotion.mHeard < cNeverHeard) {
                 rMotion.mHeard++;
             }
             if (rMotion.mSendIn > 0) {
                 rMotion.mSendIn--;
             }
+            if (rMotion.mSentAgo < cNeverHeard) {
+                rMotion.mSentAgo++;
+            }
             if (pActor == nullptr) {
-                setFollowing(rMotion, nullptr, false);
+                setFollowing(rMotion, false);
                 continue;
             }
             // Its hit nerve is over once it has another.
@@ -922,41 +1025,33 @@ namespace {
                 rMotion.mHitNerve = nullptr;
             }
             const bool alive = !rEntry.mGone && !MR::isDead(pActor);
-            const bool awake = alive && !MR::isClipped(pActor);
             const f32 distance = pMarioPos != nullptr ? pMarioPos->distance(pActor->mPosition) : 1.0e9f;
-            const bool followed = rMotion.mOwner != 0 && rMotion.mOwner != sSelf && rMotion.mHeard < cFollowFrames;
-            setFollowing(rMotion, pActor, alive && followed);
-            bool send = false;
-            if (rMotion.mOwner == sSelf) {
-                if (!awake) {
-                    // Gone, or stopped here (out of sight): another player near it may take it over.
-                    rMotion.mOwner = 0;
-                    continue;
-                }
-                const u32 nerve = pCurrent != nullptr ? pCurrent->nebulaId() : 0;
-                send = rMotion.mSendIn == 0 || nerve != rMotion.mSentNerve || rMotion.mHitClaim;
-            } else if (alive && rMotion.mHitClaim) {
-                send = true;
-            } else if (awake && distance < cSyncDistance && rMotion.mSendIn == 0) {
-                // Nobody moves it, or this player is a quarter nearer than its owner: taken over (the host may say no:
-                // the owner's states then keep coming).
-                send = !followed || distance * cNearerRatio < rMotion.mOwnerDistance;
-                if (!send) {
-                    rMotion.mSendIn = cClaimEvery;
-                }
+            const u32 owner = sOtherNum > 0 && alive ? findOwner(rMotion, pActor, distance, canOwn) : (canOwn ? sSelf : 0);
+            const bool wasOwned = rMotion.mOwner == sSelf;
+            rMotion.mOwner = owner;
+            if (owner != sSelf) {
+                // Another player's game moves it: followed while its states keep coming.
+                const bool followed = alive && rMotion.mSender != 0 && rMotion.mHeard < followFrames(rMotion.mOwnerDistance);
+                setFollowing(rMotion, followed);
+                setRunning(rMotion, pActor, followed);
+                continue;
             }
-            if (!send || stateNum >= 64) {
+            setFollowing(rMotion, false);
+            // This game moves it: sent while another player is here and its own is near enough.
+            const bool sending = alive && sOtherNum > 0 && distance < cSyncDistance;
+            setRunning(rMotion, pActor, sending);
+            if (!sending || stateNum >= 64) {
+                continue;
+            }
+            const u32 nerve = pCurrent != nullptr ? pCurrent->nebulaId() : 0;
+            const bool changed = nerve != rMotion.mSentNerve || !wasOwned;
+            if (!(rMotion.mSendIn == 0 || (changed && rMotion.mSentAgo >= cMinSendFrames))) {
                 continue;
             }
             fillState(rEntry, rMotion, distance, &states[stateNum++]);
-            const bool moved = rMotion.mSentPosition.distance(pActor->mPosition) > 1.0f;
-            rMotion.mOwner = sSelf;
-            rMotion.mHeard = 0;
-            setFollowing(rMotion, pActor, false);
-            rMotion.mHitClaim = false;
-            rMotion.mSentNerve = states[stateNum - 1].nerve;
-            rMotion.mSentPosition = pActor->mPosition;
-            rMotion.mSendIn = moved ? cSendMoving : cSendStill;
+            rMotion.mSentNerve = nerve;
+            rMotion.mSentAgo = 0;
+            rMotion.mSendIn = updateFrames(distance);
         }
         if (stateNum > 0) {
             NebulaHost::coopObjectsReport(states, stateNum);
@@ -1195,6 +1290,88 @@ namespace NebulaCoopWorld {
         return sInRoom;
     }
 
+    void notePlatform(NebulaCoopPlayer* pPlayer) {
+        if (!sObjectsActive || sMario == nullptr || !MR::isOnGroundPlayer()) {
+            return;
+        }
+        const Triangle* pGround = MR::getPlayerGroundingPolygon();
+        if (pGround == nullptr || !pGround->isValid() || pGround->mSensor == nullptr || pGround->mParts == nullptr) {
+            return;
+        }
+        // The actor's own collision only: one it made for a part has no key of its own to find it by.
+        LiveActor* pHost = pGround->mSensor->mHost;
+        CollisionParts* pParts = pGround->mParts;
+        if (pHost == nullptr || pHost->mCollisionParts != pParts) {
+            return;
+        }
+        const s32 index = findActor(pHost);
+        if (index < 0) {
+            return;
+        }
+        Entry& rEntry = sEntries[index];
+        if (!rEntry.mMoved) {
+            // Still ground (a planet, a placed block) is everyone's alike: only a thing seen moving is sent.
+            for (s32 i = 0; i < 3 && !rEntry.mMoved; i++) {
+                for (s32 j = 0; j < 4; j++) {
+                    if (fabsf(pParts->mBaseMatrix.mMtx[i][j] - pParts->mPrevBaseMatrix.mMtx[i][j]) > 0.001f) {
+                        rEntry.mMoved = true;
+                        break;
+                    }
+                }
+            }
+            if (!rEntry.mMoved) {
+                return;
+            }
+        }
+        Vec3f local(0.0f, 0.0f, 0.0f);
+        pParts->mInvBaseMatrix.mult(sMario->mPosition, local);
+        Vec3f front(pPlayer->front[0], pPlayer->front[1], pPlayer->front[2]);
+        Vec3f up(pPlayer->up[0], pPlayer->up[1], pPlayer->up[2]);
+        pParts->mInvBaseMatrix.mult33(front, front);
+        pParts->mInvBaseMatrix.mult33(up, up);
+        if (MR::normalizeOrZero(&front) || MR::normalizeOrZero(&up)) {
+            return;
+        }
+        pPlayer->platform = rEntry.mKey;
+        pPlayer->platform_position[0] = local.x;
+        pPlayer->platform_position[1] = local.y;
+        pPlayer->platform_position[2] = local.z;
+        pPlayer->platform_front[0] = front.x;
+        pPlayer->platform_front[1] = front.y;
+        pPlayer->platform_front[2] = front.z;
+        pPlayer->platform_up[0] = up.x;
+        pPlayer->platform_up[1] = up.y;
+        pPlayer->platform_up[2] = up.z;
+    }
+
+    bool placeOnPlatform(const NebulaCoopPlayer& rPlayer, Vec3f* pPosition, Vec3f* pFront, Vec3f* pUp) {
+        if (!sObjectsActive || rPlayer.platform == 0) {
+            return false;
+        }
+        const s32 index = findIndex(rPlayer.platform);
+        if (index < 0) {
+            return false;
+        }
+        LiveActor* pActor = sEntries[index].mActor;
+        if (pActor == nullptr || MR::isDead(pActor) || pActor->mCollisionParts == nullptr) {
+            return false;
+        }
+        const Pos3f& rMtx = pActor->mCollisionParts->mBaseMatrix;
+        const Vec3f local(rPlayer.platform_position[0], rPlayer.platform_position[1], rPlayer.platform_position[2]);
+        Vec3f front(rPlayer.platform_front[0], rPlayer.platform_front[1], rPlayer.platform_front[2]);
+        Vec3f up(rPlayer.platform_up[0], rPlayer.platform_up[1], rPlayer.platform_up[2]);
+        rMtx.mult(local, *pPosition);
+        rMtx.mult33(front, front);
+        rMtx.mult33(up, up);
+        if (!MR::normalizeOrZero(&front)) {
+            pFront->set(front);
+        }
+        if (!MR::normalizeOrZero(&up)) {
+            pUp->set(up);
+        }
+        return true;
+    }
+
     s32 startMissionClock() {
         if (!sInRoom || !sPlaced) {
             return 0;
@@ -1235,14 +1412,6 @@ namespace NebulaCoopWorld {
         Entry& rEntry = sEntries[index];
         rEntry.mHitFrames = 0;
         rEntry.mHitByOther = false;
-        if (rEntry.mMotion >= 0) {
-            // A hit takes it over (sm64coopdx: who interacts with an object sends its update).
-            Motion& rMotion = sMotions[rEntry.mMotion];
-            rMotion.mHitClaim = true;
-            rMotion.mOwner = sSelf;
-            rMotion.mHeard = 0;
-            setFollowing(rMotion, pActor, false);
-        }
         if (rEntry.mLastHit == msg && sClock - rEntry.mLastHitFrame < cHitRepeatFrames) {
             return true;
         }
@@ -1272,16 +1441,11 @@ namespace NebulaCoopWorld {
         if (pMotion == nullptr || !pMotion->mFollowing || MR::isDead(pActor)) {
             return;
         }
-        const NebulaCoopObjectState& rState = pMotion->mState;
-        const f32 ahead = static_cast< f32 >(pMotion->mAge < cAheadFrames ? pMotion->mAge : cAheadFrames);
         pMotion->mAge++;
-        const Vec3f there(rState.position[0] + rState.velocity[0] * ahead, rState.position[1] + rState.velocity[1] * ahead,
-                           rState.position[2] + rState.velocity[2] * ahead);
-        if (pActor->mPosition.distance(there) > cSnapDistance) {
-            pActor->mPosition.set(there);
-        } else {
-            pActor->mPosition.set(pActor->mPosition + (there - pActor->mPosition) * cGlide);
-        }
+        // The rest of the way to where its owner had it, a part each frame, on top of what its own AI moved it.
+        const Vec3f step = pMotion->mCorrection * cGlide;
+        pActor->mPosition.add(step);
+        pMotion->mCorrection.sub(step);
     }
 
     void afterBaseMtx(LiveActor* pActor) {
@@ -1289,23 +1453,29 @@ namespace NebulaCoopWorld {
         if (pMotion == nullptr || !pMotion->mFollowing) {
             return;
         }
-        const f32* pTarget = pMotion->mState.rotation;
-        const f32 norm = pTarget[0] * pTarget[0] + pTarget[1] * pTarget[1] + pTarget[2] * pTarget[2] + pTarget[3] * pTarget[3];
         MtxPtr pMtx = baseMtxOf(pActor);
-        if (norm < 0.5f || pMtx == nullptr) {
+        if (pMtx == nullptr) {
             return;
         }
-        // Eased toward the owner's turn (the short way round), drawn so.
+        // Its own turn (as its AI set it this frame), and the owner's while its last state is fresh.
+        f32 own[4];
+        quatFromMtx(pMtx, own);
+        const f32* pTarget = own;
+        const f32* pOwner = pMotion->mState.rotation;
+        const f32 norm = pOwner[0] * pOwner[0] + pOwner[1] * pOwner[1] + pOwner[2] * pOwner[2] + pOwner[3] * pOwner[3];
+        if (pMotion->mAge < cTurnFrames && norm >= 0.5f) {
+            pTarget = pOwner;
+        }
+        // Eased toward it (the short way round), drawn so.
         f32* pRot = pMotion->mRotation;
         if (!pMotion->mRotationSet) {
-            memcpy(pRot, pTarget, sizeof(f32) * 4);
+            memcpy(pRot, own, sizeof(f32) * 4);
             pMotion->mRotationSet = true;
-        } else {
-            const f32 dot = pRot[0] * pTarget[0] + pRot[1] * pTarget[1] + pRot[2] * pTarget[2] + pRot[3] * pTarget[3];
-            const f32 sign = dot < 0.0f ? -1.0f : 1.0f;
-            for (s32 i = 0; i < 4; i++) {
-                pRot[i] += (pTarget[i] * sign - pRot[i]) * 0.3f;
-            }
+        }
+        const f32 dot = pRot[0] * pTarget[0] + pRot[1] * pTarget[1] + pRot[2] * pTarget[2] + pRot[3] * pTarget[3];
+        const f32 sign = dot < 0.0f ? -1.0f : 1.0f;
+        for (s32 i = 0; i < 4; i++) {
+            pRot[i] += (pTarget[i] * sign - pRot[i]) * 0.3f;
         }
         const f32 length = sqrtf(pRot[0] * pRot[0] + pRot[1] * pRot[1] + pRot[2] * pRot[2] + pRot[3] * pRot[3]);
         if (length < 0.001f) {
@@ -1316,6 +1486,10 @@ namespace NebulaCoopWorld {
         pMtx[0][3] = pActor->mPosition.x;
         pMtx[1][3] = pActor->mPosition.y;
         pMtx[2][3] = pActor->mPosition.z;
+    }
+
+    bool isSharedEnemy(const LiveActor* pActor) {
+        return sObjectsActive && pActor != nullptr && findMotion(pActor) != nullptr;
     }
 
     void noteSwitch(u32 id, bool on) {

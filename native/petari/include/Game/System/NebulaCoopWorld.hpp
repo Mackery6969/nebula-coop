@@ -1,7 +1,10 @@
 #pragma once
 
 
+#include <nebula_geometry.hpp>
+
 class GameDataHolder;
+struct NebulaCoopPlayer;
 class HitSensor;
 class TableIter;
 class LiveActor;
@@ -29,11 +32,13 @@ class Nerve;
 // - Hits. The local Mario's attack on one of them (a stomp, a spin, a ground pound, a kick) is played again in each
 //   other game in the instance from his copy there, so the thing reacts in every game: a Goomba squashed with its
 //   animation, a box broken, a switch pressed, a boss hurt.
-// - Movement. Each plain enemy is moved by one game, its owner: the player nearest it, the host settling who. As
-//   sm64ex-coop's object packets, the owner's states steer the others' copies (how fast it goes, its nerve when that
-//   changed, where it is: they glide there) while each copy runs its own AI, unclipped while it is followed, as a
-//   synced object stays active; its model is drawn turned as the owner's. A player who hits an enemy takes it over:
-//   his stomps, spins and kicks, and his star bits' and fireballs' hits.
+// - Movement. Each plain enemy is moved by one game, its owner: the player nearest it, as every game works it out
+//   from where the players are (sm64coopdx's sync_object_should_own). As sm64ex-coop's object packets, the owner
+//   sends its state when its nerve changes and otherwise every distance / 1000 seconds (a third of a second at
+//   least, within 4000 units), each counted so a late one is dropped; the state steers the others' copies (how fast
+//   it goes, its nerve when that changed, where it is: eased there) while each copy runs its own AI, unclipped while
+//   it is followed or owned, as a synced object stays active, and goes for the nearest player as the owner's does.
+//   A player entering the instance gets each enemy's latest state with its record.
 // - Switches. A stage switch turned in one game is turned in the others in the instance; the instance's record keeps
 //   them for players coming later. Switches an area turns while the player is in it stay each player's.
 // - Coins an enemy drops, and star bits a followed thing lets out (a crystal broken, an enemy defeated), are keyed by
@@ -54,8 +59,12 @@ namespace NebulaCoopWorld {
     void noteNerve(LiveActor* pActor, const Nerve* pNerve);
     // LiveActor::movement's end: an enemy another game moves glides to where that game has it.
     void afterMovement(LiveActor* pActor);
-    // calcAnmMtx after calcAndSetBaseMtx: an enemy another game moves is drawn turned as there.
+    // calcAnmMtx after calcAndSetBaseMtx: an enemy another game moves is drawn turned as there for a while after
+    // each of its states.
     void afterBaseMtx(LiveActor* pActor);
+    // Whether `pActor` is a shared enemy (one whose movement is followed): it goes for the nearest player
+    // (MR::getTargetPlayerPos), as sm64coopdx's behaviors do.
+    bool isSharedEnemy(const LiveActor* pActor);
     // StageSwitchFunction: a switch turned (its zone << 16 | number, the zone 0xffff for global ones).
     void noteSwitch(u32 id, bool on);
     // Around switches that follow the local player alone (an area turning one while he is in it).
@@ -94,6 +103,12 @@ namespace NebulaCoopWorld {
     void noticeMiss();
     // Whether this scene is in a room.
     bool isInRoom();
+    // GameScene's report of the local player: the moving thing he stands on, when the others' games have it too (a
+    // placed actor's own collision, seen moving), and where he stands on it (sm64coopdx's platformSyncID).
+    void notePlatform(NebulaCoopPlayer* pPlayer);
+    // NebulaRemotePlayer::show: where another player standing on a moving thing stands on this game's copy of it
+    // (each game moves its own, not always in step), false when this game doesn't have it.
+    bool placeOnPlatform(const NebulaCoopPlayer& rPlayer, Vec3f* pPosition, Vec3f* pFront, Vec3f* pUp);
     // The mission's clock (docs/COOP_PLAN.md "Races and timers"): a speedy comet's time limit is the instance's, one
     // for everyone in it, as the first player's started. startMissionClock, as the local clock starts: the server is
     // told, and the frames the instance's has run come back (0 when this one is the first). getMissionClock: the

@@ -43,6 +43,13 @@ namespace MR {
     // Co-op (docs/COOP_PLAN.md, Phase 3): the position of the player nearest pActor, the local Mario or another player
     // in this instance who can be touched now. Single player, the local Mario's (getPlayerPos).
     const Vec3f* getNearestPlayerPos(const LiveActor* pActor);
+    // The same player's body centre (getPlayerCenterPos for the local Mario).
+    const Vec3f* getNearestPlayerCenterPos(const LiveActor* pActor);
+    // Co-op: the player an actor goes for. A shared enemy (NebulaCoopWorld::isSharedEnemy) goes for the nearest
+    // player in every game, as sm64coopdx's behaviors go for nearest_player_to_object, so its owner's game and the
+    // others' run it alike; anything else, and single player, the local Mario.
+    const Vec3f* getTargetPlayerPos(const LiveActor* pActor);
+    const Vec3f* getTargetPlayerCenterPos(const LiveActor* pActor);
     void setPlayerPos(const Vec3f&);
     void setPlayerUpperRotateY(f32);
     Vec3f* getPlayerRotate();
