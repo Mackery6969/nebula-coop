@@ -9,8 +9,10 @@
 
 # Anything derived from a game dump stays local (see docs/CONTENT_POLICY.md)
 /generated/
-# Co-op test instances (unique saves/ports per instance)
+# Co-op test instance (shared binary dir) and saves (repo-root, one per session)
 /instances/
+/saves/
+/content/
 
 # Local scratch and editor state
 /.env

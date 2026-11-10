@@ -165,6 +165,7 @@ RuntimeSettings sanitize_settings(RuntimeSettings settings) {
         settings.coop.pvp_mode = CoopPvpMode::Classic;
     }
     settings.coop.player_name = sanitize_coop_text(settings.coop.player_name);
+    settings.coop.room_name = sanitize_coop_text(settings.coop.room_name);
     settings.coop.password = sanitize_coop_text(settings.coop.password);
     if (settings.coop.character > CoopCharacter::Luigi) {
         settings.coop.character = CoopCharacter::Mario;
@@ -294,6 +295,8 @@ void apply_kv(RuntimeSettings& settings, const char* key, const char* value) {
         }
     } else if (std::strcmp(key, "coop_player_name") == 0) {
         settings.coop.player_name = value;
+    } else if (std::strcmp(key, "coop_room_name") == 0) {
+        settings.coop.room_name = value;
     } else if (std::strcmp(key, "coop_password") == 0) {
         settings.coop.password = value;
     } else if (std::strcmp(key, "coop_character") == 0) {
@@ -689,6 +692,7 @@ bool save_runtime_settings_to_file() {
             contents << "coop_max_players=" << settings.coop.max_players << '\n';
         }
         if (!settings.coop.player_name.empty()) contents << "coop_player_name=" << settings.coop.player_name << '\n';
+        if (!settings.coop.room_name.empty()) contents << "coop_room_name=" << settings.coop.room_name << '\n';
         if (!settings.coop.password.empty()) contents << "coop_password=" << settings.coop.password << '\n';
         if (settings.coop.character != defaults.character) {
             contents << "coop_character=" << coop_character_key(settings.coop.character) << '\n';
