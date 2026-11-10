@@ -171,6 +171,22 @@ void RunawayRabbitCollect::noticeCaughtRabbit(RunawayRabbit* pRabbit) {
     }
 }
 
+void RunawayRabbitCollect::noticeCaughtRabbitByOtherPlayer(RunawayRabbit* pRabbit) {
+    // The one caught is the group's, wherever it hid in this game: its others, shown here or not, are put away.
+    pRabbit->mIsActive = true;
+    const s32 groupId = pRabbit->getGroupId();
+    if (groupId >= 0) {
+        for (s32 i = 0; i < mRabbitNum; i++) {
+            RunawayRabbit* pOther = mRabbit[i];
+            if (pOther != pRabbit && pOther->getGroupId() == groupId && !pOther->isCaught()) {
+                pOther->mIsActive = false;
+                pOther->putAway();
+            }
+        }
+    }
+    noticeCaughtRabbit(pRabbit);
+}
+
 void RunawayRabbitCollect::control() {
 }
 

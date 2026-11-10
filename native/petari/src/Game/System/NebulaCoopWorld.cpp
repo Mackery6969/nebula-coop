@@ -12,6 +12,8 @@
 #include "Game/Map/HitInfo.hpp"
 #include "Game/Map/StageSwitch.hpp"
 #include "Game/MapObj/ChipBase.hpp"
+#include "Game/NPC/RunawayRabbit.hpp"
+#include "Game/NPC/RunawayRabbitCollect.hpp"
 #include "Game/MapObj/Coin.hpp"
 #include "Game/MapObj/CoinGroup.hpp"
 #include "Game/MapObj/StarPiece.hpp"
@@ -51,6 +53,7 @@ namespace {
         Kind_Enemy,   // a plain enemy: gone once defeated, moved by its owner's game, hits shared
         Kind_Object,  // any other placed actor (a boss, a box, a switch, a platform): hits shared
         Kind_Part,    // an actor a placed one made as it was placed (a boss's part, a group's member): hits shared
+        Kind_Rabbit,  // a star bunny to catch (the Gateway's): moved by its owner's game as an enemy, caught once for all
     };
 
     struct Entry {
@@ -62,6 +65,7 @@ namespace {
         bool mGot;    // a coin or star bit the local player took
         bool mHitByOther;  // its last hit was another player's, played again here
         bool mMoved;       // its collision was seen moving with the local player on it (a platform)
+        bool mCaughtHere;  // a star bunny the local player caught: its catch plays here, and it goes by itself
         s16 mMotion;     // its slot in sMotions, -1 for none
         s16 mGoneDelay;  // frames before the server's gone removes it: its own death (a hit played again) may still play
         s16 mHitFrames;  // frames since a hit last played on it, up to cHitFrames
@@ -520,6 +524,15 @@ namespace {
             rEntry.mAlive = false;
             return;
         }
+        if (rEntry.mKind == Kind_Rabbit) {
+            // Another player caught this star bunny: caught here too, counted toward its group as the game counts its
+            // own (the next Luma's comment, the Launch Star once all are).
+            sApplying = true;
+            static_cast< RunawayRabbit* >(rEntry.mActor)->catchForOtherPlayer();
+            sApplying = false;
+            rEntry.mAlive = false;
+            return;
+        }
         const bool following = rEntry.mMotion >= 0 && sMotions[rEntry.mMotion].mFollowing;
         if (rEntry.mGot && !MR::isDead(rEntry.mActor)) {
             // The local player took it too and it still flies to him: it ends its flight first.
@@ -562,7 +575,8 @@ namespace {
     }
 
     bool isHitShared(const Entry& rEntry) {
-        return rEntry.mKind == Kind_Enemy || rEntry.mKind == Kind_Object || rEntry.mKind == Kind_Part;
+        return rEntry.mKind == Kind_Enemy || rEntry.mKind == Kind_Object || rEntry.mKind == Kind_Part ||
+               rEntry.mKind == Kind_Rabbit;
     }
 
     s32 sensorIndex(const LiveActor* pActor, const HitSensor* pSensor) {
@@ -1198,6 +1212,17 @@ namespace NebulaCoopWorld {
                 add(hashValue(hashValue(key, 0x50415254u /* PART */), static_cast< u32 >(i)), sMade[i], Kind_Part);
             }
         }
+        if (isName(pName, "RunawayRabbitCollect")) {
+            // Its star bunnies run and are caught in every game alike: moved by the nearest player's game.
+            const RunawayRabbitCollect* pCollect = static_cast< RunawayRabbitCollect* >(pObj);
+            for (s32 i = 0; i < pCollect->getRabbitNum(); i++) {
+                const s32 index = findActor(pCollect->getRabbit(i));
+                if (index >= 0 && sEntries[index].mMotion < 0 && sEntries[index].mActor->mSpine != nullptr) {
+                    sEntries[index].mKind = Kind_Rabbit;
+                    addMotion(index);
+                }
+            }
+        }
         sMadeNum = 0;
     }
 
@@ -1241,7 +1266,7 @@ namespace NebulaCoopWorld {
                 rEntry.mHitFrames++;
             }
             const bool alive = !MR::isDead(rEntry.mActor);
-            if (alive && rEntry.mGone) {
+            if (alive && rEntry.mGone && !rEntry.mCaughtHere) {
                 if (rEntry.mGoneDelay > 0) {
                     // Its own death still plays (a hit played here): the server's record waits for it a while.
                     rEntry.mGoneDelay--;
@@ -1490,6 +1515,22 @@ namespace NebulaCoopWorld {
 
     bool isSharedEnemy(const LiveActor* pActor) {
         return sObjectsActive && pActor != nullptr && findMotion(pActor) != nullptr;
+    }
+
+    void noteRabbitCaught(LiveActor* pRabbit) {
+        if (!sObjectsActive || sApplying) {
+            return;
+        }
+        const s32 index = findActor(pRabbit);
+        if (index < 0 || sEntries[index].mKind != Kind_Rabbit || sEntries[index].mGone) {
+            return;
+        }
+        Entry& rEntry = sEntries[index];
+        // Gone from now: its states stop (the catch, which holds the local player, never runs in another game), and
+        // the others' for it are dropped.
+        rEntry.mGone = true;
+        rEntry.mCaughtHere = true;
+        report(NEBULA_COOP_WORLD_GONE, rEntry.mKey, 0, 0, nullptr);
     }
 
     void noteSwitch(u32 id, bool on) {

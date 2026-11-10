@@ -65,6 +65,8 @@ namespace NebulaCoopWorld {
     // Whether `pActor` is a shared enemy (one whose movement is followed): it goes for the nearest player
     // (MR::getTargetPlayerPos), as sm64coopdx's behaviors do.
     bool isSharedEnemy(const LiveActor* pActor);
+    // RunawayRabbit::attackSensor: the local player caught this star bunny: caught for the others too.
+    void noteRabbitCaught(LiveActor* pRabbit);
     // StageSwitchFunction: a switch turned (its zone << 16 | number, the zone 0xffff for global ones).
     void noteSwitch(u32 id, bool on);
     // Around switches that follow the local player alone (an area turning one while he is in it).
