@@ -2,6 +2,7 @@
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/NPC/RunawayRabbit.hpp"
 #include "Game/NPC/RunawayTico.hpp"
+#include "Game/System/NebulaCoopWorld.hpp"
 #include "Game/Util/ActorCameraUtil.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
@@ -202,14 +203,47 @@ void RunawayRabbitCollect::exeWait() {
     }
     for (s32 i = 0; i < mTicoNum; i++) {
         if (outOfHiding || mTico[i]->isStartRunaway()) {
-            for (s32 j = 0; j < mRabbitNum; j++) {
-                mRabbit[j]->activate();
+            if (mTico[i]->isStartRunaway()) {
+                NebulaCoopWorld::noteChaseStarted(this);
             }
-
-            MR::sendMsgToAllLiveActor(ACTMES_HEAVENSDOOR_RUNAWAY_RABBIT_START, nullptr);
-            setNerve(GET_NERVE(RunawayRabbitCollect, RunawayRabbitCollectNrvActive));
+            startChase();
             return;
         }
+    }
+}
+
+void RunawayRabbitCollect::startChase() {
+    for (s32 j = 0; j < mRabbitNum; j++) {
+        mRabbit[j]->activate();
+    }
+
+    MR::sendMsgToAllLiveActor(ACTMES_HEAVENSDOOR_RUNAWAY_RABBIT_START, nullptr);
+    setNerve(GET_NERVE(RunawayRabbitCollect, RunawayRabbitCollectNrvActive));
+}
+
+void RunawayRabbitCollect::startForOtherPlayer() {
+    bool startedHere = false;
+    for (s32 i = 0; i < mTicoNum; i++) {
+        if (mTico[i]->isStartRunaway()) {
+            startedHere = true;
+        }
+    }
+    if (startedHere) {
+        // The local player's own cutscene started it too: it is as it ended here.
+        return;
+    }
+    // The Luma the player meets has done its part (as when the guide was seen before: RunawayTico::initAfterPlacement).
+    for (s32 i = 0; i < mTicoNum; i++) {
+        if (mTico[i]->mRole == RunawayTico::Role_Meet && !MR::isDead(mTico[i])) {
+            mTico[i]->makeActorDead();
+        }
+    }
+    // The galaxy's music, as the guide bunny starts it when the guide was seen before (DemoRabbit::exeStartBGM).
+    if (!MR::isPlayingStageBgm()) {
+        MR::startStageBGM("MBGM_GALAXY_24", false);
+    }
+    if (isNerve(GET_NERVE(RunawayRabbitCollect, RunawayRabbitCollectNrvWait))) {
+        startChase();
     }
 }
 
