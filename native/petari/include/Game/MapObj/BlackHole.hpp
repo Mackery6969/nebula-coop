@@ -1,8 +1,8 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TBox.hpp>
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
+
 
 class ActorCameraInfo;
 class ModelObj;
@@ -11,29 +11,27 @@ class BlackHole : public LiveActor {
 public:
     BlackHole(const char*);
 
-    virtual ~BlackHole();
-    virtual void init(const JMapInfoIter&);
-    virtual void makeActorAppeared();
-    virtual void kill();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void makeActorAppeared() override;
+    virtual void kill() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
 
     bool tryStartDemoCamera();
-    void initMapToolInfo(const JMapInfoIter&);
+    void initMapToolInfo(const TableIter&);
     void initModel();
     void initCubeBox();
-    bool isInCubeBox(const TVec3f&) const;
-    void updateModelScale(f32, f32);
+    bool isInCubeBox(const Vec3f&) const;
+    void updateModelScale(f32 rangeScale, f32 coreScale);
     void exeWait();
     void exeDemo();
     void exeDisappear();
 
     ModelObj* mBlackHoleModel;
-    TVec3f _90;
-    f32 _9C;
-    f32 _A0;
-    TBox3f* _A4;
-    TPos3f _A8;
-    TPos3f _D8;
+    f32 mModelScale;
+    f32 mRadius;
+    Box3f* mCubeBox;
+    Pos3f mCubeMtx;
+    Pos3f mSuctionEffectMtx;
     ActorCameraInfo* mCameraInfo;
 };

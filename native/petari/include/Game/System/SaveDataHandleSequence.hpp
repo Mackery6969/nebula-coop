@@ -10,18 +10,11 @@ class SaveIcon;
 class SysInfoWindow;
 class UserFile;
 
-namespace MR {
-    class FunctorBase;
-};  // namespace MR
-
 class SaveDataHandleSequence : public NerveExecutor {
 public:
-    /// @brief Creates a new `SaveDataHandleSequence`.
     SaveDataHandleSequence();
 
     void initAfterResourceLoaded();
-    void registerFunctorOnSaveSuccess(const MR::FunctorBase&);
-    void registerFunctorJustBeforeSave(const MR::FunctorBase&);
     void update();
     void draw() const;
     void startPreLoad();
@@ -42,8 +35,6 @@ public:
     void storeCopyUserFile(int, int);
     bool tryUnrecoverableError(SaveRequest::Result);
     bool isActive() const;
-    bool isPermitToReset() const;
-    void prepareReset();
     bool isPreparedReset() const;
     void restoreFromReset();
     bool isInitializedGameDataHolder() const;
@@ -51,7 +42,6 @@ public:
     void restoreUserFile(UserFile*, int, bool);
     void backupCurrentUserFile();
     void exeNoOperation();
-    void exeCheckEnableToCreate();
     void exeSaveConfirm();
     void exeSave();
     void exeSaveWindowDisappear();
@@ -85,20 +75,19 @@ public:
     SaveErrorSequence* mSaveErrorSequence;
     SysInfoWindow* mSysInfoWindowConfirm;
     SysInfoWindow* mSysInfoWindowSave;
-    s32 _24;
+    // The last sequence ended done: saved, loaded, nothing to load, or the player went on without saving.
+    bool mSucceeded;
     bool mIsConfirmRemind;
     bool mIsSaveAndQuitMsg;
-    bool _2A;
-    bool _2B;
-    bool _2C;
+    bool mIsCorrupted;
+    bool mIsNoSaveMode;
     UserFile* mWorkUserFile;
     const Nerve* mNerveForError;
     u8* mTempBuffer;
-    MR::FunctorBase* mOnSaveSuccessFunc;
-    MR::FunctorBase* mJustBeforeSaveFunc;
     SaveIcon* mSaveIcon;
     bool mWindowFollows;
     int mSaveCopyLoading = 0;
     // A new console's user file, never changed: what startReload starts from.
     UserFile* mNewUserFile;
+    bool mSaveDamaged = false;
 };

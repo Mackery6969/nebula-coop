@@ -1,49 +1,40 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
-class J3DMaterial;
-class J3DShape;
-class J3DShapeDraw;
+class Material;
+class Mesh;
 
 class PlantLeaf : public LiveActor {
 public:
-    PlantLeaf(f32, const TVec3f&, const TVec3f&, f32);
+    PlantLeaf(f32, const Vec3f&, const Vec3f&, f32);
 
-    virtual void init(const JMapInfoIter&);
-    virtual MtxPtr getBaseMtx() const {
-        return (MtxPtr)&mBaseMtx;
+    virtual void init(const TableIter&) override;
+    virtual MtxPtr getBaseMtx() const override {
+        return const_cast< MtxPtr >(mBaseMtx.mMtx);
     }
 
-    void updateGrowUp(const TVec3f&, const TVec3f&, f32, f32);
-    bool updateSpring(const TVec3f&, f32, f32);
+    void updateGrowUp(const Vec3f&, const Vec3f&, f32, f32);
+    bool updateSpring(const Vec3f&, f32, f32);
     bool updateSpring(f32);
-
-    MtxPtr getPosMtx() const {
-        return (MtxPtr)&mPosMtx;
-    }
 
     f32 mSpringCoord;
     f32 mSpringSpeed;
     f32 mLeafCoord;
     f32 mLeafSize;
-    TVec3f mSide;
-    TVec3f mUp;
-    TVec3f mFront;
-    TPos3f mBaseMtx;
-    TPos3f mPosMtx;
+    Vec3f mSide;
+    Vec3f mUp;
+    Vec3f mFront;
+    Pos3f mBaseMtx;
 };
 
 class PlantLeafDrawInit : public LiveActor {
 public:
     PlantLeafDrawInit(const char*);
 
-    virtual void init(const JMapInfoIter&);
+    virtual void init(const TableIter&) override;
 
-    void initDraw() const;
-
-    J3DMaterial* mMaterial;
-    J3DShape* mShape;
-    J3DShapeDraw* mShapeDraw;
+    Material* mMaterial;
+    Mesh* mShape;
 };

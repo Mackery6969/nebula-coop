@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class JumpStand : public LiveActor {
 public:
@@ -9,10 +9,10 @@ public:
 
     enum JumpType { Jump_Low = 0, Jump_Middle = 1, Jump_High = 2 };
 
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void control() override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
     void exeWait();
     void exeTrampleBound();
@@ -23,6 +23,6 @@ public:
     void endBindAndShootUp(f32, JumpType);
 
     LiveActor* mBindedActor;
-    TPos3f _90;
+    Pos3f mCollisionMtx;
     bool mIsMarioJumpingHigh;
 };

@@ -15,11 +15,11 @@ namespace NrvFallingSmallRock {
 FallingSmallRock::FallingSmallRock(const char* pName) : LiveActor(pName) {
 }
 
-void FallingSmallRock::init(const JMapInfoIter& rIter) {
+void FallingSmallRock::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initSound(4, false);
     initBinder(10.0f, 800.0f, 0);
-    initEffectKeeper(0, "FallingSmallRock", false);
+    initEffectKeeper(0, "FallingSmallRock");
     MR::needStageSwitchReadA(this, rIter);
     MR::setClippingTypeSphere(this, 800.0f);
     initNerve(GET_NERVE(FallingSmallRock, HostTypeWait));
@@ -57,7 +57,4 @@ void FallingSmallRock::exeWait() {
     if (MR::isOnSwitchA(this)) {
         setNerve(GET_NERVE(FallingSmallRock, HostTypeMove));
     }
-}
-
-FallingSmallRock::~FallingSmallRock() {
 }

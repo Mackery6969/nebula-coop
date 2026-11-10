@@ -2,13 +2,7 @@
 
 // Temporal upscaling of the D3D12 scene (AMD FidelityFX FSR 3.1).
 
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <Windows.h>
+#include "galaxy/windows_api.h"
 #include <d3d12.h>
 
 #include "galaxy/render/post_process_settings.h"
@@ -26,7 +20,7 @@ namespace galaxy::render {
 struct TemporalUpscaleInputs {
     ID3D12GraphicsCommandList* list = nullptr;
     ID3D12Resource* color = nullptr;   // RGBA8, gamma encoded, jittered
-    ID3D12Resource* depth = nullptr;   // D24S8 typeless, reversed (near = 1)
+    ID3D12Resource* depth = nullptr;   // the scene depth (kSceneDepthResourceFormat), reversed (near = 1)
     ID3D12Resource* motion = nullptr;  // RG16F, render pixels, current -> previous
     ID3D12Resource* reactive = nullptr;  // R8, blended draws' alpha (optional)
     ID3D12Resource* output = nullptr;  // RGBA8 with unordered access

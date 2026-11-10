@@ -267,6 +267,12 @@ void test_dualsense() {
     expect((edge.state.buttons & (bit(pad::kGripLeftBit) | bit(pad::kGripRightBit))) ==
                (bit(pad::kGripLeftBit) | bit(pad::kGripRightBit)),
            "DualSense Edge paddles are GL and GR");
+    r = ds5_usb();
+    r[10] = 0x01 | 0x10 | 0x20;
+    const Decoded fn = decode(ps::Model::DualSenseEdge, ps::Transport::Usb, r);
+    expect(fn.state.buttons == (bit(pad::kHomeBit) | bit(pad::kFnLeftBit) | bit(pad::kFnRightBit)) &&
+               (decode(ps::Model::DualSense, ps::Transport::Usb, r).state.buttons & (bit(pad::kFnLeftBit) | bit(pad::kFnRightBit))) == 0u,
+           "DualSense Edge Fn buttons are bits 4 and 5 of the third button byte, an Edge feature");
 
     r = ds5_usb();
     r[1] = 0; r[2] = 255; r[3] = 255; r[4] = 0;
@@ -787,7 +793,7 @@ void test_pad_sample() {
            "the pointer stick has its own dead zone");
 }
 
-ControllerInfo controller(ControlScheme scheme, std::uint8_t slot, ControllerLink link, const char* model) {
+ControllerInfo controller(ControlScheme scheme, std::uint32_t slot, ControllerLink link, const char* model) {
     ControllerInfo info;
     info.scheme = scheme;
     info.slot = slot;
@@ -858,19 +864,25 @@ void test_device_list() {
 
     std::array<ControllerInfo, 16> many{};
     for (std::size_t i = 0; i < many.size(); ++i) {
-        many[i] = controller(ControlScheme::SwitchPro, static_cast<std::uint8_t>(i), ControllerLink::Usb, "Switch Pro Controller");
+        many[i] = controller(ControlScheme::SwitchPro, static_cast<std::uint32_t>(i), ControllerLink::Usb, "Switch Pro Controller");
     }
     build_device_list(many, std::nullopt, list);
-    expect(list.count == kMaxControllers + 1, "a long list is cut at its capacity");
-    expect(label_of(list, kMaxControllers) == "Switch Pro Controller 12 (USB)", "numbering stays within the list");
+    expect(list.count == many.size() + 1, "a long list is listed whole");
+    expect(label_of(list, many.size()) == "Switch Pro Controller 16 (USB)", "every controller of a model is numbered");
+
+    // Slots past a byte keep their identity, and stay clear of the keyboard's and the phone's.
+    const std::array<ControllerInfo, 2> wide{controller(ControlScheme::PlayStation, 255, ControllerLink::Usb, "DualShock 4"),
+                                             controller(ControlScheme::PlayStation, 300, ControllerLink::Usb, "DualShock 4")};
+    build_device_list(wide, DeviceKey{ControlScheme::PlayStation, 300}, list);
+    expect(list.count == 3 && list.entries[1].key.slot == 255u && list.entries[2].key.slot == 300u &&
+               list.entries[2].active && !is_phone(list.entries[2].key),
+           "a slot is a 32-bit number");
 
     ControllerInfo undriven = controller(ControlScheme::SwitchPro2, 0, ControllerLink::Usb, "Switch 2 Pro Controller");
     undriven.note = "needs WinUSB";
     build_device_list(std::span<const ControllerInfo>(&undriven, 1), std::nullopt, list);
     expect(label_of(list, 1) == "Switch 2 Pro Controller (USB) - needs WinUSB", "a note follows the name");
 }
-
-}  // namespace
 
 // A two-stick pad as cheap USB controllers describe it: X/Y/Z/Rz 0..255,
 // hat 0..7 (8 = centred), 12 buttons.
@@ -899,7 +911,7 @@ void test_generic() {
     expect(gh::button_bit(0) == -1 && gh::button_bit(20) == -1, "button 0 and buttons past 19 have no bit");
     std::uint32_t seen = 0;
     for (unsigned n = 1; n <= gh::kMappedButtons; ++n) seen |= 1u << static_cast<unsigned>(gh::button_bit(n));
-    expect(seen == (((1u << pad::kButtonBitCount) - 1u) & ~0xfu), "buttons 1..19 cover every unified bit but the d-pad");
+    expect(seen == (((1u << pad::kFnLeftBit) - 1u) & ~0xfu), "buttons 1..19 cover every unified bit but the d-pad and the Edge's Fn");
 
     const gh::Layout layout = usb_pad_layout();
     gh::Raw raw{};
@@ -980,7 +992,7 @@ void test_generic() {
            "generic pads: HID, no motion");
 }
 
-// The trackpads: where a finger is (0 to 1 across, 0 to 1 down), and when it is lifted.
+// Joy-Con 2 sides, the C button, the GameCube triggers and the three Switch 2 rumble reports.
 void test_switch2_family() {
     namespace sw = galaxy::input::switch_hid;
     namespace rb = galaxy::input::rumble;
@@ -1410,6 +1422,7 @@ void test_licensed_playstation() {
            "a licensed DualSense's finger at its own offset");
 }
 
+// The trackpads: where a finger is (0 to 1 across, 0 to 1 down), and when it is lifted.
 void test_touch() {
     // DualSense USB: the first finger at packet byte 32 (report byte 33): x 960 of 1920, y 535 of 1070.
     Bytes r = ds5_usb();
@@ -1532,6 +1545,8 @@ void test_report_mode_watch() {
         expect(asks >= 90u, "one that answered before is asked every second");
     }
 }
+
+}  // namespace
 
 int main() {
     test_report_mode_watch();

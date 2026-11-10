@@ -8,8 +8,7 @@ class PressureMessenger : public LiveActor {
 public:
     PressureMessenger(MsgSharedGroup*, const char*);
 
-    virtual ~PressureMessenger(){};
-    virtual void init(const JMapInfoIter&);
+    virtual void init(const TableIter&) override;
 
     void exeSync();
 
@@ -19,25 +18,24 @@ public:
 
 class PressureBase : public LiveActor {
 public:
+    // PressureBase's arg 3 in the stage data.
     enum ShotType {
         ShotType_OnGravity = 0,
-        ShotType_1 = 1,
+        ShotType_Straight = 1,  // no gravity, no follow, no aim
         ShotType_Follow = 2,
         ShotType_AimTurn = 3,
     };
 
     PressureBase(const char*);
 
-    virtual ~PressureBase(){};
-
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
-    virtual void initBullet(const JMapInfoIter&);
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
+    virtual void initBullet(const TableIter&);
     virtual bool shotBullet(f32);
 
     void exeBound();
@@ -49,12 +47,12 @@ public:
     void exeShot();
     void startWait();
     void startRelax();
-    bool calcJointCannonV(TPos3f*, const JointControllerInfo&);
+    bool calcJointCannonV(Pos3f*, const JointControllerInfo&);
     bool isShotTypeOnGravity() const;
     bool isShotTypeFollow() const;
 
     JointControlDelegator< PressureBase >* mJointController;
-    TVec3f mFront;
+    Vec3f mFront;
     f32 mRelaxAngle;
     f32 mBaseAngle;
     s32 mWaitTime;
@@ -63,5 +61,4 @@ public:
     bool mIsShortShot;
     PressureMessenger* mMessenger;
     MsgSharedGroup* mGroup;
-    bool _BC;
 };

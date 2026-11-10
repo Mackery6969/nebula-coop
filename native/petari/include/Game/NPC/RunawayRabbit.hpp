@@ -11,6 +11,7 @@ class WalkerStateRunaway;
 
 class RunawayRabbit : public LiveActor {
 public:
+    // RunawayRabbit's arg 1 in the stage data.
     enum HideLocation {
         /* -0x1 */ HideLocation_None = -1,
         HideLocation_Hole,
@@ -19,16 +20,16 @@ public:
 
     RunawayRabbit(const char* pName, RunawayRabbitCollect* pCollect);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void initAfterPlacement();
-    virtual void appear();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void initAfterPlacement() override;
+    virtual void appear() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     void initSensor();
     void initShadow();
@@ -70,11 +71,10 @@ public:
     FootPrint* mFootPrint;
     SpotMarkLight* mSpotMarkLight;
     TalkMessageCtrl* mMsgCtrl;
-    TQuat4f mPoseQuat;
-    TVec3f mFrontVec;
-    TQuat4f mPlayerPoseQuat;
-    TVec3f mPlayerBindPos;
-    u8 _DC[4];
+    Quat4f mPoseQuat;
+    Vec3f mFrontVec;
+    Quat4f mPlayerPoseQuat;
+    Vec3f mPlayerBindPos;
     s32 mGroupId;
     s32 mRunawayLevel;
     s32 mHideLocation;

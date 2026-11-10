@@ -1,17 +1,21 @@
 #include "Game/LiveActor/ShadowVolumeDrawer.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include "Game/Render/TypedDraw.hpp"
+#include "Game/Render/FrameList.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
+#include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/DrawUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
     static Color8 sShapeColor(0xC0, 0xC0, 0, 4);
-    static Color8 sDebugShapeColor(0xFF, 0, 0, 0x80);
+    // Room for the draws of one pass of one shape (a model file's meshes); the front pass, the back pass and each variant
+    // start a range of their own.
+    NEBULA_TUNABLE(u32, cPartsPerPass, 256);
 };  // namespace
 
-ShadowVolumeDrawInit::ShadowVolumeDrawInit() : NameObj("\203\126\203\203\203\150\203\105\203\173\203\212\203\205\201\133\203\200\225\140\211\346\217\211\212\372\211\273" /* シャドウボリューム描画初期化 */) {
-    MR::registerPreDrawFunction(MR::Functor(&MR::setupShadowVolumeDraw), MR::DrawType_ShadowVolume);
+ShadowVolumeDrawInit::ShadowVolumeDrawInit() : NameObj("シャドウボリューム描画初期化") {
 }
 
 ShadowVolumeDrawer::ShadowVolumeDrawer(const char* pName) : ShadowDrawer(pName) {
@@ -38,13 +42,13 @@ void ShadowVolumeDrawer::offCutDropShadow() {
     mIsCutDropShadow = false;
 }
 
-void ShadowVolumeDrawer::calcBaseDropPosition(TVec3f* pVec) const {
+void ShadowVolumeDrawer::calcBaseDropPosition(Vec3f* pVec) const {
     calcBaseDropPosition(pVec, getController());
 }
 
-void ShadowVolumeDrawer::calcBaseDropPosition(TVec3f* pPosition, const ShadowController* pController) const {
-    TVec3f position;
-    TVec3f direction;
+void ShadowVolumeDrawer::calcBaseDropPosition(Vec3f* pPosition, const ShadowController* pController) const {
+    Vec3f position;
+    Vec3f direction;
     pController->getDropPos(&position);
     pController->getDropDir(&direction);
     pPosition->set(position + direction * mStartDrawShapeOffset);
@@ -69,10 +73,10 @@ f32 ShadowVolumeDrawer::calcBaseDropLength(const ShadowController* pController) 
     return length;
 }
 
-void ShadowVolumeDrawer::loadModelDrawMtx() const {
+void ShadowVolumeDrawer::loadModelDrawMtx(TypedDraw& /*rDraw*/) const {
 }
 
-void ShadowVolumeDrawer::drawShape() const {
+void ShadowVolumeDrawer::drawShape(TypedDraw& /*rDraw*/) const {
 }
 
 bool ShadowVolumeDrawer::isDraw() const {
@@ -81,20 +85,26 @@ bool ShadowVolumeDrawer::isDraw() const {
 
 void ShadowVolumeDrawer::draw() const {
     if (isDraw()) {
-        loadModelDrawMtx();
-        NebulaColor8 shapeColor = reinterpret_cast< NebulaColor8& >(::sShapeColor);
-        MR::setShadowVolumeColor(shapeColor);
-        J3DPass::writeColor(false);
-        J3DPass::constantAlpha(false, 0);
-        J3DPass::cull(NEBULA_CULL_FRONT);
-        J3DPass::blend(NEBULA_FACTOR_ONE, NEBULA_FACTOR_ONE);
-        drawShape();
-        J3DPass::cull(NEBULA_CULL_BACK);
-        J3DPass::subtractBlend();
-        drawShape();
-        J3DPass::cull(NEBULA_CULL_NONE);
-        J3DPass::writeColor(true);
-        J3DPass::constantAlpha(true, 0);
+        // The host's life and the shape's run of smooth steps name the draws: a host renewed in place, or a shape that
+        // jumped, is never blended from where it was (world-space shapes carry no teleport test of their own).
+        beginDrawObject();
+        NebulaColor8 shapeColor = ::sShapeColor;
+        SiteMaterial material;
+        MR::initShadowVolumeMaterial(material, shapeColor);
+        material.setStencil(NEBULA_STENCIL_ALWAYS, NEBULA_STENCIL_ADD);
+        material.mState.cull = NEBULA_CULL_FRONT;
+        TypedDraw site(material, nullptr, MR::getCameraViewMtx());
+        loadModelDrawMtx(site);
+        // The two passes draw one shape: each pass pairs with its own pass of the frame before, whatever the shape wrote
+        // (its draw count can change), and both pair or neither does.
+        const u32 first = shapeVariant() * 2 * ::cPartsPerPass;
+        site.setPart(first);
+        drawShape(site);
+        material.setStencil(NEBULA_STENCIL_ALWAYS, NEBULA_STENCIL_TAKE);
+        material.mState.cull = NEBULA_CULL_BACK;
+        site.setMaterial(material);
+        site.setPart(first + ::cPartsPerPass);
+        drawShape(site);
     }
 }
 

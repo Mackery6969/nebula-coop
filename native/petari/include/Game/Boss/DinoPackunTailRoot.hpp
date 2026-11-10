@@ -7,9 +7,9 @@ class DinoPackunTailRoot : public DinoPackunTailNode {
 public:
     DinoPackunTailRoot(const char*, DinoPackun*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void addNodeVelocity(const TVec3f&);
-    virtual JointController* createJointControllerOwn(LiveActor*, const char*);
+    virtual void init(const TableIter&) override;
+    virtual void addNodeVelocity(const Vec3f&) override;
+    virtual JointController* createJointControllerOwn(LiveActor*, const char*) override;
 
-    bool calcJointDirection(TPos3f*, const JointControllerInfo&);
+    bool calcJointDirection(Pos3f*, const JointControllerInfo&);
 };

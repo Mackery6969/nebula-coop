@@ -9,14 +9,12 @@ class KoopaSequencerVs1 : public KoopaSequencer {
 public:
     KoopaSequencerVs1();
 
-    virtual ~KoopaSequencerVs1();
-    virtual void init(Koopa* pKoopa, const JMapInfoIter& rIter);
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-#if !defined(NEBULA_RELEASE)
-    virtual void testHit(HitSensor* pPlayer);
+    virtual void init(Koopa* pKoopa, const TableIter& rIter) override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+#if defined(NEBULA_DEV)
+    virtual void testHit(HitSensor* pPlayer) override;
 #endif
 
     void exeBattleStairs();
@@ -28,6 +26,8 @@ public:
     void exeWaitDemo();
 
 private:
+    bool isBattleActive() const;
+
     KoopaSubSequenceBattle* mSubSequenceBattle;
     KoopaBattleMain* mBattleMain;
 };

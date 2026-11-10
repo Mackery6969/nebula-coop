@@ -10,14 +10,13 @@ class LavaFloater : public LiveActor {
 public:
     LavaFloater(const char*);
 
-    virtual ~LavaFloater();
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void makeActorAppeared();
-    virtual void makeActorDead();
-    virtual void startClipped();
-    virtual void endClipped();
-    virtual void control();
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
+    virtual void makeActorAppeared() override;
+    virtual void makeActorDead() override;
+    virtual void startClipped() override;
+    virtual void endClipped() override;
+    virtual void control() override;
 
     f32 getCurrentSinkDepth() const;
 
@@ -28,6 +27,6 @@ public:
     ProjmapEffectMtxSetter* mMtxSetter;
     LodCtrl* mLodCtrlPlanet;
     const char* mObjectName;
-    TVec3f _9C;
-    f32 _A8;
+    Vec3f mGroundPos;
+    f32 mGroundOffset;
 };

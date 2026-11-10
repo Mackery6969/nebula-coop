@@ -1,47 +1,38 @@
 #include "Game/Player/JetTurtleShadow.hpp"
-#include "Game/System/GameThreads.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeView.hpp>
-#include "Game/Player/J3DModelX.hpp"
+#include "Game/Render/FrameList.hpp"
+#include "Game/Player/PlayerModel.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ModelUtil.hpp"
-#include "Game/Util/MutexHolder.hpp"
 
 JetTurtleShadow::JetTurtleShadow(const char* pName) : LiveActor(pName) {
 }
 
 void JetTurtleShadow::calcType0(MtxPtr pMtx) {
-    J3DModel* pModel = MR::getJ3DModel(this);
+    Model* pModel = MR::getModel(this);
     MR::setBaseTRMtx(this, pMtx);
-
-    (MR::MutexHolder< 0 >::sMutex).lock();
-
     pModel->calc();
     pModel->viewCalc();
-
-    (MR::MutexHolder< 0 >::sMutex).unlock();
 }
 
 void JetTurtleShadow::drawType0() const {
-    J3DModelX* pModel = static_cast< J3DModelX* >(MR::getJ3DModel(this));
+    PlayerModel* pModel = static_cast< PlayerModel* >(MR::getModel(this));
 
-    pModel->mFlags.clear();
-    pModel->mFlags._14 = true;
+    pModel->mDrawPasses = PlayerModel::Pass_Reflection;
 
-    J3DNativeView::setZScaleOffset(1.0f, 0.0f);
+    Frame::setZScaleOffset(1.0f, 0.0f);
 
-    pModel->directDraw(nullptr);
+    pModel->directDraw();
 }
 
 void JetTurtleShadow::drawType1() const {
-    J3DModelX* pModel = static_cast< J3DModelX* >(MR::getJ3DModel(this));
+    PlayerModel* pModel = static_cast< PlayerModel* >(MR::getModel(this));
 
-    pModel->mFlags.clear();
-    pModel->mFlags._19 = true;
+    pModel->mDrawPasses = PlayerModel::Pass_ScreenCoordinates;
 
-    pModel->directDraw(nullptr);
+    pModel->directDraw();
 }
 
-void JetTurtleShadow::init(const JMapInfoIter& rIter) {
+void JetTurtleShadow::init(const TableIter& rIter) {
     initModelManagerWithAnm("Koura", nullptr, false);
 
     makeActorDead();

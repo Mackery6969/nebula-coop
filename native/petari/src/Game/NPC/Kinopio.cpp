@@ -1,4 +1,5 @@
 #include "Game/NPC/Kinopio.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Enemy/AnimScaleController.hpp"
 #include "Game/LiveActor/LodCtrl.hpp"
 #include "Game/LiveActor/Nerve.hpp"
@@ -6,6 +7,7 @@
 #include "Game/NPC/NPCActorItem.hpp"
 #include "Game/NPC/TalkMessageFunc.hpp"
 #include "Game/Util.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace NrvKinopio {
     NEW_NERVE(KinopioNrvReaction, Kinopio, Reaction);
@@ -33,57 +35,57 @@ namespace {
     };
 
     Param::Param() {
-        _10 = 15.0f;
-        _14 = 1.4f;
-        _20 = 0.3f;
+        mPointerTime = 15.0f;
+        mPointerBase = 1.4f;
+        mHitReactionVelocity = 0.3f;
     }
 
     static Param sParam;
 
-    static const f32 sDistancePlayerIsNear = 200.0f;
-    static const f32 sDistancePlayerIsFar = 300.0f;
-    static const f32 sDistancePlayerIsEvent = 450.0f;
-    static const f32 sTurnLimit = 0.997f;
-    static const f32 sUpVecBlendRate = 1.0f;
-    static const f32 sDistanceEventPlayerIsNear = 600.0f;
-    static const s32 sTimeToCancelEvent = 180;
-    static const f32 sFallGravity = 0.6f;
-    static const f32 sFallFrictionRate = 0.98f;
-    static const s32 sLandingTime = 3;
-    static const s32 sPickelIndex = 2;
-    static const f32 sDefaultScale = 1.2f;
-    static const f32 sWalkSpeed = 0.83f;
-    static const f32 sRunSpeed = 3.32f;
+    NEBULA_TUNABLE(f32, sDistancePlayerIsNear, 200.0f);
+    NEBULA_TUNABLE(f32, sDistancePlayerIsFar, 300.0f);
+    NEBULA_TUNABLE(f32, sDistancePlayerIsEvent, 450.0f);
+    NEBULA_TUNABLE(f32, sTurnLimit, 0.997f);
+    NEBULA_TUNABLE(f32, sUpVecBlendRate, 1.0f);
+    NEBULA_TUNABLE(f32, sDistanceEventPlayerIsNear, 600.0f);
+    static const s32 sTimeToCancelEvent = NebulaFrameClock::stepsOfSeconds(3);
+    NEBULA_TUNABLE(f32, sFallGravity, 0.6f);
+    NEBULA_TUNABLE(f32, sFallFrictionRate, 0.98f);
+    NEBULA_TUNABLE(s32, sLandingTime, 3);
+    NEBULA_TUNABLE(s32, sPickelIndex, 2);
+    NEBULA_TUNABLE(f32, sDefaultScale, 1.2f);
+    NEBULA_TUNABLE(f32, sWalkSpeed, 0.83f);
+    NEBULA_TUNABLE(f32, sRunSpeed, 3.32f);
 };  // namespace
 
 Kinopio::Kinopio(const char* pName)
-    : NPCActor(pName), mObjArg0(), mBehavior(-1), mAppearBehavior(-1), mGoodsIndex(-1), _17C(), mTakeOutStar(), mIsSpawnPowerStarMode(), _185() {
-    _16C.set(0.0f, 0.0f, 0.0f, 1.0f);
+    : NPCActor(pName), mObjArg0(), mBehavior(-1), mAppearBehavior(-1), mGoodsIndex(-1), mConnector(), mTakeOutStar(), mIsSpawnPowerStarMode(), mIsBgmStarted() {
+    mConnectQuat.set(0.0f, 0.0f, 0.0f, 1.0f);
 }
 
-void Kinopio::init(const JMapInfoIter& rIter) {
+void Kinopio::init(const TableIter& rIter) {
     MR::initDefaultPosAndQuat(this, rIter);
 
-    TVec3f rotation(mRotation);
+    Vec3f rotation(mRotation);
     rotation.scale(MR::toRadian(1.0f));
-    _A0.setEuler(rotation);
+    mPoseQuat.setEuler(rotation);
 
-    MR::getJMapInfoArg1NoInit(rIter, &mObjArg0);
-    MR::getJMapInfoArg2NoInit(rIter, &mBehavior);
-    MR::getJMapInfoArg3NoInit(rIter, &mIsSpawnPowerStarMode);
-    MR::getJMapInfoArg4NoInit(rIter, &mAppearBehavior);
-    MR::getJMapInfoArg7NoInit(rIter, &mGoodsIndex);
+    MR::getPlacementArg1NoInit(rIter, &mObjArg0);
+    MR::getPlacementArg2NoInit(rIter, &mBehavior);
+    MR::getPlacementArg3NoInit(rIter, &mIsSpawnPowerStarMode);
+    MR::getPlacementArg4NoInit(rIter, &mAppearBehavior);
+    MR::getPlacementArg7NoInit(rIter, &mGoodsIndex);
     mScale.set(::sDefaultScale);
     initModelManagerWithAnm("Kinopio", nullptr, false);
     MR::connectToSceneNpc(this);
     MR::initLightCtrl(this);
     initSound(4, false);
     initHitSensor(2);
-    MR::addHitSensorNpc(this, "body", 8, 50.0f * ::sDefaultScale, TVec3f(0.0f, 50.0f * ::sDefaultScale, 0.0f));
-    MR::addHitSensorNpc(this, "Pickel", 8, 50.0f * ::sDefaultScale, TVec3f(0.0f, 50.0f * ::sDefaultScale, 40.0f * ::sDefaultScale));
+    MR::addHitSensorNpc(this, "body", 8, 50.0f * ::sDefaultScale, Vec3f(0.0f, 50.0f * ::sDefaultScale, 0.0f));
+    MR::addHitSensorNpc(this, "Pickel", 8, 50.0f * ::sDefaultScale, Vec3f(0.0f, 50.0f * ::sDefaultScale, 40.0f * ::sDefaultScale));
     MR::invalidateHitSensor(this, "Pickel");
     s32 isInvalidateSensor = -1;
-    MR::getJMapInfoArg6NoInit(rIter, &isInvalidateSensor);
+    MR::getPlacementArg6NoInit(rIter, &isInvalidateSensor);
     if (isInvalidateSensor != -1) {
         MR::invalidateHitSensor(this, "body");
     }
@@ -92,9 +94,9 @@ void Kinopio::init(const JMapInfoIter& rIter) {
     MR::offBind(this);
     MR::initShadowVolumeSphere(this, 30.0f * ::sDefaultScale);
     MR::onCalcShadowOneTime(this, nullptr);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initNerve(GET_NERVE(Kinopio, KinopioNrvWait));
-    mMsgCtrl = MR::createTalkCtrl(this, rIter, "Kinopio", TVec3f(0.0f, 122.0f * ::sDefaultScale, 0.0f), nullptr);
+    mMsgCtrl = MR::createTalkCtrl(this, rIter, "Kinopio", Vec3f(0.0f, 122.0f * ::sDefaultScale, 0.0f), nullptr);
     MR::setDistanceToTalk(mMsgCtrl, ::sDistancePlayerIsNear);
     MR::onRootNodeAutomatic(mMsgCtrl);
     MR::registerEventFunc(mMsgCtrl, TalkMessageFuncM< Kinopio*, bool (Kinopio::*)(u32) >(this, &Kinopio::eventFunc));
@@ -104,7 +106,7 @@ void Kinopio::init(const JMapInfoIter& rIter) {
         MR::onCalcShadow(this, nullptr);
     }
 
-    MR::initStarPointerTarget(this, 100.0f, TVec3f(0.0f));
+    MR::initStarPointerTarget(this, 100.0f, Vec3f(0.0f));
     MR::addToAttributeGroupSearchTurtle(this);
     mLodCtrl = MR::createLodCtrlNPC(this, rIter);
 
@@ -120,12 +122,12 @@ void Kinopio::init(const JMapInfoIter& rIter) {
     MR::tryRegisterDemoCast(this, rIter);
     setNerve(GET_NERVE(Kinopio, KinopioNrvWait));
     setDefaults();
-    _12C = ::sDistancePlayerIsEvent;
+    mSwingReactDist = ::sDistancePlayerIsEvent;
     mParam.setDefaultAction();
     mParam.setTalkAction("Talk", "Talk");
     setTalkAction("Walk");
-    _124 = true;
-    _10C = ::sWalkSpeed;
+    mIsRailOnGround = true;
+    mRailSpeed = ::sWalkSpeed;
     switch (mBehavior) {
     case -1:
         if (mGoodsIndex == ::sPickelIndex) {
@@ -147,15 +149,15 @@ void Kinopio::init(const JMapInfoIter& rIter) {
         mParam.setNoTurnAction("SpinWait3");
         break;
     case 3:
-        _128 = false;
+        mUseReactionActions = false;
         MR::setDistanceToTalk(mMsgCtrl, 400.0f);
         break;
     case 5:
-        _128 = false;
+        mUseReactionActions = false;
         mParam.setSingleAction("SwimWait");
         break;
     case 7:
-        _128 = false;
+        mUseReactionActions = false;
         mParam.setNoTurnAction("Sleep");
         break;
     case 9:
@@ -172,13 +174,13 @@ void Kinopio::init(const JMapInfoIter& rIter) {
     case 12: {
         mParam.setSingleAction("StarPieceWait");
         const char* pWaitAction = "StarPieceWait";
-        _11C = "KinopioGoodsStarPieceWalk";
-        _120 = pWaitAction;
+        mMoveAction = "KinopioGoodsStarPieceWalk";
+        mMoveTalkAction = pWaitAction;
         break;
     }
     case 13:
         setTalkAction("Getaway");
-        _10C = ::sRunSpeed;
+        mRailSpeed = ::sRunSpeed;
         break;
     case 8:
         mIsSpawnPowerStarMode = true;
@@ -188,10 +190,10 @@ void Kinopio::init(const JMapInfoIter& rIter) {
         MR::validateHitSensor(this, "Pickel");
         break;
     case 4:
-        _17C = new MapObjConnector(this);
+        mConnector = new MapObjConnector(this);
         MR::invalidateClipping(this);
-        mParam._0 = false;
-        mParam._1 = false;
+        mParam.mTurnWhenNear = false;
+        mParam.mTurnOnTalk = false;
         MR::onBind(this);
         MR::onCalcShadow(this, nullptr);
         MR::onCalcGravity(this);
@@ -227,41 +229,41 @@ void Kinopio::init(const JMapInfoIter& rIter) {
 
 void Kinopio::exeReaction() {
     if (mBehavior == 7) {
-        if (_D8) {
+        if (mIsTrampledStart) {
             MR::startSound(this, "SE_SM_NPC_TRAMPLED");
             MR::startSound(this, "SE_SV_KINOPIO_POINTING_SLEEP");
         }
 
         if (isPointingSe()) {
-            MR::startDPDHitSound();
+            MR::startPointerHitSound();
             MR::startSound(this, "SE_SV_KINOPIO_POINTING_SLEEP");
         }
 
-        if (_D9) {
+        if (mIsSpinAttackedStart) {
             MR::startSound(this, "SE_SM_NPC_TRAMPLED");
             MR::startSound(this, "SE_SV_KINOPIO_POINTING_SLEEP");
         }
 
-        if (_DB) {
+        if (mIsReactionStart) {
             MR::startSound(this, "SE_SM_NPC_TRAMPLED");
             MR::startSound(this, "SE_SV_KINOPIO_POINTING_SLEEP");
         }
     } else {
-        if (_D8) {
+        if (mIsTrampledStart) {
             MR::startSound(this, "SE_SM_NPC_TRAMPLED");
             MR::startSound(this, "SE_SV_KINOPIO_TRAMPLED");
         }
 
         if (isPointingSe()) {
-            MR::startDPDHitSound();
+            MR::startPointerHitSound();
             MR::startSound(this, "SE_SV_KINOPIO_POINTING");
         }
 
-        if (_D9) {
+        if (mIsSpinAttackedStart) {
             MR::startSound(this, "SE_SV_KINOPIO_SPIN");
         }
 
-        if (_DB) {
+        if (mIsReactionStart) {
             MR::startSound(this, "SE_SV_KINOPIO_STAR_PIECE_HIT");
         }
     }
@@ -301,7 +303,7 @@ void Kinopio::exeJump() {
         }
 
         if (MR::isActionStart(this, "Notice")) {
-            turnToPlayer(mParam._8);
+            turnToPlayer(mParam.mTurnSpeed);
         }
 
         return;
@@ -332,15 +334,15 @@ void Kinopio::exeJump() {
 
 void Kinopio::exeStop() {
     if (MR::isFirstStep(this)) {
-        _10C = 0.0f;
+        mRailSpeed = 0.0f;
     }
 
     if (!(MR::tryStartReactionAndPushNerve(this, GET_NERVE(Kinopio, KinopioNrvReaction)) || MR::tryStartMoveTalkAction(this))) {
         if (isNerve(GET_NERVE(Kinopio, KinopioNrvStop0))) {
-            if (MR::isGreaterEqualStep(this, 60)) {
+            if (MR::isGreaterEqualStep(this, NebulaFrameClock::stepsOfSeconds(1))) {
                 setDefaultNerve();
             }
-        } else if (MR::isGreaterEqualStep(this, 120)) {
+        } else if (MR::isGreaterEqualStep(this, NebulaFrameClock::stepsOfSeconds(2))) {
             setDefaultNerve();
         }
     }
@@ -348,7 +350,7 @@ void Kinopio::exeStop() {
 
 void Kinopio::exeAction() {
     if (MR::isFirstStep(this)) {
-        _10C = 0.0f;
+        mRailSpeed = 0.0f;
     }
 
     MR::startMoveAction(this);
@@ -392,7 +394,7 @@ void Kinopio::exeAppear() {
 
     MR::calcGravity(this);
 
-    TVec3f fallSpeed(mGravity);
+    Vec3f fallSpeed(mGravity);
     fallSpeed.scale(::sFallGravity);
     mVelocity.add(fallSpeed);
     mVelocity.mult(::sFallFrictionRate);
@@ -423,12 +425,12 @@ void Kinopio::exeEscape() {
 }
 
 void Kinopio::exeMount() {
-    if (MR::isFirstStep(this) && _17C->mParts == nullptr) {
+    if (MR::isFirstStep(this) && mConnector->mParts == nullptr) {
         MR::calcGravity(this);
-        MR::setBaseTRMtx(this, _A0);
-        _17C->attachToUnder();
-        _B0.set(0.0f, 0.0f, 0.0f, 1.0f);
-        _A0.set(0.0f, 0.0f, 0.0f, 1.0f);
+        MR::setBaseTRMtx(this, mPoseQuat);
+        mConnector->attachToUnder();
+        mInitPoseQuat.set(0.0f, 0.0f, 0.0f, 1.0f);
+        mPoseQuat.set(0.0f, 0.0f, 0.0f, 1.0f);
     }
 
     if (!MR::tryStartReactionAndPushNerve(this, GET_NERVE(Kinopio, KinopioNrvReaction))) {
@@ -442,9 +444,9 @@ void Kinopio::exeMount() {
 
 void Kinopio::exeStarWait() {
     exeWait();
-    if (MR::isTalkTalking(mMsgCtrl) && !_185) {
+    if (MR::isTalkTalking(mMsgCtrl) && !mIsBgmStarted) {
         MR::startStageBGM("MBGM_KINOPIO_TANKEN_B", false);
-        _185 = true;
+        mIsBgmStarted = true;
     }
 }
 
@@ -468,7 +470,7 @@ void Kinopio::exeEventFall() {
 
     MR::calcGravity(this);
 
-    TVec3f fallSpeed(mGravity);
+    Vec3f fallSpeed(mGravity);
     fallSpeed.scale(::sFallGravity);
     mVelocity.add(fallSpeed);
     mVelocity.mult(::sFallFrictionRate);
@@ -478,7 +480,7 @@ void Kinopio::exeEventFall() {
     if (!tryCancelEvent() && MR::isBindedGround(this) && MR::isGreaterStep(this, ::sLandingTime)) {
         mVelocity.zero();
         MR::validateClipping(this);
-        MR::turnQuatYDirRate(&_A0, _A0, -mGravity, ::sUpVecBlendRate);
+        MR::turnQuatYDirRate(&mPoseQuat, mPoseQuat, -mGravity, ::sUpVecBlendRate);
         setInitPose();
         MR::tryForwardNode(mMsgCtrl);
         setNerve(GET_NERVE(Kinopio, KinopioNrvWait));
@@ -497,13 +499,13 @@ void Kinopio::calcAndSetBaseMtx() {
         return;
     }
 
-    if (_17C != nullptr) {
-        _17C->connect();
-        TPos3f mtx(getBaseMtx());
-        mtx.getQuat(_16C);
+    if (mConnector != nullptr) {
+        mConnector->connect();
+        Pos3f mtx(getBaseMtx());
+        mtx.getQuat(mConnectQuat);
 
-        TQuat4f rotation;
-        rotation.mult(_16C, _A0);
+        Quat4f rotation;
+        rotation.mult(mConnectQuat, mPoseQuat);
         rotation.normalize();
         MR::setBaseTRMtx(this, rotation);
     } else {
@@ -519,7 +521,7 @@ bool Kinopio::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pRe
     return NPCActor::receiveMsgPlayerAttack(msg, pSender, pReceiver);
 }
 
-bool Kinopio::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool Kinopio::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (msg == ACTMES_NPC_EVENT_START) {
         MR::offRootNodeAutomatic(mMsgCtrl);
         MR::onCalcAnim(this);
@@ -558,54 +560,54 @@ bool Kinopio::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver)
     return false;
 }
 
-void Kinopio::faceToVector(const TVec3f& rDirection, f32 turnLimit) {
-    TVec3f direction(rDirection);
-    TVec3f up(-mGravity);
-    TVec3f currentUp;
-    TVec3f currentFront;
-    TQuat4f inverse;
-    f32 length = _16C.squared();
+void Kinopio::faceToVector(const Vec3f& rDirection, f32 turnLimit) {
+    Vec3f direction(rDirection);
+    Vec3f up(-mGravity);
+    Vec3f currentUp;
+    Vec3f currentFront;
+    Quat4f inverse;
+    f32 length = mConnectQuat.squared();
 
-    if (length <= JGeometry::TUtil< f32 >::epsilon()) {
+    if (length <= FloatUtil::epsilon()) {
         inverse.set< f32 >(0.0f, 0.0f, 0.0f, 1.0f);
     } else {
-        inverse.x = -_16C.x / length;
-        inverse.y = -_16C.y / length;
-        inverse.z = -_16C.z / length;
-        inverse.w = _16C.w / length;
+        inverse.x = -mConnectQuat.x / length;
+        inverse.y = -mConnectQuat.y / length;
+        inverse.z = -mConnectQuat.z / length;
+        inverse.w = mConnectQuat.w / length;
     }
 
-    _A0.getYDir(currentUp);
-    _A0.getZDir(currentFront);
+    mPoseQuat.getYDir(currentUp);
+    mPoseQuat.getZDir(currentFront);
     MR::normalize(&direction);
     inverse.transform(up);
     inverse.transform(direction);
     MR::turnVecToVecCosOnPlane(&currentFront, direction, currentUp, turnLimit);
-    MR::blendQuatUpFront(&_A0, up, currentFront, ::sUpVecBlendRate, 1.0f);
+    MR::blendQuatUpFront(&mPoseQuat, up, currentFront, ::sUpVecBlendRate, 1.0f);
 }
 
 void Kinopio::faceToPlayer(f32 turnLimit) {
-    TVec3f direction(*MR::getPlayerPos());
+    Vec3f direction(*MR::getPlayerPos());
     direction.sub(mPosition);
     faceToVector(direction, turnLimit);
 }
 
 void Kinopio::faceToDefault(f32 turnLimit) {
-    TVec3f defaultUp;
-    TVec3f defaultFront;
-    TVec3f front;
-    _B0.getYDir(defaultUp);
-    _B0.getZDir(defaultFront);
-    _A0.getZDir(front);
+    Vec3f defaultUp;
+    Vec3f defaultFront;
+    Vec3f front;
+    mInitPoseQuat.getYDir(defaultUp);
+    mInitPoseQuat.getZDir(defaultFront);
+    mPoseQuat.getZDir(front);
     MR::turnVecToVecCosOnPlane(&front, defaultFront, defaultUp, turnLimit);
-    MR::blendQuatUpFront(&_A0, defaultUp, front, ::sUpVecBlendRate, 1.0f);
+    MR::blendQuatUpFront(&mPoseQuat, defaultUp, front, ::sUpVecBlendRate, 1.0f);
 }
 
 void Kinopio::setDefaultNerve() {
     if (mBehavior == 13) {
-        _10C = ::sRunSpeed;
+        mRailSpeed = ::sRunSpeed;
     } else {
-        _10C = ::sWalkSpeed;
+        mRailSpeed = ::sWalkSpeed;
     }
 
     if (mBehavior == -1) {

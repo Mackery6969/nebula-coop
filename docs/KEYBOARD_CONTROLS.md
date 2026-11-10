@@ -5,7 +5,7 @@ Xbox (XInput) controllers, Switch Pro Controllers, Joy-Con (a pair as one contro
 PlayStation controllers (DualShock 4, DualSense, DualSense Edge), the Steam
 Controller (2026 and 2015), the Steam Deck's controls and generic HID game controllers work at the same time; every
 Wii input can be rebound. The game gets their state the moment it reads its remotes each frame (a report built then),
-and every 10 ms between frames: a press made just before a frame's read is in that frame. Measured from the retrace a
+and every 10 ms between frames: a press made just before a frame's read is in that frame. Measured from the game frame a
 scripted press begins on to the first frame that shows it, at 60 fps: spin 37.3 -> 20.4 ms, pause 37.0 -> 20.3 ms
 (the i7-6500U stand-in 39.7 -> 22.7 and 39.7 -> 22.1 ms); a press at a random moment gains about 5 ms on average.
 
@@ -55,8 +55,7 @@ Switch and PlayStation show in the settings menu's hints too (with Wii and Auto 
 
 The icons are textures of Nebula's own beside the game's, which keep their content: a texture pack's replacements of the
 game's icons still show with the Wii style, and Nebula's show as drawn unless a pack names them. Nebula paints each of its
-sheets at eight times its size the first time it is drawn; `GALAXY_EXPORT_ART=<folder>` writes those paintings as a pack
-(`pack/`, with previews in `native/` and `hd/`).
+sheets at eight times its size the first time it is drawn.
 
 A tap of Plus or Minus pauses;
 a press made while A or B is held pauses once they are let go.
@@ -222,7 +221,7 @@ names: key names (`Space`, `LShift`, `W`, `Num1`, `F5`, `Equals`, `VK2E`),
 LT RT LS RS Menu View DpadUp...`; Switch `A B X Y L R ZL ZR LS RS Plus Minus
 Home Capture GL GR C DpadUp...`; PlayStation `Cross Circle Square Triangle L1 R1
 L2 R2 L3 R3 Options Share Create PS Touchpad LeftPaddle RightPaddle Mute
-DpadUp...`; Steam `A B X Y LB RB LT RT LS RS Menu View Steam QAM L4 R4 L5 R5
+LeftFn RightFn DpadUp...`; Steam `A B X Y LB RB LT RT LS RS Menu View Steam QAM L4 R4 L5 R5
 LPad RPad DpadUp...`; generic `Button1`..`Button19 LT RT DpadUp...`; sticks
 `LX+ LX- LY+ LY- RX+ RX- RY+ RY-`.
 
@@ -244,15 +243,9 @@ turns vibration off, and values the player changed stay.
 | `vibration` (controllers) | 0/1 | 1 |
 | `rumble` (controllers) | 10-100 percent vibration strength, steps of 10 | 50 |
 
-`GALAXY_XINPUT_LEFT_DEADZONE`, `GALAXY_XINPUT_POINTER_DEADZONE`,
-`GALAXY_XINPUT_POINTER_SPEED`, `GALAXY_KEYBOARD_POINTER_SPEED` and
-`GALAXY_XINPUT_TRIGGER_THRESHOLD` (default 96 of 255) override these.
-
 ## Controllers
 
-- Xbox: every XInput slot (0-3) is read. `GALAXY_DISABLE_XINPUT=1` disables
-  it, `GALAXY_XINPUT_REQUIRE_FOCUS=1` reads it only while the window has
-  focus.
+- Xbox: every XInput slot (0-3) is read while the window has focus.
 - Switch Pro Controller: USB or Bluetooth (HID). Nebula reads the stick and
   IMU calibration from the controller, switches it to full reports with the
   IMU on, rumble off and player LED 1.
@@ -266,7 +259,7 @@ turns vibration off, and values the player changed stay.
   calibration from the controller (over Bluetooth this also switches it to full
   reports), sets the light bar to a neutral grey once (a DualSense over Bluetooth
   after its pairing animation), and drives the light motor for vibration. Buttons,
-  sticks, analog triggers, the touchpad click, mute and Edge paddles are read; the
+  sticks, analog triggers, the touchpad click, mute and the Edge paddles and Fn buttons are read; the
   touchpad surface is not. The USB wireless adapter and third-party clones are not
   claimed.
 - Steam Controller (2026): USB (`28de:1302`), Bluetooth LE (`28de:1303`) and the

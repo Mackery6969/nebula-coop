@@ -11,7 +11,7 @@
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/DemoUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MapPartsUtil.hpp"
 #include "Game/Util/ModelUtil.hpp"
@@ -31,14 +31,13 @@ namespace NrvRailMoveObj {
 };  // namespace NrvRailMoveObj
 
 RailMoveObj::RailMoveObj(const char* pName) : MapObjActor(pName) {
-    _C4.setPSZeroVec();
-    _D0 = 0;
+    mRailClippingCenter.setZeroVec();
+    mWasRailMoving = 0;
 }
 
-void RailMoveObj::init(const JMapInfoIter& rIter) {
+void RailMoveObj::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
     MapObjActorInitInfo info;
-    info.setupHioNode("\222\156\214\140\203\111\203\165\203\127\203\106" /* 地形オブジェ */);
     info.setupDefaultPos();
     info.setupConnectToScene();
     info.setupEffect(0);
@@ -58,7 +57,7 @@ void RailMoveObj::init(const JMapInfoIter& rIter) {
     if (MR::isConnectedWithRail(rIter)) {
         f32 radius = 0.0f;
         MR::calcModelBoundingRadius(&radius, this);
-        MR::initAndSetRailClipping(&_C4, this, 100.0f, radius);
+        MR::initAndSetRailClipping(&mRailClippingCenter, this, 100.0f, radius);
     } else {
         setNerve(GET_NERVE(RailMoveObj, HostTypeDone));
     }
@@ -75,8 +74,11 @@ void RailMoveObj::init(const JMapInfoIter& rIter) {
     }
 }
 
-TVec3f* RailMoveObj::getSoundCalcPos() {
-    return 0;
+Vec3f* RailMoveObj::getSoundCalcPos() {
+    return nullptr;
+}
+
+void RailMoveObj::setupInitInfo(const TableIter& /*rIter*/, MapObjActorInitInfo* /*pInfo*/) {
 }
 
 void RailMoveObj::startClipped() {
@@ -150,7 +152,7 @@ bool RailMoveObj::isMoving() const {
     return MapObjActorUtil::isRailMoverWorking(this);
 }
 
-bool RailMoveObj::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool RailMoveObj::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (msg == ACTMES_MAPPARTS_DISAPPEAR_WITH_BLINK && isNerve(GET_NERVE(RailMoveObj, HostTypeMove))) {
         kill();
 
@@ -173,15 +175,21 @@ bool RailMoveObj::tryStartMove() {
 }
 
 void RailMoveObj::exeMove() {
+    // An object placed without a rail has nothing to move along.
+    if (mRailMover == nullptr) {
+        setNerve(GET_NERVE(RailMoveObj, HostTypeDone));
+        return;
+    }
+
     if (MR::isFirstStep(this)) {
         startMapPartsFunctions();
     }
 
-    if (!_D0 && MapObjActorUtil::isRailMoverWorking(this)) {
+    if (!mWasRailMoving && MapObjActorUtil::isRailMoverWorking(this)) {
         startMoveInner();
     }
 
-    _D0 = MapObjActorUtil::isRailMoverWorking(this);
+    mWasRailMoving = MapObjActorUtil::isRailMoverWorking(this);
     move();
 
     if (mRailMover->isReachedEnd()) {
@@ -196,7 +204,7 @@ void RailMoveObj::exeMove() {
 RailMoveObjPress::RailMoveObjPress(const char* pName) : RailMoveObj(pName) {
 }
 
-void RailMoveObjPress::init(const JMapInfoIter& rIter) {
+void RailMoveObjPress::init(const TableIter& rIter) {
     RailMoveObj::init(rIter);
     MR::setBodySensorType(this, ATYPE_MAP_OBJ_PRESS);
 }
@@ -214,16 +222,16 @@ void RailMoveObjBreakAtEnd::doAtEndPoint() {
     kill();
 }
 
-void RailMoveIndirectObj::connectToScene(const MapObjActorInitInfo& rInfo) {
+void RailMoveIndirectObj::connectToScene(const MapObjActorInitInfo& /*rInfo*/) {
     MR::connectToSceneIndirectMapObj(this);
 }
 
-void RailMoveObjSwitchShadow::init(const JMapInfoIter& rIter) {
+void RailMoveObjSwitchShadow::init(const TableIter& rIter) {
     RailMoveObj::init(rIter);
     MR::invalidateShadow(this, 0);
 }
 
-void RailMoveObjSwitchShadow::initCaseUseSwitchA(const MapObjActorInitInfo& rInfo) {
+void RailMoveObjSwitchShadow::initCaseUseSwitchA(const MapObjActorInitInfo& /*rInfo*/) {
     MR::listenStageSwitchOnA(this, MR::Functor(this, &RailMoveObjSwitchShadow::startOnShadow));
 }
 
@@ -235,7 +243,7 @@ RailDemoMoveObj::RailDemoMoveObj(const char* pName) : RailMoveObj(pName) {
     mDemoControl = 0;
 }
 
-void RailDemoMoveObj::init(const JMapInfoIter& rIter) {
+void RailDemoMoveObj::init(const TableIter& rIter) {
     RailMoveObj::init(rIter);
     mDemoControl = new DemoCtrlBase(this, mObjectName);
     mDemoControl->init(rIter);
@@ -290,7 +298,7 @@ bool RailDemoMoveObj::endMove() {
 RailRotateMoveObj::RailRotateMoveObj(const char* pName) : RailMoveObj(pName) {
 }
 
-void RailRotateMoveObj::setupInitInfo(const JMapInfoIter& rIter, MapObjActorInitInfo* pInfo) {
+void RailRotateMoveObj::setupInitInfo(const TableIter& /*rIter*/, MapObjActorInitInfo* pInfo) {
     pInfo->setupRailRotator();
 }
 
@@ -311,7 +319,7 @@ bool RailRotateMoveObj::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* 
     return RailMoveObj::receiveOtherMsg(msg, pSender, pReceiver);
 }
 
-void RailRotateMoveObj::initCaseUseSwitchB(const MapObjActorInitInfo& rInfo) {
+void RailRotateMoveObj::initCaseUseSwitchB(const MapObjActorInitInfo& /*rInfo*/) {
     setNerve(GET_NERVE(RailMoveObj, HostTypeWait));
     MR::listenStageSwitchOffB(this, MR::Functor< MapObjActor >(this, &MapObjActor::pauseMapPartsFunctions));
 }

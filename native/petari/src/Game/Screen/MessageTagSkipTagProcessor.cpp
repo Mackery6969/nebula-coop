@@ -1,19 +1,13 @@
 #include "Game/Screen/MessageTagSkipTagProcessor.hpp"
+#include "Game/Util/Array.hpp"
 #include <string.h>
 
 namespace {
     // A string argument's slot in the text has 4 bytes: it holds a token naming the string in
-    // this table (0: none). Each distinct string keeps its entry; a full table reuses the oldest, and a token to a
-    // reused entry reads as no string. The game's arguments are long-lived (messages, galaxy names, a few buffers).
-    const u32 kParamStringCount = 1024;
-    const char16_t* sParamStrings[kParamStringCount];
-    u32 sParamStringGenerations[kParamStringCount];
+    // this table (0: none). Each distinct string keeps its entry. The game's arguments are long-lived (messages,
+    // galaxy names, a few buffers).
+    MR::GrowBuffer< const char16_t* > sParamStrings;
     u32 sParamStringUsed;
-    u32 sParamStringNext;
-
-    u32 paramStringToken(u32 index) {
-        return 1 + index + sParamStringGenerations[index] * kParamStringCount;
-    }
 
     u32 nameParamString(const char16_t* pString) {
         if (pString == nullptr) {
@@ -21,38 +15,32 @@ namespace {
         }
         for (u32 i = 0; i < sParamStringUsed; i++) {
             if (sParamStrings[i] == pString) {
-                return paramStringToken(i);
+                return i + 1;
             }
         }
-        u32 index;
-        if (sParamStringUsed < kParamStringCount) {
-            index = sParamStringUsed++;
-        } else {
-            index = sParamStringNext;
-            sParamStringNext = (sParamStringNext + 1) % kParamStringCount;
-            sParamStringGenerations[index]++;
-        }
-        sParamStrings[index] = pString;
-        return paramStringToken(index);
+        const char16_t** const ppStrings = sParamStrings.room(sParamStringUsed + 1);
+        ppStrings[sParamStringUsed] = pString;
+        return ++sParamStringUsed;
     }
 
     const char16_t* findParamString(u32 token) {
-        if (token == 0) {
+        if (token == 0 || token > sParamStringUsed) {
             return nullptr;
         }
-        const u32 index = (token - 1) % kParamStringCount;
-        return index < sParamStringUsed && paramStringToken(index) == token ? sParamStrings[index] : nullptr;
+        return sParamStrings[token - 1];
     }
 }  // namespace
 
-MessageEditorMessageTag::MessageEditorMessageTag(const nw4r::ut::PrintContext< char16_t >* pContext) : mMessage(pContext->str) {
+MessageEditorMessageTag::MessageEditorMessageTag(const Ui::PrintContext< char16_t >* pContext) : mMessage(pContext->str) {
 }
 
 MessageEditorMessageTag::MessageEditorMessageTag(const char16_t* pMessage) : mMessage(pMessage) {
 }
 
 u32 MessageEditorMessageTag::getTagLength() const {
-    return reinterpret_cast< const u8* >(mMessage)[0] - 2;
+    // A tag whose length byte is under 2 (a corrupt or edited message) skips nothing, not 4 billion.
+    const u32 length = reinterpret_cast< const u8* >(mMessage)[0];
+    return length >= 2 ? length - 2 : 0;
 }
 
 u32 MessageEditorMessageTag::getSkipLength() const {
@@ -60,7 +48,9 @@ u32 MessageEditorMessageTag::getSkipLength() const {
 }
 
 s32 MessageEditorMessageTag::getParamLength() const {
-    return reinterpret_cast< const u8* >(mMessage)[0] - 6;
+    // A tag too short to hold parameters has none.
+    const s32 length = reinterpret_cast< const u8* >(mMessage)[0];
+    return length >= 6 ? length - 6 : 0;
 }
 
 // Natively the parameters are host-order 16-bit units (MessageData converts the file's text that way, and the game
@@ -98,26 +88,26 @@ const char16_t* MessageEditorMessageTag::getParamString() const {
     return findParamString(token);
 }
 
-MessageTagSkipTagProcessor::MessageTagSkipTagProcessor() : nw4r::ut::TagProcessorBase< char16_t >() {
+MessageTagSkipTagProcessor::MessageTagSkipTagProcessor() : Ui::TagProcessorBase< char16_t >() {
 }
 
-nw4r::ut::TagProcessorBase< char16_t >::Operation MessageTagSkipTagProcessor::CalcRect(nw4r::ut::Rect* pRect, u16 code, ContextType* pPrintContext) {
+Ui::TagProcessorBase< char16_t >::Operation MessageTagSkipTagProcessor::CalcRect(Ui::Rect* pRect, u16 code, ContextType* pPrintContext) {
     if (code != 0x1A) {
-        return nw4r::ut::TagProcessorBase< char16_t >::CalcRect(pRect, code, pPrintContext);
+        return Ui::TagProcessorBase< char16_t >::CalcRect(pRect, code, pPrintContext);
     } else {
         return skipTag(pRect, pPrintContext, false);
     }
 }
 
-nw4r::ut::TagProcessorBase< char16_t >::Operation MessageTagSkipTagProcessor::Process(u16 code, ContextType* pPrintContext) {
+Ui::TagProcessorBase< char16_t >::Operation MessageTagSkipTagProcessor::Process(u16 code, ContextType* pPrintContext) {
     if (code != 0x1A) {
-        return nw4r::ut::TagProcessorBase< char16_t >::Process(code, pPrintContext);
+        return Ui::TagProcessorBase< char16_t >::Process(code, pPrintContext);
     } else {
         return skipTag(nullptr, pPrintContext, false);
     }
 }
 
-nw4r::ut::TagProcessorBase< char16_t >::Operation MessageTagSkipTagProcessor::skipTag(nw4r::ut::Rect* pRect, ContextType* pPrintContext, bool param3) {
+Ui::TagProcessorBase< char16_t >::Operation MessageTagSkipTagProcessor::skipTag(Ui::Rect* /*pRect*/, ContextType* pPrintContext, bool /*param3*/) {
     MessageEditorMessageTag tag(pPrintContext);
     pPrintContext->str += tag.getSkipLength();
     return OPERATION_DEFAULT;

@@ -6,15 +6,15 @@ class HeavensDoorDemoObj : public MapObjActor {
 public:
     HeavensDoorDemoObj(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void kill();
-    virtual void control();
-    virtual void connectToScene(const MapObjActorInitInfo&);
+    virtual void init(const TableIter&) override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void connectToScene(const MapObjActorInitInfo&) override;
 
     void exeAppear();
     void exeWait();
     void exeVanish();
     void startInsideCageDemo();
 
-    bool _C4;
+    bool mIsInsideCageDemo;
 };

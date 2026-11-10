@@ -1,28 +1,28 @@
 #include "Game/Boss/BossKameckMoveRail.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/RailUtil.hpp"
 
-BossKameckMoveRail::BossKameckMoveRail(const char* pName) : LiveActor(pName), _8C(), _90() {
+BossKameckMoveRail::BossKameckMoveRail(const char* pName) : LiveActor(pName), mRailNo(), mStoppablePointNum() {
 }
 
-void BossKameckMoveRail::init(const JMapInfoIter& rIter) {
-    MR::getJMapInfoArg0WithInit(rIter, &_8C);
+void BossKameckMoveRail::init(const TableIter& rIter) {
+    MR::getPlacementArg0WithInit(rIter, &mRailNo);
     initRailRider(rIter);
     makeActorDead();
-    _90 = 0;
+    mStoppablePointNum = 0;
     s32 pointNum = MR::getRailPointNum(this);
     for (s32 i = 0; i < pointNum; i++) {
-        s32 val = -1;
-        MR::getRailPointArg0WithInit(this, i, &val);
+        s32 stoppable = -1;
+        MR::getRailPointArg0WithInit(this, i, &stoppable);
 
-        if (val != 0) {
-            _90++;
+        if (stoppable != 0) {
+            mStoppablePointNum++;
         }
     }
 }
 
-void BossKameckMoveRail::calcMovePosition(TVec3f* pPos, s32 idx) const {
+void BossKameckMoveRail::calcMovePosition(Vec3f* pPos, s32 idx) const {
     MR::calcRailPointPos(pPos, this, idx);
 }
 
@@ -47,18 +47,18 @@ s32 BossKameckMoveRail::calcRandomIndex(s32 idx) const {
 }
 
 s32 BossKameckMoveRail::calcRandomStoppableIndex(s32 idx) const {
-    s32 last = _90 - 1;
+    s32 last = mStoppablePointNum - 1;
 
     if (idx < 0) {
-        last = _90;
+        last = mStoppablePointNum;
     }
 
+    // The rand-th stoppable point, skipping idx.
     s32 rand = (last <= 0) ? 0 : MR::getRandom(0, last);
     s32 pointNum = MR::getRailPointNum(this);
-    s32 cpy = pointNum;
-    s32 val = 0;
+    s32 stoppableSeen = 0;
 
-    for (s32 i = 0; i < cpy; i++) {
+    for (s32 i = 0; i < pointNum; i++) {
         if (i == idx) {
             continue;
         }
@@ -70,11 +70,11 @@ s32 BossKameckMoveRail::calcRandomStoppableIndex(s32 idx) const {
             continue;
         }
 
-        if (val == rand) {
+        if (stoppableSeen == rand) {
             return i;
         }
 
-        val++;
+        stoppableSeen++;
     }
 
     return 0;

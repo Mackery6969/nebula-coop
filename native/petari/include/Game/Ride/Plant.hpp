@@ -1,10 +1,9 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class ActorCameraInfo;
-class J3DShapeDraw;
 class PartsModel;
 class PlantStalk;
 class PlantLeaf;
@@ -13,17 +12,17 @@ class Plant : public LiveActor {
 public:
     Plant(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void draw() const;
-    virtual void calcAnim();
-    virtual void appear();
-    virtual void startClipped();
-    virtual void endClipped();
-    virtual void updateHitSensor(HitSensor* pSensor);
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
+    virtual void draw() const override;
+    virtual void calcAnim() override;
+    virtual void appear() override;
+    virtual void startClipped() override;
+    virtual void endClipped() override;
+    virtual void updateHitSensor(HitSensor* pSensor) override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     void exeWaitFar();
     void exeSeedWait();
@@ -52,22 +51,21 @@ public:
     bool tryAccelHangUp();
 
     PartsModel* mSeedPartsModel;
-    TPos3f mSeedMtx;
+    Pos3f mSeedMtx;
     PlantStalk* mStalk;
     PartsModel* mTopPartsModel;
-    TPos3f mTopMtx;
+    Pos3f mTopMtx;
     s32 mNumLeaves;
     PlantLeaf** mLeaves;
-    J3DShapeDraw* mShapeDraw;
     LiveActor* mRider;
     f32 mRailCoord;
-    TVec3f mUp;
-    TVec3f mFront;
+    Vec3f mUp;
+    Vec3f mFront;
     f32 mRideVelocity;
     s32 mAccelTimer;
     f32 mJumpSpeed;
     f32 mJumpSpeedOffsetY;
-    TVec3f mClippingCenter;
+    Vec3f mClippingCenter;
     ActorCameraInfo* mCameraInfo;
     bool mPlayAppearDemo;
     bool mGrabbedTop;

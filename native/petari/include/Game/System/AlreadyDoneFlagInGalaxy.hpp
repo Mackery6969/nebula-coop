@@ -2,7 +2,7 @@
 
 #include "Game/Util/Array.hpp"
 
-class JMapInfoIter;
+class TableIter;
 
 class AlreadyDoneInfo {
 public:
@@ -11,16 +11,16 @@ public:
     void clear();
     void init(const char*, s32, s32);
     bool isEqual(const AlreadyDoneInfo&) const;
-    void set(bool);
-    u16 mask() const;
+    void set(bool isDone);
 
     bool operator==(const AlreadyDoneInfo& other) const {
         return isEqual(other);
     }
 
-    u16 _0;
-    u16 _2;
-    u16 _4;
+    u32 mNameHash;
+    bool mIsDone;
+    s32 mZoneId;
+    s32 mLinkId;
 };
 
 class AlreadyDoneFlagInGalaxy {
@@ -28,7 +28,7 @@ public:
     AlreadyDoneFlagInGalaxy(int);
 
     void clear();
-    u32 setupFlag(const char*, const JMapInfoIter&, u32*);
+    u32 setupFlag(const char*, const TableIter&, u32*);
     void updateValue(int, u32);
 
     MR::Vector< MR::AssignableArray< AlreadyDoneInfo > > mDoneInfos;

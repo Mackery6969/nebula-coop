@@ -2,22 +2,22 @@
 
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
-#include "Game/Util/JMapInfo.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include "Game/Util/Table.hpp"
+#include <nebula_geometry.hpp>
 #include <cstddef>
 
 class ClipAreaDropLaser : public LiveActor {
 public:
     ClipAreaDropLaser(const char* pName);
-    virtual ~ClipAreaDropLaser();
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void control();
-    virtual void draw() const;
+    virtual void init(const TableIter& rIter) override;
+    virtual void control() override;
+    virtual void draw() const override;
     void exeWait();
     void exeMove();
     void incrementDrawCount();
 
-    TVec3f mPoints[0x40];
+    static const int cPointNum = 0x40;  // the trail, one point each update (oldest overwritten)
+    Vec3f mPoints[cPointNum];
     f32 mNumPointsToDraw;
     int mPointIndexToSkipDraw;
     int mDrawCount;

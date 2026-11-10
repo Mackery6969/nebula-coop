@@ -9,10 +9,9 @@ class SwitchWatcher;
 
 class SwitchWatcherHolder : public NameObj {
 public:
-    /// @brief Creates a new `SwitchWatcherHolder`.
     SwitchWatcherHolder();
 
-    virtual void movement();
+    virtual void movement() override;
 
     void joinSwitchEventListenerA(const StageSwitchCtrl*, SwitchEventListener*);
     void joinSwitchEventListenerB(const StageSwitchCtrl*, SwitchEventListener*);
@@ -21,7 +20,7 @@ public:
     void joinSwitchEventListener(const StageSwitchCtrl*, u32, SwitchEventListener*);
     void addSwitchWatcher(SwitchWatcher*);
 
-    MR::Vector< MR::FixedArray< SwitchWatcher*, 256 > > mSwitchWatcher;
+    MR::InlineVector< SwitchWatcher*, 256 > mSwitchWatcher;
 };
 
 namespace MR {

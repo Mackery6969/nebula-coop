@@ -1,10 +1,11 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JKernel/JKRDisposer.hpp>
+#include "Game/Util/Array.hpp"
+#include "Game/System/NebulaArena.hpp"
 
 class AudSoundObject;
-class J3DJoint;
+class Joint;
 
 class AudSeKeeperBox {
 public:
@@ -12,27 +13,27 @@ public:
 
     ~AudSeKeeperBox();
     void update();
-    void add(J3DJoint*, u16);
+    void add(Joint*, u16);
     void updateJointPos();
 
     AudSoundObject* mSoundObj;
-    J3DJoint* mJoint;
-    TVec3f mPos;
+    Joint* mJoint;
+    Vec3f mPos;
     u16 mHash;
 };
 
-class AudSeKeeper : public JKRDisposer {
+// Level sounds at an actor's joints, one box per joint. Each box is allocated alone: its sound object holds a
+// pointer to the box's position.
+class AudSeKeeper : public ArenaOwned {
 public:
-    AudSeKeeper(LiveActor*, int);
+    AudSeKeeper(LiveActor* pActor, int boxNumHint);
 
     ~AudSeKeeper();
     void update();
-    void makeBox(const char*, const char*);
-    bool playLevel(const char*, const char*);
-    int getBoxEqualName(const char*);
+    void makeBox(const char* pJointName, const char* pJointName2);
+    bool playLevel(const char* pJointName, const char* pSoundName);
+    int getBoxEqualName(const char* pJointName);
 
     LiveActor* mActor;
-    AudSeKeeperBox* mBoxes;
-    int mMaxBoxes;
-    int mNumBoxes;
+    MR::Vector< MR::AssignableArray< AudSeKeeperBox* > > mBoxes;
 };

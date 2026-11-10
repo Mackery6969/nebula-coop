@@ -2,22 +2,20 @@
 
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Screen/LayoutActor.hpp"
-#include <JSystem/JGeometry.hpp>
+#include <nebula_geometry.hpp>
 
 class CollectCounter : public LayoutActor {
 public:
     CollectCounter(const char*);
 
-    virtual ~CollectCounter();
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
+    virtual void init(const TableIter&) override;
+    virtual void control() override;
 
     void exeHide();
     void exeShow();
 
-    void setCount(s32);
-    bool tryEndShow();
+    void setCount(s32 num);
     void setPosition();
 
-    TVec2f mFollowPosition;
+    Vec2f mFollowPosition;
 };

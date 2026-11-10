@@ -4,11 +4,11 @@
 
 class CameraCharmedVecReg : public Camera {
 public:
-    CameraCharmedVecReg(const char* pName = "\203\170\203\116\203\147\203\213\203\214\203\127\203\130\203\136\222\215\226\332\203\112\203\201\203\211" /* ベクトルレジスタ注目カメラ */);
+    CameraCharmedVecReg(const char* pName = "ベクトルレジスタ注目カメラ");
 
-    virtual void reset();
-    virtual CameraTargetObj* calc();
-    virtual CamTranslatorBase* createTranslator();
+    virtual void reset() override;
+    virtual CameraTargetObj* calc() override;
+    virtual void setParamFromChunk(const CameraParamChunk*) override;
 
     void setParam(const char* pName, f32 dist, f32 angleX, f32 angleYMax, f32 angleYMin, f32 distRatio, f32 angleRate) {
         mName = pName;

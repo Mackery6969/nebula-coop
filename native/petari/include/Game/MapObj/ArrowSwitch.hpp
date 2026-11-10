@@ -18,16 +18,14 @@ public:
         Direction_Left = 3,
     };
 
-    /// @brief Creates a new `ArrowSwitch`.
-    /// @param pName A pointer to the null-terminated name of the object.
     ArrowSwitch(const char* pName);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPush(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPush(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
 
     bool requestPunch(HitSensor*, HitSensor*);
     void listenOnSwitch();
@@ -45,6 +43,5 @@ public:
     s32 mSwitchType;
     bool mLockAfterRotate;
     bool mIsRotPlus;
-    bool _9E;
     bool mIsPunch;
 };

@@ -11,9 +11,9 @@ public:
     /// @param pName The pointer to the null-terminated name of the object.
     StarPieceCounter(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void appear();
-    virtual void control();
+    virtual void init(const TableIter& rIter) override;
+    virtual void appear() override;
+    virtual void control() override;
 
     void forceAppear(bool);
     void disappear(bool);
@@ -36,7 +36,7 @@ public:
     s32 mInvalidCountUpFrame;
     CounterLayoutAppearer* mLayoutAppearer;
     CountUpPaneRumbler* mPaneRumbler;
-    TVec2f mFollowPos;
-    s32 _3C;
+    Vec2f mFollowPos;
+    s32 mForcedAppear;  // 0 none, 1 forced up, 2 forced up in the centre
     int mMode;
 };

@@ -1,6 +1,6 @@
 #include "Game/System/GameSystemFunction.hpp"
 #include "Game/NameObj/NameObjRegister.hpp"
-#include "Game/Scene/LogoScene.hpp"
+#include "Game/Scene/BootScene.hpp"
 #include "Game/Screen/HomeButtonLayout.hpp"
 #include "Game/Screen/ScreenPreserver.hpp"
 #include "Game/System/AudSystemWrapper.hpp"
@@ -8,9 +8,8 @@
 #include "Game/System/GameSystem.hpp"
 #include "Game/System/GameSystemErrorWatcher.hpp"
 #include "Game/System/GameSystemObjHolder.hpp"
-#include "Game/System/GameSystemResetAndPowerProcess.hpp"
+#include "Game/System/GameSystemRestartProcess.hpp"
 #include "Game/System/GameSystemSceneController.hpp"
-#include "Game/System/GameSystemStationedArchiveLoader.hpp"
 #include "Game/System/SaveDataHandleSequence.hpp"
 #include "Game/System/PlayerInput.hpp"
 #include "Game/System/PlayerInputs.hpp"
@@ -20,14 +19,14 @@
 #include "Game/Util/SingletonHolder.hpp"
 
 namespace {
-    LogoScene* getLogoScene() {
-        LogoScene* pLogoScene = static_cast< LogoScene* >(SingletonHolder< GameSystem >::get()->mSceneController->mScene);
+    BootScene* getBootScene() {
+        BootScene* pBootScene = static_cast< BootScene* >(SingletonHolder< GameSystem >::get()->mSceneController->mScene);
 
-        if (pLogoScene == nullptr) {
+        if (pBootScene == nullptr) {
             return nullptr;
         }
 
-        return pLogoScene;
+        return pBootScene;
     }
 
     AudSystemWrapper* getAudSystemWrapper() {
@@ -40,18 +39,6 @@ namespace {
 };  // namespace
 
 namespace GameSystemFunction {
-    void loadAudioStaticWaveData() {
-        ::getAudSystemWrapper()->loadStaticWaveData();
-    }
-
-    bool isLoadedAudioStaticWaveData() {
-        return ::getAudSystemWrapper()->isLoadDoneStaticWaveData();
-    }
-
-    void initAfterStationedResourceLoaded() {
-        SingletonHolder< GameSystem >::get()->initAfterStationedResourceLoaded();
-    }
-
     void setSceneNameObjHolderToNameObjRegister() {
         SingletonHolder< NameObjRegister >::get()->setCurrentHolder(SingletonHolder< GameSystem >::get()->mSceneController->mObjHolder);
     }
@@ -78,13 +65,6 @@ namespace GameSystemFunction {
         return !isExecuteLoadSystemArchive;
     }
 
-    void requestChangeArchivePlayer(bool isPlayerMario) {
-        SingletonHolder< GameSystem >::get()->mStationedArchiveLoader->requestChangeArchivePlayer(isPlayerMario);
-    }
-
-    void waitEndChangeArchivePlayer() {
-        SingletonHolder< GameSystem >::get()->mStationedArchiveLoader->waitDone();
-    }
 
     void activateScreenPreserver() {
         SingletonHolder< GameSystem >::get()->mObjHolder->mScreenPreserver->activate();
@@ -98,24 +78,28 @@ namespace GameSystemFunction {
         return SingletonHolder< GameSystem >::get()->mErrorWatcher->isWarning();
     }
 
+    bool isSceneResumed() {
+        return SingletonHolder< GameSystem >::get()->mIsSceneResumed;
+    }
+
     bool isResetProcessing() {
-        return SingletonHolder< GameSystemResetAndPowerProcess >::get()->isActive();
+        return SingletonHolder< GameSystemRestartProcess >::get()->isActive();
     }
 
     void setResetOperationApplicationReset() {
-        SingletonHolder< GameSystemResetAndPowerProcess >::get()->setResetOperationApplicationReset();
+        SingletonHolder< GameSystemRestartProcess >::get()->setResetOperationApplicationReset();
     }
 
     void setResetOperationQuit() {
-        SingletonHolder< GameSystemResetAndPowerProcess >::get()->setResetOperationQuit();
+        SingletonHolder< GameSystemRestartProcess >::get()->setResetOperationQuit();
     }
 
-    void requestResetGameSystem(bool param1) {
-        SingletonHolder< GameSystemResetAndPowerProcess >::get()->requestReset(param1);
+    void requestResetGameSystem(bool isImmediate) {
+        SingletonHolder< GameSystemRestartProcess >::get()->requestReset(isImmediate);
     }
 
-    void requestQuitGame(bool param1) {
-        SingletonHolder< GameSystemResetAndPowerProcess >::get()->requestQuitGame(param1);
+    void requestQuitGame(bool isImmediate) {
+        SingletonHolder< GameSystemRestartProcess >::get()->requestQuitGame(isImmediate);
     }
 
     void forceToDeactivateHomeButtonLayout() {
@@ -128,20 +112,6 @@ namespace GameSystemFunction {
 
     void resetCurrentScenarioNo() {
         SingletonHolder< GameSystem >::get()->mSceneController->resetCurrentScenarioNo();
-    }
-
-    bool isPermitToResetSaveDataHandleSequence() {
-        if (::getSaveDataHandleSequence() != nullptr) {
-            return ::getSaveDataHandleSequence()->isPermitToReset();
-        }
-
-        return true;
-    }
-
-    void prepareResetSaveDataHandleSequence() {
-        if (::getSaveDataHandleSequence() != nullptr) {
-            ::getSaveDataHandleSequence()->prepareReset();
-        }
     }
 
     bool isPrepareResetSaveDataHandleSequence() {
@@ -158,16 +128,12 @@ namespace GameSystemFunction {
         }
     }
 
-    bool isPermitToResetAudioSystem() {
-        return ::getAudSystemWrapper()->isPermitToReset();
-    }
-
     void prepareResetAudioSystem() {
         ::getAudSystemWrapper()->prepareReset();
     }
 
-    void requestResetAudioSystem(bool param1) {
-        ::getAudSystemWrapper()->requestReset(param1);
+    void requestResetAudioSystem(bool stopClock) {
+        ::getAudSystemWrapper()->requestReset(stopClock);
     }
 
     bool isDoneResetAudioSystem() {
@@ -180,13 +146,9 @@ namespace GameSystemFunction {
 
     void resetAllControllerRumble() {
         for (s32 chan = PLAYER_1; chan < PLAYER_1 + MR::getPlayerMaxCount(); chan++) {
-            MR::getPlayerInput(chan)->_18->registInstance();
-            MR::getPlayerInput(chan)->_18->stop();
+            MR::getPlayerInput(chan)->mRumble->registInstance();
+            MR::getPlayerInput(chan)->mRumble->stop();
         }
-    }
-
-    void setInputSleepTime(bool isLongAutoSleep) {
-        MR::setInputSleepTime(isLongAutoSleep);
     }
 
     bool setPermissionToCheckInput(bool permission) {
@@ -195,31 +157,31 @@ namespace GameSystemFunction {
 
     void onPauseBeginAllRumble() {
         for (s32 chan = PLAYER_1; chan < PLAYER_1 + MR::getPlayerMaxCount(); chan++) {
-            MR::getPlayerInput(chan)->_18->stop();
-            MR::getPlayerInput(chan)->_1C->registInstance();
-            MR::getPlayerInput(chan)->_1C->stop();
+            MR::getPlayerInput(chan)->mRumble->stop();
+            MR::getPlayerInput(chan)->mMenuRumble->registInstance();
+            MR::getPlayerInput(chan)->mMenuRumble->stop();
         }
     }
 
     void onPauseEndAllRumble() {
         for (s32 chan = PLAYER_1; chan < PLAYER_1 + MR::getPlayerMaxCount(); chan++) {
-            MR::getPlayerInput(chan)->_18->registInstance();
-            MR::getPlayerInput(chan)->_1C->stop();
+            MR::getPlayerInput(chan)->mRumble->registInstance();
+            MR::getPlayerInput(chan)->mMenuRumble->stop();
         }
     }
 
     void onHomeButtonMenuBeginAllRumble() {
         for (s32 chan = PLAYER_1; chan < PLAYER_1 + MR::getPlayerMaxCount(); chan++) {
-            MR::getPlayerInput(chan)->_18->pause();
-            MR::getPlayerInput(chan)->_1C->registInstance();
-            MR::getPlayerInput(chan)->_1C->stop();
+            MR::getPlayerInput(chan)->mRumble->pause();
+            MR::getPlayerInput(chan)->mMenuRumble->registInstance();
+            MR::getPlayerInput(chan)->mMenuRumble->stop();
         }
     }
 
     void onHomeButtonMenuCloseAllRumble() {
         for (s32 chan = PLAYER_1; chan < PLAYER_1 + MR::getPlayerMaxCount(); chan++) {
-            MR::getPlayerInput(chan)->_18->registInstance();
-            MR::getPlayerInput(chan)->_1C->stop();
+            MR::getPlayerInput(chan)->mRumble->registInstance();
+            MR::getPlayerInput(chan)->mMenuRumble->stop();
         }
     }
 
@@ -227,12 +189,12 @@ namespace GameSystemFunction {
         InputRumble* pRumble;
 
         for (s32 chan = PLAYER_1; chan < PLAYER_1 + MR::getPlayerMaxCount(); chan++) {
-            pRumble = MR::getPlayerInput(chan)->_18;
-            pRumble->_BC = 200;
+            pRumble = MR::getPlayerInput(chan)->mRumble;
+            pRumble->mStopTimer = 200;
             pRumble->stop();
 
-            pRumble = MR::getPlayerInput(chan)->_1C;
-            pRumble->_BC = 200;
+            pRumble = MR::getPlayerInput(chan)->mMenuRumble;
+            pRumble->mStopTimer = 200;
             pRumble->stop();
         }
     }
@@ -250,6 +212,6 @@ namespace GameSystemFunction {
     }
 
     bool isBeforeTitle() {
-        return MR::isEqualSceneName("Logo") && ::getLogoScene() != nullptr && ::getLogoScene()->isBeforeTitle();
+        return MR::isCurrentScene(SceneKind_Boot) &&::getBootScene() != nullptr && ::getBootScene()->isBeforeTitle();
     }
 };  // namespace GameSystemFunction

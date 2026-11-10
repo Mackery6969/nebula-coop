@@ -6,42 +6,43 @@
 #include "Game/Util/MtxUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace NrvKabokuriFire {
     NEW_NERVE(KabokuriFireNrvWait, KabokuriFire, Wait);
 };  // namespace NrvKabokuriFire
 
 namespace {
-    static const f32 sBodyHitSize = 40.0f;
-    static const f32 sBodyHitYOffset = 90.0f;
-    static const s32 sFireTime = 320;
+    NEBULA_TUNABLE(f32, sBodyHitSize, 40.0f);
+    NEBULA_TUNABLE(f32, sBodyHitYOffset, 90.0f);
+    NEBULA_TUNABLE(s32, sFireTime, 320);
 };  // namespace
 
 KabokuriFire::KabokuriFire(const char* pName) : LiveActor(pName) {
-    _8C.identity();
+    mBaseMtx.identity();
 }
 
-void KabokuriFire::init(const JMapInfoIter& rIter) {
+void KabokuriFire::init(const TableIter& /*rIter*/) {
     MR::connectToSceneEnemyMovement(this);
     initNerve(GET_NERVE(KabokuriFire, KabokuriFireNrvWait));
-    initEffectKeeper(0, "KabokuriFire", false);
+    initEffectKeeper(0, "KabokuriFire");
     initSound(2, false);
     initHitSensor(1);
 
-    MR::addHitSensorEnemy(this, "body", 8, ::sBodyHitSize, TVec3f(0.0f, ::sBodyHitYOffset, 0.0f));
+    MR::addHitSensorEnemy(this, "body", 8, ::sBodyHitSize, Vec3f(0.0f, ::sBodyHitYOffset, 0.0f));
     MR::invalidateClipping(this);
     makeActorDead();
 }
 
-void KabokuriFire::start(const TVec3f& rPosition, bool gravitySet) {
+void KabokuriFire::start(const Vec3f& rPosition, bool gravitySet) {
     mPosition.set(rPosition);
 
     if (!gravitySet) {
         MR::calcGravity(this);
     }
 
-    MR::makeMtxUpNoSupport(&_8C, -mGravity);
-    _8C.setTrans(mPosition);
+    MR::makeMtxUpNoSupport(&mBaseMtx, -mGravity);
+    mBaseMtx.setTrans(mPosition);
     setNerve(GET_NERVE(KabokuriFire, KabokuriFireNrvWait));
     appear();
 }

@@ -12,16 +12,17 @@
 #include "Game/Util/SceneUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static s32 sStartRunAwayBgmState = 2;
-    static s32 sFoundRabbitBgmState = 3;
-    static s32 sCaughtRabbitBgmState = 2;
-    static s32 sEndRunAwayBgmState = 1;
-    static const s32 sStartRunAwayBgmChangeFrames = 60;
-    static const s32 sFoundRabbitBgmChangeFrames = 30;
-    static const s32 sCaughtRabbitBgmChangeFrames = 90;
-    static const s32 sEndRunAwayBgmChangeFrames = 120;
+    NEBULA_TUNABLE(s32, sStartRunAwayBgmState, 2);
+    NEBULA_TUNABLE(s32, sFoundRabbitBgmState, 3);
+    NEBULA_TUNABLE(s32, sCaughtRabbitBgmState, 2);
+    NEBULA_TUNABLE(s32, sEndRunAwayBgmState, 1);
+    NEBULA_TUNABLE(s32, sStartRunAwayBgmChangeFrames, 60);
+    NEBULA_TUNABLE(s32, sFoundRabbitBgmChangeFrames, 30);
+    NEBULA_TUNABLE(s32, sCaughtRabbitBgmChangeFrames, 90);
+    NEBULA_TUNABLE(s32, sEndRunAwayBgmChangeFrames, 120);
 };  // namespace
 
 namespace NrvRunawayRabbitCollect {
@@ -30,10 +31,10 @@ namespace NrvRunawayRabbitCollect {
 };  // namespace NrvRunawayRabbitCollect
 
 RunawayRabbitCollect::RunawayRabbitCollect(const char* pName)
-    : LiveActor(pName), mRabbit(), mRabbitNum(), mLinkedRabbitCount(), mCaughtRabbitCount(), mCompleteRabbitCount(), mBgmState() {
+    : LiveActor(pName), mRabbit(), mRabbitNum(), mCaughtRabbitCount(), mCompleteRabbitCount(), mBgmState() {
 }
 
-void RunawayRabbitCollect::init(const JMapInfoIter& rIter) {
+void RunawayRabbitCollect::init(const TableIter& rIter) {
     MR::connectToSceneNpcMovement(this);
     mRabbitNum = 0;
     mTicoNum = 0;
@@ -56,11 +57,11 @@ void RunawayRabbitCollect::init(const JMapInfoIter& rIter) {
     for (s32 i = 0; i < MR::getChildObjNum(rIter); i++) {
         MR::getChildObjName(&childObjName, rIter, i);
         if (MR::isEqualString(childObjName, "RunawayRabbit")) {
-            mRabbit[mRabbitNum] = new RunawayRabbit("\213\205\226\312\223\246\202\260\203\105\203\124\203\115" /* 球面逃げウサギ */, this);
+            mRabbit[mRabbitNum] = new RunawayRabbit("球面逃げウサギ", this);
             MR::initChildObj(mRabbit[mRabbitNum], rIter, i);
             mRabbitNum++;
         } else if (MR::isEqualString(childObjName, "RunawayTico")) {
-            mTico[mTicoNum] = new RunawayTico("\223\246\202\260\203\140\203\122" /* 逃げチコ */);
+            mTico[mTicoNum] = new RunawayTico("逃げチコ");
             MR::initChildObj(mTico[mTicoNum], rIter, i);
             mTicoNum++;
         }
@@ -152,7 +153,7 @@ void RunawayRabbitCollect::noticeCaughtRabbit(RunawayRabbit* pRabbit) {
 
     for (s32 i = 0; i < mTicoNum; i++) {
         if (mTico[i]->mDemoCastID == pRabbit->getGroupId()) {
-            TVec3f jointPos;
+            Vec3f jointPos;
             MR::copyJointPos(pRabbit, "Spine", &jointPos);
             mTico[i]->setPosAfterCaught(jointPos);
             break;
@@ -187,8 +188,11 @@ void RunawayRabbitCollect::exeWait() {
     }
 }
 
-void RunawayRabbitCollect::appearTico(RunawayTico* pTico, const TVec3f& rPos) {
-    mIsAppearTico[pTico->mDemoCastID] = true;
+void RunawayRabbitCollect::appearTico(RunawayTico* pTico, const Vec3f& rPos) {
+    // The cast id is placement data: a stage may place more ticos than the comments.
+    if (pTico->mDemoCastID >= 0 && pTico->mDemoCastID < ARRAY_SIZE(mIsAppearTico)) {
+        mIsAppearTico[pTico->mDemoCastID] = true;
+    }
 
     for (s32 i = 0; i < ARRAY_SIZE(mIsAppearTico); i++) {
         if (!mIsAppearTico[i]) {
@@ -233,11 +237,10 @@ void RunawayRabbitCollect::exeActive() {
         if (mRabbit[i]->isCaught()) {
             caughtCount++;
             if (!mRabbit[i]->mIsLinked) {
-                mLinkedRabbitCount++;
 
                 for (s32 j = 0; j < mTicoNum; j++) {
                     if (mTico[j]->mDemoCastID == mRabbit[i]->getGroupId()) {
-                        TVec3f jointPos;
+                        Vec3f jointPos;
                         MR::copyJointPos(mRabbit[i], "Spine", &jointPos);
                         appearTico(mTico[j], jointPos);
                     }

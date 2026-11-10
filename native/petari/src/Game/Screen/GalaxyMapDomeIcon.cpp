@@ -6,6 +6,7 @@
 #include "Game/Util/EventUtil.hpp"
 #include "Game/Util/LayoutUtil.hpp"
 #include "Game/Util/MessageUtil.hpp"
+#include "Game/Util/StringUtil.hpp"
 #include <cstdio>
 
 namespace {
@@ -13,12 +14,12 @@ namespace {
     public:
         AstroDomeCheckerBase(int param1);
 
-        void operator()(const JMapInfoIter& rIter);
+        void operator()(const TableIter& rIter);
 
-        virtual void execute(const char* pGalaxyName) {
+        virtual void execute(const char* /*pGalaxyName*/) {
         }
 
-        char _4[11];
+        MR::FormattedName mGalaxyText;  // "Galaxy" and the dome's number, whole
         bool mIsPass;
     };
 
@@ -54,7 +55,7 @@ namespace {
 };  // namespace
 
 GalaxyMapDomeIcon::GalaxyMapDomeIcon(int param1, LayoutActor* pHost, const char* pPaneName, const char* pParam4)
-    : LayoutActor(pPaneName, true), _20(param1), mHost(pHost), mPaneName(pPaneName), _2C(pParam4), mNamePlate(), mMode() {
+    : LayoutActor(pPaneName, true), mDomeNo(param1), mHost(pHost), mPaneName(pPaneName), mNamePaneName(pParam4), mNamePlate(), mMode() {
 }
 
 void GalaxyMapDomeIcon::appear() {
@@ -80,7 +81,7 @@ void GalaxyMapDomeIcon::calcAnim() {
     mNamePlate->calcAnim();
 }
 
-void GalaxyMapDomeIcon::calcAnimForCapture(const nw4r::lyt::DrawInfo& rDrawInfo) {
+void GalaxyMapDomeIcon::calcAnimForCapture(const Ui::DrawInfo& rDrawInfo) {
     MR::setLayoutScalePosAtPaneScaleTrans(this, mHost, mPaneName);
     MR::calcAnimLayoutWithDrawInfo(this, rDrawInfo);
 }
@@ -107,7 +108,7 @@ s32 GalaxyMapDomeIcon::calcDomeStatus() const {
         return 3;
     } else if (hasNewGalaxy()) {
         return 1;
-    } else if (MR::hasGrandStar(_20)) {
+    } else if (MR::hasGrandStar(mDomeNo)) {
         return 2;
     } else {
         return 0;
@@ -115,21 +116,21 @@ s32 GalaxyMapDomeIcon::calcDomeStatus() const {
 }
 
 bool GalaxyMapDomeIcon::isComplete() const {
-    JMapInfo mapInfo = JMapInfo();
+    Table mapInfo = Table();
 
     mapInfo.attach(NebulaDataTables::getGalaxyInfoTable());
 
-    CheckerIsComplete checker = CheckerIsComplete(_20);
+    CheckerIsComplete checker = CheckerIsComplete(mDomeNo);
 
-    JMapInfoIter begin = mapInfo.begin();
-    for (JMapInfoIter current = begin; current != mapInfo.end(); current.mIndex++) {
+    TableIter begin = mapInfo.begin();
+    for (TableIter current = begin; current != mapInfo.end(); current.mIndex++) {
         checker(current);
     }
 
     return checker.mIsPass;
 }
 
-void GalaxyMapDomeIcon::init(const JMapInfoIter& rIter) {
+void GalaxyMapDomeIcon::init(const TableIter& /*rIter*/) {
     initLayoutManager("MapDomeIcon", 3);
 
     mNamePlate = new GalaxyNamePlate(nullptr, false);
@@ -137,15 +138,15 @@ void GalaxyMapDomeIcon::init(const JMapInfoIter& rIter) {
     mNamePlate->kill();
 
     MR::startAnim(this, "DomeColor", 0);
-    MR::setAnimFrameAndStop(this, _20 - 1, 0);
+    MR::setAnimFrameAndStop(this, mDomeNo - 1, 0);
 }
 
 void GalaxyMapDomeIcon::control() {
-    if (MR::isHiddenPane(mHost, _2C)) {
+    if (MR::isHiddenPane(mHost, mNamePaneName)) {
         MR::hideLayout(mNamePlate);
     } else {
         MR::showLayout(mNamePlate);
-        mNamePlate->show(MR::getScenarioNameOnCurrentLanguage("AstroDome", _20), false);
+        mNamePlate->show(MR::getScenarioNameOnCurrentLanguage("AstroDome", mDomeNo), false);
     }
 }
 
@@ -154,16 +155,16 @@ void GalaxyMapDomeIcon::syncStatus() {
 
     if (domeStatus == 0) {
         MR::hideLayout(this);
-        MR::hidePane(mHost, _2C);
+        MR::hidePane(mHost, mNamePaneName);
     } else {
         MR::showLayout(this);
-        MR::showPane(mHost, _2C);
+        MR::showPane(mHost, mNamePaneName);
     }
 
     MR::startAnim(this, "Status", 0);
     MR::setAnimFrameAndStop(this, domeStatus, 0);
 
-    bool b = mMode != 0 && _20 == 2;
+    bool b = mMode != 0 && mDomeNo == 2;
 
     if (b) {
         MR::startAnim(this, "SelectIn", 1);
@@ -175,14 +176,14 @@ void GalaxyMapDomeIcon::syncStatus() {
 }
 
 bool GalaxyMapDomeIcon::hasNewGalaxy() const {
-    JMapInfo mapInfo = JMapInfo();
+    Table mapInfo = Table();
 
     mapInfo.attach(NebulaDataTables::getGalaxyInfoTable());
 
-    CheckerIsExistNewGalaxy checker = CheckerIsExistNewGalaxy(_20);
+    CheckerIsExistNewGalaxy checker = CheckerIsExistNewGalaxy(mDomeNo);
 
-    JMapInfoIter begin = mapInfo.begin();
-    for (JMapInfoIter current = begin; current != mapInfo.end(); current.mIndex++) {
+    TableIter begin = mapInfo.begin();
+    for (TableIter current = begin; current != mapInfo.end(); current.mIndex++) {
         checker(current);
     }
 
@@ -190,20 +191,19 @@ bool GalaxyMapDomeIcon::hasNewGalaxy() const {
 }
 
 namespace {
-    AstroDomeCheckerBase::AstroDomeCheckerBase(int param1) {
-        nebula_snprintf(_4, sizeof(_4), "Galaxy%1d", param1);
+    AstroDomeCheckerBase::AstroDomeCheckerBase(int param1) : mGalaxyText("Galaxy%1d", param1), mIsPass(false) {
     }
 };  // namespace
 
 namespace {
-    void AstroDomeCheckerBase::operator()(const JMapInfoIter& rIter) {
+    void AstroDomeCheckerBase::operator()(const TableIter& rIter) {
         const char* pMapPaneName = nullptr;
         const char* pName = nullptr;
 
         rIter.getValue("MapPaneName", &pMapPaneName);
         rIter.getValue("name", &pName);
 
-        if (pMapPaneName != nullptr && pName != nullptr && strstr(pMapPaneName, _4) != nullptr) {
+        if (pMapPaneName != nullptr && pName != nullptr && strstr(pMapPaneName, mGalaxyText.c_str()) != nullptr) {
             execute(pName);
         }
     }

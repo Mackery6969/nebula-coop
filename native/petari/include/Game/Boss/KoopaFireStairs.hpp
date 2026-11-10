@@ -7,22 +7,21 @@ class ModelObj;
 
 class KoopaFireStairs : public LiveActor {
 public:
-    KoopaFireStairs(const char* pName, bool);
+    KoopaFireStairs(const char* pName, bool isKoopaJr);
 
-    virtual ~KoopaFireStairs();
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void appear();
-    virtual void makeActorDead();
-    virtual void calcAndSetBaseMtx();
+    virtual void init(const TableIter& rIter) override;
+    virtual void appear() override;
+    virtual void makeActorDead() override;
+    virtual void calcAndSetBaseMtx() override;
 
-    void setInfo(const KoopaBattleMapStair*, const TVec3f*);
+    void setInfo(const KoopaBattleMapStair*, const Vec3f*);
     void exeFly();
     void exeBreak();
 
     bool mIsKoopaJr;
     const KoopaBattleMapStair* mStair;
-    TVec3f _94;
-    TVec3f _A0;
-    TVec3f _AC;
+    Vec3f mFront;
+    Vec3f mStartPos;
+    Vec3f mFlyUpDir;
     ModelObj* mBreakModel;
 };

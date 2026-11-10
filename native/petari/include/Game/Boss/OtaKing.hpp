@@ -3,6 +3,7 @@
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/Util/DemoUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
+#include "Game/Util/StringUtil.hpp"
 
 class ActorCameraInfo;
 class AnimScaleController;
@@ -10,7 +11,6 @@ class CocoNutBall;
 class FireBall;
 class FireBubble;
 class FixedPosition;
-class NameObjArchiveListCollector;
 class OtaKingMagma;
 class OtaKingLongFoot;
 class PartsModel;
@@ -19,20 +19,19 @@ class OtaKing : public LiveActor {
 public:
     OtaKing(const char*);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void movement();
-    virtual void makeActorAppeared();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void movement() override;
+    virtual void makeActorAppeared() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     void startAppearDemo();
-    static void makeArchiveList(NameObjArchiveListCollector*, const JMapInfoIter&);
-    void initMapToolInfo(const JMapInfoIter& rIter);
-    void initModel(const JMapInfoIter& rIter);
+    void initMapToolInfo(const TableIter& rIter);
+    void initModel(const TableIter& rIter);
     void initSensor();
     void dirToPlayer();
     CocoNutBall* getDisappearedCocoNut();
@@ -53,8 +52,8 @@ public:
     void appearBubble();
     void startDemo();
     void appearStarPiece();
-    void initLongFoot(const JMapInfoIter& rIter);
-    bool tryThrowCocoNutOrFireBallIfWait(s32);
+    void initLongFoot(const TableIter& rIter);
+    bool tryThrowCocoNutOrFireBallIfWait(s32 waitFrame);
 
     void exeWaitOnSwitch();
     void exeAppearDemo();
@@ -92,21 +91,21 @@ public:
     PartsModel* mFeet[2];
     OtaKingLongFoot* mLongFeet[4];
     OtaKingMagma* mMagma;
-    TPos3f mLongFootMtx;
+    Pos3f mLongFootMtx;
     CocoNutBall* mCocoNutBallArray;
     FireBall* mFireBallArray;
     FireBubble* mFireBubbleArray;
     FixedPosition* mThrowPos;
     s32 mHits;
-    s32 _EC;
+    s32 mThrowNum;
     f32 mTurnSpeed;
     AudAnmSoundObject* mSoundObj;
-    TVec3f mSoundObjPos;
+    Vec3f mSoundObjPos;
     FixedPosition* mBubbleAppearPos;
     CocoNutBall* mDownCocoNut;
     ActorCameraInfo* mAnimCamera;
-    char mBckLBuffer[0x20];
-    char mBckRBuffer[0x20];
+    MR::FormattedName mBckLBuffer;
+    MR::FormattedName mBckRBuffer;
     bool mIsLv2;
     AnimScaleController* mScaleController;
 };

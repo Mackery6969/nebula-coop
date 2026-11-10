@@ -2,6 +2,7 @@
 package dev.nebula.galaxy.ui
 
 import android.Manifest
+import android.app.Activity
 import android.content.pm.PackageManager
 import android.hardware.input.InputManager
 import android.net.Uri
@@ -15,6 +16,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -46,6 +49,9 @@ import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Face
+import androidx.compose.material.icons.rounded.Upload
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.SportsEsports
 import androidx.compose.material.icons.rounded.TouchApp
@@ -53,11 +59,13 @@ import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -65,6 +73,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draganddrop.DragAndDropEvent
+import androidx.compose.ui.draganddrop.DragAndDropTarget
+import androidx.compose.ui.draganddrop.toAndroidDragEvent
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
@@ -91,10 +103,57 @@ fun NebulaApp(model: LauncherModel, onShareLog: () -> Unit) {
         if (uri != null) model.choose(uri)
     }
     val choose = { pick.launch(arrayOf("*/*")) }
-    BackHandler(enabled = model.screen in setOf(Screen.Disc, Screen.Settings, Screen.About, Screen.Licenses)) {
+    val pickMod = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        if (uri != null) model.importMod(uri)
+    }
+    val chooseMod = { pickMod.launch(arrayOf("*/*")) }
+    val exportTo = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri: Uri? ->
+        if (uri != null) model.exportSaves(uri)
+    }
+    val importFrom = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        if (uri != null) model.importSaves(uri)
+    }
+    val miisFrom = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris: List<Uri> ->
+        model.importMiis(uris)
+    }
+    val saves = SaveActions(
+        export = { exportTo.launch("Nebula saves ${java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.ROOT).format(java.util.Date())}.zip") },
+        import = { importFrom.launch(arrayOf("*/*")) },
+        miis = { miisFrom.launch(arrayOf("*/*")) },
+    )
+    BackHandler(enabled = model.screen in setOf(Screen.Disc, Screen.Settings, Screen.MotionTest, Screen.About, Screen.Licenses)) {
         model.back()
     }
-    Box(Modifier.fillMaxSize()) {
+    // Files dragged in from another app (split screen, a desktop mode, a Chromebook): each to its importer.
+    var dropHover by remember { mutableStateOf(false) }
+    val dropTarget = remember(model) {
+        object : DragAndDropTarget {
+            override fun onDrop(event: DragAndDropEvent): Boolean {
+                dropHover = false
+                val drag = event.toAndroidDragEvent()
+                // The other app's files are lent for this drop, for as long as the launcher lives.
+                (context as? Activity)?.requestDragAndDropPermissions(drag)
+                val clip = drag.clipData ?: return false
+                val uris = (0 until clip.itemCount).mapNotNull { clip.getItemAt(it).uri }
+                if (uris.isEmpty()) return false
+                model.dropped(uris)
+                return true
+            }
+
+            override fun onEntered(event: DragAndDropEvent) {
+                dropHover = true
+            }
+
+            override fun onExited(event: DragAndDropEvent) {
+                dropHover = false
+            }
+
+            override fun onEnded(event: DragAndDropEvent) {
+                dropHover = false
+            }
+        }
+    }
+    Box(Modifier.fillMaxSize().dragAndDropTarget(shouldStartDragAndDrop = { model.screen != Screen.Import }, target = dropTarget)) {
         Starfield()
         AnimatedContent(
             targetState = model.screen,
@@ -103,15 +162,54 @@ fun NebulaApp(model: LauncherModel, onShareLog: () -> Unit) {
             modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
         ) { screen ->
             when (screen) {
-                Screen.Welcome -> WelcomeScreen(onChoose = choose)
+                Screen.Welcome -> WelcomeScreen(outdated = model.outdated, onChoose = choose)
                 Screen.Disc -> DiscScreen(model, onChoose = choose)
                 Screen.Import -> ImportScreen(model, onPlay = { model.importDone(context) })
                 Screen.Home -> HomeScreen(model, onPlay = { model.launchGame(context) })
-                Screen.Settings -> SettingsScreen(model, onChoose = choose, onShareLog = onShareLog)
+                Screen.Settings -> SettingsScreen(model, onChoose = choose, onChooseMod = chooseMod, saves = saves, onShareLog = onShareLog)
+                Screen.MotionTest -> MotionTestScreen { model.back() }
                 Screen.About -> AboutScreen(model)
                 Screen.Licenses -> LicenseScreen(model)
             }
         }
+        if (dropHover) DropHint(setUp = model.screen != Screen.Welcome && model.screen != Screen.Disc)
+    }
+    model.modResult?.let { result ->
+        AlertDialog(
+            onDismissRequest = { model.modResult = null },
+            icon = {
+                if (result.ok) Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = Night.Lavender)
+                else Icon(Icons.Rounded.ErrorOutline, contentDescription = null, tint = Night.Error)
+            },
+            title = {
+                Text(
+                    result.title ?: if (result.already) "${result.name} is already in your mods"
+                    else if (result.ok) "${result.name} is ready" else "That file could not be imported",
+                )
+            },
+            text = {
+                Text(
+                    if (result.title != null) result.message
+                    else if (result.already) "Nothing was added. It is under Mods in the game's settings."
+                    else if (result.ok) "Turn it on under Mods in the game's settings." +
+                        (if (result.message.contains(", BUT ")) "\n\n${result.message}" else "")
+                    else result.message,
+                )
+            },
+            confirmButton = { TextButton(onClick = { model.modResult = null }) { Text("OK") } },
+        )
+    }
+    model.transferResult?.let { result ->
+        AlertDialog(
+            onDismissRequest = { model.transferResult = null },
+            icon = {
+                if (result.ok) Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = Night.Lavender)
+                else Icon(Icons.Rounded.ErrorOutline, contentDescription = null, tint = Night.Error)
+            },
+            title = { Text(result.title) },
+            text = { Text(result.message) },
+            confirmButton = { TextButton(onClick = { model.transferResult = null }) { Text("OK") } },
+        )
     }
     model.gameExit?.let { exit ->
         AlertDialog(
@@ -127,6 +225,24 @@ fun NebulaApp(model: LauncherModel, onShareLog: () -> Unit) {
     }
 }
 
+/** Over the launcher while a file is dragged across it: what letting go does. */
+@Composable
+private fun DropHint(setUp: Boolean) {
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)), contentAlignment = Alignment.Center) {
+        GlassCard(Modifier.widthIn(max = 420.dp).padding(24.dp)) {
+            Icon(Icons.Rounded.Download, contentDescription = null, tint = Night.Gold, modifier = Modifier.size(40.dp))
+            Gap(12.dp)
+            Text("Drop to import", style = MaterialTheme.typography.titleLarge)
+            Gap(6.dp)
+            Text(
+                if (setUp) "A disc image, saves, Mii files or mods: each goes where it belongs."
+                else "Your disc image sets the game up.",
+                style = MaterialTheme.typography.bodyMedium, color = Night.TextDim,
+            )
+        }
+    }
+}
+
 /** A single column of readable width, scrolling when the screen is short (the folded phone held sideways). */
 @Composable
 private fun Page(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
@@ -139,14 +255,18 @@ private fun Page(modifier: Modifier = Modifier, content: @Composable () -> Unit)
 }
 
 @Composable
-private fun WelcomeScreen(onChoose: () -> Unit) {
+private fun WelcomeScreen(outdated: Boolean, onChoose: () -> Unit) {
     Page {
         Gap(24.dp)
         Mark(132.dp)
         Gap(8.dp)
         Text("Nebula", style = MaterialTheme.typography.displayMedium)
         Gap(8.dp)
-        Lead("Super Mario Galaxy, running natively on this device.")
+        Lead(
+            if (outdated) "This update reads the game in a new form: set it up again from your disc image. " +
+                "Your saves, Miis and settings stay."
+            else "Super Mario Galaxy, running natively on this device.",
+        )
         Gap(32.dp)
         GlassCard(Modifier.fillMaxWidth()) {
             Step(1, "Choose your disc image", "The copy you made of your own Wii disc: ISO, RVZ, WIA, WBFS, CISO or GCZ.")
@@ -223,7 +343,7 @@ private fun DiscScreen(model: LauncherModel, onChoose: () -> Unit) {
                     Text("Storage", style = MaterialTheme.typography.titleMedium)
                     Gap(4.dp)
                     Text(
-                        "Needs ${formatBytes(Storage.GAME_BYTES)} · ${formatBytes(model.freeBytes)} free",
+                        "Needs ${formatBytes(Storage.GAME_BYTES)} · ${formatBytes(model.roomBytes)} available",
                         style = MaterialTheme.typography.bodyMedium,
                         color = if (enough) Night.TextDim else Night.Error,
                     )
@@ -419,9 +539,20 @@ private fun controllerNames(): List<String> = InputDevice.getDeviceIds().toList(
     if (pad && !device.isVirtual) device.name else null
 }.distinct()
 
+/** The file pickers: saves exported to a new .zip or imported from a file, Miis from any number of files. */
+private class SaveActions(val export: () -> Unit, val import: () -> Unit, val miis: () -> Unit)
+
 @Composable
-private fun SettingsScreen(model: LauncherModel, onChoose: () -> Unit, onShareLog: () -> Unit) {
+private fun SettingsScreen(
+    model: LauncherModel,
+    onChoose: () -> Unit,
+    onChooseMod: () -> Unit,
+    saves: SaveActions,
+    onShareLog: () -> Unit,
+) {
     var confirmRemove by remember { mutableStateOf(false) }
+    var confirmImport by remember { mutableStateOf(false) }
+    LaunchedEffect(model.saveBytes) { model.refreshMiis() }
     val controls = model.controls
     Column(Modifier.fillMaxSize()) {
         TopBar("Settings") { model.back() }
@@ -445,16 +576,57 @@ private fun SettingsScreen(model: LauncherModel, onChoose: () -> Unit, onShareLo
                     }
                 }
 
+                SectionTitle("Saves")
+                GlassCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp), padding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp)) {
+                    NavigationRow(
+                        Icons.Rounded.Upload,
+                        "Export saves",
+                        if (model.saveBusy) "Working..." else "Every save file and your Miis as one .zip, to keep or move to another device",
+                    ) { if (!model.saveBusy) saves.export() }
+                    NavigationRow(
+                        Icons.Rounded.Download,
+                        "Import saves",
+                        "A .zip from Export, a Nebula.sav, or a GameData.bin from a Wii, Dolphin or the Switch release",
+                    ) { if (!model.saveBusy) confirmImport = true }
+                }
+
+                SectionTitle("Miis")
+                GlassCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp), padding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp)) {
+                    NavigationRow(
+                        Icons.Rounded.Face,
+                        "Import Miis",
+                        when {
+                            model.miiBusy -> "Working..."
+                            else -> "From a Wii, DS, 3DS, Wii U or Switch, Mii Studio or Mii Creator, for the Mii icons" +
+                                (model.miiCount?.let { " · $it of 100 now" } ?: "")
+                        },
+                    ) { if (!model.miiBusy) saves.miis() }
+                }
+
+                SectionTitle("Controllers")
+                GlassCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp), padding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp)) {
+                    NavigationRow(
+                        Icons.Rounded.SportsEsports,
+                        "Motion test",
+                        "Each controller's gyroscope and accelerometer as the game reads them, live",
+                    ) { model.screen = Screen.MotionTest }
+                }
+
                 SectionTitle("Mods")
                 GlassCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp), padding = androidx.compose.foundation.layout.PaddingValues(vertical = 4.dp)) {
-                    val pickMod = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-                        if (uri != null) model.importMod(uri)
-                    }
+                    val progress = model.modProgress
                     NavigationRow(
                         Icons.Rounded.Add,
                         "Import a mod or texture pack",
-                        model.modMessage ?: "A .zip file. Turn it on under Mods in the game's settings",
-                    ) { pickMod.launch(arrayOf("application/zip", "application/x-zip-compressed", "*/*")) }
+                        if (progress != null) "Importing... ${(progress * 100).roundToInt()}%"
+                        else "A .luma, .zip, .7z or .rar file. Turn it on under Mods in the game's settings",
+                    ) { if (progress == null) onChooseMod() }
+                    if (progress != null) {
+                        LinearProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 14.dp),
+                        )
+                    }
                 }
 
                 SectionTitle("Help")
@@ -468,6 +640,16 @@ private fun SettingsScreen(model: LauncherModel, onChoose: () -> Unit, onShareLo
                 }
             }
         }
+    }
+    if (confirmImport) {
+        AlertDialog(
+            onDismissRequest = { confirmImport = false },
+            icon = { Icon(Icons.Rounded.Download, contentDescription = null) },
+            title = { Text("Replace your saves?") },
+            text = { Text("The saves in the file take the place of the same saves here. The saves you have now are backed up first.") },
+            confirmButton = { TextButton(onClick = { confirmImport = false; saves.import() }) { Text("Choose a file") } },
+            dismissButton = { TextButton(onClick = { confirmImport = false }) { Text("Cancel") } },
+        )
     }
     if (confirmRemove) {
         AlertDialog(

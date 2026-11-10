@@ -1,7 +1,7 @@
 #pragma once
 
 
-class JMapInfoIter;
+class TableIter;
 class LiveActor;
 class NameObj;
 
@@ -65,7 +65,7 @@ namespace MR {
     bool isUFOKinokoBeforeConstruction();
     bool isUFOKinokoUnderConstruction();
     bool isButlerMapAppear();
-    s32 setupAlreadyDoneFlag(const char*, const JMapInfoIter&, u32*);
+    s32 setupAlreadyDoneFlag(const char*, const TableIter&, u32*);
     void updateAlreadyDoneFlag(int, u32);
     bool isOnGameEventFlagGalaxyOpen(const char*);
     bool isAlreadyVisitedCurrentStageAndScenario();
@@ -100,7 +100,7 @@ namespace MR {
     u32 getRaceBestTime(int);
     u32 getRaceCurrentTime();
     void setWarpPodPathFlag(int, bool);
-    s32 registerStorageSpinDriverPathDrawRange(const NameObj*, const JMapInfoIter&, int, f32*);
+    s32 registerStorageSpinDriverPathDrawRange(const NameObj*, const TableIter&, int, f32*);
     void updateStorageSpinDriverPathDrawRange(int, f32);
     s32 getStarPieceNumGivingToTicoSeed(int);
     void addStarPieceGivingToTicoSeed(int, int);
@@ -111,15 +111,25 @@ namespace MR {
     bool isGalaxyAnyCometAppearInCurrentStage();
     void startGalaxyCometEvent();
     void endGalaxyCometEvent();
-    s32 getGalaxyCometStateIndexInCurrentStage();
     void forceToNextStateGalaxyCometScheduler();
     bool isGalaxyCometLandInStage(const char*);
     s32 getEncounterGalaxyCometPowerStarId(const char*);
     bool isGalaxyPurpleCometLaunch();
     bool canAppearNormalComet(const char*);
     bool canAppearCoin100Comet(const char*);
+    // The comet's look (icon, filter, message); Black comets look Purple.
+    enum CometNameId {
+        CometNameId_Red = 0,
+        CometNameId_Ghost = 1,
+        CometNameId_Dark = 2,
+        CometNameId_Quick = 3,
+        CometNameId_Purple = 4,
+    };
+
     int getEncounterGalaxyCometNameId(const char*);
+    // Red for an unknown or null name.
     int getCometNameIdFromString(const char*);
+    // Null outside CometNameId.
     const char* getCometNameFromId(int);
     bool isStarComplete(const char*);
     bool isStarCompleteNormalScenario(const char*);

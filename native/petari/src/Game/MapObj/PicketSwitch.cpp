@@ -12,10 +12,7 @@ namespace NrvPicketSwitch {
 PicketSwitch::PicketSwitch(const char* pName) : LiveActor(pName) {
 }
 
-PicketSwitch::~PicketSwitch() {
-}
-
-void PicketSwitch::init(const JMapInfoIter& rIter) {
+void PicketSwitch::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     MR::needStageSwitchWriteA(this, rIter);
     const char* pName;
@@ -25,7 +22,7 @@ void PicketSwitch::init(const JMapInfoIter& rIter) {
     initHitSensor(1);
     MR::addBodyMessageSensor(this, ATYPE_SWITCH);
     MR::initCollisionPartsAutoEqualScale(this, pName, getSensor(0), MR::getJointMtx(this, "Picket"));
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initSound(4, false);
     initNerve(GET_NERVE(PicketSwitch, PicketSwitchNrvWait));
     makeActorAppeared();
@@ -61,7 +58,7 @@ void PicketSwitch::exeLastDrop() {
     }
 }
 
-bool PicketSwitch::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool PicketSwitch::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* pReceiver) {
     if (MR::isMsgPlayerHipDropFloor(msg)) {
         if (pReceiver->isType(ATYPE_SWITCH)) {
             if (isNerve(GET_NERVE(PicketSwitch, PicketSwitchNrvWait))) {

@@ -1,4 +1,5 @@
 #include "Game/MapObj/SpinningBox.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util.hpp"
@@ -6,7 +7,7 @@
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/ActorShadowUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MapUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
@@ -14,48 +15,58 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
-#include <JSystem/JGeometry/TUtil.hpp>
+#include <nebula_geometry.hpp>
+#include "Game/Util/Tunable.hpp"
+
+// The numbers this file's functions give the game's motion and animation calls, as tunables: "<file>.<function>.<call>.<k>".
+NEBULA_TUNABLE_NAMED(f32, cNum_exeFall_reboundVelocityFromCollision_1, "exeFall.reboundVelocityFromCollision.1", 0.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeFall_reboundVelocityFromCollision_2, "exeFall.reboundVelocityFromCollision.2", 0.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeFall_reboundVelocityFromCollision_3, "exeFall.reboundVelocityFromCollision.3", 1.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeWait_reboundVelocityFromCollision_1, "exeWait.reboundVelocityFromCollision.1", 0.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeWait_reboundVelocityFromCollision_2, "exeWait.reboundVelocityFromCollision.2", 0.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeWait_reboundVelocityFromCollision_3, "exeWait.reboundVelocityFromCollision.3", 1.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeWait_applyVelocityDampAndGravity_1, "exeWait.applyVelocityDampAndGravity.1", 0.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeWait_applyVelocityDampAndGravity_2, "exeWait.applyVelocityDampAndGravity.2", 0.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeSliding_reboundVelocityFromCollision_1, "exeSliding.reboundVelocityFromCollision.1", 0.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeSliding_reboundVelocityFromCollision_2, "exeSliding.reboundVelocityFromCollision.2", 0.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeSliding_reboundVelocityFromCollision_3, "exeSliding.reboundVelocityFromCollision.3", 1.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeSpinning_reboundVelocityFromCollision_1, "exeSpinning.reboundVelocityFromCollision.1", 0.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeSpinning_reboundVelocityFromCollision_2, "exeSpinning.reboundVelocityFromCollision.2", 0.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeSpinning_reboundVelocityFromCollision_3, "exeSpinning.reboundVelocityFromCollision.3", 1.0f);
 
 namespace {
-    static const f32 hForceBindOffset = 65.0f;
-    static const f32 hForceBindMul = 0.5f;
-    static const f32 sShadowSize = 160.0f;
-    // static const _32 hSpinningTime = ;
-    static const f32 hGravityVel = 3.0f;
-    static const f32 hVelHMin = 10.0f;
-    static const f32 hReflectRate = 0.5f;
-    static const f32 hSpinningAttackStrongVel = 10.0f;
-    static const f32 hStopCheckVel = 0.1f;
-    static const f32 hGroundCosine = 0.4f;
-    static const s32 hWaitTime = 30;
-    // static const _32 hKickableFrontDotCheck =
-    static const f32 hPlayerIsSideDotCheck = 0.25f;
-    static const f32 hSpinningAngle = 2.0f;
-    static const f32 hDampVelHWait = 0.6f;
-    static const f32 hDampVelVWait = 0.6f;
-    static const f32 hTurnYDirRatio = 0.125f;
-    // static const _32 hHitVelocity =
-    // static const _32 hSpinningKind =
-    // static const _32 hScVelCheck =
-    static const f32 hPointedRotDamp = 0.8f;
-    // static const _32 hWalkAngle =
-    // static const _32 hWalkVelocity =
-    static const f32 hSlidingVelocitySub = 0.08f;
-    static const f32 hSlidingVelMax = 17.0f;
-    static const f32 hSlidingRotateSub = 0.01f;
-    static const f32 hSlidingRotVelMin = 0.02f;
-    static const f32 hSlidingRotVelMax = 0.02f;
-    static const s32 hKickableTime = 30;
-    static const f32 hSpinningVelocitySub = 0.01f;
-    static const f32 hSpinningVelMin = 0.0f;
-    static const f32 hSpinningVelMax = 25.0f;
-    static const f32 hSpinningRotateSub = 0.001f;
-    static const f32 hSpinningRotVelMin = 0.1f;
-    static const f32 hSpinningRotVelMax = 0.5f;
-    static const f32 hPlayerVelocityCheck = 10.0f;
-    static const f32 hIceInitBlowVelV = 100.0f;
-    static const f32 hKickCheckOffsetUp = 0.0f;
-    static const f32 hIceInitBlowVelH = 0.0f;
+    NEBULA_TUNABLE(f32, hForceBindOffset, 65.0f);
+    NEBULA_TUNABLE(f32, hForceBindMul, 0.5f);
+    NEBULA_TUNABLE(f32, sShadowSize, 160.0f);
+    NEBULA_TUNABLE(f32, hGravityVel, 3.0f);
+    NEBULA_TUNABLE(f32, hVelHMin, 10.0f);
+    NEBULA_TUNABLE(f32, hReflectRate, 0.5f);
+    NEBULA_TUNABLE(f32, hSpinningAttackStrongVel, 10.0f);
+    NEBULA_TUNABLE(f32, hStopCheckVel, 0.1f);
+    NEBULA_TUNABLE(f32, hGroundCosine, 0.4f);
+    static const s32 hWaitTime = NebulaFrameClock::stepsOfMilliseconds(500);
+    NEBULA_TUNABLE(f32, hPlayerIsSideDotCheck, 0.25f);
+    NEBULA_TUNABLE(f32, hSpinningAngle, 2.0f);
+    NEBULA_TUNABLE(f32, hDampVelHWait, 0.6f);
+    NEBULA_TUNABLE(f32, hDampVelVWait, 0.6f);
+    NEBULA_TUNABLE(f32, hTurnYDirRatio, 0.125f);
+    NEBULA_TUNABLE(f32, hPointedRotDamp, 0.8f);
+    NEBULA_TUNABLE(f32, hSlidingVelocitySub, 0.08f);
+    NEBULA_TUNABLE(f32, hSlidingVelMax, 17.0f);
+    NEBULA_TUNABLE(f32, hSlidingRotateSub, 0.01f);
+    NEBULA_TUNABLE(f32, hSlidingRotVelMin, 0.02f);
+    NEBULA_TUNABLE(f32, hSlidingRotVelMax, 0.02f);
+    static const s32 hKickableTime = NebulaFrameClock::stepsOfMilliseconds(500);
+    NEBULA_TUNABLE(f32, hSpinningVelocitySub, 0.01f);
+    NEBULA_TUNABLE(f32, hSpinningVelMin, 0.0f);
+    NEBULA_TUNABLE(f32, hSpinningVelMax, 25.0f);
+    NEBULA_TUNABLE(f32, hSpinningRotateSub, 0.001f);
+    NEBULA_TUNABLE(f32, hSpinningRotVelMin, 0.1f);
+    NEBULA_TUNABLE(f32, hSpinningRotVelMax, 0.5f);
+    NEBULA_TUNABLE(f32, hPlayerVelocityCheck, 10.0f);
+    NEBULA_TUNABLE(f32, hIceInitBlowVelV, 100.0f);
+    NEBULA_TUNABLE(f32, hKickCheckOffsetUp, 0.0f);
+    NEBULA_TUNABLE(f32, hIceInitBlowVelH, 0.0f);
 };  // namespace
 
 namespace NrvSpinningBox {
@@ -71,7 +82,7 @@ SpinningBox::SpinningBox(const char* pName)
       mIsIceBox(false), mSpinAngle(0.0f) {
 }
 
-void SpinningBox::init(const JMapInfoIter& rIter) {
+void SpinningBox::init(const TableIter& rIter) {
     if (MR::isValidInfo(rIter)) {
         MR::initDefaultPos(this, rIter);
     }
@@ -87,22 +98,22 @@ void SpinningBox::init(const JMapInfoIter& rIter) {
 
     f32 scale = getScale();
     initHitSensor(2);
-    MR::addHitSensorMapObj(this, "body", 32, scale * 160.0f, TVec3f(0.0f, -40.0f, 0.0f));
+    MR::addHitSensorMapObj(this, "body", 32, scale * 160.0f, Vec3f(0.0f, -40.0f, 0.0f));
 
     if (mIsIceBox) {
         MR::initCollisionParts(this, "IceBox", getSensor("body"), nullptr);
-        setName("\203\101\203\103\203\130\203\173\203\142\203\116\203\130" /* アイスボックス */);
+        setName("アイスボックス");
     } else {
         MR::initCollisionPartsAutoEqualScaleOne(this, "SpinningBox", getSensor("body"), nullptr);
     }
 
     initBinder(140.0f, 80.0f, 0);
     MR::setBinderExceptActor(this, this);
-    initEffectKeeper(0, "SpinningBox", false);
+    initEffectKeeper(0, "SpinningBox");
     initSound(6, false);
 
     MR::onCalcGravity(this);
-    MR::initShadowVolumeBox(this, TVec3f(::sShadowSize, -70.0f, ::sShadowSize) * scale, getBaseMtx());
+    MR::initShadowVolumeBox(this, Vec3f(::sShadowSize, -70.0f, ::sShadowSize) * scale, getBaseMtx());
     MR::excludeCalcShadowToMyCollision(this, nullptr);
 
     if (MR::isValidInfo(rIter)) {
@@ -110,7 +121,7 @@ void SpinningBox::init(const JMapInfoIter& rIter) {
     }
 
     MR::addToAttributeGroupReflectSpinningBox(this);
-    MR::initStarPointerTarget(this, 110.0f, TVec3f(0.0f, 80.0f, 0.0f));
+    MR::initStarPointerTarget(this, 110.0f, Vec3f(0.0f, 80.0f, 0.0f));
     MR::declareStarPiece(this, 3);
     if (mIsIceBox) {
         makeActorDead();
@@ -129,7 +140,7 @@ void SpinningBox::kill() {
 }
 
 void SpinningBox::control() {
-    if (MR::isInDeath(this, TVec3f(0.0f, 0.0f, 0.0f)) || MR::isInWater(mPosition)) {
+    if (MR::isInDeath(this, Vec3f(0.0f, 0.0f, 0.0f)) || MR::isInWater(mPosition)) {
         kill();
         return;
     }
@@ -139,8 +150,8 @@ void SpinningBox::control() {
         return;
     }
 
-    TVec3f slideDir = mSlideDir;
-    TVec3f norm;
+    Vec3f slideDir = mSlideDir;
+    Vec3f norm;
     if (MR::isBindedGround(this)) {
         norm.set(*MR::getGroundNormal(this));
         calcPlanarProjectedVec(&slideDir, norm, mGravity);
@@ -154,9 +165,9 @@ void SpinningBox::control() {
         mSlideDir.set(slideDir);
     }
 
-    TVec3f up;
+    Vec3f up;
     mRotate.getYDir(up);
-    TQuat4f rotY;
+    Quat4f rotY;
     rotY.setRotate(up, norm, ::hTurnYDirRatio);
     mRotate.mult(rotY);
     mRotate.getYDir(up);
@@ -174,7 +185,7 @@ void SpinningBox::exeFall() {
         MR::invalidateClipping(this);
     }
 
-    MR::reboundVelocityFromCollision(this, 0.0f, 0.0f, 1.0f);
+    MR::reboundVelocityFromCollision(this, cNum_exeFall_reboundVelocityFromCollision_1, cNum_exeFall_reboundVelocityFromCollision_2, cNum_exeFall_reboundVelocityFromCollision_3);
     MR::applyVelocityDampAndGravity(this, ::hGravityVel, ::hDampVelHWait, ::hDampVelHWait, ::hDampVelVWait, ::hVelHMin);
 
     if (MR::isOnGround(this) && MR::isGreaterStep(this, ::hWaitTime)) {
@@ -189,21 +200,21 @@ void SpinningBox::exeWait() {
         MR::validateClipping(this);
     }
 
-    if (MR::isStarPointerPointing2POnPressButton(this, "\216\343" /* 弱 */, true, false)) {
+    if (MR::isStarPointerPointing2POnPressButton(this, "弱", true, false)) {
         setNerve(GET_NERVE(SpinningBox, HostTypeNrvPointed));
         return;
     }
 
-    TVec3f originalGravity = mGravity;
+    Vec3f originalGravity = mGravity;
     if (MR::isOnGround(this)) {
         mIsOnGround = true;
         mGravity.set(-*MR::getGroundNormal(this));
     }
 
-    MR::reboundVelocityFromCollision(this, 0.0f, 0.0f, 1.0f);
+    MR::reboundVelocityFromCollision(this, cNum_exeWait_reboundVelocityFromCollision_1, cNum_exeWait_reboundVelocityFromCollision_2, cNum_exeWait_reboundVelocityFromCollision_3);
 
     if (mIsOnGround) {
-        MR::applyVelocityDampAndGravity(this, ::hGravityVel, 0.0f, 0.0f, ::hDampVelVWait, ::hVelHMin);
+        MR::applyVelocityDampAndGravity(this, ::hGravityVel, cNum_exeWait_applyVelocityDampAndGravity_1, cNum_exeWait_applyVelocityDampAndGravity_2, ::hDampVelVWait, ::hVelHMin);
     } else {
         MR::applyVelocityDampAndGravity(this, ::hGravityVel, ::hDampVelHWait, ::hDampVelHWait, ::hDampVelVWait, ::hVelHMin);
     }
@@ -220,7 +231,7 @@ void SpinningBox::exeSliding() {
         MR::invalidateClipping(this);
     }
 
-    if (MR::isStarPointerPointing2POnPressButton(this, "\216\343" /* 弱 */, true, false)) {
+    if (MR::isStarPointerPointing2POnPressButton(this, "弱", true, false)) {
         setNerve(GET_NERVE(SpinningBox, HostTypeNrvPointed));
         return;
     }
@@ -238,7 +249,7 @@ void SpinningBox::exeSliding() {
         return;
     }
 
-    MR::reboundVelocityFromCollision(this, 0.0f, 0.0f, 1.0f);
+    MR::reboundVelocityFromCollision(this, cNum_exeSliding_reboundVelocityFromCollision_1, cNum_exeSliding_reboundVelocityFromCollision_2, cNum_exeSliding_reboundVelocityFromCollision_3);
 
     MR::vecKillElement(mVelocity, mSlideDir, &mVelocity);
     mVelocity = mSlideDir * mSlideSpeed;
@@ -247,7 +258,7 @@ void SpinningBox::exeSliding() {
         MR::forceBindOnGround(this, ::hForceBindOffset, ::hForceBindMul);
     }
 
-    TVec3f norm;
+    Vec3f norm;
     if (MR::isBindedWallOrSlopeGround(this, ::hGroundCosine, &norm)) {
         MR::startSound(this, "SE_OJ_SPIN_BOX_BOUND");
         MR::calcReflectionVector(&mSlideDir, norm, 1.0f, 0.0f);
@@ -267,7 +278,7 @@ void SpinningBox::exeSpinning() {
         MR::invalidateClipping(this);
     }
 
-    if (MR::isStarPointerPointing2POnPressButton(this, "\216\343" /* 弱 */, true, false)) {
+    if (MR::isStarPointerPointing2POnPressButton(this, "弱", true, false)) {
         setNerve(GET_NERVE(SpinningBox, HostTypeNrvPointed));
         return;
     }
@@ -299,7 +310,7 @@ void SpinningBox::exeSpinning() {
         return;
     }
 
-    MR::reboundVelocityFromCollision(this, 0.0f, 0.0f, 1.0f);
+    MR::reboundVelocityFromCollision(this, cNum_exeSpinning_reboundVelocityFromCollision_1, cNum_exeSpinning_reboundVelocityFromCollision_2, cNum_exeSpinning_reboundVelocityFromCollision_3);
 
     MR::vecKillElement(mVelocity, mSlideDir, &mVelocity);
     mVelocity = mSlideDir * mSlideSpeed;
@@ -320,15 +331,15 @@ void SpinningBox::endSpinning() {
 void SpinningBox::exePointed() {
     if (MR::isFirstStep(this)) {
         mVelocity.zero();
-        MR::startDPDHitSound();
+        MR::startPointerHitSound();
         MR::emitEffect(this, "Touch");
         MR::invalidateClipping(this);
     }
 
     mRotateSpeed *= ::hPointedRotDamp;
-    MR::startDPDFreezeLevelSound(this);
+    MR::startPointerFreezeLevelSound(this);
 
-    if (!MR::isStarPointerPointing2POnPressButton(this, "\216\343" /* 弱 */, true, false)) {
+    if (!MR::isStarPointerPointing2POnPressButton(this, "弱", true, false)) {
         setNerve(GET_NERVE(SpinningBox, HostTypeNrvWait));
     }
 }
@@ -337,12 +348,19 @@ void SpinningBox::endPointed() {
     MR::deleteEffect(this, "Touch");
 }
 
-void SpinningBox::calcPlanarProjectedVec(TVec3f* pProj, const TVec3f& rNorm, const TVec3f& rGrav) {
-    pProj->add(rGrav * (-rNorm.dot(*pProj) / rNorm.dot(rGrav)));
+void SpinningBox::calcPlanarProjectedVec(Vec3f* pProj, const Vec3f& rNorm, const Vec3f& rGrav) {
+    // No gravity (or none along the ground) leaves the direction as it is.
+    const f32 along = rNorm.dot(rGrav);
+
+    if (MR::isNearZero(along, 0.0001f)) {
+        return;
+    }
+
+    pProj->add(rGrav * (-rNorm.dot(*pProj) / along));
 }
 
-void SpinningBox::calcHitDirection(const TVec3f& rPos) {
-    TVec3f hitDir = mPosition - rPos;
+void SpinningBox::calcHitDirection(const Vec3f& rPos) {
+    Vec3f hitDir = mPosition - rPos;
     MR::vecKillElement(hitDir, mGravity, &hitDir);
     MR::normalizeOrZero(&hitDir);
 
@@ -350,7 +368,7 @@ void SpinningBox::calcHitDirection(const TVec3f& rPos) {
         return;
     }
 
-    TVec3f velDir = mVelocity;
+    Vec3f velDir = mVelocity;
     MR::normalizeOrZero(&velDir);
     velDir.add(hitDir);
     MR::normalizeOrZero(&velDir);
@@ -364,15 +382,15 @@ void SpinningBox::calcHitDirection(const TVec3f& rPos) {
 void SpinningBox::generateIceBox(HitSensor* pSender, HitSensor* pReceiver) {
     appear();
     mPosition.set(pReceiver->mHost->mPosition);
-    TPos3f mtx = pReceiver->mHost->getBaseMtx();
-    TVec3f up, front;
+    Pos3f mtx = pReceiver->mHost->getBaseMtx();
+    Vec3f up, front;
     mtx.getYDir(up);
     mtx.getZDir(front);
 
     MR::makeQuatFromVec(&mRotate, front, up);
 
-    TVec3f grav = pReceiver->mHost->mGravity;
-    TVec3f dir = pReceiver->mPosition - pSender->mPosition;
+    Vec3f grav = pReceiver->mHost->mGravity;
+    Vec3f dir = pReceiver->mPosition - pSender->mPosition;
     MR::vecKillElement(dir, grav, &dir);
     dir.setLength(::hIceInitBlowVelH);
     dir.add((-grav) * (::hIceInitBlowVelV));
@@ -430,7 +448,7 @@ void SpinningBox::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     }
 }
 
-bool SpinningBox::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool SpinningBox::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* pReceiver) {
     if (MR::isMsgInhaleBlackHole(msg)) {
         kill();
         return true;
@@ -464,7 +482,7 @@ bool SpinningBox::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pRecei
     return false;
 }
 
-bool SpinningBox::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool SpinningBox::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* pReceiver) {
     if (MR::isSensorEnemyAttack(pReceiver)) {
         return false;
     }
@@ -493,10 +511,10 @@ bool SpinningBox::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor*
     return false;
 }
 
-bool SpinningBox::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool SpinningBox::receiveMsgEnemyAttack(u32 /*msg*/, HitSensor* pSender, HitSensor* pReceiver) {
     if (MR::isExistInAttributeGroupReflectSpinningBox(pSender->mHost)) {
         if (!isNerve(GET_NERVE(SpinningBox, HostTypeNrvSpinning)) && !isNerve(GET_NERVE(SpinningBox, HostTypeNrvSliding))) {
-            TVec3f dir = mPosition - pSender->mPosition;
+            Vec3f dir = mPosition - pSender->mPosition;
             MR::normalizeOrZero(&dir);
             MR::vecKillElement(pSender->mHost->mVelocity, dir, &dir);
             MR::separateScalarAndDirection(&mSlideSpeed, &mSlideDir, dir);
@@ -512,7 +530,7 @@ bool SpinningBox::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* 
 }
 
 void SpinningBox::hitReflection(HitSensor* pSender, HitSensor* pReceiver) {
-    TVec3f dir = pReceiver->mPosition - pSender->mPosition;
+    Vec3f dir = pReceiver->mPosition - pSender->mPosition;
     MR::normalizeOrZero(&dir);
     if (MR::isNearZero(dir)) {
         return;
@@ -524,7 +542,7 @@ void SpinningBox::hitReflection(HitSensor* pSender, HitSensor* pReceiver) {
 }
 
 void SpinningBox::calcAndSetBaseMtx() {
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.makeQuat(mRotate);
     mtx.setTrans(mPosition);
     MR::setBaseTRMtx(this, mtx);

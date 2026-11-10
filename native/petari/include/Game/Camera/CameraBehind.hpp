@@ -4,16 +4,15 @@
 
 class CameraBehind : public Camera {
 public:
-    CameraBehind(const char* pName = "\214\343\225\373\203\112\203\201\203\211" /* 後方カメラ */);
-    virtual ~CameraBehind();
+    CameraBehind(const char* pName = "後方カメラ");
 
-    virtual void reset();
-    virtual CameraTargetObj* calc();
-    virtual CamTranslatorBase* createTranslator();
+    virtual void reset() override;
+    virtual CameraTargetObj* calc() override;
+    virtual void setParamFromChunk(const CameraParamChunk*) override;
 
     void calcPosAndUp(f32 accel);
 
-    void setParam(const TVec2f& angle, f32 dist, f32 rate) {
+    void setParam(const Vec2f& angle, f32 dist, f32 rate) {
         mAngleX = angle.x;
         mAngleY = angle.y;
         mDist = dist;

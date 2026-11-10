@@ -12,13 +12,14 @@
 #include "Game/Util/EffectUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const char* cDemoCameraName = "\217\325\214\202\224\147\203\112\203\201\203\211" /* 衝撃波カメラ */;
-    static const s32 sStepForGenerate = 50;
-    static const s32 sStepForDemoEcho = 1;
-    static const f32 sHitCylinderRadius = 400.0f;
-    static const f32 sEnableCameraStartDistance = 2000.0f;
+    static const char* cDemoCameraName = "衝撃波カメラ";
+    NEBULA_TUNABLE(s32, sStepForGenerate, 50);
+    NEBULA_TUNABLE(s32, sStepForDemoEcho, 1);
+    NEBULA_TUNABLE(f32, sHitCylinderRadius, 400.0f);
+    NEBULA_TUNABLE(f32, sEnableCameraStartDistance, 2000.0f);
 };  // namespace
 
 namespace NrvShockWaveGenerator {
@@ -30,21 +31,21 @@ namespace NrvShockWaveGenerator {
 ShockWaveGenerator::ShockWaveGenerator(const char* pName) : LiveActor(pName), mCameraInfo() {
 }
 
-void ShockWaveGenerator::init(const JMapInfoIter& rIter) {
+void ShockWaveGenerator::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("ShockWaveGenerator", nullptr, false);
     MR::connectToSceneIndirectMapObj(this);
     initHitSensor(3);
     MR::addBodyMessageSensorMapObj(this);
-    MR::addHitSensorMapObjSimple(this, "spin", 8, ::sHitCylinderRadius, TVec3f(0.0f, 200.0f, 0.0f));
-    MR::addHitSensorEnemyAttack(this, "shock", 16, 1000.0f, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorMapObjSimple(this, "spin", 8, ::sHitCylinderRadius, Vec3f(0.0f, 200.0f, 0.0f));
+    MR::addHitSensorEnemyAttack(this, "shock", 16, 1000.0f, Vec3f(0.0f, 0.0f, 0.0f));
     MR::initCollisionParts(this, "ShockWaveGenerator", getSensor("body"), nullptr);
 
     if (!MR::initActorCamera(this, rIter, &mCameraInfo)) {
         mCameraInfo = nullptr;
     }
 
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initSound(2, false);
 
     MR::setClippingTypeSphereContainsModelBoundingBox(this, 100.0f);
@@ -59,7 +60,7 @@ void ShockWaveGenerator::exeWait() {
         MR::startBtk(this, "SpinHit");
         MR::setBrkFrameAndStop(this, 0.0f);
         MR::setBtkFrameAndStop(this, 0.0f);
-        if (NebulaRegion::isPal()) {
+        if (NebulaRegion::isEurope()) {
             MR::validateClipping(this);
         }
     }
@@ -127,14 +128,14 @@ bool ShockWaveGenerator::isPlayerInCameraStartRange() const {
 }
 
 void ShockWaveGenerator::startShockWave() {
-    if (NebulaRegion::isPal()) {
+    if (NebulaRegion::isEurope()) {
         MR::invalidateClipping(this);
     }
 
     MR::startSound(this, "SE_OJ_SHOCK_WAVE_GENERATE");
     if (mCameraInfo != nullptr) {
         if (isPlayerInCameraStartRange()) {
-            if (!NebulaRegion::isPal()) {
+            if (!NebulaRegion::isEurope()) {
                 MR::requestStartDemoWithoutCinemaFrame(this, ::cDemoCameraName, GET_NERVE(ShockWaveGenerator, ShockWaveGeneratorNrvDemoEcho), nullptr);
             } else if (MR::tryStartDemoWithoutCinemaFrame(this, ::cDemoCameraName)) {
                 setNerve(GET_NERVE(ShockWaveGenerator, ShockWaveGeneratorNrvDemoEcho));
@@ -161,10 +162,10 @@ void ShockWaveGenerator::sendMsgShockWaveToNearEnemy() {
 }
 
 bool ShockWaveGenerator::isHitCylinder(HitSensor* pSender, HitSensor* pReceiver) const {
-    TVec3f diff;
+    Vec3f diff;
     diff.sub(pSender->mPosition, pReceiver->mPosition);
-    TVec3f up;
+    Vec3f up;
     MR::calcUpVec(&up, this);
-    TVec3f horiz = diff.killElement(up);
+    Vec3f horiz = diff.killElement(up);
     return horiz.length() <= pSender->getRadius() + 140.0f;
 }

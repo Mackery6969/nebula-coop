@@ -10,14 +10,14 @@ public:
         CameraType_PlayerUp,
     };
 
-    CameraFixedPoint(const char* pName = "\222\350\223\137\203\112\203\201\203\211" /* 定点カメラ */);
+    CameraFixedPoint(const char* pName = "定点カメラ");
 
-    virtual void reset();
-    virtual CameraTargetObj* calc();
-    virtual CamTranslatorBase* createTranslator();
+    virtual void reset() override;
+    virtual CameraTargetObj* calc() override;
+    virtual void setParamFromChunk(const CameraParamChunk*) override;
 
-    void setParam(const TVec3f&, u32);
+    void setParam(const Vec3f&, u32);
 
-    TVec3f mPos;
+    Vec3f mPos;
     u32 mCameraType;
 };

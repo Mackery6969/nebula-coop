@@ -6,17 +6,17 @@
 #include "Game/Util/MathUtil.hpp"
 
 void Mario::checkBump() {
-    if (!mMovementStates.jumping && !mMovementStates._A && mMovementStates._1) {
+    if (!mMovementStates.jumping && !mMovementStates.squat && mMovementStates.onGround) {
         if (!isStatusActive(MarioStatus_Hang) && !isStatusActive(MarioStatus_Wall) && !isStatusActive(MarioStatus_Swim) &&
             !isStatusActive(MarioStatus_Climb)) {
             if (!isDamaging() && getPlayerMode() != 5 && !isSwimming()) {
                 if (isStickOn()) {
-                    if (!_750 && (mMovementStates._23 == 0)) {
-                        if (_4DC->isValid()) {
-                            const char* floor = MR::getFloorCodeString(_4DC);
+                    if (!mCorrectionEaseTimer && (mMovementStates.slopeSlide == 0)) {
+                        if (mBumpPolygon->isValid()) {
+                            const s32 floor = MR::getFloorCodeIndex(mBumpPolygon);
 
-                            if (!isSlipPolygon(_4DC) || !strcmp(floor, "NoSlip") || !strcmp(floor, "Sand")) {
-                                startBump(_518);
+                            if (!isSlipPolygon(mBumpPolygon) || floor == CollisionFloorCode_NoSlip || floor == CollisionFloorCode_Sand) {
+                                startBump(mBumpHitPos);
                             }
                         }
                     }
@@ -26,18 +26,18 @@ void Mario::checkBump() {
     }
 }
 
-void Mario::startBump(const TVec3f& rVec) {
+void Mario::startBump(const Vec3f& rVec) {
     if ((getTrans() - rVec).length() >= 100.0f) {
         return;
     }
 
-    TVec3f v21;
-    const TVec3f* grav = &getAirGravityVec();
-    const TVec3f* norm = _4DC->getNormal(0);
+    Vec3f v21;
+    const Vec3f* grav = &getAirGravityVec();
+    const Vec3f* norm = mBumpPolygon->getNormal(0);
     MR::vecKillElement(*norm, *grav, &v21);
 
     if (!MR::normalizeOrZero(&v21) && MR::diffAngleAbsHorizontal(mFrontVec, -v21, getAirGravityVec()) > 0.52359879f) {
-        TVec3f v20;
+        Vec3f v20;
         if (MR::vecKillElement(getTrans() - rVec, getAirGravityVec(), &v20) > 0.0f) {
             return;
         }
@@ -47,45 +47,43 @@ void Mario::startBump(const TVec3f& rVec) {
         closeStatus(mBump);
     }
 
-    setTrans(rVec, "\222\151\215\267" /* 段差 */);
+    setTrans(rVec);
     changeStatus(mBump);
     mVelocity.zero();
-    _3D0 = 0;
-    mMovementStates._10 = 0;
-    _790 = -(*_4DC->getNormal(0));
-    TVec3f v19;
-    MR::vecKillElement(-(*_4DC->getNormal(0)), mSideVec, &v19);
+    mTurnSlipTimer = 0;
+    mMovementStates.turnStickNeutral = 0;
+    mBumpGravityVec = -(*mBumpPolygon->getNormal(0));
+    Vec3f v19;
+    MR::vecKillElement(-(*mBumpPolygon->getNormal(0)), mSideVec, &v19);
 
     if (!MR::normalizeOrZero(&v19)) {
-        _790 = v19;
+        mBumpGravityVec = v19;
     }
 }
 
 MarioBump::MarioBump(MarioActor* pActor) : MarioState(pActor, MarioStatus_Bump) {
-    _12 = 0;
-    _14 = 0.0f;
-    _18.zero();
+    mBlendTimer = 0;
+    mStartSpeed = 0.0f;
 }
 
 bool MarioBump::start() {
-    _14 = getPlayer()->mWalkSpeed;
+    mStartSpeed = getPlayer()->mWalkSpeed;
 
-    MR::clamp(_14, 0.0f, 1.0f);
+    MR::clamp(mStartSpeed, 0.0f, 1.0f);
 
-    s32 blendTimer = 0x14 - static_cast< s32 >(16.0f * _14);
+    s32 blendTimer = 0x14 - static_cast< s32 >(16.0f * mStartSpeed);
 
     if (blendTimer < 4) {
         blendTimer = 4;
     }
 
     mActor->setBlendMtxTimer(static_cast< u16 >(blendTimer));
-    _12 = static_cast< u16 >(blendTimer);
+    mBlendTimer = static_cast< u16 >(blendTimer);
 
     if (isAnimationRun(nullptr)) {
         stopAnimation(nullptr);
     }
 
-    _18 = getFrontVec();
     return true;
 }
 
@@ -104,12 +102,12 @@ bool MarioBump::update() {
         getPlayer()->mWalkSpeed = val;
         getPlayer()->updateWalkSpeed();
 
-        if (_12) {
-            --_12;
+        if (mBlendTimer) {
+            --mBlendTimer;
         }
     }
 
-    if (_12 == 0) {
+    if (mBlendTimer == 0) {
         return false;
     }
 

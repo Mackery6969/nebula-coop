@@ -4,6 +4,7 @@
 #include "../../tools/test_driver/switches.h"
 #include "galaxy/atomic_file.h"
 #include "galaxy/input_bindings.h"
+#include "galaxy/launch_args.h"
 #include "galaxy/platform_paths.h"
 #include "galaxy/game_instance.h"
 #include "galaxy/c_locale_number.h"
@@ -33,9 +34,7 @@
 #include <vector>
 
 #if defined(_WIN32)
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <Windows.h>
+#include "galaxy/windows_api.h"
 #pragma comment(lib, "Shell32.lib")
 #endif
 
@@ -131,6 +130,7 @@ RuntimeSettings sanitize_settings(RuntimeSettings settings) {
     case RuntimeInputMode::Controller:
     case RuntimeInputMode::RealWiimote:
     case RuntimeInputMode::Phone:
+    case RuntimeInputMode::WiimoteMotion:
         break;
     default:
         settings.input_mode = RuntimeInputMode::KeyboardMouse;
@@ -227,6 +227,9 @@ RuntimeInputMode parse_input_mode(
         text == "real_wiimote" || text == "real-wiimote") {
         return RuntimeInputMode::RealWiimote;
     }
+    if (text == "wiimote_motion" || text == "wiimote-motion") {
+        return RuntimeInputMode::WiimoteMotion;
+    }
     return fallback;
 }
 
@@ -264,6 +267,12 @@ void apply_kv(RuntimeSettings& settings, const char* key, const char* value) {
         }
     } else if (std::strcmp(key, "discord_status") == 0) {
         settings.discord_status = value[0] != '0';
+    } else if (std::strcmp(key, "focus_loss") == 0) {
+        for (unsigned i = 0; i <= static_cast<unsigned>(FocusLoss::Mute); ++i) {
+            if (::galaxy::text_iequal(value, focus_loss_key(static_cast<FocusLoss>(i)))) {
+                settings.focus_loss = static_cast<FocusLoss>(i);
+            }
+        }
     } else if (std::strcmp(key, "menu_text_size") == 0) {
         settings.menu_text_size = static_cast<unsigned>(std::strtoul(value, nullptr, 10));
     } else if (std::strcmp(key, "audio_sound_output") == 0) {
@@ -278,6 +287,8 @@ void apply_kv(RuntimeSettings& settings, const char* key, const char* value) {
                 settings.button_icons = static_cast<ButtonIcons>(i);
             }
         }
+        // Files of earlier builds name the game's own icons "wii"; the next save writes "game".
+        if (::galaxy::text_iequal(value, "wii")) settings.button_icons = ButtonIcons::Game;
     } else if (std::strcmp(key, "language") == 0) {
         if (::galaxy::text_iequal(value, game_language_key(GameLanguage::Auto))) settings.language = GameLanguage::Auto;
         for (const GameLanguage language : kGameLanguages) {
@@ -342,32 +353,11 @@ void apply_kv(RuntimeSettings& settings, const char* key, const char* value) {
 }
 
 std::filesystem::path settings_path() {
-#if defined(_WIN32)
-    if (const wchar_t* override_value = ::galaxy::run_options().runtime_settings_path_w; override_value != nullptr && override_value[0] != L'\0') {
-        const std::filesystem::path path(override_value);
-        if (path.native().size() >= MAX_PATH) {
-            throw std::runtime_error("the settings path exceeds the supported path length");
-        }
-        if (path.filename().empty()) {
-            throw std::runtime_error("the settings path must name a settings file");
-        }
-        return path;
-    }
-
-#else
-    if (const char* override_value = ::galaxy::run_options().runtime_settings_path;
-        override_value != nullptr && override_value[0] != '\0') {
-        const std::filesystem::path path(override_value);
-        if (path.filename().empty()) {
-            throw std::runtime_error("the settings path must name a settings file");
-        }
-        return path;
-    }
-#endif
-    if (const std::filesystem::path& instance = game_instance_folder(); !instance.empty()) {
+    const std::filesystem::path& named = launch_args().settings;
+    if (const std::filesystem::path& instance = game_instance_folder(); named.empty() && !instance.empty()) {
         return instance / "runtime_settings.ini";  // a second game's own (galaxy/game_instance.h)
     }
-    const std::filesystem::path folder = nebula_data_directory();
+    const std::filesystem::path folder = named.empty() ? nebula_data_directory() : named;
     return folder.empty() ? folder : folder / "runtime_settings.ini";
 }
 
@@ -381,6 +371,23 @@ void migrate_settings_file(input::ControlsConfig& controls, unsigned version) {
     std::fprintf(stderr, "[settings] controls version %u -> %u: %u defaults updated\n", version, input::kControlsVersion, changed);
 }
 
+// A settings file the game cannot read (an overlong line, a NUL byte) is renamed to "<name>.unreadable", replacing an
+// older one, so the start goes on with defaults and the player's file stays on disk.
+void set_aside_unreadable_settings(const std::filesystem::path& path) {
+    std::filesystem::path aside = path;
+    aside += ".unreadable";
+    std::error_code error;
+    std::filesystem::remove(aside, error);
+    error.clear();
+    std::filesystem::rename(path, aside, error);
+    if (error) {
+        std::fprintf(stderr, "[settings] the settings file is unreadable and could not be set aside (%s); using defaults\n",
+                     error.message().c_str());
+    } else {
+        std::fprintf(stderr, "[settings] the settings file has an overlong line or a NUL byte; kept as .unreadable, using defaults\n");
+    }
+}
+
 void parse_settings_file(RuntimeSettings& settings, input::ControlsConfig& controls) {
     const std::filesystem::path path = settings_path();
     if (path.empty()) {
@@ -390,7 +397,7 @@ void parse_settings_file(RuntimeSettings& settings, input::ControlsConfig& contr
 
     FILE* file = open_path(path, "rb");
     const int open_error = file != nullptr ? 0 : errno;
-    const std::unique_ptr<FILE, decltype(&std::fclose)> owned_file(file, &std::fclose);
+    std::unique_ptr<FILE, decltype(&std::fclose)> owned_file(file, &std::fclose);
     if (open_error != 0 || file == nullptr) {
         if (open_error == ENOENT) {
             return;
@@ -400,14 +407,19 @@ void parse_settings_file(RuntimeSettings& settings, input::ControlsConfig& contr
 
     std::string line;
     bool first_line = true;
+    bool unreadable = false;
     for (;;) {
         line.clear();
         int character = 0;
         while ((character = std::fgetc(file)) != EOF && character != '\n') {
             if (character == 0 || line.size() >= 4096u) {
-                throw std::runtime_error("invalid or overlong runtime settings line");
+                unreadable = true;
+                break;
             }
             line.push_back(static_cast<char>(character));
+        }
+        if (unreadable) {
+            break;
         }
         if (std::ferror(file) != 0) {
             throw std::runtime_error("cannot read runtime settings file");
@@ -436,6 +448,13 @@ void parse_settings_file(RuntimeSettings& settings, input::ControlsConfig& contr
             apply_kv(settings, key_text.c_str(), value_text.c_str());
         }
     }
+    if (unreadable) {
+        owned_file.reset();
+        set_aside_unreadable_settings(path);
+        settings = RuntimeSettings{};
+        controls = input::default_controls_config();
+        return;
+    }
 #if defined(__ANDROID__)
     if (controls_version < input::kControlsVersion && settings.input_mode == RuntimeInputMode::KeyboardMouse) {
         settings.input_mode = RuntimeInputMode::Auto;
@@ -444,7 +463,7 @@ void parse_settings_file(RuntimeSettings& settings, input::ControlsConfig& contr
     migrate_settings_file(controls, controls_version);
 }
 
-#if defined(NEBULA_RELEASE)
+#if !defined(NEBULA_DEV)
 void apply_env_overrides(RuntimeSettings&) {}
 #else
 #include "../../tools/test_driver/runtime_settings_env.inc"
@@ -468,13 +487,13 @@ RuntimeSettings get_runtime_settings() {
 }
 
 namespace {
-// kNotAsked until the game first asks for its language, then that language's SC code.
+// kNotAsked until the game first asks for its language, then that language's number.
 constexpr std::uint8_t kNotAsked = 0xFFu;
 std::atomic<std::uint8_t> s_running_language{kNotAsked};
-// A bit for each GameLanguage on the disc (bit `value`); all until set_disc_languages.
-std::atomic<std::uint32_t> s_disc_languages{~0u};
+// A bit for each GameLanguage the game's data holds (bit `value`); all until set_game_languages.
+std::atomic<std::uint32_t> s_game_languages{~0u};
 
-// The language a disc's folder holds, whatever its release ("UsEnglish", "EuEnglish": English); Auto for none.
+// The language a language folder holds, whatever its release ("UsEnglish", "EuEnglish": English); Auto for none.
 GameLanguage folder_language(std::string_view folder) noexcept {
     static constexpr std::pair<std::string_view, GameLanguage> kNames[] = {
         {"Japanese", GameLanguage::Japanese}, {"English", GameLanguage::English}, {"German", GameLanguage::German},
@@ -521,29 +540,29 @@ GameLanguage system_language() noexcept {
 }
 }  // namespace
 
-void set_disc_languages(std::span<const std::string> folders) noexcept {
+void set_game_languages(std::span<const std::string> folders) noexcept {
     std::uint32_t bits = 0u;
     for (const std::string& folder : folders) {
         if (const GameLanguage language = folder_language(folder); language != GameLanguage::Auto) {
             bits |= 1u << static_cast<unsigned>(language);
         }
     }
-    // A disc without language folders the game knows (not one it plays): English, as the game's own fallback.
-    s_disc_languages.store(bits != 0u ? bits : 1u << static_cast<unsigned>(GameLanguage::English),
+    // No language folder the game knows (not one it plays): English, as the game's own fallback.
+    s_game_languages.store(bits != 0u ? bits : 1u << static_cast<unsigned>(GameLanguage::English),
                            std::memory_order_release);
 }
 
-bool game_language_on_disc(GameLanguage language) noexcept {
+bool game_language_available(GameLanguage language) noexcept {
     return language != GameLanguage::Auto &&
-           (s_disc_languages.load(std::memory_order_acquire) >> static_cast<unsigned>(language) & 1u) != 0u;
+           (s_game_languages.load(std::memory_order_acquire) >> static_cast<unsigned>(language) & 1u) != 0u;
 }
 
 GameLanguage game_language_resolved(GameLanguage setting) noexcept {
-    if (game_language_on_disc(setting)) return setting;
-    if (const GameLanguage system = system_language(); game_language_on_disc(system)) return system;
-    if (game_language_on_disc(GameLanguage::English)) return GameLanguage::English;
+    if (game_language_available(setting)) return setting;
+    if (const GameLanguage system = system_language(); game_language_available(system)) return system;
+    if (game_language_available(GameLanguage::English)) return GameLanguage::English;
     for (const GameLanguage language : kGameLanguages) {
-        if (game_language_on_disc(language)) return language;
+        if (game_language_available(language)) return language;
     }
     return GameLanguage::English;
 }
@@ -578,8 +597,25 @@ const char* sound_output_key(SoundOutput output) noexcept {
 }
 
 const char* button_icons_key(ButtonIcons icons) noexcept {
-    static constexpr const char* kKeys[] = {"auto", "wii", "xbox", "nintendo", "playstation", "keyboard"};
+    static constexpr const char* kKeys[] = {"auto", "game", "xbox", "nintendo", "playstation", "keyboard"};
     return kKeys[std::min<std::size_t>(static_cast<std::size_t>(icons), std::size(kKeys) - 1u)];
+}
+
+const char* focus_loss_key(FocusLoss focus_loss) noexcept {
+    static constexpr const char* kKeys[] = {"keep", "pause", "mute"};
+    return kKeys[std::min<std::size_t>(static_cast<std::size_t>(focus_loss), std::size(kKeys) - 1u)];
+}
+
+namespace {
+std::atomic<bool> s_background_muted{false};
+}  // namespace
+
+void set_background_muted(bool muted) noexcept {
+    s_background_muted.store(muted, std::memory_order_relaxed);
+}
+
+bool background_muted() noexcept {
+    return s_background_muted.load(std::memory_order_relaxed);
 }
 
 const char* game_language_key(GameLanguage language) noexcept {
@@ -681,7 +717,9 @@ bool save_runtime_settings_to_file() {
                  << "language=" << game_language_key(settings.language) << '\n'
                  << "discord_status=" << (settings.discord_status ? 1 : 0) << '\n'
                  << "button_icons=" << button_icons_key(settings.button_icons) << '\n'
-                 << "menu_text_size=" << settings.menu_text_size << '\n';
+                 << "menu_text_size=" << settings.menu_text_size << '\n'
+                 << "focus_loss=" << focus_loss_key(settings.focus_loss) << '\n'
+                 << "co_star=" << (settings.co_star ? 1 : 0) << '\n';
         // Co-op isn't playable yet: its keys appear once someone sets them.
         const RuntimeCoopSettings defaults{};
         if (settings.coop.port != defaults.port) contents << "coop_port=" << settings.coop.port << '\n';
@@ -803,6 +841,8 @@ const char* runtime_input_mode_name(RuntimeInputMode mode) {
         return "controller";
     case RuntimeInputMode::RealWiimote:
         return "real_wiimote";
+    case RuntimeInputMode::WiimoteMotion:
+        return "wiimote_motion";
     case RuntimeInputMode::Phone:
         return "phone";
     case RuntimeInputMode::Auto:

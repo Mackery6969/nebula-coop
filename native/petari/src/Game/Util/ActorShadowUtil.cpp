@@ -18,7 +18,7 @@
 namespace MR {
     void initShadowFromCSV(LiveActor* pActor, const char* pName) {
         ResourceHolder* pResourceHolder = getResourceHolder(pActor);
-        JMapInfo* pInfo = tryCreateCsvParser(pResourceHolder, "%s.bcsv", pName);
+        Table* pInfo = tryCreateCsvParser(pResourceHolder, "%s.bcsv", pName);
 
         if (pInfo == nullptr) {
             pActor->initShadowControllerList(1);
@@ -27,40 +27,40 @@ namespace MR {
 
         pActor->initShadowControllerList(pInfo->getNumEntries());
 
-        for (JMapInfoIter iter = pInfo->begin(); iter.isValid(); iter.mIndex++) {
+        for (TableIter iter = pInfo->begin(); iter.isValid(); iter.mIndex++) {
             ActorShadow::addShadowFromCSV(pActor, iter);
         }
     }
 
     void initShadowSurfaceCircle(LiveActor* pActor, f32 radius) {
         pActor->initShadowControllerList(1);
-        addShadowSurfaceCircle(pActor, "\220\205\226\312\212\333\211\145" /* 水面丸影 */, radius);
+        addShadowSurfaceCircle(pActor, "水面丸影", radius);
     }
 
     void initShadowVolumeSphere(LiveActor* pActor, f32 radius) {
         pActor->initShadowControllerList(1);
-        addShadowVolumeSphere(pActor, "\203\173\203\212\203\205\201\133\203\200\211\145(\213\205)" /* ボリューム影(球) */, radius);
+        addShadowVolumeSphere(pActor, "ボリューム影(球)", radius);
     }
 
-    void initShadowVolumeOval(LiveActor* pActor, const TVec3f& rSize) {
+    void initShadowVolumeOval(LiveActor* pActor, const Vec3f& rSize) {
         pActor->initShadowControllerList(1);
-        const char* pName = "\203\173\203\212\203\205\201\133\203\200\211\145(\221\310\213\205)" /* ボリューム影(楕球) */;
+        const char* pName = "ボリューム影(楕球)";
         addShadowVolumeOval(pActor, pName, rSize, pActor->getBaseMtx());
     }
 
     void initShadowVolumeCylinder(LiveActor* pActor, f32 radius) {
         pActor->initShadowControllerList(1);
-        addShadowVolumeCylinder(pActor, "\203\173\203\212\203\205\201\133\203\200\211\145(\211\176\222\214)" /* ボリューム影(円柱) */, radius);
+        addShadowVolumeCylinder(pActor, "ボリューム影(円柱)", radius);
     }
 
-    void initShadowVolumeBox(LiveActor* pActor, const TVec3f& rSize) {
+    void initShadowVolumeBox(LiveActor* pActor, const Vec3f& rSize) {
         pActor->initShadowControllerList(1);
-        addShadowVolumeBox(pActor, "\203\173\203\212\203\205\201\133\203\200\211\145(\203\173\203\142\203\116\203\130)" /* ボリューム影(ボックス) */, rSize);
+        addShadowVolumeBox(pActor, "ボリューム影(ボックス)", rSize);
     }
 
     void initShadowVolumeFlatModel(LiveActor* pActor, const char* pModelName) {
         pActor->initShadowControllerList(1);
-        addShadowVolumeFlatModel(pActor, "\203\173\203\212\203\205\201\133\203\200\211\145(\224\302\203\202\203\146\203\213)" /* ボリューム影(板モデル) */, pModelName);
+        addShadowVolumeFlatModel(pActor, "ボリューム影(板モデル)", pModelName);
     }
 
     void initShadowController(LiveActor* pActor, u32 numShadows) {
@@ -81,11 +81,11 @@ namespace MR {
         pSphere->setRadius(radius);
     }
 
-    void addShadowVolumeOval(LiveActor* pActor, const char* pName, const TVec3f& rSize, MtxPtr pMtx) {
+    void addShadowVolumeOval(LiveActor* pActor, const char* pName, const Vec3f& rSize, MtxPtr pMtx) {
         ShadowController* pController = ActorShadow::createShadowControllerVolumeParam(pActor, pName);
         ShadowVolumeOval* pOval = new ShadowVolumeOval();
         pController->setShadowDrawer(pOval);
-        pController->setDropPosMtxPtr(pMtx, TVec3f(0.0f, 0.0f, 0.0f));
+        pController->setDropPosMtxPtr(pMtx, Vec3f(0.0f, 0.0f, 0.0f));
         pOval->setSize(rSize);
     }
 
@@ -97,77 +97,78 @@ namespace MR {
         pCylinder->setRadius(radius);
     }
 
-    void addShadowVolumeBox(LiveActor* pActor, const char* pName, const TVec3f& rSize) {
+    void addShadowVolumeBox(LiveActor* pActor, const char* pName, const Vec3f& rSize) {
         addShadowVolumeBox(pActor, pName, rSize, pActor->getBaseMtx());
     }
 
-    void addShadowVolumeBox(LiveActor* pActor, const char* pName, const TVec3f& rSize, MtxPtr pMtx) {
+    void addShadowVolumeBox(LiveActor* pActor, const char* pName, const Vec3f& rSize, MtxPtr pMtx) {
         ShadowController* pController = ActorShadow::createShadowControllerVolumeParam(pActor, pName);
         ShadowVolumeBox* pBox = new ShadowVolumeBox();
         pController->setShadowDrawer(pBox);
-        pController->setDropPosMtxPtr(pMtx, TVec3f(0.0f, 0.0f, 0.0f));
+        pController->setDropPosMtxPtr(pMtx, Vec3f(0.0f, 0.0f, 0.0f));
         pBox->setSize(rSize);
     }
 
-    void addShadowVolumeLine(LiveActor* pActor1, const char* pName1, LiveActor* pActor2, const char* pName2, f32 fromWidth, LiveActor* pActor3,
-                             const char* pName3, f32 toWidth) {
-        ShadowController* pController = ActorShadow::createShadowControllerVolumeParam(pActor1, pName1);
+    // A shadow line from the shadow pFromName of pFromActor to pToName of pToActor.
+    void addShadowVolumeLine(LiveActor* pActor, const char* pName, LiveActor* pFromActor, const char* pFromName, f32 fromWidth, LiveActor* pToActor,
+                             const char* pToName, f32 toWidth) {
+        ShadowController* pController = ActorShadow::createShadowControllerVolumeParam(pActor, pName);
         ShadowVolumeLine* pLine = new ShadowVolumeLine();
         pController->setShadowDrawer(pLine);
         pController->offCalcCollision();
         pLine->setFromWidth(fromWidth);
         pLine->setToWidth(toWidth);
-        pLine->setFromShadowController(ActorShadow::getShadowController(pActor2, pName2));
-        pLine->setToShadowController(ActorShadow::getShadowController(pActor3, pName3));
+        pLine->setFromShadowController(ActorShadow::getShadowController(pFromActor, pFromName));
+        pLine->setToShadowController(ActorShadow::getShadowController(pToActor, pToName));
     }
 
     void addShadowVolumeFlatModel(LiveActor* pActor, const char* pName, const char* pModelName) {
         addShadowVolumeFlatModel(pActor, pName, pModelName, pActor->getBaseMtx());
     }
 
-    void addShadowVolumeFlatModel(LiveActor* pActor, const char* pName1, const char* pName2, MtxPtr pMtx) {
-        ShadowController* pController = ActorShadow::createShadowControllerVolumeParam(pActor, pName1);
-        ShadowVolumeFlatModel* pModel = new ShadowVolumeFlatModel(pName2);
+    void addShadowVolumeFlatModel(LiveActor* pActor, const char* pName, const char* pModelName, MtxPtr pMtx) {
+        ShadowController* pController = ActorShadow::createShadowControllerVolumeParam(pActor, pName);
+        ShadowVolumeFlatModel* pModel = new ShadowVolumeFlatModel(pModelName);
         pController->setShadowDrawer(pModel);
         pController->offCalcCollision();
         pModel->setBaseMatrixPtr(pMtx);
     }
 
-    void initShadowVolumeBox(LiveActor* pActor, const TVec3f& rSize, MtxPtr pMtx) {
+    void initShadowVolumeBox(LiveActor* pActor, const Vec3f& rSize, MtxPtr pMtx) {
         pActor->initShadowControllerList(1);
-        addShadowVolumeBox(pActor, "\203\173\203\212\203\205\201\133\203\200\211\145(\203\173\203\142\203\116\203\130)" /* ボリューム影(ボックス) */, rSize, pMtx);
+        addShadowVolumeBox(pActor, "ボリューム影(ボックス)", rSize, pMtx);
     }
 
     void initShadowVolumeFlatModel(LiveActor* pActor, const char* pModelName, MtxPtr pMtx) {
         pActor->initShadowControllerList(1);
-        addShadowVolumeFlatModel(pActor, "\203\173\203\212\203\205\201\133\203\200\211\145(\224\302\203\202\203\146\203\213)" /* ボリューム影(板モデル) */, pModelName, pMtx);
+        addShadowVolumeFlatModel(pActor, "ボリューム影(板モデル)", pModelName, pMtx);
     }
 
-    void setShadowDropPositionPtr(LiveActor* pActor, const char* pName, const TVec3f* pPos) {
+    void setShadowDropPositionPtr(LiveActor* pActor, const char* pName, const Vec3f* pPos) {
         ActorShadow::getShadowController(pActor, pName)->setDropPosPtr(pPos);
     }
 
-    void setShadowDropPositionMtxPtr(LiveActor* pActor, const char* pName, MtxPtr pMtx, const TVec3f& rPos) {
+    void setShadowDropPositionMtxPtr(LiveActor* pActor, const char* pName, MtxPtr pMtx, const Vec3f& rPos) {
         ActorShadow::getShadowController(pActor, pName)->setDropPosMtxPtr(pMtx, rPos);
     }
 
-    void setShadowDropPositionAtJoint(LiveActor* pActor, const char* pName1, const char* pName2, const TVec3f& rPos) {
-        setShadowDropPositionMtxPtr(pActor, pName1, getJointMtx(pActor, pName2), rPos);
+    void setShadowDropPositionAtJoint(LiveActor* pActor, const char* pName, const char* pJointName, const Vec3f& rPos) {
+        setShadowDropPositionMtxPtr(pActor, pName, getJointMtx(pActor, pJointName), rPos);
     }
 
-    void setShadowDropDirectionPtr(LiveActor* pActor, const char* pName, const TVec3f* pDir) {
+    void setShadowDropDirectionPtr(LiveActor* pActor, const char* pName, const Vec3f* pDir) {
         ActorShadow::getShadowController(pActor, pName)->setDropDirPtr(pDir);
     }
 
-    void setShadowProjectionPtr(LiveActor* pActor, const char* pName, const TVec3f* pPosition, const TVec3f* pDirection) {
+    void setShadowProjectionPtr(LiveActor* pActor, const char* pName, const Vec3f* pPosition, const Vec3f* pDirection) {
         ActorShadow::getShadowController(pActor, pName)->setProjectionPtr(pPosition, pDirection);
     }
 
-    void setShadowDropPosition(LiveActor* pActor, const char* pName, const TVec3f& rPos) {
+    void setShadowDropPosition(LiveActor* pActor, const char* pName, const Vec3f& rPos) {
         ActorShadow::getShadowController(pActor, pName)->setDropPosFix(rPos);
     }
 
-    void setShadowDropDirection(LiveActor* pActor, const char* pName, const TVec3f& rDir) {
+    void setShadowDropDirection(LiveActor* pActor, const char* pName, const Vec3f& rDir) {
         ActorShadow::getShadowController(pActor, pName)->setDropDirFix(rDir);
     }
 
@@ -179,8 +180,8 @@ namespace MR {
         ActorShadow::getShadowController(pActor, pName)->setDropStartOffset(offset);
     }
 
-    void setShadowProjection(LiveActor* pActor, const char* pName, const TVec3f& rPosition, const TVec3f& rDirection, bool a5) {
-        ActorShadow::getShadowController(pActor, pName)->setProjectionFix(rPosition, rDirection, a5);
+    void setShadowProjection(LiveActor* pActor, const char* pName, const Vec3f& rPosition, const Vec3f& rDirection, bool projected) {
+        ActorShadow::getShadowController(pActor, pName)->setProjectionFix(rPosition, rDirection, projected);
     }
 
     void setShadowSurfaceOvalColor(LiveActor* pActor, const char* pName, const Color8 color) {
@@ -200,7 +201,7 @@ namespace MR {
         ActorShadow::getShadowVolumeCylinder(pActor, pName)->setRadius(radius);
     }
 
-    void setShadowVolumeBoxSize(LiveActor* pActor, const char* pName, const TVec3f& rSize) {
+    void setShadowVolumeBoxSize(LiveActor* pActor, const char* pName, const Vec3f& rSize) {
         ActorShadow::getShadowVolumeBox(pActor, pName)->setSize(rSize);
     }
 
@@ -428,28 +429,29 @@ namespace MR {
         }
     }
 
-    bool calcClippingRangeIncludeShadow(TVec3f* pVecOutput, f32* pF32Output, const LiveActor* pActor, f32 a4) {
-        TVec3f projectionPos;
+    // The sphere around the actor and its projected shadow; false (the actor alone) while the shadow is not projected.
+    bool calcClippingRangeIncludeShadow(Vec3f* pCenter, f32* pRadius, const LiveActor* pActor, f32 radius) {
+        Vec3f projectionPos;
 
         if (ActorShadow::getShadowController(pActor, static_cast< const char* >(nullptr))->isProjected()) {
             getShadowProjectionPos(pActor, nullptr, &projectionPos);
-            pVecOutput->set((pActor->mPosition + projectionPos) * 0.5f);
-            *pF32Output = projectionPos.distance(pActor->mPosition) * 0.5f + a4;
+            pCenter->set((pActor->mPosition + projectionPos) * 0.5f);
+            *pRadius = projectionPos.distance(pActor->mPosition) * 0.5f + radius;
             return true;
         } else {
-            pVecOutput->set(pActor->mPosition);
-            *pF32Output = a4;
+            pCenter->set(pActor->mPosition);
+            *pRadius = radius;
             return false;
         }
     }
 
-    void setClippingRangeIncludeShadow(LiveActor* pActor, TVec3f* pCenter, f32 a3) {
-        f32 stack_8 = a3;
+    void setClippingRangeIncludeShadow(LiveActor* pActor, Vec3f* pCenter, f32 radius) {
+        f32 clipRadius = radius;
 
-        if (calcClippingRangeIncludeShadow(pCenter, &stack_8, pActor, a3)) {
-            setClippingTypeSphere(pActor, stack_8, pCenter);
+        if (calcClippingRangeIncludeShadow(pCenter, &clipRadius, pActor, radius)) {
+            setClippingTypeSphere(pActor, clipRadius, pCenter);
         } else {
-            setClippingTypeSphere(pActor, a3);
+            setClippingTypeSphere(pActor, radius);
         }
     }
 
@@ -457,11 +459,11 @@ namespace MR {
         return ActorShadow::getShadowController(pActor, pName)->isProjected();
     }
 
-    void getShadowProjectionPos(const LiveActor* pActor, const char* pName, TVec3f* pResult) {
+    void getShadowProjectionPos(const LiveActor* pActor, const char* pName, Vec3f* pResult) {
         ActorShadow::getShadowController(pActor, pName)->getProjectionPos(pResult);
     }
 
-    void getShadowProjectionNormal(const LiveActor* pActor, const char* pName, TVec3f* pResult) {
+    void getShadowProjectionNormal(const LiveActor* pActor, const char* pName, Vec3f* pResult) {
         ActorShadow::getShadowController(pActor, pName)->getProjectionNormal(pResult);
     }
 

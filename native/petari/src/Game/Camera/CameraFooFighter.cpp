@@ -1,16 +1,14 @@
 #include "Game/Camera/CameraFooFighter.hpp"
-#include "Game/Camera/CamTranslatorFooFighter.hpp"
+#include "Game/Camera/CameraParamChunk.hpp"
 #include "Game/Camera/CameraLocalUtil.hpp"
 #include "Game/Camera/CameraTargetObj.hpp"
 #include "Game/Util/MapUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const f32 sCollideRate = 0.03f;
-    static const s32 sCollideCountMax = 60;
-    static const f32 sLastMoveLen = 5.0f;
-    static const f32 sRateWhenBraking = 0.05f;
+    NEBULA_TUNABLE(f32, sRateWhenBraking, 0.05f);
 };  // namespace
 
 CameraFooFighter::CameraFooFighter(const char* pName)
@@ -29,86 +27,41 @@ void CameraFooFighter::reset() {
 }
 
 CameraTargetObj* CameraFooFighter::calc() {
-    TVec3f watchPoint;
+    Vec3f watchPoint;
     CameraLocalUtil::makeWatchPoint(&watchPoint, this, CameraLocalUtil::getTarget(this), 0.1f / 15.0f);
 
-    TVec3f gravUp = -CameraLocalUtil::getTarget(this)->getGravityVector();
-    TVec3f watchFront = watchPoint - CameraLocalUtil::getPos(this);
-    f32 camDist = watchFront.length();
-    f32 dist;
-    if (MR::isNearZero(watchFront)) {
-        watchFront.cross(CameraLocalUtil::getTarget(this)->getSideVec(), gravUp);
-        dist = camDist;
-    } else {
-        if (camDist < mDistMin) {
-            dist = mDistMin;
-        } else if (camDist > mDistMax) {
-            dist = mDistMax;
-        } else {
-            dist = camDist;
-        }
-    }
-    MR::normalize(&watchFront);
-
-    TVec3f up = CameraLocalUtil::getUpVec(this);
-    TVec3f front = CameraLocalUtil::getWatchPos(this) - CameraLocalUtil::getPos(this);
-    MR::normalize(&front);
-    TQuat4f rotFront;
-    rotFront.setRotate(front, watchFront);
-
-    TVec3f newFront, newUp;
-    newFront.set(watchFront);
-    newUp.set(up);
-    rotFront.transform(newUp);
-
-    TVec3f newSide = newUp.cross(newFront);
-    newSide -= gravUp * gravUp.dot(newSide);
-    MR::normalize(&newSide);
-
-    newUp.cross(newFront, newSide);
-    newSide.cross(newUp, newFront);
-
-    if (gravUp.dot(newUp) < 0.0f) {
-        TQuat4f rotFrontUp;
-        if (newFront.dot(gravUp) < 0.0f) {
-            rotFrontUp.setRotate(newFront, -gravUp);
-        } else {
-            rotFrontUp.setRotate(newFront, gravUp);
-        }
-
-        rotFrontUp.transform(newFront);
-        rotFrontUp.transform(newSide);
-        rotFrontUp.transform(newUp);
-    }
+    Vec3f gravUp = -CameraLocalUtil::getTarget(this)->getGravityVector();
+    Vec3f newFront, newUp, newSide;
+    f32 dist = CameraLocalUtil::calcFollowFrame(this, watchPoint, gravUp, mDistMin, mDistMax, true, &newFront, &newUp, &newSide);
 
     if (MR::isPlayerNeedBrakingCamera()) {
-        TPos3f mtx1;
-        mtx1.identity();
-        mtx1.setXDir(CameraLocalUtil::getTarget(this)->getSideVec());
-        mtx1.setYDir(-CameraLocalUtil::getTarget(this)->getFrontVec());
-        mtx1.setZDir(CameraLocalUtil::getTarget(this)->getUpVec());
+        Pos3f targetFrame;
+        targetFrame.identity();
+        targetFrame.setXDir(CameraLocalUtil::getTarget(this)->getSideVec());
+        targetFrame.setYDir(-CameraLocalUtil::getTarget(this)->getFrontVec());
+        targetFrame.setZDir(CameraLocalUtil::getTarget(this)->getUpVec());
 
-        TQuat4f rot1;
-        mtx1.getQuat(rot1);
+        Quat4f targetRot;
+        targetFrame.getQuat(targetRot);
 
-        TPos3f mtx2;
-        mtx2.identity();
-        mtx2.setXDir(newSide);
-        mtx2.setYDir(newUp);
-        mtx2.setZDir(newFront);
+        Pos3f followFrame;
+        followFrame.identity();
+        followFrame.setXDir(newSide);
+        followFrame.setYDir(newUp);
+        followFrame.setZDir(newFront);
 
-        TQuat4f rot2;
-        mtx2.getQuat(rot2);
+        Quat4f followRot;
+        followFrame.getQuat(followRot);
 
-        TQuat4f rotQ;
-        rotQ.slerp(rot2, rot1, ::sRateWhenBraking);
+        Quat4f blendRot;
+        blendRot.slerp(followRot, targetRot, ::sRateWhenBraking);
 
-        mtx2.makeQuat(rotQ);
-        mtx2.getXDir(newSide);
-        mtx2.getYDir(newUp);
-        mtx2.getZDir(newFront);
+        followFrame.makeQuat(blendRot);
+        followFrame.getXDir(newSide);
+        followFrame.getYDir(newUp);
+        followFrame.getZDir(newFront);
     } else {
-        TVec3f targetSide = CameraLocalUtil::getTarget(this)->getSideVec();
+        Vec3f targetSide = CameraLocalUtil::getTarget(this)->getSideVec();
         targetSide -= gravUp * gravUp.dot(targetSide);
         MR::normalize(&targetSide);
 
@@ -118,32 +71,16 @@ CameraTargetObj* CameraFooFighter::calc() {
             mAngleXRate = rate;
         }
 
-        TQuat4f rot;
+        Quat4f rot;
         rot.setRotate(newSide, targetSide, rate);
         rot.transform(newFront);
         rot.transform(newUp);
-        TVec3f pos = watchPoint - newFront * dist;
-
-        f32 lastMoveLen = CameraLocalUtil::getTarget(this)->getLastMove().length();
-        if (lastMoveLen > ::sLastMoveLen) {
-            mTargetLastMoveDir.set(CameraLocalUtil::getTarget(this)->getLastMove());
-            MR::normalize(&mTargetLastMoveDir);
-        }
-
-        if (lastMoveLen > ::sLastMoveLen && Collision::checkStrikeLineToMap(pos, newFront * dist, 0, nullptr, nullptr) != 0) {
-            mCollideCount++;
-            if (mCollideCount > ::sCollideCountMax) {
-                mCollideCount = ::sCollideCountMax;
-            }
-        } else {
-            mCollideCount--;
-            if (mCollideCount < 0) {
-                mCollideCount = 0;
-            }
-        }
+        Vec3f pos = watchPoint - newFront * dist;
+        f32 collideRate =
+            CameraLocalUtil::updateMoveCollision(&mCollideCount, &mTargetLastMoveDir, CameraLocalUtil::getTarget(this), pos, newFront * dist);
 
         if (mCollideCount > 0) {
-            rot.setRotate(newFront, mTargetLastMoveDir, (mCollideCount * ::sCollideRate) / ::sCollideCountMax);
+            rot.setRotate(newFront, mTargetLastMoveDir, collideRate);
             rot.transform(newFront);
             rot.transform(newUp);
         }
@@ -155,6 +92,7 @@ CameraTargetObj* CameraFooFighter::calc() {
     return CameraLocalUtil::getTarget(this);
 }
 
-CamTranslatorBase* CameraFooFighter::createTranslator() {
-    return new CamTranslatorFooFighter(this);
+void CameraFooFighter::setParamFromChunk(const CameraParamChunk* pChunk) {
+    CameraGeneralParam* general = pChunk->mGeneralParam;
+    setParam(general->mAxis.y, general->mAxis.x, general->mDist);
 }

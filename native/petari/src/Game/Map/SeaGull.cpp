@@ -1,7 +1,8 @@
 #include "Game/Map/SeaGull.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util/ActorMovementUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
@@ -15,12 +16,12 @@ namespace NrvSeaGull {
 };  // namespace NrvSeaGull
 
 SeaGull::SeaGull(SeaGullGroup* pGroup)
-    : LiveActor("\203\112\203\202\203\201" /* カモメ */), mSeaGullGroup(pGroup), mPointIndex(), mIsReverse(), mTargetUpdateTimer(MR::getRandom(0, 180)), mTargetPosition(),
+    : LiveActor("カモメ"), mSeaGullGroup(pGroup), mPointIndex(), mIsReverse(), mTargetUpdateTimer(MR::getRandom(0, 180)), mTargetPosition(),
       mUp(0.0f, 1.0f, 0.0f), mFront(0.0f, 0.0f, 1.0f), mBankedUp(0.0f, 1.0f, 0.0f), mSide(1.0f, 0.0f, 0.0f), mHoverTimer(), mBankAngle(),
       mGlideTimer(), mLiftTimer(), mChirpTimer() {
 }
 
-void SeaGull::init(const JMapInfoIter& rIter) {
+void SeaGull::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     MR::calcActorAxis(&mSide, &mBankedUp, &mFront, this);
     MR::calcActorAxisY(&mUp, this);
@@ -36,8 +37,8 @@ void SeaGull::init(const JMapInfoIter& rIter) {
     mIsReverse = MR::isHalfProbability();
     mTargetPosition = mSeaGullGroup->updatePosInfo(&mPointIndex, mIsReverse);
 
-    TVec3f side(mSide);
-    TVec3f forward(mFront);
+    Vec3f side(mSide);
+    Vec3f forward(mFront);
     f32 scale = MR::getRandom(-1.0f, 1.0f);
     side.scale(scale);
     scale = MR::getRandom(-1.0f, 1.0f);
@@ -70,7 +71,7 @@ void SeaGull::exeHoverFront() {
     if (mHoverTimer >= 0) {
         mHoverTimer--;
     } else {
-        TVec3f forward(*mTargetPosition);
+        Vec3f forward(*mTargetPosition);
         forward.sub(mPosition);
 
         if (mPosition.distance(*mTargetPosition) > 500.0f) {
@@ -156,7 +157,7 @@ void SeaGull::updateHover() {
         mUp.mult(-1.0f);
         mBankAngle = MR::clamp(mBankAngle, -30.0f, 30.0f);
 
-        TPos3f rotation;
+        Pos3f rotation;
         rotation.identity();
         const f32 angle = mBankAngle;
         rotation.setRotate(mFront, PI_180 * angle);
@@ -166,12 +167,12 @@ void SeaGull::updateHover() {
         rotation.mult(mFront, mFront);
     }
 
-    TVec3f forward(mFront);
+    Vec3f forward(mFront);
     forward.scale(0.05f);
     mVelocity.add(forward);
 
     if (mLiftTimer > 0) {
-        TVec3f lift(mBankedUp);
+        Vec3f lift(mBankedUp);
         lift.scale(0.04f);
         mVelocity.add(lift);
         mLiftTimer--;
@@ -181,12 +182,12 @@ void SeaGull::updateHover() {
         }
     } else {
         mVelocity.y -= 0.005f;
-        TVec3f toTarget(*mTargetPosition);
+        Vec3f toTarget(*mTargetPosition);
         toTarget.sub(mPosition);
 
         f32 height = toTarget.dot(mUp);
         if (height < 500.0f) {
-            mGlideTimer = 300;
+            mGlideTimer = NebulaFrameClock::stepsOfSeconds(5);
         } else {
             mGlideTimer--;
 
@@ -198,7 +199,7 @@ void SeaGull::updateHover() {
 }
 
 void SeaGull::calcAndSetBaseMtx() {
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.identity();
     mtx.mMtx[0][0] = mSide.x;
     mtx.mMtx[1][0] = mSide.y;
@@ -218,14 +219,14 @@ void SeaGull::calcAndSetBaseMtx() {
 SeaGullGroup::SeaGullGroup(const char* pName) : LiveActor(pName), mPointCount(), mPoints() {
 }
 
-void SeaGullGroup::init(const JMapInfoIter& rIter) {
+void SeaGullGroup::init(const TableIter& rIter) {
     s32 birdCount = 10;
-    MR::getJMapInfoArg0NoInit(rIter, &birdCount);
+    MR::getPlacementArg0NoInit(rIter, &birdCount);
     initRailRider(rIter);
     mPosition.set(MR::getRailPos(this));
     mPointCount = static_cast< s32 >(MR::getRailTotalLength(this) / 500.0f) + 1;
     f32 interval = MR::getRailTotalLength(this) / mPointCount;
-    mPoints = new TVec3f[mPointCount];
+    mPoints = new Vec3f[mPointCount];
 
     for (s32 i = 0; i < mPointCount; i++) {
         MR::calcRailPosAtCoord(&mPoints[i], this, interval * i);
@@ -240,7 +241,7 @@ void SeaGullGroup::init(const JMapInfoIter& rIter) {
     makeActorAppeared();
 }
 
-TVec3f* SeaGullGroup::updatePosInfo(s32* pPointIndex, bool isReverse) const {
+Vec3f* SeaGullGroup::updatePosInfo(s32* pPointIndex, bool isReverse) const {
     if (isReverse) {
         (*pPointIndex)--;
 
@@ -248,20 +249,13 @@ TVec3f* SeaGullGroup::updatePosInfo(s32* pPointIndex, bool isReverse) const {
             *pPointIndex = mPointCount - 1;
         }
     } else {
-        s32 val = mPointCount;
         s32 next = *pPointIndex + 1;
         *pPointIndex = next;
 
-        if (next >= val) {
+        if (next >= mPointCount) {
             *pPointIndex = 0;
         }
     }
 
     return &mPoints[*pPointIndex];
-}
-
-SeaGull::~SeaGull() {
-}
-
-SeaGullGroup::~SeaGullGroup() {
 }

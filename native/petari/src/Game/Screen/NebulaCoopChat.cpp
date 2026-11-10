@@ -11,10 +11,10 @@
 #include <cstdio>
 #include <cstring>
 #include <nebula_game_api.h>
-#include <nw4r/lyt/layout.h>
-#include <nw4r/lyt/pane.h>
-#include <nw4r/lyt/textBox.h>
-#include <nw4r/lyt/window.h>
+#include <Game/Ui/Layout.hpp>
+#include <Game/Ui/Pane.hpp>
+#include <Game/Ui/TextBox.hpp>
+#include <Game/Ui/Window.hpp>
 
 namespace {
     using namespace NebulaUi;
@@ -125,7 +125,7 @@ struct NebulaCoopChatParts {
 NebulaCoopChat::NebulaCoopChat() : LayoutActor("NebulaCoopChat", true), mParts(nullptr) {
 }
 
-void NebulaCoopChat::init(const JMapInfoIter& rIter) {
+void NebulaCoopChat::init(const TableIter& rIter) {
     initLayoutManager("InformationWindow", 0);
     LayoutManager* pManager = getLayoutManager();
     static const char cLayoutName[] = "NebulaCoopChat";
@@ -135,15 +135,15 @@ void NebulaCoopChat::init(const JMapInfoIter& rIter) {
 
     NebulaCoopChatParts* p = new NebulaCoopChatParts();
     Pane* pLayoutRoot = pManager->mLayout->mpRootPane;
-    if (pLayoutRoot == nullptr || !p->mText.init(pManager->mLayoutHolder)) {
+    if (pLayoutRoot == nullptr || !p->mText.init(pManager->mLayoutHolder, "InformationWindow", pManager->mLayout)) {
         nebula_log("NebulaCoopChat: no InformationWindow layout\n");
         delete p;
         return;
     }
     // Without the ringed window, the information window's stands in (makeWindow).
-    p->mWindow.init(MR::createAndAddLayoutHolder("SysInfoWindowMini.arc"));
+    p->mWindow.init("SysInfoWindowMini", pManager->mLayout);
     // The information window's own panes stay hidden; the chat is built beside them.
-    for (nw4r::lyt::PaneList::Iterator it = pLayoutRoot->GetChildList().GetBeginIter(); it != pLayoutRoot->GetChildList().GetEndIter(); ++it) {
+    for (Ui::Pane* it : pLayoutRoot->GetChildList()) {
         it->SetVisible(false);
     }
     const Kits kits = {&p->mText, &p->mWindow, nullptr};
@@ -203,8 +203,6 @@ void NebulaCoopChat::init(const JMapInfoIter& rIter) {
     p->mInput->SetVisible(false);
 
     mParts = p;
-    // The layout's pane list, counted when it was built, again for the added panes.
-    pManager->rebuildPaneInfo();
     LayoutActor::appear();
 }
 
@@ -240,7 +238,7 @@ void NebulaCoopChat::control() {
     p->mScaleX = scaleX;
     p->mWidth = width;
     p->mHeight = height;
-    p->mRoot->mScale = nw4r::math::VEC2(scaleX, 1.0f);
+    p->mRoot->mScale = Vec2f(scaleX, 1.0f);
     f32 limit = width * cWidthShare;
     limit = limit > cWidthMost ? cWidthMost : limit;
     const f32 left = -width * 0.5f + cMargin;
@@ -298,9 +296,9 @@ void NebulaCoopChat::control() {
         shape(p->mInputStrip, left + w * 0.5f, bottom + h * 0.5f, w, h, cRadius);
         const f32 top = bottom + h - cPadY;
         const f32 textLeft = left + cPadX + p->mMarkWidth + cNameGap;
-        p->mInputMark->mTranslate = nw4r::math::VEC3(left + cPadX, top, 0.0f);
-        p->mInputText->mTranslate = nw4r::math::VEC3(textLeft, top, 0.0f);
-        p->mCursor->mTranslate = nw4r::math::VEC3(textLeft + p->mCursorX - p->mCursorWidth * 0.5f, top, 0.0f);
+        p->mInputMark->mTranslate = Vec3f(left + cPadX, top, 0.0f);
+        p->mInputText->mTranslate = Vec3f(textLeft, top, 0.0f);
+        p->mCursor->mTranslate = Vec3f(textLeft + p->mCursorX - p->mCursorWidth * 0.5f, top, 0.0f);
         p->mCursor->SetVisible((p->mBlink / cBlinkFrames) % 2 == 0);
         p->mBlink++;
         bottom += h + cGap;
@@ -372,8 +370,8 @@ void NebulaCoopChat::control() {
         const f32 top = bottom + h - cPadY;
         const bool named = rRow.mName->IsVisible();
         const f32 nameWidth = named ? rRow.mName->mSize.width - 2.0f : 0.0f;
-        rRow.mName->mTranslate = nw4r::math::VEC3(left + cPadX, top, 0.0f);
-        rRow.mText->mTranslate = nw4r::math::VEC3(left + cPadX + (named ? nameWidth + cNameGap : 0.0f), top, 0.0f);
+        rRow.mName->mTranslate = Vec3f(left + cPadX, top, 0.0f);
+        rRow.mText->mTranslate = Vec3f(left + cPadX + (named ? nameWidth + cNameGap : 0.0f), top, 0.0f);
         rRow.mGroup->mAlpha = static_cast< u8 >(rView.lines[i].alpha > 255 ? 255 : rView.lines[i].alpha);
         bottom += h + cGap;
     }

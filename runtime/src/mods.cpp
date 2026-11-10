@@ -12,8 +12,10 @@
 #include "galaxy/path_text.h"
 
 #include "galaxy/atomic_file.h"
-#include "galaxy/disc_files.h"
+#include "galaxy/asset_store.h"
 #include "galaxy/mod_xml.h"
+#include "galaxy/dolphin_pack.h"
+#include "galaxy/texture_categories.h"
 
 #include <algorithm>
 #include <cctype>
@@ -62,12 +64,27 @@ std::string read_text(const fs::path& path) {
     return text;
 }
 
+// The entries of `dir`, empty when it cannot be read. A folder that changes or goes while it is read (the player
+// moves a mod in Explorer) ends the list; the range-for form of directory_iterator throws there. `unreadable`, when
+// given, is set if the list ended on an error, for the caller to report.
+std::vector<fs::directory_entry> entries_of(const fs::path& dir, bool* unreadable = nullptr) {
+    std::vector<fs::directory_entry> entries;
+    std::error_code error;
+    for (auto it = fs::directory_iterator(dir, error); !error && it != fs::directory_iterator(); it.increment(error)) {
+        entries.push_back(*it);
+    }
+    if (error && unreadable != nullptr) *unreadable = true;
+    return entries;
+}
+
+constexpr const char* kUnreadableMod = "A FOLDER OF THIS MOD COULD NOT BE READ IN FULL";
+
 // A child of `dir` named `name` whatever its case (Riivolution assumes an SD card's case-insensitive names).
 std::optional<fs::path> child_any_case(const fs::path& dir, std::string_view name, bool want_directory) {
     std::error_code error;
     const fs::path exact = dir / from_utf8(name);
     if (fs::exists(exact, error) && fs::is_directory(exact, error) == want_directory) return exact;
-    for (const auto& entry : fs::directory_iterator(dir, error)) {
+    for (const auto& entry : entries_of(dir)) {
         if (same_name(utf8_name(entry.path()), name) && entry.is_directory(error) == want_directory) return entry.path();
     }
     return std::nullopt;
@@ -317,7 +334,7 @@ struct Loader {
                 continue;
             }
             bool found = false;
-            for (const auto& entry : fs::directory_iterator(result, error)) {
+            for (const auto& entry : entries_of(result)) {
                 if (same_name(utf8_name(entry.path()), element)) {
                     result = entry.path();
                     found = true;
@@ -407,6 +424,7 @@ struct ModLayout {
     fs::path textures;
     fs::path movies;
     std::vector<fs::path> loose;  // files placed by their names
+    bool unreadable = false;      // a folder of the mod ended its listing on an error
 };
 
 constexpr const char* kLanguageFolders[] = {"UsEnglish", "UsFrench", "UsSpanish", "EuEnglish", "EuFrench", "EuGerman",
@@ -464,21 +482,67 @@ void list_files(const fs::path& dir, const std::string& prefix, std::set<std::st
     }
 }
 
-// The texture names of a pack folder (tex1_..., mip levels left out, _arb dropped).
-void list_textures(const fs::path& dir, std::set<std::string>& out) {
+// A pack's texture file (texture_pack.h): its name's key and its folder in the pack; nullopt for anything else (a
+// Dolphin pack's tex1_ file, a custom lower level, not an image).
+struct PackFile {
+    std::uint64_t key = 0;
+    std::string folder;
+};
+std::optional<PackFile> pack_file(const fs::path& file, const fs::path& root) {
+    const std::string extension = lower(utf8_name(file.extension()));
+    if (extension != ".png" && extension != ".dds") return std::nullopt;
+    PackFile out;
+    out.folder = galaxy::path_text(file.parent_path().lexically_relative(root));
+    const std::optional<galaxy::textures::PackFileName> name =
+        galaxy::textures::parse_pack_file(out.folder, utf8_name(file.stem()));
+    if (!name || name->level != 0u) return std::nullopt;
+    out.key = galaxy::textures::pack_file_key(*name);
+    return out;
+}
+
+// Each texture file of a pack folder, its converted Dolphin files (.dolphin/) left out.
+template <typename Visit>
+void each_pack_file(const fs::path& dir, Visit&& visit) {
     std::error_code error;
     for (auto it = fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied, error);
          !error && it != fs::recursive_directory_iterator(); it.increment(error)) {
-        if (!it->is_regular_file(error)) continue;
-        std::string stem = lower(utf8_name(it->path().stem()));
-        if (!stem.starts_with("tex1_")) continue;
-        if (const std::size_t mip = stem.rfind("_mip"); mip != std::string::npos) continue;
-        if (stem.ends_with("_arb")) stem.resize(stem.size() - 4u);
-        out.insert(stem);
+        std::error_code kind;
+        if (it->is_directory(kind)) {
+            if (utf8_name(it->path()) == ".dolphin") it.disable_recursion_pending();
+            continue;
+        }
+        if (!it->is_regular_file(kind)) continue;
+        if (const std::optional<PackFile> file = pack_file(it->path(), dir)) visit(*file);
     }
 }
 
-// tex1_ files within a few folders of `dir`.
+// The texture names of a pack folder, by key (mip levels left out).
+void list_textures(const fs::path& dir, std::set<std::string>& out) {
+    each_pack_file(dir, [&out](const PackFile& file) {
+        char key[17]{};
+        std::snprintf(key, sizeof(key), "%016llx", static_cast<unsigned long long>(file.key));
+        out.insert(key);
+    });
+}
+
+// A Dolphin pack in `textures` converted to the game's names, once (dolphin_pack.h): needs the game's names.
+void convert_dolphin_textures(const fs::path& textures, const std::string& id) {
+    if (!galaxy::textures::has_dolphin_files(textures)) return;
+    if (!galaxy::textures::wait_for_index()) {
+        std::fprintf(stderr, "[mods] %s: a Dolphin texture pack; the game's texture names are not known yet, so it stays as it is\n",
+                     id.c_str());
+        return;
+    }
+    const galaxy::textures::DolphinConversion done = galaxy::textures::convert_dolphin_pack(textures, galaxy::textures::names());
+    std::fprintf(stderr, "[mods] %s: Dolphin pack converted: %llu files, %llu textures named, %llu taken, %zu for none of "
+                         "the game's textures, %zu failed\n",
+                 id.c_str(), static_cast<unsigned long long>(done.files), static_cast<unsigned long long>(done.textures),
+                 static_cast<unsigned long long>(done.taken), done.unmatched.size(), done.failed.size());
+    for (const std::string& file : done.failed) std::fprintf(stderr, "[mods] %s: not converted: %s\n", id.c_str(), file.c_str());
+}
+
+// A texture pack without a textures/ folder, within a few folders of `dir`: a tex1_ file, a game folder (RMGE01, RMG)
+// or a converted pack's .dolphin/ folder.
 bool has_pack_textures(const fs::path& dir) {
     std::error_code error;
     for (auto it = fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied, error);
@@ -488,6 +552,11 @@ bool has_pack_textures(const fs::path& dir) {
             continue;
         }
         const std::string name = lower(utf8_name(it->path()));
+        std::error_code kind;
+        if (it->is_directory(kind)) {
+            if (name == ".dolphin" || name == "rmg" || (name.size() == 6u && name.starts_with("rmg"))) return true;
+            continue;
+        }
         if (name.starts_with("tex1_") && (name.ends_with(".png") || name.ends_with(".dds"))) return true;
     }
     return false;
@@ -513,27 +582,18 @@ std::string json_string(const std::string& text, std::string_view field) {
 void read_pack(ModInfo& mod, const fs::path& textures) {
     auto list = std::make_shared<std::vector<PackTexture>>();
     std::error_code error;
-    for (auto it = fs::recursive_directory_iterator(textures, fs::directory_options::skip_permission_denied, error);
-         !error && it != fs::recursive_directory_iterator(); it.increment(error)) {
-        if (!it->is_regular_file(error)) continue;
-        const std::string stem = lower(utf8_name(it->path().stem()));
-        if (stem.find("_mip") != std::string::npos) continue;
-        const std::optional<std::uint64_t> hash = galaxy::textures::hash_of_pack_name(stem);
-        if (!hash) continue;
+    each_pack_file(textures, [&list](const PackFile& file) {
         PackTexture texture;
-        texture.hash = *hash;
-        const std::string folder = utf8_name(it->path().parent_path().lexically_relative(textures));
-        if (const auto named = galaxy::textures::category_of_pack_folder(galaxy::path_text(
-                it->path().parent_path().lexically_relative(textures)))) {
+        texture.hash = file.key;
+        if (const auto named = galaxy::textures::category_of_pack_folder(file.folder)) {
             texture.folder_category = static_cast<std::uint8_t>(*named);
         }
-        (void)folder;
         list->push_back(texture);
-    }
+    });
     mod.pack_textures = std::move(list);
     // A resource pack's manifest, in the mod or one folder down.
     std::vector<fs::path> places{mod.path, textures};
-    for (const auto& entry : fs::directory_iterator(mod.path, error)) {
+    for (const auto& entry : entries_of(mod.path)) {
         if (entry.is_directory(error)) places.push_back(entry.path());
     }
     for (const fs::path& place : places) {
@@ -545,32 +605,6 @@ void read_pack(ModInfo& mod, const fs::path& textures) {
         mod.pack_description = json_string(text, "description");
         break;
     }
-}
-
-// A whole number field of a package's manifest, at the top of the file; `fallback` when it has none.
-long long json_number(const std::string& text, std::string_view field, long long fallback) {
-    const std::string key = '"' + std::string(field) + '"';
-    std::size_t at = text.find(key);
-    if (at == std::string::npos) return fallback;
-    at = text.find(':', at + key.size());
-    if (at == std::string::npos) return fallback;
-    ++at;
-    while (at < text.size() && (text[at] == ' ' || text[at] == '\t' || text[at] == '\r' || text[at] == '\n')) ++at;
-    long long value = 0;
-    bool any = false;
-    for (; at < text.size() && text[at] >= '0' && text[at] <= '9'; ++at) {
-        value = value * 10 + (text[at] - '0');
-        any = true;
-    }
-    return any ? value : fallback;
-}
-
-bool json_true(const std::string& text, std::string_view field) {
-    const std::string key = '"' + std::string(field) + '"';
-    std::size_t at = text.find(key);
-    if (at == std::string::npos) return false;
-    at = text.find(':', at + key.size());
-    return at != std::string::npos && text.find("true", at) == text.find_first_not_of(" \t\r\n", at + 1u);
 }
 
 // The language played, as language_folder takes it (the host says; English until it does).
@@ -637,14 +671,14 @@ ModLayout layout_of(const fs::path& mod) {
     }
     // riivolution/ in the mod, or one folder down (an archive's own top folder).
     std::vector<fs::path> roots{mod};
-    for (const auto& entry : fs::directory_iterator(mod, error)) {
+    for (const auto& entry : entries_of(mod, &layout.unreadable)) {
         if (entry.is_directory(error)) roots.push_back(entry.path());
     }
     for (const fs::path& root : roots) {
         if (std::optional<fs::path> riiv = child_any_case(root, "riivolution", true)) {
             layout.sd_root = root;
             layout.riivolution_dir = *riiv;
-            for (const auto& entry : fs::directory_iterator(*riiv, error)) {
+            for (const auto& entry : entries_of(*riiv, &layout.unreadable)) {
                 if (entry.is_regular_file(error) && lower(galaxy::path_text(entry.path().extension())) == ".xml") {
                     layout.xmls.push_back(entry.path());
                 }
@@ -660,7 +694,7 @@ ModLayout layout_of(const fs::path& mod) {
     } else if (layout.xmls.empty()) {
         // The disc's folders one folder down (an archive's own top folder): that folder, when only one has them.
         std::vector<fs::path> with;
-        for (const auto& entry : fs::directory_iterator(mod, error)) {
+        for (const auto& entry : entries_of(mod, &layout.unreadable)) {
             if (entry.is_directory(error) && has_disc_folder(entry.path())) with.push_back(entry.path());
         }
         if (with.size() == 1u) layout.files_root = with.front();
@@ -669,7 +703,7 @@ ModLayout layout_of(const fs::path& mod) {
     if (std::optional<fs::path> movies = child_any_case(mod, "movies", true)) layout.movies = *movies;
     if (layout.xmls.empty() && layout.files_root.empty()) {
         // Loose files beside nothing else: each goes where the disc has a file of its name.
-        for (const auto& entry : fs::directory_iterator(mod, error)) {
+        for (const auto& entry : entries_of(mod, &layout.unreadable)) {
             if (entry.is_regular_file(error) && !mod_note(entry.path()) &&
                 !lower(utf8_name(entry.path())).starts_with("tex1_")) {
                 layout.loose.push_back(entry.path());
@@ -755,7 +789,7 @@ void start_texture_sorting() {
     Settings& s = settings();
     const std::lock_guard<std::mutex> lock(s.mutex);
     if (!s.store.empty() && !s.file.empty()) {
-        galaxy::textures::start_index(s.store, s.file.parent_path() / "texture_index.bin");
+        galaxy::textures::start_index(s.store);
     }
 }
 
@@ -771,7 +805,7 @@ std::string mods_signature(std::span<const ModInfo> mods) {
     std::stable_sort(sorted.begin(), sorted.end(), [](const ModInfo* a, const ModInfo* b) { return a->order < b->order; });
     std::string out;
     for (const ModInfo* m : sorted) {
-        if (!m->enabled || !changes_disc(*m)) continue;
+        if (!m->enabled || !changes_game_files(*m)) continue;
         out += m->id + (m->own_text ? "" : " text=game") + '\n';
         for (const ModOption& o : m->options) out += o.key + '=' + std::to_string(o.selected) + '\n';
     }
@@ -961,10 +995,14 @@ std::vector<std::pair<std::string, fs::path>> mod_folders(const fs::path& folder
     std::vector<std::pair<std::string, fs::path>> dirs;
     std::error_code error;
     if (folder.empty() || !fs::is_directory(folder, error)) return dirs;
-    for (const auto& entry : fs::directory_iterator(folder, error)) {
+    bool folder_unreadable = false;
+    for (const auto& entry : entries_of(folder, &folder_unreadable)) {
         if (entry.is_directory(error) && !utf8_name(entry.path()).starts_with('.')) {
             dirs.emplace_back(utf8_name(entry.path()), entry.path());
         }
+    }
+    if (folder_unreadable) {
+        std::fprintf(stderr, "[mods] the mods folder could not be read in full: %s\n", galaxy::path_text(folder).c_str());
     }
     std::sort(dirs.begin(), dirs.end(), [](const auto& a, const auto& b) { return a.second < b.second; });
     return dirs;
@@ -1071,6 +1109,10 @@ std::vector<ModInfo> scan_folders(const std::vector<std::pair<std::string, fs::p
         mod.own_text = s == nullptr || s->own_text;
         mod.categories_off = s != nullptr ? s->categories_off : 0u;
         if (mod.textures) {
+            // The game's names, read once from the store: a pack's files are named by them.
+            start_texture_sorting();
+            convert_dolphin_textures(layout.textures, mod.id);
+            (void)galaxy::textures::wait_for_index();
             read_pack(mod, layout.textures);
             start_texture_sorting();
             update_pack_categories(mod);
@@ -1137,6 +1179,14 @@ std::vector<ModInfo> scan_folders(const std::vector<std::pair<std::string, fs::p
                         }
                     }
                     mod.code_patches += static_cast<unsigned>(p.memory.size());
+                    for (const MemoryPatch& m : p.memory) {
+                        char where[16];
+                        std::snprintf(where, sizeof(where), "%08X", static_cast<unsigned>(m.offset));
+                        mod.code_patch_notes.push_back("the code change at " + std::string(where) + " (" + std::to_string(m.value.size()) +
+                                                       (m.ocarina || m.search ? " bytes, searched" : " bytes") +
+                                                       ") is not applied: Nebula has no Wii program. LumaLink turns the known ones "
+                                                       "into tunables; the rest need a plugin");
+                    }
                 }
             }
         }
@@ -1207,8 +1257,7 @@ std::vector<ModInfo> scan_folders(const std::vector<std::pair<std::string, fs::p
                 const luma::Situation situation = situation_of(mod, region_id, playing);
                 for (const luma::Layer& layer : manifest->layers) {
                     if (!luma::layer_used(layer, situation)) continue;
-                    mod.native_patches += static_cast<unsigned>(layer.switches.size());
-                    mod.luma_disc = mod.luma_disc || !layer.switches.empty() || !layer.materials.empty() || !layer.object_changes.empty() || !layer.comet_time_limits.empty();
+                    mod.luma_changes_game = mod.luma_changes_game || !layer.tunables.empty() ||!layer.materials.empty() || !layer.object_changes.empty() || !layer.comet_time_limits.empty();
                     if (layer.path.empty()) continue;
                     const fs::path place = dir / fs::path(from_utf8(layer.path));
                     std::error_code place_error;
@@ -1216,15 +1265,18 @@ std::vector<ModInfo> scan_folders(const std::vector<std::pair<std::string, fs::p
                         mod.problem = "THIS FILE IS DAMAGED";
                         continue;
                     }
-                    if (child_any_case(place, "merge", true)) mod.luma_disc = true;
+                    if (child_any_case(place, "merge", true)) mod.luma_changes_game = true;
                     if (std::optional<fs::path> files = child_any_case(place, "files", true)) {
-                        mod.luma_disc = true;
+                        mod.luma_changes_game = true;
                         list_files(*files, std::string(), changed_paths[mod.id]);
                         for (const char* language : kLanguageFolders) {
                             if (child_any_case(*files, language, true)) languages.insert(language);
                         }
                     }
                     if (std::optional<fs::path> textures = child_any_case(place, "textures", true)) {
+                        start_texture_sorting();
+                        convert_dolphin_textures(*textures, mod.id);
+                        (void)galaxy::textures::wait_for_index();
                         mod.luma_textures.push_back(*textures);
                         list_textures(*textures, changed_textures[mod.id]);
                     }
@@ -1253,11 +1305,15 @@ std::vector<ModInfo> scan_folders(const std::vector<std::pair<std::string, fs::p
         mod.changed_files = static_cast<unsigned>(changed_paths[mod.id].size());
         mod.changed_textures = static_cast<unsigned>(changed_textures[mod.id].size());
         if (mod.code_patches != 0u) {
-            // Its files apply. LumaLink finds the native versions of known patches when it converts a mod.
+            // Its files apply; its code patches never do (code_patch_notes, one per patch, go to the log). LumaLink turns
+            // the known ones into tunables when it converts the mod.
             mod.problem = "MOST OF THIS MOD WORKS. " + std::to_string(mod.code_patches) + " CODE CHANGES NEED A NEBULA UPDATE OR A PLUGIN";
         }
+        mod.unreadable = layout.unreadable;
         if (!mod.package && !mod.riivolution && !mod.files && !mod.textures && !mod.movies && !mod.loose) {
-            mod.problem = "THIS DOESN'T LOOK LIKE A MOD";
+            mod.problem = mod.unreadable ? kUnreadableMod : "THIS DOESN'T LOOK LIKE A MOD";
+        } else if (mod.unreadable && mod.problem.empty()) {
+            mod.problem = kUnreadableMod;
         }
 #if defined(__ANDROID__) || defined(__APPLE__) && TARGET_OS_IPHONE
         if (!mod.package && (mod.riivolution || mod.files || mod.loose)) {
@@ -1412,8 +1468,8 @@ bool save_mod_settings(std::span<const ModInfo> mods) {
     return io::write_file_atomically(file, out.str());
 }
 
-bool changes_disc(const ModInfo& mod) noexcept {
-    return mod.riivolution || mod.files || mod.loose || mod.luma_disc;
+bool changes_game_files(const ModInfo& mod) noexcept {
+    return mod.riivolution || mod.files || mod.loose || mod.luma_changes_game;
 }
 
 std::vector<std::filesystem::path> texture_folders(std::span<const ModInfo> mods) {
@@ -1443,8 +1499,9 @@ bool update_pack_categories(ModInfo& mod) {
     galaxy::textures::CategoryCounts counts{};
     unsigned game_textures = 0;
     for (const PackTexture& texture : *mod.pack_textures) {
-        std::optional<galaxy::textures::Category> category = galaxy::textures::category_of_hash(texture.hash);
-        if (category) {
+        std::optional<galaxy::textures::Category> category;
+        if (const galaxy::textures::TextureName* const known = galaxy::textures::find_name(texture.hash)) {
+            category = known->category;
             ++game_textures;
         } else if (texture.folder_category < galaxy::textures::kCategoryCount) {
             category = static_cast<galaxy::textures::Category>(texture.folder_category);
@@ -1500,63 +1557,65 @@ std::string language_folder(const std::string& game_id, unsigned language) {
 
 namespace {
 
-// A store's files of a name, archives as files, by path from the root.
-void find_names(const galaxy::disc::AssetStore& store, std::int32_t folder, const std::string& path,
-                const std::string& name, std::vector<std::string>& out) {
-    const std::optional<galaxy::disc::Entry> self = store.entry(folder);
+// Where a disc file name (`name`: "Mario.arc"; `stored`, its store name in lower case) is in a store, archives as files:
+// each place's folder in the store with `name` after it, a disc path as plans take.
+void find_names(const galaxy::assets::AssetStore& store, std::int32_t folder, const std::string& path,
+                const std::string& name, const std::string& stored, std::vector<std::string>& out) {
+    const std::optional<galaxy::assets::Entry> self = store.entry(folder);
     if (!self) return;
     for (std::uint32_t c = 0; c < self->children; ++c) {
-        const std::optional<galaxy::disc::Entry> child = store.child(folder, c);
+        const std::optional<galaxy::assets::Entry> child = store.child(folder, c);
         if (!child || child->name == nullptr) continue;
         const std::string child_name(child->name);
-        const std::string child_path = path + "/" + child_name;
-        if (lower(child_name) == name) out.push_back(child_path);
-        if (child->folder && child_name.find('.') == std::string::npos) {
-            find_names(store, child->index, child_path, name, out);
+        if (lower(child_name) == stored) out.push_back(path + "/" + name);
+        if (child->folder && !child->archive) {
+            find_names(store, child->index, path + "/" + child_name, name, stored, out);
         }
+    }
+}
+
+// A layer's (or the manifest's own) rows into the plan.
+void add_layer_rows(ModPlan& plan, const ModInfo& mod, const std::string& language, const luma::Rows& rows) {
+    for (const auto& [key, value] : rows.story) {
+        plan.rows.story[key] = value;
+    }
+    for (const auto& [id, words] : rows.text) {
+        const auto like = rows.text_like.find(id);
+        plan.rows.texts.push_back({id, words.in(luma::language_code(language)), like != rows.text_like.end() ? like->second : std::string()});
+    }
+    for (const luma::Galaxy& galaxy : rows.galaxies) {
+        plan.rows.galaxies.push_back({mod.id, galaxy.name, galaxy.map_pane, galaxy.open_conditions, galaxy.stars_to_open, galaxy.dome, galaxy.hungry_slot, galaxy.hungry_star_bits, galaxy.has_map_position, galaxy.map_x, galaxy.map_y});
+    }
+    for (const luma::Music& track : rows.music) {
+        MusicToAdd row{mod.id, track.name, track.file, {}};
+        for (const luma::MusicPlace& place : track.places) row.places.push_back({place.stage, place.scenario, place.change_area});
+        plan.rows.music.push_back(std::move(row));
+    }
+    for (const luma::EventFlag& flag : rows.event_flags) {
+        plan.rows.event_flags.push_back({mod.id, flag.name, flag.kind, flag.a, flag.b, flag.first, flag.second});
+    }
+    for (const luma::CometSchedule& dome : rows.comet_schedule) {
+        plan.rows.comets.push_back({mod.id, dome.dome, dome.comets});
     }
 }
 
 }  // namespace
 
-void add_layer_rows(DiscPlan& plan, const ModInfo& mod, const std::string& language, const luma::Rows& rows) {
-            for (const auto& [key, value] : rows.story) {
-                plan.rows.story[key] = value;
-            }
-            for (const auto& [id, words] : rows.text) {
-                plan.rows.texts.emplace_back(id, words.in(luma::language_code(language)));
-            }
-            for (const luma::Galaxy& galaxy : rows.galaxies) {
-                plan.rows.galaxies.push_back({mod.id, galaxy.name, galaxy.map_pane, galaxy.open_conditions, galaxy.stars_to_open, galaxy.dome, galaxy.hungry_slot, galaxy.hungry_star_bits, galaxy.has_map_position, galaxy.map_x, galaxy.map_y});
-            }
-            for (const luma::Music& track : rows.music) {
-                MusicToAdd row{mod.id, track.name, track.file, {}};
-                for (const luma::MusicPlace& place : track.places) row.places.push_back({place.stage, place.scenario, place.change_area});
-                plan.rows.music.push_back(std::move(row));
-            }
-            for (const luma::EventFlag& flag : rows.event_flags) {
-                plan.rows.event_flags.push_back({mod.id, flag.name, flag.kind, flag.a, flag.b, flag.first, flag.second});
-            }
-            for (const luma::CometSchedule& dome : rows.comet_schedule) {
-                plan.rows.comets.push_back({mod.id, dome.dome, dome.comets});
-            }
-}
-
-DiscPlan plan_disc_changes(const galaxy::disc::AssetStore& store, const std::string& game_id,
-                           const std::string& language) {
+ModPlan plan_mod_changes(const galaxy::assets::AssetStore& store, const std::string& game_id,
+                           const std::string& language, std::vector<ModInfo> mods) {
     std::optional<std::vector<RoomModChoice>> room;
     {
         const std::lock_guard<std::mutex> lock(s_room_mutex);
         room.swap(s_room_mods);
     }
-    std::vector<ModInfo> mods = room ? scan_room_mods(*room, game_id) : scan_mods(game_id);
+    if (room) mods = scan_room_mods(*room, game_id);
     g_mods_on.clear();
     for (const ModInfo& mod : mods) {
         if (mod.enabled) g_mods_on.push_back(mod.id);
     }
-    DiscPlan plan;
+    ModPlan plan;
     std::vector<std::string> active;
-    std::map<std::string, DiscPlan::File> chosen;  // by the lower-case path, the last set winning
+    std::map<std::string, ModPlan::File> chosen;  // by the lower-case store path, the last set winning
     struct Placed {
         std::string disc;
         fs::path host;
@@ -1567,6 +1626,7 @@ DiscPlan plan_disc_changes(const galaxy::disc::AssetStore& store, const std::str
         if (!mod.enabled) continue;
         active.push_back(mod.id);
         plan.code_patches += mod.code_patches;
+        for (const std::string& patch_note : mod.code_patch_notes) plan.notes.push_back(mod.id + ": " + patch_note);
         if (mod.package && !mod.problem.empty()) {
             plan.notes.push_back(mod.id + ": " + mod.problem);
             continue;
@@ -1578,29 +1638,7 @@ DiscPlan plan_disc_changes(const galaxy::disc::AssetStore& store, const std::str
         }
         if (mod.package) plan.luma_folders.push_back(mod.path);
         if (mod.package && mod.luma) {
-            const auto add_rows = [&](const luma::Rows& rows) {
-            for (const auto& [key, value] : rows.story) {
-                plan.rows.story[key] = value;
-            }
-            for (const auto& [id, words] : rows.text) {
-                plan.rows.texts.emplace_back(id, words.in(luma::language_code(language)));
-            }
-            for (const luma::Galaxy& galaxy : rows.galaxies) {
-                plan.rows.galaxies.push_back({mod.id, galaxy.name, galaxy.map_pane, galaxy.open_conditions, galaxy.stars_to_open, galaxy.dome, galaxy.hungry_slot, galaxy.hungry_star_bits, galaxy.has_map_position, galaxy.map_x, galaxy.map_y});
-            }
-            for (const luma::Music& track : rows.music) {
-                MusicToAdd row{mod.id, track.name, track.file, {}};
-                for (const luma::MusicPlace& place : track.places) row.places.push_back({place.stage, place.scenario, place.change_area});
-                plan.rows.music.push_back(std::move(row));
-            }
-            for (const luma::EventFlag& flag : rows.event_flags) {
-                plan.rows.event_flags.push_back({mod.id, flag.name, flag.kind, flag.a, flag.b, flag.first, flag.second});
-            }
-            for (const luma::CometSchedule& dome : rows.comet_schedule) {
-                plan.rows.comets.push_back({mod.id, dome.dome, dome.comets});
-            }
-            };
-            add_rows(*mod.luma);
+            add_layer_rows(plan, mod, language, *mod.luma);
             const luma::Situation situation = situation_of(mod, game_id, language);
             for (const luma::Plugin& plugin : mod.luma->plugins) {
                 if (!luma::when_holds(plugin.when, situation)) continue;
@@ -1613,7 +1651,7 @@ DiscPlan plan_disc_changes(const galaxy::disc::AssetStore& store, const std::str
                 plan.plugins.push_back({mod.path / fs::path(from_utf8(binary->second)), mod.id, mod.luma->version, situation.options});
             }
         }
-        if (!changes_disc(mod)) continue;
+        if (!changes_game_files(mod)) continue;
 #if defined(__ANDROID__) || defined(__APPLE__) && TARGET_OS_IPHONE
         // The converter runs on computers: the page has told the player.
         if (!mod.package) continue;
@@ -1621,6 +1659,7 @@ DiscPlan plan_disc_changes(const galaxy::disc::AssetStore& store, const std::str
         const ModLayout layout = layout_of(mod.path);
         std::vector<Placed> placed;
         const auto note = [&plan, &mod](const std::string& text) { plan.notes.push_back(mod.id + ": " + text); };
+        if (layout.unreadable) note("its folder could not be read in full");
         const auto set_file = [&placed](std::string disc, const fs::path& host) {
             if (!disc.starts_with('/')) disc.insert(disc.begin(), '/');
             placed.push_back({std::move(disc), host});
@@ -1642,7 +1681,7 @@ DiscPlan plan_disc_changes(const galaxy::disc::AssetStore& store, const std::str
                 return;
             }
             if (!f.disc.empty() && f.disc[0] == '/') {
-                if (!f.create && !store.find(f.disc)) {
+                if (!f.create && !store.find(galaxy::assets::store_path(f.disc))) {
                     note(f.disc + ": the game has no such file and the patch does not create it");
                     return;
                 }
@@ -1650,7 +1689,7 @@ DiscPlan plan_disc_changes(const galaxy::disc::AssetStore& store, const std::str
                 return;
             }
             std::vector<std::string> paths;
-            find_names(store, 0, {}, lower(f.disc), paths);
+            find_names(store, 0, {}, f.disc, lower(galaxy::assets::store_path(f.disc)), paths);
             if (paths.empty()) note(f.disc + ": no file of that name in the game");
             for (const std::string& path : paths) set_file(path, *host);
         };
@@ -1669,8 +1708,9 @@ DiscPlan plan_disc_changes(const galaxy::disc::AssetStore& store, const std::str
                 note(external + ": no such folder in the mod");
                 return;
             }
-            std::vector<fs::directory_entry> entries;
-            for (const auto& entry : fs::directory_iterator(*dir, ec)) entries.push_back(entry);
+            bool unreadable = false;
+            std::vector<fs::directory_entry> entries = entries_of(*dir, &unreadable);
+            if (unreadable) note(external + ": the folder could not be read in full");
             std::sort(entries.begin(), entries.end(), [](const auto& a, const auto& b) { return a.path() < b.path(); });
             for (const auto& entry : entries) {
                 const std::string name = utf8_name(entry.path());
@@ -1691,9 +1731,7 @@ DiscPlan plan_disc_changes(const galaxy::disc::AssetStore& store, const std::str
             const luma::Situation situation = situation_of(mod, game_id, language);
             for (const luma::Layer& layer : mod.luma->layers) {
                 if (!luma::layer_used(layer, situation)) continue;
-                if (mod.package && mod.luma) {
-                    add_layer_rows(plan, mod, language, layer.rows);
-                }
+                add_layer_rows(plan, mod, language, layer.rows);
                 for (const luma::ObjectChange& change : layer.object_changes) {
                     plan.rows.object_changes.push_back({mod.id, change.where, change.object, change.becomes});
                 }
@@ -1712,25 +1750,23 @@ DiscPlan plan_disc_changes(const galaxy::disc::AssetStore& store, const std::str
                     }
                     plan.rows.player_constants.push_back({mod.id, constant.character, constant.name, constant.index, value});
                 }
-                for (const auto& [name, option] : layer.switch_options) {
-                    const auto choice = situation.options.find(option);
-                    const std::uint32_t number = luma::switch_number(name);
-                    if (choice != situation.options.end() && number != 0u) {
-                        plan.native_patches[number] = static_cast<std::uint32_t>(std::strtol(choice->second.c_str(), nullptr, 10));
+                for (const luma::Tunable& tunable : layer.tunables) {
+                    double value = tunable.value;
+                    if (!tunable.option.empty()) {
+                        const auto choice = situation.options.find(tunable.option);
+                        if (choice == situation.options.end()) continue;
+                        value = std::strtod(choice->second.c_str(), nullptr);
                     }
+                    plan.rows.tunables.push_back({mod.id, tunable.key, value});
                 }
                 for (const luma::SoundEffect& sound : layer.sound_effects) {
                     plan.rows.sound_effects.push_back({mod.id, sound.name, sound.file});
                 }
+                for (const luma::PlayerAnimation& animation : layer.player_animations) {
+                    plan.rows.player_animations.push_back({mod.id, animation.name, animation.file, animation.rate, animation.blend_frames});
+                }
                 for (const luma::ObjectClass& object : layer.object_classes) {
                     plan.rows.object_classes.push_back({mod.id, object.name, object.like});
-                }
-                for (const auto& [name, value] : layer.switches) {
-                    if (const std::uint32_t number = luma::switch_number(name); number != 0u) {
-                        plan.native_patches[number] = value;
-                    } else {
-                        note(name + ": a switch this game doesn't know");
-                    }
                 }
                 for (const auto& [material, file] : layer.materials) {
                     plan.materials.push_back({material, mod.path / fs::path(from_utf8(file))});
@@ -1739,9 +1775,12 @@ DiscPlan plan_disc_changes(const galaxy::disc::AssetStore& store, const std::str
                 if (const std::optional<fs::path> merge = child_any_case(mod.path / fs::path(from_utf8(layer.path)), "merge", true)) {
                     std::error_code walk_error;
                     std::vector<fs::path> found;
-                    for (const auto& entry : fs::recursive_directory_iterator(*merge, walk_error)) {
-                        if (entry.is_regular_file(walk_error)) found.push_back(entry.path());
+                    std::error_code status_error;
+                    for (auto walk = fs::recursive_directory_iterator(*merge, walk_error);
+                         !walk_error && walk != fs::recursive_directory_iterator(); walk.increment(walk_error)) {
+                        if (walk->is_regular_file(status_error)) found.push_back(walk->path());
                     }
+                    if (walk_error) note(layer.path + "/merge: the folder could not be read in full");
                     std::sort(found.begin(), found.end());
                     for (const fs::path& file : found) {
                         plan.merges.push_back({galaxy::path_text(file.lexically_relative(*merge).generic_string()), file});
@@ -1752,7 +1791,10 @@ DiscPlan plan_disc_changes(const galaxy::disc::AssetStore& store, const std::str
                 const Loader loader{*files, *files};
                 const FolderPatch whole{"/", "/", true, true, true, 0};
                 std::error_code ec;
-                for (const auto& entry : fs::directory_iterator(*files, ec)) {
+                bool files_unreadable = false;
+                const std::vector<fs::directory_entry> top = entries_of(*files, &files_unreadable);
+                if (files_unreadable) note(layer.path + "/files: the folder could not be read in full");
+                for (const auto& entry : top) {
                     const std::string name = utf8_name(entry.path());
                     if (entry.is_directory(ec)) {
                         patch_folder(patch_folder, loader, whole, "/" + name, "/" + name);
@@ -1791,7 +1833,10 @@ DiscPlan plan_disc_changes(const galaxy::disc::AssetStore& store, const std::str
             const Loader loader{layout.files_root, layout.files_root};
             const FolderPatch whole{"/", "/", true, true, true, 0};
             std::error_code ec;
-            for (const auto& entry : fs::directory_iterator(layout.files_root, ec)) {
+            bool root_unreadable = false;
+            const std::vector<fs::directory_entry> top = entries_of(layout.files_root, &root_unreadable);
+            if (root_unreadable) note(utf8_name(layout.files_root) + ": the folder could not be read in full");
+            for (const auto& entry : top) {
                 const std::string name = utf8_name(entry.path());
                 if (entry.is_directory(ec)) {
                     // Beside the game's folders a mod keeps its notes and pictures: only what the game has counts.
@@ -1809,7 +1854,7 @@ DiscPlan plan_disc_changes(const galaxy::disc::AssetStore& store, const std::str
         }
         for (const fs::path& file : layout.loose) {
             std::vector<std::string> paths;
-            find_names(store, 0, {}, lower(utf8_name(file)), paths);
+            find_names(store, 0, {}, utf8_name(file), lower(galaxy::assets::store_path(utf8_name(file))), paths);
             if (paths.empty()) note(utf8_name(file) + ": no file of that name in the game");
             for (const std::string& path : paths) set_file(path, file);
         }
@@ -1843,12 +1888,12 @@ DiscPlan plan_disc_changes(const galaxy::disc::AssetStore& store, const std::str
             // The game's own tables, but for the one that says where each galaxy is and what opens it.
             if (lower(p.disc).starts_with("/nebuladata/") && lower(p.disc) != "/nebuladata/galaxyinfotable.bcsv") continue;
             // A save's shape follows the galaxy list: a mod that adds a galaxy never plays on normal saves.
-            if (plan.save_folder.empty() && lower(p.disc).starts_with("/stagedata/") && lower(p.disc).ends_with("scenario.arc") && !store.find(p.disc)) {
+            if (plan.save_folder.empty() && lower(p.disc).starts_with("/stagedata/") && lower(p.disc).ends_with("scenario.arc") && !store.find(galaxy::assets::store_path(p.disc))) {
                 plan.save_folder = saves_of(mod.luma ? mod.luma->save_tag : mod.id);
                 plan.save_clone = false;
                 note("it adds a galaxy, so it keeps its own saves");
             }
-            chosen[lower(p.disc)] = {p.disc, p.host};
+            chosen[lower(galaxy::assets::store_path(p.disc))] = {p.disc, p.host};
         }
     }
     for (auto& [key, file] : chosen) plan.files.push_back(std::move(file));
@@ -1861,28 +1906,29 @@ DiscPlan plan_disc_changes(const galaxy::disc::AssetStore& store, const std::str
     return plan;
 }
 
-std::string plan_text(const DiscPlan& plan, const std::string& game_id) {
+std::string plan_text(const ModPlan& plan, const std::string& game_id) {
     std::string text = game_id + "\n";
     {
         Settings& s = settings();
         const std::lock_guard<std::mutex> lock(s.mutex);
         if (!s.store.empty()) text += "base\t" + galaxy::path_text(s.store) + "\n";
     }
-    for (const DiscPlan::File& file : plan.files) {
+    for (const ModPlan::File& file : plan.files) {
         text += file.disc + "\t" + galaxy::path_text(file.host) + "\n";
     }
-    for (const DiscPlan::File& file : plan.merges) {
+    for (const ModPlan::File& file : plan.merges) {
         text += "+" + file.disc + "\t" + galaxy::path_text(file.host) + "\n";
     }
-    for (const DiscPlan::File& file : plan.materials) {
+    for (const ModPlan::File& file : plan.materials) {
         text += "=material\t" + file.disc + "\t" + galaxy::path_text(file.host) + "\n";
     }
     return text;
 }
 
-std::string plan_signature(const DiscPlan& plan, const std::string& game_id) {
-    std::string text = "1 " + game_id + "\n";
-    for (const DiscPlan::File& file : plan.files) {
+std::string plan_signature(const ModPlan& plan, const std::string& game_id) {
+    // The store's version too: a mods.pak of another version is not opened (asset_store.cpp), so it is cooked again.
+    std::string text = "1 " + game_id + " store " + std::to_string(galaxy::assets::kStoreVersion) + "\n";
+    for (const ModPlan::File& file : plan.files) {
         std::error_code ec;
         const auto size = fs::file_size(file.host, ec);
         // (A 128-bit count on Android's libc++, which std::to_string does not take.)
@@ -1890,14 +1936,14 @@ std::string plan_signature(const DiscPlan& plan, const std::string& game_id) {
         text += file.disc + "\t" + galaxy::path_text(file.host) + "\t" + std::to_string(size) + "\t" +
                 std::to_string(static_cast<long long>(time)) + "\n";
     }
-    for (const DiscPlan::File& file : plan.materials) {
+    for (const ModPlan::File& file : plan.materials) {
         std::error_code ec;
         const auto size = fs::file_size(file.host, ec);
         const auto time = fs::last_write_time(file.host, ec).time_since_epoch().count();
         text += "=material\t" + file.disc + "\t" + galaxy::path_text(file.host) + "\t" + std::to_string(size) + "\t" +
                 std::to_string(static_cast<long long>(time)) + "\n";
     }
-    for (const DiscPlan::File& file : plan.merges) {
+    for (const ModPlan::File& file : plan.merges) {
         std::error_code ec;
         const auto size = fs::file_size(file.host, ec);
         const auto time = fs::last_write_time(file.host, ec).time_since_epoch().count();
@@ -1920,7 +1966,7 @@ bool mods_differ_from_session(std::span<const ModInfo> mods) {
     if (!s.mods.room) return false;
     // A room's mod of the same name may be another copy (a download): the player's own is played only after a restart.
     return std::any_of(s.mods.started_with.begin(), s.mods.started_with.end(), [&mods](const ModInfo& started) {
-        return started.enabled && changes_disc(started) &&
+        return started.enabled && changes_game_files(started) &&
                std::none_of(mods.begin(), mods.end(),
                             [&started](const ModInfo& own) { return own.path == started.path; });
     });

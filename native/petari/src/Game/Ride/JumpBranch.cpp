@@ -1,4 +1,5 @@
 #include "Game/Ride/JumpBranch.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Ride/SwingRopePoint.hpp"
@@ -13,19 +14,18 @@
 #include "Game/Util/SoundUtil.hpp"
 #include <nebula_math.h>
 #include "Game/System/NebulaInput.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static Vec sStartPointVelocity = {0.0f, 0.0f, 0.0f};
-
-    static const f32 sPointGravity = 0.2f;
-    static const f32 sPointFrictionRate = 0.995f;
-    static const f32 sSensorMoveDistance = 50.0f;
-    static const f32 sPointInterval = 30.0f;
-    static const f32 sDistanceStartBindZ = 70.0f;
-    static const f32 sTransDiffMinY = 1.0f;
-    static const s32 sStepInvalidBind = 30;
-    static const f32 sJumpSpeed = 10.0f;
-    static const f32 sJumpSpeedOffsetY = 16.0f;
+    NEBULA_TUNABLE(f32, sPointGravity, 0.2f);
+    NEBULA_TUNABLE(f32, sPointFrictionRate, 0.995f);
+    NEBULA_TUNABLE(f32, sSensorMoveDistance, 50.0f);
+    NEBULA_TUNABLE(f32, sPointInterval, 30.0f);
+    NEBULA_TUNABLE(f32, sDistanceStartBindZ, 70.0f);
+    NEBULA_TUNABLE(f32, sTransDiffMinY, 1.0f);
+    static const s32 sStepInvalidBind = NebulaFrameClock::stepsOfMilliseconds(500);
+    NEBULA_TUNABLE(f32, sJumpSpeed, 10.0f);
+    NEBULA_TUNABLE(f32, sJumpSpeedOffsetY, 16.0f);
 };  // namespace
 
 namespace NrvJumpBranch {
@@ -39,12 +39,11 @@ JumpBranch::JumpBranch(const char* pName)
       mSwingReverse() {
 }
 
-void JumpBranch::init(const JMapInfoIter& rIter) {
+void JumpBranch::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     mCenter.set(mPosition);
 
-    TPos3f posMtx;
-    posMtx.identity();
+    Pos3f posMtx;
     MR::makeMtxTR(posMtx, this);
 
     posMtx.getXDir(mSide);
@@ -58,10 +57,10 @@ void JumpBranch::init(const JMapInfoIter& rIter) {
     initHitSensor(1);
     MR::addHitSensorCallbackBinder(this, "bind", 8, 80.0f);
 
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     MR::onCalcGravity(this);
 
-    MR::initShadowVolumeBox(this, TVec3f(120.0f, 10.0f, 10.0f));
+    MR::initShadowVolumeBox(this, Vec3f(120.0f, 10.0f, 10.0f));
     MR::setShadowDropLength(this, nullptr, 1500.0f);
     MR::onCalcShadowOneTime(this, nullptr);
 
@@ -90,14 +89,14 @@ void JumpBranch::exeWaitInvalid() {
     }
 }
 
-inline void JumpBranch::exeBind() {
+void JumpBranch::exeBind() {
     if (updateBind()) {
         setNerve(GET_NERVE(JumpBranch, JumpBranchNrvWaitInvalid));
     }
-};
+}
 
 void JumpBranch::updateHitSensor(HitSensor* pSensor) {
-    TVec3f planarDiff(MR::getPlayerPos()->x - mPosition.x, 0.0f, MR::getPlayerPos()->z - mPosition.z);
+    Vec3f planarDiff(MR::getPlayerPos()->x - mPosition.x, 0.0f, MR::getPlayerPos()->z - mPosition.z);
 
     f32 proj = mSide.dot(planarDiff);
     f32 sensorPos;
@@ -122,7 +121,7 @@ bool JumpBranch::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiv
             return false;
         }
 
-        TVec3f posDiff(pSender->mHost->mPosition);
+        Vec3f posDiff(pSender->mHost->mPosition);
         posDiff.sub(pReceiver->mPosition);
 
         if (MR::abs(posDiff.dot(mFront)) > ::sDistanceStartBindZ) {
@@ -131,16 +130,12 @@ bool JumpBranch::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiv
 
         mRider = pSender->mHost;
 
-        TVec3f playerFront;
+        Vec3f playerFront;
         MR::getPlayerFrontVec(&playerFront);
 
-        if (playerFront.dot(mFront) < 0) {
-            mSwingReverse = true;
-        } else {
-            mSwingReverse = false;
-        }
+        mSwingReverse = playerFront.dot(mFront) < 0.0f;
 
-        TVec3f diff = pSender->mPosition - pReceiver->mPosition;
+        Vec3f diff = pSender->mPosition - pReceiver->mPosition;
 
         f32 dotUp = mUp.dot(diff);
         f32 dotFront = mFront.dot(diff);
@@ -155,15 +150,15 @@ bool JumpBranch::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiv
             MR::normalize(&diff);
         }
 
-        TVec3f grabUp = diff;
+        Vec3f grabUp = diff;
         diff.scale(30.0f);
         diff.add(mPosition);
 
         f32 speed = MR::getPlayerVelocity()->length();
 
-        TVec3f swingVelocity(0.0f, 0.0f, 0.0f);
+        Vec3f swingVelocity(0.0f, 0.0f, 0.0f);
 
-        TVec3f grabFront = grabUp.cross(mSide);
+        Vec3f grabFront = grabUp.cross(mSide);
 
         if (mSwingReverse) {
             grabFront.scale(-1.0f);
@@ -173,14 +168,10 @@ bool JumpBranch::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiv
             grabFront.scale(-1.0f);
         }
 
-        ::sStartPointVelocity.x = grabFront.x;
-        ::sStartPointVelocity.y = grabFront.y;
-        ::sStartPointVelocity.z = grabFront.z;
-
         swingVelocity.set(grabFront);
         swingVelocity.scale(speed);
 
-        TVec3f swingFront = mFront;
+        Vec3f swingFront = mFront;
         if (grabUp.y > 0.0f) {
             swingFront.scale(-1.0f);
         }
@@ -204,9 +195,9 @@ bool JumpBranch::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiv
     }
 
     if (MR::isMsgUpdateBaseMtx(msg)) {
-        TPos3f posMtx;
-        TVec3f swingSide = mSwingPoint->mSide;
-        TVec3f swingFront = mSwingPoint->mFront;
+        Pos3f posMtx;
+        Vec3f swingSide = mSwingPoint->mSide;
+        Vec3f swingFront = mSwingPoint->mFront;
 
         posMtx.setTR(swingSide, mSwingPoint->mUp, swingFront, mPosition);
 
@@ -225,13 +216,13 @@ bool JumpBranch::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiv
 
 bool JumpBranch::updateBind() {
     if (MR::isPressedJump(PLAYER_1) || MR::testSystemTriggerA() || MR::isMainSpin(PLAYER_1)) {
-        TVec3f front = mFront;
+        Vec3f front = mFront;
         if (mSwingReverse) {
             front.scale(-1.0f);
         }
         MR::setPlayerFrontTargetVec(front, 1);
 
-        TVec3f stickXZ(0.0f, 0.0f, 0.0f);
+        Vec3f stickXZ(0.0f, 0.0f, 0.0f);
         bool fall = false;
         if (MR::isMainSpin(PLAYER_1)) {
             fall = true;
@@ -239,7 +230,7 @@ bool JumpBranch::updateBind() {
             MR::calcWorldStickDirectionXZ(&stickXZ, PLAYER_1);
         }
 
-        TVec3f jumpDir(0.0f, 0.0f, 0.0f);
+        Vec3f jumpDir(0.0f, 0.0f, 0.0f);
         if (!fall) {
             MR::normalizeOrZero(&stickXZ);
 

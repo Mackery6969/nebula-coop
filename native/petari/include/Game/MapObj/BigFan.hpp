@@ -8,11 +8,11 @@ class BigFan : public LiveActor {
 public:
     BigFan(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
+    virtual void init(const TableIter&) override;
+    virtual void control() override;
 
     void initWindModel();
-    void calcWindInfo(TVec3f*, const TVec3f&);
+    void calcWindInfo(Vec3f*, const Vec3f&);
     void start();
 
     void exeStop();
@@ -22,7 +22,7 @@ public:
     bool isStartOrWait();
 
     ModelObj* mWindModel;
-    TVec3f mClippingCenter;
+    Vec3f mClippingCenter;
     f32 mWindLength;
     f32 mWindSpeed;
     bool mIsTeresaGalaxy;

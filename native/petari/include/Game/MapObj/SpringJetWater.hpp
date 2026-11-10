@@ -6,16 +6,16 @@ class SpringJetWater : public LiveActor {
 public:
     SpringJetWater(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void appear();
-    virtual void startClipped();
-    virtual void endClipped();
-    virtual void attackSensor(HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void appear() override;
+    virtual void startClipped() override;
+    virtual void endClipped() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
 
     void exeWait();
     void exeJet();
     void exeEnd();
 
     const char* mObjName;
-    TVec3f mUp;
+    Vec3f mUp;
 };

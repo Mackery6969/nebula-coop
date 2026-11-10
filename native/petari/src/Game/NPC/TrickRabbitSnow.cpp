@@ -1,4 +1,5 @@
 #include "Game/NPC/TrickRabbitSnow.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Enemy/WalkerStateBlowDamage.hpp"
 #include "Game/Enemy/WalkerStateRunaway.hpp"
 #include "Game/LiveActor/Nerve.hpp"
@@ -7,27 +8,37 @@
 #include "Game/NPC/RabbitStateWaitStart.hpp"
 #include "Game/NPC/TrickRabbitUtil.hpp"
 #include "Game/Util.hpp"
+#include "Game/Util/Tunable.hpp"
+
+// The numbers this file's functions give the game's motion and animation calls, as tunables: "<file>.<function>.<call>.<k>".
+NEBULA_TUNABLE_NAMED(f32, cNum_exeWaitSnow_turnDirectionToPlayerDegree_1, "exeWaitSnow.turnDirectionToPlayerDegree.1", 15.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeStartHideSnow_checkPassBckFrame_1, "exeStartHideSnow.checkPassBckFrame.1", 3.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeAppearFromSnow_setVelocityJump_1, "exeAppearFromSnow.setVelocityJump.1", 25.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeAppearFromSnow_addVelocityToGravity_1, "exeAppearFromSnow.addVelocityToGravity.1", 1.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeRunaway_checkPassBckFrame_1, "exeRunaway.checkPassBckFrame.1", 3.0f);
+
+// The step counts of this file's functions, as tunables: "<file>.<function>.<k>".
+NEBULA_TUNABLE_NAMED(s32, cStep_exeAppearFromSnow_1, "exeAppearFromSnow.1", 5);
 
 TrickRabbitSnowListener::TrickRabbitSnowListener() {
 }
 
 namespace {
     static MR::ActorMoveParam sStartAwayParam = {1.4f, 1.0f, 0.9f, 4.0f};
-    static const f32 sBodyRadius = 70.0f;
-    static const f32 sCatchRadius = 30.0f;
-    static const f32 sBindRadius = 60.0f;
-    static const f32 sBindYOffset = 60.0f;
-    static const f32 sUpVecBlendRate = 0.1f;
-    static const f32 sFrontVecBlendRate = 0.2f;
-    static const f32 sStarPieceHitAccelH = 10.0f;
-    static const f32 sStarPieceHitAccelV = 40.0f;
-    static const f32 sAppearSnowJumpV = 20.0f;
-    static const f32 sAppearSnowJumpH = 20.0f;
-    static const f32 sPressureRange = 600.0f;
-    static const f32 sNormalAccel = 0.7f;
-    static const f32 sPressureAccel = 1.2f;
-    static const f32 sBrakeAccelRate = 0.99f;
-    // static const f32 sAppearSnowRange = _;
+    NEBULA_TUNABLE(f32, sBodyRadius, 70.0f);
+    NEBULA_TUNABLE(f32, sCatchRadius, 30.0f);
+    NEBULA_TUNABLE(f32, sBindRadius, 60.0f);
+    NEBULA_TUNABLE(f32, sBindYOffset, 60.0f);
+    NEBULA_TUNABLE(f32, sUpVecBlendRate, 0.1f);
+    NEBULA_TUNABLE(f32, sFrontVecBlendRate, 0.2f);
+    NEBULA_TUNABLE(f32, sStarPieceHitAccelH, 10.0f);
+    NEBULA_TUNABLE(f32, sStarPieceHitAccelV, 40.0f);
+    NEBULA_TUNABLE(f32, sAppearSnowJumpV, 20.0f);
+    NEBULA_TUNABLE(f32, sAppearSnowJumpH, 20.0f);
+    NEBULA_TUNABLE(f32, sPressureRange, 600.0f);
+    NEBULA_TUNABLE(f32, sNormalAccel, 0.7f);
+    NEBULA_TUNABLE(f32, sPressureAccel, 1.2f);
+    NEBULA_TUNABLE(f32, sBrakeAccelRate, 0.99f);
 };  // namespace
 
 namespace NrvTrickRabbitFreeRun {
@@ -52,7 +63,7 @@ void TrickRabbitSnow::setListener(TrickRabbitSnowListener* pListener) {
     mListener = pListener;
 }
 
-void TrickRabbitSnow::init(const JMapInfoIter& rIter) {
+void TrickRabbitSnow::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("TrickRabbit", nullptr, false);
     MR::connectToSceneNpc(this);
@@ -68,13 +79,13 @@ void TrickRabbitSnow::init(const JMapInfoIter& rIter) {
 
     mFootPrint = TrickRabbitUtil::createRabbitFootPrint(this);
 
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     MR::onEmitEffectSyncClipping(this, "Light");
     MR::onForceDeleteEffectSyncClipping(this, "Light");
     initSensor();
     initBinder(::sBindRadius, ::sBindYOffset, 0);
 
-    mMsgCtrl = MR::createTalkCtrl(this, rIter, "SnowRabbit", TVec3f(0.0f, 120.0f, 0.0f), nullptr);
+    mMsgCtrl = MR::createTalkCtrl(this, rIter, "SnowRabbit", Vec3f(0.0f, 120.0f, 0.0f), nullptr);
 
     initState();
     initSound(4, false);
@@ -97,9 +108,9 @@ void TrickRabbitSnow::initAfterPlacement() {
 
 void TrickRabbitSnow::initSensor() {
     initHitSensor(2);
-    MR::addHitSensorAtJointEnemy(this, "Body", "Spine", 8, ::sBodyRadius, TVec3f(0.0f, 0.0f, 0.0f));
-    MR::addHitSensorAtJointEnemy(this, "Catch", "Spine", 8, ::sCatchRadius, TVec3f(0.0f, 0.0f, 0.0f));
-    MR::initStarPointerTargetAtJoint(this, "Spine", ::sBodyRadius, TVec3f(0.0f));
+    MR::addHitSensorAtJointEnemy(this, "Body", "Spine", 8, ::sBodyRadius, Vec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorAtJointEnemy(this, "Catch", "Spine", 8, ::sCatchRadius, Vec3f(0.0f, 0.0f, 0.0f));
+    MR::initStarPointerTargetAtJoint(this, "Spine", ::sBodyRadius, Vec3f(0.0f));
 }
 
 void TrickRabbitSnow::initState() {
@@ -109,14 +120,14 @@ void TrickRabbitSnow::initState() {
 
     mStateWaitStart = new RabbitStateWaitStart(this, &mFrontVec, mMsgCtrl);
     mStateWaitStart->setTalkActionName("GiveUpTalk");
-    mStateWaitStart->_1C = false;
-    mStateWaitStart->_1D = false;
+    mStateWaitStart->mIsKillAfterTalk = false;
+    mStateWaitStart->mIsFallByGravity = false;
     mStateWaitStart->init();
 
     mStateRunaway = new WalkerStateRunaway(this, &mFrontVec, nullptr);
     mStateRunaway->init();
 
-    mStateBlowDamage = new WalkerStateBlowDamage(this, &mFrontVec, nullptr);
+    mStateBlowDamage = new WalkerStateBlowDamage(this, &mFrontVec);
     mStateBlowDamage->init();
 }
 
@@ -156,7 +167,7 @@ void TrickRabbitSnow::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     MR::sendMsgPush(pReceiver, pSender);
 }
 
-bool TrickRabbitSnow::receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) {
+bool TrickRabbitSnow::receiveMsgPush(HitSensor* pSender, HitSensor* /*pReceiver*/) {
     if (isNerve(GET_NERVE(TrickRabbitFreeRun, TrickRabbitSnowNrvHideSnow))) {
         return false;
     }
@@ -195,8 +206,6 @@ bool TrickRabbitSnow::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSen
         return requestCaught();
     }
 
-    if (MR::isMsgPlayerTrample(msg)) {
-    }
 
     return false;
 }
@@ -273,7 +282,7 @@ void TrickRabbitSnow::setFinishPosition() {
     MR::invalidateClipping(this);
     MR::requestMovementOn(this);
     MR::forwardNode(mMsgCtrl);
-    mStateWaitStart->_1D = false;
+    mStateWaitStart->mIsFallByGravity = false;
     setNerve(GET_NERVE(TrickRabbitFreeRun, TrickRabbitSnowNrvGiveUp));
 }
 
@@ -286,7 +295,7 @@ void TrickRabbitSnow::exeWaitSnow() {
         MR::startAction(this, "StartEvent");
     }
 
-    MR::turnDirectionToPlayerDegree(this, &mFrontVec, 15.0f);
+    MR::turnDirectionToPlayerDegree(this, &mFrontVec, cNum_exeWaitSnow_turnDirectionToPlayerDegree_1);
     MR::zeroVelocity(this);
 }
 
@@ -295,13 +304,13 @@ void TrickRabbitSnow::exeStartHideSnow() {
         MR::startAction(this, "Run");
     }
 
-    MR::escapeFromPlayer(this, &mFrontVec, ::sStartAwayParam._0, ::sStartAwayParam._4, ::sStartAwayParam._8, ::sStartAwayParam._C);
+    MR::escapeFromPlayer(this, &mFrontVec, ::sStartAwayParam);
 
-    if (MR::checkPassBckFrame(this, 3.0f)) {
+    if (MR::checkPassBckFrame(this, cNum_exeStartHideSnow_checkPassBckFrame_1)) {
         startJumpSound();
     }
 
-    if (MR::isGreaterStep(this, 120)) {
+    if (MR::isGreaterStep(this, NebulaFrameClock::stepsOfSeconds(2))) {
         setNerve(GET_NERVE(TrickRabbitFreeRun, TrickRabbitSnowNrvVanish));
     }
 }
@@ -319,10 +328,10 @@ void TrickRabbitSnow::exeVanish() {
 
     MR::startSound(this, "SE_SM_METAMORPHOSE_SMOKE");
 
-    TVec3f trans;
-    TVec3f rotate;
+    Vec3f trans;
+    Vec3f rotate;
 
-    if (MR::tryFindLinkNamePos(this, "\211\102\202\352\210\312\222\165" /* 隠れ位置 */, &trans, &rotate)) {
+    if (MR::tryFindLinkNamePos(this, "隠れ位置", &trans, &rotate)) {
         mPosition.set(trans);
         mRotation.set(rotate);
         MR::makeQuatAndFrontFromRotate(&mRotateQuat, &mFrontVec, this);
@@ -353,16 +362,16 @@ void TrickRabbitSnow::exeAppearFromSnow() {
     if (MR::isFirstStep(this)) {
         MR::emitEffect(this, "AppearSmoke");
         MR::startAction(this, "Jump");
-        MR::setVelocityJump(this, 25.0f);
+        MR::setVelocityJump(this, cNum_exeAppearFromSnow_setVelocityJump_1);
         MR::addVelocityMoveToDirection(this, mFrontVec, 20.0f);
         MR::startSound(this, "SE_SM_RABBIT_APPEAR");
         MR::startSystemSE("SE_SM_RUNAWAY_RABBIT_APP_ME");
     }
 
-    MR::addVelocityToGravity(this, 1.0f);
+    MR::addVelocityToGravity(this, cNum_exeAppearFromSnow_addVelocityToGravity_1);
     MR::attenuateVelocity(this, ::sBrakeAccelRate);
 
-    if (MR::isGreaterStep(this, 5)) {
+    if (MR::isGreaterStep(this, cStep_exeAppearFromSnow_1)) {
         if (MR::isBindedGround(this)) {
             setNerve(GET_NERVE(TrickRabbitFreeRun, TrickRabbitSnowNrvRunaway));
         }
@@ -372,7 +381,7 @@ void TrickRabbitSnow::exeAppearFromSnow() {
 void TrickRabbitSnow::exeRunaway() {
     MR::updateActorState(this, mStateRunaway);
 
-    if (mStateRunaway->isRunning() && MR::checkPassBckFrame(this, 3.0f)) {
+    if (mStateRunaway->isRunning() && MR::checkPassBckFrame(this, cNum_exeRunaway_checkPassBckFrame_1)) {
         startJumpSound();
     }
 
@@ -396,12 +405,12 @@ void TrickRabbitSnow::exeBlowDamage() {
 void TrickRabbitSnow::exeCaught() {
 
     if (MR::updateActorState(this, mStateCaught)) {
-        MR::endDemo(this, "\225\337\202\334\202\350" /* 捕まり */);
+        MR::endDemo(this, "捕まり");
         MR::forwardNode(mMsgCtrl);
         mSpotMarkLight->kill();
         mFootPrint->clear();
         MR::startSound(this, "SE_OJ_STAR_PIECE_BURST");
-        mStateWaitStart->_1D = true;
+        mStateWaitStart->mIsFallByGravity = true;
         setNerve(GET_NERVE(TrickRabbitFreeRun, TrickRabbitSnowNrvGiveUp));
 
         if (mListener != nullptr) {

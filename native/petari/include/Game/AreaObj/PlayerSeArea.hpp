@@ -6,13 +6,12 @@ class PlayerSeArea : public AreaObj {
 public:
     PlayerSeArea(int, const char*);
 
-    virtual ~PlayerSeArea();
-    virtual void init(const JMapInfoIter&);
-    virtual void movement();
+    virtual void init(const TableIter&) override;
+    virtual void movement() override;
 
-    virtual const char* getManagerName() const {
+    virtual const char* getManagerName() const override {
         return "PlayerSeArea";
     }
 
-    s32 _3C;
+    s32 mSeType;
 };

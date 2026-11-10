@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// JPA particles (JSystem/JParticle: JPABaseShape, JPAResource::setPTev/setCTev): the particle texture (0, or 1
+// Particles (Game/Particle: ParticleShape, ParticleResource::setPTev/setCTev): the particle texture (0, or 1
 // for child particles; its lookup moved by the indirect texture 2 when the emitter has one) combined with the
-// emitter's prm (register 0) and env (register 1) colours by its colour mode, alpha the texture's by prm's or prm's
-// alone; a second texture (3) multiplied in; the shape's alpha test; fog. The register file follows the game's changes
-// (per-emitter and per-particle colours).
+// emitter's prm and env colours (each particle's or corner's, from the vertex stage) by its colour mode, alpha the
+// texture's by prm's or prm's alone; a second texture (3) multiplied in; the shape's alpha test; fog. The colour
+// registers below are not written (zero) and not read.
 struct MaterialConstants {
-    float4 reg[4];        // the colour registers PREV, REG0 (prm), REG1 (env), REG2
+    float4 reg[4];        // the colour registers (layout kept; unused)
     float4 kcolor[4];
     float4 mat_color[2];
     float4 amb_color[2];
@@ -13,20 +13,31 @@ struct MaterialConstants {
     float4 fog;
     float4 fog_color;
     float4 alpha_ref;     // the alpha test's references (0-1)
-    float4 params;        // x: the colour mode (JPABaseShape::st_ca 0-5), y: the alpha mode (st_aa 0-1), z: flags (1
-                          // indirect, 2 second texture, 4 projected coordinates, 8 child: texture 1), w: unused
-    float4 test;          // x, y: the alpha test's compares 0 and 1, z: its logic (and, or, xor, xnor)
+    float4 params;        // x: the colour mode (ParticleShapeData::mColorMode 0-5), y: the alpha mode (0-1), z: flags (1
+                          // indirect, 2 second texture, 4 projected coordinates, 8 child: texture 1), w: an instanced
+                          // draw's first corner place (particle_instances.hlsl kQuadPlace)
+    float4 test;          // x, y: the alpha test's compares 0 and 1, z: its logic (and, or, xor, xnor), w: an instanced
+                          // draw's first corner coordinate (kQuadCoord)
 };
 
+#define NATIVE_PARTICLE 1
+#define NATIVE_COORDS 3
 #include "native_material.hlsli"
 
-void material_vertex(NativeVertex v, inout NativeVaryings o) {
-    // The game made the vertices: coordinate 0 final (with its projection's q in 2), 1 the corner's own; prm and env on them.
-    o.color = v.color0;
-    o.uv[0] = float4(v.uv[0], v.uv[2].x, 1.0);
-    o.uv[1] = float4(v.uv[1], 1.0, 0.0);
-    o.color1 = v.color1;
+// What the vertex stage hands on: coordinate 0 final (with its projection's q in z), 1 the corner's own; prm and env.
+void particle_out(float2 uv, float q, float2 corner_uv, float4 prm, float4 env, inout NativeVaryings o) {
+    o.color = prm;
+    o.uv[0] = float4(uv, q, 1.0);
+    o.uv[1] = float4(corner_uv, 1.0, 0.0);
+    o.color1 = env;
 }
+
+#if !NATIVE_OWN_VERTEX
+// Corners the game made (stripes, lines, points): coordinate 2 holds the projection's q.
+void material_vertex(NativeVertex v, inout NativeVaryings o) {
+    particle_out(v.uv[0], v.uv[2].x, v.uv[1], v.color0, v.color1, o);
+}
+#endif
 
 bool particle_compare(uint op, float a8, float r8) {
     switch (op) {
@@ -50,11 +61,11 @@ float4 material_color(NativeVaryings i) {
     if ((flags & 1u) != 0u) {
         // the game's indirect lookup: the indirect texture's alpha, blue, green less 128 by indirect matrix 0, in texels.
         uint w, h;
-        tex[0].GetDimensions(w, h);
-        const float3 sv = round(tex[2].Sample(samp[2], i.uv[1].xy).abg * 255.0) - 128.0;
+        TEX(0).GetDimensions(w, h);
+        const float3 sv = round(TEX(2).Sample(SAMP(2), i.uv[1].xy).abg * 255.0) - 128.0;
         uv += float2(dot(material.ind_mtx[0].xyz, sv), dot(material.ind_mtx[1].xyz, sv)) / float2(w, h);
     }
-    const float4 t = (flags & 8u) != 0u ? tex[1].Sample(samp[1], uv) : tex[0].Sample(samp[0], uv);
+    const float4 t = (flags & 8u) != 0u ? TEX(1).Sample(SAMP(1), uv) : TEX(0).Sample(SAMP(0), uv);
     const float3 prm = i.color.rgb;
     const float3 env = i.color1.rgb;
     float3 c;
@@ -69,7 +80,7 @@ float4 material_color(NativeVaryings i) {
     c = saturate(c);
     float a = uint(material.params.y) == 0u ? t.a * i.color.a : i.color.a;
     if ((flags & 2u) != 0u) {
-        const float4 t3 = tex[3].Sample(samp[3], i.uv[1].xy);
+        const float4 t3 = TEX(3).Sample(SAMP(3), i.uv[1].xy);
         c *= t3.rgb;
         a *= t3.a;
     }

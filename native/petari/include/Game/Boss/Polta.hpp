@@ -2,7 +2,7 @@
 
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/LiveActor/LiveActorGroup.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class ActorCameraInfo;
 class BombTeresa;
@@ -15,7 +15,6 @@ class PoltaSensorCtrl;
 
 class BombTeresaHolder : public DeriveActorGroup< BombTeresa > {
 public:
-    /// @brief Creates a new `BombTeresaHolder`.
     BombTeresaHolder();
 
     void disperseAll();
@@ -24,31 +23,29 @@ public:
 /// @brief Bouldergeist
 class Polta : public LiveActor {
 public:
-    /// @brief Creates a new `Polta`.
-    /// @param pName A pointer to the null-terminated name of the object.
     Polta(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void calcAnim();
-    virtual void makeActorAppeared();
-    virtual void kill();
-    virtual void makeActorDead();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void calcAnim() override;
+    virtual void makeActorAppeared() override;
+    virtual void kill() override;
+    virtual void makeActorDead() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     void initArm();
     void initPartsModel();
     void initSensor();
     void initBombTeresaHolder();
-    void initCamera(const JMapInfoIter&);
-    void appearBreakModel(const TVec3f&, const char*);
-    void appearBreakModelFirst(const TVec3f&);
-    void appearBreakModelMiddle(const TVec3f&);
-    void appearBreakModelLast(const TVec3f&);
+    void initCamera(const TableIter&);
+    void appearBreakModel(const Vec3f&, const char*);
+    void appearBreakModelFirst(const Vec3f&);
+    void appearBreakModelMiddle(const Vec3f&);
+    void appearBreakModelLast(const Vec3f&);
     void appearStarPiece(s32);
     bool isEndBreakModel() const;
     void killBreakModel();
@@ -69,9 +66,9 @@ public:
     ActorCameraInfo* mCameraInfo;
     ModelObj* mBreakModel;
     ModelObj* mFormationModel;
-    TQuat4f _B4;
-    TVec3f _C4;
-    TQuat4f _D0;
-    TVec3f _E0;
-    f32 _EC;
+    Quat4f mPoseQuat;
+    Vec3f mFront;
+    Quat4f mStartQuat;
+    Vec3f mStartPos;
+    f32 mRotateSpeed;
 };

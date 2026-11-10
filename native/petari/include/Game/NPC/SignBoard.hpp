@@ -6,15 +6,12 @@ class FollowCollisionArea;
 
 class SignBoard : public NPCActor {
 public:
-    /// @brief Creates a new `SignBoard`.
-    /// @param pName A pointer to the null-terminated name of the object.
     SignBoard(const char* pName);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
-    virtual void attackSensor(HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void control() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
 
     void exeWait();
 
-    u32 _15C;
 };

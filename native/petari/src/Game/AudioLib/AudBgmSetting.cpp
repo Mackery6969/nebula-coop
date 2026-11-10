@@ -17,7 +17,6 @@ namespace AudBgmSetting {
     // First 8 bytes are 16 nibbles of the mute state per track
     // byte 9 is a rate / 254
     // byte 10 is a rate / 254
-    // TODO: would this be better suited as a struct?
     static const MuteState cMuteState[][8] = {
         {
             {{0x11, 0x20, 0x00, 0x00, 0x11, 0x11, 0x11, 0x11}, 0xFE, 0x00},
@@ -280,7 +279,7 @@ namespace AudBgmSetting {
         {BGM_ASTRO_DOME_LOFT, STM_ASTRO_DOME_LOFT, 1.0f, 24, 102, 411536, 2160356},
     };
 
-    const MuteState* getMuteState(JAISoundID soundID, s32 track) {
+    const MuteState* getMuteState(SoundID soundID, s32 track) {
         if (cBgmSettingInfo[soundID.getWaveID()].mMuteStateIndex < 0) {
             return nullptr;
         }
@@ -288,7 +287,7 @@ namespace AudBgmSetting {
         return &cMuteState[cBgmSettingInfo[soundID.getWaveID()].mMuteStateIndex][track];
     }
 
-    u16 getExtraChordNum(JAISoundID soundID, s32 track) {
+    u16 getExtraChordNum(SoundID soundID, s32 track) {
         if (cBgmSettingInfo[soundID.getWaveID()].mExtraChordIndex < 0) {
             return -1;
         }

@@ -4,17 +4,16 @@
 
 class CameraTalk : public Camera {
 public:
-    CameraTalk(const char* pName = "\211\357\230\142\203\112\203\201\203\211" /* 会話カメラ */);
+    CameraTalk(const char* pName = "会話カメラ");
 
-    virtual void reset();
-    virtual CameraTargetObj* calc();
-    virtual CamTranslatorBase* createTranslator();
+    virtual void reset() override;
+    virtual CameraTargetObj* calc() override;
+    virtual void setParamFromChunk(const CameraParamChunk*) override;
 
-    void setParam(const TVec3f&, const TVec3f&, f32, f32);
+    void setParam(const Vec3f& pos, const Vec3f& up, f32 height, f32 dist);
 
-    TVec3f mPos;
-    TVec3f mUp;
+    Vec3f mPos;
+    Vec3f mUp;
     f32 mHeight;
     f32 mDist;
-    bool mAxisReversed;
 };

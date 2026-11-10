@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/MapObj/MapPartsFunction.hpp"
-#include <JSystem/JGeometry.hpp>
+#include <nebula_geometry.hpp>
 
 class MapPartsRailRotator : public MapPartsFunction {
 public:
@@ -9,13 +9,13 @@ public:
 
     MapPartsRailRotator(LiveActor*);
 
-    virtual ~MapPartsRailRotator() {
+    virtual ~MapPartsRailRotator() override {
     }
-    virtual void init(const JMapInfoIter&) override;
+    virtual void init(const TableIter&) override;
     virtual bool isWorking() const override;
     virtual void start() override;
     virtual void end() override;
-    virtual f32 getJMapArgAngleFactor() const {
+    virtual f32 getPlacementArgAngleFactor() const {
         return 1.0f;
     }
 
@@ -26,10 +26,10 @@ public:
     void updateHostRotateMtx();
     void updateInfo(s32);
     bool isReachedTargetAngle() const;
-    void calcRotateAxisDir(AxisType, TVec3f*) const;
+    void calcRotateAxisDir(AxisType, Vec3f*) const;
     void updateRotateMtx(AxisType, f32);
 
-    void initWithRotateMtx(const JMapInfoIter&, MtxPtr);
+    void initWithRotateMtx(const TableIter&, MtxPtr);
 
     void exeRotate();
     void exeWait() {
@@ -43,7 +43,7 @@ public:
     f32 mRotateSpeed;
     f32 mTargetAngle;
     f32 mAngle;
-    TPos3f _2C;
-    TPos3f _5C;
+    Pos3f mBaseRotateMtx;
+    Pos3f mRotateMtx;
     MtxPtr mHostRotateMtx;
 };

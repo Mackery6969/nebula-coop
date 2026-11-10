@@ -9,44 +9,32 @@ class CameraParamChunk;
 class CameraParamChunkEvent;
 class CameraParamChunkHolder;
 
-#define NR_FIFO_ITEMS 2
-
 class CameraManEvent : public CameraMan {
 public:
-    enum EPriority {
-
-    };
-
-    class ChunkFIFOItem {
-    public:
-        ChunkFIFOItem();
-
+    // An event camera's chunk with its target and the blend frame start/end asked for.
+    struct Request {
         CameraParamChunkEvent* mChunk;
         CameraTargetArg mTargetArg;
         u32 mFrame;
     };
 
-    class ChunkFIFOItemPair {
-    public:
-        inline ChunkFIFOItemPair() {
-        }
-
-        ChunkFIFOItem mFirst;
-        ChunkFIFOItem mSecond;
+    // One event priority's camera: mRequested is the start made since the last calc, which calc makes mActive.
+    struct PrioritySlot {
+        Request mActive;
+        Request mRequested;
     };
 
     CameraManEvent(CameraHolder*, CameraParamChunkHolder*, const char*);
-    virtual ~CameraManEvent();
 
-    virtual void init(const JMapInfoIter&);
+    virtual void init(const TableIter&) override;
 
-    virtual void calc();
-    virtual void notifyActivate();
-    virtual void notifyDeactivate();
-    virtual bool isInterpolationOff() const;
-    virtual bool isCollisionOff() const;
-    virtual bool isZeroFrameMoveOff() const;
-    virtual bool isCorrectingErpPositionOff() const;
+    virtual void calc() override;
+    virtual void notifyActivate() override;
+    virtual void notifyDeactivate() override;
+    virtual bool isInterpolationOff() const override;
+    virtual bool isCollisionOff() const override;
+    virtual bool isZeroFrameMoveOff() const override;
+    virtual bool isCorrectingErpPositionOff() const override;
 
     void start(s32, const char*, const CameraTargetArg&, s32);
     void end(s32, const char*, s32);
@@ -56,30 +44,29 @@ public:
     u32 getAnimCameraFrame(s32, const char*) const;
     void pauseOnAnimCamera(s32, const char*);
     void pauseOffAnimCamera(s32, const char*);
-    void updateChunkFIFO();
+    void takeRequests();
     void applyChunk();
-    void checkReset(ChunkFIFOItem*);
+    void checkReset(Request*);
     void changeCamera();
     void setExtraParam();
     void setVPanParam();
     void resetCameraIfRequested();
     void setSafePose();
     CameraParamChunkEvent* findChunk(s32, const char*) const;
-    void requestChunk(CameraParamChunkEvent*, EPriority, const CameraTargetArg&, s32);
-    bool cleanChunkFIFO(CameraParamChunk*);
-    bool isChunkFIFOEmpty() const;
+    void request(CameraParamChunkEvent*, u32 priority, const CameraTargetArg&, s32);
+    bool removeRequest(CameraParamChunk*);
+    bool hasNoRequest() const;
     void sendStartInterpolateFrame(CameraParamChunkEvent*, s32);
     s32 getInterpolateFrame(CameraParamChunkEvent*, s32) const;
     void sendFinishInterpolateFrame(CameraParamChunkEvent*, s32);
-    s32 searchPriority(CameraParamChunk*) const;
-    bool isInFIFO(CameraParamChunk*) const;
+    bool isRequested(CameraParamChunk*) const;
     bool isAnimCameraEnd(s32, const char*) const;
 
     CameraHolder* mHolder;
     CameraParamChunkHolder* mChunkHolder;
     Camera* mCamera;
-    ChunkFIFOItemPair mItems[NR_FIFO_ITEMS];
+    static const u32 cPriorityNum = 2;
+    PrioritySlot mSlots[cPriorityNum];
     CameraParamChunkEvent* mChunk;
-    u32 _B8;
     bool mRequestReset;
 };

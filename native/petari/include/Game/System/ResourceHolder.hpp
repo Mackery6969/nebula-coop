@@ -5,10 +5,7 @@
 #include "Game/System/AssetFolder.hpp"
 #include "Game/System/NebulaArena.hpp"
 
-class MaterialAnmBuffer;
-class J3DModelData;
-
-typedef const char* ArchiveName;
+class ModelData;
 
 class ResourceHolder {
 public:
@@ -16,50 +13,25 @@ public:
 
     const char* getMotionName(u32) const;
     bool isExistMaterialAnm() const;
-    void newMaterialAnmBuffer(J3DModelData*);
+    // Its material animations find their materials in the model.
+    void bindMaterialAnimations(ModelData*);
     void newBckCtrl();
 
     Mtx44& getInitEffectMtx(int, int) const;
     void initializeArc(AssetFolder&);
-    u32 initEachResTable(ResTable**, AssetFolder*, const ArchiveName*);
 
-    static s32 count(AssetFolder*, const char*, s32);
-    void mount(AssetFolder*, s32);
+    // The tables: one per kind from NEBULA_ASSET_KIND_MODEL to _MATERIAL_TABLE, then the file table.
+    static constexpr u32 cTableCount = 12;
+    static ResTable* ResourceHolder::* const cTables[cTableCount];
+    // The cTables slot of a NEBULA_ASSET_KIND_*.
+    static u32 tableOf(u32);
+    // The files below a folder, by kind (NEBULA_ASSET_KIND_COUNT counts).
+    static void count(const AssetFolder&, s32, u32*);
+    void mount(const AssetFolder&, s32);
 
-    ResFileInfo* createAndRegisterObject(const char*, void*);
-    void backupInitMaterialData(const J3DModelData*);
+    ResFileInfo* createAndRegisterObject(const AssetFolder::Item&);
+    void backupInitMaterialData(const ModelData*);
 
-    // bool checkCorrectMotionsAndModel(J3DModelData*, const char*) const;
-
-    bool isCreatedAtSameHeap(ResourceHolder* pOther) const {
-        return mHeap == pOther->mHeap;
-    }
-
-    // void makeStringAnmInfoAll(char*, u32) const;
-    // bool verifyBckData(J3DModelData*, const char*) const;
-    // bool verifyBvaData(J3DModelData*, const char*) const;
-    // bool verifyBtpData(J3DModelData*, const char*) const;
-    // bool verifyModelData(J3DModelData*, const char*) const;
-    // bool verifyFileSize(u32, const char*) const;
-
-    static int findBckIndex(const ResourceHolder* pResHolder, const char* pName) {
-        return pResHolder->mMotionResTable->getResIndex(pName);
-    }
-    static int findBpkIndex(const ResourceHolder* pResHolder, const char* pName) {
-        return pResHolder->mBpkResTable->getResIndex(pName);
-    }
-    static int findBtkIndex(const ResourceHolder* pResHolder, const char* pName) {
-        return pResHolder->mBtkResTable->getResIndex(pName);
-    }
-    static int findBtpIndex(const ResourceHolder* pResHolder, const char* pName) {
-        return pResHolder->mBtpResTable->getResIndex(pName);
-    }
-    static int findBrkIndex(const ResourceHolder* pResHolder, const char* pName) {
-        return pResHolder->mBrkResTable->getResIndex(pName);
-    }
-    static int findBvaIndex(const ResourceHolder* pResHolder, const char* pName) {
-        return pResHolder->mBvaResTable->getResIndex(pName);
-    }
 
     const ResTable* getBvaResTable() const {
         return mBvaResTable;
@@ -68,6 +40,14 @@ public:
     const char* getModelName() const {
         return mModelResTable->getResName(static_cast<u32>(0));
     }
+
+    // The archive's file of that name (a table: a .bcsv), or, when it has none, its lender's. Null when neither has it.
+    void* findFile(const char* pName) const;
+    // The archive's sound animation (.bas) of that name, or its lender's. Null when neither has it.
+    void* findSoundAnimation(const char* pName) const;
+    // Each of its animations the lender has one of the same name and kind of plays as the lender's does (once, looping,
+    // back and forth): the class's code waits for the ends of those it plays once.
+    void takePlayModesFromLender();
 
     ResTable* mModelResTable;
     ResTable* mMotionResTable;
@@ -82,10 +62,13 @@ public:
     ResTable* mBanmtResTable;
     ResTable* mFileInfoTable;
     ResTable mDefaultTable;
-    MaterialAnmBuffer* mMaterialBuf;
+    bool mMaterialBound;
     BckCtrl* mBckCtrl;
-    Mtx44* mBackupMaterialData;
+    Mtx44* mBackupMaterialData;  // material n's slots from mBackupMaterialFirst[n]
+    u32* mBackupMaterialFirst;
     AssetFolder* mArchive;
-    NebulaArena* mHeap;
-    u32 mTotalResourceSize;
+    NebulaArena* mArena;
+    // A mod's archive standing for a game class's (luma.json object_classes "like"): the game class's archive, whose
+    // tables and sound animations its own lacks are read from there. Its models and animations are never lent.
+    const ResourceHolder* mLender;
 };

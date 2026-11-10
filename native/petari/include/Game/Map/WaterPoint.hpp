@@ -1,23 +1,22 @@
 #pragma once
 
-#include <JSystem/JGeometry.hpp>
+#include <nebula_geometry.hpp>
 #include <NebulaGpu.h>
 #include <nebula_math.h>
 
 class WaterPoint {
 public:
-    WaterPoint(const TVec3f&, const TVec3f&, f32, f32, f32, f32);
+    WaterPoint(const Vec3f&, const Vec3f&, f32, f32, f32);
 
     void initAfterPlacement();
-    void updatePos(f32, f32, f32, f32, f32);
+    void updatePos(f32 waveTheta1, f32 waveTheta2, f32 waveHeight1, f32 waveHeight2, f32 heightRate);
     f32 calcHeight(f32, f32, f32, f32, f32, f32) const;
 
-    TVec3f mPosition;
-    TVec3f mOrigPos;
+    Vec3f mPosition;
+    Vec3f mOrigPos;
     f32 mCoordAcrossRail;
     f32 mCoordOnRail;
-    TVec3f mUpVec;
+    Vec3f mUpVec;
     f32 mHeight;
-    f32 mFlowSpeedRate;
     u8 mAlpha;
 };

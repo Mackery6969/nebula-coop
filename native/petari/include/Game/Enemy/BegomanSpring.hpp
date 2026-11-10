@@ -11,25 +11,29 @@ class BegomanSpring : public BegomanBase {
 public:
     BegomanSpring(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void appear();
-    virtual void makeActorDead();
-    virtual void kill();
-    virtual void control();
-    virtual void calcAnim();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual u32 getKind() const {
-        return 2;
+    virtual void init(const TableIter& rIter) override;
+    virtual void appear() override;
+    virtual void makeActorDead() override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void calcAnim() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual u32 getKind() const override {
+        return Kind_Spring;
     }
-    virtual bool onTouchElectric(const TVec3f& rPos, const TVec3f& rDirection);
-    virtual bool setNerveReturn();
-    virtual const Nerve* getNerveWait();
+    virtual bool onTouchElectric(const Vec3f& rPos, const Vec3f& rDirection) override;
+    virtual bool setNerveReturn() override;
+    virtual const Nerve* getNerveWait() override;
 
-    void initEventCameras(const JMapInfoIter& rIter);
+    void initEventCameras(const TableIter& rIter);
+    bool isNrvStarPointerBindable() const;
+    bool isNrvBroken() const;
+    void keepVelocityAlongGravity();
+    void tryHopEndBefore(s32 endStep);
     void exeNoCalcWait();
     void exeWait();
     void exeSignAttack();
@@ -62,12 +66,12 @@ public:
 
     MultiEventCamera* mEventCamera;
     BegomanSpringHead* mHead;
-    TPos3f mHeadMatrix;
-    TPos3f mWaterColumnMatrix;
-    TVec3f mCameraStartPos;
+    Pos3f mHeadMatrix;
+    Pos3f mWaterColumnMatrix;
+    Vec3f mCameraStartPos;
     bool mIsCameraActive;
     ActorCameraInfo* mCameraInfo;
-    s32 mType;
+    bool mIsHideType;
     BegomanBaby* mBaby;
-    TVec3f mHidePos;
+    Vec3f mHidePos;
 };

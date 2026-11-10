@@ -3,9 +3,7 @@
 #include "Game/GameAudio/AudStageBgmWrap.hpp"
 #include "Game/System/NebulaMods.hpp"
 #include "Game/Util/StringUtil.hpp"
-#include <JSystem/JAudio2/JAISound.hpp>
-
-// TODO: bgm state enum
+#include "Game/Sound/Sound.hpp"
 
 namespace {
     struct StageBgm {
@@ -14,7 +12,7 @@ namespace {
         u32 mBgmStates[8];
     };
 
-    StageBgm sStageBgmSet[] = {
+    const StageBgm sStageBgmSet[] = {
         {
             "OceanRingGalaxy",
             {-1, MBGM_GALAXY_03, MBGM_GALAXY_18, MBGM_GALAXY_01_TOMB, -1, -1},
@@ -129,7 +127,7 @@ u32 AudStageBgmTable::getBgmId(const char* pStageName, s32 bgmNo) {
         return modTrack;
     }
 
-    JAISoundID cometBgm = AudStageBgmWrap::getCometEventBgm(pStageName);
+    SoundID cometBgm = AudStageBgmWrap::getCometEventBgm(pStageName);
     if (cometBgm != -1) {
         return cometBgm;
     }

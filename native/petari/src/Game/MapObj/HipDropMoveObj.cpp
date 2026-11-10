@@ -16,21 +16,18 @@ namespace NrvHipDropMoveObj {
     NEW_NERVE(HostTypeDone, HipDropMoveObj, Done);
 };  // namespace NrvHipDropMoveObj
 
-HipDropDemoMoveObj::~HipDropDemoMoveObj() {
-}
-
 HipDropMoveObj::HipDropMoveObj(const char* pName) : LiveActor(pName), mModelName() {
 }
 
-void HipDropMoveObj::init(const JMapInfoIter& rIter) {
+void HipDropMoveObj::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     MR::getObjectName(&mModelName, rIter);
     initModelManagerWithAnm(mModelName, nullptr, false);
     MR::connectToSceneMapObj(this);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initSound(4, false);
     initHitSensor(1);
-    HitSensor* pSensor = MR::addHitSensorAtJointMapObj(this, "body", ::cSwitchJointName, 0, 225.0f, TVec3f(0.0f, 0.0f, 0.0f));
+    HitSensor* pSensor = MR::addHitSensorAtJointMapObj(this, "body", ::cSwitchJointName, 0, 225.0f, Vec3f(0.0f, 0.0f, 0.0f));
     MR::initCollisionParts(this, mModelName, pSensor, MR::getJointMtx(this, ::cMoveJointName));
     MR::setClippingTypeSphereContainsModelBoundingBox(this, 100.0f);
     MR::setGroupClipping(this, rIter, 8);
@@ -40,7 +37,7 @@ void HipDropMoveObj::init(const JMapInfoIter& rIter) {
     makeActorAppeared();
 }
 
-bool HipDropMoveObj::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool HipDropMoveObj::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* pReceiver) {
     if (MR::isMsgPlayerHipDropFloor(msg)) {
         if (!isNerve(GET_NERVE(HipDropMoveObj, HostTypeWait))) {
             return false;
@@ -137,15 +134,12 @@ HipDropDemoMoveObj::HipDropDemoMoveObj(const char* pName) : HipDropMoveObj(pName
     mMtx.identity();
 }
 
-HipDropMoveObj::~HipDropMoveObj() {
-}
-
 void HipDropDemoMoveObj::moveStart() {
     MR::startBckPlayer("Wait");
-    TMtx34f playerBaseMtx;
+    Mtx34f playerBaseMtx;
     playerBaseMtx.set(MR::getPlayerDemoActor()->getBaseMtx());
 
-    TMtx34f invJointMtx;
+    Mtx34f invJointMtx;
     invJointMtx.set(MR::getJointMtx(this, ::cMoveJointName));
     invJointMtx.invert(invJointMtx);
     mMtx.concat(invJointMtx, playerBaseMtx);
@@ -153,10 +147,10 @@ void HipDropDemoMoveObj::moveStart() {
 
 void HipDropDemoMoveObj::moving() {
     if (MR::isDemoActive()) {
-        TPos3f stack_8;
-        stack_8.set(MR::getJointMtx(this, ::cMoveJointName));
-        stack_8.concat(stack_8, mMtx);
-        stack_8.getTrans(MR::getPlayerDemoActor()->mPosition);
-        MR::setPlayerBaseMtx((MtxPtr)&stack_8);
+        Pos3f playerMtx;
+        playerMtx.set(MR::getJointMtx(this, ::cMoveJointName));
+        playerMtx.concat(playerMtx, mMtx);
+        playerMtx.getTrans(MR::getPlayerDemoActor()->mPosition);
+        MR::setPlayerBaseMtx(playerMtx);
     }
 }

@@ -1,12 +1,14 @@
 #include "Game/MapObj/CoinGroup.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/Coin.hpp"
 #include "Game/Util.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const s32 sAppearCameraTime = 30;
-    static const s32 sAppearDelayTime = 3;
-    static const s32 sDemoAppearTime = 90;
+    static const s32 sAppearCameraTime = NebulaFrameClock::stepsOfMilliseconds(500);
+    NEBULA_TUNABLE(s32, sAppearDelayTime, 3);
+    static const s32 sDemoAppearTime = NebulaFrameClock::stepsOfMilliseconds(1500);
 };  // namespace
 
 namespace NrvCoinGroup {
@@ -19,12 +21,13 @@ namespace NrvCoinGroup {
 CoinGroup::CoinGroup(const char* pName) : LiveActor(pName), mCoinArray(), mCameraInfo(), mCoinCount(), mTimeLimit(-1), mIsPurpleCoinGroup() {
 }
 
-void CoinGroup::init(const JMapInfoIter& rIter) {
+void CoinGroup::init(const TableIter& rIter) {
     s32 count = 0;
-    MR::getJMapInfoArg0NoInit(rIter, &count);
-    mCoinCount = count;
+    MR::getPlacementArg0NoInit(rIter, &count);
+    // A count under zero is no coins (the count is unsigned).
+    mCoinCount = count > 0 ? count : 0;
     mTimeLimit = -1;
-    MR::getJMapInfoArg1NoInit(rIter, &mTimeLimit);
+    MR::getPlacementArg1NoInit(rIter, &mTimeLimit);
     mCoinArray = new Coin*[mCoinCount];
 
     for (u32 i = 0; i < mCoinCount; i++) {
@@ -34,9 +37,9 @@ void CoinGroup::init(const JMapInfoIter& rIter) {
             mCoinArray[i] = static_cast< Coin* >(MR::createCoin(this, getCoinName()));
         }
 
-        mCoinArray[i]->setShadowAndPoseModeFromJMapIter(rIter);
+        mCoinArray[i]->setShadowAndPoseModeFromPlacementIter(rIter);
 
-        if (mCoinArray[i]->_BA) {
+        if (mCoinArray[i]->mIsPoseFromRotation) {
             MR::initDefaultPos(mCoinArray[i], rIter);
         }
 
@@ -49,7 +52,7 @@ void CoinGroup::init(const JMapInfoIter& rIter) {
     placementCoin();
 
     if (MR::tryRegisterDemoCast(this, rIter)) {
-        MR::registerDemoActionFunctor(this, MR::Functor(this, &CoinGroup::appearCoinAll), "\203\122\203\103\203\223\217\157\214\273" /* コイン出現 */);
+        MR::registerDemoActionFunctor(this, MR::Functor(this, &CoinGroup::appearCoinAll), "コイン出現");
     } else if (MR::useStageSwitchReadAppear(this, rIter)) {
         MR::connectToSceneMapObjMovement(this);
         MR::syncStageSwitchAppear(this);
@@ -98,7 +101,7 @@ void CoinGroup::appearCoinAllTimer() {
     }
 }
 
-void CoinGroup::setCoinTrans(s32 coinIndex, const TVec3f& rPos) {
+void CoinGroup::setCoinTrans(s32 coinIndex, const Vec3f& rPos) {
     Coin* coin = mCoinArray[coinIndex];
     coin->mPosition.x = rPos.x;
     coin->mPosition.y = rPos.y;
@@ -109,7 +112,7 @@ void CoinGroup::appear() {
     LiveActor::appear();
 
     if (isNerve(GET_NERVE(CoinGroup, CoinGroupNrvDemoAppear))) {
-        MR::requestStartDemo(this, "\217\157\214\273" /* 出現 */, GET_NERVE(CoinGroup, CoinGroupNrvDemoAppear), GET_NERVE(CoinGroup, CoinGroupNrvTryStartDemo));
+        MR::requestStartDemo(this, "出現", GET_NERVE(CoinGroup, CoinGroupNrvDemoAppear), GET_NERVE(CoinGroup, CoinGroupNrvTryStartDemo));
     }
 }
 
@@ -138,7 +141,7 @@ void CoinGroup::exeDemoAppear() {
     }
 
     if (MR::isGreaterStep(this, ::sDemoAppearTime)) {
-        MR::endDemo(this, "\217\157\214\273" /* 出現 */);
+        MR::endDemo(this, "出現");
         MR::endActorCamera(this, mCameraInfo, false);
         setNerve(GET_NERVE(CoinGroup, CoinGroupNrvKill));
         kill();

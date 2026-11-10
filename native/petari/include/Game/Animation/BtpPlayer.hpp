@@ -4,8 +4,7 @@
 
 class BtpPlayer : public MaterialAnmPlayerBase {
 public:
-    BtpPlayer(const ResourceHolder*, J3DModelData*);
+    BtpPlayer(const ResourceHolder*, ModelData*);
 
-    virtual void attach(J3DAnmBase*, J3DModelData*);
-    virtual void detach(J3DAnmBase*, J3DModelData*);
+    virtual void apply(Clip*, Model*) override;
 };

@@ -1,7 +1,8 @@
 #include "Game/MapObj/ElectricRailHolder.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
-#include "JSystem/J3DGraphBase/J3DNativeMaterial.hpp"
+#include "Game/Render/FrameList.hpp"
+#include "Game/Render/TypedDraw.hpp"
+#include "Game/Render/Material.hpp"
+#include "Game/Render/Model.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/ModelObj.hpp"
 #include "Game/MapObj/ElectricRailMoving.hpp"
@@ -14,16 +15,20 @@
 #include "Game/Util/ModelUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/RailUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    const f32 cHitSensorRadius = 30.0f;
+    NEBULA_TUNABLE(f32, cHitSensorRadius, 30.0f);
+    // Draw numbers a rail owns among the holder's: its place in the list times this. Room for the strips of a rail
+    // (two planes a level) or its sent mesh.
+    NEBULA_TUNABLE(u32, cPartsPerRail, 1024);
 
     ElectricRailHolder* getHolder() {
         return MR::getSceneObj< ElectricRailHolder >(SceneObj_ElectricRailHolder);
     }
 
-    bool isNearRail(const LiveActor* pActor, const HitSensor* pSensor, TVec3f* pRailPos, TVec3f* pRailDir) {
-        TVec3f railPos;
+    bool isNearRail(const LiveActor* pActor, const HitSensor* pSensor, Vec3f* pRailPos, Vec3f* pRailDir) {
+        Vec3f railPos;
         f32 coord = MR::calcNearestRailPos(&railPos, pActor, pSensor->mPosition);
 
         const f32 sensorRadius = pSensor->mRadius;
@@ -55,7 +60,7 @@ void ElectricRailHolder::calcAnim() {
         return;
     }
 
-    for (s32 i = 0; i < ARRAY_SIZE(mRailModels); i++) {
+    for (s32 i = 0; i < mRailModels.size(); i++) {
         if (mRailModels[i] != nullptr) {
             mRailModels[i]->calcAnim();
         }
@@ -67,8 +72,6 @@ void ElectricRailHolder::draw() const {
         return;
     }
 
-    initDraw();
-
     for (s32 i = 0; i < mRailItems.size(); i++) {
         RailItem* pItem = mRailItems[i];
 
@@ -76,18 +79,17 @@ void ElectricRailHolder::draw() const {
             continue;
         }
 
-        J3DMatPacket* pPacket = pItem->mMatPacket;
-        J3DNativeMaterial::send(pItem->mMatPacket->getMaterial(), pItem->mMatPacket->mpTexture, pItem->mMatPacket->getSnapshot());
+        // A rail skipped (clipped, hidden) does not renumber the rails after it.
+        Frame::setPart(static_cast< u32 >(i) * ::cPartsPerRail);
+        MaterialEntry* pPacket = pItem->mMatPacket;
+        MaterialDraw material(pPacket->getMaterial());
+        material.sendOwn(pPacket->getFirstMeshEntry()->mMaterial, pPacket->getMaterial());
 
-        if (pPacket->mpShapePacket->mpSnapshot != nullptr) {
-            J3DNativeMaterial::sendDiffered(pPacket->mpShapePacket->mpSnapshot);
-        }
-
-        pItem->mHost->draw();
+        pItem->mHost->drawWith(material);
     }
 }
 
-bool ElectricRailHolder::isTouchRail(const HitSensor* pSensor, TVec3f* pVec1, TVec3f* pVec2) const {
+bool ElectricRailHolder::isTouchRail(const HitSensor* pSensor, Vec3f* pVec1, Vec3f* pVec2) const {
     if (!mIsActive) {
         return false;
     }
@@ -100,7 +102,7 @@ bool ElectricRailHolder::isTouchRail(const HitSensor* pSensor, TVec3f* pVec1, TV
         }
 
         if (pItem->mRailType == ElectricRail_RedMoving || pItem->mRailType == ElectricRail_YellowMoving) {
-            if (pItem->mHost->isTouchRail(pSensor, pVec1, pVec2)) {
+            if (static_cast< const ElectricRailMoving* >(pItem->mHost)->isTouchRail(pSensor, pVec1, pVec2)) {
                 return true;
             }
         } else {
@@ -127,25 +129,20 @@ void ElectricRailHolder::control() {
         return;
     }
 
-    for (s32 i = 0; i < 4; i++) {
+    for (s32 i = 0; i < mRailModels.size(); i++) {
         if (mRailModels[i] != nullptr) {
             mRailModels[i]->movement();
         }
     }
 }
 
-void ElectricRailHolder::initDraw() const {
-    J3DNativeShape::setPosition(0, MR::getCameraViewMtx());
-    J3DPass::positionMatrix(0);
-    J3DPass::textureMatrix(0, 0);
-}
 
 void ElectricRailFunction::registerRail(const LiveActor* pActor, ElectricRailType railType) {
     MR::createSceneObj(SceneObj_ElectricRailHolder);
     ::getHolder()->registerRail(pActor, railType);
 }
 
-bool ElectricRailFunction::isTouchRail(const HitSensor* pSensor, TVec3f* pVec1, TVec3f* pVec2) {
+bool ElectricRailFunction::isTouchRail(const HitSensor* pSensor, Vec3f* pVec1, Vec3f* pVec2) {
     if (!MR::isExistSceneObj(SceneObj_ElectricRailHolder)) {
         return false;
     }
@@ -157,14 +154,14 @@ f32 ElectricRailFunction::getHitSensorRadius() {
     return ::cHitSensorRadius;
 }
 
-void ElectricRailHolder::init(const JMapInfoIter& rIter) {
+void ElectricRailHolder::init(const TableIter& /*rIter*/) {
     MR::connectToScene(this, MR::MovementType_MapObjDecoration, MR::CalcAnimType_MapObj, MR::DrawBufferType_None, MR::DrawType_ElectricRailHolder);
 
     MR::invalidateClipping(this);
 
     MR::registerDemoSimpleCastAll(this);
 
-    MR::createAdaptorAndConnectToDrawBloomModel("\223\144\214\202\203\214\201\133\203\213\203\165\203\213\201\133\203\200\225\140\211\346" /* 電撃レールブルーム描画 */, MR::Functor(this, &ElectricRailHolder::draw));
+    MR::createAdaptorAndConnectToDrawBloomModel("電撃レールブルーム描画", MR::Functor(this, &ElectricRailHolder::draw));
 
     makeActorAppeared();
 }
@@ -175,68 +172,41 @@ void ElectricRailHolder::registerRail(const LiveActor* pActor, ElectricRailType 
     }
 
     RailItem* pItem = new RailItem();
-    (*mRailItems.end()) = pItem;
-    (*mRailItems.end())->mRailType = railType;
-    (*mRailItems.end())->mHost = static_cast< const ElectricRailMoving* >(pActor);
+    pItem->mRailType = railType;
+    pItem->mHost = static_cast< const ElectricRailDrawn* >(pActor);
 
-    J3DModel* pModel = MR::getJ3DModel(mRailModels[railType]);
-    J3DMatPacket* pPacket = pModel->getMatPacket(MR::getMaterialNo(pModel, "SparkMat"));
-    (*mRailItems.end())->mMatPacket = pPacket;
+    Model* pModel = MR::getModel(mRailModels[railType]);
+    MaterialEntry* pPacket = pModel->getMaterialEntry(MR::getMaterialNo(pModel, "SparkMat"));
+    pItem->mMatPacket = pPacket;
 
-    mRailItems.mCount++;
+    // push_back moves the list to a larger store past its 64 inline places (a stage with more electric rails).
+    mRailItems.push_back(pItem);
 }
 
+namespace {
+    // By ElectricRailType: the model, and its colour frame (0 yellow, 1 red).
+    struct RailModelInfo {
+        const char* mName;
+        const char* mModelName;
+        f32 mColorFrame;
+    };
+
+    const RailModelInfo cRailModelInfos[] = {
+        {"電撃レールモデル(黄)", "ElectricRail", 0.0f},
+        {"電撃レールモデル(赤)", "ElectricRail", 1.0f},
+        {"移動電撃レールモデル(黄)", "ElectricRailMoving", 0.0f},
+        {"移動電撃レールモデル(赤)", "ElectricRailMoving", 1.0f},
+    };
+}  // namespace
+
 ModelObj* ElectricRailHolder::createModel(ElectricRailType railType) const {
-    ModelObj* pModel;
-    const char* pModelName;
-    const char* pName;
+    const RailModelInfo& rInfo = cRailModelInfos[railType];
+    ModelObj* pModel =
+        new ModelObj(rInfo.mName, rInfo.mModelName, nullptr, MR::DrawBufferType_None, MR::MovementType_None, MR::CalcAnimType_None, false);
+    pModel->initWithoutIter();
 
-    switch (railType) {
-    case ElectricRail_Red:
-        pModelName = "ElectricRail";
-        pName = "\223\144\214\202\203\214\201\133\203\213\203\202\203\146\203\213(\211\251)" /* 電撃レールモデル(黄) */;
-        pModel = new ModelObj(pName, pModelName, nullptr, MR::DrawBufferType_None, MR::MovementType_None, MR::CalcAnimType_None, false);
-        pModel->initWithoutIter();
-
-        MR::startBtk(pModel, "ElectricRail");
-        MR::startBrk(pModel, "ElectricRail");
-        MR::setBrkFrameAndStop(pModel, 0.0f);
-
-        break;
-    case ElectricRail_Yellow:
-        pModelName = "ElectricRail";
-        pName = "\223\144\214\202\203\214\201\133\203\213\203\202\203\146\203\213(\220\324)" /* 電撃レールモデル(赤) */;
-        pModel = new ModelObj(pName, pModelName, nullptr, MR::DrawBufferType_None, MR::MovementType_None, MR::CalcAnimType_None, false);
-        pModel->initWithoutIter();
-
-        MR::startBtk(pModel, "ElectricRail");
-        MR::startBrk(pModel, "ElectricRail");
-        MR::setBrkFrameAndStop(pModel, 1.0f);
-
-        break;
-    case ElectricRail_YellowMoving:
-        pModelName = "ElectricRailMoving";
-        pName = "\210\332\223\256\223\144\214\202\203\214\201\133\203\213\203\202\203\146\203\213(\211\251)" /* 移動電撃レールモデル(黄) */;
-        pModel = new ModelObj(pName, pModelName, nullptr, MR::DrawBufferType_None, MR::MovementType_None, MR::CalcAnimType_None, false);
-        pModel->initWithoutIter();
-
-        MR::startBtk(pModel, "ElectricRailMoving");
-        MR::startBrk(pModel, "ElectricRailMoving");
-        MR::setBrkFrameAndStop(pModel, 0.0f);
-
-        break;
-    case ElectricRail_RedMoving:;
-        pModelName = "ElectricRailMoving";
-        pName = "\210\332\223\256\223\144\214\202\203\214\201\133\203\213\203\202\203\146\203\213(\220\324)" /* 移動電撃レールモデル(赤) */;
-        pModel = new ModelObj(pName, pModelName, nullptr, MR::DrawBufferType_None, MR::MovementType_None, MR::CalcAnimType_None, false);
-        pModel->initWithoutIter();
-
-        MR::startBtk(pModel, "ElectricRailMoving");
-        MR::startBrk(pModel, "ElectricRailMoving");
-        MR::setBrkFrameAndStop(pModel, 1.0f);
-
-        break;
-    }
-
+    MR::startBtk(pModel, rInfo.mModelName);
+    MR::startBrk(pModel, rInfo.mModelName);
+    MR::setBrkFrameAndStop(pModel, rInfo.mColorFrame);
     return pModel;
 }

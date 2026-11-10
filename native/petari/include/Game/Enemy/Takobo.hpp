@@ -10,15 +10,15 @@ class Takobo : public LiveActor {
 public:
     Takobo(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void kill();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
     void initSensor();
     void generateCoin();
@@ -36,24 +36,19 @@ public:
     void exeStunStart();
     void exeStun();
     void exeIce();
-    void endDpdPointed();
-    void exeDpdPointed();
+    void endPointerAimed();
+    void exePointerAimed();
 
-    u32 _8C;
-    TVec3f _90;
-    s32 _9C;
-    u8 _A0;
-    u8 _A1;
-    u8 _A2;
-    u8 _A3;
-    TVec3f _A4;
-    TVec3f _B0;
-    bool _BC;
-    f32 _C0;
-    f32 _C4;
-    f32 _C8;
-    f32 _CC;
-    s32 _D0;
+    Vec3f mFront;
+    bool mIsCheckFireGround;
+    Vec3f mInitPos;
+    Vec3f mMoveDir;
+    bool mIsMoveBack;
+    f32 mMoveSpeed;
+    f32 mMoveRange;
+    f32 mMoveStart;
+    f32 mMoveEnd;
+    s32 mMoveStep;
     SpinningBox* mBox;
     AnimScaleController* mScaleController;
     SpinHitController* mSpinController;

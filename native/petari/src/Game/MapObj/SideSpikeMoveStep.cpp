@@ -8,18 +8,17 @@
 
 namespace NrvSideSpikeMoveStep {
     NEW_NERVE(SideSpikeMoveStepNrvWait, SideSpikeMoveStep, Wait);
-    NEW_NERVE_ONEND(SideSpikeMoveStepNrvDPDStop, SideSpikeMoveStep, DPDStop, DPDStop);
-    NEW_NERVE_ONEND(SideSpikeMoveStepNrvDPDStopSync, SideSpikeMoveStep, DPDStopSync, DPDStopSync);
+    NEW_NERVE_ONEND(SideSpikeMoveStepNrvPointerStop, SideSpikeMoveStep, PointerStop, PointerStop);
+    NEW_NERVE_ONEND(SideSpikeMoveStepNrvPointerStopSync, SideSpikeMoveStep, PointerStopSync, PointerStopSync);
 };  // namespace NrvSideSpikeMoveStep
 
 SideSpikeMoveStep::SideSpikeMoveStep(const char* pName)
     : MapObjActor(pName), mScaleController(nullptr), mStateBindStarPointer(nullptr), mRailClipping(0.0f, 0.0f, 0.0f) {
 }
 
-void SideSpikeMoveStep::init(const JMapInfoIter& rIter) {
+void SideSpikeMoveStep::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
     MapObjActorInitInfo info;
-    info.setupHioNode("\222\156\214\140\203\111\203\165\203\127\203\106" /* 地形オブジェ */);
     info.setupDefaultPos();
     info.setupConnectToScene();
     info.setupGroupClipping(32);
@@ -29,12 +28,12 @@ void SideSpikeMoveStep::init(const JMapInfoIter& rIter) {
     info.setupNerve(GET_NERVE(SideSpikeMoveStep, SideSpikeMoveStepNrvWait));
     MapObjActorUtil::setupInitInfoTypical(&info, mObjectName);
     initialize(rIter, info);
-    initEffectKeeper(1, mObjectName, false);
+    initEffectKeeper(1, mObjectName);
     f32 radius = 0.0f;
     MR::calcModelBoundingRadius(&radius, this);
     MR::initAndSetRailClipping(&mRailClipping, this, 100.0f, radius);
     MR::joinToGroupArray(this, rIter, nullptr, 32);
-    MR::initStarPointerTarget(this, 300.0f, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::initStarPointerTarget(this, 300.0f, Vec3f(0.0f, 0.0f, 0.0f));
     mScaleController = new AnimScaleController(nullptr);
     mScaleController->setParamTight();
     mStateBindStarPointer = new WalkerStateBindStarPointer(this, mScaleController);
@@ -52,11 +51,11 @@ void SideSpikeMoveStep::exeWait() {
     }
     if (mStateBindStarPointer->tryStartPointBind()) {
         MR::sendMsgToGroupMember(ACTMES_GROUP_MOVE_STOP, this, getSensor("body"), "body");
-        setNerve(GET_NERVE(SideSpikeMoveStep, SideSpikeMoveStepNrvDPDStop));
+        setNerve(GET_NERVE(SideSpikeMoveStep, SideSpikeMoveStepNrvPointerStop));
     }
 }
 
-void SideSpikeMoveStep::exeDPDStop() {
+void SideSpikeMoveStep::exePointerStop() {
     if (MR::isFirstStep(this)) {
         MapObjActorUtil::pauseAllMapPartsFunctions(this);
     }
@@ -65,25 +64,25 @@ void SideSpikeMoveStep::exeDPDStop() {
     }
 }
 
-void SideSpikeMoveStep::endDPDStop() {
+void SideSpikeMoveStep::endPointerStop() {
     mStateBindStarPointer->kill();
 }
 
-void SideSpikeMoveStep::exeDPDStopSync() {
+void SideSpikeMoveStep::exePointerStopSync() {
     if (MR::isFirstStep(this)) {
         MapObjActorUtil::pauseAllMapPartsFunctions(this);
-        mScaleController->startDpdHitVibration();
+        mScaleController->startPointerHitVibration();
     }
 }
 
-void SideSpikeMoveStep::endDPDStopSync() {
+void SideSpikeMoveStep::endPointerStopSync() {
     mStateBindStarPointer->kill();
 }
 
 void SideSpikeMoveStep::calcAndSetBaseMtx() {
     MapObjActor::calcAndSetBaseMtx();
     if (MR::isInitializeStateEnd()) {
-        TVec3f scale = mScaleController->_C * mScale;
+        Vec3f scale = mScaleController->mScale * mScale;
         MR::setBaseScale(this, scale);
     }
 }
@@ -93,12 +92,12 @@ void SideSpikeMoveStep::control() {
     MapObjActor::control();
 }
 
-bool SideSpikeMoveStep::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool SideSpikeMoveStep::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (msg == ACTMES_GROUP_MOVE_STOP) {
         if (!isNerve(GET_NERVE(SideSpikeMoveStep, SideSpikeMoveStepNrvWait))) {
             return false;
         }
-        setNerve(GET_NERVE(SideSpikeMoveStep, SideSpikeMoveStepNrvDPDStopSync));
+        setNerve(GET_NERVE(SideSpikeMoveStep, SideSpikeMoveStepNrvPointerStopSync));
         return true;
     } else if (msg == ACTMES_GROUP_MOVE_START) {
         if (isNerve(GET_NERVE(SideSpikeMoveStep, SideSpikeMoveStepNrvWait))) {

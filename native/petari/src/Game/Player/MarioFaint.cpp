@@ -7,8 +7,8 @@
 #include "Game/Player/MarioSwim.hpp"
 #include "Game/Util/MathUtil.hpp"
 
-bool Mario::doFlipWeak(const TVec3f& rVec) {
-    if (mMovementStates._1B) {
+bool Mario::doFlipWeak(const Vec3f& rVec) {
+    if (mMovementStates.damaged) {
         return false;
     }
 
@@ -28,8 +28,8 @@ bool Mario::doFlipWeak(const TVec3f& rVec) {
     return false;
 }
 
-bool Mario::faint(const TVec3f& rVec) {
-    _7C4 = rVec;
+bool Mario::faint(const Vec3f& rVec) {
+    mDamageDir = rVec;
     if (!isEnableAddDamage()) {
         return false;
     }
@@ -44,49 +44,49 @@ bool Mario::faint(const TVec3f& rVec) {
     mActor->damageDropThrowMemoSensor();
 
     if (getCurrentStatus() != MarioStatus_Faint) {
-        mMovementStates._27 = true;
+        mMovementStates.fainted = true;
         return true;
     }
 
-    return mMovementStates._27;
+    return mMovementStates.fainted;
 }
 
-MarioFaint::MarioFaint(MarioActor* pActor) : MarioState(pActor, MarioStatus_Faint), mTimer(), _14(), _16() {
-    _18.zero();
+MarioFaint::MarioFaint(MarioActor* pActor) : MarioState(pActor, MarioStatus_Faint), mTimer(), mAfterTimer(), mStep() {
+    mVelocity.zero();
     mNoDamage = false;
     mTookDamage = false;
 }
 
-void MarioFaint::setVec(const TVec3f& rVec) {
-    MR::vecKillElement(rVec, mActor->_240, &_18);
-    _18.setLength(mActor->getConst().getTable()->mSlideDistFaint);
+void MarioFaint::setVec(const Vec3f& rVec) {
+    MR::vecKillElement(rVec, mActor->mGravityVec, &mVelocity);
+    mVelocity.setLength(mActor->getConst().getTable()->mSlideDistFaint);
     mTimer = 0;
-    _16 = 0;
+    mStep = 0;
 
     if (getPlayer()->isStatusActive(MarioStatus_Hang)) {
-        _18.zero();
+        mVelocity.zero();
     }
 }
 
 bool MarioFaint::update() {
     mTimer++;
 
-    switch (_16) {
+    switch (mStep) {
     case 0:
-        addVelocity(_18);
-        _18.scale(mActor->getConst().getTable()->mFaintFriction1);
+        addVelocity(mVelocity);
+        mVelocity.scale(mActor->getConst().getTable()->mFaintFriction1);
         if (mTimer == mActor->getConst().getTable()->mFaintTimer1) {
-            _16++;
+            mStep++;
         }
 
         break;
     case 1:
-        if (!getPlayer()->getMovementStates()._1) {
+        if (!getPlayer()->getMovementStates().onGround) {
             return false;
         }
 
-        addVelocity(_18);
-        _18.scale(mActor->getConst().getTable()->mFaintFriction2);
+        addVelocity(mVelocity);
+        mVelocity.scale(mActor->getConst().getTable()->mFaintFriction2);
 
         if (checkTrgA()) {
             getPlayer()->tryJump();
@@ -105,28 +105,28 @@ bool MarioFaint::update() {
 
 bool MarioFaint::start() {
     mTimer = 0;
-    _16 = 0;
-    getPlayer()->mMovementStates._B = false;
+    mStep = 0;
+    getPlayer()->mMovementStates.hipDrop = false;
     getPlayer()->mMovementStates.jumping = false;
 
-    if (_18.dot(getPlayer()->mFrontVec) > 0.0f) {
-        getPlayer()->setFrontVecKeepUp(_18);
-        changeAnimation("\214\343\225\373\217\254\203\137\203\201\201\133\203\127" /* 後方小ダメージ */);
+    if (mVelocity.dot(getPlayer()->mFrontVec) > 0.0f) {
+        getPlayer()->setFrontVecKeepUp(mVelocity);
+        changeAnimation("後方小ダメージ");
     } else {
-        getPlayer()->setFrontVecKeepUp(-_18);
-        changeAnimation("\221\117\225\373\217\254\203\137\203\201\201\133\203\127" /* 前方小ダメージ */);
+        getPlayer()->setFrontVecKeepUp(-mVelocity);
+        changeAnimation("前方小ダメージ");
     }
 
     if (mNoDamage) {
-        changeAnimation("\203\155\201\133\203\137\203\201\201\133\203\127" /* ノーダメージ */);
+        changeAnimation("ノーダメージ");
     }
 
-    playSound("\220\272\217\254\203\137\203\201\201\133\203\127" /* 声小ダメージ */);
-    playSound("\203\137\203\201\201\133\203\127" /* ダメージ */);
-    playEffect("\203\137\203\201\201\133\203\127" /* ダメージ */);
+    playSound("声小ダメージ");
+    playSound("ダメージ");
+    playEffect("ダメージ");
     startPadVib(2);
 
-    addVelocity(_18);
+    addVelocity(mVelocity);
 
     mTookDamage = !mNoDamage;
 
@@ -135,7 +135,7 @@ bool MarioFaint::start() {
         mActor->resetPlayerModeOnDamage();
 
         if (mActor->mHealth == 0) {
-            if (!getPlayer()->getMovementStates()._1) {
+            if (!getPlayer()->getMovementStates().onGround) {
                 mActor->forceGameOverNonStop();
             } else {
                 mActor->forceGameOver();
@@ -151,13 +151,13 @@ bool MarioFaint::start() {
 }
 
 bool MarioFaint::close() {
-    if (getPlayer()->getMovementStates()._1) {
-        stopAnimation("\214\343\225\373\217\254\203\137\203\201\201\133\203\127" /* 後方小ダメージ */);
-        stopAnimation("\221\117\225\373\217\254\203\137\203\201\201\133\203\127" /* 前方小ダメージ */, "\212\356\226\173" /* 基本 */);
+    if (getPlayer()->getMovementStates().onGround) {
+        stopAnimation("後方小ダメージ");
+        stopAnimation("前方小ダメージ", "基本");
     }
 
     if (mTookDamage) {
-        _14 = 120;
+        mAfterTimer = 120;
     }
 
     return true;

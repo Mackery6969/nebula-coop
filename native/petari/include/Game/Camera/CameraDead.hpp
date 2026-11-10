@@ -6,17 +6,16 @@ class CameraDead : public Camera {
 public:
     enum CameraType {
         CameraType_FixedPos = 0,
-        CameraType_Interpolate = 1,
     };
 
-    CameraDead(const char* pName = "\222\312\217\355\216\200\226\123\203\112\203\201\203\211" /* 通常死亡カメラ */);
+    CameraDead(const char* pName = "通常死亡カメラ");
 
-    virtual void reset();
-    virtual CameraTargetObj* calc();
-    virtual bool isInterpolationOff() const {
+    virtual void reset() override;
+    virtual CameraTargetObj* calc() override;
+    virtual bool isInterpolationOff() const override {
         return true;
     }
-    virtual CamTranslatorBase* createTranslator();
+    virtual void setParamFromChunk(const CameraParamChunk*) override;
 
     void setParam(f32 dist, s32 deadTime, s32 cameraType) {
         mDist = dist;

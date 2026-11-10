@@ -20,7 +20,7 @@ FileSelectButton::FileSelectButton(const char* pName) : LayoutActor(pName, true)
     }
 }
 
-void FileSelectButton::init(const JMapInfoIter& rIter) {
+void FileSelectButton::init(const TableIter& /*rIter*/) {
     initLayoutManager("FileSelect", 1);
     createPaneControl();
     createButtonController();
@@ -105,7 +105,7 @@ void FileSelectButton::control() {
     }
 
     if (mButtonCtrl[4]->isPointing()) {
-        _48->show(MR::getGameMessageDirect("2PGuidanceIcon"), "P2Button");
+        mGuidancePlain->show(MR::getGameMessageDirect("2PGuidanceIcon"), "P2Button");
     }
 }
 
@@ -125,13 +125,13 @@ void FileSelectButton::createButtonController() {
     mButtonCtrl[4] = new ButtonPaneController(this, "P2ManualButton", "BoxP2", 0, true);
 
     for (int i = 0; i < ARRAY_SIZE(mButtonCtrl); i++) {
-        mButtonCtrl[i]->_22 = false;
+        mButtonCtrl[i]->mDisappearsAfterDecide = false;
     }
 }
 
 void FileSelectButton::createOthers() {
-    _48 = new GalaxyMapGalaxyPlain(this);
-    _48->initWithoutIter();
+    mGuidancePlain = new GalaxyMapGalaxyPlain(this);
+    mGuidancePlain->initWithoutIter();
 
-    MR::connectToSceneLayoutDecoration(_48);
+    MR::connectToSceneLayoutDecoration(mGuidancePlain);
 }

@@ -1,25 +1,30 @@
 #include "Game/Enemy/FireBubble.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util.hpp"
+#include "Game/Util/Tunable.hpp"
+
+// The numbers this file's functions give the game's motion and animation calls, as tunables: "<file>.<function>.<call>.<k>".
+NEBULA_TUNABLE_NAMED(f32, cNum_exeChase_checkPassBckFrame_1, "exeChase.checkPassBckFrame.1", 0.0f);
 
 namespace {
-    const f32 cSensorRadius = 30.0f;
-    const f32 cBinderRadius = 40.0f;
-    const s32 cCoinMaxNum = 2;
-    const s32 cRandomActFrame = 120;
-    const f32 cStarWandRadius = 150.0f;
-    const f32 cAppearGravity = 0.75f;
-    const s32 cChaseInvalidFrame = 300;
-    const s32 cForceKillFrame = 600;
-    const f32 cChaseStartDistance = 2000.0f;
-    const f32 cChaseSpeed = 4.0f;
-    const f32 cChaseGravity = 2.0f;
-    const f32 cChaseRotateSpeed = 1.0f;
-    const s32 cChaseFrame = 30;
-    const f32 cReflectGravity = 1.5f;
-    const s32 cReflectWaitFrame = 60;
-    const f32 cReflectCursorSpeed = 10.0f;
-    const s32 cAppearInterval = 120;
+    NEBULA_TUNABLE(f32, cSensorRadius, 30.0f);
+    NEBULA_TUNABLE(f32, cBinderRadius, 40.0f);
+    NEBULA_TUNABLE(s32, cCoinMaxNum, 2);
+    NEBULA_TUNABLE(s32, cRandomActFrame, 120);
+    NEBULA_TUNABLE(f32, cStarWandRadius, 150.0f);
+    NEBULA_TUNABLE(f32, cAppearGravity, 0.75f);
+    NEBULA_TUNABLE(s32, cChaseInvalidFrame, 300);
+    NEBULA_TUNABLE(s32, cForceKillFrame, 600);
+    NEBULA_TUNABLE(f32, cChaseStartDistance, 2000.0f);
+    NEBULA_TUNABLE(f32, cChaseSpeed, 4.0f);
+    NEBULA_TUNABLE(f32, cChaseGravity, 2.0f);
+    NEBULA_TUNABLE(f32, cChaseRotateSpeed, 1.0f);
+    NEBULA_TUNABLE(s32, cChaseFrame, 30);
+    NEBULA_TUNABLE(f32, cReflectGravity, 1.5f);
+    const s32 cReflectWaitFrame = NebulaFrameClock::stepsOfSeconds(1);
+    NEBULA_TUNABLE(f32, cReflectCursorSpeed, 10.0f);
+    const s32 cAppearInterval = NebulaFrameClock::stepsOfSeconds(2);
     const Vec cAppearVelocity = {0.0f, 35.0f, 6.0f};
     const Vec cReflectVelocity = {0.0f, 40.0f, -15.0f};
 };  // namespace
@@ -36,16 +41,16 @@ namespace NrvFireBubble {
 };  // namespace NrvFireBubble
 
 FireBubble::FireBubble(const char* pName)
-    : LiveActor(pName), mIsValidInfo(), _90(gZeroVec), _9C(0.0f, 0.0f, 1.0f), _A8(::cAppearVelocity), _B4(0.0f, 0.0f, 1.0f), mActFrame(),
+    : LiveActor(pName), mIsValidInfo(), mAppearPos(gZeroVec), mAppearFront(0.0f, 0.0f, 1.0f), mAppearVelocity(::cAppearVelocity), mFront(0.0f, 0.0f, 1.0f), mActFrame(),
       mChaseCounter() {
 }
 
 inline void FireBubble::initHitSensors(const char* const hitSensor1, const char* const hitSensor2) {
     initHitSensor(1);
-    MR::addHitSensorAtJointEnemy(this, hitSensor1, hitSensor2, 8, ::cSensorRadius, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorAtJointEnemy(this, hitSensor1, hitSensor2, 8, ::cSensorRadius, Vec3f(0.0f, 0.0f, 0.0f));
 }
 
-void FireBubble::init(const JMapInfoIter& rIter) {
+void FireBubble::init(const TableIter& rIter) {
     if (MR::isValidInfo(rIter)) {
         initMapToolInfo(rIter);
     }
@@ -54,8 +59,8 @@ void FireBubble::init(const JMapInfoIter& rIter) {
     MR::connectToSceneEnemy(this);
     initHitSensors("body", "Body");
     initBinder(::cBinderRadius, 40.0f, 0);
-    initEffectKeeper(1, nullptr, false);
-    MR::initStarPointerTargetAtJoint(this, "Body", ::cStarWandRadius, TVec3f(0.0f, 0.0f, 0.0f));
+    initEffectKeeper(1, nullptr);
+    MR::initStarPointerTargetAtJoint(this, "Body", ::cStarWandRadius, Vec3f(0.0f, 0.0f, 0.0f));
     initSound(4, false);
     MR::initShadowVolumeCylinder(this, 40.0f);
     MR::invalidateClipping(this);
@@ -71,17 +76,17 @@ void FireBubble::init(const JMapInfoIter& rIter) {
 }
 
 void FireBubble::appear() {
-    mPosition.set(_90);
-    _B4.set(_9C);
+    mPosition.set(mAppearPos);
+    mFront.set(mAppearFront);
     MR::calcGravity(this);
     LiveActor::appear();
     setNerve(GET_NERVE(FireBubble, FireBubbleNrvAppear));
 }
 
-void FireBubble::appear(const TVec3f& rVec1, const TVec3f& rVec2, const TVec3f& rVec3) {
-    _90.set(rVec1);
-    _9C.set(rVec2);
-    _A8.set(rVec3);
+void FireBubble::appear(const Vec3f& rVec1, const Vec3f& rVec2, const Vec3f& rVec3) {
+    mAppearPos.set(rVec1);
+    mAppearFront.set(rVec2);
+    mAppearVelocity.set(rVec3);
     appear();
 }
 
@@ -96,15 +101,15 @@ void FireBubble::control() {
 }
 
 void FireBubble::calcAndSetBaseMtx() {
-    TVec3f minusGravity;
-    TPos3f baseMtx;
+    Vec3f minusGravity;
+    Pos3f baseMtx;
     minusGravity.negate(mGravity);
 
-    if (MR::isSameDirection(_B4, minusGravity)) {
+    if (MR::isSameDirection(mFront, minusGravity)) {
         baseMtx.set(getBaseMtx());
         baseMtx.setTrans(mPosition);
     } else {
-        MR::makeMtxUpFrontPos(&baseMtx, minusGravity, _B4, mPosition);
+        MR::makeMtxUpFrontPos(&baseMtx, minusGravity, mFront, mPosition);
     }
 
     MR::setBaseTRMtx(this, baseMtx);
@@ -119,7 +124,7 @@ void FireBubble::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     }
 }
 
-bool FireBubble::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool FireBubble::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (MR::isMsgLockOnStarPieceShoot(msg)) {
         return true;
     }
@@ -133,60 +138,60 @@ bool FireBubble::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* 
     return false;
 }
 
-void FireBubble::initMapToolInfo(const JMapInfoIter& rIter) {
+void FireBubble::initMapToolInfo(const TableIter& rIter) {
     mIsValidInfo = true;
 
     MR::initDefaultPos(this, rIter);
     MR::needStageSwitchReadAppear(this, rIter);
-    _90.set(mPosition);
+    mAppearPos.set(mPosition);
     MR::calcGravity(this);
 
-    TPos3f Mtx;
-    TVec3f minusGravity;
-    TVec3f rotateZDir;
+    Pos3f Mtx;
+    Vec3f minusGravity;
+    Vec3f rotateZDir;
     minusGravity.negate(mGravity);
 
     MR::makeMtxRotate(Mtx, mRotation);
     Mtx.getZDir(rotateZDir);
 
     MR::makeMtxUpFront(&Mtx, minusGravity, rotateZDir);
-    Mtx.getZDir(_9C);
+    Mtx.getZDir(mAppearFront);
 }
 
-void FireBubble::updateChaseFrontVec(f32 flt) {
-    TVec3f vec2;
-    TVec3f vec3;
-    TVec3f pos;
-    TVec3f playerUpVec;
+void FireBubble::updateChaseFrontVec(f32 turnDegree) {
+    Vec3f toPlayer;
+    Vec3f down;
+    Vec3f pos;
+    Vec3f playerUpVec;
 
     MR::getPlayerUpVec(&playerUpVec);
     MR::normalize(&playerUpVec);
     playerUpVec.scale(40.0f);
 
     pos.add(*MR::getPlayerPos(), playerUpVec);
-    vec2.sub(pos, *getPosition());
+    toPlayer.sub(pos, *getPosition());
 
-    if (!MR::normalizeOrZero(&vec2)) {
+    if (!MR::normalizeOrZero(&toPlayer)) {
         if (MR::isBindedGround(this)) {
-            vec3.negate(*MR::getGroundNormal(this));
+            down.negate(*MR::getGroundNormal(this));
         } else {
-            vec3.set(mGravity);
+            down.set(mGravity);
         }
 
-        if (!MR::isSameDirection(vec2, vec3)) {
-            MR::vecKillElement(vec2, vec3, &vec2);
-            MR::normalize(&vec2);
+        if (!MR::isSameDirection(toPlayer, down)) {
+            MR::vecKillElement(toPlayer, down, &toPlayer);
+            MR::normalize(&toPlayer);
 
-            TVec3f copy(_B4);
+            Vec3f copy(mFront);
 
-            MR::turnVecToVecCos(&_B4, copy, vec2, MR::cosDegree(flt), vec3);
+            MR::turnVecToVecCos(&mFront, copy, toPlayer, MR::cosDegree(turnDegree), down);
         }
     }
 }
 
-void FireBubble::updateChaseFrontVecAndVelocity(f32 flt) {
-    updateChaseFrontVec(flt);
-    mVelocity.set(_B4);
+void FireBubble::updateChaseFrontVecAndVelocity(f32 turnDegree) {
+    updateChaseFrontVec(turnDegree);
+    mVelocity.set(mFront);
     mVelocity.mult(::cChaseSpeed);
 }
 
@@ -194,8 +199,8 @@ void FireBubble::updateGravity(f32 strength) {
     mVelocity.add(mGravity * strength);
 }
 
-void FireBubble::calcReflectVelocity(TVec3f* pOut) const {
-    TVec3f toPlayer;
+void FireBubble::calcReflectVelocity(Vec3f* pOut) const {
+    Vec3f toPlayer;
 
     toPlayer.sub(*MR::getPlayerPos(), mPosition);
 
@@ -203,13 +208,13 @@ void FireBubble::calcReflectVelocity(TVec3f* pOut) const {
         MR::calcFrontVec(&toPlayer, this);
     }
 
-    TVec3f upVec;
-    TPos3f rotateMatrix;
+    Vec3f upVec;
+    Pos3f rotateMatrix;
     MR::calcUpVec(&upVec, this);
 
     MR::makeMtxUpFront(&rotateMatrix, upVec, toPlayer);
 
-    rotateMatrix.mult33(TVec3f(::cReflectVelocity), *pOut);
+    rotateMatrix.mult33(Vec3f(::cReflectVelocity), *pOut);
 }
 
 bool FireBubble::tryChaseEnd() {
@@ -225,8 +230,8 @@ bool FireBubble::tryChaseEnd() {
 }
 
 bool FireBubble::tryReflect() {
-    if (MR::isStarPointerPointing2POnPressButton(this, "\216\343" /* 弱 */, true, false)) {
-        TVec2f starPointerScreenVelocity(*MR::getStarPointerScreenVelocity(*MR::getStarPointerLastPointedPort(this)));
+    if (MR::isStarPointerPointing2POnPressButton(this, "弱", true, false)) {
+        Vec2f starPointerScreenVelocity(*MR::getStarPointerScreenVelocity(*MR::getStarPointerLastPointedPort(this)));
         if (::cReflectCursorSpeed < starPointerScreenVelocity.length()) {
             MR::onCalcGravity(this);
             setNerve(GET_NERVE(FireBubble, FireBubbleNrvReflect));
@@ -247,7 +252,7 @@ void FireBubble::killOrWaitToApppear() {
 }
 
 bool FireBubble::isMovingDown() {
-    TVec3f normalisedVel;
+    Vec3f normalisedVel;
     return !MR::normalizeOrZero(mVelocity, &normalisedVel) && normalisedVel.dot(mGravity) < 0.0f;
 }
 
@@ -263,9 +268,9 @@ void FireBubble::exeAppear() {
         MR::validateHitSensors(this);
 
         calcAndSetBaseMtx();
-        TPos3f baseMtx;
+        Pos3f baseMtx;
         baseMtx.set(getBaseMtx());
-        baseMtx.mult33(_A8, mVelocity);
+        baseMtx.mult33(mAppearVelocity, mVelocity);
 
         mChaseCounter = 0;
     }
@@ -311,13 +316,12 @@ void FireBubble::exeChase() {
     updateChaseFrontVecAndVelocity(::cChaseRotateSpeed);
     updateGravity(::cChaseGravity);
 
-    if (MR::checkPassBckFrame(this, 0.0f)) {
+    if (MR::checkPassBckFrame(this, cNum_exeChase_checkPassBckFrame_1)) {
         MR::startSound(this, "SE_EM_FIRE_BUBBLE_JUMP");
     }
 
-    if (!tryChaseEnd() && !tryReflect()) {
-        // return needed to generate comparison with unused result
-        return;
+    if (!tryChaseEnd()) {
+        tryReflect();
     }
 }
 
@@ -392,9 +396,9 @@ void FireBubble::exeWaitToAppear() {
     }
 
     if (MR::isStep(this, ::cAppearInterval)) {
-        mPosition.set(_90);
-        _B4.set(_9C);
-        _A8.set(::cAppearVelocity);
+        mPosition.set(mAppearPos);
+        mFront.set(mAppearFront);
+        mAppearVelocity.set(::cAppearVelocity);
         MR::calcGravity(this);
         setNerve(GET_NERVE(FireBubble, FireBubbleNrvAppear));
     }

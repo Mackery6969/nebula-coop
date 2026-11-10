@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class ActorCameraInfo;
 class DummyDisplayModel;
@@ -13,20 +13,19 @@ public:
 
     BreakableCage(const char* pName);
 
-    virtual ~BreakableCage();
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void appear();
-    virtual void kill();
-    virtual void calcAndSetBaseMtx();
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void appear() override;
+    virtual void kill() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     const ActorCameraInfo* getCamInfo() const {
         return mCameraInfo;
     }
 
-    void initMapToolInfo(const JMapInfoIter& rIter);
-    void initModel(const char* pName, const JMapInfoIter& rIter);
+    void initMapToolInfo(const TableIter& rIter);
+    void initModel(const char* pName, const TableIter& rIter);
     void initBaseMtxForCage();
     bool isTypeCage() const;
     bool isAppearPowerStar() const;
@@ -36,7 +35,7 @@ public:
     void exeWaitStartDemoBreak();
     void exeBreak();
 
-    TPos3f mMtx;
+    Pos3f mMtx;
     ModelObj* mBreakModel;
     CageType mCageType;
     f32 mRotationSpeed;

@@ -6,9 +6,8 @@ class DinoPackunStateDamage;
 
 class DinoPackunBattleVs1Lv2 : public DinoPackunAction {
 public:
-    DinoPackunBattleVs1Lv2(DinoPackun*);
+    DinoPackunBattleVs1Lv2(DinoPackun* pHost);
 
-    virtual ~DinoPackunBattleVs1Lv2();
     virtual void appear();
     virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
     virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
@@ -19,6 +18,7 @@ public:
     void setStartFromDemo();
     void setStartContinueBattle();
     bool tryFind();
+    bool isRunNerve() const;
 
     void exeStart();
     void exeTurn();
@@ -30,5 +30,5 @@ public:
     void exeDamage();
 
     DinoPackunStateDamage* mStateDamage;
-    bool _18;
+    bool mIsStartFromDemo;
 };

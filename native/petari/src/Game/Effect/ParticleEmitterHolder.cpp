@@ -4,36 +4,43 @@
 #include "Game/Effect/ParticleEmitter.hpp"
 
 #include "Game/System/NebulaArena.hpp"
-#include <JSystem/JParticle/JPAEmitter.hpp>
-#include <algorithm>
+#include "Game/Particle/EmitterCore.hpp"
 
-ParticleEmitterHolder::ParticleEmitterHolder(const EffectSystem* pEffectSystem, int numEmitters) : mEffectSystem(pEffectSystem) {
+ParticleEmitterHolder::ParticleEmitterHolder(const EffectSystem* pEffectSystem, int numEmitters) : mEffectSystem(pEffectSystem), mFreeFrom(0) {
     mFirst.mEmitters.init(numEmitters);
     mFirst.mNext = nullptr;
+    claim(&mFirst, 0);
 }
 
-void ParticleEmitterHolder::update(bool param1) {
+void ParticleEmitterHolder::claim(Chunk* pChunk, u32 base) {
+    for (u32 i = 0; i < static_cast< u32 >(pChunk->mEmitters.size()); i++) {
+        ParticleEmitter& rItem = pChunk->mEmitters[static_cast< int >(i)];
+        rItem.mHolder = this;
+        rItem.mPlace = base + i;
+    }
+}
+
+void ParticleEmitterHolder::update(bool ignorePause) {
     for (Chunk* pChunk = &mFirst; pChunk != nullptr; pChunk = pChunk->mNext)
     for (ParticleEmitter* pEmitter = pChunk->mEmitters.begin(); pEmitter != pChunk->mEmitters.end(); pEmitter++) {
-        JPABaseEmitter* pBaseEmitter = pEmitter->mEmitter;
+        EmitterCore* pBaseEmitter = pEmitter->mEmitter;
         if (pBaseEmitter == nullptr) {
             continue;
         }
 
-        if (param1 != (pBaseEmitter->getGroupID() == 1)) {
+        // Group 1 is the 3D pause-ignoring group.
+        if (ignorePause != (pBaseEmitter->getGroupID() == 1)) {
             continue;
         }
 
-        const bool shouldDelete = pBaseEmitter->checkStatus(0x8) && pBaseEmitter->getParticleNumber() == 0;
-
-        if (shouldDelete) {
+        if (pBaseEmitter->isEnableDeleteEmitter()) {
             mEffectSystem->forceDeleteEmitter(pEmitter);
-        } else if (!pEmitter->mStopped) {
+        } else if (!pEmitter->mUpdated) {
             if (MR::Effect::getLinkSingleEmitter(pBaseEmitter) != nullptr) {
                 pBaseEmitter->getEmitterCallBackPtr()->init(pBaseEmitter);
             }
 
-            pEmitter->mStopped = true;
+            pEmitter->mUpdated = true;
         }
     }
 }
@@ -63,7 +70,7 @@ void ParticleEmitterHolder::forceDeleteAllEmitters() {
 void ParticleEmitterHolder::requestMovementOnAllEmitters() {
     for (Chunk* pChunk = &mFirst; pChunk != nullptr; pChunk = pChunk->mNext)
     for (ParticleEmitter* pEmitter = pChunk->mEmitters.begin(); pEmitter != pChunk->mEmitters.end(); pEmitter++) {
-        JPABaseEmitter* pBaseEmitter = pEmitter->mEmitter;
+        EmitterCore* pBaseEmitter = pEmitter->mEmitter;
         if (pBaseEmitter == nullptr) {
             continue;
         }
@@ -77,22 +84,29 @@ void ParticleEmitterHolder::requestMovementOnAllEmitters() {
 }
 
 ParticleEmitter* ParticleEmitterHolder::findAvailableParticleEmitter() {
+    const u32 size = static_cast< u32 >(mFirst.mEmitters.size());
     Chunk* pLast = nullptr;
-    for (Chunk* pChunk = &mFirst; pChunk != nullptr; pChunk = pChunk->mNext) {
-        for (auto& item : pChunk->mEmitters) {
-            if (!item.isValid()) {
-                return &item;
+    u32 base = 0;
+    for (Chunk* pChunk = &mFirst; pChunk != nullptr; pChunk = pChunk->mNext, base += size) {
+        // Chunks wholly before mFreeFrom are full.
+        for (u32 i = mFreeFrom > base ? mFreeFrom - base : 0; i < size; i++) {
+            ParticleEmitter& rItem = pChunk->mEmitters[static_cast< int >(i)];
+            if (!rItem.isValid()) {
+                mFreeFrom = base + i;
+                return &rItem;
             }
         }
         pLast = pChunk;
     }
+    mFreeFrom = base;
 
-    // Full: as many again, in the heap this lies in. Effects keep pointers to the records, so the old ones stay.
+    // Full: as many again, in the arena this lies in. Effects keep pointers to the records, so the old ones stay.
     Chunk* pChunk = new (NebulaArena::findFromRoot(this), 0) Chunk();
     pChunk->mEmitters.mArr = new (NebulaArena::findFromRoot(this), 0) ParticleEmitter[mFirst.mEmitters.size()];
     pChunk->mEmitters.mMaxSize = mFirst.mEmitters.size();
     pChunk->mNext = nullptr;
     pLast->mNext = pChunk;
+    claim(pChunk, base);
     return &pChunk->mEmitters[0];
 }
 

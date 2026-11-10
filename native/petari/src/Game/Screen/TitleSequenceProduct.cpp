@@ -1,7 +1,8 @@
 #include "Game/Screen/TitleSequenceProduct.hpp"
-#include "Game/System/NebulaRegion.hpp"
+#include "Game/Screen/NebulaUi.hpp"
 #include "Game/System/NebulaText.hpp"
-#include <nw4r/lyt/textBox.h>
+#include "Game/Util/TextString.hpp"
+#include <Game/Ui/TextBox.hpp>
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/System/GameDataFunction.hpp"
 #include "Game/Util/PlayerInputUtil.hpp"
@@ -11,13 +12,23 @@
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/SystemUtil.hpp"
 #include "Game/Util/TriggerChecker.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const s32 sPressABAppearFrame = 25;
+    NEBULA_TUNABLE(s32, sPressABAppearFrame, 25);
+
+    // A prompt box the layout lacks (a mod's layout, or one that is not a text box) takes no buffer.
+    void allocPromptBuffer(LayoutActor* pLayout, const char* pPaneName, u32 length) {
+        Ui::TextBox* pTextBox = Ui::PaneCast< Ui::TextBox >(MR::getPane(pLayout, pPaneName));
+
+        if (pTextBox != nullptr) {
+            pTextBox->AllocStringBuffer(length);
+        }
+    }
 };  // namespace
 
 namespace TitleSequenceProductSub {
-    LogoLayout::LogoLayout() : SimpleLayout("\203\215\203\123" /* ロゴ */, "TitleLogo", 2, -1) {
+    LogoLayout::LogoLayout() : SimpleLayout("ロゴ", "TitleLogo", 2, -1) {
         initEffectKeeper(1, "TitleLogo", nullptr);
         kill();
     }
@@ -42,28 +53,38 @@ TitleSequenceProduct::TitleSequenceProduct()
     mPressStartLayout->initWithoutIter();
 #if defined(__ANDROID__)
     // "Press A or tap the screen": one thumb starts the game. The game's own tag for A, whichever device shows it.
-    static char16_t sPrompt[96];
-    NebulaText::get(sPrompt, 96 - 3, "PressATap");
+    MR::Text16 prompt;
+    NebulaUi::getText(prompt, "PressATap");
     s32 at = 0;
-    while (sPrompt[at] != 0 && sPrompt[at] != u'\u25A0') {
+    while (prompt.c_str()[at] != 0 && prompt.c_str()[at] != u'\u25A0') {
         at++;
     }
-    if (sPrompt[at] != 0) {
+    if (prompt.c_str()[at] != 0) {
         s32 end = at + 1;
-        while (sPrompt[end] != 0) {
+        while (prompt.c_str()[end] != 0) {
             end++;
         }
+        // The tag takes three units where the square was one.
+        char16_t* const pPrompt = prompt.grow(static_cast< u32 >(end) + 1, static_cast< u32 >(end) + 3);
         for (s32 i = end; i > at; i--) {
-            sPrompt[i + 2] = sPrompt[i];
+            pPrompt[i + 2] = pPrompt[i];
         }
-        sPrompt[at] = 0x1A;
-        sPrompt[at + 1] = static_cast< char16_t >(6 | (3 << 8));
-        sPrompt[at + 2] = 0x0000;
+        pPrompt[at] = 0x1A;
+        pPrompt[at + 1] = static_cast< char16_t >(6 | (3 << 8));
+        pPrompt[at + 2] = 0x0000;
     }
-    // The layout's boxes hold the prompt they ship with.
-    static_cast< nw4r::lyt::TextBox* >(MR::getPane(mPressStartLayout, "TxtStart"))->AllocStringBuffer(96);
-    static_cast< nw4r::lyt::TextBox* >(MR::getPane(mPressStartLayout, "ShaStart"))->AllocStringBuffer(96);
-    MR::setTextBoxMessageRecursive(mPressStartLayout, "PressAB", sPrompt);
+    // The layout's boxes hold the prompt they ship with, or the room it needs.
+    const u32 promptLength = static_cast< u32 >(MR::textLength(prompt.c_str()));
+    allocPromptBuffer(mPressStartLayout, "TxtStart", promptLength);
+    allocPromptBuffer(mPressStartLayout, "ShaStart", promptLength);
+    MR::setTextBoxMessageRecursive(mPressStartLayout, "PressAB", prompt.c_str());
+#else
+    MR::Text16 prompt;
+    NebulaUi::getText(prompt, "PressAnyStart");
+    const u32 promptLength = static_cast< u32 >(MR::textLength(prompt.c_str()));
+    allocPromptBuffer(mPressStartLayout, "TxtStart", promptLength);
+    allocPromptBuffer(mPressStartLayout, "ShaStart", promptLength);
+    MR::setTextBoxMessageRecursive(mPressStartLayout, "PressAB", prompt.c_str());
 #endif
     mAButtonChecker = new TriggerChecker();
     mBButtonChecker = new TriggerChecker();
@@ -124,7 +145,7 @@ void TitleSequenceProduct::exeLogoDisplay() {
 #if defined(__ANDROID__)
     if (mAButtonChecker->getLevel() || mBButtonChecker->getLevel()) {
 #else
-    if (mAButtonChecker->getLevel() && mBButtonChecker->getLevel()) {
+    if (MR::isHeldAnyWithoutHome(PLAYER_1)) {
 #endif
         MR::stopStageBGM(75);
         MR::startSystemSE("SE_SY_GAME_START");

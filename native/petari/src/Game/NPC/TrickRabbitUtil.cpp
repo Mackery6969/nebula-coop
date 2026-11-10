@@ -6,12 +6,12 @@ namespace TrickRabbitUtil {
     FootPrint* createRabbitFootPrint(LiveActor* pActor) {
         FootPrint* footPrint;
 
-        footPrint = new FootPrint("\203\105\203\124\203\115\221\253\220\325" /* ウサギ足跡 */, 64);
+        footPrint = new FootPrint("ウサギ足跡", 64);
         footPrint->mMinPrintDistance = 100.0f;
         footPrint->setTexture(MR::getTexFromArc("RabbitFootprint.bti", pActor));
-        footPrint->_2C = 0.0f;
-        footPrint->_30 = 30.0f;
-        footPrint->_34 = 30.0f;
+        footPrint->mSideOffset = 0.0f;
+        footPrint->mHeight = 30.0f;
+        footPrint->mWidth = 30.0f;
 
         return footPrint;
     }

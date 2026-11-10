@@ -12,13 +12,12 @@
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/TalkUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    const s32 cOverlayStartStep = 122;
-    const s32 cOverlayFrame = 1;
-};  // namespace
+    NEBULA_TUNABLE(s32, cOverlayStartStep, 122);
+    NEBULA_TUNABLE(s32, cOverlayFrame, 1);
 
-namespace {
     s32 getChapterNumberMin() {
         return MR::getPictureBookChapterAlreadyRead() + 1;
     }
@@ -37,7 +36,7 @@ namespace NrvRosettaReading {
 RosettaReading::RosettaReading(const char* pName) : LiveActor(pName), mPictureBookLayout() {
 }
 
-void RosettaReading::init(const JMapInfoIter& rIter) {
+void RosettaReading::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("RosettaReading", nullptr, false);
     initSound(2, false);
@@ -66,30 +65,20 @@ void RosettaReading::appear() {
     setNerve(GET_NERVE(RosettaReading, RosettaReadingNrvPictureBookBefore));
 }
 
-void RosettaReading::kill() {
-    LiveActor::kill();
-}
-
-void RosettaReading::makeArchiveList(NameObjArchiveListCollector* pCollector, const JMapInfoIter& rIter) {
-    if (::getChapterNumberMin() <= ::getChapterNumberMax()) {
-        PictureBookLayout::makeArchiveList(pCollector, ::getChapterNumberMin(), ::getChapterNumberMax(), true);
-    }
-}
-
 void RosettaReading::exePictureBookBefore() {
-    if (MR::isDemoPartActive("\230\116\223\307\212\112\216\156" /* 朗読開始 */) || MR::isDemoPartActive("\203\215\203\133\203\142\203\136\211\357\230\142[\212\112\216\156]" /* ロゼッタ会話[開始] */) || MR::isDemoPartLessEqualStep("\212\107\226\173\203\146\203\202\212\112\216\156" /* 絵本デモ開始 */, 60)) {
+    if (MR::isDemoPartActive("朗読開始") || MR::isDemoPartActive("ロゼッタ会話[開始]") || MR::isDemoPartLessEqualStep("絵本デモ開始", 60)) {
         MR::startSystemLevelSE("SE_SM_LV_TICO_WAIT_LIBRARY");
     }
 
-    if (MR::isDemoPartStep("\212\107\226\173\203\146\203\202\212\112\216\156" /* 絵本デモ開始 */, 100)) {
+    if (MR::isDemoPartStep("絵本デモ開始", 100)) {
         MR::startSound(this, "SE_SM_ROSETTA_BOOK_OPEN");
     }
 
-    if (MR::isDemoPartFirstStep("\212\107\226\173\203\146\203\202\212\112\216\156" /* 絵本デモ開始 */)) {
+    if (MR::isDemoPartFirstStep("絵本デモ開始")) {
         MR::stopStageBGM(120);
     }
 
-    if (MR::isDemoPartLastStep("\212\107\226\173\203\146\203\202\212\112\216\156" /* 絵本デモ開始 */)) {
+    if (MR::isDemoPartLastStep("絵本デモ開始")) {
         MR::pauseTimeKeepDemo(this);
         setNerve(GET_NERVE(RosettaReading, RosettaReadingNrvPictureBook));
     }
@@ -113,17 +102,15 @@ void RosettaReading::exePictureBook() {
 }
 
 void RosettaReading::exePictureBookAfter() {
-    if (MR::isDemoPartGreaterStep("\212\107\226\173\203\146\203\202\217\111\227\271" /* 絵本デモ終了 */, 30) || MR::isDemoPartActive("\203\215\203\133\203\142\203\136\211\357\230\142[\217\111\227\271]" /* ロゼッタ会話[終了] */)) {
+    if (MR::isDemoPartGreaterStep("絵本デモ終了", 30) || MR::isDemoPartActive("ロゼッタ会話[終了]")) {
         MR::startSystemLevelSE("SE_SM_LV_TICO_WAIT_LIBRARY");
     }
 
-    if (MR::isDemoPartStep("\212\107\226\173\203\146\203\202\217\111\227\271" /* 絵本デモ終了 */, ::cOverlayStartStep)) {
+    if (MR::isDemoPartStep("絵本デモ終了", ::cOverlayStartStep)) {
         MR::overlayWithPreviousScreen(::cOverlayFrame);
     }
 
-    if (MR::isTimeKeepDemoActive()) {
-        return;
+    if (!MR::isTimeKeepDemoActive()) {
+        kill();
     }
-
-    kill();
 }

@@ -1,10 +1,10 @@
 #pragma once
 
 #include "Game/LiveActor/ActorStateBase.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
 class BossKameck;
-class BossKameckBattlePattarn;
+class BossKameckBattlePattern;
 class BossKameckMoveRail;
 class HitSensor;
 class KameckBeam;
@@ -21,12 +21,12 @@ public:
     virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
 
     void setMoveRail(BossKameckMoveRail*);
-    void setBattlePattarn(BossKameckBattlePattarn*);
+    void setBattlePattern(BossKameckBattlePattern* pBattlePattern);
     bool requestDamage(HitSensor*, HitSensor*);
     bool requestGuard(HitSensor*, HitSensor*);
     bool tryAttackWait();
     bool trySummonKameck();
-    bool tryChargeBram();
+    bool tryChargeBeam();
     void startMove();
     void exeWait();
     void exeMove();
@@ -46,14 +46,14 @@ public:
     bool isEnableGuard() const;
 
     BossKameckMoveRail* mMoveRail;
-    BossKameckBattlePattarn* mBattlePattarn;
+    BossKameckBattlePattern* mBattlePattern;
     KameckBeam* mBeam;
     KameckBeamEventListener* mBeamEventListener;
-    TVec3f _20;
-    s32 _2C;
-    s32 _30;
-    s32 _34;
-    s32 _38;
+    Vec3f mMoveTarget;
+    s32 mMoveRailIndex;
+    s32 mMoveNumMax;
+    s32 mMoveNum;
+    s32 mBeamNumAlone;
     bool mIsFinal;
     bool mIsVs2;
 };

@@ -6,9 +6,9 @@ class HazeCube : public AreaObj {
 public:
     HazeCube(int, const char*);
 
-    virtual void init(const JMapInfoIter&);
+    virtual void init(const TableIter&) override;
 
-    virtual const char* getManagerName() const {
+    virtual const char* getManagerName() const override {
         return "HazeCube";
     }
 

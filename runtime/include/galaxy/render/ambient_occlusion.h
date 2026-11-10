@@ -2,13 +2,8 @@
 
 // Ambient occlusion of the D3D12 renderer's 3D scene.
 
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <Windows.h>
+#include "galaxy/windows_api.h"
+#include "galaxy/render/gpu_use.h"
 #include <d3d12.h>
 #include <wrl/client.h>
 
@@ -57,13 +52,17 @@ public:
     // and render target bound. Returns false when nothing was recorded.
     bool record(ID3D12GraphicsCommandList* list, DescriptorRing& ring, const Inputs& in, std::uint64_t frame_index,
                 unsigned frames_in_flight);
+    // Once a frame: frees what record() released, and hands back the targets no record() has asked for in 600 frames
+    // (the occlusion switched off), at the frame's fence; the next record() makes them again.
+    void trim_idle(std::uint64_t frame_index, unsigned frames_in_flight);
 
 private:
     struct Target {
         Microsoft::WRL::ComPtr<ID3D12Resource> resource;
         unsigned width = 0;
         unsigned height = 0;
-        D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        gpu::Use use = gpu::Use::ComputeRead;
+        std::uint64_t used_frame = 0;   // the last frame record() asked for it
     };
     struct Retired {
         Microsoft::WRL::ComPtr<ID3D12Resource> resource;
@@ -71,10 +70,11 @@ private:
     };
     std::vector<float> object_values_;
     std::vector<std::uint32_t> object_tiles_;
+    ao::ObjectBinScratch object_scratch_;
     bool ensure_target(Target& target, DXGI_FORMAT format, unsigned width, unsigned height,
                        std::uint64_t frame_index, unsigned frames_in_flight);
-    void transition(ID3D12GraphicsCommandList* list, Target& target, D3D12_RESOURCE_STATES state);
-    [[nodiscard]] ID3D12PipelineState* apply_pipeline(unsigned samples, bool hdr, bool view);
+    void transition(ID3D12GraphicsCommandList* list, Target& target, gpu::Use use);
+    [[nodiscard]] ID3D12PipelineState* apply_pipeline(unsigned samples, bool hdr);
 
     ID3D12Device* device_ = nullptr;
     bool ready_ = false;
@@ -84,8 +84,8 @@ private:
     Microsoft::WRL::ComPtr<ID3D12PipelineState> ssao_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> denoise_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> upsample_;
-    // 1, 2, 4, 8 samples; then HDR; then the occlusion view's.
-    std::array<Microsoft::WRL::ComPtr<ID3D12PipelineState>, 16> apply_{};
+    // 1, 2, 4, 8 samples; then HDR.
+    std::array<Microsoft::WRL::ComPtr<ID3D12PipelineState>, 8> apply_{};
     Target distance_;  // eye distance per occlusion pixel (R32F)
     Target raw_;       // occlusion, eye distance (R16G16F)
     Target denoised_;

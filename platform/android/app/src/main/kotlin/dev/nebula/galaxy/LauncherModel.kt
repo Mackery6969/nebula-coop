@@ -46,12 +46,16 @@ data class DiscPick(val uri: Uri, val name: String, val bytes: Long, val identit
 /** How the last run of the game ended, when it did not end by the player's choice. */
 data class GameExit(val title: String, val message: String, val hasLog: Boolean)
 
-enum class Screen { Welcome, Disc, Import, Home, Settings, About, Licenses }
+enum class Screen { Welcome, Disc, Import, Home, Settings, MotionTest, About, Licenses }
 
 class LauncherModel(application: Application) : AndroidViewModel(application) {
     private val app = application
 
     var install by mutableStateOf(Install.read(app))
+        private set
+
+    /** The game set up by an earlier Nebula needs setting up again (Install.outdated). */
+    var outdated by mutableStateOf(Install.outdated(app))
         private set
     var screen by mutableStateOf(if (install != null) Screen.Home else Screen.Welcome)
     var disc by mutableStateOf<DiscPick?>(null)
@@ -71,17 +75,138 @@ class LauncherModel(application: Application) : AndroidViewModel(application) {
     var recordNextRun by mutableStateOf(GameFiles.controls(application).getBoolean(GameFiles.RECORD_NEXT_RUN, false))
         private set
 
-    var modMessage by mutableStateOf<String?>(null)
+    /** The mod import under way (its share done, 0 to 1), or null. */
+    var modProgress by mutableStateOf<Float?>(null)
         private set
+
+    /** How the last mod import ended, shown until the player closes it. */
+    var modResult by mutableStateOf<ModImportResult?>(null)
+
+    // Mods waiting for the one under way (several dropped at once), and how those before them ended.
+    private val modQueue = ArrayDeque<Uri>()
+    private val modResults = ArrayList<Pair<String, ModImportResult>>()
 
     /** A mod or texture pack from a file the player picked, in the background; the game shows it under Mods. */
     fun importMod(uri: Uri) {
-        modMessage = "Importing..."
+        if (modProgress != null) {
+            modQueue.addLast(uri)
+            return
+        }
+        modProgress = 0f
+        val main = android.os.Handler(android.os.Looper.getMainLooper())
         Thread {
-            val message = runCatching { "${ModImport.import(app, uri)} is ready: turn it on under Mods in the game's settings" }
-                .getOrElse { it.message ?: "That file could not be imported" }
-            android.os.Handler(android.os.Looper.getMainLooper()).post { modMessage = message }
+            val result = runCatching {
+                ModImport.import(app, uri) { share -> main.post { if (modProgress != null) modProgress = share } }
+            }.getOrElse { ModImportResult(false, "", "", "", it.message ?: "That file could not be read") }
+            val file = DropKind.nameAndSize(app, uri).first
+            main.post {
+                modProgress = null
+                modResults += file to result
+                val next = modQueue.removeFirstOrNull()
+                if (next != null) {
+                    importMod(next)
+                } else {
+                    modResult = if (modResults.size == 1) modResults[0].second else together(modResults)
+                    modResults.clear()
+                }
+            }
         }.start()
+    }
+
+    // Several imports as one answer: the mods made ready, then each file that was not, with its reason.
+    private fun together(results: List<Pair<String, ModImportResult>>): ModImportResult {
+        val ready = results.filter { it.second.ok }.map { it.second.name }
+        val failed = results.filter { !it.second.ok }.map { "${it.first}: ${it.second.message}" }
+        val title = when {
+            failed.isEmpty() -> "${ready.size} mods are ready"
+            ready.isEmpty() -> "Those files could not be imported"
+            else -> "${ready.size} of ${results.size} mods are ready"
+        }
+        val parts = ArrayList<String>()
+        if (ready.isNotEmpty()) parts += ready.joinToString(", ") + ". Turn them on under Mods in the game's settings."
+        if (failed.isNotEmpty()) parts += failed.joinToString("\n")
+        return ModImportResult(failed.isEmpty(), "", "", "", parts.joinToString("\n\n"), title)
+    }
+
+    /**
+     * Files dragged onto the launcher from another app, each to the importer its picker would use (DropKind): a disc
+     * image to setup (the first; setup takes one), saves to Import saves (the first), Mii files to Import Miis, the
+     * rest to the mod importer one after another.
+     */
+    fun dropped(uris: List<Uri>) {
+        if (uris.isEmpty() || screen == Screen.Import) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val kinds = uris.groupBy { runCatching { DropKind.of(app, it) }.getOrDefault(DropKind.Mod) }
+            withContext(Dispatchers.Main) {
+                kinds[DropKind.Disc]?.firstOrNull()?.let {
+                    choose(it)
+                    return@withContext
+                }
+                if (install == null) {
+                    transferResult = TransferResult(false, "Set up the game first", "Drop your disc image here to start.")
+                    return@withContext
+                }
+                kinds[DropKind.Saves]?.firstOrNull()?.let { importSaves(it) }
+                kinds[DropKind.Miis]?.let { importMiis(it) }
+                kinds[DropKind.Mod]?.forEach { importMod(it) }
+            }
+        }
+    }
+
+    /** A save export or import under way. */
+    var saveBusy by mutableStateOf(false)
+        private set
+
+    /** How the last save or Mii move ended, shown until the player closes it. */
+    var transferResult by mutableStateOf<TransferResult?>(null)
+
+    /** A Mii import under way. */
+    var miiBusy by mutableStateOf(false)
+        private set
+
+    /** The Miis the game's icon picker shows (null before the game has made its Mii file). */
+    var miiCount by mutableStateOf<Int?>(null)
+        private set
+
+    fun refreshMiis() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val count = runCatching { MiiImport.count(app) }.getOrNull()
+            withContext(Dispatchers.Main) { miiCount = count }
+        }
+    }
+
+    /** The Miis in the files at [uris], for the game to add at its next start. */
+    fun importMiis(uris: List<Uri>) {
+        if (miiBusy || uris.isEmpty()) return
+        miiBusy = true
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = runCatching { MiiImport.import(app, uris) }
+                .getOrElse { TransferResult(false, "The Miis could not be imported", it.message ?: "Unknown error.") }
+            withContext(Dispatchers.Main) {
+                miiBusy = false
+                transferResult = result
+            }
+        }
+    }
+
+    /** Every save as one .zip at [uri] (the place the player chose). */
+    fun exportSaves(uri: Uri) = transferSaves { SaveTransfer.export(app, uri) }
+
+    /** The saves in the file at [uri] in place of the game's (the saves in place are backed up first). */
+    fun importSaves(uri: Uri) = transferSaves { SaveTransfer.import(app, uri, install?.gameId.orEmpty()) }
+
+    private fun transferSaves(work: () -> TransferResult) {
+        if (saveBusy) return
+        saveBusy = true
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = runCatching(work).getOrElse { TransferResult(false, "The saves could not be moved", it.message ?: "Unknown error.") }
+            val saves = Storage.saveBytes(app)
+            withContext(Dispatchers.Main) {
+                saveBusy = false
+                saveBytes = saves
+                transferResult = result
+            }
+        }
     }
 
     fun updateRecordNextRun(value: Boolean) {
@@ -100,6 +225,7 @@ class LauncherModel(application: Application) : AndroidViewModel(application) {
             Screen.Disc -> if (install != null) Screen.Settings else Screen.Welcome
             Screen.Settings, Screen.About -> Screen.Home
             Screen.Licenses -> Screen.About
+            Screen.MotionTest -> Screen.Settings
             else -> return false
         }
         return true
@@ -108,6 +234,7 @@ class LauncherModel(application: Application) : AndroidViewModel(application) {
     /** The launcher came to the front: the game may have just ended. */
     fun resumed() {
         install = Install.read(app)
+        outdated = Install.outdated(app)
         freeBytes = Storage.freeBytes(app)
         recordNextRun = GameFiles.controls(app).getBoolean(GameFiles.RECORD_NEXT_RUN, false)
         viewModelScope.launch(Dispatchers.IO) {
@@ -143,12 +270,21 @@ class LauncherModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // The game in place is replaced, so its room counts; an outdated one's too (it is removed before the import).
+    val roomBytes: Long
+        get() = freeBytes + (install?.bytes ?: if (outdated) GameFiles.pak(app).length() else 0L)
+
     val enoughSpace: Boolean
-        get() = freeBytes + (install?.bytes ?: 0L) >= Storage.GAME_BYTES + Storage.MARGIN_BYTES
+        get() = roomBytes >= Storage.GAME_BYTES + Storage.MARGIN_BYTES
 
     fun startImport() {
         val pick = disc ?: return
         val identity = pick.identity ?: return
+        // A store the game no longer reads only takes room the new one needs.
+        if (outdated) {
+            Storage.removeGame(app)
+            outdated = false
+        }
         Imports.start(app, pick.uri, identity, pick.name)
         screen = Screen.Import
     }
@@ -156,6 +292,7 @@ class LauncherModel(application: Application) : AndroidViewModel(application) {
     fun importDone(play: Context?) {
         Imports.acknowledge()
         install = Install.read(app)
+        outdated = Install.outdated(app)
         disc = null
         screen = if (install != null) Screen.Home else Screen.Welcome
         if (play != null && install != null) launchGame(play)

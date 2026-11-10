@@ -4,17 +4,10 @@
 #include "Game/Util/DrawUtil.hpp"
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/System/NebulaFrameClock.hpp"
-#include <JSystem/JUtility/JUTNativeLog.hpp>
-#include <cstdio>
+#include <nebula_module.h>
 #include <cstdarg>
 
 IntermissionScene::IntermissionScene() : Scene("IntermissionScene") {
-    _54 = 0;
-    mState[0] = 0;
-}
-
-void IntermissionScene::update() {
-    _54++;
 }
 
 void IntermissionScene::draw() const {
@@ -25,8 +18,7 @@ void IntermissionScene::draw() const {
 void IntermissionScene::setCurrentSceneControllerState(const char* pState, ...) {
     va_list list;
     va_start(list, pState);
-    nebula_vsnprintf(mState, sizeof(mState), pState, list);
+    mState.vformat(pState, list);
     va_end(list);
-    JUTNativeLog("scene: %s\n", mState);
-    _54 = 0;
+    nebula_log("scene: %s\n", mState.c_str());
 }

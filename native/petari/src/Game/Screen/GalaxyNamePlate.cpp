@@ -6,10 +6,11 @@
 #include "Game/Util/MessageUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    const s32 cAppearReadyFrame = 40;
+    NEBULA_TUNABLE(s32, cAppearReadyFrame, 40);
 };  // namespace
 
 namespace NrvGalaxyNamePlate {
@@ -19,8 +20,8 @@ namespace NrvGalaxyNamePlate {
 };  // namespace NrvGalaxyNamePlate
 
 GalaxyNamePlate::GalaxyNamePlate(const char* pGalaxyName, bool param2)
-    : LayoutActor("\203\115\203\203\203\211\203\116\203\126\201\133\226\274\203\166\203\214\201\133\203\147" /* ギャラクシー名プレート */, true), mGalaxyName(pGalaxyName), _24(false), _25(false), mShowBalloonNozzle(true), mDrawerEntry(nullptr),
-      _2C(0), _30(true) {
+    : LayoutActor("ギャラクシー名プレート", true), mGalaxyName(pGalaxyName), mIsShownThisFrame(false), mIsAppearNow(false), mShowBalloonNozzle(true), mDrawerEntry(nullptr),
+      mStateFrame(0), mPlayNewSe(true) {
     initLayoutManager("GalaxyNamePlate", 3);
 
     if (param2) {
@@ -33,7 +34,7 @@ GalaxyNamePlate::GalaxyNamePlate(const char* pGalaxyName, bool param2)
     MR::startAnim(this, "OneLine", 2);
 }
 
-void GalaxyNamePlate::init(const JMapInfoIter& rIter) {
+void GalaxyNamePlate::init(const TableIter& /*rIter*/) {
     initNerve(GET_NERVE(GalaxyNamePlate, GalaxyNamePlateNrvAppear));
 }
 
@@ -58,8 +59,8 @@ void GalaxyNamePlate::show(const char16_t* pName, bool a2) {
     show(pName, 2, a2, true);
 }
 
-void GalaxyNamePlate::setPos3D(const TVec3f& a1) {
-    TVec3f vec;
+void GalaxyNamePlate::setPos3D(const Vec3f& a1) {
+    Vec3f vec;
     MR::calcScreenPosition(&vec, a1);
     setTrans(vec);
     mDrawerEntry->mZ = -vec.z * MR::getFarZ();
@@ -70,7 +71,7 @@ void GalaxyNamePlate::setShowBalloonNozzle(bool showBalloonNozzle) {
 }
 
 void GalaxyNamePlate::control() {
-    _24 = false;
+    mIsShownThisFrame = false;
 }
 
 void GalaxyNamePlate::show(const char16_t* pName, s32 a2, bool a3, bool a4) {
@@ -86,7 +87,7 @@ void GalaxyNamePlate::show(const char16_t* pName, s32 a2, bool a3, bool a4) {
             if (isNerve(GET_NERVE(GalaxyNamePlate, GalaxyNamePlateNrvAppearReady))) {
                 setNerve(GET_NERVE(GalaxyNamePlate, GalaxyNamePlateNrvAppear));
             }
-        } else if (_25) {
+        } else if (mIsAppearNow) {
             setNerve(GET_NERVE(GalaxyNamePlate, GalaxyNamePlateNrvAppearReady));
         }
 
@@ -115,9 +116,9 @@ void GalaxyNamePlate::show(const char16_t* pName, s32 a2, bool a3, bool a4) {
 
     MR::startAnim(this, "Unknown", 1);
     MR::setAnimFrameAndStop(this, a2, 1);
-    _25 = a4;
-    _24 = true;
-    _2C = a2;
+    mIsAppearNow = a4;
+    mIsShownThisFrame = true;
+    mStateFrame = a2;
 }
 
 void GalaxyNamePlate::exeAppearReady() {
@@ -125,7 +126,7 @@ void GalaxyNamePlate::exeAppearReady() {
         MR::hideLayout(this);
     }
 
-    if (!_24) {
+    if (!mIsShownThisFrame) {
         kill();
     } else {
         MR::setNerveAtStep(this, GET_NERVE(GalaxyNamePlate, GalaxyNamePlateNrvAppear), ::cAppearReadyFrame);
@@ -138,7 +139,7 @@ void GalaxyNamePlate::exeAppear() {
         MR::showLayout(this);
     }
 
-    if (!_24) {
+    if (!mIsShownThisFrame) {
         kill();
     } else {
         MR::setNerveAtAnimStopped(this, GET_NERVE(GalaxyNamePlate, GalaxyNamePlateNrvWait), 0);
@@ -149,18 +150,18 @@ void GalaxyNamePlate::exeWait() {
     if (MR::isFirstStep(this)) {
         MR::startAnim(this, "Wait", 0);
 
-        if (_2C == 1) {
+        if (mStateFrame == 1) {
             MR::emitEffect(this, "GalaxyNamePlateNew");
 
-            if (_30) {
+            if (mPlayNewSe) {
                 MR::startSystemSE("SE_SY_ASTRO_GALAXY_NEW_EFF");
             }
         }
 
-        _30 = false;
+        mPlayNewSe = false;
     }
 
-    if (!_24) {
+    if (!mIsShownThisFrame) {
         kill();
     }
 }

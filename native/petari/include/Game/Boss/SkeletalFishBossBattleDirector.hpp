@@ -10,8 +10,7 @@ class SkeletalFishBossBattleDirector : public NameObj {
 public:
     SkeletalFishBossBattleDirector(SkeletalFishBoss*);
 
-    virtual ~SkeletalFishBossBattleDirector();
-    virtual void movement();
+    virtual void movement() override;
 
     void initiate();
     void startPowerUpDemo1();
@@ -27,8 +26,8 @@ public:
 
     SkeletalFishBoss* mFishBoss;
     MR::GrowTable< SubmarineVolcanoBigColumn*, 0x20 > mColumns;
-    s32 _90;
-    MR::GrowTable< LiveActor*, 0x10 > _94;
-    s32 _D4;
+    s32 mColumnNum;
+    MR::GrowTable< LiveActor*, 0x10 > mClipActors;
+    s32 mClipActorNum;
     ModelObj* mGuardModels[4];
 };

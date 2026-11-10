@@ -6,7 +6,7 @@
 
 class NebulaBubble;
 class XanimePlayer;
-class J3DAnmTransform;
+class Clip;
 
 // Online co-op (docs/COOP_PLAN.md "Remote players"): another player in this instance, drawn as their Mario or Luigi
 // where their snapshots put them, playing the animation they play. It has no physics or state of its own; its model is
@@ -37,12 +37,12 @@ public:
     // `number` (where it stands now), none when nobody shows them.
     static HitSensor* getHitSender(u32 number);
     // Where its name goes: above its head, along its up.
-    TVec3f getNametagPos() const;
+    Vec3f getNametagPos() const;
     // Nothing touches the local Mario now: dead, in a demo, bound to something (a Launch Star, a bubble...), a Boo,
     // hidden or out of the player's control. GameScene sends it as NEBULA_COOP_PLAYER_INTANGIBLE.
     static bool isLocalIntangible();
 
-    virtual void init(const JMapInfoIter& rIter);
+    virtual void init(const TableIter& rIter);
     virtual void control();
     virtual void calcAnim();
     virtual void calcAndSetBaseMtx();
@@ -79,10 +79,10 @@ public:
     char mGroup[48];          // the animation whose effect last started, as the snapshot names it
     f32 mLastFrame;           // the snapshot's frame last shown, to tell a restarted animation
     char mTrackName[4][32];   // the swapped-in bck each track was last told to play ("" none), and that bck
-    J3DAnmTransform* mTrackBck[4];
+    Clip* mTrackBck[4];
     MarioModelTint mLightTint; // updateLightTint's
-    TVec3f mFront;
-    TVec3f mUp;
+    Vec3f mFront;
+    Vec3f mUp;
     u32 mRewindMs;    // NebulaCoopRemotePlayer::rewind_ms
     s32 mShownFrames; // frames since this copy began showing its player
     s32 mStompTimer;  // frames until their landing on the local Mario's head may squash him again

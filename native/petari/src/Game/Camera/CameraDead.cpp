@@ -1,5 +1,5 @@
 #include "Game/Camera/CameraDead.hpp"
-#include "Game/Camera/CamTranslatorDead.hpp"
+#include "Game/Camera/CameraParamChunk.hpp"
 #include "Game/Camera/Camera.hpp"
 #include "Game/Camera/CameraLocalUtil.hpp"
 #include "Game/Camera/CameraTargetObj.hpp"
@@ -13,11 +13,11 @@ void CameraDead::reset() {
     mFovy = CameraLocalUtil::getFovy(mCameraMan);
     CameraLocalUtil::setWatchPos(this, CameraLocalUtil::getWatchPos(mCameraMan));
     CameraLocalUtil::setPos(this, CameraLocalUtil::getPos(mCameraMan));
-    TVec3f up = CameraLocalUtil::getUpVec(mCameraMan);
-    TVec3f front = CameraLocalUtil::getWatchPos(this) - CameraLocalUtil::getPos(this);
+    Vec3f up = CameraLocalUtil::getUpVec(mCameraMan);
+    Vec3f front = CameraLocalUtil::getWatchPos(this) - CameraLocalUtil::getPos(this);
     if (!MR::isNearZero(front)) {
         MR::normalize(&front);
-        TQuat4f rot;
+        Quat4f rot;
         rot.setRotate(front, -CameraLocalUtil::getRoll(mCameraMan));
         rot.transform(up);
     }
@@ -27,20 +27,18 @@ void CameraDead::reset() {
 
 CameraTargetObj* CameraDead::calc() {
     if (mDeadFrame <= mDeadTime) {
-        TVec3f watchPoint;
+        // The fourth power of the dead time passed: the watch point and the zoom ease in.
+        f32 t = static_cast< f32 >(mDeadFrame) / mDeadTime;
+        t *= t;
+        t *= t;
+
+        Vec3f watchPoint;
         CameraLocalUtil::makeWatchPointImm(&watchPoint, this, CameraLocalUtil::getTarget(this));
 
         if (mCameraType != CameraType_FixedPos) {
-            f32 t = static_cast< f32 >(mDeadFrame) / mDeadTime;
-            t *= t;
-            t *= t;
-
             watchPoint = CameraLocalUtil::getWatchPos(this) + (watchPoint - CameraLocalUtil::getWatchPos(this)) * t;
         }
         CameraLocalUtil::setWatchPos(this, watchPoint);
-    }
-
-    if (mDeadFrame <= mDeadTime) {
 
         f32 angle = MR::atan2(CameraLocalUtil::getTarget(this)->getRadius() / mDist,
                               (CameraLocalUtil::getPos(this) - CameraLocalUtil::getTarget(this)->getPosition()).length());
@@ -51,11 +49,7 @@ CameraTargetObj* CameraDead::calc() {
 
         angle *= 180.0f / MR::pi();
 
-        if (mDeadTime != 0 && mDeadFrame <= mDeadTime) {
-            f32 t = static_cast< f32 >(mDeadFrame) / mDeadTime;
-            t *= t;
-            t *= t;
-
+        if (mDeadTime != 0) {
             mFovy += t * (angle - mFovy);
         } else {
             mFovy = angle;
@@ -68,6 +62,7 @@ CameraTargetObj* CameraDead::calc() {
     return CameraLocalUtil::getTarget(this);
 }
 
-CamTranslatorBase* CameraDead::createTranslator() {
-    return new CamTranslatorDead(this);
+void CameraDead::setParamFromChunk(const CameraParamChunk* pChunk) {
+    CameraGeneralParam* general = pChunk->mGeneralParam;
+    setParam(general->mDist, general->mNum1, general->mNum2);
 }

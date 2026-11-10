@@ -1,4 +1,5 @@
 #include "Game/Ride/FluffWind.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
@@ -8,12 +9,13 @@
 #include "Game/Util/MtxUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/RailUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const f32 sEffectEmitterInterval = 600.0f;
-    static const s32 sStepBrowWindMin = 60;
-    static const s32 sStepBrowWindMax = 240;
-    static const s32 sStepToValidateClipping = 180;
+    NEBULA_TUNABLE(f32, sEffectEmitterInterval, 600.0f);
+    static const s32 sStepBlowWindMin = NebulaFrameClock::stepsOfSeconds(1);
+    static const s32 sStepBlowWindMax = NebulaFrameClock::stepsOfSeconds(4);
+    static const s32 sStepToValidateClipping = NebulaFrameClock::stepsOfSeconds(3);
 
     FluffWindHolder* getFluffWindHolder() {
         return MR::getSceneObj< FluffWindHolder >(SceneObj_FluffWindHolder);
@@ -21,27 +23,27 @@ namespace {
 };  // namespace
 
 namespace NrvFluffWindEffect {
-    NEW_NERVE(FluffWindEffectNrvBrowWind, FluffWindEffect, BrowWind);
+    NEW_NERVE(FluffWindEffectNrvBlowWind, FluffWindEffect, BlowWind);
 };  // namespace NrvFluffWindEffect
 
 FluffWindEffect::FluffWindEffect(const char* pName) : LiveActor(pName), mEffectName(), mTimer(-1) {
     mMtx.identity();
 }
 
-void FluffWindEffect::initEffectInfo(const TVec3f& rFront, const TVec3f& rUp, const TVec3f& rPos, const char* pEffectName, f32 radius) {
-    mPosition.set(rFront);
+void FluffWindEffect::initEffectInfo(const Vec3f& rPos, const Vec3f& rFront, const Vec3f& rUp, const char* pEffectName, f32 radius) {
+    mPosition.set(rPos);
     MR::connectToSceneMapObjMovement(this);
-    MR::makeMtxFrontUpPos(&mMtx, rUp, rPos, rFront);
+    MR::makeMtxFrontUpPos(&mMtx, rFront, rUp, rPos);
     mEffectName = pEffectName;
-    initEffectKeeper(0, pEffectName, false);
+    initEffectKeeper(0, pEffectName);
     MR::setEffectHostMtx(this, mEffectName, mMtx);
-    initNerve(GET_NERVE(FluffWindEffect, FluffWindEffectNrvBrowWind));
+    initNerve(GET_NERVE(FluffWindEffect, FluffWindEffectNrvBlowWind));
     if (radius > 0.0f) {
         MR::setClippingTypeSphere(this, radius);
     }
 }
 
-void FluffWindEffect::init(const JMapInfoIter&) {
+void FluffWindEffect::init(const TableIter&) {
     makeActorAppeared();
 }
 
@@ -50,10 +52,10 @@ void FluffWindEffect::makeActorDead() {
     MR::deleteEffect(this, mEffectName);
 }
 
-void FluffWindEffect::exeBrowWind() {
+void FluffWindEffect::exeBlowWind() {
     if (MR::isFirstStep(this)) {
         MR::emitEffect(this, mEffectName);
-        mTimer = MR::getRandom(::sStepBrowWindMin, ::sStepBrowWindMax);
+        mTimer = MR::getRandom(::sStepBlowWindMin, ::sStepBlowWindMax);
     }
 
     if (MR::isStep(this, ::sStepToValidateClipping)) {
@@ -62,36 +64,33 @@ void FluffWindEffect::exeBrowWind() {
 
     if (MR::isStep(this, mTimer)) {
         MR::invalidateClipping(this);
-        setNerve(GET_NERVE(FluffWindEffect, FluffWindEffectNrvBrowWind));
+        setNerve(GET_NERVE(FluffWindEffect, FluffWindEffectNrvBlowWind));
     }
-}
-
-void FluffWindEffect::startClipped() {
-    LiveActor::startClipped();
 }
 
 FluffWind::FluffWind(const char* pName) : LiveActor(pName), mNumEffects(), mEffects() {
 }
 
-void FluffWind::init(const JMapInfoIter& rIter) {
+void FluffWind::init(const TableIter& rIter) {
     initRailRider(rIter);
-    initEffectKeeper(0, "FluffWind", false);
+    initEffectKeeper(0, "FluffWind");
     MR::invalidateClipping(this);
     MR::createSceneObj(SceneObj_FluffWindHolder);
     ::getFluffWindHolder()->registerActor(this);
 
     s32 count = MR::getRailTotalLength(this) / ::sEffectEmitterInterval;
     mNumEffects = count + 1;
-    f32 stepDistance = MR::getRailTotalLength(this) / (mNumEffects - 1);
+    // A rail shorter than one interval holds a single effect at its start (the count was 0).
+    f32 stepDistance = MR::getRailTotalLength(this) / (mNumEffects > 1 ? mNumEffects - 1 : 1);
     mEffects = new FluffWindEffect*[mNumEffects];
     for (s32 i = 0; i < mNumEffects; i++) {
         f32 currentRailPos = i * stepDistance;
-        TVec3f pos;
-        TVec3f dir;
+        Vec3f pos;
+        Vec3f dir;
         MR::calcRailPosAndDirectionAtCoord(&pos, &dir, this, currentRailPos);
 
-        FluffWindEffect* effect = new FluffWindEffect("\202\355\202\275\202\260\203\107\203\164\203\106\203\116\203\147" /* わたげエフェクト */);
-        effect->initEffectInfo(pos, dir, TVec3f(0.0f, 1.0f, 0.0f), "FluffWind", -1.0f);
+        FluffWindEffect* effect = new FluffWindEffect("わたげエフェクト");
+        effect->initEffectInfo(pos, dir, Vec3f(0.0f, 1.0f, 0.0f), "FluffWind", -1.0f);
         effect->initWithoutIter();
 
         mEffects[i] = effect;
@@ -111,22 +110,18 @@ void FluffWind::makeActorDead() {
     LiveActor::makeActorDead();
 }
 
-FluffWindHolder::FluffWindHolder() : LiveActorGroup("\202\355\202\275\202\260\225\227" /* わたげ風 */, 8) {
+FluffWindHolder::FluffWindHolder() : LiveActorGroup("わたげ風", 8) {
 }
 
-void FluffWindHolder::calcWindInfo(const TVec3f& rPosition, TVec3f* pWindDirection, f32* pWindDistance) const {
-    pWindDirection->zero();
-    *pWindDistance = -1.0f;
-
+void FluffWindHolder::calcWindInfo(const Vec3f& rPosition, Vec3f* pWindDirection, f32* pWindDistance) const {
     f32 bestDistance = 1000000.0f;
-    TVec3f bestDir(0.0f, 0.0f, 0.0f);
+    Vec3f bestDir(0.0f, 0.0f, 0.0f);
 
-    LiveActor* pActor;
     for (s32 i = 0; i < getObjNum(); i++) {
-        pActor = getActor(i);
+        LiveActor* pActor = getActor(i);
 
-        TVec3f railDir(0.0f, 0.0f, 0.0f);
-        TVec3f nearestPos;
+        Vec3f railDir(0.0f, 0.0f, 0.0f);
+        Vec3f nearestPos;
         MR::calcNearestRailPosAndDirection(&nearestPos, &railDir, pActor, rPosition);
 
         f32 distance = nearestPos.distance(rPosition);
@@ -140,7 +135,7 @@ void FluffWindHolder::calcWindInfo(const TVec3f& rPosition, TVec3f* pWindDirecti
     *pWindDistance = bestDistance;
 }
 
-bool FluffFunction::calcFluffWindInfo(const TVec3f& rPosition, TVec3f* pWindDirection, f32* pWindDistance) {
+bool FluffFunction::calcFluffWindInfo(const Vec3f& rPosition, Vec3f* pWindDirection, f32* pWindDistance) {
     if (!MR::isExistSceneObj(SceneObj_FluffWindHolder)) {
         pWindDirection->zero();
         *pWindDistance = -1.0f;

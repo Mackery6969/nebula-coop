@@ -1,124 +1,76 @@
 #include "Game/MapObj/GCaptureRibbon.hpp"
-#include "Game/Util/NativeShader.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
+#include "Game/Render/TypedDraw.hpp"
+#include "Game/Render/FrameList.hpp"
 #include "Game/LiveActor/ActorLightCtrl.hpp"
 #include "Game/Util/DirectDraw.hpp"
-#include "Game/Util/JMapInfo.hpp"
+#include "Game/Util/Table.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
-#include <JSystem/JUtility/JUTTexture.hpp>
+#include <nebula_geometry.hpp>
+#include "Game/Render/GameTexture.hpp"
 
-GCaptureRibbon::GCaptureRibbon(const char* pName) : LiveActor(pName), mTexture(), _990(), _994() {
+namespace {
+    // One quad from start to end, `rOffset` to each side; s runs across the ribbon and t along it.
+    void drawStrip(TypedDraw& rSite, const Vec3f& rStart, const Vec3f& rEnd, const Vec3f& rOffset) {
+        VertexPT* vtx = rSite.vertices< VertexPT >(NEBULA_PRIMITIVE_TRIANGLE_STRIP, 4);
+        *vtx++ = {rOffset.x + rStart.x, rOffset.y + rStart.y, rOffset.z + rStart.z, 0.0f, 0.0f};
+        *vtx++ = {rStart.x - rOffset.x, rStart.y - rOffset.y, rStart.z - rOffset.z, 1.0f, 0.0f};
+        *vtx++ = {rOffset.x + rEnd.x, rOffset.y + rEnd.y, rOffset.z + rEnd.z, 0.0f, 1.0f};
+        *vtx = {rEnd.x - rOffset.x, rEnd.y - rOffset.y, rEnd.z - rOffset.z, 1.0f, 1.0f};
+    }
+};  // namespace
+
+GCaptureRibbon::GCaptureRibbon(const char* pName) : LiveActor(pName), mTexture(nullptr), mIsLineSet(false) {
 }
 
 void GCaptureRibbon::draw() const {
-    if (_990 >= 2) {
-        TDDraw::cameraInit3D();
-        NebulaNativeMaterial material;
-        TDDraw::setupNative(&material, 1, 2, 0);
-        f32 width = calcLineWidth();
-        NativeShader::setTexture(material, 0, mTexture);
-        NativeShader::setDepth(material, true, NEBULA_COMPARE_LEQUAL, false);
-        NativeShader::send(material);
-
-        J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, 2 * _990, NEBULA_SHAPE_TEXCOORD0);
-        {
-            for (s32 i = 0; i < _990; i++) {
-                f32 v2 = i / (_990 - 1.0f);
-
-                TVec3f v1 = _690[i] * width;
-
-                J3DNativeDraw::position(v1.x + _90[i].x, v1.y + _90[i].y, v1.z + _90[i].z);
-                J3DNativeDraw::texCoord(0.0f, v2);
-                J3DNativeDraw::position(_90[i].x - v1.x, _90[i].y - v1.y, _90[i].z - v1.z);
-                J3DNativeDraw::texCoord(1.0f, v2);
-            }
-        }
-
-        J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, 2 * _990, NEBULA_SHAPE_TEXCOORD0);
-        {
-            for (s32 j = 0; j < _990; j++) {
-                f32 v2 = j / (_990 - 1.0f);
-
-                TVec3f v1 = _390[j] * width;
-
-                J3DNativeDraw::position(v1.x + _90[j].x, v1.y + _90[j].y, v1.z + _90[j].z);
-                J3DNativeDraw::texCoord(0.0f, v2);
-                J3DNativeDraw::position(_90[j].x - v1.x, _90[j].y - v1.y, _90[j].z - v1.z);
-                J3DNativeDraw::texCoord(1.0f, v2);
-            }
-        }
+    if (!mIsLineSet) {
+        return;
     }
+
+    TDDraw::cameraInit3D();
+    SiteMaterial material;
+    TDDraw::setupNative(&material, 1, 2, 0);
+    f32 width = calcLineWidth();
+    material.setTexture(0, mTexture);
+    material.setDepth(true, NEBULA_COMPARE_LEQUAL, false);
+
+    // Two crossed quads, so the ribbon shows from any side.
+    TypedDraw site = TDDraw::site(material, 0);
+    drawStrip(site, mStart, mEnd, mUp * width);
+    drawStrip(site, mStart, mEnd, mSide * width);
 }
 
 void GCaptureRibbon::reset() {
-    _990 = 0;
-    _994 = 0;
+    mIsLineSet = false;
 }
 
-void GCaptureRibbon::lengthen(const TVec3f& a1, const TVec3f& a2) {
-    _90[0].set(a1);
-    _90[1].set(a2);
-    _990 = 2;
-    updateAxis();
-}
+void GCaptureRibbon::setLine(const Vec3f& rStart, const Vec3f& rEnd) {
+    mStart.set(rStart);
+    mEnd.set(rEnd);
+    mIsLineSet = true;
 
-void GCaptureRibbon::shorten(const TVec3f& a1, const TVec3f& a2) {
-    _90[0].set(a1);
-    _90[1].set(a2);
-    _990 = 2;
-    updateAxis();
-}
+    Vec3f dir = mEnd - mStart;
+    MR::normalizeOrZero(&dir);
 
-void GCaptureRibbon::updateAxis() {
-    TQuat4f quat;
-    if (_990 >= 2) {
-        TVec3f v1 = _90[1] - _90[0];
-        MR::normalizeOrZero(&v1);
-
-        if (MR::isNearZero(v1)) {
-            _390[0] = TVec3f(1, 0, 0);
-            _690[0] = TVec3f(0, 1, 0);
-            v1 = TVec3f(0, 0, 1);
-        } else {
-            MR::makeAxisVerticalZX(&_390[0], v1);
-            _690[0].cross(v1, _390[0]);
-        }
-
-        for (s32 i = 1; i < _990 - 1; i++) {
-            TVec3f v2 = _90[i + 1] - _90[i];
-            if (MR::isNearZero(v2)) {
-                _390[i] = _390[i - 1];
-                _690[i] = _690[i - 1];
-            } else {
-                MR::normalize(&v2);
-                if (v1.dot(v2) < 0.0f) {
-                    v2 = -v2;
-                }
-                quat.setRotate(v1, v2);
-                quat.transform(_390[i - 1], _390[i]);
-                quat.transform(_690[i - 1], _690[i]);
-                v1.set(v2);
-            }
-        }
-        _390[_990 - 1] = _390[_990 - 2];
-        _690[_990 - 1] = _690[_990 - 2];
+    if (MR::isNearZero(dir)) {
+        mSide = Vec3f(1, 0, 0);
+        mUp = Vec3f(0, 1, 0);
+    } else {
+        MR::makeAxisVerticalZX(&mSide, dir);
+        mUp.cross(dir, mSide);
     }
 }
 
+// 90 wide up to 500 long, narrowing to 20 at 2000.
 f32 GCaptureRibbon::calcLineWidth() const {
-    f32 normalize = MR::normalize(_90[0].distance(_90[_990 - 1]), 500.0f, 2000.0f);
-    return (20.0f * normalize) + (90.0f * (1.0f - normalize));
+    f32 rate = MR::normalize(mStart.distance(mEnd), 500.0f, 2000.0f);
+    return (20.0f * rate) + (90.0f * (1.0f - rate));
 }
 
-GCaptureRibbon::~GCaptureRibbon() {
-}
-
-void GCaptureRibbon::init(const JMapInfoIter& rIter) {
-    mTexture = new JUTTexture(MR::loadTexFromArc("GCaptureRibbon.arc", "GCaptureRibbon.bti"));
+void GCaptureRibbon::init(const TableIter& /*rIter*/) {
+    mTexture = new GameTexture(MR::loadTexFromArc("GCaptureRibbon", "GCaptureRibbon.bti"));
     MR::invalidateClipping(this);
     makeActorAppeared();
 }

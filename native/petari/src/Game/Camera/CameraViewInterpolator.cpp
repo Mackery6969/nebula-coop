@@ -10,11 +10,12 @@
 #include "Game/Util/MapUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/TriangleFilter.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const f32 sCollisionBallRadius = 10000.0f;
-    static const f32 sCollisionThroughDistance = 3400.0f;
-    static const f32 sNearZ = 100.0f;
+    NEBULA_TUNABLE(f32, sCollisionBallRadius, 10000.0f);
+    NEBULA_TUNABLE(f32, sCollisionThroughDistance, 3400.0f);
+    NEBULA_TUNABLE(f32, sNearZ, 100.0f);
 };  // namespace
 
 CameraViewInterpolator::CameraViewInterpolator()
@@ -22,15 +23,15 @@ CameraViewInterpolator::CameraViewInterpolator()
       mTargetPosition(0.0f, 0.0f, 0.0f), mRate(0.7f), mIsCollisionOff(), mIsRepulsionOff(), mTargetFovy(45.0f), mFovy(45.0f),
       mIsInterpolatingNearlyEnd(true), mIsInterpolating(), mIsCorrectErpPositionOn(true), mCalcState(), mTargetObj(),
       mBinder(new Binder(nullptr, &mPosition, &mGravity, 100.0f, 0.0f, 64)), mPosition(0.0f, 0.0f, 0.0f), mGravity(0.0f, -1.0f, 0.0f),
-      mIsCollided(true), mLErpOffset(0.0f, 0.0f, 0.0f) {
+      mIsCollided(true) {
     mTargetMtx.identity();
     mMtx.identity();
     mBinder->setTriangleFilter(MR::createTriangleFilterFunc(MR::isCameraCodeThrough));
 }
 
-void CameraViewInterpolator::updateCameraMtx(MtxPtr pMtx, const TVec3f& rPos, const CameraTargetObj* pCameraObj, f32 fovy) {
-    TVec3f targetPos = mTargetPosition;
-    TPos3f targetMtx = mTargetMtx;
+void CameraViewInterpolator::updateCameraMtx(MtxPtr pMtx, const Vec3f& rPos, const CameraTargetObj* pCameraObj, f32 fovy) {
+    Vec3f targetPos = mTargetPosition;
+    Pos3f targetMtx = mTargetMtx;
 
     updateCalcState(pCameraObj);
     interpolateCameraSwitching(pMtx, rPos, fovy);
@@ -39,13 +40,13 @@ void CameraViewInterpolator::updateCameraMtx(MtxPtr pMtx, const TVec3f& rPos, co
         lookAtCenter();
     }
 
-    bool isUpdated = calcCollision(targetMtx);
+    calcCollision(targetMtx);
     mIsCollisionOff = false;
     reduceOscillation();
 
-    TPos3f inv;
+    Pos3f inv;
     inv.invert(mMtx);
-    MR::setCameraViewMtx(inv, mInterpolateTime > 0, isUpdated, mTargetPosition);
+    MR::setCameraViewMtx(inv);
     MR::setFovy(mFovy);
 
     mIsInterpolationOff = false;
@@ -87,68 +88,68 @@ bool CameraViewInterpolator::isInterpolatingNearlyEnd() const {
 }
 
 void CameraViewInterpolator::lookAtCenter() {
-    TVec3f pos;
+    Vec3f pos;
     mTargetMtx.getTrans(pos);
-    TVec3f front;
+    Vec3f front;
     mTargetMtx.getZDir(front);
 
-    TVec3f targetDir = pos - mTargetPosition;
+    Vec3f targetDir = pos - mTargetPosition;
     if (MR::isNearZero(targetDir)) {
         return;
     }
 
     MR::normalize(&targetDir);
 
-    TPos3f rot;
+    Pos3f rot;
     rot.setRotate(front, targetDir);
 
-    mTargetMtx.setTrans(TVec3f(0.0f, 0.0f, 0.0f));
+    mTargetMtx.setTrans(Vec3f(0.0f, 0.0f, 0.0f));
     mTargetMtx.concat(rot, mTargetMtx);
     mTargetMtx.setTrans(pos);
 }
 
-bool CameraViewInterpolator::calcCollision(const TPos3f& rMtx) {
+bool CameraViewInterpolator::calcCollision(const Pos3f& rMtx) {
     if (mIsCollisionOff || mIsInterpolating) {
         return false;
     }
 
-    TVec3f pos;
+    Vec3f pos;
     rMtx.getTrans(pos);
-    TVec3f targetPos;
+    Vec3f targetPos;
     mTargetMtx.getTrans(targetPos);
 
     mPosition.set(pos);
     resetGravity();
 
-    targetPos += mLErpOffset;
+    // + 0 turns -0 into +0.
+    targetPos += Vec3f(0.0f, 0.0f, 0.0f);
 
-    TVec3f bindDir;
+    Vec3f bindDir;
     if (!calcBinder(&bindDir, targetPos, pos)) {
         mIsCollided = true;
         return false;
     }
 
     mIsCollided = false;
-    mLErpOffset.zero();
 
     bindDir *= 0.25f;
-    TVec3f newPos = pos;
+    Vec3f newPos = pos;
     newPos += bindDir;
-    TVec3f front = newPos - mTargetPosition;
+    Vec3f front = newPos - mTargetPosition;
     if (MR::isNearZero(front)) {
         return false;
     }
 
     MR::normalize(&front);
 
-    TVec3f prevUp;
+    Vec3f prevUp;
     rMtx.getYDir(prevUp);
-    TVec3f up;
+    Vec3f up;
     mTargetMtx.getYDir(up);
 
     if (MR::abs(up.dot(front)) < 0.98f) {
-        TVec3f side = up.cross(front);
-        TVec3f newUp = front.cross(side);
+        Vec3f side = up.cross(front);
+        Vec3f newUp = front.cross(side);
         if (!MR::isNearZero(newUp)) {
             MR::normalize(&newUp);
             mTargetMtx.setXDir(side);
@@ -159,8 +160,8 @@ bool CameraViewInterpolator::calcCollision(const TPos3f& rMtx) {
             mTargetMtx.setTrans(newPos);
         }
     } else if (MR::abs(prevUp.dot(front)) < 0.98f) {
-        TVec3f side = prevUp.cross(front);
-        TVec3f newUp = front.cross(side);
+        Vec3f side = prevUp.cross(front);
+        Vec3f newUp = front.cross(side);
         if (!MR::isNearZero(newUp)) {
             MR::normalize(&newUp);
             mTargetMtx.setXDir(side);
@@ -177,8 +178,8 @@ bool CameraViewInterpolator::calcCollision(const TPos3f& rMtx) {
     return true;
 }
 
-bool CameraViewInterpolator::calcBinder(TVec3f* pBindDir, const TVec3f& rTargetPos, const TVec3f& rPos) {
-    TVec3f diff = rTargetPos - rPos;
+bool CameraViewInterpolator::calcBinder(Vec3f* pBindDir, const Vec3f& rTargetPos, const Vec3f& rPos) {
+    Vec3f diff = rTargetPos - rPos;
     f32 dist = diff.length();
     if (dist >= ::sCollisionThroughDistance) {
         mBinder->clear();
@@ -186,11 +187,13 @@ bool CameraViewInterpolator::calcBinder(TVec3f* pBindDir, const TVec3f& rTargetP
     }
 
     mPosition.set(rPos);
-    TVec3f grav = TVec3f(0.0f, -1.0f, 0.0f);
+    Vec3f grav = Vec3f(0.0f, -1.0f, 0.0f);
     mGravity.set(grav);
 
-    f32 nearPlaneHeight = MR::tanDegree(MR::getFovy() * 0.5f) * ::sNearZ;
-    f32 nearPlaneWidth = nearPlaneHeight * 16.0f / 9.0f;
+    // The near plane the picture is drawn with: the render field of view (taller below 4:3) and the screen's own aspect,
+    // so the ball keeps the near plane out of walls on any screen, not only 16:9.
+    f32 nearPlaneHeight = MR::tanDegree(MR::getRenderFovy() * 0.5f) * ::sNearZ;
+    f32 nearPlaneWidth = nearPlaneHeight * MR::getAspect();
 
     mBinder->mRadius = MR::sqrt(::sCollisionBallRadius + nearPlaneHeight * nearPlaneHeight + nearPlaneWidth * nearPlaneWidth);
     *pBindDir = mBinder->bind(diff);
@@ -213,18 +216,18 @@ void CameraViewInterpolator::reduceOscillation() {
         return;
     }
 
-    TQuat4f targetRot;
+    Quat4f targetRot;
     mTargetMtx.getQuat(targetRot);
-    TVec3f targetPos;
+    Vec3f targetPos;
     mTargetMtx.getTrans(targetPos);
 
-    TQuat4f rot;
+    Quat4f rot;
     mMtx.getQuat(rot);
-    TVec3f pos;
+    Vec3f pos;
     mMtx.getTrans(pos);
 
     f32 invRate = 1.0f - mRate;
-    TQuat4f interpRot;
+    Quat4f interpRot;
     rot.slerp(targetRot, invRate);
     rot.normalize();
     pos = pos * mRate + targetPos * invRate;
@@ -244,7 +247,7 @@ void CameraViewInterpolator::updateCalcState(const CameraTargetObj* pTargetObj) 
 
         mTargetPosition += pTargetObj->getLastMove();
         if (mIsCorrectErpPositionOn) {
-            TVec3f targetPos;
+            Vec3f targetPos;
             mTargetMtx.getTrans(targetPos);
             targetPos += pTargetObj->getLastMove();
             mTargetMtx.setTrans(targetPos);
@@ -266,7 +269,7 @@ void CameraViewInterpolator::updateCalcState(const CameraTargetObj* pTargetObj) 
     mIsCorrectErpPositionOn = true;
 }
 
-void CameraViewInterpolator::interpolateCameraSwitching(MtxPtr pMtx, const TVec3f& rPos, f32 fovy) {
+void CameraViewInterpolator::interpolateCameraSwitching(MtxPtr pMtx, const Vec3f& rPos, f32 fovy) {
     if (mInterpolateTime == 0) {
         mTargetPosition.set(rPos);
         mTargetMtx.set(pMtx);
@@ -274,20 +277,20 @@ void CameraViewInterpolator::interpolateCameraSwitching(MtxPtr pMtx, const TVec3
         return;
     }
 
-    TPos3f newMtx = pMtx;
+    Pos3f newMtx = pMtx;
 
-    TQuat4f rot;
+    Quat4f rot;
     mTargetMtx.getQuat(rot);
-    TVec3f up;
+    Vec3f up;
     mTargetMtx.getZDir(up);
-    TVec3f pos;
+    Vec3f pos;
     mTargetMtx.getTrans(pos);
 
-    TQuat4f newTargetRot;
+    Quat4f newTargetRot;
     newMtx.getQuat(newTargetRot);
-    TVec3f newTargetUp;
+    Vec3f newTargetUp;
     newMtx.getZDir(newTargetUp);
-    TVec3f newTargetPos;
+    Vec3f newTargetPos;
     newMtx.getTrans(newTargetPos);
 
     f32 rate = static_cast< f32 >(mInterpolateTimer) / static_cast< f32 >(mInterpolateTime);
@@ -296,7 +299,7 @@ void CameraViewInterpolator::interpolateCameraSwitching(MtxPtr pMtx, const TVec3
     CameraLocalUtil::slerpCamera(&rot, rot, newTargetRot, rate, false);
     rot.normalize();
 
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.makeQuat(rot);
     f32 currTargetDist = (mTargetPosition - pos).length();
     f32 newTargetDist = (rPos - newTargetPos).length();
@@ -304,7 +307,7 @@ void CameraViewInterpolator::interpolateCameraSwitching(MtxPtr pMtx, const TVec3
 
     mTargetPosition += (rPos - mTargetPosition) * rate;
 
-    TVec3f newUp;
+    Vec3f newUp;
     mtx.getZDir(newUp);
 
     pos = mTargetPosition + newUp * dist;
@@ -321,10 +324,10 @@ void CameraViewInterpolator::interpolateCameraSwitching(MtxPtr pMtx, const TVec3
 }
 
 void CameraViewInterpolator::checkNearlyEnd(MtxPtr pMtx) {
-    TPos3f newMtx = pMtx;
-    TVec3f pos;
+    Pos3f newMtx = pMtx;
+    Vec3f pos;
     mTargetMtx.getTrans(pos);
-    TVec3f newTargetPos;
+    Vec3f newTargetPos;
     newMtx.getTrans(newTargetPos);
 
     if (pos.distance(newTargetPos) > 1.0f) {
@@ -332,13 +335,12 @@ void CameraViewInterpolator::checkNearlyEnd(MtxPtr pMtx) {
         return;
     }
 
-    TPos3f mtxDiff;
+    Pos3f mtxDiff;
     mtxDiff.set(mTargetMtx);
     mtxDiff.invert(mtxDiff);
     mtxDiff.concat(newMtx, mtxDiff);
 
-    // FIXME
-    TVec3f rotAxis;
+    Vec3f rotAxis;
     if (mtxDiff.getRotate(rotAxis) > 1.0f) {
         mIsInterpolatingNearlyEnd = false;
         return;
@@ -348,7 +350,7 @@ void CameraViewInterpolator::checkNearlyEnd(MtxPtr pMtx) {
 }
 
 bool CameraViewInterpolator::translateByRepulsion() {
-    TVec3f pos;
+    Vec3f pos;
     mTargetMtx.getTrans(pos);
 
     CameraRepulsiveArea* pArea = reinterpret_cast< CameraRepulsiveArea* >(MR::getAreaObj("CameraRepulsiveArea", pos));
@@ -356,7 +358,7 @@ bool CameraViewInterpolator::translateByRepulsion() {
         return false;
     }
 
-    TVec3f repulsion = pArea->getRepulsion(pos);
+    Vec3f repulsion = pArea->getRepulsion(pos);
     mTargetMtx.setTrans(pos + repulsion);
     return true;
 }

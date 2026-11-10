@@ -1,27 +1,26 @@
 #include "Game/MapObj/CoinHolder.hpp"
+#include "Game/System/Arenas.hpp"
+#include "Game/System/NebulaArena.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/Coin.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/Util.hpp"
 #include "Game/System/NebulaCoopWorld.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const s32 sCoinNumMax = 512;
-    static const s32 sCreateCoinNum = 32;
-    const f32 sRandomizeVel = 4.0f;
-    // sRandomizeVelSplash
-    // sCoinVelHorizon
-    const f32 sCoinVelVertical = 25.0f;
-    // sCoinVelPlayer
-    const f32 sCircleVelHRatio = 0.25f;
-    const f32 sCircleVelLength = 30.0f;
+    NEBULA_TUNABLE(s32, sCreateCoinNum, 32);
+    NEBULA_TUNABLE(f32, sRandomizeVel, 4.0f);
+    NEBULA_TUNABLE(f32, sCoinVelVertical, 25.0f);
+    NEBULA_TUNABLE(f32, sCircleVelHRatio, 0.25f);
+    NEBULA_TUNABLE(f32, sCircleVelLength, 30.0f);
 };  // namespace
 
-CoinHolder::CoinHolder(const char* pName) : DeriveActorGroup< Coin >(pName, ::sCoinNumMax), mHostInfoArr(), mHostInfoCount() {
-    mHostInfoArr = new CoinHostInfo[::sCoinNumMax];
+CoinHolder::CoinHolder(const char* pName) : DeriveActorGroup< Coin >(pName, ::sCreateCoinNum) {
+    mHostInfos.init(::sCreateCoinNum);
 }
 
-bool CoinHolder::hopCoin(const NameObj* pObj, const TVec3f& rPosition, const TVec3f& rDirection) {
+bool CoinHolder::hopCoin(const NameObj* pObj, const Vec3f& rPosition, const Vec3f& rDirection) {
     // Online co-op: a block another player hit gives its coin to them, not here.
     if (NebulaCoopWorld::isOtherPlayersHit(pObj)) {
         return false;
@@ -29,11 +28,12 @@ bool CoinHolder::hopCoin(const NameObj* pObj, const TVec3f& rPosition, const TVe
 
     CoinHostInfo* hostInfo = findHostInfo(pObj);
 
-    if (hostInfo->_8 >= hostInfo->_4) {
+    // An object that declared no coins hops none.
+    if (hostInfo == nullptr || hostInfo->mAppeared >= hostInfo->mDeclared) {
         return false;
     }
 
-    Coin* coin = getDeadMember();
+    Coin* coin = takeDeadCoin();
 
     if (coin != nullptr) {
         coin->setHostInfo(hostInfo);
@@ -45,49 +45,49 @@ bool CoinHolder::hopCoin(const NameObj* pObj, const TVec3f& rPosition, const TVe
     return false;
 }
 
-bool CoinHolder::appearCoinFix(const NameObj* pObj, const TVec3f& rPosition, s32 count) {
-    TVec3f velocity(0.0f, 0.0f, 0.0f);
+bool CoinHolder::appearCoinFix(const NameObj* pObj, const Vec3f& rPosition, s32 count) {
+    Vec3f velocity(0.0f, 0.0f, 0.0f);
 
     return appearCoin(pObj, rPosition, velocity, count, -1, -1, count == 1 ? 0.0f : ::sRandomizeVel);
 }
 
-bool CoinHolder::appearCoinPop(const NameObj* pObj, const TVec3f& rPosition, s32 count) {
-    TVec3f gravity;
+bool CoinHolder::appearCoinPop(const NameObj* pObj, const Vec3f& rPosition, s32 count) {
+    Vec3f gravity;
     MR::calcGravityVector(this, rPosition, &gravity, nullptr, 0);
-    TVec3f velocity = -gravity * ::sCoinVelVertical;
+    Vec3f velocity = -gravity * ::sCoinVelVertical;
 
     return appearCoin(pObj, rPosition, velocity, count, -1, -1, count == 1 ? 0.0f : ::sRandomizeVel);
 }
 
-bool CoinHolder::appearCoinPopToDirection(const NameObj* pObj, const TVec3f& rPosition, const TVec3f& rDirection, s32 count) {
-    TVec3f direction;
+bool CoinHolder::appearCoinPopToDirection(const NameObj* pObj, const Vec3f& rPosition, const Vec3f& rDirection, s32 count) {
+    Vec3f direction;
     MR::normalize(rDirection, &direction);
 
     return appearCoin(pObj, rPosition, direction * ::sCoinVelVertical, count, -1, -1, count == 1 ? 0.0f : ::sRandomizeVel);
 }
 
-bool CoinHolder::appearCoinToVelocity(const NameObj* pObj, const TVec3f& rPosition, const TVec3f& rVelocity, s32 count) {
+bool CoinHolder::appearCoinToVelocity(const NameObj* pObj, const Vec3f& rPosition, const Vec3f& rVelocity, s32 count) {
     return appearCoin(pObj, rPosition, rVelocity, count, -1, -1, count == 1 ? 0.0f : ::sRandomizeVel);
 }
 
-bool CoinHolder::appearCoinCircle(const NameObj* pObj, const TVec3f& rPosition, s32 count) {
+bool CoinHolder::appearCoinCircle(const NameObj* pObj, const Vec3f& rPosition, s32 count) {
     if (count == 1) {
         return appearCoinPop(pObj, rPosition, count);
     }
 
     bool appeared = false;
-    TVec3f gravity;
+    Vec3f gravity;
     MR::calcGravityVector(this, rPosition, &gravity, nullptr, 0);
-    TVec3f axis;
+    Vec3f axis;
     MR::makeAxisVerticalZX(&axis, gravity);
 
     for (s32 i = 0; i < count; i++) {
         f32 angle = 360.0f / count;
 
-        TVec3f horizontal;
+        Vec3f horizontal;
         MR::rotateVecDegree(&horizontal, axis, gravity, i * angle);
         horizontal.setLength(::sCircleVelHRatio);
-        TVec3f velocity(horizontal - gravity);
+        Vec3f velocity(horizontal - gravity);
         velocity.setLength(::sCircleVelLength);
 
         appeared |= appearCoin(pObj, rPosition, velocity, 1, -1, -1, 0.0f);
@@ -103,40 +103,57 @@ CoinHostInfo* CoinHolder::declare(const NameObj* pObj, s32 count) {
 
     CoinHostInfo* hostInfo = findHostInfo(pObj);
     if (hostInfo == nullptr) {
-        hostInfo = &mHostInfoArr[mHostInfoCount];
+        hostInfo = new CoinHostInfo();
         hostInfo->mHostActor = pObj;
-        mHostInfoCount++;
+        mHostInfos.push_back(hostInfo);
     }
 
-    hostInfo->_4 += count;
+    hostInfo->mDeclared += count;
     return hostInfo;
 }
 
 s32 CoinHolder::getDeclareRemnantCoinCount(const NameObj* pObj) const {
     CoinHostInfo* hostInfo = findHostInfo(pObj);
 
-    if (MR::isGalaxyDarkCometAppearInCurrentStage()) {
+    if (hostInfo == nullptr || MR::isGalaxyDarkCometAppearInCurrentStage()) {
         return 0;
     }
 
-    return hostInfo->_4 - hostInfo->_8;
+    return hostInfo->mDeclared - hostInfo->mAppeared;
 }
 
 CoinHostInfo* CoinHolder::findHostInfo(const NameObj* pObj) const {
-    for (s32 i = 0; i < mHostInfoCount; i++) {
-        if (mHostInfoArr[i].mHostActor == pObj) {
-            return &mHostInfoArr[i];
+    for (s32 i = 0; i < mHostInfos.size(); i++) {
+        if (mHostInfos[i]->mHostActor == pObj) {
+            return mHostInfos[i];
         }
     }
 
     return nullptr;
 }
 
-void CoinHolder::init(const JMapInfoIter& rIter) {
-    Coin* pCoin;
+void CoinHolder::init(const TableIter& /*rIter*/) {
+    createCoins();
+}
 
+Coin* CoinHolder::takeDeadCoin() {
+    Coin* pCoin = getDeadMember();
+    if (pCoin == nullptr) {
+        const s32 first = getObjNum();
+        createCoins();
+        for (s32 i = first; i < getObjNum(); i++) {
+            getMember(i)->initAfterPlacement();
+        }
+        pCoin = getDeadMember();
+    }
+
+    return pCoin;
+}
+
+void CoinHolder::createCoins() {
+    NebulaArena::CurrentScope scope(Arenas::scene());
     for (int i = 0; i < ::sCreateCoinNum; i++) {
-        pCoin = new Coin("\203\122\203\103\203\223(\213\244\227\160)" /* コイン(共用) */);
+        Coin* pCoin = new Coin("コイン(共用)");
         pCoin->initWithoutIter();
         registerActor(pCoin);
     }
@@ -153,12 +170,11 @@ namespace MR {
     }
 
     void addToCoinHolder(const NameObj* pNameObj, Coin* pCoin) {
-        getCoinHolder();
         pCoin->setHostInfo(getCoinHolder()->declare(pNameObj, 1));
     }
 };  // namespace MR
 
-bool CoinHolder::appearCoin(const NameObj* pObj, const TVec3f& rPosition, const TVec3f& rVelocity, s32 count, s32 life, s32 cannotTime,
+bool CoinHolder::appearCoin(const NameObj* pObj, const Vec3f& rPosition, const Vec3f& rVelocity, s32 count, s32 life, s32 cannotTime,
                             f32 randomize) {
     CoinHostInfo* pHostInfo = findHostInfo(pObj);
     if (pHostInfo == nullptr) {
@@ -167,16 +183,16 @@ bool CoinHolder::appearCoin(const NameObj* pObj, const TVec3f& rPosition, const 
 
     bool appeared = false;
     for (s32 i = 0; i < count; i++) {
-        if (pHostInfo->_8 >= pHostInfo->_4) {
+        if (pHostInfo->mAppeared >= pHostInfo->mDeclared) {
             break;
         }
 
-        Coin* pCoin = getDeadMember();
+        Coin* pCoin = takeDeadCoin();
         if (pCoin == nullptr) {
             break;
         }
 
-        TVec3f velocity(rVelocity);
+        Vec3f velocity(rVelocity);
         if (!MR::isNearZero(randomize)) {
             MR::addRandomVector(&velocity, velocity, randomize);
         }

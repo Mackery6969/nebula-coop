@@ -13,7 +13,7 @@
 #include "Game/System/GalaxyInfoTable.hpp"
 #include "Game/System/NebulaMods.hpp"
 #include <nebula_format.h>
-#include <nw4r/lyt/pane.h>
+#include <Game/Ui/Pane.hpp>
 #include "Game/System/GalaxyStatusAccessor.hpp"
 #include "Game/System/GameDataConst.hpp"
 #include "Game/System/GameEventFlagTable.hpp"
@@ -25,10 +25,11 @@
 #include "Game/Util/StringUtil.hpp"
 #include <algorithm>
 #include <cstdio>
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const s32 sFocusKeepFrame = 30;
-    static const f32 sPointingRange = 20.0f;
+    NEBULA_TUNABLE(s32, sFocusKeepFrame, 30);
+    NEBULA_TUNABLE(f32, sPointingRange, 20.0f);
 };  // namespace
 
 namespace {
@@ -41,8 +42,8 @@ namespace {
 };  // namespace
 
 GalaxyMap::GalaxyMap()
-    : LayoutActor("\203\115\203\203\203\211\203\116\203\126\201\133\201\105\223\126\225\266\221\344\203\175\203\142\203\166" /* ギャラクシー・天文台マップ */, true), mMarioIcon1(), mMarioIcon2(), mGalaxyPlain(), mGalaxyDetail(), mPointingIcon(), mGalaxyName(),
-      _70(), _71(true) {
+    : LayoutActor("ギャラクシー・天文台マップ", true), mMarioIcon1(), mMarioIcon2(), mGalaxyPlain(), mGalaxyDetail(), mPointingIcon(), mGalaxyName(),
+      mIsPointingNew(), mIsFocusEnabled(true) {
 }
 
 template <>
@@ -61,7 +62,7 @@ template <>
 inline MR::Vector< MR::AssignableArray< GalaxyMapTicoIcon* > >::~Vector() {
 }
 
-void GalaxyMap::init(const JMapInfoIter& rIter) {
+void GalaxyMap::init(const TableIter& /*rIter*/) {
     initLayoutManager("MapGrandGalaxy", 1);
     initPaneCtrlPointing();
     initDomeIcon();
@@ -234,7 +235,7 @@ void GalaxyMap::movementForCapture() {
     }
 }
 
-void GalaxyMap::calcAnimForCapture(const nw4r::lyt::DrawInfo& rDrawInfo) {
+void GalaxyMap::calcAnimForCapture(const Ui::DrawInfo& rDrawInfo) {
     MR::calcAnimLayoutWithDrawInfo(this, rDrawInfo);
     for (auto& item : mDomeIcon) {
         item->calcAnimForCapture(rDrawInfo);
@@ -247,7 +248,7 @@ void GalaxyMap::calcAnimForCapture(const nw4r::lyt::DrawInfo& rDrawInfo) {
     }
 }
 
-void GalaxyMap::drawForCapture(const nw4r::lyt::DrawInfo& rDrawInfo) {
+void GalaxyMap::drawForCapture(const Ui::DrawInfo& rDrawInfo) {
     MR::drawLayoutWithDrawInfoWithoutProjectionSetup(this, rDrawInfo);
     for (auto& item : mDomeIcon) {
         MR::drawLayoutWithDrawInfoWithoutProjectionSetup(item, rDrawInfo);
@@ -272,7 +273,7 @@ void GalaxyMap::setModeNormal() {
     }
     mTitle->setModeNormal();
 
-    _71 = true;
+    mIsFocusEnabled = true;
 }
 
 void GalaxyMap::setModeNewGalaxyDiscover() {
@@ -287,7 +288,7 @@ void GalaxyMap::setModeNewGalaxyDiscover() {
     }
     mTitle->setModeHideInformation();
 
-    _71 = false;
+    mIsFocusEnabled = false;
 }
 
 void GalaxyMap::setModeNewTicoGalaxyDiscover() {
@@ -302,7 +303,7 @@ void GalaxyMap::setModeNewTicoGalaxyDiscover() {
     }
     mTitle->setModeHideInformation();
 
-    _71 = false;
+    mIsFocusEnabled = false;
 }
 
 void GalaxyMap::setModeNewDomeDiscover() {
@@ -317,7 +318,7 @@ void GalaxyMap::setModeNewDomeDiscover() {
     }
     mTitle->setModeHideInformation();
 
-    _71 = false;
+    mIsFocusEnabled = false;
 }
 
 void GalaxyMap::setModeTicoCometPray() {
@@ -332,7 +333,7 @@ void GalaxyMap::setModeTicoCometPray() {
     }
     mTitle->setModeHideInformation();
 
-    _71 = false;
+    mIsFocusEnabled = false;
 }
 
 void GalaxyMap::setModeCapture() {
@@ -453,7 +454,7 @@ void GalaxyMap::exeFadeinAstroMap() {
 
 void GalaxyMap::exeShowDetail() {
     if (MR::isFirstStep(this)) {
-        mGalaxyDetail->startDisplay(mGalaxyName, _70);
+        mGalaxyDetail->startDisplay(mGalaxyName, mIsPointingNew);
         for (auto& item : mIcon) {
             item->deactivatePointing();
         }
@@ -476,11 +477,48 @@ namespace {
 };  // namespace
 
 void GalaxyMap::initPaneCtrlPointing() {
-    JMapInfo galaxyInfo;
+    Table galaxyInfo;
     galaxyInfo.attach(NebulaDataTables::getGalaxyInfoTable());
     ::initIconArray(mIcon, new GalaxyMapIcon*[galaxyInfo.getNumEntries()], galaxyInfo.getNumEntries());
     ::initIconArray(mCometIcon, new GalaxyMapCometIcon*[galaxyInfo.getNumEntries()], galaxyInfo.getNumEntries());
     initPointingTarget(galaxyInfo.getNumEntries());
+
+    // A mod's galaxy names a pane its map layout may not have. Each that says where it goes gets it made before the
+    // controls below look the panes up.
+    for (s32 i = 0; i < galaxyInfo.getNumEntries(); i++) {
+        const char* pPaneName = nullptr;
+        if (!galaxyInfo.getValue(i, "MapPaneName", &pPaneName) || MR::isEqualString(pPaneName, "") ||
+            MR::isEqualString(pPaneName, "dummy")) {
+            continue;
+        }
+        // The tree itself: a pane made for an earlier galaxy of this loop is not listed yet.
+        if (getLayoutManager()->getPane(pPaneName) != nullptr) {
+            continue;
+        }
+        const char* pGalaxyName = nullptr;
+        galaxyInfo.getValue(i, "name", &pGalaxyName);
+        f32 x = 0.0f;
+        f32 y = 0.0f;
+        s32 dome = 0;
+        if (!NebulaMods::mapSpot(pGalaxyName, &x, &y, &dome)) {
+            continue;
+        }
+        MR::FormattedName parentName;
+        if (dome > 0) {
+            parentName.format("Galaxy%d", dome);
+        } else {
+            parentName.format("Tico");
+        }
+        Ui::Pane* pParent = getLayoutManager()->findPaneByName(parentName.c_str());
+        if (pParent == nullptr) {
+            continue;
+        }
+        Ui::Pane* pPane = pParent->GetLayout()->NewPane< Ui::Pane >();
+        pPane->SetName(pPaneName);
+        pPane->SetSRTElement(0, x);
+        pPane->SetSRTElement(1, y);
+        pParent->AppendChild(pPane);
+    }
 
     for (s32 i = 0; i < galaxyInfo.getNumEntries(); i++) {
         const char* pPaneName = nullptr;
@@ -493,33 +531,16 @@ void GalaxyMap::initPaneCtrlPointing() {
             continue;
         }
 
+        if (getLayoutManager()->findPaneByName(pPaneName) == nullptr) {
+            continue;
+        }
+
         const char* pGalaxyName = nullptr;
         galaxyInfo.getValue(i, "name", &pGalaxyName);
 
-        // A mod's galaxy names a pane its map layout may not have. One that says where it goes gets it made.
-        if (getLayoutManager()->findPaneByName(pPaneName) == nullptr) {
-            f32 x = 0.0f;
-            f32 y = 0.0f;
-            s32 dome = 0;
-            if (!NebulaMods::mapSpot(pGalaxyName, &x, &y, &dome)) {
-                continue;
-            }
-            char parentName[16];
-            nebula_snprintf(parentName, sizeof(parentName), dome > 0 ? "Galaxy%d" : "Tico", dome);
-            nw4r::lyt::Pane* pParent = getLayoutManager()->findPaneByName(parentName);
-            if (pParent == nullptr) {
-                continue;
-            }
-            nw4r::lyt::Pane* pPane = new nw4r::lyt::Pane();
-            pPane->SetName(pPaneName);
-            pPane->SetSRTElement(0, x);
-            pPane->SetSRTElement(1, y);
-            pParent->AppendChild(pPane);
-        }
-
         GalaxyStatusAccessor accessor = MR::makeGalaxyStatusAccessor(pGalaxyName);
         MR::createAndAddPaneCtrl(this, pPaneName, 1);
-        MR::addStarPointerTargetCircle(this, pPaneName, ::sPointingRange, TVec2f(0.0f, 0.0f), nullptr);
+        MR::addStarPointerTargetCircle(this, pPaneName, ::sPointingRange, Vec2f(0.0f, 0.0f), nullptr);
 
         GalaxyMapIcon* pIcon = new GalaxyMapIcon(pGalaxyName, this, pPaneName);
         pIcon->initWithoutIter();
@@ -590,20 +611,20 @@ void GalaxyMap::initMarioIcon() {
 
 void GalaxyMap::initTicoIcon() {
     GalaxyMapTicoIcon* ticoIcon;
-    char exclamationGalaxyName[16];
+    MR::FormattedName exclamationGalaxyName;
     s32 exclamationGalaxyNum = GameEventFlagTable::calcExclamationGalaxyNum();
 
     mTicoIcon.init(exclamationGalaxyNum);
 
     for (s32 i = 0; i < exclamationGalaxyNum; i++) {
-        nebula_snprintf(exclamationGalaxyName, sizeof(exclamationGalaxyName), "Tico%d", i + 1);
+        exclamationGalaxyName.format("Tico%d", i + 1);
 
         // A slot no Luma uses, or a Luma a mod added with no place on its map.
-        if (GameEventFlagTable::getExclamationGalaxyNameFromIndex(i) == nullptr || getLayoutManager()->findPaneByName(exclamationGalaxyName) == nullptr) {
+        if (GameEventFlagTable::getExclamationGalaxyNameFromIndex(i) == nullptr || getLayoutManager()->findPaneByName(exclamationGalaxyName.c_str()) == nullptr) {
             continue;
         }
 
-        ticoIcon = new GalaxyMapTicoIcon(i, GameEventFlagTable::getExclamationGalaxyNameFromIndex(i), this, exclamationGalaxyName);
+        ticoIcon = new GalaxyMapTicoIcon(i, GameEventFlagTable::getExclamationGalaxyNameFromIndex(i), this, exclamationGalaxyName.c_str());
         ticoIcon->initWithoutIter();
 
         mTicoIcon.push_back(ticoIcon);
@@ -611,7 +632,7 @@ void GalaxyMap::initTicoIcon() {
 }
 
 bool GalaxyMap::tryFocusIn() {
-    if (!_71) {
+    if (!mIsFocusEnabled) {
         mGalaxyName = nullptr;
         mPointingIcon = nullptr;
 
@@ -631,7 +652,7 @@ bool GalaxyMap::tryFocusIn() {
         }
 
         if (pointingGalaxyIcon != nullptr) {
-            _70 = pointingGalaxyIcon->isStatusNew();
+            mIsPointingNew = pointingGalaxyIcon->isStatusNew();
 
             MR::startSystemSE("SE_SY_GALAMAP_ICON_POINT");
         }

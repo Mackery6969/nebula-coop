@@ -23,18 +23,19 @@
 #include "Game/Util/MapUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ModelUtil.hpp"
+#include "Game/Util/StringUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
 
 void MarioActor::init2D() {
     MR::getGameSceneLayoutHolder()->initLifeCount(mMaxHealth);
 
-    _1B8 = new CollectCounter("\203\175\203\212\203\111\230\101\221\261\223\245\202\335" /* マリオ連続踏み */);
+    mTrampleCounter = new CollectCounter("マリオ連続踏み");
 
-    _1B8->initWithoutIter();
+    mTrampleCounter->initWithoutIter();
 }
 
 void MarioActor::initParts() {
-    mNullAnimation = new MarioNullBck("NULL\203\101\203\152\203\201" /* NULLアニメ */);
+    mNullAnimation = new MarioNullBck("NULLアニメ");
     mNullAnimation->initWithoutIter();
 
     mSearchLight = 0;
@@ -43,17 +44,17 @@ void MarioActor::initParts() {
     initSearchLight();
     initThrowing();
 
-    _9C4 = new MarioParts(this, "\225\130\214\213\203\202\203\146\203\213" /* 氷結モデル */, "MarioFreezeIce", true, nullptr, nullptr);
-    _9C4->initWithoutIter();
-    _9C4->makeActorDead();
-    _9C4->initFixedPosition(TVec3f(0.0f, 0.0f, 0.0f), TVec3f(0.0f, 0.0f, 0.0f), nullptr);
+    mFreezeModel = new MarioParts(this, "氷結モデル", "MarioFreezeIce", true, nullptr, nullptr);
+    mFreezeModel->initWithoutIter();
+    mFreezeModel->makeActorDead();
+    mFreezeModel->initFixedPosition(Vec3f(0.0f, 0.0f, 0.0f), Vec3f(0.0f, 0.0f, 0.0f), nullptr);
 
-    _9A0 = new JetTurtleShadow("\203\112\203\201\203\126\203\203\203\150\203\105\203\202\203\146\203\213" /* カメシャドウモデル */);
-    _9A0->initWithoutIter();
+    mTurtleShadow = new JetTurtleShadow("カメシャドウモデル");
+    mTurtleShadow->initWithoutIter();
 
-    _994 = new MarioParts(this, "\203\130\203\163\203\223\203\140\203\122" /* スピンチコ */, "SpinTico", false, getBaseMtx(), nullptr);
-    _994->initWithoutIter();
-    _994->kill();
+    mSpinTico = new MarioParts(this, "スピンチコ", "SpinTico", false, getBaseMtx(), nullptr);
+    mSpinTico->initWithoutIter();
+    mSpinTico->kill();
 }
 
 void MarioActor::updateBeeWingAnimation() {
@@ -67,47 +68,47 @@ void MarioActor::updateBeeWingAnimation() {
     getJointCtrl("HandR")->setLocalScale(0.9f);
     getJointCtrl("HandL")->setLocalScale(0.9f);
 
-    if (mMario->checkLvlA() && mMario->_402 && getMovementStates().jumping) {
-        if (_9F0 != 1) {
-            MR::startBck(_9E8, "Fly");
-            MR::startBva(_9E8, "Fly");
-            MR::startBtk(_9E8, "Fly");
+    if (mMario->checkLvlA() && mMario->mAirWalkTimer && getMovementStates().jumping) {
+        if (mBeeWingAnim != 1) {
+            MR::startBck(mBeeWing, "Fly");
+            MR::startBva(mBeeWing, "Fly");
+            MR::startBtk(mBeeWing, "Fly");
         }
 
-        _9F0 = 1;
+        mBeeWingAnim = 1;
         return;
     }
 
     s32 val;
-    if (getMovementStates()._1 || mMario->isStatusActive(MarioStatus_Stick)) {
+    if (getMovementStates().onGround || mMario->isStatusActive(MarioStatus_Stick)) {
         val = 0;
     } else {
-        val = mMario->_402 != 0 ? 2 : 3;
+        val = mMario->mAirWalkTimer != 0 ? 2 : 3;
     }
 
-    if (_9F0 == val) {
+    if (mBeeWingAnim == val) {
         return;
     }
 
     switch (val) {
     case 0:
-        MR::startBck(_9E8, "Wait");
-        MR::startBva(_9E8, "Wait");
+        MR::startBck(mBeeWing, "Wait");
+        MR::startBva(mBeeWing, "Wait");
         break;
 
     case 2:
-        MR::startBck(_9E8, "FlyWait");
-        MR::startBva(_9E8, "FlyWait");
+        MR::startBck(mBeeWing, "FlyWait");
+        MR::startBva(mBeeWing, "FlyWait");
         break;
 
     case 3:
-        MR::startBck(_9E8, "FlyFall");
-        MR::startBva(_9E8, "FlyFall");
+        MR::startBck(mBeeWing, "FlyFall");
+        MR::startBva(mBeeWing, "FlyFall");
         break;
     }
 
-    MR::stopBtk(_9E8);
-    _9F0 = val;
+    MR::stopBtk(mBeeWing);
+    mBeeWingAnim = val;
 }
 
 void MarioActor::updateTornado() {
@@ -115,54 +116,54 @@ void MarioActor::updateTornado() {
         return;
     }
 
-    if (mMario->getMovementStates()._F && mMario->_544 > 1) {
+    if (mMario->getMovementStates().tornado && mMario->mTornadoTimer > 1) {
         mTornadoMario->show();
-    } else if ((!isAnimationRun("\213\363\222\206\202\320\202\313\202\350" /* 空中ひねり */) || mMario->_430 != 8) && !mMario->isStatusActive(MarioStatus_Magic)) {
-        if (mMario->getDrawStates()._8 || _990 != 0) {
+    } else if ((!isAnimationRun("空中ひねり") || mMario->mJumpKind != 8) && !mMario->isStatusActive(MarioStatus_Magic)) {
+        if (mMario->getDrawStates().endTornado || mTornadoEnd != 0) {
             mTornadoMario->hideForce();
         } else {
             mTornadoMario->hide();
         }
 
-        _990 = 0;
+        mTornadoEnd = 0;
     }
 
-    mTornadoMario->setTrHeight(mPosition, mMario->mFrontVec, mMario->_54C, _240);
+    mTornadoMario->setTrHeight(mPosition, mMario->mFrontVec, mMario->mTornadoTiltUp, mGravityVec);
 }
 
 void MarioActor::updateTakingPosition() {
-    if (_480) {
-        const HitSensor* sensor = _424;
+    if (mTaking) {
+        const HitSensor* sensor = mTakenSensor;
         if (!sensor)
             sensor = getCarrySensor();
         if (!sensor) {
-            _480 = false;
+            mTaking = false;
         } else {
             switch (sensor->mType) {
             case ATYPE_BOMBHEI:
-                if (mMario->isAnimationTerminate("\203\112\203\165\224\262\202\253" /* カブ抜き */)) {
+                if (mMario->isAnimationTerminate("カブ抜き")) {
                     stopAnimation(nullptr);
-                    _480 = false;
-                    mMario->changeAnimationUpper("\203\112\203\165\203\105\203\107\203\103\203\147" /* カブウエイト */);
+                    mTaking = false;
+                    mMario->changeAnimationUpper("カブウエイト");
                 }
                 break;
             case ATYPE_JET_TURTLE:
             case ATYPE_JET_TURTLE_SLOW:
                 if (mMario->isAnimationTerminate(nullptr))
-                    _480 = false;
+                    mTaking = false;
                 break;
             }
         }
     }
-    if (_B92 < 0) {
+    if (mNullAnimationKind < 0) {
         Mtx base;
-        TVec3f position;
-        TVec3f rotation;
+        Vec3f position;
+        Vec3f rotation;
         bool updateAnimation;
-        if (_B92 == -3) {
-            _494->calc();
-            _494->copyTrans(&position);
-            _494->copyRotate(&rotation);
+        if (mNullAnimationKind == -3) {
+            mTakingFixedPos->calc();
+            mTakingFixedPos->copyTrans(&position);
+            mTakingFixedPos->copyRotate(&rotation);
             MarioAnimator* animator = mMarioAnim;
             s32 stopped = !isAnimationRun(nullptr);
             s32 terminated = mMario->isAnimationTerminate(nullptr);
@@ -172,102 +173,102 @@ void MarioActor::updateTakingPosition() {
             updateAnimation = landing;
         } else {
             f32 frame = 0.0f;
-            if (_B92 == -1)
+            if (mNullAnimationKind == -1)
                 frame = mMarioAnim->getUpperFrame();
-            if (_B92 == -2)
+            if (mNullAnimationKind == -2)
                 frame = mMarioAnim->getFrame();
-            NebulaMtxConcat(getBaseMtx(), _E3C.toMtxPtr(), base);
-            J3DModel* model = MR::getJ3DModel(mNullAnimation);
+            NebulaMtxConcat(getBaseMtx(), mBaseCorrectionMtx.toMtxPtr(), base);
+            Model* model = MR::getModel(mNullAnimation);
             NebulaMtxCopy(base, model->getBaseTRMtx());
             if (mNullAnimation->getFramePos(frame, &position, &rotation)) {
                 clearNullAnimation(-3);
-                if (_424)
-                    MR::sendArbitraryMsg(ACTMES_TAKE_TOUCH, _424, getSensor("body"));
-                else if (_428[0])
-                    MR::sendArbitraryMsg(ACTMES_TAKE_TOUCH, _428[0], getSensor("body"));
+                if (mTakenSensor)
+                    MR::sendArbitraryMsg(ACTMES_TAKE_TOUCH, mTakenSensor, getSensor("body"));
+                else if (mTakeSensors[0])
+                    MR::sendArbitraryMsg(ACTMES_TAKE_TOUCH, mTakeSensors[0], getSensor("body"));
                 else {
-                    _480 = false;
+                    mTaking = false;
                     clearNullAnimation(0);
                 }
             }
             updateAnimation = false;
         }
         if (updateAnimation) {
-            if (_424)
-                mMarioAnim->updateTakingAnimation(_424);
-            else if (_468)
-                mMarioAnim->updateTakingAnimation(_428[0]);
+            if (mTakenSensor)
+                mMarioAnim->updateTakingAnimation(mTakenSensor);
+            else if (mTakeCount)
+                mMarioAnim->updateTakingAnimation(mTakeSensors[0]);
         }
-        if (_424) {
-            _424->mHost->mPosition = position;
-            _424->mHost->mRotation = rotation;
+        if (mTakenSensor) {
+            mTakenSensor->mHost->mPosition = position;
+            mTakenSensor->mHost->mRotation = rotation;
             return;
         }
         if (getCarrySensor()) {
             getCarrySensor()->mHost->mPosition = position;
             getCarrySensor()->mHost->mRotation = rotation;
         }
-    } else if (_468) {
-        if (_428[0]->isType(ATYPE_COINTHROW) || _428[0]->isType(ATYPE_JET_TURTLE) || _428[0]->isType(ATYPE_JET_TURTLE_SLOW) ||
-            _428[0]->isType(ATYPE_BOMBHEI)) {
-            TVec3f position;
-            _494->calc();
-            _494->copyTrans(&position);
-            TVec3f& carryPosition = _428[0]->mHost->mPosition;
-            const TVec3f& velocity = mVelocity;
+    } else if (mTakeCount) {
+        if (mTakeSensors[0]->isType(ATYPE_COINTHROW) || mTakeSensors[0]->isType(ATYPE_JET_TURTLE) || mTakeSensors[0]->isType(ATYPE_JET_TURTLE_SLOW) ||
+            mTakeSensors[0]->isType(ATYPE_BOMBHEI)) {
+            Vec3f position;
+            mTakingFixedPos->calc();
+            mTakingFixedPos->copyTrans(&position);
+            Vec3f& carryPosition = mTakeSensors[0]->mHost->mPosition;
+            const Vec3f& velocity = mVelocity;
             carryPosition = position + velocity;
-            _494->copyRotate(&_428[0]->mHost->mRotation);
+            mTakingFixedPos->copyRotate(&mTakeSensors[0]->mHost->mRotation);
             return;
         }
-        TVec3f position;
+        Vec3f position;
         mNullAnimation->getLastPos(&position);
-        NebulaMtxMultVec(_E3C.toMtxPtr(), &position, &position);
+        NebulaMtxMultVec(mBaseCorrectionMtx.toMtxPtr(), &position, &position);
         NebulaMtxMultVec(getBaseMtx(), &position, &position);
         f32 offset = 10.0f * (mMario->mWalkSpeed * mMario->mWalkSpeed);
-        offset *= JMASinRadian(_490);
-        _490 += MR::getRandom(0.1f, 1.0f);
+        offset *= Angle::sinRadian(mTakingWobble);
+        mTakingWobble += MR::getRandom(0.1f, 1.0f);
         position.y += offset;
-        _428[0]->mHost->mPosition = position;
-        TVec3f& carryRotation = _428[0]->mHost->mRotation;
-        const TVec3f& rotation = mRotation;
-        carryRotation = _438[0] + rotation;
+        mTakeSensors[0]->mHost->mPosition = position;
+        Vec3f& carryRotation = mTakeSensors[0]->mHost->mRotation;
+        const Vec3f& rotation = mRotation;
+        carryRotation = mTakeRotations[0] + rotation;
     }
 }
 
 const HitSensor* MarioActor::getCarrySensor() const {
-    if (_468 == 0) {
+    if (mTakeCount == 0) {
         return nullptr;
     }
 
-    return _428[0];
+    return mTakeSensors[0];
 }
 
 void MarioActor::changeSpecialModeAnimation(const char* pAnimName) {
     switch (mPlayerMode) {
     case 6:
-        if (!strcmp(pAnimName, "\223\301\216\352\203\105\203\107\203\103\203\1471A" /* 特殊ウエイト1A */)) {
+        if (MR::isEqualString(pAnimName, "特殊ウエイト1A")) {
             changeTeresaAnimation("SleepStart", -1);
             return;
         }
 
-        if (strcmp(pAnimName, "\223\301\216\352\203\105\203\107\203\103\203\1471B" /* 特殊ウエイト1B */)) {
+        if (!MR::isEqualString(pAnimName, "特殊ウエイト1B")) {
             return;
         }
 
         changeTeresaAnimation("Sleep", 16);
-        MR::emitEffect(_9A4, "Sleep");
+        MR::emitEffect(mTeresaModel, "Sleep");
     }
 }
 
 void MarioActor::updateSpecialModeAnimation() {
-    if (!mMario->mMovementStates._A && mMario->getCurrentStatus() == MarioStatus_None) {
-        if (mMario->mMovementStates._1 && mMario->_960 == 0x20 && mMarioAnim->isAnimationStop()) {
-            mMarioAnim->mXanimePlayer->changeTrackAnimation(0, "\223\104\222\341\221\254\225\340\215\163" /* 泥低速歩行 */);
-            mMarioAnim->mXanimePlayer->changeTrackAnimation(1, "\223\104\215\202\221\254\225\340\215\163" /* 泥高速歩行 */);
-            _B96 = 2;
+    if (!mMario->mMovementStates.squat && mMario->getCurrentStatus() == MarioStatus_None) {
+        if (mMario->mMovementStates.onGround && mMario->mFloorCode == 0x20 && mMarioAnim->isAnimationStop()) {
+            mMarioAnim->mXanimePlayer->changeTrackAnimation(0, "泥低速歩行");
+            mMarioAnim->mXanimePlayer->changeTrackAnimation(1, "泥高速歩行");
+            mMudWalkTimer = 2;
         }
     } else {
-        _B96 = 0;
+        mMudWalkTimer = 0;
     }
     switch (mPlayerMode) {
     case PlayerMode_Teresa:
@@ -275,123 +276,123 @@ void MarioActor::updateSpecialModeAnimation() {
         break;
     case PlayerMode_Bee:
         if (mBeeWallWalk && !isJumping() && mMarioAnim->isAnimationStop()) {
-            mMarioAnim->mXanimePlayer->changeTrackAnimation(0, "\203\156\203\140\231\263\231\264\221\117\220\151" /* ハチ匍匐前進 */);
-            mMarioAnim->mXanimePlayer->changeTrackAnimation(1, "\203\156\203\140\231\263\231\264\221\117\220\151" /* ハチ匍匐前進 */);
-            mMarioAnim->mXanimePlayer->changeTrackAnimation(2, "\203\156\203\140\231\263\231\264\221\117\220\151" /* ハチ匍匐前進 */);
-            mMarioAnim->mXanimePlayer->changeTrackAnimation(3, "\203\156\203\140\231\263\231\264\203\105\203\107\203\103\203\147" /* ハチ匍匐ウエイト */);
+            mMarioAnim->mXanimePlayer->changeTrackAnimation(0, "ハチ匍匐前進");
+            mMarioAnim->mXanimePlayer->changeTrackAnimation(1, "ハチ匍匐前進");
+            mMarioAnim->mXanimePlayer->changeTrackAnimation(2, "ハチ匍匐前進");
+            mMarioAnim->mXanimePlayer->changeTrackAnimation(3, "ハチ匍匐ウエイト");
         }
         break;
     default:
-        mMario->_418 = 0;
+        mMario->mTeresaWallThroughTimer = 0;
         break;
     }
-    if (_B96) {
-        _B96--;
-        if (!_B96 && mMario->mMovementStates._1 && mMarioAnim->isAnimationStop()) {
-            mMarioAnim->mXanimePlayer->changeTrackAnimation(0, "\223\335\215\163" /* 鈍行 */);
-            mMarioAnim->mXanimePlayer->changeTrackAnimation(1, "\225\340\215\163" /* 歩行 */);
+    if (mMudWalkTimer) {
+        mMudWalkTimer--;
+        if (!mMudWalkTimer && mMario->mMovementStates.onGround && mMarioAnim->isAnimationStop()) {
+            mMarioAnim->mXanimePlayer->changeTrackAnimation(0, "鈍行");
+            mMarioAnim->mXanimePlayer->changeTrackAnimation(1, "歩行");
         }
     }
 }
 
 void MarioActor::initFireBall() {
-    for (u32 idx = 0; idx < ARRAY_SIZE(_B54); idx++) {
-        _B54[idx] = new FireMarioBall("\203\175\203\212\203\111\211\212\213\205" /* マリオ炎球 */);
-        _B54[idx]->initWithoutIter();
+    for (u32 idx = 0; idx < ARRAY_SIZE(mFireBalls); idx++) {
+        mFireBalls[idx] = new FireMarioBall("マリオ炎球");
+        mFireBalls[idx]->initWithoutIter();
     }
 }
 
 void MarioActor::shootFireBall() {
-    if (isAnimationRun("\203\164\203\100\203\103\203\101\223\212\202\260" /* ファイア投げ */))
+    if (isAnimationRun("ファイア投げ"))
         return;
-    if (isAnimationRun("\203\164\203\100\203\103\203\101\203\130\203\163\203\223\213\363\222\206" /* ファイアスピン空中 */))
+    if (isAnimationRun("ファイアスピン空中"))
         return;
-    if (isAnimationRun("\203\164\203\100\203\103\203\101\203\130\203\163\203\223" /* ファイアスピン */))
+    if (isAnimationRun("ファイアスピン"))
         return;
-    if (getMovementStates()._8) {
+    if (getMovementStates().frontWall) {
         sendMsgToSensor(mMario->getWallPolygon()->mSensor, ACTMES_FIREBALL_ATTACK);
-        changeAnimation("\203\164\203\100\203\103\203\101\203\130\203\163\203\223" /* ファイアスピン */);
+        changeAnimation("ファイアスピン");
         return;
     }
     u32 index;
-    for (index = 0; index < ARRAY_SIZE(_B54); index++) {
-        if (MR::isDead(_B54[index]))
+    for (index = 0; index < ARRAY_SIZE(mFireBalls); index++) {
+        if (MR::isDead(mFireBalls[index]))
             break;
     }
-    if (index == ARRAY_SIZE(_B54))
+    if (index == ARRAY_SIZE(mFireBalls))
         return;
-    FireMarioBall* ball = _B54[index];
-    TVec3f direction;
+    FireMarioBall* ball = mFireBalls[index];
+    Vec3f direction;
     direction = mMario->mFrontVec;
     direction += mMario->mHeadVec;
     MR::normalize(&direction);
-    TVec3f position;
+    Vec3f position;
     getRealPos("HandR", &position);
     position += mMario->mFrontVec * 30.0f;
     ball->appearAndThrow(position, direction);
-    playSound("\220\272\223\212\202\260" /* 声投げ */, -1);
+    playSound("声投げ", -1);
     if (!isJumping()) {
-        mMario->_420 = 45;
-        changeAnimation("\203\164\203\100\203\103\203\101\203\130\203\163\203\223" /* ファイアスピン */);
+        mMario->mMoveLockTimer = 45;
+        changeAnimation("ファイアスピン");
         return;
     }
-    if (mMario->_42C >= 3) {
-        changeAnimation("\203\164\203\100\203\103\203\101\223\212\202\260" /* ファイア投げ */);
+    if (mMario->mFireShotCount >= 3) {
+        changeAnimation("ファイア投げ");
         return;
     }
-    if (mMario->_42C == 0)
-        changeAnimation("\203\164\203\100\203\103\203\101\203\130\203\163\203\223\213\363\222\206" /* ファイアスピン空中 */);
+    if (mMario->mFireShotCount == 0)
+        changeAnimation("ファイアスピン空中");
     else
-        changeAnimation("\203\164\203\100\203\103\203\101\223\212\202\260" /* ファイア投げ */);
+        changeAnimation("ファイア投げ");
     jumpHop();
-    mMario->_42C++;
+    mMario->mFireShotCount++;
     f32 gravitySpeed = mMario->cutGravityElementFromJumpVec(true);
     Mario* mario = mMario;
     mario->mJumpVec.x *= 0.5f;
     mario->mJumpVec.y *= 0.5f;
     mario->mJumpVec.z *= 0.5f;
-    mMario->mJumpVec += _240 * gravitySpeed;
+    mMario->mJumpVec += mGravityVec * gravitySpeed;
 }
 
 void MarioActor::showFreezeModel() {
-    _9C4->appear();
-    MR::onCalcAnim(_9C4);
-    MR::startBva(_9C4, "Nomal");
+    mFreezeModel->appear();
+    MR::onCalcAnim(mFreezeModel);
+    MR::startBva(mFreezeModel, "Nomal");
 }
 
 void MarioActor::hideFreezeModel() {
-    MR::startBck(_9C4, "Break");
-    MR::startBva(_9C4, "Break");
+    MR::startBck(mFreezeModel, "Break");
+    MR::startBva(mFreezeModel, "Break");
 
     mMario->startFreezeEnd();
 }
 
 void MarioActor::updateFairyStar() {
-    if (_482)
+    if (mHidden)
         return;
-    if (!_EEB)
+    if (!mSwingPermission)
         return;
     if (!isEnableNerveChange())
         return;
     bool enabled = true;
-    if (selectAction("\203\130\203\163\203\223\211\361\225\234\203\107\203\164\203\106\203\116\203\147" /* スピン回復エフェクト */) != 1)
+    if (selectAction("スピン回復エフェクト") != 1)
         enabled = false;
-    if (_94C && enabled) {
-        if (MR::isDead(_994)) {
-            _994->appear();
-            _994->mRotation.set(0.0f, 0.0f, 0.0f);
-            MR::startBck(_994, "SpinTimer");
-            playSound("\203\130\203\163\203\223\213\226\211\302" /* スピン許可 */, -1);
+    if (mSpinStarTimer && enabled) {
+        if (MR::isDead(mSpinTico)) {
+            mSpinTico->appear();
+            mSpinTico->mRotation.set(0.0f, 0.0f, 0.0f);
+            MR::startBck(mSpinTico, "SpinTimer");
+            playSound("スピン許可", -1);
         }
-        TVec3f position;
-        MR::copyJointPos(_994, "Center", &position);
+        Vec3f position;
+        MR::copyJointPos(mSpinTico, "Center", &position);
         Color8 color(255, 225, 225, 255);
         f32 power = 0.001f;
-        MR::requestPointLight(_994, position, color, power, 0);
+        MR::requestPointLight(mSpinTico, position, color, power, 0);
         return;
     }
-    if (!MR::isDead(_994))
-        _994->kill();
+    if (!MR::isDead(mSpinTico))
+        mSpinTico->kill();
 }
 
 void MarioActor::update2D() {
@@ -399,122 +400,122 @@ void MarioActor::update2D() {
     layoutHolder->setLifeCount(mHealth);
 
     if (mMario->getPlayerMode() == 4) {
-        layoutHolder->setBeePowerRatio((f32)mMario->_402 / mConst->getTable()->mAirWalkTime);
+        layoutHolder->setBeePowerRatio((f32)mMario->mAirWalkTimer / mConst->getTable()->mAirWalkTime);
     }
 
     if (mMario->isSwimming()) {
         layoutHolder->setOxygenRatio((f32)mMario->mSwim->mOxygen / mConst->getTable()->mOxygenMax);
     }
 
-    if (_989 == 0) {
-        _1B8->kill();
+    if (mTrampleCombo == 0) {
+        mTrampleCounter->kill();
     }
 }
 
 void MarioActor::updateThrowVector() {
-    HitSensor* sensor = _46C;
+    HitSensor* sensor = mTakeCandidate;
     if (sensor && !MR::isExistInAttributeGroupSearchTurtle(sensor->mHost))
         sensor = nullptr;
-    if (sensor && _468) {
-        if (!getDrawStates()._5) {
-            if (_470 && _46C != _470)
-                _470 = nullptr;
+    if (sensor && mTakeCount) {
+        if (!getDrawStates().homingLockOn) {
+            if (mThrowTarget && mTakeCandidate != mThrowTarget)
+                mThrowTarget = nullptr;
         }
-        if (!getDrawStates()._5) {
-            if (!_47C)
-                _484 = _2A0;
-            _47C++;
-            TVec3f direction = _46C->mPosition - _484;
-            if (direction.length() <= 40.0f + _46C->getRadius()) {
-                _484 = _46C->mPosition;
-                _470 = _46C;
-                if (MR::isSensorEnemy(_46C)) {
-                    _47C = 60;
+        if (!getDrawStates().homingLockOn) {
+            if (!mThrowVecTimer)
+                mThrowProbePos = mCenterPos;
+            mThrowVecTimer++;
+            Vec3f direction = mTakeCandidate->mPosition - mThrowProbePos;
+            if (direction.length() <= 40.0f + mTakeCandidate->getRadius()) {
+                mThrowProbePos = mTakeCandidate->mPosition;
+                mThrowTarget = mTakeCandidate;
+                if (MR::isSensorEnemy(mTakeCandidate)) {
+                    mThrowVecTimer = 60;
                     return;
                 }
-                _47C = 2;
+                mThrowVecTimer = 2;
                 return;
             }
             MR::normalize(&direction);
-            _484 += direction * 40.0f;
-            if (MR::checkStrikePointToMap(_484, nullptr)) {
-                _47C = 0;
-                _470 = nullptr;
+            mThrowProbePos += direction * 40.0f;
+            if (MR::checkStrikePointToMap(mThrowProbePos, nullptr)) {
+                mThrowVecTimer = 0;
+                mThrowTarget = nullptr;
             }
         }
-    } else if (!getDrawStates()._5) {
-        if (_47C)
-            _47C--;
-        if (!_47C)
-            _470 = nullptr;
+    } else if (!getDrawStates().homingLockOn) {
+        if (mThrowVecTimer)
+            mThrowVecTimer--;
+        if (!mThrowVecTimer)
+            mThrowTarget = nullptr;
     }
 }
 
-void MarioActor::createIceFloor(const TVec3f& rVec) {
-    TPos3f mtx;
+void MarioActor::createIceFloor(const Vec3f& rVec) {
+    Pos3f mtx;
     mtx.identity();
 
-    TVec3f upVec;
+    Vec3f upVec;
     getUpVec(&upVec);
 
     MR::makeMtxUpFront(&mtx, -getAirGravityVec(), mMario->mFrontVec);
 
-    TVec3f vec;
+    Vec3f vec;
     mtx.getEuler(vec);
 
     vec *= 180.0f / PI;
     createIceFloor(rVec, vec);
 }
 
-void MarioActor::createIceFloor(const TVec3f& rVec1, const TVec3f& rVec2) {
-    _B4C[_B50]->setOn(_B50, rVec1, rVec2);
+void MarioActor::createIceFloor(const Vec3f& rPos, const Vec3f& rRotation) {
+    mIceSteps[mIceStepIndex]->setOn(mIceStepIndex, rPos, rRotation);
 
-    _B50 = (_B50 + 1) % 20;
+    mIceStepIndex = (mIceStepIndex + 1) % cIceStepNum;
 
-    if (!MR::isDead(_B4C[_B50])) {
-        _B4C[_B50]->destroy();
+    if (!MR::isDead(mIceSteps[mIceStepIndex])) {
+        mIceSteps[mIceStepIndex]->destroy();
     }
 }
 
-void MarioActor::createIceWall(const TVec3f& rVec1, const TVec3f& rVec2) {
-    TPos3f mtx;
+void MarioActor::createIceWall(const Vec3f& rPos, const Vec3f& rNormal) {
+    Pos3f mtx;
     mtx.identity();
-    TVec3f upVec;
+    Vec3f upVec;
     getUpVec(&upVec);
 
-    MR::makeMtxFrontUp(&mtx, getGravityVector(), rVec2);
+    MR::makeMtxFrontUp(&mtx, getGravityVector(), rNormal);
 
-    TVec3f vec;
+    Vec3f vec;
     mtx.getEuler(vec);
     vec *= 180.0f / PI;
-    _B4C[_B50]->setOn(_B50, rVec1, vec);
+    mIceSteps[mIceStepIndex]->setOn(mIceStepIndex, rPos, vec);
 
-    _B50 = (_B50 + 1) % 20;
+    mIceStepIndex = (mIceStepIndex + 1) % cIceStepNum;
 
-    if (!MR::isDead(_B4C[_B50])) {
-        _B4C[_B50]->destroy();
+    if (!MR::isDead(mIceSteps[mIceStepIndex])) {
+        mIceSteps[mIceStepIndex]->destroy();
     }
 }
 
 void MarioActor::updateBaseMtxTeresa(MtxPtr mtx) {
-    TVec3f horizontal;
+    Vec3f horizontal;
     f32 tilt = MR::clamp(MR::vecKillElement(mVelocity, getGravityVec(), &horizontal) / 10.0f, -1.0f, 1.0f);
     if (!MR::isNearZero(mMario->getWorldPadDir())) {
-        const TVec3f& front = mMario->mFrontVec;
+        const Vec3f& front = mMario->mFrontVec;
         if (MR::diffAngleAbsHorizontal(mMario->getWorldPadDir(), front, getGravityVec()) > 0.3926991f)
             tilt = 0.0f;
     }
-    _9AC = 0.98f * _9AC + 0.02f * tilt;
+    mTeresaTilt = 0.98f * mTeresaTilt + 0.02f * tilt;
     f32 angle = mConst->getTable()->mTeresaAngleDown;
-    if (_9AC > 0.0f)
+    if (mTeresaTilt > 0.0f)
         angle = mConst->getTable()->mTeresaAngleUp;
-    NebulaMtxConcat(mtx, MR::tmpMtxRotXRad(_9AC * angle), mtx);
+    NebulaMtxConcat(mtx, MR::tmpMtxRotXRad(mTeresaTilt * angle), mtx);
 }
 
 bool MarioActor::finalizeFreezeModel() {
-    if (MR::isBckStopped(_9C4)) {
-        _9C4->kill();
-        MR::offCalcAnim(_9C4);
+    if (MR::isBckStopped(mFreezeModel)) {
+        mFreezeModel->kill();
+        MR::offCalcAnim(mFreezeModel);
 
         return false;
     }
@@ -523,5 +524,5 @@ bool MarioActor::finalizeFreezeModel() {
 }
 
 void MarioActor::offTakingFlag() {
-    _480 = false;
+    mTaking = false;
 }

@@ -1,4 +1,5 @@
 #include "Game/Map/KoopaBattleMapPlanet.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/LiveActorGroup.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/LiveActor/PartsModel.hpp"
@@ -13,9 +14,13 @@
 #include "Game/Util/ModelUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
+#include "Game/Util/Tunable.hpp"
+
+// The step counts of this file's functions, as tunables: "<file>.<function>.<k>".
+NEBULA_TUNABLE_NAMED(s32, cStep_exeDemoGrandStarAppear_1, "exeDemoGrandStarAppear.1", 151);
 
 namespace {
-    static const f32 sRotateFriction = 0.995f;
+    NEBULA_TUNABLE(f32, sRotateFriction, 0.995f);
 };  // namespace
 
 namespace NrvKoopaBattleMapPlanet {
@@ -23,16 +28,13 @@ namespace NrvKoopaBattleMapPlanet {
     NEW_NERVE(KoopaBattleMapPlanetNrvDemoGrandStarAppear, KoopaBattleMapPlanet, DemoGrandStarAppear);
 };  // namespace NrvKoopaBattleMapPlanet
 
-KoopaBattleMapPlanet::~KoopaBattleMapPlanet() {
-}
-
-KoopaBattleMapPlanet::KoopaBattleMapPlanet(const char* pName, const char* pModelName, bool b1, bool b2, bool b3)
-    : LiveActor(pName), mModelName(pModelName), _C0(0.0f, 0.0f, 0.0f), mDamagePlateGroup(), mCoinPlateGroup(), mPlateGroup(), mDamagePlate(), _DC(b1),
-      _DD(b2), _DE(b3) {
+KoopaBattleMapPlanet::KoopaBattleMapPlanet(const char* pName, const char* pModelName, bool isFinalPlanet, bool isNoPlate)
+    : LiveActor(pName), mModelName(pModelName), mRotateMoment(0.0f, 0.0f, 0.0f), mDamagePlateGroup(), mCoinPlateGroup(), mPlateGroup(), mDamagePlate(),
+      mIsFinalPlanet(isFinalPlanet), mIsNoPlate(isNoPlate) {
     mBaseMtx.identity();
 }
 
-void KoopaBattleMapPlanet::init(const JMapInfoIter& rIter) {
+void KoopaBattleMapPlanet::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
 
     MR::makeMtxTR(mBaseMtx, this);
@@ -44,7 +46,7 @@ void KoopaBattleMapPlanet::init(const JMapInfoIter& rIter) {
 
     initHitSensor(1);
     MR::initCollisionParts(this, mModelName, MR::addBodyMessageSensorMapObj(this), nullptr);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
 
     f32 boundingRadius = 0.0f;
     MR::calcModelBoundingRadius(&boundingRadius, this);
@@ -53,13 +55,13 @@ void KoopaBattleMapPlanet::init(const JMapInfoIter& rIter) {
 
     initNerve(GET_NERVE(KoopaBattleMapPlanet, KoopaBattleMapPlanetNrvWait));
 
-    if (!_DE) {
+    if (!mIsNoPlate) {
         createPlate();
     }
 
     MR::registerDemoSimpleCastAll(this);
 
-    if (!_DD && !_DE) {
+    if (!mIsFinalPlanet && !mIsNoPlate) {
         MR::registerDemoSimpleCastAll(MR::createBloomModel(this, nullptr));
     }
 
@@ -79,71 +81,71 @@ void KoopaBattleMapPlanet::exeWait() {
 }
 
 void KoopaBattleMapPlanet::exeDemoGrandStarAppear() {
-    if ((!_DD && MR::isStep(this, 90)) || (_DD && MR::isStep(this, 151))) {
+    if ((!mIsFinalPlanet && MR::isStep(this, NebulaFrameClock::stepsOfMilliseconds(1500))) || (mIsFinalPlanet && MR::isStep(this, cStep_exeDemoGrandStarAppear_1))) {
         MR::startBrk(mDamagePlate, "PowerStarAppear");
         MR::emitEffect(mDamagePlate, "GrandStarAppear");
     }
 }
 
 void KoopaBattleMapPlanet::createPlate() {
-    mDamagePlateGroup = new LiveActorGroup("\203\137\203\201\201\133\203\127\203\166\203\214\201\133\203\147\202\146" /* ダメージプレートＧ */, 6);
+    mDamagePlateGroup = new LiveActorGroup("ダメージプレートＧ", 6);
     mDamagePlateGroup->initWithoutIter();
 
     for (s32 idx = 0; idx < 6; idx++) {
         f32 angles[6][2] = {{0.0f, 0.0f}, {180.0f, 0.0f}, {90.0f, 0.0f}, {270.0f, 0.0f}, {0.0f, 90.0f}, {0.0f, 270.0f}};
-        TVec3f vec(0.0f, 1180.0f, 0.0f);
-        MR::rotateVecDegree(&vec, TVec3f(0.0f, 0.0f, 1.0f), angles[idx][0]);
-        MR::rotateVecDegree(&vec, TVec3f(1.0f, 0.0f, 0.0f), angles[idx][1]);
+        Vec3f vec(0.0f, 1180.0f, 0.0f);
+        MR::rotateVecDegree(&vec, Vec3f(0.0f, 0.0f, 1.0f), angles[idx][0]);
+        MR::rotateVecDegree(&vec, Vec3f(1.0f, 0.0f, 0.0f), angles[idx][1]);
 
         mBaseMtx.mult(vec, vec);
 
-        KoopaBattleMapDamagePlate* pDamagePlate = new KoopaBattleMapDamagePlate("\203\116\203\142\203\160\203\137\203\201\201\133\203\127\203\166\203\214\201\133\203\147" /* クッパダメージプレート */);
+        KoopaBattleMapDamagePlate* pDamagePlate = new KoopaBattleMapDamagePlate("クッパダメージプレート");
         pDamagePlate->mPosition.set(vec);
         pDamagePlate->initWithoutIter();
 
         mDamagePlateGroup->registerActor(pDamagePlate);
     }
 
-    if (_DD) {
+    if (mIsFinalPlanet) {
         mDamagePlate = mDamagePlateGroup->getActor(0);
     } else {
         mDamagePlate = mDamagePlateGroup->getActor(1);
     }
 
-    if (_DD) {
+    if (mIsFinalPlanet) {
         return;
     }
 
-    mCoinPlateGroup = new LiveActorGroup("\203\122\203\103\203\223\203\166\203\214\201\133\203\147\202\146" /* コインプレートＧ */, 4);
+    mCoinPlateGroup = new LiveActorGroup("コインプレートＧ", 4);
     mCoinPlateGroup->initWithoutIter();
 
     for (s32 idx = 0; idx < 4; idx++) {
         f32 angles[4][2] = {{55.0f, 45.0f}, {125.0f, 135.0f}, {55.0f, 225.0f}, {125.0f, 315.0f}};
-        TVec3f vec(0.0f, 1200.0f, 0.0f);
-        MR::rotateVecDegree(&vec, TVec3f(0.0f, 0.0f, 1.0f), angles[idx][0]);
-        MR::rotateVecDegree(&vec, TVec3f(0.0f, 1.0f, 0.0f), angles[idx][1]);
+        Vec3f vec(0.0f, 1200.0f, 0.0f);
+        MR::rotateVecDegree(&vec, Vec3f(0.0f, 0.0f, 1.0f), angles[idx][0]);
+        MR::rotateVecDegree(&vec, Vec3f(0.0f, 1.0f, 0.0f), angles[idx][1]);
 
         mBaseMtx.mult(vec, vec);
 
-        KoopaBattleMapCoinPlate* pCoinPlate = new KoopaBattleMapCoinPlate("\203\116\203\142\203\160\203\122\203\103\203\223\203\166\203\214\201\133\203\147" /* クッパコインプレート */);
+        KoopaBattleMapCoinPlate* pCoinPlate = new KoopaBattleMapCoinPlate("クッパコインプレート");
         pCoinPlate->mPosition.set(vec);
         pCoinPlate->initWithoutIter();
 
         mCoinPlateGroup->registerActor(pCoinPlate);
     }
 
-    mPlateGroup = new LiveActorGroup("\203\166\203\214\201\133\203\147\202\146" /* プレートＧ */, 4);
+    mPlateGroup = new LiveActorGroup("プレートＧ", 4);
     mPlateGroup->initWithoutIter();
 
     for (s32 idx = 0; idx < 4; idx++) {
         f32 angles[4][2] = {{125.0f, 45.0f}, {55.0f, 135.0f}, {125.0f, 225.0f}, {55.0f, 315.0f}};
-        TVec3f vec(0.0f, 1230.0f, 0.0f);
-        MR::rotateVecDegree(&vec, TVec3f(0.0f, 0.0f, 1.0f), angles[idx][0]);
-        MR::rotateVecDegree(&vec, TVec3f(0.0f, 1.0f, 0.0f), angles[idx][1]);
+        Vec3f vec(0.0f, 1230.0f, 0.0f);
+        MR::rotateVecDegree(&vec, Vec3f(0.0f, 0.0f, 1.0f), angles[idx][0]);
+        MR::rotateVecDegree(&vec, Vec3f(0.0f, 1.0f, 0.0f), angles[idx][1]);
 
         mBaseMtx.mult(vec, vec);
 
-        KoopaBattleMapPlate* pCoinPlate = new KoopaBattleMapPlate("\203\116\203\142\203\160\203\166\203\214\201\133\203\147" /* クッパプレート */);
+        KoopaBattleMapPlate* pCoinPlate = new KoopaBattleMapPlate("クッパプレート");
         pCoinPlate->mPosition.set(vec);
         pCoinPlate->initWithoutIter();
 
@@ -152,8 +154,8 @@ void KoopaBattleMapPlanet::createPlate() {
 }
 
 void KoopaBattleMapPlanet::control() {
-    MR::rotateMtxMoment(&mBaseMtx, _C0);
-    _C0 *= ::sRotateFriction;
+    MR::rotateMtxMoment(&mBaseMtx, mRotateMoment);
+    mRotateMoment *= ::sRotateFriction;
 }
 
 void KoopaBattleMapPlanet::calcAndSetBaseMtx() {

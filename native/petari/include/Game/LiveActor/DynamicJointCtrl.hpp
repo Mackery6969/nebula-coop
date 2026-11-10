@@ -1,6 +1,6 @@
 #pragma once
 
-#include <JSystem/JGeometry.hpp>
+#include <nebula_geometry.hpp>
 #include <NebulaGpu.h>
 #include <nebula_math.h>
 
@@ -16,10 +16,10 @@ public:
     void startCtrl(s32);
     void endCtrl(s32);
 
-    f32 _0;
-    s32 _4;
-    s32 _8;
-    s32 _C;
+    f32 mRate;
+    s32 mTime;
+    s32 mStartTime;
+    s32 mEndTime;
 };
 
 struct DynamicJointCtrlParam {
@@ -43,7 +43,7 @@ public:
 
     LiveActor* mActor;
     const char* mName;
-    s32 _8;
+    s32 mNodeNum;
     DynamicJointCtrlNode** mCtrlNodes;
     const DynamicJointCtrlParam* mParams;
     JointCtrlRate* mControlRate;
@@ -55,13 +55,13 @@ public:
 
     void update(LiveActor*, const DynamicJointCtrlNode*);
     void reset();
-    bool updateJointMtxCallBack(TPos3f*, const JointControllerInfo&);
+    bool updateJointMtxCallBack(Pos3f*, const JointControllerInfo&);
 
-    f32 _0;
-    TVec3f _4;
-    TVec3f _10;
-    TVec3f _1C;
-    MtxPtr _28;
+    f32 mLength;
+    Vec3f mPos;
+    Vec3f mVelocity;
+    Vec3f mDir;
+    MtxPtr mMtx;
     JointController* mJointController;
     DynamicJointCtrlNode* mChild;
     const DynamicJointCtrl* mParentControl;
@@ -79,6 +79,6 @@ public:
     DynamicJointCtrl* findJointCtrl(const char*);
 
     LiveActor* mActor;
-    s32 _4;
+    s32 mControlNum;
     DynamicJointCtrl** mControls;
 };

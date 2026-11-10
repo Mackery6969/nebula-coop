@@ -8,15 +8,15 @@ class GalaxyNamePlate : public LayoutActor {
 public:
     GalaxyNamePlate(const char*, bool);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void kill();
-    virtual void control();
+    virtual void init(const TableIter&) override;
+    virtual void kill() override;
+    virtual void control() override;
 
     void showUnknown(bool);
     void showNew(bool);
     void showOpen(bool);
     void show(const char16_t*, bool);
-    void setPos3D(const TVec3f&);
+    void setPos3D(const Vec3f&);
     void setShowBalloonNozzle(bool);
     void show(const char16_t*, s32, bool, bool);
 
@@ -25,10 +25,10 @@ public:
     void exeWait();
 
     const char* mGalaxyName;
-    bool _24;
-    bool _25;
+    bool mIsShownThisFrame;  // show() ran since the last control()
+    bool mIsAppearNow;  // last show() skipped the ready wait
     bool mShowBalloonNozzle;
     GalaxyNamePlatePrioritied* mDrawerEntry;
-    s32 _2C;
-    bool _30;
+    s32 mStateFrame;  // frame of the Unknown anim: the galaxy state (1 is new)
+    bool mPlayNewSe;  // the new-galaxy sound has not played yet
 };

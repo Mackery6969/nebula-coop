@@ -9,37 +9,6 @@ namespace MR {
     class FunctorBase;
 };  // namespace MR
 
-namespace {
-    template < typename T >
-    class NameObjRealDelegator final {
-    public:
-        NameObjRealDelegator(T pMethod) {
-            mNameObjFunc = pMethod;
-        }
-
-        void operator()(NameObj* pNameObj);
-
-        T mNameObjFunc;
-    };
-
-    template < typename T >
-    void NameObjRealDelegator< T >::operator()(NameObj* pNameObj) {
-        (pNameObj->*mNameObjFunc)();
-    }
-
-    // The draw list is the only one of const methods: each NameObj's draws are named after it.
-    template <>
-    inline void NameObjRealDelegator< NameObjMethodConst >::operator()(NameObj* pNameObj) {
-        MotionSignal::drawNameObj(pNameObj);
-        (pNameObj->*mNameObjFunc)();
-    }
-};  // namespace
-
-struct CategoryListInitialTable {
-    u32 mIndex;
-    u32 mCount;
-};
-
 /// @brief Organizes NameObjs by execution category.
 class NameObjCategoryList {
 public:
@@ -51,29 +20,26 @@ public:
 
         MR::Vector< MR::AssignableArray< NameObj* > > mNameObjArr;
         MR::FunctorBase* mExecuteBeforeFunction;
-        u32 mCheck;
+        u32 mCheck;  // objects registered before allocateBuffer
     };
 
-    NameObjCategoryList(u32, const CategoryListInitialTable*, NameObjMethod, bool, const char*);
-    NameObjCategoryList(u32, const CategoryListInitialTable*, NameObjMethodConst, bool, const char*);
-
-    ~NameObjCategoryList();
+    // placeSlot: the NameObj::mListPlace entry this list keeps (an object is in at most one category of a list).
+    NameObjCategoryList(u32 categoryNum, NameObjMethod, s32 placeSlot);
+    NameObjCategoryList(u32 categoryNum, NameObjMethodConst, s32 placeSlot);
 
     void execute(int);
     void incrementCheck(NameObj*, int);
+    // Sizes each category to the objects counted into it.
     void allocateBuffer();
     void add(NameObj*, int);
     void remove(NameObj*, int);
     void registerExecuteBeforeFunction(const MR::FunctorBase&, int);
-    void initTable(u32, const CategoryListInitialTable*);
 
     MR::AssignableArray< NameObjCategoryList::CategoryInfo > mCategoryInfo;
 
-    union {
-        NameObjRealDelegator< NameObjMethod >* mDelegator;
-        NameObjRealDelegator< NameObjMethodConst >* mDelegatorConst;
-    };
-
-    bool mBufferAllocated;
-    bool mAllocateByCheck;
+    // One of the two is set. The draw list is the only list of const methods: before each draw it names the object the
+    // draws belong to (MotionSignal::drawObject).
+    NameObjMethod mMethod;
+    NameObjMethodConst mMethodConst;
+    s32 mPlaceSlot;
 };

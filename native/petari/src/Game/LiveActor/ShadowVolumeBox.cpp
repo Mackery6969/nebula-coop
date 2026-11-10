@@ -1,47 +1,46 @@
 #include "Game/LiveActor/ShadowVolumeBox.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
+#include "Game/Render/FrameList.hpp"
+#include "Game/Render/TypedDraw.hpp"
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/LiveActor/ShadowController.hpp"
 #include "Game/LiveActor/ShadowDrawer.hpp"
 #include "Game/Util/CameraUtil.hpp"
 
-ShadowVolumeBox::ShadowVolumeBox() : ShadowVolumeDrawer("\211\145\225\140\211\346[\203\173\203\212\203\205\201\133\203\200\203\173\203\142\203\116\203\130]" /* 影描画[ボリュームボックス] */), mSize(100.0f, 100.0f, 100.0f) {
+ShadowVolumeBox::ShadowVolumeBox() : ShadowVolumeDrawer("影描画[ボリュームボックス]"), mSize(100.0f, 100.0f, 100.0f) {
     for (u32 idx = 0; idx < ARRAY_SIZE(mPoints); idx++) {
         mPoints[idx].zero();
     }
 }
 
-void ShadowVolumeBox::setSize(const TVec3f& rSize) {
+void ShadowVolumeBox::setSize(const Vec3f& rSize) {
     mSize.set(rSize);
 }
 
-void ShadowVolumeBox::loadModelDrawMtx() const {
-    J3DNativeShape::setPosition(0, MR::getCameraViewMtx());
-    J3DPass::positionMatrix(0);
+void ShadowVolumeBox::loadModelDrawMtx(TypedDraw& rDraw) const {
+    rDraw.setWorld(nullptr);
     makeVertexBuffer();
 }
 
 void ShadowVolumeBox::makeVertexBuffer() const {
     MtxPtr mtx;
     ShadowController* controller = getController();
-    mtx = controller->_18;
-    TVec3f side(mtx[0][0], mtx[1][0], mtx[2][0]);
-    TVec3f up(mtx[0][1], mtx[1][1], mtx[2][1]);
-    TVec3f front(mtx[0][2], mtx[1][2], mtx[2][2]);
+    mtx = controller->mHostMtx;
+    Vec3f side(mtx[0][0], mtx[1][0], mtx[2][0]);
+    Vec3f up(mtx[0][1], mtx[1][1], mtx[2][1]);
+    Vec3f front(mtx[0][2], mtx[1][2], mtx[2][2]);
 
-    TVec3f pos, dir;
+    Vec3f pos, dir;
     calcBaseDropPosition(&pos);
     controller->getDropDir(&dir);
 
     bool dirRight = dir.dot(side) >= 0.0f;
     bool dirUp = dir.dot(up) >= 0.0f;
     bool dirFront = dir.dot(front) >= 0.0f;
+    mVariant = (dirRight ? 1u : 0u) | (dirUp ? 2u : 0u) | (dirFront ? 4u : 0u);
 
-    TVec3f size = mSize;
+    Vec3f size = mSize;
     if (controller->isFollowHostScale()) {
-        TVec3f scale(controller->getHost()->mScale);
+        Vec3f scale(controller->getHost()->mScale);
         scale /= 2.0f;
         size *= scale;
     } else {
@@ -131,48 +130,46 @@ void ShadowVolumeBox::makeVertexBuffer() const {
     }
 }
 
-void ShadowVolumeBox::drawShape() const {
-    J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, 14, 0);
+void ShadowVolumeBox::drawShape(TypedDraw& rDraw) const {
+    VertexP* vtx = rDraw.vertices< VertexP >(NEBULA_PRIMITIVE_TRIANGLE_STRIP, 14);
     {
-        TDDraw::sendPoint(mPoints[0]);
-        TDDraw::sendPoint(mPoints[1]);
-        TDDraw::sendPoint(mPoints[2]);
-        TDDraw::sendPoint(mPoints[3]);
-        TDDraw::sendPoint(mPoints[10]);
-        TDDraw::sendPoint(mPoints[11]);
-        TDDraw::sendPoint(mPoints[6]);
-        TDDraw::sendPoint(mPoints[7]);
-        TDDraw::sendPoint(mPoints[4]);
-        TDDraw::sendPoint(mPoints[5]);
-        TDDraw::sendPoint(mPoints[8]);
-        TDDraw::sendPoint(mPoints[9]);
-        TDDraw::sendPoint(mPoints[0]);
-        TDDraw::sendPoint(mPoints[1]);
+        *vtx++ = {mPoints[0].x, mPoints[0].y, mPoints[0].z};
+        *vtx++ = {mPoints[1].x, mPoints[1].y, mPoints[1].z};
+        *vtx++ = {mPoints[2].x, mPoints[2].y, mPoints[2].z};
+        *vtx++ = {mPoints[3].x, mPoints[3].y, mPoints[3].z};
+        *vtx++ = {mPoints[10].x, mPoints[10].y, mPoints[10].z};
+        *vtx++ = {mPoints[11].x, mPoints[11].y, mPoints[11].z};
+        *vtx++ = {mPoints[6].x, mPoints[6].y, mPoints[6].z};
+        *vtx++ = {mPoints[7].x, mPoints[7].y, mPoints[7].z};
+        *vtx++ = {mPoints[4].x, mPoints[4].y, mPoints[4].z};
+        *vtx++ = {mPoints[5].x, mPoints[5].y, mPoints[5].z};
+        *vtx++ = {mPoints[8].x, mPoints[8].y, mPoints[8].z};
+        *vtx++ = {mPoints[9].x, mPoints[9].y, mPoints[9].z};
+        *vtx++ = {mPoints[0].x, mPoints[0].y, mPoints[0].z};
+        *vtx++ = {mPoints[1].x, mPoints[1].y, mPoints[1].z};
     }
 
-
-    J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_FAN, 8, 0);
+    vtx = rDraw.vertices< VertexP >(NEBULA_PRIMITIVE_TRIANGLE_FAN, 8);
     {
-        TDDraw::sendPoint(mPoints[12]);
-        TDDraw::sendPoint(mPoints[0]);
-        TDDraw::sendPoint(mPoints[2]);
-        TDDraw::sendPoint(mPoints[10]);
-        TDDraw::sendPoint(mPoints[6]);
-        TDDraw::sendPoint(mPoints[4]);
-        TDDraw::sendPoint(mPoints[8]);
-        TDDraw::sendPoint(mPoints[0]);
+        *vtx++ = {mPoints[12].x, mPoints[12].y, mPoints[12].z};
+        *vtx++ = {mPoints[0].x, mPoints[0].y, mPoints[0].z};
+        *vtx++ = {mPoints[2].x, mPoints[2].y, mPoints[2].z};
+        *vtx++ = {mPoints[10].x, mPoints[10].y, mPoints[10].z};
+        *vtx++ = {mPoints[6].x, mPoints[6].y, mPoints[6].z};
+        *vtx++ = {mPoints[4].x, mPoints[4].y, mPoints[4].z};
+        *vtx++ = {mPoints[8].x, mPoints[8].y, mPoints[8].z};
+        *vtx++ = {mPoints[0].x, mPoints[0].y, mPoints[0].z};
     }
 
-
-    J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_FAN, 8, 0);
+    vtx = rDraw.vertices< VertexP >(NEBULA_PRIMITIVE_TRIANGLE_FAN, 8);
     {
-        TDDraw::sendPoint(mPoints[13]);
-        TDDraw::sendPoint(mPoints[1]);
-        TDDraw::sendPoint(mPoints[9]);
-        TDDraw::sendPoint(mPoints[5]);
-        TDDraw::sendPoint(mPoints[7]);
-        TDDraw::sendPoint(mPoints[11]);
-        TDDraw::sendPoint(mPoints[3]);
-        TDDraw::sendPoint(mPoints[1]);
+        *vtx++ = {mPoints[13].x, mPoints[13].y, mPoints[13].z};
+        *vtx++ = {mPoints[1].x, mPoints[1].y, mPoints[1].z};
+        *vtx++ = {mPoints[9].x, mPoints[9].y, mPoints[9].z};
+        *vtx++ = {mPoints[5].x, mPoints[5].y, mPoints[5].z};
+        *vtx++ = {mPoints[7].x, mPoints[7].y, mPoints[7].z};
+        *vtx++ = {mPoints[11].x, mPoints[11].y, mPoints[11].z};
+        *vtx++ = {mPoints[3].x, mPoints[3].y, mPoints[3].z};
+        *vtx++ = {mPoints[1].x, mPoints[1].y, mPoints[1].z};
     }
 }

@@ -14,11 +14,10 @@ class PowerStarHolder : public NameObj {
 public:
     PowerStarHolder(const char*);
 
-    virtual ~PowerStarHolder();
-    virtual void init(const JMapInfoIter&);
+    virtual void init(const TableIter&) override;
 
     void registerPowerStar(PowerStar*, int);
-    void requestAppearPowerStar(int, const TVec3f*, bool);
+    void requestAppearPowerStar(int, const Vec3f*, bool);
     void appearPowerStarWithoutDemo(int);
     PowerStar* getAppearedPowerStar(int) const;
     PowerStarRequestInfo* findPowerStarRequestInfo(int) const;

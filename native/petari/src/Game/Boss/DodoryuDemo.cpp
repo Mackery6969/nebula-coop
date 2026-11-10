@@ -1,4 +1,5 @@
 #include "Game/Boss/DodoryuDemo.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Boss/Dodoryu.hpp"
 #include "Game/Camera/CameraTargetArg.hpp"
 #include "Game/LiveActor/Nerve.hpp"
@@ -12,16 +13,12 @@
 #include "Game/Util/RailUtil.hpp"
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const s32 sOpeningHideFrame = 60;
-    // static const s32 sOpeningAppearFrame = _;
-    // static const s32 sOpeningAppearRumbleStep = _;
-    // static const s32 sOpeningHideRumbleStep = _;
-    static const s32 sOpeningAppearSmileSoundStep = 55;
-    // static const s32 sAppearRumbleStep = _;
-    // static const s32 sDownRumbleStep = _;
-    static const s32 sDieSoundStep = 242;
+    NEBULA_TUNABLE(s32, sOpeningHideFrame, 60);
+    NEBULA_TUNABLE(s32, sOpeningAppearSmileSoundStep, 55);
+    NEBULA_TUNABLE(s32, sDieSoundStep, 242);
 };  // namespace
 
 namespace {
@@ -42,14 +39,14 @@ namespace {
 
 namespace {
     void resetCastDisposition(Dodoryu* pDodoryu) {
-        TPos3f mtx;
+        Pos3f mtx;
 
         pDodoryu->killAllHillPieces();
-        MR::findNamePos("\203\150\203\150\203\212\203\205\203\105\215\304\203\132\203\142\203\147" /* ドドリュウ再セット */, mtx.toMtxPtr());
+        MR::findNamePos("ドドリュウ再セット", mtx.toMtxPtr());
         pDodoryu->setMtx(mtx);
         pDodoryu->snapToGround();
 
-        MR::findNamePos("\203\175\203\212\203\111\215\304\203\132\203\142\203\147" /* マリオ再セット */, mtx.toMtxPtr());
+        MR::findNamePos("マリオ再セット", mtx.toMtxPtr());
         MR::setPlayerBaseMtx(mtx.toMtxPtr());
         MR::setPlayerStateWait();
     }
@@ -59,7 +56,7 @@ DodoryuDemoOpening::DodoryuDemoOpening(Dodoryu* pHost, const char* pName) : Dodo
     initWithoutIter();
 }
 
-void DodoryuDemoOpening::init(const JMapInfoIter& rIter) {
+void DodoryuDemoOpening::init(const TableIter& /*rIter*/) {
     MR::invalidateClipping(this);
     initNerve(GET_NERVE_ANON(DodoryuDemoOpeningNrvOpeningUnderground));
     MR::initAnimCamera(mHost, &mActorCameraInfo, "OpeningDemo");
@@ -78,11 +75,11 @@ void DodoryuDemoOpening::start() {
 
 void DodoryuDemoOpening::end() {
     MR::endAnimCamera(mHost, &mActorCameraInfo, "OpeningDemo", -1, true);
-    MR::endDemo(mHost, "\203\150\203\150\203\212\203\205\203\105\212\112\216\156\203\146\203\202" /* ドドリュウ開始デモ */);
+    MR::endDemo(mHost, "ドドリュウ開始デモ");
 
-    TPos3f playerResetMtx;
+    Pos3f playerResetMtx;
     mHost->getPlayerResetMtx(&playerResetMtx, 0);
-    mHost->_150 = false;
+    mHost->mIsRumbling = false;
 
     MR::setPlayerBaseMtx(playerResetMtx.toMtxPtr());
     MR::setPlayerStateWait();
@@ -90,14 +87,14 @@ void DodoryuDemoOpening::end() {
 }
 
 void DodoryuDemoOpening::exeDemoWait() {
-    if (!MR::tryStartDemo(mHost, "\203\150\203\150\203\212\203\205\203\105\212\112\216\156\203\146\203\202" /* ドドリュウ開始デモ */)) {
+    if (!MR::tryStartDemo(mHost, "ドドリュウ開始デモ")) {
         return;
     }
 
     MR::invalidateShadowAll(mHost);
     MR::startSystemSE("SE_DM_MEET_BOSS");
     MR::startStageBGM("BGM_PINCH_3", false);
-    MR::startAnimCameraTargetOther(mHost, &mActorCameraInfo, "OpeningDemo", CameraTargetArg(mHost->_148), 0, 1.0f);
+    MR::startAnimCameraTargetOther(mHost, &mActorCameraInfo, "OpeningDemo", CameraTargetArg(mHost->mDemoCameraTarget), 0, 1.0f);
     mHost->pauseOff();
     MR::hidePlayer();
     MR::startBck(mHost, "EffectWalk");
@@ -116,10 +113,7 @@ void DodoryuDemoOpening::exeDemoWait() {
 void DodoryuDemoOpening::exeUnderground() {
     if (MR::isFirstStep(this)) {
         mHost->startHill();
-
-        Dodoryu* pHost = mHost;
-        pHost->_150 = true;
-        pHost->_154 = 0;
+        mHost->mIsRumbling = true;
     }
 
     MR::startLevelSound(mHost, "SE_BM_LV_DODORYU_MOVE_U_SHALLOW");
@@ -175,8 +169,8 @@ void DodoryuDemoOpening::exeWalk() {
     MR::startLevelSound(mHost, "SE_BM_LV_DODORYU_MOVE_GROUND");
     turnToRabbit();
 
-    if (MR::isGreaterEqualStep(this, 60)) {
-        mHost->_150 = false;
+    if (MR::isGreaterEqualStep(this, NebulaFrameClock::stepsOfSeconds(1))) {
+        mHost->mIsRumbling = false;
 
         setNerve(GET_NERVE_ANON(DodoryuDemoOpeningNrvOpeningHideReady));
     }
@@ -202,10 +196,7 @@ void DodoryuDemoOpening::exeHide() {
 
     if (MR::isBckOneTimeAndStopped(mHost)) {
         MR::startBck(mHost, "EffectWalk");
-
-        Dodoryu* pHost = mHost;
-        pHost->_150 = true;
-        pHost->_154 = 0;
+        mHost->mIsRumbling = true;
         mHost->startLeadHillBck("EffectWalk");
     }
 }
@@ -222,14 +213,14 @@ bool DodoryuDemoOpening::tryFinish() {
 }
 
 void DodoryuDemoOpening::turnToRabbit() {
-    TVec3f rabbitDir;
+    Vec3f rabbitDir;
     mHost->calcRabbitDir(&rabbitDir);
-    TPos3f mtx(mHost->mBaseMtx);
-    TVec3f up;
+    Pos3f mtx(mHost->mBaseMtx);
+    Vec3f up;
     mtx.getZDir(up);
-    TVec3f front;
+    Vec3f front;
     mtx.getTrans(front);
-    TPos3f rotation;
+    Pos3f rotation;
     rotation.setRotate(up, rabbitDir);
     mtx.concat(rotation, mtx);
     mtx.setTrans(front);
@@ -240,7 +231,7 @@ DodoryuDemoAppear::DodoryuDemoAppear(Dodoryu* pHost, const char* pName) : Dodory
     initWithoutIter();
 }
 
-void DodoryuDemoAppear::init(const JMapInfoIter& rIter) {
+void DodoryuDemoAppear::init(const TableIter& /*rIter*/) {
     MR::invalidateClipping(this);
     initNerve(GET_NERVE_ANON(DodoryuDemoAppearNrvAppearPlay));
     MR::initAnimCamera(mHost, &mActorCameraInfo, "AppearDemo");
@@ -253,12 +244,12 @@ void DodoryuDemoAppear::start() {
 
 void DodoryuDemoAppear::end() {
     MR::endAnimCamera(mHost, &mActorCameraInfo, "AppearDemo", -1, true);
-    MR::endDemo(mHost, "\203\150\203\150\203\212\203\205\203\105\217\157\214\273\203\146\203\202" /* ドドリュウ出現デモ */);
+    MR::endDemo(mHost, "ドドリュウ出現デモ");
     MR::showPlayer();
 }
 
 void DodoryuDemoAppear::exeDemoWait() {
-    if (!MR::tryStartDemo(mHost, "\203\150\203\150\203\212\203\205\203\105\217\157\214\273\203\146\203\202" /* ドドリュウ出現デモ */)) {
+    if (!MR::tryStartDemo(mHost, "ドドリュウ出現デモ")) {
         return;
     }
 
@@ -288,7 +279,7 @@ void DodoryuDemoAppear::exePlay() {
         MR::startBossBGM(MR::BossBgmID_DodoryuA);
 
         Dodoryu* pHost = mHost;
-        TVec3f jointPos;
+        Vec3f jointPos;
         MR::copyJointPos(mHost, "Nose", &jointPos);
         MR::appearStarPiece(pHost, jointPos, 8, 20.0f, 40.0f, false);
 
@@ -300,7 +291,7 @@ DodoryuDemoAngry::DodoryuDemoAngry(Dodoryu* pHost, const char* pName) : DodoryuS
     initWithoutIter();
 }
 
-void DodoryuDemoAngry::init(const JMapInfoIter& rIter) {
+void DodoryuDemoAngry::init(const TableIter& /*rIter*/) {
     MR::invalidateClipping(this);
     initNerve(GET_NERVE_ANON(DodoryuDemoAngryNrvAngryPlay));
     MR::initAnimCamera(mHost, &mActorCameraInfo, "AngryDemo");
@@ -313,12 +304,12 @@ void DodoryuDemoAngry::start() {
 
 void DodoryuDemoAngry::end() {
     MR::endAnimCamera(mHost, &mActorCameraInfo, "AngryDemo", -1, true);
-    MR::endDemo(mHost, "\203\150\203\150\203\212\203\205\203\105\223\173\202\350\203\146\203\202" /* ドドリュウ怒りデモ */);
+    MR::endDemo(mHost, "ドドリュウ怒りデモ");
     MR::showPlayer();
 }
 
 void DodoryuDemoAngry::exeDemoWait() {
-    if (!MR::tryStartDemo(mHost, "\203\150\203\150\203\212\203\205\203\105\223\173\202\350\203\146\203\202" /* ドドリュウ怒りデモ */)) {
+    if (!MR::tryStartDemo(mHost, "ドドリュウ怒りデモ")) {
         return;
     }
 
@@ -339,7 +330,7 @@ void DodoryuDemoAngry::exePlay() {
         MR::hidePlayer();
     }
 
-    if (MR::isStep(this, 120)) {
+    if (MR::isStep(this, NebulaFrameClock::stepsOfSeconds(2))) {
         MR::startCenterScreenBlur(60, 15.0f, 80, 5, 30);
     }
 
@@ -348,7 +339,7 @@ void DodoryuDemoAngry::exePlay() {
         MR::startBossBGM(MR::BossBgmID_DodoryuB);
 
         Dodoryu* pHost = mHost;
-        TVec3f jointPos;
+        Vec3f jointPos;
         MR::copyJointPos(mHost, "Nose", &jointPos);
         MR::appearStarPiece(pHost, jointPos, 16, 20.0f, 40.0f, false);
 
@@ -360,7 +351,7 @@ DodoryuDemoDown::DodoryuDemoDown(Dodoryu* pHost, const char* pName) : DodoryuSta
     initWithoutIter();
 }
 
-void DodoryuDemoDown::init(const JMapInfoIter& rIter) {
+void DodoryuDemoDown::init(const TableIter& /*rIter*/) {
     MR::invalidateClipping(this);
     initNerve(GET_NERVE_ANON(DodoryuDemoDownNrvDownPlay));
     MR::initAnimCamera(mHost, &mActorCameraInfo, "DownDemo");
@@ -373,12 +364,12 @@ void DodoryuDemoDown::start() {
 
 void DodoryuDemoDown::end() {
     MR::endAnimCamera(mHost, &mActorCameraInfo, "DownDemo", -1, true);
-    MR::endDemo(mHost, "\203\150\203\150\203\212\203\205\203\105\216\200\226\123\203\146\203\202" /* ドドリュウ死亡デモ */);
+    MR::endDemo(mHost, "ドドリュウ死亡デモ");
     MR::showPlayer();
 }
 
 void DodoryuDemoDown::exeDemoWait() {
-    if (!MR::tryStartDemo(mHost, "\203\150\203\150\203\212\203\205\203\105\216\200\226\123\203\146\203\202" /* ドドリュウ死亡デモ */)) {
+    if (!MR::tryStartDemo(mHost, "ドドリュウ死亡デモ")) {
         return;
     }
 

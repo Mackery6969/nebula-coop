@@ -2,27 +2,27 @@
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/BigBubbleHolder.hpp"
 #include "Game/Util.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 
 BigBubbleMoveLimitter::BigBubbleMoveLimitter(const char* pName, s32 limitterType)
     : NameObj(pName), mID(-1), mPosition(0, 0, 0), mAxis(0, 1, 0), mSide(1, 0, 0), mUp(0, 1, 0), mFront(0, 0, 1),
-      mLimitMarginType(LimitterMarginType_Center), mCylinderRadius(500.0f), mCylinderHeight(500.0f), mPlaneWidth(500.0f), mPlaneHeight(500.0f),
+      mCylinderRadius(500.0f), mCylinderHeight(500.0f), mPlaneWidth(500.0f), mPlaneHeight(500.0f), mLimitMarginType(LimitterMarginType_Center),
       mType(limitterType) {
 }
 
-void BigBubbleMoveLimitter::init(const JMapInfoIter& rIter) {
-    MR::getJMapInfoArg0NoInit(rIter, &mID);
-    MR::getJMapInfoArg1WithInit(rIter, &mLimitMarginType);
+void BigBubbleMoveLimitter::init(const TableIter& rIter) {
+    MR::getPlacementArg0NoInit(rIter, &mID);
+    MR::getPlacementArg1WithInit(rIter, &mLimitMarginType);
 
-    TPos3f mtx;
-    MR::getJMapInfoMatrixFromRT(rIter, &mtx);
+    Pos3f mtx;
+    MR::getPlacementMatrixFromRT(rIter, &mtx);
     mtx.getTrans(mPosition);
     mtx.getYDir(mAxis);
     mtx.getXYZDir(mSide, mUp, mFront);
 
-    TVec3f scale;
-    MR::getJMapInfoScale(rIter, &scale);
+    Vec3f scale;
+    MR::getPlacementScale(rIter, &scale);
     mCylinderRadius = scale.x * 500.0f;
     mCylinderHeight = scale.y * 500.0f;
     mPlaneWidth = scale.x * 500.0f;
@@ -32,13 +32,13 @@ void BigBubbleMoveLimitter::init(const JMapInfoIter& rIter) {
     MR::addBigBubbleMoveLimitter(this);
 }
 
-bool BigBubbleMoveLimitter::limitPosition(TVec3f* pPos, f32 offset) const {
+bool BigBubbleMoveLimitter::limitPosition(Vec3f* pPos, f32 offset) const {
     bool limitted = false;
 
     offset = getLimitterOffset(offset);
 
     if (mType == LimitterType_Cylinder) {
-        TVec3f ortho;
+        Vec3f ortho;
         f32 proj = MR::vecKillElement(*pPos - mPosition, mAxis, &ortho);
         MR::normalizeOrZero(&ortho);
 
@@ -54,7 +54,7 @@ bool BigBubbleMoveLimitter::limitPosition(TVec3f* pPos, f32 offset) const {
 
         pPos->set(mPosition + mAxis * proj + ortho * (mCylinderRadius + offset));
     } else {
-        TVec3f pos;
+        Vec3f pos;
         MR::vecKillElement(*pPos - mPosition, mFront, &pos);
         pos.add(mFront * offset);
 
@@ -82,8 +82,8 @@ bool BigBubbleMoveLimitter::limitPosition(TVec3f* pPos, f32 offset) const {
     return limitted;
 }
 
-bool BigBubbleMoveLimitter::limitVelocity(TVec3f* pPos, const TVec3f& rVel, f32 offset) const {
-    TVec3f nextPos;
+bool BigBubbleMoveLimitter::limitVelocity(Vec3f* pPos, const Vec3f& rVel, f32 offset) const {
+    Vec3f nextPos;
     nextPos.set(rVel + *pPos);
     bool limitted = limitPosition(&nextPos, offset);
     pPos->set(nextPos - rVel);

@@ -4,29 +4,29 @@
 GravityCreator::GravityCreator() {
 }
 
-PlanetGravity* GravityCreator::createFromJMap(const JMapInfoIter& rIter) {
+PlanetGravity* GravityCreator::createFromPlacement(const TableIter& rIter) {
     PlanetGravity* instance = createInstance();
 
     if (instance) {
-        TVec3f trans(0, 0, 0);
-        TVec3f rotate(0, 0, 0);
-        TVec3f scale(1, 1, 1);
-        MR::getJMapInfoTrans(rIter, &trans);
-        MR::getJMapInfoRotate(rIter, &rotate);
-        MR::getJMapInfoScale(rIter, &scale);
+        Vec3f trans(0, 0, 0);
+        Vec3f rotate(0, 0, 0);
+        Vec3f scale(1, 1, 1);
+        MR::getPlacementTrans(rIter, &trans);
+        MR::getPlacementRotate(rIter, &rotate);
+        MR::getPlacementScale(rIter, &scale);
         settingFromSRT(trans, rotate, scale);
 
-        s32 arg0;
-        s32 arg1;
-        s32 arg2;
-        MR::getJMapInfoArg0WithInit(rIter, &arg0);
-        MR::getJMapInfoArg1WithInit(rIter, &arg1);
-        MR::getJMapInfoArg2WithInit(rIter, &arg2);
-        settingFromJMapArgs(arg0, arg1, arg2);
+        s32 objArg0;
+        s32 objArg1;
+        s32 objArg2;
+        MR::getPlacementArg0WithInit(rIter, &objArg0);
+        MR::getPlacementArg1WithInit(rIter, &objArg1);
+        MR::getPlacementArg2WithInit(rIter, &objArg2);
+        settingFromPlacementArgs(objArg0, objArg1, objArg2);
 
-        settingFromJMapOtherParam(rIter);
+        settingFromPlacementOtherParam(rIter);
 
-        MR::settingGravityParamFromJMap(instance, rIter);
+        MR::settingGravityParamFromPlacement(instance, rIter);
         getGravity()->updateIdentityMtx();
         MR::registerGravity(instance);
     }
@@ -39,48 +39,25 @@ PlanetGravity* CubeGravityCreator::createInstance() {
     return mGravityInstance;
 }
 
-void CubeGravityCreator::settingFromSRT(const TVec3f& rTrans, const TVec3f& rRotate, const TVec3f& rScale) {
-    // Calculate TR matrix
-    TPos3f mtx;
+void CubeGravityCreator::settingFromSRT(const Vec3f& rTrans, const Vec3f& rRotate, const Vec3f& rScale) {
+    Pos3f mtx;
     MR::makeMtxTR(mtx.toMtxPtr(), rTrans, rRotate);
 
-    // Get up vector and calculate scale
-    TVec3f upVec;
-    TVec3f scale;
+    Vec3f upVec;
+    Vec3f scale;
     scale.set(rScale * 500.0f);
     mtx.getYDir(upVec);
 
-    // Translate and scale matrix
+    // The placement point is the bottom face's centre.
     mtx.setTrans(rTrans + upVec * scale.y);
     MR::preScaleMtx(mtx.toMtxPtr(), scale);
 
-    // Set cube matrix
     mGravityInstance->setCube(mtx);
 }
 
-void CubeGravityCreator::settingFromJMapArgs(s32 arg0, s32 arg1, s32 arg2) {
-    u8 activeFaces = 0;
-
-    if (arg0 & 1) {
-        activeFaces |= 1;
-    }
-    if (arg0 & 2) {
-        activeFaces |= 2;
-    }
-    if (arg1 & 1) {
-        activeFaces |= 4;
-    }
-    if (arg1 & 2) {
-        activeFaces |= 8;
-    }
-    if (arg2 & 1) {
-        activeFaces |= 16;
-    }
-    if (arg2 & 2) {
-        activeFaces |= 32;
-    }
-
-    mGravityInstance->mActiveFaces = activeFaces;
+void CubeGravityCreator::settingFromPlacementArgs(s32 xFaces, s32 yFaces, s32 zFaces) {
+    // Per axis: bit 0 turns on the positive face, bit 1 the negative one.
+    mGravityInstance->mActiveFaces = static_cast< u8 >((xFaces & 3) | (yFaces & 3) << 2 | (zFaces & 3) << 4);
 }
 
 PlanetGravity* CubeGravityCreator::getGravity() {
@@ -92,35 +69,29 @@ PlanetGravity* DiskGravityCreator::createInstance() {
     return mGravityInstance;
 }
 
-void DiskGravityCreator::settingFromSRT(const TVec3f& rTrans, const TVec3f& rRotate, const TVec3f& rScale) {
-    // Calculate TR matrix
-    TPos3f mtx;
+void DiskGravityCreator::settingFromSRT(const Vec3f& rTrans, const Vec3f& rRotate, const Vec3f& rScale) {
+    Pos3f mtx;
     MR::makeMtxTR(mtx.toMtxPtr(), rTrans, rRotate);
 
-    // Calculate side and up vectors
-    TVec3f sideVec, upVec;
+    Vec3f sideVec, upVec;
     mtx.getXDir(sideVec);
     mtx.getYDir(upVec);
 
-    // Populate gravity attributes
     mGravityInstance->setLocalPosition(rTrans);
     mGravityInstance->setLocalDirection(upVec);
     mGravityInstance->setSideDirection(sideVec);
     mGravityInstance->setRadius(500.0f * MR::getMaxElement(rScale));
 }
 
-void DiskGravityCreator::settingFromJMapArgs(s32 arg0, s32 arg1, s32 arg2) {
-    // Obj_arg0 = enable both sides?
-    mGravityInstance->setBothSide(arg0 != 0);
+void DiskGravityCreator::settingFromPlacementArgs(s32 bothSides, s32 edgeGravity, s32 validDegree) {
+    mGravityInstance->setBothSide(bothSides != 0);
+    mGravityInstance->setEnableEdgeGravity(edgeGravity != 0);
 
-    // Obj_arg1 = enable edge gravity?
-    mGravityInstance->setEnableEdgeGravity(arg1 != 0);
-
-    // Obj_arg3 = valid degree
-    if (arg2 >= 0) {
-        mGravityInstance->setValidDegee(arg2);
+    // A negative angle is the whole disk.
+    if (validDegree >= 0) {
+        mGravityInstance->setValidDegree(validDegree);
     } else {
-        mGravityInstance->setValidDegee(360.0f);
+        mGravityInstance->setValidDegree(360.0f);
     }
 }
 
@@ -133,43 +104,30 @@ PlanetGravity* DiskTorusGravityCreator::createInstance() {
     return mGravityInstance;
 }
 
-void DiskTorusGravityCreator::settingFromSRT(const TVec3f& rTrans, const TVec3f& rRotate, const TVec3f& rScale) {
-    // Calculate TR matrix
-    TPos3f mtx;
+void DiskTorusGravityCreator::settingFromSRT(const Vec3f& rTrans, const Vec3f& rRotate, const Vec3f& rScale) {
+    Pos3f mtx;
     MR::makeMtxTR(mtx.toMtxPtr(), rTrans, rRotate);
 
-    // Calculate side and up vectors
-    TVec3f upVec;
+    Vec3f upVec;
     mtx.getYDir(upVec);
 
-    // Populate gravity attributes
     mGravityInstance->setPosition(rTrans);
     mGravityInstance->setDirection(upVec);
     mGravityInstance->setRadius(500.0f * MR::getMaxElement(rScale));
 }
 
-void DiskTorusGravityCreator::settingFromJMapArgs(s32 arg0, s32 arg1, s32 arg2) {
-    // Obj_arg0 = enable both sides?
-    mGravityInstance->setBothSide(arg0 != 0);
+void DiskTorusGravityCreator::settingFromPlacementArgs(s32 bothSides, s32 edgeType, s32 diskRadius) {
+    mGravityInstance->setBothSide(bothSides != 0);
 
-    // Obj_arg1 = edge type
-    switch (arg1) {
-    case 0:
-        mGravityInstance->setEdgeType(0);
-        break;
-    case 1:
-        mGravityInstance->setEdgeType(1);
-        break;
-    case 2:
-        mGravityInstance->setEdgeType(2);
-        break;
-    default:
-        mGravityInstance->setEdgeType(3);
-        break;
+    // Unknown edge types pull from both edges.
+    if (edgeType == DiskTorusGravity::EdgeType_DisableBoth || edgeType == DiskTorusGravity::EdgeType_DisableOuter ||
+        edgeType == DiskTorusGravity::EdgeType_DisableInner) {
+        mGravityInstance->setEdgeType(edgeType);
+    } else {
+        mGravityInstance->setEdgeType(DiskTorusGravity::EdgeType_EnableBoth);
     }
 
-    // Obj_arg2 = disk radius
-    mGravityInstance->setDiskRadius(arg2);
+    mGravityInstance->setDiskRadius(diskRadius);
 }
 
 PlanetGravity* DiskTorusGravityCreator::getGravity() {
@@ -181,19 +139,15 @@ PlanetGravity* ConeGravityCreator::createInstance() {
     return mGravityInstance;
 }
 
-void ConeGravityCreator::settingFromSRT(const TVec3f& rTrans, const TVec3f& rRotate, const TVec3f& rScale) {
-    // Calculate local matrix
-    TPos3f localMtx;
-    MR::makeMtxTRS(reinterpret_cast< MtxPtr >(&localMtx), rTrans, rRotate, rScale * 500.0f);
+void ConeGravityCreator::settingFromSRT(const Vec3f& rTrans, const Vec3f& rRotate, const Vec3f& rScale) {
+    Pos3f localMtx;
+    MR::makeMtxTRS(localMtx.toMtxPtr(), rTrans, rRotate, rScale * 500.0f);
     mGravityInstance->setLocalMatrix(localMtx);
 }
 
-void ConeGravityCreator::settingFromJMapArgs(s32 arg0, s32 arg1, s32 arg2) {
-    // Obj_arg0 = is enable bottom?
-    mGravityInstance->setEnableBottom(arg0 != 0);
-
-    // Obj_arg1 = top cut rate
-    mGravityInstance->setTopCutRate(arg1 / 1000.0f);
+void ConeGravityCreator::settingFromPlacementArgs(s32 enableBottom, s32 topCutPermille, s32) {
+    mGravityInstance->setEnableBottom(enableBottom != 0);
+    mGravityInstance->setTopCutRate(topCutPermille / 1000.0f);
 }
 
 PlanetGravity* ConeGravityCreator::getGravity() {
@@ -205,13 +159,11 @@ PlanetGravity* PlaneGravityCreator::createInstance() {
     return mGravityInstance;
 }
 
-void PlaneGravityCreator::settingFromSRT(const TVec3f& rTrans, const TVec3f& rRotate, const TVec3f& rScale) {
-    // Calculate rotate matrix
-    TPos3f mtx;
+void PlaneGravityCreator::settingFromSRT(const Vec3f& rTrans, const Vec3f& rRotate, const Vec3f& /*rScale*/) {
+    Pos3f mtx;
     MR::makeMtxRotate(mtx.toMtxPtr(), rRotate);
 
-    // Set normal-form plane
-    TVec3f upVec;
+    Vec3f upVec;
     mtx.getYDir(upVec);
     mGravityInstance->setPlane(upVec, rTrans);
 }
@@ -226,21 +178,18 @@ PlanetGravity* PlaneInBoxGravityCreator::createInstance() {
     return mGravityInstance;
 }
 
-void PlaneInBoxGravityCreator::settingFromSRT(const TVec3f& rTrans, const TVec3f& rRotate, const TVec3f& rScale) {
-    // Calculate scale and TR matrix
-    TPos3f mtx;
-    TVec3f scale = rScale * 500.0f;
+void PlaneInBoxGravityCreator::settingFromSRT(const Vec3f& rTrans, const Vec3f& rRotate, const Vec3f& rScale) {
+    Pos3f mtx;
+    Vec3f scale = rScale * 500.0f;
     MR::makeMtxTR(mtx.toMtxPtr(), rTrans, rRotate);
 
-    // Get up vector
-    TVec3f upVec;
+    Vec3f upVec;
     mtx.getYDir(upVec);
 
-    // Translate and scale matrix
+    // The placement point is the box's bottom face centre.
     mtx.setTrans(rTrans + upVec * scale.y);
     MR::preScaleMtx(mtx.toMtxPtr(), scale);
 
-    // Set cube matrix
     mGravityInstance->setPlane(upVec, rTrans);
     mGravityInstance->setRangeBox(mtx);
 }
@@ -249,12 +198,10 @@ PlanetGravity* PlaneInBoxGravityCreator::getGravity() {
     return mGravityInstance;
 }
 
-void PlaneInBoxGravityCreator::settingFromJMapArgs(s32 arg0, s32 arg1, s32 arg2) {
-    // Obj_arg0 = base distance
-    mGravityInstance->setBaseDistance(arg0);
+void PlaneInBoxGravityCreator::settingFromPlacementArgs(s32 baseDistance, s32 distanceAxis, s32) {
+    mGravityInstance->setBaseDistance(baseDistance);
 
-    // Obj_arg1 = distance calc type
-    switch (arg1) {
+    switch (distanceAxis) {
     case 0:
         mGravityInstance->setDistanceCalcType(ParallelGravity::DistanceCalcType_X);
         break;
@@ -280,23 +227,18 @@ PlanetGravity* PlaneInCylinderGravityCreator::getGravity() {
     return mGravityInstance;
 }
 
-void PlaneInCylinderGravityCreator::settingFromSRT(const TVec3f& rTrans, const TVec3f& rRotate, const TVec3f& rScale) {
-    // Calculate TR matrix
-    TPos3f mtx;
+void PlaneInCylinderGravityCreator::settingFromSRT(const Vec3f& rTrans, const Vec3f& rRotate, const Vec3f& rScale) {
+    Pos3f mtx;
     MR::makeMtxTR(mtx.toMtxPtr(), rTrans, rRotate);
 
-    // Set normal-form plane
-    TVec3f upVec;
+    Vec3f upVec;
     mtx.getYDir(upVec);
     mGravityInstance->setPlane(upVec, rTrans);
-
-    // Set cylinder range
     mGravityInstance->setRangeCylinder(500.0f * rScale.x, 500.0f * rScale.y);
 }
 
-void PlaneInCylinderGravityCreator::settingFromJMapArgs(s32 arg0, s32 arg1, s32 arg2) {
-    // Obj_arg0 = base distance
-    mGravityInstance->setBaseDistance(arg0);
+void PlaneInCylinderGravityCreator::settingFromPlacementArgs(s32 baseDistance, s32, s32) {
+    mGravityInstance->setBaseDistance(baseDistance);
 }
 
 PlanetGravity* PointGravityCreator::createInstance() {
@@ -304,7 +246,7 @@ PlanetGravity* PointGravityCreator::createInstance() {
     return mGravityInstance;
 }
 
-void PointGravityCreator::settingFromSRT(const TVec3f& rTrans, const TVec3f& rRotate, const TVec3f& rScale) {
+void PointGravityCreator::settingFromSRT(const Vec3f& rTrans, const Vec3f& /*rRotate*/, const Vec3f& rScale) {
     mGravityInstance->mDistant = 500.0f * rScale.x;
     mGravityInstance->setOrig(rTrans);
 }
@@ -318,25 +260,22 @@ PlanetGravity* SegmentGravityCreator::createInstance() {
     return mGravityInstance;
 }
 
-void SegmentGravityCreator::settingFromSRT(const TVec3f& rTrans, const TVec3f& rRotate, const TVec3f& rScale) {
-    // Calculate TRS matrix
-    TPos3f mtx;
+void SegmentGravityCreator::settingFromSRT(const Vec3f& rTrans, const Vec3f& rRotate, const Vec3f& rScale) {
+    Pos3f mtx;
     MR::makeMtxTRS(mtx.toMtxPtr(), rTrans, rRotate, rScale);
 
-    // Get side and up vectors
-    TVec3f sideVec, upVec;
+    Vec3f sideVec, upVec;
     mtx.getXDir(sideVec);
     mtx.getYDir(upVec);
 
-    // Set gravity points and side vec
     mGravityInstance->setGravityPoint(0, rTrans);
     mGravityInstance->setGravityPoint(1, rTrans + upVec * 1000.0f);
     mGravityInstance->setSideVector(sideVec);
 }
 
-void SegmentGravityCreator::settingFromJMapArgs(s32 arg0, s32 arg1, s32 arg2) {
-    // Obj_arg0 = valid edge
-    switch (arg0) {
+void SegmentGravityCreator::settingFromPlacementArgs(s32 validEdges, s32 validSideDegree, s32) {
+    // 0 neither end, 1 the start, 2 the end, anything else both.
+    switch (validEdges) {
     case 0:
         mGravityInstance->setEdgeValid(0, false);
         mGravityInstance->setEdgeValid(1, false);
@@ -355,9 +294,9 @@ void SegmentGravityCreator::settingFromJMapArgs(s32 arg0, s32 arg1, s32 arg2) {
         break;
     }
 
-    // Obj_arg1 = valid side degree
-    if (arg1 >= 0.0f) {
-        mGravityInstance->setValidSideDegree(arg1);
+    // A negative angle is all the way round.
+    if (validSideDegree >= 0) {
+        mGravityInstance->setValidSideDegree(validSideDegree);
     } else {
         mGravityInstance->setValidSideDegree(360.0f);
     }
@@ -372,22 +311,25 @@ PlanetGravity* WireGravityCreator::createInstance() {
     return mGravityInstance;
 }
 
-void WireGravityCreator::settingFromJMapOtherParam(const JMapInfoIter& rIter) {
-    // Get data from JMap
+void WireGravityCreator::settingFromPlacementOtherParam(const TableIter& rIter) {
     mRailRider = new RailRider(rIter);
     s32 numPointsInBetween = 20;
-    MR::getJMapInfoArg0NoInit(rIter, &numPointsInBetween);
+    MR::getPlacementArg0NoInit(rIter, &numPointsInBetween);
 
-    // Determine number of points, the interval and allocate the necessary space
+    // A count below 0 (a placement other than the unset -1) is no points in between: numPoints is unsigned below.
+    if (numPointsInBetween < 0) {
+        numPointsInBetween = 0;
+    }
+
+    // Points from the rail's start at even intervals. The rail's end is not one: the last slot stays empty.
     u32 numPoints = numPointsInBetween + 2;
     f32 railInterval = mRailRider->getTotalLength() / (numPoints - 1);
     mGravityInstance->setPointListSize(numPoints);
 
-    // Iterate over the points and add them to the gravity
     mRailRider->setCoord(0.0f);
     mRailRider->setSpeed(railInterval);
 
-    for (s32 i = 0; i < numPoints - 1; i++) {
+    for (u32 i = 0; i < numPoints - 1; i++) {
         mGravityInstance->addPoint(mRailRider->mCurPos);
         mRailRider->move();
     }

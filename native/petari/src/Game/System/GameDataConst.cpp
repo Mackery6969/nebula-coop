@@ -3,13 +3,13 @@
 #include "Game/System/GameEventFlag.hpp"
 #include "Game/System/GameEventFlagTable.hpp"
 #include "Game/Util.hpp"
-#include <cstdio>
+#include "Game/Util/StringUtil.hpp"
 
 s32 GameDataConst::getPowerStarNumToOpenGalaxy(const char* pGalaxyName) {
-    JMapInfo info;
+    Table info;
     info.attach(NebulaDataTables::getGalaxyInfoTable());
 
-    JMapInfoIter element = info.findElement< const char* >("name", pGalaxyName, 0);
+    TableIter element = info.findElement< const char* >("name", pGalaxyName, 0);
 
     u32 powerStarNum = 0;
     element.getValue< u32 >("PowerStarNum", &powerStarNum);
@@ -39,39 +39,25 @@ bool GameDataConst::isGalaxyLuigiArrested(const char* pGalaxyName, s32 starId) {
     return MR::isEqualString(accessor.getGalaxyName(), pGalaxyName) && (starId == -1 || starId == accessor.getStarId());
 }
 
+// The flag named Appear<galaxy>, when it is of the open-star kind.
 bool GameDataConst::isQuestionGalaxy(const char* pGalaxyName) {
-    for (GameEventFlagIter iter = GameEventFlagTable::getBeginIter(); !iter.isEnd(); iter.goNext()) {
-        GameEventFlagAccessor accessor(iter.getFlag());
+    MR::FormattedName flagName("Appear%s", pGalaxyName);
+    const GameEventFlag* pFlag = GameEventFlagTable::findFlag(flagName.c_str());
 
-        if (!accessor.isTypeGalaxyOpenStar()) {
-            continue;
-        }
-
-        char flagName[256];
-        nebula_snprintf(flagName, sizeof(flagName), "Appear%s", pGalaxyName);
-
-        if (!MR::isEqualString(accessor.getName(), flagName)) {
-            continue;
-        }
-
-        return true;
-    }
-
-    return false;
+    return pFlag != nullptr && GameEventFlagAccessor(pFlag).isTypeGalaxyOpenStar();
 }
 
 bool GameDataConst::isGalaxyAppearGreenDriver(const char* pGalaxyName) {
-    char flagName[256];
-    nebula_snprintf(flagName, sizeof(flagName), "Appear%s", pGalaxyName);
+    MR::FormattedName flagName("Appear%s", pGalaxyName);
 
-    return !GameEventFlagTable::isExist(flagName) ? false : GameEventFlagTable::isDependedAnother(flagName, "SpecialStarGreenAll");
+    return !GameEventFlagTable::isExist(flagName.c_str()) ? false : GameEventFlagTable::isDependedAnother(flagName.c_str(), "SpecialStarGreenAll");
 }
 
 u32 GameDataConst::getIncludedGrandGalaxyId(const char* pGalaxyName) {
-    JMapInfo info;
+    Table info;
     info.attach(NebulaDataTables::getGalaxyInfoTable());
 
-    JMapInfoIter element = info.findElement< const char* >("name", pGalaxyName, 0);
+    TableIter element = info.findElement< const char* >("name", pGalaxyName, 0);
 
     u32 grandGalaxyNo = 0;
     element.getValue< u32 >("GrandGalaxyNo", &grandGalaxyNo);
@@ -80,27 +66,5 @@ u32 GameDataConst::getIncludedGrandGalaxyId(const char* pGalaxyName) {
 }
 
 bool GameDataConst::isPowerStarSpecial(const char* pGalaxyName, s32 starId, const char* pSpecialStarName) {
-    for (GameEventFlagIter iter = GameEventFlagTable::getBeginIter(); !iter.isEnd(); iter.goNext()) {
-        GameEventFlagAccessor accessor(iter.getFlag());
-
-        if (!accessor.isTypeSpecialStar()) {
-            continue;
-        }
-
-        if (accessor.getStarId() != starId) {
-            continue;
-        }
-
-        if (!MR::isEqualString(accessor.getGalaxyName(), pGalaxyName)) {
-            continue;
-        }
-
-        if (strstr(accessor.getName(), pSpecialStarName) == nullptr) {
-            continue;
-        }
-
-        return true;
-    }
-
-    return false;
+    return GameEventFlagTable::findSpecialPowerStar(pGalaxyName, starId, pSpecialStarName) != nullptr;
 }

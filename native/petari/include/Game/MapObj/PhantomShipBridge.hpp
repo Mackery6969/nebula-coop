@@ -6,8 +6,8 @@ class PhantomShipBridge : public LiveActor {
 public:
     PhantomShipBridge(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void calcAnim();
+    virtual void init(const TableIter&) override;
+    virtual void calcAnim() override;
 
     void startMoveA();
     void startMoveB();
@@ -16,6 +16,6 @@ public:
     void exeMoveB();
     void exeWait();
 
-    CollisionParts* _8C;
+    CollisionParts* mMoveCollision;
     s32 mIsNutShipBridge;
 };

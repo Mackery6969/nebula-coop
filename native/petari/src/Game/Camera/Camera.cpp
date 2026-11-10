@@ -16,17 +16,12 @@ void Camera::setZoneMtx(s32 zoneID) {
     if (zoneID <= 0) {
         mZoneMatrix.identity();
     } else {
-        mZoneMatrix.identity();
         mZoneMatrix.set(*MR::getZonePlacementMtx(zoneID));
     }
 
     if (doesVPanExist()) {
         mVPan->mUpdateGlobalAxis = true;
     }
-}
-
-CamTranslatorBase* Camera::createTranslator() {
-    return new CamTranslatorDummy(this);
 }
 
 void Camera::createVPanObj() {

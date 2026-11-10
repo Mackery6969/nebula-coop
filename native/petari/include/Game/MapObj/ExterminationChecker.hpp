@@ -16,9 +16,8 @@ class ExterminationChecker : public LiveActor {
 public:
     ExterminationChecker(const char*);
 
-    virtual ~ExterminationChecker();
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
+    virtual void init(const TableIter&) override;
+    virtual void control() override;
 
     void exeWatching();
     void exeTryStartDemoAppear();
@@ -27,9 +26,9 @@ public:
 
     LiveActorGroup* mGroup;
     KeySwitch* mKeySwitch;
-    TVec3f mKeySwitchPos;
-    u8 _A0;
-    u8 _A1;
+    Vec3f mKeySwitchPos;
+    u8 mIsPowerStar;
+    u8 mIsKeySwitch;
 };
 
 namespace MR {

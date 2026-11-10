@@ -1,11 +1,11 @@
 #include "Game/Animation/AnmPlayer.hpp"
 #include "Game/System/ResourceInfo.hpp"
 #include "Game/Util/StringUtil.hpp"
-#include <JSystem/J3DGraphAnimator/J3DModel.hpp>
-#include <JSystem/J3DGraphAnimator/J3DModelData.hpp>
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include "Game/Render/Model.hpp"
+#include "Game/Render/ModelData.hpp"
+#include <nebula_geometry.hpp>
 
-AnmPlayerBase::AnmPlayerBase(const ResTable* pResTable) : mResTable(pResTable), mAnmRes(), mFrameCtrl() {
+AnmPlayerBase::AnmPlayerBase(const ResTable* pResTable) : mAnmRes(), mResTable(pResTable), mFrameCtrl(), mAnmName(nullptr) {
 }
 
 void AnmPlayerBase::update() {
@@ -21,7 +21,15 @@ void AnmPlayerBase::reflectFrame() {
 }
 
 void AnmPlayerBase::start(const char* pResName) {
-    J3DAnmBase* pAnmRes = reinterpret_cast< J3DAnmBase* >(mResTable->getRes(pResName));
+    // One table lookup per start: the clip and its table name are kept for isPlaying.
+    const ResFileInfo* pInfo = mResTable->findFileInfo(pResName);
+
+    if (pInfo == nullptr) {
+        return;
+    }
+
+    Clip* pAnmRes = reinterpret_cast< Clip* >(pInfo->mResource);
+    mAnmName = pInfo->mName;
 
     if (pAnmRes != mAnmRes) {
         changeAnimation(pAnmRes);
@@ -40,32 +48,20 @@ void AnmPlayerBase::stop() {
 }
 
 bool AnmPlayerBase::isPlaying(const char* pAnimName) const {
-    if (mAnmRes != nullptr) {
-        if (MR::isEqualStringCase(pAnimName, mResTable->getResName(mAnmRes))) {
-            return true;
-        }
-    }
-
-    return false;
+    return mAnmRes != nullptr && mAnmName != nullptr && MR::isEqualStringCase(pAnimName, mAnmName);
 }
 
-MaterialAnmPlayerBase::MaterialAnmPlayerBase(const ResTable* pResTable, J3DModelData* pModelData) : AnmPlayerBase(pResTable), mModelData(pModelData) {
+MaterialAnmPlayerBase::MaterialAnmPlayerBase(const ResTable* pResTable, ModelData* pModelData) : AnmPlayerBase(pResTable), mModelData(pModelData) {
 }
 
-void MaterialAnmPlayerBase::beginDiff() {
+void MaterialAnmPlayerBase::applyFrame(Model* pModel) {
     if (mAnmRes != nullptr) {
         reflectFrame();
-        attach(mAnmRes, mModelData);
+        apply(mAnmRes, pModel);
     }
 }
 
-void MaterialAnmPlayerBase::endDiff() {
-    if (mAnmRes != nullptr) {
-        detach(mAnmRes, mModelData);
-    }
-}
-
-void AnmPlayerBase::changeAnimation(J3DAnmBase*) {
+void AnmPlayerBase::changeAnimation(Clip*) {
 }
 
 void AnmPlayerBase::stopAnimation() {

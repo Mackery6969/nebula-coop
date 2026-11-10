@@ -2,23 +2,23 @@
 
 #include "Game/LiveActor/ShadowSurfaceDrawer.hpp"
 #include "Game/Util/Color.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
-class J3DModelData;
+class ModelData;
 
 class ShadowSurfaceOval : public ShadowSurfaceDrawer {
 public:
     ShadowSurfaceOval();
 
-    virtual ~ShadowSurfaceOval();
+    virtual ~ShadowSurfaceOval() override;
 
     virtual void draw() const override;
 
-    void setSize(const TVec3f&);
+    void setSize(const Vec3f&);
     void setColor(Color8);
     void setAlpha(u8);
 
-    J3DModelData* mModelData;
-    TVec3f mSize;
+    ModelData* mModelData;
+    Vec3f mSize;
     Color8 mColor;
 };

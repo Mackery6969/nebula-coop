@@ -2,21 +2,22 @@
 #include "Game/AreaObj/AreaObj.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SceneUtil.hpp"
+#include "Game/Util/StringUtil.hpp"
 
-#include <cstring>
+#include "Game/Util/StringUtil.hpp"
 
-CubeCameraArea::CubeCameraArea(int formType, const char* pName) : AreaObj(formType, pName), _3C(), mZoneID() {
+CubeCameraArea::CubeCameraArea(int formType, const char* pName) : AreaObj(formType, pName), mCategoryMask(), mZoneID() {
 }
 
 s32 CubeCameraArea::sCubeCategory = 0;
 
-void CubeCameraArea::init(const JMapInfoIter& rIter) {
+void CubeCameraArea::init(const TableIter& rIter) {
     AreaObj::init(rIter);
 
     const char* valid;
 
     if (rIter.getValue("Validity", &valid)) {
-        if (strcmp(valid, "Invalid") == 0) {
+        if (MR::isEqualString(valid, "Invalid")) {
             mIsValid = false;
         }
     }
@@ -31,15 +32,16 @@ void CubeCameraArea::init(const JMapInfoIter& rIter) {
         mZoneID = 0;
     }
 
-    _3C = getCategoryArg();
-    if (_3C < 0) {
-        _3C = 0;
+    mCategoryMask = getCategoryArg();
+    if (mCategoryMask < 0) {
+        mCategoryMask = 0;
     }
 
-    u32 temp = 1 << (_3C & 0xF);
-    _3C = _3C >> 4;
-    if (_3C == 0) {
-        _3C |= temp;
+    // Bits 4 and up are a category mask; when they are zero, the low nibble names one category.
+    u32 singleCategoryBit = 1 << (mCategoryMask & 0xF);
+    mCategoryMask = mCategoryMask >> 4;
+    if (mCategoryMask == 0) {
+        mCategoryMask |= singleCategoryBit;
     }
 
     MR::connectToSceneAreaObj(this);
@@ -63,8 +65,8 @@ u16 CubeCameraArea::getCameraID() const {
     return mObjArg0;
 }
 
-bool CubeCameraArea::isInVolume(const TVec3f& rVec) const {
-    return (_3C & sCubeCategory) != 0 && AreaObj::isInVolume(rVec);
+bool CubeCameraArea::isInVolume(const Vec3f& rVec) const {
+    return (mCategoryMask & sCubeCategory) != 0 && AreaObj::isInVolume(rVec);
 }
 
 void CubeCameraArea::setCurrentCategory(s32 category) {
@@ -75,7 +77,7 @@ s32 CubeCameraArea::getCategoryArg() const {
     return mObjArg3;
 }
 
-CubeCameraMgr::CubeCameraMgr(s32 maxNum, const char* pName) : AreaObjMgr(maxNum, pName) {
+CubeCameraMgr::CubeCameraMgr(s32 firstCapacity, const char* pName) : AreaObjMgr(firstCapacity, pName) {
     CubeCameraArea::sCubeCategory = 1;
 }
 
@@ -88,11 +90,11 @@ void CubeCameraMgr::sort() {
         return;
     }
 
-    for (u32 i = 0; i < mArray.size() - 1; i++) {
+    for (s32 i = 0; i < mArray.size() - 1; i++) {
         int swapIndex = i;
         AreaObj* swapObj = getAreaObj(i);
         AreaObj* curObj = swapObj;
-        for (u32 j = i + 1; j < mArray.size(); j++) {
+        for (s32 j = i + 1; j < mArray.size(); j++) {
             AreaObj* nextObj = getAreaObj(j);
             if (swapObj->mObjArg2 > nextObj->mObjArg2) {
                 swapIndex = j;

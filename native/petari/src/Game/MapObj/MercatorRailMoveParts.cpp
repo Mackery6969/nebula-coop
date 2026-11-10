@@ -5,21 +5,19 @@
 #include "Game/MapObj/MapPartsRailMover.hpp"
 #include "Game/MapObj/MapPartsRailRotator.hpp"
 #include "Game/Util.hpp"
+#include "Game/Util/StringUtil.hpp"
 
 MercatorRailMoveParts::MercatorRailMoveParts(const char* pName) : LiveActor(pName) {
     mRailMover = nullptr;
     mRailRotator = nullptr;
     mAppearController = nullptr;
-    _E0.x = 0.0f;
-    _E0.y = 0.0f;
-    _E0.z = 0.0f;
     mIsNotMoving = false;
     mRotateMtx.identity();
 }
 
 void MercatorRailMoveParts::initAfterPlacement() {
-    TVec3f trans;
-    TPos3f rotate;
+    Vec3f trans;
+    Pos3f rotate;
     MR::convertMercatorPlaneToSphereTransAndRotate(&trans, &rotate, mLocalTrans, false);
     mPosition.set(trans);
 
@@ -28,7 +26,7 @@ void MercatorRailMoveParts::initAfterPlacement() {
     }
 }
 
-bool MercatorRailMoveParts::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool MercatorRailMoveParts::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (mAppearController->receiveMsg(msg)) {
         return true;
     }
@@ -51,21 +49,21 @@ void MercatorRailMoveParts::control() {
         updatePose();
     }
 
-    TVec3f trans;
-    TPos3f rotate;
-    MR::convertMercatorPlaneToSphereTransAndRotate(&trans, &rotate, mRailMover->_28, false);
+    Vec3f trans;
+    Pos3f rotate;
+    MR::convertMercatorPlaneToSphereTransAndRotate(&trans, &rotate, mRailMover->mStartPos, false);
     mPosition.set(trans);
 }
 
 void MercatorRailMoveParts::calcAndSetBaseMtx() {
-    TVec3f trans;
-    TPos3f rotate;
-    MR::convertMercatorPlaneToSphereTransAndRotate(&trans, &rotate, mRailMover->_28, false);
-    TPos3f baseMtx;
+    Vec3f trans;
+    Pos3f rotate;
+    MR::convertMercatorPlaneToSphereTransAndRotate(&trans, &rotate, mRailMover->mStartPos, false);
+    Pos3f baseMtx;
     baseMtx.identity();
 
     if (mRailRotator->isWorking()) {
-        baseMtx.concat(mRailRotator->_5C, baseMtx);
+        baseMtx.concat(mRailRotator->mRotateMtx, baseMtx);
     } else {
         baseMtx.set(mRotateMtx);
     }
@@ -78,36 +76,36 @@ void MercatorRailMoveParts::calcAndSetBaseMtx() {
 }
 
 void MercatorRailMoveParts::updatePose() {
-    TMtx34f mtx;
+    Mtx34f mtx;
     mtx.identity();
     MR::makeMtxRotate(mtx.toMtxPtr(), mLocalRotation.x, mLocalRotation.y, mLocalRotation.z);
 
     if (mRailRotator->isWorking()) {
-        mtx.concat(mRailRotator->_5C, mtx);
+        mtx.concat(mRailRotator->mRotateMtx, mtx);
     }
 
     mRotateMtx.set(mtx);
 }
 
-void MercatorRailMoveParts::init(const JMapInfoIter& rIter) {
-    char objName[256];
-    MR::getMapPartsObjectName(objName, sizeof(objName), rIter);
+void MercatorRailMoveParts::init(const TableIter& rIter) {
+    MR::FormattedName objName;
+    MR::getMapPartsObjectName(objName, rIter);
     MR::initDefaultPosForMercator(this, rIter, false);
-    MR::getJMapInfoTrans(rIter, &mLocalTrans);
-    MR::getJMapInfoRotateLocal(rIter, &mLocalRotation);
-    initModelManagerWithAnm(objName, nullptr, false);
+    MR::getPlacementTrans(rIter, &mLocalTrans);
+    MR::getPlacementRotateLocal(rIter, &mLocalRotation);
+    initModelManagerWithAnm(objName.c_str(), nullptr, false);
     MR::connectToSceneMapObj(this);
     initHitSensor(1);
 
-    MR::addHitSensorMapObj(this, "body", 4, 0.0f, TVec3f(0.0f, 0.0f, 0.0f));
-    MR::initCollisionParts(this, objName, getSensor("body"), nullptr);
+    MR::addHitSensorMapObj(this, "body", 4, 0.0f, Vec3f(0.0f, 0.0f, 0.0f));
+    MR::initCollisionParts(this, objName.c_str(), getSensor("body"), nullptr);
 
     if (MR::useStageSwitchReadB(this, rIter)) {
         MR::listenStageSwitchOnOffB(this, MR::Functor(this, &MercatorRailMoveParts::startMove), MR::Functor(this, &MercatorRailMoveParts::endMove));
     }
 
     initRailRider(rIter);
-    TVec3f what;
+    Vec3f what;
     what = mPosition;
     mRailMover = MR::createMapPartsRailMoverForMercator(this, rIter, true);
     mRailMover->start();
@@ -128,7 +126,4 @@ void MercatorRailMoveParts::init(const JMapInfoIter& rIter) {
     MR::addBaseMatrixFollowTarget(this, rIter, nullptr, nullptr);
     MR::initMapPartsClipping(this, rIter, nullptr, true);
     updatePose();
-}
-
-MercatorRailMoveParts::~MercatorRailMoveParts() {
 }

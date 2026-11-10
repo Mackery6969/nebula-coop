@@ -1,50 +1,40 @@
 #pragma once
 
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include "Game/Render/TypedDraw.hpp"
+
+#include <nebula_geometry.hpp>
 #include <nebula_game_api.h>
 #include <NebulaGpu.h>
 
-class JUTTexture;
+class GameTexture;
 
 namespace TDDraw {
-    void setViewMtx(MtxPtr);
-    void loadViewMtx(MtxPtr);
-    void setModelMtx(MtxPtr);
-    void resetViewMtx();
     void close();
-    // E-04: setup's view, and its draw (0 vertex colour, 1 a texture, 2 a texture plus colour 0) and blend modes (0
-    // none, 1 by alpha, 2 added by alpha) as a native material: depth off, no culling, colour written and alpha not,
-    // passing every alpha. The site adjusts it, sets its textures and colour, then sends it (NativeShader::send).
-    void setupNative(NebulaNativeMaterial* pMaterial, u32 drawMode, u32 blendMode, u8 viewMode);
-    void sendPoint(const TVec3f&, u32);
-    void sendPoint(const TVec3f&);
-    void drawLine(const TVec3f&, const TVec3f&, u32);
-    void drawCircle(const TVec3f&, const TVec3f&, f32, u32, u32);
-    void drawCircle(const TVec3f&, const TVec3f&, const TVec3f&, f32, u32, u32);
-    void drawFillCircle(const TVec3f&, f32, u32, u32, u32);
-    void drawFillCircle(const TVec3f&, const TVec3f&, f32, u32, u32);
-    void drawFillFan(const TVec3f&, const TVec3f&, const TVec3f&, u32, f32, f32, u32);
-    void drawCylinder(const TVec3f&, const TVec3f&, f32, u32, u32, u32);
-    void drawSpherePart(const TPos3f&, f32, f32, f32, f32, f32, u32, u32, u32);
-    void drawSphere(const TVec3f&, f32, u32, u32);
-    void drawSphere3D(TVec3f, f32, u32, u32);
-    void drawTexture(const TVec2f&, JUTTexture*, const TVec2f&);
-    void drawTexture3D(const TVec3f&, const TVec3f&, const TVec3f&, f32, f32, JUTTexture*, bool, bool);
-    void drawFillBox(const TVec3f&, const TVec3f&, u32);
-    void drawFillBox(const TVec2f&, const TVec2f&, u32);
-    void drawFillBox3D(const TVec3f&, const TVec3f&, const TVec3f&, const TVec3f&, u32);
+    // Its draw (0 vertex colour, 1 a texture, 2 a texture plus colour 0) and blend modes (0 none, 1 by alpha, 2 added by
+    // alpha) as a material: depth off, no culling, colour written and alpha not, passing every alpha (constant 0 for modes
+    // 0 and 1, constant 4 after the colour for mode 2); the projection for view mode 1 (the camera's) and 2 (the screen). The
+    // site adjusts it and sets its textures and colour; a site that takes another written shader sets it with setShader.
+    void setupNative(SiteMaterial* pMaterial, u32 drawMode, u32 blendMode, u8 viewMode);
+    // A site under the camera, or the screen for view mode 2.
+    TypedDraw site(const SiteMaterial& rMaterial, u8 viewMode);
+    void drawLine(TypedDraw&, const Vec3f&, const Vec3f&, u32);
+    void drawCircle(TypedDraw&, const Vec3f&, const Vec3f&, f32, u32, u32);
+    void drawCircle(TypedDraw&, const Vec3f&, const Vec3f&, const Vec3f&, f32, u32, u32);
+    void drawFillCircle(TypedDraw&, const Vec3f&, f32, u32, u32, u32);
+    void drawFillCircle(TypedDraw&, const Vec3f&, const Vec3f&, f32, u32, u32);
+    void drawFillFan(TypedDraw&, const Vec3f&, const Vec3f&, const Vec3f&, u32, f32, f32, u32);
+    void drawCylinder(TypedDraw&, const Vec3f&, const Vec3f&, f32, u32, u32, u32);
+    void drawSpherePart(TypedDraw&, const Pos3f&, f32, f32, f32, f32, f32, u32, u32, u32);
+    void drawSphere(TypedDraw&, const Vec3f&, f32, u32, u32);
+    void drawSphere3D(TypedDraw&, Vec3f, f32, u32, u32);
+    void drawTexture(TypedDraw&, const Vec2f&, GameTexture*, const Vec2f&);
+    void drawTexture3D(TypedDraw&, const Vec3f&, const Vec3f&, const Vec3f&, f32, f32, GameTexture*, bool, bool);
+    void drawFillBox(TypedDraw&, const Vec3f&, const Vec3f&, u32);
+    void drawFillBox(TypedDraw&, const Vec2f&, const Vec2f&, u32);
+    void drawFillBox3D(TypedDraw&, const Vec3f&, const Vec3f&, const Vec3f&, const Vec3f&, u32);
     void cameraInit3D();
     void cameraInit2D();
-    void mixFogColor(TVec3f, f32, u32);
-    void invProject(TVec3f*, const TVec3f&, MtxPtr, const f32*, const f32*, bool);
-    void project2D(TVec3f*, const TVec3f&);
-    void project2D(TVec2f*, const TVec3f&);
-    void fix2Dpos(TVec3f*);
-
-    inline void setColor8(u32 color, NebulaColor8* pColor) {
-        pColor->r = (color >> 24) & 0xFF;
-        pColor->g = (color >> 16) & 0xFF;
-        pColor->b = (color >> 8) & 0xFF;
-        pColor->a = color & 0xFF;
-    }
+    void invProject(Vec3f*, const Vec3f&, MtxPtr, const f32*, const f32*, bool);
+    void project2D(Vec3f*, const Vec3f&);
+    void project2D(Vec2f*, const Vec3f&);
 };  // namespace TDDraw

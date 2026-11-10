@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/NPC/NPCActor.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
 class LodCtrl;
 class TalkMessageCtrl;
@@ -24,13 +24,12 @@ public:
 
     Rabbit(const char*);
 
-    virtual ~Rabbit();
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
+    virtual void init(const TableIter&) override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
 
-    void calcRailPos(TVec3f*);
-    bool isNeedTurn(const TVec3f&);
+    void calcRailPos(Vec3f*);
+    bool isNeedTurn(const Vec3f&);
     void updateJump();
 
     void exeAppear();
@@ -50,12 +49,12 @@ public:
     void exeJumpH();
 
     s32 mBehavior;
-    bool _160;
-    u16 _162;
-    u16 _164;
-    f32 _168;
-    f32 _16C;
-    f32 _170;
-    TVec3f _174;
-    f32 _180;
+    bool mIsFalling;
+    u16 mIsLanded;
+    s32 mWaitStep;
+    f32 mJumpHeight;
+    f32 mJumpSpeed;
+    f32 mMoveSpeed;
+    Vec3f mMoveDir;
+    f32 mJumpScale;
 };

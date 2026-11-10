@@ -3,8 +3,8 @@
 #include "Game/Animation/XanimePlayer.hpp"
 #include "Game/Player/Mario.hpp"
 #include "Game/Player/MarioModule.hpp"
+#include "Game/Util/NameIndex.hpp"
 
-class HashSortTable;
 class ResourceHolder;
 class MarioActor;
 class XanimeResourceTable;
@@ -41,7 +41,7 @@ public:
     void entryCallback(const char*);
     f32 getFrame() const;
     f32 getUpperFrame() const;
-    u16 getUpperJointID() const;
+    u32 getUpperJointID() const;
     void setBlendWeight(const f32*, f32);
     void targetWeight(f32*, f32, f32);
     void setWalkWeight(const f32*);
@@ -79,12 +79,6 @@ public:
     void squatSpinCheck();
     void walkinClose();
 
-    inline void f1(const char* name) {
-        getPlayer()->startBas(nullptr, false, 0.0f, 0.0f);
-
-        mXanimePlayer->setDefaultAnimation(name);
-    }
-
     inline bool isTeresaClear() const {
         return !isPlayerModeTeresa();
     }
@@ -96,32 +90,29 @@ public:
     XanimeResourceTable* mResourceTable;
     XanimePlayer* mXanimePlayer;
     XanimePlayer* mXanimePlayerUpper;
-    u8 _14;
-    u8 _15;
-    u8 _16;
-    f32 _18;
-    f32 _1C;
-    f32 _20;
-    f32 _24;
-    TMtx34f _28;
-    f32 _58;
-    f32 _5C;
-    TVec3f _60;
-    bool _6C;
-    f32 _70;
-    u32 _74;
-    u16 _78;
-    TMtx34f _7C;
-    TMtx34f _AC;
-    TMtx34f _DC;
-    bool _10C;
-    bool _10D;
+    u8 mWalkState;  // the walk animation's state (from mTargetWalkSpeedIndex)
+    u8 mPrevWalkState;  // the walk state last applied (0xFF: apply again)
+    u8 mWaitPhase;  // the wait animation's phase (1, 2)
+    f32 mWalkWeights[4];  // the four walk tracks' weights
+    Mtx34f mTiltMtx;  // the upper body's tilt (setTilt)
+    f32 mTiltSide;  // the tilt to the side, smoothed
+    f32 mTiltDown;  // the look down, smoothed
+    Vec3f mTiltPrevFront;  // the front at the last tilt
+    bool mUpperRunning;  // an upper-body animation is running
+    f32 mRumblePower;  // the joint rumble's strength
+    u32 mRumbleTimer;  // frames of the joint rumble
+    u16 mWaitHoldTimer;  // frames the wait animation holds (controlWaitAnimation)
+    Mtx34f mHomingMtx;  // the homing turn (setHoming)
+    Mtx34f mHipMtx;  // the hip's rumble, or the upper body's turn
+    Mtx34f mMirrorMtx;  // the mirror's matrix (switchMirrorMode)
+    bool mMirrorChecked;  // the mirror test ran for this animation
+    bool mMirror;  // the animation is mirrored
     bool mUpperDefaultSet;
     bool mCallbackEnded;
-    f32 _110;
+    f32 mHomingAngle;  // the homing's horizontal angle, smoothed
     const char* mCurrBck;
-    f32 _118;
+    f32 mRumbleHipRot;  // last frame's hip rumble
 
     s32 mCallbackId;
-    HashSortTable* mCallbackTable;
+    MR::NameIndex mCallbackTable;  // an animation's name to its index in marioCallbackTable
 };

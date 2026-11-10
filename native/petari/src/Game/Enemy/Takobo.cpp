@@ -1,4 +1,5 @@
 #include "Game/Enemy/Takobo.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Enemy/AnimScaleController.hpp"
 #include "Game/Enemy/SpinHitController.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
@@ -10,7 +11,7 @@
 #include "Game/Util/ActorShadowUtil.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MapUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
@@ -18,7 +19,12 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
-#include <JSystem/JMath/JMath.hpp>
+#include <nebula_geometry.hpp>
+#include "Game/Util/Tunable.hpp"
+
+// The numbers this file's functions give the game's motion and animation calls, as tunables: "<file>.<function>.<call>.<k>".
+NEBULA_TUNABLE_NAMED(f32, cNum_exeAttack_setBckRate_1, "exeAttack.setBckRate.1", 1.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeStunStart_setBckRate_1, "exeStunStart.setBckRate.1", 2.0f);
 
 namespace NrvTakobo {
     NEW_NERVE_ONEND(HostTypeNrvWait, Takobo, Wait, Wait);
@@ -31,95 +37,89 @@ namespace NrvTakobo {
     NEW_NERVE(HostTypeNrvStunEnd, Takobo, StunEnd);
     NEW_NERVE(HostTypeNrvHitReaction, Takobo, HitReaction);
     NEW_NERVE(HostTypeNrvIce, Takobo, Ice);
-    NEW_NERVE_ONEND(HostTypeNrvDpdPointed, Takobo, DpdPointed, DpdPointed);
+    NEW_NERVE_ONEND(HostTypeNrvPointerAimed, Takobo, PointerAimed, PointerAimed);
 };  // namespace NrvTakobo
 
-Takobo::Takobo(const char* pName) : LiveActor(pName), _8C(), _90(0, 0, 1), _A0(), _9C(-1), _A1(), _B0(1, 0, 0) {
-    _BC = 0;
-    _C0 = 5.0f;
-    _C4 = 500.0f;
-    _C8 = -500.0f;
-    _CC = 500.0f;
-    _D0 = 0;
-    mBox = nullptr;
-    mScaleController = nullptr;
-    mSpinController = nullptr;
-}
+namespace {
+    NEBULA_TUNABLE(f32, sAttackDistance, 250.0f);
+    NEBULA_TUNABLE(f32, sTurnDistance, 800.0f);
+    NEBULA_TUNABLE(f32, sTurnRadian, 0.05f);
+    NEBULA_TUNABLE(f32, sAttackAimRadian, 0.1f);
+    NEBULA_TUNABLE(f32, sFireBounceSpeed, 28.0f);
+    const s32 sWaitSteps = NebulaFrameClock::stepsOfSeconds(1);
+    const s32 sPressSteps = NebulaFrameClock::stepsOfMilliseconds(500);
+    const s32 sStunSteps = NebulaFrameClock::stepsOfSeconds(2);
+    NEBULA_TUNABLE(s32, sAttackHitStart, 85);
+    NEBULA_TUNABLE(s32, sAttackHitEnd, 90);
+};  // namespace
 
-void Takobo::init(const JMapInfoIter& rIter) {
+Takobo::Takobo(const char* pName)
+    : LiveActor(pName), mFront(0, 0, 1), mIsCheckFireGround(false), mMoveDir(1, 0, 0), mIsMoveBack(false), mMoveSpeed(5.0f),
+      mMoveRange(500.0f), mMoveStart(-500.0f), mMoveEnd(500.0f), mMoveStep(0), mBox(nullptr), mScaleController(nullptr),
+      mSpinController(nullptr) {}
+
+void Takobo::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
-    _A4.set(mPosition);
-    s32 arg = -1;
-    MR::getJMapInfoArg0NoInit(rIter, &arg);
+    mInitPos.set(mPosition);
 
-    if (arg > 0) {
-        _A1 = 1;
-    } else {
-        _A1 = 0;
-    }
+    s32 checkFireGround = -1;
+    MR::getPlacementArg0NoInit(rIter, &checkFireGround);
+    mIsCheckFireGround = checkFireGround > 0;
 
     MR::useStageSwitchWriteDead(this, rIter);
     initModelManagerWithAnm("Takobo", nullptr, false);
     MR::connectToSceneEnemy(this);
 
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.set(getBaseMtx());
+    mtx.getZDir(mFront);
 
-    mtx.getZDir(_90);
+    Vec3f up;
+    mtx.getYDir(up);
+    mGravity.set(-up);
 
-    TVec3f stack_24;
-    mtx.getYDir(stack_24);
+    // Arg 1: 0 along X, 1 along X starting back, 3 along Z starting back, anything else along Z.
+    s32 moveType = -1;
+    MR::getPlacementArg1NoInit(rIter, &moveType);
 
-    mGravity.set(-stack_24);
-
-    arg = -1;
-    MR::getJMapInfoArg1NoInit(rIter, &arg);
-
-    if (arg == 0) {
-        mtx.getXDir(_B0);
-        _BC = 0;
-    } else if (arg == 1) {
-        mtx.getXDir(_B0);
-        _BC = 1;
-    } else if (arg == 3) {
-        mtx.getZDir(_B0);
-        _BC = 1;
+    if (moveType == 0 || moveType == 1) {
+        mtx.getXDir(mMoveDir);
     } else {
-        mtx.getZDir(_B0);
-        _BC = 0;
+        mtx.getZDir(mMoveDir);
     }
 
-    arg = -1;
-    MR::getJMapInfoArg2NoInit(rIter, &arg);
+    mIsMoveBack = moveType == 1 || moveType == 3;
 
-    if (arg != -1) {
-        _C0 = arg;
+    s32 moveSpeed = -1;
+    MR::getPlacementArg2NoInit(rIter, &moveSpeed);
+    // Only a positive speed replaces the default: the sweep time below divides by it.
+    if (moveSpeed > 0) {
+        mMoveSpeed = moveSpeed;
     }
 
-    arg = -1;
-    MR::getJMapInfoArg3NoInit(rIter, &arg);
-
-    if (arg != -1) {
-        _C4 = arg;
+    s32 moveRange = -1;
+    MR::getPlacementArg3NoInit(rIter, &moveRange);
+    if (moveRange != -1) {
+        mMoveRange = moveRange;
     }
 
     MR::declareStarPiece(this, 3);
     MR::declareCoin(this, 1);
     initSound(4, false);
     initBinder(80.0f * mScale.y, 60.0f * mScale.y, 0);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initSensor();
     MR::initShadowVolumeSphere(this, 70.0f * mScale.y);
     MR::onCalcShadow(this, nullptr);
     initNerve(GET_NERVE(Takobo, HostTypeNrvWait));
 
     mSpinController = new SpinHitController(this, 22, 21, 3, 1.5f, 20.0f, 35.0f, 3, false);
-    MR::initStarPointerTarget(this, 110.0f, TVec3f(0.0f, 80.0f, 0.0f));
+    MR::initStarPointerTarget(this, 110.0f, Vec3f(0.0f, 80.0f, 0.0f));
     mScaleController = new AnimScaleController(nullptr);
     MR::initLightCtrl(this);
     appear();
     getSensor("attack")->invalidate();
-    mBox = new SpinningBox("\203\130\203\163\203\152\203\223\203\117\203\173\203\142\203\116\203\130" /* スピニングボックス */);
+    mBox = new SpinningBox("スピニングボックス");
     mBox->mIsIceBox = true;
     mBox->initWithoutIter();
 }
@@ -132,12 +132,10 @@ void Takobo::initAfterPlacement() {
 void Takobo::initSensor() {
     f32 yScale = mScale.y;
     initHitSensor(4);
-    TVec3f offs;
-    offs.x = 0.0f;
-    offs.y = 70.0f * yScale;
-    offs.z = 0.0f;
-    MR::addHitSensor(this, "body", ATYPE_TAKOBO, 32, offs.y, offs);
-    MR::addHitSensorAtJointEnemyAttack(this, "attack", "Hear", 0x10, (80.0f * yScale), TVec3f(10.0f, 2.0f, 0.0f));
+    // The body sphere sits on the ground: its radius is its height.
+    Vec3f bodyOffset(0.0f, 70.0f * yScale, 0.0f);
+    MR::addHitSensor(this, "body", ATYPE_TAKOBO, 32, bodyOffset.y, bodyOffset);
+    MR::addHitSensorAtJointEnemyAttack(this, "attack", "Hear", 0x10, (80.0f * yScale), Vec3f(10.0f, 2.0f, 0.0f));
 }
 
 void Takobo::kill() {
@@ -156,32 +154,34 @@ void Takobo::control() {
 
     if (isNerve(GET_NERVE(Takobo, HostTypeNrvWait)) || isNerve(GET_NERVE(Takobo, HostTypeNrvMove)) || isNerve(GET_NERVE(Takobo, HostTypeNrvAttack)) ||
         isNerve(GET_NERVE(Takobo, HostTypeNrvHitReaction))) {
-        if (MR::isStarPointerPointing2POnPressButton(this, "\216\343" /* 弱 */, true, false)) {
-            setNerve(GET_NERVE(Takobo, HostTypeNrvDpdPointed));
+        if (MR::isStarPointerPointing2POnPressButton(this, "弱", true, false)) {
+            setNerve(GET_NERVE(Takobo, HostTypeNrvPointerAimed));
             return;
         }
     }
 
-    if (_A1) {
-        HitInfo info;
-        if (Collision::checkStrikePointToMap(mPosition, &info)) {
-            if (MR::isGroundCodeDamageFire(&info.mParentTriangle)) {
-                TVec3f v7(*info.mParentTriangle.getFaceNormal());
-                v7 *= 28.0f;
-                TVec3f v6(mGravity);
-                v6 *= 28.0f;
-                v7 -= v6;
-                mVelocity = v7;
+    if (!mIsCheckFireGround) {
+        return;
+    }
 
-                if (MR::isOnGround(this)) {
-                    TVec3f v5(*info.mParentTriangle.getFaceNormal());
-                    v5 *= 5.0f;
-                    mPosition += v5;
-                }
+    // Fire ground blows it off along the face normal and up.
+    HitInfo info;
+    if (Collision::checkStrikePointToMap(mPosition, &info) && MR::isGroundCodeDamageFire(&info.mParentTriangle)) {
+        const Vec3f& rNormal = *info.mParentTriangle.getFaceNormal();
+        Vec3f bounce(rNormal);
+        bounce *= sFireBounceSpeed;
+        Vec3f down(mGravity);
+        down *= sFireBounceSpeed;
+        bounce -= down;
+        mVelocity = bounce;
 
-                setNerve(GET_NERVE(Takobo, HostTypeNrvHitPunch));
-            }
+        if (MR::isOnGround(this)) {
+            Vec3f lift(rNormal);
+            lift *= 5.0f;
+            mPosition += lift;
         }
+
+        setNerve(GET_NERVE(Takobo, HostTypeNrvHitPunch));
     }
 }
 
@@ -201,51 +201,49 @@ bool Takobo::tryPress() {
 
 void Takobo::exeMove() {
     if (MR::isFirstStep(this)) {
-        TVec3f v21(mPosition);
-        v21 -= _A4 - _B0 * _C4;
+        // Runs from where it stands to the far end of the range (-range..range around the start), 1.3 times the plain time.
+        Vec3f fromRangeStart(mPosition);
+        fromRangeStart -= mInitPos - mMoveDir * mMoveRange;
+        f32 along = fromRangeStart.dot(mMoveDir);
 
-        if (!_BC) {
-            f32 v3 = v21.dot(_B0);
-            _CC = _C4;
-            _C8 = -_C4 + v3;
-            _D0 = ((_C4 - (-_C4 + v3)) / _C0);
+        if (!mIsMoveBack) {
+            mMoveEnd = mMoveRange;
+            mMoveStart = -mMoveRange + along;
         } else {
-            _C8 = -_C4;
-            f32 v6 = v21.dot(_B0);
-            _CC = -_C4 + v6;
-            _D0 = ((-_C4 + v6) - _C8) / _C0;
+            mMoveStart = -mMoveRange;
+            mMoveEnd = -mMoveRange + along;
         }
 
-        _D0 *= 1.3;
+        mMoveStep = (mMoveEnd - mMoveStart) / mMoveSpeed;
+        mMoveStep *= 1.3;
     }
 
-    f32 rate = MR::calcNerveRate(this, _D0);
+    f32 rate = MR::calcNerveRate(this, mMoveStep);
 
-    if (_BC) {
+    if (mIsMoveBack) {
         rate = 1.0f - rate;
     }
 
-    f32 ease = MR::getEaseInOutValue(rate, _C8, _CC, 1.0f);
-    mVelocity.set(_A4 + _B0 * ease - mPosition);
+    f32 ease = MR::getEaseInOutValue(rate, mMoveStart, mMoveEnd, 1.0f);
+    mVelocity.set(mInitPos + mMoveDir * ease - mPosition);
 
-    if (MR::isGreaterStep(this, _D0)) {
-        _BC = _BC == false;
+    if (MR::isGreaterStep(this, mMoveStep)) {
+        mIsMoveBack = !mIsMoveBack;
         setNerve(GET_NERVE(Takobo, HostTypeNrvMove));
-    } else {
-        TVec3f v20(*MR::getPlayerPos() - mPosition);
-        f32 mag = v20.length();
-        MR::vecKillElement(v20, mGravity, &v20);
-        MR::normalizeOrZero(&v20);
+        return;
+    }
 
-        if (mag < 250.0f) {
-            if (MR::turnVecToVecRadian(&_90, _90, v20, 0.050000001f, mGravity) < 0.1f) {
-                setNerve(GET_NERVE(Takobo, HostTypeNrvAttack));
-            }
-        } else {
-            if (mag < 800.0f) {
-                MR::turnVecToVecRadian(&_90, _90, v20, 0.05f, mGravity);
-            }
+    Vec3f toPlayer(*MR::getPlayerPos() - mPosition);
+    f32 playerDist = toPlayer.length();
+    MR::vecKillElement(toPlayer, mGravity, &toPlayer);
+    MR::normalizeOrZero(&toPlayer);
+
+    if (playerDist < sAttackDistance) {
+        if (MR::turnVecToVecRadian(&mFront, mFront, toPlayer, sTurnRadian, mGravity) < sAttackAimRadian) {
+            setNerve(GET_NERVE(Takobo, HostTypeNrvAttack));
         }
+    } else if (playerDist < sTurnDistance) {
+        MR::turnVecToVecRadian(&mFront, mFront, toPlayer, sTurnRadian, mGravity);
     }
 }
 
@@ -255,7 +253,7 @@ void Takobo::exeWait() {
         mVelocity.zero();
     }
 
-    if (MR::isGreaterStep(this, 60)) {
+    if (MR::isGreaterStep(this, sWaitSteps)) {
         setNerve(GET_NERVE(Takobo, HostTypeNrvMove));
     }
 }
@@ -267,7 +265,7 @@ void Takobo::exePress() {
         MR::invalidateHitSensors(this);
     }
 
-    if (MR::isGreaterStep(this, 30)) {
+    if (MR::isGreaterStep(this, sPressSteps)) {
         generateCoin();
         kill();
     }
@@ -316,12 +314,12 @@ void Takobo::exeAttack() {
 
     mVelocity.zero();
 
-    if (MR::isStep(this, 85)) {
-        MR::setBckRate(this, 1.0f);
+    if (MR::isStep(this, sAttackHitStart)) {
+        MR::setBckRate(this, cNum_exeAttack_setBckRate_1);
         getSensor("attack")->validate();
     }
 
-    if (MR::isStep(this, 90)) {
+    if (MR::isStep(this, sAttackHitEnd)) {
         getSensor("attack")->invalidate();
     }
 
@@ -333,10 +331,9 @@ void Takobo::exeAttack() {
 void Takobo::exeStunStart() {
     if (MR::isFirstStep(this)) {
         MR::startAction(this, "StunStart");
-        MR::setBckRate(this, 2.0f);
+        MR::setBckRate(this, cNum_exeStunStart_setBckRate_1);
         MR::emitEffect(this, "Hit");
         MR::startSound(this, "SE_EM_TAKOBO_STARPIECE_HIT");
-        _A0 = 1;
         mVelocity.zero();
     }
 
@@ -348,13 +345,11 @@ void Takobo::exeStunStart() {
 void Takobo::exeStun() {
     if (MR::isFirstStep(this)) {
         MR::startAction(this, "Stun");
-        _A0 = 1;
     }
 
     MR::startLevelSound(this, "SE_EM_LV_SWOON_S");
 
-    if (MR::isGreaterStep(this, 120)) {
-        _A0 = 0;
+    if (MR::isGreaterStep(this, sStunSteps)) {
         setNerve(GET_NERVE(Takobo, HostTypeNrvStunEnd));
     }
 }
@@ -372,16 +367,16 @@ void Takobo::exeIce() {
     }
 }
 
-void Takobo::exeDpdPointed() {
+void Takobo::exePointerAimed() {
     if (MR::isFirstStep(this)) {
-        MR::startDPDHitSound();
+        MR::startPointerHitSound();
         MR::stopBck(this);
-        mScaleController->startDpdHitVibration();
+        mScaleController->startPointerHitVibration();
         MR::emitEffect(this, "Touch");
     }
 
-    MR::startDPDFreezeLevelSound(this);
-    if (!MR::isStarPointerPointing2POnPressButton(this, "\216\343" /* 弱 */, true, false)) {
+    MR::startPointerFreezeLevelSound(this);
+    if (!MR::isStarPointerPointing2POnPressButton(this, "弱", true, false)) {
         setNerve(GET_NERVE(Takobo, HostTypeNrvWait));
     } else {
         mVelocity.zero();
@@ -445,36 +440,22 @@ bool Takobo::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pRec
             return false;
         }
 
-        if (isNerve(GET_NERVE(Takobo, HostTypeNrvPress))) {
+        return tryPress();
+    }
+
+    if (MR::isMsgPlayerHipDrop(msg)) {
+        if (MR::isSensorEnemyAttack(pReceiver) || isNerve(GET_NERVE(Takobo, HostTypeNrvHitPunch))) {
             return false;
         }
 
         return tryPress();
     }
 
-    if (MR::isMsgPlayerHipDrop(msg)) {
-        if (MR::isSensorEnemyAttack(pReceiver)) {
-            return false;
-        }
-
-        if (isNerve(GET_NERVE(Takobo, HostTypeNrvPress))) {
-            return false;
-        }
-
-        if (isNerve(GET_NERVE(Takobo, HostTypeNrvHitPunch))) {
-            return false;
-        }
-
-        MR::startSound(this, "SE_EM_TAKOBO_STOMPED");
-        setNerve(GET_NERVE(Takobo, HostTypeNrvPress));
-
-        return true;
-    }
-
     if (MR::isMsgFreezeAttack(msg)) {
         if (MR::isSensorEnemyAttack(pReceiver)) {
             return false;
         }
+
         mBox->generateIceBox(pSender, pReceiver);
         setNerve(GET_NERVE(Takobo, HostTypeNrvIce));
 
@@ -515,21 +496,10 @@ bool Takobo::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pRece
     }
 
     if (MR::isMsgToEnemyAttackTrample(msg)) {
-        if (isNerve(GET_NERVE(Takobo, HostTypeNrvPress))) {
-            return false;
-        }
-
         return tryPress();
     }
 
-    if (MR::isMsgToEnemyAttackBlow(msg)) {
-        mSpinController->startWithoutStopScene(this, pSender->mPosition, pReceiver->mPosition);
-        setNerve(GET_NERVE(Takobo, HostTypeNrvHitPunch));
-
-        return true;
-    }
-
-    if (MR::isMsgExplosionAttack(msg)) {
+    if (MR::isMsgToEnemyAttackBlow(msg) || MR::isMsgExplosionAttack(msg)) {
         mSpinController->startWithoutStopScene(this, pSender->mPosition, pReceiver->mPosition);
         setNerve(GET_NERVE(Takobo, HostTypeNrvHitPunch));
 
@@ -540,14 +510,14 @@ bool Takobo::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pRece
 }
 
 void Takobo::calcAndSetBaseMtx() {
-    TPos3f mtx;
-    MR::calcMtxFromGravityAndZAxis(&mtx, this, mGravity, _90);
+    Pos3f mtx;
+    MR::calcMtxFromGravityAndZAxis(&mtx, this, mGravity, mFront);
     MR::setBaseTRMtx(this, mtx);
-    TVec3f scale = mScaleController->_C * mScale;
+    Vec3f scale = mScaleController->mScale * mScale;
     MR::setBaseScale(this, scale);
 }
 
-void Takobo::endDpdPointed() {
+void Takobo::endPointerAimed() {
     mScaleController->startAnim();
     MR::deleteEffect(this, "Touch");
 }
@@ -562,6 +532,5 @@ void Takobo::endMove() {
 }
 
 void Takobo::endWait() {
-    MR::onCalcAnim(this);
-    mVelocity.zero();
+    endMove();
 }

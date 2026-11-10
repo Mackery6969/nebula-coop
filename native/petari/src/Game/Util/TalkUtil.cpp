@@ -1,4 +1,6 @@
 #include "Game/Util/TalkUtil.hpp"
+#include "Game/LiveActor/LiveActor.hpp"
+#include "Game/System/NebulaMods.hpp"
 #include "Game/NPC/TalkMessageCtrl.hpp"
 #include "Game/NPC/TalkMessageFunc.hpp"
 #include "Game/NPC/TalkNodeCtrl.hpp"
@@ -9,7 +11,7 @@
 #include "Game/Util/ScreenUtil.hpp"
 
 namespace {
-    const TVec3f sNoOffset(0.0f, 0.0f, 0.0f);
+    const Vec3f sNoOffset(0.0f, 0.0f, 0.0f);
 }  // namespace
 
 namespace MR {
@@ -57,20 +59,21 @@ namespace MR {
         pCtrl->setMessageArg(arg);
     }
 
-    TalkMessageCtrl* createTalkCtrl(LiveActor* pActor, const JMapInfoIter& rIter, const char* pMessageID, const TVec3f& rOffset, MtxPtr pMtx) {
+    // A mod's object made like a game's talks with its own lines: "<zone>_<its name><number>", as its model is its own.
+    TalkMessageCtrl* createTalkCtrl(LiveActor* pActor, const TableIter& rIter, const char* pMessageID, const Vec3f& rOffset, MtxPtr pMtx) {
         TalkMessageCtrl* pCtrl = new TalkMessageCtrl(pActor, rOffset, pMtx);
-        pCtrl->createMessage(rIter, pMessageID);
+        pCtrl->createMessage(rIter, NebulaMods::modelFor(pActor != nullptr ? pActor->mName : nullptr, pMessageID));
         return pCtrl;
     }
 
-    TalkMessageCtrl* createTalkCtrlDirect(LiveActor* pActor, const JMapInfoIter& rIter, const char* pMessageID, const TVec3f& rOffset, MtxPtr pMtx) {
+    TalkMessageCtrl* createTalkCtrlDirect(LiveActor* pActor, const TableIter& rIter, const char* pMessageID, const Vec3f& rOffset, MtxPtr pMtx) {
         TalkMessageCtrl* pCtrl = new TalkMessageCtrl(pActor, rOffset, pMtx);
-        pCtrl->createMessageDirect(rIter, pMessageID);
+        pCtrl->createMessageDirect(rIter, NebulaMods::modelFor(pActor != nullptr ? pActor->mName : nullptr, pMessageID));
         return pCtrl;
     }
 
-    TalkMessageCtrl* createTalkCtrlDirectOnRootNodeAutomatic(LiveActor* pActor, const JMapInfoIter& rIter, const char* pMessageID,
-                                                             const TVec3f& rOffset, MtxPtr pMtx) {
+    TalkMessageCtrl* createTalkCtrlDirectOnRootNodeAutomatic(LiveActor* pActor, const TableIter& rIter, const char* pMessageID,
+                                                             const Vec3f& rOffset, MtxPtr pMtx) {
         TalkMessageCtrl* pCtrl = createTalkCtrlDirect(pActor, rIter, pMessageID, rOffset, pMtx);
         onRootNodeAutomatic(pCtrl);
         return pCtrl;
@@ -84,15 +87,7 @@ namespace MR {
             return false;
         }
 
-        bool ret = false;
-
-        if (pCtrl->requestTalk()) {
-            if (pCtrl->startTalk()) {
-                ret = true;
-            }
-        }
-
-        return ret;
+        return pCtrl->requestTalk() && pCtrl->startTalk();
     }
 
     bool tryTalkNearPlayerAtEnd(TalkMessageCtrl* pCtrl) {
@@ -123,13 +118,7 @@ namespace MR {
             return false;
         }
 
-        bool ret = false;
-
-        if (pCtrl->requestTalkForce() && pCtrl->startTalkForce()) {
-            ret = true;
-        }
-
-        return ret;
+        return pCtrl->requestTalkForce() && pCtrl->startTalkForce();
     }
 
     bool tryTalkForceAtEnd(TalkMessageCtrl* pCtrl) {
@@ -159,13 +148,7 @@ namespace MR {
             return false;
         }
 
-        bool ret = false;
-
-        if (pCtrl->requestTalkForce() && pCtrl->startTalkForceWithoutDemo()) {
-            ret = true;
-        }
-
-        return ret;
+        return pCtrl->requestTalkForce() && pCtrl->startTalkForceWithoutDemo();
     }
 
     bool tryTalkForceWithoutDemoMarioPuppetable(TalkMessageCtrl* pCtrl) {
@@ -176,15 +159,7 @@ namespace MR {
             return false;
         }
 
-        bool ret = false;
-
-        if (pCtrl->requestTalkForce()) {
-            if (pCtrl->startTalkForceWithoutDemoPuppetable()) {
-                ret = true;
-            }
-        }
-
-        return ret;
+        return pCtrl->requestTalkForce() && pCtrl->startTalkForceWithoutDemoPuppetable();
     }
 
     bool tryTalkForceWithoutDemoAtEnd(TalkMessageCtrl* pCtrl) {
@@ -229,45 +204,21 @@ namespace MR {
         if (pCtrl == nullptr) {
             return false;
         }
-        bool ret = false;
-
-        if (pCtrl->requestTalkForce()) {
-            if (pCtrl->startTalkForce()) {
-                ret = true;
-            }
-        }
-
-        return ret;
+        return pCtrl->requestTalkForce() && pCtrl->startTalkForce();
     }
 
     bool tryTalkTimeKeepDemoMarioPuppetable(TalkMessageCtrl* pCtrl) {
         if (pCtrl == nullptr) {
             return false;
         }
-        bool ret = false;
-
-        if (pCtrl->requestTalkForce()) {
-            if (pCtrl->startTalkForcePuppetable()) {
-                ret = true;
-            }
-        }
-
-        return ret;
+        return pCtrl->requestTalkForce() && pCtrl->startTalkForcePuppetable();
     }
 
     bool tryTalkTimeKeepDemoWithoutPauseMarioPuppetable(TalkMessageCtrl* pCtrl) {
         if (pCtrl == nullptr) {
             return false;
         }
-        bool ret = false;
-
-        if (pCtrl->requestTalkForce()) {
-            if (pCtrl->startTalkForceWithoutDemoPuppetable()) {
-                ret = true;
-            }
-        }
-
-        return ret;
+        return pCtrl->requestTalkForce() && pCtrl->startTalkForceWithoutDemoPuppetable();
     }
 
     bool tryTalkRequest(TalkMessageCtrl* pCtrl) {
@@ -281,47 +232,31 @@ namespace MR {
         if (pCtrl == nullptr) {
             return false;
         }
-        bool ret = false;
-
-        if (MR::isYesNoSelected()) {
-            if (MR::isYesNoSelectedYes()) {
-                ret = true;
-            }
-        }
-
-        return ret;
+        return MR::isYesNoSelected() && MR::isYesNoSelectedYes();
     }
 
     bool tryTalkSelectRight(TalkMessageCtrl* pCtrl) {
         if (pCtrl == nullptr) {
             return false;
         }
-        bool ret = false;
-
-        if (MR::isYesNoSelected()) {
-            if (!MR::isYesNoSelectedYes()) {
-                ret = true;
-            }
-        }
-
-        return ret;
+        return MR::isYesNoSelected() && !MR::isYesNoSelectedYes();
     }
 
-    const MtxPtr getMessageBalloonFollowMatrix(const TalkMessageCtrl* pCtrl) {
+    MtxPtr getMessageBalloonFollowMatrix(const TalkMessageCtrl* pCtrl) {
         if (pCtrl == nullptr) {
             return nullptr;
         }
         return pCtrl->mMtx;
     }
 
-    const TVec3f& getMessageBalloonFollowOffset(const TalkMessageCtrl* pCtrl) {
+    const Vec3f& getMessageBalloonFollowOffset(const TalkMessageCtrl* pCtrl) {
         if (pCtrl == nullptr) {
             return sNoOffset;
         }
         return pCtrl->mMsgBalloonFollowOffs;
     }
 
-    void setMessageBalloonFollowOffset(TalkMessageCtrl* pCtrl, const TVec3f& rOffs) {
+    void setMessageBalloonFollowOffset(TalkMessageCtrl* pCtrl, const Vec3f& rOffs) {
         if (pCtrl == nullptr) {
             return;
         }
@@ -343,31 +278,19 @@ namespace MR {
     }
 
     bool isTalkNone(const TalkMessageCtrl* pCtrl) {
-        if (pCtrl == nullptr) {
-            return true;
-        }
-        return pCtrl->_18 == 0;
+        return pCtrl == nullptr || pCtrl->mTalkStateKind == TalkState_None;
     }
 
     bool isTalkEntry(const TalkMessageCtrl* pCtrl) {
-        if (pCtrl == nullptr) {
-            return false;
-        }
-        return pCtrl->_18 == 1;
+        return pCtrl != nullptr && pCtrl->mTalkStateKind == TalkState_Entry;
     }
 
     bool isTalkTalking(const TalkMessageCtrl* pCtrl) {
-        if (pCtrl == nullptr) {
-            return false;
-        }
-        return pCtrl->_18 == 3;
+        return pCtrl != nullptr && pCtrl->mTalkStateKind == TalkState_Talking;
     }
 
     bool isTalkEnableEnd(const TalkMessageCtrl* pCtrl) {
-        if (pCtrl == nullptr) {
-            return false;
-        }
-        return pCtrl->_18 == 4;
+        return pCtrl != nullptr && pCtrl->mTalkStateKind == TalkState_EnableEnd;
     }
 
     void clearTalkState(TalkMessageCtrl* pCtrl) {

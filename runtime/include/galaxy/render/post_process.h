@@ -2,13 +2,8 @@
 
 // The D3D12 presentation chain: scene SMAA/FXAA, FSR 1 EASU or box-filter scaling, and RCAS.
 
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <Windows.h>
+#include "galaxy/windows_api.h"
+#include "galaxy/render/gpu_use.h"
 #include <d3d12.h>
 #include <wrl/client.h>
 
@@ -53,8 +48,6 @@ public:
     bool initialize(ID3D12Device* device, ID3D12CommandQueue* queue,
                     const PostProcessSettings& settings);
     void shutdown() noexcept;
-    // Whether it presents a picture held from the top left of a taller texture (a handed-over scene target).
-    [[nodiscard]] bool reads_held_pictures() const noexcept { return resample_box_ != nullptr; }
     [[nodiscard]] bool ready() const noexcept { return ready_; }
     // Capabilities, self-test results, last frame's AA pass and totals.
     [[nodiscard]] const PostProcessStatus& status() const noexcept { return status_; }
@@ -64,6 +57,8 @@ public:
     // kept across frames and replaced only when a size changes; replaced
     // resources are released `frames_in_flight` frames later.
     // `source` holds its `source_width` x `source_height` picture from its top left (a handed-over scene target is taller).
+    // `output.hdr`: the target is an R10G10B10A2 HDR10 swap chain buffer and the last write encodes for it (prepare_hdr first);
+    // the default is the 8-bit window, the SDR write.
     void record(ID3D12GraphicsCommandList* list,
                 DescriptorRing& srv_ring,
                 ID3D12Resource* source,
@@ -72,7 +67,12 @@ public:
                 D3D12_CPU_DESCRIPTOR_HANDLE target_rtv,
                 const D3D12_VIEWPORT& viewport,
                 std::uint64_t frame_index,
-                unsigned frames_in_flight);
+                unsigned frames_in_flight,
+                const PostOutput& output = PostOutput{});
+
+    // Builds the last-write pipelines for an R10G10B10A2 target (once; kept). False when they cannot be made: the renderer
+    // then keeps its 8-bit swap chain, since record() with output.hdr writes nothing a different target format could take.
+    [[nodiscard]] bool prepare_hdr();
 
     // SMAA or FXAA of the 3D scene in `color` (RGBA8, RENDER_TARGET state, `width` x `height`) in
     // place: RGB only, the alpha the game left there stays. `picture_*` is the part the display
@@ -98,7 +98,8 @@ private:
         unsigned height = 0;
         DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
         D3D12_CPU_DESCRIPTOR_HANDLE rtv{};
-        D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+        gpu::Use use = gpu::Use::PixelRead;
+        std::uint64_t used_frame = 0;  // the last frame ensure_target was asked for it
     };
     struct Retired {
         Microsoft::WRL::ComPtr<ID3D12Resource> resource;
@@ -117,8 +118,7 @@ private:
     bool ensure_target(Target& target, unsigned width, unsigned height,
                        DXGI_FORMAT format, unsigned rtv_slot,
                        std::uint64_t frame_index, unsigned frames_in_flight);
-    void transition(ID3D12GraphicsCommandList* list, Target& target,
-                    D3D12_RESOURCE_STATES state);
+    void transition(ID3D12GraphicsCommandList* list, Target& target, gpu::Use use);
     // Records the lookup-texture copies; the staging buffers go to `staging`.
     bool record_lookup_upload(ID3D12GraphicsCommandList* list,
                               std::vector<Microsoft::WRL::ComPtr<ID3D12Resource>>& staging);
@@ -135,22 +135,18 @@ private:
     void draw(ID3D12GraphicsCommandList* list, DescriptorRing& srv_ring,
               ID3D12PipelineState* pipeline,
               std::initializer_list<ID3D12Resource*> inputs,
-              std::initializer_list<DXGI_FORMAT> formats,
               const D3D12_VIEWPORT& viewport,
               const Constants& constants);
     void note_aa_run(const PostProcessPlan& plan, AaRun ran);
-    // The deband pass of `image` (width x height) into the render target bound after `bind`, at `viewport`.
-    void record_deband(ID3D12GraphicsCommandList* list, DescriptorRing& srv_ring, ID3D12Resource* image,
-                       unsigned width, unsigned height, const std::function<void(D3D12_VIEWPORT&, Constants&)>& bind,
-                       std::uint64_t frame_index, unsigned frames_in_flight);
     void release_retired(std::uint64_t frame_index) noexcept;
+    // Hands back the targets no pass has asked for in kTargetIdleFrames frames (SMAA's after a switch to FXAA or off, the
+    // scaling intermediate after a window size that needs none); the next pass that wants one makes it again.
+    void trim_idle_targets(std::uint64_t frame_index, unsigned frames_in_flight);
 
     ID3D12Device* device_ = nullptr;
     PostProcessSettings settings_{};
     bool ready_ = false;
     PostProcessStatus status_{};
-    bool fault_selftest_ = false;  // GALAXY_TEST_POST_FAULT
-    bool fault_targets_ = false;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> root_signature_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> smaa_edges_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> smaa_weights_;
@@ -163,23 +159,18 @@ private:
     Microsoft::WRL::ComPtr<ID3D12PipelineState> scene_pass_ms_[2][4];
     [[nodiscard]] ID3D12PipelineState* scene_pass_pipeline(bool smaa, unsigned samples);
     Microsoft::WRL::ComPtr<ID3D12PipelineState> easu_;
-    // RCAS and the resample run into intermediates and into the back buffer;
-    // both use RGBA8, so one pipeline each serves every target.
+    // Into the window (8 bits, dithered), and into a picture for a pass after it (the scene's format).
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> easu_window_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> resample_window_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> rcas_;
     // Bilinear enlargement and RCAS in one pass (no window-sized intermediate).
     Microsoft::WRL::ComPtr<ID3D12PipelineState> rcas_scaled_;
+    // The same four last writes into an R10G10B10A2 HDR10 swap chain buffer (prepare_hdr).
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> easu_hdr_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> rcas_hdr_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> rcas_scaled_hdr_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> resample_hdr_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> resample_;
-    // The passes reading a picture held in a taller texture (post_process.hlsl SOURCE_BOX): all or none.
-    Microsoft::WRL::ComPtr<ID3D12PipelineState> easu_box_;
-    Microsoft::WRL::ComPtr<ID3D12PipelineState> rcas_scaled_box_;
-    Microsoft::WRL::ComPtr<ID3D12PipelineState> resample_box_;
-    Microsoft::WRL::ComPtr<ID3D12PipelineState> deband_box_;
-    Microsoft::WRL::ComPtr<ID3D12PipelineState> deband_reduce_box_;
-    Microsoft::WRL::ComPtr<ID3D12PipelineState> deband_apply_box_;
-    Microsoft::WRL::ComPtr<ID3D12PipelineState> deband_;
-    Microsoft::WRL::ComPtr<ID3D12PipelineState> deband_reduce_;
-    Microsoft::WRL::ComPtr<ID3D12PipelineState> deband_smooth_;
-    Microsoft::WRL::ComPtr<ID3D12PipelineState> deband_apply_;
     Microsoft::WRL::ComPtr<ID3D12Resource> area_texture_;
     Microsoft::WRL::ComPtr<ID3D12Resource> search_texture_;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> rtv_heap_;
@@ -189,10 +180,6 @@ private:
     Target weights_;
     Target antialiased_;
     Target scaled_;
-    // The debanded picture, source-sized, and from 1080 lines the reduced picture and its smoothing.
-    Target debanded_;
-    Target deband_reduced_;
-    Target deband_smoothed_;
     // SMAA's edge mask: the weight pass runs only where edge detection kept a
     // pixel. `rtv` holds its DSV.
     Target stencil_;

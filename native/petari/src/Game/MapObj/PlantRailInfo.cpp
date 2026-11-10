@@ -5,8 +5,12 @@
 #include "Game/Util.hpp"
 #include "Game/Util/MathUtil.hpp"
 
-PlantRailInfo::PlantRailInfo(const JMapInfoIter& rIter, f32 speed) : mRailSpeed(speed), mNumPlantPoints(), mPlantPoints(), mRailRider() {
+PlantRailInfo::PlantRailInfo(const TableIter& rIter, f32 speed) : mNumPlantPoints(), mPlantPoints(), mRailRider(), mRailSpeed(speed) {
     mRailRider = new RailRider(rIter);
+    // A speed of 0 or less covers the whole rail in one step (a rail of no length: one unit).
+    if (!(mRailSpeed > 0.0f)) {
+        mRailSpeed = mRailRider->getTotalLength() > 0.0f ? mRailRider->getTotalLength() : 1.0f;
+    }
     mRailRider->setSpeed(mRailSpeed);
 
     mNumPlantPoints = static_cast< s32 >(mRailRider->getTotalLength() / mRailSpeed) + 2;
@@ -20,24 +24,29 @@ PlantRailInfo::PlantRailInfo(const JMapInfoIter& rIter, f32 speed) : mRailSpeed(
 
     mRailRider->setCoord(mRailRider->getTotalLength());
 
-    PlantPoint* point = new PlantPoint(mRailRider->mCurPos, getPlantPoint(mNumPlantPoints - 2)->mUp, 1.0f);
-    s32 index = mNumPlantPoints - 1;
-    mPlantPoints[index] = point;
+    mPlantPoints[mNumPlantPoints - 1] = new PlantPoint(mRailRider->mCurPos, getPlantPoint(mNumPlantPoints - 2)->mUp, 1.0f);
 
-    PlantPoint* firstPoint = getPlantPoint(0);
-    PlantPoint* lastPoint = getPlantPoint(mNumPlantPoints - 2);
-    firstPoint->setAxisAndPos(lastPoint->mSide, lastPoint->mUp, lastPoint->mFront, firstPoint->mPosition);
+    PlantPoint* pFirstPoint = getPlantPoint(0);
+    PlantPoint* pLastPoint = getPlantPoint(mNumPlantPoints - 2);
+    pFirstPoint->setAxisAndPos(pLastPoint->mSide, pLastPoint->mUp, pLastPoint->mFront, pFirstPoint->mPosition);
 }
 
-void PlantRailInfo::calcPosAndAxisY(TVec3f* pPos, TVec3f* pAxisY, f32 coord) const {
-    f32 normalized = (coord / mRailRider->getTotalLength()) * mNumPlantPoints;
+void PlantRailInfo::calcPosAndAxisY(Vec3f* pPos, Vec3f* pAxisY, f32 coord) const {
+    // A rail of no length has one place.
+    const f32 totalLength = mRailRider->getTotalLength();
+    f32 normalized = totalLength > 0.0f ? (coord / totalLength) * mNumPlantPoints : 0.0f;
+
+    // A coordinate before the rail's start is its start; at or past its end (or not a number) is the last point.
+    if (normalized < 0.0f) {
+        normalized = 0.0f;
+    }
+
+    if (!(normalized < static_cast< f32 >(mNumPlantPoints - 1))) {
+        normalized = static_cast< f32 >(mNumPlantPoints - 1);
+    }
 
     s32 start = normalized;
     s32 end = start + 1;
-
-    if (start >= mNumPlantPoints) {
-        start = mNumPlantPoints - 1;
-    }
 
     if (end >= mNumPlantPoints) {
         end = mNumPlantPoints - 1;
@@ -58,7 +67,7 @@ void PlantRailInfo::calcPosAndAxisY(TVec3f* pPos, TVec3f* pAxisY, f32 coord) con
     MR::normalize(pAxisY);
 }
 
-void PlantRailInfo::calcNearestPointPos(TVec3f* pPointPos, const TVec3f& rPos, s32 cutoff) const {
+void PlantRailInfo::calcNearestPointPos(Vec3f* pPointPos, const Vec3f& rPos, s32 cutoff) const {
     s32 nearestIdx = 0;
     f32 closestMag = 10000000000.0f;
 
@@ -71,8 +80,5 @@ void PlantRailInfo::calcNearestPointPos(TVec3f* pPointPos, const TVec3f& rPos, s
         }
     }
 
-    PlantPoint* nearestPoint = mPlantPoints[nearestIdx];
-    pPointPos->x = nearestPoint->mPosition.x;
-    pPointPos->y = nearestPoint->mPosition.y;
-    pPointPos->z = nearestPoint->mPosition.z;
+    pPointPos->set(mPlantPoints[nearestIdx]->mPosition);
 }

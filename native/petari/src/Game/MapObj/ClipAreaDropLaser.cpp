@@ -1,13 +1,13 @@
 #include "Game/MapObj/ClipAreaDropLaser.hpp"
-#include "Game/Util/NativeShader.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include "Game/Render/TypedDraw.hpp"
+#include "Game/Render/FrameList.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/ClipAreaDropHolder.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/DirectDraw.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
@@ -27,14 +27,14 @@ ClipAreaDropLaser::ClipAreaDropLaser(const char* pName) : LiveActor(pName) {
     MR::createClipAreaDropHolder();
 }
 
-void ClipAreaDropLaser::init(const JMapInfoIter& rIter) {
+void ClipAreaDropLaser::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     MR::connectToScene(this, MR::MovementType_MapObj, MR::CalcAnimType_None, MR::DrawBufferType_None, MR::DrawType_ClipAreaDropLaser);
     initRailRider(rIter);
     MR::moveCoordAndTransToRailStartPoint(this);
     mSpeed = 20.0f;
-    MR::getJMapInfoArg0NoInit(rIter, &mSpeed);
-    initEffectKeeper(0, "ClipAreaDropLaser", false);
+    MR::getPlacementArg0NoInit(rIter, &mSpeed);
+    initEffectKeeper(0, "ClipAreaDropLaser");
     initSound(4, false);
     initNerve(GET_NERVE(ClipAreaDropLaser, ClipAreaDropLaserNrvMove));
     MR::invalidateClipping(this);
@@ -48,23 +48,24 @@ void ClipAreaDropLaser::control() {
 
 void ClipAreaDropLaser::draw() const {
     TDDraw::cameraInit3D();
-    NebulaNativeMaterial material;
+    SiteMaterial material;
     TDDraw::setupNative(&material, 0, 2, 0);
-    J3DPass::lineWidth(20.0f / 6.0f);
-    NativeShader::setDepth(material, true, NEBULA_COMPARE_LEQUAL, false);
-    NativeShader::send(material);
+    material.mState.line_width = 20.0f / 6.0f;
+    material.setDepth(true, NEBULA_COMPARE_LEQUAL, false);
 
-    for (int r29 = 1; r29 < mNumPointsToDraw; r29++) {
-        int u1 = mDrawCount - (r29 - 1);
-        int u2 = mDrawCount - r29;
+    // Back from the newest point through the ring.
+    for (int i = 1; i < mNumPointsToDraw; i++) {
+        int from = mDrawCount - (i - 1);
+        int to = mDrawCount - i;
 
-        if (u1 < 0)
-            u1 += 0x40;
-        if (u2 < 0)
-            u2 += 0x40;
+        if (from < 0)
+            from += cPointNum;
+        if (to < 0)
+            to += cPointNum;
 
-        if (u1 != mPointIndexToSkipDraw) {
-            TDDraw::drawLine(mPoints[u1], mPoints[u2], 0x40F080);
+        if (from != mPointIndexToSkipDraw) {
+            TypedDraw site = TDDraw::site(material, 0);
+            TDDraw::drawLine(site, mPoints[from], mPoints[to], 0x40F080);
         }
     }
 }
@@ -94,7 +95,7 @@ void ClipAreaDropLaser::exeMove() {
     }
     mPoints[mDrawCount].set(mPosition);
     if (railPoint != -1) {
-        TVec3f pos;
+        Vec3f pos;
         MR::calcRailPointPos(&pos, this, railPoint);
         f32 arg = -1.0;
         MR::getRailPointArg0NoInit(this, railPoint, &arg);
@@ -111,13 +112,10 @@ void ClipAreaDropLaser::exeMove() {
 
 void ClipAreaDropLaser::incrementDrawCount() {
     mDrawCount += 1;
-    if (mDrawCount >= 0x40) {
-        mDrawCount += -0x40;
+    if (mDrawCount >= cPointNum) {
+        mDrawCount += -cPointNum;
     }
-    if (mNumPointsToDraw < 64.0f) {
+    if (mNumPointsToDraw < static_cast< f32 >(cPointNum)) {
         mNumPointsToDraw += 1.0f;
     }
-}
-
-ClipAreaDropLaser::~ClipAreaDropLaser() {
 }

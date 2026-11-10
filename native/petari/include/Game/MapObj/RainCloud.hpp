@@ -1,26 +1,24 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class LodCtrl;
 class MapPartsRailMover;
 class ModelObj;
-class NameObjArchiveListCollector;
 
 class RainCloud : public LiveActor {
 public:
     RainCloud(const char* pName);
 
-    virtual ~RainCloud();
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void startClipped();
-    virtual void endClipped();
-    virtual void control();
-    virtual void updateHitSensor(HitSensor* pSensor);
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void startClipped() override;
+    virtual void endClipped() override;
+    virtual void control() override;
+    virtual void updateHitSensor(HitSensor* pSensor) override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
 
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     void exeAppear();
     void exeWait();
@@ -32,14 +30,13 @@ public:
     void updateRainCylinder();
     bool isNextStartOK() const;
 
-    static void makeArchiveList(NameObjArchiveListCollector* pCollector, const JMapInfoIter& rIter);
 
     ModelObj* mCloudCylinder;
-    TPos3f mRainCylinderMtx;
-    TPos3f mSplashMtx;
+    Pos3f mRainCylinderMtx;
+    Pos3f mSplashMtx;
     MapPartsRailMover* mRailMover;
     LodCtrl* mLodCtrl;
-    TVec3f mClippingCenter;
+    Vec3f mClippingCenter;
     f32 mRainLength;
     f32 mShadowDropLength;
     bool mIsOnPlayer;

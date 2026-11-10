@@ -4,22 +4,21 @@
 #include "Game/Camera/CameraParamChunkHolder.hpp"
 #include "Game/Camera/CameraParamChunkID.hpp"
 #include "Game/Util/AreaObjUtil.hpp"
-#include "Game/Util/JMapIdInfo.hpp"
+#include "Game/Util/PlacementId.hpp"
 #include "Game/Util/SceneUtil.hpp"
-#include <cstring>
 #include <cstring>
 
 GameCameraCreator::GameCameraCreator(CameraParamChunkHolder* pChunkHolder) {
     mChunkHolder = pChunkHolder;
     mName = nullptr;
-    _8 = -1;
+    mZoneId = -1;
 
     memset(&mCodes[0], 0, sizeof(mCodes));
 }
 
-void GameCameraCreator::initCameraCodeCollection(const char* pName, s32 a2) {
+void GameCameraCreator::initCameraCodeCollection(const char* pName, s32 zoneId) {
     mName = pName;
-    _8 = a2;
+    mZoneId = zoneId;
 }
 
 void GameCameraCreator::registerCameraCode(u32 code) {
@@ -36,27 +35,24 @@ void GameCameraCreator::termCameraCodeCollection() {
             mCodes[i] = 0;
 
             CameraParamChunkID_Tmp chunk = CameraParamChunkID_Tmp();
-            chunk.createGroupID(_8, mName, i, 0);
+            chunk.createGroupID(mZoneId, mName, i, 0);
 
             mChunkHolder->createChunk(chunk, nullptr);
         }
     }
 
     mName = nullptr;
-    _8 = -1;
+    mZoneId = -1;
 }
 
 void GameCameraCreator::scanStartPos() {
     for (s32 idx = 0; idx < MR::getStartPosNum(); idx++) {
-        // TODO: ctor
-        JMapIdInfo info;
-        info._0 = -1;
-        info.mZoneID = -1;
+        PlacementId info(-1, -1);
 
         MR::getStartCameraIdInfoFromStartDataIndex(&info, idx);
 
         CameraParamChunkID_Tmp chunk = CameraParamChunkID_Tmp();
-        chunk.createStartID(info.mZoneID, info._0);
+        chunk.createStartID(info.mZoneID, info.mId);
 
         mChunkHolder->createChunk(chunk, nullptr);
     }

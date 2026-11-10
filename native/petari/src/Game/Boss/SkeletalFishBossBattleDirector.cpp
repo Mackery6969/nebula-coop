@@ -11,16 +11,16 @@
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
-#include <cstdio>
+#include "Game/Util/StringUtil.hpp"
 
-SkeletalFishBossBattleDirector::SkeletalFishBossBattleDirector(SkeletalFishBoss* pBoss) : NameObj("\203\130\203\112\203\213\203\126\203\203\201\133\203\116\203\173\203\130\220\355\216\167\212\366" /* スカルシャークボス戦指揮 */) {
+SkeletalFishBossBattleDirector::SkeletalFishBossBattleDirector(SkeletalFishBoss* pBoss) : NameObj("スカルシャークボス戦指揮") {
     mFishBoss = pBoss;
-    _90 = 0;
-    _D4 = 0;
+    mColumnNum = 0;
+    mClipActorNum = 0;
     MR::connectToSceneEnemyMovement(this);
 
     for (s32 i = 0; i < ARRAY_SIZE(mGuardModels); i++) {
-        ModelObj* guardMdl = new ModelObj("\203\146\203\202\227\160\203\130\203\112\203\213\203\126\203\203\201\133\203\116\203\113\201\133\203\150" /* デモ用スカルシャークガード */, "SkeletalFishGuard", nullptr, MR::DrawBufferType_Enemy, -2, -2, false);
+        ModelObj* guardMdl = new ModelObj("デモ用スカルシャークガード", "SkeletalFishGuard", nullptr, MR::DrawBufferType_Enemy, -2, -2, false);
         mGuardModels[i] = guardMdl;
         mGuardModels[i]->initWithoutIter();
         MR::initLightCtrl(mGuardModels[i]);
@@ -33,20 +33,20 @@ void SkeletalFishBossBattleDirector::initiate() {
     LiveActorGroup* group = MR::getGroupFromArray(mFishBoss);
 
     for (s32 i = 0; i < group->getObjNum(); i++) {
-        if (strcmp(group->getActor(i)->getName(), "\212\103\222\352\211\316\216\122\213\220\221\345\220\316\222\214" /* 海底火山巨大石柱 */) == 0 || strcmp(group->getActor(i)->getName(), "\212\103\222\352\211\316\216\122\220\316\222\214\201\151\217\254\201\152" /* 海底火山石柱（小） */) == 0) {
-            mColumns.at(_90) = static_cast< SubmarineVolcanoBigColumn* >(group->getActor(i));
-            _90++;
+        if (MR::isEqualString(group->getActor(i)->getName(), "海底火山巨大石柱") || MR::isEqualString(group->getActor(i)->getName(), "海底火山石柱（小）")) {
+            mColumns.at(mColumnNum) = static_cast< SubmarineVolcanoBigColumn* >(group->getActor(i));
+            mColumnNum++;
         }
 
-        if (strcmp(group->getActor(i)->getName(), "\211\110\222\216\202\162" /* 羽虫Ｓ */)) {
-            if (strcmp(group->getActor(i)->getName(), "\211\110\222\216\202\153" /* 羽虫Ｌ */)) {
+        if (!MR::isEqualString(group->getActor(i)->getName(), "羽虫Ｓ")) {
+            if (!MR::isEqualString(group->getActor(i)->getName(), "羽虫Ｌ")) {
                 continue;
             }
         }
 
-        _94.at(_D4) = group->getActor(i);
-        MR::invalidateClipping(_94[_D4]);
-        _D4++;
+        mClipActors.at(mClipActorNum) = group->getActor(i);
+        MR::invalidateClipping(mClipActors[mClipActorNum]);
+        mClipActorNum++;
     }
 
     killBirdLouse();
@@ -62,11 +62,10 @@ void SkeletalFishBossBattleDirector::startPowerUpDemo2() {
 
 void SkeletalFishBossBattleDirector::playGuardAnim(const char* pAnimName, s32 numGuards) {
     for (s32 i = 0; i < numGuards; i++) {
-        char animName[256];
-        nebula_snprintf(animName, sizeof(animName), "%s%c", pAnimName, i + 'A');
+        MR::FormattedName animName("%s%c", pAnimName, i + 'A');
         mGuardModels[i]->makeActorAppeared();
         MR::requestMovementOn(mGuardModels[i]);
-        MR::startBck(mGuardModels[i], animName);
+        MR::startBck(mGuardModels[i], animName.c_str());
         MR::startSound(mGuardModels[i], "SE_BM_SKL_GUARD_APPEAR");
     }
 }
@@ -75,7 +74,7 @@ void SkeletalFishBossBattleDirector::movement() {
 }
 
 void SkeletalFishBossBattleDirector::tryColumnCollision(HitSensor* pSensor) {
-    for (s32 i = 0; i < _90; i++) {
+    for (s32 i = 0; i < mColumnNum; i++) {
         CollisionParts* parts = MR::getCollisionParts(mColumns[i]);
 
         if (parts != nullptr) {
@@ -101,7 +100,7 @@ void SkeletalFishBossBattleDirector::pauseOffCast() {
         }
     }
 
-    for (s32 i = 0; i < _90; i++) {
+    for (s32 i = 0; i < mColumnNum; i++) {
         mColumns[i]->pauseOff();
     }
 }
@@ -121,16 +120,13 @@ void SkeletalFishBossBattleDirector::killGuard() {
 }
 
 void SkeletalFishBossBattleDirector::appearBirdLouse() {
-    for (s32 i = 0; i < _D4; i++) {
-        _94[i]->endClipped();
+    for (s32 i = 0; i < mClipActorNum; i++) {
+        mClipActors[i]->endClipped();
     }
 }
 
 void SkeletalFishBossBattleDirector::killBirdLouse() {
-    for (s32 i = 0; i < _D4; i++) {
-        _94[i]->startClipped();
+    for (s32 i = 0; i < mClipActorNum; i++) {
+        mClipActors[i]->startClipped();
     }
-}
-
-SkeletalFishBossBattleDirector::~SkeletalFishBossBattleDirector() {
 }

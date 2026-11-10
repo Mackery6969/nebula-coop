@@ -1,17 +1,20 @@
 #include "Game/MapObj/ChooChooTrain.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/ModelObj.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Util.hpp"
+#include "Game/Util/Tunable.hpp"
+
+// The numbers this file's functions give the game's motion and animation calls, as tunables: "<file>.<function>.<call>.<k>".
+NEBULA_TUNABLE_NAMED(f32, cNum_init_moveCoord_1, "init.moveCoord.1", 1080.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_control_moveCoord_1, "control.moveCoord.1", 1080.0f);
 
 namespace {
-    // static const f32 hNextCoord = _;
-    // static const f32 hConnectPosFront = _;
-    // static const f32 hTurnToConnectAngle = _;
-    static const s32 hWhistleStepMin = 180;
-    static const s32 hWhistleStepMax = 600;
+    static const s32 hWhistleStepMin = NebulaFrameClock::stepsOfSeconds(3);
+    static const s32 hWhistleStepMax = NebulaFrameClock::stepsOfSeconds(10);
 };  // namespace
 
-ChooChooTrain::ChooChooTrain(const char* pName) : LiveActor(pName), mModelArray(), _98(0.0f, 0.0f, 0.0f), mRailSpeed(5.0f), mWhistleTimer() {
+ChooChooTrain::ChooChooTrain(const char* pName) : LiveActor(pName), mModelArray(), mClipCenter(0.0f, 0.0f, 0.0f), mRailSpeed(5.0f), mWhistleTimer() {
 }
 
 void ChooChooTrain::startClipped() {
@@ -30,17 +33,15 @@ void ChooChooTrain::endClipped() {
     }
 }
 
-void ChooChooTrain::init(const JMapInfoIter& rIter) {
+void ChooChooTrain::init(const TableIter& rIter) {
     if (MR::isValidInfo(rIter)) {
-        if (MR::isConnectedWithRail(rIter)) {
-        }
     }
 
     MR::initDefaultPos(this, rIter);
     initRailRider(rIter);
     initModelManagerWithAnm("ChooChooTrain", 0, false);
     MR::connectToSceneCollisionMapObj(this);
-    initEffectKeeper(0, 0, false);
+    initEffectKeeper(0, 0);
     initSound(4, false);
     mWhistleTimer = MR::getRandom(::hWhistleStepMin, ::hWhistleStepMax);
     MR::onCalcGravity(this);
@@ -51,14 +52,14 @@ void ChooChooTrain::init(const JMapInfoIter& rIter) {
     MR::onCalcGravity(this);
     s32 arg = -1;
     s32 defTrainParts = 3;
-    MR::getJMapInfoArg0NoInit(rIter, &arg);
+    MR::getPlacementArg0NoInit(rIter, &arg);
 
     if (arg > 0) {
         defTrainParts = arg;
     }
 
     arg = -1;
-    MR::getJMapInfoArg1NoInit(rIter, &arg);
+    MR::getPlacementArg1NoInit(rIter, &arg);
 
     if (arg > 0) {
         mRailSpeed = arg;
@@ -69,7 +70,7 @@ void ChooChooTrain::init(const JMapInfoIter& rIter) {
     int i;
 
     for (i = 0; i < defTrainParts; i++) {
-        ModelObj* pObj = new ModelObj("\213\104\216\324\203\174\203\142\203\174\213\161\216\324" /* 汽車ポッポ客車 */, "ChooChooTrainBody", nullptr, -2, MR::MovementType_CollisionMapObj,
+        ModelObj* pObj = new ModelObj("汽車ポッポ客車", "ChooChooTrainBody", nullptr, -2, MR::MovementType_CollisionMapObj,
                                       MR::CalcAnimType_CollisionMapObj, false);
         pObj->initWithoutIter();
         MR::initCollisionParts(pObj, "ChooChooTrainBody", getSensor("body"), nullptr);
@@ -84,7 +85,7 @@ void ChooChooTrain::init(const JMapInfoIter& rIter) {
     MR::reverseRailDirection(this);
 
     for (i = 0; i < defTrainParts; i++) {
-        MR::moveCoord(this, 1080.0f * mScale.y);
+        MR::moveCoord(this, cNum_init_moveCoord_1 * mScale.y);
         MR::moveTransToOtherActorRailPos(mModelArray[i], this);
         MR::onCalcGravity(mModelArray[i]);
         mModelArray[i]->makeActorAppeared();
@@ -93,33 +94,30 @@ void ChooChooTrain::init(const JMapInfoIter& rIter) {
 
     MR::reverseRailDirection(this);
     MR::setRailCoord(this, railCoord);
-    MR::initAndSetRailClipping(&_98, this, 100.0f, 500.0f);
+    MR::initAndSetRailClipping(&mClipCenter, this, 100.0f, 500.0f);
     MR::startBck(this, "Run");
 }
 
 void ChooChooTrain::control() {
     MR::moveCoord(this, mRailSpeed);
     MR::moveTransToCurrentRailPos(this);
-    TVec3f stack_74(MR::getRailDirection(this));
-    MR::turnDirectionAndGravityH(this, stack_74, 0.5f, 1.0f);
+    Vec3f dir(MR::getRailDirection(this));
+    MR::turnDirectionAndGravityH(this, dir, 0.5f, 1.0f);
     f32 railCoord = MR::getRailCoord(this);
-    TVec3f frontVec;
+    Vec3f frontVec;
     MR::calcFrontVec(&frontVec, this);
-    TVec3f stack_5C;
-    stack_5C = mPosition - ((frontVec * 532.0f) * mScale.y);
+    // Each car faces the coupling at the back of the one ahead.
+    Vec3f coupling = mPosition - ((frontVec * 532.0f) * mScale.y);
     MR::reverseRailDirection(this);
 
-    TVec3f* vec;
-
     for (int i = 0; i < mModelArray.size(); i++) {
-        MR::moveCoord(this, 1080.0f * mScale.y);
+        MR::moveCoord(this, cNum_control_moveCoord_1 * mScale.y);
         MR::moveTransToOtherActorRailPos(mModelArray[i], this);
-        stack_74 = (stack_5C - mModelArray[i]->mPosition);
-        MR::turnDirectionAndGravityH(mModelArray[i], stack_74, 0.5f, 1.0f);
+        dir = coupling - mModelArray[i]->mPosition;
+        MR::turnDirectionAndGravityH(mModelArray[i], dir, 0.5f, 1.0f);
         MR::calcFrontVec(&frontVec, mModelArray[i]);
 
-        vec = &mModelArray[i]->mPosition;
-        stack_5C = (*vec - ((frontVec * 532.0f) * mScale.y));
+        coupling = mModelArray[i]->mPosition - ((frontVec * 532.0f) * mScale.y);
     }
 
     MR::reverseRailDirection(this);

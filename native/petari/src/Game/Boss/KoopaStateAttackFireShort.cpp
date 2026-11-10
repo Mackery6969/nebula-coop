@@ -1,4 +1,5 @@
 #include "Game/Boss/KoopaStateAttackFireShort.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Boss/Koopa.hpp"
 #include "Game/Boss/KoopaBattleBase.hpp"
 #include "Game/Boss/KoopaFunction.hpp"
@@ -6,17 +7,16 @@
 #include "Game/Util/ActorMovementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/NerveUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
     static MR::ActorMoveParam sFallParam = {0.0f, 1.0f, 1.0f, 0.0f};
-    // static const s32 sStepEmit = _;
-    static const s32 sStepToEmitFire = 1;
-    static const s32 sStepToNextAttack = 45;
-    static const s32 sStepToNextAttackVs2 = 30;
-    static const s32 sStepToNextAttackVs3 = 30;
-    static const s32 sStepToNextAttackVs3Angry = 15;
-    // static const s32 sFireAttackStep = _;
-    static const f32 sTurnSpeed = 2.0f;
+    NEBULA_TUNABLE(s32, sStepToEmitFire, 1);
+    NEBULA_TUNABLE(s32, sStepToNextAttack, 45);
+    static const s32 sStepToNextAttackVs2 = NebulaFrameClock::stepsOfMilliseconds(500);
+    static const s32 sStepToNextAttackVs3 = NebulaFrameClock::stepsOfMilliseconds(500);
+    NEBULA_TUNABLE(s32, sStepToNextAttackVs3Angry, 15);
+    NEBULA_TUNABLE(f32, sTurnSpeed, 2.0f);
 };  // namespace
 
 namespace NrvKoopaStateAttackFireShort {
@@ -25,7 +25,7 @@ namespace NrvKoopaStateAttackFireShort {
 };  // namespace NrvKoopaStateAttackFireShort
 
 KoopaStateAttackFireShort::KoopaStateAttackFireShort(Koopa* pKoopa)
-    : ActorStateBase< Koopa >("State[\203\126\203\207\201\133\203\147\211\212\215\125\214\202]" /* State[ショート炎攻撃] */, pKoopa), mFireEmitted(-1), mMaxFire(3), mFireDelay(::sStepToNextAttack) {
+    : ActorStateBase< Koopa >("State[ショート炎攻撃]", pKoopa), mFireEmitted(-1), mMaxFire(3), mFireDelay(::sStepToNextAttack) {
 }
 
 void KoopaStateAttackFireShort::init() {
@@ -115,10 +115,7 @@ void KoopaStateAttackFireShort::exeEmit() {
         if (MR::isStep(this, mFireDelay)) {
             setNerve(GET_NERVE(KoopaStateAttackFireShort, KoopaStateAttackFireShortNrvEmit));
         }
-    } else if (MR::isGreaterStep(this, 30)) {
+    } else if (MR::isGreaterStep(this, NebulaFrameClock::stepsOfMilliseconds(500))) {
         kill();
     }
-}
-
-KoopaStateAttackFireShort::~KoopaStateAttackFireShort() {
 }

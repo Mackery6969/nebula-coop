@@ -7,7 +7,7 @@
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/PlayerInputUtil.hpp"
 #include "Game/Util/GravityUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/JointUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
@@ -16,6 +16,11 @@
 #include "Game/Util/SceneUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
+#include "Game/Util/Tunable.hpp"
+
+// The numbers this file's functions give the game's motion and animation calls, as tunables: "<file>.<function>.<call>.<k>".
+NEBULA_TUNABLE_NAMED(f32, cNum_exeGotoSleepingMario_checkPassBckFrame_1, "exeGotoSleepingMario.checkPassBckFrame.1", 0.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeReadyToPerchOnSleepingMario_checkPassBckFrame_1, "exeReadyToPerchOnSleepingMario.checkPassBckFrame.1", 0.0f);
 
 namespace NrvButterfly {
     NEW_NERVE(HostTypeWait, Butterfly, Wait);
@@ -28,35 +33,35 @@ namespace NrvButterfly {
 };  // namespace NrvButterfly
 
 namespace {
-    static const f32 sRadius = 30.0f;
-    static const f32 sDpdPointRadius = 200.0f;
-    static const f32 sDpdPointRadiusFast = 100.0f;
-    static const f32 sDpdSpeedFast = 3.0f;
-    static const f32 sAppearStarPeaceScreenRadius = 10.0f;
-    static const f32 sWaitAnimRate = 1.0f;
-    static const f32 sHomeRadius = 200.0f;
-    static const f32 sRunAwayVel = 12.0f;
-    static const f32 sRunAwayTime = 30.0f;
-    static const f32 sRunAwayAttenVel = 0.97f;
-    static const f32 sRunAwayAnimRate = 3.0f;
-    static const f32 sBackToHomeAccel = 0.01f;
-    static const f32 sBackToHomeVelMax = 2.0f;
-    static const f32 sBackToHomeAttenVel = 0.99f;
-    static const f32 sMoveDistanceMax = 500.0f;
-    static const f32 sHiveRadius = 100.0f;
-    static const f32 sHiveAccel = 0.05f;
-    static const f32 sHiveVelMax = 2.5f;
-    static const f32 sHiveAnimRate = 1.2f;
-    static const f32 sPerchOnAnimRate = 0.7f;
-    static const f32 sAnimInterpolateRate = 0.02f;
-    static const f32 sSleepingMarioNearDistance = 500.0f;
-    static const f32 sPerchOnNearDistance = 10.0f;
-    static const f32 sGotoSleepingMarioWaitTime = 300.0f;
-    static const f32 sGotoSleepingMarioSpeedMax = 2.0f;
-    static const f32 sReadyToPerchOnAnimRate = 0.5f;
-    static const f32 sTransBlendRatio = 0.7f;
-    static const f32 sTurnLimit = 0.997f;  // ~4.44 degrees
-    static const f32 sUpdatePostureMinVel = 0.5f;
+    NEBULA_TUNABLE(f32, sRadius, 30.0f);
+    NEBULA_TUNABLE(f32, sPointerRadius, 200.0f);
+    NEBULA_TUNABLE(f32, sPointerRadiusFast, 100.0f);
+    NEBULA_TUNABLE(f32, sPointerSpeedFast, 3.0f);
+    NEBULA_TUNABLE(f32, sAppearStarPeaceScreenRadius, 10.0f);
+    NEBULA_TUNABLE(f32, sWaitAnimRate, 1.0f);
+    NEBULA_TUNABLE(f32, sHomeRadius, 200.0f);
+    NEBULA_TUNABLE(f32, sRunAwayVel, 12.0f);
+    NEBULA_TUNABLE(f32, sRunAwayTime, 30.0f);
+    NEBULA_TUNABLE(f32, sRunAwayAttenVel, 0.97f);
+    NEBULA_TUNABLE(f32, sRunAwayAnimRate, 3.0f);
+    NEBULA_TUNABLE(f32, sBackToHomeAccel, 0.01f);
+    NEBULA_TUNABLE(f32, sBackToHomeVelMax, 2.0f);
+    NEBULA_TUNABLE(f32, sBackToHomeAttenVel, 0.99f);
+    NEBULA_TUNABLE(f32, sMoveDistanceMax, 500.0f);
+    NEBULA_TUNABLE(f32, sHiveRadius, 100.0f);
+    NEBULA_TUNABLE(f32, sHiveAccel, 0.05f);
+    NEBULA_TUNABLE(f32, sHiveVelMax, 2.5f);
+    NEBULA_TUNABLE(f32, sHiveAnimRate, 1.2f);
+    NEBULA_TUNABLE(f32, sPerchOnAnimRate, 0.7f);
+    NEBULA_TUNABLE(f32, sAnimInterpolateRate, 0.02f);
+    NEBULA_TUNABLE(f32, sSleepingMarioNearDistance, 500.0f);
+    NEBULA_TUNABLE(f32, sPerchOnNearDistance, 10.0f);
+    NEBULA_TUNABLE(f32, sGotoSleepingMarioWaitTime, 300.0f);
+    NEBULA_TUNABLE(f32, sGotoSleepingMarioSpeedMax, 2.0f);
+    NEBULA_TUNABLE(f32, sReadyToPerchOnAnimRate, 0.5f);
+    NEBULA_TUNABLE(f32, sTransBlendRatio, 0.7f);
+    NEBULA_TUNABLE(f32, sTurnLimit, 0.997f);  // ~4.44 degrees
+    NEBULA_TUNABLE(f32, sUpdatePostureMinVel, 0.5f);
 
     static const Vec sMarioCapPosOffset = {0.0f, 50.2f, 24.9f};
 
@@ -66,31 +71,31 @@ Butterfly::Butterfly(const char* pName) : LiveActor(pName), mHomePos(gZeroVec), 
     mQuat.set(0.0f, 0.0f, 0.0f, 1.0f);
 }
 
-void Butterfly::init(const JMapInfoIter& rIter) {
+void Butterfly::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     mHomePos.set(mPosition);
     initModelManagerWithAnm("Butterfly", nullptr, false);
     MR::connectToSceneMapObj(this);
 
     // Colors are stored in an animation for the purposes of easy indexing
-    MR::getJMapInfoArg0NoInit(rIter, &mColorIndex);
+    MR::getPlacementArg0NoInit(rIter, &mColorIndex);
     MR::startBrk(this, "Butterfly");
     MR::setBrkFrameAndStop(this, mColorIndex);
 
     initHitSensor(1);
-    MR::addHitSensorMtxAnimal(this, "body", 8, ::sRadius, MR::getJointMtx(this, "buttBody"), TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorMtxAnimal(this, "body", 8, ::sRadius, MR::getJointMtx(this, "buttBody"), Vec3f(0.0f, 0.0f, 0.0f));
     initBinder(::sRadius, 0.0f, 0);
     initSound(2, false);
 
-    s32 arg1 = -1;
-    MR::getJMapInfoArg1NoInit(rIter, &arg1);
-    if (arg1 == -1) {
+    s32 noStarPiece = -1;
+    MR::getPlacementArg1NoInit(rIter, &noStarPiece);
+    if (noStarPiece == -1) {
         MR::declareStarPiece(this, 1);
     } else {
         mStarPieceAppeared = true;
     }
 
-    MR::initStarPointerTarget(this, ::sDpdPointRadiusFast);
+    MR::initStarPointerTarget(this, ::sPointerRadiusFast);
     MR::setClippingTypeSphere(this, ::sRadius);
     MR::setClippingFar50m(this);
     initNerve(GET_NERVE(Butterfly, HostTypeWait));
@@ -105,7 +110,7 @@ void Butterfly::init(const JMapInfoIter& rIter) {
 
 void Butterfly::initAfterPlacement() {
     if (MR::isEqualStageName("HeavensDoorGalaxy")) {
-        TVec3f gravity;
+        Vec3f gravity;
         MR::calcGravityVector(this, &gravity, nullptr, 0);
         MR::makeQuatUpNoSupport(&mQuat, -gravity);
     } else {
@@ -120,21 +125,21 @@ void Butterfly::control() {
         return;
     }
 
-    if (MR::getStarPointerScreenSpeed(port) < ::sDpdSpeedFast) {
-        MR::setStarPointerTargetRadius3d(this, ::sDpdPointRadius);
+    if (MR::getStarPointerScreenSpeed(port) < ::sPointerSpeedFast) {
+        MR::setStarPointerTargetRadius3d(this, ::sPointerRadius);
     } else {
-        MR::setStarPointerTargetRadius3d(this, ::sDpdPointRadiusFast);
+        MR::setStarPointerTargetRadius3d(this, ::sPointerRadiusFast);
     }
     tryAppearStarPeace(port);
 }
 
 void Butterfly::calcAndSetBaseMtx() {
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.setQT(mQuat, mPosition);
     MR::setBaseTRMtx(this, mtx);
 }
 
-void Butterfly::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
+void Butterfly::attackSensor(HitSensor* /*pSender*/, HitSensor* pReceiver) {
     if (!MR::isSensorNpc(pReceiver)) {
         return;
     }
@@ -148,22 +153,15 @@ void Butterfly::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
 }
 
 void Butterfly::updatePosture() {
-    TVec3f gravity;
+    Vec3f gravity;
     MR::calcGravityVector(this, &gravity, nullptr, 0);
 
-    TVec3f up;
+    Vec3f up;
     mQuat.getYDir(up);
-    TVec3f forward;
+    Vec3f forward;
     mQuat.getZDir(forward);
 
-    // Unused
-    {
-        TVec3f tmp = -gravity;
-        TQuat4f quat;
-        quat.setRotate(up, tmp, 1.0f);
-    }
-
-    TVec3f vel = mVelocity;
+    Vec3f vel = mVelocity;
     if (vel.length() < ::sUpdatePostureMinVel) {
         mQuat.normalize();
         return;
@@ -176,35 +174,35 @@ void Butterfly::updatePosture() {
     }
 
     MR::normalize(&vel);
-    TVec3f targetForward = vel.killElement(up);
+    Vec3f targetForward = vel.killElement(up);
     MR::normalizeOrZero(&targetForward);
     if (!MR::isNearZero(targetForward)) {
-        TVec3f newForward;
+        Vec3f newForward;
         MR::turnVecToVecCos(&newForward, forward, targetForward, ::sTurnLimit, up);
-        TQuat4f tmp;
-        tmp.setRotate(forward, newForward, 1.0f);
-        mQuat.mult(tmp);
+        Quat4f turn;
+        turn.setRotate(forward, newForward, 1.0f);
+        mQuat.mult(turn);
     }
     mQuat.normalize();
 }
 
 void Butterfly::addRunAwayVelocity() {
-    TVec2f pointerScreenPos;
+    Vec2f pointerScreenPos;
     pointerScreenPos.set(*MR::getStarPointerScreenPosition(*MR::getStarPointerLastPointedPort(this)));
-    TVec2f screenPos;
+    Vec2f screenPos;
     MR::calcScreenPosition(&screenPos, mPosition);
-    TVec2f runAwayDir = screenPos - pointerScreenPos;
+    Vec2f runAwayDir = screenPos - pointerScreenPos;
 
     if (!MR::isNearZero(runAwayDir)) {
         MR::normalize(&pointerScreenPos);
     }
 
-    TVec3f xDir = MR::getCamXdir();
-    TVec3f invYDir = -MR::getCamYdir();
+    Vec3f xDir = MR::getCamXdir();
+    Vec3f invYDir = -MR::getCamYdir();
 
-    TVec3f vel = xDir * runAwayDir.x + invYDir * runAwayDir.y;
+    Vec3f vel = xDir * runAwayDir.x + invYDir * runAwayDir.y;
 
-    TVec3f gravity;
+    Vec3f gravity;
     MR::calcGravityVector(this, &gravity, nullptr, 0);
 
     if (0.0f < vel.dot(gravity)) {
@@ -233,9 +231,9 @@ bool Butterfly::tryRunAway() {
         return false;
     }
 
-    TVec2f screenPos;
+    Vec2f screenPos;
     MR::calcScreenPosition(&screenPos, mPosition);
-    TVec2f pointerScreenPos;
+    Vec2f pointerScreenPos;
     pointerScreenPos.set(*MR::getStarPointerScreenPosition(port));
     if (MR::getStarPointerScreenVelocity(port)->dot(screenPos - pointerScreenPos) <= 0.0f) {
         return false;
@@ -260,8 +258,8 @@ bool Butterfly::tryHive() {
         return false;
     }
 
-    TVec2f screenPos;
-    TVec2f pointerScreenPos = *MR::getStarPointerScreenPosition(port);
+    Vec2f screenPos;
+    Vec2f pointerScreenPos = *MR::getStarPointerScreenPosition(port);
     MR::calcScreenPosition(&screenPos, mPosition);
     if (::sHiveRadius < pointerScreenPos.distance(screenPos)) {
         return false;
@@ -329,7 +327,7 @@ void Butterfly::exeWait() {
     mVelocity.y *= ::sBackToHomeAttenVel;
     mVelocity.z *= ::sBackToHomeAttenVel;
 
-    TVec3f backToHomeVel = mHomePos - mPosition;
+    Vec3f backToHomeVel = mHomePos - mPosition;
     if (MR::isNearZero(backToHomeVel)) {
         return;
     }
@@ -381,9 +379,9 @@ void Butterfly::exeHive() {
         return;
     }
 
-    TVec3f pos;
+    Vec3f pos;
     MR::calcStarPointerWorldPointingPos(&pos, mPosition, port);
-    TVec3f vel = pos - mPosition;
+    Vec3f vel = pos - mPosition;
     mVelocity += vel * ::sHiveAccel;
 
     if (::sHiveVelMax < mVelocity.length()) {
@@ -401,7 +399,7 @@ void Butterfly::exePerchOn() {
     } else {
         // PerchOn can only happen from Hive
         // This runs the Hive nerve until the perch target is near
-        TVec3f vel = mPerchTarget->getPosition() - mPosition;
+        Vec3f vel = mPerchTarget->getPosition() - mPosition;
         vel.setLength(::sHiveAccel);
         mVelocity += vel;
 
@@ -419,13 +417,13 @@ void Butterfly::exeGotoSleepingMario() {
         return;
     }
 
-    TPos3f jointMtx;
+    Pos3f jointMtx;
     MR::calcPlayerJointMtx(&jointMtx, "CapPosition");
 
-    TVec3f posOffset;
+    Vec3f posOffset;
     jointMtx.mult(::sMarioCapPosOffset, posOffset);
 
-    TVec3f vel = posOffset - mPosition;
+    Vec3f vel = posOffset - mPosition;
     // This can really only be ::sHiveAccel, but this nerve is only accessible by Wait
     vel.setLength(0.05f);
     mVelocity += vel;
@@ -434,22 +432,22 @@ void Butterfly::exeGotoSleepingMario() {
         mVelocity.setLength(::sGotoSleepingMarioSpeedMax);
     }
 
-    if (mPosition.distance(posOffset) < ::sPerchOnNearDistance && MR::checkPassBckFrame(this, 0.0f)) {
+    if (mPosition.distance(posOffset) < ::sPerchOnNearDistance && MR::checkPassBckFrame(this, cNum_exeGotoSleepingMario_checkPassBckFrame_1)) {
         mVelocity.zero();
         setNerve(GET_NERVE(Butterfly, HostTypeReadyToPerchOnSleepingMario));
     }
 }
 
 void Butterfly::exeReadyToPerchOnSleepingMario() {
-    TPos3f jointMtx;
+    Pos3f jointMtx;
     MR::calcPlayerJointMtx(&jointMtx, "CapPosition");
 
-    TVec3f posOffset;
+    Vec3f posOffset;
     jointMtx.mult(::sMarioCapPosOffset, posOffset);
     MR::vecBlend(mPosition, posOffset, &mPosition, ::sTransBlendRatio);
 
     MR::setBckRate(this, MR::converge(MR::getBckRate(this), ::sReadyToPerchOnAnimRate, ::sAnimInterpolateRate));
-    if (MR::checkPassBckFrame(this, 0.0f)) {
+    if (MR::checkPassBckFrame(this, cNum_exeReadyToPerchOnSleepingMario_checkPassBckFrame_1)) {
         setNerve(GET_NERVE(Butterfly, HostTypePerchOnSleepingMario));
     }
 }
@@ -459,7 +457,7 @@ void Butterfly::exePerchOnSleepingMario() {
         MR::startBck(this, "Wait");
     }
 
-    TPos3f jointMtx;
+    Pos3f jointMtx;
     MR::calcPlayerJointMtx(&jointMtx, "CapPosition");
 
     jointMtx.mult(::sMarioCapPosOffset, mPosition);

@@ -1,9 +1,9 @@
 #pragma once
 
-#include <JSystem/JGeometry/TMatrix.hpp>
-#include <JSystem/JGeometry.hpp>
+#include <nebula_geometry.hpp>
 
-class JMapInfoIter;
+
+class TableIter;
 
 class AreaForm {
 public:
@@ -15,26 +15,26 @@ public:
         Type_Bowl,
     };
 
-    AreaForm() : _4() {
+    AreaForm() : mFollowMtx() {
     }
 
-    virtual void init(const JMapInfoIter&);
-    virtual bool isInVolume(const TVec3f&) const;
+    virtual void init(const TableIter&);
+    virtual bool isInVolume(const Vec3f&) const;
 
-    TPos3f* _4;
+    Pos3f* mFollowMtx;
 };
 
 class AreaFormCube : public AreaForm {
 public:
-    AreaFormCube(int);
+    AreaFormCube(int cubeType);
 
-    virtual void init(const JMapInfoIter&);
-    virtual bool isInVolume(const TVec3f&) const;
+    virtual void init(const TableIter&) override;
+    virtual bool isInVolume(const Vec3f&) const override;
 
-    void calcWorldPos(TVec3f*) const;
-    void calcWorldRotate(TVec3f*) const;
-    void calcWorldBox(TDirBox3f*) const;
-    void calcLocalPos(TVec3f*, const TVec3f&) const;
+    void calcWorldPos(Vec3f*) const;
+    void calcWorldRotate(Vec3f*) const;
+    void calcWorldBox(DirBox3f*) const;
+    void calcLocalPos(Vec3f*, const Vec3f&) const;
     static f32 getBaseSize();
 
     f32 getSizeX() const {
@@ -50,59 +50,59 @@ public:
     }
 
     void updateBoxParam();
-    void calcWorldMtx(TPos3f*) const;
+    void calcWorldMtx(Pos3f*) const;
 
-    int _8;
-    TVec3f mTranslation;
-    TVec3f mRotation;
-    TVec3f mScale;
-    TBox3f mBounding;
-    TPos3f _48;
+    int mCubeType;
+    Vec3f mTranslation;
+    Vec3f mRotation;
+    Vec3f mScale;
+    Box3f mBounding;
+    Pos3f mBaseMtx;
 };
 
 class AreaFormSphere : public AreaForm {
 public:
     AreaFormSphere();
 
-    virtual void init(const JMapInfoIter&);
-    virtual bool isInVolume(const TVec3f&) const;
+    virtual void init(const TableIter&) override;
+    virtual bool isInVolume(const Vec3f&) const override;
 
-    void calcUpVec(TVec3f*) const;
-    void calcPos(TVec3f*) const;
+    void calcUpVec(Vec3f*) const;
+    void calcPos(Vec3f*) const;
 
-    TVec3f mTranslation;
+    Vec3f mTranslation;
     f32 mRadius;
-    TVec3f mUp;
+    Vec3f mUp;
 };
 
 class AreaFormBowl : public AreaForm {
 public:
     AreaFormBowl();
 
-    virtual void init(const JMapInfoIter&);
-    virtual bool isInVolume(const TVec3f&) const;
+    virtual void init(const TableIter&) override;
+    virtual bool isInVolume(const Vec3f&) const override;
 
-    void calcUpVec(const TVec3f&);
+    void calcUpVec(const Vec3f&);
 
-    TVec3f mTranslation;
-    TVec3f mUp;
-    f32 _20;
+    Vec3f mTranslation;
+    Vec3f mUp;
+    f32 mRadius;
 };
 
 class AreaFormCylinder : public AreaForm {
 public:
     AreaFormCylinder();
 
-    virtual void init(const JMapInfoIter&);
-    virtual bool isInVolume(const TVec3f&) const;
+    virtual void init(const TableIter&) override;
+    virtual bool isInVolume(const Vec3f&) const override;
 
-    void calcPos(TVec3f*) const;
-    void calcCenterPos(TVec3f*) const;
-    void calcUpVec(TVec3f*) const;
-    void calcDir(const TVec3f&);
+    void calcPos(Vec3f*) const;
+    void calcCenterPos(Vec3f*) const;
+    void calcUpVec(Vec3f*) const;
+    void calcDir(const Vec3f&);
 
-    TVec3f mTranslation;
-    TVec3f mRotation;
+    Vec3f mTranslation;
+    Vec3f mUp;  // the axis, from the placement rotation
     f32 mRadius;
     f32 mHeight;
 };

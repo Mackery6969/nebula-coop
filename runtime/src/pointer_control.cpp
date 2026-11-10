@@ -22,6 +22,13 @@ PointerSource PointerOwner::update(const PointerActivity& activity, std::uint64_
         last_active_us = now_us;
         return owner;
     }
+    // A moving mouse takes the pointer from the gyro at once: the hand holding a controller turns it a little all the
+    // time, and a mouse moves only on purpose. (A mapper's mouse follows a stick, whose own rule stands.)
+    if (activity.mouse && owner == PointerSource::Gyro) {
+        owner = PointerSource::Mouse;
+        last_active_us = now_us;
+        return owner;
+    }
     if (owner != PointerSource::None && active(owner)) {
         last_active_us = now_us;
         return owner;
@@ -157,6 +164,25 @@ PlayContext play_context_from_star_pointer_mode(std::uint32_t mode) noexcept {
     default:
         return PlayContext::Play;
     }
+}
+
+std::int32_t CoveredModeHold::game(std::int32_t mode) noexcept {
+    game_ = mode;
+    return follow();
+}
+
+std::int32_t CoveredModeHold::covered(bool covered) noexcept {
+    covered_ = covered;
+    return follow();
+}
+
+std::int32_t CoveredModeHold::follow() noexcept {
+    // 0 HOME menu, 1 error window, 2 pause menu, 7 pause menu (galaxy map): seen over the wipe, opening and closing.
+    const auto over_wipe = [](std::int32_t mode) { return mode == 0 || mode == 1 || mode == 2 || mode == 7; };
+    if (!covered_ || over_wipe(game_) || over_wipe(shown_)) {
+        shown_ = game_;
+    }
+    return shown_;
 }
 
 JumpBackLatch::Output JumpBackLatch::update(bool pressed, PlayContext context) noexcept {

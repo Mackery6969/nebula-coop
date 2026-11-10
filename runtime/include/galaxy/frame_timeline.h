@@ -1,23 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
 
-// Frame pipeline timeline, enabled by GALAXY_FRAME_TIMELINE=1. Any thread appends a 32-byte
+// Frame pipeline timeline, recorded with --diagnostics timeline. Any thread appends a 32-byte
 // record with one relaxed atomic increment and one QueryPerformanceCounter read. Nothing is
-// formatted during the run. At exit the records go to GALAXY_FRAME_TIMELINE_PATH (default
-// %LOCALAPPDATA%\Nebula\timeline-<pid>.bin), analysed offline by tools/perf/timeline_digest.py.
+// formatted during the run. At exit the records go to --timeline's file (default the diagnostics
+// folder's timeline-<pid>.bin), analysed offline by tools/perf/timeline_digest.py.
 // All timestamps are QPC ticks, including GPU timestamps (via GetClockCalibration) and vblank
 // times (DXGI frame statistics, DWM timing).
 
 #if defined(_WIN32)
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include "galaxy/run_options.h"
+#include "galaxy/windows_api.h"
+#include "galaxy/platform_paths.h"
 #include <cwchar>
-#include <Windows.h>
+#include <string>
 #endif
 
 #include <atomic>
@@ -29,10 +24,10 @@
 namespace galaxy::timeline {
 
 enum class Event : std::uint16_t {
-    SubmitBegin = 1,       // game: a frame's records handed to the renderer. a=bytes
-    SubmitEnd = 2,         // game: handed over. a=token value, b=token kind
-    RenderBegin = 4,       // render: chunk dequeued. a=token value, b=bytes
-    RenderSubmitted = 6,   // render: command list executed and fence signaled. a=token value, b=fence
+    SubmitBegin = 1,       // game: a frame's records handed to the renderer
+    SubmitEnd = 2,         // game: handed over
+    RenderBegin = 4,       // render: chunk dequeued
+    RenderSubmitted = 6,   // render: command list executed and fence signaled. b=fence
     GpuBegin = 7,          // GPU timestamp at command-list start (QPC domain). a=fence
     GpuEnd = 8,            // GPU timestamp at command-list end (QPC domain). a=fence
     PresentBegin = 14,     // render: IDXGISwapChain::Present call. a=present ordinal, b=sync interval
@@ -42,7 +37,7 @@ enum class Event : std::uint16_t {
     SlotWaitBegin = 22,    // render: waiting for a frame slot's fence. a=fence
     SlotWaitEnd = 23,
     VBlank = 24,           // render: DWM composition timing. qpc=last vblank, a=refresh period (QPC ticks)
-    DisplayPresented = 25, // render: display picture chosen for a present. a=key
+    DisplayPresented = 25, // render: display picture chosen for a present. a=slot, b=picture number
     GameFrame = 26,        // game: frame boundary marker. a=frame count
 };
 
@@ -102,20 +97,11 @@ inline void record(Event event, std::uint64_t a = 0u, std::uint64_t b = 0u) noex
 
 #if defined(_WIN32)
 // Called once on the main thread before any worker thread starts.
-inline void initialize_from_environment() noexcept {
-    char flag[8]{};
-    std::size_t length = 0;
-    if (!::galaxy::diagnostics_recording() &&
-        (::galaxy::run_option_read(&length, flag, sizeof(flag), ::galaxy::run_options().frame_timeline) != 0 || length < 2 ||
-         flag[0] == '0')) {
+inline void initialize() noexcept {
+    if (!::galaxy::diagnosing(::galaxy::kDiagnoseTimeline)) {
         return;
     }
-    std::uint64_t capacity = 2'000'000u;  // 64 MB, about 25 minutes at 60 frames/s
-    char count[32]{};
-    if (::galaxy::run_option_read(&length, count, sizeof(count), ::galaxy::run_options().frame_timeline_events) == 0 && length > 1) {
-        const unsigned long long parsed = std::strtoull(count, nullptr, 10);
-        if (parsed >= 1000u && parsed <= 50'000'000u) capacity = parsed;
-    }
+    constexpr std::uint64_t capacity = 2'000'000u;  // events: 64 MB
     void* memory = VirtualAlloc(nullptr, static_cast<SIZE_T>(capacity * sizeof(Record)),
                                 MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     if (memory == nullptr) return;
@@ -130,24 +116,22 @@ inline void initialize_from_environment() noexcept {
 inline void dump() noexcept {
     if (!g_state.enabled) return;
     g_state.enabled = false;
-    wchar_t path[MAX_PATH]{};
-    const wchar_t* const named = ::galaxy::run_options().frame_timeline_path_w;
-    DWORD length = named != nullptr ? static_cast<DWORD>(std::wcslen(named)) : 0u;
-    if (length != 0u && length < MAX_PATH) {
-        std::wmemcpy(path, named, length + 1u);
+    std::wstring path;
+    try {
+        if (!::galaxy::launch_args().timeline.empty()) {
+            path = ::galaxy::launch_args().timeline.wstring();
+        } else {
+            const std::filesystem::path folder = ::galaxy::nebula_diagnostics_directory();
+            if (folder.empty()) return;
+            path = (folder / (L"timeline-" + std::to_wstring(GetCurrentProcessId()) + L".bin")).wstring();
+        }
+    } catch (...) {
+        return;
     }
-    if (length == 0u || length >= MAX_PATH) {
-        wchar_t base[MAX_PATH]{};
-        const DWORD base_length = GetEnvironmentVariableW(L"LOCALAPPDATA", base, MAX_PATH);
-        if (base_length == 0u || base_length >= MAX_PATH) return;
-        swprintf_s(path, L"%s\\Nebula", base);
-        (void)CreateDirectoryW(path, nullptr);
-        swprintf_s(path, L"%s\\Nebula\\timeline-%lu.bin", base, GetCurrentProcessId());
-    }
-    const HANDLE file = CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+    const HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
                                     FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE) {
-        std::fprintf(stderr, "[frame-timeline] cannot create %ls error=%lu\n", path, GetLastError());
+        std::fprintf(stderr, "[frame-timeline] cannot create %ls error=%lu\n", path.c_str(), GetLastError());
         return;
     }
     LARGE_INTEGER frequency{};
@@ -174,10 +158,10 @@ inline void dump() noexcept {
     CloseHandle(file);
     std::fprintf(stderr, "[frame-timeline] wrote %llu of %llu events to %ls ok=%d\n",
                  static_cast<unsigned long long>(count),
-                 static_cast<unsigned long long>(written_count), path, ok ? 1 : 0);
+                 static_cast<unsigned long long>(written_count), path.c_str(), ok ? 1 : 0);
 }
 #else
-inline void initialize_from_environment() noexcept {}
+inline void initialize() noexcept {}
 inline void dump() noexcept {}
 #endif
 

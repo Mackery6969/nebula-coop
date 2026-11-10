@@ -1,10 +1,11 @@
 #pragma once
 
+#include "Game/Render/TypedDraw.hpp"
 #include "Game/NameObj/NameObj.hpp"
 #include "Game/Util/Color.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
-class JUTTexture;
+class GameTexture;
 
 class StarPointerBlur : public NameObj {
 public:
@@ -12,47 +13,37 @@ public:
     public:
         BlurPoint();
 
-        TVec2f mPos;
-        TVec2f mDir;
+        Vec2f mPos;
+        Vec2f mDir;
         bool mIsHidden;
     };
 
-    StarPointerBlur(JUTTexture* pTexture);
+    StarPointerBlur(GameTexture* pTexture);
 
-    virtual ~StarPointerBlur();
+    virtual ~StarPointerBlur() override;
 
-    virtual void movement();
-    virtual void draw() const;
+    virtual void movement() override;
+    virtual void draw() const override;
 
     void show();
     void hide();
     void hideAll();
-    void updatePoint(const TVec2f&, bool, TVec2f*);
+    void updatePoint(const Vec2f&, bool, Vec2f*);
     u16 findDrawPointRange(u16*, u16*) const;
-    void draw0(NebulaColor8) const;
-    void draw1() const;
-    void draw2() const;
-    void initDraw() const;
+    void draw2(TypedDraw& rDraw) const;
+    SiteMaterial loadMaterial() const;
 
-    void setPortAndColor(s32 padChannel, const NebulaColor8* pMainColor, const NebulaColor8* pSubColor) {
+    void setPortAndColor(s32 padChannel, const NebulaColor8* pMainColor, const NebulaColor8* /*pSubColor*/) {
         mPadChannel = padChannel;
         mMainColor = pMainColor;
-        mSubColor = pSubColor;
     }
 
-    JUTTexture* mTexture;
+    GameTexture* mTexture;
     s32 mPadChannel;
     const NebulaColor8* mMainColor;
-    const NebulaColor8* mSubColor;
     BlurPoint* mBlurPoints;
     f32* mBlurThicks;
     f32* mBlurTexCoords;
     s32 mNumHiddenPoints;
-    bool _2C;
-    bool _2D;
-    f32 _30;
-    f32 _34;
-    f32 _38;
-    f32 _3C;
     f32 mPointsScreenWidth;  // MR::getScreenWidth when mBlurPoints were placed (0: not yet)
 };

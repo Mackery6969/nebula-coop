@@ -1,4 +1,5 @@
 #include "Game/Util/EffectUtil.hpp"
+#include "Game/System/NebulaMods.hpp"
 #include "Game/Effect/EffectSystemUtil.hpp"
 #include "Game/Effect/MultiEmitter.hpp"
 #include "Game/Effect/MultiEmitterParticleCallBack.hpp"
@@ -35,7 +36,7 @@ namespace MR {
     }
 
     MultiEmitter* getEffect(const LiveActor* pActor, const char* pEffectName) {
-        return ::getEffectKeeper(pActor)->getEmitter(pEffectName);
+        return ::getEffectKeeper(pActor)->getEmitterOrNone(pEffectName);
     }
 
     MultiEmitter* getEffect(const LayoutActor* pActor, const char* pEffectName) {
@@ -51,14 +52,15 @@ namespace MR {
     }
 
     MultiEmitter* emitEffect(LiveActor* pActor, const char* pEffectName) {
+        NebulaMods::fire(NEBULA_MOD_EVENT_EFFECT_START, 0, pActor, pEffectName);
         return ::getEffectKeeper(pActor)->createEmitter(pEffectName);
     }
 
-    MultiEmitter* emitEffectWithScale(LiveActor* pActor, const char* pEffectName, f32 a3, s32 a4) {
+    MultiEmitter* emitEffectWithScale(LiveActor* pActor, const char* pEffectName, f32 scale, s32 emitterIndex) {
         MultiEmitter* pEmitter;
 
         pEmitter = emitEffect(pActor, pEffectName);
-        pEmitter->setGlobalScale(TVec3f(a3, a3, a3), a4);
+        pEmitter->setGlobalScale(Vec3f(scale, scale, scale), emitterIndex);
 
         return pEmitter;
     }
@@ -66,6 +68,7 @@ namespace MR {
     MultiEmitter* emitEffectWithEmitterCallBack(LiveActor* pActor, const char* pEffectName, MultiEmitterCallBackBase* pCallBack) {
         MultiEmitter* pEmitter;
 
+        NebulaMods::fire(NEBULA_MOD_EVENT_EFFECT_START, 0, pActor, pEffectName);
         pEmitter = getEffect(pActor, pEffectName);
         pEmitter->createEmitterWithCallBack(pCallBack);
 
@@ -82,7 +85,7 @@ namespace MR {
     }
 
     MultiEmitter* tryEmitEffect(LiveActor* pActor, const char* pEffectName) {
-        if (::isExistEffect(pActor, pEffectName) == false) {
+        if (!::isExistEffect(pActor, pEffectName)) {
             return nullptr;
         }
 
@@ -90,7 +93,7 @@ namespace MR {
     }
 
     bool tryDeleteEffect(LiveActor* pActor, const char* pEffectName) {
-        if (::isExistEffect(pActor, pEffectName) == false) {
+        if (!::isExistEffect(pActor, pEffectName)) {
             return false;
         }
 
@@ -157,8 +160,8 @@ namespace MR {
         ::getEffectKeeper(pActor)->changeEffectName(pOldName, pNewName);
     }
 
-    void setEffectHostSRT(LiveActor* pActor, const char* pEffectName, const TVec3f* pScale, const TVec3f* pRotate, const TVec3f* pTranslate) {
-        getEffect(pActor, pEffectName)->setHostSRT(pScale, pRotate, pTranslate);
+    void setEffectHostSRT(LiveActor* pActor, const char* pEffectName, const Vec3f* pTranslation, const Vec3f* pRotation, const Vec3f* pScale) {
+        getEffect(pActor, pEffectName)->setHostSRT(pTranslation, pRotation, pScale);
     }
 
     void setEffectHostMtx(LiveActor* pActor, const char* pEffectName, MtxPtr pMtx) {
@@ -169,7 +172,7 @@ namespace MR {
         getEffect(pActor, pEffectName)->setBaseScale(scale);
     }
 
-    void setEffectLocalScale(LiveActor* pActor, const char* pEffectName, const TVec3f& rScaleVec) {
+    void setEffectLocalScale(LiveActor* pActor, const char* pEffectName, const Vec3f& rScaleVec) {
         getEffect(pActor, pEffectName)->setLocalScale(rScaleVec, -1);
     }
 
@@ -187,7 +190,7 @@ namespace MR {
         getEffect(pActor, pEffectName)->setGlobalEnvColor(color1, color2, color3, -1);
     }
 
-    void emitEffectHit(LiveActor* pActor, const TVec3f& rPosition, const char* pEffectName) {
+    void emitEffectHit(LiveActor* pActor, const Vec3f& rPosition, const char* pEffectName) {
         if (pEffectName == nullptr) {
             pEffectName = "HitMarkNormal";
         }
@@ -195,12 +198,12 @@ namespace MR {
         emitEffect(pActor, pEffectName)->setGlobalTranslation(rPosition, -1);
     }
 
-    void emitEffectHit(LiveActor* pActor, const TVec3f& rPosition, const TVec3f& rDirection, const char* pEffectName) {
+    void emitEffectHit(LiveActor* pActor, const Vec3f& rPosition, const Vec3f& rDirection, const char* pEffectName) {
         if (pEffectName == nullptr) {
             pEffectName = "HitMarkNormal";
         }
 
-        TPos3f mtx;
+        Pos3f mtx;
         makeMtxUpNoSupportPos(&mtx, rDirection, rPosition);
         emitEffect(pActor, pEffectName)->setGlobalSRTMatrix(mtx, -1);
     }
@@ -214,7 +217,7 @@ namespace MR {
     }
 
     void emitEffectHitBetweenSensors(LiveActor* pActor, const HitSensor* pSensor1, const HitSensor* pSensor2, f32 flt, const char* pEffectName) {
-        TVec3f vecBetween;
+        Vec3f vecBetween;
         calcPosBetweenSensors(&vecBetween, pSensor1, pSensor2, flt);
         emitEffectHit(pActor, vecBetween, pEffectName);
     }
@@ -227,7 +230,7 @@ namespace MR {
         ::getEffectKeeper(pActor)->updateFloorCode(pTriangle);
     }
 
-    void updateEffectFloorCodeLineToMap(LiveActor* pActor, const TVec3f& rPosition, const TVec3f& rDirection) {
+    void updateEffectFloorCodeLineToMap(LiveActor* pActor, const Vec3f& rPosition, const Vec3f& rDirection) {
         Triangle triangle = Triangle();
 
         if (getFirstPolyOnLineToMap(nullptr, &triangle, rPosition, rDirection)) {
@@ -237,11 +240,12 @@ namespace MR {
         }
     }
 
-    void updateEffectFloorCodeLineToMap(LiveActor* pActor, f32 a2, f32 a3) {
-        TVec3f gravity = pActor->mGravity;
-        TVec3f sumPosScaledGrav = pActor->mPosition + gravity * a3;
+    // The line runs along gravity from startDist to endDist past the actor.
+    void updateEffectFloorCodeLineToMap(LiveActor* pActor, f32 endDist, f32 startDist) {
+        Vec3f gravity = pActor->mGravity;
+        Vec3f lineStart = pActor->mPosition + gravity * startDist;
 
-        updateEffectFloorCodeLineToMap(pActor, sumPosScaledGrav, gravity * (a2 - a3));
+        updateEffectFloorCodeLineToMap(pActor, lineStart, gravity * (endDist - startDist));
     }
 
     void initEffectSyncBck(LiveActor* pActor, const char* pEffectName, const char* const* pStrList) {
@@ -252,13 +256,15 @@ namespace MR {
             count++;
         }
 
-        Effect::initEffectSyncBck(::getEffectKeeper(pActor), pActor->mModelManager, pEffectName, pStrList[0], count, 0.0f, -1.0f, false);
+        Effect::initEffectSyncBck(::getEffectKeeper(pActor), pActor->mModelManager, pEffectName, pStrList[0], count, 0.0f, -1.0f);
         pStrList = &pStrList[1];
 
         while (pStrList[0] != nullptr) {
             ModelManager* pModelManager = pActor->mModelManager;
             MultiEmitter* pEmitter = ::getEffectKeeper(pActor)->getEmitter(pEffectName);
-            Effect::addEffectSyncBck(pEmitter, pModelManager, pStrList[0]);
+            if (pEmitter != nullptr) {
+                Effect::addEffectSyncBck(pEmitter, pModelManager, pStrList[0]);
+            }
             pStrList = &pStrList[1];
         }
     }

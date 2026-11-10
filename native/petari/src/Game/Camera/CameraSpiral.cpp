@@ -1,5 +1,5 @@
 #include "Game/Camera/CameraSpiral.hpp"
-#include "Game/Camera/CamTranslatorSpiral.hpp"
+#include "Game/Camera/CameraParamChunk.hpp"
 #include "Game/Camera/CameraLocalUtil.hpp"
 #include "Game/Camera/CameraTargetObj.hpp"
 #include "Game/Util/MathUtil.hpp"
@@ -12,13 +12,11 @@ void CameraSpiral::reset() {
     mTimer = 0;
 }
 
-
 CameraTargetObj* CameraSpiral::calc() {
-    TVec3f watchPoint;
+    Vec3f watchPoint;
     CameraLocalUtil::makeWatchPoint(&watchPoint, this, CameraLocalUtil::getTarget(this), 0.1f / 15.0f);
 
-    const s32 timer = mTimer;
-    f32 easeTime = timer < mStartTime ? 0.0f : timer - mStartTime;
+    f32 easeTime = mTimer < mStartTime ? 0.0f : mTimer - mStartTime;
 
     f32 rate = 0.0f;
     switch (mEaseType) {
@@ -43,28 +41,26 @@ CameraTargetObj* CameraSpiral::calc() {
     f32 angle = mAngleEnd * rate + mAngleStart * invrate;
     f32 dist = mDistEnd * rate + mDistStart * invrate;
 
-    TVec3f spiralDir(MR::sin(angle), 0.0f, MR::cos(angle));
-    TVec3f offset = spiralDir * dist + TVec3f(0.0f, offsetY, 0.0f);
+    Vec3f spiralDir(MR::sin(angle), 0.0f, MR::cos(angle));
+    Vec3f offset = spiralDir * dist + Vec3f(0.0f, offsetY, 0.0f);
 
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.identity();
-    const TVec3f& rSide = CameraLocalUtil::getTarget(this)->getSideVec();
-    TPos3f* const pMtx = &mtx;
-    pMtx->setXDir(rSide);
-    pMtx->setYDir(CameraLocalUtil::getTarget(this)->getUpVec());
-    pMtx->setZDir(CameraLocalUtil::getTarget(this)->getFrontVec());
+    mtx.setXDir(CameraLocalUtil::getTarget(this)->getSideVec());
+    mtx.setYDir(CameraLocalUtil::getTarget(this)->getUpVec());
+    mtx.setZDir(CameraLocalUtil::getTarget(this)->getFrontVec());
 
-    pMtx->mult33(offset);
-    pMtx->mult33(spiralDir);
+    mtx.mult33(offset);
+    mtx.mult33(spiralDir);
 
-    TVec3f pos;
+    Vec3f pos;
     pos.add(watchPoint, offset);
     MR::normalize(&offset);
 
-    TQuat4f rot;
+    Quat4f rot;
     rot.setRotate(spiralDir, offset);
 
-    TVec3f up;
+    Vec3f up;
     rot.transform(CameraLocalUtil::getTarget(this)->getUpVec(), up);
 
     CameraLocalUtil::setPos(this, pos);
@@ -72,13 +68,17 @@ CameraTargetObj* CameraSpiral::calc() {
     CameraLocalUtil::setUpVec(this, up);
     CameraLocalUtil::setWatchUpVec(this, CameraLocalUtil::getTarget(this)->getUpVec());
 
-    if ((mTimer += 1) > mEndTime) {
+    mTimer++;
+    if (mTimer > mEndTime) {
         mTimer = mEndTime;
     }
 
     return CameraLocalUtil::getTarget(this);
 }
 
-CamTranslatorBase* CameraSpiral::createTranslator() {
-    return new CamTranslatorSpiral(this);
+void CameraSpiral::setParamFromChunk(const CameraParamChunk* pChunk) {
+    CameraGeneralParam* general = pChunk->mGeneralParam;
+    s32 startTime = static_cast< s16 >(static_cast< u32 >(general->mNum1) >> 16);
+    s32 endTime = static_cast< s16 >(static_cast< u32 >(general->mNum1) & 0xFFFF);
+    setParam(general->mNum2, startTime, endTime, general->mWPoint.y, general->mAxis.y, general->mWPoint.z, general->mAxis.z, general->mWPoint.x, general->mAxis.x);
 }

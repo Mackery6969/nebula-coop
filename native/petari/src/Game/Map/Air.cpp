@@ -6,7 +6,7 @@
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/DemoUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 
@@ -16,22 +16,22 @@ namespace NrvAir {
 };  // namespace NrvAir
 
 Air::Air(const char* pName) : LiveActor(pName) {
-    _8C = 0;
-    _8D = 0;
+    mIsChanged = 0;
+    mIsWaitStartCamera = 0;
     mDistance = 70.0f;
 }
 
-void Air::init(const JMapInfoIter& rIter) {
+void Air::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     const char* object_name = 0;
     MR::getObjectName(&object_name, rIter);
     initModel(object_name);
     MR::connectToSceneAir(this);
     MR::useStageSwitchReadA(this, rIter);
-    MR::getJMapInfoArg0NoInit(rIter, &mDistance);
-    s32 arg_1 = -1;
-    MR::getJMapInfoArg1NoInit(rIter, &arg_1);
-    _8D = arg_1 + 1;
+    MR::getPlacementArg0NoInit(rIter, &mDistance);
+    s32 waitStartCamera = -1;
+    MR::getPlacementArg1NoInit(rIter, &waitStartCamera);
+    mIsWaitStartCamera = waitStartCamera + 1;
     MR::tryStartAllAnim(this, object_name);
     MR::setClippingTypeSphereContainsModelBoundingBox(this, 100.0f);
     setFarClipping();
@@ -41,19 +41,11 @@ void Air::init(const JMapInfoIter& rIter) {
     bool registered = MR::tryRegisterDemoCast(this, rIter);
 
     if (registered) {
-        bool val = true;
+        // Hidden until a demo fades it out or in.
+        const bool isDemoAction = MR::tryRegisterDemoActionFunctor(this, MR::Functor(this, &Air::appearFadeOut), "消滅") ||
+                                  MR::tryRegisterDemoActionFunctor(this, MR::Functor(this, &Air::appearFadeIn), nullptr);
 
-        bool ret = MR::tryRegisterDemoActionFunctor(this, MR::Functor(this, &Air::appearFadeOut), "\217\301\226\305" /* 消滅 */);
-
-        if (!ret) {
-            ret = MR::tryRegisterDemoActionFunctor(this, MR::Functor(this, &Air::appearFadeIn), nullptr);
-
-            if (!ret) {
-                val = false;
-            }
-        }
-
-        if (val) {
+        if (isDemoAction) {
             makeActorDead();
         }
     } else {
@@ -64,10 +56,10 @@ void Air::init(const JMapInfoIter& rIter) {
 void Air::appear() {
     LiveActor::appear();
 
-    f32 val = 100.0f * mDistance;
+    f32 appearDist = 100.0f * mDistance;
     f32 dist = MR::calcDistanceToPlayer(this);
 
-    if (dist < val) {
+    if (dist < appearDist) {
         MR::tryStartAllAnim(this, "Appear");
         MR::setAllAnimFrameAtEnd(this, "Appear");
         setNerve(GET_NERVE(Air, HostTypeIn));
@@ -96,13 +88,13 @@ bool Air::tryChange() {
         return false;
     }
 
-    if (_8C) {
+    if (mIsChanged) {
         return false;
     }
 
     if (MR::isOnSwitchA(this)) {
         MR::tryStartAllAnim(this, "Change");
-        _8C = 1;
+        mIsChanged = 1;
         return true;
     }
 
@@ -122,12 +114,12 @@ void Air::appearFadeOut() {
 }
 
 void Air::exeIn() {
-    bool isCameraNotEnd = _8D && !MR::isStartAnimCameraEnd();
+    bool isCameraNotEnd = mIsWaitStartCamera && !MR::isStartAnimCameraEnd();
 
     if (!isCameraNotEnd) {
         tryChange();
-        f32 val = (100.0f * (20.0f + mDistance));
-        if (val < MR::calcDistanceToPlayer(this)) {
+        f32 disappearDist = (100.0f * (20.0f + mDistance));
+        if (disappearDist < MR::calcDistanceToPlayer(this)) {
             MR::tryStartAllAnim(this, "Disappear");
             setNerve(GET_NERVE(Air, HostTypeOut));
         }
@@ -135,9 +127,9 @@ void Air::exeIn() {
 }
 
 void Air::exeOut() {
-    bool flag = _8D && !MR::isStartAnimCameraEnd();
+    bool isCameraNotEnd = mIsWaitStartCamera && !MR::isStartAnimCameraEnd();
 
-    if (!flag) {
+    if (!isCameraNotEnd) {
         tryChange();
 
         if (!MR::isHiddenModel(this) && MR::isAnyAnimStopped(this, "Disappear")) {
@@ -160,7 +152,7 @@ ProjectionMapAir::ProjectionMapAir(const char* pName) : Air(pName) {
 void ProjectionMapAir::initModel(const char* pModelName) {
     initModelManagerWithAnm(pModelName, nullptr, true);
     ProjmapEffectMtxSetter* mtxSetter = MR::initMaterialProjmapEffectMtxSetter(this);
-    MR::newDifferedMaterials(this);
+    MR::prepareMaterials(this);
     mtxSetter->updateMtxUseBaseMtx();
 }
 
@@ -180,7 +172,7 @@ PriorDrawAir::PriorDrawAir(const char* pName) : Air(pName) {
     MR::getSceneObj< PriorDrawAirHolder >(SceneObj_PriorDrawAirHolder)->add(this);
 }
 
-PriorDrawAirHolder::PriorDrawAirHolder() : NameObj("\220\346\225\140\211\346\221\345\213\103\225\333\216\235" /* 先描画大気保持 */) {
+PriorDrawAirHolder::PriorDrawAirHolder() : NameObj("先描画大気保持") {
     mAirCount = 0;
 }
 

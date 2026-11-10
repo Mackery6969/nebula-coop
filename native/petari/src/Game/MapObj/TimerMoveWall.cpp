@@ -1,18 +1,20 @@
 #include "Game/MapObj/TimerMoveWall.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/MapObjActor.hpp"
 #include "Game/MapObj/MapObjActorInitInfo.hpp"
 #include "Game/Util/ActorMovementUtil.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
-#include "Game/Util/JMapInfo.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/Table.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const s32 sDefaultTimer = 300;
-    static const f32 sDefaultMoveLength = 1000.0f;
+    const s32 sDefaultTimer = NebulaFrameClock::stepsOfSeconds(5);
+    NEBULA_TUNABLE(f32, sDefaultMoveLength, 1000.0f);
 };  // namespace
 
 namespace NrvTimerMoveWall {
@@ -21,22 +23,21 @@ namespace NrvTimerMoveWall {
     NEW_NERVE(TimerMoveWallNrvMoveBack, TimerMoveWall, Move);
 };  // namespace NrvTimerMoveWall
 
-TimerMoveWall::TimerMoveWall(const char* pName) : MapObjActor(pName), mTimer(::sDefaultTimer), mMoveLenght(::sDefaultMoveLength) {
+TimerMoveWall::TimerMoveWall(const char* pName) : MapObjActor(pName), mTimer(::sDefaultTimer), mMoveLength(::sDefaultMoveLength) {
 }
 
-void TimerMoveWall::init(const JMapInfoIter& rIter) {
+void TimerMoveWall::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
     MapObjActorInitInfo info;
-    MapObjActorUtil util;
-    util.setupInitInfoSimpleMapObj(&info);
+    MapObjActorUtil::setupInitInfoSimpleMapObj(&info);
     info.setupSound(4);
     info.setupNerve(GET_NERVE(TimerMoveWall, TimerMoveWallNrvWait));
     initialize(rIter, info);
-    MR::getJMapInfoArg0NoInit(rIter, &mTimer);
-    MR::getJMapInfoArg1NoInit(rIter, &mMoveLenght);
+    MR::getPlacementArg0NoInit(rIter, &mTimer);
+    MR::getPlacementArg1NoInit(rIter, &mMoveLength);
 }
 
-inline void TimerMoveWall::exeWait() {
+void TimerMoveWall::exeWait() {
     if (MR::isFirstStep(this)) {
         MR::validateClipping(this);
     }
@@ -45,14 +46,15 @@ inline void TimerMoveWall::exeWait() {
 void TimerMoveWall::exeMove() {
     if (MR::isFirstStep(this)) {
         MR::invalidateClipping(this);
-        TVec3f frontVec;
+        Vec3f frontVec;
         MR::calcFrontVec(&frontVec, this);
 
         if (isNerve(GET_NERVE(TimerMoveWall, TimerMoveWallNrvMoveBack))) {
             frontVec.negate();
         }
 
-        mVelocity.scale(mMoveLenght / mTimer, frontVec);
+        // A timer under one step moves the whole length in one step.
+        mVelocity.scale(mTimer > 0 ? mMoveLength / mTimer : mMoveLength, frontVec);
         MR::startSound(this, "SE_OJ_TRIBBL_T_MVWALL_ST");
     }
 
@@ -70,7 +72,7 @@ void TimerMoveWall::exeMove() {
     }
 }
 
-void TimerMoveWall::initCaseUseSwitchB(const MapObjActorInitInfo& rInfo) {
+void TimerMoveWall::initCaseUseSwitchB(const MapObjActorInitInfo& /*rInfo*/) {
     MR::listenStageSwitchOnB(this, MR::Functor(this, &TimerMoveWall::startMove));
 }
 

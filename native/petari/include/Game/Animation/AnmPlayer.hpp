@@ -1,9 +1,10 @@
 #pragma once
 
-#include <JSystem/J3DGraphAnimator/J3DAnimation.hpp>
+#include "Game/Render/Clip.hpp"
 
-class J3DAnmBase;
-class J3DModelData;
+class Clip;
+class Model;
+class ModelData;
 class ResTable;
 class ResourceHolder;
 
@@ -11,7 +12,7 @@ class AnmPlayerBase {
 public:
     AnmPlayerBase(const ResTable*);
 
-    virtual void changeAnimation(J3DAnmBase*);
+    virtual void changeAnimation(Clip*);
     virtual void stopAnimation();
 
     void update();
@@ -23,20 +24,21 @@ public:
         return mAnmRes == nullptr || static_cast< s32 >(mFrameCtrl.checkState(1)) == 1 || mFrameCtrl.getRate() == 0.0f;
     }
 
-    J3DAnmBase* mAnmRes;
+    Clip* mAnmRes;
     const ResTable* mResTable;
-    J3DFrameCtrl mFrameCtrl;
+    FrameCtrl mFrameCtrl;
+    // The running clip's name in mResTable, found once by start().
+    const char* mAnmName;
 };
 
 class MaterialAnmPlayerBase : public AnmPlayerBase {
 public:
-    MaterialAnmPlayerBase(const ResTable*, J3DModelData*);
+    MaterialAnmPlayerBase(const ResTable*, ModelData*);
 
-    virtual void attach(J3DAnmBase*, J3DModelData*) = 0;
-    virtual void detach(J3DAnmBase*, J3DModelData*) = 0;
+    // The animation's values at its frame into the model's own materials.
+    virtual void apply(Clip*, Model*) = 0;
 
-    void beginDiff();
-    void endDiff();
+    void applyFrame(Model*);
 
-    J3DModelData* mModelData;
+    ModelData* mModelData;
 };

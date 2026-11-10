@@ -9,8 +9,7 @@ class UnizoLauncher : public LiveActor {
 public:
     UnizoLauncher(const char*);
 
-    virtual ~UnizoLauncher();
-    virtual void init(const JMapInfoIter&);
+    virtual void init(const TableIter&) override;
 
     void exeWait();
     void exeLaunch();

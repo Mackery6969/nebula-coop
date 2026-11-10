@@ -9,7 +9,7 @@ SyncBckEffectChecker::SyncBckEffectChecker(XanimePlayer* pPlayer) : mPlayer(pPla
 void SyncBckEffectChecker::updateBefore() {
     bool isPlaying;
 
-    if (!mPlayer->_24[mPlayer->_54].checkState(1)) {
+    if (!mPlayer->isTerminate()) {
         isPlaying = 0.0f != mPlayer->getFrameCtrl()->getRate() || mPrevFrame != mPlayer->getFrameCtrl()->getFrame();
     } else {
         isPlaying = false;
@@ -38,12 +38,8 @@ bool SyncBckEffectChecker::isCreate(const SyncBckEffectInfo* pInfo, bool checkFr
         return true;
     }
 
-    if (!pInfo->isRegisteredBck(mCurrentBckName)) {
-        return false;
-    }
-
     const f32 frame = pInfo->mStartFrame;
-    const J3DFrameCtrl* pFrameCtrl = mPlayer->getFrameCtrl();
+    const FrameCtrl* pFrameCtrl = mPlayer->getFrameCtrl();
 
     if (mIsReset && 0.0f != pFrameCtrl->getRate() && MR::isNearZero(frame + pFrameCtrl->getRate() - pFrameCtrl->getFrame())) {
         return true;
@@ -85,14 +81,14 @@ bool SyncBckEffectChecker::checkPass(f32 frame) const {
         return checkPassIfRate0(frame);
     }
 
-    return mPlayer->checkPass(frame) == true;
+    return mPlayer->checkPass(frame);
 }
 
 bool SyncBckEffectChecker::checkPassIfRate0(f32 frame) const {
-    const J3DFrameCtrl* pFrameCtrl = mPlayer->getFrameCtrl();
+    const FrameCtrl* pFrameCtrl = mPlayer->getFrameCtrl();
     const f32 currentFrame = pFrameCtrl->getFrame();
 
-    if (pFrameCtrl->getAttribute() == J3DFrameCtrl::EMode_LOOP && currentFrame < mPrevFrame) {
+    if (pFrameCtrl->getAttribute() == FrameCtrl::EMode_LOOP && currentFrame < mPrevFrame) {
         if ((mPrevFrame <= frame && frame < pFrameCtrl->getEnd()) || (pFrameCtrl->getLoop() <= frame && frame < currentFrame)) {
             return true;
         }

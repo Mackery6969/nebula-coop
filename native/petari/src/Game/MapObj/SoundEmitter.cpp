@@ -5,12 +5,12 @@
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/DemoUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/RailUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
-#include <JSystem/JAudio2/JAISound.hpp>
+#include "Game/Sound/Sound.hpp"
 
 namespace {
     const u32 sSeTable[33] = {0x60000, 0x6000e, 0x6000f, 0x60010, 0x60011, 0x60014, 0x501a6, 0x501a7, 0x60015, 0x60016, 0x60017,
@@ -24,12 +24,15 @@ namespace NrvSoundEmitter {
 };  // namespace NrvSoundEmitter
 
 SoundEmitter::SoundEmitter(const char* pName) : LiveActor(pName) {
-    _8C = -1;
+    mSoundType = -1;
 }
 
-void SoundEmitter::init(const JMapInfoIter& rIter) {
+void SoundEmitter::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
-    MR::getJMapInfoArg0NoInit(rIter, &_8C);
+    MR::getPlacementArg0NoInit(rIter, &mSoundType);
+    if (mSoundType >= ARRAY_SIZE(::sSeTable)) {
+        mSoundType = -1;  // past the table: silent, as an unset one
+    }
     MR::connectToSceneMapObjMovement(this);
     MR::registerDemoSimpleCastAll(this);
 
@@ -61,10 +64,10 @@ void SoundEmitter::control() {
 
 void SoundEmitter::exePlaySound() {
     RailRider* rider = mRailRider;
-    s32 v3 = -1;
+    s32 lifeTime = -1;
 
     if (rider != nullptr) {
-        switch (_8C) {
+        switch (mSoundType) {
         case 0xd:
         case 0x11:
         case 0x12: {
@@ -80,7 +83,7 @@ void SoundEmitter::exePlaySound() {
         mPosition.z = mRailRider->mCurPos.z;
     }
 
-    switch (_8C) {
+    switch (mSoundType) {
     case 9:
     case 0xA:
     case 0xB: {
@@ -90,12 +93,12 @@ void SoundEmitter::exePlaySound() {
     } break;
     case 0x16:
     case 0x17: {
-        if (MR::isDemoActive("\203\215\203\133\203\142\203\136\217\363\213\265\220\340\226\276\203\146\203\202" /* ロゼッタ状況説明デモ */)) {
+        if (MR::isDemoActive("ロゼッタ状況説明デモ")) {
             return;
         }
     } break;
     case 0x1A: {
-        v3 = 5;
+        lifeTime = 5;
     } break;
     case 0x1E: {
         MR::startSystemSE("SE_SY_READ_RIDDLE_S");
@@ -104,8 +107,8 @@ void SoundEmitter::exePlaySound() {
     } break;
     }
 
-    if (_8C >= 0) {
-        MR::startLevelSound(this, ::sSeTable[_8C], -1, -1, v3);
+    if (mSoundType >= 0) {
+        MR::startLevelSound(this, ::sSeTable[mSoundType], -1, -1, lifeTime);
     }
 }
 
@@ -115,7 +118,4 @@ inline void SoundEmitter::exeStandBy() {
             setNerve(GET_NERVE(SoundEmitter, SoundEmitterNrvPlaySound));
         }
     }
-}
-
-SoundEmitter::~SoundEmitter() {
 }

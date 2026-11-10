@@ -8,7 +8,7 @@
 #include "Game/Util/LayoutUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
-#include <nw4r/lyt/texMap.h>
+#include <Game/Ui/TexMap.hpp>
 
 namespace {
     static const f32 sCharacterTexFrame[] = {
@@ -22,8 +22,8 @@ namespace {
 };  // namespace
 
 MiiSelectIcon::MiiSelectIcon(int movementType, int calcAnimType, int drawType, const char* pName)
-    : LayoutActor(pName, true), _20(), _24(), _28(), mIcon(), mMiiTexMap(), mFellowTexMap(), mIconID(new FileSelectIconID()), mIsMiiDummy(),
-      _3D(true) {
+    : LayoutActor(pName, true), mActiveButton(), mFellowButton(), mMiiButton(), mIcon(), mMiiTexMap(), mFellowTexMap(), mIconID(new FileSelectIconID()), mIsMiiDummy(),
+      mIsEnabled(true) {
     initLayoutManager("MiiIcon", 1);
     MR::createAndAddPaneCtrl(this, "MarioIcon", 3);
     MR::createAndAddPaneCtrl(this, "MiiIcon", 3);
@@ -61,7 +61,7 @@ void MiiSelectIcon::appear(const FileSelectIconID& rIconID) {
         MR::startPaneAnim(this, "MarioIcon", "Character", 1);
         MR::setPaneAnimFrameAndStop(this, "MarioIcon", ::sCharacterTexFrame[rIconID.getFellowID()], 1);
 
-        _20 = _24;
+        mActiveButton = mFellowButton;
 
         MR::hidePane(this, "MiiIcon");
         MR::showPane(this, "MarioIcon");
@@ -70,13 +70,13 @@ void MiiSelectIcon::appear(const FileSelectIconID& rIconID) {
         MR::hideLayout(this);
         mIcon->setIndex(rIconID.getMiiIndex());
 
-        nw4r::lyt::TexMap* pTexMap = mMiiTexMap;
+        Ui::TexMap* pTexMap = mMiiTexMap;
 
         MR::replacePaneTexture(this, "ShaMii", pTexMap, 0);
         MR::replacePaneTexture(this, "PicMii", pTexMap, 0);
         MR::replacePaneTexture(this, "PicMiiShine", pTexMap, 0);
 
-        _20 = _28;
+        mActiveButton = mMiiButton;
 
         MR::hidePane(this, "MarioIcon");
         MR::showPane(this, "MiiIcon");
@@ -101,7 +101,7 @@ void MiiSelectIcon::appearMiiDummy() {
     MR::setAnimFrameAndStop(this, 5.0f, 0);
     MR::startPaneAnim(this, "MarioIcon", "Character", 1);
     MR::setPaneAnimFrameAndStop(this, "MarioIcon", 5.0f, 1);
-    _20 = _24;
+    mActiveButton = mFellowButton;
     MR::hidePane(this, "MiiIcon");
     MR::showPane(this, "MarioIcon");
     setNerve(GET_NERVE_ANON(MiiSelectIconNrvWait));
@@ -114,12 +114,12 @@ void MiiSelectIcon::appearMiiDummy() {
 
 void MiiSelectIcon::validate() {
     if (isNerve(GET_NERVE_ANON(MiiSelectIconNrvSelected)) || isNerve(GET_NERVE_ANON(MiiSelectIconNrvInvalid))) {
-        _24->forceToWait();
-        _28->forceToWait();
+        mFellowButton->forceToWait();
+        mMiiButton->forceToWait();
         setNerve(GET_NERVE_ANON(MiiSelectIconNrvWait));
     }
 
-    _3D = true;
+    mIsEnabled = true;
 }
 
 void MiiSelectIcon::invalidate() {
@@ -127,7 +127,7 @@ void MiiSelectIcon::invalidate() {
         setNerve(GET_NERVE_ANON(MiiSelectIconNrvInvalid));
     }
 
-    _3D = false;
+    mIsEnabled = false;
 }
 
 void MiiSelectIcon::prohibit() {
@@ -150,12 +150,16 @@ void MiiSelectIcon::copyIconID(FileSelectIconID* pIconID) {
     pIconID->set(*mIconID);
 }
 
-nw4r::lyt::TexMap* MiiSelectIcon::getTexMap() {
+Ui::TexMap* MiiSelectIcon::getTexMap() {
     if (mIconID->isFellow()) {
-        J3DNativeTexObj texObj;
+        // A layout without the PicMario picture keeps the empty fellow texture.
+        const Ui::TexMap* pPicMario = MR::getLytTexMap(this, "PicMario", 0);
+        if (pPicMario != nullptr) {
+            SiteTexture texObj;
 
-        MR::getLytTexMap(this, "PicMario", 0)->Get(&texObj);
-        mFellowTexMap->Set(texObj);
+            pPicMario->Get(&texObj);
+            mFellowTexMap->Set(texObj);
+        }
 
         return mFellowTexMap;
     }
@@ -164,7 +168,7 @@ nw4r::lyt::TexMap* MiiSelectIcon::getTexMap() {
 }
 
 bool MiiSelectIcon::isPointing() const {
-    return _20->isPointing();
+    return mActiveButton->isPointing();
 }
 
 void MiiSelectIcon::exeCreate() {
@@ -180,18 +184,18 @@ void MiiSelectIcon::exeCreate() {
 void MiiSelectIcon::exeWait() {
     if (MR::isFirstStep(this)) {
         MR::showLayout(this);
-        _20->appear();
+        mActiveButton->appear();
     }
 
-    if (_3D) {
-        _20->trySelect();
+    if (mIsEnabled) {
+        mActiveButton->trySelect();
     }
 
-    if (_20->isPointingTrigger()) {
+    if (mActiveButton->isPointingTrigger()) {
         MR::startSystemSE("SE_SY_BUTTON_CURSOR_ON");
     }
 
-    if (_20->mIsSelected) {
+    if (mActiveButton->mIsSelected) {
         setNerve(GET_NERVE_ANON(MiiSelectIconNrvSelected));
     }
 }
@@ -200,11 +204,11 @@ void MiiSelectIcon::exeSelected() {
 }
 
 void MiiSelectIcon::exeDisappear() {
-    if (_20->isHidden()) {
-        if (_20 == _24) {
-            _28->forceToHide();
+    if (mActiveButton->isHidden()) {
+        if (mActiveButton == mFellowButton) {
+            mMiiButton->forceToHide();
         } else {
-            _24->forceToHide();
+            mFellowButton->forceToHide();
         }
 
         kill();
@@ -219,32 +223,37 @@ void MiiSelectIcon::appear() {
 }
 
 void MiiSelectIcon::control() {
-    _24->update();
-    _28->update();
+    mFellowButton->update();
+    mMiiButton->update();
 }
 
 void MiiSelectIcon::createButton() {
-    _24 = new ButtonPaneController(this, "MarioIcon", "PicMario", 0, true);
-    _24->_22 = false;
+    mFellowButton = new ButtonPaneController(this, "MarioIcon", "PicMario", 0, true);
+    mFellowButton->mDisappearsAfterDecide = false;
 
-    _28 = new ButtonPaneController(this, "MiiIcon", "PicMii", 0, true);
-    _28->_22 = false;
+    mMiiButton = new ButtonPaneController(this, "MiiIcon", "PicMii", 0, true);
+    mMiiButton->mDisappearsAfterDecide = false;
     // MiiSelect turns its pages with the D-pad and stick (NebulaMenuFocus leaves its icons to the pointer).
-    _24->mIsNebulaFocusable = false;
-    _28->mIsNebulaFocusable = false;
+    mFellowButton->mIsNebulaFocusable = false;
+    mMiiButton->mIsNebulaFocusable = false;
 }
 
 void MiiSelectIcon::createFaceImageObj() {
-    nw4r::lyt::TexMap* pTexMap;
+    Ui::TexMap* pTexMap;
 
     mIcon =
-        new MiiFaceIcon(128, 128, MiiFaceRecipe(MiiDataSource_Official, 0, MiiResolution_256, MiiExpFlag_Normal | MiiExpFlag_Blink), "Mii\203\101\203\103\203\122\203\223" /* Miiアイコン */);
+        new MiiFaceIcon(128, 128, MiiFaceRecipe(Mii::SourceLibrary, 0, 256, Mii::expressionBit(Mii::ExpressionNormal) | Mii::expressionBit(Mii::ExpressionBlink)), "Miiアイコン");
     mIcon->initWithoutIter();
 
-    J3DNativeTexObj texObj;
-    MR::getLytTexMap(this, "PicMario", 0)->Get(&texObj);
-
-    mFellowTexMap = new nw4r::lyt::TexMap(texObj);
+    // A layout without the PicMario picture gets an empty fellow texture.
+    const Ui::TexMap* pPicMario = MR::getLytTexMap(this, "PicMario", 0);
+    if (pPicMario != nullptr) {
+        SiteTexture texObj;
+        pPicMario->Get(&texObj);
+        mFellowTexMap = new Ui::TexMap(texObj);
+    } else {
+        mFellowTexMap = new Ui::TexMap();
+    }
     mMiiTexMap = MR::createLytTexMap(reinterpret_cast< ResTIMG* >(mIcon->mImageBuffer));
     pTexMap = mMiiTexMap;
 

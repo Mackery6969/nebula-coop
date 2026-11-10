@@ -11,9 +11,9 @@ public:
     /// @param pName The pointer to the null-terminated name of the object.
     CoinCounter(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void appear();
-    virtual void control();
+    virtual void init(const TableIter& rIter) override;
+    virtual void appear() override;
+    virtual void control() override;
 
     void forceAppear();
     void disappear();
@@ -31,5 +31,5 @@ private:
     CounterLayoutAppearer* mLayoutAppearer;
     CountUpPaneRumbler* mPaneRumbler;
     bool mIsForceAppear;
-    TVec2f mFollowPos;
+    Vec2f mFollowPos;
 };

@@ -1,28 +1,27 @@
 #pragma once
 
 #include "Game/NameObj/NameObj.hpp"
-#include <JSystem/JGeometry.hpp>
+#include <nebula_geometry.hpp>
 
 class AreaPolygon;
 
 class FollowCollisionArea : public NameObj {
 public:
-    FollowCollisionArea(const TVec3f& rSize, MtxPtr pMatrix, f32 offset);
+    FollowCollisionArea(const Vec3f& rSize, MtxPtr pMatrix, f32 offset);
 
-    virtual ~FollowCollisionArea();
-    virtual void movement();
+    virtual void movement() override;
 
-    bool hitCheck(const TVec3f& rPos, f32 radius, TVec3f* pPoint, TVec3f* pNormal);
+    bool hitCheck(const Vec3f& rPos, f32 radius, Vec3f* pPoint, Vec3f* pNormal);
 
-    u32 _C;
-    f32 _10;
-    TVec3f _14;
-    s32 _20;
-    s32 _24;
-    bool _28;
-    s32 _2C;
-    AreaPolygon* _30;
-    MtxPtr _34;
-    TVec3f _38;
-    f32 _44;
+    u32 mOutsideAxisCount;
+    f32 mInsideDepth;
+    Vec3f mCenter;
+    s32 mPushType;
+    s32 mTeresaType;
+    bool mIsTeresaPass;
+    s32 mHitRadius;
+    AreaPolygon* mPolygon;
+    MtxPtr mFollowMtx;
+    Vec3f mSize;
+    f32 mOffset;
 };

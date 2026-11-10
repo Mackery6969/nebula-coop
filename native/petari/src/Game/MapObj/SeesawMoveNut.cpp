@@ -1,4 +1,5 @@
 #include "Game/MapObj/SeesawMoveNut.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/MapObjActorInitInfo.hpp"
 #include "Game/Util.hpp"
@@ -8,14 +9,13 @@ namespace NrvSeesawMoveNut {
     NEW_NERVE(SeesawMoveNutNrvEdge, SeesawMoveNut, Edge);
 };  // namespace NrvSeesawMoveNut
 
-SeesawMoveNut::SeesawMoveNut(const char* pName) : MapObjActor(pName), mSpeed(100.0f), mPrevAngularSpeed() {
+SeesawMoveNut::SeesawMoveNut(const char* pName) : MapObjActor(pName), mSpeed(100.0f), mPrevAngularSpeed(), mBackHomeStep() {
 }
 
-void SeesawMoveNut::init(const JMapInfoIter& rIter) {
+void SeesawMoveNut::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
     MapObjActorInitInfo initInfo;
 
-    initInfo.setupHioNode("\222\156\214\140\203\111\203\165\203\127\203\106" /* 地形オブジェ */);
     initInfo.setupDefaultPos();
     initInfo.setupConnectToScene();
     initInfo.setupSeesaw1AxisRotator(nullptr, 0.0f);
@@ -24,7 +24,7 @@ void SeesawMoveNut::init(const JMapInfoIter& rIter) {
 
     initialize(rIter, initInfo);
     MR::setBodySensorType(this, ATYPE_MAP_OBJ_PRESS);
-    MR::getJMapInfoArg0NoInit(rIter, &mSpeed);
+    MR::getPlacementArg0NoInit(rIter, &mSpeed);
 
     MR::calcNearestRailPos(&mPosition, this, mPosition);
 
@@ -85,7 +85,7 @@ void SeesawMoveNut::exeHalfway() {
 void SeesawMoveNut::exeEdge() {
     if (isEnableStart()) {
         MapObjActorUtil::startRotator(this);
-        _CC = 0;
+        mBackHomeStep = 0;
         setNerve(GET_NERVE(SeesawMoveNut, SeesawMoveNutNrvHalfway));
     } else {
         autoBackHome();
@@ -93,7 +93,7 @@ void SeesawMoveNut::exeEdge() {
 }
 
 void SeesawMoveNut::autoBackHome() {
-    if (_CC >= 180) {
+    if (mBackHomeStep >= NebulaFrameClock::stepsOfSeconds(3)) {
         if (isNerve(GET_NERVE(SeesawMoveNut, SeesawMoveNutNrvEdge)) && MR::getRailCoord(this) == MR::getRailTotalLength(this)) {
             MapObjActorUtil::startRotator(this);
             setNerve(GET_NERVE(SeesawMoveNut, SeesawMoveNutNrvHalfway));
@@ -106,9 +106,9 @@ void SeesawMoveNut::autoBackHome() {
     }
 
     if (MR::isOnPlayer(this)) {
-        _CC = 0;
+        mBackHomeStep = 0;
     } else {
-        _CC++;
+        mBackHomeStep++;
     }
 }
 
@@ -117,10 +117,10 @@ bool SeesawMoveNut::isEnableStart() const {
         return false;
     }
 
-    TVec3f frontVec;
+    Vec3f frontVec;
     MR::calcFrontVec(&frontVec, this);
 
-    TVec3f dirToPlayerNoFront;
+    Vec3f dirToPlayerNoFront;
     dirToPlayerNoFront.sub(*MR::getPlayerPos(), mPosition);
     dirToPlayerNoFront.orthogonalize(frontVec);
 

@@ -6,14 +6,14 @@ class AreaObj;
 
 class AreaObjFollower : public BaseMatrixFollower {
 public:
-    AreaObjFollower(AreaObj*, const JMapInfoIter&);
+    AreaObjFollower(AreaObj*, const TableIter&);
 
-    virtual void update();
+    virtual void update() override;
 
-    TPos3f mFollowMtx;
+    Pos3f mFollowMtx;
     AreaObj* mObj;
 };
 
 namespace MR {
-    bool addBaseMatrixFollowerAreaObj(AreaObj*, const JMapInfoIter&);
+    bool addBaseMatrixFollowerAreaObj(AreaObj*, const TableIter&);
 };  // namespace MR

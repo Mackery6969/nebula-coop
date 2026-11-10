@@ -1,12 +1,10 @@
 #pragma once
 
-#include <JSystem/J3DGraphAnimator/J3DAnimation.hpp>
+#include "Game/Render/Clip.hpp"
 
-namespace nw4r {
-    namespace lyt {
-        class AnimTransform;
-    };  // namespace lyt
-};  // namespace nw4r
+namespace Ui {
+    class AnimTransform;
+}  // namespace Ui
 
 class LayoutManager;
 
@@ -24,7 +22,7 @@ public:
     }
 
     const char* mAnimName;
-    nw4r::lyt::AnimTransform* mAnimTransform;
+    Ui::AnimTransform* mAnimTransform;
     const LayoutManager* mManager;
-    J3DFrameCtrl mFrameCtrl;
+    FrameCtrl mFrameCtrl;
 };

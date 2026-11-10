@@ -5,9 +5,10 @@
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/Util.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const s32 sClipAreaMax = 64;
+    NEBULA_TUNABLE(s32, sClipAreaMax, 64);
 };  // namespace
 
 namespace {
@@ -17,13 +18,12 @@ namespace {
 };  // namespace
 
 ClipAreaHolder::ClipAreaHolder(const char* pName) : DeriveActorGroup< ClipArea >(pName, ::sClipAreaMax), mIsActive(true) {
-    MR::registerPreDrawFunction(MR::Functor(&MR::setupShadowVolumeDraw), MR::DrawType_ClipArea);
 }
 
-void ClipAreaHolder::init(const JMapInfoIter& rIter) {
+void ClipAreaHolder::init(const TableIter& /*rIter*/) {
 }
 
-bool ClipAreaHolder::isInArea(const TVec3f& rParam1, f32 param2) const {
+bool ClipAreaHolder::isInArea(const Vec3f& rPos, f32 radius) const {
     if (!mIsActive) {
         return false;
     }
@@ -31,20 +31,15 @@ bool ClipAreaHolder::isInArea(const TVec3f& rParam1, f32 param2) const {
     s32 memberNum = getObjNum();
 
     for (s32 i = 0; i < memberNum; i++) {
-        if (MR::isDead(getActor(i))) {
-            continue;
+        if (!MR::isDead(getActor(i)) && getMember(i)->isInArea(rPos, radius)) {
+            return true;
         }
-
-        if (!getMember(i)->isInArea(rParam1, param2)) {
-            continue;
-        }
-
-        return true;
     }
+
     return false;
 }
 
-ClipAreaCollisionFilter::ClipAreaCollisionFilter(const TVec3f* pParam1, f32 param2) : _04(pParam1), _08(param2) {
+ClipAreaCollisionFilter::ClipAreaCollisionFilter(const Vec3f* pClipCenter, f32 clipRadius) : mClipCenter(pClipCenter), mClipRadius(clipRadius) {
 }
 
 bool ClipAreaCollisionFilter::isInvalidParts(const CollisionParts* pParts) const {
@@ -53,7 +48,7 @@ bool ClipAreaCollisionFilter::isInvalidParts(const CollisionParts* pParts) const
     }
 
     if (pParts->mHitSensor->isType(ATYPE_CLIP_FIELD_MAP_PARTS)) {
-        if (!MR::isInClipArea(*_04, _08)) {
+        if (!MR::isInClipArea(*mClipCenter, mClipRadius)) {
             return true;
         }
     }
@@ -74,12 +69,12 @@ namespace MR {
         ::getClipAreaHolder()->registerActor(pClipArea);
     }
 
-    bool isInClipArea(const TVec3f& rParam1, f32 param2) {
-        return ::getClipAreaHolder()->isInArea(rParam1, param2);
+    bool isInClipArea(const Vec3f& rPos, f32 radius) {
+        return ::getClipAreaHolder()->isInArea(rPos, radius);
     }
 
     bool isActiveClipArea() {
-        return ::getClipAreaHolder()->mIsActive != false;
+        return ::getClipAreaHolder()->mIsActive;
     }
 
     void activateClipArea() {
@@ -90,7 +85,7 @@ namespace MR {
         ::getClipAreaHolder()->mIsActive = false;
     }
 
-    void setBinderExceptSensorType(LiveActor* actor, const TVec3f* pParam1, f32 param2) {
-        setBinderCollisionPartsFilter(actor, new ClipAreaCollisionFilter(pParam1, param2));
+    void setBinderExceptSensorType(LiveActor* actor, const Vec3f* pClipCenter, f32 clipRadius) {
+        setBinderCollisionPartsFilter(actor, new ClipAreaCollisionFilter(pClipCenter, clipRadius));
     }
 };  // namespace MR

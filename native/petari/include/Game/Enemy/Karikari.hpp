@@ -8,17 +8,16 @@ class Karikari : public LiveActor {
 public:
     Karikari(const char*);
 
-    virtual ~Karikari();
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void kill();
-    virtual void makeActorDead();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void kill() override;
+    virtual void makeActorDead() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     void applyEnvironmentInfluenceToVelocity();
     void killedInFrozenState();
@@ -34,32 +33,30 @@ public:
     void exeCling();
     void exeRelease();
     void exeSpinAttacked();
-    void exeDPDAttacked();
+    void exePointerAttacked();
     void exeFrozen();
     void exeFrozenRecover();
     void exeBlowOut();
     void exeInTornado();
     void exePress();
 
-    bool tryBlowOut(const TVec3f&, bool);
+    bool tryBlowOut(const Vec3f&, bool);
     bool tryElectricKill();
     bool tryHipDropRelease();
-    bool tryDPDRelease(const TVec2f&);
-    bool tryDPDAttacked();
+    bool tryPointerRelease(const Vec2f&);
+    bool tryPointerAttacked();
 
-    void setVelocityFromCursorMove(const TVec2f&);
+    void setVelocityFromCursorMove(const Vec2f&);
     void generateItem(s32 numStarPieces);
 
-    void tryTurnToDirection(const TVec3f& rDir, f32 turnRatio);
+    void tryTurnToDirection(const Vec3f& rDir, f32 turnRatio);
 
     bool inClingNerve() const;
 
-    TVec3f mFront;
+    Vec3f mFront;
     FixedPosition* mClingPosition;
     bool mIsReadyToLandTornado;
-    bool _9D;
-    bool _9E;
+    bool mCanAttack;
     bool mIsPushable;
     s32 mFrozenTime;
-    u32 _A4;
 };

@@ -5,24 +5,22 @@
 class BegomanHead : public PartsModel {
 public:
     BegomanHead(LiveActor* pHost, const char* pName, const char* pModelName, MtxPtr pMtx, int drawBufferType, bool useHostLight)
-        : PartsModel(pHost, pName, pModelName, pMtx, drawBufferType, useHostLight), _9C() {
+        : PartsModel(pHost, pName, pModelName, pMtx, drawBufferType, useHostLight), mHostScale() {
     }
 
-    virtual ~BegomanHead();
-    virtual void calcAndSetBaseMtx();
+    virtual void calcAndSetBaseMtx() override;
 
-    TVec3f* _9C;
+    Vec3f* mHostScale;
 };
 
 class BegomanSpringHead : public BegomanHead {
 public:
     BegomanSpringHead(LiveActor* pActor, MtxPtr pMtx);
 
-    virtual ~BegomanSpringHead();
-    virtual void init(const JMapInfoIter& rIter);
+    virtual void init(const TableIter& rIter) override;
 
     bool isSpringHop();
-    s16 getHopEndBckFrameMax();
+    s32 getHopEndBckFrameMax();
     void tryHopStart();
     void tryHopEnd();
     void tryHopJump();

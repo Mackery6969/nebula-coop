@@ -1,8 +1,8 @@
 #include "Game/Animation/LayoutAnmPlayer.hpp"
 #include "Game/Screen/LayoutManager.hpp"
-#include <nw4r/lyt/animation.h>
+#include <Game/Ui/Animation.hpp>
 
-LayoutAnmPlayer::LayoutAnmPlayer(const LayoutManager* pManager) : mManager(pManager), mAnimName(), mAnimTransform(), mFrameCtrl() {
+LayoutAnmPlayer::LayoutAnmPlayer(const LayoutManager* pManager) : mAnimName(), mAnimTransform(), mManager(pManager), mFrameCtrl() {
 }
 
 void LayoutAnmPlayer::movement() {
@@ -18,7 +18,14 @@ void LayoutAnmPlayer::reflectFrame() {
 }
 
 void LayoutAnmPlayer::start(const char* pAnimName) {
-    nw4r::lyt::AnimTransform* pAnimTransform = mManager->getAnimTransform(pAnimName);
+    Ui::AnimTransform* pAnimTransform = mManager->getAnimTransform(pAnimName);
+
+    // An animation the layout lacks (a mod's layout) plays nothing and reads as stopped.
+    if (pAnimTransform == nullptr) {
+        mAnimTransform = nullptr;
+        mAnimName = pAnimName;
+        return;
+    }
 
     if (pAnimTransform != mAnimTransform) {
         mAnimTransform = pAnimTransform;
@@ -26,7 +33,7 @@ void LayoutAnmPlayer::start(const char* pAnimName) {
 
     u32 frameSize = mAnimTransform->GetFrameSize();
 
-    mFrameCtrl.init(static_cast< s16 >(frameSize));
+    mFrameCtrl.init(static_cast< s32 >(frameSize));
 
     if (mAnimTransform->IsLoopData()) {
         mFrameCtrl.setAttribute(2);

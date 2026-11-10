@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class AnimScaleController;
 class JointController;
@@ -14,20 +14,20 @@ public:
 
     enum Type { BOMB_HEI = 0, BOMB = 1 };
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void initAfterPlacement();
-    virtual void appear();
-    virtual void kill();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgThrow(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void initAfterPlacement() override;
+    virtual void appear() override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgThrow(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
-    void setGroupClipping(const JMapInfoIter& rIter);
+    void setGroupClipping(const TableIter& rIter);
     void startCountdown();
     void endCountdown();
 
@@ -50,16 +50,17 @@ public:
     void exeBindStarPointer();
     void endBindStarPointer();
 
-    bool calcJoint(TPos3f*, const JointControllerInfo&);
+    bool calcJoint(Pos3f*, const JointControllerInfo&);
     void startBoundSound();
 
     AnimScaleController* mScaleController;
     WalkerStateBindStarPointer* mBindStarPointerState;
-    TQuat4f mRotQuat;
-    TVec3f mFront;
-    TVec3f mBinderOffset;
-    TVec3f mTargetFront;
+    Quat4f mRotQuat;
+    Vec3f mFront;
+    Vec3f mBinderOffset;
+    Vec3f mTargetFront;
     s32 mCountdown;
+    s32 mFuseTime;
     HitSensor* mCarrySensor;
     f32 mExplodeRadius;
     JointController* mBodyJoint;

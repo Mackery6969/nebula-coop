@@ -6,16 +6,13 @@ class ModelObj;
 
 class TripodBossShell : public TripodBossFixPartsBase {
 public:
-    /// @brief Creates a new `TripodBossShell`.
-    /// @param pName A pointer to the null-terminated name of the object.
     TripodBossShell(const char* pName);
 
-    virtual ~TripodBossShell();
-    virtual void init(const JMapInfoIter&);
-    virtual void kill();
-    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void kill() override;
+    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*) override;
 
-    virtual void activateTripodBoss();
+    virtual void activateTripodBoss() override;
 
     void exeNonActive();
     void exeWait();

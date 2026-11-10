@@ -20,15 +20,14 @@ public:
 
     Kanina(const char*);
 
-    virtual ~Kanina();
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void initAfterPlacement();
-    virtual void kill();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void initAfterPlacement() override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     void appearItemPunch();
     void appearItemTrample();
@@ -43,7 +42,7 @@ public:
     bool receiveHipDrop(HitSensor*, HitSensor*);
     bool receiveInvincibleAttack(HitSensor*, HitSensor*);
     bool isStateStayOnGround() const;
-    void initForType(const JMapInfoIter&, KaninaType);
+    void initForType(const TableIter&, KaninaType);
     bool isPlayerBackward(f32) const;
     bool isStatePossibleToAttack() const;
     bool isStateBlink() const;
@@ -85,13 +84,13 @@ public:
     JointRumbler* mJointRumbler;
     BenefitItemObj* mKinokoOneUp;
     AnimationRandomPlayer* mAnimationRandomPlayer;
-    TVec3f _98;
-    TQuat4f _A4;
-    u32 _B4;
-    u32 _B8;
-    f32 _BC;
-    TVec3f _C0;
+    Vec3f mInitPos;
+    Quat4f mPoseQuat;
+    u32 mRunAwayStep;
+    u32 mRunAwayBreakStep;
+    f32 mRunAwaySide;
+    Vec3f mHitWallDir;
     KaninaType mType;
-    TVec3f _D0;
-    s32 _DC;
+    Vec3f mFront;
+    s32 mWalkCount;
 };

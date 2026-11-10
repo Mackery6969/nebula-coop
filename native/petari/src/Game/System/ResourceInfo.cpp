@@ -1,6 +1,5 @@
 #include "Game/System/ResourceInfo.hpp"
 #include "Game/Util.hpp"
-#include <cstdio>
 #include <cstring>
 #include <cstddef>
 
@@ -8,21 +7,23 @@ ResFileInfo::ResFileInfo() {
     mName = 0;
     mHashCode = 0;
     mResource = 0;
-    _8 = 0;
-    _4 = 0;
+    mData = 0;
+    mSize = 0;
 }
 
-ResTable::ResTable() : mFileInfoTable(0), mCount(0) {
+ResTable::ResTable() : mFileInfoTable(0), mCount(0), mIndex() {
 }
 
 void ResTable::newFileInfoTable(u32 count) {
     mFileInfoTable = new ResFileInfo[count];
+    mIndex.reset(count);
 }
 
 ResFileInfo* ResTable::add(const char* pName, void* pRes, bool stripExt) {
     ResFileInfo* curInfo = &mFileInfoTable[mCount];
     curInfo->mResource = pRes;
     curInfo->setName(pName, stripExt);
+    mIndex.add(curInfo->mName, curInfo->mHashCode, mCount);
     mCount++;
     return curInfo;
 }
@@ -49,6 +50,11 @@ ResFileInfo* ResTable::findFileInfo(const char* pName) const {
 }
 
 ResFileInfo* ResTable::getFileInfo(u32 idx) const {
+    // A file number past the table (a layout naming a file it lacks) has no info.
+    if (idx >= mCount) {
+        return nullptr;
+    }
+
     return &mFileInfoTable[idx];
 }
 
@@ -67,32 +73,8 @@ void* ResTable::findRes(const char* pName) const {
 }
 
 int ResTable::getResIndex(const char* pName) const {
-    u32 hash = MR::getHashCodeLower(pName);
-
-    for (int i = 0; i < mCount; i++) {
-        u32 curHash = mFileInfoTable[i].mHashCode;
-
-        if (curHash == hash) {
-            return i;
-        }
-    }
-
-    return -1;
-}
-
-const char* ResTable::findResName(const void* pRes) const {
-    for (int i = 0; i < mCount; i++) {
-        ResFileInfo* inf = &mFileInfoTable[i];
-        if (pRes == inf->mResource) {
-            return inf->mName;
-        }
-    }
-
-    return 0;
-}
-
-const char* ResTable::getResName(const void* pResource) const {
-    return findResName(pResource);
+    const u32 index = mIndex.findHash(MR::getHashCodeLower(pName));
+    return index == MR::NameIndexOf< MR::NameKeyCase >::cNoValue ? -1 : static_cast< int >(index);
 }
 
 void ResFileInfo::setName(const char* pName, bool stripExt) {

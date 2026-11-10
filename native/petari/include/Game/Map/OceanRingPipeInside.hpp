@@ -1,22 +1,21 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include "Game/Util/NativeMesh.hpp"
+#include "Game/Render/TypedDraw.hpp"
 
 class OceanRingPipe;
-class JUTTexture;
+class GameTexture;
 
 class OceanRingPipeInside : public LiveActor {
 public:
     OceanRingPipeInside(const OceanRingPipe*);
 
-    virtual ~OceanRingPipeInside();
-    virtual void init(const JMapInfoIter&);
-    virtual void movement();
-    virtual void draw() const;
+    virtual void init(const TableIter&) override;
+    virtual void movement() override;
+    virtual void draw() const override;
 
     void initMesh();
-    void loadMaterial() const;
+    SiteMaterial loadMaterial() const;
     void sendGD();
 
     const OceanRingPipe* mRingPipe;
@@ -24,7 +23,7 @@ public:
     f32 mTexV0;
     f32 mTexU1;
     f32 mTexV1;
-    JUTTexture* mWaterPipeInsideTex;
+    GameTexture* mWaterPipeInsideTex;
     // The pipe's surface as the renderer draws it.
-    NativeMesh mMesh;
+    SiteMesh< VertexPT2 > mMesh;
 };

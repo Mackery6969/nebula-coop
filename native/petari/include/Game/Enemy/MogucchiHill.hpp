@@ -1,24 +1,22 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class Mogucchi;
 class MogucchiHill;
 
 class MogucchiHillPiece : public LiveActor {
 public:
-    /// @brief Creates a new `MogucchiHillPiece`.
-    /// @param pName A pointer to the null-terminated name of the object.
-    MogucchiHillPiece(const char* pName = "\203\202\203\117\203\142\203\140\222\313\203\163\201\133\203\130" /* モグッチ塚ピース */);
+    MogucchiHillPiece(const char* pName = "モグッチ塚ピース");
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void appear();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void appear() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     void initWithModelName(const char* pModelName, const char* pJointName, const char* pAutoEffectName, bool hasLightCtrl);
     void crumble();
@@ -34,9 +32,9 @@ public:
     const char* mModelName;
     const char* mJointName;
     const char* mAutoEffectName;
-    TPos3f _9C;
-    bool _CC;
-    bool _CD;
+    Pos3f mMtx;
+    bool mIsHostLeft;
+    bool mIsHostTouching;
     bool mHasLightCtrl;
 };
 
@@ -44,13 +42,13 @@ class MogucchiHill : public LiveActor {
 public:
     MogucchiHill(LiveActor* pHost, s32 pieceCount, const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
+    virtual void init(const TableIter& rIter) override;
 
-    virtual bool notifyAppearAttackToPlayer(HitSensor* pSender, HitSensor* pReceiver) {
+    virtual bool notifyAppearAttackToPlayer(HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
         return false;
     }
 
-    virtual bool notifyWaitAttackToPlayer(HitSensor* pSender, HitSensor* pReceiver) {
+    virtual bool notifyWaitAttackToPlayer(HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
         return false;
     }
 
@@ -73,19 +71,19 @@ public:
     void exeWait();
 
     LiveActor* mHost;
-    MogucchiHillPiece* _90;
-    s32 _94;
-    s32 _98;
-    TPos3f mReserveMtx;
-    bool _CC;
-    f32 _D0;
-    f32 _D4;
-    u32 _D8;
-    const char** mModelNameTable;
+    MogucchiHillPiece* mPieces;
+    s32 mPieceNum;
+    s32 mPieceIndex;
+    Pos3f mReserveMtx;
+    bool mHasReserveMtx;
+    f32 mAppearDistance;
+    f32 mAppearDistanceMax;
+    u32 mModelNum;
+    const char* const* mModelNameTable;
     const char* mJointName;
     const char* mAutoEffectName;
     bool mHasLightCtrl;
-    s32 _EC;
-    s32 _F0;
+    s32 mSizeAnimState;
+    s32 mSizeStep;
     s32 mAppearNum;
 };

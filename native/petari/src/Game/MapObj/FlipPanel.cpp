@@ -6,8 +6,18 @@
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/MapObjActorInitInfo.hpp"
 #include "Game/Util.hpp"
-#include <JSystem/JMath/JMath.hpp>
-#include "Game/System/NebulaHost.hpp"
+#include <nebula_geometry.hpp>
+#include "Game/Util/Tunable.hpp"
+
+// The step counts of this file's functions, as tunables: "<file>.<function>.<k>".
+NEBULA_TUNABLE_NAMED(s32, cStep_exeEndPrepare_1, "exeEndPrepare.1", 20);
+
+namespace {
+    // The most panels in a FlipPanel group (0x20).
+    NEBULA_TUNABLE(s32, cPanelGroupSize, 0x20);
+    // The same for the group the observer reads.
+    NEBULA_TUNABLE(s32, cObserverGroupSize, 0x20);
+};  // namespace
 
 namespace NrvFlipPanel {
     NEW_NERVE(FlipPanelNrvFrontLand, FlipPanel, FrontLand);
@@ -20,6 +30,17 @@ namespace NrvFlipPanel {
 
 namespace {
     static u32 sBloomSyncStep;
+
+    // The frame count is 0 until the bloom animation starts: the step itself is then the frame.
+    void syncBloomFrame(ModelObj* pBloomModel) {
+        if (pBloomModel == nullptr) {
+            return;
+        }
+
+        u32 frameMax = MR::getBrkFrameMax(pBloomModel);
+        u32 cycles = frameMax != 0 ? sBloomSyncStep / frameMax : 0;
+        MR::setBrkFrame(pBloomModel, sBloomSyncStep - cycles * frameMax);
+    }
 };  // namespace
 
 namespace NrvFlipPanelObserver {
@@ -30,17 +51,15 @@ namespace NrvFlipPanelObserver {
 
 FlipPanel::FlipPanel(const char* pName) : MapObjActor(pName) {
     mDelegator = 0;
-    mFlipPanelGroup = 0;
-    _CC = 0;
-    _CD = 0;
-    _D0 = 0;
+    mIsPlayerOn = 0;
+    mIsFlipped = 0;
+    mJumpCheckCount = 0;
     mIsReverse = false;
 }
 
-void FlipPanel::init(const JMapInfoIter& rIter) {
+void FlipPanel::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
     MapObjActorInitInfo info;
-    info.setupHioNode("\222\156\214\140\203\111\203\165\203\127\203\106" /* 地形オブジェ */);
     info.setupDefaultPos();
     info.setupConnectToScene();
     info.setupEffect("FlipPanel");
@@ -49,9 +68,7 @@ void FlipPanel::init(const JMapInfoIter& rIter) {
     initialize(rIter, info);
     mIsReverse = isObjectName("FlipPanelReverse");
     mDelegator = MR::createJointDelegatorWithNullChildFunc(this, &FlipPanel::calcJointMove, "Panel");
-    u32 groupSize = 0x20;
-    NebulaHost::codePatch(NEBULA_PATCH_FLIP_PANEL_GROUP, &groupSize);
-    mFlipPanelGroup = MR::joinToGroupArray(this, rIter, 0, groupSize);
+    MR::joinToGroupArray(this, rIter, 0, ::cPanelGroupSize);
     MR::invalidateClipping(this);
     MR::startBck(this, "PanelB");
     f32 frameMax = MR::getBckFrameMax(this);
@@ -70,12 +87,7 @@ void FlipPanel::exeFrontLand() {
 
         if (mIsReverse) {
             MapObjActorUtil::appearBloomModel(this);
-            ModelObj* bloomModel = mBloomModel;
-            u32 frameMax = MR::getBrkFrameMax(bloomModel);
-            // The frame count is 0 until the bloom animation starts: the step itself is then the frame.
-            u32 val = frameMax != 0 ? ::sBloomSyncStep / frameMax : 0;
-            frameMax = ::sBloomSyncStep - (val)*frameMax;
-            MR::setBrkFrame(bloomModel, frameMax);
+            syncBloomFrame(mBloomModel);
         } else {
             MapObjActorUtil::killBloomModel(this);
         }
@@ -83,9 +95,9 @@ void FlipPanel::exeFrontLand() {
         MR::tryRumblePadMiddle(this, PLAYER_1);
         MR::startSound(this, "SE_OJ_FLIP_PANEL_CHANGE");
 
-        if (_CD) {
+        if (mIsFlipped) {
             MR::sendMsgToGroupMember(ACTMES_FAILURE, this, getSensor(0), "body");
-            _CD = 0;
+            mIsFlipped = 0;
         }
     }
 
@@ -102,20 +114,15 @@ void FlipPanel::exeBackLand() {
             MapObjActorUtil::killBloomModel(this);
         } else {
             MapObjActorUtil::appearBloomModel(this);
-            ModelObj* bloomModel = mBloomModel;
-            u32 frameMax = MR::getBrkFrameMax(bloomModel);
-            // The frame count is 0 until the bloom animation starts: the step itself is then the frame.
-            u32 val = frameMax != 0 ? ::sBloomSyncStep / frameMax : 0;
-            frameMax = ::sBloomSyncStep - (val)*frameMax;
-            MR::setBrkFrame(bloomModel, frameMax);
+            syncBloomFrame(mBloomModel);
         }
 
         MR::tryRumblePadMiddle(this, PLAYER_1);
         MR::startSound(this, "SE_OJ_FLIP_PANEL_CHANGE");
 
-        if (!_CD) {
+        if (!mIsFlipped) {
             MR::sendMsgToGroupMember(ACTMES_SUCCESS, this, getSensor(0), "body");
-            _CD = 1;
+            mIsFlipped = 1;
         }
     }
 
@@ -129,11 +136,11 @@ void FlipPanel::exeWait() {
         MR::validateClipping(this);
     }
 
-    if (_CC && !MR::isOnPlayer(this) && MR::isOnGroundPlayer()) {
-        _CC = 0;
+    if (mIsPlayerOn && !MR::isOnPlayer(this) && MR::isOnGroundPlayer()) {
+        mIsPlayerOn = 0;
     }
 
-    if (!_CC) {
+    if (!mIsPlayerOn) {
         if (checkPlayerOnTop()) {
             if (isNerve(GET_NERVE(FlipPanel, FlipPanelNrvFront))) {
                 setNerve(GET_NERVE(FlipPanel, FlipPanelNrvBackLand));
@@ -145,7 +152,7 @@ void FlipPanel::exeWait() {
 }
 
 void FlipPanel::exeEndPrepare() {
-    if (MR::isStep(this, 20)) {
+    if (MR::isStep(this, cStep_exeEndPrepare_1)) {
         setNerve(GET_NERVE(FlipPanel, FlipPanelNrvEnd));
     }
 }
@@ -155,7 +162,7 @@ void FlipPanel::exeEnd() {
         MR::startSystemSE("SE_OJ_FLIP_PANEL_COMPLETE");
         MR::startBck(this, "PanelEnd");
         MapObjActorUtil::killBloomModel(this);
-        _CC = 0;
+        mIsPlayerOn = 0;
     }
 
     if (MR::isBckStopped(this)) {
@@ -177,31 +184,26 @@ void FlipPanel::appear() {
 void FlipPanel::endClipped() {
     MapObjActor::endClipped();
 
-    if (MR::getBrkCtrl(mBloomModel)) {
-        ModelObj* bloomModel = mBloomModel;
-        u32 frameMax = MR::getBrkFrameMax(bloomModel);
-        // The frame count is 0 until the bloom animation starts: the step itself is then the frame.
-        u32 val = frameMax != 0 ? ::sBloomSyncStep / frameMax : 0;
-        frameMax = ::sBloomSyncStep - (val)*frameMax;
-        MR::setBrkFrame(bloomModel, frameMax);
+    if (mBloomModel != nullptr && MR::getBrkCtrl(mBloomModel)) {
+        syncBloomFrame(mBloomModel);
     }
 }
 
 void FlipPanel::calcAndSetBaseMtx() {
     MapObjActor::calcAndSetBaseMtx();
 
-    if (_CC) {
+    if (mIsPlayerOn) {
         mDelegator->registerCallBack();
     }
 }
 
-bool FlipPanel::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool FlipPanel::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* /*pReceiver*/) {
     if (isNerve(GET_NERVE(FlipPanel, FlipPanelNrvEnd))) {
         return false;
     }
 
     if (msg == ACTMES_SUCCESS || msg == ACTMES_FAILURE) {
-        _CC = this == pSender->mHost;
+        mIsPlayerOn = this == pSender->mHost;
 
         return true;
     }
@@ -216,14 +218,14 @@ bool FlipPanel::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceive
     return false;
 }
 
-bool FlipPanel::calcJointMove(TPos3f* pPos, const JointControllerInfo& rInfo) {
-    if (!_CC) {
+bool FlipPanel::calcJointMove(Pos3f* pPos, const JointControllerInfo& /*rInfo*/) {
+    if (!mIsPlayerOn) {
         return false;
     }
 
-    TVec3f jointPos;
+    Vec3f jointPos;
     MR::copyJointPos(this, "Panel", &jointPos);
-    TVec3f upVec;
+    Vec3f upVec;
     MR::calcUpVec(&upVec, this);
     jointPos.scaleAdd(-25.0f, upVec, jointPos);
     pPos->setTrans(jointPos);
@@ -231,17 +233,17 @@ bool FlipPanel::calcJointMove(TPos3f* pPos, const JointControllerInfo& rInfo) {
 }
 
 bool FlipPanel::checkPlayerOnTop() {
-    if (MR::isPlayerJumpRising() && _D0) {
-        _D0 = 0;
+    if (MR::isPlayerJumpRising() && mJumpCheckCount) {
+        mJumpCheckCount = 0;
         return true;
     }
 
     if (!MR::isOnPlayer(this)) {
-        _D0 = 0;
+        mJumpCheckCount = 0;
         return false;
     }
 
-    TVec3f upVec;
+    Vec3f upVec;
     MR::calcUpVec(&upVec, this);
 
     if (!MR::getPlayerGroundingPolygon()) {
@@ -249,40 +251,38 @@ bool FlipPanel::checkPlayerOnTop() {
     }
 
     if (upVec != *MR::getPlayerGroundNormal()) {
-        _D0 = 0;
+        mJumpCheckCount = 0;
         return false;
     }
 
-    if (_D0 < 2) {
-        _D0 = _D0 + 1;
+    if (mJumpCheckCount < 2) {
+        mJumpCheckCount = mJumpCheckCount + 1;
         return false;
     }
 
-    _D0 = 0;
+    mJumpCheckCount = 0;
     return true;
 }
 
 FlipPanelObserver::FlipPanelObserver(const char* pName) : LiveActor(pName) {
-    _8C = 0;
-    _90 = 0;
+    mGroup = 0;
+    mFlippedNum = 0;
     mDemoDelay = 0;
     mPowerStarId = -1;
-    _9C = 0;
+    mIsHeavensDoor = 0;
     ::sBloomSyncStep = 0;
 }
 
-void FlipPanelObserver::init(const JMapInfoIter& rIter) {
+void FlipPanelObserver::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     MR::connectToSceneMapObjMovement(this);
     initHitSensor(1);
     MR::addBodyMessageSensorMapObj(this);
     MR::invalidateClipping(this);
-    u32 groupSize = 0x20;
-    NebulaHost::codePatch(NEBULA_PATCH_FLIP_PANEL_OBSERVER_GROUP, &groupSize);
-    _8C = MR::joinToGroupArray(this, rIter, 0, groupSize);
+    mGroup = MR::joinToGroupArray(this, rIter, 0, ::cObserverGroupSize);
     MR::useStageSwitchWriteA(this, rIter);
     initSound(2, false);
-    MR::getJMapInfoArg7NoInit(rIter, &mPowerStarId);
+    MR::getPlacementArg7NoInit(rIter, &mPowerStarId);
 
     if (mPowerStarId != -1) {
         if (!mPowerStarId) {
@@ -292,19 +292,17 @@ void FlipPanelObserver::init(const JMapInfoIter& rIter) {
         }
     }
 
-    MR::getJMapInfoArg0NoInit(rIter, &mDemoDelay);
+    MR::getPlacementArg0NoInit(rIter, &mDemoDelay);
     mDemoDelay += 0x28;
 
     if (MR::isEqualStageName("HeavensDoorGalaxy")) {
-        _9C = 1;
+        mIsHeavensDoor = 1;
     } else {
-        _9C = 0;
+        mIsHeavensDoor = 0;
     }
 
     initNerve(GET_NERVE(FlipPanelObserver, FlipPanelObserverNrvWait));
-    bool ret = MR::useStageSwitchReadAppear(this, rIter);
-
-    if (ret) {
+    if (MR::useStageSwitchReadAppear(this, rIter)) {
         MR::syncStageSwitchAppear(this);
         makeActorDead();
     } else {
@@ -318,7 +316,7 @@ void FlipPanelObserver::exeWait() {
         MR::startSound(this, "SE_OJ_FLIP_PANEL_APPEAR");
     }
 
-    if (_90 == _8C->getObjNum() - 1 && MR::tryStartDemo(this, "FlipPanelComplete")) {
+    if (mFlippedNum == mGroup->getObjNum() - 1 && MR::tryStartDemo(this, "FlipPanelComplete")) {
         setNerve(GET_NERVE(FlipPanelObserver, FlipPanelObserverNrvComplete));
     } else {
         ::sBloomSyncStep++;
@@ -328,7 +326,7 @@ void FlipPanelObserver::exeWait() {
 void FlipPanelObserver::exeComplete() {
     if (MR::isFirstStep(this)) {
         MR::callRequestMovementOnAllGroupMember(this);
-        MR::requestMovementOn(_8C);
+        MR::requestMovementOn(mGroup);
         MR::sendMsgToGroupMember(ACTMES_GROUP_MOVE_STOP, this, getSensor(0), "body");
     }
 
@@ -363,33 +361,33 @@ void FlipPanelObserver::initAfterPlacement() {
     }
 }
 
-bool FlipPanelObserver::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool FlipPanelObserver::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (msg == ACTMES_SUCCESS) {
-        if (!_90) {
-            if (_9C) {
+        if (!mFlippedNum) {
+            if (mIsHeavensDoor) {
                 MR::startSystemME("ME_FLIP_PANEL_INV_OFF_FIRST");
             } else {
                 MR::startSystemME("ME_FLIP_PANEL_ON_FIRST");
             }
         } else {
-            if (_9C) {
+            if (mIsHeavensDoor) {
                 MR::startSystemME("ME_FLIP_PANEL_INV_OFF");
             } else {
                 MR::startSystemME("ME_FLIP_PANEL_ON");
             }
         }
 
-        _90++;
+        mFlippedNum++;
 
         return true;
     } else if (msg == ACTMES_FAILURE) {
-        if (_9C) {
+        if (mIsHeavensDoor) {
             MR::startSystemME("ME_FLIP_PANEL_INV_ON");
         } else {
             MR::startSystemME("ME_FLIP_PANEL_OFF");
         }
 
-        _90--;
+        mFlippedNum--;
 
         return true;
     }

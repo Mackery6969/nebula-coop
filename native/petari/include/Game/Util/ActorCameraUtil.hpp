@@ -1,18 +1,18 @@
 #pragma once
 
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
 class ActorCameraInfo;
 class CameraTargetArg;
-class JMapInfoIter;
+class TableIter;
 class LiveActor;
 
 namespace MR {
     void initAnimCamera(const LiveActor*, const ActorCameraInfo*, const char*);
-    ActorCameraInfo* createActorCameraInfo(const JMapInfoIter&);
-    bool createActorCameraInfoIfExist(const JMapInfoIter&, ActorCameraInfo**);
-    bool initActorCamera(const LiveActor*, const JMapInfoIter&, ActorCameraInfo**);
-    bool initMultiActorCamera(const LiveActor*, const JMapInfoIter&, ActorCameraInfo**, const char*);
+    ActorCameraInfo* createActorCameraInfo(const TableIter&);
+    bool createActorCameraInfoIfExist(const TableIter&, ActorCameraInfo**);
+    bool initActorCamera(const LiveActor*, const TableIter&, ActorCameraInfo**);
+    bool initMultiActorCamera(const LiveActor*, const TableIter&, ActorCameraInfo**, const char*);
     bool initMultiActorCameraNoInit(const LiveActor*, ActorCameraInfo*, const char*);
     void initActorCameraProgrammable(const LiveActor*);
     bool startActorCameraNoTarget(const LiveActor*, const ActorCameraInfo*, s32 = -1);
@@ -32,9 +32,7 @@ namespace MR {
     bool endActorCameraAtLanding(const LiveActor*, const ActorCameraInfo*, s32 = -1);
     bool endMultiActorCameraAtLanding(const LiveActor*, const ActorCameraInfo*, const char*, s32 = -1);
     void endActorCameraProgrammable(const LiveActor*, s32, bool);
-    bool isActiveActorCamera(const LiveActor*, const ActorCameraInfo*);
-    bool isActiveMultiActorCamera(const LiveActor*, const ActorCameraInfo*, const char*);
-    void setProgrammableCameraParam(const LiveActor*, const TVec3f&, const TVec3f&, const TVec3f&);
+    void setProgrammableCameraParam(const LiveActor*, const Vec3f&, const Vec3f&, const Vec3f&);
     void setProgrammableCameraParamFovy(const LiveActor*, f32);
     void initAnimCamera(const LiveActor*, const ActorCameraInfo*, const char*, const char*);
     void endAnimCamera(const LiveActor*, const ActorCameraInfo*, const char*, s32, bool);

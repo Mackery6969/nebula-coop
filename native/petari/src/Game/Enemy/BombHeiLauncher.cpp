@@ -1,20 +1,22 @@
 #include "Game/Enemy/BombHeiLauncher.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/MapObjConnector.hpp"
 #include "Game/Util/ActorMovementUtil.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const f32 hThrowVel = 35.0f;
-    static const f32 hThrowFrontVel = 1.0f;
-    static const s32 hCountTimer = 60;
+    NEBULA_TUNABLE(f32, hThrowVel, 35.0f);
+    NEBULA_TUNABLE(f32, hThrowFrontVel, 1.0f);
+    static const s32 hCountTimer = NebulaFrameClock::stepsOfSeconds(1);
 };  // namespace
 
 namespace NrvBombHeiLauncher {
@@ -26,7 +28,7 @@ BombHeiLauncher::BombHeiLauncher(const char* pName) : LiveActor(pName), mBomb(),
     mConnector = new MapObjConnector(this);
 }
 
-void BombHeiLauncher::init(const JMapInfoIter& rIter) {
+void BombHeiLauncher::init(const TableIter& rIter) {
     bool isBombHeiLauncher = true;
     if (MR::isValidInfo(rIter)) {
         MR::initDefaultPos(this, rIter);
@@ -51,7 +53,7 @@ void BombHeiLauncher::init(const JMapInfoIter& rIter) {
     MR::onCalcGravity(this);
 
     initSound(6, false);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
 
     initHitSensor(2);
     MR::addBodyMessageSensorEnemy(this);
@@ -66,10 +68,10 @@ void BombHeiLauncher::init(const JMapInfoIter& rIter) {
     makeActorDead();
 
     if (isBombHeiLauncher) {
-        mBomb = new BombHei("\203\173\203\200\225\272" /* ボム兵 */);
+        mBomb = new BombHei("ボム兵");
         mBomb->mType = BombHei::BOMB_HEI;
     } else {
-        mBomb = new BombHei("\203\173\203\200" /* ボム */);
+        mBomb = new BombHei("ボム");
         mBomb->mType = BombHei::BOMB;
     }
 
@@ -78,7 +80,7 @@ void BombHeiLauncher::init(const JMapInfoIter& rIter) {
     mBomb->setGroupClipping(rIter);
 
     s32 ignoreCollisionArg = -1;
-    MR::getJMapInfoArg2NoInit(rIter, &ignoreCollisionArg);
+    MR::getPlacementArg2NoInit(rIter, &ignoreCollisionArg);
     if (ignoreCollisionArg != -1) {
         mBomb->mExplosionIgnoreCollision = true;
     }
@@ -87,7 +89,7 @@ void BombHeiLauncher::init(const JMapInfoIter& rIter) {
 }
 
 void BombHeiLauncher::initAfterPlacement() {
-    TVec3f up;
+    Vec3f up;
     MR::calcUpVec(&up, this);
     MR::resetPosition(mBomb, mPosition + up * 30.0f);
     mBomb->mGravity.set(-up);
@@ -121,10 +123,6 @@ void BombHeiLauncher::offSwitchA() {
 }
 
 void BombHeiLauncher::exeLauncherWait() {
-    if (MR::isFirstStep(this)) {
-        // stripped debug code
-    }
-
     if (!mIsActive) {
         return;
     }
@@ -140,7 +138,7 @@ void BombHeiLauncher::exeLauncherWait() {
         mBomb->appear();
         MR::resetPosition(mBomb, mPosition);
 
-        TVec3f up, front;
+        Vec3f up, front;
         MR::calcUpVec(&up, this);
         MR::calcFrontVec(&front, this);
         getBombVelocity()->set(up * ::hThrowVel);
@@ -159,7 +157,7 @@ void BombHeiLauncher::exeStop() {
         mCountdown = -1;
     }
 
-    if (mIsActive && MR::isGreaterStep(this, 120)) {
+    if (mIsActive && MR::isGreaterStep(this, NebulaFrameClock::stepsOfSeconds(2))) {
         setNerve(GET_NERVE(BombHeiLauncher, HostTypeNrvLauncherWait));
     }
 }

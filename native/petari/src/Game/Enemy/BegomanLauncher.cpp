@@ -1,5 +1,6 @@
 
 #include "Game/Enemy/BegomanLauncher.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Enemy/BegomanBaby.hpp"
 #include "Game/Enemy/BegomanSpike.hpp"
 #include "Game/Enemy/BegomanSpring.hpp"
@@ -8,11 +9,12 @@
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
 #include "Game/Util/GravityUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace NrvBegomanLauncher {
     NEW_NERVE(HostTypeNrvWaitAfterSwitchOn, BegomanLauncher, WaitAfterSwitchOn);
@@ -24,42 +26,48 @@ namespace NrvBegomanLauncher {
 };  // namespace NrvBegomanLauncher
 
 namespace {
-    const s32 sLaunchTime = 0;
+    NEBULA_TUNABLE(s32, sLaunchTime, 0);
 };  // namespace
 
 BegomanLauncher::BegomanLauncher(const char* pName) : LiveActor(pName), mBegomanCount(), mAppearDelay(), mBegomanArray(), mLaunchType(3) {
 }
 
-void BegomanLauncher::init(const JMapInfoIter& rIter) {
+void BegomanLauncher::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     s32 count = 1;
-    MR::getJMapInfoArg3NoInit(rIter, &count);
+    MR::getPlacementArg3NoInit(rIter, &count);
+
+    // A negative count makes no launcher begomen (it would size the array below zero).
+    if (count < 0) {
+        count = 0;
+    }
+
     mBegomanCount = count;
-    MR::getJMapInfoArg2NoInit(rIter, &mAppearDelay);
+    MR::getPlacementArg2NoInit(rIter, &mAppearDelay);
     const char* pObjectName = nullptr;
     MR::getObjectName(&pObjectName, rIter);
     mBegomanArray = new BegomanBase*[mBegomanCount];
     if (MR::isEqualString(pObjectName, "TogeBegomanLauncher")) {
-        setName("\203\147\203\121\203\170\201\133\203\123\203\175\203\223\203\211\203\223\203\140\203\203\201\133" /* トゲベーゴマンランチャー */);
+        setName("トゲベーゴマンランチャー");
         for (s32 i = 0; i < mBegomanCount; i++) {
-            mBegomanArray[i] = new BegomanSpike("\203\147\203\121\203\170\201\133\203\123\203\175\203\223" /* トゲベーゴマン */);
+            mBegomanArray[i] = new BegomanSpike("トゲベーゴマン");
             mBegomanArray[i]->mPosition.set(mPosition);
             mBegomanArray[i]->init(rIter);
             mBegomanArray[i]->makeActorDead();
         }
     } else if (MR::isEqualString(pObjectName, "BegomanBabyLauncher")) {
-        setName("\203\170\203\162\201\133\203\170\201\133\203\123\203\175\203\223\203\211\203\223\203\140\203\203\201\133" /* ベビーベーゴマンランチャー */);
+        setName("ベビーベーゴマンランチャー");
         mLaunchType = 2;
         MR::declareCoin(this, mBegomanCount);
         for (s32 i = 0; i < mBegomanCount; i++) {
-            mBegomanArray[i] = new BegomanBaby(this, "\203\211\203\223\203\140\203\203\201\133\203\170\203\162\201\133" /* ランチャーベビー */);
+            mBegomanArray[i] = new BegomanBaby(this, "ランチャーベビー");
             mBegomanArray[i]->mPosition.set(mPosition);
             mBegomanArray[i]->init(rIter);
             mBegomanArray[i]->makeActorDead();
         }
     } else {
         for (s32 i = 0; i < mBegomanCount; i++) {
-            mBegomanArray[i] = new BegomanSpring("\203\157\203\154\203\170\201\133\203\123\203\175\203\223" /* バネベーゴマン */);
+            mBegomanArray[i] = new BegomanSpring("バネベーゴマン");
             mBegomanArray[i]->mPosition.set(mPosition);
             mBegomanArray[i]->init(rIter);
             mBegomanArray[i]->makeActorDead();
@@ -69,7 +77,7 @@ void BegomanLauncher::init(const JMapInfoIter& rIter) {
     initModelManagerWithAnm("BegomanLauncher", nullptr, false);
     MR::connectToSceneEnemy(this);
     initNerve(GET_NERVE(BegomanLauncher, HostTypeNrvWait));
-    initEffectKeeper(0, "BegomanLauncher", false);
+    initEffectKeeper(0, "BegomanLauncher");
     initSound(8, false);
     MR::initShadowVolumeSphere(this, 100.0f);
     if (MR::useStageSwitchReadAppear(this, rIter)) {
@@ -136,7 +144,7 @@ void BegomanLauncher::exeWait() {
 }
 
 void BegomanLauncher::exeWaitForLaunch() {
-    if (MR::isGreaterStep(this, 180)) {
+    if (MR::isGreaterStep(this, NebulaFrameClock::stepsOfSeconds(3))) {
         setNerve(GET_NERVE(BegomanLauncher, HostTypeNrvAppear));
     }
 }
@@ -150,7 +158,7 @@ void BegomanLauncher::exeLaunch() {
 
     if (MR::isGreaterStep(this, ::sLaunchTime)) {
         if (mLaunchType == 2) {
-            BegomanBase::launchBegomanBabyLauncher(this, reinterpret_cast< BegomanBaby** >(mBegomanArray), mBegomanCount, 100.0f, 10.0f, 30.0f,
+            BegomanBase::launchBegomanBabyLauncher(this, mBegomanArray, mBegomanCount, 100.0f, 10.0f, 30.0f,
                                                    nullptr);
             setNerve(GET_NERVE(BegomanLauncher, HostTypeNrvDisappear));
         } else {
@@ -176,7 +184,7 @@ void BegomanLauncher::exeAppear() {
     }
 
     MR::startLevelSound(this, "SE_EM_LV_BEGOMANLAUN_APPEAR");
-    if (MR::isGreaterStep(this, 90)) {
+    if (MR::isGreaterStep(this, NebulaFrameClock::stepsOfMilliseconds(1500))) {
         MR::stopBck(this);
         setNerve(GET_NERVE(BegomanLauncher, HostTypeNrvLaunch));
     }
@@ -190,7 +198,7 @@ void BegomanLauncher::exeDisappear() {
         MR::deleteEffect(this, "Launcher");
     }
 
-    if (MR::isGreaterStep(this, 90)) {
+    if (MR::isGreaterStep(this, NebulaFrameClock::stepsOfMilliseconds(1500))) {
         setNerve(GET_NERVE(BegomanLauncher, HostTypeNrvWait));
     }
 }

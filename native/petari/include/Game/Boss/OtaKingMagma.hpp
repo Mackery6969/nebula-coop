@@ -8,8 +8,8 @@ class OtaKingMagma : public PartsModel {
 public:
     OtaKingMagma(LiveActor*, s32);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void control();
+    virtual void init(const TableIter& rIter) override;
+    virtual void control() override;
 
     void appearDemo();
     void attack();
@@ -30,6 +30,6 @@ public:
     void startBckThisAndBloomModel(const char*);
 
     PartsModel* mBloomModel;
-    ProjmapEffectMtxSetter* _A0;
-    ProjmapEffectMtxSetter* _A4;
+    ProjmapEffectMtxSetter* mProjmapSetter;
+    ProjmapEffectMtxSetter* mBloomProjmapSetter;
 };

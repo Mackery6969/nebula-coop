@@ -1,17 +1,18 @@
 #include "Game/NPC/TicoAstro.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util/EventUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 
 TicoAstro::TicoAstro(const char* pName) : Tico(pName) {
 }
 
-void TicoAstro::init(const JMapInfoIter& rIter) {
+void TicoAstro::init(const TableIter& rIter) {
     Tico::init(rIter);
-    s32 arg2 = -1;
-    MR::getJMapInfoArg2NoInit(rIter, &arg2);
+    // Present while the green star count is above this (0-2).
+    s32 greenStarThreshold = -1;
+    MR::getPlacementArg2NoInit(rIter, &greenStarThreshold);
 
-    switch (arg2) {
+    switch (greenStarThreshold) {
     case 0:
         if (MR::calcCurrentGreenStarNum() <= 0) {
             makeActorDead();
@@ -30,7 +31,4 @@ void TicoAstro::init(const JMapInfoIter& rIter) {
         }
         break;
     }
-}
-
-TicoAstro::~TicoAstro() {
 }

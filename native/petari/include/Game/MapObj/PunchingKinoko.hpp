@@ -7,28 +7,27 @@
 
 class PunchingKinoko : public LiveActor {
 public:
-    PunchingKinoko(const char*);
+    PunchingKinoko(const char* pName);
 
-    virtual ~PunchingKinoko();
-    virtual void init(const JMapInfoIter&);
-    virtual void makeActorAppeared();
-    virtual void kill();
-    virtual void makeActorDead();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPush(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter& rIter) override;
+    virtual void makeActorAppeared() override;
+    virtual void kill() override;
+    virtual void makeActorDead() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     void initShadow();
     void initSensor();
-    void initCamera(const JMapInfoIter&);
+    void initCamera(const TableIter& rIter);
     void initJointControl();
 
-    bool requestPunch(HitSensor*, HitSensor*);
-    bool requestEnemyBlow(HitSensor*, HitSensor*);
-    bool requestTrample(HitSensor*, HitSensor*);
+    bool requestPunch(HitSensor* pOtherSensor, HitSensor* pMySensor);
+    bool requestEnemyBlow(HitSensor* pOtherSensor, HitSensor* pMySensor);
+    bool requestTrample(HitSensor* pOtherSensor, HitSensor* pMySensor);
     bool requestCrush();
 
     void exeWait();
@@ -40,7 +39,7 @@ public:
     void exeCrushed();
     void exeCrushedEnd();
 
-    bool ballMtxCallBack(TPos3f*, const JointControllerInfo&);
+    bool ballMtxCallBack(Pos3f* pMtx, const JointControllerInfo& rJoint);
 
     bool isEnablePunched() const;
     bool isEnableHitPlayer() const;
@@ -51,15 +50,16 @@ public:
     bool isCrushed() const;
 
     void addVelocityKeepHeight();
+    Vec3f addSpringToRest();
 
 private:
     GroundChecker* mGroundChecker;
     AnimScaleController* mScaleController;
     JointControlDelegator< PunchingKinoko >* mDelegator;
-    s32 _98;
-    TVec3f _9C;
-    TVec3f _A8;
+    s32 mCameraVecId;  // Obj_arg7
+    Vec3f mCameraTarget;
+    Vec3f mShadowNormal;  // the squash axis: the ground's normal under the head when crushed
     s32 mStarPointerHitCoolDown;
-    bool _B8;
+    bool mIsPointerHeld;  // 2P button held since before pointing, or already used
     s32 mInvincibleHitCoolDown;
 };

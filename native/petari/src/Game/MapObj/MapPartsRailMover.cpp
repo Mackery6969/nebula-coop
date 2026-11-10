@@ -4,6 +4,11 @@
 #include "Game/MapObj/MapPartsFunction.hpp"
 #include "Game/MapObj/MapPartsRailPointPassChecker.hpp"
 #include "Game/Util.hpp"
+#include "Game/Util/Tunable.hpp"
+
+// The numbers this file's functions give the game's motion and animation calls, as tunables: "<file>.<function>.<call>.<k>".
+NEBULA_TUNABLE_NAMED(f32, cNum_setStateStopAtEndBeforeRotate_setRailCoordSpeed_1, "setStateStopAtEndBeforeRotate.setRailCoordSpeed.1", 0.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeStopAtPoint_setRailCoordSpeed_1, "exeStopAtPoint.setRailCoordSpeed.1", 0.0f);
 
 namespace NrvMapPartsRailMover {
     NEW_NERVE(HostTypeWait, MapPartsRailMover, Wait);
@@ -21,16 +26,16 @@ namespace NrvMapPartsRailMover {
 };  // namespace NrvMapPartsRailMover
 
 MapPartsRailMover::MapPartsRailMover(LiveActor* pActor)
-    : MapPartsFunction(pActor, "\203\214\203\103\203\213\210\332\223\256" /* レイル移動 */), mRailPointPassChecker(), mMoveConditionType(), mMoveStopType(1), mSignMotionType(), _28(gZeroVec) {
-    _34 = 0.0f;
+    : MapPartsFunction(pActor, "レイル移動"), mRailPointPassChecker(), mMoveConditionType(), mMoveStopType(1), mSignMotionType(), mStartPos(gZeroVec) {
+    mInitCoord = 0.0f;
     mStopTime = 0;
     mSpeed = 0.0f;
     mAccelTime = 0;
     mAcceleration = 0.0f;
-    _48 = 0.0f;
+    mSignCoord = 0.0f;
 }
 
-void MapPartsRailMover::init(const JMapInfoIter& rIter) {
+void MapPartsRailMover::init(const TableIter& rIter) {
     MR::getMapPartsArgMoveConditionType(&mMoveConditionType, rIter);
     MR::getMapPartsArgMoveStopType(&mMoveStopType, mHost);
     MR::getMapPartsArgSignMotionType(&mSignMotionType, rIter);
@@ -46,8 +51,8 @@ void MapPartsRailMover::init(const JMapInfoIter& rIter) {
         MR::moveCoordAndTransToRailStartPoint(mHost);
     }
 
-    _28.set(mHost->mPosition);
-    _34 = MR::getRailCoord(mHost);
+    mStartPos.set(mHost->mPosition);
+    mInitCoord = MR::getRailCoord(mHost);
     mRailPointPassChecker = new MapPartsRailPointPassChecker(mHost);
     mRailPointPassChecker->init(rIter);
     initNerve(GET_NERVE(MapPartsRailMover, HostTypeWait));
@@ -106,9 +111,9 @@ bool MapPartsRailMover::receiveMsg(u32 msg) {
 }
 
 void MapPartsRailMover::moveToInitPos() {
-    if (!MR::isNearZero(_34 - MR::getRailCoord(mHost))) {
-        MR::setRailCoord(mHost, _34);
-        _28.set(MR::getRailPos(mHost));
+    if (!MR::isNearZero(mInitCoord - MR::getRailCoord(mHost))) {
+        MR::setRailCoord(mHost, mInitCoord);
+        mStartPos.set(MR::getRailPos(mHost));
         if (!MR::isRailGoingToEnd(mHost)) {
             MR::reverseRailDirection(mHost);
         }
@@ -120,8 +125,8 @@ void MapPartsRailMover::startWithSignalMotion() {
 }
 
 void MapPartsRailMover::cancelSignalMotion() {
-    MR::setRailCoord(mHost, _48);
-    _28.set(MR::getRailPos(mHost));
+    MR::setRailCoord(mHost, mSignCoord);
+    mStartPos.set(MR::getRailPos(mHost));
     setNerve(GET_NERVE(MapPartsRailMover, HostTypeWait));
 }
 
@@ -144,7 +149,7 @@ bool MapPartsRailMover::tryResetPositionRepeat() {
 
 void MapPartsRailMover::resetToInitPos() {
     moveToInitPos();
-    MR::resetPosition(mHost, _28);
+    MR::resetPosition(mHost, mStartPos);
     setNerve(GET_NERVE(MapPartsRailMover, HostTypeWait));
 }
 
@@ -187,15 +192,8 @@ void MapPartsRailMover::reachedEndPlayerOn() {
 }
 
 bool MapPartsRailMover::isReachedEnd() const {
-    bool ret = false;
-
-    if (isNerve(GET_NERVE(MapPartsRailMover, HostTypeMove)) || isNerve(GET_NERVE(MapPartsRailMover, HostTypeMoveStart))) {
-        if (mRailPointPassChecker->isReachedEnd()) {
-            ret = true;
-        }
-    }
-
-    return ret;
+    return (isNerve(GET_NERVE(MapPartsRailMover, HostTypeMove)) || isNerve(GET_NERVE(MapPartsRailMover, HostTypeMoveStart))) &&
+           mRailPointPassChecker->isReachedEnd();
 }
 
 bool MapPartsRailMover::isDone() const {
@@ -209,7 +207,7 @@ bool MapPartsRailMover::isDone() const {
 void MapPartsRailMover::setStateStopAtEndBeforeRotate() {
     mSpeed = 0.0f;
     mAcceleration = 0.0f;
-    MR::setRailCoordSpeed(mHost, 0.0f);
+    MR::setRailCoordSpeed(mHost, cNum_setStateStopAtEndBeforeRotate_setRailCoordSpeed_1);
     mStopTime = 0;
     MR::getMapPartsArgStopTime(&mStopTime, mHost);
 
@@ -228,9 +226,7 @@ void MapPartsRailMover::calcTimeToNextRailPoint(f32* pTime) const {
     f32 distance = 0.0f;
     MR::calcDistanceToNextRailPoint(mHost, &distance);
 
-    bool res = MR::isNearZero(mAcceleration, 0.000099999997f) == false;
-
-    if (!res) {
+    if (MR::isNearZero(mAcceleration, 0.0001f)) {
         *pTime = MR::abs(distance / mSpeed);
         return;
     }
@@ -258,9 +254,7 @@ void MapPartsRailMover::endRotateAtPoint() {
 }
 
 void MapPartsRailMover::calcMoveSpeed(f32* pMoveSpeed) const {
-    bool isNotNear = MR::isNearZero(mAcceleration, 0.0001f) == false;
-
-    if (isNotNear) {
+    if (!MR::isNearZero(mAcceleration, 0.0001f)) {
         *pMoveSpeed = MR::getRailCoordSpeed(mHost);
     } else {
         s32 calcType = 0;
@@ -289,6 +283,7 @@ void MapPartsRailMover::calcMoveSpeedTime(f32* pTime) const {
     s32 moveTime = -1;
     MR::getMapPartsArgMoveTimeToNextPoint(&moveTime, mHost);
 
+    // A time of 0 steps crosses the whole part in one step (it divided by 0).
     if (moveTime >= 0) {
         s32 curPnt = MR::getCurrentRailPointNo(mHost);
 
@@ -296,7 +291,7 @@ void MapPartsRailMover::calcMoveSpeedTime(f32* pTime) const {
             curPnt--;
         }
 
-        *pTime = MR::getRailPartLength(mHost, curPnt) / moveTime;
+        *pTime = MR::getRailPartLength(mHost, curPnt) / (moveTime > 0 ? moveTime : 1);
     }
 }
 
@@ -372,7 +367,7 @@ void MapPartsRailMover::restartAtEnd() {
         }
     } else if (mMoveStopType == 2) {
         MR::moveCoordToStartPos(mHost);
-        _28.set(MR::getRailPos(mHost));
+        mStartPos.set(MR::getRailPos(mHost));
         setNerve(GET_NERVE(MapPartsRailMover, HostTypeMove));
     } else if (mMoveStopType == 3) {
         setNerve(GET_NERVE(MapPartsRailMover, HostTypeVanish));
@@ -393,40 +388,41 @@ void MapPartsRailMover::exeMove() {
     }
 
     MR::moveCoord(mHost, mSpeed);
-    _28.set(MR::getRailPos(mHost));
+    mStartPos.set(MR::getRailPos(mHost));
 }
 
 void MapPartsRailMover::exeMoveStart() {
     if (isFirstStep()) {
-        _48 = MR::getRailCoord(mHost);
+        mSignCoord = MR::getRailCoord(mHost);
 
         if (MR::isExistCollisionParts(mHost)) {
             MR::offUpdateCollisionParts(mHost);
         }
     }
 
-    f32 v3;
+    // The start signal: shake along the rail, 3 steps each way.
+    f32 shakeSign;
 
     if ((getStep() / 3) % 2 == 0) {
-        v3 = 1.0f;
+        shakeSign = 1.0f;
     } else {
-        v3 = -1.0f;
+        shakeSign = -1.0f;
     }
 
     if (MR::isRailGoingToEnd(mHost)) {
-        v3 *= -1.0f;
+        shakeSign *= -1.0f;
     }
 
-    MR::setRailCoord(mHost, _48 + (7.0f * (v3 * ((getStep() % 3)))));
-    _28.set(MR::getRailPos(mHost));
+    MR::setRailCoord(mHost, mSignCoord + (7.0f * (shakeSign * ((getStep() % 3)))));
+    mStartPos.set(MR::getRailPos(mHost));
     if (isStep(MapParts::getMoveStartSignalTime())) {
-        MR::setRailCoord(mHost, _48);
+        MR::setRailCoord(mHost, mSignCoord);
 
         if (MR::isExistCollisionParts(mHost)) {
             MR::onUpdateCollisionParts(mHost);
         }
 
-        _28.set(MR::getRailPos(mHost));
+        mStartPos.set(MR::getRailPos(mHost));
         setNerve(GET_NERVE(MapPartsRailMover, HostTypeMove));
     }
 }
@@ -435,7 +431,7 @@ void MapPartsRailMover::exeStopAtPoint() {
     if (isFirstStep()) {
         mSpeed = 0.0f;
         mAcceleration = 0.0f;
-        MR::setRailCoordSpeed(mHost, 0.0f);
+        MR::setRailCoordSpeed(mHost, cNum_exeStopAtPoint_setRailCoordSpeed_1);
     }
 
     if (isStep(mStopTime)) {

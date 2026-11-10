@@ -1,4 +1,5 @@
 #include "Game/Boss/KoopaStateDamageEscape.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Boss/Koopa.hpp"
 #include "Game/Boss/KoopaFunction.hpp"
 #include "Game/LiveActor/Nerve.hpp"
@@ -10,6 +11,12 @@
 #include "Game/Util/NerveUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#include "Game/Util/Tunable.hpp"
+
+// The step counts of this file's functions, as tunables: "<file>.<function>.<k>".
+NEBULA_TUNABLE_NAMED(s32, cStep_isDownEnd_1, "isDownEnd.1", 45);
+NEBULA_TUNABLE_NAMED(s32, cStep_isDownEnd_2, "isDownEnd.2", 45);
+NEBULA_TUNABLE_NAMED(s32, cStep_isDownEnd_3, "isDownEnd.3", 20);
 
 namespace {
     static MR::ActorMoveParam sEscapeStartParam = {1.8f, 1.5f, 0.95f, 3.0f};
@@ -24,32 +31,21 @@ namespace {
     static MR::ActorMoveParam sDamageTailRunParamLv3 = {8.0f, 1.5f, 0.8f, 0.0f};
     static MR::ActorMoveParam sDamageTailRunFinalParam = {13.0f, 3.0f, 0.8f, 0.0f};
     static MR::ActorMoveParam sDamageTailRunEndParam = {0.0f, 1.0f, 0.98f, 0.0f};
-    static const f32 sEscapeStartJumpSpeed = 80.0f;
-    // static const s32 sEscapeStartStepToValid = _;
-    // static const s32 sEscapeStopSceneStep = _;
-    static const s32 sEscapeStepVs1Lv1 = 900;
-    static const s32 sEscapeStep = 600;
-    static const f32 sEscapeRunWallJumpSpeed = 15.0f;
-    static const s32 sDamageTailStep = 600;
-    static const s32 sDamageTailStepFinal = 480;
-    static const s32 sDamageTailRunStartBreakStep = 40;
-    static const f32 sDamageTailRunStartSpeed = 40.0f;
-    static const f32 sDamageTailWallJumpSpeed = 15.0f;
-    static const s32 sDamageTailRunEndRecoverStep = 105;
-    static const f32 sDamageTailTurnDegree = 0.1f;
-    // static const s32 sDamageTailStopSceneStep = _;
-    // static const s32 sDamageTailStepToInvalid = _;
-    // static const s32 sDownStep = _;
-    // static const s32 sDownStepVs3Angry = _;
-    static const s32 sDownStopSceneStep = 5;
-    // static const f32 sDownFrontSpeed = _;
-    static const f32 sDownFlyUpSpeed = 40.0f;
-    static const f32 sDownFlyUpSpeedLv3 = 60.0f;
-    static const f32 sDownGravity = 2.0f;
-    // static const f32 sJumpFrontSpeed = _;
-    // static const f32 sJumpFlyUpSpeed = _;
-    // static const f32 sJumpGravity = _;
-    // static const s32 sLandStepVs3Lv3 = _;
+    NEBULA_TUNABLE(f32, sEscapeStartJumpSpeed, 80.0f);
+    static const s32 sEscapeStepVs1Lv1 = NebulaFrameClock::stepsOfSeconds(15);
+    static const s32 sEscapeStep = NebulaFrameClock::stepsOfSeconds(10);
+    NEBULA_TUNABLE(f32, sEscapeRunWallJumpSpeed, 15.0f);
+    static const s32 sDamageTailStep = NebulaFrameClock::stepsOfSeconds(10);
+    static const s32 sDamageTailStepFinal = NebulaFrameClock::stepsOfSeconds(8);
+    NEBULA_TUNABLE(s32, sDamageTailRunStartBreakStep, 40);
+    NEBULA_TUNABLE(f32, sDamageTailRunStartSpeed, 40.0f);
+    NEBULA_TUNABLE(f32, sDamageTailWallJumpSpeed, 15.0f);
+    NEBULA_TUNABLE(s32, sDamageTailRunEndRecoverStep, 105);
+    NEBULA_TUNABLE(f32, sDamageTailTurnDegree, 0.1f);
+    NEBULA_TUNABLE(s32, sDownStopSceneStep, 5);
+    NEBULA_TUNABLE(f32, sDownFlyUpSpeed, 40.0f);
+    NEBULA_TUNABLE(f32, sDownFlyUpSpeedLv3, 60.0f);
+    NEBULA_TUNABLE(f32, sDownGravity, 2.0f);
 };  // namespace
 
 namespace NrvKoopaStateDamageEscape {
@@ -71,7 +67,7 @@ namespace NrvKoopaStateDamageEscape {
 };  // namespace NrvKoopaStateDamageEscape
 
 KoopaStateDamageEscape::KoopaStateDamageEscape(Koopa* pKoopa)
-    : ActorStateBase< Koopa >("State[\223\246\221\226]" /* State[逃走] */, pKoopa), mEscapeTime(-1), mMaxEscapeTime(-1), _18(-1), mIsTurnClockwise(), mIsLastHit(),
+    : ActorStateBase< Koopa >("State[逃走]", pKoopa), mEscapeTime(-1), mMaxEscapeTime(-1), mIsTurnClockwise(), mIsLastHit(),
       mEscapeRunParam(&::sEscapeRunParamLv1), mDamageTailRunParam(&::sDamageTailRunParam), mMaxRunFrames(::sDamageTailStep),
       mRotateVelocity(::sDamageTailRunStartSpeed), mJumpAwayVelocity(::sDownFlyUpSpeed) {
 }
@@ -79,10 +75,10 @@ KoopaStateDamageEscape::KoopaStateDamageEscape(Koopa* pKoopa)
 void KoopaStateDamageEscape::init() {
     initNerve(GET_NERVE(KoopaStateDamageEscape, KoopaStateDamageEscapeNrvEscapeStart));
 
-    KoopaFunction::initKoopaCamera(mHost, "\223\246\221\226\212\112\216\156" /* 逃走開始 */);
-    KoopaFunction::initKoopaCamera(mHost, "\223\246\221\226" /* 逃走 */);
-    KoopaFunction::initKoopaCamera(mHost, "\223\246\221\226\201\151\220\113\224\366\203\137\203\201\201\133\203\127\201\152" /* 逃走（尻尾ダメージ） */);
-    KoopaFunction::initKoopaCamera(mHost, "\223\246\221\226\203\137\203\105\203\223" /* 逃走ダウン */);
+    KoopaFunction::initKoopaCamera(mHost, "逃走開始");
+    KoopaFunction::initKoopaCamera(mHost, "逃走");
+    KoopaFunction::initKoopaCamera(mHost, "逃走（尻尾ダメージ）");
+    KoopaFunction::initKoopaCamera(mHost, "逃走ダウン");
 
     kill();
 }
@@ -90,7 +86,7 @@ void KoopaStateDamageEscape::init() {
 void KoopaStateDamageEscape::appear() {
     mIsDead = false;
 
-    KoopaFunction::endKoopaCamera(mHost, "\223\246\221\226\212\112\216\156" /* 逃走開始 */, false);
+    KoopaFunction::endKoopaCamera(mHost, "逃走開始", false);
     MR::validateHitSensor(mHost, "ReceiverTail");
     MR::validateHitSensor(mHost, "ReceiverTailTop");
 
@@ -148,9 +144,9 @@ void KoopaStateDamageEscape::kill() {
 
     mIsDead = true;
 
-    KoopaFunction::endKoopaCamera(mHost, "\223\246\221\226" /* 逃走 */, false);
-    KoopaFunction::endKoopaCamera(mHost, "\223\246\221\226\201\151\220\113\224\366\203\137\203\201\201\133\203\127\201\152" /* 逃走（尻尾ダメージ） */, false);
-    KoopaFunction::endKoopaCamera(mHost, "\223\246\221\226\203\137\203\105\203\223" /* 逃走ダウン */, false);
+    KoopaFunction::endKoopaCamera(mHost, "逃走", false);
+    KoopaFunction::endKoopaCamera(mHost, "逃走（尻尾ダメージ）", false);
+    KoopaFunction::endKoopaCamera(mHost, "逃走ダウン", false);
 
     MR::invalidateHitSensor(mHost, "ReceiverTail");
     MR::invalidateHitSensor(mHost, "ReceiverTailTop");
@@ -166,17 +162,17 @@ void KoopaStateDamageEscape::startDamageReverse() {
 
 bool KoopaStateDamageEscape::isDownEnd() const {
     if ((KoopaFunction::isKoopaVs1(mHost) || KoopaFunction::isKoopaVs2(mHost)) && KoopaFunction::isKoopaLv3(mHost) &&
-        isNerve(GET_NERVE(KoopaStateDamageEscape, KoopaStateDamageEscapeNrvDown)) && MR::isGreaterStep(this, 45)) {
+        isNerve(GET_NERVE(KoopaStateDamageEscape, KoopaStateDamageEscapeNrvDown)) && MR::isGreaterStep(this, cStep_isDownEnd_1)) {
         return true;
     }
 
     if (KoopaFunction::isKoopaVs3(mHost) && KoopaFunction::isKoopaAngry(mHost) &&
         isNerve(GET_NERVE(KoopaStateDamageEscape, KoopaStateDamageEscapeNrvDown))) {
-        if ((KoopaFunction::isKoopaLv1(mHost) || KoopaFunction::isKoopaLv2(mHost)) && MR::isGreaterStep(this, 45)) {
+        if ((KoopaFunction::isKoopaLv1(mHost) || KoopaFunction::isKoopaLv2(mHost)) && MR::isGreaterStep(this, cStep_isDownEnd_2)) {
             return true;
         }
 
-        if (KoopaFunction::isKoopaLv3(mHost) && MR::isGreaterStep(this, 20)) {
+        if (KoopaFunction::isKoopaLv3(mHost) && MR::isGreaterStep(this, cStep_isDownEnd_3)) {
             return true;
         }
     }
@@ -200,11 +196,11 @@ bool KoopaStateDamageEscape::tryDamage(u32 msg, HitSensor* pSender, HitSensor* p
     }
 
     if (MR::isSensor(pReceiver, "DamageEscapeBody")) {
-        if ((isNerve(GET_NERVE(KoopaStateDamageEscape, KoopaStateDamageEscapeNrvDamageTailRunStart)) && MR::isGreaterStep(this, 60)) ||
+        if ((isNerve(GET_NERVE(KoopaStateDamageEscape, KoopaStateDamageEscapeNrvDamageTailRunStart)) && MR::isGreaterStep(this, NebulaFrameClock::stepsOfSeconds(1))) ||
             isNerve(GET_NERVE(KoopaStateDamageEscape, KoopaStateDamageEscapeNrvDamageTailRun)) ||
-            (isNerve(GET_NERVE(KoopaStateDamageEscape, KoopaStateDamageEscapeNrvDamageTailRunEnd)) && MR::isLessStep(this, 60)) ||
+            (isNerve(GET_NERVE(KoopaStateDamageEscape, KoopaStateDamageEscapeNrvDamageTailRunEnd)) && MR::isLessStep(this, NebulaFrameClock::stepsOfSeconds(1))) ||
             isNerve(GET_NERVE(KoopaStateDamageEscape, KoopaStateDamageEscapeNrvDamageTailRunFinal)) ||
-            (isNerve(GET_NERVE(KoopaStateDamageEscape, KoopaStateDamageEscapeNrvDamageTailRunEndFinal)) && MR::isLessStep(this, 60))) {
+            (isNerve(GET_NERVE(KoopaStateDamageEscape, KoopaStateDamageEscapeNrvDamageTailRunEndFinal)) && MR::isLessStep(this, NebulaFrameClock::stepsOfSeconds(1)))) {
             MR::tryRumblePadVeryStrong(this, PLAYER_1);
             MR::startSpinHitSound(mHost);
             MR::startBlowHitSound(mHost);
@@ -279,7 +275,7 @@ void KoopaStateDamageEscape::exeEscapeStart() {
         MR::startAction(mHost, "EscapeRunStart");
         MR::setVelocityJump(mHost, ::sEscapeStartJumpSpeed);
 
-        KoopaFunction::startKoopaCamera(mHost, "\223\246\221\226\212\112\216\156" /* 逃走開始 */);
+        KoopaFunction::startKoopaCamera(mHost, "逃走開始");
         KoopaFunction::startBreakKoopaTailThorn(mHost);
 
         MR::startSound(mHost, "SE_BM_KOOPA_BURN");
@@ -321,7 +317,7 @@ void KoopaStateDamageEscape::exeEscapeStartLand() {
 void KoopaStateDamageEscape::exeEscapeRun() {
     if (MR::isFirstStep(this)) {
         MR::startAction(mHost, "EscapeRun");
-        KoopaFunction::startKoopaCamera(mHost, "\223\246\221\226" /* 逃走 */);
+        KoopaFunction::startKoopaCamera(mHost, "逃走");
     }
 
     KoopaFunction::escapeKoopaFromPlayer(mHost, *mEscapeRunParam);
@@ -354,7 +350,7 @@ void KoopaStateDamageEscape::exeEscapeFind() {
     mEscapeTime++;
 
     if (MR::isActionEnd(mHost)) {
-        TVec3f* front = KoopaFunction::getKoopaFrontPtr(mHost);
+        Vec3f* front = KoopaFunction::getKoopaFrontPtr(mHost);
         front->x *= -1.0f;
         front->y *= -1.0f;
         front->z *= -1.0f;
@@ -391,7 +387,7 @@ void KoopaStateDamageEscape::exeDamageTailRunStart() {
 
         MR::setVelocity(pKoopa, KoopaFunction::getKoopaFront(pKoopa) * mRotateVelocity);
 
-        KoopaFunction::startKoopaCamera(mHost, "\223\246\221\226\201\151\220\113\224\366\203\137\203\201\201\133\203\127\201\152" /* 逃走（尻尾ダメージ） */);
+        KoopaFunction::startKoopaCamera(mHost, "逃走（尻尾ダメージ）");
 
         MR::invalidateHitSensor(mHost, "ReceiverTail");
         MR::invalidateHitSensor(mHost, "ReceiverTailTop");
@@ -488,13 +484,13 @@ void KoopaStateDamageEscape::exeDown() {
     if (MR::isFirstStep(this)) {
         MR::startAction(mHost, "Down");
         MR::setVelocityJumpAwayFromPlayer(mHost, 35.0f, mJumpAwayVelocity);
-        KoopaFunction::startKoopaCamera(mHost, "\223\246\221\226\203\137\203\105\203\223" /* 逃走ダウン */);
+        KoopaFunction::startKoopaCamera(mHost, "逃走ダウン");
         MR::emitEffect(mHost, "DownSmoke");
     }
 
     MR::addVelocityToGravity(mHost, ::sDownGravity);
 
-    TVec3f velocity = mHost->mVelocity;
+    Vec3f velocity = mHost->mVelocity;
     MR::vecKillElement(velocity, getHost()->mGravity, &velocity);
 
     if (!MR::isNearZero(velocity)) {

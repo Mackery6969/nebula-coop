@@ -15,12 +15,12 @@ class BossKameck : public LiveActor {
 public:
     BossKameck(const char*, const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void makeActorDead();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void makeActorDead() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
 
     BossKameckMoveRail* getMoveRail(s32);
     void startSequence();
@@ -34,15 +34,15 @@ public:
     void setPose(MtxPtr);
     void killAllBeam();
     void updatePose();
-    void initKameckHolder(const JMapInfoIter&);
-    void initMoveRail(const JMapInfoIter&);
+    void initKameckHolder(const TableIter&);
+    void initMoveRail(const TableIter&);
     void appearStarPieceToUp(s32);
     void startDemo();
     void hitBeam(s32);
 
     const char* mModelName;
-    TQuat4f _90;
-    TVec3f _A0;
+    Quat4f mPoseQuat;
+    Vec3f mFront;
     BossKameckSequencer* mSequencer;
     KameckHolder* mKameckHolder;
     ActorJointCtrl* mJointCtrl;
@@ -50,7 +50,7 @@ public:
     BossKameckBeamEventListener* mBeamEventListener;
     BossKameckMoveRail** mMoveRail;
     s32 mMoveRailNum;
-    TVec3f _C8;
+    Vec3f mLastVelocity;
     s32 mObjArg7;
 };
 
@@ -59,7 +59,7 @@ public:
     BossKameckBeamEventListener(BossKameck* pBoss) : KameckBeamEventListener(), mBossKameck(pBoss) {
     }
 
-    virtual void hitBeam(s32 type) {
+    virtual void hitBeam(s32 type) override {
         mBossKameck->hitBeam(type);
     }
 

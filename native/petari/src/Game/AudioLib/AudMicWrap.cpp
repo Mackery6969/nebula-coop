@@ -1,12 +1,11 @@
 #include "Game/AudioLib/AudMicWrap.hpp"
-#include "Game/AudioLib/AudAudience.hpp"
 #include "Game/AudioLib/AudParams.hpp"
 #include "Game/AudioLib/AudSystem.hpp"
 #include "Game/AudioLib/AudWrap.hpp"
 
 namespace AudMicWrap {
-    void setMicMtx(MtxPtr pMtx, s32 param2) {
-        AudWrap::getSystem()->setMicMtx(pMtx, param2);
+    void setMicMtx(MtxPtr pMtx, s32 mic) {
+        AudWrap::getSystem()->setMicMtx(pMtx, mic);
     }
 
     void setMicEnv() {
@@ -28,7 +27,7 @@ namespace AudMicWrap {
         AudWrap::getSystem()->mAudience.updateSetting();
     }
 
-    const TVec3f& getMicPos() {
+    const Vec3f& getMicPos() {
         return AudWrap::getSystem()->getMicPos(0);
     }
 };  // namespace AudMicWrap

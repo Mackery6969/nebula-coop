@@ -1,26 +1,26 @@
 #pragma once
 
 #include "Game/LiveActor/ShadowVolumeModel.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
-class J3DModelData;
+class ModelData;
 
 class ShadowVolumeFlatModel : public ShadowVolumeModel {
 public:
     ShadowVolumeFlatModel(const char*);
     ShadowVolumeFlatModel();
 
-    inline virtual ~ShadowVolumeFlatModel();
-    virtual void draw() const;
-    virtual void loadModelDrawMtx() const;
+    inline virtual ~ShadowVolumeFlatModel() override;
+    virtual void draw() const override;
+    virtual void loadModelDrawMtx(TypedDraw& rDraw) const override;
 
     void initModel(const char*);
     void setBaseMatrixPtr(MtxPtr);
     void initJointDrawMtxResister();
-    void calcRootJoint(TPos3f*, const TVec3f&) const;
-    void calcDropJoint(TPos3f*, const TVec3f&) const;
+    void calcRootJoint(Pos3f*, const Vec3f&) const;
+    void calcDropJoint(Pos3f*, const Vec3f&) const;
 
     MtxPtr mBaseMtx;
-    s32 mRootDrawMtxIndex;
-    s32 mDropDrawMtxIndex;
+    u32 mRootJoint;
+    u32 mDropJoint;
 };

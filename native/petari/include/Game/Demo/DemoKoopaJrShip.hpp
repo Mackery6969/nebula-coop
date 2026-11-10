@@ -6,19 +6,17 @@ class KoopaJr;
 
 class DemoKoopaJrShip : public LiveActor {
 public:
-    /// @brief Creates a new `DemoKoopaJrShip`.
-    /// @param pName A pointer to the null-terminated name of the object.
     DemoKoopaJrShip(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void appear();
-    virtual void control();
+    virtual void init(const TableIter& rIter) override;
+    virtual void appear() override;
+    virtual void control() override;
 
     void exeAppear();
     void exeTalk();
     void exeFlyAway();
-    void initAnimID(const JMapInfoIter& rIter);
-    void createKoopaJrObj(const JMapInfoIter& rIter);
+    void initAnimID(const TableIter& rIter);
+    void createKoopaJrObj(const TableIter& rIter);
     bool tryDemoEnd();
     void startEntryAnim();
     void startLeaveAnim();

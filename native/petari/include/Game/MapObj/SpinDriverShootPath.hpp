@@ -1,8 +1,8 @@
 #pragma once
 
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
-class JMapInfoIter;
+class TableIter;
 class RailRider;
 class ParabolicPath;
 
@@ -10,17 +10,17 @@ class SpinDriverShootPath {
 public:
     SpinDriverShootPath();
 
-    void init(const JMapInfoIter&);
-    void initUsingParabolic(const JMapInfoIter&, const TVec3f&);
-    void setStartPosition(const TVec3f&);
-    void calcPosition(TVec3f*, f32) const;
-    void calcDirection(TVec3f*, f32, f32) const;
-    void calcInitPose(TVec3f*, TVec3f*, TVec3f*, f32) const;
+    void init(const TableIter&);
+    void initUsingParabolic(const TableIter&, const Vec3f& rStartPos);
+    void setStartPosition(const Vec3f& rStartPos);
+    void calcPosition(Vec3f* pOutPosition, f32 rate) const;
+    void calcDirection(Vec3f* pOutDirection, f32 rate, f32 step) const;
+    void calcInitPose(Vec3f* pUp, Vec3f* pFront, Vec3f* pSide, f32 rollDegree) const;
     f32 getTotalLength() const;
-    void calcClippingInfo(TVec3f*, f32*, f32, f32);
+    void calcClippingInfo(Vec3f* pCenter, f32* pRadius, f32 sampleInterval, f32 margin);
 
     RailRider* mRailRider;
     ParabolicPath* mPath;
-    TVec3f mStartPosition;
+    Vec3f mStartPosition;
     bool mUsesParabolic;
 };

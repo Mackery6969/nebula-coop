@@ -4,80 +4,71 @@
 #include "Game/NPC/TalkNodeCtrl.hpp"
 #include "Game/System/GameSystemObjHolder.hpp"
 #include "Game/Util/FileUtil.hpp"
+#include "Game/Util/StringUtil.hpp"
 #include "Game/Util/SystemUtil.hpp"
 #include "Game/System/NebulaText.hpp"
 #include <cstring>
 #include "Game/System/AssetFolder.hpp"
-#include "Game/Util/ByteView.hpp"
-
-#define SYSTEMMESSAGE_ARC "/Memory/SystemMessage.arc"
-#define MESSAGE_ARC "/MessageData/Message.arc"
 
 namespace {
-    u8* getBlock(u32 magic, u8* pData) {
-        u32 numBlocks = readBytes< u32 >(pData + 0xc);
-        pData += 0x20;
-
-        for (u32 i = 0; i < numBlocks; i++) {
-            u32 blockMagic = readBytes< u32 >(pData);
-
-            if (blockMagic == magic) {
-                return pData;
-            }
-
-            u32 blockSize = readBytes< u32 >(pData + 4);
-            pData += blockSize;
-        }
-
-        return nullptr;
-    }
-
-    // The importer's mark (crates/nebula-import cook/native_data.rs BMG_HOST_ORDER): the whole file is in host
-    // order, in the header's last padding byte.
-    const u32 cHostOrderMarkOffset = 0x1F;
-    const u8 cHostOrderMark = 2;
-};  // namespace
+    const char* const cSystemMessageArc = "/Memory/SystemMessage";
+    const char* const cMessageArc = "/MessageData/Message";
+}  // namespace
 
 bool MessageData::getMessageDirect(TalkMessageInfo* pMessageInfo, const char* pMessage) const {
-    if (const char16_t* pWords = NebulaMods::text(pMessage)) {
-        pMessageInfo->_0 = reinterpret_cast< u8* >(const_cast< char16_t* >(pWords));
+    // No id (a placement without a message name) finds no message, as an unknown id does.
+    if (pMessage == nullptr) {
+        return false;
+    }
+
+    // A mod's words: a line of the game keeps its talk (camera set, sound, camera, talk and balloon type, area), a new line
+    // takes the talk of the game's line it names as like, else an ordinary talk.
+    const char* pLike = nullptr;
+    if (const char16_t* pWords = NebulaMods::text(pMessage, &pLike)) {
+        const s32 talkIndex = findMessageIndex(pLike != nullptr ? pLike : pMessage);
+        if (talkIndex < 0 || !getMessage(pMessageInfo, static_cast< u32 >(talkIndex))) {
+            *pMessageInfo = TalkMessageInfo();
+        }
+        pMessageInfo->mMessage = pWords;
         return true;
     }
 
     // Nebula's own talk (Nebula_<id>: the Achievement Luma's): an Observatory Luma's talk settings (a normal talk in
     // its balloon, with its voice and camera) and Nebula's words in the played language.
     static const char cNebula[] = "Nebula_";
-    if (strncmp(pMessage, cNebula, sizeof(cNebula) - 1) == 0) {
+    if (MR::isEqualStringPrefix(pMessage, cNebula)) {
         const char16_t* pText = NebulaText::getTalk(pMessage + sizeof(cNebula) - 1);
         const s32 templateIndex = findMessageIndex("AstroGalaxy_Tico034");
-        if (pText == nullptr || templateIndex < 0 || templateIndex >= mInfoBlock->mItemCount) {
+        if (pText == nullptr || templateIndex < 0 || static_cast< u32 >(templateIndex) >= getMessageNum()) {
             return false;
         }
-        getMessage(pMessageInfo, 0, templateIndex);
-        pMessageInfo->_0 = reinterpret_cast< u8* >(const_cast< char16_t* >(pText));
+        getMessage(pMessageInfo, templateIndex);
+        pMessageInfo->mMessage = pText;
         return true;
     }
     s32 messageIndex = findMessageIndex(pMessage);
 
-    if (messageIndex >= 0 && messageIndex < mInfoBlock->mItemCount) {
-        getMessage(pMessageInfo, 0, messageIndex);
-
-        return true;
+    if (messageIndex >= 0) {
+        return getMessage(pMessageInfo, messageIndex);
     }
 
     return false;
 }
 
-bool MessageData::getMessage(TalkMessageInfo* pMessageInfo, u16, u16 infoToolIndex) const {
-    u8* pInfoTool = getMessageInfoTool(infoToolIndex);
-    pMessageInfo->_0 = reinterpret_cast< u8* >(mDataBlock + 1) + readBytes< u32 >(pInfoTool);
-    pMessageInfo->mCameraSetID = readBytes< u16 >(pInfoTool + 4);
-    pMessageInfo->_6 = *(pInfoTool + 6);
-    pMessageInfo->mCameraType = *(pInfoTool + 7);
-    pMessageInfo->mTalkType = *(pInfoTool + 8);
-    pMessageInfo->_A = *(pInfoTool + 0xa);
-    pMessageInfo->_B = *(pInfoTool + 0xb);
-    pMessageInfo->mBalloonType = *(pInfoTool + 9);
+bool MessageData::getMessage(TalkMessageInfo* pMessageInfo, u32 index) const {
+    if (index >= getMessageNum()) {
+        return false;
+    }
+
+    const MessageRecord& rRecord = mMessages[index];
+    pMessageInfo->mMessage = mText + rRecord.mText;
+    pMessageInfo->mCameraSetID = rRecord.mCameraSetID;
+    pMessageInfo->mSoundId = rRecord.mSoundId;
+    pMessageInfo->mCameraType = rRecord.mCameraType;
+    pMessageInfo->mTalkType = rRecord.mTalkType;
+    pMessageInfo->mAreaId = rRecord.mAreaId;
+    pMessageInfo->mAlreadyReadId = rRecord.mAlreadyReadId;
+    pMessageInfo->mBalloonType = rRecord.mBalloonType;
 
     return true;
 }
@@ -85,10 +76,10 @@ bool MessageData::getMessage(TalkMessageInfo* pMessageInfo, u16, u16 infoToolInd
 TalkNode* MessageData::findNode(const char* pMessage) const {
     s32 messageIndex = findMessageIndex(pMessage);
 
-    for (int i = 0; i < mFlowBlock->mNodeCount; i++) {
-        TalkNode* pNode = reinterpret_cast< TalkNode* >(mFlowBlock + 1) + i;
+    for (u32 i = 0; i < mFile->mNodeNum; i++) {
+        TalkNode* pNode = &mNodes[i];
 
-        if (pNode->mNodeType == 1 && pNode->mIndex == messageIndex) {
+        if (pNode->mNodeType == TalkNodeType_Message && static_cast< s32 >(pNode->mIndex) == messageIndex) {
             return pNode;
         }
     }
@@ -97,19 +88,15 @@ TalkNode* MessageData::findNode(const char* pMessage) const {
 }
 
 TalkNode* MessageData::getNode(u32 index) const {
-    return reinterpret_cast< TalkNode* >(mFlowBlock + 1) + index;
+    return &mNodes[index];
 }
 
 TalkNode* MessageData::getBranchNode(u32 index) const {
-    return reinterpret_cast< TalkNode* >(mFlowBlock + 1) + _14[index];
+    return &mNodes[mBranches[index]];
 }
 
 bool MessageData::isValidBranchNode(u32 index) const {
-    return _14[index] != 0xffff;
-}
-
-u8* MessageData::getMessageInfoTool(int index) const {
-    return reinterpret_cast< u8* >(mInfoBlock + 1) + mInfoBlock->mItemSize * index;
+    return mBranches[index] != cNoNode;
 }
 
 MessageHolder::MessageHolder() : mSystemMessageData(nullptr), mGameMessageData(nullptr), mSceneMessageData(nullptr) {
@@ -140,43 +127,28 @@ MessageData* MessageSystem::getSceneMessageData() {
 }
 
 MessageData::MessageData(const char* pArchiveName)
-    : mIDTable(nullptr), mInfoBlock(nullptr), mDataBlock(nullptr), _C(0), mFlowBlock(nullptr), _14(nullptr), _18(nullptr), mFLI1Block(nullptr) {
-    AssetFolder* pArchive = nullptr;
-    NebulaArena* pHeap = nullptr;
-    MR::getMountedArchiveAndHeap(pArchiveName, &pArchive, &pHeap);
+    : mIDTable(nullptr), mFile(nullptr), mMessages(nullptr), mText(nullptr), mNodes(nullptr), mBranches(nullptr) {
+    AssetFolder* pArchive = MR::getArchive(pArchiveName);
 
     u8* msgData = (u8*)pArchive->getResource("Message.bmg");
     u8* mapData = (u8*)pArchive->getResource("MessageId.tbl");
 
-    mIDTable = new JMapInfo();
+    mIDTable = new Table();
     mIDTable->attach(mapData);
 
-    if (msgData[cHostOrderMarkOffset] != cHostOrderMark) {
-        NEBULA_PANIC("%s: Message.bmg is not in host order (the importer cooks it)",
-                              pArchiveName);
+    mFile = reinterpret_cast< const MessageFileHeader* >(msgData);
+    if (mFile->mMagic[0] != 'N' || mFile->mMagic[1] != 'M' || mFile->mMagic[2] != 'S' || mFile->mMagic[3] != 'G') {
+        NEBULA_PANIC("%s: Message.bmg the importer did not cook", pArchiveName);
     }
-    mInfoBlock = (MessageInfoBlock*)::getBlock('INF1', msgData);
-    mDataBlock = (MessageDataBlock*)::getBlock('DAT1', msgData);
-    mFlowBlock = (MessageFlowBlock*)::getBlock('FLW1', msgData);
-
-    if (mFlowBlock != nullptr) {
-        _14 = reinterpret_cast< u16* >(reinterpret_cast< TalkNode* >(mFlowBlock + 1) + mFlowBlock->mNodeCount);
-        _18 = reinterpret_cast< u8* >(_14 + mFlowBlock->_A);
-    }
-
-    mFLI1Block = (MessageFLI1Block*)::getBlock('FLI1', msgData);
-}
-
-inline JMapInfoIter end(const JMapInfo* pInfo) {
-    return JMapInfoIter(pInfo, pInfo->getNumEntries());
+    mMessages = reinterpret_cast< const MessageRecord* >(msgData + mFile->mMessageOffset);
+    mText = reinterpret_cast< const char16_t* >(msgData + mFile->mTextOffset);
+    mNodes = reinterpret_cast< TalkNode* >(msgData + mFile->mNodeOffset);
+    mBranches = reinterpret_cast< const u32* >(msgData + mFile->mBranchOffset);
 }
 
 s32 MessageData::findMessageIndex(const char* pMessage) const {
-    JMapInfoIter iter = mIDTable->findElementBinary("MessageId", pMessage);
-
-    // This *should* be mIDTable->end(), but I have had trouble
-    // getting the compiler to inline that (see comment in JMapInfo.hpp)
-    if (iter == end(mIDTable)) {
+    TableIter iter = mIDTable->findElementBinary("MessageId", pMessage);
+    if (iter == mIDTable->end()) {
         return -1;
     }
 
@@ -186,12 +158,29 @@ s32 MessageData::findMessageIndex(const char* pMessage) const {
     return messageIndex;
 }
 
+const char* MessageData::findMessageName(u32 index) const {
+    const s32 idColumn = mIDTable->searchItemInfo("MessageId");
+    const s32 indexColumn = mIDTable->searchItemInfo("Index");
+    if (idColumn < 0 || indexColumn < 0) {
+        return nullptr;
+    }
+
+    for (int i = 0; i < mIDTable->getNumEntries(); i++) {
+        s32 value = -1;
+        const char* pName = nullptr;
+        if (mIDTable->getValueFast(i, indexColumn, &value) && static_cast< u32 >(value) == index &&
+            mIDTable->getValueFast(i, idColumn, &pName)) {
+            return pName;
+        }
+    }
+
+    return nullptr;
+}
+
 void MessageHolder::initSystemData() {
-    mSystemMessageData = new MessageData(SYSTEMMESSAGE_ARC);
+    mSystemMessageData = new MessageData(::cSystemMessageArc);
 }
 
 void MessageHolder::initGameData() {
-    MR::mountArchive(MESSAGE_ARC, nullptr);
-
-    mGameMessageData = new MessageData(MESSAGE_ARC);
+    mGameMessageData = new MessageData(::cMessageArc);
 }

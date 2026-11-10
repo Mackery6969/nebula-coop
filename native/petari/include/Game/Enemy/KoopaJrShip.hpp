@@ -2,39 +2,38 @@
 
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/Util/Array.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class CannonShellHolder;
 class HomingKiller;
-class JMapInfoIter;
+class TableIter;
 class Kameck;
 class KoopaJr;
 class ModelObj;
-class NameObjArchiveListCollector;
 
 class KoopaJrShip : public LiveActor {
 public:
     KoopaJrShip(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void kill();
-    virtual void control();
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
 
     void initShells();
-    void initKoopaJr(const JMapInfoIter&);
-    void initKameck(const JMapInfoIter&);
+    void initKoopaJr(const TableIter&);
+    void initKameck(const TableIter&);
     void initKiller();
     bool receiveMsgJetTurtleAttack(HitSensor*, HitSensor*);
     s32 getNumShootShells() const;
     f32 getPropellerRotSpeed() const;
     void updateCoordSpeed();
-    void calcLauncherInfo(TVec3f*, TVec3f*, s32) const;
-    void calcLauncherInfoKiller(TVec3f*, TVec3f*, s32) const;
-    void shootShell(s32);
+    void calcLauncherInfo(Vec3f* pPos, Vec3f* pDir, s32 idx) const;
+    void calcLauncherInfoKiller(Vec3f* pPos, Vec3f* pDir, s32 idx) const;
+    void shootShell(s32 idx);
     bool tryShootAllKillers();
-    void shootKiller(s32);
+    void shootKiller(s32 idx);
     void shootKillersAfterDamage();
     bool isExistActiveKiller() const;
     bool isExistActiveKameck() const;
@@ -58,38 +57,33 @@ public:
     void exeBreakEnd();
     void exeTurnFront();
 
-    static void makeArchiveList(NameObjArchiveListCollector*, const JMapInfoIter&);
-
-    inline bool isNextStateDamage(s32& x) {
-        return --x <= 0;
+    // Takes a hit point; true when none is left.
+    inline bool damageAndIsBroken(s32& rHitPoint) {
+        return --rHitPoint <= 0;
     }
 
     inline bool isStateBreak() const;
-
-    s32 get_D0() const {
-        return _D0;
-    }
 
     CannonShellHolder* mShellHolder;
     CannonShellHolder* mMainShellHolder;
     KoopaJr* mJr;
     ModelObj* mShipBreakModel;
     ModelObj* mPodModel;
-    MR::Vector< MR::FixedArray< Kameck*, 2 > > mKamecks;
-    MR::Vector< MR::FixedArray< Kameck*, 2 > > _AC;
-    MR::FixedArray< HomingKiller*, 6 > mKillers;
-    s32 _D0;
-    TVec3f _D4;
-    TVec3f _E0;
-    f32 _EC;
+    MR::InlineVector< Kameck*, 2 > mKamecks;
+    MR::InlineVector< Kameck*, 2 > mKamecksAtTurn;
+    MR::InlineArray< HomingKiller*, 6 > mKillers;
+    s32 mHitPoint;
+    Vec3f mHitPos;
+    Vec3f mHitDir;
+    f32 mPropAngle;
     f32 mPropRotateSpeed;
-    TPos3f mScrew00Mtx;
-    TPos3f mScrew01Mtx;
-    TRot3f mPropellerMtx;
-    f32 _184;
-    s32 _188;
-    TMtx34f mShipMtx;
-    TMtx34f mPodMtx;
-    TVec3f _1EC;
-    TVec3f _1F8;
+    Pos3f mScrew00Mtx;
+    Pos3f mScrew01Mtx;
+    Rot3f mPropellerMtx;
+    f32 mCoordSpeed;
+    s32 mSpeedEaseStep;
+    Mtx34f mShipMtx;
+    Mtx34f mPodMtx;
+    Vec3f mJrLocalPos;
+    Vec3f mInitPos;
 };

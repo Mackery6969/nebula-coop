@@ -1,39 +1,32 @@
 #pragma once
 
-#include "Game/Util/JMapInfo.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include "Game/Util/Table.hpp"
+#include <nebula_geometry.hpp>
 #include <NebulaGpu.h>
 #include <nebula_math.h>
 
-class JMapInfo;
+class Table;
 
 struct KC_PrismData {
     f32 mHeight;
-    u16 mPositionIndex;
-    u16 mNormalIndex;
-    u16 mEdgeIndices[3];
-    u16 mAttribute;
+    u32 mPositionIndex;
+    u32 mNormalIndex;
+    u32 mEdgeIndices[3];
+    u32 mAttribute;
 };
 
-class Fxyz {
-public:
-    inline Fxyz() {
-    }
-
-    Fxyz& operator=(const Fxyz&);
-
-    f32 x, y, z;
-};
-
-// A collision model natively: its arrays and octree, and its scalars. KCollisionServer::setData makes one from a
-// cooked .kcl (KCLHeader); DynamicCollisionObj builds its own (KCollisionServer::setModel).
+// A collision model: its arrays and octree, and its scalars. KCollisionServer::setData makes one from a cooked .kcl
+// (NcolHeader); DynamicCollisionObj builds its own (KCollisionServer::setModel).
+// Octree words: below 2^31, the offset in words from its block's first word of a block of eight children; with the top bit
+// set, the index in mLists of a list's first word, which is not read (the list is the prism numbers after it, to a 0).
 struct KCLFile {
-    TVec3f* mPos;
-    TVec3f* mNorms;
+    Vec3f* mPos;
+    Vec3f* mNorms;
     KC_PrismData* mPrisms;  // 1-based
-    void* mOctree;
+    const u32* mOctree;
+    const u32* mLists;
     f32 mThickness;
-    TVec3f mMin;
+    Vec3f mMin;
     s32 mXMask;
     s32 mYMask;
     s32 mZMask;
@@ -43,13 +36,18 @@ struct KCLFile {
     s32 mTriangleNum;
 };
 
-// A .kcl's header as the importer cooks it (host order, crates/nebula-import cook/native_data.rs): the arrays'
-// offsets from the file's start, then the scalars.
-struct KCLHeader {
+// A .kcl as the importer cooks it (crates/nebula-import cook/kcl.rs): offsets from the file's start, counts, scalars.
+struct NcolHeader {
+    char mMagic[4];  // "NCOL"
     u32 mPosOffset;
+    u32 mPosNum;
     u32 mNormOffset;
+    u32 mNormNum;
     u32 mPrismOffset;
+    u32 mPrismNum;  // entry 0 not counted
     u32 mOctreeOffset;
+    u32 mListOffset;
+    u32 mListNum;
     f32 mThickness;
     f32 mMin[3];
     s32 mXMask;
@@ -67,7 +65,7 @@ public:
         inline V3u() {
         }
 
-        void setUsingCast(const TVec3f&);
+        void setUsingCast(const Vec3f&);
 
         u32 x;
         u32 y;
@@ -76,39 +74,48 @@ public:
 
     KCollisionServer();
 
-    void init(void*, const void*);
-    void setData(void*);
+    void init(void* pData, const void* pMapData);
+    void setData(void* pData);
     // A model the game built (no file): DynamicCollisionObj.
-    void setModel(KCLFile*);
-    void initModel(KCLFile*, const void*);
+    void setModel(KCLFile* pModel);
+    void initModel(KCLFile* pModel, const void* pMapData);
     bool calcFarthestVertexDistance();
-    KC_PrismData* checkPoint(Fxyz*, f32, f32*);
-    u32 checkArea3D(Fxyz*, Fxyz*, KC_PrismData**, u32);
-    u32 checkSphere(Fxyz*, f32, f32, u32, KC_PrismData**, f32*, u8*);
-    u32 checkSphereWithThickness(Fxyz*, f32, f32, u32, KC_PrismData**, f32*, u8*, f32);
-    KC_PrismData* checkArrow(const TVec3f&, const TVec3f&, f32*, u8*, u32*, KC_PrismData**, u32) const;
-    bool KCHitSphere(KC_PrismData*, Fxyz*, f32, f32, f32*, u8*);
-    bool KCHitSphereWithThickness(KC_PrismData*, Fxyz*, f32, f32, f32*, u8*, f32);
-    bool isNearParallelNormal(const KC_PrismData*) const;
-    bool KCHitArrow(KC_PrismData*, const TVec3f&, const TVec3f&, f32*, u8*) const;
+    KC_PrismData* checkPoint(const Vec3f* pPoint, f32 param, f32* pDist);
+    u32 checkArea3D(const Vec3f* pMin, const Vec3f* pMax, KC_PrismData** pOut, u32 maxCount);
+    // A hit part (HitInfo::mHitPart): 1 the face, 2-4 the edge of edge plane 0-2 (vertices 0-2, 0-1, 1-2), 5-7 vertex 0-2
+    // (where edge planes 0-1, 1-2, 2-0 meet).
+    u32 checkSphere(const Vec3f* pCenter, f32 radius, f32 param, u32 maxCount, KC_PrismData** pOut, f32* pDists, u8* pHitParts);
+    u32 checkSphereWithThickness(const Vec3f* pCenter, f32 radius, f32 param, u32 maxCount, KC_PrismData** pOut, f32* pDists, u8* pHitParts,
+                                 f32 thickness);
+    KC_PrismData* checkArrow(const Vec3f& rOrigin, const Vec3f& rDir, f32* pDists, u8* pHitParts, u32* pCount, KC_PrismData** pOut,
+                             u32 maxCount) const;
+    u32 checkSpherePrisms(const Vec3f* pCenter, f32 radius, f32 threshold, bool isThick, u32 maxCount, KC_PrismData** pOut, f32* pDists,
+                          u8* pHitParts);
+    bool hitSpherePrism(KC_PrismData* pPrism, const Vec3f* pCenter, f32 radius, f32 threshold, f32* pDist, u8* pHitPart, bool isThick);
+    // Defined and used in KCollision.cpp only.
+    template < typename Visit >
+    void visitPrismsInBlocks(const V3u& rPointMin, const V3u& rPointMax, Visit visit) const;
+    bool isNearParallelNormal(const KC_PrismData* pPrism) const;
+    bool KCHitArrow(KC_PrismData* pPrism, const Vec3f& rOrigin, const Vec3f& rDir, f32* pDist, u8* pHitPart) const;
     s32 toIndex(const KC_PrismData*) const;
-    TVec3f* getFaceNormal(const KC_PrismData*) const;
-    TVec3f* getEdgeNormal1(const KC_PrismData*) const;
-    TVec3f* getEdgeNormal2(const KC_PrismData*) const;
-    TVec3f* getEdgeNormal3(const KC_PrismData*) const;
-    TVec3f* getNormal(u32) const;
-    void calXvec(const Fxyz*, const Fxyz*, Fxyz*) const;
-    TVec3f getPos(const KC_PrismData*, int) const;
+    Vec3f* getFaceNormal(const KC_PrismData*) const;
+    Vec3f* getEdgeNormal1(const KC_PrismData*) const;
+    Vec3f* getEdgeNormal2(const KC_PrismData*) const;
+    Vec3f* getEdgeNormal3(const KC_PrismData*) const;
+    Vec3f* getNormal(u32) const;
+    void calXvec(const Vec3f*, const Vec3f*, Vec3f*) const;
+    Vec3f getPos(const KC_PrismData*, int) const;
     KC_PrismData* getPrismData(u32) const;
     s32 getTriangleNum() const;
-    JMapInfoIter getAttributes(u32) const;
-    s32* searchBlock(s32*, const u32&, const u32&, const u32&) const;
+    TableIter getAttributes(u32) const;
+    // The list (its unread first word) of the leaf holding the point; *pShift becomes the leaf's width shift.
+    const u32* searchBlock(s32* pShift, const u32&, const u32&, const u32&) const;
     bool isInsideMinMaxInLocalSpace(const V3u&) const;
-    bool outCheck(const TVec3f*, const TVec3f*, V3u*, V3u*) const;
-    void objectSpaceToLocalSpace(V3u*, const TVec3f&) const;
+    bool outCheck(const Vec3f*, const Vec3f*, V3u*, V3u*) const;
+    void objectSpaceToLocalSpace(V3u*, const Vec3f&) const;
 
     KCLFile* mFile;
-    JMapInfo* mapInfo;
+    Table* mapInfo;
     f32 mMaxVertexDistance;
     KCLFile mModel;  // the view of a cooked file
 };

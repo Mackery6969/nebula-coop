@@ -9,7 +9,7 @@
 
 bool Mario::checkWallJumpCode() {
     if (checkWallFloorCode(11) || checkWallFloorCode(6) || checkWallFloorCode(34) || checkWallFloorCode(7) || checkWallFloorCode(8)) {
-        if (mMovementStates._1 || isAnimationRun(_728)) {
+        if (mMovementStates.onGround || isAnimationRun(mHipDropLandAnim)) {
             stopWalk();
             push(getWallNorm() * 10.0f);
             tryPushToVelocity();
@@ -42,19 +42,19 @@ bool Mario::doSideStep() {
     if (getCurrentStatus() == MarioStatus_SideStep) {
         return false;
     }
-    if (checkWallCode("NotSideStep", false)) {
+    if (checkWallCode(CollisionWallCode_NotSideStep, false)) {
         return false;
     }
-    if (checkWallCode("NoAction", false)) {
+    if (checkWallCode(CollisionWallCode_NoAction, false)) {
         return false;
     }
-    if (mActor->_468) {
+    if (mActor->mTakeCount) {
         return false;
     }
-    if (_1C._5) {
+    if (mHitStates.karikariClinging) {
         return false;
     }
-    if (_72C < 200.0f) {
+    if (mCeilDist < 200.0f) {
         return false;
     }
     if (getPlayerMode() == PlayerMode_Hopper) {
@@ -63,18 +63,18 @@ bool Mario::doSideStep() {
     if (calcPolygonAngleD(mFrontWallTriangle) > 91.0f) {
         return false;
     }
-    f32 angle = MR::diffAngleAbs(getFrontWallNorm(), _368);
+    f32 angle = MR::diffAngleAbs(getFrontWallNorm(), mGroundNorm);
     if (angle >= 1.6534699f || angle < 1.4959966f) {
         return false;
     }
-    bool cannotSideStep = !isSlipFloorCode(_960);
+    bool cannotSideStep = !isSlipFloorCode(mFloorCode);
     if (cannotSideStep) {
         return false;
     }
-    if (_960 == 2) {
+    if (mFloorCode == 2) {
         return false;
     }
-    if (!getPlayer()->mMovementStates._8) {
+    if (!getPlayer()->mMovementStates.frontWall) {
         return false;
     }
     const Triangle* wall = getPlayer()->getWallPolygon();
@@ -91,71 +91,71 @@ bool Mario::doSideStep() {
 }
 
 bool MarioSideStep::start() {
-    if (!isAnimationRun("\225\307\211\237\202\265" /* 壁押し */)) {
-        playSound("\220\272\225\307\211\237\202\265" /* 声壁押し */);
+    if (!isAnimationRun("壁押し")) {
+        playSound("声壁押し");
     }
-    changeAnimation("\225\307\211\237\202\265" /* 壁押し */, 0u);
+    changeAnimation("壁押し", MarioIndexedAnime_WallPush);
     mActor->setBlendMtxTimer(10);
     return true;
 }
 
 bool MarioSideStep::close() {
-    stopAnimation("\225\307\203\105\203\107\203\103\203\147" /* 壁ウエイト */);
-    stopAnimation("\225\307\211\105\225\340\202\253" /* 壁右歩き */);
-    stopAnimation("\225\307\215\266\225\340\202\253" /* 壁左歩き */);
-    stopAnimation("\225\307\211\237\202\265" /* 壁押し */);
+    stopAnimation("壁ウエイト");
+    stopAnimation("壁右歩き");
+    stopAnimation("壁左歩き");
+    stopAnimation("壁押し");
     getPlayer()->startBas(nullptr, false, 0.0f, 0.0f);
     return true;
 }
 
 bool MarioSideStep::update() {
-    if (!getPlayer()->mMovementStates._8) {
+    if (!getPlayer()->mMovementStates.frontWall) {
         return false;
     }
-    if (getPlayer()->_1C._5) {
+    if (getPlayer()->mHitStates.karikariClinging) {
         return false;
     }
-    if (getPlayer()->mDrawStates._A) {
+    if (getPlayer()->mDrawStates.atEdge) {
         return false;
     }
     if (MR::isNormalTalking()) {
         return false;
     }
-    if (mActor->_468) {
+    if (mActor->mTakeCount) {
         return false;
     }
     Mario* player = getPlayer();
-    bool cannotSideStep = !isSlipFloorCode(player->_960);
+    bool cannotSideStep = !isSlipFloorCode(player->mFloorCode);
     if (cannotSideStep) {
         return false;
     }
     if (getStickP() < 0.1f) {
-        changeAnimation("\225\307\203\105\203\107\203\103\203\147" /* 壁ウエイト */);
+        changeAnimation("壁ウエイト");
     } else {
-        TVec3f direction(getWorldPadDir());
+        Vec3f direction(getWorldPadDir());
         MR::vecKillElement(direction, getPlayer()->getAirGravityVec(), &direction);
         MR::normalizeOrZero(&direction);
-        TVec3f side;
+        Vec3f side;
         f32 forward = MR::vecKillElement(direction, getPlayer()->getWallNorm(), &side);
         if (forward < -0.866f) {
-            if (!isAnimationRun("\225\307\211\237\202\265" /* 壁押し */)) {
-                playSound("\220\272\225\307\211\237\202\265" /* 声壁押し */);
+            if (!isAnimationRun("壁押し")) {
+                playSound("声壁押し");
             }
-            changeAnimation("\225\307\211\237\202\265" /* 壁押し */, 0u);
+            changeAnimation("壁押し", MarioIndexedAnime_WallPush);
         } else if (forward > 0.0f) {
             if (forward > 0.707f) {
                 getPlayer()->setFrontVecKeepUp(getPlayer()->getWallNorm());
             }
-            getPlayer()->mMovementStates._8 = false;
+            getPlayer()->mMovementStates.frontWall = false;
             return false;
         } else {
             side *= (1.0f + 0.25f * forward) * getStickP();
             if (side.dot(getPlayer()->mSideVec) < 0.0f) {
-                if (!isAnimationRun("\225\307\211\105\225\340\202\253" /* 壁右歩き */)) {
-                    changeAnimation("\225\307\211\105\225\340\202\253" /* 壁右歩き */);
+                if (!isAnimationRun("壁右歩き")) {
+                    changeAnimation("壁右歩き");
                 }
-            } else if (!isAnimationRun("\225\307\215\266\225\340\202\253" /* 壁左歩き */)) {
-                changeAnimation("\225\307\215\266\225\340\202\253" /* 壁左歩き */);
+            } else if (!isAnimationRun("壁左歩き")) {
+                changeAnimation("壁左歩き");
             }
             addVelocity(side * 6.0f - getPlayer()->getWallNorm() * 6.0f);
         }
@@ -170,7 +170,7 @@ bool MarioSideStep::update() {
         getPlayer()->tryWallPunch();
         return false;
     }
-    if (!getPlayer()->mMovementStates._1) {
+    if (!getPlayer()->mMovementStates.onGround) {
         getPlayer()->keepDistFrontWall();
         getPlayer()->tryDrop();
         return false;

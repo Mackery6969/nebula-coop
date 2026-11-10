@@ -9,18 +9,25 @@ class WalkerStateBindStarPointer;
 
 class Poihana : public LiveActor {
 public:
+    // Placement arg 3.
+    enum Behavior {
+        Behavior_Normal = 0,
+        Behavior_Sleep = 1,
+        // Takes the spot where it recovers as home and chases with no home leash.
+        Behavior_NewHome = 2,
+    };
+
     Poihana(const char* pName);
 
-    virtual ~Poihana();
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void initAfterPlacement();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void initAfterPlacement() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     void exeNonActive();
     void endNonActive();
@@ -43,8 +50,8 @@ public:
     void exeDrown();
     void exeHide();
     void exeAppear();
-    void exeDPDSwoon();
-    void endDPDSwoon();
+    void exePointerSwoon();
+    void endPointerSwoon();
 
     bool tryToStartBind(HitSensor* pSender);
     void updateBindActorMtx();
@@ -56,7 +63,7 @@ public:
     void calcMyGravity();
     bool tryNonActive();
     bool tryDrown();
-    bool tryDPDSwoon();
+    bool tryPointerSwoon();
     bool tryShock();
     bool tryHipDropShock();
     bool isNerveTypeWalkOrWait() const;
@@ -69,15 +76,13 @@ public:
     ActorCameraInfo* mCamInfo;
     LiveActor* mBindedActor;
     f32 mLaunchIntensity;
-    TVec3f mRespawnPos;
-    TVec3f mHomePos;
-    TVec3f mFrontVec;
+    Vec3f mRespawnPos;
+    Vec3f mHomePos;
+    Vec3f mFrontVec;
     s32 mBoundTimer;
     s32 mRandDir;
     s32 mBehavior;
     bool mCanDrown;
     ModelObj* mWaterColumn;
-    TVec3f _D8;
     bool mIsActive;
-    u8 _E5;
 };

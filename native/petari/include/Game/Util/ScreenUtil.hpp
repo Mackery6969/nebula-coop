@@ -1,36 +1,27 @@
 #pragma once
 
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 #include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Util/SystemUtil.hpp"
 
 struct ResTIMG;
 
 namespace MR {
-    u32 getPictureSpan();
-    f32 getSafetyVIScreenWidthRatio();
     s32 getScreenWidth();
+    // The picture's shape as shown, width / height.
+    f32 getScreenAspect();
     // The picture's shape: the host latches the output's shape at each retrace, and the screen width, the camera's
     // aspect and the layout canvas follow it (wide == 0: 16:9).
     inline const NebulaDisplay& getDisplay() {
         return NebulaFrameClock::display();
     }
-    // Between these, getScreenWidth keeps cWideScreenWidth: CollisionShadow sizes its softening circle in screen units but
-    // draws it into a fixed 160x160 region.
-    void beginDesignScreenWidth();
-    void endDesignScreenWidth();
     inline s32 getScreenHeight() {
-        return NebulaFrameClock::cScreenUnitsDown;
+        return NebulaFrameClock::cScreenLines;
     }
-    s32 getSafetyFrameWidth();
-    s32 getSafetyFrameLeft();
-    s32 getSafetyFrameRight();
-    s32 getScreenUnitsAcross();
-    inline s32 getScreenUnitsDown() {
-        return NebulaFrameClock::cScreenUnitsDown;
-    }
-    void convertCanvasPosToScreenPos(TVec2f*, const TVec2f&);
-    void convertScreenPosToCanvasPos(TVec2f*, const TVec2f&);
+    // What a plate keeps from the screen's sides.
+    s32 getScreenMargin();
+    // A point of the screen as fractions of the frame.
+    void convertScreenPosToFrame(Vec2f*, const Vec2f&);
     void startToCaptureScreen(const char*);
     void endToCaptureScreen(const char*);
     void captureScreenIfAllow(const char*);
@@ -47,6 +38,7 @@ namespace MR {
     bool isWipeActive();
     bool isWipeBlank();
     bool isWipeOpen();
+    bool isScreenCoveredByWipe();
     void closeSystemWipeCircle(s32 frame = -1);
     void openSystemWipeFade(s32 frame = -1);
     void closeSystemWipeFade(s32 frame = -1);
@@ -54,10 +46,16 @@ namespace MR {
     void openSystemWipeWhiteFade(s32 frame = -1);
     void closeSystemWipeWhiteFade(s32 frame = -1);
     void forceCloseSystemWipeWhiteFade();
+    void forceCloseSystemWipeFade();
+    // A wipe the scene being left holds fully closed carries on as the system wipe, in its colour (white or black).
+    void holdClosedSceneWipeOnSystemWipe();
+    // For a scene change asked from inside a scene: false while the scene's own wipe is still closing (ask again later);
+    // true otherwise, with the system wipe closed in white when no closed wipe will cover the load.
+    bool coverScreenForSceneChange();
     bool isSystemWipeActive();
     void closeSystemWipeCircleWithCaptureScreen(s32 frame = -1);
     void closeSystemWipeFadeWithCaptureScreen(s32 frame = -1);
-    void setWipeCircleCenterPos(const TVec3f&);
+    void setWipeCircleCenterPos(const Vec3f&);
     void requestMovementOnImageEffect();
     void setImageEffectControlAuto();
     void turnOffDOFInSubjective();
@@ -79,10 +77,6 @@ namespace MR {
     void setDepthOfFieldBlurIntensity(f32);
     void createCenterScreenBlur();
     void startCenterScreenBlur(s32, f32, u8, s32, s32);
-    void startGlobalTimer();
-    void resetGlobalTimer();
-    bool isGlobalTimerEnd();
-    void startGlobalTimerTimeUp();
     void requestPowerUpHPMeter();
     void requestForceAppearHPMeter();
     void startMissLayout();
@@ -103,6 +97,7 @@ namespace MR {
     void appearInformationMessage(const char*, bool);
     void appearInformationMessageCenter(const char*, bool);
     void appearInformationMessage(const char16_t*, bool);
+    void appearInformationMessageCenter(const char16_t*, bool);
     void setInformationMessageReplaceString(const char16_t*, s32);
     void disappearInformationMessage();
     bool isDeadInformationMessage();

@@ -3,7 +3,7 @@
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/InvisiblePolygonObj.hpp"
 #include "Game/Util.hpp"
-#include "Game/Util/JMapInfo.hpp"
+#include "Game/Util/Table.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
 
@@ -11,57 +11,54 @@ TransparentWall::TransparentWall(const char* pName) : InvisiblePolygonObj(pName)
 }
 
 void TransparentWall::control() {
-    if (!_C0) {
+    if (!mIsSolid) {
         for (u32 i = 0; i < 10; i++) {
-            if (_BC & (1 << i) && MR::isPlayerElementMode(i)) {
-                _C0 = true;
+            if (mSolidForms & (1 << i) && MR::isPlayerElementMode(i)) {
+                mIsSolid = true;
                 break;
             }
         }
 
-        if ((_BC & 1024) && MR::isPlayerSkating()) {
-            _C0 = true;
+        if ((mSolidForms & 1024) && MR::isPlayerSkating()) {
+            mIsSolid = true;
         }
 
-        if ((_BC & 2048) && !MR::isPlayerTeresaDisappear()) {
-            _C0 = true;
+        if ((mSolidForms & 2048) && !MR::isPlayerTeresaDisappear()) {
+            mIsSolid = true;
         }
 
-        if (_C0) {
+        if (mIsSolid) {
             MR::validateCollisionParts(this);
         }
     } else {
-        bool r29 = true;
+        bool isNoFormLeft = true;
         for (u32 i = 0; i < 10; i++) {
-            if (_BC & (1 << i) && MR::isPlayerElementMode(i)) {
-                r29 = false;
+            if (mSolidForms & (1 << i) && MR::isPlayerElementMode(i)) {
+                isNoFormLeft = false;
                 break;
             }
         }
 
-        if ((_BC & 1024) && MR::isPlayerSkating()) {
-            r29 = false;
+        if ((mSolidForms & 1024) && MR::isPlayerSkating()) {
+            isNoFormLeft = false;
         }
 
-        if ((_BC & 2048)) {
-            r29 = MR::isPlayerTeresaDisappear();
+        if ((mSolidForms & 2048)) {
+            isNoFormLeft = MR::isPlayerTeresaDisappear();
         }
 
-        if (r29) {
+        if (isNoFormLeft) {
             MR::invalidateCollisionParts(this);
-            _C0 = false;
+            mIsSolid = false;
         }
     }
 }
 
-TransparentWall::~TransparentWall() {
-}
-
-void TransparentWall::init(const JMapInfoIter& rrIter) {
-    InvisiblePolygonObj::init(rrIter);
-    MR::getJMapInfoArg4WithInit(rrIter, &_BC);
+void TransparentWall::init(const TableIter& rIter) {
+    InvisiblePolygonObj::init(rIter);
+    MR::getPlacementArg4WithInit(rIter, &mSolidForms);
     makeActorAppeared();
-    _C0 = false;
+    mIsSolid = false;
     MR::invalidateCollisionParts(this);
     HitSensor* sensor = getSensor("body");
     sensor->setType(ATYPE_ICEJUMP_WALL);

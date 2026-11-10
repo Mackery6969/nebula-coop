@@ -1,16 +1,14 @@
 #pragma once
 
 #include "Game/RhythmLib/AudMePlayer.hpp"
-#include <JSystem/JAudio2/JAISoundHandles.hpp>
+#include "Game/Sound/SoundHandles.hpp"
 
 class AudMe;
 
 class AudMeHandle {
 public:
-    /// @brief Creates a new `AudMeHandle`.
     AudMeHandle() : mMe() {};
 
-    /// @brief Destroys the `AudMeHandle`.
     ~AudMeHandle() {
         releaseMe();
     }

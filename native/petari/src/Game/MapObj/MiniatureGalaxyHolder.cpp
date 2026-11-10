@@ -14,24 +14,24 @@ namespace {
 };  // namespace
 
 MiniatureGalaxyHolder::MiniatureGalaxyHolder()
-    : LiveActor("\203\176\203\152\203\140\203\205\203\101\203\115\203\203\203\211\203\116\203\126\201\133\225\333\216\235" /* ミニチュアギャラクシー保持 */), mMiniatureGalaxyGroup(), _90(), mCometGalaxy(), mCometID(-1), _9C() {
-    mMiniatureGalaxyGroup = new LiveActorGroup("\203\176\203\152\203\140\203\205\203\101\203\115\203\203\203\211\203\116\203\126\201\133\203\117\203\213\201\133\203\166" /* ミニチュアギャラクシーグループ */, 16);
+    : LiveActor("ミニチュアギャラクシー保持"), mMiniatureGalaxyGroup(), mIsRegistered(), mCometGalaxy(), mCometID(-1) {
+    mMiniatureGalaxyGroup = new LiveActorGroup("ミニチュアギャラクシーグループ", 16);
 }
 
-void MiniatureGalaxyHolder::registerActor(LiveActor* pActor, const JMapInfoIter& rIter) {
+void MiniatureGalaxyHolder::registerActor(LiveActor* pActor, const TableIter& rIter) {
     mMiniatureGalaxyGroup->registerActor(pActor);
 
-    if (_90) {
+    if (mIsRegistered) {
         return;
     }
 
     MR::tryRegisterDemoCast(this, rIter);
-    MR::registerDemoActionFunctor(this, MR::Functor(this, &MiniatureGalaxyHolder::killAllMiniatureGalaxy), "\224\362\202\321\217\157\202\267" /* 飛び出す */);
+    MR::registerDemoActionFunctor(this, MR::Functor(this, &MiniatureGalaxyHolder::killAllMiniatureGalaxy), "飛び出す");
 
-    _90 = true;
+    mIsRegistered = true;
 }
 
-void MiniatureGalaxyHolder::init(const JMapInfoIter& rIter) {
+void MiniatureGalaxyHolder::init(const TableIter& /*rIter*/) {
     makeActorAppeared();
 }
 
@@ -97,7 +97,6 @@ s32 MiniatureGalaxyHolder::calcIndex(const LiveActor* pActor) const {
 void MiniatureGalaxyHolder::updateCometStatus() {
     mCometGalaxy = nullptr;
     mCometID = -1;
-    _9C = 0;
 
     for (int i = 0; i < mMiniatureGalaxyGroup->getObjNum(); i++) {
         MiniatureGalaxy* miniatureGalaxy = static_cast< MiniatureGalaxy* >(mMiniatureGalaxyGroup->getActor(i));
@@ -113,7 +112,7 @@ void MiniatureGalaxyHolder::updateCometStatus() {
     }
 }
 
-void MiniatureGalaxyFunction::registerMiniatureGalaxyToHolder(LiveActor* pActor, const JMapInfoIter& rIter) {
+void MiniatureGalaxyFunction::registerMiniatureGalaxyToHolder(LiveActor* pActor, const TableIter& rIter) {
     MR::createSceneObj(SceneObj_MiniatureGalaxyHolder);
     ::getHolder()->registerActor(pActor, rIter);
 }

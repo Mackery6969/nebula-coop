@@ -4,10 +4,9 @@
 
 class GroundChecker : public LiveActor {
 public:
-    GroundChecker(const char*, f32, f32);
+    GroundChecker(const char* pName, f32 radius, f32 offsetY);
 
-    void bringFriction(f32, f32);
+    void bringFriction(f32 target, f32 rate);
 
-    f32 _8C;
-    f32 _90;
+    f32 mFriction;
 };

@@ -1,7 +1,14 @@
 #include "Game/MapObj/FountainBig.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util.hpp"
+#include "Game/Util/Tunable.hpp"
+
+// The step counts of this file's functions, as tunables: "<file>.<function>.<k>".
+NEBULA_TUNABLE_NAMED(s32, cStep_exeSign_1, "exeSign.1", 80);
+NEBULA_TUNABLE_NAMED(s32, cStep_exeSpout_1, "exeSpout.1", 20);
+NEBULA_TUNABLE_NAMED(s32, cStep_exeSpoutEnd_1, "exeSpoutEnd.1", 10);
 
 namespace NrvFountainBig {
     NEW_NERVE(FountainBigNrvWait, FountainBig, Wait);
@@ -18,19 +25,16 @@ FountainBig::FountainBig(const char* pName) : LiveActor(pName) {
     mSpoutTimer = -1;
 }
 
-FountainBig::~FountainBig() {
-}
-
-void FountainBig::init(const JMapInfoIter& rIter) {
+void FountainBig::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("FountainBig", nullptr, false);
     MR::connectToSceneMapObj(this);
     initHitSensor(1);
     MR::addHitSensorCallbackEye(this, "body", 4, 60.0f);
     MR::invalidateHitSensors(this);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initSound(4, false);
-    TVec3f vec;
+    Vec3f vec;
     MR::calcUpVec(&vec, this);
     mClippingRadius.scaleAdd(300.0f, vec, mPosition);
     MR::setClippingTypeSphere(this, 600.0f, &mClippingRadius);
@@ -46,7 +50,7 @@ void FountainBig::exeWait() {
         MR::invalidateHitSensors(this);
     }
 
-    if (MR::isStep(this, 120)) {
+    if (MR::isStep(this, NebulaFrameClock::stepsOfSeconds(2))) {
         setNerve(GET_NERVE(FountainBig, FountainBigNrvSign));
     }
 }
@@ -56,7 +60,7 @@ void FountainBig::exeSign() {
         MR::emitEffect(this, "FountainBigSign");
     }
     MR::startLevelSound(this, "SE_OJ_LV_FOUNTAIN_BIG_SIGN");
-    if (MR::isStep(this, 80)) {
+    if (MR::isStep(this, cStep_exeSign_1)) {
         setNerve(GET_NERVE(FountainBig, FountainBigNrvSignStop));
     }
 }
@@ -66,7 +70,7 @@ void FountainBig::exeSignStop() {
         MR::deleteEffect(this, "FountainBigSign");
     }
 
-    if (MR::isStep(this, 30)) {
+    if (MR::isStep(this, NebulaFrameClock::stepsOfMilliseconds(500))) {
         setNerve(GET_NERVE(FountainBig, FountainBigNrvSpout));
     }
 }
@@ -87,7 +91,7 @@ void FountainBig::exeSpout() {
             mSpoutTimer++;
         }
     }
-    if (MR::isLessEqualStep(this, 20)) {
+    if (MR::isLessEqualStep(this, cStep_exeSpout_1)) {
         f32 calcNerve = MR::calcNerveRate(this, 20);
         mScale.y = calcNerve;
         mScale.x = 1.0f;
@@ -95,7 +99,7 @@ void FountainBig::exeSpout() {
         MR::clamp(calcNerve, 0.01f, 1.0f);
     }
     MR::startLevelSound(this, "SE_OJ_LV_FOUNTAIN_BIG_SPOUT");
-    if (MR::isStep(this, 180)) {
+    if (MR::isStep(this, NebulaFrameClock::stepsOfSeconds(3))) {
         MR::invalidateHitSensors(this);
         MR::deleteEffect(this, "FountainBig");
         setNerve(GET_NERVE(FountainBig, FountainBigNrvSpoutEnd));
@@ -108,19 +112,19 @@ void FountainBig::exeSpoutEnd() {
     mScale.z = 1.0f;
     mScale.y = calcNerve;
     MR::clamp(calcNerve, 0.01f, 1.0f);
-    if (MR::isStep(this, 10)) {
+    if (MR::isStep(this, cStep_exeSpoutEnd_1)) {
         MR::hideModel(this);
         setNerve(GET_NERVE(FountainBig, FountainBigNrvWait));
     }
 }
 
 void FountainBig::updateHitSensor(HitSensor* pSensor) {
-    f32 pSensorY = pSensor->mRadius;
-    TVec3f vec1, vec2, vec3;
-    MR::calcUpVec(&vec1, this);
-    vec2.scaleAdd(pSensorY, vec1, mPosition);
-    vec3.scaleAdd(600.0f - pSensorY, vec1, vec2);
-    MR::calcPerpendicFootToLineInside(&pSensor->mPosition, *MR::getPlayerPos(), vec2, vec3);
+    f32 radius = pSensor->mRadius;
+    Vec3f up, bottom, top;
+    MR::calcUpVec(&up, this);
+    bottom.scaleAdd(radius, up, mPosition);
+    top.scaleAdd(600.0f - radius, up, bottom);
+    MR::calcPerpendicFootToLineInside(&pSensor->mPosition, *MR::getPlayerPos(), bottom, top);
 }
 
 void FountainBig::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {

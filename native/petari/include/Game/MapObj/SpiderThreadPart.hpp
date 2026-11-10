@@ -1,7 +1,8 @@
 #pragma once
 
-#include <JSystem/JGeometry/TBox.hpp>
-#include <JSystem/JGeometry/TVec.hpp>
+#include "Game/Render/TypedDraw.hpp"
+#include <nebula_geometry.hpp>
+
 
 class SpiderThreadMainPoint;
 class SpiderThreadPoint;
@@ -13,30 +14,30 @@ public:
     void cut(SpiderThreadMainPoint*, SpiderThreadMainPoint*);
     void updatePointerPos();
     void update();
-    void draw() const;
+    void draw(TypedDraw& rDraw) const;
     void startHang(s32);
-    void updateHang(const TVec3f&, s32);
+    void updateHang(const Vec3f&, s32);
     void endHang(s32);
     void stopAllPoints();
-    f32 calcNearestPointInfo(const TVec3f**, const TVec3f**, s32*, const TVec3f&);
+    f32 calcNearestPointInfo(const Vec3f**, const Vec3f**, s32*, const Vec3f&);
     void updatePointPosToLine();
     void updatePointPosAndBasePosToLine();
-    bool touchActor(s32, const TVec3f&);
-    void tryTouch(f32, const TVec3f&, s32);
-    s32 findTouchPoint(f32, const TVec3f&, s32);
-    f32 findNearestPointNo(s32*, const TVec3f&) const;
+    bool touchActor(s32, const Vec3f&);
+    void tryTouch(f32, const Vec3f&, s32);
+    s32 findTouchPoint(f32, const Vec3f&, s32);
+    f32 findNearestPointNo(s32*, const Vec3f&) const;
     void updatePointPosHanging(s32);
-    void updatePointVelocityTouch(s32, const TVec3f&);
+    void updatePointVelocityTouch(s32, const Vec3f&);
     void updateBasePos();
     void updateForceAttach();
     void updateCutPoints();
     void updateDrawVec();
 
-    void drawLine() const;
-    void drawPoints() const;
+    void drawLine(TypedDraw& rDraw) const;
+    void drawPoints(TypedDraw& rDraw) const;
 
     inline void padBox(f32 padAmount) {
-        TVec3f padding(padAmount);
+        Vec3f padding(padAmount);
         mBoundBox.i.sub(padding);
         mBoundBox.f.add(padding);
     }
@@ -48,20 +49,19 @@ public:
     bool mIsStill;
     bool mIsCut;
     bool mIsFree;
-    s16 _4;
     s32 mNumHangingPoints;
     s32 mStopTime;
     s32 mTouchTimeout;
-    TVec3f mPointerPosPad0;
-    TVec3f mPointerPosPad1;
+    Vec3f mPointerPosPad0;
+    Vec3f mPointerPosPad1;
     SpiderThreadMainPoint* mPointA;
     SpiderThreadMainPoint* mPointB;
     s32 mNumPoints;
     SpiderThreadPoint** mPoints;
-    TBox3f mBoundBox;
-    TVec3f mSide;
-    TVec3f mUp;
-    TVec3f mFront;
+    Box3f mBoundBox;
+    Vec3f mSide;
+    Vec3f mUp;
+    Vec3f mFront;
     f32 mDistBetweenMainPoints;
     f32 mDistBetweenPoints;
     f32 mTextureOffset;

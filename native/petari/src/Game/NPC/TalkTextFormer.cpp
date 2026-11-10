@@ -7,32 +7,25 @@
 #include "Game/System/Language.hpp"
 #include "Game/Util/LayoutUtil.hpp"
 #include "Game/Util/MessageUtil.hpp"
-#include <nw4r/lyt/textBox.h>
+#include <Game/Ui/TextBox.hpp>
 #include "Game/System/NebulaHost.hpp"
 
 namespace {
-    nw4r::lyt::TextBox* getTextBoxPane(LayoutActor* pActor, const char* pPaneName) {
-        nw4r::lyt::Pane* pPane = MR::getPane(pActor, pPaneName);
-        const nw4r::ut::detail::RuntimeTypeInfo* pTypeInfo = &nw4r::lyt::TextBox::typeInfo;
-        nw4r::lyt::TextBox* pTextBox;
-        if (pPane != nullptr && pPane->GetRuntimeTypeInfo()->IsDerivedFrom(pTypeInfo)) {
-            pTextBox = static_cast< nw4r::lyt::TextBox* >(pPane);
-        } else {
-            pTextBox = nullptr;
-        }
+    Ui::TextBox* getTextBoxPane(LayoutActor* pActor, const char* pPaneName) {
+        Ui::TextBox* pTextBox = Ui::PaneCast< Ui::TextBox >(MR::getPane(pActor, pPaneName));
 
         return pTextBox;
     }
 
     // The first text box at or under the pane (a balloon's Text00 holds its text and the text's shadow).
-    nw4r::lyt::TextBox* findTextBox(LayoutActor* pActor, const char* pPaneName) {
-        nw4r::lyt::TextBox* pTextBox = getTextBoxPane(pActor, pPaneName);
-        nw4r::lyt::Pane* pPane = MR::getPane(pActor, pPaneName);
+    Ui::TextBox* findTextBox(LayoutActor* pActor, const char* pPaneName) {
+        Ui::TextBox* pTextBox = getTextBoxPane(pActor, pPaneName);
+        Ui::Pane* pPane = MR::getPane(pActor, pPaneName);
         if (pTextBox != nullptr || pPane == nullptr) {
             return pTextBox;
         }
-        for (nw4r::lyt::PaneList::Iterator it = pPane->GetChildList().GetBeginIter(); it != pPane->GetChildList().GetEndIter(); ++it) {
-            pTextBox = findTextBox(pActor, it->mName);
+        for (Ui::Pane* pChild : pPane->GetChildList()) {
+            pTextBox = findTextBox(pActor, pChild->mName);
             if (pTextBox != nullptr) {
                 return pTextBox;
             }
@@ -43,36 +36,36 @@ namespace {
 
 namespace MR {
     inline f32 getLanguageRate() {
-        return getLanguage() == 0x10 ? 1.0f : 1.25f;
+        return getLanguage() == LanguageId_JpJapanese ? 1.0f : 1.25f;
     }
 
     void initTagProcessorRecursive(LayoutActor* pActor, const char* pPaneName, s32 mode) {
-        nw4r::lyt::TextBox* pTextBox = ::getTextBoxPane(pActor, pPaneName);
+        Ui::TextBox* pTextBox = ::getTextBoxPane(pActor, pPaneName);
         if (pTextBox != nullptr) {
             CustomTagProcessor* pProcessor = static_cast< CustomTagProcessor* >(pTextBox->mpTagProcessor);
             f32 rate = getLanguageRate();
 
             switch (mode) {
-            case 2:
+            case TalkTextForm_Whole:
                 pProcessor->initAlpha(0.0f, 0.0f, 0, 0);
                 break;
-            case 0:
+            case TalkTextForm_Talk:
                 pProcessor->initAlpha(0.8f * rate, 0.9f, 0, 0);
                 break;
-            case 1:
+            case TalkTextForm_Event:
                 pProcessor->initAlpha(0.35f * rate, 0.9f, 0, 0);
                 break;
             }
         }
 
-        nw4r::lyt::Pane* pPane = getPane(pActor, pPaneName);
-        for (nw4r::lyt::PaneList::Iterator it = pPane->GetChildList().GetBeginIter(); it != pPane->GetChildList().GetEndIter(); ++it) {
-            initTagProcessorRecursive(pActor, it->mName, mode);
+        Ui::Pane* pPane = getPane(pActor, pPaneName);
+        for (Ui::Pane* pChild : pPane->GetChildList()) {
+            initTagProcessorRecursive(pActor, pChild->mName, mode);
         }
     }
 
     void nextStepTagProcessorRecursive(LayoutActor* pActor, const char* pPaneName) {
-        nw4r::lyt::TextBox* pTextBox = ::getTextBoxPane(pActor, pPaneName);
+        Ui::TextBox* pTextBox = ::getTextBoxPane(pActor, pPaneName);
         if (pTextBox != nullptr) {
             CustomTagProcessor* pProcessor = static_cast< CustomTagProcessor* >(pTextBox->mpTagProcessor);
             pProcessor->mColorIndex = 0;
@@ -80,47 +73,41 @@ namespace MR {
             pProcessor->mAlphaCtrl.update();
         }
 
-        nw4r::lyt::Pane* pPane = getPane(pActor, pPaneName);
-        for (nw4r::lyt::PaneList::Iterator it = pPane->GetChildList().GetBeginIter(); it != pPane->GetChildList().GetEndIter(); ++it) {
-            nextStepTagProcessorRecursive(pActor, it->mName);
+        Ui::Pane* pPane = getPane(pActor, pPaneName);
+        for (Ui::Pane* pChild : pPane->GetChildList()) {
+            nextStepTagProcessorRecursive(pActor, pChild->mName);
         }
     }
 
     bool isEndStepTagProcessorRecursive(const LayoutActor* pActor, const char* pPaneName, bool isEnd) {
-        nw4r::lyt::Pane* pTargetPane = getPane(pActor, pPaneName);
-        const nw4r::ut::detail::RuntimeTypeInfo* pTypeInfo = &nw4r::lyt::TextBox::typeInfo;
-        nw4r::lyt::TextBox* pTextBox;
-        if (pTargetPane != nullptr && pTargetPane->GetRuntimeTypeInfo()->IsDerivedFrom(pTypeInfo)) {
-            pTextBox = static_cast< nw4r::lyt::TextBox* >(pTargetPane);
-        } else {
-            pTextBox = nullptr;
-        }
+        Ui::Pane* pTargetPane = getPane(pActor, pPaneName);
+        Ui::TextBox* pTextBox = Ui::PaneCast< Ui::TextBox >(pTargetPane);
         if (pTextBox != nullptr) {
             CustomTagProcessor* pProcessor = static_cast< CustomTagProcessor* >(pTextBox->mpTagProcessor);
             isEnd &= pProcessor->mAlphaCtrl.isEnd();
         }
 
-        nw4r::lyt::Pane* pPane = getPane(pActor, pPaneName);
-        for (nw4r::lyt::PaneList::Iterator it = pPane->GetChildList().GetBeginIter(); it != pPane->GetChildList().GetEndIter(); ++it) {
-            isEnd &= isEndStepTagProcessorRecursive(pActor, it->mName, true);
+        Ui::Pane* pPane = getPane(pActor, pPaneName);
+        for (Ui::Pane* pChild : pPane->GetChildList()) {
+            isEnd &= isEndStepTagProcessorRecursive(pActor, pChild->mName, true);
         }
 
         return isEnd;
     }
 };  // namespace MR
 
-TalkTextFormer::TalkTextFormer(LayoutActor* pActor, const char* pPaneName) : mHostActor(pActor), mMsg(), _8(), mPaneName(pPaneName) {
+TalkTextFormer::TalkTextFormer(LayoutActor* pActor, const char* pPaneName) : mHostActor(pActor), mMsg(), mFormMode(), mPaneName(pPaneName) {
 }
 
 void TalkTextFormer::formMessage(const char16_t* pMessage, s32 mode) {
     mMsg = pMessage;
-    _8 = mode;
+    mFormMode = mode;
     if (NebulaText::isTalk(pMessage)) {
         NebulaText::fitTalk(pMessage, ::findTextBox(mHostActor, mPaneName));
     }
 
     MR::setTextBoxMessageRecursive(mHostActor, mPaneName, mMsg);
-    MR::initTagProcessorRecursive(mHostActor, mPaneName, _8);
+    MR::initTagProcessorRecursive(mHostActor, mPaneName, mFormMode);
 }
 
 void TalkTextFormer::setArg(const CustomTagArg& rTag, s32 argIndex) {
@@ -130,14 +117,14 @@ void TalkTextFormer::setArg(const CustomTagArg& rTag, s32 argIndex) {
         MR::setTextBoxArgStringRecursive(mHostActor, mPaneName, rTag.mCharArg, argIndex);
     }
 
-    MR::initTagProcessorRecursive(mHostActor, mPaneName, _8);
+    MR::initTagProcessorRecursive(mHostActor, mPaneName, mFormMode);
 }
 
 bool TalkTextFormer::nextPage() {
     const char16_t* pMessage = MR::getNextMessagePage(mMsg);
     if (pMessage != nullptr) {
         mMsg = pMessage;
-        formMessage(pMessage, _8);
+        formMessage(pMessage, mFormMode);
         return true;
     }
 
@@ -167,7 +154,7 @@ void TalkTextFormer::updateTalkingAtTextSpeed() {
 }
 
 bool TalkTextFormer::isTextAppearedAll() const {
-    if (_8 == 2) {
+    if (mFormMode == TalkTextForm_Whole) {
         return true;
     }
 

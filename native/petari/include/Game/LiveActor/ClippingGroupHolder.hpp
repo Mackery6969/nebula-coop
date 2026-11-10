@@ -1,45 +1,45 @@
 #pragma once
 
 #include "Game/NameObj/NameObj.hpp"
+#include "Game/Util/Array.hpp"
 
 class ClippingActorInfo;
-class JMapIdInfo;
+class PlacementId;
 
+// Actors placed with one clipping group: they run and stop together.
 class ClippingInfoGroup : public NameObj {
 public:
-    ClippingInfoGroup(const char*, int);
+    ClippingInfoGroup(const char* pGroupName, s32 capacity);
 
-    virtual ~ClippingInfoGroup();
-
-    void setGroupNo(const JMapInfoIter&);
+    void setGroupNo(const TableIter&);
     void registerInfo(ClippingActorInfo*);
+    // Every live member with clipping on is out of range.
     bool isClippedNowAll() const;
     void startClippedAll();
     void endClippedAll();
+    void updateDrawnClippedAll();
 
-    int _C;
-    s32 _10;
-    ClippingActorInfo** _14;
-    JMapIdInfo* _18;
-    u8 _1C;
+    s32 mCount;
+    MR::GrowBuffer< ClippingActorInfo* > mInfos;
+    PlacementId* mGroupId;
+    bool mIsClipped;
 };
 
 class ClippingGroupHolder : public NameObj {
 public:
     ClippingGroupHolder();
 
-    virtual ~ClippingGroupHolder();
-    virtual void movement();
+    virtual void movement() override;
 
-    void createAndAdd(ClippingActorInfo*, const JMapInfoIter&, int);
-    ClippingInfoGroup* createGroup(ClippingActorInfo*, const JMapInfoIter&, int);
+    void createAndAdd(ClippingActorInfo*, const TableIter&, s32 capacity);
+    ClippingInfoGroup* createGroup(ClippingActorInfo*, const TableIter&, s32 capacity);
 
-    ClippingInfoGroup* findGroup(const JMapInfoIter&);
-    ClippingInfoGroup* getGroup(int index) const {
+    ClippingInfoGroup* findGroup(const TableIter&);
+    ClippingInfoGroup* getGroup(s32 index) const {
         return mInfoGroups[index];
     }
 
     s32 mNumGroups;
     ClippingInfoGroup** mInfoGroups;
-    s32 mMaxGroups = 0x40;
+    s32 mMaxGroups;
 };

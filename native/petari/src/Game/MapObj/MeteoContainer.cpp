@@ -5,10 +5,15 @@
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/ActorShadowUtil.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#include "Game/Util/Tunable.hpp"
+
+// The step counts of this file's functions, as tunables: "<file>.<function>.<k>".
+NEBULA_TUNABLE_NAMED(s32, cStep_exeDestroy_1, "exeDestroy.1", 2);
+NEBULA_TUNABLE_NAMED(s32, cStep_exeDestroy_2, "exeDestroy.2", 3);
 
 namespace NrvMeteoContainer {
     NEW_NERVE(MeteoContainerNrvWait, MeteoContainer, Wait);
@@ -18,7 +23,7 @@ namespace NrvMeteoContainer {
 MeteoContainer::MeteoContainer(const char* pName) : LiveActor(pName) {
 }
 
-void MeteoContainer::init(const JMapInfoIter& rIter) {
+void MeteoContainer::init(const TableIter& rIter) {
     const char* objName = nullptr;
 
     if (!MR::getObjectName(&objName, rIter)) {
@@ -29,7 +34,7 @@ void MeteoContainer::init(const JMapInfoIter& rIter) {
     initModelManagerWithAnm(objName, nullptr, false);
     MR::connectToSceneEnemy(this);
     initHitSensor(1);
-    TVec3f sensorOffs;
+    Vec3f sensorOffs;
     sensorOffs.x = 0.0f;
     sensorOffs.y = 150.0f;
     sensorOffs.z = 0.0f;
@@ -39,7 +44,7 @@ void MeteoContainer::init(const JMapInfoIter& rIter) {
     MR::initShadowVolumeSphere(this, 150.0f);
     MR::onCalcShadowOneTime(this, nullptr);
     MR::needStageSwitchWriteDead(this, rIter);
-    initEffectKeeper(1, nullptr, false);
+    initEffectKeeper(1, nullptr);
     appear();
 }
 
@@ -67,11 +72,11 @@ void MeteoContainer::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     }
 }
 
-bool MeteoContainer::receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) {
+bool MeteoContainer::receiveMsgPush(HitSensor* pSender, HitSensor* /*pReceiver*/) {
     return MR::isSensorPlayer(pSender);
 }
 
-bool MeteoContainer::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool MeteoContainer::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (msg == ACTMES_TORNADO_ATTACK && isNerve(GET_NERVE(MeteoContainer, MeteoContainerNrvWait))) {
         setNerve(GET_NERVE(MeteoContainer, MeteoContainerNrvDestroy));
 
@@ -85,15 +90,12 @@ void MeteoContainer::exeWait() {
 }
 
 void MeteoContainer::exeDestroy() {
-    if (MR::isStep(this, 2)) {
+    if (MR::isStep(this, cStep_exeDestroy_1)) {
         MR::stopScene(10);
     }
 
-    if (MR::isStep(this, 3)) {
+    if (MR::isStep(this, cStep_exeDestroy_2)) {
         MR::shakeCameraNormal();
         kill();
     }
-}
-
-MeteoContainer::~MeteoContainer() {
 }

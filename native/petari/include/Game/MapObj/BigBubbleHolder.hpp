@@ -11,19 +11,23 @@ class BigBubbleMoveLimitter;
 class BigBubbleHolder : public NameObj {
 public:
     BigBubbleHolder(const char*);
-    virtual ~BigBubbleHolder();
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void movement();
-    virtual void draw() const;
+    virtual void init(const TableIter& rIter) override;
+    virtual void movement() override;
+    virtual void draw() const override;
 
     void addMoveLimitter(BigBubbleMoveLimitter*);
-    BigBubble* generateBigBubble(LiveActor*, const TVec3f&, const TVec3f&, f32, bool, s32, s32, s32);
+    BigBubble* generateBigBubble(LiveActor*, const Vec3f&, const Vec3f&, f32, bool, s32, s32, s32);
     BigBubbleMoveLimitter* getMoveLimitter(s32) const;
     void sortDrawOrder();
 
+    BigBubble* createBubble();
+
+    // Made at init; when all are out, generate makes one more.
+    static const s32 cBubbleCount = 16;
+
     BigBubbleDrawer* mDrawer;
-    BigBubble* mBubbles[16];
-    BigBubble* mDrawBubbles[16];
+    MR::Vector< MR::AssignableArray< BigBubble* > > mBubbles;
+    MR::Vector< MR::AssignableArray< BigBubble* > > mDrawBubbles;  // the drawn ones in order (sortDrawOrder), as much room as mBubbles
     MR::GrowTable< BigBubbleMoveLimitter*, 64 > mLimitters;
     s32 mNumLimitters;
     s32 mNumBubbles;
@@ -33,8 +37,8 @@ public:
 namespace MR {
     void setUpBigBubbleDraw();
     void createBigBubbleHolder();
-    BigBubble* generateBigBubble(LiveActor*, const TVec3f&, const TVec3f&, f32, bool, s32, s32, s32);
-    void limitBigBubblePosition(TVec3f*, f32, s32);
+    BigBubble* generateBigBubble(LiveActor*, const Vec3f&, const Vec3f&, f32, bool, s32, s32, s32);
+    void limitBigBubblePosition(Vec3f*, f32, s32);
     void addBigBubbleMoveLimitter(BigBubbleMoveLimitter*);
     bool isPlayerBindedBigBubble();
 };  // namespace MR

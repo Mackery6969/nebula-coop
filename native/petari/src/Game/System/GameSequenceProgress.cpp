@@ -1,4 +1,5 @@
 #include "Game/System/GameSequenceProgress.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Screen/PlayerMissLeft.hpp"
 #include "Game/System/FindingLuigiEventScheduler.hpp"
@@ -26,14 +27,15 @@
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const s32 sTimingPlayingTicoSE = 180;
+    NEBULA_TUNABLE(s32, sTimingPlayingTicoSE, 180);
 };  // namespace
 
 namespace {
     NEW_NERVE(GameSequenceProgressBooting, GameSequenceProgress, Booting);
-    NEW_NERVE(GameSequenceProgressLogo, GameSequenceProgress, Logo);
+    NEW_NERVE(GameSequenceProgressBoot, GameSequenceProgress, Boot);
     NEW_NERVE(GameSequenceProgressWaitGoToFirstScene, GameSequenceProgress, WaitGoToFirstScene);
     NEW_NERVE(GameSequenceProgressNormal, GameSequenceProgress, Normal);
     NEW_NERVE(GameSequenceProgressGalaxyMove, GameSequenceProgress, GalaxyMove);
@@ -41,9 +43,9 @@ namespace {
 };  // namespace
 
 GameSequenceProgress::GameSequenceProgress()
-    : NerveExecutor("\203\126\201\133\203\120\203\223\203\130\220\151\215\163" /* シーケンス進行 */), mStarPointerOnOffController(), mStorySequenceExecutor(), mFindingLuigiEventScheduler(),
+    : NerveExecutor("シーケンス進行"), mStarPointerOnOffController(), mStorySequenceExecutor(), mFindingLuigiEventScheduler(),
       mGalaxyCometScheduler(), mLuigiLeftSupplier(), mPlayerMissLeft(), mMinFrame(), mIsPlayTicoSound(), mIsCancelScenarioSelect(),
-      mIsForceWipe(true) {
+      mIsForceWipe(true), mOpenWipeDelay() {
     initNerve(GET_NERVE_ANON(GameSequenceProgressBooting));
 
     mStarPointerOnOffController = new StarPointerOnOffController();
@@ -55,13 +57,20 @@ GameSequenceProgress::GameSequenceProgress()
 void GameSequenceProgress::initAfterResourceLoaded() {
     mGalaxyCometScheduler = new GalaxyCometScheduler();
 
-    mPlayerMissLeft = new PlayerMissLeft("\203\176\203\130\216\236\202\314\203\166\203\214\203\103\203\204\201\133\216\143\213\100\225\134\216\246" /* ミス時のプレイヤー残機表示 */);
+    mPlayerMissLeft = new PlayerMissLeft("ミス時のプレイヤー残機表示");
     mPlayerMissLeft->initWithoutIter();
 
     mFindingLuigiEventScheduler->initAfterResourceLoaded();
 }
 
 void GameSequenceProgress::update() {
+    // The scene a start began is drawn from the next frame on (startScene runs a frame before the controller shows it,
+    // and that frame draws the black intermission scene): the wipe that covered the load opens with the scene's first
+    // frame, not the one before it, so a closed white wipe does not drop to one black frame.
+    if (mOpenWipeDelay != 0 && --mOpenWipeDelay == 0) {
+        MR::forceOpenSystemWipeFade();
+    }
+
     updateNerve();
     mStarPointerOnOffController->update();
     mStorySequenceExecutor->update();
@@ -90,11 +99,7 @@ void GameSequenceProgress::startScene() {
     mMinFrame = 0;
     mIsPlayTicoSound = false;
 
-    if (MR::isEqualSceneName("Logo")) {
-        mStarPointerOnOffController->setStateToBase(this);
-    } else if (MR::isEqualSceneName("Title")) {
-        mStarPointerOnOffController->setStateToBase(this);
-    } else if (MR::isEqualSceneName("ThankYou")) {
+    if (MR::isCurrentScene(SceneKind_Boot)) {
         mStarPointerOnOffController->setStateToBase(this);
     } else if (MR::isStageFileSelect()) {
         mStarPointerOnOffController->setStateToBase(this);
@@ -104,21 +109,19 @@ void GameSequenceProgress::startScene() {
     }
 
     GameSystemFunction::setPermissionToCheckInput(isScenePermittedUpdateInputStatus());
-    GameSystemFunction::setInputSleepTime(isSceneLongInputSleep());
 
-    if (MR::isEqualSceneName("Game")) {
+    if (MR::isCurrentScene(SceneKind_Game)) {
         mStorySequenceExecutor->setNerveSceneStart();
-        MR::startGlobalTimer();
 
         if (MR::isStageFileSelect()) {
             MR::forceOpenWipeFade();
         }
 
         if (mIsForceWipe) {
-            MR::forceOpenSystemWipeFade();
+            mOpenWipeDelay = 1;
         }
 
-        if (!GameDataFunction::isPassedStoryEvent("\203\130\203\163\203\223\214\240\227\230" /* スピン権利 */)) {
+        if (!GameDataFunction::isPassedStoryEvent("スピン権利")) {
             MR::setPlayerSwingPermission(false);
         }
     }
@@ -129,7 +132,7 @@ void GameSequenceProgress::startScene() {
 }
 
 void GameSequenceProgress::endScene() {
-    if (isNerve(GET_NERVE_ANON(GameSequenceProgressLogo))) {
+    if (isNerve(GET_NERVE_ANON(GameSequenceProgressBoot))) {
         MR::requestChangeSceneAfterBoot();
 
         GameSystemFunction::setResetOperationApplicationReset();
@@ -140,11 +143,11 @@ void GameSequenceProgress::endScene() {
     }
 }
 
-void GameSequenceProgress::requestChangeScene(const char* pName) {
+void GameSequenceProgress::requestChangeScene(SceneKind kind) {
     updateGameDataBeforeChangeScene();
 
     GameSystemSceneController* pSceneController = SingletonHolder< GameSystem >::get()->mSceneController;
-    pSceneController->mNextSceneControlInfo.setScene(pName);
+    pSceneController->mNextSceneControlInfo.mScene = kind;
     pSceneController->requestChangeScene();
 
     mStarPointerOnOffController->setStateToBase(this);
@@ -155,7 +158,7 @@ void GameSequenceProgress::requestGalaxyMove(const GalaxyMoveArgument& rMoveArg)
     updateGameDataGalaxyVisitedFlag();
     GameSequenceFunction::storeSceneStartGameDataHolder();
 
-    if (rMoveArg.mMoveType == 4) {
+    if (rMoveArg.mMoveType == GalaxyMoveArgument::Type_AfterStageClear) {
         // Online co-op: a star the room gave, taken now by this player, returns as its first.
         NebulaCoopDemos::beforeStageResult(GameSequenceFunction::getClearedStageName(),
                                            GameSequenceFunction::getClearedPowerStarId());
@@ -176,39 +179,42 @@ void GameSequenceProgress::requestGalaxyMove(const GalaxyMoveArgument& rMoveArg)
     setMinFrameBeforeStartNextStage(moveArg);
 
     GameSystemSceneController* pController = SingletonHolder< GameSystem >::get()->mSceneController;
-    pController->mNextSceneControlInfo.setScene("Game");
+    pController->mNextSceneControlInfo.mScene = SceneKind_Game;
     pController->mNextSceneControlInfo.setStage(moveArg.mStageName);
     pController->mNextSceneControlInfo.mScenarioNo = moveArg.mScenarioNo;
-    pController->mNextSceneControlInfo.mSelectedScenarioNo = moveArg._C;
+    pController->mNextSceneControlInfo.mSelectedScenarioNo = moveArg.mSelectedScenarioNo;
     pController->mNextSceneControlInfo.setStartIdInfo(moveArg.mIDInfo);
     pController->requestChangeScene();
 
     resetGameDataAfterChangeScene(moveArg);
 
     switch (moveArg.mMoveType) {
-    case 2:
+    case GalaxyMoveArgument::Type_ScenarioSelect:
+        // The leaving scene's own wipe goes with it, and the intermission scene is black until the select screen
+        // fades in: a wipe it left closed carries on as the system wipe, so no black frame shows between.
+        MR::holdClosedSceneWipeOnSystemWipe();
         SingletonHolder< GameSystem >::get()->mSceneController->startScenarioSelectScene();
         MR::setStarPointerModeBase();
 
         break;
-    case 7:
+    case GalaxyMoveArgument::Type_Title:
         SingletonHolder< GameSystem >::get()->mSceneController->startScenarioSelectSceneBackground();
         mStarPointerOnOffController->setStateToTitle(this);
         break;
-    case 5:
+    case GalaxyMoveArgument::Type_AfterMiss:
         // A character switch starts the stage again as a retry, but nothing was missed.
         if (mPlayerMissLeft != nullptr && !isCometStar(moveArg) && !NebulaCharacter::isSwitchReload()) {
             mPlayerMissLeft->appear();
         }
-    case 0:
-    case 1:
-    case 3:
-    case 4:
-    case 6:
+        [[fallthrough]];
+    case GalaxyMoveArgument::Type_InGame:
+    case GalaxyMoveArgument::Type_GoBackAstroDome:
+    case GalaxyMoveArgument::Type_AfterStageClear:
+    case GalaxyMoveArgument::Type_AfterLoadingGameData:
         SingletonHolder< GameSystem >::get()->mSceneController->startScenarioSelectSceneBackground();
         mStarPointerOnOffController->setStateToBase(this);
 
-        if (moveArg.mMoveType == 6) {
+        if (moveArg.mMoveType == GalaxyMoveArgument::Type_AfterLoadingGameData) {
             mLuigiLeftSupplier->syncWithFlags();
         }
 
@@ -217,7 +223,7 @@ void GameSequenceProgress::requestGalaxyMove(const GalaxyMoveArgument& rMoveArg)
 
     mIsForceWipe = true;
 
-    if (moveArg.mMoveType == 2 || MR::isEqualString(moveArg.mStageName, "EpilogueDemoStage")) {
+    if (moveArg.mMoveType == GalaxyMoveArgument::Type_ScenarioSelect || MR::isEqualString(moveArg.mStageName, "EpilogueDemoStage")) {
         mIsForceWipe = false;
     }
 
@@ -233,15 +239,13 @@ GalaxyCometScheduler* GameSequenceProgress::getGalaxyCometScheduler() {
 }
 
 void GameSequenceProgress::exeBooting() {
-    if (MR::isFirstStep(this)) {
-    }
 
     if (GameSequenceFunction::isReadyToStartScene()) {
-        setNerve(GET_NERVE_ANON(GameSequenceProgressLogo));
+        setNerve(GET_NERVE_ANON(GameSequenceProgressBoot));
     }
 }
 
-void GameSequenceProgress::exeLogo() {
+void GameSequenceProgress::exeBoot() {
     if (MR::isFirstStep(this)) {
         startScene();
         GameSequenceFunction::startScene();
@@ -259,7 +263,7 @@ void GameSequenceProgress::exeWaitGoToFirstScene() {
 void GameSequenceProgress::exeNormal() {
     if (MR::isFirstStep(this)) {
         if (mIsCancelScenarioSelect) {
-            requestGalaxyMove(GalaxyMoveArgument(3, nullptr, 1, nullptr));
+            requestGalaxyMove(GalaxyMoveArgument(GalaxyMoveArgument::Type_GoBackAstroDome, nullptr, 1, nullptr));
             mIsCancelScenarioSelect = false;
         } else {
             startScene();
@@ -303,15 +307,7 @@ void GameSequenceProgress::exeResetProcessing() {
 }
 
 bool GameSequenceProgress::isScenePermittedUpdateInputStatus() {
-    return !MR::isEqualSceneName("Logo");
-}
-
-bool GameSequenceProgress::isSceneLongInputSleep() {
-    if (MR::isEqualSceneName("Game") && MR::isEqualStageName("EpilogueDemoStage")) {
-        return true;
-    }
-
-    return false;
+    return !MR::isCurrentScene(SceneKind_Boot);
 }
 
 bool GameSequenceProgress::isCometStar(GalaxyMoveArgument moveArg) {
@@ -334,32 +330,31 @@ void GameSequenceProgress::resetGameDataAfterChangeScene(const GalaxyMoveArgumen
     s32 last1upStarPieceNum = GameDataFunction::getLast1upStarPieceNum();
 
     switch (rMoveArg.mMoveType) {
-    case 6:
+    case GalaxyMoveArgument::Type_AfterLoadingGameData:
         mGalaxyCometScheduler->restoreStateFromGameData();
-
-    case 0:
-    case 1:
-    case 2:
-    case 3:
-    case 7:
+        [[fallthrough]];
+    case GalaxyMoveArgument::Type_InGame:
+    case GalaxyMoveArgument::Type_ScenarioSelect:
+    case GalaxyMoveArgument::Type_GoBackAstroDome:
+    case GalaxyMoveArgument::Type_Title:
         GameDataFunction::resetGameDataGoToGalaxyFirst();
 
         break;
-    case 5:
+    case GalaxyMoveArgument::Type_AfterMiss:
         GameDataFunction::resetGameDataGoToGalaxyRetry();
 
         break;
     }
 
     if (rMoveArg.isEqualStageScenario("HeavensDoorGalaxy", 1) && mStorySequenceExecutor->isEqualStageScenarioBefore("PeachCastleGardenGalaxy", 1) &&
-        rMoveArg.mMoveType == 0) {
+        rMoveArg.mMoveType == GalaxyMoveArgument::Type_InGame) {
         GameDataFunction::addStarPiece(starPieceNum);
         GameDataFunction::setLast1upStarPieceNum(last1upStarPieceNum);
     }
 }
 
 void GameSequenceProgress::updateGameDataGalaxyVisitedFlag() {
-    if (MR::isEqualSceneName("Game") && !mIsCancelScenarioSelect && !isNerve(GET_NERVE_ANON(GameSequenceProgressResetProcessing))) {
+    if (MR::isCurrentScene(SceneKind_Game) && !mIsCancelScenarioSelect && !isNerve(GET_NERVE_ANON(GameSequenceProgressResetProcessing))) {
         const char* pStageName = MR::getCurrentStageName();
         s32 scenarioNo = MR::getCurrentScenarioNo();
         GameDataFunction::onGalaxyScenarioFlagAlreadyVisited(pStageName, scenarioNo);
@@ -367,19 +362,19 @@ void GameSequenceProgress::updateGameDataGalaxyVisitedFlag() {
 }
 
 void GameSequenceProgress::setMinFrameBeforeStartNextStage(const GalaxyMoveArgument& rMoveArg) {
-    if (MR::isEqualSceneName("Game") && MR::isEqualStageName("PeachCastleGardenGalaxy") &&
+    if (MR::isCurrentScene(SceneKind_Game) && MR::isEqualStageName("PeachCastleGardenGalaxy") &&
         MR::isEqualString(rMoveArg.mStageName, "HeavensDoorGalaxy") && rMoveArg.mScenarioNo == 1) {
-        mMinFrame = 300;
+        mMinFrame = NebulaFrameClock::stepsOfSeconds(5);
         mIsPlayTicoSound = true;
     }
 }
 
 bool GameSequenceProgress::isLuigiLeftSupply() {
-    return mLuigiLeftSupplier->_0;
+    return mLuigiLeftSupplier->mIsLuigiLeft;
 }
 
 void GameSequenceProgress::offLuigiLeftSupply() {
-    mLuigiLeftSupplier->_0 = false;
+    mLuigiLeftSupplier->mIsLuigiLeft = false;
 }
 
 void GameSequenceProgress::countDownGameEventValueFromNewPowerStar() {

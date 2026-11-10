@@ -10,20 +10,19 @@ class SwitchEventListener;
 
 class SleepControllerHolder : public NameObj {
 public:
-    /// @brief Creates a new `SleepControllerHolder`.
     SleepControllerHolder();
 
-    virtual void movement();
+    virtual void movement() override;
 
-    void add(NameObj*, const JMapInfoIter&, SwitchEventListener*);
+    void add(NameObj*, const TableIter&, SwitchEventListener*);
     void initSync();
 
 private:
-    MR::Vector< MR::FixedArray< SleepController*, 1024 > > mSleepControl;
+    MR::InlineVector< SleepController*, 1024 > mSleepControl;
 };
 
 namespace SleepControlFunc {
     void initSyncSleepController();
-    void addSleepControl(AreaObj*, const JMapInfoIter&);
-    void addSleepControl(LiveActor*, const JMapInfoIter&);
+    void addSleepControl(AreaObj*, const TableIter&);
+    void addSleepControl(LiveActor*, const TableIter&);
 };  // namespace SleepControlFunc

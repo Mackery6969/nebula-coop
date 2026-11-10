@@ -9,10 +9,11 @@
 #include "Game/Util/NerveUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const s32 sFlySoundStartStep1 = 155;
-    static const s32 sFlySoundStartStep2 = 200;
+    NEBULA_TUNABLE(s32, sFlySoundStartStep1, 155);
+    NEBULA_TUNABLE(s32, sFlySoundStartStep2, 200);
 };  // namespace
 
 namespace NrvBossStinkBugAngryDemo {
@@ -20,8 +21,8 @@ namespace NrvBossStinkBugAngryDemo {
     NEW_NERVE(BossStinkBugAngryDemoNrvDemo, BossStinkBugAngryDemo, Demo);
 };  // namespace NrvBossStinkBugAngryDemo
 
-BossStinkBugAngryDemo::BossStinkBugAngryDemo(BossStinkBug* pHost, const JMapInfoIter& rIter)
-    : BossStinkBugActionBase("\217\111\227\271\203\146\203\202" /* 終了デモ */, pHost), mDemoPositionController(nullptr) {
+BossStinkBugAngryDemo::BossStinkBugAngryDemo(BossStinkBug* pHost, const TableIter& rIter)
+    : BossStinkBugActionBase("終了デモ", pHost), mDemoPositionController(nullptr) {
     initNerve(GET_NERVE(BossStinkBugAngryDemo, BossStinkBugAngryDemoNrvDemo));
     mDemoPositionController = new DemoPositionController("BossStinkBugDemo", rIter);
     mDemoPositionController->initAnimCamera("AngryDemo");
@@ -30,7 +31,7 @@ BossStinkBugAngryDemo::BossStinkBugAngryDemo(BossStinkBug* pHost, const JMapInfo
 void BossStinkBugAngryDemo::appear() {
     ActorStateBase::appear();
     setNerve(GET_NERVE(BossStinkBugAngryDemo, BossStinkBugAngryDemoNrvTryStart));
-    MR::requestStartDemoMarioPuppetable(this, getHost(), "\203\173\203\130\203\112\203\201\203\200\203\126\223\173\202\350\203\146\203\202" /* ボスカメムシ怒りデモ */, GET_NERVE(BossStinkBugAngryDemo, BossStinkBugAngryDemoNrvDemo),
+    MR::requestStartDemoMarioPuppetable(this, getHost(), "ボスカメムシ怒りデモ", GET_NERVE(BossStinkBugAngryDemo, BossStinkBugAngryDemoNrvDemo),
                                         nullptr);
 }
 
@@ -62,7 +63,7 @@ void BossStinkBugAngryDemo::exeDemo() {
 
     if (MR::isBckStopped(getHost())) {
         mDemoPositionController->endDemo("AngryDemo");
-        MR::endDemo(getHost(), "\203\173\203\130\203\112\203\201\203\200\203\126\223\173\202\350\203\146\203\202" /* ボスカメムシ怒りデモ */);
+        MR::endDemo(getHost(), "ボスカメムシ怒りデモ");
         kill();
     }
 }

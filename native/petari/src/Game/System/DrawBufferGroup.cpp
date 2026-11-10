@@ -4,15 +4,10 @@
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ModelUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
-#include <JSystem/J3DGraphBase/J3DSys.hpp>
+#include "Game/Render/Model.hpp"
 #include <algorithm>
 
 DrawBufferGroup::DrawBufferGroup() : mExecutors(), mActiveExecutors(), mDrawCameraType(0), mLightType(-1), mLightLoadType(-1) {
-}
-
-void DrawBufferGroup::init(s32 count) {
-    mExecutors.init(count);
-    mActiveExecutors.init(count);
 }
 
 s32 DrawBufferGroup::registerDrawBuffer(LiveActor* pActor) {
@@ -20,7 +15,7 @@ s32 DrawBufferGroup::registerDrawBuffer(LiveActor* pActor) {
     s32 idx = findExecuterIndex(pModelName);
 
     if (idx < 0) {
-        DrawBufferExecuter* exec = new DrawBufferExecuter(pModelName, MR::getJ3DModel(pActor), 0x10);
+        DrawBufferExecuter* exec = new DrawBufferExecuter(pModelName, MR::getModel(pActor));
 
         idx = mExecutors.size();
         mExecutors.push_back(exec);
@@ -64,7 +59,7 @@ void DrawBufferGroup::findLightInfo(LiveActor* pActor, s32 index) {
     mExecutors[index]->findLightInfo(pActor);
 
     if (mLightLoadType != -1) {
-        for (u32 i = 0; i < mExecutors.size(); i++) {
+        for (s32 i = 0; i < mExecutors.size(); i++) {
             mExecutors[i]->onExecuteLight(mLightType);
         }
 
@@ -84,7 +79,6 @@ void DrawBufferGroup::entry() {
 
 void DrawBufferGroup::drawOpa() const {
     if (mActiveExecutors.size() != 0) {
-        j3dSys.mDrawMode = 3;
         if (mLightLoadType != -1) {
             MR::loadLight(mLightLoadType);
         }
@@ -96,7 +90,6 @@ void DrawBufferGroup::drawOpa() const {
 
 void DrawBufferGroup::drawXlu() const {
     if (mActiveExecutors.size() != 0) {
-        j3dSys.mDrawMode = 4;
         if (mLightLoadType != -1) {
             MR::loadLight(mLightLoadType);
         }
@@ -116,7 +109,7 @@ void DrawBufferGroup::setLightType(s32 type) {
 }
 
 s32 DrawBufferGroup::findExecuterIndex(const char* pName) const {
-    for (u32 i = 0; i < mExecutors.size(); i++) {
+    for (s32 i = 0; i < mExecutors.size(); i++) {
         if (MR::isEqualString(mExecutors[i]->mName, pName)) {
             return i;
         }

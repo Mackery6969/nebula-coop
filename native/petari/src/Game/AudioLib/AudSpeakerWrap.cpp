@@ -1,36 +1,31 @@
 #include "Game/AudioLib/AudSpeakerWrap.hpp"
 #include "Game/Speaker/SpkSound.hpp"
 #include "Game/Speaker/SpkSystem.hpp"
-#include <JSystem/JAudio2/JASGlobal.hpp>
+#include "Game/Sound/SoundGlobal.hpp"
 #include "Game/System/NebulaInput.hpp"
 
-namespace {
-    static SpkSoundHandle sSoundHandle[PLAYER_MAX];
-    static SpkSoundHandle sSoundLevelHandle[PLAYER_MAX];
-};  // namespace
-
 const char* AudSpeakerWrap::getResName() {
-    return "/AudioRes/SpkRes/SpkRes.arc";
+    return "/AudioRes/SpkRes/SpkRes";
 }
 
 void AudSpeakerWrap::start(s32 waveID, s32 padChannel) {
-    SpkSystem* system = JASGlobalInstance< SpkSystem >::getInstance();
+    SpkSystem* system = SoundGlobal< SpkSystem >::getInstance();
 
     if (system == nullptr) {
         return;
     }
 
     if (padChannel < PLAYER_1) {
-        for (s32 idx = 0; idx < PLAYER_MAX; idx++) {
-            system->startSound(idx, waveID, &::sSoundHandle[idx]);
+        for (s32 idx = 0; idx < static_cast< s32 >(NebulaInputPlayers::count()); idx++) {
+            system->startSound(idx, waveID, system->padHandle(idx));
         }
     } else {
-        system->startSound(padChannel, waveID, &::sSoundHandle[padChannel]);
+        system->startSound(padChannel, waveID, system->padHandle(padChannel));
     }
 }
 
 bool AudSpeakerWrap::isPlayable(s32 padChannel) {
-    SpkSystem* system = JASGlobalInstance< SpkSystem >::getInstance();
+    SpkSystem* system = SoundGlobal< SpkSystem >::getInstance();
 
     if (system == nullptr) {
         return false;

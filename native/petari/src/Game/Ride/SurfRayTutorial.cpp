@@ -1,4 +1,5 @@
 #include "Game/Ride/SurfRayTutorial.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Screen/SurfingGuidance.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
@@ -8,16 +9,16 @@
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/TalkUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const s32 sStepTalk = 150;
-    static const s32 sStepToSuccess = 90;
-    static const s32 sStepToOK = 10;
-    static const f32 sPadAccelStraightMinX = 0.25f;
-    static const f32 sPadAccelStraightMinY = 0.45f;
-    static const f32 sPadAccelTurnMinX = 0.65f;
-    // static const f32 sPadAccelTurnLimitZ = _;
-    static const f32 sPadAccelTurnLimitY = 0.5f;
+    static const s32 sStepTalk = NebulaFrameClock::stepsOfMilliseconds(2500);
+    static const s32 sStepToSuccess = NebulaFrameClock::stepsOfMilliseconds(1500);
+    NEBULA_TUNABLE(s32, sStepToOK, 10);
+    NEBULA_TUNABLE(f32, sPadAccelStraightMinX, 0.25f);
+    NEBULA_TUNABLE(f32, sPadAccelStraightMinY, 0.45f);
+    NEBULA_TUNABLE(f32, sPadAccelTurnMinX, 0.65f);
+    NEBULA_TUNABLE(f32, sPadAccelTurnLimitY, 0.5f);
 };  // namespace
 
 namespace NrvSurfRayTutorial {
@@ -37,8 +38,28 @@ namespace NrvSurfRayTutorial {
     NEW_NERVE(SurfRayTutorialNrvTutorialAllEnd, SurfRayTutorial, TutorialAllEnd);
 };  // namespace NrvSurfRayTutorial
 
-SurfRayTutorial::SurfRayTutorial(LiveActor* pHost, TalkMessageCtrl* pTalkCtrl, const JMapInfoIter& rIter)
-    : NerveExecutor("\203\140\203\205\201\133\203\147\203\212\203\101\203\213\211\211\217\157" /* チュートリアル演出 */), mHost(pHost), mIsTutorialPass(), mPadAccel(0.0f, 0.0f, 0.0f), mTalkCtrl(pTalkCtrl), mChangeStep(), _28() {
+namespace {
+    // The lesson order; nextTutorial steps one along it and stops at the end.
+    const Nerve* const sTutorialOrder[] = {
+        GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialAllStart),
+        GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialStraightStart),
+        GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialStraightFailure),
+        GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialStraightUpkeep),
+        GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialStraightSuccess),
+        GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialTurnLeftStart),
+        GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialTurnLeftFailure),
+        GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialTurnLeftUpkeep),
+        GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialTurnLeftSuccess),
+        GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialTurnRightStart),
+        GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialTurnRightFailure),
+        GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialTurnRightUpkeep),
+        GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialTurnRightSuccess),
+        GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialAllEnd),
+    };
+};  // namespace
+
+SurfRayTutorial::SurfRayTutorial(LiveActor* pHost, TalkMessageCtrl* pTalkCtrl, const TableIter& rIter)
+    : NerveExecutor("チュートリアル演出"), mHost(pHost), mIsTutorialPass(), mPadAccel(0.0f, 0.0f, 0.0f), mTalkCtrl(pTalkCtrl), mChangeStep(), mGoNextCount() {
     initNerve(GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialAllStart));
 
     mSurfingGuidance = new SurfingGuidance();
@@ -65,11 +86,12 @@ void SurfRayTutorial::exeTutorialAllStart() {
     }
 }
 
-void SurfRayTutorial::exeTutorialStraightStart() {
+// The lesson's talk, then on to its failure step after sStepTalk.
+void SurfRayTutorial::updateLessonStart(s32 talkNode, void (SurfingGuidance::*pReady)()) {
     if (MR::isFirstStep(this)) {
         MR::tryRumblePadMiddle(this, PLAYER_1);
-        MR::resetAndForwardNode(mTalkCtrl, 1);
-        mSurfingGuidance->levelOffReady();
+        MR::resetAndForwardNode(mTalkCtrl, talkNode);
+        (mSurfingGuidance->*pReady)();
     }
 
     MR::tryTalkForceWithoutDemoMarioPuppetable(mTalkCtrl);
@@ -79,12 +101,13 @@ void SurfRayTutorial::exeTutorialStraightStart() {
     }
 }
 
-void SurfRayTutorial::exeTutorialStraightFailure() {
+// On to the upkeep step once the pose has held sStepToOK steps.
+void SurfRayTutorial::updateLessonFailure(bool (SurfRayTutorial::*pIsSuccess)() const) {
     if (MR::isFirstStep(this)) {
         mChangeStep = 0;
     }
 
-    if (isSuccessStraight()) {
+    if ((this->*pIsSuccess)()) {
         if (mChangeStep++ == ::sStepToOK) {
             nextTutorial();
         }
@@ -95,24 +118,26 @@ void SurfRayTutorial::exeTutorialStraightFailure() {
     MR::tryTalkForceWithoutDemoMarioPuppetable(mTalkCtrl);
 }
 
-void SurfRayTutorial::exeTutorialStraightUpkeep() {
+// The pose held sStepToSuccess steps passes the lesson; lost for sStepToOK steps, back to the failure step.
+void SurfRayTutorial::updateLessonUpkeep(bool (SurfRayTutorial::*pIsSuccess)() const, void (SurfingGuidance::*pHold)(),
+                                         void (SurfingGuidance::*pReady)(), const char* pGoNextSe) {
     if (MR::isFirstStep(this)) {
         mChangeStep = 0;
 
         MR::tryRumblePadWeak(this, PLAYER_1);
         MR::startSystemSE("SE_SY_SURF_TUTORIAL_OK");
-        mSurfingGuidance->levelOffHold();
+        (mSurfingGuidance->*pHold)();
     }
 
-    startTimerSound(getNerveStep(), _28);
+    startTimerSound(getNerveStep(), mGoNextCount);
 
-    if (isSuccessStraight()) {
+    if ((this->*pIsSuccess)()) {
         mChangeStep = 0;
 
         if (MR::isStep(this, ::sStepToSuccess)) {
-            MR::startSystemSE("SE_SY_SURF_TUTORIAL_GONEXT", _28);
+            MR::startSystemSE(pGoNextSe, mGoNextCount);
 
-            _28++;
+            mGoNextCount++;
 
             nextTutorial();
             return;
@@ -120,10 +145,23 @@ void SurfRayTutorial::exeTutorialStraightUpkeep() {
     } else if (mChangeStep++ == ::sStepToOK) {
         prevTutorial();
         MR::startSystemSE("SE_SY_SURF_TUTORIAL_NG");
-        mSurfingGuidance->levelOffReady();
+        (mSurfingGuidance->*pReady)();
     }
 
     MR::tryTalkForceWithoutDemoMarioPuppetable(mTalkCtrl);
+}
+
+void SurfRayTutorial::exeTutorialStraightStart() {
+    updateLessonStart(1, &SurfingGuidance::levelOffReady);
+}
+
+void SurfRayTutorial::exeTutorialStraightFailure() {
+    updateLessonFailure(&SurfRayTutorial::isSuccessStraight);
+}
+
+void SurfRayTutorial::exeTutorialStraightUpkeep() {
+    updateLessonUpkeep(&SurfRayTutorial::isSuccessStraight, &SurfingGuidance::levelOffHold, &SurfingGuidance::levelOffReady,
+                       "SE_SY_SURF_TUTORIAL_GONEXT");
 }
 
 void SurfRayTutorial::exeTutorialStraightSuccess() {
@@ -139,64 +177,16 @@ void SurfRayTutorial::exeTutorialStraightSuccess() {
 }
 
 void SurfRayTutorial::exeTutorialTurnLeftStart() {
-    if (MR::isFirstStep(this)) {
-        MR::tryRumblePadMiddle(this, PLAYER_1);
-        MR::resetAndForwardNode(mTalkCtrl, 3);
-        mSurfingGuidance->turnLeftReady();
-    }
-
-    MR::tryTalkForceWithoutDemoMarioPuppetable(mTalkCtrl);
-
-    if (MR::isGreaterStep(this, ::sStepTalk)) {
-        nextTutorial();
-    }
+    updateLessonStart(3, &SurfingGuidance::turnLeftReady);
 }
 
 void SurfRayTutorial::exeTutorialTurnLeftFailure() {
-    if (MR::isFirstStep(this)) {
-        mChangeStep = 0;
-    }
-
-    if (isSuccessTurnLeft()) {
-        if (mChangeStep++ == ::sStepToOK) {
-            nextTutorial();
-        }
-    } else {
-        mChangeStep = 0;
-    }
-
-    MR::tryTalkForceWithoutDemoMarioPuppetable(mTalkCtrl);
+    updateLessonFailure(&SurfRayTutorial::isSuccessTurnLeft);
 }
 
 void SurfRayTutorial::exeTutorialTurnLeftUpkeep() {
-    if (MR::isFirstStep(this)) {
-        mChangeStep = 0;
-
-        MR::tryRumblePadWeak(this, PLAYER_1);
-        MR::startSystemSE("SE_SY_SURF_TUTORIAL_OK");
-        mSurfingGuidance->turnLeftHold();
-    }
-
-    startTimerSound(getNerveStep(), _28);
-
-    if (isSuccessTurnLeft()) {
-        mChangeStep = 0;
-
-        if (MR::isStep(this, ::sStepToSuccess)) {
-            MR::startSystemSE("SE_SY_SURF_TUTORIAL_GONEXT", _28);
-
-            _28++;
-
-            nextTutorial();
-            return;
-        }
-    } else if (mChangeStep++ == ::sStepToOK) {
-        prevTutorial();
-        MR::startSystemSE("SE_SY_SURF_TUTORIAL_NG");
-        mSurfingGuidance->turnLeftReady();
-    }
-
-    MR::tryTalkForceWithoutDemoMarioPuppetable(mTalkCtrl);
+    updateLessonUpkeep(&SurfRayTutorial::isSuccessTurnLeft, &SurfingGuidance::turnLeftHold, &SurfingGuidance::turnLeftReady,
+                       "SE_SY_SURF_TUTORIAL_GONEXT");
 }
 
 void SurfRayTutorial::exeTutorialTurnLeftSuccess() {
@@ -212,64 +202,16 @@ void SurfRayTutorial::exeTutorialTurnLeftSuccess() {
 }
 
 void SurfRayTutorial::exeTutorialTurnRightStart() {
-    if (MR::isFirstStep(this)) {
-        MR::tryRumblePadMiddle(this, PLAYER_1);
-        MR::resetAndForwardNode(mTalkCtrl, 5);
-        mSurfingGuidance->turnRightReady();
-    }
-
-    MR::tryTalkForceWithoutDemoMarioPuppetable(mTalkCtrl);
-
-    if (MR::isGreaterStep(this, ::sStepTalk)) {
-        nextTutorial();
-    }
+    updateLessonStart(5, &SurfingGuidance::turnRightReady);
 }
 
 void SurfRayTutorial::exeTutorialTurnRightFailure() {
-    if (MR::isFirstStep(this)) {
-        mChangeStep = 0;
-    }
-
-    if (isSuccessTurnRight()) {
-        if (mChangeStep++ == ::sStepToOK) {
-            nextTutorial();
-        }
-    } else {
-        mChangeStep = 0;
-    }
-
-    MR::tryTalkForceWithoutDemoMarioPuppetable(mTalkCtrl);
+    updateLessonFailure(&SurfRayTutorial::isSuccessTurnRight);
 }
 
 void SurfRayTutorial::exeTutorialTurnRightUpkeep() {
-    if (MR::isFirstStep(this)) {
-        mChangeStep = 0;
-
-        MR::tryRumblePadWeak(this, PLAYER_1);
-        MR::startSystemSE("SE_SY_SURF_TUTORIAL_OK");
-        mSurfingGuidance->turnRightHold();
-    }
-
-    startTimerSound(getNerveStep(), _28);
-
-    if (isSuccessTurnRight()) {
-        mChangeStep = 0;
-
-        if (MR::isStep(this, ::sStepToSuccess)) {
-            MR::startSystemSE("SE_SY_SURF_TUTORIAL_GONEXT2", _28);
-
-            _28++;
-
-            nextTutorial();
-            return;
-        }
-    } else if (mChangeStep++ == ::sStepToOK) {
-        prevTutorial();
-        MR::startSystemSE("SE_SY_SURF_TUTORIAL_NG");
-        mSurfingGuidance->turnRightReady();
-    }
-
-    MR::tryTalkForceWithoutDemoMarioPuppetable(mTalkCtrl);
+    updateLessonUpkeep(&SurfRayTutorial::isSuccessTurnRight, &SurfingGuidance::turnRightHold, &SurfingGuidance::turnRightReady,
+                       "SE_SY_SURF_TUTORIAL_GONEXT2");
 }
 
 void SurfRayTutorial::exeTutorialTurnRightSuccess() {
@@ -299,27 +241,15 @@ void SurfRayTutorial::exeTutorialAllEnd() {
 }
 
 bool SurfRayTutorial::isSuccessStraight() const {
-    if (MR::abs(mPadAccel.x) < ::sPadAccelStraightMinX && MR::abs(mPadAccel.y) < ::sPadAccelStraightMinY) {
-        return true;
-    }
-
-    return false;
+    return MR::abs(mPadAccel.x) < ::sPadAccelStraightMinX && MR::abs(mPadAccel.y) < ::sPadAccelStraightMinY;
 }
 
 bool SurfRayTutorial::isSuccessTurnLeft() const {
-    if (!isFailureTwistLeftMore() && !isFailureStand()) {
-        return true;
-    }
-
-    return false;
+    return !isFailureTwistLeftMore() && !isFailureStand();
 }
 
 bool SurfRayTutorial::isSuccessTurnRight() const {
-    if (!isFailureTwistRightMore() && !isFailureStand()) {
-        return true;
-    }
-
-    return false;
+    return !isFailureTwistRightMore() && !isFailureStand();
 }
 
 bool SurfRayTutorial::isFailureTwistLeftMore() const {
@@ -339,32 +269,12 @@ void SurfRayTutorial::omitTutorial() const {
 }
 
 void SurfRayTutorial::nextTutorial() {
-    if (isNerve(GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialAllStart))) {
-        setNerve(GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialStraightStart));
-    } else if (isNerve(GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialStraightStart))) {
-        setNerve(GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialStraightFailure));
-    } else if (isNerve(GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialStraightFailure))) {
-        setNerve(GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialStraightUpkeep));
-    } else if (isNerve(GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialStraightUpkeep))) {
-        setNerve(GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialStraightSuccess));
-    } else if (isNerve(GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialStraightSuccess))) {
-        setNerve(GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialTurnLeftStart));
-    } else if (isNerve(GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialTurnLeftStart))) {
-        setNerve(GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialTurnLeftFailure));
-    } else if (isNerve(GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialTurnLeftFailure))) {
-        setNerve(GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialTurnLeftUpkeep));
-    } else if (isNerve(GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialTurnLeftUpkeep))) {
-        setNerve(GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialTurnLeftSuccess));
-    } else if (isNerve(GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialTurnLeftSuccess))) {
-        setNerve(GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialTurnRightStart));
-    } else if (isNerve(GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialTurnRightStart))) {
-        setNerve(GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialTurnRightFailure));
-    } else if (isNerve(GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialTurnRightFailure))) {
-        setNerve(GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialTurnRightUpkeep));
-    } else if (isNerve(GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialTurnRightUpkeep))) {
-        setNerve(GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialTurnRightSuccess));
-    } else if (isNerve(GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialTurnRightSuccess))) {
-        setNerve(GET_NERVE(SurfRayTutorial, SurfRayTutorialNrvTutorialAllEnd));
+    const s32 last = sizeof(::sTutorialOrder) / sizeof(::sTutorialOrder[0]) - 1;
+    for (s32 i = 0; i < last; i++) {
+        if (isNerve(::sTutorialOrder[i])) {
+            setNerve(::sTutorialOrder[i + 1]);
+            break;
+        }
     }
 
     MR::sendMsgToGroupMember(ACTMES_TUTORIAL_NEXT, mHost, MR::getSensor(mHost, 0), "body");
@@ -382,16 +292,16 @@ void SurfRayTutorial::prevTutorial() {
     MR::sendMsgToGroupMember(ACTMES_TUTORIAL_PREV, mHost, MR::getSensor(mHost, 0), "body");
 }
 
-void SurfRayTutorial::startTimerSound(s32 step, s32 param2) {
+void SurfRayTutorial::startTimerSound(s32 step, s32 level) {
     if (step == 20) {
-        MR::startSystemSE("SE_SY_SURF_TUTORIAL_TIMER", param2);
+        MR::startSystemSE("SE_SY_SURF_TUTORIAL_TIMER", level);
     }
 
     if (step == 43) {
-        MR::startSystemSE("SE_SY_SURF_TUTORIAL_TIMER2", param2);
+        MR::startSystemSE("SE_SY_SURF_TUTORIAL_TIMER2", level);
     }
 
     if (step == 66) {
-        MR::startSystemSE("SE_SY_SURF_TUTORIAL_TIMER3", param2);
+        MR::startSystemSE("SE_SY_SURF_TUTORIAL_TIMER3", level);
     }
 }

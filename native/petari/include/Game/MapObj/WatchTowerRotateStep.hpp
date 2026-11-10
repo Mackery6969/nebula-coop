@@ -6,20 +6,19 @@ class PartsModel;
 
 class WatchTowerRotateStep : public LiveActor {
 public:
-    /// @brief Creates a new `WatchTowerRotateStep`.
-    /// @param pName A pointer to the null-terminated name of the object.
     WatchTowerRotateStep(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void calcAndSetBaseMtx();
+    virtual void init(const TableIter& rIter) override;
+    virtual void calcAndSetBaseMtx() override;
 
-    void initLift(const JMapInfoIter& rIter);
+    void initLift(const TableIter& rIter);
     void attachLift();
+    void rotate(f32 degree);
 
     void exeWait();
     void exeMoveStart();
     void exeMove();
 
-    TVec3f mRotateVec;
+    Vec3f mRotateVec;
     PartsModel** mLift;
 };

@@ -2,13 +2,8 @@
 
 // The game's bloom on the D3D12 renderer, at the internal resolution.
 
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <Windows.h>
+#include "galaxy/windows_api.h"
+#include "galaxy/render/gpu_use.h"
 #include <d3d12.h>
 #include <wrl/client.h>
 
@@ -20,7 +15,7 @@ namespace galaxy::render {
 
 class DescriptorRing;
 
-// The game's two blooms (galaxy/motion_signals.h kMarkerBloom) as one operator on the scene target (game_bloom.hlsl). The game
+// The game's two blooms (NEBULA_PASS_BLOOM_*) as one operator on the scene target (game_bloom.hlsl). The game
 // draws them through scene target copies at fixed sizes: BloomEffect draws its glowing models over black, takes their colour
 // where its intensity passes a threshold at a quarter of the frame, blurs it with two rings of 6 taps (level 1), blurs
 // that at an eighth with three rings of 12 (level 2) and adds both to the scene it kept; BloomEffectSimple takes the
@@ -91,6 +86,9 @@ public:
     // scene): the bloom over the frame. Leaves this pass's root signature, pipeline and render target bound.
     bool apply(ID3D12GraphicsCommandList* list, DescriptorRing& ring, const Inputs& in, const Params& params,
                std::uint64_t frame_index, unsigned frames_in_flight);
+    // Once a frame: frees what the passes released, and hands back the images no pass has asked for in 600 frames (the
+    // bloom switched off or a scene without one), at the frame's fence; the next bloom makes them again.
+    void trim_idle(std::uint64_t frame_index, unsigned frames_in_flight);
 
 private:
     struct Target {
@@ -98,7 +96,8 @@ private:
         unsigned width = 0;
         unsigned height = 0;
         DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
-        D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_COMMON;
+        gpu::Use use = gpu::Use::CopyDest;
+        std::uint64_t used_frame = 0;   // the last frame a pass asked for it
     };
     struct Retired {
         Microsoft::WRL::ComPtr<ID3D12Resource> resource;
@@ -106,7 +105,7 @@ private:
     };
     bool ensure_target(Target& target, DXGI_FORMAT format, unsigned width, unsigned height, bool unordered,
                        std::uint64_t frame_index, unsigned frames_in_flight, const wchar_t* name);
-    void transition(ID3D12GraphicsCommandList* list, Target& target, D3D12_RESOURCE_STATES state);
+    void transition(ID3D12GraphicsCommandList* list, Target& target, gpu::Use use);
     bool copy_frame(ID3D12GraphicsCommandList* list, const Inputs& in, Target& target, const wchar_t* name,
                     std::uint64_t frame_index, unsigned frames_in_flight);
     void retire(std::uint64_t frame_index);
@@ -121,6 +120,7 @@ private:
     ID3D12Device* device_ = nullptr;
     bool ready_ = false;
     bool kept_ = false;   // keep() ran since the last normal apply
+    std::uint64_t frame_ = 0;  // the frame of the last pass call, what keep_picture() stamps the kept image with
     Microsoft::WRL::ComPtr<ID3D12RootSignature> root_signature_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> down_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> box_;

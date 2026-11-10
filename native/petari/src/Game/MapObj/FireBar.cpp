@@ -3,41 +3,45 @@
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Util.hpp"
-#include <JSystem/JMath/JMath.hpp>
+#include <nebula_geometry.hpp>
+#include "Game/Util/Tunable.hpp"
+
+// The numbers this file's functions give the game's motion and animation calls, as tunables: "<file>.<function>.<call>.<k>".
+NEBULA_TUNABLE_NAMED(f32, cNum_controlEmitEffect_isNearPlayerAnyTime_1, "controlEmitEffect.isNearPlayerAnyTime.1", 5000.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_controlEmitEffect_isNearPlayerAnyTime_2, "controlEmitEffect.isNearPlayerAnyTime.2", 5000.0f);
+
+namespace {
+    // Distance the player must pass beyond the 5000 range before the ball's flame is deleted.
+    NEBULA_TUNABLE(f32, sEffectLeaveMargin, 500.0f);
+};  // namespace
 
 namespace NrvFireBar {
     NEW_NERVE(FireBarNrvWait, FireBar, Wait);
 };  // namespace NrvFireBar
 
-FireBarBall::~FireBarBall() {
-}
-
-FireBar::~FireBar() {
-}
-
-FireBarBall::FireBarBall(LiveActor* pParent) : ModelObj("\203\164\203\100\203\103\203\101\203\157\201\133\213\312" /* ファイアバー玉 */, "FireBarBall", 0, MR::DrawBufferType_NoShadowedMapObj, -2, -2, false) {
+FireBarBall::FireBarBall(LiveActor* pParent) : ModelObj("ファイアバー玉", "FireBarBall", 0, MR::DrawBufferType_NoShadowedMapObj, -2, -2, false) {
     mFireBarParent = pParent;
 }
 
-void FireBarBall::init(const JMapInfoIter& rIter) {
+void FireBarBall::init(const TableIter& rIter) {
     f32 shadowDropDist = 100.0f;
-    MR::getJMapInfoArg6NoInit(rIter, &shadowDropDist);
+    MR::getPlacementArg6NoInit(rIter, &shadowDropDist);
 
     if (0.0f != shadowDropDist) {
         MR::initShadowVolumeCylinder(this, 55.0f);
         MR::setShadowDropLength(this, 0, shadowDropDist);
         s32 shadowDropRotate = -1;
-        MR::getJMapInfoArg4NoInit(rIter, &shadowDropRotate);
+        MR::getPlacementArg4NoInit(rIter, &shadowDropRotate);
 
         if (shadowDropRotate == 0) {
-            TVec3f upVec;
+            Vec3f upVec;
             MR::calcUpVec(&upVec, mFireBarParent);
             upVec.negate();
             MR::setShadowDropDirection(this, 0, upVec);
         }
 
         s32 cutShadows = -1;
-        MR::getJMapInfoArg2NoInit(rIter, &cutShadows);
+        MR::getPlacementArg2NoInit(rIter, &cutShadows);
 
         if (cutShadows == 0) {
             MR::setShadowVolumeEndDropOffset(this, 0, 20.0f);
@@ -59,6 +63,7 @@ void FireBarBall::control() {
 }
 
 void FireBarBall::startClipped() {
+    mIsEffectNear = false;
     MR::deleteEffect(this, "FireBarBall");
     LiveActor::startClipped();
 }
@@ -68,7 +73,10 @@ void FireBarBall::endClipped() {
 }
 
 void FireBarBall::controlEmitEffect() {
-    if (MR::isNearPlayerAnyTime(this, 5000.0f)) {
+    // Emit inside 5000, delete only past 5000 plus a margin: a player walking back and forth over the line deleted and
+    // made the flame again every few steps, restarting its particles each time.
+    mIsEffectNear = MR::isNearPlayerAnyTime(this, mIsEffectNear ? cNum_controlEmitEffect_isNearPlayerAnyTime_1 + ::sEffectLeaveMargin : cNum_controlEmitEffect_isNearPlayerAnyTime_2);
+    if (mIsEffectNear) {
         MR::emitEffect(this, "FireBarBall");
     } else {
         MR::deleteEffect(this, "FireBarBall");
@@ -78,15 +86,15 @@ void FireBarBall::controlEmitEffect() {
 FireBar::FireBar(const char* pName) : LiveActor(pName) {
     mFireBalls = nullptr;
     mFireBallCount = 5;
-    _94.x = 0.0f;
-    _94.y = 0.0f;
-    _94.z = 0.0f;
+    mFront.x = 0.0f;
+    mFront.y = 0.0f;
+    mFront.z = 0.0f;
     mFireBarSpeed = -1.0f;
     mStickCount = 1;
     mStickDistance = 140.0f;
 }
 
-void FireBar::init(const JMapInfoIter& rIter) {
+void FireBar::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("FireBarCore", 0, false);
     MR::connectToSceneMapObj(this);
@@ -94,20 +102,20 @@ void FireBar::init(const JMapInfoIter& rIter) {
     MR::addBodyMessageSensorMapObj(this);
     MR::addHitSensorCallbackEnemyAttack(this, "fire", 8, 30.0f);
     MR::initCollisionParts(this, "FireBarCore", getSensor("body"), 0);
-    initEffectKeeper(0, 0, false);
+    initEffectKeeper(0, 0);
     initSound(3, false);
     MR::calcGravity(this);
 
     f32 shadowDropDist = 100.0f;
-    MR::getJMapInfoArg6NoInit(rIter, &shadowDropDist);
-    MR::getJMapInfoArg3NoInit(rIter, &shadowDropDist);
+    MR::getPlacementArg6NoInit(rIter, &shadowDropDist);
+    MR::getPlacementArg3NoInit(rIter, &shadowDropDist);
     shadowDropDist -= 55.0f;
 
     if (shadowDropDist > 0.0f) {
-        TVec3f up_vec;
-        TVec3f scaled_vec;
-        TVec3f drop_direction;
-        TVec3f shadow_box;
+        Vec3f up_vec;
+        Vec3f scaled_vec;
+        Vec3f drop_direction;
+        Vec3f shadow_box;
         shadow_box.x = 100.0f;
         shadow_box.y = 100.0f;
         shadow_box.z = 100.0f;
@@ -119,7 +127,7 @@ void FireBar::init(const JMapInfoIter& rIter) {
         MR::setShadowDropLength(this, 0, shadowDropDist);
 
         s32 rotateShadow = -1;
-        MR::getJMapInfoArg4NoInit(rIter, &rotateShadow);
+        MR::getPlacementArg4NoInit(rIter, &rotateShadow);
 
         if (rotateShadow == 0) {
             MR::calcUpVec(&drop_direction, this);
@@ -130,14 +138,23 @@ void FireBar::init(const JMapInfoIter& rIter) {
 
     s32 numFireBalls = 5;
     f32 fireBallSpeed = -1.0f;
-    MR::getJMapInfoArg0NoInit(rIter, &numFireBalls);
-    MR::getJMapInfoArg1NoInit(rIter, &fireBallSpeed);
-    MR::getJMapInfoArg5NoInit(rIter, &mStickDistance);
-    MR::getJMapInfoArg7NoInit(rIter, &mStickCount);
+    MR::getPlacementArg0NoInit(rIter, &numFireBalls);
+    MR::getPlacementArg1NoInit(rIter, &fireBallSpeed);
+    MR::getPlacementArg5NoInit(rIter, &mStickDistance);
+    MR::getPlacementArg7NoInit(rIter, &mStickCount);
+
+    // A negative count of balls or sticks (a placement other than the unset -1) makes none, not a negative array.
+    if (numFireBalls < 0) {
+        numFireBalls = 0;
+    }
+
+    if (mStickCount < 0) {
+        mStickCount = 0;
+    }
 
     mFireBarSpeed = 0.1f * fireBallSpeed;
     mFireBallCount = mStickCount * numFireBalls;
-    MR::calcFrontVec(&_94, this);
+    MR::calcFrontVec(&mFront, this);
     initFireBarBall(rIter);
     MR::setGroupClipping(this, rIter, 0x20);
     MR::setClippingTypeSphere(this, (mFireBallCount + 1) * 100.0f);
@@ -147,9 +164,9 @@ void FireBar::init(const JMapInfoIter& rIter) {
 }
 
 void FireBar::exeWait() {
-    TVec3f up_vec;
+    Vec3f up_vec;
     MR::calcUpVec(&up_vec, this);
-    MR::rotateVecDegree(&_94, up_vec, mFireBarSpeed);
+    MR::rotateVecDegree(&mFront, up_vec, mFireBarSpeed);
     MR::startLevelSound(this, "SE_OJ_LV_FIRE_BAR_CENTER");
     fixFireBarBall();
 }
@@ -179,28 +196,28 @@ void FireBar::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
 void FireBar::updateHitSensor(HitSensor* pSensor) {
     f32 minDistance = FLOAT_MAX;
 
-    TVec3f position = mPosition;
+    Vec3f position = mPosition;
 
     s32 fireBallCount = mStickCount != 0 ? mFireBallCount / mStickCount : 0;
 
-    TVec3f up;
+    Vec3f up;
     MR::calcUpVec(&up, this);
 
-    TVec3f start;
-    start.scale(mStickDistance, _94);
+    Vec3f start;
+    start.scale(mStickDistance, mFront);
     start.scaleAdd(50.0f, up, start);
 
-    TVec3f end;
-    end.scale(mStickDistance + 100.0f * (fireBallCount - 1), _94);
+    Vec3f end;
+    end.scale(mStickDistance + 100.0f * (fireBallCount - 1), mFront);
     end.scaleAdd(50.0f, up, end);
 
     for (s32 i = 0; i < mStickCount; i++) {
-        TVec3f startWorld;
+        Vec3f startWorld;
         startWorld.add(start, *getPosition());
-        TVec3f endWorld;
+        Vec3f endWorld;
         endWorld.add(end, *getPosition());
 
-        TVec3f footPos;
+        Vec3f footPos;
         MR::calcPerpendicFootToLineInside(&footPos, *MR::getPlayerCenterPos(), startWorld, endWorld);
 
         f32 distance = footPos.distance(*MR::getPlayerCenterPos());
@@ -211,7 +228,7 @@ void FireBar::updateHitSensor(HitSensor* pSensor) {
         }
 
         if (i + 1 != mStickCount) {
-            TVec3f up;
+            Vec3f up;
             MR::calcUpVec(&up, this);
             MR::rotateVecDegree(&start, up, 360.0f / mStickCount);
             MR::rotateVecDegree(&end, up, 360.0f / mStickCount);
@@ -221,8 +238,7 @@ void FireBar::updateHitSensor(HitSensor* pSensor) {
     pSensor->mPosition.set(position);
 }
 
-// meh
-void FireBar::initFireBarBall(const JMapInfoIter& rIter) {
+void FireBar::initFireBarBall(const TableIter& rIter) {
     mFireBalls = new FireBarBall*[mFireBallCount];
     s32 totalNum = mStickCount != 0 ? mFireBallCount / mStickCount : 0;
     f32 startVal = 0.0f;
@@ -244,10 +260,10 @@ void FireBar::initFireBarBall(const JMapInfoIter& rIter) {
 }
 
 void FireBar::fixFireBarBall() {
-    TVec3f scaled;
-    scaled.scale(100.0f, _94);
+    Vec3f scaled;
+    scaled.scale(100.0f, mFront);
 
-    TVec3f final_pos;
+    Vec3f final_pos;
     final_pos.zero();
 
     s32 totalNum = mStickCount != 0 ? mFireBallCount / mStickCount : 0;
@@ -257,10 +273,10 @@ void FireBar::fixFireBarBall() {
         div *= totalNum;
 
         if (i - div == 0) {
-            TVec3f up_vec;
+            Vec3f up_vec;
             MR::calcUpVec(&up_vec, this);
             MR::rotateVecDegree(&scaled, up_vec, 360.0f / mStickCount);
-            TVec3f norm;
+            Vec3f norm;
             MR::normalize(scaled, &norm);
             final_pos.scaleAdd(mStickDistance, norm, mPosition);
             final_pos.scaleAdd(50.0f, up_vec, final_pos);

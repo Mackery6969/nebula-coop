@@ -5,9 +5,12 @@
 #include "galaxy/luma.h"
 
 #include <algorithm>
+#include <limits>
 #include <cstring>
 #include <string>
 #include <filesystem>
+#include <cstdarg>
+#include <cstdint>
 #include <cstdlib>
 #include <fstream>
 #include <cstdio>
@@ -15,10 +18,7 @@
 #include <memory>
 
 #if defined(_WIN32)
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
+#include "galaxy/windows_api.h"
 #if defined(_M_X64) || defined(__x86_64__)
 #include <MinHook.h>
 #define NEBULA_HAS_FUNCTION_HOOKS 1
@@ -91,6 +91,23 @@ std::string load_error() {
 #endif
 }
 
+void* api_alloc(uint64_t bytes) {
+    return bytes == 0 || bytes > SIZE_MAX ? nullptr : std::malloc(static_cast<std::size_t>(bytes));
+}
+
+void api_release(void* memory) {
+    std::free(memory);
+}
+
+int32_t api_format(char* buffer, uint64_t size, const char* format, ...) {
+    if (format == nullptr || (buffer == nullptr && size != 0)) return -1;
+    std::va_list args;
+    va_start(args, format);
+    const int written = std::vsnprintf(buffer, static_cast<std::size_t>(size > SIZE_MAX ? SIZE_MAX : size), format, args);
+    va_end(args);
+    return written;
+}
+
 void api_log(const NebulaPlugin* self, const char* text) {
     say((self != nullptr && self->id != nullptr ? std::string(self->id) : std::string("plugin")) + ": " + (text != nullptr ? text : ""));
 }
@@ -119,7 +136,10 @@ std::map<std::string, std::int32_t> read_store(const NebulaPlugin* self) {
         if (equals == std::string::npos) continue;
         char* end = nullptr;
         const long value = std::strtol(line.c_str() + equals + 1, &end, 10);
-        if (end != nullptr && end != line.c_str() + equals + 1) values[line.substr(0, equals)] = static_cast<std::int32_t>(value);
+        if (end != nullptr && end != line.c_str() + equals + 1) {
+            values[line.substr(0, equals)] = static_cast<std::int32_t>(
+                std::clamp<long>(value, std::numeric_limits<std::int32_t>::min(), std::numeric_limits<std::int32_t>::max()));
+        }
     }
     return values;
 }
@@ -222,15 +242,6 @@ void api_store_set_text(const NebulaPlugin* self, const char* key, const char* t
     std::filesystem::rename(temporary, path, error);
 }
 
-// A setting by the name a layer's switches give it. The game answers by number.
-std::int32_t (*g_setting_by_number)(std::uint32_t, std::int32_t) = nullptr;
-
-std::int32_t api_setting(const char* name, std::int32_t missing) {
-    if (name == nullptr || g_setting_by_number == nullptr) return missing;
-    const std::uint32_t number = luma::switch_number(name);
-    return number != 0u ? g_setting_by_number(number, missing) : missing;
-}
-
 int32_t api_hook(void* target, void* replacement, void** original) {
     if (!g_starting || target == nullptr || replacement == nullptr || original == nullptr) return -1;
 #if defined(NEBULA_HAS_FUNCTION_HOOKS)
@@ -259,6 +270,29 @@ void* api_find_function(const char* symbol) {
 
 }  // namespace
 
+bool dump_tunables(const NebulaModApi* game_api, const std::filesystem::path& list_file) {
+    if (game_api == nullptr || game_api->size < sizeof(NebulaModApi) || game_api->tunable_at == nullptr) return false;
+    std::ofstream out(list_file, std::ios::binary | std::ios::trunc);
+    if (!out) return false;
+    static constexpr const char* kKinds[] = {"?", "f32", "f64", "s32", "u32", "s16", "u16", "s8", "u8", "bool"};
+    const char* file = nullptr;
+    const char* name = nullptr;
+    int32_t place = -1;
+    int32_t kind = 0;
+    double game_value = 0.0;
+    double value = 0.0;
+    for (int32_t i = 0; game_api->tunable_at(i, &file, &name, &place, &kind, &game_value, &value) == 0; ++i) {
+        std::string stem = file != nullptr ? file : "";
+        if (const std::size_t dot = stem.rfind('.'); dot != std::string::npos) stem.resize(dot);
+        char number[64];
+        std::snprintf(number, sizeof(number), "%.9g", game_value);
+        out << stem << '.' << (name != nullptr ? name : "");
+        if (place >= 0) out << '[' << place << ']';
+        out << '\t' << kKinds[(kind >= 1 && kind <= 9) ? kind : 0] << '\t' << number << '\n';
+    }
+    return static_cast<bool>(out.flush());
+}
+
 std::size_t start_plugins(const std::vector<PluginFile>& plugins, const ModRows& rows, const NebulaModApi* game_api,
                           void* (*find_symbol)(const char*),
                           void (*log)(const char*)) {
@@ -278,10 +312,15 @@ std::size_t start_plugins(const std::vector<PluginFile>& plugins, const ModRows&
     g_api.store_set = api_store_set;
     g_api.store_get_text = api_store_get_text;
     g_api.store_set_text = api_store_set_text;
-    g_setting_by_number = game_api->setting_by_number;
-    g_api.setting = api_setting;
-    for (const auto& [id, words] : rows.texts) {
-        g_api.add_text(id.c_str(), words.c_str());
+    g_api.alloc = api_alloc;
+    g_api.release = api_release;
+    g_api.format = api_format;
+    for (const ModRows::TextToAdd& text : rows.texts) {
+        if (text.like.empty()) {
+            g_api.add_text(text.id.c_str(), text.words.c_str());
+        } else {
+            g_api.add_text_like(text.id.c_str(), text.words.c_str(), text.like.c_str());
+        }
     }
     for (const GalaxyToAdd& galaxy : rows.galaxies) {
         NebulaGalaxy row{};
@@ -296,7 +335,16 @@ std::size_t start_plugins(const std::vector<PluginFile>& plugins, const ModRows&
         row.has_map_position = galaxy.has_map_position ? 1 : 0;
         row.map_position[0] = galaxy.map_x;
         row.map_position[1] = galaxy.map_y;
-        if (g_api.add_galaxy(&row) != 0) say(galaxy.mod_id + ": the galaxy " + galaxy.name + " can't be added: its name clashes with one the game has");
+        const int32_t added = g_api.add_galaxy(&row);
+        if (added == -2) {
+            say(galaxy.mod_id + ": the galaxy " + galaxy.name + " is left out: it has no StageData/" + galaxy.name + "/" + galaxy.name +
+                "Scenario.arc");
+            continue;
+        }
+        if (added != 0) {
+            say(galaxy.mod_id + ": the galaxy " + galaxy.name + " can't be added: its name clashes with one the game has");
+            continue;
+        }
         if (galaxy.hungry_slot >= 0 && g_api.add_hungry_luma(galaxy.name.c_str(), galaxy.hungry_slot, galaxy.hungry_star_bits) != 0) {
             say(galaxy.mod_id + ": the hungry Luma for " + galaxy.name + " can't be added");
         }
@@ -306,7 +354,12 @@ std::size_t start_plugins(const std::vector<PluginFile>& plugins, const ModRows&
             say(flag.mod_id + ": the row " + flag.name + " can't be set");
         }
     }
-    for (const CometsToSet& dome : rows.comets) {
+    // By dome number, so a mod's further domes come in the order the game data takes them (the next dome after the last).
+    std::vector<const CometsToSet*> comet_domes;
+    for (const CometsToSet& dome : rows.comets) comet_domes.push_back(&dome);
+    std::stable_sort(comet_domes.begin(), comet_domes.end(), [](const CometsToSet* a, const CometsToSet* b) { return a->dome < b->dome; });
+    for (const CometsToSet* dome_row : comet_domes) {
+        const CometsToSet& dome = *dome_row;
         std::vector<const char*> galaxies;
         std::vector<std::int32_t> coins;
         for (const auto& [galaxy, coin] : dome.comets) {
@@ -336,12 +389,22 @@ std::size_t start_plugins(const std::vector<PluginFile>& plugins, const ModRows&
             say(constant.mod_id + ": the player has no number " + constant.name);
         }
     }
+    for (const TunableToSet& tunable : rows.tunables) {
+        if (g_api.set_tunable(tunable.key.c_str(), tunable.value) != 0) {
+            say(tunable.mod_id + ": the game has no tuning number " + tunable.key);
+        }
+    }
     for (const auto& [key, value] : rows.story) {
         if (g_api.set_story(key.c_str(), value.c_str()) != 0) say("the story has no " + key);
     }
     for (const SoundEffectToAdd& sound : rows.sound_effects) {
         if (g_api.add_sound_effect(sound.name.c_str(), sound.file.c_str()) != 0) {
             say(sound.mod_id + ": the sound " + sound.name + " can't be added");
+        }
+    }
+    for (const PlayerAnimationToAdd& animation : rows.player_animations) {
+        if (g_api.add_player_animation(animation.name.c_str(), animation.file.c_str(), static_cast<float>(animation.rate), animation.blend_frames) != 0) {
+            say(animation.mod_id + ": the player animation " + animation.name + " can't be added");
         }
     }
     for (const ObjectClassToSet& object : rows.object_classes) {
@@ -379,6 +442,13 @@ std::size_t start_plugins(const std::vector<PluginFile>& plugins, const ModRows&
         }
         if (api_version() > NEBULA_MOD_API_VERSION) {
             say(name + " not started: it needs a newer Nebula");
+            close_library(module);
+            continue;
+        }
+        if (api_version() < NEBULA_MOD_API_VERSION) {
+            say(name + " not started: it was built for plugin interface " + std::to_string(api_version()) +
+                "; rebuild it with this nebula_mod_api.h (setting() is now get_tunable(), object_arg(index) is "
+                "placement_number(\"Obj_argN\"))");
             close_library(module);
             continue;
         }

@@ -20,7 +20,7 @@ public:
 
     NebulaStarCounter(Kind kind);
 
-    virtual void init(const JMapInfoIter& rIter);
+    virtual void init(const TableIter& rIter);
     virtual void appear();
     virtual void control();
     virtual void calcAnim();

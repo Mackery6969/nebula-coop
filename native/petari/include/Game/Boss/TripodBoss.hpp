@@ -1,7 +1,8 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include "Game/Util/Array.hpp"
+#include <nebula_geometry.hpp>
 
 class ActorCameraInfo;
 class DummyDisplayModel;
@@ -13,19 +14,20 @@ class TripodBossStepSequence;
 
 class TripodBossBone {
 public:
-    TripodBossBone() : _30() {
-        _0.identity();
+    TripodBossBone() : mAttachMtx() {
+        mLocalMtx.identity();
     }
 
-    void setAttachBaseMatrix(const TPos3f&);
+    void setAttachBaseMatrix(const Pos3f&);
 
-    TMtx34f _0;
-    const TPos3f* _30;
+    Mtx34f mLocalMtx;
+    const Pos3f* mAttachMtx;
 };
 
 /// @brief Megaleg
 class TripodBoss : public LiveActor {
 public:
+    // A leg part number; the range test LEFT_LEG..RIGHT_LEG takes BACK_LEG too.
     enum PART_ID {
         PART_ID_LEFT_LEG,
         PART_ID_BACK_LEG,
@@ -43,20 +45,28 @@ public:
         SUB_PART_ID_END_JOINT,
     };
 
-    /// @brief Creates a new `TripodBoss`.
-    /// @param pName A pointer to the null-terminated name of the object.
+    enum RIDE_STATE {
+        RIDE_ON,     // riding, and was last step
+        RIDE_START,  // got on this step
+        RIDE_OFF,
+        RIDE_LEAVE,  // got off this step
+    };
+
+    static const s32 cBodyBone = 21;  // bones 0-20 are the legs, 7 each
+    static const s32 cBoneNum = 22;
+
     TripodBoss(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void kill();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
 
-    void initEventCamera(const JMapInfoIter&);
-    void initLeg(const JMapInfoIter&);
+    void initEventCamera(const TableIter&);
+    void initLeg(const TableIter&);
     void initLegIKPlacement();
-    void initMovableArea(const TPos3f&);
+    void initMovableArea(const Pos3f&);
     void initBodyPosition();
     void initBoneInfo();
     void initPose();
@@ -87,15 +97,16 @@ public:
     bool isBroken() const;
     bool isRideMario() const;
     bool isLeaveMarioNow() const;
-    void setJointAttachBaseMatrix(const TPos3f&, s32);
+    void setJointAttachBaseMatrix(const Pos3f&, s32);
     void addStepPoint(TripodBossStepPoint*);
-    void getBodyMatrix(TPos3f*) const;
-    void getJointMatrix(TPos3f*, s32) const;
-    void getJointAttachMatrix(TPos3f*, s32) const;
+    void getBodyMatrix(Pos3f*) const;
+    void getJointMatrix(Pos3f* pMtx, s32 boneID) const;
+    void getJointAttachMatrix(Pos3f* pMtx, s32 boneID) const;
     void requestStartStepSequence(s32);
     TripodBossStepSequence* getCurrentStepSequence();
     TripodBossStepSequence* getNextStepSequence();
-    void calcLegUpVector(TVec3f*, const TVec3f&);
+    TripodBossStepSequence* findStepSequence(s32) const;
+    void calcLegUpVector(Vec3f* pUp, const Vec3f& rFootPos);
     void calcDemoMovement();
     void calcBodyMovement();
     void calcLegMovement();
@@ -105,10 +116,9 @@ public:
     void startDemo();
     void endDemo(const char*);
     void checkRideMario();
-    const TPos3f* getLegMatrixPtr(PART_ID, SUB_PART_ID) const;
+    const Pos3f* getLegMatrixPtr(PART_ID, SUB_PART_ID) const;
     void changeBgmState();
-    static s32 getPartIDFromBoneID(s32);
-    void setAttachBaseMatrix(const TPos3f&);
+    static s32 getPartIDFromBoneID(s32 boneID);
 
     void exeTryStartDemo();
     void exeNonActive();
@@ -132,44 +142,40 @@ public:
         return mStepPoints[idx];
     }
 
-    inline bool isStateSomething() {
-        return (_634 == 0) || (_634 == 1);
-    }
-
-    TPos3f mBodyMtx;
-    TPos3f _BC;
-    TPos3f _EC;
-    ModelObj* mLowModel;
-    TripodBossBone mBossBones[22];
+    Pos3f mBodyMtx;
+    Pos3f mDummyModelMtx;
+    Pos3f mDemoStartMtx;
+    TripodBossBone mBossBones[cBoneNum];
     TripodBossLeg* mLegs[3];
     TripodBossStepPoint* mStepPoints[3];
     TripodBossMovableArea* mMovableArea;
-    TripodBossStepSequence* mStepSequence;
+    // By the index step points carry (obj_arg3), up to the highest placed; each made when first needed.
+    MR::AssignableArray< TripodBossStepSequence* > mStepSequences;
+    s32 mStepSequenceNum;
     DummyDisplayModel* mDummyModel;
-    TVec3f _5BC;
-    TVec3f _5C8;
-    TVec3f _5D4;
-    TVec3f _5E0;
-    TVec3f _5EC;
-    f32 _5F8;
-    f32 _5FC;
-    f32 _600;
-    f32 _604;
-    f32 _608;
-    f32 _60C;
-    f32 _610;
-    f32 _614;
-    f32 _618;
-    f32 _61C;
-    f32 _620;
+    Vec3f mDummyModelOffset;
+    Vec3f mWeightPos;
+    Vec3f mBodyPos;
+    Vec3f mBodyVelocity;
+    Vec3f mClipCenter;
+    f32 mClipRadius;
+    f32 mWeightHeightOffset;
+    f32 mDemoBlendRate;
+    f32 mBodyHeight;
+    f32 mLegRootLength;
+    f32 mLegMiddleLength;
+    f32 mLegReach;
+    f32 mLegLift;
+    f32 mLegHeightRate;
+    f32 mMovableAreaRadius;
+    f32 mDummyModelSpinSpeed;
     s32 mCurrentStepSeq;
     s32 mNextStepSeq;
-    s32 _62C;
-    s32 _630;
-    s32 _634;
-    u8 _638;
-    s32 _63C;
-    u8 _640;
+    s32 mRideMarioTimer;
+    s32 mRideMarioState;  // RIDE_STATE
+    bool mIsPartsHidden;
+    s32 mBgmState;
+    bool mIsBgmChangePending;
     ActorCameraInfo* mEventCamera;
 };
 

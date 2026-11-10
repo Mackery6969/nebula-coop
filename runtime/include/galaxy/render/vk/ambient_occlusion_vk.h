@@ -18,6 +18,8 @@ namespace galaxy::render::vk {
 class AmbientOcclusionVk {
 public:
     using SetAllocator = std::function<VkDescriptorSet(VkDescriptorSetLayout)>;
+    enum class Stage { Distance, Occlusion, Denoise, Upsample };
+    using StageMarker = std::function<void(Stage)>;
 
     AmbientOcclusionVk() = default;
     AmbientOcclusionVk(const AmbientOcclusionVk&) = delete;
@@ -32,11 +34,14 @@ public:
     // Outside a render pass, the scene's single-sample depth readable as `depth_layout`: the colour multiplier of each
     // scene target pixel. False: nothing to multiply.
     bool prepare(VkCommandBuffer commands, const Texture& depth, VkImageLayout depth_layout, const RtView& view,
-                 bool ssao, std::span<const ao::ObjectOccluder> objects, UploadRing& ring, const SetAllocator& allocate);
+                 bool ssao, std::span<const ao::ObjectOccluder> objects, UploadRing& ring, const SetAllocator& allocate,
+                 const StageMarker& mark = {});
     // Inside a scene target pass of 2^samples_log2 samples: the multiply.
     void finish(VkCommandBuffer commands, VkRenderPass pass, unsigned samples_log2, const SetAllocator& allocate);
-    // What the frame's commands read stays alive with its submission (recorded frames that replay).
-    void hold(std::vector<std::shared_ptr<Texture>>& held) const;
+    // Once a frame, outside a submission being recorded: hands back the occlusion targets after 600 frames in which prepare()
+    // did not run (the occlusion switched off); the next prepare() makes them again. The images go through the context's
+    // deferred destruction, behind the fence of any submission naming them.
+    void trim_idle();
 
 private:
     enum Pass : unsigned { kDistance, kOcclusion, kDenoise, kUpsample, kSsao, kPassCount };
@@ -58,9 +63,12 @@ private:
     std::shared_ptr<Texture> raw_;
     std::shared_ptr<Texture> denoised_;
     std::shared_ptr<Texture> scale_;
+    std::uint64_t clock_ = 0;  // trim_idle() calls
+    std::uint64_t used_ = 0;   // the clock at the last prepare()
     ao::Constants constants_{};
     std::vector<float> object_values_;
     std::vector<std::uint32_t> object_tiles_;
+    ao::ObjectBinScratch object_scratch_;
     VkDescriptorBufferInfo objects_{};
     VkDescriptorBufferInfo tiles_{};
 };

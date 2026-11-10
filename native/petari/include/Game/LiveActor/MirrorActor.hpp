@@ -6,18 +6,16 @@ class MirrorActor : public LiveActor {
 public:
     MirrorActor(LiveActor*, const char*, const char*);
 
-    virtual ~MirrorActor();
-
-    virtual void init(const JMapInfoIter&) override;
+    virtual void init(const TableIter&) override;
     virtual void movement() override;
     virtual void calcAnim() override;
     virtual void calcViewAndEntry() override;
 
     bool isHostInTheOtherSideOfMirror() const;
-    TVec3f getHostCenterPos() const;
+    Vec3f getHostCenterPos() const;
 
     LiveActor* mHost;
-    TVec3f mCenter;
+    Vec3f mCenter;
     f32 mRadius;
     bool mIsDisconnected;
 };

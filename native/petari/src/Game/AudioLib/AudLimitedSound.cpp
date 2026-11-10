@@ -9,23 +9,15 @@ void AudLimitedSoundInfo::init() {
     mDelay = 0;
 }
 
-void AudLimitedSoundInfo::set(JAISoundID soundID, s32 delay) {
+void AudLimitedSoundInfo::set(SoundID soundID, s32 delay) {
     mSoundID = soundID;
     mDelay = delay;
 }
 
 void AudLimitedSoundInfo::update() {
-    if (isFree()) {
-        return;
+    if (!isFree() && --mDelay <= 0) {
+        init();
     }
-
-    mDelay--;
-
-    if (mDelay > 0) {
-        return;
-    }
-
-    init();
 }
 
 bool AudLimitedSoundInfo::isFree() {

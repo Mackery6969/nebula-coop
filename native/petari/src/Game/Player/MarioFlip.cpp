@@ -6,40 +6,40 @@
 #include "Game/Player/MarioState.hpp"
 #include "Game/Util/MathUtil.hpp"
 
-bool Mario::doFlipJump(const TVec3f& rVec) {
-    if (isAnimationRun("\225\307\202\315\202\266\202\253" /* 壁はじき */)) {
+bool Mario::doFlipJump(const Vec3f& rVec) {
+    if (isAnimationRun("壁はじき")) {
         return false;
     }
 
     stopWalk();
-    TVec3f vec(rVec);
+    Vec3f vec(rVec);
     vec.setLength(mActor->mConst->getTable()->mWallSpinFlipGround);
     vec -= getGravityVec()->scaleInline(mActor->mConst->getTable()->mWallSpinHopGround);
     tryForcePowerJump(vec, true);
 
-    changeAnimation("\225\307\202\315\202\266\202\253" /* 壁はじき */);
+    changeAnimation("壁はじき");
 
     stopPunch();
-    mMovementStates._2B = true;
-    _430 = 3;
+    mMovementStates.spinBlocked = true;
+    mJumpKind = 3;
     startPadVib(2);
 
     return true;
 }
 
-bool Mario::doFlipBackRoll(const TVec3f& rVec) {
-    TVec3f vec20;
-    MR::vecKillElement(rVec, getAirGravityVec(), &vec20);
+bool Mario::doFlipBackRoll(const Vec3f& rVec) {
+    Vec3f flat;
+    MR::vecKillElement(rVec, getAirGravityVec(), &flat);
 
-    if (doFlipLarge(vec20)) {
+    if (doFlipLarge(flat)) {
         checkDamage();
-        changeAnimationNonStop("\214\343\223\135\202\323\202\301\202\306\202\321" /* 後転ふっとび */);
+        changeAnimationNonStop("後転ふっとび");
 
-        mDamage->setStrings("\214\343\223\135\202\323\202\301\202\306\202\321\213\363\222\206" /* 後転ふっとび空中 */, "\214\343\223\135\202\323\202\301\202\306\202\321\222\205\222\156" /* 後転ふっとび着地 */);
+        mDamage->setStrings("後転ふっとび空中", "後転ふっとび着地");
 
-        TVec3f vec28;
-        MR::vecKillElement(rVec, getAirGravityVec(), &vec28);
-        setFrontVecKeepUp(-vec28, static_cast< u32 >(12));
+        Vec3f flatAfter;
+        MR::vecKillElement(rVec, getAirGravityVec(), &flatAfter);
+        setFrontVecKeepUp(-flatAfter, static_cast< u32 >(12));
 
         return true;
     }
@@ -48,130 +48,130 @@ bool Mario::doFlipBackRoll(const TVec3f& rVec) {
 }
 
 bool MarioFlip::start() {
-    _12 = 0;
-    _14 = 0;
-    _24 = 0.0f;
-    _28 = -0.75f;
+    mTimer = 0;
+    mStep = 0;
+    mYAngle = 0.0f;
+    mYSpeed = -0.75f;
 
-    changeAnimation("\202\315\202\313\202\306\202\316\202\263\202\352" /* はねとばされ */);
+    changeAnimation("はねとばされ");
 
-    playSound("\220\272\217\254\203\137\203\201\201\133\203\127" /* 声小ダメージ */);
-    playSound("\225\307\217\325\223\313" /* 壁衝突 */);
-    playEffect("\203\137\203\201\201\133\203\127" /* ダメージ */);
+    playSound("声小ダメージ");
+    playSound("壁衝突");
+    playEffect("ダメージ");
     startPadVib(2);
 
-    addVelocity(_18);
+    addVelocity(mVelocity);
 
     return true;
 }
 
 bool MarioFlip::update() {
-    if (_12 == 0) {
-        changeAnimationNonStop("\202\315\202\313\202\306\202\316\202\263\202\352" /* はねとばされ */);
+    if (mTimer == 0) {
+        changeAnimationNonStop("はねとばされ");
     }
 
-    _12++;
-    TVec3f velocity(_18);
-    TVec3f direction(_18);
+    mTimer++;
+    Vec3f velocity(mVelocity);
+    Vec3f direction(mVelocity);
     MR::normalizeOrZero(&direction);
     f32 control;
-    if (_12 < 30) {
-        control = static_cast< f32 >(_12) / 30.0f;
+    if (mTimer < 30) {
+        control = static_cast< f32 >(mTimer) / 30.0f;
     } else {
         control = 1.0f;
     }
 
-    TVec3f lateral;
+    Vec3f lateral;
     f32 along = MR::vecKillElement(getWorldPadDir(), direction, &lateral);
     if (along <= 0.0f) {
-        _18 += direction * mActor->mConst->getTable()->mFlipFriction3 * along * control;
+        mVelocity += direction * mActor->mConst->getTable()->mFlipFriction3 * along * control;
     }
 
-    _18 += lateral * mActor->mConst->getTable()->mFlipFriction3;
-    switch (_14) {
+    mVelocity += lateral * mActor->mConst->getTable()->mFlipFriction3;
+    switch (mStep) {
     case 0:
-        _24 += _28;
-        _28 *= 0.98f;
-        playSound("\202\315\202\313\202\306\202\316\202\263\202\352" /* はねとばされ */);
+        mYAngle += mYSpeed;
+        mYSpeed *= 0.98f;
+        playSound("はねとばされ");
         addVelocity(velocity);
-        _18.scale(mActor->mConst->getTable()->mFlipFriction1);
-        if (_12 == mActor->mConst->getTable()->mFlipTimer1) {
-            _14++;
+        mVelocity.scale(mActor->mConst->getTable()->mFlipFriction1);
+        if (mTimer == mActor->mConst->getTable()->mFlipTimer1) {
+            mStep++;
         }
 
         break;
     case 1:
-        _24 += _28;
-        _28 *= 0.97f;
-        playSound("\202\315\202\313\202\306\202\316\202\263\202\352" /* はねとばされ */);
-        if (!getPlayer()->mMovementStates._1) {
+        mYAngle += mYSpeed;
+        mYSpeed *= 0.97f;
+        playSound("はねとばされ");
+        if (!getPlayer()->mMovementStates.onGround) {
             return false;
         }
 
         addVelocity(velocity);
-        _18.scale(mActor->mConst->getTable()->mFlipFriction2);
-        if (_12 == mActor->getConst().getTable()->mFlipTimer1 + mActor->mConst->getTable()->mFlipTimer2) {
-            _14++;
+        mVelocity.scale(mActor->mConst->getTable()->mFlipFriction2);
+        if (mTimer == mActor->getConst().getTable()->mFlipTimer1 + mActor->mConst->getTable()->mFlipTimer2) {
+            mStep++;
         }
 
         break;
     case 2:
         addVelocity(velocity);
-        _18.scale(mActor->mConst->getTable()->mFlipFriction2);
-        _28 *= 0.97f;
-        playSound("\202\315\202\313\202\306\202\316\202\263\202\352" /* はねとばされ */);
-        _24 += _28;
-        if (MR::isAngleBetween(_24, -0.1f, 0.1f)) {
-            changeAnimation("\202\315\202\313\202\306\202\316\202\263\202\352\217\111\227\271" /* はねとばされ終了 */);
-            _14++;
+        mVelocity.scale(mActor->mConst->getTable()->mFlipFriction2);
+        mYSpeed *= 0.97f;
+        playSound("はねとばされ");
+        mYAngle += mYSpeed;
+        if (MR::isAngleBetween(mYAngle, -0.1f, 0.1f)) {
+            changeAnimation("はねとばされ終了");
+            mStep++;
         }
 
         break;
     case 3:
-        _24 = 0.0f;
-        if (!isAnimationRun("\202\315\202\313\202\306\202\316\202\263\202\352\217\111\227\271" /* はねとばされ終了 */)) {
+        mYAngle = 0.0f;
+        if (!isAnimationRun("はねとばされ終了")) {
             return false;
         }
 
         break;
     }
 
-    _24 = MR::normalizeAngleAbs(_24);
-    setYangleOffset(_24);
-    if (getPlayer()->mMovementStates._8 || getPlayer()->mMovementStates._1A || getPlayer()->mMovementStates._19) {
-        TVec3f normal(getPlayer()->getWallNorm());
-        TVec3f tangent;
-        f32 incoming = MR::vecKillElement(_18, normal, &tangent);
+    mYAngle = MR::normalizeAngleAbs(mYAngle);
+    setYangleOffset(mYAngle);
+    if (getPlayer()->mMovementStates.frontWall || getPlayer()->mMovementStates.sideWall || getPlayer()->mMovementStates.backWall) {
+        Vec3f normal(getPlayer()->getWallNorm());
+        Vec3f tangent;
+        f32 incoming = MR::vecKillElement(mVelocity, normal, &tangent);
         if (incoming < 0.0f) {
             stopAnimation(nullptr);
-            changeAnimationNonStop("\202\315\202\313\202\306\202\316\202\263\202\352" /* はねとばされ */);
-            playEffectTrans("\225\307\203\161\203\142\203\147" /* 壁ヒット */, getPlayer()->getWallPos());
-            _18 = tangent + normal * -incoming * 1.2f;
-            addVelocity(_18, 2.0f);
-            _28 *= 1.2f;
-            getPlayer()->setFrontVecKeepUp(-_18);
+            changeAnimationNonStop("はねとばされ");
+            playEffectTrans("壁ヒット", getPlayer()->getWallPos());
+            mVelocity = tangent + normal * -incoming * 1.2f;
+            addVelocity(mVelocity, 2.0f);
+            mYSpeed *= 1.2f;
+            getPlayer()->setFrontVecKeepUp(-mVelocity);
         }
     }
 
-    if (_14 >= 1 && checkTrgA()) {
+    if (mStep >= 1 && checkTrgA()) {
         getPlayer()->tryJump();
         return false;
     }
 
-    if (_14 == 3 && getStickP() != 0.0f) {
+    if (mStep == 3 && getStickP() != 0.0f) {
         return false;
     }
 
     return true;
 }
 
-bool Mario::doFlipRot(const TVec3f& rVec) {
+bool Mario::doFlipRot(const Vec3f& rVec) {
     getCurrentStatus();
     if (getCurrentStatus() == MarioStatus_FireDamage) {
         return false;
     }
 
-    if (mMovementStates._1B) {
+    if (mMovementStates.damaged) {
         return false;
     }
 
@@ -186,7 +186,7 @@ bool Mario::doFlipRot(const TVec3f& rVec) {
     return true;
 }
 
-bool Mario::doFlipLarge(const TVec3f& rVec) {
+bool Mario::doFlipLarge(const Vec3f& rVec) {
     if (getCurrentStatus() == MarioStatus_Damage) {
         return false;
     }
@@ -199,50 +199,50 @@ bool Mario::doFlipLarge(const TVec3f& rVec) {
         return false;
     }
 
-    if (mMovementStates._1B) {
+    if (mMovementStates.damaged) {
         return false;
     }
 
     return flipLarge(rVec);
 }
 
-MarioFlip::MarioFlip(MarioActor* pActor) : MarioState(pActor, MarioStatus_Flip), _12(), _14() {
-    _18.zero();
-    _24 = 0.0f;
-    _28 = 0.0f;
+MarioFlip::MarioFlip(MarioActor* pActor) : MarioState(pActor, MarioStatus_Flip), mTimer(), mStep() {
+    mVelocity.zero();
+    mYAngle = 0.0f;
+    mYSpeed = 0.0f;
 }
 
-void MarioFlip::setVec(const TVec3f& rVec) {
-    MR::vecKillElement(rVec, mActor->_240, &_18);
+void MarioFlip::setVec(const Vec3f& rVec) {
+    MR::vecKillElement(rVec, mActor->mGravityVec, &mVelocity);
 
-    if (mActor->_3E5) {
-        _18.setLength(mActor->mConst->getTable()->mSlideDistFlipSpin);
+    if (mActor->mPunchSensorOn) {
+        mVelocity.setLength(mActor->mConst->getTable()->mSlideDistFlipSpin);
     } else {
-        _18.setLength(mActor->mConst->getTable()->mSlideDistFlip);
+        mVelocity.setLength(mActor->mConst->getTable()->mSlideDistFlip);
     }
 
-    addVelocity(_18, 5.0f);
+    addVelocity(mVelocity, 5.0f);
 
-    _12 = 0;
-    _14 = 0;
-    _28 = -0.75f;
+    mTimer = 0;
+    mStep = 0;
+    mYSpeed = -0.75f;
 
     if (getPlayer()->isStatusActive(MarioStatus_Hang)) {
-        _18.zero();
+        mVelocity.zero();
         return;
     }
 
-    getPlayer()->setFrontVecKeepUp(-_18);
+    getPlayer()->setFrontVecKeepUp(-mVelocity);
 }
 
 bool MarioFlip::close() {
     setYangleOffset(0.0f);
 
-    stopAnimation("\202\315\202\313\202\306\202\316\202\263\202\352" /* はねとばされ */);
-    stopAnimation("\202\315\202\313\202\306\202\316\202\263\202\352\217\111\227\271" /* はねとばされ終了 */);
+    stopAnimation("はねとばされ");
+    stopAnimation("はねとばされ終了");
 
     if (mActor->mHealth == 0) {
-        if (!getPlayer()->getMovementStates()._1) {
+        if (!getPlayer()->getMovementStates().onGround) {
             mActor->forceGameOverNonStop();
         } else {
             mActor->forceGameOver();

@@ -6,16 +6,18 @@ class RailRider;
 
 class CameraRailDemo : public Camera {
 public:
-    CameraRailDemo(const char* pName = "\203\214\201\133\203\213\203\146\203\202\203\112\203\201\203\211" /* レールデモカメラ */);
+    CameraRailDemo(const char* pName = "レールデモカメラ");
 
-    virtual void reset();
-    virtual CameraTargetObj* calc();
-    virtual CamTranslatorBase* createTranslator();
+    virtual void reset() override;
+    virtual CameraTargetObj* calc() override;
+    virtual void setParamFromChunk(const CameraParamChunk*) override;
 
-    void setParam(s32, s32, s32, s32, f32);
+    void setParam(s32 zoneID, s32 railID, s32 calcType, s32 demoTime, f32 dampRatio);
     void calcLinear();
     void calcEaseInOut();
     void calcDamp();
+    f32 calcTimeRate() const;
+    void placeOnRail(f32 coord);
 
     RailRider* mRailRider;
     s32 mCalcType;

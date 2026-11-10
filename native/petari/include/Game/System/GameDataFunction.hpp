@@ -4,7 +4,7 @@
 
 class GameDataHolder;
 class GameDataSomeScenarioAccessor;
-class JMapInfoIter;
+class TableIter;
 
 namespace GameDataFunction {
     bool isDataMario();
@@ -17,6 +17,9 @@ namespace GameDataFunction {
     bool isAppearGalaxy(const char*);
     s32 calcCurrentPowerStarNum();
     s32 getPowerStarNumOwned(const char*);
+    // The galaxy's name as its scenario data spells it (found ASCII case folded), when the save keeps its stars; null
+    // for a galaxy with no stars or no scenario data.
+    const char* findStarGalaxyName(const char* pGalaxyName);
     s32 getPowerStarNumMax();
     s32 getPictureBookChapterCanRead();
     u32 getPictureBookChapterAlreadyRead();
@@ -29,7 +32,7 @@ namespace GameDataFunction {
     void setGameEventValue(const char*, u16);
     bool isOnGameEventValueForBit(const char*, int);
     void setGameEventValueForBit(const char*, int, bool);
-    s32 setupAlreadyDoneFlag(const char*, const JMapInfoIter&, u32*);
+    s32 setupAlreadyDoneFlag(const char*, const TableIter&, u32*);
     void updateAlreadyDoneFlag(int, u32);
     void restoreGalaxyCometStatus(int, u16*, u16*);
     void setRaceBestTime(const char*, u32);

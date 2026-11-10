@@ -2,27 +2,23 @@
 
 #include "Game/Screen/LayoutActor.hpp"
 
-namespace nw4r {
-    namespace lyt {
-        class TexMap;
-    };  // namespace lyt
-};  // namespace nw4r
+namespace Ui {
+    class TexMap;
+}  // namespace Ui
 
 class ButtonPaneController;
 class IconAButton;
-class NameObjArchiveListCollector;
 class PictureBookCloseButton;
 
 class PictureBookLayout : public LayoutActor {
 public:
     PictureBookLayout(s32 chapterMin, s32 chapterMax, bool isRosettaReading);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void appear();
-    virtual void kill();
-    virtual void control();
+    virtual void init(const TableIter& rIter) override;
+    virtual void appear() override;
+    virtual void kill() override;
+    virtual void control() override;
 
-    static void makeArchiveList(NameObjArchiveListCollector* pCollector, s32 chapterMin, s32 chapterMax, bool isRosettaReading);
     static s32 getChapterMax();
 
     void initTexture();
@@ -69,11 +65,11 @@ private:
     s32 mNotReadedChapterNo;
     s32 mNotReadedPageNo;
     s32 mNotReadedTextIndex;
-    nw4r::lyt::TexMap** _44;
-    nw4r::lyt::TexMap** _48;
-    nw4r::lyt::TexMap* mTitleTexMap;
-    nw4r::lyt::TexMap* mCoverFrontTexMap;
-    nw4r::lyt::TexMap* mCoverBackTexMap;
+    Ui::TexMap** mTexMaps;
+    Ui::TexMap** mChapterTexMaps;
+    Ui::TexMap* mTitleTexMap;
+    Ui::TexMap* mCoverFrontTexMap;
+    Ui::TexMap* mCoverBackTexMap;
     s32 mNextItemDir;
     bool mIsNextItemFast;
     IconAButton* mIconAButton;

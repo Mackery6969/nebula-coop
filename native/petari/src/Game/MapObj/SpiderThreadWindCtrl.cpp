@@ -1,19 +1,20 @@
 #include "Game/MapObj/SpiderThreadWindCtrl.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util.hpp"
 #include "Game/Util/MathUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const f32 sWindAccelBattle = 0.5f;
-    static const f32 sWindAccelChance = 1.0f;
-    // static const _32 sWindAccelDamage =
-    static const f32 sWindAccelBattleEndTarget = 2.0f;
-    static const f32 sWindAccelBattleEndCurrent = 100.0f;
-    static const f32 sWindAccelSpeedBattleEnd = 0.4f;
-    static const s32 sTimeToStartWindMin = 30;
-    static const s32 sTimeToStartWindMax = 120;
-    static const s32 sWindTimeMin = 60;
-    static const s32 sWindTimeMax = 120;
+    NEBULA_TUNABLE(f32, sWindAccelBattle, 0.5f);
+    NEBULA_TUNABLE(f32, sWindAccelChance, 1.0f);
+    NEBULA_TUNABLE(f32, sWindAccelBattleEndTarget, 2.0f);
+    NEBULA_TUNABLE(f32, sWindAccelBattleEndCurrent, 100.0f);
+    NEBULA_TUNABLE(f32, sWindAccelSpeedBattleEnd, 0.4f);
+    static const s32 sTimeToStartWindMin = NebulaFrameClock::stepsOfMilliseconds(500);
+    static const s32 sTimeToStartWindMax = NebulaFrameClock::stepsOfSeconds(2);
+    static const s32 sWindTimeMin = NebulaFrameClock::stepsOfSeconds(1);
+    static const s32 sWindTimeMax = NebulaFrameClock::stepsOfSeconds(2);
 };  // namespace
 
 SpiderThreadWindCtrl::SpiderThreadWindCtrl()
@@ -26,7 +27,7 @@ void SpiderThreadWindCtrl::update() {
     speed = mWindSpeed;
     target = mWindTargetSpeed;
 
-    // converge speed towards target... MR::converge maybe?
+    // Toward the target by the accel a frame, never past it.
     if (speed != target) {
         accel = mWindAccel;
         if (speed < target) {

@@ -21,11 +21,12 @@ namespace NrvDinoPackunVs2 {
     NEW_NERVE(DinoPackunVs2NrvDownDemo, DinoPackunVs2, DownDemo);
 };  // namespace NrvDinoPackunVs2
 
-DinoPackunVs2::DinoPackunVs2(DinoPackun* pPackun) : DinoPackunSequencer("\203\146\203\102\203\155\203\160\203\142\203\116\203\2232\220\355\226\332\220\151\215\163" /* ディノパックン2戦目進行 */, pPackun) {
+DinoPackunVs2::DinoPackunVs2(DinoPackun* pPackun) : DinoPackunSequencer("ディノパックン2戦目進行", pPackun) {
     mDemo = nullptr;
     mEgg = nullptr;
     mBattleLv1 = nullptr;
     mTrackFireHolder = nullptr;
+    mFireHolder = nullptr;
 }
 
 void DinoPackunVs2::init() {
@@ -41,7 +42,7 @@ void DinoPackunVs2::init() {
     mBattleLv1->setTrackFire(mTrackFireHolder);
     mBattleLv1->setFireBall(mFireHolder);
     mBattleLv1->init();
-    mParent->mBall->_124 = 1;
+    mParent->mBall->mIsBlackDrag = true;
     MR::declareStarPiece(mParent, 24);
 }
 
@@ -83,13 +84,7 @@ void DinoPackunVs2::exeCryDemo() {
 void DinoPackunVs2::exeBattleLv1() {
     if (MR::isFirstStep(this)) {
         mParent->appearStarPiece(8);
-        mBattleLv1->_38 = 0;
-        mBattleLv1->_39 = 0;
-        mBattleLv1->_3D = 0;
-        mBattleLv1->_3B = 0;
-        mBattleLv1->_3A = 0;
-        mBattleLv1->setMiddleBattle();
-        mBattleLv1->_3C = 0;
+        mBattleLv1->setBattleLevel(1);
         mCurrentAction = mBattleLv1;
     }
 
@@ -110,13 +105,7 @@ void DinoPackunVs2::exeAngryDemo() {
 void DinoPackunVs2::exeBattleLv2() {
     if (MR::isFirstStep(this)) {
         mParent->appearStarPiece(8);
-        mBattleLv1->_38 = 1;
-        mBattleLv1->_39 = 0;
-        mBattleLv1->_3D = 0;
-        mBattleLv1->_3B = 1;
-        mBattleLv1->_3A = 1;
-        mBattleLv1->setMiddleBattle();
-        mBattleLv1->_3C = 1;
+        mBattleLv1->setBattleLevel(2);
         mCurrentAction = mBattleLv1;
     }
 
@@ -126,13 +115,7 @@ void DinoPackunVs2::exeBattleLv2() {
 void DinoPackunVs2::exeBattleLv3() {
     if (MR::isFirstStep(this)) {
         mParent->appearStarPiece(8);
-        mBattleLv1->_38 = 1;
-        mBattleLv1->_39 = 1;
-        mBattleLv1->_3D = 1;
-        mBattleLv1->_3B = 1;
-        mBattleLv1->_3A = 1;
-        mBattleLv1->setLastBattle();
-        mBattleLv1->_3C = 0;
+        mBattleLv1->setBattleLevel(3);
         mCurrentAction = mBattleLv1;
     }
 
@@ -152,8 +135,4 @@ void DinoPackunVs2::exeDownDemo() {
 
 void DinoPackunVs2::exeWaitStart() {
     return;
-}
-
-DinoPackunVs2::~DinoPackunVs2() {
-    
 }

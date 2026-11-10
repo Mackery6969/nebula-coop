@@ -4,13 +4,10 @@
 
 class SnowplowSwitch : public LiveActor {
 public:
-    /// @brief Creates a new `SnowplowSwitch`.
-    /// @param pName A pointer to the null-terminated name of the object.
     SnowplowSwitch(const char* pName);
 
-    virtual ~SnowplowSwitch();
-    virtual void init(const JMapInfoIter&);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
     bool mIsDiscovered;
 };

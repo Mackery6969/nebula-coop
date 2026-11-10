@@ -1,6 +1,7 @@
 // The host's controls: keyboard and mouse, controllers, the pointer and its sources, binding capture, button
 // icons, vibration, and the scripted and replayed test input, as the input the game reads.
 #include "galaxy/game_paths.h"
+#include "galaxy/launch_args.h"
 #include "galaxy/run_options.h"
 #include "galaxy/host_env.h"
 
@@ -14,7 +15,6 @@
 #include "galaxy/input/key_positions.h"
 #include "galaxy/input/key_positions_win32.h"
 #include "galaxy/input/keyboard_state.h"
-#include "galaxy/input/raw_mouse_win32.h"
 #include "galaxy/native_settings_pad.h"
 #include "galaxy/pointer_control.h"
 #include "galaxy/rumble.h"
@@ -24,9 +24,7 @@
 #include "galaxy/runtime_settings.h"
 #include "galaxy/scope_exit.h"
 
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <Windows.h>
+#include "galaxy/windows_api.h"
 #include "galaxy/windows_power.h"
 #include <Xinput.h>
 #include <mmdeviceapi.h>
@@ -62,15 +60,6 @@
 
 namespace galaxy::host {
 using namespace controls;
-namespace {
-
-bool xinput_requires_focus() {
-    static const bool requires_focus =
-        ::galaxy::run_option_flag(::galaxy::run_options().xinput_require_focus, true);
-    return requires_focus;
-}
-
-}  // namespace
 
 static std::atomic<HostPointerProvider> g_host_pointer_provider{nullptr};
 static std::atomic<HostPointerTransitionProvider>
@@ -87,27 +76,27 @@ static std::atomic<bool> g_pointer_move_injected{false};
 static std::atomic<bool> g_pointer_button_injected{false};
 
 // Controller binding capture (overlay CONTROLS page). State: 0 idle, else
-// 1 + scheme while armed. The result is (1 << 16) | kind << 8 | code.
-static std::atomic<std::uint32_t> g_binding_capture_armed{0u};
+// (slot << 8) | (1 + scheme) while armed. The result is (1 << 16) | kind << 8 | code.
+static std::atomic<std::uint64_t> g_binding_capture_armed{0u};
 static std::atomic<std::uint32_t> g_binding_capture_result{0u};
 // XInput pads (bit per user index) seen by the input path, and when it last looked.
 static std::atomic<std::uint32_t> g_xinput_mask{0u};
 static std::atomic<std::uint64_t> g_xinput_looked_ms{0u};
 static std::atomic<HKL> g_keyboard_layout{nullptr};
-// The device that last gave input, for the CONTROLS page: (scheme << 8) | slot.
-constexpr std::uint32_t kLastInputNone = 0xFFFFFFFFu;
-constexpr std::uint32_t kLastInputKeyboard = 0xFFFFFFFEu;
-static std::atomic<std::uint32_t> g_last_input{kLastInputNone};
+// The device that last gave input, for the CONTROLS page: (scheme << 32) | slot.
+constexpr std::uint64_t kLastInputNone = ~std::uint64_t{0};
+constexpr std::uint64_t kLastInputKeyboard = ~std::uint64_t{0} - 1u;
+static std::atomic<std::uint64_t> g_last_input{kLastInputNone};
 
 // An armed capture holds the scheme as 1 + scheme in its low byte and the
 // device slot above it.
-constexpr input::ControlScheme capture_scheme_of(std::uint32_t armed) noexcept {
-    return static_cast<input::ControlScheme>((std::max<std::uint32_t>(armed & 0xffu, 1u)) - 1u);
+constexpr input::ControlScheme capture_scheme_of(std::uint64_t armed) noexcept {
+    return static_cast<input::ControlScheme>((std::max<std::uint64_t>(armed & 0xffu, 1u)) - 1u);
 }
 
-void arm_controller_binding_capture(input::ControlScheme scheme, std::uint8_t slot) noexcept {
+void arm_controller_binding_capture(input::ControlScheme scheme, std::uint32_t slot) noexcept {
     g_binding_capture_result.store(0u, std::memory_order_release);
-    g_binding_capture_armed.store((static_cast<std::uint32_t>(slot) << 8u) | (1u + static_cast<std::uint32_t>(scheme)),
+    g_binding_capture_armed.store((static_cast<std::uint64_t>(slot) << 8u) | (1u + static_cast<std::uint64_t>(scheme)),
                                   std::memory_order_release);
     if (input::scheme_uses_hid(scheme)) {
         ensure_controller_hid_started();
@@ -133,6 +122,14 @@ std::atomic<bool> g_input_missing_shown{false};
 
 void arrange_touch_controls() noexcept {}
 
+bool touch_arranging() noexcept {
+    return false;
+}
+
+void finish_arranging_touch_controls(bool) noexcept {}
+
+void reset_arranged_touch_controls() noexcept {}
+
 void input_mode_changed() noexcept {}
 
 bool touch_controls_present() noexcept {
@@ -148,19 +145,33 @@ void set_touch_controls_settings(const TouchControlsSettings&) noexcept {}
 void reset_touch_controls_places() noexcept {}
 
 bool keyboard_or_mouse_attached() noexcept {
+    const auto holds = [](const RAWINPUTDEVICELIST* devices, UINT listed) {
+        for (UINT i = 0; i < listed; ++i) {
+            if (devices[i].dwType == RIM_TYPEKEYBOARD || devices[i].dwType == RIM_TYPEMOUSE) {
+                return true;
+            }
+        }
+        return false;
+    };
     RAWINPUTDEVICELIST devices[32];
     UINT count = static_cast<UINT>(std::size(devices));
     const UINT listed = GetRawInputDeviceList(devices, &count, sizeof(RAWINPUTDEVICELIST));
-    if (listed == static_cast<UINT>(-1)) {
-        // More devices than the list holds, or no answer: nothing says they are gone.
+    if (listed != static_cast<UINT>(-1)) {
+        return holds(devices, listed);
+    }
+    // No answer: nothing says they are gone.
+    if (GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
         return true;
     }
-    for (UINT i = 0; i < listed; ++i) {
-        if (devices[i].dwType == RIM_TYPEKEYBOARD || devices[i].dwType == RIM_TYPEMOUSE) {
-            return true;
-        }
+    // More devices than the first list holds: `count` says how many, and a few more may have arrived since.
+    try {
+        std::vector<RAWINPUTDEVICELIST> more(static_cast<std::size_t>(count) + 8u);
+        UINT room = static_cast<UINT>(more.size());
+        const UINT all = GetRawInputDeviceList(more.data(), &room, sizeof(RAWINPUTDEVICELIST));
+        return all == static_cast<UINT>(-1) || holds(more.data(), all);
+    } catch (...) {
+        return true;
     }
-    return false;
 }
 
 void set_input_missing_shown(bool shown) noexcept {
@@ -171,15 +182,8 @@ bool input_missing_shown() noexcept {
     return g_input_missing_shown.load(std::memory_order_relaxed);
 }
 
-bool controller_present_now() noexcept {
-    for (DWORD slot = 0; slot < XUSER_MAX_COUNT; ++slot) {
-        XINPUT_STATE state{};
-        if (XInputGetState(slot, &state) == ERROR_SUCCESS) {
-            return true;
-        }
-    }
-    return hid_controller_present_now();
-}
+// What the arrays that receive this list hold (input::kMaxControllers) covers every source.
+static_assert(input::kMaxControllers >= XUSER_MAX_COUNT + kMaxHidPads);
 
 std::size_t connected_controllers(std::span<input::ControllerInfo> out) noexcept {
     std::uint32_t xinput = g_xinput_mask.load(std::memory_order_acquire);
@@ -199,21 +203,18 @@ std::size_t connected_controllers(std::span<input::ControllerInfo> out) noexcept
         input::ControllerInfo& info = out[count++];
         info = {};
         info.scheme = input::ControlScheme::Xbox;
-        info.slot = static_cast<std::uint8_t>(slot);
+        info.slot = static_cast<std::uint32_t>(slot);
         info.model = "Xbox controller";
     }
     return count + hid_controllers(out.subspan(count));
 }
 
-namespace {
-}  // namespace
-
 std::optional<input::DeviceKey> last_input_device() noexcept {
-    const std::uint32_t key = g_last_input.load(std::memory_order_relaxed);
+    const std::uint64_t key = g_last_input.load(std::memory_order_relaxed);
     if (key == kLastInputNone) return std::nullopt;
     if (key == kLastInputKeyboard) return input::DeviceKey{input::ControlScheme::Keyboard, input::kKeyboardSlot};
-    return input::DeviceKey{static_cast<input::ControlScheme>((key >> 8u) & 0xffu),
-                            static_cast<std::uint8_t>(key & 0xffu)};
+    return input::DeviceKey{static_cast<input::ControlScheme>((key >> 32u) & 0xffu),
+                            static_cast<std::uint32_t>(key & 0xffffffffu)};
 }
 
 void note_keyboard_input() noexcept {
@@ -266,13 +267,13 @@ input::ButtonIconSpec button_icons(bool menu) noexcept {
     // The pads attached: read once a second and when the last input's device changes (the roster asks XInput's empty
     // slots, which is slow).
     static std::array<ControlScheme, input::kMaxControllers> s_attached{};
-    static std::array<std::uint8_t, input::kMaxControllers> s_attached_slot{};
+    static std::array<std::uint32_t, input::kMaxControllers> s_attached_slot{};
     static std::array<input::ButtonIconModel, input::kMaxControllers> s_attached_icons{};
     static std::size_t s_attached_count = 0u;
     static std::uint64_t s_attached_checked_ms = 0u;
     static std::optional<input::DeviceKey> s_device;
     static std::optional<ControlScheme> s_pad;
-    static std::uint8_t s_pad_slot = 0u;
+    static std::uint32_t s_pad_slot = 0u;
     const std::optional<input::DeviceKey> device = last_input_device();
     const std::uint64_t now_ms = GetTickCount64();
     if (device != s_device || now_ms - s_attached_checked_ms >= 1000u) {
@@ -414,7 +415,6 @@ void publish_native_window_key_press(std::uint32_t key) noexcept {
 
 void clear_native_window_key_presses() noexcept {
     g_keyboard_events.clear();
-    clear_native_raw_mouse();
 }
 
 struct HostPointerTransitionConsumerState {
@@ -508,11 +508,17 @@ HostPointerButtonSample consume_host_pointer_button_transitions(
             sample = {};
         }
         if (poll.result == HostPointerTransitionReadResult::Overflow) {
-            std::ostringstream message;
-            message << "host pointer transition overflow: cursor="
-                    << g_host_pointer_transition_state.cursor
-                    << " latest=" << poll.latest_sequence;
-            throw std::runtime_error(message.str());
+            // The window thread published more edges than the journal holds while this reader was away (a stall
+            // of seconds under a hammered button): the lost edges are dropped and the buttons are what the pointer
+            // state reports now, as after a focus change.
+            std::cerr << "[input] pointer journal overrun: cursor=" << g_host_pointer_transition_state.cursor
+                      << " latest=" << poll.latest_sequence << ", buttons resynchronised\n";
+            g_host_pointer_transition_state.cursor = poll.latest_sequence;
+            g_host_pointer_transition_state.left_button = current.left_button;
+            g_host_pointer_transition_state.right_button = current.right_button;
+            sample = {};
+            drain_completed = true;
+            break;
         }
         if (poll.result == HostPointerTransitionReadResult::Empty) {
             drain_completed = true;
@@ -671,7 +677,7 @@ struct RumbleHost {
     bool focused = false;
 };
 RumbleHost g_rumble_host{};
-void publish_rumble_for_mode(bool motor_on, std::optional<std::uint32_t> star_pointer_mode) noexcept;
+void publish_rumble_for_mode(std::uint8_t strength, std::optional<std::uint32_t> star_pointer_mode) noexcept;
 
 // `right_deadzone` is radial (pointer_control.h); the right stick must arrive
 // without a per-axis dead zone.
@@ -692,10 +698,10 @@ galaxy::input::PadSample pad_sample_from_xinput(const NativeHidControllerState& 
     return sample;
 }
 
-std::size_t collect_hid_pads(const galaxy::input::ControlsConfig& config,
-                              std::array<LivePad, kMaxHidPads>& out) {
-    std::array<HidPadState, kMaxHidPads> pads{};
+std::size_t collect_hid_pads(const galaxy::input::ControlsConfig& config, std::vector<LivePad>& out) {
+    static std::vector<HidPadState> pads;  // the game thread's, reused each frame
     const std::size_t count = read_hid_pads(pads, true);
+    out.assign(count, LivePad{});
     const std::uint64_t now_us = controller_hid_now_us();
     for (std::size_t i = 0; i < count; ++i) {
         const galaxy::input::SchemeTuning& tuning = config.tune(pads[i].scheme);
@@ -781,14 +787,14 @@ bool route_native_settings_pads(std::span<LivePad> pads, bool capture_finished) 
 // Returns true on the sample that completes a capture.
 bool service_binding_capture(std::span<const LivePad> pads) {
     static galaxy::input::PadSample s_baseline{};
-    static std::uint32_t s_baseline_for = 0u;
-    const std::uint32_t armed = g_binding_capture_armed.load(std::memory_order_acquire);
+    static std::uint64_t s_baseline_for = 0u;
+    const std::uint64_t armed = g_binding_capture_armed.load(std::memory_order_acquire);
     if (armed == 0u) {
         s_baseline_for = 0u;
         return false;
     }
     const auto scheme = capture_scheme_of(armed);
-    const auto slot = static_cast<std::uint8_t>(armed >> 8u);
+    const auto slot = static_cast<std::uint32_t>(armed >> 8u);
     const LivePad* match = nullptr;
     for (const LivePad& pad : pads) {
         if (pad.sample.connected && pad.sample.scheme == scheme &&
@@ -810,7 +816,7 @@ bool service_binding_capture(std::span<const LivePad> pads) {
     if (!source) {
         return false;
     }
-    std::uint32_t expected = armed;
+    std::uint64_t expected = armed;
     if (!g_binding_capture_armed.compare_exchange_strong(expected, 0u, std::memory_order_acq_rel)) {
         return false;
     }
@@ -863,6 +869,20 @@ bool current_process_window_under_cursor(POINT& cursor, HWND& window) {
 }
 
 bool current_process_runtime_window(HWND& window) {
+    // The runtime's own window once found: a search walks every top-level window of the desktop, and this is asked
+    // each frame while the pointer is elsewhere. It is searched for again when that window is gone or has no client area.
+    static std::atomic<HWND> s_runtime_window{nullptr};
+    if (const HWND known = s_runtime_window.load(std::memory_order_relaxed); known != nullptr) {
+        DWORD known_pid = 0;
+        RECT known_client{};
+        if (IsWindow(known) && IsWindowVisible(known) && GetWindowThreadProcessId(known, &known_pid) != 0u &&
+            known_pid == GetCurrentProcessId() && GetClientRect(known, &known_client) &&
+            known_client.right > known_client.left && known_client.bottom > known_client.top) {
+            window = known;
+            return true;
+        }
+        s_runtime_window.store(nullptr, std::memory_order_relaxed);
+    }
     struct SearchState {
         DWORD pid = GetCurrentProcessId();
         HWND window = nullptr;
@@ -910,6 +930,9 @@ bool current_process_runtime_window(HWND& window) {
         },
         reinterpret_cast<LPARAM>(&state));
 
+    if (state.window != nullptr) {
+        s_runtime_window.store(state.window, std::memory_order_relaxed);
+    }
     window = state.window != nullptr ? state.window : state.fallback_window;
     return window != nullptr;
 }
@@ -982,11 +1005,11 @@ public:
             deliver = select_host_pointer_mouse_button_delivery(position.window_focused, position.absolute_valid,
                 position.inside_client, projected.visible, under_cursor);
         }
-        const auto raw = sample_native_raw_mouse();
+        // The pointer is the window's cursor position (WM_MOUSEMOVE, one OS pointer curve): no raw device motion is read.
         return {true, position.window_focused, position.absolute_valid, position.inside_client,
                 position.left_button, position.right_button, deliver, buttons.has_transition_coordinates,
                 position.absolute_sequence, buttons.transition_sequence, projected,
-                position.window_focused && raw.moved};
+                false};
     }
     galaxy::input::NativeMousePointerProjection cursor() override {
         POINT position{};
@@ -1065,14 +1088,14 @@ void update_co_star(std::span<LivePad> pads, const galaxy::input::ControlsConfig
 }
 
 galaxy::input::PlayerInput build_live_input(
-    std::uint64_t current_vi,
+    std::uint64_t current_frame,
     const galaxy::RuntimeInputModeState& input_mode_state,
     galaxy::input::PlayContext play_context,
     galaxy::input::tilt::Section tilt_section) {
     const NativeInputScriptOverlay script = build_native_input_script_overlay(
-        current_vi, {galaxy::qpc_now});
+        current_frame, {galaxy::qpc_now});
     if (const NativeInputReplaySample* replay =
-            native_input_replay_sample_for_vi(current_vi);
+            native_input_replay_sample_for_frame(current_frame);
         replay != nullptr) {
         // Replayed pads reach the settings overlay the way live pads do.
         NativeInputReplaySample routed = *replay;
@@ -1088,7 +1111,7 @@ galaxy::input::PlayerInput build_live_input(
             routed.thumb_rx = routed.thumb_ry = 0;
         }
         return build_replayed_input(
-            current_vi,
+            current_frame,
             routed,
             script,
             input_mode_state.mode,
@@ -1100,10 +1123,9 @@ galaxy::input::PlayerInput build_live_input(
             active_native_input_replay_log());
     }
 
-    // A hidden test window (GALAXY_HIDE_WINDOW) is no keyboard or mouse source: no focus, key or cursor calls are
-    // made, while controllers, replay and scripts still work.
-    static const bool host_window_input_enabled =
-        !::galaxy::run_option_flag(::galaxy::run_options().hide_window, false);
+    // A hidden start (a test) is no keyboard or mouse source: no focus, key or cursor calls are made, while controllers,
+    // replay and scripts still work.
+    const bool host_window_input_enabled = !::galaxy::launch_args().started_hidden;
     HWND focused_window = nullptr;
     const bool window_focused =
         host_window_input_enabled &&
@@ -1131,13 +1153,13 @@ galaxy::input::PlayerInput build_live_input(
     // one source; the real Wii Remote mode uses neither.
     const bool use_keyboard = input_mode == galaxy::RuntimeInputMode::Auto ||
                               input_mode == galaxy::RuntimeInputMode::KeyboardMouse;
-    const std::uint32_t capture_armed = g_binding_capture_armed.load(std::memory_order_acquire);
+    const std::uint64_t capture_armed = g_binding_capture_armed.load(std::memory_order_acquire);
     const galaxy::input::ControlScheme capture_scheme = capture_scheme_of(capture_armed);
     const bool capturing = capture_armed != 0u;
     const bool controller_mode_polls =
         (input_mode == galaxy::RuntimeInputMode::Controller ||
          input_mode == galaxy::RuntimeInputMode::Auto) &&
-        (!xinput_requires_focus() || window_focused);
+        window_focused;
     const bool poll_controller =
         controller_mode_polls || (capturing && capture_scheme == galaxy::input::ControlScheme::Xbox);
     const galaxy::input::SchemeTuning& xbox_tuning =
@@ -1156,24 +1178,22 @@ galaxy::input::PlayerInput build_live_input(
     }
     const float xinput_pointer_deadzone_fraction =
         static_cast<float>(deadzone_counts(xbox_tuning.pointer_deadzone)) / 32767.0f;
-    std::array<LivePad, XUSER_MAX_COUNT + kMaxHidPads> pads{};
-    std::size_t pad_count = 0;
+    static std::vector<LivePad> pads;  // the game thread's, reused each frame
+    pads.clear();
     for (std::size_t i = 0; i < std::max<std::size_t>(xinput_count, 1u); ++i) {
-        pads[pad_count].device_slot =
-            i < xinput_count ? static_cast<std::uint8_t>(xinput_pads[i].slot) : std::uint8_t{0xFF};
-        pads[pad_count++].sample = pad_sample_from_xinput(
+        LivePad& pad = pads.emplace_back();
+        pad.device_slot = i < xinput_count ? static_cast<std::uint32_t>(xinput_pads[i].slot) : galaxy::input::kKeyboardSlot;
+        pad.sample = pad_sample_from_xinput(
             i < xinput_count ? xinput_pads[i] : NativeHidControllerState{},
             xinput_pointer_deadzone_fraction);
     }
     if (controller_mode_polls || (capturing && galaxy::input::scheme_uses_hid(capture_scheme))) {
         ensure_controller_hid_started();
-        std::array<LivePad, kMaxHidPads> hid_pads{};
-        const std::size_t hid_count = collect_hid_pads(controls.config, hid_pads);
-        for (std::size_t i = 0; i < hid_count; ++i) {
-            pads[pad_count++] = hid_pads[i];
-        }
+        static std::vector<LivePad> hid_pads;
+        collect_hid_pads(controls.config, hid_pads);
+        pads.insert(pads.end(), hid_pads.begin(), hid_pads.end());
     }
-    const std::span<LivePad> live_pads(pads.data(), pad_count);
+    const std::span<LivePad> live_pads(pads.data(), pads.size());
     update_co_star(live_pads, controls.config, static_cast<float>(dt_seconds_since_co_star()));
     // Before the overlay takes the pads: the controller the player is using, for the CONTROLS page.
     for (const LivePad& pad : live_pads) {
@@ -1181,7 +1201,7 @@ galaxy::input::PlayerInput build_live_input(
         if (pad_has_input(pad.sample) || pad.shake_remote || pad.shake_nunchuk ||
             std::fabs(pad.gyro_x) + std::fabs(pad.gyro_y) > 0.003f ||
             std::fabs(pad.touch_dx) + std::fabs(pad.touch_dy) > 0.0005f) {
-            g_last_input.store((static_cast<std::uint32_t>(pad.sample.scheme) << 8u) | pad.device_slot,
+            g_last_input.store((static_cast<std::uint64_t>(pad.sample.scheme) << 32u) | pad.device_slot,
                                std::memory_order_relaxed);
         }
     }
@@ -1209,18 +1229,17 @@ galaxy::input::PlayerInput build_live_input(
     if (keyboard_levels.key(VK_XBUTTON2)) keyboard_levels.mouse |= 1u << 4u;
     const bool allow_absolute_pointer =
         host_window_input_enabled && use_keyboard &&
-        input_mode != galaxy::RuntimeInputMode::RealWiimote;
+        !galaxy::is_wii_remote_mode(input_mode);
 
     LiveControlsFrame frame{controls.config};
     frame.pads = live_pads;
     frame.keyboard_levels = keyboard_levels;
     frame.script = script;
-    frame.vi = current_vi;
+    frame.game_frame = current_frame;
     frame.script_pointer_grace_ms = 250u;
     frame.window_focused = window_focused;
     frame.use_keyboard = use_keyboard;
     frame.use_pads = use_pads;
-    frame.allow_background_device_input = !xinput_requires_focus();
     frame.allow_absolute_pointer = allow_absolute_pointer;
     frame.drop_injected = drop_injected;
     frame.context = play_context;
@@ -1254,7 +1273,7 @@ bool native_game_co_star(galaxy::input::PlayerInput* input) noexcept {
 }
 
 galaxy::input::PlayerInput native_game_input(
-    std::uint64_t current_vi,
+    std::uint64_t current_frame,
     std::int32_t star_pointer_mode,
     std::uint8_t tilt_section) {
     const galaxy::input::PlayContext context =
@@ -1264,23 +1283,21 @@ galaxy::input::PlayerInput native_game_input(
     const galaxy::input::tilt::Section section = tilt_section == 1u ? galaxy::input::tilt::Section::StarBall
         : tilt_section == 2u ? galaxy::input::tilt::Section::Ray
         : galaxy::input::tilt::Section::None;
-    return build_live_input(current_vi, galaxy::get_runtime_input_mode_state(), context, section);
+    return build_live_input(current_frame, galaxy::get_runtime_input_mode_state(), context, section);
 }
 
-void native_game_rumble(bool motor_on, std::int32_t star_pointer_mode) noexcept {
+void native_game_rumble(std::uint8_t strength, std::int32_t star_pointer_mode) noexcept {
     publish_rumble_for_mode(
-        motor_on, star_pointer_mode >= 0 ? std::optional<std::uint32_t>(static_cast<std::uint32_t>(star_pointer_mode))
+        strength, star_pointer_mode >= 0 ? std::optional<std::uint32_t>(static_cast<std::uint32_t>(star_pointer_mode))
                                          : std::nullopt);
 }
 
 namespace {
 
-void publish_rumble_for_mode(bool motor_on, std::optional<std::uint32_t> star_pointer_mode) noexcept {
-    static galaxy::input::rumble::MotorEnvelope s_motor{};
+void publish_rumble_for_mode(std::uint8_t strength, std::optional<std::uint32_t> star_pointer_mode) noexcept {
     RumbleRequest request{};
-    request.motor_on = motor_on;
-    request.level = galaxy::input::rumble::quantize_level(
-        s_motor.update(motor_on, galaxy::host::controller_hid_now_us()));
+    request.motor_on = strength != 0u;
+    request.level = galaxy::input::rumble::quantize_level(static_cast<float>(strength) / 255.0f);
     request.target = g_rumble_host.target;
     request.strength = g_rumble_host.strength;
     request.focused = g_rumble_host.focused;

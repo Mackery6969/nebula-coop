@@ -1,9 +1,11 @@
 #include "Game/Enemy/KarikariDirector.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Enemy/Karikari.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/Util/FixedPosition.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
 
@@ -14,8 +16,8 @@ namespace {
                                     {"ShoulderR", {19.04f, 0.0f, 0.0f}, {2.29f, -199.69f, 205.0f}}};
 
     static const s32 hKarikariHoldingMax = ARRAY_SIZE(cling_data);
-    static const s32 sNoReleaseTime = 10;
-    static const s32 sRumbleInterval = 120;
+    NEBULA_TUNABLE(s32, sNoReleaseTime, 10);
+    static const s32 sRumbleInterval = NebulaFrameClock::stepsOfSeconds(2);
 
     KarikariDirector* getKarikariDirector() {
         return MR::getSceneObj< KarikariDirector >(SceneObj_KarikariDirector);
@@ -24,16 +26,16 @@ namespace {
 
 KarikariDirector::KarikariDirector(const char* pName)
     : LiveActorGroup(pName, 128), mClingNum(0), mClingJointMtxs(nullptr), mClingPositions(nullptr), mClingingKarikari(nullptr),
-      mReleaseKarikari(nullptr), mReleaseVel(0.0f, 0.0f), mLowestReleaseDist(999999.0f), mNoReleaseTime(0) {
+      mReleaseKarikari(nullptr), mReleaseVel(0.0f, 0.0f), mLowestReleaseDist(999999.0f), mNoReleaseTime(0), mRumbleTime(1) {
     MR::connectToSceneEnemyMovement(this);
-    mClingJointMtxs = new TPos3f[5];
+    mClingJointMtxs = new Pos3f[::hKarikariHoldingMax];
     mClingPositions = new FixedPosition*[::hKarikariHoldingMax];
     mClingingKarikari = new Karikari*[::hKarikariHoldingMax];
 
     for (s32 idx = 0; idx < ::hKarikariHoldingMax; idx++) {
         mClingingKarikari[idx] = nullptr;
-        mClingPositions[idx] = new FixedPosition(getClingMtx(idx), TVec3f(cling_data[idx].mPos.x, cling_data[idx].mPos.y, cling_data[idx].mPos.z),
-                                                 TVec3f(cling_data[idx].mRotDegree.x, cling_data[idx].mRotDegree.y, cling_data[idx].mRotDegree.z));
+        mClingPositions[idx] = new FixedPosition(getClingMtx(idx), Vec3f(cling_data[idx].mPos.x, cling_data[idx].mPos.y, cling_data[idx].mPos.z),
+                                                 Vec3f(cling_data[idx].mRotDegree.x, cling_data[idx].mRotDegree.y, cling_data[idx].mRotDegree.z));
     }
 }
 
@@ -51,7 +53,7 @@ void KarikariDirector::removeAllClingingKarikari() {
     }
 }
 
-void KarikariDirector::blowOutAllClingingKarikari(const TVec3f& rPos) {
+void KarikariDirector::blowOutAllClingingKarikari(const Vec3f& rPos) {
     for (s32 idx = 0; idx < ::hKarikariHoldingMax; idx++) {
         Karikari* karikari = mClingingKarikari[idx];
         if (karikari != nullptr) {
@@ -86,7 +88,7 @@ void KarikariDirector::movement() {
         clearScratchInfo();
     } else if (mReleaseKarikari != nullptr) {
         unregistCling(mReleaseKarikari);
-        mReleaseKarikari->tryDPDRelease(mReleaseVel);
+        mReleaseKarikari->tryPointerRelease(mReleaseVel);
         clearScratchInfo();
     } else {
         mNoReleaseTime--;
@@ -108,7 +110,7 @@ void KarikariDirector::clearScratchInfo() {
     mNoReleaseTime = ::sNoReleaseTime;
 }
 
-bool KarikariDirector::requestRelease(Karikari* pReleaseKarikari, TVec2f releaseVel, f32 dist) {
+bool KarikariDirector::requestRelease(Karikari* pReleaseKarikari, Vec2f releaseVel, f32 dist) {
     if (mNoReleaseTime > 0) {
         return false;
     }

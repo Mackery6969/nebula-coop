@@ -10,33 +10,33 @@ class FixedPosition;
 
 class StringSpider : public LiveActor {
 public:
-    StringSpider(const char*);
+    StringSpider(const char* pName);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void calcAnim();
-    virtual void kill();
-    virtual void startClipped();
-    virtual void endClipped();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPush(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter& rIter) override;
+    virtual void initAfterPlacement() override;
+    virtual void calcAnim() override;
+    virtual void kill() override;
+    virtual void startClipped() override;
+    virtual void endClipped() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     s32 getSearchToAttackTime();
-    void doSwingAction(f32, bool);
-    void reactDPD();
+    void doSwingAction(f32 accel, bool isSideSwing);
+    void reactPointer();
     void reactStringForce();
-    bool isOverStringLength(TVec3f*, f32*);
-    TVec3f calcToRootVector();
-    void calcPosture(f32, bool);
-    void tearDownDpdGripped();
+    bool isOverStringLength(Vec3f* pToRoot, f32* pDistance);
+    Vec3f calcToRootVector();
+    void calcPosture(f32 upRate, bool isFacePlayer);
+    void tearDownPointerGripped();
     void extendString();
-    void shortenString(f32);
-    bool reactSpinHit(HitSensor*, HitSensor*);
+    void shortenString(f32 length);
+    bool reactSpinHit(HitSensor* pSender, HitSensor* pReceiver);
     void startSwingLevelSound();
 
     void exeWait();
@@ -52,29 +52,29 @@ public:
     void exeTrampleFall();
     void exeWallHitDeath();
     void exeBlow();
-    void exeDpdGripped();
-    void endDpdGripped();
+    void exePointerGripped();
+    void endPointerGripped();
 
     SpinHitController* mSpinHitController;
     AnimScaleController* mScaleController;
     AnimStampController* mStampController;
     StringSpiderString* mString;
     FixedPosition* mFixedPos;
-    TQuat4f _A0;
-    f32 _B0;
-    f32 _B4;
-    bool _B8;
-    s32 _BC;
-    TVec3f* _C0;
-    TVec3f* _C4;
+    Quat4f mPoseQuat;
+    f32 mStringLengthMax;
+    f32 mStringLength;
+    bool mIsPointerPulled;
+    s32 mPointerStep;
+    Vec3f* mSwingFront;  // set only on a fixed swing line (Obj_arg1 == 2)
+    Vec3f* mSwingSide;
 };
 
 class StringSpiderString : public LiveActor {
 public:
-    StringSpiderString(const char*);
+    StringSpiderString(const char* pName);
 
-    virtual void calcAndSetBaseMtx();
+    virtual void calcAndSetBaseMtx() override;
 
-    TQuat4f _8C;
-    TVec3f _9C;
+    Quat4f mRotateQuat;
+    Vec3f mRootPos;
 };

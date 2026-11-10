@@ -1,17 +1,17 @@
 #include "Game/MapObj/ItemBlock.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    // static const f32 cVanishEffectScale = ;
-    static const s32 cAppearItemStep = 1;
-    static const f32 cAppearItemOffsetY = 100.0f;
-    // static const f32 cVelocityCoin =
-    static const s32 cTimerLimit = 240;
-    static const s32 hNumTimerLastPiece = 11;
-    static const f32 hLastBonusSplashRangeH = 10.0f;
-    static const f32 hPointLightOffsetY = 100.0f;
-    static const f32 hBrightness = 0.998646f;
+    NEBULA_TUNABLE(s32, cAppearItemStep, 1);
+    NEBULA_TUNABLE(f32, cAppearItemOffsetY, 100.0f);
+    static const s32 cTimerLimit = NebulaFrameClock::stepsOfSeconds(4);
+    NEBULA_TUNABLE(s32, hNumTimerLastPiece, 11);
+    NEBULA_TUNABLE(f32, hLastBonusSplashRangeH, 10.0f);
+    NEBULA_TUNABLE(f32, hPointLightOffsetY, 100.0f);
+    NEBULA_TUNABLE(f32, hBrightness, 0.998646f);
 };  // namespace
 
 namespace NrvItemBlock {
@@ -22,30 +22,29 @@ namespace NrvItemBlock {
 };  // namespace NrvItemBlock
 
 namespace {
-    static Color8 hPointLight(0xFF, 0xE6, 0, 0xFF);
+    const Color8 hPointLight(0xFF, 0xE6, 0, 0xFF);
 };  // namespace
 
 ItemBlock::ItemBlock(const char* pName) : LiveActor(pName) {
     mKind = 0;
     mTimer = 0;
     mItemCount = 8;
-    _98 = 0;
     mCalcShadow = false;
     mNoCalcAnim = false;
 }
 
-void ItemBlock::init(const JMapInfoIter& rIter) {
+void ItemBlock::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     checkKind(rIter);
     initBlock();
     MR::connectToSceneMapObjStrongLight(this);
     MR::useStageSwitchSleep(this, rIter);
-    initEffectKeeper(1, "CoinBlock", false);
+    initEffectKeeper(1, "CoinBlock");
     initSound(4, false);
     initNerve(GET_NERVE(ItemBlock, ItemBlockNrvStandby));
     s32 arg = -1;
-    MR::getJMapInfoArg4NoInit(rIter, &arg);
-    MR::initShadowVolumeBox(this, TVec3f(150.0f, 150.0f, 150.0f));
+    MR::getPlacementArg4NoInit(rIter, &arg);
+    MR::initShadowVolumeBox(this, Vec3f(150.0f, 150.0f, 150.0f));
     MR::setShadowVolumeStartDropOffset(this, 0, 77.0f);
 
     if (arg != -1) {
@@ -62,7 +61,7 @@ void ItemBlock::init(const JMapInfoIter& rIter) {
     }
 
     if (MR::isZeroGravity(this)) {
-        TVec3f upVec;
+        Vec3f upVec;
         MR::calcUpVec(&upVec, this);
         MR::setShadowDropDirection(this, 0, -upVec);
     } else {
@@ -86,7 +85,7 @@ void ItemBlock::endClipped() {
     MR::emitEffect(this, "Glow");
 }
 
-void ItemBlock::checkKind(const JMapInfoIter& rIter) {
+void ItemBlock::checkKind(const TableIter& rIter) {
     const char* name = nullptr;
     MR::getObjectName(&name, rIter);
 
@@ -111,7 +110,7 @@ void ItemBlock::checkKind(const JMapInfoIter& rIter) {
 
     if (mKind == 2 || mKind == 4) {
         arg = -1;
-        MR::getJMapInfoArg0NoInit(rIter, &arg);
+        MR::getPlacementArg0NoInit(rIter, &arg);
 
         if (arg >= 0) {
             mItemCount = arg;
@@ -121,7 +120,7 @@ void ItemBlock::checkKind(const JMapInfoIter& rIter) {
     }
 
     if (mKind == 1 || mKind == 3) {
-        MR::getJMapInfoArg1NoInit(rIter, &arg);
+        MR::getPlacementArg1NoInit(rIter, &arg);
 
         if (arg == -1) {
             mTimer = ::cTimerLimit;
@@ -131,7 +130,7 @@ void ItemBlock::checkKind(const JMapInfoIter& rIter) {
     }
 
     arg = -1;
-    MR::getJMapInfoArg2NoInit(rIter, &arg);
+    MR::getPlacementArg2NoInit(rIter, &arg);
     mCalcShadow = !(arg - 1);
 }
 
@@ -144,8 +143,8 @@ void ItemBlock::initBlock() {
     case 4:
     case 5:
         initModelManagerWithAnm("CoinBlock", nullptr, false);
-        TPos3f mtx;
-        MR::addHitSensorMtxMapObj(this, "body", 8, 100.0f, MR::getJointMtx(this, "CoinBlock"), TVec3f(0.0f, 100.0f, 0.0f));
+        Pos3f mtx;
+        MR::addHitSensorMtxMapObj(this, "body", 8, 100.0f, MR::getJointMtx(this, "CoinBlock"), Vec3f(0.0f, 100.0f, 0.0f));
         MR::initCollisionPartsAutoEqualScale(this, "CoinBlock", getSensor("body"), MR::getJointMtx(this, "CoinBlock"));
     }
 }
@@ -171,7 +170,7 @@ void ItemBlock::kill() {
 }
 
 void ItemBlock::control() {
-    TVec3f upVec;
+    Vec3f upVec;
     MR::calcUpVec(&upVec, this);
     MR::requestPointLight(this, mPosition + upVec * ::hPointLightOffsetY, ::hPointLight, ::hBrightness, -1);
 }
@@ -249,8 +248,8 @@ void ItemBlock::exeAppearItem() {
     }
 
     if (MR::isStep(this, ::cAppearItemStep)) {
-        TVec3f gravVec;
-        TVec3f position = mPosition;
+        Vec3f gravVec;
+        Vec3f position = mPosition;
         MR::calcGravityVector(this, &gravVec, nullptr, 0);
         position -= gravVec * ::cAppearItemOffsetY;
 

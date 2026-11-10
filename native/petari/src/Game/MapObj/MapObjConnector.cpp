@@ -4,46 +4,47 @@
 #include "Game/Util/ActorMovementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MapUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    const f32 sDepth = 500.0f;
-    const f32 sOffset = 50.0f;
+    NEBULA_TUNABLE(f32, sDepth, 500.0f);
+    NEBULA_TUNABLE(f32, sOffset, 50.0f);
 };  // namespace
 
 MapObjConnector::MapObjConnector(LiveActor* pActor) : mHost(pActor), mParts() {
-    _8.identity();
+    mOffsetMtx.identity();
 }
 
 bool MapObjConnector::attachToUnder() {
-    TVec3f upVec;
+    Vec3f upVec;
     MR::calcUpVec(&upVec, mHost);
 
     return attach(upVec);
 }
 
 bool MapObjConnector::attachToBack() {
-    TVec3f frontVec;
+    Vec3f frontVec;
     MR::calcFrontVec(&frontVec, mHost);
 
     return attach(frontVec);
 }
 
-bool MapObjConnector::attach(const TVec3f& rVec) {
+bool MapObjConnector::attach(const Vec3f& rVec) {
     Triangle triangle = Triangle();
 
-    TVec3f vec;
+    Vec3f vec;
     if (!MR::getFirstPolyOnLineToMapExceptActor(&vec, &triangle, mHost->mPosition + rVec * ::sOffset, -rVec * ::sDepth, mHost)) {
         return false;
     }
 
     mParts = triangle.mParts;
 
-    TPos3f baseMtx;
+    Pos3f baseMtx;
     baseMtx.set(mHost->getBaseMtx());
 
-    TPos3f invBaseMtx;
+    Pos3f invBaseMtx;
     invBaseMtx.set(triangle.mParts->mInvBaseMatrix);
-    _8.concat(invBaseMtx, baseMtx);
+    mOffsetMtx.concat(invBaseMtx, baseMtx);
 
     return true;
 }
@@ -57,10 +58,10 @@ void MapObjConnector::connect(LiveActor* pActor) {
         return;
     }
 
-    TPos3f baseMtx;
+    Pos3f baseMtx;
     baseMtx.identity();
     baseMtx.set(mParts->mBaseMatrix);
-    baseMtx.concat(baseMtx, _8);
+    baseMtx.concat(baseMtx, mOffsetMtx);
     baseMtx.getTrans(pActor->mPosition);
 
     MR::setBaseTRMtx(pActor, baseMtx);

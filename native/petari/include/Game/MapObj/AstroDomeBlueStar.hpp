@@ -2,7 +2,7 @@
 
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class ActorCameraInfo;
 class GCaptureRibbon;
@@ -11,44 +11,41 @@ class AstroDomeBlueStar : public LiveActor {
 public:
     class CaptureActor : public LiveActor {
     public:
-        /// @brief Creates a new `CaptureActor`.
         CaptureActor();
 
-        virtual void init(const JMapInfoIter&);
-        virtual void kill();
+        virtual void init(const TableIter&) override;
+        virtual void kill() override;
 
-        void updateTransTraction(const TVec3f&, const TVec3f&, s32);
+        void updateTransTraction(const Vec3f&, const Vec3f&, s32);
 
         void forceKill() {
             MR::forceDeleteEffectAll(this);
             LiveActor::kill();
         };
 
-        void setPosAll(TVec3f& mPos) {
+        void setPosAll(Vec3f& mPos) {
             mPosition.set(mPos);
             mHostMtx.setTrans(mPosition);
         }
 
-        TPos3f mHostMtx;
+        Pos3f mHostMtx;
     };
 
-    /// @brief Creates a new `AstroDomeBlueStar`.
-    /// @param pName A pointer to the null-terminated name of the object.
     AstroDomeBlueStar(const char* pName);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void draw() const;
-    virtual void appear();
-    virtual void kill();
-    virtual void control();
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void draw() const override;
+    virtual void appear() override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
     void waitAppear();
     void forceKill();
     bool tryStartBind(const LiveActor*);
     bool isActiveBind() const;
     bool isValidBindStart() const;
-    void calcZoomInPos(TVec3f*) const;
+    void calcZoomInPos(Vec3f*) const;
 
     void exeAppear();
     void exeWait();
@@ -63,9 +60,9 @@ public:
     void exeGalaxyConfirm();
 
     GCaptureRibbon* mCaptureRibbon;
-    TPos3f mHostMtx;
-    TPos3f mBindStartMtx;
+    Pos3f mHostMtx;
+    Pos3f mBindStartMtx;
     ActorCameraInfo* mCameraInfo;
-    TVec3f mZoomPos;
+    Vec3f mZoomPos;
     CaptureActor* mCaptureActor;
 };

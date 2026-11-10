@@ -4,34 +4,27 @@
 #include "Game/Enemy/KarikariDirector.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
-#include <JSystem/JGeometry/TUtil.hpp>
+#include <nebula_geometry.hpp>
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const f32 sKarikariViewRate = 0.8f;
-    static const s32 sKarikariCounterMax = 30;
-    static const f32 sPlayerRadius = 75.0f;
+    NEBULA_TUNABLE(f32, sKarikariViewRate, 0.8f);
+    NEBULA_TUNABLE(s32, sKarikariCounterMax, 30);
+    NEBULA_TUNABLE(f32, sPlayerRadius, 75.0f);
+
+    // The view angle (radians) whose tangent is 1/0.3 of the player's radius seen from dist.
+    f32 calcFovy(f32 dist) {
+        f32 fovAngle = MR::asin(::sPlayerRadius / dist);
+
+        return MR::atan2((dist * MR::tan(fovAngle)) / 0.3f, dist);
+    }
 };  // namespace
 
 CamKarikariEffector::CamKarikariEffector() : mCounter(0) {
 }
 
-namespace {
-    inline TVec3f calcPlayerFocusPos(const TVec3f& rOffset) {
-        const TVec3f* pOffset = &rOffset;
-
-        return *MR::getPlayerPos() + *pOffset;
-    }
-
-    inline f32 calcFovy(f32 dist) {
-        f32 fovAngle = MR::asin(75.0f / dist);
-
-        return MR::atan2((dist * MR::tan(fovAngle)) / 0.3f, dist);
-    }
-}
-
 void CamKarikariEffector::update(CameraMan* pCameraMan) {
     if (MR::isPlayerDead()) {
-        CameraLocalUtil::setFovy(pCameraMan, CameraLocalUtil::getFovy(pCameraMan));
         return;
     }
 
@@ -61,31 +54,30 @@ void CamKarikariEffector::update(CameraMan* pCameraMan) {
     t *= t;
     t = 1.0f - t;
 
-    TVec3f diffWatchPos = CameraLocalUtil::getWatchPos(pCameraMan) - CameraLocalUtil::getPos(pCameraMan);
-    TVec3f toWatchPos(diffWatchPos);
+    Vec3f diffWatchPos = CameraLocalUtil::getWatchPos(pCameraMan) - CameraLocalUtil::getPos(pCameraMan);
+    Vec3f toWatchPos(diffWatchPos);
     MR::normalize(&toWatchPos);
 
-    TVec3f playerUp;
+    Vec3f playerUp;
     MR::getPlayerUpVec(&playerUp);
-    TVec3f playerFocusPos = calcPlayerFocusPos(playerUp * ::sPlayerRadius);
+    Vec3f playerFocusPos = *MR::getPlayerPos() + playerUp * ::sPlayerRadius;
 
-    TVec3f diffPlayerPos = playerFocusPos - CameraLocalUtil::getPos(pCameraMan);
-    TVec3f toPlayerPos(diffPlayerPos);
+    Vec3f diffPlayerPos = playerFocusPos - CameraLocalUtil::getPos(pCameraMan);
+    Vec3f toPlayerPos(diffPlayerPos);
     MR::normalize(&toPlayerPos);
 
     f32 rotRatio = MR::clamp((1.0f - MR::cos(mCounter * MR::pi() / ::sKarikariCounterMax)) * 0.5f, 0.0f, 1.0f);
-    TQuat4f rot;
+    Quat4f rot;
     rot.setRotate(toWatchPos, toPlayerPos, rotRatio);
     rot.transform(diffWatchPos);
 
-    CameraLocalUtil::setPos(pCameraMan, CameraLocalUtil::getPos(pCameraMan));
     CameraLocalUtil::setWatchPos(pCameraMan, diffWatchPos + CameraLocalUtil::getPos(pCameraMan));
 
-    TVec3f camUp(CameraLocalUtil::getUpVec(pCameraMan));
+    Vec3f camUp(CameraLocalUtil::getUpVec(pCameraMan));
     rot.transform(camUp);
     CameraLocalUtil::setUpVec(pCameraMan, camUp);
 
-    f32 fovy = calcFovy(diffPlayerPos.length());
+    f32 fovy = ::calcFovy(diffPlayerPos.length());
 
     if (fovy < CameraLocalUtil::getFovy(pCameraMan) * MR::pi() / 180.0f) {
         CameraLocalUtil::setFovy(pCameraMan, (fovy * 180.0f * t) / MR::pi() + (1.0f - t) * CameraLocalUtil::getFovy(pCameraMan));

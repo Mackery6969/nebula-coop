@@ -6,7 +6,6 @@ class KoopaRestarterVs3 : public LiveActor {
 public:
     KoopaRestarterVs3(const char* pName);
 
-    virtual ~KoopaRestarterVs3();
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void appear();
+    virtual void init(const TableIter& rIter) override;
+    virtual void appear() override;
 };

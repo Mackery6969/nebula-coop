@@ -1,50 +1,33 @@
 #include "Game/System/AlreadyDoneFlagInGalaxy.hpp"
 #include "Game/Util/HashUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/SceneUtil.hpp"
 #include <algorithm>
 
 AlreadyDoneInfo::AlreadyDoneInfo() {
-    _0 = 0;
-    _2 = 0xFFFF;
-    _4 = 0xFFFF;
-
     clear();
 }
 
 void AlreadyDoneInfo::clear() {
-    _0 = 0;
-    _2 = 0xFFFF;
-    _4 = 0xFFFF;
+    mNameHash = 0;
+    mIsDone = false;
+    mZoneId = -1;
+    mLinkId = -1;
 }
 
-void AlreadyDoneInfo::init(const char* pInfo, s32 a2, s32 a3) {
-    u32 val = MR::getHashCode(pInfo) & 0x7FFF;
-    _2 = a2;
-    _0 = val;
-    _4 = a3;
+void AlreadyDoneInfo::init(const char* pInfo, s32 zoneId, s32 linkId) {
+    mNameHash = MR::getHashCode(pInfo);
+    mIsDone = false;
+    mZoneId = zoneId;
+    mLinkId = linkId;
 }
 
 bool AlreadyDoneInfo::isEqual(const AlreadyDoneInfo& otherInfo) const {
-    bool ret = 0;
-
-    if ((otherInfo.mask()) == (mask())) {
-        if (otherInfo._2 == _2) {
-            if (otherInfo._4 == _4) {
-                ret = 1;
-            }
-        }
-    }
-
-    return ret;
+    return otherInfo.mNameHash == mNameHash && otherInfo.mZoneId == mZoneId && otherInfo.mLinkId == mLinkId;
 }
 
-void AlreadyDoneInfo::set(bool flag) {
-    _0 = (flag ? 0x8000 : 0) | mask();
-}
-
-u16 AlreadyDoneInfo::mask() const {
-    return _0 & 0x7FFF;
+void AlreadyDoneInfo::set(bool isDone) {
+    mIsDone = isDone;
 }
 
 AlreadyDoneFlagInGalaxy::AlreadyDoneFlagInGalaxy(int numInfos) : mDoneInfos() {
@@ -55,11 +38,12 @@ void AlreadyDoneFlagInGalaxy::clear() {
     mDoneInfos.clear();
 }
 
-u32 AlreadyDoneFlagInGalaxy::setupFlag(const char* pName, const JMapInfoIter& rIter, u32* a3) {
+// The index of the flag of pName at rIter's zone and link, added if new; *pIsDone receives its value.
+u32 AlreadyDoneFlagInGalaxy::setupFlag(const char* pName, const TableIter& rIter, u32* pIsDone) {
     u32 result;
 
     s32 linkID = -1;
-    MR::getJMapInfoLinkID(rIter, &linkID);
+    MR::getPlacementLinkID(rIter, &linkID);
     s32 zoneID = MR::getPlacedZoneId(rIter);
 
     AlreadyDoneInfo info;
@@ -69,16 +53,16 @@ u32 AlreadyDoneFlagInGalaxy::setupFlag(const char* pName, const JMapInfoIter& rI
 
     if (it != mDoneInfos.end()) {
         result = it - mDoneInfos.begin();
-        *a3 = (it->_0 >> 15) & 0x1;
+        *pIsDone = it->mIsDone;
     } else {
         result = mDoneInfos.size();
         mDoneInfos.push_back(info);
-        *a3 = 0;
+        *pIsDone = 0;
     }
 
     return result;
 }
 
-void AlreadyDoneFlagInGalaxy::updateValue(int a1, u32 a2) {
-    mDoneInfos[a1].set(a2 != 0);
+void AlreadyDoneFlagInGalaxy::updateValue(int index, u32 isDone) {
+    mDoneInfos[index].set(isDone != 0);
 }

@@ -1,4 +1,5 @@
 #include "Game/Screen/LayoutActor.hpp"
+#include "Game/System/NebulaMods.hpp"
 #include "Game/Util/MotionSignal.hpp"
 #include "Game/LiveActor/Spine.hpp"
 #include "Game/Screen/LayoutCoreUtil.hpp"
@@ -35,19 +36,33 @@ void LayoutActor::calcAnim() {
 }
 
 void LayoutActor::draw() const {
+    if (mFlag.mHudPart != 0 && NebulaMods::isHudHidden(mFlag.mHudPart)) {
+        return;
+    }
     if (MR::isExecuteDrawLayout(this)) {
-        MotionSignal::layoutActor(this);
+        MotionSignal::drawObject(mDrawSlot, mMotionEpoch);
+        mLayoutManager->setDrawGeneration(mMotionEpoch);
         mLayoutManager->draw();
     }
 }
 
 void LayoutActor::appear() {
+    // Back from dead: a new life, so its panes do not blend from where they were before it was killed.
+    if (mFlag.mIsDead) {
+        ++mMotionEpoch;
+        NebulaMods::fire(NEBULA_MOD_EVENT_SCREEN, 1, nullptr, mName);
+    }
+
     mFlag.mIsDead = false;
 
     calcAnim();
 }
 
 void LayoutActor::kill() {
+    if (!mFlag.mIsDead) {
+        NebulaMods::fire(NEBULA_MOD_EVENT_SCREEN, 0, nullptr, mName);
+    }
+
     if (mEffectKeeper != nullptr) {
         mEffectKeeper->clear();
     }
@@ -67,8 +82,8 @@ s32 LayoutActor::getNerveStep() const {
     return mSpine->mStep;
 }
 
-TVec2f LayoutActor::getTrans() const {
-    TVec2f trans;
+Vec2f LayoutActor::getTrans() const {
+    Vec2f trans;
 
     MR::copyPaneTrans(&trans, this, nullptr);
     MR::convertLayoutPosToScreenPos(&trans, trans);
@@ -77,20 +92,20 @@ TVec2f LayoutActor::getTrans() const {
 }
 
 namespace {
-    inline void setRootTranslation(LayoutActor* pActor, const TVec2f& rTrans) {
+    inline void setRootTranslation(LayoutActor* pActor, const Vec2f& rTrans) {
         f32 y = rTrans.y;
         f32 x = rTrans.x;
-        TVec2f trans(x, y);
-        nw4r::lyt::Pane* pRootPane = MR::getRootPane(pActor);
-        TVec3f translation(trans.x, trans.y, 0.0f);
+        Vec2f trans(x, y);
+        Ui::Pane* pRootPane = MR::getRootPane(pActor);
+        Vec3f translation(trans.x, trans.y, 0.0f);
         pRootPane->mTranslate.x = translation.x;
         pRootPane->mTranslate.y = translation.y;
         pRootPane->mTranslate.z = translation.z;
     }
 };  // namespace
 
-void LayoutActor::setTrans(const TVec2f& rTrans) {
-    TVec2f trans;
+void LayoutActor::setTrans(const Vec2f& rTrans) {
+    Vec2f trans;
     MR::convertScreenPosToLayoutPos(&trans, rTrans);
     ::setRootTranslation(this, trans);
 }

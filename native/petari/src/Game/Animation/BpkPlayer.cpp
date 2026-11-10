@@ -1,16 +1,18 @@
 #include "Game/Animation/BpkPlayer.hpp"
 #include "Game/System/ResourceHolder.hpp"
-#include <JSystem/J3DGraphAnimator/J3DMaterialAttach.hpp>
-#include <JSystem/J3DGraphAnimator/J3DModelData.hpp>
+#include "Game/Render/Model.hpp"
+#include "Game/Render/Material.hpp"
+#include "Game/Render/ModelData.hpp"
 
-BpkPlayer::BpkPlayer(const ResourceHolder* pResourceHolder, J3DModelData* pModelData)
+BpkPlayer::BpkPlayer(const ResourceHolder* pResourceHolder, ModelData* pModelData)
     : MaterialAnmPlayerBase(pResourceHolder->mBpkResTable, pModelData) {
 }
 
-void BpkPlayer::attach(J3DAnmBase* pAnmRes, J3DModelData* pModelData) {
-    pModelData->mMaterialTable.entryMatColorAnimator(static_cast< J3DAnmColor* >(pAnmRes));
-}
-
-void BpkPlayer::detach(J3DAnmBase* pAnmRes, J3DModelData* pModelData) {
-    pModelData->mMaterialTable.removeMatColorAnimator(static_cast< J3DAnmColor* >(pAnmRes));
+void BpkPlayer::apply(Clip* pClip, Model* pModel) {
+    const u32 num = pClip->getEntryCount();
+    for (u32 i = 0; i < num; i++) {
+        if (pClip->hasMaterial(i)) {
+            pClip->getColor(i, pModel->ownMaterial(pClip->getMaterial(i))->getMaterialColor(0));
+        }
+    }
 }

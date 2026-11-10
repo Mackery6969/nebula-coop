@@ -6,10 +6,10 @@ class OceanBowl;
 
 class OceanBowlBloomDrawer : public NameObj {
 public:
-    OceanBowlBloomDrawer(OceanBowl*);
+    OceanBowlBloomDrawer(OceanBowl* pHost);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void draw() const;
+    virtual void init(const TableIter& rIter) override;
+    virtual void draw() const override;
 
     OceanBowl* mHost;
 };

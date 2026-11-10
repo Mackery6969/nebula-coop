@@ -4,12 +4,10 @@
 #include "Game/Screen/MessageTagSkipTagProcessor.hpp"
 #include "Game/System/MessageHolder.hpp"
 #include "Game/Util/MathUtil.hpp"
+#include "Game/Util/MessageTag.hpp"
 #include "Game/Util/SceneUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
-#include <cstdio>
 #include "Game/Util/ByteView.hpp"
-
-#define MESSAGE_ID_BUFFER_SIZE 256
 
 namespace MR {
     const char16_t* getSystemMessageDirect(const char* pMessageId) {
@@ -17,7 +15,7 @@ namespace MR {
 
         MessageSystem::getSystemMessageDirect(&messageInfo, pMessageId);
 
-        return reinterpret_cast< char16_t* >(messageInfo._0);
+        return messageInfo.mMessage;
     }
 
     const char16_t* getGameMessageDirect(const char* pMessageId) {
@@ -25,7 +23,7 @@ namespace MR {
 
         MessageSystem::getGameMessageDirect(&messageInfo, pMessageId);
 
-        return reinterpret_cast< char16_t* >(messageInfo._0);
+        return messageInfo.mMessage;
     }
 
     const char16_t* getLayoutMessageDirect(const char* pMessageId) {
@@ -33,7 +31,7 @@ namespace MR {
 
         MessageSystem::getLayoutMessageDirect(&messageInfo, pMessageId);
 
-        return reinterpret_cast< char16_t* >(messageInfo._0);
+        return messageInfo.mMessage;
     }
 
     const char16_t* getCurrentGalaxyNameOnCurrentLanguage() {
@@ -55,23 +53,28 @@ namespace MR {
         TalkMessageInfo messageInfo = TalkMessageInfo();
 
         return MessageSystem::getGameMessageDirect(&messageInfo, pMessageId) &&
-               getStringLengthWithMessageTag(reinterpret_cast< char16_t* >(messageInfo._0)) != 0;
+               getStringLengthWithMessageTag(messageInfo.mMessage) != 0;
     }
 
     const char16_t* getMessageLine(char16_t* pDst, u32 capacity, const char16_t* pMessage, u32 line) {
         u32 currentLine = 0;
+
+        // No message (an id the text lacks) has no lines: the empty line.
+        if (pMessage == nullptr) {
+            pMessage = u"";
+        }
 
         while (*pMessage != 0) {
             if (currentLine == line) {
                 break;
             }
 
-            if (*pMessage == 0x1A) {
+            if (*pMessage == cMessageTagEscape) {
                 pMessage++;
                 MessageEditorMessageTag tag(pMessage);
                 pMessage += tag.getSkipLength();
 
-                if (tag.isGroupTagId(1, 1)) {
+                if (tag.isGroupTagId(MessageTagGroup_Display, cMessageTagNextPage)) {
                     break;
                 }
             } else {
@@ -84,7 +87,7 @@ namespace MR {
         }
 
         for (u32 count = 0; count < capacity; count++) {
-            if (*pMessage == 0x1A) {
+            if (*pMessage == cMessageTagEscape) {
                 *pDst++ = *pMessage++;
                 MessageEditorMessageTag tag(pMessage);
 
@@ -114,13 +117,18 @@ namespace MR {
     s32 countMessageLine(const char16_t* pMessage) {
         s32 count = 1;
 
+        // No message (an id the text lacks) is one empty line.
+        if (pMessage == nullptr) {
+            return count;
+        }
+
         while (*pMessage != 0) {
-            if (*pMessage == 0x1A) {
+            if (*pMessage == cMessageTagEscape) {
                 pMessage++;
                 MessageEditorMessageTag tag(pMessage);
                 pMessage += tag.getSkipLength();
 
-                if (tag.isGroupTagId(1, 1)) {
+                if (tag.isGroupTagId(MessageTagGroup_Display, cMessageTagNextPage)) {
                     break;
                 }
             } else {
@@ -143,21 +151,20 @@ namespace MR {
         s32 count = 0;
 
         while (*pMessage != 0) {
-            if (*pMessage == 0x1A) {
+            if (*pMessage == cMessageTagEscape) {
                 pMessage++;
                 MessageEditorMessageTag tag(pMessage);
                 pMessage += tag.getSkipLength();
 
-                if (tag.getGroup() == 3) {
+                if (tag.getGroup() == MessageTagGroup_Picture) {
                     count++;
-                } else if (tag.getGroup() == 6) {
+                } else if (tag.getGroup() == MessageTagGroup_Number) {
                     count += countMessageFigure(readBytes< s32 >(tag.getParamPtr(0)));
-                } else if (tag.getGroup() == 5) {
+                } else if (tag.getGroup() == MessageTagGroup_Localize) {
                     count += 3;
-                }
-                else if (tag.getGroup() == 7) {
+                } else if (tag.getGroup() == MessageTagGroup_String) {
                     count += countMessageChar(tag.getParamString());
-                } else if (tag.isGroupTagId(1, 1)) {
+                } else if (tag.isGroupTagId(MessageTagGroup_Display, cMessageTagNextPage)) {
                     break;
                 }
             } else {
@@ -181,13 +188,18 @@ namespace MR {
     }
 
     const char16_t* getNextMessagePage(const char16_t* pMessage) {
+        // No message (an id the text lacks) has no next page.
+        if (pMessage == nullptr) {
+            return nullptr;
+        }
+
         while (*pMessage != 0) {
-            if (*pMessage == 0x1A) {
+            if (*pMessage == cMessageTagEscape) {
                 pMessage++;
                 MessageEditorMessageTag tag(pMessage);
                 pMessage += tag.getSkipLength();
 
-                if (tag.isGroupTagId(1, 1)) {
+                if (tag.isGroupTagId(MessageTagGroup_Display, cMessageTagNextPage)) {
                     if (*pMessage == u'\n') {
                         pMessage++;
                     }
@@ -203,31 +215,28 @@ namespace MR {
     }
 
     const char16_t* getGalaxyNameOnCurrentLanguage(const char* pGalaxyName) {
-        char messageId[MESSAGE_ID_BUFFER_SIZE];
-        nebula_snprintf(messageId, sizeof(messageId), "GalaxyName_%s", pGalaxyName);
+        MR::FormattedName messageId("GalaxyName_%s", pGalaxyName);
 
-        return getGameMessageDirect(messageId);
+        return getGameMessageDirect(messageId.c_str());
     }
 
     const char16_t* getGalaxyNameShortOnCurrentLanguage(const char* pGalaxyName) {
-        char messageId[MESSAGE_ID_BUFFER_SIZE];
-        nebula_snprintf(messageId, sizeof(messageId), "GalaxyNameShort_%s", pGalaxyName);
+        MR::FormattedName messageId("GalaxyNameShort_%s", pGalaxyName);
 
-        return getGameMessageDirect(messageId);
+        return getGameMessageDirect(messageId.c_str());
     }
 
     const char16_t* getScenarioNameOnCurrentLanguage(const char* pGalaxyName, s32 scenarioNo) {
-        char messageId[MESSAGE_ID_BUFFER_SIZE];
-        nebula_snprintf(messageId, sizeof(messageId), "ScenarioName_%s%d", pGalaxyName, scenarioNo);
+        MR::FormattedName messageId("ScenarioName_%s%d", pGalaxyName, scenarioNo);
 
-        return getGameMessageDirect(messageId);
+        return getGameMessageDirect(messageId.c_str());
     }
 
-    void getLayoutMessageID(char* pDst, const char* pSuperMessageId, const char* pSubMessageId) {
-        nebula_snprintf(pDst, MESSAGE_ID_BUFFER_SIZE, "Layout_%s%s", pSuperMessageId, pSubMessageId);
+    void getLayoutMessageID(FormattedName& rDst, const char* pSuperMessageId, const char* pSubMessageId) {
+        rDst.format("Layout_%s%s", pSuperMessageId, pSubMessageId);
     }
 
-    void makeCometMessageID(char* pDst, u32 bufferSize, const char* pCometName) {
-        nebula_snprintf(pDst, bufferSize, "CometName_%s", pCometName);
+    void makeCometMessageID(FormattedName& rDst, const char* pCometName) {
+        rDst.format("CometName_%s", pCometName);
     }
 };  // namespace MR

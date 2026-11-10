@@ -7,6 +7,8 @@
 #include <sl_consts.h>
 #include <sl_dlss.h>
 
+#include "galaxy/render/halton.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -15,22 +17,12 @@ namespace galaxy::render::streamline_common {
 inline sl::DLSSMode dlss_mode(unsigned quality) {
     switch (quality) {
     case 0: return sl::DLSSMode::eDLAA;
-    case 1: return sl::DLSSMode::eMaxQuality;
+    case 1:
+    case 5: return sl::DLSSMode::eMaxQuality;  // 5 ultra quality, a mode DLSS does not have
     case 2: return sl::DLSSMode::eBalanced;
     case 3: return sl::DLSSMode::eMaxPerformance;
     default: return sl::DLSSMode::eUltraPerformance;
     }
-}
-
-inline float halton(unsigned index, unsigned base) {
-    float result = 0.0f;
-    float fraction = 1.0f / static_cast<float>(base);
-    while (index > 0u) {
-        result += fraction * static_cast<float>(index % base);
-        index /= base;
-        fraction /= static_cast<float>(base);
-    }
-    return result;
 }
 
 // DLSS programming guide: at least 8 phases times the area ratio.

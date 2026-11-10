@@ -3,6 +3,10 @@
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Util.hpp"
+#include "Game/Util/Tunable.hpp"
+
+// The numbers this file's functions give the game's motion and animation calls, as tunables: "<file>.<function>.<call>.<k>".
+NEBULA_TUNABLE_NAMED(f32, cNum_exeAppearDemo_setBckRate_1, "exeAppearDemo.setBckRate.1", 1.0f);
 
 namespace NrvOtaKingLongFoot {
     NEW_NERVE(OtaKingLongFootNrvWait, OtaKingLongFoot, Wait)
@@ -12,17 +16,17 @@ namespace NrvOtaKingLongFoot {
 };  // namespace NrvOtaKingLongFoot
 
 namespace {
-    const f32 cFoot14SensorRadius = 50.0f;
+    NEBULA_TUNABLE(f32, cFoot14SensorRadius, 50.0f);
     const Vec cFoot14SensorOffset = {50.0f, 0.0f, 20.0f};
-    const f32 cFoot12SensorRadius = 90.0f;
+    NEBULA_TUNABLE(f32, cFoot12SensorRadius, 90.0f);
     const Vec cFoot12SensorOffset = {75.0f, 0.0f, 20.0f};
-    const f32 cFoot10SensorRadius = 110.0f;
+    NEBULA_TUNABLE(f32, cFoot10SensorRadius, 110.0f);
     const Vec cFoot10SensorOffset = {125.0f, 0.0f, 0.0f};
-    const f32 cFoot08SensorRadius = 150.0f;
+    NEBULA_TUNABLE(f32, cFoot08SensorRadius, 150.0f);
     const Vec cFoot08SensorOffset = {125.0f, 0.0f, -40.0f};
-    const f32 cFoot06SensorRadius = 150.0f;
+    NEBULA_TUNABLE(f32, cFoot06SensorRadius, 150.0f);
     const Vec cFoot06SensorOffset = {100.0f, 0.0f, -30.0f};
-    const f32 cFoot05SensorRadius = 150.0f;
+    NEBULA_TUNABLE(f32, cFoot05SensorRadius, 150.0f);
     const Vec cFoot05SensorOffset = {80.0f, 0.0f, -40.0f};
 };  // namespace
 
@@ -30,7 +34,7 @@ OtaKingLongFoot::OtaKingLongFoot(LiveActor* pHost, s32 demoBckStep, const char* 
     : PartsModel(pHost, pName, "OtaKingLongFoot", nullptr, MR::DrawBufferType_Enemy, false), mDemoBckStep(demoBckStep), mScaleController(nullptr) {
 }
 
-void OtaKingLongFoot::init(const JMapInfoIter& rIter) {
+void OtaKingLongFoot::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     MR::initLightCtrl(this);
     initSensor();
@@ -63,7 +67,7 @@ void OtaKingLongFoot::control() {
 
 void OtaKingLongFoot::calcAndSetBaseMtx() {
     PartsModel::calcAndSetBaseMtx();
-    TVec3f scale = mScaleController->_C * mScale;
+    Vec3f scale = mScaleController->mScale * mScale;
     MR::setBaseScale(this, scale);
 }
 
@@ -78,7 +82,7 @@ void OtaKingLongFoot::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     }
 }
 
-bool OtaKingLongFoot::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool OtaKingLongFoot::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (MR::isMsgStarPieceReflect(msg)) {
         mScaleController->startHitReaction();
         return true;
@@ -86,7 +90,7 @@ bool OtaKingLongFoot::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSen
     return false;
 }
 
-bool OtaKingLongFoot::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool OtaKingLongFoot::receiveMsgEnemyAttack(u32 /*msg*/, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (isNerve(GET_NERVE(OtaKingLongFoot, OtaKingLongFootNrvWait))) {
         setNerve(GET_NERVE(OtaKingLongFoot, OtaKingLongFootNrvDamage));
     }
@@ -95,12 +99,12 @@ bool OtaKingLongFoot::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSens
 
 void OtaKingLongFoot::initSensor() {
     initHitSensor(6);
-    MR::addHitSensorAtJointEnemy(this, "Foot14", "Foot14", 8, ::cFoot14SensorRadius, TVec3f(::cFoot14SensorOffset));
-    MR::addHitSensorAtJointEnemy(this, "Foot12", "Foot12", 8, ::cFoot12SensorRadius, TVec3f(::cFoot12SensorOffset));
-    MR::addHitSensorAtJointEnemy(this, "Foot10", "Foot10", 8, ::cFoot10SensorRadius, TVec3f(::cFoot10SensorOffset));
-    MR::addHitSensorAtJointEnemy(this, "Foot08", "Foot08", 8, ::cFoot08SensorRadius, TVec3f(::cFoot08SensorOffset));
-    MR::addHitSensorAtJointEnemy(this, "Foot06", "Foot06", 8, ::cFoot06SensorRadius, TVec3f(::cFoot06SensorOffset));
-    MR::addHitSensorAtJointEnemy(this, "Foot05", "Foot05", 8, ::cFoot05SensorRadius, TVec3f(::cFoot05SensorOffset));
+    MR::addHitSensorAtJointEnemy(this, "Foot14", "Foot14", 8, ::cFoot14SensorRadius, Vec3f(::cFoot14SensorOffset));
+    MR::addHitSensorAtJointEnemy(this, "Foot12", "Foot12", 8, ::cFoot12SensorRadius, Vec3f(::cFoot12SensorOffset));
+    MR::addHitSensorAtJointEnemy(this, "Foot10", "Foot10", 8, ::cFoot10SensorRadius, Vec3f(::cFoot10SensorOffset));
+    MR::addHitSensorAtJointEnemy(this, "Foot08", "Foot08", 8, ::cFoot08SensorRadius, Vec3f(::cFoot08SensorOffset));
+    MR::addHitSensorAtJointEnemy(this, "Foot06", "Foot06", 8, ::cFoot06SensorRadius, Vec3f(::cFoot06SensorOffset));
+    MR::addHitSensorAtJointEnemy(this, "Foot05", "Foot05", 8, ::cFoot05SensorRadius, Vec3f(::cFoot05SensorOffset));
 }
 
 void OtaKingLongFoot::exeWait() {
@@ -126,7 +130,7 @@ void OtaKingLongFoot::exeAppearDemo() {
     }
 
     if (MR::isStep(this, mDemoBckStep)) {
-        MR::setBckRate(this, 1.0f);
+        MR::setBckRate(this, cNum_exeAppearDemo_setBckRate_1);
     }
 }
 

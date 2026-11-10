@@ -7,13 +7,33 @@
 #include "Game/AudioLib/AudSoundInfo.hpp"
 #include "Game/AudioLib/AudSystem.hpp"
 #include "Game/AudioLib/AudWrap.hpp"
-#include "Game/RhythmLib/AudBgmTempoAdjuster.hpp"
 #include "Game/RhythmLib/AudRhythmMeSystem.hpp"
-#include "Game/RhythmLib/AudRhythmSeqParser.hpp"
-#include <JSystem/JAudio2/JAISound.hpp>
-#include <JSystem/JAudio2/JAISoundChild.hpp>
-#include <JSystem/JAudio2/JAISoundInfo.hpp>
-#include "Game/System/GameThreads.hpp"
+#include "Game/Sound/Sound.hpp"
+#include "Game/Sound/SoundChild.hpp"
+#include "Game/Sound/StreamSound.hpp"
+
+namespace {
+    // Each track to the table's state for the step: two tracks a byte, the even one in the high nibble, bit 3 muting on its
+    // own and bits 0-2 the fade state. A song with no state for the step fades every track in, but a rhythm song's track 0.
+    void setTrackMuteStates(AudTrackController* pTracks, s32 trackNum, const AudBgmSetting::MuteState* pState, bool isRhythm, s32 time) {
+        if (pState == nullptr) {
+            for (s32 i = 0; i < trackNum; i++) {
+                if (i != 0 || !isRhythm) {
+                    pTracks[i].setMuteState(AudFader::FadeState_FadeIn, time, false);
+                }
+            }
+            return;
+        }
+
+        for (s32 i = 0; i < trackNum; i++) {
+            u8 state = pState->mMuteStates[i / 2];
+            if (i % 2 == 0) {
+                state >>= 4;
+            }
+            pTracks[i].setMuteState(state & 0x7, time, (state & 0x8) > 0);
+        }
+    }
+}  // namespace
 
 AudBgm::AudBgm() : mVolumeController() {
 }
@@ -48,8 +68,8 @@ void AudSingleBgm::movement() {
     }
 }
 
-JAISoundHandle* AudSingleBgm::start(u32 soundID, bool lock) {
-    JAISoundID id = soundID;
+SoundHandle* AudSingleBgm::start(u32 soundID, bool lock) {
+    SoundID id = soundID;
     mSoundID = soundID;
 
     if (mHandle.isSoundAttached()) {
@@ -58,9 +78,9 @@ JAISoundHandle* AudSingleBgm::start(u32 soundID, bool lock) {
 
     resetAuxVolume();
 
-    if (id.getSectionID() == 0x2) {  // STM
+    if (id.getSectionID() == SoundID::SOUND_STREAM) {
         AudWrap::getSystem()->getStreamMgr().startSound(id, &mHandle, nullptr);
-    } else {  // BGM or MBGM
+    } else {
         AudWrap::getSystem()->getSeqMgr().startSound(id, &mHandle, nullptr);
         if (mHandle.isSoundAttached()) {
             startTrackControl();
@@ -88,7 +108,7 @@ void AudSingleBgm::stop(u32 time) {
 
     mHandle->stop(time);
 
-    if (mSoundID.getSectionID() != 0x2) {  // not STM
+    if (mSoundID.getSectionID() != SoundID::SOUND_STREAM) {
         stopTrackControl();
     }
 }
@@ -107,9 +127,9 @@ void AudSingleBgm::playAfterPrepared() {
     }
 }
 
-JAISoundHandle* AudSingleBgm::getRhythmHandle() {
+SoundHandle* AudSingleBgm::getRhythmHandle() {
     if (mHandle.isSoundAttached()) {
-        if (mHandle->getID().getSectionID() == 0x1) {  //  BGM or MBGM
+        if (mHandle->getID().getSectionID() == SoundID::SOUND_SEQ) {
             return &mHandle;
         }
     }
@@ -144,37 +164,12 @@ bool AudSingleBgm::moveVolumeForNoteFairy(f32 volume, u32 time) {
 }
 
 void AudSingleBgm::changeTrackMuteState(s32 track, s32 time) {
-    if (mSoundID.getSectionID() == 0x2) {  // STM
+    if (mSoundID.getSectionID() == SoundID::SOUND_STREAM) {
         return;
     }
 
-    AudSoundInfo* info = AudWrap::getSoundInfo();
-    bool isRhythm = info->isRhythmBgm(mSoundID);
-
-    const AudBgmSetting::MuteState* muteState = AudBgmSetting::getMuteState(mSoundID, track);
-    if (muteState == nullptr) {
-        for (s32 i = 0; i < mNumTracks; i++) {
-            if (i != 0 || !isRhythm) {
-                mTrackController[i].setMuteState(AudFader::FadeState_FadeIn, time, false);
-            }
-        }
-
-        return;
-    }
-
-    for (s32 i = 0; i < mNumTracks; i++) {
-        u8 state = muteState->mMuteStates[i / 2];
-        if (i % 2 == 0) {
-            state >>= 4;
-        }
-
-        bool autoMute = false;
-        if ((state & 0x8) > 0) {
-            autoMute = true;
-        }
-
-        mTrackController[i].setMuteState(state & 0x7, time, autoMute);
-    }
+    const bool isRhythm = AudWrap::getSoundInfo()->isRhythmBgm(mSoundID);
+    ::setTrackMuteStates(mTrackController, mNumTracks, AudBgmSetting::getMuteState(mSoundID, track), isRhythm, time);
 }
 
 void AudSingleBgm::initTrackController() {
@@ -196,7 +191,7 @@ void AudSingleBgm::stopTrackControl() {
 }
 
 void AudSingleBgm::updateTrackControl() {
-    if (mSoundID.getSectionID() == 0x2) {  // STM
+    if (mSoundID.getSectionID() == SoundID::SOUND_STREAM) {
         return;
     }
 
@@ -216,7 +211,7 @@ void AudMultiBgm::init() {
     }
 }
 
-JAISoundHandle* AudMultiBgm::start(u32 soundID, bool lock) {
+SoundHandle* AudMultiBgm::start(u32 soundID, bool lock) {
     if (!isStopping()) {
         stop(0);
     }
@@ -258,17 +253,15 @@ void AudMultiBgm::sendToSyncStream() {
     AudRhythmMeSystem* meSystem = AudRhythmMeSystem::getInstance();
     s32 idx = mRhythmStrategy.mBgmIdx;
     if (idx >= 0) {
-        AudBgmTempoAdjuster* adjuster = meSystem->getSeqParser(idx)->getTempoAdjuster();
         f32 beatMul = AudBgmSetting::getBeatMulForMultiBgm(mBgmId);
         u32 introBeats = AudBgmSetting::getIntroBeatsForMultiBgm(mBgmId);
         u32 loopBeats = AudBgmSetting::getLoopBeatsForMultiBgm(mBgmId);
         u32 loopStartSamples = AudBgmSetting::getLoopStartSamplesForMultiBgm(mBgmId);
         u32 loopEndSamples = AudBgmSetting::getLoopEndSamplesForMultiBgm(mBgmId);
-        JAIStream* stream = mHandle->asStream();
+        StreamSound* stream = mHandle->asStream();
 
-        GameAudioExclusion crit;
-        adjuster->setInfo(beatMul, introBeats, loopBeats, loopStartSamples, loopEndSamples);
-        adjuster->setStream(stream);
+        meSystem->setTempoStream(idx, stream != nullptr ? stream->player() : nullptr, beatMul, introBeats, loopBeats, loopStartSamples,
+                                 loopEndSamples);
     }
 }
 
@@ -276,9 +269,7 @@ void AudMultiBgm::rejectFromSyncStream() {
     AudRhythmMeSystem* meSystem = AudRhythmMeSystem::getInstance();
     s32 idx = mRhythmStrategy.mBgmIdx;
     if (idx >= 0) {
-        GameAudioExclusion crit;
-        AudBgmTempoAdjuster* adjuster = meSystem->getSeqParser(idx)->getTempoAdjuster();
-        adjuster->reject();
+        meSystem->rejectTempoStream(idx);
     }
 }
 
@@ -346,48 +337,25 @@ void AudMultiBgm::changeTrackMuteState(s32 track, s32 time) {
         return;
     }
 
-    JAISoundID soundID = mRhythmHandle->getID();
+    SoundID soundID = mRhythmHandle->getID();
 
-    if (soundID.getSectionID() == 0x2) {  // STM
+    if (soundID.getSectionID() == SoundID::SOUND_STREAM) {
         return;
     }
 
-    AudSoundInfo* info = AudWrap::getSoundInfo();
-    bool isRhythm = info->isRhythmBgm(soundID);
-
+    const bool isRhythm = AudWrap::getSoundInfo()->isRhythmBgm(soundID);
     const AudBgmSetting::MuteState* muteState = AudBgmSetting::getMuteState(soundID, track);
     if (muteState == nullptr) {
-        for (s32 i = 0; i < mNumTracks; i++) {
-            if (i != 0 || !isRhythm) {
-                mTrackController[i].setMuteState(AudFader::FadeState_FadeIn, time, false);
-            }
-        }
-
+        ::setTrackMuteStates(mTrackController, mNumTracks, nullptr, isRhythm, time);
         return;
     }
 
-    switch (soundID) {
-    case BGM_GALAXY_01:
-        if (track == 1) {
-            time *= 3;
-        }
-
-        break;
+    // BGM_GALAXY_01's step 1 fades three times as slowly.
+    if (soundID == BGM_GALAXY_01 && track == 1) {
+        time *= 3;
     }
 
-    for (s32 i = 0; i < mNumTracks; i++) {
-        u8 state = muteState->mMuteStates[i / 2];
-        if (i % 2 == 0) {
-            state >>= 4;
-        }
-
-        bool autoMute = false;
-        if ((state & 0x8) > 0) {
-            autoMute = true;
-        }
-
-        mTrackController[i].setMuteState(state & 0x7, time, autoMute);
-    }
+    ::setTrackMuteStates(mTrackController, mNumTracks, muteState, isRhythm, time);
 
     u8 volA = muteState->mVolumeA;
     if (volA != 0xFF) {
@@ -407,11 +375,11 @@ void AudMultiBgm::changeTrackMuteState(s32 track, s32 time) {
     }
 }
 
-JAISoundHandle* AudMultiBgm::getHandle() {
+SoundHandle* AudMultiBgm::getHandle() {
     return &mHandle;
 }
 
-JAISoundHandle* AudMultiBgm::getRhythmHandle() {
+SoundHandle* AudMultiBgm::getRhythmHandle() {
     return &mRhythmHandle;
 }
 
@@ -441,7 +409,7 @@ bool AudMultiBgm::isPaused() const {
     return false;
 }
 
-JAISoundID AudMultiBgm::getSoundID() const {
+SoundID AudMultiBgm::getSoundID() const {
     if (!mHandle.isSoundAttached()) {
         return 0;
     }
@@ -467,7 +435,7 @@ void AudMultiBgm::updateTrackControl() {
     }
 }
 
-JAISoundHandle* AudMultiBgm::prepare(u32 id) {
+SoundHandle* AudMultiBgm::prepare(u32 id) {
     u32 bgmId = id & ~(0x01010000);
 
     u32 seqID = AudBgmSetting::getSeqIdForMultiBgm(bgmId);

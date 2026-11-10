@@ -1,13 +1,14 @@
 /* The game module's interface to Nebula's host (docs/NATIVE_PORT.md, "Module layout"): plain C, so the game module
    (built against the game's own C++ library) and the host (the host's C++ library) share nothing else. The host fills
-   NebulaHostServices and calls nebula_game_attach, then runs the game on its simulation thread with nebula_game_run;
-   events from host threads (the renderer's PE tokens and stream consumption, the video retrace, audio, input, file reads)
-   come back through the nebula_game_* entry points, which may be called from any thread. */
+   NebulaHostServices and calls nebula_game_attach, then runs the game on its game thread with nebula_game_run. Game code
+   runs on that thread only, but for nebula_game_sound_frame (the host's audio clock) and nebula_game_mii_valid (any
+   thread, pure). */
 #ifndef NEBULA_GAME_API_H
 #define NEBULA_GAME_API_H
 
 #include <stddef.h>
 #include <stdint.h>
+#include "nebula_frame_list.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -25,20 +26,24 @@ extern "C" {
 
 /* Upstream Nebula's number for this interface. Co-op changes leave it as it is (docs/COOP_PLAN.md "Versions"): the
    host checks the module against the header's fingerprint (nebula_game_api_fingerprint), which the build works out. */
-#define NEBULA_GAME_API_VERSION 122u
+#define NEBULA_GAME_API_VERSION 150u
+
+/* The game's fixed step: nebula_game_run's loop runs this many steps a second (frame_wait paces them), whatever the
+   display's rate; the host presents each or interpolates between them. */
+#define NEBULA_STEPS_PER_SECOND 60
 
 /* Viewports, scissors, clears, target sizes and picture points count this many units across a frame on each axis. */
 #define NEBULA_FRAME_UNITS 65536.0f
 
+/* The height the game's 2D coordinates, effects and mip chains were authored for: the frame's height over it scales an
+   effect's reach and a texture's mip bias. The one definition (the game's NebulaFrameClock and the renderer use it). */
+#define NEBULA_AUTHORED_LINES 456
+
 /* A colour word, R << 24 | G << 16 | B << 8 | A. */
 #define NEBULA_RGBA(r, g, b, a) (((uint32_t)(r) << 24) | ((uint32_t)(g) << 16) | ((uint32_t)(b) << 8) | (uint32_t)(a))
 
-typedef struct NebulaHostThread NebulaHostThread;
-
-#define NEBULA_THREAD_SLOTS 4
-
-/* Audio (the host's mixer): the game's voices mix at the output device's rate, one subframe (1/400 s: 80 samples
-   of the game's 32 kHz sound clock) per voices_mix call. A voice plays one source (PCM16 or an oscillator) through
+/* Audio (the host's mixer): the game's voices mix at the output device's rate, one tick's worth per voices_mix call
+   (the clock's rate, NEBULA_AUDIO_START). A voice plays one source (PCM16 or an oscillator) through
    its filters into mix buses or the surround panner; the game writes its settings, the mixer advances its playback.
    Volumes are gains (a send of 0.5 adds half the voice to its bus; voices_mix's gain scales the output). */
 enum {
@@ -144,41 +149,20 @@ typedef struct NebulaEffectLine {
     uint32_t generation;
 } NebulaEffectLine;
 
-/* A matrix a draw carries (shape_draw, immediate), named by its place in the draw: position matrix 0-9 (rows of
-   four) and its normal matrix (rows of three), which a corner's matrix index names together; texture matrix 0-9 (two
-   or three rows of four; 10 the identity's place) and post-transform texture matrix 0-19 (three rows of four; 20 the
-   identity's), which texture coordinates name. A draw carries every position and normal matrix its corners read; a
-   texture or post-transform matrix stays until a draw or material gives it again. `model_matrix`: the model's draw
-   matrix it is (its index + 1; 0 for any other), which names it from frame to frame. */
+/* The stencil a pass tests and changes: every pixel it reaches (always), only where the value is zero, or only where it is
+   not. The operation runs where the test and the depth test pass; add and take stop at the ends. */
 enum {
-    NEBULA_DRAW_MATRIX_POSITION = 0,
-    NEBULA_DRAW_MATRIX_NORMAL = 1,
-    NEBULA_DRAW_MATRIX_TEXTURE = 2,
-    NEBULA_DRAW_MATRIX_TEXTURE_2X4 = 3,
-    NEBULA_DRAW_MATRIX_POST_TEXTURE = 4,
+    NEBULA_STENCIL_OFF = 0,
+    NEBULA_STENCIL_ALWAYS,
+    NEBULA_STENCIL_IF_ZERO,
+    NEBULA_STENCIL_IF_SET,
 };
-
-typedef struct NebulaDrawMatrix {
-    uint8_t kind;
-    uint8_t place;
-    uint16_t model_matrix;
-    float values[12];
-} NebulaDrawMatrix;
-
-/* What a draw does to the target (shape_draw, immediate): the game's current values, whichever way it came by them. */
-typedef struct NebulaPassState {
-    uint8_t blend_op, blend_src, blend_dst, logic_op; /* NEBULA_BLEND_*, NEBULA_FACTOR_* */
-    uint8_t depth_test, depth_func, depth_write;      /* depth_func NEBULA_COMPARE_* */
-    uint8_t cull;                                     /* NEBULA_CULL_* */
-    uint8_t color_write, alpha_write;
-    uint8_t constant_alpha, constant_alpha_value;     /* the picture's alpha written is this value */
-    uint8_t position_matrix;                          /* the place (0-9) vertices without their own take */
-    uint8_t line_divisor, point_divisor;              /* lines' and points' texture offset n (1/n texel; 0 none) */
-    uint8_t line_offsets, point_offsets;              /* bit per texture coordinate those offsets move */
-    uint8_t reserved[3];
-    float line_width, point_size;                     /* pixels */
-} NebulaPassState;
-
+enum {
+    NEBULA_STENCIL_KEEP = 0,
+    NEBULA_STENCIL_ADD,
+    NEBULA_STENCIL_TAKE,
+    NEBULA_STENCIL_ZERO,
+};
 /* A light: colour, angle and distance terms, position and direction in view space. */
 typedef struct NebulaLight {
     uint8_t color[4];
@@ -188,81 +172,17 @@ typedef struct NebulaLight {
     float direction[3];
 } NebulaLight;
 
-/* An image (texture_image): its identity (the game's address of its bytes), format (the image file's format number), size, mipmap levels
+/* An image: its identity (the game's address of its bytes), format (the image file's format number), size, mipmap levels
    and its bytes (`size` of them, in the format's layout). */
 typedef struct NebulaTextureImage {
     const void* bytes;
     uint32_t size;
-    uint16_t width, height;
-    uint8_t format, levels;
+    uint32_t width, height;
+    uint8_t format;
+    uint32_t levels;
 } NebulaTextureImage;
 
-/* How immediate vertices group (NebulaImmediate::primitive). */
-typedef enum NebulaPrimitive {
-    NEBULA_PRIMITIVE_QUADS = 0,          /* drawn as (0 1 2)(0 2 3) */
-    NEBULA_PRIMITIVE_TRIANGLES = 1,
-    NEBULA_PRIMITIVE_TRIANGLE_STRIP = 2, /* odd triangles turned to keep the winding */
-    NEBULA_PRIMITIVE_TRIANGLE_FAN = 3,   /* around vertex 0 */
-    NEBULA_PRIMITIVE_LINES = 4,
-    NEBULA_PRIMITIVE_LINE_STRIP = 5,
-    NEBULA_PRIMITIVE_POINTS = 6
-} NebulaPrimitive;
-
-/* Vertices the game sends as it draws (immediate): `count` of them grouped as `primitive` (NebulaPrimitive), each with the values `attributes` names (NEBULA_SHAPE_NORMAL,
-   _COLOR0, _COLOR1, _TEXCOORD0 << n, _POSITION_MATRIX): 3 floats of position and of normal, an R << 24 | G << 16 |
-   B << 8 | A word per colour, 2 floats per texture coordinate, a position matrix place (0-9) per position matrix.
-   Without a position matrix the vertices take the current one. `matrices` (`matrix_count`): the position and normal
-   matrices they read and texture matrices given since the last record (NebulaDrawMatrix). */
-typedef struct NebulaImmediate {
-    uint8_t primitive;
-    uint8_t reserved[3];
-    uint32_t attributes;
-    uint32_t count;
-    uint32_t reserved2;
-    const float* position;
-    const float* normal;
-    const uint32_t* color[2];
-    const float* texcoord[8];
-    const uint8_t* position_matrix;
-    const struct NebulaDrawMatrix* matrices;
-    uint32_t matrix_count;
-    NebulaPassState pass;
-} NebulaImmediate;
-
-/* A texture coordinate a shape draw generates differently from its material (shape_draw): type and source as
-   J3DNativeTexGen encodes them, normalize, the post-transform row. */
-typedef struct NebulaShapeTexGen {
-    uint8_t coord, type, source, normalize, post_matrix;
-    uint8_t reserved[3];
-} NebulaShapeTexGen;
-
-/* The matrices a shape draw's corners take when they carry none (shape_draw): the position matrix's place (0-9) and
-   texture coordinates 0-7's texture matrix places (0-9, 10 the identity). */
-typedef struct NebulaShapeCurrent {
-    uint8_t position;
-    uint8_t texture[8];
-} NebulaShapeCurrent;
-
-typedef struct NebulaMaterialTexture {
-    uint64_t image;               /* the texture: its record's address (0: no texture) */
-    uint16_t width, height;       /* its size (the material's coordinate scales) */
-    uint8_t wrap_s, wrap_t;       /* 0 clamp, 1 repeat, 2 mirror */
-    uint8_t min_linear, mag_linear; /* minified within a level / magnified: 1 linear, 0 nearest */
-    uint8_t mip_filter;           /* 0 the first level only, 1 the nearest level, 2 between levels */
-    uint8_t edge_lod, anisotropy, bias_clamp;
-    float min_lod, max_lod, lod_bias;
-} NebulaMaterialTexture;
-
-typedef struct NebulaMaterialLight {
-    float position[3], direction[3];
-    float angle[3], distance[3];  /* attenuation coefficients */
-    uint8_t color[4];
-} NebulaMaterialLight;
-
-/* A native material (native_material): a shader compiled at build (runtime/src/render/materials/<name>.hlsl, one
-   NebulaShaderId each), its constants (the shader's MaterialConstants: floats, in its declaration order), its textures
-   (texture i at the shader's t<i>; image 0: none) and its fixed-function state. The draws that follow use it until the
-   next material (native or not) or drawing-state change. */
+/* A written shader (runtime/src/render/materials/<name>.hlsl). */
 typedef enum NebulaShaderId {
     NEBULA_SHADER_NONE = 0,
     NEBULA_SHADER_WHIRLPOOL = 1, /* WhirlPool: the swirl over the warped screen behind */
@@ -291,10 +211,10 @@ typedef enum NebulaShaderId {
     NEBULA_SHADER_TEX_ALPHA_LERP = 24,       /* two colours mixed by a texture's alpha (MarioFoo, WarpPod) */
     NEBULA_SHADER_TRAMPLE_STAR = 25,         /* TrampleStar: the lit star with Mario's shadow */
     NEBULA_SHADER_TEX_CONST_ALPHA = 26,      /* a texture's colour at a constant alpha (FullScreenBlur) */
-    NEBULA_SHADER_FONT_TEXT = 27,            /* nw4r CharWriter: glyphs mapped between two colours, by the vertex colour */
+    NEBULA_SHADER_FONT_TEXT = 27,            /* Ui::CharWriter: glyphs mapped between two colours, by the vertex colour */
     NEBULA_SHADER_J2D_PICTURE = 28,          /* J2DPicture: up to four textures blended by constant ratios, remapped */
     NEBULA_SHADER_FUR = 29,                  /* FurDrawer: a fur shell over the body texture, lit */
-    NEBULA_SHADER_PARTICLE = 30,             /* JPA particles: the texture by the emitter's colours, its colour mode */
+    NEBULA_SHADER_PARTICLE = 30,             /* particles: the texture by the emitter's colours, its colour mode */
     NEBULA_SHADER_OCEAN_BOWL_BLOOM = 31,     /* Beach Bowl's sea from under water: the water at two scrolls over grey */
     NEBULA_SHADER_MII_FACE = 32,             /* Mii faces: a part's form, Mii's light or the Mii NPCs' stages */
     NEBULA_SHADER_MII_TEXTURE = 33,          /* a Mii's face texture parts: eyes, eyebrows, mouth, mustache, mole */
@@ -306,16 +226,15 @@ typedef enum NebulaShaderId {
     NEBULA_SHADER_WATER_CAMERA = 39, /* WaterCameraFilter: the screen warped and darkened under water */
     NEBULA_SHADER_FRAME_RIPPLE = 40, /* MarioActor's heat and cold ripples: the frame, each row moved by a wave */
     NEBULA_SHADER_FRAME_DEPTH = 41, /* the frame's depth as the game reads it, averaged over the pass's pixel */
-    NEBULA_SHADER_COUNT,
-    /* The J3D material set (tools/dev/gen_j3d_materials.py): J3D_FIRST + n - 1 for its material n. */
-    NEBULA_SHADER_J3D_FIRST = 256
+    NEBULA_SHADER_PARTICLE_INSTANCES = 42, /* the particle material's vertex stage for NEBULA_ITEM_INSTANCES draws */
+    NEBULA_SHADER_GLYPH_INSTANCES = 43, /* the font material's vertex stage for CharWriter's instanced glyphs */
+    NEBULA_SHADER_COUNT
 } NebulaShaderId;
 
 enum {
     NEBULA_BLEND_REPLACE = 0,  /* blend_op: the source replaces */
     NEBULA_BLEND_ADD = 1,      /* source * blend_src + destination * blend_dst */
     NEBULA_BLEND_SUBTRACT = 2, /* destination - source */
-    NEBULA_BLEND_LOGIC = 3,    /* logic_op (VkLogicOp's order: clear, and, reverse and, copy, ..., set) */
 };
 enum {
     NEBULA_FACTOR_ZERO = 0, NEBULA_FACTOR_ONE, NEBULA_FACTOR_SRC_COLOR, NEBULA_FACTOR_INV_SRC_COLOR,
@@ -328,99 +247,6 @@ enum {
 };
 /* Culling of the game's back or front faces, in its own winding. */
 enum { NEBULA_CULL_NONE = 0, NEBULA_CULL_BACK = 1, NEBULA_CULL_FRONT = 2, NEBULA_CULL_ALL = 3 /* draw nothing */ };
-/* blend_op, depth_test or cull: the drawing state's blending, depth or culling as it is (a material that replaces only
-   the shader of the draws after the state the game set: J3DModelX's override passes). */
-enum { NEBULA_NATIVE_KEPT = 0xFF };
-/* A texture's image: the drawing state's map as it is (its image, size and sampling: textures the game loads per draw). */
-
-typedef struct NebulaNativeMaterial {
-    uint32_t shader;           /* NebulaShaderId */
-    uint8_t blend_op, blend_src, blend_dst, logic_op;
-    uint8_t depth_test, depth_func, depth_write, early_depth; /* depth_func NEBULA_COMPARE_* */
-    uint8_t cull, color_write, alpha_write; /* writes: 0 off, 1 on, 2 as they were */
-    uint8_t light_mask;        /* the lights below the material sets (the others keep what was set before) */
-    float constants[128];
-    struct {
-        uint64_t image;        /* the texture: its record's address (or a capture's key); the record has its size */
-        uint8_t repeat_s, repeat_t; /* 0 clamp, 1 repeat, 2 mirror */
-        uint8_t mag_linear;    /* magnified: 1 linear, 0 nearest */
-        uint8_t min_linear;    /* minified within a level: 1 linear, 0 nearest */
-        uint8_t mip_filter;    /* 0 the first level only, 1 the nearest level, 2 between levels */
-        uint8_t anisotropy;    /* 0 off, 1 two, 2 four samples */
-        uint8_t edge_lod;      /* 1 the level from the texel's edges */
-        float lod_bias, min_lod, max_lod;
-        uint8_t reserved[3];
-    } textures[8];
-    NebulaMaterialLight light[8];
-    /* Texgen i's post-transform matrix row (3k for matrix k; 61 the identity), | 0x80 to normalize first: the
-       drawing state's until a draw's own texgens replace it (a shape's env map or projection); NEBULA_NATIVE_KEPT keeps the
-       draw's (an instance's differed list that loads no texgens). */
-    uint8_t texgen_post[8];
-    uint32_t constants_only; /* bit 0: only the constants of the material the draws use change (the game folding a state
-                                change of one of its values in); its state, textures and lights stay as set since; bit 1: the first 84 constants are
-                                the register file (j3d_material.hlsli's layout), which the game keeps current) */
-} NebulaNativeMaterial;
-
-/* A model's vertex array as values (shape_array): `count` entries of `kind`, each `key` (the game's address of the
-   array it converts; an array made there later replaces it) naming it. Positions and normals are 3 floats, a bump-mapped model's normals 9 (normal, tangent,
-   binormal), colours one uint32_t each (R << 24 | G << 16 | B << 8 | A), texture coordinates 2 floats. */
-enum {
-    NEBULA_SHAPE_ARRAY_POSITION = 0,
-    NEBULA_SHAPE_ARRAY_NORMAL = 1,
-    NEBULA_SHAPE_ARRAY_NBT = 2,
-    NEBULA_SHAPE_ARRAY_COLOR = 3,
-    NEBULA_SHAPE_ARRAY_TEXCOORD = 4,
-};
-
-typedef struct NebulaShapeArray {
-    uint64_t key;
-    uint32_t kind;
-    uint32_t count;
-    const void* values;
-} NebulaShapeArray;
-
-/* One corner of a shape group: the entry it takes from each array and its matrices' places in a draw
-   (NebulaDrawMatrix: position 0-9, texture 0-9 or 10 the identity). */
-typedef struct NebulaShapeCorner {
-    uint16_t position;
-    uint16_t normal; /* for a bump-mapped group with three normal indices: the normal's */
-    uint16_t tangent;
-    uint16_t binormal;
-    uint16_t color[2];
-    uint16_t texcoord[8];
-    uint8_t position_matrix;
-    uint8_t texture_matrix[8]; /* the coordinate's texture place, or NEBULA_CORNER_POSITION_MATRIX */
-    uint8_t reserved[3];
-} NebulaShapeCorner;
-#define NEBULA_CORNER_POSITION_MATRIX 0xFFu /* the coordinate starts from the corner's own position matrix */
-
-/* Which arrays a shape group's corners read and which matrix places they carry (NebulaShapeGeometry::attributes). */
-enum {
-    NEBULA_SHAPE_NORMAL = 1u << 0,
-    NEBULA_SHAPE_COLOR0 = 1u << 1,
-    NEBULA_SHAPE_COLOR1 = 1u << 2,
-    NEBULA_SHAPE_TEXCOORD0 = 1u << 3,         /* to 1u << 10 for texture coordinate 7 */
-    NEBULA_SHAPE_NBT = 1u << 11,              /* normals from the NBT array */
-    NEBULA_SHAPE_NBT_THREE = 1u << 12,        /* separate normal, tangent and binormal entries */
-    NEBULA_SHAPE_POSITION_MATRIX = 1u << 13,  /* corners carry their position matrix place */
-    NEBULA_SHAPE_TEXTURE_MATRIX0 = 1u << 14,  /* to 1u << 21: corners carry texture coordinate 0-7's matrix place */
-    NEBULA_SHAPE_OWN_POSITIONS = 1u << 22,    /* positions (and colours) are the group's own values, not an array a
-                                                 model or the game keeps: geometry the game builds */
-};
-
-/* A shape group (shape_geometry): its corners, each distinct one once, and its triangles (three corner indices each,
-   front faces as the game winds them). `arrays` name the arrays its corners read by default (position, normal or NBT,
-   colour 0, colour 1, texture coordinates 0-7; 0 where it reads none); shape_draw names the first three per draw. */
-typedef struct NebulaShapeGeometry {
-    uint64_t key; /* the group's identity: the game's address of it (a group made there later replaces it) */
-    uint32_t attributes;
-    uint32_t reserved;
-    uint64_t arrays[12];
-    uint32_t corner_count;
-    uint32_t index_count;
-    const NebulaShapeCorner* corners;
-    const uint16_t* indices;
-} NebulaShapeGeometry;
 
 /* A file or folder of the asset store. */
 typedef struct NebulaAssetEntry {
@@ -429,9 +255,30 @@ typedef struct NebulaAssetEntry {
     uint64_t position;  /* the first byte in the store */
     uint32_t children;  /* a folder's entries */
     uint8_t folder;
-    uint8_t reserved[3];
+    uint8_t kind;       /* a file's NEBULA_ASSET_KIND_*, from the importer (cook/store.rs resource_kind) */
+    uint8_t reserved[2];
     const char* name;   /* valid for the process's life */
 } NebulaAssetEntry;
+
+/* What the game makes of a file of an archive (ResourceHolder, LayoutHolder): its name's extension, at import. */
+enum {
+    NEBULA_ASSET_KIND_OTHER = 0,
+    NEBULA_ASSET_KIND_MODEL,             /* bdl, bmd */
+    NEBULA_ASSET_KIND_MOTION,            /* bck, bca */
+    NEBULA_ASSET_KIND_TEXTURE_SRT,       /* btk */
+    NEBULA_ASSET_KIND_COLOR_KEY,         /* bpk */
+    NEBULA_ASSET_KIND_TEXTURE_PATTERN,   /* btp */
+    NEBULA_ASSET_KIND_CLUSTER_KEY,       /* blk */
+    NEBULA_ASSET_KIND_REGISTER_COLOR,    /* brk */
+    NEBULA_ASSET_KIND_SOUND_ANIMATION,   /* bas */
+    NEBULA_ASSET_KIND_MATERIALS,         /* bmt */
+    NEBULA_ASSET_KIND_VISIBILITY,        /* bva */
+    NEBULA_ASSET_KIND_MATERIAL_TABLE,    /* banmt */
+    NEBULA_ASSET_KIND_TEXTURE,           /* bti */
+    NEBULA_ASSET_KIND_LAYOUT,            /* brlyt */
+    NEBULA_ASSET_KIND_LAYOUT_ANIMATION,  /* brlan */
+    NEBULA_ASSET_KIND_COUNT
+};
 
 /* The settings the game reads from the player's system (system_setting). */
 enum {
@@ -440,7 +287,7 @@ enum {
     NEBULA_SETTING_WIDESCREEN,
 };
 
-/* A player's controller as the game reads it (input_read): one sample per moment, oldest first. */
+/* A player's controller this frame, whatever the device (input_read). */
 enum {
     NEBULA_BUTTON_A = 1u << 0,
     NEBULA_BUTTON_B = 1u << 1,
@@ -456,22 +303,18 @@ enum {
     NEBULA_BUTTON_C = 1u << 11, /* the Nunchuk's */
     NEBULA_BUTTON_Z = 1u << 12,
 };
-enum {
-    NEBULA_SHAKE_REMOTE = 1u << 0,  /* held while the remote (or the controller standing in for it) is shaken */
-    NEBULA_SHAKE_NUNCHUK = 1u << 1,
-};
 typedef struct NebulaInputSample {
     uint32_t buttons;       /* NEBULA_BUTTON_* held */
-    float stick[2];         /* the Nunchuk stick, -1..1: right, up */
-    float pointer[2];       /* where the remote points, -1..1 across the picture: right, down (pointer_on) */
-    float roll[2];          /* the remote's roll as the screen sees it, a unit vector: (1, 0) level */
-    float distance;         /* from the screen, in the sensor bar's units (pointer_on) */
-    float gravity[3];       /* the remote's acceleration in g (1 at rest): x out of its left side, y toward the
-                               expansion port, z out of the A face */
-    float nunchuk_gravity[3]; /* the Nunchuk's, the same axes */
-    uint8_t pointer_on;     /* 1: the remote points at the picture */
-    uint8_t shake;          /* NEBULA_SHAKE_* */
-    uint8_t reserved[2];
+    float stick[2];         /* the move stick, -1..1: right, up */
+    float pointer[2];       /* where the player points, -1..1 across the picture: right, down (pointer_on) */
+    float roll[2];          /* the pointer's roll as the screen sees it, a unit vector: (1, 0) level */
+    float distance;         /* from the screen (pointer_on) */
+    float tilt[3];          /* the main hand's tilt in g (1 at rest): x out of its left side, y toward its far end, z up */
+    float sub_tilt[3];      /* the sub hand's, the same axes */
+    uint8_t pointer_on;     /* 1: the player points at the picture */
+    uint8_t spin_presses;   /* spins since the last read: the main hand's, then the sub hand's */
+    uint8_t sub_spin_presses;
+    uint8_t reserved;
 } NebulaInputSample;
 typedef struct NebulaInputDevice {
     uint8_t connected;
@@ -481,26 +324,26 @@ typedef struct NebulaInputDevice {
 } NebulaInputDevice;
 /* What the game asks of a player's controller (input_control). */
 enum {
-    NEBULA_INPUT_RUMBLE = 1, /* value: 0 off, 1 on */
+    NEBULA_INPUT_RUMBLE = 1, /* value: how strongly, 0 off to 255 */
     NEBULA_INPUT_RELEASE,    /* the game lets the controller go (players 3 and 4 in play) */
+    NEBULA_INPUT_RESET,      /* a scene change: from rest */
 };
 
-/* The HOME Menu (hbm). NEBULA_HBM_POLL returns the choice so far: -1 none yet, 0 close, 1 leave the game, 2 reset.
-   The host keeps the menu (its keys and controllers' buttons) and the game draws it: NEBULA_HBM_VIEW returns -1 while
+/* The HOME Menu (services.home_menu). NEBULA_HOME_MENU_POLL returns the choice so far: -1 none yet, 0 close, 1 leave the game, 2 reset.
+   The host keeps the menu (its keys and controllers' buttons) and the game draws it: NEBULA_HOME_MENU_VIEW returns -1 while
    it is closed, else the selected answer in bits 0-7 and in bits 8-15 the choice it asks about (0 none: the list,
-   whose rows are close, reset and leave; 1 leave or 2 reset: "are you sure?", whose answers are no and yes); its
-   value is 1 when the game draws what it returns (the host then draws no menu of its own). */
+   whose rows are close, reset and leave; 1 leave or 2 reset: "are you sure?", whose answers are no and yes). */
 enum {
-    NEBULA_HBM_OPEN = 1, /* value: 1 on a 16:9 screen */
-    NEBULA_HBM_POLL,
-    NEBULA_HBM_CLOSE,    /* closed at once (a reset or power event) */
-    NEBULA_HBM_VIEW,     /* value: 1 drawing it */
-    NEBULA_HBM_POINT,    /* value: the answer under the pointer, selected */
-    NEBULA_HBM_CHOOSE,   /* value: the answer clicked */
+    NEBULA_HOME_MENU_OPEN = 1, /* value: 1 on a 16:9 screen */
+    NEBULA_HOME_MENU_POLL,
+    NEBULA_HOME_MENU_CLOSE,    /* closed at once (a reset or power event) */
+    NEBULA_HOME_MENU_VIEW,
+    NEBULA_HOME_MENU_POINT,    /* value: the answer under the pointer, selected */
+    NEBULA_HOME_MENU_CHOOSE,   /* value: the answer clicked */
 };
 
 /* A hidden test run's request (test_scene_frame): tools/test_driver/test_actions.h, absent from a release. */
-#if defined(NEBULA_RELEASE)
+#if !defined(NEBULA_DEV)
 typedef struct NebulaTestActionAbsent NebulaTestAction;
 #else
 #include "../../tools/test_driver/test_actions.h"
@@ -512,7 +355,7 @@ typedef struct NebulaDisplay {
     int32_t wide;          /* 0: 16:9, nothing changes */
     float content_aspect;  /* width / height, 4:3 to 32:9 */
     int32_t screen_width;  /* MR::getScreenWidth in the 16:9 mode (832 at 16:9) */
-    float layout_width;    /* the NW4R layout canvas (608 at 16:9 and narrower) */
+    float layout_width;    /* the layout canvas (608 at 16:9 and narrower) */
     float vertical_fit;    /* the layouts' height scale under 16:9 (1 at 16:9 and wider) */
 } NebulaDisplay;
 
@@ -714,47 +557,22 @@ enum {
 /* Nebula options the game follows (option). */
 enum {
     NEBULA_OPTION_TEXT_SPEED = 1, /* 1 to 3: text steps revealed per frame; 4: each page at once */
-    NEBULA_OPTION_DRAW_IDENTITIES, /* 1 while the renderer reads host markers (NebulaRender::hostMarker) */
+    NEBULA_OPTION_PIXEL_LIT,         /* 1: materials with light terms light at the pixel */
     NEBULA_OPTION_INPUT_MODE,        /* NebulaInputMode: the input mode the player chose */
     NEBULA_OPTION_BLOOM,             /* 1 when the renderer's bloom is built: BloomEffect and BloomEffectSimple give it
                                         their values (NebulaRender::bloomMarker); 0 no bloom */
     NEBULA_OPTION_MENU_TEXT_SIZE,    /* the menus' text in percent; 0: as the screen's size calls for */
     NEBULA_OPTION_WINDOW_WIDTH_DP,   /* the window's width in density-independent units; 0: not known */
     NEBULA_OPTION_MODS_CHANGED,      /* the mods chosen differ from those this run started with: a reset starts the game again */
-    NEBULA_OPTION_MODS_PREPARING,    /* the preparation screen is for mods' files (their title), not ray tracing */
-    NEBULA_OPTION_RT_PREPARATION,    /* ray tracing's shader preparation, which the title waits for (NebulaRtPrepare):
-                                        0 none, 1 the renderer opens its pipeline library, 2 it compiles the pipelines
+    NEBULA_OPTION_PREPARE_KIND,      /* what the preparation screen is for: 0 ray tracing, 1 mods' files, 2 the pipeline list */
+    NEBULA_OPTION_PREPARATION,       /* a preparation the title waits for (NebulaPrepare): 0 none, 1 it opens, 2 it runs
                                         (the preparation screen shows) */
-    NEBULA_OPTION_RT_PREPARE_PROGRESS, /* while NEBULA_OPTION_RT_PREPARATION is 2: its progress, 0 to 10000, never
-                                          going back */
-    NEBULA_OPTION_TEST_ARENA_FILL,     /* tests (GALAXY_TEST_ARENA_FILL=<hex byte>): 0x100 | the byte every arena block starts as; 0 without it */
-    NEBULA_OPTION_TEST_TRACE_LOADS,    /* tests (GALAXY_TRACE_LOADS): 1 logs what each scene change loads */
+    NEBULA_OPTION_PREPARE_PROGRESS,  /* while NEBULA_OPTION_PREPARATION is 2: its progress, 0 to 10000, never going back */
+    NEBULA_OPTION_DIAGNOSE_SCENE_LOADS, /* --diagnostics scene-loads: 1 logs what each scene change loads */
     NEBULA_OPTION_TOUCH_POINTER,       /* 0 no touch screen, 1 one, 2 the finger has the pointer, 3 and the game is on a
                                           menu: no pointer shows under a finger there */
     NEBULA_OPTION_STAR_COUNTER,        /* 1 while the room plays the built-in Personal Star Counter mod (the host's
                                           choice, off by default): NebulaStarCounter's two counters show on the HUD */
-};
-
-/* game_light: the game's lights, from the objects that own them; `values` per kind. */
-enum {
-    NEBULA_LIGHT_SUN = 0,       /* BrightSun: direction from the camera towards it (3), its distance */
-    NEBULA_LIGHT_STAR_CORE,     /* the Comet Observatory's AstroCore: position (3), scale */
-    NEBULA_LIGHT_POINT,         /* LightPointCtrl's point light: position (3), colour (3), distance where it halves */
-    NEBULA_LIGHT_POINT_REQUEST, /* one actor's request for it (id the actor), as NEBULA_LIGHT_POINT */
-    NEBULA_LIGHT_WORLD,         /* a world-fixed area light far out: position (3), colour (3) */
-    NEBULA_LIGHT_AREA,          /* the stage's planet light (LightDirector's default area light), then */
-    NEBULA_LIGHT_PLAYER,        /* the player's current light: ambient (3), then the key and the fill light each:
-                                   colour (3), position (3; the camera's eye space when it follows the camera),
-                                   follows the camera (1) */
-};
-
-/* scene_marker: the scene bounds among the records. */
-enum {
-    NEBULA_SCENE_3D_BEGIN = 0, /* GameScene::draw3D's begin, with the camera and the player's up */
-    NEBULA_SCENE_3D_END,
-    NEBULA_SCENE_2D_BEGIN, /* GameScene::draw2D's begin */
-    NEBULA_SCENE_2D_END,
-    NEBULA_SCENE_3D_OPAQUE_END, /* GameScene::draw3D, before the lists that blend: the scene's projection terms and viewport (12 floats) */
 };
 
 /* The movie player's sound (movie_audio_control). */
@@ -768,8 +586,7 @@ enum {
 
 /* The sound clock (sound_clock). */
 enum {
-    NEBULA_AUDIO_START = 1, /* value: a block's length in 32 kHz samples; the host calls nebula_game_sound_frame once
-                               a frame's length */
+    NEBULA_AUDIO_START = 1, /* value: ticks a second; the host calls nebula_game_sound_frame once a tick */
     NEBULA_AUDIO_STOP,
 };
 
@@ -793,15 +610,15 @@ typedef struct NebulaSaveRequest {
     void* buffer;
     uint32_t size;
     uint32_t* length;          /* read: the file's length (may be NULL) */
-    volatile int32_t* status;  /* the host sets NEBULA_SAVE_PENDING at once and the result when done */
+    int32_t* status;  /* the host sets NEBULA_SAVE_PENDING at once and the result when done (a release store; the game loads it acquire) */
 } NebulaSaveRequest;
 
 /* Nebula's settings menu as the host has it now (settings_view), for the game to draw in its own windows and words.
    The host keeps the settings, their pages, the draft and its apply, and takes the keyboard and controllers while the
    menu is open; the game shows it (and takes the pointer, settings_input). Texts are the host's own, in English
-   (UTF-8): the game names each in the played language (NebulaSettingsMenu). */
-#define NEBULA_SETTINGS_PAGES 9
-#define NEBULA_SETTINGS_ROWS 96
+   (UTF-8): the game names each in the played language (NebulaSettingsMenu).
+   The view has no fixed sizes: the page names and every row of the open page are sent whole. The strings, the page names
+   and the rows are the host's, valid until the next settings_view call; the game copies what it keeps. */
 
 enum {
     NEBULA_SETTINGS_ROW_HEADING = 1,     /* a section's title: never selected */
@@ -836,7 +653,9 @@ enum {
 enum {
     NEBULA_ICON_MODEL_STANDARD = 0,
     NEBULA_ICON_MODEL_SIXAXIS,  /* PLAYSTATION: Select and Start */
-    NEBULA_ICON_MODEL_GAMECUBE, /* NINTENDO: analog L and R, ZL and Z, Start */
+    NEBULA_ICON_MODEL_GAMECUBE, /* NINTENDO: face buttons, analog L and R, ZL and Z, Start */
+    NEBULA_ICON_MODEL_STEAM,    /* XBOX: Steam button (HOME), quick access (CAPTURE), back buttons, trackpads */
+    NEBULA_ICON_MODEL_DUALSENSE_EDGE, /* PLAYSTATION: back paddles and Fn buttons (GRIP) */
 };
 enum {
     NEBULA_ICON_KEEP = 0, /* the game's own icon */
@@ -847,11 +666,11 @@ enum {
     NEBULA_ICON_START,    /* Xbox Menu, Plus, Options */
     NEBULA_ICON_BACK,     /* Xbox View, Minus, Share or Create */
     NEBULA_ICON_HOME,
-    NEBULA_ICON_DPAD,     /* KEYBOARD: the four keys of `pad_keys` */
+    NEBULA_ICON_DPAD,     /* place: 0 up, 1 down, 2 left, 3 right; KEYBOARD: the four keys of `pad_keys` */
     NEBULA_ICON_KEY,      /* place: NEBULA_KEY_* */
     NEBULA_ICON_CAPTURE,  /* Capture, the touchpad's click, Steam's quick access */
     NEBULA_ICON_CHAT,     /* Pro Controller 2 C, DualSense mute */
-    NEBULA_ICON_GRIP,     /* place: 0 left, 1 right, 2 and 3 the Steam Controller's second pair */
+    NEBULA_ICON_GRIP,     /* place: 0 left, 1 right, 2 and 3 the Steam Controller's second pair, 4 and 5 the Edge's Fn buttons */
     NEBULA_ICON_TRACKPAD, /* place: 0 left, 1 right */
     NEBULA_ICON_STICK_AXIS, /* place: 0 up, 1 down, 2 left, 3 right; 4 on the right stick's */
 };
@@ -923,21 +742,6 @@ typedef struct NebulaButtonIcons {
     char other[NEBULA_BUTTON_ICONS][NEBULA_KEY_NAME_CHARS];
 } NebulaButtonIcons;
 
-/* A picture of Nebula's own (its button icons) for GALAXY_EXPORT_ART: `texels` the texture the game draws, which names
-   it in a texture pack (none for a preview alone), `rgba` the same as RGBA8 and `hd` the picture `hd_width` x
-   `hd_height` (both straight alpha), `name` its preview's path ("PlayStation/face-south"). */
-typedef struct NebulaArtExport {
-    const char* name;
-    const void* texels;
-    uint32_t width;
-    uint32_t height;
-    uint32_t format; /* the image file's format number */
-    const uint8_t* rgba;
-    const uint8_t* hd;
-    uint32_t hd_width;
-    uint32_t hd_height;
-} NebulaArtExport;
-
 /* What the line under the page says (with `status_number` or `status_text` where it has one). */
 enum {
     NEBULA_SETTINGS_STATUS_HELP = 0,         /* the selected row's description (`help`) */
@@ -970,6 +774,10 @@ enum {
     NEBULA_SETTINGS_STATUS_XESS_FAILED,      /* XeSS was not installed */
     NEBULA_SETTINGS_STATUS_LICENSE,          /* the maker's license: `long_text` one page, `status_number` its number from 1
                                                 (-1 loading, -2 not reachable); next: APPLY, before: REVERT, back: CLOSE */
+    NEBULA_SETTINGS_STATUS_PREPARING,        /* the settings in use want pipelines still being made (`status_number` percent) */
+    NEBULA_SETTINGS_STATUS_ARRANGE,          /* the phone's on-screen controls are dragged where they go (the page under it
+                                                hidden): save: APPLY, every control where the game places it: REVERT,
+                                                cancel: CLOSE */
 };
 /* The Pair Joy-Con screen's halves (NEBULA_SETTINGS_STATUS_JOYCON). */
 enum {
@@ -993,8 +801,8 @@ enum {
 };
 
 typedef struct NebulaSettingsRow {
-    char label[64];
-    char value[96];
+    const char* label;
+    const char* value;
     uint32_t flags; /* NEBULA_SETTINGS_ROW_* */
     uint16_t slider_steps;
     uint16_t slider_at;
@@ -1004,26 +812,25 @@ typedef struct NebulaSettingsView {
     uint32_t open;
     uint32_t page;
     uint32_t page_count;
-    char pages[NEBULA_SETTINGS_PAGES][24];
-    uint32_t controls_page; /* the page whose rows are bindings (its hints differ) */
-    uint32_t input;         /* what the player last used, for the hints: NEBULA_SETTINGS_INPUT_* */
-    uint32_t total_rows;    /* the page's rows; `rows` holds `row_count` of them from `first_row`, around the selection */
-    uint32_t first_row;
-    uint32_t row_count;
-    uint32_t selected;      /* counted from the page's first row */
+    const char* const* pages; /* `page_count` names */
+    uint32_t controls_page;   /* the page whose rows are bindings (its hints differ) */
+    uint32_t input;           /* what the player last used, for the hints: NEBULA_SETTINGS_INPUT_* */
+    /* Changed by the host whenever anything else in the view changes: views with equal revisions are identical. */
+    uint32_t revision;
+    uint32_t total_rows;      /* the page's rows: `rows` holds all of them */
+    const NebulaSettingsRow* rows;
+    uint32_t selected;        /* counted from the page's first row */
     uint32_t selected_button; /* the selected row's, when it has buttons */
-    /* The MODS page's lists (off, on): the place in its list of each one's first row sent, and their lengths. */
-    uint32_t mod_list_first[2];
+    /* The MODS page's lists (off, on): their lengths. */
     uint32_t mod_list_count[2];
-    NebulaSettingsRow rows[NEBULA_SETTINGS_ROWS];
-    char help[192];
+    const char* help;
     uint32_t status; /* NEBULA_SETTINGS_STATUS_* */
     int32_t status_number;
-    char status_text[160];
+    const char* status_text;
     uint32_t kind; /* NEBULA_SETTINGS_KIND_* */
     uint32_t back; /* the main menu: a page under the main one, which B leaves; its rows reset to their defaults */
     uint32_t editing; /* the selected text row is edited (A keeps it, B drops it, Minus or X deletes) */
-    char long_text[1536]; /* a license's page */
+    const char* long_text; /* a license's page */
 } NebulaSettingsView;
 
 /* The player's input to the settings menu (settings_input); the keyboard and controllers reach it through the host. */
@@ -1156,36 +963,26 @@ typedef struct NebulaMii {
     uint8_t create_id[8];
 } NebulaMii;
 
-/* The channels a target pass's picture carries for the textures that sample it (target_end). */
+/* The channels a target pass's picture carries for the textures that sample it (NEBULA_PASS_DRAW's target). */
 typedef enum NebulaTargetChannels {
-    NEBULA_TARGET_RGBA = 0,            /* colour and alpha */
-    NEBULA_TARGET_INTENSITY_ALPHA = 1, /* intensity (the red channel) and alpha */
-    NEBULA_TARGET_ALPHA = 2,           /* alpha alone, read in every channel */
-    NEBULA_TARGET_RED = 3,             /* one colour channel, read in every channel */
-    NEBULA_TARGET_GREEN = 4,
-    NEBULA_TARGET_BLUE = 5,
-    NEBULA_TARGET_RGB = 6              /* colour, alpha read as one */
+    NEBULA_TARGET_RGBA = 0,  /* colour and alpha */
+    NEBULA_TARGET_ALPHA = 1, /* alpha, read in every channel */
+    NEBULA_TARGET_RED = 2,   /* red, read in every channel */
+    NEBULA_TARGET_RGB = 3    /* colour, alpha read as one */
 } NebulaTargetChannels;
 
-/* The channels a clear writes (frame_clear). */
+/* The channels a clear writes (NEBULA_PASS_CLEAR). */
 typedef enum NebulaClearChannels {
     NEBULA_CLEAR_COLOR = 1u,
     NEBULA_CLEAR_ALPHA = 2u,
     NEBULA_CLEAR_DEPTH = 4u
 } NebulaClearChannels;
 
-/* How frame_pass takes its picture. */
-
-/* A point of the picture the game asks about (NebulaHostServices::screen_probe). */
-#define NEBULA_SCREEN_PROBES_MAX 256u
-typedef enum NebulaScreenProbeKind {
-    NEBULA_SCREEN_PROBE_ALPHA = 0, /* value: the picture's alpha, 0-1 */
-    NEBULA_SCREEN_PROBE_DEPTH = 1  /* value: the depth, 0 near to 1 far */
-} NebulaScreenProbeKind;
+/* A point of the picture the game asks about (NEBULA_PASS_PROBE). */
 typedef struct NebulaScreenProbe {
     float x, y;
-    float user_x, user_y;
-    float value;
+    float user_x, user_y, user_z;
+    float value; /* the depth, 0 near to 1 far */
 } NebulaScreenProbe;
 
 typedef struct NebulaHostServices {
@@ -1193,30 +990,22 @@ typedef struct NebulaHostServices {
     uint32_t size;
     void* user;
 
-    /* One line of the game's reports (OSReport) or the native layer's log, without a trailing newline. */
+    /* One line of the game's log, without a trailing newline. */
     void (*log)(void* user, const char* text);
-    /* The game cannot go on (an OSPanic, a JUTException panic, a native-layer error): the host reports `text` with
+    /* The game cannot go on (a failed load or check, a native-layer error): the host reports `text` with
        its own diagnostics and ends the process. Does not return. */
     void (*fatal)(void* user, const char* text);
     /* The module's own bookkeeping memory, outside its arenas. */
     void* (*heap_alloc)(void* user, size_t size);
     void* (*heap_realloc)(void* user, void* data, size_t size);
     void (*heap_free)(void* user, void* data);
-    /* This thread's slots (NEBULA_THREAD_SLOTS of them, null at first) for the module's per-thread values. */
-    void** (*thread_slots)(void* user);
 
-    /* A scene bound (NEBULA_SCENE_*) after the records so far; the 3D scene's begin carries 16 floats: the
-       camera's world-to-eye matrix (row-major 3x4), then the player's up in the world (against its gravity) and 1, or
-       four zeros without a player. The others NULL. */
-    void (*scene_marker)(void* user, uint32_t marker, const float* view);
-    /* A JPA stripe particle whose two strip vertices are drawn next (galaxy/motion_signals.h): age << 16 |
-       lifetime, strip 0 JPADrawStripe, 1-2 the passes of JPADrawStripeX. */
-    void (*stripe_particle)(void* user, uint64_t particle, uint32_t age_lifetime, uint8_t strip);
-
-    /* The game's files: the file or folder at `path` ("/StageData/EggStarGalaxy.arc": from the root, '/' at a name's start
+    /* The game's files: the file or folder at `path` ("/StageData/EggStarGalaxy", an archive's folder: from the root, '/' at a name's start
        returning to it, "." and ".." steps, letters in either case, a name followed by '/' a folder): 0 when there is
        none. */
     int (*asset_find)(void* user, const char* path, NebulaAssetEntry* entry);
+    /* As asset_find, the game's own file or folder under any mod's: 0 when the game has none. */
+    int (*asset_find_game)(void* user, const char* path, NebulaAssetEntry* entry);
     /* The entry with file-table index `index`: 0 when there is none. */
     int (*asset_entry)(void* user, int32_t index, NebulaAssetEntry* entry);
     /* The `child`-th entry of the folder `folder`, in the table's order: 0 past the last. */
@@ -1229,18 +1018,6 @@ typedef struct NebulaHostServices {
     int (*memory_commit)(void* user, void* start, uint64_t size);
     void (*memory_decommit)(void* user, void* start, uint64_t size);
     void (*memory_release)(void* user, void* start, uint64_t size);
-    /* The game's threads (nebula_threads.h). A new thread sleeps until passed its turn; one that ends sleeps for good: game
-       threads end only with the game. */
-    NebulaHostThread* (*thread_create)(void* user, void (*entry)(void*), void* arg);
-    NebulaHostThread* (*thread_adopt)(void* user);
-    void (*thread_pass)(void* user, NebulaHostThread* to);
-    void (*thread_wait)(void* user, NebulaHostThread* self);
-    void (*thread_exit)(void* user, NebulaHostThread* self);
-    void (*thread_cancel)(void* user, NebulaHostThread* thread);
-    void (*lock)(void* user, int which);
-    void (*unlock)(void* user, int which);
-    /* Each thread's stack at its last wait, as offsets in the module holding `in_module`, to the log. */
-    void (*threads_dump)(void* user, const void* in_module);
     /* A file's bytes in the mapped store, read-only, for the process's life, on their way into memory when this returns
        (call it where a wait for the drive does no harm); null if there is no such file. */
     const void* (*asset_map)(void* user, int32_t file);
@@ -1267,20 +1044,19 @@ typedef struct NebulaHostServices {
 
     /* Input. `device` gets player `player`'s controller; with `max` > 0 `samples` gets its samples since the last
        read, oldest first, one taken now and one every 10 ms before it (at most `max`, the newest kept): the count. */
-    uint32_t (*input_read)(void* user, uint32_t player, NebulaInputDevice* device, NebulaInputSample* samples,
-                           uint32_t max);
+    uint32_t (*input_read)(void* user, uint32_t player, NebulaInputDevice* device, NebulaInputSample* sample);
     void (*input_control)(void* user, uint32_t player, uint32_t what, uint32_t value);
     /* Player `player`'s remote speaker: `count` 16-bit samples at 6 kHz, as the game mixes them. */
     void (*speaker_samples)(void* user, uint32_t player, const int16_t* samples, uint32_t count);
 
-    /* Audio, on the game's audio thread. voices_setup hands over the voices and the four effect lines (they stay the
+    /* Audio, on the host's audio clock (nebula_game_sound_frame). voices_setup hands over the voices and the four effect lines (they stay the
        game's; the mixer reads and advances them in voices_mix).
        voices_mix mixes one subframe at `gain`; voices_frame ends a frame: the subframes mixed since the last call, with
        the movie's sound for them, go to the output. */
     void (*voices_setup)(void* user, NebulaVoice* voices, uint32_t count, const NebulaEffectLine* effects);
-    void (*voices_mix)(void* user, float gain);
+    void (*voices_mix)(void* user, float gain, uint32_t used); /* `used`: voices past this have never played */
     void (*voices_frame)(void* user);
-    /* The movie player's sound, on the game's threads: movie_audio queues one frame's audio record (its stereo sample count,
+    /* The movie player's sound, on the game thread: movie_audio queues one frame's audio record (its stereo sample count,
        u32, then the samples, PCM16, left and right in turn, of the track played) for the mixer; 0 when the queue is full (null asks only that).
        sound at 32 kHz; 0 when NEBULA_MOVIE_AUDIO_QUEUE_FRAMES already wait (nothing taken). A null record asks for the frames there is room for.
        movie_audio_control: NEBULA_MOVIE_AUDIO_*. movie_audio_position: where the output has reached in the sound since the movie opened or was
@@ -1290,16 +1066,10 @@ typedef struct NebulaHostServices {
     double (*movie_audio_position)(void* user);
     void (*sound_clock)(void* user, uint32_t what, uint32_t value);
 
-    /* The HOME Menu (NEBULA_HBM_*). */
-    int (*hbm)(void* user, uint32_t what, uint32_t value);
+    /* The HOME Menu (NEBULA_HOME_MENU_*). */
+    int (*home_menu)(void* user, uint32_t what, uint32_t value);
 
-    /* One movie frame's video (`size` bytes, one JPEG whose entropy data is not byte-stuffed, so only the size bounds
-       it) into its Y, U and V planes (`width` x `height` for Y, half each way for U and V, rows of 8-bit texels from the
-       top) in game memory, which must hold the result before the renderer reads them; 0 on success. */
-    int32_t (*movie_video_decode)(void* user, const void* frame, uint32_t size, uint32_t width, uint32_t height, void* y, void* u, void* v);
 
-    /* The game rewrote [address, address + size): an image handed over there must be handed over again. */
-    void (*memory_rewritten)(void* user, const void* address, uint32_t size);
 
     /* Game state the host's controls follow (NEBULA_CONTEXT_*), reported when it changes. */
     void (*game_context)(void* user, uint32_t what, int32_t value);
@@ -1321,20 +1091,14 @@ typedef struct NebulaHostServices {
     uint32_t (*display_extent)(void* user);
     /* A Nebula option (NEBULA_OPTION_*), read when the game needs it. */
     uint32_t (*option)(void* user, uint32_t what);
-    /* A light of the game (NEBULA_LIGHT_*): `id` names it across frames (its object's address; 0: none), `values` as
-       the kind lists. Called on the simulation thread. */
-    void (*game_light)(void* user, uint32_t kind, uint64_t id, const float* values);
     /* The stage being played (MR::getCurrentStageName), before each 3D scene's begin marker. */
     void (*game_stage)(void* user, const char* name);
-    /* A movie (MovieStream): its disc path and NEBULA_MOVIE_OPENING when it opens, each frame it draws
-       (the frame within the movie, its frame rate and its Y, U and V planes, `width` x
-       `height` for Y and half each way for U and V), NEBULA_MOVIE_NONE when it closes. The host may show a replacement
-       video's frame of the same time in place of the planes. Called on the simulation thread. */
-    void (*movie_frame)(void* user, const char* name, int32_t frame, float frame_rate, const void* y, const void* u,
-                        const void* v, uint32_t width, uint32_t height);
-    /* A native equivalent of a mod's code patch (NEBULA_PATCH_*): 1 with `value` set when an enabled mod carries it,
-       else 0. Fixed for the session. */
-    int (*code_patch)(void* user, uint32_t id, uint32_t* value);
+    /* A movie (MovieStream): its disc path and NEBULA_MOVIE_OPENING when it opens (with its cooked file, NMOV, as
+       mapped, once the game has it), each frame it draws (the frame within the movie, its frame rate, the file, the
+       picture's `width` x `height`), NEBULA_MOVIE_NONE when it closes. The host decodes the frame (or a replacement
+       video's frame of the same time) into the planes NEBULA_TEXTURE_MOVIE_Y, _U and _V the movie quad samples. */
+    void (*movie_frame)(void* user, const char* name, int32_t frame, float frame_rate, const void* data, uint64_t size,
+                        uint32_t width, uint32_t height);
     /* What the player is doing, for Discord: the galaxy and the star (UTF-16, the game's own text in the played
        language; either may be NULL) and the Power Stars collected (-1: not in a file). Reported when it changes. */
     void (*presence)(void* user, const uint16_t* galaxy, const uint16_t* star, int32_t power_stars);
@@ -1357,9 +1121,6 @@ typedef struct NebulaHostServices {
     void (*sharp_2d)(void* user, uint32_t on);
     /* The button icons as the player's controller and the setting have them now (NebulaButtonIcons). */
     void (*button_icons)(void* user, NebulaButtonIcons* icons);
-    /* GALAXY_EXPORT_ART=<folder>: Nebula's own pictures written there (NebulaArtExport). NULL asks whether an export
-       is on: 1, else 0 (the game then paints nothing for it). */
-    uint32_t (*art_export)(void* user, const NebulaArtExport* art);
     /* The lines of the 2D layer as last drawn (the window's while sharp_2d is on); 0 before the first frame. */
     uint32_t (*layer_2d_lines)(void* user);
     /* The mouse wheel's turn since the last call, in 120ths of a notch (positive away from the player), while no screen
@@ -1372,103 +1133,55 @@ typedef struct NebulaHostServices {
     int (*galaxy_select_names_wanted)(void* user);
     /* A name for the galaxy select in the game's own words in the played language (UTF-16, NUL-terminated): galaxy
        `index`'s (`star` 0) or its star's. */
-    void (*galaxy_select_name)(void* user, uint32_t index, uint32_t star, const uint16_t* name);
-    /* A model the game loaded (J3D), for its curved surfaces (galaxy/render/curved_surfaces.h): its position array's
-       identity (`key`, as shape_draw names it), its positions and normals (3 floats each), and its triangles, three
-       corners each, a corner a position index then a normal index. */
-    void (*curved_surface)(void* user, uint64_t key, const float* positions, uint32_t position_count,
-                           const float* normals, uint32_t normal_count, const uint16_t* corners,
-                           uint32_t triangle_count);
-    /* A model's vertex array as values (NebulaShapeArray), registered or replaced; the host copies it. */
-    void (*shape_array)(void* user, const struct NebulaShapeArray* array);
-    /* A model's shape group (J3DShapeDraw) as typed geometry (NebulaShapeGeometry); the host copies it. */
-    void (*shape_geometry)(void* user, const struct NebulaShapeGeometry* geometry);
-    /* The game freed the memory from `start` up to `end`: arrays and groups keyed inside it are gone, at this place in the
-       records. */
-    void (*shape_forget)(void* user, uint64_t start, uint64_t end);
-    /* Draws shape group `shape` (NebulaShapeGeometry::key) under the drawing state the game has set so far, its corners reading the position,
-       normal and colour 0 arrays named by `position`, `normal` and `color` (shape_array keys; the geometry's own for
-       the rest) and the position and normal matrices among `matrices` (`matrix_count` of them, NebulaDrawMatrix),
-       after their texture matrices, `texgens` and, when not null, `current` take effect. Records (shapes, materials,
-       state, immediates, images, captures, markers) run in the order the game makes them. Shape 0 draws nothing:
-       only the texture matrices, current matrices and texgens take effect (state the game set before a material
-       record, kept in order with it). */
-    void (*shape_draw)(void* user, uint64_t shape, uint64_t position, uint64_t normal,
-                       uint64_t color, const NebulaDrawMatrix* matrices, uint32_t matrix_count,
-                       const NebulaShapeCurrent* current, const NebulaShapeTexGen* texgens, uint32_t texgen_count, const NebulaPassState* pass);
-    /* The projection the draws after this use: `terms` the six of a perspective or orthographic matrix. */
-    void (*view_projection)(void* user, int orthographic, const float terms[6]);
-    /* The viewport: left, top, width, height (the game's units), near and far depth (0-1). */
-    void (*view_viewport)(void* user, const float viewport[6]);
-    void (*view_scissor)(void* user, float left, float top, float width, float height);
-    /* Light `index` (0-7). */
-    void (*light)(void* user, uint32_t index, const NebulaLight* light);
-    /* Whether the frame keeps alpha. */
-    void (*frame_alpha)(void* user, int keep);
-    /* Coordinate `coord` of the draws after this is texture coordinate `from`, through matrix slot `matrix_slot` (0-9
-       position matrices, 10-19 texture matrices, 20 identity). */
-    void (*texture_coordinate)(void* user, uint32_t coord, uint32_t from, uint32_t matrix_slot);
-    /* Vertices drawn as the game sends them (NebulaImmediate). */
-    void (*immediate)(void* user, const NebulaImmediate* draw);
-    /* A pass into a texture target the renderer owns (E-07): the records until target_end draw into it, not the
-       frame; its top left `width` x `height` (in NEBULA_FRAME_UNITS) cleared to `clear_rgba`
-       (R << 24 | G << 16 | B << 8 | A) and depth to far. */
-    void (*target_begin)(void* user, uint64_t key, uint32_t width, uint32_t height, uint32_t clear_rgba);
-    /* As target_begin, and until target_end the pass samples the frame: texture `frame_key` is the frame carrying
-       `frame_channels` (NebulaTargetChannels), texture `depth_key` its depth. A key of 0: not sampled. */
-    void (*target_begin_over_frame)(void* user, uint64_t key, uint32_t width, uint32_t height, uint32_t clear_rgba,
-                                    uint64_t frame_key, uint32_t frame_channels, uint64_t depth_key);
-    /* Ends the pass: its picture, at full precision, becomes the texture `key` names (an image or texture load
-       naming `key` reads it, whatever format it names), carrying `channels` (NebulaTargetChannels). */
-    void (*target_end)(void* user, uint64_t key, uint32_t channels);
-    /* Clears channels of the open target pass (`channels`: 1 colour, 2 alpha, 4 depth) to `clear_rgba` and far. */
-    void (*target_clear)(void* user, uint32_t clear_rgba, uint32_t channels);
-    /* The whole frame drawn so far becomes texture `key` as target_end's pictures do, carrying `channels`
-       (NebulaTargetChannels); `flags`: NebulaFramePassFlags. */
-    void (*frame_pass)(void* user, uint64_t key, uint32_t channels);
-    /* The frame drawn so far becomes texture `key` itself, every channel; the frame goes on in another target, which
-       the next draw must fill whole. */
-    void (*frame_take)(void* user, uint64_t key);
-    /* An image's bytes as the game has them (NebulaTextureImage): the renderer takes a copy and draws the image from
-       it from here on. Sent when the image is loaded or rewritten. */
-    void (*texture_image)(void* user, const NebulaTextureImage* image);
-    /* `hd`: a texture record, the image handed over at `image` as the game painted it larger; the renderer draws it in
+    void (*galaxy_select_name)(void* user, uint32_t index, uint32_t star, const uint16_t* name);    /* `hd`: a texture record, the image handed over at `image` as the game painted it larger; the renderer draws it in
        that image's place while the image's texels are what they are now (a texture pack's name for them wins). NULL:
-       what was handed over for `image` goes. The renderer takes a copy. */
-    void (*texture_hd)(void* user, const void* image, const void* hd);
-    /* The Mii in a slot of the Mii database (0-99): 1 when there is one (`mii` filled when not NULL), 0 for
-       an empty slot. */
-    int32_t (*mii_record)(void* user, uint32_t slot, NebulaMii* mii);
-    /* What the picture holds at `count` points where the drawing has reached (at most NEBULA_SCREEN_PROBES_MAX; `what` a
-       NebulaScreenProbeKind). x and y the frame's coordinates, negative: no point, its value 0; user_x and user_y come
-       back with the answer. */
-    void (*screen_probe)(void* user, uint32_t channel, uint32_t what, const NebulaScreenProbe* probes, uint32_t count);
-    /* `channel`'s latest finished probes with their values, at most `capacity`; how many (0 before any has finished).
-       Never waits for the GPU. */
-    uint32_t (*screen_probe_results)(void* user, uint32_t channel, NebulaScreenProbe* probes, uint32_t capacity);
-    /* Clears channels (NebulaClearChannels) of the frame's rectangle at `left`, `top` (`width` x `height`, the
-       viewport's units) to `clear_rgba` (R << 24 | G << 16 | B << 8 | A) and depth to far. */
-    void (*frame_clear)(void* user, uint32_t left, uint32_t top, uint32_t width, uint32_t height, uint32_t clear_rgba,
-                        uint32_t channels);
-    /* The frame drawn so far is the picture shown. */
-    void (*frame_show)(void* user);
-    /* The game's frame is complete (its picture was shown earlier): the renderer takes every record made before. */
-    void (*frame_end)(void* user);
-    /* A host marker (galaxy/motion_signals.h: a draw identity, a bloom phase, a clear quad). A draw identity names its
-       objects by address. */
-    void (*marker)(void* user, uint32_t kind, uint32_t aux, uint64_t a, uint64_t b);
+       what was handed over for `texture` goes. The renderer takes a copy. */
+    void (*texture_hd)(void* user, uint32_t texture, const void* hd);
+    /* The Miis in the player's Mii library (any number; nebula_game_mii_changed says when it changed). */
+    uint32_t (*mii_count)(void* user);
+    /* The library's Mii at `place` (0 to mii_count - 1): 1 when there is one (`mii` filled when not NULL), 0 past
+       its Miis. */
+    int32_t (*mii_record)(void* user, uint32_t place, NebulaMii* mii);
     /* Nanoseconds on a steady clock from an arbitrary start (never 0): the game's durations and pacing. */
     uint64_t (*clock_ns)(void* user);
     /* The local date and time now: nanoseconds from 2000-01-01 00:00 local time (the game's clock counts from
        there; the game's saves store times in its unit). */
     int64_t (*calendar_ns)(void* user);
-    /* A native material for the draws that follow (NebulaNativeMaterial), through state changes (which set its
-       fixed-function state and textures), until the next material or one whose shader is NEBULA_SHADER_NONE. */
-    void (*native_material)(void* user, const NebulaNativeMaterial* material);
-    /* Deterministic test mode only (NULL otherwise; GALAXY_TEST_DETERMINISTIC): the game's time is its frames. No game
-       thread can run: the host takes one frame's audio ticks and clock and returns, so frames follow the game's own pace and every run of a build is the same. The game's clock then
-       advances one retrace per call and its alarms fire when that clock passes them. */
+    /* Deterministic test mode only (NULL otherwise; GALAXY_TEST_DETERMINISTIC): the game's time is its frames. The host
+       takes one frame's audio ticks and clock and returns, so frames follow the game's own pace and every run of a build is the same. The
+       game's clock advances one frame per call. */
     void (*test_frame_step)(void* user);
+    /* A model file (NMDL) the game loaded: its meshes get ids `*first_mesh` on, in file order. The file stays mapped
+       until model_free. Returns the model's id. */
+    uint32_t (*model_register)(void* user, const void* file, uint32_t* first_mesh);
+    void (*model_free)(void* user, uint32_t model);
+    /* Vertices and indices a site built once. The renderer takes a copy. */
+    uint32_t (*mesh_register)(void* user, const NebulaFrameMesh* mesh);
+    void (*mesh_free)(void* user, uint32_t mesh);
+    /* An image as the game has it. The renderer takes a copy before this returns. */
+    uint32_t (*texture_register)(void* user, const NebulaTextureImage* image);
+    /* The image's bytes changed: the renderer takes a copy before this returns. */
+    void (*texture_update)(void* user, uint32_t texture, const void* bytes, uint32_t size);
+    void (*texture_free)(void* user, uint32_t texture);
+    /* A texture a pass draws into: empty until then. */
+    uint32_t (*texture_target)(void* user);
+    /* The textures a draw reads and how, by what they are. */
+    uint32_t (*texture_table)(void* user, const NebulaFrameTexture* list, uint32_t count);
+    /* A material's constants that do not change; the renderer takes a copy. */
+    uint32_t (*material_register)(void* user, const float (*rows)[4], uint32_t vertex_rows, uint32_t pixel_rows);
+    /* `desc->input_count` NebulaLayoutInput at `inputs` (any count); the renderer takes copies of both. */
+    uint32_t (*pipeline_register)(void* user, const NebulaPipelineDesc* desc, const NebulaLayoutInput* inputs);
+    /* The frame's list. The renderer owns it until it sets `released`; nothing waits. */
+    void (*submit_frame)(void* user, NebulaFrameList* list);
+    /* `channel`'s latest finished probes with their values, at most `capacity`; how many (0 before any has finished).
+       Never waits for the GPU. */
+    uint32_t (*probe_results)(void* user, uint32_t channel, NebulaScreenProbe* probes, uint32_t capacity);
+    /* The players input_read serves (0 to this - 1), fixed for the session. */
+    uint32_t (*input_players)(void* user);
+    /* The player chose to pause the game when its window loses focus (runtime settings, focus_loss) and the window has: 1 once
+       per loss, then 0. The game asks only while it could open its pause menu, and opens it as the pause button does. A
+       request the game did not take (a cutscene, a wipe) lapses when the window is in front again. */
+    int (*take_pause_request)(void* user);
     /* Online co-op: the local player, once per game scene frame while the scene has one (GameScene::update). Called
        on the simulation thread; `player` is valid during the call only. */
     void (*coop_player)(void* user, const NebulaCoopPlayer* player);
@@ -1517,38 +1230,10 @@ enum {
     NEBULA_MOVIE_OPENING = -2,
 };
 
-/* Native equivalents of mods' code patches: the host's mods
-   layer recognises each by its exact bytes for this disc and the game asks code_patch for it. */
-enum {
-    NEBULA_PATCH_FLIP_PANEL_GROUP = 1,       /* value: a FlipPanel group's size (joinToGroupArray's 0x20) */
-    NEBULA_PATCH_FLIP_PANEL_OBSERVER_GROUP,  /* value: the same for FlipPanelObserver */
-    NEBULA_PATCH_WATER_BAZOOKA_SHOT_FLAG,    /* WaterBazooka::tryShotBullet: shotWaterBullet's last flag set */
-    NEBULA_PATCH_KAMECK_BARRIER_OFFSET_Y,    /* value: float bits added to BossKameckBarrier's height at init */
-    NEBULA_PATCH_SKELETAL_FISH_BABY_NO_BUBBLE, /* SkeletalFishBaby::damage releases no air bubble */
-    NEBULA_PATCH_DODORYU_SHELL_ONLY,         /* Dodoryu (Lv1, Lv2) is hurt by a shell alone (isMsgJetTurtleAttack) */
-    NEBULA_PATCH_MISS_STAR_PIECES,           /* value: star bits added after a miss (s32; -999: all lost) */
-    NEBULA_PATCH_NO_HIDDEN_STAR_TABLE,       /* getPlacedHiddenStarScenarioNo skips its table */
-    NEBULA_PATCH_NO_SUDDEN_DEATH_DODORYU,    /* isStageSuddenDeathDodoryu is false */
-    NEBULA_PATCH_BEGOMAN_FIRE_PROOF,         /* Begoman Baby, Spike and Spring survive fire ground */
-    NEBULA_PATCH_MESSENGER_ALWAYS_EX,        /* KinopioAstro (the 1-up messenger) gives its larger supply */
-    NEBULA_PATCH_MESSENGER_EX_ONE_UPS,       /* value: that supply's 1-ups (20) */
-    NEBULA_PATCH_PLAYER_HEALTH,              /* value: the health and most health a player starts with (3) */
-    NEBULA_PATCH_PLAYER_HEALTH_FIXED,        /* the Daredevil comet doesn't change the player's health */
-    NEBULA_PATCH_HIT_TAKES_ALL,              /* a hit takes all the player's health */
-    NEBULA_PATCH_LIFE_UP_HEALTH,             /* value: the most health a Life Up gives (6); 0: it gives none */
-    NEBULA_PATCH_NO_LOW_HEALTH_WARNING,      /* no warning sound at low health */
-    NEBULA_PATCH_NO_DARK_COMET_RULES,        /* a Daredevil comet is a comet like any other */
-    NEBULA_PATCH_MAX_LIVES,                  /* value: the most lives (99) */
-    NEBULA_PATCH_MAX_STAR_BITS,              /* value: the most star bits kept in the save (9999) */
-    NEBULA_PATCH_MAX_CARRIED_STAR_BITS,      /* value: the most star bits carried in a stage (999) */
-    NEBULA_PATCH_MAX_COINS,                  /* value: the most coins in a stage (999) */
-    NEBULA_PATCH_COINS_PER_ONE_UP,           /* value: coins for a 1-up (50); 0: none */
-    NEBULA_PATCH_STAR_BITS_PER_ONE_UP,       /* value: star bits for a 1-up (50); 0: none */
-    NEBULA_PATCH_STARTING_LIVES,             /* value: the lives a file starts or loads with (4) */
-    NEBULA_PATCH_PURPLE_COINS_FOR_STAR,      /* value: purple coins that bring the star (100) */
-    NEBULA_PATCH_WATER_AIR,                  /* value: the air the player has under water (8) */
-    NEBULA_PATCH_COUNT
-};
+/* The movie quad's planes (movie_frame), ids no image has: images number from 1 up, render targets have the top bit. */
+#define NEBULA_TEXTURE_MOVIE_Y 0x7FFFFF00u
+#define NEBULA_TEXTURE_MOVIE_U 0x7FFFFF01u
+#define NEBULA_TEXTURE_MOVIE_V 0x7FFFFF02u
 
 enum {
     NEBULA_CONTEXT_STAR_POINTER_MODE = 1, /* StarPointerOnOffController's mode (-1 none): menus and play */
@@ -1560,6 +1245,8 @@ enum {
     NEBULA_CONTEXT_TOUCH_TARGET,          /* each frame, on a touch screen, for each thing in reach the pointer grabs (a pull
                                              star): its circle on the screen, bits 0-11 x and 12-23 y (0..4095 across), bits
                                              24-31 the radius (255: the screen's height) */
+    NEBULA_CONTEXT_SCREEN_COVERED,        /* each frame: 1 while a system or scene wipe is fully closed (MR::isScreenCoveredByWipe):
+                                             the host holds the controls' context through what changes under it */
 };
 
 #define NEBULA_MOVIE_AUDIO_QUEUE_FRAMES 20
@@ -1569,19 +1256,14 @@ NEBULA_GAME_API uint32_t nebula_game_attach(const NebulaHostServices* host);
 /* The fingerprint of the nebula_game_api.h the module was built from (cmake/nebula_fingerprint.cmake): the host
    refuses a module whose differs from its own. Called before nebula_game_attach. */
 NEBULA_GAME_API uint32_t nebula_game_api_fingerprint(void);
-/* Runs the game on the calling thread, the simulation thread. Does not return. */
+/* Runs the game on the calling thread, the game thread. Does not return. */
 NEBULA_GAME_API void nebula_game_run(void);
 /* The game's half of the plugin interface. */
 NEBULA_GAME_API const struct NebulaModApi* nebula_game_mod_api(void);
-/* A file read finished: `result` is the bytes read, or -1 on a read error. */
 /* The audio clock, while started (NEBULA_AUDIO_START): the game mixes its next frame (voices_mix, voices_frame). */
 NEBULA_GAME_API void nebula_game_sound_frame(void);
-/* Mii import. prepare: makes a Mii (a 74-byte record as a Mii file stores it) acceptable where the game would
-   refuse a detail (birthday, special Mii not kept local, favourite colour, no name), then 1 when the game takes it as
-   its database's; pure, any thread. install: places it in slot `slot` (0-99) of the loaded database, free or holding
-   the same Mii (its create ID); 0 when the database is not loaded or another Mii holds the slot. On the game thread
-   (the host's frame tick). */
-/* Whether the game takes a Mii into its database (its parts and values in range); the host keeps only these. */
+/* Whether the game takes a Mii into its database (its parts and values in range); the host keeps only these. Pure, any
+   thread. */
 NEBULA_GAME_API uint32_t nebula_game_mii_valid(const NebulaMii* mii);
 /* The host's Mii database changed (Miis imported while the game runs): the game reads its slots again. */
 NEBULA_GAME_API void nebula_game_mii_changed(void);

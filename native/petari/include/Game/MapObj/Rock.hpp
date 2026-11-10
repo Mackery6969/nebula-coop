@@ -3,37 +3,37 @@
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class ModelObj;
 class RockCreator;
 
 class Rock : public LiveActor {
 public:
-    Rock(f32 a1 = 10.0f, const char* pName = "\203\123\203\215\203\123\203\215\212\342" /* ゴロゴロ岩 */);
+    Rock(f32 moveSpeed = 10.0f, const char* pName = "ゴロゴロ岩");
 
     enum Type { NormalRock = 0, WanwanRolling = 1, WanwanRollingMini = 2, WanwanRollingGold = 3 };
 
-    virtual void init(const JMapInfoIter&);
-    virtual void appear();
-    virtual void kill();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void appear() override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*) override;
 
     static s32 getAppearFrame();
-    static Type getType(const JMapInfoIter&);
+    static Type getType(const TableIter&);
     static s32 getAppearStarPieceNum(Type);
-    void initMapToolInfo(const JMapInfoIter&);
+    void initMapToolInfo(const TableIter&);
     void initModel();
     void initSensor();
     void initEffect();
     bool isBreakByWall() const;
-    bool isBodySensor(HitSensor*) const;  // stripped
+    bool isBodySensor(HitSensor* pSensor) const;
     bool move(f32);
-    void calcBaseMtx(TPos3f*) const;
+    void calcBaseMtx(Pos3f*) const;
     bool isInClippingRange() const;
     void startSoundWanwanVoice();
     void startRollLevelSound(bool);
@@ -46,7 +46,7 @@ public:
     void moveOnRail(f32, f32, bool);
     bool isForceInvalidBindSection() const;
     bool tryBreakReachedGoal();
-    bool isMoveEnabled() const;          // stripped
+    bool isMoveEnabled() const;
 
     void exeAppear();
     void exeAppearMoveInvalidBind();
@@ -74,20 +74,20 @@ public:
     f32 mMoveSpeed;
     bool mBreakModelOnRailGoal;
     bool mSlowDownOnAttack;
-    TVec3f mAppearPos;
+    Vec3f mAppearPos;
     f32 mRadius;
     f32 mRotateSpeed;
-    TPos3f mBaseMtx;
-    TVec3f mFallVelocity;
+    Pos3f mBaseMtx;
+    Vec3f mFallVelocity;
     f32 mGravityRate;
     s32 mCurrentRailPoint;
-    TVec3f mPrevPos;
-    TVec3f mFront;
+    Vec3f mPrevPos;
+    Vec3f mFront;
     u32 mAirTime;
     bool mIsNormalGravity;
     s32 mWanwanVoiceTimer;
     s32 mFreezeTime;
-    TVec3f mFreezePos;
+    Vec3f mFreezePos;
     const Nerve* mUnfreezeNerve;
     s32 mInvalidBindTime;
     s32 mAppearTime;

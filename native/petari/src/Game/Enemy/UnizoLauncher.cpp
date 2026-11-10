@@ -5,10 +5,11 @@
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SceneUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
     const s32 sUnizoNumber = 4;
-    const s32 sUnizoInter = 300;
+    NEBULA_TUNABLE(s32, sUnizoInter, 300);
 };  // namespace
 
 namespace NrvUnizoLauncher {
@@ -19,11 +20,11 @@ namespace NrvUnizoLauncher {
 UnizoLauncher::UnizoLauncher(const char* pName) : LiveActor(pName) {
 }
 
-void UnizoLauncher::init(const JMapInfoIter& rIter) {
+void UnizoLauncher::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     MR::connectToSceneEnemyMovement(this);
     initHitSensor(1);
-    MR::addHitSensorEnemy(this, "Body", 8, 100.0f, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorEnemy(this, "Body", 8, 100.0f, Vec3f(0.0f, 0.0f, 0.0f));
     initSound(8, false);
     initNerve(GET_NERVE(UnizoLauncher, UnizoLauncherNrvWait));
 
@@ -32,7 +33,7 @@ void UnizoLauncher::init(const JMapInfoIter& rIter) {
     MR::setGroupClipping(this, rIter, 16);
 
     for (s32 i = 0; i < mUnizoNum; i++) {
-        mUnizos[i] = new Unizo("\227\244\203\105\203\152\203\135\201\133" /* 陸ウニゾー */);
+        mUnizos[i] = new Unizo("陸ウニゾー");
         mUnizos[i]->init(rIter);
         mUnizos[i]->makeActorDead();
         MR::setGroupClipping(mUnizos[i], rIter, 16);
@@ -44,7 +45,7 @@ void UnizoLauncher::init(const JMapInfoIter& rIter) {
 void UnizoLauncher::exeLaunch() {
     if (MR::isFirstStep(this)) {
         for (s32 i = 0; i < mUnizoNum; i++) {
-            Unizo* pUnizo = mUnizos[i];
+            Unizo* const pUnizo = mUnizos[i];
             if (MR::isDead(pUnizo)) {
                 MR::copyTransRotateScale(this, pUnizo);
                 pUnizo->mPosition.z += i;
@@ -58,13 +59,7 @@ void UnizoLauncher::exeLaunch() {
 }
 
 void UnizoLauncher::exeWait() {
-    if (MR::isFirstStep(this)) {
-    }
-
     if (MR::isGreaterStep(this, ::sUnizoInter)) {
         setNerve(GET_NERVE(UnizoLauncher, UnizoLauncherNrvLaunch));
     }
-}
-
-UnizoLauncher::~UnizoLauncher() {
 }

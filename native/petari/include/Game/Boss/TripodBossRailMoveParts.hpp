@@ -6,15 +6,13 @@ class MapPartsRailMover;
 
 class TripodBossRailMoveParts : public TripodBossFixParts {
 public:
-    /// @brief Creates a new `TripodBossRailMoveParts`.
-    /// @param pName A pointer to the null-terminated name of the object.
     TripodBossRailMoveParts(const char* pName);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void makeActorDead();
-    virtual void calcTripodLocalMatrix(TPos3f*);
-    virtual void activateTripodBoss();
-    virtual void exeWaitOwn();
+    virtual void init(const TableIter&) override;
+    virtual void makeActorDead() override;
+    virtual void calcTripodLocalMatrix(Pos3f*) override;
+    virtual void activateTripodBoss() override;
+    virtual void exeWaitOwn() override;
 
     MapPartsRailMover* mRailMover;
 };

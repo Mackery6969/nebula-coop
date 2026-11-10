@@ -1,5 +1,5 @@
 #include "Game/Util/FurCtrl.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include "Game/Render/FrameList.hpp"
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
@@ -11,16 +11,12 @@
 #include "Game/Util/ModelUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SceneUtil.hpp"
-#include "Game/Util/StringUtil.hpp"
-#include <JSystem/J3DGraphAnimator/J3DModel.hpp>
-#include <JSystem/J3DGraphAnimator/J3DModelData.hpp>
-#include <JSystem/J3DGraphBase/J3DShape.hpp>
+#include "Game/Render/Model.hpp"
+#include "Game/Render/ModelData.hpp"
+#include "Game/Render/TypedDraw.hpp"
 #include "Game/System/NebulaArena.hpp"
-#include <cmath>
-#include <cstdio>
-#include <cstring>
 
-FurMulti* FurBank::check(J3DModelData* pModelData, u32 layer) {
+FurMulti* FurBank::check(ModelData* pModelData, u32 layer) {
     for (u32 i = 0; i < mCount; i++) {
         if (mEntries[i]->mModel->getModelData() == pModelData && ((1 << layer) & mLayerMasks[i])) {
             return mEntries[i];
@@ -31,17 +27,15 @@ FurMulti* FurBank::check(J3DModelData* pModelData, u32 layer) {
 }
 
 void FurDrawManager::add(FurCtrl* pCtrl, u8 index) {
-    if (mCapacity != mCounts[index]) {
-        mFurCtrls[index][mCounts[index]] = pCtrl;
-        mCounts[index]++;
-    }
+    mFurCtrls[index].push_back(pCtrl);
 }
 
 void FurDrawManager::draw() const {
-    for (u32 i = 0; i < mCounts[1]; i++) {
-        if (!MR::isClipped(mFurCtrls[1][i]->mActor) && !MR::isDead(mFurCtrls[1][i]->mActor) && !MR::isHiddenModel(mFurCtrls[1][i]->mActor)) {
-            if (mFurCtrls[1][i]->mVisible == 1) {
-                mFurCtrls[1][i]->drawFur();
+    for (s32 i = 0; i < mFurCtrls[1].size(); i++) {
+        FurCtrl* const ctrl = mFurCtrls[1][i];
+        if (!MR::isClipped(ctrl->mActor) && !MR::isDead(ctrl->mActor) && !MR::isHiddenModel(ctrl->mActor)) {
+            if (ctrl->mVisible == 1) {
+                ctrl->drawFur();
             }
         }
     }
@@ -58,19 +52,13 @@ FurCtrl::FurCtrl(LiveActor* pActor, FurParam* pParam, bool addToManager, u8 draw
     mShapeIndex = -1;
     mNumLayers = 0;
     mDrawer = nullptr;
-    mShader = nullptr;
-    mLayerModels = nullptr;
-    mLengthMap = nullptr;
-    mBodyMap = nullptr;
-    mIndirectMap = nullptr;
+    mMesh = nullptr;
     mIsClone = 0;
     mDynamicParam.mFogCtrl = nullptr;
     mDynamicParam.mLightParam = nullptr;
 }
 
 void FurCtrl::calcLayerForm() {
-    f32 rate = 1.0f;
-
     mDrawer->mFurUVScale = mParam->mFurUVScale;
     mDrawer->mBodyUVScale = mParam->mBodyUVScale;
     mDrawer->mLength.mTip = mParam->mLength;
@@ -83,23 +71,19 @@ void FurCtrl::calcLayerForm() {
     }
 
     for (s32 i = 0; i < mDrawer->mNumLayers; i++) {
-        const FurDrawer* pDrawer = mDrawer;
-        f32 length = pDrawer->mLength.calcValue(i, pDrawer->mNumLayers);
-        mShader->_8 = pow(rate * i / mDrawer->mNumLayers, 4.0);
-        mLayerModels[i]->mVertexBuffer.frameInit();
-        mShader->_1C = length;
-        mShader->calc(mLayerModels[i]);
+        mDrawer->mShells[i] = mDrawer->mLength.calcValue(i, mDrawer->mNumLayers);
     }
 }
 
 void FurCtrl::drawFur() {
-    J3DModelData* pModelData = mModel->getModelData();
+    ModelData* pModelData = mModel->getModelData();
 
-    if (MR::getJ3DModel(mActor)->getShapePacket(mShapeIndex)->checkFlag(0x10)) {
+    if (MR::getModel(mActor)->getMeshEntry(mShapeIndex)->checkFlag(0x10)) {
         return;
     }
 
-    if (pModelData->getShapeNodePointer(mShapeIndex)->checkFlag(1)) {
+    Mesh* pShape = pModelData->getMeshAt(mShapeIndex);
+    if (pShape->isHidden()) {
         return;
     }
 
@@ -114,9 +98,6 @@ void FurCtrl::drawFur() {
     mDrawer->mFurUVScale = mParam->mFurUVScale * mFurUVScale;
     mDrawer->mBodyUVScale = mParam->mBodyUVScale;
     mDrawer->mColor = mParam->mColor;
-    mDrawer->mIndirect.mTip = mParam->mIndirect;
-    mDrawer->mIndirect.mRoot = 0.0f;
-    mDrawer->mIndirect.mCurve = mParam->mIndirectCurve;
     mDrawer->mBrightness.mTip = mParam->mBrightnessTip;
     mDrawer->mBrightness.mRoot = mParam->mBrightnessRoot;
     mDrawer->mBrightness.mCurve = mParam->mBrightnessCurve;
@@ -126,28 +107,19 @@ void FurCtrl::drawFur() {
     mDrawer->mColorBlend.mTip = mParam->mSkinAlphaTip;
     mDrawer->mColorBlend.mRoot = mParam->mSkinAlphaRoot;
     mDrawer->mColorBlend.mCurve = mParam->mSkinAlphaCurve;
-    mDrawer->update();
-    mDrawer->setupMaterial(&mDynamicParam);
+    mDrawer->setupMaterial(mDynamicParam);
 
-    if (mDrawer->mMixFog) {
-        mDrawer->mMixFog--;
-    }
-
-    J3DShape* pShape = pModelData->getShapeNodePointer(mShapeIndex);
-    pShape->mCurrentMtx.setCurrentTexMtx(J3D_TEXMTX0, J3D_TEXMTX1, J3D_TEXMTX2, J3D_IDENTITY, J3D_IDENTITY, J3D_IDENTITY,
-                                         J3D_IDENTITY, J3D_IDENTITY);
-    J3DShapePacket* pPacket;
-
+    // The manager skips the fur of an actor clipped, dead or hidden: each fur draws as its model's object, in a range past
+    // the model's own meshes' numbers by its shape (a layer each), so the fur after a skipped one is not renumbered.
+    Frame::setObject(mModel->getSlot(), mModel->mMotionEpoch);
+    Frame::setPart(0x1000u + static_cast< u32 >(mShapeIndex) * 64u);
+    TypedDraw site(mDrawer->material(), nullptr);
+    site.setModelBlock(pModelData, mModel->block(pShape->getMaterial()));
     for (s32 i = 0; i < mDrawer->mNumLayers; i++) {
         mDrawer->setupLayerMaterial(i);
-        pPacket = &mLayerModels[i]->mShapePacket[mShapeIndex];
-        pPacket->setModel(mLayerModels[i]);
-        pPacket->prepareDraw();
-        pPacket->getShape()->drawFast();
+        site.setMaterial(mDrawer->material());
+        mMesh->drawJointed(site);
     }
-
-    mModel->mShapePacket[mShapeIndex].setModel(mModel);
-    J3DPass::noFog();
 }
 
 void FurCtrl::createFurMap() {
@@ -155,13 +127,7 @@ void FurCtrl::createFurMap() {
         return;
     }
 
-    for (u32 i = 0; i < 4; i++) {
-        mDrawer->mDensity[i] = mParam->mDensity[i];
-        mDrawer->mThickness[i] = mParam->mThickness[i];
-        mDrawer->mLengthMap[i] = mParam->mLengthMap[i];
-    }
-
-    mDrawer->createFurMap();
+    mDrawer->createFurMap(*mParam);
 }
 
 namespace MR {
@@ -170,166 +136,80 @@ namespace MR {
     }
 };  // namespace MR
 
-FurDrawManager::FurDrawManager(u8 capacity) : NameObj("\203\164\203\100\201\133\225\140\211\346\203\175\203\154\201\133\203\127\203\203" /* ファー描画マネージャ */) {
-    mCounts[0] = 0;
-    mCounts[1] = 0;
-    mFurCtrls[0] = new FurCtrl*[capacity];
-    mFurCtrls[1] = new FurCtrl*[capacity];
-    mCapacity = capacity;
+FurDrawManager::FurDrawManager(u32 capacity) : NameObj("ファー描画マネージャ") {
+    mFurCtrls[0].init(capacity);
+    mFurCtrls[1].init(capacity);
     mBank = new FurBank;
     MR::connectToScene(this, MR::MovementType_None, MR::CalcAnimType_None, MR::DrawBufferType_None, MR::DrawType_Fur);
 }
 
-void FurCtrl::setupFur(J3DModel* pModel, ResTIMG* pLength, ResTIMG* pIndirect, ResTIMG* pBody, u16 shape, u8 numLayers) {
-    J3DModelData* pData = pModel->getModelData();
+void FurCtrl::setupFur(Model* pModel, ResTIMG* pLength, ResTIMG* pBody, u32 shape, u32 numLayers) {
+    ModelData* pData = pModel->getModelData();
     mModel = pModel;
-    mLengthMap = pLength;
-    mBodyMap = pBody;
-    mIndirectMap = pIndirect;
     mShapeIndex = shape;
-    mShader = new CShader(pData, pLength);
-    mShader->makeIndexData(pData->getShapeNodePointer(shape));
-    mShader->checkBorderVtx(pData, shape);
-    mDrawer = new FurDrawer(numLayers, pBody, pIndirect);
-    const s32 componentSize = sizeof(f32);
-
+    mMesh = createFurMesh(pData, shape, pLength);
+    mDrawer = new FurDrawer(numLayers, pBody);
     mNumLayers = numLayers;
-    mLayerModels = new J3DModel*[numLayers];
-
-    for (s32 i = 0; i < mNumLayers; i++) {
-        char name[16];
-        nebula_sprintf(name, "\203\214\203\103\203\204 %d" /* レイヤ %d */, i);
-        J3DModel2* pLayer = new J3DModel2(mModel);
-        pLayer->setVtxShader(mShader, componentSize);
-        mLayerModels[i] = pLayer;
-    }
 
     mVisible = 1;
 }
 
-void FurCtrl::setupFurClone(J3DModel* pModel, FurCtrl* pOther) {
+void FurCtrl::setupFurClone(Model* pModel, FurCtrl* pOther) {
     mModel = pModel;
     mIsClone = 1;
-    mLengthMap = pOther->mLengthMap;
-    mBodyMap = pOther->mBodyMap;
-    mIndirectMap = pOther->mIndirectMap;
     mShapeIndex = pOther->mShapeIndex;
-    mShader = nullptr;
+    mMesh = pOther->mMesh;
     mDrawer = pOther->mDrawer;
     mNumLayers = pOther->mNumLayers;
-    mLayerModels = new J3DModel*[mNumLayers];
-
-    for (u32 i = 0; i < mNumLayers; i++) {
-        char name[32];
-        nebula_sprintf(name, "\203\214\203\103\203\204(\203\122\203\163\201\133) %d" /* レイヤ(コピー) %d */, i);
-        J3DModel2* pLayer = new J3DModel2(mModel);
-        *pLayer->getVertexBuffer() = *pOther->mLayerModels[i]->getVertexBuffer();
-        mLayerModels[i] = pLayer;
-    }
 
     mVisible = 1;
 }
 
 namespace MR {
-    void initFurParamFromFile(FurParam* pParam, DynamicFurParam* pDynamic, char* pText, u32 size) {
-        char line[256];
-        FurLightParam* pLight = pDynamic->mLightParam;
-        s32 lightMask = 0;
-        s32 matIntensity = 0;
-        s32 ambIntensity = 0;
-        s32 specularLightMask = 0;
-        s32 specularMatIntensity = 0;
-        s32 specularAmbIntensity = 0;
-        s32 colorSource = 0;
-        char* pRead = pText;
-        u32 position = 0;
-
-        while (true) {
-            if (position >= size) {
-                break;
-            }
-
-            u32 length = 0;
-
-            while (true) {
-                if (*pRead == '\n' || *pRead == '\r') {
-                    break;
-                }
-
-                position++;
-                line[length] = *pRead;
-                length++;
-                pRead++;
-
-                if (position >= size) {
-                    break;
-                }
-            }
-
-            line[length] = '\0';
-
-            while (true) {
-                if (position >= size) {
-                    break;
-                }
-
-                if (*pRead != '\n' && *pRead != '\r') {
-                    break;
-                }
-
-                pRead++;
-                position++;
-            }
-
-            scan32(line, "\203\214\203\103\203\204\220\224" /* レイヤ数 */, &pParam->mNumLayers);
-            scanf32(line, "\226\321\222\267\202\263" /* 毛長さ */, &pParam->mLength);
-            scanf32(line, "\222\267\202\263\225\316\215\267" /* 長さ偏差 */, &pParam->mLengthCurve);
-            scanf32(line, "\203\131\203\214(indirect)" /* ズレ(indirect) */, &pParam->mIndirect);
-            scanf32(line, "\203\131\203\214\225\316\215\267" /* ズレ偏差 */, &pParam->mIndirectCurve);
-            scanf32(line, "\226\276\202\351\202\263(\226\321\220\346)" /* 明るさ(毛先) */, &pParam->mBrightnessTip);
-            scanf32(line, "\226\276\202\351\202\263(\226\321\214\263)" /* 明るさ(毛元) */, &pParam->mBrightnessRoot);
-            scanf32(line, "\226\276\202\351\202\263\225\316\215\267" /* 明るさ偏差 */, &pParam->mBrightnessCurve);
-            scanf32(line, "\223\247\226\276\223\170(\226\321\220\346)" /* 透明度(毛先) */, &pParam->mAlphaTip);
-            scanf32(line, "\223\247\226\276\223\170(\226\321\214\263)" /* 透明度(毛元) */, &pParam->mAlphaRoot);
-            scanf32(line, "\223\247\226\276\223\170\225\316\215\267" /* 透明度偏差 */, &pParam->mAlphaCurve);
-            scanf32(line, "\223\247\226\276\223\170\201\105\222\156\224\247(\226\321\220\346)" /* 透明度・地肌(毛先) */, &pParam->mSkinAlphaTip);
-            scanf32(line, "\223\247\226\276\223\170\201\105\222\156\224\247(\226\321\214\263)" /* 透明度・地肌(毛元) */, &pParam->mSkinAlphaRoot);
-            scanf32(line, "\223\247\226\276\223\170\201\105\222\156\224\247\225\316\215\267" /* 透明度・地肌偏差 */, &pParam->mSkinAlphaCurve);
-            scanf32(line, "\226\247\223\170\203\175\203\142\203\166\203\130\203\120\201\133\203\213" /* 密度マップスケール */, &pParam->mFurUVScale);
-            scanf32(line, "\203\170\201\133\203\130\203\175\203\142\203\166\203\130\203\120\201\133\203\213" /* ベースマップスケール */, &pParam->mBodyUVScale);
-            scanu8x4(line, "\215\254\215\207\203\112\203\211\201\133" /* 混合カラー */, &pParam->mColor.r);
-            scanf32x4(line, "\220\101\226\321\226\247\223\170" /* 植毛密度 */, pParam->mDensity);
-            scanf32x4(line, "\220\101\226\321\221\276\202\263" /* 植毛太さ */, pParam->mThickness);
-            scanu8x4(line, "\215\254\215\207\224\344" /* 混合比 */, pParam->mLengthMap);
-            scan32(line, "\203\211\203\103\203\1470\203\130\203\103\203\142\203\140" /* ライト0スイッチ */, &lightMask);
-            scan32(line, "\203\211\203\103\203\1470\203\175\203\145\203\212\203\101\203\213" /* ライト0マテリアル */, &matIntensity);
-            scan32(line, "\203\211\203\103\203\1470\203\101\203\223\203\162\203\107\203\223\203\147" /* ライト0アンビエント */, &ambIntensity);
-            scan32(line, "\203\211\203\103\203\1471\203\130\203\103\203\142\203\140" /* ライト1スイッチ */, &specularLightMask);
-            scan32(line, "\203\211\203\103\203\1471\203\175\203\145\203\212\203\101\203\213" /* ライト1マテリアル */, &specularMatIntensity);
-            scan32(line, "\203\211\203\103\203\1471\203\101\203\223\203\162\203\107\203\223\203\147" /* ライト1アンビエント */, &specularAmbIntensity);
-            scan32(line, "\203\211\203\103\203\147\203\112\203\211\201\133\203\134\201\133\203\130" /* ライトカラーソース */, &colorSource);
-            pLight->mLightMask = lightMask;
-            pLight->mMatIntensity = matIntensity;
-            pLight->mAmbIntensity = ambIntensity;
-            pLight->mSpecularLightMask = specularLightMask;
-            pLight->mSpecularMatIntensity = specularMatIntensity;
-            pLight->mSpecularAmbIntensity = specularAmbIntensity;
-            pLight->mColorSource = colorSource;
+    void applyFurFile(FurParam* pParam, FurLightParam* pLight, const FurFile& rFile) {
+        const u32 present = rFile.mPresent;
+        if (present & (1u << FurFile::cNumLayers)) {
+            pParam->mNumLayers = rFile.mNumLayers;
         }
+
+        f32* const floats[13] = {&pParam->mLength,       &pParam->mLengthCurve,   &pParam->mBrightnessTip,  &pParam->mBrightnessRoot,
+                                 &pParam->mBrightnessCurve, &pParam->mAlphaTip,    &pParam->mAlphaRoot,      &pParam->mAlphaCurve,
+                                 &pParam->mSkinAlphaTip, &pParam->mSkinAlphaRoot, &pParam->mSkinAlphaCurve, &pParam->mFurUVScale,
+                                 &pParam->mBodyUVScale};
+        for (u32 i = 0; i < 13; i++) {
+            if (present & (1u << (FurFile::cFirstFloat + i))) {
+                *floats[i] = rFile.mFloats[i];
+            }
+        }
+
+        if (present & (1u << FurFile::cColor)) {
+            pParam->mColor.r = rFile.mColor[0];
+            pParam->mColor.g = rFile.mColor[1];
+            pParam->mColor.b = rFile.mColor[2];
+            pParam->mColor.a = rFile.mColor[3];
+        }
+
+        for (u32 i = 0; i < 4; i++) {
+            if (present & (1u << FurFile::cDensity)) {
+                pParam->mDensity[i] = rFile.mDensity[i];
+            }
+            if (present & (1u << FurFile::cThickness)) {
+                pParam->mThickness[i] = rFile.mThickness[i];
+            }
+            if (present & (1u << FurFile::cLengthMap)) {
+                pParam->mLengthMap[i] = rFile.mLengthMap[i];
+            }
+        }
+
+        pLight->mLightMask = rFile.mLight[0];
+        pLight->mMatIntensity = rFile.mLight[1];
+        pLight->mAmbIntensity = rFile.mLight[2];
+        pLight->mSpecularLightMask = rFile.mLight[3];
+        pLight->mSpecularMatIntensity = rFile.mLight[4];
+        pLight->mSpecularAmbIntensity = rFile.mLight[5];
+        pLight->mColorSource = rFile.mLight[6];
     }
 };  // namespace MR
-
-J3DModel2::J3DModel2(J3DModel* pModel) {
-    mModelData = pModel->mModelData;
-    mMtxBuffer = pModel->mMtxBuffer;
-    mShapePacket = pModel->mShapePacket;
-    mMatPacket = pModel->mMatPacket;
-    mVertexBuffer.setVertexData(&mModelData->mVertexData);
-    mFlags |= J3DMdlFlag_UseDefaultJ3D;
-}
-
-J3DModel2::~J3DModel2() {
-}
 
 FurDrawManager::~FurDrawManager() {
 }

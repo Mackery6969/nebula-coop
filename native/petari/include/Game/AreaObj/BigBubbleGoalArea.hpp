@@ -8,18 +8,17 @@ class BigBubbleGoalArea : public AreaObj {
 public:
     BigBubbleGoalArea(int, const char*);
 
-    virtual ~BigBubbleGoalArea() {};
-    virtual void init(const JMapInfoIter&);
-    virtual void movement();
-    virtual void draw() const;
+    virtual void init(const TableIter&) override;
+    virtual void movement() override;
+    virtual void draw() const override;
 
-    virtual const char* getManagerName() const {
+    virtual const char* getManagerName() const override {
         return "BigBubbleGoalArea";
     };
 
     void addBubble(BigBubble*);
 
-    TVec3f mTrans;
+    Vec3f mTrans;
     f32 mMeterCapacity;
     f32 mMeterDisplayAmount;
     f32 mMeterAmount;

@@ -8,13 +8,14 @@
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
     const char* const cCometBrkName[] = {"Red", "Blue", "White", "Yellow", "Purple"};
     const s32 cPointingActorNum = 6;
-    const f32 cPointingRadius = 1000.0f;
-    const f32 cPointingPosY = 2000.0f;
-    const f32 cPointingOffsetY = 1500.0f;
+    NEBULA_TUNABLE(f32, cPointingRadius, 1000.0f);
+    NEBULA_TUNABLE(f32, cPointingPosY, 2000.0f);
+    NEBULA_TUNABLE(f32, cPointingOffsetY, 1500.0f);
 };  // namespace
 
 namespace NrvAstroDomeComet {
@@ -25,7 +26,7 @@ namespace NrvAstroDomeComet {
 AstroDomeComet::AstroDomeComet(const char* pName) : LiveActor(pName), mBloomModel(), mMiniGalaxy(), mPointingActors() {
 }
 
-void AstroDomeComet::init(const JMapInfoIter& rIter) {
+void AstroDomeComet::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("AstroDomeComet", nullptr, false);
     initSubModel();
@@ -35,11 +36,11 @@ void AstroDomeComet::init(const JMapInfoIter& rIter) {
     mPointingActors = new LiveActor*[::cPointingActorNum];
 
     for (s32 i = 0; i < ::cPointingActorNum; i++) {
-        mPointingActors[i] = new LiveActor("\203\174\203\103\203\223\203\145\203\102\203\223\203\117\227\160\203\101\203\116\203\136\201\133" /* ポインティング用アクター */);
+        mPointingActors[i] = new LiveActor("ポインティング用アクター");
         mPointingActors[i]->initWithoutIter();
         MR::invalidateClipping(mPointingActors[i]);
         MR::initStarPointerTargetAtMtx(mPointingActors[i], ::cPointingRadius, MR::getJointMtx(this, "CometIcon"),
-                                       TVec3f(0.0f, ::cPointingPosY + ::cPointingOffsetY * i, 0.0f));
+                                       Vec3f(0.0f, ::cPointingPosY + ::cPointingOffsetY * i, 0.0f));
         mPointingActors[i]->makeActorDead();
     }
 
@@ -101,7 +102,7 @@ void AstroDomeComet::calcAndSetBaseMtx() {
     LiveActor::calcAndSetBaseMtx();
 }
 
-bool AstroDomeComet::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool AstroDomeComet::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (SphereSelectorFunction::trySyncAppearMsgSelectStart(this, msg)) {
         return true;
     }
@@ -131,7 +132,7 @@ void AstroDomeComet::tryPointing() {
 
     for (s32 i = 0; i < ::cPointingActorNum; i++) {
         if (MR::isStarPointerPointing1PWithoutCheckZ(mPointingActors[i], nullptr, true, false)) {
-            SphereSelectorFunction::registerPointingTarget(mMiniGalaxy, Unknown_0);
+            SphereSelectorFunction::registerPointingTarget(mMiniGalaxy, HandlePointingPriority_Depth);
             break;
         }
     }

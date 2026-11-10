@@ -1,10 +1,9 @@
 #pragma once
 
 // Tilt sections (Star Ball, ray surfing): the game steers them with the Wii
-// Remote accelerometer only (SphereAccelSensorController::clacXY and
-// SurfRay::updateRotate, both through MR::getCorePadAcceleration;
-// SpherePadController's stick path is overridden), so a controller without
-// that sensor cannot play them. While one is active the virtual remote's
+// Remote accelerometer only (Tamakoro's calcTiltXY and SurfRay::updateRotate,
+// both through MR::getMainTilt), so a controller without that sensor cannot
+// play them. While one is active the virtual remote's
 // acceleration is a gravity direction built from the tilt of the
 // controller in use when it has motion sensors (Pro Controller, Pro
 // Controller 2) or else from the Nunchuk stick (Xbox left stick, keyboard
@@ -15,7 +14,7 @@
 // remote frame: +X out of the left side, +Y toward the expansion port, +Z out
 // of the A face (Wiibrew calibration poses).
 // - Star Ball: held upright like a joystick (TamakoroTutorial waits for
-//   (0,-1,0) within 30 degrees). clacXY's neutral leans the top 10 degrees
+//   (0,-1,0) within 30 degrees). calcXY's neutral leans the top 10 degrees
 //   away from the face; X and Y are the lean beyond 5 degrees, full at 25,
 //   right and forward positive (calcDirSphereMove: X camera right, Y camera
 //   forward).
@@ -45,7 +44,7 @@ using Vec3 = std::array<float, 3>;
 [[nodiscard]] Vec3 up_from_angles(float roll_degrees, float pitch_degrees) noexcept;
 
 // Stick (x right, y up = forward, -1..1) to the tilt it stands for in a
-// section: Star Ball full deflection = 25 degrees (clacXY's full range),
+// section: Star Ball full deflection = 25 degrees (calcXY's full range),
 // ray full deflection = 50 degrees of twist.
 inline constexpr float kStarBallStickDegrees = 25.0f;
 inline constexpr float kRayStickDegrees = 50.0f;

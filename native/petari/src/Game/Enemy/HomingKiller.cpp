@@ -1,4 +1,5 @@
 #include "Game/Enemy/HomingKiller.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/ModelObj.hpp"
 #include "Game/LiveActor/Nerve.hpp"
@@ -11,7 +12,7 @@
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
 #include "Game/Util/GravityUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
@@ -19,6 +20,10 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
+#include "Game/Util/Tunable.hpp"
+
+// The numbers this file's functions give the game's motion and animation calls, as tunables: "<file>.<function>.<call>.<k>".
+NEBULA_TUNABLE_NAMED(f32, cNum_exeFreeze_setBckRate_1, "exeFreeze.setBckRate.1", 0.0f);
 
 namespace {
     static const Vec cBodyHitSensorOffset = {0.0f, 0.0f, -10.0f};
@@ -29,46 +34,46 @@ namespace {
                                               ATYPE_TRIPODBOSS_GUARD_WALL, ATYPE_TRIPODBOSS_KILLER_GENERATER, ATYPE_MAP_OBJ};
     const u32 cSensorTableTryExplosion[] = {ATYPE_KILLER_TARGET_ENEMY, ATYPE_KILLER_TARGET_MAPOBJ, ATYPE_ROCK, ATYPE_WANWAN, ATYPE_KARIKARI};
 
-    static const f32 cBodyHitSensorRadius = 70.0f;
-    static const f32 cEyeHitSensorRadius = 750.0f;
-    static const f32 cBinderRadius = 70.0f;
-    static const f32 cExplosionDistance = 250.0f;
-    static const f32 cShadowRadiusXY = 60.0f;
-    static const f32 cShadowRadiusZ = 100.0f;
-    static const f32 cStarWandRadius3d = 150.0f;
-    static const f32 cSandColumnEmitDot = -0.75f;
-    static const s32 cAppearIntervalFrame = 180;
-    static const s32 cForceKillFrame = 600;
-    static const f32 cCameraShakeDistance = 1000.0f;
-    static const f32 cChaseStartAngle = 360.0f;
-    static const f32 cChaseSpeed = 12.0f;
-    static const f32 cChaseTargetHeight = 200.0f;
-    static const f32 cChaseEndDistance = 3000.0f;
-    static const f32 cChaseInvalidFrame = 35;  // BUG: typo, should be an s32 :)
-    static const f32 cChaseRotateZSpeed = 1.0f;
-    static const f32 cChaseRotateZMax = 60.0f;
-    static const f32 cChaseRotateZDot = 0.95f;
-    static const f32 cChaseHeightMin = 150.0f;
-    static const f32 cUpVecRotateSpeed = 2.0f;
-    static const f32 cMoveRotateCosineMax = 0.9995f;  // ~cos(1.8)
-    static const s32 cFreezeFrame = 20;
-    static const f32 cFreezeRumbleSpeed = 75.0f;
-    static const f32 cFreezeRumbleWidth = 5.0f;
-    static const f32 cFreezeRotateCosineMax = 0.9997f;  // ~cos(1.4)
-    static const s32 cAppearMoveFrame = 20;
-    static const s32 cAppearRumbleFrame = 22;
-    static const s32 cAppearStopFrame = 30;
-    static const f32 cAppearMoveDistance = 200.0f;
-    static const f32 cAppearRumbleSpeed = 100.0f;
-    static const f32 cAppearRumbleWidth = 18.0f;
-    static const f32 cChaseSpeedTorpedo = 5.0f;
-    static const f32 cChaseTargetHeightTorpedo = 75.0f;
-    static const f32 cTorpedoLightClippingRadius = 1000.0f;
-    static const f32 cNearClipDistanceMagnum = 400.0f;
-    static const f32 cMagnamFlySeDistMin = 500.0f;
-    static const f32 cMagnamFlySeDistMax = 1400.0f;
-    static const f32 cMagnamFlySePitchMin = 0.9f;
-    static const f32 cMagnamFlySePitchMax = 1.8f;
+    NEBULA_TUNABLE(f32, cBodyHitSensorRadius, 70.0f);
+    NEBULA_TUNABLE(f32, cEyeHitSensorRadius, 750.0f);
+    NEBULA_TUNABLE(f32, cBinderRadius, 70.0f);
+    NEBULA_TUNABLE(f32, cExplosionDistance, 250.0f);
+    NEBULA_TUNABLE(f32, cShadowRadiusXY, 60.0f);
+    NEBULA_TUNABLE(f32, cShadowRadiusZ, 100.0f);
+    NEBULA_TUNABLE(f32, cStarWandRadius3d, 150.0f);
+    NEBULA_TUNABLE(f32, cSandColumnEmitDot, -0.75f);
+    static const s32 cAppearIntervalFrame = NebulaFrameClock::stepsOfSeconds(3);
+    NEBULA_TUNABLE(s32, cForceKillFrame, 600);
+    NEBULA_TUNABLE(f32, cCameraShakeDistance, 1000.0f);
+    NEBULA_TUNABLE(f32, cChaseStartAngle, 360.0f);
+    NEBULA_TUNABLE(f32, cChaseSpeed, 12.0f);
+    NEBULA_TUNABLE(f32, cChaseTargetHeight, 200.0f);
+    NEBULA_TUNABLE(f32, cChaseEndDistance, 3000.0f);
+    NEBULA_TUNABLE(f32, cChaseInvalidFrame, 35);  // BUG: typo, should be an s32 :)
+    NEBULA_TUNABLE(f32, cChaseRotateZSpeed, 1.0f);
+    NEBULA_TUNABLE(f32, cChaseRotateZMax, 60.0f);
+    NEBULA_TUNABLE(f32, cChaseRotateZDot, 0.95f);
+    NEBULA_TUNABLE(f32, cChaseHeightMin, 150.0f);
+    NEBULA_TUNABLE(f32, cUpVecRotateSpeed, 2.0f);
+    NEBULA_TUNABLE(f32, cMoveRotateCosineMax, 0.9995f);  // ~cos(1.8)
+    NEBULA_TUNABLE(s32, cFreezeFrame, 20);
+    NEBULA_TUNABLE(f32, cFreezeRumbleSpeed, 75.0f);
+    NEBULA_TUNABLE(f32, cFreezeRumbleWidth, 5.0f);
+    NEBULA_TUNABLE(f32, cFreezeRotateCosineMax, 0.9997f);  // ~cos(1.4)
+    NEBULA_TUNABLE(s32, cAppearMoveFrame, 20);
+    NEBULA_TUNABLE(s32, cAppearRumbleFrame, 22);
+    NEBULA_TUNABLE(s32, cAppearStopFrame, 30);
+    NEBULA_TUNABLE(f32, cAppearMoveDistance, 200.0f);
+    NEBULA_TUNABLE(f32, cAppearRumbleSpeed, 100.0f);
+    NEBULA_TUNABLE(f32, cAppearRumbleWidth, 18.0f);
+    NEBULA_TUNABLE(f32, cChaseSpeedTorpedo, 5.0f);
+    NEBULA_TUNABLE(f32, cChaseTargetHeightTorpedo, 75.0f);
+    NEBULA_TUNABLE(f32, cTorpedoLightClippingRadius, 1000.0f);
+    NEBULA_TUNABLE(f32, cNearClipDistanceMagnum, 400.0f);
+    NEBULA_TUNABLE(f32, cMagnamFlySeDistMin, 500.0f);
+    NEBULA_TUNABLE(f32, cMagnamFlySeDistMax, 1400.0f);
+    NEBULA_TUNABLE(f32, cMagnamFlySePitchMin, 0.9f);
+    NEBULA_TUNABLE(f32, cMagnamFlySePitchMax, 1.8f);
 };  // namespace
 
 namespace NrvHomingKiller {
@@ -107,16 +112,16 @@ HomingKiller::HomingKiller(const char* pName)
     mEffectMtx.identity();
 }
 
-void HomingKiller::init(const JMapInfoIter& rIter) {
+void HomingKiller::init(const TableIter& rIter) {
     const char* objectName = "HomingKiller";
     if (MR::isValidInfo(rIter)) {
         MR::getObjectName(&objectName, rIter);
         if (MR::isEqualObjectName(rIter, "Torpedo")) {
             mType = Type_Torpedo;
-            setName("\203\147\201\133\203\163\201\133\203\150" /* トーピード */);
+            setName("トーピード");
         } else if (MR::isEqualObjectName(rIter, "MagnumKiller")) {
             mType = Type_MagnumKiller;
-            setName("\203\175\203\117\203\151\203\200\203\114\203\211\201\133" /* マグナムキラー */);
+            setName("マグナムキラー");
         }
     }
 
@@ -127,9 +132,9 @@ void HomingKiller::init(const JMapInfoIter& rIter) {
     initModelManagerWithAnm(objectName, nullptr, false);
 
     if (mType == Type_Torpedo) {
-        mPropeller = MR::createPartsModelEnemyAndFix(this, "\203\147\201\133\203\163\201\133\203\150\203\166\203\215\203\171\203\211" /* トーピードプロペラ */, "TorpedoPropeller", nullptr, TVec3f(0.0f, 0.0f, 0.0f),
-                                                     TVec3f(0.0f, 0.0f, 0.0f), nullptr);
-        mTorpedoLight = MR::createModelObjMapObj("\203\147\201\133\203\163\201\133\203\150\203\211\203\103\203\147" /* トーピードライト */, "TorpedoLight", getBaseMtx());
+        mPropeller = MR::createPartsModelEnemyAndFix(this, "トーピードプロペラ", "TorpedoPropeller", nullptr, Vec3f(0.0f, 0.0f, 0.0f),
+                                                     Vec3f(0.0f, 0.0f, 0.0f), nullptr);
+        mTorpedoLight = MR::createModelObjMapObj("トーピードライト", "TorpedoLight", getBaseMtx());
         MR::invalidateClipping(mTorpedoLight);
         mTorpedoLight->makeActorDead();
     }
@@ -141,8 +146,8 @@ void HomingKiller::init(const JMapInfoIter& rIter) {
     f32 hitRadius = getScale();
     f32 offsetScale = getScale();
 
-    MR::addHitSensor(this, "body", ATYPE_HOMING_KILLER, 8, hitRadius * ::cBodyHitSensorRadius, TVec3f(::cBodyHitSensorOffset) * offsetScale);
-    MR::addHitSensorEye(this, "eye", 16, ::cEyeHitSensorRadius, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensor(this, "body", ATYPE_HOMING_KILLER, 8, hitRadius * ::cBodyHitSensorRadius, Vec3f(::cBodyHitSensorOffset) * offsetScale);
+    MR::addHitSensorEye(this, "eye", 16, ::cEyeHitSensorRadius, Vec3f(0.0f, 0.0f, 0.0f));
 
     f32 binderRadius = getScale();
     initBinder(binderRadius * ::cBinderRadius, 0.0f, 0);
@@ -152,14 +157,14 @@ void HomingKiller::init(const JMapInfoIter& rIter) {
         MR::calcGravity(this);
     }
 
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
 
     if (mType == Type_HomingKiller) {
         MR::setEffectHostMtx(this, "SandColumn", mEffectMtx);
     }
 
     f32 dpdRadius = getScale();
-    MR::initStarPointerTarget(this, dpdRadius * ::cStarWandRadius3d, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::initStarPointerTarget(this, dpdRadius * ::cStarWandRadius3d, Vec3f(0.0f, 0.0f, 0.0f));
 
     if (MR::isValidInfo(rIter)) {
         calcInitPosture();
@@ -171,7 +176,7 @@ void HomingKiller::init(const JMapInfoIter& rIter) {
         MR::initShadowFromCSV(this, "Shadow");
     } else {
         f32 scale = getScale();
-        MR::initShadowVolumeOval(this, TVec3f(::cShadowRadiusXY, ::cShadowRadiusXY, ::cShadowRadiusZ) * scale);
+        MR::initShadowVolumeOval(this, Vec3f(::cShadowRadiusXY, ::cShadowRadiusXY, ::cShadowRadiusZ) * scale);
         MR::setShadowDropLength(this, nullptr, 2000.0f);
     }
 
@@ -197,7 +202,7 @@ void HomingKiller::appear() {
     setNerve(GET_NERVE(HomingKiller, HomingKillerNrvAppear));
 }
 
-void HomingKiller::appear(const TVec3f& rPos, const TVec3f& rFront) {
+void HomingKiller::appear(const Vec3f& rPos, const Vec3f& rFront) {
     mBasePos.set(rPos);
     mBaseFront.set(rFront);
     MR::calcGravityVector(this, rPos, &mBaseUp, nullptr, 0);
@@ -259,7 +264,7 @@ void HomingKiller::control() {
 
     if (!isNerve(GET_NERVE(HomingKiller, HomingKillerNrvBreak))) {
         if (!isGravityIgnored() || isChasing()) {
-            TVec3f up;
+            Vec3f up;
             up.negate(mGravity);
             if (isNerve(GET_NERVE(HomingKiller, HomingKillerNrvChaseStart)) || isNerve(GET_NERVE(HomingKiller, HomingKillerNrvChase)) ||
                 isNerve(GET_NERVE(HomingKiller, HomingKillerNrvFreeze)) || isNerve(GET_NERVE(HomingKiller, HomingKillerNrvGoToTarget))) {
@@ -275,12 +280,12 @@ void HomingKiller::control() {
 
 void HomingKiller::calcAndSetBaseMtx() {
 
-    TPos3f mtx2;
-    TPos3f mtx;
-    mtx.makeRotate(TVec3f(0.0f, 0.0f, 1.0f), MR::toRadian(mRotation.z));
+    Pos3f baseMtx;
+    Pos3f rollMtx;
+    rollMtx.makeRotate(Vec3f(0.0f, 0.0f, 1.0f), MR::toRadian(mRotation.z));
 
-    mtx2.concat(mBaseMtx, mtx);
-    MR::setBaseTRMtx(this, mtx2);
+    baseMtx.concat(mBaseMtx, rollMtx);
+    MR::setBaseTRMtx(this, baseMtx);
 }
 
 void HomingKiller::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
@@ -318,7 +323,7 @@ void HomingKiller::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     }
 }
 
-bool HomingKiller::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool HomingKiller::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (isInactive()) {
         return false;
     }
@@ -339,7 +344,7 @@ bool HomingKiller::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor
     return false;
 }
 
-bool HomingKiller::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool HomingKiller::receiveMsgEnemyAttack(u32 /*msg*/, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (isInactive()) {
         return false;
     }
@@ -351,31 +356,37 @@ bool HomingKiller::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor*
     return true;
 }
 
-bool HomingKiller::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool HomingKiller::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     return MR::tryForceKillIfMsgStartPowerStarGet(this, msg);
 }
 
-void HomingKiller::initMapToolInfo(const JMapInfoIter& rIter) {
+void HomingKiller::initMapToolInfo(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
-    MR::getJMapInfoArg0NoInit(rIter, &mChaseStartDist);
+    MR::getPlacementArg0NoInit(rIter, &mChaseStartDist);
 
     s32 turnRadius = 3;
-    MR::getJMapInfoArg1NoInit(rIter, &turnRadius);
+    MR::getPlacementArg1NoInit(rIter, &turnRadius);
+    // The turn rate is a cosine: keep it within -1 to 1.
+    if (turnRadius < 0) {
+        turnRadius = 0;
+    } else if (turnRadius > 20000) {
+        turnRadius = 20000;
+    }
     mChaseRotateSpeed = 1.0f - turnRadius * 0.0001f;
 
-    MR::getJMapInfoArg2NoInit(rIter, &mIsLinearShot);
+    MR::getPlacementArg2NoInit(rIter, &mIsLinearShot);
     if (mType == Type_MagnumKiller) {
         mIsLinearShot = true;
     }
 
-    MR::getJMapInfoArg3NoInit(rIter, &mUseFullSightAngle);
+    MR::getPlacementArg3NoInit(rIter, &mUseFullSightAngle);
     if (!mUseFullSightAngle) {
         mChaseStartAngle = ::cChaseStartAngle / 2;
     }
 }
 
 void HomingKiller::calcInitPosture() {
-    TPos3f mtx;
+    Pos3f mtx;
     MR::makeMtxRotate(mtx, mRotation);
 
     mBasePos.set(mPosition);
@@ -398,10 +409,10 @@ void HomingKiller::updateVelocity() {
     mVelocity.scale(mType == Type_Torpedo ? ::cChaseSpeedTorpedo : ::cChaseSpeed);
 }
 
-void HomingKiller::updateRotateZ(const TVec3f& rDir) {
-    TVec3f grav = mGravity;
-    TVec3f front;
-    TVec3f side;
+void HomingKiller::updateRotateZ(const Vec3f& rDir) {
+    Vec3f grav = mGravity;
+    Vec3f front;
+    Vec3f side;
 
     bool turn = false;
     if (!MR::isSameDirection(mFront, grav) && !MR::isSameDirection(rDir, grav)) {
@@ -413,7 +424,7 @@ void HomingKiller::updateRotateZ(const TVec3f& rDir) {
     }
 
     if (turn) {
-        TVec3f up;
+        Vec3f up;
         up.cross(front, side);
         if (0.0f < up.dot(grav)) {
             mRotation.z = MR::clamp(mRotation.z + ::cChaseRotateZSpeed, -::cChaseRotateZMax, ::cChaseRotateZMax);
@@ -421,21 +432,7 @@ void HomingKiller::updateRotateZ(const TVec3f& rDir) {
             mRotation.z = MR::clamp(mRotation.z - ::cChaseRotateZSpeed, -::cChaseRotateZMax, ::cChaseRotateZMax);
         }
     } else {
-        // TODO: this is likely MR::converge
-        f32 angle = mRotation.z;
-        if (angle < 0.0f) {
-            angle += ::cChaseRotateZSpeed;
-            if (angle > 0.0f) {
-                angle = 0.0f;
-            }
-        } else {
-            angle -= ::cChaseRotateZSpeed;
-            if (angle < 0.0f) {
-                angle = 0.0f;
-            }
-        }
-
-        mRotation.z = angle;
+        mRotation.z = MR::converge(mRotation.z, 0.0f, ::cChaseRotateZSpeed);
     }
 }
 
@@ -448,7 +445,7 @@ bool HomingKiller::processMove() {
     }
 
     if (!isGravityIgnored()) {
-        TVec3f front;
+        Vec3f front;
         if (!MR::isSameDirection(mFront, mGravity)) {
             MR::vecKillElement(mFront, mGravity, &front);
             MR::normalize(&front);
@@ -473,11 +470,11 @@ bool HomingKiller::processChase() {
         return false;
     }
 
-    TVec3f target;
+    Vec3f target;
     calcFrontVecToTarget(&target);
 
     if (MR::isShadowProjected(this, nullptr)) {
-        TVec3f shadowPos;
+        Vec3f shadowPos;
         MR::getShadowProjectionPos(this, nullptr, &shadowPos);
         HitSensor* shadowSensor = MR::getShadowProjectedSensor(this, nullptr);
         if (shadowSensor->isType(ATYPE_BREAKABLE_CAGE)) {
@@ -487,7 +484,7 @@ bool HomingKiller::processChase() {
             }
         } else {
             if (MR::isNear(this, shadowPos, ::cChaseHeightMin)) {
-                TVec3f up;
+                Vec3f up;
                 mBaseMtx.getYDir(up);
                 if (!MR::isSameDirection(target, up)) {
                     MR::vecKillElement(target, up, &target);
@@ -514,7 +511,7 @@ bool HomingKiller::isChaseStart() const {
         return false;
     }
 
-    TVec3f target;
+    Vec3f target;
     target.sub(*MR::getPlayerPos(), mPosition);
     if (MR::normalizeOrZero(&target)) {
         return false;
@@ -551,7 +548,7 @@ bool HomingKiller::tryFreeze(const Nerve* pUnfreezeNerve) {
         return false;
     }
 
-    if (MR::isStarPointerPointing2POnPressButton(this, "\216\343" /* 弱 */, true, false)) {
+    if (MR::isStarPointerPointing2POnPressButton(this, "弱", true, false)) {
         mFreezeTime = 0;
         mFreezePos.set(mPosition);
         mUnfreezeNerve = pUnfreezeNerve;
@@ -614,12 +611,12 @@ void HomingKiller::sendMsgExplosionToNearActor() {
     }
 }
 
-bool HomingKiller::isUpdateChaseFrontVec(const TVec3f& rFront) const {
+bool HomingKiller::isUpdateChaseFrontVec(const Vec3f& rFront) const {
     if (!isNerve(GET_NERVE(HomingKiller, HomingKillerNrvGoToTarget))) {
         return true;
     }
 
-    TVec3f target;
+    Vec3f target;
     target.sub(mTargetSensor->mPosition, mPosition);
     if (MR::normalizeOrZero(&target)) {
         return false;
@@ -628,13 +625,13 @@ bool HomingKiller::isUpdateChaseFrontVec(const TVec3f& rFront) const {
     return target.dot(mFront) < target.dot(rFront);
 }
 
-void HomingKiller::calcFrontVecToTarget(TVec3f* pFront) const {
-    TVec3f targetPos;
-    TVec3f playerUp;
+void HomingKiller::calcFrontVecToTarget(Vec3f* pFront) const {
+    Vec3f targetPos;
+    Vec3f playerUp;
     MR::getPlayerUpVec(&playerUp);
     MR::normalize(&playerUp);
     playerUp.scale(mType == Type_Torpedo ? ::cChaseTargetHeightTorpedo : ::cChaseTargetHeight);
-    TVec3f target;
+    Vec3f target;
     targetPos.add(*MR::getPlayerPos(), playerUp);
     target.sub(targetPos, mPosition);
     MR::normalize(target, pFront);
@@ -653,7 +650,7 @@ bool HomingKiller::isValidShowModel() const {
 }
 
 bool HomingKiller::isWaterBreak() const {
-    if (MR::isInWater(this, TVec3f(0.0f, 0.0f, 0.0f))) {
+    if (MR::isInWater(this, Vec3f(0.0f, 0.0f, 0.0f))) {
         return mType != Type_Torpedo;
     } else {
         return mType == Type_Torpedo;
@@ -710,14 +707,12 @@ bool HomingKiller::isChasing() const {
 void HomingKiller::exeAppear() {
     if (MR::isFirstStep(this)) {
         MR::startBck(this, "Start");
-        bool a1 = mType == Type_MagnumKiller;
-        if (!a1) {
+        if (mType != Type_MagnumKiller) {
             MR::startBpk(this, "Move");
             MR::startBrk(this, "Move");
         }
 
-        bool a2 = mType == Type_Torpedo;
-        if (a2) {
+        if (mType == Type_Torpedo) {
             MR::startBck(mPropeller, "RotateTorpedo");
             mTorpedoLight->appear();
             MR::startBck(mTorpedoLight, "Appear");
@@ -756,8 +751,7 @@ void HomingKiller::exeAppear() {
         setBckRate(1.0f, true);
         MR::emitEffect(this, "Shoot");
         MR::validateShadow(this, nullptr);
-        bool a3 = mType == Type_MagnumKiller;
-        if (a3) {
+        if (mType == Type_MagnumKiller) {
             MR::startSound(this, "SE_EM_MAGKILLER_FIRING");
             setNerve(GET_NERVE(HomingKiller, HomingKillerNrvMove));
         } else {
@@ -810,11 +804,11 @@ void HomingKiller::exeFreeze() {
         mVelocity.zero();
         MR::emitEffect(this, "Touch");
         if (mFreezeTime == 0) {
-            MR::startDPDHitSound();
+            MR::startPointerHitSound();
         }
 
         if (mType != Type_MagnumKiller) {
-            MR::setBckRate(this, 0.0f);
+            MR::setBckRate(this, cNum_exeFreeze_setBckRate_1);
         }
     }
 
@@ -824,24 +818,24 @@ void HomingKiller::exeFreeze() {
     }
 
     mFreezeTime++;
-    MR::startDPDFreezeLevelSound(this);
+    MR::startPointerFreezeLevelSound(this);
 
     f32 rumbleOffset = (MR::cosDegree(MR::repeatDegree(mFreezeTime * ::cFreezeRumbleSpeed)) * ::cFreezeRumbleWidth) *
                        (::cFreezeFrame - getNerveStep()) / ::cFreezeFrame;
 
-    TVec3f rumble;
+    Vec3f rumble;
     rumble.set(MR::getCamXdir());
     rumble.scale(rumbleOffset);
     mPosition.add(mFreezePos, rumble);
 
     if (isChasing()) {
-        TVec3f target;
+        Vec3f target;
         calcFrontVecToTarget(&target);
         MR::turnVecToVecCos(&mFront, mFront.copy(), target, ::cFreezeRotateCosineMax, mGravity);
         updateRotateZ(target);
     }
 
-    if (MR::isStarPointerPointing2POnPressButton(this, "\216\343" /* 弱 */, true, false)) {
+    if (MR::isStarPointerPointing2POnPressButton(this, "弱", true, false)) {
         setNerve(GET_NERVE(HomingKiller, HomingKillerNrvFreeze));
         return;
     }
@@ -876,9 +870,9 @@ void HomingKiller::exeBreak() {
                     if (mGravity.dot(*MR::getGroundNormal(this)) < ::cSandColumnEmitDot) {
                         MR::emitEffect(this, "SandColumn");
 
-                        TVec3f up;
+                        Vec3f up;
                         up.negate(mGravity);
-                        TVec3f shadowPos;
+                        Vec3f shadowPos;
                         if (MR::isShadowProjected(this, nullptr)) {
                             MR::getShadowProjectionPos(this, nullptr, &shadowPos);
                         } else {
@@ -903,7 +897,7 @@ void HomingKiller::exeBreak() {
             MR::releaseSoundHandle(this, "SE_EM_KILLER_EXPLOSION");
         }
 
-        MR::startRumbleWithShakeCameraWeak(this, "\213\255" /* 強 */, "\222\206" /* 中 */, ::cCameraShakeDistance, ::cCameraShakeDistance * 2);
+        MR::startRumbleWithShakeCameraWeak(this, "強", "中", ::cCameraShakeDistance, ::cCameraShakeDistance * 2);
     }
 
     if (!MR::isEffectValid(this, "Explosion")) {
@@ -932,17 +926,17 @@ void HomingKiller::exeGoToTarget() {
     }
 }
 
-HomingKillerLauncher::HomingKillerLauncher(const char* pName) : LiveActor("\203\172\201\133\203\176\203\223\203\117\203\114\203\211\201\133\203\211\203\223\203\140\203\203\201\133" /* ホーミングキラーランチャー */), mKiller() {
+HomingKillerLauncher::HomingKillerLauncher(const char* pName) : LiveActor("ホーミングキラーランチャー"), mKiller() {
 }
 
-void HomingKillerLauncher::init(const JMapInfoIter& rIter) {
+void HomingKillerLauncher::init(const TableIter& rIter) {
     MR::connectToSceneEnemyMovement(this);
     MR::initDefaultPos(this, rIter);
     MR::needStageSwitchReadAppear(this, rIter);
     MR::invalidateClipping(this);
     initNerve(GET_NERVE(HomingKiller, HomingKillerLauncherNrvAppearKiller));
     MR::syncStageSwitchAppear(this);
-    mKiller = new HomingKiller("\203\172\201\133\203\176\203\223\203\117\203\114\203\211\201\133" /* ホーミングキラー */);
+    mKiller = new HomingKiller("ホーミングキラー");
     mKiller->init(rIter);
     makeActorDead();
 }
@@ -952,7 +946,7 @@ void HomingKillerLauncher::appear() {
     setNerve(GET_NERVE(HomingKiller, HomingKillerLauncherNrvAppearKiller));
 }
 
-bool HomingKillerLauncher::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool HomingKillerLauncher::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     return MR::tryForceKillIfMsgStartPowerStarGet(this, msg);
 }
 

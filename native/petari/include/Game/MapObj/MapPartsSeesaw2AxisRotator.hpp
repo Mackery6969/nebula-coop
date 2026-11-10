@@ -6,13 +6,12 @@ class MapPartsSeesaw2AxisRotator : public MapPartsRotatorBase {
 public:
     MapPartsSeesaw2AxisRotator(LiveActor*, const char*, f32);
 
-    virtual ~MapPartsSeesaw2AxisRotator();
-    virtual void init(const JMapInfoIter&) override;
+    virtual void init(const TableIter&) override;
     virtual bool isWorking() const override;
     virtual void start() override;
     virtual void end() override;
     virtual bool receiveMsg(u32) override;
-    virtual const TMtx34f& getRotateMtx() const override {
+    virtual const Mtx34f& getRotateMtx() const override {
         return mRotateMtx;
     }
 
@@ -33,10 +32,10 @@ public:
     f32 mRotateAngle;
     f32 mInertiaConst;
     f32 mRestoreForce;
-    TPos3f mBaseMtx;
-    TPos3f mBaseMtxInv;
-    TPos3f mRotateMtx;
-    TVec3f mUp;
+    Pos3f mBaseMtx;
+    Pos3f mBaseMtxInv;
+    Pos3f mRotateMtx;
+    Vec3f mUp;
     bool mHipDrop;
     f32 mRotateSpeed;
     const char* mMoveSound;

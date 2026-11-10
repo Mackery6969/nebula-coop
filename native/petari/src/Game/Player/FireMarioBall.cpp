@@ -10,7 +10,7 @@
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
-#include <JSystem/JMath/JMATrigonometric.hpp>
+#include <nebula_geometry.hpp>
 
 namespace {
     f32 cSensorRadius = 80.0f;
@@ -29,22 +29,21 @@ FireMarioBall::~FireMarioBall() {
 }
 
 FireMarioBall::FireMarioBall(const char* pName) : LiveActor(pName) {
-    _8C = 0;
 }
 
-void FireMarioBall::init(const JMapInfoIter& rIter) {
+void FireMarioBall::init(const TableIter& rIter) {
     initModelManagerWithAnm("MarioFireBall", 0, false);
     MR::connectToSceneEnemyDecoration(this);
     initSensor();
     initBinder(::cBinderRadius, 0.0f, 0);
-    initEffectKeeper(4, "MarioFireBall", false);
+    initEffectKeeper(4, "MarioFireBall");
     initSound(4, false);
     MR::initShadowVolumeCylinder(this, 25.0f);
     MR::onShadowVolumeCutDropLength(this, 0);
     MR::setShadowVolumeEndDropOffset(this, 0, 50.0f);
     MR::invalidateClipping(this);
     initNerve(GET_NERVE(FireMarioBall, FireMarioBallNrvThrow));
-    _90 = 0;
+    mBindTimer = 0;
     makeActorDead();
 }
 
@@ -61,7 +60,7 @@ void FireMarioBall::kill() {
     LiveActor::kill();
 }
 
-void FireMarioBall::appearAndThrow(const TVec3f& v1, const TVec3f& v2) {
+void FireMarioBall::appearAndThrow(const Vec3f& v1, const Vec3f& v2) {
     mPosition.set(v1);
     mVelocity.set(v2 * ::cThrowSpeed);
     mRotation.set< f32 >(0.0f, MR::toDegree(MR::atan2(mVelocity.x, mVelocity.z)), 0.0f);
@@ -88,7 +87,7 @@ bool FireMarioBall::attackFire(HitSensor* pReceiver) {
 
 void FireMarioBall::initSensor() {
     initHitSensor(1);
-    MR::addHitSensorEnemy(this, "body", 8, ::cSensorRadius, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorEnemy(this, "body", 8, ::cSensorRadius, Vec3f(0.0f, 0.0f, 0.0f));
 }
 
 HitSensor* FireMarioBall::isBindedAny() const {
@@ -109,17 +108,17 @@ bool FireMarioBall::tryToKill() {
             kill();
             return true;
         }
-        if (_90) {
-            _90 -= 1;
-            if (!_90 && MR::isBindedWall(this)) {
+        if (mBindTimer) {
+            mBindTimer -= 1;
+            if (!mBindTimer && MR::isBindedWall(this)) {
                 kill();
                 return true;
             }
         } else {
-            _90 = 3;
+            mBindTimer = 3;
         }
     } else {
-        _90 = 0;
+        mBindTimer = 0;
     }
     if (!MR::isNearPlayer(this, ::cForceKillDistance)) {
         kill();
@@ -142,15 +141,15 @@ void FireMarioBall::exeThrow() {
     }
     if (MR::isBindedGround(this)) {
         MR::startSound(this, "SE_OJ_MARIO_FIRE_BALL_BOUND");
-        const TVec3f* v1 = MR::getGroundNormal(this);
+        const Vec3f* v1 = MR::getGroundNormal(this);
         mVelocity += -*v1 * MR::vecKillElement(mVelocity, *v1, &mVelocity) * ::cBoundReduction;
 
     } else if (MR::isBindedRoof(this)) {
         MR::startSound(this, "SE_OJ_MARIO_FIRE_BALL_BOUND");
-        const TVec3f* v2 = MR::getRoofNormal(this);
+        const Vec3f* v2 = MR::getRoofNormal(this);
         mVelocity += -*v2 * MR::vecKillElement(mVelocity, *v2, &mVelocity) * ::cBoundReduction;
     } else {
-        TVec3f grav;
+        Vec3f grav;
         MR::calcGravityVector(this, &grav, nullptr, 0);
         mVelocity += grav * ::cGravityAcc;
     }

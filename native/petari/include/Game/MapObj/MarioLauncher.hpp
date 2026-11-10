@@ -4,7 +4,7 @@
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/Screen/LayoutActor.hpp"
 #include "Game/Screen/SimpleLayout.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class MarioLauncherShell;
 class MarioLauncherLayout;
@@ -18,11 +18,11 @@ public:
 
     MarioLauncher(const char*);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     void exeWait();
     void exeReady();
@@ -53,30 +53,30 @@ public:
     LiveActor* mHost;
     bool mIsInAttractor;
     s32 mLauncherType;  // arg0
-    TPos3f mEffectMtxSmoke;
-    TPos3f mEffectMtxGravity;
+    Pos3f mEffectMtxSmoke;
+    Pos3f mEffectMtxGravity;
     CameraTargetMtx mCameraTargetMtx;
-    TPos3f mPlayerMtx;
-    TPos3f mPlayerBaseMtx;
-    TPos3f mLauncherBaseMtx;
+    Pos3f mPlayerMtx;
+    Pos3f mPlayerBaseMtx;
+    Pos3f mLauncherBaseMtx;
 };
 
 class MarioLauncherLayout : public LayoutActor {
 public:
-    MarioLauncherLayout() : LayoutActor("\210\332\223\256\227\160\226\103\221\344\227\160\203\214\203\103\203\101\203\105\203\147" /* 移動用砲台用レイアウト */, true), mLayout() {
+    MarioLauncherLayout() : LayoutActor("移動用砲台用レイアウト", true), mLayout() {
     }
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void kill();
+    virtual void init(const TableIter& rIter) override;
+    virtual void kill() override;
 
-    void appearAt(const TVec2f& pos) {
+    void appearAt(const Vec2f& pos) {
         mLayout->appear();
         mLayout->setTrans(pos);
     }
 
     void initLayout() {
         initLayoutManager("Telescope", 1);
-        mLayout = new SimpleLayout("\210\332\223\256\227\160\226\103\221\344\217\306\217\200" /* 移動用砲台照準 */, "Sight", 1, -1);
+        mLayout = new SimpleLayout("移動用砲台照準", "Sight", 1, -1);
         mLayout->kill();
     }
 
@@ -90,17 +90,16 @@ public:
         mReboundDir.zero();
     }
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual MtxPtr getBaseMtx() const;
-    virtual void calcAndSetBaseMtx();
+    virtual void init(const TableIter& rIter) override;
+    virtual MtxPtr getBaseMtx() const override;
+    virtual void calcAndSetBaseMtx() override;
     virtual void calcBaseMtx();
 
-    TVec3f& getPosition() {
+    Vec3f& getPosition() {
         return mPosition;
     }
 
-    TPos3f mBaseMtx;
-    TQuat4f mRotQuat;
-    TVec3f _CC;
-    TVec3f mReboundDir;
+    Pos3f mBaseMtx;
+    Quat4f mRotQuat;
+    Vec3f mReboundDir;
 };

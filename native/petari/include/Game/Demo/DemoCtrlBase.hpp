@@ -2,14 +2,14 @@
 
 
 class ActorCameraInfo;
-class JMapInfoIter;
+class TableIter;
 class LiveActor;
 
 class DemoCtrlBase {
 public:
     DemoCtrlBase(LiveActor*, const char*);
 
-    void init(const JMapInfoIter&);
+    void init(const TableIter&);
     void end();
     void update();
     bool isDone() const;
@@ -20,5 +20,5 @@ public:
     ActorCameraInfo* mCameraInfo;
     const char* mDemoName;
     s32 mCurrentFrame;
-    bool _10;
+    bool mWasInvalidClipping;
 };

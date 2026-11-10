@@ -6,10 +6,10 @@
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/MapUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
-#include <JSystem/JMath/JMATrigonometric.hpp>
+#include <nebula_geometry.hpp>
 
 bool Mario::checkPressDamage() {
-    if (_5FC) {
+    if (mOnimasuSensor) {
         return false;
     }
     if (isSwimming()) {
@@ -20,11 +20,11 @@ bool Mario::checkPressDamage() {
             mHang->forceDrop();
         } else {
             mActor->setPress(0, 0);
-            if (mActor->_390) {
+            if (mActor->mPressTimer) {
                 return true;
             }
-            _350.zero();
-            _35C.zero();
+            mPushVec.zero();
+            mPushVelocity.zero();
             return true;
         }
     }
@@ -35,53 +35,50 @@ bool Mario::checkPressDamage() {
     if (checkSidePress()) {
         return true;
     }
-    if (checkWallFloorCode(0x1D) && mMovementStates._1 && getFloorCode() != 0x1D) {
-        mActor->_3B4 = _368;
+    if (checkWallFloorCode(0x1D) && mMovementStates.onGround && getFloorCode() != 0x1D) {
+        mActor->mPressAxis = mGroundNorm;
         mActor->setPress(4, 120);
         return true;
     }
-    if (_72C < 200.0f) {
-        if (mMovementStates._8 && (!mMovementStates.jumping || !(getFrontWallNorm().dot(getAirGravityVec()) > 0.707f))) {
-            if (_72C < 100.0f) {
-                _72C = 100.0f;
+    if (mCeilDist < 200.0f) {
+        if (mMovementStates.frontWall && (!mMovementStates.jumping || !(getFrontWallNorm().dot(getAirGravityVec()) > 0.707f))) {
+            if (mCeilDist < 100.0f) {
+                mCeilDist = 100.0f;
             }
-            addVelocity(getFrontWallNorm() * (_4E4 * (200.0f / _72C) - _4E4));
+            addVelocity(getFrontWallNorm() * (mFrontWallDist * (200.0f / mCeilDist) - mFrontWallDist));
         }
-        if (mMovementStates._1A && (!mMovementStates.jumping || !(getSideWallNorm().dot(getAirGravityVec()) > 0.707f))) {
-            if (_72C < 100.0f) {
-                _72C = 100.0f;
+        if (mMovementStates.sideWall && (!mMovementStates.jumping || !(getSideWallNorm().dot(getAirGravityVec()) > 0.707f))) {
+            if (mCeilDist < 100.0f) {
+                mCeilDist = 100.0f;
             }
-            addVelocity(getSideWallNorm() * (60.0f * (200.0f / _72C) - 60.0f));
+            addVelocity(getSideWallNorm() * (60.0f * (200.0f / mCeilDist) - 60.0f));
         }
     }
     return false;
 }
 
 bool Mario::checkVerticalPress(bool atCurrentPosition) {
-    if (mMovementStates.debugMode) {
-        return false;
-    }
-    TVec3f position;
+    Vec3f position;
     if (isStatusActive(MarioStatus_Hang)) {
-        position = mActor->_2A0;
+        position = mActor->mCenterPos;
     } else {
         position = mPosition;
     }
-    if (!atCurrentPosition && !mActor->_390) {
+    if (!atCurrentPosition && !mActor->mPressTimer) {
         position += mVelocity;
     }
     f32 height;
-    if (mMovementStates._A) {
+    if (mMovementStates.squat) {
         height = 80.0f;
     } else {
         height = 160.0f;
     }
     bool nearCeiling = false;
-    TVec3f up(-*getGravityVec());
+    Vec3f up(-*getGravityVec());
     f32 distance = 0.0f;
     Triangle ceiling;
     Triangle floor;
-    TVec3f hitPosition;
+    Vec3f hitPosition;
     bool hit = MR::getFirstPolyOnLineToMap(&hitPosition, &ceiling, position - up * 10.0f, up * height);
     if (hit) {
         distance = up.dot(hitPosition - position);
@@ -90,7 +87,7 @@ bool Mario::checkVerticalPress(bool atCurrentPosition) {
         }
     }
     if (hit) {
-        TVec3f origin;
+        Vec3f origin;
         if (nearCeiling) {
             origin = hitPosition;
         } else {
@@ -98,19 +95,19 @@ bool Mario::checkVerticalPress(bool atCurrentPosition) {
         }
         if (MR::getFirstPolyOnLineToMap(&hitPosition, &floor, origin - *ceiling.getNormal(0) * 10.0f, *ceiling.getNormal(0) * height)) {
             if (ceiling.mSensor != floor.mSensor && (MR::isSensorPressObj(ceiling.mSensor) || MR::isSensorPressObj(floor.mSensor))) {
-                if (!atCurrentPosition && !mActor->_390) {
+                if (!atCurrentPosition && !mActor->mPressTimer) {
                     if (!checkVerticalPress(true)) {
                         mVelocity.zero();
                         return false;
                     }
                     return true;
                 }
-                mActor->_3B4 = _368;
+                mActor->mPressAxis = mGroundNorm;
                 return true;
             }
         } else if (!atCurrentPosition && MR::isSensorPressObj(ceiling.mSensor)) {
-            mDrawStates._1E = true;
-            TVec3f displacement;
+            mDrawStates.pressed = true;
+            Vec3f displacement;
             if (distance < 0.0f) {
                 displacement = hitPosition - position;
                 displacement.setLength(height - distance);
@@ -118,17 +115,17 @@ bool Mario::checkVerticalPress(bool atCurrentPosition) {
                 displacement = position - hitPosition;
                 displacement.setLength(150.0f - distance);
             }
-            TVec3f pushDirection;
+            Vec3f pushDirection;
             bool blended = MR::vecBlendSphere(*ceiling.getNormal(0), *floor.getNormal(0), &pushDirection, 0.5f);
-            if (!mActor->_390) {
-                if (mMovementStates._1) {
+            if (!mActor->mPressTimer) {
+                if (mMovementStates.onGround) {
                     if (mGroundPolygon->mSensor == ceiling.mSensor) {
                         if (blended) {
                             push(pushDirection * displacement.length());
                         }
                     } else {
-                        mActor->_F48 = ceiling.mSensor;
-                        mActor->_3B4 = _368;
+                        mActor->mPressCeilingSensor = ceiling.mSensor;
+                        mActor->mPressAxis = mGroundNorm;
                         return true;
                     }
                 } else if (blended) {
@@ -141,29 +138,29 @@ bool Mario::checkVerticalPress(bool atCurrentPosition) {
 }
 
 bool Mario::checkSidePressPre() {
-    if (_5FC) {
+    if (mOnimasuSensor) {
         return false;
     }
-    if (mMovementStates._8 && mMovementStates._19) {
-        if ((_4F4 - _4E8).length() < 100.0f && mFrontWallTriangle->mSensor != mBackWallTriangle->mSensor &&
+    if (mMovementStates.frontWall && mMovementStates.backWall) {
+        if ((mBackWallPos - mFrontWallPos).length() < 100.0f && mFrontWallTriangle->mSensor != mBackWallTriangle->mSensor &&
             (MR::isSensorPressObj(mFrontWallTriangle->mSensor) || MR::isSensorPressObj(mBackWallTriangle->mSensor))) {
             if (isDossun(mFrontWallTriangle) || isDossun(mBackWallTriangle)) {
                 return false;
             }
             if (mFrontWallTriangle->getNormal(0)->dot(*mBackWallTriangle->getNormal(0)) < -0.5f) {
-                mActor->_3B4 = getWallNorm();
+                mActor->mPressAxis = getWallNorm();
                 return true;
             }
         }
-    } else if (isStatusActive(MarioStatus_Hang) && mMovementStates._19 && _8C8->isValid() && _8C8->mSensor != mBackWallTriangle->mSensor &&
-               (MR::isSensorPressObj(_8C8->mSensor) || MR::isSensorPressObj(mBackWallTriangle->mSensor))) {
-        if (isDossun(_8C8) || isDossun(mBackWallTriangle)) {
+    } else if (isStatusActive(MarioStatus_Hang) && mMovementStates.backWall && mRelativePolygon->isValid() && mRelativePolygon->mSensor != mBackWallTriangle->mSensor &&
+               (MR::isSensorPressObj(mRelativePolygon->mSensor) || MR::isSensorPressObj(mBackWallTriangle->mSensor))) {
+        if (isDossun(mRelativePolygon) || isDossun(mBackWallTriangle)) {
             return false;
         }
-        TVec3f horizontal;
-        MR::vecKillElement(mPosition - _4F4, getAirGravityVec(), &horizontal);
+        Vec3f horizontal;
+        MR::vecKillElement(mPosition - mBackWallPos, getAirGravityVec(), &horizontal);
         if (horizontal.length() < 100.0f) {
-            mActor->_3B4 = getWallNorm();
+            mActor->mPressAxis = getWallNorm();
             return true;
         }
     }
@@ -171,15 +168,15 @@ bool Mario::checkSidePressPre() {
 }
 
 bool Mario::checkSidePress() {
-    TVec3f position;
+    Vec3f position;
     if (isStatusActive(MarioStatus_Hang)) {
-        position = mActor->_2A0;
+        position = mActor->mCenterPos;
     } else {
         position = mPosition;
     }
     f32 radius;
     f32 height;
-    if (mMovementStates._A) {
+    if (mMovementStates.squat) {
         radius = 50.0f;
         height = 40.0f;
     } else {
@@ -187,17 +184,17 @@ bool Mario::checkSidePress() {
         height = 70.0f;
     }
     f32 ceilingDistance = calcDistToCeil(false);
-    TVec3f center(position + mHeadVec * height);
+    Vec3f center(position + mHeadVec * height);
     u32 hitCount = Collision::checkStrikeBallToMap(center, radius, nullptr, nullptr);
     if (hitCount < 2) {
         return false;
     }
     for (u32 i = 0; i < hitCount; i++) {
         const HitInfo* first = Collision::getStrikeInfoMap(i);
-        TVec3f firstNormal(*first->mParentTriangle.getNormal(0));
+        Vec3f firstNormal(*first->mParentTriangle.getNormal(0));
         for (u32 j = i + 1; j < hitCount; j++) {
             const HitInfo* second = Collision::getStrikeInfoMap(j);
-            TVec3f secondNormal(*second->mParentTriangle.getNormal(0));
+            Vec3f secondNormal(*second->mParentTriangle.getNormal(0));
             if (firstNormal.dot(secondNormal) >= -0.707f) {
                 continue;
             }
@@ -205,8 +202,8 @@ bool Mario::checkSidePress() {
                 continue;
             }
             f32 separation = (first->mHitPos - second->mHitPos).length();
-            TVec3f firstVelocity;
-            TVec3f secondVelocity;
+            Vec3f firstVelocity;
+            Vec3f secondVelocity;
             MR::calcVelocityMovingPoint(&first->mParentTriangle, first->mHitPos, &firstVelocity);
             MR::calcVelocityMovingPoint(&second->mParentTriangle, second->mHitPos, &secondVelocity);
             if (!MR::isNearZero(firstVelocity) || !MR::isNearZero(secondVelocity)) {
@@ -225,32 +222,32 @@ bool Mario::checkSidePress() {
                 if (first->mParentTriangle.getSensor() != second->mParentTriangle.getSensor() &&
                     (MR::isSensorPressObj(first->mParentTriangle.getSensor()) || MR::isSensorPressObj(second->mParentTriangle.getSensor()))) {
                     if (isStatusActive(MarioStatus_Hang)) {
-                        mMovementStates._1 = false;
+                        mMovementStates.onGround = false;
                         closeStatus(mHang);
                     }
-                    if (!mMovementStates._1 && MR::abs(firstNormal.dot(*getGravityVec())) < 0.707f) {
+                    if (!mMovementStates.onGround && MR::abs(firstNormal.dot(*getGravityVec())) < 0.707f) {
                         if (!first->isCollisionAtFace()) {
-                            TVec3f horizontal;
+                            Vec3f horizontal;
                             f32 vertical = MR::vecKillElement(first->mHitPos - center, *getGravityVec(), &horizontal);
                             if (vertical != 0.0f) {
                                 addVelocity(*getGravityVec() * -vertical);
-                                mDrawStates._1E = true;
+                                mDrawStates.pressed = true;
                                 continue;
                             }
                         }
                         if (!second->isCollisionAtFace()) {
-                            TVec3f horizontal;
+                            Vec3f horizontal;
                             f32 vertical = MR::vecKillElement(second->mHitPos - center, *getGravityVec(), &horizontal);
                             if (vertical != 0.0f) {
                                 addVelocity(*getGravityVec() * -vertical);
-                                mDrawStates._1E = true;
+                                mDrawStates.pressed = true;
                                 continue;
                             }
                         }
                     }
                     if (!isStatusActive(MarioStatus_Bury) && !mSinkTimer && ceilingDistance >= 180.0f) {
-                        TVec3f firstOffset(first->mHitPos - center);
-                        TVec3f secondOffset(center - second->mHitPos);
+                        Vec3f firstOffset(first->mHitPos - center);
+                        Vec3f secondOffset(center - second->mHitPos);
                         if (!MR::isNearZero(MR::diffAngleAbs(firstOffset, secondOffset), 0.017453292f)) {
                             MR::normalizeOrZero(&firstOffset);
                             MR::normalizeOrZero(&secondOffset);
@@ -259,15 +256,15 @@ bool Mario::checkSidePress() {
                             continue;
                         }
                     }
-                    f32 angle = JMAAcosRadian(-firstNormal.dot(secondNormal));
+                    f32 angle = Angle::acosRadian(-firstNormal.dot(secondNormal));
                     if (mActor->selectTiltPress(first->mParentTriangle.getSensor()) || mActor->selectTiltPress(second->mParentTriangle.getSensor())) {
                         angle = 0.0f;
                     }
                     if (!isStatusActive(MarioStatus_Bury) && !mSinkTimer && angle > 0.34906587f) {
-                        f32 distance = (160.0f - ceilingDistance) / JMASinRadian(angle);
+                        f32 distance = (160.0f - ceilingDistance) / Angle::sinRadian(angle);
                         if (!(distance < 0.0f)) {
-                            TVec3f firstHorizontal;
-                            TVec3f secondHorizontal;
+                            Vec3f firstHorizontal;
+                            Vec3f secondHorizontal;
                             MR::vecKillElement(firstNormal, *getGravityVec(), &firstHorizontal);
                             MR::vecKillElement(secondNormal, *getGravityVec(), &secondHorizontal);
                             if (firstHorizontal.length() > secondHorizontal.length()) {
@@ -280,11 +277,11 @@ bool Mario::checkSidePress() {
                         }
                         continue;
                     }
-                    s32 previousFloorCode = _95C->getCode(_45C);
-                    if (previousFloorCode != _95C->getCode(mGroundPolygon) && MR::isSensorPressObj(mGroundPolygon->mSensor) &&
+                    s32 previousFloorCode = mFloorCodeReader->getCode(mShadowPolygon);
+                    if (previousFloorCode != mFloorCodeReader->getCode(mGroundPolygon) && MR::isSensorPressObj(mGroundPolygon->mSensor) &&
                         mVerticalSpeed >= 200.0f) {
-                        mDrawStates._A = true;
-                        TVec3f horizontal;
+                        mDrawStates.atEdge = true;
+                        Vec3f horizontal;
                         MR::vecKillElement(mShadowPos - mGroundPos, getAirGravityVec(), &horizontal);
                         horizontal.setLength(10.0f);
                         addVelocity(horizontal);
@@ -295,24 +292,24 @@ bool Mario::checkSidePress() {
                     } else {
                         mActor->setPress(1, 0);
                     }
-                    mActor->_3B4 = firstNormal;
+                    mActor->mPressAxis = firstNormal;
                     return true;
                 }
             }
             if (getPlayer()->mMovementStates.jumping) {
                 MR::diffAngleAbsHorizontal(firstNormal, secondNormal, getAirGravityVec());
                 f32 normalDot = firstNormal.dot(secondNormal);
-                TVec3f tangent;
+                Vec3f tangent;
                 NebulaVecCrossProduct(&firstNormal, &getAirGravityVec(), &tangent);
                 MR::normalizeOrZero(&tangent);
-                TVec3f firstUp = tangent.cross(firstNormal);
+                Vec3f firstUp = tangent.cross(firstNormal);
                 MR::normalizeOrZero(&firstUp);
                 NebulaVecCrossProduct(&secondNormal, &getAirGravityVec(), &tangent);
                 MR::normalizeOrZero(&tangent);
-                TVec3f secondUp = tangent.cross(secondNormal);
+                Vec3f secondUp = tangent.cross(secondNormal);
                 MR::normalizeOrZero(&secondUp);
-                TVec3f firstPosition;
-                TVec3f secondPosition;
+                Vec3f firstPosition;
+                Vec3f secondPosition;
                 firstPosition = first->mHitPos + firstUp * height;
                 secondPosition = second->mHitPos + secondUp * height;
                 f32 distance = (firstPosition - secondPosition).length();
@@ -322,7 +319,7 @@ bool Mario::checkSidePress() {
                     }
                 } else if (normalDot < -0.707f && separation < 100.0f && distance < 80.0f) {
                     cutGravityElementFromJumpVec(true);
-                    mMovementStates._1 = true;
+                    mMovementStates.onGround = true;
                     stopJump();
                 }
             }

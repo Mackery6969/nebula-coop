@@ -5,22 +5,23 @@
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
 #include "Game/Util/GravityUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/JointUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/RailUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    const f32 sGravityAcc = 0.94f;
-    const f32 sBreatheAccel = 3.0f;
-    const s32 sBreatheFreq = 40;
-    const f32 sStartLaunchRange = 50.0f;
-    const f32 sStartForceFixPos = 0.0f;
-    const f32 sEndForceFixPos = 1.0f;
-    const s32 sDelayStartToCenter = 15;
+    NEBULA_TUNABLE(f32, sGravityAcc, 0.94f);
+    NEBULA_TUNABLE(f32, sBreatheAccel, 3.0f);
+    NEBULA_TUNABLE(s32, sBreatheFreq, 40);
+    NEBULA_TUNABLE(f32, sStartLaunchRange, 50.0f);
+    NEBULA_TUNABLE(f32, sStartForceFixPos, 0.0f);
+    NEBULA_TUNABLE(f32, sEndForceFixPos, 1.0f);
+    NEBULA_TUNABLE(s32, sDelayStartToCenter, 15);
 };  // namespace
 
 namespace NrvDragonHeadFlower {
@@ -38,12 +39,12 @@ DragonHeadFlower::DragonHeadFlower(const char* pName)
 namespace {
     inline void initFlowerSensors(DragonHeadFlower* pActor) {
         pActor->initHitSensor(2);
-        MR::addHitSensor(pActor, "body", ATYPE_JUMP_HOLE, 8, 560.0f, TVec3f(0.0f, 300.0f, 650.0f));
-        MR::addHitSensorMapObj(pActor, "push", 16, 400.0f, TVec3f(0.0f, 350.0f, 0.0f));
+        MR::addHitSensor(pActor, "body", ATYPE_JUMP_HOLE, 8, 560.0f, Vec3f(0.0f, 300.0f, 650.0f));
+        MR::addHitSensorMapObj(pActor, "push", 16, 400.0f, Vec3f(0.0f, 350.0f, 0.0f));
     }
 };  // namespace
 
-void DragonHeadFlower::init(const JMapInfoIter& rIter) {
+void DragonHeadFlower::init(const TableIter& rIter) {
     const char* pModelName = nullptr;
 
     if (!MR::getObjectName(&pModelName, rIter)) {
@@ -59,7 +60,7 @@ void DragonHeadFlower::init(const JMapInfoIter& rIter) {
 
     ::initFlowerSensors(this);
 
-    initEffectKeeper(2, nullptr, false);
+    initEffectKeeper(2, nullptr);
     initSound(4, false);
     initNerve(GET_NERVE(DragonHeadFlower, DragonHeadFlowerNrvWait));
 
@@ -75,7 +76,7 @@ void DragonHeadFlower::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     MR::sendMsgPush(pReceiver, pSender);
 }
 
-bool DragonHeadFlower::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool DragonHeadFlower::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* /*pReceiver*/) {
     if (msg == ACTMES_SPHERE_PLAYER_BINDED) {
         mPlayerSensor = pSender;
         mTargetVelocity = pSender->mHost->mVelocity;
@@ -110,9 +111,9 @@ void DragonHeadFlower::exeSetCenter() {
         return;
     }
 
-    TVec3f targetPos(mPlayerSensor->mPosition);
+    Vec3f targetPos(mPlayerSensor->mPosition);
 
-    TVec3f launchPos;
+    Vec3f launchPos;
     MR::copyJointPos(this, "Point", &launchPos);
 
     targetPos += mTargetVelocity;
@@ -121,10 +122,10 @@ void DragonHeadFlower::exeSetCenter() {
 
     targetPos = targetPos * (1.0f - t) + launchPos.multInLine(t);
 
-    TVec3f offset(mPlayerSensor->mHost->mPosition - mPlayerSensor->mPosition);
+    Vec3f offset(mPlayerSensor->mHost->mPosition - mPlayerSensor->mPosition);
     mPlayerSensor->mHost->mPosition.set(targetPos + offset);
 
-    TVec3f targetDir(launchPos - targetPos);
+    Vec3f targetDir(launchPos - targetPos);
 
     f32 targetVel;
     MR::separateScalarAndDirection(&targetVel, &targetDir, targetDir);
@@ -147,9 +148,9 @@ void DragonHeadFlower::exeLaunchReady() {
         MR::hideModel(mPlayerSensor->mHost);
     }
 
-    TVec3f launchPos;
+    Vec3f launchPos;
     MR::copyJointPos(this, "Point", &launchPos);
-    TVec3f offset(mPlayerSensor->mHost->mPosition - mPlayerSensor->mPosition);
+    Vec3f offset(mPlayerSensor->mHost->mPosition - mPlayerSensor->mPosition);
     mPlayerSensor->mHost->mPosition.set(launchPos + offset);
 
     if (!MR::isBckStopped(this)) {
@@ -177,18 +178,18 @@ void DragonHeadFlower::exeRailMove() {
         MR::showModel(mPlayerSensor->mHost);
     }
 
-    f32 f1 = mParabolaDistance * mParabolaProgress;
-    f32 f2 = mParabolaProgress * (mParabolaVel + mParabolaAccel * mParabolaProgress);
+    f32 along = mParabolaDistance * mParabolaProgress;
+    f32 fall = mParabolaProgress * (mParabolaVel + mParabolaAccel * mParabolaProgress);
 
-    TVec3f targetPos(mParabolaStartPos + mEndGravity * f2 + mParabolaDirection * f1);
-    TVec3f prevPos(mPlayerSensor->mHost->mPosition);
+    Vec3f targetPos(mParabolaStartPos + mEndGravity * fall + mParabolaDirection * along);
+    Vec3f prevPos(mPlayerSensor->mHost->mPosition);
 
     mPlayerSensor->mHost->mPosition.set(targetPos);
 
     mParabolaProgress += 1.0f / mParabolaSteps;
 
     if (mParabolaProgress >= 1.0f) {
-        TVec3f* velocity = &mPlayerSensor->mHost->mVelocity;
+        Vec3f* velocity = &mPlayerSensor->mHost->mVelocity;
         velocity->set(targetPos - prevPos);
         mPlayerSensor->receiveMessage(ACTMES_END_JUMP_HOLE, getSensor("body"));
 
@@ -198,12 +199,12 @@ void DragonHeadFlower::exeRailMove() {
     }
 }
 
-void DragonHeadFlower::initParabola(const TVec3f& rStartPos) {
+void DragonHeadFlower::initParabola(const Vec3f& rStartPos) {
     MR::moveCoordToStartPos(this);
-    TVec3f railStartPos(MR::getRailPos(this));
+    Vec3f railStartPos(MR::getRailPos(this));
 
     MR::moveCoordToEndPos(this);
-    TVec3f railEndPos(MR::getRailPos(this));
+    Vec3f railEndPos(MR::getRailPos(this));
 
     MR::calcGravityVector(this, railEndPos, &mEndGravity, nullptr, 0);
 

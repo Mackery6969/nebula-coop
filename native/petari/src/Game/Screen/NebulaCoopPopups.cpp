@@ -12,10 +12,10 @@
 #include "Game/Util/SoundUtil.hpp"
 #include <cstring>
 #include <nebula_game_api.h>
-#include <nw4r/lyt/layout.h>
-#include <nw4r/lyt/pane.h>
-#include <nw4r/lyt/textBox.h>
-#include <nw4r/lyt/window.h>
+#include <Game/Ui/Layout.hpp>
+#include <Game/Ui/Pane.hpp>
+#include <Game/Ui/TextBox.hpp>
+#include <Game/Ui/Window.hpp>
 
 namespace {
     using namespace NebulaUi;
@@ -129,7 +129,7 @@ struct NebulaCoopPopupsParts {
 NebulaCoopPopups::NebulaCoopPopups() : LayoutActor("NebulaCoopPopups", true), mParts(nullptr) {
 }
 
-void NebulaCoopPopups::init(const JMapInfoIter& rIter) {
+void NebulaCoopPopups::init(const TableIter& rIter) {
     initLayoutManager("InformationWindow", 0);
     LayoutManager* pManager = getLayoutManager();
     static const char cLayoutName[] = "NebulaCoopPopups";
@@ -139,15 +139,15 @@ void NebulaCoopPopups::init(const JMapInfoIter& rIter) {
 
     NebulaCoopPopupsParts* p = new NebulaCoopPopupsParts();
     Pane* pLayoutRoot = pManager->mLayout->mpRootPane;
-    if (pLayoutRoot == nullptr || !p->mText.init(pManager->mLayoutHolder)) {
+    if (pLayoutRoot == nullptr || !p->mText.init(pManager->mLayoutHolder, "InformationWindow", pManager->mLayout)) {
         nebula_log("NebulaCoopPopups: no InformationWindow layout\n");
         delete p;
         return;
     }
     // Without the ringed window, the information window's stands in (makeWindow).
-    p->mWindow.init(MR::createAndAddLayoutHolder("SysInfoWindowMini.arc"));
+    p->mWindow.init("SysInfoWindowMini", pManager->mLayout);
     // The information window's own panes stay hidden; the pop-ups are built beside them.
-    for (nw4r::lyt::PaneList::Iterator it = pLayoutRoot->GetChildList().GetBeginIter(); it != pLayoutRoot->GetChildList().GetEndIter(); ++it) {
+    for (Ui::Pane* it : pLayoutRoot->GetChildList()) {
         it->SetVisible(false);
     }
     const Kits kits = {&p->mText, &p->mWindow, nullptr};
@@ -191,8 +191,6 @@ void NebulaCoopPopups::init(const JMapInfoIter& rIter) {
     p->mSlide = 0.0f;
 
     mParts = p;
-    // The layout's pane list, counted when it was built, again for the added panes.
-    pManager->rebuildPaneInfo();
     LayoutActor::appear();
 }
 
@@ -331,7 +329,7 @@ void NebulaCoopPopups::control() {
     }
 
     // The boxes from the top right down, the newest first, sliding to their places.
-    p->mRoot->mScale = nw4r::math::VEC2(scaleX, 1.0f);
+    p->mRoot->mScale = Vec2f(scaleX, 1.0f);
     const f32 right = width * 0.5f - cMargin;
     f32 top = height * 0.5f - cMargin + p->mSlide;
     p->mSlide *= cSlideKeep;
@@ -349,7 +347,7 @@ void NebulaCoopPopups::control() {
             if (rBox.mLineHeights[line] <= 0.0f) {
                 continue;
             }
-            rBox.mLines[line]->mTranslate = nw4r::math::VEC3(left + cPadX, y, 0.0f);
+            rBox.mLines[line]->mTranslate = Vec3f(left + cPadX, y, 0.0f);
             y -= rBox.mLineHeights[line] + cLineGap;
         }
         // The last second fades, slowly at first (sm64coopdx's squared fade).

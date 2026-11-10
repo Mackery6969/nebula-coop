@@ -1,24 +1,27 @@
 #pragma once
 
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
 class PlayerInput;
 
 class InputStick {
 public:
+    // mHold, mTrigger and mRelease bits.
+    enum Direction {
+        Direction_Up = 0x1,
+        Direction_Down = 0x2,
+        Direction_Right = 0x4,
+        Direction_Left = 0x8,
+    };
+
     InputStick(const PlayerInput*);
 
     void update();
-    bool isChanged() const;
 
     const PlayerInput* mPad;
-    TVec2f mStick;
+    Vec2f mStick;
     f32 mSpeed;
     u32 mHold;
     u32 mTrigger;
     u32 mRelease;
-    bool mIsTriggerUp;
-    bool mIsTriggerDown;
-    bool mIsHoldUp;
-    bool mIsHoldDown;
 };

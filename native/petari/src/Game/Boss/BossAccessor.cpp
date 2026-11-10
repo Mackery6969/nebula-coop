@@ -8,13 +8,13 @@ namespace {
     }
 };  // namespace
 
-BossAccessor::BossAccessor() : NameObj("\203\173\203\130\202\326\202\314\203\101\203\116\203\132\203\130" /* ボスへのアクセス */), mBoss() {
+BossAccessor::BossAccessor() : NameObj("ボスへのアクセス"), mBoss() {
 }
 
 namespace BossAccess {
     void setBossAccessorKoopa(Koopa* pKoopa) {
         MR::createSceneObj(SceneObj_BossAccessor);
-        MR::getSceneObj< BossAccessor >(SceneObj_BossAccessor)->setBoss(pKoopa);
+        ::getBossAccessor()->setBoss(pKoopa);
     }
 
     Koopa* getBossAccessorKoopa() {

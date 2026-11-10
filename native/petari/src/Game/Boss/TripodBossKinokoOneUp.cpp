@@ -1,7 +1,7 @@
 #include "Game/Boss/TripodBossKinokoOneUp.hpp"
 #include "Game/Boss/TripodBossAccesser.hpp"
 #include "Game/MapObj/BenefitItemOneUp.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 
@@ -11,19 +11,19 @@ namespace NrvTripodBossKinokoOneUp {
 };  // namespace NrvTripodBossKinokoOneUp
 
 TripodBossKinokoOneUp::TripodBossKinokoOneUp(const char* pName) : LiveActor(pName), mOneUp(), mJointID(-1) {
-    _8C.identity();
-    _BC.identity();
+    mLocalMtx.identity();
+    mMtx.identity();
 }
 
-void TripodBossKinokoOneUp::init(const JMapInfoIter& rIter) {
-    MR::getJMapInfoMatrixFromRT(rIter, &_8C);
+void TripodBossKinokoOneUp::init(const TableIter& rIter) {
+    MR::getPlacementMatrixFromRT(rIter, &mLocalMtx);
     MR::connectToSceneMapObjDecorationMovement(this);
     MR::invalidateClipping(this);
-    MR::getJMapInfoArg0NoInit(rIter, &mJointID);
+    MR::getPlacementArg0NoInit(rIter, &mJointID);
     initNerve(GET_NERVE(TripodBossKinokoOneUp, TripodBossKinokoOneUpNrvActive));
 
-    mOneUp = new BenefitItemOneUp("1UP\203\114\203\155\203\122" /* 1UPキノコ */);
-    mOneUp->setFollowMtx(_BC);
+    mOneUp = new BenefitItemOneUp("1UPキノコ");
+    mOneUp->setFollowMtx(mMtx);
     mOneUp->initWithoutIter();
     MR::invalidateClipping(mOneUp);
 
@@ -35,9 +35,9 @@ void TripodBossKinokoOneUp::control() {
 }
 
 void TripodBossKinokoOneUp::exeActive() {
-    _BC.set(_8C);
-    MR::concatTripodBossAttachJointMatrix(&_BC, mJointID);
-    _BC.getTrans(mPosition);
+    mMtx.set(mLocalMtx);
+    MR::concatTripodBossAttachJointMatrix(&mMtx, mJointID);
+    mMtx.getTrans(mPosition);
 
     if (MR::isFirstStep(this)) {
         mOneUp->makeActorAppeared();

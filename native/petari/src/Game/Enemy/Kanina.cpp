@@ -1,10 +1,18 @@
 #include "Game/Enemy/Kanina.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/AnimationRandomPlayer.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
+#include "Game/MapObj/BenefitItemOneUp.hpp"
 #include "Game/Util.hpp"
 #include "Game/Util/JointRumbler.hpp"
 #include "Game/System/NebulaInput.hpp"
+#include "Game/Util/Tunable.hpp"
+
+// The numbers this file's functions give the game's motion and animation calls, as tunables: "<file>.<function>.<call>.<k>".
+NEBULA_TUNABLE_NAMED(f32, cNum_tryHitWall_reboundVelocityFromCollision_1, "tryHitWall.reboundVelocityFromCollision.1", 1.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_tryHitWall_reboundVelocityFromCollision_2, "tryHitWall.reboundVelocityFromCollision.2", 0.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_tryHitWall_reboundVelocityFromCollision_3, "tryHitWall.reboundVelocityFromCollision.3", 1.0f);
 
 namespace NrvKanina {
     NEW_NERVE(HostTypeAppear, Kanina, Appear);
@@ -33,65 +41,63 @@ namespace NrvKanina {
 };  // namespace NrvKanina
 
 namespace {
-    static const f32 sSensorRadius = 100.0f;
-    static const f32 sBinderRadius = 100.0f;
-    static const f32 sBinderOffsetY = 100.0f;
-    static const f32 sShadowRadius = 80.0f;
-    static const f32 sTerritoryRadius = 2000.0f;
-    static const s32 sStarPieceNum = 3;
-    static const s32 sCoinNum = 1;
-    static const f32 sPoseLerpRate = 0.3f;
-    static const s32 sAnimIntervalBlink = 120;
-    static const f32 sSensorRadiusAttack = 80.0f;
-    static const f32 sWalkSpeed = 3.0f;
-    static const s32 sWalkTime = 180;
-    static const s32 sWaitTime = 120;
-    static const s32 sPunchDamageTime = 15;
-    static const f32 sPunchDamageVelocity = 25.0f;
-    static const f32 sPunchUpperVec = 25.0f;
-    static const f32 sGravityAccel = 1.5f;
-    static const s32 sStopSceneTimePunchBackword = 8;
-    static const s32 sWaitUnderGroundTime = 120.0f;
-    static const f32 sKeepUnderGroundDistance = 500.0f;
-    static const f32 sSearchRadius = 1000.0f;
-    static const f32 sWalkSpeedRunAway = 13.0f;
-    static const f32 sAnimRateRunAway = 1.0f;
-    static const f32 sSafetyDistance = 800.0f;
-    static const s32 sRunAwayRunningTime1 = 15;
-    static const s32 sRunAwayRunningTime2 = 30;
-    static const s32 sRunAwayRunningTime3 = 60;
-    static const s32 sRunAwayRunningTime4 = 75;
-    static const s32 sRunAwayIntervalTime1 = 10;
-    static const s32 sRunAwayIntervalTime2 = 30;
-    static const s32 sRunAwayIntervalTime3 = 60;
-    static const s32 sRunAwayIntervalTime4 = 75;
-    static const f32 sRunAwayDirectionAngle = 60.0f;
-    static const f32 sRunAwayFaceAngle = 15.0f;
-    static const s32 sHitWallTime = 10;
-    static const f32 sWallHitReboundAcc = 6.0f;
-    static const f32 sWallHitReboundAccY = 20.0f;
-    static const f32 sGravityAccelHitWall = 2.2f;
-    static const s32 sGuardTime = 90;
-    static const f32 sPunchAccel = 30.0f;
-    static const f32 sGuardFrec = 0.88f;
-    static const f32 sBackwardAngle = 30.0f;
-    static const f32 sTurnSpeed = 1.7f;
-    static const s32 sTurnEndTime = 30;
-    static const f32 sBackwardAngleTurn = 120.0f;
-    static const s32 sHipDropDownTime = 70;
-    static const f32 sKinokoOneUpShootSpeed = 15.0f;
-    static const f32 sWalkSpeedRunAwayRed = 7.0f;
-    static const f32 sRunAwayDirectionAngleRed = 30.0f;
-    static const f32 sRunAwayFaceAngleRed = 45.0f;
-    static const s32 sWalkCount = 3;
-    static const f32 sUpVecBlendRate = 0.05f;
-    static const f32 sFrontVecBlendRate = 0.5f;
-    static const f32 sGroundFrec = 0.93f;
-    static const f32 sAirFrec = 0.99f;
-    static const f32 sPushAccel = 1.5f;
-    // static const f32 sHitHorizontalPower;
-    // static const f32 sHitVerticalPower;
-    static const f32 sDownGravityAccel = 1.0f;
+    NEBULA_TUNABLE(f32, sSensorRadius, 100.0f);
+    NEBULA_TUNABLE(f32, sBinderRadius, 100.0f);
+    NEBULA_TUNABLE(f32, sBinderOffsetY, 100.0f);
+    NEBULA_TUNABLE(f32, sShadowRadius, 80.0f);
+    NEBULA_TUNABLE(f32, sTerritoryRadius, 2000.0f);
+    NEBULA_TUNABLE(s32, sStarPieceNum, 3);
+    NEBULA_TUNABLE(s32, sCoinNum, 1);
+    NEBULA_TUNABLE(f32, sPoseLerpRate, 0.3f);
+    static const s32 sAnimIntervalBlink = NebulaFrameClock::stepsOfSeconds(2);
+    NEBULA_TUNABLE(f32, sSensorRadiusAttack, 80.0f);
+    NEBULA_TUNABLE(f32, sWalkSpeed, 3.0f);
+    static const s32 sWalkTime = NebulaFrameClock::stepsOfSeconds(3);
+    static const s32 sWaitTime = NebulaFrameClock::stepsOfSeconds(2);
+    NEBULA_TUNABLE(s32, sPunchDamageTime, 15);
+    NEBULA_TUNABLE(f32, sPunchDamageVelocity, 25.0f);
+    NEBULA_TUNABLE(f32, sPunchUpperVec, 25.0f);
+    NEBULA_TUNABLE(f32, sGravityAccel, 1.5f);
+    NEBULA_TUNABLE(s32, sStopSceneTimePunchBackword, 8);
+    NEBULA_TUNABLE(s32, sWaitUnderGroundTime, 120.0f);
+    NEBULA_TUNABLE(f32, sKeepUnderGroundDistance, 500.0f);
+    NEBULA_TUNABLE(f32, sSearchRadius, 1000.0f);
+    NEBULA_TUNABLE(f32, sWalkSpeedRunAway, 13.0f);
+    NEBULA_TUNABLE(f32, sAnimRateRunAway, 1.0f);
+    NEBULA_TUNABLE(f32, sSafetyDistance, 800.0f);
+    NEBULA_TUNABLE(s32, sRunAwayRunningTime1, 15);
+    static const s32 sRunAwayRunningTime2 = NebulaFrameClock::stepsOfMilliseconds(500);
+    static const s32 sRunAwayRunningTime3 = NebulaFrameClock::stepsOfSeconds(1);
+    NEBULA_TUNABLE(s32, sRunAwayRunningTime4, 75);
+    NEBULA_TUNABLE(s32, sRunAwayIntervalTime1, 10);
+    static const s32 sRunAwayIntervalTime2 = NebulaFrameClock::stepsOfMilliseconds(500);
+    static const s32 sRunAwayIntervalTime3 = NebulaFrameClock::stepsOfSeconds(1);
+    NEBULA_TUNABLE(s32, sRunAwayIntervalTime4, 75);
+    NEBULA_TUNABLE(f32, sRunAwayDirectionAngle, 60.0f);
+    NEBULA_TUNABLE(f32, sRunAwayFaceAngle, 15.0f);
+    NEBULA_TUNABLE(s32, sHitWallTime, 10);
+    NEBULA_TUNABLE(f32, sWallHitReboundAcc, 6.0f);
+    NEBULA_TUNABLE(f32, sWallHitReboundAccY, 20.0f);
+    NEBULA_TUNABLE(f32, sGravityAccelHitWall, 2.2f);
+    static const s32 sGuardTime = NebulaFrameClock::stepsOfMilliseconds(1500);
+    NEBULA_TUNABLE(f32, sPunchAccel, 30.0f);
+    NEBULA_TUNABLE(f32, sGuardFrec, 0.88f);
+    NEBULA_TUNABLE(f32, sBackwardAngle, 30.0f);
+    NEBULA_TUNABLE(f32, sTurnSpeed, 1.7f);
+    static const s32 sTurnEndTime = NebulaFrameClock::stepsOfMilliseconds(500);
+    NEBULA_TUNABLE(f32, sBackwardAngleTurn, 120.0f);
+    NEBULA_TUNABLE(s32, sHipDropDownTime, 70);
+    NEBULA_TUNABLE(f32, sKinokoOneUpShootSpeed, 15.0f);
+    NEBULA_TUNABLE(f32, sWalkSpeedRunAwayRed, 7.0f);
+    NEBULA_TUNABLE(f32, sRunAwayDirectionAngleRed, 30.0f);
+    NEBULA_TUNABLE(f32, sRunAwayFaceAngleRed, 45.0f);
+    NEBULA_TUNABLE(s32, sWalkCount, 3);
+    NEBULA_TUNABLE(f32, sUpVecBlendRate, 0.05f);
+    NEBULA_TUNABLE(f32, sFrontVecBlendRate, 0.5f);
+    NEBULA_TUNABLE(f32, sGroundFrec, 0.93f);
+    NEBULA_TUNABLE(f32, sAirFrec, 0.99f);
+    NEBULA_TUNABLE(f32, sPushAccel, 1.5f);
+    NEBULA_TUNABLE(f32, sDownGravityAccel, 1.0f);
 };  // namespace
 
 namespace {
@@ -131,15 +137,15 @@ namespace {
 };  // namespace
 
 Kanina::Kanina(const char* pName)
-    : LiveActor(pName), mJointRumbler(), mKinokoOneUp(), mAnimationRandomPlayer(), _98(gZeroVec), _B4(15), _B8(10), _BC(1.0f), _C0(0.0f, 0.0f, 1.0f),
-      mType(KaninaType_Blue), _D0(0.0f, 0.0f, 1.0f), _DC() {
-    _A4.set(0.0f, 0.0f, 0.0f, 1.0f);
+    : LiveActor(pName), mJointRumbler(), mKinokoOneUp(), mAnimationRandomPlayer(), mInitPos(gZeroVec), mRunAwayStep(15), mRunAwayBreakStep(10), mRunAwaySide(1.0f), mHitWallDir(0.0f, 0.0f, 1.0f),
+      mType(KaninaType_Blue), mFront(0.0f, 0.0f, 1.0f), mWalkCount() {
+    mPoseQuat.set(0.0f, 0.0f, 0.0f, 1.0f);
 }
 
-void Kanina::init(const JMapInfoIter& rIter) {
+void Kanina::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
-    MR::makeQuatAndFrontFromRotate(&_A4, &_D0, this);
-    _98.set(mPosition);
+    MR::makeQuatAndFrontFromRotate(&mPoseQuat, &mFront, this);
+    mInitPos.set(mPosition);
 
     const char* objectName = nullptr;
 
@@ -150,10 +156,10 @@ void Kanina::init(const JMapInfoIter& rIter) {
     MR::initLightCtrl(this);
     initSound(4, false);
     initHitSensor(2);
-    MR::addHitSensorMtxEnemy(this, "body", 8, ::sSensorRadius, MR::getJointMtx(this, "Body"), TVec3f(0.0f, 0.0f, 0.0f));
-    MR::addHitSensorMtxEnemyAttack(this, "attack", 8, ::sSensorRadiusAttack, MR::getJointMtx(this, "Body"), TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorMtxEnemy(this, "body", 8, ::sSensorRadius, MR::getJointMtx(this, "Body"), Vec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorMtxEnemyAttack(this, "attack", 8, ::sSensorRadiusAttack, MR::getJointMtx(this, "Body"), Vec3f(0.0f, 0.0f, 0.0f));
     initBinder(::sBinderRadius, ::sBinderOffsetY, 8);
-    initEffectKeeper(1, "Kanina", false);
+    initEffectKeeper(1, "Kanina");
     MR::addEffectHitNormal(this, nullptr);
     MR::onCalcGravity(this);
     MR::initShadowVolumeSphere(this, ::sShadowRadius);
@@ -194,7 +200,7 @@ void Kanina::appearItemPunch() {
 
 void Kanina::appearItemTrample() {
     if (mType == KaninaType_Red) {
-        // most likely a copy-paste error from appearItemPunch
+        // As many coins as a punch gives star pieces.
         MR::appearCoinPop(this, mPosition, ::sStarPieceNum);
     } else if (mType == KaninaType_Blue) {
         MR::appearKinokoOneUpPop(mKinokoOneUp, getBaseMtx(), ::sKinokoOneUpShootSpeed);
@@ -263,9 +269,9 @@ bool Kanina::tryPushEach(HitSensor* pSender, HitSensor* pReceiver) {
         return false;
     }
 
-    TVec3f diff(pSender->mPosition - pReceiver->mPosition);
+    Vec3f diff(pSender->mPosition - pReceiver->mPosition);
     MR::normalizeOrZero(&diff);
-    TVec3f upVec;
+    Vec3f upVec;
     MR::calcUpVec(&upVec, this);
     MR::vecKillElement(diff, upVec, &diff);
 
@@ -283,7 +289,7 @@ bool Kanina::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pRec
         }
 
         if (receiveTrample(pSender, pReceiver)) {
-            MR::tryRumblePad(this, "\222\206" /* 中 */, PLAYER_1);
+            MR::tryRumblePad(this, "中", PLAYER_1);
             return true;
         }
     }
@@ -330,7 +336,7 @@ bool Kanina::receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) {
     return true;
 }
 
-bool Kanina::receiveTrample(HitSensor* pSender, HitSensor* pReceiver) {
+bool Kanina::receiveTrample(HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (!isNerve(GET_NERVE(Kanina, HostTypeAttack))) {
         setNerve(GET_NERVE(Kanina, HostTypeGuard));
         return true;
@@ -352,7 +358,7 @@ bool Kanina::receivePunch(HitSensor* pSender, HitSensor* pReceiver) {
 
     if (!isNerve(GET_NERVE(Kanina, HostTypeAttack))) {
         if (!isStateDamageNoFireBall()) {
-            TVec3f vec;
+            Vec3f vec;
             MR::calcVecFromTargetPosH(&vec, this, pSender->mPosition, nullptr);
             mVelocity.add(vec * ::sPunchAccel);
             setNerve(GET_NERVE(Kanina, HostTypeGuard));
@@ -374,11 +380,10 @@ bool Kanina::receiveFireBall(HitSensor* pSender, HitSensor* pReceiver) {
 
 void Kanina::doDamageFireBall(HitSensor* pSender, HitSensor* pReceiver) {
     MR::setVelocityBlowAttack(this, pSender, pReceiver, ::sPunchDamageVelocity, ::sPunchUpperVec, 4);
-    MR::isNearZero(mVelocity);
-    TVec3f vec;
+    Vec3f vec;
     MR::vecKillElement(mVelocity, -mGravity, &vec);
     MR::normalizeOrZero(&vec);
-    _D0.set(-vec);
+    mFront.set(-vec);
     setNerve(GET_NERVE(Kanina, HostTypeDamageFireBall));
 }
 
@@ -392,20 +397,20 @@ void Kanina::startRun() {
 
     MR::setBckRate(this, ::sAnimRateRunAway);
 
-    TVec3f upVec;
+    Vec3f upVec;
     MR::calcUpVec(&upVec, this);
 
-    TVec3f vecFromPlayerH;
+    Vec3f vecFromPlayerH;
     MR::calcVecFromPlayerH(&vecFromPlayerH, this);
 
-    f32 BC = _BC;
+    f32 BC = mRunAwaySide;
     f32 angle = -1.0f * BC * getFloatDependentType(::sRunAwayDirectionAngleRed, ::sRunAwayDirectionAngle);
 
-    TPos3f rotate;
+    Pos3f rotate;
     rotate.identity();
     rotate.makeRotate(upVec, MR::toRadian(angle));
 
-    TVec3f multVec(vecFromPlayerH);
+    Vec3f multVec(vecFromPlayerH);
     rotate.mult(multVec, multVec);
 
     if (mType == KaninaType_Red) {
@@ -419,18 +424,18 @@ void Kanina::startRun() {
     f32 faceAngle = -1.0f * BC *
                     (getFloatDependentType(::sRunAwayDirectionAngleRed, ::sRunAwayDirectionAngle) +
                      getFloatDependentType(::sRunAwayFaceAngleRed, ::sRunAwayFaceAngle));
-    TPos3f rotate2;
+    Pos3f rotate2;
     rotate2.identity();
     rotate2.makeRotate(upVec, MR::toRadian(faceAngle));
-    TVec3f multVec2(vecFromPlayerH);
+    Vec3f multVec2(vecFromPlayerH);
     rotate2.mult(multVec2, multVec2);
 
-    TQuat4f quat;
+    Quat4f quat;
     MR::makeQuatSideUp(&quat, multVec2 * BC, upVec);
-    quat.getZDir(_D0);
+    quat.getZDir(mFront);
 
-    _B4 = ::getRunAwayTimeRandom();
-    _BC *= -1.0f;
+    mRunAwayStep = ::getRunAwayTimeRandom();
+    mRunAwaySide *= -1.0f;
 }
 
 void Kanina::startRunAwayLevelSound() {
@@ -443,7 +448,7 @@ void Kanina::startRunAwayLevelSound() {
 
 bool Kanina::receiveHipDrop(HitSensor* pSender, HitSensor* pReceiver) {
     if (receiveTrample(pSender, pReceiver)) {
-        MR::tryRumblePad(this, "\222\206" /* 中 */, PLAYER_1);
+        MR::tryRumblePad(this, "中", PLAYER_1);
         MR::sendMsgAwayJump(pSender, pReceiver);
         return true;
     }
@@ -461,14 +466,14 @@ bool Kanina::receiveInvincibleAttack(HitSensor* pSender, HitSensor* pReceiver) {
 }
 
 void Kanina::calcAndSetBaseMtx() {
-    TPos3f baseMtx(getBaseMtx());
-    TQuat4f quat;
+    Pos3f baseMtx(getBaseMtx());
+    Quat4f quat;
     baseMtx.getQuat(quat);
 
     if (isNerve(GET_NERVE(Kanina, HostTypeDamageFireBall))) {
-        quat.set(_A4);
+        quat.set(mPoseQuat);
     } else {
-        quat.slerp(_A4, ::sPoseLerpRate);
+        quat.slerp(mPoseQuat, ::sPoseLerpRate);
     }
 
     MR::setBaseTRMtx(this, quat);
@@ -476,10 +481,10 @@ void Kanina::calcAndSetBaseMtx() {
 
 void Kanina::control() {
     mJointRumbler->update();
-    MR::blendQuatFromGroundAndFront(&_A4, this, _D0, ::sUpVecBlendRate, ::sFrontVecBlendRate);
+    MR::blendQuatFromGroundAndFront(&mPoseQuat, this, mFront, ::sUpVecBlendRate, ::sFrontVecBlendRate);
     updateMovement();
 
-    if (MR::isInWater(this, TVec3f(0.0f, 0.0f, 0.0f))) {
+    if (MR::isInWater(this, Vec3f(0.0f, 0.0f, 0.0f))) {
         MR::setSeVersion(this, SeVersion_WATER);
     } else {
         MR::setSeVersion(this, SeVersion_NORMAL);
@@ -510,7 +515,7 @@ bool Kanina::isStateStayOnGround() const {
     return true;
 }
 
-void Kanina::initForType(const JMapInfoIter& rIter, KaninaType type) {
+void Kanina::initForType(const TableIter& /*rIter*/, KaninaType type) {
     mType = type;
     if (mType == KaninaType_Red) {
         MR::declareStarPiece(this, ::sStarPieceNum);
@@ -518,12 +523,12 @@ void Kanina::initForType(const JMapInfoIter& rIter, KaninaType type) {
     }
 
     if (mType == KaninaType_Blue) {
-        mKinokoOneUp = reinterpret_cast< BenefitItemObj* >(MR::createKinokoOneUp());
+        mKinokoOneUp = MR::createKinokoOneUp();
     }
 }
 
 bool Kanina::isPlayerBackward(f32 angle) const {
-    TVec3f frontVec;
+    Vec3f frontVec;
     MR::calcFrontVec(&frontVec, this);
     angle = angle * 2.0f;
     return MR::isInSightFanPlayer(this, -frontVec, ::sSafetyDistance, angle, 30.0f);
@@ -601,7 +606,7 @@ bool Kanina::tryFindPlayer() {
         return false;
     }
 
-    TVec3f front;
+    Vec3f front;
     MR::calcFrontVec(&front, this);
     if (!MR::isInSightFanPlayer(this, front, ::sSearchRadius, 180.0f, 30.0f)) {
         return false;
@@ -620,12 +625,12 @@ bool Kanina::tryHitWall() {
         return false;
     }
 
-    if (!MR::reboundVelocityFromCollision(this, 1.0f, 0.0f, 1.0f)) {
+    if (!MR::reboundVelocityFromCollision(this, cNum_tryHitWall_reboundVelocityFromCollision_1, cNum_tryHitWall_reboundVelocityFromCollision_2, cNum_tryHitWall_reboundVelocityFromCollision_3)) {
         return false;
     }
 
-    _C0.set(mVelocity);
-    MR::normalizeOrZero(&_C0);
+    mHitWallDir.set(mVelocity);
+    MR::normalizeOrZero(&mHitWallDir);
     setNerve(GET_NERVE(Kanina, HostTypeHitWall));
     return true;
 }
@@ -644,7 +649,7 @@ bool Kanina::tryTurn() {
 }
 
 bool Kanina::tryPointing() {
-    if (MR::isStarPointerPointing2POnPressButton(this, "\216\343" /* 弱 */, true, false)) {
+    if (MR::isStarPointerPointing2POnPressButton(this, "弱", true, false)) {
         setNerve(GET_NERVE(Kanina, HostTypePointing));
         return true;
     }
@@ -678,7 +683,7 @@ void Kanina::exeWait() {
             return;
         }
 
-        if (mType == KaninaType_Blue && _DC >= ::sWalkCount) {
+        if (mType == KaninaType_Blue && mWalkCount >= ::sWalkCount) {
             setNerve(GET_NERVE(Kanina, HostTypeDig));
             return;
         }
@@ -688,15 +693,15 @@ void Kanina::exeWait() {
 }
 
 namespace {
-    inline void calcWalkDirection(TVec3f* pDirection, const LiveActor* pActor) {
-        TVec3f front;
-        TVec3f up;
+    inline void calcWalkDirection(Vec3f* pDirection, const LiveActor* pActor) {
+        Vec3f front;
+        Vec3f up;
         MR::calcFrontVec(&front, pActor);
         MR::calcUpVec(&up, pActor);
 
         f32 angle = MR::getRandom(-HALF_PI, HALF_PI);
 
-        TPos3f rotate;
+        Pos3f rotate;
         rotate.identity();
         rotate.makeRotate(up, angle);
         rotate.mult(front, front);
@@ -708,17 +713,17 @@ namespace {
 
 void Kanina::exeWalk() {
     if (MR::isFirstStep(this)) {
-        _DC++;
+        mWalkCount++;
         MR::startBck(this, "Walk");
 
-        TVec3f temp;
-        ::calcWalkDirection(&temp, this);
-        _D0.set(temp);
+        Vec3f walkDir;
+        ::calcWalkDirection(&walkDir, this);
+        mFront.set(walkDir);
 
-        MR::blendQuatFromGroundAndFront(&_A4, this, _D0, ::sUpVecBlendRate, ::sFrontVecBlendRate);
+        MR::blendQuatFromGroundAndFront(&mPoseQuat, this, mFront, ::sUpVecBlendRate, ::sFrontVecBlendRate);
 
-        TVec3f quatX;
-        _A4.getXDir(quatX);
+        Vec3f quatX;
+        mPoseQuat.getXDir(quatX);
         mVelocity.set(quatX * (::sWalkSpeed * MR::getSignHalfProbability()));
     }
 
@@ -743,7 +748,7 @@ void Kanina::exeRunAway() {
             } else {
                 setNerve(GET_NERVE(Kanina, HostTypeWait));
             }
-        } else if (MR::isStep(this, _B4)) {
+        } else if (MR::isStep(this, mRunAwayStep)) {
             MR::zeroVelocity(this);
             setNerve(GET_NERVE(Kanina, HostTypeRunAwayBreak));
         }
@@ -754,14 +759,14 @@ void Kanina::exeRunAwayReboundDirection() {
     if (MR::isFirstStep(this)) {
         MR::startBck(this, "Run");
         MR::setBckRate(this, ::sAnimRateRunAway);
-        TVec3f up;
+        Vec3f up;
         MR::calcUpVec(&up, this);
-        TVec3f vec(_C0);
+        Vec3f vec(mHitWallDir);
         MR::vecKillElement(vec, up, &vec);
         MR::normalizeOrZero(&vec);
         mVelocity.set(vec * getFloatDependentType(::sWalkSpeedRunAwayRed, ::sWalkSpeedRunAway));
-        _B4 = ::getRunAwayBreakTimeRandom();
-        _BC *= -1.0f;
+        mRunAwayStep = ::getRunAwayBreakTimeRandom();
+        mRunAwaySide *= -1.0f;
     }
 
     startRunAwayLevelSound();
@@ -772,7 +777,7 @@ void Kanina::exeRunAwayReboundDirection() {
             return;
         }
 
-        if (MR::isStep(this, _B4)) {
+        if (MR::isStep(this, mRunAwayStep)) {
             setNerve(GET_NERVE(Kanina, HostTypeRunAwayBreak));
         }
     }
@@ -781,10 +786,10 @@ void Kanina::exeRunAwayReboundDirection() {
 void Kanina::exeRunAwayBreak() {
     if (MR::isFirstStep(this)) {
         MR::startBck(this, "Wait");
-        _B8 = ::getRunAwayBreakTimeRandom();
+        mRunAwayBreakStep = ::getRunAwayBreakTimeRandom();
     }
 
-    if (!tryTurn() && !tryPointing() && MR::isStep(this, _B8)) {
+    if (!tryTurn() && !tryPointing() && MR::isStep(this, mRunAwayBreakStep)) {
         if (isBindedGroundWaterBottom()) {
             setNerve(GET_NERVE(Kanina, HostTypeDig));
             return;
@@ -796,7 +801,7 @@ void Kanina::exeRunAwayBreak() {
 
 void Kanina::exeAttack() {
     if (MR::isFirstStep(this)) {
-        MR::calcVecToPlayerH(&_D0, this, nullptr);
+        MR::calcVecToPlayerH(&mFront, this, nullptr);
         MR::startBck(this, "Attack");
         MR::startSound(this, "SE_EM_KANINA_ATTACK_FRONT");
     }
@@ -820,13 +825,13 @@ void Kanina::exeVauntAttackSuccess() {
 void Kanina::exeHitWall() {
     if (MR::isFirstStep(this)) {
         mJointRumbler->start();
-        TVec3f up;
+        Vec3f up;
         MR::calcUpVec(&up, this);
-        mVelocity.set(_C0 * ::sWallHitReboundAcc + up * ::sWallHitReboundAccY);
-        TVec3f vec(_C0);
+        mVelocity.set(mHitWallDir * ::sWallHitReboundAcc + up * ::sWallHitReboundAccY);
+        Vec3f vec(mHitWallDir);
         MR::vecKillElement(vec, up, &vec);
         MR::normalizeOrZero(&vec);
-        MR::makeQuatSideUp(&_A4, vec, up);
+        MR::makeQuatSideUp(&mPoseQuat, vec, up);
     }
 
     startRunAwayLevelSound();
@@ -852,7 +857,7 @@ void Kanina::exeGuard() {
         MR::startBck(this, "Guard");
         MR::startSound(this, "SE_EM_KANINA_GUARD");
         MR::tryRumbleDefaultHit(this, 0);
-        MR::calcVecToPlayerH(&_D0, this, nullptr);
+        MR::calcVecToPlayerH(&mFront, this, nullptr);
     }
 
     if (MR::isStep(this, ::sGuardTime)) {
@@ -878,7 +883,7 @@ void Kanina::exeDamageHipDrop() {
 
         MR::startBtp(this, "Swoon");
         MR::startSound(this, "SE_EM_STOMPED_S");
-        MR::tryRumblePad(this, "\213\255" /* 強 */, PLAYER_1);
+        MR::tryRumblePad(this, "強", PLAYER_1);
         MR::invalidateHitSensors(this);
     }
 
@@ -907,7 +912,7 @@ void Kanina::exeDamageFireBall() {
 
 void Kanina::exeDig() {
     if (MR::isFirstStep(this)) {
-        _DC = 0;
+        mWalkCount = 0;
         MR::startBck(this, "Dig");
     }
 
@@ -922,7 +927,7 @@ void Kanina::exeWaitUnderGround() {
     if (MR::isFirstStep(this)) {
         MR::zeroVelocity(this);
         MR::invalidateShadow(this, nullptr);
-        mPosition.set(_98);
+        mPosition.set(mInitPos);
     }
 
     if (MR::isGreaterStep(this, ::sWaitUnderGroundTime) && ::sKeepUnderGroundDistance < MR::calcDistanceToPlayer(this)) {
@@ -935,7 +940,7 @@ void Kanina::exeFindPlayer() {
     if (MR::isFirstStep(this)) {
         MR::startBck(this, "Search");
         MR::startSound(this, "SE_EV_KANINA_FIND");
-        MR::calcVecToPlayerH(&_D0, this, nullptr);
+        MR::calcVecToPlayerH(&mFront, this, nullptr);
     }
 
     if (MR::isBckStopped(this)) {
@@ -948,7 +953,7 @@ void Kanina::exeTurn() {
         MR::startBck(this, "Turn");
     }
 
-    if (MR::turnDirectionToTargetUseGroundNormalDegree(this, &_D0, *MR::getPlayerPos(), ::sTurnSpeed)) {
+    if (MR::turnDirectionToTargetUseGroundNormalDegree(this, &mFront, *MR::getPlayerPos(), ::sTurnSpeed)) {
         setNerve(GET_NERVE(Kanina, HostTypeTurnEnd));
     }
 }
@@ -966,22 +971,19 @@ void Kanina::exeTurnEnd() {
 void Kanina::exePointing() {
     if (MR::isFirstStep(this)) {
         MR::startBck(this, "Guard");
-        MR::startDPDHitSound();
+        MR::startPointerHitSound();
     }
 
-    if (MR::isStarPointerPointing2POnPressButton(this, "\216\343" /* 弱 */, true, false)) {
-        MR::startDPDFreezeLevelSound(this);
+    if (MR::isStarPointerPointing2POnPressButton(this, "弱", true, false)) {
+        MR::startPointerFreezeLevelSound(this);
         MR::tryEmitEffect(this, "Touch");
     }
 
-    if (!MR::isStarPointerPointing2POnPressButton(this, "\216\343" /* 弱 */, true, false)) {
+    if (!MR::isStarPointerPointing2POnPressButton(this, "弱", true, false)) {
         setNerve(GET_NERVE(Kanina, HostTypePointingEnd));
     }
 }
 
 void Kanina::endPointing() {
     MR::tryDeleteEffect(this, "Touch");
-}
-
-Kanina::~Kanina() {
 }

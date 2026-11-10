@@ -5,7 +5,7 @@
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Util/Functor.hpp"
 #include "Game/Util/ObjUtil.hpp"
-#include <JSystem/JParticle/JPAEmitterManager.hpp>
+#include "Game/Particle/EmitterManager.hpp"
 
 namespace {
     void connectToSceneCalcAnimAdaptor(NameObjAdaptor* pAdaptor, const MR::FunctorBase& rFunctor, int calcAnimType) {
@@ -30,15 +30,9 @@ ParticleCalcExecutor::ParticleCalcExecutor(const EffectSystem* pEffectSystem, bo
 void ParticleCalcExecutor::movementNormal() {
     if (mMovementEnabled && mUpdateRequested) {
         mEffectSystem->mEmitterHolder->update(false);
-        mEffectSystem->mEmitterManager->calc(0);
-        mEffectSystem->mEmitterManager->calc(1);
-        mEffectSystem->mEmitterManager->calc(2);
-        mEffectSystem->mEmitterManager->calc(3);
-        mEffectSystem->mEmitterManager->calc(4);
-        mEffectSystem->mEmitterManager->calc(5);
-        mEffectSystem->mEmitterManager->calc(6);
-        mEffectSystem->mEmitterManager->calc(7);
-        mEffectSystem->mEmitterManager->calc(8);
+        for (u8 group = 0; group <= 8; group++) {
+            mEffectSystem->mEmitterManager->calc(group);
+        }
     }
 
     mUpdateRequested = false;
@@ -69,17 +63,17 @@ void ParticleCalcExecutor::requestMovementOnPauseIgnore() {
 }
 
 void ParticleCalcExecutor::initMovementAdaptor() {
-    mNormalAdaptor = new NameObjAdaptor("\203\160\201\133\203\145\203\102\203\116\203\213" /* パーティクル */);
+    mNormalAdaptor = new NameObjAdaptor("パーティクル");
     ::connectToSceneCalcAnimAdaptor(mNormalAdaptor, MR::Functor(this, &ParticleCalcExecutor::movementNormal), MR::CalcAnimType_AnimParticle);
 
-    mIgnorePause3DAdaptor = new NameObjAdaptor("\203\174\201\133\203\131\226\263\214\3703D\203\160\201\133\203\145\203\102\203\116\203\213" /* ポーズ無効3Dパーティクル */);
+    mIgnorePause3DAdaptor = new NameObjAdaptor("ポーズ無効3Dパーティクル");
     ::connectToSceneCalcAnimAdaptor(mIgnorePause3DAdaptor, MR::Functor(this, &ParticleCalcExecutor::movementIgnorePause3D),
                                   MR::CalcAnimType_AnimParticleIgnorePause);
 
-    mIgnorePause2DAdaptor = new NameObjAdaptor("\203\174\201\133\203\131\226\263\214\3702D\203\160\201\133\203\145\203\102\203\116\203\213" /* ポーズ無効2Dパーティクル */);
+    mIgnorePause2DAdaptor = new NameObjAdaptor("ポーズ無効2Dパーティクル");
     ::connectToSceneCalcAnimAdaptor(mIgnorePause2DAdaptor, MR::Functor(this, &ParticleCalcExecutor::movementIgnorePause2D),
                                   MR::CalcAnimType_AnimParticleIgnorePause);
 
-    mCheckUpdateAdaptor = new NameObjAdaptor("\215\130\220\126\203\140\203\106\203\142\203\116" /* 更新チェック */);
-    ::connectToSceneMovementAdaptor(mCheckUpdateAdaptor, MR::Functor(this, &ParticleCalcExecutor::movementCheckUpdate), MR::MovementType_UNK_0x14);
+    mCheckUpdateAdaptor = new NameObjAdaptor("更新チェック");
+    ::connectToSceneMovementAdaptor(mCheckUpdateAdaptor, MR::Functor(this, &ParticleCalcExecutor::movementCheckUpdate), MR::MovementType_EffectUpdateCheck);
 }

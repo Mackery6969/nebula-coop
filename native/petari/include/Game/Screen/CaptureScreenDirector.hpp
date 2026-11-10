@@ -2,14 +2,13 @@
 
 #include "Game/NameObj/NameObj.hpp"
 
-class JUTTexture;
+class GameTexture;
 struct ResTIMG;
 
 struct TimingInfo {
     const char* mName;
     s32 mTiming;
-    bool _8;
-    u32 _C;
+    u32 mRequestOnly;
 };
 
 class CaptureScreenDirector : public NameObj {
@@ -27,21 +26,24 @@ public:
     const TimingInfo* findFromName(const char* pName) const;
 
 private:
-    const char* _C;
+    const char* mRequestedTiming;
     const char* mTimingType;
-    JUTTexture* mTexture;
-    bool _18;
+    GameTexture* mTexture;
+    bool mIsCaptureRequested;
+    // The entries mRequestedTiming and mTimingType name, found when those are set.
+    const TimingInfo* mRequestedInfo;
+    const TimingInfo* mTimingInfo;
 };
 
 class CaptureScreenActor : public NameObj {
 public:
     /// @brief Creates a new `CaptureScreenActor`.
-    /// @param drawType TODO.
-    /// @param pCameraName TODO.
+    /// @param drawType The draw order slot the capture is made in.
+    /// @param pCameraName The camera whose picture is captured.
     CaptureScreenActor(u32 drawType, const char* pCameraName);
 
     /// @brief Draws the `CaptureScreenActor` to the screen.
-    virtual void draw() const;
+    virtual void draw() const override;
 
 private:
     const char* mCameraName;

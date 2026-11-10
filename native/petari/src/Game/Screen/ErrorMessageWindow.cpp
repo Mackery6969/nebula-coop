@@ -1,4 +1,5 @@
 #include "Game/Screen/ErrorMessageWindow.hpp"
+#include "Game/Screen/NebulaUi.hpp"
 #include "Game/System/NebulaText.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util/LayoutUtil.hpp"
@@ -13,10 +14,10 @@ namespace {
     NEW_NERVE(ErrorMessageWindowDisappearBeforeAppear, ErrorMessageWindow, DisappearBeforeAppear);
 };  // namespace
 
-ErrorMessageWindow::ErrorMessageWindow() : LayoutActor("\203\107\203\211\201\133\203\201\203\142\203\132\201\133\203\127\225\134\216\246" /* エラーメッセージ表示 */, false), mMessageId(nullptr), mTexture(nullptr) {
+ErrorMessageWindow::ErrorMessageWindow() : LayoutActor("エラーメッセージ表示", false), mMessageId(nullptr), mTexture(nullptr) {
 }
 
-void ErrorMessageWindow::init(const JMapInfoIter& rIter) {
+void ErrorMessageWindow::init(const TableIter& /*rIter*/) {
     initLayoutManagerNoConvertFilename("ErrorMessageWindow", 1);
     initNerve(GET_NERVE_ANON(ErrorMessageWindowHide));
     kill();
@@ -31,7 +32,7 @@ bool ErrorMessageWindow::isAnimEnd() const {
     return isNerve(GET_NERVE_ANON(ErrorMessageWindowDisplay)) || isNerve(GET_NERVE_ANON(ErrorMessageWindowHide));
 }
 
-void ErrorMessageWindow::appearWithMessage(const char* pMessageId, MessageType messageType, const nw4r::lyt::TexMap* pTexture) {
+void ErrorMessageWindow::appearWithMessage(const char* pMessageId, MessageType messageType, const Ui::TexMap* pTexture) {
     mMessageType = messageType;
     mMessageId = pMessageId;
     mTexture = pTexture;
@@ -69,9 +70,9 @@ void ErrorMessageWindow::exeAppear() {
             pMessage = MR::getGameMessageDirect(mMessageId);
             break;
         case MessageType_Nebula: {
-            static char16_t sText[256];
-            NebulaText::get(sText, 256, mMessageId);
-            pMessage = sText;
+            static MR::GrowBuffer< char16_t > sText;
+            NebulaUi::getText(sText, mMessageId);
+            pMessage = sText.mItems;
             break;
         }
         }

@@ -1,10 +1,10 @@
 #pragma once
 
 #include "Game/Util/Array.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include "Game/Util/NameIndex.hpp"
+#include <nebula_geometry.hpp>
 
 class Binder;
-class HashSortTable;
 class LiveActor;
 class MultiEmitter;
 class ResourceHolder;
@@ -20,17 +20,21 @@ public:
     void initAfterPlacementForAttributeEffect(MtxPtr);
     void setBinder(const Binder*);
     void addEffect(const char*, LiveActor*);
-    void registerEffect(const char*, const TVec3f*, const TVec3f*, const TVec3f*, const char*);
-    void registerEffect(const char*, MtxPtr, const char*, const char*);
-    void registerEffect(const char*, MtxPtr, const TVec3f*, const char*, const char*);
-    void registerEffectWithoutSRT(const char*, const char*);
-    void registerSyncBckEffect(XanimePlayer*, const char*, const char*, s32, f32, f32, bool);
+    // pUniqueName: the name the keeper finds the effect by; null: pName.
+    void registerEffect(const char* pName, const Vec3f* pTranslation, const Vec3f* pRotation, const Vec3f* pScale, const char* pUniqueName);
+    void registerEffect(const char* pName, MtxPtr pMtx, const char* pUniqueName);
+    void registerEffect(const char* pName, MtxPtr pMtx, const Vec3f* pScale, const char* pUniqueName);
+    void registerEffectWithoutSRT(const char* pName, const char* pUniqueName);
+    void registerSyncBckEffect(XanimePlayer*, const char*, const char*, s32, f32, f32);
     MultiEmitter* createEmitter(const char*);
     void deleteEmitter(const char*);
     void forceDeleteEmitter(const char*);
     void deleteEmitterAll();
     void forceDeleteEmitterAll();
     MultiEmitter* getEmitter(const char*) const;
+    // The emitter of that name, or, when the keeper has none (a mod's class made like a game class, its model lacking
+    // an effect the class's code names), the keeper's emitter with no particles: what the code does with it shows nothing.
+    MultiEmitter* getEmitterOrNone(const char*) const;
     MultiEmitter* getEmitter(s32) const;
     void changeEffectName(const char*, const char*);
     void update();
@@ -43,8 +47,6 @@ public:
     void changeBck();
     void onDraw();
     void offDraw();
-    void enableSort();
-    void finalizeSort();
     bool isRegisteredEmitter(const char*) const;
     void checkExistenceAttributeEffect();
     void registMultiEmitter(MultiEmitter*, const char*, const char*);
@@ -52,15 +54,19 @@ public:
     void updateFloorCode(const Triangle*);
     bool isTypeAttributeEffect(const char*) const;
 
-    const char* _0;
-    ResourceHolder* _4;  // mResourceHolder
-    const char* _8;      // mResourceName
-    MR::Vector< MR::AssignableArray< MultiEmitter* > > _C;
-    HashSortTable* _18;
-    u32 _1C;
-    SyncBckEffectChecker* _20;
+    const char* mName;
+    ResourceHolder* mResourceHolder;
+    const char* mResourceName;
+    MR::Vector< MR::AssignableArray< MultiEmitter* > > mEmitters;
+    // An emitter's name (its unique name, else its effect name) to its index in mEmitters. The names are held by pointer:
+    // resource, table and literal strings, which outlive the keeper.
+    MR::NameIndex mNames;
+    SyncBckEffectChecker* mSyncBckChecker;
     const Binder* mBinder;
-    s32 _28;
-    s32 _2C;
-    bool _30;
+    s32 mFloorCode;        // of the ground below, for the effects that change with it
+    s32 mEffectFloorCode;  // the code the running forever effects were made for
+    s32 mFloorCodeSteps;   // the steps in a row mFloorCode has differed from it
+    bool mHasAttributeEffect;
+    // getEmitterOrNone's emitter with no particles, made in the keeper's arena when first wanted.
+    mutable MultiEmitter* mNoEffect;
 };

@@ -9,13 +9,13 @@ class Balloonfish : public LiveActor {
 public:
     Balloonfish(const char*);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void appear();
-    virtual void kill();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter& rIter) override;
+    virtual void appear() override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
 
     void exeWait();
     void exeDash();
@@ -26,6 +26,6 @@ public:
     AnimScaleController* mAnimScaleController;
     const Nerve* mNerveBeforeBind;
     s32 mNotBoundStep;
-    TQuat4f mQuat;
+    Quat4f mQuat;
     f32 mRotateAngle;
 };

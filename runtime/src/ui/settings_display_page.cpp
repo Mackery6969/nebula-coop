@@ -13,7 +13,7 @@ std::vector<SettingsRow> display_page(const RenderConfig& render, const DisplayP
     char text[96]{};
     const DisplayPageState state = host.query(render);
     rows.push_back({"SCREEN", {}, nullptr, {}, true});
-    {
+    if (!state.fullscreen_only) {
         std::string value = "PRIMARY";
         if (state.current_monitor && *state.current_monitor < state.monitors.size()) {
             const std::size_t index = *state.current_monitor;
@@ -38,7 +38,7 @@ std::vector<SettingsRow> display_page(const RenderConfig& render, const DisplayP
         }
         rows.push_back(std::move(row));
     }
-    {
+    if (!state.fullscreen_only) {
         static constexpr const char* kModes[] = {"WINDOWED", "BORDERLESS FULLSCREEN"};
         rows.push_back({"DISPLAY MODE", kModes[std::min(render.display_mode, kDisplayBorderless)],
                         [&host](RenderConfig& draft, int delta) {
@@ -47,7 +47,7 @@ std::vector<SettingsRow> display_page(const RenderConfig& render, const DisplayP
                         },
                         "BORDERLESS FILLS THE SCREEN AND SWITCHES INSTANTLY"});
     }
-    {
+    if (!state.fullscreen_only) {
         const auto [w, h] = state.output_size;
         std::snprintf(text, sizeof(text), "%uX%u", w, h);
         SettingsRow row{"RESOLUTION", text, nullptr, "BORDERLESS USES THE DESKTOP RESOLUTION"};
@@ -74,8 +74,13 @@ std::vector<SettingsRow> display_page(const RenderConfig& render, const DisplayP
     }
     {
         const unsigned hz = state.frame_rates.refresh_hz;
-        std::snprintf(text, sizeof(text), "%u HZ", hz != 0u ? hz : 60u);
-        rows.push_back({"REFRESH RATE", text, nullptr, "SET IN THE WINDOWS DISPLAY SETTINGS"});
+        // A rate the system did not report is said so, not guessed.
+        if (hz != 0u) {
+            std::snprintf(text, sizeof(text), "%u HZ", hz);
+        } else {
+            std::snprintf(text, sizeof(text), "UNKNOWN");
+        }
+        rows.push_back({"REFRESH RATE", text, nullptr, state.fullscreen_only ? "FOLLOWS THE PHONE DISPLAY" : "SET IN THE SYSTEM DISPLAY SETTINGS"});
     }
     {
         static constexpr const char* kAspects[] = {"AUTO", "4:3", "3:2", "16:10", "16:9", "21:9", "32:9"};
@@ -93,9 +98,28 @@ std::vector<SettingsRow> display_page(const RenderConfig& render, const DisplayP
                         normalize_interpolation(draft, host.query(draft).frame_rates);
                     },
                     "WAITS FOR THE DISPLAY: NO TEARING, A LITTLE MORE LATENCY"});
+    // Only while the display reports HDR mode: the picture is sent as HDR10, white at the paper white, highlights up to the
+    // display's peak.
+    if (state.hdr_offered) {
+        rows.push_back({"HDR", render.hdr ? "ON" : "OFF",
+                        [](RenderConfig& draft, int) { draft.hdr = !draft.hdr; },
+                        render.hdr && !state.hdr_active ? "WAITING: FRAME GENERATION KEEPS THE PICTURE SDR"
+                                                        : "WIDE BRIGHTNESS RANGE ON AN HDR DISPLAY"});
+        if (render.hdr) {
+            std::snprintf(text, sizeof(text), "%u NITS", std::clamp(render.paper_white, 80u, 500u));
+            rows.push_back({"PAPER WHITE", text,
+                            [](RenderConfig& draft, int delta) {
+                                draft.paper_white = static_cast<unsigned>(std::clamp(static_cast<int>(draft.paper_white) + delta * 10, 80, 500));
+                            },
+                            "BRIGHTNESS OF THE PICTURE'S WHITE. RAISE IT IN A BRIGHT ROOM"});
+        }
+    }
     rows.push_back({"INTERFACE", {}, nullptr, {}, true});
-    rows.push_back({"HUD RESOLUTION", render.hud_output_resolution ? "DISPLAY" : "INTERNAL",
-                    [&host](RenderConfig& draft, int) { draft.hud_output_resolution = !draft.hud_output_resolution; },
+    // An exact internal resolution and a temporal upscaler always draw the HUD at the display's.
+    const bool fixed = render_internal_height(render) != 0u || state.temporal_upscaling;
+    rows.push_back({"HUD RESOLUTION", (render.hud_output_resolution || fixed) ? "DISPLAY" : "INTERNAL",
+                    fixed ? std::function<void(RenderConfig&, int)>{}
+                          : std::function<void(RenderConfig&, int)>{[](RenderConfig& draft, int) { draft.hud_output_resolution = !draft.hud_output_resolution; }},
                     "DISPLAY DRAWS MENUS AND TEXT SHARP AT THE SCREEN RESOLUTION"});
     return rows;
 }

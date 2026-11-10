@@ -5,6 +5,7 @@
 // loop, and the input it gathers (touch controls, the finger on the picture, keys, gamepads) for the virtual Wii
 // Remote (native_game_host_sdl.cpp).
 
+#include "galaxy/controller_roster.h"
 #include "galaxy/input_bindings.h"
 
 #include <array>
@@ -22,15 +23,15 @@ void pump_events(int timeout_ms) noexcept;
 // The app is out of sight (Android: the activity stopped); the host stops the game's clocks meanwhile.
 [[nodiscard]] bool in_background() noexcept;
 
-// The display's vsync as the game's retrace clock (Android: Choreographer's vsync times, display_clock.cpp): sleeps
-// until the vsync one retrace period after `last_ns` (CLOCK_MONOTONIC nanoseconds; updated) on the grid the latest
+// The display's vsync as the game's frame clock (Android: Choreographer's vsync times, display_clock.cpp): sleeps
+// until the vsync one frame period after `last_ns` (CLOCK_MONOTONIC nanoseconds; updated) on the grid the latest
 // vsync times predict, so every frame stays on screen for the same number of vsyncs. False, at once, when there are
 // no recent vsyncs (out of sight, not yet shown), the display's rate does not divide the period, or the platform has
-// no display clock: the host's own clock runs the retrace then.
-bool wait_display_retrace(std::int64_t period_ns, std::int64_t& last_ns) noexcept;
-// The retrace grid (CLOCK_MONOTONIC nanoseconds): the latest retrace, the retrace period, the display's vsync
-// interval and now; false while the retrace follows the host's clock.
-[[nodiscard]] bool display_grid(std::int64_t& retrace_ns, std::int64_t& period_ns, std::int64_t& vsync_ns,
+// no display clock: the host's own clock times the frame then.
+bool wait_display_frame(std::int64_t period_ns, std::int64_t& last_ns) noexcept;
+// The frame grid (CLOCK_MONOTONIC nanoseconds): the latest frame slot, the frame period, the display's vsync
+// interval and now; false while frames follow the host's clock.
+[[nodiscard]] bool display_grid(std::int64_t& slot_ns, std::int64_t& period_ns, std::int64_t& vsync_ns,
                                 std::int64_t& now_ns) noexcept;
 // The latest vsync and the interval between vsyncs (the stated period when known; CLOCK_MONOTONIC nanoseconds);
 // false while not known.
@@ -59,11 +60,17 @@ enum TouchButton : std::uint32_t {
     kTouchRight = 1u << 13,
 };
 
-inline constexpr std::size_t kMaxPads = 4;
+// The pads the host keeps state for: the controllers the other hosts' sources can report at once (galaxy::input::kMaxControllers).
+inline constexpr std::size_t kMaxPads = galaxy::input::kMaxControllers;
 
 // One coherent copy of everything the input poll reads.
 // A pad's sensors and touch surface.
 struct PadMotion {
+    // What the pad has, as the settings show it: motion sensors (SDL's, or the controller's own through Android) and a
+    // touch surface.
+    bool has_gyro = false;
+    bool has_accel = false;
+    bool has_touch = false;
     bool imu_live = false;
     bool touch_live = false;
     bool gravity_valid = false;
@@ -95,6 +102,8 @@ struct InputState {
     std::uint64_t finger_land_ms = 0;
     float finger_land_x = 0.0f;
     float finger_land_y = 0.0f;
+    // Since it came down, the finger has gone past the system's touch slop (a still fingertip's tremor stays inside).
+    bool finger_moved = false;
     int window_width = 0;
     int window_height = 0;
     bool window_focused = true;
@@ -103,6 +112,8 @@ struct InputState {
     // Gamepads, in the unified layout (input_bindings.h).
     std::array<galaxy::input::PadSample, kMaxPads> pads{};
     std::array<std::uint32_t, kMaxPads> pad_ids{};
+    // Each pad's button icon model: the DualShock 3's and the GameCube pad's own buttons, else the family's.
+    std::array<galaxy::input::ButtonIconModel, kMaxPads> pad_icons{};
     // Each pad's motion and touch surface since the game last took them (take_pad_motion).
     std::array<PadMotion, kMaxPads> motion{};
     // The device's own sensors (a phone), when it has them.
@@ -116,6 +127,8 @@ struct InputState {
 void set_menu_context(bool menu) noexcept;
 // The game shows its title: a tap anywhere starts it.
 void set_title_screen(bool title) noexcept;
+// Nebula's menu is open: a finger is its mouse (native_game_input), so a swipe is no wheel.
+void set_direct_touch(bool direct) noexcept;
 // Rumble on the gamepad with this SDL id (0: none) at `strength` (0..1). Any thread: SDL's thread applies it.
 void rumble(std::uint32_t pad_id, float strength) noexcept;
 

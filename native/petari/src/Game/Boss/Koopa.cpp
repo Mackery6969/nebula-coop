@@ -31,10 +31,6 @@ void Koopa::calcAndSetBaseMtx() {
     mJointCtrl->setCallBackFunction();
 }
 
-void Koopa::updateHitSensor(HitSensor* pSensor) {
-    mSensorCtrl->update(pSensor);
-}
-
 void Koopa::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     mSequencer->attackSensor(pSender, pReceiver);
 }
@@ -51,10 +47,7 @@ bool Koopa::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
     return mSequencer->receiveOtherMsg(msg, pSender, pReceiver);
 }
 
-Koopa::~Koopa() {
-}
-
-void Koopa::init(const JMapInfoIter& rIter) {
+void Koopa::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("Koopa", nullptr, false);
 
@@ -69,14 +62,14 @@ void Koopa::init(const JMapInfoIter& rIter) {
     mSensorCtrl->initSensor();
 
     initBinder(200.0f, 200.0f, 0);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initSound(16, false);
 
     mJointCtrl = new ActorJointCtrl(this);
     KoopaFunction::endFaceCtrlDirect(this);
 
     MR::initShadowFromCSV(this, "Shadow");
-    MR::invalidateShadowGroup(this, "\203\146\203\202\227\160" /* デモ用 */);
+    MR::invalidateShadowGroup(this, "デモ用");
 
     MR::onCalcGravity(this);
 
@@ -103,19 +96,4 @@ void Koopa::init(const JMapInfoIter& rIter) {
         makeActorAppeared();
         MR::hideModel(this);
     }
-}
-
-void KoopaSequencer::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
-}
-
-bool KoopaSequencer::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
-    return false;
-}
-
-bool KoopaSequencer::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
-    return false;
-}
-
-bool KoopaSequencer::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
-    return false;
 }

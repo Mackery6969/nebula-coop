@@ -21,7 +21,7 @@ namespace {
 };  // namespace
 
 WaterAreaHolder::WaterAreaHolder()
-    : NameObj("\220\205\203\107\203\212\203\101\225\333\216\235" /* 水エリア保持 */), mNumOceanBowls(0), mOceanBowls(), mNumOceanRings(0), mOceanRings(), mNumOceanSpheres(0),
+    : NameObj("水エリア保持"), mNumOceanBowls(0), mOceanBowls(), mNumOceanRings(0), mOceanRings(), mNumOceanSpheres(0),
       mOceanSpheres(), mNumWhirlPools(0), mWhirlPools(), mNumWhirlPoolAccelerators(0), mWhirlPoolAccelerators(),
       mCamInWater(false), mCameraFilter(nullptr), mUseBloom(false) {
     mWaterInfo.clear();
@@ -73,7 +73,7 @@ void WaterAreaHolder::movement() {
             }
             mCamInWater = true;
         }
-        MR::getWaterAreaInfo(&mWaterInfo, MR::getCamPos(), TVec3f(0.0f, -1.0f, 0.0f), false);
+        MR::getWaterAreaInfo(&mWaterInfo, MR::getCamPos(), Vec3f(0.0f, -1.0f, 0.0f), false);
     } else {
         if (mCamInWater) {
             if (mUseBloom) {
@@ -113,35 +113,32 @@ void WaterAreaFunction::createWaterAreaHolder() {
     MR::createSceneObj(SceneObj_WaterAreaHolder);
 }
 
-bool WaterAreaFunction::tryInOceanArea(const TVec3f& rPos, WaterInfo* pWaterInfo) {
+bool WaterAreaFunction::tryInOceanArea(const Vec3f& rPos, WaterInfo* pWaterInfo) {
     if (!MR::isExistSceneObj(SceneObj_WaterAreaHolder)) {
         return false;
     }
 
-    OceanBowl* bowl;
-    OceanRing* ring;
-    OceanSphere* sphere;
-
-    for (s32 idx = 0; idx < ::getWaterAreaHolder()->mNumOceanBowls; idx++) {
-        bowl = ::getWaterAreaHolder()->mOceanBowls[idx];
-        if (bowl->isInWater(rPos)) {
-            pWaterInfo->mOceanBowl = bowl;
+    WaterAreaHolder* const pHolder = ::getWaterAreaHolder();
+    for (s32 idx = 0; idx < pHolder->mNumOceanBowls; idx++) {
+        OceanBowl* const pBowl = pHolder->mOceanBowls[idx];
+        if (pBowl->isInWater(rPos)) {
+            pWaterInfo->mOceanBowl = pBowl;
             return true;
         }
     }
 
-    for (s32 idx = 0; idx < ::getWaterAreaHolder()->mNumOceanRings; idx++) {
-        ring = ::getWaterAreaHolder()->mOceanRings[idx];
-        if (ring->isInWater(rPos)) {
-            pWaterInfo->mOceanRing = ring;
+    for (s32 idx = 0; idx < pHolder->mNumOceanRings; idx++) {
+        OceanRing* const pRing = pHolder->mOceanRings[idx];
+        if (pRing->isInWater(rPos)) {
+            pWaterInfo->mOceanRing = pRing;
             return true;
         }
     }
 
-    for (s32 idx = 0; idx < ::getWaterAreaHolder()->mNumOceanSpheres; idx++) {
-        sphere = ::getWaterAreaHolder()->mOceanSpheres[idx];
-        if (sphere->isInWater(rPos)) {
-            pWaterInfo->mOceanSphere = sphere;
+    for (s32 idx = 0; idx < pHolder->mNumOceanSpheres; idx++) {
+        OceanSphere* const pSphere = pHolder->mOceanSpheres[idx];
+        if (pSphere->isInWater(rPos)) {
+            pWaterInfo->mOceanSphere = pSphere;
             return true;
         }
     }
@@ -149,13 +146,14 @@ bool WaterAreaFunction::tryInOceanArea(const TVec3f& rPos, WaterInfo* pWaterInfo
     return false;
 }
 
-bool WaterAreaFunction::tryInWhirlPoolAccelerator(const TVec3f& rPos, TVec3f* pVel) {
+bool WaterAreaFunction::tryInWhirlPoolAccelerator(const Vec3f& rPos, Vec3f* pVel) {
     if (!MR::isExistSceneObj(SceneObj_WaterAreaHolder)) {
         return false;
     }
 
-    for (s32 idx = 0; idx < ::getWaterAreaHolder()->mNumWhirlPoolAccelerators; idx++) {
-        if (::getWaterAreaHolder()->mWhirlPoolAccelerators[idx]->calcInfo(rPos, pVel)) {
+    WaterAreaHolder* const pHolder = ::getWaterAreaHolder();
+    for (s32 idx = 0; idx < pHolder->mNumWhirlPoolAccelerators; idx++) {
+        if (pHolder->mWhirlPoolAccelerators[idx]->calcInfo(rPos, pVel)) {
             return true;
         }
     }
@@ -164,13 +162,7 @@ bool WaterAreaFunction::tryInWhirlPoolAccelerator(const TVec3f& rPos, TVec3f* pV
 }
 
 bool WaterAreaFunction::isCameraInWaterForCameraUtil() {
-    if (MR::isExistSceneObj(SceneObj_WaterAreaHolder)) {
-        if (::getWaterAreaHolder()->mCamInWater) {
-            return true;
-        }
-    }
-
-    return false;
+    return MR::isExistSceneObj(SceneObj_WaterAreaHolder) && ::getWaterAreaHolder()->mCamInWater;
 }
 
 f32 WaterAreaFunction::getCameraWaterDepth() {
@@ -191,7 +183,8 @@ WaterInfo* WaterAreaFunction::getCameraWaterInfo() {
 
 void WaterAreaFunction::pauseOffWaterArea() {
     if (MR::isExistSceneObj(SceneObj_WaterAreaHolder)) {
-        MR::requestMovementOn(::getWaterAreaHolder());
-        MR::requestMovementOn(::getWaterAreaHolder()->mCameraFilter);
+        WaterAreaHolder* const pHolder = ::getWaterAreaHolder();
+        MR::requestMovementOn(pHolder);
+        MR::requestMovementOn(pHolder->mCameraFilter);
     }
 }

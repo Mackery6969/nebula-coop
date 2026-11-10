@@ -1,22 +1,25 @@
 #include "Game/NameObj/NameObj.hpp"
+#include "Game/NameObj/NameObjHolder.hpp"
 #include "Game/NameObj/NameObjRegister.hpp"
 #include "Game/Scene/SceneNameObjMovementController.hpp"
 #include "Game/Util/SingletonHolder.hpp"
-#include "Game/System/NebulaHost.hpp"
 
-#define FLAG_MOVEMENT_OFF 1u
-#define FLAG_SUSPEND 2u
-#define FLAG_RESUME 4u
-
-NameObj::NameObj(const char* pName) : mName(pName), mFlag(), mExecutorIdx(-1) {
+NameObj::NameObj(const char* pName) : mName(pName), mMovementFlag(), mExecutorIdx(-1) {
     mMotionEpoch = 0;
+    mDrawSlot = 0;
+    mListPlace[0] = -1;
+    mListPlace[1] = -1;
+    mListPlace[2] = -1;
+    mDrawBufferPlace = -1;
+    mNameHolder = nullptr;
+    mHolderPlace = -1;
     SingletonHolder< NameObjRegister >::get()->add(this);
 }
 
 NameObj::~NameObj() {
 }
 
-void NameObj::init(const JMapInfoIter& rIter) {
+void NameObj::init(const TableIter& /*rIter*/) {
 }
 
 void NameObj::initAfterPlacement() {
@@ -35,46 +38,44 @@ void NameObj::calcViewAndEntry() {
 }
 
 void NameObj::initWithoutIter() {
-    init(JMapInfoIter());
+    init(TableIter());
 }
 
 void NameObj::setName(const char* pName) {
+    const char* pOld = mName;
     mName = pName;
+    if (mNameHolder != nullptr) {
+        mNameHolder->renamed(this, pOld);
+    }
 }
 
 void NameObj::executeMovement() {
-    if ((mFlag & FLAG_MOVEMENT_OFF) == FLAG_MOVEMENT_OFF) {
+    if ((mMovementFlag & MovementFlag_Off) != 0) {
         return;
     }
 
     movement();
 }
 
+// The later request wins.
 void NameObj::requestSuspend() {
-    if ((getFlag() & FLAG_RESUME) == FLAG_RESUME) {
-        mFlag &= ~FLAG_RESUME;
-    }
-
-    mFlag |= FLAG_SUSPEND;
+    mMovementFlag &= ~MovementFlag_ResumeRequest;
+    mMovementFlag |= MovementFlag_SuspendRequest;
 }
 
 void NameObj::requestResume() {
-    if ((getFlag() & FLAG_SUSPEND) == FLAG_SUSPEND) {
-        mFlag &= ~FLAG_SUSPEND;
-    }
-
-    mFlag |= FLAG_RESUME;
+    mMovementFlag &= ~MovementFlag_SuspendRequest;
+    mMovementFlag |= MovementFlag_ResumeRequest;
 }
 
 void NameObj::syncWithFlags() {
-    if ((getFlag() & FLAG_SUSPEND) == FLAG_SUSPEND) {
-        mFlag &= ~FLAG_SUSPEND;
-        mFlag |= FLAG_MOVEMENT_OFF;
+    if ((mMovementFlag & MovementFlag_SuspendRequest) != 0) {
+        mMovementFlag &= ~MovementFlag_SuspendRequest;
+        mMovementFlag |= MovementFlag_Off;
     }
 
-    if ((getFlag() & FLAG_RESUME) == FLAG_RESUME) {
-        mFlag &= ~FLAG_RESUME;
-        mFlag &= ~FLAG_MOVEMENT_OFF;
+    if ((mMovementFlag & MovementFlag_ResumeRequest) != 0) {
+        mMovementFlag &= ~(MovementFlag_ResumeRequest | MovementFlag_Off);
     }
 }
 

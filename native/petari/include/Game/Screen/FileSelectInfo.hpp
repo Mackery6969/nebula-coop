@@ -2,6 +2,7 @@
 
 #include "Game/Screen/LayoutActor.hpp"
 #include "Game/System/NerveExecutor.hpp"
+#include "Game/Util/StringUtil.hpp"
 
 namespace FileSelectInfoSub {
     class SlideState;
@@ -15,9 +16,9 @@ public:
     /// @param pName The pointer to the null-terminated name of the object.
     FileSelectInfo(s32 nameBufferSize, const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void appear();
-    virtual void control();
+    virtual void init(const TableIter& rIter) override;
+    virtual void appear() override;
+    virtual void control() override;
 
     void disappear();
     void slide();
@@ -36,8 +37,8 @@ private:
     s32 mStarPieceNum;
     s32 mNameBufferSize;
     char16_t* mName;
-    char16_t mDateMessage[32];
-    char16_t mTimeMessage[32];
+    MR::Text16 mDateMessage;
+    MR::Text16 mTimeMessage;
     s32 mMissNum;
     bool mIsSelectedMarioPrev;
     bool mIsSelectedMario;

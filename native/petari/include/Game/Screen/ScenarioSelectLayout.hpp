@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/Screen/LayoutActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class BackButton;
 class CameraContext;
@@ -13,13 +13,13 @@ class ScenarioSelectLayout : public LayoutActor {
 public:
     ScenarioSelectLayout(EffectSystem*, const CameraContext*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void movement();
-    virtual void draw() const;
-    virtual void calcAnim();
-    virtual void appear();
-    virtual void kill();
-    virtual void control();
+    virtual void init(const TableIter&) override;
+    virtual void movement() override;
+    virtual void draw() const override;
+    virtual void calcAnim() override;
+    virtual void appear() override;
+    virtual void kill() override;
+    virtual void control() override;
 
     void calcViewAndEntryStarModel();
     s32 getSelectedScenarioNo() const;
@@ -28,13 +28,16 @@ public:
     bool isAppearStarEnd() const;
     bool isEndAnimStartStep() const;
     bool isCanceled() const;
+    bool isDecided() const {
+        return mIsDecided;
+    }
     void updateSelectedScenario();
     void updateScenarioText();
     void fadeInText();
     void fadeOutText();
     bool trySelect();
     ScenarioSelectStar* getSelectedStar() const;
-    void calcWorldPositionFromScreenPos(TVec3f*, const TVec2f&, f32) const;
+    void calcWorldPositionFromScreenPos(Vec3f*, const Vec2f&, f32) const;
     bool calcDisplayScenarioNum(s32*, s32*) const;
     void appearAllStar(s32, s32, bool);
     void appearStar(s32, s32, int);
@@ -59,22 +62,21 @@ public:
     void exeDisappearCometWarning();
 
     s32 mSelectedScenarioNo;
-    s32 _24;
-    bool _28;
-    TMtx34f mEffectHostMtx;
+    bool mIsDecided; // a scenario was chosen: the stars stop following the pointer
+    Mtx34f mEffectHostMtx;
     ScenarioSelectStar** mStar;
     MultiSceneActor* mScenarioSky;
     EffectSystem* mEffectSystem;
     const CameraContext* mCameraContext;
-    TVec2f mNewTextFollowPos;
-    TVec2f mNewGreenTextFollowPos;
-    TVec2f mQuestionPane[2];
-    TVec2f mStarTopFollowPos;
+    Vec2f mNewTextFollowPos;
+    Vec2f mNewGreenTextFollowPos;
+    Vec2f mQuestionPane[2];
+    Vec2f mStarTopFollowPos;
     BackButton* mBackButton;
-    TVec2f mMarioPaneFollowPos;
+    Vec2f mMarioPaneFollowPos;
     const char* mMarioPaneName;
-    s32 _A4;
-    s32 _A8;
+    s32 mTextFadeState;
+    s32 mTextScenarioNo;
     // Online co-op: who plays each star, under it.
     NebulaSelectPlayers* mCoopPlayers;
     // A galaxy with more stars than the screen's seven: all of them, in order, and the page shown.

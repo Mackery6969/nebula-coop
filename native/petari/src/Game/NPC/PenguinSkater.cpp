@@ -8,7 +8,7 @@
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/DemoUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
@@ -19,21 +19,28 @@
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include <algorithm>
+#include "Game/Util/Tunable.hpp"
+
+// The numbers this file's functions give the game's motion and animation calls, as tunables: "<file>.<function>.<call>.<k>".
+NEBULA_TUNABLE_NAMED(f32, cNum_exeProvoke_isNearPlayer_1, "exeProvoke.isNearPlayer.1", 10000.0f);
+
+// The step counts of this file's functions, as tunables: "<file>.<function>.<k>".
+NEBULA_TUNABLE_NAMED(s32, cStep_exeCaught_1, "exeCaught.1", 20);
 
 namespace {
-    static const f32 sProvokeRangeIn = 1000.0f;
-    static const f32 sProvokeRangeOut = 2000.0f;
-    static const f32 sSwitchRange = 3000.0f;
-    static const f32 sAwaySpeed = 14.0f;
-    static const f32 sSwitchSpeed = 10.0f;
-    static const f32 sDemoSpeed = 18.0f;
-    static const f32 sAwayAccele = 0.15f;
-    static const f32 sAwayBrake = 0.2f;
-    static const f32 sBlendRatio = 0.05f;
-    static const f32 sSameDirection = 0.55f;
-    static const f32 sSamePosition = 10.0f;
-    static const s32 sMarioPoseBlendTime = 5;
-    static const s32 sDemoSkateSeStartTiming = 33;
+    NEBULA_TUNABLE(f32, sProvokeRangeIn, 1000.0f);
+    NEBULA_TUNABLE(f32, sProvokeRangeOut, 2000.0f);
+    NEBULA_TUNABLE(f32, sSwitchRange, 3000.0f);
+    NEBULA_TUNABLE(f32, sAwaySpeed, 14.0f);
+    NEBULA_TUNABLE(f32, sSwitchSpeed, 10.0f);
+    NEBULA_TUNABLE(f32, sDemoSpeed, 18.0f);
+    NEBULA_TUNABLE(f32, sAwayAccele, 0.15f);
+    NEBULA_TUNABLE(f32, sAwayBrake, 0.2f);
+    NEBULA_TUNABLE(f32, sBlendRatio, 0.05f);
+    NEBULA_TUNABLE(f32, sSameDirection, 0.55f);
+    NEBULA_TUNABLE(f32, sSamePosition, 10.0f);
+    NEBULA_TUNABLE(s32, sMarioPoseBlendTime, 5);
+    NEBULA_TUNABLE(s32, sDemoSkateSeStartTiming, 33);
 };  // namespace
 
 namespace NrvPenguinSkater {
@@ -54,20 +61,19 @@ namespace NrvPenguinSkater {
 
 PenguinSkater::PenguinSkater(const char* pName)
     : NPCActor(pName), mCameraInfo(0), mCurrentRail(nullptr), mSwitchRail(nullptr), mRail(nullptr), mNumRails(0) {
-    // TODO: doubtful this is written like this, fix later.
     mMarioQuat.set< f32 >(0.0f, 0.0f, 0.0f, 1.0f);
     mMarioPos.zero();
 }
 
-void PenguinSkater::init(const JMapInfoIter& rIter) {
+void PenguinSkater::init(const TableIter& rIter) {
     NPCActorCaps caps("PenguinSkater");
     caps.setDefault();
     caps.mWaitNerve = GET_NERVE(PenguinSkater, PenguinSkaterNrvWait);
     caps.mObjectName = "Penguin";
     if (MR::isConnectedWithRail(rIter)) {
         caps.mRailRider = true;
-        MR::initMultiActorCamera(this, rIter, &mCameraInfo, "\212\112\216\156" /* 開始 */);
-        MR::initMultiActorCamera(this, rIter, &mCameraInfo, "\217\111\227\271" /* 終了 */);
+        MR::initMultiActorCamera(this, rIter, &mCameraInfo, "開始");
+        MR::initMultiActorCamera(this, rIter, &mCameraInfo, "終了");
         MR::joinToGroupArray(this, rIter, nullptr, 32);
     } else {
         caps.mWaitNerve = GET_NERVE(PenguinSkater, PenguinSkaterNrvTalk);
@@ -131,7 +137,7 @@ void PenguinSkater::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
 }
 
 f32 PenguinSkater::calcLead() const {
-    TVec3f playerRailPos;
+    Vec3f playerRailPos;
     f32 playerRailCoord = MR::calcRailPosNearestPlayer(&playerRailPos, mRail);
     f32 coord = MR::getRailCoord(mRail);
     f32 length = MR::getRailTotalLength(mRail);
@@ -183,11 +189,11 @@ bool PenguinSkater::inSwitchRange(f32 dist) const {
 }
 
 bool PenguinSkater::trySwitchRail() {
-    TVec3f crossPos;
-    TVec3f pos, dir;
+    Vec3f crossPos;
+    Vec3f pos, dir;
 
     f32 speed = MR::getRailCoordSpeed(mRail);
-    TVec3f railDir = MR::getRailDirection(mRail);
+    Vec3f railDir = MR::getRailDirection(mRail);
 
     MR::calcRailPointPos(&crossPos, mRail, mCrossPoint);
 
@@ -231,14 +237,14 @@ void PenguinSkater::endSwitchRail() {
 }
 
 void PenguinSkater::setCaughtStartMarioPose() {
-    TPos3f baseMtx;
+    Pos3f baseMtx;
     baseMtx.set(MR::getPlayerDemoActor()->getBaseMtx());
     baseMtx.getQuat(mMarioQuat);
     baseMtx.getTrans(mMarioPos);
 }
 
 void PenguinSkater::blendBaseMatrixToMario(f32 blendRate) const {
-    TMtx34f baseMtx;
+    Mtx34f baseMtx;
     if (blendRate >= 1.0f) {
         baseMtx.set(getBaseMtx());
         MR::setPlayerBaseMtx(baseMtx);
@@ -250,18 +256,18 @@ void PenguinSkater::blendBaseMatrixToMario(f32 blendRate) const {
 }
 
 void PenguinSkater::exeReaction() {
-    if (_D8) {
+    if (mIsTrampledStart) {
         MR::startSound(this, "SE_SM_PENGUIN_TRAMPLED");
         MR::startSound(this, "SE_SV_PENGUIN_S_TRAMPLED");
     }
     if (isPointingSe()) {
         MR::startSound(this, "SE_SV_PENGUIN_S_POINTED_2P");
-        MR::startDPDHitSound();
+        MR::startPointerHitSound();
     }
-    if (_D9) {
+    if (mIsSpinAttackedStart) {
         MR::startSound(this, "SE_SV_PENGUIN_S_SPIN_HIT");
     }
-    if (_DB) {
+    if (mIsReactionStart) {
         MR::startSound(this, "SE_SV_PENGUIN_S_STAR_PIECE");
     }
     if (MR::tryStartReactionAndPopNerve(this)) {
@@ -274,10 +280,10 @@ void PenguinSkater::exeWait() {
         pushNerve(GET_NERVE(PenguinSkater, PenguinSkaterNrvReaction));
     } else if (MR::tryTalkNearPlayerAtEndAndStartTalkAction(this)) {
         MR::invalidateClipping(this);
-        MR::tryStartDemo(this, "\203\171\203\223\203\115\203\223\203\130\203\120\201\133\203\147\212\112\216\156" /* ペンギンスケート開始 */);
-        MR::startMultiActorCameraTargetSelf(this, mCameraInfo, "\212\112\216\156" /* 開始 */);
+        MR::tryStartDemo(this, "ペンギンスケート開始");
+        MR::startMultiActorCameraTargetSelf(this, mCameraInfo, "開始");
         MR::forwardNode(mMsgCtrl);
-        TVec3f pos;
+        Vec3f pos;
         MR::calcRailStartPointDirection(&pos, mRail);
         if ((*MR::getPlayerPos() - mPosition).dot(pos) > 0.0f) {
             MR::reverseRailDirection(mCurrentRail);
@@ -303,8 +309,8 @@ void PenguinSkater::exeDemo() {
     }
     moveRail(::sDemoSpeed, ::sBlendRatio);
     if (inProvokeRangeIn(calcLead())) {
-        MR::endMultiActorCamera(this, mCameraInfo, "\212\112\216\156" /* 開始 */, false);
-        MR::endDemo(this, "\203\171\203\223\203\115\203\223\203\130\203\120\201\133\203\147\212\112\216\156" /* ペンギンスケート開始 */);
+        MR::endMultiActorCamera(this, mCameraInfo, "開始", false);
+        MR::endDemo(this, "ペンギンスケート開始");
         setNerve(GET_NERVE(PenguinSkater, PenguinSkaterNrvAway));
     }
 }
@@ -354,7 +360,7 @@ void PenguinSkater::exeProvoke() {
         stopRail(1.0f);
     } else {
         MR::tryStartBck(this, "Congratulate1");
-        if (MR::isNearPlayer(mMsgCtrl, 10000.0f)) {
+        if (MR::isNearPlayer(mMsgCtrl, cNum_exeProvoke_isNearPlayer_1)) {
             MR::tryTalkForce(mMsgCtrl);
             turnToPlayer();
         }
@@ -372,15 +378,15 @@ void PenguinSkater::exeProvoke() {
 
 void PenguinSkater::exeCaught() {
     if (MR::isFirstStep(this)) {
-        MR::tryStartDemoMarioPuppetable(this, "\225\337\202\334\202\350" /* 捕まり */);
-        MR::startMultiActorCameraTargetPlayer(this, mCameraInfo, "\217\111\227\271" /* 終了 */);
+        MR::tryStartDemoMarioPuppetable(this, "捕まり");
+        MR::startMultiActorCameraTargetPlayer(this, mCameraInfo, "終了");
         MR::startAction(this, "Caught");
         MR::startBckPlayer("TossStart");
         MR::startSound(this, "SE_SM_PENGUIN_CAUGHT");
         MR::zeroVelocity(this);
         setCaughtStartMarioPose();
     }
-    if (MR::isStep(this, 20)) {
+    if (MR::isStep(this, cStep_exeCaught_1)) {
         MR::startSound(this, "SE_SV_PENGUIN_S_CAUGHT");
         MR::startSystemSE("SE_SY_TOTAL_COMPLETE");
     }
@@ -393,7 +399,7 @@ void PenguinSkater::exeCaught() {
 
 void PenguinSkater::exeFadeOut() {
     if (MR::isFirstStep(this)) {
-        TPos3f pos;
+        Pos3f pos;
         pos.set(getBaseMtx());
         MR::setPlayerBaseMtx(pos);
         MR::startAction(this, "CaughtWait");
@@ -406,12 +412,12 @@ void PenguinSkater::exeFadeOut() {
 
 void PenguinSkater::exeFadeIn() {
     if (MR::isFirstStep(this)) {
-        TPos3f pos;
-        MR::findNamePos("\203\175\203\212\203\111\210\332\223\256\214\343" /* マリオ移動後 */, pos);
-        MR::setNPCActorPos(this, "\203\171\203\223\203\115\203\223\210\332\223\256\214\343" /* ペンギン移動後 */);
-        MR::setPlayerPosOnGroundAndWait("\203\175\203\212\203\111\210\332\223\256\214\343" /* マリオ移動後 */);
-        MR::endMultiActorCamera(this, mCameraInfo, "\217\111\227\271" /* 終了 */, false);
-        MR::endDemo(this, "\225\337\202\334\202\350" /* 捕まり */);
+        Pos3f pos;
+        MR::findNamePos("マリオ移動後", pos);
+        MR::setNPCActorPos(this, "ペンギン移動後");
+        MR::setPlayerPosOnGroundAndWait("マリオ移動後");
+        MR::endMultiActorCamera(this, mCameraInfo, "終了", false);
+        MR::endDemo(this, "捕まり");
         MR::startTalkingSequence(this);
         MR::startNPCTalkCamera(getMsgCtrl(), getBaseMtx(), pos, 1.0f, 0);
         MR::forwardNode(getMsgCtrl());

@@ -7,21 +7,21 @@
 #include "Game/Util/MathUtil.hpp"
 
 void MarioAnimator::controlWaitAnimation() {
-    if (_78) {
-        _78--;
+    if (mWaitHoldTimer) {
+        mWaitHoldTimer--;
         return;
     }
 
-    TVec3f side;
+    Vec3f side;
     Mario* player = getPlayer();
-    side.cross(getFrontVec(), player->_368);
+    side.cross(getFrontVec(), player->mGroundNorm);
     MR::normalizeOrZero(&side);
     if (MR::isNearZero(side)) {
         return;
     }
 
-    TVec3f front;
-    front.cross(getPlayer()->_368, side);
+    Vec3f front;
+    front.cross(getPlayer()->mGroundNorm, side);
     MR::normalizeOrZero(&front);
     f32 sideSlope = side.dot(getPlayer()->getAirGravityVec());
     f32 frontSlope = front.dot(getPlayer()->getAirGravityVec());
@@ -29,9 +29,9 @@ void MarioAnimator::controlWaitAnimation() {
     weights[0] = weights[1] = weights[2] = weights[3] = 0.0f;
     f32 sideBias = 0.0f;
     f32 frontBias = 0.0f;
-    if (_16 == 1) {
+    if (mWaitPhase == 1) {
         sideBias = 0.1f;
-    } else if (_16 == 2) {
+    } else if (mWaitPhase == 2) {
         frontBias = 0.1f;
     }
 
@@ -46,19 +46,19 @@ void MarioAnimator::controlWaitAnimation() {
         weights[2] = angle / 0.7853982f;
         weights[3] = 1.0f - weights[2];
         if (sideSlope < 0.0f) {
-            mXanimePlayer->changeTrackAnimation(2, "\215\342\211\105\203\105\203\107\203\103\203\147" /* 坂右ウエイト */);
+            mXanimePlayer->changeTrackAnimation(2, "坂右ウエイト");
         } else {
-            mXanimePlayer->changeTrackAnimation(2, "\215\342\215\266\203\105\203\107\203\103\203\147" /* 坂左ウエイト */);
+            mXanimePlayer->changeTrackAnimation(2, "坂左ウエイト");
         }
 
-        if (getPlayer()->_10._F) {
+        if (getPlayer()->mActionStates.squatEnded) {
             forceSetBlendWeight(weights);
-            getPlayer()->_10._F = false;
+            getPlayer()->mActionStates.squatEnded = false;
         } else {
             setBlendWeight(weights, mActor->getConst().getTable()->mSlopeAnimBlendRatio);
         }
 
-        _16 = 1;
+        mWaitPhase = 1;
     } else {
         f32 angle = 1.5707964f - marioAcos(frontMagnitude);
         if (angle >= 0.7853982f) {
@@ -68,22 +68,22 @@ void MarioAnimator::controlWaitAnimation() {
         weights[2] = angle / 0.7853982f;
         weights[3] = 1.0f - weights[2];
         if (frontSlope < 0.0f) {
-            mXanimePlayer->changeTrackAnimation(2, "\215\342\221\117\203\105\203\107\203\103\203\147" /* 坂前ウエイト */);
+            mXanimePlayer->changeTrackAnimation(2, "坂前ウエイト");
         } else {
-            mXanimePlayer->changeTrackAnimation(2, "\215\342\214\343\203\105\203\107\203\103\203\147" /* 坂後ウエイト */);
+            mXanimePlayer->changeTrackAnimation(2, "坂後ウエイト");
         }
 
-        if (getPlayer()->_10._F) {
+        if (getPlayer()->mActionStates.squatEnded) {
             forceSetBlendWeight(weights);
-            getPlayer()->_10._F = false;
+            getPlayer()->mActionStates.squatEnded = false;
         } else {
             setBlendWeight(weights, mActor->getConst().getTable()->mSlopeAnimBlendRatio);
         }
 
-        _16 = 2;
+        mWaitPhase = 2;
     }
 
-    _78 = 4;
+    mWaitHoldTimer = 4;
 }
 
 void MarioAnimator::stopWaitAnimation() {
@@ -91,19 +91,19 @@ void MarioAnimator::stopWaitAnimation() {
         return;
     }
 
-    if (_78) {
-        _78--;
+    if (mWaitHoldTimer) {
+        mWaitHoldTimer--;
         return;
     }
 
-    if (isAnimationRun("\212\356\226\173" /* 基本 */)) {
-        mXanimePlayer->changeTrackAnimation(2, "\203\211\203\223" /* ラン */);
+    if (isAnimationRun("基本")) {
+        mXanimePlayer->changeTrackAnimation(2, "ラン");
     }
 }
 
 bool MarioWait::checkStart() {
-    if (mActor->_EA4) {
-        _16 = 0;
+    if (mActor->mInDemo) {
+        mTimer = 0;
         return false;
     }
 
@@ -111,14 +111,14 @@ bool MarioWait::checkStart() {
         return false;
     }
 
-    bool damaged = mActor->is481or482On();
+    bool damaged = mActor->isHidden();
     if (damaged) {
-        _16 = 0;
+        mTimer = 0;
         return false;
     }
 
     bool cancel = false;
-    switch (getPlayer()->_960) {
+    switch (getPlayer()->mFloorCode) {
     case 27:
     case 28:
         cancel = true;
@@ -151,44 +151,44 @@ bool MarioWait::checkStart() {
         cancel = true;
     }
 
-    if (getPlayer()->_1C._5) {
+    if (getPlayer()->mHitStates.karikariClinging) {
         cancel = true;
     }
 
-    if (getPlayer()->mMovementStates._23) {
+    if (getPlayer()->mMovementStates.slopeSlide) {
         cancel = true;
     }
 
-    if (getPlayer()->mMovementStates._A) {
+    if (getPlayer()->mMovementStates.squat) {
         cancel = true;
     }
 
-    if (getPlayer()->mDrawStates.mIsUnderwater) {
+    if (getPlayer()->mDrawStates.inWater) {
         cancel = true;
     }
 
-    if (!MR::isNearZero(getPlayer()->_184)) {
+    if (!MR::isNearZero(getPlayer()->mRelativeMove)) {
         cancel = true;
     }
 
     if (MR::isNearZero(getPlayer()->mWalkSpeed)) {
-        _16++;
+        mTimer++;
     } else {
         cancel = true;
     }
 
     if (cancel) {
-        _16 = 0;
+        mTimer = 0;
         return false;
     }
 
-    if (_16 == 1800) {
+    if (mTimer == 1800) {
         if (MR::getAreaObj("NonSleepCube", getTrans()) != nullptr) {
-            _12 = 1;
+            mKind = 1;
             return true;
         }
 
-        _12 = 0;
+        mKind = 0;
         return true;
     }
 
@@ -196,17 +196,17 @@ bool MarioWait::checkStart() {
 }
 
 bool MarioWait::start() {
-    switch (_12) {
+    switch (mKind) {
     case 0:
-        changeAnimation("\223\301\216\352\203\105\203\107\203\103\203\1471A" /* 特殊ウエイト1A */);
+        changeAnimation("特殊ウエイト1A");
         break;
     case 1:
-        changeAnimation("\220\355\223\254\203\105\203\107\203\103\203\147" /* 戦闘ウエイト */);
+        changeAnimation("戦闘ウエイト");
         break;
     }
 
-    _16 = 0;
-    _14 = 0;
+    mTimer = 0;
+    mStep = 0;
     return true;
 }
 
@@ -226,15 +226,15 @@ bool MarioWait::update() {
         cancel = true;
     }
 
-    if (getPlayer()->_1C._5) {
+    if (getPlayer()->mHitStates.karikariClinging) {
         cancel = true;
     }
 
-    if (getPlayerMode() != PlayerMode_Teresa && !getPlayer()->mMovementStates._1) {
+    if (getPlayerMode() != PlayerMode_Teresa && !getPlayer()->mMovementStates.onGround) {
         cancel = true;
     }
 
-    if (!MR::isNearZero(getPlayer()->_184)) {
+    if (!MR::isNearZero(getPlayer()->mRelativeMove)) {
         cancel = true;
     }
 
@@ -243,21 +243,21 @@ bool MarioWait::update() {
         return false;
     }
 
-    _16++;
-    switch (_12) {
+    mTimer++;
+    switch (mKind) {
     case 0:
-        switch (_14) {
+        switch (mStep) {
         case 0:
-            if (!mActor->_468) {
+            if (!mActor->mTakeCount) {
                 u32 duration = 1800;
                 if (isPlayerModeTeresa()) {
                     duration = 210;
                 }
 
-                if (_16 == duration) {
-                    _16 = 0;
-                    _14++;
-                    changeAnimation("\223\301\216\352\203\105\203\107\203\103\203\1471B" /* 特殊ウエイト1B */);
+                if (mTimer == duration) {
+                    mTimer = 0;
+                    mStep++;
+                    changeAnimation("特殊ウエイト1B");
                 }
             }
 
@@ -276,15 +276,15 @@ bool MarioWait::update() {
 }
 
 bool MarioWait::close() {
-    stopSound("\220\272\202\240\202\255\202\321" /* 声あくび */, 0);
-    stopSound("\220\272\202\242\202\321\202\253\202\120" /* 声いびき１ */, 0);
-    stopSound("\220\272\202\242\202\321\202\253\202\121" /* 声いびき２ */, 0);
-    _16 = 0;
+    stopSound("声あくび", 0);
+    stopSound("声いびき１", 0);
+    stopSound("声いびき２", 0);
+    mTimer = 0;
     return true;
 }
 
 bool Mario::isBlendWaitGround() const {
-    return calcAngleD(_368) > 8.0f;
+    return calcAngleD(mGroundNorm) > 8.0f;
 }
 
 void Mario::checkSpecialWaitAnimation() {
@@ -294,19 +294,19 @@ void Mario::checkSpecialWaitAnimation() {
 }
 
 void Mario::resetSleepTimer() {
-    mWait->_16 = 0;
+    mWait->mTimer = 0;
     if (isStatusActive(MarioStatus_Wait)) {
         closeStatus(mWait);
     }
 }
 
 MarioWait::MarioWait(MarioActor* pActor) : MarioState(pActor, MarioStatus_Wait) {
-    _16 = 0;
-    _12 = 0;
-    _14 = 0;
+    mTimer = 0;
+    mKind = 0;
+    mStep = 0;
 }
 
-void MarioState::hitPoly(u8, const TVec3f&, HitSensor*) {
+void MarioState::hitPoly(u8, const Vec3f&, HitSensor*) {
 }
 
 bool MarioState::keep() {

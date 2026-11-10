@@ -4,17 +4,25 @@
 #include "Game/MapObj/SpinDriverShootPath.hpp"
 #include "Game/Util.hpp"
 #include "math_types.hpp"
+#include "Game/Util/Tunable.hpp"
+
+// The numbers this file's functions give the game's motion and animation calls, as tunables: "<file>.<function>.<call>.<k>".
+NEBULA_TUNABLE_NAMED(f32, cNum_exeSpinDriverStart_setBckRate_1, "exeSpinDriverStart.setBckRate.1", 0.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeSpinDriverShoot_setBckRate_1, "exeSpinDriverShoot.setBckRate.1", 1.0f);
+
+// The step counts of this file's functions, as tunables: "<file>.<function>.<k>".
+NEBULA_TUNABLE_NAMED(s32, cStep_exeSpinDriverStart_1, "exeSpinDriverStart.1", 43);
 
 namespace {
-    const char* const cJumpOutPartName = "\224\362\202\321\217\157\202\267" /* 飛び出す */;
+    const char* const cJumpOutPartName = "飛び出す";
     const Vec cAppearRotate = {90.0f, -5.0f, 0.0f};
     // const s32 cJumpOutStopStep = _;
     // const s32 cJumpOutStopFrame = _;
     // const f32 cJumpOutStartSpeed = _;
-    const f32 cJumpOutRotateSpeed = -18.0f;
-    const f32 cJumpOutNearClipDistance = 250.0f;
-    const s32 cWhiteOutFrame = 146;
-    const s32 cBgmStartFrame = 108;
+    NEBULA_TUNABLE(f32, cJumpOutRotateSpeed, -18.0f);
+    NEBULA_TUNABLE(f32, cJumpOutNearClipDistance, 250.0f);
+    NEBULA_TUNABLE(s32, cWhiteOutFrame, 146);
+    NEBULA_TUNABLE(s32, cBgmStartFrame, 108);
 
     f32 countRotations(f32 angle) {
         s32 rotations = angle / TWO_PI;
@@ -30,30 +38,30 @@ namespace NrvAstroDomeDemoStarter {
     NEW_NERVE(AstroDomeDemoStarterNrvWhiteOut, AstroDomeDemoStarter, WhiteOut);
 };  // namespace NrvAstroDomeDemoStarter
 
-AstroDomeDemoStarter::AstroDomeDemoStarter(const char* pName) : LiveActor(pName), _8C(), _90(), _F4() {
-    _94.identity();
-    _C4.identity();
+AstroDomeDemoStarter::AstroDomeDemoStarter(const char* pName) : LiveActor(pName), mShootPath(), mPathDrawer(), mCameraInfo() {
+    mBaseMtx.identity();
+    mPlayerDemoMtx.identity();
 }
 
-void AstroDomeDemoStarter::init(const JMapInfoIter& rIter) {
+void AstroDomeDemoStarter::init(const TableIter& rIter) {
     initModelManagerWithAnm("SuperSpinDriver", nullptr, false);
     MR::hideModel(this);
     MR::connectToSceneNoSilhouettedMapObjStrongLight(this);
 
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initSound(6, false);
 
     MR::invalidateClipping(this);
 
-    MR::initActorCamera(this, rIter, &_F4);
-    MR::initAnimCamera(this, _F4, "AstroDomeDemoCamera.arc", "AstroDomeDemoCamera");
+    MR::initActorCamera(this, rIter, &mCameraInfo);
+    MR::initAnimCamera(this, mCameraInfo, "AstroDomeDemoCamera", "AstroDomeDemoCamera");
 
-    _8C = new SpinDriverShootPath();
-    _8C->init(rIter);
+    mShootPath = new SpinDriverShootPath();
+    mShootPath->init(rIter);
 
-    _90 = new SpinDriverPathDrawer(_8C);
-    _90->initWithoutIter();
-    _90->setColorNormal();
+    mPathDrawer = new SpinDriverPathDrawer(mShootPath);
+    mPathDrawer->initWithoutIter();
+    mPathDrawer->setColorNormal();
 
     MR::startBtpAndSetFrameAndStop(this, "SuperSpinDriver", 0.0f);
     MR::startBrk(this, "Yellow");
@@ -61,8 +69,8 @@ void AstroDomeDemoStarter::init(const JMapInfoIter& rIter) {
     initNerve(GET_NERVE(AstroDomeDemoStarter, AstroDomeDemoStarterNrvSpinDriverAppear));
 
     MR::tryRegisterDemoCast(this, rIter);
-    MR::registerDemoActionNerve(this, GET_NERVE(AstroDomeDemoStarter, AstroDomeDemoStarterNrvSpinDriverStart), "\203\130\203\163\203\223\203\150\203\211\203\103\203\157\213\116\223\256" /* スピンドライバ起動 */);
-    MR::registerDemoActionNerve(this, GET_NERVE(AstroDomeDemoStarter, AstroDomeDemoStarterNrvJumpOut), "\224\362\202\321\217\157\202\267" /* 飛び出す */);
+    MR::registerDemoActionNerve(this, GET_NERVE(AstroDomeDemoStarter, AstroDomeDemoStarterNrvSpinDriverStart), "スピンドライバ起動");
+    MR::registerDemoActionNerve(this, GET_NERVE(AstroDomeDemoStarter, AstroDomeDemoStarterNrvJumpOut), "飛び出す");
     MR::registerDemoActionFunctor(this, MR::Functor(this, &AstroDomeDemoStarter::startJumpOut), nullptr);
     MR::needStageSwitchWriteA(this, rIter);
 
@@ -72,9 +80,9 @@ void AstroDomeDemoStarter::init(const JMapInfoIter& rIter) {
 void AstroDomeDemoStarter::startJumpOut() {
     MR::onSwitchA(this);
     mPosition.zero();
-    _94.identity();
+    mBaseMtx.identity();
 
-    MR::startAnimCameraTargetSelf(this, _F4, "AstroDomeDemoCamera", 0, MR::getAnimCameraFrame(this, _F4, "AstroDomeDemoCamera") / 180.0f);
+    MR::startAnimCameraTargetSelf(this, mCameraInfo, "AstroDomeDemoCamera", 0, MR::getAnimCameraFrame(this, mCameraInfo, "AstroDomeDemoCamera") / 180.0f);
     MR::overlayWithPreviousScreen(2);
 }
 
@@ -88,28 +96,28 @@ void AstroDomeDemoStarter::movePlayer() {
 
     f32 demoPartStepRate = MR::calcDemoPartStepRate(::cJumpOutPartName);
 
-    TVec3f direction;
+    Vec3f direction;
 
-    _8C->calcDirection(&direction, demoPartStepRate, 0.01f);
+    mShootPath->calcDirection(&direction, demoPartStepRate, 0.01f);
 
     f32 speed = ::cJumpOutRotateSpeed;
     f32 spinRate = ::countRotations(speed) + (-MR::pi() / 4.0f);
     f32 angle = MR::getEaseOutValue(demoPartStepRate, 0.0f, 1.0f, 1.0f) * spinRate;
 
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.identity();
     mtx.setEulerY(angle);
 
-    TVec3f position;
+    Vec3f position;
 
-    _8C->calcPosition(&position, demoPartStepRate);
+    mShootPath->calcPosition(&position, demoPartStepRate);
 
-    TPos3f mtx2;
-    MR::makeMtxUpFrontPos(&mtx2, direction, TVec3f(0.0f, -1.0f, 0.0f), position);
+    Pos3f playerMtx;
+    MR::makeMtxUpFrontPos(&playerMtx, direction, Vec3f(0.0f, -1.0f, 0.0f), position);
 
-    mtx2.concat(mtx);
+    playerMtx.concat(mtx);
 
-    MR::setPlayerBaseMtx(mtx2);
+    MR::setPlayerBaseMtx(playerMtx);
 
     if (MR::isJudgedToNearClip(position, ::cJumpOutNearClipDistance)) {
         MR::hidePlayer();
@@ -117,20 +125,20 @@ void AstroDomeDemoStarter::movePlayer() {
         MR::showPlayer();
     }
 
-    _90->setCoord(demoPartStepRate);
+    mPathDrawer->setCoord(demoPartStepRate);
     MR::startLevelSoundPlayer("SE_PM_LV_SPIN_DRV_FLY");
 }
 
 void AstroDomeDemoStarter::exeSpinDriverAppear() {
     if (MR::isFirstStep(this)) {
         MtxPtr playerDemobaseMtx = MR::getPlayerDemoActor()->getBaseMtx();
-        _C4.set(playerDemobaseMtx);
-        TPos3f rotateMtx;
-        MR::makeMtxRotate(rotateMtx, TVec3f(::cAppearRotate));
-        _C4.getTrans(mPosition);
-        MR::makeMtxUpFrontPos(&_94, MR::getCamYdir(), MR::getCamZdir(), mPosition);
-        _94.concat(rotateMtx);
-        MR::setBaseTRMtx(this, _94);
+        mPlayerDemoMtx.set(playerDemobaseMtx);
+        Pos3f rotateMtx;
+        MR::makeMtxRotate(rotateMtx, Vec3f(::cAppearRotate));
+        mPlayerDemoMtx.getTrans(mPosition);
+        MR::makeMtxUpFrontPos(&mBaseMtx, MR::getCamYdir(), MR::getCamZdir(), mPosition);
+        mBaseMtx.concat(rotateMtx);
+        MR::setBaseTRMtx(this, mBaseMtx);
         MR::showModel(this);
         MR::startBck(this, "Appear");
         MR::startBckPlayer("SpinDriverWait", 20);
@@ -140,8 +148,8 @@ void AstroDomeDemoStarter::exeSpinDriverAppear() {
     MR::startLevelSound(this, "SE_OJ_LV_S_SPIN_DRV_SHINE");
     MR::startLevelSound(this, "SE_OJ_LV_SPIN_DRV_CAPTURE");
 
-    TPos3f slerpMtx;
-    MR::blendMtxRotateSlerp(_C4, _94, MR::calcDemoPartStepRate("\203\130\203\163\203\223\203\150\203\211\203\103\203\157\217\157\214\273" /* スピンドライバ出現 */), slerpMtx);
+    Pos3f slerpMtx;
+    MR::blendMtxRotateSlerp(mPlayerDemoMtx, mBaseMtx, MR::calcDemoPartStepRate("スピンドライバ出現"), slerpMtx);
     slerpMtx.setTrans(mPosition);
     MR::setPlayerBaseMtx(slerpMtx);
 }
@@ -150,16 +158,16 @@ void AstroDomeDemoStarter::exeSpinDriverStart() {
     if (MR::isFirstStep(this)) {
         MR::startBck(this, "Start");
         MR::startBckPlayer("SuperSpinDriverStart");
-        MR::setPlayerBaseMtx(_94);
+        MR::setPlayerBaseMtx(mBaseMtx);
         MR::tryRumblePadMiddle(this, PLAYER_1);
         MR::startCSSound("CS_SPIN_DRIVE_LONG", "SE_SY_CS_S_SPIN_DRV_START", 0);
         MR::startSoundPlayer("SE_PM_SPIN_ATTACK");
     }
 
-    if (MR::isLessStep(this, 43)) {
+    if (MR::isLessStep(this, cStep_exeSpinDriverStart_1)) {
         MR::tryRumblePadMiddle(this, PLAYER_1);
     } else {
-        MR::setBckRate(this, 0.0f);
+        MR::setBckRate(this, cNum_exeSpinDriverStart_setBckRate_1);
         MR::setBckRate(MR::getPlayerDemoActor(), 0.0f);
     }
 
@@ -168,7 +176,7 @@ void AstroDomeDemoStarter::exeSpinDriverStart() {
 
 void AstroDomeDemoStarter::exeSpinDriverShoot() {
     if (MR::isFirstStep(this)) {
-        MR::setBckRate(this, 1.0f);
+        MR::setBckRate(this, cNum_exeSpinDriverShoot_setBckRate_1);
         MR::startBckPlayer("SpaceFlyStart");
         MR::emitEffect(MR::getPlayerDemoActor(), "SuperSpinDriverFlyGlow");
         MR::shakeCameraNormal();
@@ -184,9 +192,9 @@ void AstroDomeDemoStarter::exeSpinDriverShoot() {
         MR::startSoundPlayer("SE_PV_JUMP_JOY");
     }
 
-    TPos3f playerBaseMtx = _94;
-    TVec3f mult;
-    _94.mult(TVec3f(0.0f, getNerveStep() * 50.0f, 0.0f), mult);
+    Pos3f playerBaseMtx = mBaseMtx;
+    Vec3f mult;
+    mBaseMtx.mult(Vec3f(0.0f, getNerveStep() * 50.0f, 0.0f), mult);
 
     playerBaseMtx.setTrans(mult);
     MR::setPlayerBaseMtx(playerBaseMtx);
@@ -198,7 +206,7 @@ void AstroDomeDemoStarter::exeJumpOut() {
         MR::resetPlayerEffect();
         MR::startBckPlayer("SpaceFlyLoop");
         MR::emitEffect(MR::getPlayerDemoActor(), "SuperSpinDriverFlyGlow");
-        _90->appear();
+        mPathDrawer->appear();
     }
 
     movePlayer();

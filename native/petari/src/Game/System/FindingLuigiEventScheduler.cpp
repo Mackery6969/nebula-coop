@@ -5,7 +5,6 @@
 #include "Game/System/GameSequenceFunction.hpp"
 #include "Game/Util/EventUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
-#include <cstdio>
 
 namespace {
     u32 getLuigiEventState() {
@@ -21,19 +20,10 @@ void FindingLuigiEventScheduler::initAfterResourceLoaded() {
 
 void FindingLuigiEventScheduler::update(const GalaxyMoveArgument& rMoveArg) {
     switch (rMoveArg.mMoveType) {
-    case 0:
-    case 1:
-    case 2:
-    case 3:
-    case 4:
-    case 5:
-        break;
-    case 6:
-        // On Normal Level Load
+    case GalaxyMoveArgument::Type_AfterLoadingGameData:
         syncWithGameEventFlag();
         break;
-    case 7:
-        // On Title Screen
+    case GalaxyMoveArgument::Type_Title:
         GameDataFunction::setGameEventValue("LuigiEventState", STATE_NULL);
         break;
     default:

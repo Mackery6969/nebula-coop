@@ -6,10 +6,12 @@ class LavaBallRisingPlanetLava : public MapObjActor {
 public:
     LavaBallRisingPlanetLava(const char*);
 
-    virtual ~LavaBallRisingPlanetLava();
-    virtual void init(const JMapInfoIter&);
+    virtual void init(const TableIter&) override;
 
     void exeWait();
     void exeScaleUp();
     void exeScaleDown();
+
+private:
+    void updateScale(f32 startScale, f32 endScale, const Nerve* pNextNerve);
 };

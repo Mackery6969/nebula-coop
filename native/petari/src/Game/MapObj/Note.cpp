@@ -4,11 +4,12 @@
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/Screen/NoteCounter.hpp"
 #include "Game/Util.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const f32 sRotateSpeed = 8.0f;
-    static const s32 sStepFlyUp = 10;
-    static const f32 sFlyUpSpeed = 30.0f;
+    NEBULA_TUNABLE(f32, sRotateSpeed, 8.0f);
+    NEBULA_TUNABLE(s32, sStepFlyUp, 10);
+    NEBULA_TUNABLE(f32, sFlyUpSpeed, 30.0f);
 };  // namespace
 
 namespace NrvNote {
@@ -17,24 +18,22 @@ namespace NrvNote {
     NEW_NERVE(NoteNrvFlyUp, Note, FlyUp);
 };  // namespace NrvNote
 
-Note::Note(const char* pName, const TVec3f& rRailDirection, NoteFairy* pParent) : LiveActor(pName) {
+Note::Note(const char* pName, const Vec3f& rRailDirection, NoteFairy* pParent) : LiveActor(pName) {
     mParentFairy = pParent;
-    _90.set(0.0f);
     mRailDirection = rRailDirection;
     mCounter = 0;
-    _AC = 0.0f;
+    mBrkFrame = 0.0f;
     mIsCountdown = false;
     mFlashCtrl = nullptr;
 }
 
-void Note::init(const JMapInfoIter& rIter) {
+void Note::init(const TableIter& /*rIter*/) {
     MR::createSceneObj(SceneObj_NoteGroup);
-    _90.set(mPosition);
     initModelManagerWithAnm("Note", nullptr, false);
     MR::connectToSceneNoSilhouettedMapObjStrongLight(this);
     initHitSensor(1);
-    MR::addHitSensorMapObj(this, "body", 8, 80.0f, TVec3f(0.0f, 0.0f, 0.0f));
-    initEffectKeeper(0, nullptr, false);
+    MR::addHitSensorMapObj(this, "body", 8, 80.0f, Vec3f(0.0f, 0.0f, 0.0f));
+    initEffectKeeper(0, nullptr);
     initSound(4, false);
     initNerve(GET_NERVE(Note, NoteNrvWait));
     mFlashCtrl = new FlashingCtrl(this, true);
@@ -58,7 +57,7 @@ void Note::exeWait() {
     if (MR::isFirstStep(this)) {
         MR::startBrk(this, "Note");
         f32 framemax = MR::getBrkFrameMax(this, "Note");
-        MR::setBrkFrame(this, MR::repeat(_AC, 0.0f, framemax));
+        MR::setBrkFrame(this, MR::repeat(mBrkFrame, 0.0f, framemax));
     }
 
     if (mIsCountdown) {
@@ -97,17 +96,17 @@ void Note::control() {
 }
 
 void Note::calcAndSetBaseMtx() {
-    TPos3f stack_44;
-    MR::makeMtxUpFront(&stack_44, -mGravity, mRailDirection);
+    Pos3f baseMtx;
+    MR::makeMtxUpFront(&baseMtx, -mGravity, mRailDirection);
     Mtx mtxRotateY;
-    f32 val = MR::getSceneObj< NoteGroup >(SceneObj_NoteGroup)->mRotation;
-    MR::makeMtxRotateY(mtxRotateY, val);
-    MR::multMtx(stack_44, mtxRotateY, stack_44);
-    stack_44.setTrans(mPosition);
-    MR::setBaseTRMtx(this, stack_44);
+    f32 groupRotation = MR::getSceneObj< NoteGroup >(SceneObj_NoteGroup)->mRotation;
+    MR::makeMtxRotateY(mtxRotateY, groupRotation);
+    MR::multMtx(baseMtx, mtxRotateY, baseMtx);
+    baseMtx.setTrans(mPosition);
+    MR::setBaseTRMtx(this, baseMtx);
 }
 
-void Note::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
+void Note::attackSensor(HitSensor* /*pSender*/, HitSensor* pReceiver) {
     if (MR::isSensorPlayerOrRide(pReceiver)) {
         if (!isNerve(GET_NERVE(Note, NoteNrvFlyUp))) {
             MR::emitEffect(this, "Get");
@@ -118,11 +117,11 @@ void Note::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     }
 }
 
-NoteGroup::NoteGroup() : LiveActorGroup("\211\271\225\204\203\117\203\213\201\133\203\166" /* 音符グループ */, 0x100) {
+NoteGroup::NoteGroup() : LiveActorGroup("音符グループ", 0x100) {
     mRotation = 0.0f;
 }
 
-void NoteGroup::init(const JMapInfoIter& rIter) {
+void NoteGroup::init(const TableIter& /*rIter*/) {
     MR::connectToSceneMapObjMovement(this);
 }
 

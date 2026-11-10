@@ -1,7 +1,9 @@
 #include "galaxy/runtime_settings.h"
+#include "galaxy/launch_args.h"
+#include "galaxy/test_temp.h"
 #include "galaxy/input_bindings.h"
 
-#include <Windows.h>
+#include "galaxy/windows_api.h"
 
 #include <cstdlib>
 #include <clocale>
@@ -15,6 +17,20 @@
 #include <string_view>
 
 namespace {
+
+// The run's --settings folder for one scope.
+class ScopedSettingsFolder {
+public:
+    explicit ScopedSettingsFolder(const std::filesystem::path& folder) : old_(galaxy::g_launch_args.settings) {
+        galaxy::g_launch_args.settings = folder;
+    }
+    ~ScopedSettingsFolder() { galaxy::g_launch_args.settings = old_; }
+    ScopedSettingsFolder(const ScopedSettingsFolder&) = delete;
+    ScopedSettingsFolder& operator=(const ScopedSettingsFolder&) = delete;
+
+private:
+    std::filesystem::path old_;
+};
 
 class ScopedEnv {
 public:
@@ -127,7 +143,6 @@ std::string read_text(const std::filesystem::path& path) {
 int main() {
     bool passed = true;
 
-    const ScopedWideEnv scoped_path(L"GALAXY_RUNTIME_SETTINGS_PATH");
     const ScopedEnv scoped_input("GALAXY_INPUT_MODE");
     const ScopedEnv scoped_master("GALAXY_AUDIO_MASTER_GAIN");
     const ScopedEnv scoped_music("GALAXY_AUDIO_MUSIC_GAIN");
@@ -136,17 +151,14 @@ int main() {
     const ScopedEnv scoped_voice("GALAXY_AUDIO_VOICE_GAIN");
     const ScopedEnv scoped_ambience("GALAXY_AUDIO_AMBIENCE_GAIN");
 
-    const std::filesystem::path root =
-        std::filesystem::temp_directory_path() /
-        ("galaxy_runtime_settings_tests_" +
-         std::to_string(GetCurrentProcessId()) + "_" +
-         std::to_string(GetTickCount64()));
+    const std::filesystem::path root = galaxy::test_temp_path("galaxy_runtime_settings_tests");
+    std::filesystem::remove_all(root);  // left by an earlier run that had this process id
     const std::filesystem::path settings_path = root / "runtime_settings.ini";
     if (!std::filesystem::create_directory(root)) {
         std::cerr << "FAILED: fixture directory was not newly created\n";
         return 1;
     }
-    _wputenv_s(L"GALAXY_RUNTIME_SETTINGS_PATH", settings_path.c_str());
+    const ScopedSettingsFolder settings_folder(root);
 
     _putenv_s("GALAXY_INPUT_MODE", "");
     _putenv_s("GALAXY_AUDIO_MASTER_GAIN", "");
@@ -171,6 +183,21 @@ int main() {
     write_text(settings_path, "menu_text_size=5000\ncontrols_version=2\n");
     galaxy::load_runtime_settings_from_file();
     passed &= expect(galaxy::get_runtime_settings().menu_text_size == 200u, "a menu text size past the end is held at it");
+    passed &= expect(galaxy::get_runtime_settings().focus_loss == galaxy::FocusLoss::KeepRunning, "focus loss keeps running by default");
+    write_text(settings_path, "focus_loss=pause\ncontrols_version=2\n");
+    galaxy::load_runtime_settings_from_file();
+    passed &= expect(galaxy::get_runtime_settings().focus_loss == galaxy::FocusLoss::Pause, "focus_loss=pause loads");
+    write_text(settings_path, "focus_loss=MUTE\ncontrols_version=2\n");
+    galaxy::load_runtime_settings_from_file();
+    passed &= expect(galaxy::get_runtime_settings().focus_loss == galaxy::FocusLoss::Mute, "focus_loss=mute loads, whatever the case");
+    write_text(settings_path, "focus_loss=sideways\ncontrols_version=2\n");
+    galaxy::load_runtime_settings_from_file();
+    passed &= expect(galaxy::get_runtime_settings().focus_loss == galaxy::FocusLoss::KeepRunning, "an unknown focus_loss is the default");
+    passed &= expect(std::string(galaxy::focus_loss_key(galaxy::FocusLoss::KeepRunning)) == "keep", "focus_loss key");
+    galaxy::set_background_muted(true);
+    passed &= expect(galaxy::background_muted(), "background mute set");
+    galaxy::set_background_muted(false);
+    passed &= expect(!galaxy::background_muted(), "background mute cleared");
     using Mode = galaxy::RuntimeInputMode;
     static_assert(!galaxy::input_missing(Mode::KeyboardMouse, false, false, false));
     static_assert(galaxy::input_missing(Mode::Controller, false, true, true));
@@ -243,6 +270,13 @@ int main() {
         galaxy::get_runtime_settings().input_mode ==
             galaxy::RuntimeInputMode::RealWiimote,
         "file input_mode=real_wiimote round-trips back to RealWiimote");
+
+    write_text(settings_path, "input_mode=wiimote_motion\n");
+    galaxy::load_runtime_settings_from_file();
+    passed &= expect(
+        galaxy::get_runtime_settings().input_mode == galaxy::RuntimeInputMode::WiimoteMotion &&
+            std::string(galaxy::runtime_input_mode_name(galaxy::RuntimeInputMode::WiimoteMotion)) == "wiimote_motion",
+        "file input_mode=wiimote_motion round-trips back to WiimoteMotion");
 
     galaxy::RuntimeSettings settings{};
     settings.input_mode = galaxy::RuntimeInputMode::Auto;
@@ -449,34 +483,44 @@ int main() {
             galaxy::get_runtime_settings().input_mode == galaxy::RuntimeInputMode::Controller,
         "a long comment is one record, not an injected continuation setting");
 
-    const auto before_failed_load = galaxy::get_runtime_input_mode_state();
+    // A file with a NUL byte or a line over 4096 bytes is set aside as "<name>.unreadable" and the start goes on with
+    // defaults: nothing from before the bad line is published, and the player's file stays on disk.
+    std::filesystem::path aside = settings_path;
+    aside += ".unreadable";
+    const auto before_unreadable = galaxy::get_runtime_input_mode_state();
     std::string corrupt = "input_mode=real_wiimote\naudio_master_gain=0.25";
     corrupt.push_back('\0');
     corrupt += "\n";
     write_text(settings_path, corrupt);
-    bool corrupt_rejected = false;
+    bool corrupt_loaded = true;
     try {
         galaxy::load_runtime_settings_from_file();
     } catch (const std::exception&) {
-        corrupt_rejected = true;
+        corrupt_loaded = false;
     }
-    const auto after_failed_load = galaxy::get_runtime_input_mode_state();
+    const auto after_unreadable = galaxy::get_runtime_input_mode_state();
     passed &= expect(
-        corrupt_rejected && after_failed_load.mode == before_failed_load.mode &&
-            after_failed_load.generation == before_failed_load.generation,
-        "invalid file data cannot publish a partially parsed source transition");
+        corrupt_loaded && after_unreadable.mode == galaxy::RuntimeInputMode::Auto &&
+            after_unreadable.generation == before_unreadable.generation + 1u &&
+            galaxy::get_runtime_settings().audio.master == 1.0f,
+        "a settings file with a NUL byte gives the defaults, not a partly parsed source");
+    passed &= expect(
+        !std::filesystem::exists(settings_path) && read_text(aside) == corrupt,
+        "the unreadable file is kept as .unreadable");
 
-    write_text(settings_path, "input_mode=real_wiimote\n" + std::string(4097u, '#'));
-    bool overlong_rejected = false;
+    const std::string overlong = "input_mode=real_wiimote\n" + std::string(4097u, '#');
+    write_text(settings_path, overlong);
+    bool overlong_loaded = true;
     try {
         galaxy::load_runtime_settings_from_file();
     } catch (const std::exception&) {
-        overlong_rejected = true;
+        overlong_loaded = false;
     }
     passed &= expect(
-        overlong_rejected &&
-            galaxy::get_runtime_input_mode_state().generation == before_failed_load.generation,
-        "an overlong logical line rejects the whole file before publication");
+        overlong_loaded && galaxy::get_runtime_input_mode_state().mode == galaxy::RuntimeInputMode::Auto &&
+            galaxy::get_runtime_input_mode_state().generation == after_unreadable.generation &&
+            !std::filesystem::exists(settings_path) && read_text(aside) == overlong,
+        "an overlong line gives the defaults and replaces the older .unreadable file");
 
     write_text(settings_path, "input_mode=real_wiimote\n");
     HANDLE unreadable = CreateFileW(
@@ -493,17 +537,18 @@ int main() {
         (void)CloseHandle(unreadable);
         passed &= expect(
             read_rejected &&
-                galaxy::get_runtime_input_mode_state().generation == before_failed_load.generation,
+                galaxy::get_runtime_input_mode_state().generation == after_unreadable.generation,
             "file access error preserves the prior published settings generation");
     }
 
+    const auto before_invalid = galaxy::get_runtime_input_mode_state();
     galaxy::RuntimeSettings invalid_mode = galaxy::get_runtime_settings();
     invalid_mode.input_mode = static_cast<galaxy::RuntimeInputMode>(99u);
     galaxy::set_runtime_settings(invalid_mode);
     const auto sanitized_mode = galaxy::get_runtime_input_mode_state();
     passed &= expect(
         sanitized_mode.mode == galaxy::RuntimeInputMode::KeyboardMouse &&
-            sanitized_mode.generation == before_failed_load.generation + 1u,
+            sanitized_mode.generation == before_invalid.generation + 1u,
         "invalid direct input mode becomes one coherent keyboard and mouse transition");
     galaxy::set_runtime_settings(invalid_mode);
     passed &= expect(
@@ -524,30 +569,30 @@ int main() {
         passed &= expect(false, "fractional settings fixture saves");
     }
 
-    const auto unicode_path = root / L"\u6e38\u620f-settings.ini";
-    write_text(unicode_path, "audio_master_gain=0.375\n");
-    _wputenv_s(L"GALAXY_RUNTIME_SETTINGS_PATH", unicode_path.c_str());
-    galaxy::load_runtime_settings_from_file();
-    passed &= expect(
-        galaxy::get_runtime_settings().audio.master == 0.375f &&
-            galaxy::save_runtime_settings_to_file(),
-        "wide settings override preserves the actual Unicode destination");
-
-    const std::wstring too_long_override(300u, L'x');
-    _wputenv_s(L"GALAXY_RUNTIME_SETTINGS_PATH", too_long_override.c_str());
-    bool override_rejected = false;
-    try {
+    {
+        const auto unicode_folder = root / L"\u6e38\u620f";
+        std::filesystem::create_directories(unicode_folder);
+        const auto unicode_path = unicode_folder / "runtime_settings.ini";
+        write_text(unicode_path, "audio_master_gain=0.375\n");
+        const ScopedSettingsFolder unicode_settings(unicode_folder);
         galaxy::load_runtime_settings_from_file();
-    } catch (const std::exception&) {
-        override_rejected = true;
+        passed &= expect(
+            galaxy::get_runtime_settings().audio.master == 0.375f &&
+                galaxy::save_runtime_settings_to_file() && std::filesystem::exists(unicode_path),
+            "a Unicode settings folder keeps the actual destination");
     }
-    passed &= expect(override_rejected, "unsupported override length fails explicitly");
-    // Saves only when the override was rejected; otherwise the save could write the real settings file.
-    if (override_rejected) {
-        passed &= expect(!galaxy::save_runtime_settings_to_file(),
-            "invalid override save fails without selecting a fallback destination");
+
+    {
+        // No fixed path length: a folder past the old 260-character limit is a path like any other.
+        const ScopedSettingsFolder long_settings(root / std::wstring(300u, L'x'));
+        bool long_override_read = true;
+        try {
+            galaxy::load_runtime_settings_from_file();
+        } catch (const std::exception&) {
+            long_override_read = false;
+        }
+        passed &= expect(long_override_read, "a settings path past 260 characters is read");
     }
-    _wputenv_s(L"GALAXY_RUNTIME_SETTINGS_PATH", settings_path.c_str());
 
     {
         write_text(settings_path, "input_mode=controller\n");
@@ -582,6 +627,9 @@ int main() {
     write_text(settings_path, "button_icons=playstation\n");
     galaxy::load_runtime_settings_from_file();
     passed &= expect(galaxy::get_runtime_settings().button_icons == ButtonIcons::PlayStation, "PlayStation icons load");
+    write_text(settings_path, "button_icons=wii\n");
+    galaxy::load_runtime_settings_from_file();
+    passed &= expect(galaxy::get_runtime_settings().button_icons == ButtonIcons::Game, "the old key 'wii' loads as the game's icons");
     write_text(settings_path, "button_icons=sega\n");
     galaxy::load_runtime_settings_from_file();
     passed &= expect(galaxy::get_runtime_settings().button_icons == ButtonIcons::Auto, "an unknown icon style is Auto");
@@ -712,31 +760,31 @@ int main() {
                          endpoint("", nullptr, 0u) && endpoint("[::1", nullptr, 0u),
                      "malformed co-op addresses are refused");
 
-    // Each release's disc offers its own languages; a language it has not plays as Auto does.
+    // Each release offers its own languages; a language it has not plays as Auto does.
     const std::string europe[] = {"EuEnglish", "EuGerman", "EuFrench", "EuSpanish", "EuItalian", "HomeButton2"};
-    galaxy::set_disc_languages(europe);
-    passed &= expect(galaxy::game_language_on_disc(GameLanguage::German) &&
-                         galaxy::game_language_on_disc(GameLanguage::Italian) &&
-                         !galaxy::game_language_on_disc(GameLanguage::Dutch) &&
-                         !galaxy::game_language_on_disc(GameLanguage::Japanese) &&
-                         !galaxy::game_language_on_disc(GameLanguage::Auto),
-                     "Europe's disc offers its five languages");
+    galaxy::set_game_languages(europe);
+    passed &= expect(galaxy::game_language_available(GameLanguage::German) &&
+                         galaxy::game_language_available(GameLanguage::Italian) &&
+                         !galaxy::game_language_available(GameLanguage::Dutch) &&
+                         !galaxy::game_language_available(GameLanguage::Japanese) &&
+                         !galaxy::game_language_available(GameLanguage::Auto),
+                     "Europe's release offers its five languages");
     passed &= expect(galaxy::game_language_resolved(GameLanguage::Italian) == GameLanguage::Italian,
-                     "a language on the disc plays as chosen");
-    passed &= expect(galaxy::game_language_on_disc(galaxy::game_language_resolved(GameLanguage::Dutch)) &&
+                     "a language the game has plays as chosen");
+    passed &= expect(galaxy::game_language_available(galaxy::game_language_resolved(GameLanguage::Dutch)) &&
                          galaxy::game_language_resolved(GameLanguage::Dutch) ==
                              galaxy::game_language_resolved(GameLanguage::Auto),
-                     "a language not on the disc plays as Auto does, in one the disc has");
+                     "a language the game lacks plays as Auto does, in one the game has");
     const std::string japan[] = {"JpJapanese"};
-    galaxy::set_disc_languages(japan);
+    galaxy::set_game_languages(japan);
     passed &= expect(galaxy::game_language_resolved(GameLanguage::Auto) == GameLanguage::Japanese &&
                          galaxy::game_language_resolved(GameLanguage::English) == GameLanguage::Japanese,
-                     "Japan's disc plays in Japanese whatever is chosen");
+                     "Japan's release plays in Japanese whatever is chosen");
     const std::string usa[] = {"UsEnglish", "UsFrench", "UsSpanish"};
-    galaxy::set_disc_languages(usa);
+    galaxy::set_game_languages(usa);
     passed &= expect(galaxy::game_language_resolved(GameLanguage::French) == GameLanguage::French &&
-                         galaxy::game_language_on_disc(galaxy::game_language_resolved(GameLanguage::German)),
-                     "North America's disc plays its languages, and German as Auto does");
+                         galaxy::game_language_available(galaxy::game_language_resolved(GameLanguage::German)),
+                     "North America's release plays its languages, and German as Auto does");
     write_text(settings_path, "language=auto\n");
     galaxy::load_runtime_settings_from_file();
     passed &= expect(galaxy::save_runtime_settings_to_file() &&

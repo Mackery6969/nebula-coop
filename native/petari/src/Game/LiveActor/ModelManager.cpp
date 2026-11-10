@@ -1,5 +1,4 @@
 #include "Game/LiveActor/ModelManager.hpp"
-#include "Game/System/GameThreads.hpp"
 #include "Game/Animation/BckCtrl.hpp"
 #include "Game/Animation/BpkPlayer.hpp"
 #include "Game/Animation/BrkPlayer.hpp"
@@ -10,16 +9,16 @@
 #include "Game/Animation/XanimePlayer.hpp"
 #include "Game/Animation/XanimeResource.hpp"
 #include "Game/LiveActor/MaterialUpdater.hpp"
+#include "Game/System/NebulaArena.hpp"
 #include "Game/System/ResourceHolder.hpp"
 #include "Game/Util/ModelUtil.hpp"
-#include "Game/Util/MutexHolder.hpp"
 #include "Game/Util/ObjUtil.hpp"
-#include <JSystem/J3DGraphAnimator/J3DModel.hpp>
-#include <cstdio>
+#include "Game/Render/Model.hpp"
+#include "Game/Util/StringUtil.hpp"
 
 ModelManager::ModelManager()
     : mBtkPlayer(), mBrkPlayer(), mBtpPlayer(), mBpkPlayer(), mBvaPlayer(), mXanimeResourceTable(), mXanimePlayer(), mModel(), mModelResourceHolder(),
-      mMaterialUpdater() {
+      mMaterialUpdater(), mNoBckCtrl() {
 }
 
 void ModelManager::update() {
@@ -53,80 +52,61 @@ void ModelManager::update() {
 
 void ModelManager::calcAnim() {
     calc();
-    updateList(true);
+    updateList();
 }
 
 void ModelManager::calcView() {
-    getJ3DModel()->viewCalc();
+    getModel()->viewCalc();
 }
 
 void ModelManager::entry() {
-    getJ3DModel()->entry();
+    getModel()->entry();
 }
 
-void ModelManager::newDifferedMaterials() {
-    mMaterialUpdater->newDifferedSnapshot();
+void ModelManager::prepareMaterials() {
+    mMaterialUpdater->prepareMaterials();
 }
 
-void ModelManager::updateList(bool isDiffMaterials) {
-    (MR::MutexHolder< 0 >::sMutex).lock();
-
-    bool isUpdateMaterials = mMaterialUpdater != nullptr && mMaterialUpdater->isValidDiff();
-
-    if (isUpdateMaterials) {
+void ModelManager::updateList() {
+    Model* pModel = getModel();
+    if (mMaterialUpdater != nullptr) {
         mMaterialUpdater->update();
 
         if (mBtkPlayer != nullptr) {
-            mBtkPlayer->beginDiff();
+            mBtkPlayer->applyFrame(pModel);
         }
 
         if (mBrkPlayer != nullptr) {
-            mBrkPlayer->beginDiff();
+            mBrkPlayer->applyFrame(pModel);
         }
 
         if (mBtpPlayer != nullptr) {
-            mBtpPlayer->beginDiff();
+            mBtpPlayer->applyFrame(pModel);
         }
 
         if (mBpkPlayer != nullptr) {
-            mBpkPlayer->beginDiff();
+            mBpkPlayer->applyFrame(pModel);
         }
     }
 
-    getJ3DModel()->calcMaterial();
-
-    if (isUpdateMaterials) {
-        if (isDiffMaterials) {
-            mMaterialUpdater->diff();
-        }
-
-        if (mBtkPlayer != nullptr) {
-            mBtkPlayer->endDiff();
-        }
-
-        if (mBrkPlayer != nullptr) {
-            mBrkPlayer->endDiff();
-        }
-
-        if (mBtpPlayer != nullptr) {
-            mBtpPlayer->endDiff();
-        }
-
-        if (mBpkPlayer != nullptr) {
-            mBpkPlayer->endDiff();
-        }
-    }
-
-    (MR::MutexHolder< 0 >::sMutex).unlock();
+    pModel->calcMaterial();
 }
 
 void ModelManager::startBck(const char* pBckName, const char* pActorAnimName) {
+    if (mXanimePlayer == nullptr) {
+        return;
+    }
+
     mXanimePlayer->changeAnimationBck(pBckName);
     mXanimePlayer->changeInterpoleFrame(0);
     changeBckSetting(pBckName, pActorAnimName, nullptr);
 }
 
 void ModelManager::startBckWithInterpole(const char* pBckName, s32 interpole) {
+    if (mXanimePlayer == nullptr) {
+        return;
+    }
+
     mXanimePlayer->changeAnimationBck(pBckName);
     mXanimePlayer->changeInterpoleFrame(0);
     mXanimePlayer->changeInterpoleFrame(interpole);
@@ -134,93 +114,94 @@ void ModelManager::startBckWithInterpole(const char* pBckName, s32 interpole) {
 
 void ModelManager::startBtk(const char* pBtkName) {
     stopBtk();
-    mBtkPlayer->start(pBtkName);
-    mMaterialUpdater->onCurFlagBtk(mBtkPlayer->mAnmRes);
+    btkPlayer()->start(pBtkName);
 }
 
 void ModelManager::startBrk(const char* pBrkName) {
     stopBrk();
-    mBrkPlayer->start(pBrkName);
-    mMaterialUpdater->onCurFlagBrk(mBrkPlayer->mAnmRes);
+    brkPlayer()->start(pBrkName);
 }
 
 void ModelManager::startBtp(const char* pBtpName) {
     stopBtp();
-    mBtpPlayer->start(pBtpName);
-    mMaterialUpdater->onCurFlagBtp(mBtpPlayer->mAnmRes);
+    btpPlayer()->start(pBtpName);
 }
 
 void ModelManager::startBpk(const char* pBpkName) {
     stopBpk();
-    mBpkPlayer->start(pBpkName);
-    mMaterialUpdater->onCurFlagBpk(mBpkPlayer->mAnmRes);
+    bpkPlayer()->start(pBpkName);
 }
 
 void ModelManager::startBva(const char* pBvaName) {
     stopBva();
-    mBvaPlayer->start(pBvaName);
+    bvaPlayer()->start(pBvaName);
 }
 
 void ModelManager::stopBtk() {
-    if (mBtkPlayer->mAnmRes != nullptr) {
-        mMaterialUpdater->offCurFlagBtk(mBtkPlayer->mAnmRes);
+    if (mBtkPlayer != nullptr && mBtkPlayer->mAnmRes != nullptr) {
         mBtkPlayer->stop();
     }
 }
 
 void ModelManager::stopBrk() {
-    if (mBrkPlayer->mAnmRes != nullptr) {
-        mMaterialUpdater->offCurFlagBrk(mBrkPlayer->mAnmRes);
+    if (mBrkPlayer != nullptr && mBrkPlayer->mAnmRes != nullptr) {
         mBrkPlayer->stop();
     }
 }
 
 void ModelManager::stopBtp() {
-    if (mBtpPlayer->mAnmRes != nullptr) {
-        mMaterialUpdater->offCurFlagBtp(mBtpPlayer->mAnmRes);
+    if (mBtpPlayer != nullptr && mBtpPlayer->mAnmRes != nullptr) {
         mBtpPlayer->stop();
     }
 }
 
 void ModelManager::stopBpk() {
-    if (mBpkPlayer->mAnmRes != nullptr) {
-        mMaterialUpdater->offCurFlagBpk(mBpkPlayer->mAnmRes);
+    if (mBpkPlayer != nullptr && mBpkPlayer->mAnmRes != nullptr) {
         mBpkPlayer->stop();
     }
 }
 
 void ModelManager::stopBva() {
-    if (mBvaPlayer->mAnmRes != nullptr) {
+    if (mBvaPlayer != nullptr && mBvaPlayer->mAnmRes != nullptr) {
         mBvaPlayer->stop();
     }
 }
 
-J3DFrameCtrl* ModelManager::getBckCtrl() const {
-    return mXanimePlayer->_20;
+FrameCtrl* ModelManager::getBckCtrl() const {
+    if (mXanimePlayer == nullptr) {
+        if (mNoBckCtrl == nullptr) {
+            const NebulaArena::CurrentScope scope(arena());
+            mNoBckCtrl = new FrameCtrl();
+        }
+
+        return mNoBckCtrl;
+    }
+
+    return mXanimePlayer->getFrameCtrl();
 }
 
-J3DFrameCtrl* ModelManager::getBtkCtrl() const {
-    return &mBtkPlayer->mFrameCtrl;
+FrameCtrl* ModelManager::getBtkCtrl() const {
+    return &btkPlayer()->mFrameCtrl;
 }
 
-J3DFrameCtrl* ModelManager::getBrkCtrl() const {
-    return &mBrkPlayer->mFrameCtrl;
+FrameCtrl* ModelManager::getBrkCtrl() const {
+    return &brkPlayer()->mFrameCtrl;
 }
 
-J3DFrameCtrl* ModelManager::getBtpCtrl() const {
-    return &mBtpPlayer->mFrameCtrl;
+FrameCtrl* ModelManager::getBtpCtrl() const {
+    return &btpPlayer()->mFrameCtrl;
 }
 
-J3DFrameCtrl* ModelManager::getBpkCtrl() const {
-    return &mBpkPlayer->mFrameCtrl;
+FrameCtrl* ModelManager::getBpkCtrl() const {
+    return &bpkPlayer()->mFrameCtrl;
 }
 
-J3DFrameCtrl* ModelManager::getBvaCtrl() const {
-    return &mBvaPlayer->mFrameCtrl;
+FrameCtrl* ModelManager::getBvaCtrl() const {
+    return &bvaPlayer()->mFrameCtrl;
 }
 
 bool ModelManager::isBckStopped() const {
-    return mXanimePlayer->_24[mXanimePlayer->_54].checkState(1);
+    return mXanimePlayer == nullptr || mXanimePlayer->isTerminate();
 }
 
 bool ModelManager::isBtkStopped() const {
@@ -264,32 +245,33 @@ bool ModelManager::isBvaStopped() const {
 }
 
 bool ModelManager::isBtkPlaying(const char* pBtkName) const {
-    return mBtkPlayer->isPlaying(pBtkName);
+    return mBtkPlayer != nullptr && mBtkPlayer->isPlaying(pBtkName);
 }
 
 bool ModelManager::isBrkPlaying(const char* pBrkName) const {
-    return mBrkPlayer->isPlaying(pBrkName);
+    return mBrkPlayer != nullptr && mBrkPlayer->isPlaying(pBrkName);
 }
 
 bool ModelManager::isBpkPlaying(const char* pBpkName) const {
-    return mBpkPlayer->isPlaying(pBpkName);
+    return mBpkPlayer != nullptr && mBpkPlayer->isPlaying(pBpkName);
 }
 
 bool ModelManager::isBtpPlaying(const char* pBtpName) const {
-    return mBtpPlayer->isPlaying(pBtpName);
+    return mBtpPlayer != nullptr && mBtpPlayer->isPlaying(pBtpName);
 }
 
 bool ModelManager::isBvaPlaying(const char* pBvaName) const {
-    return mBvaPlayer->isPlaying(pBvaName);
+    return mBvaPlayer != nullptr && mBvaPlayer->isPlaying(pBvaName);
 }
 
 void ModelManager::initJointTransform() {
-    mXanimePlayer->mCore->enableJointTransform(getJ3DModelData());
+    mXanimePlayer->mCore->enableJointTransform(getModelData());
 }
 
 XjointTransform* ModelManager::getJointTransform(const char* pJointName) {
-    s32 index = getJ3DModel()->getModelData()->getJointName()->getIndex(pJointName);
-    return mXanimePlayer->mCore->getJointTransform(index);
+    s32 index = getModel()->getModelData()->findJoint(pJointName);
+    // A joint name the model lacks is the root joint.
+    return mXanimePlayer->mCore->getJointTransform(index >= 0 ? index : 0);
 }
 
 ResourceHolder* ModelManager::getResourceHolder() const {
@@ -304,7 +286,7 @@ ResourceHolder* ModelManager::getModelResourceHolder() const {
     return mModelResourceHolder;
 }
 
-J3DModel* ModelManager::getJ3DModel() const {
+Model* ModelManager::getModel() const {
     if (mXanimePlayer == nullptr) {
         return mModel;
     }
@@ -312,8 +294,8 @@ J3DModel* ModelManager::getJ3DModel() const {
     return mXanimePlayer->mModel;
 }
 
-J3DModelData* ModelManager::getJ3DModelData() const {
-    return getJ3DModel()->mModelData;
+ModelData* ModelManager::getModelData() const {
+    return getModel()->mModelData;
 }
 
 const char* ModelManager::getPlayingBckName() const {
@@ -324,22 +306,73 @@ const char* ModelManager::getPlayingBckName() const {
     return nullptr;
 }
 
-void ModelManager::initModelAndAnimation(ResourceHolder* pModelHolder, const char* pModelName, ResourceHolder* pAnimationHolder, J3DMdlFlag flags) {
+void ModelManager::initModelAndAnimation(ResourceHolder* pModelHolder, const char* pModelName, ResourceHolder* pAnimationHolder, ModelFlag flags) {
     mModelResourceHolder = pModelHolder;
     if (pAnimationHolder->mMotionResTable->mCount == 0) {
-        mModel = MR::newJ3DModel(pModelHolder, pModelName, flags);
+        mModel = MR::createModel(pModelHolder, pModelName, flags);
     } else {
         mXanimeResourceTable = MR::newXanimeResourceTable(pAnimationHolder);
         mXanimePlayer = MR::newXanimePlayer(pModelHolder, pModelName, pAnimationHolder, flags, mXanimeResourceTable);
     }
 }
 
+// The arena the manager lies in (its actor's): what it makes later lives as long as it does.
+NebulaArena* ModelManager::arena() const {
+    NebulaArena* const pArena = NebulaArena::findFromRoot(const_cast< ModelManager* >(this));
+    return pArena != nullptr ? pArena : NebulaArena::current();
+}
+
+BtkPlayer* ModelManager::btkPlayer() const {
+    if (mBtkPlayer == nullptr) {
+        const NebulaArena::CurrentScope scope(arena());
+        mBtkPlayer = new BtkPlayer(getResourceHolder(), getModelData());
+    }
+
+    return mBtkPlayer;
+}
+
+BrkPlayer* ModelManager::brkPlayer() const {
+    if (mBrkPlayer == nullptr) {
+        const NebulaArena::CurrentScope scope(arena());
+        mBrkPlayer = new BrkPlayer(getResourceHolder(), getModelData());
+    }
+
+    return mBrkPlayer;
+}
+
+BtpPlayer* ModelManager::btpPlayer() const {
+    if (mBtpPlayer == nullptr) {
+        const NebulaArena::CurrentScope scope(arena());
+        mBtpPlayer = new BtpPlayer(getResourceHolder(), getModelData());
+    }
+
+    return mBtpPlayer;
+}
+
+BpkPlayer* ModelManager::bpkPlayer() const {
+    if (mBpkPlayer == nullptr) {
+        const NebulaArena::CurrentScope scope(arena());
+        mBpkPlayer = new BpkPlayer(getResourceHolder(), getModelData());
+    }
+
+    return mBpkPlayer;
+}
+
+BvaPlayer* ModelManager::bvaPlayer() const {
+    if (mBvaPlayer == nullptr) {
+        const NebulaArena::CurrentScope scope(arena());
+        mBvaPlayer = new BvaPlayer(getResourceHolder()->getBvaResTable(), getModel());
+    }
+
+    return mBvaPlayer;
+}
+
 void ModelManager::initMaterialAnm() {
     ResourceHolder* pResourceHolder = getResourceHolder();
-    J3DModelData* pModelData = getJ3DModelData();
+    ModelData* pModelData = getModelData();
 
-    if (pResourceHolder->mMaterialBuf == nullptr) {
-        pResourceHolder->newMaterialAnmBuffer(pModelData);
+    if (!pResourceHolder->mMaterialBound) {
+        pResourceHolder->bindMaterialAnimations(pModelData);
     }
 
     if (pResourceHolder->mBtkResTable->mCount != 0) {
@@ -363,7 +396,7 @@ void ModelManager::initVisibilityAnm() {
     ResourceHolder* pResourceHolder = getResourceHolder();
 
     if (pResourceHolder->mBvaResTable->mCount != 0) {
-        mBvaPlayer = new BvaPlayer(pResourceHolder->getBvaResTable(), getJ3DModel());
+        mBvaPlayer = new BvaPlayer(pResourceHolder->getBvaResTable(), getModel());
     }
 }
 
@@ -376,9 +409,7 @@ void ModelManager::calc() {
         mBvaPlayer->calc();
     }
 
-    (MR::MutexHolder< 0 >::sMutex).lock();
-    getJ3DModel()->calc();
-    (MR::MutexHolder< 0 >::sMutex).unlock();
+    getModel()->calc();
 
     if (mXanimePlayer != nullptr) {
         mXanimePlayer->clearAnm(0);
@@ -402,35 +433,21 @@ void ModelManager::changeBckSetting(const char* pBckName, const char* pActorAnim
 }
 
 void ModelManager::init(const char* pModelName, const char* pAnimationName, bool deferMaterials) {
-    char modelArchive[256];
-    nebula_snprintf(modelArchive, sizeof(modelArchive), "%s.arc", pModelName);
-    ResourceHolder* modelHolder = MR::createAndAddResourceHolder(modelArchive);
-    ResourceHolder* animationHolder;
-    if (pAnimationName == nullptr) {
-        animationHolder = modelHolder;
-    } else {
-        char animationArchive[256];
-        nebula_snprintf(animationArchive, sizeof(animationArchive), "%s.arc", pAnimationName);
-        animationHolder = MR::createAndAddResourceHolder(animationArchive);
-    }
+    ResourceHolder* modelHolder = MR::createAndAddResourceHolder(pModelName);
+    ResourceHolder* animationHolder = pAnimationName == nullptr ? modelHolder : MR::createAndAddResourceHolder(pAnimationName);
 
     bool hasMaterialAnm = animationHolder->isExistMaterialAnm();
-    bool hasDiffMaterial = MaterialUpdater::isExistDiffMaterial(static_cast< J3DModelData* >(modelHolder->mModelResTable->getRes(pModelName)));
-    J3DMdlFlag flags = J3DMdlFlag_UseSharedSnapshot;
-    if (deferMaterials || hasMaterialAnm || hasDiffMaterial) {
-        flags = static_cast< J3DMdlFlag >(flags | J3DMdlFlag_DifferedSnapshots);
-    }
-
-    initModelAndAnimation(modelHolder, pModelName, animationHolder, flags);
+    bool hasMovingMaterial = MaterialUpdater::hasMovingMaterial(static_cast< ModelData* >(modelHolder->mModelResTable->getRes(pModelName)));
+    initModelAndAnimation(modelHolder, pModelName, animationHolder, ModelFlag_None);
     initVisibilityAnm();
     if (hasMaterialAnm) {
         initMaterialAnm();
     }
 
-    if (flags & J3DMdlFlag_DifferedSnapshots) {
-        mMaterialUpdater = new MaterialUpdater(getJ3DModel(), getResourceHolder());
+    if (deferMaterials || hasMaterialAnm || hasMovingMaterial) {
+        mMaterialUpdater = new MaterialUpdater(getModel(), getResourceHolder());
         if (!deferMaterials) {
-            mMaterialUpdater->newDifferedSnapshot();
+            mMaterialUpdater->prepareMaterials();
         }
     }
 }

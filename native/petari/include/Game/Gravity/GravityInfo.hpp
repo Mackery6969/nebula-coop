@@ -10,7 +10,6 @@ public:
 
     void init();
 
-    TVec3f mGravityVector;
-    s32 mLargestPriority;
+    Vec3f mGravityVector;
     PlanetGravity* mGravityInstance;
 };

@@ -9,32 +9,30 @@
 #include "Game/Effect/ParticleResourceHolder.hpp"
 #include "Game/Effect/SingleEmitter.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
-#include "Game/Util/MemoryUtil.hpp"
+#include "Game/Util/HashUtil.hpp"
+#include "Game/System/NebulaArena.hpp"
+#include "Game/Util/SceneUtil.hpp"
 #include "Game/Util/ScreenUtil.hpp"
-#include <JSystem/JParticle/JPAParticle.hpp>
-#include <JSystem/JParticle/JPAEmitter.hpp>
-#include <JSystem/JParticle/JPAEmitterManager.hpp>
+#include "Game/Particle/ParticleCore.hpp"
+#include "Game/Particle/EmitterCore.hpp"
+#include "Game/Particle/EmitterManager.hpp"
 
 EffectSystem::EffectSystem(const char* pName, bool createAdaptors)
-    : NameObj(pName), mEmitterManager(), mDrawExec(), mCalcExec(), mGroupHolder(new AutoEffectGroupHolder()), _20(true) {
+    : NameObj(pName), mEmitterManager(), mDrawExec(), mCalcExec(), mGroupHolder(new AutoEffectGroupHolder()) {
     mDrawExec = new ParticleDrawExecutor(this, createAdaptors);
     mCalcExec = new ParticleCalcExecutor(this, createAdaptors);
 }
 
-void EffectSystem::init(const JMapInfoIter& rIter) {
+void EffectSystem::init(const TableIter& /*rIter*/) {
 }
 
 ParticleEmitter* EffectSystem::createEmitter(u16 resourceId, u8 groupId, u8 resourceManagerId) {
-    if (!_20) {
-        return nullptr;
-    }
-
     ParticleEmitter* pEmitter = mEmitterHolder->findAvailableParticleEmitter();
     if (pEmitter == nullptr) {
         return nullptr;
     }
 
-    MR::Effect::createParticleEmitter(pEmitter, mEmitterManager, TVec3f(0.0f, 0.0f, 0.0f), resourceId, groupId, resourceManagerId);
+    MR::Effect::createParticleEmitter(pEmitter, mEmitterManager, Vec3f(0.0f, 0.0f, 0.0f), resourceId, groupId, resourceManagerId);
     if (pEmitter->mEmitter != nullptr) {
         return pEmitter;
     }
@@ -52,6 +50,7 @@ void EffectSystem::forceDeleteEmitter(ParticleEmitter* pEmitter) const {
 
         mEmitterManager->forceDeleteEmitter(pEmitter->mEmitter);
         pEmitter->invalidate();
+        pEmitter->mHolder->released(pEmitter);
     }
 }
 
@@ -63,6 +62,7 @@ void EffectSystem::forceDeleteSingleEmitter(SingleEmitter* pSingleEmitter) const
 
         mEmitterManager->forceDeleteEmitter(pEmitter->mEmitter);
         pEmitter->invalidate();
+        pEmitter->mHolder->released(pEmitter);
     }
 }
 
@@ -76,7 +76,7 @@ void EffectSystem::createSingleEmitter(SingleEmitter* pSingleEmitter, MultiEmitt
         pSingleEmitter->unlink();
     }
 
-    ParticleEmitter* pEmitter = createEmitter(pSingleEmitter->_4, pSingleEmitter->mGroupId, 0);
+    ParticleEmitter* pEmitter = createEmitter(pSingleEmitter->mResourceId, pSingleEmitter->mGroupId, 0);
 
     if (pEmitter != nullptr) {
         pSingleEmitter->link(pEmitter);
@@ -97,12 +97,14 @@ namespace MR {
     }
 };  // namespace MR
 
-EffectSystem::~EffectSystem() {
-}
-
-void EffectSystem::entry(ParticleResourceHolder* pResourceHolder, u32 particleCount, u32 emitterCount) {
-    mEmitterManager = new JPAEmitterManager(particleCount, emitterCount, MR::getCurrentHeap(), 9, 1);
+void EffectSystem::entry(ParticleResourceHolder* pResourceHolder, u32 emitterCount) {
+    mEmitterManager = new EmitterManager(emitterCount, NebulaArena::current(), 9, 1);
     mEmitterManager->entryResourceManager(pResourceHolder->mResourceMgr, 0);
+    startScene();
     mEmitterHolder = new ParticleEmitterHolder(this, emitterCount);
     pResourceHolder->swapTexture(MR::getScreenResTIMG(), "IndDummy");
+}
+
+void EffectSystem::startScene() {
+    mEmitterManager->startScene(MR::getHashCode(MR::getCurrentStageName()));
 }

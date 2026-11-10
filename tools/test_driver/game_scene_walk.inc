@@ -5,10 +5,10 @@
     u32 sTestSwimFrames = 0;
 
     // A point inside one of the scene's bodies of water: the oceans first, then the water areas.
-    bool testWaterPoint(s32 index, TVec3f* pPos, const char** ppKind, s32* pCount) {
+    bool testWaterPoint(s32 index, Vec3f* pPos, const char** ppKind, s32* pCount) {
         s32 count = 0;
         bool found = false;
-        const auto offer = [&](const TVec3f& rPos, const char* pKind) {
+        const auto offer = [&](const Vec3f& rPos, const char* pKind) {
             if (count == index) {
                 *pPos = rPos;
                 *ppKind = pKind;
@@ -30,13 +30,13 @@
         if (pHolder != nullptr) {
             for (s32 i = 0; i < pHolder->mNumOceanBowls; ++i) {
                 OceanBowl* pBowl = pHolder->mOceanBowls[i];
-                TVec3f pos(pBowl->mPosition);
+                Vec3f pos(pBowl->mPosition);
                 pos -= pBowl->mUp * (pBowl->mRadius * 0.25f < 400.0f ? pBowl->mRadius * 0.25f : 400.0f);
                 offer(pos, "bowl");
             }
             for (s32 i = 0; i < pHolder->mNumOceanSpheres; ++i) {
                 OceanSphere* pSphere = pHolder->mOceanSpheres[i];
-                TVec3f pos(pSphere->mPosition);
+                Vec3f pos(pSphere->mPosition);
                 pos.y += pSphere->mRadius * 0.5f;
                 offer(pos, "sphere");
             }
@@ -44,7 +44,7 @@
                 OceanRing* pRing = pHolder->mOceanRings[i];
                 for (s32 j = 0; j < 4; ++j) {
                     WaterPoint* pPoint = pRing->getPoint(j * pRing->mWaterPointNum / 4);
-                    TVec3f pos(pPoint->mPosition);
+                    Vec3f pos(pPoint->mPosition);
                     pos -= pPoint->mUpVec * 150.0f;
                     offer(pos, "ring");
                 }
@@ -52,7 +52,7 @@
         }
         for (s32 i = 0; pAreas != nullptr && i < pAreas->getNumAreaObj(); ++i) {
             AreaObj* pArea = pAreas->getAreaObj(i);
-            TVec3f pos(0.0f, 0.0f, 0.0f);
+            Vec3f pos(0.0f, 0.0f, 0.0f);
             switch (pArea->mFormType) {
             case AreaForm::Type_Cube1:
             case AreaForm::Type_Cube2:
@@ -88,29 +88,29 @@
             const u16 form = kForms[static_cast< u32 >(index) % (sizeof(kForms) / sizeof(kForms[0]))];
             // Only what this stage loaded: a form's models come with the stage's item, as in play.
             MarioActor* pPlayer = MarioAccess::getPlayerActor();
-            const bool loaded = form == PlayerMode_Invincible ? pPlayer->_9C8 != nullptr
-                                : form == PlayerMode_Ice      ? pPlayer->_9C0 != nullptr
-                                : form == PlayerMode_Bee      ? pPlayer->_9E4 != nullptr
-                                : form == PlayerMode_Teresa   ? pPlayer->_9A4 != nullptr
-                                : form == PlayerMode_Hopper   ? pPlayer->_A00 != nullptr
+            const bool loaded = form == PlayerMode_Invincible ? pPlayer->mInvincibleModel != nullptr
+                                : form == PlayerMode_Ice      ? pPlayer->mIceModel != nullptr
+                                : form == PlayerMode_Bee      ? pPlayer->mBeeModel != nullptr
+                                : form == PlayerMode_Teresa   ? pPlayer->mTeresaModel != nullptr
+                                : form == PlayerMode_Hopper   ? pPlayer->mHopperModel != nullptr
                                 : form == PlayerMode_Tornado  ? pPlayer->mTornadoMario != nullptr
                                                               : true;
             if (loaded) {
-                JUTNativeLog("test: form %u\n", form);
+                nebula_log("test: form %u\n", form);
                 pPlayer->setPlayerMode(form, true);
             }
         }
         if (kind == NEBULA_TEST_PLACE_PLAYER_WATER) {
-            TVec3f pos;
+            Vec3f pos;
             const char* pKind = "";
             s32 count = 0;
             if (testWaterPoint(index, &pos, &pKind, &count)) {
                 if (fresh) {
-                    JUTNativeLog("test: water %d/%d %s %.0f %.0f %.0f in %d swam %u\n", count > 0 ? index % count : 0, count, pKind, pos.x, pos.y, pos.z, MR::isInWater(pos) ? 1 : 0, sTestSwimFrames);
+                    nebula_log("test: water %d/%d %s %.0f %.0f %.0f in %d swam %u\n", count > 0 ? index % count : 0, count, pKind, pos.x, pos.y, pos.z, MR::isInWater(pos) ? 1 : 0, sTestSwimFrames);
                 }
                 MR::setPlayerPos(pos);
             } else if (fresh) {
-                JUTNativeLog("test: water none swam %u\n", sTestSwimFrames);
+                nebula_log("test: water none swam %u\n", sTestSwimFrames);
             }
             return;
         }
@@ -165,11 +165,11 @@
                 }
             }
             if (sTarget != nullptr) {
-                JUTNativeLog("test: actor %s %.0f %.0f %.0f\n", MR::getModelResName(sTarget), sTarget->mPosition.x, sTarget->mPosition.y, sTarget->mPosition.z);
+                nebula_log("test: actor %s %.0f %.0f %.0f\n", MR::getModelResName(sTarget), sTarget->mPosition.x, sTarget->mPosition.y, sTarget->mPosition.z);
             }
         }
         if (sTarget != nullptr && !MR::isDead(sTarget)) {
-            TVec3f pos(sTarget->mPosition);
+            Vec3f pos(sTarget->mPosition);
             pos -= sTarget->mGravity * 150.0f;
             MR::setPlayerPos(pos);
         }

@@ -11,7 +11,7 @@ namespace NrvSandCapsuleInsidePlanet {
 SandCapsuleInsidePlanet::SandCapsuleInsidePlanet(const char* pName) : MapObjActor(pName) {
 }
 
-void SandCapsuleInsidePlanet::init(const JMapInfoIter& rIter) {
+void SandCapsuleInsidePlanet::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
     MapObjActorInitInfo info;
     MapObjActorUtil::setupInitInfoPlanet(&info);
@@ -21,7 +21,7 @@ void SandCapsuleInsidePlanet::init(const JMapInfoIter& rIter) {
     MR::setBrkFrameEndAndStop(this);
 }
 
-void SandCapsuleInsidePlanet::initCaseUseSwitchA(const MapObjActorInitInfo& rInfo) {
+void SandCapsuleInsidePlanet::initCaseUseSwitchA(const MapObjActorInitInfo& /*rInfo*/) {
     MR::listenStageSwitchOnOffA(this, MR::Functor(this, &SandCapsuleInsidePlanet::startOn), MR::Functor(this, &SandCapsuleInsidePlanet::startOff));
 }
 

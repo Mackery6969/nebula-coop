@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class AnimScaleController;
 class ModelObj;
@@ -11,37 +11,38 @@ class Unizo : public LiveActor {
 public:
     enum Type { TypeSea, TypeLand, TypeShoal };
 
-    Unizo(const char*);
+    Unizo(const char* pName);
 
-    virtual ~Unizo();
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void appear();
-    virtual void makeActorAppeared();
-    virtual void kill();
-    virtual void makeActorDead();
-    virtual MtxPtr getBaseMtx() const;
-    virtual void startClipped();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void initAfterPlacement() override;
+    virtual void appear() override;
+    virtual void makeActorAppeared() override;
+    virtual void kill() override;
+    virtual void makeActorDead() override;
+    virtual MtxPtr getBaseMtx() const override;
+    virtual void startClipped() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
-    void initType(const JMapInfoIter&);
+    void initType();
     void updateRotate();
     void updateVelocity();
-    void udpateInfluence();
-    void udpateBlink();
+    void updateInfluence();
+    void updateBlink();
     void updateSurfaceEffect();
     void deleteEffect();
     void doJump();
-    void doAttack(HitSensor*);
+    void doAttack(HitSensor* pSensor);
     void doJumpDown();
-    void doFireDown(const TVec3f&);
+    void doFireDown(const Vec3f& rDirection);
     void doBreak();
     void doSpin();
+    void fallBroken();
+    bool isBreakModelEnd() const;
     bool isBreakGround();
     bool isBreakNow() const;
     bool tryPointBind();
@@ -62,19 +63,18 @@ public:
     void endPointing();
 
     s32 mType;
-    TQuat4f mQuat;
-    TPos3f mBaseMtx;
-    TPos3f mRippleMtx;
+    Quat4f mQuat;     // the roll
+    Pos3f mBaseMtx;   // up against gravity, at mPosition
+    Pos3f mRippleMtx;
     s32 mFrame;
-    s32 mBlinkCount;
-    s32 mBlinkFrame;
+    s32 mBlinkCount;  // blinks left after an enemy collision
+    s32 mBlinkFrame;  // nerve step (mod 200) of the idle blink
     s32 mSpinAnimTimer;
     f32 mRadiusScale;
     ModelObj* mBreakModel;
     AnimScaleController* mAnimScaleController;
     WalkerStateBindStarPointer* mBindStarPointerState;
-    s32 mJumpCount;
-    s32 _124;
+    s32 mJumpCount;  // set by appear, a jump or a player hit; cleared on the next ground touch
     f32 mGravityRate;
     f32 mRollHeight;
     s32 mRollSoundTimer;

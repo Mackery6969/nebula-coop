@@ -3,30 +3,35 @@
 #include "Game/Effect/SimpleEffectObj.hpp"
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include "Game/Util/PlayerUtil.hpp"
+#include <nebula_geometry.hpp>
 
-class NameObjArchiveListCollector;
 class ActorCameraInfo;
 class ModelObj;
 class CameraTargetMtx;
 
 class MorphItemObjNeo : public LiveActor {
 public:
+    enum Container {
+        Container_None = 0,
+        Container_Bubble = 1,
+        Container_CrystalBox = 2,
+    };
+
     MorphItemObjNeo(const char*, s32);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void appear();
-    virtual void kill();
-    virtual void makeActorDead();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
+    virtual void appear() override;
+    virtual void kill() override;
+    virtual void makeActorDead() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
     virtual bool isDemo() const;
 
-    static void makeArchiveList(NameObjArchiveListCollector*, const JMapInfoIter&);
 
     void glowEffect();
 
@@ -37,81 +42,78 @@ public:
     void exeFly();
     void exeDemo();
 
-    u16 mAppearMode;
-    u16 mAppearFrames;
+    s32 mSpiralTime;    // frames of the switch-appear spiral left
+    s32 mAppearFrames;  // frames of the current appear camera left
     bool mIsUseSwitch;
-    bool mIsFloating;  // Obj_arg2
-    bool _92;
-    u8 mCameraMode;     // Obj_arg5
-    s8 mRotateMode;     // Obj_arg6
-    bool _95;           // Obj_arg0
-    u8 mContainerType;  // Obj_arg3
-    u8 _97;
-    s8 mIsBind;      // Obj_arg1
-    u8 mShadowType;  // Obj_arg4
-    TVec3f mZRotation;
-    s32 mMorphType;
+    bool mIsFloating;  // Obj_arg2 != 1
+    bool mIsDemoPending;
+    u8 mCameraMode;  // appear cameras still to run (Obj_arg5: 1 or 2)
+    s8 mRotateMode;  // Obj_arg6
+    bool mIsSwitchAppearOnce;  // Obj_arg0 == 1
+    u8 mContainerType;         // Container, from Obj_arg3
+    u8 mBoundCount;
+    s8 mIsBind;  // Obj_arg1
+    Vec3f mZRotation;
+    s32 mMorphType;  // PlayerItemStatus
     f32 mAngle;
-    TVec3f mSpawnPosition;
+    Vec3f mSpawnPosition;
     ActorCameraInfo* mActorCameraInfo;
     ModelObj* mContainerModel;
     ModelObj* mContainerBreakModel;
-    TPos3f mBaseMtx;
+    Pos3f mBaseMtx;
     CameraTargetMtx* mCameraTargetMtx;
 };
 
 class MorphItemNeoHopper : public MorphItemObjNeo {
 public:
-    MorphItemNeoHopper(const char* pName) : MorphItemObjNeo(pName, 1) {
+    MorphItemNeoHopper(const char* pName) : MorphItemObjNeo(pName, PlayerItemStatus_Hopper) {
     }
 };
 
 class MorphItemNeoIce : public MorphItemObjNeo {
 public:
-    MorphItemNeoIce(const char* pName) : MorphItemObjNeo(pName, 4) {
+    MorphItemNeoIce(const char* pName) : MorphItemObjNeo(pName, PlayerItemStatus_Ice) {
     }
 };
 
 class MorphItemNeoFire : public MorphItemObjNeo {
 public:
-    MorphItemNeoFire(const char* pName) : MorphItemObjNeo(pName, 5) {
+    MorphItemNeoFire(const char* pName) : MorphItemObjNeo(pName, PlayerItemStatus_Fire) {
     }
 };
 
 class MorphItemNeoFoo : public MorphItemObjNeo {
 public:
-    MorphItemNeoFoo(const char* pName) : MorphItemObjNeo(pName, 6) {
+    MorphItemNeoFoo(const char* pName) : MorphItemObjNeo(pName, PlayerItemStatus_Foo) {
     }
 };
 
 class MorphItemNeoBee : public MorphItemObjNeo {
 public:
-    MorphItemNeoBee(const char* pName) : MorphItemObjNeo(pName, 2) {
+    MorphItemNeoBee(const char* pName) : MorphItemObjNeo(pName, PlayerItemStatus_Bee) {
     }
 };
 
 class MorphItemNeoTeresa : public MorphItemObjNeo {
 public:
-    MorphItemNeoTeresa(const char* pName) : MorphItemObjNeo(pName, 3) {
+    MorphItemNeoTeresa(const char* pName) : MorphItemObjNeo(pName, PlayerItemStatus_Teresa) {
     }
 };
-
-// Why is this here?
 
 class EffectObjR100F50SyncClipping : public SimpleEffectObj {
 public:
     EffectObjR100F50SyncClipping(const char* pName) : SimpleEffectObj(pName) {
     }
 
-    virtual f32 getClippingRadius() const {
+    virtual f32 getClippingRadius() const override {
         return 100.0f;
     }
 
-    virtual f32 getFarClipDistance() const {
+    virtual f32 getFarClipDistance() const override {
         return 50.0f;
     }
 
-    virtual bool isSyncClipping() const {
+    virtual bool isSyncClipping() const override {
         return true;
     }
 };
@@ -121,11 +123,11 @@ public:
     EffectObjR500F50(const char* pName) : SimpleEffectObj(pName) {
     }
 
-    virtual f32 getClippingRadius() const {
+    virtual f32 getClippingRadius() const override {
         return 500.0f;
     }
 
-    virtual f32 getFarClipDistance() const {
+    virtual f32 getFarClipDistance() const override {
         return 50.0f;
     }
 };
@@ -135,11 +137,11 @@ public:
     EffectObjR1000F50(const char* pName) : SimpleEffectObj(pName) {
     }
 
-    virtual f32 getClippingRadius() const {
+    virtual f32 getClippingRadius() const override {
         return 1000.0f;
     }
 
-    virtual f32 getFarClipDistance() const {
+    virtual f32 getFarClipDistance() const override {
         return 50.0f;
     }
 };
@@ -149,21 +151,19 @@ public:
     EffectObj20x20x10SyncClipping(const char* pName) : SimpleEffectObj(pName) {
     }
 
-    virtual f32 getClippingRadius() const {
+    virtual f32 getClippingRadius() const override {
         return 1000.0f;
     }
 
-    virtual f32 getFarClipDistance() const {
+    virtual f32 getFarClipDistance() const override {
         return 50.0f;
     }
 
-    virtual TVec3f* getClippingCenterOffset() const {
-        static TVec3f sOffset;
-        sOffset.set(0.0f, 200.0f, 0.0f);
-        return &sOffset;
+    virtual Vec3f getClippingCenterOffset() const override {
+        return Vec3f(0.0f, 200.0f, 0.0f);
     }
 
-    virtual bool isSyncClipping() const {
+    virtual bool isSyncClipping() const override {
         return true;
     }
 };
@@ -173,18 +173,16 @@ public:
     EffectObj50x50x10SyncClipping(const char* pName) : SimpleEffectObj(pName) {
     }
 
-    virtual f32 getClippingRadius() const {
+    virtual f32 getClippingRadius() const override {
         return 2500.0f;
     };
-    virtual f32 getFarClipDistance() const {
+    virtual f32 getFarClipDistance() const override {
         return 50.0f;
     };
-    virtual TVec3f* getClippingCenterOffset() const {
-        static TVec3f sOffset;
-        sOffset.set(0.0f, 200.0f, 0.0f);
-        return &sOffset;
+    virtual Vec3f getClippingCenterOffset() const override {
+        return Vec3f(0.0f, 200.0f, 0.0f);
     };
-    virtual bool isSyncClipping() const {
+    virtual bool isSyncClipping() const override {
         return true;
     };
 };
@@ -194,21 +192,19 @@ public:
     EffectObj10x10x10SyncClipping(const char* pName) : SimpleEffectObj(pName) {
     }
 
-    virtual f32 getClippingRadius() const {
+    virtual f32 getClippingRadius() const override {
         return 1000.0f;
     }
 
-    virtual f32 getFarClipDistance() const {
+    virtual f32 getFarClipDistance() const override {
         return 50.0f;
     }
 
-    virtual TVec3f* getClippingCenterOffset() const {
-        static TVec3f sOffset;
-        sOffset.set(0.0f, 580.0f, 0.0f);
-        return &sOffset;
+    virtual Vec3f getClippingCenterOffset() const override {
+        return Vec3f(0.0f, 580.0f, 0.0f);
     }
 
-    virtual bool isSyncClipping() const {
+    virtual bool isSyncClipping() const override {
         return true;
     }
 };

@@ -1,14 +1,13 @@
 #pragma once
 
 #include "Game/MapObj/MapObjActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
-class NameObjArchiveListCollector;
 
 struct SoundEffectDataEntry {
     const char* objectName;
     const char* soundName;
-    f32 _8;
+    f32 rotatorRadius;
 };
 
 class SimpleMapObj : public MapObjActor {
@@ -16,10 +15,10 @@ public:
     SimpleMapObj(const char* pName) : MapObjActor(pName) {
     }
 
-    virtual ~SimpleMapObj() {
+    virtual ~SimpleMapObj() override {
     }
 
-    virtual void init(const JMapInfoIter&);
+    virtual void init(const TableIter&) override;
 };
 
 class SimpleEnvironmentObj : public MapObjActor {
@@ -27,9 +26,8 @@ public:
     inline SimpleEnvironmentObj(const char* pName) : MapObjActor(pName) {
     }
 
-    virtual ~SimpleEnvironmentObj();
-    virtual void init(const JMapInfoIter&);
-    virtual void connectToScene(const MapObjActorInitInfo&);
+    virtual void init(const TableIter&) override;
+    virtual void connectToScene(const MapObjActorInitInfo&) override;
 };
 
 class SimpleMapObjFarMax : public SimpleMapObj {
@@ -37,10 +35,10 @@ public:
     inline SimpleMapObjFarMax(const char* pName) : SimpleMapObj(pName) {
     }
 
-    virtual ~SimpleMapObjFarMax() {
+    virtual ~SimpleMapObjFarMax() override {
     }
 
-    virtual void init(const JMapInfoIter&);
+    virtual void init(const TableIter&) override;
 };
 
 class SimpleMapObjPush : public SimpleMapObj {
@@ -48,8 +46,7 @@ public:
     inline SimpleMapObjPush(const char* pName) : SimpleMapObj(pName) {
     }
 
-    virtual ~SimpleMapObjPush();
-    virtual void attackSensor(HitSensor*, HitSensor*);
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
 };
 
 class SimpleMapObjNoSilhouetted : public SimpleMapObj {
@@ -57,28 +54,24 @@ public:
     inline SimpleMapObjNoSilhouetted(const char* pName) : SimpleMapObj(pName) {
     }
 
-    virtual ~SimpleMapObjNoSilhouetted();
-    virtual void connectToScene(const MapObjActorInitInfo&);
+    virtual void connectToScene(const MapObjActorInitInfo&) override;
 };
 
 class SimpleSeesawObj : public MapObjActor {
 public:
     SimpleSeesawObj(const char*);
 
-    virtual ~SimpleSeesawObj();
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
+    virtual void init(const TableIter&) override;
+    virtual void control() override;
 
-    TMtx34f _C4;
 };
 
 class SimpleMirrorObj : public MapObjActor {
 public:
-    SimpleMirrorObj(const char* pName, const char* a2 = nullptr, MtxPtr = nullptr);
+    SimpleMirrorObj(const char* pName, const char* pObjName = nullptr, MtxPtr = nullptr);
 
-    virtual ~SimpleMirrorObj();
-    virtual void init(const JMapInfoIter&);
-    virtual void calcAndSetBaseMtx();
+    virtual void init(const TableIter&) override;
+    virtual void calcAndSetBaseMtx() override;
 
     MtxPtr mMtx;
 };
@@ -88,9 +81,8 @@ public:
     inline SimpleMirrorReflectionObj(const char* pName) : SimpleMapObj(pName) {
     }
 
-    virtual ~SimpleMirrorReflectionObj();
-    virtual void init(const JMapInfoIter&);
-    virtual void connectToScene(const MapObjActorInitInfo&);
+    virtual void init(const TableIter&) override;
+    virtual void connectToScene(const MapObjActorInitInfo&) override;
 };
 
 class SimpleTextureSwitchChangeObj : public SimpleMapObj {
@@ -98,8 +90,7 @@ public:
     inline SimpleTextureSwitchChangeObj(const char* pName) : SimpleMapObj(pName) {
     }
 
-    virtual ~SimpleTextureSwitchChangeObj();
-    virtual void initCaseUseSwitchA(const MapObjActorInitInfo&);
+    virtual void initCaseUseSwitchA(const MapObjActorInitInfo&) override;
     virtual s32 getChangedTextureNo() const;
 
     void changeTexture();
@@ -110,8 +101,7 @@ public:
     inline UFOKinokoUnderConstruction(const char* pName) : MapObjActor(pName) {
     }
 
-    virtual ~UFOKinokoUnderConstruction();
-    virtual void init(const JMapInfoIter&);
+    virtual void init(const TableIter&) override;
 };
 
 class GlaringLight : public SimpleMapObj {
@@ -119,10 +109,8 @@ public:
     inline GlaringLight(const char* pName) : SimpleMapObj(pName) {
     }
 
-    virtual ~GlaringLight();
-    virtual void connectToScene(const MapObjActorInitInfo&);
+    virtual void connectToScene(const MapObjActorInitInfo&) override;
 };
 
 namespace MR {
-    void makeArchiveListUFOKinokoUnderConstruction(NameObjArchiveListCollector*, const JMapInfoIter&);
 };  // namespace MR

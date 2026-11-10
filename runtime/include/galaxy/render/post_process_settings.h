@@ -57,31 +57,80 @@ struct PostConstants {
     std::uint32_t con2[4];
     std::uint32_t con3[4];
     float params[4];         // resample: source size, target size
-    std::int32_t origin[4];  // the pass viewport's origin in the target
-    float source[4];         // the input's picture in its texture (set_post_source); zero: all picture
+    // origin[0..1]: the pass viewport's origin in the target. origin[2]: 0 an intermediate picture, 1 the last write into an
+    // 8-bit window (dithered), 2 the last write as HDR10 (set_post_output). origin[3]: with 2, the paper white and the
+    // display's peak (post_output_word).
+    std::int32_t origin[4];
 };
-static_assert(sizeof(PostConstants) == 32u * 4u);
+static_assert(sizeof(PostConstants) == 28u * 4u);
 
 // rt_metrics for a pass reading a `width` x `height` input.
 void set_post_input_size(PostConstants& constants, unsigned width, unsigned height) noexcept;
-// `source` for a pass reading a `width` x `height` picture held from the top left of a `texture_width` x
-// `texture_height` texture (post_process.hlsl SourceUv); zero when the picture fills it.
-void set_post_source(PostConstants& constants, unsigned width, unsigned height, unsigned texture_width,
-                     unsigned texture_height) noexcept;
 // FsrEasuCon with the input viewport equal to the input resource.
 void set_fsr_easu_constants(PostConstants& constants, float in_width, float in_height, float out_width,
                             float out_height) noexcept;
 // FsrRcasCon: sharpness 0-100 (100 strongest).
 void set_fsr_rcas_constants(PostConstants& constants, unsigned sharpness_percent) noexcept;
-// The deband passes (post_process.hlsl PASS_DEBAND*) on a picture `width` x `height` smoothed at 1/`reduction` of its
-// size: the reach (48 pixels at 1080 lines, in reduced pixels), the threshold (1.5 levels of 255) and the scale from a
-// pixel position to the smoothed picture's coordinates.
-void set_deband_constants(PostConstants& constants, unsigned width, unsigned height, unsigned reduction) noexcept;
-// The reduction the deband smooths at: 1 below 1080 lines (one pass), then 2, 4 and 8.
-[[nodiscard]] unsigned deband_reduction(unsigned height) noexcept;
-// The reduced picture's size along an axis of `size` pixels.
-[[nodiscard]] unsigned deband_reduced_size(unsigned size, unsigned reduction) noexcept;
-// The deband pass runs (GALAXY_DEBAND=0: off, for comparisons).
+// HDR10 output. The last write of the chain encodes the display-referred picture either for an 8-bit window (the SDR path,
+// untouched by HDR) or, with HDR on and a display in HDR mode, as HDR10: the picture's gamma 2.2 decoded, BT.709 to
+// BT.2020, scaled so that 1.0 is the paper white, highlights above it rolled off to the display's peak by the BT.2390 curve,
+// PQ encoded and dithered to 10 bits. post_process.hlsl's FinalWriteHdr does that per pixel; hdr10_encode is the same on
+// the CPU (tests, and the proof of what the shader computes).
+inline constexpr unsigned kPaperWhiteMin = 80u;
+inline constexpr unsigned kPaperWhiteMax = 500u;
+inline constexpr unsigned kPaperWhiteDefault = 200u;
+// Scene values up to this many times the paper white keep their level on a display with the range for it; above it they
+// are clipped to the peak (the shader's roll-off takes this as the source's range).
+inline constexpr float kHdrHeadroom = 4.0f;
+[[nodiscard]] unsigned clamp_paper_white(unsigned nits) noexcept;
+
+struct PostOutput {
+    bool hdr = false;
+    unsigned paper_white_nits = kPaperWhiteDefault;
+    unsigned peak_nits = 1000u;
+};
+// What the display reports and what the renderer made of it: published by the renderer for the settings page and the logs.
+struct DisplayHdr {
+    bool available = false;        // the display is in HDR mode and this renderer can write HDR10 to it
+    bool active = false;           // the swap chain is HDR10 now
+    unsigned peak_nits = 0;        // the output's MaxLuminance (0: not reported)
+    unsigned full_frame_nits = 0;  // MaxFullFrameLuminance
+    unsigned min_nits_10000 = 0;   // MinLuminance in units of 0.0001 nit
+};
+[[nodiscard]] DisplayHdr get_display_hdr();
+void set_display_hdr(const DisplayHdr& display);
+// HDR on in the settings and a display that takes it.
+[[nodiscard]] bool hdr_output_wanted(const RenderConfig& cfg, const DisplayHdr& display) noexcept;
+// The levels the last write encodes for: the paper white clamped to its range, the display's peak (1000 nits when it
+// reports none) kept above the paper white and below the PQ range.
+[[nodiscard]] PostOutput post_output_for(const RenderConfig& cfg, const DisplayHdr& display) noexcept;
+// origin[3] for an HDR write: paper white in bits 0-9, peak in bits 10-23.
+[[nodiscard]] std::int32_t post_output_word(const PostOutput& output) noexcept;
+// Sets origin[2] and origin[3] for the chain's last write (the SDR window write for output.hdr false).
+void set_post_output(PostConstants& constants, const PostOutput& output) noexcept;
+// SMPTE ST 2084 (PQ): luminance in nits <-> code value 0..1.
+[[nodiscard]] float pq_encode(float nits) noexcept;
+[[nodiscard]] float pq_decode(float code) noexcept;
+// `picture` (display-referred, 1.0 = the SDR white) as the PQ code values the HDR write stores.
+void hdr10_encode(const float picture[3], unsigned paper_white_nits, unsigned peak_nits, float code[3]) noexcept;
+// The static metadata for the display's figures (BT.2020 primaries, D65): luminances in nits.
+struct HdrMetadata {
+    float red[2];
+    float green[2];
+    float blue[2];
+    float white[2];
+    float max_luminance;
+    float min_luminance;
+    float max_content_light;
+    float max_frame_average_light;
+};
+[[nodiscard]] HdrMetadata hdr10_metadata(const DisplayHdr& display, unsigned paper_white_nits) noexcept;
+
+// The scene's words (10 bits a channel, alpha 2) from and to RGBA8 rows.
+void rgba8_to_ten_bit(const std::uint8_t* rgba, std::uint8_t* words, unsigned width, unsigned height,
+                      unsigned pitch) noexcept;
+void ten_bit_to_rgba8(const std::uint8_t* words, std::uint8_t* rgba, unsigned width, unsigned height,
+                      unsigned word_pitch, unsigned rgba_pitch) noexcept;
 
 // The AA start-up self-test: a 32 x 32 white-over-black edge stepping down one row every four columns, the jagged
 // case both passes exist for. A working pass blends a few dozen pixels along the steps and leaves flat areas alone.
@@ -95,6 +144,16 @@ struct PostSelfTestResult {
 };
 [[nodiscard]] PostSelfTestResult check_post_self_test(const std::uint8_t* pattern, const std::uint8_t* result,
                                                       unsigned pitch) noexcept;
+
+// What the AA passes can do after the start: SMAA needs its pipelines and lookup textures, FXAA its pipeline. A pass
+// that cannot run has its reason for the settings overlay ("" when it can).
+struct AaAvailability {
+    bool smaa_ok = false;
+    bool fxaa_ok = false;
+    const char* smaa_reason = "";
+    const char* fxaa_reason = "";
+};
+[[nodiscard]] AaAvailability aa_availability(bool smaa_pipelines, bool lookup_textures, bool fxaa_pipeline) noexcept;
 
 // What the presentation chain can do and did last frame; published by the
 // renderer for the settings overlay and the logs.
@@ -129,5 +188,7 @@ void set_post_process_status(const PostProcessStatus& status);
 
 // Whether AMD FidelityFX FSR 3.1 is compiled in (temporal_upscaler.cpp; D3D12 only).
 [[nodiscard]] bool fsr3_available() noexcept;
+// Whether this renderer runs Snapdragon Game Super Resolution 2 (upscaler 5; the Vulkan renderer's sgsr2_vk.cpp).
+[[nodiscard]] bool sgsr2_available() noexcept;
 
 }  // namespace galaxy::render

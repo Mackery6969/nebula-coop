@@ -6,14 +6,12 @@ class CollisionParts;
 
 class SandUpDownTriRock : public MapObjActor {
 public:
-    /// @brief Creates a new `SandUpDownTriRock`.
-    /// @param pName A pointer to the null-terminated name of the object.
     SandUpDownTriRock(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void control();
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual void initCaseUseSwitchB(const MapObjActorInitInfo&);
+    virtual void init(const TableIter& rIter) override;
+    virtual void control() override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual void initCaseUseSwitchB(const MapObjActorInitInfo&) override;
 
     void startDown();
 

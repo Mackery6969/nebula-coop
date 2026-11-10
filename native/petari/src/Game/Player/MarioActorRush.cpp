@@ -18,16 +18,16 @@
 void MarioActor::settingRush() {
     rushDropThrowMemoSensor();
 
-    switch ((s32)_924->mType) {
+    switch ((s32)mRushSensor->mType) {
     case ATYPE_WATER_PRESSURE_BULLET_BIND:
         mMario->touchWater();
         break;
     }
 
-    _934 = 1;
+    mInRush = 1;
     resetCondition();
     XanimePlayer* p = mMario->getAnimator()->mXanimePlayer;
-    p->_7E = false;
+    p->mReturnToDefault = false;
 }
 
 bool MarioActor::isFixJumpRushSensor(const HitSensor* pSensor) const {
@@ -59,8 +59,8 @@ bool MarioActor::isLandEffectRushSensor(const HitSensor* pSensor) const {
 void MarioActor::resetCondition() {
     bool inWater = false;
 
-    if (_EA5) {
-        MR::extractMtxTrans(_EA8.mMtx, &mPosition);
+    if (mBaseMtxForced) {
+        MR::extractMtxTrans(mForcedBaseMtx.mMtx, &mPosition);
         mMario->mPosition = mPosition;
     }
 
@@ -70,20 +70,20 @@ void MarioActor::resetCondition() {
 
     mMario->stopAnimationUpper(nullptr);
 
-    if (mMario->mMovementStates._A) {
+    if (mMario->mMovementStates.squat) {
         mMario->cancelSquatMode();
     }
 
     XanimePlayer* p = mMario->getAnimator()->mXanimePlayer;
-    p->_7E = true;
+    p->mReturnToDefault = true;
     mMario->forceStopTornado();
     updateTornado();
 
     mMario->mSwim->mColdWaterDamageInterval = 0;
-    mMario->_1C._3 = 0;
+    mMario->mHitStates.swimLifeDrain = 0;
 
     if (mMario->isStatusActive(MarioStatus_Swim) && inWater) {
-        if (!_468) {
+        if (!mTakeCount) {
             mMario->mSwim->resetJet();
         }
     } else if (mMario->isStatusActive(MarioStatus_Teresa) && mPlayerMode == 6) {
@@ -96,25 +96,23 @@ void MarioActor::resetCondition() {
         mMario->closeStatus(nullptr);
     }
 
-    bool was1F = mMario->mMovementStates._1F;
-    mMario->mMovementStates_LOW_WORD = 0;
-    mMario->mMovementStates_HIGH_WORD = 0;
-    mMario->_10_LOW_WORD = 0;
-    mMario->_10_HIGH_WORD = 0;
-    mMario->mMovementStates._1F = was1F;
+    bool was1F = mMario->mMovementStates.invincible;
+    mMario->mMovementStates = Mario::MovementStates();
+    mMario->mActionStates = Mario::ActionStates();
+    mMario->mMovementStates.invincible = was1F;
 
     resetPadSwing();
 
     if (mMario->isStatusActive(MarioStatus_Swim) && inWater) {
-        if (_468) {
-            mMario->changeAnimation("\220\205\211\152\203\127\203\106\203\142\203\147" /* 水泳ジェット */, "\220\205\211\152\203\127\203\106\203\142\203\147" /* 水泳ジェット */);
+        if (mTakeCount) {
+            mMario->changeAnimation("水泳ジェット", "水泳ジェット");
         } else {
-            mMario->changeAnimation(nullptr, "\220\205\211\152\212\356\226\173" /* 水泳基本 */);
+            mMario->changeAnimation(nullptr, "水泳基本");
         }
     } else {
-        mMario->changeAnimation(nullptr, "\212\356\226\173" /* 基本 */);
+        mMario->changeAnimation(nullptr, "基本");
 
-        if (_468) {
+        if (mTakeCount) {
             mMarioAnim->waterToGround();
         }
     }
@@ -122,47 +120,47 @@ void MarioActor::resetCondition() {
     mMario->setFrontVecKeepUp(mMario->mFrontVec);
     updateGravityVec(true, true);
 
-    if (!MR::isNearZero(_24C)) {
-        mMario->setHeadVec(-_24C);
+    if (!MR::isNearZero(mRawGravityVec)) {
+        mMario->setHeadVec(-mRawGravityVec);
     }
 
-    mMario->_1FC = mMario->mHeadVec;
-    mMario->_13C.zero();
-    mMario->_148.zero();
-    mMario->_154.zero();
+    mMario->mPostureUpVec = mMario->mHeadVec;
+    mMario->mLookOfs.zero();
+    mMario->mLookOfsBody.zero();
+    mMario->mLookOfsSink.zero();
     mMario->mVerticalSpeed = 0.0f;
-    mMario->_474->mIdx = -1;
-    stopEffect("\202\242\202\242\212\276" /* いい汗 */);
-    stopEffect("\203\172\203\142\203\160\201\133\220\113\227\216\203\213\203\103\201\133\203\127" /* ホッパー尻落ルイージ */);
-    stopEffect("\203\172\203\142\203\160\201\133\220\113\227\216" /* ホッパー尻落 */);
-    stopEffect("\220\113\227\216\203\213\203\103\201\133\203\127" /* 尻落ルイージ */);
-    stopEffect("\220\113\227\216" /* 尻落 */);
+    mMario->mLastGroundPolygon->mIdx = -1;
+    stopEffect("いい汗");
+    stopEffect("ホッパー尻落ルイージ");
+    stopEffect("ホッパー尻落");
+    stopEffect("尻落ルイージ");
+    stopEffect("尻落");
 
-    _9C4->kill();
-    MR::offCalcAnim(_9C4);
+    mFreezeModel->kill();
+    MR::offCalcAnim(mFreezeModel);
 
     for (u32 i = 0; i < 11; i++) {
-        mMario->_984[i] = nullptr;
+        mMario->mExtraTasks[i] = nullptr;
     }
 
-    if (_EA5) {
+    if (mBaseMtxForced) {
         mMario->changeAnimationInterpoleFrame(0);
         mBlendMtxTimer = 0;
     }
 }
 
 void MarioActor::beginRush() {
-    _924 = _7E4[0];
+    mRushSensor = mRushSensors[0];
     mMarioAnim->clearAllJointTransform();
     MR::invalidateHitSensors(this);
-    stopEffect("\213\244\222\312\225\307\216\350\216\103\202\350" /* 共通壁手擦り */);
-    stopEffect("\203\130\203\163\203\223\203\211\203\103\203\147" /* スピンライト */);
-    bool spinCatch = selectSpinCatchInRush(_924->mHost->mName);
-    if (mPlayerMode == PlayerMode_Bee && selectHideFlyMeter(_924)) {
+    stopEffect("共通壁手擦り");
+    stopEffect("スピンライト");
+    bool spinCatch = selectSpinCatchInRush(mRushSensor->mHost->mName);
+    if (mPlayerMode == PlayerMode_Bee && selectHideFlyMeter(mRushSensor)) {
         MR::getGameSceneLayoutHolder()->changeLifeMeterModeGround();
     }
 
-    if (isFixJumpRushSensor(_924) || spinCatch) {
+    if (isFixJumpRushSensor(mRushSensor) || spinCatch) {
         settingRush();
         getSensor("eye")->validate();
         getSensor("body")->validate();
@@ -170,16 +168,16 @@ void MarioActor::beginRush() {
     }
 
     getSensor("body")->validate();
-    if (_924->isType(ATYPE_POWER_STAR_BIND)) {
+    if (mRushSensor->isType(ATYPE_POWER_STAR_BIND)) {
         MR::forceDeleteEffectAll(this);
-        _1B8->kill();
+        mTrampleCounter->kill();
     }
 
-    if (selectLandEffect(_924)) {
-        playEffect("\223\301\216\352\222\205\222\156" /* 特殊着地 */);
+    if (selectLandEffect(mRushSensor)) {
+        playEffect("特殊着地");
     }
 
-    switch (_924->mType) {
+    switch (mRushSensor->mType) {
     case ATYPE_POWER_STAR_BIND:
         setPlayerMode(PlayerMode_Normal, false);
         resetFog();
@@ -187,133 +185,123 @@ void MarioActor::beginRush() {
     }
 
     settingRush();
-    if (!_924->isType(ATYPE_POWER_STAR_BIND)) {
+    if (!mRushSensor->isType(ATYPE_POWER_STAR_BIND)) {
         setBlendMtxTimer(getConst().getTable()->mRushInBlendTimer);
     }
 }
 
 void MarioActor::endRush(const RushEndInfo* pInfo) {
     bool launched = false;
-    if (_924 && (!pInfo->_1C || _924->mHost == pInfo->_1C)) {
-        _934 = false;
+    if (mRushSensor && (!pInfo->mActor || mRushSensor->mHost == pInfo->mActor)) {
+        mInRush = false;
         NebulaHost::gameContext(NEBULA_CONTEXT_TILT_SECTION, 0);
-        _935 = true;
+        mRushJustEnded = true;
         mMario->stopJump();
-        s32 mode = pInfo->_4;
-        mMario->mMovementStates._22 = false;
-        if (mMario->isStatusActive(MarioStatus_Swim)) {
-            switch (mode) {
-            case 1:
-            case 2:
-            case 3:
-                mode = 4;
-                break;
-            }
+        RushEndInfo::Mode mode = pInfo->mMode;
+        mMario->mMovementStates.inputLocked = false;
+        if (mMario->isStatusActive(MarioStatus_Swim) && (mode == RushEndInfo::Mode_Jump || mode == RushEndInfo::Mode_PowerJump)) {
+            mode = RushEndInfo::Mode_Release;
         }
 
         switch (mode) {
-        case 2:
+        case RushEndInfo::Mode_Jump:
             launched = true;
             mMario->initJumpParam();
-            mMario->mMovementStates._21 = true;
+            mMario->mMovementStates.squatLocked = true;
             if (mPlayerMode == PlayerMode_Bee) {
-                mMario->_774 = 60;
+                mMario->mBeeFlyInhibitTimer = 60;
             }
 
-            mMario->tryForceFreeJump(pInfo->_8);
-            mMario->mMovementStates._9 = true;
-            mMario->_10._D = true;
-            if ((pInfo->_20 >> 30) & 1) {
-                mMario->mMovementStates._2F = true;
+            mMario->tryForceFreeJump(pInfo->mVec);
+            mMario->mMovementStates.wallJump = true;
+            mMario->mActionStates.holdButtonAfterRush = true;
+            if (pInfo->mForced) {
+                mMario->mMovementStates.forcedLaunch = true;
             } else {
-                mMario->mMovementStates._2F = false;
+                mMario->mMovementStates.forcedLaunch = false;
             }
 
-            if (pInfo->_20 >> 31) {
-                mMario->mMovementStates._22 = true;
+            if (pInfo->mInputOff) {
+                mMario->mMovementStates.inputLocked = true;
             }
 
             break;
-        case 3:
+        case RushEndInfo::Mode_PowerJump:
             launched = true;
             if (mPlayerMode == PlayerMode_Bee) {
-                mMario->_774 = 60;
+                mMario->mBeeFlyInhibitTimer = 60;
             }
 
-            mMario->tryForcePowerJump(pInfo->_8, false);
-            if ((pInfo->_20 >> 30) & 1) {
-                mMario->mMovementStates._2F = true;
+            mMario->tryForcePowerJump(pInfo->mVec, false);
+            if (pInfo->mForced) {
+                mMario->mMovementStates.forcedLaunch = true;
             } else {
-                mMario->mMovementStates._2F = false;
+                mMario->mMovementStates.forcedLaunch = false;
             }
 
-            if ((pInfo->_20 >> 23) & 1) {
-                mMario->mMovementStates._20 = false;
+            if (pInfo->mLimitJump) {
+                mMario->mMovementStates.noDropSpeedCap = false;
             }
 
-            if (pInfo->_20 >> 31) {
-                mMario->mMovementStates._22 = true;
+            if (pInfo->mInputOff) {
+                mMario->mMovementStates.inputLocked = true;
             }
 
-            if ((pInfo->_20 >> 24) & 15) {
-                switch ((pInfo->_20 >> 24) & 15) {
-                case 1:
-                    mMario->mMovementStates._1B = true;
-                    mMario->mDamage->setVec(pInfo->_8);
+            if (pInfo->mDamage != RushEndInfo::Damage_None) {
+                switch (pInfo->mDamage) {
+                case RushEndInfo::Damage_Hit:
+                    mMario->mMovementStates.damaged = true;
+                    mMario->mDamage->setVec(pInfo->mVec);
                     break;
-                case 4:
-                    mMario->_10.jumping = true;
+                case RushEndInfo::Damage_Acid:
+                    mMario->mActionStates.rushFireDamage = true;
                     break;
-                case 2:
-                    mMario->_10.jumping = true;
+                case RushEndInfo::Damage_Fire:
+                    mMario->mActionStates.rushFireDamage = true;
                     break;
-                case 5:
-                    mMario->_10._14 = true;
+                case RushEndInfo::Damage_Electric:
+                    mMario->mActionStates.rushElectricDamage = true;
                     break;
-                case 6:
-                    mMario->doFlipLarge(pInfo->_8);
+                case RushEndInfo::Damage_Flip:
+                    mMario->doFlipLarge(pInfo->mVec);
                     break;
-                case 3:
+                case RushEndInfo::Damage_Freeze:
                     mMario->doFreeze();
+                    break;
+                case RushEndInfo::Damage_None:
                     break;
                 }
             }
 
-            mMario->_10._D = true;
-            if (selectRebindTimer(_924)) {
-                _92C = _37C;
+            mMario->mActionStates.holdButtonAfterRush = true;
+            if (selectRebindTimer(mRushSensor)) {
+                mLastRushEndFrame = mFrameCount;
             }
 
             break;
-        case 1:
-            mMario->_10._D = true;
-            mMario->mMovementStates._21 = true;
-            break;
-        case 0:
+        case RushEndInfo::Mode_Wait:
             mMario->stopWalk();
-        case 4:
-            mMario->mMovementStates._B = false;
+            [[fallthrough]];
+        case RushEndInfo::Mode_Release:
+            mMario->mMovementStates.hipDrop = false;
             mMario->mMovementStates.jumping = false;
-            mMario->_3C0 = 0;
-            break;
-        case 5:
-            takeSensor(_924);
+            mMario->mDropWaitTimer = 0;
             break;
         }
 
-        mMario->_10._8 = pInfo->_20 >> 22;
-        if (!_3D0) {
-            TPos3f base;
-            TVec3f front;
-            NebulaMtxConcat(getBaseMtx(), _E3C, base);
+        mMario->mActionStates.rollLanding = pInfo->mRollLanding;
+        if (!mRushEndFrontMode) {
+            Pos3f base;
+            Vec3f front;
+            NebulaMtxConcat(getBaseMtx(), mBaseCorrectionMtx, base);
             front.set< f32 >(base[0][2], base[1][2], base[2][2]);
             mMario->setFrontVecKeepUp(front);
         } else {
-            TPos3f base;
-            TVec3f front;
-            TVec3f side;
-            TVec3f up;
-            NebulaMtxConcat(getBaseMtx(), _E3C, base);
+            Pos3f base;
+            Vec3f front;
+            Vec3f side;
+            Vec3f up;
+            NebulaMtxConcat(getBaseMtx(), mBaseCorrectionMtx, base);
             front.set< f32 >(base[0][2], base[1][2], base[2][2]);
             up.set< f32 >(base[0][1], base[1][1], base[2][1]);
             side.set< f32 >(base[0][0], base[1][0], base[2][0]);
@@ -333,64 +321,62 @@ void MarioActor::endRush(const RushEndInfo* pInfo) {
             }
 
             if (up.dot(-*mMario->getGravityVec()) < 0.0f) {
-                mMario->setFrontVecKeepSide(_3C4);
-            } else if (_3D0 > 1) {
-                mMario->setFrontVecKeepUp(_3C4, static_cast< u32 >(_3D0));
+                mMario->setFrontVecKeepSide(mRushEndFront);
+            } else if (mRushEndFrontMode > 1) {
+                mMario->setFrontVecKeepUp(mRushEndFront, static_cast< u32 >(mRushEndFrontMode));
             } else {
-                mMario->setFrontVecKeepUp(_3C4);
+                mMario->setFrontVecKeepUp(mRushEndFront);
             }
         }
 
-        mMario->_1FC = mMario->mHeadVec;
-        if (!pInfo->_14) {
+        mMario->mPostureUpVec = mMario->mHeadVec;
+        if (!pInfo->mKeepAnimation) {
             mMario->stopAnimation(nullptr);
         }
 
-        if (pInfo->_18) {
-            setBlendMtxTimer(pInfo->_18);
+        if (pInfo->mBlendFrames) {
+            setBlendMtxTimer(pInfo->mBlendFrames);
         }
 
         MR::validateHitSensors(this);
         getSensor("dummy")->invalidate();
         XanimePlayer* player = mMario->getAnimator()->mXanimePlayer;
-        player->_7E = true;
-        if (_F1C < 15) {
-            _F1C = 15;
+        player->mReturnToDefault = true;
+        if (mMainSpinBlock < 15) {
+            mMainSpinBlock = 15;
         }
 
-        if (_F1E < 15) {
-            _F1E = 15;
+        if (mSubSpinBlock < 15) {
+            mSubSpinBlock = 15;
         }
 
-        _EF8 = 0;
-        _F04 = 0;
-        if (!((pInfo->_20 >> 24) & 15) && isLandEffectRushSensor(_924) && ((pInfo->_20 >> 30) & 1)) {
-            mMario->mMovementStates._3E = 1;
+        if (pInfo->mDamage == RushEndInfo::Damage_None && isLandEffectRushSensor(mRushSensor) && pInfo->mForced) {
+            mMario->mMovementStates.launchKind = 1;
             mMario->mMovementStates.jumping = true;
-            mMario->mMovementStates._1 = false;
-        } else if (_924->isType(ATYPE_MARIO_LAUNCHER_BIND)) {
-            if (!MR::isNearZero(_938)) {
-                mMario->mMovementStates._3E = 1;
-                mMario->mJumpVec = _938;
+            mMario->mMovementStates.onGround = false;
+        } else if (mRushSensor->isType(ATYPE_MARIO_LAUNCHER_BIND)) {
+            if (!MR::isNearZero(mRushMove)) {
+                mMario->mMovementStates.launchKind = 1;
+                mMario->mJumpVec = mRushMove;
             }
-        } else if (_924->isType(ATYPE_SCENARIO_STARTER_BIND)) {
-            if (pInfo->_4) {
-                mMario->mMovementStates._3E = 2;
+        } else if (mRushSensor->isType(ATYPE_SCENARIO_STARTER_BIND)) {
+            if (pInfo->mMode != RushEndInfo::Mode_Wait) {
+                mMario->mMovementStates.launchKind = 2;
                 mMario->mMovementStates.jumping = true;
-                mMario->mMovementStates._1 = false;
+                mMario->mMovementStates.onGround = false;
             } else {
-                changeAnimation("\212\356\226\173" /* 基本 */);
+                changeAnimation("基本");
             }
 
             updateGravityVec(true, true);
-            _2C4 = _24C * -70.0f;
-            _240 = _24C;
-            mMario->setGravityVec(_240);
+            mBinderOffset = mRawGravityVec * -70.0f;
+            mGravityVec = mRawGravityVec;
+            mMario->setGravityVec(mGravityVec);
         }
 
-        _928 = _924;
-        _924 = nullptr;
-        mMario->_10.turning = true;
+        mLastRushSensor = mRushSensor;
+        mRushSensor = nullptr;
+        mMario->mActionStates.gravityTurned = true;
         updateGravityVec(true, false);
         if (mPlayerMode == PlayerMode_Hopper) {
             mMario->startRabbitMode();
@@ -406,33 +392,33 @@ void MarioActor::endRush(const RushEndInfo* pInfo) {
             mMario->mVelocity = mLastMove;
         }
 
-        mMarioAnim->_15 = 0xFF;
-        if (selectWaterInOutRush(_928) && !mMario->forceStartSwimAndShoot(pInfo->_8)) {
+        mMarioAnim->mPrevWalkState = 0xFF;
+        if (selectWaterInOutRush(mLastRushSensor) && !mMario->forceStartSwimAndShoot(pInfo->mVec)) {
             mMario->forceExitSwim();
         }
 
-        mMario->_350.zero();
-        mMario->_35C.zero();
-        if (_938.length() > 200.0f) {
-            mMario->_1C._8 = true;
+        mMario->mPushVec.zero();
+        mMario->mPushVelocity.zero();
+        if (mRushMove.length() > 200.0f) {
+            mMario->mHitStates.launchedFar = true;
         }
     }
 }
 
 bool MarioActor::takeSensor(HitSensor* pSensor) {
-    if (_424) {
+    if (mTakenSensor) {
         return false;
     }
 
-    if (_468) {
+    if (mTakeCount) {
         return false;
     }
 
-    changeAnimation("\203\112\203\165\224\262\202\253" /* カブ抜き */);
+    changeAnimation("カブ抜き");
     changeNullAnimation("PullOut", -1);
-    _424 = pSensor;
+    mTakenSensor = pSensor;
     memorizeSensorThrow(pSensor);
-    _480 = 1;
-    _38C = 60;
+    mTaking = 1;
+    mStunTimer = 60;
     return true;
 }

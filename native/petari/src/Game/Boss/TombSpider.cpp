@@ -1,6 +1,6 @@
 #include "Game/Boss/TombSpider.hpp"
-#include "Game/Boss/TombSpiderAction1st.hpp"
-#include "Game/Boss/TombSpiderAction2nd.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
+#include "Game/Boss/TombSpiderActionBattle.hpp"
 #include "Game/Boss/TombSpiderActionCocoon.hpp"
 #include "Game/Boss/TombSpiderDemo.hpp"
 #include "Game/Boss/TombSpiderEnvironment.hpp"
@@ -21,7 +21,11 @@
 #include "Game/Util/SoundUtil.hpp"
 
 namespace {
-    static s32 sSecondBgmStartStep = 180;
+    const s32 sSecondBgmStartStep = NebulaFrameClock::stepsOfSeconds(3);
+
+    // The second round waits less, attacks longer and turns faster, and its glands hurt.
+    const TombSpiderBattleParam sBattleParam1st = {60, 90, 180, 300, 0.01f, 0.35f, 900, false};
+    const TombSpiderBattleParam sBattleParam2nd = {30, 60, 240, 360, 0.005f, 0.4f, 600, true};
 };  // namespace
 
 namespace NrvTombSpider {
@@ -44,12 +48,12 @@ TombSpider::TombSpider(const char* pName)
       mAction2nd(nullptr), mDemo(nullptr), mNoctilucaActive(false), mCameraInfo(nullptr) {
 }
 
-void TombSpider::init(const JMapInfoIter& rIter) {
+void TombSpider::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("TombSpider", nullptr, false);
     MR::connectToSceneEnemy(this);
     MR::initLightCtrl(this);
-    initEffectKeeper(8, nullptr, false);
+    initEffectKeeper(8, nullptr);
 
     mParts = new TombSpiderParts(this);
     mParts->init();
@@ -70,9 +74,9 @@ void TombSpider::init(const JMapInfoIter& rIter) {
 
     mActionCocoon = new TombSpiderActionCocoon(this);
     mActionCocoon->init();
-    mAction1st = new TombSpiderAction1st(this);
+    mAction1st = new TombSpiderActionBattle(this, "戦闘１回戦[トゥームスパイダー]", ::sBattleParam1st);
     mAction1st->init();
-    mAction2nd = new TombSpiderAction2nd(this);
+    mAction2nd = new TombSpiderActionBattle(this, "戦闘２回戦[トゥームスパイダー]", ::sBattleParam2nd);
     mAction2nd->init();
 
     MR::invalidateClipping(this);
@@ -106,7 +110,7 @@ void TombSpider::exeWaitPlayer() {
 
     if (mDemo->isStartDemoGateOpen()) {
         setNerve(GET_NERVE(TombSpider, TombSpiderNrvWaitDemo));
-        MR::requestStartDemoMarioPuppetable(this, "\203\121\201\133\203\147\203\111\201\133\203\166\203\223\203\146\203\202[\203\147\203\104\201\133\203\200\203\130\203\160\203\103\203\137\201\133]" /* ゲートオープンデモ[トゥームスパイダー] */, GET_NERVE(TombSpider, TombSpiderNrvDemoGateOpen),
+        MR::requestStartDemoMarioPuppetable(this, "ゲートオープンデモ[トゥームスパイダー]", GET_NERVE(TombSpider, TombSpiderNrvDemoGateOpen),
                                             nullptr);
     }
 }
@@ -122,7 +126,7 @@ void TombSpider::exeDemoGateOpen() {
 void TombSpider::exeActionCocoon() {
     if (MR::updateActorState(this, mActionCocoon)) {
         setNerve(GET_NERVE(TombSpider, TombSpiderNrvWaitDemo));
-        MR::requestStartDemoMarioPuppetable(this, "\217\157\214\273" /* 出現 */, GET_NERVE(TombSpider, TombSpiderNrvDemoCocoonBreak), nullptr);
+        MR::requestStartDemoMarioPuppetable(this, "出現", GET_NERVE(TombSpider, TombSpiderNrvDemoCocoonBreak), nullptr);
     }
 }
 
@@ -152,7 +156,7 @@ void TombSpider::exeDemoBattle1stStartJumpToPlayer() {
 void TombSpider::exeAction1st() {
     if (MR::updateActorState(this, mAction1st)) {
         setNerve(GET_NERVE(TombSpider, TombSpiderNrvWaitDemo));
-        MR::requestStartDemoMarioPuppetable(this, "\202\120\211\361\220\355\217\111\227\271" /* １回戦終了 */, GET_NERVE(TombSpider, TombSpiderNrvDemoBattle1stEnd), nullptr);
+        MR::requestStartDemoMarioPuppetable(this, "１回戦終了", GET_NERVE(TombSpider, TombSpiderNrvDemoBattle1stEnd), nullptr);
     }
 }
 
@@ -179,7 +183,7 @@ void TombSpider::exeDemoBattle2ndStart() {
 void TombSpider::exeAction2nd() {
     if (MR::updateActorState(this, mAction2nd)) {
         setNerve(GET_NERVE(TombSpider, TombSpiderNrvWaitDemo));
-        MR::requestStartDemoMarioPuppetable(this, "\216\200\226\123" /* 死亡 */, GET_NERVE(TombSpider, TombSpiderNrvDemoDeath), nullptr);
+        MR::requestStartDemoMarioPuppetable(this, "死亡", GET_NERVE(TombSpider, TombSpiderNrvDemoDeath), nullptr);
     }
 }
 
@@ -223,7 +227,7 @@ void TombSpider::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     }
 }
 
-bool TombSpider::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool TombSpider::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (MR::isMsgStarPieceReflect(msg)) {
         return true;
     }
