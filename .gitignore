@@ -24,3 +24,6 @@
 *.tmp
 *.gxdump
 
+# Ignore generted coop script
+launch-coop.sh
+launch-coop.ps1
