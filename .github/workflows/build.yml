@@ -81,7 +81,7 @@ jobs:
       - uses: actions/Checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: mozilla-actions/sccache-action@v0.0.9
+      - uses: mozilla-actions/sccache-action@v0.0.11
       - name: Start sccache
         run: sccache --start-server
       - name: Build
@@ -129,7 +129,7 @@ jobs:
             build/host/fidelityfx.built
             build/host/_deps
           key: host-deps-${{ matrix.vulkan }}-${{ hashFiles('cmake/**', 'third_party/archive/**') }}
-      - uses: mozilla-actions/sccache-action@v0.0.9
+      - uses: mozilla-actions/sccache-action@v0.0.11
       - name: Start sccache
         run: sccache --start-server
       - name: Configure
@@ -182,7 +182,7 @@ jobs:
           path: |
             build/game/archive-deps
           key: game-archive-deps-${{ hashFiles('cmake/**', 'third_party/archive/**') }}
-      - uses: mozilla-actions/sccache-action@v0.0.9
+      - uses: mozilla-actions/sccache-action@v0.0.11
       - name: Start sccache
         run: sccache --start-server
       - name: Build
