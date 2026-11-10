@@ -16,6 +16,11 @@ public:
     void appearHoleComment(const Vec3f&);
     void appearPipeComment(const Vec3f&);
     void appearMamaComment(const Vec3f&);
+    // Co-op: a bunny another player caught. The comment the catcher's Luma said (the message moves on as with
+    // appear...Comment) is said, but the scene is the catcher's: this Luma is out where the bunny was and waits. The
+    // last one (Comment_Mama) stays away, as the catcher's leaves in the scene the tower rises in.
+    enum Comment { Comment_Hole, Comment_Pipe, Comment_Bush, Comment_Mama };
+    void appearCommentForOtherPlayer(s32 comment, const Vec3f& rPos);
     void setPosAfterCaught(const Vec3f&);
     void setPosAllCaught();
     bool isStartRunaway() const;

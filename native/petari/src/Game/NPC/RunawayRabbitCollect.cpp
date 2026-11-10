@@ -1,4 +1,6 @@
 #include "Game/NPC/RunawayRabbitCollect.hpp"
+#include "nebula_module.h"
+#include "Game/Demo/DemoFunction.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/NPC/RunawayRabbit.hpp"
 #include "Game/NPC/RunawayTico.hpp"
@@ -273,6 +275,27 @@ void RunawayRabbitCollect::appearTico(RunawayTico* pTico, const Vec3f& rPos) {
     pTico->appearMamaComment(rPos);
 }
 
+void RunawayRabbitCollect::appearTicoForOtherPlayer(RunawayTico* pTico, const Vec3f& rPos) {
+    if (pTico->mDemoCastID >= 0 && pTico->mDemoCastID < ARRAY_SIZE(mIsAppearTico)) {
+        mIsAppearTico[pTico->mDemoCastID] = true;
+    }
+
+    // The same comment, in the same order, as appearTico.
+    static const s32 sComments[] = {RunawayTico::Comment_Hole, RunawayTico::Comment_Pipe, RunawayTico::Comment_Bush};
+    for (s32 i = 0; i < ARRAY_SIZE(mIsAppearTico); i++) {
+        if (!mIsAppearTico[i]) {
+            pTico->appearCommentForOtherPlayer(i < ARRAY_SIZE(sComments) ? sComments[i] : RunawayTico::Comment_Mama, rPos);
+            return;
+        }
+    }
+
+    pTico->appearCommentForOtherPlayer(RunawayTico::Comment_Mama, rPos);
+    // The catcher's game played the tower rising (the guide demo's 高楼出現 parts): here it has risen, Rosalina and
+    // the Lumas where the scene leaves them, this player as they were.
+    const s32 applied = DemoFunction::applyDemoPartsWithoutPlaying("チコガイドデモ", "高楼出現");
+    nebula_log("[coop] bunnies all caught in another game: tower scene applied (%d actions)\n", applied);
+}
+
 void RunawayRabbitCollect::exeActive() {
     if (MR::isFirstStep(this)) {
         MR::setStageBGMState(::sStartRunAwayBgmState, ::sStartRunAwayBgmChangeFrames);
@@ -296,12 +319,23 @@ void RunawayRabbitCollect::exeActive() {
         if (mRabbit[i]->isCaught()) {
             caughtCount++;
             if (!mRabbit[i]->mIsLinked) {
+                // Co-op: another player's catch waits for a scene of this player's to end (their own catch, or
+                // waking up), so that its Luma is out after this one's.
+                const bool byOtherPlayer = mRabbit[i]->mCaughtByOtherPlayer;
+                if (byOtherPlayer && MR::isDemoActive()) {
+                    caughtCount--;
+                    continue;
+                }
 
                 for (s32 j = 0; j < mTicoNum; j++) {
                     if (mTico[j]->mDemoCastID == mRabbit[i]->getGroupId()) {
                         Vec3f jointPos;
                         MR::copyJointPos(mRabbit[i], "Spine", &jointPos);
-                        appearTico(mTico[j], jointPos);
+                        if (byOtherPlayer) {
+                            appearTicoForOtherPlayer(mTico[j], jointPos);
+                        } else {
+                            appearTico(mTico[j], jointPos);
+                        }
                     }
                 }
 

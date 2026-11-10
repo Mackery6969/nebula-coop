@@ -67,6 +67,11 @@ RosettaDemoHeavensDoor1::RosettaDemoHeavensDoor1(Rosetta* pHost, const TableIter
 }
 
 void RosettaDemoHeavensDoor1::preDemo() {
+    // Online co-op: another player's scene applied here (DemoFunction::applyDemoPartsWithoutPlaying) leaves this
+    // player as they are.
+    if (DemoFunction::isApplyingDemoWithoutPlaying()) {
+        return;
+    }
     MR::hidePlayer();
 }
 
@@ -75,6 +80,9 @@ void RosettaDemoHeavensDoor1::pstDemo() {
 }
 
 void RosettaDemoHeavensDoor1::fadeOut() {
+    if (DemoFunction::isApplyingDemoWithoutPlaying()) {
+        return;
+    }
     MR::timeKeepDemoFadeOut();
 }
 
@@ -82,8 +90,10 @@ void RosettaDemoHeavensDoor1::fadeIn() {
     mLightHaloModel->mIsCalcOwnMtx = true;
 
     MR::emitEffect(mLightDomeModel, "Light");
-    MR::showPlayer();
-    MR::timeKeepDemoFadeIn();
+    if (!DemoFunction::isApplyingDemoWithoutPlaying()) {
+        MR::showPlayer();
+        MR::timeKeepDemoFadeIn();
+    }
     MR::onSwitchB(mHost);
 }
 

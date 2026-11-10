@@ -10,6 +10,7 @@
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
 #include "Game/Util/TalkUtil.hpp"
+#include <cstring>
 
 namespace {
     TalkMessageCtrl* findTalkMessageCtrl(LiveActor* pActor) {
@@ -147,6 +148,53 @@ void DemoActionInfo::executeActionLast() const {
     }
 }
 
+s32 DemoActionInfo::applyWithoutPlaying() const {
+    s32 applied = 0;
+    for (s32 i = 0; i < mCastCount; i++) {
+        LiveActor* actor = mCastList[i];
+        if (actor == nullptr) {
+            continue;
+        }
+        if (mActionType == 2) {
+            if (mFunctors[i] != nullptr) {
+                mFunctors[i]->operator()();
+            }
+        } else if (mActionType == 3) {
+            if (mNerves[i] != nullptr) {
+                actor->setNerve(mNerves[i]);
+            }
+        } else if (mActionType == 0) {
+            actor->appear();
+        } else if (mActionType == 1) {
+            actor->kill();
+        } else if (mActionType == 4) {
+            MR::onSwitchA(actor);
+        } else if (mActionType == 5) {
+            MR::onSwitchB(actor);
+        } else if (mActionType == 6) {
+            MR::showModel(actor);
+        } else if (mActionType == 7) {
+            MR::hideModel(actor);
+        } else if (mActionType == 12) {
+            MR::offSwitchA(actor);
+        } else if (mActionType == 13) {
+            MR::offSwitchB(actor);
+        } else {
+            // A talk (8, 9, 10) or nothing (11): only a playing scene has them.
+            continue;
+        }
+
+        if (!MR::isNullOrEmptyString(mAnimName)) {
+            MR::startAction(actor, mAnimName);
+        }
+        if (!MR::isNullOrEmptyString(mPosName)) {
+            MR::findNamePos(mPosName, &actor->mPosition, &actor->mRotation);
+        }
+        applied++;
+    }
+    return applied;
+}
+
 void DemoActionKeeper::initCast(LiveActor* pActor, const TableIter& rIter) {
     if (mNumInfos <= 0) {
         return;
@@ -227,6 +275,18 @@ bool DemoActionKeeper::isRegisteredDemoAction(const LiveActor* pActor, s32 actio
     }
 
     return false;
+}
+
+s32 DemoActionKeeper::applyPartsWithoutPlaying(const char* pPartPrefix) const {
+    const size_t prefixLength = std::strlen(pPartPrefix);
+    s32 applied = 0;
+    for (s32 i = 0; i < mNumInfos; i++) {
+        const DemoActionInfo* info = mInfoArray[i];
+        if (info != nullptr && info->mPartName != nullptr && std::strncmp(info->mPartName, pPartPrefix, prefixLength) == 0) {
+            applied += info->applyWithoutPlaying();
+        }
+    }
+    return applied;
 }
 
 DemoActionKeeper::DemoActionKeeper(const DemoExecutor* pExector) {

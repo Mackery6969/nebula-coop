@@ -30,6 +30,9 @@ public:
         return mRabbit[index];
     }
     void appearTico(RunawayTico* pTico, const Vec3f& rPos);
+    // Co-op: appearTico for a bunny another player caught, its scenes the catcher's (the last one's tower rising is
+    // applied without playing it).
+    void appearTicoForOtherPlayer(RunawayTico* pTico, const Vec3f& rPos);
 
     void exeWait();
     void exeActive();
