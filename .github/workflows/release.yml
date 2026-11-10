@@ -188,6 +188,9 @@ jobs:
           -SetupName $env:SETUP -Repository $env:GITHUB_REPOSITORY
       - name: Release check
         # Defender isn't run here: the runner's definitions say nothing about players' PCs.
+        # Windows PowerShell, as the script is run by hand: its scanner is compiled against .NET Framework, which
+        # PowerShell 7 (pwsh) is not, and there it misses System.Text.RegularExpressions.
+        shell: powershell
         run: >-
           .\tools\release_check.ps1 -Path (Join-Path $env:RUNNER_TEMP 'bin')
           -Installer (Join-Path $env:RUNNER_TEMP "dist\$env:SETUP") -SkipDefender
