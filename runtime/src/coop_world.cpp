@@ -179,7 +179,7 @@ bool finite3(const std::array<float, 3>& vec) {
 void write_states(ByteWriter& out, std::span<const ObjectState> states) {
     out.u8(static_cast<std::uint8_t>(states.size()));
     for (const ObjectState& state : states) {
-        out.u32(state.object).u32(state.nerve).u16(state.step).u8(state.flags);
+        out.u32(state.object).u32(state.nerve).u16(state.step).u16(state.event).u8(state.flags);
         for (const float value : state.position) out.f32(value);
         for (const float value : state.velocity) out.u16(static_cast<std::uint16_t>(to_fixed(value, 64.0f)));
         for (const float value : state.rotation) out.u16(static_cast<std::uint16_t>(to_fixed(value, 32767.0f)));
@@ -196,6 +196,7 @@ std::optional<std::vector<ObjectState>> read_states(ByteReader& in) {
         state.object = in.u32();
         state.nerve = in.u32();
         state.step = in.u16();
+        state.event = in.u16();
         state.flags = in.u8();
         for (float& value : state.position) value = in.f32();
         for (float& value : state.velocity) value = static_cast<std::int16_t>(in.u16()) / 64.0f;
@@ -251,14 +252,25 @@ void flush(Session* session, std::vector<Outgoing>& out) {
     out.clear();
 }
 
-// Objects' states for a player's scene (its epoch), from their owner (its number), a datagram each.
+// Objects' states for a player's scene (its epoch), from their owner (its number), a datagram each: unreliable as
+// they move, reliable as an instance's latest given at an enter.
 void queue_states(std::vector<Outgoing>& out, PeerId to, std::uint16_t epoch, unsigned owner,
-                  std::span<const ObjectState> states) {
+                  std::span<const ObjectState> states, bool reliable = false) {
     for (std::size_t at = 0; at < states.size(); at += kObjectStatesPerMessage) {
         ByteWriter body;
         body.u16(epoch).u8(static_cast<std::uint8_t>(owner));
         write_states(body, states.subspan(at, std::min(kObjectStatesPerMessage, states.size() - at)));
-        out.push_back({kObjectStateMessage, to, body.take(), false});
+        out.push_back({kObjectStateMessage, to, body.take(), reliable});
+    }
+}
+
+// An instance's latest states (WorldAuthority::states_of, by whose they are), reliably, for a player entering it.
+void queue_latest(std::vector<Outgoing>& out, PeerId to, std::uint16_t epoch, std::span<const ObjectState> latest) {
+    for (std::size_t from = 0; from < latest.size();) {
+        std::size_t end = from + 1u;
+        while (end < latest.size() && latest[end].player == latest[from].player) ++end;
+        queue_states(out, to, epoch, latest[from].player, latest.subspan(from, end - from), true);
+        from = end;
     }
 }
 
@@ -272,9 +284,9 @@ void queue_switches(std::vector<Outgoing>& out, PeerId to, std::uint16_t epoch, 
 }
 
 // A host's record of an instance, for one of its players: what is gone in messages of kGonePerMessage, then its
-// switches, each with the player's scene (its epoch), then the end.
+// switches and its objects' latest states, each with the player's scene (its epoch), then the end.
 void queue_record(std::vector<Outgoing>& out, PeerId to, std::uint16_t epoch, std::span<const Gone> gone,
-                  std::span<const SwitchChange> switches) {
+                  std::span<const SwitchChange> switches, std::span<const ObjectState> latest) {
     for (std::size_t at = 0; at < gone.size(); at += kGonePerMessage) {
         ByteWriter body;
         body.u16(epoch);
@@ -282,6 +294,7 @@ void queue_record(std::vector<Outgoing>& out, PeerId to, std::uint16_t epoch, st
         out.push_back({kWorldGoneMessage, to, body.take()});
     }
     if (!switches.empty()) queue_switches(out, to, epoch, switches);
+    queue_latest(out, to, epoch, latest);
     ByteWriter ready;
     ready.u16(epoch);
     out.push_back({kWorldReadyMessage, to, ready.take()});
@@ -361,8 +374,6 @@ void WorldAuthority::drop_player(Player player) {
     if (record != instances_.end()) {
         record->second.players.erase(player);
         record->second.missed.erase(player);
-        // What it moved is the next player's to take.
-        std::erase_if(record->second.owners, [player](const auto& owned) { return owned.second.player == player; });
         if (record->second.players.empty()) instances_.erase(record);
     }
     where_.erase(it);
@@ -373,7 +384,7 @@ std::vector<Gone> WorldAuthority::enter(Player player, const Instance& instance)
     Record& record = instances_[instance];
     if (record.players.size() == record.missed.size()) {
         record.gone.clear();
-        record.owners.clear();
+        record.latest.clear();
         record.switches.clear();
     }
     record.players.insert(player);
@@ -390,7 +401,6 @@ void WorldAuthority::miss(Player player) {
     Record* record = playing(player);
     if (record == nullptr) return;
     record->missed.insert(player);
-    std::erase_if(record->owners, [player](const auto& owned) { return owned.second.player == player; });
 }
 
 WorldAuthority::Record* WorldAuthority::playing(Player player) {
@@ -408,7 +418,9 @@ WorldAuthority::Settled WorldAuthority::gone(Player player, std::span<const Gone
     Record& record = *playing_in;
     for (const Gone& thing : gone) {
         if (record.gone.size() >= kMaxGonePerInstance) break;
-        if (record.gone.emplace(thing.object, thing.how).second) settled.news.push_back(thing);
+        if (!record.gone.emplace(thing.object, thing.how).second) continue;
+        record.latest.erase(thing.object);
+        settled.news.push_back(thing);
     }
     if (settled.news.empty()) return settled;
     for (const Player other : record.players) {
@@ -427,44 +439,43 @@ std::vector<WorldAuthority::Player> WorldAuthority::star_got(Player player) cons
 
 std::vector<WorldAuthority::Player> WorldAuthority::others(Player player) const { return star_got(player); }
 
-WorldAuthority::Claimed WorldAuthority::claim(Player player, std::span<const ObjectState> states, std::uint64_t now_ms) {
-    Claimed claimed;
+WorldAuthority::Relayed WorldAuthority::states(Player player, unsigned number, std::span<const ObjectState> states) {
+    Relayed relayed;
     Record* playing_in = playing(player);
-    if (playing_in == nullptr) return claimed;
+    if (playing_in == nullptr) return relayed;
     Record& record = *playing_in;
-    for (const ObjectState& state : states) {
+    for (ObjectState state : states) {
         // A thing gone from the instance moves for nobody.
         if (record.gone.count(state.object) != 0u) continue;
-        auto owned = record.owners.find(state.object);
-        if (owned == record.owners.end()) {
-            if (record.owners.size() >= kMaxGonePerInstance) continue;
-            owned = record.owners.emplace(state.object, Owner{player, now_ms, state.distance}).first;
+        state.player = number;
+        auto latest = record.latest.find(state.object);
+        if (latest == record.latest.end()) {
+            if (record.latest.size() < kMaxGonePerInstance) record.latest.emplace(state.object, state);
+        } else if (latest->second.player == number && event_before(state.event, latest->second.event)) {
+            // Came late: the others have a newer one from the same player.
+            continue;
         } else {
-            Owner& owner = owned->second;
-            const bool silent = now_ms - owner.heard_ms >= kObjectOwnerSilenceMs || now_ms < owner.heard_ms;
-            const bool nearer = state.distance * 1.25f < owner.distance;
-            const bool hit = (state.flags & kObjectHitClaim) != 0u;
-            if (owner.player != player && !silent && !nearer && !hit) continue;
-            owner = {player, now_ms, state.distance};
+            latest->second = state;
         }
-        claimed.states.push_back(state);
+        relayed.states.push_back(state);
     }
-    if (!claimed.states.empty()) {
+    if (!relayed.states.empty()) {
         for (const Player other : record.players) {
-            if (other != player) claimed.tell.push_back(other);
+            if (other != player) relayed.tell.push_back(other);
         }
     }
-    return claimed;
+    return relayed;
 }
 
-std::optional<WorldAuthority::Player> WorldAuthority::owner(Player player, std::uint32_t object) const {
-    const auto it = where_.find(player);
-    if (it == where_.end()) return std::nullopt;
-    const auto record = instances_.find(it->second);
-    if (record == instances_.end()) return std::nullopt;
-    const auto owned = record->second.owners.find(object);
-    if (owned == record->second.owners.end()) return std::nullopt;
-    return owned->second.player;
+std::vector<ObjectState> WorldAuthority::states_of(const Instance& instance) const {
+    const auto record = instances_.find(instance);
+    if (record == instances_.end()) return {};
+    std::vector<ObjectState> latest;
+    latest.reserve(record->second.latest.size());
+    for (const auto& [object, state] : record->second.latest) latest.push_back(state);
+    std::stable_sort(latest.begin(), latest.end(),
+                     [](const ObjectState& a, const ObjectState& b) { return a.player < b.player; });
+    return latest;
 }
 
 WorldAuthority::Switched WorldAuthority::switches(Player player, std::span<const SwitchChange> switches) {
@@ -553,7 +564,7 @@ void World::attach(Session& session) {
             if (!active_ || !host_) return;
             const std::vector<Gone> gone = authority_.enter(from.id, *instance);
             epochs_[from.id] = epoch;
-            queue_record(out, from.id, epoch, gone, authority_.switches_of(*instance));
+            queue_record(out, from.id, epoch, gone, authority_.switches_of(*instance), authority_.states_of(*instance));
         }
         flush(session_, out);
     });
@@ -796,6 +807,7 @@ void World::enter(const Instance& instance) {
             for (const SwitchChange& change : authority_.switches_of(instance)) {
                 push({WorldEvent::Kind::Switch, {}, {}, {}, {}, change});
             }
+            for (const ObjectState& state : authority_.states_of(instance)) push_state(state);
             push({WorldEvent::Kind::Ready, {}, {}});
         } else {
             ByteWriter body;
@@ -1067,25 +1079,19 @@ void World::host_save(PeerId from, const SaveChange& change) {
     flush(session_, out);
 }
 
-// The world's lock held, the host's: the states the host lets `from` move, to the others in its instance.
+// The world's lock held, the host's: `from`'s states, passed on to the others in its instance.
 void World::host_states(PeerId from, unsigned number, std::span<const ObjectState> states, std::vector<Outgoing>& out) {
-    const auto now_ms = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
-                                                       std::chrono::steady_clock::now().time_since_epoch())
-                                                       .count());
-    const WorldAuthority::Claimed claimed = authority_.claim(from, states, now_ms);
-    if (claimed.states.empty()) return;
+    const WorldAuthority::Relayed relayed = authority_.states(from, number, states);
+    if (relayed.states.empty()) return;
     const PeerId self = self_peer();
-    for (const PeerId to : claimed.tell) {
+    for (const PeerId to : relayed.tell) {
         if (to == self) {
-            for (ObjectState state : claimed.states) {
-                state.player = number;
-                push_state(state);
-            }
+            for (const ObjectState& state : relayed.states) push_state(state);
             continue;
         }
         const auto it = epochs_.find(to);
         if (it == epochs_.end()) continue;
-        queue_states(out, to, it->second, number, claimed.states);
+        queue_states(out, to, it->second, number, relayed.states);
     }
 }
 
@@ -1120,11 +1126,13 @@ void World::host_switches(PeerId from, std::span<const SwitchChange> switches, s
     }
 }
 
-// The latest state of each object waits for the game; older ones of it are dropped.
+// The latest state of each object waits for the game; older ones of it are dropped (one that came late from the same
+// player too).
 void World::push_state(const ObjectState& state) {
     const auto [at, added] = state_index_.emplace(state.object, states_.size());
     if (!added) {
-        states_[at->second] = state;
+        ObjectState& had = states_[at->second];
+        if (had.player != state.player || !event_before(state.event, had.event)) had = state;
         return;
     }
     if (states_.size() >= kMaxGonePerInstance) {

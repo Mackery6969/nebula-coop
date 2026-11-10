@@ -40,7 +40,7 @@ inline constexpr std::uint8_t kSaveRequestMessage = 38u;  // joiner to host, onc
 inline constexpr std::uint8_t kStarGotMessage = 39u;      // player to host: it took a star; host to its instance: the same
 // Shared objects (docs/COOP_PLAN.md "Shared objects", sm64coopdx's sync_object.c and packet_object.c):
 inline constexpr std::uint8_t kObjectStateMessage = 40u;  // unreliable. Player to host: the objects it moves; host to its
-                                                          // instance: the ones it let that player move
+                                                          // instance: the same (reliable: their latest, at an enter)
 inline constexpr std::uint8_t kObjectHitMessage = 41u;    // player to host: its player hit an object; host to its
                                                           // instance: the same, for each game to play it again
 inline constexpr std::uint8_t kWorldSwitchMessage = 42u;  // player to host: switches turned; host to its instance (and
@@ -54,8 +54,6 @@ inline constexpr std::size_t kMaxGonePerInstance = 16384u;
 inline constexpr std::size_t kMaxSaveChanges = 8192u;
 // Most switches an instance's record keeps.
 inline constexpr std::size_t kMaxSwitchesPerInstance = 4096u;
-// An object's mover that sent nothing for this long has let it go: the next player near it may move it.
-inline constexpr std::uint32_t kObjectOwnerSilenceMs = 500u;
 // Longest names in a save change (the game's stage names and event names are shorter).
 inline constexpr std::size_t kSaveNameLimit = 47u;
 
@@ -99,15 +97,19 @@ struct SaveChange {
     friend bool operator==(const SaveChange&, const SaveChange&) = default;
 };
 
-// An object one player's game moves (its owner, sm64coopdx's sync object owner: the player nearest it), as the others'
-// games follow it: the object's key (the same placement key as Gone's), the state its game runs (the nerve's id and
-// its step), where it is and how fast it goes, how it is turned (its model's, a quaternion x y z w), and how far its
-// owner's player is from it. A player takes an object over by sending its state; the host lets the nearer player have
-// it (see WorldAuthority::claim).
+// An object one player's game moves (its owner, sm64coopdx's sync object owner: the player nearest it, as every game
+// works out alike from where the players are), as the others' games follow it: the object's key (the same placement
+// key as Gone's), the state its game runs (the nerve's id and its step), where it is and how fast it goes, how it is
+// turned (its model's, a quaternion x y z w), and how far its owner's player is from it. Each state its owner sends
+// counts up `event` (sm64coopdx's txEventId): one older than the last from the same player came late and is dropped.
+// The host passes each on to the others in the instance, as sm64coopdx's server passes a client's object packets on,
+// and keeps the latest of each object for a player entering later (sm64coopdx's last reliable packet, sent with the
+// area).
 struct ObjectState {
     std::uint32_t object = 0u;
     std::uint32_t nerve = 0u;
     std::uint16_t step = 0u;
+    std::uint16_t event = 0u;
     std::uint8_t flags = 0u;  // kObject*
     std::array<float, 3> position{};
     std::array<float, 3> velocity{};
@@ -116,13 +118,15 @@ struct ObjectState {
     unsigned player = 0u;  // to the game: whose (their number, 1 the host)
 };
 
-// The owner's player just hit it: it takes it over whatever the distance (sm64coopdx's reliable update from who
-// interacted with it).
-inline constexpr std::uint8_t kObjectHitClaim = 1u << 0;
-// Its nerve began with that hit: the others get it by playing the hit again (ObjectHit), not from the state.
+// Its nerve began with a hit: the others get it by playing the hit again (ObjectHit), not from the state.
 inline constexpr std::uint8_t kObjectHitNerve = 1u << 1;
 // How many states one message carries at most (a datagram's worth).
 inline constexpr std::size_t kObjectStatesPerMessage = 24u;
+// Whether event `a` came before `b` from the same sender (counting round past 65535).
+[[nodiscard]] constexpr bool event_before(std::uint16_t a, std::uint16_t b) {
+    const auto ahead = static_cast<std::uint16_t>(b - a);
+    return ahead != 0u && ahead < 0x8000u;
+}
 
 // A player's own hit on an object (a stomp, a spin, a ground pound...): the object's key, the game's message for it
 // (ACTMES_*) and which of the object's sensors it reached. Each other game in the instance plays it again from that
@@ -165,7 +169,7 @@ public:
     void leave(Player player);
     // A player's miss went on (no bubble saved it): until its scene starts over and enters again it doesn't keep its
     // instance going (an instance whose players all missed starts fresh at the next enter, as sm64coopdx's level once
-    // everyone death-warped out of it), and nothing more it does there counts. What it moved is the others' to take.
+    // everyone death-warped out of it), and nothing more it does there counts.
     // It still hears of stars taken there (a Grand Star takes it along once its scene starts over).
     void miss(Player player);
     // A player's things gone from its instance: the ones that are news (first come wins), and the other players in
@@ -181,17 +185,19 @@ public:
     // The other players in `player`'s instance (a hit is played again in their games). Nobody for a player in no
     // instance.
     [[nodiscard]] std::vector<Player> others(Player player) const;
-    // A player's objects' states (`now_ms` the host's clock): the ones it may move, and the others in its instance to
-    // tell. Each object has one owner at a time, as sm64coopdx's: a player takes it over from its owner when the owner
-    // fell silent for kObjectOwnerSilenceMs (it went away, or the object stopped for it), when it is a quarter nearer
-    // to the object than the owner, or when it just hit it.
-    struct Claimed {
+    // A player's objects' states (its number `number`, 1 the host): the ones to pass on to the others in its instance
+    // (`tell`), as sm64coopdx's server passes object packets on to the players in the sender's area. Each game works
+    // out who moves an object (the player nearest it) as sm64coopdx's sync_object_should_own does, so the host
+    // doesn't settle it: it drops only a state of a thing gone from the instance, one from a player whose miss goes on
+    // or in no instance, and one older than the last it had of that object from the same player.
+    struct Relayed {
         std::vector<ObjectState> states;
         std::vector<Player> tell;
     };
-    Claimed claim(Player player, std::span<const ObjectState> states, std::uint64_t now_ms);
-    // Who moves an object of `player`'s instance now, if anyone (tests).
-    [[nodiscard]] std::optional<Player> owner(Player player, std::uint32_t object) const;
+    Relayed states(Player player, unsigned number, std::span<const ObjectState> states);
+    // The latest state of each object of an instance, for a player entering it (sm64coopdx's area packet giving a
+    // newcomer each sync object's last reliable packet), by whose it is.
+    [[nodiscard]] std::vector<ObjectState> states_of(const Instance& instance) const;
     // A player's switches turned: the ones that change the instance's record, and the others there to tell.
     struct Switched {
         std::vector<SwitchChange> news;
@@ -212,14 +218,9 @@ public:
     void clear();
 
 private:
-    struct Owner {
-        Player player = net::kNoPeer;
-        std::uint64_t heard_ms = 0u;
-        float distance = 0.0f;
-    };
     struct Record {
         std::map<std::uint32_t, std::uint32_t> gone;  // object, how
-        std::map<std::uint32_t, Owner> owners;        // object, who moves it
+        std::map<std::uint32_t, ObjectState> latest;  // object, its latest state
         std::map<std::uint32_t, bool> switches;       // switch, on
         std::set<Player> players;
         std::set<Player> missed;                      // those of players whose miss goes on
@@ -284,8 +285,8 @@ public:
     // The game's player missed (no bubble saved it): it doesn't keep the instance it entered going until its scene
     // starts over and enters again, as sm64coopdx's death warp takes a player out of the level (WorldAuthority::miss).
     void report_miss();
-    // The objects the game's player moves (their states, at most each frame): the host lets it move them or not, and
-    // tells the others in the instance of the ones it does.
+    // The objects the game's player moves (their states, at most each frame): the host passes them on to the others in
+    // the instance.
     void report_states(std::span<const ObjectState> states);
     // The game's player hit an object: the others in the instance play it again.
     void report_hit(const ObjectHit& hit);
@@ -310,7 +311,7 @@ private:
     void remember_save(const SaveChange& change);
     void push_save(const SaveChange& change);
     void host_gone(net::PeerId from, std::span<const Gone> gone);
-    // The world's lock held, the host's: a player's states, hit or switches settled, and who to tell (the host's own
+    // The world's lock held, the host's: a player's states passed on, its hit or switches settled, and who to tell (the host's own
     // game here, the rest into `out`).
     void host_states(net::PeerId from, unsigned number, std::span<const ObjectState> states, std::vector<Outgoing>& out);
     void host_hit(net::PeerId from, ObjectHit hit, std::vector<Outgoing>& out);

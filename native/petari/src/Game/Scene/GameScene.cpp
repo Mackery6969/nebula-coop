@@ -361,6 +361,7 @@ namespace {
             player.flags |= NEBULA_COOP_PLAYER_BUBBLED;
         }
         player.area = NebulaCoopBubble::getArea();
+        NebulaCoopWorld::notePlatform(&player);
         NebulaHost::coopPlayer(&player);
     }
 };  // namespace

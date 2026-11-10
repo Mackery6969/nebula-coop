@@ -38,6 +38,8 @@ public:
     static HitSensor* getHitSender(u32 number);
     // Where its name goes: above its head, along its up.
     TVec3f getNametagPos() const;
+    // Its body's middle (MR::getPlayerCenterPos's, for an enemy going for this player).
+    TVec3f getCenterPos() const;
     // Nothing touches the local Mario now: dead, in a demo, bound to something (a Launch Star, a bubble...), a Boo,
     // hidden or out of the player's control. GameScene sends it as NEBULA_COOP_PLAYER_INTANGIBLE.
     static bool isLocalIntangible();

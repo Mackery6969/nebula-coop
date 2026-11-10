@@ -10,6 +10,7 @@
 #include "Game/Player/RushEndInfo.hpp"
 #include "Game/Player/NebulaRemotePlayer.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
+#include "Game/System/NebulaCoopWorld.hpp"
 #include "Game/Util/AreaObjUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
 #include "Game/Util/JointUtil.hpp"
@@ -875,30 +876,56 @@ namespace MR {
         return MarioAccess::getCameraCubeCode();
     }
 
-    const TVec3f* getNearestPlayerPos(const LiveActor* pActor) {
-        const TVec3f* pNearest = getPlayerPos();
-        const s32 copyNum = NebulaRemotePlayer::getCopyNum();
-        if (copyNum == 0) {
+    namespace {
+        // The copy of the player nearest pActor, none when the local Mario is (or nobody else can be gone for).
+        const NebulaRemotePlayer* findNearestCopy(const LiveActor* pActor) {
+            const s32 copyNum = NebulaRemotePlayer::getCopyNum();
+            if (copyNum == 0) {
+                return nullptr;
+            }
+            // A local Mario nothing touches now (dead, in a demo, bound, a Boo) isn't chased while another player can be.
+            bool found = !isPlayerDead() && !NebulaRemotePlayer::isLocalIntangible();
+            f32 nearestDistSq = found ? pActor->mPosition.squared(*getPlayerPos()) : 0.0f;
+            const NebulaRemotePlayer* pNearest = nullptr;
+            for (s32 i = 0; i < copyNum; i++) {
+                const NebulaRemotePlayer* pCopy = NebulaRemotePlayer::getCopy(i);
+                // Copies showing nobody, and players nothing touches now, are skipped. Not isTouchable: that also says
+                // whether players touch each other, which the room's rules may turn off.
+                if (pCopy == nullptr || pCopy->mNumber == 0 || isDead(pCopy)
+                    || (pCopy->mState.flags & (NEBULA_COOP_PLAYER_INTANGIBLE | NEBULA_COOP_PLAYER_DEAD)) != 0) {
+                    continue;
+                }
+                const f32 distSq = pActor->mPosition.squared(pCopy->mPosition);
+                if (!found || distSq < nearestDistSq) {
+                    found = true;
+                    nearestDistSq = distSq;
+                    pNearest = pCopy;
+                }
+            }
             return pNearest;
         }
-        // A local Mario nothing touches now (dead, in a demo, bound, a Boo) isn't chased while another player can be.
-        bool found = !isPlayerDead() && !NebulaRemotePlayer::isLocalIntangible();
-        f32 nearestDistSq = found ? pActor->mPosition.squared(*pNearest) : 0.0f;
-        for (s32 i = 0; i < copyNum; i++) {
-            const NebulaRemotePlayer* pCopy = NebulaRemotePlayer::getCopy(i);
-            // Copies showing nobody, and players nothing touches now, are skipped. Not isTouchable: that also says
-            // whether players touch each other, which the room's rules may turn off.
-            if (pCopy == nullptr || pCopy->mNumber == 0 || isDead(pCopy)
-                || (pCopy->mState.flags & (NEBULA_COOP_PLAYER_INTANGIBLE | NEBULA_COOP_PLAYER_DEAD)) != 0) {
-                continue;
-            }
-            const f32 distSq = pActor->mPosition.squared(pCopy->mPosition);
-            if (!found || distSq < nearestDistSq) {
-                found = true;
-                nearestDistSq = distSq;
-                pNearest = &pCopy->mPosition;
-            }
+    };  // namespace
+
+    const TVec3f* getNearestPlayerPos(const LiveActor* pActor) {
+        const NebulaRemotePlayer* pCopy = findNearestCopy(pActor);
+        return pCopy != nullptr ? &pCopy->mPosition : getPlayerPos();
+    }
+
+    const TVec3f* getNearestPlayerCenterPos(const LiveActor* pActor) {
+        const NebulaRemotePlayer* pCopy = findNearestCopy(pActor);
+        if (pCopy == nullptr) {
+            return getPlayerCenterPos();
         }
-        return pNearest;
+        static TVec3f sCenter(0.0f, 0.0f, 0.0f);
+        sCenter = pCopy->getCenterPos();
+        return &sCenter;
+    }
+
+    const TVec3f* getTargetPlayerPos(const LiveActor* pActor) {
+        return NebulaCoopWorld::isSharedEnemy(pActor) ? getNearestPlayerPos(pActor) : getPlayerPos();
+    }
+
+    const TVec3f* getTargetPlayerCenterPos(const LiveActor* pActor) {
+        return NebulaCoopWorld::isSharedEnemy(pActor) ? getNearestPlayerCenterPos(pActor) : getPlayerCenterPos();
     }
 };  // namespace MR

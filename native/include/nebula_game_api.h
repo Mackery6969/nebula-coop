@@ -550,6 +550,12 @@ typedef struct NebulaCoopPlayer {
     char tracks[4][32];    /* the bck each of the group's tracks plays where Mario's code swapped in another
                               (XanimePlayer::changeTrackAnimation: a slope's wait, walking in mud), as its motion
                               resource is named; "" for the group's own */
+    uint32_t platform;     /* the moving thing they stand on (sm64coopdx's platformSyncID): its placement key
+                              (NEBULA_COOP_WORLD_GONE's), 0 for none. Each game moves its own copy of it, so the others
+                              draw them where they stand on theirs: */
+    float platform_position[3]; /* where, in the platform's own space (its collision's base matrix) */
+    float platform_front[3];    /* their front and up there, as `front` and `up` */
+    float platform_up[3];
 } NebulaCoopPlayer;
 
 enum {
@@ -704,10 +710,11 @@ typedef struct NebulaCoopObjectState {
     float rotation[4];    /* its model's turn, a quaternion x y z w */
     float distance;       /* how far its owner's player is from it */
     uint32_t player;      /* (taken) its owner, their number */
+    uint32_t event;       /* counted up by its owner for each state it sends (0-65535, sm64coopdx's txEventId): one
+                             older than the last from the same player came late */
 } NebulaCoopObjectState;
 
 enum {
-    NEBULA_COOP_OBJECT_HIT_CLAIM = 1u << 0, /* its owner's player just hit it: theirs whatever the distance */
     NEBULA_COOP_OBJECT_HIT_NERVE = 1u << 1, /* its nerve began with a hit: the others get it from NEBULA_COOP_WORLD_HIT */
 };
 

@@ -1722,10 +1722,11 @@ std::uint16_t gCoopAutoPort = 0u;
 std::string gCoopAutoAddress;
 
 // The other players' snapshots (galaxy/coop_snapshot.h), for their copies in this player's instance; and this
-// player's, sent 30 times a second.
+// player's, sent up to 30 times a second (10 while it stands still).
 galaxy::coop::RemotePlayers gCoopRemote;
 std::uint32_t gCoopSnapshotSequence = 0u;
 std::chrono::steady_clock::time_point gCoopSnapshotSent{};
+NebulaCoopPlayer gCoopSnapshotLast{};  // the report last sent (send_coop_snapshot sends again early only when it changed)
 
 // The shared world (galaxy/coop_world.h): the host's record of each instance and the session's save, which the game
 // reports to and is told from (coop_world_report, coop_world_take).
@@ -1767,7 +1768,16 @@ void listen_coop_snapshots() {
     gCoopWorld.attach(gCoopSession);
 }
 
-// This player's snapshot to the others in its instance, at most kSnapshotInterval apart: the game's last report of it.
+// Whether the game's report of this player changed from the last one sent (its animation's frame moving on by itself
+// doesn't count: the others' copies play it on).
+bool coop_player_changed(const NebulaCoopPlayer& now, const NebulaCoopPlayer& sent) {
+    NebulaCoopPlayer same = now;
+    same.animation_frame = sent.animation_frame;
+    return std::memcmp(&same, &sent, sizeof(same)) != 0;
+}
+
+// This player's snapshot to the others in its instance (the game's last report of it): as sm64coopdx's
+// network_update_player, when it changed, at most kSnapshotInterval apart, and otherwise kSnapshotIdleInterval apart.
 void send_coop_snapshot() {
     const auto now = std::chrono::steady_clock::now();
     if (now - gCoopSnapshotSent < galaxy::coop::kSnapshotInterval) return;
@@ -1777,7 +1787,11 @@ void send_coop_snapshot() {
         if (!gCoopLocalValid) return;
         local = gCoopLocal;
     }
+    if (now - gCoopSnapshotSent < galaxy::coop::kSnapshotIdleInterval && !coop_player_changed(local, gCoopSnapshotLast)) {
+        return;
+    }
     gCoopSnapshotSent = now;
+    gCoopSnapshotLast = local;
     galaxy::coop::PlayerSnapshot snapshot;
     snapshot.sequence = ++gCoopSnapshotSequence;
     snapshot.stage = local.stage;
@@ -1800,6 +1814,12 @@ void send_coop_snapshot() {
     snapshot.mode = local.mode;
     snapshot.flags = local.flags;
     snapshot.area = local.area;
+    snapshot.platform = local.platform;
+    for (std::size_t i = 0; i < 3u; ++i) {
+        snapshot.platform_position[i] = local.platform_position[i];
+        snapshot.platform_front[i] = local.platform_front[i];
+        snapshot.platform_up[i] = local.platform_up[i];
+    }
     (void)galaxy::coop::send_snapshot(gCoopSession, snapshot);
 }
 
@@ -2899,7 +2919,7 @@ uint32_t svc_coop_world_take(void*, NebulaCoopWorldEvent* events, uint32_t capac
     return count;
 }
 
-// Shared objects (galaxy::coop::ObjectState): the ones this game moves this frame, which the host lets it or not.
+// Shared objects (galaxy::coop::ObjectState): the ones this game moves this frame, for the others in its instance.
 void svc_coop_objects_report(void*, const NebulaCoopObjectState* states, uint32_t count) {
     if (states == nullptr || count == 0u || !gCoopWorld.active()) return;
     std::vector<galaxy::coop::ObjectState> report;
@@ -2910,7 +2930,8 @@ void svc_coop_objects_report(void*, const NebulaCoopObjectState* states, uint32_
         to.object = from.object;
         to.nerve = from.nerve;
         to.step = static_cast<std::uint16_t>(std::min<uint32_t>(from.step, 0xffffu));
-        to.flags = static_cast<std::uint8_t>(from.flags & (galaxy::coop::kObjectHitClaim | galaxy::coop::kObjectHitNerve));
+        to.event = static_cast<std::uint16_t>(from.event);
+        to.flags = static_cast<std::uint8_t>(from.flags & galaxy::coop::kObjectHitNerve);
         std::copy(std::begin(from.position), std::end(from.position), to.position.begin());
         std::copy(std::begin(from.velocity), std::end(from.velocity), to.velocity.begin());
         std::copy(std::begin(from.rotation), std::end(from.rotation), to.rotation.begin());
@@ -2936,6 +2957,7 @@ uint32_t svc_coop_objects_take(void*, NebulaCoopObjectState* states, uint32_t ca
         to.nerve = from.nerve;
         to.step = from.step;
         to.flags = from.flags;
+        to.event = from.event;
         std::copy(from.position.begin(), from.position.end(), to.position);
         std::copy(from.velocity.begin(), from.velocity.end(), to.velocity);
         std::copy(from.rotation.begin(), from.rotation.end(), to.rotation);
@@ -3052,6 +3074,12 @@ uint32_t svc_coop_remote(void*, NebulaCoopRemotePlayer* players, uint32_t capaci
         // The character is the one their game plays now (their snapshot's), so a live switch shows at once.
         player.flags = snapshot.flags;
         player.area = snapshot.area;
+        player.platform = snapshot.platform;
+        for (std::size_t j = 0; j < 3u; ++j) {
+            player.platform_position[j] = snapshot.platform_position[j];
+            player.platform_front[j] = snapshot.platform_front[j];
+            player.platform_up[j] = snapshot.platform_up[j];
+        }
         // Their snapshot came half a round trip ago and shows kSnapshotDelay late; what they saw of this player had
         // come and shown as late. Two joiners reach each other through the host: each one's ping is to it.
         const auto them = std::find_if(room.begin(), room.end(),
