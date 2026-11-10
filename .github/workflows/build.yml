@@ -11,13 +11,19 @@ on:
     # Only changes that can affect the build: not documentation or the other workflows.
     paths:
       - "**"
+      - "**/.clang-tidy"
       - "!**.md"
+      - "!**.txt"
+      - "**/.CMakeLists.txt"
+      - "!**.tsv"
+      - "!**.sh"
       - "!**.ps1"
       - "!docs/**"
       - "!LICENSE"
       - "!.github/**"
       - ".github/workflows/build.yml"
       - "!nebulanet/**"
+      - "!tools/**"
   # Every pull request, so that the Build result check always reports and can be required: a pull request that changes
   # nothing the build uses (the push paths above) skips the jobs, which counts as passing.
   pull_request:
@@ -61,7 +67,7 @@ jobs:
           fi
           files=$(git diff --name-only HEAD^1 HEAD)
           if printf '%s\n' "$files" | grep -qxF .github/workflows/build.yml ||
-             printf '%s\n' "$files" | grep -vE '\.md$|^docs/|^LICENSE$|^\.github/|^nebulanet/' | grep -q .; then
+             printf '%s\n' "$files" | grep -vE '\.md$|^docs/|^LICENSE$|^\.github/|^nebulanet/|^tools/' | grep -q .; then
             echo build=true >> "$GITHUB_OUTPUT"
           else
             echo build=false >> "$GITHUB_OUTPUT"
