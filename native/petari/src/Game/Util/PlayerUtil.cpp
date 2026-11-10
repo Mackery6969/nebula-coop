@@ -877,6 +877,10 @@ namespace MR {
     }
 
     namespace {
+        // getNearestPlayerCenterPos's answer for another player (at namespace scope: the module has no thread-safe
+        // statics' runtime).
+        TVec3f sNearestCenter(0.0f, 0.0f, 0.0f);
+
         // The copy of the player nearest pActor, none when the local Mario is (or nobody else can be gone for).
         const NebulaRemotePlayer* findNearestCopy(const LiveActor* pActor) {
             const s32 copyNum = NebulaRemotePlayer::getCopyNum();
@@ -916,9 +920,8 @@ namespace MR {
         if (pCopy == nullptr) {
             return getPlayerCenterPos();
         }
-        static TVec3f sCenter(0.0f, 0.0f, 0.0f);
-        sCenter = pCopy->getCenterPos();
-        return &sCenter;
+        sNearestCenter = pCopy->getCenterPos();
+        return &sNearestCenter;
     }
 
     const TVec3f* getTargetPlayerPos(const LiveActor* pActor) {
