@@ -12,6 +12,7 @@ on:
     paths:
       - "**"
       - "!**.md"
+      - "!**.ps1"
       - "!docs/**"
       - "!LICENSE"
       - "!.github/**"
