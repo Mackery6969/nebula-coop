@@ -190,6 +190,11 @@ void DemoRabbit::updateJump() {
     }
 }
 
+bool DemoRabbit::isSharedNerve(const Nerve* pNerve) {
+    return pNerve != nullptr && (pNerve == GET_NERVE(DemoRabbit, DemoRabbitNrvGuide) || pNerve == GET_NERVE(DemoRabbit, DemoRabbitNrvWait) ||
+                                 pNerve == GET_NERVE(DemoRabbit, DemoRabbitNrvGoal));
+}
+
 bool DemoRabbit::tryGuide() {
     if (MR::isNearPlayer(this, ::sInRunawayRange)) {
         MR::invalidateClipping(this);

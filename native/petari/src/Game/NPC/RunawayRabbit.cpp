@@ -261,6 +261,22 @@ void RunawayRabbit::catchForOtherPlayer() {
     putAway();
 }
 
+void RunawayRabbit::showForOtherPlayer(const Nerve* pNerve) {
+    if (pNerve == nullptr || pNerve == GET_NERVE(RunawayRabbit, RunawayRabbitNrvNoActive) ||
+        pNerve == GET_NERVE(RunawayRabbit, RunawayRabbitNrvHide) || isCaught() || !MR::isHiddenModel(this)) {
+        return;
+    }
+    mIsActive = true;
+    MR::showModel(this);
+    MR::invalidateClipping(this);
+    MR::validateHitSensors(this);
+    mCollect->noticeAppearRabbit(this);
+}
+
+bool RunawayRabbit::isOutOfHiding() const {
+    return !isNerve(GET_NERVE(RunawayRabbit, RunawayRabbitNrvNoActive)) && !isNerve(GET_NERVE(RunawayRabbit, RunawayRabbitNrvHide));
+}
+
 void RunawayRabbit::putAway() {
     if (!MR::isDead(mSpotMarkLight)) {
         mSpotMarkLight->kill();
