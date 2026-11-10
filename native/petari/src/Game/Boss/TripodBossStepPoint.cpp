@@ -1,47 +1,49 @@
 #include "Game/Boss/TripodBossStepPoint.hpp"
 #include "Game/Boss/TripodBossAccesser.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 
 TripodBossStepPoint::TripodBossStepPoint(const char* pName)
-    : LiveActor(pName), mStepPosition(0, 0, 0), mStepNormal(0, 1, 0), mStepFront(0, 0, 1), mLeg(), mSequencePriority(), mArg3(-1), mWaitTime(120) {
+    : LiveActor(pName), mStepPosition(0, 0, 0), mStepNormal(0, 1, 0), mStepFront(0, 0, 1), mLeg(), mSequencePriority(), mSequenceIndex(-1), mWaitTime(120) {
 }
 
-void TripodBossStepPoint::init(const JMapInfoIter& rIter) {
+void TripodBossStepPoint::init(const TableIter& rIter) {
     if (MR::isValidInfo(rIter)) {
-        TPos3f mtx;
-        MR::getJMapInfoMatrixFromRT(rIter, &mtx);
+        Pos3f mtx;
+        MR::getPlacementMatrixFromRT(rIter, &mtx);
 
         mtx.getTrans(mStepPosition);
         mtx.getYDir(mStepNormal);
         mtx.getZDir(mStepFront);
 
-        MR::getJMapInfoArg0NoInit(rIter, &mSequencePriority);
-        MR::getJMapInfoArg1NoInit(rIter, &mLeg);
-        MR::getJMapInfoArg2NoInit(rIter, &mWaitTime);
-        MR::getJMapInfoArg3NoInit(rIter, &mArg3);
+        MR::getPlacementArg0NoInit(rIter, &mSequencePriority);
+        MR::getPlacementArg1NoInit(rIter, &mLeg);
+        MR::getPlacementArg2NoInit(rIter, &mWaitTime);
+        MR::getPlacementArg3NoInit(rIter, &mSequenceIndex);
     }
 
     makeActorDead();
 }
 
 void TripodBossStepPoint::initAfterPlacement() {
-    if (mArg3 != -1) {
+    // A point joins a sequence only with a sequence number (not the unset -1, nor a lower one) and one of the boss's three
+    // legs; any other (a mod's placement) would index past the sequence list and the legs.
+    if (mSequenceIndex >= 0 && mLeg >= 0 && mLeg < 3) {
         MR::addTripodBossStepPoint(this);
     }
 }
 
-void TripodBossStepPoint::setStepPosition(const TVec3f& rPos) {
+void TripodBossStepPoint::setStepPosition(const Vec3f& rPos) {
     mStepPosition = rPos;
 }
 
-void TripodBossStepPoint::setStepNormal(const TVec3f& rNormal) {
+void TripodBossStepPoint::setStepNormal(const Vec3f& rNormal) {
     mStepNormal = rNormal;
 
     MR::normalizeOrZero(&mStepNormal);
 }
 
-void TripodBossStepPoint::setStepFront(const TVec3f& rFront) {
+void TripodBossStepPoint::setStepFront(const Vec3f& rFront) {
     mStepFront = rFront;
 
     MR::normalizeOrZero(&mStepFront);

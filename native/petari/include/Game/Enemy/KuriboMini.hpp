@@ -14,17 +14,17 @@ class KuriboMini : public LiveActor {
 public:
     KuriboMini(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void makeActorAppeared();
-    virtual void kill();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPush(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
+    virtual void makeActorAppeared() override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPush(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
     void initSensor();
     void initState();
@@ -60,6 +60,6 @@ public:
     WalkerStateChase* mStateChase;
     WalkerStateStagger* mStateStagger;
     WalkerStateBindStarPointer* mStateBindStarPointer;
-    TQuat4f _A8;
-    TVec3f _B8;
+    Quat4f mRotateQuat;
+    Vec3f mFront;
 };

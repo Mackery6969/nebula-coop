@@ -2,23 +2,29 @@
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/MeteorStrike.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/RailUtil.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace NrvMeteorStrikeLauncher {
     NEW_NERVE(MeteorStrikeLauncherNrvCreate, MeteorStrikeLauncher, Create);
     NEW_NERVE(MeteorStrikeLauncherNrvInterval, MeteorStrikeLauncher, Interval);
 };  // namespace NrvMeteorStrikeLauncher
 
+namespace {
+    NEBULA_TUNABLE(f32, sClipRadius, 200.0f);
+};  // namespace
+
 MeteorStrikeLauncher::MeteorStrikeLauncher(const char* pName)
     : LiveActor(pName), mMeteorStrikeArray(), mMeteorStrikeCount(), mIntervalStep(-1), mCreateStep(), mIsMeteorStrike(), mIsValidMultiMeteor() {
 }
 
-void MeteorStrikeLauncher::init(const JMapInfoIter& rIter) {
+void MeteorStrikeLauncher::init(const TableIter& rIter) {
     const char* pName = mName;
-    setName("\203\201\203\145\203\111\203\130\203\147\203\211\203\103\203\116\203\211\203\223\203\140\203\203\201\133" /* メテオストライクランチャー */);
+    setName("メテオストライクランチャー");
 
     initMapToolInfo(rIter);
 
@@ -34,11 +40,18 @@ void MeteorStrikeLauncher::init(const JMapInfoIter& rIter) {
 
     if (mIsMeteorStrike && mIsValidMultiMeteor) {
         f32 speed = MeteorStrike::getSpeed(rIter);
-        mMeteorStrikeCount = static_cast< s32 >(MR::getRailTotalLength(this) / (speed * mIntervalStep)) + 2;
+        // A count that is not a number, or is 4096 and over, keeps the one meteor (the cast of such a float is undefined).
+        f32 count = MR::getRailTotalLength(this) / (speed * mIntervalStep);
+        mMeteorStrikeCount = (count > -1.0f && count < 4096.0f) ? static_cast< s32 >(count) + 2 : 1;
     } else if (mIsMeteorStrike || mIntervalStep < 0) {
         mMeteorStrikeCount = 1;
     } else {
         mMeteorStrikeCount = 2;
+    }
+
+    // A speed or interval of zero or less makes the count negative (or undefined): keep the one meteor.
+    if (mMeteorStrikeCount < 1) {
+        mMeteorStrikeCount = 1;
     }
 
     mMeteorStrikeArray = new MeteorStrike*[mMeteorStrikeCount];
@@ -73,18 +86,18 @@ void MeteorStrikeLauncher::kill() {
     }
 }
 
-void MeteorStrikeLauncher::initMapToolInfo(const JMapInfoIter& rIter) {
+void MeteorStrikeLauncher::initMapToolInfo(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
 
     MR::useStageSwitchReadAppear(this, rIter);
 
-    if (MR::getJMapInfoArg1NoInit(rIter, &mIntervalStep)) {
-        mIntervalStep *= 60;
+    if (MR::getPlacementArg1NoInit(rIter, &mIntervalStep)) {
+        mIntervalStep *= NebulaFrameClock::stepsOfSeconds(1);
     }
 
     mIsMeteorStrike = MR::isEqualObjectName(rIter, "MeteorStrike");
 
-    MR::getJMapInfoArg2NoInit(rIter, &mIsValidMultiMeteor);
+    MR::getPlacementArg2NoInit(rIter, &mIsValidMultiMeteor);
 }
 
 MeteorStrike* MeteorStrikeLauncher::getUnusedMeteorStrike() {
@@ -95,10 +108,6 @@ MeteorStrike* MeteorStrikeLauncher::getUnusedMeteorStrike() {
     }
 
     return nullptr;
-}
-
-bool isNotJudgedToClipFrustum(const TVec3f& pVec) {
-    return !MR::isJudgedToClipFrustum(pVec, 200.0f);
 }
 
 bool MeteorStrikeLauncher::create() {
@@ -114,23 +123,28 @@ bool MeteorStrikeLauncher::create() {
     }
 
     if (mIsValidMultiMeteor) {
-        TVec3f movedPos;
+        Vec3f movedPos;
         pUnusedStrike->getMovedPos(&movedPos, 0);
 
-        if (!isNotJudgedToClipFrustum(movedPos)) {
+        if (MR::isJudgedToClipFrustum(movedPos, ::sClipRadius)) {
             pUnusedStrike->appear();
         }
 
         return true;
     }
 
-    for (; mCreateStep >= 0; mCreateStep -= mIntervalStep) {
-        TVec3f movedPos;
+    // Starts the meteor part way along its fall, at the latest step that is still out of view.
+    // With no interval (0 or less) the step counts up by 1 and ends past the meteor's last step.
+    for (; mCreateStep >= 0; mCreateStep -= (mIntervalStep != 0 ? mIntervalStep : -1)) {
+        Vec3f movedPos;
         if (!pUnusedStrike->getMovedPos(&movedPos, mCreateStep)) {
+            if (mIntervalStep <= 0) {
+                break;
+            }
             continue;
         }
 
-        if (isNotJudgedToClipFrustum(movedPos)) {
+        if (!MR::isJudgedToClipFrustum(movedPos, ::sClipRadius)) {
             continue;
         }
 

@@ -10,20 +10,19 @@
 #include "Game/System/InputStick.hpp"
 
 PlayerInput::PlayerInput(s32 channel, PlayerInputReader* pReadInfo)
-    : mChannel(channel), mReadInfo(pReadInfo), mButton(), mPointer(), mMainTilt(), mMainSwing(), _18(), _1C(), mStick(), mSubTilt(), mSubSwing(),
+    : mChannel(channel), mReadInfo(pReadInfo), mButton(), mPointer(), mMainTilt(), mMainSwing(), mRumble(), mMenuRumble(), mStick(), mSubTilt(), mSubSwing(),
       mInfoChecker(), mIsConnected(), mHasMoveStick() {
     mButton = new InputButtons(this);
     mPointer = new InputPointer(this);
     mMainTilt = new InputTilt(this, INPUT_HAND_MAIN);
     mMainSwing = new InputSwing(this, INPUT_HAND_MAIN);
-    _18 = new InputRumble(this);
-    _1C = new InputRumble(this);
-    _18->registInstance();
+    mRumble = new InputRumble(this);
+    mMenuRumble = new InputRumble(this);
+    mRumble->registInstance();
     mSubTilt = new InputTilt(this, INPUT_HAND_SUB);
     mSubSwing = new InputSwing(this, INPUT_HAND_SUB);
     mStick = new InputStick(this);
     mInfoChecker = new InputInfoChecker(this);
-    mSubSwing->mDistanceSwingThreshold = 2.0f;
 }
 
 void PlayerInput::update() {
@@ -35,8 +34,8 @@ void PlayerInput::update() {
     mMainTilt->update();
     mPointer->update();
     mMainSwing->update();
-    _18->update();
-    _1C->update();
+    mRumble->update();
+    mMenuRumble->update();
     mSubTilt->update();
     mSubSwing->update();
     mStick->update();
@@ -52,14 +51,10 @@ void PlayerInput::holdForMenu() {
     mStick->mHold = 0;
     mStick->mTrigger = 0;
     mStick->mRelease = 0;
-    mStick->mIsTriggerUp = false;
-    mStick->mIsTriggerDown = false;
-    mStick->mIsHoldUp = false;
-    mStick->mIsHoldDown = false;
 }
 
 InputRumble* PlayerInput::getRumbleInstance() const {
-    return _18->getRumbleInstance();
+    return mRumble->getRumbleInstance();
 }
 
 s32 PlayerInput::getBattery() const {
@@ -110,8 +105,6 @@ void PlayerInput::extensionCallback(s32 chan, s32 result) {
         return;
     }
 
-    SpkSystem::extensionProcess(chan, result);
-
     switch (result) {
     case INPUT_HAND_MAIN:
         pInput->mHasMoveStick = false;
@@ -129,46 +122,6 @@ bool MR::hasMoveStick(const PlayerInputSample* pSample) {
     return pSample != nullptr && pSample->mHasMoveStick;
 }
 
-PlayerInputSample* PlayerInput::getSample(u32 index) const {
-    return mReadInfo->getSample(index);
-}
-
-s32 PlayerInput::getValidStatusCount() const {
-    return mReadInfo->getValidStatusCount();
-}
-
-s32 PlayerInput::getEnableAccelPastCount(u32 deviceType) const {
-    InputTilt* pAcceleration;
-
-    if (deviceType == INPUT_HAND_MAIN) {
-        pAcceleration = mMainTilt;
-    } else {
-        pAcceleration = mSubTilt;
-    }
-
-    return pAcceleration->_628;
-}
-
-bool PlayerInput::getAcceleration(TVec3f* pAccel, u32 deviceType) const {
-    InputTilt* pAcceleration;
-
-    if (deviceType == INPUT_HAND_MAIN) {
-        pAcceleration = mMainTilt;
-    } else {
-        pAcceleration = mSubTilt;
-    }
-
-    return pAcceleration->getAcceleration(pAccel);
-}
-
-bool PlayerInput::getPastAcceleration(TVec3f* pAccel, s32 param2, u32 deviceType) const {
-    InputTilt* pAcceleration;
-
-    if (deviceType == INPUT_HAND_MAIN) {
-        pAcceleration = mMainTilt;
-    } else {
-        pAcceleration = mSubTilt;
-    }
-
-    return pAcceleration->getPastAcceleration(pAccel, param2);
+PlayerInputSample* PlayerInput::getSample() const {
+    return mReadInfo->getSample();
 }

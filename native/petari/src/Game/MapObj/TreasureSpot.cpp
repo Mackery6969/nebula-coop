@@ -2,10 +2,12 @@
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/MapObjActorInitInfo.hpp"
 #include "Game/Util.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const s32 sNumCoin = 1;
-    static const f32 sEnableSpoutLength = 2000.0f;
+    NEBULA_TUNABLE(s32, sNumCoin, 1);
+    NEBULA_TUNABLE(f32, sEnableSpoutLength, 2000.0f);
+    NEBULA_TUNABLE(f32, sGlowLeaveMargin, 200.0f);
 };  // namespace
 
 namespace NrvTreasureSpot {
@@ -17,17 +19,17 @@ namespace NrvTreasureSpot {
 TreasureSpot::TreasureSpot(const char* pName) : MapObjActor(pName), mIsCoinFlower() {
 }
 
-void TreasureSpot::init(const JMapInfoIter& rIter) {
+void TreasureSpot::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
     MapObjActorInitInfo info;
     MapObjActorUtil::setupInitInfoSimpleMapObj(&info);
     info.setupHitSensor();
-    info.setupHitSensorParam(4, 80.0f, TVec3f(0.0f, 30.0f, 0.0f));
+    info.setupHitSensorParam(4, 80.0f, Vec3f(0.0f, 30.0f, 0.0f));
     info.setupNerve(GET_NERVE(TreasureSpot, TreasureSpotNrvWait));
     info.setupSound(4);
     MapObjActor::initialize(rIter, info);
     mIsCoinFlower = isObjectName("CoinFlower");
-    MR::initStarPointerTarget(this, 100.0f, TVec3f(0.0f, 50.0f, 0.0f));
+    MR::initStarPointerTarget(this, 100.0f, Vec3f(0.0f, 50.0f, 0.0f));
     MR::declareCoin(this, ::sNumCoin);
 }
 
@@ -40,7 +42,7 @@ void TreasureSpot::exeEnd() {
 void TreasureSpot::exeSpout() {
     if (MR::isFirstStep(this)) {
         MR::forceDeleteEffectAll(this);
-        TVec3f upVec;
+        Vec3f upVec;
         MR::calcUpVec(&upVec, this);
         MR::appearCoinPopToDirection(this, mPosition, upVec, ::sNumCoin);
 
@@ -61,28 +63,18 @@ void TreasureSpot::exeSpout() {
     }
 }
 
-void TreasureSpot::control() {
-    if (isNerve(GET_NERVE(TreasureSpot, TreasureSpotNrvSpout))) {
-        return;
-    }
-
-    if (isNerve(GET_NERVE(TreasureSpot, TreasureSpotNrvEnd))) {
-        return;
-    }
-
-    switchEmitGlow();
+bool TreasureSpot::isSpouted() const {
+    return isNerve(GET_NERVE(TreasureSpot, TreasureSpotNrvSpout)) || isNerve(GET_NERVE(TreasureSpot, TreasureSpotNrvEnd));
 }
 
-bool TreasureSpot::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
-    if (isNerve(GET_NERVE(TreasureSpot, TreasureSpotNrvSpout))) {
-        return false;
+void TreasureSpot::control() {
+    if (!isSpouted()) {
+        switchEmitGlow();
     }
+}
 
-    if (isNerve(GET_NERVE(TreasureSpot, TreasureSpotNrvEnd))) {
-        return false;
-    }
-
-    if (!MR::isNearPlayerAnyTime(this, ::sEnableSpoutLength)) {
+bool TreasureSpot::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
+    if (isSpouted() || !MR::isNearPlayerAnyTime(this, ::sEnableSpoutLength)) {
         return false;
     }
 
@@ -99,11 +91,12 @@ bool TreasureSpot::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor
 }
 
 void TreasureSpot::switchEmitGlow() {
-    if (!MR::isNearPlayerAnyTime(this, ::sEnableSpoutLength)) {
+    // Glow starts inside the spout range and ends only a margin past it: one test for both deleted and made it again
+    // every few steps for a player standing at the range.
+    mIsGlowNear = MR::isNearPlayerAnyTime(this, mIsGlowNear ? ::sEnableSpoutLength + ::sGlowLeaveMargin : ::sEnableSpoutLength);
+    if (!mIsGlowNear) {
         MR::deleteEffect(this, "Glow");
-    } else if (MR::isNearPlayerAnyTime(this, ::sEnableSpoutLength)) {
-        if (!MR::isEffectValid(this, "Glow")) {
-            MR::emitEffect(this, "Glow");
-        }
+    } else if (!MR::isEffectValid(this, "Glow")) {
+        MR::emitEffect(this, "Glow");
     }
 }

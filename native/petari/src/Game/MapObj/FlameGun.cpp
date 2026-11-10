@@ -1,4 +1,5 @@
 #include "Game/MapObj/FlameGun.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util.hpp"
@@ -13,17 +14,14 @@ namespace NrvFlameGun {
 };  // namespace NrvFlameGun
 
 FlameGun::FlameGun(const char* pName) : LiveActor(pName) {
-    _8C.x = 0.0f;
-    _8C.y = -1.0f;
-    _8C.z = 0.0f;
     mState = -1;
 }
 
-void FlameGun::init(const JMapInfoIter& rIter) {
+void FlameGun::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     MR::setGroupClipping(this, rIter, 32);
     s32 arg = 0;
-    MR::getJMapInfoArg0NoInit(rIter, &arg);
+    MR::getPlacementArg0NoInit(rIter, &arg);
     mState = arg;
 
     if (MR::useStageSwitchReadA(this, rIter)) {
@@ -39,6 +37,10 @@ void FlameGun::init(const JMapInfoIter& rIter) {
         case 2:
             initNerve(GET_NERVE(FlameGun, HostTypeNrvRadiateOnly));
             break;
+        default:
+            // A mode past the three (a mod's placement) waits like mode 0: the actor needs a nerve to run.
+            initNerve(GET_NERVE(FlameGun, HostTypeNrvWait));
+            break;
         }
     }
 
@@ -46,7 +48,7 @@ void FlameGun::init(const JMapInfoIter& rIter) {
     MR::connectToSceneEnemy(this);
     initSound(4, false);
     initBinder(77.0f * mScale.y, 77.0f * mScale.y, 0);
-    initEffectKeeper(3, nullptr, false);
+    initEffectKeeper(3, nullptr);
     initSensor();
     MR::initShadowVolumeSphere(this, 77.0f);
     appear();
@@ -56,7 +58,7 @@ void FlameGun::init(const JMapInfoIter& rIter) {
 void FlameGun::initSensor() {
     f32 scale = mScale.y;
     initHitSensor(2);
-    TVec3f offs;
+    Vec3f offs;
     offs.x = 0.0f;
     offs.y = 77.0f * scale;
     offs.z = 0.0f;
@@ -101,7 +103,7 @@ void FlameGun::exeWait() {
         MR::startBck(this, "Wait");
     }
 
-    if (MR::isGreaterStep(this, 120)) {
+    if (MR::isGreaterStep(this, NebulaFrameClock::stepsOfSeconds(2))) {
         setNerve(GET_NERVE(FlameGun, HostTypeNrvPreRadiate));
     }
 }
@@ -126,7 +128,7 @@ void FlameGun::exeRadiate() {
 
     MR::startLevelSound(this, "SE_EM_LV_FLAMEGUN_FIRE");
 
-    if (MR::isGreaterStep(this, 120)) {
+    if (MR::isGreaterStep(this, NebulaFrameClock::stepsOfSeconds(2))) {
         setNerve(GET_NERVE(FlameGun, HostTypeNrvWait));
         MR::forceDeleteEffectAll(this);
         MR::invalidateHitSensor(this, "attack");
@@ -158,14 +160,14 @@ void FlameGun::exeRadiateOnly() {
 
 void FlameGun::updateHitSensor(HitSensor* pSensor) {
     f32 scale = mScale.y;
-    TVec3f playerOffset(*MR::getPlayerCenterPos());
+    Vec3f playerOffset(*MR::getPlayerCenterPos());
     playerOffset -= mPosition;
-    TPos3f baseMtx(getBaseMtx());
-    TVec3f side, up, front;
+    Pos3f baseMtx(getBaseMtx());
+    Vec3f side, up, front;
     baseMtx.getXDir(side);
     baseMtx.getYDir(up);
     baseMtx.getZDir(front);
-    TVec3f direction(front);
+    Vec3f direction(front);
     MR::normalizeOrZero(&direction);
 
     f32 distance = direction.dot(playerOffset);
@@ -186,7 +188,4 @@ void FlameGun::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     if (!MR::sendMsgEnemyAttackFire(pReceiver, pSender)) {
         MR::sendMsgPush(pReceiver, pSender);
     }
-}
-
-FlameGun::~FlameGun() {
 }

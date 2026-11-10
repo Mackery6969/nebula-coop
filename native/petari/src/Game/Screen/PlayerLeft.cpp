@@ -18,12 +18,12 @@ PlayerLeft::PlayerLeft(const char* pName)
     : LayoutActor(pName, true), mPlayerLeft(0), mLayoutAppearer(nullptr), mPaneRumbler(nullptr), mIsForceAppear(false) {
 }
 
-void PlayerLeft::init(const JMapInfoIter& rIter) {
+void PlayerLeft::init(const TableIter& /*rIter*/) {
     initLayoutManager("PlayerLeft", 3);
     MR::createAndAddPaneCtrl(this, "Counter", 1);
     MR::hidePaneRecursive(this, "CenterPlayerLeft");
 
-    mLayoutAppearer = new CounterLayoutAppearer(this, TVec2f(-50.0f, 0.0f));
+    mLayoutAppearer = new CounterLayoutAppearer(this, Vec2f(-50.0f, 0.0f));
     mPaneRumbler = new CountUpPaneRumbler(this, "Counter");
     mPlayerLeft = MR::getPlayerLeft();
 
@@ -93,7 +93,7 @@ void PlayerLeft::exeHide() {
 void PlayerLeft::exeAppear() {
     if (MR::isFirstStep(this)) {
         MR::showLayout(this);
-        mLayoutAppearer->appear(TVec2f(0.0f, 0.0f));
+        mLayoutAppearer->appear(Vec2f(0.0f, 0.0f));
         MR::startAnim(this, "Wait", 1);
     }
 

@@ -9,19 +9,19 @@ class SideSpikeMoveStep : public MapObjActor {
 public:
     SideSpikeMoveStep(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
     void exeWait();
-    void exeDPDStop();
-    void endDPDStop();
-    void exeDPDStopSync();
-    void endDPDStopSync();
+    void exePointerStop();
+    void endPointerStop();
+    void exePointerStopSync();
+    void endPointerStopSync();
 
 private:
     AnimScaleController* mScaleController;
     WalkerStateBindStarPointer* mStateBindStarPointer;
-    TVec3f mRailClipping;
+    Vec3f mRailClipping;
 };

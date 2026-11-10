@@ -9,32 +9,31 @@ struct Timing {
     u32 mScaleKeepFrame;
     bool mIsScaleUp;
     bool mIsScaleDown;
-    bool _A;
+    bool mIsFadeOut;  // after the scale-down the counter fades out instead of staying
 };
 
 class TimeUpLayout : public LayoutActor {
 public:
     /// @brief Creates a new `TimeUpLayout`.
-    TimeUpLayout() : LayoutActor("\203\136\203\103\203\200\203\101\203\142\203\166\211\346\226\312" /* タイムアップ画面 */, true) {
+    TimeUpLayout() : LayoutActor("タイムアップ画面", true) {
     }
 
-    virtual void init(const JMapInfoIter& rIter);
+    virtual void init(const TableIter& rIter) override;
 };
 
 class TimeLimitLayout : public LayoutActor {
 public:
     TimeLimitLayout(u32 timeLimit);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void appear();
-    virtual void kill();
-    virtual void control();
+    virtual void init(const TableIter& rIter) override;
+    virtual void appear() override;
+    virtual void kill() override;
+    virtual void control() override;
 
     void setTimeLimit(u32);
     // Online co-op (docs/COOP_PLAN.md "Races and timers"): the clock moved on to `time` frames gone, where the
     // instance's clock is ahead of it (never back, never past the limit, so the time up still comes).
     void catchUpTo(u32 time);
-    u32 getTime() const { return mTime; }
     void setDisplayModeOnNormal(bool);
     bool isReadyToTimeUp() const;
     void resetFrame();
@@ -49,6 +48,17 @@ public:
     void exeTimeUpReady();
     const Timing* getCurrentTiming() const;
     bool updateNormal();
+    // Steps counted and the whole length (plugins: NebulaMods).
+    u32 getTime() const {
+        return mTime;
+    }
+    u32 getTimeLimit() const {
+        return mTimeLimit;
+    }
+    void setTime(u32 time) {
+        mTime = time < mTimeLimit ? time : mTimeLimit;
+        updateTextBox();
+    }
 
 private:
     u32 mTime;
@@ -57,5 +67,5 @@ private:
     ValueControl* mFadeControl;
     const Timing* mCurrentTiming;
     bool mIsSuspend;
-    bool _35;
+    bool mIsNormalDisplay;  // stays up instead of fading out after the scale down
 };

@@ -4,18 +4,13 @@
 #include "Game/AudioLib/AudSoundInfo.hpp"
 #include "Game/AudioLib/AudSystem.hpp"
 #include "Game/AudioLib/AudWrap.hpp"
-#include <JSystem/JAudio2/JASCalc.hpp>
-#include <JSystem/JAudio2/JAISe.hpp>
-#include "Game/System/GameThreads.hpp"
+#include "Game/Sound/PlayerLink.hpp"
+#include "Game/Sound/EffectSound.hpp"
 
-void AudSeStrategy::calc(JAISe* pSe) {
-    JAISoundID soundID = pSe->mSoundID;
+void AudSeStrategy::calc(EffectSound* pSe) {
+    SoundID soundID = pSe->mSoundID;
 
     AudSoundInfo* info = AudWrap::getSoundInfo();
-    if (info == nullptr) {
-        return;
-    }
-
     if (info->isUseFxMix(soundID)) {
         pSe->getAuxiliary().moveFxMix(AudWrap::getSystem()->mAudEffector->mFxSend, 0);
     }
@@ -30,7 +25,7 @@ void AudSeStrategy::calc(JAISe* pSe) {
         cutoff = 0x7F;
     }
 
-    if (soundID.getGroupID() == 1 && cutoff < 50) {  // SE_PV
+    if (soundID.getGroupID() == AudGroup_VoiceSe && cutoff < 50) {
         cutoff = 50;
     }
 
@@ -59,33 +54,8 @@ void AudSeStrategy::calc(JAISe* pSe) {
     }
     }
 
-    JASTrack* track = pSe->getTrack();
-    if (track != nullptr) {
-        GameAudioExclusion crit;
-        for (u32 i = 0; i < JASTrack::MAX_CHILDREN; i++) {
-            if (track->getChild(i) != nullptr) {
-                track->getChild(i)->setIIR(sIIRCutoff[cutoff]);
-            }
-        }
+    PlayerLink* player = pSe->getPlayer();
+    if (player != nullptr) {
+        player->setChildIIR(cutoff);
     }
-}
-
-void AudSeStrategy::mix(JAISe* pSe, JASSoundParams* pParams) {
-}
-
-JAISoundStrategy< JAISe >* AudSeStrategyMgr::newStrategy(JAISoundID soundID) {
-    AudSeStrategy* strategy = new AudSeStrategy();
-    if (strategy == nullptr) {
-        return nullptr;
-    }
-    return strategy;
-}
-
-bool AudSeStrategyMgr::deleteStrategy(JAISoundStrategy< JAISe >* pStrategy) {
-    if (pStrategy == nullptr) {
-        return false;
-    }
-
-    delete pStrategy;
-    return true;
 }

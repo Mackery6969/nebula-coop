@@ -13,16 +13,16 @@ namespace NrvMapPartsRailRotator {
 };  // namespace NrvMapPartsRailRotator
 
 MapPartsRailRotator::MapPartsRailRotator(LiveActor* pHost)
-    : MapPartsFunction(pHost, "\203\214\203\103\203\213\211\361\223\135" /* レイル回転 */), mRotateAxis(), mRotateType(), mRotateSpeed(), mTargetAngle(), mAngle(), mHostRotateMtx() {
-    _2C.identity();
-    _5C.identity();
+    : MapPartsFunction(pHost, "レイル回転"), mRotateAxis(), mRotateType(), mRotateSpeed(), mTargetAngle(), mAngle(), mHostRotateMtx() {
+    mBaseRotateMtx.identity();
+    mRotateMtx.identity();
 }
 
-void MapPartsRailRotator::init(const JMapInfoIter&) {
+void MapPartsRailRotator::init(const TableIter&) {
     initNerve(GET_NERVE(MapPartsRailRotator, HostTypeWait));
 }
 
-void MapPartsRailRotator::initWithRotateMtx(const JMapInfoIter& rIter, MtxPtr pMtx) {
+void MapPartsRailRotator::initWithRotateMtx(const TableIter& rIter, MtxPtr pMtx) {
     mHostRotateMtx = pMtx;
     init(rIter);
 }
@@ -31,8 +31,8 @@ void MapPartsRailRotator::start() {
 }
 
 void MapPartsRailRotator::end() {
-    _2C.identity();
-    _5C.identity();
+    mBaseRotateMtx.identity();
+    mRotateMtx.identity();
     mAngle = 0.0f;
     setNerve(GET_NERVE(MapPartsRailRotator, HostTypeWait));
 }
@@ -82,12 +82,12 @@ void MapPartsRailRotator::rotateBetweenPoints(s32 point, f32 time) {
 
 void MapPartsRailRotator::updateHostRotateMtx() {
     if (mHostRotateMtx != nullptr) {
-        NebulaMtxCopy(mHostRotateMtx, _2C.toMtxPtr());
+        NebulaMtxCopy(mHostRotateMtx, mBaseRotateMtx.toMtxPtr());
     } else if (mHost->getBaseMtx() != nullptr) {
-        _2C.set(mHost->getBaseMtx());
-        _2C.zeroTrans();
+        mBaseRotateMtx.set(mHost->getBaseMtx());
+        mBaseRotateMtx.zeroTrans();
     } else {
-        _2C.setEuler(mHost->mRotation * (PI / 180.0f));
+        mBaseRotateMtx.setEuler(mHost->mRotation * (PI / 180.0f));
     }
 }
 
@@ -100,7 +100,8 @@ void MapPartsRailRotator::updateInfo(s32 point) {
         MR::getMapPartsArgRailRotateTime(&time, mHost, point);
         f32 angle = 0.0f;
         MR::getMapPartsArgRailRotateAngle(&angle, mHost, point);
-        mRotateSpeed = angle / time;
+        // A time under one step turns the whole angle in one step.
+        mRotateSpeed = time > 0 ? angle / time : angle;
     } else {
         f32 speed = -1.0f;
         MR::getMapPartsArgRailRotateSpeed(&speed, mHost, point);
@@ -109,7 +110,7 @@ void MapPartsRailRotator::updateInfo(s32 point) {
 
     f32 angle = -1.0f;
     MR::getMapPartsArgRailRotateAngle(&angle, mHost, point);
-    angle *= getJMapArgAngleFactor();
+    angle *= getPlacementArgAngleFactor();
     mTargetAngle = angle;
     MR::getMapPartsArgRailRotateAxis(&mRotateAxis, mHost, point);
     MR::getMapPartsArgRailRotateType(&mRotateType, mHost, point);
@@ -126,26 +127,26 @@ bool MapPartsRailRotator::isReachedTargetAngle() const {
     return mTargetAngle <= MR::abs(mAngle);
 }
 
-void MapPartsRailRotator::calcRotateAxisDir(AxisType axis, TVec3f* pDir) const {
+void MapPartsRailRotator::calcRotateAxisDir(AxisType axis, Vec3f* pDir) const {
     switch (axis) {
     case AxisType_X:
-        _2C.getXDir(*pDir);
+        mBaseRotateMtx.getXDir(*pDir);
         break;
     case AxisType_Y:
-        _2C.getYDir(*pDir);
+        mBaseRotateMtx.getYDir(*pDir);
         break;
     case AxisType_Z:
-        _2C.getZDir(*pDir);
+        mBaseRotateMtx.getZDir(*pDir);
         break;
     }
 }
 
 void MapPartsRailRotator::updateRotateMtx(AxisType axis, f32 angle) {
-    TVec3f direction;
+    Vec3f direction;
     calcRotateAxisDir(axis, &direction);
-    _5C.identity();
-    _5C.makeRotate(direction, PI_180 * angle);
-    _5C.concat(_5C, _2C);
+    mRotateMtx.identity();
+    mRotateMtx.makeRotate(direction, PI_180 * angle);
+    mRotateMtx.concat(mRotateMtx, mBaseRotateMtx);
 }
 
 void MapPartsRailRotator::exeRotate() {

@@ -1,4 +1,5 @@
 #include "Game/Screen/InformationObserver.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/Util/CameraUtil.hpp"
@@ -13,26 +14,25 @@
 
 struct InformationObserverAttribute {
     const char* mMessageId;
-    bool _4;
     const char* mFirstMorphBgmName;
     const char* mBgmName;
 };
 
 static InformationObserverAttribute sAttr[] = {
-    {"InformationObserverBee", true, "BGM_FIRST_MORPH_B", nullptr},
-    {"InformationObserverTeresa", true, "BGM_FIRST_MORPH_B", nullptr},
-    {"InformationObserverHopper", true, "BGM_FIRST_MORPH_B", nullptr},
-    {"InformationObserverFire", true, "BGM_FIRST_MORPH_A", "BGM_FIRE_B"},
-    {"InformationObserverIce", true, "BGM_FIRST_MORPH_A", "BGM_ICE_B"},
-    {"InformationObserverFlying", true, "BGM_FIRST_MORPH_A", "BGM_FLYING_B"},
-    {"InformationObserverInvincible", true, "BGM_FIRST_MORPH_A", "BGM_MUTEKI_B"},
-    {"InformationObserverLifeUpMario", true, nullptr, nullptr},
-    {"InformationObserverOneUp", true, nullptr, nullptr},
-    {"InformationObserverSpin", false, nullptr, nullptr},
+    {"InformationObserverBee", "BGM_FIRST_MORPH_B", nullptr},
+    {"InformationObserverTeresa", "BGM_FIRST_MORPH_B", nullptr},
+    {"InformationObserverHopper", "BGM_FIRST_MORPH_B", nullptr},
+    {"InformationObserverFire", "BGM_FIRST_MORPH_A", "BGM_FIRE_B"},
+    {"InformationObserverIce", "BGM_FIRST_MORPH_A", "BGM_ICE_B"},
+    {"InformationObserverFlying", "BGM_FIRST_MORPH_A", "BGM_FLYING_B"},
+    {"InformationObserverInvincible", "BGM_FIRST_MORPH_A", "BGM_MUTEKI_B"},
+    {"InformationObserverLifeUpMario", nullptr, nullptr},
+    {"InformationObserverOneUp", nullptr, nullptr},
+    {"InformationObserverSpin", nullptr, nullptr},
 };
 
 namespace {
-    static s32 sDisplayFramesMin = 30;
+    static s32 sDisplayFramesMin = NebulaFrameClock::stepsOfMilliseconds(500);
 };  // namespace
 
 namespace {
@@ -46,27 +46,27 @@ namespace NrvInformationObserver {
     NEW_NERVE(InformationObserverNrvDisp, InformationObserver, Disp);
 };  // namespace NrvInformationObserver
 
-InformationObserver::InformationObserver() : LiveActor("\217\211\217\157\212\304\216\213" /* 初出監視 */), mType(Type_Bee), _90(false), mDisplayFrame(-1) {
+InformationObserver::InformationObserver() : LiveActor("初出監視"), mType(Type_Bee), mIsTimeKeepDemo(false), mDisplayFrame(-1) {
 }
 
-void InformationObserver::init(const JMapInfoIter& rIter) {
+void InformationObserver::init(const TableIter& /*rIter*/) {
     MR::connectToSceneLayoutMovement(this);
-    MR::declareEventCameraProgrammable("\217\211\217\157\212\304\216\213\203\112\203\201\203\211" /* 初出監視カメラ */);
+    MR::declareEventCameraProgrammable("初出監視カメラ");
     initNerve(GET_NERVE(InformationObserver, InformationObserverNrvWait));
     MR::invalidateClipping(this);
     makeActorDead();
 }
 
 void InformationObserver::entry(TYPE type, LiveActor* pParam2) {
-    _94 = pParam2;
+    mDemoActor = pParam2;
     mType = type;
-    _90 = MR::isTimeKeepDemoActive();
+    mIsTimeKeepDemo = MR::isTimeKeepDemoActive();
 
-    if (_90) {
-        MR::pauseTimeKeepDemo(_94);
+    if (mIsTimeKeepDemo) {
+        MR::pauseTimeKeepDemo(mDemoActor);
         setNerve(GET_NERVE(InformationObserver, InformationObserverNrvDisp));
     } else {
-        MR::requestStartDemoWithoutCinemaFrame(this, "\217\211\217\157\225\134\216\246" /* 初出表示 */, GET_NERVE(InformationObserver, InformationObserverNrvDisp),
+        MR::requestStartDemoWithoutCinemaFrame(this, "初出表示", GET_NERVE(InformationObserver, InformationObserverNrvDisp),
                                                GET_NERVE(InformationObserver, InformationObserverNrvWait));
     }
 
@@ -100,10 +100,10 @@ void InformationObserver::exeDisp() {
         return;
     }
 
-    if (_90) {
-        MR::resumeTimeKeepDemo(_94);
+    if (mIsTimeKeepDemo) {
+        MR::resumeTimeKeepDemo(mDemoActor);
     } else {
-        MR::endDemo(this, "\217\211\217\157\225\134\216\246" /* 初出表示 */);
+        MR::endDemo(this, "初出表示");
     }
 
     if (sAttr[mType].mBgmName != nullptr) {

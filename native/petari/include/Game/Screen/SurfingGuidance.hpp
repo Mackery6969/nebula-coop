@@ -6,7 +6,7 @@ class SurfingGuidance : public LayoutActor {
 public:
     SurfingGuidance();
 
-    virtual void init(const JMapInfoIter&);
+    virtual void init(const TableIter&) override;
 
     void activate();
     void levelOffReady();
@@ -30,10 +30,4 @@ public:
     void exeTurnRightHold();
     void exeTurnRightSuccess();
     void exeFadeOut();
-
-private:
-    u32 _20;
-    f32 _24;
-    u32 _28;
-    u8 _2C;
 };

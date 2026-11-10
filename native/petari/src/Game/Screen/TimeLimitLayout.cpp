@@ -4,19 +4,22 @@
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/ValueControl.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
+#include "Game/System/NebulaMods.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
     static const Timing sTimingTable[] = {
-        {18000, 100, true, true, true}, {10800, 100, true, true, true},  {3600, 100, true, true, true},
-        {1800, 100, true, true, false}, {600, 600, false, false, false},
+        {NebulaFrameClock::stepsOfSeconds(300), 100, true, true, true}, {NebulaFrameClock::stepsOfSeconds(180), 100, true, true, true},  {NebulaFrameClock::stepsOfSeconds(60), 100, true, true, true},
+        {NebulaFrameClock::stepsOfSeconds(30), 100, true, true, false}, {NebulaFrameClock::stepsOfSeconds(10), NebulaFrameClock::stepsOfSeconds(10), false, false, false},
     };
-    static const s32 sScaleUpDownFrame = 8;
-    static const f32 sScaleMaxAdd = 0.5f;
-    static const s32 sFadeoutBeforeFrame = 90;
-    static const s32 sFadeinoutFrame = 60;
+    NEBULA_TUNABLE(s32, sScaleUpDownFrame, 8);
+    NEBULA_TUNABLE(f32, sScaleMaxAdd, 0.5f);
+    NEBULA_TUNABLE(s32, sFadeoutBeforeFrame, 90);
+    NEBULA_TUNABLE(s32, sFadeinoutFrame, 60);
 };  // namespace
 
-void TimeUpLayout::init(const JMapInfoIter& rIter) {
+void TimeUpLayout::init(const TableIter& /*rIter*/) {
     initLayoutManager("TimeUp", 1);
 }
 
@@ -31,10 +34,11 @@ namespace NrvTimeLimitLayout {
 };  // namespace NrvTimeLimitLayout
 
 TimeLimitLayout::TimeLimitLayout(u32 timeLimit)
-    : LayoutActor("\203\136\203\103\203\200\203\212\203\176\203\142\203\147" /* タイムリミット */, true), mTime(), mTimeLimit(timeLimit), mScaleControl(), mFadeControl(), mCurrentTiming(), mIsSuspend(), _35() {
+    : LayoutActor("タイムリミット", true), mTime(), mTimeLimit(timeLimit), mScaleControl(), mFadeControl(), mCurrentTiming(), mIsSuspend(), mIsNormalDisplay() {
+    mFlag.mHudPart = NEBULA_HUD_TIMER;
 }
 
-void TimeLimitLayout::init(const JMapInfoIter& rIter) {
+void TimeLimitLayout::init(const TableIter& /*rIter*/) {
     initLayoutManager("TimeLimit", 1);
 
     mScaleControl = new ValueControl(::sScaleUpDownFrame);
@@ -51,11 +55,13 @@ void TimeLimitLayout::init(const JMapInfoIter& rIter) {
 void TimeLimitLayout::appear() {
     resetFrame();
     LayoutActor::appear();
+    NebulaMods::setCountdown(this, true);
     setNerve(GET_NERVE(TimeLimitLayout, TimeLimitLayoutAppear));
 }
 
 void TimeLimitLayout::kill() {
     LayoutActor::kill();
+    NebulaMods::setCountdown(this, false);
 }
 
 void TimeLimitLayout::setTimeLimit(u32 timeLimit) {
@@ -70,16 +76,16 @@ void TimeLimitLayout::catchUpTo(u32 time) {
         return;
     }
     // Its last ten seconds' warning, which updateNormal starts on the exact frame, if the jump goes past it.
-    const bool warned = mTimeLimit - mTime <= 600;
+    const bool warned = mTimeLimit - mTime <= NebulaFrameClock::stepsOfSeconds(10);
     mTime = time;
     updateTextBox();
-    if (!warned && mTimeLimit - mTime <= 600) {
+    if (!warned && mTimeLimit - mTime <= NebulaFrameClock::stepsOfSeconds(10)) {
         MR::startAnim(this, "TimeLimit", 0);
     }
 }
 
 void TimeLimitLayout::setDisplayModeOnNormal(bool param1) {
-    _35 = param1;
+    mIsNormalDisplay = param1;
 }
 
 bool TimeLimitLayout::isReadyToTimeUp() const {
@@ -188,7 +194,7 @@ void TimeLimitLayout::exeScaleDown() {
     }
 
     if (mScaleControl->mFrame == mScaleControl->mMaxFrame) {
-        if (mCurrentTiming->_A && !_35) {
+        if (mCurrentTiming->mIsFadeOut &&!mIsNormalDisplay) {
             setNerve(GET_NERVE(TimeLimitLayout, TimeLimitLayoutFadeout));
         } else {
             setNerve(GET_NERVE(TimeLimitLayout, TimeLimitLayoutCountDown));
@@ -246,7 +252,7 @@ const Timing* TimeLimitLayout::getCurrentTiming() const {
 }
 
 bool TimeLimitLayout::updateNormal() {
-    if (mIsSuspend) {
+    if (mIsSuspend || NebulaMods::sCountdownHeld) {
         return false;
     }
 
@@ -254,21 +260,21 @@ bool TimeLimitLayout::updateNormal() {
 
     u32 timeLeft = mTimeLimit - mTime;
 
-    if (timeLeft <= 120) {
-        if (timeLeft % 60 == 0 && timeLeft != 0) {
+    if (timeLeft <= NebulaFrameClock::stepsOfSeconds(2)) {
+        if (timeLeft % NebulaFrameClock::stepsOfSeconds(1) == 0 && timeLeft != 0) {
             MR::startSystemSE("SE_SY_E3_TIMER_COUNT_4");
         }
-    } else if (timeLeft <= 360) {
-        if (timeLeft % 60 == 0) {
+    } else if (timeLeft <= NebulaFrameClock::stepsOfSeconds(6)) {
+        if (timeLeft % NebulaFrameClock::stepsOfSeconds(1) == 0) {
             MR::startSystemSE("SE_SY_E3_TIMER_COUNT_2");
         }
-    } else if (timeLeft <= 600) {
-        if (timeLeft % 60 == 0) {
+    } else if (timeLeft <= NebulaFrameClock::stepsOfSeconds(10)) {
+        if (timeLeft % NebulaFrameClock::stepsOfSeconds(1) == 0) {
             MR::startSystemSE("SE_SY_E3_TIMER_COUNT_1");
         }
     }
 
-    if (mTimeLimit - mTime == 600) {
+    if (mTimeLimit - mTime == NebulaFrameClock::stepsOfSeconds(10)) {
         MR::startAnim(this, "TimeLimit", 0);
     }
 

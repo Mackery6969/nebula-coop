@@ -1,8 +1,14 @@
 #include "Game/MapObj/SpaceShipStep.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/MapObjActor.hpp"
 #include "Game/MapObj/MapObjActorInitInfo.hpp"
 #include "Game/Util.hpp"
+#include "Game/Util/Tunable.hpp"
+
+// The numbers this file's functions give the game's motion and animation calls, as tunables: "<file>.<function>.<call>.<k>".
+NEBULA_TUNABLE_NAMED(f32, cNum_updateResetToInitPosCheck_isNearPlayer_1, "updateResetToInitPosCheck.isNearPlayer.1", 3000.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_updateResetToInitPosCheck_isNearPlayer_2, "updateResetToInitPosCheck.isNearPlayer.2", 1000.0f);
 
 namespace NrvSpaceShipStep {
     NEW_NERVE(SpaceShipStepNrvWait, SpaceShipStep, Wait);
@@ -11,13 +17,12 @@ namespace NrvSpaceShipStep {
     NEW_NERVE(SpaceShipStepNrvBreak, SpaceShipStep, Break);
 };  // namespace NrvSpaceShipStep
 
-SpaceShipStep::SpaceShipStep(const char* pName) : MapObjActor(pName), _C4(0.0f, 0.0f, 0.0f), _D0(), _D4() {
+SpaceShipStep::SpaceShipStep(const char* pName) : MapObjActor(pName), mRailClippingCenter(0.0f, 0.0f, 0.0f), mHiddenStep(), mHasBeenSeen() {
 }
 
-void SpaceShipStep::init(const JMapInfoIter& rIter) {
+void SpaceShipStep::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
     MapObjActorInitInfo info;
-    info.setupHioNode("\222\156\214\140\203\111\203\165\203\127\203\106" /* 地形オブジェ */);
     info.setupDefaultPos();
     info.setupConnectToScene();
     info.setupEffect(nullptr);
@@ -28,7 +33,7 @@ void SpaceShipStep::init(const JMapInfoIter& rIter) {
     initialize(rIter, info);
     f32 radius = 0.0f;
     MR::calcModelBoundingRadius(&radius, this);
-    MR::initAndSetRailClipping(&_C4, this, 100.0f, radius);
+    MR::initAndSetRailClipping(&mRailClippingCenter, this, 100.0f, radius);
 }
 
 void SpaceShipStep::exeWait() {
@@ -76,7 +81,7 @@ void SpaceShipStep::control() {
     updateResetToInitPosCheck();
 }
 
-bool SpaceShipStep::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool SpaceShipStep::receiveMsgEnemyAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (isNerve(GET_NERVE(SpaceShipStep, SpaceShipStepNrvBreak))) {
         return false;
     }
@@ -90,34 +95,31 @@ bool SpaceShipStep::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor
 }
 
 void SpaceShipStep::updateResetToInitPosCheck() {
-    if (!_D4) {
-        _D4 = MR::isJudgedToClipFrustum(mPosition, 700.0f) == false;
+    if (!mHasBeenSeen) {
+        mHasBeenSeen = !MR::isJudgedToClipFrustum(mPosition, 700.0f);
     } else {
         if (isNerve(GET_NERVE(SpaceShipStep, SpaceShipStepNrvWait)) || !MR::isJudgedToClipFrustum(mPosition, 700.0f)) {
-            _D0 = 0;
+            mHiddenStep = 0;
         } else {
-            if (_D0 < 240) {
-                _D0++;
+            if (mHiddenStep < NebulaFrameClock::stepsOfSeconds(4)) {
+                mHiddenStep++;
             } else {
                 MapObjActorUtil::resetRailMoverToInitPos(this);
 
-                if (!MR::isJudgedToClipFrustum(mPosition, 700.0f) && MR::isNearPlayer(this, 3000.0f)) {
+                if (!MR::isJudgedToClipFrustum(mPosition, 700.0f) && MR::isNearPlayer(this, cNum_updateResetToInitPosCheck_isNearPlayer_1)) {
                     MR::emitEffect(this, "Appear");
                     MR::startSound(this, "SE_OJ_SPACE_SHIP_STEP_RESET");
                 }
 
-                if (MR::isNearPlayer(this, 1000.0f)) {
+                if (MR::isNearPlayer(this, cNum_updateResetToInitPosCheck_isNearPlayer_2)) {
                     setNerve(GET_NERVE(SpaceShipStep, SpaceShipStepNrvWait));
                 } else {
                     setNerve(GET_NERVE(SpaceShipStep, SpaceShipStepNrvMove));
                 }
 
-                _D0 = 0;
-                _D4 = 0;
+                mHiddenStep = 0;
+                mHasBeenSeen = 0;
             }
         }
     }
-}
-
-SpaceShipStep::~SpaceShipStep() {
 }

@@ -21,38 +21,32 @@ void Mario::tryBeeStick(const HitSensor* pSensor) {
 }
 
 MarioStick::MarioStick(MarioActor* pActor) : MarioState(pActor, MarioStatus_Stick) {
-    _4C = 0;
-    _50 = 0;
-    _54.zero();
-    _48 = new Triangle();
-    _14.zero();
-    _20.zero();
-    _2C.zero();
-    _38.zero();
-    _51 = 0;
-    _44 = 0.0f;
-    _60.zero();
-    _6C.zero();
-    _78.zero();
+    mStickPos.zero();
+    mStickDir.zero();
+    mFlowerUp.zero();
+    mFlowerPos.zero();
+    mFlowerRadius = 0.0f;
+    mPoseFront.zero();
+    mPoseUp.zero();
 }
 
 bool MarioStick::startJump() {
-    TVec3f v7(_2C);
+    Vec3f v7(mFlowerUp);
     v7.scale(mActor->getConst().getTable()->mBeeStickJumpPower);
     f32 v2 = -mActor->getConst().getTable()->mBeeStickJumpBonus;
     v7 += getGravityVec() * v2;
     getPlayer()->tryStickJump(v7);
-    getPlayer()->_408 = 0;
+    getPlayer()->mBeeGravityTimer = 0;
     return true;
 }
 
 bool MarioStick::postureCtrl(MtxPtr pMtx) {
-    MR::makeMtxFrontUp(reinterpret_cast< TPos3f* >(pMtx), _6C, _78);
+    MR::makeMtxFrontUp(pMtx, mPoseFront, mPoseUp);
     return true;
 }
 
 bool MarioStick::setStickSensor(const HitSensor* pSensor) {
-    if (getPlayer()->_3BC < 0x78) {
+    if (getPlayer()->mAirTimer < 0x78) {
         return false;
     }
 
@@ -61,9 +55,9 @@ bool MarioStick::setStickSensor(const HitSensor* pSensor) {
     }
 
     if (pSensor->isType(ATYPE_BEE_FLOWER)) {
-        TVec3f v12;
+        Vec3f v12;
         MR::getRotatedAxisY(&v12, pSensor->mHost->mRotation);
-        TVec3f v11(mActor->_2A0 - pSensor->mPosition);
+        Vec3f v11(mActor->mCenterPos - pSensor->mPosition);
         MR::normalizeOrZero(&v11);
 
         if (v12.dot(v11) < mActor->getConst().getTable()->mBeeStickAngleLimit) {
@@ -75,14 +69,14 @@ bool MarioStick::setStickSensor(const HitSensor* pSensor) {
         }
 
         v11.setLength(pSensor->mRadius);
-        _14 = pSensor->mPosition + v11 * 0.9f;
-        getPlayer()->setTrans(_14, "Stick");
+        mStickPos = pSensor->mPosition + v11 * 0.9f;
+        getPlayer()->setTrans(mStickPos);
         clearVelocity();
         MR::normalize(&v11);
-        _20 = v11;
-        _2C = v12;
-        _38 = pSensor->mPosition;
-        _44 = pSensor->mRadius;
+        mStickDir = v11;
+        mFlowerUp = v12;
+        mFlowerPos = pSensor->mPosition;
+        mFlowerRadius = pSensor->mRadius;
         return true;
     }
 
@@ -90,25 +84,24 @@ bool MarioStick::setStickSensor(const HitSensor* pSensor) {
 }
 
 bool MarioStick::start() {
-    _4C = 0;
-    changeAnimation("\203\156\203\140\225\307\202\255\202\301\202\302\202\253" /* ハチ壁くっつき */, "\203\156\203\140\225\307\202\255\202\301\202\302\202\253\222\206" /* ハチ壁くっつき中 */);
+    changeAnimation("ハチ壁くっつき", "ハチ壁くっつき中");
     startPadVib(0u);
-    playEffectTrans("\203\156\203\140\211\324\202\255\202\301\202\302\202\253" /* ハチ花くっつき */, _38);
-    playSound("\203\156\203\140\225\307\202\255\202\301\202\302\202\253" /* ハチ壁くっつき */);
-    mActor->_F44 = 0;
-    getPlayer()->setFrontVecKeepSide(-_20);
-    _6C = -_20;
-    _78 = getPlayer()->mHeadVec;
+    playEffectTrans("ハチ花くっつき", mFlowerPos);
+    playSound("ハチ壁くっつき");
+    mActor->mBindOn = 0;
+    getPlayer()->setFrontVecKeepSide(-mStickDir);
+    mPoseFront = -mStickDir;
+    mPoseUp = getPlayer()->mHeadVec;
     getPlayer()->mMovementStates.jumping = 0;
-    getPlayer()->mMovementStates._1 = 0;
+    getPlayer()->mMovementStates.onGround = 0;
     return true;
 }
 
 bool MarioStick::update() {
-    getPlayer()->setTrans(_14, nullptr);
+    getPlayer()->setTrans(mStickPos);
 
     if (checkTrgA()) {
-        if (!isAnimationRun("\203\156\203\140\225\307\202\255\202\301\202\302\202\253" /* ハチ壁くっつき */)) {
+        if (!isAnimationRun("ハチ壁くっつき")) {
             if (startJump()) {
                 return false;
             }
@@ -120,42 +113,42 @@ bool MarioStick::update() {
     Mtx rotMtx;
     NebulaMtxRotAxisRad(rotMtx, &player->mSideVec, 0.01f * getStickY());
 
-    TVec3f stack_2C(_14 - _38);
-    NebulaMtxMultVec(rotMtx, &stack_2C, &stack_2C);
+    Vec3f fromFlower(mStickPos - mFlowerPos);
+    NebulaMtxMultVec(rotMtx, &fromFlower, &fromFlower);
 
-    if (MR::diffAngleAbs(stack_2C, _2C) < 1.308997f) {
-        TVec3f stack_20(-stack_2C);
-        if (!MR::normalizeOrZero(&stack_20)) {
-            _6C = stack_20;
+    if (MR::diffAngleAbs(fromFlower, mFlowerUp) < 1.308997f) {
+        Vec3f front(-fromFlower);
+        if (!MR::normalizeOrZero(&front)) {
+            mPoseFront = front;
         }
 
-        getPlayer()->setFrontVecKeepSide(stack_20);
+        getPlayer()->setFrontVecKeepSide(front);
     }
 
     const f32 angle = 0.01f * -getStickX();
-    const TVec3f* gravityVec = getPlayer()->getGravityVec();
+    const Vec3f* gravityVec = getPlayer()->getGravityVec();
     NebulaMtxRotAxisRad(secondRotMtx, gravityVec, angle);
-    NebulaMtxMultVec(secondRotMtx, &stack_2C, &stack_2C);
+    NebulaMtxMultVec(secondRotMtx, &fromFlower, &fromFlower);
 
     if (getStickP() > 0.0f) {
-        changeAnimation("\203\156\203\140\211\324\210\332\223\256" /* ハチ花移動 */);
+        changeAnimation("ハチ花移動");
     } else {
-        stopAnimation("\203\156\203\140\211\324\210\332\223\256" /* ハチ花移動 */);
+        stopAnimation("ハチ花移動");
     }
 
-    if (MR::diffAngleAbs(stack_2C, _2C) < 1.308997f) {
-        TVec3f stack_14(-stack_2C);
-        if (!MR::normalizeOrZero(&stack_14)) {
-            _6C = stack_14;
+    if (MR::diffAngleAbs(fromFlower, mFlowerUp) < 1.308997f) {
+        Vec3f secondFront(-fromFlower);
+        if (!MR::normalizeOrZero(&secondFront)) {
+            mPoseFront = secondFront;
         }
 
-        getPlayer()->setFrontVecKeepUp(stack_14);
-        stack_2C.setLength(_44);
-        _14 = stack_2C + _38;
+        getPlayer()->setFrontVecKeepUp(secondFront);
+        fromFlower.setLength(mFlowerRadius);
+        mStickPos = fromFlower + mFlowerPos;
     }
 
-    _6C = getFrontVec();
-    _78 = getPlayer()->mHeadVec;
+    mPoseFront = getFrontVec();
+    mPoseUp = getPlayer()->mHeadVec;
 
     getPlayer()->incAirWalkTimer();
     getPlayer()->incAirWalkTimer();
@@ -166,15 +159,15 @@ bool MarioStick::update() {
 }
 
 bool MarioStick::close() {
-    stopAnimation("\203\156\203\140\225\307\202\255\202\301\202\302\202\253" /* ハチ壁くっつき */, "\227\216\211\272" /* 落下 */);
+    stopAnimation("ハチ壁くっつき", "落下");
 
-    if (getPlayer()->mMovementStates._1) {
-        changeAnimation(nullptr, "\212\356\226\173" /* 基本 */);
+    if (getPlayer()->mMovementStates.onGround) {
+        changeAnimation(nullptr, "基本");
     }
 
-    getPlayer()->mMovementStates._38 = 0;
-    mActor->_F44 = 1;
-    playEffectTrans("\203\156\203\140\211\324\202\255\202\301\202\302\202\253" /* ハチ花くっつき */, _38);
+    getPlayer()->mMovementStates.jumpBuffered = 0;
+    mActor->mBindOn = 1;
+    playEffectTrans("ハチ花くっつき", mFlowerPos);
     return true;
 }
 

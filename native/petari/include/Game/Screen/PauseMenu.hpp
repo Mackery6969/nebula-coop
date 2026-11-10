@@ -13,15 +13,15 @@ public:
     PauseMenu();
 
     /// @brief Intializes the `PauseMenu` while being placed into a scene.
-    /// @param rIter The reference to an iterator over a `JMapInfo`.
-    virtual void init(const JMapInfoIter& rIter);
+    /// @param rIter The reference to an iterator over a `Table`.
+    virtual void init(const TableIter& rIter) override;
 
     /// @brief Draws the `PauseMenu` to the screen.
-    virtual void draw() const;
+    virtual void draw() const override;
 
-    virtual void appear();
-    virtual void kill();
-    virtual void control();
+    virtual void appear() override;
+    virtual void kill() override;
+    virtual void control() override;
 
     void updateStarPane();
     void startPaneAnimWithoutButton(const char*);
@@ -35,15 +35,14 @@ public:
     void exeLuigiLetter();
     bool isSelecting() const;  // choosing, with no question, save or letter up
 
-    ButtonPaneController* _20;
-    ButtonPaneController* _24;
-    TVec2f _28;
-    SysInfoWindow* _30;
+    ButtonPaneController* mUpperButton;  // pane NBackUp
+    ButtonPaneController* mLowerButton;  // pane NBackDown
+    SysInfoWindow* mConfirmWindow;  // the yes/no confirm
     LuigiLetter* mLuigiLetter;
-    ButtonPaneController* _38;
-    TVec2f mStageTitleOffset;
-    TVec2f mCoinNumPos;
-    TVec2f mStarPieceNumPos;
-    bool _54;
+    ButtonPaneController* mLetterButton;
+    Vec2f mStageTitleOffset;
+    Vec2f mCoinNumPos;
+    Vec2f mStarPieceNumPos;
+    bool mWasDefaultLayoutActive;  // restored on kill
     NebulaPauseSettingsButton* mSettingsButton;  // Nebula's settings menu, from the lower band
 };

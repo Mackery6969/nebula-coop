@@ -2,12 +2,11 @@
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/Scene/SceneFunction.hpp"
-#include "Game/Util/JMapIdInfo.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementId.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
 #include <algorithm>
-#include <cstdio>
 #include <cstring>
 
 namespace {
@@ -18,27 +17,36 @@ namespace {
     };
 
     struct HasGroupId {
-        bool operator()(const MsgSharedGroup* pGroup, const JMapIdInfo& rIdInfo) const {
+        bool operator()(const MsgSharedGroup* pGroup, const PlacementId& rIdInfo) const {
             return *pGroup->mIdInfo == rIdInfo;
         }
     };
 };  // namespace
 
-MsgSharedGroup::MsgSharedGroup(const char* pName, s32 numMax, const JMapInfoIter& rIter)
-    : LiveActorGroup(mGroupName, numMax), mIdInfo(), mMsg(-1), mSensor(), mSensorName() {
-    MR::copyString(mGroupName, pName, sizeof(mGroupName));
-    JMapIdInfo* pIdInfo = new JMapIdInfo();
+namespace {
+    // The group keeps its own copy: callers pass names they format on the stack.
+    const char* copyGroupName(const char* pName) {
+        const size_t size = strlen(pName) + 1;
+        char* const pCopy = new char[size];
+        memcpy(pCopy, pName, size);
+        return pCopy;
+    }
+}  // namespace
+
+MsgSharedGroup::MsgSharedGroup(const char* pName, s32 numMax, const TableIter& rIter)
+    : LiveActorGroup(copyGroupName(pName), numMax), mIdInfo(), mMsg(-1), mSensor(), mSensorName() {
+    PlacementId* pIdInfo = new PlacementId();
 
     if (pIdInfo != nullptr) {
-        JMapIdInfo newInfo = MR::createJMapIdInfoFromGroupId(rIter);
-        pIdInfo->_0 = newInfo._0;
+        PlacementId newInfo = MR::createPlacementIdFromGroupId(rIter);
+        pIdInfo->mId = newInfo.mId;
         pIdInfo->mZoneID = newInfo.mZoneID;
     }
 
     mIdInfo = pIdInfo;
 }
 
-void MsgSharedGroup::init(const JMapInfoIter& rIter) {
+void MsgSharedGroup::init(const TableIter& /*rIter*/) {
     MR::connectToScene(this, MR::MovementType_MsgSharedGroup, MR::CalcAnimType_None, MR::DrawBufferType_None, MR::DrawType_None);
 }
 
@@ -50,7 +58,11 @@ void MsgSharedGroup::movement() {
     }
 
     for (s32 i = 0; i < getObjNum(); i++) {
-        getActor(i)->getSensor(mSensorName)->receiveMessage(mMsg, mSensor);
+        // A member without a sensor of that name gets no message.
+        HitSensor* const pReceiver = getActor(i)->getSensor(mSensorName);
+        if (pReceiver != nullptr) {
+            pReceiver->receiveMessage(mMsg, mSensor);
+        }
     }
 
     mMsg = -1;
@@ -65,14 +77,14 @@ void MsgSharedGroup::sendMsgToGroupMember(u32 msg, HitSensor* pSensor, const cha
 LiveActorGroupArray::LiveActorGroupArray(const char* pName) : NameObj(pName), mGroups() {
 }
 
-void LiveActorGroupArray::init(const JMapInfoIter& rIter) {
+void LiveActorGroupArray::init(const TableIter& /*rIter*/) {
 }
 
 LiveActorGroup* LiveActorGroupArray::getLiveActorGroup(const LiveActor* pActor) const {
     return findGroup(pActor);
 }
 
-LiveActorGroup* LiveActorGroupArray::createGroup(const JMapInfoIter& rIter, const char* pName, s32 numMax) {
+LiveActorGroup* LiveActorGroupArray::createGroup(const TableIter& rIter, const char* pName, s32 numMax) {
     MsgSharedGroup* pGroup;
 
     pGroup = new MsgSharedGroup(pName, numMax, rIter);
@@ -83,8 +95,8 @@ LiveActorGroup* LiveActorGroupArray::createGroup(const JMapInfoIter& rIter, cons
     return pGroup;
 }
 
-LiveActorGroup* LiveActorGroupArray::findGroup(const JMapInfoIter& rIter) const {
-    const JMapIdInfo idInfo = MR::createJMapIdInfoFromGroupId(rIter);
+LiveActorGroup* LiveActorGroupArray::findGroup(const TableIter& rIter) const {
+    const PlacementId idInfo = MR::createPlacementIdFromGroupId(rIter);
     MsgSharedGroup* const* it =
         std::find_if(mGroups.begin(), mGroups.end(), [&](const auto& item) { return HasGroupId()(item, idInfo); });
 
@@ -105,16 +117,16 @@ LiveActorGroup* LiveActorGroupArray::findGroup(const LiveActor* pActor) const {
     return nullptr;
 }
 
-LiveActorGroup* LiveActorGroupArray::entry(LiveActor* pActor, const JMapInfoIter& rIter, const char* pName, s32 numMax) {
+LiveActorGroup* LiveActorGroupArray::entry(LiveActor* pActor, const TableIter& rIter, const char* pName, s32 numMax) {
     s32 groupID = -1;
-    MR::getJMapInfoGroupID(rIter, &groupID);
+    MR::getPlacementGroupID(rIter, &groupID);
 
     // Function scope: pName points here past the if block .
-    char defaultName[256];
+    MR::FormattedName defaultName;
     if (pName == nullptr) {
-        nebula_snprintf(defaultName, sizeof(defaultName), "group%02d", groupID);
+        defaultName.format("group%02d", groupID);
 
-        pName = defaultName;
+        pName = defaultName.c_str();
     }
 
     LiveActorGroup* pGroup = findGroup(rIter);

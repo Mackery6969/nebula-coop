@@ -1,11 +1,10 @@
 #include "Game/MapObj/MapPartsRailGuideDrawer.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/MapPartsRailGuidePoint.hpp"
-#include "Game/Util/JMapInfo.hpp"
+#include "Game/Util/Table.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MapPartsUtil.hpp"
 #include "Game/Util/RailUtil.hpp"
-#include <algorithm>
 
 namespace NrvMapPartsRailGuideDrawer {
     NEW_NERVE(HostTypeHideAll, MapPartsRailGuideDrawer, HideAll);
@@ -14,10 +13,10 @@ namespace NrvMapPartsRailGuideDrawer {
 };  // namespace NrvMapPartsRailGuideDrawer
 
 MapPartsRailGuideDrawer::MapPartsRailGuideDrawer(LiveActor* pHost, const char* pModelName)
-    : MapPartsFunction(pHost, "\203\113\203\103\203\150\225\140\211\346" /* ガイド描画 */), mGuidePoints(), mGuideType(), mRailId(-1), mModelName(pModelName) {
+    : MapPartsFunction(pHost, "ガイド描画"), mGuidePoints(), mGuideType(), mRailId(-1), mModelName(pModelName) {
 }
 
-void MapPartsRailGuideDrawer::init(const JMapInfoIter& rIter) {
+void MapPartsRailGuideDrawer::init(const TableIter& rIter) {
     MR::getMapPartsArgRailGuideType(&mGuideType, mHost);
     rIter.getValue("CommonPath_ID", &mRailId);
     if (mGuideType == -1) {
@@ -32,6 +31,9 @@ void MapPartsRailGuideDrawer::init(const JMapInfoIter& rIter) {
             initNerve(GET_NERVE(MapPartsRailGuideDrawer, HostTypeDrawAll));
         } else if (mGuideType == 2) {
             initNerve(GET_NERVE(MapPartsRailGuideDrawer, HostTypeDrawForward));
+        } else {
+            // A guide type past 3 (a mod's) draws all points.
+            initNerve(GET_NERVE(MapPartsRailGuideDrawer, HostTypeDrawAll));
         }
     }
 }
@@ -66,7 +68,7 @@ void MapPartsRailGuideDrawer::hide() {
     }
 }
 
-void MapPartsRailGuideDrawer::initGuidePoints(const JMapInfoIter& rIter) {
+void MapPartsRailGuideDrawer::initGuidePoints(const TableIter& rIter) {
     s32 shadowType = 0;
     MR::getMapPartsArgShadowType(&shadowType, rIter);
     bool hasShadow = MR::hasMapPartsShadow(shadowType);
@@ -102,7 +104,7 @@ void MapPartsRailGuideDrawer::exeDrawAll() {
 void MapPartsRailGuideDrawer::exeDrawForward() {
     const f32 coord = MR::getRailCoord(mHost);
     for (MapPartsRailGuidePoint** pPoint = mGuidePoints.begin(); pPoint != mGuidePoints.end(); pPoint++) {
-        if (coord < (*pPoint)->_8C) {
+        if (coord < (*pPoint)->mCoord) {
             break;
         }
 

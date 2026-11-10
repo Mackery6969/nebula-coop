@@ -4,13 +4,11 @@
 
 class MechaKoopaPartsArm : public MapObjActor {
 public:
-    /// @brief Creates a new `MechaKoopaPartsArm`.
-    /// @param pName A pointer to the null-terminated name of the object.
     MechaKoopaPartsArm(const char* pName);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void initCaseUseSwitchB(const MapObjActorInitInfo&);
-    virtual void initCaseNoUseSwitchB(const MapObjActorInitInfo&);
+    virtual void init(const TableIter&) override;
+    virtual void initCaseUseSwitchB(const MapObjActorInitInfo&) override;
+    virtual void initCaseNoUseSwitchB(const MapObjActorInitInfo&) override;
 
     void exeWait();
     void exeMoveStart();

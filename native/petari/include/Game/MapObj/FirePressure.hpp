@@ -4,14 +4,13 @@
 
 class FirePressure : public PressureBase {
 public:
-    FirePressure(const char*);
+    FirePressure(const char* pName);
 
-    virtual ~FirePressure();
-    virtual void init(const JMapInfoIter&);
-    virtual void initBullet(const JMapInfoIter&);
-    virtual bool shotBullet(f32);
+    virtual void init(const TableIter& rIter) override;
+    virtual void initBullet(const TableIter& rIter) override;
+    virtual bool shotBullet(f32 speed) override;
 
-    void calcGunPointFromCannon(TPos3f*);
+    void calcGunPointFromCannon(Pos3f* pMtx);
 
-    bool mDisableCollsion;
+    bool mIsDisableCollision;
 };

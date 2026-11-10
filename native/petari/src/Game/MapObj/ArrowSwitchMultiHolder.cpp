@@ -1,22 +1,21 @@
 #include "Game/MapObj/ArrowSwitchMultiHolder.hpp"
 #include "Game/MapObj/ArrowSwitchMulti.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
-#include "Game/Util/JMapIdInfo.hpp"
+#include "Game/Util/PlacementId.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const s32 sMaxArrowSwitchMulti = 16;
-};  // namespace
+    NEBULA_TUNABLE(s32, sMaxArrowSwitchMulti, 16);
 
-namespace {
     ArrowSwitchMultiHolder* getArrowSwitchMultiHolder() {
         return MR::getSceneObj< ArrowSwitchMultiHolder >(SceneObj_ArrowSwitchMultiHolder);
     }
 };  // namespace
 
-ArrowSwitchMultiHolder::ArrowSwitchMultiHolder() : DeriveActorGroup("\225\241\220\224\225\373\214\374\226\356\210\363\203\130\203\103\203\142\203\140\212\307\227\235" /* 複数方向矢印スイッチ管理 */, ::sMaxArrowSwitchMulti) {
+ArrowSwitchMultiHolder::ArrowSwitchMultiHolder() : DeriveActorGroup("複数方向矢印スイッチ管理", ::sMaxArrowSwitchMulti) {
 }
 
-ArrowSwitchMulti* ArrowSwitchMultiHolder::findSwitch(const JMapIdInfo* pIdInfo) {
+ArrowSwitchMulti* ArrowSwitchMultiHolder::findSwitch(const PlacementId* pIdInfo) {
     for (s32 i = 0; i < getObjNum(); i++) {
         ArrowSwitchMulti* pSwitch = getMember(i);
 
@@ -38,6 +37,10 @@ namespace MR {
     }
 
     void registerArrowSwitchTarget(ArrowSwitchTarget* pTarget) {
-        ::getArrowSwitchMultiHolder()->findSwitch(pTarget->mIdInfo)->registerTarget(pTarget);
+        // A target whose id no switch has (a mod's data) is not registered.
+        ArrowSwitchMulti* const pSwitch = ::getArrowSwitchMultiHolder()->findSwitch(pTarget->mIdInfo);
+        if (pSwitch != nullptr) {
+            pSwitch->registerTarget(pTarget);
+        }
     }
 };  // namespace MR

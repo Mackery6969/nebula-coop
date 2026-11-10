@@ -1,5 +1,5 @@
 #include "Game/Util/GameLightSignal.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include "Game/Render/FrameList.hpp"
 #include "Game/LiveActor/ActorLightCtrl.hpp"
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/Map/LightDataHolder.hpp"
@@ -7,64 +7,65 @@
 #include "Game/Map/LightPointCtrl.hpp"
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
+#include "Game/Util/Array.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
-#include <nebula_game_api.h>
+#include <nebula_frame_list.h>
 #include "Game/System/NebulaHost.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    // An actor that asked for the point light, with its last request (NEBULA_LIGHT_POINT_REQUEST values).
+    // An actor that asked for the point light, with its last request as a world light.
     struct Requester {
         const LiveActor* mActor;
-        f32 mValues[7];
+        NebulaFrameWorldLight mLight;
         u32 mFrame;
     };
 
-    const u32 cRequesters = 64;
     // A requester silent for more frames than this keeps its light only while the game clips it: a clipped actor runs
     // no control, which is where it asks. One that died, or that the game runs but that stopped asking, lets its light
     // fade out.
-    const u32 cRequestGap = 2;
-    Requester sRequesters[cRequesters];
+    NEBULA_TUNABLE(u32, cRequestGap, 2);
+    // Every actor that asked: no limit.
+    MR::GrowBuffer< Requester > sRequesters;
     u32 sRequesterCount;
     const LiveActor* sStarCore;
     u32 sFrame;
-    // The ActorLightInfos already sent this frame: one is loaded for every draw buffer group that uses it.
-    const ActorLightInfo* sWorldSent[16];
-    u32 sWorldSentCount;
-    u32 sWorldFrame;
+
+    // The sun's world light has no owner record: one sun a scene, under this id (no object's address).
+    const u64 cSunId = 1;
 
     f32 channel(u8 value) {
         return static_cast< f32 >(value) / 255.0f;
     }
 
-    // An ActorLightInfo as NEBULA_LIGHT_AREA and NEBULA_LIGHT_PLAYER values.
-    void actorLightValues(u32 kind, const ActorLightInfo& rInfo) {
-        f32 values[17];
-        values[0] = channel(rInfo.mColor.r);
-        values[1] = channel(rInfo.mColor.g);
-        values[2] = channel(rInfo.mColor.b);
-        const LightInfo* const lights[2] = {&rInfo.mInfo0, &rInfo.mInfo1};
-        for (u32 i = 0; i < 2; i++) {
-            f32* v = values + 3 + 7 * i;
-            v[0] = channel(lights[i]->mColor.r);
-            v[1] = channel(lights[i]->mColor.g);
-            v[2] = channel(lights[i]->mColor.b);
-            v[3] = lights[i]->mPos.x;
-            v[4] = lights[i]->mPos.y;
-            v[5] = lights[i]->mPos.z;
-            v[6] = lights[i]->mIsFollowCamera ? 1.0f : 0.0f;
-        }
-        NebulaHost::gameLight(kind, 0, values);
+    // One light of an area's light record: its colour, and its place in the world or, when it follows the camera, in
+    // the camera's eye space.
+    NebulaFrameWorldLight lightOf(u64 id, u32 kind, const LightInfo& rInfo) {
+        NebulaFrameWorldLight light = {};
+        light.id = id;
+        light.kind = kind;
+        light.flags = rInfo.mIsFollowCamera ? static_cast< u32 >(NEBULA_WORLD_LIGHT_FOLLOWS_CAMERA) : 0u;
+        light.color[0] = channel(rInfo.mColor.r);
+        light.color[1] = channel(rInfo.mColor.g);
+        light.color[2] = channel(rInfo.mColor.b);
+        light.position[0] = rInfo.mPos.x;
+        light.position[1] = rInfo.mPos.y;
+        light.position[2] = rInfo.mPos.z;
+        return light;
     }
 
-    // A LightInfo that does not follow the camera and sits this far out (20000 units) lights its area as the sun does.
-    void worldLight(const LightInfo& rInfo) {
-        const Vec& p = rInfo.mPos;
-        if (rInfo.mIsFollowCamera || p.x * p.x + p.y * p.y + p.z * p.z <= 4.0e8f) {
-            return;
-        }
-        const f32 values[6] = {p.x, p.y, p.z, channel(rInfo.mColor.r), channel(rInfo.mColor.g), channel(rInfo.mColor.b)};
-        NebulaHost::gameLight(NEBULA_LIGHT_WORLD, 0, values);
+    NebulaFrameWorldLight pointOf(u64 id, u32 kind, f32 x, f32 y, f32 z, f32 r, f32 g, f32 b, f32 reach) {
+        NebulaFrameWorldLight light = {};
+        light.id = id;
+        light.kind = kind;
+        light.color[0] = r;
+        light.color[1] = g;
+        light.color[2] = b;
+        light.reach = reach;
+        light.position[0] = x;
+        light.position[1] = y;
+        light.position[2] = z;
+        return light;
     }
 };  // namespace
 
@@ -72,26 +73,32 @@ namespace GameLightSignal {
     void sceneStart() {
         sRequesterCount = 0;
         sStarCore = nullptr;
-        sWorldSentCount = 0;
+        // The scene before this one owned the lights loaded last: no set of the new scene is theirs.
+        noLight();
     }
 
     void frame() {
         sFrame++;
-        // The stage's planet light (what its map geometry is lit with) and the player's current light, blended as
-        // the player crosses light areas.
+        // The light of the stage's own surfaces where the player is: the planet light of the player's area, else of the
+        // stage's default area. Its two lights are in the list whether or not a draw loads them.
         if (MR::isExistSceneObj(SceneObj_LightDirector)) {
             const LightDirector* director = MR::getSceneObj< LightDirector >(SceneObj_LightDirector);
-            if (director->mDefaultAreaLight != nullptr) {
-                actorLightValues(NEBULA_LIGHT_AREA, director->mDefaultAreaLight->mPlanetLight);
-            }
-            if (director->_1C != nullptr && director->_1C->mAreaLightInf != nullptr) {
-                actorLightValues(NEBULA_LIGHT_PLAYER, *director->_1C->getActorLight());
+            const AreaLightInfo* area = director->mPlayerLightCtrl != nullptr && director->mPlayerLightCtrl->mAreaLightInf != nullptr
+                                            ? director->mPlayerLightCtrl->mAreaLightInf
+                                            : director->mDefaultAreaLight;
+            if (area != nullptr) {
+                const ActorLightInfo& rPlanet = area->mPlanetLight;
+                const u64 id = NebulaHost::objectId(&rPlanet);
+                Frame::worldLight(lightOf(id, NEBULA_WORLD_LIGHT_KEY, rPlanet.mInfo0));
+                Frame::worldLight(lightOf(id + 1, NEBULA_WORLD_LIGHT_FILL, rPlanet.mInfo1));
+                const f32 ambient[3] = {channel(rPlanet.mColor.r), channel(rPlanet.mColor.g), channel(rPlanet.mColor.b)};
+                Frame::setStageLight(id, ambient);
             }
         }
         if (sStarCore != nullptr && !MR::isDead(sStarCore)) {
-            const TVec3f& p = sStarCore->mPosition;
-            const f32 values[4] = {p.x, p.y, p.z, sStarCore->mScale.x};
-            NebulaHost::gameLight(NEBULA_LIGHT_STAR_CORE, 0, values);
+            const Vec3f& p = sStarCore->mPosition;
+            Frame::worldLight(
+                pointOf(NebulaHost::objectId(sStarCore), NEBULA_WORLD_LIGHT_STAR_CORE, p.x, p.y, p.z, 1.0f, 1.0f, 1.0f, sStarCore->mScale.x));
         }
         for (u32 i = 0; i < sRequesterCount;) {
             Requester& r = sRequesters[i];
@@ -103,13 +110,13 @@ namespace GameLightSignal {
                 sRequesters[i] = sRequesters[--sRequesterCount];
                 continue;
             }
-            NebulaHost::gameLight(NEBULA_LIGHT_POINT_REQUEST, NebulaHost::objectId(r.mActor), r.mValues);
+            Frame::worldLight(r.mLight);
             i++;
         }
     }
 
-    void sun(const TVec3f& rPosition) {
-        const TVec3f camera = MR::getCamPos();
+    void sun(const Vec3f& rPosition) {
+        const Vec3f camera = MR::getCamPos();
         const f32 x = rPosition.x - camera.x;
         const f32 y = rPosition.y - camera.y;
         const f32 z = rPosition.z - camera.z;
@@ -117,8 +124,7 @@ namespace GameLightSignal {
         if (!(distance > 1e-3f)) {
             return;
         }
-        const f32 values[4] = {x / distance, y / distance, z / distance, distance};
-        NebulaHost::gameLight(NEBULA_LIGHT_SUN, 0, values);
+        Frame::worldLight(pointOf(cSunId, NEBULA_WORLD_LIGHT_SUN, x / distance, y / distance, z / distance, 1.0f, 1.0f, 1.0f, distance));
     }
 
     void registerStarCore(const LiveActor* pCore) {
@@ -129,29 +135,32 @@ namespace GameLightSignal {
     void pointLight(const PointLightInfo* pInfo) {
         const f32 reference = pInfo->mRefDistance;
         const f32 brightness = pInfo->mRefBrightness;
-        const J3DLightFalloff function = pInfo->mDistAttnFn;
+        const LightFalloff function = pInfo->mDistAttnFn;
         f32 half = 0.0f;
-        if (reference > 0.0f && brightness > 0.0f && brightness < 1.0f && function != J3D_FALLOFF_NONE) {
+        if (reference > 0.0f && brightness > 0.0f && brightness < 1.0f && function != LIGHT_FALLOFF_NONE) {
             const f32 q = (1.0f - brightness) / brightness;
-            const f32 k1 = function == J3D_FALLOFF_GENTLE ? q / reference : function == J3D_FALLOFF_MEDIUM ? 0.5f * q / reference : 0.0f;
-            const f32 k2 = function == J3D_FALLOFF_STEEP    ? q / (reference * reference)
-                           : function == J3D_FALLOFF_MEDIUM ? 0.5f * q / (reference * reference)
+            const f32 k1 = function == LIGHT_FALLOFF_GENTLE ? q / reference : function == LIGHT_FALLOFF_MEDIUM ? 0.5f * q / reference : 0.0f;
+            const f32 k2 = function == LIGHT_FALLOFF_STEEP    ? q / (reference * reference)
+                           : function == LIGHT_FALLOFF_MEDIUM ? 0.5f * q / (reference * reference)
                                                       : 0.0f;
             half = k2 > 0.0f ? (-k1 + __builtin_sqrtf(k1 * k1 + 4.0f * k2)) / (2.0f * k2) : 1.0f / k1;
         }
         const Vec& p = pInfo->mPos;
         const NebulaColor8& c = pInfo->mColor;
-        const f32 values[7] = {p.x, p.y, p.z, channel(c.r), channel(c.g), channel(c.b), half};
-        NebulaHost::gameLight(NEBULA_LIGHT_POINT, NebulaHost::objectId(pInfo), values);
+        const NebulaFrameWorldLight light =
+            pointOf(NebulaHost::objectId(pInfo), NEBULA_WORLD_LIGHT_POINT, p.x, p.y, p.z, channel(c.r), channel(c.g), channel(c.b), half);
+        Frame::worldLight(light);
+        Frame::setLightPointOwner(&light);
     }
 
-    // LightPointCtrl blends its light with J3DNativeState::initLightDistAttn(15, brightness, J3D_FALLOFF_GENTLE): it halves at
+    // LightPointCtrl blends its light with LightValues::distAttn(15, brightness, LIGHT_FALLOFF_GENTLE): it halves at
     // 15 sqrt(b / (1 - b)).
-    void pointRequest(const LiveActor* pActor, const TVec3f& rPosition, Color8 color, f32 brightness) {
-        const f32 b = brightness >= 0.95f ? (brightness <= 0.999999f ? brightness : 0.999999f) : 0.95f;
-        const f32 values[7] = {rPosition.x, rPosition.y,  rPosition.z, channel(color.r), channel(color.g), channel(color.b),
-                               15.0f * __builtin_sqrtf(b / (1.0f - b))};
-        NebulaHost::gameLight(NEBULA_LIGHT_POINT_REQUEST, NebulaHost::objectId(pActor), values);
+    void pointRequest(const LiveActor* pActor, const Vec3f& rPosition, Color8 color, f32 brightness) {
+        const f32 clamped = brightness >= 0.95f ? (brightness <= 0.999999f ? brightness : 0.999999f) : 0.95f;
+        const NebulaFrameWorldLight light =
+            pointOf(NebulaHost::objectId(pActor), NEBULA_WORLD_LIGHT_REQUEST, rPosition.x, rPosition.y, rPosition.z, channel(color.r),
+                    channel(color.g), channel(color.b), 15.0f * __builtin_sqrtf(clamped / (1.0f - clamped)));
+        Frame::worldLight(light);
         Requester* slot = nullptr;
         for (u32 i = 0; i < sRequesterCount && slot == nullptr; i++) {
             if (sRequesters[i].mActor == pActor) {
@@ -159,38 +168,33 @@ namespace GameLightSignal {
             }
         }
         if (slot == nullptr) {
-            if (sRequesterCount < cRequesters) {
-                slot = &sRequesters[sRequesterCount++];
-            } else {
-                slot = &sRequesters[0];
-                for (u32 i = 1; i < cRequesters; i++) {
-                    if (sRequesters[i].mFrame < slot->mFrame) {
-                        slot = &sRequesters[i];
-                    }
-                }
-            }
+            slot = &sRequesters.room(sRequesterCount + 1)[sRequesterCount++];
         }
         slot->mActor = pActor;
-        for (u32 i = 0; i < 7; i++) {
-            slot->mValues[i] = values[i];
-        }
+        slot->mLight = light;
         slot->mFrame = sFrame;
     }
 
     void actorLight(const ActorLightInfo* pInfo) {
-        if (sWorldFrame != sFrame) {
-            sWorldFrame = sFrame;
-            sWorldSentCount = 0;
-        }
-        for (u32 i = 0; i < sWorldSentCount; i++) {
-            if (sWorldSent[i] == pInfo) {
-                return;
-            }
-        }
-        if (sWorldSentCount < 16) {
-            sWorldSent[sWorldSentCount++] = pInfo;
-        }
-        worldLight(pInfo->mInfo0);
-        worldLight(pInfo->mInfo1);
+        const u64 id = NebulaHost::objectId(pInfo);
+        const NebulaFrameWorldLight key = lightOf(id, NEBULA_WORLD_LIGHT_KEY, pInfo->mInfo0);
+        const NebulaFrameWorldLight fill = lightOf(id + 1, NEBULA_WORLD_LIGHT_FILL, pInfo->mInfo1);
+        const f32 ambient[3] = {channel(pInfo->mColor.r), channel(pInfo->mColor.g), channel(pInfo->mColor.b)};
+        Frame::setLightOwner(&key, &fill, ambient);
+    }
+
+    void coinLight(const LightInfoCoin* pInfo) {
+        // A coin's record holds one light of the world (light 0); its light 1 is none.
+        const u64 id = NebulaHost::objectId(pInfo);
+        const NebulaFrameWorldLight key = lightOf(id, NEBULA_WORLD_LIGHT_KEY, pInfo->base);
+        NebulaFrameWorldLight fill = {};
+        fill.id = id + 1;
+        fill.kind = NEBULA_WORLD_LIGHT_FILL;
+        Frame::setLightOwner(&key, &fill, nullptr);
+    }
+
+    void noLight() {
+        Frame::setLightOwner(nullptr, nullptr, nullptr);
+        Frame::setLightPointOwner(nullptr);
     }
 };  // namespace GameLightSignal

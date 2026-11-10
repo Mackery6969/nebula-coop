@@ -20,7 +20,7 @@ public:
     /// @brief Creates a new `InformationObserver`.
     InformationObserver();
 
-    virtual void init(const JMapInfoIter& rIter);
+    virtual void init(const TableIter& rIter) override;
 
     void entry(InformationObserver::TYPE, LiveActor*);
     void exeWait();
@@ -28,8 +28,8 @@ public:
 
 private:
     TYPE mType;
-    bool _90;
-    LiveActor* _94;
+    bool mIsTimeKeepDemo;  // entered during a time-keep demo (paused, not a demo of its own)
+    LiveActor* mDemoActor;  // the actor that asked
     s32 mDisplayFrame;
 };
 

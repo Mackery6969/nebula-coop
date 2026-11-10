@@ -1,4 +1,5 @@
 #include "galaxy/input_bindings.h"
+#include "galaxy/pointer_control.h"
 #include "galaxy/rumble.h"
 #include "galaxy/c_locale_number.h"
 
@@ -79,25 +80,25 @@ constexpr std::array<const char*, kMouseButtonCount> kMouseNames{
 constexpr std::array<const char*, pad::kButtonBitCount> kXboxButtonNames{
     "DpadUp", "DpadDown", "DpadLeft", "DpadRight", "Menu", "View", "LS", "RS",
     "LB", "RB", "Guide", "Share", "A", "B", "X", "Y", "GL", "GR", "C",
-    "GL2", "GR2", "LPad", "RPad"};
+    "GL2", "GR2", "LPad", "RPad", "LeftFn", "RightFn"};
 constexpr std::array<const char*, pad::kButtonBitCount> kSwitchButtonNames{
     "DpadUp", "DpadDown", "DpadLeft", "DpadRight", "Plus", "Minus", "LS", "RS",
     "L", "R", "Home", "Capture", "B", "A", "Y", "X", "GL", "GR", "C",
-    "GL2", "GR2", "LPad", "RPad"};
+    "GL2", "GR2", "LPad", "RPad", "LeftFn", "RightFn"};
 constexpr std::array<const char*, pad::kButtonBitCount> kPlayStationButtonNames{
     "DpadUp", "DpadDown", "DpadLeft", "DpadRight", "Options", "Share", "L3", "R3",
     "L1", "R1", "PS", "Touchpad", "Cross", "Circle", "Square", "Triangle",
-    "LeftPaddle", "RightPaddle", "Mute", "GL2", "GR2", "LPad", "RPad"};
+    "LeftPaddle", "RightPaddle", "Mute", "GL2", "GR2", "LPad", "RPad", "LeftFn", "RightFn"};
 constexpr std::array<const char*, pad::kButtonBitCount> kSteamButtonNames{
     "DpadUp", "DpadDown", "DpadLeft", "DpadRight", "Menu", "View", "LS", "RS",
     "LB", "RB", "Steam", "QAM", "A", "B", "X", "Y", "L4", "R4", "C",
-    "L5", "R5", "LPad", "RPad"};
+    "L5", "R5", "LPad", "RPad", "LeftFn", "RightFn"};
 
 // Generic controllers by HID button number (generic_hid.h button_bit).
 constexpr std::array<const char*, pad::kButtonBitCount> kGenericButtonNames{
     "DpadUp", "DpadDown", "DpadLeft", "DpadRight", "Button10", "Button9", "Button11", "Button12",
     "Button5", "Button6", "Button13", "Button14", "Button1", "Button2", "Button3", "Button4", "Button7", "Button8",
-    "Button15", "Button16", "Button17", "Button18", "Button19"};
+    "Button15", "Button16", "Button17", "Button18", "Button19", "LeftFn", "RightFn"};
 
 constexpr std::array<const char*, 4> kStickAxisNames{"LX", "LY", "RX", "RY"};
 
@@ -467,7 +468,7 @@ SchemeTuning legacy_scheme_tuning(ControlScheme scheme) {
         tuning.stick_deadzone = 7849.0f / 32767.0f;
         tuning.pointer_deadzone = 8689.0f / 32767.0f;
         tuning.pointer_speed = 2.4f;
-        tuning.pointer_hide_seconds = 4.0f;
+        tuning.pointer_hide_seconds = kDefaultPointerHideSeconds;
         break;
     case ControlScheme::SwitchPro:
     case ControlScheme::SwitchPro2:
@@ -478,14 +479,14 @@ SchemeTuning legacy_scheme_tuning(ControlScheme scheme) {
         tuning.pointer_speed = 2.4f;
         tuning.motion_shake = MotionShake::Remote;
         tuning.shake_sensitivity = 3;
-        tuning.pointer_hide_seconds = 4.0f;
+        tuning.pointer_hide_seconds = kDefaultPointerHideSeconds;
         break;
     case ControlScheme::Generic:
         // Uncalibrated sticks: a wider centre than the calibrated pads.
         tuning.stick_deadzone = 0.15f;
         tuning.pointer_deadzone = 0.15f;
         tuning.pointer_speed = 2.4f;
-        tuning.pointer_hide_seconds = 4.0f;
+        tuning.pointer_hide_seconds = kDefaultPointerHideSeconds;
         break;
     }
     return tuning;
@@ -501,7 +502,7 @@ SchemeTuning default_scheme_tuning(ControlScheme scheme) {
     }
     if (scheme_is_gamepad(scheme)) {
         // Still-pointer hiding (pointer_control.h kDefaultPointerHide*).
-        tuning.pointer_hide_seconds = 4.0f;
+        tuning.pointer_hide_seconds = kDefaultPointerHideSeconds;
         tuning.pointer_hide_radius = 0.12f;
     }
     return tuning;
@@ -550,6 +551,11 @@ unsigned migrate_legacy_controls(ControlsConfig& config, unsigned version) noexc
                 ++changed;
             }
         }
+        if (version < 7u && scheme_is_gamepad(scheme) && tuning.pointer_hide_seconds == kVersion6PointerHideSeconds &&
+            current_tuning.pointer_hide_seconds != kVersion6PointerHideSeconds) {
+            tuning.pointer_hide_seconds = current_tuning.pointer_hide_seconds;
+            ++changed;
+        }
     }
     return changed;
 }
@@ -583,7 +589,7 @@ std::optional<ControlScheme> parse_control_scheme(std::string_view id) noexcept 
     return std::nullopt;
 }
 
-std::optional<GameInput> parse_wii_target(std::string_view id) noexcept {
+std::optional<GameInput> parse_game_input(std::string_view id) noexcept {
     for (std::size_t i = 0; i < kTargetIds.size(); ++i) {
         if (iequals(id, kTargetIds[i])) return static_cast<GameInput>(i);
     }
@@ -736,7 +742,7 @@ bool apply_controls_setting(ControlsConfig& config, std::string_view key_text, s
     const std::string_view name = key_text.substr(dot + 1u);
     if (!scheme) return true;
     if (bind) {
-        const auto target = parse_wii_target(name);
+        const auto target = parse_game_input(name);
         if (!target) return true;
         TargetBindings bindings{};
         if (parse_target_bindings(*scheme, value, bindings)) {
@@ -1146,10 +1152,10 @@ GlyphPlace glyph_of(InputSource source) noexcept {
     case pad::kStartBit: return {ButtonGlyph::Start, 0u};
     case pad::kBackBit: return {ButtonGlyph::Back, 0u};
     case pad::kHomeBit: return {ButtonGlyph::Home, 0u};
-    case pad::kDpadUpBit:
-    case pad::kDpadDownBit:
-    case pad::kDpadLeftBit:
-    case pad::kDpadRightBit: return {ButtonGlyph::Dpad, 0u};
+    case pad::kDpadUpBit: return {ButtonGlyph::Dpad, 0u};
+    case pad::kDpadDownBit: return {ButtonGlyph::Dpad, 1u};
+    case pad::kDpadLeftBit: return {ButtonGlyph::Dpad, 2u};
+    case pad::kDpadRightBit: return {ButtonGlyph::Dpad, 3u};
     case pad::kCaptureBit: return {ButtonGlyph::Capture, 0u};
     case pad::kChatBit: return {ButtonGlyph::Chat, 0u};
     case pad::kGripLeftBit: return {ButtonGlyph::Grip, 0u};
@@ -1158,6 +1164,8 @@ GlyphPlace glyph_of(InputSource source) noexcept {
     case pad::kGripRight2Bit: return {ButtonGlyph::Grip, 3u};
     case pad::kLeftPadBit: return {ButtonGlyph::Trackpad, 0u};
     case pad::kRightPadBit: return {ButtonGlyph::Trackpad, 1u};
+    case pad::kFnLeftBit: return {ButtonGlyph::Grip, 4u};
+    case pad::kFnRightBit: return {ButtonGlyph::Grip, 5u};
     default: return {};
     }
 }
@@ -1293,17 +1301,23 @@ ButtonIconSpec button_icon_spec(ButtonIconStyle style, const BindingTable& table
     spec.style = style;
     if (style == ButtonIconStyle::Game) return spec;
     if ((model == ButtonIconModel::Sixaxis && style == ButtonIconStyle::PlayStation) ||
-        (model == ButtonIconModel::GameCube && style == ButtonIconStyle::Nintendo)) {
+        (model == ButtonIconModel::DualSenseEdge && style == ButtonIconStyle::PlayStation) ||
+        (model == ButtonIconModel::GameCube && style == ButtonIconStyle::Nintendo) ||
+        (model == ButtonIconModel::Steam && style == ButtonIconStyle::Xbox)) {
         spec.model = model;
     }
-    // HOME and the Control Pad look alike on every controller: the game's own stay (Keep).
+    // The Control Pad looks alike on every controller: the game's own stays (Keep). HOME is resolved after these.
     static constexpr GameInput kTargets[static_cast<std::size_t>(ButtonIcon::Home)] = {
         GameInput::A, GameInput::B, GameInput::C, GameInput::Z, GameInput::One, GameInput::Two, GameInput::Plus,
         GameInput::Minus};
-    const auto first = [&table](GameInput target) {
+    // The Fn buttons (grip places 4 and 5) have a cell on the Edge model alone; elsewhere the game's own icon stays.
+    const bool fn_cells = spec.model == ButtonIconModel::DualSenseEdge;
+    const auto first = [&table, fn_cells](GameInput target) {
         for (const InputSource source : table[target]) {
             const GlyphPlace found = glyph_of(source);
-            if (found.glyph != ButtonGlyph::Keep) return found;
+            if (found.glyph == ButtonGlyph::Keep) continue;
+            if (found.glyph == ButtonGlyph::Grip && found.place >= 4u && !fn_cells) continue;
+            return found;
         }
         return GlyphPlace{};
     };
@@ -1312,6 +1326,13 @@ ButtonIconSpec button_icon_spec(ButtonIconStyle style, const BindingTable& table
         if (found.glyph == ButtonGlyph::Keep) found = first(kTargets[i]);
         spec.glyphs[i] = found.glyph;
         spec.places[i] = found.place;
+    }
+    // HOME shows the input it is bound to. On a controller's own home button the game's HOME stays (every pad's reads as
+    // one), but for the Steam model's Steam button.
+    const GlyphPlace home = first(GameInput::Home);
+    if (home.glyph != ButtonGlyph::Home || spec.model == ButtonIconModel::Steam) {
+        spec.glyphs[static_cast<std::size_t>(ButtonIcon::Home)] = home.glyph;
+        spec.places[static_cast<std::size_t>(ButtonIcon::Home)] = home.place;
     }
     return spec;
 }

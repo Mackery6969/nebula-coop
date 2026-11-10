@@ -4,8 +4,8 @@
 #include "Game/NPC/NPCParameter.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/System/ResourceHolder.hpp"
-#include "Game/Util/JMapInfo.hpp"
-#include <cstdio>
+#include "Game/Util/Table.hpp"
+#include "Game/Util/StringUtil.hpp"
 
 void NPCFunction::createNPCData() {
 }
@@ -19,17 +19,16 @@ bool NPCFunction::getNPCItemData(NPCActorItem* pItem, s32 idx) {
     ResourceHolder* pHolder = pDirector->mDataResourceHolder;
     NPCItemParameterReader* pItemReader = pDirector->mItemParameterReader;
 
-    char resName[256];
-    nebula_snprintf(resName, sizeof(resName), "%sItem.bcsv", pItem->mActor);
+    MR::FormattedName resName("%sItem.bcsv", pItem->mActor);
 
-    if (!pHolder->mFileInfoTable->isExistRes(resName)) {
+    if (!pHolder->mFileInfoTable->isExistRes(resName.c_str())) {
         return false;
     }
 
     pItemReader->copy(pItem);
 
-    JMapInfo mapInfo = JMapInfo();
-    mapInfo.attach(pHolder->mFileInfoTable->getRes(resName));
+    Table mapInfo = Table();
+    mapInfo.attach(pHolder->mFileInfoTable->getRes(resName.c_str()));
 
     pItemReader->read(&mapInfo, idx);
     *pItem = pItemReader->mItem;

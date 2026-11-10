@@ -4,13 +4,12 @@
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Map/HitInfo.hpp"
 #include "Game/NPC/TalkMessageFunc.hpp"
-#include "Game/NameObj/NameObjArchiveListCollector.hpp"
 #include "Game/Util/ActorMovementUtil.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/ActorShadowUtil.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/EventUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MapUtil.hpp"
 #include "Game/Util/NPCUtil.hpp"
@@ -19,14 +18,21 @@
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
 #include "Game/Util/TalkUtil.hpp"
+#include "Game/Util/Tunable.hpp"
+
+// The numbers this file's functions give the game's motion and animation calls, as tunables: "<file>.<function>.<call>.<k>".
+NEBULA_TUNABLE_NAMED(f32, cNum_branchFunc_isNearPlayer_1, "branchFunc.isNearPlayer.1", -1.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_trySetNerveAfraid_isNearPlayer_1, "trySetNerveAfraid.isNearPlayer.1", -1.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_trySetNerveAfraid_isNearPlayer_2, "trySetNerveAfraid.isNearPlayer.2", -1.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeOnTreeFall_addVelocityToGravity_1, "exeOnTreeFall.addVelocityToGravity.1", 1.0f);
 
 namespace {
-    static const s32 sLiftUpSeTiming = 87;
-    static const f32 sAfraidSeRange = 600.0f;
-    static const f32 sTreeDist = 16.0f;
-    static const f32 sShadowOffset = -25.0f;
-    static const f32 sHitJump = 20.0f;
-    static const f32 sHitMove = 4.0f;
+    NEBULA_TUNABLE(s32, sLiftUpSeTiming, 87);
+    NEBULA_TUNABLE(f32, sAfraidSeRange, 600.0f);
+    NEBULA_TUNABLE(f32, sTreeDist, 16.0f);
+    NEBULA_TUNABLE(f32, sShadowOffset, -25.0f);
+    NEBULA_TUNABLE(f32, sHitJump, 20.0f);
+    NEBULA_TUNABLE(f32, sHitMove, 4.0f);
 };  // namespace
 
 namespace NrvLuigiNPC {
@@ -47,14 +53,8 @@ namespace NrvLuigiNPC {
 LuigiNPC::LuigiNPC(const char* pName) : NPCActor(pName), mTakeOutStar(), mType(Type_Invalid) {
 }
 
-void LuigiNPC::makeArchiveList(NameObjArchiveListCollector* pCollector, const JMapInfoIter& rIter) {
-    pCollector->addArchive("LuigiNPC");
-    pCollector->addArchive("LuigiNPCMiddle");
-    pCollector->addArchive("LuigiNPCLow");
-}
-
-bool LuigiNPC::branchFunc(u32 msg) {
-    return !MR::isNearPlayer(mMsgCtrl, -1.0f) || MR::inMessageArea(mMsgCtrl);
+bool LuigiNPC::branchFunc(u32 /*msg*/) {
+    return !MR::isNearPlayer(mMsgCtrl, cNum_branchFunc_isNearPlayer_1) || MR::inMessageArea(mMsgCtrl);
 }
 
 bool LuigiNPC::eventFunc(u32 msg) {
@@ -77,7 +77,7 @@ void LuigiNPC::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     NPCActor::attackSensor(pSender, pReceiver);
 }
 
-bool LuigiNPC::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool LuigiNPC::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (MR::isMsgStartPowerStarGet(msg)) {
         makeActorDead();
 
@@ -107,11 +107,11 @@ bool LuigiNPC::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pR
 }
 
 inline void LuigiNPC::setShadowDrop(const char* const hitSensor) {
-    TVec3f offset(0.0f, 0.0f, ::sShadowOffset);
+    Vec3f offset(0.0f, 0.0f, ::sShadowOffset);
     MR::setShadowDropPositionAtJoint(this, nullptr, hitSensor, offset);
 }
 
-void LuigiNPC::init(const JMapInfoIter& rIter) {
+void LuigiNPC::init(const TableIter& rIter) {
     const char* objName;
     MR::getObjectName(&objName, rIter);
 
@@ -120,7 +120,7 @@ void LuigiNPC::init(const JMapInfoIter& rIter) {
     caps.mObjectName = "LuigiNPC";
     caps.mWaitNerve = GET_NERVE(LuigiNPC, LuigiNPCNrvWait);
 
-    MR::getJMapInfoArg0NoInit(rIter, &mType);
+    MR::getPlacementArg0NoInit(rIter, &mType);
 
     if (MR::isEqualString(objName, "LuigiEvent")) {
         mType += Type_Event;
@@ -189,8 +189,8 @@ void LuigiNPC::initAfterPlacement() {
         return;
     }
 
-    TVec3f front;
-    TVec3f result;
+    Vec3f front;
+    Vec3f result;
     Triangle poly;
 
     MR::calcFrontVec(&front, this);
@@ -207,11 +207,11 @@ void LuigiNPC::control() {
 }
 
 bool LuigiNPC::trySetNerveAfraid() {
-    if (MR::isNearPlayer(mMsgCtrl, -1.0f) && !MR::inMessageArea(mMsgCtrl) && !MR::isPlayerElementModeTeresa()) {
+    if (MR::isNearPlayer(mMsgCtrl, cNum_trySetNerveAfraid_isNearPlayer_1) && !MR::inMessageArea(mMsgCtrl) && !MR::isPlayerElementModeTeresa()) {
         return MR::trySetNerve(this, GET_NERVE(LuigiNPC, LuigiNPCNrvAfraidWait));
     }
 
-    if (MR::isNearPlayer(mMsgCtrl, -1.0f) && MR::isPlayerElementModeTeresa()) {
+    if (MR::isNearPlayer(mMsgCtrl, cNum_trySetNerveAfraid_isNearPlayer_2) && MR::isPlayerElementModeTeresa()) {
         return MR::trySetNerve(this, GET_NERVE(LuigiNPC, LuigiNPCNrvAfraidSquat));
     }
 
@@ -220,25 +220,25 @@ bool LuigiNPC::trySetNerveAfraid() {
 
 void LuigiNPC::setWaitAction() {
     const char* turn = "Turn";
-    mParam._14 = "Wait";
-    mParam._18 = turn;
-    mParam._1C = "Talk";
-    mParam._20 = turn;
+    mParam.mWaitAction = "Wait";
+    mParam.mWaitTurnAction = turn;
+    mParam.mTalkAction = "Talk";
+    mParam.mTalkTurnAction = turn;
     setDefaults();
-    _12C = 1500.0f;
-    _128 = true;
+    mSwingReactDist = 1500.0f;
+    mUseReactionActions = true;
 }
 
 void LuigiNPC::setAfraidAction() {
-    _128 = false;
+    mUseReactionActions = false;
     const char* afraidWait;
     const char* afraid = "Afraid";
     afraidWait = "AfraidWait";
     const char* afraidTalk = "AfraidTalk";
-    mParam._14 = afraidWait;
-    mParam._18 = afraid;
-    mParam._1C = afraidTalk;
-    mParam._20 = afraid;
+    mParam.mWaitAction = afraidWait;
+    mParam.mWaitTurnAction = afraid;
+    mParam.mTalkAction = afraidTalk;
+    mParam.mTalkTurnAction = afraid;
 }
 
 bool LuigiNPC::trySetNerveArrested() {
@@ -270,21 +270,21 @@ void LuigiNPC::exeWait() {
 }
 
 void LuigiNPC::exeReaction() {
-    if (_D8) {
+    if (mIsTrampledStart) {
         MR::startSound(this, "SE_SV_LUIGI_TRAMPLED");
         MR::startSound(this, "SE_SM_NPC_TRAMPLED");
     }
 
     if (NPCActor::isPointingSe()) {
-        MR::startDPDHitSound();
+        MR::startPointerHitSound();
         MR::startSound(this, "SE_SV_LUIGI_POINT");
     }
 
-    if (_D9) {
+    if (mIsSpinAttackedStart) {
         MR::startSound(this, "SE_SV_LUIGI_SPIN");
     }
 
-    if (_DB) {
+    if (mIsReactionStart) {
         MR::startSound(this, "SE_SV_LUIGI_STAR_PIECE_HIT");
     }
 
@@ -294,8 +294,6 @@ void LuigiNPC::exeReaction() {
 }
 
 void LuigiNPC::exeTakeOutStar() {
-    if (MR::isFirstStep(this)) {
-    }
 
     if (MR::isStep(this, ::sLiftUpSeTiming)) {
         MR::startSound(this, "SE_SV_LUIGI_LIFT_UP");
@@ -386,7 +384,7 @@ void LuigiNPC::exeOnTreeTouch() {
 
 void LuigiNPC::exeOnTreeFall() {
     if (MR::isFirstStep(this)) {
-        TVec3f front;
+        Vec3f front;
 
         MR::onBind(this);
         MR::startAction(this, "TreeHit");
@@ -394,12 +392,12 @@ void LuigiNPC::exeOnTreeFall() {
         MR::calcFrontVec(&front, this);
         MR::addVelocityMoveToDirection(this, front, -::sHitMove);
         MR::addVelocityJump(this, ::sHitJump);
-        TVec3f offset(0.0f, 0.0f, 0.0f);
+        Vec3f offset(0.0f, 0.0f, 0.0f);
         MR::setShadowDropPositionAtJoint(this, nullptr, "Center", offset);
         MR::startSound(this, "SE_SV_LUIGI_FALL");
     }
 
-    MR::addVelocityToGravity(this, 1.0f);
+    MR::addVelocityToGravity(this, cNum_exeOnTreeFall_addVelocityToGravity_1);
 
     if (MR::isOnGround(this)) {
         mVelocity.zero();

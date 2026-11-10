@@ -8,10 +8,9 @@ class SeaGull : public LiveActor {
 public:
     SeaGull(SeaGullGroup* pGroup);
 
-    virtual ~SeaGull();
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
+    virtual void init(const TableIter& rIter) override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
 
     void exeHoverFront();
     void exeHoverLeft();
@@ -22,11 +21,11 @@ public:
     s32 mPointIndex;
     bool mIsReverse;
     s32 mTargetUpdateTimer;
-    TVec3f* mTargetPosition;
-    TVec3f mUp;
-    TVec3f mFront;
-    TVec3f mBankedUp;
-    TVec3f mSide;
+    Vec3f* mTargetPosition;
+    Vec3f mUp;
+    Vec3f mFront;
+    Vec3f mBankedUp;
+    Vec3f mSide;
     s32 mHoverTimer;
     f32 mBankAngle;
     s32 mGlideTimer;
@@ -38,11 +37,10 @@ class SeaGullGroup : public LiveActor {
 public:
     SeaGullGroup(const char* pName);
 
-    virtual ~SeaGullGroup();
-    virtual void init(const JMapInfoIter& rIter);
+    virtual void init(const TableIter& rIter) override;
 
-    TVec3f* updatePosInfo(s32* pPointIndex, bool isReverse) const;
+    Vec3f* updatePosInfo(s32* pPointIndex, bool isReverse) const;
 
     s32 mPointCount;
-    TVec3f* mPoints;
+    Vec3f* mPoints;
 };

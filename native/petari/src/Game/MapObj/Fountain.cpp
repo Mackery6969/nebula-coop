@@ -4,15 +4,16 @@
 #include "Game/Util.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/CollisionShapeUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const f32 sSensorRadius = 300.0f;
-    static const f32 sSensorOffsetY = 300.0f;
-    static const f32 sHitCylinderRange = 10.0f;
-    static const f32 sHitSphereRadius = 70.0f;
-    static const f32 sHitSphereOffsetY = 350.0f;
-    static const f32 sClippingRadius = 3500.0f;
-    static const f32 sHitCylinderHeight = 280.0f;
+    NEBULA_TUNABLE(f32, sSensorRadius, 300.0f);
+    NEBULA_TUNABLE(f32, sSensorOffsetY, 300.0f);
+    NEBULA_TUNABLE(f32, sHitCylinderRange, 10.0f);
+    NEBULA_TUNABLE(f32, sHitSphereRadius, 70.0f);
+    NEBULA_TUNABLE(f32, sHitSphereOffsetY, 350.0f);
+    NEBULA_TUNABLE(f32, sClippingRadius, 3500.0f);
+    NEBULA_TUNABLE(f32, sHitCylinderHeight, 280.0f);
 };  // namespace
 
 namespace NrvFountain {
@@ -24,18 +25,18 @@ Fountain::Fountain(const char* pName) : LiveActor(pName), mFountainName(), mUp(0
 }
 
 inline void Fountain::initHitSensors(const char* hitSensor) {
-    MR::addHitSensorMapObj(this, hitSensor, 16, ::sSensorRadius, TVec3f(0.0f, ::sSensorOffsetY, 0.0f));
+    MR::addHitSensorMapObj(this, hitSensor, 16, ::sSensorRadius, Vec3f(0.0f, ::sSensorOffsetY, 0.0f));
 }
 
-void Fountain::init(const JMapInfoIter& rIter) {
+void Fountain::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.identity();
     mtx.setRotateDegree(mRotation);
     mtx.getYDir(mUp);
     MR::normalize(&mUp);
     MR::getObjectName(&mFountainName, rIter);
-    initEffectKeeper(0, mFountainName, false);
+    initEffectKeeper(0, mFountainName);
     initSound(4, false);
     initHitSensor(1);
     initHitSensors("body");

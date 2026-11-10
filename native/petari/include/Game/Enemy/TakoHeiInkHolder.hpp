@@ -1,17 +1,16 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActorGroup.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
 class TakoHeiInk;
 
 class TakoHeiInkHolder : public DeriveActorGroup< TakoHeiInk > {
 public:
-    /// @brief Creates a new `TakoHeiInkHolder`.
     TakoHeiInkHolder();
 };
 
 namespace MR {
     void createTakoHeiInkHolder();
-    bool spurtTakoHeiInk(const TVec3f&, const TVec3f&);
+    bool spurtTakoHeiInk(const Vec3f&, const Vec3f&);
 };  // namespace MR

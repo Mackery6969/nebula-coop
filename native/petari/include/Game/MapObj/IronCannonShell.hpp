@@ -3,26 +3,19 @@
 #include "Game/Enemy/KoopaJrShipCannonShell.hpp"
 #include "Game/LiveActor/LiveActor.hpp"
 
+// A Koopa Jr. ship shell, drawn and hit-tested larger.
 class IronCannonShell : public KoopaJrShipCannonShell {
 public:
     IronCannonShell(const char*);
 
-    virtual ~IronCannonShell();
-
-    virtual f32 getBaseScale() const {
-        return 1.3f;
-    }
-    virtual s32 getLifeTime() const {
-        return 300;
-    }
+    virtual f32 getBaseScale() const override;
 };
 
 class IronCannonLauncherPoint : public LiveActor {
 public:
     IronCannonLauncherPoint(const char*);
 
-    virtual ~IronCannonLauncherPoint();
-    virtual void init(const JMapInfoIter& rIter);
+    virtual void init(const TableIter& rIter) override;
 
     virtual void initModelAndConnectToScene();
 
@@ -41,14 +34,14 @@ class IronCannonLauncher : public IronCannonLauncherPoint {
 public:
     IronCannonLauncher(const char*);
 
-    virtual ~IronCannonLauncher();
-    virtual void init(const JMapInfoIter& rIter);
+    virtual void init(const TableIter& rIter) override;
 
-    virtual void initModelAndConnectToScene();
+    virtual void initModelAndConnectToScene() override;
 
     void exeRelax();
     void exeWait();
     void exeShot();
 
-    TVec3f mEffectMtx;
+    // Muzzle point the shot effect is hosted at.
+    Vec3f mMuzzlePos;
 };

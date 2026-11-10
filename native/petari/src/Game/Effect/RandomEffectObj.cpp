@@ -1,22 +1,25 @@
 #include "Game/Effect/RandomEffectObj.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const s32 sLifeTime = 600;
-    static const s32 sRandWidth = 180;
+    static const s32 sLifeTime = NebulaFrameClock::stepsOfSeconds(10);
+    NEBULA_TUNABLE(s32, sRandWidth, 180);
 };  // namespace
 
-RandomEffectObj::RandomEffectObj(const char* pName) : SimpleEffectObj(pName), mStep(), mSeStep(-1), mLifeTime(::sLifeTime), mRandWidth(::sRandWidth) {
+RandomEffectObj::RandomEffectObj(const char* pName) : SimpleEffectObj(pName), mStep(), mSeStep(-1), mLifeTime(::sLifeTime), mRandWidth(::sRandWidth), mIsFireworks(false) {
 }
 
-void RandomEffectObj::init(const JMapInfoIter& rIter) {
+void RandomEffectObj::init(const TableIter& rIter) {
     SimpleEffectObj::init(rIter);
-    MR::getJMapInfoArg0NoInit(rIter, &mLifeTime);
-    MR::getJMapInfoArg1NoInit(rIter, &mRandWidth);
+    mIsFireworks = MR::isEqualString(mObjName, "FireworksA");
+    MR::getPlacementArg0NoInit(rIter, &mLifeTime);
+    MR::getPlacementArg1NoInit(rIter, &mRandWidth);
 
     mStep = getRandomTime();
 }
@@ -44,7 +47,7 @@ void RandomEffectObj::control() {
     if (mSeStep >= 0) {
         mSeStep++;
 
-        if (MR::isEqualString(_8C, "FireworksA")) {
+        if (mIsFireworks) {
             if (mSeStep == 40) {
                 MR::startSound(this, "SE_OJ_FIREWORK_SEA_EXPLODE");
             }
@@ -57,9 +60,9 @@ void RandomEffectObj::control() {
         return;
     }
 
-    MR::emitEffect(this, _8C);
+    MR::emitEffect(this, mObjName);
 
-    if (MR::isEqualString(_8C, "FireworksA")) {
+    if (mIsFireworks) {
         MR::startSound(this, "SE_OJ_FIREWORK_SEA_SHOOT");
     }
 

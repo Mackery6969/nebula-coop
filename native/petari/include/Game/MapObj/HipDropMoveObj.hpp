@@ -1,17 +1,14 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class HipDropMoveObj : public LiveActor {
 public:
-    /// @brief Creates a new `HipDropMoveObj`.
-    /// @param pName A pointer to the null-terminated name of the object.
     HipDropMoveObj(const char* pName);
 
-    virtual ~HipDropMoveObj();
-    virtual void init(const JMapInfoIter&);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
     virtual void moveStart() {};
     virtual void moving() {};
     virtual void moveEnd() {};
@@ -26,13 +23,10 @@ public:
 
 class HipDropDemoMoveObj : public HipDropMoveObj {
 public:
-    /// @brief Creates a new `HipDropDemoMoveObj`.
-    /// @param pName A pointer to the null-terminated name of the object.
     HipDropDemoMoveObj(const char* pName);
 
-    virtual ~HipDropDemoMoveObj();
-    virtual void moveStart();
-    virtual void moving();
+    virtual void moveStart() override;
+    virtual void moving() override;
 
-    TMtx34f mMtx;
+    Mtx34f mMtx;
 };

@@ -23,463 +23,177 @@
 #include "Game/Util/SequenceUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
-#include <cstdio>
 
 namespace {
-    enum {
-        EVENT_BUTLER_REPORT_FORTRESS = 5,
-        EVENT_BUTLER_REPORT_KOOPA_FORTRESS = 6,
-    };
+    using Story = StorySequenceExecutorType;
 
-    const StorySequenceExecutorType::DemoSequenceInfo cDemoPowerStarResultAstroDome[] = {
-        {
-            0,
-            1,
-            "\223\126\225\266\203\150\201\133\203\200\203\130\203\136\201\133\213\101\212\322" /* 天文ドームスター帰還 */,
-        },
-        {
-            13,
-        },
+    const Story::DemoSequenceInfo cDemoPowerStarResultAstroDome[] = {
+        {Story::Step_Demo, Story::Event_Demo, "天文ドームスター帰還"},
+        {Story::Step_EndSave},
     };
-    const StorySequenceExecutorType::DemoSequenceInfo cDemoPowerStarResultAstroDomeWithSave[] = {
-        {
-            0,
-            1,
-            "\223\126\225\266\203\150\201\133\203\200\203\130\203\136\201\133\213\101\212\322" /* 天文ドームスター帰還 */,
-        },
-        {
-            5,
-            0,
-            "Save",
-        },
-        {
-            12,
-        },
+    const Story::DemoSequenceInfo cDemoPowerStarResultAstroDomeWithSave[] = {
+        {Story::Step_Demo, Story::Event_Demo, "天文ドームスター帰還"},
+        {Story::Step_Save, Story::Event_None, "Save"},
+        {Story::Step_End},
     };
-    const StorySequenceExecutorType::DemoSequenceInfo cDemoPowerStarResultAstroGalaxy[] = {
-        {
-            0,
-            1,
-            "\203\160\203\217\201\133\203\130\203\136\201\133\213\101\212\322" /* パワースター帰還 */,
-        },
-        {
-            13,
-        },
+    const Story::DemoSequenceInfo cDemoPowerStarResultAstroGalaxy[] = {
+        {Story::Step_Demo, Story::Event_Demo, "パワースター帰還"},
+        {Story::Step_EndSave},
     };
-    const StorySequenceExecutorType::DemoSequenceInfo cDemoGrandStarResult[] = {
-        {
-            0,
-            1,
-            "\203\117\203\211\203\223\203\150\203\130\203\136\201\133\213\101\212\322[\202\121\211\361\226\332\210\310\215\176]" /* グランドスター帰還[２回目以降] */,
-        },
-        {
-            13,
-        },
+    const Story::DemoSequenceInfo cDemoGrandStarResult[] = {
+        {Story::Step_Demo, Story::Event_Demo, "グランドスター帰還[２回目以降]"},
+        {Story::Step_EndSave},
     };
-    const StorySequenceExecutorType::DemoSequenceInfo cDemoPrologue[] = {
-        {
-            8,
-            1,
-            "Prologue",
-        },
-        {
-            12,
-        },
+    const Story::DemoSequenceInfo cDemoPrologue[] = {
+        {Story::Step_Prologue, Story::Event_Demo, "Prologue"},
+        {Story::Step_End},
     };
-    const StorySequenceExecutorType::DemoSequenceInfo cDemoGrandStar1ResultFirst[] = {
-        {
-            0,
-            1,
-            "\203\117\203\211\203\223\203\150\203\130\203\136\201\133\202\120\213\101\212\322" /* グランドスター１帰還 */,
-        },
-        {
-            0,
-            1,
-            "\203\215\203\133\203\142\203\136\217\363\213\265\220\340\226\276\203\146\203\202" /* ロゼッタ状況説明デモ */,
-        },
-        {
-            13,
-        },
+    const Story::DemoSequenceInfo cDemoGrandStar1ResultFirst[] = {
+        {Story::Step_Demo, Story::Event_Demo, "グランドスター１帰還"},
+        {Story::Step_Demo, Story::Event_Demo, "ロゼッタ状況説明デモ"},
+        {Story::Step_EndSave},
     };
-    const StorySequenceExecutorType::DemoSequenceInfo cDemoKinopioRescued[] = {
-        {
-            0,
-            1,
-            "\203\160\203\217\201\133\203\130\203\136\201\133\213\101\212\322" /* パワースター帰還 */,
-        },
-        {
-            0,
-            1,
-            "\203\215\203\133\203\142\203\136\203\114\203\155\203\163\203\111\222\124\214\237\221\340\203\146\203\202" /* ロゼッタキノピオ探検隊デモ */,
-        },
-        {
-            13,
-        },
+    const Story::DemoSequenceInfo cDemoKinopioRescued[] = {
+        {Story::Step_Demo, Story::Event_Demo, "パワースター帰還"},
+        {Story::Step_Demo, Story::Event_Demo, "ロゼッタキノピオ探検隊デモ"},
+        {Story::Step_EndSave},
     };
-    const StorySequenceExecutorType::DemoSequenceInfo cDemoTorchLecture[] = {
-        {
-            0,
-            1,
-            "\203\117\203\211\203\223\203\150\203\130\203\136\201\133\202\121\213\101\212\322" /* グランドスター２帰還 */,
-        },
-        {
-            0,
-            1,
-            "\203\215\203\133\203\142\203\136\203\147\201\133\203\140\202\314\211\212\220\340\226\276\203\146\203\202" /* ロゼッタトーチの炎説明デモ */,
-        },
-        {
-            0,
-            1,
-            "\203\157\203\147\203\211\201\133\203\175\203\142\203\166\203\214\203\116\203\140\203\203\201\133" /* バトラーマップレクチャー */,
-        },
-        {
-            13,
-        },
+    const Story::DemoSequenceInfo cDemoTorchLecture[] = {
+        {Story::Step_Demo, Story::Event_Demo, "グランドスター２帰還"},
+        {Story::Step_Demo, Story::Event_Demo, "ロゼッタトーチの炎説明デモ"},
+        {Story::Step_Demo, Story::Event_Demo, "バトラーマップレクチャー"},
+        {Story::Step_EndSave},
     };
-    const StorySequenceExecutorType::DemoSequenceInfo cDemoTrickCometLecture[] = {
-        {
-            0,
-            1,
-            "\203\160\203\217\201\133\203\130\203\136\201\133\213\101\212\322" /* パワースター帰還 */,
-        },
-        {
-            0,
-            1,
-            "\203\215\203\133\203\142\203\136\203\122\203\201\203\142\203\147\220\340\226\276\203\146\203\202" /* ロゼッタコメット説明デモ */,
-        },
-        {
-            13,
-        },
+    const Story::DemoSequenceInfo cDemoTrickCometLecture[] = {
+        {Story::Step_Demo, Story::Event_Demo, "パワースター帰還"},
+        {Story::Step_Demo, Story::Event_Demo, "ロゼッタコメット説明デモ"},
+        {Story::Step_EndSave},
     };
-    const StorySequenceExecutorType::DemoSequenceInfo cDemoRosettaTalkAboutKoopa[] = {
-        {
-            0,
-            1,
-            "\203\117\203\211\203\223\203\150\203\130\203\136\201\133\202\122\213\101\212\322" /* グランドスター３帰還 */,
-        },
-        {
-            0,
-            1,
-            "\203\215\203\133\203\142\203\136\213\342\211\315\202\314\222\206\220\123\220\340\226\276\203\146\203\202" /* ロゼッタ銀河の中心説明デモ */,
-        },
-        {
-            13,
-        },
+    const Story::DemoSequenceInfo cDemoRosettaTalkAboutKoopa[] = {
+        {Story::Step_Demo, Story::Event_Demo, "グランドスター３帰還"},
+        {Story::Step_Demo, Story::Event_Demo, "ロゼッタ銀河の中心説明デモ"},
+        {Story::Step_EndSave},
     };
-    const StorySequenceExecutorType::DemoSequenceInfo cDemoLuigiRescued[] = {
-        {
-            0,
-            1,
-            "\203\160\203\217\201\133\203\130\203\136\201\133\213\101\212\322" /* パワースター帰還 */,
-        },
-        {
-            0,
-            1,
-            "\203\215\203\133\203\142\203\136\203\213\203\103\201\133\203\127\203\146\203\202" /* ロゼッタルイージデモ */,
-        },
-        {
-            13,
-        },
+    const Story::DemoSequenceInfo cDemoLuigiRescued[] = {
+        {Story::Step_Demo, Story::Event_Demo, "パワースター帰還"},
+        {Story::Step_Demo, Story::Event_Demo, "ロゼッタルイージデモ"},
+        {Story::Step_EndSave},
     };
-    const StorySequenceExecutorType::DemoSequenceInfo cDemoRosettaTalkAstroDomeRecover[] = {
-        {
-            0,
-            1,
-            "\203\117\203\211\203\223\203\150\203\130\203\136\201\133\202\123\213\101\212\322" /* グランドスター４帰還 */,
-        },
-        {
-            0,
-            1,
-            "\203\215\203\133\203\142\203\136\223\126\225\266\221\344\213\100\224\134\211\361\225\234\203\146\203\202" /* ロゼッタ天文台機能回復デモ */,
-        },
-        {
-            13,
-        },
+    const Story::DemoSequenceInfo cDemoRosettaTalkAstroDomeRecover[] = {
+        {Story::Step_Demo, Story::Event_Demo, "グランドスター４帰還"},
+        {Story::Step_Demo, Story::Event_Demo, "ロゼッタ天文台機能回復デモ"},
+        {Story::Step_EndSave},
     };
-    const StorySequenceExecutorType::DemoSequenceInfo cDemoGrandStarReturn5[] = {
-        {
-            0,
-            1,
-            "\203\117\203\211\203\223\203\150\203\130\203\136\201\133\202\124\213\101\212\322" /* グランドスター５帰還 */,
-        },
-        {
-            13,
-        },
+    const Story::DemoSequenceInfo cDemoGrandStarReturn5[] = {
+        {Story::Step_Demo, Story::Event_Demo, "グランドスター５帰還"},
+        {Story::Step_EndSave},
     };
-    const StorySequenceExecutorType::DemoSequenceInfo cDemoRosettaTalkCountDownStart[] = {
-        {
-            0,
-            1,
-            "\203\215\203\133\203\142\203\136\203\112\203\105\203\223\203\147\203\137\203\105\203\223\212\112\216\156\203\146\203\202" /* ロゼッタカウントダウン開始デモ */,
-        },
-        {
-            13,
-        },
+    const Story::DemoSequenceInfo cDemoRosettaTalkCountDownStart[] = {
+        {Story::Step_Demo, Story::Event_Demo, "ロゼッタカウントダウン開始デモ"},
+        {Story::Step_EndSave},
     };
-    const StorySequenceExecutorType::DemoSequenceInfo cDemoGrandStarReturn6[] = {
-        {
-            0,
-            1,
-            "\203\117\203\211\203\223\203\150\203\130\203\136\201\133\202\125\213\101\212\322" /* グランドスター６帰還 */,
-        },
-        {
-            13,
-        },
+    const Story::DemoSequenceInfo cDemoGrandStarReturn6[] = {
+        {Story::Step_Demo, Story::Event_Demo, "グランドスター６帰還"},
+        {Story::Step_EndSave},
     };
-    const StorySequenceExecutorType::DemoSequenceInfo cDemoRosettaTalkTorchProgress[] = {
-        {
-            0,
-            1,
-            "\203\215\203\133\203\142\203\136\203\147\201\133\203\140\202\314\211\212\220\151\222\273\203\146\203\202" /* ロゼッタトーチの炎進捗デモ */,
-        },
-        {
-            13,
-        },
+    const Story::DemoSequenceInfo cDemoRosettaTalkTorchProgress[] = {
+        {Story::Step_Demo, Story::Event_Demo, "ロゼッタトーチの炎進捗デモ"},
+        {Story::Step_EndSave},
     };
-    const StorySequenceExecutorType::DemoSequenceInfo cDemoRosettaTalkKoopaBattleVs3GalaxyAppear[] = {
-        {
-            5,
-            0,
-            "Save",
-        },
-        {
-            0,
-            1,
-            "\203\215\203\133\203\142\203\136\215\305\217\111\214\210\220\355\203\146\203\202" /* ロゼッタ最終決戦デモ */,
-        },
-        {
-            12,
-        },
+    const Story::DemoSequenceInfo cDemoRosettaTalkKoopaBattleVs3GalaxyAppear[] = {
+        {Story::Step_Save, Story::Event_None, "Save"},
+        {Story::Step_Demo, Story::Event_Demo, "ロゼッタ最終決戦デモ"},
+        {Story::Step_End},
     };
-    const StorySequenceExecutorType::DemoSequenceInfo cDemoStarPieceLectureRetry[] = {
-        {
-            0,
-            3,
-            "\203\130\203\136\201\133\203\163\201\133\203\130\211\360\220\340\221\117\224\274" /* スターピース解説前半 */,
-        },
-        {
-            1,
-            1,
-            "Fadein",
-        },
-        {
-            12,
-        },
+    const Story::DemoSequenceInfo cDemoStarPieceLectureRetry[] = {
+        {Story::Step_Demo, Story::Event_StarPieceLecture, "スターピース解説前半"},
+        {Story::Step_Fadein, Story::Event_Demo, "Fadein"},
+        {Story::Step_End},
     };
-    const StorySequenceExecutorType::DemoSequenceInfo cDemoNewGalaxyDiscover[] = {
-        {
-            0,
-            1,
-            "\223\126\225\266\203\150\201\133\203\200\203\130\203\136\201\133\213\101\212\322" /* 天文ドームスター帰還 */,
-        },
-        {
-            0,
-            4,
-            "\203\157\203\147\203\211\201\133\225\361\215\220" /* バトラー報告 */,
-        },
-        {
-            13,
-        },
+    const Story::DemoSequenceInfo cDemoNewGalaxyDiscover[] = {
+        {Story::Step_Demo, Story::Event_Demo, "天文ドームスター帰還"},
+        {Story::Step_Demo, Story::Event_ButlerReportNewGalaxy, "バトラー報告"},
+        {Story::Step_EndSave},
     };
-    const StorySequenceExecutorType::DemoSequenceInfo cDemoGreenStarGetFirst[] = {
-        {
-            0,
-            1,
-            "\203\160\203\217\201\133\203\130\203\136\201\133\213\101\212\322" /* パワースター帰還 */,
-        },
-        {
-            0,
-            7,
-            "\203\157\203\147\203\211\201\133\203\117\203\212\201\133\203\223\203\150\203\211\203\103\203\157\220\340\226\276" /* バトラーグリーンドライバ説明 */,
-        },
-        {
-            13,
-        },
+    const Story::DemoSequenceInfo cDemoGreenStarGetFirst[] = {
+        {Story::Step_Demo, Story::Event_Demo, "パワースター帰還"},
+        {Story::Step_Demo, Story::Event_ButlerGreenDriverFirst, "バトラーグリーンドライバ説明"},
+        {Story::Step_EndSave},
     };
-    const StorySequenceExecutorType::DemoSequenceInfo cDemoGreenStarRelease[] = {
-        {
-            0,
-            1,
-            "\203\160\203\217\201\133\203\130\203\136\201\133\213\101\212\322" /* パワースター帰還 */,
-        },
-        {
-            0,
-            8,
-            "\203\157\203\147\203\211\201\133\203\117\203\212\201\133\203\223\203\150\203\211\203\103\203\157\220\340\226\276" /* バトラーグリーンドライバ説明 */,
-        },
-        {
-            13,
-        },
+    const Story::DemoSequenceInfo cDemoGreenStarRelease[] = {
+        {Story::Step_Demo, Story::Event_Demo, "パワースター帰還"},
+        {Story::Step_Demo, Story::Event_ButlerGreenDriverRelease, "バトラーグリーンドライバ説明"},
+        {Story::Step_EndSave},
     };
-    const StorySequenceExecutorType::DemoSequenceInfo cDemoAstroDomeLecture[] = {
-        {
-            0,
-            2,
-            "\203\150\201\133\203\200\203\214\203\116\203\140\203\203\201\133\202\120" /* ドームレクチャー１ */,
-        },
-        {
-            7,
-            0,
-            "\203\157\203\147\203\211\201\133\217\356\225\361\202\140" /* バトラー情報Ａ */,
-        },
-        {
-            12,
-        },
+    const Story::DemoSequenceInfo cDemoAstroDomeLecture[] = {
+        {Story::Step_Demo, Story::Event_DomeLecture, "ドームレクチャー１"},
+        {Story::Step_StoryEvent, Story::Event_None, "バトラー情報Ａ"},
+        {Story::Step_End},
     };
-    const StorySequenceExecutorType::DemoSequenceInfo cDemoLuigiMissing[] = {
-        {
-            0,
-            1,
-            "\203\213\203\103\201\133\203\127\216\270\347\110\203\146\203\202" /* ルイージ失踪デモ */,
-        },
-        {
-            13,
-        },
+    const Story::DemoSequenceInfo cDemoLuigiMissing[] = {
+        {Story::Step_Demo, Story::Event_Demo, "ルイージ失踪デモ"},
+        {Story::Step_EndSave},
     };
-    const StorySequenceExecutorType::DemoSequenceInfo cDemoEpilogueNormal[] = {
-        {
-            10,
-            14,
-        },
-        {
-            2,
-            9,
-            "MovieEpilogueA",
-        },
-        {
-            0,
-            1,
-            "\203\107\203\163\203\215\201\133\203\117\203\146\203\202" /* エピローグデモ */,
-        },
-        {
-            11,
-            15,
-        },
-        {
-            2,
-            10,
-            "MovieEndingA",
-        },
-        {
-            9,
-            12,
-        },
-        {
-            11,
-            16,
-        },
-        {
-            9,
-            13,
-        },
-        {
-            4,
-            1,
-        },
-        {
-            12,
-        },
+    const Story::DemoSequenceInfo cDemoEpilogueNormal[] = {
+        {Story::Step_PointerMode, Story::Event_PointerModeEnding},
+        {Story::Step_Movie, Story::Event_MovieEpilogueA, "MovieEpilogueA"},
+        {Story::Step_Demo, Story::Event_Demo, "エピローグデモ"},
+        {Story::Step_InputPermission, Story::Event_InputOff},
+        {Story::Step_Movie, Story::Event_MovieEndingA, "MovieEndingA"},
+        {Story::Step_StaffRoll, Story::Event_StaffRoll},
+        {Story::Step_InputPermission, Story::Event_InputOn},
+        {Story::Step_StaffRoll, Story::Event_StaffRollInfo},
+        {Story::Step_ChangeSceneTitle, Story::Event_Demo},
+        {Story::Step_End},
     };
-    const StorySequenceExecutorType::DemoSequenceInfo cDemoEpilogueComplete[] = {
-        {
-            10,
-            14,
-        },
-        {
-            2,
-            9,
-            "MovieEpilogueA",
-        },
-        {
-            0,
-            1,
-            "\203\107\203\163\203\215\201\133\203\117\203\146\203\202" /* エピローグデモ */,
-        },
-        {
-            11,
-            15,
-        },
-        {
-            2,
-            10,
-            "MovieEndingA",
-        },
-        {
-            9,
-            12,
-        },
-        {
-            2,
-            11,
-            "MovieEndingB",
-        },
-        {
-            11,
-            16,
-        },
-        {
-            9,
-            13,
-        },
-        {
-            4,
-            1,
-        },
-        {
-            12,
-        },
+    const Story::DemoSequenceInfo cDemoEpilogueComplete[] = {
+        {Story::Step_PointerMode, Story::Event_PointerModeEnding},
+        {Story::Step_Movie, Story::Event_MovieEpilogueA, "MovieEpilogueA"},
+        {Story::Step_Demo, Story::Event_Demo, "エピローグデモ"},
+        {Story::Step_InputPermission, Story::Event_InputOff},
+        {Story::Step_Movie, Story::Event_MovieEndingA, "MovieEndingA"},
+        {Story::Step_StaffRoll, Story::Event_StaffRoll},
+        {Story::Step_Movie, Story::Event_MovieEndingB, "MovieEndingB"},
+        {Story::Step_InputPermission, Story::Event_InputOn},
+        {Story::Step_StaffRoll, Story::Event_StaffRollInfo},
+        {Story::Step_ChangeSceneTitle, Story::Event_Demo},
+        {Story::Step_End},
     };
-    const StorySequenceExecutorType::DemoSequenceInfo cDemoRosettaPicureBookTalk[] = {
-        {0, 1, "\203\215\203\133\203\142\203\136\230\116\223\307" /* ロゼッタ朗読 */},
-        {
-            1,
-            1,
-            "Fadein",
-        },
-        {
-            12,
-        },
+    const Story::DemoSequenceInfo cDemoRosettaPicureBookTalk[] = {
+        {Story::Step_Demo, Story::Event_Demo, "ロゼッタ朗読"},
+        {Story::Step_Fadein, Story::Event_Demo, "Fadein"},
+        {Story::Step_End},
     };
-    const StorySequenceExecutorType::DemoSequenceInfo cDemoRosettaTalkAfterNormalEnding[] = {
-        {0, 1, "\203\215\203\133\203\142\203\136\203\155\201\133\203\175\203\213\203\107\203\223\203\146\203\102\203\223\203\117\214\343\203\146\203\202" /* ロゼッタノーマルエンディング後デモ */},
-        {
-            6,
-            1,
-            "RosettaTalkAfterNormalEnding",
-        },
-        {
-            1,
-            1,
-            "Fadein",
-        },
-        {
-            12,
-        },
+    const Story::DemoSequenceInfo cDemoRosettaTalkAfterNormalEnding[] = {
+        {Story::Step_Demo, Story::Event_Demo, "ロゼッタノーマルエンディング後デモ"},
+        {Story::Step_EventFlag, Story::Event_Demo, "RosettaTalkAfterNormalEnding"},
+        {Story::Step_Fadein, Story::Event_Demo, "Fadein"},
+        {Story::Step_End},
     };
     const DemoFortressDiscoverCheckList cDemoFortressDiscoverCheckListTable[] = {
         {
             "TriLegLv1Galaxy",
-            "\203\116\203\142\203\160\202\151\202\222\203\215\203\173\203\166\203\211\203\223\203\147\224\255\214\251" /* クッパＪｒロボプラント発見 */,
+            "クッパＪｒロボプラント発見",
             false,
         },
         {
             "KoopaBattleVs1Galaxy",
-            "\203\116\203\142\203\160\203\130\203\136\201\133\203\166\203\211\203\223\203\147\224\255\214\251" /* クッパスタープラント発見 */,
+            "クッパスタープラント発見",
             true,
         },
         {
             "KoopaJrShipLv1Galaxy",
-            "\203\116\203\142\203\160\202\151\202\222\203\126\203\142\203\166\203\166\203\211\203\223\203\147\224\255\214\251" /* クッパＪｒシッププラント発見 */,
+            "クッパＪｒシッププラント発見",
             false,
         },
         {
             "KoopaBattleVs2Galaxy",
-            "\203\116\203\142\203\160\203\137\201\133\203\116\203\175\203\136\201\133\203\166\203\211\203\223\203\147\224\255\214\251" /* クッパダークマタープラント発見 */,
+            "クッパダークマタープラント発見",
             true,
         },
         {
             "FloaterOtaKingGalaxy",
-            "\203\116\203\142\203\160\202\151\202\222\203\116\203\212\201\133\203\140\203\203\201\133\203\166\203\211\203\223\203\147\224\255\214\251" /* クッパＪｒクリーチャープラント発見 */,
+            "クッパＪｒクリーチャープラント発見",
             false,
         },
     };
@@ -497,10 +211,10 @@ namespace {
     NEW_NERVE(StorySequenceExecutorStaffRollSequence, StorySequenceExecutor, StaffRollSequence);
 };  // namespace
 
-StorySequenceExecutor::StorySequenceExecutor() : NerveExecutor("StorySequenceExecutor"), mNextNerve(), mDemoObj(), mSaveObj(), _48(), _6C(), _B0() {
+StorySequenceExecutor::StorySequenceExecutor() : NerveExecutor("StorySequenceExecutor"), mNextNerve(), mDemoObj(), mSaveObj(), mDemoSequences(), mDynamicDemoInfos(), mIsSaveStarted() {
     mDemoObj = new NameObj("StorySequenceExecutor");
     mSaveObj = new NameObj("Save");
-    mStageName[0] = '\0';
+    mStageName = "";
     mScenarioNo = -1;
 
     initNerve(GET_NERVE_ANON(StorySequenceExecutorIdle));
@@ -512,15 +226,15 @@ void StorySequenceExecutor::update() {
 
 namespace {
     inline bool isDemoSequenceEnd(const StorySequenceExecutorType::DemoSequenceInfo* pInfo) {
-        return pInfo->_0 == 12 || pInfo->_0 == 13;
+        return pInfo->mType == Story::Step_End || pInfo->mType == Story::Step_EndSave;
     }
 };  // namespace
 
 bool StorySequenceExecutor::isNeedMoviePlayerExecutingEventEnum() const {
-    for (s32 i = 0; i < _48.size(); i++) {
-        const StorySequenceExecutorType::DemoSequenceInfo* pInfo = _48[i];
+    for (s32 i = 0; i < mDemoSequences.size(); i++) {
+        const StorySequenceExecutorType::DemoSequenceInfo* pInfo = mDemoSequences[i];
         while (!isDemoSequenceEnd(pInfo)) {
-            if (pInfo->_0 == 2) {
+            if (pInfo->mType == Story::Step_Movie) {
                 return true;
             }
 
@@ -532,14 +246,14 @@ bool StorySequenceExecutor::isNeedMoviePlayerExecutingEventEnum() const {
 }
 
 bool StorySequenceExecutor::hasNextDemo() const {
-    for (s32 i = 0; i < _48.size(); i++) {
-        const StorySequenceExecutorType::DemoSequenceInfo* pInfo = _48[i];
+    for (s32 i = 0; i < mDemoSequences.size(); i++) {
+        const StorySequenceExecutorType::DemoSequenceInfo* pInfo = mDemoSequences[i];
         if (i == 0) {
             pInfo++;
         }
 
         while (!isDemoSequenceEnd(pInfo)) {
-            if (pInfo->_0 == 0) {
+            if (pInfo->mType == Story::Step_Demo) {
                 return true;
             }
 
@@ -555,15 +269,15 @@ s32 StorySequenceExecutor::getExecutingEventEnum() const {
         return 0;
     }
 
-    return getCurrentDemoInfo()->_2;
+    return getCurrentDemoInfo()->mEvent;
 }
 
 bool StorySequenceExecutor::isEqualStageScenarioBefore(const char* pStageName, int scenarioNo) const {
     return MR::isEqualString(pStageName, mStageName) && scenarioNo == mScenarioNo;
 }
 
-void StorySequenceExecutor::moveGalaxy(GalaxyMoveArgument* pMoveArgument, bool param2) {
-    setBeforeStageScenario(*pMoveArgument, param2);
+void StorySequenceExecutor::moveGalaxy(GalaxyMoveArgument* pMoveArgument, bool noScenarioBefore) {
+    setBeforeStageScenario(*pMoveArgument, noScenarioBefore);
 
     if (pMoveArgument->isEqualStage("AstroGalaxy") && pMoveArgument->mScenarioNo != 4) {
         pMoveArgument->mScenarioNo = calcAproposScenarioNoOnAstroGalaxy();
@@ -573,33 +287,31 @@ void StorySequenceExecutor::moveGalaxy(GalaxyMoveArgument* pMoveArgument, bool p
         pMoveArgument->mScenarioNo = calcAproposScenarioNoOnAstroDome();
     }
 
-    _6C.clear();
-    _48.clear();
+    for (s32 i = 0; i < mDynamicDemoInfos.size(); i++) {
+        delete mDynamicDemoInfos[i];
+    }
 
-    _B0 = false;
+    mDynamicDemoInfos.clear();
+    mDemoSequences.clear();
+
+    mIsSaveStarted = false;
 
     switch (pMoveArgument->mMoveType) {
-    case 0:
+    case GalaxyMoveArgument::Type_InGame:
         decideNextEventForMoveGalaxy(pMoveArgument);
         break;
-    case 1:
-        if (pMoveArgument->isEqualStageScenario("PeachCastleGardenGalaxy", 1)) {
-            prepareDemoSequence(::cDemoPrologue);
-        }
-
-        break;
-    case 3:
+    case GalaxyMoveArgument::Type_GoBackAstroDome:
         decideNextStageForGalaxyOut(pMoveArgument);
         break;
-    case 4:
+    case GalaxyMoveArgument::Type_AfterStageClear:
         decideNextEventForClearGalaxy(pMoveArgument);
         decideNextEventForMoveGalaxy(pMoveArgument);
         break;
-    case 6:
+    case GalaxyMoveArgument::Type_AfterLoadingGameData:
         overwriteGalaxyNameAfterLoading(pMoveArgument);
         decideNextEventForAfterLoading(pMoveArgument);
         break;
-    case 7:
+    case GalaxyMoveArgument::Type_Title:
         pMoveArgument->mStageName = "FileSelect";
         pMoveArgument->mScenarioNo = 1;
         break;
@@ -625,9 +337,9 @@ void StorySequenceExecutor::setNerveSceneStart() {
 }
 
 void StorySequenceExecutor::forceStop() {
-    _48.clear();
+    mDemoSequences.clear();
 
-    _B0 = false;
+    mIsSaveStarted = false;
     mNextNerve = nullptr;
 
     setNerve(GET_NERVE_ANON(StorySequenceExecutorIdle));
@@ -644,109 +356,106 @@ void StorySequenceExecutor::exePlayDemoSequence() {
 
     // A scene change emptied the list while this ran: nothing is left to play.
     if (pDemoInfo == nullptr) {
-        _B0 = false;
+        mIsSaveStarted = false;
         setNerve(GET_NERVE_ANON(StorySequenceExecutorIdle));
         return;
     }
 
-    switch (pDemoInfo->_0) {
-    case 0:
+    switch (pDemoInfo->mType) {
+    case Story::Step_Demo:
         // A save whose progress this scene does not show has no such demo: the story goes on without it.
-        if (DemoFunction::findDemoExecutor(pDemoInfo->_4) == nullptr) {
-            _48[0]++;
+        if (DemoFunction::findDemoExecutor(pDemoInfo->mName) == nullptr) {
+            mDemoSequences[0]++;
 
             setNerve(GET_NERVE_ANON(StorySequenceExecutorPlayDemoSequence));
-        } else if (tryStartDemo(pDemoInfo->_4)) {
+        } else if (tryStartDemo(pDemoInfo->mName)) {
             setNerve(GET_NERVE_ANON(StorySequenceExecutorWaitTimeKeepDemoEnd));
         }
 
         break;
-    case 1:
+    case Story::Step_Fadein:
         if (tryStartFadein()) {
-            _48[0]++;
+            mDemoSequences[0]++;
 
             setNerve(GET_NERVE_ANON(StorySequenceExecutorPlayDemoSequence));
         }
 
         break;
-    case 2:
-        if (tryStartMovieAndWaitEnd(pDemoInfo->_2)) {
-            _48[0]++;
+    case Story::Step_Movie:
+        if (tryStartMovieAndWaitEnd(pDemoInfo->mEvent)) {
+            mDemoSequences[0]++;
 
             setNerve(GET_NERVE_ANON(StorySequenceExecutorPlayDemoSequence));
         }
 
         break;
-    case 3:
-        MR::requestChangeScene(pDemoInfo->_4);
-        break;
-    case 4:
+    case Story::Step_ChangeSceneTitle:
         MR::requestChangeSceneTitle();
         forceStop();
         break;
-    case 5:
+    case Story::Step_Save:
         if (tryStartSave()) {
             setNerve(GET_NERVE_ANON(StorySequenceExecutorWaitSaveEnd));
         }
 
         break;
-    case 6:
-        GameDataFunction::onGameEventFlag(pDemoInfo->_4);
-        _48[0]++;
+    case Story::Step_EventFlag:
+        GameDataFunction::onGameEventFlag(pDemoInfo->mName);
+        mDemoSequences[0]++;
         exePlayDemoSequence();
         break;
-    case 7:
-        GameDataFunction::followStoryEventByName(pDemoInfo->_4);
-        _48[0]++;
+    case Story::Step_StoryEvent:
+        GameDataFunction::followStoryEventByName(pDemoInfo->mName);
+        mDemoSequences[0]++;
         exePlayDemoSequence();
         break;
-    case 8:
+    case Story::Step_Prologue:
         MR::forceOpenWipeFade();
         MR::startPrologue();
-        _48[0]++;
+        mDemoSequences[0]++;
         exePlayDemoSequence();
         break;
-    case 9:
+    case Story::Step_StaffRoll:
         GameSceneFunction::requestStaffRoll();
         setNerve(GET_NERVE_ANON(StorySequenceExecutorStaffRollSequence));
         break;
-    case 10:
-        if (pDemoInfo->_2 == 14) {
+    case Story::Step_PointerMode:
+        if (pDemoInfo->mEvent == Story::Event_PointerModeEnding) {
             MR::startStarPointerModeEnding(this);
         }
 
-        _48[0]++;
+        mDemoSequences[0]++;
         exePlayDemoSequence();
         break;
-    case 11:
-        if (pDemoInfo->_2 == 15) {
+    case Story::Step_InputPermission:
+        if (pDemoInfo->mEvent == Story::Event_InputOff) {
             GameSystemFunction::setPermissionToCheckInput(false);
-        } else if (pDemoInfo->_2 == 16) {
+        } else if (pDemoInfo->mEvent == Story::Event_InputOn) {
             GameSystemFunction::setPermissionToCheckInput(true);
         }
 
-        _48[0]++;
+        mDemoSequences[0]++;
         exePlayDemoSequence();
         break;
-    case 12:
-        if (tryNextDemoInfo() != false) {
+    case Story::Step_End:
+        if (tryNextDemoInfo()) {
             exePlayDemoSequence();
         } else {
-            _48.clear();
+            mDemoSequences.clear();
 
-            _B0 = false;
+            mIsSaveStarted = false;
 
             setNerve(GET_NERVE_ANON(StorySequenceExecutorIdle));
         }
 
         break;
-    case 13:
-        if (tryNextDemoInfo() != false) {
+    case Story::Step_EndSave:
+        if (tryNextDemoInfo()) {
             exePlayDemoSequence();
         } else {
             const Nerve* pNerve;
 
-            if (_B0) {
+            if (mIsSaveStarted) {
                 pNerve = GET_NERVE_ANON(StorySequenceExecutorFadeinAfterSequence);
             } else {
                 pNerve = GET_NERVE_ANON(StorySequenceExecutorStartSaveAfterSequence);
@@ -767,11 +476,11 @@ void StorySequenceExecutor::exeWaitTimeKeepDemoEnd() {
         return;
     }
 
-    if (MR::isEqualString(getCurrentDemoInfo()->_4, "\203\107\203\163\203\215\201\133\203\117\203\146\203\202" /* エピローグデモ */)) {
+    if (MR::isEqualString(getCurrentDemoInfo()->mName, "エピローグデモ")) {
         MR::offPlayerControl();
     }
 
-    _48[0]++;
+    mDemoSequences[0]++;
 
     setNerve(GET_NERVE_ANON(StorySequenceExecutorPlayDemoSequence));
 }
@@ -781,9 +490,9 @@ void StorySequenceExecutor::exeWaitSaveEnd() {
         return;
     }
 
-    MR::endDemo(mSaveObj, "\203\132\201\133\203\165" /* セーブ */);
+    MR::endDemo(mSaveObj, "セーブ");
 
-    _48[0]++;
+    mDemoSequences[0]++;
 
     setNerve(GET_NERVE_ANON(StorySequenceExecutorPlayDemoSequence));
 }
@@ -807,8 +516,8 @@ void StorySequenceExecutor::exeFadeinAfterSequence() {
         }
     }
 
-    _48.clear();
-    _B0 = false;
+    mDemoSequences.clear();
+    mIsSaveStarted = false;
 
     MR::endStartPosCamera();
     setNerve(GET_NERVE_ANON(StorySequenceExecutorIdle));
@@ -824,9 +533,9 @@ void StorySequenceExecutor::exeStaffRollSequence() {
 
         const StorySequenceExecutorType::DemoSequenceInfo* pDemoInfo = getCurrentDemoInfo();
 
-        if (pDemoInfo->_2 == 12) {
+        if (pDemoInfo->mEvent == Story::Event_StaffRoll) {
             pStaffRoll->appear();
-        } else if (pDemoInfo->_2 == 13) {
+        } else if (pDemoInfo->mEvent == Story::Event_StaffRollInfo) {
             pStaffRoll->startInfo();
         }
     }
@@ -837,7 +546,7 @@ void StorySequenceExecutor::exeStaffRollSequence() {
 
     MR::closeWipeFade();
 
-    _48[0]++;
+    mDemoSequences[0]++;
 
     setNerve(GET_NERVE_ANON(StorySequenceExecutorPlayDemoSequence));
 }
@@ -859,8 +568,6 @@ void StorySequenceExecutor::decideNextEventForClearGalaxy(GalaxyMoveArgument* pM
         } else {
             StageResultSequenceChecker stageResultSequenceChecker = StageResultSequenceChecker();
             stageResultSequenceChecker.check();
-
-            calcAproposScenarioNoOnAstroDome();
 
             if (!GameSequenceFunction::hasPowerStarYetAtResultSequence()) {
                 if (isEqualStageScenarioBefore("HeavensDoorGalaxy", 1)) {
@@ -933,9 +640,9 @@ void StorySequenceExecutor::decideNextEventForClearGalaxy(GalaxyMoveArgument* pM
                     setNextStageToAstroGalaxy(pMoveArgument);
                 }
 
-                if (_48.size() > 0) {
-                    MR::Vector< MR::FixedArray< const StorySequenceExecutorType::DemoSequenceInfo*, 8 > > arr =
-                        MR::Vector< MR::FixedArray< const StorySequenceExecutorType::DemoSequenceInfo*, 8 > >();
+                if (mDemoSequences.size() > 0) {
+                    MR::InlineVector< const StorySequenceExecutorType::DemoSequenceInfo*, 8 > arr =
+                        MR::InlineVector< const StorySequenceExecutorType::DemoSequenceInfo*, 8 >();
 
                     getOptionalDemoForClearGalaxy(&arr, pMoveArgument);
                     prepareDemoSequence(arr);
@@ -943,8 +650,8 @@ void StorySequenceExecutor::decideNextEventForClearGalaxy(GalaxyMoveArgument* pM
                 }
             }
 
-            MR::Vector< MR::FixedArray< const StorySequenceExecutorType::DemoSequenceInfo*, 8 > > arr =
-                MR::Vector< MR::FixedArray< const StorySequenceExecutorType::DemoSequenceInfo*, 8 > >();
+            MR::InlineVector< const StorySequenceExecutorType::DemoSequenceInfo*, 8 > arr =
+                MR::InlineVector< const StorySequenceExecutorType::DemoSequenceInfo*, 8 >();
 
             getOptionalDemoForClearGalaxy(&arr, pMoveArgument);
 
@@ -976,12 +683,12 @@ void StorySequenceExecutor::decideNextEventForClearGalaxy(GalaxyMoveArgument* pM
 
 void StorySequenceExecutor::decideNextEventForMoveGalaxy(GalaxyMoveArgument* pMoveArgument) {
     if (pMoveArgument->isEqualStage("AstroDome")) {
-        if (!GameDataFunction::isPassedStoryEvent("\203\157\203\147\203\211\201\133\217\356\225\361\202\140" /* バトラー情報Ａ */)) {
+        if (!GameDataFunction::isPassedStoryEvent("バトラー情報Ａ")) {
             prepareDemoSequence(::cDemoAstroDomeLecture);
             return;
         }
 
-        if (GameDataFunction::hasPowerStar("EggStarGalaxy", 1) && !GameDataFunction::isPassedStoryEvent("\203\130\203\136\201\133\203\163\201\133\203\130\203\214\203\116\203\140\203\203\201\133" /* スターピースレクチャー */)) {
+        if (GameDataFunction::hasPowerStar("EggStarGalaxy", 1) && !GameDataFunction::isPassedStoryEvent("スターピースレクチャー")) {
             prepareDemoSequence(::cDemoStarPieceLectureRetry);
             return;
         }
@@ -1014,7 +721,7 @@ void StorySequenceExecutor::decideNextEventForMoveGalaxy(GalaxyMoveArgument* pMo
     }
 }
 
-void StorySequenceExecutor::decideNextEventForAfterLoading(GalaxyMoveArgument* pMoveArgument) {
+void StorySequenceExecutor::decideNextEventForAfterLoading(GalaxyMoveArgument* /*pMoveArgument*/) {
     if (GameDataFunction::isOnGameEventFlag("RosettaTalkAfterNormalEnding")) {
         return;
     }
@@ -1028,7 +735,7 @@ void StorySequenceExecutor::decideNextStageForGalaxyOut(GalaxyMoveArgument* pMov
     if (MR::isEqualString("HeavensDoorGalaxy", mStageName)) {
         setNextStageToAstroGalaxy(pMoveArgument);
 
-        pMoveArgument->mIDInfo = JMapIdInfo(100, 0);
+        pMoveArgument->mIDInfo = PlacementId(100, 0);
     } else {
         setNextStageToAstroGalaxyOrDome(pMoveArgument);
     }
@@ -1047,13 +754,13 @@ void StorySequenceExecutor::overwriteGalaxyNameAfterLoading(GalaxyMoveArgument* 
     }
     if (GameDataFunction::hasGrandStar(1)) {
         setNextStageToAstroGalaxy(pMoveArgument);
-    } else if (GameDataFunction::isPassedStoryEvent("\203\163\201\133\203\140\217\351\225\202\217\343\214\343" /* ピーチ城浮上後 */) || !GameDataFunction::isDataMario()) {
+    } else if (GameDataFunction::isPassedStoryEvent("ピーチ城浮上後") || !GameDataFunction::isDataMario()) {
         pMoveArgument->mStageName = "HeavensDoorGalaxy";
         pMoveArgument->mScenarioNo = 1;
-    } else if (GameDataFunction::isPassedStoryEvent("\203\116\203\142\203\160\217\120\227\210\214\343" /* クッパ襲来後 */)) {
+    } else if (GameDataFunction::isPassedStoryEvent("クッパ襲来後")) {
         pMoveArgument->mStageName = "PeachCastleGardenGalaxy";
         pMoveArgument->mScenarioNo = 1;
-        pMoveArgument->mIDInfo = JMapIdInfo(1, 0);
+        pMoveArgument->mIDInfo = PlacementId(1, 0);
     } else {
         prepareDemoSequence(::cDemoPrologue);
 
@@ -1098,15 +805,15 @@ const StorySequenceExecutorType::DemoSequenceInfo* StorySequenceExecutor::isExec
 }
 
 void StorySequenceExecutor::getOptionalDemoForClearGalaxy(
-    MR::Vector< MR::FixedArray< const StorySequenceExecutorType::DemoSequenceInfo*, 8 > >* pParam1, const GalaxyMoveArgument* pMoveArgument) const {
+    MR::InlineVector< const StorySequenceExecutorType::DemoSequenceInfo*, 8 >* pDemos, const GalaxyMoveArgument* pMoveArgument) const {
     const StorySequenceExecutorType::DemoSequenceInfo* pDemoInfo = isExecuteDemoLuigiMissing(pMoveArgument);
 
     if (pDemoInfo != nullptr) {
-        pParam1->push_back(pDemoInfo);
+        pDemos->push_back(pDemoInfo);
     }
 
     if (GameDataFunction::canOnJustGameEventFlag("KoopaBattleVs3Galaxy") || GameDataFunction::isOnJustGameEventFlag("PowerStarComplete")) {
-        pParam1->push_back(::cDemoRosettaTalkKoopaBattleVs3GalaxyAppear);
+        pDemos->push_back(::cDemoRosettaTalkKoopaBattleVs3GalaxyAppear);
     }
 }
 
@@ -1131,7 +838,7 @@ void StorySequenceExecutor::prepareDemoSequence(const StorySequenceExecutorType:
         return;
     }
 
-    _48.push_back(pDemoInfo);
+    mDemoSequences.push_back(pDemoInfo);
 
     mNextNerve = GET_NERVE_ANON(StorySequenceExecutorPlayDemoSequence);
 
@@ -1139,8 +846,8 @@ void StorySequenceExecutor::prepareDemoSequence(const StorySequenceExecutorType:
 }
 
 void StorySequenceExecutor::prepareDemoSequence(
-    const MR::Vector< MR::FixedArray< const StorySequenceExecutorType::DemoSequenceInfo*, 8 > >& rParam1) {
-    for (const StorySequenceExecutorType::DemoSequenceInfo* const* ppDemoInfo = rParam1.begin(); ppDemoInfo < rParam1.end(); ppDemoInfo++) {
+    const MR::InlineVector< const StorySequenceExecutorType::DemoSequenceInfo*, 8 >& rDemos) {
+    for (const StorySequenceExecutorType::DemoSequenceInfo* const* ppDemoInfo = rDemos.begin(); ppDemoInfo < rDemos.end(); ppDemoInfo++) {
         prepareDemoSequence(*ppDemoInfo);
     }
 }
@@ -1148,29 +855,30 @@ void StorySequenceExecutor::prepareDemoSequence(
 void StorySequenceExecutor::prepareDemoSequenceButlerFortressDiscover(const GalaxyMoveArgument* pMoveArgument,
                                                                       const DemoFortressDiscoverCheckList& rCheckList) {
     const StorySequenceExecutorType::DemoSequenceInfo* pDemoInfo =
-        addDynamicDemoSequenceInfo(0, rCheckList._8 ? ::EVENT_BUTLER_REPORT_KOOPA_FORTRESS : ::EVENT_BUTLER_REPORT_FORTRESS, "\203\157\203\147\203\211\201\133\225\361\215\220" /* バトラー報告 */);
+        addDynamicDemoSequenceInfo(Story::Step_Demo, rCheckList.mIsKoopaFortress ? Story::Event_ButlerReportKoopaFortress : Story::Event_ButlerReportFortress,
+                                   "バトラー報告");
 
-    addDynamicDemoSequenceInfo(7, 0, rCheckList.mStoryEventName);
+    addDynamicDemoSequenceInfo(Story::Step_StoryEvent, Story::Event_None, rCheckList.mStoryEventName);
 
-    if (pMoveArgument->mMoveType == 4) {
-        addDynamicDemoSequenceInfo(13, 0, "");
+    if (pMoveArgument->mMoveType == GalaxyMoveArgument::Type_AfterStageClear) {
+        addDynamicDemoSequenceInfo(Story::Step_EndSave, Story::Event_None, "");
     } else {
-        addDynamicDemoSequenceInfo(1, 1, "Fadein");
-        addDynamicDemoSequenceInfo(12, 0, "");
+        addDynamicDemoSequenceInfo(Story::Step_Fadein, Story::Event_Demo, "Fadein");
+        addDynamicDemoSequenceInfo(Story::Step_End, Story::Event_None, "");
     }
 
     prepareDemoSequence(pDemoInfo);
 }
 
-bool StorySequenceExecutor::tryStartDemo(const char* pParam1) {
-    return MR::tryStartTimeKeepDemoMarioPuppetable(mDemoObj, pParam1, nullptr);
+bool StorySequenceExecutor::tryStartDemo(const char* pDemoName) {
+    return MR::tryStartTimeKeepDemoMarioPuppetable(mDemoObj, pDemoName, nullptr);
 }
 
 bool StorySequenceExecutor::tryStartSave() {
-    if (MR::tryStartDemoWithoutCinemaFrameValidHandPointerFinger(mSaveObj, "\203\132\201\133\203\165" /* セーブ */)) {
+    if (MR::tryStartDemoWithoutCinemaFrameValidHandPointerFinger(mSaveObj, "セーブ")) {
         GameSequenceFunction::startGameDataSaveSequence(false, false);
 
-        _B0 = true;
+        mIsSaveStarted = true;
 
         return true;
     }
@@ -1180,7 +888,7 @@ bool StorySequenceExecutor::tryStartSave() {
 
 bool StorySequenceExecutor::tryWaitSaveEnd() {
     if (!GameSequenceFunction::isActiveSaveDataHandleSequence()) {
-        MR::endDemo(mSaveObj, "\203\132\201\133\203\165" /* セーブ */);
+        MR::endDemo(mSaveObj, "セーブ");
 
         return true;
     }
@@ -1198,88 +906,82 @@ bool StorySequenceExecutor::tryStartFadein() {
     return false;
 }
 
-bool StorySequenceExecutor::tryStartMovieAndWaitEnd(u32 param1) {
+bool StorySequenceExecutor::tryStartMovieAndWaitEnd(u32 movie) {
     if (MR::isFirstStep(this)) {
-        switch (param1) {
-        case 9:
+        switch (movie) {
+        case Story::Event_MovieEpilogueA:
             MR::startMovieEpilogueA();
             break;
-        case 10:
+        case Story::Event_MovieEndingA:
             MR::startMovieEndingA();
             break;
-        case 11:
+        case Story::Event_MovieEndingB:
             MR::startMovieEndingB();
             break;
         default:
             break;
         }
-    } else {
-        bool isEndMovie = false;
 
-        switch (param1) {
-        case 9:
-            isEndMovie = MR::isEndMovieEpilogueA();
-            break;
-        case 10:
-            isEndMovie = MR::isEndMovieEndingA();
-            break;
-        case 11:
-            isEndMovie = MR::isEndMovieEndingB();
-            break;
-        default:
-            break;
-        }
-
-        return isEndMovie;
-    }
-
-    return false;
-}
-
-const StorySequenceExecutorType::DemoSequenceInfo* StorySequenceExecutor::getCurrentDemoInfo() const {
-    if (_48.size() == 0) {
-        return nullptr;
-    }
-
-    return *_48.begin();
-}
-
-bool StorySequenceExecutor::tryNextDemoInfo() {
-    if (_48.size() <= 1) {
         return false;
     }
 
-    _48.erase(_48.begin());
+    switch (movie) {
+    case Story::Event_MovieEpilogueA:
+        return MR::isEndMovieEpilogueA();
+    case Story::Event_MovieEndingA:
+        return MR::isEndMovieEndingA();
+    case Story::Event_MovieEndingB:
+        return MR::isEndMovieEndingB();
+    default:
+        return false;
+    }
+}
+
+const StorySequenceExecutorType::DemoSequenceInfo* StorySequenceExecutor::getCurrentDemoInfo() const {
+    if (mDemoSequences.size() == 0) {
+        return nullptr;
+    }
+
+    return *mDemoSequences.begin();
+}
+
+bool StorySequenceExecutor::tryNextDemoInfo() {
+    if (mDemoSequences.size() <= 1) {
+        return false;
+    }
+
+    mDemoSequences.erase(mDemoSequences.begin());
 
     return true;
 }
 
 const StorySequenceExecutorType::DemoSequenceInfo* StorySequenceExecutor::addDynamicDemoSequenceInfo(u16 type, u16 event, const char* pName) {
-    StorySequenceExecutorType::DemoSequenceInfo& rInfo = _6C[_6C.mCount++];
-    rInfo._0 = type;
-    rInfo._2 = event;
-    rInfo._4 = pName;
-    return &_6C[_6C.size() - 1];
+    StorySequenceExecutorType::DemoSequenceInfo* pInfo = new StorySequenceExecutorType::DemoSequenceInfo();
+    pInfo->mType = type;
+    pInfo->mEvent = event;
+    pInfo->mName = pName;
+    mDynamicDemoInfos.push_back(pInfo);
+    return pInfo;
 }
 
-void StorySequenceExecutor::setBeforeStageScenario(const GalaxyMoveArgument& rMoveArgument, bool param2) {
+void StorySequenceExecutor::setBeforeStageScenario(const GalaxyMoveArgument& rMoveArgument, bool noScenarioBefore) {
     const char* pStageName = nullptr;
     s32 scenarioNo = -1;
 
-    if (MR::isEqualSceneName("Game")) {
-        if (rMoveArgument.mMoveType == 4) {
+    if (MR::isCurrentScene(SceneKind_Game)) {
+        if (rMoveArgument.mMoveType == GalaxyMoveArgument::Type_AfterStageClear) {
             pStageName = GameSequenceFunction::getClearedStageName();
             scenarioNo = GameSequenceFunction::getClearedPowerStarId();
         } else {
             pStageName = MR::getCurrentStageName();
 
-            if (!param2) {
+            if (!noScenarioBefore) {
                 scenarioNo = MR::getCurrentScenarioNo();
             }
         }
     }
 
-    nebula_snprintf(mStageName, sizeof(mStageName), "%s", pStageName);
+    mStageName = MR::internName(pStageName);
 
     mScenarioNo = scenarioNo;
 }

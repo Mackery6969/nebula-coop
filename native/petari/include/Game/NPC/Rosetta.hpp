@@ -3,25 +3,22 @@
 #include "Game/NPC/NPCActor.hpp"
 #include "Game/Util/NPCUtil.hpp"
 
-class NameObjArchiveListCollector;
 class NerveExecutor;
 class TurnJointCtrl;
 
 class Rosetta : public NPCActor {
 public:
-    /// @brief Creates a new `Rosetta`.
     /// @param pName The pointer to the null-terminated name of the object.
     Rosetta(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor*, HitSensor*);
+    virtual void init(const TableIter& rIter) override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor*, HitSensor*) override;
 
     bool branchFunc(u32);
     bool eventFunc(u32);
 
-    static void makeArchiveList(NameObjArchiveListCollector*, const JMapInfoIter&);
     void startDemo(NerveExecutor*);
     void endDemo();
     void endDemoWithInterpole();
@@ -32,7 +29,6 @@ public:
 private:
     FadeStarter mFadeStarter;
     NerveExecutor* mDemoExecutor;
-    NerveExecutor* mTalkDemoExecutor;
     TurnJointCtrl* mTurnJointCtrl;
     s32 mObjArg0;
 };

@@ -3,13 +3,13 @@
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/Map/FileSelectIconID.hpp"
 
-struct MiiCreateID;
+namespace Mii {
+    struct Id;
+}  // namespace Mii
 
-namespace nw4r {
-    namespace ut {
-        class ResFont;
-    };  // namespace ut
-};  // namespace nw4r
+namespace Ui {
+    class ResFont;
+}  // namespace Ui
 
 class BackButton;
 class BrosButton;
@@ -18,6 +18,7 @@ class FileSelectCameraController;
 class FileSelectEffect;
 class FileSelectInfo;
 class FileSelectItem;
+class FileSelectItemDelegatorBase;
 class FileSelectSky;
 class InformationMessage;
 class Manual2P;
@@ -35,12 +36,13 @@ class FileSelector : public LiveActor {
 public:
     FileSelector(const char* pName);
 
-    virtual ~FileSelector();
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void appear();
-    virtual void kill();
-    virtual void control();
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual ~FileSelector() override;
+    virtual void init(const TableIter& rIter) override;
+    virtual bool initStep(const TableIter& rIter, uint64_t deadline) override;
+    virtual void appear() override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     void callbackStart();
     void callbackCopy();
@@ -51,7 +53,10 @@ public:
     void initUserFileArray();
     void createCameraController();
     void createSky();
-    void createFileItems();
+    bool createFileItemStep();
+    unsigned mInitStep = 0;
+    unsigned mInitItem = 0;
+    FileSelectItemDelegatorBase* mInitDelegator = nullptr;
     void createOperationButton();
     void createBackButton();
     void createBrosButton();
@@ -85,13 +90,13 @@ public:
     void validateRotateAllItems();
     FileSelectIconID::EFellowID getUserFileFellowID(s32 id) const;
     bool isUserFileMiiIdValid(s32 id) const;
-    u16 getUserFileMiiIndex(s32 id) const;
+    u32 getUserFileMiiIndex(s32 id) const;
     bool isUserFileCorrupted(s32 id) const;
     bool isUserFileAppearLuigi(s32 id) const;
     bool isUserFileLuigi(s32 id) const;
     void setUserFileMario(s32 id, bool isMario);
     void storeSetMiiIdUserFile(s32 id, const FileSelectIconID& rIconId);
-    void getMiiId(MiiCreateID* pCreateId, const FileSelectIconID& rIconId) const;
+    void getMiiId(Mii::Id* pCreateId, const FileSelectIconID& rIconId) const;
     void getIconId(FileSelectIconID* pIconId, s32 id) const;
     s32 getMissCount(s32 id) const;
     void playSelectedME();
@@ -154,24 +159,24 @@ public:
     FileSelectCameraController* mCameraController;
     FileSelectSky* mSky;
     DeriveActorGroup< FileSelectItem >* mItems;
-    TVec3f* _98;
+    Vec3f* mItemPositions;
     FileSelectButton* mOperationButton;
     BackButton* mBackButton;
     BrosButton* mBrosButton;
     InformationMessage* mInfoMessage;
     SysInfoWindow* mSysInfoWindow;
     SysInfoWindow* mSysInfoWindowMini;
-    FileSelectItem* _B4;
-    FileSelectItem* _B8;
-    FileSelectItem* _BC;
-    FileSelectItem* _C0;
+    FileSelectItem* mSelectedItem;
+    FileSelectItem* mDecidedItem;
+    FileSelectItem* mPointedItem;
+    FileSelectItem* mPointCandidate;
     FileSelectInfo* mFileInfo;
     UserFile* mUserFile;
-    bool* _CC;
+    bool* mIsCompleteFile;
     TitleSequenceProduct* mTitle;
     MiiSelect* mMiiSelect;
     MiiConfirmIcon* mMiiConfirmIcon;
-    MiiCreateID* mMiiId;
+    Mii::Id* mMiiId;
     Manual2P* mManual;
     bool mIsMiiSelectStartFirst;
     s32 mBgmState;

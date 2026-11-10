@@ -4,18 +4,19 @@
 #include "Game/MapObj/ArrowSwitchMultiHolder.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/AreaObjUtil.hpp"
-#include "Game/Util/JMapIdInfo.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementId.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const f32 sRotYTargetList[] = {0.0f, 90.0f, 180.0f, -90.0f};
+    NEBULA_TUNABLE_LIST(f32, sRotYTargetList, , {0.0f, 90.0f, 180.0f, -90.0f});
 
-    static const f32 sPunchVelocit = 6.0f;
-    static const s32 sFreqRotY = 4;
+    NEBULA_TUNABLE(f32, sPunchSpeed, 6.0f);
+    NEBULA_TUNABLE(s32, sRotYTargetNum, 4);
 };  // namespace
 
 namespace NrvArrowSwitchMulti {
@@ -27,13 +28,13 @@ ArrowSwitchTarget::ArrowSwitchTarget(const char* pName) : NameObj(pName), mIdInf
     MR::createArrowSwitchMultiHolder();
 }
 
-void ArrowSwitchTarget::init(const JMapInfoIter& rIter) {
-    s32 arg0;
-    MR::getJMapInfoArg0WithInit(rIter, &arg0);
+void ArrowSwitchTarget::init(const TableIter& rIter) {
+    s32 switchId;
+    MR::getPlacementArg0WithInit(rIter, &switchId);
 
-    mIdInfo = new JMapIdInfo(arg0, rIter);
+    mIdInfo = new PlacementId(switchId, rIter);
 
-    MR::getJMapInfoArg1WithInit(rIter, &mTargetIndex);
+    MR::getPlacementArg1WithInit(rIter, &mTargetIndex);
     mStageSwitchCtrl = MR::createStageSwitchCtrl(this, rIter);
 }
 
@@ -62,12 +63,8 @@ void ArrowSwitchTarget::offTarget() {
 }
 
 ArrowSwitchMulti::ArrowSwitchMulti(const char* pName)
-    : LiveActor(pName), mIdInfo(), mRotAngle(), mRotSpeed(), mActiveTargetIndex(), mRotYTargetIndex(), mIsRotPlus(true) {
+    : LiveActor(pName), mIdInfo(), mTargetArray(), mRotAngle(), mRotSpeed(), mActiveTargetIndex(), mRotYTargetIndex(), mIsRotPlus(true) {
     MR::createArrowSwitchMultiHolder();
-
-    for (u32 i = 0; i < ARRAY_SIZE(mTargetArray); i++) {
-        mTargetArray[i] = nullptr;
-    }
 }
 
 void ArrowSwitchMulti::registerTarget(ArrowSwitchTarget* pTarget) {
@@ -77,23 +74,23 @@ void ArrowSwitchMulti::registerTarget(ArrowSwitchTarget* pTarget) {
     }
 }
 
-void ArrowSwitchMulti::init(const JMapInfoIter& rIter) {
+void ArrowSwitchMulti::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("ArrowSwitch", nullptr, false);
     MR::connectToSceneNoSilhouettedMapObjStrongLight(this);
 
-    s32 arg0;
-    MR::getJMapInfoArg0WithInit(rIter, &arg0);
+    s32 switchId;
+    MR::getPlacementArg0WithInit(rIter, &switchId);
 
-    mIdInfo = new JMapIdInfo(arg0, rIter);
+    mIdInfo = new PlacementId(switchId, rIter);
 
     if (MR::isInAreaObj("PlaneModeCube", mPosition)) {
         initHitSensor(1);
-        MR::addHitSensorMapObj(this, "body", 8, 100.0f, TVec3f(0.0f, 50.0f, 250.0f));
+        MR::addHitSensorMapObj(this, "body", 8, 100.0f, Vec3f(0.0f, 50.0f, 250.0f));
     } else {
         initHitSensor(2);
-        MR::addHitSensorMapObj(this, "body", 8, 100.0f, TVec3f(0.0f, 50.0f, 250.0f));
-        MR::addHitSensorMapObjMoveCollision(this, "collision", 8, 0.0f, TVec3f(0.0f, 0.0f, 0.0f));
+        MR::addHitSensorMapObj(this, "body", 8, 100.0f, Vec3f(0.0f, 50.0f, 250.0f));
+        MR::addHitSensorMapObjMoveCollision(this, "collision", 8, 0.0f, Vec3f(0.0f, 0.0f, 0.0f));
         MR::initCollisionParts(this, "ArrowSwitch", getSensor("collision"), nullptr);
     }
 
@@ -103,14 +100,11 @@ void ArrowSwitchMulti::init(const JMapInfoIter& rIter) {
     makeActorAppeared();
 }
 
-void ArrowSwitchMulti::control() {
-}
-
 void ArrowSwitchMulti::calcAndSetBaseMtx() {
     LiveActor::calcAndSetBaseMtx();
-    TPos3f pos;
+    Pos3f pos;
     pos.set(getBaseMtx());
-    TPos3f rot;
+    Pos3f rot;
     rot.identity();
     rot.setEulerY(MR::toRadian(mRotAngle));
     pos.concat(pos, rot);
@@ -118,14 +112,10 @@ void ArrowSwitchMulti::calcAndSetBaseMtx() {
 }
 
 bool ArrowSwitchMulti::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
-    if (MR::isMsgPlayerHitAll(msg)) {
-        return requestPunch(pSender, pReceiver);
-    }
-
-    return false;
+    return MR::isMsgPlayerHitAll(msg) && requestPunch(pSender, pReceiver);
 }
 
-bool ArrowSwitchMulti::requestPunch(HitSensor* pSender, HitSensor* pReceiver) {
+bool ArrowSwitchMulti::requestPunch(HitSensor* /*pSender*/, HitSensor* pReceiver) {
     if (getSensor("body") != pReceiver) {
         return false;
     }
@@ -136,13 +126,13 @@ bool ArrowSwitchMulti::requestPunch(HitSensor* pSender, HitSensor* pReceiver) {
 
     if (mIsRotPlus) {
         mRotYTargetIndex++;
-        mRotSpeed = ::sPunchVelocit;
+        mRotSpeed = ::sPunchSpeed;
     } else {
         mRotYTargetIndex--;
-        mRotSpeed = -::sPunchVelocit;
+        mRotSpeed = -::sPunchSpeed;
     }
 
-    mRotYTargetIndex = (mRotYTargetIndex + ::sFreqRotY) % ::sFreqRotY;
+    mRotYTargetIndex = (mRotYTargetIndex + ::sRotYTargetNum) % ::sRotYTargetNum;
     MR::invalidateClipping(this);
     setNerve(GET_NERVE(ArrowSwitchMulti, ArrowSwitchMultiNrvRotate));
 
@@ -151,12 +141,7 @@ bool ArrowSwitchMulti::requestPunch(HitSensor* pSender, HitSensor* pReceiver) {
 
 void ArrowSwitchMulti::exeWait() {
     if (MR::isFirstStep(this)) {
-        if (mRotYTargetIndex % 2 == 1) {
-            MR::startBtk(this, "On");
-        } else {
-            MR::startBtk(this, "Off");
-        }
-
+        MR::startBtk(this, mRotYTargetIndex % 2 == 1 ? "On" : "Off");
         MR::validateClipping(this);
     }
 }

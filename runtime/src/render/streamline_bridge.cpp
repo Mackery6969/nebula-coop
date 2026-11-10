@@ -5,7 +5,6 @@
 #include "galaxy/render/temporal_upscaler.h"
 #include "galaxy/render_api.h"
 #include "galaxy/platform_paths.h"
-#include "galaxy/run_options.h"
 
 #include <algorithm>
 #include <cmath>
@@ -22,6 +21,7 @@
 #include <sl_pcl.h>
 #include <sl_reflex.h>
 #include <sl_security.h>
+#include "locked_file.h"
 #include "streamline_common.h"
 #include "streamline_frame_generation.h"
 #endif
@@ -30,9 +30,6 @@ namespace galaxy::render {
 namespace streamline {
 
 std::wstring default_directory() {
-    if (const wchar_t* const test = ::galaxy::run_options().streamline_dir_w; test != nullptr && test[0] != L'\0') {
-        return test;
-    }
     const std::filesystem::path data = galaxy::nebula_data_directory();
     return data.empty() ? std::wstring{} : (data / L"vendor" / L"streamline-2.14.1").wstring();
 }
@@ -108,13 +105,22 @@ bool startup(const std::wstring& directory, bool frame_generation) noexcept {
             std::cerr << "[streamline] not installed\n";
             return false;
         }
-        // Streamline's own check: an Authenticode signature chaining to a
-        // trusted root, by Streamline's signing key.
-        if (!sl::security::verifyEmbeddedSignature(interposer.c_str())) {
-            std::cerr << "[streamline] sl.interposer.dll is not signed by NVIDIA: not loaded\n";
-            return false;
+        HMODULE module = nullptr;
+        {
+            // Held from the check to the load: the file checked is the file loaded.
+            const LockedFile held(interposer.c_str());
+            if (!held.held()) {
+                std::cerr << "[streamline] sl.interposer.dll could not be opened: not loaded\n";
+                return false;
+            }
+            // Streamline's own check: an Authenticode signature chaining to a
+            // trusted root, by Streamline's signing key.
+            if (!sl::security::verifyEmbeddedSignature(interposer.c_str())) {
+                std::cerr << "[streamline] sl.interposer.dll is not signed by NVIDIA: not loaded\n";
+                return false;
+            }
+            module = LoadLibraryExW(interposer.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
         }
-        HMODULE module = LoadLibraryExW(interposer.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
         if (module == nullptr) {
             std::cerr << "[streamline] sl.interposer.dll did not load\n";
             return false;
@@ -131,6 +137,7 @@ bool startup(const std::wstring& directory, bool frame_generation) noexcept {
             !resolve(module, "slSetTagForFrame", api.set_tag_for_frame) ||
             !resolve(module, "slEvaluateFeature", api.evaluate_feature) ||
             !resolve(module, "slFreeResources", api.free_resources)) {
+            FreeLibrary(module);  // nothing was initialised: the interposer is not kept loaded
             return false;
         }
         sl::Preferences preferences{};
@@ -386,7 +393,7 @@ public:
             in.depth == nullptr || in.motion == nullptr || in.output == nullptr) {
             return false;
         }
-        // A second evaluation before the present (an interpolated sub-frame, a second scene) takes a new frame
+        // A second evaluation before the present (an interpolated generated frame, a second scene) takes a new frame
         // token: Streamline rejects different common constants under one token and fails the evaluation.
         static std::uint32_t evaluated = 0xFFFFFFFFu;
         if (streamline::frame_index() == evaluated) {
@@ -478,7 +485,7 @@ std::unique_ptr<TemporalUpscaler> create_dlss_upscaler(unsigned render_width, un
     // A mode evaluates only render widths inside its range (ultra performance accepts one size), and
     // the render scales are whole scene target scales: the requested mode, else the next higher-quality one
     // whose range holds the render width (NGX fails every evaluate outside it).
-    unsigned mode = std::min(quality, 4u);
+    unsigned mode = quality == 5u ? 1u : std::min(quality, 4u);  // no ultra quality mode: quality
     if (g_api.dlss_get_optimal_settings != nullptr) {
         for (unsigned candidate = mode + 1u; candidate-- > 0u;) {
             sl::DLSSOptions options{};

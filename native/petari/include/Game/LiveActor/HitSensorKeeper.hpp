@@ -1,6 +1,7 @@
 #pragma once
 
-#include <JSystem/JGeometry/TVec.hpp>
+#include "Game/Util/Array.hpp"
+#include <nebula_geometry.hpp>
 #include <NebulaGpu.h>
 #include <nebula_math.h>
 
@@ -10,12 +11,13 @@ class LiveActor;
 
 class HitSensorKeeper {
 public:
-    HitSensorKeeper(int);
+    // capacity: the sensors the actor declares; more grow the list.
+    HitSensorKeeper(s32 capacity);
 
-    HitSensor* add(const char*, u32, u16, f32, LiveActor*, const TVec3f&);
-    HitSensor* addPos(const char*, u32, u16, f32, LiveActor*, const TVec3f*, const TVec3f&);
-    HitSensor* addMtx(const char*, u32, u16, f32, LiveActor*, Mtx, const TVec3f&);
-    HitSensor* addCallback(const char*, u32, u16, f32, LiveActor*);
+    HitSensor* add(const char*, u32, u32, f32, LiveActor*, const Vec3f& rOffset);
+    HitSensor* addPos(const char*, u32, u32, f32, LiveActor*, const Vec3f*, const Vec3f& rOffset);
+    HitSensor* addMtx(const char*, u32, u32, f32, LiveActor*, Mtx, const Vec3f& rOffset);
+    HitSensor* addCallback(const char*, u32, u32, f32, LiveActor*);
 
     HitSensor* getSensor(const char*) const;
     void update();
@@ -31,8 +33,7 @@ public:
     void registHitSensorInfo(HitSensorInfo*);
 
     s32 mSensorInfosSize;
-    s32 mSensorCount;
-    HitSensorInfo** mSensorInfos;
+    MR::GrowBuffer< HitSensorInfo* > mSensorInfos;
     HitSensor* mTaking;
     HitSensor* mTaken;
 };

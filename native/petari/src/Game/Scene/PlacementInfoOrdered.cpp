@@ -1,11 +1,14 @@
+#include <nebula_game_api.h>
+extern "C" const NebulaHostServices* nebula_host(void);
+#include "Game/System/NebulaLoadTrace.hpp"
 #include "Game/System/NebulaMods.hpp"
+#include "Game/System/NebulaCoopWorld.hpp"
 #include "Game/Scene/PlacementInfoOrdered.hpp"
 #include "Game/LiveActor/AllLiveActorGroup.hpp"
 #include "Game/Map/PlanetMapCreator.hpp"
 #include "Game/NameObj/ModelChangableObjFactory.hpp"
 #include "Game/NameObj/NameObjFactory.hpp"
-#include "Game/Util/JMapUtil.hpp"
-#include "Game/Util/MemoryUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/SceneUtil.hpp"
 #include "Game/System/NebulaCoopWorld.hpp"
 
@@ -17,32 +20,43 @@ namespace {
 
         return NameObjFactory::getCreator(rIdentifier.mName);
     }
+
+    PlacementInfoOrdered::Identifier readIdentifier(const TableIter& rIter) {
+        const char* pName = "";
+        MR::getObjectName(&pName, rIter);
+        s32 shapeId = -1;
+        MR::getPlacementShapeIdWithInit(rIter, &shapeId);
+        return PlacementInfoOrdered::Identifier(pName, shapeId);
+    }
+
+    bool isAfterScenario(const PlacementInfoOrdered::Identifier& rIdentifier) {
+        return rIdentifier.mShapeId == -1 && PlanetMapCreatorFunction::isLoadArchiveAfterScenarioSelected(rIdentifier.mName);
+    }
 };  // namespace
+
+s32 PlacementInfoOrdered::countAfterScenario(const Table* pInfo) {
+    s32 count = 0;
+    for (s32 i = 0; i < pInfo->getNumEntries(); i++) {
+        if (::isAfterScenario(::readIdentifier(TableIter(pInfo, i)))) {
+            count++;
+        }
+    }
+
+    return count;
+}
 
 PlacementInfoOrdered::PlacementInfoOrdered(int count) : mIndexArray(), mIndexCount(), mSetArray(), mOrderedSetArray(), mCount(count) {
     mIndexArray = new Index[count];
     mSetArray = new SameIdSet[count];
     mOrderedSetArray = new SameIdSet*[count];
-    MR::zeroMemory(mOrderedSetArray, count * sizeof(SameIdSet*));
 }
 
 void PlacementInfoOrdered::sort() {
-    s32 count = getUsedArrayNum();
+    const s32 count = mSetNum;
     for (s32 i = 0; i < count; i++) {
+        // Player archive loaders first, then every other set: the order of a restart, when all of a stage's files are already loaded.
         SameIdSet* pSet = mOrderedSetArray[i];
-        if (NameObjFactory::isPlayerArchiveLoaderObj(pSet->mName)) {
-            pSet->mPriority = 0;
-        } else {
-            const JMapInfoIter& rIter = static_cast< Index* >(pSet->mList.mHead->mValue)->mInfoIter;
-            bool fromStore;
-            if (pSet->mShapeId != -1) {
-                fromStore = MR::isReadResourceFromStoreAtModelChangableObj(pSet->mName, pSet->mShapeId);
-            } else {
-                fromStore = NameObjFactory::isReadResourceFromStore(pSet->mName, rIter);
-            }
-
-            pSet->mPriority = (fromStore != false) + 1;
-        }
+        pSet->mPriority = NameObjFactory::isPlayerArchiveLoaderObj(pSet->mName) ? 0 : 1;
     }
 
     s32 gap = 13;
@@ -62,58 +76,62 @@ void PlacementInfoOrdered::sort() {
             mOrderedSetArray[j + gap] = pSet;
         }
     }
-}
 
-void PlacementInfoOrdered::requestFileLoad() {
-    s32 count = getUsedArrayNum();
     for (s32 i = 0; i < count; i++) {
-        SameIdSet* pSet = getSameIdSet(i);
-        if (::getCreator(*pSet) != nullptr) {
-            if (pSet->mShapeId != -1) {
-                MR::requestMountModelChangableObjArchives(pSet->mName, pSet->mShapeId);
-            } else {
-                for (MR::BothDirList< Index >::iterator iter = pSet->mList.begin(); !iter.isEnd(); iter++) {
-                    NameObjFactory::requestMountObjectArchives(pSet->mName, iter->mInfoIter);
-                }
-            }
-        }
+        NebulaLoadTrace::sorted(mOrderedSetArray[i]->mName, mOrderedSetArray[i]->mPriority, mOrderedSetArray[i]->mList.getNum());
     }
 }
 
 void PlacementInfoOrdered::initPlacement() {
-    NameObj* pObj;
-    SameIdSet* pSet;
-    MR::BothDirPtrLink* link;
-
-    MR::startInitLiveActorSystemInfo();
-
-    s32 count = getUsedArrayNum();
-    for (s32 i = 0; i < count; i++) {
-        pSet = mOrderedSetArray[i];
-        CreationFuncPtr creator = ::getCreator(*pSet);
-        if (creator != nullptr) {
-            const char* pName = MR::getJapaneseObjectName(pSet->mName);
-            for (link = pSet->mList.mHead; link != nullptr; link = link->mNextLink) {
-                const JMapInfoIter& rIter = static_cast< Index* >(link->mValue)->getInfoIter();
-                if (NebulaMods::isMissingFiles(pSet->mName, rIter)) {
-                    continue;
-                }
-                MR::setCurrentPlacementZoneId(MR::getPlacedZoneId(rIter));
-                // Online co-op: the actors it makes as it is placed are its parts.
-                NebulaCoopWorld::beginPlacement();
-                pObj = creator(pName);
-                MR::initLiveActorSystemInfo(rIter);
-                pObj->init(rIter);
-                // Online co-op: the placed things the instance's record follows.
-                NebulaCoopWorld::notePlaced(pSet->mName, pObj, rIter);
-                MR::initLiveActorSystemInfo(rIter);
-                MR::clearCurrentPlacementZoneId();
-            }
-        }
-    }
+    while (!initPlacementStep(UINT64_MAX)) {}
 }
 
-void PlacementInfoOrdered::insert(const Identifier& rIdentifier, const JMapInfoIter& rIter) {
+bool PlacementInfoOrdered::initPlacementStep(uint64_t deadline) {
+    if (!mPlacementStarted) {
+        MR::startInitLiveActorSystemInfo();
+        mPlacementStarted = true;
+    }
+    const s32 count = mSetNum;
+    while (mPlacementSet < count) {
+        SameIdSet* set = mOrderedSetArray[mPlacementSet];
+        const CreationFuncPtr creator = ::getCreator(*set);
+        if (mPlacementLink == nullptr) mPlacementLink = set->mList.getFirst();
+        if (creator == nullptr || mPlacementLink == nullptr) {
+            ++mPlacementSet;
+            mPlacementLink = nullptr;
+            continue;
+        }
+        const TableIter& iter = mPlacementLink->getObject()->getInfoIter();
+        if (!NebulaMods::isMissingFiles(set->mName)) {
+            NebulaLoadTrace::Scope trace(set->mName);
+            MR::setCurrentPlacementZoneId(MR::getPlacedZoneId(iter));
+            if (mInitializing == nullptr) {
+                NebulaLoadTrace::placed(set->mName, MR::getPlacedZoneId(iter));
+                // Online co-op: the actors it makes as it is placed are its parts.
+                NebulaCoopWorld::beginPlacement();
+                mInitializing = creator(MR::getJapaneseObjectName(set->mName));
+            }
+            MR::initLiveActorSystemInfo(iter);
+            const bool ready = mInitializing->initStep(iter, deadline);
+            MR::initLiveActorSystemInfo(iter);
+            MR::clearCurrentPlacementZoneId();
+            if (!ready) return false;
+            // Online co-op: the placed things the instance's record follows.
+            NebulaCoopWorld::notePlaced(set->mName, mInitializing, iter);
+            mInitializing = nullptr;
+        }
+        mPlacementLink = mPlacementLink->getNext();
+        if (mPlacementLink == nullptr) ++mPlacementSet;
+        if (nebula_host()->clock_ns(nebula_host()->user) >= deadline) {
+            if (mPlacementSet >= count) NebulaLoadTrace::placementDone();
+            return mPlacementSet >= count;
+        }
+    }
+    NebulaLoadTrace::placementDone();
+    return true;
+}
+
+void PlacementInfoOrdered::insert(const Identifier& rIdentifier, const TableIter& rIter) {
     SameIdSet* pSet = find(rIdentifier);
     if (pSet == nullptr) {
         pSet = createSameIdSet(rIdentifier);
@@ -122,22 +140,10 @@ void PlacementInfoOrdered::insert(const Identifier& rIdentifier, const JMapInfoI
     pSet->mList.append(createIndex(rIter));
 }
 
-s32 PlacementInfoOrdered::getUsedArrayNum() const {
-    s32 count = 0;
-    s32 i = 0;
-    while (i < mCount && mOrderedSetArray[i] != nullptr) {
-        i++;
-        count++;
-    }
-
-    return count;
-}
-
 PlacementInfoOrdered::SameIdSet* PlacementInfoOrdered::find(const Identifier& rIdentifier) const {
-    s32 count = getUsedArrayNum();
-    for (s32 i = 0; i < count; i++) {
+    for (s32 i = 0; i < mSetNum; i++) {
         SameIdSet* pSet = mOrderedSetArray[i];
-        if (pSet != nullptr && *pSet == rIdentifier) {
+        if (*pSet == rIdentifier) {
             return pSet;
         }
     }
@@ -146,42 +152,32 @@ PlacementInfoOrdered::SameIdSet* PlacementInfoOrdered::find(const Identifier& rI
 }
 
 PlacementInfoOrdered::SameIdSet* PlacementInfoOrdered::createSameIdSet(const Identifier& rIdentifier) {
-    s32 index = getUsedArrayNum();
-    SameIdSet* pSet = &mSetArray[index];
-    mOrderedSetArray[index] = pSet;
+    SameIdSet* pSet = &mSetArray[mSetNum];
+    mOrderedSetArray[mSetNum] = pSet;
+    mSetNum++;
     *static_cast< Identifier* >(pSet) = rIdentifier;
     return pSet;
 }
 
-PlacementInfoOrdered::Index* PlacementInfoOrdered::createIndex(const JMapInfoIter& rIter) {
+PlacementInfoOrdered::Index* PlacementInfoOrdered::createIndex(const TableIter& rIter) {
     Index* pIndex = &mIndexArray[mIndexCount];
     mIndexCount++;
     pIndex->mInfoIter = rIter;
     return pIndex;
 }
 
-PlacementInfoOrdered::Index::Index() : MR::BothDirLink< Index >(this), mInfoIter() {
-}
-
-PlacementInfoOrdered::Index::~Index() {
+PlacementInfoOrdered::Index::Index() : mInfoIter() {
 }
 
 PlacementInfoOrdered::SameIdSet::SameIdSet() : Identifier(), mList() {
 }
 
-PlacementInfoOrdered::SameIdSet::~SameIdSet() {
-}
-
-void PlacementInfoOrdered::attach(const JMapInfo* pInfo, PlacementInfoOrdered* pAfterScenario) {
+void PlacementInfoOrdered::attach(const Table* pInfo, PlacementInfoOrdered* pAfterScenario) {
     s32 count = pInfo->getNumEntries();
     for (s32 i = 0; i < count; i++) {
-        JMapInfoIter iter(pInfo, i);
-        const char* pName = "";
-        MR::getObjectName(&pName, iter);
-        s32 shapeId = -1;
-        MR::getJMapInfoShapeIdWithInit(iter, &shapeId);
-        Identifier identifier(pName, shapeId);
-        if (pAfterScenario != nullptr && shapeId == -1 && PlanetMapCreatorFunction::isLoadArchiveAfterScenarioSelected(pName)) {
+        TableIter iter(pInfo, i);
+        const Identifier identifier = ::readIdentifier(iter);
+        if (pAfterScenario != nullptr && ::isAfterScenario(identifier)) {
             pAfterScenario->insert(identifier, iter);
         } else {
             insert(identifier, iter);

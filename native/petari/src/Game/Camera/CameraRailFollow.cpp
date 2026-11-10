@@ -1,5 +1,5 @@
 #include "Game/Camera/CameraRailFollow.hpp"
-#include "Game/Camera/CamTranslatorRailFollow.hpp"
+#include "Game/Camera/CameraParamChunk.hpp"
 #include "Game/Camera/CameraDirector.hpp"
 #include "Game/Camera/CameraLocalUtil.hpp"
 #include "Game/Camera/CameraRailHolder.hpp"
@@ -8,7 +8,7 @@
 #include "Game/Util/MathUtil.hpp"
 
 CameraRailFollow::CameraRailFollow(const char* pName)
-    : Camera(pName), mRailRider(), mRailCoord(), mRailSpeed(), mTargetMargin(), mRailSpeedMax(30.0f), mRailAccel(0.35f) {
+    : Camera(pName), mRailRider(), mRailCoord(), mRailSpeed(), mTargetMargin(), mRailSpeedMax(30.0f), mRailAccel(0.35f), mMarginScale() {
 }
 
 void CameraRailFollow::reset() {
@@ -91,13 +91,12 @@ CameraTargetObj* CameraRailFollow::calc() {
     mRailRider->setCoord(mRailCoord);
     CameraLocalUtil::setPos(this, mRailRider->mCurPos);
 
-    TVec3f watchPoint;
+    Vec3f watchPoint;
     CameraLocalUtil::makeWatchPoint(&watchPoint, this, CameraLocalUtil::getTarget(this), 0.1f / 15.0f);
     CameraLocalUtil::setWatchPos(this, watchPoint);
 
-    TPos3f mtx = mZoneMatrix;
-    TVec3f up(0.0f, 1.0f, 0.0f);
-    mtx.mult33(up);
+    Vec3f up(0.0f, 1.0f, 0.0f);
+    mZoneMatrix.mult33(up);
     CameraLocalUtil::setUpVecAndWatchUpVec(this, up);
 
     return CameraLocalUtil::getTarget(this);
@@ -111,6 +110,6 @@ void CameraRailFollow::setParam(s32 zoneID, s32 railID, f32 stopMargin, f32 rail
     mMarginScale = marginScale;
 }
 
-CamTranslatorBase* CameraRailFollow::createTranslator() {
-    return new CamTranslatorRailFollow(this);
+void CameraRailFollow::setParamFromChunk(const CameraParamChunk* pChunk) {
+    setParam(pChunk->getZoneID(), pChunk->mGeneralParam->mNum1, pChunk->mGeneralParam->mDist, pChunk->mGeneralParam->mWPoint.x, pChunk->mGeneralParam->mWPoint.y, pChunk->mGeneralParam->mNum2);
 }

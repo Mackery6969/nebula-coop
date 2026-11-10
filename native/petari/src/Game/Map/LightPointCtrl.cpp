@@ -1,11 +1,13 @@
 #include "Game/Map/LightPointCtrl.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Map/LightFunction.hpp"
 #include "Game/Util/ActorMovementUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const s32 sDefaultBlendTime = 30;
-    static const f32 sDefaultDistRef = 15.0f;
+    const s32 sDefaultBlendTime = NebulaFrameClock::stepsOfMilliseconds(500);
+    NEBULA_TUNABLE(f32, sDefaultDistRef, 15.0f);
 };  // namespace
 
 LightPointCtrl::LightPointCtrl()
@@ -39,14 +41,14 @@ void LightPointCtrl::update() {
     }
 }
 
-void LightPointCtrl::requestPointLight(const LiveActor* pActor, TVec3f pos, Color8 color, f32 intensity, s32 duration) {
+void LightPointCtrl::requestPointLight(const LiveActor* pActor, Vec3f pos, Color8 color, f32 intensity, s32 duration) {
     if (mStep == -1 && isUpdateCandidateActor(pActor)) {
         mCandidateActor = pActor;
         mTargetInfo->mPos = pos;
         mTargetInfo->mColor = color.mRGBA;
         mTargetInfo->mRefBrightness = MR::clamp(intensity, 0.95f, 0.999999f);
         mTargetInfo->mRefDistance = ::sDefaultDistRef;
-        mTargetInfo->mDistAttnFn = J3D_FALLOFF_STEEP;
+        mTargetInfo->mDistAttnFn = LIGHT_FALLOFF_STEEP;
         mBlendTime = duration >= 0 ? duration : ::sDefaultBlendTime;
     }
 }
@@ -66,7 +68,8 @@ void LightPointCtrl::updatePointLight() {
         return;
     }
 
-    f32 t = MR::getEaseInOutValue(static_cast< f32 >(mStep) / mBlendTime, 0.0f, 1.0f, 1.0f);
+    // A blend of no time is at its target at once (0 / 0 would load a NaN light for a frame).
+    f32 t = mBlendTime > 0 ? MR::getEaseInOutValue(static_cast< f32 >(mStep) / mBlendTime, 0.0f, 1.0f, 1.0f) : 1.0f;
     blendPointLight(mCurrentInfo, *mPreviousInfo, *mTargetInfo, t);
 
     if (mStep < mBlendTime) {
@@ -92,7 +95,7 @@ void LightPointCtrl::clearPointLight(PointLightInfo* pInfo) {
 
     pInfo->mRefBrightness = 0.001f;
     pInfo->mRefDistance = ::sDefaultDistRef;
-    pInfo->mDistAttnFn = J3D_FALLOFF_STEEP;
+    pInfo->mDistAttnFn = LIGHT_FALLOFF_STEEP;
     mBlendTime = ::sDefaultBlendTime;
 }
 

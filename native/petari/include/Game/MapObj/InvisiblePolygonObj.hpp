@@ -1,20 +1,19 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class InvisiblePolygonObj : public LiveActor {
 public:
     InvisiblePolygonObj(const char*);
 
-    virtual ~InvisiblePolygonObj();
-    virtual void init(const JMapInfoIter&);
-    virtual MtxPtr getBaseMtx() const {
-        return (MtxPtr)&mBaseMtx;
+    virtual void init(const TableIter&) override;
+    virtual MtxPtr getBaseMtx() const override {
+        return const_cast< MtxPtr >(mBaseMtx.mMtx);
     }
 
     void initBaseMtx();
-    void initCollision(const JMapInfoIter&);
+    void initCollision(const TableIter&);
 
-    TMtx34f mBaseMtx;
+    Mtx34f mBaseMtx;
 };

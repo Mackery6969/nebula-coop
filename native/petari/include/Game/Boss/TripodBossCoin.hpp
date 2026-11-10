@@ -1,19 +1,17 @@
 #pragma once
 
 #include "Game/NameObj/NameObj.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class Coin;
 class Spine;
 
 class TripodBossCoin : public NameObj {
 public:
-    /// @brief Creates a new `TripodBossCoin`.
-    /// @param pName A pointer to the null-terminated name of the object.
     TripodBossCoin(const char* pName);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void movement();
+    virtual void init(const TableIter&) override;
+    virtual void movement() override;
 
     void exeNonActive();
     void exeActive();
@@ -21,6 +19,6 @@ public:
 
     Coin* mCoin;
     Spine* mSpine;
-    TPos3f _14;
+    Pos3f mPlacementMtx;
     s32 mJointID;
 };

@@ -3,43 +3,45 @@
 #include "Game/Camera/CameraTargetObj.hpp"
 #include "Game/Player/MarioActor.hpp"  // DO NOT REMOVE
 #include "Game/Util/MathUtil.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 
-CamHeliEffector::CamHeliEffector() : _0(), _4() {
+CamHeliEffector::CamHeliEffector() : mStep(), mRate() {
 }
 
 void CamHeliEffector::update(CameraMan* pCamera) {
-    if (!CameraLocalUtil::getTarget(pCamera)->isCameraStateOn(1)) {
-        _0 = 0;
-        if (_4 == 0.0f) {
+    if (!CameraLocalUtil::getTarget(pCamera)->isCameraStateOn(CameraStatus_HeliJump)) {
+        mStep = 0;
+        if (mRate == 0.0f) {
             return;
         }
 
-        f32 val = _4;
-        val *= 0.98f;
-        _4 = val;
-        if (val < 0.001f) {
-            _4 = 0.0f;
+        f32 rate = mRate;
+        rate *= 0.98f;
+        mRate = rate;
+        if (rate < 0.001f) {
+            mRate = 0.0f;
         }
     } else {
-        f32 val = _0 / 60.0f;
-        if (val > 1.0f) {
-            val = 1.0f;
+        // Toward 1 by (step / 60)^4, capped at 1 after a second.
+        f32 approach = NebulaFrameClock::secondsOfSteps(mStep);
+        if (approach > 1.0f) {
+            approach = 1.0f;
         }
 
-        val *= val;
-        val *= val;
-        _4 += (1.0f - _4) * val;
-        _0++;
+        approach *= approach;
+        approach *= approach;
+        mRate += (1.0f - mRate) * approach;
+        mStep++;
     }
 
-    TVec3f up = CameraLocalUtil::getTarget(pCamera)->getUpVec();
-    TVec3f diff = CameraLocalUtil::getPos(pCamera) - CameraLocalUtil::getWatchPos(pCamera);
+    Vec3f up = CameraLocalUtil::getTarget(pCamera)->getUpVec();
+    Vec3f diff = CameraLocalUtil::getPos(pCamera) - CameraLocalUtil::getWatchPos(pCamera);
 
     if (MR::isNearZero(diff)) {
         return;
     }
 
-    TVec3f direction = diff;
+    Vec3f direction = diff;
     MR::normalize(&direction);
 
     f32 angle = direction.angle(up);
@@ -47,14 +49,14 @@ void CamHeliEffector::update(CameraMan* pCamera) {
         return;
     }
 
-    TQuat4f quat;
+    Quat4f quat;
     const f32 rate = (angle - MR::pi() / 6.0f) / angle;
-    quat.setRotate(direction, up, rate * _4);
+    quat.setRotate(direction, up, rate * mRate);
     quat.transform(diff);
 
     CameraLocalUtil::setPos(pCamera, diff + CameraLocalUtil::getWatchPos(pCamera));
 
-    TVec3f newUp(CameraLocalUtil::getUpVec(pCamera));
+    Vec3f newUp(CameraLocalUtil::getUpVec(pCamera));
     quat.transform(newUp);
     CameraLocalUtil::setUpVec(pCamera, newUp);
 }

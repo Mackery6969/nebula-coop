@@ -1,4 +1,6 @@
 #include "Game/Boss/OtaKing.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
+#include "Game/System/NebulaArena.hpp"
 #include "Game/AudioLib/AudAnmSoundObject.hpp"
 #include "Game/Boss/OtaKingLongFoot.hpp"
 #include "Game/Boss/OtaKingMagma.hpp"
@@ -10,10 +12,24 @@
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/LiveActor/PartsModel.hpp"
 #include "Game/MapObj/CocoNut.hpp"
-#include "Game/NameObj/NameObjArchiveListCollector.hpp"
+#include "Game/Scene/SceneFunction.hpp"
 #include "Game/Util.hpp"
+#include "Game/Util/Tunable.hpp"
 
-#include <cstdio>
+// The step counts of this file's functions, as tunables: "<file>.<function>.<k>".
+NEBULA_TUNABLE_NAMED(s32, cStep_exeAppearDemo_1, "exeAppearDemo.1", 1);
+NEBULA_TUNABLE_NAMED(s32, cStep_exeDamage_1, "exeDamage.1", 2);
+NEBULA_TUNABLE_NAMED(s32, cStep_exeDamage_2, "exeDamage.2", 3);
+NEBULA_TUNABLE_NAMED(s32, cStep_exePowerUp_1, "exePowerUp.1", 2);
+NEBULA_TUNABLE_NAMED(s32, cStep_exePowerUp_2, "exePowerUp.2", 3);
+NEBULA_TUNABLE_NAMED(s32, cStep_exePowerUp_3, "exePowerUp.3", 83);
+NEBULA_TUNABLE_NAMED(s32, cStep_exePowerUp_4, "exePowerUp.4", 195);
+NEBULA_TUNABLE_NAMED(s32, cStep_exePowerUp_5, "exePowerUp.5", 215);
+NEBULA_TUNABLE_NAMED(s32, cStep_exePowerUp_6, "exePowerUp.6", 215);
+NEBULA_TUNABLE_NAMED(s32, cStep_exeDown_1, "exeDown.1", 2);
+NEBULA_TUNABLE_NAMED(s32, cStep_exeDown_2, "exeDown.2", 3);
+NEBULA_TUNABLE_NAMED(s32, cStep_exeDownDemo_1, "exeDownDemo.1", 1);
+
 
 namespace NrvOtaKing {
     NEW_NERVE(OtaKingNrvWaitOnSwitch, OtaKing, WaitOnSwitch);
@@ -37,7 +53,7 @@ namespace NrvOtaKing {
 };  // namespace NrvOtaKing
 
 namespace {
-    inline void makeTranslationMatrix(TPos3f* pMtx, const TVec3f& rTrans) {
+    inline void makeTranslationMatrix(Pos3f* pMtx, const Vec3f& rTrans) {
         pMtx->mMtx[0][0] = 1.0f;
         pMtx->mMtx[1][0] = 0.0f;
         pMtx->mMtx[2][0] = 0.0f;
@@ -55,87 +71,89 @@ namespace {
         pMtx->mMtx[2][3] = rTrans.z;
     }
 
-    const s32 cHP = 3;
-    const f32 cThrowDistance = 4000.0f;
-    const s32 cWaitFrame = 75;
-    const f32 cValidThrowCocoNutDistance = 500.0f;
-    const s32 cThrowCocoNutStep = 70;
-    const f32 cThrowAngleMin = 2.5f;
-    const f32 cThrowAngleMax = 5.0f;
-    const s32 cThrowCocoNutWaitFrame = 45;
-    const s32 cThrowFireBallStep = 94;
-    const f32 cFireBallThrowNum = 3;
-    const f32 cFireBallThrowSpeed = 15.0f;
-    const f32 cFireBallThrowAngle = 30.0f;
-    const s32 cThrowFireBallWaitFrame = 60;
-    const s32 cBubbleAppearStep = 100;
-    const s32 cBubbleAppearNum = 6;
-    const f32 cBubbleAppearRandomAngle = 30.0f;
-    const s32 cAppearDemoRippleStepS = 40;
-    const s32 cAppearDemoRippleStepL = 190;
-    const s32 cCocoNutRippleStep = 30;
-    const s32 cFireBallRippleStep = 30;
-    const s32 cDownRippleStep = 90;
-    const s32 cNearAttackRippleStep = 20;
-    const s32 cBubbleAttackRippleStep = 85;
-    const s32 cDownSinkStartStep = 80;
-    const f32 cBodySensorRadius = 400.0f;
-    const f32 cEyeSensorRadius = 1500.0f;
-    const f32 cTurnSpeedMax = 1.0f;
-    const f32 cTurnSpeedAccel = 0.003f;
-    const f32 cPowerStarAppearOffsetY = 100.0f;
-    const f32 cStarPieceAppearOffsetY = 300.0f;
-    const s32 cStarPieceAppearNum = 8;
-    const f32 cStarPieceAppearRange = 60.0f;
-    const f32 cStarPieceAppearVelocity = 50.0f;
-    const s32 cDamageCrownFallFrame = 73;
+    NEBULA_TUNABLE(s32, cHP, 3);
+    const s32 cCocoNutBallNum = 3;
+    const s32 cFireBallNum = 6;
+    const s32 cFireBubbleNum = 6;
+    NEBULA_TUNABLE(f32, cThrowDistance, 4000.0f);
+    NEBULA_TUNABLE(s32, cWaitFrame, 75);
+    NEBULA_TUNABLE(f32, cValidThrowCocoNutDistance, 500.0f);
+    NEBULA_TUNABLE(s32, cThrowCocoNutStep, 70);
+    NEBULA_TUNABLE(f32, cThrowAngleMin, 2.5f);
+    NEBULA_TUNABLE(f32, cThrowAngleMax, 5.0f);
+    NEBULA_TUNABLE(s32, cThrowCocoNutWaitFrame, 45);
+    NEBULA_TUNABLE(s32, cThrowFireBallStep, 94);
+    NEBULA_TUNABLE(f32, cFireBallThrowNum, 3);
+    NEBULA_TUNABLE(f32, cFireBallThrowSpeed, 15.0f);
+    NEBULA_TUNABLE(f32, cFireBallThrowAngle, 30.0f);
+    const s32 cThrowFireBallWaitFrame = NebulaFrameClock::stepsOfSeconds(1);
+    NEBULA_TUNABLE(s32, cBubbleAppearStep, 100);
+    NEBULA_TUNABLE(s32, cBubbleAppearNum, 6);
+    NEBULA_TUNABLE(f32, cBubbleAppearRandomAngle, 30.0f);
+    NEBULA_TUNABLE(s32, cAppearDemoRippleStepS, 40);
+    NEBULA_TUNABLE(s32, cAppearDemoRippleStepL, 190);
+    const s32 cCocoNutRippleStep = NebulaFrameClock::stepsOfMilliseconds(500);
+    const s32 cFireBallRippleStep = NebulaFrameClock::stepsOfMilliseconds(500);
+    const s32 cDownRippleStep = NebulaFrameClock::stepsOfMilliseconds(1500);
+    NEBULA_TUNABLE(s32, cNearAttackRippleStep, 20);
+    NEBULA_TUNABLE(s32, cBubbleAttackRippleStep, 85);
+    NEBULA_TUNABLE(s32, cDownSinkStartStep, 80);
+    NEBULA_TUNABLE(f32, cBodySensorRadius, 400.0f);
+    NEBULA_TUNABLE(f32, cEyeSensorRadius, 1500.0f);
+    NEBULA_TUNABLE(f32, cTurnSpeedMax, 1.0f);
+    NEBULA_TUNABLE(f32, cTurnSpeedAccel, 0.003f);
+    NEBULA_TUNABLE(f32, cPowerStarAppearOffsetY, 100.0f);
+    NEBULA_TUNABLE(f32, cStarPieceAppearOffsetY, 300.0f);
+    NEBULA_TUNABLE(s32, cStarPieceAppearNum, 8);
+    NEBULA_TUNABLE(f32, cStarPieceAppearRange, 60.0f);
+    NEBULA_TUNABLE(f32, cStarPieceAppearVelocity, 50.0f);
+    NEBULA_TUNABLE(s32, cDamageCrownFallFrame, 73);
     // const s32 cDamageAngryRumbleFrame;
-    const f32 cDamageFrontFootClipingHeight = -600.0f;
-    const s32 cDownDemoFrame = 300;
-    const f32 cDownDemoCocoNutScale = 1.5f;
-    const s32 cDownDemoRumbleFrame1 = 105;
-    const s32 cDownDemoRumbleFrame2 = 150;
-    const s32 cPowerStarExistBgmStartStep = 200;
-    const s32 cAppearSeStep0 = 10;
-    const s32 cAppearSeStep1 = 205;
-    const s32 cAppearSeStep2 = 230;
-    const s32 cAppearSeStep3 = 100;
-    const s32 cAppearDemoRumblePad01 = 50;
-    const s32 cAppearDemoRumblePad02 = 130;
-    const s32 cAppearDemoRumblePad03 = 160;
-    const s32 cAppearDemoRumblePad04 = 200;
-    const s32 cAppearDemoRumblePad05 = 250;
-    const s32 cAppearDemoRumblePad06 = 310;
-    const s32 cBlurStartStep = 175;
-    const s32 cBlurTotalFrame = 70;
+    NEBULA_TUNABLE(f32, cDamageFrontFootClipingHeight, -600.0f);
+    NEBULA_TUNABLE(s32, cDownDemoFrame, 300);
+    NEBULA_TUNABLE(f32, cDownDemoCocoNutScale, 1.5f);
+    NEBULA_TUNABLE(s32, cDownDemoRumbleFrame1, 105);
+    NEBULA_TUNABLE(s32, cDownDemoRumbleFrame2, 150);
+    NEBULA_TUNABLE(s32, cPowerStarExistBgmStartStep, 200);
+    NEBULA_TUNABLE(s32, cAppearSeStep0, 10);
+    NEBULA_TUNABLE(s32, cAppearSeStep1, 205);
+    NEBULA_TUNABLE(s32, cAppearSeStep2, 230);
+    NEBULA_TUNABLE(s32, cAppearSeStep3, 100);
+    NEBULA_TUNABLE(s32, cAppearDemoRumblePad01, 50);
+    NEBULA_TUNABLE(s32, cAppearDemoRumblePad02, 130);
+    NEBULA_TUNABLE(s32, cAppearDemoRumblePad03, 160);
+    NEBULA_TUNABLE(s32, cAppearDemoRumblePad04, 200);
+    NEBULA_TUNABLE(s32, cAppearDemoRumblePad05, 250);
+    NEBULA_TUNABLE(s32, cAppearDemoRumblePad06, 310);
+    NEBULA_TUNABLE(s32, cBlurStartStep, 175);
+    NEBULA_TUNABLE(s32, cBlurTotalFrame, 70);
     const Vec cLongFootScale = {1.0f, 0.9f, 0.8f};
     const Vec cBubbleAppearVelocity = {0.0f, 37.5f, 15.0f};
     const Vec cSensorOffset = {0.0f, 150.0f, 0.0f};
-    const u32 cLongFootDemoBckStep[] = {3, 8, 14, 18};
+    NEBULA_TUNABLE_LIST(u32, cLongFootDemoBckStep, , {3, 8, 14, 18});
     const Vec cAppearDemoRotate = {0.0f, 30.0f, 0.0f};
     const Vec cDownDemoRotate = {0.0f, 43.0f, 0.0f};
     const Vec cDownDemoCocoNutPos = {0.0f, 630.0f, 250.0f};
 };  // namespace
 
 OtaKing::OtaKing(const char* pName)
-    : LiveActor(pName), mMagma(), mCocoNutBallArray(), mFireBallArray(), mFireBubbleArray(), mThrowPos(), mHits(), _EC(), mTurnSpeed(), mSoundObj(),
+    : LiveActor(pName), mMagma(), mCocoNutBallArray(), mFireBallArray(), mFireBubbleArray(), mThrowPos(), mHits(), mThrowNum(), mTurnSpeed(), mSoundObj(),
       mSoundObjPos(gZeroVec), mBubbleAppearPos(), mDownCocoNut(), mAnimCamera(), mIsLv2(), mScaleController() {
     MR::zeroMemory(mFeet, sizeof(mFeet));
     MR::zeroMemory(mLongFeet, sizeof(mLongFeet));
     mLongFootMtx.identity();
-    MR::zeroMemory(mBckLBuffer, sizeof(mBckLBuffer) + sizeof(mBckRBuffer));
 }
 
-void OtaKing::init(const JMapInfoIter& rIter) {
+void OtaKing::init(const TableIter& rIter) {
     initMapToolInfo(rIter);
     initModel(rIter);
     MR::connectToSceneEnemy(this);
     MR::initLightCtrl(this);
     initSensor();
-    initEffectKeeper(0, "OtaKing", false);
+    initEffectKeeper(0, "OtaKing");
     MR::setClippingTypeSphere(this, 3000.0f);
     initSound(8, false);
-    mSoundObj = new AudAnmSoundObject(&mSoundObjPos, 4, MR::getCurrentHeap());
+    mSoundObj = new AudAnmSoundObject(&mSoundObjPos, 4, NebulaArena::current());
     mAnimCamera = MR::createActorCameraInfo(rIter);
     MR::initAnimCamera(this, mAnimCamera, "Appear");
     MR::initAnimCamera(this, mAnimCamera, "Down");
@@ -175,28 +193,7 @@ void OtaKing::makeActorAppeared() {
 
 void OtaKing::startAppearDemo() {
     if (isNerve(GET_NERVE(OtaKing, OtaKingNrvWaitOnSwitch))) {
-        invalidateClippingAndStartDemo("\217\157\214\273" /* 出現 */, GET_NERVE(OtaKing, OtaKingNrvAppearDemo), GET_NERVE(OtaKing, OtaKingNrvWaitStartDemo));
-    }
-}
-
-void OtaKing::makeArchiveList(NameObjArchiveListCollector* pCollector, const JMapInfoIter& rIter) {
-    bool arg1 = false;
-    MR::getJMapInfoArg1NoInit(rIter, &arg1);
-    bool isLv2 = arg1;
-
-    pCollector->addArchive(CocoNut::getModelName());
-    pCollector->addArchive("FireBall");
-    pCollector->addArchive("FireBubble");
-    pCollector->addArchive("OtaKingMagma");
-    pCollector->addArchive("OtaKingMagmaBloom");
-
-    if (!isLv2) {
-        pCollector->addArchive("OtaKing");
-        pCollector->addArchive("OtaKingFoot");
-        pCollector->addArchive("OtaKingLongFoot");
-    } else {
-        pCollector->addArchive("OtaKingLv2");
-        pCollector->addArchive("OtaKingFootLv2");
+        invalidateClippingAndStartDemo("出現", GET_NERVE(OtaKing, OtaKingNrvAppearDemo), GET_NERVE(OtaKing, OtaKingNrvWaitStartDemo));
     }
 }
 
@@ -214,7 +211,7 @@ void OtaKing::control() {
 
 void OtaKing::calcAndSetBaseMtx() {
     LiveActor::calcAndSetBaseMtx();
-    TVec3f scale = mScaleController->_C * mScale;
+    Vec3f scale = mScaleController->mScale * mScale;
     MR::setBaseScale(this, scale);
 }
 
@@ -233,7 +230,7 @@ void OtaKing::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     }
 }
 
-bool OtaKing::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool OtaKing::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* pReceiver) {
     if (isSensorBodyOrFace(pReceiver) && MR::isMsgStarPieceReflect(msg)) {
         mScaleController->startHitReaction();
         return true;
@@ -242,25 +239,26 @@ bool OtaKing::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pRe
     return false;
 }
 
-bool OtaKing::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool OtaKing::receiveMsgEnemyAttack(u32 /*msg*/, HitSensor* pSender, HitSensor* pReceiver) {
     if (!pSender->isType(ATYPE_COCO_NUT)) {
         return false;
     }
 
     CocoNutBall* rallyBall = static_cast< CocoNutBall* >(pSender->mHost);
 
-    s32 a1 = mHits;
+    // The rally must outlast the hits taken (at least one on Lv2) before a ball hurts.
+    s32 rallyToDamage = mHits;
 
     if (mIsLv2) {
-        a1 = MR::max(a1, 1);
+        rallyToDamage = MR::max(rallyToDamage, 1);
     }
 
-    bool b1 = rallyBall->_9C <= a1;
+    bool isHitBack = rallyBall->mRallyNum <= rallyToDamage;
 
     bool isReceiverBody = pReceiver == getSensor("body");
 
     if (isReceiverBody) {
-        if (b1) {
+        if (isHitBack) {
             if (!isNerve(GET_NERVE(OtaKing, OtaKingNrvHitBack))) {
                 setNerve(GET_NERVE(OtaKing, OtaKingNrvHitBack));
             }
@@ -275,7 +273,7 @@ bool OtaKing::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pRec
             return true;
         }
     } else {
-        if (b1 && !isNerve(GET_NERVE(OtaKing, OtaKingNrvHitBackStart))) {
+        if (isHitBack && !isNerve(GET_NERVE(OtaKing, OtaKingNrvHitBackStart))) {
             setNerve(GET_NERVE(OtaKing, OtaKingNrvHitBackStart));
         }
     }
@@ -283,7 +281,7 @@ bool OtaKing::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pRec
     return false;
 }
 
-bool OtaKing::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool OtaKing::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* /*pReceiver*/) {
     switch (msg)
     case ACTMES_RUSH_END:
         if (pSender->isType(ATYPE_COCO_NUT)) {
@@ -299,7 +297,7 @@ bool OtaKing::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver)
 
                     return true;
                 } else if (isNerve(GET_NERVE(OtaKing, OtaKingNrvThrowCocoNut)) || isNerve(GET_NERVE(OtaKing, OtaKingNrvHitBack))) {
-                    _EC = 2;
+                    mThrowNum = 2;
                     return true;
                 }
             }
@@ -308,64 +306,64 @@ bool OtaKing::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver)
     return false;
 }
 
-void OtaKing::initMapToolInfo(const JMapInfoIter& rIter) {
+void OtaKing::initMapToolInfo(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     MR::useStageSwitchWriteA(this, rIter);
     MR::useStageSwitchWriteB(this, rIter);
     MR::useStageSwitchWriteDead(this, rIter);
 
-    bool arg1 = false;
-    MR::getJMapInfoArg1NoInit(rIter, &arg1);
-    mIsLv2 = arg1;
+    bool isLv2 = false;
+    MR::getPlacementArg1NoInit(rIter, &isLv2);
+    mIsLv2 = isLv2;
 }
 
-void OtaKing::initModel(const JMapInfoIter& rIter) {
+void OtaKing::initModel(const TableIter& rIter) {
     initModelManagerWithAnm(mIsLv2 ? "OtaKingLv2" : "OtaKing", nullptr, false);
 
     for (int i = 0; i < ARRAY_SIZE(mFeet); i++) {
-        mFeet[i] = new PartsModel(this, "\221\117\221\253\203\202\203\146\203\213" /* 前足モデル */, mIsLv2 ? "OtaKingFootLv2" : "OtaKingFoot", nullptr, 18, false);
+        mFeet[i] = new PartsModel(this, "前足モデル", mIsLv2 ? "OtaKingFootLv2" : "OtaKingFoot", nullptr, MR::DrawBufferType_Enemy, false);
         mFeet[i]->mPosition.set(mPosition);
         mFeet[i]->initWithoutIter();
         MR::initLightCtrl(mFeet[i]);
     }
 
-    mFeet[0]->initFixedPosition(TVec3f(0.0f, 0.0f, 0.0f), TVec3f(0.0f, 0.0f, 0.0f), nullptr);
-    mFeet[1]->initFixedPosition(TVec3f(0.0f, 0.0f, 0.0f), TVec3f(0.0f, 0.0f, 0.0f), nullptr);
+    mFeet[0]->initFixedPosition(Vec3f(0.0f, 0.0f, 0.0f), Vec3f(0.0f, 0.0f, 0.0f), nullptr);
+    mFeet[1]->initFixedPosition(Vec3f(0.0f, 0.0f, 0.0f), Vec3f(0.0f, 0.0f, 0.0f), nullptr);
 
     initLongFoot(rIter);
 
-    mCocoNutBallArray = new CocoNutBall[3];
-    for (int i = 0; i < 3; i++) {
+    mCocoNutBallArray = new CocoNutBall[::cCocoNutBallNum];
+    for (int i = 0; i < ::cCocoNutBallNum; i++) {
         mCocoNutBallArray[i].initWithoutIter();
-        mCocoNutBallArray[i]._8C = this;
-        mCocoNutBallArray[i]._BE = true;
-        mCocoNutBallArray[i]._D8 = true;
-        mCocoNutBallArray[i]._D4 = 5000.0f;
+        mCocoNutBallArray[i].mHost = this;
+        mCocoNutBallArray[i].mIsHeightLimited = true;
+        mCocoNutBallArray[i].mIsRallyBgm = true;
+        mCocoNutBallArray[i].mKillDistance = 5000.0f;
 
         float arg;
-        if (MR::getJMapInfoArg0NoInit(rIter, &arg)) {
-            mCocoNutBallArray[i]._C0 = arg;
+        if (MR::getPlacementArg0NoInit(rIter, &arg)) {
+            mCocoNutBallArray[i].mHeightMax = arg;
         }
 
-        if (MR::getJMapInfoArg2NoInit(rIter, &arg)) {
-            mCocoNutBallArray[i]._C4 = arg;
+        if (MR::getPlacementArg2NoInit(rIter, &arg)) {
+            mCocoNutBallArray[i].mHeightMin = arg;
         }
     }
 
-    mFireBallArray = new FireBall[6];
+    mFireBallArray = new FireBall[::cFireBallNum];
 
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < ::cFireBallNum; i++) {
         mFireBallArray[i].initWithoutIter();
         mFireBallArray[i].mHost = this;
     }
 
-    mFireBubbleArray = new FireBubble[6];
-    for (int i = 0; i < 6; i++) {
+    mFireBubbleArray = new FireBubble[::cFireBubbleNum];
+    for (int i = 0; i < ::cFireBubbleNum; i++) {
         mFireBubbleArray[i].initWithoutIter();
     }
 
-    mThrowPos = new FixedPosition(this, "Lip", TVec3f(-50.0f, 0.0f, 0.0f), TVec3f(0.0f, 0.0f, 0.0f));
-    mBubbleAppearPos = new FixedPosition(this, TVec3f(0.0f, 10.0f, 500.0f), TVec3f(0.0f, 0.0f, 0.0f));
+    mThrowPos = new FixedPosition(this, "Lip", Vec3f(-50.0f, 0.0f, 0.0f), Vec3f(0.0f, 0.0f, 0.0f));
+    mBubbleAppearPos = new FixedPosition(this, Vec3f(0.0f, 10.0f, 500.0f), Vec3f(0.0f, 0.0f, 0.0f));
 
     mMagma = new OtaKingMagma(this, -1);
     mMagma->initWithoutIter();
@@ -377,12 +375,12 @@ void OtaKing::initModel(const JMapInfoIter& rIter) {
 void OtaKing::initSensor() {
     initHitSensor(3);
     MR::addHitSensorEnemy(this, "body", 16, ::cBodySensorRadius, ::cSensorOffset);
-    MR::addHitSensorAtJointEnemy(this, "face", "Face", 16, ::cBodySensorRadius, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorAtJointEnemy(this, "face", "Face", 16, ::cBodySensorRadius, Vec3f(0.0f, 0.0f, 0.0f));
     MR::addHitSensorEnemy(this, "search", 16, ::cEyeSensorRadius, ::cSensorOffset);
 }
 
 void OtaKing::dirToPlayer() {
-    TVec3f vec;
+    Vec3f vec;
     vec.sub(*MR::getPlayerPos(), mPosition);
 
     f32 angle = MR::repeat(MR::toDegree(MR::atan2(vec.x, vec.z)), mRotation.y - 180.0f, 360.0f);
@@ -411,7 +409,7 @@ void OtaKing::dirToPlayer() {
 }
 
 CocoNutBall* OtaKing::getDisappearedCocoNut() {
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < ::cCocoNutBallNum; i++) {
         if (MR::isDead(&mCocoNutBallArray[i])) {
             return &mCocoNutBallArray[i];
         }
@@ -421,7 +419,7 @@ CocoNutBall* OtaKing::getDisappearedCocoNut() {
 }
 
 FireBall* OtaKing::getDisappearedFireBall() {
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < ::cFireBallNum; i++) {
         if (MR::isDead(&mFireBallArray[i])) {
             return &mFireBallArray[i];
         }
@@ -431,7 +429,7 @@ FireBall* OtaKing::getDisappearedFireBall() {
 }
 
 FireBubble* OtaKing::getDisappearedBubble() {
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < ::cFireBubbleNum; i++) {
         if (MR::isDead(&mFireBubbleArray[i])) {
             return &mFireBubbleArray[i];
         }
@@ -442,7 +440,7 @@ FireBubble* OtaKing::getDisappearedBubble() {
 
 s32 OtaKing::getDisappearedCocoNutNum() const {
     s32 dissappearedNum = 0;
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < ::cCocoNutBallNum; i++) {
         if (MR::isDead(&mCocoNutBallArray[i])) {
             dissappearedNum++;
         }
@@ -453,7 +451,7 @@ s32 OtaKing::getDisappearedCocoNutNum() const {
 
 s32 OtaKing::getDisappearedFireBallNum() const {
     s32 dissappearedNum = 0;
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < ::cFireBallNum; i++) {
         if (MR::isDead(&mFireBallArray[i])) {
             dissappearedNum++;
         }
@@ -464,7 +462,7 @@ s32 OtaKing::getDisappearedFireBallNum() const {
 
 s32 OtaKing::getDisappearedFireBubbleNum() const {
     s32 dissappearedNum = 0;
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < ::cFireBubbleNum; i++) {
         if (MR::isDead(&mFireBubbleArray[i])) {
             dissappearedNum++;
         }
@@ -483,7 +481,7 @@ bool OtaKing::isValidThrowCocoNut() const {
         return false;
     }
 
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < ::cCocoNutBallNum; i++) {
         CocoNutBall* currentCocoNut = &mCocoNutBallArray[i];
         if (!MR::isDead(currentCocoNut) && MR::isNear(this, currentCocoNut, distToPlayer + ::cValidThrowCocoNutDistance)) {
             return false;
@@ -514,7 +512,6 @@ bool OtaKing::isValidBubbleAttack() const {
     }
 }
 
-// fabricated inline used in multiple functions
 bool OtaKing::isDamageNerve() {
     return isNerve(GET_NERVE(OtaKing, OtaKingNrvDamage)) || isNerve(GET_NERVE(OtaKing, OtaKingNrvPowerUp)) ||
            isNerve(GET_NERVE(OtaKing, OtaKingNrvDown));
@@ -555,34 +552,40 @@ void OtaKing::damage() {
 
 void OtaKing::throwCocoNut() {
     CocoNutBall* cocoNut = getDisappearedCocoNut();
+    if (cocoNut == nullptr) {
+        return;
+    }
 
     mThrowPos->calc();
-    TVec3f trans;
+    Vec3f trans;
     mThrowPos->copyTrans(&trans);
 
-    TVec3f vec;
+    Vec3f vec;
     vec.sub(*MR::getPlayerPos(), mPosition);
 
     f32 angle = mRotation.y - MR::repeat(MR::toDegree(MR::atan2(vec.x, vec.z)), mRotation.y - 180.0f, 360.0f);
     f32 random = MR::getRandom(::cThrowAngleMin, ::cThrowAngleMax);
 
-    cocoNut->appearAndThrow(trans, angle + (_EC % 2 == mHits % 2 ? random : -random));
-    _EC++;
+    cocoNut->appearAndThrow(trans, angle + (mThrowNum % 2 == mHits % 2 ? random : -random));
+    mThrowNum++;
 }
 
 void OtaKing::throwFireBall() {
     mThrowPos->calc();
 
-    TVec3f trans;
+    Vec3f trans;
     mThrowPos->copyTrans(&trans);
 
-    TVec3f vec;
+    Vec3f vec;
     vec.sub(*MR::getPlayerPos(), mPosition);
 
     f32 angle = mRotation.y - MR::repeat(MR::toDegree(MR::atan2(vec.x, vec.z)), mRotation.y - 180.0f, 360.0f);
 
     for (int i = 0; i < ::cFireBallThrowNum; i++) {
         FireBall* currentFireBall = getDisappearedFireBall();
+        if (currentFireBall == nullptr) {
+            break;
+        }
 
         f32 throwAngle = angle;
         if (i != 0) {
@@ -610,10 +613,10 @@ void OtaKing::startBckWaitIfNotPlaying() {
 
 void OtaKing::startBckWithFrontFoot(const char* pBckName) {
     MR::startBck(this, pBckName);
-    nebula_snprintf(mBckLBuffer, sizeof(mBckLBuffer), "%sR", pBckName);
-    MR::startBck(mFeet[0], mBckLBuffer);
-    nebula_snprintf(mBckRBuffer, sizeof(mBckRBuffer), "%sL", pBckName);
-    MR::startBck(mFeet[1], mBckRBuffer);
+    mBckLBuffer.format("%sR", pBckName);
+    MR::startBck(mFeet[0], mBckLBuffer.c_str());
+    mBckRBuffer.format("%sL", pBckName);
+    MR::startBck(mFeet[1], mBckRBuffer.c_str());
 }
 
 bool OtaKing::isNerveValidNearAttack() const {
@@ -625,7 +628,7 @@ bool OtaKing::isNerveValidNearAttack() const {
 void OtaKing::appearBubble() {
     mBubbleAppearPos->calc();
 
-    TVec3f trans;
+    Vec3f trans;
 
     mBubbleAppearPos->copyTrans(&trans);
 
@@ -633,20 +636,20 @@ void OtaKing::appearBubble() {
         FireBubble* currentBubble = getDisappearedBubble();
 
         if (currentBubble != nullptr) {
-            TVec3f vec1;
-            vec1.sub(trans, mPosition);
+            Vec3f dir;
+            dir.sub(trans, mPosition);
 
-            if (MR::normalizeOrZero(&vec1)) {
-                vec1.set< f32 >(0.0f, 0.0f, 1.0f);
+            if (MR::normalizeOrZero(&dir)) {
+                dir.set< f32 >(0.0f, 0.0f, 1.0f);
             }
 
-            TPos3f rotate;
+            Pos3f rotate;
 
-            rotate.makeRotate(TVec3f(0.0f, 1.0f, 0.0f),
+            rotate.makeRotate(Vec3f(0.0f, 1.0f, 0.0f),
                               MR::toRadian(((i + 0.5f) * 60.0f) + MR::getRandom(-::cBubbleAppearRandomAngle, ::cBubbleAppearRandomAngle)));
 
-            rotate.mult33(vec1, vec1);
-            currentBubble->appear(trans, vec1, ::cBubbleAppearVelocity);
+            rotate.mult33(dir, dir);
+            currentBubble->appear(trans, dir, ::cBubbleAppearVelocity);
         }
     }
 }
@@ -667,35 +670,35 @@ void OtaKing::startDemo() {
 }
 
 void OtaKing::appearStarPiece() {
-    TVec3f appearPos(mPosition);
+    Vec3f appearPos(mPosition);
     appearPos.y += ::cStarPieceAppearOffsetY;
     MR::appearStarPiece(this, appearPos, mHits * ::cStarPieceAppearNum, ::cStarPieceAppearRange, ::cStarPieceAppearVelocity, false);
     MR::startSoundObject(mSoundObj, "SE_OJ_STAR_PIECE_BURST");
 }
 
-void OtaKing::initLongFoot(const JMapInfoIter& rIter) {
+void OtaKing::initLongFoot(const TableIter& rIter) {
     if (!mIsLv2) {
         for (int i = 0; i < ARRAY_SIZE(mLongFeet); i++) {
-            mLongFeet[i] = new OtaKingLongFoot(this, ::cLongFootDemoBckStep[i], "\217\374\202\350\221\253" /* 飾り足 */);
+            mLongFeet[i] = new OtaKingLongFoot(this, ::cLongFootDemoBckStep[i], "飾り足");
             mLongFeet[i]->init(rIter);
             mLongFeet[i]->mScale.set(::cLongFootScale);
         }
 
         makeTranslationMatrix(&mLongFootMtx, mPosition);
-        mLongFeet[0]->initFixedPosition(mLongFootMtx, TVec3f(735.0f, 80.0f, -55.0f), TVec3f(-9.0f, 266.0f, 0.0f));
-        mLongFeet[1]->initFixedPosition(mLongFootMtx, TVec3f(-959.0f, 130.0f, 0.0f), TVec3f(0.0f, 107.0f, 14.0f));
-        mLongFeet[2]->initFixedPosition(mLongFootMtx, TVec3f(0.0f, 43.0f, 884.0f), TVec3f(-8.0f, 159.0f, 0.0f));
-        mLongFeet[3]->initFixedPosition(mLongFootMtx, TVec3f(55.0f, 55.0f, -896.0f), TVec3f(-9.0f, -14.0f, 0.0f));
+        mLongFeet[0]->initFixedPosition(mLongFootMtx, Vec3f(735.0f, 80.0f, -55.0f), Vec3f(-9.0f, 266.0f, 0.0f));
+        mLongFeet[1]->initFixedPosition(mLongFootMtx, Vec3f(-959.0f, 130.0f, 0.0f), Vec3f(0.0f, 107.0f, 14.0f));
+        mLongFeet[2]->initFixedPosition(mLongFootMtx, Vec3f(0.0f, 43.0f, 884.0f), Vec3f(-8.0f, 159.0f, 0.0f));
+        mLongFeet[3]->initFixedPosition(mLongFootMtx, Vec3f(55.0f, 55.0f, -896.0f), Vec3f(-9.0f, -14.0f, 0.0f));
     }
 }
 
-bool OtaKing::tryThrowCocoNutOrFireBallIfWait(s32 a1) {
-    if (MR::isGreaterStep(this, a1) && isValidThrowCocoNut()) {
+bool OtaKing::tryThrowCocoNutOrFireBallIfWait(s32 waitFrame) {
+    if (MR::isGreaterStep(this, waitFrame) && isValidThrowCocoNut()) {
         setNerve(GET_NERVE(OtaKing, OtaKingNrvThrowCocoNut));
         return true;
     }
 
-    if (MR::isGreaterStep(this, a1 * 2) && isValidThrowFireBall()) {
+    if (MR::isGreaterStep(this, waitFrame * 2) && isValidThrowFireBall()) {
         setNerve(GET_NERVE(OtaKing, OtaKingNrvThrowFireBall));
         return false;
     }
@@ -751,7 +754,7 @@ void OtaKing::exeAppearDemo() {
         }
     }
 
-    if (MR::isStep(this, 1)) {
+    if (MR::isStep(this, cStep_exeAppearDemo_1)) {
         MR::hidePlayer();
     }
 
@@ -810,7 +813,7 @@ void OtaKing::exeAppearDemo() {
 
     if (MR::isBckStopped(this)) {
         MR::validateHitSensors(this);
-        validateClippingAndEndDemo("\217\157\214\273" /* 出現 */);
+        validateClippingAndEndDemo("出現");
         MR::showPlayer();
         MR::endAnimCamera(this, mAnimCamera, "Appear", 0, true);
 
@@ -820,7 +823,7 @@ void OtaKing::exeAppearDemo() {
             }
         }
 
-        TVec3f vec;
+        Vec3f vec;
         vec.sub(*MR::getPlayerPos(), mPosition);
 
         mRotation.y = MR::repeatDegree(MR::toDegree(MR::atan2(vec.x, vec.z)));
@@ -835,7 +838,7 @@ void OtaKing::exeWait() {
     }
 
     if (tryThrowCocoNutOrFireBallIfWait(::cWaitFrame)) {
-        _EC = 0;
+        mThrowNum = 0;
     }
 }
 
@@ -875,7 +878,7 @@ void OtaKing::exeThrowCocoNut() {
             } else {
                 setNerve(GET_NERVE(OtaKing, OtaKingNrvThrowFireBallWait));
             }
-        } else if (_EC >= 2) {
+        } else if (mThrowNum >= 2) {
             setNerve(GET_NERVE(OtaKing, OtaKingNrvThrowFireBallWait));
         } else {
             setNerve(GET_NERVE(OtaKing, OtaKingNrvThrowCocoNutWait));
@@ -931,11 +934,11 @@ void OtaKing::exeDamage() {
         mMagma->damage();
     }
 
-    if (MR::isStep(this, 2)) {
+    if (MR::isStep(this, cStep_exeDamage_1)) {
         MR::stopScene(mIsLv2 ? 6 : 16);
     }
 
-    if (MR::isStep(this, 3)) {
+    if (MR::isStep(this, cStep_exeDamage_2)) {
         MR::shakeCameraNormalStrong();
     }
 
@@ -960,11 +963,11 @@ void OtaKing::exePowerUp() {
         mMagma->damage();
     }
 
-    if (MR::isStep(this, 2)) {
+    if (MR::isStep(this, cStep_exePowerUp_1)) {
         MR::stopScene(mIsLv2 ? 6 : 16);
     }
 
-    if (MR::isStep(this, 3)) {
+    if (MR::isStep(this, cStep_exePowerUp_2)) {
         MR::shakeCameraNormalStrong();
     }
 
@@ -979,7 +982,7 @@ void OtaKing::exePowerUp() {
         MR::tryRumblePadVeryWeak(this, PLAYER_1);
     }
 
-    if (MR::isStep(this, 83)) {
+    if (MR::isStep(this, cStep_exePowerUp_3)) {
         MR::hideMaterial(this, "lambert141_v");
         MR::hideMaterial(this, "Daiya_v");
     }
@@ -989,15 +992,15 @@ void OtaKing::exePowerUp() {
         MR::shakeCameraNormal();
     }
 
-    if (MR::isStep(this, 195)) {
+    if (MR::isStep(this, cStep_exePowerUp_4)) {
         MR::shakeCameraNormal();
     }
 
-    if (MR::isStep(this, 215)) {
+    if (MR::isStep(this, cStep_exePowerUp_5)) {
         MR::shakeCameraNormal();
     }
 
-    if (MR::isGreaterStep(this, ::cBlurStartStep) && MR::isLessStep(this, 215)) {
+    if (MR::isGreaterStep(this, ::cBlurStartStep) && MR::isLessStep(this, cStep_exePowerUp_6)) {
         MR::tryRumblePadWeak(this, PLAYER_1);
     }
 
@@ -1049,19 +1052,19 @@ void OtaKing::exeDown() {
         MR::invalidateHitSensors(this);
         MR::stopStageBGM(60);
 
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < ::cCocoNutBallNum; i++) {
             if (!MR::isDead(&mCocoNutBallArray[i])) {
                 mCocoNutBallArray[i].kill();
             }
         }
 
-        for (int i = 0; i < 6; i++) {
+        for (int i = 0; i < ::cFireBallNum; i++) {
             if (!MR::isDead(&mFireBallArray[i])) {
                 mFireBallArray[i].kill();
             }
         }
 
-        for (int i = 0; i < 6; i++) {
+        for (int i = 0; i < ::cFireBubbleNum; i++) {
             if (!MR::isDead(&mFireBubbleArray[i])) {
                 mFireBubbleArray[i].kill();
             }
@@ -1074,18 +1077,18 @@ void OtaKing::exeDown() {
         }
     }
 
-    if (MR::isStep(this, 2)) {
+    if (MR::isStep(this, cStep_exeDown_1)) {
         MR::stopScene(20);
     }
 
-    if (MR::isStep(this, 3)) {
-        invalidateClippingAndStartDemo("\203\137\203\105\203\223" /* ダウン */, GET_NERVE(OtaKing, OtaKingNrvDownDemo), GET_NERVE(OtaKing, OtaKingNrvWaitStartDemo));
+    if (MR::isStep(this, cStep_exeDown_2)) {
+        invalidateClippingAndStartDemo("ダウン", GET_NERVE(OtaKing, OtaKingNrvDownDemo), GET_NERVE(OtaKing, OtaKingNrvWaitStartDemo));
     }
 }
 
 void OtaKing::exeDownDemo() {
-    TPos3f rotate;
-    rotate.makeRotate(TVec3f(0.0f, 1.0f, 0.0f), MR::toRadian(::cDownDemoRotate.y));
+    Pos3f rotate;
+    rotate.makeRotate(Vec3f(0.0f, 1.0f, 0.0f), MR::toRadian(::cDownDemoRotate.y));
     rotate.setTrans(mPosition);
 
     if (MR::isFirstStep(this)) {
@@ -1094,16 +1097,16 @@ void OtaKing::exeDownDemo() {
         MR::startAnimCameraTargetSelf(this, mAnimCamera, "Down", 0, 1.0f);
         mRotation.set(::cDownDemoRotate);
         mMagma->damage();
-        TVec3f demoBreakVec;
+        Vec3f demoBreakVec;
         rotate.mult(::cDownDemoCocoNutPos, demoBreakVec);
         mDownCocoNut->mScale.set(::cDownDemoCocoNutScale);
         mDownCocoNut->demoBreak(demoBreakVec);
-        TVec3f starAppearPos(mPosition);
+        Vec3f starAppearPos(mPosition);
         starAppearPos.y += ::cPowerStarAppearOffsetY;
         MR::requestAppearPowerStar(this, starAppearPos);
     }
 
-    if (MR::isStep(this, 1)) {
+    if (MR::isStep(this, cStep_exeDownDemo_1)) {
         MR::hidePlayer();
     }
 
@@ -1137,7 +1140,7 @@ void OtaKing::exeDownDemo() {
     }
 
     if (MR::isStep(this, ::cDownDemoFrame)) {
-        validateClippingAndEndDemo("\203\137\203\105\203\223" /* ダウン */);
+        validateClippingAndEndDemo("ダウン");
         setNerve(GET_NERVE(OtaKing, OtaKingNrvAppearStar));
     }
 }
@@ -1199,7 +1202,7 @@ void OtaKing::exeHitBack() {
             } else {
                 setNerve(GET_NERVE(OtaKing, OtaKingNrvThrowFireBallWait));
             }
-        } else if (_EC >= 2) {
+        } else if (mThrowNum >= 2) {
             setNerve(GET_NERVE(OtaKing, OtaKingNrvThrowFireBallWait));
         } else {
             setNerve(GET_NERVE(OtaKing, OtaKingNrvThrowCocoNutWait));

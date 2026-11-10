@@ -6,10 +6,9 @@ class LavaHomeVolcanoFlow : public LiveActor {
 public:
     LavaHomeVolcanoFlow(const char*);
 
-    virtual ~LavaHomeVolcanoFlow();
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void startClipped();
-    virtual void endClipped();
+    virtual void init(const TableIter& rIter) override;
+    virtual void startClipped() override;
+    virtual void endClipped() override;
 
     void exeMove();
     void exeWait();

@@ -7,6 +7,7 @@
 #include "Game/Screen/GalaxyConfirmLayout.hpp"
 #include "Game/Screen/GalaxySelectBackButton.hpp"
 #include "Game/Screen/GalaxySelectInfo.hpp"
+#include "Game/System/NebulaMods.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/DemoUtil.hpp"
 #include "Game/Util/EventUtil.hpp"
@@ -24,8 +25,8 @@
 #include "Game/Screen/NebulaSelectPlayers.hpp"
 
 namespace {
-    const char* const cDemoNameDomeLecture = "\203\150\201\133\203\200\203\214\203\116\203\140\203\203\201\133\202\121" /* ドームレクチャー２ */;
-    const char* const cDemoNameJumpOut = "\203\175\203\212\203\111\224\362\202\321\217\157\202\265" /* マリオ飛び出し */;
+    const char* const cDemoNameDomeLecture = "ドームレクチャー２";
+    const char* const cDemoNameJumpOut = "マリオ飛び出し";
 };  // namespace
 
 namespace {
@@ -48,15 +49,15 @@ namespace NrvAstroDomeGalaxySelector {
 };  // namespace NrvAstroDomeGalaxySelector
 
 AstroDomeGalaxySelector::AstroDomeGalaxySelector(const char* pName)
-    : LiveActor(pName), mCameraController(), mBackButton(), mInfo(), mConfirmLayout(), _9C() {
+    : LiveActor(pName), mCameraController(), mBackButton(), mInfo(), mConfirmLayout(), mIsBackButtonPointed() {
     mCoopPlayers = nullptr;
 }
 
-void AstroDomeGalaxySelector::init(const JMapInfoIter& rIter) {
+void AstroDomeGalaxySelector::init(const TableIter& rIter) {
     MR::connectToSceneMapObjMovement(this);
     MR::invalidateClipping(this);
 
-    mCameraController = new AstroDomeCameraController("\223\126\225\266\203\150\201\133\203\200\203\112\203\201\203\211\220\247\214\344" /* 天文ドームカメラ制御 */);
+    mCameraController = new AstroDomeCameraController("天文ドームカメラ制御");
     mCameraController->initWithoutIter();
 
     mBackButton = new GalaxySelectBackButton();
@@ -93,7 +94,7 @@ void AstroDomeGalaxySelector::kill() {
     MR::disappearStarCounter();
 }
 
-bool AstroDomeGalaxySelector::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool AstroDomeGalaxySelector::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (SphereSelectorFunction::isMsgSelectStart(msg)) {
         appear();
         return true;
@@ -115,18 +116,10 @@ bool AstroDomeGalaxySelector::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSe
 }
 
 void AstroDomeGalaxySelector::showGalaxyInfo(const MiniatureGalaxy* pMiniGalaxy) {
-    s32 state = 3;
+    s32 state = pMiniGalaxy->mState;
     s32 cometID = -1;
 
-    if (pMiniGalaxy->mState == 2) {
-        state = 2;
-    } else if (pMiniGalaxy->mState == 1) {
-        state = 1;
-    } else if (pMiniGalaxy->mState == 0) {
-        state = 0;
-    }
-
-    if (state == 3 && pMiniGalaxy == MiniatureGalaxyFunction::getCometLandMiniatureGalaxy()) {
+    if (state == MiniatureGalaxyState_Open && pMiniGalaxy == MiniatureGalaxyFunction::getCometLandMiniatureGalaxy()) {
         cometID = MiniatureGalaxyFunction::getCometNameId();
     }
 
@@ -202,15 +195,15 @@ void AstroDomeGalaxySelector::exeGalaxySelect() {
         }
 
         if (!SphereSelectorFunction::isHandleHolding() && mBackButton->isPointing()) {
-            SphereSelectorFunction::registerPointingTarget(this, HandlePointingPriority(2));
+            SphereSelectorFunction::registerPointingTarget(this, HandlePointingPriority_First);
 
-            if (!_9C) {
+            if (!mIsBackButtonPointed) {
                 MR::startSystemSE("SE_SY_BUTTON_CURSOR_ON");
             }
 
-            _9C = true;
+            mIsBackButtonPointed = true;
         } else {
-            _9C = false;
+            mIsBackButtonPointed = false;
         }
 
         if (SphereSelectorFunction::isPointingTarget(this)) {
@@ -284,7 +277,15 @@ void AstroDomeGalaxySelector::exeDemoJumpOut() {
         MR::requestMovementOn(mInfo);
     }
 
+    // The scene is left on the demo's last step: the step after it would draw the dome with the HUD up, the letterbox
+    // leaving and the demo camera released, once, before the screen goes black.
     if (MR::isDemoActive(::cDemoNameJumpOut)) {
+        if (!MR::isDemoLastStep() || !MR::coverScreenForSceneChange()) {
+            return;
+        }
+
+        NebulaMods::fire(NEBULA_MOD_EVENT_CUTSCENE_END, 0, nullptr, ::cDemoNameJumpOut);
+    } else if (!MR::coverScreenForSceneChange()) {
         return;
     }
 

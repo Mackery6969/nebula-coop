@@ -22,9 +22,9 @@ enum MarioStatus {
     MarioStatus_Step,
     MarioStatus_Magic,
     MarioStatus_FpView,
-    MarioStatus_13,
-    MarioStatus_Recovery = MarioStatus_13,
-    MarioStatus_Warp = MarioStatus_13,
+    MarioStatus_RecoveryOrWarp,
+    MarioStatus_Recovery = MarioStatus_RecoveryOrWarp,
+    MarioStatus_Warp = MarioStatus_RecoveryOrWarp,
     MarioStatus_Flip,
     MarioStatus_SideStep,
     MarioStatus_Stick,
@@ -63,15 +63,15 @@ public:
     virtual bool notice();
     virtual bool keep();
     virtual bool postureCtrl(MtxPtr);
-    virtual void hitWall(const TVec3f&, HitSensor*);
-    virtual void hitPoly(u8, const TVec3f&, HitSensor*);
+    virtual void hitWall(const Vec3f&, HitSensor*);
+    virtual void hitPoly(u8, const Vec3f&, HitSensor*);
     virtual bool passRing(const HitSensor*);
     virtual f32 getBlurOffset() const;
     virtual void draw3D() const;
 
     u32 getNoticedStatus() const;
 
-    MarioState* _8;
+    MarioState* mNextState;  // the next state in Mario's active list (MarioState.cpp walks it)
     u32 mStatusId;
-    bool _10;
+    bool mClosing;  // close is running (no re-entry)
 };

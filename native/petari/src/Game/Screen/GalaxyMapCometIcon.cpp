@@ -3,7 +3,7 @@
 #include "Game/Util/LayoutUtil.hpp"
 
 GalaxyMapCometIcon::GalaxyMapCometIcon(const char* pName, LayoutActor* pParam2, const char* pParam3)
-    : LayoutActor(pName, true), _20(pName), _24(pParam2), _28(pParam3) {
+    : LayoutActor(pName, true), mGalaxyName(pName), mHost(pParam2), mPaneName(pParam3) {
 }
 
 void GalaxyMapCometIcon::appear() {
@@ -12,12 +12,12 @@ void GalaxyMapCometIcon::appear() {
 }
 
 void GalaxyMapCometIcon::calcAnim() {
-    MR::setLayoutScalePosAtPaneScaleTransIfExecCalcAnim(this, _24, _28);
+    MR::setLayoutScalePosAtPaneScaleTransIfExecCalcAnim(this, mHost, mPaneName);
     LayoutActor::calcAnim();
 }
 
-void GalaxyMapCometIcon::calcAnimForCapture(const nw4r::lyt::DrawInfo& rDrawInfo) {
-    MR::setLayoutScalePosAtPaneScaleTransIfExecCalcAnim(this, _24, _28);
+void GalaxyMapCometIcon::calcAnimForCapture(const Ui::DrawInfo& rDrawInfo) {
+    MR::setLayoutScalePosAtPaneScaleTransIfExecCalcAnim(this, mHost, mPaneName);
     MR::calcAnimLayoutWithDrawInfo(this, rDrawInfo);
 }
 
@@ -27,7 +27,7 @@ void GalaxyMapCometIcon::control() {
 GalaxyMapCometIcon::~GalaxyMapCometIcon() {
 }
 
-void GalaxyMapCometIcon::init(const JMapInfoIter& rIter) {
+void GalaxyMapCometIcon::init(const TableIter& /*rIter*/) {
     initLayoutManager("IconComet", 2);
     MR::startAnim(this, "Wait", 0);
 }
@@ -35,8 +35,8 @@ void GalaxyMapCometIcon::init(const JMapInfoIter& rIter) {
 void GalaxyMapCometIcon::syncStatus() {
     int cometId = -1;
 
-    if (MR::isGalaxyCometLandInStage(_20)) {
-        cometId = MR::getEncounterGalaxyCometNameId(_20);
+    if (MR::isGalaxyCometLandInStage(mGalaxyName)) {
+        cometId = MR::getEncounterGalaxyCometNameId(mGalaxyName);
     }
 
     if (cometId < 0) {

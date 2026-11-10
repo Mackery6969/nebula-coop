@@ -1,8 +1,9 @@
 #pragma once
 
+#include "Game/Util/NameIndex.hpp"
 
 class CodeTable;
-class JMapInfoIter;
+class TableIter;
 class Triangle;
 
 enum CollisionFloorCode {
@@ -89,24 +90,19 @@ enum CollisionCameraCode {
 
 class CollisionCode {
 public:
-    /// @brief Creates a new `CollisionCode`.
     CollisionCode();
 
-    const char* getFloorCodeString(const Triangle& rTriangle);
-    const char* getWallCodeString(const Triangle& rTriangle);
-    const char* getSoundCodeString(const Triangle& rTriangle);
-    const char* getSoundCodeString(const JMapInfoIter& rIter);
     u32 getCameraID(const Triangle& rTriangle);
-    u32 getCode(const JMapInfoIter& rIter, CodeTable* pCodeTable, const char* pName);
+    u32 getCode(const TableIter& rIter, CodeTable* pCodeTable, const char* pName);
     void createFloorTable();
     void createWallTable();
     void createSoundTable();
     void createCameraTable();
-    u32 getFloorCode(const JMapInfoIter& rIter);
-    u32 getWallCode(const JMapInfoIter& rIter);
-    u32 getSoundCode(const JMapInfoIter& rIter);
-    u32 getCameraCode(const JMapInfoIter& rIter);
-    u32 getCameraID(const JMapInfoIter& rIter);
+    u32 getFloorCode(const TableIter& rIter);
+    u32 getWallCode(const TableIter& rIter);
+    u32 getSoundCode(const TableIter& rIter);
+    u32 getCameraCode(const TableIter& rIter);
+    u32 getCameraID(const TableIter& rIter);
 
     CodeTable* mFloorTable;
     CodeTable* mWallTable;
@@ -119,11 +115,6 @@ public:
     CodeTable(u32 numMax);
 
     void add(const char* pName, u32 code);
-    const char* getString(u32 code);
 
-    u32 mCodeNum;
-    u32 mCodeNumMax;
-    u32* mHashTable;
-    u32* mCodeTable;
-    const char** mNameTable;
+    MR::NameIndex mIndex;  // a code's name to the code
 };

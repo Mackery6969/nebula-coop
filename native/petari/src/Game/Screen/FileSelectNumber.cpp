@@ -3,7 +3,7 @@
 #include "Game/Util/LayoutUtil.hpp"
 #include "Game/Util/NerveUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
-#include <JSystem/J3DGraphAnimator/J3DAnimation.hpp>
+#include "Game/Render/Clip.hpp"
 
 namespace {
     NEW_NERVE(FileSelectNumberNrvAppear, FileSelectNumber, Appear);
@@ -14,7 +14,7 @@ namespace {
 FileSelectNumber::FileSelectNumber(const char* pName) : LayoutActor(pName, true), mNumber(-1), mSelectAnimCtrl() {
 }
 
-void FileSelectNumber::init(const JMapInfoIter& rIter) {
+void FileSelectNumber::init(const TableIter& /*rIter*/) {
     initLayoutManager("FileNumber", 2);
     MR::connectToSceneLayout(this);
     initNerve(GET_NERVE_ANON(FileSelectNumberNrvWait));
@@ -73,8 +73,6 @@ void FileSelectNumber::control() {
 }
 
 void FileSelectNumber::exeAppear() {
-    if (MR::isFirstStep(this)) {
-    }
 
     if (MR::isAnimStopped(this, 0)) {
         setNerve(GET_NERVE_ANON(FileSelectNumberNrvWait));
@@ -85,8 +83,6 @@ void FileSelectNumber::exeWait() {
 }
 
 void FileSelectNumber::exeEnd() {
-    if (MR::isFirstStep(this)) {
-    }
 
     if (MR::isAnimStopped(this, 0)) {
         kill();
@@ -99,7 +95,7 @@ namespace FileSelectNumberSub {
     NEW_NERVE(SelectAnimControllerNrvSelectOutStart, SelectAnimController, SelectOutStart);
     NEW_NERVE(SelectAnimControllerNrvSelectOut, SelectAnimController, SelectOut);
 
-    SelectAnimController::SelectAnimController(LayoutActor* pHost) : NerveExecutor("\203\132\203\214\203\116\203\147\203\101\203\152\203\201\220\247\214\344" /* セレクトアニメ制御 */), mHost(pHost) {
+    SelectAnimController::SelectAnimController(LayoutActor* pHost) : NerveExecutor("セレクトアニメ制御"), mHost(pHost) {
         initNerve(GET_NERVE_GLOBAL(SelectAnimControllerNrvSelectOut));
     }
 
@@ -113,9 +109,9 @@ namespace FileSelectNumberSub {
         if (isNerve(GET_NERVE_GLOBAL(SelectAnimControllerNrvSelectOut))) {
             setNerve(GET_NERVE_GLOBAL(SelectAnimControllerNrvSelectInStart));
 
-            _C = nullptr;
+            mQueuedNerve = nullptr;
         } else if (isNerve(GET_NERVE_GLOBAL(SelectAnimControllerNrvSelectOutStart))) {
-            _C = GET_NERVE_GLOBAL(SelectAnimControllerNrvSelectIn);
+            mQueuedNerve = GET_NERVE_GLOBAL(SelectAnimControllerNrvSelectIn);
         }
     }
 
@@ -123,9 +119,9 @@ namespace FileSelectNumberSub {
         if (isNerve(GET_NERVE_GLOBAL(SelectAnimControllerNrvSelectIn))) {
             setNerve(GET_NERVE_GLOBAL(SelectAnimControllerNrvSelectOutStart));
 
-            _C = nullptr;
+            mQueuedNerve = nullptr;
         } else if (isNerve(GET_NERVE_GLOBAL(SelectAnimControllerNrvSelectInStart))) {
-            _C = GET_NERVE_GLOBAL(SelectAnimControllerNrvSelectOut);
+            mQueuedNerve = GET_NERVE_GLOBAL(SelectAnimControllerNrvSelectOut);
         }
     }
 
@@ -135,13 +131,13 @@ namespace FileSelectNumberSub {
         }
 
         if (MR::isAnimStopped(mHost, 0)) {
-            if (_C == GET_NERVE_GLOBAL(SelectAnimControllerNrvSelectOut)) {
+            if (mQueuedNerve == GET_NERVE_GLOBAL(SelectAnimControllerNrvSelectOut)) {
                 setNerve(GET_NERVE_GLOBAL(SelectAnimControllerNrvSelectOutStart));
             } else {
                 setNerve(GET_NERVE_GLOBAL(SelectAnimControllerNrvSelectIn));
             }
 
-            _C = nullptr;
+            mQueuedNerve = nullptr;
         }
     }
 
@@ -154,13 +150,13 @@ namespace FileSelectNumberSub {
         }
 
         if (MR::isAnimStopped(mHost, 0)) {
-            if (_C == GET_NERVE_GLOBAL(SelectAnimControllerNrvSelectIn)) {
+            if (mQueuedNerve == GET_NERVE_GLOBAL(SelectAnimControllerNrvSelectIn)) {
                 setNerve(GET_NERVE_GLOBAL(SelectAnimControllerNrvSelectInStart));
             } else {
                 setNerve(GET_NERVE_GLOBAL(SelectAnimControllerNrvSelectOut));
             }
 
-            _C = nullptr;
+            mQueuedNerve = nullptr;
         }
     }
 

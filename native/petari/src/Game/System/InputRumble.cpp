@@ -1,4 +1,5 @@
 #include "Game/System/InputRumble.hpp"
+#include "Game/System/NebulaArena.hpp"
 #include "Game/System/PlayerInputs.hpp"
 #include "Game/System/PlayerInput.hpp"
 #include "Game/System/InputRumbleData.hpp"
@@ -9,64 +10,69 @@
 InputRumble** InputRumble::sInstanceForCallback;
 
 void RumbleChannel::clear() {
-    _0 = nullptr;
-    _8 = 0;
-    _C = 0;
-    _E = false;
-    _4 = false;
-    _10 = nullptr;
+    mPattern = nullptr;
+    mSerial = 0;
+    mStep = 0;
+    mStrength = 0;
+    mIsLoop = false;
+    mOwner = nullptr;
 }
 
 void RumbleChannel::update() {
-    if (_0 == nullptr) {
+    if (mPattern == nullptr) {
         return;
     }
 
-    if (_C >= _0->mFrame) {
-        if (_4 == true) {
-            _E = _0->mPattern[0];
-            _C = 1;
-        } else {
+    if (mStep >= mPattern->mFrame) {
+        if (!mIsLoop) {
             clear();
+            return;
         }
-    } else {
-        _E = _0->mPattern[_C];
-        _C++;
+
+        mStep = 0;
     }
+
+    // How much of the frames around this one the pattern fills: its pulses are one soft buzz.
+    const s32 cReach = 2;
+    s32 on = 0;
+    for (s32 frame = mStep - cReach; frame <= mStep + cReach; frame++) {
+        s32 place = frame;
+        if (place < 0 || place >= mPattern->mFrame) {
+            if (!mIsLoop) {
+                continue;
+            }
+            place = (place + mPattern->mFrame) % mPattern->mFrame;
+        }
+
+        on += mPattern->mPattern[place];
+    }
+
+    mStrength = static_cast< u8 >(mPattern->mPattern[mStep] != 0 ? 255 * (on + 1) / (2 * cReach + 2) : 255 * on / (2 * cReach + 2));
+    mStep++;
 }
 
-void RumbleChannel::setPattern(const void* pParam1, const RumblePattern& rParam2, u32 param3, bool param4) {
-    _8 = param3;
-    _C = 0;
-    _0 = &rParam2;
-    _10 = pParam1;
-    _4 = param4;
+void RumbleChannel::setPattern(const void* pOwner, const RumblePattern& rPattern, u32 serial, bool isLoop) {
+    mSerial = serial;
+    mStep = 0;
+    mPattern = &rPattern;
+    mOwner = pOwner;
+    mIsLoop = isLoop;
 }
 
-InputRumble::InputRumble(PlayerInput* pPad) : mPad(pPad), _8(), _C(1), _B0(), _B4(), _B8(), _BC() {
+InputRumble::InputRumble(PlayerInput* pPad) : mPad(pPad), mStrength(), mSerial(1), mStopTimer() {
     if (sInstanceForCallback == nullptr) {
-        sInstanceForCallback = new InputRumble*[MR::getPlayerMaxCount()];
-
-        for (u32 i = 0; i < MR::getPlayerMaxCount(); i++) {
-            sInstanceForCallback[i] = nullptr;
-        }
-
-        RumbleData::initHashValue();
-        RumbleData::checkHashCollision();
-    }
-
-    for (u8 i = 0; i < ARRAY_SIZE(mChannel); i++) {
-        mChannel[i].clear();
+        // Shared by every pad and kept for the process: not in the arena of whatever scene made the first pad.
+        sInstanceForCallback = new (NebulaArena::root(), 0) InputRumble*[MR::getPlayerMaxCount()]();
     }
 }
 
 InputRumble::~InputRumble() {
     s32 chan = mPad->mChannel;
 
-    if (_8) {
-        _8 = false;
+    if (mStrength != 0) {
+        mStrength = 0;
 
-        MR::setInputRumble(chan, false);
+        MR::setInputRumble(chan, 0);
     }
 
     sInstanceForCallback[chan] = nullptr;
@@ -77,31 +83,29 @@ void InputRumble::registInstance() {
 
     sInstanceForCallback[chan] = this;
 
-    if (_8) {
-        MR::setInputRumble(chan, true);
+    if (mStrength != 0) {
+        MR::setInputRumble(chan, mStrength);
     }
 }
 
 void InputRumble::pause() {
-    MR::setInputRumble(mPad->mChannel, false);
+    MR::setInputRumble(mPad->mChannel, 0);
 }
 
 void InputRumble::stop() {
-    _8 = false;
+    mStrength = 0;
 
     pause();
 
-    for (u8 i = 0; i < ARRAY_SIZE(mChannel); i++) {
-        mChannel[i].clear();
-    }
+    mChannels.clear();
 }
 
 void InputRumble::update() {
     // A cutscene running unseen (NebulaCutsceneSkip) does not rumble.
     if (NebulaCutsceneSkip::isSkipping()) {
-        bool isActive = _8;
-        for (u8 i = 0; i < ARRAY_SIZE(mChannel); i++) {
-            isActive |= mChannel[i]._0 != nullptr;
+        bool isActive = mStrength != 0;
+        for (const RumbleChannel* pChannel = mChannels.begin(); pChannel != mChannels.end(); pChannel++) {
+            isActive |= pChannel->mPattern != nullptr;
         }
         if (isActive) {
             stop();
@@ -109,8 +113,8 @@ void InputRumble::update() {
         return;
     }
 
-    if (_BC > 0) {
-        _BC--;
+    if (mStopTimer > 0) {
+        mStopTimer--;
 
         stop();
     } else {
@@ -123,53 +127,19 @@ void InputRumble::update() {
 }
 
 void InputRumble::updateRumble() {
-    bool b = false;
+    u8 strength = 0;
 
-    for (u8 i = 0; i < ARRAY_SIZE(mChannel); i++) {
-        mChannel[i].update();
+    for (RumbleChannel* pChannel = mChannels.begin(); pChannel != mChannels.end(); pChannel++) {
+        pChannel->update();
 
-        b |= mChannel[i]._E;
+        if (strength < pChannel->mStrength) {
+            strength = pChannel->mStrength;
+        }
     }
 
-    if (_B8) {
-        _B4--;
-
-        if (_B4 <= 0) {
-            _B8 = 0;
-            _B4 = 0;
-        }
-
-        pause();
-    } else {
-        if (b) {
-            if (!_8) {
-                _8 = true;
-
-                MR::setInputRumble(mPad->mChannel, true);
-            }
-        } else if (_8) {
-            _8 = false;
-
-            pause();
-        }
-
-        if (b) {
-            _B0 = 5;
-        } else {
-            _B0 = MR::clamp(_B0 - 1, -9, 5);
-
-            if (_B0 < 0) {
-                _B4 = 0;
-                return;
-            }
-        }
-
-        _B4++;
-
-        if (_B4 > 1800) {
-            _B8 = true;
-            _B4 = 1800;
-        }
+    if (strength != mStrength) {
+        mStrength = strength;
+        MR::setInputRumble(mPad->mChannel, strength);
     }
 }
 
@@ -177,66 +147,53 @@ InputRumble* InputRumble::getRumbleInstance() const {
     return sInstanceForCallback[mPad->mChannel];
 }
 
-bool InputRumble::vibratePatternIfNotExist(const void* pParam1, const char* pPatternName) {
-    return setRumblePatternIfNotExist(pParam1, *RumbleData::getPattern(pPatternName), false);
+bool InputRumble::vibratePatternIfNotExist(const void* pOwner, const char* pPatternName) {
+    // A pattern name the table lacks plays nothing.
+    const RumblePattern* const pPattern = RumbleData::getPattern(pPatternName);
+    return pPattern != nullptr && setRumblePatternIfNotExist(pOwner, *pPattern, false);
 }
 
-bool InputRumble::setRumblePatternIfNotExist(const void* pParam1, const RumblePattern& rParam2, bool param3) {
-    s32 v1 = -1;
-    s32 v2 = -1;
-    s32 v3 = -1;
+// A pattern already playing is left alone; a new one takes a free channel, else a new one.
+bool InputRumble::setRumblePatternIfNotExist(const void* pOwner, const RumblePattern& rPattern, bool isLoop) {
+    s32 existing = -1;
+    s32 empty = -1;
 
-    findRubmlePattern(pParam1, &v1, &v2, &v3, rParam2);
+    findRumblePattern(pOwner, &existing, &empty, rPattern);
 
-    if (v1 != -1) {
+    if (existing != -1) {
         return false;
     }
 
-    if (v2 != -1) {
-        _C = (_C + 1) & 0x7FFFFFFF;
-
-        mChannel[v2].setPattern(pParam1, rParam2, _C, param3);
-
-        return true;
+    if (empty == -1) {
+        RumbleChannel channel;
+        channel.clear();
+        empty = mChannels.size();
+        mChannels.push_back(channel);
     }
 
-    _C = (_C + 1) & 0x7FFFFFFF;
-
-    mChannel[v3].setPattern(pParam1, rParam2, _C, param3);
+    mSerial = (mSerial + 1) & 0x7FFFFFFF;
+    mChannels[empty].setPattern(pOwner, rPattern, mSerial, isLoop);
 
     return true;
 }
 
-bool InputRumble::findRubmlePattern(const void* pOwner, s32* pExisting, s32* pEmpty, s32* pOldest, const RumblePattern& rPattern) {
-    u32 oldest = -1;
-    u8 oldestIndex = 0xFF;
-    u8 emptyIndex = 0xFF;
+bool InputRumble::findRumblePattern(const void* /*pOwner*/, s32* pExisting, s32* pEmpty, const RumblePattern& rPattern) {
+    s32 emptyIndex = -1;
 
-    for (u8 i = 0; i < ARRAY_SIZE(mChannel); i++) {
-        const RumblePattern* pPattern = mChannel[i]._0;
+    for (s32 i = 0; i < mChannels.size(); i++) {
+        const RumblePattern* pPattern = mChannels[i].mPattern;
 
         if (pPattern == nullptr) {
-            if (emptyIndex == 0xFF) {
+            if (emptyIndex == -1) {
                 emptyIndex = i;
             }
-        } else {
-            if (pPattern->mHash == rPattern.mHash) {
-                *pExisting = i;
-                return true;
-            }
-
-            if (oldest > mChannel[i]._8) {
-                oldest = mChannel[i]._8;
-                oldestIndex = i;
-            }
+        } else if (pPattern == &rPattern) {
+            // Both are table entries, whose name hashes differ.
+            *pExisting = i;
+            return true;
         }
     }
 
-    if (emptyIndex != 0xFF) {
-        *pEmpty = emptyIndex;
-        return false;
-    }
-
-    *pOldest = oldestIndex;
+    *pEmpty = emptyIndex;
     return false;
 }

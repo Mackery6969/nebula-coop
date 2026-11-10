@@ -3,7 +3,7 @@
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/LiveActor/ModelObj.hpp"
 #include "Game/Util/Array.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class CameraTargetDemoActor;
 class FixedPosition;
@@ -18,14 +18,14 @@ class IceMerameraKing : public LiveActor {
 public:
     IceMerameraKing(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void kill();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
     void exeSearch();
     void exeThrow();
@@ -48,39 +48,39 @@ public:
     bool isDeadAllIce();
     bool isEnableThrow();
     ThrowingIce* getDeadWeaponAndAppear();
-    bool calcJoint(TPos3f*, const JointControllerInfo&);
+    bool calcJoint(Pos3f*, const JointControllerInfo&);
 
     FixedPosition* mFixedPos;
     ThrowingIce* mThrowingIce;
     Meramera* mMeramera;
     SpinPullParticleCallBack* mSpinParticle;
     MR::Vector< MR::AssignableArray< ThrowingIce* > > mIce;
-    LiveActor* _A8;
-    LiveActor* _AC;
-    TVec3f _B0;
-    TVec3f _BC;
-    TVec3f _C8;
-    TVec3f _D4;
-    s32 _E0;
-    s32 _E4;
-    u32 _E8;
-    s32 _EC;
-    s32 _F0;
+    LiveActor* mShockWave;
+    LiveActor* mBreakModel;
+    Vec3f mFront;
+    Vec3f mUp;
+    Vec3f mInitPos;
+    Vec3f mInitRotation;
+    s32 mThrowNum;
+    s32 mWeaponIndex;
+    u32 mEscapeStep;
+    s32 mHitPoint;
+    s32 mWeaponNum;
     Meramera** mModelArray;
     CameraTargetDemoActor* mCameraTarget;
     JointControlDelegator< IceMerameraKing >* mJointController;
-    TQuat4f _100;
-    TVec3f _110;
-    f32 _11C;
-    bool _120;
-    bool _121;
+    Quat4f mRollQuat;
+    Vec3f mBinderOffset;
+    f32 mExtinguishHeight;
+    bool mIsPinchBgmOn;
+    bool mIsPinchBgmAllowed;
 };
 
 class IceMerameraKingShockWave : public ModelObj {
 public:
     IceMerameraKingShockWave();
 
-    virtual void appear();
-    virtual void control();
-    virtual void attackSensor(HitSensor*, HitSensor*);
+    virtual void appear() override;
+    virtual void control() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
 };

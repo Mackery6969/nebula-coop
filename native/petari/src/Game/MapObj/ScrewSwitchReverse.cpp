@@ -5,18 +5,19 @@
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/ActorShadowUtil.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/JointUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    const s32 sDefaultShadowLength = 1000;
-    const s32 sStepForAdjust = 3;
-    const s32 sStepToRumbleCamera = 25;
-    const f32 sJumpPower = 28.0f;
+    NEBULA_TUNABLE(s32, sDefaultShadowLength, 1000);
+    NEBULA_TUNABLE(s32, sStepForAdjust, 3);
+    NEBULA_TUNABLE(s32, sStepToRumbleCamera, 25);
+    NEBULA_TUNABLE(f32, sJumpPower, 28.0f);
 };  // namespace
 
 namespace NrvScrewSwitchReverse {
@@ -28,7 +29,7 @@ namespace NrvScrewSwitchReverse {
 ScrewSwitchReverse::ScrewSwitchReverse(const char* pName) : LiveActor(pName), mHost(), mIsForceJump() {
 }
 
-void ScrewSwitchReverse::init(const JMapInfoIter& rIter) {
+void ScrewSwitchReverse::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
 
     MR::needStageSwitchWriteA(this, rIter);
@@ -42,29 +43,29 @@ void ScrewSwitchReverse::init(const JMapInfoIter& rIter) {
 
     initHitSensor(2);
     MR::addBodyMessageSensorMapObj(this);
-    TVec3f offset;
+    Vec3f offset;
     offset.scale(-130.0f, mGravity);
     MR::addHitSensorAtJoint(this, "binder", "Screw", ATYPE_BINDER, 8, 120.0f, offset);
 
     MR::initCollisionParts(this, "ScrewReverseCol", getSensor("binder"), MR::getJointMtx(this, "Screw"));
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initSound(4, false);
 
     s32 shadowLength = ::sDefaultShadowLength;
-    f32 arg7 = shadowLength;
-    MR::getJMapInfoArg7NoInit(rIter, &arg7);
+    f32 dropLength = shadowLength;
+    MR::getPlacementArg7NoInit(rIter, &dropLength);
 
-    if (arg7 > 0.0f) {
-        TVec3f pos(mPosition);
-        pos.add(TVec3f(0.0f, 10.0f, 0.0f));
+    if (dropLength > 0.0f) {
+        Vec3f pos(mPosition);
+        pos.add(Vec3f(0.0f, 10.0f, 0.0f));
         MR::initShadowVolumeCylinder(this, 100.0f);
         MR::setShadowDropPosition(this, nullptr, pos);
-        MR::setShadowDropLength(this, nullptr, arg7);
+        MR::setShadowDropLength(this, nullptr, dropLength);
 
         MR::calcGravity(this);
     }
 
-    MR::getJMapInfoArg0NoInit(rIter, &mIsForceJump);
+    MR::getPlacementArg0NoInit(rIter, &mIsForceJump);
 
     initNerve(GET_NERVE(ScrewSwitchReverse, ScrewSwitchReverseNrvWait));
 
@@ -115,7 +116,7 @@ void ScrewSwitchReverse::exeScrew() {
     }
 }
 
-bool ScrewSwitchReverse::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool ScrewSwitchReverse::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* /*pReceiver*/) {
     if (MR::isMsgRushBegin(msg) && MR::isSensorPlayer(pSender) && MR::isOnPlayer(getSensor("binder"))) {
         mHost = pSender->mHost;
 
@@ -136,16 +137,16 @@ bool ScrewSwitchReverse::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor*
 }
 
 void ScrewSwitchReverse::updateBindActorMtx() {
-    TPos3f baseMtx = mHost->getBaseMtx();
+    Pos3f baseMtx = mHost->getBaseMtx();
     baseMtx.setTrans(getSensor("binder")->mPosition);
     MR::setBaseTRMtx(mHost, baseMtx);
 }
 
 void ScrewSwitchReverse::endBind() {
-    TVec3f upVec;
+    Vec3f upVec;
     MR::calcUpVec(&upVec, this);
 
-    TVec3f jumpVec;
+    Vec3f jumpVec;
     jumpVec.scale(::sJumpPower, upVec);
 
     if (mIsForceJump) {

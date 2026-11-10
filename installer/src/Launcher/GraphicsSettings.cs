@@ -23,24 +23,36 @@ namespace Nebula.Launcher
         private static readonly int[] AspectsBefore3To2 = { 0, 1, 3, 4, 5, 6 };
         public static readonly string[] AntiAliasingModes = { NebulaText.Of("Off"), "SMAA", NebulaText.Of("Auto (SMAA unless supersampled)"), "FXAA" };
         public static readonly string[] AntiAliasingQualities = { NebulaText.Of("Low"), NebulaText.Of("Medium"), NebulaText.Of("High"), NebulaText.Of("Ultra") };
-        // MSAA (config msaa_samples 1, 2, 4, 8); off with DLSS, FSR 3 or ray tracing.
+        // MSAA (config msaa_samples 1, 2, 4, 8); off with a temporal upscaler or ray tracing.
         public static readonly string[] MsaaModes = { NebulaText.Of("Off"), "2x", "4x", "8x" };
-        // Frame rate: the game's own 60 (Off), Nebula's interpolated frames (Native) or NVIDIA's
-        // generated ones (DLSS Frame Generation, with DLSS on an RTX GPU).
-        public static readonly string[] InterpolationModes = { NebulaText.Of("Off"), NebulaText.Of("Native"), NebulaText.Of("DLSS Frame Generation") };
-        // Release runtimes are built without FSR 3 (upscaler 2); a saved 2 reads as FSR 1.
-        public static readonly string[] Upscalers = { NebulaText.Of("Bilinear"), "AMD FidelityFX FSR 1" };
-        // NVIDIA DLSS (upscaler 3) runs from files the player downloads from NVIDIA
-        // (DlssPackage); Nebula ships none of them.
+        // Frame rate: the game's own 60 (Off), Nebula's interpolated frames (Native), NVIDIA's generated ones (DLSS
+        // Frame Generation, with DLSS on an RTX GPU: config frame_generation 1) or AMD's (FSR frame generation, with
+        // FSR 3 or XeSS on a display of 120 Hz or more: frame_generation 2).
+        public static readonly string[] InterpolationModes = { NebulaText.Of("Off"), NebulaText.Of("Native"), NebulaText.Of("DLSS Frame Generation"), NebulaText.Of("FSR frame generation") };
+        // Upscaling by its config number: 0 off, 1 FSR 1, 2 FSR 3, 3 DLSS, 4 XeSS. SGSR 2 (5) is the Vulkan
+        // renderer's; this one runs FSR 3 for it.
+        public static readonly string[] Upscalers = { NebulaText.Of("Off"), "AMD FidelityFX FSR 1", "AMD FidelityFX FSR 3", "NVIDIA DLSS", "Intel XeSS" };
+        // NVIDIA DLSS (upscaler 3) and Intel XeSS (4) run from files the player downloads from the vendor
+        // (DlssPackage, XessPackage); Nebula ships none of them.
         public static string StreamlineDir { get { return DlssPackage.Folder; } }
         public static bool DlssInstalled() { return DlssPackage.Installed(); }
+        public static bool XessInstalled() { return XessPackage.Package.Installed(); }
         // The upscaler setting values offered, in list order. DLSS is listed (before it is
-        // downloaded too) when the game runs on an NVIDIA RTX GPU.
+        // downloaded too) when the game runs on an NVIDIA RTX GPU; XeSS runs on any GPU.
         public static List<int> UpscalerChoices(string gpu)
         {
-            var choices = new List<int> { 0, 1 };
+            var choices = new List<int> { 0, 1, 2 };
             if (DlssAdapter(gpu)) choices.Add(3);
+            choices.Add(4);
             return choices;
+        }
+        // FSR 3, DLSS, XeSS and SGSR 2 rebuild the image from several frames: they antialias it themselves and set
+        // its resolution by their mode (temporal_quality).
+        public static bool TemporalUpscaler(int upscaler) { return upscaler >= 2; }
+        // The upscaler this renderer runs for a saved one it does not offer: a temporal one's place goes to FSR 3.
+        public static int OfferedUpscaler(List<int> choices, int upscaler)
+        {
+            return choices.Contains(upscaler) ? upscaler : TemporalUpscaler(upscaler) ? 2 : 1;
         }
 
         /// <summary>
@@ -61,7 +73,7 @@ namespace Nebula.Launcher
         {
             GpuAdapter target = TargetAdapter(gpu);
             if (target != null) return target.IsNvidiaRtx;
-            var values = AdapterRecord(true);
+            var values = AdapterRecord();
             string vendor, description;
             if (values != null && values.TryGetValue("vendor_id", out vendor) && values.TryGetValue("description", out description))
             {
@@ -81,18 +93,17 @@ namespace Nebula.Launcher
             string rt, id;
             if (target != null)
             {
-                var record = AdapterRecord(false);
+                var record = AdapterRecord();
                 if (record != null && record.TryGetValue("id", out id) && id == target.Id)
                     return record.TryGetValue("ray_tracing", out rt) && rt == "1";
                 return target.IsNvidiaRtx;
             }
-            var values = AdapterRecord(true);
+            var values = AdapterRecord();
             return values != null && values.TryGetValue("ray_tracing", out rt) && rt == "1";
         }
 
-        // adapter.ini; with highPerformanceOnly, only when the game wrote it running with the high-performance GPU
-        // preference (its default). Null otherwise.
-        private static Dictionary<string, string> AdapterRecord(bool highPerformanceOnly)
+        // adapter.ini, null when there is none.
+        private static Dictionary<string, string> AdapterRecord()
         {
             string path = Path.Combine(NebulaPaths.DataRoot, "adapter.ini");
             try
@@ -104,9 +115,7 @@ namespace Nebula.Launcher
                     int equals = line.IndexOf('=');
                     if (equals > 0) values[line.Substring(0, equals).Trim()] = line.Substring(equals + 1).Trim();
                 }
-                string preference;
-                return !highPerformanceOnly || (values.TryGetValue("gpu_preference", out preference) && preference != "low")
-                    ? values : null;
+                return values;
             }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
@@ -116,13 +125,21 @@ namespace Nebula.Launcher
         public static string UpscalerName(int value)
         {
             if (value == 3) return DlssInstalled() ? "NVIDIA DLSS" : NebulaText.Of("NVIDIA DLSS (download)");
+            if (value == 4) return XessInstalled() ? "Intel XeSS" : NebulaText.Of("Intel XeSS (download)");
             return Upscalers[Math.Max(0, Math.Min(value, Upscalers.Length - 1))];
         }
-        public static readonly string[] DlssQualities = { "DLAA", NebulaText.Of("Quality"), NebulaText.Of("Balanced"), NebulaText.Of("Performance"), NebulaText.Of("Ultra Performance") };
-        // Every upscaler: the first mode renders at the internal resolution, the others at the
-        // internal resolution divided by 1.5, 1.7, 2 or 3.
-        public static readonly string[] SpatialQualities = { NebulaText.Of("Native"), NebulaText.Of("Quality"), NebulaText.Of("Balanced"), NebulaText.Of("Performance"), NebulaText.Of("Ultra Performance") };
-        private const int TemporalQualityCount = 5;
+        // The upscaler's mode by its config number (temporal_quality for FSR 3, DLSS and XeSS, spatial_quality for
+        // FSR 1): the display's resolution divided by 1 (native), 1.5, 1.7, 2, 3 or 1.3 (ultra quality, which came
+        // last). Listed sharpest first, as the game's menu lists them; DLSS has no ultra quality mode.
+        private static readonly string[] QualityNames = { NebulaText.Of("Native"), NebulaText.Of("Quality"), NebulaText.Of("Balanced"), NebulaText.Of("Performance"), NebulaText.Of("Ultra Performance"), NebulaText.Of("Ultra Quality") };
+        public static readonly int[] QualityOrder = { 0, 5, 1, 2, 3, 4 };
+        public static readonly int[] DlssQualityOrder = { 0, 1, 2, 3, 4 };
+        public static string QualityName(int upscaler, int value)
+        {
+            if (value == 0) return upscaler == 3 ? "DLAA" : TemporalUpscaler(upscaler) ? NebulaText.Of("Native AA") : QualityNames[0];
+            return QualityNames[Math.Max(0, Math.Min(value, QualityNames.Length - 1))];
+        }
+        private const int TemporalQualityCount = 6;
         public static readonly string[] TextureFilters = { NebulaText.Of("Trilinear"), NebulaText.Of("2x anisotropic"), NebulaText.Of("4x anisotropic"), NebulaText.Of("8x anisotropic"), NebulaText.Of("16x anisotropic") };
         public static readonly string[] LightingModes = { NebulaText.Of("Enhanced"), NebulaText.Of("Per pixel"), NebulaText.Of("Per vertex (original)") };
         private static readonly int[] Anisotropy = { 1, 2, 4, 8, 16 };
@@ -137,6 +154,8 @@ namespace Nebula.Launcher
         {
             var targets = new List<int>();
             if (mode == 0) { targets.Add(30); targets.Add(60); return targets; }
+            // AMD's makes one frame between each two of the game's 60 (settings_model.cpp interpolation_targets).
+            if (mode == 3) { targets.Add(120); return targets; }
             bool sixties = mode == 1 && dlss;
             foreach (int rate in new[] { 120, 144, 165, 180, 240, 360 })
             {
@@ -169,6 +188,9 @@ namespace Nebula.Launcher
         public int Msaa = 0;
         public int TemporalQuality = 1;
         public int FrameGeneration = 0;
+        public static readonly int[] InternalHeights = { 0, 144, 240, 360, 480, 720, 1080, 1440, 2160 };
+        public static readonly string[] InternalResolutions = { "Match display", "144p", "240p", "360p", "480p", "720p", "1080p", "1440p", "2160p (4K)" };
+        public int InternalHeight = 0;
         public int SpatialQuality = 0;
         public bool GeneratedMipmaps = false, PerPixelLighting = false, EnhancedLighting = false, AmbientOcclusion = false;
         public bool HudOutputResolution = false, RayTracing = false;
@@ -235,11 +257,12 @@ namespace Nebula.Launcher
             settings.Quality = Choice(values, "smaa_quality", AntiAliasingQualities.Length, settings.Quality);
             int samples = Choice(values, "msaa_samples", 9, 1 << settings.Msaa);
             settings.Msaa = samples >= 8 ? 3 : samples >= 4 ? 2 : samples >= 2 ? 1 : 0;
-            int upscaler = Choice(values, "upscaler", 4, settings.Upscaler);
-            settings.Upscaler = upscaler == 2 ? 1 : upscaler;
+            settings.Upscaler = Choice(values, "upscaler", 6, settings.Upscaler);
             settings.TemporalQuality = Choice(values, "temporal_quality", TemporalQualityCount, settings.TemporalQuality);
             settings.FrameGeneration = Choice(values, "frame_generation", 6, settings.FrameGeneration);
             settings.SpatialQuality = Choice(values, "spatial_quality", TemporalQualityCount, settings.SpatialQuality);
+            settings.InternalHeight = Choice(values, "internal_height", 2161, 0);
+            if (Array.IndexOf(InternalHeights, settings.InternalHeight) < 0) settings.InternalHeight = 0;
             settings.Sharpness = Math.Min(Choice(values, "sharpness", 101, settings.Sharpness), 100);
             int anisotropy = Choice(values, "anisotropic_filtering", 17, -1);
             if (anisotropy >= 1)
@@ -290,6 +313,7 @@ namespace Nebula.Launcher
                 new KeyValuePair<string, string>("upscaler", n(Upscaler)),
                 new KeyValuePair<string, string>("temporal_quality", n(TemporalQuality)),
                 new KeyValuePair<string, string>("frame_generation", n(FrameGeneration)),
+                new KeyValuePair<string, string>("internal_height", n(InternalHeight)),
                 new KeyValuePair<string, string>("spatial_quality", n(SpatialQuality)),
                 new KeyValuePair<string, string>("sharpness", n(Sharpness)),
                 new KeyValuePair<string, string>("anisotropic_filtering", n(Anisotropy[Math.Max(0, Math.Min(TextureFilter, Anisotropy.Length - 1))])),

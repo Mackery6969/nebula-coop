@@ -3,46 +3,43 @@
 #include "Game/Util/DemoUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
-MirrorReflectionModel::MirrorReflectionModel(const LiveActor* pActor, const char* pName, const char* pInternalName, MtxPtr mtx) : LiveActor(pName) {
-    _8C = pActor;
-    _90 = mtx;
-    _94 = 0;
-
-    if (mtx) {
-        TPos3f pos;
-        pos.set(mtx);
+MirrorReflectionModel::MirrorReflectionModel(const LiveActor* pHost, const char* pName, const char* pInternalName, MtxPtr pHostMtx)
+    : LiveActor(pName), mHost(pHost), mHostMtx(pHostMtx), mIsHostGone(false) {
+    if (pHostMtx) {
+        Pos3f pos;
+        pos.set(pHostMtx);
         pos.getTrans(mPosition);
     } else {
-        mPosition.set(pActor->mPosition);
+        mPosition.set(pHost->mPosition);
     }
 
-    mRotation.set(_8C->mRotation);
-    mScale.set(_8C->mScale);
+    mRotation.set(mHost->mRotation);
+    mScale.set(mHost->mScale);
     initModelManagerWithAnm(pInternalName, nullptr, false);
     MR::connectToSceneMirrorMapObjDecoration(this);
 }
 
-void MirrorReflectionModel::init(const JMapInfoIter& rIter) {
+void MirrorReflectionModel::init(const TableIter& /*rIter*/) {
     MR::invalidateClipping(this);
     MR::registerDemoSimpleCastAll(this);
     makeActorAppeared();
-    _94 = 0;
+    mIsHostGone = false;
 }
 
 void MirrorReflectionModel::movement() {
-    if (MR::isDead(_8C) || MR::isClipped(_8C) || MR::isHiddenModel(_8C)) {
-        if (!_94) {
-            _94 = 1;
+    if (MR::isDead(mHost) || MR::isClipped(mHost) || MR::isHiddenModel(mHost)) {
+        if (!mIsHostGone) {
+            mIsHostGone = true;
 
             if (!MR::isHiddenModel(this)) {
                 MR::disconnectToDrawTemporarily(this);
             }
         }
     } else {
-        if (_94) {
-            _94 = 0;
+        if (mIsHostGone) {
+            mIsHostGone = false;
             if (!MR::isHiddenModel(this)) {
                 MR::connectToDrawTemporarily(this);
             }
@@ -53,33 +50,24 @@ void MirrorReflectionModel::movement() {
 }
 
 void MirrorReflectionModel::calcAnim() {
-    if (!_94) {
-        if (!MR::isDead(this)) {
-            if (MR::isNoCalcAnim(this) || MR::isClipped(this)) {
-                return;
-            }
-
-            LiveActor::calcAnim();
-        }
+    if (!mIsHostGone && !MR::isDead(this) && !MR::isNoCalcAnim(this) && !MR::isClipped(this)) {
+        LiveActor::calcAnim();
     }
 }
 
 void MirrorReflectionModel::calcViewAndEntry() {
-    if (!_94) {
+    if (!mIsHostGone) {
         LiveActor::calcViewAndEntry();
     }
 }
 
 void MirrorReflectionModel::calcAndSetBaseMtx() {
-    if (!_90) {
+    if (!mHostMtx) {
         LiveActor::calcAndSetBaseMtx();
     } else {
-        TPos3f pos;
-        pos.set(_90);
+        Pos3f pos;
+        pos.set(mHostMtx);
         pos.getTrans(mPosition);
-        MR::setBaseTRMtx(this, _90);
+        MR::setBaseTRMtx(this, mHostMtx);
     }
-}
-
-MirrorReflectionModel::~MirrorReflectionModel() {
 }

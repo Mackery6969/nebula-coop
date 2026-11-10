@@ -5,15 +5,12 @@
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/Util/ObjUtil.hpp"
-#include <algorithm>
 
 SwitchWatcherHolder::SwitchWatcherHolder() : NameObj("SwitchWatcherHolder"), mSwitchWatcher() {
     MR::connectToScene(this, MR::MovementType_SwitchWatcherHolder, MR::CalcAnimType_None, MR::DrawBufferType_None, MR::DrawType_None);
 }
 
 void SwitchWatcherHolder::movement() {
-    // not quite sure what is going on here
-    // but it seems to just call movement on all watchers
     for (auto& item : mSwitchWatcher) {
         item->movement();
     }

@@ -1,7 +1,7 @@
 #pragma once
 
-// Nebula's services, asked directly by the game (nebula_game_api.h): the host's options and
-// code patches, its settings menu and button icons, achievements and play stats, presence, the galaxy select's
+// Nebula's services, asked directly by the game (nebula_game_api.h): the host's options,
+// its settings menu and button icons, achievements and play stats, presence, the galaxy select's
 // names, scene and light signals for the renderer, art export, test requests.
 
 
@@ -10,16 +10,6 @@
 extern "C" const NebulaHostServices* nebula_host(void);
 
 namespace NebulaHost {
-    // Whether code patch `id` (NEBULA_PATCH_*) is on, and its value: the host's answer is fixed for the session.
-    bool codePatch(u32 id, u32* pValue);
-
-    // Its value, or what the game has without it.
-    inline s32 setting(u32 id, s32 fallback) {
-        u32 value = static_cast< u32 >(fallback);
-        codePatch(id, &value);
-        return static_cast< s32 >(value);
-    }
-
     inline u32 option(u32 what) {
         return nebula_host()->option(nebula_host()->user, what);
     }
@@ -28,18 +18,25 @@ namespace NebulaHost {
         nebula_host()->game_context(nebula_host()->user, what, value);
     }
 
+    // The players the host's input serves, fixed for the session (a host without the service: one).
+    inline u32 inputPlayers() {
+        const NebulaHostServices* const host = nebula_host();
+        return host->input_players != nullptr ? host->input_players(host->user) : 1;
+    }
+
     inline int testSceneFrame(NebulaTestAction* pAction) {
         return nebula_host()->test_scene_frame(nebula_host()->user, pAction);
+    }
+
+    // Nanoseconds on a steady clock: durations a person feels (a hold, a press), the same at any frame rate.
+    inline u64 clockNs() {
+        return nebula_host()->clock_ns(nebula_host()->user);
     }
 
 
     // An object as the host names it (markers, lights, names): its address.
     inline u64 objectId(const void* pObject) {
         return static_cast< u64 >(reinterpret_cast< uintptr_t >(pObject));
-    }
-
-    inline void gameLight(u32 kind, u64 id, const f32* pValues) {
-        nebula_host()->game_light(nebula_host()->user, kind, id, pValues);
     }
 
     inline void gameStage(const char* pName) {
@@ -82,12 +79,8 @@ namespace NebulaHost {
         nebula_host()->button_icons(nebula_host()->user, pIcons);
     }
 
-    inline void textureHd(const void* pImage, const void* pHd) {
-        nebula_host()->texture_hd(nebula_host()->user, pImage, pHd);
-    }
-
-    inline u32 artExport(const NebulaArtExport* pArt) {
-        return nebula_host()->art_export(nebula_host()->user, pArt);
+    inline void textureHd(u32 texture, const void* pHd) {
+        nebula_host()->texture_hd(nebula_host()->user, texture, pHd);
     }
 
     inline u32 layer2DLines() {
@@ -166,5 +159,10 @@ namespace NebulaHost {
 
     inline u32 coopObjectsTake(NebulaCoopObjectState* pStates, u32 capacity) {
         return nebula_host()->coop_objects_take(nebula_host()->user, pStates, capacity);
+    }
+
+    // 1 once when the window lost focus and the player chose to pause then (the game opens its pause menu as the button does).
+    inline int takePauseRequest() {
+        return nebula_host()->take_pause_request(nebula_host()->user);
     }
 }  // namespace NebulaHost

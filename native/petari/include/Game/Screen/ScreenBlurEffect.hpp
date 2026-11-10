@@ -2,7 +2,7 @@
 
 #include "Game/Screen/ImageEffectBase.hpp"
 
-class JUTTexture;
+class GameTexture;
 
 class ScreenBlurEffect : public ImageEffectBase {
 public:
@@ -11,18 +11,18 @@ public:
     ScreenBlurEffect(const char* pName);
 
     /// @brief Draws the `ScreenBlurEffect` to the screen.
-    virtual void draw() const;
+    virtual void draw() const override;
 
-    virtual void calcAnimSub();
-    virtual void notifyTurnOn();
+    virtual void calcAnimSub() override;
+    virtual void notifyTurnOn() override;
 
     void drawBlur() const;
     void captureBlur() const;
 
-    JUTTexture* _14;
-    JUTTexture* _18;
-    JUTTexture* mFrameDepthKey;  // the frame's depth, in the depth pass
+    GameTexture* mFullTexture;  // full-size frame
+    GameTexture* mHalfTexture;  // half-size frame, filled with the depth
+    GameTexture* mFrameDepthKey;  // the frame's depth, in the depth pass
     f32 mScale;
-    bool _20;
+    bool mSkipDraw;  // off until the first animation update
     f32 mIntensity;
 };

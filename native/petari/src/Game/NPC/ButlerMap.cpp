@@ -10,7 +10,7 @@
 #include "Game/Util/DemoUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
 #include "Game/Util/EventUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/JointUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/NPCUtil.hpp"
@@ -19,7 +19,7 @@
 #include "Game/Util/TalkUtil.hpp"
 
 namespace {
-    const char* cDemoNameMapLecture = "\203\157\203\147\203\211\201\133\203\175\203\142\203\166\203\214\203\116\203\140\203\203\201\133" /* バトラーマップレクチャー */;
+    const char* cDemoNameMapLecture = "バトラーマップレクチャー";
 };  // namespace
 
 namespace NrvButlerMap {
@@ -34,8 +34,8 @@ namespace NrvButlerMap {
 ButlerMap::ButlerMap(const char* pName) : NPCActor(pName), mStateStarPieceReaction(), mObjArg0() {
 }
 
-void ButlerMap::init(const JMapInfoIter& rIter) {
-    MR::getJMapInfoArg0NoInit(rIter, &mObjArg0);
+void ButlerMap::init(const TableIter& rIter) {
+    MR::getPlacementArg0NoInit(rIter, &mObjArg0);
 
     NPCActorCaps caps("ButlerMap");
     caps.mObjectName = "Butler";
@@ -49,30 +49,30 @@ void ButlerMap::init(const JMapInfoIter& rIter) {
     caps.mBinder = false;
     NPCActor::initialize(rIter, caps);
     setDefaults2();
-    _13C = "Spin";
+    mReactionAction = "Spin";
     const char* wait = "Wait";
     const char* talk = "Talk";
-    mParam._14 = wait;
-    mParam._18 = wait;
-    mParam._1C = talk;
-    mParam._20 = talk;
+    mParam.mWaitAction = wait;
+    mParam.mWaitTurnAction = wait;
+    mParam.mTalkAction = talk;
+    mParam.mTalkTurnAction = talk;
     MR::createSceneObj(SceneObj_GalaxyMapController);
     MR::tryRegisterDemoCast(this, rIter);
-    MR::tryRegisterDemoCast(this, "\203\157\203\147\203\211\201\133\225\361\215\220" /* バトラー報告 */, rIter);
-    TVec3f vec;
+    MR::tryRegisterDemoCast(this, "バトラー報告", rIter);
+    Vec3f vec;
     const char* demoNameMapLecture = ::cDemoNameMapLecture;
-    vec.setPSZeroVec();
+    vec.setZeroVec();
     if (MR::tryInitDemoSheetTalkAnim(
             this, rIter, demoNameMapLecture, "DemoButlerMapLecture",
             MR::createTalkCtrlDirectOnRootNodeAutomatic(this, rIter, "AstroGalaxy_ButlerMap001", vec, MR::getJointMtx(this, "Body")))) {
         const char* demoNameMapLecture = ::cDemoNameMapLecture;
         const MR::FunctorBase& func = MR::Functor(this, &ButlerMap::startLectureDemo);
-        MR::registerDemoActionFunctorDirect(this, func, demoNameMapLecture, "\212\112\216\156" /* 開始 */);
-        MR::registerDemoActionFunctorDirect(this, MR::Functor(this, &ButlerMap::resetStatus), demoNameMapLecture, "\203\157\203\147\203\211\201\133\203\212\203\132\203\142\203\147" /* バトラーリセット */);
+        MR::registerDemoActionFunctorDirect(this, func, demoNameMapLecture, "開始");
+        MR::registerDemoActionFunctorDirect(this, MR::Functor(this, &ButlerMap::resetStatus), demoNameMapLecture, "バトラーリセット");
     }
 
     AstroDemoFunction::tryRegisterGrandStarReturnAndSimpleCast(this, rIter);
-    AstroDemoFunction::tryRegisterDemo(this, "\203\157\203\147\203\211\201\133\203\117\203\212\201\133\203\223\203\150\203\211\203\103\203\157\220\340\226\276" /* バトラーグリーンドライバ説明 */, rIter);
+    AstroDemoFunction::tryRegisterDemo(this, "バトラーグリーンドライバ説明", rIter);
 
     if (mObjArg0) {
         SphereSelectorFunction::registerTarget(this);
@@ -115,13 +115,13 @@ void ButlerMap::resetStatus() {
 }
 
 void ButlerMap::control() {
-    if (_D8) {
+    if (mIsTrampledStart) {
         MR::startSound(this, "SE_SM_NPC_TRAMPLED");
         MR::startSound(this, "SE_SV_BUTLER_TRAMPLED");
     }
 
     if (NPCActor::isPointingSe()) {
-        MR::startDPDHitSound();
+        MR::startPointerHitSound();
         MR::startSound(this, "SE_SV_BUTLER_POINT");
     }
 
@@ -148,7 +148,7 @@ bool ButlerMap::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* p
     return NPCActor::receiveMsgPlayerAttack(msg, pSender, pReceiver);
 }
 
-bool ButlerMap::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool ButlerMap::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (SphereSelectorFunction::trySyncKillMsgSelectStart(this, msg)) {
         return true;
     }
@@ -213,7 +213,7 @@ void ButlerMap::exeTalk() {
 }
 
 void ButlerMap::exeLectureDemoShowMapBefore() {
-    if (MR::isDemoPartLastStep("\203\175\203\142\203\166\225\134\216\246\212\112\216\156" /* マップ表示開始 */)) {
+    if (MR::isDemoPartLastStep("マップ表示開始")) {
         MR::pauseTimeKeepDemo(this);
         setNerve(GET_NERVE(ButlerMap, ButlerMapNrvLectureDemoShowMap));
     }

@@ -4,17 +4,15 @@
 
 class CameraFrontAndBack : public Camera {
 public:
-    CameraFrontAndBack(const char* pName = "\225\134\227\240\203\112\203\201\203\211" /* 表裏カメラ */);
-    virtual ~CameraFrontAndBack();
+    CameraFrontAndBack(const char* pName = "表裏カメラ");
 
-    virtual void reset();
-    virtual CameraTargetObj* calc();
-    virtual CamTranslatorBase* createTranslator();
+    virtual CameraTargetObj* calc() override;
+    virtual void setParamFromChunk(const CameraParamChunk*) override;
 
-    void calcBaseQuat(TQuat4f*, const TVec3f&);
-    void calcDipQuat(TQuat4f*, const TVec3f&, const TVec3f&);
+    void calcBaseQuat(Quat4f*, const Vec3f&);
+    void calcDipQuat(Quat4f*, const Vec3f&, const Vec3f&);
 
-    void setParam(const TVec3f& wPoint, const TVec3f& axis, f32 rotateRate, f32 maxDipAngle, f32 dist) {
+    void setParam(const Vec3f& wPoint, const Vec3f& axis, f32 rotateRate, f32 maxDipAngle, f32 dist) {
         mWPoint = wPoint;
         mAxis = axis;
         mRotateRate = rotateRate;
@@ -22,8 +20,8 @@ public:
         mDist = dist;
     }
 
-    TVec3f mWPoint;
-    TVec3f mAxis;
+    Vec3f mWPoint;
+    Vec3f mAxis;
     f32 mRotateRate;
     f32 mMaxDipAngle;
     f32 mDist;

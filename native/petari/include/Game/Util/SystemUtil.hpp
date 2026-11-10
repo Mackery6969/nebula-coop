@@ -2,7 +2,7 @@
 
 
 class GameSystemObjHolder;
-class JMapIdInfo;
+class PlacementId;
 class NameObj;
 class ParticleResourceHolder;
 
@@ -10,41 +10,31 @@ namespace MR {
     class FunctorBase;
 };  // namespace MR
 
-namespace nw4r {
-    namespace ut {
-        class Font;
-    };
-};  // namespace nw4r
+namespace Ui {
+    class Font;
+}  // namespace Ui
 
 namespace MR {
     GameSystemObjHolder* getGameSystemObjHolder();
-    nw4r::ut::Font* getFontOnCurrentLanguage();
-    nw4r::ut::Font* getPictureFontNW4R();
-    nw4r::ut::Font* getMenuFontNW4R();
-    nw4r::ut::Font* getNumberFontNW4R();
-    nw4r::ut::Font* getCinemaFontNW4R();
+    Ui::Font* getFontOnCurrentLanguage();
+    Ui::Font* getPictureFont();
+    Ui::Font* getMenuFont();
+    Ui::Font* getNumberFont();
+    Ui::Font* getCinemaFont();
     ParticleResourceHolder* getParticleResourceHolder();
-    void requestChangeArchivePlayer(bool);
-    void waitEndChangeArchivePlayer();
     void callMethodAllSceneNameObj(void (NameObj::*)());
     void suspendAllSceneNameObj();
     void resumeAllSceneNameObj();
     void syncWithFlagsAllSceneNameObj();
     void setRandomSeedFromStageName();
-    void clearFileLoaderRequestFileInfo(bool);
-    void startFunctionAsyncExecute(const MR::FunctorBase&, const char*);
-    bool startFunctionAsyncExecuteOnMainThread(const MR::FunctorBase&, const char*);
-    void waitForEndFunctionAsyncExecute(const char*);
-    bool isEndFunctionAsyncExecute(const char*);
-    bool tryEndFunctionAsyncExecute(const char*);
     // Scene init waits here for the scenario select; false while it has not got here.
-    void waitSceneInitializeResume();
+    void holdSceneInitialize();
     bool tryResumeSceneInitialize();
     bool isScreen16Per9();
     void initSceneMessage();
     void destroySceneMessage();
     void resetSystemAndGameStatus();
     void stopAllSound(u32);
-    JMapIdInfo* getPlayerRestartIdInfo();
-    void setPlayerRestartIdInfo(const JMapIdInfo&);
+    PlacementId* getPlayerRestartIdInfo();
+    void setPlayerRestartIdInfo(const PlacementId&);
 };  // namespace MR

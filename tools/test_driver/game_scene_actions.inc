@@ -6,8 +6,12 @@
         if (action.kind == NEBULA_TEST_CHANGE_STAGE) {
             nebula_snprintf(sStage, sizeof(sStage), "%s", action.stage);
             MR::requestChangeStageInGameMoving(sStage, action.scenario);
+        } else if (action.kind == NEBULA_TEST_CIRCLE_WIPE) {
+            if (action.scenario != 0) MR::openWipeCircle(60);
+            else MR::closeWipeCircle(60);
+            nebula_log("test: circle %s, 60 frames\n", action.scenario != 0 ? "open" : "close");
         } else if (action.kind == NEBULA_TEST_PLACE_PLAYER) {
-            MR::setPlayerPos(TVec3f(action.position[0], action.position[1], action.position[2]));
+            MR::setPlayerPos(Vec3f(action.position[0], action.position[1], action.position[2]));
         } else if (action.kind == NEBULA_TEST_KILL_PLAYER) {
             MR::forceKillPlayerByAbyss();
         } else if (action.kind == NEBULA_TEST_GET_STAR || action.kind == NEBULA_TEST_GET_GRAND_STAR) {
@@ -17,9 +21,9 @@
                 sPendingStarId = action.scenario;
             }
         } else if (action.kind == NEBULA_TEST_SET_PLAYER) {
-            // GameDataHolder::isDataMario reads the file's name ("mario1" or "luigi1").
-            nebula_snprintf(GameDataFunction::getCurrentGameDataHolder()->mName, sizeof(GameDataHolder::mName), "%s1",
-                     action.scenario != 0 ? "luigi" : "mario");
+            // The file played is user 1's Mario or Luigi file.
+            GameDataFunction::getCurrentGameDataHolder()->mIsMario = action.scenario == 0;
+            GameDataFunction::getCurrentGameDataHolder()->mUser = 1;
         } else if (action.kind == NEBULA_TEST_SET_GRAND_STARS) {
             // Grand Star n is the first star of its galaxy (SpecialStarGrand1-7 derive from these).
             static const char* const kGrandStarGalaxies[] = {"HeavensDoorGalaxy",    "TriLegLv1Galaxy",
@@ -57,8 +61,9 @@
             } else if (strncmp(action.stage, kRead, sizeof(kRead) - 1) == 0) {
                 MR::setPictureBookChapterAlreadyRead(atoi(action.stage + sizeof(kRead) - 1));
             } else if (strcmp(action.stage, "LuigiFile") == 0) {
-                // The file played as a Luigi file from here (its name; the stage built next reads it).
-                nebula_snprintf(GameDataFunction::getCurrentGameDataHolder()->mName, sizeof(GameDataHolder::mName), "luigi1");
+                // The file played as user 1's Luigi file from here (the stage built next reads it).
+                GameDataFunction::getCurrentGameDataHolder()->mIsMario = false;
+                GameDataFunction::getCurrentGameDataHolder()->mUser = 1;
             } else if (strcmp(action.stage, "SpinAndStarPointer") == 0) {
                 // The story's grant of the spin and the pointer (the Gateway's Luma), which an early save lacks.
                 MR::onGameEventFlagEnableToSpinAndStarPointer();
@@ -69,7 +74,7 @@
             } else if (const GameEventFlag* pFlag = GameEventFlagTable::findFlag(action.stage)) {
                 GameDataFunction::getCurrentGameDataHolder()->mEventFlagChecker->getChunk()->set(pFlag, true);
             } else {
-                JUTNativeLog("test: no event flag %s\n", action.stage);
+                nebula_log("test: no event flag %s\n", action.stage);
             }
         } else if (action.kind == NEBULA_TEST_LIST_ACTORS) {
             AllLiveActorGroup* pGroup = MR::getAllLiveActorGroup();
@@ -81,7 +86,7 @@
                 // With the animation it plays (none: no BCK started), its frame and rate; whether its model is shown;
                 // whether the game clips it.
                 const char* pBck = MR::getPlayingBckName(pActor);
-                JUTNativeLog("actor %s %.0f %.0f %.0f bck=%s frame=%.1f rate=%.2f stopped=%d hidden=%d clipped=%d\n",
+                nebula_log("actor %s %.0f %.0f %.0f bck=%s frame=%.1f rate=%.2f stopped=%d hidden=%d clipped=%d\n",
                          MR::getModelResName(pActor), pActor->mPosition.x, pActor->mPosition.y, pActor->mPosition.z,
                          pBck != nullptr ? pBck : "none", pBck != nullptr ? MR::getBckFrame(pActor) : 0.0f,
                          pBck != nullptr ? MR::getBckRate(pActor) : 0.0f, pBck != nullptr && MR::isBckStopped(pActor) ? 1 : 0,
@@ -95,7 +100,7 @@
                 LiveActor* pActor = pGroup->getActor(i);
                 if (pActor != nullptr && pActor->mModelManager != nullptr && MR::isDead(pActor) &&
                     MR::isEqualStringCase(MR::getModelResName(pActor), action.stage)) {
-                    JUTNativeLog("test: appear %s %.0f %.0f %.0f\n", action.stage, pActor->mPosition.x, pActor->mPosition.y,
+                    nebula_log("test: appear %s %.0f %.0f %.0f\n", action.stage, pActor->mPosition.x, pActor->mPosition.y,
                              pActor->mPosition.z);
                     // An actor a stage switch holds back follows that switch.
                     if (MR::isValidSwitchAppear(pActor)) {
@@ -111,25 +116,18 @@
                 LiveActor* pActor = pGroup->getActor(i);
                 if (pActor != nullptr && pActor->mModelManager != nullptr &&
                     MR::isEqualStringCase(MR::getModelResName(pActor), action.stage)) {
-                    J3DModelData* pData = MR::getJ3DModelData(pActor);
-                    for (u16 m = 0; pData != nullptr && m < pData->getMaterialNum(); ++m) {
-                        const J3DMaterial* pMaterial = pData->getMaterialNodePointer(m);
-                        const NebulaCookedMaterial* pCooked = pMaterial->mNativeMaterial;
-                        JUTNativeLog("test: material %s %u %s shader %u blend %u %u %u %u depth %u %u %u cull %u\n", action.stage, m,
-                                     pData->getMaterialName()->getName(m), pCooked != nullptr ? pCooked->shader : 0u,
-                                     pCooked != nullptr ? pCooked->blend_op : 0u, pCooked != nullptr ? pCooked->blend_src : 0u,
-                                     pCooked != nullptr ? pCooked->blend_dst : 0u, pCooked != nullptr ? pCooked->logic_op : 0u,
-                                     pCooked != nullptr ? pCooked->depth_test : 0u, pCooked != nullptr ? pCooked->depth_func : 0u,
-                                     pCooked != nullptr ? pCooked->depth_write : 0u, pCooked != nullptr ? pCooked->cull : 0u);
-                        J3DMaterial* pEditable = pData->getMaterialNodePointer(m);
-                        for (u32 c = 0; c < pEditable->getTexGenNum(); ++c) {
-                            J3DTexCoord* pCoord = pEditable->getTexCoord(c);
-                            J3DTexMtx* pMtx = pEditable->mTexGenBlock->getTexMtx(c);
-                            JUTNativeLog("test: coordinate %u %u type %u source %u matrix %u info %u projection %u used %u\n", m, c,
-                                         pCoord->getTexGenType(), pCoord->getTexGenSrc(), pCoord->getTexGenMtx(),
-                                         pMtx != nullptr ? pMtx->getTexMtxInfo().mInfo : 255u,
-                                         pMtx != nullptr ? pMtx->getTexMtxInfo().mProjection : 255u,
-                                         pCooked != nullptr ? (pCooked->used_coords >> c) & 1u : 0u);
+                    ModelData* pData = MR::getModelData(pActor);
+                    for (u16 m = 0; pData != nullptr && m < pData->getMaterialCount(); ++m) {
+                        Material* pMaterial = pData->getMaterialAt(m);
+                        nebula_log("test: material %s %u %s\n", action.stage, m, pData->getMaterialName(m));
+                        for (u32 c = 0; c < pMaterial->getCoordCount(); ++c) {
+                            MaterialCoord* pCoord = pMaterial->getCoord(c);
+                            CoordMatrix* pMtx = pMaterial->getCoordMatrix(c);
+                            nebula_log("test: coordinate %u %u type %u source %u matrix %u info %u projection %u used %u\n", m, c,
+                                         pCoord->mType, pCoord->mSource, pCoord->mMatrix,
+                                         pMtx != nullptr ? pMtx->getInfo().mInfo : 255u,
+                                         pMtx != nullptr ? pMtx->getInfo().mProjection : 255u,
+                                         pMaterial->usesCoord(c) ? 1u : 0u);
                         }
                     }
                     break;
@@ -152,11 +150,16 @@
                 LiveActor* pActor = pGroup->getActor(i);
                 if (pActor != nullptr && pActor->mModelManager != nullptr && !MR::isDead(pActor) &&
                     MR::isEqualStringCase(MR::getModelResName(pActor), action.stage)) {
-                    JUTNativeLog("test: kill %s %.0f %.0f %.0f\n", action.stage, pActor->mPosition.x, pActor->mPosition.y,
+                    nebula_log("test: kill %s %.0f %.0f %.0f\n", action.stage, pActor->mPosition.x, pActor->mPosition.y,
                              pActor->mPosition.z);
                     pActor->kill();
                 }
             }
+        } else if (action.kind == NEBULA_TEST_DOME_LAUNCH) {
+            // What the galaxy selector's confirm asks (AstroDomeGalaxySelector::exeGalaxyConfirm), the player its requester.
+            const bool started = MR::requestStartTimeKeepDemoMarioPuppetable(MarioAccess::getPlayerActor(), "マリオ飛び出し", nullptr,
+                                                                             nullptr, nullptr);
+            nebula_log("test: dome launch %s\n", started ? "started" : "queued");
         } else if (action.kind == NEBULA_TEST_SHAKE_CAMERA) {
             // The shaker keeps its owner only to stop it; nothing stops this one.
             MR::shakeCameraInfinity(nullptr, 0.2f, 2.0f);
@@ -165,7 +168,7 @@
                 MR::getSceneObj< MoviePlayingSequenceHolder >(SceneObj_MoviePlayingSequenceHolder)->getSequence(action.scenario) != nullptr) {
                 MR::startMovie(action.scenario);
             } else {
-                JUTNativeLog("test: no movie sequence in this stage\n");
+                nebula_log("test: no movie sequence in this stage\n");
             }
         }
     }

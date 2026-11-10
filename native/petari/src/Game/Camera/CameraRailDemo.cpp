@@ -1,11 +1,12 @@
 #include "Game/Camera/CameraRailDemo.hpp"
-#include "Game/Camera/CamTranslatorRailDemo.hpp"
+#include "Game/Camera/CameraParamChunk.hpp"
 #include "Game/Camera/CameraDirector.hpp"
 #include "Game/Camera/CameraLocalUtil.hpp"
 #include "Game/Camera/CameraRailHolder.hpp"
 #include "Game/LiveActor/RailRider.hpp"
 
-CameraRailDemo::CameraRailDemo(const char* pName) : Camera(pName) {
+CameraRailDemo::CameraRailDemo(const char* pName)
+    : Camera(pName), mRailRider(), mCalcType(), mDemoTime(), mDemoTimer(), mDampRatio(), mCoord() {
 }
 
 void CameraRailDemo::reset() {
@@ -37,8 +38,8 @@ void CameraRailDemo::setParam(s32 zoneID, s32 railID, s32 calcType, s32 demoTime
     mDampRatio = dampRatio;
 }
 
-CamTranslatorBase* CameraRailDemo::createTranslator() {
-    return new CamTranslatorRailDemo(this);
+void CameraRailDemo::setParamFromChunk(const CameraParamChunk* pChunk) {
+    setParam(pChunk->getZoneID(), pChunk->mGeneralParam->mNum1 >> 16, pChunk->mGeneralParam->mNum2, pChunk->mGeneralParam->mNum1 & 0xFFFF, pChunk->mGeneralParam->mDist);
 }
 
 void CameraRailDemo::calcLinear() {
@@ -46,21 +47,7 @@ void CameraRailDemo::calcLinear() {
         return;
     }
 
-    f32 t;
-    if (mDemoTime <= 0) {
-        t = 0.0f;
-    } else if (mDemoTimer >= mDemoTime) {
-        t = 1.0f;
-    } else {
-        t = static_cast< f32 >(mDemoTimer) / static_cast< f32 >(mDemoTime);
-    }
-
-    mRailRider->setCoord(t * mRailRider->getTotalLength());
-    CameraLocalUtil::setPos(this, mRailRider->mCurPos);
-
-    mRailRider->setCoord((t * mRailRider->getTotalLength()) + 1000.0f);
-    CameraLocalUtil::setWatchPos(this, mRailRider->mCurPos);
-    CameraLocalUtil::setUpVecAndWatchUpVec(this, TVec3f(0.0f, 1.0f, 0.0f));
+    placeOnRail(calcTimeRate() * mRailRider->getTotalLength());
 }
 
 void CameraRailDemo::calcEaseInOut() {
@@ -68,25 +55,12 @@ void CameraRailDemo::calcEaseInOut() {
         return;
     }
 
-    f32 t;
-    if (mDemoTime <= 0) {
-        t = 0.0f;
-    } else if (mDemoTimer >= mDemoTime) {
-        t = 1.0f;
-    } else {
-        t = static_cast< f32 >(mDemoTimer) / static_cast< f32 >(mDemoTime);
-        t *= t;
-        t *= t;
-    }
+    f32 t = calcTimeRate();
+    t *= t;
+    t *= t;
 
     mCoord += t * (mRailRider->getTotalLength() - mCoord);
-
-    mRailRider->setCoord(mCoord);
-    CameraLocalUtil::setPos(this, mRailRider->mCurPos);
-
-    mRailRider->setCoord(mCoord + 1000.0f);
-    CameraLocalUtil::setWatchPos(this, mRailRider->mCurPos);
-    CameraLocalUtil::setUpVecAndWatchUpVec(this, TVec3f(0.0f, 1.0f, 0.0f));
+    placeOnRail(mCoord);
 }
 
 void CameraRailDemo::calcDamp() {
@@ -95,11 +69,28 @@ void CameraRailDemo::calcDamp() {
     }
 
     mCoord = mCoord * mDampRatio + mRailRider->getTotalLength() * (1.0f - mDampRatio);
+    placeOnRail(mCoord);
+}
 
-    mRailRider->setCoord(mCoord);
+// 0 without a demo time, else the demo's elapsed part, at most 1.
+f32 CameraRailDemo::calcTimeRate() const {
+    if (mDemoTime <= 0) {
+        return 0.0f;
+    }
+
+    if (mDemoTimer >= mDemoTime) {
+        return 1.0f;
+    }
+
+    return static_cast< f32 >(mDemoTimer) / static_cast< f32 >(mDemoTime);
+}
+
+// The camera sits at coord and watches the rail point 1000 further on.
+void CameraRailDemo::placeOnRail(f32 coord) {
+    mRailRider->setCoord(coord);
     CameraLocalUtil::setPos(this, mRailRider->mCurPos);
 
-    mRailRider->setCoord(mCoord + 1000.0f);
+    mRailRider->setCoord(coord + 1000.0f);
     CameraLocalUtil::setWatchPos(this, mRailRider->mCurPos);
-    CameraLocalUtil::setUpVecAndWatchUpVec(this, TVec3f(0.0f, 1.0f, 0.0f));
+    CameraLocalUtil::setUpVecAndWatchUpVec(this, Vec3f(0.0f, 1.0f, 0.0f));
 }

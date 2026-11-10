@@ -1,6 +1,7 @@
 // The game's sound on every host (native_audio.h): the native mixer's frames at the master volume with the remote speaker
 // added, pulled by the output device (audio_device.h), and the WAV dump the tests record.
 #include "galaxy/native_audio.h"
+#include "galaxy/launch_args.h"
 #include "galaxy/run_options.h"
 
 #include "galaxy/audio_device.h"
@@ -331,6 +332,9 @@ struct NativeGameAudio::State {
     AudioWavDump wav;
     float master{1.0f};
     bool master_started{};
+    // 1 while heard, 0 while the window is in the background with focus_loss=mute; ramped across a frame on a change.
+    float audible{1.0f};
+    std::vector<float> speaker_frame;  // the remote speaker's frame on its own, while `audible` ramps
     galaxy::SoundOutput sound_output{galaxy::SoundOutput::Stereo};
     std::vector<std::byte> wav_block;
     // The frames made and not yet pulled, interleaved; the device's thread only. Center, surround left and right apart
@@ -451,9 +455,9 @@ void NativeGameAudio::stop() {
     state_->running.store(false, std::memory_order_release);
 }
 
-void NativeGameAudio::mix(float gain) {
+void NativeGameAudio::mix(float gain, std::uint32_t used) {
     if (state_->mixer != nullptr) {
-        state_->mixer->mix(gain);
+        state_->mixer->mix(gain, used);
     }
 }
 
@@ -473,10 +477,15 @@ void NativeGameAudio::frame() {
             s.device->set_surround(s.sound_output == galaxy::SoundOutput::Surround);
         }
     }
-    const float target = audio.master >= 0.0f ? std::min(audio.master, 4.0f) : 0.0f;
+    // Muted in the background: the mix goes on at full pace and the master ramps to silence, so nothing clicks.
+    const bool muted = galaxy::background_muted();
+    const float target = (muted || audio.master < 0.0f) ? 0.0f : std::min(audio.master, 4.0f);
     const float start = s.master_started ? s.master : target;
     s.master_started = true;
     s.master = target;
+    const float audible = muted ? 0.0f : 1.0f;
+    const float audible_start = s.audible;
+    s.audible = audible;
     const std::size_t frames = samples.size() / 2u;
     if (frames == 0u) {
         return;
@@ -499,7 +508,20 @@ void NativeGameAudio::frame() {
             }
         }
     }
-    galaxy::input::speaker::game_speaker().mix(out, s.mixer->rate(), audio.wiimote_speaker);
+    // The remote speaker is summed after the master, so the mute fades it on its own; silent, it stops listening and
+    // drops what arrived meanwhile.
+    galaxy::input::speaker::Speaker& speaker = galaxy::input::speaker::game_speaker();
+    if (audible_start == audible) {
+        speaker.mix(out, s.mixer->rate(), audible > 0.0f ? audio.wiimote_speaker : 0.0f);
+    } else {
+        s.speaker_frame.assign(frames * 2u, 0.0f);
+        speaker.mix(s.speaker_frame, s.mixer->rate(), audio.wiimote_speaker);
+        for (std::size_t i = 0; i < frames; ++i) {
+            const float gain = audible_start + (audible - audible_start) * static_cast<float>(i + 1u) / static_cast<float>(frames);
+            out[i * 2u] += s.speaker_frame[i * 2u] * gain;
+            out[i * 2u + 1u] += s.speaker_frame[i * 2u + 1u] * gain;
+        }
+    }
     if (audio.sound_output == galaxy::SoundOutput::Mono) {
         for (std::size_t i = 0; i < frames; ++i) {
             const float both = 0.5f * (out[i * 2u] + out[i * 2u + 1u]);
@@ -507,7 +529,7 @@ void NativeGameAudio::frame() {
             out[i * 2u + 1u] = both;
         }
     }
-    static const bool trace_first = ::galaxy::run_options().trace_file_reads != nullptr;
+    const bool trace_first = ::galaxy::diagnosing(::galaxy::kDiagnoseFileReads);
     static bool first_sound = false;
     if (trace_first && !first_sound && std::any_of(out.begin(), out.end(), [](float value) { return value != 0.0f; })) {
         first_sound = true;

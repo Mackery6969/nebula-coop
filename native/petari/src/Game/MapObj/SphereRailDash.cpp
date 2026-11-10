@@ -3,7 +3,7 @@
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util/ActorMovementUtil.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/NerveUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
@@ -14,30 +14,26 @@ namespace NrvSphereRailDash {
     NEW_NERVE(SphereRailDashNrvRailMove, SphereRailDash, RailMove);
 };  // namespace NrvSphereRailDash
 
-SphereRailDash::~SphereRailDash() {
-}
-
 SphereRailDash::SphereRailDash(const char* pName)
-    : LiveActor(pName), _8C(), _90(0.0f, 0.0f, 0.0f), _9C(200.0f), _A0(50.0f), _B0(), _B4(), _B8(), _BC() {
+    : LiveActor(pName), mBinderSensor(), mOffset(0.0f, 0.0f, 0.0f), mEndSpeed(50.0f), mCoordCubic(), mCoordQuadratic(), mCoordLinear(), mMoveStep() {
 }
 
-void SphereRailDash::init(const JMapInfoIter& rIter) {
+void SphereRailDash::init(const TableIter& rIter) {
     initNerve(GET_NERVE(SphereRailDash, SphereRailDashNrvWait));
     initRailRider(rIter);
     MR::moveCoordToStartPos(this);
-    TVec3f railPosition(MR::getRailPos(this));
+    Vec3f railPosition(MR::getRailPos(this));
     initHitSensor(1);
     MR::addHitSensor(this, "body", ATYPE_SPHERE_DASH, 5, 200.0f, railPosition);
     MR::connectToSceneMapObjMovement(this);
     MR::invalidateClipping(this);
-    MR::getJMapInfoArg0NoInit(rIter, &_9C);
-    MR::getJMapInfoArg1NoInit(rIter, &_A0);
+    MR::getPlacementArg1NoInit(rIter, &mEndSpeed);
     appear();
 }
 
-bool SphereRailDash::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool SphereRailDash::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* /*pReceiver*/) {
     if (msg == ACTMES_SPHERE_PLAYER_BINDED) {
-        _8C = pSender;
+        mBinderSensor = pSender;
         return true;
     }
 
@@ -45,31 +41,33 @@ bool SphereRailDash::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pRe
 }
 
 void SphereRailDash::exeWait() {
-    if (_8C != nullptr) {
+    if (mBinderSensor != nullptr) {
         MR::moveCoordToStartPos(this);
-        const TVec3f& rPosition = _8C->mHost->mPosition;
-        _90 = rPosition - MR::getRailPos(this);
-        TVec3f direction(MR::getRailDirection(this));
-        TVec3f velocity(_8C->mHost->mVelocity);
+        const Vec3f& rPosition = mBinderSensor->mHost->mPosition;
+        mOffset = rPosition - MR::getRailPos(this);
+        Vec3f direction(MR::getRailDirection(this));
+        Vec3f velocity(mBinderSensor->mHost->mVelocity);
         f32 speed = direction.dot(velocity);
 
         if (speed < 0.0f) {
             speed = 0.0f;
-            _A4 = velocity;
+            mOffsetVelocity = velocity;
         } else {
-            _A4 = velocity - direction * speed;
+            mOffsetVelocity = velocity - direction * speed;
         }
 
-        f32 endSpeed = _A0;
-        f32 duration = 3.0f * MR::getRailTotalLength(this) / (speed + 2.0f * endSpeed);
+        f32 endSpeed = mEndSpeed;
+        // No speed at either end (the arg is 0 and the player stands still) crosses the rail in one step.
+        const f32 speedSum = speed + 2.0f * endSpeed;
+        f32 duration = speedSum > 0.0f ? 3.0f * MR::getRailTotalLength(this) / speedSum : 1.0f;
         f32 acceleration = 2.0f * (endSpeed - speed) / duration;
-        _B0 = -acceleration / (2.0f * duration) / 3.0f;
-        _B4 = acceleration / 2.0f;
-        _B8 = speed;
-        _BC = duration + (duration - static_cast< s32 >(duration) > 0.0001f ? 1.0f : 0.0f);
+        mCoordCubic = -acceleration / (2.0f * duration) / 3.0f;
+        mCoordQuadratic = acceleration / 2.0f;
+        mCoordLinear = speed;
+        mMoveStep = duration + (duration - static_cast< s32 >(duration) > 0.0001f ? 1.0f : 0.0f);
 
-        if (_BC < 0) {
-            _BC = 0;
+        if (mMoveStep < 0) {
+            mMoveStep = 0;
         }
 
         setNerve(GET_NERVE(SphereRailDash, SphereRailDashNrvRailMove));
@@ -78,32 +76,33 @@ void SphereRailDash::exeWait() {
 
 void SphereRailDash::exeRailMove() {
     if (MR::isFirstStep(this)) {
-        MR::zeroVelocity(_8C->mHost);
+        MR::zeroVelocity(mBinderSensor->mHost);
     }
 
-    if (getNerveStep() + 1 >= _BC) {
+    if (getNerveStep() + 1 >= mMoveStep) {
         MR::moveCoordToEndPos(this);
     } else {
         f32 time = getNerveStep() + 1;
-        MR::setRailCoord(this, time * (_B8 + time * (_B4 + _B0 * time)));
+        MR::setRailCoord(this, time * (mCoordLinear + time * (mCoordQuadratic + mCoordCubic * time)));
     }
 
-    f32 progress = MR::getRailCoord(this) / MR::getRailTotalLength(this);
-    _90 += _A4;
-    _A4.mult(0.85f);
-    TVec3f previousPosition(_8C->mHost->mPosition);
-    TVec3f position = MR::getRailPos(this) + _90.multInLine2(1.0f - progress);
-    TVec3f& rVelocity = _8C->mHost->mVelocity;
+    // A rail with no length is already at its end.
+    const f32 railLength = MR::getRailTotalLength(this);
+    f32 progress = railLength > 0.0f ? MR::getRailCoord(this) / railLength : 1.0f;
+    mOffset += mOffsetVelocity;
+    mOffsetVelocity.mult(0.85f);
+    Vec3f previousPosition(mBinderSensor->mHost->mPosition);
+    Vec3f position = MR::getRailPos(this) + mOffset.multInLine2(1.0f - progress);
+    Vec3f& rVelocity = mBinderSensor->mHost->mVelocity;
     rVelocity.set(position - previousPosition);
 
     if (MR::isRailReachedGoal(this)) {
-        _8C->mHost->mPosition.set(position);
-        LiveActor* pActor = _8C->mHost;
-        f32 endSpeed = _A0;
+        mBinderSensor->mHost->mPosition.set(position);
+        LiveActor* pActor = mBinderSensor->mHost;
+        f32 endSpeed = mEndSpeed;
         pActor->mVelocity.set(MR::getRailDirection(this) * endSpeed);
-        _8C->receiveMessage(ACTMES_END_RAIL_DASH, getSensor("body"));
-        _8C = nullptr;
+        mBinderSensor->receiveMessage(ACTMES_END_RAIL_DASH, getSensor("body"));
+        mBinderSensor = nullptr;
         setNerve(GET_NERVE(SphereRailDash, SphereRailDashNrvWait));
     }
 }
-

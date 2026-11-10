@@ -6,23 +6,21 @@
 #include "Game/System/GameEventFlagStorage.hpp"
 #include "Game/System/GameEventFlagTable.hpp"
 #include "Game/System/GameEventValueChecker.hpp"
-#include "Game/System/ScenarioProgressTestRun.hpp"
 #include "Game/System/SpinDriverPathStorage.hpp"
 #include "Game/System/StarPieceAlmsStorage.hpp"
 #include "Game/System/StoryProgressTable.hpp"
 #include "Game/System/UserFile.hpp"
-#include "Game/Util/JMapInfo.hpp"
+#include "Game/Util/Table.hpp"
 #include "Game/Util/MathUtil.hpp"
-#include <cstdio>
+#include "Game/Util/StringUtil.hpp"
 
 namespace {
     const char cPictureBookChapterSuffix[] = "ABCDEFGHI";
 };  // namespace
 
 GameDataHolder::GameDataHolder(const UserFile* pUserFile)
-    : mUserFile(pUserFile), mEventFlagChecker(), mEventValueChecker(), mPlayerStatus(), mAllGalaxyStorage(), mSpinDriverPathStorage(),
-      mStarPieceAlmsStorage(), mMapInfo(), mScenarioProgressTestRun(), mChunkHolder() {
-    mScenarioProgressTestRun = new ScenarioProgressTestRun(this);
+    : mEventFlagChecker(), mEventValueChecker(), mPlayerStatus(), mAllGalaxyStorage(), mSpinDriverPathStorage(), mStarPieceAlmsStorage(),
+      mMapInfo(), mChunkHolder(), mUserFile(pUserFile) {
     mAllGalaxyStorage = new GameDataAllGalaxyStorage();
     mEventFlagChecker = new GameEventFlagChecker(this);
     mEventValueChecker = new GameEventValueChecker();
@@ -30,10 +28,10 @@ GameDataHolder::GameDataHolder(const UserFile* pUserFile)
     mSpinDriverPathStorage = new SpinDriverPathStorage();
     mStarPieceAlmsStorage = new StarPieceAlmsStorage();
 
-    mMapInfo = new JMapInfo();
+    mMapInfo = new Table();
     mMapInfo->attach(NebulaDataTables::getStoryProgressTable());
 
-    mChunkHolder = new BinaryDataChunkHolder(4096 + 1024 * NebulaDataTables::addedGalaxyCount() + mAllGalaxyStorage->getExtraBytes(), 6);
+    mChunkHolder = new BinaryDataChunkHolder();
     mChunkHolder->addChunk(mPlayerStatus);
     mChunkHolder->addChunk(mEventFlagChecker->getChunk());
     mChunkHolder->addChunk(mStarPieceAlmsStorage);
@@ -43,11 +41,12 @@ GameDataHolder::GameDataHolder(const UserFile* pUserFile)
 
     resetAllData();
 
-    nebula_snprintf(mName, sizeof(mName), "mario1");
+    mIsMario = true;
+    mUser = 1;
 }
 
 bool GameDataHolder::isDataMario() const {
-    return strstr(mName, "mario") != nullptr;
+    return mIsMario;
 }
 
 s32 GameDataHolder::getGalaxyNumCanOpen() const {
@@ -98,10 +97,15 @@ void GameDataHolder::setGameEventValue(const char* pName, u16 value) {
 bool GameDataHolder::isOnGameEventValueForBit(const char* pName, int bit) const {
     u16 value = mEventValueChecker->getValue(pName);
 
-    return value & 1 << bit;
+    // The value is 16 bits: a bit outside it (a mod's stage with more pods or Tico than bits) is off.
+    return bit >= 0 && bit < 16 && (value & 1 << bit) != 0;
 }
 
 void GameDataHolder::setGameEventValueForBit(const char* pName, int bit, bool reset) {
+    if (bit < 0 || bit >= 16) {
+        return;
+    }
+
     u32 mask;
     u16 value = mEventValueChecker->getValue(pName);
     mask = 1 << bit;
@@ -118,10 +122,7 @@ s32 GameDataHolder::getPictureBookChapterCanRead() const {
     s32 canRead = 0;
 
     for (u32 idx = 0; idx < sizeof(::cPictureBookChapterSuffix) - 1; idx++) {
-        char name[256];
-        nebula_snprintf(name, sizeof(name), "PictureBook%c", ::cPictureBookChapterSuffix[idx]);
-
-        if (!isOnGameEventFlag(name)) {
+        if (!isOnGameEventFlag(MR::FormattedName("PictureBook%c", ::cPictureBookChapterSuffix[idx]).c_str())) {
             break;
         }
 
@@ -132,33 +133,29 @@ s32 GameDataHolder::getPictureBookChapterCanRead() const {
 }
 
 s32 GameDataHolder::getPictureBookChapterAlreadyRead() const {
-    return mEventValueChecker->getValue("\212\107\226\173\212\371\223\307\217\315" /* 絵本既読章 */);
+    return mEventValueChecker->getValue("絵本既読章");
 }
 
 void GameDataHolder::setPictureBookChapterAlreadyRead(int value) {
-    setGameEventValue("\212\107\226\173\212\371\223\307\217\315" /* 絵本既読章 */, value);
+    setGameEventValue("絵本既読章", value);
 }
 
 void GameDataHolder::setRaceBestTime(const char* pName, u32 value) {
-    char hiName[256];
-    nebula_snprintf(hiName, sizeof(hiName), "%s/hi", pName);
-    setGameEventValue(hiName, value >> 16);
+    MR::FormattedName hiName("%s/hi", pName);
+    setGameEventValue(hiName.c_str(), value >> 16);
 
-    char loName[256];
-    nebula_snprintf(loName, sizeof(loName), "%s/lo", pName);
-    setGameEventValue(loName, value);
+    MR::FormattedName loName("%s/lo", pName);
+    setGameEventValue(loName.c_str(), value);
     // Online co-op: the room's best time is the best of anyone's.
     NebulaCoopWorld::noticeRaceTime(this, pName, value);
 }
 
 u32 GameDataHolder::getRaceBestTime(const char* pName) const {
-    char hiName[256];
-    nebula_snprintf(hiName, sizeof(hiName), "%s/hi", pName);
-    u32 hiValue = mEventValueChecker->getValue(hiName);
+    MR::FormattedName hiName("%s/hi", pName);
+    u32 hiValue = mEventValueChecker->getValue(hiName.c_str());
 
-    char loName[256];
-    nebula_snprintf(loName, sizeof(loName), "%s/lo", pName);
-    u32 loValue = mEventValueChecker->getValue(loName);
+    MR::FormattedName loName("%s/lo", pName);
+    u32 loValue = mEventValueChecker->getValue(loName.c_str());
 
     return hiValue << 16 | loValue;
 }
@@ -193,10 +190,7 @@ bool GameDataHolder::hasPowerStar(const char* pGalaxyName, s32 scenarioNum) cons
 }
 
 bool GameDataHolder::hasGrandStar(int index) const {
-    char name[256];
-    nebula_snprintf(name, sizeof(name), "SpecialStarGrand%1d", index);
-
-    return isOnGameEventFlag(name);
+    return isOnGameEventFlag(MR::FormattedName("SpecialStarGrand%1d", index).c_str());
 }
 
 void GameDataHolder::setPowerStar(const char* pGalaxyName, s32 scenarioNum, bool set) {
@@ -240,14 +234,13 @@ void GameDataHolder::onGalaxyScenarioFlagAlreadyVisited(const char* pGalaxyName,
 }
 
 bool GameDataHolder::isAppearGalaxy(const char* pGalaxyName) const {
-    char name[256];
-    nebula_snprintf(name, sizeof(name), "Appear%s", pGalaxyName);
+    MR::FormattedName name("Appear%s", pGalaxyName);
 
-    if (!GameEventFlagTable::isExist(name)) {
+    if (!GameEventFlagTable::isExist(name.c_str())) {
         return true;
     }
 
-    return isOnGameEventFlag(name);
+    return isOnGameEventFlag(name.c_str());
 }
 
 s32 GameDataHolder::getPlayerLeft() const {
@@ -302,7 +295,7 @@ bool GameDataHolder::isCompleteMarioAndLuigi() const {
 }
 
 bool GameDataHolder::isPassedStoryEvent(const char* pEventName) const {
-    JMapInfoIter iter = mMapInfo->findElement("name", pEventName, 0);
+    TableIter iter = mMapInfo->findElement("name", pEventName, 0);
 
     u32 progress = 0;
     iter.getValue("progress", &progress);
@@ -310,7 +303,7 @@ bool GameDataHolder::isPassedStoryEvent(const char* pEventName) const {
 }
 
 void GameDataHolder::followStoryEventByName(const char* pEventName) {
-    JMapInfoIter iter = mMapInfo->findElement("name", pEventName, 0);
+    TableIter iter = mMapInfo->findElement("name", pEventName, 0);
 
     u32 progress = 0;
     iter.getValue("progress", &progress);
@@ -326,11 +319,12 @@ void GameDataHolder::resetAllData() {
     mStarPieceAlmsStorage->initializeData();
 }
 
-u32 GameDataHolder::makeFileBinary(u8* pData, u32 a2) {
-    return mChunkHolder->makeFileBinary(pData, a2);
+u32 GameDataHolder::makeFileBinary(u8* pData, u32 capacity) {
+    return mChunkHolder->makeFileBinary(pData, capacity);
 }
 
-bool GameDataHolder::loadFromFileBinary(const char* pName, const u8* pData, u32 dataSize) {
-    nebula_snprintf(mName, sizeof(mName), "%s", pName);
+bool GameDataHolder::loadFromFileBinary(SaveFileId file, const u8* pData, u32 dataSize) {
+    mIsMario = file.mKind == SaveFileId::Kind_Mario;
+    mUser = file.mUser;
     return mChunkHolder->loadFromFileBinary(pData, dataSize);
 }

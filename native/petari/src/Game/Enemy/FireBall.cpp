@@ -14,19 +14,20 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    const f32 cSensorRadius = 40.0f;
-    const f32 cBinderRadius = 60.0f;
-    const f32 cForceKillDistance = 5000.0f;
-    const f32 cStarWandRadius3d = 150.0f;
-    const f32 cThrowOffsetY = 120.0f;
-    const f32 cReflectSpeed = 100.0f;
-    const f32 cReflectReduceRate = 0.96f;
-    const s32 cReflectFrame = 30;
-    const s32 cReflectInvalidFrame = 60;
-    const f32 cReflectCursorSpeed = 30.0f;
-    const f32 cReflectRandomVelocityY = 1.0f;
+    NEBULA_TUNABLE(f32, cSensorRadius, 40.0f);
+    NEBULA_TUNABLE(f32, cBinderRadius, 60.0f);
+    NEBULA_TUNABLE(f32, cForceKillDistance, 5000.0f);
+    NEBULA_TUNABLE(f32, cStarWandRadius3d, 150.0f);
+    NEBULA_TUNABLE(f32, cThrowOffsetY, 120.0f);
+    NEBULA_TUNABLE(f32, cReflectSpeed, 100.0f);
+    NEBULA_TUNABLE(f32, cReflectReduceRate, 0.96f);
+    NEBULA_TUNABLE(s32, cReflectFrame, 30);
+    NEBULA_TUNABLE(s32, cReflectInvalidFrame, 60);
+    NEBULA_TUNABLE(f32, cReflectCursorSpeed, 30.0f);
+    NEBULA_TUNABLE(f32, cReflectRandomVelocityY, 1.0f);
     static const NebulaColor8 color = {255, 192, 0, 255};
 };  // namespace
 
@@ -40,10 +41,10 @@ FireBall::FireBall(const char* pName) : LiveActor(pName), mHost(), mUp(0.0f, 1.0
 
 inline void FireBall::initHitSensors(const char* const hitSensor) {
     initHitSensor(1);
-    MR::addHitSensorEnemy(this, hitSensor, 8, ::cSensorRadius, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorEnemy(this, hitSensor, 8, ::cSensorRadius, Vec3f(0.0f, 0.0f, 0.0f));
 }
 
-void FireBall::init(const JMapInfoIter& rIter) {
+void FireBall::init(const TableIter& /*rIter*/) {
     initModelManagerWithAnm("FireBall", nullptr, false);
 
     MR::connectToSceneEnemyDecoration(this);
@@ -52,9 +53,9 @@ void FireBall::init(const JMapInfoIter& rIter) {
 
     initBinder(::cBinderRadius, 0.0f, 0);
 
-    initEffectKeeper(4, "FireBall", false);
+    initEffectKeeper(4, "FireBall");
 
-    MR::initStarPointerTarget(this, ::cStarWandRadius3d, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::initStarPointerTarget(this, ::cStarWandRadius3d, Vec3f(0.0f, 0.0f, 0.0f));
 
     initSound(6, false);
 
@@ -82,7 +83,7 @@ void FireBall::kill() {
     LiveActor::kill();
 }
 
-void FireBall::appearAndThrow(const TVec3f& rAppearPos, f32 speed, f32 angle) {
+void FireBall::appearAndThrow(const Vec3f& rAppearPos, f32 speed, f32 angle) {
     mPosition.set(rAppearPos);
 
     MR::calcGravity(this);
@@ -91,7 +92,7 @@ void FireBall::appearAndThrow(const TVec3f& rAppearPos, f32 speed, f32 angle) {
 
     setVelocityToPlayer(speed);
 
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.makeRotate(mUp, MR::toRadian(angle));
     mtx.mult33(mVelocity, mVelocity);
 
@@ -104,8 +105,8 @@ void FireBall::control() {
 
 void FireBall::calcAndSetBaseMtx() {
     if (!MR::isNearZero(mVelocity)) {
-        TVec3f frontVec;
-        TPos3f baseMtx;
+        Vec3f frontVec;
+        Pos3f baseMtx;
         MR::normalize(mVelocity, &frontVec);
         MR::makeMtxFrontUpPos(&baseMtx, frontVec, mUp, mPosition);
         MR::setBaseTRMtx(this, baseMtx);
@@ -123,7 +124,7 @@ void FireBall::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     }
 }
 
-bool FireBall::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool FireBall::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (MR::isMsgJetTurtleAttack(msg)) {
         kill();
         return false;
@@ -177,11 +178,11 @@ bool FireBall::tryToKill() {
 }
 
 void FireBall::setVelocityToPlayer(f32 magnitude) {
-    TVec3f target;
+    Vec3f target;
     target.scale(::cThrowOffsetY, mUp);
     target.add(*MR::getPlayerPos());
 
-    TVec3f dir;
+    Vec3f dir;
     dir.sub(target, mPosition);
     MR::normalize(&dir);
     mVelocity.scale(magnitude, dir);
@@ -195,7 +196,7 @@ void FireBall::calcReflectVelocity() {
     } else {
         MR::vecKillElement(mVelocity, mUp, &mVelocity);
 
-        TVec3f accel;
+        Vec3f accel;
         accel.scale(MR::getRandom(0.0f, ::cReflectRandomVelocityY), mUp);
         mVelocity.add(accel);
 
@@ -220,8 +221,8 @@ void FireBall::exeThrow() {
         MR::deleteEffect(this, "FireBall");
     }
 
-    if (MR::isGreaterStep(this, ::cReflectFrame) && MR::isStarPointerPointing2POnPressButton(this, "\216\343" /* 弱 */, true, false)) {
-        TVec2f screenVelocity(*MR::getStarPointerScreenVelocity(*MR::getStarPointerLastPointedPort(this)));
+    if (MR::isGreaterStep(this, ::cReflectFrame) && MR::isStarPointerPointing2POnPressButton(this, "弱", true, false)) {
+        Vec2f screenVelocity(*MR::getStarPointerScreenVelocity(*MR::getStarPointerLastPointedPort(this)));
         if (::cReflectCursorSpeed < screenVelocity.length()) {
             calcReflectVelocity();
 

@@ -8,9 +8,9 @@ class LargeChain : public LiveActor {
 public:
     LargeChain(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void makeActorAppeared();
-    virtual void makeActorDead();
+    virtual void init(const TableIter&) override;
+    virtual void makeActorAppeared() override;
+    virtual void makeActorDead() override;
 
     void exeWait();
     void exeBreak();
@@ -18,8 +18,8 @@ public:
     void createChainParts();
     void invalidateClippingAllChainParts();
 
-    LargeChainParts* _8C;
-    LargeChainParts* _90;
+    LargeChainParts* mBottomFixParts;
+    LargeChainParts* mTopFixParts;
     LargeChainParts* mChainArray;
     u32 mChainCount;
 };

@@ -2,18 +2,15 @@
 
 
 class LayoutActor;
-namespace nw4r {
-    namespace lyt {
-        class TexMap;
-    }
-}
+namespace Ui {
+    class TexMap;
+}  // namespace Ui
 
 // The game's button icons (its picture font's A, B, C, Z, 1, 2, Plus and Minus) drawn as the player's controller's
 // buttons: the host names the style (the controller in use, or the one chosen) and the button each stands for
 // (NebulaHostServices::button_icons). Every text and layout that shows a button through the picture font shows them.
 namespace NebulaIcons {
-    // Once the stationed resources are loaded (the picture font among them), before the stationed heaps shrink to fit:
-    // the font's sheets, widths and code map of ours.
+    // Once the system fonts are made (the picture font among them): the font's sheets, widths and code map of ours.
     void init();
     // Each frame: the icons again when the host's choice changed, and a little more of their larger paintings.
     void update();
@@ -43,6 +40,6 @@ namespace NebulaIcons {
     const u32 cJoyConColours[2] = {0x00BBDDFF, 0xFF5F55FF};  // the drawing's blue (L) and red (R)
     void setJoyConDensity(f32 pixelsX, f32 pixelsY);
     bool paintJoyConAhead(u32 budgetMicros);
-    nw4r::lyt::TexMap* joyConPicture(s32 half, s32 look);
+    Ui::TexMap* joyConPicture(s32 half, s32 look);
     void joyConPictureSize(f32* pWidth, f32* pHeight);
 };  // namespace NebulaIcons

@@ -3,11 +3,12 @@
 #include "Game/System/NerveExecutor.hpp"
 #include "Game/Util/Array.hpp"
 
+// A row of cModeSetups, in this order.
 enum StarPointerModeEnum {
     StarPointerMode_HomeButton = 0,
     StarPointerMode_ErrorWindow = 1,
     StarPointerMode_SaveLoad = 2,
-    StarPointerMode_Logo = 3,
+    StarPointerMode_Boot = 3,
     StarPointerMode_Title = 4,
     StarPointerMode_FileSelect = 5,
     StarPointerMode_ScenarioSelectScene = 6,
@@ -42,7 +43,6 @@ public:
         s32 mMode;
     };
 
-    /// @brief Creates a new `StarPointerOnOffController`.
     StarPointerOnOffController();
 
     void update();
@@ -51,31 +51,6 @@ public:
     void setStateToBase(void*);
     void popState(void*);
     void requestMode(void*, StarPointerModeEnum);
-    void setupHomeButton();
-    void setupErrorWindow();
-    void setupLogo();
-    void setupTitle();
-    void setupFileSelect();
-    void setupPictureBook();
-    void setupDemo();
-    void setupDemoWithStarPointer();
-    void setupDemoWithHandPointerFinger();
-    void setupDemoMarioDeath();
-    void setup1PInvalid2PValid();
-    void setupMarioLauncher();
-    void setupChooseYesNo();
-    void setupPauseMenu();
-    void setupScenarioSelectScene();
-    void setupBlueStar();
-    void setupBlueStarReady();
-    void setupPowerStarGetDemo();
-    void setupStarPieceTarget();
-    void setupSphereSelectorFinger();
-    void setupSphereSelectorOnReaction();
-    void setupBigBubble();
-    void setupCommandStream();
-    void setupGame();
-    void setupBase();
     void updateMode();
     void clearInfo();
     void incModeCounter(void*, s32);
@@ -89,8 +64,7 @@ public:
         return mMode == mode;
     }
 
-    bool _8;
-    MR::FixedArray< RequestInfo*, 16 > mRequests;
+    MR::InlineArray< RequestInfo*, 16 > mRequests;
     s32 mModeCounter[StarPointerMode_Count];
     bool mRequested[StarPointerMode_Count];
     s32 mMode;

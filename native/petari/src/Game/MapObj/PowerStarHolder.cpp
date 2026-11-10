@@ -9,7 +9,7 @@ PowerStarHolder::PowerStarHolder(const char* pName) : NameObj(pName) {
     mNumInfos = 0;
 }
 
-void PowerStarHolder::init(const JMapInfoIter&) {
+void PowerStarHolder::init(const TableIter&) {
 }
 
 void PowerStarHolder::registerPowerStar(PowerStar* pStar, int starNum) {
@@ -21,9 +21,13 @@ void PowerStarHolder::registerPowerStar(PowerStar* pStar, int starNum) {
     mNumInfos++;
 }
 
-void PowerStarHolder::requestAppearPowerStar(int starNum, const TVec3f* pPos, bool forceAppear) {
+void PowerStarHolder::requestAppearPowerStar(int starNum, const Vec3f* pPos, bool forceAppear) {
     NebulaMods::fire(NEBULA_MOD_EVENT_POWER_STAR_APPEAR, starNum);
     PowerStarRequestInfo* info = findPowerStarRequestInfo(starNum);
+    // A star number no star is placed for (a scenario list longer than the stars) appears nothing.
+    if (info == nullptr) {
+        return;
+    }
     info->mIsAppear = true;
     PowerStar* star = info->mStar;
 
@@ -32,7 +36,7 @@ void PowerStarHolder::requestAppearPowerStar(int starNum, const TVec3f* pPos, bo
     }
 
     if (forceAppear) {
-        star->_11C = true;
+        star->mIsForceAppear = true;
         star->appear();
     } else {
         star->requestAppear();
@@ -41,6 +45,9 @@ void PowerStarHolder::requestAppearPowerStar(int starNum, const TVec3f* pPos, bo
 
 void PowerStarHolder::appearPowerStarWithoutDemo(int starNum) {
     PowerStarRequestInfo* info = findPowerStarRequestInfo(starNum);
+    if (info == nullptr) {
+        return;
+    }
     info->mIsAppear = true;
     PowerStar* star = info->mStar;
     star->offAppearDemo();
@@ -78,12 +85,12 @@ namespace MR {
 };  // namespace MR
 
 bool PowerStarFunction::isEndPowerStarAppearDemo(int starNum) {
-    return EventFunction::getPowerStarHolder()->getAppearedPowerStar(starNum)->isEndAppearDemo();
+    // A star that has not appeared has no demo to end.
+    PowerStar* const pStar = EventFunction::getPowerStarHolder()->getAppearedPowerStar(starNum);
+    return pStar != nullptr && pStar->isEndAppearDemo();
 }
 
 PowerStar* PowerStarFunction::findPowerStar(int starNum) {
-    return EventFunction::getPowerStarHolder()->findPowerStarRequestInfo(starNum)->mStar;
-}
-
-PowerStarHolder::~PowerStarHolder() {
+    const PowerStarRequestInfo* const pInfo = EventFunction::getPowerStarHolder()->findPowerStarRequestInfo(starNum);
+    return pInfo != nullptr ? pInfo->mStar : nullptr;
 }

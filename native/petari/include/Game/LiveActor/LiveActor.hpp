@@ -2,7 +2,7 @@
 
 #include "Game/LiveActor/LiveActorFlag.hpp"
 #include "Game/NameObj/NameObj.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
 class ActorAnimKeeper;
 class ActorLightCtrl;
@@ -25,13 +25,12 @@ class StarPointerTarget;
 /// @brief The basis of a drawable actor that can contain states (see: Nerve)
 class LiveActor : public NameObj {
 public:
-    /// @brief Creates a new `LiveActor`.
     /// @param pName A pointer to the null-terminated name of the actor.
     LiveActor(const char* pName);
 
     /// @brief Intializes the `LiveActor` while being placed into a scene.
-    /// @param rIter A reference to an iterator over a `JMapInfo`.
-    virtual void init(const JMapInfoIter& rIter) override;
+    /// @param rIter A reference to an iterator over a `Table`.
+    virtual void init(const TableIter& rIter) override;
 
     virtual void movement() override;
     virtual void calcAnim() override;
@@ -62,38 +61,38 @@ public:
     enum ClipScope { ClipScope_All, ClipScope_Run, ClipScope_Seen };
     static ClipScope sClipScope;
 
-    virtual void updateHitSensor(HitSensor* pSensor) {
+    virtual void updateHitSensor(HitSensor* /*pSensor*/) {
     }
 
     virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
 
-    virtual bool receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) {
+    virtual bool receiveMsgPush(HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
         return false;
     }
 
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+    virtual bool receiveMsgPlayerAttack(u32 /*msg*/, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
         return false;
     }
 
-    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+    virtual bool receiveMsgEnemyAttack(u32 /*msg*/, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
         return false;
     }
 
-    virtual bool receiveMsgTake(HitSensor* pSender, HitSensor* pReceiver) {
+    virtual bool receiveMsgTake(HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
         return false;
     }
 
-    virtual bool receiveMsgTaken(HitSensor* pSender, HitSensor* pReceiver) {
+    virtual bool receiveMsgTaken(HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
         return false;
     }
 
-    virtual bool receiveMsgThrow(HitSensor* pSender, HitSensor* pReceiver) {
+    virtual bool receiveMsgThrow(HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
         return false;
     }
 
     virtual bool receiveMsgApart(HitSensor* pSender, HitSensor* pReceiver);
 
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+    virtual bool receiveOtherMsg(u32 /*msg*/, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
         return false;
     }
 
@@ -105,19 +104,19 @@ public:
         return mBinder;
     }
 
-    const TVec3f* getGravity() const {
+    const Vec3f* getGravity() const {
         return &mGravity;
     }
 
-    const TVec3f* getVelocity() const {
+    const Vec3f* getVelocity() const {
         return &mVelocity;
     }
 
-    const TVec3f* getPosition() const {
+    const Vec3f* getPosition() const {
         return &mPosition;
     }
 
-    TVec3f* editPosition() {
+    Vec3f* editPosition() {
         return &mPosition;
     }
 
@@ -131,35 +130,35 @@ public:
     /// @returns The sensor that contains the name given. Returns the result of HitSensorKeeper::getSensor or NULL if there is no HitSensorKeeper
     /// created.
     HitSensor* getSensor(const char* pSensorName) const;
-    void initModelManagerWithAnm(const char* pModelArcName, const char* pAnimArcName, bool);
+    void initModelManagerWithAnm(const char* pModelArcName, const char* pAnimArcName, bool deferMaterials);
     void initNerve(const Nerve*);
     void initHitSensor(int);
-    void initBinder(f32, f32, u32);
-    void initRailRider(const JMapInfoIter& rIter);
-    void initEffectKeeper(int, const char*, bool);
-    void initSound(int, bool);
+    void initBinder(f32 radius, f32 offsetY, u32 planeNum);
+    void initRailRider(const TableIter& rIter);
+    void initEffectKeeper(int extraEmitterNum, const char* pResourceName);
+    void initSound(int numHandles, bool is2D);
     void initShadowControllerList(u32);
     void initActorCollisionParts(const char*, HitSensor*, ResourceHolder*, MtxPtr, bool, bool);
-    void initStageSwitch(const JMapInfoIter& rIter);
-    void initActorStarPointerTarget(f32, const TVec3f*, MtxPtr, TVec3f);
+    void initStageSwitch(const TableIter& rIter);
+    void initActorStarPointerTarget(f32, const Vec3f*, MtxPtr, Vec3f);
     void initActorLightCtrl();
     void addToSoundObjHolder();
     void updateBinder();
 
     /// @brief The three-dimensional location vector.
-    TVec3f mPosition;
+    Vec3f mPosition;
 
     /// @brief The three-dimensional rotation vector, in degrees.
-    TVec3f mRotation;
+    Vec3f mRotation;
 
     /// @brief The three-dimensional scale vector.
-    TVec3f mScale;
+    Vec3f mScale;
 
     /// @brief The three-dimensional velocity vector, in units per step.
-    TVec3f mVelocity;
+    Vec3f mVelocity;
 
     /// @brief The three-dimensional gravity unit vector.
-    TVec3f mGravity;
+    Vec3f mGravity;
 
     /// @brief A pointer to a `ModelManager` instance, used for drawing a 3D model.
     ModelManager* mModelManager;

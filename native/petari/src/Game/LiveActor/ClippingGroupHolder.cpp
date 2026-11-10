@@ -2,51 +2,32 @@
 #include "Game/Util/Array.hpp"
 #include "Game/LiveActor/ClippingActorInfo.hpp"
 #include "Game/LiveActor/LiveActor.hpp"
-#include "Game/Util/JMapIdInfo.hpp"
+#include "Game/Util/PlacementId.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
-ClippingInfoGroup::ClippingInfoGroup(const char* pGroupName, int count) : NameObj(pGroupName) {
-    _C = count;
-    _10 = 0;
-    _14 = 0;
-    _18 = 0;
-    _1C = 0;
-    _14 = new ClippingActorInfo*[count];
+namespace {
+    NEBULA_TUNABLE(s32, sGroupCapacity, 0x40);
+};  // namespace
 
-    for (s32 i = 0; i < _C; i++) {
-        _14[i] = 0;
-    }
+ClippingInfoGroup::ClippingInfoGroup(const char* pGroupName, s32 capacity)
+    : NameObj(pGroupName), mCount(0), mInfos(), mGroupId(), mIsClipped(false) {
+    mInfos.room(capacity > 0 ? static_cast< u32 >(capacity) : 16);
 }
 
-void ClippingInfoGroup::setGroupNo(const JMapInfoIter& rIter) {
-    _18 = new JMapIdInfo(MR::createJMapIdInfoFromClippingGroupId(rIter));
+void ClippingInfoGroup::setGroupNo(const TableIter& rIter) {
+    mGroupId = new PlacementId(MR::createPlacementIdFromClippingGroupId(rIter));
 }
 
 void ClippingInfoGroup::registerInfo(ClippingActorInfo* pInfo) {
-    if (_10 >= _C) {
-        const s32 grown = _C > 0 ? _C * 2 : 16;
-        ClippingActorInfo** pList = new ClippingActorInfo*[grown]();
-        for (s32 i = 0; i < _10; i++) {
-            pList[i] = _14[i];
-        }
-        delete[] _14;
-        _14 = pList;
-        _C = grown;
-    }
-    _14[_10] = pInfo;
-    _10++;
+    mInfos.room(mCount + 1)[mCount++] = pInfo;
 }
 
 bool ClippingInfoGroup::isClippedNowAll() const {
-    for (s32 i = 0; i < _10; i++) {
-        if (!MR::isDead(_14[i]->mActor)) {
-            if (MR::isInvalidClipping(_14[i]->mActor)) {
-                return false;
-            }
-
-            if (!_14[i]->isJudgedToClip()) {
-                return false;
-            }
+    for (s32 i = 0; i < mCount; i++) {
+        const ClippingActorInfo* pInfo = mInfos[i];
+        if (!MR::isDead(pInfo->mActor) && (MR::isInvalidClipping(pInfo->mActor) || !pInfo->isJudgedToClip())) {
+            return false;
         }
     }
 
@@ -54,100 +35,83 @@ bool ClippingInfoGroup::isClippedNowAll() const {
 }
 
 void ClippingInfoGroup::startClippedAll() {
-    _1C = 1;
+    mIsClipped = true;
 
-    for (s32 i = 0; i < _10; i++) {
-        if (!MR::isDead(_14[i]->mActor) && !MR::isClipped(_14[i]->mActor)) {
-            _14[i]->startClipped();
+    for (s32 i = 0; i < mCount; i++) {
+        if (!MR::isDead(mInfos[i]->mActor) && !MR::isClipped(mInfos[i]->mActor)) {
+            mInfos[i]->startClipped();
         }
     }
 }
 
 void ClippingInfoGroup::endClippedAll() {
-    _1C = 0;
+    mIsClipped = false;
 
-    for (s32 i = 0; i < _10; i++) {
-        if (!MR::isDead(_14[i]->mActor) && MR::isClipped(_14[i]->mActor)) {
-            _14[i]->endClipped();
+    for (s32 i = 0; i < mCount; i++) {
+        if (!MR::isDead(mInfos[i]->mActor) && MR::isClipped(mInfos[i]->mActor)) {
+            mInfos[i]->endClipped();
+        }
+    }
+}
+
+void ClippingInfoGroup::updateDrawnClippedAll() {
+    for (s32 i = 0; i < mCount; i++) {
+        if (!MR::isDead(mInfos[i]->mActor) && MR::isClipped(mInfos[i]->mActor)) {
+            mInfos[i]->updateDrawnClipped();
         }
     }
 }
 
 void ClippingGroupHolder::movement() {
-    ClippingInfoGroup* group;
     for (s32 i = 0; i < mNumGroups; i++) {
-        group = mInfoGroups[i];
+        ClippingInfoGroup* group = mInfoGroups[i];
 
         if (group->isClippedNowAll()) {
-            u8 var = group->_1C;
-            if (!var) {
+            if (!group->mIsClipped) {
                 group->startClippedAll();
             } else {
-                for (s32 j = 0; j < group->_10; j++) {
-                    ClippingActorInfo* pInfo = group->_14[j];
-                    if (!MR::isDead(pInfo->mActor) && MR::isClipped(pInfo->mActor)) {
-                        pInfo->updateDrawnClipped();
-                    }
-                }
+                group->updateDrawnClippedAll();
             }
-        } else {
-            u8 var = group->_1C;
-            if (var) {
-                group->endClippedAll();
-            }
+        } else if (group->mIsClipped) {
+            group->endClippedAll();
         }
     }
 }
 
-void ClippingGroupHolder::createAndAdd(ClippingActorInfo* pInfo, const JMapInfoIter& rIter, int count) {
+void ClippingGroupHolder::createAndAdd(ClippingActorInfo* pInfo, const TableIter& rIter, s32 capacity) {
     ClippingInfoGroup* group = findGroup(rIter);
 
-    if (!group) {
-        group = createGroup(pInfo, rIter, count);
+    if (group == nullptr) {
+        group = createGroup(pInfo, rIter, capacity);
     }
 
     group->registerInfo(pInfo);
 }
 
-ClippingInfoGroup* ClippingGroupHolder::createGroup(ClippingActorInfo* pInfo, const JMapInfoIter& rIter, int count) {
-    ClippingInfoGroup* group = new ClippingInfoGroup(pInfo->mActor->mName, count);
+ClippingInfoGroup* ClippingGroupHolder::createGroup(ClippingActorInfo* pInfo, const TableIter& rIter, s32 capacity) {
+    ClippingInfoGroup* group = new ClippingInfoGroup(pInfo->mActor->mName, capacity);
     group->setGroupNo(rIter);
     if (mNumGroups == mMaxGroups) {
         mInfoGroups = MR::growArray(mInfoGroups, mMaxGroups);
         mMaxGroups *= 2;
     }
 
-    mInfoGroups[mNumGroups] = group;
-    mNumGroups++;
+    mInfoGroups[mNumGroups++] = group;
     return group;
 }
 
-ClippingInfoGroup* ClippingGroupHolder::findGroup(const JMapInfoIter& rIter) {
-    JMapIdInfo info = MR::createJMapIdInfoFromClippingGroupId(rIter);
+ClippingInfoGroup* ClippingGroupHolder::findGroup(const TableIter& rIter) {
+    const PlacementId id = MR::createPlacementIdFromClippingGroupId(rIter);
 
     for (s32 i = 0; i < mNumGroups; i++) {
-        JMapIdInfo* infoGroup = getGroup(i)->_18;
-
-        if (info == *infoGroup) {
-            return getGroup(i);
+        if (id == *mInfoGroups[i]->mGroupId) {
+            return mInfoGroups[i];
         }
     }
 
-    return 0;
+    return nullptr;
 }
 
-ClippingInfoGroup::~ClippingInfoGroup() {
-}
-
-ClippingGroupHolder::~ClippingGroupHolder() {
-}
-
-ClippingGroupHolder::ClippingGroupHolder() : NameObj("\203\116\203\212\203\142\203\163\203\223\203\117\203\101\203\116\203\136\201\133\225\333\216\235" /* クリッピングアクター保持 */) {
-    mNumGroups = 0;
-    mInfoGroups = 0;
-    mInfoGroups = new ClippingInfoGroup*[0x40];
-
-    for (s32 i = 0; i < 0x40; i++) {
-        mInfoGroups[i] = 0;
-    }
+ClippingGroupHolder::ClippingGroupHolder()
+    : NameObj("クリッピングアクター保持"), mNumGroups(0), mInfoGroups(new ClippingInfoGroup*[::sGroupCapacity]()), mMaxGroups(::sGroupCapacity) {
 }

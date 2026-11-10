@@ -4,17 +4,17 @@
 
 class CameraCharmedTripodBoss : public Camera {
 public:
-    CameraCharmedTripodBoss(const char* pName = "\216\117\213\162\203\173\203\130\203\127\203\207\203\103\203\223\203\147\222\215\216\213\203\112\203\201\203\211" /* 三脚ボスジョイント注視カメラ */);
+    CameraCharmedTripodBoss(const char* pName = "三脚ボスジョイント注視カメラ");
 
-    virtual void reset();
-    virtual CameraTargetObj* calc();
-    virtual CamTranslatorBase* createTranslator();
+    virtual void reset() override;
+    virtual CameraTargetObj* calc() override;
+    virtual void setParamFromChunk(const CameraParamChunk*) override;
 
-    void setParam(s32, TVec3f, const TVec3f&, const TVec2f&);
+    void setParam(s32, Vec3f, const Vec3f&, const Vec2f&);
 
     s32 mJointId;
-    TVec3f mUp;
-    TVec3f mWPoint;
+    Vec3f mUp;
+    Vec3f mWPoint;
     f32 mAngleX;
     f32 mAngleY;
 };

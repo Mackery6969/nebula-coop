@@ -6,6 +6,7 @@ struct MaterialConstants {
     float4 params;  // x: the alpha reference (0-255; drawn where the alpha is above it), -1 always drawn
 };
 
+#define NATIVE_COORDS 1
 #include "native_material.hlsli"
 
 void material_vertex(NativeVertex v, inout NativeVaryings o) {
@@ -14,7 +15,7 @@ void material_vertex(NativeVertex v, inout NativeVaryings o) {
 }
 
 float4 material_color(NativeVaryings i) {
-    const float4 t = tex[0].Sample(samp[0], i.uv[0].xy);
+    const float4 t = TEX(0).Sample(SAMP(0), i.uv[0].xy);
     const float4 c = float4(saturate(t.rgb + material.color.rgb), t.a * material.color.a);
     if (round(c.a * 255.0) <= material.params.x) {
         discard;

@@ -1,5 +1,5 @@
 #include "Game/Camera/CameraRailWatch.hpp"
-#include "Game/Camera/CamTranslatorRailWatch.hpp"
+#include "Game/Camera/CameraParamChunk.hpp"
 #include "Game/Camera/CameraDirector.hpp"
 #include "Game/Camera/CameraLocalUtil.hpp"
 #include "Game/Camera/CameraRailHolder.hpp"
@@ -33,8 +33,9 @@ CameraTargetObj* CameraRailWatch::calc() {
         return nullptr;
     }
 
-    TVec3f watchPoint;
-    CameraLocalUtil::makeWatchPoint(&watchPoint, this, CameraLocalUtil::getTarget(this), 0.1f / 15.0f);
+    CameraTargetObj* target = CameraLocalUtil::getTarget(this);
+    Vec3f watchPoint;
+    CameraLocalUtil::makeWatchPoint(&watchPoint, this, target, 0.1f / 15.0f);
 
     if (mSetDirection != 0) {
         mDirection = mSetDirection;
@@ -43,30 +44,30 @@ CameraTargetObj* CameraRailWatch::calc() {
     f32 watchCoord = mRailRider->calcNearestPos(watchPoint);
     mRailRider->setCoord(watchCoord);
 
-    TVec3f up = -CameraLocalUtil::getTarget(this)->getGravityVector();
-    TVec3f front = mRailRider->mCurDirection * mDirection;
-    TVec3f side = up.cross(front);
+    Vec3f up = -target->getGravityVector();
+    Vec3f front = mRailRider->mCurDirection * mDirection;
+    Vec3f side = up.cross(front);
     up.cross(front, side);
 
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.setXDir(side);
     mtx.setYDir(up);
     mtx.setZDir(front);
-    mtx.setTrans(TVec3f(0.0f, 0.0f, 0.0f));
+    mtx.setTrans(Vec3f(0.0f, 0.0f, 0.0f));
 
     mRailRider->setCoord(watchCoord + mDirection * mRailCoordOffset);
 
-    TVec3f watchFront = mRailRider->mCurPos - watchPoint;
+    Vec3f watchFront = mRailRider->mCurPos - watchPoint;
     if (MR::isNearZero(watchFront)) {
         return nullptr;
     }
     MR::normalize(&watchFront);
 
-    TPos3f rotMtx;
+    Pos3f rotMtx;
     rotMtx.setRotate(front, watchFront);
 
-    TPos3f rotX;
-    rotX.makeRotate(TVec3f(1.0f, 0.0f, 0.0f), mAngleX);
+    Pos3f rotX;
+    rotX.makeRotate(Vec3f(1.0f, 0.0f, 0.0f), mAngleX);
 
     mtx.concat(mtx, rotX);
     mtx.concat(rotMtx, mtx);
@@ -78,7 +79,7 @@ CameraTargetObj* CameraRailWatch::calc() {
     CameraLocalUtil::setPos(this, watchPoint - front * mDist);
     CameraLocalUtil::setUpVecAndWatchUpVec(this, up);
 
-    return CameraLocalUtil::getTarget(this);
+    return target;
 }
 
 void CameraRailWatch::setParam(s32 zoneID, s32 railID, s32 direction, f32 offset, f32 dist, f32 angleX) {
@@ -89,6 +90,6 @@ void CameraRailWatch::setParam(s32 zoneID, s32 railID, s32 direction, f32 offset
     mAngleX = angleX;
 }
 
-CamTranslatorBase* CameraRailWatch::createTranslator() {
-    return new CamTranslatorRailWatch(this);
+void CameraRailWatch::setParamFromChunk(const CameraParamChunk* pChunk) {
+    setParam(pChunk->getZoneID(), pChunk->mGeneralParam->mNum1, pChunk->mGeneralParam->mNum2, pChunk->mGeneralParam->mAxis.x, pChunk->mGeneralParam->mDist, pChunk->mGeneralParam->mAngleA);
 }

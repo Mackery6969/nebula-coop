@@ -1,12 +1,12 @@
 #include "Game/LiveActor/ShadowVolumeOval.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeShape.hpp>
+#include "Game/Render/TypedDraw.hpp"
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
-ShadowVolumeOval::ShadowVolumeOval() : ShadowVolumeModel("\211\145\225\140\211\346[\203\173\203\212\203\205\201\133\203\200\221\310\213\205]" /* 影描画[ボリューム楕球] */), mSize(100.0f, 100.0f, 200.0f) {
+ShadowVolumeOval::ShadowVolumeOval() : ShadowVolumeModel("影描画[ボリューム楕球]"), mSize(100.0f, 100.0f, 200.0f) {
     initVolumeModel("ShadowVolumeSphere");
 }
 
@@ -16,14 +16,19 @@ bool ShadowVolumeOval::isDraw() const {
     return controller->isProjected() && controller->isDraw();
 }
 
-void ShadowVolumeOval::loadModelDrawMtx() const {
+// The oval stands where the drop meets the ground: that point jumping at a ledge starts a new object.
+void ShadowVolumeOval::calcDrawAnchor(Vec3f* pOut) const {
+    getController()->getProjectionPos(pOut);
+}
+
+void ShadowVolumeOval::loadModelDrawMtx(TypedDraw& rDraw) const {
     MtxPtr dropMtx;
     ShadowController* controller = getController();
-    dropMtx = controller->_18;
-    TVec3f direction;
+    dropMtx = controller->mHostMtx;
+    Vec3f direction;
     controller->getDropDir(&direction);
 
-    TVec3f size(mSize / 100.0f);
+    Vec3f size(mSize / 100.0f);
     if (size.x <= 0.01f) {
         size.x = 0.01f;
     }
@@ -40,29 +45,29 @@ void ShadowVolumeOval::loadModelDrawMtx() const {
         size *= controller->getHost()->mScale;
     }
 
-    TPos3f scaledMtx;
+    Pos3f scaledMtx;
     scaledMtx.set(dropMtx);
-    scaledMtx.setTrans(TVec3f(0.0f, 0.0f, 0.0f));
+    scaledMtx.setTrans(Vec3f(0.0f, 0.0f, 0.0f));
     MR::preScaleMtx(scaledMtx, size);
 
-    TPos3f inverseMtx;
+    Pos3f inverseMtx;
     inverseMtx.invert(scaledMtx);
 
-    TVec3f localDirection;
+    Vec3f localDirection;
     inverseMtx.mult(direction, localDirection);
 
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.identity();
     MR::makeMtxUpNoSupport(&mtx, localDirection);
     mtx.concat(scaledMtx, mtx);
 
-    TVec3f position;
+    Vec3f position;
     controller->getProjectionPos(&position);
     mtx.setTrans(position);
 
-    TVec3f side;
-    TVec3f up;
-    TVec3f front;
+    Vec3f side;
+    Vec3f up;
+    Vec3f front;
     mtx.getXDir(side);
     mtx.getYDir(up);
     mtx.getZDir(front);
@@ -74,10 +79,9 @@ void ShadowVolumeOval::loadModelDrawMtx() const {
 
     mtx.setXDir(side);
     mtx.setZDir(front);
-    NebulaMtxConcat(MR::getCameraViewMtx(), mtx, mtx);
-    J3DNativeShape::setPosition(0, mtx);
+    rDraw.setWorld(mtx);
 }
 
-void ShadowVolumeOval::setSize(const TVec3f& rSize) {
+void ShadowVolumeOval::setSize(const Vec3f& rSize) {
     mSize = rSize;
 }

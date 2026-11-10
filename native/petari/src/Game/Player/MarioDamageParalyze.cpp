@@ -4,7 +4,7 @@
 #include "Game/Player/MarioState.hpp"
 
 bool Mario::doParalyze() {
-    if (mMovementStates._1F) {
+    if (mMovementStates.invincible) {
         return false;
     }
 
@@ -20,7 +20,7 @@ bool Mario::doParalyze() {
         return false;
     }
 
-    if (mMovementStates._1B) {
+    if (mMovementStates.damaged) {
         return false;
     }
 
@@ -42,15 +42,15 @@ bool Mario::doParalyze() {
     return true;
 }
 
-MarioParalyze::MarioParalyze(MarioActor* pActor) : MarioState(pActor, MarioStatus_Paralyze), _12(), mTimer(), _16(), mNotDecLife() {
+MarioParalyze::MarioParalyze(MarioActor* pActor) : MarioState(pActor, MarioStatus_Paralyze), mRecovering(), mTimer(), mAfterTimer(), mNotDecLife() {
 }
 
 bool MarioParalyze::start() {
-    changeAnimationNonStop("\223\144\213\103\203\137\203\201\201\133\203\127" /* 電気ダメージ */);
-    playSound("\203\137\203\201\201\133\203\127" /* ダメージ */);
-    playSound("\223\144\213\103\203\137\203\201\201\133\203\127" /* 電気ダメージ */);
-    playSound("\220\272\223\144\213\103\203\137\203\201\201\133\203\127" /* 声電気ダメージ */);
-    playEffect("\203\162\203\212\203\162\203\212" /* ビリビリ */);
+    changeAnimationNonStop("電気ダメージ");
+    playSound("ダメージ");
+    playSound("電気ダメージ");
+    playSound("声電気ダメージ");
+    playEffect("ビリビリ");
 
     startPadVib(3);
 
@@ -60,7 +60,7 @@ bool MarioParalyze::start() {
 
     mNotDecLife = false;
     mTimer = 60;
-    _12 = 0;
+    mRecovering = 0;
 
     return true;
 }
@@ -68,31 +68,31 @@ bool MarioParalyze::start() {
 bool MarioParalyze::update() {
     if (mTimer != 0) {
         mTimer--;
-        if (_12 != 0 && getPlayer()->getMovementStates()._1) {
+        if (mRecovering != 0 && getPlayer()->getMovementStates().onGround) {
             addVelocity(getFrontVec(), -3.0f);
         }
     }
 
     if (mTimer == 0) {
-        if (_12 != 0) {
+        if (mRecovering != 0) {
             return false;
         }
 
-        _12 = 1;
+        mRecovering = 1;
 
-        if (!getPlayer()->getMovementStates()._1) {
+        if (!getPlayer()->getMovementStates().onGround) {
             mTimer = 10;
         } else {
             mTimer = 30;
         }
 
-        if (getPlayer()->getMovementStates()._1) {
-            changeAnimation("\223\144\213\103\203\137\203\201\201\133\203\127\217\111\227\271" /* 電気ダメージ終了 */);
-            playSound("\220\272\223\144\213\103\203\137\203\201\201\133\203\127\217\111\227\271" /* 声電気ダメージ終了 */);
+        if (getPlayer()->getMovementStates().onGround) {
+            changeAnimation("電気ダメージ終了");
+            playSound("声電気ダメージ終了");
         }
 
         if (mActor->mHealth == 0) {
-            if (!getPlayer()->mMovementStates._1) {
+            if (!getPlayer()->mMovementStates.onGround) {
                 mActor->forceGameOverNonStop();
             } else {
                 mActor->forceGameOver();
@@ -107,7 +107,7 @@ bool MarioParalyze::update() {
 
 bool MarioParalyze::close() {
     if (mActor->mHealth == 0) {
-        if (!getPlayer()->mMovementStates._1) {
+        if (!getPlayer()->mMovementStates.onGround) {
             mActor->forceGameOverNonStop();
         } else {
             mActor->forceGameOver();
@@ -116,12 +116,12 @@ bool MarioParalyze::close() {
         mActor->changeGameOverAnimation();
     }
 
-    stopAnimation("\223\144\213\103\203\137\203\201\201\133\203\127" /* 電気ダメージ */);
-    stopEffect("\203\162\203\212\203\162\203\212" /* ビリビリ */);
+    stopAnimation("電気ダメージ");
+    stopEffect("ビリビリ");
 
-    _16 = 120;
+    mAfterTimer = 120;
 
-    if (!getPlayer()->isStatusActive(MarioStatus_Swim) && !getPlayer()->getMovementStates()._1) {
+    if (!getPlayer()->isStatusActive(MarioStatus_Swim) && !getPlayer()->getMovementStates().onGround) {
         getPlayer()->tryFreeJump(getFrontVec() * -10.0f, true);
     }
 

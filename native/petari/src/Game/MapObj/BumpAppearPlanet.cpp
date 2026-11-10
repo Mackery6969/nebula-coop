@@ -10,10 +10,10 @@ namespace NrvBumpAppearPlanet {
     NEW_NERVE(BumpAppearPlanetNrvBumpIn, BumpAppearPlanet, BumpIn);
 };  // namespace NrvBumpAppearPlanet
 
-BumpAppearPlanet::BumpAppearPlanet(const char* pName) : MapObjActor(pName), _C4(), _C8() {
+BumpAppearPlanet::BumpAppearPlanet(const char* pName) : MapObjActor(pName), mCollisionB(), mCollisionC() {
 }
 
-void BumpAppearPlanet::init(const JMapInfoIter& rIter) {
+void BumpAppearPlanet::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
     MapObjActorInitInfo info;
     MapObjActorUtil::setupInitInfoPlanet(&info);
@@ -21,16 +21,16 @@ void BumpAppearPlanet::init(const JMapInfoIter& rIter) {
     info.setupNerve(GET_NERVE(BumpAppearPlanet, BumpAppearPlanetNrvWait));
     initialize(rIter, info);
 
-    _C4 = MR::createCollisionPartsFromLiveActor(this, "BumpAppearPlanetB", getSensor("body"), MR::getJointMtx(this, "BumpAppearPlanetB"),
-                                                MR::CollisionScaleType_Unk2);
-    _C8 = MR::createCollisionPartsFromLiveActor(this, "BumpAppearPlanetC", getSensor("body"), MR::getJointMtx(this, "BumpAppearPlanetC"),
-                                                MR::CollisionScaleType_Unk2);
-    MR::validateCollisionParts(_C8);
+    mCollisionB = MR::createCollisionPartsFromLiveActor(this, "BumpAppearPlanetB", getSensor("body"), MR::getJointMtx(this, "BumpAppearPlanetB"),
+                                                MR::CollisionScaleType_Default);
+    mCollisionC = MR::createCollisionPartsFromLiveActor(this, "BumpAppearPlanetC", getSensor("body"), MR::getJointMtx(this, "BumpAppearPlanetC"),
+                                                MR::CollisionScaleType_Default);
+    MR::validateCollisionParts(mCollisionC);
 }
 
 void BumpAppearPlanet::exeWait() {
     if (MR::isFirstStep(this)) {
-        MR::invalidateCollisionParts(_C4);
+        MR::invalidateCollisionParts(mCollisionB);
     }
 }
 
@@ -38,7 +38,7 @@ void BumpAppearPlanet::exeBumpOut() {
     if (MR::isFirstStep(this)) {
         MR::startBck(this, "BumpAppearPlanetPush");
         MR::startSound(this, "SE_OJ_BUMP_APPEAR_PLN_OUT");
-        MR::validateCollisionParts(_C4);
+        MR::validateCollisionParts(mCollisionB);
     }
 }
 
@@ -54,16 +54,16 @@ void BumpAppearPlanet::exeBumpIn() {
 }
 
 void BumpAppearPlanet::control() {
-    if (_C4->_CC) {
-        _C4->setMtx();
+    if (mCollisionB->mIsValid) {
+        mCollisionB->setMtx();
     }
 
-    if (_C8->_CC) {
-        _C8->setMtx();
+    if (mCollisionC->mIsValid) {
+        mCollisionC->setMtx();
     }
 }
 
-void BumpAppearPlanet::initCaseUseSwitchA(const MapObjActorInitInfo& rInfo) {
+void BumpAppearPlanet::initCaseUseSwitchA(const MapObjActorInitInfo& /*rInfo*/) {
     MR::listenStageSwitchOnOffA(this, MR::Functor(this, &BumpAppearPlanet::startBumpOut), MR::Functor(this, &BumpAppearPlanet::startBumpIn));
 }
 

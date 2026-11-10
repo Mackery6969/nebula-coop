@@ -6,18 +6,18 @@ class FallDownBridge : public LiveActor {
 public:
     FallDownBridge(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
-    virtual void calcAndSetBaseMtx();
+    virtual void init(const TableIter&) override;
+    virtual void control() override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
+    virtual void calcAndSetBaseMtx() override;
 
     void exeWait();
     void exeQuake();
 
-    TVec3f _8C;
-    f32 _98;
-    f32 _9C;
-    f32 _A0;
-    f32 _A4;
-    bool _A8;
+    Vec3f mClipCenter;
+    f32 mAngle;
+    f32 mAngleSpeed;
+    f32 mMinAngle;
+    f32 mMaxAngle;
+    bool mIsFallen;
 };

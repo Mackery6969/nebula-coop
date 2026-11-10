@@ -3,6 +3,10 @@
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Map/CollisionParts.hpp"
 #include "Game/Util.hpp"
+#include "Game/Util/Tunable.hpp"
+
+// The step counts of this file's functions, as tunables: "<file>.<function>.<k>".
+NEBULA_TUNABLE_NAMED(s32, cStep_exeOn_1, "exeOn.1", 25);
 
 namespace NrvPTimerSwitch {
     NEW_NERVE(PTimerSwitchNrvOff, PTimerSwitch, Off);
@@ -13,8 +17,8 @@ namespace NrvPTimerSwitch {
 PTimerSwitch::PTimerSwitch(const char* pName) : LiveActor(pName) {
     mSwitchCollision = nullptr;
     mConnector = nullptr;
-    _94 = 0;
-    _98 = false;
+    mPressStep = 0;
+    mIsPressed = false;
 }
 
 void PTimerSwitch::reset() {
@@ -22,23 +26,23 @@ void PTimerSwitch::reset() {
     setNerve(GET_NERVE(PTimerSwitch, PTimerSwitchNrvOff));
     MR::validateCollisionParts(mSwitchCollision);
     MR::startBck(this, "Wait");
-    _94 = 0;
-    _98 = false;
+    mPressStep = 0;
+    mIsPressed = false;
 }
 
-void PTimerSwitch::init(const JMapInfoIter& rIter) {
+void PTimerSwitch::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("PTimerSwitch", nullptr, false);
     MR::connectToSceneMapObj(this);
     initHitSensor(2);
-    MR::addHitSensorMapObj(this, "body", 16, 0.0f, TVec3f(0.0f, 0.0f, 0.0f));
-    MR::addHitSensor(this, "hit", ATYPE_SWITCH, 16, 120.0f, TVec3f(0.0f, 50.0f, 0.0f));
+    MR::addHitSensorMapObj(this, "body", 16, 0.0f, Vec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensor(this, "hit", ATYPE_SWITCH, 16, 120.0f, Vec3f(0.0f, 50.0f, 0.0f));
     MR::initCollisionParts(this, "PTimerSwitch", getSensor("body"), 0);
-    mSwitchCollision = MR::createCollisionPartsFromLiveActor(this, "Move", getSensor("hit"), MR::CollisionScaleType_Unk2);
+    mSwitchCollision = MR::createCollisionPartsFromLiveActor(this, "Move", getSensor("hit"), MR::CollisionScaleType_Default);
     initSound(4, false);
     MR::needStageSwitchWriteA(this, rIter);
     initNerve(GET_NERVE(PTimerSwitch, PTimerSwitchNrvOff));
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     MR::startBck(this, "Wait");
     mConnector = new MapObjConnector(this);
     appear();
@@ -60,19 +64,19 @@ void PTimerSwitch::kill() {
 
 void PTimerSwitch::calcAnim() {
     LiveActor::calcAnim();
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.setInline(MR::getJointMtx(this, "Move"));
     mSwitchCollision->setMtx(mtx);
 }
 
 void PTimerSwitch::control() {
-    if (_98) {
-        ++_94;
-    } else if (_94 > 0) {
-        --_94;
+    if (mIsPressed) {
+        ++mPressStep;
+    } else if (mPressStep > 0) {
+        --mPressStep;
     }
 
-    _98 = false;
+    mIsPressed = false;
 }
 
 void PTimerSwitch::calcAndSetBaseMtx() {
@@ -80,11 +84,11 @@ void PTimerSwitch::calcAndSetBaseMtx() {
     mConnector->connect();
 }
 
-bool PTimerSwitch::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool PTimerSwitch::receiveOtherMsg(u32 /*msg*/, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     return false;
 }
 
-bool PTimerSwitch::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool PTimerSwitch::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* pReceiver) {
     if (!MR::isMsgPlayerTrample(msg)) {
         return false;
     }
@@ -97,12 +101,12 @@ bool PTimerSwitch::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor
         return false;
     }
 
-    _98 = true;
+    mIsPressed = true;
     return true;
 }
 
 bool PTimerSwitch::trySwitchDown() {
-    if (_94 > 0) {
+    if (mPressStep > 0) {
         setNerve(GET_NERVE(PTimerSwitch, PTimerSwitchNrvSwitchDown));
         return true;
     }
@@ -148,7 +152,7 @@ void PTimerSwitch::exeOn() {
         MR::startSound(this, "SE_OJ_SWITCH_1");
     }
 
-    if (MR::isGreaterStep(this, 25)) {
+    if (MR::isGreaterStep(this, cStep_exeOn_1)) {
         kill();
     }
 }

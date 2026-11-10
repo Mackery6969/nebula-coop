@@ -1,19 +1,16 @@
 #include "Game/Camera/CameraInwardTower.hpp"
-#include "Game/Camera/CamTranslatorInwardTower.hpp"
+#include "Game/Camera/CameraParamChunk.hpp"
 #include "Game/Camera/CameraHeightArrange.hpp"
 #include "Game/Camera/CameraLocalUtil.hpp"
 #include "Game/Camera/CameraTargetObj.hpp"
 #include "Game/Util/MathUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    // static const s32 sFollowFrame =
-    static const f32 sRoundThreshold = 0.3f;
-    static const f32 sAttenuation = 20.0f;
-    static const f32 sResetRotSpeed = 0.2f;
+    NEBULA_TUNABLE(f32, sRoundThreshold, 0.3f);
+    NEBULA_TUNABLE(f32, sAttenuation, 20.0f);
+    NEBULA_TUNABLE(f32, sResetRotSpeed, 0.2f);
 };  // namespace
-
-CameraInwardTower::~CameraInwardTower() {
-}
 
 CameraInwardTower::CameraInwardTower(const char* pName)
     : Camera(pName), mWPoint(0.0f, 0.0f, 0.0f), mAxis(0.0f, 1.0f, 0.0f), mAngleX(), mAngleMax(), mDist(2000.0f), mPos(0.0f, 10.0f, 0.0f), mAngleY(),
@@ -42,30 +39,31 @@ CameraTargetObj* CameraInwardTower::calc() {
     return CameraLocalUtil::getTarget(this);
 }
 
-CamTranslatorBase* CameraInwardTower::createTranslator() {
-    return new CamTranslatorInwardTower(this);
+void CameraInwardTower::setParamFromChunk(const CameraParamChunk* pChunk) {
+    CameraGeneralParam* general = pChunk->mGeneralParam;
+    setParam(general->mWPoint, CameraLocalUtil::getNormalizedOr(general->mAxis, Vec3f(0.0f, 1.0f, 0.0f)), Vec2f(general->mAngleB, general->mAngleA), general->mDist);
 }
 
 void CameraInwardTower::calcIdealPose() {
-    TVec3f watchPos = CameraLocalUtil::getWatchPos(this);
-    TVec3f axis = mAxis;
+    Vec3f watchPos = CameraLocalUtil::getWatchPos(this);
+    Vec3f axis = mAxis;
     mZoneMatrix.mult33(axis, axis);
 
-    TVec3f wPoint = mWPoint;
+    Vec3f wPoint = mWPoint;
     mZoneMatrix.mult(wPoint, wPoint);
 
-    TVec3f outDir = watchPos - wPoint;
+    Vec3f outDir = watchPos - wPoint;
     outDir.set(outDir - axis * axis.dot(outDir));
     if (MR::isNearZero(outDir)) {
         return;
     }
     MR::normalize(&outDir);
 
-    TVec3f up = -CameraLocalUtil::getTarget(this)->getGravityVector();
-    TVec3f camFront = watchPos - mPos;
+    Vec3f up = -CameraLocalUtil::getTarget(this)->getGravityVector();
+    Vec3f camFront = watchPos - mPos;
     MR::normalizeOrZero(&camFront);
 
-    TVec3f camUp = outDir.cross(camFront);
+    Vec3f camUp = outDir.cross(camFront);
     f32 rate = camUp.length();
     if (camUp.dot(up) < 0.0f) {
         rate = -rate;
@@ -108,23 +106,23 @@ void CameraInwardTower::calcIdealPose() {
         }
     }
 
-    TPos3f rotY;
+    Pos3f rotY;
     rotY.makeRotate(up, mAngleY);
 
-    TVec3f front = outDir;
+    Vec3f front = outDir;
     rotY.mult(front, front);
-    TVec3f side = up;
+    Vec3f side = up;
     side.cross(side, front);
     if (MR::isNearZero(side)) {
         return;
     }
     MR::normalize(&side);
 
-    TPos3f rotX;
+    Pos3f rotX;
     rotX.makeRotate(side, mAngleX);
     rotX.mult(front, front);
 
-    TVec3f pos = watchPos - front * mDist;
+    Vec3f pos = watchPos - front * mDist;
     CameraLocalUtil::setPos(this, pos);
     CameraLocalUtil::setWatchPos(this, watchPos);
     CameraLocalUtil::setUpVecAndWatchUpVec(this, up);

@@ -3,6 +3,7 @@
 #include "galaxy/render/scene_camera_shape.h"
 
 #include "galaxy/render/renderer_d3d12.h"
+#include "barriers_d3d12.h"
 
 #include <algorithm>
 #include <bit>
@@ -12,6 +13,7 @@
 #include "camera_vs.h"
 #include "camera_ps.h"
 #include "camera_samples_ps.h"
+#include "camera_resolve_ps.h"
 #include "camera_widen_ps.h"
 
 namespace galaxy::render {
@@ -24,16 +26,8 @@ D3D12_SHADER_BYTECODE code(const void* bytes, std::size_t size) {
     return {bytes, size};
 }
 
-void transition(ID3D12GraphicsCommandList* list, ID3D12Resource* resource, D3D12_RESOURCE_STATES before,
-                D3D12_RESOURCE_STATES after) {
-    D3D12_RESOURCE_BARRIER barrier{};
-    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    barrier.Transition.pResource = resource;
-    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    barrier.Transition.StateBefore = before;
-    barrier.Transition.StateAfter = after;
-    list->ResourceBarrier(1, &barrier);
-}
+// Read by the meter (compute) and the composite (pixels).
+constexpr gpu::Use kRead = gpu::Use::ShaderRead;
 
 }  // namespace
 
@@ -80,16 +74,15 @@ bool SceneCamera::initialize(ID3D12Device* device) {
     heap.Type = D3D12_HEAP_TYPE_DEFAULT;
     D3D12_RESOURCE_DESC rd{};
     rd.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-    rd.Width = 1;
+    rd.Width = 2;  // linear exposure and its precomputed display-space gain
     rd.Height = 1;
     rd.DepthOrArraySize = 1;
     rd.MipLevels = 1;
     rd.Format = kExposureFormat;
     rd.SampleDesc.Count = 1;
     rd.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-    if (FAILED(device_->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &rd,
-                                                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE |
-                                                    D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+    if (FAILED(create_texture(device_, &heap, D3D12_HEAP_FLAG_NONE, &rd,
+                                                gpu::Use::ShaderRead,
                                                 nullptr, IID_PPV_ARGS(&exposure_)))) {
         std::cerr << "[scene-camera] exposure target failed\n";
         return false;
@@ -100,24 +93,28 @@ bool SceneCamera::initialize(ID3D12Device* device) {
 }
 
 void SceneCamera::shutdown() {
+    exposure_ready_ = false;
     ready_ = false;
     root_signature_.Reset();
     meter_.Reset();
     camera_ = {};
+    camera_resolve_.Reset();
     widen_ = {};
     exposure_.Reset();
     device_ = nullptr;
 }
 
-ID3D12PipelineState* SceneCamera::camera_pipeline(unsigned samples) {
+ID3D12PipelineState* SceneCamera::camera_pipeline(unsigned samples, bool resolve) {
     const unsigned index = std::min(static_cast<unsigned>(std::countr_zero(std::max(samples, 1u))), 3u);
-    if (camera_[index]) {
-        return camera_[index].Get();
+    auto& output = resolve ? camera_resolve_ : camera_[index];
+    if (output) {
+        return output.Get();
     }
     D3D12_GRAPHICS_PIPELINE_STATE_DESC pd{};
     pd.pRootSignature = root_signature_.Get();
     pd.VS = code(g_camera_vs, sizeof(g_camera_vs));
-    pd.PS = index != 0u ? code(g_camera_samples_ps, sizeof(g_camera_samples_ps)) : code(g_camera_ps, sizeof(g_camera_ps));
+    pd.PS = resolve ? code(g_camera_resolve_ps, sizeof(g_camera_resolve_ps)) :
+        index != 0u ? code(g_camera_samples_ps, sizeof(g_camera_samples_ps)) : code(g_camera_ps, sizeof(g_camera_ps));
     pd.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
     pd.SampleMask = UINT_MAX;
     pd.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
@@ -127,12 +124,12 @@ ID3D12PipelineState* SceneCamera::camera_pipeline(unsigned samples) {
     pd.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     pd.NumRenderTargets = 1;
     pd.RTVFormats[0] = kSceneColorFormat;
-    pd.SampleDesc.Count = 1u << index;
-    if (FAILED(device_->CreateGraphicsPipelineState(&pd, IID_PPV_ARGS(&camera_[index])))) {
+    pd.SampleDesc.Count = resolve ? 1u : 1u << index;
+    if (FAILED(device_->CreateGraphicsPipelineState(&pd, IID_PPV_ARGS(&output)))) {
         std::cerr << "[scene-camera] pipeline failed for " << (1u << index) << " samples\n";
         return nullptr;
     }
-    return camera_[index].Get();
+    return output.Get();
 }
 
 ID3D12PipelineState* SceneCamera::widen_pipeline(unsigned samples) {
@@ -166,14 +163,15 @@ bool SceneCamera::record(ID3D12GraphicsCommandList* list, DescriptorRing& ring, 
         return false;
     }
     const bool samples = in.samples > 1u && in.wide_ms != nullptr;
-    ID3D12PipelineState* const pipeline = camera_pipeline(samples ? in.samples : 1u);
+    ID3D12PipelineState* const pipeline = camera_pipeline(samples ? in.samples : 1u, samples && in.resolve);
     if (pipeline == nullptr) {
         return false;
     }
     camera::Constants constants{};
     constants.width = static_cast<float>(in.width);
     constants.height = static_cast<float>(in.height);
-    constants.seconds = in.seconds;
+    constants.seconds = exposure_ready_ ? in.seconds : -1.0f;
+    exposure_ready_ = true;
 
     // Two tables: the meter's (the resolved picture, the exposure, its storage view) and the camera's (the picture it
     // writes from, the exposure).
@@ -217,23 +215,26 @@ bool SceneCamera::record(ID3D12GraphicsCommandList* list, DescriptorRing& ring, 
     device_->CreateShaderResourceView(exposure_.Get(), &exposure_view, cpu(5));
     device_->CreateShaderResourceView(in.depth, &depth_view, cpu(6));
 
-    constexpr D3D12_RESOURCE_STATES kRead =
-        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-    transition(list, in.wide, D3D12_RESOURCE_STATE_RENDER_TARGET, kRead);
+    // The meter's inputs and its exposure change in one call.
+    BarriersD3D12 to_meter{list};
+    to_meter.texture(in.wide, gpu::Use::ColorWrite, kRead);
     if (samples) {
-        transition(list, in.wide_ms, D3D12_RESOURCE_STATE_RENDER_TARGET, kRead);
+        to_meter.texture(in.wide_ms, gpu::Use::ColorWrite, kRead);
     }
-
-    transition(list, exposure_.Get(), kRead, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    to_meter.texture(exposure_.Get(), kRead, gpu::Use::ComputeWrite);
+    to_meter.texture(in.depth, gpu::Use::DepthWrite, kRead);
+    to_meter.issue();
     list->SetComputeRootSignature(root_signature_.Get());
     list->SetPipelineState(meter_.Get());
     list->SetComputeRoot32BitConstants(0, sizeof(constants) / 4u, &constants, 0);
+    ring.bind(list);
     list->SetComputeRootDescriptorTable(1, gpu(0));
     list->SetComputeRootDescriptorTable(2, gpu(3));
-    transition(list, in.depth, D3D12_RESOURCE_STATE_DEPTH_WRITE, kRead);
     list->Dispatch(1, 1, 1);
-    transition(list, in.depth, kRead, D3D12_RESOURCE_STATE_DEPTH_WRITE);
-    transition(list, exposure_.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, kRead);
+    BarriersD3D12 to_draw{list};
+    to_draw.texture(in.depth, kRead, gpu::Use::DepthWrite);
+    to_draw.texture(exposure_.Get(), gpu::Use::ComputeWrite, kRead);
+    to_draw.issue();
 
     list->SetGraphicsRootSignature(root_signature_.Get());
     list->SetPipelineState(pipeline);
@@ -248,10 +249,12 @@ bool SceneCamera::record(ID3D12GraphicsCommandList* list, DescriptorRing& ring, 
     list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     list->DrawInstanced(3, 1, 0, 0);
 
-    transition(list, in.wide, kRead, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    BarriersD3D12 back{list};
+    back.texture(in.wide, kRead, gpu::Use::ColorWrite);
     if (samples) {
-        transition(list, in.wide_ms, kRead, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        back.texture(in.wide_ms, kRead, gpu::Use::ColorWrite);
     }
+    back.issue();
     return true;
 }
 
@@ -284,11 +287,12 @@ bool SceneCamera::widen(ID3D12GraphicsCommandList* list, DescriptorRing& ring, c
     D3D12_GPU_DESCRIPTOR_HANDLE storage_table = table.gpu;
     storage_table.ptr += stride * 2u;
 
-    constexpr D3D12_RESOURCE_STATES kRead =
-        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-    transition(list, in.picture, D3D12_RESOURCE_STATE_RENDER_TARGET, kRead);
+    BarriersD3D12 picture{list};
+    picture.texture(in.picture, gpu::Use::ColorWrite, kRead);
+    picture.issue();
     list->SetGraphicsRootSignature(root_signature_.Get());
     list->SetPipelineState(pipeline);
+    ring.bind(list);
     list->SetGraphicsRootDescriptorTable(1, table.gpu);
     list->SetGraphicsRootDescriptorTable(2, storage_table);
     const D3D12_VIEWPORT viewport{0.0f, 0.0f, static_cast<float>(in.width), static_cast<float>(in.height), 0.0f, 1.0f};
@@ -298,7 +302,7 @@ bool SceneCamera::widen(ID3D12GraphicsCommandList* list, DescriptorRing& ring, c
     list->OMSetRenderTargets(1, &in.rtv, FALSE, nullptr);
     list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     list->DrawInstanced(3, 1, 0, 0);
-    transition(list, in.picture, kRead, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    picture.undo();
     return true;
 }
 

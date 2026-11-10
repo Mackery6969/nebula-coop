@@ -4,27 +4,26 @@
 #include "Game/LiveActor/PartsModel.hpp"
 #include "Game/MapObj/ChipHolder.hpp"
 #include "Game/MapObj/MapPartsRailMover.hpp"
-#include "Game/NameObj/NameObjArchiveListCollector.hpp"
 #include "Game/System/NebulaCoopWorld.hpp"
 #include "Game/Util/ActorMovementUtil.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/ActorShadowUtil.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const f32 sBubbleHitRadius = 150.0f;
-    static const f32 sBodyHitRadius = 80.0f;
-    static const f32 sShadowRadius = 50.0f;
-    static const f32 sBaseScale = 1.0f;
-    // static const f32 sLife = 0.0f;
-    static const s32 sCannotGetTime = 40;
-    static const f32 sBodyHitYOffset = 0.0f;
+    NEBULA_TUNABLE(f32, sBubbleHitRadius, 150.0f);
+    NEBULA_TUNABLE(f32, sBodyHitRadius, 80.0f);
+    NEBULA_TUNABLE(f32, sShadowRadius, 50.0f);
+    NEBULA_TUNABLE(f32, sBaseScale, 1.0f);
+    NEBULA_TUNABLE(s32, sCannotGetTime, 40);
+    NEBULA_TUNABLE(f32, sBodyHitYOffset, 0.0f);
 };  // namespace
 
 namespace NrvChipBase {
@@ -41,14 +40,14 @@ ChipBase::ChipBase(const char* pName, s32 chipType, const char* pChipName)
       mChipType(chipType), mIsCalcShadow() {
 }
 
-void ChipBase::init(const JMapInfoIter& rIter) {
+void ChipBase::init(const TableIter& rIter) {
     MR::createChipHolder(mChipType);
 
-    initJMapParam(rIter);
+    initPlacementParam(rIter);
     initModel(rIter);
     initSensor();
     initShadow(rIter);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initSound(4, false);
     initNerve(GET_NERVE(ChipBase, ChipBaseNrvWait));
 
@@ -66,7 +65,7 @@ void ChipBase::init(const JMapInfoIter& rIter) {
     }
 }
 
-void ChipBase::initModel(const JMapInfoIter& rIter) {
+void ChipBase::initModel(const TableIter& rIter) {
     mScale *= ::sBaseScale;
 
     initModelManagerWithAnm(mChipName, 0, false);
@@ -74,8 +73,8 @@ void ChipBase::initModel(const JMapInfoIter& rIter) {
     MR::connectToSceneNoSilhouettedMapObjStrongLight(this);
 
     if (isNeedBubble(rIter)) {
-        mAirBubble = MR::createPartsModelNoSilhouettedMapObj(this, "\203\101\203\217" /* アワ */, "AirBubble", 0);
-        mAirBubble->initFixedPosition(TVec3f(0.0f, 0.0f, 0.0f), TVec3f(0.0f, 0.0f, 0.0f), 0);
+        mAirBubble = MR::createPartsModelNoSilhouettedMapObj(this, "アワ", "AirBubble", 0);
+        mAirBubble->initFixedPosition(Vec3f(0.0f, 0.0f, 0.0f), Vec3f(0.0f, 0.0f, 0.0f), 0);
         MR::startBck(mAirBubble, "Move");
     }
 }
@@ -92,19 +91,19 @@ void ChipBase::initSensor() {
         radius = ::sBodyHitRadius;
     }
 
-    MR::addHitSensorEnemy(this, "body", 8, radius * scale, TVec3f(0.0f, ::sBodyHitYOffset, 0.0f));
+    MR::addHitSensorEnemy(this, "body", 8, radius * scale, Vec3f(0.0f, ::sBodyHitYOffset, 0.0f));
 }
 
-void ChipBase::initShadow(const JMapInfoIter& rIter) {
+void ChipBase::initShadow(const TableIter& rIter) {
     if (MR::isValidInfo(rIter)) {
-        MR::getJMapInfoArg2WithInit(rIter, &mIsCalcShadow);
+        MR::getPlacementArg2WithInit(rIter, &mIsCalcShadow);
     } else {
         mIsCalcShadow = false;
     }
 
     s32 shadowShape = -1;
     if (MR::isValidInfo(rIter)) {
-        MR::getJMapInfoArg5NoInit(rIter, &shadowShape);
+        MR::getPlacementArg5NoInit(rIter, &shadowShape);
     }
 
     switch (shadowShape) {
@@ -121,7 +120,7 @@ void ChipBase::initShadow(const JMapInfoIter& rIter) {
 
     f32 dropLength = 2000.0f;
     if (MR::isValidInfo(rIter)) {
-        MR::getJMapInfoArg4NoInit(rIter, &dropLength);
+        MR::getPlacementArg4NoInit(rIter, &dropLength);
     }
 
     MR::setShadowDropLength(this, 0, dropLength);
@@ -134,10 +133,10 @@ void ChipBase::initShadow(const JMapInfoIter& rIter) {
     }
 }
 
-void ChipBase::initJMapParam(const JMapInfoIter& rIter) {
+void ChipBase::initPlacementParam(const TableIter& rIter) {
     if (MR::isValidInfo(rIter)) {
         MR::initDefaultPos(this, rIter);
-        MR::getJMapInfoArg0NoInit(rIter, &mGroupID);
+        MR::getPlacementArg0NoInit(rIter, &mGroupID);
 
         if (MR::isConnectedWithRail(rIter)) {
             initRailRider(rIter);
@@ -189,7 +188,7 @@ void ChipBase::makeActorDead() {
 void ChipBase::control() {
     if (mRailMover != nullptr) {
         mRailMover->movement();
-        mPosition.set(mRailMover->_28);
+        mPosition.set(mRailMover->mStartPos);
         MR::setClippingRangeIncludeShadow(this, &mClippingRange, 100.0f);
     }
 }
@@ -206,7 +205,7 @@ void ChipBase::appearWait() {
     setNerve(GET_NERVE(ChipBase, ChipBaseNrvWait));
 }
 
-void ChipBase::appearFlashing(s32 a1) {
+void ChipBase::appearFlashing(s32 timer) {
     if (isNerve(GET_NERVE(ChipBase, ChipBaseNrvDeactive))) {
         return;
     }
@@ -215,7 +214,7 @@ void ChipBase::appearFlashing(s32 a1) {
 
     MR::invalidateClipping(this);
 
-    mFlashingCtrl->start(a1);
+    mFlashingCtrl->start(timer);
 
     setNerve(GET_NERVE(ChipBase, ChipBaseNrvFlashing));
 }
@@ -388,19 +387,14 @@ bool ChipBase::isGettable() const {
     return isNerve(GET_NERVE(ChipBase, ChipBaseNrvWait)) || isNerve(GET_NERVE(ChipBase, ChipBaseNrvFlashing));
 }
 
-bool ChipBase::isNeedBubble(const JMapInfoIter& rIter) {
+bool ChipBase::isNeedBubble(const TableIter& rIter) {
     if (!MR::isValidInfo(rIter)) {
         return false;
     }
 
-    bool arg3 = false;
-    MR::getJMapInfoArg3WithInit(rIter, &arg3);
+    bool isNeedBubble = false;
+    MR::getPlacementArg3WithInit(rIter, &isNeedBubble);
 
-    return arg3;
+    return isNeedBubble;
 }
 
-void ChipBase::makeArchiveList(NameObjArchiveListCollector* pCollector, const JMapInfoIter& rIter) {
-    if (ChipBase::isNeedBubble(rIter)) {
-        pCollector->addArchive("AirBubble");
-    }
-}

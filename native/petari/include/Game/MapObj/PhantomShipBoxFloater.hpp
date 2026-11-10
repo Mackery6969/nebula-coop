@@ -8,9 +8,8 @@ class PhantomShipBoxFloater : public LiveActor {
 public:
     PhantomShipBoxFloater(const char*);
 
-    virtual ~PhantomShipBoxFloater();
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
+    virtual void init(const TableIter&) override;
+    virtual void control() override;
 
     f32 getCurrentSinkDepth() const;
 
@@ -21,6 +20,9 @@ public:
 
     FloaterFloatingForceTypeSpring* mFloatingForce;
     const char* mObjectName;
-    TVec3f mFloaterOffset;
+    Vec3f mFloaterOffset;
     s32 mRippleSeCounter;
+    // The box goes under past mSinkDepthUnder while ridden and comes back above mSinkDepthOver (by box size).
+    f32 mSinkDepthUnder;
+    f32 mSinkDepthOver;
 };

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
 class StarPiece;
 
@@ -9,11 +9,11 @@ class StarPieceFollowGroup : public LiveActor {
 public:
     StarPieceFollowGroup(const char*);
 
-    virtual void init(const JMapInfoIter& rIter);
+    virtual void init(const TableIter& rIter) override;
 
     bool beginFollowPieces();
     void placementPiece(s32);
-    void updateAxises(const TVec3f&, const TVec3f&, const TVec3f&, f32);
+    void updateAxises(const Vec3f&, const Vec3f&, const Vec3f&, f32);
     void followPieces();
     void allKillPieces();
     void onSwitchA();
@@ -21,15 +21,13 @@ public:
     void exeFollowEnd();
 
     StarPiece** mPieces;
-    TVec3f* _90;
+    Vec3f* mPieceOffsets;
     s32 mNumPiecesTotal;
     s32 mNumPiecesUse;
     f32 mRadius;
-    // appears to go unused
-    u32 _A0;
-    f32 mAngle;
+    f32 mAngle;  // the ring's turn, 0.025 a step
     s32 mTimeLimit;
-    TVec3f mLocalXAxis;
-    TVec3f mLocalZAxis;
-    TVec3f mLocalYAxis;
+    Vec3f mLocalXAxis;
+    Vec3f mLocalZAxis;
+    Vec3f mLocalYAxis;
 };

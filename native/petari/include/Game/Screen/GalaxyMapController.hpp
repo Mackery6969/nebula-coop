@@ -6,7 +6,7 @@ class BackButton;
 class GalaxyMap;
 class GalaxyMapBackground;
 class GalaxyMapSelectButton;
-class JUTTexture;
+class GameTexture;
 class PowerStarList;
 struct ResTIMG;
 class WipeFade;
@@ -27,12 +27,12 @@ public:
     /// @brief Creates a new `GalaxyMapController`.
     GalaxyMapController();
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void movement();
-    virtual void draw() const;
-    virtual void calcAnim();
-    virtual void appear();
-    virtual void kill();
+    virtual void init(const TableIter& rIter) override;
+    virtual void movement() override;
+    virtual void draw() const override;
+    virtual void calcAnim() override;
+    virtual void appear() override;
+    virtual void kill() override;
 
     void drawForCapture();
     void startGalaxyMap();
@@ -79,7 +79,7 @@ public:
     PowerStarList* mPowerStarList;
     BackButton* mBackButton;
     WipeFade* mWipe;
-    JUTTexture* _38;
+    GameTexture* mCaptureTexture;
     s32 mMode;
     s32 mWipeFrame;
 };

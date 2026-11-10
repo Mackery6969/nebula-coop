@@ -1,11 +1,19 @@
 #pragma once
 
 
-class JUTTexture;
+class GameTexture;
+struct SiteMaterial;
+
+#include "Game/Util/Color.hpp"
 
 class BigBubbleDrawer {
 public:
     BigBubbleDrawer();
+
+    // The warning colour over the bubble drawn next (the material setUpStage sent).
+    static void setWarningColor(const Color8& rColor);
+    static const SiteMaterial& material();
+
 
     void setUpDraw() const;
     void setUpVertexFormat() const;
@@ -14,7 +22,6 @@ public:
     void setUpPixelFormat() const;
     void setUpMaterial() const;
 
-    JUTTexture* mBubbleTexture;
-    JUTTexture* mRainbowTexture;
-    f32 _8;
+    GameTexture* mBubbleTexture;
+    GameTexture* mRainbowTexture;
 };

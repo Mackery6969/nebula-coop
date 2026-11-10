@@ -1,48 +1,47 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include "Game/Util/NativeMesh.hpp"
-#include <JSystem/JGeometry.hpp>
+#include "Game/Render/TypedDraw.hpp"
+#include "Game/MapObj/ElectricRailHolder.hpp"
+#include <nebula_geometry.hpp>
 
 class ElectricRailMovingPoint : public LiveActor {
 public:
-    ElectricRailMovingPoint(const char* pName = "\210\332\223\256\223\144\214\202\203\214\201\133\203\213\223\137" /* 移動電撃レール点 */);
+    ElectricRailMovingPoint(const char* pName = "移動電撃レール点");
 
-    virtual ~ElectricRailMovingPoint();
-    virtual void init(const JMapInfoIter&);
-    virtual void attackSensor(HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
 
-    u8 _8C;
-    u8 _8D;
+    bool mHasShadow;
+    bool mIsElectric;  // pushes instead once the rail vanishes
 };
 
-class ElectricRailMoving : public LiveActor {
+class ElectricRailMoving : public ElectricRailDrawn {
 public:
     ElectricRailMoving(const char*);
 
-    virtual ~ElectricRailMoving();
-    virtual void init(const JMapInfoIter&);
-    virtual void draw() const;
-    virtual void attackSensor(HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void drawWith(MaterialDraw& rMaterial) const override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
 
     void disappear();
-    bool isTouchRail(const HitSensor*, TVec3f*, TVec3f*) const;
-    void initMapToolInfo(const JMapInfoIter&);
+    bool isTouchRail(const HitSensor*, Vec3f*, Vec3f*) const;
+    void initMapToolInfo(const TableIter&);
     void initSensor();
-    void initRail(const JMapInfoIter&);
+    void initRail(const TableIter&);
     void initPoints();
     void initMesh();
-    void drawRail(f32) const;
-    void drawPlane(NativeMesh&, f32, f32, f32, f32) const;
-    void drawPlaneGX(f32, f32, f32, f32) const;
-    // A segment's two corners into `pMesh`, or drawn now when it is null.
-    void setVertexAttribute(int, int, f32, f32, f32, f32, NativeMesh* pMesh) const;
+    void drawRail(TypedDraw& rDraw, f32 width) const;
+    void drawPlane(f32 side0, f32 up0, f32 side1, f32 up1);
+    void drawPlaneQuad(TypedDraw& rDraw, f32 side0, f32 up0, f32 side1, f32 up1) const;
+    // Two strip corners of one rail position at rVtx.
+    void setVertexAttribute(int pointIndex, int level, f32 side0, f32 up0, f32 side1, f32 up1, VertexPT*& rVtx) const;
     void updateHitSensorPos();
     bool updatePointPos();
     void updatePointPosAndModel();
-    bool isValidCoord(f32) const;
-    f32 getRepeatedCoord(f32) const;
-    void calcPointPos(TVec3f*, f32) const;
+    bool isValidCoord(f32 coord) const;
+    f32 getRepeatedCoord(f32 coord) const;
+    void calcPointPos(Vec3f* pOutPos, f32 coord) const;
     void move();
     void exeDisappear();
     void exeDisappeared();
@@ -51,19 +50,16 @@ public:
     s32 mSegmentNum;
     f32 mMovementSpeed;
     f32 mSegmentLength;
-    s32 mStackHeight;
-    TPos3f _9C;
-    u8 _CC;
-    u8 _CD;
-    u8 _CE;
-    u8 _CF;
-    TVec3f* mSensorOffsets;
+    s32 mStackHeight;  // rails stacked against gravity (a sensor each)
+    Pos3f mTexMtx;
+    u8 mAlpha;
+    Vec3f* mSensorOffsets;
     ElectricRailMovingPoint* mMovingPoints;
-    s32 _D8;
+    s32 mPointNum;
     // The rail as the renderer draws it while it waits.
-    NativeMesh mMesh;
-    s32 _E4;
-    TVec3f* _E8;
-    f32 _EC;
-    f32 _F0;
+    SiteMesh< VertexPT > mMesh;
+    s32 mRailPosNum;
+    Vec3f* mRailPositions;
+    f32 mCoord;
+    f32 mRailWidth;
 };

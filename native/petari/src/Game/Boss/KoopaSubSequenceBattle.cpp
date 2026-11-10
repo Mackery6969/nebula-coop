@@ -17,7 +17,7 @@ namespace NrvKoopaSubSequenceBattle {
 };  // namespace NrvKoopaSubSequenceBattle
 
 KoopaSubSequenceBattle::KoopaSubSequenceBattle(Koopa* pKoopa, KoopaSequencer* pSequencer, KoopaBattleBase* pBattleBase)
-    : ActorStateBase< Koopa >("Sequence[\220\355\223\254]" /* Sequence[戦闘] */, pKoopa), mSequencer(pSequencer), mBattleBase(pBattleBase) {
+    : ActorStateBase< Koopa >("Sequence[戦闘]", pKoopa), mSequencer(pSequencer), mBattleBase(pBattleBase) {
     initNerve(GET_NERVE(KoopaSubSequenceBattle, KoopaSubSequenceBattleNrvBattleLv1));
 }
 
@@ -28,12 +28,8 @@ void KoopaSubSequenceBattle::kill() {
 }
 
 bool KoopaSubSequenceBattle::isDemo() const {
-    if (isNerve(GET_NERVE(KoopaSubSequenceBattle, KoopaSubSequenceBattleNrvDemoStartLv2)) ||
-        isNerve(GET_NERVE(KoopaSubSequenceBattle, KoopaSubSequenceBattleNrvDemoStartLv3))) {
-        return true;
-    }
-
-    return false;
+    return isNerve(GET_NERVE(KoopaSubSequenceBattle, KoopaSubSequenceBattleNrvDemoStartLv2)) ||
+           isNerve(GET_NERVE(KoopaSubSequenceBattle, KoopaSubSequenceBattleNrvDemoStartLv3));
 }
 
 void KoopaSubSequenceBattle::exeBattleLv1() {
@@ -64,7 +60,4 @@ void KoopaSubSequenceBattle::exeBattleLv3() {
     if (MR::updateActorState(this, mBattleBase)) {
         kill();
     }
-}
-
-KoopaSubSequenceBattle::~KoopaSubSequenceBattle() {
 }

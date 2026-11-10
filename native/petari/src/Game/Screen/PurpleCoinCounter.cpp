@@ -5,9 +5,10 @@
 #include "Game/Util/LayoutUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SceneUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    const s32 cInvalidCountUpInterval = 3;
+    NEBULA_TUNABLE(s32, cInvalidCountUpInterval, 3);
 };  // namespace
 
 namespace NrvPurpleCoinCounter {
@@ -20,12 +21,12 @@ PurpleCoinCounter::PurpleCoinCounter(const char* pName)
       mIsValid(false) {
 }
 
-void PurpleCoinCounter::init(const JMapInfoIter& rIter) {
+void PurpleCoinCounter::init(const TableIter& /*rIter*/) {
     initLayoutManager("PurpleCoinCounter", 2);
     MR::createAndAddPaneCtrl(this, "Counter", 1);
     initEffectKeeper(0, nullptr, nullptr);
 
-    mLayoutAppearer = new CounterLayoutAppearer(this, TVec2f(-50.0f, 0.0f));
+    mLayoutAppearer = new CounterLayoutAppearer(this, Vec2f(-50.0f, 0.0f));
     mPaneRumbler = new CountUpPaneRumbler(this, "Counter");
 
     initNerve(GET_NERVE(PurpleCoinCounter, PurpleCoinCounterNrvAppear));
@@ -94,7 +95,7 @@ void PurpleCoinCounter::updateCounter() {
 void PurpleCoinCounter::exeAppear() {
     if (MR::isFirstStep(this)) {
         MR::showLayout(this);
-        mLayoutAppearer->appear(TVec2f(0.0f, 0.0f));
+        mLayoutAppearer->appear(Vec2f(0.0f, 0.0f));
         MR::startAnim(this, "Wait", 1);
     }
 

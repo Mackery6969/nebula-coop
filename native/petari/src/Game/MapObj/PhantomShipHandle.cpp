@@ -3,9 +3,10 @@
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const f32 sClippingRadius = 200.0f;
+    NEBULA_TUNABLE(f32, sClippingRadius, 200.0f);
 };  // namespace
 
 PhantomShipHandle::PhantomShipHandle(const char* pName) : LiveActor(pName), mRotator() {
@@ -16,16 +17,14 @@ void PhantomShipHandle::control() {
 }
 
 void PhantomShipHandle::calcAndSetBaseMtx() {
-    TPos3f baseMtx;
-    baseMtx.identity();
-
+    Pos3f baseMtx;
     baseMtx.set(mRotator->getRotateMtx());
     baseMtx.setTrans(mPosition);
 
     MR::setBaseTRMtx(this, baseMtx);
 }
 
-void PhantomShipHandle::init(const JMapInfoIter& rIter) {
+void PhantomShipHandle::init(const TableIter& rIter) {
     MR::initDefaultPosNoRepeat(this, rIter);
     initModelManagerWithAnm("PhantomShipHandle", nullptr, false);
 

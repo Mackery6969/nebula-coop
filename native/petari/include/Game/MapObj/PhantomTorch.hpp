@@ -8,15 +8,14 @@ class PhantomTorch : public LiveActor {
 public:
     PhantomTorch(const char*);
 
-    virtual ~PhantomTorch();
-    virtual void init(const JMapInfoIter&);
-    virtual void makeActorAppeared();
-    virtual void kill();
-    virtual void makeActorDead();
-    virtual void startClipped();
-    virtual void endClipped();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void makeActorAppeared() override;
+    virtual void kill() override;
+    virtual void makeActorDead() override;
+    virtual void startClipped() override;
+    virtual void endClipped() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
     void soundOrder();
     void exeWait();
@@ -27,4 +26,6 @@ public:
     s32 mItem;
     SpinPullParticleCallBack* mPullParticle;
     bool mIsDecorative;
+    // The burning loop for this torch kind (bonfire or torch).
+    const char* mBurnSe;
 };

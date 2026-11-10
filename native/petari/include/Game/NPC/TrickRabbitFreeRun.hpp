@@ -12,19 +12,17 @@ class WalkerStateRunaway;
 
 class TrickRabbitFreeRun : public LiveActor {
 public:
-    /// @brief Creates a new `TrickRabbitFreeRun`.
-    /// @param pName A pointer to the null-terminated name of the object.
     TrickRabbitFreeRun(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void initAfterPlacement();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void initAfterPlacement() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     void initSensor();
     void initState();
@@ -43,8 +41,8 @@ public:
     void exePowerStarDemo();
     void exeGiveUp();
 
-    TQuat4f mRotateQuat;
-    TVec3f mFrontVec;
+    Quat4f mRotateQuat;
+    Vec3f mFrontVec;
     RabbitStateWaitStart* mStateWaitStart;
     WalkerStateRunaway* mStateRunaway;
     WalkerStateBlowDamage* mStateBlowDamage;

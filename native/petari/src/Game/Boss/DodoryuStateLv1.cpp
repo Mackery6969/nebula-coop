@@ -1,5 +1,6 @@
 #include <nebula_game_api.h>
 #include "Game/Boss/DodoryuStateLv1.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Boss/Dodoryu.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
@@ -11,25 +12,29 @@
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
-#include "Game/System/NebulaHost.hpp"
+#include "Game/System/GameRules.hpp"
+#include "Game/Util/Tunable.hpp"
+
+// The numbers this file's functions give the game's motion and animation calls, as tunables: "<file>.<function>.<call>.<k>".
+NEBULA_TUNABLE_NAMED(f32, cNum_exeHide_shakeCameraInfinity_1, "exeHide.shakeCameraInfinity.1", 0.2f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeHide_shakeCameraInfinity_2, "exeHide.shakeCameraInfinity.2", 2.0f);
 
 namespace {
-    static const s32 sStopSceneFrame = 10;
-    static const f32 sKnockSpeed = 10.0f;
-    static const f32 sSpeed = 8.0f;
-    static const f32 sAppearSpeed = 4.0f;
-    static const f32 sRailAccel = 0.1f;
-    static const s32 sHideTermMin = 150;
-    static const s32 sHideTermMax = 200;
-    static const s32 sAppearStartAttackFrame = 16;
-    static const s32 sAppearTermMin = 15;
-    static const s32 sAppearTermMax = 30;
-    static const s32 sSwoonTerm = 180;
-    static const s32 sDiveShadowOffFrame = 50;
-    static const s32 sSpinOutEndFrame = 80;
-    static const s32 sAppearSignFrame = 30;
-    static const s32 sDiveAttackInvalidFrame = 20;
-    // static const f32 sPopSpeed = _;
+    NEBULA_TUNABLE(s32, sStopSceneFrame, 10);
+    NEBULA_TUNABLE(f32, sKnockSpeed, 10.0f);
+    NEBULA_TUNABLE(f32, sSpeed, 8.0f);
+    NEBULA_TUNABLE(f32, sAppearSpeed, 4.0f);
+    NEBULA_TUNABLE(f32, sRailAccel, 0.1f);
+    NEBULA_TUNABLE(s32, sHideTermMin, 150);
+    NEBULA_TUNABLE(s32, sHideTermMax, 200);
+    NEBULA_TUNABLE(s32, sAppearStartAttackFrame, 16);
+    NEBULA_TUNABLE(s32, sAppearTermMin, 15);
+    NEBULA_TUNABLE(s32, sAppearTermMax, 30);
+    NEBULA_TUNABLE(s32, sSwoonTerm, 180);
+    NEBULA_TUNABLE(s32, sDiveShadowOffFrame, 50);
+    NEBULA_TUNABLE(s32, sSpinOutEndFrame, 80);
+    NEBULA_TUNABLE(s32, sAppearSignFrame, 30);
+    NEBULA_TUNABLE(s32, sDiveAttackInvalidFrame, 20);
 };  // namespace
 
 namespace {
@@ -45,20 +50,20 @@ namespace {
 };  // namespace
 
 DodoryuStateLv1::DodoryuStateLv1(Dodoryu* pHost, const char* pName)
-    : DodoryuStateBase(pHost, pName), mHideStep(), mAppearStep(), _A4(), mIsValidPop(), mPopAccel(), mPopSpeed(), mRailSpeed(::sSpeed),
+    : DodoryuStateBase(pHost, pName), mHideStep(), mAppearStep(), mIsSpinCountered(), mIsValidPop(), mPopAccel(), mPopSpeed(), mRailSpeed(::sSpeed),
       mRailSpeedMax(::sSpeed) {
     initWithoutIter();
 }
 
-void DodoryuStateLv1::init(const JMapInfoIter& rIter) {
+void DodoryuStateLv1::init(const TableIter& /*rIter*/) {
     MR::invalidateClipping(this);
     initNerve(GET_NERVE_ANON(DodoryuStateLv1NrvHide));
     makeActorAppeared();
 }
 
 void DodoryuStateLv1::control() {
-    if (_A4 && !MR::isPlayerStaggering()) {
-        _A4 = false;
+    if (mIsSpinCountered && !MR::isPlayerStaggering()) {
+        mIsSpinCountered = false;
     }
 
     if (mRailSpeedMax > mRailSpeed) {
@@ -81,7 +86,7 @@ void DodoryuStateLv1::exeHide() {
 
         mHideStep = MR::getRandom(::sHideTermMin, ::sHideTermMax);
 
-        MR::shakeCameraInfinity(this, 0.2f, 2.0f);
+        MR::shakeCameraInfinity(this, cNum_exeHide_shakeCameraInfinity_1, cNum_exeHide_shakeCameraInfinity_2);
         MR::startBva(mHost, "Normal");
     }
 
@@ -231,18 +236,18 @@ void DodoryuStateLv1::exeSpinOut() {
         mHost->invalidateEyeSensor();
     }
 
-    TPos3f mtx = mHost->mBaseMtx;
-    TVec3f trans;
+    Pos3f mtx = mHost->mBaseMtx;
+    Vec3f trans;
     mtx.getTrans(trans);
-    trans.add(_98 * ::sKnockSpeed);
+    trans.add(mKnockDir * ::sKnockSpeed);
     mtx.setTrans(trans);
 
     mHost->setMtx(mtx);
     mHost->keepOffFromClosedArea(nullptr);
     mHost->snapToGround();
-    calcVerticalizedDir(&_98, _98);
+    calcVerticalizedDir(&mKnockDir, mKnockDir);
 
-    if (MR::isStep(this, 60)) {
+    if (MR::isStep(this, NebulaFrameClock::stepsOfSeconds(1))) {
         mHost->validateEyeSensor();
     }
 
@@ -273,12 +278,12 @@ void DodoryuStateLv1::catchAttackSensor(HitSensor* pSender, HitSensor* pReceiver
         return;
     }
 
-    if (!isAttackable() || _A4) {
+    if (!isAttackable() || mIsSpinCountered) {
         MR::sendMsgPush(pReceiver, pSender);
         return;
     }
 
-    TVec3f dir;
+    Vec3f dir;
     calcAttackDir(&dir, pSender->mPosition, pReceiver->mPosition);
 
     if (MR::sendMsgEnemyAttackStrongToDir(pReceiver, pSender, dir)) {
@@ -322,7 +327,7 @@ bool DodoryuStateLv1::catchPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* 
 
     if (isAppear && MR::isMsgPlayerSpinAttack(msg)) {
         if (MR::sendMsgEnemyAttackCounterSpin(pSender, pReceiver)) {
-            _A4 = true;
+            mIsSpinCountered = true;
 
             return true;
         }
@@ -344,13 +349,12 @@ bool DodoryuStateLv1::catchPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* 
         return true;
     }
 
-    if (NebulaHost::codePatch(NEBULA_PATCH_DODORYU_SHELL_ONLY, nullptr) ? MR::isMsgJetTurtleAttack(msg)
-                                                                      : MR::isMsgPlayerHitAll(msg)) {
-        _98.set(pReceiver->mPosition - pSender->mPosition);
+    if (GameRules::dodoryuShellOnly() ? MR::isMsgJetTurtleAttack(msg) : MR::isMsgPlayerHitAll(msg)) {
+        mKnockDir.set(pReceiver->mPosition - pSender->mPosition);
 
-        if (!calcVerticalizedDir(&_98, _98)) {
-            mHost->mBaseMtx.getZDir(_98);
-            _98.negate();
+        if (!calcVerticalizedDir(&mKnockDir, mKnockDir)) {
+            mHost->mBaseMtx.getZDir(mKnockDir);
+            mKnockDir.negate();
         }
 
         MR::tryRumblePadMiddle(this, PLAYER_1);
@@ -392,8 +396,8 @@ void DodoryuStateLv1::updatePop() {
         return;
     }
 
-    TPos3f mtx = mHost->mBaseMtx;
-    TVec3f trans;
+    Pos3f mtx = mHost->mBaseMtx;
+    Vec3f trans;
     mtx.getTrans(trans);
     trans.add(-mHost->mGravity * mPopAccel);
 

@@ -8,23 +8,18 @@ namespace NrvDeadLeaves {
     NEW_NERVE(DeadLeavesNrvSpin, DeadLeaves, Spin);
 };  // namespace NrvDeadLeaves
 
-DeadLeaves::DeadLeaves(const char* pName) : MapObjActor(pName) {
-    mItemType = -1;
+DeadLeaves::DeadLeaves(const char* pName) : MapObjActor(pName), mItemType(-1) {
 }
 
-void DeadLeaves::init(const JMapInfoIter& rIter) {
+void DeadLeaves::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
     MapObjActorInitInfo info;
     MapObjActorUtil::setupInitInfoSimpleMapObj(&info);
     info.setupHitSensor();
-    TVec3f sensor;
-    sensor.x = 0.0f;
-    sensor.y = 30.0f;
-    sensor.z = 0.0f;
-    info.setupHitSensorParam(8, 70.0f, sensor);
+    info.setupHitSensorParam(8, 70.0f, Vec3f(0.0f, 30.0f, 0.0f));
     info.setupNerve(GET_NERVE(DeadLeaves, DeadLeavesNrvWait));
     initialize(rIter, info);
-    MR::getJMapInfoArg0NoInit(rIter, &mItemType);
+    MR::getPlacementArg0NoInit(rIter, &mItemType);
 
     if (mItemType == 0) {
         MR::declareCoin(this, 1);
@@ -44,8 +39,7 @@ void DeadLeaves::exeSpin() {
         if (mItemType == 0) {
             MR::appearCoinPop(this, mPosition, 1);
         } else if (mItemType == 1) {
-            bool appear = MR::appearStarPiece(this, mPosition, 3, 10.0f, 40.0f, false);
-            if (appear) {
+            if (MR::appearStarPiece(this, mPosition, 3, 10.0f, 40.0f, false)) {
                 MR::startSound(this, "SE_OJ_STAR_PIECE_BURST");
             }
         }
@@ -56,14 +50,11 @@ void DeadLeaves::exeSpin() {
     }
 }
 
-bool DeadLeaves::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool DeadLeaves::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (MR::isMsgPlayerSpinAttack(msg)) {
         setNerve(GET_NERVE(DeadLeaves, DeadLeavesNrvSpin));
         return true;
     }
 
     return false;
-}
-
-DeadLeaves::~DeadLeaves() {
 }

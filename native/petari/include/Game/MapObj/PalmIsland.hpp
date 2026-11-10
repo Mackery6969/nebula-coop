@@ -1,19 +1,18 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
 class PalmIsland : public LiveActor {
 public:
     PalmIsland(const char*);
 
-    virtual ~PalmIsland();
-    virtual void init(const JMapInfoIter&);
+    virtual void init(const TableIter&) override;
 
     void exeFloat();
     void exeWait();
 
-    s32 _8C;
-    TVec3f _90;
-    s32 _9C;
+    s32 mFloatStartStep;
+    Vec3f mRipplePos;
+    s32 mIsRising;
 };

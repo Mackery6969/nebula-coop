@@ -10,7 +10,6 @@ class KoopaStateAttackRoll : public ActorStateBase< Koopa > {
 public:
     KoopaStateAttackRoll(Koopa* pKoopa);
 
-    virtual ~KoopaStateAttackRoll();
     virtual void init();
     virtual void appear();
     virtual void kill();
@@ -30,6 +29,6 @@ public:
     KoopaFigureBall* mFigureBall;
     s32 mRollDelay;
     s32 mRollTime;
-    bool _1C;
-    bool _1D;
+    bool mIsHitPlayer;
+    bool mIsStartNow;
 };

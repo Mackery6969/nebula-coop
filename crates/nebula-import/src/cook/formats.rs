@@ -6,8 +6,10 @@
 //! - BMD/BDL: the TEX1 block (ResTIMG array, names, data); the model's other blocks are kept.
 //! - JPC (particles): each texture block (0x20 bytes, then a ResTIMG and its data).
 //! - TPL (layouts): the image table, image and palette headers, data.
-//! - BRFNT (fonts): the TGLP block's sheets; the records follow the file's last block.
+//! - BRFNT (fonts): the TGLP block's sheets; the records follow the file's last block. Intensity sheets become
+//!   distance fields (cook::distance) at `distance::SCALE` times their size; colour sheets stay images.
 
+use super::distance;
 use super::texture::{self, Format, Image, PaletteFormat};
 use super::Stats;
 use anyhow::{bail, Context, Result};
@@ -37,7 +39,18 @@ const RES_TIMG: usize = 0x20;
 const RGBA8: u8 = 0x6;
 
 /// One texture's image as a record, for a ResTIMG at `header` in `bytes` (offsets from the header).
-fn timg_record(bytes: &[u8], header: usize, stats: &mut Stats) -> Result<Vec<u8>> {
+pub fn timg_record(bytes: &[u8], header: usize, stats: &mut Stats) -> Result<Vec<u8>> {
+    let image = timg_image(bytes, header)?;
+    stats.note(&image);
+    texture::cook(&image)
+}
+
+/// The palette hash of the ResTIMG at `header` (texture::source_palette_hash), for its record's name.
+pub fn timg_palette_hash(bytes: &[u8], header: usize) -> Result<u64> {
+    Ok(texture::source_palette_hash(&timg_image(bytes, header)?))
+}
+
+fn timg_image(bytes: &[u8], header: usize) -> Result<Image<'_>> {
     let code = bytes[header];
     let format = Format::from_code(code as u32).with_context(|| format!("texture format {code:#x}"))?;
     let width = be16(bytes, header + 2)? as u32;
@@ -57,9 +70,7 @@ fn timg_record(bytes: &[u8], header: usize, stats: &mut Stats) -> Result<Vec<u8>
     } else {
         None
     };
-    let image = Image { format, width, height, levels, data, palette };
-    stats.note(&image);
-    texture::cook(&image)
+    Ok(Image { format, width, height, levels, data, palette })
 }
 
 /// Rewrites the ResTIMG at `header` (in `out`) for its record at `record_at` (offsets from the header).
@@ -74,77 +85,17 @@ fn point_timg(out: &mut [u8], header: usize, record_at: usize) {
     put32(out, header + 0x1C, (record_at - header) as u32);
 }
 
-/// A BTI file: its ResTIMG, then the record.
-pub fn bti(bytes: &[u8], stats: &mut Stats) -> Result<Vec<u8>> {
+/// A BTI file: its ResTIMG, then the record, named `name` (its file's stem).
+pub fn bti(bytes: &[u8], name: &str, stats: &mut Stats) -> Result<Vec<u8>> {
+    if bytes.starts_with(b"NBTI") { return Ok(bytes.to_vec()); }
     if bytes.len() < RES_TIMG {
         bail!("a texture file shorter than its header");
     }
-    let record = timg_record(bytes, 0, stats)?;
+    let mut record = timg_record(bytes, 0, stats)?;
+    texture::name_record(&mut record, name, timg_palette_hash(bytes, 0)?);
     let mut out = bytes[..RES_TIMG].to_vec();
     point_timg(&mut out, 0, RES_TIMG);
     out.extend_from_slice(&record);
-    Ok(out)
-}
-
-/// RFL_Res.dat (the Mii library's parts, in MiiFaceDatabase.arc): a header of two 16-bit fields and one offset per
-/// section, then the sections, each a file count, a 16-bit field, the files' offsets (count + 1, from the end of the
-/// table) and the files. A part texture (a ResTIMG-shaped header and its image) is cooked as a BTI file is; the shapes
-/// stay as they are. Every section's files start 32-byte aligned, so each record does.
-pub fn rfl_res(bytes: &[u8], stats: &mut Stats) -> Result<Vec<u8>> {
-    const SECTIONS: usize = 18; // RFLiArcID_Max
-    // Eye, Eyebrow, FaceTex, GlassTex, Mole, Mouth, Mustache, NlineTex, CapTex (RFLiArcID).
-    const TEXTURES: [usize; 9] = [1, 2, 4, 7, 10, 11, 12, 15, 17];
-    let header = 4 + SECTIONS * 4;
-    if bytes.len() < header {
-        bail!("RFL_Res.dat shorter than its header");
-    }
-    let mut out = bytes[..header].to_vec();
-    for section in 0..SECTIONS {
-        let at = be32(bytes, (section + 1) * 4)? as usize;
-        let count = be16(bytes, at)? as usize;
-        let field = be16(bytes, at + 2)?;
-        let table = at + 4;
-        let data = table + (count + 1) * 4;
-        if data > bytes.len() {
-            bail!("RFL_Res.dat section {section} past the file's end");
-        }
-        let mut files = Vec::with_capacity(count);
-        for i in 0..count {
-            let start = be32(bytes, table + i * 4)? as usize;
-            let end = be32(bytes, table + i * 4 + 4)? as usize;
-            let file = bytes.get(data + start..data + end).context("an RFL_Res.dat file past the file's end")?;
-            let cooked = if TEXTURES.contains(&section) && !file.is_empty() && !texture::is_record(file.get(RES_TIMG..).unwrap_or(&[])) {
-                bti(file, stats).with_context(|| format!("RFL_Res.dat section {section} file {i}"))?
-            } else {
-                file.to_vec()
-            };
-            files.push(cooked);
-        }
-        // The section starts where its files begin 32-byte aligned.
-        let table_bytes = 4 + (count + 1) * 4;
-        while (out.len() + table_bytes) % 32 != 0 {
-            out.push(0);
-        }
-        let start = out.len();
-        put32(&mut out, (section + 1) * 4, start as u32);
-        out.extend_from_slice(&(count as u16).to_be_bytes());
-        out.extend_from_slice(&field.to_be_bytes());
-        let mut offset = 0usize;
-        let mut offsets = Vec::with_capacity(count + 1);
-        for file in &files {
-            offsets.push(offset as u32);
-            offset += (file.len() + 31) & !31;
-        }
-        // An empty file's offset equals the next one's.
-        offsets.push(offset as u32);
-        for o in &offsets {
-            out.extend_from_slice(&o.to_be_bytes());
-        }
-        for file in &files {
-            out.extend_from_slice(file);
-            pad32(&mut out);
-        }
-    }
     Ok(out)
 }
 
@@ -253,10 +204,25 @@ pub fn jpc(bytes: &[u8], stats: &mut Stats) -> Result<Vec<u8>> {
     Ok(out)
 }
 
+/// The palette hash of each texture of a disc particle file (timg_palette_hash), in its order.
+pub fn jpc_palettes(bytes: &[u8]) -> Result<Vec<u64>> {
+    let count = be16(bytes, 0x0A)? as usize;
+    let mut at = be32(bytes, 0x0C)? as usize;
+    let mut out = Vec::with_capacity(count);
+    for _ in 0..count {
+        let size = be32(bytes, at + 4)? as usize;
+        let block = bytes.get(at..at + size).context("a JPC texture past the file's end")?;
+        out.push(timg_palette_hash(block, 0x20)?);
+        at += size;
+    }
+    Ok(out)
+}
+
 const TPL_IMAGE: usize = 0x24;
 
-/// A TPL: its header, image table and image headers, then the records; palettes go.
-pub fn tpl(bytes: &[u8], stats: &mut Stats) -> Result<Vec<u8>> {
+/// A TPL: its header, image table and image headers, then the records; palettes go. Its images are named `name` (its
+/// file's stem), or `<name>/<i>` when it holds several.
+pub fn tpl(bytes: &[u8], name: &str, stats: &mut Stats) -> Result<Vec<u8>> {
     let count = be32(bytes, 4)? as usize;
     let table = be32(bytes, 8)? as usize;
     if count == 0 || count > 1024 {
@@ -299,7 +265,9 @@ pub fn tpl(bytes: &[u8], stats: &mut Stats) -> Result<Vec<u8>> {
         let data = bytes.get(data_at..).context("a TPL image past the file's end")?;
         let image = Image { format, width, height, levels, data, palette };
         stats.note(&image);
-        let record = texture::cook(&image)?;
+        let mut record = texture::cook(&image)?;
+        let image_name = if count == 1 { name.to_string() } else { format!("{name}/{i}") };
+        texture::name_record(&mut record, &image_name, texture::source_palette_hash(&image));
         let h = headers_at + i * TPL_IMAGE;
         if format.indexed() {
             put32(&mut out, h + 4, RGBA8 as u32);
@@ -312,8 +280,9 @@ pub fn tpl(bytes: &[u8], stats: &mut Stats) -> Result<Vec<u8>> {
     Ok(out)
 }
 
-/// A BRFNT font: the file as it is, with the TGLP block's sheets as records after its last block.
-pub fn font(bytes: &[u8], stats: &mut Stats) -> Result<Vec<u8>> {
+/// A BRFNT font: the file as it is, with the TGLP block's sheets as records after its last block. A sheet kept as an
+/// image is named `<name>/<sheet>` (`name`: the file's stem); one made into distance fields has no name.
+pub fn font(bytes: &[u8], name: &str, stats: &mut Stats) -> Result<Vec<u8>> {
     let header_size = be16(bytes, 0x0C)? as usize;
     let blocks = be16(bytes, 0x0E)? as usize;
     let mut out = bytes.to_vec();
@@ -339,17 +308,52 @@ pub fn font(bytes: &[u8], stats: &mut Stats) -> Result<Vec<u8>> {
                     Ok(Image { format, width, height, levels: 1, data, palette: None })
                 })
                 .collect::<Result<_>>()?;
+            if distance::is_field_format(format) {
+                let cells = distance::Cells {
+                    width: bytes[g] as u32,
+                    height: bytes[g + 1] as u32,
+                    across: be16(bytes, g + 12)? as u32,
+                    down: be16(bytes, g + 14)? as u32,
+                };
+                let two = distance::two_fields(format);
+                let decoded: Vec<Vec<[u8; 4]>> = images.iter().map(texture::texels).collect::<Result<_>>()?;
+                for image in &images {
+                    stats.note(image);
+                }
+                // Sheets are independent: one thread each, at most as many as the machine runs at once.
+                let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).max(1);
+                let mut fields: Vec<Vec<[u8; 4]>> = vec![Vec::new(); decoded.len()];
+                for (chunk_in, chunk_out) in decoded.chunks(threads).zip(fields.chunks_mut(threads)) {
+                    std::thread::scope(|scope| {
+                        for (texels, out) in chunk_in.iter().zip(chunk_out.iter_mut()) {
+                            scope.spawn(move || *out = distance::sheet(texels, width, height, cells, two));
+                        }
+                    });
+                }
+                let mut stride = 0;
+                for field in fields {
+                    let mut record = texture::field_record(width * distance::SCALE, height * distance::SCALE, two, field)?;
+                    record.resize((record.len() + 31) & !31, 0);
+                    stride = record.len();
+                    out.extend_from_slice(&record);
+                }
+                put32(&mut out, g + 4, stride as u32);
+                put32(&mut out, g + 20, first as u32);
+                at += size;
+                continue;
+            }
             let mut wide = 1u8; // L8
             for image in &images {
-                let l = texture::layout(image)?;
+                let l = texture::sheet_layout(image)?;
                 if l == 0 || (l == 2 && wide == 1) {
                     wide = l;
                 }
             }
             let mut stride = 0;
-            for image in &images {
+            for (s, image) in images.iter().enumerate() {
                 stats.note(image);
-                let mut record = texture::cook_widened(image, wide)?;
+                let mut record = texture::cook_sheet(image, wide)?;
+                texture::name_record(&mut record, &format!("{name}/{s}"), 0);
                 record.resize((record.len() + 31) & !31, 0);
                 stride = record.len();
                 out.extend_from_slice(&record);
@@ -362,55 +366,4 @@ pub fn font(bytes: &[u8], stats: &mut Stats) -> Result<Vec<u8>> {
     let size = out.len() as u32;
     put32(&mut out, 0x08, size);
     Ok(out)
-}
-
-#[cfg(test)]
-mod rfl_tests {
-    use super::*;
-
-    // One I8 8x4 eye texture in section 1; every other section empty.
-    fn sample() -> Vec<u8> {
-        let mut out = vec![0u8; 4 + 18 * 4];
-        for section in 0..18usize {
-            let at = out.len() as u32;
-            out[(section + 1) * 4..(section + 2) * 4].copy_from_slice(&at.to_be_bytes());
-            if section == 1 {
-                out.extend_from_slice(&1u16.to_be_bytes());
-                out.extend_from_slice(&0u16.to_be_bytes());
-                let mut file = vec![0u8; RES_TIMG];
-                file[0] = 0x1; // I8
-                file[2..4].copy_from_slice(&8u16.to_be_bytes());
-                file[4..6].copy_from_slice(&4u16.to_be_bytes());
-                file[0x18] = 1;
-                file[0x1C..0x20].copy_from_slice(&(RES_TIMG as u32).to_be_bytes());
-                file.extend((0..32u8).map(|i| i * 7));
-                out.extend_from_slice(&0u32.to_be_bytes());
-                out.extend_from_slice(&(file.len() as u32).to_be_bytes());
-                out.extend_from_slice(&file);
-            } else {
-                out.extend_from_slice(&[0u8; 8]);
-            }
-        }
-        out
-    }
-
-    #[test]
-    fn part_textures_become_records_and_tables_follow() {
-        let mut stats = Stats::default();
-        let cooked = rfl_res(&sample(), &mut stats).unwrap();
-        let at = be32(&cooked, 2 * 4).unwrap() as usize;
-        assert_eq!(be16(&cooked, at).unwrap(), 1);
-        let data = at + 4 + 2 * 4;
-        assert_eq!(data % 32, 0, "files start 32-byte aligned");
-        let start = be32(&cooked, at + 4).unwrap() as usize;
-        let end = be32(&cooked, at + 8).unwrap() as usize;
-        let file = &cooked[data + start..data + end];
-        let image = be32(file, 0x1C).unwrap() as usize;
-        assert!(texture::is_record(&file[image..]), "the image is a record");
-        // An empty section keeps a count of 0 and one offset.
-        let empty = be32(&cooked, 1 * 4).unwrap() as usize;
-        assert_eq!(be16(&cooked, empty).unwrap(), 0);
-        // Cooking twice changes nothing.
-        assert_eq!(rfl_res(&cooked, &mut stats).unwrap(), cooked);
-    }
 }

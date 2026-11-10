@@ -21,12 +21,12 @@ namespace {
 };  // namespace
 
 OtaKingMagma::OtaKingMagma(LiveActor* pHost, s32 drawBufferType)
-    : PartsModel(pHost, "\203\111\203\136\203\114\203\223\203\117\203\175\203\117\203\175" /* オタキングマグマ */, "OtaKingMagma", nullptr, drawBufferType, true), mBloomModel(), _A0(), _A4() {
-    _A0 = MR::initMaterialProjmapEffectMtxSetter(this);
-    MR::newDifferedMaterials(this);
+    : PartsModel(pHost, "オタキングマグマ", "OtaKingMagma", nullptr, drawBufferType, true), mBloomModel(), mProjmapSetter(), mBloomProjmapSetter() {
+    mProjmapSetter = MR::initMaterialProjmapEffectMtxSetter(this);
+    MR::prepareMaterials(this);
 }
 
-void OtaKingMagma::init(const JMapInfoIter& rIter) {
+void OtaKingMagma::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     MR::startBtk(this, "OtaKingMagma");
     initHitSensor(1);
@@ -35,18 +35,18 @@ void OtaKingMagma::init(const JMapInfoIter& rIter) {
     PartsModel::init(rIter);
     mSoundObject->setTrans(&mHost->mPosition);
 
-    mBloomModel = new PartsModel(mHost, "\203\111\203\136\203\114\203\223\203\117\203\175\203\117\203\175\203\165\203\213\201\133\203\200" /* オタキングマグマブルーム */, "OtaKingMagmaBloom", nullptr, MR::DrawBufferType_BloomModel, true);
-    _A4 = MR::initMaterialProjmapEffectMtxSetter(mBloomModel);
-    MR::newDifferedMaterials(mBloomModel);
+    mBloomModel = new PartsModel(mHost, "オタキングマグマブルーム", "OtaKingMagmaBloom", nullptr, MR::DrawBufferType_BloomModel, true);
+    mBloomProjmapSetter = MR::initMaterialProjmapEffectMtxSetter(mBloomModel);
+    MR::prepareMaterials(mBloomModel);
     mBloomModel->mPosition.set(mPosition);
-    TVec3f& rBloomPosition = mBloomModel->mPosition;
+    Vec3f& rBloomPosition = mBloomModel->mPosition;
     rBloomPosition.add(::cBloomModelOffset);
     mBloomModel->mRotation.set(mRotation);
     mBloomModel->mScale.set(mScale);
     mBloomModel->initWithoutIter();
     MR::startBtk(mBloomModel, "OtaKingMagmaBloom");
-    _A0->updateMtxUseBaseMtx();
-    _A4->updateMtxUseBaseMtx();
+    mProjmapSetter->updateMtxUseBaseMtx();
+    mBloomProjmapSetter->updateMtxUseBaseMtx();
     MR::registerDemoSimpleCastAll(this);
 }
 
@@ -76,7 +76,7 @@ void OtaKingMagma::down() {
 
 void OtaKingMagma::control() {
     mBloomModel->mPosition.set(mPosition);
-    TVec3f& rBloomPosition = mBloomModel->mPosition;
+    Vec3f& rBloomPosition = mBloomModel->mPosition;
     rBloomPosition.add(::cBloomModelOffset);
 }
 

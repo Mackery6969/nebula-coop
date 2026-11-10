@@ -14,8 +14,7 @@ class DharmaSambo : public LiveActor {
 public:
     DharmaSambo(const char*);
 
-    virtual ~DharmaSambo();
-    virtual void init(const JMapInfoIter&) override;
+    virtual void init(const TableIter&) override;
     virtual void initAfterPlacement() override;
     virtual void appear() override;
     virtual void kill() override;
@@ -46,7 +45,7 @@ public:
     bool isStarPointerPointingParts();
 
     const Nerve* mStarPointerBindEndNerve;
-    TVec3f mInitialPos;
+    Vec3f mInitialPos;
     s32 mHideTimer;
     s32 mPartsCount;
     MR::Vector< MR::AssignableArray< DharmaSamboParts* > > mParts;
@@ -60,8 +59,7 @@ class DharmaSamboParts : public ModelObj {
 public:
     DharmaSamboParts(DharmaSambo*, const char*, const char*, MtxPtr, int, int, int);
 
-    virtual ~DharmaSamboParts();
-    virtual void init(const JMapInfoIter&) override;
+    virtual void init(const TableIter&) override;
     virtual void appear() override;
     virtual void kill() override;
     virtual void control() override;

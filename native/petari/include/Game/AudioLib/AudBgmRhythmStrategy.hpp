@@ -2,11 +2,10 @@
 
 
 class AudBgm;
-class JAISoundHandle;
+class SoundHandle;
 
 class AudBgmRhythmStrategy {
 public:
-    /// @brief Creates a new `AudBgmRhythmStrategy`.
     AudBgmRhythmStrategy() : mBgmIdx(-1), mBgm() {};
 
     virtual bool set(AudBgm*, s32);

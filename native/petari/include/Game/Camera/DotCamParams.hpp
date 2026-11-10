@@ -1,7 +1,7 @@
 #pragma once
 
-#include "Game/Util/JMapInfo.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include "Game/Util/Table.hpp"
+#include <nebula_geometry.hpp>
 #include <NebulaGpu.h>
 #include <nebula_math.h>
 
@@ -17,28 +17,25 @@ public:
     virtual void nextToChunk() = 0;
     virtual bool getValueInt(const char*, s32*) = 0;
     virtual bool getValueFloat(const char*, f32*) = 0;
-    virtual bool getValueVec(const char*, TVec3f*) = 0;
+    virtual bool getValueVec(const char*, Vec3f*) = 0;
     virtual bool getValueString(const char*, const char**) = 0;
 };
 
 class DotCamReaderInBin : public DotCamReader {
 public:
     DotCamReaderInBin(const void*);
-    virtual ~DotCamReaderInBin();
 
-    virtual u32 getVersion() const;
-    virtual bool hasMoreChunk() const;
-    virtual void nextToChunk();
-    virtual bool getValueInt(const char*, s32*);
-    virtual bool getValueFloat(const char*, f32*);
-    virtual bool getValueVec(const char*, TVec3f*);
-    virtual bool getValueString(const char*, const char**);
+    virtual u32 getVersion() const override;
+    virtual bool hasMoreChunk() const override;
+    virtual void nextToChunk() override;
+    virtual bool getValueInt(const char*, s32*) override;
+    virtual bool getValueFloat(const char*, f32*) override;
+    virtual bool getValueVec(const char*, Vec3f*) override;
+    virtual bool getValueString(const char*, const char**) override;
 
     void init(const void*);
 
     u32 mVersion;
-    u8* _8;
-    JMapInfo mMapInfo;
-    JMapInfoIter mMapIter;
-    u8 _1C[0x10];
+    Table mMapInfo;
+    TableIter mMapIter;
 };

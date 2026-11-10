@@ -7,10 +7,11 @@
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SceneUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    const s32 cInvalidCountUpInterval = 3;
-    const f32 cAstroLocationOffsetY = 40.0f;
+    NEBULA_TUNABLE(s32, cInvalidCountUpInterval, 3);
+    NEBULA_TUNABLE(f32, cAstroLocationOffsetY, 40.0f);
 };  // namespace
 
 namespace NrvCoinCounter {
@@ -25,14 +26,14 @@ CoinCounter::CoinCounter(const char* pName)
       mIsForceAppear(false), mFollowPos(0.0f, 0.0f) {
 }
 
-void CoinCounter::init(const JMapInfoIter& rIter) {
+void CoinCounter::init(const TableIter& /*rIter*/) {
     initLayoutManager("CoinCounter", 2);
     MR::createAndAddPaneCtrl(this, "Counter", 1);
     MR::createAndAddPaneCtrl(this, "CoinCounter", 1);
     MR::setFollowPos(&mFollowPos, this, "CoinCounter");
     initEffectKeeper(0, nullptr, nullptr);
 
-    mLayoutAppearer = new CounterLayoutAppearer(this, TVec2f(50.0f, 0.0f));
+    mLayoutAppearer = new CounterLayoutAppearer(this, Vec2f(50.0f, 0.0f));
     mPaneRumbler = new CountUpPaneRumbler(this, "Counter");
 
     initNerve(GET_NERVE(CoinCounter, CoinCounterNrvHide));
@@ -126,9 +127,9 @@ void CoinCounter::exeAppear() {
         MR::showLayout(this);
 
         if (MR::isStageAstroLocation()) {
-            mLayoutAppearer->appear(TVec2f(0.0f, ::cAstroLocationOffsetY));
+            mLayoutAppearer->appear(Vec2f(0.0f, ::cAstroLocationOffsetY));
         } else {
-            mLayoutAppearer->appear(TVec2f(0.0f, 0.0f));
+            mLayoutAppearer->appear(Vec2f(0.0f, 0.0f));
         }
 
         MR::startAnim(this, "Wait", 1);

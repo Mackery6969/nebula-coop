@@ -1,5 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #include "galaxy/perf_hint.h"
+#include "galaxy/game_step.h"
+
+#if defined(_WIN32)
+#include "galaxy/windows_power.h"
+
+#include <atomic>
+#include <chrono>
+#include <cstdio>
+#endif
 
 #if !defined(_WIN32)
 #include <pthread.h>
@@ -47,10 +56,12 @@ struct Api {
     void* (*create_session)(void*, const std::int32_t*, std::size_t, std::int64_t) = nullptr;
     int (*report)(void*, std::int64_t) = nullptr;
     void (*close_session)(void*) = nullptr;
+    int (*update_target)(void*, std::int64_t) = nullptr;  // optional: without it a new target makes a new session
     bool loaded = false;
 };
 
-constexpr std::int64_t kTargetNs = 1000000000ll / 60;
+// The frame's target duration: the game step until the frame clock says otherwise (perf_hint_set_target).
+std::int64_t g_target_ns = galaxy::kGameStepNs;
 
 Api g_api;
 bool g_api_tried = false;
@@ -73,6 +84,8 @@ bool load_api() {
         dlsym(library, "APerformanceHint_reportActualWorkDuration"));
     g_api.close_session =
         reinterpret_cast<decltype(g_api.close_session)>(dlsym(library, "APerformanceHint_closeSession"));
+    g_api.update_target = reinterpret_cast<decltype(g_api.update_target)>(
+        dlsym(library, "APerformanceHint_updateTargetWorkDuration"));
     g_api.loaded = g_api.get_manager != nullptr && g_api.create_session != nullptr && g_api.report != nullptr &&
         g_api.close_session != nullptr;
     return g_api.loaded;
@@ -93,9 +106,9 @@ void report(std::int64_t work_ns) {
             tids.push_back(thread.tid);
         }
         void* manager = g_api.get_manager();
-        g_session = manager != nullptr ? g_api.create_session(manager, tids.data(), tids.size(), kTargetNs) : nullptr;
+        g_session = manager != nullptr ? g_api.create_session(manager, tids.data(), tids.size(), g_target_ns) : nullptr;
         std::fprintf(stderr, "[perf] performance hint session: %zu threads, target %.2f ms%s\n", tids.size(),
-                     static_cast<double>(kTargetNs) / 1e6, g_session != nullptr ? "" : " (not available)");
+                     static_cast<double>(g_target_ns) / 1e6, g_session != nullptr ? "" : " (not available)");
     }
     if (g_session != nullptr && work_ns > 0) {
         g_api.report(g_session, work_ns);
@@ -119,7 +132,25 @@ void perf_hint_add_current_thread() noexcept {
 #endif
 }
 
-std::int64_t perf_hint_retrace() noexcept {
+void perf_hint_set_target(std::int64_t target_ns) noexcept {
+#if defined(__ANDROID__)
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (target_ns <= 0 || target_ns == g_target_ns) {
+        return;
+    }
+    g_target_ns = target_ns;
+    if (g_session != nullptr && g_api.update_target != nullptr && !g_session_stale) {
+        (void)g_api.update_target(g_session, target_ns);
+    } else {
+        g_session_stale = true;  // made again with the new target at the next report
+    }
+    std::fprintf(stderr, "[perf] frame target %.2f ms\n", static_cast<double>(target_ns) / 1e6);
+#else
+    (void)target_ns;
+#endif
+}
+
+std::int64_t perf_hint_frame_done() noexcept {
     std::lock_guard<std::mutex> lock(g_mutex);
     std::int64_t work = 0;
     for (FrameThread& thread : g_threads) {
@@ -139,12 +170,39 @@ std::int64_t perf_hint_retrace() noexcept {
 
 #else
 
+namespace {
+std::atomic<bool> g_on_battery{false};
+}  // namespace
+
 void perf_hint_add_current_thread() noexcept {}
 
-std::int64_t perf_hint_retrace() noexcept {
+void perf_hint_set_target(std::int64_t) noexcept {}
+
+std::int64_t perf_hint_frame_done() noexcept {
+    // Every two seconds (by the clock, not by the game's frame count): the power state is looked at, a change said once.
+    static std::atomic<std::int64_t> next_look{0};
+    const std::int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::steady_clock::now().time_since_epoch()).count();
+    std::int64_t due = next_look.load(std::memory_order_relaxed);
+    if (now >= due && next_look.compare_exchange_strong(due, now + 2000, std::memory_order_relaxed)) {
+        const bool battery = galaxy::host::running_on_battery();
+        if (g_on_battery.exchange(battery, std::memory_order_relaxed) != battery) {
+            std::fprintf(stderr, "[power] %s\n", battery ? "on battery" : "on mains power");
+        }
+    }
     return 0;
 }
 
+#endif
+
+#if defined(_WIN32)
+bool perf_hint_on_battery() noexcept {
+    return g_on_battery.load(std::memory_order_relaxed);
+}
+#else
+bool perf_hint_on_battery() noexcept {
+    return false;
+}
 #endif
 
 }  // namespace galaxy::host

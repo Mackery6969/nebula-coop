@@ -6,37 +6,36 @@ class KoopaJrShipCannonShell : public CannonShellBase {
 public:
     KoopaJrShipCannonShell(const char*);
 
-    virtual ~KoopaJrShipCannonShell() {
+    virtual ~KoopaJrShipCannonShell() override {
     }
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void kill();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void kill() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
-    virtual void launch(const TVec3f&, const TVec3f&);
+    virtual void launch(const Vec3f&, const Vec3f&) override;
 
-    void initStarPointer();
     bool tryFreeze();
     bool isStateEnableExplosion() const;
     void explosion();
     void misfire();
 
-    void exeWait();
     void exeFly();
     void exeDown();
     void exeFreeze();
 
-    TQuat4f _8C;
-    TVec3f _9C;
-    TVec3f _A8;
-    s32 _B4;  // Freeze timing?
-    bool _B8;
+    Quat4f mPoseQuat;
+    // Where and how fast the shell was when the pointer froze it; restored when the freeze ends.
+    Vec3f mFreezePos;
+    Vec3f mFreezeVelocity;
+    // Frozen frames since the last tryFreeze, across re-freezes.
+    s32 mFreezeStep;
 };
 
 namespace CannonShellUtil {
     void registerKoopaJrShipCannonShell(CannonShellHolder* pHolder, int shellNum);
-};  // namespace CannonShellUtil
+}  // namespace CannonShellUtil

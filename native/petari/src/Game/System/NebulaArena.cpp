@@ -1,6 +1,6 @@
+#include "Game/Render/RenderTexture.hpp"
 #include "Game/System/NebulaArena.hpp"
 
-#include <JSystem/JUtility/JUTNativeLog.hpp>
 #include <new>
 #include <stdlib.h>
 #include <string.h>
@@ -21,22 +21,23 @@ extern "C" const NebulaHostServices* nebula_host(void);
 #define UNPOISON_BLOCK(p, n)
 #endif
 
-NebulaArena* NebulaArena::currentSlot() {
-    const NebulaHostServices* const pHost = nebula_host();
-    return static_cast< NebulaArena* >(pHost->thread_slots(pHost->user)[0]);
-}
-
-void NebulaArena::setCurrentSlot(NebulaArena* pArena) {
-    const NebulaHostServices* const pHost = nebula_host();
-    pHost->thread_slots(pHost->user)[0] = pArena;
-}
-NebulaArena* NebulaArena::sRootHeap;
-NebulaArena* NebulaArena::sSystemHeap;
+NebulaArena* NebulaArena::sCurrent;
+NebulaArena* NebulaArena::sRoot;
 
 namespace {
     // Addresses each arena has to itself, not memory: only what it uses is committed.
     const u64 cSpan = 1ull << 32;
     const u64 cCommitStep = 1ull << 20;
+    // The largest block: a size past it is a bad count (a corrupt file's length, a wrapped sum), and cut to 32 bits or
+    // rounded to a class it would become a small block that the caller then writes past.
+    const u64 cMaxBlock = 0x7FFFFF00ull;
+
+    u32 blockSize(u64 size) {
+        if (size > cMaxBlock) {
+            NEBULA_PANIC("an allocation of %llu bytes", static_cast< unsigned long long >(size));
+        }
+        return static_cast< u32 >(size);
+    }
 
     // Before each block: its class, and how far back its start lies.
     struct alignas(16) Header {
@@ -74,36 +75,42 @@ namespace {
 #endif
 
     // Every arena, for findFromRoot: a flat list by address is all it takes, as none lies in another.
-    GameMutex sListMutex;
     NebulaArena** sArenas;
     s32 sArenaCount;
     s32 sArenaMax;
 
     void addToList(NebulaArena* pArena) {
-        sListMutex.lock();
         if (sArenaCount == sArenaMax) {
             sArenaMax = sArenaMax != 0 ? sArenaMax * 2 : 64;
             sArenas = static_cast< NebulaArena** >(realloc(sArenas, sizeof(NebulaArena*) * sArenaMax));
         }
         sArenas[sArenaCount++] = pArena;
-        sListMutex.unlock();
     }
 
     void removeFromList(NebulaArena* pArena) {
-        sListMutex.lock();
         for (s32 i = 0; i < sArenaCount; i++) {
             if (sArenas[i] == pArena) {
                 sArenas[i] = sArenas[--sArenaCount];
                 break;
             }
         }
-        sListMutex.unlock();
     }
 }  // namespace
 
-NebulaArena::NebulaArena() : JKRDisposer() {
+ArenaOwned::ArenaOwned() : mArena(NebulaArena::findFromRoot(this)) {
+    if (mArena != nullptr) {
+        mArena->mOwned.append(this);
+    }
+}
+
+ArenaOwned::~ArenaOwned() {
+    if (mArena != nullptr) {
+        mArena->mOwned.remove(this);
+    }
+}
+
+NebulaArena::NebulaArena() {
     const NebulaHostServices* const host = nebula_host();
-    mMutex.init();
     mStart = static_cast< u8* >(host->memory_reserve(host->user, cSpan));
     if (mStart == nullptr) {
         NEBULA_PANIC("no addresses left for an arena");
@@ -133,46 +140,33 @@ NebulaArena* NebulaArena::create(NebulaArena* pParent) {
     addToList(pArena);
 
     if (pParent == nullptr) {
-        sRootHeap = pArena;
-        sSystemHeap = pArena;
-        setCurrentSlot(pArena);
+        sRoot = pArena;
+        sCurrent = pArena;
         return pArena;
     }
 
     pArena->mParent = pParent;
-    sListMutex.lock();
     NebulaArena** ppLast = &pParent->mFirstChild;
     while (*ppLast != nullptr) {
         ppLast = &(*ppLast)->mNextSibling;
     }
     *ppLast = pArena;
-    sListMutex.unlock();
-
-    if (sSystemHeap == sRootHeap) {
-        sSystemHeap = pArena;
-    }
-    if (currentSlot() == sRootHeap) {
-        setCurrentSlot(pArena);
-    }
-
     return pArena;
 }
 
 void NebulaArena::destroy(NebulaArena* pArena) {
     // Its objects first: one that owns a child arena destroys it itself.
-    pArena->dispose();
+    pArena->destroyOwned();
 
     while (pArena->mFirstChild != nullptr) {
         destroy(pArena->mFirstChild);
     }
 
-    // What the renderer and the file views hold from this arena go with it.
-    const NebulaHostServices* const host = nebula_host();
-    host->shape_forget(host->user, reinterpret_cast< uintptr_t >(pArena->mStart), reinterpret_cast< uintptr_t >(pArena->mNext));
-    GameAssets::unloadHeap(pArena);
+    // The textures and file views it holds go with it (its models and meshes went with its objects).
+    RenderTexture::forget(reinterpret_cast< uintptr_t >(pArena->mStart), reinterpret_cast< uintptr_t >(pArena->mNext));
+    GameAssets::unloadArena(pArena);
 
     removeFromList(pArena);
-    sListMutex.lock();
     if (pArena->mParent != nullptr) {
         NebulaArena** ppLink = &pArena->mParent->mFirstChild;
         while (*ppLink != pArena) {
@@ -180,14 +174,10 @@ void NebulaArena::destroy(NebulaArena* pArena) {
         }
         *ppLink = pArena->mNextSibling;
     }
-    NebulaArena* const pNext = sRootHeap->mFirstChild;
-    sListMutex.unlock();
+    NebulaArena* const pNext = sRoot->mFirstChild;
 
-    if (currentSlot() == pArena) {
-        setCurrentSlot(pNext != nullptr ? pNext : sRootHeap);
-    }
-    if (sSystemHeap == pArena) {
-        sSystemHeap = pNext != nullptr ? pNext : sRootHeap;
+    if (sCurrent == pArena) {
+        sCurrent = pNext != nullptr ? pNext : sRoot;
     }
 
     pArena->~NebulaArena();
@@ -231,33 +221,19 @@ void* NebulaArena::takeBlock(u32 bytes) {
 }
 
 void* NebulaArena::alloc(u32 size, int alignment) {
-    // At least 16-byte aligned, as a native allocator's memory is. A negative alignment asked for a heap's tail; nothing here has one.
-    u32 align = alignment < 0 ? static_cast< u32 >(-alignment) : static_cast< u32 >(alignment);
+    // At least 16-byte aligned, as a native allocator's memory is.
+    u32 align = static_cast< u32 >(alignment);
     if (align < 16) {
         align = 16;
     }
 
     const u32 extra = align > 16 ? align : 0;
-    const u32 bytes = size + static_cast< u32 >(sizeof(Header)) + extra;
+    const u32 bytes = blockSize(static_cast< u64 >(size) + sizeof(Header) + extra);
     u32 rounded;
     const u32 index = classOf(bytes, &rounded);
 
-    lock();
     u8* const pBlock = static_cast< u8* >(takeBlock(bytes));
-    unlock();
 
-#if !defined(NEBULA_RELEASE)
-    // Tests (GALAXY_TEST_ARENA_FILL=a5): every block starts as this byte, so what reads a field left unset shows in a picture.
-    static u32 sFill = 0;
-    static bool sFillRead = false;
-    if (!sFillRead) {
-        sFill = nebula_host()->option(nebula_host()->user, NEBULA_OPTION_TEST_ARENA_FILL);
-        sFillRead = true;
-    }
-    if (sFill != 0) {
-        memset(pBlock, static_cast< int >(sFill & 0xFF), rounded);
-    }
-#endif
 
     const uintptr_t data = (reinterpret_cast< uintptr_t >(pBlock) + sizeof(Header) + align - 1) & ~static_cast< uintptr_t >(align - 1);
     Header* const pHeader = reinterpret_cast< Header* >(data) - 1;
@@ -277,51 +253,23 @@ void NebulaArena::free(void* pData) {
     const u32 index = pHeader->mClass;
     u8* const pBlock = reinterpret_cast< u8* >(pHeader) - pHeader->mBack;
 
-    lock();
     *reinterpret_cast< void** >(pBlock) = mFree[index];
     mFree[index] = pBlock;
 #ifdef NEBULA_ASAN_HEAPS
     POISON_BLOCK(pBlock, sizeOfClass(index));
 #endif
-    unlock();
 }
 
-void NebulaArena::freeAll() {
-    dispose();
-
-    while (mFirstChild != nullptr) {
-        destroy(mFirstChild);
-    }
-
-    const NebulaHostServices* const host = nebula_host();
-    host->shape_forget(host->user, reinterpret_cast< uintptr_t >(mStart), reinterpret_cast< uintptr_t >(mNext));
-    GameAssets::unloadHeap(this);
-
-    lock();
-    UNPOISON_BLOCK(mStart, mCommitted - mStart);
-    host->memory_decommit(host->user, mStart, mCommitted - mStart);
-    mCommitted = mStart;
-    mNext = mStart;
-    memset(mFree, 0, sizeof(mFree));
-    unlock();
-}
-
-NebulaArena* NebulaArena::becomeSystemHeap() {
-    NebulaArena* const pPrevious = sSystemHeap;
-    sSystemHeap = this;
+NebulaArena* NebulaArena::makeCurrent() {
+    NebulaArena* const pPrevious = sCurrent;
+    sCurrent = this;
     return pPrevious;
 }
 
-NebulaArena* NebulaArena::becomeCurrentHeap() {
-    NebulaArena* const pPrevious = currentSlot();
-    setCurrentSlot(this);
-    return pPrevious;
-}
-
-void NebulaArena::dispose() {
-    while (mDisposerList.getFirst() != mDisposerList.getEnd()) {
-        JSUListIterator< JKRDisposer > iterator = mDisposerList.getFirst();
-        iterator->~JKRDisposer();
+void NebulaArena::destroyOwned() {
+    // Each one's destructor takes it out of the list.
+    while (mOwned.getFirst() != mOwned.getEnd()) {
+        mOwned.getFirst()->getObject()->~ArenaOwned();
     }
 }
 
@@ -330,7 +278,7 @@ void* NebulaArena::alloc(u32 size, int alignment, NebulaArena* pArena) {
         return pArena->alloc(size, alignment);
     }
 
-    return currentSlot() != nullptr ? currentSlot()->alloc(size, alignment) : nullptr;
+    return sCurrent != nullptr ? sCurrent->alloc(size, alignment) : nullptr;
 }
 
 void NebulaArena::free(void* pData, NebulaArena* pArena) {
@@ -343,45 +291,41 @@ void NebulaArena::free(void* pData, NebulaArena* pArena) {
 }
 
 NebulaArena* NebulaArena::findFromRoot(void* pData) {
-    NebulaArena* pFound = nullptr;
-    sListMutex.lock();
     for (s32 i = 0; i < sArenaCount; i++) {
         NebulaArena* const pArena = sArenas[i];
         if (pData >= static_cast< void* >(pArena->mStart) && pData < static_cast< void* >(pArena->mEnd)) {
-            pFound = pArena;
-            break;
+            return pArena;
         }
     }
-    sListMutex.unlock();
-    return pFound;
+    return nullptr;
 }
 
 void* operator new(size_t size) {
-    return NebulaArena::alloc(static_cast< u32 >(size), 4, nullptr);
+    return NebulaArena::alloc(blockSize(size), 4, nullptr);
 }
 
 void* operator new(size_t size, int alignment) {
-    return NebulaArena::alloc(static_cast< u32 >(size), alignment, nullptr);
+    return NebulaArena::alloc(blockSize(size), alignment, nullptr);
 }
 
 void* operator new(size_t size, NebulaArena* pArena) {
-    return NebulaArena::alloc(static_cast< u32 >(size), 4, pArena);
+    return NebulaArena::alloc(blockSize(size), 4, pArena);
 }
 
 void* operator new(size_t size, NebulaArena* pArena, int alignment) {
-    return NebulaArena::alloc(static_cast< u32 >(size), alignment, pArena);
+    return NebulaArena::alloc(blockSize(size), alignment, pArena);
 }
 
 void* operator new[](size_t size) {
-    return NebulaArena::alloc(static_cast< u32 >(size), 4, nullptr);
+    return NebulaArena::alloc(blockSize(size), 4, nullptr);
 }
 
 void* operator new[](size_t size, int alignment) {
-    return NebulaArena::alloc(static_cast< u32 >(size), alignment, nullptr);
+    return NebulaArena::alloc(blockSize(size), alignment, nullptr);
 }
 
 void* operator new[](size_t size, NebulaArena* pArena, int alignment) {
-    return NebulaArena::alloc(static_cast< u32 >(size), alignment, pArena);
+    return NebulaArena::alloc(blockSize(size), alignment, pArena);
 }
 
 void operator delete(void* pData) {

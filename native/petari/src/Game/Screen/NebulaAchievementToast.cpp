@@ -1,7 +1,8 @@
 #include "Game/Screen/NebulaAchievementToast.hpp"
-#include <JSystem/JUtility/JUTNativeLog.hpp>
+#include <nebula_module.h>
 
 #include "Game/Screen/LayoutManager.hpp"
+#include "Game/Screen/NebulaUi.hpp"
 #include "Game/System/LayoutHolder.hpp"
 #include "Game/System/NebulaAchievements.hpp"
 #include "Game/System/NebulaText.hpp"
@@ -12,14 +13,16 @@
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
 #include "Game/Util/SystemUtil.hpp"
+#include "Game/Util/TextString.hpp"
 #include <cstring>
-#include <nw4r/lyt/layout.h>
-#include <nw4r/lyt/material.h>
-#include <nw4r/lyt/pane.h>
-#include <nw4r/lyt/picture.h>
-#include <nw4r/lyt/textBox.h>
-#include <nw4r/lyt/window.h>
-#include <nw4r/ut/Font.h>
+#include <Game/Ui/Layout.hpp>
+#include <Game/Ui/Material.hpp>
+#include <Game/Ui/Pane.hpp>
+#include <Game/Ui/Picture.hpp>
+#include <Game/Ui/TextBox.hpp>
+#include <Game/Ui/Window.hpp>
+#include <Game/Ui/Font.hpp>
+#include "Game/Util/Tunable.hpp"
 
 namespace {
     enum {
@@ -33,20 +36,20 @@ namespace {
     // icon and text, the icon's height, the space between the title line and the name, the longest the text may run
     // before it narrows, the window's scale, and its distance from the screen's right and bottom edges (the same on
     // screen for both).
-    const f32 cPadding = 16.0f;
-    const f32 cGap = 14.0f;
-    const f32 cIconSize = 60.0f;
-    const f32 cLineSpace = 8.0f;
-    const f32 cTextMax = 440.0f;
-    const f32 cScale = 0.5f;
-    const f32 cMargin = 8.0f;
+    NEBULA_TUNABLE(f32, cPadding, 16.0f);
+    NEBULA_TUNABLE(f32, cGap, 14.0f);
+    NEBULA_TUNABLE(f32, cIconSize, 60.0f);
+    NEBULA_TUNABLE(f32, cLineSpace, 8.0f);
+    NEBULA_TUNABLE(f32, cTextMax, 440.0f);
+    NEBULA_TUNABLE(f32, cScale, 0.5f);
+    NEBULA_TUNABLE(f32, cMargin, 8.0f);
 
-    const s32 cRiseFrames = 24;
-    const s32 cIconDelay = 8;   // the icon pops in once the window is mostly up
-    const s32 cIconFrames = 16;
-    const s32 cFallFrames = 16;
-    const s32 cHoldFrames = 270;
-    const s32 cHoldFramesQueued = 180;  // when another one waits
+    NEBULA_TUNABLE(s32, cRiseFrames, 24);
+    NEBULA_TUNABLE(s32, cIconDelay, 8);   // the icon pops in once the window is mostly up
+    NEBULA_TUNABLE(s32, cIconFrames, 16);
+    NEBULA_TUNABLE(s32, cFallFrames, 16);
+    NEBULA_TUNABLE(s32, cHoldFrames, 270);
+    NEBULA_TUNABLE(s32, cHoldFramesQueued, 180);  // when another one waits
 
     // The game's message tags, as MessageData holds them natively: 0x1A, the tag's byte length and group as two
     // bytes, the tag id, then 16-bit parameters (an 8-bit one in the high byte).
@@ -65,52 +68,49 @@ namespace {
         return pDst + 4;
     }
 
-    char16_t* addString(char16_t* pDst, const char16_t* pSrc, s32 capacity) {
-        while (*pSrc != 0 && capacity-- > 1) {
+    char16_t* addString(char16_t* pDst, const char16_t* pSrc) {
+        while (*pSrc != 0) {
             *pDst++ = *pSrc++;
         }
         *pDst = 0;
         return pDst;
     }
 
-    nw4r::lyt::TextBox* asTextBox(nw4r::lyt::Pane* pPane) {
-        if (pPane == nullptr || !pPane->GetRuntimeTypeInfo()->IsDerivedFrom(&nw4r::lyt::TextBox::typeInfo)) {
-            return nullptr;
-        }
-        return static_cast< nw4r::lyt::TextBox* >(pPane);
+    Ui::TextBox* asTextBox(Ui::Pane* pPane) {
+        return Ui::PaneCast< Ui::TextBox >(pPane);
     }
 
     // A text pane's boxes (its shadow and its text) at the top-left of their pane; the text's drawn size.
-    void fitText(nw4r::lyt::Pane* pParent, f32 fontSize, f32 lineSpace, f32* pWidth, f32* pHeight) {
+    void fitText(Ui::Pane* pParent, f32 fontSize, f32 lineSpace, f32* pWidth, f32* pHeight) {
         *pWidth = 0.0f;
         *pHeight = 0.0f;
-        for (nw4r::lyt::PaneList::Iterator it = pParent->GetChildList().GetBeginIter(); it != pParent->GetChildList().GetEndIter(); ++it) {
-            nw4r::lyt::TextBox* pText = asTextBox(&*it);
+        for (Ui::Pane* pChild : pParent->GetChildList()) {
+            Ui::TextBox* pText = asTextBox(pChild);
             if (pText == nullptr || !pText->IsVisible()) {
                 continue;
             }
             if (fontSize > 0.0f) {
                 // A picture-font glyph is scaled by the box's own font (the message font, 27 wide for 33 high): its
                 // width follows that font's proportions so the picture keeps its own.
-                const nw4r::ut::Font* pFont = pText->mpFont;
+                const Ui::Font* pFont = pText->mpFont;
                 const f32 aspect = pFont != nullptr && pFont->GetHeight() > 0 ? static_cast< f32 >(pFont->GetWidth()) / pFont->GetHeight() : 1.0f;
-                pText->SetFontSize(nw4r::lyt::Size(fontSize * aspect, fontSize));
+                pText->SetFontSize(Ui::Size(fontSize * aspect, fontSize));
             }
             pText->SetTextPositionH(0);
             pText->SetTextPositionV(0);
             pText->mLineSpace = lineSpace;
             // Measured in a wide box: the game's text boxes break lines at their width (the last name's).
-            pText->mSize = nw4r::lyt::Size(2000.0f, 400.0f);
-            const nw4r::ut::Rect rect = pText->GetTextDrawRect();
+            pText->mSize = Ui::Size(2000.0f, 400.0f);
+            const Ui::Rect rect = pText->GetTextDrawRect();
             const f32 width = rect.right - rect.left;
             const f32 height = rect.bottom - rect.top;
             *pWidth = width > *pWidth ? width : *pWidth;
             *pHeight = height > *pHeight ? height : *pHeight;
         }
-        for (nw4r::lyt::PaneList::Iterator it = pParent->GetChildList().GetBeginIter(); it != pParent->GetChildList().GetEndIter(); ++it) {
-            if (asTextBox(&*it) != nullptr) {
-                it->mSize.width = *pWidth + 4.0f;
-                it->mSize.height = *pHeight + 4.0f;
+        for (Ui::Pane* pChild : pParent->GetChildList()) {
+            if (asTextBox(pChild) != nullptr) {
+                pChild->mSize.width = *pWidth + 4.0f;
+                pChild->mSize.height = *pHeight + 4.0f;
             }
         }
     }
@@ -135,7 +135,7 @@ NebulaAchievementToast::NebulaAchievementToast()
       mPicture(nullptr), mTextures(nullptr), mStep(StepIdle), mFrame(0), mHoldFrames(cHoldFrames), mWidth(0.0f), mHeight(0.0f) {
 }
 
-void NebulaAchievementToast::init(const JMapInfoIter& rIter) {
+void NebulaAchievementToast::init(const TableIter& /*rIter*/) {
     initLayoutManager("InformationWindow", 2);
 
     // Its own name for the canvas rules (LayoutAspect): the window follows the right and bottom edges.
@@ -155,18 +155,13 @@ void NebulaAchievementToast::init(const JMapInfoIter& rIter) {
         mToast = nullptr;
         return;
     }
-    mIcon = nw4r::lyt::Layout::NewObj< nw4r::lyt::Pane >();
-    if (mIcon != nullptr) {
-        mIcon->SetName("NebulaIcon");
-        mGlyph->mpParent->RemoveChild(mGlyph);
-        mIcon->AppendChild(mGlyph);
-        mToast->AppendChild(mIcon);
-    } else {
-        mToast = nullptr;
-        return;
-    }
+    mIcon = mToast->GetLayout()->NewPane< Ui::Pane >();
+    mIcon->SetName("NebulaIcon");
+    mGlyph->mpParent->RemoveChild(mGlyph);
+    mIcon->AppendChild(mGlyph);
+    mToast->AppendChild(mIcon);
     // (The Japanese text boxes are already gone, or stand in for the others in Japanese: LayoutManager.)
-    if (nw4r::lyt::Pane* pUpper = MR::getPane(this, "InfoWindowUp")) {
+    if (Ui::Pane* pUpper = MR::getPane(this, "InfoWindowUp")) {
         pUpper->SetVisible(false);
     }
     mToast->SetInfluencedAlpha(true);
@@ -175,24 +170,22 @@ void NebulaAchievementToast::init(const JMapInfoIter& rIter) {
 
     // Over the HUD's corner the window reads as solid: its colour's alpha, 200 of 255 in the game's information
     // window, 235 here (its content and frame).
-    if (nw4r::lyt::Window* pWindow = nw4r::ut::DynamicCast< nw4r::lyt::Window* >(mWindow)) {
-        nw4r::lyt::Material* pMaterials[1 + 4] = {pWindow->GetContentMaterial()};
+    if (Ui::Window* pWindow = Ui::PaneCast< Ui::Window >(mWindow)) {
+        Ui::Material* pMaterials[1 + 4] = {pWindow->GetContentMaterial()};
         u32 materialNum = 1;
         for (u32 i = 0; i < pWindow->mFrameNum && materialNum < 5; i++) {
             pMaterials[materialNum++] = pWindow->GetFrameMaterial(i);
         }
         for (u32 i = 0; i < materialNum; i++) {
             if (pMaterials[i] != nullptr) {
-                NebulaColor16 color = pMaterials[i]->GetTevColor(1);
+                NebulaColor16 color = pMaterials[i]->GetStageColor(1);
                 color.a = 235;
-                pMaterials[i]->SetTevColor(1, color);
+                pMaterials[i]->SetStageColor(1, color);
             }
         }
     }
 
     loadTextures();
-    // The layout's pane list, counted when it was built, again for the moved and added panes.
-    pManager->rebuildPaneInfo();
     LayoutActor::appear();
 }
 
@@ -200,7 +193,7 @@ void NebulaAchievementToast::init(const JMapInfoIter& rIter) {
 // as a glyph.
 void NebulaAchievementToast::loadTextures() {
     const s32 count = NebulaAchievements::getIconTextureNum();
-    mTextures = new nw4r::lyt::TexMap*[count];
+    mTextures = new Ui::TexMap*[count];
     for (s32 i = 0; i < count; i++) {
         mTextures[i] = nullptr;
         const NebulaAchievementIcon* pIcon = NebulaAchievements::getIconTexture(i);
@@ -208,23 +201,24 @@ void NebulaAchievementToast::loadTextures() {
             LayoutHolder* pHolder = MR::createAndAddLayoutHolder(pIcon->mArchive);
             void* pTpl = pHolder != nullptr ? pHolder->GetResource('timg', pIcon->mTexture, nullptr) : nullptr;
             if (pTpl != nullptr) {
-                mTextures[i] = new nw4r::lyt::TexMap();
+                mTextures[i] = new Ui::TexMap();
                 mTextures[i]->ReplaceImage(pTpl, 0);
             }
         } else if (MR::isExistResourceInArc(pIcon->mArchive, pIcon->mTexture)) {
             mTextures[i] = MR::createLytTexMap(pIcon->mArchive, pIcon->mTexture);
         }
         if (mTextures[i] == nullptr) {
-            JUTNativeLog("NebulaAchievementToast: no %s in %s\n", pIcon->mTexture, pIcon->mArchive);
+            nebula_log("NebulaAchievementToast: no %s in %s\n", pIcon->mTexture, pIcon->mArchive);
         }
     }
-    if (mTextures[0] != nullptr) {
-        mPicture = nw4r::lyt::Layout::NewObj< nw4r::lyt::Picture >(*mTextures[0]);
+    // No icon textures at all: no picture (the first slot does not exist).
+    if (count > 0 && mTextures[0] != nullptr) {
+        mPicture = mIcon->GetLayout()->NewPane< Ui::Picture >(*mTextures[0]);
     }
     if (mPicture != nullptr) {
         mPicture->SetName("NebulaIconPic");
         for (u32 i = 0; i < 4; i++) {
-            mPicture->SetVtxColor(i, nw4r::ut::Color(0xFFFFFFFFu));
+            mPicture->SetVtxColor(i, Color8(0xFFFFFFFFu));
         }
         mPicture->SetInfluencedAlpha(true);
         mPicture->SetVisible(false);
@@ -297,30 +291,30 @@ void NebulaAchievementToast::setIcon(const NebulaAchievementIcon* pIcon, f32* pW
     const s32 texture = pIcon != nullptr && pIcon->mGlyph == 0 ? NebulaAchievements::findIconTexture(pIcon) : -1;
     if (texture >= 0 && mTextures[texture] != nullptr && mPicture != nullptr) {
         mPicture->GetMaterial()->SetTexture(0, *mTextures[texture]);
-        nw4r::math::VEC2(*pCoords)[4] = mPicture->mTexCoordAry.mData;
+        Vec2f(*pCoords)[4] = mPicture->mTexCoordAry.mData;
         if (pCoords != nullptr && mPicture->mTexCoordAry.mNum > 0) {
-            pCoords[0][0] = nw4r::math::VEC2(pIcon->mU0, pIcon->mV0);
-            pCoords[0][1] = nw4r::math::VEC2(pIcon->mU1, pIcon->mV0);
-            pCoords[0][2] = nw4r::math::VEC2(pIcon->mU0, pIcon->mV1);
-            pCoords[0][3] = nw4r::math::VEC2(pIcon->mU1, pIcon->mV1);
+            pCoords[0][0] = Vec2f(pIcon->mU0, pIcon->mV0);
+            pCoords[0][1] = Vec2f(pIcon->mU1, pIcon->mV0);
+            pCoords[0][2] = Vec2f(pIcon->mU0, pIcon->mV1);
+            pCoords[0][3] = Vec2f(pIcon->mU1, pIcon->mV1);
         }
         // A texture with room around its picture (the faces) is drawn larger so every icon looks the same size.
         const f32 fill = pIcon->mFill > 0.0f ? pIcon->mFill : 1.0f;
         *pHeight = cIconSize * fill;
         *pWidth = cIconSize * fill * pIcon->mWidth / pIcon->mHeight;
-        mPicture->mSize = nw4r::lyt::Size(*pWidth, *pHeight);
-        mPicture->mTranslate = nw4r::math::VEC3(0.0f, 0.0f, 0.0f);
+        mPicture->mSize = Ui::Size(*pWidth, *pHeight);
+        mPicture->mTranslate = Vec3f(0.0f, 0.0f, 0.0f);
         mPicture->SetVisible(true);
         mGlyph->SetVisible(false);
         return;
     }
 
     // A glyph (or a texture that is missing: the Power Star).
-    char16_t picture[8];
+    char16_t picture[8];  // one picture font tag (3 units) and the terminator
     MR::addPictureFontTag(picture, pIcon != nullptr && pIcon->mGlyph != 0 ? pIcon->mGlyph : '7');
     MR::setTextBoxMessageRecursive(this, "ConfirmU", picture);
     fitText(mGlyph, cIconSize, 0.0f, pWidth, pHeight);
-    mGlyph->mTranslate = nw4r::math::VEC3(-*pWidth * 0.5f, *pHeight * 0.5f, 0.0f);
+    mGlyph->mTranslate = Vec3f(-*pWidth * 0.5f, *pHeight * 0.5f, 0.0f);
     mGlyph->SetVisible(true);
     if (mPicture != nullptr) {
         mPicture->SetVisible(false);
@@ -328,15 +322,19 @@ void NebulaAchievementToast::setIcon(const NebulaAchievementIcon* pIcon, f32* pW
 }
 
 void NebulaAchievementToast::start(const char16_t* pName, const NebulaAchievementIcon* pIcon) {
-    char16_t text[160];
-    char16_t* pText = addFontSizeTag(text, 0);
+    // The heading and the name, each after its size and colour tags, with the line break between and the terminator.
+    MR::Text16 heading;
+    const u32 headingLength = static_cast< u32 >(NebulaUi::getText(heading, "AchievementGet"));
+    MR::Text16 text;
+    char16_t* const pBegin = text.room(3 + 4 + headingLength + 1 + 3 + 4 + static_cast< u32 >(MR::textLength(pName)) + 1);
+    char16_t* pText = addFontSizeTag(pBegin, 0);
     pText = addColorTag(pText, 4);
-    pText += NebulaText::get(pText, 48, "AchievementGet");
-    pText = addString(pText, u"\n", 2);
+    pText = addString(pText, heading.c_str());
+    pText = addString(pText, u"\n");
     pText = addFontSizeTag(pText, 1);
     pText = addColorTag(pText, 0);
-    addString(pText, pName, 64);
-    MR::setTextBoxMessageRecursive(this, "ConfirmC", text);
+    addString(pText, pName);
+    MR::setTextBoxMessageRecursive(this, "ConfirmC", pBegin);
 
     f32 textWidth, textHeight, iconWidth, iconHeight;
     setIcon(pIcon, &iconWidth, &iconHeight);
@@ -344,7 +342,7 @@ void NebulaAchievementToast::start(const char16_t* pName, const NebulaAchievemen
 
     // A long name (some languages) narrows the text to `cTextMax`, keeping the window's height.
     const f32 textScale = textWidth > cTextMax ? cTextMax / textWidth : 1.0f;
-    mText->mScale = nw4r::math::VEC2(textScale, 1.0f);
+    mText->mScale = Vec2f(textScale, 1.0f);
     textWidth *= textScale;
 
     // The window around the icon and the two lines, each centred on its height.
@@ -352,11 +350,11 @@ void NebulaAchievementToast::start(const char16_t* pName, const NebulaAchievemen
     const f32 content = textHeight > iconHeight ? textHeight : iconHeight;
     mWidth = cPadding + iconBox + cGap + textWidth + cPadding;
     mHeight = cPadding + content + cPadding;
-    mWindow->mSize = nw4r::lyt::Size(mWidth, mHeight);
-    mWindow->mTranslate = nw4r::math::VEC3(0.0f, 0.0f, 0.0f);
-    mIcon->mTranslate = nw4r::math::VEC3(-mWidth * 0.5f + cPadding + iconBox * 0.5f, 0.0f, 0.0f);
-    mText->mTranslate = nw4r::math::VEC3(-mWidth * 0.5f + cPadding + iconBox + cGap, textHeight * 0.5f, 0.0f);
-    mToast->mScale = nw4r::math::VEC2(cScale, cScale);
+    mWindow->mSize = Ui::Size(mWidth, mHeight);
+    mWindow->mTranslate = Vec3f(0.0f, 0.0f, 0.0f);
+    mIcon->mTranslate = Vec3f(-mWidth * 0.5f + cPadding + iconBox * 0.5f, 0.0f, 0.0f);
+    mText->mTranslate = Vec3f(-mWidth * 0.5f + cPadding + iconBox + cGap, textHeight * 0.5f, 0.0f);
+    mToast->mScale = Vec2f(cScale, cScale);
 
     mStep = StepRise;
     mFrame = 0;
@@ -370,7 +368,7 @@ void NebulaAchievementToast::start(const char16_t* pName, const NebulaAchievemen
 // adjusts its location (this window, as the HUD's) is drawn three quarters as wide as its units, so its width and its
 // horizontal margin count in those units.
 void NebulaAchievementToast::place(f32 rise, f32 alpha, f32 iconScale) {
-    nw4r::lyt::Pane* pRoot = getLayoutManager()->mLayout->mpRootPane;
+    Ui::Pane* pRoot = getLayoutManager()->mLayout->mpRootPane;
     const f32 adjust = mToast->IsLocationAdjust() && MR::isScreen16Per9() ? 0.75f : 1.0f;
     const f32 width = mWidth * cScale * adjust;
     const f32 height = mHeight * cScale;
@@ -378,5 +376,5 @@ void NebulaAchievementToast::place(f32 rise, f32 alpha, f32 iconScale) {
     mToast->mTranslate.x = pRoot->mSize.width * 0.5f - cMargin * adjust - width * 0.5f;
     mToast->mTranslate.y = bottom - height * 0.5f + rise * (height + cMargin);
     mToast->mAlpha = static_cast< u8 >(255.0f * clamp01(alpha) + 0.5f);
-    mIcon->mScale = nw4r::math::VEC2(iconScale, iconScale);
+    mIcon->mScale = Vec2f(iconScale, iconScale);
 }

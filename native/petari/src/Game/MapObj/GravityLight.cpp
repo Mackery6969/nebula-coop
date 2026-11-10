@@ -7,7 +7,7 @@
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/BaseMatrixFollowTargetHolder.hpp"
 #include "Game/Util/Color.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MapPartsUtil.hpp"
 #include "Game/Util/ModelUtil.hpp"
@@ -28,11 +28,11 @@ namespace NrvGravityLight {
 };  // namespace NrvGravityLight
 
 GravityLight::GravityLight(const char* pName)
-    : LiveActor(pName), mLightCylinder(), mMapPartsRailMover(), mMapPartsRotator(), mRadius(2500.0f), mCenter(0.0f, 0.0f, 0.0f), _D8() {
+    : LiveActor(pName), mLightCylinder(), mMapPartsRailMover(), mMapPartsRotator(), mRadius(2500.0f), mCenter(0.0f, 0.0f, 0.0f) {
     mBaseMtx.identity();
 }
 
-void GravityLight::init(const JMapInfoIter& rIter) {
+void GravityLight::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
 
     MR::makeMtxTR(mBaseMtx, mPosition, mRotation);
@@ -80,7 +80,7 @@ void GravityLight::init(const JMapInfoIter& rIter) {
 
     boundingRadius += 0.5f * mRadius;
 
-    TVec3f center(mPosition);
+    Vec3f center(mPosition);
     if (isRailConnected) {
         f32 radius;
         MR::calcRailClippingInfo(&center, &radius, this, 100.0f, 500.0f);
@@ -88,7 +88,7 @@ void GravityLight::init(const JMapInfoIter& rIter) {
         boundingRadius += radius;
     }
 
-    TVec3f upVec;
+    Vec3f upVec;
     MR::calcUpVec(&upVec, this);
     upVec.negate();
 
@@ -106,8 +106,8 @@ void GravityLight::control() {
     if (mMapPartsRailMover != nullptr) {
         mMapPartsRailMover->movement();
 
-        TVec3f& rPosition = mPosition;
-        rPosition.set(mMapPartsRailMover->_28);
+        Vec3f& rPosition = mPosition;
+        rPosition.set(mMapPartsRailMover->mStartPos);
 
         MR::makeMtxTR(mBaseMtx, rPosition, mRotation);
     }
@@ -115,7 +115,7 @@ void GravityLight::control() {
     if (mMapPartsRotator != nullptr) {
         mMapPartsRotator->movement();
 
-        TPos3f baseMtx;
+        Pos3f baseMtx;
         baseMtx.identity();
         baseMtx.concat(mMapPartsRotator->getRotateMtx());
 

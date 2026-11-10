@@ -9,10 +9,11 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Screen/NebulaIcons.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const s32 sSuspendFrame = 60;
-    static const s32 sChangeSoundFrame = 40;
+    NEBULA_TUNABLE(s32, sSuspendFrame, 60);
+    NEBULA_TUNABLE(s32, sChangeSoundFrame, 40);
 };  // namespace
 
 namespace {
@@ -30,8 +31,8 @@ namespace MR {
 };  // namespace MR
 
 PlayerActionGuidance::PlayerActionGuidance()
-    : LayoutActor("\203\166\203\214\203\103\203\204\201\133\203\101\203\116\203\126\203\207\203\223\203\113\203\103\203\137\203\223\203\130" /* プレイヤーアクションガイダンス */, true), mSpinLayout(), mTamakoroLayout(), mCurrentLayout(), mGuidanceState(3),
-      mGuidancePrevState(3), _34(), _35(), _36(), _37() {
+    : LayoutActor("プレイヤーアクションガイダンス", true), mSpinLayout(), mTamakoroLayout(), mCurrentLayout(), mGuidanceState(3),
+      mGuidancePrevState(3), mShow(), mTamakoroForced() {
 }
 
 void PlayerActionGuidance::control() {
@@ -39,28 +40,27 @@ void PlayerActionGuidance::control() {
 
     if (mSpinLayout != nullptr && isInVolumePlayer("SpinGuidanceCube", false)) {
         mCurrentLayout = mSpinLayout;
-        _35 = true;
-    } else if (mTamakoroLayout != nullptr && (_36 || isInVolumePlayer("TamakoroMoveGuidanceCube", true))) {
+        mShow = true;
+    } else if (mTamakoroLayout != nullptr && (mTamakoroForced || isInVolumePlayer("TamakoroMoveGuidanceCube", true))) {
         mCurrentLayout = mTamakoroLayout;
         mGuidanceState = 3;
-        _35 = true;
-    } else if (mTamakoroLayout != nullptr && (_36 || isInVolumePlayer("TamakoroJumpGuidanceCube", true))) {
+        mShow = true;
+    } else if (mTamakoroLayout != nullptr && (mTamakoroForced || isInVolumePlayer("TamakoroJumpGuidanceCube", true))) {
         mCurrentLayout = mTamakoroLayout;
         mGuidanceState = 4;
-        _35 = true;
+        mShow = true;
     } else {
-        _35 = false;
+        mShow = false;
     }
 
-    _37 = _36;
-    _36 = false;
+    mTamakoroForced = false;
     // Pictures of the remote (shaking it, tilting it) only with one in hand.
     if (!NebulaIcons::wiiRemoteInUse()) {
-        _35 = false;
+        mShow = false;
     }
 }
 
-void PlayerActionGuidance::init(const JMapInfoIter& rIter) {
+void PlayerActionGuidance::init(const TableIter& /*rIter*/) {
     MR::connectToSceneLayoutMovement(this);
     initNerve(GET_NERVE_ANON(PlayerActionGuidanceWaitFocusIn));
     startAnimAllLayout("Appear");
@@ -77,7 +77,7 @@ void PlayerActionGuidance::createSpinLayout() {
         return;
     }
 
-    mSpinLayout = new SimpleLayout("\203\130\203\163\203\223\203\113\203\103\203\137\203\223\203\130" /* スピンガイダンス */, "SpinGuidance", 1, -1);
+    mSpinLayout = new SimpleLayout("スピンガイダンス", "SpinGuidance", 1, -1);
     mSpinLayout->appear();
 }
 
@@ -86,8 +86,13 @@ void PlayerActionGuidance::createTamakoroLayout() {
         return;
     }
 
-    mTamakoroLayout = new SimpleLayout("\202\275\202\334\202\261\202\353\203\113\203\103\203\137\203\223\203\130" /* たまころガイダンス */, "BallGuidance", 1, -1);
+    mTamakoroLayout = new SimpleLayout("たまころガイダンス", "BallGuidance", 1, -1);
     mTamakoroLayout->appear();
+}
+
+void PlayerActionGuidance::forceTamakoro(s32 state) {
+    mGuidanceState = state;
+    mTamakoroForced = true;
 }
 
 void PlayerActionGuidance::exeWaitFocusIn() {
@@ -95,7 +100,7 @@ void PlayerActionGuidance::exeWaitFocusIn() {
         hideAllLayout();
     }
 
-    if (_35) {
+    if (mShow) {
         setNerve(GET_NERVE_ANON(PlayerActionGuidanceSuspend));
     }
 }
@@ -170,14 +175,14 @@ void PlayerActionGuidance::exeDisplay() {
         startWaitAnimTamakoro();
     }
 
-    if (MR::isAnimStopped(mCurrentLayout, 0) || !_35) {
+    if (MR::isAnimStopped(mCurrentLayout, 0) || !mShow) {
         setNerve(GET_NERVE_ANON(PlayerActionGuidanceFadeout));
     }
 }
 
 void PlayerActionGuidance::exeSuspend() {
     if (MR::isStep(this, ::sSuspendFrame)) {
-        if (!_35) {
+        if (!mShow) {
             hideAllLayout();
             setNerve(GET_NERVE_ANON(PlayerActionGuidanceWaitFocusIn));
         } else {
@@ -192,7 +197,7 @@ void PlayerActionGuidance::exeFadeout() {
     }
 
     if (MR::isAnimStopped(mCurrentLayout, 0)) {
-        if (_35) {
+        if (mShow) {
             setNerve(GET_NERVE_ANON(PlayerActionGuidanceSuspend));
         } else {
             hideAllLayout();
@@ -241,11 +246,7 @@ void PlayerActionGuidance::hideAllLayout() {
     }
 }
 
-bool PlayerActionGuidance::isInVolumePlayer(const char* pObjName, bool param2) const {
-    if (_34) {
-        return false;
-    }
-
+bool PlayerActionGuidance::isInVolumePlayer(const char* pObjName, bool wantSwitchA) const {
     AreaObj* pObj = MR::getAreaObj(pObjName, *MR::getPlayerPos());
 
     if (pObj == nullptr) {
@@ -257,7 +258,7 @@ bool PlayerActionGuidance::isInVolumePlayer(const char* pObjName, bool param2) c
             return false;
         }
 
-        if (param2) {
+        if (wantSwitchA) {
             return pObj->isOnSwitchA() == true;
         } else {
             return pObj->isOnSwitchA() == false;

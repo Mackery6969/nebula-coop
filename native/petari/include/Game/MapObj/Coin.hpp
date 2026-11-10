@@ -4,37 +4,34 @@
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/LiveActor/PartsModel.hpp"
 
-class NameObjArchiveListCollector;
 
 class CoinHostInfo {
 public:
     CoinHostInfo() {
         mHostActor = nullptr;
-        _4 = 0;
-        _8 = 0;
-        _C = 0;
+        mDeclared = 0;
+        mAppeared = 0;
     }
 
     const NameObj* mHostActor;
-    s32 _4;
-    s32 _8;
-    u32 _C;
+    s32 mDeclared;
+    s32 mAppeared;
 };
 
 class Coin : public LiveActor {
 public:
-    Coin(const char*);
+    Coin(const char* pName);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void appear();
-    virtual void makeActorAppeared();
-    virtual void makeActorDead();
-    virtual void calcAndSetBaseMtx();
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
+    virtual void appear() override;
+    virtual void makeActorAppeared() override;
+    virtual void makeActorDead() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
-    void initShadow(const JMapInfoIter&);
-    void setShadowAndPoseModeFromJMapIter(const JMapInfoIter&);
+    void initShadow(const TableIter&);
+    void setShadowAndPoseModeFromPlacementIter(const TableIter&);
     void exeNonActive();
     void exeFix();
     void exeFixHide();
@@ -43,13 +40,13 @@ public:
     void exeControled();
     void exeSpinDrained();
     void exeHop();
-    void appearFixInit();
     void appearFix();
     void appearControlPose();
     void appearNonActive();
-    void appearFixTimer(s32, s32);
-    void appearMove(const TVec3f&, const TVec3f&, s32, s32);
-    void appearHop(const TVec3f&, const TVec3f&);
+    // A negative life or pickup delay takes the default.
+    void appearFixTimer(s32 life, s32 cannotTime);
+    void appearMove(const Vec3f& rPosition, const Vec3f& rVelocity, s32 life, s32 cannotTime);
+    void appearHop(const Vec3f& rPosition, const Vec3f& rUp);
     bool requestActive();
     bool requestActiveWithGravity();
     bool requestDeactive();
@@ -59,26 +56,25 @@ public:
     bool requestShow();
     bool requestHide();
     void noticeGetCoin();
-    void setLife(s32);
-    void setHostInfo(CoinHostInfo*);
+    void setLife(s32 life);
+    void setHostInfo(CoinHostInfo* pInfo);
     void setCalcShadowMode();
-    void setCannotTime(s32);
-    void calcRebouond();
+    void setCannotTime(s32 time);
+    void calcRebound();
     void attenuateVelocity();
-    static bool isNeedBubble(const JMapInfoIter&);
-    static void makeArchiveList(NameObjArchiveListCollector*, const JMapInfoIter&);
+    static bool isNeedBubble(const TableIter& rIter);
 
     CoinHostInfo* mHostInfo;
     FlashingCtrl* mFlashCtrl;
     PartsModel* mAirBubble;
-    TVec3f mDropPosition;
-    TVec3f mClippingRange;
-    int _B0;
+    Vec3f mDropPosition;
+    Vec3f mClippingRange;
+    int mLife;
+    // Steps after appearing before it can be picked up.
     s32 mCannotTime;
     bool mIsInWater;
-    bool _B9;  // obj_arg3
-    bool _BA;  // obj_arg4
-    bool _BB;
+    bool mIsCalcShadowAlways;
+    bool mIsPoseFromRotation;
     bool mIsPurpleCoin;
     bool mIsNeedBubble;
 };

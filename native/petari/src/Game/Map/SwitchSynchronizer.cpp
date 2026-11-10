@@ -5,24 +5,20 @@
 SwitchSynchronizer::SwitchSynchronizer(const char* pName) : NameObj(pName), mSwitchCtrl(), mIsCheckSameSwitchState(true) {
 }
 
-void SwitchSynchronizer::init(const JMapInfoIter& rIter) {
+void SwitchSynchronizer::init(const TableIter& rIter) {
     MR::connectToSceneMapObjMovement(this);
 
     mSwitchCtrl = MR::createStageSwitchCtrl(this, rIter);
 }
 
+// A is kept opposite to B (mIsCheckSameSwitchState) or equal to it.
 void SwitchSynchronizer::movement() {
-    if (mIsCheckSameSwitchState) {
-        if (mSwitchCtrl->isOnSwitchA() && mSwitchCtrl->isOnSwitchB()) {
-            mSwitchCtrl->offSwitchA();
-        } else if (!mSwitchCtrl->isOnSwitchA() && !mSwitchCtrl->isOnSwitchB()) {
-            mSwitchCtrl->onSwitchA();
-        }
-    } else {
-        if (mSwitchCtrl->isOnSwitchA() && !mSwitchCtrl->isOnSwitchB()) {
-            mSwitchCtrl->offSwitchA();
-        } else if (!mSwitchCtrl->isOnSwitchA() && mSwitchCtrl->isOnSwitchB()) {
-            mSwitchCtrl->onSwitchA();
-        }
+    const bool isOnA = mSwitchCtrl->isOnSwitchA();
+    const bool isOnB = mSwitchCtrl->isOnSwitchB();
+    const bool isWantedA = mIsCheckSameSwitchState ? !isOnB : isOnB;
+    if (isOnA && !isWantedA) {
+        mSwitchCtrl->offSwitchA();
+    } else if (!isOnA && isWantedA) {
+        mSwitchCtrl->onSwitchA();
     }
 }

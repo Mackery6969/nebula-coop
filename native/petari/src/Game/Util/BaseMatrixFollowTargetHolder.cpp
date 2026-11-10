@@ -1,8 +1,8 @@
 #include "Game/Util/BaseMatrixFollowTargetHolder.hpp"
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
-#include "Game/Util/JMapLinkInfo.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementLink.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 
 namespace {
@@ -11,22 +11,18 @@ namespace {
     }
 };  // namespace
 
-BaseMatrixFollower::BaseMatrixFollower(NameObj* pObj, const JMapInfoIter& rIter) {
-    mFollowerObj = pObj;
-    mLinkInfo = nullptr;
-    mFollowTarget = nullptr;
-    mFollowID = -1;
-    MR::getJMapInfoFollowID(rIter, &mFollowID);
-    mLinkInfo = new JMapLinkInfo(rIter, false);
+BaseMatrixFollower::BaseMatrixFollower(const TableIter& rIter) : mLinkInfo(nullptr), mFollowTarget(nullptr), mFollowID(-1) {
+    MR::getPlacementFollowID(rIter, &mFollowID);
+    mLinkInfo = new PlacementLink(rIter, false);
 }
 
 NameObj* BaseMatrixFollower::getFollowTargetActor() const {
     return mFollowTarget->mActor;
 }
 
-void BaseMatrixFollower::calcFollowMatrix(TPos3f* pOut) const {
+void BaseMatrixFollower::calcFollowMatrix(Pos3f* pOut) const {
     pOut->set(mFollowTarget->getHostBaseMtx());
-    pOut->concat(*pOut, mFollowTarget->_0);
+    pOut->concat(*pOut, mFollowTarget->mInvHostMtx);
 }
 
 bool BaseMatrixFollower::isEnableFollow() const {
@@ -43,31 +39,31 @@ bool BaseMatrixFollower::isValid() const {
     return mFollowTarget->isValid(mFollowID);
 }
 
-BaseMatrixFollowTarget::BaseMatrixFollowTarget(const JMapLinkInfo* pInfo) {
+BaseMatrixFollowTarget::BaseMatrixFollowTarget(const PlacementLink* pInfo) {
     mLinkInfo = pInfo;
-    _30 = nullptr;
+    mHostBaseMtx = nullptr;
     mActor = nullptr;
     mValidater = nullptr;
-    _0.identity();
+    mInvHostMtx.identity();
 }
 
-void BaseMatrixFollowTarget::set(LiveActor* pActor, const TPos3f& rMtx, const TPos3f* pBaseMtx, BaseMatrixFollowValidater* pValidator) {
+void BaseMatrixFollowTarget::set(LiveActor* pActor, const Pos3f& rMtx, const Pos3f* pBaseMtx, BaseMatrixFollowValidater* pValidator) {
     mValidater = pValidator;
     mActor = pActor;
-    _0.set(rMtx.mMtx);
-    _0.invert(_0);
+    mInvHostMtx.set(rMtx.mMtx);
+    mInvHostMtx.invert(mInvHostMtx);
 
     if (pBaseMtx) {
-        _30 = pBaseMtx;
+        mHostBaseMtx = pBaseMtx;
     }
 }
 
-const MtxPtr BaseMatrixFollowTarget::getHostBaseMtx() const {
-    if (!_30) {
+MtxPtr BaseMatrixFollowTarget::getHostBaseMtx() const {
+    if (!mHostBaseMtx) {
         return mActor->getBaseMtx();
     }
 
-    return const_cast< MtxPtr >(_30->mMtx);
+    return const_cast< MtxPtr >(mHostBaseMtx->mMtx);
 }
 
 bool BaseMatrixFollowTarget::isValid(s32 followId) const {
@@ -84,11 +80,8 @@ BaseMatrixFollowTargetHolder::BaseMatrixFollowTargetHolder(const char* pName, s3
     MR::connectToSceneMapObjMovement(this);
 }
 
-template MR::Vector< MR::AssignableArray< BaseMatrixFollowTarget* > >::~Vector();
-template MR::Vector< MR::AssignableArray< BaseMatrixFollower* > >::~Vector();
-
 void BaseMatrixFollowTargetHolder::initAfterPlacement() {
-    for (u32 i = 0; i < mFollowers.size(); i++) {
+    for (s32 i = 0; i < mFollowers.size(); i++) {
         BaseMatrixFollower* pFollower = mFollowers[i];
         BaseMatrixFollowTarget* pTarget = findFollowTarget(pFollower);
         if (pTarget->mActor) {
@@ -98,7 +91,7 @@ void BaseMatrixFollowTargetHolder::initAfterPlacement() {
 }
 
 void BaseMatrixFollowTargetHolder::movement() {
-    for (u32 i = 0; i < mFollowers.size(); i++) {
+    for (s32 i = 0; i < mFollowers.size(); i++) {
         if (mFollowers[i]->isEnableFollow()) {
             mFollowers[i]->update();
         }
@@ -117,23 +110,23 @@ void BaseMatrixFollowTargetHolder::addFollower(BaseMatrixFollower* pFollower) {
     pFollower->mFollowTarget = pTarget;
 }
 
-void BaseMatrixFollowTargetHolder::setFollowTargetInfo(LiveActor* pActor, const JMapInfoIter& rIter, const TPos3f* pBaseMtx,
+void BaseMatrixFollowTargetHolder::setFollowTargetInfo(LiveActor* pActor, const TableIter& rIter, const Pos3f* pBaseMtx,
                                                        BaseMatrixFollowValidater* pValidater) {
-    JMapLinkInfo linkInfo(rIter, true);
+    PlacementLink linkInfo(rIter, true);
     BaseMatrixFollowTarget* pTarget = findFollowTarget(&linkInfo);
     if (pTarget) {
-        TPos3f mtx;
-        MR::getJMapInfoMatrixFromRT(rIter, &mtx);
+        Pos3f mtx;
+        MR::getPlacementMatrixFromRT(rIter, &mtx);
         pTarget->set(pActor, mtx, pBaseMtx, pValidater);
     }
 }
 
-BaseMatrixFollowTarget* BaseMatrixFollowTargetHolder::findFollowTarget(const JMapLinkInfo* pLinkInfo) {
+BaseMatrixFollowTarget* BaseMatrixFollowTargetHolder::findFollowTarget(const PlacementLink* pLinkInfo) {
     if (!pLinkInfo) {
         return nullptr;
     }
 
-    for (u32 i = 0; i < mTargets.size(); i++) {
+    for (s32 i = 0; i < mTargets.size(); i++) {
         if (*mTargets[i]->mLinkInfo == *pLinkInfo) {
             return mTargets[i];
         }
@@ -151,12 +144,12 @@ BaseMatrixFollowTarget* BaseMatrixFollowTargetHolder::findFollowTarget(const Bas
 }
 
 namespace MR {
-    bool isValidFollowID(const JMapInfoIter& rIter) {
+    bool isValidFollowID(const TableIter& rIter) {
         if (!isValidInfo(rIter)) {
             return false;
         }
 
-        JMapLinkInfo linkInfo(rIter, false);
+        PlacementLink linkInfo(rIter, false);
         return linkInfo.isValid();
     }
 
@@ -165,7 +158,7 @@ namespace MR {
         ::getBaseMatrixFollowTargetHolder()->addFollower(pFollower);
     }
 
-    void addBaseMatrixFollowTarget(LiveActor* pActor, const JMapInfoIter& rIter, const TPos3f* pBaseMtx, BaseMatrixFollowValidater* pValidater) {
+    void addBaseMatrixFollowTarget(LiveActor* pActor, const TableIter& rIter, const Pos3f* pBaseMtx, BaseMatrixFollowValidater* pValidater) {
         if (isValidInfo(rIter) && isExistSceneObj(SceneObj_BaseMatrixFollowTargetHolder)) {
             ::getBaseMatrixFollowTargetHolder()->setFollowTargetInfo(pActor, rIter, pBaseMtx, pValidater);
         }
@@ -173,10 +166,4 @@ namespace MR {
 };  // namespace MR
 
 void BaseMatrixFollower::update() {
-}
-
-template MR::AssignableArray< BaseMatrixFollowTarget* >::~AssignableArray();
-template MR::AssignableArray< BaseMatrixFollower* >::~AssignableArray();
-
-BaseMatrixFollowTargetHolder::~BaseMatrixFollowTargetHolder() {
 }

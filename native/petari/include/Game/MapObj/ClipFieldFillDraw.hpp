@@ -5,12 +5,10 @@
 
 class ClipFieldFillDraw : public NameObj {
 public:
-    /// @brief Creates a new `ClipFieldFillDraw`.
-    /// @param pName A pointer to the null-terminated name of the object.
     ClipFieldFillDraw(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void draw() const;
+    virtual void init(const TableIter& rIter) override;
+    virtual void draw() const override;
 
     void setModeSubColor();
     void setUpFillScreen() const;
@@ -20,13 +18,11 @@ public:
     u8 mFillBlendOp;
     u8 mFillSrcFactor;
     u8 mFillDstFactor;
-    Color8 _1C;
-    Color8 _20;
-    bool _24;
-    bool _25;
+    Color8 mFillColor;
+    bool mFillInsideVolume;
 };
 
 namespace MR {
-    NameObj* createClipFieldFillDraw(const char*);
-    NameObj* createVolumeDrawSpotLight(const char*);
+    NameObj* createClipFieldFillDraw(const char* pName);
+    NameObj* createVolumeDrawSpotLight(const char* pName);
 };  // namespace MR

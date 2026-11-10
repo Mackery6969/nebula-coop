@@ -6,12 +6,12 @@
 
 typedef JointControlDelegator< DinoPackunTailRoot > Delegator;
 
-typedef bool (DinoPackunTailRoot::*func)(TPos3f*, const JointControllerInfo&);
+typedef bool (DinoPackunTailRoot::*func)(Pos3f*, const JointControllerInfo&);
 
 DinoPackunTailRoot::DinoPackunTailRoot(const char* name, DinoPackun* pPackun) : DinoPackunTailNode(name, pPackun) {
 }
 
-void DinoPackunTailRoot::init(const JMapInfoIter& rIter) {
+void DinoPackunTailRoot::init(const TableIter& /*rIter*/) {
     MR::invalidateClipping(this);
     makeActorAppeared();
 }
@@ -20,18 +20,14 @@ JointController* DinoPackunTailRoot::createJointControllerOwn(LiveActor* pActor,
     return MR::createJointDelegator(this, pActor, &DinoPackunTailRoot::calcJointDirection, (func) nullptr, pJointName);
 }
 
-bool DinoPackunTailRoot::calcJointDirection(TPos3f* pOut, const JointControllerInfo& rInfo) {
-    TPos3f stack_20 = pOut;
-    MR::orthogonalize(&stack_20);
-    TVec3f stack_14;
-    stack_20.getZDir(stack_14);
-    _A8.set(stack_14);
-    TVec3f v12;
-    pOut->getTrans(v12);
-    mPosition.set(v12);
+// The root follows its animated joint.
+bool DinoPackunTailRoot::calcJointDirection(Pos3f* pOut, const JointControllerInfo& rInfo) {
+    Pos3f jointMtx = pOut;
+    MR::orthogonalize(&jointMtx);
+    jointMtx.getZDir(mJointFront);
+    pOut->getTrans(mPosition);
     return turnJointLocalXDir(pOut, rInfo);
 }
 
-void DinoPackunTailRoot::addNodeVelocity(const TVec3f& rVel) {
-    return;
-}
+// The root is not pushed by the tail.
+void DinoPackunTailRoot::addNodeVelocity(const Vec3f& /*rVel*/) {}

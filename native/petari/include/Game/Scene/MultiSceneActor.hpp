@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/NameObj/NameObj.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
 class EffectSystem;
 class ModelManager;
@@ -11,12 +11,12 @@ class Spine;
 
 class MultiSceneActor : public NameObj {
 public:
-    MultiSceneActor(const char*, const char*, bool);
+    MultiSceneActor(const char* pName, const char* pModelName, bool deferMaterials);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void movement();
-    virtual void calcAnim();
-    virtual void calcViewAndEntry();
+    virtual void init(const TableIter&) override;
+    virtual void movement() override;
+    virtual void calcAnim() override;
+    virtual void calcViewAndEntry() override;
     virtual void appear();
     virtual void kill();
     virtual void control();
@@ -24,20 +24,22 @@ public:
     ModelManager* getModelManager() const;
     EffectSystem* getEffectSystem() const;
     MultiSceneEffectKeeper* getEffectKeeper() const;
-    void initEffect(EffectSystem*, int, const char*);
+    void initEffect(EffectSystem*, int extraEmitterNum, const char* pResName);
     void setNerve(const Nerve*);
     bool isNerve(const Nerve*) const;
     void initNerve(const Nerve*);
     s32 getNerveStep() const;
 
-    TVec3f mTranslation;
-    TVec3f mRotation;
-    TVec3f mScale;
-    bool _30;
+    Vec3f mTranslation;
+    Vec3f mRotation;
+    Vec3f mScale;
+    bool mIsDead;
     ModelManager* mModelManager;
     EffectSystem* mEffectSystem;
     MultiSceneEffectKeeper* mEffectKeeper;
     Spine* mSpine;
+    // Set once in the constructor: this actor is the star-select sky.
+    bool mIsScenarioSelectSky;
 };
 
 namespace MultiScene {
@@ -59,8 +61,8 @@ namespace MultiScene {
     f32 calcNerveRate(const MultiSceneActor*, s32, s32);
     f32 calcNerveEaseOutRate(const MultiSceneActor*, s32);
     f32 calcNerveValue(const MultiSceneActor*, s32, f32, f32);
-    void emitEffect(const MultiSceneActor*, const char*);
+    void emitEffect(const MultiSceneActor*, const char* pEffectName);
     void deleteEffectAll(const MultiSceneActor*);
     void forceDeleteEffectAll(const MultiSceneActor*);
-    MtxPtr getJointMtx(const MultiSceneActor*, const char*);
+    MtxPtr getJointMtx(const MultiSceneActor*, const char* pJointName);
 };  // namespace MultiScene

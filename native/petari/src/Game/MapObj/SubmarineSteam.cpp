@@ -4,15 +4,16 @@
 #include "Game/Map/HitInfo.hpp"
 #include "Game/Util.hpp"
 #include "Game/Util/CollisionShapeUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const f32 sSensorRadius = 400.0f;
-    static const f32 sSensorOffsetY = 250.0f;
-    static const f32 sHitCylinderRange = 20.0f;
-    static const f32 sHitSphereRadius = 120.0f;
-    static const f32 sHitSphereOffsetY = 600.0f;
-    static const s32 sMaxNumGroupClipping = 16;
-    static const f32 sHitCylinderHeight = 480.0f;
+    NEBULA_TUNABLE(f32, sSensorRadius, 400.0f);
+    NEBULA_TUNABLE(f32, sSensorOffsetY, 250.0f);
+    NEBULA_TUNABLE(f32, sHitCylinderRange, 20.0f);
+    NEBULA_TUNABLE(f32, sHitSphereRadius, 120.0f);
+    NEBULA_TUNABLE(f32, sHitSphereOffsetY, 600.0f);
+    NEBULA_TUNABLE(s32, sMaxNumGroupClipping, 16);
+    NEBULA_TUNABLE(f32, sHitCylinderHeight, 480.0f);
 };  // namespace
 
 namespace NrvSubmarineSteam {
@@ -23,16 +24,16 @@ namespace NrvSubmarineSteam {
 SubmarineSteam::SubmarineSteam(const char* pName) : LiveActor(pName), mUp(0.0f, 1.0f, 0.0f) {
 }
 
-void SubmarineSteam::init(const JMapInfoIter& rIter) {
+void SubmarineSteam::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     MR::connectToSceneMapObjMovement(this);
 
     const char* objName = nullptr;
     MR::getObjectName(&objName, rIter);
-    initEffectKeeper(0, objName, false);
+    initEffectKeeper(0, objName);
 
     initHitSensor(1);
-    HitSensor* sensor = MR::addHitSensorMapObj(this, "body", 8, ::sSensorRadius, TVec3f(0.0f, ::sSensorOffsetY, 0.0f));
+    HitSensor* sensor = MR::addHitSensorMapObj(this, "body", 8, ::sSensorRadius, Vec3f(0.0f, ::sSensorOffsetY, 0.0f));
 
     MR::setClippingTypeSphere(this, 800.0f, &sensor->mPosition);
     MR::setGroupClipping(this, rIter, ::sMaxNumGroupClipping);
@@ -52,7 +53,7 @@ void SubmarineSteam::init(const JMapInfoIter& rIter) {
 }
 
 void SubmarineSteam::initAfterPlacement() {
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.identity();
     mtx.setRotateDegree(mRotation);
     mtx.getYDir(mUp);

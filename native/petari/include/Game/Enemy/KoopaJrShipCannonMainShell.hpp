@@ -6,21 +6,20 @@ class KoopaJrShipCannonMainShell : public CannonShellBase {
 public:
     KoopaJrShipCannonMainShell(const char*);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void kill();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void kill() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
-    virtual void launch(const TVec3f&, const TVec3f&);
-    virtual f32 getBaseScale() const;
+    virtual void launch(const Vec3f&, const Vec3f&) override;
+    virtual f32 getBaseScale() const override;
 
     void explosion();
 
-    void exeWait();
     void exeFly();
 
-    TQuat4f _8C;
+    Quat4f mRotateQuat;
 };
 
 namespace CannonShellUtil {

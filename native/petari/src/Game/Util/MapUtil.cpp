@@ -10,26 +10,33 @@
 #include "Game/Util/GravityUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
+#include "Game/System/Arenas.hpp"
+#include "Game/System/NebulaArena.hpp"
 #include "Game/Util/ModelUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
 #include "Game/Util/TriangleFilter.hpp"
 
-static HitInfo mSortBuffer[32];
-static u32 mSortCount;
+namespace {
+    // getNearPolyOnLineSort's hits, nearest first, in the permanent arena; it grows to the most hits one line has had.
+    HitInfo* sSortBuffer = nullptr;
+    f32* sSortDistance = nullptr;
+    u32 sSortRoom = 0;
+    u32 sSortCount = 0;
+}  // namespace
 
 namespace {
     u32 getStrikeInfoNumCategory(s32 category);
-    bool getFirstPolyOnLineCategoryExceptActor(TVec3f*, Triangle*, const TVec3f&, const TVec3f&, const LiveActor*, s32);
+    bool getFirstPolyOnLineCategoryExceptActor(Vec3f*, Triangle*, const Vec3f&, const Vec3f&, const LiveActor*, s32);
 
     u32 getStrikeInfoNumCategory(s32 category) {
-        return MR::getCollisionDirector()->getCategoryKeeper(category)->_10;
+        return MR::getCollisionDirector()->getCategoryKeeper(category)->mNumHits;
     }
 
     const HitInfo* getStrikeInfoCategory(s32 category, u32 index) {
         return MR::getCollisionDirector()->getCategoryKeeper(category)->getStrikeInfo(index);
     }
 
-    bool getFirstPolyOnLineCategory(TVec3f* pPos, Triangle* pTriangle, const TVec3f& rStart, const TVec3f& rDirection,
+    bool getFirstPolyOnLineCategory(Vec3f* pPos, Triangle* pTriangle, const Vec3f& rStart, const Vec3f& rDirection,
                                     const TriangleFilterBase* pTriangleFilter, const CollisionPartsFilterBase* pPartsFilter, s32 category) {
         u32 count = MR::getCollisionDirector()->getCategoryKeeper(category)->checkStrikeLine(rStart, rDirection, 0, pPartsFilter, nullptr);
         const HitInfo* pHit;
@@ -45,9 +52,9 @@ namespace {
                 continue;
             }
 
-            if (minDistance > pHit->_60) {
+            if (minDistance > pHit->mDepth) {
                 nearest = i;
-                minDistance = pHit->_60;
+                minDistance = pHit->mDepth;
             }
         }
 
@@ -67,13 +74,13 @@ namespace {
         return true;
     }
 
-    bool getFirstPolyOnLineCategoryExceptSensor(TVec3f* pPos, Triangle* pTriangle, const TVec3f& rStart, const TVec3f& rDirection,
+    bool getFirstPolyOnLineCategoryExceptSensor(Vec3f* pPos, Triangle* pTriangle, const Vec3f& rStart, const Vec3f& rDirection,
                                                 const HitSensor* pSensor, s32 category) {
         CollisionPartsFilterSensor filter(pSensor);
         return getFirstPolyOnLineCategory(pPos, pTriangle, rStart, rDirection, nullptr, &filter, category);
     }
 
-    bool getFirstPolyOnLineCategoryExceptActor(TVec3f* pPos, Triangle* pTriangle, const TVec3f& rStart, const TVec3f& rDirection,
+    bool getFirstPolyOnLineCategoryExceptActor(Vec3f* pPos, Triangle* pTriangle, const Vec3f& rStart, const Vec3f& rDirection,
                                                const LiveActor* pActor, s32 category) {
         CollisionPartsFilterActor filter(pActor);
         return getFirstPolyOnLineCategory(pPos, pTriangle, rStart, rDirection, nullptr, &filter, category);
@@ -81,104 +88,79 @@ namespace {
 };  // namespace
 
 namespace MR {
-    const TVec3f* getNormal(const Triangle* pTriangle) {
+    const Vec3f* getNormal(const Triangle* pTriangle) {
         return pTriangle->getNormal(0);
     }
 
-    bool isWallPolygon(const TVec3f& rParam1, const TVec3f& rParam2) {
-        if (isNearZero(rParam1)) {
+    bool isWallPolygon(const Vec3f& rNormal, const Vec3f& rGravity) {
+        if (isNearZero(rNormal)) {
             return false;
         }
 
-        return isWallPolygon(rParam1.dot(rParam2));
+        return isWallPolygon(rNormal.dot(rGravity));
     }
 
-    bool isFloorPolygon(const TVec3f& rParam1, const TVec3f& rParam2) {
-        if (isNearZero(rParam1)) {
+    bool isFloorPolygon(const Vec3f& rNormal, const Vec3f& rGravity) {
+        if (isNearZero(rNormal)) {
             return false;
         }
 
-        return isFloorPolygon(rParam1.dot(rParam2));
+        return isFloorPolygon(rNormal.dot(rGravity));
     }
 
-    bool isFloorPolygonCos(const TVec3f& rParam1, const TVec3f& rParam2, f32 param3) {
-        if (isNearZero(rParam1)) {
+    // A floor no steeper than acos(minCos).
+    bool isFloorPolygonCos(const Vec3f& rNormal, const Vec3f& rGravity, f32 minCos) {
+        if (isNearZero(rNormal)) {
             return false;
         }
 
-        if (-rParam1.dot(rParam2) < param3) {
+        if (-rNormal.dot(rGravity) < minCos) {
             return false;
         }
 
-        return isFloorPolygon(rParam1.dot(rParam2));
+        return isFloorPolygon(rNormal.dot(rGravity));
     }
 
-    bool isWallPolygon(f32 param1) {
-        return MR::abs(param1) < 0.34202015f;
+    // normalDotGravity: the polygon's normal dotted with gravity. Within 70 degrees of upright is a wall.
+    bool isWallPolygon(f32 normalDotGravity) {
+        return MR::abs(normalDotGravity) < 0.34202015f;  // cos 70
     }
 
-    bool isFloorPolygon(f32 param1) {
-        if (isWallPolygon(param1)) {
+    bool isFloorPolygon(f32 normalDotGravity) {
+        if (isWallPolygon(normalDotGravity)) {
             return false;
         }
 
-        return param1 < 0.0f;
+        return normalDotGravity < 0.0f;
     }
 
-    bool isCeilingPolygon(f32 param1) {
-        if (isWallPolygon(param1) || isFloorPolygon(param1)) {
+    bool isCeilingPolygon(f32 normalDotGravity) {
+        if (isWallPolygon(normalDotGravity) || isFloorPolygon(normalDotGravity)) {
             return false;
         }
 
         return true;
     }
 
-    bool isWaterPolygon(const Triangle* pTriangle) {
-        const char* pFloorCodeString = getFloorCodeString(pTriangle);
-
-        if (pFloorCodeString != nullptr) {
-            if (strcmp(pFloorCodeString, "Water") == 0) {
-                return true;
-            }
-
-            if (strcmp(pFloorCodeString, "Shallow") == 0) {
-                return true;
-            }
-        }
-
+    // The floor codes name no Water or Shallow (Shallow is a sound code), so no polygon is water by its floor code.
+    bool isWaterPolygon(const Triangle*) {
         return false;
     }
 
     bool isThroughPolygon(const Triangle* pTriangle) {
-        const char* pFloorCodeString = getFloorCodeString(pTriangle);
-
-        if (pFloorCodeString != nullptr) {
-            if (strcmp(pFloorCodeString, "Water") == 0) {
-                return true;
-            }
-
-            if (strcmp(pFloorCodeString, "Shallow") == 0) {
-                return true;
-            }
-
-            if (strcmp(pFloorCodeString, "PullBack") == 0) {
-                return true;
-            }
-        }
-
-        return false;
+        return getFloorCodeIndex(pTriangle) == static_cast< s32 >(CollisionFloorCode_PullBack);
     }
 
-    bool getFirstPolyOnLineToMap(TVec3f* pPos, Triangle* pTriangle, const TVec3f& rStart, const TVec3f& rDirection) {
+    bool getFirstPolyOnLineToMap(Vec3f* pPos, Triangle* pTriangle, const Vec3f& rStart, const Vec3f& rDirection) {
         return ::getFirstPolyOnLineCategory(pPos, pTriangle, rStart, rDirection, nullptr, nullptr, 0);
     }
 
-    bool getFirstPolyOnLineToMapAndMoveLimit(TVec3f* pPos, Triangle* pTriangle, const TVec3f& rStart, const TVec3f& rDirection) {
+    bool getFirstPolyOnLineToMapAndMoveLimit(Vec3f* pPos, Triangle* pTriangle, const Vec3f& rStart, const Vec3f& rDirection) {
         Triangle mapTriangle;
-        TVec3f mapPos;
+        Vec3f mapPos;
         bool hitMap = ::getFirstPolyOnLineCategory(&mapPos, &mapTriangle, rStart, rDirection, nullptr, nullptr, 0);
         Triangle limitTriangle;
-        TVec3f limitPos;
+        Vec3f limitPos;
         bool hitLimit = ::getFirstPolyOnLineCategory(&limitPos, &limitTriangle, rStart, rDirection, nullptr, nullptr, 3);
 
         if (hitMap && hitLimit) {
@@ -214,31 +196,31 @@ namespace MR {
         return false;
     }
 
-    bool getFirstPolyOnLineToWaterSurface(TVec3f* pPos, Triangle* pTriangle, const TVec3f& rStart, const TVec3f& rDirection) {
+    bool getFirstPolyOnLineToWaterSurface(Vec3f* pPos, Triangle* pTriangle, const Vec3f& rStart, const Vec3f& rDirection) {
         return ::getFirstPolyOnLineCategory(pPos, pTriangle, rStart, rDirection, nullptr, nullptr, 2);
     }
 
-    bool getFirstPolyOnLineToMapExceptSensor(TVec3f* pPos, Triangle* pTriangle, const TVec3f& rStart, const TVec3f& rDirection,
+    bool getFirstPolyOnLineToMapExceptSensor(Vec3f* pPos, Triangle* pTriangle, const Vec3f& rStart, const Vec3f& rDirection,
                                              const HitSensor* pSensor) {
         return ::getFirstPolyOnLineCategoryExceptSensor(pPos, pTriangle, rStart, rDirection, pSensor, 0);
     }
 
-    bool getFirstPolyOnLineToMapExceptActor(TVec3f* pPos, Triangle* pTriangle, const TVec3f& rStart, const TVec3f& rDirection,
+    bool getFirstPolyOnLineToMapExceptActor(Vec3f* pPos, Triangle* pTriangle, const Vec3f& rStart, const Vec3f& rDirection,
                                             const LiveActor* pActor) {
         return ::getFirstPolyOnLineCategoryExceptActor(pPos, pTriangle, rStart, rDirection, pActor, 0);
     }
 
-    bool getFirstPolyOnLineToMap(TVec3f* pPos, Triangle* pTriangle, const TVec3f& rStart, const TVec3f& rDirection,
+    bool getFirstPolyOnLineToMap(Vec3f* pPos, Triangle* pTriangle, const Vec3f& rStart, const Vec3f& rDirection,
                                  const CollisionPartsFilterBase* pPartsFilter, const TriangleFilterBase* pTriangleFilter) {
         return ::getFirstPolyOnLineCategory(pPos, pTriangle, rStart, rDirection, pTriangleFilter, pPartsFilter, 0);
     }
 
-    bool getFirstPolyOnLineToWaterSurface(TVec3f* pPos, Triangle* pTriangle, const TVec3f& rStart, const TVec3f& rDirection,
+    bool getFirstPolyOnLineToWaterSurface(Vec3f* pPos, Triangle* pTriangle, const Vec3f& rStart, const Vec3f& rDirection,
                                           const CollisionPartsFilterBase* pPartsFilter, const TriangleFilterBase* pTriangleFilter) {
         return ::getFirstPolyOnLineCategory(pPos, pTriangle, rStart, rDirection, pTriangleFilter, pPartsFilter, 2);
     }
 
-    bool getFirstPolyNormalOnLineToMap(TVec3f* pNormal, const TVec3f& rStart, const TVec3f& rDirection, TVec3f* pPos, const HitSensor* pSensor) {
+    bool getFirstPolyNormalOnLineToMap(Vec3f* pNormal, const Vec3f& rStart, const Vec3f& rDirection, Vec3f* pPos, const HitSensor* pSensor) {
         Triangle triangle;
         if (!::getFirstPolyOnLineCategoryExceptSensor(pPos, &triangle, rStart, rDirection, pSensor, 0)) {
             return false;
@@ -248,56 +230,47 @@ namespace MR {
         return true;
     }
 
-    u32 getNearPolyOnLineSort(const TVec3f& rOrigin, const TVec3f& rStart, const TVec3f& rDirection, const HitSensor* pSensor) {
-        u32 count = getCollisionDirector()->getCategoryKeeper(0)->checkStrikeLine(rStart, rDirection, 0, nullptr, nullptr);
-        if (count == 0) {
-            return 0;
+    u32 getNearPolyOnLineSort(const Vec3f& rOrigin, const Vec3f& rStart, const Vec3f& rDirection, const HitSensor* pSensor) {
+        CollisionCategorizedKeeper* pKeeper = getCollisionDirector()->getCategoryKeeper(CollisionCategory_Map);
+        const u32 count = pKeeper->checkStrikeLine(rStart, rDirection, 0, nullptr, nullptr);
+        sSortCount = 0;
+        if (count > sSortRoom) {
+            delete[] sSortBuffer;
+            delete[] sSortDistance;
+            sSortRoom = count * 2;
+            sSortBuffer = new (Arenas::permanent(), 0) HitInfo[sSortRoom];
+            sSortDistance = new (Arenas::permanent(), 0) f32[sSortRoom];
         }
 
-        const HitInfo* hits[32];
-        u32 excluded = 0;
+        // Insertion by distance: equal distances keep the order the keeper found them in.
         for (u32 i = 0; i < count; i++) {
-            hits[i] = getCollisionDirector()->getCategoryKeeper(0)->getStrikeInfo(i);
-            if (pSensor && hits[i]->mParentTriangle.getSensor() == pSensor) {
-                hits[i] = nullptr;
-                excluded++;
-            }
-        }
-
-        mSortCount = count - excluded;
-        if (mSortCount >= 32) {
-            mSortCount = 32;
-        }
-
-        for (u32 i = 0; i < mSortCount; i++) {
-            f32 minDistance = 1000000.0f;
-            u32 nearest = 0;
-            for (u32 j = 0; j < count; j++) {
-                if (hits[j]) {
-                    const HitInfo* pHit = getCollisionDirector()->getCategoryKeeper(0)->getStrikeInfo(j);
-                    TVec3f offset(rOrigin);
-                    offset.sub(pHit->mHitPos);
-                    f32 distance = offset.length();
-                    if (minDistance > distance) {
-                        nearest = j;
-                        minDistance = distance;
-                    }
-                }
+            const HitInfo* pHit = pKeeper->getStrikeInfo(i);
+            if (pSensor != nullptr && pHit->mParentTriangle.getSensor() == pSensor) {
+                continue;
             }
 
-            mSortBuffer[i] = *getCollisionDirector()->getCategoryKeeper(0)->getStrikeInfo(nearest);
-            hits[nearest] = nullptr;
+            Vec3f offset(rOrigin);
+            offset.sub(pHit->mHitPos);
+            const f32 distance = offset.length();
+            u32 at = sSortCount;
+            for (; at > 0 && sSortDistance[at - 1] > distance; at--) {
+                sSortBuffer[at] = sSortBuffer[at - 1];
+                sSortDistance[at] = sSortDistance[at - 1];
+            }
+            sSortBuffer[at] = *pHit;
+            sSortDistance[at] = distance;
+            sSortCount++;
         }
 
-        return mSortCount;
+        return sSortCount;
     }
 
-    bool getSortedPoly(TVec3f* pDst, Triangle* pTriangle, u32 sortIndex) {
-        if (mSortCount <= sortIndex) {
+    bool getSortedPoly(Vec3f* pDst, Triangle* pTriangle, u32 sortIndex) {
+        if (sSortCount <= sortIndex) {
             return false;
         }
 
-        const HitInfo& rHit = mSortBuffer[sortIndex];
+        const HitInfo& rHit = sSortBuffer[sortIndex];
         if (pTriangle != nullptr) {
             *pTriangle = rHit.mParentTriangle;
         }
@@ -309,67 +282,59 @@ namespace MR {
         return true;
     }
 
-    const Triangle* getSortedPoly(u32 sortIndex) {
-        if (mSortCount <= sortIndex) {
-            return nullptr;
-        }
-
-        return &mSortBuffer[sortIndex].mParentTriangle;
+    bool isExistMapCollision(const Vec3f& rStart, const Vec3f& rDirection) {
+        return getCollisionDirector()->getCategoryKeeper(CollisionCategory_Map)->checkStrikeLine(rStart, rDirection, 1, nullptr, nullptr) != 0;
     }
 
-    bool isExistMapCollision(const TVec3f& rParam1, const TVec3f& rParam2) {
-        return getCollisionDirector()->getCategoryKeeper(0)->checkStrikeLine(rParam1, rParam2, 1, nullptr, nullptr) != 0;
+    bool isExistMoveLimitCollision(const Vec3f& rStart, const Vec3f& rDirection) {
+        return getCollisionDirector()->getCategoryKeeper(CollisionCategory_MoveLimit)->checkStrikeLine(rStart, rDirection, 1, nullptr, nullptr) != 0;
     }
 
-    bool isExistMoveLimitCollision(const TVec3f& rParam1, const TVec3f& rParam2) {
-        return getCollisionDirector()->getCategoryKeeper(3)->checkStrikeLine(rParam1, rParam2, 1, nullptr, nullptr) != 0;
-    }
-
-    bool isExistMapCollisionExceptActor(const TVec3f& rStart, const TVec3f& rDirection, const LiveActor* pActor) {
+    bool isExistMapCollisionExceptActor(const Vec3f& rStart, const Vec3f& rDirection, const LiveActor* pActor) {
         CollisionPartsFilterActor filter(pActor);
-        return getCollisionDirector()->getCategoryKeeper(0)->checkStrikeLine(rStart, rDirection, 1, &filter, nullptr) != 0;
+        return getCollisionDirector()->getCategoryKeeper(CollisionCategory_Map)->checkStrikeLine(rStart, rDirection, 1, &filter, nullptr) != 0;
     }
 
-    bool checkStrikePointToMap(const TVec3f& rParam1, HitInfo* pParam2) {
-        return getCollisionDirector()->getCategoryKeeper(0)->checkStrikePoint(rParam1, pParam2) != 0;
+    bool checkStrikePointToMap(const Vec3f& rPosition, HitInfo* pHitInfo) {
+        return getCollisionDirector()->getCategoryKeeper(CollisionCategory_Map)->checkStrikePoint(rPosition, pHitInfo) != 0;
     }
 
-    bool checkStrikeBallToMap(const TVec3f& rParam1, f32 param2) {
-        return getCollisionDirector()->getCategoryKeeper(0)->checkStrikeBall(rParam1, param2, false, nullptr, nullptr) != 0;
+    bool checkStrikeBallToMap(const Vec3f& rPosition, f32 ballRadius) {
+        return getCollisionDirector()->getCategoryKeeper(CollisionCategory_Map)->checkStrikeBall(rPosition, ballRadius, false, nullptr, nullptr) != 0;
     }
 
-    bool calcMapGround(const TVec3f& rPos, TVec3f* pGround, f32 length) {
-        TVec3f direction(0.0f, -length, 0.0f);
+    bool calcMapGround(const Vec3f& rPos, Vec3f* pGround, f32 length) {
+        Vec3f direction(0.0f, -length, 0.0f);
         return ::getFirstPolyOnLineCategory(pGround, nullptr, rPos, direction, nullptr, nullptr, 0);
     }
 
-    bool calcMapGroundUpper(TVec3f* pGround, const LiveActor* pActor) {
+    bool calcMapGroundUpper(Vec3f* pGround, const LiveActor* pActor) {
         CollisionParts* pParts = getCollisionParts(pActor);
-        TVec3f gravity;
+        Vec3f gravity;
         calcGravityVector(pActor, pActor->mPosition, &gravity, nullptr, 0);
         f32 radius = 0.0f;
         calcModelBoundingRadius(&radius, pActor);
         f32 upperDistance = 2.5f * radius;
         f32 length = 4.0f * radius;
-        TVec3f start(pActor->mPosition - gravity * upperDistance);
-        TVec3f direction(gravity * length);
+        Vec3f start(pActor->mPosition - gravity * upperDistance);
+        Vec3f direction(gravity * length);
         HitInfo hit;
         pParts->checkStrikeLine(&hit, 1, start, direction, nullptr);
         CollisionPartsFilterSensor filter(pParts->mHitSensor);
         return ::getFirstPolyOnLineCategory(pGround, nullptr, hit.mHitPos, direction, nullptr, &filter, 0);
     }
 
-    bool isFallNextMove(const LiveActor* pActor, f32 param2, f32 param3, f32 param4, const TriangleFilterBase* pParam5) {
-        return isFallNextMove(pActor->mPosition, pActor->mVelocity, pActor->mGravity, param2, param3, param4, pParam5);
+    bool isFallNextMove(const LiveActor* pActor, f32 forwardDistance, f32 upperDistance, f32 lowerDistance, const TriangleFilterBase* pTriangleFilter) {
+        return isFallNextMove(pActor->mPosition, pActor->mVelocity, pActor->mGravity, forwardDistance, upperDistance, lowerDistance, pTriangleFilter);
     }
 
-    bool isFallNextMove(const TVec3f& rPos, const TVec3f& rVelocity, const TVec3f& rGravity, f32 forwardDistance, f32 upperDistance,
+    bool isFallNextMove(const Vec3f& rPos, const Vec3f& rVelocity, const Vec3f& rGravity, f32 forwardDistance, f32 upperDistance,
                         f32 lowerDistance, const TriangleFilterBase* pTriangleFilter) {
         if (isNearZero(rGravity)) {
             return false;
         }
 
-        TVec3f forward;
+        Vec3f forward;
         forward.scaleAdd(-rGravity.dot(rVelocity), rGravity, rVelocity);
         if (isNearZero(forward)) {
             return false;
@@ -377,9 +342,9 @@ namespace MR {
 
         normalize(&forward);
         forward *= forwardDistance;
-        TVec3f start;
+        Vec3f start;
         start = forward + rPos - rGravity * upperDistance;
-        bool hit = getCollisionDirector()->getCategoryKeeper(0)->checkStrikeLine(start, rGravity * (upperDistance + lowerDistance), 1, nullptr,
+        bool hit = getCollisionDirector()->getCategoryKeeper(CollisionCategory_Map)->checkStrikeLine(start, rGravity * (upperDistance + lowerDistance), 1, nullptr,
                                                                                  pTriangleFilter) != 0;
         return !hit;
     }
@@ -389,48 +354,48 @@ namespace MR {
         return isFallNextMove(pActor, forwardDistance, upperDistance, lowerDistance, &filter);
     }
 
-    bool isFallOrDangerNextMove(const TVec3f& rPos, const TVec3f& rVelocity, const TVec3f& rGravity, f32 forwardDistance, f32 upperDistance,
+    bool isFallOrDangerNextMove(const Vec3f& rPos, const Vec3f& rVelocity, const Vec3f& rGravity, f32 forwardDistance, f32 upperDistance,
                                 f32 lowerDistance) {
         TriangleFilterDangerCode filter;
         return isFallNextMove(rPos, rVelocity, rGravity, forwardDistance, upperDistance, lowerDistance, &filter);
     }
 
-    void calcVelocityMovingPoint(const Triangle* pTriangle, const TVec3f& rPoint, TVec3f* pVelocity) {
+    void calcVelocityMovingPoint(const Triangle* pTriangle, const Vec3f& rPoint, Vec3f* pVelocity) {
         if (isSameMtx(pTriangle->getBaseMtx()->toMtxPtr(), pTriangle->getPrevBaseMtx()->toMtxPtr())) {
             pVelocity->zero();
             return;
         }
 
-        TVec3f localPoint;
+        Vec3f localPoint;
         NebulaMtxMultVec(pTriangle->getBaseInvMtx()->toMtxPtr(), rPoint, &localPoint);
-        TVec3f previousPoint;
+        Vec3f previousPoint;
         NebulaMtxMultVec(pTriangle->getPrevBaseMtx()->toMtxPtr(), &localPoint, &previousPoint);
         *pVelocity = rPoint - previousPoint;
     }
 
-    u32 createAreaPolygonList(Triangle* pTriangle, u32 param2, const TVec3f& rParam3, const TVec3f& rParam4) {
-        return getCollisionDirector()->getCategoryKeeper(0)->createAreaPolygonList(pTriangle, param2, rParam3, rParam4);
+    u32 createAreaPolygonList(Triangle* pTriangles, u32 maxTriangles, const Vec3f& rStart, const Vec3f& rEnd) {
+        return getCollisionDirector()->getCategoryKeeper(CollisionCategory_Map)->createAreaPolygonList(pTriangles, maxTriangles, rStart, rEnd);
     }
 
-    u32 createAreaPolygonListArray(Triangle* pTriangle, u32 param2, TVec3f* pParam3, u32 param4) {
-        return getCollisionDirector()->getCategoryKeeper(0)->createAreaPolygonListArray(pTriangle, param2, pParam3, param4);
+    u32 createAreaPolygonListArray(Triangle* pTriangles, u32 maxTriangles, Vec3f* pVertices, u32 vertexCount) {
+        return getCollisionDirector()->getCategoryKeeper(CollisionCategory_Map)->createAreaPolygonListArray(pTriangles, maxTriangles, pVertices, vertexCount);
     }
 
     bool trySetMoveLimitCollision(LiveActor* pActor) {
-        TVec3f start(pActor->mPosition);
-        TVec3f direction(pActor->mGravity);
+        Vec3f start(pActor->mPosition);
+        Vec3f direction(pActor->mGravity);
         start -= direction * 150.0f;
         direction *= 1000.0f;
-        if (getCollisionDirector()->getCategoryKeeper(3)->checkStrikeLine(start, direction, 0, nullptr, nullptr)) {
-            pActor->mBinder->setExCollisionParts(getCollisionDirector()->getCategoryKeeper(3)->getStrikeInfo(0)->mParentTriangle.mParts);
+        if (getCollisionDirector()->getCategoryKeeper(CollisionCategory_MoveLimit)->checkStrikeLine(start, direction, 0, nullptr, nullptr)) {
+            pActor->mBinder->setExCollisionParts(getCollisionDirector()->getCategoryKeeper(CollisionCategory_MoveLimit)->getStrikeInfo(0)->mParentTriangle.mParts);
             return true;
         }
 
-        if (getCollisionDirector()->getCategoryKeeper(0)->checkStrikeLine(start, direction, 0, nullptr, nullptr)) {
-            const HitInfo* pHit = getCollisionDirector()->getCategoryKeeper(0)->getStrikeInfo(0);
+        if (getCollisionDirector()->getCategoryKeeper(CollisionCategory_Map)->checkStrikeLine(start, direction, 0, nullptr, nullptr)) {
+            const HitInfo* pHit = getCollisionDirector()->getCategoryKeeper(CollisionCategory_Map)->getStrikeInfo(0);
             CollisionParts* pSameParts = nullptr;
             CollisionParts* pParts = pHit->mParentTriangle.mParts;
-            getCollisionDirector()->getCategoryKeeper(3)->searchSameHostParts(&pSameParts, pParts);
+            getCollisionDirector()->getCategoryKeeper(CollisionCategory_MoveLimit)->searchSameHostParts(&pSameParts, pParts);
             pActor->mBinder->setExCollisionParts(pSameParts);
             return true;
         }
@@ -602,23 +567,11 @@ namespace MR {
         return getCollisionDirector()->mCode->getCameraID(*pTriangle);
     }
 
-    const char* getFloorCodeString(const Triangle* pTriangle) {
-        return getCollisionDirector()->mCode->getFloorCodeString(*pTriangle);
-    }
-
-    const char* getWallCodeString(const Triangle* pTriangle) {
-        return getCollisionDirector()->mCode->getWallCodeString(*pTriangle);
-    }
-
-    const char* getSoundCodeString(const Triangle* pTriangle) {
-        return getCollisionDirector()->mCode->getSoundCodeString(*pTriangle);
-    }
-
-    s32 getFloorCodeIndex(const JMapInfoIter& rIter) {
+    s32 getFloorCodeIndex(const TableIter& rIter) {
         return getCollisionDirector()->mCode->getFloorCode(rIter);
     }
 
-    s32 getSoundCodeIndex(const JMapInfoIter& rIter) {
+    s32 getSoundCodeIndex(const TableIter& rIter) {
         return getCollisionDirector()->mCode->getSoundCode(rIter);
     }
 
@@ -638,7 +591,7 @@ namespace MR {
         return getCollisionDirector()->mCode->getCameraCode(pTriangle->getAttributes());
     }
 
-    bool isGroundCodeWaterIter(const JMapInfoIter& rIter) {
+    bool isGroundCodeWaterIter(const TableIter& rIter) {
         s32 code = getFloorCodeIndex(rIter);
 
         return code == CollisionFloorCode_WaterBottomH || code == CollisionFloorCode_WaterBottomM || code == CollisionFloorCode_WaterBottomL ||
@@ -727,39 +680,17 @@ namespace MR {
                isGroundCodeNoStampSand(pTriangle);
     }
 
-    const Triangle* getCameraPolyFast(const TVec3f& rStart, const TVec3f& rDirection, const HitSensor* pSensor) {
+    bool getFirstPolyOnLineBFast(const Vec3f& rStart, const Vec3f& rDirection, Vec3f* pPos, Triangle* pTriangle) {
         Triangle triangle;
         f32 remaining = rDirection.length();
-        TVec3f direction(rDirection);
+        if (!(remaining < 1.0e9f)) {
+            return false;
+        }
+
+        Vec3f direction(rDirection);
         direction.normalize();
-        TVec3f start(rStart);
-        TVec3f step(direction * 5000.0f);
-        do {
-            f32 length = 5000.0f;
-            if (remaining < length) {
-                length = remaining;
-                step = direction * remaining;
-            }
-
-            s32 count = getNearPolyOnLineSort(start, start, step, pSensor);
-            while (count != 0) {
-                return getSortedPoly(0);
-            }
-
-            remaining -= length;
-            start += step;
-        } while (!isNearZero(remaining));
-
-        return nullptr;
-    }
-
-    bool getFirstPolyOnLineBFast(const TVec3f& rStart, const TVec3f& rDirection, TVec3f* pPos, Triangle* pTriangle) {
-        Triangle triangle;
-        f32 remaining = rDirection.length();
-        TVec3f direction(rDirection);
-        direction.normalize();
-        TVec3f start(rStart);
-        TVec3f step(direction * 5000.0f);
+        Vec3f start(rStart);
+        Vec3f step(direction * 5000.0f);
         do {
             f32 length = 5000.0f;
             if (remaining < length) {
@@ -770,14 +701,14 @@ namespace MR {
             u32 count = getNearPolyOnLineSort(start, start, step, nullptr);
             for (u32 i = 0; i < count; i++) {
                 Triangle hitTriangle;
-                TVec3f hitPos;
+                Vec3f hitPos;
                 if (getSortedPoly(&hitPos, &hitTriangle, i)) {
                     if (isWaterPolygon(&hitTriangle)) {
                         continue;
                     }
 
-                    TVec3f backPos(hitPos - *getNormal(&hitTriangle) * 5.0f);
-                    TVec3f normal(*getNormal(&hitTriangle) * 35.0f);
+                    Vec3f backPos(hitPos - *getNormal(&hitTriangle) * 5.0f);
+                    Vec3f normal(*getNormal(&hitTriangle) * 35.0f);
                     if (isExistMapCollision(backPos, normal)) {
                         continue;
                     }
@@ -803,38 +734,38 @@ namespace MR {
 };  // namespace MR
 
 namespace Collision {
-    s32 checkStrikePointToMap(const TVec3f& rPoint, HitInfo* pHit) {
-        return MR::getCollisionDirector()->getCategoryKeeper(0)->checkStrikePoint(rPoint, pHit);
+    s32 checkStrikePointToMap(const Vec3f& rPoint, HitInfo* pHit) {
+        return MR::getCollisionDirector()->getCategoryKeeper(CollisionCategory_Map)->checkStrikePoint(rPoint, pHit);
     }
 
-    s32 checkStrikeBallToMap(const TVec3f& rCenter, f32 radius, const CollisionPartsFilterBase* pPartsFilter,
+    s32 checkStrikeBallToMap(const Vec3f& rCenter, f32 radius, const CollisionPartsFilterBase* pPartsFilter,
                              const TriangleFilterBase* pTriangleFilter) {
-        return MR::getCollisionDirector()->getCategoryKeeper(0)->checkStrikeBall(rCenter, radius, false, pPartsFilter, pTriangleFilter);
+        return MR::getCollisionDirector()->getCategoryKeeper(CollisionCategory_Map)->checkStrikeBall(rCenter, radius, false, pPartsFilter, pTriangleFilter);
     }
 
-    s32 checkStrikeBallToMapWithMovingReaction(const TVec3f& rCenter, f32 radius, const CollisionPartsFilterBase* pPartsFilter,
+    s32 checkStrikeBallToMapWithMovingReaction(const Vec3f& rCenter, f32 radius, const CollisionPartsFilterBase* pPartsFilter,
                                                const TriangleFilterBase* pTriangleFilter) {
-        return MR::getCollisionDirector()->getCategoryKeeper(0)->checkStrikeBall(rCenter, radius, true, pPartsFilter, pTriangleFilter);
+        return MR::getCollisionDirector()->getCategoryKeeper(CollisionCategory_Map)->checkStrikeBall(rCenter, radius, true, pPartsFilter, pTriangleFilter);
     }
 
-    s32 checkStrikeBallToMapWithThickness(const TVec3f& rCenter, f32 radius, f32 thickness, const CollisionPartsFilterBase* pPartsFilter,
+    s32 checkStrikeBallToMapWithThickness(const Vec3f& rCenter, f32 radius, f32 thickness, const CollisionPartsFilterBase* pPartsFilter,
                                           const TriangleFilterBase* pTriangleFilter) {
-        return MR::getCollisionDirector()->getCategoryKeeper(0)->checkStrikeBallWithThickness(rCenter, radius, thickness, pPartsFilter,
+        return MR::getCollisionDirector()->getCategoryKeeper(CollisionCategory_Map)->checkStrikeBallWithThickness(rCenter, radius, thickness, pPartsFilter,
                                                                                               pTriangleFilter);
     }
 
-    s32 checkStrikeLineToMap(const TVec3f& rStart, const TVec3f& rDirection, s32 count, const CollisionPartsFilterBase* pPartsFilter,
+    s32 checkStrikeLineToMap(const Vec3f& rStart, const Vec3f& rDirection, s32 count, const CollisionPartsFilterBase* pPartsFilter,
                              const TriangleFilterBase* pTriangleFilter) {
-        return MR::getCollisionDirector()->getCategoryKeeper(0)->checkStrikeLine(rStart, rDirection, count, pPartsFilter, pTriangleFilter);
+        return MR::getCollisionDirector()->getCategoryKeeper(CollisionCategory_Map)->checkStrikeLine(rStart, rDirection, count, pPartsFilter, pTriangleFilter);
     }
 
-    s32 checkStrikeLineToSunshade(const TVec3f& rStart, const TVec3f& rDirection, s32 count, const CollisionPartsFilterBase* pPartsFilter,
+    s32 checkStrikeLineToSunshade(const Vec3f& rStart, const Vec3f& rDirection, s32 count, const CollisionPartsFilterBase* pPartsFilter,
                                   const TriangleFilterBase* pTriangleFilter) {
-        return MR::getCollisionDirector()->getCategoryKeeper(1)->checkStrikeLine(rStart, rDirection, count, pPartsFilter, pTriangleFilter);
+        return MR::getCollisionDirector()->getCategoryKeeper(CollisionCategory_Sunshade)->checkStrikeLine(rStart, rDirection, count, pPartsFilter, pTriangleFilter);
     }
 
     const HitInfo* getStrikeInfoMap(u32 index) {
-        return MR::getCollisionDirector()->getCategoryKeeper(0)->getStrikeInfo(index);
+        return MR::getCollisionDirector()->getCategoryKeeper(CollisionCategory_Map)->getStrikeInfo(index);
     }
 
     u32 getStrikeInfoNumMap() {

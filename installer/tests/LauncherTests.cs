@@ -13,7 +13,7 @@ using System.Windows.Forms;
 namespace Nebula.Launcher
 {
     // Run by run-launcher-tests.ps1 from <scratch>\root\versions\test\ with
-    // NEBULA_DATA_ROOT pointing into the scratch folder. No window is shown:
+    // %LOCALAPPDATA% in the scratch folder. No window is shown:
     // the settings form is rendered with DrawToBitmap and the game is a stub.
     internal static class LauncherTests
     {
@@ -228,10 +228,10 @@ namespace Nebula.Launcher
                       "DLSS is offered for the RTX GPU and not for the integrated one");
                 Check(GraphicsSettings.RayTracingAdapter(Rtx.Id) && !GraphicsSettings.RayTracingAdapter(Integrated.Id),
                       "before any run, ray tracing is offered for an RTX GPU only");
-                File.WriteAllText(adapterIni, "description=" + Integrated.Name + "\nid=" + Integrated.Id + "\ngpu_preference=high\nray_tracing=1\n");
+                File.WriteAllText(adapterIni, "description=" + Integrated.Name + "\nid=" + Integrated.Id + "\nray_tracing=1\n");
                 Check(GraphicsSettings.RayTracingAdapter(Integrated.Id) && GraphicsSettings.RayTracingAdapter(Rtx.Id),
                       "a GPU the game has run on is offered ray tracing as the game recorded it");
-                File.WriteAllText(adapterIni, "description=" + Rtx.Name + "\nid=" + Rtx.Id + "\ngpu_preference=high\nray_tracing=0\n");
+                File.WriteAllText(adapterIni, "description=" + Rtx.Name + "\nid=" + Rtx.Id + "\nray_tracing=0\n");
                 Check(!GraphicsSettings.RayTracingAdapter(Rtx.Id), "the game's record wins over the RTX rule");
                 File.Delete(adapterIni);
 
@@ -388,22 +388,24 @@ namespace Nebula.Launcher
                 // leaves the running game's upscaler, Frame Generation and frame rate in config.ini; the player's own
                 // choice of upscaler is saved.
                 File.WriteAllText(GraphicsSettings.ConfigPath, "gpu=" + Rtx.Id + "\nupscaler=3\nframe_generation=1\nmax_fps=120\n");
+                bool owned = false;
                 using (var held = new ManualResetEvent(false))
                 using (var release = new ManualResetEvent(false))
                 {
                     var holder = new Thread(() =>
                     {
-                        using (var lease = new Mutex(true, @"Local\Nebula.RMGE01.NativeRuntime"))
+                        using (var lease = new Mutex(true, LaunchSession.LeaseName("RMGE01"), out owned))
                         {
                             held.Set();
                             release.WaitOne();
-                            lease.ReleaseMutex();
+                            if (owned) lease.ReleaseMutex();
                         }
                     });
                     holder.Start();
                     held.WaitOne();
                     try
                     {
+                        Check(owned, "the test holds its lease");
                         Check(LaunchSession.RuntimeLeaseHeld(), "the test's lease reads as a running game");
                         using (var form = new SettingsForm(session))
                         {
@@ -412,8 +414,8 @@ namespace Nebula.Launcher
                             var upscaler = (ComboBox)Private(form, "upscaler");
                             var commit = form.GetType().GetMethod("Commit", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
                             gpuBox.SelectedIndex = 2;
-                            Check((string)upscaler.SelectedItem == GraphicsSettings.UpscalerName(1),
-                                  "the integrated GPU chosen while the game runs: the list shows its fallback, FSR 1");
+                            Check((string)upscaler.SelectedItem == GraphicsSettings.UpscalerName(2),
+                                  "the integrated GPU chosen while the game runs: the list shows its fallback, FSR 3");
                             commit.Invoke(form, null);
                             var saved = GraphicsSettings.Load();
                             Check(saved.Gpu == Integrated.Id && saved.Upscaler == 3 && saved.FrameGeneration == 1 && saved.FrameRate == 120,
@@ -605,6 +607,22 @@ namespace Nebula.Launcher
 
         // A saves tree as the runtime keeps it, each folder and file with a metadata stream, plus files the game
         // never reads.
+        static byte[] NativeSave(int seed)
+        {
+            byte[] bytes = new byte[16 + 64];
+            Array.Copy(Noise(64, seed), 0, bytes, 16, 64);
+            Array.Copy(BitConverter.GetBytes(0x5653424Eu), 0, bytes, 0, 4);
+            Array.Copy(BitConverter.GetBytes(4u), 0, bytes, 4, 4);
+            uint crc = 0xFFFFFFFFu;
+            for (int i = 16; i < bytes.Length; i++)
+            {
+                crc ^= bytes[i];
+                for (int bit = 0; bit < 8; bit++) crc = (crc & 1) != 0 ? 0xEDB88320u ^ (crc >> 1) : crc >> 1;
+            }
+            Array.Copy(BitConverter.GetBytes(crc ^ 0xFFFFFFFFu), 0, bytes, 8, 4);
+            return bytes;
+        }
+
         static void BuildSaves(string root, int seed)
         {
             int stream = 0;
@@ -618,6 +636,7 @@ namespace Nebula.Launcher
             {
                 { SaveArchive.GameDataPath, GameData(seed) }, { SaveArchive.BannerPath, Banner(seed) },
                 { SaveArchive.GameDataPathOf("524d4750"), GameData(seed + 7) },
+                { SaveArchive.NativeSavePathOf("524d4745"), NativeSave(seed + 8) },
                 { SaveArchive.MiiDatabasePath, MiiDatabase(seed) }, { "shared2/sys/SYSCONF", Noise(0x4000, seed + 1) },
                 { "title/00000001/00000002/data/setting.txt", Noise(0x100, seed + 2) },
                 { "title/00000001/00000002/data/play_rec.dat", Noise(0x80, seed + 3) },
@@ -688,7 +707,7 @@ namespace Nebula.Launcher
             long namesAt = HeaderSize + nodes.Count;
             var pak = new byte[namesAt + names.Count];
             System.Text.Encoding.ASCII.GetBytes("NBSTORE").CopyTo(pak, 0);
-            BitConverter.GetBytes(2u).CopyTo(pak, 8);
+            BitConverter.GetBytes(BuildInfo.StoreVersion).CopyTo(pak, 8);
             BitConverter.GetBytes((uint)directories.Length + 1).CopyTo(pak, 12);
             BitConverter.GetBytes((long)HeaderSize).CopyTo(pak, 16);
             BitConverter.GetBytes(namesAt).CopyTo(pak, 32);
@@ -733,6 +752,12 @@ namespace Nebula.Launcher
             string pak = Path.Combine(Path.GetTempPath(), "nebula-launcher-test-" + Guid.NewGuid().ToString("N") + ".pak");
             File.WriteAllBytes(pak, TestPak("RMGP01", "EuEnglish", "EuGerman", "EuFrench", "LayoutData", "EuSpanish", "EuItalian"));
             Check(GameDisc.GameId(pak) == "RMGP01", "game.pak's game id reads");
+            Check(GameDisc.IsCurrentVersion(pak), "a store of this build's version is current");
+            byte[] stale = TestPak("RMGP01", "EuEnglish");
+            BitConverter.GetBytes(BuildInfo.StoreVersion - 1).CopyTo(stale, 8);
+            File.WriteAllBytes(pak, stale);
+            Check(!GameDisc.IsCurrentVersion(pak), "a store of another version needs Setup to read the game again");
+            File.WriteAllBytes(pak, TestPak("RMGP01", "EuEnglish", "EuGerman", "EuFrench", "LayoutData", "EuSpanish", "EuItalian"));
             var europe = GeneralSettings.Offered(pak);
             Check(string.Join(",", europe) == "0,1,2,3,4,5", "Europe's disc offers Automatic and its five languages");
             File.WriteAllBytes(pak, TestPak("RMGJ01", "JpJapanese", "LayoutData"));
@@ -804,13 +829,13 @@ namespace Nebula.Launcher
 
             BuildSaves(saves, 1);
             List<SaveItem> first = SaveArchive.ReadTree(saves);
-            Check(first.Count == 23 && first.All(i => i.Streams.Count == 1),
-                  "save fixture: 16 folders (every release's save folders) and 7 files (North America's and Europe's saves), each with a metadata stream");
+            Check(first.Count == 27 && first.All(i => i.Streams.Count == 1),
+                  "save fixture: 19 folders (every release's save folders) and 8 files (North America's and Europe's saves, a native one), each with a metadata stream");
             string zip = SaveArchive.Export(work);
             Check(Regex.IsMatch(Path.GetFileName(zip), @"^Nebula-Saves-\d{8}-\d{6}\.zip$"), "export writes Nebula-Saves-<yyyyMMdd-HHmmss>.zip: " + Path.GetFileName(zip));
             using (ZipArchive archive = ZipFile.OpenRead(zip))
                 Check(archive.Entries.All(e => !e.FullName.Contains("tmp/") && !e.FullName.EndsWith("desktop.ini", StringComparison.Ordinal)) &&
-                      archive.Entries.Count(e => e.FullName.StartsWith("streams/", StringComparison.Ordinal)) == 23,
+                      archive.Entries.Count(e => e.FullName.StartsWith("streams/", StringComparison.Ordinal)) == 27,
                       "export holds one stream entry per folder and file, and leaves out /tmp and files the game does not read");
             Check(SaveArchive.Same(first, SaveArchive.ReadArchive(zip)), "the archive reads back as the exported tree");
 
@@ -889,10 +914,10 @@ namespace Nebula.Launcher
             ZipFile.CreateFromDirectory(folder, plain, CompressionLevel.Optimal, true);
             SaveArchive.Import(plain, null);
             List<SaveItem> imported = SaveArchive.ReadWholeTree(saves);
-            Check(imported.Count(i => !i.IsFolder) == 7 && imported.All(i => i.Streams.Count == 0) &&
+            Check(imported.Count(i => !i.IsFolder) == 8 && imported.All(i => i.Streams.Count == 0) &&
                   imported.First(i => i.Path == SaveArchive.GameDataPath).Data.SequenceEqual(GameData(2)) &&
                   imported.First(i => i.Path == SaveArchive.GameDataPathOf("524d4750")).Data.SequenceEqual(GameData(2 + 7)),
-                  "a plain zip of a saves folder imports the seven files (both releases' saves) without streams");
+                  "a plain zip of a saves folder imports the eight files (both releases' saves, the native one) without streams");
 
             string invalidBanner = Path.Combine(work, "invalid-banner");
             Directory.CreateDirectory(invalidBanner);
@@ -940,8 +965,11 @@ namespace Nebula.Launcher
         {
             try
             {
-                string dataRoot = Environment.GetEnvironmentVariable("NEBULA_DATA_ROOT");
-                Check(!string.IsNullOrEmpty(dataRoot) && NebulaPaths.DataRoot == dataRoot, "NEBULA_DATA_ROOT replaces the user data root");
+                // The test's own lease names: a game open in this session holds the real ones.
+                LaunchSession.LeaseNamespace = @"Local\NebulaTest." + Guid.NewGuid().ToString("N") + ".";
+                string localAppData = Environment.GetEnvironmentVariable("LOCALAPPDATA");
+                Check(!string.IsNullOrEmpty(localAppData) && NebulaPaths.DataRoot == Path.Combine(localAppData, "Nebula") &&
+                      NebulaPaths.LocalAppDataRedirected, "a redirected %LOCALAPPDATA% holds the data root");
                 string outDir = args[0];
                 WindowSizeCases();
                 PadMenuCases();

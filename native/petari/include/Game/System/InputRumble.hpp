@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Game/Util/Array.hpp"
 
 class PlayerInput;
 struct RumblePattern;
@@ -8,14 +9,14 @@ class RumbleChannel {
 public:
     void clear();
     void update();
-    void setPattern(const void*, const RumblePattern&, u32, bool);
+    void setPattern(const void* pOwner, const RumblePattern&, u32 serial, bool isLoop);
 
-    const RumblePattern* _0;
-    bool _4;
-    u32 _8;
-    s16 _C;
-    bool _E;
-    const void* _10;
+    const RumblePattern* mPattern;
+    bool mIsLoop;
+    u32 mSerial;
+    s32 mStep;
+    u8 mStrength;
+    const void* mOwner;
 };
 
 class InputRumble {
@@ -30,18 +31,16 @@ public:
     void update();
     void updateRumble();
     InputRumble* getRumbleInstance() const;
-    bool vibratePatternIfNotExist(const void*, const char*);
-    bool setRumblePatternIfNotExist(const void*, const RumblePattern&, bool);
-    bool findRubmlePattern(const void*, s32*, s32*, s32*, const RumblePattern&);
+    bool vibratePatternIfNotExist(const void* pOwner, const char* pPatternName);
+    bool setRumblePatternIfNotExist(const void* pOwner, const RumblePattern&, bool isLoop);
+    bool findRumblePattern(const void* pOwner, s32* pExisting, s32* pEmpty, const RumblePattern&);
 
     PlayerInput* mPad;
-    bool _8;
-    u32 _C;
-    RumbleChannel mChannel[8];
-    s32 _B0;
-    s32 _B4;
-    bool _B8;
-    s32 _BC;
+    u8 mStrength;
+    u32 mSerial;
+    // One per pattern playing at once: a channel whose pattern ended is used again, and more are added past these.
+    MR::InlineVector< RumbleChannel, 8 > mChannels;
+    s32 mStopTimer;
 
 private:
     static InputRumble** sInstanceForCallback;

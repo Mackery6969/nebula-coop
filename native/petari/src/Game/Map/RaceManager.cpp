@@ -1,4 +1,5 @@
 #include "Game/Util/SortUtil.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Map/RaceManager.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Map/RaceRail.hpp"
@@ -18,22 +19,21 @@
 #include "Game/Util/StarPointerUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
 #include <algorithm>
+#include "Game/Util/Tunable.hpp"
+
+// The step counts of this file's functions, as tunables: "<file>.<function>.<k>".
+NEBULA_TUNABLE_NAMED(s32, cStep_exeIntro_1, "exeIntro.1", 110);
 
 
 namespace {
-    // static const _ sTimeOutSecond = _;
-    static const s32 sBgmStartStep = 166;
+    NEBULA_TUNABLE(s32, sBgmStartStep, 166);
 };  // namespace
 
 namespace {
     struct RaceStructData {
-        s32 getMaxTime() const {
-            return mMaxTime;
-        }
-
         const char* mName;
         s32 mEventBgmId;
-        s32 mMaxTime;
+        s32 mMaxTime;  // seconds; 0 is no limit
         const char* mMessageId;
         const char* mGalaxyName;
         s32 mScenarioNo;
@@ -41,13 +41,18 @@ namespace {
     };
 
     static const RaceStructData sRaceStruct[] = {
-        {"\203\171\203\223\203\115\203\223\203\214\201\133\203\130[\203\111\201\133\203\126\203\203\203\223\203\212\203\223\203\117]" /* ペンギンレース[オーシャンリング] */, MR::EventBgmID_PenguinRace, 120, "RaceName_Penguin", "OceanRingGalaxy", 2, false},
-        {"\203\145\203\214\203\124\203\214\201\133\203\130[\203\164\203\100\203\223\203\147\203\200]" /* テレサレース[ファントム] */, MR::EventBgmID_TeresaRace, 120, "RaceName_TeresaPhantom", "PhantomGalaxy", 2, true},
-        {"\203\145\203\214\203\124\203\214\201\133\203\130[\203\146\203\130\203\166\203\215\203\200\203\151\201\133\203\150]" /* テレサレース[デスプロムナード] */, MR::EventBgmID_TeresaRace, 120, "RaceName_TeresaDeathPromenade", "TeresaMario2DGalaxy", 1, false},
-        {"\203\124\201\133\203\164\203\102\203\223[\203\147\203\211\203\103\203\101\203\213]" /* サーフィン[トライアル] */, MR::EventBgmID_Surfing, 0, "RaceName_SurfingTrial", "SurfingLv1Galaxy", 1, false},
-        {"\203\124\201\133\203\164\203\102\203\223[\203\140\203\203\203\214\203\223\203\127]" /* サーフィン[チャレンジ] */, MR::EventBgmID_Surfing, 180, "RaceName_SurfingChallenge", "SurfingLv2Galaxy", 1, false}};
+        {"ペンギンレース[オーシャンリング]", MR::EventBgmID_PenguinRace, 120, "RaceName_Penguin", "OceanRingGalaxy", 2, false},
+        {"テレサレース[ファントム]", MR::EventBgmID_TeresaRace, 120, "RaceName_TeresaPhantom", "PhantomGalaxy", 2, true},
+        {"テレサレース[デスプロムナード]", MR::EventBgmID_TeresaRace, 120, "RaceName_TeresaDeathPromenade", "TeresaMario2DGalaxy", 1, false},
+        {"サーフィン[トライアル]", MR::EventBgmID_Surfing, 0, "RaceName_SurfingTrial", "SurfingLv1Galaxy", 1, false},
+        {"サーフィン[チャレンジ]", MR::EventBgmID_Surfing, 180, "RaceName_SurfingChallenge", "SurfingLv2Galaxy", 1, false}};
 
-    const RaceStructData& getRaceStruceData(s32 id) {
+    const RaceStructData& getRaceStructData(s32 id) {
+        // A race number from a rail's Arg0 outside the table takes the first race.
+        if (id < 0 || id >= static_cast< s32 >(ARRAY_SIZE(::sRaceStruct))) {
+            return ::sRaceStruct[0];
+        }
+
         return ::sRaceStruct[id];
     }
 
@@ -59,7 +64,7 @@ namespace {
 RaceManagerLayout::RaceManagerLayout(const char* pName) : LayoutActor(pName, true) {
 }
 
-void RaceManagerLayout::init(const JMapInfoIter& rIter) {
+void RaceManagerLayout::init(const TableIter& /*rIter*/) {
     MR::connectToSceneLayout(this);
     initLayoutManager("Race", 1);
     MR::createAndAddPaneCtrl(this, "Go", 1);
@@ -168,14 +173,14 @@ namespace NrvRaceManager {
 };  // namespace NrvRaceManager
 
 RaceManager::RaceManager()
-    : LiveActor("\203\214\201\133\203\130\212\307\227\235" /* レース管理 */), mLayout(nullptr), mRacerNum(0), mAudienceNum(0), mRank(0), mBestTime(0), mTime(0), mPlayerRacer(nullptr) {
-    _FC.identity();
+    : LiveActor("レース管理"), mLayout(nullptr), mRacerNum(0), mAudienceNum(0), mRank(0), mBestTime(0), mTime(0), mPlayerRacer(nullptr) {
+    mGoalInvMtx.identity();
 }
 
-void RaceManager::init(const JMapInfoIter& rIter) {
+void RaceManager::init(const TableIter& rIter) {
     MR::connectToSceneMapObjMovement(this);
 
-    mLayout = new RaceManagerLayout("\203\214\201\133\203\130\212\307\227\235\227\160\203\214\203\103\203\101\203\105\203\147" /* レース管理用レイアウト */);
+    mLayout = new RaceManagerLayout("レース管理用レイアウト");
     mLayout->init(rIter);
 
     MR::invalidateClipping(this);
@@ -231,7 +236,7 @@ void RaceManager::exeWipeOut() {
 }
 
 void RaceManager::exeWipeWait() {
-    if (!MR::isStep(this, 30)) {
+    if (!MR::isStep(this, NebulaFrameClock::stepsOfMilliseconds(500))) {
         return;
     }
 
@@ -261,7 +266,7 @@ void RaceManager::exeWipeIn() {
         setNerve(GET_NERVE(RaceManager, RaceManagerNrvIntro));
     } else {
         MR::onPlayerControl(true);
-        MR::endDemo(this, "\203\214\201\133\203\130" /* レース */);
+        MR::endDemo(this, "レース");
         for (auto it = &mRacer[0], end = &mRacer[mRacerNum]; it != end; ++it) {
             (*it)->exitRacer();
         }
@@ -271,14 +276,14 @@ void RaceManager::exeWipeIn() {
 
 void RaceManager::exeIntro() {
     if (MR::isFirstStep(this)) {
-        if (::getRaceStruceData(mCurrentRace).mIsDemoWithStarPointer) {
+        if (::getRaceStructData(mCurrentRace).mIsDemoWithStarPointer) {
             MR::startStarPointerModeDemoWithStarPointer(this);
         } else {
             MR::startStarPointerModeDemo(this);
         }
     }
 
-    if (MR::isStep(this, 110)) {
+    if (MR::isStep(this, cStep_exeIntro_1)) {
         setNerve(GET_NERVE(RaceManager, RaceManagerNrvCount));
     }
 }
@@ -294,12 +299,12 @@ void RaceManager::exeCount() {
 
     mLayout->movement();
 
-    if (getNerveStep() % 60 == 0) {
+    if (getNerveStep() % NebulaFrameClock::stepsOfSeconds(1) == 0) {
         MR::startSystemSE("SE_SY_RACE_COUNT_DOWN");
     }
 
     if (MR::isStep(this, ::sBgmStartStep)) {
-        MR::startEventBGM(::getRaceStruceData(mCurrentRace).mEventBgmId);
+        MR::startEventBGM(::getRaceStructData(mCurrentRace).mEventBgmId);
     }
 
     if (mLayout->isPlayCountAnim()) {
@@ -316,9 +321,9 @@ void RaceManager::exeRace() {
         MR::startSystemSE("SE_SY_RACE_START");
     }
 
-    s32 maxTime = ::getRaceStruceData(mCurrentRace).getMaxTime();
+    s32 maxTime = ::getRaceStructData(mCurrentRace).mMaxTime;
     MR::updateClearTimeTextBox(mLayout, "TimeCounter", getNerveStep());
-    if (maxTime > 0 && getNerveStep() >= maxTime * 60) {
+    if (maxTime > 0 && getNerveStep() >= NebulaFrameClock::stepsOfSeconds(maxTime)) {
         mRank = 0;
         renewTime();
         setNerve(GET_NERVE(RaceManager, RaceManagerNrvDemo));
@@ -329,7 +334,7 @@ void RaceManager::exeRace() {
         mLayout->playRank(getRank(mPlayerRacer));
     }
 
-    for (s32 idx = mRank; idx < mRacerNum; idx++) {
+    for (u32 idx = mRank; idx < mRacerNum; idx++) {
         AbstractRacer* racer = mRacer[idx];
         if (racer->updateRacer(this)) {
             std::swap(mRacer[idx], mRacer[mRank++]);
@@ -376,7 +381,7 @@ void RaceManager::exeGoal() {
 }
 
 void RaceManager::exeRank() {
-    if (MR::isLessStep(this, 60)) {
+    if (MR::isLessStep(this, NebulaFrameClock::stepsOfSeconds(1))) {
         return;
     }
 
@@ -384,7 +389,7 @@ void RaceManager::exeRank() {
         return;
     }
 
-    MR::tryStartDemoWithoutCinemaFrame(this, "\203\214\201\133\203\130" /* レース */);
+    MR::tryStartDemoWithoutCinemaFrame(this, "レース");
     setNerve(GET_NERVE(RaceManager, RaceManagerNrvPstWipeOut));
 }
 
@@ -392,7 +397,7 @@ bool RaceManager::startWithWipe() {
     mRank = 0;
 
     mLayout->hideAllPane();
-    MR::requestStartDemoMarioPuppetableWithoutCinemaFrame(this, "\203\214\201\133\203\130" /* レース */, GET_NERVE(RaceManager, RaceManagerNrvPrepWipe), nullptr);
+    MR::requestStartDemoMarioPuppetableWithoutCinemaFrame(this, "レース", GET_NERVE(RaceManager, RaceManagerNrvPrepWipe), nullptr);
 
     return true;
 }
@@ -401,7 +406,7 @@ bool RaceManager::startImmediately() {
     mRank = 0;
 
     mLayout->hideAllPane();
-    MR::requestStartDemoWithoutCinemaFrame(this, "\203\214\201\133\203\130" /* レース */, GET_NERVE(RaceManager, RaceManagerNrvPrepImme), nullptr);
+    MR::requestStartDemoWithoutCinemaFrame(this, "レース", GET_NERVE(RaceManager, RaceManagerNrvPrepImme), nullptr);
     MR::requestMovementOnPlayer();
     MR::stopStageBGM(90);
     MR::startSubBGM("BGM_MINIGAME_START", false);
@@ -434,7 +439,7 @@ void RaceManager::startRace() {
         (*it)->startRacer();
     }
     MR::endStarPointerMode(this);
-    MR::endDemo(this, "\203\214\201\133\203\130" /* レース */);
+    MR::endDemo(this, "レース");
     MR::onPlayerControl(true);
 }
 
@@ -490,11 +495,11 @@ void RaceManager::entry(PlayerRacer* pRacer) {
     MR::getRailArg0WithInit(pRacer, &mCurrentRace);
     mBestTime = MR::getRaceBestTime(mCurrentRace);
     mPlayerRacer = pRacer;
-    TVec3f endDir, endPos;
+    Vec3f endDir, endPos;
     MR::calcRailEndPointPosAndDirection(&endPos, &endDir, pRacer);
-    MR::makeMtxFrontUp(&_FC, endDir, TVec3f(0.0f, 1.0f, 0.0f));
-    MR::setMtxTrans(_FC, endPos.x, endPos.y, endPos.z);
-    _FC.invert(_FC);
+    MR::makeMtxFrontUp(&mGoalInvMtx, endDir, Vec3f(0.0f, 1.0f, 0.0f));
+    MR::setMtxTrans(mGoalInvMtx, endPos.x, endPos.y, endPos.z);
+    mGoalInvMtx.invert(mGoalInvMtx);
     entry(static_cast< AbstractRacer* >(pRacer));
 }
 
@@ -507,9 +512,9 @@ void RaceManager::entry(AbstractAudience* pAudience) {
 }
 
 bool RaceManager::isGoal(const AbstractRacer* pRacer) const {
-    TVec3f currInnProd, prevInnProd;
-    _FC.mult(pRacer->mCurrPosition, currInnProd);
-    _FC.mult(pRacer->mPrevPosition, prevInnProd);
+    Vec3f currInnProd, prevInnProd;
+    mGoalInvMtx.mult(pRacer->mCurrPosition, currInnProd);
+    mGoalInvMtx.mult(pRacer->mPrevPosition, prevInnProd);
     return prevInnProd.z < 0.0f && currInnProd.z > 0.0f;
 }
 
@@ -566,16 +571,16 @@ namespace RaceManagerFunction {
     }
 
     const char* getRaceName(int index) {
-        return ::getRaceStruceData(index).mName;
+        return ::getRaceStructData(index).mName;
     }
 
     const char* getRaceMessageId(int index) {
-        return ::getRaceStruceData(index).mMessageId;
+        return ::getRaceStructData(index).mMessageId;
     }
 
     s32 getRaceId(const char* pGalaxyName, s32 scenarioNo) {
         for (u32 i = 0; i < ARRAY_SIZE(::sRaceStruct); i++) {
-            const RaceStructData& rRaceStructData = ::getRaceStruceData(i);
+            const RaceStructData& rRaceStructData = ::getRaceStructData(i);
 
             if (MR::isEqualString(rRaceStructData.mGalaxyName, pGalaxyName) && rRaceStructData.mScenarioNo == scenarioNo) {
                 return i;
@@ -586,7 +591,7 @@ namespace RaceManagerFunction {
     }
 
     bool hasPowerStarRaceScenario(int index) {
-        return MR::isOnGameEventFlagPowerStarSuccess(::getRaceStruceData(index).mGalaxyName, ::getRaceStruceData(index).mScenarioNo);
+        return MR::isOnGameEventFlagPowerStarSuccess(::getRaceStructData(index).mGalaxyName, ::getRaceStructData(index).mScenarioNo);
     }
 };  // namespace RaceManagerFunction
 

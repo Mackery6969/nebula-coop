@@ -1,21 +1,20 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class LiveActorGroup;
 
 class KoopaBattleMapPlanet : public LiveActor {
 public:
-    KoopaBattleMapPlanet(const char*, const char*, bool, bool, bool);
+    KoopaBattleMapPlanet(const char* pName, const char* pModelName, bool isFinalPlanet, bool isNoPlate);
 
-    virtual ~KoopaBattleMapPlanet();
-    virtual void init(const JMapInfoIter&);
-    virtual MtxPtr getBaseMtx() const {
-        return (MtxPtr)&mBaseMtx;
+    virtual void init(const TableIter&) override;
+    virtual MtxPtr getBaseMtx() const override {
+        return const_cast< MtxPtr >(mBaseMtx.mMtx);
     }
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
 
     void startAnimPowerStarAppear();
     void createPlate();
@@ -25,13 +24,12 @@ public:
 
 private:
     const char* mModelName;
-    TPos3f mBaseMtx;
-    TVec3f _C0;
+    Pos3f mBaseMtx;
+    Vec3f mRotateMoment;
     LiveActorGroup* mDamagePlateGroup;
     LiveActorGroup* mCoinPlateGroup;
     LiveActorGroup* mPlateGroup;
     LiveActor* mDamagePlate;
-    bool _DC;
-    bool _DD;
-    bool _DE;
+    bool mIsFinalPlanet;
+    bool mIsNoPlate;
 };

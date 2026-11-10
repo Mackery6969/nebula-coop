@@ -7,16 +7,14 @@ class TakeOutStar;
 
 class Kinopio : public NPCActor {
 public:
-    /// @brief Creates a new `Kinopio`.
-    /// @param pName A pointer to the null-terminated name of the object.
     Kinopio(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void calcAndSetBaseMtx();
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter& rIter) override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
-    void faceToVector(const TVec3f&, f32);
+    void faceToVector(const Vec3f&, f32);
     void faceToPlayer(f32);
     void faceToDefault(f32);
     void setDefaultNerve();
@@ -44,9 +42,9 @@ public:
     s32 mBehavior;
     s32 mAppearBehavior;
     s32 mGoodsIndex;
-    TQuat4f _16C;
-    MapObjConnector* _17C;
+    Quat4f mConnectQuat;
+    MapObjConnector* mConnector;
     TakeOutStar* mTakeOutStar;
     bool mIsSpawnPowerStarMode;
-    bool _185;
+    bool mIsBgmStarted;
 };

@@ -4,69 +4,87 @@
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
-SpinHitController::SpinHitController(const NameObj* pObj, s32 a1, bool a2) {
-    setParameter(pObj, 15, 10, 3, 0.0f, 40.0f, 20.0f, a1, a2);
+// The step counts of this file's functions, as tunables: "<file>.<function>.<k>".
+NEBULA_TUNABLE_NAMED(s32, cStep_execute_1, "execute.1", 1);
+
+namespace {
+    NEBULA_TUNABLE(s32, cDefaultFlyStepMax, 15);
+    NEBULA_TUNABLE(s32, cDefaultFlyStepMin, 10);
+    NEBULA_TUNABLE(s32, cDefaultStopSceneFrames, 3);
+    NEBULA_TUNABLE(f32, cDefaultGravityAccel, 0.0f);
+    NEBULA_TUNABLE(f32, cDefaultHorizontalSpeed, 40.0f);
+    NEBULA_TUNABLE(f32, cDefaultVerticalSpeed, 20.0f);
+};  // namespace
+
+SpinHitController::SpinHitController(const NameObj* pObj, s32 itemNum, bool isCoin) {
+    setParameter(pObj, cDefaultFlyStepMax, cDefaultFlyStepMin, cDefaultStopSceneFrames, cDefaultGravityAccel, cDefaultHorizontalSpeed, cDefaultVerticalSpeed,
+                 itemNum, isCoin);
 }
 
-SpinHitController::SpinHitController(const NameObj* pObj, s32 a2, s32 a3, s32 a4, f32 a5, f32 a6, f32 a7, s32 a8, bool a9) {
-    setParameter(pObj, a2, a3, a4, a5, a6, a7, a8, a9);
+SpinHitController::SpinHitController(const NameObj* pObj, s32 flyStepMax, s32 flyStepMin, s32 stopSceneFrames, f32 gravityAccel, f32 horizontalSpeed,
+                                     f32 verticalSpeed, s32 itemNum, bool isCoin) {
+    setParameter(pObj, flyStepMax, flyStepMin, stopSceneFrames, gravityAccel, horizontalSpeed, verticalSpeed, itemNum, isCoin);
 }
 
-void SpinHitController::setParameter(const NameObj* pObj, s32 a2, s32 a3, s32 a4, f32 a5, f32 a6, f32 a7, s32 a8, bool a9) {
-    _0 = a2;
-    _4 = a3;
-    _8 = a4;
-    _C = a5;
-    _10 = a6;
-    _14 = a7;
-    _19 = a9;
-    _1C = a8;
+void SpinHitController::setParameter(const NameObj*, s32 flyStepMax, s32 flyStepMin, s32 stopSceneFrames, f32 gravityAccel, f32 horizontalSpeed,
+                                     f32 verticalSpeed, s32 itemNum, bool isCoin) {
+    mFlyStepMax = flyStepMax;
+    mFlyStepMin = flyStepMin;
+    mStopSceneFrames = stopSceneFrames;
+    mGravityAccel = gravityAccel;
+    mHorizontalSpeed = horizontalSpeed;
+    mVerticalSpeed = verticalSpeed;
+    mIsCoin = isCoin;
+    mItemNum = itemNum;
 }
 
-void SpinHitController::start(LiveActor* pActor, const TVec3f& a2, const TVec3f& a3) {
-    TVec3f v9(a3);
-    v9 -= a2;
-    MR::vecKillElement(v9, pActor->mGravity, &v9);
-    MR::normalizeOrZero(&v9);
-    v9 *= _10;
-    f32 val = _14;
-    TVec3f v8(pActor->mGravity);
-    v8 *= val;
-    v9 -= v8;
-    pActor->mVelocity.x = v9.x;
-    pActor->mVelocity.y = v9.y;
-    pActor->mVelocity.z = v9.z;
-    _18 = true;
+// Knocks the actor away from `rFrom` (toward `rTo`, across its gravity) and up, with the hit's scene stop.
+void SpinHitController::start(LiveActor* pActor, const Vec3f& rFrom, const Vec3f& rTo) {
+    Vec3f velocity(rTo);
+    velocity -= rFrom;
+    MR::vecKillElement(velocity, pActor->mGravity, &velocity);
+    MR::normalizeOrZero(&velocity);
+    velocity *= mHorizontalSpeed;
+
+    Vec3f lift(pActor->mGravity);
+    lift *= mVerticalSpeed;
+    velocity -= lift;
+
+    pActor->mVelocity.set(velocity);
+    mIsStopScene = true;
 }
 
-void SpinHitController::startWithoutStopScene(LiveActor* pActor, const TVec3f& a2, const TVec3f& a3) {
-    start(pActor, a2, a3);
-    _18 = false;
+void SpinHitController::startWithoutStopScene(LiveActor* pActor, const Vec3f& rFrom, const Vec3f& rTo) {
+    start(pActor, rFrom, rTo);
+    mIsStopScene = false;
 }
 
+// Flies until it lands (after the first step) or the max step, then dies; the items come out at the min step, or at
+// death if that comes first. True once dead.
 bool SpinHitController::execute(LiveActor* pActor) {
     if (MR::isFirstStep(pActor)) {
         MR::invalidateClipping(pActor);
 
-        if (_18) {
-            MR::stopSceneForDefaultHit(_8);
+        if (mIsStopScene) {
+            MR::stopSceneForDefaultHit(mStopSceneFrames);
         }
     }
 
-    f32 val = _C;
-    TVec3f v12(pActor->mGravity);
-    v12 *= val;
-    pActor->mVelocity.add(v12);
+    Vec3f fall(pActor->mGravity);
+    fall *= mGravityAccel;
+    pActor->mVelocity.add(fall);
 
-    if (MR::isStep(pActor, _4)) {
+    if (MR::isStep(pActor, mFlyStepMin)) {
         emitItem(pActor);
     }
 
-    if ((MR::isBinded(pActor) && MR::isGreaterStep(pActor, 1)) || MR::isGreaterStep(pActor, _0)) {
+    if ((MR::isBinded(pActor) && MR::isGreaterStep(pActor, cStep_execute_1)) || MR::isGreaterStep(pActor, mFlyStepMax)) {
         MR::validateClipping(pActor);
         pActor->kill();
-        if (MR::isLessStep(pActor, _4)) {
+
+        if (MR::isLessStep(pActor, mFlyStepMin)) {
             emitItem(pActor);
         }
 
@@ -76,17 +94,20 @@ bool SpinHitController::execute(LiveActor* pActor) {
     return false;
 }
 
+// Once: the coins or star pieces.
 void SpinHitController::emitItem(LiveActor* pActor) {
-    if (_1C != 0) {
-        if (_19) {
-            MR::appearCoinPop(pActor, pActor->mPosition, _1C);
-        } else {
-            MR::appearStarPiece(pActor, pActor->mPosition, _1C, 10.0f, 40.0f, false);
-            if (pActor->mSoundObject != nullptr) {
-                MR::startSound(pActor, "SE_OJ_STAR_PIECE_BURST");
-            }
-        }
-
-        _1C = 0;
+    if (mItemNum == 0) {
+        return;
     }
+
+    if (mIsCoin) {
+        MR::appearCoinPop(pActor, pActor->mPosition, mItemNum);
+    } else {
+        MR::appearStarPiece(pActor, pActor->mPosition, mItemNum, 10.0f, 40.0f, false);
+        if (pActor->mSoundObject != nullptr) {
+            MR::startSound(pActor, "SE_OJ_STAR_PIECE_BURST");
+        }
+    }
+
+    mItemNum = 0;
 }

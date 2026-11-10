@@ -1,18 +1,19 @@
 #include "Game/Camera/CameraParallel.hpp"
-#include "Game/Camera/CamTranslatorParallel.hpp"
+#include "Game/Camera/CameraParamChunk.hpp"
 #include "Game/Camera/CameraCalc.hpp"
 #include "Game/Camera/CameraHeightArrange.hpp"
 #include "Game/Camera/CameraLocalUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const f32 sDistance = 3000.0f;
-    static const f32 sRoundDiv = 8.0f;
-    static const f32 sRoundAddition = 0.08f;
+    NEBULA_TUNABLE(f32, sDistance, 3000.0f);
+    NEBULA_TUNABLE(f32, sRoundDiv, 8.0f);
+    NEBULA_TUNABLE(f32, sRoundAddition, 0.08f);
 };  // namespace
 
 CameraParallel::CameraParallel(const char* pName)
-    : Camera(pName), mAngleX(), mAngleY(), mDist(::sDistance), mIsEnableValid(), mIsRounding(), mRoundTarget(), mRoundAngle(), mRoundAddition() {
+    : Camera(pName), mAngleX(), mAngleY(), mDist(::sDistance), mIsEnableValid(), mIsRounding(), mRoundTarget(), mRoundAngle() {
     createVPanObj();
 }
 
@@ -24,7 +25,6 @@ void CameraParallel::reset() {
     mIsRounding = false;
     mRoundTarget = 0.0f;
     mRoundAngle = 0.0f;
-    mRoundAddition = ::sRoundAddition;
 }
 
 CameraTargetObj* CameraParallel::calc() {
@@ -36,8 +36,9 @@ CameraTargetObj* CameraParallel::calc() {
     return CameraLocalUtil::getTarget(this);
 }
 
-CamTranslatorBase* CameraParallel::createTranslator() {
-    return new CamTranslatorParallel(this);
+void CameraParallel::setParamFromChunk(const CameraParamChunk* pChunk) {
+    CameraGeneralParam* general = pChunk->mGeneralParam;
+    setParam(Vec2f(180.0f * general->mAngleB / MR::pi(), 180.0f * general->mAngleA / MR::pi()), general->mDist, general->mNum1 == 1);
 }
 
 bool CameraParallel::isEnableToRoundLeft() const {
@@ -57,19 +58,19 @@ void CameraParallel::calcIdealPose() {
         mDist = 300.0f;
     }
 
-    TVec3f watchPos = CameraLocalUtil::getWatchPos(this);
+    Vec3f watchPos = CameraLocalUtil::getWatchPos(this);
 
-    TVec3f pos;
-    MR::polarToCrossDegree(TVec3f(0.0f, 0.0f, 0.0f), &pos, mDist, mAngleX, mAngleY - 90.0f);
+    Vec3f pos;
+    MR::polarToCrossDegree(Vec3f(0.0f, 0.0f, 0.0f), &pos, mDist, mAngleX, mAngleY - 90.0f);
 
-    TVec3f up;
+    Vec3f up;
     up.set< f32 >(0.0f, 1.0f, 0.0f);
     calcRound();
 
     f32 length, angleX, angleY;
-    MR::crossToPolar(TVec3f(0.0f, 0.0f, 0.0f), pos, &length, &angleX, &angleY);
+    MR::crossToPolar(Vec3f(0.0f, 0.0f, 0.0f), pos, &length, &angleX, &angleY);
     angleY += mRoundAngle;
-    MR::polarToCross(TVec3f(0.0f, 0.0f, 0.0f), &pos, length, angleX, angleY);
+    MR::polarToCross(Vec3f(0.0f, 0.0f, 0.0f), &pos, length, angleX, angleY);
 
     mZoneMatrix.mult33(pos);
     mZoneMatrix.mult33(up);
@@ -87,56 +88,15 @@ void CameraParallel::calcRound() {
     }
 
     if (mIsRounding) {
-        if (mRoundTarget > mRoundAngle) {
-            mRoundAngle += ::sRoundAddition;
-            if (mRoundAngle >= mRoundTarget) {
-                mRoundAngle = mRoundTarget;
-                mIsRounding = false;
-            }
-        } else {
-            mRoundAngle -= ::sRoundAddition;
-            if (mRoundAngle <= mRoundTarget) {
-                mRoundAngle = mRoundTarget;
-                mIsRounding = false;
-            }
-        }
-        return;
-    }
-
-    f32 roundInterval = MR::toRadian(360.0f / ::sRoundDiv);
-
-    if (CameraLocalUtil::testCameraPadTriggerReset()) {
+        mIsRounding = CameraLocalUtil::approachRoundAngle(&mRoundAngle, mRoundTarget, ::sRoundAddition);
+    } else if (CameraLocalUtil::testCameraPadTriggerReset()) {
         mRoundTarget = 0.0f;
         mIsRounding = true;
-        mRoundAddition = ::sRoundAddition * 2.0f;
-        return;
-    }
-
-    if (CameraLocalUtil::testCameraPadTriggerRoundLeft()) {
-        s32 divNum = (mRoundAngle < 0.0f ? -1 : 1) * (s32)(((roundInterval / 2) + MR::abs(mRoundAngle)) / roundInterval) - 1;
-
-        if (divNum < -::sRoundDiv / 2) {
-            divNum += ::sRoundDiv;
-            mRoundAngle += MR::pi() * 2.0f;
-        }
-
-        mRoundTarget = divNum * roundInterval;
+    } else if (CameraLocalUtil::testCameraPadTriggerRoundLeft()) {
+        mRoundTarget = CameraLocalUtil::calcRoundTarget(&mRoundAngle, false, ::sRoundDiv);
         mIsRounding = true;
-        mRoundAddition = ::sRoundAddition;
-        return;
-    }
-
-    if (CameraLocalUtil::testCameraPadTriggerRoundRight()) {
-        s32 divNum = (mRoundAngle < 0.0f ? -1 : 1) * (s32)(((roundInterval / 2) + MR::abs(mRoundAngle)) / roundInterval) + 1;
-
-        if (divNum > ::sRoundDiv / 2) {
-            divNum -= ::sRoundDiv;
-            mRoundAngle -= MR::pi() * 2.0f;
-        }
-
-        mRoundTarget = divNum * roundInterval;
+    } else if (CameraLocalUtil::testCameraPadTriggerRoundRight()) {
+        mRoundTarget = CameraLocalUtil::calcRoundTarget(&mRoundAngle, true, ::sRoundDiv);
         mIsRounding = true;
-        mRoundAddition = ::sRoundAddition;
-        return;
     }
 }

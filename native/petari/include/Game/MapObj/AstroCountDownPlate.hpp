@@ -1,13 +1,13 @@
 #pragma once
 
+#include "Game/Render/Material.hpp"
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/J3DGraphBase/J3DTexture.hpp>
 
 class AstroCountDownPlate : public LiveActor {
 public:
     AstroCountDownPlate(const char*);
 
-    virtual void init(const JMapInfoIter&);
+    virtual void init(const TableIter&) override;
 
     void exeWait();
     void exeRevival();
@@ -19,7 +19,7 @@ public:
     void startDemoStartCountDown();
     void startDemoLastBattle();
 
-    J3DTexMtx _8C;
-    J3DTexMtx _120;
-    bool _1B4;
+    CoordMatrix mOnesTexMtx;
+    CoordMatrix mTensTexMtx;
+    bool mIsLightOn;
 };

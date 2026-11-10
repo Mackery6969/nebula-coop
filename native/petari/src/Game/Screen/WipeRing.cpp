@@ -6,12 +6,23 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SceneUtil.hpp"
 #include "Game/Util/ScreenUtil.hpp"
-#include <JSystem/J3DGraphAnimator/J3DAnimation.hpp>
+#include "Game/Render/Clip.hpp"
+#include "Game/Screen/LayoutManager.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
+#include "Game/System/NebulaHost.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const s32 sAnimFrame = 60;
+    NEBULA_TUNABLE(s32, sAnimFrame, 60);
     static const char* sOutAnimName = "Out";
     static const char* sInAnimName = "In";
+
+    f32 ringCanvasScale() {
+        const auto& display = MR::getDisplay();
+        if (!MR::isScreen16Per9() || !display.wide) return 1.0f;
+        return __builtin_fmaxf(1.0f, __builtin_fmaxf(display.layout_width / NebulaFrameClock::cLayoutWidth,
+                                                   display.vertical_fit));
+    }
 };  // namespace
 
 namespace {
@@ -25,7 +36,7 @@ WipeRing::WipeRing(bool isCenterOnPlayer, const char* pName)
     : WipeLayoutBase(pName), mCenterPos(0.0f, 0.0f), mAnimFrame(::sAnimFrame), mWipeOutFrame(), mWipeInFrame(), mIsCenterOnPlayer(isCenterOnPlayer) {
 }
 
-void WipeRing::init(const JMapInfoIter& rIter) {
+void WipeRing::init(const TableIter& /*rIter*/) {
     initLayoutManager("WipeRing", 1);
     MR::createAndAddPaneCtrl(this, "Ring", 1);
     MR::setFollowPos(&mCenterPos, this, "Ring");
@@ -37,17 +48,25 @@ void WipeRing::exeClose() {
     updatePlayerPos();
 }
 
+void WipeRing::calcAnim() {
+    // The mask scales about its followed centre (moving that centre would detach it from Mario): its own screen scale,
+    // which its children do not inherit.
+    if (Ui::Pane* pRing = mLayoutManager->findPaneByName("Ring")) {
+        pRing->mScreenScale = ringCanvasScale();
+    }
+    LayoutActor::calcAnim();
+}
+
 void WipeRing::exeWipeIn() {
     updatePlayerPos();
 
     if (MR::isFirstStep(this)) {
-        f32 radiusRate = calcRadius() / calcMaxRadius();
-
-        mWipeInFrame = radiusRate * MR::getAnimCtrl(this, 0)->getEnd();
         MR::getAnimCtrl(this, 0)->setRate(0.0f);
     }
+    const f32 radiusRate = __builtin_fminf(calcRadius() / calcMaxRadius(), 1.0f);
+    mWipeInFrame = radiusRate * MR::getAnimCtrl(this, 0)->getEnd();
 
-    const f32 angle = (1.0f + static_cast< f32 >(getNerveStep()) / mAnimFrame) * JGeometry::TUtil< f32 >::PI();
+    const f32 angle = (1.0f + static_cast< f32 >(getNerveStep()) / mAnimFrame) * FloatUtil::PI();
     f32 f = MR::sin(0.5f * angle);
 
     MR::getAnimCtrl(this, 0)->setFrame(mWipeInFrame * (1.0f - f));
@@ -69,13 +88,12 @@ void WipeRing::exeWipeOut() {
     updatePlayerPos();
 
     if (MR::isFirstStep(this)) {
-        f32 invRadiusRate = 1.0f - calcRadius() / calcMaxRadius();
-
-        mWipeOutFrame = invRadiusRate * MR::getAnimCtrl(this, 0)->getEnd();
         MR::getAnimCtrl(this, 0)->setRate(0.0f);
     }
+    const f32 invRadiusRate = 1.0f - __builtin_fminf(calcRadius() / calcMaxRadius(), 1.0f);
+    mWipeOutFrame = invRadiusRate * MR::getAnimCtrl(this, 0)->getEnd();
 
-    const f32 angle = (static_cast< f32 >(getNerveStep()) / mAnimFrame) * JGeometry::TUtil< f32 >::PI();
+    const f32 angle = (static_cast< f32 >(getNerveStep()) / mAnimFrame) * FloatUtil::PI();
     f32 f = MR::sin(0.5f * angle);
 
     MR::getAnimCtrl(this, 0)->setFrame(mWipeOutFrame * (1.0f - f) + f * MR::getAnimCtrl(this, 0)->getEnd());
@@ -142,7 +160,7 @@ bool WipeRing::isWipeOut() const {
     return isNerve(GET_NERVE_ANON(WipeRingNrvWipeOut));
 }
 
-void WipeRing::setCenterPos(const TVec3f& rPos) {
+void WipeRing::setCenterPos(const Vec3f& rPos) {
     if (MR::calcScreenPosition(&mCenterPos, rPos)) {
         return;
     }
@@ -158,7 +176,7 @@ void WipeRing::startAnim(const char* pAnimName) {
 namespace {
     bool canCenterOnMario() {
         if (MR::isEqualStageName("IceVolcanoGalaxy") && MR::getCurrentScenarioNo() == 1) {
-            TVec3f position(15060.0f, -11800.0f, 1260.0f);
+            Vec3f position(15060.0f, -11800.0f, 1260.0f);
             if (MR::getPlayerPos()->distance(position) < 600.0f) {
                 return false;
             }
@@ -168,7 +186,7 @@ namespace {
     }
 };  // namespace
 
-bool WipeRing::getMarioCenterPos(TVec3f* pCenterPos) {
+bool WipeRing::getMarioCenterPos(Vec3f* pCenterPos) {
     if (MR::isExistMario() && ::canCenterOnMario()) {
         pCenterPos->set(static_cast< const Vec& >(*MR::getPlayerCenterPos()));
 
@@ -180,30 +198,18 @@ bool WipeRing::getMarioCenterPos(TVec3f* pCenterPos) {
 }
 
 f32 WipeRing::calcRadius() const {
-    f32 radius = mCenterPos.length();
-
-    TVec2f screenHeightPos = TVec2f(0.0f, static_cast< f32 >(MR::getScreenHeight()));
-    f32 screenHeightDistance = mCenterPos.distance(screenHeightPos);
-
-    if (radius < screenHeightDistance) {
-        radius = screenHeightDistance;
-    }
-
-    TVec2f screenWidthPos = TVec2f(static_cast< f32 >(MR::getScreenWidth()), 0.0f);
-    f32 screenWidthDistance = mCenterPos.distance(screenWidthPos);
-
-    if (radius < screenWidthDistance) {
-        radius = screenWidthDistance;
-    }
-
-    TVec2f screenMaxPos = TVec2f(static_cast< f32 >(MR::getScreenWidth()), static_cast< f32 >(MR::getScreenHeight()));
-    f32 screenMaxDistance = mCenterPos.distance(screenMaxPos);
-
-    if (radius < screenMaxDistance) {
-        radius = screenMaxDistance;
-    }
-
-    return radius;
+    // Measure in the ring's circular coordinate system, including the taller layout canvas.
+    // Screen positions themselves always use the game's logical 456-line height.
+    const f32 width = MR::getScreenWidth(), height = MR::getScreenHeight();
+    const auto& display = MR::getDisplay();
+    const bool extended = MR::isScreen16Per9() && display.wide;
+    const f32 canvasWidth = extended ? display.layout_width : NebulaFrameClock::cLayoutWidth;
+    const f32 vertical = extended ? display.vertical_fit : 1.0f;
+    const f32 locationX = MR::isScreen16Per9() ? 0.75f : 1.0f;
+    const f32 x = __builtin_fmaxf(__builtin_fabsf(mCenterPos.x), __builtin_fabsf(width - mCenterPos.x)) *
+                  canvasWidth / (width * locationX);
+    const f32 y = __builtin_fmaxf(__builtin_fabsf(mCenterPos.y), __builtin_fabsf(height - mCenterPos.y)) * vertical;
+    return NebulaSqrt(x * x + y * y) / ringCanvasScale();
 }
 
 f32 WipeRing::calcMaxRadius() const {
@@ -215,7 +221,7 @@ void WipeRing::updatePlayerPos() {
         return;
     }
 
-    TVec3f marioCenterPos;
+    Vec3f marioCenterPos;
 
     if (!getMarioCenterPos(&marioCenterPos) && !MR::isFirstStep(this)) {
         return;

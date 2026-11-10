@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// The display's vsync as the game's retrace clock (sdl_host.h, wait_display_retrace, display_present_target).
+// The display's vsync as the game's frame clock (sdl_host.h, wait_display_frame, display_present_target).
 
 #include "sdl_host.h"
+#include "galaxy/display_timeline.h"
 
 #if defined(__ANDROID__)
 #include <android/choreographer.h>
 #include <android/looper.h>
+#include <dlfcn.h>
+#include <cstdio>
 #include <pthread.h>
 #include <time.h>
 
@@ -24,16 +27,17 @@ namespace galaxy::sdl {
 namespace {
 
 // Choreographer's frame callbacks on a looper thread of their own: the latest vsync's time (CLOCK_MONOTONIC) and the
-// interval between vsyncs, smoothed. The retraces are predicted from them on that grid rather than woken by them, so
-// a callback delivered late (its thread not scheduled at once) never delays a retrace.
+// interval between vsyncs, smoothed. The frame slots are predicted from them on that grid rather than woken by them, so
+// a callback delivered late (its thread not scheduled at once) never delays a frame.
 std::mutex g_mutex;
 std::int64_t g_vsync_ns = 0;
 std::int64_t g_interval_ns = 0;
+std::int64_t g_expected_presentation_ns = 0;
 std::once_flag g_started;
-// The latest retrace on the vsync grid and the retrace period there (display_present_target); 0 while the retrace
-// follows the host's clock.
-std::atomic<std::int64_t> g_retrace_ns{0};
-std::atomic<std::int64_t> g_retrace_period_ns{0};
+// The latest frame slot on the vsync grid and the frame period there (display_present_target); 0 while frames
+// follow the host's clock.
+std::atomic<std::int64_t> g_frame_slot_ns{0};
+std::atomic<std::int64_t> g_frame_period_ns{0};
 // The display's vsync period as the system states it (refresh-rate callbacks); 0 until the first.
 std::atomic<std::int64_t> g_display_period_ns{0};
 
@@ -43,18 +47,48 @@ std::int64_t monotonic_ns() noexcept {
     return static_cast<std::int64_t>(now.tv_sec) * 1000000000 + now.tv_nsec;
 }
 
-void on_frame(std::int64_t frame_ns, void* choreographer) {
-    {
-        std::lock_guard<std::mutex> lock(g_mutex);
-        const std::int64_t delta = frame_ns - g_vsync_ns;
-        if (g_vsync_ns != 0 && delta > 2000000 && delta < 50000000) {
-            // A refresh-rate change (LTPO panels, touch boost) restarts the average at once.
-            const bool changed = g_interval_ns != 0 && std::llabs(delta - g_interval_ns) > g_interval_ns / 8;
-            g_interval_ns = g_interval_ns == 0 || changed ? delta : (g_interval_ns * 7 + delta) / 8;
-        }
-        g_vsync_ns = frame_ns;
+// API 33 timelines distinguish the app's render-start tick from the display's presentation tick.
+// Resolve dynamically so Android 12 retains the legacy callback without unresolved imports.
+struct TimelineApi {
+    void (*post)(AChoreographer*, AChoreographer_vsyncCallback, void*) = nullptr;
+    int64_t (*frame_time)(const AChoreographerFrameCallbackData*) = nullptr;
+    size_t (*preferred)(const AChoreographerFrameCallbackData*) = nullptr;
+    int64_t (*expected)(const AChoreographerFrameCallbackData*, size_t) = nullptr;
+    bool load() {
+        void* library = dlopen("libandroid.so", RTLD_NOW | RTLD_LOCAL);
+        if (!library) return false;
+        post = reinterpret_cast<decltype(post)>(dlsym(library, "AChoreographer_postVsyncCallback"));
+        frame_time = reinterpret_cast<decltype(frame_time)>(dlsym(library, "AChoreographerFrameCallbackData_getFrameTimeNanos"));
+        preferred = reinterpret_cast<decltype(preferred)>(dlsym(library, "AChoreographerFrameCallbackData_getPreferredFrameTimelineIndex"));
+        expected = reinterpret_cast<decltype(expected)>(dlsym(library, "AChoreographerFrameCallbackData_getFrameTimelineExpectedPresentationTimeNanos"));
+        // The loaded symbols remain valid throughout the process, like the looper thread itself.
+        return post && frame_time && preferred && expected;
     }
+} g_timeline;
+
+void record_frame(std::int64_t frame_ns, std::int64_t expected) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    const auto stated = g_display_period_ns.load(std::memory_order_relaxed);
+    const std::int64_t delta = frame_ns - g_vsync_ns;
+    if (stated > 0) {
+        // A missed callback is not a refresh-rate change. The platform reports those separately.
+        g_interval_ns = stated;
+    } else if (g_vsync_ns != 0 && delta > 2000000 && delta < 50000000) {
+        const bool changed = g_interval_ns != 0 && std::llabs(delta - g_interval_ns) > g_interval_ns / 8;
+        g_interval_ns = g_interval_ns == 0 || changed ? delta : (g_interval_ns * 7 + delta) / 8;
+    }
+    g_vsync_ns = frame_ns;
+    g_expected_presentation_ns = expected;
+}
+
+void on_frame(std::int64_t frame_ns, void* choreographer) {
+    record_frame(frame_ns, 0);
     AChoreographer_postFrameCallback64(static_cast<AChoreographer*>(choreographer), on_frame, choreographer);
+}
+
+void on_timeline(const AChoreographerFrameCallbackData* data, void* choreographer) {
+    record_frame(g_timeline.frame_time(data), g_timeline.expected(data, g_timeline.preferred(data)));
+    g_timeline.post(static_cast<AChoreographer*>(choreographer), on_timeline, choreographer);
 }
 
 void on_refresh_rate(std::int64_t vsync_period_ns, void*) {
@@ -68,7 +102,12 @@ void clock_thread() {
     if (choreographer == nullptr) {
         return;
     }
-    AChoreographer_postFrameCallback64(choreographer, on_frame, choreographer);
+    if (g_timeline.load()) {
+        std::fprintf(stderr, "[display] Android preferred presentation timeline enabled\n");
+        g_timeline.post(choreographer, on_timeline, choreographer);
+    } else {
+        AChoreographer_postFrameCallback64(choreographer, on_frame, choreographer);
+    }
     AChoreographer_registerRefreshRateCallback(choreographer, on_refresh_rate, nullptr);
     for (;;) {
         ALooper_pollOnce(-1, nullptr, nullptr, nullptr);
@@ -77,7 +116,7 @@ void clock_thread() {
 
 }  // namespace
 
-bool wait_display_retrace(std::int64_t period_ns, std::int64_t& last_ns) noexcept {
+bool wait_display_frame(std::int64_t period_ns, std::int64_t& last_ns) noexcept {
     try {
         std::call_once(g_started, [] { std::thread(clock_thread).detach(); });
     } catch (...) {
@@ -93,17 +132,17 @@ bool wait_display_retrace(std::int64_t period_ns, std::int64_t& last_ns) noexcep
     const std::int64_t now = monotonic_ns();
     // No vsyncs yet, or none for a quarter second (out of sight): the host's clock.
     if (base == 0 || interval == 0 || now - base > 250000000) {
-        g_retrace_ns.store(0, std::memory_order_relaxed);
+        g_frame_slot_ns.store(0, std::memory_order_relaxed);
         return false;
     }
-    // Only a display whose vsyncs divide the retrace period (60, 120, 180 or 240 Hz) keeps the game at its speed; at
+    // Only a display whose vsyncs divide the frame period (60, 120, 180 or 240 Hz) keeps the game at its speed; at
     // 90 Hz, say, the host's own clock runs it.
     const double vsyncs = static_cast<double>(period_ns) / static_cast<double>(interval);
     if (std::abs(vsyncs - std::round(vsyncs)) > 0.03 || std::round(vsyncs) < 1.0) {
-        g_retrace_ns.store(0, std::memory_order_relaxed);
+        g_frame_slot_ns.store(0, std::memory_order_relaxed);
         return false;
     }
-    // The first vsync at least one retrace period (less half a vsync) after the last retrace; from now when the clock
+    // The first vsync at least one frame period (less half a vsync) after the last frame slot; from now when the clock
     // fell behind (a suspended app, a stalled thread), as a display skips the fields it missed.
     std::int64_t earliest = last_ns + period_ns - interval / 2;
     if (last_ns == 0 || earliest < now - period_ns) {
@@ -115,21 +154,24 @@ bool wait_display_retrace(std::int64_t period_ns, std::int64_t& last_ns) noexcep
     while (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &wake, nullptr) != 0) {
     }
     last_ns = target;
-    g_retrace_period_ns.store(std::llround(vsyncs) * interval, std::memory_order_relaxed);
-    g_retrace_ns.store(target, std::memory_order_release);
+    g_frame_period_ns.store(std::llround(vsyncs) * interval, std::memory_order_relaxed);
+    g_frame_slot_ns.store(target, std::memory_order_release);
     return true;
 }
 
-bool display_grid(std::int64_t& retrace_ns, std::int64_t& period_ns, std::int64_t& vsync_ns,
+bool display_grid(std::int64_t& slot_ns, std::int64_t& period_ns, std::int64_t& vsync_ns,
                   std::int64_t& now_ns) noexcept {
-    retrace_ns = g_retrace_ns.load(std::memory_order_acquire);
-    period_ns = g_retrace_period_ns.load(std::memory_order_relaxed);
+    slot_ns = g_frame_slot_ns.load(std::memory_order_acquire);
+    period_ns = g_frame_period_ns.load(std::memory_order_relaxed);
     {
         std::lock_guard<std::mutex> lock(g_mutex);
         vsync_ns = g_interval_ns;
+        if (g_expected_presentation_ns > 0) {
+            slot_ns = galaxy::presentation_grid_at(slot_ns, g_expected_presentation_ns, vsync_ns);
+        }
     }
     now_ns = monotonic_ns();
-    return retrace_ns != 0 && period_ns != 0 && vsync_ns != 0 && now_ns - retrace_ns <= 4 * period_ns;
+    return slot_ns != 0 && period_ns != 0 && vsync_ns != 0 && now_ns - slot_ns <= 4 * period_ns;
 }
 
 bool vsync_grid(std::int64_t& vsync_ns, std::int64_t& interval_ns) noexcept {
@@ -150,7 +192,7 @@ double display_refresh_hz() noexcept {
 
 #else
 
-bool wait_display_retrace(std::int64_t, std::int64_t&) noexcept {
+bool wait_display_frame(std::int64_t, std::int64_t&) noexcept {
     return false;
 }
 

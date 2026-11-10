@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class ActorCameraInfo;
 class SpinDriverShootPath;
@@ -11,11 +11,11 @@ class AstroDomeDemoStarter : public LiveActor {
 public:
     AstroDomeDemoStarter(const char*);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual MtxPtr getBaseMtx() const {
-        return (MtxPtr)_94.mMtx;
+    virtual void init(const TableIter& rIter) override;
+    virtual MtxPtr getBaseMtx() const override {
+        return const_cast< MtxPtr >(mBaseMtx.mMtx);
     };
-    virtual void calcAndSetBaseMtx();
+    virtual void calcAndSetBaseMtx() override;
 
     void startJumpOut();
     void movePlayer();
@@ -25,10 +25,10 @@ public:
     void exeJumpOut();
     void exeWhiteOut();
 
-    SpinDriverShootPath* _8C;
-    SpinDriverPathDrawer* _90;
-    TPos3f _94;
-    TPos3f _C4;
+    SpinDriverShootPath* mShootPath;
+    SpinDriverPathDrawer* mPathDrawer;
+    Pos3f mBaseMtx;
+    Pos3f mPlayerDemoMtx;
 
-    ActorCameraInfo* _F4;
+    ActorCameraInfo* mCameraInfo;
 };

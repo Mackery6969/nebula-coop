@@ -16,18 +16,15 @@ public:
         Type_Count,
     };
 
-    /// @brief Creates a new `LuigiNPC`.
-    /// @param pName A pointer to the null-terminated name of the object.
     LuigiNPC(const char* pName);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void control();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
+    virtual void control() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
-    static void makeArchiveList(NameObjArchiveListCollector*, const JMapInfoIter&);
 
     void setShadowDrop(const char*);
     bool branchFunc(u32);

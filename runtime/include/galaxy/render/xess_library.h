@@ -3,19 +3,13 @@
 
 // Intel XeSS's library, loaded at run time from a vendor folder (Nebula does not link it).
 
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <Windows.h>
+#include "galaxy/windows_api.h"
 
 #include <string>
 
 namespace galaxy::render::xess_library {
 
-// GALAXY_XESS_DIR, else %LOCALAPPDATA%\Nebula\vendor\xess-3.0.2.
+// vendor\xess-3.0.2 in Nebula's data folder (platform_paths.h).
 [[nodiscard]] std::wstring directory();
 // libxess.dll, once its signature is checked; null when it is absent or unsigned.
 [[nodiscard]] HMODULE module() noexcept;
@@ -27,10 +21,11 @@ template <typename Function>
     return library != nullptr ? reinterpret_cast<Function*>(GetProcAddress(library, name)) : nullptr;
 }
 
-// The render ratios of the quality rows (native, 1.5, 1.7, 2, 3) as XeSS's modes.
+// The render ratios of the quality rows (native, 1.5, 1.7, 2, 3, then 1.3) as XeSS 1.3's modes.
 [[nodiscard]] inline int quality_setting(unsigned quality) noexcept {
-    constexpr int kSettings[] = {106, 104, 103, 102, 100};  // AA, ultra quality, quality, balanced, ultra performance
-    return kSettings[quality < 4u ? quality : 4u];
+    // AA, ultra quality, quality, balanced, ultra performance, ultra quality plus
+    constexpr int kSettings[] = {106, 104, 103, 102, 100, 105};
+    return kSettings[quality < 5u ? quality : 5u];
 }
 
 }  // namespace galaxy::render::xess_library

@@ -6,11 +6,11 @@
 namespace {
     class RailCoinMercatorDivInfo : public DivideMercatorRailPosInfo {
     public:
-        inline RailCoinMercatorDivInfo(CoinGroup* pGroup) {
-            mGroup = pGroup;
-        }
+        RailCoinMercatorDivInfo(CoinGroup* pGroup) : mGroup(pGroup) {}
 
-        virtual void setPosition(s32, const TVec3f&);
+        virtual void setPosition(s32 idx, const Vec3f& rPos) {
+            mGroup->setCoinTrans(idx, rPos);
+        }
 
         CoinGroup* mGroup;
     };
@@ -19,7 +19,7 @@ namespace {
 RailCoin::RailCoin(const char* pName) : CoinGroup(pName) {
 }
 
-void RailCoin::initCoinArray(const JMapInfoIter& rIter) {
+void RailCoin::initCoinArray(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initRailRider(rIter);
 }
@@ -42,7 +42,7 @@ void RailCoin::placementNormalRail() {
     MR::moveCoordToStartPos(this);
     MR::setRailCoordSpeed(this, speed);
 
-    for (s32 i = 0; i < coinCount; i++) {
+    for (u32 i = 0; i < coinCount; i++) {
         setCoinTrans(i, MR::getRailPos(this));
         MR::moveRailRider(this);
     }
@@ -59,20 +59,11 @@ namespace MR {
     }
 
     NameObj* createRailPurpleCoin(const char* pName) {
-        RailCoin* coin = new RailCoin(pName);
-        coin->mIsPurpleCoinGroup = true;
-        return coin;
+        RailCoin* pCoin = new RailCoin(pName);
+        pCoin->mIsPurpleCoinGroup = true;
+        return pCoin;
     }
 };  // namespace MR
-
-namespace {
-    void RailCoinMercatorDivInfo::setPosition(s32 idx, const TVec3f& rPos) {
-        mGroup->setCoinTrans(idx, rPos);
-    }
-};  // namespace
-
-RailCoin::~RailCoin() {
-}
 
 void RailCoin::placementCoin() {
     if (MR::isInAreaObj("MercatorCube", mPosition)) {
@@ -83,5 +74,5 @@ void RailCoin::placementCoin() {
 }
 
 const char* RailCoin::getCoinName() const {
-    return mIsPurpleCoinGroup ? "\203\160\201\133\203\166\203\213\203\122\203\103\203\223(\203\214\201\133\203\213\224\172\222\165)" /* パープルコイン(レール配置) */ : "\203\122\203\103\203\223(\203\214\201\133\203\213\224\172\222\165)" /* コイン(レール配置) */;
+    return mIsPurpleCoinGroup ? "パープルコイン(レール配置)" : "コイン(レール配置)";
 }

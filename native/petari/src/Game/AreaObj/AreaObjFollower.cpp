@@ -3,23 +3,23 @@
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 
-AreaObjFollower::AreaObjFollower(AreaObj* pObj, const JMapInfoIter& rIter) : BaseMatrixFollower(pObj, rIter), mObj(pObj) {
+AreaObjFollower::AreaObjFollower(AreaObj* pObj, const TableIter& rIter) : BaseMatrixFollower(rIter), mObj(pObj) {
     mFollowMtx.identity();
     mObj->setFollowMtx(&mFollowMtx);
 }
 
 void AreaObjFollower::update() {
     if (MR::isDead(static_cast< LiveActor* >(getFollowTargetActor())) || !isValid()) {
-        mObj->_15 = false;
+        mObj->mIsFollowValid = false;
     } else {
         calcFollowMatrix(&mFollowMtx);
 
-        mObj->_15 = true;
+        mObj->mIsFollowValid = true;
     }
 }
 
 namespace MR {
-    bool addBaseMatrixFollowerAreaObj(AreaObj* pObj, const JMapInfoIter& rIter) {
+    bool addBaseMatrixFollowerAreaObj(AreaObj* pObj, const TableIter& rIter) {
         if (!MR::isValidFollowID(rIter)) {
             return false;
         }

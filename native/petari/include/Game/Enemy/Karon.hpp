@@ -8,21 +8,27 @@ class TerritoryMover;
 
 class Karon : public LiveActor {
 public:
-    Karon(const char*);
+    Karon(const char* pName);
 
-    virtual ~Karon();
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void kill();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPush(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPush(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
-    bool isFallNextMove(bool);
+    bool isFallNextMove(bool isAlongVelocity);
+    bool isFindPlayer() const;
+    bool isNrvBroken() const;
+    bool isNrvDisabled() const;
+    void startBroken(const char* pActionName);
+    void updateBroken(bool isBindBeforeKill);
+    void keepVelocityAlongGravity();
+    void appearStarPieceBurst();
 
     void exeFixWait();
     void exeWait();
@@ -42,7 +48,6 @@ public:
     void endBindStarPointer();
 
     TerritoryMover* mTerritoryMover;
-    u32 _90;  // unused
     bool mStopSwAnim;
     AnimScaleController* mScaleController;
     WalkerStateBindStarPointer* mStateStarPointer;

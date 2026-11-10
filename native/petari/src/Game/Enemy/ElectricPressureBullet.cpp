@@ -1,4 +1,5 @@
 #include "Game/Enemy/ElectricPressureBullet.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/ActorShadowUtil.hpp"
@@ -9,24 +10,28 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
-#include <JSystem/JMath/JMath.hpp>
+#include <nebula_geometry.hpp>
+#include "Game/Util/Tunable.hpp"
+
+// The step counts of this file's functions, as tunables: "<file>.<function>.<k>".
+NEBULA_TUNABLE_NAMED(s32, cStep_exeFly_1, "exeFly.1", 10);
 
 namespace NrvElectricPressureBullet {
     NEW_NERVE(ElectricPressureBulletNrvFly, ElectricPressureBullet, Fly);
 };  // namespace NrvElectricPressureBullet
 
-ElectricPressureBullet::ElectricPressureBullet(const char* pName) : LiveActor(pName), _8C(0.0f, 0.0f, 0.0f), _98(), _9C(0.0f) {
+ElectricPressureBullet::ElectricPressureBullet(const char* pName) : LiveActor(pName), mFront(0.0f, 0.0f, 0.0f), mSpeed(0.0f) {
 }
 
-void ElectricPressureBullet::init(const JMapInfoIter& rIter) {
+void ElectricPressureBullet::init(const TableIter& /*rIter*/) {
     initModelManagerWithAnm("ElectricBullet", nullptr, false);
     MR::connectToSceneEnemy(this);
     initHitSensor(1);
-    MR::addHitSensorEnemyAttack(this, "body", 8, 100.0f, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorEnemyAttack(this, "body", 8, 100.0f, Vec3f(0.0f, 0.0f, 0.0f));
     initBinder(100.0f, 0.0f, 0);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initSound(1, false);
-    MR::initStarPointerTarget(this, 100.0f, TVec3f(0, 0, 0));
+    MR::initStarPointerTarget(this, 100.0f, Vec3f(0, 0, 0));
     MR::initShadowVolumeCylinder(this, 75.0f);
     initNerve(GET_NERVE(ElectricPressureBullet, ElectricPressureBulletNrvFly));
     makeActorDead();
@@ -38,11 +43,10 @@ void ElectricPressureBullet::kill() {
     LiveActor::kill();
 }
 
-void ElectricPressureBullet::shotElectricBullet(LiveActor* actor, const TPos3f& pos, const f32& value) {
-    _98 = actor;
-    _9C = value;
-    pos.getZDir(_8C);
-    mVelocity.scale(_9C, _8C);
+void ElectricPressureBullet::shotElectricBullet(LiveActor* /*actor*/, const Pos3f& pos, const f32& value) {
+    mSpeed = value;
+    pos.getZDir(mFront);
+    mVelocity.scale(mSpeed, mFront);
     pos.getTrans(mPosition);
     mRotation.zero();
     makeActorAppeared();
@@ -61,28 +65,27 @@ void ElectricPressureBullet::exeFly() {
         MR::startBck(this, "Move");
     }
     MR::startLevelSound(this, "SE_EM_LV_ELECBUBLLET_FLY");
-    if (MR::isGreaterEqualStep(this, 10)) {
-        if (MR::isLessStep(this, 150)) {
-            s32 v2 = getNerveStep();
-            if (!(v2 % 5)) {
-                TVec3f v3;
-                v3.sub(*MR::getPlayerCenterPos(), mPosition);
-                MR::normalize(&v3);
-                MR::turnVecToVecDegree(&_8C, _8C, v3, 4.0f, TVec3f(0, 1, 0));
-                mVelocity.scale(_9C, _8C);
+    if (MR::isGreaterEqualStep(this, cStep_exeFly_1)) {
+        if (MR::isLessStep(this, NebulaFrameClock::stepsOfMilliseconds(2500))) {
+            if (getNerveStep() % 5 == 0) {
+                Vec3f toPlayer;
+                toPlayer.sub(*MR::getPlayerCenterPos(), mPosition);
+                MR::normalize(&toPlayer);
+                MR::turnVecToVecDegree(&mFront, mFront, toPlayer, 4.0f, Vec3f(0, 1, 0));
+                mVelocity.scale(mSpeed, mFront);
             }
         }
     }
 
     if (MR::isBinded(this)) {
         kill();
-    } else if (MR::isStep(this, 360)) {
+    } else if (MR::isStep(this, NebulaFrameClock::stepsOfSeconds(6))) {
         kill();
     }
 }
 
 void ElectricPressureBullet::control() {
-    if (MR::isStarPointerPointing2POnTriggerButton(this, "\216\343" /* 弱 */, true, false)) {
+    if (MR::isStarPointerPointing2POnTriggerButton(this, "弱", true, false)) {
         kill();
     }
 }

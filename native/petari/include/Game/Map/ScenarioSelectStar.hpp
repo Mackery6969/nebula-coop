@@ -6,17 +6,17 @@ class ScenarioSelectStar : public MultiSceneActor {
 public:
     ScenarioSelectStar(EffectSystem*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void calcViewAndEntry();
-    virtual void appear();
-    virtual void kill();
-    virtual void control();
+    virtual void init(const TableIter&) override;
+    virtual void calcViewAndEntry() override;
+    virtual void appear() override;
+    virtual void kill() override;
+    virtual void control() override;
 
     void tryPointing();
     void select();
     void notSelect();
     bool isAppearEnd() const;
-    void setup(s32, int, const TVec3f&, s32);
+    void setup(s32, int, const Vec3f&, s32);
     bool tryEndPointing();
     void updatePos();
     void exeAppear();
@@ -33,8 +33,8 @@ public:
     bool mIsPointing;
     f32 mRotateSpeed;
     s32 mRotateTime;
-    TVec3f mBasePos;
-    TVec3f mTranslationOnSelect;
+    Vec3f mBasePos;
+    Vec3f mTranslationOnSelect;
     int mAppearFrame;
     f32 mScaleOnSelect;
 };

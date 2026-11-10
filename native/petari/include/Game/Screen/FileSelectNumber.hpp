@@ -20,7 +20,7 @@ namespace FileSelectNumberSub {
 
     private:
         LayoutActor* mHost;
-        Nerve* _C;
+        Nerve* mQueuedNerve;  // the select nerve asked for while the other one's start animation plays
     };
 };  // namespace FileSelectNumberSub
 
@@ -30,9 +30,9 @@ public:
     /// @param pName The pointer to the null-terminated name of the object.
     FileSelectNumber(const char* pName);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void appear();
-    virtual void control();
+    virtual void init(const TableIter&) override;
+    virtual void appear() override;
+    virtual void control() override;
 
     void disappear();
     void setNumber(s32);
@@ -44,6 +44,5 @@ public:
 
 private:
     s32 mNumber;
-    u8 _24[8];
     FileSelectNumberSub::SelectAnimController* mSelectAnimCtrl;
 };

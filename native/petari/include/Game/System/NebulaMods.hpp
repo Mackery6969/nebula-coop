@@ -4,9 +4,9 @@
 #include <nebula_game_api.h>
 
 class NameObj;
-class NameObjArchiveListCollector;
 class LiveActor;
-class JMapInfoIter;
+class TableIter;
+class TimeLimitLayout;
 
 // The game's side of plugins (nebula_mod_api.h). An event no plugin wants is one load and one branch.
 namespace NebulaMods {
@@ -15,6 +15,8 @@ namespace NebulaMods {
     bool hasCode();
 
     s32 dispatch(NebulaModEvent event, s32 value, void* pActor, const char* pName);
+    // A sound effect's name by its number (NEBULA_MOD_EVENT_SOUND_START), or null.
+    const char* soundName(u32 id);
 
     inline s32 fire(NebulaModEvent event, s32 value = 0, void* pActor = nullptr, const char* pName = nullptr) {
         return sWanted[event] ? dispatch(event, value, pActor, pName) : value;
@@ -36,8 +38,11 @@ namespace NebulaMods {
     const char* powerUpModel(s32 index);
     // The game's power-up a mode looks like: itself, if it's the game's.
     u16 powerUpLook(u16 mode);
-    // A mod's words for a message: nullptr if none has any.
-    const char16_t* text(const char* pId);
+    // The frame of Mario.arc's ColorChange the player wears in mode (a game's or a mod's power-up).
+    u32 powerUpColorFrame(u16 mode);
+    // A mod's words for a message: nullptr if none has any. ppLike, if given: the game message whose talk a new line takes
+    // (nullptr: none named).
+    const char16_t* text(const char* pId, const char** ppLike = nullptr);
     // What a hungry Luma of this slot costs, if a mod says: -1 otherwise.
     s32 hungryLumaPrice(s32 slot);
     s32 hungryLumaSlots();
@@ -59,25 +64,87 @@ namespace NebulaMods {
     const char* objectBecomes(s32 where, const char* pName);
     // Frames, from what mods say of a comet mission; 0: they say nothing.
     u32 cometTimeLimit(const char* pGalaxy, s32 mission);
-    void addArchives(NameObjArchiveListCollector* pCollector, const char* pName);
     // The journey, if a mod says: the stage named, or the game's own.
     const char* firstStage();
     s32 firstMission();
     const char* hubStage();
     bool noStoryScenes();
+    // The mods' player animations (add_player_animation), each name once (the last added), for the player's tables;
+    // taken the first time the player is built: none are added after.
+    struct PlayerAnimation {
+        const char* mName;
+        const char* mFile;
+        f32 mRate;
+        u32 mBlendFrames;  // 0: the game's
+    };
+    s32 takePlayerAnimations(const PlayerAnimation** ppAnimations);
     // A sound a mod plays from a file, by its name: -1 for none.
     extern bool sHasSoundEffects;
     u32 soundEffectSlow(const char* pName);
+    // The sound to start for id: a mod's in place of a game sound it replaced (by name, wherever the game plays it, by name
+    // or by number, as the player's voices are), with one for Luigi ("<name>@luigi") while he plays; else id.
+    u32 soundFor(u32 id, bool luigi);
     // A stage asked about by its name. 1: a mod says this stage plays by that one's rules. 0: it says it doesn't. -1: nothing said.
     extern bool sHasStageRules;
     s32 stageRuleSlow(const char* pStage, const char* pAskedName);
     inline s32 stageRule(const char* pStage, const char* pAskedName) {
         return sHasStageRules ? stageRuleSlow(pStage, pAskedName) : -1;
     }
-    // With a mod on: an object a level places whose archive isn't anywhere. It's left out and the log says so, not a stop.
-    bool isMissingFiles(const char* pName, const JMapInfoIter& rIter);
+    // With a mod on: an object a level places whose mod-made class or plugin names an archive the store lacks. It's left
+    // out and the log says so, not a stop. The game's own archives are in every store (a mod store lies over the base).
+    bool isMissingFiles(const char* pName);
     // A name a level places that a mod has made as another of the game's objects: that object's name. The name itself otherwise.
     const char* objectLike(const char* pName);
     // What a model named by an object of that class comes from.
     const char* modelFor(const char* pObjectName, const char* pModelName);
+
+    // The game's rules as plugins change them (set_gravity_scale, set_game_speed, set_camera, show_hud, the countdown):
+    // with none changed each check is one load.
+    extern f32 sGravityScale;
+    inline f32 gravityScale() {
+        return sGravityScale;
+    }
+    // Whether the scene runs a step this frame: decided once a frame (StageFrame), for the step and the scene's stops.
+    extern bool sSceneStep;
+    inline bool isSceneStep() {
+        return sSceneStep;
+    }
+    // A plugin's camera: bit 0 a position, bit 1 a target, in pPosition and pTarget; 0 when it sets neither.
+    extern bool sCameraSet;
+    u32 cameraPoseSlow(f32* pPosition, f32* pTarget);
+    inline u32 cameraPose(f32* pPosition, f32* pTarget) {
+        return sCameraSet ? cameraPoseSlow(pPosition, pTarget) : 0;
+    }
+    // The near plane: a plugin's, else the game's.
+    extern f32 sCameraNear;
+    inline f32 cameraNear(f32 nearZ) {
+        return sCameraNear > 0.0f ? sCameraNear : nearZ;
+    }
+    // The angle of view: a plugin's, else the game's `fovy`. Kept as the last drawn.
+    f32 cameraFov(f32 fovy);
+    // The HUD parts plugins hide (NEBULA_HUD_*).
+    extern u32 sHudHidden;
+    inline bool isHudHidden(u8 part) {
+        return (sHudHidden & part) != 0u;
+    }
+    // The countdown on the screen while it shows (TimeLimitLayout), and whether plugins hold it.
+    void setCountdown(TimeLimitLayout* pLayout, bool shown);
+    extern bool sCountdownHeld;
+    // The scene ends: what pointed into it goes.
+    void sceneEnded();
+
+    // The lines of text plugins draw over the game (NebulaModText).
+    const s32 cTextLines = 16;
+    const s32 cTextLength = 128;
+    struct TextLine {
+        bool mShown;
+        f32 mX;
+        f32 mY;
+        f32 mSize;
+        u32 mRgba;
+        char16_t mText[cTextLength];
+    };
+    const TextLine& textLine(s32 line);
+    // Counts up with every change to the lines.
+    u32 textRevision();
 }  // namespace NebulaMods

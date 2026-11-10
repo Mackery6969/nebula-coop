@@ -1,17 +1,16 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class KoopaBattleMapCoinPlate : public LiveActor {
 public:
     KoopaBattleMapCoinPlate(const char*);
 
-    virtual ~KoopaBattleMapCoinPlate();
-    virtual void init(const JMapInfoIter&);
-    virtual void calcAndSetBaseMtx();
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
 private:
-    TPos3f mBaseMtx;
+    Pos3f mBaseMtx;
 };

@@ -1,4 +1,5 @@
 #include "Game/NPC/CollectTico.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/NPC/StrayTico.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
@@ -9,7 +10,11 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SceneUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
-#include <JSystem/JMath/JMath.hpp>
+#include <nebula_geometry.hpp>
+#include "Game/Util/Tunable.hpp"
+
+// The step counts of this file's functions, as tunables: "<file>.<function>.<k>".
+NEBULA_TUNABLE_NAMED(s32, cStep_exeFlash_1, "exeFlash.1", 10);
 
 namespace NrvCollectTico {
     NEW_NERVE(CollectTicoNrvWait, CollectTico, Wait);
@@ -22,24 +27,24 @@ namespace NrvCollectTico {
 CollectTico::CollectTico(const char* pName) : LiveActor(pName) {
     mStrayTicos = nullptr;
     mTicoNum = 0;
-    _A0 = 0;
+    mIsDemoCast = 0;
 }
 
-void CollectTico::init(const JMapInfoIter& rIter) {
+void CollectTico::init(const TableIter& rIter) {
     MR::connectToSceneNpcMovement(this);
     mTicoNum = MR::getChildObjNum(rIter);
     mStrayTicos = new StrayTico*[mTicoNum];
     for (s32 i = 0; i < mTicoNum; i++) {
-        mStrayTicos[i] = new StrayTico("\202\315\202\256\202\352\203\140\203\122" /* はぐれチコ */, this);
+        mStrayTicos[i] = new StrayTico("はぐれチコ", this);
         MR::initChildObj(mStrayTicos[i], rIter, i);
     }
 
-    initEffectKeeper(0, "CollectTico", false);
+    initEffectKeeper(0, "CollectTico");
     initSound(2, false);
     initNerve(GET_NERVE(CollectTico, CollectTicoNrvWait));
     if (MR::tryRegisterDemoCast(this, rIter)) {
-        MR::registerDemoActionFunctor(this, MR::Functor(this, &CollectTico::startAppearPowerStar), "\217\127\202\337\203\140\203\122\203\130\203\136\201\133\217\157\214\273" /* 集めチコスター出現 */);
-        _A0 = 1;
+        MR::registerDemoActionFunctor(this, MR::Functor(this, &CollectTico::startAppearPowerStar), "集めチコスター出現");
+        mIsDemoCast = 1;
     }
 
     MR::useStageSwitchWriteA(this, rIter);
@@ -58,7 +63,7 @@ void CollectTico::exeWait() {
     }
 
     if (needsDemo && !MR::isPlayerDead()) {
-        MR::requestStartDemo(this, "\203\140\203\122\217\127\202\337\203\122\203\223\203\166\203\212\201\133\203\147" /* チコ集めコンプリート */, GET_NERVE(CollectTico, CollectTicoNrvCompleteDemo),
+        MR::requestStartDemo(this, "チコ集めコンプリート", GET_NERVE(CollectTico, CollectTicoNrvCompleteDemo),
                              GET_NERVE(CollectTico, CollectTicoNrvTryStartDemo));
     }
 }
@@ -68,12 +73,12 @@ void CollectTico::exeCompleteDemo() {
         mPosition.set(*MR::getPlayerPos());
         MR::calcGravity(this);
 
-        _94.scaleAdd(300.0f, -mGravity, mPosition);
-        mPosition.set(_94);
+        mStarPos.scaleAdd(300.0f, -mGravity, mPosition);
+        mPosition.set(mStarPos);
 
         for (s32 i = 0; i < mTicoNum; i++) {
             MR::requestMovementOn(mStrayTicos[i]);
-            mStrayTicos[i]->requestCompleteDemo(_94, mGravity, 360.0f * ((f32)i / mTicoNum));
+            mStrayTicos[i]->requestCompleteDemo(mStarPos, mGravity, 360.0f * ((f32)i / mTicoNum));
         }
     }
 
@@ -97,19 +102,19 @@ void CollectTico::exeFlash() {
         MR::startSound(this, "SE_SM_STRAYTICO_FUSION");
     }
 
-    if (MR::isStep(this, 10)) {
+    if (MR::isStep(this, cStep_exeFlash_1)) {
         for (s32 i = 0; i < mTicoNum; i++) {
             mStrayTicos[i]->kill();
         }
     }
 
-    if (MR::isStep(this, 60)) {
-        if (!_A0) {
-            MR::requestAppearPowerStar(this, _94);
+    if (MR::isStep(this, NebulaFrameClock::stepsOfSeconds(1))) {
+        if (!mIsDemoCast) {
+            MR::requestAppearPowerStar(this, mStarPos);
             setNerve(GET_NERVE(CollectTico, CollectTicoNrvAppearPowerStar));
         }
 
-        MR::endDemo(this, "\203\140\203\122\217\127\202\337\203\122\203\223\203\166\203\212\201\133\203\147" /* チコ集めコンプリート */);
+        MR::endDemo(this, "チコ集めコンプリート");
         if (MR::isValidSwitchA(this)) {
             MR::onSwitchA(this);
         }
@@ -138,7 +143,7 @@ s32 CollectTico::calcNoRescuedCount() const {
 }
 
 void CollectTico::startAppearPowerStar() {
-    MR::requestAppearPowerStar(this, _94);
+    MR::requestAppearPowerStar(this, mStarPos);
     setNerve(GET_NERVE(CollectTico, CollectTicoNrvAppearPowerStar));
 }
 

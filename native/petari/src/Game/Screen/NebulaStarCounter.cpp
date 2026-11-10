@@ -12,10 +12,10 @@
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SceneUtil.hpp"
 #include <cstring>
-#include <nw4r/lyt/layout.h>
-#include <nw4r/lyt/pane.h>
-#include <nw4r/lyt/picture.h>
-#include <nw4r/lyt/textBox.h>
+#include <Game/Ui/Layout.hpp>
+#include <Game/Ui/Pane.hpp>
+#include <Game/Ui/Picture.hpp>
+#include <Game/Ui/TextBox.hpp>
 
 namespace {
     // sm64coopdx's mod's colours: red for this room's stars, green for every star.
@@ -37,29 +37,29 @@ namespace NrvNebulaStarCounter {
 // set those colours again (its Flash): each one they write is tinted once more after them.
 struct NebulaStarCounterTint {
     struct Entry {
-        nw4r::lyt::Pane* mPane;
+        Ui::Pane* mPane;
         bool mText;
-        nw4r::ut::Color mWritten[4];
+        Color8 mWritten[4];
     };
     Entry mEntries[cTintedMax];
     s32 mNum;
-    nw4r::ut::Color mTint;
+    Color8 mTint;
 
-    nw4r::ut::Color tinted(nw4r::ut::Color color) const {
-        nw4r::ut::Color out = color;
+    Color8 tinted(Color8 color) const {
+        Color8 out = color;
         out.r = static_cast< u8 >(color.r * mTint.r / 255);
         out.g = static_cast< u8 >(color.g * mTint.g / 255);
         out.b = static_cast< u8 >(color.b * mTint.b / 255);
         return out;
     }
 
-    void collect(nw4r::lyt::Pane* pPane) {
+    void collect(Ui::Pane* pPane) {
         // The number keeps its colour.
         if (pPane == nullptr || strcmp(pPane->mName, "Counter") == 0) {
             return;
         }
-        const bool text = pPane->GetRuntimeTypeInfo()->IsDerivedFrom(&nw4r::lyt::TextBox::typeInfo);
-        const bool picture = pPane->GetRuntimeTypeInfo()->IsDerivedFrom(&nw4r::lyt::Picture::typeInfo);
+        const bool text = Ui::PaneCast< Ui::TextBox >(pPane) != nullptr;
+        const bool picture = Ui::PaneCast< Ui::Picture >(pPane) != nullptr;
         if ((text || picture) && mNum < cTintedMax) {
             Entry& rEntry = mEntries[mNum++];
             rEntry.mPane = pPane;
@@ -69,8 +69,8 @@ struct NebulaStarCounterTint {
                 rEntry.mWritten[i] = 0x00000001;
             }
         }
-        for (nw4r::lyt::PaneList::Iterator it = pPane->GetChildList().GetBeginIter(); it != pPane->GetChildList().GetEndIter(); ++it) {
-            collect(&*it);
+        for (Ui::Pane* it : pPane->GetChildList()) {
+            collect(it);
         }
     }
 
@@ -78,18 +78,18 @@ struct NebulaStarCounterTint {
         for (s32 i = 0; i < mNum; i++) {
             Entry& rEntry = mEntries[i];
             if (rEntry.mText) {
-                nw4r::lyt::TextBox* pText = static_cast< nw4r::lyt::TextBox* >(rEntry.mPane);
+                Ui::TextBox* pText = static_cast< Ui::TextBox* >(rEntry.mPane);
                 for (u32 c = 0; c < 2; c++) {
-                    const nw4r::ut::Color now = pText->GetTextColor(c);
+                    const Color8 now = pText->GetTextColor(c);
                     if (static_cast< u32 >(now) != static_cast< u32 >(rEntry.mWritten[c])) {
                         rEntry.mWritten[c] = tinted(now);
                         pText->SetTextColor(c, rEntry.mWritten[c]);
                     }
                 }
             } else {
-                nw4r::lyt::Picture* pPicture = static_cast< nw4r::lyt::Picture* >(rEntry.mPane);
+                Ui::Picture* pPicture = static_cast< Ui::Picture* >(rEntry.mPane);
                 for (u32 c = 0; c < 4; c++) {
-                    const nw4r::ut::Color now = pPicture->GetVtxColor(c);
+                    const Color8 now = pPicture->GetVtxColor(c);
                     if (static_cast< u32 >(now) != static_cast< u32 >(rEntry.mWritten[c])) {
                         rEntry.mWritten[c] = tinted(now);
                         pPicture->SetVtxColor(c, rEntry.mWritten[c]);
@@ -105,12 +105,12 @@ NebulaStarCounter::NebulaStarCounter(Kind kind)
       mLayoutAppearer(nullptr), mPaneRumbler(nullptr), mTint(nullptr) {
 }
 
-void NebulaStarCounter::init(const JMapInfoIter& rIter) {
+void NebulaStarCounter::init(const TableIter& rIter) {
     // The save's own counter, with room in its number for an all-time count.
     initLayoutManagerWithTextBoxBufferLength("StarCounter", 2, 8);
     MR::createAndAddPaneCtrl(this, "Counter", 1);
 
-    mLayoutAppearer = new CounterLayoutAppearer(this, TVec2f(-50.0f, 0.0f));
+    mLayoutAppearer = new CounterLayoutAppearer(this, Vec2f(-50.0f, 0.0f));
     mPaneRumbler = new CountUpPaneRumbler(this, "Counter");
 
     mTint = new NebulaStarCounterTint();
@@ -122,7 +122,7 @@ void NebulaStarCounter::init(const JMapInfoIter& rIter) {
         sReported = true;
         nebula_log("NebulaStarCounter: %d of StarCounter's panes tinted\n", mTint->mNum);
         for (s32 i = 0; i < mTint->mNum; i++) {
-            nebula_log("  %s (%s)\n", mTint->mEntries[i].mPane->mName, mTint->mEntries[i].mText ? "text" : "picture");
+            nebula_log("  %s (%s)\n", static_cast< const char* >(mTint->mEntries[i].mPane->mName), mTint->mEntries[i].mText ? "text" : "picture");
         }
     }
 
@@ -146,20 +146,20 @@ f32 NebulaStarCounter::getLineStep() const {
     // The tallest picture or text of the layout (the star, or the number), from layout units to the screen's.
     f32 tallest = 0.0f;
     for (s32 i = 0; i < mTint->mNum; i++) {
-        const nw4r::lyt::Pane* pPane = mTint->mEntries[i].mPane;
+        const Ui::Pane* pPane = mTint->mEntries[i].mPane;
         const f32 height = pPane->mSize.height * pPane->mScale.y;
         tallest = height > tallest ? height : tallest;
     }
-    const nw4r::lyt::Pane* pCounter = getLayoutManager()->mLayout->mpRootPane->FindPaneByName("Counter", true);
+    const Ui::Pane* pCounter = getLayoutManager()->mLayout->mpRootPane->FindPaneByName("Counter", true);
     if (pCounter != nullptr && pCounter->mSize.height * pCounter->mScale.y > tallest) {
         tallest = pCounter->mSize.height * pCounter->mScale.y;
     }
     if (tallest <= 0.0f) {
         return cLineStepFallback;
     }
-    TVec2f top, bottom;
-    MR::convertLayoutPosToScreenPos(&top, TVec2f(0.0f, 0.0f));
-    MR::convertLayoutPosToScreenPos(&bottom, TVec2f(0.0f, -tallest));
+    Vec2f top, bottom;
+    MR::convertLayoutPosToScreenPos(&top, Vec2f(0.0f, 0.0f));
+    MR::convertLayoutPosToScreenPos(&bottom, Vec2f(0.0f, -tallest));
     const f32 step = bottom.y - top.y;
     return step > 1.0f ? step : cLineStepFallback;
 }
@@ -173,7 +173,7 @@ void NebulaStarCounter::appear() {
     }
     // Under the save's counter: the room's first, then the all-time one (first when there is no room).
     const s32 slot = mKind == Kind_Room || NebulaHost::coopStarCount() < 0 ? 1 : 2;
-    mLayoutAppearer->appear(TVec2f(0.0f, getLineStep() * slot));
+    mLayoutAppearer->appear(Vec2f(0.0f, getLineStep() * slot));
     mPaneRumbler->reset();
     MR::startAnim(this, "Wait", 1);
 

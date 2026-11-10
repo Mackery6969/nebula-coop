@@ -8,7 +8,7 @@ public:
     /// @param pName A pointer to the null-terminated name of the object.
     ImageEffectBase(const char* pName);
 
-    virtual void calcAnim();
+    virtual void calcAnim() override;
 
     virtual void calcAnimSub() {
     }
@@ -25,15 +25,16 @@ public:
     virtual void notifyForceOff() {
     }
 
+    // On, or still fading out.
     bool isSomething() const {
-        return _C || _D;
+        return mIsOn || mIsShown;
     }
 
-    f32 get_10() const {
-        return _10;
+    f32 getFadeLevel() const {
+        return mFadeLevel;
     }
 
-    bool _C;
-    bool _D;
-    f32 _10;
+    bool mIsOn;     // turned on: fades in
+    bool mIsShown;  // drawn: set while on, cleared when the fade-out reaches 0
+    f32 mFadeLevel;
 };

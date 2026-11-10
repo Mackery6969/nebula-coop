@@ -1,22 +1,22 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
 class FireBall : public LiveActor {
 public:
-    FireBall(const char* = "\203\164\203\100\203\103\203\101\201\133\203\173\201\133\203\213" /* ファイアーボール */);
+    FireBall(const char* = "ファイアーボール");
 
-    virtual void init(const JMapInfoIter&);
-    virtual void appear();
-    virtual void kill();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void appear() override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
 
     void initHitSensors(const char*);
-    void appearAndThrow(const TVec3f&, f32, f32);
+    void appearAndThrow(const Vec3f&, f32, f32);
     HitSensor* isBindedAny() const;
     void setVelocityToPlayer(f32);
     void calcReflectVelocity();
@@ -26,5 +26,5 @@ public:
     void exeReflect();
 
     LiveActor* mHost;
-    TVec3f mUp;
+    Vec3f mUp;
 };

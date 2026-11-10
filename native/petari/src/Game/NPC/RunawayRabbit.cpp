@@ -1,4 +1,5 @@
 #include "Game/NPC/RunawayRabbit.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Enemy/WalkerStateBlowDamage.hpp"
 #include "Game/Enemy/WalkerStateRunaway.hpp"
 #include "Game/LiveActor/Nerve.hpp"
@@ -15,7 +16,7 @@
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/DemoUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MapUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
@@ -24,56 +25,65 @@
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
 #include "Game/Util/TalkUtil.hpp"
+#include "Game/Util/Tunable.hpp"
+
+// The numbers this file's functions give the game's motion and animation calls, as tunables: "<file>.<function>.<call>.<k>".
+NEBULA_TUNABLE_NAMED(f32, cNum_exeRunaway_checkPassBckFrame_1, "exeRunaway.checkPassBckFrame.1", 3.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeCaught_addVelocityToGravity_1, "exeCaught.addVelocityToGravity.1", 2.0f);
+
+// The step counts of this file's functions, as tunables: "<file>.<function>.<k>".
+NEBULA_TUNABLE_NAMED(s32, cStep_exeAppear_1, "exeAppear.1", 5);
+NEBULA_TUNABLE_NAMED(s32, cStep_exeCaught_1, "exeCaught.1", 7);
 
 namespace {
-    static const f32 sLightLength = 1500.0f;
-    static const f32 sBodyRadius = 70.0f;
-    static const f32 sCatchRadius = 30.0f;
-    static const f32 sBindRadius = 60.0f;
-    static const f32 sBindYOffset = 60.0f;
-    static const f32 sShadowRadius = 45.0f;
-    static const f32 sUpVecBlendRate = 0.1f;
-    static const f32 sFrontVecBlendRate = 0.2f;
-    static const f32 sAirFric = 0.99f;
-    static const f32 sAirGravityAccel = 1.0f;
-    static const f32 sPushAccel = 0.5f;
-    static const f32 sWaitTurnLimit = 20.0f;
-    static const f32 sHoleAppearPowerH = 19.0f;
-    static const f32 sHoleAppearPowerV = 25.0f;
-    static const f32 sGroundAppearPowerH = 16.0f;
-    static const f32 sGroundAppearPowerV = 25.0f;
-    static const f32 sRunawayAccelMax = 1.8f;
-    static const f32 sRunawayAccelMin = 0.5f;
+    NEBULA_TUNABLE(f32, sLightLength, 1500.0f);
+    NEBULA_TUNABLE(f32, sBodyRadius, 70.0f);
+    NEBULA_TUNABLE(f32, sCatchRadius, 30.0f);
+    NEBULA_TUNABLE(f32, sBindRadius, 60.0f);
+    NEBULA_TUNABLE(f32, sBindYOffset, 60.0f);
+    NEBULA_TUNABLE(f32, sShadowRadius, 45.0f);
+    NEBULA_TUNABLE(f32, sUpVecBlendRate, 0.1f);
+    NEBULA_TUNABLE(f32, sFrontVecBlendRate, 0.2f);
+    NEBULA_TUNABLE(f32, sAirFric, 0.99f);
+    NEBULA_TUNABLE(f32, sAirGravityAccel, 1.0f);
+    NEBULA_TUNABLE(f32, sPushAccel, 0.5f);
+    NEBULA_TUNABLE(f32, sWaitTurnLimit, 20.0f);
+    NEBULA_TUNABLE(f32, sHoleAppearPowerH, 19.0f);
+    NEBULA_TUNABLE(f32, sHoleAppearPowerV, 25.0f);
+    NEBULA_TUNABLE(f32, sGroundAppearPowerH, 16.0f);
+    NEBULA_TUNABLE(f32, sGroundAppearPowerV, 25.0f);
+    NEBULA_TUNABLE(f32, sRunawayAccelMax, 1.8f);
+    NEBULA_TUNABLE(f32, sRunawayAccelMin, 0.5f);
     // bool sIsTireRunawayAccel;
-    static const f32 sNoPressureAccel = 0.6f;
-    static const f32 sPressureRange = 400.0f;
-    static const s32 sPressureLimitTime = 2000;
-    static const s32 sPressureDeccelStart = 200;
-    static const s32 sPressureDeccelTimeLv1 = 240;
-    static const s32 sPressureDeccelTimeLv2 = 500;
-    static const s32 sPressureDeccelTimeLv3 = 800;
+    NEBULA_TUNABLE(f32, sNoPressureAccel, 0.6f);
+    NEBULA_TUNABLE(f32, sPressureRange, 400.0f);
+    NEBULA_TUNABLE(s32, sPressureLimitTime, 2000);
+    NEBULA_TUNABLE(s32, sPressureDeccelStart, 200);
+    static const s32 sPressureDeccelTimeLv1 = NebulaFrameClock::stepsOfSeconds(4);
+    NEBULA_TUNABLE(s32, sPressureDeccelTimeLv2, 500);
+    NEBULA_TUNABLE(s32, sPressureDeccelTimeLv3, 800);
     // f32 sRunawayTurnStartLimit;
     // f32 sRunawayTurnLimit;
     // s32 sRunawayTurnDeccelTime;
-    static const f32 sAwayTargetVelocityRate = 0.3f;
+    NEBULA_TUNABLE(f32, sAwayTargetVelocityRate, 0.3f);
     // f32 sRunAccelbyBckRate;
-    static const f32 sMinRunBckRate = 0.9f;
-    static const f32 sMaxRunBckRate = 1.4f;
-    static const s32 sMarioPoseBlendTime = 5;
+    NEBULA_TUNABLE(f32, sMinRunBckRate, 0.9f);
+    NEBULA_TUNABLE(f32, sMaxRunBckRate, 1.4f);
+    NEBULA_TUNABLE(s32, sMarioPoseBlendTime, 5);
     // const f32 sCaughtJumpPower;
     // f32 sCaughtJumpFrontPower;
-    static const f32 sDamageTurnLimit = 3.0f;
-    static const f32 sBlowAccelH = 25.0f;
-    static const f32 sBlowAccelV = 30.0f;
+    NEBULA_TUNABLE(f32, sDamageTurnLimit, 3.0f);
+    NEBULA_TUNABLE(f32, sBlowAccelH, 25.0f);
+    NEBULA_TUNABLE(f32, sBlowAccelV, 30.0f);
     // s32 sDamageLandTime;
-    static const f32 sStarPieceHitAccelH = 20.0f;
-    static const f32 sStarPieceHitAccelV = 20.0f;
-    static const f32 sNearSoundRadiusDefault = 600.0f;
-    static const f32 sNearSoundRadiusEdge = 250.0f;
-    static const s32 sNearSoundFxSend = 60;
-    static const f32 sNearSoundMinVolume = 35.0f;
-    static const f32 sNearSoundMaxVolume = 100.0f;
-    static const s32 sTossStep = 10;
+    NEBULA_TUNABLE(f32, sStarPieceHitAccelH, 20.0f);
+    NEBULA_TUNABLE(f32, sStarPieceHitAccelV, 20.0f);
+    NEBULA_TUNABLE(f32, sNearSoundRadiusDefault, 600.0f);
+    NEBULA_TUNABLE(f32, sNearSoundRadiusEdge, 250.0f);
+    NEBULA_TUNABLE(s32, sNearSoundFxSend, 60);
+    NEBULA_TUNABLE(f32, sNearSoundMinVolume, 35.0f);
+    NEBULA_TUNABLE(f32, sNearSoundMaxVolume, 100.0f);
+    NEBULA_TUNABLE(s32, sTossStep, 10);
 
     class RunawayRabbitParam : public WalkerStateRunawayParam {
     public:
@@ -102,10 +112,10 @@ RunawayRabbit::RunawayRabbit(const char* pName, RunawayRabbitCollect* pCollect)
       mPressureTimer(), mNotCaughtableTimer(), mIsActive(true), mIsLinked(), mNearSoundRadius(-1.0f) {
 }
 
-void RunawayRabbit::init(const JMapInfoIter& rIter) {
+void RunawayRabbit::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     s32 rabbitType = -1;
-    MR::getJMapInfoArg2WithInit(rIter, &rabbitType);
+    MR::getPlacementArg2WithInit(rIter, &rabbitType);
     initModelManagerWithAnm(rabbitType == 0 ? "TrickRabbitBaby" : "TrickRabbit", nullptr, false);
     MR::connectToSceneNpc(this);
     MR::initLightCtrl(this);
@@ -114,17 +124,17 @@ void RunawayRabbit::init(const JMapInfoIter& rIter) {
 
     MR::addBaseMatrixFollowTarget(this, rIter, nullptr, MR::createBaseMatrixFollowValidateDelegator(this, &RunawayRabbit::isValidFollow));
     mStateRunaway = new WalkerStateRunaway(this, &mFrontVec, &::sParam);
-    mStateBlowDamage = new WalkerStateBlowDamage(this, &mFrontVec, nullptr);
-    MR::getJMapInfoArg0WithInit(rIter, &mGroupId);
-    MR::getJMapInfoArg1WithInit(rIter, &mHideLocation);
-    MR::getJMapInfoArg3WithInit(rIter, &mNearSoundRadius);
+    mStateBlowDamage = new WalkerStateBlowDamage(this, &mFrontVec);
+    MR::getPlacementArg0WithInit(rIter, &mGroupId);
+    MR::getPlacementArg1WithInit(rIter, &mHideLocation);
+    MR::getPlacementArg3WithInit(rIter, &mNearSoundRadius);
 
     if (mNearSoundRadius <= 0.0f) {
         mNearSoundRadius = ::sNearSoundRadiusDefault;
     }
 
     s32 cameraRegisterVec = -1;
-    MR::getJMapInfoArg7WithInit(rIter, &cameraRegisterVec);
+    MR::getPlacementArg7WithInit(rIter, &cameraRegisterVec);
 
     if (cameraRegisterVec != -1) {
         MR::declareCameraRegisterVec(this, cameraRegisterVec, &mPosition);
@@ -138,7 +148,7 @@ void RunawayRabbit::init(const JMapInfoIter& rIter) {
     initShadow();
     initFootPrint();
     initSound(6, false);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     MR::hideModel(this);
     MR::invalidateHitSensors(this);
     initNerve(GET_NERVE(RunawayRabbit, RunawayRabbitNrvNoActive));
@@ -152,7 +162,7 @@ void RunawayRabbit::init(const JMapInfoIter& rIter) {
 
 void RunawayRabbit::initShadow() {
     MR::initShadowVolumeSphere(this, ::sShadowRadius);
-    TVec3f zeroVec(0.0f, 0.0f, 0.0f);
+    Vec3f zeroVec(0.0f, 0.0f, 0.0f);
     MR::setShadowDropPositionAtJoint(this, nullptr, "Spine", zeroVec);
 }
 
@@ -166,9 +176,9 @@ void RunawayRabbit::initAfterPlacement() {
 
 void RunawayRabbit::initSensor() {
     initHitSensor(2);
-    MR::addHitSensorAtJointEnemy(this, "Body", "Spine", 8, ::sBodyRadius, TVec3f(0.0f, 0.0f, 0.0f));
-    MR::addHitSensorAtJointEnemy(this, "Catch", "Spine", 8, ::sCatchRadius, TVec3f(0.0f, 0.0f, 0.0f));
-    MR::initStarPointerTargetAtJoint(this, "Spine", ::sBodyRadius, TVec3f(0, 0, 0));
+    MR::addHitSensorAtJointEnemy(this, "Body", "Spine", 8, ::sBodyRadius, Vec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorAtJointEnemy(this, "Catch", "Spine", 8, ::sCatchRadius, Vec3f(0.0f, 0.0f, 0.0f));
+    MR::initStarPointerTargetAtJoint(this, "Spine", ::sBodyRadius, Vec3f(0, 0, 0));
 }
 
 void RunawayRabbit::appear() {
@@ -198,7 +208,7 @@ void RunawayRabbit::updatePose() {
 }
 
 void RunawayRabbit::updateBindActorMatrix() {
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.setQT(mPlayerPoseQuat, mPlayerBindPos);
     MR::setPlayerBaseMtx(mtx);
 }
@@ -253,7 +263,7 @@ void RunawayRabbit::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     if (MR::isSensorPlayer(pReceiver)) {
         if (pSender == getSensor("Catch") && isCaughtable()) {
             mCollect->noticeCaughtRabbit(this);
-            MR::requestStartDemoMarioPuppetable(this, "\225\337\202\334\202\350" /* 捕まり */, GET_NERVE(RunawayRabbit, RunawayRabbitNrvCaught),
+            MR::requestStartDemoMarioPuppetable(this, "捕まり", GET_NERVE(RunawayRabbit, RunawayRabbitNrvCaught),
                                                 GET_NERVE(RunawayRabbit, RunawayRabbitNrvTryCaughtDemo));
         } else if (isCaught()) {
             MR::sendMsgPush(pReceiver, pSender);
@@ -301,7 +311,7 @@ bool RunawayRabbit::receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) {
     return false;
 }
 
-bool RunawayRabbit::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool RunawayRabbit::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     return MR::isMsgTouchPlantItem(msg);
 }
 
@@ -353,7 +363,7 @@ void RunawayRabbit::exeAppear() {
     MR::turnDirectionDegree(this, &mFrontVec, mVelocity, ::sWaitTurnLimit);
     MR::addVelocityToGravity(this, ::sAirGravityAccel);
     MR::attenuateVelocity(this, ::sAirFric);
-    if (MR::isGreaterStep(this, 5) && MR::isBindedGround(this)) {
+    if (MR::isGreaterStep(this, cStep_exeAppear_1) && MR::isBindedGround(this)) {
         setNerve(GET_NERVE(RunawayRabbit, RunawayRabbitNrvRunaway));
         mPressureTimer = 0;
     }
@@ -364,7 +374,7 @@ void RunawayRabbit::exeRunaway() {
     if (!mStateRunaway->isRunning()) {
         return;
     }
-    if (MR::checkPassBckFrame(this, 3.0f)) {
+    if (MR::checkPassBckFrame(this, cNum_exeRunaway_checkPassBckFrame_1)) {
         startJumpSound();
     }
     f32 runawaySpeed = ::sNoPressureAccel;
@@ -427,13 +437,13 @@ void RunawayRabbit::exeCaught() {
     MR::vecBlend(mPlayerBindPos, mPosition, &mPlayerBindPos, nerveRate);
 
     if (!MR::isBindedGround(this)) {
-        MR::addVelocityToGravity(this, 2.0f);
+        MR::addVelocityToGravity(this, cNum_exeCaught_addVelocityToGravity_1);
         MR::attenuateVelocity(this, ::sAirFric);
     } else {
         MR::zeroVelocity(this);
     }
     updateBindActorMatrix();
-    if (MR::isGreaterEqualStep(this, 7) && MR::isBindedGround(this)) {
+    if (MR::isGreaterEqualStep(this, cStep_exeCaught_1) && MR::isBindedGround(this)) {
         MR::zeroVelocity(this);
         setNerve(GET_NERVE(RunawayRabbit, RunawayRabbitNrvCaughtTalk));
     }
@@ -465,7 +475,7 @@ void RunawayRabbit::exeCaughtEnd() {
     }
     updateBindActorMatrix();
     if (MR::isBckStopped(this)) {
-        MR::endDemo(this, "\225\337\202\334\202\350" /* 捕まり */);
+        MR::endDemo(this, "捕まり");
         setNerve(GET_NERVE(RunawayRabbit, RunawayRabbitNrvStop));
     }
 }
@@ -523,7 +533,7 @@ bool RunawayRabbit::isEnableBlow() const {
     return isNerve(GET_NERVE(RunawayRabbit, RunawayRabbitNrvRunaway));
 }
 
-bool RunawayRabbit::isValidFollow(s32 id) const {
+bool RunawayRabbit::isValidFollow(s32 /*id*/) const {
     if (isNerve(GET_NERVE(RunawayRabbit, RunawayRabbitNrvNoActive)) || isNerve(GET_NERVE(RunawayRabbit, RunawayRabbitNrvHide)) ||
         isNerve(GET_NERVE(RunawayRabbit, RunawayRabbitNrvStop))) {
         return false;

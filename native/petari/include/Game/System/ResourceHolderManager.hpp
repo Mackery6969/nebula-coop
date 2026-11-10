@@ -8,23 +8,23 @@ class LayoutHolder;
 class ResourceHolder;
 class ResourceHolderManager;
 
-typedef bool (*MakeArchiveFileNameFuncPtr)(char*, u32, const char*);
-typedef void (*FuncPtrB)(const char*, CreateResourceHolderArgs*);
-typedef void (ResourceHolderManager::*FuncPtrC)(const char*, CreateResourceHolderArgs*);
+namespace MR {
+    class FormattedName;
+}
+
+typedef bool (*MakeArchiveFileNameFuncPtr)(MR::FormattedName&, const char*);
 
 class CreateResourceHolderArgs {
 public:
-    /// @brief Creates a new `CreateResourceHolderArgs`.
     CreateResourceHolderArgs();
 
     ResourceHolder* mResourceHolder;
     LayoutHolder* mLayoutHolder;
-    NebulaArena* mHeap;
+    NebulaArena* mArena;
 };
 
 class ResourceHolderManagerName2Resource {
 public:
-    /// @brief Creates a new `ResourceHolderManagerName2Resource`.
     ResourceHolderManagerName2Resource();
 
     /// @brief Copies the contents from `other` to `this`.
@@ -35,31 +35,29 @@ public:
     ResourceHolder* mResourceHolder;
     LayoutHolder* mLayoutHolder;
     u32 mHash;
-    NebulaArena* mHeap;
+    NebulaArena* mArena;
 };
 
 class ResourceHolderManager {
 public:
-    /// @brief Creates a new `ResourceHolderManager`.
     ResourceHolderManager();
 
-    ResourceHolder* createAndAdd(const char*, NebulaArena*);
-    ResourceHolder* createAndAddStationed(const char*);
-    LayoutHolder* createAndAddLayoutHolder(const char*, NebulaArena*);
-    LayoutHolder* createAndAddLayoutHolderStationed(const char*);
-    LayoutHolder* createAndAddLayoutHolderRawData(const char*);
-    void removeIfIsEqualHeap(NebulaArena*);
-    static void startCreateResourceHolder(const char*, CreateResourceHolderArgs*);
-    static void startCreateLayoutHolder(const char*, CreateResourceHolderArgs*);
+    ResourceHolder* createAndAdd(const char* pArcName, NebulaArena*);
+    LayoutHolder* createAndAddLayoutHolder(const char* pArcName, NebulaArena*);
+    LayoutHolder* createAndAddLayoutHolderRawData(const char* pArcPath);
+    LayoutHolder* createAndAddGameLayoutHolder(const char* pArcName);
+    // Drops the holders made in pArena (it is going).
+    void removeArenaHolders(NebulaArena* pArena);
 
 private:
-    ResourceHolderManagerName2Resource* createAndAddInner(const char*, MakeArchiveFileNameFuncPtr, FuncPtrB);
-    ResourceHolderManagerName2Resource* createAndAddInnerStationed(const char*, FuncPtrC);
-    void createResourceHolder(const char*, CreateResourceHolderArgs*);
-    void createLayoutHolder(const char*, CreateResourceHolderArgs*);
-    ResourceHolderManagerName2Resource* add(const char*, const CreateResourceHolderArgs&);
-    ResourceHolderManagerName2Resource* find(const char*);
+    typedef void (ResourceHolderManager::*CreateHolderFunc)(const char*, CreateResourceHolderArgs*);
+
+    ResourceHolderManagerName2Resource* createAndAddInner(const char* pArcName, MakeArchiveFileNameFuncPtr, CreateHolderFunc create);
+    void createResourceHolder(const char* pArcPath, CreateResourceHolderArgs*);
+    void createLayoutHolder(const char* pArcPath, CreateResourceHolderArgs*);
+    ResourceHolderManagerName2Resource* add(const char* pPath, const CreateResourceHolderArgs&);
+    ResourceHolderManagerName2Resource* find(const char* pName);
 
 private:
-    MR::Vector< MR::FixedArray< ResourceHolderManagerName2Resource, 512 > > mResourceArray;
+    MR::InlineVector< ResourceHolderManagerName2Resource, 512 > mResourceArray;
 };

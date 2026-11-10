@@ -7,7 +7,7 @@ class TalkMessageCtrl;
 
 class ButlerStateStarPieceReaction : public ActorStateBase< LiveActor > {
 public:
-    ButlerStateStarPieceReaction(LiveActor*, const JMapInfoIter&, const char*);
+    ButlerStateStarPieceReaction(LiveActor*, const TableIter&, const char*);
 
     virtual void init();
     virtual void appear();
@@ -15,5 +15,5 @@ public:
     void exeWait();
 
     TalkMessageCtrl* mTalkMessage;
-    bool _14;
+    bool mIsTalkForce;
 };

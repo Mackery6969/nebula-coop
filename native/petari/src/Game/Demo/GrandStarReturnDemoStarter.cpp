@@ -1,6 +1,9 @@
 #include "Game/Demo/GrandStarReturnDemoStarter.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
+#include "Game/Util/StringUtil.hpp"
 #include "Game/Demo/AstroDemoFunction.hpp"
 #include "Game/Demo/ReturnDemoRailMove.hpp"
+#include "Game/LiveActor/ModelObj.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/PowerStar.hpp"
 #include "Game/Screen/StageResultInformer.hpp"
@@ -17,11 +20,16 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
-#include <cstdio>
+#include "Game/Util/StringUtil.hpp"
+#include "Game/Util/Tunable.hpp"
+
+// The step counts of this file's functions, as tunables: "<file>.<function>.<k>".
+NEBULA_TUNABLE_NAMED(s32, cStep_exeRevival_1, "exeRevival.1", 40);
+NEBULA_TUNABLE_NAMED(s32, cStep_exeRevival_2, "exeRevival.2", 40);
 
 namespace {
-    const char* const cDemoMovePartName = "\210\332\223\256" /* 移動 */;
-    const char* const cDemoWaitPartName = "\203\105\203\106\203\103\203\147\201\250\203\122\203\101\223\313\223\374" /* ウェイト→コア突入 */;
+    const char* const cDemoMovePartName = "移動";
+    const char* const cDemoWaitPartName = "ウェイト→コア突入";
 };  // namespace
 
 GrandStarReturnDemoStarter::GrandStarReturnDemoStarter(const char* pName)
@@ -41,7 +49,7 @@ namespace NrvGrandStarReturnDemoStarter {
     NEW_NERVE(GrandStarReturnDemoStarterNrvWaitDemoEnd, GrandStarReturnDemoStarter, WaitDemoEnd);
 };  // namespace NrvGrandStarReturnDemoStarter
 
-void GrandStarReturnDemoStarter::init(const JMapInfoIter& rIter) {
+void GrandStarReturnDemoStarter::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     MR::connectToSceneMapObjMovement(this);
     MR::invalidateClipping(this);
@@ -49,7 +57,7 @@ void GrandStarReturnDemoStarter::init(const JMapInfoIter& rIter) {
     mStageResultInformer = new StageResultInformer();
     mStageResultInformer->initWithoutIter();
 
-    mPowerStar = reinterpret_cast< PowerStar* >(MR::createModelObjNoSilhouettedMapObjStrongLight("\203\130\203\136\201\133\203\146\203\202\203\202\203\146\203\213" /* スターデモモデル */, "GrandStar", mTransform));
+    mPowerStar = MR::createModelObjNoSilhouettedMapObjStrongLight("スターデモモデル", "GrandStar", mTransform);
     MR::invalidateClipping(mPowerStar);
     mPowerStar->kill();
 
@@ -68,14 +76,12 @@ void GrandStarReturnDemoStarter::init(const JMapInfoIter& rIter) {
         };
     }
 
-    MR::initMultiActorCamera(this, rIter, &mActorCameraInfo, "\210\332\223\256" /* 移動 */);
-    MR::initMultiActorCamera(this, rIter, &mActorCameraInfo, "\203\105\203\106\203\103\203\147" /* ウェイト */);
-    MR::initMultiActorCamera(this, rIter, &mActorCameraInfo, "\203\212\203\125\203\213\203\147" /* リザルト */);
+    MR::initMultiActorCamera(this, rIter, &mActorCameraInfo, "移動");
+    MR::initMultiActorCamera(this, rIter, &mActorCameraInfo, "ウェイト");
+    MR::initMultiActorCamera(this, rIter, &mActorCameraInfo, "リザルト");
 
     for (int i = 0; i < 6; i++) {
-        char buffer[256];
-        nebula_snprintf(buffer, sizeof(buffer), "DemoAstroReturn%d", i + 1);
-        MR::initAnimCamera(this, mActorCameraInfo, "DemoAstroReturn.arc", buffer);
+        MR::initAnimCamera(this, mActorCameraInfo, "DemoAstroReturn", MR::FormattedName("DemoAstroReturn%d", i + 1).c_str());
     }
 
     initNerve(GET_NERVE(GrandStarReturnDemoStarter, GrandStarReturnDemoStarterNrvMove));
@@ -109,18 +115,20 @@ void GrandStarReturnDemoStarter::control() {
     }
 }
 
-void GrandStarReturnDemoStarter::calcOffsetStarToCore(TVec3f* pOffset) const {
-    TVec3f namePos;
-    TVec3f jointPos;
+void GrandStarReturnDemoStarter::calcOffsetStarToCore(Vec3f* pOffset) const {
+    Vec3f namePos;
+    Vec3f jointPos;
 
-    MR::findNamePos("\203\122\203\101\222\206\220\123" /* コア中心 */, &namePos, nullptr);
     MR::copyJointPos(mPowerStar, "PowerStar", &jointPos);
+    // A level without the core point leaves the offset zero.
+    namePos.set(jointPos);
+    MR::findNamePos("コア中心", &namePos, nullptr);
 
     pOffset->sub(namePos, jointPos);
 }
 
 void GrandStarReturnDemoStarter::updateRailMoveEndDir() {
-    TVec3f offset;
+    Vec3f offset;
     calcOffsetStarToCore(&offset);
     MR::normalize(&offset);
 
@@ -136,9 +144,9 @@ void GrandStarReturnDemoStarter::emitEffectRush() {
     MR::emitEffect(mPowerStar, "Blur5");
 }
 
-void GrandStarReturnDemoStarter::updateRushStarPos(const TVec3f& rPosition, s32 frame) {
-    TVec3f offset;
-    TVec3f newPosition;
+void GrandStarReturnDemoStarter::updateRushStarPos(const Vec3f& rPosition, s32 frame) {
+    Vec3f offset;
+    Vec3f newPosition;
 
     offset.scale(100.0f * frame, mDistanceToCore);
     newPosition.add(rPosition, offset);
@@ -172,11 +180,11 @@ void GrandStarReturnDemoStarter::exeMove() {
 
     if (!isActiveGrandStarReturnDemoIndex(0)) {
         if (MR::isFirstStep(this)) {
-            MR::startMultiActorCameraTargetPlayer(this, mActorCameraInfo, "\210\332\223\256" /* 移動 */);
+            MR::startMultiActorCameraTargetPlayer(this, mActorCameraInfo, "移動");
         }
 
         if (MR::isDemoPartStep(::cDemoMovePartName, 300)) {
-            MR::startMultiActorCameraTargetPlayer(this, mActorCameraInfo, "\203\105\203\106\203\103\203\147" /* ウェイト */);
+            MR::startMultiActorCameraTargetPlayer(this, mActorCameraInfo, "ウェイト");
         }
     }
 
@@ -198,11 +206,11 @@ void GrandStarReturnDemoStarter::exeFlyWait() {
         mReturnDemoRailMove->posToEnd();
     }
 
-    if (MR::isStep(this, 60)) {
+    if (MR::isStep(this, NebulaFrameClock::stepsOfSeconds(1))) {
         emitEffectRush();
     }
 
-    if (MR::isLessStep(this, 60)) {
+    if (MR::isLessStep(this, NebulaFrameClock::stepsOfSeconds(1))) {
         MR::startLevelSound(mPowerStar, "SE_OJ_LV_RET_POW_STAR_FLY");
     }
 
@@ -212,7 +220,7 @@ void GrandStarReturnDemoStarter::exeFlyWait() {
 }
 
 void GrandStarReturnDemoStarter::exeRushToCore() {
-    TVec3f position;
+    Vec3f position;
     mPrevTransform.getTrans(position);
 
     if (MR::isFirstStep(this)) {
@@ -235,9 +243,7 @@ void GrandStarReturnDemoStarter::exeRushToCore() {
 }
 
 void GrandStarReturnDemoStarter::exeRevival() {
-    char buffer[256];
-    int index = AstroDemoFunction::getActiveGrandStarReturnDemoIndex() + 1;
-    nebula_snprintf(buffer, sizeof(buffer), "DemoAstroReturn%d", index);
+    const MR::FormattedName cameraName("DemoAstroReturn%d", AstroDemoFunction::getActiveGrandStarReturnDemoIndex() + 1);
 
     if (MR::isFirstStep(this)) {
         mReturnDemoRailMove->offPathDraw();
@@ -247,30 +253,30 @@ void GrandStarReturnDemoStarter::exeRevival() {
         mPosition.zero();
         mRotation.zero();
 
-        MR::startAnimCameraTargetSelf(this, mActorCameraInfo, buffer, 0, 1.0f);
+        MR::startAnimCameraTargetSelf(this, mActorCameraInfo, cameraName.c_str(), 0, 1.0f);
     }
 
-    if (MR::isLessStep(this, 40)) {
+    if (MR::isLessStep(this, cStep_exeRevival_1)) {
         updateRushStarPos(mPowerStarPosition, -(40 - getNerveStep()));
         MR::startLevelSound(mPowerStar, "SE_OJ_LV_GND_STAR_RUSH");
     }
 
-    if (MR::isStep(this, 40)) {
+    if (MR::isStep(this, cStep_exeRevival_2)) {
         MR::startSound(mPowerStar, "SE_OJ_GND_STAR_ENTER_CORE");
         MR::forceDeleteEffect(mPowerStar, "DemoKoopaGrandStarVs3");
         mPowerStar->kill();
     }
 
-    if (MR::isDemoPartLastStep("\203\150\201\133\203\200\225\234\212\210" /* ドーム復活 */)) {
-        MR::endAnimCamera(this, mActorCameraInfo, buffer, 0, true);
+    if (MR::isDemoPartLastStep("ドーム復活")) {
+        MR::endAnimCamera(this, mActorCameraInfo, cameraName.c_str(), 0, true);
         MR::overlayWithPreviousScreen(2);
     }
 
-    if (MR::isDemoPartFirstStep("\203\212\203\125\203\213\203\147\211\346\226\312" /* リザルト画面 */)) {
-        MR::startMultiActorCameraTargetPlayer(this, mActorCameraInfo, "\203\212\203\125\203\213\203\147" /* リザルト */);
+    if (MR::isDemoPartFirstStep("リザルト画面")) {
+        MR::startMultiActorCameraTargetPlayer(this, mActorCameraInfo, "リザルト");
     }
 
-    tryStartStageResult("\203\212\203\125\203\213\203\147\211\346\226\312" /* リザルト画面 */);
+    tryStartStageResult("リザルト画面");
 }
 
 void GrandStarReturnDemoStarter::exeStageResult() {
@@ -285,7 +291,7 @@ void GrandStarReturnDemoStarter::exeFadeOut() {
     }
 
     if (!MR::isWipeActive()) {
-        MR::endMultiActorCamera(this, mActorCameraInfo, "\203\212\203\125\203\213\203\147" /* リザルト */, false);
+        MR::endMultiActorCamera(this, mActorCameraInfo, "リザルト", false);
         setNerve(GET_NERVE(GrandStarReturnDemoStarter, GrandStarReturnDemoStarterNrvWaitDemoEnd));
     }
 }
@@ -310,7 +316,4 @@ void GrandStarReturnDemoStarter::exeWaitDemoEnd() {
     if (!MR::isTimeKeepDemoActive()) {
         kill();
     }
-}
-
-GrandStarReturnDemoStarter::~GrandStarReturnDemoStarter() {
 }

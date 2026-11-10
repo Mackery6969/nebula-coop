@@ -14,9 +14,10 @@
 
 namespace galaxy::stats {
 namespace {
-constexpr std::size_t kMaxCounters = 64;
 // Counts arriving together (the game hands them over every few seconds) are written once.
 constexpr std::chrono::milliseconds kWriteDelay{1500};
+// Between tries after a write failed.
+constexpr std::chrono::seconds kRetryDelay{5};
 
 // Never destroyed: the writer thread may still wait on it while the process ends.
 struct State {
@@ -46,7 +47,7 @@ void load_locked(State& s) {
     s.loaded = true;
     std::ifstream in(file_path_locked(s));
     std::string line;
-    while (std::getline(in, line) && s.counters.size() < kMaxCounters) {
+    while (std::getline(in, line)) {
         const std::size_t eq = line.find('=');
         if (eq == std::string::npos || !valid_name(std::string_view(line).substr(0, eq))) continue;
         try {
@@ -56,21 +57,25 @@ void load_locked(State& s) {
     }
 }
 
-void write_waiting() {
+// Writes what is waiting; false when the write failed (the counts stay waiting for the next try).
+bool write_waiting() {
     State& s = state();
     const std::lock_guard<std::mutex> io(s.io);
     std::string contents;
     std::filesystem::path path;
     {
         const std::lock_guard<std::mutex> lock(s.mutex);
-        if (!s.dirty) return;
+        if (!s.dirty) return true;
         s.dirty = false;
         std::ostringstream out;
         for (const auto& [name, value] : s.counters) out << name << '=' << value << '\n';
         contents = out.str();
         path = file_path_locked(s);
     }
-    if (!path.empty()) (void)io::write_file_atomically(path, contents);
+    if (path.empty() || io::write_file_atomically(path, contents)) return true;
+    const std::lock_guard<std::mutex> lock(s.mutex);
+    s.dirty = true;
+    return false;
 }
 
 void writer_main() {
@@ -81,7 +86,8 @@ void writer_main() {
             s.wake.wait(lock, [&s] { return s.dirty; });
         }
         std::this_thread::sleep_for(kWriteDelay);
-        write_waiting();
+        // A failed write (the folder is locked for a moment) is tried again after a back-off, not in a spin.
+        if (!write_waiting()) std::this_thread::sleep_for(kRetryDelay);
     }
 }
 }  // namespace
@@ -100,13 +106,8 @@ void add(std::string_view name, std::uint64_t delta) {
     {
         const std::lock_guard<std::mutex> lock(s.mutex);
         load_locked(s);
-        const auto it = s.counters.find(std::string(name));
-        if (it == s.counters.end()) {
-            if (s.counters.size() >= kMaxCounters) return;
-            s.counters.emplace(std::string(name), delta);
-        } else {
-            it->second = delta > UINT64_MAX - it->second ? UINT64_MAX : it->second + delta;
-        }
+        std::uint64_t& count = s.counters[std::string(name)];
+        count = delta > UINT64_MAX - count ? UINT64_MAX : count + delta;
         s.dirty = true;
         if (!s.writer) {
             s.writer = true;
@@ -125,11 +126,11 @@ std::uint64_t get(std::string_view name) {
 }
 
 void flush() {
-    write_waiting();
+    (void)write_waiting();
 }
 
 void set_path_for_tests(const std::filesystem::path& path) {
-    write_waiting();
+    (void)write_waiting();
     State& s = state();
     const std::lock_guard<std::mutex> io(s.io);
     const std::lock_guard<std::mutex> lock(s.mutex);

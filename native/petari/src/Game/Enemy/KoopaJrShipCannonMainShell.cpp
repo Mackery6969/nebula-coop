@@ -1,4 +1,5 @@
 #include "Game/Enemy/KoopaJrShipCannonMainShell.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util/ActorCameraUtil.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
@@ -9,31 +10,28 @@
 #include "Game/Util/MtxUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const f32 sTmpScale = 1.2f;
-    static const f32 sAttackSensorRadius = 75.0f;
-    static const f32 sShadowRadius = 60.0f;
-    static const f32 sBinderRadius = 75.0f;
-    static const s32 sLifeTime = 300;
-    static const f32 sCameraShakeDistance = 1000.0f;
-    static const s32 sWallHitInvalidTime = 60;
-};  // namespace
+    NEBULA_TUNABLE(f32, cBaseScale, 1.2f);
+    NEBULA_TUNABLE(f32, cAttackSensorRadius, 75.0f);
+    NEBULA_TUNABLE(f32, cShadowRadius, 60.0f);
+    NEBULA_TUNABLE(f32, cBinderRadius, 75.0f);
+    const s32 cLifeTime = NebulaFrameClock::stepsOfSeconds(5);
+    NEBULA_TUNABLE(f32, cCameraShakeDistance, 1000.0f);
+    // Wall hits are ignored this long after launch (the shell leaves the barrel).
+    const s32 cWallHitInvalidTime = NebulaFrameClock::stepsOfSeconds(1);
+}  // namespace
 
 namespace NrvKoopaJrShipCannonMainShell {
-    NEW_NERVE(HostTypeWait, KoopaJrShipCannonMainShell, Wait);
     NEW_NERVE(HostTypeFly, KoopaJrShipCannonMainShell, Fly);
-};  // namespace NrvKoopaJrShipCannonMainShell
+}  // namespace NrvKoopaJrShipCannonMainShell
 
 KoopaJrShipCannonMainShell::KoopaJrShipCannonMainShell(const char* pName) : CannonShellBase(pName) {
-    f32 one = 1.0f;  // This makes Data match
-    _8C.set< f32 >(0.0f, 0.0f, 0.0f, one);
+    mRotateQuat.set< f32 >(0.0f, 0.0f, 0.0f, 1.0f);
 }
 
-CannonShellBase::~CannonShellBase() {
-}
-
-void KoopaJrShipCannonMainShell::init(const JMapInfoIter& rIter) {
+void KoopaJrShipCannonMainShell::init(const TableIter& /*rIter*/) {
     mScale.setAll< f32 >(getBaseScale());
 
     initModelManagerWithAnm("KoopaJrShipCannonMainShell", nullptr, false);
@@ -41,17 +39,17 @@ void KoopaJrShipCannonMainShell::init(const JMapInfoIter& rIter) {
     MR::startBtk(this, "KoopaJrShipCannonMainShell");
 
     initSound(4, false);
-    initEffectKeeper(0, "KoopaJrShipCannonShell", false);
+    initEffectKeeper(0, "KoopaJrShipCannonShell");
     initHitSensor(1);
 
-    MR::addHitSensorEnemyAttack(this, "attack", 8, ::sAttackSensorRadius * getBaseScale(), TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorEnemyAttack(this, "attack", 8, ::cAttackSensorRadius * getBaseScale(), Vec3f(0.0f, 0.0f, 0.0f));
 
-    initBinder(::sBinderRadius * getBaseScale(), 0.0f, 0);
+    initBinder(::cBinderRadius * getBaseScale(), 0.0f, 0);
     initNerve(GET_NERVE(KoopaJrShipCannonMainShell, HostTypeFly));
 
     MR::connectToSceneEnemy(this);
     MR::invalidateClipping(this);
-    MR::initShadowVolumeSphere(this, ::sShadowRadius * getBaseScale());
+    MR::initShadowVolumeSphere(this, ::cShadowRadius * getBaseScale());
     MR::offCalcGravity(this);
     makeActorDead();
 }
@@ -64,7 +62,7 @@ void KoopaJrShipCannonMainShell::kill() {
 }
 
 void KoopaJrShipCannonMainShell::calcAndSetBaseMtx() {
-    MR::setBaseTRMtx(this, _8C);
+    MR::setBaseTRMtx(this, mRotateQuat);
 }
 
 void KoopaJrShipCannonMainShell::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
@@ -77,18 +75,9 @@ void KoopaJrShipCannonMainShell::attackSensor(HitSensor* pSender, HitSensor* pRe
         return;
     }
 
-    if (!MR::isSensorEnemy(pReceiver)) {
-        return;
-    }
-
-    bool isFly = isNerve(GET_NERVE(KoopaJrShipCannonMainShell, HostTypeFly)) && MR::isGreaterEqualStep(this, 0);
-
-    if (!isFly) {
-        return;
-    }
-
-    if (MR::sendMsgEnemyAttackExplosion(pReceiver, pSender)) {
-        return;
+    // Other enemies take the blast once a flight has run a step (step -1 is the frame of launch); the shell carries on.
+    if (MR::isSensorEnemy(pReceiver) && isNerve(GET_NERVE(KoopaJrShipCannonMainShell, HostTypeFly)) && MR::isGreaterEqualStep(this, 0)) {
+        MR::sendMsgEnemyAttackExplosion(pReceiver, pSender);
     }
 }
 
@@ -101,33 +90,29 @@ bool KoopaJrShipCannonMainShell::receiveMsgPlayerAttack(u32 msg, HitSensor* pSen
     return MR::isMsgStarPieceReflect(msg);
 }
 
-void KoopaJrShipCannonMainShell::launch(const TVec3f& rStartPos, const TVec3f& rVelocity) {
+void KoopaJrShipCannonMainShell::launch(const Vec3f& rStartPos, const Vec3f& rVelocity) {
     appear();
 
     mPosition.set(rStartPos);
-    TVec3f dir;
-    dir = rVelocity;
+    Vec3f dir(rVelocity);
     MR::normalize(&dir);
 
-    TPos3f mtx;
+    Pos3f mtx;
     MR::makeMtxFrontUp(&mtx, dir, -mGravity);
-    mtx.getQuat(_8C);
+    mtx.getQuat(mRotateQuat);
     mVelocity.set(rVelocity);
     setNerve(GET_NERVE(KoopaJrShipCannonMainShell, HostTypeFly));
 }
 
 f32 KoopaJrShipCannonMainShell::getBaseScale() const {
-    return ::sTmpScale;
+    return ::cBaseScale;
 }
 
 void KoopaJrShipCannonMainShell::explosion() {
-    MR::startRumbleWithShakeCameraWeak(this, "\213\255" /* 強 */, "\222\206" /* 中 */, ::sCameraShakeDistance, ::sCameraShakeDistance * 2);
+    MR::startRumbleWithShakeCameraWeak(this, "強", "中", ::cCameraShakeDistance, ::cCameraShakeDistance * 2);
     MR::emitEffect(this, "Explosion");
     MR::startSound(this, "SE_BM_KOOPAJR_SHIP_BREAK_FIRE");
     kill();
-}
-
-void KoopaJrShipCannonMainShell::exeWait() {
 }
 
 void KoopaJrShipCannonMainShell::exeFly() {
@@ -138,9 +123,9 @@ void KoopaJrShipCannonMainShell::exeFly() {
 
     MR::startLevelSound(this, "SE_BM_LV_KOOPAJR_SHIP_FLY_FIRE");
 
-    if (MR::isGreaterStep(this, ::sWallHitInvalidTime) && MR::isBindedWall(this)) {
+    if (MR::isGreaterStep(this, ::cWallHitInvalidTime) && MR::isBindedWall(this)) {
         explosion();
-    } else if (MR::isStep(this, ::sLifeTime)) {
+    } else if (MR::isStep(this, ::cLifeTime)) {
         kill();
     }
 }
@@ -148,10 +133,10 @@ void KoopaJrShipCannonMainShell::exeFly() {
 namespace CannonShellUtil {
     void registerKoopaJrShipCannonMainShell(CannonShellHolder* pHolder, int shellNum) {
         for (s32 i = 0; i < shellNum; i++) {
-            KoopaJrShipCannonMainShell* pShell = new KoopaJrShipCannonMainShell("\203\201\203\103\203\223\226\103\222\145" /* メイン砲弾 */);
+            KoopaJrShipCannonMainShell* pShell = new KoopaJrShipCannonMainShell("メイン砲弾");
             pShell->initWithoutIter();
             pShell->makeActorDead();
             pHolder->registerCannonShell(pShell);
         }
     }
-};  // namespace CannonShellUtil
+}  // namespace CannonShellUtil

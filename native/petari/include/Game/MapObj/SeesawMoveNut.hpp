@@ -6,7 +6,7 @@ class SeesawMoveNut : public MapObjActor {
 public:
     SeesawMoveNut(const char*);
 
-    virtual void init(const JMapInfoIter&);
+    virtual void init(const TableIter&) override;
 
     void exeHalfway();
     void exeEdge();
@@ -16,5 +16,5 @@ public:
 
     f32 mSpeed;
     f32 mPrevAngularSpeed;
-    s32 _CC;
+    s32 mBackHomeStep;
 };

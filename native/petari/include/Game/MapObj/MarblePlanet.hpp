@@ -10,12 +10,11 @@ class MarblePlanet : public LiveActor {
 public:
     MarblePlanet(const char*);
 
-    virtual ~MarblePlanet();
-    virtual void init(const JMapInfoIter&);
-    virtual void kill();
-    virtual void startClipped();
-    virtual void endClipped();
-    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void kill() override;
+    virtual void startClipped() override;
+    virtual void endClipped() override;
+    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*) override;
 
     void exeWait();
     void exeScaleUpCore();
@@ -31,14 +30,13 @@ public:
 
 class MarblePlanetElectron : public LiveActor {
 public:
-    MarblePlanetElectron(LiveActor*, const TVec3f&, const TVec3f&, const char*);
+    MarblePlanetElectron(LiveActor*, const Vec3f&, const Vec3f&, const char*);
 
-    virtual ~MarblePlanetElectron();
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPush(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void control() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPush(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
 
     void exeMove();
     void exeAttack();
@@ -46,17 +44,16 @@ public:
 
     MarblePlanet* mParentPlanet;
     MarblePlanetElectronShadow* mElectronShadow;
-    TVec3f _94;
+    Vec3f mFront;
 };
 
 class MarblePlanetElectronShadow : public LiveActor {
 public:
-    MarblePlanetElectronShadow(LiveActor*, const TVec3f&, const char*);
+    MarblePlanetElectronShadow(LiveActor*, const Vec3f&, const char*);
 
-    virtual ~MarblePlanetElectronShadow();
-    virtual void init(const JMapInfoIter&);
-    virtual void calcAndSetBaseMtx();
+    virtual void init(const TableIter&) override;
+    virtual void calcAndSetBaseMtx() override;
 
     MarblePlanetElectron* mParentElectron;
-    const TVec3f* _90;
+    const Vec3f* mGroundPos;
 };

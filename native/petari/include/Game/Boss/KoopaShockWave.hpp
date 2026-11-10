@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class Koopa;
 class ModelObj;
@@ -11,24 +11,23 @@ class KoopaShockWave : public LiveActor {
 public:
     KoopaShockWave(Koopa*);
 
-    virtual ~KoopaShockWave();
-    virtual void init(const JMapInfoIter&);
-    virtual void appear();
-    virtual void makeActorDead();
-    virtual void calcAndSetBaseMtx();
-    virtual void updateHitSensor(HitSensor*);
-    virtual void attackSensor(HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void appear() override;
+    virtual void makeActorDead() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void updateHitSensor(HitSensor*) override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
 
     void exeWaveAttack();
 
 private:
     Koopa* mKoopa;
     f32 mAngle;
-    TPos3f _94;
-    TVec3f mUp;
-    TVec3f mFront;
-    TPos3f mBaseMtx;
-    TPos3f mMtx;
+    Pos3f mKoopaMtx;
+    Vec3f mUp;
+    Vec3f mFront;
+    Pos3f mBaseMtx;
+    Pos3f mMtx;
     PartsModel* mPartsModel;
     ModelObj* mShadow;
 };

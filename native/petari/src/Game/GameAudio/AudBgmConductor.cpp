@@ -8,13 +8,13 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SceneUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
-#include <JSystem/JAudio2/JAISound.hpp>
+#include "Game/Sound/Sound.hpp"
 
 AudBgmConductor::AudBgmConductor()
     : NameObj("AudBgmConductor"), mStateBits(0), mState(0), mStartDelay(-1), mFadeInDelay(-1), mStopImmediately(false) {
 }
 
-void AudBgmConductor::init(const JMapInfoIter& rIter) {
+void AudBgmConductor::init(const TableIter& /*rIter*/) {
     MR::connectToScene(this, MR::MovementType_AudBgmConductor, MR::CalcAnimType_None, MR::DrawBufferType_None, MR::DrawType_None);
     if (MR::isEqualStageName("IceVolcanoGalaxy") || MR::isEqualStageName("OceanRingGalaxy")) {
         MR::registerDemoSimpleCastAll(this);
@@ -56,22 +56,22 @@ void AudBgmConductor::movement() {
         return;
     }
 
-    JAISoundID id = bgm->getSoundID();
+    SoundID id = bgm->getSoundID();
 
     u32 time = 90;
     s32 state;
     switch (id) {
     case STM_GALAXY_03:
     case STM_GALAXY_04: {
-        if ((mStateBits & StateBit_1) != 0) {
-            if ((mStateBits & StateBit_Delay) != 0) {
+        if ((mStateBits & StateBit_CameraInWater) != 0) {
+            if ((mStateBits & StateBit_SwimJet) != 0) {
                 state = 6;
                 time = 20;
             } else {
                 state = 5;
             }
         } else {
-            if ((mStateBits & StateBit_Delay) != 0) {
+            if ((mStateBits & StateBit_SwimJet) != 0) {
                 state = 4;
                 time = 20;
             } else {

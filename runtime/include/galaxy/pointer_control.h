@@ -5,8 +5,8 @@
 // finger's travel). Whichever source moved last owns the pointer; another source
 // takes it over only after the owner has been still for kPointerHandoffUs, so a
 // resting stick or a controller lying on the desk never fights a moving mouse and
-// the reverse. A finger moving on a touchpad takes it at once: the hand holding the
-// controller turns it a little all the time.
+// the reverse. A finger moving on a touchpad, and a moving mouse over the gyro, take
+// it at once: the hand holding the controller turns it a little all the time.
 
 #include <array>
 #include <cstdint>
@@ -52,8 +52,11 @@ struct StickVector {
 // Stick and key pointers stay inside the picture so they always come back.
 inline constexpr float kStickPointerLimit = 1.0f;
 // The gyro pointer may leave the picture by this much (the game hides it, as
-// a Wii Remote pointed past the screen) and returns as soon as it turns back.
-inline constexpr float kGyroPointerLimit = 1.35f;
+// a Wii Remote pointed past the screen) and returns where the controller
+// points when it turns back: a picture's width or height past each edge
+// (40 by 22.5 degrees at 16:9), so a turn past the top or bottom never leaves
+// the pointer offset from the hand.
+inline constexpr float kGyroPointerLimit = 3.0f;
 inline constexpr float kPointerVisibleLimit = 1.02f;
 
 // As in the game's Switch release, the gyro pointer hides when it is not being used and
@@ -71,7 +74,8 @@ inline constexpr float kPointerVisibleLimit = 1.02f;
 inline constexpr float kPointerHideFilterSeconds = 0.1f;
 inline constexpr float kDefaultPointerHideRadius = 0.12f;
 
-inline constexpr float kDefaultPointerHideSeconds = 4.0f;
+// Five seconds, as in the game's Switch release: long enough that a pause to look never loses the pointer.
+inline constexpr float kDefaultPointerHideSeconds = 5.0f;
 struct PointerRestHide {
     bool hidden = false;
     bool anchored = false;
@@ -88,7 +92,7 @@ struct PointerRestHide {
 
 // Keyboard and mouse, in play: the mouse-owned pointer hides after kMouseHideSeconds without a
 // mouse move or a held mouse button, and shows again with either. Any other owner resets it.
-inline constexpr float kMouseHideSeconds = 4.5f;
+inline constexpr float kMouseHideSeconds = kDefaultPointerHideSeconds;
 
 struct MouseRestHide {
     std::uint64_t since_us = 0;
@@ -122,6 +126,27 @@ struct RecenterHold {
 inline constexpr std::uint32_t kStarPointerModeCount = 26;
 enum class PlayContext : std::uint8_t { Menu, Play };
 [[nodiscard]] PlayContext play_context_from_star_pointer_mode(std::uint32_t mode) noexcept;
+
+// The pointer mode the controls follow (-1 none). While a closed wipe covers the screen (NEBULA_CONTEXT_SCREEN_COVERED)
+// the game's changes are held at the mode last seen uncovered: a scene ending under a wipe passes through modes nobody
+// sees, such as the dome's sphere selector after the launch demo, and the touch controls would flash a menu for them.
+// The screens the player opens or that draw over the wipe (HOME menu, error window, the two pause menus) are never
+// held, and the first uncovered frame releases the hold.
+class CoveredModeHold {
+public:
+    // The game's mode changed; returns the mode to follow.
+    std::int32_t game(std::int32_t mode) noexcept;
+    // Each frame; returns the mode to follow.
+    std::int32_t covered(bool covered) noexcept;
+    [[nodiscard]] std::int32_t mode() const noexcept { return shown_; }
+    [[nodiscard]] bool holding() const noexcept { return shown_ != game_; }
+
+private:
+    std::int32_t follow() noexcept;
+    std::int32_t game_ = -1;
+    std::int32_t shown_ = -1;
+    bool covered_ = false;
+};
 
 // The jump/back button: the game's A while the player controls Mario, its B in menus.
 // The choice is made when the button goes down and kept until it is released,

@@ -9,8 +9,8 @@ class FullnessMeter : public LayoutActor {
 public:
     FullnessMeter(LiveActor*, s32, s32);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
+    virtual void init(const TableIter&) override;
+    virtual void control() override;
 
     void setNumber(s32);
     void requestAppear();
@@ -20,8 +20,8 @@ public:
     void exeWait();
     void exeEnd();
 
-    s32 _20;
-    s32 _24;
+    s32 mNumber;
+    s32 mNumberMax;
     LiveActor* mHost;
     SimpleLayout* mTargetCounter;
 };

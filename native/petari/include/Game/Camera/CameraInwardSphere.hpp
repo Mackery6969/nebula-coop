@@ -4,12 +4,11 @@
 
 class CameraInwardSphere : public Camera {
 public:
-    CameraInwardSphere(const char* pName = "\213\205\223\340\225\224\203\112\203\201\203\211" /* 球内部カメラ */);
-    virtual ~CameraInwardSphere();
+    CameraInwardSphere(const char* pName = "球内部カメラ");
 
-    virtual void reset();
-    virtual CameraTargetObj* calc();
-    virtual CamTranslatorBase* createTranslator();
+    virtual void reset() override;
+    virtual CameraTargetObj* calc() override;
+    virtual void setParamFromChunk(const CameraParamChunk*) override;
 
     void calcGravityCenter();
 
@@ -22,7 +21,7 @@ public:
     f32 mDistMax;
     f32 mDistMin;
     f32 mDistBase;
-    TVec3f mVelocity;
-    TVec3f mPos;
-    TVec3f mGravityCenter;
+    Vec3f mVelocity;
+    Vec3f mPos;
+    Vec3f mGravityCenter;
 };

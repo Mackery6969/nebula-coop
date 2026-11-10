@@ -10,7 +10,7 @@
 #include "Game/Util/ModelUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
-#include <JSystem/J3DGraphBase/J3DTevs.hpp>
+#include "Game/Util/Tunable.hpp"
 
 namespace NrvAstroCountDownPlate {
     NEW_NERVE(AstroCountDownPlateNrvDead, AstroCountDownPlate, Wait);
@@ -22,21 +22,21 @@ namespace NrvAstroCountDownPlate {
 namespace {
     const char* cMaterialName01 = "StarNumber01_v_x";
     const char* cMaterialName10 = "StarNumber01_v_x(2)";
-    const char* cLastBattleDemoName = "\203\215\203\133\203\142\203\136\215\305\217\111\214\210\220\355\203\146\203\202" /* ロゼッタ最終決戦デモ */;
-    const char* cStartCountDownDemoName = "\203\215\203\133\203\142\203\136\203\112\203\105\203\223\203\147\203\137\203\105\203\223\212\112\216\156\203\146\203\202" /* ロゼッタカウントダウン開始デモ */;
-    static const s32 sStepForCountToZero = 50;
+    const char* cLastBattleDemoName = "ロゼッタ最終決戦デモ";
+    const char* cStartCountDownDemoName = "ロゼッタカウントダウン開始デモ";
+    NEBULA_TUNABLE(s32, sStepForCountToZero, 50);
 };  // namespace
 
-AstroCountDownPlate::AstroCountDownPlate(const char* pName) : LiveActor(pName), _1B4() {
+AstroCountDownPlate::AstroCountDownPlate(const char* pName) : LiveActor(pName), mIsLightOn() {
 }
 
-void AstroCountDownPlate::init(const JMapInfoIter& rIter) {
+void AstroCountDownPlate::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("AstroCountDownPlate", nullptr, true);
     initTextureAtNumLeftStar();
-    MR::newDifferedMaterials(this);
+    MR::prepareMaterials(this);
     MR::connectToSceneMapObj(this);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initSound(2, false);
     MR::invalidateClipping(this);
 
@@ -59,10 +59,10 @@ void AstroCountDownPlate::exeWait() {
     if (MR::isFirstStep(this) && isNerve(GET_NERVE(AstroCountDownPlate, AstroCountDownPlateNrvAlive)) && !MR::isEffectValid(this, "Light")) {
         MR::emitEffect(this, "Light");
 
-        _1B4 = true;
+        mIsLightOn = true;
     }
 
-    if (_1B4) {
+    if (mIsLightOn) {
         MR::startLevelSound(this, "SE_OJ_LV_CDN_PLATE_LIGHT");
     }
 }
@@ -74,10 +74,10 @@ void AstroCountDownPlate::exeRevival() {
         MR::tryStartAllAnim(this, "Revival");
         MR::emitEffect(this, "Light");
 
-        _1B4 = true;
+        mIsLightOn = true;
     }
 
-    if (_1B4) {
+    if (mIsLightOn) {
         MR::startLevelSound(this, "SE_OJ_LV_CDN_PLATE_LIGHT");
     }
 
@@ -93,11 +93,10 @@ void AstroCountDownPlate::exeCountToZero() {
         MR::startSound(this, "SE_OJ_CDN_PLATE_ONE_TO_ZERO");
     }
 
-    f32 v2 = MR::calcNerveRate(this, ::sStepForCountToZero);
-    f32 v3 = MR::getConvergeVibrationValue(v2, 0.1f, 0.0f, 0.3f, 4.0f);
-    _8C.getTexMtxInfo().mSRT.mTranslationY = v3;
+    f32 rate = MR::calcNerveRate(this, ::sStepForCountToZero);
+    mOnesTexMtx.getInfo().mSRT.mTranslationY = MR::getConvergeVibrationValue(rate, 0.1f, 0.0f, 0.3f, 4.0f);
 
-    if (_1B4) {
+    if (mIsLightOn) {
         MR::startLevelSound(this, "SE_OJ_LV_CDN_PLATE_LIGHT");
     }
 
@@ -107,16 +106,16 @@ void AstroCountDownPlate::exeCountToZero() {
 }
 
 void AstroCountDownPlate::initTextureAtNumLeftStar() {
-    MR::initMaterialTexMtx(this, ::cMaterialName01)->setTexMtx(0, &_8C);
-    MR::initMaterialTexMtx(this, ::cMaterialName10)->setTexMtx(0, &_120);
+    MR::initMaterialTexMtx(this, ::cMaterialName01)->setTexMtx(0, &mOnesTexMtx);
+    MR::initMaterialTexMtx(this, ::cMaterialName10)->setTexMtx(0, &mTensTexMtx);
     setNumLeftStar();
 }
 
 void AstroCountDownPlate::setNumLeftStar() {
     s32 starLeft = MR::getPowerStarLeftToDisplayCountDownPlate();
     f32 mod = starLeft % 10;
-    _120.getTexMtxInfo().mSRT.mTranslationY = 0.1f * (starLeft / 10);
-    _8C.getTexMtxInfo().mSRT.mTranslationY = 0.1f * mod;
+    mTensTexMtx.getInfo().mSRT.mTranslationY = 0.1f * (starLeft / 10);
+    mOnesTexMtx.getInfo().mSRT.mTranslationY = 0.1f * mod;
 }
 
 void AstroCountDownPlate::selectNrvWait() {

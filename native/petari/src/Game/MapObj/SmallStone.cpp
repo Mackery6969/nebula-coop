@@ -2,21 +2,21 @@
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Util.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    const f32 hSize = 100.0f;
-    const f32 hBreakSize = 400.0f;
-    const f32 hBreakOffsetY = 120.0f;
-    const f32 hCircleRadius = 300.0f;
-    // hBreakEffectSize
-    const f32 hCollisionRadius = 20.0f;
-    const f32 hWindRadius = 800.0f;
-    const f32 hMaxAnimRate = 4.0f;
-    const f32 hMinAnimRate = 0.2f;
-    const f32 hCheckLineLength = 1000.0f;
-    const f32 hRandomRotateAngle = 360.0f;
-    const f32 hRandomScaleMin = 0.75f;
-    const f32 hRandomScaleMax = 1.25f;
+    NEBULA_TUNABLE(f32, hSize, 100.0f);
+    NEBULA_TUNABLE(f32, hBreakSize, 400.0f);
+    NEBULA_TUNABLE(f32, hBreakOffsetY, 120.0f);
+    NEBULA_TUNABLE(f32, hCircleRadius, 300.0f);
+    NEBULA_TUNABLE(f32, hCollisionRadius, 20.0f);
+    NEBULA_TUNABLE(f32, hWindRadius, 800.0f);
+    NEBULA_TUNABLE(f32, hMaxAnimRate, 4.0f);
+    NEBULA_TUNABLE(f32, hMinAnimRate, 0.2f);
+    NEBULA_TUNABLE(f32, hCheckLineLength, 1000.0f);
+    NEBULA_TUNABLE(f32, hRandomRotateAngle, 360.0f);
+    NEBULA_TUNABLE(f32, hRandomScaleMin, 0.75f);
+    NEBULA_TUNABLE(f32, hRandomScaleMax, 1.25f);
 };  // namespace
 
 SmallStone::SmallStone(const char* pName) : LiveActor(pName), mMembers(), mMemberCount(), mPlacementOffset(), mStoneType(), mUseGravity(true) {
@@ -26,11 +26,11 @@ SmallStone::~SmallStone() {
     delete[] mMembers;
 }
 
-inline bool SmallStoneMember::tryPlaceOnGround(const TVec3f& rStart, const TVec3f& rRay) {
+inline bool SmallStoneMember::tryPlaceOnGround(const Vec3f& rStart, const Vec3f& rRay) {
     return MR::getFirstPolyOnLineToMap(&mPosition, nullptr, rStart, rRay);
 }
 void SmallStone::initAfterPlacement() {
-    TVec3f gravity;
+    Vec3f gravity;
 
     if (mUseGravity) {
         MR::calcGravityVector(this, mPosition, &gravity, nullptr, 0);
@@ -38,27 +38,27 @@ void SmallStone::initAfterPlacement() {
         gravity.set(*getGravity());
     }
 
-    TVec3f axisX;
+    Vec3f axisX;
     axisX.set(1, 0, 0);
-    TVec3f axisY;
+    Vec3f axisY;
     axisY.set(0, 1, 0);
     MR::makeAxisCrossPlane(&axisX, &axisY, gravity);
     HitSensor* pSensor = getSensor("Range");
     pSensor->mRadius = 0.0f;
     f32 angleStep = TWO_PI / mMemberCount;
-    TVec3f min;
+    Vec3f min;
     min.set(0, 0, 0);
-    TVec3f max;
+    Vec3f max;
     max.set(0, 0, 0);
     s32 i;
 
     for (i = 0; i < mMemberCount; i++) {
         SmallStoneMember* pMember = mMembers[i];
-        TVec3f offset(axisX);
-        offset.scale(JMACosRadian(angleStep * i));
-        offset.add(axisY * JMASinRadian(angleStep * i));
+        Vec3f offset(axisX);
+        offset.scale(Angle::cosRadian(angleStep * i));
+        offset.add(axisY * Angle::sinRadian(angleStep * i));
         offset.scale(::hCircleRadius);
-        TVec3f start(*getPosition());
+        Vec3f start(*getPosition());
         start.add(offset);
         start.sub(gravity);
         pMember->tryPlaceOnGround(start, gravity * ::hCheckLineLength);
@@ -69,35 +69,35 @@ void SmallStone::initAfterPlacement() {
             pMember->mGravity.set(gravity);
         }
 
-        TVec3f& rPosition = pMember->mPosition;
+        Vec3f& rPosition = pMember->mPosition;
         rPosition += -*pMember->getGravity() * mPlacementOffset;
-        TVec3f front;
+        Vec3f front;
         front.set(1, 0, 0);
 
         if (MR::isSameDirection(*pMember->getGravity(), front, 0.01f)) {
             front.set(0, 1, 0);
         }
 
-        TPos3f posture;
+        Pos3f posture;
         MR::calcMtxFromGravityAndZAxis(&posture, pMember, *pMember->getGravity(), front);
 
         if (getStoneType() == 1 || getStoneType() == 2) {
-            TPos3f rotation;
+            Pos3f rotation;
             MR::makeMtxRotate(rotation, pMember->getRotation());
             posture.concat(rotation);
         }
 
-        TVec3f euler;
+        Vec3f euler;
         posture.getEuler(euler);
         pMember->mRotation.set(euler.x * _180_PI, euler.y * _180_PI, euler.z * _180_PI);
         pMember->calcAnim();
 
-        TVec3f memberMin(*pMember->getPosition());
-        TVec3f memberMax(*pMember->getPosition());
+        Vec3f memberMin(*pMember->getPosition());
+        Vec3f memberMax(*pMember->getPosition());
         f32 radius;
         MR::calcModelBoundingRadius(&radius, pMember);
-        memberMin -= TVec3f(radius, radius, radius);
-        memberMax += TVec3f(radius, radius, radius);
+        memberMin -= Vec3f(radius, radius, radius);
+        memberMax += Vec3f(radius, radius, radius);
 
         if (i == 0) {
             min.set(memberMin);
@@ -129,13 +129,13 @@ void SmallStone::initAfterPlacement() {
         }
     }
 
-    TVec3f center((max + min) / 2.0f);
+    Vec3f center((max + min) / 2.0f);
     mPosition.set(center);
     f32 radius = 0.0f;
 
     for (i = 0; i < mMemberCount; i++) {
         SmallStoneMember* pMember = mMembers[i];
-        TVec3f offset(pMember->mPosition);
+        Vec3f offset(pMember->mPosition);
         offset.sub(center);
         f32 memberRadius;
         MR::calcModelBoundingRadius(&memberRadius, pMember);
@@ -168,7 +168,7 @@ bool SmallStone::isAllMemberBreak() {
 
 bool SmallStone::tryBreak() {
     MR::calcGravityVector(this, mPosition, &mGravity, nullptr, 0);
-    TVec3f distance(mPosition);
+    Vec3f distance(mPosition);
     distance.add(-mGravity * ::hBreakOffsetY);
     distance.sub(*MR::getPlayerPos());
     f32 radius = ::hBreakSize;
@@ -188,7 +188,7 @@ bool SmallStone::tryBreak() {
     return true;
 }
 
-bool SmallStone::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool SmallStone::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (msg == ACTMES_SPIN_STORM_RANGE) {
         for (s32 i = 0; i < mMemberCount; i++) {
             mMembers[i]->tryShake();
@@ -200,7 +200,7 @@ bool SmallStone::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiv
     return false;
 }
 
-bool SmallStone::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool SmallStone::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (!MR::isMsgPlayerSpinAttack(msg)) {
         return false;
     }
@@ -234,10 +234,10 @@ void SmallStone::endClipped() {
 }
 
 bool SmallStoneMember::tryShake() {
-    TVec3f distance(*MR::getPlayerPos());
+    Vec3f distance(*MR::getPlayerPos());
     distance.sub(mPosition);
     MR::vecKillElement(distance, mGravity, &distance);
-    TVec3f zero(gZeroVec);
+    Vec3f zero(gZeroVec);
     f32 y = MR::abs(distance.y - zero.y);
     f32 x = MR::abs(distance.x - zero.x);
     f32 z = MR::abs(distance.z - zero.z);
@@ -261,7 +261,7 @@ bool SmallStoneMember::tryShake() {
 }
 
 bool SmallStoneMember::tryPush(HitSensor* pSender, HitSensor* pReceiver) {
-    TVec3f distance(pReceiver->mPosition);
+    Vec3f distance(pReceiver->mPosition);
     distance.sub(mPosition);
     const f32 collisionRadius = ::hCollisionRadius * mScale.y;
     const f32 otherRadius = pReceiver->mRadius;
@@ -271,7 +271,7 @@ bool SmallStoneMember::tryPush(HitSensor* pSender, HitSensor* pReceiver) {
     if (distance.squared() < radius) {
         f32 oldRadius = pSender->mRadius;
         pSender->mRadius = ::hCollisionRadius * mScale.y;
-        TVec3f oldPosition(pSender->mPosition);
+        Vec3f oldPosition(pSender->mPosition);
         pSender->mPosition.set(mPosition);
         pReceiver->receiveMessage(ACTMES_PUSH, pSender);
         pSender->mPosition.set(oldPosition);
@@ -298,15 +298,12 @@ void SmallStoneMember::movementByHost(SmallStone* pHost) {
     }
 }
 
-SmallStoneMember::~SmallStoneMember() {
-}
-
-void SmallStone::init(const JMapInfoIter& rIter) {
+void SmallStone::init(const TableIter& rIter) {
     MR::connectToSceneMapObjMovement(this);
     MR::initDefaultPos(this, rIter);
     mMemberCount = 8;
     s32 arg = -1;
-    MR::getJMapInfoArg0NoInit(rIter, &arg);
+    MR::getPlacementArg0NoInit(rIter, &arg);
 
     if (arg == -1) {
         mPlacementOffset = 0.0f;
@@ -315,7 +312,7 @@ void SmallStone::init(const JMapInfoIter& rIter) {
     }
 
     arg = -1;
-    MR::getJMapInfoArg1NoInit(rIter, &arg);
+    MR::getPlacementArg1NoInit(rIter, &arg);
 
     if (arg == -1) {
         mUseGravity = true;
@@ -327,14 +324,14 @@ void SmallStone::init(const JMapInfoIter& rIter) {
         mRotation.x = x * (PI / 180.0f);
         mRotation.y = y * (PI / 180.0f);
         mRotation.z = z * (PI / 180.0f);
-        TQuat4f rotation;
+        Quat4f rotation;
         rotation.setEuler(mRotation.x, mRotation.y, mRotation.z);
         rotation.getYDir(mGravity);
         mGravity.scale(-1.0f);
     }
 
     arg = -1;
-    MR::getJMapInfoArg2NoInit(rIter, &arg);
+    MR::getPlacementArg2NoInit(rIter, &arg);
 
     if (arg == -1) {
         mIsStarPiece = false;
@@ -404,6 +401,10 @@ void SmallStone::initMember(const char* pModelName, bool useGravity) {
             case 4:
                 pMember->mBreakEffectName = "Break3";
                 break;
+            default:
+                // A model with more kinds than break effects uses Break1.
+                pMember->mBreakEffectName = "Break1";
+                break;
             }
         } else {
             mRotation.set(0.0f);
@@ -429,7 +430,7 @@ void SmallStone::initMember(const char* pModelName, bool useGravity) {
     }
 
     initHitSensor(1);
-    MR::addHitSensorMapObjSimple(this, "Range", 16, ::hSize, TVec3f(gZeroVec));
+    MR::addHitSensorMapObjSimple(this, "Range", 16, ::hSize, Vec3f(gZeroVec));
 }
 
 SmallStoneMember::SmallStoneMember(const char* pModelName)
@@ -471,7 +472,7 @@ void SmallStoneMember::doBreak(SmallStone* pHost) {
     if (mUseGravity) {
         MR::appearStarPiece(pHost, mPosition, 1, 0.0f, 40.0f, pHost->mIsStarPiece);
     } else {
-        TVec3f position = mPosition - mGravity * 30.0f;
+        Vec3f position = mPosition - mGravity * 30.0f;
         MR::appearStarPiece(pHost, position, 1, 0.0f, 40.0f, pHost->mIsStarPiece);
     }
 

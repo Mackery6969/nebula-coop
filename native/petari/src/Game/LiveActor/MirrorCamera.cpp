@@ -3,54 +3,54 @@
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/Util.hpp"
 #include "Game/Util/MtxUtil.hpp"
-#include <JSystem/J3DGraphAnimator/J3DModelData.hpp>
-#include <JSystem/JGeometry/TPartition3.hpp>
+#include "Game/Render/ModelData.hpp"
+#include <nebula_geometry.hpp>
 
-MirrorCamera::MirrorCamera(const char* pName) : NameObj(pName), _C(0.0f, 0.0f, 0.0f), _18(0.0f, 1.0f, 0.0f), _24() {
+MirrorCamera::MirrorCamera(const char* pName) : NameObj(pName), mMirrorPos(0.0f, 0.0f, 0.0f), mMirrorNormal(0.0f, 1.0f, 0.0f), mPlaneD() {
     mViewMtx.identity();
     mModelTexMtx.identity();
 }
 
-void MirrorCamera::init(const JMapInfoIter& rIter) {
+void MirrorCamera::init(const TableIter& /*rIter*/) {
     MR::connectToScene(this, MR::MovementType_MirrorCamera, MR::CalcAnimType_None, MR::DrawBufferType_None, MR::DrawType_None);
 }
 
-void MirrorCamera::setMirrorMapInfo(const TVec3f& rNormal, const TVec3f& rPosition) {
-    _18.set(rNormal);
-    _C.set(rPosition);
-    _24 = -NebulaVecDotProduct(_18, _C);
+void MirrorCamera::setMirrorMapInfo(const Vec3f& rNormal, const Vec3f& rPosition) {
+    mMirrorNormal.set(rNormal);
+    mMirrorPos.set(rPosition);
+    mPlaneD = -NebulaVecDotProduct(mMirrorNormal, mMirrorPos);
 }
 
-void MirrorCamera::setMirrorMapInfo(J3DModelData* pModelData) {
-    TVec3f position;
-    TVec3f normal;
-    const f32* pPositions = static_cast< const f32* >(pModelData->getVtxPosArray());
+void MirrorCamera::setMirrorMapInfo(ModelData* pModelData) {
+    Vec3f position;
+    Vec3f normal;
+    const f32* pPositions = pModelData->getFirstPosition();
     position.set< f32 >(pPositions[0], pPositions[1], pPositions[2]);
-    const f32* pNormals = static_cast< const f32* >(pModelData->getVtxNrmArray());
+    const f32* pNormals = pModelData->getFirstNormal();
     normal.set< f32 >(pNormals[0], pNormals[1], pNormals[2]);
 
     setMirrorMapInfo(normal, position);
 }
 
 void MirrorCamera::updateViewMtx() {
-    TPos3f cameraInv;
+    Pos3f cameraInv;
     cameraInv.set(MR::getCameraInvViewMtx());
-    TVec3f y;
-    TVec3f z;
-    TVec3f trans;
+    Vec3f y;
+    Vec3f z;
+    Vec3f trans;
     cameraInv.getYDir(y);
     cameraInv.getZDir(z);
     cameraInv.getTrans(trans);
-    y -= _18 * (_18.dot(y) * 2.0f);
-    z -= _18 * (_18.dot(z) * 2.0f);
-    TVec3f x = y.cross(z);
-    trans -= _18 * ((_18.dot(trans) + _24) * 2.0f);
+    y -= mMirrorNormal * (mMirrorNormal.dot(y) * 2.0f);
+    z -= mMirrorNormal * (mMirrorNormal.dot(z) * 2.0f);
+    Vec3f x = y.cross(z);
+    trans -= mMirrorNormal * ((mMirrorNormal.dot(trans) + mPlaneD) * 2.0f);
     mViewMtx.setTR(x, y, z, trans);
     mViewMtx.invert(mViewMtx);
 }
 
 void MirrorCamera::updateModelTexMtx() {
-    TProj3f mtx = MR::getCameraProjectionMtx();
+    Proj3f mtx = MR::getCameraProjectionMtx();
     mtx[2][0] = 0.0f;
     mtx[2][1] = 0.0f;
     mtx[2][2] = -1.0f;
@@ -62,11 +62,8 @@ void MirrorCamera::updateModelTexMtx() {
     MR::multMtx(mModelTexMtx.mMtx, mViewMtx.mMtx, mtx);
 }
 
-f32 MirrorCamera::getDistance(const TVec3f& rPosition) const {
-    JGeometry::TPartition3< f32 > plane;
-    plane.mNormal.set(_18);
-    plane.mDot = plane.mNormal.dot(_C);
-    return plane.mNormal.dot(rPosition) - plane.mDot;
+f32 MirrorCamera::getDistance(const Vec3f& rPosition) const {
+    return mMirrorNormal.dot(rPosition) - mMirrorNormal.dot(mMirrorPos);
 }
 
 namespace MR {
@@ -74,13 +71,10 @@ namespace MR {
         return MR::getSceneObj< MirrorCamera >(SceneObj_MirrorCamera);
     }
 
-    f32 getDistanceToMirror(const TVec3f& rVec) {
+    f32 getDistanceToMirror(const Vec3f& rVec) {
         return getMirrorCamera()->getDistance(rVec);
     }
 };  // namespace MR
-
-MirrorCamera::~MirrorCamera() {
-}
 
 void MirrorCamera::movement() {
     if (MR::isPlayerInAreaObj("MirrorArea")) {

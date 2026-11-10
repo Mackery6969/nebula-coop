@@ -5,18 +5,16 @@
 #include "Game/MapObj/SpinDriverUtil.hpp"
 #include "Game/Util.hpp"
 #include "Game/Util/MathUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    // cPoseTypeString
-    // cShadowDropLengthType
-    const f32 sHitRadius = 150.0f;
-    const f32 sOffsetY = 210.0f;
-    const f32 sInWaterScale = 2.0f;
-    const f32 sShadowRadius = 120.0f;
-    const f32 sShadowHeightMargin = 300.0f;
-    const s32 sBindAnimFrame = 3;
-    // sBindEndBlendFrame
-    const s32 sBindStartBlendFrame = 0;
+    NEBULA_TUNABLE(f32, sHitRadius, 150.0f);
+    NEBULA_TUNABLE(f32, sOffsetY, 210.0f);
+    NEBULA_TUNABLE(f32, sInWaterScale, 2.0f);
+    NEBULA_TUNABLE(f32, sShadowRadius, 120.0f);
+    NEBULA_TUNABLE(f32, sShadowHeightMargin, 300.0f);
+    NEBULA_TUNABLE(s32, sBindAnimFrame, 3);
+    NEBULA_TUNABLE(s32, sBindStartBlendFrame, 0);
 };  // namespace
 
 namespace NrvQuestionCoin {
@@ -34,14 +32,14 @@ QuestionCoin::QuestionCoin(const char* pName)
     MR::createCoinRotater();
 }
 
-void QuestionCoin::init(const JMapInfoIter& rIter) {
+void QuestionCoin::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
-    initFromJMapInfoArg(rIter);
+    initFromPlacementArg(rIter);
 
     if (mPoseType == 0) {
-        TPos3f rotation;
+        Pos3f rotation;
         MR::makeMtxTR(rotation.toMtxPtr(), mPosition, mRotation);
-        TVec3f front;
+        Vec3f front;
         rotation.getZDir(front);
         MR::normalize(&front);
         MR::makeMtxUpFrontPos(&mBaseMtx, -mGravity, front, mPosition);
@@ -52,10 +50,10 @@ void QuestionCoin::init(const JMapInfoIter& rIter) {
     initModelManagerWithAnm("QuestionCoin", nullptr, false);
     MR::startBpk(this, "QuestionCoin");
     MR::connectToSceneItemStrongLight(this);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initHitSensor(1);
     f32 radius = ::sHitRadius * mScale.x;
-    HitSensor* sensor = MR::addHitSensor(this, "binder", ATYPE_QUESTION_COIN_BIND, 16, radius, TVec3f(0.0f, ::sOffsetY * mScale.y, 0.0f));
+    HitSensor* sensor = MR::addHitSensor(this, "binder", ATYPE_QUESTION_COIN_BIND, 16, radius, Vec3f(0.0f, ::sOffsetY * mScale.y, 0.0f));
     MR::setClippingTypeSphere(this, 2.0f * radius, &sensor->mPosition);
     initShadow();
     MR::initActorCamera(this, rIter, &mCameraInfo);
@@ -75,13 +73,13 @@ void QuestionCoin::initAfterPlacement() {
         getSensor("binder")->mRadius = ::sInWaterScale * getSensor("binder")->mRadius;
     }
 
-    TPos3f rotation;
+    Pos3f rotation;
     rotation.setEuler(mRotation * (MR::pi() / 180.0f));
-    TVec3f up;
+    Vec3f up;
     rotation.getYDir(up);
-    TVec3f side;
+    Vec3f side;
     rotation.getXDir(side);
-    TPos3f launchMtx;
+    Pos3f launchMtx;
     launchMtx.identity();
     MR::makeMtxUpSide(&launchMtx, up, side);
     launchMtx.getQuat(mLaunchQuat);
@@ -94,7 +92,7 @@ void QuestionCoin::initAfterPlacement() {
         dropLength = 2000.0f;
     }
 
-    TVec3f gravity(gZeroVec);
+    Vec3f gravity(gZeroVec);
     MR::calcGravityAndDropShadowVectorOrZero(this, &gravity, nullptr, 0);
 
     if (MR::isNearZero(gravity)) {
@@ -129,7 +127,7 @@ void QuestionCoin::kill() {
 }
 
 void QuestionCoin::calcAndSetBaseMtx() {
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.identity();
 
     if (isNerve(GET_NERVE(QuestionCoin, HostTypeWait))) {
@@ -141,11 +139,11 @@ void QuestionCoin::calcAndSetBaseMtx() {
     MR::setBaseTRMtx(this, mtx);
 }
 
-bool QuestionCoin::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool QuestionCoin::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     return MR::isMsgStarPieceReflect(msg);
 }
 
-bool QuestionCoin::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool QuestionCoin::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* /*pReceiver*/) {
     if (MR::isMsgAutoRushBegin(msg) && isThrowActor() && isNerve(GET_NERVE(QuestionCoin, HostTypeWait))) {
         mBoundActor = pSender->mHost;
         mActorMtx.set(mBoundActor->getBaseMtx());
@@ -179,15 +177,15 @@ void QuestionCoin::endClipped() {
     MR::emitEffect(this, "Light");
 }
 
-void QuestionCoin::initFromJMapInfoArg(const JMapInfoIter& rIter) {
-    MR::getJMapInfoArg0NoInit(rIter, &mLaunchSpeed);
+void QuestionCoin::initFromPlacementArg(const TableIter& rIter) {
+    MR::getPlacementArg0NoInit(rIter, &mLaunchSpeed);
     s32 gravityType = -1;
-    MR::getJMapInfoArg1NoInit(rIter, &gravityType);
+    MR::getPlacementArg1NoInit(rIter, &gravityType);
     mIsWeakGravity = gravityType == 0;
-    MR::getJMapInfoArg2NoInit(rIter, &mPoseType);
-    MR::getJMapInfoArg3NoInit(rIter, &mShadowDropLengthType);
+    MR::getPlacementArg2NoInit(rIter, &mPoseType);
+    MR::getPlacementArg3NoInit(rIter, &mShadowDropLengthType);
     s32 calcShadow = -1;
-    MR::getJMapInfoArg4NoInit(rIter, &calcShadow);
+    MR::getPlacementArg4NoInit(rIter, &calcShadow);
     mCalcShadow = calcShadow != -1;
 }
 
@@ -206,15 +204,15 @@ void QuestionCoin::updateActorMtx() {
         rate = MR::calcNerveRate(this, ::sBindStartBlendFrame);
     }
 
-    TQuat4f startQuat;
+    Quat4f startQuat;
     mActorMtx.getQuat(startQuat);
-    TQuat4f quat = static_cast< TVec4f >(startQuat);
+    Quat4f quat = static_cast< Vec4f >(startQuat);
     quat.slerp(mLaunchQuat, rate);
-    TVec3f startPos;
+    Vec3f startPos;
     mActorMtx.getTrans(startPos);
-    TVec3f position;
+    Vec3f position;
     position.lerp(startPos, getSensor("binder")->getPosition(), rate);
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.setQT(quat, position);
     MR::setBaseTRMtx(mBoundActor, mtx);
 }
@@ -234,9 +232,9 @@ void QuestionCoin::exeThrowActor() {
     }
 
     if (MR::isStep(this, ::sBindAnimFrame)) {
-        TPos3f rotation;
+        Pos3f rotation;
         MR::makeMtxRotate(rotation.toMtxPtr(), mRotation);
-        TVec3f velocity;
+        Vec3f velocity;
         rotation.getYDir(velocity);
         velocity.setLength(mLaunchSpeed);
         mBoundActor->mVelocity.set(velocity);

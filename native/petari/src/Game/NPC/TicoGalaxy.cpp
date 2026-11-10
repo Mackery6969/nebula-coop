@@ -3,7 +3,7 @@
 #include "Game/NPC/TicoStarRing.hpp"
 #include "Game/System/GameEventFlagTable.hpp"
 #include "Game/Util/EventUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MessageUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
@@ -16,17 +16,17 @@ namespace {
 TicoGalaxy::TicoGalaxy(const char* pName) : TicoFat(pName), mGalaxyName() {
 }
 
-void TicoGalaxy::init(const JMapInfoIter& rIter) {
+void TicoGalaxy::init(const TableIter& rIter) {
     TicoFat::init(rIter);
 
-    _1F0 = 2;
+    mEatInterval = 2;
 
-    if (MR::isOnTicoGalaxyAlreadyTalk(_1EC)) {
+    if (MR::isOnTicoGalaxyAlreadyTalk(mTicoSeedId)) {
         MR::forwardNode(mMsgCtrl);
         MR::forwardNode(mMsgCtrl);
     }
 
-    mStarRing = new TicoStarRing("\203\130\203\136\201\133\203\212\203\223\203\117\203\140\203\122" /* スターリングチコ */);
+    mStarRing = new TicoStarRing("スターリングチコ");
     mStarRing->initWithoutIter();
 }
 
@@ -36,41 +36,41 @@ void TicoGalaxy::initAfterPlacement() {
 }
 
 void TicoGalaxy::shootStarPiece() {
-    s32 v5 = 5;
+    s32 count = 5;
 
-    if (_1E0 <= 5) {
-        v5 = _1E0;
+    if (mStarPieceLeft <= 5) {
+        count = mStarPieceLeft;
     }
 
-    if (MR::giftStarPieceToTarget(getSensor("Mouth"), v5)) {
-        mCurrentFed += v5;
+    if (MR::giftStarPieceToTarget(getSensor("Mouth"), count)) {
+        mCurrentFed += count;
         MR::tryRumblePadVeryWeak(this, PLAYER_1);
     }
 }
 
 void TicoGalaxy::startEat() {
     TicoFat::startEat();
-    MR::setTicoGalaxyAlreadyTalk(_1EC, true);
+    MR::setTicoGalaxyAlreadyTalk(mTicoSeedId, true);
 }
 
 bool TicoGalaxy::enableAppear() {
     return MR::isAppearGalaxy(mGalaxyName);
 }
 
-void TicoGalaxy::initStarPieceSaveData(const JMapInfoIter& rIter) {
-    MR::getJMapInfoArg7WithInit(rIter, &_1EC);
-    mGalaxyName = GameEventFlagTable::getExclamationGalaxyNameFromIndex(_1EC);
-    _1E4 = GameEventFlagTable::getStarPieceNumToOpenExclamationGalaxy(mGalaxyName);
-    s32 starPieceNum = MR::getStarPieceNumGivingToTicoGalaxy(_1EC);
-    _1E0 = (_1E4 - starPieceNum <= 0) ? 0 : _1E4 - starPieceNum;
+void TicoGalaxy::initStarPieceSaveData(const TableIter& rIter) {
+    MR::getPlacementArg7WithInit(rIter, &mTicoSeedId);
+    mGalaxyName = GameEventFlagTable::getExclamationGalaxyNameFromIndex(mTicoSeedId);
+    mStarPieceNeed = GameEventFlagTable::getStarPieceNumToOpenExclamationGalaxy(mGalaxyName);
+    s32 starPieceNum = MR::getStarPieceNumGivingToTicoGalaxy(mTicoSeedId);
+    mStarPieceLeft = (mStarPieceNeed - starPieceNum <= 0) ? 0 : mStarPieceNeed - starPieceNum;
 }
 
 void TicoGalaxy::addStarPieceSaveData(s32 num) {
-    MR::addStarPieceGivingToTicoGalaxy(_1EC, num);
+    MR::addStarPieceGivingToTicoGalaxy(mTicoSeedId, num);
 }
 
-void TicoGalaxy::disappear(bool a1) {
-    if (a1) {
+void TicoGalaxy::disappear(bool isJustFed) {
+    if (isJustFed) {
         MR::onGameEventFlagGalaxyOpen(mGalaxyName);
         MR::callAppearAllGroupMember(this);
     } else {

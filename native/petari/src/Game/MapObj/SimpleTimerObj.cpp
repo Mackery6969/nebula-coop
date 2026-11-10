@@ -1,15 +1,16 @@
 #include "Game/MapObj/SimpleTimerObj.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/FlashingCtrl.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/MapObjActorInitInfo.hpp"
 #include "Game/Util/ActorShadowUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 
 namespace {
-    static const s32 sDefaultTimeLimit = 600;
-    static const s32 sBlinkTime = 120;
+    const s32 sDefaultTimeLimit = NebulaFrameClock::stepsOfSeconds(10);
+    const s32 sBlinkTime = NebulaFrameClock::stepsOfSeconds(2);
 };  // namespace
 
 namespace NrvSimpleTimerObj {
@@ -19,13 +20,13 @@ namespace NrvSimpleTimerObj {
 SimpleTimerObj::SimpleTimerObj(const char* pName) : MapObjActor(pName), mFlashingCtrl(), mTimeLimit(::sDefaultTimeLimit), mTimeLeft() {
 }
 
-void SimpleTimerObj::init(const JMapInfoIter& rIter) {
+void SimpleTimerObj::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
     MapObjActorInitInfo info;
     MapObjActorUtil::setupInitInfoSimpleMapObj(&info);
     info.setupNerve(GET_NERVE(SimpleTimerObj, SimpleTimerObjNrvTimer));
     initialize(rIter, info);
-    MR::getJMapInfoArg7NoInit(rIter, &mTimeLimit);
+    MR::getPlacementArg7NoInit(rIter, &mTimeLimit);
     mFlashingCtrl = new FlashingCtrl(this, true);
     MR::invalidateShadow(this, 0);
 }

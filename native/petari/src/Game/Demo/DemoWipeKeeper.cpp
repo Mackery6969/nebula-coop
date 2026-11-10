@@ -4,13 +4,12 @@
 #include "Game/Util/DemoUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 
-DemoWipeInfo::DemoWipeInfo() : mPartName(), mWipeName("\203\164\203\106\201\133\203\150\203\217\203\103\203\166" /* フェードワイプ */), mWipeType(), mWipeFrame(-1) {
+DemoWipeInfo::DemoWipeInfo() : mPartName(), mWipeName("フェードワイプ"), mWipeType(), mWipeFrame(-1) {
 }
 
 DemoWipeKeeper::DemoWipeKeeper(DemoExecutor* pExecutor) : DemoSheetKeeperBase(pExecutor) {
-    JMapInfo* pMap = nullptr;
-    const DemoExecutor* pSheetExecutor = mExecutor;
-    s32 count = DemoFunction::createSheetParser(pSheetExecutor, getTypeString(), &pMap);
+    Table* pMap = nullptr;
+    const s32 count = DemoFunction::createSheetParser(mExecutor, getTypeString(), &pMap);
     mInfo.init(count);
 
     for (s32 i = 0; i < count; i++) {
@@ -31,16 +30,26 @@ void DemoWipeKeeper::update() {
 }
 
 void DemoWipeKeeper::executeType(const DemoWipeInfo* pInfo) {
-    if (MR::isDemoPartFirstStep(pInfo->mPartName)) {
-        if (pInfo->mWipeType == 0) {
-            SceneWipeHolderFunction::openWipe(pInfo->mWipeName, pInfo->mWipeFrame);
-        } else if (pInfo->mWipeType == 1) {
-            SceneWipeHolderFunction::closeWipe(pInfo->mWipeName, pInfo->mWipeFrame);
-        } else if (pInfo->mWipeType == 2) {
-            SceneWipeHolderFunction::forceOpenWipe(pInfo->mWipeName);
-        } else if (pInfo->mWipeType == 3) {
-            SceneWipeHolderFunction::forceCloseWipe(pInfo->mWipeName);
-        }
+    if (!MR::isDemoPartFirstStep(pInfo->mPartName)) {
+        return;
+    }
+
+    // The sheet's WipeType column.
+    switch (pInfo->mWipeType) {
+    case 0:
+        SceneWipeHolderFunction::openWipe(pInfo->mWipeName, pInfo->mWipeFrame);
+        break;
+    case 1:
+        SceneWipeHolderFunction::closeWipe(pInfo->mWipeName, pInfo->mWipeFrame);
+        break;
+    case 2:
+        SceneWipeHolderFunction::forceOpenWipe(pInfo->mWipeName);
+        break;
+    case 3:
+        SceneWipeHolderFunction::forceCloseWipe(pInfo->mWipeName);
+        break;
+    default:
+        break;
     }
 }
 
@@ -49,7 +58,7 @@ inline const char* DemoWipeKeeper::getTypeString() const {
 }
 
 inline const char* DemoWipeKeeper::getName() const {
-    return "\203\217\203\103\203\166" /* ワイプ */;
+    return "ワイプ";
 }
 
 #include "Game/Demo/DemoSheetKeeperInfoHolder.hpp"

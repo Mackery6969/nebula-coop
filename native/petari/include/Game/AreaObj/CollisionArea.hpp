@@ -7,44 +7,37 @@ class AreaPolygon : public DynamicCollisionObj {
 public:
     AreaPolygon();
 
-    virtual ~AreaPolygon();
+    virtual void init(const TableIter& rIter) override;
 
-    virtual void init(const JMapInfoIter& rIter);
-
-    void setMtx(MtxPtr pMatrix, const TVec3f& rSize, f32 offset);
+    void setMtx(MtxPtr pMatrix, const Vec3f& rSize, f32 offset);
     void setSurfaceAndSync(s32 surface);
     void setSurface(s32 surface);
     void invalidate();
     void validate();
 
-    u8 _120[4];
     AreaForm* mForm;
-    MtxPtr _128;
-    TVec3f _12C;
-    f32 _138;
+    MtxPtr mFollowMtx;
+    Vec3f mSize;
+    f32 mOffset;
 };
 
 class CollisionArea : public AreaObj {
 public:
     CollisionArea(int formType, const char* pName);
 
-    virtual ~CollisionArea();
+    virtual void init(const TableIter& rIter) override;
+    virtual void movement() override;
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void movement();
+    bool hitCheck(const Vec3f& rPos, f32 radius, Vec3f* pPoint, Vec3f* pNormal);
 
-    bool hitCheck(const TVec3f& rPos, f32 radius, TVec3f* pPoint, TVec3f* pNormal);
-
-    u32 _3C;
-    f32 _40;
-    TVec3f _44;
-    s32 _50;
-    s32 _54;
-    bool _58;
-    u8 _59[3];
-    s32 _5C;
-    s32 _60;
+    u32 mOutsideAxisCount;
+    f32 mInsideDepth;
+    Vec3f mCenter;
+    s32 mPushType;
+    s32 mTeresaType;
+    bool mIsTeresaPass;
+    s32 mHitRadius;
+    s32 mSurfaceMask;
     AreaPolygon* mPolygon;
     bool mIsValid;
-    u8 _69[3];
 };

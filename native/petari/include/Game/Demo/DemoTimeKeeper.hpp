@@ -5,7 +5,6 @@ class DemoExecutor;
 
 class DemoTimePartInfo {
 public:
-    /// @brief Creates a new `DemoTimePartInfo`.
     DemoTimePartInfo();
 
     const char* mPartName;
@@ -30,10 +29,10 @@ public:
 
     const DemoExecutor* mExecutor;
     DemoTimePartInfo* mMainPartInfos;
-    DemoTimePartInfo* mSubPartInfos;
+    DemoTimePartInfo* mCurrentPart;  // in mMainPartInfos; nullptr when no demo runs
     s32 mNumPartInfos;
-    s32 _10;
+    s32 mElapsedStep;
     s32 mCurrentStep;
-    s32 _18;
+    s32 mPartIndex;
     bool mIsPaused;
 };

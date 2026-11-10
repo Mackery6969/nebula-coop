@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Game/System/SaveFileId.hpp"
 
 class BinaryDataChunkHolder;
 class GameDataAllGalaxyStorage;
@@ -7,8 +8,7 @@ class GameDataPlayerStatus;
 class GameDataSomeScenarioAccessor;
 class GameEventFlagChecker;
 class GameEventValueChecker;
-class JMapInfo;
-class ScenarioProgressTestRun;
+class Table;
 class SpinDriverPathStorage;
 class StarPieceAlmsStorage;
 class UserFile;
@@ -62,7 +62,10 @@ public:
     void followStoryEventByName(const char*);
     void resetAllData();
     u32 makeFileBinary(u8*, u32);
-    bool loadFromFileBinary(const char*, const u8*, u32);
+    bool loadFromFileBinary(SaveFileId, const u8*, u32);
+    SaveFileId getFileId() const {
+        return {mIsMario ? SaveFileId::Kind_Mario : SaveFileId::Kind_Luigi, mUser};
+    }
 
     GameEventFlagChecker* mEventFlagChecker;
     GameEventValueChecker* mEventValueChecker;
@@ -70,9 +73,10 @@ public:
     GameDataAllGalaxyStorage* mAllGalaxyStorage;
     SpinDriverPathStorage* mSpinDriverPathStorage;
     StarPieceAlmsStorage* mStarPieceAlmsStorage;
-    JMapInfo* mMapInfo;
-    ScenarioProgressTestRun* mScenarioProgressTestRun;
+    Table* mMapInfo;
     BinaryDataChunkHolder* mChunkHolder;
-    char mName[16];
+    // The file this holds: Mario's or Luigi's game, of user mUser.
+    bool mIsMario;
+    s32 mUser;
     const UserFile* mUserFile;
 };

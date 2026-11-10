@@ -16,15 +16,15 @@ public:
 
     HanachanParts(Hanachan*, s32, const char*, const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void kill();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPush(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void kill() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPush(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgEnemyAttack(u32, HitSensor*, HitSensor*) override;
 
-    const TVec3f* getCommonGravity() const;
+    const Vec3f* getCommonGravity() const;
     void exeWalk();
     void exeTrample();
     void exeBecomeAngry();
@@ -49,10 +49,10 @@ public:
     void changeHeadCalmDown();
 
     Hanachan* mHost;
-    TVec3f mPushVelocity;
-    TVec3f mFallVelocity;
+    Vec3f mPushVelocity;
+    Vec3f mFallVelocity;
     PartsType mPartsType;
-    TQuat4f mRotationQuat;
+    Quat4f mRotationQuat;
     s32 mPartsIndex;
     s32 mActionStartStep;
     bool mIsLanded;
@@ -62,12 +62,12 @@ class Hanachan : public LiveActor {
 public:
     Hanachan(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void kill();
-    virtual void startClipped();
-    virtual void endClipped();
-    virtual void control();
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
+    virtual void kill() override;
+    virtual void startClipped() override;
+    virtual void endClipped() override;
+    virtual void control() override;
 
     void exeWalk();
     void exeTrample();
@@ -85,19 +85,19 @@ public:
     void endStarPointerBind();
     s32 calcNearestInfectionId();
     bool isOwnSensor(HitSensor*);
-    void setNerveBlow(const TVec3f&);
+    void setNerveBlow(const Vec3f&);
     void applyPlayerHipDropReaction();
     void setNerveAllParts(const Nerve*);
     void setDelayAllPartsAtId(s32, s32, s32);
     bool isStarPointerPointing();
     void moveHeadAlongRail(f32);
     void moveHeadToPlayer(f32, f32);
-    TVec3f calcSensorDirection(const HitSensor*, const HitSensor*) const;
+    Vec3f calcSensorDirection(const HitSensor*, const HitSensor*) const;
     void moveBodyAlongHead();
 
-    MR::FixedArray< HanachanParts*, 5 > mBodyParts;
-    TVec3f mAttackPos;
-    TVec3f mFrontDir;
+    MR::InlineArray< HanachanParts*, 5 > mBodyParts;
+    Vec3f mAttackPos;
+    Vec3f mFrontDir;
     bool mIsChasePlayer;
     AnimScaleController* mScaleController;
 };

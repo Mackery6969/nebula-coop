@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/MapObj/MapObjActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class ActorCameraInfo;
 class ModelObj;
@@ -10,13 +10,12 @@ class CrystalCageMoving : public MapObjActor {
 public:
     CrystalCageMoving(const char*);
 
-    virtual ~CrystalCageMoving();
-    virtual void init(const JMapInfoIter&);
-    virtual void kill();
-    virtual void control();
-    virtual void updateHitSensor(HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
-    virtual void connectToScene(const MapObjActorInitInfo&);
+    virtual void init(const TableIter&) override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void updateHitSensor(HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
+    virtual void connectToScene(const MapObjActorInitInfo&) override;
 
     void exeWaitBig();
     void exeBreakBig();
@@ -28,13 +27,13 @@ public:
     void exeDemoTicoChange();
     void endBreakBig();
     void crashMario(HitSensor*, HitSensor*);
-    void initDummyModel(const JMapInfoIter&);
+    void initDummyModel(const TableIter&);
     void startBreakDemo();
     bool isNerveTypeEnd() const;
 
     ModelObj* mTicoModel;
-    TPos3f _C8;
+    Pos3f mDummyModelMtx;
     ActorCameraInfo* mCameraInfo;
-    TVec3f _FC;
-    u8 _108;
+    Vec3f mStartPos;
+    u8 mIsCoreShown;
 };

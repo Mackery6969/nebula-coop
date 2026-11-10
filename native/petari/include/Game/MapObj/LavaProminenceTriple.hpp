@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry.hpp>
+#include <nebula_geometry.hpp>
 
 class PartsModel;
 
@@ -9,24 +9,22 @@ class LavaProminenceTriple : public LiveActor {
 public:
     LavaProminenceTriple(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void appear();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void updateHitSensor(HitSensor*);
-    virtual void attackSensor(HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void appear() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void updateHitSensor(HitSensor*) override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
 
     void updateEffectClipping();
     void updateEffectClippingIndividual(bool*, const char*, const char*);
 
-    void calcAngle(f32*);
-
     PartsModel* mBloomModel;
-    TPos3f mBloomMtx;
-    TQuat4f mBaseRot;
-    TQuat4f mCurrRot;
-    TVec3f mSide;
-    TVec3f mFront;
+    Pos3f mBloomMtx;
+    Quat4f mBaseRot;
+    Quat4f mCurrRot;
+    Vec3f mSide;
+    Vec3f mFront;
     f32 mRotateVel;
     bool mIsAppearDrop1;
     bool mIsAppearDrop2;

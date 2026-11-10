@@ -14,6 +14,7 @@ class NebulaCoopChat;
 class NebulaCoopPopups;
 class NebulaPlayerList;
 class NebulaNametags;
+class NebulaModText;
 class NoteCounter;
 class OneUpBoard;
 class PurpleCoinCounter;
@@ -24,7 +25,7 @@ public:
     /// @brief Creates a new `GameSceneLayoutHolder`.
     GameSceneLayoutHolder();
 
-    virtual void movement();
+    virtual void movement() override;
 
     void createPurpleCoinCounter();
     PurpleCoinCounter* getPurpleCoinCounter() const;
@@ -53,12 +54,13 @@ public:
     OneUpBoard* mOneUpBoard;
     YesNoLayout* mYesNoLayout;
     PurpleCoinCounter* mPurpleCoinCounter;
-    bool _30;
-    bool _31;
+    bool mIsStatusInvalidatePending;  // movement() invalidates the status layout once
     CounterLayoutController* mCounterLayoutCtrl;
     bool mIsActiveDefaultGameLayout;
     // Nebula's achievement pop-up: GameScene runs and draws it (only in play, above everything else in 2D).
     NebulaAchievementToast* mAchievementToast;
+    // Plugins' lines of text over the game (draw_text), drawn with the pop-up; null while no mod's code runs.
+    NebulaModText* mModText;
     // Nebula's achievement board, in the Observatory (its Luma opens it); null elsewhere.
     NebulaAchievementBoard* mAchievementBoard;
     // Online co-op's chat: GameScene runs and draws it (over everything else in 2D, the pop-up included).

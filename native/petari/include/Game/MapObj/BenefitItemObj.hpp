@@ -2,33 +2,56 @@
 
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class ActorCameraInfo;
 class FlashingCtrl;
 
 class ShadowClipActor : public LiveActor {
 public:
-    virtual void endClipped();
+    virtual void endClipped() override;
 
-    LiveActor* _8C;
+    LiveActor* mHost;
 };
 
 class BenefitItemObj : public LiveActor {
 public:
-    /// @brief Creates a new `BenefitItemObj`.
-    /// @param pName A pointer to the null-terminated name of the object.
-    /// @param pModelName A pointer to the null-terminated name of the model.
+    // mAppearType.
+    enum {
+        AppearType_InPlace = 0,
+        AppearType_Ground = 1,
+        AppearType_ThrowUp = 2,
+        AppearType_ThrowUpQuestionBox = 3
+    };
+
+    // mEscapeType: 1 and 3 run straight.
+    enum {
+        EscapeType_None = 0,
+        EscapeType_FromPlayer = 2
+    };
+
+    // mShadowType bits; 0 is no shadow.
+    enum {
+        ShadowBit_PrivateGravity = 1,
+        ShadowBit_EveryFrame = 2,
+        ShadowBit_Once = 4
+    };
+
+    // mRotateFlags: any bit turns it while it waits; this one also while it escapes.
+    enum {
+        RotateBit_Escape = 4
+    };
+
     BenefitItemObj(const char* pName, const char* pModelName);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void appear();
-    virtual void makeActorAppeared();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
+    virtual void appear() override;
+    virtual void makeActorAppeared() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
     virtual void appearGround();
     virtual void appearThrowUp();
     virtual void appearThrowUpQuestionBox();
@@ -41,7 +64,7 @@ public:
     virtual void initEscape();
     virtual void doEscape();
 
-    void shoot(const TVec3f&, const TVec3f&, bool);
+    void shoot(const Vec3f&, const Vec3f&, bool);
     void exeShoot();
     void exeWait();
     void exeAppearGround();
@@ -50,48 +73,39 @@ public:
     void setFollowMtx(MtxPtr);
     void calcAndSetBaseMtxInMovement();
 
-    u32 _8C;
-    u32 _90;
-    u32 _94;
-    TVec3f _98;
-    TVec3f _A4;
-    s16 _B0;
-    s16 _B2;
-    s16 _B4;
-    s16 _B6;
-    s16 _B8;
-    s16 _BA;
-    TVec3f _BC;
-    TVec3f _C8;
+    Vec3f mBlendFront;
+    Vec3f mUp;
+    s32 mEscapeLife;
+    s32 mFlashPeriod;
+    s32 mFlashHideTime;
+    s32 mFlashCounter;
+    s32 mHideCounter;
+    Vec3f mEscapeVelocity;
+    Vec3f mFallVelocity;
     MtxPtr mFollowMtx;
-    u8 _D8;
-    u8 _D9;
-    u8 _DA;
-    u8 _DB;
-    u8 _DC;
-    u8 _DD;
-    u8 _DE;
-    u8 _DF;
-    u8 _E0;
-    u8 _E1;
-    u8 _E2;
-    u8 _E3;
-    u8 _E4;
-    u8 _E5;
-    u8 _E6;
-    u8 _E7;
-    f32 _E8;
-    f32 _EC;
-    TMtx34f _F0;
-    const char* _120;
+    bool mIsDisabled;
+    u8 mAppearType;
+    u8 mEscapeType;
+    u8 mRotateFlags;
+    u8 mShadowType;
+    bool mIsThrownHigh;
+    bool mHasAppearPicture;
+    bool mIsActive;
+    bool mIsWaitingAppear;
+    bool mIsItemMoving;
+    bool mIsOnRail;
+    bool mHasAppearCamera;
+    bool mIsInAir;
+    bool mIsDemoPending;
+    f32 mRailSpeed;
+    f32 mRotateY;
+    Mtx34f mModelMtx;
+    const char* mModelName;
     FlashingCtrl* mFlashCtrl;
     ActorCameraInfo* mCameraInfo;
-    u32 _12C;
-    u32 _130;
+    u32 mCameraFrames;
     LiveActor* mHitSensorActor;
-    u8 _138;
-    u8 _139;
-    u16 _13A;
+    s32 mSensorInvalidStep;
 };
 
 namespace NrvBenefitItemObj {

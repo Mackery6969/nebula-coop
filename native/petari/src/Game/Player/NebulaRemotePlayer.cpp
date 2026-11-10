@@ -16,7 +16,7 @@
 #include "Game/LiveActor/EffectKeeper.hpp"
 #include "Game/LiveActor/ModelManager.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
-#include "Game/Player/J3DModelX.hpp"
+#include "Game/Player/PlayerModel.hpp"
 #include "Game/Player/Mario.hpp"
 #include "Game/Player/MarioActor.hpp"
 #include "Game/Player/MarioAnimator.hpp"
@@ -81,8 +81,8 @@ namespace {
     // Where the local Mario was these last frames, for the others' attacks as they saw him (sm64coopdx's
     // lag_compensation_store): two thirds of a second.
     struct Sample {
-        TVec3f mCenter;  // his body's middle
-        TVec3f mGravity;
+        Vec3f mCenter;  // his body's middle
+        Vec3f mGravity;
         bool mSpinning;
     };
     const s32 cHistoryNum = 40;
@@ -119,14 +119,14 @@ namespace {
         f32 mStopAfter;
     };
     const AnimationEffect cAnimationEffects[] = {
-        {"\213\363\222\206\202\320\202\313\202\350" /* 空中ひねり */, "SpinLight", nullptr, 30.0f},
-        {"\222\156\217\343\202\320\202\313\202\350" /* 地上ひねり */, "SpinLight", nullptr, 0.0f},
-        {"\203\101\203\103\203\130\202\320\202\313\202\350" /* アイスひねり */, "IceMarioSpinLight", nullptr, 0.0f},
-        {"\203\101\203\103\203\130\202\320\202\313\202\350\220\303\216\176" /* アイスひねり静止 */, "IceMarioSpinLight", nullptr, 0.0f},
-        {"\203\164\203\100\203\103\203\101\203\130\203\163\203\223" /* ファイアスピン */, "FireMarioSpinLight", nullptr, 0.0f},
-        {"\203\164\203\100\203\103\203\101\203\130\203\163\203\223\213\363\222\206" /* ファイアスピン空中 */, "FireMarioSpinLight", nullptr, 0.0f},
-        {"\203\156\203\140\203\130\203\163\203\223" /* ハチスピン */, "BeeMarioSpinLight", "BeeLuigiSpinLight", 0.0f},
-        {"\203\156\203\140\203\130\203\163\203\223\213\363\222\206" /* ハチスピン空中 */, "BeeMarioSpinLight", "BeeLuigiSpinLight", 0.0f},
+        {"空中ひねり", "SpinLight", nullptr, 30.0f},
+        {"地上ひねり", "SpinLight", nullptr, 0.0f},
+        {"アイスひねり", "IceMarioSpinLight", nullptr, 0.0f},
+        {"アイスひねり静止", "IceMarioSpinLight", nullptr, 0.0f},
+        {"ファイアスピン", "FireMarioSpinLight", nullptr, 0.0f},
+        {"ファイアスピン空中", "FireMarioSpinLight", nullptr, 0.0f},
+        {"ハチスピン", "BeeMarioSpinLight", "BeeLuigiSpinLight", 0.0f},
+        {"ハチスピン空中", "BeeMarioSpinLight", "BeeLuigiSpinLight", 0.0f},
     };
     const u32 cAnimationEffectNum = sizeof(cAnimationEffects) / sizeof(cAnimationEffects[0]);
 
@@ -226,12 +226,12 @@ void NebulaRemotePlayer::tryCreate() {
     // Each character plays its own animations (Luigi's wait, run and jumps are his), whichever the local player is:
     // the other character's from a table of their own, on the animation archive where Luigi's BCK files actually
     // live (MarioAnime.arc). The model's own arc (Mario.arc / Luigi.arc) doesn't have them, so lookups silently fail
-    // and the model's joints stay in bind pose, which makes the head and arms disappear. Named with ".arc", as
-    // GameSystemStationedArchiveLoader loads it: the holders are found by that name, and the file has no other.
-    sOtherTable = MarioAnimator::newCharacterResourceTable(MR::createAndAddResourceHolder("MarioAnime.arc"), !MR::isPlayerLuigi());
+    // and the model's joints stay in bind pose, which makes the head and arms disappear. Named as MarioActorDraw names
+    // it ("MarioAnime"), so both find the same holder.
+    sOtherTable = MarioAnimator::newCharacterResourceTable(MR::createAndAddResourceHolder("MarioAnime"), !MR::isPlayerLuigi());
     for (s32 i = 0; i < perCharacter * 2; i++) {
         NebulaRemotePlayer* pCopy = new NebulaRemotePlayer(i >= perCharacter);
-        pCopy->init(JMapInfoIter{});
+        pCopy->init(TableIter{});
         pCopy->mBubble = NebulaCoopBubble::createModel();
         sCopies[sCopyNum++] = pCopy;
     }
@@ -246,7 +246,7 @@ const NebulaRemotePlayer* NebulaRemotePlayer::getCopy(s32 index) {
     return index >= 0 && index < sCopyNum ? sCopies[index] : nullptr;
 }
 
-TVec3f NebulaRemotePlayer::getCenterPos() const {
+Vec3f NebulaRemotePlayer::getCenterPos() const {
     return mPosition + mUp * cBodyCenter;
 }
 
@@ -267,9 +267,9 @@ HitSensor* NebulaRemotePlayer::getHitSender(u32 number) {
     return nullptr;
 }
 
-TVec3f NebulaRemotePlayer::getNametagPos() const {
+Vec3f NebulaRemotePlayer::getNametagPos() const {
     // Mario stands about 160 tall: the name a little over his cap.
-    return TVec3f(mPosition.x + mUp.x * 200.0f, mPosition.y + mUp.y * 200.0f, mPosition.z + mUp.z * 200.0f);
+    return Vec3f(mPosition.x + mUp.x * 200.0f, mPosition.y + mUp.y * 200.0f, mPosition.z + mUp.z * 200.0f);
 }
 
 void NebulaRemotePlayer::updateAll() {
@@ -359,12 +359,12 @@ void NebulaRemotePlayer::updateAll() {
     }
 }
 
-void NebulaRemotePlayer::init(const JMapInfoIter& rIter) {
+void NebulaRemotePlayer::init(const TableIter& rIter) {
     // The player's own model: the local player's is already here; the other character's loads into the scene. Its
     // materials take the stage's fog, as MarioActor::initDrawAndModel has the local Mario's.
     initModelManagerWithAnm(mIsLuigi ? "Luigi" : "Mario", nullptr, true);
     MR::initMaterialFog(this, true);
-    MR::newDifferedMaterials(this);
+    MR::prepareMaterials(this);
 
     // Lit as the local Mario is (MR::initLightCtrlForPlayer), by the player light of the light area it stands in: its
     // own, as it may stand in another area than he does. No draw buffer of its own to sort it in.
@@ -391,20 +391,20 @@ void NebulaRemotePlayer::init(const JMapInfoIter& rIter) {
     // same one. A Luigi copy on Mario's screen played Mario's wait and run at Luigi's frames and speed (his feet slid,
     // and his idle jumped back where the two waits' lengths differ); a Mario copy on Luigi's screen played Luigi's.
     XanimeResourceTable* pTable = mIsLuigi == MR::isPlayerLuigi() || sOtherTable == nullptr ? MR::getPlayerXanimeResource() : sOtherTable;
-    mXanimePlayer = new XanimePlayer(MR::getJ3DModel(this), pTable);
+    mXanimePlayer = new XanimePlayer(MR::getModel(this), pTable);
     mXanimePlayer->duplicateSimpleGroup();
     mModelManager->mXanimePlayer = mXanimePlayer;
-    mXanimePlayer->setDefaultAnimation("\212\356\226\173" /* 基本 */);
+    mXanimePlayer->setDefaultAnimation("基本");
     // An animation that ends stays on its last frame until the snapshot names another, as the player's game can keep
     // one (MarioModule::changeAnimationNonStop, changeAnimationWithAttr). Going back to its default by itself, then
     // being told the animation again the next frame, flickered between the two.
-    mXanimePlayer->_7E = false;
-    mXanimePlayer->getCore()->enableJointTransform(MR::getJ3DModelData(this));
-    mXanimePlayer->changeAnimation("\212\356\226\173" /* 基本 */);
+    mXanimePlayer->mReturnToDefault = false;
+    mXanimePlayer->getCore()->enableJointTransform(MR::getModelData(this));
+    mXanimePlayer->changeAnimation("基本");
 
     // The body the local Mario bumps into, as the cosmic ghost's; off until the two may touch.
     initHitSensor(1);
-    MR::addHitSensorRide(this, "body", 4, 40.0f, TVec3f(0.0f, cBodyCenter, 0.0f));
+    MR::addHitSensorRide(this, "body", 4, 40.0f, Vec3f(0.0f, cBodyCenter, 0.0f));
     MR::invalidateHitSensors(this);
 
     MR::initShadowVolumeSphere(this, 50.0f);
@@ -504,7 +504,7 @@ void NebulaRemotePlayer::updateAnimation() {
     // Played on here at the player's speed (ModelManager::update moves it along each frame), and kept on the
     // snapshot's frame: eased onto it, or put there when far off, as when it starts or starts again. Round a loop the
     // short way: its end and its loop's start are the same pose.
-    J3DFrameCtrl* pCtrl = mXanimePlayer->getFrameCtrl();
+    FrameCtrl* pCtrl = mXanimePlayer->getFrameCtrl();
     f32 target = mState.animation_frame;
     // The same animation started again (a second spin): its frame went back.
     const bool restarted = !changed && strcmp(mGroup, mState.group) == 0 && target + cFrameSnap < mLastFrame;
@@ -512,7 +512,7 @@ void NebulaRemotePlayer::updateAnimation() {
         pCtrl->setRate(mState.animation_rate);
         const f32 loopStart = pCtrl->getLoop();
         const f32 end = pCtrl->getEnd();
-        const bool loops = pCtrl->getAttribute() == J3DFrameCtrl::EMode_LOOP && end > loopStart;
+        const bool loops = pCtrl->getAttribute() == FrameCtrl::EMode_LOOP && end > loopStart;
         if (loops && target > end) {
             target = loopStart + fmodf(target - loopStart, end - loopStart);
         } else if (target > end) {
@@ -568,11 +568,11 @@ void NebulaRemotePlayer::updateTracks() {
         if (strcmp(mTrackName[i], mState.tracks[i]) != 0) {
             nebula_snprintf(mTrackName[i], sizeof(mTrackName[i]), "%s", mState.tracks[i]);
             mTrackBck[i] = mTrackName[i][0] != '\0'
-                               ? static_cast< J3DAnmTransform* >(mXanimePlayer->mResourceTable->findResMotion(mTrackName[i]))
+                               ? mXanimePlayer->mResourceTable->findResMotion(mTrackName[i])
                                : nullptr;
         }
-        J3DAnmTransform* pWanted = mTrackBck[i] != nullptr ? mTrackBck[i] : static_cast< J3DAnmTransform* >(pGroup->_20[i]);
-        if (pWanted != nullptr && pCore->mTrackList[i]._0 != pWanted) {
+        Clip* pWanted = mTrackBck[i] != nullptr ? mTrackBck[i] : pGroup->mBcks[i];
+        if (pWanted != nullptr && pCore->mTrackList[i].mClip != pWanted) {
             pCore->setBck(i, pWanted);
         }
     }
@@ -674,10 +674,10 @@ void NebulaRemotePlayer::tryAttackLocal() {
     if (stagger && rPast.mSpinning) {
         return;
     }
-    const TVec3f center = mPosition + mUp * cBodyCenter;
-    const TVec3f offset = rPast.mCenter - center;
+    const Vec3f center = mPosition + mUp * cBodyCenter;
+    const Vec3f offset = rPast.mCenter - center;
     const f32 down = offset.dot(rPast.mGravity);
-    const TVec3f across = offset - rPast.mGravity * down;
+    const Vec3f across = offset - rPast.mGravity * down;
     if (down >= cBodyHeight || down <= -cBodyHeight || across.length() >= reach) {
         return;
     }
@@ -685,7 +685,7 @@ void NebulaRemotePlayer::tryAttackLocal() {
     // Thrown away from them, the knockback strength times the attack's scale (sm64coopdx's speeds are a 30 Hz
     // frame's, Galaxy's a 60 Hz one's); friendly fire costs health as an enemy's hit does. (normalizeOrZero is true
     // when the vector was zero: only then, standing inside them, is he thrown backwards from where he faces.)
-    TVec3f away;
+    Vec3f away;
     MR::vecKillElement(pMario->mPosition - mPosition, pMario->getGravityVec(), &away);
     if (MR::normalizeOrZero(&away)) {
         away = -pMario->mMario->mFrontVec;
@@ -695,8 +695,8 @@ void NebulaRemotePlayer::tryAttackLocal() {
     Mario* pPlayer = pMario->mMario;
     if (stagger && !pMario->isJumping()) {
         // (No slide while hanging: Galaxy's own stagger keeps it zero there.)
-        if ((hurt ? pPlayer->faint(away) : pPlayer->doFlipWeak(away)) && !MR::isNearZero(pPlayer->mFaint->_18)) {
-            pPlayer->mFaint->_18.setLength(knockback);
+        if ((hurt ? pPlayer->faint(away) : pPlayer->doFlipWeak(away)) && !MR::isNearZero(pPlayer->mFaint->mVelocity)) {
+            pPlayer->mFaint->mVelocity.setLength(knockback);
         }
     } else if (hurt ? pPlayer->damage(away) : pPlayer->doFlipLarge(away)) {
         // Thrown up as far as away, as sm64coopdx's; the damage's own rise is part of it.
@@ -715,7 +715,7 @@ void NebulaRemotePlayer::attackSensor(HitSensor* pSender, HitSensor* pReceiver) 
     }
     // Their landing on the local Mario's head squashes him a moment, unharmed (sm64coopdx's bounceSquishTimer: they
     // bounce off in their own game); otherwise he's pushed out of them.
-    const TVec3f& rGravity = pMario->getGravityVec();
+    const Vec3f& rGravity = pMario->getGravityVec();
     if ((mPosition - pMario->mPosition).dot(rGravity) < -cBodyHeight * 0.75f && mVelocity.dot(rGravity) > 0.0f) {
         if (mStompTimer == 0 && (mState.flags & NEBULA_COOP_PLAYER_HIP_DROP) == 0) {
             MR::sendArbitraryMsg(ACTMES_ENEMY_ATTACK_FLIP_VERYWEAK, pReceiver, pSender);
@@ -733,10 +733,10 @@ bool NebulaRemotePlayer::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, Hit
 }
 
 void NebulaRemotePlayer::calcAndSetBaseMtx() {
-    TPos3f mtx;
+    Pos3f mtx;
     MR::makeMtxUpFrontPos(&mtx, mUp, mFront, mPosition);
     MR::setBaseTRMtx(this, mtx);
-    MR::getJ3DModel(this)->setBaseScale(mScale);
+    MR::getModel(this)->setBaseScale(mScale);
 }
 
 void NebulaRemotePlayer::draw() const {
@@ -746,9 +746,9 @@ void NebulaRemotePlayer::draw() const {
     // Its own light, as MR::loadLightPlayer loads the local Mario's before the players draw; his again after, for the
     // rest of them.
     MR::loadActorLight(this);
-    J3DModelX* pModel = reinterpret_cast< J3DModelX* >(MR::getJ3DModel(this));
+    PlayerModel* pModel = static_cast< PlayerModel* >(MR::getModel(this));
     pModel->viewCalc2();
-    pModel->mFlags.clear();
+    pModel->mDrawPasses = 0;
     // While either races: see-through, as the local Mario is with the camera right on him (MarioActor's alpha list).
     if (mGhosted) {
         pModel->setDynamicList(&mGhostTint);
@@ -757,6 +757,6 @@ void NebulaRemotePlayer::draw() const {
     }
     // No setDrawView: it points the draw matrices at the extra buffers only the local Mario has (MarioActor's
     // initExtraMtxBuffer); this copy has none, so it drew from a null array and crashed. GhostPlayer draws the same way.
-    pModel->directDraw(nullptr);
+    pModel->directDraw();
     MR::loadLightPlayer();
 }

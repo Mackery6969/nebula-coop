@@ -15,10 +15,7 @@ SnowCapsulePlanet::SnowCapsulePlanet(const char* pName) : MapObjActor(pName) {
     mDoor2 = nullptr;
 }
 
-SnowCapsulePlanet::~SnowCapsulePlanet() {
-}
-
-void SnowCapsulePlanet::init(const JMapInfoIter& rIter) {
+void SnowCapsulePlanet::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
     MapObjActorInitInfo info;
     MapObjActorUtil::setupInitInfoPlanet(&info);
@@ -26,8 +23,8 @@ void SnowCapsulePlanet::init(const JMapInfoIter& rIter) {
     info.setupSound(6);
     info.setupNerve(GET_NERVE(SnowCapsulePlanet, SnowCapsulePlanetNrvCloseWait));
     initialize(rIter, info);
-    mDoor1 = MR::createCollisionPartsFromLiveActor(this, "Open", getSensor("body"), MR::CollisionScaleType_Unk2);
-    mDoor2 = MR::createCollisionPartsFromLiveActor(this, "Close", getSensor("body"), MR::CollisionScaleType_Unk2);
+    mDoor1 = MR::createCollisionPartsFromLiveActor(this, "Open", getSensor("body"), MR::CollisionScaleType_Default);
+    mDoor2 = MR::createCollisionPartsFromLiveActor(this, "Close", getSensor("body"), MR::CollisionScaleType_Default);
     MR::validateCollisionParts(mDoor2);
     if (MR::isDemoCast(this, nullptr)) {
         MR::tryRegisterDemoActionNerve(this, GET_NERVE(SnowCapsulePlanet, SnowCapsulePlanetNrvOpen), nullptr);

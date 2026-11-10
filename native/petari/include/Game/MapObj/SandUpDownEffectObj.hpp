@@ -1,17 +1,15 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class TriangleFilterFunc;
 
 class SandUpDownEffectObj : public LiveActor {
 public:
-    /// @brief Creates a new `SandUpDownEffectObj`.
-    /// @param pName A pointer to the null-terminated name of the object.
     SandUpDownEffectObj(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
+    virtual void init(const TableIter& rIter) override;
 
     void startMoveUp();
     void startMoveDown();
@@ -26,9 +24,9 @@ public:
     void exeBuryEnd();
 
 private:
-    f32 _8C;
-    f32 _90;
-    TVec3f _94;
-    TPos3f _A0;
-    TriangleFilterFunc* _D0;
+    f32 mLineOffset;
+    f32 mLineLength;
+    Vec3f mClippingCenter;
+    Pos3f mEffectMtx;
+    TriangleFilterFunc* mTriFilter;
 };

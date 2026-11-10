@@ -13,13 +13,12 @@ namespace NrvReverseGravityRoomPlanet {
 ReverseGravityRoomPlanet::ReverseGravityRoomPlanet(const char* pName) : MapObjActor(pName) {
 }
 
-void ReverseGravityRoomPlanet::init(const JMapInfoIter& rIter) {
+void ReverseGravityRoomPlanet::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
     MapObjActorInitInfo info;
-    info.setupHioNode("\230\146\220\257" /* 惑星 */);
     info.setupDefaultPos();
     info.setupConnectToScene();
-    info.setupEffect(0);
+    info.setupEffect(nullptr);
     info.setupFarClipping(-1.0f);
     info.setupNerve(GET_NERVE(ReverseGravityRoomPlanet, ReverseGravityRoomPlanetNrvDownWait));
     initialize(rIter, info);
@@ -51,7 +50,7 @@ void ReverseGravityRoomPlanet::exeUpStart() {
 void ReverseGravityRoomPlanet::exeUpWait() {
 }
 
-void ReverseGravityRoomPlanet::initCaseUseSwitchA(const MapObjActorInitInfo& rIter) {
+void ReverseGravityRoomPlanet::initCaseUseSwitchA(const MapObjActorInitInfo& /*rInfo*/) {
     MR::listenStageSwitchOnOffA(this, MR::Functor(this, &ReverseGravityRoomPlanet::startSwitchOn),
                                 MR::Functor(this, &ReverseGravityRoomPlanet::startSwitchOff));
 }
@@ -62,7 +61,4 @@ void ReverseGravityRoomPlanet::startSwitchOn() {
 
 void ReverseGravityRoomPlanet::startSwitchOff() {
     setNerve(GET_NERVE(ReverseGravityRoomPlanet, ReverseGravityRoomPlanetNrvDownStart));
-}
-
-ReverseGravityRoomPlanet::~ReverseGravityRoomPlanet() {
 }

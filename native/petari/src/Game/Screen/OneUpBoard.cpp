@@ -5,10 +5,11 @@
 #include "Game/Util/LayoutUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const f32 sOffsetY = 60.0f;
-    static const f32 sOffsetYMin = 160.0f;
+    NEBULA_TUNABLE(f32, sOffsetY, 60.0f);
+    NEBULA_TUNABLE(f32, sOffsetYMin, 160.0f);
 };  // namespace
 
 namespace NrvOneUpBoard {
@@ -16,10 +17,10 @@ namespace NrvOneUpBoard {
     NEW_NERVE(HostTypeAppear, OneUpBoard, Appear);
 };  // namespace NrvOneUpBoard
 
-OneUpBoard::OneUpBoard() : LayoutActor("1UP\203\173\201\133\203\150" /* 1UPボード */, true) {
+OneUpBoard::OneUpBoard() : LayoutActor("1UPボード", true) {
 }
 
-void OneUpBoard::init(const JMapInfoIter& rIter) {
+void OneUpBoard::init(const TableIter& /*rIter*/) {
     initLayoutManager("OneUp", 2);
     initNerve(GET_NERVE(OneUpBoard, HostTypeWait));
     MR::connectToSceneLayout(this);
@@ -39,7 +40,7 @@ void OneUpBoard::appear() {
 }
 
 void OneUpBoard::calcPos() {
-    TVec2f pos;
+    Vec2f pos;
 
     MR::calcScreenPosition(&pos, *MR::getPlayerCenterPos());
 

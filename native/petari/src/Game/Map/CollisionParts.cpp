@@ -6,13 +6,16 @@
 #include "Game/Map/CollisionDirector.hpp"
 #include "Game/Map/HitInfo.hpp"
 #include "Game/Map/KCollision.hpp"
+#include "Game/System/Arenas.hpp"
+#include "Game/System/NebulaArena.hpp"
+#include "Game/Util/Array.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
 #include "Game/Util/SceneUtil.hpp"
 #include "Game/Util/TriangleFilter.hpp"
 
 CollisionParts::CollisionParts()
-    : _0(), mHitSensor(), _CC(), _CD(true), _CE(), _CF(), _D0(), _D4(), _D8(-1.0f), _DC(1.0f), mKeeperIndex(-1), mZone() {
+    : mFollowMtx(), mHitSensor(), mIsValid(), mIsUpdate(true), mIsUpdateOnce(), mUseEqualScale(), mIsNotUsingScale(), mStillCount(), mBoundingRadius(-1.0f), mScale(1.0f), mKeeperIndex(-1), mZone() {
     mServer = new KCollisionServer();
 
     mPrevBaseMatrix.identity();
@@ -21,14 +24,14 @@ CollisionParts::CollisionParts()
     NebulaMtxInverse(mBaseMatrix.toMtxPtr(), mInvBaseMatrix.toMtxPtr());
 }
 
-void CollisionParts::init(const TPos3f& rMatrix, HitSensor* pHitSensor, const void* pKclData, const void* pMapInfo, s32 keeperIndex,
-                          bool useAutoScale) {
+void CollisionParts::init(const Pos3f& rMatrix, HitSensor* pHitSensor, const void* pKclData, const void* pMapInfo, s32 keeperIndex,
+                          bool /*useAutoScale*/) {
     mServer->init(const_cast< void* >(pKclData), pMapInfo);
     mHitSensor = pHitSensor;
 
     resetAllMtx(rMatrix);
 
-    TVec3f scale;
+    Vec3f scale;
     mBaseMatrix.getScale(scale);
 
     mZone = MR::getCollisionDirector()->getCategoryKeeper(keeperIndex)->getZone(MR::getCurrentPlacementZoneId());
@@ -41,14 +44,14 @@ void CollisionParts::init(const TPos3f& rMatrix, HitSensor* pHitSensor, const vo
     mKeeperIndex = keeperIndex;
 }
 
-void CollisionParts::init(const TPos3f& rMatrix, HitSensor* pHitSensor, KCLFile* pModel, const void* pMapInfo, s32 keeperIndex,
-                          bool useAutoScale) {
+void CollisionParts::init(const Pos3f& rMatrix, HitSensor* pHitSensor, KCLFile* pModel, const void* pMapInfo, s32 keeperIndex,
+                          bool /*useAutoScale*/) {
     mServer->initModel(pModel, pMapInfo);
     mHitSensor = pHitSensor;
 
     resetAllMtx(rMatrix);
 
-    TVec3f scale;
+    Vec3f scale;
     mBaseMatrix.getScale(scale);
 
     mZone = MR::getCollisionDirector()->getCategoryKeeper(keeperIndex)->getZone(MR::getCurrentPlacementZoneId());
@@ -73,26 +76,26 @@ void CollisionParts::removeFromBelongZone() {
     MR::getCollisionDirector()->getCategoryKeeper(mKeeperIndex)->removeFromZone(this, zoneID);
 }
 
-void CollisionParts::initWithAutoEqualScale(const TPos3f& rMatrix, HitSensor* pHitSensor, const void* pKclData, const void* pMapInfo, s32 keeperIndex,
+void CollisionParts::initWithAutoEqualScale(const Pos3f& rMatrix, HitSensor* pHitSensor, const void* pKclData, const void* pMapInfo, s32 keeperIndex,
                                             bool useAutoScale) {
-    _CF = true;
-    _D0 = false;
+    mUseEqualScale = true;
+    mIsNotUsingScale = false;
 
     init(rMatrix, pHitSensor, pKclData, pMapInfo, keeperIndex, useAutoScale);
 }
 
-void CollisionParts::initWithNotUsingScale(const TPos3f& rMatrix, HitSensor* pHitSensor, const void* pKclData, const void* pMapInfo, s32 keeperIndex,
+void CollisionParts::initWithNotUsingScale(const Pos3f& rMatrix, HitSensor* pHitSensor, const void* pKclData, const void* pMapInfo, s32 keeperIndex,
                                            bool useAutoScale) {
-    _CF = false;
-    _D0 = true;
+    mUseEqualScale = false;
+    mIsNotUsingScale = true;
 
     init(rMatrix, pHitSensor, pKclData, pMapInfo, keeperIndex, useAutoScale);
 }
 
-void CollisionParts::resetAllMtx(const TPos3f& rMatrix) {
+void CollisionParts::resetAllMtx(const Pos3f& rMatrix) {
     bool reset = false;
 
-    if (_CD || _CE) {
+    if (mIsUpdate || mIsUpdateOnce) {
         reset = true;
     }
 
@@ -106,76 +109,73 @@ void CollisionParts::resetAllMtx(const TPos3f& rMatrix) {
 void CollisionParts::resetAllMtx() {
     bool reset = false;
 
-    if (_CD || _CE) {
+    if (mIsUpdate || mIsUpdateOnce) {
         reset = true;
     }
 
     if (reset) {
-        TPos3f matrix(_0);
-        makeEqualScale(matrix.toMtxPtr());
+        Pos3f matrix(mFollowMtx);
+        makeEqualScale(matrix);
 
         resetAllMtxPrivate(matrix);
     }
 }
 
 void CollisionParts::forceResetAllMtxAndSetUpdateMtxOneTime() {
-    TPos3f matrix(_0);
-    makeEqualScale(matrix.toMtxPtr());
+    Pos3f matrix(mFollowMtx);
+    makeEqualScale(matrix);
     resetAllMtxPrivate(matrix);
 
-    _CE = true;
+    mIsUpdateOnce = true;
 }
 
-void CollisionParts::resetAllMtxPrivate(const TPos3f& rMatrix) {
+void CollisionParts::resetAllMtxPrivate(const Pos3f& rMatrix) {
     mPrevBaseMatrix.setInline(rMatrix);
     mBaseMatrix.setInline(rMatrix);
     mMatrix.setInline(rMatrix);
     NebulaMtxInverse(mBaseMatrix.toMtxPtr(), mInvBaseMatrix.toMtxPtr());
 }
 
-void CollisionParts::setMtx(const TPos3f& rMatrix) {
+void CollisionParts::setMtx(const Pos3f& rMatrix) {
     mMatrix.setInline(rMatrix);
 }
 
 void CollisionParts::setMtx() {
-    mMatrix.setInline(_0);
+    mMatrix.setInline(mFollowMtx);
 }
 
 void CollisionParts::updateMtx() {
     bool update = false;
 
-    if (_CD || _CE) {
+    if (mIsUpdate || mIsUpdateOnce) {
         update = true;
     }
 
     if (!update) {
         if (MR::isSameMtx(mMatrix.toMtxPtr(), mBaseMatrix.toMtxPtr())) {
-            _D4++;
+            mStillCount++;
         }
     } else {
         if (MR::isSameMtx(mMatrix.toMtxPtr(), mBaseMatrix.toMtxPtr())) {
-            _D4++;
+            mStillCount++;
         } else {
-            if (_CE) {
-                _D4 = 1;
+            if (mIsUpdateOnce) {
+                mStillCount = 1;
             } else {
-                _D4 = 0;
+                mStillCount = 0;
             }
 
-            f32 scale = makeEqualScale(mMatrix.toMtxPtr());
-            _E8 = scale;
-            f32 scaleChange = scale - _DC;
-            _EC = scale;
-            _F0 = scale;
+            f32 scale = makeEqualScale(mMatrix);
+            f32 scaleChange = scale - mScale;
 
             if (!MR::isNearZero(scaleChange)) {
                 updateBoundingSphereRangePrivate(scale);
             }
         }
 
-        _CE = false;
+        mIsUpdateOnce = false;
 
-        if (_D4 < 2) {
+        if (mStillCount < 2) {
             mPrevBaseMatrix.setInline(mBaseMatrix);
             mBaseMatrix.setInline(mMatrix);
             NebulaMtxInverse(mBaseMatrix.toMtxPtr(), mInvBaseMatrix.toMtxPtr());
@@ -183,25 +183,23 @@ void CollisionParts::updateMtx() {
     }
 }
 
-f32 CollisionParts::makeEqualScale(MtxPtr pMatrix) {
-    TPos3f& mtx = *reinterpret_cast< TPos3f* >(pMatrix);
-
-    TVec3f scale;
+f32 CollisionParts::makeEqualScale(Pos3f& mtx) {
+    Vec3f scale;
     mtx.getScale(scale);
 
-    TVec3f scaleDiff(scale.x - scale.y, scale.y - scale.z, scale.z - scale.x);
+    Vec3f scaleDiff(scale.x - scale.y, scale.y - scale.z, scale.z - scale.x);
 
     if (MR::isNearZero(scaleDiff.x) && MR::isNearZero(scaleDiff.y) && MR::isNearZero(scaleDiff.z)) {
         return scale.x;
     }
 
     f32 uniformScale = 1.0f;
-    TVec3f invScale;
+    Vec3f invScale(1.0f, 1.0f, 1.0f);  // the default type keeps the matrix's scale
 
-    if (_D0) {
+    if (mIsNotUsingScale) {
         invScale.set< f32 >(uniformScale / scale.x, uniformScale / scale.y, uniformScale / scale.z);
         uniformScale = 1.0f;
-    } else if (_CF) {
+    } else if (mUseEqualScale) {
         uniformScale = (scale.x + scale.y + scale.z) / 3.0f;
         invScale.set< f32 >(uniformScale / scale.x, uniformScale / scale.y, uniformScale / scale.z);
     }
@@ -222,19 +220,19 @@ f32 CollisionParts::makeEqualScale(MtxPtr pMatrix) {
 }
 
 void CollisionParts::updateBoundingSphereRange() {
-    TPos3f matrix(_0);
-    f32 scale = makeEqualScale(matrix.toMtxPtr());
+    Pos3f matrix(mFollowMtx);
+    f32 scale = makeEqualScale(matrix);
     updateBoundingSphereRangePrivate(scale);
 }
 
-void CollisionParts::updateBoundingSphereRange(TVec3f scale) {
+void CollisionParts::updateBoundingSphereRange(Vec3f scale) {
     f32 range = (scale.x + scale.y + scale.z) / 3.0f;
     updateBoundingSphereRangePrivate(range);
 }
 
 void CollisionParts::updateBoundingSphereRangePrivate(f32 scale) {
-    _DC = scale;
-    _D8 = scale * mServer->mMaxVertexDistance;
+    mScale = scale;
+    mBoundingRadius = scale * mServer->mMaxVertexDistance;
 }
 
 const char* CollisionParts::getHostName() const {
@@ -255,33 +253,29 @@ s32 CollisionParts::getPlacementZoneID() const {
     return mZone->mZoneID;
 }
 
-bool CollisionParts::checkStrikePoint(HitInfo* pHitInfo, const TVec3f& rPos) {
-    TVec3f localPos;
+bool CollisionParts::checkStrikePoint(HitInfo* pHitInfo, const Vec3f& rPos) {
+    Vec3f localPos;
     mInvBaseMatrix.mult(rPos, localPos);
-    TVec3f scale;
+    Vec3f scale;
     mInvBaseMatrix.getScale(scale);
     f32 averageScale = (scale.x + scale.y + scale.z) / 3.0f;
-    Fxyz point;
-    point.x = localPos.x;
-    point.y = localPos.y;
-    point.z = localPos.z;
     f32 distance;
     KC_PrismData* prism = nullptr;
     u8 classification;
 
     if (1.0f < averageScale) {
         f32 radius = 20.0f * averageScale;
-        mServer->checkSphereWithThickness(&point, radius, averageScale, 1, &prism, &distance, &classification, 2.0f * radius);
+        mServer->checkSphereWithThickness(&localPos, radius, averageScale, 1, &prism, &distance, &classification, 2.0f * radius);
         if (prism == nullptr) {
             return false;
         }
 
-        TVec3f offset(localPos);
+        Vec3f offset(localPos);
         offset -= mServer->getPos(prism, 0);
-        TVec3f normal(*mServer->getFaceNormal(prism));
+        Vec3f normal(*mServer->getFaceNormal(prism));
         distance = -offset.x * normal.x - offset.y * normal.y - offset.z * normal.z;
     } else {
-        prism = mServer->checkPoint(&point, averageScale, &distance);
+        prism = mServer->checkPoint(&localPos, averageScale, &distance);
         if (prism == nullptr) {
             return false;
         }
@@ -290,49 +284,79 @@ bool CollisionParts::checkStrikePoint(HitInfo* pHitInfo, const TVec3f& rPos) {
     if (pHitInfo != nullptr) {
         pHitInfo->mParentTriangle.fillData(this, mServer->toIndex(prism), mHitSensor);
         f32 worldDistance = distance / averageScale;
-        pHitInfo->_60 = worldDistance;
+        pHitInfo->mDepth = worldDistance;
         pHitInfo->mHitPos = rPos + *pHitInfo->mParentTriangle.getNormal(0) * worldDistance;
     }
 
     return true;
 }
 
-u32 CollisionParts::checkStrikeBall(HitInfo* pHitInfo, u32 maxHits, const TVec3f& rPos, f32 radius, bool checkMovement,
+namespace {
+    // A query's working lists: room for the common case on the stack, more when more hits were asked for.
+    struct StrikeLists {
+        explicit StrikeLists(u32 maxHits) {
+            const bool fits = maxHits <= ARRAY_SIZEU(mPrismRoom);
+            mPrisms = fits ? mPrismRoom : new KC_PrismData*[maxHits];
+            mDistances = fits ? mDistanceRoom : new f32[maxHits];
+            mClassifications = fits ? mClassificationRoom : new u8[maxHits];
+        }
+
+        ~StrikeLists() {
+            if (mPrisms != mPrismRoom) {
+                delete[] mPrisms;
+                delete[] mDistances;
+                delete[] mClassifications;
+            }
+        }
+
+        KC_PrismData* mPrismRoom[64];
+        f32 mDistanceRoom[64];
+        u8 mClassificationRoom[64];
+        KC_PrismData** mPrisms;
+        f32* mDistances;
+        u8* mClassifications;
+    };
+}  // namespace
+
+u32 CollisionParts::checkStrikeBall(HitInfo* pHitInfo, u32 maxHits, const Vec3f& rPos, f32 radius, bool checkMovement,
                                     const TriangleFilterBase* pFilter) {
-    KC_PrismData* prisms[64];
-    f32 distances[64];
-    u8 classifications[64];
-    TPos3f inversePrev;
-    TVec3f localPos;
+    StrikeLists lists(maxHits);
+    KC_PrismData** const prisms = lists.mPrisms;
+    f32* const distances = lists.mDistances;
+    u8* const classifications = lists.mClassifications;
+    Pos3f inversePrev;
+    Vec3f localPos;
     mInvBaseMatrix.mult(rPos, localPos);
-    TVec3f scale;
+    Vec3f scale;
     mInvBaseMatrix.getScale(scale);
     f32 averageScale = (scale.x + scale.y + scale.z) / 3.0f;
     f32 inverseScale = 1.0f / averageScale;
     radius *= averageScale;
-    TVec3f movement(0, 0, 0);
+    Vec3f movement(0, 0, 0);
 
-    if (checkMovement && _D4 == 0) {
+    if (checkMovement && mStillCount == 0) {
         NebulaMtxInverse(mPrevBaseMatrix.toMtxPtr(), inversePrev.toMtxPtr());
-        TVec3f prevPos;
+        Vec3f prevPos;
         inversePrev.mult(rPos, prevPos);
-        TVec3f localMovement(localPos - prevPos);
-        TVec3f worldMovement(localMovement);
+        Vec3f localMovement(localPos - prevPos);
+        Vec3f worldMovement(localMovement);
         mBaseMatrix.mult33(worldMovement, worldMovement);
-        s32 steps = static_cast< s32 >((1.0f / 35.0f) * localMovement.length()) + 1;
-        TVec3f step(localMovement);
+        // One check per 35 units the part moved; 35000 or more, or not a number, takes 1000 (it would not end).
+        const f32 movedLength = localMovement.length();
+        s32 steps = movedLength < 35000.0f ? static_cast< s32 >((1.0f / 35.0f) * movedLength) + 1 : 1000;
+        Vec3f step(localMovement);
 
         if (steps > 1) {
             step /= steps;
         }
 
-        TVec3f offset;
+        Vec3f offset;
         offset.zero();
 
         for (s32 i = 0; i <= steps; i++) {
             movement.set(-(localMovement - offset));
             mBaseMatrix.mult33(movement, movement);
-            const TVec3f* direction = i == steps ? nullptr : &worldMovement;
+            const Vec3f* direction = i == steps ? nullptr : &worldMovement;
 
             u32 count = checkStrikeBallCore(pHitInfo, maxHits, prevPos + offset, movement, radius, averageScale, inverseScale, prisms, distances,
                                             classifications, pFilter, direction);
@@ -345,22 +369,22 @@ u32 CollisionParts::checkStrikeBall(HitInfo* pHitInfo, u32 maxHits, const TVec3f
 
         return 0;
     } else {
-        return checkStrikeBallCore(pHitInfo, maxHits, localPos, TVec3f(0, 0, 0), radius, averageScale, inverseScale, prisms, distances,
+        return checkStrikeBallCore(pHitInfo, maxHits, localPos, Vec3f(0, 0, 0), radius, averageScale, inverseScale, prisms, distances,
                                    classifications, pFilter, nullptr);
     }
 }
 
-u32 CollisionParts::checkStrikeBallCore(HitInfo* pHitInfo, u32 maxHits, const TVec3f& rPos, const TVec3f& rMovement, f32 radius, f32 scale,
+u32 CollisionParts::checkStrikeBallCore(HitInfo* pHitInfo, u32 maxHits, const Vec3f& rPos, const Vec3f& rMovement, f32 radius, f32 scale,
                                         f32 inverseScale, KC_PrismData** pPrisms, f32* pDistances, u8* pClassifications,
-                                        const TriangleFilterBase* pFilter, const TVec3f* pDirection) {
-    const TVec3f* normal;
+                                        const TriangleFilterBase* pFilter, const Vec3f* pDirection) {
+    const Vec3f* normal;
     u32 count =
-        mServer->checkSphere(reinterpret_cast< Fxyz* >(const_cast< TVec3f* >(&rPos)), radius, scale, maxHits, pPrisms, pDistances, pClassifications);
+        mServer->checkSphere(&rPos, radius, scale, maxHits, pPrisms, pDistances, pClassifications);
     u32 hitCount = 0;
 
     for (u32 i = 0; i < count; i++) {
         HitInfo& hit = pHitInfo[hitCount];
-        TVec3f position(rPos);
+        Vec3f position(rPos);
         calcCollidePosition(&position, *pPrisms[i], pClassifications[i]);
         mBaseMatrix.mult(position, hit.mHitPos);
         hit.mParentTriangle.fillData(this, mServer->toIndex(pPrisms[i]), mHitSensor);
@@ -373,39 +397,36 @@ u32 CollisionParts::checkStrikeBallCore(HitInfo* pHitInfo, u32 maxHits, const TV
             continue;
         }
 
-        hit._60 = inverseScale * pDistances[i];
-        hit._88 = pClassifications[i];
-        hit._7C.set(rMovement);
+        hit.mDepth = inverseScale * pDistances[i];
+        hit.mHitPart = pClassifications[i];
+        hit.mNormalMove.set(rMovement);
         normal = hit.mParentTriangle.getFaceNormal();
-        hit._7C.scale(normal->dot(hit._7C), *normal);
+        hit.mNormalMove.scale(normal->dot(hit.mNormalMove), *normal);
         hitCount++;
     }
 
     return hitCount;
 }
 
-u32 CollisionParts::checkStrikeBallWithThickness(HitInfo* pHitInfo, u32 maxHits, const TVec3f& rPos, f32 radius, f32 thickness,
+u32 CollisionParts::checkStrikeBallWithThickness(HitInfo* pHitInfo, u32 maxHits, const Vec3f& rPos, f32 radius, f32 thickness,
                                                  const TriangleFilterBase* pFilter) {
-    KC_PrismData* prisms[64];
-    f32 distances[64];
-    u8 classifications[64];
-    TVec3f localPos;
+    StrikeLists lists(maxHits);
+    KC_PrismData** const prisms = lists.mPrisms;
+    f32* const distances = lists.mDistances;
+    u8* const classifications = lists.mClassifications;
+    Vec3f localPos;
     mInvBaseMatrix.mult(rPos, localPos);
-    TVec3f scale;
+    Vec3f scale;
     mInvBaseMatrix.getScale(scale);
     f32 averageScale = (scale.x + scale.y + scale.z) / 3.0f;
-    Fxyz point;
-    point.x = localPos.x;
-    point.y = localPos.y;
-    point.z = localPos.z;
     f32 scaledRadius = radius * averageScale;
-    u32 count = mServer->checkSphereWithThickness(&point, scaledRadius, averageScale, maxHits, prisms, distances, classifications, thickness);
+    u32 count = mServer->checkSphereWithThickness(&localPos,scaledRadius, averageScale, maxHits, prisms, distances, classifications, thickness);
     f32 inverseScale = 1.0f / averageScale;
     u32 hitCount = 0;
 
     for (u32 i = 0; i < count; i++) {
         HitInfo& hit = pHitInfo[hitCount];
-        TVec3f position(localPos);
+        Vec3f position(localPos);
         calcCollidePosition(&position, *prisms[i], classifications[i]);
         mBaseMatrix.mult(position, hit.mHitPos);
         hit.mParentTriangle.fillData(this, mServer->toIndex(prisms[i]), mHitSensor);
@@ -414,64 +435,46 @@ u32 CollisionParts::checkStrikeBallWithThickness(HitInfo* pHitInfo, u32 maxHits,
             continue;
         }
 
-        hit._60 = inverseScale * distances[i];
-        hit._88 = classifications[i];
+        hit.mDepth = inverseScale * distances[i];
+        hit.mHitPart = classifications[i];
         hitCount++;
     }
 
     return hitCount;
 }
 
-void CollisionParts::calcCollidePosition(TVec3f* pPos, const KC_PrismData& rPrism, u8 classification) {
-    TVec3f offset;
-    TVec3f normal;
+void CollisionParts::calcCollidePosition(Vec3f* pPos, const KC_PrismData& rPrism, u8 classification) {
+    Vec3f offset;
+    Vec3f normal;
 
     switch (classification) {
-    // face, project into the triangle's plane
+    // The face: into the triangle's plane.
     case 1:
         projectToPlane(pPos, *pPos, mServer->getPos(&rPrism, 0), *mServer->getNormal(rPrism.mNormalIndex));
         break;
-    // edge 0, between verts 0-2
+    // Edge plane 0 (vertices 0-2), 1 (0-1) or 2 (1-2): into the triangle's plane, then onto the edge.
     case 2:
-        projectToPlane(pPos, *pPos, mServer->getPos(&rPrism, 0), *mServer->getNormal(rPrism.mNormalIndex));
-        normal.set(*mServer->getNormal(rPrism.mEdgeIndices[0]));
-        offset.set(*pPos);
-        offset -= mServer->getPos(&rPrism, 0);
-        *pPos += -normal * offset.dot(normal);
-        break;
-    // edge 1, between verts 0-1
     case 3:
+    case 4: {
+        s32 plane = classification - 2;
         projectToPlane(pPos, *pPos, mServer->getPos(&rPrism, 0), *mServer->getNormal(rPrism.mNormalIndex));
-        normal.set(*mServer->getNormal(rPrism.mEdgeIndices[1]));
+        normal.set(*mServer->getNormal(rPrism.mEdgeIndices[plane]));
         offset.set(*pPos);
-        offset -= mServer->getPos(&rPrism, 0);
+        offset -= mServer->getPos(&rPrism, plane == 2 ? 1 : 0);
         *pPos += -normal * offset.dot(normal);
         break;
-    // edge 2, between verts 1-2
-    case 4:
-        projectToPlane(pPos, *pPos, mServer->getPos(&rPrism, 0), *mServer->getNormal(rPrism.mNormalIndex));
-        normal.set(*mServer->getNormal(rPrism.mEdgeIndices[2]));
-        offset.set(*pPos);
-        offset -= mServer->getPos(&rPrism, 1);
-        *pPos += -normal * offset.dot(normal);
-        break;
-    // vertex 0
+    }
+    // Vertex 0-2.
     case 5:
-        pPos->set(mServer->getPos(&rPrism, 0));
-        break;
-    // vertex 1
     case 6:
-        pPos->set(mServer->getPos(&rPrism, 1));
-        break;
-    // vertex 2
     case 7:
-        pPos->set(mServer->getPos(&rPrism, 2));
+        pPos->set(mServer->getPos(&rPrism, classification - 5));
         break;
     }
 }
 
-void CollisionParts::projectToPlane(TVec3f* pProjected, const TVec3f& rPos, const TVec3f& rOrigin, const TVec3f& rNormal) {
-    TVec3f projected = rPos;
+void CollisionParts::projectToPlane(Vec3f* pProjected, const Vec3f& rPos, const Vec3f& rOrigin, const Vec3f& rNormal) {
+    Vec3f projected = rPos;
 
     f32 distance = (rPos - rOrigin).dot(rNormal);
 
@@ -479,13 +482,14 @@ void CollisionParts::projectToPlane(TVec3f* pProjected, const TVec3f& rPos, cons
     pProjected->set(projected);
 }
 
-u32 CollisionParts::checkStrikeLine(HitInfo* pHitInfo, u32 maxHits, const TVec3f& rPos, const TVec3f& rDirection, const TriangleFilterBase* pFilter) {
-    f32 distances[64];
-    KC_PrismData* prisms[64];
-    u8 classifications[64];
+u32 CollisionParts::checkStrikeLine(HitInfo* pHitInfo, u32 maxHits, const Vec3f& rPos, const Vec3f& rDirection, const TriangleFilterBase* pFilter) {
+    StrikeLists lists(maxHits);
+    KC_PrismData** const prisms = lists.mPrisms;
+    f32* const distances = lists.mDistances;
+    u8* const classifications = lists.mClassifications;
     f32 length = rDirection.length();
-    TVec3f localPos;
-    TVec3f localDirection;
+    Vec3f localPos;
+    Vec3f localDirection;
     mInvBaseMatrix.mult(rPos, localPos);
     mInvBaseMatrix.mult(rPos + rDirection, localDirection);
     localDirection = localDirection - localPos;
@@ -495,7 +499,7 @@ u32 CollisionParts::checkStrikeLine(HitInfo* pHitInfo, u32 maxHits, const TVec3f
 
     for (u32 i = 0; i < count; i++) {
         HitInfo& hit = pHitInfo[hitCount];
-        TVec3f position(localPos + localDirection * distances[i]);
+        Vec3f position(localPos + localDirection * distances[i]);
         mBaseMatrix.mult(position, position);
         hit.mParentTriangle.fillData(this, mServer->toIndex(prisms[i]), mHitSensor);
 
@@ -503,9 +507,9 @@ u32 CollisionParts::checkStrikeLine(HitInfo* pHitInfo, u32 maxHits, const TVec3f
             continue;
         }
 
-        hit._60 = length * distances[i];
+        hit.mDepth = length * distances[i];
         hit.mHitPos = position;
-        hit._88 = classifications[i];
+        hit.mHitPart = classifications[i];
         hitCount++;
     }
 
@@ -513,20 +517,30 @@ u32 CollisionParts::checkStrikeLine(HitInfo* pHitInfo, u32 maxHits, const TVec3f
 }
 
 namespace {
-    // Area lists are asked for on the game's main thread.
-    KC_PrismData* sAreaPrisms[512];
+    // Area lists are asked for on the game thread. The list lives in the permanent arena and grows to the largest request.
+    KC_PrismData** sAreaPrisms = nullptr;
+    u32 sAreaPrismCapacity = 0;
+
+    KC_PrismData** areaPrisms(u32 maxTriangles) {
+        if (maxTriangles > sAreaPrismCapacity) {
+            delete[] sAreaPrisms;
+            sAreaPrisms = new (Arenas::permanent(), 0) KC_PrismData*[maxTriangles];
+            sAreaPrismCapacity = maxTriangles;
+        }
+        return sAreaPrisms;
+    }
 }  // namespace
 
-u32 CollisionParts::createAreaPolygonList(Triangle* pTriangles, u32 maxTriangles, const TVec3f& rMin, const TVec3f& rMax) {
-    KC_PrismData** const prisms = sAreaPrisms;
-    TPos3f rotation;
+u32 CollisionParts::createAreaPolygonList(Triangle* pTriangles, u32 maxTriangles, const Vec3f& rMin, const Vec3f& rMax) {
+    KC_PrismData** const prisms = ::areaPrisms(maxTriangles);
+    Pos3f rotation;
     NebulaMtxCopy(mInvBaseMatrix.toMtxPtr(), rotation.toMtxPtr());
     rotation.zeroTrans();
-    TVec3f min;
-    TVec3f max;
+    Vec3f min;
+    Vec3f max;
     mInvBaseMatrix.mult(rMin, min);
     mInvBaseMatrix.mult(rMax, max);
-    u32 count = mServer->checkArea3D(reinterpret_cast< Fxyz* >(&min), reinterpret_cast< Fxyz* >(&max), prisms, maxTriangles);
+    u32 count = mServer->checkArea3D(&min, &max, prisms, maxTriangles);
     if (count == 0) {
         return 0;
     }
@@ -538,21 +552,30 @@ u32 CollisionParts::createAreaPolygonList(Triangle* pTriangles, u32 maxTriangles
     return count;
 }
 
-u32 CollisionParts::createAreaPolygonListArray(Triangle* pTriangles, u32 maxTriangles, TVec3f* pPoints, u32 numPoints) {
-    KC_PrismData** const prisms = sAreaPrisms;
-    TVec3f localPoints[32];
-    TPos3f rotation;
+u32 CollisionParts::createAreaPolygonListArray(Triangle* pTriangles, u32 maxTriangles, Vec3f* pPoints, u32 numPoints) {
+    if (numPoints == 0) {
+        return 0;
+    }
+    KC_PrismData** const prisms = ::areaPrisms(maxTriangles);
+    Pos3f rotation;
     NebulaMtxCopy(mInvBaseMatrix.toMtxPtr(), rotation.toMtxPtr());
     rotation.zeroTrans();
 
-    for (u32 i = 0; i < numPoints; i++) {
-        mInvBaseMatrix.mult(pPoints[i], localPoints[i]);
+    // The points' box in the part's space.
+    Vec3f min;
+    mInvBaseMatrix.mult(pPoints[0], min);
+    Vec3f max = min;
+    for (u32 i = 1; i < numPoints; i++) {
+        Vec3f local;
+        mInvBaseMatrix.mult(pPoints[i], local);
+        min.x = local.x < min.x ? local.x : min.x;
+        min.y = local.y < min.y ? local.y : min.y;
+        min.z = local.z < min.z ? local.z : min.z;
+        max.x = local.x > max.x ? local.x : max.x;
+        max.y = local.y > max.y ? local.y : max.y;
+        max.z = local.z > max.z ? local.z : max.z;
     }
-
-    TVec3f min;
-    TVec3f max;
-    MR::createBoundingBox(localPoints, numPoints, &min, &max);
-    u32 count = mServer->checkArea3D(reinterpret_cast< Fxyz* >(&min), reinterpret_cast< Fxyz* >(&max), prisms, maxTriangles);
+    u32 count = mServer->checkArea3D(&min, &max, prisms, maxTriangles);
     if (count == 0) {
         return 0;
     }
@@ -564,9 +587,9 @@ u32 CollisionParts::createAreaPolygonListArray(Triangle* pTriangles, u32 maxTria
     return count;
 }
 
-void CollisionParts::calcForceMovePower(TVec3f* pMovement, const TVec3f& rPos) const {
-    TVec3f position(rPos);
-    TMtx34f inversePrev;
+void CollisionParts::calcForceMovePower(Vec3f* pMovement, const Vec3f& rPos) const {
+    Vec3f position(rPos);
+    Mtx34f inversePrev;
     NebulaMtxInverse(mPrevBaseMatrix, inversePrev);
 
     inversePrev.mult(position, position);

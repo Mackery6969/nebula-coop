@@ -8,13 +8,13 @@ class StarPieceGroup : public LiveActor {
 public:
     StarPieceGroup(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void appear();
-    virtual void makeActorAppeared();
-    virtual void makeActorDead();
-    virtual void startClipped();
-    virtual void endClipped();
-    virtual void control();
+    virtual void init(const TableIter&) override;
+    virtual void appear() override;
+    virtual void makeActorAppeared() override;
+    virtual void makeActorDead() override;
+    virtual void startClipped() override;
+    virtual void endClipped() override;
+    virtual void control() override;
 
     bool isExistAnyStarPiece();
     void forceReplaceStarPieceAll();
@@ -31,13 +31,13 @@ public:
 
     StarPiece** mPieces;
     f32* mRailCoords;
-    bool _94;
-    bool _95;
+    bool mHasAppeared;
+    bool mIsAppearEffect;
     s32 mNumPieces;
     f32 mCircleRadius;
     bool mIsRail;
     bool mPlaceAtPathPoints;
-    s32 _A4;
+    s32 mLifeStep;
     f32 mRailSpeed;
-    TVec3f _AC;
+    Vec3f mRailClippingCenter;
 };

@@ -10,17 +10,16 @@ class TakoHei : public LiveActor {
 public:
     TakoHei(const char*);
 
-    virtual ~TakoHei();
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void initAfterPlacement();
-    virtual void kill();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void initAfterPlacement() override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     void initSensor();
 
@@ -79,17 +78,13 @@ public:
     bool isFallNextMove() const;
     bool isInSightMario() const;
 
-    AnimScaleController* _8C;
-    WalkerStateBindStarPointer* _90;
-    TQuat4f _94;
-    TVec3f _A4;
-    TVec3f _B0;
-    TVec3f _BC;
-    TVec3f _C8;
-    TVec3f _D4;
-    u32 _E0;
-    s32 _E4;
-    u32 _E8;
-    u8 _EC;
-    u8 _ED;
+    AnimScaleController* mScaleCtrl;
+    WalkerStateBindStarPointer* mBindStarPointer;
+    Quat4f mPoseQuat;
+    Vec3f mFront;
+    Vec3f mWalkTarget;
+    Vec3f mInitPos;
+    u32 mDeathItem;
+    s32 mNoPushStep;
+    u8 mHasMoveLimit;
 };

@@ -1,14 +1,15 @@
 #include "Game/Camera/CameraMedianTower.hpp"
-#include "Game/Camera/CamTranslatorMedianTower.hpp"
+#include "Game/Camera/CameraParamChunk.hpp"
 #include "Game/Camera/CameraLocalUtil.hpp"
 #include "Game/Camera/CameraTargetObj.hpp"
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const f32 sPartialRate = 0.5f;
-    static const f32 sAngularVel = 0.5f;
-    static const s32 sInterpolate = 120;
+    NEBULA_TUNABLE(f32, sPartialRate, 0.5f);
+    NEBULA_TUNABLE(f32, sAngularVel, 0.5f);
+    NEBULA_TUNABLE(s32, sInterpolate, 120);
 };  // namespace
 
 CameraMedianTower::CameraMedianTower(const char* pName)
@@ -24,38 +25,40 @@ void CameraMedianTower::reset() {
 }
 
 CameraTargetObj* CameraMedianTower::calc() {
-    TVec3f watchOffset;
-    CameraLocalUtil::makeWatchOffset(&watchOffset, this, CameraLocalUtil::getTarget(this), 0.1f / 15.0f);
+    CameraTargetObj* target = CameraLocalUtil::getTarget(this);
 
-    TVec3f pos;
-    pos.set(CameraLocalUtil::getTarget(this)->getPosition() * (1.0f - mPartialRate) + CameraLocalUtil::getVecReg(mString) * mPartialRate);
+    Vec3f watchOffset;
+    CameraLocalUtil::makeWatchOffset(&watchOffset, this, target, 0.1f / 15.0f);
 
-    TVec3f watchPos = mWPoint;
+    Vec3f pos;
+    pos.set(target->getPosition() * (1.0f - mPartialRate) + CameraLocalUtil::getVecReg(mString) * mPartialRate);
+
+    Vec3f watchPos = mWPoint;
     mZoneMatrix.mult(watchPos, watchPos);
 
-    TVec3f axis = mAxis;
+    Vec3f axis = mAxis;
     mZoneMatrix.mult33(axis, axis);
 
     pos.add(watchOffset);
 
-    TPos3f towerMtx;
+    Pos3f towerMtx;
     if (!CameraLocalUtil::makeTowerCameraMtx(&towerMtx, mZoneMatrix, mWPoint, mAxis, pos)) {
         return nullptr;
     }
 
-    TPos3f transMtx;
+    Pos3f transMtx;
     transMtx.makeTrans(0.0f, 0.0f, mDist);
 
-    TPos3f rotX;
-    rotX.makeRotate(TVec3f(1.0f, 0.0f, 0.0f), -mAngleA);
+    Pos3f rotX;
+    rotX.makeRotate(Vec3f(1.0f, 0.0f, 0.0f), -mAngleA);
 
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.concat(rotX, transMtx);
     mtx.concat(towerMtx, mtx);
 
-    TVec3f newPos;
+    Vec3f newPos;
     mtx.getTrans(newPos);
-    TVec3f up;
+    Vec3f up;
     mtx.getYDir(up);
 
     limitAngularVelocity(&newPos, &up, pos, watchPos, axis);
@@ -66,26 +69,27 @@ CameraTargetObj* CameraMedianTower::calc() {
     CameraLocalUtil::setUpVecAndWatchUpVec(this, up);
     updateReset(newPos, watchPos, axis);
 
-    return CameraLocalUtil::getTarget(this);
+    return target;
 }
 
-CamTranslatorBase* CameraMedianTower::createTranslator() {
-    return new CamTranslatorMedianTower(this);
+void CameraMedianTower::setParamFromChunk(const CameraParamChunk* pChunk) {
+    CameraGeneralParam* general = pChunk->mGeneralParam;
+    setParam(general->mString.getCharPtr(), general->mWPoint, general->mAxis, general->mAngleA, general->mUp.x, general->mUp.y, general->mUp.z);
 }
 
-void CameraMedianTower::calcFovyPos(TVec3f* pFovPos, const TVec3f& rFront, const TVec3f& rVec, const TVec3f& rPos) {
-    TVec3f projZ = rFront * rVec.dot(rFront);
-    TVec3f vecOrtho = rVec - projZ;
+void CameraMedianTower::calcFovyPos(Vec3f* pFovPos, const Vec3f& rFront, const Vec3f& rVec, const Vec3f& rPos) {
+    Vec3f projZ = rFront * rVec.dot(rFront);
+    Vec3f vecOrtho = rVec - projZ;
 
     f32 halfFov = MR::getFovy() * 0.5f;
-    TVec3f focusOffset = projZ - rFront * (vecOrtho.length() / MR::tanDegree(halfFov));
+    Vec3f focusOffset = projZ - rFront * (vecOrtho.length() / MR::tanDegree(halfFov));
 
     pFovPos->set(rPos + focusOffset);
     pFovPos->add(rFront * (-200.0f / MR::sinDegree(halfFov)));
 }
 
-void CameraMedianTower::limitAngularVelocity(TVec3f* pPos, TVec3f* pUp, const TVec3f& rPos, const TVec3f& rWatchPos, const TVec3f& rAxis) {
-    TVec3f outDir = *pPos - rWatchPos;
+void CameraMedianTower::limitAngularVelocity(Vec3f* pPos, Vec3f* pUp, const Vec3f& rPos, const Vec3f& rWatchPos, const Vec3f& rAxis) {
+    Vec3f outDir = *pPos - rWatchPos;
     outDir.orthogonalize(rAxis);
     if (MR::isNearZero(outDir)) {
         outDir.set(mBaseFront);
@@ -106,10 +110,10 @@ void CameraMedianTower::limitAngularVelocity(TVec3f* pPos, TVec3f* pUp, const TV
         rate = 1.0f - (angleMax / angle);
     }
 
-    TQuat4f rot;
+    Quat4f rot;
     rot.setRotate(outDir, mBaseFront, rate);
 
-    TVec3f offset = *pPos - rPos;
+    Vec3f offset = *pPos - rPos;
     rot.transform(offset);
     *pPos = rPos + offset;
 
@@ -118,19 +122,19 @@ void CameraMedianTower::limitAngularVelocity(TVec3f* pPos, TVec3f* pUp, const TV
     mBaseFront.set(outDir);
 }
 
-void CameraMedianTower::calcDistance(TVec3f* pPos, const TVec3f& rPos) {
-    TVec3f dir = rPos - *pPos;
+void CameraMedianTower::calcDistance(Vec3f* pPos, const Vec3f& rPos) {
+    Vec3f dir = rPos - *pPos;
     MR::normalize(&dir);
-    TVec3f regDiff = CameraLocalUtil::getVecReg(mString) - *pPos;
-    TVec3f posDiff = CameraLocalUtil::getTarget(this)->getPosition() - *pPos;
-    TVec3f fovPos;
+    Vec3f regDiff = CameraLocalUtil::getVecReg(mString) - *pPos;
+    Vec3f posDiff = CameraLocalUtil::getTarget(this)->getPosition() - *pPos;
+    Vec3f fovPos;
     if (regDiff.squared() > posDiff.squared()) {
         calcFovyPos(&fovPos, dir, posDiff, *pPos);
     } else {
         calcFovyPos(&fovPos, dir, regDiff, *pPos);
     }
 
-    TVec3f focusDiff;
+    Vec3f focusDiff;
     focusDiff.sub(fovPos, rPos);
     f32 fovDist = focusDiff.length();
     if (fovDist > mDist) {
@@ -141,17 +145,17 @@ void CameraMedianTower::calcDistance(TVec3f* pPos, const TVec3f& rPos) {
     }
 }
 
-void CameraMedianTower::updateReset(const TVec3f& rPos, const TVec3f& rWatchPos, const TVec3f& rAxis) {
+void CameraMedianTower::updateReset(const Vec3f& rPos, const Vec3f& rWatchPos, const Vec3f& rAxis) {
     mInterpolateTime--;
     if (mInterpolateTime < 0) {
         mInterpolateTime = 0;
     }
 
-    TVec3f outDir = rPos - rWatchPos;
+    Vec3f outDir = rPos - rWatchPos;
     outDir.orthogonalize(rAxis);
     MR::normalizeOrZero(&outDir);
 
-    TVec3f targetDir = CameraLocalUtil::getTarget(this)->getPosition() - rWatchPos;
+    Vec3f targetDir = CameraLocalUtil::getTarget(this)->getPosition() - rWatchPos;
     targetDir.orthogonalize(rAxis);
     MR::normalizeOrZero(&targetDir);
 

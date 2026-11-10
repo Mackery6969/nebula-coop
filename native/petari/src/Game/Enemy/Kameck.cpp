@@ -1,4 +1,5 @@
 #include "Game/Enemy/Kameck.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Enemy/AnimScaleController.hpp"
 #include "Game/Enemy/KameckBeam.hpp"
 #include "Game/Enemy/KameckBeamHolder.hpp"
@@ -7,26 +8,24 @@
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util.hpp"
+#include "Game/Util/Tunable.hpp"
+
+// The step counts of this file's functions, as tunables: "<file>.<function>.<k>".
+NEBULA_TUNABLE_NAMED(s32, cStep_exeAttack_1, "exeAttack.1", 9);
 
 namespace {
-    static const f32 sDefaultActiveDistance = 3000.0f;
-    static const f32 sFrontVecBlendRate = 0.2f;
-    static const f32 sUpVecBlendRate = 0.04f;
-    static const f32 sTurnPlayerLimit = 0.98f;
-    // static const s32 sWaitTime =
-    // static const s32 mMoveHideTime =
-    // static const f32 sMoveSpeed =
-    static const s32 sGuardTime = 50;
-    // static const f32 sGuardTurnSpeed =
-    static const f32 sAttackRange = 2000.0f;
-    static const s32 sAttackWaitTime = 60;
-    // static const s32 sShootTiming =
-    static const f32 sBeamSpeed = 12.0f;
-    static const f32 sHitHorizontalPower = 25.0f;
-    static const f32 sHitVerticalPower = 25.0f;
-    static const f32 sDownGravityAccel = 1.0f;
-    static const f32 sDownFreq = 0.99f;
-    // static const s32 sPressTime =
+    NEBULA_TUNABLE(f32, sDefaultActiveDistance, 3000.0f);
+    NEBULA_TUNABLE(f32, sFrontVecBlendRate, 0.2f);
+    NEBULA_TUNABLE(f32, sUpVecBlendRate, 0.04f);
+    NEBULA_TUNABLE(f32, sTurnPlayerLimit, 0.98f);
+    NEBULA_TUNABLE(s32, sGuardTime, 50);
+    NEBULA_TUNABLE(f32, sAttackRange, 2000.0f);
+    static const s32 sAttackWaitTime = NebulaFrameClock::stepsOfSeconds(1);
+    NEBULA_TUNABLE(f32, sBeamSpeed, 12.0f);
+    NEBULA_TUNABLE(f32, sHitHorizontalPower, 25.0f);
+    NEBULA_TUNABLE(f32, sHitVerticalPower, 25.0f);
+    NEBULA_TUNABLE(f32, sDownGravityAccel, 1.0f);
+    NEBULA_TUNABLE(f32, sDownFreq, 0.99f);
 };  // namespace
 
 namespace NrvKameck {
@@ -55,8 +54,8 @@ Kameck::Kameck(const char* pName)
     mBeamEventListener = new SmallKameckBeamEventListener(this);
 }
 
-void Kameck::init(const JMapInfoIter& rIter) {
-    initJMapParam(rIter);
+void Kameck::init(const TableIter& rIter) {
+    initPlacementParam(rIter);
     initModelManagerWithAnm("Kameck", nullptr, false);
     MR::connectToSceneEnemy(this);
     MR::initLightCtrl(this);
@@ -64,13 +63,13 @@ void Kameck::init(const JMapInfoIter& rIter) {
     MR::initShadowVolumeSphere(this, 70.0f);
     MR::makeQuatAndFrontFromRotate(&mRotateQuat, &mFrontVec, this);
     initHitSensor(2);
-    MR::addHitSensorEnemy(this, "body", 8, 120.0f, TVec3f(0.0f, 40.0f, 0.0f));
-    MR::addHitSensorEnemyAttack(this, "attack", 8, 80.0f, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorEnemy(this, "body", 8, 120.0f, Vec3f(0.0f, 40.0f, 0.0f));
+    MR::addHitSensorEnemyAttack(this, "attack", 8, 80.0f, Vec3f(0.0f, 0.0f, 0.0f));
     initBinder(70.0f, 0.0f, 0);
     MR::offBind(this);
     initBeam();
-    initEffectKeeper(1, nullptr, false);
-    MR::initStarPointerTarget(this, 80.0f, TVec3f(0.0f, 0.0f, 0.0f));
+    initEffectKeeper(1, nullptr);
+    MR::initStarPointerTarget(this, 80.0f, Vec3f(0.0f, 0.0f, 0.0f));
 
     mAnimScaleController = new AnimScaleController(nullptr);
     mAnimScaleController->setParamTight();
@@ -109,37 +108,37 @@ void Kameck::initBeam() {
     }
 }
 
-void Kameck::initJMapParam(const JMapInfoIter& rIter) {
+void Kameck::initPlacementParam(const TableIter& rIter) {
     if (!MR::isValidInfo(rIter)) {
         return;
     }
 
     MR::initDefaultPos(this, rIter);
-    MR::getJMapInfoArg3NoInit(rIter, &mActiveDistance);
+    MR::getPlacementArg3NoInit(rIter, &mActiveDistance);
 
     if (mBeamType != KameckBeam::BeamType_FireBall1) {
         return;
     }
 
-    s32 arg0;
-    MR::getJMapInfoArg0WithInit(rIter, &arg0);
+    s32 fireBallLevel;
+    MR::getPlacementArg0WithInit(rIter, &fireBallLevel);
 
-    if (arg0 >= 3) {
+    if (fireBallLevel >= 3) {
         mBeamType = KameckBeam::BeamType_FireBall3;
-    } else if (arg0 >= 2) {
+    } else if (fireBallLevel >= 2) {
         mBeamType = KameckBeam::BeamType_FireBall2;
     } else {
         mBeamType = KameckBeam::BeamType_FireBall1;
     }
 }
 
-void Kameck::initDemo(const JMapInfoIter& rIter) {
+void Kameck::initDemo(const TableIter& rIter) {
     if (!MR::tryRegisterDemoCast(this, rIter)) {
         return;
     }
 
-    MR::registerDemoActionFunctor(this, MR::Functor(this, &Kameck::startDemoAppear), "\203\125\203\122\203\112\203\201\203\142\203\116\223\157\217\352" /* ザコカメック登場 */);
-    MR::registerDemoActionFunctor(this, MR::Functor(this, &Kameck::killForce), "\203\125\203\122\203\112\203\201\203\142\203\116\213\255\220\247\216\200\226\123" /* ザコカメック強制死亡 */);
+    MR::registerDemoActionFunctor(this, MR::Functor(this, &Kameck::startDemoAppear), "ザコカメック登場");
+    MR::registerDemoActionFunctor(this, MR::Functor(this, &Kameck::killForce), "ザコカメック強制死亡");
     makeActorDead();
 }
 
@@ -173,7 +172,7 @@ void Kameck::startClipped() {
 
 void Kameck::calcAndSetBaseMtx() {
     MR::setBaseTRMtx(this, mRotateQuat);
-    MR::setBaseScale(this, mAnimScaleController->_C * mScale);
+    MR::setBaseScale(this, mAnimScaleController->mScale * mScale);
 }
 
 void Kameck::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
@@ -222,7 +221,7 @@ bool Kameck::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pRece
     return false;
 }
 
-bool Kameck::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool Kameck::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (MR::isMsgStartPowerStarGet(msg)) {
         makeActorDead();
         return true;
@@ -266,9 +265,9 @@ bool Kameck::requestDown(HitSensor* pSender, HitSensor* pReceiver) {
     return false;
 }
 
-bool Kameck::requestGuard(HitSensor* pSender, HitSensor* pReceiver) {
+bool Kameck::requestGuard(HitSensor* pSender, HitSensor* /*pReceiver*/) {
     if (isEnableGurad()) {
-        TVec3f vec;
+        Vec3f vec;
         vec.killElement(-pSender->mHost->mVelocity, mGravity);
 
         if (!MR::normalizeOrZero(&vec)) {
@@ -398,7 +397,7 @@ bool Kameck::tryAppearEnd() {
 
 bool Kameck::tryAttackWait() {
     if (MR::isNearPlayer(this, ::sAttackRange) && !mActiveActorList->isFull()) {
-        mBeam = MR::startFollowKameckBeam(mBeamType, MR::getJointMtx(this, "Wand"), 0.6f, TVec3f(0.0f, 110.0f, 0.0f), mBeamEventListener);
+        mBeam = MR::startFollowKameckBeam(mBeamType, MR::getJointMtx(this, "Wand"), 0.6f, Vec3f(0.0f, 110.0f, 0.0f), mBeamEventListener);
 
         if (mBeam != nullptr) {
             setNerve(GET_NERVE(Kameck, KameckNrvAttackWait));
@@ -420,7 +419,7 @@ bool Kameck::tryAttack() {
 }
 
 bool Kameck::tryAttackEnd() {
-    if (MR::isGreaterStep(this, 30)) {
+    if (MR::isGreaterStep(this, NebulaFrameClock::stepsOfMilliseconds(500))) {
         setNerve(GET_NERVE(Kameck, KameckNrvMoveHide));
         return true;
     }
@@ -570,7 +569,7 @@ void Kameck::exeAttack() {
         MR::startSound(this, "SE_EV_KAMECK_STAFF_SWING");
     }
 
-    if (MR::isStep(this, 9)) {
+    if (MR::isStep(this, cStep_exeAttack_1)) {
         mBeam->requestShootToPlayerCenter(::sBeamSpeed);
         mActiveActorList->addActor(mBeam);
         mBeam = nullptr;

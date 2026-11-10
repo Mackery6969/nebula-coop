@@ -1,12 +1,12 @@
 #pragma once
 
 
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
 class GameDataHolder;
 struct NebulaCoopPlayer;
 class HitSensor;
-class JMapInfoIter;
+class TableIter;
 class LiveActor;
 class NameObj;
 class Nerve;
@@ -84,7 +84,7 @@ namespace NebulaCoopWorld {
     // this scene is in a room.
     void startScene();
     // PlacementInfoOrdered: an object placed from the stage's files, just made.
-    void notePlaced(const char* pName, NameObj* pObj, const JMapInfoIter& rIter);
+    void notePlaced(const char* pName, NameObj* pObj, const TableIter& rIter);
     // GameScene::init, once everything is placed: this scene's instance is told to the server, whose record of it
     // comes back.
     void endPlacement();
@@ -108,7 +108,7 @@ namespace NebulaCoopWorld {
     void notePlatform(NebulaCoopPlayer* pPlayer);
     // NebulaRemotePlayer::show: where another player standing on a moving thing stands on this game's copy of it
     // (each game moves its own, not always in step), false when this game doesn't have it.
-    bool placeOnPlatform(const NebulaCoopPlayer& rPlayer, TVec3f* pPosition, TVec3f* pFront, TVec3f* pUp);
+    bool placeOnPlatform(const NebulaCoopPlayer& rPlayer, Vec3f* pPosition, Vec3f* pFront, Vec3f* pUp);
     // The mission's clock (docs/COOP_PLAN.md "Races and timers"): a speedy comet's time limit is the instance's, one
     // for everyone in it, as the first player's started. startMissionClock, as the local clock starts: the server is
     // told, and the frames the instance's has run come back (0 when this one is the first). getMissionClock: the

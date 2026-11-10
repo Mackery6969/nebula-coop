@@ -2,7 +2,7 @@
 
 
 class XanimePlayer;
-class J3DAnmTransform;
+class Clip;
 
 class SyncBckEffectInfo {
 public:
@@ -12,7 +12,7 @@ public:
         bool isLoop() const;
 
         const char* mName;
-        J3DAnmTransform* mResource;
+        Clip* mResource;
     };
 
     SyncBckEffectInfo(const XanimePlayer* pPlayer, const char* pName, s32 capacity, f32 startFrame, f32 endFrame, bool continueAnimEnd);
@@ -21,7 +21,6 @@ public:
     bool isBckLoop(const char* pName) const;
 
     BckResourceInfo** mBckResources;
-    s32 mCapacity;
     s32 mCount;
     f32 mStartFrame;
     f32 mEndFrame;

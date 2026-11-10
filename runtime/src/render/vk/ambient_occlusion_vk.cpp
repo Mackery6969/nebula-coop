@@ -4,6 +4,8 @@
 
 #include "galaxy/render/vk/utility_spirv.h"
 
+#include "barriers_vk.h"
+
 #include <algorithm>
 #include <cstring>
 #include <iostream>
@@ -20,26 +22,13 @@ constexpr VkShaderStageFlags kStages =
 
 // A pass's writes before the next pass's reads.
 void written(VkCommandBuffer commands) {
-    VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-    barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    vkCmdPipelineBarrier(commands, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 1, &barrier,
-                         0, nullptr, 0, nullptr);
+    shader_written(commands, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT);
 }
 
 // A new work image to GENERAL; an old one's last reads finish before it is written again.
 void to_general(VkCommandBuffer commands, Texture& target) {
-    VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
-    barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    barrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-    barrier.srcQueueFamilyIndex = barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = target.image;
-    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    vkCmdPipelineBarrier(commands, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+    image_barrier(commands, target.image, VK_IMAGE_ASPECT_COLOR_BIT, gpu::Use::ShaderRead, gpu::Use::ComputeWrite,
+                  gpu::Contents::Discard, 1u);
     target.layout = VK_IMAGE_LAYOUT_GENERAL;
 }
 
@@ -218,6 +207,17 @@ bool AmbientOcclusionVk::ensure(std::shared_ptr<Texture>& target, unsigned width
     return target != nullptr;
 }
 
+void AmbientOcclusionVk::trim_idle() {
+    constexpr std::uint64_t kIdleFrames = 600u;
+    ++clock_;
+    if (clock_ > used_ + kIdleFrames && (distance_ || raw_ || denoised_ || scale_)) {
+        distance_.reset();
+        raw_.reset();
+        denoised_.reset();
+        scale_.reset();
+    }
+}
+
 VkDescriptorSet AmbientOcclusionVk::set_of(const SetAllocator& allocate, VkImageView depth, VkImageLayout depth_layout,
                                            const Texture& sampled1, const Texture& sampled2, const Texture& storage) {
     const VkDescriptorSet set = allocate(set_layout_);
@@ -254,10 +254,11 @@ void AmbientOcclusionVk::dispatch(VkCommandBuffer commands, Pass pass, VkDescrip
 
 bool AmbientOcclusionVk::prepare(VkCommandBuffer commands, const Texture& depth, VkImageLayout depth_layout,
                                  const RtView& view, bool ssao, std::span<const ao::ObjectOccluder> objects, UploadRing& ring,
-                                 const SetAllocator& allocate) {
+                                 const SetAllocator& allocate, const StageMarker& mark) {
     if (!ready_) {
         return false;
     }
+    used_ = clock_;
     const unsigned divisor = ao::occlusion_divisor(depth.height);
     const unsigned width = (depth.width + divisor - 1u) / divisor;
     const unsigned height = (depth.height + divisor - 1u) / divisor;
@@ -271,7 +272,7 @@ bool AmbientOcclusionVk::prepare(VkCommandBuffer commands, const Texture& depth,
     for (Texture* target : {distance_.get(), raw_.get(), denoised_.get(), scale_.get()}) {
         to_general(commands, *target);
     }
-    ao::bin_objects(objects, constants_, object_values_, object_tiles_);
+    ao::bin_objects(objects, constants_, object_values_, object_tiles_, object_scratch_);
     const VkDeviceSize alignment = Context::get().properties().limits.minStorageBufferOffsetAlignment;
     const std::size_t object_bytes = object_values_.size() * sizeof(float);
     const std::size_t tile_bytes = object_tiles_.size() * sizeof(std::uint32_t);
@@ -279,12 +280,16 @@ bool AmbientOcclusionVk::prepare(VkCommandBuffer commands, const Texture& depth,
     const UploadRing::Allocation tiles_at = ring.allocate(tile_bytes, static_cast<std::size_t>(alignment));
     std::memcpy(objects_at.cpu, object_values_.data(), object_bytes);
     std::memcpy(tiles_at.cpu, object_tiles_.data(), tile_bytes);
-    const auto buffer = reinterpret_cast<VkBuffer>(ring.resource());
-    objects_ = {buffer, objects_at.offset, object_bytes};
-    tiles_ = {buffer, tiles_at.offset, tile_bytes};
-    dispatch(commands, kDistance, set_of(allocate, depth.view, depth_layout, *denoised_, *distance_, *distance_), kDistance == 0u ? width : width, height);
+    // Each in the buffer it lies in (a chunk when the ring's segment and spill were full).
+    objects_ = {reinterpret_cast<VkBuffer>(ring.resource_of(objects_at)), objects_at.offset, object_bytes};
+    tiles_ = {reinterpret_cast<VkBuffer>(ring.resource_of(tiles_at)), tiles_at.offset, tile_bytes};
+    if (mark) mark(Stage::Distance);
+    dispatch(commands, kDistance, set_of(allocate, depth.view, depth_layout, *denoised_, *distance_, *distance_), width, height);
+    if (mark) mark(Stage::Occlusion);
     dispatch(commands, ssao ? kSsao : kOcclusion, set_of(allocate, depth.view, depth_layout, *denoised_, *distance_, *raw_), width, height);
+    if (mark) mark(Stage::Denoise);
     dispatch(commands, kDenoise, set_of(allocate, depth.view, depth_layout, *raw_, *distance_, *denoised_), width, height);
+    if (mark) mark(Stage::Upsample);
     dispatch(commands, kUpsample, set_of(allocate, depth.view, depth_layout, *denoised_, *distance_, *scale_), depth.width, depth.height);
     return true;
 }
@@ -306,14 +311,6 @@ void AmbientOcclusionVk::finish(VkCommandBuffer commands, VkRenderPass pass, uns
     vkCmdBindDescriptorSets(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_, 0, 1, &set, 0, nullptr);
     vkCmdPushConstants(commands, layout_, kStages, 0, sizeof(ao::Constants), &constants_);
     vkCmdDraw(commands, 3, 1, 0, 0);
-}
-
-void AmbientOcclusionVk::hold(std::vector<std::shared_ptr<Texture>>& held) const {
-    for (const std::shared_ptr<Texture>* target : {&distance_, &raw_, &denoised_, &scale_}) {
-        if (*target) {
-            held.push_back(*target);
-        }
-    }
 }
 
 }  // namespace galaxy::render::vk

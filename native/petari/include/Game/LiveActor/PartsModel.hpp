@@ -6,9 +6,10 @@ class FixedPosition;
 
 class PartsModel : public LiveActor {
 public:
-    PartsModel(LiveActor*, const char*, const char*, MtxPtr, int, bool);
+    // A negative drawBufferType takes MapObj.
+    PartsModel(LiveActor* pActor, const char* pName, const char* pModelName, MtxPtr pMtx, int drawBufferType, bool deferMaterials);
 
-    virtual void init(const JMapInfoIter&) override;
+    virtual void init(const TableIter&) override;
     virtual void movement() override;
     virtual void calcAnim() override;
     virtual void calcViewAndEntry() override;
@@ -16,9 +17,9 @@ public:
     virtual void makeActorDead() override;
     virtual void calcAndSetBaseMtx() override;
 
-    void initFixedPosition(const TVec3f&, const TVec3f&, const char*);
+    void initFixedPosition(const Vec3f&, const Vec3f&, const char*);
     void initFixedPosition(const char*);
-    void initFixedPosition(MtxPtr, const TVec3f&, const TVec3f&);
+    void initFixedPosition(MtxPtr, const Vec3f&, const Vec3f&);
     void loadFixedPosition(const char*);
     void offFixedPosNormalizeScale();
 
@@ -30,7 +31,6 @@ public:
     FixedPosition* mFixedPosition;
     MtxPtr mMtx;
     bool mIsCalcOwnMtx;
-    bool _99;
+    bool mIsShownWhileHostHidden;
     bool mIsDead;
-    bool _9B;
 };

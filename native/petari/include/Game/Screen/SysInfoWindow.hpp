@@ -6,11 +6,9 @@ typedef void(MessageChangeFunc)(LayoutActor*, const char*, const char*);
 
 class IconAButton;
 class YesNoController;
-namespace nw4r {
-    namespace lyt {
-        class Pane;
-    };  // namespace lyt
-};  // namespace nw4r
+namespace Ui {
+    class Pane;
+}  // namespace Ui
 
 struct MessageChangeFuncTableEntry {
     MessageChangeFunc* mFuncPtr;
@@ -46,7 +44,7 @@ public:
 
     SysInfoWindow(SysInfoWindowType, SysInfoExecuteType);
 
-    virtual void init(const JMapInfoIter& rIter);
+    virtual void init(const TableIter& rIter);
     virtual void movement();
     virtual void draw() const;
     virtual void calcAnim();
@@ -56,6 +54,7 @@ public:
 
     void appear(const char*, SysInfoType, SysInfoTextPos, SysInfoMessageType);
     void appearYesNoWithText(const char16_t* pText);
+    void appearKeyWithText(const char16_t* pText);
     void decideNo();
     // B answers No (a question the player opened from a menu, as Back closes Nebula's menus). Off by default.
     void setBackAnswersNo(bool on);
@@ -78,7 +77,7 @@ public:
     IconAButton* mIconAButton;
     const char* mTextParentPaneName;
     const char* mWindowParentPaneName;
-    bool _38;
+    bool mExecutesIconAButton;
     bool mIsBackAnswersNo;
 
     // Nebula: the screen dim (the layout's BG pane) is drawn by the window itself. Where the game opens another system
@@ -99,7 +98,7 @@ private:
     f32 getOwnDim() const;
     void shapeFade();
 
-    nw4r::lyt::Pane* mDimPane;
+    Ui::Pane* mDimPane;
     f32 mDim;          // drawn this frame, 0 to 1
     f32 mDimFloor;     // taken over from the window before
     s32 mDimLinger;    // frames it still holds after the window closed
@@ -107,9 +106,9 @@ private:
     u8 mDimHandOver;   // DimHandOver, from the caller
     bool mDimHanding;  // closing towards a window that takes the dim
     // The question window's fading parent, panel and drop shadow (shapeFade).
-    nw4r::lyt::Pane* mFadePane;
-    nw4r::lyt::Pane* mPanelPane;
-    nw4r::lyt::Pane* mShadowPane;
+    Ui::Pane* mFadePane;
+    Ui::Pane* mPanelPane;
+    Ui::Pane* mShadowPane;
 };
 
 namespace MR {

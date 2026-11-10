@@ -1,13 +1,11 @@
-#include "Game/Util/SortUtil.hpp"
 #include <nebula_game_api.h>
 #include "Game/System/GameEventFlagTable.hpp"
 #include "Game/System/GalaxyInfoTable.hpp"
+#include "Game/System/NebulaArena.hpp"
 #include "Game/Util/HashUtil.hpp"
-#include "Game/Util/JMapInfo.hpp"
+#include "Game/Util/Table.hpp"
 #include "Game/Util/SingletonHolder.hpp"
 #include "Game/Util/StringUtil.hpp"
-#include <algorithm>
-#include <cstdio>
 
 namespace {
     GameEventFlag* sAddedFlags = nullptr;
@@ -36,17 +34,17 @@ namespace {
         {"StarNumDarkRoomGalaxy", GameEventFlag::Type_GalaxyOpenStar, 1, {0}, {0}, 0, {"DarkRoomGalaxy"}, {0}},
         {"SpecialStarOpenDarkRoomGalaxy", GameEventFlag::Type_SpecialStar, 1, {1}, {0}, 0, {"FactoryGalaxy"}, {0}},
         {"AppearDarkRoomGalaxy", GameEventFlag::Type_EventFlag, 1, {0}, {0}, 0, {"StarNumDarkRoomGalaxy"}, {"SpecialStarOpenDarkRoomGalaxy"}},
-        {"\203\156\203\140\203\175\203\212\203\111\217\211\225\317\220\147" /* ハチマリオ初変身 */, GameEventFlag::Type_None, 0, {0}, {0}, 0, {0}, {0}},
-        {"\203\145\203\214\203\124\203\175\203\212\203\111\217\211\225\317\220\147" /* テレサマリオ初変身 */, GameEventFlag::Type_None, 0, {0}, {0}, 0, {0}, {0}},
-        {"\203\172\203\142\203\160\201\133\203\175\203\212\203\111\217\211\225\317\220\147" /* ホッパーマリオ初変身 */, GameEventFlag::Type_None, 0, {0}, {0}, 0, {0}, {0}},
-        {"\203\164\203\100\203\103\203\101\203\175\203\212\203\111\217\211\225\317\220\147" /* ファイアマリオ初変身 */, GameEventFlag::Type_None, 0, {0}, {0}, 0, {0}, {0}},
-        {"\203\101\203\103\203\130\203\175\203\212\203\111\217\211\225\317\220\147" /* アイスマリオ初変身 */, GameEventFlag::Type_None, 0, {0}, {0}, 0, {0}, {0}},
-        {"\203\164\203\211\203\103\203\223\203\117\203\175\203\212\203\111\217\211\225\317\220\147" /* フライングマリオ初変身 */, GameEventFlag::Type_None, 0, {0}, {0}, 0, {0}, {0}},
-        {"\226\263\223\107\203\175\203\212\203\111\217\211\225\317\220\147" /* 無敵マリオ初変身 */, GameEventFlag::Type_None, 0, {0}, {0}, 0, {0}, {0}},
-        {"\203\211\203\103\203\164\203\101\203\142\203\166\203\114\203\155\203\122\211\360\220\340" /* ライフアップキノコ解説 */, GameEventFlag::Type_None, 0, {0}, {0}, 0, {0}, {0}},
-        {"\202\120\202\164\202\157\203\114\203\155\203\122\211\360\220\340" /* １ＵＰキノコ解説 */, GameEventFlag::Type_None, 0, {0}, {0}, 0, {0}, {0}},
-        {"\203\124\201\133\203\164\203\102\203\223\203\140\203\205\201\133\203\147\203\212\203\101\203\213" /* サーフィンチュートリアル */, GameEventFlag::Type_None, 0, {0}, {0}, 0, {0}, {0}},
-        {"\203\136\203\175\203\122\203\215\203\140\203\205\201\133\203\147\203\212\203\101\203\213" /* タマコロチュートリアル */, GameEventFlag::Type_None, 0, {0}, {0}, 0, {0}, {0}},
+        {"ハチマリオ初変身", GameEventFlag::Type_None, 0, {0}, {0}, 0, {0}, {0}},
+        {"テレサマリオ初変身", GameEventFlag::Type_None, 0, {0}, {0}, 0, {0}, {0}},
+        {"ホッパーマリオ初変身", GameEventFlag::Type_None, 0, {0}, {0}, 0, {0}, {0}},
+        {"ファイアマリオ初変身", GameEventFlag::Type_None, 0, {0}, {0}, 0, {0}, {0}},
+        {"アイスマリオ初変身", GameEventFlag::Type_None, 0, {0}, {0}, 0, {0}, {0}},
+        {"フライングマリオ初変身", GameEventFlag::Type_None, 0, {0}, {0}, 0, {0}, {0}},
+        {"無敵マリオ初変身", GameEventFlag::Type_None, 0, {0}, {0}, 0, {0}, {0}},
+        {"ライフアップキノコ解説", GameEventFlag::Type_None, 0, {0}, {0}, 0, {0}, {0}},
+        {"１ＵＰキノコ解説", GameEventFlag::Type_None, 0, {0}, {0}, 0, {0}, {0}},
+        {"サーフィンチュートリアル", GameEventFlag::Type_None, 0, {0}, {0}, 0, {0}, {0}},
+        {"タマコロチュートリアル", GameEventFlag::Type_None, 0, {0}, {0}, 0, {0}, {0}},
         {"PeachCastleGardenGalaxy", GameEventFlag::Type_Galaxy, 1, {0}, {0}, 0, {0}, {0}},
         {"EpilogueDemoStage", GameEventFlag::Type_Galaxy, 1, {0}, {0}, 0, {0}, {0}},
         {"HeavensDoorGalaxy", GameEventFlag::Type_Galaxy, 1, {0}, {0}, 0, {0}, {0}},
@@ -199,26 +197,20 @@ namespace {
         {"StarPieceCounterStop", GameEventFlag::Type_None, 0, {0}, {0}, 0, {0}, {0}},
         {"PlayHeavensDoorGalaxy1", GameEventFlag::Type_EventFlag, 1, {0}, {0}, 0, {0}, {0}},
         {"PlayHeavensDoorGalaxy2", GameEventFlag::Type_EventFlag, 1, {0}, {0}, 0, {"SpecialStarGrand6"}, {0}},
-        {"[\223\257\212\372]\203\163\201\133\203\140\217\351\225\202\217\343\214\343" /* [同期]ピーチ城浮上後 */, GameEventFlag::Type_StoryEventSync, 1, {0}, {0}, 0, {"PlayHeavensDoorGalaxy1"}, {"\203\163\201\133\203\140\217\351\225\202\217\343\214\343"} /* ピーチ城浮上後 */},
+        {"[同期]ピーチ城浮上後", GameEventFlag::Type_StoryEventSync, 1, {0}, {0}, 0, {"PlayHeavensDoorGalaxy1"}, {"ピーチ城浮上後"} /* ピーチ城浮上後 */},
         {"PlayEggStarGalaxy1", GameEventFlag::Type_EventFlag, 1, {0}, {0}, 0, {"SpecialStarGrand1"}, {0}},
-        {"[\223\257\212\372]\203\157\203\147\203\211\201\133\217\356\225\361\202\140" /* [同期]バトラー情報Ａ */, GameEventFlag::Type_StoryEventSync, 1, {0}, {0}, 0, {"PlayEggStarGalaxy1"}, {"\203\157\203\147\203\211\201\133\217\356\225\361\202\140"} /* バトラー情報Ａ */},
+        {"[同期]バトラー情報Ａ", GameEventFlag::Type_StoryEventSync, 1, {0}, {0}, 0, {"PlayEggStarGalaxy1"}, {"バトラー情報Ａ"} /* バトラー情報Ａ */},
         {"SpecialStarEggStarGalaxy1", GameEventFlag::Type_SpecialStar, 1, {1}, {0}, 0, {"EggStarGalaxy"}, {0}},
         {"PlayEggStarGalaxy2", GameEventFlag::Type_EventFlag, 1, {0}, {0}, 0, {"SpecialStarEggStarGalaxy1"}, {0}},
-        {"[\223\257\212\372]\203\130\203\136\201\133\203\163\201\133\203\130\203\214\203\116\203\140\203\203\201\133" /* [同期]スターピースレクチャー */, GameEventFlag::Type_StoryEventSync, 1, {0}, {0}, 0, {"PlayEggStarGalaxy2"}, {"\203\130\203\136\201\133\203\163\201\133\203\130\203\214\203\116\203\140\203\203\201\133"} /* スターピースレクチャー */},
+        {"[同期]スターピースレクチャー", GameEventFlag::Type_StoryEventSync, 1, {0}, {0}, 0, {"PlayEggStarGalaxy2"}, {"スターピースレクチャー"} /* スターピースレクチャー */},
         {"PowerStarNumForButlerKoopaDemo", GameEventFlag::Type_GalaxyOpenStar, 1, {0}, {0}, 0, {"KoopaBattleVs1Galaxy"}, {0}},
-        {"[\223\257\212\372]\203\116\203\142\203\160\203\130\203\136\201\133\203\166\203\211\203\223\203\147\224\255\214\251" /* [同期]クッパスタープラント発見 */, GameEventFlag::Type_StoryEventSync, 1, {0}, {0}, 0, {"PowerStarNumForButlerKoopaDemo"},
-         {"\203\116\203\142\203\160\203\130\203\136\201\133\203\166\203\211\203\223\203\147\224\255\214\251"} /* クッパスタープラント発見 */},
-    };
-
-    struct GameEventFlagSortLt {
-        bool operator()(GameEventFlagTableInstance::Key& key1, GameEventFlagTableInstance::Key& key2) {
-            return (key1.mHashCode < key2.mHashCode) ? true : false;
-        }
+        {"[同期]クッパスタープラント発見", GameEventFlag::Type_StoryEventSync, 1, {0}, {0}, 0, {"PowerStarNumForButlerKoopaDemo"},
+         {"クッパスタープラント発見"} /* クッパスタープラント発見 */},
     };
 };  // namespace
 
 bool GameEventFlagIter::isEnd() const {
-    if (GameEventFlagIter::isValid() == false) {
+    if (!GameEventFlagIter::isValid()) {
         return true;
     }
 
@@ -243,47 +235,56 @@ bool GameEventFlagIter::isValid() const {
     }
 }
 
-GameEventFlagTableInstance::GameEventFlagTableInstance() : mSortTable(nullptr), mLength(0) {
-    initSortTable();
-}
+GameEventFlagTableInstance::GameEventFlagTableInstance() : mNextSpecial(nullptr) {
+    const s32 size = GameEventFlagTable::getTableSize();
+    mNames.reset(static_cast< u32 >(size));
+    mSaveHashes.reset(static_cast< u32 >(size));
+    mSpecialGalaxies.reset(static_cast< u32 >(size));
+    mNextSpecial = new u32[size > 0 ? size : 1];
+    // pLastSpecial[first]: the latest special star flag so far of the galaxy whose first one is first.
+    u32* pLastSpecial = new u32[size > 0 ? size : 1];
 
-const GameEventFlag* GameEventFlagTableInstance::findFlag(const char* flagName) {
-    int i;
-    u16 hashCode = MR::getHashCode(flagName);
-    i = mLength;
-    i = (i * 8) / 8;
-    GameEventFlagTableInstance::Key* key = mSortTable;
+    for (s32 i = 0; i < size; i++) {
+        const GameEventFlag* pFlag = GameEventFlagTable::getFlag(i);
+        mNames.add(pFlag->mName, static_cast< u32 >(i));
+        if ((pFlag->mSaveFlag & 0x1) == 0) {
+            mSaveHashes.add(pFlag->mName, GameEventFlagTable::getSaveHash(pFlag->mName), static_cast< u32 >(i));
+        }
 
-    while (i > 0) {
-        int mid = i / 2;
-
-        if (key[i / 2].mHashCode < hashCode) {
-            i -= mid + 1;
-            key = &key[mid] + 1;
-        } else {
-            i = mid;
+        mNextSpecial[i] = MR::NameIndex::cNoValue;
+        const GameEventFlagAccessor accessor(pFlag);
+        if (accessor.isTypeSpecialStar() && accessor.getGalaxyName() != nullptr) {
+            if (mSpecialGalaxies.add(accessor.getGalaxyName(), static_cast< u32 >(i))) {
+                pLastSpecial[i] = static_cast< u32 >(i);
+            } else {
+                const u32 first = mSpecialGalaxies.find(accessor.getGalaxyName());
+                mNextSpecial[pLastSpecial[first]] = static_cast< u32 >(i);
+                pLastSpecial[first] = static_cast< u32 >(i);
+            }
         }
     }
+    delete[] pLastSpecial;
+}
 
-    if (key->mHashCode == hashCode && MR::isEqualString(flagName, key->mFlag->mName)) {
-        return key->mFlag;
+const GameEventFlag* GameEventFlagTableInstance::findSpecialStar(const char* pGalaxyName, s32 starId, const char* pNamePart) const {
+    for (u32 i = mSpecialGalaxies.find(pGalaxyName); i != MR::NameIndex::cNoValue; i = mNextSpecial[i]) {
+        const GameEventFlag* pFlag = GameEventFlagTable::getFlag(static_cast< int >(i));
+        const GameEventFlagAccessor accessor(pFlag);
+        if (accessor.getStarId() == starId && (pNamePart == nullptr || MR::isEqualSubString(accessor.getName(), pNamePart))) {
+            return pFlag;
+        }
     }
-
     return nullptr;
 }
 
-void GameEventFlagTableInstance::initSortTable() {
-    mSortTable = new GameEventFlagTableInstance::Key[GameEventFlagTable::getTableSize()];
-    mLength = GameEventFlagTable::getTableSize();
+const GameEventFlag* GameEventFlagTableInstance::findFlag(const char* flagName) const {
+    const u32 index = mNames.find(flagName);
+    return index == MR::NameIndex::cNoValue ? nullptr : GameEventFlagTable::getFlag(static_cast< int >(index));
+}
 
-    for (int i = 0; i < mLength; i++) {
-        const GameEventFlag* pFlag = GameEventFlagTable::getFlag(i);
-
-        mSortTable[i].mFlag = pFlag;
-        mSortTable[i].mHashCode = MR::getHashCode(pFlag->mName);
-    }
-
-    MR::sort(&mSortTable[0], &mSortTable[mLength], GameEventFlagSortLt());
+s32 GameEventFlagTableInstance::findSaveIndex(u16 saveHash) const {
+    const u32 index = mSaveHashes.findHash(saveHash);
+    return index == MR::NameIndex::cNoValue ? -1 : static_cast< s32 >(index);
 }
 
 namespace GameEventFlagTable {
@@ -301,7 +302,8 @@ namespace GameEventFlagTable {
         }
         if (::sMergedFlags == nullptr) {
             const s32 size = ARRAY_SIZE(::sGameEventFlagStatic);
-            ::sMergedFlags = new GameEventFlag[size + ::sAddedFlagCount];
+            // Built on first use, which can be inside a scene: kept in the arena of the process.
+            ::sMergedFlags = new (NebulaArena::root(), 0) GameEventFlag[size + ::sAddedFlagCount];
             for (s32 i = 0; i < size; i++) {
                 ::sMergedFlags[i] = ::sGameEventFlagStatic[i];
                 for (s32 f = ::sSetFlagCount - 1; f >= 0; f--) {
@@ -347,7 +349,7 @@ namespace GameEventFlagTable {
     }
 
     static void addFlag(const GameEventFlag& rFlag) {
-        GameEventFlag* pFlags = new GameEventFlag[::sAddedFlagCount + 1];
+        GameEventFlag* pFlags = new (NebulaArena::root(), 0) GameEventFlag[::sAddedFlagCount + 1];
         for (s32 i = 0; i < ::sAddedFlagCount; i++) {
             pFlags[i] = ::sAddedFlags[i];
         }
@@ -355,6 +357,8 @@ namespace GameEventFlagTable {
         delete[] ::sAddedFlags;
         ::sAddedFlags = pFlags;
         ::sAddedFlagCount++;
+        // The merged rows are built again on the next use (they would be one row short of the table size).
+        ::sMergedFlags = nullptr;
     }
 
     bool addGalaxy(const char* pGalaxyName) {
@@ -382,7 +386,7 @@ namespace GameEventFlagTable {
             addFlag(flag);
             return;
         }
-        GameEventFlag* pFlags = new GameEventFlag[::sSetFlagCount + 1];
+        GameEventFlag* pFlags = new (NebulaArena::root(), 0) GameEventFlag[::sSetFlagCount + 1];
         for (s32 i = 0; i < ::sSetFlagCount; i++) {
             pFlags[i] = ::sSetFlags[i];
         }
@@ -390,11 +394,12 @@ namespace GameEventFlagTable {
         delete[] ::sSetFlags;
         ::sSetFlags = pFlags;
         ::sSetFlagCount++;
+        ::sMergedFlags = nullptr;
     }
 
     bool addHungryLuma(const char* pGalaxyName, s32 slot, s32 starBits) {
         const size_t length = strlen(pGalaxyName) + sizeof("StarPiece");
-        char* pName = new char[length];
+        char* pName = new (NebulaArena::root(), 0) char[length];
         nebula_snprintf(pName, length, "StarPiece%s", pGalaxyName);
         if (!nameIsFree(pName)) {
             return false;
@@ -404,7 +409,7 @@ namespace GameEventFlagTable {
         flag.mType = GameEventFlag::Type_StarPiece;
         flag.mSaveFlag = 1;
         flag.mStarPieceIndex = static_cast< u8 >(slot);
-        flag._8 = static_cast< u32 >(starBits);
+        flag.mExactStarPieceNum = static_cast< u32 >(starBits);
         flag.mGalaxyName = pGalaxyName;
         addFlag(flag);
         return true;
@@ -422,11 +427,17 @@ namespace GameEventFlagTable {
         return SingletonHolder< GameEventFlagTableInstance >::get()->findFlag(pFlagName);
     }
 
-    const char* getEventFlagNameSpecialPowerStar(const char* pGalaxyName, s32 starId) {
+    const GameEventFlag* findSpecialPowerStar(const char* pGalaxyName, s32 starId, const char* pNamePart) {
+        const GameEventFlagTableInstance* pInstance = SingletonHolder< GameEventFlagTableInstance >::get();
+        if (pInstance != nullptr) {
+            return pInstance->findSpecialStar(pGalaxyName, starId, pNamePart);
+        }
+
+        // Before the game data exists: the table itself.
         for (GameEventFlagIter iter = getBeginIter(); !iter.isEnd(); iter.goNext()) {
             GameEventFlagAccessor accessor = GameEventFlagAccessor(iter.getFlag());
 
-            if (!accessor.isTypeSpecialStar()) {
+            if (!accessor.isTypeSpecialStar() || accessor.getGalaxyName() == nullptr) {
                 continue;
             }
 
@@ -438,10 +449,19 @@ namespace GameEventFlagTable {
                 continue;
             }
 
-            return accessor.getName();
+            if (pNamePart != nullptr && !MR::isEqualSubString(accessor.getName(), pNamePart)) {
+                continue;
+            }
+
+            return iter.getFlag();
         }
 
         return nullptr;
+    }
+
+    const char* getEventFlagNameSpecialPowerStar(const char* pGalaxyName, s32 starId) {
+        const GameEventFlag* pFlag = findSpecialPowerStar(pGalaxyName, starId, nullptr);
+        return pFlag != nullptr ? GameEventFlagAccessor(pFlag).getName() : nullptr;
     }
 
     bool isPowerStarType(const char* pGalaxyName, s32 starId, const char* pStarType) {
@@ -503,6 +523,11 @@ namespace GameEventFlagTable {
     bool isDependedAnother(const char* pFlagName1, const char* pFlagName2) {
         const GameEventFlag* pFlag1 = findFlag(pFlagName1);
 
+        // A flag the table lacks depends on nothing.
+        if (pFlag1 == nullptr) {
+            return false;
+        }
+
         if (pFlag1->mType == GameEventFlag::Type_EventFlag) {
             if (pFlag1->mRequirement1 != nullptr && MR::isEqualString(pFlag1->mRequirement1, pFlagName2)) {
                 return true;
@@ -512,11 +537,11 @@ namespace GameEventFlagTable {
                 return true;
             }
         } else if (pFlag1->mType == GameEventFlag::Type_Galaxy) {
-            const char* galaxyDependedFlags[3];
-            s32 length = getGalaxyDependedFlags(galaxyDependedFlags, ARRAY_SIZE(galaxyDependedFlags), pFlagName1);
+            MR::InlineVector< const char*, 3 > galaxyDependedFlags;
+            getGalaxyDependedFlags(&galaxyDependedFlags, pFlagName1);
 
-            for (s32 i = 0; i < length; i++) {
-                if (MR::isEqualString(galaxyDependedFlags[i], pFlagName2)) {
+            for (const char* const* pFlag = galaxyDependedFlags.begin(); pFlag != galaxyDependedFlags.end(); pFlag++) {
+                if (MR::isEqualString(*pFlag, pFlagName2)) {
                     return true;
                 }
             }
@@ -525,22 +550,45 @@ namespace GameEventFlagTable {
         return false;
     }
 
-    int getIndexFromHashCode(u16 hashCode) {
-        for (GameEventFlagIter iter = getBeginIter(); !iter.isEnd(); iter.goNext()) {
-            if ((iter.getFlag()->mSaveFlag & 0x1) != 0) {
-                continue;
+    u16 getSaveHash(const char* pName) {
+        // The flags named in Japanese; their names are UTF-8 now, their saves' hashes stay of the Shift-JIS bytes
+        // (agents/native-q/flag_save_hashes.py made these).
+        struct SavedName {
+            const char* mName;
+            u16 mHash;
+        };
+        static constexpr SavedName cJapanese[] = {
+            {"ハチマリオ初変身", 0x7ABA},
+            {"テレサマリオ初変身", 0x0C8E},
+            {"ホッパーマリオ初変身", 0x184F},
+            {"ファイアマリオ初変身", 0x0E5E},
+            {"アイスマリオ初変身", 0x62E5},
+            {"フライングマリオ初変身", 0x5965},
+            {"無敵マリオ初変身", 0x4C23},
+            {"ライフアップキノコ解説", 0x1880},
+            {"１ＵＰキノコ解説", 0x3D66},
+            {"サーフィンチュートリアル", 0x2CD5},
+            {"タマコロチュートリアル", 0x4E78},
+            {"[同期]ピーチ城浮上後", 0x628F},
+            {"[同期]バトラー情報Ａ", 0x6DFF},
+            {"[同期]スターピースレクチャー", 0x118A},
+            {"[同期]クッパスタープラント発見", 0x6EBA},
+        };
+        for (const char* p = pName; *p != '\0'; p++) {
+            if (static_cast< u8 >(*p) >= 0x80) {
+                for (const SavedName& rName : cJapanese) {
+                    if (MR::isEqualString(rName.mName, pName)) {
+                        return rName.mHash;
+                    }
+                }
+                break;
             }
-
-            GameEventFlagAccessor accessor = GameEventFlagAccessor(iter.getFlag());
-
-            if ((MR::getHashCode(accessor.getName()) & 0x7FFF) != hashCode) {
-                continue;
-            }
-
-            return getIndex(getFlag(iter.mIter));
         }
+        return MR::getHashCode(pName) & 0x7FFF;
+    }
 
-        return -1;
+    int getIndexFromHashCode(u16 hashCode) {
+        return SingletonHolder< GameEventFlagTableInstance >::get()->findSaveIndex(hashCode);
     }
 
     s32 calcSpecialPowerStarNum(const char* pPowerStarType) {
@@ -553,7 +601,7 @@ namespace GameEventFlagTable {
                 continue;
             }
 
-            if (strstr(accessor.getName(), pPowerStarType) == nullptr) {
+            if (!MR::isEqualSubString(accessor.getName(), pPowerStarType)) {
                 continue;
             }
 
@@ -564,10 +612,9 @@ namespace GameEventFlagTable {
     }
 
     s32 getStarPieceNumToOpenExclamationGalaxy(const char* pGalaxyName) {
-        char flagName[256];
-        nebula_snprintf(flagName, sizeof(flagName), "StarPiece%s", pGalaxyName);
+        MR::FormattedName flagName("StarPiece%s", pGalaxyName);
 
-        GameEventFlagAccessor accessor = makeAccessor(flagName);
+        GameEventFlagAccessor accessor = makeAccessor(flagName.c_str());
 
         return accessor.getNeedStarPieceNum();
     }
@@ -576,26 +623,24 @@ namespace GameEventFlagTable {
         return calcSpecialPowerStarNum("SpecialStarGreen");
     }
 
-    s32 getGalaxyDependedFlags(const char** pFlags, int a1, const char* pName) {
-        JMapInfo info;
+    void getGalaxyDependedFlags(MR::InlineVector< const char*, 3 >* pFlags, const char* pName) {
+        Table info;
         info.attach(NebulaDataTables::getGalaxyInfoTable());
 
-        JMapInfoIter iter = info.findElement("name", pName, 0);
+        TableIter iter = info.findElement("name", pName, 0);
 
-        s32 numFlags = 0;
-        for (s32 idx = 0; idx < 3; idx++) {
-            char key[32];
-            nebula_snprintf(key, 32, "OpenCondition%1d", idx);
-            if (info.searchItemInfo(key) < 0) {
+        // OpenCondition0, 1, ... up to the first column the table lacks.
+        for (s32 idx = 0;; idx++) {
+            const MR::FormattedName key("OpenCondition%d", idx);
+            if (info.searchItemInfo(key.c_str()) < 0) {
                 break;
             }
 
             const char* openCondition = "";
-            iter.getValue(key, &openCondition);
+            iter.getValue(key.c_str(), &openCondition);
             if (!MR::isEqualString(openCondition, "")) {
-                pFlags[numFlags++] = openCondition;
+                pFlags->push_back(openCondition);
             }
         }
-        return numFlags;
     }
 };  // namespace GameEventFlagTable

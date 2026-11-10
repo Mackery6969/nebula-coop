@@ -1,6 +1,6 @@
 #pragma once
 
-#include <JSystem/JGeometry.hpp>
+#include <nebula_geometry.hpp>
 #include <NebulaGpu.h>
 #include <nebula_math.h>
 
@@ -8,27 +8,27 @@ class RumbleCalculator {
 public:
     RumbleCalculator(f32, f32, f32, u32);
 
-    virtual void calcValues(TVec3f*, const TVec3f&) = 0;
+    virtual void calcValues(Vec3f*, const Vec3f&) = 0;
 
     void start(u32);
     void calc();
     void reset();
 
     bool isRumbling() const {
-        return _4 < _8;
+        return mFrame < mDuration;
     }
 
-    u32 _4;
-    u32 _8;
-    TVec3f _C;
-    f32 _18;
-    f32 _1C;
-    f32 _20;
+    u32 mFrame;
+    u32 mDuration;
+    Vec3f mValue;
+    f32 mFrequency;
+    f32 mPhaseOffset;
+    f32 mAmplitude;
 };
 
 class RumbleCalculatorCosMultLinear : public RumbleCalculator {
 public:
     RumbleCalculatorCosMultLinear(f32, f32, f32, u32);
 
-    virtual void calcValues(TVec3f*, const TVec3f&);
+    virtual void calcValues(Vec3f*, const Vec3f&) override;
 };

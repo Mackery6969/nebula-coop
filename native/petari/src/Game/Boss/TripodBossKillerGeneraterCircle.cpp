@@ -1,27 +1,27 @@
 #include "Game/Boss/TripodBossKillerGeneraterCircle.hpp"
 #include "Game/Boss/TripodBossKillerGenerater.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 struct SetUpData {
     const char* mName;
     const f32* mAngleTable;
     s32 mAngleNum;
-    f32 _C;
-    f32 _10;
-    f32 _14;
-    f32 _18;
+    f32 mRadius;
+    f32 mCirclePitch;
+    f32 mCannonPitch;
+    f32 mHeight;
     u32 mActiveLabel;
     bool mHasCollision;
 };
 
 namespace {
-    static f32 sUpperHorizonAngleTable[] = {42.0f, 96.0f, 140.0f, 180.0f, -140.0f, -96.0f, -42.0f};
-    static f32 sUnderHorizonAngleTable[] = {78.0f, 120.0f, 160.0f, -160.0f, -120.0f, -78.0f};
-    static f32 sBottomHorizonAngleTable[] = {0.0f, 120.0f, 240.0f};
+    const f32 sUpperHorizonAngleTable[] = {42.0f, 96.0f, 140.0f, 180.0f, -140.0f, -96.0f, -42.0f};
+    const f32 sUnderHorizonAngleTable[] = {78.0f, 120.0f, 160.0f, -160.0f, -120.0f, -78.0f};
+    const f32 sBottomHorizonAngleTable[] = {0.0f, 120.0f, 240.0f};
     static const SetUpData sSetUpDataTable[] = {
         {"TripodBossUpperKillerCannon", sUpperHorizonAngleTable, ARRAY_SIZE(sUpperHorizonAngleTable), 2150.0f, 49.0f, -29.0f, 975.0f, 1, 0x1000000},
         {"TripodBossUnderKillerCannon", sUnderHorizonAngleTable, ARRAY_SIZE(sUnderHorizonAngleTable), 2150.0f, 5.8f, 39.2f, 975.0f, 0, 0x1000000},
@@ -38,28 +38,25 @@ namespace {
     }
 };  // namespace
 
-TripodBossKillerGeneraterCircle::~TripodBossKillerGeneraterCircle() {
-}
-
 TripodBossKillerGeneraterCircle::TripodBossKillerGeneraterCircle(const char* pName)
-    : NameObj(pName), mGenerater(), mPosition(0.0f, 0.0f, 0.0f), mAngleTable(), mAngleNum(), _30(), _34(), _38(), _3C(), _40() {
+    : NameObj(pName), mGenerater(), mPosition(0.0f, 0.0f, 0.0f), mAngleTable(), mAngleNum(), mHeight(), mRadius(), mCirclePitch(), mCannonPitch() {
 }
 
-void TripodBossKillerGeneraterCircle::init(const JMapInfoIter& rIter) {
+void TripodBossKillerGeneraterCircle::init(const TableIter& rIter) {
     const char* objName;
     MR::getObjectName(&objName, rIter);
 
     const SetUpData* dataPtr = ::getSetUpData(objName);
 
-    MR::getJMapInfoTrans(rIter, &mPosition);
-    MR::getJMapInfoRotate(rIter, &mRotation);
+    MR::getPlacementTrans(rIter, &mPosition);
+    MR::getPlacementRotate(rIter, &mRotation);
 
     mAngleTable = dataPtr->mAngleTable;
     mAngleNum = dataPtr->mAngleNum;
-    _34 = dataPtr->_C;
-    _38 = dataPtr->_10;
-    _3C = dataPtr->_14;
-    _30 = dataPtr->_18;
+    mRadius = dataPtr->mRadius;
+    mCirclePitch = dataPtr->mCirclePitch;
+    mCannonPitch = dataPtr->mCannonPitch;
+    mHeight = dataPtr->mHeight;
 
     mGenerater = new TripodBossKillerGenerater[mAngleNum];
 
@@ -74,21 +71,21 @@ void TripodBossKillerGeneraterCircle::init(const JMapInfoIter& rIter) {
 
 void TripodBossKillerGeneraterCircle::placementGenerater() {
     for (s32 i = 0; i < mAngleNum; i++) {
-        TPos3f mtx;
+        Pos3f mtx;
         mtx.identity();
-        mtx.setEulerX(-MR::toRadian(_3C));
-        mtx.setTrans(0.0f, 0.0f, _34);
+        mtx.setEulerX(-MR::toRadian(mCannonPitch));
+        mtx.setTrans(0.0f, 0.0f, mRadius);
 
-        TPos3f mtx2;
-        mtx2.identity();
-        mtx2.setRotate(-MR::toRadian(_38), MR::toRadian(mAngleTable[i]), 0.0f);
-        mtx2.concat(mtx2, mtx);
-        MR::addTransMtx(mtx2, TVec3f(0.0f, _30, 0.0f));
+        Pos3f cannonMtx;
+        cannonMtx.identity();
+        cannonMtx.setRotate(-MR::toRadian(mCirclePitch), MR::toRadian(mAngleTable[i]), 0.0f);
+        cannonMtx.concat(cannonMtx, mtx);
+        MR::addTransMtx(cannonMtx, Vec3f(0.0f, mHeight, 0.0f));
 
-        TPos3f trMtx;
+        Pos3f trMtx;
         MR::makeMtxTR(trMtx, mPosition, mRotation);
-        mtx2.concat(trMtx, mtx2);
+        cannonMtx.concat(trMtx, cannonMtx);
 
-        mGenerater[i].setLocalMatrix(mtx2);
+        mGenerater[i].setLocalMatrix(cannonMtx);
     }
 }

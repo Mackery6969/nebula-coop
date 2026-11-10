@@ -1,18 +1,20 @@
 #include "Game/MapObj/PressureBase.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const s32 sDefaultShotInterval = 300;
-    static const f32 sDefaultFirstSpeed = 30.0f;
-    static const s32 sStepForChargeToShot = 16;
-    static const s32 sStepForChargeToShortShot = 54;
-    static const s32 sSyncWaitTime = 60;
-    static const f32 sAimTurnRate = 5.0f;
-    static const s32 sStepForBound = 20;
-    static const f32 sBoundFreq = 1.0f;
-    static const f32 sBoundAmp = 0.2f;
-    static const f32 sRelaxAngleFix = -45.0f;
+    static const s32 sDefaultShotInterval = NebulaFrameClock::stepsOfSeconds(5);
+    NEBULA_TUNABLE(f32, sDefaultFirstSpeed, 30.0f);
+    NEBULA_TUNABLE(s32, sStepForChargeToShot, 16);
+    NEBULA_TUNABLE(s32, sStepForChargeToShortShot, 54);
+    static const s32 sSyncWaitTime = NebulaFrameClock::stepsOfSeconds(1);
+    NEBULA_TUNABLE(f32, sAimTurnRate, 5.0f);
+    NEBULA_TUNABLE(s32, sStepForBound, 20);
+    NEBULA_TUNABLE(f32, sBoundFreq, 1.0f);
+    NEBULA_TUNABLE(f32, sBoundAmp, 0.2f);
+    NEBULA_TUNABLE(f32, sRelaxAngleFix, -45.0f);
 };  // namespace
 
 namespace NrvPressureMessenger {
@@ -33,7 +35,7 @@ namespace NrvPressureBase {
 PressureMessenger::PressureMessenger(MsgSharedGroup* pGroup, const char* pName) : LiveActor(pName), mSharedGroup(pGroup), mWaitSyncTime() {
 }
 
-void PressureMessenger::init(const JMapInfoIter& rIter) {
+void PressureMessenger::init(const TableIter& /*rIter*/) {
     MR::connectToSceneMapObjMovement(this);
     initHitSensor(1);
     MR::addBodyMessageSensorMapObj(this);
@@ -51,10 +53,10 @@ void PressureMessenger::exeSync() {
 
 PressureBase::PressureBase(const char* pName)
     : LiveActor(pName), mJointController(), mFront(0.0f, 0.0f, 1.0f), mRelaxAngle(), mBaseAngle(), mWaitTime(::sDefaultShotInterval),
-      mBallSpeed(::sDefaultFirstSpeed), mShotType(), mIsShortShot(), mMessenger(), mGroup(), _BC() {
+      mBallSpeed(::sDefaultFirstSpeed), mShotType(), mIsShortShot(), mMessenger(), mGroup() {
 }
 
-void PressureBase::init(const JMapInfoIter& rIter) {
+void PressureBase::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     const char* objName;
     MR::getObjectName(&objName, rIter);
@@ -62,9 +64,9 @@ void PressureBase::init(const JMapInfoIter& rIter) {
     MR::calcFrontVec(&mFront, this);
     MR::connectToSceneNoShadowedMapObjStrongLight(this);
     initHitSensor(2);
-    MR::addHitSensorMapObj(this, "body", 8, 70.0f, TVec3f(0.0f, 30.0f, 0.0f));
-    MR::addHitSensorAtJointMapObjSimple(this, "cannon", "Cannon1", 8, 70.0f, TVec3f(40.0f, 0.0f, 0.0f));
-    initEffectKeeper(0, nullptr, false);
+    MR::addHitSensorMapObj(this, "body", 8, 70.0f, Vec3f(0.0f, 30.0f, 0.0f));
+    MR::addHitSensorAtJointMapObjSimple(this, "cannon", "Cannon1", 8, 70.0f, Vec3f(40.0f, 0.0f, 0.0f));
+    initEffectKeeper(0, nullptr);
     initSound(6, false);
     MR::initShadowVolumeSphere(this, 75.0f);
     MR::invalidateShadow(this, nullptr);
@@ -72,24 +74,24 @@ void PressureBase::init(const JMapInfoIter& rIter) {
     mJointController = MR::createJointDelegatorWithNullChildFunc(this, &PressureBase::calcJointCannonV, "Cannon1");
     MR::initJointTransform(this);
 
-    MR::getJMapInfoArg0NoInit(rIter, &mBaseAngle);
-    MR::getJMapInfoArg1NoInit(rIter, &mWaitTime);
+    MR::getPlacementArg0NoInit(rIter, &mBaseAngle);
+    MR::getPlacementArg1NoInit(rIter, &mWaitTime);
 
-    s16 frame = MR::getBckFrameMax(this, "ShotStart");
+    s32 frame = MR::getBckFrameMax(this, "ShotStart");
     mIsShortShot = (mWaitTime < frame);
 
     initBullet(rIter);
-    MR::getJMapInfoArg2NoInit(rIter, &mBallSpeed);
-    MR::getJMapInfoArg3NoInit(rIter, &mShotType);
+    MR::getPlacementArg2NoInit(rIter, &mBallSpeed);
+    MR::getPlacementArg3NoInit(rIter, &mShotType);
     MR::calcGravity(this);
 
     MR::setGroupClipping(this, rIter, 32);
-    mGroup = MR::joinToGroupArray(this, rIter, "\203\166\203\214\203\142\203\126\203\203\201\133\214\122\222\143" /* プレッシャー軍団 */, 32);
+    mGroup = MR::joinToGroupArray(this, rIter, "プレッシャー軍団", 32);
     if (mGroup != nullptr) {
         PressureBase* actor = static_cast< PressureBase* >(mGroup->getActor(0));
 
         if (this == actor) {
-            mMessenger = new PressureMessenger(mGroup, "\203\166\203\214\203\142\203\126\203\203\201\133\223\257\212\372\203\201\203\142\203\132\203\223\203\127\203\203\201\133" /* プレッシャー同期メッセンジャー */);
+            mMessenger = new PressureMessenger(mGroup, "プレッシャー同期メッセンジャー");
             mMessenger->initWithoutIter();
         }
     }
@@ -234,11 +236,11 @@ void PressureBase::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     }
 }
 
-bool PressureBase::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool PressureBase::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     return MR::isMsgStarPieceReflect(msg);
 }
 
-bool PressureBase::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool PressureBase::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (msg == ACTMES_GROUP_MOVE_START) {
         bool isRelax = isNerve(GET_NERVE(PressureBase, PressureBaseNrvRelaxStart)) || isNerve(GET_NERVE(PressureBase, PressureBaseNrvRelax));
 
@@ -269,21 +271,21 @@ void PressureBase::startRelax() {
     }
 }
 
-void PressureBase::initBullet(const JMapInfoIter&) {
+void PressureBase::initBullet(const TableIter&) {
 }
 
 bool PressureBase::shotBullet(f32) {
     return false;
 }
 
-bool PressureBase::calcJointCannonV(TPos3f* pMtx, const JointControllerInfo& rInfo) {
-    TVec3f front(0.0f, 0.0f, 1.0f);
+bool PressureBase::calcJointCannonV(Pos3f* pMtx, const JointControllerInfo& /*rInfo*/) {
+    Vec3f front(0.0f, 0.0f, 1.0f);
     bool isRelax = isNerve(GET_NERVE(PressureBase, PressureBaseNrvRelaxStart)) || isNerve(GET_NERVE(PressureBase, PressureBaseNrvRelax)) ||
                    isNerve(GET_NERVE(PressureBase, PressureBaseNrvWaitStart));
 
     f32 angle = isRelax ? mRelaxAngle : mBaseAngle;
 
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.makeRotate(front, MR::toRadian(angle));
     pMtx->concat(*pMtx, mtx);
     return true;

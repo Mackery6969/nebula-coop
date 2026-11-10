@@ -7,28 +7,26 @@ class WalkerStateBindStarPointer;
 
 class TeresaWater : public LiveActor {
 public:
-    /// @brief Creates a new `TeresaWater`.
-    /// @param pName A pointer to the null-terminated name of the object.
     TeresaWater(const char* pName);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void kill();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
 
     void exeMove();
     void exeHit();
     void exeStun();
-    void exeDPDSwoon();
-    void endDPDSwoon();
-    bool tryDPDSwoon();
+    void exePointerSwoon();
+    void endPointerSwoon();
+    bool tryPointerSwoon();
 
-    AnimScaleController* _8C;
-    WalkerStateBindStarPointer* _90;
-    TVec3f _94;
-    TVec3f _A0;
-    TVec3f _AC;
-    TVec3f* _B8;
+    AnimScaleController* mScaleCtrl;
+    WalkerStateBindStarPointer* mBindStarPointer;
+    Vec3f mFront;
+    Vec3f mFarPos;
+    Vec3f mInitPos;
+    Vec3f* mTarget;
 };

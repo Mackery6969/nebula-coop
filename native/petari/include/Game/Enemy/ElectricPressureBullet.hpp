@@ -1,22 +1,21 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActor.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
+
 
 class ElectricPressureBullet : public LiveActor {
 public:
     ElectricPressureBullet(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void kill();
-    virtual void control();
-    virtual void attackSensor(HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
 
-    void shotElectricBullet(LiveActor*, const TPos3f&, const f32&);
+    void shotElectricBullet(LiveActor*, const Pos3f&, const f32&);
     void exeFly();
 
-    TVec3f _8C;
-    LiveActor* _98;
-    f32 _9C;
+    Vec3f mFront;
+    f32 mSpeed;
 };

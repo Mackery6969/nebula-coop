@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/LiveActor/LiveActorGroup.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class Karikari;
 class FixedPosition;
@@ -10,27 +10,27 @@ class KarikariDirector : public LiveActorGroup {
 public:
     KarikariDirector(const char*);
 
-    virtual void movement();
+    virtual void movement() override;
 
     bool isMaxNumCling() const;
     void removeAllClingingKarikari();
-    void blowOutAllClingingKarikari(const TVec3f&);
+    void blowOutAllClingingKarikari(const Vec3f&);
     void electricKillAllClingingKarikari();
     void clearScratchInfo();
-    bool requestRelease(Karikari*, TVec2f, f32);
+    bool requestRelease(Karikari*, Vec2f, f32);
     bool registCling(Karikari*);
     bool unregistCling(Karikari*);
 
     inline MtxPtr getClingMtx(int idx) const {
-        return (MtxPtr)&mClingJointMtxs[idx];
+        return mClingJointMtxs[idx].toMtxPtr();
     }
 
     s32 mClingNum;
-    TPos3f* mClingJointMtxs;  // array
+    Pos3f* mClingJointMtxs;  // array
     FixedPosition** mClingPositions;
     Karikari** mClingingKarikari;
     Karikari* mReleaseKarikari;
-    TVec2f mReleaseVel;
+    Vec2f mReleaseVel;
     f32 mLowestReleaseDist;
     s32 mNoReleaseTime;
     s32 mRumbleTime;

@@ -5,7 +5,7 @@
 TripodBossRailMoveParts::TripodBossRailMoveParts(const char* pName) : TripodBossFixParts(pName), mRailMover() {
 }
 
-void TripodBossRailMoveParts::init(const JMapInfoIter& rIter) {
+void TripodBossRailMoveParts::init(const TableIter& rIter) {
     TripodBossFixParts::init(rIter);
     initRailRider(rIter);
 
@@ -26,8 +26,8 @@ void TripodBossRailMoveParts::activateTripodBoss() {
     TripodBossFixParts::activateTripodBoss();
 }
 
-void TripodBossRailMoveParts::calcTripodLocalMatrix(TPos3f* pMtx) {
-    _BC = mRailMover->_28;
+void TripodBossRailMoveParts::calcTripodLocalMatrix(Pos3f* pMtx) {
+    mLocalPos = mRailMover->mStartPos;
 
     TripodBossFixPartsBase::calcTripodLocalMatrix(pMtx);
 }

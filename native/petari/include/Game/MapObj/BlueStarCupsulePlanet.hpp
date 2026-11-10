@@ -17,18 +17,18 @@ class BlueStarCupsulePlanet : public LiveActor, public GCaptureTargetable {
 public:
     BlueStarCupsulePlanet(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void startClipped();
-    virtual void endClipped();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
+    virtual void init(const TableIter&) override;
+    virtual void startClipped() override;
+    virtual void endClipped() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
 
     void updatePose();
-    void decidedTarget();
-    void releasedTarget();
-    void getTargetPosition(TVec3f*);
-    bool isReleaseForce() const;
-    f32 getPointableRange() const;
+    void decidedTarget() override;
+    void releasedTarget() override;
+    void getTargetPosition(Vec3f*) override;
+    bool isReleaseForce() const override;
+    f32 getPointableRange() const override;
     void emitNerveEffect();
     void exeWait();
     void exePointable();

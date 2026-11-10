@@ -31,7 +31,7 @@ void GalaxyMapIcon::calcAnim() {
     LayoutActor::calcAnim();
 }
 
-void GalaxyMapIcon::calcAnimForCapture(const nw4r::lyt::DrawInfo& rDrawInfo) {
+void GalaxyMapIcon::calcAnimForCapture(const Ui::DrawInfo& rDrawInfo) {
     MR::setLayoutScalePosAtPaneScaleTransIfExecCalcAnim(this, mHost, mPaneName);
     MR::calcAnimLayoutWithDrawInfo(this, rDrawInfo);
 }
@@ -59,11 +59,11 @@ void GalaxyMapIcon::onPointing() {
 }
 
 void GalaxyMapIcon::activatePointing() {
-    mButtonPaneController->_24 = true;
+    mButtonPaneController->mIsActive = true;
 }
 
 void GalaxyMapIcon::deactivatePointing() {
-    mButtonPaneController->_24 = false;
+    mButtonPaneController->mIsActive = false;
 }
 
 void GalaxyMapIcon::control() {
@@ -119,14 +119,14 @@ bool GalaxyMapIcon::isNewOnDiscoverMode() const {
 GalaxyMapIcon::~GalaxyMapIcon() {
 }
 
-void GalaxyMapIcon::init(const JMapInfoIter& rIter) {
+void GalaxyMapIcon::init(const TableIter& /*rIter*/) {
     initLayoutManager("MapGalaxyIcon", 2);
     MR::createAndAddPaneCtrl(this, "GalaxyIcon", 1);
 
     mButtonPaneController = new ButtonPaneController(this, "GalaxyIcon", "GalaxyIcon", 0, true);
     mButtonPaneController->invalidateAppearance();
     mButtonPaneController->invalidateDecide();
-    mButtonPaneController->_23 = true;
+    mButtonPaneController->mIsPointingExternal = true;
 }
 
 bool GalaxyMapIcon::isPointing() const {
@@ -138,7 +138,7 @@ bool GalaxyMapIcon::isPointing() const {
         return false;
     }
 
-    TVec2f paneScale;
+    Vec2f paneScale;
 
     MR::copyPaneScale(&paneScale, this, nullptr);
 
@@ -146,7 +146,7 @@ bool GalaxyMapIcon::isPointing() const {
         return false;
     }
 
-    return MR::isStarPointerPointingPane(this, "GalaxyIcon", 0, true, "\216\343" /* 弱 */);
+    return MR::isStarPointerPointingPane(this, "GalaxyIcon", 0, true, "弱");
 }
 
 void GalaxyMapIcon::syncStatus() {

@@ -1,4 +1,5 @@
 #include "Game/MapObj/SandCapsulePressGround.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/MapObjActorInitInfo.hpp"
 #include "Game/Util/ActorMovementUtil.hpp"
@@ -13,13 +14,17 @@
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#include "Game/Util/Tunable.hpp"
+
+// The numbers this file's functions give the game's motion and animation calls, as tunables: "<file>.<function>.<call>.<k>".
+NEBULA_TUNABLE_NAMED(f32, cNum_exeMoveStart_shakeCameraInfinity_1, "exeMoveStart.shakeCameraInfinity.1", 0.15f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeMoveStart_shakeCameraInfinity_2, "exeMoveStart.shakeCameraInfinity.2", 1.5f);
 
 namespace {
-    // static const f32 sMoveUpDepth = _;
-    static const s32 sStepForMove = 1200;
-    static const s32 sStepForMoveStart = 120;
-    static const s32 sStepForMoveEnd = 180;
-    static const s32 sStepToStop = 30;
+    static const s32 sStepForMove = NebulaFrameClock::stepsOfSeconds(20);
+    static const s32 sStepForMoveStart = NebulaFrameClock::stepsOfSeconds(2);
+    static const s32 sStepForMoveEnd = NebulaFrameClock::stepsOfSeconds(3);
+    static const s32 sStepToStop = NebulaFrameClock::stepsOfMilliseconds(500);
 };  // namespace
 
 namespace NrvSandCapsulePressGround {
@@ -36,27 +41,27 @@ namespace NrvSandCapsulePressGround {
 };  // namespace NrvSandCapsulePressGround
 
 SandCapsulePressGround::SandCapsulePressGround(const char* pName) : MapObjActor(pName) {
-    _DC.identity();
+    mEffectMtx.identity();
 }
 
-void SandCapsulePressGround::init(const JMapInfoIter& rIter) {
+void SandCapsulePressGround::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
     MapObjActorInitInfo info;
     MapObjActorUtil::setupInitInfoSimpleMapObj(&info);
     info.setupNerve(GET_NERVE(SandCapsulePressGround, SandCapsulePressGroundNrvWaitBottom));
     initialize(rIter, info);
     MR::setBodySensorTypePress(this);
-    _DC.set(getBaseMtx());
-    MR::setEffectHostMtx(this, "FallSand", _DC);
+    mEffectMtx.set(getBaseMtx());
+    MR::setEffectHostMtx(this, "FallSand", mEffectMtx);
 
     if (MR::isDemoCast(this, nullptr)) {
         MR::tryRegisterDemoActionNerve(this, GET_NERVE(SandCapsulePressGround, SandCapsulePressGroundNrvDisappearDemo), nullptr);
     }
 
-    _C4.set(mPosition);
-    TVec3f up;
+    mLowerPos.set(mPosition);
+    Vec3f up;
     MR::calcUpVec(&up, this);
-    _D0.scaleAdd(3600.0f, up, _C4);
+    mUpperPos.scaleAdd(3600.0f, up, mLowerPos);
 }
 
 void SandCapsulePressGround::exeWait() {
@@ -72,8 +77,8 @@ void SandCapsulePressGround::exeWait() {
 void SandCapsulePressGround::exeMoveStart() {
     if (MR::isFirstStep(this)) {
         MR::onSwitchA(this);
-        MR::shakeCameraInfinity(this, 0.15f, 1.5f);
-        MR::makeMtxUpNoSupport(&_DC, -mGravity);
+        MR::shakeCameraInfinity(this, cNum_exeMoveStart_shakeCameraInfinity_1, cNum_exeMoveStart_shakeCameraInfinity_2);
+        MR::makeMtxUpNoSupport(&mEffectMtx, -mGravity);
         MR::emitEffect(this, "FallSand");
     }
 
@@ -103,7 +108,7 @@ void SandCapsulePressGround::exeMove() {
     }
 
     MR::startLevelSound(this, "SE_OJ_LV_DESERT_LAND_MOVE");
-    _DC.setTrans(mPosition);
+    mEffectMtx.setTrans(mPosition);
 
     if (MR::isStep(this, ::sStepForMove)) {
         mVelocity.zero();
@@ -111,10 +116,10 @@ void SandCapsulePressGround::exeMove() {
         MR::startSound(this, "SE_OJ_DESERT_LAND_MOVE_ED");
 
         if (isNerve(GET_NERVE(SandCapsulePressGround, SandCapsulePressGroundNrvMoveUp))) {
-            mPosition.set(_D0);
+            mPosition.set(mUpperPos);
             setNerve(GET_NERVE(SandCapsulePressGround, SandCapsulePressGroundNrvMoveUpEnd));
         } else {
-            mPosition.set(_C4);
+            mPosition.set(mLowerPos);
             setNerve(GET_NERVE(SandCapsulePressGround, SandCapsulePressGroundNrvMoveDownEnd));
         }
     }
@@ -139,12 +144,12 @@ void SandCapsulePressGround::exeDisappearDemo() {
         MR::overlayWithPreviousScreen(5);
         MR::offSwitchA(this);
 
-        TVec3f v8;
-        v8.add(_C4, _D0);
-        v8.x /= 2.0f;
-        v8.y /= 2.0f;
-        v8.z /= 2.0f;
-        MR::resetPosition(this, v8);
+        Vec3f center;
+        center.add(mLowerPos, mUpperPos);
+        center.x /= 2.0f;
+        center.y /= 2.0f;
+        center.z /= 2.0f;
+        MR::resetPosition(this, center);
         MR::startBck(this, "MoveAway");
         MR::stopShakingCamera(this);
         MR::shakeCameraNormal();
@@ -171,7 +176,7 @@ void SandCapsulePressGround::exeStop() {
 }
 
 void SandCapsulePressGround::calcMoveVelocity() {
-    TVec3f up;
+    Vec3f up;
     MR::calcUpVec(&up, this);
 
     if (isNerve(GET_NERVE(SandCapsulePressGround, SandCapsulePressGroundNrvMoveDown))) {

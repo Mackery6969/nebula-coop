@@ -2,15 +2,15 @@
 
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/LiveActor/ShadowVolumeDrawer.hpp"
-#include "Game/Util/NativeMesh.hpp"
+#include "Game/Render/TypedDraw.hpp"
+#include "Game/MapObj/ElectricRailHolder.hpp"
 
 class ElectricRailPoint : public LiveActor {
 public:
-    ElectricRailPoint(const char* name = "\223\144\214\202\203\214\201\133\203\213\223\137" /* 電撃レール点 */);
+    ElectricRailPoint(const char* name = "電撃レール点");
 
-    virtual ~ElectricRailPoint();
-    virtual void init(const JMapInfoIter&);
-    virtual void attackSensor(HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
 
     bool mHasShadow;
     bool mIsActive;
@@ -20,53 +20,54 @@ class ElectricRailSeparator {
 public:
     ElectricRailSeparator();
 
-    void setup(const TVec3f&, const TVec3f&, const TVec3f&);
+    void setup(const Vec3f& rPos, const Vec3f& rRailDir, const Vec3f& rOffsetDir);
 
-    TVec3f _0;
-    TVec3f mSide;
-    TVec3f mUp;
-    TVec3f mFront;
-    TVec3f _30;
+    Vec3f mPos;
+    Vec3f mSide;
+    Vec3f mUp;
+    Vec3f mFront;
+    Vec3f mOffsetDir;
 };
 
 class ElectricRailShadowDrawer : public ShadowVolumeDrawer {
 public:
     ElectricRailShadowDrawer(const LiveActor*, ElectricRailSeparator*, s32);
 
-    virtual void loadModelDrawMtx() const;
-    virtual void drawShape() const;
-    virtual bool isDraw() const;
+    virtual void loadModelDrawMtx(TypedDraw& rDraw) const override;
+    virtual void drawShape(TypedDraw& rDraw) const override;
+    virtual bool isDraw() const override;
 
-    void drawShadowVolumeShape(NativeMesh&, ElectricRailSeparator*, s32) const;
+    void writeShadowVolumeShape(ElectricRailSeparator*, s32);
 
     const LiveActor* mHost;
     // The shadow volume as the renderer draws it.
-    NativeMesh mMesh;
+    SiteMesh< VertexP > mMesh;
 };
 
-class ElectricRail : public LiveActor {
+class ElectricRail : public ElectricRailDrawn {
 public:
     ElectricRail(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void draw() const;
-    virtual void makeActorAppeared();
-    virtual void makeActorDead();
-    virtual void attackSensor(HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
+    virtual void drawWith(MaterialDraw& rMaterial) const override;
+    virtual void makeActorAppeared() override;
+    virtual void makeActorDead() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
 
     void disappear();
-    void initMapToolInfo(const JMapInfoIter&);
+    void deactivate();
+    void initMapToolInfo(const TableIter&);
     void initSensor();
     void initPoints();
     void initSeparators();
     void initMesh();
-    void drawRail(f32) const;
-    void drawPlane(NativeMesh&, f32, f32, f32, f32) const;
-    void drawPlaneGX(f32, f32, f32, f32) const;
-    void initShadow(const JMapInfoIter&);
+    void drawRail(TypedDraw& rDraw, f32 radius) const;
+    void drawPlane(f32 side0, f32 up0, f32 side1, f32 up1);
+    void drawPlaneQuad(TypedDraw& rDraw, f32 side0, f32 up0, f32 side1, f32 up1) const;
+    void initShadow(const TableIter&);
     void updateHitSensorPos();
-    void calcGravity(TVec3f*, const TVec3f&) const;
+    void calcGravity(Vec3f* pOut, const Vec3f& rPos) const;
 
     void exeDisappear();
     void exeWait();
@@ -74,11 +75,11 @@ public:
 
     ElectricRailPoint* mPoints;
     s32 mPointCount;
-    TVec3f* _94;
+    Vec3f* mSensorPositions;
     ElectricRailSeparator* mSeparators;
     s32 mSeparatorCount;
     // The rail as the renderer draws it while it waits.
-    NativeMesh mMesh;
+    SiteMesh< VertexPT > mMesh;
     s32 mRailHeight;  // Obj_arg0
     f32 mEaseIn;
     ElectricRailShadowDrawer* mShadowDrawer;

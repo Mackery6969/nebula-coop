@@ -13,13 +13,13 @@ public:
 
     KoopaBattleMapStair(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void initAfterPlacement();
+    virtual void init(const TableIter& rIter) override;
+    virtual void initAfterPlacement() override;
 
     bool isRequestAttackVs1() const;
     s32 calcRemainTimeToBreak() const;
     bool isRequestAttackVs3() const;
-    f32 calcAndSetTargetPos(TVec3f* pPos, const TVec3f& rReferencePos);
+    f32 calcAndSetTargetPos(Vec3f* pPos, const Vec3f& rReferencePos);
     f32 calcTimeRate() const;
     bool isBreak() const;
     bool isTypeNormal() const;
@@ -35,15 +35,17 @@ public:
 
     s32 mTimeToBreak;  // Obj_arg0
     s32 mFireAttackStep;
-    s32 mArg1;   // Obj_arg1
-    s32 mArg5;   // Obj_arg5
-    bool mArg6;  // Obj_arg6
+    // Obj_arg1: the landing Koopa fires at this stair from.
+    s32 mLevel;
+    // Obj_arg5: the edge point (offset table index) fire aims at; -1 aims at the nearest.
+    s32 mTargetCorner;
+    // Obj_arg6: Koopa jumps on once this stair's attack is answered.
+    bool mIsJumpAfterAttack;
     s32 mType;   // Obj_arg2
     bool mIsBig;
     bool mIsTurn;
-    bool _A6;
-    s32 _A8;
-    TVec3f _AC;
+    bool mIsKoopaAttack;
+    Vec3f mTargetPos;
     s32 mWaitFallStep;  // Obj_arg3
     s32 mFallStep;      // Obj_arg4
 };

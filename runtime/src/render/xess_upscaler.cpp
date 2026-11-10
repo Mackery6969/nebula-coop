@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // XeSS Super Resolution behind TemporalUpscaler (temporal_upscaler.h).
+#include "galaxy/render/halton.h"
 #include "galaxy/render/temporal_upscaler.h"
 #include "galaxy/render/xess_library.h"
+#include "barriers_d3d12.h"
 
 #include <xess/xess_d3d12.h>
 
@@ -12,26 +14,6 @@
 namespace galaxy::render {
 
 namespace {
-
-float halton(unsigned index, unsigned base) {
-    float f = 1.0f;
-    float r = 0.0f;
-    for (; index > 0u; index /= base) {
-        f /= static_cast<float>(base);
-        r += f * static_cast<float>(index % base);
-    }
-    return r;
-}
-
-D3D12_RESOURCE_BARRIER transition(ID3D12Resource* resource, D3D12_RESOURCE_STATES from, D3D12_RESOURCE_STATES to) {
-    D3D12_RESOURCE_BARRIER barrier{};
-    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    barrier.Transition.pResource = resource;
-    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    barrier.Transition.StateBefore = from;
-    barrier.Transition.StateAfter = to;
-    return barrier;
-}
 
 class XessUpscaler final : public TemporalUpscaler {
 public:
@@ -68,15 +50,14 @@ public:
             in.output == nullptr) {
             return false;
         }
-        constexpr D3D12_RESOURCE_STATES kRead = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
-        D3D12_RESOURCE_BARRIER barriers[5] = {
-            transition(in.color, D3D12_RESOURCE_STATE_RENDER_TARGET, kRead),
-            transition(in.depth, D3D12_RESOURCE_STATE_DEPTH_WRITE, kRead),
-            transition(in.motion, D3D12_RESOURCE_STATE_RENDER_TARGET, kRead),
-            transition(in.output, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
-            transition(in.reactive, D3D12_RESOURCE_STATE_RENDER_TARGET, kRead)};
-        const UINT count = in.reactive != nullptr ? 5u : 4u;
-        in.list->ResourceBarrier(count, barriers);
+        // XeSS reads its inputs from compute and writes the output as unordered access (no reactive mask: skipped).
+        BarriersD3D12 uses{in.list};
+        uses.texture(in.color, gpu::Use::ColorWrite, gpu::Use::ComputeRead);
+        uses.texture(in.depth, gpu::Use::DepthWrite, gpu::Use::ComputeRead);
+        uses.texture(in.motion, gpu::Use::ColorWrite, gpu::Use::ComputeRead);
+        uses.texture(in.output, gpu::Use::ColorWrite, gpu::Use::ComputeWrite);
+        uses.texture(in.reactive, gpu::Use::ColorWrite, gpu::Use::ComputeRead);
+        uses.issue();
         xess_d3d12_execute_params_t params{};
         params.pColorTexture = in.color;
         params.pVelocityTexture = in.motion;
@@ -90,10 +71,7 @@ public:
         params.inputWidth = in.render_width;
         params.inputHeight = in.render_height;
         const xess_result_t result = execute_(context_, in.list, &params);
-        for (UINT i = 0u; i < count; ++i) {
-            std::swap(barriers[i].Transition.StateBefore, barriers[i].Transition.StateAfter);
-        }
-        in.list->ResourceBarrier(count, barriers);
+        uses.undo();
         if (result != XESS_RESULT_SUCCESS) {
             if (!reported_) {
                 reported_ = true;

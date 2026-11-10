@@ -1,26 +1,23 @@
 #pragma once
 
 #include "Game/NameObj/NameObj.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
 class CometEventKeeper;
 class PowerStarEventKeeper;
 class PowerStarHolder;
 class StageStateKeeper;
-class TimeAttackEventKeeper;
 
 class EventDirector : public NameObj {
 public:
-    /// @brief Creates a new `EventDirector`.
     EventDirector();
 
-    virtual void init(const JMapInfoIter& rIter);
+    virtual void init(const TableIter& rIter) override;
 
     PowerStarEventKeeper* mPowerStarEventKeeper;
     StageStateKeeper* mStageStateKeeper;
     PowerStarHolder* mPowerStarHolder;
     CometEventKeeper* mCometEventKeeper;
-    TimeAttackEventKeeper* mTimeAttackEventKeeper;
 };
 
 namespace EventFunction {
@@ -28,7 +25,6 @@ namespace EventFunction {
     StageStateKeeper* getStageStateKeeper();
     PowerStarHolder* getPowerStarHolder();
     CometEventKeeper* getCometEventKeeper();
-    TimeAttackEventKeeper* getTimeAttackEventKeeper();
     bool isStartCometEvent(const char*);
     void startCometEvent();
     void endCometEvent();
@@ -42,6 +38,6 @@ namespace MR {
     bool isGreenEventPowerStar(const char*, s32);
     bool isRedEventPowerStar(const char*, s32);
     bool isGrandEventPowerStar(const char*, s32);
-    void appearEventPowerStar(const char*, s32, const TVec3f*, bool, bool);
+    void appearEventPowerStar(const char*, s32, const Vec3f*, bool, bool);
     bool isEndEventPowerStarAppearDemo(const char*);
 };  // namespace MR

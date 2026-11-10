@@ -1,7 +1,7 @@
 #include "Game/System/NebulaFrameClock.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeTarget.hpp>
+#include "Game/Render/FrameList.hpp"
 #include "Game/Screen/GalaxyMapController.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeView.hpp>
+#include "Game/Render/FrameList.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/NPC/TalkDirector.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
@@ -14,22 +14,23 @@
 #include "Game/Util/DrawUtil.hpp"
 #include "Game/Util/PlayerInputUtil.hpp"
 #include "Game/Util/LayoutUtil.hpp"
-#include "Game/Util/MemoryUtil.hpp"
+#include "Game/System/Arenas.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/SequenceUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/SystemUtil.hpp"
 #include "Game/System/NebulaArena.hpp"
-#include <JSystem/JUtility/JUTTexture.hpp>
-#include <nw4r/lyt/drawInfo.h>
+#include "Game/Render/GameTexture.hpp"
+#include <Game/Ui/DrawInfo.hpp>
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const s32 sDisplayKeepFrame = 30;
-    static const s32 sMapFadeinoutFrame = 12;
-    static const s32 sTicoCometFadeinoutFrame = 60;
-    static const s32 sTicoCometWaitFrame = 60;
-    static const s32 sWaitForNewGalaxyDiscoverPhaseAstroMap = 1;
+    NEBULA_TUNABLE(s32, sDisplayKeepFrame, 30);
+    NEBULA_TUNABLE(s32, sMapFadeinoutFrame, 12);
+    NEBULA_TUNABLE(s32, sTicoCometFadeinoutFrame, 60);
+    static const s32 sTicoCometWaitFrame = NebulaFrameClock::stepsOfSeconds(1);
+    NEBULA_TUNABLE(s32, sWaitForNewGalaxyDiscoverPhaseAstroMap, 1);
     // static const s32 sCaptureWidth = _;
     // static const s32 sCaptureHeight = _;
 };  // namespace
@@ -64,18 +65,11 @@ namespace {
 };  // namespace
 
 GalaxyMapController::GalaxyMapController()
-    : LayoutActor("GalaxyMapController", true), mMap(), mMapBackground(), mPowerStarList(), mBackButton(), mWipe(), _38(), mMode(),
+    : LayoutActor("GalaxyMapController", true), mMap(), mMapBackground(), mPowerStarList(), mBackButton(), mWipe(), mCaptureTexture(), mMode(),
       mWipeFrame(::sMapFadeinoutFrame) {
 }
 
-namespace {
-    u16 getFbWidth() {
-        const u16& rWidth = NebulaFrameClock::cScreenUnitsAcross;
-        return rWidth;
-    }
-};  // namespace
-
-void GalaxyMapController::init(const JMapInfoIter& rIter) {
+void GalaxyMapController::init(const TableIter& /*rIter*/) {
     MR::connectToSceneLayoutOnPause(this);
 
     mMap = new GalaxyMap();
@@ -86,7 +80,7 @@ void GalaxyMapController::init(const JMapInfoIter& rIter) {
     mPowerStarList->initWithoutIter();
     mPowerStarList->kill();
 
-    mBackButton = new BackButton("\226\337\202\351" /* 戻る */, 0);
+    mBackButton = new BackButton("戻る", 0);
     mBackButton->initWithoutIter();
     mBackButton->kill();
 
@@ -96,18 +90,16 @@ void GalaxyMapController::init(const JMapInfoIter& rIter) {
 
     mMapBackground = new GalaxyMapBackground();
 
-    mWipe = new WipeFade("\203\164\203\106\201\133\203\150\203\217\203\103\203\166" /* フェードワイプ */, Color8(0, 0, 0, 255));
+    mWipe = new WipeFade("フェードワイプ", Color8(0, 0, 0, 255));
     mWipe->initWithoutIter();
 
     {
-        MR::CurrentHeapRestorer heapRestorer(MR::getSceneHeap());
+        NebulaArena::CurrentScope heapRestorer(Arenas::scene());
 
-        _38 = new JUTTexture(getFbWidth() / 2, MR::getScreenHeight() / 2);
+        mCaptureTexture = GameTexture::createTarget(0.5f, 0.5f);
     }
 
-    if (MR::startFunctionAsyncExecuteOnMainThread(MR::Functor(this, &GalaxyMapController::capture), "GalaxyMapController::capture")) {
-        MR::waitForEndFunctionAsyncExecute("GalaxyMapController::capture");
-    }
+    capture();
 
     initNerve(GET_NERVE_ANON(GalaxyMapControllerDisplayAstroMap));
     kill();
@@ -178,7 +170,7 @@ void GalaxyMapController::drawForCapture() {
     mMap->setModeCapture();
     mMap->movementForCapture();
 
-    nw4r::lyt::DrawInfo drawInfo = nw4r::lyt::DrawInfo();
+    Ui::DrawInfo drawInfo = Ui::DrawInfo();
 
     MR::copyLayoutDrawInfoWithAspect(&drawInfo, mMap, true);
     mMapBackground->calcAnim();
@@ -344,7 +336,7 @@ void GalaxyMapController::exeAppearGalaxyMap() {
 
 void GalaxyMapController::exeDisplayGalaxyMap() {
     if (MR::isFirstStep(this)) {
-        mMap->_71 = true;
+        mMap->mIsFocusEnabled = true;
     }
 
     if (!mMap->isShowDetail() && tryPushBackButton()) {
@@ -368,7 +360,7 @@ void GalaxyMapController::exeAppearAstroMap() {
 
 void GalaxyMapController::exeDisplayAstroMap() {
     if (MR::isFirstStep(this)) {
-        mMap->_71 = true;
+        mMap->mIsFocusEnabled = true;
     }
 
     if (!mMap->isShowDetail() && tryPushBackButton()) {
@@ -382,7 +374,7 @@ void GalaxyMapController::exeReadyPowerStarList() {
     if (MR::isFirstStep(this)) {
         mWipe->forceOpen();
         mWipe->wipe(::sMapFadeinoutFrame);
-        mMap->_71 = false;
+        mMap->mIsFocusEnabled = false;
 
         mMapSelectButton->changeToStarList();
     }
@@ -534,7 +526,7 @@ void GalaxyMapController::killAllLayout() {
 bool GalaxyMapController::tryPushBackButton() {
     bool isTriggerB = MR::testSystemTriggerB();
 
-    if (mBackButton->_24 || isTriggerB) {
+    if (mBackButton->isSelected() || isTriggerB) {
         if (isTriggerB) {
             MR::startSystemSE("SE_SY_GALAXY_DECIDE_CANCEL");
         }
@@ -593,7 +585,7 @@ bool GalaxyMapController::tryAppearGalaxyMap() {
 
 bool GalaxyMapController::tryDisplayAndKeyWait() {
     if (MR::isFirstStep(this)) {
-        mMap->_71 = false;
+        mMap->mIsFocusEnabled = false;
     }
 
 
@@ -628,13 +620,12 @@ void GalaxyMapController::setFaderParam(NebulaColor8 color, int frame) {
 void GalaxyMapController::capture() {
     Mtx44 projectionMtx;
     f32 halfHeight = MR::getScreenHeight() * 0.5f;
-    f32 halfWidth = 304.0f;
-    // A pass keeps the screen's scale and its target is half the screen: this projection puts the whole map in that half.
-    NebulaMtxOrtho(projectionMtx, halfHeight, -3.0f * halfHeight, -halfWidth, 3.0f * halfWidth, -1000.0f, 1000.0f);
-    J3DNativeTarget::begin(_38->mImage, _38->getWidth(), _38->getHeight(), 0);
-    J3DNativeView::setOrthographic(projectionMtx);
+    f32 halfWidth = NebulaFrameClock::cLayoutWidth * 0.5f;
+    NebulaMtxOrtho(projectionMtx, halfHeight, -halfHeight, -halfWidth, halfWidth, -1000.0f, 1000.0f);
+    Frame::targetBegin(mCaptureTexture->image(), mCaptureTexture->shareAcross(), mCaptureTexture->shareDown(), 0);
+    Frame::setOrthographic(projectionMtx);
     drawForCapture();
-    J3DNativeTarget::end(_38->mImage, NEBULA_TARGET_RGB);
+    Frame::targetEnd(mCaptureTexture->image(), NEBULA_TARGET_RGB);
 }
 
 namespace MR {
@@ -678,6 +669,6 @@ namespace MR {
     }
 
     const ResTIMG* getGalaxyMapResTIMG() {
-        return ::getGalaxyMapController()->_38->mTIMG;
+        return ::getGalaxyMapController()->mCaptureTexture->info();
     }
 };  // namespace MR

@@ -1,9 +1,8 @@
 #include "Game/Camera/CameraBlackHole.hpp"
-#include "Game/Camera/CamTranslatorBlackHole.hpp"
+#include "Game/Camera/CameraParamChunk.hpp"
 #include "Game/Camera/CameraLocalUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
-#include <JSystem/JGeometry/TUtil.hpp>
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
 CameraBlackHole::CameraBlackHole(const char* pName) : Camera(pName), mFovy(1.0f), mRoll(), mWPoint(0.0f, 0.0f, 0.0f), mBasePos(0.0f, 0.0f, 0.0f) {
 }
@@ -11,9 +10,8 @@ CameraBlackHole::CameraBlackHole(const char* pName) : Camera(pName), mFovy(1.0f)
 void CameraBlackHole::reset() {
     mFovy = CameraLocalUtil::getFovy(mCameraMan);
     mRoll = CameraLocalUtil::getRoll(mCameraMan);
-    TVec3f camWatchDir = mBasePos - mWPoint;
-    CameraMan* camMan = mCameraMan;
-    TVec3f watchDir = CameraLocalUtil::getPos(camMan) - CameraLocalUtil::getWatchPos(camMan);
+    Vec3f camWatchDir = mBasePos - mWPoint;
+    Vec3f watchDir = CameraLocalUtil::getPos(mCameraMan) - CameraLocalUtil::getWatchPos(mCameraMan);
     if (MR::isNearZero(camWatchDir) || MR::isNearZero(watchDir)) {
         CameraLocalUtil::setWatchPos(this, mWPoint);
         CameraLocalUtil::setPos(this, CameraLocalUtil::getPos(mCameraMan));
@@ -23,11 +21,11 @@ void CameraBlackHole::reset() {
         f32 camWatchDist = camWatchDir.length();
         f32 targetDist = (CameraLocalUtil::getPos(mCameraMan) - mWPoint).length();
         f32 targetLength = camWatchDist + (targetDist - camWatchDist) * 0.7f;
-        TVec3f up = CameraLocalUtil::getUpVec(mCameraMan);
-        TVec3f watchUp = CameraLocalUtil::getWatchUpVec(mCameraMan);
+        Vec3f up = CameraLocalUtil::getUpVec(mCameraMan);
+        Vec3f watchUp = CameraLocalUtil::getWatchUpVec(mCameraMan);
         MR::normalize(&camWatchDir);
         MR::normalize(&watchDir);
-        TQuat4f rot;
+        Quat4f rot;
         rot.setRotate(watchDir, camWatchDir);
         rot.transform(up);
         CameraLocalUtil::setUpVec(this, up);
@@ -46,6 +44,7 @@ CameraTargetObj* CameraBlackHole::calc() {
     return nullptr;
 }
 
-CamTranslatorBase* CameraBlackHole::createTranslator() {
-    return new CamTranslatorBlackHole(this);
+void CameraBlackHole::setParamFromChunk(const CameraParamChunk* pChunk) {
+    CameraGeneralParam* general = pChunk->mGeneralParam;
+    setParam(general->mWPoint, general->mAxis);
 }

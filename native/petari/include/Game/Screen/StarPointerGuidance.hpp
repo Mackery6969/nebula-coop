@@ -2,14 +2,18 @@
 
 #include "Game/Screen/LayoutActor.hpp"
 
+namespace Ui {
+    class Pane;
+}  // namespace Ui
+
 class StarPointerGuidance : public LayoutActor {
 public:
     /// @brief Creates a new `StarPointerGuidance`
     /// @param pName A pointer to the null-terminated name of the object.
     StarPointerGuidance(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void control();
+    virtual void init(const TableIter& rIter) override;
+    virtual void control() override;
 
     void checkRequest2P();
     void checkRequest1P();
@@ -54,4 +58,8 @@ public:
     u32 mTextLineNum1P;
     u32 mTextLineNum2P;
     bool mIsTimeOutEnabled;
+    // The three frames, bound in init: deactive hides them every frame the pointer is off.
+    Ui::Pane* mGuidePane = nullptr;
+    Ui::Pane* mFrame1PPane = nullptr;
+    Ui::Pane* mFrame2PPane = nullptr;
 };

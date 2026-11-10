@@ -1,6 +1,8 @@
 #include "Game/System/NebulaFrameClock.hpp"
+#include <nebula_module.h>
+#include "Game/Util/MotionSignal.hpp"
 #include "Game/Screen/LensFlare.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeView.hpp>
+#include "Game/Render/FrameList.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/BrightObj.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
@@ -12,6 +14,12 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/ScreenUtil.hpp"
 #include "Game/Util/TriggerChecker.hpp"
+#include "Game/Util/Tunable.hpp"
+
+// The numbers this file's functions give the game's motion and animation calls, as tunables: "<file>.<function>.<call>.<k>".
+NEBULA_TUNABLE_NAMED(f32, cNum_LensFlareRing_controlAnim_setBrkRate_1, "LensFlareRing_controlAnim.setBrkRate.1", 0.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_LensFlareGlow_controlAnim_setBrkRate_1, "LensFlareGlow_controlAnim.setBrkRate.1", 0.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_LensFlareLine_controlAnim_setBrkRate_1, "LensFlareLine_controlAnim.setBrkRate.1", 0.0f);
 
 namespace {
     NEW_NERVE(LensFlareModelNrvKill, LensFlareModel, Kill);
@@ -28,7 +36,7 @@ namespace {
 };  // namespace
 
 LensFlareModel::LensFlareModel(const char* pName, const char* pArcName)
-    : LiveActor(pName), _8C(), _90(), _94(), _98(new TriggerChecker()), _9C(new TriggerChecker()) {
+    : LiveActor(pName), mFlareStrength(), mFadeLevel(), mFadeStep(), mAreaChecker(new TriggerChecker()), mVisibleChecker(new TriggerChecker()) {
     initModelManagerWithAnm(pArcName, nullptr, false);
 
     MR::connectToScene3DModelFor2D(this);
@@ -41,21 +49,21 @@ LensFlareModel::LensFlareModel(const char* pName, const char* pArcName)
 }
 
 void LensFlareModel::update(bool param1, bool param2) {
-    _98->update(param1);
+    mAreaChecker->update(param1);
 
-    if (_98->getOnTrigger()) {
+    if (mAreaChecker->getOnTrigger()) {
         notifyInArea();
-    } else if (_98->getOffTrigger()) {
+    } else if (mAreaChecker->getOffTrigger()) {
         setNerve(GET_NERVE_ANON(LensFlareModelNrvFadeOut));
     }
 
-    _9C->update(param2 && param1);
+    mVisibleChecker->update(param2 && param1);
 
-    if (_9C->getOnTrigger()) {
+    if (mVisibleChecker->getOnTrigger()) {
         if (isNerve(GET_NERVE_ANON(LensFlareModelNrvHide))) {
             setNerve(GET_NERVE_ANON(LensFlareModelNrvShow));
         }
-    } else if (_9C->getOffTrigger() && (isNerve(GET_NERVE_ANON(LensFlareModelNrvShow)) || isNerve(GET_NERVE_ANON(LensFlareModelNrvFadeIn)))) {
+    } else if (mVisibleChecker->getOffTrigger() && (isNerve(GET_NERVE_ANON(LensFlareModelNrvShow)) || isNerve(GET_NERVE_ANON(LensFlareModelNrvFadeIn)))) {
         setNerve(GET_NERVE_ANON(LensFlareModelNrvHide));
     }
 }
@@ -70,14 +78,14 @@ void LensFlareModel::exeKill() {
 void LensFlareModel::exeHide() {
     if (MR::isFirstStep(this)) {
         MR::hideModel(this);
-        _90 = 0.0f;
+        mFadeLevel = 0.0f;
     }
 }
 
 void LensFlareModel::exeShow() {
     if (MR::isFirstStep(this)) {
         MR::showModel(this);
-        _90 = 1.0f;
+        mFadeLevel = 1.0f;
     }
 }
 
@@ -86,19 +94,19 @@ void LensFlareModel::exeFadeIn() {
         MR::showModel(this);
     }
 
-    _90 += _94;
+    mFadeLevel += mFadeStep;
 
-    if (_90 >= 1.0f) {
-        _90 = 1.0f;
+    if (mFadeLevel >= 1.0f) {
+        mFadeLevel = 1.0f;
         setNerve(GET_NERVE_ANON(LensFlareModelNrvShow));
     }
 }
 
 void LensFlareModel::exeFadeOut() {
-    _90 -= _94;
+    mFadeLevel -= mFadeStep;
 
-    if (_90 <= 0.0f) {
-        _90 = 0.0f;
+    if (mFadeLevel <= 0.0f) {
+        mFadeLevel = 0.0f;
         setNerve(GET_NERVE_ANON(LensFlareModelNrvKill));
     }
 }
@@ -117,18 +125,18 @@ void LensFlareModel::notifyInArea() {
         appear();
     }
 
-    if (_9C->getLevel() > 0.0f) {
+    if (mVisibleChecker->getLevel() > 0.0f) {
         setNerve(GET_NERVE_ANON(LensFlareModelNrvFadeIn));
     } else {
         setNerve(GET_NERVE_ANON(LensFlareModelNrvHide));
     }
 }
 
-LensFlareRing::LensFlareRing() : LensFlareModel("\203\214\203\223\203\131\203\164\203\214\203\101\203\212\203\223\203\117" /* レンズフレアリング */, "LensFlare"), _A0() {
+LensFlareRing::LensFlareRing() : LensFlareModel("レンズフレアリング", "LensFlare"), mRingFrame() {
     mScale.x = 0.135f;
     mScale.y = 0.135f;
     mScale.z = 0.135f;
-    _94 = 0.05f;
+    mFadeStep = 0.05f;
 }
 
 void LensFlareRing::appearAnim() {
@@ -137,19 +145,19 @@ void LensFlareRing::appearAnim() {
 
 void LensFlareRing::controlAnim() {
     MR::startBrk(this, "LensFlare");
-    MR::setBrkRate(this, 0.0f);
-    MR::setBrkFrame(this, (1.0f - _8C * _90) * MR::getBrkCtrl(this)->getEnd());
+    MR::setBrkRate(this, cNum_LensFlareRing_controlAnim_setBrkRate_1);
+    MR::setBrkFrame(this, (1.0f - mFlareStrength * mFadeLevel) * MR::getBrkCtrl(this)->getEnd());
 
     if (MR::isBckStopped(this)) {
         MR::startBckWithInterpole(this, "LensFlare", 0);
     }
 
-    f32 frame = _A0 * MR::getBckCtrl(this)->getEnd();
+    f32 frame = mRingFrame * MR::getBckCtrl(this)->getEnd();
     MR::setBckFrameAndStop(this, frame);
 }
 
-LensFlareGlow::LensFlareGlow() : LensFlareModel("\203\117\203\214\203\101\201\151\211\176\214\140\201\152" /* グレア（円形） */, "GlareGlow") {
-    _94 = 0.05f;
+LensFlareGlow::LensFlareGlow() : LensFlareModel("グレア（円形）", "GlareGlow") {
+    mFadeStep = 0.05f;
 }
 
 void LensFlareGlow::appearAnim() {
@@ -158,12 +166,12 @@ void LensFlareGlow::appearAnim() {
 
 void LensFlareGlow::controlAnim() {
     MR::startBrk(this, "GlareGlow");
-    MR::setBrkRate(this, 0.0f);
-    MR::setBrkFrame(this, (1.0f - _8C * _90) * MR::getBrkCtrl(this)->getEnd());
+    MR::setBrkRate(this, cNum_LensFlareGlow_controlAnim_setBrkRate_1);
+    MR::setBrkFrame(this, (1.0f - mFlareStrength * mFadeLevel) * MR::getBrkCtrl(this)->getEnd());
 }
 
-LensFlareLine::LensFlareLine() : LensFlareModel("\203\117\203\214\203\101\201\151\203\211\203\103\203\223\201\152" /* グレア（ライン） */, "GlareLine") {
-    _94 = 0.05f;
+LensFlareLine::LensFlareLine() : LensFlareModel("グレア（ライン）", "GlareLine") {
+    mFadeStep = 0.05f;
 }
 
 void LensFlareLine::appearAnim() {
@@ -171,18 +179,18 @@ void LensFlareLine::appearAnim() {
 
 void LensFlareLine::controlAnim() {
     MR::startBrk(this, "GlareLine");
-    MR::setBrkRate(this, 0.0f);
-    MR::setBrkFrame(this, (1.0f - _8C * _90) * MR::getBrkCtrl(this)->getEnd());
+    MR::setBrkRate(this, cNum_LensFlareLine_controlAnim_setBrkRate_1);
+    MR::setBrkFrame(this, (1.0f - mFlareStrength * mFadeLevel) * MR::getBrkCtrl(this)->getEnd());
 }
 
 LensFlareDirector::LensFlareDirector()
-    : NameObj("\203\214\203\223\203\131\203\164\203\214\203\101\212\307\227\235" /* レンズフレア管理 */), mRing(), mGlow(), mLine(), mBrightObjCount(), _60(0.0f, 0.0f), _68(), _6C(0.0f, 0.0f), _74(0.0f, 0.0f), _7C() {
+    : NameObj("レンズフレア管理"), mRing(), mGlow(), mLine(), mBrightObjCount(), mAsker(Frame::newProbeAsker()), mBrightCenter(0.0f, 0.0f), mBrightLevel(), mObjCenter(0.0f, 0.0f), mNowCenter(0.0f, 0.0f) {
 }
 
 LensFlareDirector::~LensFlareDirector() {
 }
 
-void LensFlareDirector::init(const JMapInfoIter& rIter) {
+void LensFlareDirector::init(const TableIter& /*rIter*/) {
     mRing = new LensFlareRing();
     mGlow = new LensFlareGlow();
     mLine = new LensFlareLine();
@@ -191,6 +199,8 @@ void LensFlareDirector::init(const JMapInfoIter& rIter) {
 }
 
 void LensFlareDirector::movement() {
+    // The newest answers go to the objects right before the flare reads them: answered in the draw, they waited a frame.
+    readAnswers();
     s32 area = checkArea();
     controlFlare(area, checkBrightObj(area != 0));
 
@@ -203,27 +213,39 @@ void LensFlareDirector::pauseOff() {
     MR::requestMovementOn(mLine);
 }
 
-void LensFlareDirector::setDrawSyncToken() {
-    // What the last finished probes saw; then this picture's points.
+void LensFlareDirector::reserveProbes() {
     const u32 count = mBrightObjCount * BrightObjBase::cProbeCount;
     if (count > mProbeCapacity) {
         delete[] mProbes;
         mProbes = new NebulaScreenProbe[count];
         mProbeCapacity = count;
     }
+}
+
+// What the last finished probes saw, for each object.
+void LensFlareDirector::readAnswers() {
+    reserveProbes();
+    const u32 count = mBrightObjCount * BrightObjBase::cProbeCount;
     NebulaScreenProbe* const probes = mProbes;
-    const u32 done = J3DNativeView::screenProbeResults(BrightObjBase::cReadbackChannel, probes, count);
+    const u32 done = Frame::screenProbeResults(BrightObjBase::cReadbackChannel, mAsker, probes, count);
     for (u32 i = 0; i < mBrightObjCount && (i + 1) * BrightObjBase::cProbeCount <= done; i++) {
         const NebulaScreenProbe* pProbes = &probes[i * BrightObjBase::cProbeCount];
         if (pProbes->x != BrightObjBase::cNoProbes) {
             mBrightObjArray[i]->setResult(pProbes);
         }
     }
+}
 
+// This picture's points, asked with the camera it is drawn with.
+void LensFlareDirector::setDrawSyncToken() {
+    reserveProbes();
+    const u32 count = mBrightObjCount * BrightObjBase::cProbeCount;
+    NebulaScreenProbe* const probes = mProbes;
     for (u32 i = 0; i < mBrightObjCount; i++) {
         mBrightObjArray[i]->calcBrightInfo(&probes[i * BrightObjBase::cProbeCount]);
     }
-    J3DNativeView::probeScreen(BrightObjBase::cReadbackChannel, NEBULA_SCREEN_PROBE_ALPHA, probes, count);
+    // BrightObjBase::setResult only asks whether each point's depth is at or behind the point.
+    Frame::probeScreen(BrightObjBase::cReadbackChannel, mAsker, probes, count, true);
 }
 
 s32 LensFlareDirector::checkArea() {
@@ -256,14 +278,10 @@ bool LensFlareDirector::checkBrightObj(bool b1) {
         if (index >= 0) {
             ret = true;
 
-            _60.set(*mBrightObjArray[index]->getBrightCenter());
-            _68 = mBrightObjArray[index]->getBright();
-            _6C.set(*mBrightObjArray[index]->getCenter());
-            mBrightObjArray[index]->getNowCenter(&_74);
-        }
-
-        for (u32 i = 0; i < mBrightObjCount; i++) {
-            mBrightObjArray[i]->endRead();
+            mBrightCenter.set(*mBrightObjArray[index]->getBrightCenter());
+            mBrightLevel = mBrightObjArray[index]->getBright();
+            mObjCenter.set(*mBrightObjArray[index]->getCenter());
+            mBrightObjArray[index]->getNowCenter(&mNowCenter);
         }
     }
 
@@ -279,21 +297,21 @@ void LensFlareDirector::controlFlare(s32 area, bool hasBrightObj) {
         return;
     }
 
-    TVec2f position(_60 - _6C);
-    position += _74;
-    TVec3f flarePos(position.x, -position.y, 0.0f);
+    Vec2f position(mBrightCenter - mObjCenter);
+    position += mNowCenter;
+    Vec3f flarePos(position.x, -position.y, 0.0f);
     mRing->mPosition.set(flarePos);
     mGlow->mPosition.set(flarePos);
     mLine->mPosition.set(flarePos);
 
-    TVec2f screenCenter(MR::getScreenWidth() / 2.0f, static_cast< s32 >(NebulaFrameClock::cScreenUnitsDown) / 2.0f);
+    Vec2f screenCenter(MR::getScreenWidth() / 2.0f, static_cast< s32 >(NebulaFrameClock::cScreenLines) / 2.0f);
 
     f32 screenRadius = screenCenter.length();
-    TVec2f offset(screenCenter - position);
+    Vec2f offset(screenCenter - position);
     f32 distanceRate = offset.length() / screenRadius;
 
-    TVec3f rotation(0.0f, 0.0f, 0.0f);
-    TVec2f direction(offset.x, offset.y);
+    Vec3f rotation(0.0f, 0.0f, 0.0f);
+    Vec2f direction(offset.x, offset.y);
 
     if (MR::isNearZero(direction)) {
         rotation.z = 0.0f;
@@ -308,10 +326,10 @@ void LensFlareDirector::controlFlare(s32 area, bool hasBrightObj) {
         ringFrame = 1.0f;
     }
 
-    mRing->_A0 = ringFrame;
-    mRing->_8C = MR::clamp((1.0f - distanceRate) * _68, 0.0f, 1.0f);
-    mGlow->_8C = MR::clamp((1.0f - distanceRate) * _68, 0.0f, 1.0f);
-    mLine->_8C = MR::clamp((1.0f - distanceRate) * _68, 0.0f, 1.0f);
+    mRing->mRingFrame = ringFrame;
+    mRing->mFlareStrength = MR::clamp((1.0f - distanceRate) * mBrightLevel, 0.0f, 1.0f);
+    mGlow->mFlareStrength = MR::clamp((1.0f - distanceRate) * mBrightLevel, 0.0f, 1.0f);
+    mLine->mFlareStrength = MR::clamp((1.0f - distanceRate) * mBrightLevel, 0.0f, 1.0f);
 }
 
 namespace MR {

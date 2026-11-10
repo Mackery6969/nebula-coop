@@ -9,7 +9,7 @@ namespace NrvPeach {
 Peach::Peach(const char* pName) : NPCActor(pName) {
 }
 
-void Peach::init(const JMapInfoIter& rIter) {
+void Peach::init(const TableIter& rIter) {
     NPCActorCaps caps("Peach");
     caps.setDefault();
     caps.mWaitNerve = GET_NERVE(Peach, PeachNrvWait);
@@ -24,7 +24,4 @@ void Peach::exeWait() {
     if (mMsgCtrl != nullptr) {
         MR::tryTalkNearPlayer(mMsgCtrl);
     }
-}
-
-Peach::~Peach() {
 }

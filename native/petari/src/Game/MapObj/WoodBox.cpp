@@ -7,7 +7,7 @@
 #include "Game/Util.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
@@ -21,70 +21,55 @@ namespace NrvWoodBox {
 WoodBox::WoodBox(const char* pName) : LiveActor(pName) {
 }
 
-WoodBox::~WoodBox() {
-}
-
-void WoodBox::init(const JMapInfoIter& rIter) {
+void WoodBox::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("WoodBox", nullptr, false);
     MR::connectToSceneMapObjStrongLight(this);
     MR::initLightCtrl(this);
     initSound(6, false);
     initNerve(GET_NERVE(WoodBox, WoodBoxNrvWait));
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
 
     f32 radius = 120.0f * mScale.x;
     initHitSensor(1);
-    TVec3f sensorOffset(0.0f, radius, 0.0f);
+    Vec3f sensorOffset(0.0f, radius, 0.0f);
     MR::addHitSensor(this, "body", ATYPE_PUNCH_BOX, 8, radius, sensorOffset);
 
-    s32 arg0_Coins = 1;
-    s32 arg1_Respawn = -1;
-    s32 arg2_StarBits = 0;
-    s32 arg3 = 0;
-    s32 arg4_1Up = 0;
-    s32 arg7_PowerStar = 0;
+    s32 coinCount = 1;
+    s32 respawn = -1;
+    s32 starPieceCount = 0;
+    s32 playSolveSE = 0;
+    s32 hasOneUp = 0;
+    s32 hasPowerStar = 0;
 
     if (rIter.isValid()) {
-        MR::getJMapInfoArg0NoInit(rIter, &arg0_Coins);
-        MR::getJMapInfoArg1NoInit(rIter, &arg1_Respawn);
-        MR::getJMapInfoArg2NoInit(rIter, &arg2_StarBits);
-        MR::getJMapInfoArg3NoInit(rIter, &arg3);
-        MR::getJMapInfoArg4NoInit(rIter, &arg4_1Up);
-        MR::getJMapInfoArg7NoInit(rIter, &arg7_PowerStar);
+        MR::getPlacementArg0NoInit(rIter, &coinCount);
+        MR::getPlacementArg1NoInit(rIter, &respawn);
+        MR::getPlacementArg2NoInit(rIter, &starPieceCount);
+        MR::getPlacementArg3NoInit(rIter, &playSolveSE);
+        MR::getPlacementArg4NoInit(rIter, &hasOneUp);
+        MR::getPlacementArg7NoInit(rIter, &hasPowerStar);
     }
 
     calcAndSetBaseMtx();
     NebulaMtxCopy(getBaseMtx(), mBaseMtx);
-    ;
-    MR::addTransMtx(mBaseMtx, TVec3f(0.0f, 100.0f, 0.0f));
+    MR::addTransMtx(mBaseMtx, Vec3f(0.0f, 100.0f, 0.0f));
 
-    mHasPowerStar = false;
+    mHasPowerStar = hasPowerStar != 0;
 
-    if (arg7_PowerStar != 0) {
-        mHasPowerStar = true;
+    if (mHasPowerStar) {
         MR::declarePowerStar(this);
-        mStarDemoModel = MR::createPowerStarDemoModel(this, "\203\160\203\217\201\133\203\130\203\136\201\133\203\146\203\202\203\202\203\146\203\213" /* パワースターデモモデル */, mBaseMtx);
+        mStarDemoModel = MR::createPowerStarDemoModel(this, "パワースターデモモデル", mBaseMtx);
         mStarDemoModel->makeActorDead();
     }
 
-    mCoinCount = arg0_Coins;
-    mStarBitCount = arg2_StarBits;
-    s32 arg4 = arg4_1Up;
+    mCoinCount = coinCount;
+    mStarBitCount = starPieceCount;
     mHitPoint = 1;
-    mIsNoRespawn = true;
+    mIsNoRespawn = respawn != 0;
+    mPlaySolveSE = playSolveSE == 1;
 
-    if (arg1_Respawn == 0) {
-        mIsNoRespawn = false;
-    }
-
-    mPlaySolveSE = false;
-
-    if (arg3 == 1) {
-        mPlaySolveSE = true;
-    }
-
-    mBreakModel = new ModelObj("\211\363\202\352\203\202\203\146\203\213" /* 壊れモデル */, "WoodBoxBreak", getBaseMtx(), MR::DrawBufferType_NoSilhouettedMapObjStrongLight, -2, -2, false);
+    mBreakModel = new ModelObj("壊れモデル", "WoodBoxBreak", getBaseMtx(), MR::DrawBufferType_NoSilhouettedMapObjStrongLight, -2, -2, false);
     mBreakModel->mScale = mScale;
     MR::initLightCtrl(mBreakModel);
     mBreakModel->kill();
@@ -106,9 +91,9 @@ void WoodBox::init(const JMapInfoIter& rIter) {
         MR::declareStarPiece(this, mStarBitCount);
     }
 
-    if (arg4 != 0) {
+    if (hasOneUp != 0) {
         mOneUp = MR::createKinokoOneUp();
-        mOneUp->_DD = 1;
+        mOneUp->mIsThrownHigh = 1;
     } else {
         mOneUp = nullptr;
     }
@@ -198,7 +183,7 @@ bool WoodBox::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver)
     return false;
 }
 
-bool WoodBox::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool WoodBox::receiveMsgEnemyAttack(u32 /*msg*/, HitSensor* pSender, HitSensor* pReceiver) {
     if (mHitPoint != 0) {
         doHit(pSender, pReceiver);
         return true;
@@ -246,7 +231,7 @@ void WoodBox::exeHit() {
         }
 
         if (mOneUp != nullptr) {
-            TVec3f upVec;
+            Vec3f upVec;
             MR::calcUpVec(&upVec, this);
             Mtx spawnMtx;
             NebulaMtxCopy(getBaseMtx(), spawnMtx);
@@ -272,7 +257,7 @@ void WoodBox::exeHit() {
 void WoodBox::exeKilled() {
 }
 
-void WoodBox::doHit(HitSensor* pSender, HitSensor* pReceiver) {
+void WoodBox::doHit(HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (mHitPoint != 0) {
         if (mHitPoint != 0) {
             mHitPoint--;
@@ -282,20 +267,20 @@ void WoodBox::doHit(HitSensor* pSender, HitSensor* pReceiver) {
             MR::invalidateCollisionParts(this);
         }
 
-        if (MR::isInWater(this, TVec3f(0.0f, 0.0f, 0.0f))) {
+        if (MR::isInWater(this, Vec3f(0.0f, 0.0f, 0.0f))) {
             MR::startSound(this, "SE_OJ_WOOD_BOX_BREAK_W");
         } else {
             MR::startSound(this, "SE_OJ_WOOD_BOX_BREAK");
         }
 
-        if (!MR::isInWater(this, TVec3f(0.0f, 0.0f, 0.0f))) {
+        if (!MR::isInWater(this, Vec3f(0.0f, 0.0f, 0.0f))) {
             MR::startSound(this, "SE_EM_EXPLODE_S");
         }
 
         mBreakModel->appear();
         MR::startBck(mBreakModel, "Break");
 
-        if (MR::isInWater(this, TVec3f(0.0f, 0.0f, 0.0f))) {
+        if (MR::isInWater(this, Vec3f(0.0f, 0.0f, 0.0f))) {
             MR::emitEffect(mBreakModel, "BreakWater");
         } else {
             MR::emitEffect(mBreakModel, "Break");

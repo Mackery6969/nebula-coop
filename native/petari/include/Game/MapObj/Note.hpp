@@ -9,9 +9,9 @@ class NoteFairy;
 /// @brief Class that represents a single note in a NoteFairy actor.
 class Note : public LiveActor {
 public:
-    Note(const char*, const TVec3f&, NoteFairy*);
+    Note(const char*, const Vec3f&, NoteFairy*);
 
-    virtual void init(const JMapInfoIter&);
+    virtual void init(const TableIter&);
     virtual void control();
     virtual void calcAndSetBaseMtx();
 
@@ -31,21 +31,19 @@ public:
     void exeFlyUp();
 
     NoteFairy* mParentFairy;  ///< The parent NoteFairy that this note was spawned from.
-    TVec3f _90;
-    TVec3f mRailDirection;
+    Vec3f mRailDirection;
     int mCounter;  ///< The amount of steps it takes for the note to disappear.
-    f32 _AC;
+    f32 mBrkFrame;
     bool mIsCountdown;
     FlashingCtrl* mFlashCtrl;  // A pointer to the FlashingCtrl instance that handles the "fading away" effects.
-    u32 _B8;
 };
 
 class NoteGroup : public LiveActorGroup {
 public:
     NoteGroup();
 
-    virtual void init(const JMapInfoIter&);
-    virtual void movement();
+    virtual void init(const TableIter&) override;
+    virtual void movement() override;
 
     f32 mRotation;
 };

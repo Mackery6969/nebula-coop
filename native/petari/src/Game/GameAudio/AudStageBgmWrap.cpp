@@ -3,7 +3,7 @@
 #include "Game/AudioLib/AudSoundId.hpp"
 #include "Game/Util/EventUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
-#include <JSystem/JAudio2/JAISound.hpp>
+#include "Game/Sound/Sound.hpp"
 
 struct StageBgmData {
     const char* mSceneName;
@@ -107,25 +107,25 @@ const u32 sMASenarioBgmData[][6] = {
     },
 };
 
-inline JAISoundID getScenarioBgmData(int index, int scenarioNo) {
+inline SoundID getScenarioBgmData(int index, int scenarioNo) {
     return sMASenarioBgmData[index][scenarioNo];
 }
 
-JAISoundID AudStageBgmWrap::changeStageNameToSoundID(const char* pSceneName, const char* pStageName, s32 scenarioNo) {
+SoundID AudStageBgmWrap::changeStageNameToSoundID(const char* pSceneName, const char* pStageName, s32 scenarioNo) {
     const u32 modTrack = NebulaMods::stageTrack(pStageName, scenarioNo);
     if (modTrack != static_cast< u32 >(-1)) {
         return modTrack;
     }
 
-    JAISoundID soundID = -1;
-    JAISoundID koopaAppearBgm = getKoopaFortressAppearBgm(pStageName);
+    SoundID soundID = -1;
+    SoundID koopaAppearBgm = getKoopaFortressAppearBgm(pStageName);
     if (koopaAppearBgm != -1) {
-        return (u32)koopaAppearBgm;  // TODO: ?
+        return koopaAppearBgm;
     }
 
-    JAISoundID cometEventBgm = getCometEventBgm(pStageName);
+    SoundID cometEventBgm = getCometEventBgm(pStageName);
     if (cometEventBgm != -1) {
-        return (u32)cometEventBgm;  // TODO: ?
+        return cometEventBgm;
     }
 
     if (MR::isEqualString(pStageName, "AstroGalaxy") && scenarioNo == 1 && !MR::isOnGameEventFlagAstroGalaxyBgmBright()) {
@@ -134,7 +134,7 @@ JAISoundID AudStageBgmWrap::changeStageNameToSoundID(const char* pSceneName, con
 
     u32 idx = 0;
     while (sMAStageBgmData[idx].mStageName != nullptr) {
-        if (MR::strcasecmp(sMAStageBgmData[idx].mSceneName, pSceneName) == 0 && MR::strcasecmp(sMAStageBgmData[idx].mStageName, pStageName) == 0) {
+        if (MR::isEqualStringCase(sMAStageBgmData[idx].mSceneName, pSceneName) && MR::isEqualStringCase(sMAStageBgmData[idx].mStageName, pStageName)) {
             if (sMAStageBgmData[idx].mScenarioGroup >= 0) {
                 soundID = getScenarioBgmData(sMAStageBgmData[idx].mScenarioGroup, scenarioNo - 1);
             } else {
@@ -147,7 +147,7 @@ JAISoundID AudStageBgmWrap::changeStageNameToSoundID(const char* pSceneName, con
     return soundID;
 }
 
-JAISoundID AudStageBgmWrap::getCometEventBgm(const char* pStageName) {
+SoundID AudStageBgmWrap::getCometEventBgm(const char* /*pStageName*/) {
     if (MR::isGalaxyRedCometAppearInCurrentStage() || MR::isGalaxyDarkCometAppearInCurrentStage()) {
         return MBGM_GALAXY_02_HURRY;
     }
@@ -163,7 +163,7 @@ JAISoundID AudStageBgmWrap::getCometEventBgm(const char* pStageName) {
     return -1;
 }
 
-JAISoundID AudStageBgmWrap::getKoopaFortressAppearBgm(const char* pStageName) {
+SoundID AudStageBgmWrap::getKoopaFortressAppearBgm(const char* pStageName) {
     if (MR::isEqualString(pStageName, "AstroDome") && MR::isKoopaFortressAppearInGalaxy()) {
         return MBGM_ASTRO_DOME_2;
     }

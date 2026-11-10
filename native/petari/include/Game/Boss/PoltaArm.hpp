@@ -1,17 +1,16 @@
 #pragma once
 
 #include "Game/LiveActor/ModelObj.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 
 class PoltaArm : public ModelObj {
 public:
     PoltaArm(const char* pName, const char* pModelName, MtxPtr pMtx);
 
-    virtual ~PoltaArm();
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void appear();
-    virtual void makeActorDead();
-    virtual void control();
+    virtual void init(const TableIter& rIter) override;
+    virtual void appear() override;
+    virtual void makeActorDead() override;
+    virtual void control() override;
 
     void initPartsModel();
     void exeDamage();
@@ -35,10 +34,9 @@ public:
 
     ModelObj* mFormationModel;
     ModelObj* mBreakModel;
-    TPos3f _98;
-    s32 _C8;
-    s32 _CC;
+    Pos3f mBreakModelMtx;
+    s32 mHitPoint;
+    s32 mHitPointMax;
     s32 mBrokenCounter;
-    s32 _D4;
     bool mIsLeftArm;
 };

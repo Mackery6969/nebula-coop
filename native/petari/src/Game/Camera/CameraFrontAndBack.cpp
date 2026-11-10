@@ -1,80 +1,78 @@
 #include "Game/Camera/CameraFrontAndBack.hpp"
-#include "Game/Camera/CamTranslatorFrontAndBack.hpp"
 #include "Game/Camera/CameraLocalUtil.hpp"
+#include "Game/Camera/CameraParamChunk.hpp"
 #include "Game/Camera/CameraTargetObj.hpp"
 #include "Game/Util/CameraUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const s32 sInterpolation = 120;
-    static const f32 sWarpDistance = 500.0f;
+    NEBULA_TUNABLE(s32, sInterpolation, 120);
+    NEBULA_TUNABLE(f32, sWarpDistance, 500.0f);
 };  // namespace
-
-CameraFrontAndBack::~CameraFrontAndBack() {
-}
 
 CameraFrontAndBack::CameraFrontAndBack(const char* pName)
     : Camera(pName), mWPoint(0.0f, 0.0f, 0.0f), mAxis(0.0f, 1.0f, 0.0f), mRotateRate(), mMaxDipAngle(), mDist(1200.0f) {
 }
 
-void CameraFrontAndBack::reset() {
-}
-
 CameraTargetObj* CameraFrontAndBack::calc() {
-    TVec3f pos = CameraLocalUtil::getPos(this);
-    TVec3f axis = mAxis;
+    CameraTargetObj* target = CameraLocalUtil::getTarget(this);
+
+    Vec3f pos = CameraLocalUtil::getPos(this);
+    Vec3f axis = mAxis;
     mZoneMatrix.mult33(axis);
-    TVec3f wPoint = mWPoint;
+    Vec3f wPoint = mWPoint;
     mZoneMatrix.mult(wPoint, wPoint);
 
-    TVec3f posDir = CameraLocalUtil::getTarget(this)->getPosition() - wPoint;
+    Vec3f posDir = target->getPosition() - wPoint;
     posDir.orthogonalize(axis);
     if (MR::isNearZero(posDir)) {
         return nullptr;
     }
 
-    TVec3f watchPoint;
-    CameraLocalUtil::makeWatchPoint(&watchPoint, this, CameraLocalUtil::getTarget(this), 0.1f / 15.0f);
-    TVec3f front, up;
+    Vec3f watchPoint;
+    CameraLocalUtil::makeWatchPoint(&watchPoint, this, target, 0.1f / 15.0f);
+    Vec3f front, up;
     mZoneMatrix.getZDir(front);
     mZoneMatrix.getYDir(up);
 
-    TQuat4f baseQuat;
+    Quat4f baseQuat;
     calcBaseQuat(&baseQuat, axis);
     baseQuat.transform(front);
     baseQuat.transform(up);
 
-    TQuat4f dipQuat;
+    Quat4f dipQuat;
     calcDipQuat(&dipQuat, front, posDir);
     dipQuat.transform(front);
     dipQuat.transform(up);
 
     CameraLocalUtil::setWatchPos(this, watchPoint);
-    CameraLocalUtil::setPos(this, CameraLocalUtil::getTarget(this)->getPosition() + front * mDist);
+    CameraLocalUtil::setPos(this, target->getPosition() + front * mDist);
     CameraLocalUtil::setUpVecAndWatchUpVec(this, up);
     if (pos.distance(CameraLocalUtil::getPos(this)) > ::sWarpDistance) {
         MR::startCameraInterpolation(::sInterpolation);
     }
 
-    return CameraLocalUtil::getTarget(this);
+    return target;
 }
 
-CamTranslatorBase* CameraFrontAndBack::createTranslator() {
-    return new CamTranslatorFrontAndBack(this);
+void CameraFrontAndBack::setParamFromChunk(const CameraParamChunk* pChunk) {
+    CameraGeneralParam* general = pChunk->mGeneralParam;
+    setParam(general->mWPoint, CameraLocalUtil::getNormalizedOr(general->mAxis, Vec3f(1.0f, 0.0f, 0.0f)), MR::pi() * general->mAngleA / 180.0f, MR::pi() * general->mAngleB / 180.0f, general->mDist);
 }
 
-void CameraFrontAndBack::calcBaseQuat(TQuat4f* pQuat, const TVec3f& rAxis) {
-    TVec3f side;
+void CameraFrontAndBack::calcBaseQuat(Quat4f* pQuat, const Vec3f& rAxis) {
+    Vec3f side;
     mZoneMatrix.getXDir(side);
-    TQuat4f q1;
+    Quat4f q1;
     q1.setRotate(side, rAxis);
-    TQuat4f q2;
+    Quat4f q2;
     q2.setRotate(rAxis, mRotateRate);
     pQuat->mult(q2, q1);
 }
 
-void CameraFrontAndBack::calcDipQuat(TQuat4f* pDipQuat, const TVec3f& rFront, const TVec3f& rDir) {
-    TVec3f side = rDir;
+void CameraFrontAndBack::calcDipQuat(Quat4f* pDipQuat, const Vec3f& rFront, const Vec3f& rDir) {
+    Vec3f side = rDir;
     MR::normalize(&side);
     f32 angle = side.angle(rFront);
     f32 rate = 1.0f;

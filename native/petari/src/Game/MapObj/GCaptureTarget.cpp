@@ -1,4 +1,5 @@
 #include "Game/MapObj/GCaptureTarget.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/LiveActor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/GCapture.hpp"
@@ -10,13 +11,17 @@
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/DemoUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapInfo.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/Table.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
+#include "Game/Util/Tunable.hpp"
+
+// The step counts of this file's functions, as tunables: "<file>.<function>.<k>".
+NEBULA_TUNABLE_NAMED(s32, cStep_exeHitPointer_1, "exeHitPointer.1", 3);
 
 namespace NrvGCaptureTarget {
     NEW_NERVE(GCaptureTargetNrvTryDemoAppear, GCaptureTarget, TryDemoAppear);
@@ -32,13 +37,13 @@ GCaptureTarget::GCaptureTarget(const char* pName)
     MR::createGCapture();
 }
 
-void GCaptureTarget::init(const JMapInfoIter& rIter) {
+void GCaptureTarget::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("GCaptureTarget", nullptr, false);
     MR::connectToSceneNoSilhouettedMapObjStrongLight(this);
-    MR::getJMapInfoArg0WithInit(rIter, &mReleaseDistance);
-    MR::getJMapInfoArg1NoInit(rIter, &mPointableRange);
-    initEffectKeeper(0, nullptr, false);
+    MR::getPlacementArg0WithInit(rIter, &mReleaseDistance);
+    MR::getPlacementArg1NoInit(rIter, &mPointableRange);
+    initEffectKeeper(0, nullptr);
     initSound(4, false);
     initNerve(GET_NERVE(GCaptureTarget, GCaptureTargetNrvWait));
     MR::initShadowVolumeSphere(this, 50.0f);
@@ -48,19 +53,19 @@ void GCaptureTarget::init(const JMapInfoIter& rIter) {
 
     if (MR::isConnectedWithRail(rIter)) {
         initHitSensor(1);
-        MR::addHitSensorMapObj(this, "body", 8, 0.0f, TVec3f(0.0f, 0.0f, 0.0f));
+        MR::addHitSensorMapObj(this, "body", 8, 0.0f, Vec3f(0.0f, 0.0f, 0.0f));
         MR::invalidateHitSensor(this, "body");
         initRailRider(rIter);
         mRailMover = new MapPartsRailMover(this);
         mRailMover->init(rIter);
     }
 
-    MR::initStarPointerTarget(this, 200.0f, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::initStarPointerTarget(this, 200.0f, Vec3f(0.0f, 0.0f, 0.0f));
 
     if (MR::tryRegisterDemoCast(this, rIter)) {
         makeActorDead();
     } else if (MR::useStageSwitchReadAppear(this, rIter)) {
-        MR::joinToGroupArray(this, rIter, "\203\165\203\213\201\133\203\130\203\136\201\133\217\157\214\273\203\117\203\213\201\133\203\166" /* ブルースター出現グループ */, 32);
+        MR::joinToGroupArray(this, rIter, "ブルースター出現グループ", 32);
         MR::syncStageSwitchAppear(this);
         MR::initActorCamera(this, rIter, &mCameraInfo);
         makeActorDead();
@@ -73,7 +78,7 @@ void GCaptureTarget::init(const JMapInfoIter& rIter) {
     }
 
     s32 arg;
-    MR::getJMapInfoArg2WithInit(rIter, &arg);
+    MR::getPlacementArg2WithInit(rIter, &arg);
     mFarAwayColor = arg != 0;
     MR::startBck(this, "Wait");
     MR::startBrk(this, "Switch");
@@ -92,7 +97,7 @@ void GCaptureTarget::appear() {
     setNerve(GET_NERVE(GCaptureTarget, GCaptureTargetNrvAppear));
 
     if (MR::isExistActorCamera(mCameraInfo)) {
-        MR::requestStartDemo(this, "\217\157\214\273" /* 出現 */, GET_NERVE(GCaptureTarget, GCaptureTargetNrvAppear),
+        MR::requestStartDemo(this, "出現", GET_NERVE(GCaptureTarget, GCaptureTargetNrvAppear),
                              GET_NERVE(GCaptureTarget, GCaptureTargetNrvTryDemoAppear));
     }
 }
@@ -130,7 +135,7 @@ void GCaptureTarget::endClipped() {
 void GCaptureTarget::control() {
     if (mRailMover != nullptr) {
         mRailMover->movement();
-        mPosition.set(mRailMover->_28);
+        mPosition.set(mRailMover->mStartPos);
     }
 }
 
@@ -146,7 +151,7 @@ void GCaptureTarget::exeAppear() {
         MR::setBrkFrameAndStop(this, 1.0f);
     }
 
-    if (MR::isStep(this, 30)) {
+    if (MR::isStep(this, NebulaFrameClock::stepsOfMilliseconds(500))) {
         emitNerveEffect();
         MR::showModel(this);
         MR::startBck(this, "Appear");
@@ -157,9 +162,9 @@ void GCaptureTarget::exeAppear() {
         MR::startBck(this, "Wait");
     }
 
-    if (MR::isGreaterStep(this, 150)) {
+    if (MR::isGreaterStep(this, NebulaFrameClock::stepsOfMilliseconds(2500))) {
         if (MR::isExistActorCamera(mCameraInfo)) {
-            MR::endDemoWaitCameraInterpolating(this, "\217\157\214\273" /* 出現 */);
+            MR::endDemoWaitCameraInterpolating(this, "出現");
             MR::endActorCamera(this, mCameraInfo, false);
         }
         setNerve(GET_NERVE(GCaptureTarget, GCaptureTargetNrvWait));
@@ -209,7 +214,7 @@ void GCaptureTarget::exePointable() {
     MR::setBckRate(this, mStarAnimSpeed);
 
     MR::reportStarPointerGrabTarget(this);
-    if (MR::isStarPointerPointing(this, 0, true, "\216\343" /* 弱 */) && MR::requestGCaptureTarget(this)) {
+    if (MR::isStarPointerPointing(this, 0, true, "弱") && MR::requestGCaptureTarget(this)) {
         MR::invalidateClipping(this);
         setNerve(GET_NERVE(GCaptureTarget, GCaptureTargetNrvHitPointer));
     } else if (!MR::isNearPlayer(this, mPointableRange)) {
@@ -231,7 +236,7 @@ void GCaptureTarget::exeHitPointer() {
             emitNerveEffect();
         }
 
-        if (MR::isStep(this, 3)) {
+        if (MR::isStep(this, cStep_exeHitPointer_1)) {
             MR::startCSSound("CS_STAR_POWER", nullptr, 0);
         }
 
@@ -245,7 +250,7 @@ void GCaptureTarget::exeHitPointer() {
         MR::setBckRate(this, mStarAnimSpeed);
 
         bool isNear = MR::isNearPlayer(this, mPointableRange);
-        if (MR::isStarPointerPointing(this, 0, true, "\216\343" /* 弱 */) && isNear) {
+        if (MR::isStarPointerPointing(this, 0, true, "弱") && isNear) {
             MR::requestGCaptureTarget(this);
         }
 
@@ -310,8 +315,8 @@ bool GCaptureTarget::isReleaseForce() const {
     return MR::isDead(this);
 }
 
-void GCaptureTarget::getTargetPosition(TVec3f* a1) {
-    a1->set(mPosition);
+void GCaptureTarget::getTargetPosition(Vec3f* pOut) {
+    pOut->set(mPosition);
 }
 
 f32 GCaptureTarget::releaseDistance() const {

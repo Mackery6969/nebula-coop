@@ -7,12 +7,17 @@ class ShadowVolumeBox : public ShadowVolumeDrawer {
 public:
     ShadowVolumeBox();
 
-    virtual void loadModelDrawMtx() const;
-    virtual void drawShape() const;
+    virtual void loadModelDrawMtx(TypedDraw& rDraw) const override;
+    virtual void drawShape(TypedDraw& rDraw) const override;
+    virtual u32 shapeVariant() const override {
+        return mVariant;
+    }
 
-    void setSize(const TVec3f&);
+    void setSize(const Vec3f&);
     void makeVertexBuffer() const;
 
-    TVec3f mSize;
-    mutable TVec3f mPoints[14];
+    Vec3f mSize;
+    mutable Vec3f mPoints[14];
+    // Which of the eight arrangements of mPoints makeVertexBuffer built (the drop direction's side of each face pair).
+    mutable u32 mVariant = 0;
 };

@@ -12,11 +12,11 @@ class Kabokuri : public LiveActor {
 public:
     Kabokuri(const char*);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveMsgPlayerAttack(u32, HitSensor*, HitSensor*) override;
 
     void initSensor();
     void updatePose();
@@ -48,9 +48,8 @@ public:
     ModelObj* mBreakModel;
     AnimScaleController* mAnimeScale;
     WalkerStateBindStarPointer* mStateBindStartPointer;
-    TQuat4f mRotationQuat;
-    TVec3f mFrontVec;
-    s32 _B8;
+    Quat4f mRotationQuat;
+    Vec3f mFrontVec;
     bool mIsFloating;
 
     /// @brief Drops fire on every point of the rail reached, except the first one.

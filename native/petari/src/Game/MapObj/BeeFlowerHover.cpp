@@ -1,14 +1,16 @@
 #include "Game/MapObj/BeeFlowerHover.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/LodCtrl.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/MapPartsRailMover.hpp"
 #include "Game/MapObj/MapPartsRailPosture.hpp"
 #include "Game/Util.hpp"
 #include "Game/Util/MathUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const f32 sDefaultRotateSpeed = 50.0f;
-    static const s32 sStepToRecoverStart = 60;
+    NEBULA_TUNABLE(f32, sDefaultRotateSpeed, 50.0f);
+    static const s32 sStepToRecoverStart = NebulaFrameClock::stepsOfSeconds(1);
 };  // namespace
 
 namespace NrvBeeFlowerHover {
@@ -20,18 +22,18 @@ namespace NrvBeeFlowerHover {
 };  // namespace NrvBeeFlowerHover
 
 BeeFlowerHover::BeeFlowerHover(const char* pName)
-    : LiveActor(pName), mLodCtrlPlanet(), _BC(::sDefaultRotateSpeed), mRailMover(), mRailPosture(), _CC(0.0f, 0.0f, 0.0f) {
-    _8C.identity();
+    : LiveActor(pName), mRotateSpeed(::sDefaultRotateSpeed), mLodCtrlPlanet(), mRailMover(), mRailPosture(), mClipCenter(0.0f, 0.0f, 0.0f) {
+    mRotateMtx.identity();
 }
 
-void BeeFlowerHover::init(const JMapInfoIter& rIter) {
+void BeeFlowerHover::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("BeeFlowerHover", 0, false);
     MR::connectToSceneMapObj(this);
     initHitSensor(1);
     MR::addBodyMessageSensorMapObj(this);
     MR::initCollisionPartsAutoEqualScale(this, "BeeFlowerHover", getSensor(nullptr), 0);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initSound(4, false);
 
     if (MR::isConnectedWithRail(rIter)) {
@@ -41,7 +43,7 @@ void BeeFlowerHover::init(const JMapInfoIter& rIter) {
         mRailMover->start();
 
         mRailPosture = new MapPartsRailPosture(this);
-        mRailPosture->mMovePosture = 2;
+        mRailPosture->mMovePosture = MapPartsRailPosture::POSTURE_RAIL_DIR_FRONT;
         mRailPosture->initWithoutIter();
         mRailPosture->start();
     }
@@ -54,13 +56,13 @@ void BeeFlowerHover::init(const JMapInfoIter& rIter) {
     }
 
     s32 drop_length = -1;
-    MR::getJMapInfoArg7NoInit(rIter, &drop_length);
+    MR::getPlacementArg7NoInit(rIter, &drop_length);
     if (drop_length != -1) {
         MR::setShadowDropLength(this, 0, drop_length);
     }
 
     if (mRailMover != nullptr) {
-        MR::initAndSetRailClipping(&_CC, this, 100.0f, 500.0f);
+        MR::initAndSetRailClipping(&mClipCenter, this, 100.0f, 500.0f);
     } else {
         MR::setClippingTypeSphereContainsModelBoundingBox(this, 100.0f);
     }
@@ -71,8 +73,8 @@ void BeeFlowerHover::init(const JMapInfoIter& rIter) {
         MR::calcGravity(this);
     }
 
-    MR::getJMapInfoArg0NoInit(rIter, &_BC);
-    _BC /= 100.0f;
+    MR::getPlacementArg0NoInit(rIter, &mRotateSpeed);
+    mRotateSpeed /= 100.0f;
     mLodCtrlPlanet = MR::createLodCtrlPlanet(this, rIter, 100.0f);
     mLodCtrlPlanet->validate();
     initNerve(GET_NERVE(BeeFlowerHover, BeeFlowerHoverNrvWait));
@@ -145,35 +147,35 @@ void BeeFlowerHover::control() {
         mLodCtrlPlanet->update();
     }
 
-    TPos3f mtx;
-    mtx.makeRotate(TVec3f(0.0f, 1.0f, 0.0f), MR::toRadian(_BC));
-    _8C.concat(mtx);
+    Pos3f mtx;
+    mtx.makeRotate(Vec3f(0.0f, 1.0f, 0.0f), MR::toRadian(mRotateSpeed));
+    mRotateMtx.concat(mtx);
 
     if (mRailMover != nullptr) {
         mRailMover->movement();
         mRailPosture->movement();
-        mPosition.set(mRailMover->_28);
+        mPosition.set(mRailMover->mStartPos);
     }
 }
 
 void BeeFlowerHover::calcAndSetBaseMtx() {
-    TPos3f stack_8;
-    stack_8.identity();
+    Pos3f baseMtx;
+    baseMtx.identity();
 
     if (mRailPosture) {
-        stack_8.concat(mRailPosture->_18);
+        baseMtx.concat(mRailPosture->mPostureMtx);
     } else {
-        MR::makeMtxRotate(stack_8.toMtxPtr(), mRotation);
+        MR::makeMtxRotate(baseMtx.toMtxPtr(), mRotation);
     }
 
-    stack_8.concat(_8C);
-    stack_8.mMtx[0][3] = mPosition.x;
-    stack_8.mMtx[1][3] = mPosition.y;
-    stack_8.mMtx[2][3] = mPosition.z;
-    MR::setBaseTRMtx(this, stack_8);
+    baseMtx.concat(mRotateMtx);
+    baseMtx.mMtx[0][3] = mPosition.x;
+    baseMtx.mMtx[1][3] = mPosition.y;
+    baseMtx.mMtx[2][3] = mPosition.z;
+    MR::setBaseTRMtx(this, baseMtx);
 }
 
-bool BeeFlowerHover::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool BeeFlowerHover::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (!isNerve(GET_NERVE(BeeFlowerHover, BeeFlowerHoverNrvWait))) {
         return false;
     }
@@ -189,7 +191,4 @@ bool BeeFlowerHover::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pRe
     }
 
     return false;
-}
-
-BeeFlowerHover::~BeeFlowerHover() {
 }

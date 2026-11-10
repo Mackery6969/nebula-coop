@@ -6,11 +6,11 @@ class TakoHeiInk : public LiveActor {
 public:
     TakoHeiInk(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void kill();
-    virtual void control();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void kill() override;
+    virtual void control() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
 
-    void start(const TVec3f&, const TVec3f&, bool);
+    void start(const Vec3f&, const Vec3f&, bool);
     void exeWait();
 };

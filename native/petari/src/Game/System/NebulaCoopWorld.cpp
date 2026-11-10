@@ -22,7 +22,7 @@
 #include "Game/System/GameEventFlagTable.hpp"
 #include "Game/System/GameEventValueChecker.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Player/MarioActor.hpp"
@@ -109,7 +109,7 @@ namespace {
 
     // How long the instance's clock has run, as the server says: the earliest start is everyone's.
     void applyMissionClock(u32 ms) {
-        const s32 frames = static_cast< s32 >((static_cast< u64 >(ms) * 60u) / 1000u);
+        const s32 frames = static_cast< s32 >((static_cast< u64 >(ms) * NEBULA_STEPS_PER_SECOND) / 1000u);
         if (frames > missionClockNow()) {
             sMissionClock = frames;
             sMissionClockAt = sClock;
@@ -139,7 +139,7 @@ namespace {
         f32 mOwnerDistance;  // how far the sender's player was from it
         NebulaCoopObjectState mState;  // the sender's last state
         u32 mOwnerNerve;               // the nerve the sender's last state named (it is taken here when it changes)
-        TVec3f mCorrection;  // the rest of the way to where the sender had it, eased off each frame
+        Vec3f mCorrection;  // the rest of the way to where the sender had it, eased off each frame
         f32 mRotation[4];    // the turn drawn, eased toward the sender's for a while after each state
         bool mRotationSet;
         bool mFollowing;     // another player's game moves it: its states put it where they have it
@@ -191,7 +191,7 @@ namespace {
     // The other players in this instance who may own an object (shown, not in a miss), as this frame has them.
     struct Other {
         u32 mNumber;
-        TVec3f mPosition;
+        Vec3f mPosition;
     };
     const s32 cMaxOthers = 16;
     Other sOthers[cMaxOthers];
@@ -330,14 +330,14 @@ namespace {
     }
 
     // A placement's key: its name, zone, link id and place, as the stage's files have them.
-    u32 placementKey(const char* pName, const JMapInfoIter& rIter) {
+    u32 placementKey(const char* pName, const TableIter& rIter) {
         u32 hash = hashBytes(2166136261u, pName, strlen(pName));
         hash = hashValue(hash, static_cast< u32 >(MR::getPlacedZoneId(rIter)));
         s32 linkId = -1;
-        MR::getJMapInfoLinkID(rIter, &linkId);
+        MR::getPlacementLinkID(rIter, &linkId);
         hash = hashValue(hash, static_cast< u32 >(linkId));
-        TVec3f trans(0.0f, 0.0f, 0.0f);
-        MR::getJMapInfoTrans(rIter, &trans);
+        Vec3f trans(0.0f, 0.0f, 0.0f);
+        MR::getPlacementTrans(rIter, &trans);
         hash = hashBytes(hash, &trans.x, sizeof(f32));
         hash = hashBytes(hash, &trans.y, sizeof(f32));
         hash = hashBytes(hash, &trans.z, sizeof(f32));
@@ -570,7 +570,7 @@ namespace {
         if (pKeeper == nullptr) {
             return -1;
         }
-        for (s32 i = 0; i < pKeeper->mSensorCount && i < 256; i++) {
+        for (s32 i = 0; i < pKeeper->mSensorInfosSize && i < 256; i++) {
             if (pKeeper->mSensorInfos[i] != nullptr && pKeeper->mSensorInfos[i]->mSensor == pSensor) {
                 return i;
             }
@@ -590,7 +590,7 @@ namespace {
             return;
         }
         const HitSensorKeeper* pKeeper = pActor->mSensorKeeper;
-        if (rEvent.scenario < 0 || rEvent.scenario >= pKeeper->mSensorCount || pKeeper->mSensorInfos[rEvent.scenario] == nullptr) {
+        if (rEvent.scenario < 0 || rEvent.scenario >= pKeeper->mSensorInfosSize || pKeeper->mSensorInfos[rEvent.scenario] == nullptr) {
             return;
         }
         HitSensor* pReceiver = pKeeper->mSensorInfos[rEvent.scenario]->mSensor;
@@ -686,7 +686,7 @@ namespace {
         sApplying = false;
     }
 
-    TVec3f sTeleportTo(0.0f, 0.0f, 0.0f);
+    Vec3f sTeleportTo(0.0f, 0.0f, 0.0f);
     s32 sTeleportFrames = 0;
 
     f32 floatFromBits(u32 bits) {
@@ -803,10 +803,10 @@ namespace {
     }
 
     MtxPtr baseMtxOf(LiveActor* pActor) {
-        if (pActor->mModelManager == nullptr || MR::getJ3DModel(pActor) == nullptr) {
+        if (pActor->mModelManager == nullptr || MR::getModel(pActor) == nullptr) {
             return nullptr;
         }
-        return reinterpret_cast< MtxPtr >(&MR::getJ3DModel(pActor)->mBaseTransformMtx);
+        return reinterpret_cast< MtxPtr >(&MR::getModel(pActor)->mBaseTransformMtx);
     }
 
     bool isKnownClass(const Motion& rMotion, u32 nerveClass) {
@@ -920,7 +920,7 @@ namespace {
         setFollowing(rMotion, true);
         // Its speed as the owner's; its place eased toward where the owner has it by now, or jumping when far off.
         pActor->mVelocity.set(rState.velocity[0], rState.velocity[1], rState.velocity[2]);
-        const TVec3f there(rState.position[0] + rState.velocity[0] * cAheadFrames,
+        const Vec3f there(rState.position[0] + rState.velocity[0] * cAheadFrames,
                            rState.position[1] + rState.velocity[1] * cAheadFrames,
                            rState.position[2] + rState.velocity[2] * cAheadFrames);
         if (pActor->mPosition.distance(there) > cSnapDistance) {
@@ -998,7 +998,7 @@ namespace {
         // Static: the module links without __chkstk, so no frame may need a stack probe.
         static NebulaCoopObjectState states[64];
         u32 stateNum = 0;
-        const TVec3f* pMarioPos = sMario != nullptr ? &sMario->mPosition : nullptr;
+        const Vec3f* pMarioPos = sMario != nullptr ? &sMario->mPosition : nullptr;
         // As sm64coopdx: nothing is sent before the instance's record has come (its area's sync is valid), nor by a
         // player whose miss goes on (out of the level), nor while nobody else is here to follow it.
         const bool canOwn = sReady && !sMissed && pMarioPos != nullptr && !MR::isPlayerDead();
@@ -1160,7 +1160,7 @@ namespace NebulaCoopWorld {
         }
     }
 
-    void notePlaced(const char* pName, NameObj* pObj, const JMapInfoIter& rIter) {
+    void notePlaced(const char* pName, NameObj* pObj, const TableIter& rIter) {
         sPlacing = false;
         if (!sInRoom || pName == nullptr || pObj == nullptr) {
             return;
@@ -1323,10 +1323,10 @@ namespace NebulaCoopWorld {
                 return;
             }
         }
-        TVec3f local(0.0f, 0.0f, 0.0f);
+        Vec3f local(0.0f, 0.0f, 0.0f);
         pParts->mInvBaseMatrix.mult(sMario->mPosition, local);
-        TVec3f front(pPlayer->front[0], pPlayer->front[1], pPlayer->front[2]);
-        TVec3f up(pPlayer->up[0], pPlayer->up[1], pPlayer->up[2]);
+        Vec3f front(pPlayer->front[0], pPlayer->front[1], pPlayer->front[2]);
+        Vec3f up(pPlayer->up[0], pPlayer->up[1], pPlayer->up[2]);
         pParts->mInvBaseMatrix.mult33(front, front);
         pParts->mInvBaseMatrix.mult33(up, up);
         if (MR::normalizeOrZero(&front) || MR::normalizeOrZero(&up)) {
@@ -1344,7 +1344,7 @@ namespace NebulaCoopWorld {
         pPlayer->platform_up[2] = up.z;
     }
 
-    bool placeOnPlatform(const NebulaCoopPlayer& rPlayer, TVec3f* pPosition, TVec3f* pFront, TVec3f* pUp) {
+    bool placeOnPlatform(const NebulaCoopPlayer& rPlayer, Vec3f* pPosition, Vec3f* pFront, Vec3f* pUp) {
         if (!sObjectsActive || rPlayer.platform == 0) {
             return false;
         }
@@ -1356,10 +1356,10 @@ namespace NebulaCoopWorld {
         if (pActor == nullptr || MR::isDead(pActor) || pActor->mCollisionParts == nullptr) {
             return false;
         }
-        const TPos3f& rMtx = pActor->mCollisionParts->mBaseMatrix;
-        const TVec3f local(rPlayer.platform_position[0], rPlayer.platform_position[1], rPlayer.platform_position[2]);
-        TVec3f front(rPlayer.platform_front[0], rPlayer.platform_front[1], rPlayer.platform_front[2]);
-        TVec3f up(rPlayer.platform_up[0], rPlayer.platform_up[1], rPlayer.platform_up[2]);
+        const Pos3f& rMtx = pActor->mCollisionParts->mBaseMatrix;
+        const Vec3f local(rPlayer.platform_position[0], rPlayer.platform_position[1], rPlayer.platform_position[2]);
+        Vec3f front(rPlayer.platform_front[0], rPlayer.platform_front[1], rPlayer.platform_front[2]);
+        Vec3f up(rPlayer.platform_up[0], rPlayer.platform_up[1], rPlayer.platform_up[2]);
         rMtx.mult(local, *pPosition);
         rMtx.mult33(front, front);
         rMtx.mult33(up, up);
@@ -1382,7 +1382,7 @@ namespace NebulaCoopWorld {
         }
         const s32 frames = missionClockNow();
         // As this game has it; the server answers only if the instance's began earlier (applyMissionClock).
-        report(NEBULA_COOP_WORLD_CLOCK, 0, static_cast< u32 >((static_cast< u64 >(frames) * 1000u) / 60u), 0, nullptr);
+        report(NEBULA_COOP_WORLD_CLOCK, 0, static_cast< u32 >((static_cast< u64 >(frames) * 1000u) / NEBULA_STEPS_PER_SECOND), 0, nullptr);
         return frames;
     }
 
@@ -1443,7 +1443,7 @@ namespace NebulaCoopWorld {
         }
         pMotion->mAge++;
         // The rest of the way to where its owner had it, a part each frame, on top of what its own AI moved it.
-        const TVec3f step = pMotion->mCorrection * cGlide;
+        const Vec3f step = pMotion->mCorrection * cGlide;
         pActor->mPosition.add(step);
         pMotion->mCorrection.sub(step);
     }

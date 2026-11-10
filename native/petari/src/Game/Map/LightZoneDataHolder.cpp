@@ -4,17 +4,19 @@
 #include "Game/Util.hpp"
 
 ZoneLightID::ZoneLightID() {
-    _0 = -1;
+    mZoneId = -1;
     mLightID = -1;
+    mChangeSteps = 0;
 }
 
 void ZoneLightID::clear() {
-    _0 = -1;
+    mZoneId = -1;
     mLightID = -1;
+    mChangeSteps = 0;
 }
 
 bool ZoneLightID::isTargetArea(const LightArea* pLightArea) const {
-    if (_0 == pLightArea->mPlacedZoneID && mLightID == pLightArea->mObjArg0) {
+    if (mZoneId == pLightArea->mPlacedZoneID && mLightID == pLightArea->mObjArg0) {
         return true;
     }
 
@@ -55,23 +57,23 @@ void LightZoneDataHolder::initZoneData() {
 }
 
 const char* LightZoneDataHolder::getAreaLightNameInZoneData(const ZoneLightID& zoneID) const {
-    s32 val = zoneID._0;
+    s32 zoneId = zoneID.mZoneId;
 
-    if (val < 0) {
-        val = 0;
+    if (zoneId < 0) {
+        zoneId = 0;
     }
 
-    return mZoneInfo[val].getAreaLightNameInZoneData(zoneID.mLightID);
+    return mZoneInfo[zoneId].getAreaLightNameInZoneData(zoneID.mLightID);
 }
 
-// this will load the first entry, but they will all return the same thing anyways
+// Light -1 names the stage default, the same in every zone.
 const char* LightZoneDataHolder::getDefaultStageAreaLightName() const {
     return mZoneInfo->getAreaLightNameInZoneData(-1);
 }
 
 void LightZoneInfo::init(s32 zoneID) {
     const char* zoneName = MR::getZoneNameFromZoneId(zoneID);
-    JMapInfo* parser = 0;
+    Table* parser = 0;
     mAreaCount = LightFunction::createZoneDataParser(zoneName, &parser);
     mAreaInfo = new AreaInfo[mAreaCount];
 

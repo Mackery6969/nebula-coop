@@ -21,7 +21,7 @@ void apply_tilt_accel(galaxy::input::PlayerInput& input,
     input.pointer_on = input.pointer_on && galaxy::input::remote_faces_screen(input.gravity);
 }
 
-#if defined(NEBULA_RELEASE)
+#if !defined(NEBULA_DEV)
 NativeInputScriptOverlay build_native_input_script_overlay(std::uint64_t, const ScriptServices&) {
     return {};
 }
@@ -34,7 +34,7 @@ const NativeInputReplayLog* active_native_input_replay_log() {
     return nullptr;
 }
 
-const NativeInputReplaySample* native_input_replay_sample_for_vi(std::uint64_t) {
+const NativeInputReplaySample* native_input_replay_sample_for_frame(std::uint64_t) {
     return nullptr;
 }
 

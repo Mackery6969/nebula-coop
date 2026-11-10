@@ -3,7 +3,6 @@
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
-#include <cstdio>
 
 namespace {
     const char* sFileName = "ActorAnimCtrl";
@@ -13,7 +12,7 @@ ActorAnimKeeper::ActorAnimKeeper(LiveActor* pActor) : mActor(pActor), mNumInfo()
     if (!initAnimData()) {
         return;
     }
-    start("\203\146\203\164\203\110\203\213\203\147" /* デフォルト */);
+    start("デフォルト");
 }
 
 ActorAnimKeeper* ActorAnimKeeper::tryCreate(LiveActor* pActor) {
@@ -100,22 +99,21 @@ bool ActorAnimKeeper::isPlaying(const char* pName) const {
 }
 
 namespace {
-    void getCsvDataAnimData(ActorAnimDataInfo* pDataInfo, const char* pAnimType, JMapInfo* pInfo, s32 index) {
-        char pOut[256];
-        nebula_snprintf(pOut, sizeof(pOut), "%sName", pAnimType);
-        MR::getCsvDataStrOrNULL(&pDataInfo->mName, pInfo, pOut, index);
+    void getCsvDataAnimData(ActorAnimDataInfo* pDataInfo, const char* pAnimType, Table* pInfo, s32 index) {
+        MR::FormattedName pOut("%sName", pAnimType);
+        MR::getCsvDataStrOrNULL(&pDataInfo->mName, pInfo, pOut.c_str(), index);
 
-        nebula_snprintf(pOut, sizeof(pOut), "%sStartFrame", pAnimType);
-        MR::getCsvDataF32(&pDataInfo->mStartFrame, pInfo, pOut, index);
+        pOut.format("%sStartFrame", pAnimType);
+        MR::getCsvDataF32(&pDataInfo->mStartFrame, pInfo, pOut.c_str(), index);
 
-        nebula_snprintf(pOut, sizeof(pOut), "%sIsKeepAnim", pAnimType);
-        MR::getCsvDataU8(&pDataInfo->mIsKeepAnim, pInfo, pOut, index);
+        pOut.format("%sIsKeepAnim", pAnimType);
+        MR::getCsvDataU8(&pDataInfo->mIsKeepAnim, pInfo, pOut.c_str(), index);
     }
 };  // namespace
 
 bool ActorAnimKeeper::initAnimData() {
     const ResourceHolder* pResourceHolder = MR::getResourceHolder(mActor);
-    JMapInfo* csvParser = MR::tryCreateCsvParser(pResourceHolder, "%s.bcsv", ::sFileName);
+    Table* csvParser = MR::tryCreateCsvParser(pResourceHolder, "%s.bcsv", ::sFileName);
 
     if (csvParser == nullptr) {
         return false;

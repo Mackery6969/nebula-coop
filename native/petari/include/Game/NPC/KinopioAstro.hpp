@@ -8,28 +8,25 @@ class PeachLetter;
 
 class KinopioAstro : public Kinopio {
 public:
+    // The letter event numbers of KinopioAstro's placement.
     enum LetterEvent {
         LetterEvent_LuigiLetter,
         LetterEvent_PeachLetterNormal,
         LetterEvent_PeachLetter1Ups,
-        LetterEvent_3,
-        LetterEvent_SendLetter,
+        LetterEvent_SendLetter = 4,
         LetterEvent_OnMsgLedPattern,
         LetterEvent_OffMsgLedPattern,
     };
 
-    /// @brief Creates a new `KinopioAstro`.
-    /// @param pName A pointer to the null-terminated name of the object.
     KinopioAstro(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void control();
+    virtual void init(const TableIter& rIter) override;
+    virtual void control() override;
 
-    static void makeArchiveList(NameObjArchiveListCollector*, const JMapInfoIter&);
 
     bool dispLetter(LayoutActor*) const;
     bool isDispLetterIcon() const;
-    void createLetterIcon(const JMapInfoIter&);
+    void createLetterIcon(const TableIter&);
     bool branchFunc(u32);
     bool eventFunc(u32);
     void startDemo();
@@ -38,7 +35,7 @@ public:
     LuigiLetter* mLuigiLetter;
     PeachLetter* mPeachLetter;
     TalkMessageCtrl* mLetterIconTalkCtrl;
-    bool _194;
-    bool _195;
+    bool mHasPeachLetter;
+    bool mHasLuigiLetter;
     bool mIsPlayerLuigi;
 };

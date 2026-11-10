@@ -1,16 +1,17 @@
 #include "Game/MapObj/LavaBreakColumn.hpp"
 #include "Game/MapObj/AnmModelObj.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapInfo.hpp"
+#include "Game/Util/Table.hpp"
 #include "Game/Util/JointUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MapUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const f32 sEffectPosOffsetY = 5000.0f;
+    NEBULA_TUNABLE(f32, sEffectPosOffsetY, 5000.0f);
 };  // namespace
 
 LavaBreakColumn::LavaBreakColumn(const char* pName) : AnmModelSwitchMoveEndKill(pName), mEffectPos(gZeroVec), mIsPillarFallen() {
@@ -21,7 +22,7 @@ void LavaBreakColumn::makeActorAppeared() {
     mIsPillarFallen = false;
 }
 
-void LavaBreakColumn::init(const JMapInfoIter& rIter) {
+void LavaBreakColumn::init(const TableIter& rIter) {
     AnmModelSwitchMove::init(rIter);
     MR::onCalcGravity(this);
     MR::setEffectHostSRT(this, "LavaColumn", &mEffectPos, nullptr, nullptr);
@@ -32,16 +33,16 @@ void LavaBreakColumn::control() {
         return;
     }
 
-    TVec3f pos;
+    Vec3f pos;
     MR::copyJointPos(this, "Move", &pos);
     MR::calcMapGround(pos, &mEffectPos, ::sEffectPosOffsetY);
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.set(getBaseMtx());
-    TVec3f up;
+    Vec3f up;
     mtx.getYDir(up);
     MR::normalize(&up);
-    TVec3f offset = pos + up * -1000.0f;
-    TVec3f diff = mEffectPos - offset;
+    Vec3f offset = pos + up * -1000.0f;
+    Vec3f diff = mEffectPos - offset;
     MR::normalize(&diff);
 
     if (diff.dot(mGravity) < 0.0f) {

@@ -1,17 +1,23 @@
 #include "Game/MapObj/MechaKoopaPartsHead.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/MapObj/MapObjActorInitInfo.hpp"
 #include "Game/Util.hpp"
+#include "Game/Util/Tunable.hpp"
+
+// The numbers this file's functions give the game's motion and animation calls, as tunables: "<file>.<function>.<call>.<k>".
+NEBULA_TUNABLE_NAMED(f32, cNum_exeDemoBreak_shakeCameraInfinity_1, "exeDemoBreak.shakeCameraInfinity.1", 0.2f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeDemoBreak_shakeCameraInfinity_2, "exeDemoBreak.shakeCameraInfinity.2", 2.0f);
 
 namespace {
-    static const s32 sStepForWhiteFadeOut = 60;
-    static const s32 sStepForWhiteFadeIn = 60;
-    static const s32 sStepToBreakFaceEffect = 120;
-    static const s32 sStepToExplosionEffect = 300;
-    static const char* const sDemoPartNameBreak = "\211\363\202\352\212\112\216\156" /* 壊れ開始 */;
-    static const char* const sDemoPartNameFadeOut = "\203\164\203\106\201\133\203\150\203\101\203\105\203\147" /* フェードアウト */;
-    static const char* const sDemoPartNameWhite = "\224\222\211\346\226\312" /* 白画面 */;
-    static const char* const sDemoPartNameFadeIn = "\203\164\203\106\201\133\203\150\203\103\203\223" /* フェードイン */;
+    const s32 sStepForWhiteFadeOut = NebulaFrameClock::stepsOfSeconds(1);
+    const s32 sStepForWhiteFadeIn = NebulaFrameClock::stepsOfSeconds(1);
+    const s32 sStepToBreakFaceEffect = NebulaFrameClock::stepsOfSeconds(2);
+    const s32 sStepToExplosionEffect = NebulaFrameClock::stepsOfSeconds(5);
+    const char* const sDemoPartNameBreak = "壊れ開始";
+    const char* const sDemoPartNameFadeOut = "フェードアウト";
+    const char* const sDemoPartNameWhite = "白画面";
+    const char* const sDemoPartNameFadeIn = "フェードイン";
 };  // namespace
 
 namespace NrvMechaKoopaPartsHead {
@@ -26,10 +32,9 @@ namespace NrvMechaKoopaPartsHead {
 MechaKoopaPartsHead::MechaKoopaPartsHead(const char* pName) : MapObjActor(pName) {
 }
 
-void MechaKoopaPartsHead::init(const JMapInfoIter& rIter) {
+void MechaKoopaPartsHead::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
     MapObjActorInitInfo initInfo;
-    initInfo.setupHioNode("\222\156\214\140\203\111\203\165\203\127\203\106" /* 地形オブジェ */);
     initInfo.setupDefaultPos();
     initInfo.setupConnectToScene();
     initInfo.setupEffect(nullptr);
@@ -54,7 +59,7 @@ void MechaKoopaPartsHead::exeDemoBreak() {
     if (MR::isFirstStep(this)) {
         MR::startSound(this, "SE_BM_MECHA_KOOPA_DOWN");
         MR::moveVolumeStageBGM(0.0f, 30);
-        MR::shakeCameraInfinity(this, 0.2f, 2.0f);
+        MR::shakeCameraInfinity(this, cNum_exeDemoBreak_shakeCameraInfinity_1, cNum_exeDemoBreak_shakeCameraInfinity_2);
     }
 
     MR::tryRumblePadMiddle(this, PLAYER_1);
@@ -96,7 +101,7 @@ void MechaKoopaPartsHead::exeDemoWhiteWait() {
             MR::offSwitchA(this);
         }
 
-        MR::setPlayerPos("\224\232\224\152\203\146\203\202\214\343\203\175\203\212\203\111" /* 爆破デモ後マリオ */);
+        MR::setPlayerPos("爆破デモ後マリオ");
         MR::setPlayerStateWait();
     }
 }

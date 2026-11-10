@@ -15,13 +15,13 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 
-TalkState::TalkState() : _04(), mBalloon() {
+TalkState::TalkState() : mMsgCtrl(), mBalloon() {
 }
 
-void TalkState::init(TalkMessageCtrl* pArg1, TalkBalloon* pBalloon) {
-    _04 = pArg1;
+void TalkState::init(TalkMessageCtrl* pMsgCtrl, TalkBalloon* pBalloon) {
+    mMsgCtrl = pMsgCtrl;
     mBalloon = pBalloon;
-    mMessageID = _04->getMessageID();
+    mMessageID = mMsgCtrl->getMessageID();
 }
 
 u32 TalkState::getPageCount() const {
@@ -32,35 +32,35 @@ void TalkState::balloonOff() const {
     MR::hideScreen(mBalloon);
 }
 
-bool TalkState::isLostMessage(const TalkMessageCtrl* pArg1) const {
-    if (pArg1 == nullptr) {
+bool TalkState::isLostMessage(const TalkMessageCtrl* pMsgCtrl) const {
+    if (pMsgCtrl == nullptr) {
         return true;
     }
 
-    if (pArg1 != _04) {
+    if (pMsgCtrl != mMsgCtrl) {
         return true;
     }
 
-    return _04->getMessageID() != mMessageID;
-};
+    return mMsgCtrl->getMessageID() != mMessageID;
+}
 
-bool TalkState::isSelfInterrupt(const TalkMessageCtrl* pArg1) const {
-    if (pArg1 == nullptr) {
+bool TalkState::isSelfInterrupt(const TalkMessageCtrl* pMsgCtrl) const {
+    if (pMsgCtrl == nullptr) {
         return false;
     }
 
-    if (pArg1 != _04) {
+    if (pMsgCtrl != mMsgCtrl) {
         return false;
     }
 
-    return _04->getMessageID() != mMessageID;
+    return mMsgCtrl->getMessageID() != mMessageID;
 }
 
 TalkStateShort::TalkStateShort() : TalkState() {
 }
 
-bool TalkStateShort::prep(const TalkMessageCtrl* pArg1) {
-    return !TalkState::isLostMessage(pArg1);
+bool TalkStateShort::prep(const TalkMessageCtrl* pMsgCtrl) {
+    return !TalkState::isLostMessage(pMsgCtrl);
 }
 
 bool TalkStateShort::talk(const TalkMessageCtrl*) {
@@ -68,10 +68,10 @@ bool TalkStateShort::talk(const TalkMessageCtrl*) {
 }
 
 void TalkStateShort::open() {
-    mBalloon->open(_04);
-    LiveActor* actor = _04->mHostActor;
-    TalkMessageInfo* info = TalkFunction::getMessageInfo(_04);
-    MR::startTalkSound(info->_6, actor);
+    mBalloon->open(mMsgCtrl);
+    LiveActor* actor = mMsgCtrl->mHostActor;
+    TalkMessageInfo* info = TalkFunction::getMessageInfo(mMsgCtrl);
+    MR::startTalkSound(info->mSoundId, actor);
 }
 
 void TalkStateShort::clos() {
@@ -79,47 +79,46 @@ void TalkStateShort::clos() {
 }
 
 TalkStateEvent::TalkStateEvent() {
-    _18 = nullptr;
-    _14 = 0;
-    _10 = 0;
-    _1D = true;
+    mPlayerWatcher = nullptr;
+    mTermStep = 0;
+    mSkipHoldStep = 0;
 }
 
-bool TalkStateEvent::prep(const TalkMessageCtrl* pArg1) {
-    return !TalkState::isLostMessage(pArg1);
+bool TalkStateEvent::prep(const TalkMessageCtrl* pMsgCtrl) {
+    return !TalkState::isLostMessage(pMsgCtrl);
 }
 
 bool TalkStateEvent::test() {
-    return _18->isEnableTalkPlayerStateEvent();
+    return mPlayerWatcher->isEnableTalkPlayerStateEvent();
 }
 
 void TalkStateEvent::open() {
-    TalkMessageInfo* info = TalkFunction::getMessageInfo(_04);
-    MR::startTalkSound(info->_6, _04->mHostActor);
+    TalkMessageInfo* info = TalkFunction::getMessageInfo(mMsgCtrl);
+    MR::startTalkSound(info->mSoundId, mMsgCtrl->mHostActor);
 
-    _1C = 1;
+    mIsJumpHeld = 1;
     mPageCount = 0;
-    _10 = 0;
+    mSkipHoldStep = 0;
 
     if (!MR::isTimeKeepDemoActive() || !info->isCameraNormal()) {
-        _04->startCamera(-1);
+        mMsgCtrl->startCamera(-1);
     }
 
-    mBalloon->open(_04);
+    mBalloon->open(mMsgCtrl);
 }
 
 void TalkStateEvent::clos() {
     mBalloon->close();
 }
 
-bool TalkStateEvent::talk(const TalkMessageCtrl* pArg1) {
+bool TalkStateEvent::talk(const TalkMessageCtrl* /*pMsgCtrl*/) {
     // A skipped cutscene (NebulaCutsceneSkip): each page, shown whole, turns as soon as it is up; a question ends
     // the skip with the question on screen.
     if (NebulaCutsceneSkip::isSkipping()) {
         if (!mBalloon->isTextAppearedAll()) {
             return false;
         }
-        if (TalkFunction::isSelectTalk(_04) && !mBalloon->hasNextPage()) {
+        if (TalkFunction::isSelectTalk(mMsgCtrl) && !mBalloon->hasNextPage()) {
             NebulaCutsceneSkip::endForQuestion();
             return true;
         }
@@ -128,34 +127,35 @@ bool TalkStateEvent::talk(const TalkMessageCtrl* pArg1) {
     }
 
     if (MR::isHeldJump(0)) {
-        if (_10++ > 10) {
+        if (mSkipHoldStep++ > 10) {
             for (int i = 0; i < 2; i++) {
                 mBalloon->skipMessage();
             }
         }
     } else {
-        _10 = 0;
+        mSkipHoldStep = 0;
     }
 
     if (!mBalloon->isTextAppearedAll()) {
         return false;
     }
 
-    bool unknownBool = false;
+    // A page turns once per hold: the button must be let go after the text is up, then held again.
+    bool isTurnPage = false;
 
-    if (_1C != 0) {
-        _1C = MR::isHeldJump(0);
+    if (mIsJumpHeld != 0) {
+        mIsJumpHeld = MR::isHeldJump(0);
     } else if (MR::isHeldJump(0) && !MR::isPressedJump(0)) {
-        _1C = true;
-        unknownBool = true;
+        mIsJumpHeld = true;
+        isTurnPage = true;
     }
 
-    if (TalkFunction::isSelectTalk(_04) && !mBalloon->hasNextPage()) {
+    if (TalkFunction::isSelectTalk(mMsgCtrl) && !mBalloon->hasNextPage()) {
         NebulaCutsceneSkip::endForQuestion();
         return true;
     }
 
-    if (unknownBool) {
+    if (isTurnPage) {
         mPageCount++;
         return !mBalloon->turnPage();
     }
@@ -163,9 +163,9 @@ bool TalkStateEvent::talk(const TalkMessageCtrl* pArg1) {
     return false;
 }
 
-bool TalkStateEvent::term(const TalkMessageCtrl* pArg1) {
-    if (_14++ > 30) {
-        _14 = 0;
+bool TalkStateEvent::term(const TalkMessageCtrl* /*pMsgCtrl*/) {
+    if (mTermStep++ > 30) {
+        mTermStep = 0;
         return true;
     } else {
         return false;
@@ -180,7 +180,7 @@ TalkStateNormal::TalkStateNormal() : TalkStateEvent() {
 }
 
 bool TalkStateNormal::test() {
-    if (!_18->isEnableTalkPlayerStateNormal() || !MR::isPressedJump(0)) {
+    if (!mPlayerWatcher->isEnableTalkPlayerStateNormal() || !MR::isPressedJump(0)) {
         return false;
     }
 
@@ -192,30 +192,30 @@ void TalkStateNormal::clos() {
     mBalloon->close();
 }
 
-bool TalkStateNormal::term(const TalkMessageCtrl* pArg1) {
-    if (pArg1 != nullptr && pArg1 != _04) {
+bool TalkStateNormal::term(const TalkMessageCtrl* pMsgCtrl) {
+    if (pMsgCtrl != nullptr && pMsgCtrl != mMsgCtrl) {
         return true;
     }
 
-    if (pArg1 != nullptr && TalkFunction::isShortTalk(pArg1)) {
+    if (pMsgCtrl != nullptr && TalkFunction::isShortTalk(pMsgCtrl)) {
         return true;
     }
 
-    return TalkStateEvent::term(pArg1);
+    return TalkStateEvent::term(pMsgCtrl);
 }
 
-bool TalkStateNormal::prep(const TalkMessageCtrl* pArg1) {
-    if (TalkStateNormal::isLostMessage(pArg1)) {
+bool TalkStateNormal::prep(const TalkMessageCtrl* pMsgCtrl) {
+    if (TalkStateNormal::isLostMessage(pMsgCtrl)) {
         mAButton->term();
         return false;
     }
 
     TalkStateNormal::updateButton();
 
-    if (!_18->isEnableTalkPlayerStateNormal()) {
+    if (!mPlayerWatcher->isEnableTalkPlayerStateNormal()) {
         mAButton->term();
     } else if (!MR::isPressedJump(0)) {
-        TalkMessageInfo* info = TalkFunction::getMessageInfo(_04);
+        TalkMessageInfo* info = TalkFunction::getMessageInfo(mMsgCtrl);
         if (!mAButton->isOpen()) {
             if (info->isBalloonSign()) {
                 mAButton->openWithRead();
@@ -235,25 +235,26 @@ bool TalkStateNormal::prep(const TalkMessageCtrl* pArg1) {
 }
 
 void TalkStateNormal::updateButton() {
-    TVec3f camZ(MR::getCamZdir());
-    TVec3f camY(MR::getCamYdir());
-    TVec3f up;
-    TVec3f centerPlayer(*MR::getPlayerCenterPos());
+    Vec3f camZ(MR::getCamZdir());
+    Vec3f camY(MR::getCamYdir());
+    Vec3f up;
+    Vec3f centerPlayer(*MR::getPlayerCenterPos());
     MR::getPlayerUpVec(&up);
 
-    f64 absolute = fabs(camZ.dot(up));  // TODO: look at fabs again
-    f32 f1 = absolute;
-    f32 f2 = camY.dot(up);
-    f1 = f1 * f1;
+    // The button sits over the player's head on screen: 40 straight up as far as up faces the camera, 60 along
+    // up's screen direction as far as up is the camera's up.
+    f32 facing = fabs(camZ.dot(up));
+    f32 upright = camY.dot(up);
+    facing = facing * facing;
 
     MR::calcNormalizedScreenPosition(&up, up * 1000.0f + centerPlayer);
     MR::calcNormalizedScreenPosition(&centerPlayer, centerPlayer);
     MR::normalize(up - centerPlayer, &up);
-    TVec2f playerScreenPos;
+    Vec2f playerScreenPos;
     MR::calcScreenPosition(&playerScreenPos, *MR::getPlayerCenterPos());
 
-    playerScreenPos.add(TVec2f(0.0f, -1.0f) * (40.0f * f1));
-    playerScreenPos.add(TVec2f(up.x, up.y) * (60.0f * f2));
+    playerScreenPos.add(Vec2f(0.0f, -1.0f) * (40.0f * facing));
+    playerScreenPos.add(Vec2f(up.x, up.y) * (60.0f * upright));
 
     mAButton->setTrans(playerScreenPos);
 }
@@ -261,13 +262,13 @@ void TalkStateNormal::updateButton() {
 TalkStateCompose::TalkStateCompose() : TalkStateNormal() {
 }
 
-void TalkStateCompose::init(TalkMessageCtrl* pArg1, TalkBalloon* pArg2) {
-    TalkState::init(pArg1, pArg2);
-    mSecondBalloon->open(pArg1);
+void TalkStateCompose::init(TalkMessageCtrl* pMsgCtrl, TalkBalloon* pBalloon) {
+    TalkState::init(pMsgCtrl, pBalloon);
+    mSecondBalloon->open(pMsgCtrl);
 }
 
 bool TalkStateCompose::test() {
-    if (_04->isNearPlayer(_04->mTalkDistance)) {
+    if (mMsgCtrl->isNearPlayer(mMsgCtrl->mTalkDistance)) {
         return TalkStateNormal::test();
     }
 
@@ -279,32 +280,32 @@ void TalkStateCompose::open() {
     mSecondBalloon->close();
 }
 
-bool TalkStateCompose::prep(const TalkMessageCtrl* pArg1) {
-    bool unknownBool = true;
+bool TalkStateCompose::prep(const TalkMessageCtrl* pMsgCtrl) {
+    bool isKeep = true;
 
-    if (TalkState::isLostMessage(pArg1)) {
-        unknownBool = false;
-    } else if (_04->isNearPlayer(_04->mTalkDistance)) {
-        unknownBool = TalkStateNormal::prep(pArg1);
+    if (TalkState::isLostMessage(pMsgCtrl)) {
+        isKeep = false;
+    } else if (mMsgCtrl->isNearPlayer(mMsgCtrl->mTalkDistance)) {
+        isKeep = TalkStateNormal::prep(pMsgCtrl);
     } else {
         mAButton->term();
     }
 
-    if (!unknownBool) {
+    if (!isKeep) {
         mAButton->term();
         mSecondBalloon->close();
     }
 
-    return unknownBool;
+    return isKeep;
 }
 
 TalkStateHolder::TalkStateHolder() {
-    _00 = new TalkSupportPlayerWatcher();
+    mPlayerWatcher = new TalkSupportPlayerWatcher();
 
     mAButton = new IconAButton(true, false);
     mAButton->initWithoutIter();
 
-    mBalloonShort = new TalkBalloonShort("\211\357\230\142\220\201\202\253\217\157\202\265[\215\207\220\254\211\357\230\142]" /* 会話吹き出し[合成会話] */);
+    mBalloonShort = new TalkBalloonShort("会話吹き出し[合成会話]");
     mBalloonShort->initWithoutIter();
     mBalloonShort->initInterval();
     mBalloonShort->kill();
@@ -313,29 +314,29 @@ TalkStateHolder::TalkStateHolder() {
 
     mTalkNormal = new TalkStateNormal();
     mTalkNormal->mAButton = mAButton;
-    mTalkNormal->_18 = _00;
+    mTalkNormal->mPlayerWatcher = mPlayerWatcher;
 
     mTalkCompose = new TalkStateCompose();
     mTalkCompose->mAButton = mAButton;
-    mTalkCompose->_18 = _00;
+    mTalkCompose->mPlayerWatcher = mPlayerWatcher;
     mTalkCompose->mSecondBalloon = mBalloonShort;
 
     mTalkEvent = new TalkStateEvent();
-    mTalkEvent->_18 = _00;
+    mTalkEvent->mPlayerWatcher = mPlayerWatcher;
 
     mTalk = new TalkState();
 }
 
 void TalkStateHolder::update() {
-    _00->update();
+    mPlayerWatcher->update();
 }
 
 void TalkStateHolder::pauseOff() {
     MR::requestMovementOn(mAButton);
 }
 
-TalkState* TalkStateHolder::getState(const TalkMessageCtrl* pArg1) {
-    TalkMessageInfo* info = TalkFunction::getMessageInfo(pArg1);
+TalkState* TalkStateHolder::getState(const TalkMessageCtrl* pMsgCtrl) {
+    TalkMessageInfo* info = TalkFunction::getMessageInfo(pMsgCtrl);
 
     if (info->isNormalTalk()) {
         return mTalkNormal;

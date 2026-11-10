@@ -1,4 +1,5 @@
 #include "Game/Enemy/MechanicKoopaMini.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Enemy/AnimScaleController.hpp"
 #include "Game/Enemy/WalkerStateBindStarPointer.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
@@ -11,8 +12,8 @@
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/DemoUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapInfo.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/Table.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MapUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
@@ -22,7 +23,17 @@
 #include "Game/Util/RailUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
+#include "Game/Util/Tunable.hpp"
+
+// The numbers this file's functions give the game's motion and animation calls, as tunables: "<file>.<function>.<call>.<k>".
+NEBULA_TUNABLE_NAMED(f32, cNum_exeWait_isFaceToPlayerDegree_1, "exeWait.isFaceToPlayerDegree.1", 120.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeWalkOnRail_moveAndTurnAlongRail_1, "exeWalkOnRail.moveAndTurnAlongRail.1", 600.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeWalkOnRail_isFaceToPlayerDegree_1, "exeWalkOnRail.isFaceToPlayerDegree.1", 120.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeWalkOnRail_moveAndTurnAlongRail_2, "exeWalkOnRail.moveAndTurnAlongRail.2", 600.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeJumpStart_addVelocityJump_1, "exeJumpStart.addVelocityJump.1", 45.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeFind_addVelocityJump_1, "exeFind.addVelocityJump.1", 26.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_receiveMsgPush_addVelocityFromPush_1, "receiveMsgPush.addVelocityFromPush.1", 3.0f);
 
 namespace NrvMechanicKoopaMini {
     NEW_NERVE(HostTypeNrvWait, MechanicKoopaMini, Wait);
@@ -56,9 +67,9 @@ namespace {
     static const MR::ActorMoveParam hJumpOnGroundParam = {0.0f, 1.2f, 0.8f, 0.0f};
     static const MR::ActorMoveParam hJumpAirParam = {0.5f, 2.0f, 0.95f, 0.0f};
     static const MR::ActorMoveParam hTurnParam = {0.0f, 2.0f, 0.8f, 2.0f};
-    static const TVec3f hBinderOffset(0.0f, 110.0f, 20.0f);
-    static const f32 hTrampleUpRangeSub = 80;
-    static const f32 hPushUpRangeSub = 130;
+    static const Vec3f hBinderOffset(0.0f, 110.0f, 20.0f);
+    NEBULA_TUNABLE(f32, hTrampleUpRangeSub, 80);
+    NEBULA_TUNABLE(f32, hPushUpRangeSub, 130);
 };  // namespace
 
 MechanicKoopaMini::MechanicKoopaMini(const char* pName) : LiveActor(pName) {
@@ -76,7 +87,7 @@ void MechanicKoopaMini::onAppearSwitchOn() {
     }
 }
 
-void MechanicKoopaMini::init(const JMapInfoIter& rIter) {
+void MechanicKoopaMini::init(const TableIter& rIter) {
     if (MR::isValidInfo(rIter)) {
         MR::isConnectedWithRail(rIter);
     }
@@ -90,7 +101,7 @@ void MechanicKoopaMini::init(const JMapInfoIter& rIter) {
     }
 
     s32 arg = -1;
-    MR::getJMapInfoArg0NoInit(rIter, &arg);
+    MR::getPlacementArg0NoInit(rIter, &arg);
     if (arg == -1) {
         mIsAppearJumping = false;
     } else {
@@ -98,7 +109,7 @@ void MechanicKoopaMini::init(const JMapInfoIter& rIter) {
     }
 
     arg = -1;
-    MR::getJMapInfoArg1NoInit(rIter, &arg);
+    MR::getPlacementArg1NoInit(rIter, &arg);
     if (arg == -1) {
         mIsForbidPause = false;
     } else {
@@ -113,15 +124,15 @@ void MechanicKoopaMini::init(const JMapInfoIter& rIter) {
     MR::onCalcGravity(this);
     initSound(3, false);
     MR::initLightCtrl(this);
-    initEffectKeeper(1, nullptr, false);
+    initEffectKeeper(1, nullptr);
     initNerve(GET_NERVE(MechanicKoopaMini, HostTypeNrvWalkOnRail));
     initHitSensor(3);
     f32 yScale = mScale.y;
-    MR::addHitSensorAtJointEnemy(this, "body", "JointRoot", 16, 130.0f * yScale, TVec3f(48.0f, 13.0f, 0.0f));
+    MR::addHitSensorAtJointEnemy(this, "body", "JointRoot", 16, 130.0f * yScale, Vec3f(48.0f, 13.0f, 0.0f));
     MR::addHitSensorCallbackEnemyAttack(this, "fire", 16, 29.0f * yScale);
     MR::initShadowFromCSV(this, "Shadow");
     MR::declareCoin(this, 1);
-    MR::initStarPointerTarget(this, 70.0f, TVec3f(0.0f, 35.0f, 0.0f));
+    MR::initStarPointerTarget(this, 70.0f, Vec3f(0.0f, 35.0f, 0.0f));
     MR::validateClipping(this);
     MR::tryRegisterDemoCast(this, rIter);
     mScaleController = new AnimScaleController(nullptr);
@@ -159,11 +170,11 @@ void MechanicKoopaMini::exeWait() {
         MR::startAction(this, "Wait");
     }
 
-    MR::moveAndTurnToPlayer(this, ::hNoMoveNoTurnParam._0, ::hNoMoveNoTurnParam._4, ::hNoMoveNoTurnParam._8, ::hNoMoveNoTurnParam._C);
+    MR::moveAndTurnToPlayer(this, ::hNoMoveNoTurnParam);
 
-    if (MR::calcDistanceToPlayer(this) < 900.0f && MR::isFaceToPlayerDegree(this, 120.0f)) {
+    if (MR::calcDistanceToPlayer(this) < 900.0f && MR::isFaceToPlayerDegree(this, cNum_exeWait_isFaceToPlayerDegree_1)) {
         setNerve(GET_NERVE(MechanicKoopaMini, HostTypeNrvFind));
-    } else if (MR::isGreaterStep(this, 120)) {
+    } else if (MR::isGreaterStep(this, NebulaFrameClock::stepsOfSeconds(2))) {
         setNerve(GET_NERVE(MechanicKoopaMini, HostTypeNrvWalkOnRail));
     }
 }
@@ -175,28 +186,28 @@ void MechanicKoopaMini::exeWalkOnRail() {
 
     bool canTurn = false;
     if (MR::isOnGround(this)) {
-        MR::moveAndTurnAlongRail(this, 600.0f, ::hWalkParam._0, ::hWalkParam._4, ::hWalkParam._8, ::hWalkParam._C, &canTurn);
-        TVec3f frontVec;
+        MR::moveAndTurnAlongRail(this, cNum_exeWalkOnRail_moveAndTurnAlongRail_1, ::hWalkParam, &canTurn);
+        Vec3f frontVec;
         MR::calcFrontVec(&frontVec, this);
         if (MR::isBindedWallOfMap(this)) {
-            TVec3f vecc(*MR::getWallNormal(this));
+            Vec3f vecc(*MR::getWallNormal(this));
             if (frontVec.dot(vecc) < -0.99f) {
                 setNerve(GET_NERVE(MechanicKoopaMini, HostTypeNrvJumpStart));
                 return;
             }
         }
 
-        if (MR::calcDistanceToPlayer(this) < 900.0f && MR::isFaceToPlayerDegree(this, 120.0f)) {
+        if (MR::calcDistanceToPlayer(this) < 900.0f && MR::isFaceToPlayerDegree(this, cNum_exeWalkOnRail_isFaceToPlayerDegree_1)) {
             setNerve(GET_NERVE(MechanicKoopaMini, HostTypeNrvFind));
             return;
         }
     } else {
-        MR::moveAndTurnAlongRail(this, 600.0f, ::hOnAirMoveParam._0, ::hOnAirMoveParam._4, ::hOnAirMoveParam._8, ::hOnAirMoveParam._C, &canTurn);
+        MR::moveAndTurnAlongRail(this, cNum_exeWalkOnRail_moveAndTurnAlongRail_2, ::hOnAirMoveParam, &canTurn);
     }
 
     if (canTurn) {
         setNerve(GET_NERVE(MechanicKoopaMini, HostTypeNrvTurn));
-    } else if (!mIsForbidPause && MR::isGreaterStep(this, 120)) {
+    } else if (!mIsForbidPause && MR::isGreaterStep(this, NebulaFrameClock::stepsOfSeconds(2))) {
         setNerve(GET_NERVE(MechanicKoopaMini, HostTypeNrvWait));
     }
 }
@@ -206,14 +217,14 @@ void MechanicKoopaMini::exeTurn() {
         MR::startAction(this, "Turn");
     }
 
-    TVec3f railDir(MR::getRailDirection(this));
+    Vec3f railDir(MR::getRailDirection(this));
     if (MR::isOnGround(this)) {
-        MR::moveAndTurnToDirection(this, railDir, ::hTurnParam._0, ::hTurnParam._4, ::hTurnParam._8, ::hTurnParam._C);
+        MR::moveAndTurnToDirection(this, railDir, ::hTurnParam);
     } else {
-        MR::moveAndTurnToDirection(this, railDir, ::hOnAirParam._0, ::hOnAirParam._4, ::hOnAirParam._8, ::hOnAirParam._C);
+        MR::moveAndTurnToDirection(this, railDir, ::hOnAirParam);
     }
 
-    TVec3f vec(mPosition);
+    Vec3f vec(mPosition);
     vec.add(railDir);
     if (MR::isFaceToTargetDegree(this, vec, 5.0f)) {
         setNerve(GET_NERVE(MechanicKoopaMini, HostTypeNrvWalkOnRail));
@@ -226,13 +237,13 @@ void MechanicKoopaMini::exeJumpStart() {
     }
 
     if (MR::isOnGround(this)) {
-        MR::moveAndTurnToPlayer(this, ::hJumpOnGroundParam._0, ::hJumpOnGroundParam._4, ::hJumpOnGroundParam._8, ::hJumpOnGroundParam._C);
+        MR::moveAndTurnToPlayer(this, ::hJumpOnGroundParam);
     } else {
-        MR::moveAndTurnToPlayer(this, ::hJumpAirParam._0, ::hJumpAirParam._4, ::hJumpAirParam._8, ::hJumpAirParam._C);
+        MR::moveAndTurnToPlayer(this, ::hJumpAirParam);
     }
 
     if (MR::isStep(this, (s32)MR::getBckFrameMax(this) - 3)) {
-        MR::addVelocityJump(this, 45.0f);
+        MR::addVelocityJump(this, cNum_exeJumpStart_addVelocityJump_1);
         MR::startSound(this, "SE_EM_MKOOPAMINI_JUMP");
     }
 
@@ -247,9 +258,9 @@ void MechanicKoopaMini::exeJumpEnd() {
     }
 
     if (MR::isOnGround(this)) {
-        MR::moveAndTurnToPlayer(this, ::hJumpOnGroundParam._0, ::hJumpOnGroundParam._4, ::hJumpOnGroundParam._8, ::hJumpOnGroundParam._C);
+        MR::moveAndTurnToPlayer(this, ::hJumpOnGroundParam);
     } else {
-        MR::moveAndTurnToPlayer(this, ::hJumpAirParam._0, ::hJumpAirParam._4, ::hJumpAirParam._8, ::hJumpAirParam._C);
+        MR::moveAndTurnToPlayer(this, ::hJumpAirParam);
     }
 
     if (MR::isActionEnd(this)) {
@@ -260,14 +271,14 @@ void MechanicKoopaMini::exeJumpEnd() {
 void MechanicKoopaMini::exeFind() {
     if (MR::isFirstStep(this)) {
         MR::startAction(this, "Find");
-        MR::addVelocityJump(this, 26.0f);
+        MR::addVelocityJump(this, cNum_exeFind_addVelocityJump_1);
         MR::startSound(this, "SE_EM_MKOOPAMINI_JUMP");
     }
 
     if (MR::isOnGround(this)) {
-        MR::moveAndTurnToPlayer(this, ::hTurnParam._0, ::hTurnParam._4, ::hTurnParam._8, ::hTurnParam._C);
+        MR::moveAndTurnToPlayer(this, ::hTurnParam);
     } else {
-        MR::moveAndTurnToPlayer(this, ::hOnAirTurnParam._0, ::hOnAirTurnParam._4, ::hOnAirTurnParam._8, ::hOnAirTurnParam._C);
+        MR::moveAndTurnToPlayer(this, ::hOnAirTurnParam);
     }
 
     if (MR::isActionEnd(this)) {
@@ -276,7 +287,7 @@ void MechanicKoopaMini::exeFind() {
 }
 
 void MechanicKoopaMini::exePursue() {
-    TVec3f frontVec;
+    Vec3f frontVec;
     if (MR::isFirstStep(this)) {
         MR::startAction(this, "Pursue");
         MR::invalidateClipping(this);
@@ -284,16 +295,16 @@ void MechanicKoopaMini::exePursue() {
     }
 
     if (MR::isOnGround(this)) {
-        MR::moveAndTurnToPlayer(this, ::hPursueParam._0, ::hPursueParam._4, ::hPursueParam._8, ::hPursueParam._C);
+        MR::moveAndTurnToPlayer(this, ::hPursueParam);
         MR::calcFrontVec(&frontVec, this);
         if (MR::isBindedWall(this)) {
-            TVec3f vecc(*MR::getWallNormal(this));
+            Vec3f vecc(*MR::getWallNormal(this));
             if (frontVec.dot(vecc) < -0.99f) {
                 setNerve(GET_NERVE(MechanicKoopaMini, HostTypeNrvJumpStart));
             }
         }
     } else {
-        MR::moveAndTurnToPlayer(this, ::hOnAirMoveParam._0, ::hOnAirMoveParam._4, ::hOnAirMoveParam._8, ::hOnAirMoveParam._C);
+        MR::moveAndTurnToPlayer(this, ::hOnAirMoveParam);
         MR::calcFrontVec(&frontVec, this);
     }
 
@@ -312,14 +323,14 @@ void MechanicKoopaMini::exePreFireAttack() {
         mVelocity.set(mGravity * -10.0f);
     }
 
-    if (MR::isLessEqualStep(this, 60)) {
+    if (MR::isLessEqualStep(this, NebulaFrameClock::stepsOfSeconds(1))) {
         MR::startLevelSound(this, "SE_EM_LV_MKOOPAMINI_PRE_FIRE");
     }
 
     if (MR::isOnGround(this)) {
-        MR::moveAndTurnToPlayer(this, ::hPreFireAttackParam._0, ::hPreFireAttackParam._4, ::hPreFireAttackParam._8, ::hPreFireAttackParam._C);
+        MR::moveAndTurnToPlayer(this, ::hPreFireAttackParam);
     } else {
-        MR::moveAndTurnToPlayer(this, ::hOnAirParam._0, ::hOnAirParam._4, ::hOnAirParam._8, ::hOnAirParam._C);
+        MR::moveAndTurnToPlayer(this, ::hOnAirParam);
     }
 
     if (MR::isActionEnd(this)) {
@@ -335,14 +346,14 @@ void MechanicKoopaMini::exeFireAttack() {
     }
 
     if (MR::isOnGround(this)) {
-        MR::moveAndTurnToPlayer(this, ::hFireAttackParam._0, ::hFireAttackParam._4, ::hFireAttackParam._8, ::hFireAttackParam._C);
+        MR::moveAndTurnToPlayer(this, ::hFireAttackParam);
     } else {
-        MR::moveAndTurnToPlayer(this, ::hOnAirParam._0, ::hOnAirParam._4, ::hOnAirParam._8, ::hOnAirParam._C);
+        MR::moveAndTurnToPlayer(this, ::hOnAirParam);
     }
 
-    if (MR::isGreaterStep(this, 120)) {
+    if (MR::isGreaterStep(this, NebulaFrameClock::stepsOfSeconds(2))) {
         setNerve(GET_NERVE(MechanicKoopaMini, HostTypeNrvFireAttackEnd));
-    } else if (MR::isLessEqualStep(this, 90)) {
+    } else if (MR::isLessEqualStep(this, NebulaFrameClock::stepsOfMilliseconds(1500))) {
         MR::startLevelSound(this, "SE_EM_LV_MKOOPAMINI_FIRE");
     }
 }
@@ -358,9 +369,9 @@ void MechanicKoopaMini::exeFireAttackEnd() {
     }
 
     if (MR::isOnGround(this)) {
-        MR::moveAndTurnToPlayer(this, ::hNoMoveNoTurnParam._0, ::hNoMoveNoTurnParam._4, ::hNoMoveNoTurnParam._8, ::hNoMoveNoTurnParam._C);
+        MR::moveAndTurnToPlayer(this, ::hNoMoveNoTurnParam);
     } else {
-        MR::moveAndTurnToPlayer(this, ::hOnAirParam._0, ::hOnAirParam._4, ::hOnAirParam._8, ::hOnAirParam._C);
+        MR::moveAndTurnToPlayer(this, ::hOnAirParam);
     }
 
     if (MR::isActionEnd(this)) {
@@ -374,10 +385,9 @@ void MechanicKoopaMini::exeAttackHit() {
     }
 
     if (MR::isOnGround(this)) {
-        MR::moveAndTurnToPlayer(this, ::hHitReactionOnGroundParam._0, ::hHitReactionOnGroundParam._4, ::hHitReactionOnGroundParam._8,
-                                ::hHitReactionOnGroundParam._C);
+        MR::moveAndTurnToPlayer(this, ::hHitReactionOnGroundParam);
     } else {
-        MR::moveAndTurnToPlayer(this, ::hHitReactionAirParam._0, ::hHitReactionAirParam._4, ::hHitReactionAirParam._8, ::hHitReactionAirParam._C);
+        MR::moveAndTurnToPlayer(this, ::hHitReactionAirParam);
     }
 
     if (MR::isOnGround(this) && MR::isActionEnd(this)) {
@@ -392,14 +402,14 @@ void MechanicKoopaMini::exeSpinHit() {
         MR::startSound(this, "SE_EM_MKOOPAMINI_SPIN_HIT");
     }
 
-    if (MR::isGreaterEqualStep(this, 60)) {
+    if (MR::isGreaterEqualStep(this, NebulaFrameClock::stepsOfSeconds(1))) {
         MR::startLevelSound(this, "SE_EM_LV_MKOOPAMINI_PRE_FIRE");
     }
 
     if (MR::isOnGround(this)) {
-        MR::moveAndTurnToPlayer(this, ::hNoMoveNoTurnParam._0, ::hNoMoveNoTurnParam._4, ::hNoMoveNoTurnParam._8, ::hNoMoveNoTurnParam._C);
+        MR::moveAndTurnToPlayer(this, ::hNoMoveNoTurnParam);
     } else {
-        MR::moveAndTurnToPlayer(this, ::hOnAirParam._0, ::hOnAirParam._4, ::hOnAirParam._8, ::hOnAirParam._C);
+        MR::moveAndTurnToPlayer(this, ::hOnAirParam);
     }
 
     if (MR::isActionEnd(this)) {
@@ -412,14 +422,14 @@ void MechanicKoopaMini::exeTrample() {
         MR::startAction(this, "Trample");
     }
 
-    if (MR::isGreaterEqualStep(this, 60)) {
+    if (MR::isGreaterEqualStep(this, NebulaFrameClock::stepsOfSeconds(1))) {
         MR::startLevelSound(this, "SE_EM_LV_MKOOPAMINI_PRE_FIRE");
     }
 
     if (MR::isOnGround(this)) {
-        MR::moveAndTurnToPlayer(this, ::hNoMoveNoTurnParam._0, ::hNoMoveNoTurnParam._4, ::hNoMoveNoTurnParam._8, ::hNoMoveNoTurnParam._C);
+        MR::moveAndTurnToPlayer(this, ::hNoMoveNoTurnParam);
     } else {
-        MR::moveAndTurnToPlayer(this, ::hOnAirParam._0, ::hOnAirParam._4, ::hOnAirParam._8, ::hOnAirParam._C);
+        MR::moveAndTurnToPlayer(this, ::hOnAirParam);
     }
 
     if (MR::isActionEnd(this)) {
@@ -450,7 +460,7 @@ void MechanicKoopaMini::endBindStarPointer() {
 
 void MechanicKoopaMini::control() {
     mScaleController->updateNerve();
-    if (MR::isInDeath(this, TVec3f(0.0f, 0.0f, 0.0f)) || MR::isInWater(mPosition)) {
+    if (MR::isInDeath(this, Vec3f(0.0f, 0.0f, 0.0f)) || MR::isInWater(mPosition)) {
         kill();
     } else if ((isNerve(GET_NERVE(MechanicKoopaMini, HostTypeNrvFireAttack)) || isNerve(GET_NERVE(MechanicKoopaMini, HostTypeNrvPreFireAttack)) ||
                 isNerve(GET_NERVE(MechanicKoopaMini, HostTypeNrvWalkOnRail)) || isNerve(GET_NERVE(MechanicKoopaMini, HostTypeNrvPursue))) &&
@@ -467,7 +477,7 @@ void MechanicKoopaMini::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
             }
         } else if (MR::isSensorPlayer(pReceiver)) {
             if (!MR::isPlayerHipDropFalling()) {
-                TVec3f pos(pReceiver->mPosition);
+                Vec3f pos(pReceiver->mPosition);
                 pos -= pSender->mPosition;
                 f32 SenderRad = pSender->mRadius;
                 f32 ReceiverRad = pReceiver->mRadius;
@@ -496,11 +506,11 @@ bool MechanicKoopaMini::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitS
     }
 
     if (MR::isMsgPlayerTrample(msg)) {
-        TVec3f v16(pSender->mPosition);
-        v16 -= pReceiver->mPosition;
-        f32 ReceiverRad = pReceiver->mRadius;
-        f32 SenderRad = pSender->mRadius;
-        if (((SenderRad + ReceiverRad) - ::hTrampleUpRangeSub) < v16.dot(-mGravity)) {
+        Vec3f toSender(pSender->mPosition);
+        toSender -= pReceiver->mPosition;
+        f32 receiverRadius = pReceiver->mRadius;
+        f32 senderRadius = pSender->mRadius;
+        if (((senderRadius + receiverRadius) - ::hTrampleUpRangeSub) < toSender.dot(-mGravity)) {
             return false;
         } else {
             MR::startSound(this, "SE_EM_MKOOPAMINI_TRAMPLE");
@@ -521,7 +531,7 @@ bool MechanicKoopaMini::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitS
     }
 
     if (MR::isMsgPlayerSpinAttack(msg)) {
-        if (!isNerve(GET_NERVE(MechanicKoopaMini, HostTypeNrvSpinHit)) || !MR::isLessStep(this, 120)) {
+        if (!isNerve(GET_NERVE(MechanicKoopaMini, HostTypeNrvSpinHit)) || !MR::isLessStep(this, NebulaFrameClock::stepsOfSeconds(2))) {
             setNerve(GET_NERVE(MechanicKoopaMini, HostTypeNrvSpinHit));
         }
         return true;
@@ -530,7 +540,7 @@ bool MechanicKoopaMini::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitS
     return false;
 }
 
-bool MechanicKoopaMini::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool MechanicKoopaMini::receiveMsgEnemyAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (MR::isMsgExplosionAttack(msg)) {
         kill();
         MR::appearCoinPop(this, mPosition, 1);
@@ -540,7 +550,7 @@ bool MechanicKoopaMini::receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSe
     return false;
 }
 
-bool MechanicKoopaMini::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool MechanicKoopaMini::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (MR::isMsgInhaleBlackHole(msg)) {
         kill();
         return true;
@@ -551,7 +561,7 @@ bool MechanicKoopaMini::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* 
 
 bool MechanicKoopaMini::receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver) {
     if (!MR::isSensorPlayer(pSender)) {
-        MR::addVelocityFromPush(this, 3.0f, pSender, pReceiver);
+        MR::addVelocityFromPush(this, cNum_receiveMsgPush_addVelocityFromPush_1, pSender, pReceiver);
         return true;
     }
 
@@ -559,7 +569,7 @@ bool MechanicKoopaMini::receiveMsgPush(HitSensor* pSender, HitSensor* pReceiver)
 }
 
 void MechanicKoopaMini::updateHitSensor(HitSensor* pSensor) {
-    TVec3f up, front;
+    Vec3f up, front;
     MR::calcUpVec(&up, this);
     MR::calcFrontVec(&front, this);
     f32 dot = front.dot(*MR::getPlayerCenterPos() - mPosition);
@@ -573,5 +583,5 @@ void MechanicKoopaMini::updateHitSensor(HitSensor* pSensor) {
 
 void MechanicKoopaMini::calcAndSetBaseMtx() {
     LiveActor::calcAndSetBaseMtx();
-    MR::setBaseScale(this, mScaleController->_C * mScale);
+    MR::setBaseScale(this, mScaleController->mScale * mScale);
 }

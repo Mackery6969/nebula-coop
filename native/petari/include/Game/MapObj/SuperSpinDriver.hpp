@@ -7,31 +7,40 @@
 #include "Game/MapObj/SpinDriverPathDrawer.hpp"
 #include "Game/MapObj/SpinDriverShootPath.hpp"
 
+class Nerve;
+
+// SuperSpinDriver::mColor: also the btp frame. Green needs the green driver event and shows an empty model until then.
+enum SuperSpinDriverColor {
+    SuperSpinDriverColor_Yellow,
+    SuperSpinDriverColor_Green,
+    SuperSpinDriverColor_Pink,
+};
+
 class SuperSpinDriver : public LiveActor {
 public:
-    SuperSpinDriver(const char*, s32);
+    SuperSpinDriver(const char*, s32 color);
 
-    virtual void init(const JMapInfoIter&);
-    virtual void initAfterPlacement();
-    virtual void appear();
-    virtual void makeActorAppeared();
-    virtual void startClipped();
-    virtual void endClipped();
-    virtual void control();
-    virtual void calcAndSetBaseMtx();
-    virtual void attackSensor(HitSensor*, HitSensor*);
-    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*);
+    virtual void init(const TableIter&) override;
+    virtual void initAfterPlacement() override;
+    virtual void appear() override;
+    virtual void makeActorAppeared() override;
+    virtual void startClipped() override;
+    virtual void endClipped() override;
+    virtual void control() override;
+    virtual void calcAndSetBaseMtx() override;
+    virtual void attackSensor(HitSensor*, HitSensor*) override;
+    virtual bool receiveOtherMsg(u32, HitSensor*, HitSensor*) override;
 
-    void initParamFromJMapInfo(const JMapInfoIter&);
+    void initParamFromPlacement(const TableIter&);
     void initGravityAxis();
     void initSensor();
     void initEmptyModel();
-    void initEventCamera(const JMapInfoIter&);
-    void initShootPath(const JMapInfoIter&);
-    void initShootPathDraw(const JMapInfoIter&);
+    void initEventCamera(const TableIter&);
+    void initShootPath(const TableIter&);
+    void initShootPathDraw(const TableIter&);
     void initColor();
     void initOperateRing();
-    void initAppearState(const JMapInfoIter&);
+    void initAppearState(const TableIter&);
     bool canBind(HitSensor*, HitSensor*) const;
     bool tryBind(HitSensor*, HitSensor*);
     bool tryEndCapture();
@@ -64,8 +73,8 @@ public:
     void cancelBind();
     void endBind();
     void updateBindActorMatrix();
-    void updateBindActorPoseToShoot(f32);
-    void turnBindHead(const TVec3f&, f32);
+    void updateBindActorPoseToShoot(f32 rate);
+    void turnBindHead(const Vec3f& rUp, f32 rate);
     void moveBindPosToCenter();
     void startPathDraw();
     void endPathDraw();
@@ -82,47 +91,53 @@ public:
     bool isSwingOr2PTrigger() const;
     bool isFarPlayer() const;
 
+private:
+    bool isPullPlayer(HitSensor*, HitSensor*) const;
+    bool tryReleaseBind();
+    void requestAppearNerve(const Nerve*);
+    void startAppearCamera();
+    void tryEndAppear(const Nerve* pNextNerve);
+
+public:
     LiveActor* mBindActor;
     SpinDriverShootPath* mShootPath;
     SpinDriverCamera* mSpinDriverCamera;
     SpinDriverOperateRing* mOperateRing;
     SpinDriverPathDrawer* mPathDrawer;
     ModelObj* mEmptyModel;
-    TQuat4f _A4;
-    TQuat4f _B4;
-    TVec3f _C4;
-    TVec3f _D0;
-    TVec3f mShootPathDirection;
-    TVec3f _E8;
-    TVec3f _F4;
-    TVec3f _100;
-    TVec3f mShootPathPosition;
-    TVec3f _118;
-    TVec3f _124;
-    f32 _130;
-    f32 _134;
-    f32 _138;
-    f32 _13C;
+    Quat4f mInitBindQuat;
+    Quat4f mBindQuat;
+    Vec3f mBindPos;
+    Vec3f mBindVelocity;
+    Vec3f mShootPathDirection;
+    Vec3f mFront;
+    Vec3f mSide;
+    Vec3f mUp;
+    Vec3f mShootPathPosition;
+    Vec3f mCaptureStartPos;
+    Vec3f mClippingCenter;
+    f32 mClippingRadius;
+    f32 mSwingAngle;
+    f32 mSwingAngleMax;
     f32 mFrontAngle;
-    f32 _144;
-    f32 _148;
+    f32 mSpinSpeed;
+    f32 mRollAngle;
     f32 mShadowLength;
     s32 mFlightTime;
-    s32 _154;
-    s32 _158;
-    s32 _15C;
+    s32 mFlyLoopStep;
+    s32 mFlyEndStep;
+    s32 mFallStep;
+    // The bound player's SpaceFlyStart / SpaceFlyEnd lengths, read at bind.
+    s32 mSpaceFlyStartFrame;
+    s32 mSpaceFlyEndFrame;
     s32 mDrawPathRangeIdx;
     f32 mPlayerLandRotation;
-    u32 _168;
+    u32 mAlreadyDoneFlag;
     s32 mAlreadyDoneFlagIdx;
     s32 mColor;
-    bool _174;
-    // u8 _175;
-    // u8 _176;
-    // u8 _177;
-    s32 _178;
-    bool _17C;
-    bool _17D;
+    bool mIsPlayerAway;
+    s32 mCoolDown;
+    bool mIsCoolingDown;
     bool mIsPullPlayer;
     bool mIsDisableJingle;
 };

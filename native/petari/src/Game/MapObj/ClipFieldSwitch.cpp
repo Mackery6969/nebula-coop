@@ -4,9 +4,6 @@
 #include "Game/Util.hpp"
 #include "Game/System/NebulaCoopWorld.hpp"
 
-ClipFieldSwitch::~ClipFieldSwitch() {
-}
-
 ClipFieldSwitch::ClipFieldSwitch(const char* pName) : LiveActor(pName) {
 }
 
@@ -19,32 +16,31 @@ void ClipFieldSwitch::control() {
 
 void ClipFieldSwitch::controlSwitches() {
     mPosition = *MR::getPlayerPos();
+    const bool isInArea = MR::isInClipArea(mPosition, 5.0f);
 
-    if (MR::isInClipArea(*MR::getPlayerPos(), 5.0f)) {
-        if (MR::isValidSwitchA(this)) {
+    if (MR::isValidSwitchA(this)) {
+        if (isInArea) {
             MR::onSwitchA(this);
-        }
-
-        if (MR::isValidSwitchB(this)) {
-            MR::offSwitchB(this);
-        }
-    } else {
-        if (MR::isValidSwitchA(this)) {
+        } else {
             MR::offSwitchA(this);
         }
+    }
 
-        if (MR::isValidSwitchB(this)) {
+    if (MR::isValidSwitchB(this)) {
+        if (isInArea) {
+            MR::offSwitchB(this);
+        } else {
             MR::onSwitchB(this);
         }
     }
 }
 
-void ClipFieldSwitch::init(const JMapInfoIter& rIter) {
+void ClipFieldSwitch::init(const TableIter& rIter) {
     MR::connectToSceneMapObjMovement(this);
     MR::useStageSwitchWriteA(this, rIter);
     MR::useStageSwitchWriteB(this, rIter);
     initHitSensor(1);
-    MR::addHitSensorEye(this, "body", 8, 1000.0f, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorEye(this, "body", 8, 1000.0f, Vec3f(0.0f, 0.0f, 0.0f));
     MR::invalidateClipping(this);
     appear();
 }

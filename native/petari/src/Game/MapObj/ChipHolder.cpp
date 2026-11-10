@@ -10,8 +10,7 @@ ChipHolder::ChipHolder(const char* pName, s32 chipType) : NameObj(pName), mChipC
 }
 
 void ChipHolder::registerChipGroup(ChipGroup* pChipGroup) {
-    mChipGroups.at(mNumChipGroups) = pChipGroup;
-    mNumChipGroups++;
+    mChipGroups.at(mNumChipGroups++) = pChipGroup;
 }
 
 ChipGroup* ChipHolder::findChipGroup(s32 groupId) const {
@@ -55,36 +54,53 @@ void MR::registerChipGroup(s32 chipType, ChipGroup* pChipGroup) {
 }
 
 void MR::registerChip(s32 chipType, ChipBase* pChip, s32 groupId) {
-    getChipHolder(chipType)->findChipGroup(groupId)->registerChip(pChip);
+    // A chip whose group is not placed (a bad group id) joins none.
+    ChipHolder* pHolder = getChipHolder(chipType);
+    ChipGroup* pGroup = pHolder != nullptr ? pHolder->findChipGroup(groupId) : nullptr;
+    if (pGroup != nullptr) {
+        pGroup->registerChip(pChip);
+    }
 }
 
 void MR::noticeGetChip(s32 chipType, ChipBase* pChip, s32 groupId) {
-    ChipHolder* holder = getChipHolder(chipType);
-    ChipGroup* group = holder->findChipGroup(groupId);
-    group->noticeGet(pChip);
-    holder->mChipCounter->setCount(group->getGotCount());
+    ChipHolder* pHolder = getChipHolder(chipType);
+    ChipGroup* pGroup = pHolder != nullptr ? pHolder->findChipGroup(groupId) : nullptr;
+    // A chip with no group is not counted, but still gives its air.
+    if (pGroup != nullptr) {
+        pGroup->noticeGet(pChip);
+        pHolder->mChipCounter->setCount(pGroup->getGotCount());
+    }
     incPlayerOxygen(8);
 }
 
-void MR::showChipCounter(s32 chipType, s32 param2) {
-    ChipHolder* holder = getChipHolder(chipType);
-    return holder->mChipCounter->requestShow(param2, holder->findChipGroup(param2)->getGotCount());
+void MR::showChipCounter(s32 chipType, s32 groupId) {
+    ChipHolder* pHolder = getChipHolder(chipType);
+    ChipGroup* pGroup = pHolder != nullptr ? pHolder->findChipGroup(groupId) : nullptr;
+    if (pGroup != nullptr) {
+        pHolder->mChipCounter->requestShow(groupId, pGroup->getGotCount());
+    }
 }
 
-void MR::hideChipCounter(s32 chipType, s32 param2) {
-    getChipHolder(chipType)->mChipCounter->requestHide(param2);
+void MR::hideChipCounter(s32 chipType, s32 groupId) {
+    getChipHolder(chipType)->mChipCounter->requestHide(groupId);
 }
 
-void MR::requestStartChipCompleteDemo(s32 chipType, s32 param2) {
-    getChipHolder(chipType)->mChipCounter->requestComplete(param2);
+void MR::requestStartChipCompleteDemo(s32 chipType, s32 groupId) {
+    getChipHolder(chipType)->mChipCounter->requestComplete(groupId);
 }
 
 void MR::noticeEndChipCompleteDemo(s32 chipType, s32 groupId) {
-    getChipHolder(chipType)->findChipGroup(groupId)->noticeEndCompleteDemo();
+    ChipHolder* pHolder = getChipHolder(chipType);
+    ChipGroup* pGroup = pHolder != nullptr ? pHolder->findChipGroup(groupId) : nullptr;
+    if (pGroup != nullptr) {
+        pGroup->noticeEndCompleteDemo();
+    }
 }
 
 s32 MR::getGotChipCount(s32 chipType, s32 groupId) {
-    return getChipHolder(chipType)->findChipGroup(groupId)->getGotCount();
+    ChipHolder* pHolder = getChipHolder(chipType);
+    ChipGroup* pGroup = pHolder != nullptr ? pHolder->findChipGroup(groupId) : nullptr;
+    return pGroup != nullptr ? pGroup->getGotCount() : 0;
 }
 
 void MR::activateChipLayout() {
@@ -107,16 +123,13 @@ void MR::deactivateChipLayout() {
     }
 }
 
-ChipHolder::~ChipHolder() {
-}
-
-void ChipHolder::init(const JMapInfoIter& rIter) {
+void ChipHolder::init(const TableIter& /*rIter*/) {
     switch (mChipType) {
     case ChipBase::Type_Blue:
-        mChipCounter = new ChipCounter("\203\165\203\213\201\133\203\140\203\142\203\166\203\112\203\105\203\223\203\136\201\133" /* ブルーチップカウンター */, mChipType);
+        mChipCounter = new ChipCounter("ブルーチップカウンター", mChipType);
         break;
     case ChipBase::Type_Yellow:
-        mChipCounter = new ChipCounter("\203\103\203\107\203\215\201\133\203\140\203\142\203\166\203\112\203\105\203\223\203\136\201\133" /* イエローチップカウンター */, mChipType);
+        mChipCounter = new ChipCounter("イエローチップカウンター", mChipType);
         break;
     }
 

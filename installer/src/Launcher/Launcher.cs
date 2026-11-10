@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -142,6 +142,8 @@ namespace Nebula.Launcher
             {
                 if (!File.Exists(Path.Combine(Content, "game.pak")))
                     return "Nebula could not find the game content (game.pak). Choose it in Nebula settings.";
+                if (!GameDisc.IsCurrentVersion(Path.Combine(Content, "game.pak")))
+                    return NebulaText.Of("The game content is from another version of Nebula. Run Nebula Setup to read your game again.");
                 if (RuntimeLeaseHeld() && !EndRunningGame())
                     return NebulaText.Of("Nebula is already running.");
                 LaunchOptions.ValidatePair(App);
@@ -164,20 +166,51 @@ namespace Nebula.Launcher
             catch (Exception error) { return error.Message; }
         }
 
-        // The game's lease: a named mutex it holds while it runs.
-        // TODO: create the lease in NebulaNative (native/host/host_main.cpp); without it this never sees the game running.
+        private static readonly string[] Releases = { "RMGE01", "RMGP01", "RMGJ01" };
+
+        // The game's lease names (host_main.cpp hold_runtime_lease: Local\Nebula.<release>.NativeRuntime). Tests set their own
+        // namespace, so a game open in the same session is not the game the test starts or holds.
+        internal static string LeaseNamespace = @"Local\Nebula.";
+        internal static string LeaseName(string release) { return LeaseNamespace + release + ".NativeRuntime"; }
+
+        // Waits up to `milliseconds` for the game of every release to end: its lease is free (or abandoned) once the
+        // process is gone.
+        internal static bool WaitForRuntimeLease(int milliseconds)
+        {
+            var timer = Stopwatch.StartNew();
+            foreach (string release in Releases)
+            {
+                Mutex lease;
+                if (!Mutex.TryOpenExisting(LeaseName(release), out lease)) continue;
+                using (lease)
+                {
+                    bool acquired;
+                    try { acquired = lease.WaitOne((int)Math.Max(0, milliseconds - timer.ElapsedMilliseconds)); }
+                    catch (AbandonedMutexException) { acquired = true; }
+                    if (!acquired) return false;
+                    lease.ReleaseMutex();
+                }
+            }
+            return true;
+        }
+
+        // The game's lease: a named mutex it holds while it runs, one per release (host_main.cpp hold_runtime_lease).
         internal static bool RuntimeLeaseHeld()
         {
-            Mutex lease;
-            if (!Mutex.TryOpenExisting(@"Local\Nebula.RMGE01.NativeRuntime", out lease)) return false;
-            using (lease)
+            foreach (string release in Releases)
             {
-                bool acquired;
-                try { acquired = lease.WaitOne(0); }
-                catch (AbandonedMutexException) { acquired = true; }
-                if (acquired) lease.ReleaseMutex();
-                return !acquired;
+                Mutex lease;
+                if (!Mutex.TryOpenExisting(LeaseName(release), out lease)) continue;
+                using (lease)
+                {
+                    bool acquired;
+                    try { acquired = lease.WaitOne(0); }
+                    catch (AbandonedMutexException) { acquired = true; }
+                    if (acquired) lease.ReleaseMutex();
+                    if (!acquired) return true;
+                }
             }
+            return false;
         }
 
         // A game that stopped responding can keep the lease after its window is gone. Offers to end this
@@ -204,8 +237,7 @@ namespace Nebula.Launcher
                 {
                     try { process.Kill(); process.WaitForExit(5000); } catch (Exception) { }
                 }
-                for (int i = 0; i < 50 && RuntimeLeaseHeld(); i++) Thread.Sleep(100);
-                return !RuntimeLeaseHeld();
+                return WaitForRuntimeLease(5000);
             }
             finally
             {
@@ -216,17 +248,14 @@ namespace Nebula.Launcher
         private void StartRecorded(ProcessStartInfo start, string saves)
         {
             string session = Sessions.Create("diagnostics");
-            start.EnvironmentVariables["GALAXY_CRASH_DUMP_DIR"] = session;
-            start.EnvironmentVariables["GALAXY_FRAME_TIMELINE_PATH"] = Path.Combine(session, "timeline.bin");
+            // --diagnostics 1 records the frame timeline; it is written into the session at exit.
+            start.Arguments += " --timeline " + ProcessRunner.Quote(Path.Combine(session, "timeline.bin"));
             var launchFiles = new Dictionary<string, object>();
             foreach (string name in new[] { "NebulaNative.exe", "smg_game.dll", "Nebula.exe" })
             {
                 string path = Path.Combine(App, name);
                 if (File.Exists(path)) launchFiles[name] = FileUtil.Sha256File(path);
             }
-            var launchEnvironment = new Dictionary<string, object>();
-            foreach (string name in start.EnvironmentVariables.Keys)
-                if (name.StartsWith("GALAXY_", StringComparison.OrdinalIgnoreCase)) launchEnvironment[name] = start.EnvironmentVariables[name];
             var graphics = GraphicsSettings.Load();
             var sessionInfo = new Dictionary<string, object>
             {
@@ -235,7 +264,7 @@ namespace Nebula.Launcher
                 { "app", App }, { "displayMode", graphics.DisplayMode }, { "window", graphics.WindowWidth + "x" + graphics.WindowHeight },
                 { "aspect", GraphicsSettings.AspectNames[graphics.Aspect] },
                 { "detailedRendererTimings", Recording == RecordingMode.Detailed },
-                { "launchFileSha256", launchFiles }, { "environment", launchEnvironment }
+                { "launchFileSha256", launchFiles }, { "arguments", start.Arguments }
             };
             Json.Save(Path.Combine(session, "session.json"), sessionInfo);
             var game = Process.Start(start);
@@ -270,16 +299,68 @@ namespace Nebula.Launcher
         private bool frameRowsChosen;
         private bool gpuRefresh;
 
-        // The quality row's list and choice for the selected upscaler.
+        // The upscaler the list shows (its config number).
+        private int ShownUpscaler
+        {
+            get
+            {
+                int index = upscaler.SelectedIndex;
+                return index >= 0 && index < upscalerChoices.Count ? upscalerChoices[index] : graphics.Upscaler;
+            }
+        }
+
+        // The quality row's modes (config numbers) in list order: the shown upscaler's.
+        private int[] qualityOrder = GraphicsSettings.QualityOrder;
+        // The 3D resolution row's label: Internal resolution, or Upscaler quality while an upscaler runs.
+        private readonly Label resolutionLabel = new Label();
+
+        // The quality row's list and choice for the selected upscaler: its own mode, where the 3D resolution is set
+        // while it runs. With upscaling off the row is hidden (its list FSR 1's, which the hidden row keeps).
         private void ShowUpscalerQuality()
         {
-            bool dlss = upscaler.SelectedIndex >= 0 && upscaler.SelectedIndex < upscalerChoices.Count &&
-                        upscalerChoices[upscaler.SelectedIndex] == 3;
-            string[] names = dlss ? GraphicsSettings.DlssQualities : GraphicsSettings.SpatialQualities;
-            int value = dlss ? graphics.TemporalQuality : graphics.SpatialQuality;
+            int shown = ShownUpscaler;
+            qualityOrder = shown == 3 ? GraphicsSettings.DlssQualityOrder : GraphicsSettings.QualityOrder;
+            int value = GraphicsSettings.TemporalUpscaler(shown) ? graphics.TemporalQuality : graphics.SpatialQuality;
+            if (shown == 3 && value == 5) value = 1;  // as DLSS runs it
             dlssQuality.Items.Clear();
-            dlssQuality.Items.AddRange(names);
-            dlssQuality.SelectedIndex = Math.Max(0, Math.Min(value, names.Length - 1));
+            foreach (int mode in qualityOrder) dlssQuality.Items.Add(GraphicsSettings.QualityName(shown, mode));
+            dlssQuality.SelectedIndex = Math.Max(0, Array.IndexOf(qualityOrder, value));
+            RefreshImageRows();
+        }
+
+        // Keeps the quality row's choice for the upscaler it was shown for.
+        private void KeepQuality(int shown)
+        {
+            int index = dlssQuality.SelectedIndex;
+            if (shown == 0 || index < 0 || index >= qualityOrder.Length) return;
+            if (GraphicsSettings.TemporalUpscaler(shown)) graphics.TemporalQuality = qualityOrder[index];
+            else graphics.SpatialQuality = qualityOrder[index];
+        }
+
+        // The HUD row's own choice while a fixed one is shown.
+        private bool hudChosen;
+
+        // One row sets the 3D resolution: the internal resolution with upscaling off, the upscaler's mode with it on.
+        // A temporal upscaler antialiases itself (no anti-aliasing or MSAA under it); ray tracing replaces MSAA,
+        // ambient occlusion and the lighting modes. The HUD is at the display's resolution where the 3D resolution
+        // is fixed (an internal resolution or a temporal upscaler). As the game's menu has them.
+        private void RefreshImageRows()
+        {
+            int shown = ShownUpscaler;
+            bool temporal = GraphicsSettings.TemporalUpscaler(shown);
+            bool rt = rayTracingOffered && rayTracing.Checked;
+            internalResolution.Visible = shown == 0;
+            dlssQuality.Visible = shown != 0;
+            resolutionLabel.Text = shown == 0 ? NebulaText.Of("Internal resolution") : NebulaText.Of("Upscaler quality");
+            antiAliasing.Enabled = aaQuality.Enabled = !temporal;
+            msaa.Enabled = !temporal && !rt;
+            occlusion.Enabled = lighting.Enabled = !rt;
+            bool exact = shown == 0 && internalResolution.SelectedIndex > 0;
+            bool fixedHud = temporal || exact;
+            if (fixedHud && hudOutput.Enabled) hudChosen = hudOutput.Checked;
+            if (!fixedHud && !hudOutput.Enabled) hudOutput.Checked = hudChosen;
+            hudOutput.Enabled = !fixedHud;
+            if (fixedHud) hudOutput.Checked = true;
         }
         private readonly ComboBox inputSource = new ComboBox(), editScheme = new ComboBox(), motion = new ComboBox(),
             vibration = new ComboBox();
@@ -301,7 +382,7 @@ namespace Nebula.Launcher
         private readonly CheckBox vsync = new CheckBox();
         private readonly CheckBox askUpdates = new CheckBox();
         private readonly ComboBox antiAliasing = new ComboBox(), aaQuality = new ComboBox(), msaa = new ComboBox(),
-            upscaler = new ComboBox(),
+            upscaler = new ComboBox(), internalResolution = new ComboBox(),
             dlssQuality = new ComboBox(), textureFilter = new ComboBox(), lighting = new ComboBox(),
             interpolation = new ComboBox(), rtQuality = new ComboBox();
         // The frame rate row's label: TARGET with interpolation, LIMIT without.
@@ -433,7 +514,15 @@ namespace Nebula.Launcher
 
             y = 16;
             Row(image, NebulaText.Of("Upscaling"), upscaler, ref y);
-            Row(image, NebulaText.Of("Upscaler quality"), dlssQuality, ref y);
+            // One row sets the 3D resolution, in one place: the internal resolution with upscaling off, the upscaler's
+            // mode with it on (RefreshImageRows shows one).
+            resolutionLabel.Location = new Point(12, y + 3);
+            resolutionLabel.Size = new Size(300, 26);
+            image.Controls.Add(resolutionLabel);
+            Combo(image, internalResolution, 320, y);
+            Combo(image, dlssQuality, 320, y);
+            y += 40;
+            internalResolution.Items.AddRange(GraphicsSettings.InternalResolutions);
             Label(image, NebulaText.Of("Sharpening (0-100)"), 12, y + 3);
             sharpness.Location = new Point(320, y);
             sharpness.Size = new Size(120, 28);
@@ -471,17 +560,14 @@ namespace Nebula.Launcher
             rtQuality.Items.AddRange(GraphicsSettings.RtQualities);
             rtQuality.Visible = rayTracingOffered;
             rtQuality.Enabled = false;
-            rayTracing.CheckedChanged += delegate { rtQuality.Enabled = rayTracing.Checked; };
+            rayTracing.CheckedChanged += delegate { rtQuality.Enabled = rayTracing.Checked; RefreshImageRows(); };
             antiAliasing.Items.AddRange(GraphicsSettings.AntiAliasingModes);
             aaQuality.Items.AddRange(GraphicsSettings.AntiAliasingQualities);
             msaa.Items.AddRange(GraphicsSettings.MsaaModes);
             foreach (int value in upscalerChoices) upscaler.Items.Add(GraphicsSettings.UpscalerName(value));
             textureFilter.Items.AddRange(GraphicsSettings.TextureFilters);
             lighting.Items.AddRange(GraphicsSettings.LightingModes);
-            interpolationChoices.Add(0);
-            interpolationChoices.Add(1);
-            if (upscalerChoices.Contains(3)) interpolationChoices.Add(2);
-            foreach (int value in interpolationChoices) interpolation.Items.Add(GraphicsSettings.InterpolationModes[value]);
+            FillInterpolationChoices();
 
             for (int i = 0; i < volumes.Length; i++)
             {
@@ -564,6 +650,7 @@ namespace Nebula.Launcher
             {
                 if (loading) return;
                 graphics.FullscreenWidth = graphics.FullscreenHeight = graphics.FullscreenRefresh = 0;
+                FillInterpolationChoices();
                 RefreshDisplayChoices();
                 RefreshDisplayNotice();
             };
@@ -580,7 +667,8 @@ namespace Nebula.Launcher
             gpuBox.SelectedIndexChanged += delegate { if (!loading) RefreshGpuOptions(); };
             dlssQuality.SelectedIndexChanged += delegate { if (!loading && !gpuRefresh) frameRowsChosen = true; };
             frameRate.SelectedIndexChanged += delegate { if (!loading && !gpuRefresh) frameRowsChosen = true; };
-            // Choosing DLSS before it is downloaded opens the download; closing it without
+            internalResolution.SelectedIndexChanged += delegate { if (!loading) RefreshImageRows(); };
+            // Choosing DLSS or XeSS before it is downloaded opens the download; closing it without
             // installing goes back to the previous choice.
             upscalerShown = upscaler.SelectedIndex;
             upscaler.SelectedIndexChanged += delegate
@@ -588,23 +676,24 @@ namespace Nebula.Launcher
                 if (loading) return;
                 frameRowsChosen = true;
                 int index = upscaler.SelectedIndex;
-                if (index >= 0 && upscalerChoices[index] == 3 && !GraphicsSettings.DlssInstalled())
+                int chosen = index >= 0 ? upscalerChoices[index] : 0;
+                VendorPackage package = chosen == 3 ? DlssPackage.Package : chosen == 4 ? XessPackage.Package : null;
+                if (package != null && !package.Installed())
                 {
                     bool installed;
-                    using (var dialog = new DlssInstallDialog(false)) installed = dialog.ShowDialog(this) == DialogResult.OK;
+                    using (var dialog = new VendorInstallDialog(package, false)) installed = dialog.ShowDialog(this) == DialogResult.OK;
                     loading = true;
-                    if (installed) upscaler.Items[index] = GraphicsSettings.UpscalerName(3);
+                    if (installed) upscaler.Items[index] = GraphicsSettings.UpscalerName(chosen);
                     else upscaler.SelectedIndex = upscalerShown;
                     loading = false;
                 }
-                // The quality list follows the upscaler: DLSS modes or the bilinear/FSR 1 ones.
-                bool wasDlss = upscalerShown >= 0 && upscalerChoices[upscalerShown] == 3;
-                if (wasDlss) graphics.TemporalQuality = Math.Max(0, dlssQuality.SelectedIndex);
-                else graphics.SpatialQuality = Math.Max(0, dlssQuality.SelectedIndex);
+                // The quality list follows the upscaler: its choice for the one shown before is kept.
+                if (upscalerShown >= 0 && upscalerShown < upscalerChoices.Count) KeepQuality(upscalerChoices[upscalerShown]);
                 upscalerShown = upscaler.SelectedIndex;
                 ShowUpscalerQuality();
-                // DLSS Frame Generation runs with DLSS only.
-                if (SelectedInterpolation == 2 && upscalerChoices[upscaler.SelectedIndex] != 3)
+                // DLSS Frame Generation runs with DLSS only, FSR 3 Frame Generation with FSR 3 or XeSS.
+                int now = ShownUpscaler;
+                if ((SelectedInterpolation == 2 && now != 3) || (SelectedInterpolation == 3 && now != 2 && now != 4))
                 {
                     loading = true;
                     interpolation.SelectedIndex = interpolationChoices.IndexOf(1);
@@ -616,9 +705,13 @@ namespace Nebula.Launcher
             {
                 if (loading) return;
                 frameRowsChosen = true;
-                // Frame generation selects DLSS (its download when it is not installed yet).
-                if (SelectedInterpolation == 2 && upscalerChoices[Math.Max(0, upscaler.SelectedIndex)] != 3)
+                // Frame generation selects its upscaler (DLSS's download when it is not installed yet): DLSS for
+                // NVIDIA's, FSR 3 for AMD's unless XeSS runs.
+                int now = ShownUpscaler;
+                if (SelectedInterpolation == 2 && now != 3)
                     upscaler.SelectedIndex = upscalerChoices.IndexOf(3);
+                else if (SelectedInterpolation == 3 && now != 2 && now != 4)
+                    upscaler.SelectedIndex = upscalerChoices.IndexOf(2);
                 RefreshFrameRateChoices();
             };
             UiScale.Apply(this);
@@ -943,10 +1036,13 @@ namespace Nebula.Launcher
             antiAliasing.SelectedIndex = graphics.AntiAliasing;
             aaQuality.SelectedIndex = graphics.Quality;
             msaa.SelectedIndex = graphics.Msaa;
-            upscaler.SelectedIndex = upscalerChoices.Contains(graphics.Upscaler)
-                ? upscalerChoices.IndexOf(graphics.Upscaler) : upscalerChoices.IndexOf(1);
+            upscaler.SelectedIndex = upscalerChoices.IndexOf(GraphicsSettings.OfferedUpscaler(upscalerChoices, graphics.Upscaler));
+            internalResolution.SelectedIndex = Math.Max(0, Array.IndexOf(GraphicsSettings.InternalHeights, graphics.InternalHeight));
+            hudOutput.Checked = hudChosen = graphics.HudOutputResolution;
             ShowUpscalerQuality();
-            int interpolationMode = graphics.FrameGeneration != 0 && interpolationChoices.Contains(2) ? 2
+            FillInterpolationChoices();
+            int interpolationMode = graphics.FrameGeneration == 2 && interpolationChoices.Contains(3) ? 3
+                : graphics.FrameGeneration != 0 && interpolationChoices.Contains(2) ? 2
                 : graphics.FrameRate != 0 && graphics.FrameRate <= 61 ? 0 : 1;
             interpolation.SelectedIndex = Math.Max(0, interpolationChoices.IndexOf(interpolationMode));
             sharpness.Value = graphics.Sharpness;
@@ -954,10 +1050,10 @@ namespace Nebula.Launcher
             lighting.SelectedIndex = graphics.EnhancedLighting ? 0 : graphics.PerPixelLighting ? 1 : 2;
             mipmaps.Checked = graphics.GeneratedMipmaps;
             occlusion.Checked = graphics.AmbientOcclusion;
-            hudOutput.Checked = graphics.HudOutputResolution;
             rayTracing.Checked = graphics.RayTracing;
             rtQuality.SelectedIndex = Math.Max(0, Array.IndexOf(GraphicsSettings.RtQualityOrder, graphics.RtQuality));
             rtQuality.Enabled = graphics.RayTracing;
+            RefreshImageRows();
             for (int i = 0; i < volumes.Length; i++)
             {
                 volumes[i].Value = Math.Max(0, Math.Min(200, audio.Percent[i]));
@@ -1080,35 +1176,48 @@ namespace Nebula.Launcher
         private void ShowGpuOptions()
         {
             string gpu = SelectedGpuId;
-            int shownUpscaler = upscaler.SelectedIndex >= 0 && upscaler.SelectedIndex < upscalerChoices.Count
-                ? upscalerChoices[upscaler.SelectedIndex] : graphics.Upscaler;
-            if (shownUpscaler == 3) graphics.TemporalQuality = Math.Max(0, dlssQuality.SelectedIndex);
-            else graphics.SpatialQuality = Math.Max(0, dlssQuality.SelectedIndex);
-            int shownInterpolation = SelectedInterpolation;
+            int shownUpscaler = ShownUpscaler;
+            KeepQuality(shownUpscaler);
 
             loading = true;
             upscalerChoices = GraphicsSettings.UpscalerChoices(gpu);
             upscaler.Items.Clear();
             foreach (int value in upscalerChoices) upscaler.Items.Add(GraphicsSettings.UpscalerName(value));
-            upscaler.SelectedIndex = upscalerChoices.Contains(shownUpscaler) ? upscalerChoices.IndexOf(shownUpscaler) : upscalerChoices.IndexOf(1);
+            upscaler.SelectedIndex = upscalerChoices.IndexOf(GraphicsSettings.OfferedUpscaler(upscalerChoices, shownUpscaler));
             upscalerShown = upscaler.SelectedIndex;
-
-            interpolationChoices.Clear();
-            interpolationChoices.Add(0);
-            interpolationChoices.Add(1);
-            if (upscalerChoices.Contains(3)) interpolationChoices.Add(2);
-            interpolation.Items.Clear();
-            foreach (int value in interpolationChoices) interpolation.Items.Add(GraphicsSettings.InterpolationModes[value]);
-            interpolation.SelectedIndex = interpolationChoices.Contains(shownInterpolation)
-                ? interpolationChoices.IndexOf(shownInterpolation) : interpolationChoices.IndexOf(1);
-
             rayTracingOffered = GraphicsSettings.RayTracingAdapter(gpu);
             rayTracing.Visible = rtQuality.Visible = rayTracingOffered;
             loading = false;
 
+            FillInterpolationChoices();
             ShowUpscalerQuality();
             RefreshFrameRateChoices();
             RefreshDisplayNotice();
+        }
+
+        // The interpolation modes this GPU, display and upscaler list offer (InterpolationModes): DLSS Frame
+        // Generation where DLSS is, AMD's where the display shows its 120. The selection stays where it is offered,
+        // else goes to Native (Off stays Off).
+        private void FillInterpolationChoices()
+        {
+            int shown = interpolation.Items.Count != 0 ? SelectedInterpolation : -1;
+            int refreshHz = SelectedMonitor != null ? SelectedMonitor.Refresh : 0;
+            bool wasLoading = loading;
+            loading = true;
+            interpolationChoices.Clear();
+            interpolationChoices.Add(0);
+            interpolationChoices.Add(1);
+            if (upscalerChoices.Contains(3)) interpolationChoices.Add(2);
+            if (refreshHz == 0 || refreshHz >= 119) interpolationChoices.Add(3);
+            interpolation.Items.Clear();
+            foreach (int value in interpolationChoices) interpolation.Items.Add(GraphicsSettings.InterpolationModes[value]);
+            if (shown >= 0)
+            {
+                bool frameGenerationKept = (shown != 2 || ShownUpscaler == 3) && (shown != 3 || ShownUpscaler == 2 || ShownUpscaler == 4);
+                interpolation.SelectedIndex = interpolationChoices.Contains(shown) && frameGenerationKept
+                    ? interpolationChoices.IndexOf(shown) : interpolationChoices.IndexOf(1);
+            }
+            loading = wasLoading;
         }
 
         // The frame rate row for the interpolation chosen: its limit (30 or 60) without one, else its
@@ -1119,8 +1228,7 @@ namespace Nebula.Launcher
                 ? frameRateChoices[frameRate.SelectedIndex] : graphics.FrameRate;
             int interpolationMode = SelectedInterpolation;
             int refreshHz = SelectedMonitor != null ? SelectedMonitor.Refresh : 0;
-            bool dlss = upscaler.SelectedIndex >= 0 && upscaler.SelectedIndex < upscalerChoices.Count &&
-                upscalerChoices[upscaler.SelectedIndex] == 3;
+            bool dlss = ShownUpscaler == 3;
             frameRateChoices.Clear();
             frameRateChoices.AddRange(GraphicsSettings.InterpolationTargets(interpolationMode, refreshHz, dlss));
             frameRateLabel.Text = interpolationMode == 0 ? NebulaText.Of("Frame rate limit") : NebulaText.Of("Target frame rate");
@@ -1159,12 +1267,10 @@ namespace Nebula.Launcher
                         graphics.FrameRate = frameRateChoices[frameRate.SelectedIndex];
                     if (upscaler.SelectedIndex >= 0 && upscaler.SelectedIndex < upscalerChoices.Count)
                         graphics.Upscaler = upscalerChoices[upscaler.SelectedIndex];
-                    graphics.FrameGeneration = SelectedInterpolation == 2 ? 1 : 0;
-                    if (upscaler.SelectedIndex >= 0 && upscalerChoices[upscaler.SelectedIndex] == 3)
-                        graphics.TemporalQuality = Math.Max(0, dlssQuality.SelectedIndex);
-                    else
-                        graphics.SpatialQuality = Math.Max(0, dlssQuality.SelectedIndex);
+                    graphics.FrameGeneration = SelectedInterpolation == 2 ? 1 : SelectedInterpolation == 3 ? 2 : 0;
+                    KeepQuality(ShownUpscaler);
                 }
+                graphics.InternalHeight = GraphicsSettings.InternalHeights[Math.Max(0, internalResolution.SelectedIndex)];
                 graphics.AntiAliasing = antiAliasing.SelectedIndex;
                 graphics.Quality = aaQuality.SelectedIndex;
                 graphics.Msaa = Math.Max(0, msaa.SelectedIndex);
@@ -1174,7 +1280,8 @@ namespace Nebula.Launcher
                 graphics.PerPixelLighting = lighting.SelectedIndex <= 1;
                 graphics.GeneratedMipmaps = mipmaps.Checked;
                 graphics.AmbientOcclusion = occlusion.Checked;
-                graphics.HudOutputResolution = hudOutput.Checked;
+                // A fixed HUD row shows what the game does, not the player's choice: that is kept.
+                graphics.HudOutputResolution = hudOutput.Enabled ? hudOutput.Checked : hudChosen;
                 if (rayTracingOffered)
                 {
                     graphics.RayTracing = rayTracing.Checked;

@@ -1,16 +1,17 @@
 #pragma once
 
 #include "Game/NameObj/NameObj.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include "Game/Util/Array.hpp"
+#include <nebula_geometry.hpp>
 
 class CameraShakeTask;
 
-#define NR_VERTICAL_TASKS 7
-#define NR_HORIZONTAL_TASKS 3
-#define NR_INFINITY_TASKS 4
-
 class CameraShaker : public NameObj {
 public:
+    // One task per intensity.
+    static const u32 cVerticalTaskNum = 7;
+    static const u32 cHorizontalTaskNum = 3;
+
     enum ESinglyVerticalPower {
         SINGLY_VERTICAL_POWER_VERY_WEAK = 0,
         SINGLY_VERTICAL_POWER_WEAK = 1,
@@ -23,7 +24,7 @@ public:
 
     CameraShaker(const char*);
 
-    virtual void movement();
+    virtual void movement() override;
 
     void shakeVertical(ESinglyVerticalPower);
     void shakeInfinity(NameObj*, f32, f32);
@@ -35,14 +36,19 @@ public:
     void updateSinglyHorizontalTask();
     void updateInfinityTask();
     void setOffset();
-    void addSinglyVerticalTaskOffset(TVec2f*);
-    void addSinglyHorizontalTaskOffset(TVec2f*);
-    void addInfinityTaskOffset(TVec2f*);
-    void adjustOffsetToScreen(TVec2f*);  // TODO
+    void addSinglyVerticalTaskOffset(Vec2f*);
+    void addSinglyHorizontalTaskOffset(Vec2f*);
+    void addInfinityTaskOffset(Vec2f*);
+    void adjustOffsetToScreen(Vec2f*);
     void startInfinity(u32, f32, f32);
 
-    CameraShakeTask* mVerticalTasks[NR_VERTICAL_TASKS];
-    CameraShakeTask* mHorizontalTasks[NR_HORIZONTAL_TASKS];
-    CameraShakeTask* mInfinityTasks[NR_INFINITY_TASKS];
-    NameObj* mInfinityNameObjs[NR_INFINITY_TASKS];
+    CameraShakeTask* mVerticalTasks[cVerticalTaskNum];
+    CameraShakeTask* mHorizontalTasks[cHorizontalTaskNum];
+    struct InfinityShake {
+        CameraShakeTask* mTask;
+        NameObj* mOwner;
+    };
+
+    // One per shaking owner at a time; an ended entry is reused.
+    MR::Vector< MR::AssignableArray< InfinityShake > > mInfinity;
 };

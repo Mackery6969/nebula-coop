@@ -3,11 +3,9 @@
 #include "Game/Map/FileSelectIconID.hpp"
 #include "Game/Screen/LayoutActor.hpp"
 
-namespace nw4r {
-    namespace lyt {
-        class TexMap;
-    };  // namespace lyt
-};  // namespace nw4r
+namespace Ui {
+    class TexMap;
+}  // namespace Ui
 
 namespace MR {
     class BitArray;
@@ -29,19 +27,19 @@ public:
     MiiSelect(const char* pName);
 
     /// @brief Intializes the `MiiSelect` while being placed into a scene.
-    /// @param[in] rIter The reference to an iterator over a `JMapInfo`.
-    virtual void init(const JMapInfoIter& rIter);
+    /// @param[in] rIter The reference to an iterator over a `Table`.
+    virtual void init(const TableIter& rIter) override;
 
-    virtual void calcAnim();
-    virtual void appear();
-    virtual void control();
+    virtual void calcAnim() override;
+    virtual void appear() override;
+    virtual void control() override;
 
     void disappear();
     bool isAppearing() const;
     bool isSelected();
     bool isDummySelected();
     void getSelectedID(FileSelectIconID*);
-    nw4r::lyt::TexMap* getSelectedMiiTexMap();
+    Ui::TexMap* getSelectedMiiTexMap();
     void admitIcon();
     void prohibitIcon(const FileSelectIconID&);
     void invalidateSpecialMii(FileSelectIconID::EFellowID);
@@ -68,7 +66,7 @@ public:
     void validateAllIcon();
     void refresh();
     void getIconID(FileSelectIconID*, s32) const;
-    void onSelect(s32, nw4r::lyt::TexMap*);
+    void onSelect(s32, Ui::TexMap*);
     void onSelectDummy();
     s32 getIconNum();
 
@@ -83,20 +81,21 @@ public:
     }
 
 private:
-    ButtonPaneController* _20[2];
-    MR::BitArray* _28;
-    u16 mFellowIconNum;
-    u16 mFavoriteMiiNum;
-    u32 mFavoriteMiiIndices[10];
-    u16 mMiiNum;
-    u32 mMiiIndices[100];  // every Mii the database holds (decompiled as 10 and padding to 0x1EC)
-    s32 _1EC;
-    s32 _1F0;
-    nw4r::lyt::TexMap* _1F4;
-    MiiSelectSub::Page* _1F8;
-    MiiSelectSub::Page* _1FC;
-    u8 _200;
-    FileSelectIconID* _204;
+    ButtonPaneController* mArrowButtons[2];
+    MR::BitArray* mFellowEnabled;
+    u32 mFellowIconNum;
+    // The library's Miis the picker shows: its favourites first, then the others.
+    u32 mFavoriteMiiNum;
+    u32 mMiiNum;
+    u32* mMiiIndices;
+    u32 mMiiIndexRoom;
+    s32 mPageBaseIndex;
+    s32 mSelectedIndex;
+    Ui::TexMap* mSelectedTexMap;
+    MiiSelectSub::Page* mCurrentPage;
+    MiiSelectSub::Page* mOtherPage;
+    u8 mIsIconProhibited;
+    FileSelectIconID* mProhibitedIconID;
 };
 
 namespace MiiSelectSub {
@@ -114,7 +113,7 @@ namespace MiiSelectSub {
         void prohibitIcon(const FileSelectIconID&);
 
         MiiSelectIcon* mIconArray[8];
-        bool _20;
+        bool mIsGroupA;
         MiiSelect* mHost;
         s32 mBaseIndex;
     };

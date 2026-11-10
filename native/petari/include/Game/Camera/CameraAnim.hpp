@@ -2,150 +2,81 @@
 
 #include "Game/Camera/Camera.hpp"
 
-// CANM/CKAN camera animations, read in place in host order as the importer cooks them (crates/nebula-import
-// cook/native_data.rs canm: the type's last letter lower case, "CANm"/"CKAn").
-struct CanmFileHeader {
-    u8 mMagic[4];
-    u8 mType[4];
-    s32 _8;
-    s32 _C;
-    s32 _10;
-    s32 _14;
+// A camera animation's track: mCount entries from value mFirst. Stride 1: a value per frame, linear between frames;
+// 3: keys (frame, value, slope); 4: keys (frame, value, slope in, slope out). A track of one entry is its first value.
+struct CamAnmTrack {
+    u32 mCount;
+    u32 mFirst;
+    u32 mStride;
+};
+
+enum CamAnmTrackId {
+    CamAnmTrack_PosX,
+    CamAnmTrack_PosY,
+    CamAnmTrack_PosZ,
+    CamAnmTrack_WatchPosX,
+    CamAnmTrack_WatchPosY,
+    CamAnmTrack_WatchPosZ,
+    CamAnmTrack_Twist,
+    CamAnmTrack_Fovy,
+    CamAnmTrack_Num
+};
+
+// A camera animation as the importer cooks it (crates/nebula-import cook/camera.rs, NCAM); the values follow, then the
+// cuts: a count and each cut's step s, ascending (the shot changes between frames s and s + 1).
+struct CamAnmHeader {
+    char mMagic[4];  // "NCAM"
     u32 mNrFrames;
-    u32 mValueOffset;
-};
+    u32 mNrValues;
+    CamAnmTrack mTracks[CamAnmTrack_Num];
 
-struct CanmKeyFrameComponentInfo {
-    u32 mCount;
-    u32 mOffset;
-    u32 mType;
-};
+    const f32* values() const {
+        return reinterpret_cast< const f32* >(this + 1);
+    }
 
-struct CanmKeyFrameInfo {
-    CanmKeyFrameComponentInfo mPosX;
-    CanmKeyFrameComponentInfo mPosY;
-    CanmKeyFrameComponentInfo mPosZ;
-    CanmKeyFrameComponentInfo mWatchPosX;
-    CanmKeyFrameComponentInfo mWatchPosY;
-    CanmKeyFrameComponentInfo mWatchPosZ;
-    CanmKeyFrameComponentInfo mTwist;
-    CanmKeyFrameComponentInfo mFovy;
-};
+    u32 cutCount() const {
+        return *reinterpret_cast< const u32* >(values() + mNrValues);
+    }
 
-struct CamnFrameComponentInfo {
-    u32 mCount;
-    u32 mOffset;
+    const u32* cuts() const {
+        return reinterpret_cast< const u32* >(values() + mNrValues) + 1;
+    }
 };
-
-struct CanmFrameInfo {
-    CamnFrameComponentInfo mPosX;
-    CamnFrameComponentInfo mPosY;
-    CamnFrameComponentInfo mPosZ;
-    CamnFrameComponentInfo mWatchPosX;
-    CamnFrameComponentInfo mWatchPosY;
-    CamnFrameComponentInfo mWatchPosZ;
-    CamnFrameComponentInfo mTwist;
-    CamnFrameComponentInfo mFovy;
-};
-
-class BaseCamAnmDataAccessor;
-class CamAnmDataAccessor;
-class KeyCamAnmDataAccessor;
+static_assert(sizeof(CamAnmHeader) == 12 + 12 * CamAnmTrack_Num, "the cook's NCAM header and tracks");
 
 class CameraAnim : public Camera {
 public:
-    CameraAnim(const char* pName = "\203\101\203\152\203\201\201\133\203\126\203\207\203\223\203\112\203\201\203\211" /* アニメーションカメラ */);
+    CameraAnim(const char* pName = "アニメーションカメラ");
 
-    virtual void reset();
-    virtual CameraTargetObj* calc();
-    virtual bool isInterpolationOff() const {
+    virtual void reset() override;
+    virtual CameraTargetObj* calc() override;
+    virtual bool isInterpolationOff() const override {
         return true;
     }
-    virtual bool isCollisionOff() const {
+    virtual bool isCollisionOff() const override {
         return true;
     }
-    virtual bool isZeroFrameMoveOff() const {
+    virtual bool isZeroFrameMoveOff() const override {
         return true;
     }
-    virtual CamTranslatorBase* createTranslator();
+    virtual void setParamFromChunk(const CameraParamChunk*) override;
 
     void setParam(u8*, f32);
     bool isAnimEnd() const;
     static u32 getAnimFrame(u8*);
     bool loadBin(u8*);
 
-    s32 _4C;
-    s32 _50;
+    f32 getTrack(u32 track, f32 key) const;
+    void getPos(Vec3f*, f32) const;
+    void getWatchPos(Vec3f*, f32) const;
+    // From the frame shown last to `key`: back, or across one of the clip's cuts.
+    bool isCutTo(f32 key) const;
+
     u32 mNrFrames;
-    bool mIsKey;
     f32 mSpeed;
     f32 mCurrentFrame;
-    BaseCamAnmDataAccessor* mFileDataAccessor;
-    CamAnmDataAccessor* mDataAccessor;
-    KeyCamAnmDataAccessor* mKeyDataAccessor;
-    u32 mNrValues;
-    s32 _74;
-    u8* mFileData;
+    const CamAnmHeader* mClip;
     bool mIsPaused;
-};
-
-class BaseCamAnmDataAccessor {
-public:
-    inline BaseCamAnmDataAccessor() {
-    }
-
-    virtual inline ~BaseCamAnmDataAccessor() {
-    }
-
-    virtual void set(void*, void*) = 0;
-    virtual void getPos(TVec3f*, f32) const = 0;
-    virtual void getWatchPos(TVec3f*, f32) const = 0;
-    virtual f32 getTwist(f32) const = 0;
-    virtual f32 getFovy(f32) const = 0;
-};
-
-class CamAnmDataAccessor : public BaseCamAnmDataAccessor {
-public:
-    inline CamAnmDataAccessor() {
-        mInfo = nullptr;
-        mValues = nullptr;
-    }
-
-    virtual void set(void*, void*);
-    virtual void getPos(TVec3f*, f32) const;
-    virtual void getWatchPos(TVec3f*, f32) const;
-    virtual f32 getTwist(f32) const;
-    virtual f32 getFovy(f32) const;
-
-    f32 get(f32, u32, u32) const;
-
-    f32 getValue(int index) const {
-        return mValues[index];
-    }
-
-    CanmFrameInfo* mInfo;
-    f32* mValues;
-};
-
-class KeyCamAnmDataAccessor : public BaseCamAnmDataAccessor {
-public:
-    inline KeyCamAnmDataAccessor() {
-        mInfo = nullptr;
-        mValues = nullptr;
-    }
-
-    virtual void set(void*, void*);
-    virtual void getPos(TVec3f*, f32) const;
-    virtual void getWatchPos(TVec3f*, f32) const;
-    virtual f32 getTwist(f32) const;
-    virtual f32 getFovy(f32) const;
-
-    f32 get(f32, u32, u32, u32) const;
-    u32 searchKeyFrameIndex(f32, u32, u32, u32) const;
-    f32 get3f(f32, u32, u32) const;
-    f32 get4f(f32, u32, u32) const;
-    f32 calcHermite(f32, f32, f32, f32, f32, f32, f32) const;
-
-    CanmKeyFrameInfo* mInfo;
-    f32* mValues;
+    // The frame shown last; below 0 when none was since the reset.
+    f32 mShownFrame;
 };

@@ -1,10 +1,8 @@
 #include "Game/Scene/GameScene.hpp"
 #include "Game/System/NebulaMods.hpp"
 #include "Game/System/NebulaLoadTrace.hpp"
-#include "JSystem/JAudio2/JASWaveArcLoader.hpp"
-#include "Game/System/GameThreads.hpp"
-#include <JSystem/JUtility/JUTNativeLog.hpp>
-#include <JSystem/J3DGraphBase/J3DNativeState.hpp>
+#include <nebula_module.h>
+#include "Game/Render/FrameList.hpp"
 #include "Game/Util/GameLightSignal.hpp"
 #include "Game/Util/MotionSignal.hpp"
 #include "Game/System/GameDataFunction.hpp"
@@ -22,7 +20,6 @@
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SequenceUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
-#include <cstdio>
 #include <cstring>
 #include "Game/Screen/NebulaSettingsMenu.hpp"
 #include "Game/System/NebulaFrameGen.hpp"
@@ -47,7 +44,6 @@
 #include "Game/Util/AreaObjUtil.hpp"
 #include "Game/Util/ActorMovementUtil.hpp"
 #include "Game/Map/LightFunction.hpp"
-#include "Game/Map/WaterAreaHolder.hpp"
 #include "Game/Map/SleepControllerHolder.hpp"
 #include "Game/MapObj/StarPieceDirector.hpp"
 #include "Game/NPC/EventDirector.hpp"
@@ -63,7 +59,6 @@
 #include "Game/Screen/GameStageClearSequence.hpp"
 #include "Game/Screen/LensFlare.hpp"
 #include "Game/Screen/MoviePlayingSequence.hpp"
-#include "Game/Screen/ScreenAlphaCapture.hpp"
 #include "Game/System/GalaxyMapController.hpp"
 #include "Game/System/GameSequenceFunction.hpp"
 #include "Game/Util/CameraUtil.hpp"
@@ -82,21 +77,17 @@
 #include "Game/Player/MarioAnimator.hpp"
 #include "Game/Player/MarioHolder.hpp"
 #include "Game/Util/FileUtil.hpp"
-#include "Game/Util/JMapIdInfo.hpp"
+#include "Game/Util/PlacementId.hpp"
 #include "Game/Util/LightUtil.hpp"
 #include "Game/Util/NerveUtil.hpp"
-#include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SceneUtil.hpp"
-#include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/Screen/GameSceneLayoutHolder.hpp"
-#if !defined(NEBULA_RELEASE)
+#if defined(NEBULA_DEV)
 #include "Game/Boss/Koopa.hpp"
 #include "Game/Boss/KoopaSequencer.hpp"
 #include "Game/Util/ModelUtil.hpp"
-#include "JSystem/J3DGraphAnimator/J3DModelData.hpp"
-#include "JSystem/J3DGraphBase/J3DMaterial.hpp"
-#include "JSystem/JUtility/JUTNameTab.hpp"
-#include <nebula_cooked_material.h>
+#include "Game/Render/ModelData.hpp"
+#include "Game/Render/Material.hpp"
 #include "Game/Player/MarioAccess.hpp"
 #include "Game/Player/MarioActor.hpp"
 #include "Game/Map/StageSwitch.hpp"
@@ -108,6 +99,7 @@
 #include "Game/Screen/NebulaCoopChat.hpp"
 #include "Game/Screen/NebulaCoopPopups.hpp"
 #include "Game/Screen/NebulaPlayerList.hpp"
+#include "Game/Screen/NebulaModText.hpp"
 #include "Game/System/NebulaAchievements.hpp"
 #include "Game/Player/NebulaCoopBubble.hpp"
 #include "Game/Player/NebulaCharacter.hpp"
@@ -115,12 +107,10 @@
 #include "Game/System/NebulaCoopWorld.hpp"
 #include "Game/Util/MessageUtil.hpp"
 #include "Game/Util/ScreenUtil.hpp"
-#include "Game/Util/SequenceUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
 #include "Game/Util/SystemUtil.hpp"
-#include <JSystem/J3DGraphBase/J3DSys.hpp>
-#include "Game/Util/RenderSignals.hpp"
+#include "Game/Render/Model.hpp"
 #include "Game/System/NebulaHost.hpp"
 
 namespace {
@@ -140,26 +130,26 @@ namespace NrvGameScene {
     NEW_NERVE(GameSceneCometRetryAfterMiss, GameScene, CometRetryAfterMiss);
     NEW_NERVE(GameSceneSaveAfterGameOver, GameScene, SaveAfterGameOver);
     NEW_NERVE(GameScenePlayMovie, GameScene, PlayMovie);
-    NEW_NERVE(GameSceneTimeUp, GameScene, TimeUp);
     NEW_NERVE(GameSceneGalaxyMap, GameScene, GalaxyMap);
     NEW_NERVE(GameSceneStaffRoll, GameScene, StaffRoll);
     NEW_NERVE(GameSceneNebulaBoard, GameScene, NebulaBoard);
 };  // namespace NrvGameScene
 
 namespace {
-#if !defined(NEBULA_RELEASE)
+#if defined(NEBULA_DEV)
 #include "../../../../../tools/test_driver/game_scene_walk.inc"
 #endif
 }  // namespace
 
 GameScene::GameScene()
-    : Scene("GameScene"), _14(0), mScenarioCamera(nullptr), mPauseCtrl(nullptr), mPauseSeq(nullptr), mStageClearSeq(nullptr), mDraw3D(true), _29(1) {
+    : Scene("GameScene"), mScenarioCamera(nullptr), mPauseCtrl(nullptr), mPauseSeq(nullptr), mStageClearSeq(nullptr), mDraw3D(true) {
 }
 
 GameScene::~GameScene() {
     NebulaCharacter::endScene();
     NebulaCoopWorld::endScene();
     NebulaMods::fire(NEBULA_MOD_EVENT_STAGE_END, 0, nullptr, MR::getCurrentStageName());
+    NebulaMods::sceneEnded();
     MR::destroySceneMessage();
     NPCFunction::deleteNPCData();
     MR::onStarPointerSceneOut();
@@ -171,13 +161,11 @@ void GameScene::init() {
     NebulaRemotePlayer::forgetAll();
     NebulaCoopBubble::forgetAll();
     NebulaCoopWorld::startScene();
-    SceneFunction::createHioBasicNode(this);
-    SceneFunction::startStageFileLoad();
-    MR::requestChangeArchivePlayer(MR::isPlayerLuigi() == false);
+    MR::createSceneObj(SceneObj_SceneDataInitializer);
     initNerve(GET_NERVE(GameScene, GameSceneScenarioOpeningCamera));
     SceneFunction::initForNameObj();
     SceneFunction::initForLiveActor();
-    initEffect();
+    NebulaLoadTrace::measure("initEffect()", [&] { initEffect(); });
     MR::createSceneObj(SceneObj_CameraContext);
     MR::createSceneObj(SceneObj_NameObjGroup);
     MR::createSceneObj(SceneObj_PlanetGravityManager);
@@ -185,12 +173,10 @@ void GameScene::init() {
     MR::createSceneObj(SceneObj_AudCameraWatcher);
     MR::createSceneObj(SceneObj_AudEffectDirector);
     MR::createSceneObj(SceneObj_AudBgmConductor);
-    MR::createSceneObj(SceneObj_ResourceShare);
     MR::createSceneObj(SceneObj_EventSequencer);
     MR::createSceneObj(SceneObj_ScenePlayingResult);
     MR::createSceneObj(SceneObj_FurDrawManager);
     MR::createSceneObj(SceneObj_PlacementStateChecker);
-    MR::createScreenAlphaSceneObj(0, 1.0f);
     MR::createSceneObj(SceneObj_GroupCheckManager);
     MR::createSceneObj(SceneObj_CinemaFrame);
     MR::createSceneObj(SceneObj_PlanetMapCreator);
@@ -208,59 +194,92 @@ void GameScene::init() {
         MR::createMoviePlayingSequence();
     }
 
-    SceneFunction::waitDoneStageFileLoad();
-    MR::waitEndChangeArchivePlayer();
-    SceneFunction::startActorFileLoadCommon();
-    MR::waitSceneInitializeResume();
+    NebulaLoadTrace::measure("SceneFunction::createStageDataHolder()", [&] { SceneFunction::createStageDataHolder(); });
+    MR::holdSceneInitialize();
+}
 
-    if (!MR::isScenarioDecided()) {
-        MR::receiveAllRequestedFile();
-    } else {
-        SceneFunction::initAfterScenarioSelected();
-        NPCFunction::createNPCData();
-        SceneFunction::startActorFileLoadScenario();
-        MR::createSceneObj(SceneObj_EventDirector);
-        MR::initSceneMessage();
-        MR::createSceneObj(SceneObj_CameraDirector);
-        MR::createSceneObj(SceneObj_GameSceneLayoutHolder);
-        MR::createSceneObj(SceneObj_StarPieceDirector);
-        MR::createSceneObj(SceneObj_SceneWipeHolder);
-        MR::createSceneObj(SceneObj_NamePosHolder);
-        MR::createSceneObj(SceneObj_InformationObserver);
-
-        if (MR::isGalaxyAnyCometAppearInCurrentStage()) {
-            MR::createSceneObj(SceneObj_CometRetryButton);
+// What needs the scenario: the star the player chose (MR::tryResumeSceneInitialize).
+bool GameScene::initAfterScenarioChosen() {
+    if (!MR::isScenarioDecided()) return true;
+    const auto* host = nebula_host();
+    const uint64_t deadline = host->clock_ns(host->user) + 4'000'000u;
+    do {
+        switch (mInitializePhase) {
+        case 0:
+            SceneFunction::initAfterScenarioSelected();
+            NPCFunction::createNPCData();
+            MR::createSceneObj(SceneObj_EventDirector);
+            MR::initSceneMessage();
+            break;
+        case 1:
+            MR::createSceneObj(SceneObj_CameraDirector);
+            MR::createSceneObj(SceneObj_GameSceneLayoutHolder);
+            MR::createSceneObj(SceneObj_StarPieceDirector);
+            MR::createSceneObj(SceneObj_SceneWipeHolder);
+            MR::createSceneObj(SceneObj_NamePosHolder);
+            MR::createSceneObj(SceneObj_InformationObserver);
+            if (MR::isGalaxyAnyCometAppearInCurrentStage()) MR::createSceneObj(SceneObj_CometRetryButton);
+            break;
+        case 2:
+            LightFunction::initLightData();
+            initSequences();
+            break;
+        case 3:
+            if (!SceneFunction::startActorPlacementStep(deadline)) return false;
+            break;
+        case 4:
+            NebulaAchievementLuma::tryCreate();
+            // Online co-op: copies of the other players, when in a room.
+            NebulaRemotePlayer::tryCreate();
+            if (NebulaRemotePlayer::getCopyNum() > 0) {
+                NebulaCoopBubble::tryCreate();
+            }
+            break;
+        case 5:
+            // The complete reserve still exists before play; each actor is an indivisible load operation.
+            while (mReservePiecesLeft != 0u) {
+                MR::getStarPieceDirector()->createStarPieces(1);
+                --mReservePiecesLeft;
+                if (host->clock_ns(host->user) >= deadline) return false;
+            }
+            break;
+        case 6:
+            MR::completeCameraParameters();
+            MR::initStarPointerGameScene();
+            MR::initEventSystemAfterPlacement();
+            MR::endInitLiveActorSystemInfo();
+            MR::setInitializeStateAfterPlacement();
+            MR::callMethodAllSceneNameObj(&NameObj::initAfterPlacement);
+            break;
+        case 7:
+            SleepControlFunc::initSyncSleepController();
+            // Online co-op: the instance's record is asked for while the scene still loads.
+            NebulaCoopWorld::endPlacement();
+            ++mInitializePhase;
+            return true;
+        default:
+            return true;
         }
-
-        LightFunction::initLightData();
-        initSequences();
-        SceneFunction::startActorPlacement();
-        // Nebula's Achievement Luma joins the Observatory's own actors.
-        NebulaAchievementLuma::tryCreate();
-        // Online co-op: copies of the other players, when in a room.
-        NebulaRemotePlayer::tryCreate();
-        if (NebulaRemotePlayer::getCopyNum() > 0) {
-            NebulaCoopBubble::tryCreate();
-        }
-        GameSceneFunction::loadScenarioWaveData();
-        MR::createStarPiece();
-        MR::completeCameraParameters();
-        MR::initStarPointerGameScene();
-        MR::initEventSystemAfterPlacement();
-        MR::endInitLiveActorSystemInfo();
-        MR::setInitializeStateAfterPlacement();
-        MR::callMethodAllSceneNameObj(&NameObj::initAfterPlacement);
-        SleepControlFunc::initSyncSleepController();
-        // Online co-op: the instance's record is asked for while the scene still loads.
-        NebulaCoopWorld::endPlacement();
-
-        while (!GameSceneFunction::isLoadDoneScenarioWaveData()) {
-            JASWaveArc::waitLoadDone();
-        }
-    }
+        ++mInitializePhase;
+    } while (host->clock_ns(host->user) < deadline);
+    return false;
 }
 
 namespace {
+    // The settings' galaxy select's galaxy `index` (its whole stage name in *pId): a name that fills the buffer is asked
+    // for again with twice the room. 0 past the last.
+    int getGalaxySelectStage(u32 index, MR::FormattedName* pId, u32* pStars) {
+        for (u32 capacity = 256;; capacity *= 2) {
+            char* const pText = pId->room(capacity);
+            if (NebulaHost::galaxySelectStage(index, pText, capacity, pStars) == 0) {
+                return 0;
+            }
+            if (strlen(pText) < capacity - 1) {
+                return 1;
+            }
+        }
+    }
+
     // The achievement board asked for by the Achievement Luma: it opens once the scene is in plain play, not paused,
     // in a demo or behind a wipe; a scene that starts drops the request.
     bool sBoardRequested = false;
@@ -290,7 +309,7 @@ namespace {
         NebulaCoopPlayer player = {};
         nebula_snprintf(player.stage, sizeof(player.stage), "%s", MR::getCurrentStageName());
         player.scenario = MR::getCurrentScenarioNo();
-        const auto copy = [](f32* pOut, const TVec3f& rVec) {
+        const auto copy = [](f32* pOut, const Vec3f& rVec) {
             pOut[0] = rVec.x;
             pOut[1] = rVec.y;
             pOut[2] = rVec.z;
@@ -298,7 +317,7 @@ namespace {
         copy(player.position, pActor->mPosition);
         copy(player.rotation, pActor->mRotation);
         copy(player.gravity, pActor->getGravityVec());
-        if (const TVec3f* pVelocity = MR::getPlayerVelocity()) {
+        if (const Vec3f* pVelocity = MR::getPlayerVelocity()) {
             copy(player.velocity, *pVelocity);
         }
         const char* pAnimation = MR::getPlayerCurrentBckName();
@@ -317,11 +336,17 @@ namespace {
             if (pGroup != nullptr && pCore->mTrackList != nullptr) {
                 const u32 count = pGroup->mBckTableVariant < pCore->mTrackCount ? pGroup->mBckTableVariant : pCore->mTrackCount;
                 for (u32 i = 0; i < count && i < 4; i++) {
-                    const void* pBck = pCore->mTrackList[i]._0;
-                    if (pBck == nullptr || pBck == pGroup->_20[i]) {
+                    const Clip* pBck = pCore->mTrackList[i].mClip;
+                    if (pBck == nullptr || pBck == pGroup->mBcks[i]) {
                         continue;
                     }
-                    const char* pName = pXanime->mResourceTable->mResourceHolder->mMotionResTable->findResName(pBck);
+                    const ResTable* pMotions = pXanime->mResourceTable->mResourceHolder->mMotionResTable;
+                    const char* pName = nullptr;
+                    for (u32 res = 0; res < pMotions->mCount && pName == nullptr; res++) {
+                        if (pMotions->getRes(res) == pBck) {
+                            pName = pMotions->getResName(res);
+                        }
+                    }
                     nebula_snprintf(player.tracks[i], sizeof(player.tracks[i]), "%s", pName != nullptr ? pName : "");
                 }
             }
@@ -329,11 +354,11 @@ namespace {
         // The model's turn: its base matrix's Z (front) and Y (up) columns, with the turn MarioActor::calcAndSetBaseMtx
         // gives his root joint on top (Mario::createCorrectionMtx: a quick turn round, or the matrix of what holds
         // him), which the others' copies have no joint correction of their own for.
-        MtxPtr pBase = MR::getJ3DModel(const_cast< MarioActor* >(pActor))->getBaseTRMtx();
+        MtxPtr pBase = MR::getModel(const_cast< MarioActor* >(pActor))->getBaseTRMtx();
         Mtx turn;
         NebulaMtxCopy(pBase, turn);
         if (XanimePlayer* pXanime = pActor->mMarioAnim->mXanimePlayer) {
-            if (MtxPtr pCorrection = pXanime->getCore()->getJointTransform(0)->_64) {
+            if (MtxPtr pCorrection = pXanime->getCore()->getJointTransform(0)->mBaseMtx) {
                 NebulaMtxConcat(pBase, pCorrection, turn);
             }
         }
@@ -376,9 +401,7 @@ void GameScene::start() {
     reportPresence();
     NebulaAchievements::evaluate();
 
-    if (MR::isGlobalTimerEnd()) {
-        MR::forceCloseWipeCircle();
-    } else if (!MR::hasRetryGalaxySequence()) {
+    if (!MR::hasRetryGalaxySequence()) {
         startStagePlayFirst();
     } else {
         startStagePlayRetry();
@@ -426,6 +449,9 @@ void GameScene::update() {
     if (MR::isExistSceneObj(SceneObj_GameSceneLayoutHolder) && MR::getGameSceneLayoutHolder()->mAchievementToast != nullptr) {
         MR::getGameSceneLayoutHolder()->mAchievementToast->update();
     }
+    if (MR::isExistSceneObj(SceneObj_GameSceneLayoutHolder) && MR::getGameSceneLayoutHolder()->mModText != nullptr) {
+        MR::getGameSceneLayoutHolder()->mModText->update();
+    }
     // Online co-op's chat, likewise everywhere in the scene (the host sends nothing outside a room's game).
     if (MR::isExistSceneObj(SceneObj_GameSceneLayoutHolder) && MR::getGameSceneLayoutHolder()->mCoopChat != nullptr) {
         MR::getGameSceneLayoutHolder()->mCoopChat->update();
@@ -437,12 +463,6 @@ void GameScene::update() {
     // Online co-op's player list while Tab or the controller's Share is held, over whatever the scene is doing.
     if (MR::isExistSceneObj(SceneObj_GameSceneLayoutHolder) && MR::getGameSceneLayoutHolder()->mPlayerList != nullptr) {
         MR::getGameSceneLayoutHolder()->mPlayerList->update();
-    }
-
-    bool isTimeUp = MR::isGlobalTimerEnd() && !isNerve(GET_NERVE(GameScene, GameSceneTimeUp)) && MR::isGreaterEqualStep(this, 2);
-
-    if (isTimeUp) {
-        setNerve(GET_NERVE(GameScene, GameSceneTimeUp));
     }
 }
 
@@ -460,32 +480,31 @@ void GameScene::draw() const {
         const f32 depth = MR::isCameraInWater() ? WaterAreaFunction::getCameraWaterDepth() : -1.0f;
         NebulaHost::gameContext(NEBULA_CONTEXT_CAMERA_WATER, depth < 0.0f ? 0 : static_cast< s32 >(depth) + 1);
     }
-#if !defined(NEBULA_RELEASE)
+#if defined(NEBULA_DEV)
 #include "../../../../../tools/test_driver/game_scene_draw_start.inc"
 #endif
     // The settings' galaxy select (its ONLINE page's cheats) names its galaxies and stars in the game's own words, asked once.
     if (NebulaHost::galaxySelectNamesWanted() != 0) {
-        char id[256];
+        MR::FormattedName id;
         u32 stars = 0;
-        for (u32 i = 0; NebulaHost::galaxySelectStage(i, id, sizeof(id), &stars) != 0; ++i) {
-            NebulaHost::galaxySelectName(i, 0, reinterpret_cast< const u16* >(MR::getGalaxyNameOnCurrentLanguage(id)));
+        for (u32 i = 0; ::getGalaxySelectStage(i, &id, &stars) != 0; ++i) {
+            NebulaHost::galaxySelectName(i, 0, reinterpret_cast< const u16* >(MR::getGalaxyNameOnCurrentLanguage(id.c_str())));
             for (u32 star = 1; star <= stars; ++star) {
                 NebulaHost::galaxySelectName(i, star,
-                                         reinterpret_cast< const u16* >(MR::getScenarioNameOnCurrentLanguage(id, star)));
+                                         reinterpret_cast< const u16* >(MR::getScenarioNameOnCurrentLanguage(id.c_str(), star)));
             }
         }
     }
-#if !defined(NEBULA_RELEASE)
+#if defined(NEBULA_DEV)
 #include "../../../../../tools/test_driver/game_scene_actions.inc"
 #endif
-    MR::drawInit();
     LightFunction::initLightRegisterAll();
     CategoryList::execute(MR::DrawType_MiiFaceIcon);
     CategoryList::execute(MR::DrawType_MiiFaceNew);
     drawMirror();
     draw3D();
     draw2D();
-    MR::reinitGX();
+    MR::resetDrawState();
 }
 
 void GameScene::calcAnim() {
@@ -495,10 +514,7 @@ void GameScene::calcAnim() {
         SceneFunction::executeCalcAnimList();
     }
 
-    if (!isNerve(GET_NERVE(GameScene, GameSceneTimeUp))) {
-        CategoryList::execute(MR::CalcAnimType_AnimParticleIgnorePause);
-    }
-
+    CategoryList::execute(MR::CalcAnimType_AnimParticleIgnorePause);
     SceneFunction::executeCalcViewAndEntryList();
 }
 
@@ -581,7 +597,7 @@ void GameScene::exeCometRetryAfterMiss() {
     CometRetryButton* pCometRetryButton = ::getCometRetryButton();
 
     if (MR::isFirstStep(this)) {
-        ::getCometRetryButton()->appear();
+        pCometRetryButton->appear();
         MR::forceOpenWipeCircle();
     }
 
@@ -658,28 +674,29 @@ void GameScene::initSequences() {
 
 void GameScene::initEffect() {
     // The pools grow past this when a scene asks for more.
-    SceneFunction::initEffectSystem(6144, 512);
+    SceneFunction::initEffectSystem(512);
 }
 
 void GameScene::drawMirror() const {
     if (isDrawMirror()) {
-        MotionSignal::mirror(true);
-        NebulaMtxCopy(MR::getMirrorCameraViewMtx(), j3dSys.mViewMtx);
+        Frame::mirror(true);
+        ModelSys::mViewRole = NEBULA_CAMERA_MIRROR;
+        NebulaMtxCopy(MR::getMirrorCameraViewMtx(), ModelSys::mViewMtx);
         MR::loadProjectionMtx();
         CategoryList::entryDrawBufferMirror();
-        J3DPass::writeAlpha(false);
-        J3DPass::writeColor(true);
+        Frame::setPassAlpha(false);
         CategoryList::drawOpa(MR::DrawBufferType_MirrorMapObj);
         CategoryList::drawXlu(MR::DrawBufferType_MirrorMapObj);
         CategoryList::execute(MR::DrawType_CaptureScreenIndirect);
-        MotionSignal::mirror(false);
+        Frame::mirror(false);
+        // The scene's view, not the mirror's under the scene's role: a draw before draw3D's own load is in the scene.
+        MR::loadViewMtx();
         MR::clearZBuffer();
         NebulaColor8 c = {0, 0, 255, 0};
-        MR::fillScreen(c);
+        MR::fillScreen(c, true);
     }
 }
 
-// inline
 bool GameScene::isPlayMovie() const {
     return MR::isActiveMoviePlayer() || MR::isMoviePlayingOnSequence() || isNerve(GET_NERVE(GameScene, GameScenePlayMovie));
 }
@@ -696,46 +713,39 @@ void GameScene::draw3D() const {
     f32 sceneCamera[4][4];
     MotionSignal::sceneCamera(sceneCamera);
     NebulaHost::gameStage(MR::getCurrentStageName());
-    NebulaRender::sceneMarker(NEBULA_SCENE_3D_BEGIN, sceneCamera);
-    MotionSignal::sceneBegin();
+    Frame::sceneBegin(sceneCamera);
     GameLightSignal::frame();
     CategoryList::execute(MR::DrawType_AstroDomeSkyClear);
     MR::loadViewMtx();
     MR::loadProjectionMtx();
     MR::setDefaultViewportAndScissor();
-    J3DPass::writeColor(true);
-    J3DPass::writeAlpha(true);
-    J3DPass::constantAlpha(true, 0);
+    Frame::setPassAlpha(true);
     CategoryList::drawOpa(MR::DrawBufferType_ClippedMapParts);
     CategoryList::execute(MR::DrawType_ClipArea);
     CategoryList::execute(MR::DrawType_FallOutFieldDraw);
     SceneFunction::executeDrawBufferListNormalOpaBeforeVolumeShadow();
-    J3DPass::writeAlpha(true);
     CategoryList::execute(MR::DrawType_ShadowVolume);
-    J3DPass::writeColor(true);
-    J3DPass::constantAlpha(true, 0);
+    // What is drawn after the volumes is not in their shadow.
+    Frame::setPassStencil(NEBULA_STENCIL_ALWAYS, NEBULA_STENCIL_ZERO);
     SceneFunction::executeDrawBufferListNormalOpaBeforeSilhouette();
-    CategoryList::execute(MR::DrawType_0x28);
+    Frame::setPassStencil(NEBULA_STENCIL_OFF, NEBULA_STENCIL_KEEP);
+    CategoryList::execute(MR::DrawType_PlayerSilhouette);
     SceneFunction::executeDrawSilhouetteAndFillShadow();
     SceneFunction::executeDrawAlphaShadow();
-    CategoryList::execute(MR::DrawType_BrightSun);
     MR::setLensFlareDrawSyncToken();
-    J3DPass::writeAlpha(false);
-    J3DPass::constantAlpha(false, 0);
+    Frame::setPassAlpha(false);
     SceneFunction::executeDrawBufferListNormalOpa();
     SceneFunction::executeDrawListOpa();
-    CategoryList::drawOpa(MR::DrawBufferType_UNK_0x18);
     MR::sceneOpaqueEnd();
     SceneFunction::executeDrawBufferListNormalXlu();
     SceneFunction::executeDrawListXlu();
-    CategoryList::drawXlu(MR::DrawBufferType_UNK_0x18);
     CategoryList::execute(MR::DrawType_ShadowSurface);
     CategoryList::execute(MR::DrawType_EffectDraw3D);
     CategoryList::execute(MR::DrawType_EffectDrawForBloomEffect);
     CategoryList::execute(MR::DrawType_CenterScreenBlur);
     CategoryList::execute(MR::DrawType_CaptureScreenIndirect);
     SceneFunction::executeDrawAfterIndirect();
-    CategoryList::execute(MR::DrawType_0x33);
+    CategoryList::execute(MR::DrawType_PlayerSearchLight);
     MR::setStarPointerDrawSyncToken();
     MR::setTalkDirectorDrawSyncToken();
     SceneFunction::executeDrawImageEffect();
@@ -745,14 +755,13 @@ void GameScene::draw3D() const {
     MR::loadViewMtx();
     MR::loadProjectionMtx();
     MR::loadLightPlayer();
-    CategoryList::execute(MR::DrawType_0x24);
-    CategoryList::execute(MR::DrawType_0x3B);
-    NebulaRender::sceneMarker(NEBULA_SCENE_3D_END, nullptr);
+    CategoryList::execute(MR::DrawType_PlayerIndirect);
+    Frame::sceneEnd();
     MR::clearZBuffer();
 }
 
 void GameScene::draw2D() const {
-    MotionSignal::scene2D(true);
+    Frame::scene2D(true);
     if (isPlayMovie()) {
         SceneFunction::executeDrawList2DMovie();
     } else {
@@ -763,17 +772,18 @@ void GameScene::draw2D() const {
     CategoryList::execute(MR::DrawType_LayoutOnPause);
     mPauseSeq->draw();
     MR::drawInitFor2DModel();
-    CategoryList::drawOpa(MR::DrawBufferType_0x26);
-    CategoryList::drawXlu(MR::DrawBufferType_0x26);
     CategoryList::execute(MR::DrawType_WipeLayout);
     // Nebula's achievement board over everything while it is open (its pop-up: drawOverlay).
     if (isNerve(GET_NERVE(GameScene, GameSceneNebulaBoard))) {
         MR::getGameSceneLayoutHolder()->mAchievementBoard->drawOnTop();
     }
-    MotionSignal::scene2D(false);
+    Frame::scene2D(false);
 }
 
 void GameScene::drawOverlay() const {
+    if (MR::isExistSceneObj(SceneObj_GameSceneLayoutHolder) && MR::getGameSceneLayoutHolder()->mModText != nullptr) {
+        MR::getGameSceneLayoutHolder()->mModText->drawOnTop();
+    }
     if (MR::isExistSceneObj(SceneObj_GameSceneLayoutHolder) && MR::getGameSceneLayoutHolder()->mAchievementToast != nullptr) {
         MR::getGameSceneLayoutHolder()->mAchievementToast->drawOnTop();
     }
@@ -789,7 +799,7 @@ void GameScene::drawOverlay() const {
 }
 
 bool GameScene::isValidScenarioOpeningCamera() const {
-    return MR::hasStartAnimCamera() != false;
+    return MR::hasStartAnimCamera();
 }
 
 void GameScene::startStagePlayFirst() {
@@ -827,10 +837,10 @@ void GameScene::startStagePlayFirst() {
 void GameScene::startStagePlayRetry() {
     MR::openWipeCircle();
 
-    if (MR::isEqualStageName("SurfingLv1Galaxy") && MR::getPlayerRestartIdInfo()->_0 == 1) {
+    if (MR::isEqualStageName("SurfingLv1Galaxy") && MR::getPlayerRestartIdInfo()->mId == 1) {
         MR::stopSubBGM(0);
         MR::stopStageBGM(0);
-    } else if (MR::isEqualStageName("SurfingLv2Galaxy") && MR::getPlayerRestartIdInfo()->_0 == 1) {
+    } else if (MR::isEqualStageName("SurfingLv2Galaxy") && MR::getPlayerRestartIdInfo()->mId == 1) {
         MR::stopSubBGM(0);
         MR::stopStageBGM(0);
     } else {
@@ -946,12 +956,6 @@ void GameScene::exeStaffRoll() {
     CategoryList::execute(MR::MovementType_WipeLayout);
 }
 
-void GameScene::exeTimeUp() {
-    if (MR::isFirstStep(this)) {
-        MR::startGlobalTimerTimeUp();
-    }
-}
-
 void GameScene::exeGameOver() {
     SceneFunction::movementStopSceneController();
     SceneFunction::executeMovementList();
@@ -966,8 +970,6 @@ void GameScene::exePowerStarGet() {
 }
 
 void GameScene::exePauseMenu() {
-    if (MR::isFirstStep(this)) {
-    }
 
     mPauseSeq->movement();
     CategoryList::execute(MR::MovementType_LayoutOnPause);

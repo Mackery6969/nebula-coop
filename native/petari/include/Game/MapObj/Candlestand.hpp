@@ -8,15 +8,14 @@ class Candlestand : public MapObjActor {
 public:
     Candlestand(const char* pName);
 
-    virtual ~Candlestand();
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void makeActorAppeared();
-    virtual void startClipped();
-    virtual void endClipped();
-    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
-    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
+    virtual void init(const TableIter& rIter) override;
+    virtual void makeActorAppeared() override;
+    virtual void startClipped() override;
+    virtual void endClipped() override;
+    virtual void attackSensor(HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveMsgEnemyAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
+    virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) override;
 
     void emitEffectFire();
     void deleteEffectFire();
@@ -29,6 +28,11 @@ public:
     inline void exeAttack();
     inline void exeBurn();
 
+private:
+    bool isBurning() const;
+    bool tryFire(HitSensor* pSender, HitSensor* pReceiver);
+
+public:
     s32 mItem;
     bool mHasItemAppear;
     SpinPullParticleCallBack* mSpinPtclCb;

@@ -1,3 +1,5 @@
+#include "Game/System/NebulaText.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Screen/StarPointerGuidance.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util/PlayerInputUtil.hpp"
@@ -6,12 +8,13 @@
 #include "Game/Util/SoundUtil.hpp"
 #include "Game/Util/StarPointerUtil.hpp"
 #include "Game/Screen/NebulaMenuFocus.hpp"
+#include "Game/Screen/NebulaUi.hpp"
 
 namespace {
-    static const s32 hOutScreenTime = 60;
-    static const s32 hRequestTime = 30;
-    static const s32 hNotRequestEndTime = 30;
-    static const s32 hEndTimeOutHide = 240;
+    static const s32 hOutScreenTime = NebulaFrameClock::stepsOfSeconds(1);
+    static const s32 hRequestTime = NebulaFrameClock::stepsOfMilliseconds(500);
+    static const s32 hNotRequestEndTime = NebulaFrameClock::stepsOfMilliseconds(500);
+    static const s32 hEndTimeOutHide = NebulaFrameClock::stepsOfSeconds(4);
 };  // namespace
 
 namespace NrvStarPointerGuidance {
@@ -33,23 +36,32 @@ StarPointerGuidance::StarPointerGuidance(const char* pName)
       mIsActive(true), mIsGuidanceDisabled(false), mTextLineNumGuidance(1), mTextLineNum1P(1), mTextLineNum2P(1) {
 }
 
-void StarPointerGuidance::init(const JMapInfoIter& rIter) {
+void StarPointerGuidance::init(const TableIter& /*rIter*/) {
     initLayoutManager("PointerGuidance", 1);
     MR::createAndAddPaneCtrl(this, "NPointerGuide", 1);
     MR::createAndAddPaneCtrl(this, "PointerFrame1", 1);
     MR::createAndAddPaneCtrl(this, "PointerFrame2", 1);
+    mGuidePane = MR::getPane(this, "NPointerGuide");
+    mFrame1PPane = MR::getPane(this, "PointerFrame1");
+    mFrame2PPane = MR::getPane(this, "PointerFrame2");
 
     mSpineFrame1P = new Spine(this, GET_NERVE(StarPointerGuidance, HostTypeNrvEndWait));
     mSpineGuidance = new Spine(this, GET_NERVE(StarPointerGuidance, HostTypeNrvEndWait));
     mSpineFrame2P = new Spine(this, GET_NERVE(StarPointerGuidance, HostTypeNrvEndWait));
 
     appear();
-    MR::hidePaneRecursive(this, "NPointerGuide");
-    MR::hidePaneRecursive(this, "PointerFrame1");
-    MR::hidePaneRecursive(this, "PointerFrame2");
+    MR::hidePaneRecursive(mGuidePane);
+    MR::hidePaneRecursive(mFrame1PPane);
+    MR::hidePaneRecursive(mFrame2PPane);
 
     mTextLineNum1P = MR::getTextLineNumMaxRecursive(this, "PointerFrame1");
     mTextLineNum2P = MR::getTextLineNumMaxRecursive(this, "PointerFrame2");
+#if !defined(__ANDROID__)
+    MR::Text16 prompt;
+    NebulaUi::getText(prompt, "PointerSelect");
+    MR::setTextBoxMessageRecursive(this, "Guide1", prompt.c_str());
+    MR::setTextBoxMessageRecursive(this, "Guide2", prompt.c_str());
+#endif
 }
 
 void StarPointerGuidance::control() {
@@ -67,6 +79,11 @@ void StarPointerGuidance::control() {
 }
 
 void StarPointerGuidance::checkRequest2P() {
+#if defined(__ANDROID__)
+    mIsActiveRequest2P = false;
+    mRequestTime2P = 0;
+    return;
+#endif
     if (!mIsActiveRequest2P) {
         if (mSpineFrame2P->getCurrentNerve() == GET_NERVE(StarPointerGuidance, HostTypeNrvWait2P)) {
             mSpineFrame2P->setNerve(GET_NERVE(StarPointerGuidance, HostTypeNrvEnd2P));
@@ -128,7 +145,11 @@ void StarPointerGuidance::checkRequest1P() {
     mRequestTime1P++;
 
     // A pad that holds the menu (Nebula's menu focus) needs no pointer: the frame asking for it goes.
+#if defined(__ANDROID__)
+    const bool isPointerWanted = false;  // touch selection has no off-screen pointing requirement
+#else
     const bool isPointerWanted = !MR::isStarPointerInScreen(PLAYER_1) && !NebulaMenuFocus::isActive();
+#endif
     if (isPointerWanted) {
         if (mOutScreenTime > ::hOutScreenTime || mRequestTime1P == 1) {
             if (mSpineGuidance->isCurrentNerve(GET_NERVE(StarPointerGuidance, HostTypeNrvWaitBlueStarGuide))) {
@@ -331,9 +352,9 @@ bool StarPointerGuidance::isExistFrame2P() {
 void StarPointerGuidance::deactive() {
     mIsActive = false;
 
-    MR::hidePaneRecursive(this, "PointerFrame1");
-    MR::hidePaneRecursive(this, "NPointerGuide");
-    MR::hidePaneRecursive(this, "PointerFrame2");
+    MR::hidePaneRecursive(mFrame1PPane);
+    MR::hidePaneRecursive(mGuidePane);
+    MR::hidePaneRecursive(mFrame2PPane);
     mSpineFrame1P->setNerve(GET_NERVE(StarPointerGuidance, HostTypeNrvEndWait));
     mSpineGuidance->setNerve(GET_NERVE(StarPointerGuidance, HostTypeNrvEndWait));
     mSpineFrame2P->setNerve(GET_NERVE(StarPointerGuidance, HostTypeNrvEndWait));

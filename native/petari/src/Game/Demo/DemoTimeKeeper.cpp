@@ -1,11 +1,12 @@
 #include "Game/Demo/DemoTimeKeeper.hpp"
+#include "Game/System/NebulaMods.hpp"
 #include "Game/Demo/DemoFunction.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
 
 DemoTimeKeeper::DemoTimeKeeper(const DemoExecutor* pExecutor)
-    : mExecutor(pExecutor), mMainPartInfos(), mSubPartInfos(), mNumPartInfos(), _10(-1), mCurrentStep(-1), _18(-1), mIsPaused() {
-    JMapInfo* pMap = nullptr;
+    : mExecutor(pExecutor), mMainPartInfos(), mCurrentPart(), mNumPartInfos(), mElapsedStep(-1), mCurrentStep(-1), mPartIndex(-1), mIsPaused() {
+    Table* pMap = nullptr;
     mNumPartInfos = DemoFunction::createSheetParser(mExecutor, "Time", &pMap);
     mMainPartInfos = new DemoTimePartInfo[mNumPartInfos];
 
@@ -24,14 +25,15 @@ DemoTimePartInfo::DemoTimePartInfo() : mPartName(), mTotalStep(1), mSuspendFlag(
 }
 
 void DemoTimeKeeper::start() {
-    _18 = 0;
-    mSubPartInfos = &mMainPartInfos[_18];
+    mPartIndex = 0;
+    mCurrentPart = &mMainPartInfos[mPartIndex];
+    NebulaMods::fire(NEBULA_MOD_EVENT_CUTSCENE_PART, mPartIndex, nullptr, mCurrentPart->mPartName);
 }
 
 void DemoTimeKeeper::update() {
     if (mIsPaused) {
-        if (_10 <= 0) {
-            _10++;
+        if (mElapsedStep <= 0) {
+            mElapsedStep++;
         }
 
         if (mCurrentStep <= 0) {
@@ -39,24 +41,25 @@ void DemoTimeKeeper::update() {
         }
     } else {
         mCurrentStep++;
-        _10++;
+        mElapsedStep++;
 
-        if (mSubPartInfos->mTotalStep <= mCurrentStep && !mSubPartInfos->mSuspendFlag) {
-            _18++;
+        if (mCurrentPart->mTotalStep <= mCurrentStep && !mCurrentPart->mSuspendFlag) {
+            mPartIndex++;
 
-            if (mNumPartInfos > _18) {
-                mSubPartInfos = &mMainPartInfos[_18];
+            if (mNumPartInfos > mPartIndex) {
+                mCurrentPart = &mMainPartInfos[mPartIndex];
                 mCurrentStep = 0;
+                NebulaMods::fire(NEBULA_MOD_EVENT_CUTSCENE_PART, mPartIndex, nullptr, mCurrentPart->mPartName);
             }
         }
     }
 }
 
 void DemoTimeKeeper::end() {
-    _10 = -1;
+    mElapsedStep = -1;
     mCurrentStep = -1;
-    _18 = -1;
-    mSubPartInfos = nullptr;
+    mPartIndex = -1;
+    mCurrentPart = nullptr;
 }
 
 bool DemoTimeKeeper::isDemoEnd() const {
@@ -64,11 +67,11 @@ bool DemoTimeKeeper::isDemoEnd() const {
         return false;
     }
 
-    if (mSubPartInfos->mSuspendFlag && mSubPartInfos->mTotalStep <= mCurrentStep) {
+    if (mCurrentPart->mSuspendFlag && mCurrentPart->mTotalStep <= mCurrentStep) {
         return true;
     }
 
-    if (mSubPartInfos->mTotalStep >= mCurrentStep && mNumPartInfos == _18) {
+    if (mCurrentPart->mTotalStep >= mCurrentStep && mNumPartInfos == mPartIndex) {
         return true;
     }
 
@@ -80,7 +83,7 @@ void DemoTimeKeeper::setStartPart(const char* pPartName) {
 }
 
 bool DemoTimeKeeper::isExistSuspendFlagCurrentPart() const {
-    return mSubPartInfos->mSuspendFlag;
+    return mCurrentPart->mSuspendFlag;
 }
 
 bool DemoTimeKeeper::isPartLast() const {
@@ -88,7 +91,7 @@ bool DemoTimeKeeper::isPartLast() const {
         return false;
     }
 
-    return _18 == mNumPartInfos - 1;
+    return mPartIndex == mNumPartInfos - 1;
 }
 
 inline s32 DemoTimeKeeper::getPart(const char* pPartName) const {
@@ -102,10 +105,13 @@ inline s32 DemoTimeKeeper::getPart(const char* pPartName) const {
 }
 
 void DemoTimeKeeper::setCurrentPart(const char* pPartName) {
-    _18 = getPart(pPartName);
-    mSubPartInfos = &mMainPartInfos[_18];
+    mPartIndex = getPart(pPartName);
+    mCurrentPart = &mMainPartInfos[mPartIndex];
+    if (mPartIndex >= 0) {
+        NebulaMods::fire(NEBULA_MOD_EVENT_CUTSCENE_PART, mPartIndex, nullptr, mCurrentPart->mPartName);
+    }
 }
 
 bool DemoTimeKeeper::isCurrentDemoPartLastStep() const {
-    return mSubPartInfos->mTotalStep - 1 <= mCurrentStep;
+    return mCurrentPart->mTotalStep - 1 <= mCurrentStep;
 }

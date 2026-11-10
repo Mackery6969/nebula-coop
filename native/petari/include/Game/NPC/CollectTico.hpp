@@ -8,7 +8,7 @@ class CollectTico : public LiveActor {
 public:
     CollectTico(const char*);
 
-    virtual void init(const JMapInfoIter&);
+    virtual void init(const TableIter&) override;
 
     void exeWait();
     void exeCompleteDemo();
@@ -20,6 +20,6 @@ public:
 
     StrayTico** mStrayTicos;
     s32 mTicoNum;
-    TVec3f _94;
-    u8 _A0;
+    Vec3f mStarPos;
+    u8 mIsDemoCast;
 };

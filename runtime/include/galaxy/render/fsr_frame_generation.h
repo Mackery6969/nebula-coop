@@ -5,13 +5,7 @@
 // place of the window's. It reads the scene's depth and motion after the upscale, and the frame without its 2D layer at the
 // present. Render thread only.
 
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <Windows.h>
+#include "galaxy/windows_api.h"
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #include <wrl/client.h>
@@ -26,7 +20,7 @@ public:
     FsrFrameGeneration();
     ~FsrFrameGeneration();
 
-    // The swap chain given is released and `swap_chain` becomes AMD's for the same window; on failure it is left null.
+    // The swap chain given is released and `swap_chain` becomes AMD's for the same window; on failure it is left null, or as it was when refused before the SDK took it (a chain it cannot describe, or a fullscreen one).
     [[nodiscard]] static bool replace_swap_chain(ID3D12CommandQueue* queue, Microsoft::WRL::ComPtr<IDXGISwapChain4>& swap_chain) noexcept;
 
     // Its context for these sizes (made at the first frame; the GPU must be idle when they change, and at destroy).

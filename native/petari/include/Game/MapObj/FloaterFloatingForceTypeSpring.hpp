@@ -6,14 +6,14 @@ class SpringValue;
 
 class FloaterSpringForce {
 public:
-    FloaterSpringForce(f32, f32, f32);
+    FloaterSpringForce(f32 baseValue, f32 spring, f32 damp);
 
     void addSpringVelocity(f32);
-    void setSpringBaseValue(f32);
+    void setSpringBaseValue(f32 baseValue);
 
-    f32 _0;
-    f32 _4;
-    f32 _8;
+    f32 mBaseValue;
+    f32 mSpring;
+    f32 mDamp;
     SpringValue* mSpringValue;
 };
 
@@ -21,11 +21,10 @@ class FloaterFloatingForceTypeSpring : public FloaterFloatingForce {
 public:
     FloaterFloatingForceTypeSpring(LiveActor*, const char*);
 
-    virtual ~FloaterFloatingForceTypeSpring();
-    virtual void init(const JMapInfoIter&);
-    virtual void start();
-    virtual void updateHostVelocity(TVec3f*) const;
-    virtual const TVec3f& getCurrentVelocity() const {
+    virtual void init(const TableIter&) override;
+    virtual void start() override;
+    virtual void updateHostVelocity(Vec3f*) const override;
+    virtual const Vec3f& getCurrentVelocity() const override {
         return mVelocity;
     }
 
@@ -40,6 +39,6 @@ public:
     void exeMoveReturn();
 
     FloaterSpringForce* mSpringForce;
-    TVec3f mVelocity;
-    f32 _48;
+    Vec3f mVelocity;
+    f32 mRideSinkSpeed;
 };

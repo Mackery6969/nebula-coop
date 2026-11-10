@@ -6,11 +6,27 @@
 #include "Game/Util/ActorShadowUtil.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/EffectUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/JointUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#include "Game/Util/Tunable.hpp"
+
+// The numbers this file's functions give the game's motion and animation calls, as tunables: "<file>.<function>.<call>.<k>".
+NEBULA_TUNABLE_NAMED(f32, cNum_exeWait_enableGroupAttack_1, "exeWait.enableGroupAttack.1", 3000.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeWait_enableGroupAttack_2, "exeWait.enableGroupAttack.2", 500.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeAttack_enableGroupAttack_1, "exeAttack.enableGroupAttack.1", 3200.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeAttack_enableGroupAttack_2, "exeAttack.enableGroupAttack.2", 500.0f);
+
+// The step counts of this file's functions, as tunables: "<file>.<function>.<k>".
+NEBULA_TUNABLE_NAMED(s32, cStep_exeInter_1, "exeInter.1", 80);
+
+namespace {
+    // One beam per interval of the attack.
+    const s32 sBeamNum = 3;
+    const s32 sBeamInterval = 80;
+};  // namespace
 
 namespace NrvRingBeamer {
     NEW_NERVE(RingBeamerNrvWait, RingBeamer, Wait);
@@ -21,16 +37,16 @@ namespace NrvRingBeamer {
 RingBeamer::RingBeamer(const char* pName) : LiveActor(pName), mBeams() {
 }
 
-void RingBeamer::init(const JMapInfoIter& rIter) {
+void RingBeamer::init(const TableIter& rIter) {
     initModelManagerWithAnm("RingBeamer", nullptr, false);
     MR::initDefaultPos(this, rIter);
     MR::connectToSceneEnemy(this);
     MR::initLightCtrl(this);
     initHitSensor(2);
-    MR::addHitSensorPush(this, "Body", 8, 160.0f, TVec3f(0.0f, 80.0f, 0.0f));
-    MR::addHitSensorMtxEnemyAttack(this, "Head", 8, 130.0f, MR::getJointMtx(this, "Top"), TVec3f(0.0f, 110.0f, 0.0f));
+    MR::addHitSensorPush(this, "Body", 8, 160.0f, Vec3f(0.0f, 80.0f, 0.0f));
+    MR::addHitSensorMtxEnemyAttack(this, "Head", 8, 130.0f, MR::getJointMtx(this, "Top"), Vec3f(0.0f, 110.0f, 0.0f));
     MR::initShadowVolumeSphere(this, 120.0f);
-    initEffectKeeper(1, nullptr, false);
+    initEffectKeeper(1, nullptr);
     initSound(8, false);
     initNerve(GET_NERVE(RingBeamer, RingBeamerNrvWait));
     makeActorAppeared();
@@ -39,20 +55,16 @@ void RingBeamer::init(const JMapInfoIter& rIter) {
         MR::listenStageSwitchOffB(this, MR::Functor(this, &RingBeamer::syncSwitchOffB));
     }
     MR::joinToGroupArray(this, rIter, nullptr, 32);
-    // initializes to 5 long, but only uses 3?
-    mBeams = new RingBeam*[5];
-    for (int i = 0; i < 5; i++) {
-        mBeams[i] = nullptr;
-    }
-    f32 arg0 = 20.0f;
-    s32 arg1 = 100;
-    MR::getJMapInfoArg0NoInit(rIter, &arg0);
-    MR::getJMapInfoArg1NoInit(rIter, &arg1);
-    for (int i = 0; i < 3; i++) {
-        mBeams[i] = new RingBeam("\203\212\203\223\203\117\203\162\201\133\203\200" /* リングビーム */, this, false, false);
+    mBeams = new RingBeam*[::sBeamNum];
+    f32 beamSpeed = 20.0f;
+    s32 beamLife = 100;
+    MR::getPlacementArg0NoInit(rIter, &beamSpeed);
+    MR::getPlacementArg1NoInit(rIter, &beamLife);
+    for (s32 i = 0; i < ::sBeamNum; i++) {
+        mBeams[i] = new RingBeam("リングビーム", this, false, false);
         mBeams[i]->init(rIter);
-        mBeams[i]->setSpeed(arg0);
-        mBeams[i]->setLife(arg1);
+        mBeams[i]->setSpeed(beamSpeed);
+        mBeams[i]->setLife(beamLife);
     }
     MR::startBckWithInterpole(this, "Open", 0);
     MR::setBckFrameAndStop(this, 0.0);
@@ -62,7 +74,7 @@ void RingBeamer::init(const JMapInfoIter& rIter) {
 void RingBeamer::syncSwitchOffB() {
     setNerve(GET_NERVE(RingBeamer, RingBeamerNrvInter));
 
-    for (int i = 0; i < 3; i++) {
+    for (s32 i = 0; i < ::sBeamNum; i++) {
         mBeams[i]->kill();
     }
 }
@@ -72,7 +84,7 @@ void RingBeamer::exeWait() {
         MR::validateClipping(this);
     }
 
-    if (MR::enableGroupAttack(this, 3000.0f, 500.0f)) {
+    if (MR::enableGroupAttack(this, cNum_exeWait_enableGroupAttack_1, cNum_exeWait_enableGroupAttack_2)) {
         MR::sendMsgToGroupMember(ACTMES_GROUP_ATTACK, this, getSensor("Body"), "Body");
     }
 }
@@ -82,36 +94,33 @@ void RingBeamer::exeAttack() {
         MR::startBck(this, "Open");
     }
 
-    if (MR::isGreaterEqualStep(this, 240)) {
+    if (MR::isGreaterEqualStep(this, ::sBeamNum * ::sBeamInterval)) {
         setNerve(GET_NERVE(RingBeamer, RingBeamerNrvInter));
         return;
     }
 
-    if (getNerveStep() % 80 >= 0 && getNerveStep() % 80 < 79) {
+    if (getNerveStep() % ::sBeamInterval >= 0 && getNerveStep() % ::sBeamInterval < ::sBeamInterval - 1) {
         MR::startLevelSound(this, "SE_EM_LV_RINGBEAM_CHARGE");
     }
 
-    if (getNerveStep() % 80 == 0) {
+    if (getNerveStep() % ::sBeamInterval == 0) {
         MR::emitEffect(this, "Charge");
     }
 
-    if (getNerveStep() % 80 == 79) {
+    if (getNerveStep() % ::sBeamInterval == ::sBeamInterval - 1) {
         MR::deleteEffect(this, "Charge");
 
-        if (!MR::enableGroupAttack(this, 3200.0f, 500.0f)) {
+        if (!MR::enableGroupAttack(this, cNum_exeAttack_enableGroupAttack_1, cNum_exeAttack_enableGroupAttack_2)) {
             MR::sendMsgToGroupMember(ACTMES_GROUP_HIDE, this, getSensor("Body"), "Body");
-        } else if (mBeams[getNerveStep() / 80]) {
-            mBeams[getNerveStep() / 80]->appear();
+        } else {
+            mBeams[getNerveStep() / ::sBeamInterval]->appear();
         }
     }
 }
 
 void RingBeamer::exeInter() {
-    if (MR::isFirstStep(this)) {
-    }
-
-    if (MR::isGreaterEqualStep(this, 80)) {
-        for (int i = 0; i < 3; i++) {
+    if (MR::isGreaterEqualStep(this, cStep_exeInter_1)) {
+        for (s32 i = 0; i < ::sBeamNum; i++) {
             if (!MR::isDead(mBeams[i])) {
                 return;
             }
@@ -129,7 +138,7 @@ void RingBeamer::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     }
 }
 
-bool RingBeamer::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool RingBeamer::receiveOtherMsg(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (msg == ACTMES_GROUP_ATTACK) {
         MR::invalidateClipping(this);
         setNerve(GET_NERVE(RingBeamer, RingBeamerNrvAttack));
@@ -146,7 +155,7 @@ bool RingBeamer::receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiv
     return false;
 }
 
-bool RingBeamer::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool RingBeamer::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (MR::isMsgJetTurtleAttack(msg)) {
         return true;
     }

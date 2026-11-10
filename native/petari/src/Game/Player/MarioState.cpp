@@ -1,8 +1,9 @@
 #include "Game/Player/MarioState.hpp"
+#include "Game/System/NebulaMods.hpp"
 #include "Game/Player/Mario.hpp"
 #include "Game/Player/MarioActor.hpp"
 
-MarioState::MarioState(MarioActor* pActor, u32 statusId) : MarioModule(pActor), _8(), mStatusId(statusId), _10() {
+MarioState::MarioState(MarioActor* pActor, u32 statusId) : MarioModule(pActor), mNextState(), mStatusId(statusId), mClosing() {
 }
 
 bool MarioState::proc(u32 msg) {
@@ -10,13 +11,13 @@ bool MarioState::proc(u32 msg) {
     case MarioStateMsg_Start:
         return start();
     case MarioStateMsg_Close:
-        if (_10) {
+        if (mClosing) {
             break;
         }
 
-        _10 = true;
+        mClosing = true;
         close();
-        _10 = false;
+        mClosing = false;
         break;
     case MarioStateMsg_Update:
         return update();
@@ -32,8 +33,8 @@ bool MarioState::proc(u32 msg) {
 void Mario::sendStateMsg(u32 msg) {
     MarioState* pNext;
 
-    for (MarioState* pState = _97C; pState != nullptr;) {
-        pNext = pState->_8;
+    for (MarioState* pState = mCurrentState; pState != nullptr;) {
+        pNext = pState->mNextState;
 
         if (isStatusActive(pState->mStatusId) == MarioStatus_None) {
             pState = pNext;
@@ -53,8 +54,8 @@ void Mario::sendStateMsg(u32 msg) {
 }
 
 bool Mario::updatePosture(MtxPtr mtx) {
-    if (_97C != nullptr) {
-        return _97C->postureCtrl(mtx);
+    if (mCurrentState != nullptr) {
+        return mCurrentState->postureCtrl(mtx);
     }
 
     postureCtrl(mtx);
@@ -73,39 +74,41 @@ void Mario::changeStatus(MarioState* pState) {
         return;
     }
 
-    _980 = pState;
+    NebulaMods::fire(NEBULA_MOD_EVENT_PLAYER_ACTION, static_cast< s32 >(pState->mStatusId));
+
+    mNoticedState = pState;
 
     sendStateMsg(MarioStateMsg_Notice);
 
-    if (_97C) {
-        pState->_8 = _97C;
+    if (mCurrentState) {
+        pState->mNextState = mCurrentState;
     }
 
-    _97C = pState;
+    mCurrentState = pState;
 
     if (!pState->proc(MarioStateMsg_Start)) {
         closeStatus(pState);
 
-        _97C = pState->_8;
+        mCurrentState = pState->mNextState;
     }
 }
 
 void Mario::closeStatus(MarioState* pState) {
     if (pState == nullptr) {
-        while (_97C != nullptr) {
-            closeStatus(_97C);
+        while (mCurrentState != nullptr) {
+            closeStatus(mCurrentState);
         }
 
         return;
     }
 
-    MarioState* pCurr = _97C;
+    MarioState* pCurr = mCurrentState;
 
     if (pCurr == pState) {
-        _97C = pState->_8;
+        mCurrentState = pState->mNextState;
     } else {
         while (pCurr != nullptr) {
-            MarioState* pNext = pCurr->_8;
+            MarioState* pNext = pCurr->mNextState;
 
             if (pNext == pState) {
                 break;
@@ -114,15 +117,19 @@ void Mario::closeStatus(MarioState* pState) {
             pCurr = pNext;
         }
 
-        pCurr->_8 = pState->_8;
+        if (pCurr == nullptr) {
+            return;  // not open
+        }
+
+        pCurr->mNextState = pState->mNextState;
     }
 
-    pState->_8 = nullptr;
+    pState->mNextState = nullptr;
     pState->proc(MarioStateMsg_Close);
 }
 
 u32 Mario::getCurrentStatus() const {
-    MarioState* pState = _97C;
+    MarioState* pState = mCurrentState;
 
     if (pState == nullptr) {
         return MarioStatus_None;
@@ -132,7 +139,7 @@ u32 Mario::getCurrentStatus() const {
 }
 
 bool Mario::isStatusActive(u32 statusId) const {
-    MarioState* pState = _97C;
+    MarioState* pState = mCurrentState;
 
     if (pState == nullptr) {
         return false;
@@ -147,12 +154,12 @@ bool Mario::isStatusActive(u32 statusId) const {
             return true;
         }
 
-        pState = pState->_8;
+        pState = pState->mNextState;
     }
 
     return false;
 }
 
 u32 MarioState::getNoticedStatus() const {
-    return getPlayer()->_980->mStatusId;
+    return getPlayer()->mNoticedState->mStatusId;
 }

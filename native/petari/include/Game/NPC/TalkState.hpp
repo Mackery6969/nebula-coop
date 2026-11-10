@@ -48,7 +48,7 @@ public:
     bool isLostMessage(const TalkMessageCtrl*) const;
     bool isSelfInterrupt(const TalkMessageCtrl*) const;
 
-    TalkMessageCtrl* _04;
+    TalkMessageCtrl* mMsgCtrl;
     TalkBalloon* mBalloon;
     u32 mMessageID;
 };
@@ -57,29 +57,28 @@ class TalkStateShort : public TalkState {
 public:
     TalkStateShort();
 
-    virtual bool prep(const TalkMessageCtrl*);
-    virtual void open();
-    virtual bool talk(const TalkMessageCtrl*);
-    virtual void clos();
+    virtual bool prep(const TalkMessageCtrl*) override;
+    virtual void open() override;
+    virtual bool talk(const TalkMessageCtrl*) override;
+    virtual void clos() override;
 };
 
 class TalkStateEvent : public TalkState {
 public:
     TalkStateEvent();
 
-    virtual bool prep(const TalkMessageCtrl*);
-    virtual bool test();
-    virtual void open();
-    virtual bool talk(const TalkMessageCtrl*);
-    virtual void clos();
-    virtual bool term(const TalkMessageCtrl*);
-    virtual u32 getPageCount() const;
+    virtual bool prep(const TalkMessageCtrl*) override;
+    virtual bool test() override;
+    virtual void open() override;
+    virtual bool talk(const TalkMessageCtrl*) override;
+    virtual void clos() override;
+    virtual bool term(const TalkMessageCtrl*) override;
+    virtual u32 getPageCount() const override;
 
-    s32 _10;
-    s32 _14;
-    TalkSupportPlayerWatcher* _18;
-    u8 _1C;
-    bool _1D;
+    s32 mSkipHoldStep;
+    s32 mTermStep;
+    TalkSupportPlayerWatcher* mPlayerWatcher;
+    u8 mIsJumpHeld;
     u32 mPageCount;
 };
 
@@ -87,10 +86,10 @@ class TalkStateNormal : public TalkStateEvent {
 public:
     TalkStateNormal();
 
-    virtual bool prep(const TalkMessageCtrl*);
-    virtual bool test();
-    virtual void clos();
-    virtual bool term(const TalkMessageCtrl*);
+    virtual bool prep(const TalkMessageCtrl*) override;
+    virtual bool test() override;
+    virtual void clos() override;
+    virtual bool term(const TalkMessageCtrl*) override;
     void updateButton();
 
     IconAButton* mAButton;
@@ -100,10 +99,10 @@ class TalkStateCompose : public TalkStateNormal {
 public:
     TalkStateCompose();
 
-    virtual void init(TalkMessageCtrl*, TalkBalloon*);
-    virtual bool prep(const TalkMessageCtrl*);
-    virtual bool test();
-    virtual void open();
+    virtual void init(TalkMessageCtrl*, TalkBalloon*) override;
+    virtual bool prep(const TalkMessageCtrl*) override;
+    virtual bool test() override;
+    virtual void open() override;
 
     TalkBalloon* mSecondBalloon;
 };
@@ -116,7 +115,7 @@ public:
     void pauseOff();
     TalkState* getState(const TalkMessageCtrl*);
 
-    TalkSupportPlayerWatcher* _00;
+    TalkSupportPlayerWatcher* mPlayerWatcher;
     IconAButton* mAButton;
     TalkStateShort* mTalkShort;
     TalkStateNormal* mTalkNormal;

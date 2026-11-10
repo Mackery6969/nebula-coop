@@ -1,21 +1,16 @@
 #include "Game/MapObj/MapObjActorInitInfo.hpp"
-#include <JSystem/JUtility/JUTNativeLog.hpp>
 #include "Game/MapObj/MapObjActor.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/MapPartsUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
 
 MapObjActorInitInfo::MapObjActorInitInfo()
     : mSetDefaultPosition(), mConnectToScene(), mInitBinder(), mHasEffect(), mHasSensors(), mHasShadows(), mCalcGravity(), mUseProjectMapMtx(),
-      mInitFur(), mHasRailMover(), mHasRotator(), mHasRailRotator(), _C(), _D(), mUseRailPosture(), mUseBaseMtxFollowTarget(), mIsAffectedByScale(),
-      mUseMirrorReflection(), mModelName(), mHioNode(), _1C(), mSensorRadius(), mSensorPosition(gZeroVec), mHasHitSensorCB(), mBinderRadius(),
-      mBinderCenterY(), mEffectName(), mSound(), mSoundPos(), _48(), mNerve(), mGroupClipping(), mClippingRadius(), mFarClipping(), _5C(-1),
-      mColorChangeArg(-1), mTextureChangeArg(-1), mIsAppearRiddleSE(), mSeesaw1AxisRotatorName(), mSeesaw1AxisRotatorRadius(), _74(), mShadowName(),
-      mShadowLength(-1.0f), _80(), mDummyChangeTexture(), _8C(), mNoUseLOD() {
-}
-
-void MapObjActorInitInfo::setupHioNode(const char* pName) {
-    mHioNode = pName;
+      mInitFur(), mHasRailMover(), mHasRotator(), mHasRailRotator(), mHasSeesaw1AxisRotator(), mHasSeesaw2AxisRotator(), mUseRailPosture(), mUseBaseMtxFollowTarget(), mIsAffectedByScale(),
+      mUseMirrorReflection(), mModelName(), mSensorType(), mSensorRadius(), mSensorPosition(gZeroVec), mHasHitSensorCB(), mBinderRadius(),
+      mBinderCenterY(), mEffectName(), mSound(), mSoundPos(), mIsProjmapEveryFrame(), mNerve(), mGroupClipping(), mClippingRadius(), mFarClipping(), mLightType(-1),
+      mColorChangeArg(-1), mTextureChangeArg(-1), mIsAppearRiddleSE(), mSeesaw1AxisRotatorName(), mSeesaw1AxisRotatorRadius(), mIsMirrorFromModel(), mShadowName(),
+      mShadowLength(-1.0f), mBreakModelName(), mDummyChangeTexture(), mInitLightCtrl(), mNoUseLOD() {
 }
 
 void MapObjActorInitInfo::setupDefaultPos() {
@@ -45,7 +40,7 @@ void MapObjActorInitInfo::setupSound(s32 id) {
     mSound = id;
 }
 
-void MapObjActorInitInfo::setupSoundPos(TVec3f* pPos) {
+void MapObjActorInitInfo::setupSoundPos(Vec3f* pPos) {
     mSoundPos = pPos;
 }
 
@@ -62,8 +57,8 @@ void MapObjActorInitInfo::setupHitSensorCallBack() {
     mHasHitSensorCB = true;
 }
 
-void MapObjActorInitInfo::setupHitSensorParam(u16 a1, f32 radius, const TVec3f& rPosition) {
-    _1C = a1;
+void MapObjActorInitInfo::setupHitSensorParam(u16 sensorType, f32 radius, const Vec3f& rPosition) {
+    mSensorType = sensorType;
     mSensorRadius = radius;
     mSensorPosition.set(rPosition);
 }
@@ -89,9 +84,9 @@ void MapObjActorInitInfo::setupFarClipping(f32 distance = -1.0f) {
     mFarClipping = distance;
 }
 
-void MapObjActorInitInfo::setupProjmapMtx(bool b1) {
+void MapObjActorInitInfo::setupProjmapMtx(bool isEveryFrame) {
     mUseProjectMapMtx = true;
-    _48 = b1;
+    mIsProjmapEveryFrame = isEveryFrame;
 }
 
 void MapObjActorInitInfo::setupRailMover() {
@@ -107,7 +102,7 @@ void MapObjActorInitInfo::setupRailRotator() {
 }
 
 void MapObjActorInitInfo::setupSeesaw1AxisRotator(const char* pName, f32 radius) {
-    _C = true;
+    mHasSeesaw1AxisRotator = true;
     mSeesaw1AxisRotatorName = pName;
     mSeesaw1AxisRotatorRadius = radius;
 }
@@ -128,8 +123,8 @@ void MapObjActorInitInfo::setupSeAppear() {
     mIsAppearRiddleSE = true;
 }
 
-void MapObjActorInitInfo::setupMirrorReflection(bool b1) {
-    _74 = b1;
+void MapObjActorInitInfo::setupMirrorReflection(bool isFromModel) {
+    mIsMirrorFromModel = isFromModel;
     mUseMirrorReflection = true;
 }
 
@@ -184,53 +179,52 @@ void MapObjActorUtil::setupInitInfoTypical(MapObjActorInitInfo* pInitInfo, const
     }
 
     if (MR::isEqualString("SandUpDownTowerBreakableWallA", pName) || MR::isEqualString("SandUpDownTowerBreakableWallB", pName)) {
-        pInitInfo->_80 = "SandUpDownTowerBreakableWallBreak";
+        pInitInfo->mBreakModelName = "SandUpDownTowerBreakableWallBreak";
     }
 
     if (MR::isEqualString("KoopaStatue", pName)) {
-        pInitInfo->_8C = true;
-        pInitInfo->_5C = 2;
+        pInitInfo->mInitLightCtrl = true;
+        pInitInfo->mLightType = 2;
     }
 
     if (MR::isEqualString("DangerSignBoard", pName)) {
         pInitInfo->setupHitSensor();
-        pInitInfo->setupHitSensorParam(4, 200.0f, TVec3f(0.0f, 200.0f, 0.0f));
+        pInitInfo->setupHitSensorParam(4, 200.0f, Vec3f(0.0f, 200.0f, 0.0f));
     }
 }
 
-void MapObjActorUtil::setupInitInfoColorChangeArg0(MapObjActorInitInfo* pInitInfo, const JMapInfoIter& rIter) {
-    s32 arg0 = -1;
-    MR::getJMapInfoArg0NoInit(rIter, &arg0);
-    pInitInfo->mColorChangeArg = arg0;
+void MapObjActorUtil::setupInitInfoColorChangeArg0(MapObjActorInitInfo* pInitInfo, const TableIter& rIter) {
+    s32 colorChange = -1;
+    MR::getPlacementArg0NoInit(rIter, &colorChange);
+    pInitInfo->mColorChangeArg = colorChange;
 }
 
-void MapObjActorUtil::setupInitInfoTextureChangeArg1(MapObjActorInitInfo* pInitInfo, const JMapInfoIter& rIter) {
-    s32 arg1 = -1;
-    MR::getJMapInfoArg1NoInit(rIter, &arg1);
-    pInitInfo->mTextureChangeArg = arg1;
+void MapObjActorUtil::setupInitInfoTextureChangeArg1(MapObjActorInitInfo* pInitInfo, const TableIter& rIter) {
+    s32 textureChange = -1;
+    MR::getPlacementArg1NoInit(rIter, &textureChange);
+    pInitInfo->mTextureChangeArg = textureChange;
 }
 
-void MapObjActorUtil::setupInitInfoShadowLengthArg2(MapObjActorInitInfo* pInitInfo, const JMapInfoIter& rIter) {
-    f32 arg2 = -1.0f;
-    MR::getJMapInfoArg2NoInit(rIter, &arg2);
-    pInitInfo->mShadowLength = arg2;
+void MapObjActorUtil::setupInitInfoShadowLengthArg2(MapObjActorInitInfo* pInitInfo, const TableIter& rIter) {
+    f32 shadowLength = -1.0f;
+    MR::getPlacementArg2NoInit(rIter, &shadowLength);
+    pInitInfo->mShadowLength = shadowLength;
 }
 
-void MapObjActorUtil::setupInitInfoSeesaw(MapObjActorInitInfo* pInitInfo, const JMapInfoIter& rIter, const char* pName, f32 radius) {
+void MapObjActorUtil::setupInitInfoSeesaw(MapObjActorInitInfo* pInitInfo, const TableIter& rIter, const char* pName, f32 radius) {
     s32 arg = -1;
     MR::getMapPartsArgRotateAxis(&arg, rIter);
 
     if (arg == 0) {
         pInitInfo->setupSeesaw1AxisRotator(pName, radius);
     } else {
-        pInitInfo->_D = true;
+        pInitInfo->mHasSeesaw2AxisRotator = true;
         pInitInfo->mSeesaw1AxisRotatorName = pName;
         pInitInfo->mSeesaw1AxisRotatorRadius = radius;
     }
 }
 
 void MapObjActorUtil::setupInitInfoSimpleMapObj(MapObjActorInitInfo* pInitInfo) {
-    pInitInfo->setupHioNode("\222\156\214\140\203\111\203\165\203\127\203\106" /* 地形オブジェ */);
     pInitInfo->setupDefaultPos();
     pInitInfo->setupConnectToScene();
     pInitInfo->setupEffect();
@@ -241,7 +235,6 @@ void MapObjActorUtil::setupInitInfoSimpleMapObj(MapObjActorInitInfo* pInitInfo) 
 }
 
 void MapObjActorUtil::setupInitInfoPlanet(MapObjActorInitInfo* pInitInfo) {
-    pInitInfo->setupHioNode("\230\146\220\257" /* 惑星 */);
     pInitInfo->setupDefaultPos();
     pInitInfo->setupConnectToScene();
     pInitInfo->setupEffect();

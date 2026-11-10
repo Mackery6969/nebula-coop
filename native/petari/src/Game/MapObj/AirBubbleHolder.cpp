@@ -1,21 +1,29 @@
 #include "Game/MapObj/AirBubbleHolder.hpp"
 #include "Game/MapObj/AirBubble.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
+#include "Game/System/Arenas.hpp"
+#include "Game/System/NebulaArena.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const s32 sAirBubbleMax = 64;
-    static const s32 sCreateAirBubbleNum = 32;
+    NEBULA_TUNABLE(s32, sCreateAirBubbleNum, 32);
 };  // namespace
 
-AirBubbleHolder::AirBubbleHolder(const char* pName) : DeriveActorGroup< AirBubble >(pName, ::sAirBubbleMax) {
+AirBubbleHolder::AirBubbleHolder(const char* pName) : DeriveActorGroup< AirBubble >(pName, ::sCreateAirBubbleNum) {
 }
 
-void AirBubbleHolder::appearAirBubble(const TVec3f& rTrans, s32 lifeTime) {
+void AirBubbleHolder::appearAirBubble(const Vec3f& rTrans, s32 lifeTime) {
     AirBubble* pAirBubble = getDeadMember();
-
-    if (pAirBubble != nullptr) {
-        pAirBubble->appearMove(rTrans, lifeTime);
+    if (pAirBubble == nullptr) {
+        const s32 first = getObjNum();
+        createAirBubbles();
+        for (s32 i = first; i < getObjNum(); i++) {
+            getMember(i)->initAfterPlacement();
+        }
+        pAirBubble = getDeadMember();
     }
+
+    pAirBubble->appearMove(rTrans, lifeTime);
 }
 
 namespace MR {
@@ -23,22 +31,21 @@ namespace MR {
         return static_cast< AirBubbleHolder* >(MR::createSceneObj(SceneObj_AirBubbleHolder));
     }
 
-    void appearAirBubble(const TVec3f& rTrans, s32 lifeTime) {
+    void appearAirBubble(const Vec3f& rTrans, s32 lifeTime) {
         MR::getSceneObj< AirBubbleHolder >(SceneObj_AirBubbleHolder)->appearAirBubble(rTrans, lifeTime);
     }
 };  // namespace MR
 
-AirBubbleHolder::~AirBubbleHolder() {
+void AirBubbleHolder::init(const TableIter& /*rIter*/) {
+    createAirBubbles();
 }
 
-void AirBubbleHolder::init(const JMapInfoIter& rIter) {
-    AirBubble* pAirBubble;
-
+void AirBubbleHolder::createAirBubbles() {
+    NebulaArena::CurrentScope scope(Arenas::scene());
     for (s32 i = 0; i < ::sCreateAirBubbleNum; i++) {
-        pAirBubble = new AirBubble("\213\363\213\103\203\101\203\217(\213\244\227\160)" /* 空気アワ(共用) */);
+        AirBubble* pAirBubble = new AirBubble("空気アワ(共用)");
         pAirBubble->initWithoutIter();
         pAirBubble->makeActorDead();
-
         registerActor(pAirBubble);
     }
 }

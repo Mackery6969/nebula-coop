@@ -21,12 +21,35 @@ public:
     bool isCameraNormal() const;
     bool isCameraEvent() const;
 
-    u8* _0;
+    enum TalkType {
+        TalkType_Normal,
+        TalkType_Short,
+        TalkType_Event,
+        TalkType_Compose,
+        TalkType_Flow,
+        TalkType_Null,
+    };
+
+    enum BalloonType {
+        BalloonType_Call = 2,
+        BalloonType_Fix,
+        BalloonType_Sign,
+        BalloonType_Info,
+        BalloonType_Icon,
+    };
+
+    enum CameraType {
+        CameraType_Normal,
+        CameraType_Event,
+        CameraType_None,
+    };
+
+    const char16_t* mMessage;
     u16 mCameraSetID;
-    s8 _6;
-    u8 mCameraType;
-    u8 mTalkType;
-    u8 mBalloonType;
-    s8 _A;
-    s8 _B;
+    s8 mSoundId;
+    u8 mCameraType;  // CameraType
+    u8 mTalkType;    // TalkType
+    u8 mBalloonType;  // BalloonType
+    s8 mAreaId;
+    s8 mAlreadyReadId;
 };

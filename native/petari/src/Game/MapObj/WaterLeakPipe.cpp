@@ -2,10 +2,11 @@
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Util.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const f32 sDefaultHeight = 500.0f;
-    static const s32 sLifeTime = 15;
+    NEBULA_TUNABLE(f32, sDefaultHeight, 500.0f);
+    NEBULA_TUNABLE(s32, sLifeTime, 15);
 };  // namespace
 
 namespace NrvIceStepNoSlip {
@@ -18,16 +19,10 @@ namespace NrvWaterLeakPipe {
     NEW_NERVE(WaterLeakPipeNrvFreeze, WaterLeakPipe, Freeze);
 };  // namespace NrvWaterLeakPipe
 
-IceStepNoSlip::~IceStepNoSlip() {
+IceStepNoSlip::IceStepNoSlip(MtxPtr mtx) : ModelObj("アイス床", "IceStepNoSlip", mtx, MR::DrawBufferType_IndirectMapObjStrongLight, -2, -2, false) {
 }
 
-WaterLeakPipe::~WaterLeakPipe() {
-}
-
-IceStepNoSlip::IceStepNoSlip(MtxPtr mtx) : ModelObj("\203\101\203\103\203\130\217\260" /* アイス床 */, "IceStepNoSlip", mtx, MR::DrawBufferType_IndirectMapObjStrongLight, -2, -2, false) {
-}
-
-void IceStepNoSlip::init(const JMapInfoIter& rIter) {
+void IceStepNoSlip::init(const TableIter& rIter) {
     ModelObj::init(rIter);
     initHitSensor(1);
     MR::addBodyMessageSensorMapObj(this);
@@ -57,25 +52,25 @@ void IceStepNoSlip::exeBreak() {
 }
 
 WaterLeakPipe::WaterLeakPipe(const char* pName)
-    : LiveActor(pName), mIceStep(), mPipeHeight(::sDefaultHeight), mTopMtx(), mBottomMtx(), _9C(0.0f, 0.0f, 0.0f) {
+    : LiveActor(pName), mIceStep(), mPipeHeight(::sDefaultHeight), mTopMtx(), mBottomMtx(), mClippingCenter(0.0f, 0.0f, 0.0f) {
 }
 
-void WaterLeakPipe::init(const JMapInfoIter& rIter) {
-    TVec3f upVec;
+void WaterLeakPipe::init(const TableIter& rIter) {
+    Vec3f upVec;
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("WaterLeakPipe", nullptr, false);
     mTopMtx = MR::getJointMtx(this, "Top");
     mBottomMtx = MR::getJointMtx(this, "Bottom");
-    MR::getJMapInfoArg0NoInit(rIter, &mPipeHeight);
+    MR::getPlacementArg0NoInit(rIter, &mPipeHeight);
     initPipeHeight();
     MR::connectToSceneMapObjNoCalcAnim(this);
     initHitSensor(1);
-    MR::addHitSensorAtJointMapObj(this, "ice", "Top", 8, 120.0f, TVec3f(0.0f, 0.0f, 0.0f));
-    initEffectKeeper(0, nullptr, false);
+    MR::addHitSensorAtJointMapObj(this, "ice", "Top", 8, 120.0f, Vec3f(0.0f, 0.0f, 0.0f));
+    initEffectKeeper(0, nullptr);
     initSound(4, false);
     MR::calcUpVec(&upVec, this);
-    _9C.scaleAdd(0.5f * mPipeHeight, upVec, mPosition);
-    MR::setClippingTypeSphere(this, (0.5f * mPipeHeight), &_9C);
+    mClippingCenter.scaleAdd(0.5f * mPipeHeight, upVec, mPosition);
+    MR::setClippingTypeSphere(this, (0.5f * mPipeHeight), &mClippingCenter);
     mIceStep = new IceStepNoSlip(mTopMtx);
     mIceStep->initWithoutIter();
     mIceStep->makeActorDead();
@@ -107,7 +102,7 @@ void WaterLeakPipe::exeFreeze() {
     }
 }
 
-bool WaterLeakPipe::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool WaterLeakPipe::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (!MR::isPlayerElementModeIce()) {
         return false;
     }
@@ -117,12 +112,12 @@ bool WaterLeakPipe::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSenso
     }
 
     if (MR::isMsgPlayerTrample(msg) || MR::isMsgPlayerHipDrop(msg)) {
-        TVec3f upVec;
+        Vec3f upVec;
         MR::calcUpVec(&upVec, this);
-        TVec3f v8;
-        v8.sub(*MR::getPlayerPos(), mPosition);
+        Vec3f toPlayer;
+        toPlayer.sub(*MR::getPlayerPos(), mPosition);
 
-        if (v8.dot(upVec) < 0.0f) {
+        if (toPlayer.dot(upVec) < 0.0f) {
             return false;
         }
 
@@ -138,13 +133,13 @@ bool WaterLeakPipe::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSenso
 }
 
 void WaterLeakPipe::initPipeHeight() {
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.set(mTopMtx);
-    TVec3f upVec;
+    Vec3f upVec;
     MR::calcUpVec(&upVec, this);
-    TVec3f v10;
-    v10.scaleAdd(mPipeHeight, upVec, mPosition);
-    mtx.setTrans(v10);
+    Vec3f topPos;
+    topPos.scaleAdd(mPipeHeight, upVec, mPosition);
+    mtx.setTrans(topPos);
     NebulaMtxCopy(mtx, mTopMtx);
     calcAndSetBaseMtx();
 }

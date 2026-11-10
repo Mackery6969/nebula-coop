@@ -1,10 +1,11 @@
 #include "Game/Screen/WipeKoopa.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util/LayoutUtil.hpp"
-#include <JSystem/J3DGraphAnimator/J3DAnimation.hpp>
+#include "Game/Render/Clip.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const s32 sAnimFrame = 90;
+    NEBULA_TUNABLE(s32, sAnimFrame, 90);
 };  // namespace
 
 namespace {
@@ -13,10 +14,10 @@ namespace {
     NEW_NERVE(WipeKoopaNrvClose, WipeKoopa, Close);
 };  // namespace
 
-WipeKoopa::WipeKoopa() : WipeLayoutBase("\203\116\203\142\203\160" /* クッパ */), mFrame(::sAnimFrame) {
+WipeKoopa::WipeKoopa() : WipeLayoutBase("クッパ"), mFrame(::sAnimFrame) {
 }
 
-void WipeKoopa::init(const JMapInfoIter& rIter) {
+void WipeKoopa::init(const TableIter& /*rIter*/) {
     initNerve(GET_NERVE_ANON(WipeKoopaNrvWait));
     initLayoutManager("WipeKoopa", 1);
 }

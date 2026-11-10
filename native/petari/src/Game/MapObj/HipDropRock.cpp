@@ -1,19 +1,21 @@
 #include "Game/MapObj/HipDropRock.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/ModelObj.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/ActorSwitchUtil.hpp"
 #include "Game/Util/DemoUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const s32 sStepToSwitchOn = 30;
-    static const s32 sDefaultStarPeaceNum = 6;
+    static const s32 sStepToSwitchOn = NebulaFrameClock::stepsOfMilliseconds(500);
+    NEBULA_TUNABLE(s32, sDefaultStarPeaceNum, 6);
 };  // namespace
 
 namespace NrvHipDropRock {
@@ -26,7 +28,7 @@ HipDropRock::HipDropRock(const char* pName) : LiveActor(pName), mBreakModel(), m
     mBreakModelMtx.identity();
 }
 
-void HipDropRock::init(const JMapInfoIter& rIter) {
+void HipDropRock::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     initModelManagerWithAnm("HipDropRock", nullptr, false);
     initBreakModel();
@@ -34,12 +36,12 @@ void HipDropRock::init(const JMapInfoIter& rIter) {
     initHitSensor(1);
     MR::addBodyMessageSensorMapObj(this);
     MR::initCollisionParts(this, "HipDropRock", getSensor(nullptr), nullptr);
-    initEffectKeeper(0, nullptr, false);
+    initEffectKeeper(0, nullptr);
     initSound(2, false);
     MR::useStageSwitchWriteDead(this, rIter);
     MR::useStageSwitchWriteB(this, rIter);
     HipDropRock::initItem(rIter);
-    MR::getJMapInfoArg7NoInit(rIter, &mObjArg7);
+    MR::getPlacementArg7NoInit(rIter, &mObjArg7);
 
     if (MR::tryRegisterDemoCast(this, rIter)) {
         MR::tryRegisterDemoCast(mBreakModel, rIter);
@@ -99,7 +101,7 @@ void HipDropRock::exeWreck() {
     }
 }
 
-bool HipDropRock::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool HipDropRock::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (isNerve(GET_NERVE(HipDropRock, HipDropRockNrvBreak))) {
         return false;
     }
@@ -115,25 +117,22 @@ bool HipDropRock::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor*
 
 void HipDropRock::initBreakModel() {
     mBreakModelMtx.set(getBaseMtx());
-    TVec3f v1;
-    TVec3f v2;
-    v1.x = 0.0f;
-    v1.y = 1.0f;
-    v1.z = 0.0f;
-    v2.scale(MR::getRandom(0.0f, 180.0f), v1);
-    TPos3f mtx;
-    MR::makeMtxMoment(&mtx, v2);
+    // The broken model turns a random 0-180 about y.
+    Vec3f moment;
+    moment.scale(MR::getRandom(0.0f, 180.0f), Vec3f(0.0f, 1.0f, 0.0f));
+    Pos3f mtx;
+    MR::makeMtxMoment(&mtx, moment);
     mBreakModelMtx.concat(mtx);
 
-    mBreakModel = MR::createModelObjMapObj("\203\161\203\162\220\316\211\363\202\352\203\202\203\146\203\213" /* ヒビ石壊れモデル */, "HipDropRockBreak", mBreakModelMtx);
+    mBreakModel = MR::createModelObjMapObj("ヒビ石壊れモデル", "HipDropRockBreak", mBreakModelMtx);
     mBreakModel->initWithoutIter();
     MR::invalidateClipping(mBreakModel);
     mBreakModel->makeActorDead();
 }
 
-void HipDropRock::initItem(const JMapInfoIter& rIter) {
-    MR::getJMapInfoArg0NoInit(rIter, &mItemType);
-    MR::getJMapInfoArg1NoInit(rIter, &mStarPieceNum);
+void HipDropRock::initItem(const TableIter& rIter) {
+    MR::getPlacementArg0NoInit(rIter, &mItemType);
+    MR::getPlacementArg1NoInit(rIter, &mStarPieceNum);
 
     if (mItemType == 1 && mStarPieceNum == -1) {
         mStarPieceNum = ::sDefaultStarPeaceNum;

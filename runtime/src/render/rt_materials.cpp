@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -212,7 +213,6 @@ void apply_class(const std::string& text, RtMaterial& m) {
 }
 
 std::vector<std::string> table_paths() {
-    std::vector<std::string> paths;
     const std::filesystem::path dir = program_directory();
     return {galaxy::path_text(dir / "rt-materials.tsv"), galaxy::path_text(dir / "rt-materials-lights.tsv")};
 }
@@ -558,7 +558,7 @@ bool rt_log_glows() noexcept {
 
 namespace {
 
-// Once per texture and kind (the key: its 32-byte-aligned address, bit 0 the kind).
+// Once per texture and kind (the key: its address, bit 0 the kind: texture records are never odd-aligned).
 void note_unnamed(const char* kind, std::uint64_t address, std::uint64_t key) {
     if (!log_glows() || !g_glows_logged.emplace(key, true).second) {
         return;

@@ -1,36 +1,48 @@
 #include "Game/Util/BezierSurface.hpp"
-#include <JSystem/J3DGraphBase/J3DNativeDraw.hpp>
+#include "Game/Render/TypedDraw.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include <nebula_math.h>
 
 namespace {
+    typedef f32 TrianglePatchCoefs[13];
+
+    struct TrianglePatch {
+        const TrianglePatchCoefs* mCoefTable;
+        const TrianglePatchCoefs* mCoefTangentSTable;
+        const TrianglePatchCoefs* mCoefTangentTTable;
+        s32 mNumPoints;
+        const u16* mTriangleStripOrder;
+        u16 mNumTriangleStripPoints;
+        const Vec* mTriangleST;
+    };
+
     // Scaling Coefficients for Control points
-    static TrianglePatchCoefs sBezierTriangleCoef0[] = {{1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
+    const TrianglePatchCoefs sBezierTriangleCoef0[] = {{1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
                                                         {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f},
                                                         {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f}};
-    static TrianglePatchCoefs sBezierTriangleCoefTangentS0[] = {
+    const TrianglePatchCoefs sBezierTriangleCoefTangentS0[] = {
         {-1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
         {0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -3.0f, -0.0f, -0.0f, -0.0f, 3.0f, 0.0f, 0.0f, 0.0f},
         {0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -3.0f, 0.0f, 0.0f, 0.0f, 3.0f}};
-    static TrianglePatchCoefs sBezierTriangleCoefTangentT0[] = {
+    const TrianglePatchCoefs sBezierTriangleCoefTangentT0[] = {
         {-1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
         {0.0f, -0.0f, 0.0f, 0.0f, 0.0f, -0.0f, 0.0f, 0.0f, 0.0f, -3.0f, 3.0f, 0.0f, 0.0f},
         {0.0f, -0.0f, -0.0f, -0.0f, 0.0f, -0.0f, -0.0f, -0.0f, 0.0f, -0.0f, -0.0f, -3.0f, 3.0f}};
 
-    static TrianglePatchCoefs sBezierTriangleCoef1[] = {{1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
+    const TrianglePatchCoefs sBezierTriangleCoef1[] = {{1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
                                                         {0.125f, 0.375f, 0.0f, 0.0f, 0.0f, 0.375f, 0.0f, 0.0f, 0.0f, 0.125f, 0.0f, 0.0f, 0.0f},
                                                         {0.125f, 0.0f, 0.0f, 0.0f, 0.375f, 0.0f, 0.0f, 0.0f, 0.375f, 0.0f, 0.0f, 0.0f, 0.125f},
                                                         {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f},
                                                         {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.125f, 0.375f, 0.375f, 0.125f},
                                                         {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f}};
-    static TrianglePatchCoefs sBezierTriangleCoefTangentS1[] = {
+    const TrianglePatchCoefs sBezierTriangleCoefTangentS1[] = {
         {-1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
         {-0.75f, -0.75f, -0.0f, -0.0f, -0.0f, 0.75f, 0.0f, 0.0f, 0.0f, 0.75f, 0.0f, 0.0f, 0.0f},
         {-0.75f, -0.0f, -0.0f, -0.0f, -0.75f, 0.0f, 0.0f, 0.0f, 0.75f, 0.0f, 0.0f, 0.0f, 0.75f},
         {0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -3.0f, -0.0f, -0.0f, -0.0f, 3.0f, 0.0f, 0.0f, 0.0f},
         {0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.375f, -1.125f, -1.125f, -0.375f, 0.375f, 1.125f, 1.125f, 0.375f},
         {0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -3.0f, 0.0f, 0.0f, 0.0f, 3.0f}};
-    static TrianglePatchCoefs sBezierTriangleCoefTangentT1[] = {
+    const TrianglePatchCoefs sBezierTriangleCoefTangentT1[] = {
         {-1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
         {0.0f, -1.125f, 1.125f, 0.0f, 0.0f, -1.125f, 1.125f, 0.0f, 0.0f, -0.375f, 0.375f, 0.0f, 0.0f},
         {0.0f, -0.0f, -0.0f, -1.125f, 1.125f, -0.0f, -0.0f, -1.125f, 1.125f, -0.0f, -0.0f, -0.375f, 0.375f},
@@ -38,7 +50,7 @@ namespace {
         {0.0f, -0.0f, -0.0f, 0.0f, 0.0f, -0.0f, -0.0f, 0.0f, 0.0f, -0.75f, -0.75f, 0.75f, 0.75f},
         {0.0f, -0.0f, -0.0f, -0.0f, 0.0f, -0.0f, -0.0f, -0.0f, 0.0f, -0.0f, -0.0f, -3.0f, 3.0f}};
 
-    static TrianglePatchCoefs sBezierTriangleCoef2[] = {
+    const TrianglePatchCoefs sBezierTriangleCoef2[] = {
         {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
         {0.296296f, 0.444444f, 0.0f, 0.0f, 0.0f, 0.222222f, 0.0f, 0.0f, 0.0f, 0.037037f, 0.0f, 0.0f, 0.0f},
         {0.296296f, 0.0f, 0.0f, 0.0f, 0.444444f, 0.0f, 0.0f, 0.0f, 0.222222f, 0.0f, 0.0f, 0.0f, 0.037037f},
@@ -50,7 +62,7 @@ namespace {
         {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.296296f, 0.444444f, 0.222222f, 0.037037f},
         {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.037037f, 0.222222f, 0.444444f, 0.296296f},
         {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f}};
-    static TrianglePatchCoefs sBezierTriangleCoefTangentS2[] = {
+    const TrianglePatchCoefs sBezierTriangleCoefTangentS2[] = {
         {-1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
         {-1.333333f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.333333f, 0.0f, 0.0f, 0.0f},
         {-1.333333f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.333333f},
@@ -61,7 +73,7 @@ namespace {
         {0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.888889f, -1.333333f, -0.666667f, -0.111111f, 0.888889f, 1.333333f, 0.666667f, 0.111111f},
         {0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.111111f, -0.666667f, -1.333333f, -0.888889f, 0.111111f, 0.666667f, 1.333333f, 0.888889f},
         {0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -3.0f, 0.0f, 0.0f, 0.0f, 3.0f}};
-    static TrianglePatchCoefs sBezierTriangleCoefTangentT2[] = {
+    const TrianglePatchCoefs sBezierTriangleCoefTangentT2[] = {
         {-1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
         {0.0f, -1.333333f, 1.333333f, 0.0f, 0.0f, -0.666667f, 0.666667f, 0.0f, 0.0f, -0.111111f, 0.111111f, 0.0f, 0.0f},
         {0.0f, -0.0f, -0.0f, -1.333333f, 1.333333f, -0.0f, -0.0f, -0.666667f, 0.666667f, -0.0f, -0.0f, -0.111111f, 0.111111f},
@@ -74,7 +86,7 @@ namespace {
         {0.0f, -0.0f, -0.0f, 0.0f, 0.0f, -0.0f, -0.0f, 0.0f, 0.0f, -0.333333f, -1.0f, 0.0f, 1.333333f},
         {0.0f, -0.0f, -0.0f, -0.0f, 0.0f, -0.0f, -0.0f, -0.0f, 0.0f, -0.0f, -0.0f, -3.0f, 3.0f}};
 
-    static TrianglePatchCoefs sBezierTriangleCoef3[] = {
+    const TrianglePatchCoefs sBezierTriangleCoef3[] = {
         {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
         {0.421875f, 0.421875f, 0.0f, 0.0f, 0.0f, 0.140625f, 0.0f, 0.0f, 0.0f, 0.015625f, 0.0f, 0.0f, 0.0f},
         {0.421875f, 0.0f, 0.0f, 0.0f, 0.421875f, 0.0f, 0.0f, 0.0f, 0.140625f, 0.0f, 0.0f, 0.0f, 0.015625f},
@@ -90,7 +102,7 @@ namespace {
         {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.125f, 0.375f, 0.375f, 0.125f},
         {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.015625f, 0.140625f, 0.421875f, 0.421875f},
         {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f}};
-    static TrianglePatchCoefs sBezierTriangleCoefTangentS3[] = {
+    const TrianglePatchCoefs sBezierTriangleCoefTangentS3[] = {
         {-1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
         {-1.6875f, 0.5625f, 0.0f, 0.0f, 0.0f, 0.9375f, 0.0f, 0.0f, 0.0f, 0.1875f, 0.0f, 0.0f, 0.0f},
         {-1.6875f, 0.0f, 0.0f, 0.0f, 0.5625f, 0.0f, 0.0f, 0.0f, 0.9375f, 0.0f, 0.0f, 0.0f, 0.1875f},
@@ -106,7 +118,7 @@ namespace {
         {0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.375f, -1.125f, -1.125f, -0.375f, 0.375f, 1.125f, 1.125f, 0.375f},
         {0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.046875f, -0.421875f, -1.265625f, -1.265625f, 0.046875f, 0.421875f, 1.265625f, 1.265625f},
         {0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -3.0f, 0.0f, 0.0f, 0.0f, 3.0f}};
-    static TrianglePatchCoefs sBezierTriangleCoefTangentT3[] = {
+    const TrianglePatchCoefs sBezierTriangleCoefTangentT3[] = {
         {-1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
         {0.0f, -1.265625f, 1.265625f, 0.0f, 0.0f, -0.421875f, 0.421875f, 0.0f, 0.0f, -0.046875f, 0.046875f, 0.0f, 0.0f},
         {0.0f, -0.0f, -0.0f, -1.265625f, 1.265625f, -0.0f, -0.0f, -0.421875f, 0.421875f, -0.0f, -0.0f, -0.046875f, 0.046875f},
@@ -123,7 +135,7 @@ namespace {
         {0.0f, -0.0f, -0.0f, -0.0f, 0.0f, -0.0f, -0.0f, -0.0f, 0.0f, -0.1875f, -0.9375f, -0.5625f, 1.6875f},
         {0.0f, -0.0f, -0.0f, -0.0f, 0.0f, -0.0f, -0.0f, -0.0f, 0.0f, -0.0f, -0.0f, -3.0f, 3.0f}};
 
-    static TrianglePatchCoefs sBezierTriangleCoef4[] = {
+    const TrianglePatchCoefs sBezierTriangleCoef4[] = {
         {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
         {0.512f, 0.384f, 0.0f, 0.0f, 0.0f, 0.096f, 0.0f, 0.0f, 0.0f, 0.008f, 0.0f, 0.0f, 0.0f},
         {0.512f, 0.0f, 0.0f, 0.0f, 0.384f, 0.0f, 0.0f, 0.0f, 0.096f, 0.0f, 0.0f, 0.0f, 0.008f},
@@ -145,7 +157,7 @@ namespace {
         {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.064f, 0.288f, 0.432f, 0.216f},
         {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.008f, 0.096f, 0.384f, 0.512f},
         {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f}};
-    static TrianglePatchCoefs sBezierTriangleCoefTangentS4[] = {
+    const TrianglePatchCoefs sBezierTriangleCoefTangentS4[] = {
         {-1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
         {-1.92f, 0.96f, 0.0f, 0.0f, 0.0f, 0.84f, 0.0f, 0.0f, 0.0f, 0.12f, 0.0f, 0.0f, 0.0f},
         {-1.92f, 0.0f, 0.0f, 0.0f, 0.96f, 0.0f, 0.0f, 0.0f, 0.84f, 0.0f, 0.0f, 0.0f, 0.12f},
@@ -167,7 +179,7 @@ namespace {
         {0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.192f, -0.864f, -1.296f, -0.648f, 0.192f, 0.864f, 1.296f, 0.648f},
         {0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.024f, -0.288f, -1.152f, -1.536f, 0.024f, 0.288f, 1.152f, 1.536f},
         {0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -3.0f, 0.0f, 0.0f, 0.0f, 3.0f}};
-    static TrianglePatchCoefs sBezierTriangleCoefTangentT4[] = {
+    const TrianglePatchCoefs sBezierTriangleCoefTangentT4[] = {
         {-1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
         {0.0f, -1.152f, 1.152f, 0.0f, 0.0f, -0.288f, 0.288f, 0.0f, 0.0f, -0.024f, 0.024f, 0.0f, 0.0f},
         {0.0f, -0.0f, -0.0f, -1.152f, 1.152f, -0.0f, -0.0f, -0.288f, 0.288f, -0.0f, -0.0f, -0.024f, 0.024f},
@@ -190,7 +202,7 @@ namespace {
         {0.0f, -0.0f, -0.0f, -0.0f, 0.0f, -0.0f, -0.0f, -0.0f, 0.0f, -0.12f, -0.84f, -0.96f, 1.92f},
         {0.0f, -0.0f, -0.0f, -0.0f, 0.0f, -0.0f, -0.0f, -0.0f, 0.0f, -0.0f, -0.0f, -3.0f, 3.0f}};
 
-    static TrianglePatchCoefs sBezierTriangleCoef5[] = {
+    const TrianglePatchCoefs sBezierTriangleCoef5[] = {
         {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
         {0.578704f, 0.347222f, 0.0f, 0.0f, 0.0f, 0.069444f, 0.0f, 0.0f, 0.0f, 0.00463f, 0.0f, 0.0f, 0.0f},
         {0.578704f, 0.0f, 0.0f, 0.0f, 0.347222f, 0.0f, 0.0f, 0.0f, 0.069444f, 0.0f, 0.0f, 0.0f, 0.00463f},
@@ -220,7 +232,7 @@ namespace {
         {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.037037f, 0.222222f, 0.444444f, 0.296296f},
         {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.00463f, 0.069444f, 0.347222f, 0.578704f},
         {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f}};
-    static TrianglePatchCoefs sBezierTriangleCoefTangentS5[] = {
+    const TrianglePatchCoefs sBezierTriangleCoefTangentS5[] = {
         {-1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
         {-2.083333f, 1.25f, 0.0f, 0.0f, 0.0f, 0.75f, 0.0f, 0.0f, 0.0f, 0.083333f, 0.0f, 0.0f, 0.0f},
         {-2.083333f, 0.0f, 0.0f, 0.0f, 1.25f, 0.0f, 0.0f, 0.0f, 0.75f, 0.0f, 0.0f, 0.0f, 0.083333f},
@@ -251,7 +263,7 @@ namespace {
         {0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.111111f, -0.666667f, -1.333333f, -0.888889f, 0.111111f, 0.666667f, 1.333333f, 0.888889f},
         {0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.013889f, -0.208333f, -1.041667f, -1.736111f, 0.013889f, 0.208333f, 1.041667f, 1.736111f},
         {0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -3.0f, 0.0f, 0.0f, 0.0f, 3.0f}};
-    static TrianglePatchCoefs sBezierTriangleCoefTangentT5[] = {
+    const TrianglePatchCoefs sBezierTriangleCoefTangentT5[] = {
         {-1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
         {0.0f, -1.041667f, 1.041667f, 0.0f, 0.0f, -0.208333f, 0.208333f, 0.0f, 0.0f, -0.013889f, 0.013889f, 0.0f, 0.0f},
         {0.0f, -0.0f, -0.0f, -1.041667f, 1.041667f, -0.0f, -0.0f, -0.208333f, 0.208333f, -0.0f, -0.0f, -0.013889f, 0.013889f},
@@ -285,7 +297,7 @@ namespace {
         {0.0f, -0.0f, -0.0f, -0.0f, 0.0f, -0.0f, -0.0f, -0.0f, 0.0f, -0.083333f, -0.75f, -1.25f, 2.083333f},
         {0.0f, -0.0f, -0.0f, -0.0f, 0.0f, -0.0f, -0.0f, -0.0f, 0.0f, -0.0f, -0.0f, -3.0f, 3.0f}};
 
-    static TrianglePatchCoefs sBezierTriangleCoef6[] = {
+    const TrianglePatchCoefs sBezierTriangleCoef6[] = {
         {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
         {0.629738f, 0.314869f, 0.0f, 0.0f, 0.0f, 0.052478f, 0.0f, 0.0f, 0.0f, 0.002915f, 0.0f, 0.0f, 0.0f},
         {0.629738f, 0.0f, 0.0f, 0.0f, 0.314869f, 0.0f, 0.0f, 0.0f, 0.052478f, 0.0f, 0.0f, 0.0f, 0.002915f},
@@ -334,7 +346,7 @@ namespace {
         {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.023324f, 0.174927f, 0.437318f, 0.364432f},
         {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.002915f, 0.052478f, 0.314869f, 0.629738f},
         {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f}};
-    static TrianglePatchCoefs sBezierTriangleCoefTangentS6[] = {
+    const TrianglePatchCoefs sBezierTriangleCoefTangentS6[] = {
         {-1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
         {-2.204082f, 1.469388f, 0.0f, 0.0f, 0.0f, 0.673469f, 0.0f, 0.0f, 0.0f, 0.061224f, 0.0f, 0.0f, 0.0f},
         {-2.204082f, 0.0f, 0.0f, 0.0f, 1.469388f, 0.0f, 0.0f, 0.0f, 0.673469f, 0.0f, 0.0f, 0.0f, 0.061224f},
@@ -386,7 +398,7 @@ namespace {
         {0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.069971f, -0.524781f, -1.311953f, -1.093295f, 0.069971f, 0.524781f, 1.311953f, 1.093295f},
         {0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.008746f, -0.157434f, -0.944606f, -1.889213f, 0.008746f, 0.157434f, 0.944606f, 1.889213f},
         {0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -0.0f, -3.0f, 0.0f, 0.0f, 0.0f, 3.0f}};
-    static TrianglePatchCoefs sBezierTriangleCoefTangentT6[] = {
+    const TrianglePatchCoefs sBezierTriangleCoefTangentT6[] = {
         {-1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
         {0.0f, -0.944607f, 0.944607f, 0.0f, 0.0f, -0.157434f, 0.157434f, 0.0f, 0.0f, -0.008746f, 0.008746f, 0.0f, 0.0f},
         {0.0f, -0.0f, -0.0f, -0.944607f, 0.944607f, -0.0f, -0.0f, -0.157434f, 0.157434f, -0.0f, -0.0f, -0.008746f, 0.008746f},
@@ -561,48 +573,33 @@ namespace {
                                               25, 33, 26, 34, 27, 35, 27, 27, 26, 20, 19, 14, 13, 9,  8,  5,  4,  2,  4,  4,  8,  7,  12,
                                               11, 17, 16, 23, 22, 23, 23, 17, 24, 18, 25, 19, 26, 19, 19, 18, 13, 12, 8,  12, 12, 18, 17};
 
-    // Line Strip Vertex Index Order (for mesh debugging)
-    const u16 sBezierLineStripOrder0[] = {1, 0, 2, 1};
-    const u16 sBezierLineStripOrder1[] = {1, 0, 2, 1, 4, 2, 5, 4, 3, 1};
-    const u16 sBezierLineStripOrder2[] = {1, 0, 2, 1, 4, 2, 5, 4, 8, 5, 9, 8, 7, 4, 3, 7, 6, 3, 1};
-    const u16 sBezierLineStripOrder3[] = {1, 0, 2, 1, 4, 2, 5, 4, 8, 5, 9, 8, 13, 9, 14, 13, 12, 8, 7, 12, 11, 7, 6, 11, 10, 6, 3, 7, 4, 3, 1};
-    const u16 sBezierLineStripOrder4[] = {1,  0,  2,  1,  4,  2,  5,  4,  8,  5,  9,  8, 13, 9, 14, 13, 19, 14, 20, 19, 18, 13, 12,
-                                          18, 17, 12, 11, 17, 16, 11, 10, 16, 15, 10, 6, 11, 7, 12, 8,  7,  4,  3,  7,  6,  3,  1};
-    const u16 sBezierLineStripOrder5[] = {1,  0,  2,  1,  4,  2,  5,  4,  8,  5,  9,  8,  13, 9,  14, 13, 19, 14, 20, 19, 26, 20,
-                                          27, 26, 25, 19, 18, 25, 24, 18, 17, 24, 23, 17, 16, 23, 22, 16, 15, 22, 21, 15, 10, 16,
-                                          11, 17, 12, 18, 13, 12, 8,  7,  12, 11, 7,  6,  11, 10, 6,  3,  7,  4,  3,  1};
-    const u16 sBezierLineStripOrder6[] = {1,  0,  2,  1,  4,  2,  5,  4,  8,  5,  9,  8,  13, 9,  14, 13, 19, 14, 20, 19, 26, 20,
-                                          27, 26, 34, 27, 35, 34, 33, 26, 25, 33, 32, 25, 24, 32, 31, 24, 23, 31, 30, 23, 22, 30,
-                                          29, 22, 21, 29, 28, 21, 15, 22, 16, 23, 17, 24, 18, 25, 19, 18, 13, 12, 18, 17, 12, 11,
-                                          17, 16, 11, 10, 16, 15, 10, 6,  11, 7,  12, 8,  7,  4,  3,  7,  6,  3,  1};
-
-    static TrianglePatch sTrianglePatchTableGroup[] = {
+    const TrianglePatch sTrianglePatchTableGroup[] = {
         {sBezierTriangleCoef0, sBezierTriangleCoefTangentS0, sBezierTriangleCoefTangentT0, 3, sBezierTriangleStripOrder0,
-         ARRAY_SIZE(sBezierTriangleStripOrder0), sBezierLineStripOrder0, ARRAY_SIZE(sBezierLineStripOrder0), sBezierTriangleST0},
+         ARRAY_SIZE(sBezierTriangleStripOrder0), sBezierTriangleST0},
         {sBezierTriangleCoef1, sBezierTriangleCoefTangentS1, sBezierTriangleCoefTangentT1, 6, sBezierTriangleStripOrder1,
-         ARRAY_SIZE(sBezierTriangleStripOrder1), sBezierLineStripOrder1, ARRAY_SIZE(sBezierLineStripOrder1), sBezierTriangleST1},
+         ARRAY_SIZE(sBezierTriangleStripOrder1), sBezierTriangleST1},
         {sBezierTriangleCoef2, sBezierTriangleCoefTangentS2, sBezierTriangleCoefTangentT2, 10, sBezierTriangleStripOrder2,
-         ARRAY_SIZE(sBezierTriangleStripOrder2), sBezierLineStripOrder2, ARRAY_SIZE(sBezierLineStripOrder2), sBezierTriangleST2},
+         ARRAY_SIZE(sBezierTriangleStripOrder2), sBezierTriangleST2},
         {sBezierTriangleCoef3, sBezierTriangleCoefTangentS3, sBezierTriangleCoefTangentT3, 15, sBezierTriangleStripOrder3,
-         ARRAY_SIZE(sBezierTriangleStripOrder3), sBezierLineStripOrder3, ARRAY_SIZE(sBezierLineStripOrder3), sBezierTriangleST3},
+         ARRAY_SIZE(sBezierTriangleStripOrder3), sBezierTriangleST3},
         {sBezierTriangleCoef4, sBezierTriangleCoefTangentS4, sBezierTriangleCoefTangentT4, 21, sBezierTriangleStripOrder4,
-         ARRAY_SIZE(sBezierTriangleStripOrder4), sBezierLineStripOrder4, ARRAY_SIZE(sBezierLineStripOrder4), sBezierTriangleST4},
+         ARRAY_SIZE(sBezierTriangleStripOrder4), sBezierTriangleST4},
         {sBezierTriangleCoef5, sBezierTriangleCoefTangentS5, sBezierTriangleCoefTangentT5, 28, sBezierTriangleStripOrder5,
-         ARRAY_SIZE(sBezierTriangleStripOrder5), sBezierLineStripOrder5, ARRAY_SIZE(sBezierLineStripOrder5), sBezierTriangleST5},
+         ARRAY_SIZE(sBezierTriangleStripOrder5), sBezierTriangleST5},
         {sBezierTriangleCoef6, sBezierTriangleCoefTangentS6, sBezierTriangleCoefTangentT6, 36, sBezierTriangleStripOrder6,
-         ARRAY_SIZE(sBezierTriangleStripOrder6), sBezierLineStripOrder6, ARRAY_SIZE(sBezierLineStripOrder6), sBezierTriangleST6},
+         ARRAY_SIZE(sBezierTriangleStripOrder6), sBezierTriangleST6},
     };
 };  // namespace
 
-BezierSurface::BezierSurface(s32 divideLevel, u32 a1)
-    : mTrianglePatchVertices(), mTrianglePatchNormals(), mDivideLevel(divideLevel), _C0(divideLevel), _C4(a1) {
+BezierSurface::BezierSurface(s32 divideLevel, u32 flags)
+    : mTrianglePatchVertices(), mTrianglePatchNormals(), mDivideLevel(divideLevel), mIsLit(flags != 0) {
     s32 numPoints = ::sTrianglePatchTableGroup[mDivideLevel].mNumPoints;
 
-    if ((a1 & 4) != 0) {
-        mTrianglePatchVertices = new TVec3f[numPoints];
+    if ((flags & FLAG_CACHE) != 0) {
+        mTrianglePatchVertices = new Vec3f[numPoints];
 
-        if ((a1 & 1) != 0) {
-            mTrianglePatchNormals = new TVec3f[numPoints];
+        if ((flags & FLAG_NORMAL) != 0) {
+            mTrianglePatchNormals = new Vec3f[numPoints];
         }
     }
 
@@ -628,7 +625,7 @@ BezierSurface::BezierSurface(s32 divideLevel, u32 a1)
     }
 }
 
-void BezierSurface::setST(const TVec2f& rST0, const TVec2f& rST1, const TVec2f& rST2) {
+void BezierSurface::setST(const Vec2f& rST0, const Vec2f& rST1, const Vec2f& rST2) {
     mSTPoints[0].set(rST0);
     mSTPoints[1].set(rST1);
     mSTPoints[2].set(rST2);
@@ -648,28 +645,18 @@ void BezierSurface::calcBuffer() {
     }
 }
 
-void BezierSurface::draw() const {
-    // what?
-
-    if (_C4 != 0) {
-        if (_C4 != 0) {
-            drawTrianglePatchPosNormST();
-        } else {
-            drawTrianglePatchPosNorm();
-        }
+void BezierSurface::draw(TypedDraw& rDraw) const {
+    if (mIsLit) {
+        drawTrianglePatchPosNormST(rDraw);
     } else {
-        if (_C4 != 0) {
-            drawTrianglePatchPosST();
-        } else {
-            drawTrianglePatchPos();
-        }
+        drawTrianglePatchPos(rDraw);
     }
 }
 
-void BezierSurface::calcTrianglePatchVertix(TVec3f* pVertexPatch) const {
-    JGeometry::TVec2< s32 > index(0, 0);
+void BezierSurface::calcTrianglePatchVertix(Vec3f* pVertexPatch) const {
+    Vec2< s32 > index(0, 0);
     s32 numPoints = ::sTrianglePatchTableGroup[mDivideLevel].mNumPoints;
-    TrianglePatchCoefs* coefTable = ::sTrianglePatchTableGroup[mDivideLevel].mCoefTable;
+    const TrianglePatchCoefs* coefTable =::sTrianglePatchTableGroup[mDivideLevel].mCoefTable;
 
     for (index.y = 0; index.y < numPoints; index.y++) {
         pVertexPatch[index.y].zero();
@@ -684,15 +671,15 @@ void BezierSurface::calcTrianglePatchVertix(TVec3f* pVertexPatch) const {
     }
 }
 
-void BezierSurface::calcTrianglePatchNormal(TVec3f* pNormalPatch) const {
-    JGeometry::TVec2< s32 > index;
+void BezierSurface::calcTrianglePatchNormal(Vec3f* pNormalPatch) const {
+    Vec2< s32 > index;
     s32 numPoints = ::sTrianglePatchTableGroup[mDivideLevel].mNumPoints;
-    TrianglePatchCoefs* tangentSTable = ::sTrianglePatchTableGroup[mDivideLevel].mCoefTangentSTable;
-    TrianglePatchCoefs* tangentTTable = ::sTrianglePatchTableGroup[mDivideLevel].mCoefTangentTTable;
+    const TrianglePatchCoefs* tangentSTable = ::sTrianglePatchTableGroup[mDivideLevel].mCoefTangentSTable;
+    const TrianglePatchCoefs* tangentTTable =::sTrianglePatchTableGroup[mDivideLevel].mCoefTangentTTable;
 
     for (index.y = 0; index.y < numPoints; index.y++) {
-        TVec3f tangentT(0.0f, 0.0f, 0.0f);
-        TVec3f tangentS(0.0f, 0.0f, 0.0f);
+        Vec3f tangentT(0.0f, 0.0f, 0.0f);
+        Vec3f tangentS(0.0f, 0.0f, 0.0f);
 
         for (index.x = 0; index.x < 13; index.x++) {
             f32 scaleS = tangentSTable[index.y][index.x];
@@ -713,113 +700,55 @@ void BezierSurface::calcTrianglePatchNormal(TVec3f* pNormalPatch) const {
     }
 }
 
-void BezierSurface::drawTrianglePatchPos() const {
-    TVec3f vertexBuffer[36];
+void BezierSurface::drawTrianglePatchPos(TypedDraw& rDraw) const {
+    Vec3f vertexBuffer[36];
 
     const u16* vertexOrder = ::sTrianglePatchTableGroup[mDivideLevel].mTriangleStripOrder;
     s32 numPoints = ::sTrianglePatchTableGroup[mDivideLevel].mNumTriangleStripPoints;
 
-    TVec3f* vertices = mTrianglePatchVertices;
+    Vec3f* vertices = mTrianglePatchVertices;
 
     if (vertices == nullptr) {
         calcTrianglePatchVertix(vertexBuffer);
         vertices = vertexBuffer;
     }
 
-    J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, numPoints, 0);
+    VertexP* vtx = rDraw.vertices< VertexP >(NEBULA_PRIMITIVE_TRIANGLE_STRIP, numPoints);
 
     for (s32 idx = 0; idx < numPoints; idx++) {
         u16 vertexIndex = vertexOrder[idx];
-        J3DNativeDraw::position(vertices[vertexIndex].x, vertices[vertexIndex].y, vertices[vertexIndex].z);
+        *vtx++ = {vertices[vertexIndex].x, vertices[vertexIndex].y, vertices[vertexIndex].z};
     }
 }
 
-void BezierSurface::drawTrianglePatchPosNorm() const {
-    TVec3f vertexBuffer[36];
-    TVec3f normalBuffer[36];
+void BezierSurface::drawTrianglePatchPosNormST(TypedDraw& rDraw) const {
+    Vec3f vertexBuffer[36];
+    Vec3f normalBuffer[36];
 
     const u16* vertexOrder = ::sTrianglePatchTableGroup[mDivideLevel].mTriangleStripOrder;
     s32 numPoints = ::sTrianglePatchTableGroup[mDivideLevel].mNumTriangleStripPoints;
+    const Vec* triangleST = ::sTrianglePatchTableGroup[mDivideLevel].mTriangleST;
 
-    TVec3f* vertices = mTrianglePatchVertices;
+    Vec3f* vertices = mTrianglePatchVertices;
 
     if (vertices == nullptr) {
         calcTrianglePatchVertix(vertexBuffer);
         vertices = vertexBuffer;
     }
 
-    TVec3f* normal = mTrianglePatchNormals;
+    Vec3f* normal = mTrianglePatchNormals;
 
     if (normal == nullptr) {
         calcTrianglePatchNormal(normalBuffer);
         normal = normalBuffer;
     }
 
-    J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, numPoints, NEBULA_SHAPE_NORMAL);
+    VertexPNT* vtx = rDraw.vertices< VertexPNT >(NEBULA_PRIMITIVE_TRIANGLE_STRIP, numPoints);
 
     for (s32 idx = 0; idx < numPoints; idx++) {
         u16 vertexIndex = vertexOrder[idx];
-        J3DNativeDraw::position(vertices[vertexIndex].x, vertices[vertexIndex].y, vertices[vertexIndex].z);
-        J3DNativeDraw::normal(normal[vertexIndex].x, normal[vertexIndex].y, normal[vertexIndex].z);
-    }
-}
-
-void BezierSurface::drawTrianglePatchPosST() const {
-    TVec3f vertexBuffer[36];
-
-    const u16* vertexOrder = ::sTrianglePatchTableGroup[mDivideLevel].mTriangleStripOrder;
-    s32 numPoints = ::sTrianglePatchTableGroup[mDivideLevel].mNumTriangleStripPoints;
-    const Vec* triangleST = ::sTrianglePatchTableGroup[mDivideLevel].mTriangleST;
-
-    TVec3f* vertices = mTrianglePatchVertices;
-
-    if (vertices == nullptr) {
-        calcTrianglePatchVertix(vertexBuffer);
-        vertices = vertexBuffer;
-    }
-
-    const Vec* vec;
-    J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, numPoints, NEBULA_SHAPE_TEXCOORD0);
-
-    for (s32 idx = 0; idx < numPoints; idx++) {
-        u16 vertexIndex = vertexOrder[idx];
-        J3DNativeDraw::position(vertices[vertexIndex].x, vertices[vertexIndex].y, vertices[vertexIndex].z);
-        vec = &triangleST[vertexIndex];
-        TVec2f texCoord(mSTPoints[0] * vec->x + mSTPoints[1] * vec->y + mSTPoints[2] * vec->z);
-        J3DNativeDraw::texCoord(texCoord.x, texCoord.y);
-    }
-}
-
-void BezierSurface::drawTrianglePatchPosNormST() const {
-    TVec3f vertexBuffer[36];
-    TVec3f normalBuffer[36];
-
-    const u16* vertexOrder = ::sTrianglePatchTableGroup[mDivideLevel].mTriangleStripOrder;
-    s32 numPoints = ::sTrianglePatchTableGroup[mDivideLevel].mNumTriangleStripPoints;
-    const Vec* triangleST = ::sTrianglePatchTableGroup[mDivideLevel].mTriangleST;
-
-    TVec3f* vertices = mTrianglePatchVertices;
-
-    if (vertices == nullptr) {
-        calcTrianglePatchVertix(vertexBuffer);
-        vertices = vertexBuffer;
-    }
-
-    TVec3f* normal = mTrianglePatchNormals;
-
-    if (normal == nullptr) {
-        calcTrianglePatchNormal(normalBuffer);
-        normal = normalBuffer;
-    }
-
-    J3DNativeDraw::begin(NEBULA_PRIMITIVE_TRIANGLE_STRIP, numPoints, NEBULA_SHAPE_NORMAL | NEBULA_SHAPE_TEXCOORD0);
-
-    for (s32 idx = 0; idx < numPoints; idx++) {
-        u16 vertexIndex = vertexOrder[idx];
-        J3DNativeDraw::position(vertices[vertexIndex].x, vertices[vertexIndex].y, vertices[vertexIndex].z);
-        J3DNativeDraw::normal(normal[vertexIndex].x, normal[vertexIndex].y, normal[vertexIndex].z);
-        TVec2f texCoord =
+        Vec2f texCoord =
             (mSTPoints[0] * triangleST[vertexIndex].x + mSTPoints[1] * triangleST[vertexIndex].y + mSTPoints[2] * triangleST[vertexIndex].z);
-        J3DNativeDraw::texCoord(texCoord.x, texCoord.y);
+        *vtx++ = {vertices[vertexIndex].x, vertices[vertexIndex].y, vertices[vertexIndex].z, normal[vertexIndex].x, normal[vertexIndex].y, normal[vertexIndex].z, texCoord.x, texCoord.y};
     }
 }

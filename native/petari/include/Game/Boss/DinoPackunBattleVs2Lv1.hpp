@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Game/Boss/DinoPackunAction.hpp"
-#include <JSystem/JGeometry/TVec.hpp>
+#include <nebula_geometry.hpp>
 
 class DinoPackunStateDamage;
 class DinoPackunTrackFireHolder;
@@ -13,7 +13,6 @@ class DinoPackunBattleVs2Lv1 : public DinoPackunAction {
 public:
     DinoPackunBattleVs2Lv1(DinoPackun*);
 
-    virtual ~DinoPackunBattleVs2Lv1();
     virtual void init();
     virtual void appear();
     virtual void control();
@@ -21,12 +20,17 @@ public:
     virtual bool receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
     virtual bool receiveOtherMsg(u32 msg, HitSensor* pSender, HitSensor* pReceiver);
 
-    void setTrackFire(DinoPackunTrackFireHolder*);
-    void setFireBall(DinoPackunFireHolder*);
+    void setTrackFire(DinoPackunTrackFireHolder* pHolder);
+    void setFireBall(DinoPackunFireHolder* pHolder);
     void setMiddleBattle();
     void setLastBattle();
+    void setBattleLevel(s32 level);
+    bool isMovingNerve() const;
+    f32 calcWiggleSign(s32 period) const;
     bool tryAwake();
-    void updateOnOffFireTail(s32, s32, s32);
+    void startChaseAction();
+    void updateChaseMouthFire();
+    void updateOnOffFireTail(s32 period, s32 coolSteps, s32 signSteps);
     bool emitFireMouth();
     bool emitFireTail();
 
@@ -48,12 +52,12 @@ public:
     DinoPackunTrackFireHolder* mTrackFireHolder;
     DinoPackunFireHolder* mFireHolder;
     DinoPackunStateFire* mStateFire;
-    TVec3f _28;
-    s32 _34;
-    u8 _38;
-    u8 _39;
-    u8 _3A;
-    u8 _3B;
-    u8 _3C;
-    u8 _3D;
+    Vec3f mLastFireTailPos;
+    s32 mWalkTurnSide;
+    bool mHasFireTail;
+    bool mHasFireMouth;
+    bool mIsShortWalk;
+    bool mIsAngry;
+    bool mIsFireOnAwake;
+    bool mIsCrazyOnAwake;
 };

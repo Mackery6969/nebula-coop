@@ -1,4 +1,5 @@
 #include "Game/Enemy/MoguStone.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/ModelObj.hpp"
 #include "Game/LiveActor/Nerve.hpp"
@@ -11,11 +12,22 @@
 #include "Game/Util/ParabolicPath.hpp"
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
-#include <JSystem/JGeometry/TMatrix.hpp>
+#include <nebula_geometry.hpp>
 #include <nebula_math.h>
+#include "Game/Util/Tunable.hpp"
+
+// The numbers this file's functions give the game's motion and animation calls, as tunables: "<file>.<function>.<call>.<k>".
+NEBULA_TUNABLE_NAMED(f32, cNum_exeFall_applyVelocityDampAndGravity_1, "exeFall.applyVelocityDampAndGravity.1", 2.0f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeFall_applyVelocityDampAndGravity_2, "exeFall.applyVelocityDampAndGravity.2", 0.8f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeFall_applyVelocityDampAndGravity_3, "exeFall.applyVelocityDampAndGravity.3", 0.98f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeFall_applyVelocityDampAndGravity_4, "exeFall.applyVelocityDampAndGravity.4", 0.98f);
+NEBULA_TUNABLE_NAMED(f32, cNum_exeFall_applyVelocityDampAndGravity_5, "exeFall.applyVelocityDampAndGravity.5", 1.0f);
 
 namespace {
-    const static f32 hAddHeight = 200.0f;
+    NEBULA_TUNABLE(f32, sIceArcAddHeight, 200.0f);
+    NEBULA_TUNABLE(s32, sThrowSteps, 100);
+    const s32 sFallSteps = NebulaFrameClock::stepsOfSeconds(1);
+    NEBULA_TUNABLE(s32, sIcePathSteps, 101);
 };  // namespace
 
 namespace NrvMoguStone {
@@ -24,20 +36,16 @@ namespace NrvMoguStone {
     NEW_NERVE(MoguStoneNrvFall, MoguStone, Fall);
 };  // namespace NrvMoguStone
 
-// Initializer list doesn't match
-MoguStone::MoguStone(const char* pName, const char* pModelName) : ModelObj(pName, pModelName, nullptr, -2, -2, -2, false) {
-    _90.set(0, 0, 0, 1);
-    _A0.set(0, 0, 0, 1);
-    _B0.set(0.0f, 0.0f, 1.0f);
-    _BC = 0.0f;
-    _C0 = true;
+MoguStone::MoguStone(const char* pName, const char* pModelName)
+    : ModelObj(pName, pModelName, nullptr, -2, -2, -2, false), mPoseQuat(0.0f, 0.0f, 0.0f, 1.0f), mRotateQuat(0.0f, 0.0f, 0.0f, 1.0f), mThrowDir(0.0f, 0.0f, 1.0f), mThrowSpeed(0.0f),
+      mIsThrowHorizontal(true) {
 }
 
-void MoguStone::init(const JMapInfoIter& rIter) {
+void MoguStone::init(const TableIter& rIter) {
     initBinder(40.0f * mScale.y, 0.0f, 0);
     ModelObj::init(rIter);
     initHitSensor(1);
-    MR::addHitSensorEnemy(this, "body", 32, 80.0f * mScale.y, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorEnemy(this, "body", 32, 80.0f * mScale.y, Vec3f(0.0f, 0.0f, 0.0f));
     initNerve(GET_NERVE(MoguStone, MoguStoneNrvTaken));
     MR::invalidateClipping(this);
     MR::onCalcGravity(this);
@@ -50,57 +58,57 @@ void MoguStone::appear() {
     setNerve(GET_NERVE(MoguStone, MoguStoneNrvTaken));
 }
 
-void MoguStone::emit(bool arg1, const TVec3f& pArg2, const TVec3f& pArg3, f32 arg4) {
-    _BC = arg4;
-
-    mPosition.set(pArg2);
-
+// Thrown from `rFrom` toward `rTo`; `isOnGravity` keeps it level under gravity, otherwise it flies straight.
+// `rFrom` may be this stone's own position.
+void MoguStone::emit(bool isOnGravity, const Vec3f& rFrom, const Vec3f& rTo, f32 speed) {
+    mThrowSpeed = speed;
+    mPosition.set(rFrom);
     mVelocity.zero();
-
     MR::calcGravity(this);
 
-    TVec3f v1(pArg3);
-    v1 -= pArg2;
+    Vec3f toTarget(rTo);
+    toTarget -= rFrom;
 
-    if (arg1) {
+    if (isOnGravity) {
         MR::onCalcGravity(this);
-
-        MR::vecKillElement(v1, mGravity, &_B0);
-        _C0 = true;
+        MR::vecKillElement(toTarget, mGravity, &mThrowDir);
+        mIsThrowHorizontal = true;
     } else {
         MR::offCalcGravity(this);
-        _B0.set(v1);
-        _C0 = false;
+        mThrowDir.set(toTarget);
+        mIsThrowHorizontal = false;
     }
 
-    MR::normalizeOrZero(&_B0);
+    MR::normalizeOrZero(&mThrowDir);
     setNerve(GET_NERVE(MoguStone, MoguStoneNrvThrow));
 }
 
+void MoguStone::breakAndKill() {
+    MR::emitEffect(this, "Break");
+    startBreakSound();
+    kill();
+}
+
+// Flies at the throw speed, facing the way it flies; a stone breaks after the throw time.
 void MoguStone::doBehavior() {
     if (MR::isFirstStep(this)) {
-        _A0.set(0, 0, 0, 1);
+        mRotateQuat.set(0, 0, 0, 1);
     }
 
-    if (_C0) {
-        MR::vecKillElement(_B0, mGravity, &_B0);
-        MR::normalizeOrZero(&_B0);
+    if (mIsThrowHorizontal) {
+        MR::vecKillElement(mThrowDir, mGravity, &mThrowDir);
+        MR::normalizeOrZero(&mThrowDir);
     }
 
-    f32 scale = _BC;
-    TVec3f v1(_B0);
-    v1.x *= scale;
-    v1.y *= scale;
-    v1.z *= scale;
-    mVelocity.set(v1);
+    Vec3f velocity(mThrowDir);
+    velocity.scale(mThrowSpeed);
+    mVelocity.set(velocity);
 
-    TVec3f up(-mGravity);
-    MR::makeQuatUpFront(&_90, up, _B0);
+    Vec3f up(-mGravity);
+    MR::makeQuatUpFront(&mPoseQuat, up, mThrowDir);
 
-    if (MR::isGreaterStep(this, 100)) {
-        MR::emitEffect(this, "Break");
-        startBreakSound();
-        kill();
+    if (MR::isGreaterStep(this, sThrowSteps)) {
+        breakAndKill();
     }
 }
 
@@ -112,42 +120,39 @@ void MoguStone::startThrowLevelSound() {
     MR::startLevelSound(this, "SE_EM_LV_MOGU_SPANA_FLY");
 }
 
+// A stone dies in doBehavior at the throw time; only the ice (which does not) falls after it.
 void MoguStone::exeThrow() {
     startThrowLevelSound();
     doBehavior();
-    NebulaQuatMultiply(&_A0, &_90, &_90);
-    _90.normalize();
+    NebulaQuatMultiply(&mRotateQuat, &mPoseQuat, &mPoseQuat);
+    mPoseQuat.normalize();
 
     if (MR::isBinded(this)) {
-        MR::emitEffect(this, "Break");
-        startBreakSound();
-        kill();
+        breakAndKill();
         return;
     }
 
-    if (MR::isGreaterStep(this, 100)) {
+    if (MR::isGreaterStep(this, sThrowSteps)) {
         setNerve(GET_NERVE(MoguStone, MoguStoneNrvFall));
     }
 }
 
 void MoguStone::exeFall() {
-    NebulaQuatMultiply(&_A0, &_90, &_90);
-    _90.normalize();
-    MR::applyVelocityDampAndGravity(this, 2.0f, 0.8f, 0.98f, 0.98f, 1.0f);
+    NebulaQuatMultiply(&mRotateQuat, &mPoseQuat, &mPoseQuat);
+    mPoseQuat.normalize();
+    MR::applyVelocityDampAndGravity(this, cNum_exeFall_applyVelocityDampAndGravity_1, cNum_exeFall_applyVelocityDampAndGravity_2, cNum_exeFall_applyVelocityDampAndGravity_3, cNum_exeFall_applyVelocityDampAndGravity_4, cNum_exeFall_applyVelocityDampAndGravity_5);
 
-    if (MR::isBinded(this) || MR::isGreaterStep(this, 60)) {
-        MR::emitEffect(this, "Break");
-        startBreakSound();
-        kill();
+    if (MR::isBinded(this) || MR::isGreaterStep(this, sFallSteps)) {
+        breakAndKill();
     }
 }
 
-bool MoguStone::isTaken() {
+bool MoguStone::isTaken() const {
     return isNerve(GET_NERVE(MoguStone, MoguStoneNrvTaken));
 }
 
 void MoguStone::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
-    if (pSender == getSensor("body") && MR::isSensorPlayer(pReceiver) && MR::sendMsgEnemyAttack(pReceiver, pSender) == true) {
+    if (pSender == getSensor("body") && MR::isSensorPlayer(pReceiver) && MR::sendMsgEnemyAttack(pReceiver, pSender)) {
         MR::emitEffect(this, "Break");
         MR::startSound(this, "SE_BM_ICEMERAKING_STONE_BREAK");
         kill();
@@ -157,7 +162,7 @@ void MoguStone::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
 void MoguStone::exeTaken() {
 }
 
-bool MoguStone::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
+bool MoguStone::receiveMsgPlayerAttack(u32 msg, HitSensor* /*pSender*/, HitSensor* /*pReceiver*/) {
     if (!isNerve(GET_NERVE(MoguStone, MoguStoneNrvThrow))) {
         return false;
     }
@@ -177,28 +182,21 @@ bool MoguStone::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* p
 }
 
 void MoguStone::calcAndSetBaseMtx() {
-    TPos3f mtx;
-    mtx[0][3] = 0.0f;
-    mtx[1][3] = 0.0f;
-    mtx[2][3] = 0.0f;
-
-    mtx.setQT(_90, mPosition);
-
+    Pos3f mtx;
+    mtx.setQT(mPoseQuat, mPosition);
     MR::setBaseTRMtx(this, mtx);
 }
 
-ThrowingIce::ThrowingIce(const char* pName) : MoguStone(pName, "IceManIce"), mPath() {
+ThrowingIce::ThrowingIce(const char* pName) : MoguStone(pName, "IceManIce"), mPath(nullptr) {
     mPath = new ParabolicPath();
-    mScale.x = 1.3f;
-    mScale.y = 1.3f;
-    mScale.z = 1.3f;
+    mScale.set(1.3f, 1.3f, 1.3f);
 }
 
-void ThrowingIce::init(const JMapInfoIter& rIter) {
+void ThrowingIce::init(const TableIter& rIter) {
     initBinder(60.0f * mScale.y, 0.0f, 0);
     ModelObj::init(rIter);
     initHitSensor(1);
-    MR::addHitSensorEnemy(this, "body", 32, 80.0f * mScale.y, TVec3f(0.0f, 0.0f, 0.0f));
+    MR::addHitSensorEnemy(this, "body", 32, 80.0f * mScale.y, Vec3f(0.0f, 0.0f, 0.0f));
     initNerve(GET_NERVE(MoguStone, MoguStoneNrvTaken));
     MR::invalidateClipping(this);
     MR::onCalcGravity(this);
@@ -206,30 +204,32 @@ void ThrowingIce::init(const JMapInfoIter& rIter) {
     makeActorDead();
 }
 
-void ThrowingIce::emitIce(const TVec3f& arg1, const TVec3f& arg2, f32 arg3, const TVec3f& arg4) {
-    mPath->initFromUpVectorAddHeight(arg1, arg2, -arg4, ::hAddHeight);
-    _BC = arg3;
+// An arc from `rFrom` to `rTo`, up against `rGravity`, with the added height.
+void ThrowingIce::emitIce(const Vec3f& rFrom, const Vec3f& rTo, f32 speed, const Vec3f& rGravity) {
+    mPath->initFromUpVectorAddHeight(rFrom, rTo, -rGravity, sIceArcAddHeight);
+    mThrowSpeed = speed;
 
-    TVec3f v2(arg2);
-    v2 -= arg1;
-    MR::vecKillElement(v2, mGravity, &_B0);
-    MR::normalizeOrZero(&_B0);
+    Vec3f toTarget(rTo);
+    toTarget -= rFrom;
+    MR::vecKillElement(toTarget, mGravity, &mThrowDir);
+    MR::normalizeOrZero(&mThrowDir);
     setNerve(GET_NERVE(MoguStone, MoguStoneNrvThrow));
     MR::emitEffect(this, "Smoke");
 }
 
+// Follows the arc over the path time, tumbling about the axis across the throw.
 void ThrowingIce::doBehavior() {
     if (MR::isFirstStep(this)) {
-        TVec3f v1 = _B0.cross(mGravity);
-        _A0.setRotate(v1, 0.25f);
+        Vec3f spinAxis = mThrowDir.cross(mGravity);
+        mRotateQuat.setRotate(spinAxis, 0.25f);
     }
 
-    f32 rate = MR::calcNerveRate(this, 101);
-    TVec3f v2;
-    mPath->calcPosition(&v2, rate);
-    TVec3f v3(v2);
-    v3 -= mPosition;
-    mVelocity.set(v3);
+    f32 rate = MR::calcNerveRate(this, sIcePathSteps);
+    Vec3f pathPos;
+    mPath->calcPosition(&pathPos, rate);
+    Vec3f step(pathPos);
+    step -= mPosition;
+    mVelocity.set(step);
 }
 
 void ThrowingIce::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
@@ -242,12 +242,9 @@ void ThrowingIce::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     }
 }
 
+// Breaks as the stone does but never reports the hit; a spin passes through.
 bool ThrowingIce::receiveMsgPlayerAttack(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {
-    if (!isNerve(GET_NERVE(MoguStone, MoguStoneNrvThrow))) {
-        return false;
-    }
-
-    if (MR::isMsgPlayerSpinAttack(msg)) {
+    if (!isNerve(GET_NERVE(MoguStone, MoguStoneNrvThrow)) || MR::isMsgPlayerSpinAttack(msg)) {
         return false;
     }
 

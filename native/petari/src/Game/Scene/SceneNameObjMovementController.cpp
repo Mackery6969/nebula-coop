@@ -26,7 +26,7 @@ namespace {
         MR::getSceneObj< NameObjGroup >(SceneObj_NameObjGroup)->pauseOffAll();
         MR::notifyRequestNameObjMovementOnOff();
         MR::requestEffectStopSceneStart();
-        CategoryList::requestMovementOn(MR::MovementType_UNK_0x14);
+        CategoryList::requestMovementOn(MR::MovementType_EffectUpdateCheck);
         CategoryList::requestMovementOn(MR::MovementType_ShadowControllerHolder);
         CategoryList::requestMovementOn(MR::MovementType_LayoutOnPause);
         MR::pauseOffTalkDirector();
@@ -57,120 +57,74 @@ namespace {
 StopSceneStateControl::StopSceneStateControl() : NerveExecutor("StopSceneStateControl") {
     initNerve(GET_NERVE_ANON(StopSceneStateControlNone));
 
-    _8 = MR::MovementControlType_0;
-    _C = nullptr;
+    mMovementType = MR::MovementControlType_Resume;
+    mRequester = nullptr;
 }
 
-void StopSceneStateControl::requestStopSceneFor(MR::MovementControlType param1, const NameObj* pParam2) {
-    if (MR::isNewNerve(this)) {
-        if (isNerve(GET_NERVE_ANON(StopSceneStateControlNone))) {
-            _8 = param1;
-            _C = pParam2;
-
-            setNerve(GET_NERVE_ANON(StopSceneStateControlStopped));
-            executeStopCategories(param1);
-        } else if (isNerve(GET_NERVE_ANON(StopSceneStateControlStopped))) {
-            return;
-        }
-    } else if (isNerve(GET_NERVE_ANON(StopSceneStateControlNone))) {
-        _8 = param1;
-        _C = pParam2;
+// A stop while stopped is ignored.
+void StopSceneStateControl::requestStopSceneFor(MR::MovementControlType type, const NameObj* pRequester) {
+    if (isNerve(GET_NERVE_ANON(StopSceneStateControlNone))) {
+        mMovementType = type;
+        mRequester = pRequester;
 
         setNerve(GET_NERVE_ANON(StopSceneStateControlStopped));
-        executeStopCategories(param1);
-    } else if (!isNerve(GET_NERVE_ANON(StopSceneStateControlStopped))) {
-        return;
+        executeStopCategories(type);
     }
 }
 
-void StopSceneStateControl::requestStopSceneOverwrite(const NameObj* pParam1) {
-    if (MR::isNewNerve(this)) {
-        if (isNerve(GET_NERVE_ANON(StopSceneStateControlNone))) {
-            return;
-        }
-
-        if (!isNerve(GET_NERVE_ANON(StopSceneStateControlStopped))) {
-            return;
-        }
-
-        _C = pParam1;
-        _8 = MR::MovementControlType_5;
+void StopSceneStateControl::requestStopSceneOverwrite(const NameObj* pRequester) {
+    if (isNerve(GET_NERVE_ANON(StopSceneStateControlStopped))) {
+        mRequester = pRequester;
+        mMovementType = MR::MovementControlType_DemoWithCameraDirector;
 
         setNerve(GET_NERVE_ANON(StopSceneStateControlStopped));
-        executeStopCategories(MR::MovementControlType_5);
-    } else {
-        if (isNerve(GET_NERVE_ANON(StopSceneStateControlNone))) {
-            return;
-        }
-
-        if (!isNerve(GET_NERVE_ANON(StopSceneStateControlStopped))) {
-            return;
-        }
-
-        _C = pParam1;
-        _8 = MR::MovementControlType_5;
-
-        setNerve(GET_NERVE_ANON(StopSceneStateControlStopped));
-        executeStopCategories(MR::MovementControlType_5);
+        executeStopCategories(MR::MovementControlType_DemoWithCameraDirector);
     }
 }
 
-void StopSceneStateControl::requestPlaySceneFor(MR::MovementControlType param1, const NameObj* pParam2) {
-    if (MR::isNewNerve(this)) {
-        if (isNerve(GET_NERVE_ANON(StopSceneStateControlNone))) {
-            return;
-        }
-
-        if (isNerve(GET_NERVE_ANON(StopSceneStateControlStopped))) {
-            return;
-        }
-    } else {
-        if (isNerve(GET_NERVE_ANON(StopSceneStateControlNone))) {
-            return;
-        }
-
-        if (!isNerve(GET_NERVE_ANON(StopSceneStateControlStopped))) {
-            return;
-        }
-
-        _8 = param1;
-        _C = pParam2;
+// A play request in the step a stop began is dropped.
+void StopSceneStateControl::requestPlaySceneFor(MR::MovementControlType type, const NameObj* pRequester) {
+    if (!MR::isNewNerve(this) && isNerve(GET_NERVE_ANON(StopSceneStateControlStopped))) {
+        mMovementType = type;
+        mRequester = pRequester;
 
         setNerve(GET_NERVE_ANON(StopSceneStateControlNone));
-        executeStopCategories(MR::MovementControlType_0);
+        executeStopCategories(MR::MovementControlType_Resume);
     }
 }
 
-void StopSceneStateControl::executeStopCategories(MR::MovementControlType param1) {
-    switch (param1) {
-    case MR::MovementControlType_0:
+void StopSceneStateControl::executeStopCategories(MR::MovementControlType type) {
+    switch (type) {
+    case MR::MovementControlType_Resume:
         MR::resumeAllSceneNameObj();
         MR::notifyRequestNameObjMovementOnOff();
         MR::requestEffectStopSceneEnd();
         break;
-    case MR::MovementControlType_1:
+    case MR::MovementControlType_Demo:
         ::executeStopCategoriesDemoCommon();
         MR::requestMovementOnSwitchWatcher();
         break;
-    case MR::MovementControlType_2:
+    case MR::MovementControlType_DemoMarioPuppetable:
         ::executeStopCategoriesDemoCommon();
         MR::requestMovementOnSwitchWatcher();
         CategoryList::requestMovementOn(MR::MovementType_Player);
         CategoryList::requestMovementOn(MR::MovementType_PlayerDecoration);
         MR::requestMovementOnImageEffect();
         break;
-    case MR::MovementControlType_3:
+    case MR::MovementControlType_StopEnemy:
         CategoryList::requestMovementOff(MR::MovementType_Enemy);
         CategoryList::requestMovementOff(MR::MovementType_EnemyDecoration);
         CategoryList::requestMovementOff(MR::MovementType_CollisionEnemy);
         break;
-    case MR::MovementControlType_4:
+    case MR::MovementControlType_StopPlayer:
         CategoryList::requestMovementOff(MR::MovementType_Player);
         CategoryList::requestMovementOff(MR::MovementType_PlayerDecoration);
         break;
-    case MR::MovementControlType_5:
+    case MR::MovementControlType_DemoWithCameraDirector:
         ::executeStopCategoriesDemoCommon();
         MR::requestMovementOn(MR::getSceneObj< CameraDirector >(SceneObj_CameraDirector));
+        break;
+    default:
         break;
     }
 }
@@ -182,34 +136,34 @@ void StopSceneStateControl::exeStopped() {
 }
 
 SceneNameObjMovementController::SceneNameObjMovementController()
-    : NameObj("SceneNameObjMovementController"), _C(false), mStopSceneStateControl(nullptr) {
+    : NameObj("SceneNameObjMovementController"), mIsSyncRequested(false), mStopSceneStateControl(nullptr) {
     mStopSceneStateControl = new StopSceneStateControl();
 }
 
-void SceneNameObjMovementController::requestStopSceneFor(MR::MovementControlType param1, const NameObj* pParam2) {
-    mStopSceneStateControl->requestStopSceneFor(param1, pParam2);
+void SceneNameObjMovementController::requestStopSceneFor(MR::MovementControlType type, const NameObj* pRequester) {
+    mStopSceneStateControl->requestStopSceneFor(type, pRequester);
 }
 
-void SceneNameObjMovementController::requestStopSceneOverwrite(const NameObj* pParam1) {
-    mStopSceneStateControl->requestStopSceneOverwrite(pParam1);
+void SceneNameObjMovementController::requestStopSceneOverwrite(const NameObj* pRequester) {
+    mStopSceneStateControl->requestStopSceneOverwrite(pRequester);
 }
 
-void SceneNameObjMovementController::requestPlaySceneFor(MR::MovementControlType param1, const NameObj* pParam2) {
-    mStopSceneStateControl->requestPlaySceneFor(param1, pParam2);
+void SceneNameObjMovementController::requestPlaySceneFor(MR::MovementControlType type, const NameObj* pRequester) {
+    mStopSceneStateControl->requestPlaySceneFor(type, pRequester);
 }
 
 void SceneNameObjMovementController::movement() {
-    if (_C) {
+    if (mIsSyncRequested) {
         MR::syncWithFlagsAllSceneNameObj();
 
-        _C = false;
+        mIsSyncRequested = false;
     }
 
     mStopSceneStateControl->updateNerve();
 }
 
-void SceneNameObjMovementController::notifyRequestNameObjMovementOnOff(bool param1) {
-    _C = param1;
+void SceneNameObjMovementController::notifyRequestNameObjMovementOnOff(bool isRequested) {
+    mIsSyncRequested = isRequested;
 }
 
 namespace MR {

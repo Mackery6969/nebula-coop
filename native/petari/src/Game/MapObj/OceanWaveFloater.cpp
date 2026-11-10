@@ -1,4 +1,5 @@
 #include "Game/MapObj/OceanWaveFloater.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/MaterialCtrl.hpp"
 #include "Game/MapObj/FloaterFloatingForceTypeSpring.hpp"
 #include "Game/MapObj/MapObjActor.hpp"
@@ -28,8 +29,8 @@ namespace {
         {"OceanHexagonFloater", 50.0f, 330, 150.0f, 100.0f, false},
     };
 
-    static const s32 sWaveSeStepsMin = 60;
-    static const s32 sWaveSeStepsMax = 120;
+    static const s32 sWaveSeStepsMin = NebulaFrameClock::stepsOfSeconds(1);
+    static const s32 sWaveSeStepsMax = NebulaFrameClock::stepsOfSeconds(2);
 
     const Param* getParam(const char* pChar) {
         for (u32 i = 0; i < ARRAY_SIZE(::sDataTable); i++) {
@@ -45,13 +46,12 @@ namespace {
 OceanWaveFloater::OceanWaveFloater(const char* pName) : MapObjActor(pName), mSpring(), mForce(), mRipplePos(gZeroVec), mSoundDelay(), mCanRipple() {
 }
 
-void OceanWaveFloater::init(const JMapInfoIter& rIter) {
+void OceanWaveFloater::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
 
-    mForce = new WaveFloatingForce(this, ::getParam(mObjectName)->mStepCount, ::getParam(mObjectName)->mAmplitude, true);
+    mForce = new WaveFloatingForce(this, ::getParam(mObjectName)->mStepCount, ::getParam(mObjectName)->mAmplitude);
 
     MapObjActorInitInfo info = MapObjActorInitInfo();
-    info.setupHioNode("\222\156\214\140\203\111\203\165\203\127\203\106" /* 地形オブジェ */);
     info.setupDefaultPos();
     info.setupConnectToScene();
     info.setupEffect(nullptr);
@@ -98,8 +98,8 @@ void OceanWaveFloater::initAfterPlacement() {
     }
 
     if (mMatrixSetter != nullptr) {
-        TVec3f offset(0.0f, mOffset, 0.0f);
-        mMatrixSetter->updateMtxUseBaseMtxWithLocalOffset(TVec3f(0.0f, mOffset, 0.0f));
+        Vec3f offset(0.0f, mOffset, 0.0f);
+        mMatrixSetter->updateMtxUseBaseMtxWithLocalOffset(Vec3f(0.0f, mOffset, 0.0f));
     }
 }
 
@@ -129,7 +129,7 @@ void OceanWaveFloater::control() {
 }
 
 void OceanWaveFloater::calcAndSetBaseMtx() {
-    TPos3f baseMtx;
+    Pos3f baseMtx;
     baseMtx.identity();
     baseMtx.setEuler(mRotation * (PI / 180.0f));
     baseMtx.setTrans(mPosition - mGravity * mForce->getCurrentValue());
@@ -137,12 +137,12 @@ void OceanWaveFloater::calcAndSetBaseMtx() {
 }
 
 f32 OceanWaveFloater::getCurrentSinkDepth() const {
-    TPos3f baseMtx = getBaseMtx();
+    Pos3f baseMtx = getBaseMtx();
 
-    TVec3f trans;
+    Vec3f trans;
     baseMtx.getTrans(trans);
 
-    TVec3f yDir;
+    Vec3f yDir;
     baseMtx.getYDir(yDir);
 
     f32 sign = MR::sign(yDir.dot(mRipplePos - trans));

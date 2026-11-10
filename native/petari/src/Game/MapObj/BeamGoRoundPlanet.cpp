@@ -1,4 +1,5 @@
 #include "Game/MapObj/BeamGoRoundPlanet.hpp"
+#include "Game/Util/StringUtil.hpp"
 #include "Game/LiveActor/HitSensor.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/LiveActor/VolumeModelDrawer.hpp"
@@ -6,23 +7,27 @@
 #include "Game/MapObj/MapObjActorInitInfo.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Util.hpp"
-#include <cstdio>
 
-BeamGoRoundBeam::BeamGoRoundBeam(MtxPtr pMtx) : LiveActor("\203\162\201\133\203\200\203\123\201\133\203\211\203\105\203\223\203\150\203\162\201\133\203\200" /* ビームゴーラウンドビーム */) {
+namespace {
+    // One per joint beam1..beam16.
+    const s32 sBeamNum = 16;
+};  // namespace
+
+BeamGoRoundBeam::BeamGoRoundBeam(MtxPtr pMtx) : LiveActor("ビームゴーラウンドビーム") {
     mModelDrawer = nullptr;
     mBloomModel = nullptr;
     mBeamJointMtx = pMtx;
 }
 
-void BeamGoRoundBeam::init(const JMapInfoIter& rIter) {
+void BeamGoRoundBeam::init(const TableIter& /*rIter*/) {
     initModelManagerWithAnm("BeamGoRoundBeam", nullptr, false);
     mPosition.set< f32 >(mBeamJointMtx[0][3], mBeamJointMtx[1][3], mBeamJointMtx[2][3]);
     MR::connectToScene(this, MR::MovementType_MapObj, MR::CalcAnimType_MapObj, MR::DrawBufferType_IndirectMapObj, MR::DrawType_VolumeModel);
     initHitSensor(1);
     MR::addHitSensorCallbackEnemyAttack(this, "beam", 4, 100.0f);
-    initEffectKeeper(0, nullptr, false);
-    mModelDrawer = new VolumeModelDrawer("\203\162\201\133\203\200\203\173\203\212\203\205\201\133\203\200" /* ビームボリューム */, "BeamGoRoundBeamVolume", getBaseMtx());
-    mBloomModel = MR::createModelObjBloomModel("\203\162\201\133\203\200\203\165\203\213\201\133\203\200" /* ビームブルーム */, "BeamGoRoundBeamBloom", getBaseMtx());
+    initEffectKeeper(0, nullptr);
+    mModelDrawer = new VolumeModelDrawer("ビームボリューム", "BeamGoRoundBeamVolume", getBaseMtx());
+    mBloomModel = MR::createModelObjBloomModel("ビームブルーム", "BeamGoRoundBeamBloom", getBaseMtx());
     MR::setClippingTypeSphereContainsModelBoundingBox(this, 100.0f);
     MR::startAllAnim(this, "BeamGoRoundBeam");
     makeActorAppeared();
@@ -39,13 +44,13 @@ void BeamGoRoundBeam::draw() const {
 
 void BeamGoRoundBeam::updateHitSensor(HitSensor* pSensor) {
     f32 radius = pSensor->mRadius;
-    TVec3f up;
+    Vec3f up;
     MR::calcUpVec(&up, this);
-    TVec3f v7;
-    v7.scaleAdd(radius, up, mPosition);
-    TVec3f v6;
-    v6.scaleAdd(2700.0f - radius, up, v7);
-    MR::calcPerpendicFootToLineInside(&pSensor->mPosition, *MR::getPlayerPos(), v7, v6);
+    Vec3f lineStart;
+    lineStart.scaleAdd(radius, up, mPosition);
+    Vec3f lineEnd;
+    lineEnd.scaleAdd(2700.0f - radius, up, lineStart);
+    MR::calcPerpendicFootToLineInside(&pSensor->mPosition, *MR::getPlayerPos(), lineStart, lineEnd);
 }
 
 void BeamGoRoundBeam::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
@@ -62,14 +67,13 @@ namespace NrvBeamGoRoundPlanet {
 
 BeamGoRoundPlanet::BeamGoRoundPlanet(const char* pName) : MapObjActor(pName) {
     mBeams = nullptr;
-    _C8 = nullptr;
-    _CC = nullptr;
+    mMove1Collision = nullptr;
+    mMove2Collision = nullptr;
 }
 
-void BeamGoRoundPlanet::init(const JMapInfoIter& rIter) {
+void BeamGoRoundPlanet::init(const TableIter& rIter) {
     MapObjActor::init(rIter);
     MapObjActorInitInfo info;
-    info.setupHioNode("\230\146\220\257" /* 惑星 */);
     info.setupDefaultPos();
     info.setupConnectToScene();
     info.setupEffect(nullptr);
@@ -77,16 +81,16 @@ void BeamGoRoundPlanet::init(const JMapInfoIter& rIter) {
     info.setupFarClipping(-1.0f);
     info.setupNerve(GET_NERVE(BeamGoRoundPlanet, BeamGoRoundPlanetNrvWait));
     initialize(rIter, info);
-    _C8 = MR::createCollisionPartsFromLiveActor(this, "Move", getSensor("body"), MR::getJointMtx(this, "move1"), MR::CollisionScaleType_Unk2);
-    _CC = MR::createCollisionPartsFromLiveActor(this, "Move", getSensor("body"), MR::getJointMtx(this, "move2"), MR::CollisionScaleType_Unk2);
-    MR::validateCollisionParts(_CC);
-    MR::validateCollisionParts(_C8);
+    mMove1Collision = MR::createCollisionPartsFromLiveActor(this, "Move", getSensor("body"), MR::getJointMtx(this, "move1"), MR::CollisionScaleType_Default);
+    mMove2Collision = MR::createCollisionPartsFromLiveActor(this, "Move", getSensor("body"), MR::getJointMtx(this, "move2"), MR::CollisionScaleType_Default);
+    MR::validateCollisionParts(mMove2Collision);
+    MR::validateCollisionParts(mMove1Collision);
     initBeam();
 }
 
 void BeamGoRoundPlanet::exeWait() {
-    _CC->setMtx();
-    _C8->setMtx();
+    mMove2Collision->setMtx();
+    mMove1Collision->setMtx();
     MR::startLevelSound(this, "SE_OJ_LV_BEAM_GO_ROUND");
 }
 
@@ -95,19 +99,11 @@ void BeamGoRoundPlanet::connectToScene(const MapObjActorInitInfo&) {
 }
 
 void BeamGoRoundPlanet::initBeam() {
-    mBeams = new BeamGoRoundBeam*[16];
+    mBeams = new BeamGoRoundBeam*[::sBeamNum];
 
-    for (s32 i = 0; i < 16; i++) {
-        char buf[256];
-        nebula_snprintf(buf, sizeof(buf), "beam%d", i + 1);
-        MtxPtr jointMtx = MR::getJointMtx(this, buf);
+    for (s32 i = 0; i < ::sBeamNum; i++) {
+        MtxPtr jointMtx = MR::getJointMtx(this, MR::FormattedName("beam%d", i + 1).c_str());
         mBeams[i] = new BeamGoRoundBeam(jointMtx);
         mBeams[i]->initWithoutIter();
     }
-}
-
-BeamGoRoundBeam::~BeamGoRoundBeam() {
-}
-
-BeamGoRoundPlanet::~BeamGoRoundPlanet() {
 }

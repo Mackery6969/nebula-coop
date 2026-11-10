@@ -34,7 +34,7 @@ void CameraShakeTask::movement() {
     }
 }
 
-void CameraShakeTask::getOffset(TVec2f* pOffset) const {
+void CameraShakeTask::getOffset(Vec2f* pOffset) const {
     if (mHasEnded || mPattern->isEnd()) {
         pOffset->set(0.0f, 0.0f);
     } else {
@@ -48,17 +48,14 @@ bool CameraShakeTask::isEnd() const {
 
 void CameraShakeTask::startCommon(u32 delay) {
     mDelay = delay;
-    CameraShakePattern* pattern = mPattern;
     mHasEnded = false;
-    pattern->mFrame = 0;
-    pattern->start();
+    mPattern->mFrame = 0;
+    mPattern->start();
 }
 
 void CameraShakeTask::updatePattern() {
-    CameraShakePattern* pattern = mPattern;
-
-    pattern->mFrame++;
-    pattern->update();
+    mPattern->mFrame++;
+    mPattern->update();
 
     if (mPattern->isEnd()) {
         if (!mIsInfinite) {
@@ -75,10 +72,8 @@ void CameraShakeTask::updateInterval() {
             return;
         }
 
-        CameraShakePattern* pattern = mPattern;
-
-        pattern->mFrame = 0;
-        pattern->start();
+        mPattern->mFrame = 0;
+        mPattern->start();
     } else {
         mHasEnded = true;
     }

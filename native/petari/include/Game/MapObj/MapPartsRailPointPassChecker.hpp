@@ -6,11 +6,10 @@ class MapPartsRailPointPassChecker : public MapPartsFunction {
 public:
     MapPartsRailPointPassChecker(LiveActor*);
 
-    virtual ~MapPartsRailPointPassChecker();
-    virtual void movement();
-    virtual bool isWorking() const;
-    virtual void start();
-    virtual void end() {
+    virtual void movement() override;
+    virtual bool isWorking() const override;
+    virtual void start() override;
+    virtual void end() override {
     }
 
     bool isPassed() const;

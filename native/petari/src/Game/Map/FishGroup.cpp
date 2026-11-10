@@ -1,40 +1,54 @@
 #include "Game/Map/FishGroup.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util/ActorMovementUtil.hpp"
 #include "Game/Util/PlayerInputUtil.hpp"
-#include "Game/Util/JMapUtil.hpp"
+#include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/RailUtil.hpp"
+#include "Game/Util/StringUtil.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const s32 sDefaultFishNum = 10;
-    static const f32 sDefaultGroupSpeed = 5.0f;
-    static const f32 sFriction = 0.95f;
-    static const f32 sWanderAccel = 1.0f;
-    static const s32 sStepToWanderMoveMin = 60;
-    static const s32 sStepToWanderMoveMax = 180;
-    static const f32 sApproachAccel = 5.0f;
-    static const s32 sStepToApproachMin = 5;
-    static const s32 sStepToApproachMax = 30;
-    static const f32 sDistanceToApproachMin = 100.0f;
-    static const f32 sDistanceToApproachMax = 500.0f;
-    static const f32 sEscapeAccel = 5.0f;
-    static const s32 sStepToEscapeMin = 5;
-    static const s32 sStepToEscapeMax = 20;
-    static const f32 sDistanceSafe = 600.0f;
-    static const f32 sDistanceToSpinEscape = 500.0f;
-    static const s32 sTimeToSearchPlayerMin = 5;
-    static const s32 sTimeToSearchPlayerMax = 10;
-    static const f32 sDistanceToEscapeFromPlayer = 150.0f;
-    static const f32 sRotateDotMax = 0.9f;
-    static const f32 sRotateRate = 0.2f;
-    static const f32 sDirectionMaxY = 0.99f;
-    static const f32 sAnimFrameRate = 0.2f;
-    static const f32 sFollowPosOffsetMax = 150.0f;
+    NEBULA_TUNABLE(s32, sDefaultFishNum, 10);
+    NEBULA_TUNABLE(f32, sDefaultGroupSpeed, 5.0f);
+    NEBULA_TUNABLE(f32, sFriction, 0.95f);
+    NEBULA_TUNABLE(f32, sWanderAccel, 1.0f);
+    const s32 sStepToWanderMoveMin = NebulaFrameClock::stepsOfSeconds(1);
+    const s32 sStepToWanderMoveMax = NebulaFrameClock::stepsOfSeconds(3);
+    NEBULA_TUNABLE(f32, sApproachAccel, 5.0f);
+    NEBULA_TUNABLE(s32, sStepToApproachMin, 5);
+    const s32 sStepToApproachMax = NebulaFrameClock::stepsOfMilliseconds(500);
+    NEBULA_TUNABLE(f32, sDistanceToApproachMin, 100.0f);
+    NEBULA_TUNABLE(f32, sDistanceToApproachMax, 500.0f);
+    NEBULA_TUNABLE(f32, sEscapeAccel, 5.0f);
+    NEBULA_TUNABLE(s32, sStepToEscapeMin, 5);
+    NEBULA_TUNABLE(s32, sStepToEscapeMax, 20);
+    NEBULA_TUNABLE(f32, sDistanceSafe, 600.0f);
+    NEBULA_TUNABLE(f32, sDistanceToSpinEscape, 500.0f);
+    NEBULA_TUNABLE(s32, sTimeToSearchPlayerMin, 5);
+    NEBULA_TUNABLE(s32, sTimeToSearchPlayerMax, 10);
+    NEBULA_TUNABLE(f32, sDistanceToEscapeFromPlayer, 150.0f);
+    NEBULA_TUNABLE(f32, sRotateDotMax, 0.9f);
+    NEBULA_TUNABLE(f32, sRotateRate, 0.2f);
+    NEBULA_TUNABLE(f32, sDirectionMaxY, 0.99f);
+    NEBULA_TUNABLE(f32, sAnimFrameRate, 0.2f);
+    NEBULA_TUNABLE(f32, sFollowPosOffsetMax, 150.0f);
+
+    // Indexed by Fish::mFishType; an unlisted group object name is kind 0.
+    struct FishKind {
+        const char* mGroupName;
+        const char* mModelName;
+    };
+
+    const FishKind sFishKinds[] = {
+        {"FishGroupA", "FishA"}, {"FishGroupB", "FishB"}, {"FishGroupC", "FishC"},
+        {"FishGroupD", "FishD"}, {"FishGroupE", "FishE"}, {"FishGroupF", "FishF"},
+    };
 };  // namespace
 
 namespace NrvFish {
@@ -42,12 +56,6 @@ namespace NrvFish {
     NEW_NERVE(FishNrvApproach, Fish, Approach);
     NEW_NERVE(FishNrvEscape, Fish, Escape);
 };  // namespace NrvFish
-
-Fish::~Fish() {
-}
-
-FishGroup::~FishGroup() {
-}
 
 Fish::Fish(const char* pName, FishGroup* pGroup, int fishType, bool canEscape)
     : LiveActor(pName), mGroup(pGroup), mFishType(fishType), mCanEscape(canEscape), mFollowPos(0.0f, 0.0f, 0.0f),
@@ -57,13 +65,12 @@ Fish::Fish(const char* pName, FishGroup* pGroup, int fishType, bool canEscape)
       mTimeToSearchPlayer(MR::getRandom(::sTimeToSearchPlayerMin, ::sTimeToSearchPlayerMax)), mStepToMove(), mEscapePos() {
 }
 
-void Fish::init(const JMapInfoIter& rIter) {
+void Fish::init(const TableIter& /*rIter*/) {
     updateFollowPointPos();
     mPosition.set(mFollowPos);
     mFront.set(MR::getRailDirection(mGroup));
 
-    const char* names[] = {"FishA", "FishB", "FishC", "FishD", "FishE", "FishF"};
-    initModelManagerWithAnm(names[mFishType], nullptr, false);
+    initModelManagerWithAnm(::sFishKinds[mFishType].mModelName, nullptr, false);
     MR::startBck(this, "Swim");
     MR::connectToSceneEnvironment(this);
     initNerve(GET_NERVE(Fish, FishNrvWander));
@@ -102,14 +109,14 @@ void Fish::exeApproach() {
     }
 
     if (--mStepToMove <= 0) {
-        TVec3f front = mFollowPos;
+        Vec3f front = mFollowPos;
         front.sub(mPosition);
         MR::normalize(&front);
 
         if (mFront.dot(front) > ::sRotateDotMax) {
             mFront.set(front);
         } else {
-            TVec3f currFront = mFront;
+            Vec3f currFront = mFront;
             mFront.x = currFront.x * (1.0f - ::sRotateRate) + front.x * ::sRotateRate;
             mFront.y = currFront.y * (1.0f - ::sRotateRate) + front.y * ::sRotateRate;
             mFront.z = currFront.z * (1.0f - ::sRotateRate) + front.z * ::sRotateRate;
@@ -138,7 +145,7 @@ void Fish::exeEscape() {
     }
 
     if (--mStepToMove <= 0) {
-        TVec3f front = mPosition;
+        Vec3f front = mPosition;
         front.sub(*mEscapePos);
         MR::normalize(&front);
 
@@ -201,7 +208,7 @@ void Fish::control() {
 }
 
 void Fish::calcAndSetBaseMtx() {
-    TPos3f mtx;
+    Pos3f mtx;
     mtx.identity();
     MR::makeMtxFrontUp(&mtx, mFront, mGroup->mUp);
     mtx.setTrans(mPosition);
@@ -234,43 +241,39 @@ FishGroup::FishGroup(const char* pName)
     : LiveActor(pName), mUp(0.0f, 1.0f, 0.0f), mFishNum(::sDefaultFishNum), mFish(), mSpeed(::sDefaultGroupSpeed), mClippingCenter(0.0f, 0.0f, 0.0f) {
 }
 
-void FishGroup::init(const JMapInfoIter& rIter) {
+void FishGroup::init(const TableIter& rIter) {
     MR::connectToSceneEnemyMovement(this);
     MR::initDefaultPos(this, rIter);
     MR::calcActorAxisY(&mUp, this);
     initRailRider(rIter);
     MR::moveCoordToNearestPos(this, mPosition);
 
-    int fishType = 0;
-    MR::getJMapInfoArg0NoInit(rIter, &mFishNum);
+    MR::getPlacementArg0NoInit(rIter, &mFishNum);
+    if (mFishNum < 0) {
+        mFishNum = 0;
+    }
 
     bool canEscape = false;
-    MR::getJMapInfoArg1NoInit(rIter, &canEscape);
+    MR::getPlacementArg1NoInit(rIter, &canEscape);
 
     bool calcGravity = false;
-    MR::getJMapInfoArg2NoInit(rIter, &calcGravity);
+    MR::getPlacementArg2NoInit(rIter, &calcGravity);
     if (calcGravity) {
         MR::onCalcGravity(this);
     }
     const char* objName;
     MR::getObjectName(&objName, rIter);
-    if (strcmp(objName, "FishGroupA") == 0) {
-        fishType = 0;
-    } else if (strcmp(objName, "FishGroupB") == 0) {
-        fishType = 1;
-    } else if (strcmp(objName, "FishGroupC") == 0) {
-        fishType = 2;
-    } else if (strcmp(objName, "FishGroupD") == 0) {
-        fishType = 3;
-    } else if (strcmp(objName, "FishGroupE") == 0) {
-        fishType = 4;
-    } else if (strcmp(objName, "FishGroupF") == 0) {
-        fishType = 5;
+    int fishType = 0;
+    for (u32 i = 0; i < ARRAY_SIZE(::sFishKinds); i++) {
+        if (MR::isEqualString(objName, ::sFishKinds[i].mGroupName)) {
+            fishType = static_cast< int >(i);
+            break;
+        }
     }
 
     mFish = new Fish*[mFishNum];
     for (int i = 0; i < mFishNum; i++) {
-        mFish[i] = new Fish("\213\233" /* 魚 */, this, fishType, canEscape);
+        mFish[i] = new Fish("魚", this, fishType, canEscape);
         mFish[i]->initWithoutIter();
     }
 

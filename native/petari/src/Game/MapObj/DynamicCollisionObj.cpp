@@ -1,21 +1,15 @@
 #include "Game/MapObj/DynamicCollisionObj.hpp"
 #include "Game/LiveActor/Nerve.hpp"
+#include "Game/Map/CollisionDirector.hpp"
 #include "Game/Map/CollisionParts.hpp"
 #include "Game/Map/KCollision.hpp"
 #include "Game/Scene/SceneFunction.hpp"
 #include "Game/Util.hpp"
-#include <new>
-#include "Game/Util/ByteView.hpp"
 
 DynamicCollisionObj::DynamicCollisionObj(const char* pName) : LiveActor(pName) {
-    _A4 = 0;
-    _9C = 0;
-    _11C = 0;
-    _A8 = 0;
-    _AC = 0;
 }
 
-void DynamicCollisionObj::init(const JMapInfoIter& rIter) {
+void DynamicCollisionObj::init(const TableIter& rIter) {
     MR::initDefaultPos(this, rIter);
     MR::connectToScene(this, MR::MovementType_Enemy, MR::CalcAnimType_Enemy, MR::DrawBufferType_None, MR::DrawType_FlexibleSphere);
 
@@ -30,49 +24,48 @@ void DynamicCollisionObj::syncCollision() {
 }
 
 void DynamicCollisionObj::updateTriangle() {
+    if (mKCLFile == nullptr) {
+        return;
+    }
+
     s32 nrmidxa, nrmidxb, nrmidxc;
     s32 prismidx;
     s32 normalidx = 0;
 
-    for (u16 i = 0; i < _94; i++) {
-        TVec3f Vertex1(mPositions[mIndices[i].mIndex[0]]);
-        TVec3f Vertex2(mPositions[mIndices[i].mIndex[1]]);
-        TVec3f Vertex3(mPositions[mIndices[i].mIndex[2]]);
+    for (s32 i = 0; i < mTriangleNum; i++) {
+        Vec3f Vertex1(mPositions[mIndices[i].mIndex[0]]);
+        Vec3f Vertex2(mPositions[mIndices[i].mIndex[1]]);
+        Vec3f Vertex3(mPositions[mIndices[i].mIndex[2]]);
 
-        TVec3f a(Vertex3);
+        Vec3f a(Vertex3);
         a -= Vertex1;
-        TVec3f SaveForLater(a);
-        TVec3f b(Vertex2);
+        Vec3f SaveForLater(a);
+        Vec3f b(Vertex2);
         b -= Vertex1;
-        TVec3f c(Vertex3);
+        Vec3f c(Vertex3);
         c -= Vertex2;
         MR::normalizeOrZero(&a);
         MR::normalizeOrZero(&b);
         MR::normalizeOrZero(&c);
-        TVec3f cross = b.cross(a);
-        MR::normalizeOrZero(&cross);
-        _9C[i] = cross;
+        Vec3f faceNormal = b.cross(a);
+        MR::normalizeOrZero(&faceNormal);
 
-        if (mKCLFile == nullptr) {
-            continue;
-        }
+        Vec3f edgeNormalA = (-a).cross(faceNormal);
+        Vec3f edgeNormalB = b.cross(faceNormal);
+        Vec3f edgeNormalC = c.cross(faceNormal);
 
-        TVec3f cross2 = (-a).cross(cross);
-        TVec3f cross3 = b.cross(cross);
-        TVec3f cross4 = c.cross(cross);
-
-        MR::normalizeOrZero(&cross2);
-        MR::normalizeOrZero(&cross3);
-        MR::normalizeOrZero(&cross4);
+        MR::normalizeOrZero(&edgeNormalA);
+        MR::normalizeOrZero(&edgeNormalB);
+        MR::normalizeOrZero(&edgeNormalC);
 
         mKCLFile->mPos[i] = Vertex1;
-        mKCLFile->mNorms[normalidx + 0] = cross;
+        mKCLFile->mNorms[normalidx + 0] = faceNormal;
         nrmidxa = normalidx + 1;
-        mKCLFile->mNorms[nrmidxa] = cross2;
+        mKCLFile->mNorms[nrmidxa] = edgeNormalA;
         nrmidxb = normalidx + 2;
-        mKCLFile->mNorms[nrmidxb] = cross3;
+        mKCLFile->mNorms[nrmidxb] = edgeNormalB;
         nrmidxc = normalidx + 3;
-        mKCLFile->mNorms[nrmidxc] = cross4;
+        mKCLFile->mNorms[nrmidxc] = edgeNormalC;
 
         prismidx = i + 1;
         KC_PrismData* prism = &mKCLFile->mPrisms[prismidx];
@@ -80,7 +73,7 @@ void DynamicCollisionObj::updateTriangle() {
 
         prism->mHeight = SaveForLater.length();
         prism->mPositionIndex = i;
-        u16 nrmidx = normalidx;
+        u32 nrmidx = normalidx;
         prism->mNormalIndex = nrmidx;
         nrmidx += 4;
         prism->mEdgeIndices[0] = nrmidxa;
@@ -93,9 +86,9 @@ void DynamicCollisionObj::updateTriangle() {
 
 void DynamicCollisionObj::updateCollisionHeader() {
     // Compute bounding box and extent
-    TVec3f min, max;
+    Vec3f min, max;
     MR::createBoundingBox(this->mPositions, this->mPositionNum, &min, &max);
-    TVec3f extent(max);
+    Vec3f extent(max);
     extent -= min;
 
     // Initialize masks with extent
@@ -120,11 +113,11 @@ void DynamicCollisionObj::updateCollisionHeader() {
     for (u32 component = 0; component < 3; component++) {
         u32 bits_sel = 1u << 31;
         u32 mask_sel = 0xFFFFFFFF;
-        u32 val = masks[component];
+        u32 mask = masks[component];
         u32 i = 0;
 
         for (u32 bit = 0; bit < 32; bit++) {
-            if ((val & bits_sel)) {
+            if ((mask & bits_sel)) {
                 masks[component] = ~mask_sel;
                 if (max_entropy < i) {
                     max_entropy = i;
@@ -151,24 +144,24 @@ void DynamicCollisionObj::updateCollisionHeader() {
 }
 
 void DynamicCollisionObj::createCollision() {
-    s32 v = _94;
+    s32 triangleNum = mTriangleNum;
     mKCLFile = new KCLFile();
-    mKCLFile->mPos = new TVec3f[v];
-    mKCLFile->mNorms = new TVec3f[v * 4];
-    mKCLFile->mPrisms = new KC_PrismData[(v + 1) * 1];
-    u16* u16array = new (4) u16[v + 3];
-    mKCLFile->mOctree = u16array;
-
-    // One leaf octree entry (the top bit): the list two bytes on. KCollisionServer reads entries in host order, so the s32
-    // is written.
-    writeBytes< s32 >(u16array, static_cast< s32 >((1u << 31) | 2u));
-
-    s32 count = v;
-    for (s32 i = 0; i <= v; i++) {
-        u16array[i + 2] = count--;
+    mKCLFile->mPos = new Vec3f[triangleNum];
+    mKCLFile->mNorms = new Vec3f[triangleNum * 4];
+    mKCLFile->mPrisms = new KC_PrismData[triangleNum + 1];
+    // One leaf (list 0) holding every prism, from the last.
+    u32* octree = new u32[1];
+    octree[0] = 1u << 31;
+    mKCLFile->mOctree = octree;
+    u32* list = new u32[triangleNum + 2];
+    list[0] = 0;  // not read
+    s32 count = triangleNum;
+    for (s32 i = 0; i <= triangleNum; i++) {
+        list[i + 1] = count--;
     }
+    mKCLFile->mLists = list;
 
-    mKCLFile->mTriangleNum = v;
+    mKCLFile->mTriangleNum = triangleNum;
     mKCLFile->mThickness = 40.f;
     mKCLFile->mBlockXShift = -1;
     mKCLFile->mBlockXYShift = -1;
@@ -176,10 +169,10 @@ void DynamicCollisionObj::createCollision() {
     updateTriangle();
 
     mParts = new CollisionParts();
-    TPos3f posmtx;
+    Pos3f posmtx;
     NebulaMtxTrans(posmtx, mPosition.x, mPosition.y, mPosition.z);
-    mParts->init(posmtx, getSensor("body"), mKCLFile, nullptr, 0, true);
+    mParts->init(posmtx, getSensor("body"), mKCLFile, nullptr, CollisionCategory_Map, true);
     MR::validateCollisionParts(mParts);
     mParts->mServer->calcFarthestVertexDistance();
-    mParts->updateBoundingSphereRange(TVec3f(mScale));
+    mParts->updateBoundingSphereRange(Vec3f(mScale));
 }

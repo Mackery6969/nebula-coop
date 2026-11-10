@@ -1,14 +1,15 @@
 #include "Game/AreaObj/HazeCube.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
+#include "Game/Util/Tunable.hpp"
 
 namespace {
-    static const f32 sDefaultDistance = 1000.0f;
+    NEBULA_TUNABLE(f32, sDefaultDistance, 1000.0f);
 };  // namespace
 
 HazeCube::HazeCube(int formType, const char* pName) : AreaObj(formType, pName), mDistance(::sDefaultDistance) {
 }
 
-void HazeCube::init(const JMapInfoIter& rIter) {
+void HazeCube::init(const TableIter& rIter) {
     AreaObj::init(rIter);
 
     if (mObjArg0 >= 0) {

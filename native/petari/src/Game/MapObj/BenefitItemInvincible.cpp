@@ -1,4 +1,5 @@
 #include "Game/MapObj/BenefitItemInvincible.hpp"
+#include "Game/System/NebulaFrameClock.hpp"
 #include "Game/Util/ActorMovementUtil.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/ActorShadowUtil.hpp"
@@ -8,140 +9,137 @@
 #include "Game/Util/MathUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
 #include "Game/Util/SoundUtil.hpp"
-#include <nebula_format.h>
+#include "Game/Util/StringUtil.hpp"
+#include "Game/Util/Tunable.hpp"
+
+// The numbers this file's functions give the game's motion and animation calls, as tunables: "<file>.<function>.<call>.<k>".
+NEBULA_TUNABLE_NAMED(f32, cNum_doEscape_addVelocityToGravity_1, "doEscape.addVelocityToGravity.1", 1.0f);
 
 namespace {
-    f32 cAppearThrowUpSpd = 10.0f;
-    f32 cAppearThrowFwdSpd = 5.0f;
-    f32 cBoundUpSpd = 20.0f;
+    NEBULA_TUNABLE(f32, cAppearThrowUpSpd, 10.0f);
+    NEBULA_TUNABLE(f32, cAppearThrowFwdSpd, 5.0f);
+    NEBULA_TUNABLE(f32, cBoundUpSpd, 20.0f);
+    NEBULA_TUNABLE(f32, cBoundFwdSpd, 10.0f);
+    NEBULA_TUNABLE(f32, cAirFriction, 0.98f);
+    NEBULA_TUNABLE(f32, cFallAccel, 0.5f);
+    NEBULA_TUNABLE(f32, cFallSpeedMax, 20.0f);
+    NEBULA_TUNABLE(f32, cRadius, 60.0f);
+    const s32 cEscapeSensorOffSteps = NebulaFrameClock::stepsOfSeconds(1);
 };  // namespace
 
+// Never on a stage where a dark comet shows.
 BenefitItemInvincible::BenefitItemInvincible(const char* pName) : BenefitItemObj(pName, "PowerupInvincible") {
     if (MR::isGalaxyDarkCometAppearInCurrentStage()) {
-        _D8 = 1;
+        mIsDisabled = true;
     }
 }
 
 void BenefitItemInvincible::exeCatch() {
     MR::startSystemSE("SE_SY_POWER_UP_2");
-
     MR::hideModel(this);
-
-    MR::changePlayerItemStatus(7);
-
+    MR::changePlayerItemStatus(PlayerItemStatus_Invincible);
     kill();
 }
 
-void BenefitItemInvincible::init(const JMapInfoIter& rIter) {
+void BenefitItemInvincible::init(const TableIter& rIter) {
     BenefitItemObj::init(rIter);
 
-    if (_D8) {
+    if (mIsDisabled) {
         return;
     }
 
-    if (_DC) {
-        MR::setShadowVolumeCylinderRadius(this, nullptr, 60.0f);
+    if (mShadowType != 0) {
+        MR::setShadowVolumeCylinderRadius(this, nullptr, cRadius);
     }
 
-    _13A = 0;
+    mSensorInvalidStep = 0;
 
-    TVec3f axisY, axisZ;
+    Vec3f axisZ;
     MR::getRotatedAxisZ(&axisZ, mRotation);
     mFwdAxis.set(axisZ);
 
+    Vec3f axisY;
     MR::getRotatedAxisY(&axisY, mRotation);
     mUpAxis.set(axisY);
 }
 
 void BenefitItemInvincible::initModelAndEfx() {
-    initModelManagerWithAnm(_120, nullptr, false);
-    initEffectKeeper(5, "BenefitItemObj", false);
+    initModelManagerWithAnm(mModelName, nullptr, false);
+    initEffectKeeper(5, "BenefitItemObj");
 
-    initBinder(60.0f, 60.0f, 0);
+    initBinder(cRadius, cRadius, 0);
     initHitSensor(1);
-    MR::addHitSensorMapObj(this, "body", 4, 60.0f, TVec3f(0.0f, 60.0f, 0.0f));
+    MR::addHitSensorMapObj(this, "body", 4, cRadius, Vec3f(0.0f, cRadius, 0.0f));
 
     MR::startBrk(this, "PowerupInvincible");
 }
 
+// An escaping one is thrown forward as well as up.
 void BenefitItemInvincible::appearThrowUp() {
-    if (!_DA) {
+    if (mEscapeType == EscapeType_None) {
         BenefitItemObj::appearThrowUp();
         return;
     }
 
     MR::startSystemSE("SE_SY_ITEM_APPEAR");
-
     setNerve(GET_NERVE(BenefitItemObj, HostTypeNrvShoot));
-
-    mVelocity = mUpAxis * ::cAppearThrowUpSpd + mFwdAxis * ::cAppearThrowFwdSpd;
-
+    mVelocity = mUpAxis * cAppearThrowUpSpd + mFwdAxis * cAppearThrowFwdSpd;
     MR::invalidateClipping(this);
 }
 
+// It escapes bouncing forward, untouchable for the first steps.
 void BenefitItemInvincible::initEscape() {
     BenefitItemObj::initEscape();
 
     MR::calcGravity(this);
 
-    _BC = -mGravity * ::cBoundUpSpd;
-    _BC += mFwdAxis * 10.0f;
+    mEscapeVelocity = -mGravity * cBoundUpSpd;
+    mEscapeVelocity += mFwdAxis * cBoundFwdSpd;
 
-    _13A = 60;
+    mSensorInvalidStep = cEscapeSensorOffSteps;
 }
+
 void BenefitItemInvincible::doEscape() {
     MR::calcGravity(this);
-
-    MR::addVelocityToGravity(this, 1.0f);
+    MR::addVelocityToGravity(this, cNum_doEscape_addVelocityToGravity_1);
 
     if (MR::isBindedGround(this)) {
         MR::vecKillElement(mFwdAxis, mGravity, &mFwdAxis);
         MR::normalizeOrZero(&mFwdAxis);
 
-        _BC = mFwdAxis * 10.0f - mGravity * ::cBoundUpSpd;
-
+        mEscapeVelocity = mFwdAxis * cBoundFwdSpd - mGravity * cBoundUpSpd;
         MR::startSound(this, "SE_OJ_POW_INVINCIBLE_BOUND");
-
-        _C8.zero();
+        mFallVelocity.zero();
     } else {
-        _BC.x *= 0.98f;
-        _BC.y *= 0.98f;
-        _BC.z *= 0.98f;
-        _E5 = 1;
+        mEscapeVelocity.scale(cAirFriction);
+        mIsInAir = true;
 
-        _C8 += mGravity * 0.5f;
-
-        if (_C8.length() > 20.0f) {
-            _C8.setLength(20.0f);
+        mFallVelocity += mGravity * cFallAccel;
+        if (mFallVelocity.length() > cFallSpeedMax) {
+            mFallVelocity.setLength(cFallSpeedMax);
         }
     }
 
-    if (_13A > 0) {
-        _13A--;
+    if (mSensorInvalidStep > 0) {
+        mSensorInvalidStep--;
     }
 
-    if (_13A == 0) {
+    if (mSensorInvalidStep == 0) {
         MR::validateHitSensors(this);
     }
 }
 
+// Only the glow has an effect of its own.
 void BenefitItemInvincible::runEfx(const char* pEffect) {
-    char str[256];
-    if (!strcmp(pEffect, "Glow")) {
-        nebula_snprintf(str, sizeof(str), "%sPowerUpInvincible", pEffect);
-        MR::emitEffect(this, str);
+    if (MR::isEqualString(pEffect, "Glow")) {
+        MR::emitEffect(this, "GlowPowerUpInvincible");
     }
 }
 
 void BenefitItemInvincible::stopEfx(const char* pEffect) {
-    char str[256];
-    if (!strcmp(pEffect, "Glow")) {
-        nebula_snprintf(str, sizeof(str), "%sPowerUpInvincible", pEffect);
-        MR::emitEffect(this, str);
+    if (MR::isEqualString(pEffect, "Glow")) {
+        MR::emitEffect(this, "GlowPowerUpInvincible");
     }
-}
-
-BenefitItemInvincible::~BenefitItemInvincible() {
 }
 
 void BenefitItemInvincible::runBck(const char*) {

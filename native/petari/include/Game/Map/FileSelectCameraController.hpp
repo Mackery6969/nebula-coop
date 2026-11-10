@@ -4,17 +4,15 @@
 
 class FileSelectCameraController : public LiveActor {
 public:
-    /// @brief Creates a new `FileSelectCameraController`.
-    /// @param pName A pointer to the null-terminated name of the object.
     FileSelectCameraController(const char* pName);
 
-    virtual void init(const JMapInfoIter& rIter);
-    virtual void appear();
-    virtual void kill();
-    virtual void control();
+    virtual void init(const TableIter& rIter) override;
+    virtual void appear() override;
+    virtual void kill() override;
+    virtual void control() override;
 
     void goToFarPoint();
-    void goToNearPoint(const TVec3f&);
+    void goToNearPoint(const Vec3f&);
     bool isAtFarPoint() const;
     bool isAtNearPoint() const;
     bool isToOrAtFarPoint() const;
@@ -27,11 +25,10 @@ public:
     void exeNearPoint();
 
 private:
-    TVec3f mNearTarget;
-    TVec3f mPrevNearTarget;
-    TVec3f mWPoint;
-    TVec3f mPrevWPoint;
+    Vec3f mNearTarget;
+    Vec3f mWPoint;
+    Vec3f mPrevWPoint;
     f32 mFovy;
     f32 mPrevFovy;
-    TVec3f mUpVec;
+    Vec3f mUpVec;
 };

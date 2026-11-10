@@ -10,11 +10,11 @@ class NebulaBubble : public LiveActor {
 public:
     NebulaBubble();
 
-    virtual void init(const JMapInfoIter& rIter);
+    virtual void init(const TableIter& rIter);
     virtual void calcAndSetBaseMtx();
 
     // Round `rCenter` this frame, appearing if it wasn't.
-    void follow(const TVec3f& rCenter);
+    void follow(const Vec3f& rCenter);
     // Burst, if it shows.
     void pop();
     // Gone without a burst.
@@ -52,7 +52,7 @@ namespace NebulaCoopBubble {
     // The part of the stage the local player is in (NebulaCoopPlayer::area).
     u32 getArea();
     // A warp pipe took the local player from the pipe at `rEntrance` to the one at `rExit` (their placed positions).
-    void noticePipeWarp(const TVec3f& rEntrance, const TVec3f& rExit);
+    void noticePipeWarp(const Vec3f& rEntrance, const Vec3f& rExit);
     // The scene's miss demo started (a death that didn't pass through MarioActor's miss states first): no bubble now.
     void noticeGameOverDemo();
 };  // namespace NebulaCoopBubble

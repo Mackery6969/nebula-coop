@@ -5,10 +5,12 @@
 #include "galaxy/run_options.h"
 #include "../../../tools/test_driver/switches.h"
 #include "galaxy/atomic_file.h"
+#include "galaxy/launch_args.h"
 #include "galaxy/platform_paths.h"
 #include "galaxy/game_instance.h"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <atomic>
 #include <chrono>
@@ -27,7 +29,9 @@
 #include <shared_mutex>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <system_error>
+#include <vector>
 
 #if defined(_WIN32)
 #pragma comment(lib, "Shell32.lib")
@@ -61,14 +65,12 @@ static std::uint64_t file_write_time(const std::filesystem::path& path) noexcept
 #endif
 }
 
-static void trim(char* s, char* out, std::size_t out_cap) {
-    const char* p = s;
-    while (*p == ' ' || *p == '\t') ++p;
-    std::size_t n = std::strlen(p);
-    while (n > 0 && (p[n-1] == ' ' || p[n-1] == '\t' || p[n-1] == '\r' || p[n-1] == '\n')) --n;
-    n = std::min(n, out_cap - 1);
-    std::memcpy(out, p, n);
-    out[n] = '\0';
+static std::string trim_text(std::string_view text) {
+    std::size_t begin = 0;
+    while (begin < text.size() && (text[begin] == ' ' || text[begin] == '\t')) ++begin;
+    std::size_t end = text.size();
+    while (end > begin && (text[end - 1] == ' ' || text[end - 1] == '\t' || text[end - 1] == '\r' || text[end - 1] == '\n')) --end;
+    return std::string(text.substr(begin, end - begin));
 }
 
 static unsigned parse_uint(const char* v, unsigned def) {
@@ -152,7 +154,10 @@ static void apply_kv(RenderConfig& cfg, const char* key, const char* val) {
     else if (std::strcmp(key, "wide_scene") == 0) cfg.wide_scene = parse_bool(val, cfg.wide_scene);
     else if (std::strcmp(key, "bloom") == 0) cfg.bloom = std::min(parse_uint(val, cfg.bloom), kMaxBloom);
     else if (std::strcmp(key, "post_process") == 0) cfg.post_process = parse_bool(val, cfg.post_process);
+    else if (std::strcmp(key, "internal_height") == 0) cfg.internal_height = normalized_internal_height(parse_uint(val, cfg.internal_height));
     else if (std::strcmp(key, "hud_output_resolution") == 0) cfg.hud_output_resolution = parse_bool(val, cfg.hud_output_resolution);
+    else if (std::strcmp(key, "hdr") == 0) cfg.hdr = parse_bool(val, cfg.hdr);
+    else if (std::strcmp(key, "paper_white") == 0) cfg.paper_white = std::clamp(parse_uint(val, cfg.paper_white), 80u, 500u);
     else if (std::strcmp(key, "aa") == 0) {
         static constexpr const char* kNames[] = {"off", "smaa", "auto", "fxaa"};
         cfg.aa_mode = parse_choice(val, kNames, cfg.aa_mode);
@@ -160,17 +165,17 @@ static void apply_kv(RenderConfig& cfg, const char* key, const char* val) {
         static constexpr const char* kNames[] = {"low", "medium", "high", "ultra"};
         cfg.smaa_quality = parse_choice(val, kNames, cfg.smaa_quality);
     } else if (std::strcmp(key, "upscaler") == 0) {
-        static constexpr const char* kNames[] = {"bilinear", "fsr", "fsr3", "dlss", "xess"};
+        static constexpr const char* kNames[] = {"bilinear", "fsr", "fsr3", "dlss", "xess", "sgsr2"};
         cfg.upscaler = parse_choice(val, kNames, cfg.upscaler);
     } else if (std::strcmp(key, "frame_generation") == 0) {
         cfg.frame_generation = std::min(parse_uint(val, cfg.frame_generation), 5u);
     } else if (std::strcmp(key, "temporal_quality") == 0) {
         static constexpr const char* kNames[] = {
-            "native", "quality", "balanced", "performance", "ultra_performance"};
+            "native", "quality", "balanced", "performance", "ultra_performance", "ultra_quality"};
         cfg.temporal_quality = parse_choice(val, kNames, cfg.temporal_quality);
     } else if (std::strcmp(key, "spatial_quality") == 0) {
         static constexpr const char* kNames[] = {
-            "manual", "quality", "balanced", "performance", "ultra_performance"};
+            "manual", "quality", "balanced", "performance", "ultra_performance", "ultra_quality"};
         cfg.spatial_quality = parse_choice(val, kNames, cfg.spatial_quality);
     } else if (std::strcmp(key, "sharpness") == 0) {
         cfg.sharpness = std::min(parse_uint(val, cfg.sharpness), 100u);
@@ -210,28 +215,32 @@ static void apply_kv(RenderConfig& cfg, const char* key, const char* val) {
 }
 
 static void parse_ini(FILE* f, RenderConfig& cfg) {
-    char line[512];
-    while (std::fgets(line, sizeof(line), f)) {
-        if (std::strchr(line, '\n') == nullptr && !std::feof(f)) {
-            // An overlong line is skipped whole, so its tail does not read as another setting.
-            int c;
-            do { c = std::fgetc(f); } while (c != '\n' && c != EOF);
-            continue;
+    // A line longer than this is skipped whole, so its tail does not read as another setting.
+    constexpr std::size_t kMaxLine = 8192;
+    std::string line;
+    for (;;) {
+        line.clear();
+        bool overlong = false;
+        int c = 0;
+        while ((c = std::fgetc(f)) != EOF && c != '\n') {
+            if (line.size() < kMaxLine) {
+                line.push_back(static_cast<char>(c));
+            } else {
+                overlong = true;
+            }
         }
-        char key_buf[128], val_buf[256];
-        char* eq = std::strchr(line, '=');
-        if (!eq) continue;
-        if (static_cast<std::size_t>(eq - line) >= sizeof(key_buf) ||
-            std::strlen(eq + 1) >= sizeof(val_buf)) continue;
-        *eq = '\0';
-        trim(line, key_buf, sizeof(key_buf));
-        trim(eq + 1, val_buf, sizeof(val_buf));
-        if (key_buf[0] == '#' || key_buf[0] == ';' || key_buf[0] == '\0') continue;
-        apply_kv(cfg, key_buf, val_buf);
+        if (c == EOF && line.empty() && !overlong) break;
+        if (overlong) continue;
+        const std::size_t eq = line.find('=');
+        if (eq == std::string::npos) continue;
+        const std::string key = trim_text(std::string_view(line).substr(0, eq));
+        const std::string val = trim_text(std::string_view(line).substr(eq + 1));
+        if (key.empty() || key[0] == '#' || key[0] == ';') continue;
+        apply_kv(cfg, key.c_str(), val.c_str());
     }
 }
 
-#if defined(NEBULA_RELEASE)
+#if !defined(NEBULA_DEV)
 static void apply_env_overrides(RenderConfig&) {}
 #else
 #include "../../../tools/test_driver/render_config_env.inc"
@@ -247,11 +256,13 @@ static void clamp_unimplemented_features(RenderConfig& cfg) {
     cfg.anisotropic_filtering = std::clamp(cfg.anisotropic_filtering, 1u, 16u);
     cfg.aa_mode = std::min(cfg.aa_mode, 3u);
     cfg.smaa_quality = std::min(cfg.smaa_quality, 3u);
-    cfg.upscaler = std::min(cfg.upscaler, 4u);
+    cfg.upscaler = std::min(cfg.upscaler, 5u);  // 5 SGSR 2, the last of the names above
     cfg.frame_generation = std::min(cfg.frame_generation, 5u);
-    cfg.temporal_quality = std::min(cfg.temporal_quality, 4u);
-    cfg.spatial_quality = std::min(cfg.spatial_quality, 4u);
+    cfg.temporal_quality = std::min(cfg.temporal_quality, 5u);  // 5 ultra quality, the last of the names above
+    cfg.spatial_quality = std::min(cfg.spatial_quality, 5u);
+    cfg.internal_height = normalized_internal_height(cfg.internal_height);
     cfg.sharpness = std::min(cfg.sharpness, 100u);
+    cfg.paper_white = std::clamp(cfg.paper_white, 80u, 500u);  // kPaperWhiteMin, kPaperWhiteMax (post_process_settings.h)
     // Win32 client geometry is int while DXGI's is UINT: keep sizes representable in both.
     constexpr unsigned kMaxWindowDimension =
         static_cast<unsigned>(std::numeric_limits<int>::max());
@@ -266,7 +277,7 @@ static void clamp_unimplemented_features(RenderConfig& cfg) {
     cfg.rt_shadow_quality = 0;
     cfg.rt_quality = std::min(cfg.rt_quality, 2u);
     cfg.rt_ao_enabled = false;
-#if defined(NEBULA_RELEASE)
+#if !defined(NEBULA_DEV)
     // What is not built natively yet stays off whatever an older settings file says. Each line goes with its feature.
     cfg.ray_tracing_enabled = false;
 #endif
@@ -315,20 +326,11 @@ static void clamp_feature_caps(RenderFeatureCaps& caps) {
 }
 
 static std::filesystem::path config_path() {
-    // An empty override never falls back to the default config.ini.
-#if defined(_WIN32)
-    if (const wchar_t* override_path = ::galaxy::run_options().render_config_path_w; override_path != nullptr) {
-        return override_path[0] != L'\0' ? std::filesystem::path(override_path) : std::filesystem::path{};
-    }
-#else
-    if (const char* override_path = ::galaxy::run_options().render_config_path; override_path != nullptr) {
-        return override_path[0] != '\0' ? std::filesystem::path(override_path) : std::filesystem::path{};
-    }
-#endif
-    if (const std::filesystem::path& instance = galaxy::game_instance_folder(); !instance.empty()) {
+    const std::filesystem::path& named = galaxy::launch_args().settings;
+    if (const std::filesystem::path& instance = galaxy::game_instance_folder(); named.empty() && !instance.empty()) {
         return instance / "config.ini";  // a second game's own (galaxy/game_instance.h)
     }
-    const std::filesystem::path folder = galaxy::nebula_data_directory();
+    const std::filesystem::path folder = named.empty() ? galaxy::nebula_data_directory() : named;
     return folder.empty() ? folder : folder / "config.ini";
 }
 
@@ -343,8 +345,8 @@ RenderConfig get_render_config() {
 
 namespace {
 std::atomic<bool> s_frame_generation_running{false};
-// The game's latest frame generation report and when it came (steady clock, ms; 0 none yet).
 std::atomic<bool> s_frame_generation_allowed{false};
+// When the game's latest frame generation report came (steady clock, ms; 0 none yet).
 std::atomic<std::int64_t> s_frame_generation_report_ms{0};
 constexpr std::int64_t kFrameGenerationReportMs = 100;
 
@@ -418,22 +420,12 @@ RenderFeatureStatus make_render_feature_status(
     return status;
 }
 
-namespace {
-
-std::atomic<std::uint64_t> s_rt_effect_frame{0};
-
-}  // namespace
-
 bool rt_effect_on(const RenderConfig& cfg, RtEffect effect) noexcept {
     const bool configured = effect == RtEffect::Reflections ? cfg.rt_reflections
                             : effect == RtEffect::Water     ? cfg.rt_water
                             : effect == RtEffect::SunRays   ? cfg.rt_sun_rays
                                                             : cfg.rt_lens_bloom;
     return configured;
-}
-
-void set_rt_effect_frame(std::uint64_t frame) noexcept {
-    s_rt_effect_frame.store(frame, std::memory_order_relaxed);
 }
 
 namespace {
@@ -583,8 +575,11 @@ bool save_render_config_to_file() {
              << "upscaler=" << cfg.upscaler << '\n'
              << "frame_generation=" << cfg.frame_generation << '\n'
              << "temporal_quality=" << cfg.temporal_quality << '\n'
+             << "internal_height=" << cfg.internal_height << '\n'
              << "spatial_quality=" << cfg.spatial_quality << '\n'
              << "sharpness=" << cfg.sharpness << '\n'
+             << "hdr=" << (cfg.hdr ? 1u : 0u) << '\n'
+             << "paper_white=" << cfg.paper_white << '\n'
              << "hud_output_resolution="
              << (cfg.hud_output_resolution ? 1u : 0u) << '\n'
              << "ray_tracing_enabled="
@@ -632,15 +627,14 @@ std::string next_start_gpu() {
     return gpu.data();
 }
 
-void record_render_adapter(const wchar_t* description, unsigned vendor_id, unsigned device_id,
-                           unsigned subsys_id, bool low_power_preference, bool ray_tracing) noexcept {
+void record_render_adapter(const char* description, unsigned vendor_id, unsigned device_id,
+                           unsigned subsys_id, bool ray_tracing) noexcept {
     try {
         const std::filesystem::path config = config_path();
         if (config.empty() || description == nullptr) {
             return;
         }
-        const std::u8string utf8 = std::filesystem::path(description).u8string();
-        std::string name(utf8.begin(), utf8.end());
+        std::string name(description);
         name.resize(std::min<std::size_t>(name.size(), 255u));
         for (char& c : name) {
             if (c == '\r' || c == '\n') c = ' ';
@@ -651,7 +645,6 @@ void record_render_adapter(const wchar_t* description, unsigned vendor_id, unsig
                  << "vendor_id=" << vendor_id << '\n'
                  << "device_id=" << device_id << '\n'
                  << "id=" << gpu_identity(vendor_id, device_id, subsys_id) << '\n'
-                 << "gpu_preference=" << (low_power_preference ? "low" : "high") << '\n'
                  << "ray_tracing=" << (ray_tracing ? 1 : 0) << '\n';
         static_cast<void>(io::write_file_atomically(config.parent_path() / L"adapter.ini", contents.str()));
     } catch (...) {
@@ -660,43 +653,10 @@ void record_render_adapter(const wchar_t* description, unsigned vendor_id, unsig
 
 namespace {
 
-// A folder beside config.ini, or the environment's override (an empty override: none).
-#if defined(_WIN32)
-using RunFolder = const wchar_t*;
-#else
-using RunFolder = const char*;
-#endif
-
-std::filesystem::path data_folder(RunFolder named, const char* folder) {
-    if (named != nullptr) {
-        return named[0] != 0 ? std::filesystem::path(named) : std::filesystem::path{};
-    }
+// A folder beside config.ini.
+std::filesystem::path data_folder(const char* folder) {
     const std::filesystem::path config = config_path();
     return config.empty() ? std::filesystem::path{} : config.parent_path() / folder;
-}
-
-RunFolder run_folder_texture_pack_dir() {
-#if defined(_WIN32)
-    return ::galaxy::run_options().texture_pack_dir_w;
-#else
-    return ::galaxy::run_options().texture_pack_dir;
-#endif
-}
-
-RunFolder run_folder_texture_dump_dir() {
-#if defined(_WIN32)
-    return ::galaxy::run_options().texture_dump_dir_w;
-#else
-    return ::galaxy::run_options().texture_dump_dir;
-#endif
-}
-
-RunFolder run_folder_movie_dir() {
-#if defined(_WIN32)
-    return ::galaxy::run_options().movie_dir_w;
-#else
-    return ::galaxy::run_options().movie_dir;
-#endif
 }
 
 std::mutex s_mod_folders_mutex;
@@ -709,19 +669,8 @@ std::string s_texture_pack_game_id = "RMGE01";  // TexturePacks::kGameId until t
 
 }  // namespace
 
-std::filesystem::path texture_pack_directory() {
-    return data_folder(run_folder_texture_pack_dir(), "TexturePacks");
-}
-
-std::filesystem::path texture_pack_test_directory() {
-    // Only the environment's: texture packs are mods (mods.h); tests name a pack folder directly.
-    static const bool named = run_folder_texture_pack_dir() != nullptr;
-    static const std::filesystem::path folder = named ? texture_pack_directory() : std::filesystem::path{};
-    return folder;
-}
-
 std::filesystem::path texture_dump_directory() {
-    return data_folder(run_folder_texture_dump_dir(), "TextureDumps");
+    return data_folder("TextureDumps");
 }
 
 void set_texture_pack_mod_folders(std::vector<std::filesystem::path> folders, std::vector<std::uint32_t> categories_off) {
@@ -757,7 +706,7 @@ std::uint64_t texture_pack_mod_folders_generation() noexcept {
 }
 
 std::filesystem::path movie_directory() {
-    static const std::filesystem::path folder = data_folder(run_folder_movie_dir(), "Movies");
+    static const std::filesystem::path folder = data_folder("Movies");
     return folder;
 }
 
