@@ -2,6 +2,7 @@
 #include "Game/Demo/DemoCastGroup.hpp"
 #include "Game/Demo/DemoCastGroupHolder.hpp"
 #include "Game/Demo/DemoDirector.hpp"
+#include "Game/Demo/DemoActionKeeper.hpp"
 #include "Game/Demo/DemoExecutor.hpp"
 #include "Game/Demo/DemoExecutorFunction.hpp"
 #include "Game/Demo/DemoSubPartKeeper.hpp"
@@ -13,6 +14,10 @@
 #include "Game/Util/PlacementUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/StringUtil.hpp"
+
+namespace {
+    bool sApplyingWithoutPlaying = false;
+};  // namespace
 
 namespace DemoFunction {
     DemoDirector* getDemoDirector() {
@@ -317,5 +322,20 @@ namespace DemoFunction {
 
     bool isDemoPartTalk(const char* pDemoName) {
         return MR::isEqualSubString(pDemoName, "会話");
+    }
+
+    s32 applyDemoPartsWithoutPlaying(const char* pDemoName, const char* pPartPrefix) {
+        DemoExecutor* executor = findDemoExecutor(pDemoName);
+        if (executor == nullptr || executor->mActionKeeper == nullptr) {
+            return 0;
+        }
+        sApplyingWithoutPlaying = true;
+        const s32 applied = executor->mActionKeeper->applyPartsWithoutPlaying(pPartPrefix);
+        sApplyingWithoutPlaying = false;
+        return applied;
+    }
+
+    bool isApplyingDemoWithoutPlaying() {
+        return sApplyingWithoutPlaying;
     }
 };  // namespace DemoFunction

@@ -92,4 +92,6 @@ public:
     bool mIsActive;
     bool mIsLinked;
     f32 mNearSoundRadius;
+    // Co-op: caught in another player's game (catchForOtherPlayer): its Luma comes out here without the catcher's scene.
+    bool mCaughtByOtherPlayer;
 };
