@@ -18,6 +18,14 @@ public:
     void linkMsgCtrl();
     void noticeAppearRabbit(RunawayRabbit* pRabbit);
     void noticeCaughtRabbit(RunawayRabbit* pRabbit);
+    // Co-op: another player caught pRabbit: its group's other hiding places are left empty here too.
+    void noticeCaughtRabbitByOtherPlayer(RunawayRabbit* pRabbit);
+    s32 getRabbitNum() const {
+        return mRabbitNum;
+    }
+    RunawayRabbit* getRabbit(s32 index) const {
+        return mRabbit[index];
+    }
     void appearTico(RunawayTico* pTico, const Vec3f& rPos);
 
     void exeWait();

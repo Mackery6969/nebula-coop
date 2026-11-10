@@ -7,6 +7,7 @@
 #include "Game/NPC/Rabbit.hpp"
 #include "Game/NPC/RunawayRabbitCollect.hpp"
 #include "Game/NPC/TrickRabbitUtil.hpp"
+#include "Game/System/NebulaCoopWorld.hpp"
 #include "Game/Util/ActorMovementUtil.hpp"
 #include "Game/Util/ActorSensorUtil.hpp"
 #include "Game/Util/ActorShadowUtil.hpp"
@@ -220,7 +221,8 @@ void RunawayRabbit::activate() {
 }
 
 void RunawayRabbit::startRunnaway() {
-    if (mIsActive) {
+    // Not one another player caught already (co-op: a late joiner gets the catch before the switch showing it).
+    if (mIsActive && !isCaught()) {
         MR::showModel(this);
         MR::invalidateClipping(this);
         MR::validateHitSensors(this);
@@ -247,6 +249,27 @@ void RunawayRabbit::setNotCaughtable() {
     mNotCaughtableTimer = 5;
 }
 
+void RunawayRabbit::catchForOtherPlayer() {
+    if (isCaught()) {
+        return;
+    }
+    mCollect->noticeCaughtRabbitByOtherPlayer(this);
+    // As the catcher's ends (exeStop's first step): gone, its nerve saying it was caught (isCaught), which its
+    // group counts.
+    MR::zeroVelocity(this);
+    setNerve(GET_NERVE(RunawayRabbit, RunawayRabbitNrvStop));
+    putAway();
+}
+
+void RunawayRabbit::putAway() {
+    if (!MR::isDead(mSpotMarkLight)) {
+        mSpotMarkLight->kill();
+    }
+    if (!MR::isDead(this)) {
+        kill();
+    }
+}
+
 void RunawayRabbit::startJumpSound() {
     if (MR::isBindedGroundWater(this)) {
         MR::startSound(this, "SE_SM_RABBIT_JUMP_WATER");
@@ -262,6 +285,7 @@ void RunawayRabbit::setMsgCtrl(TalkMessageCtrl* pMsgCtrl) {
 void RunawayRabbit::attackSensor(HitSensor* pSender, HitSensor* pReceiver) {
     if (MR::isSensorPlayer(pReceiver)) {
         if (pSender == getSensor("Catch") && isCaughtable()) {
+            NebulaCoopWorld::noteRabbitCaught(this);
             mCollect->noticeCaughtRabbit(this);
             MR::requestStartDemoMarioPuppetable(this, "捕まり", GET_NERVE(RunawayRabbit, RunawayRabbitNrvCaught),
                                                 GET_NERVE(RunawayRabbit, RunawayRabbitNrvTryCaughtDemo));
@@ -352,7 +376,7 @@ void RunawayRabbit::exeAppear() {
             MR::setVelocitySeparateHV(this, mFrontVec, ::sHoleAppearPowerH, ::sHoleAppearPowerV);
             break;
         default:
-            MR::setVelocitySeparateHV(this, mPosition - *MR::getPlayerPos(), ::sGroundAppearPowerH, ::sGroundAppearPowerV);
+            MR::setVelocitySeparateHV(this, mPosition - *MR::getTargetPlayerPos(this), ::sGroundAppearPowerH, ::sGroundAppearPowerV);
             break;
         }
 

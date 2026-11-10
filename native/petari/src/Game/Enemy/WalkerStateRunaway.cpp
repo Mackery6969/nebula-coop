@@ -115,11 +115,15 @@ void WalkerStateRunaway::exeRunaway() {
         MR::startAction(getHost(), mRunawayParam->mRunawayAction);
     }
 
-    // Run from the nearest point of the player's path ahead.
-    Vec3f fleeFrom;
-    fleeFrom.scaleAdd(mRunawayParam->mPlayerFrontLineLength, *MR::getPlayerVelocity(), *MR::getPlayerPos());
-    Vec3f* actorPos = &mHost->mPosition;
-    MR::calcPerpendicFootToLineInside(&fleeFrom, *actorPos, *MR::getPlayerPos(), fleeFrom);
+    // Run from the nearest point of the player's path ahead. Co-op: the player it goes for (MR::getTargetPlayerPos),
+    // another one's path not known here (where they stand is).
+    const Vec3f* pPlayerPos = MR::getTargetPlayerPos(mHost);
+    Vec3f fleeFrom(*pPlayerPos);
+    if (pPlayerPos == MR::getPlayerPos()) {
+        fleeFrom.scaleAdd(mRunawayParam->mPlayerFrontLineLength, *MR::getPlayerVelocity(), *pPlayerPos);
+        Vec3f* actorPos = &mHost->mPosition;
+        MR::calcPerpendicFootToLineInside(&fleeFrom, *actorPos, *pPlayerPos, fleeFrom);
+    }
     MR::turnDirectionFromTargetDegree(mHost, mDirection, fleeFrom,
                                       MR::calcNerveValue(mHost, mRunawayParam->mRunawayTurnTime, mRunawayParam->mRunawayTurnRateMaxDegree,
                                                          mRunawayParam->mRunawayTurnRateMinDegree));

@@ -42,6 +42,10 @@ public:
     void setLastMessage();
     void setMessage();
     void setNotCaughtable();
+    // Co-op: another player caught it (NebulaCoopWorld): caught here too, without the catch that holds the player.
+    void catchForOtherPlayer();
+    // Co-op: hidden away, with its light (one of its group's other hiding places, another player's caught).
+    void putAway();
     void startJumpSound();
     void setMsgCtrl(TalkMessageCtrl* pMsgCtrl);
     bool isCaught() const;
