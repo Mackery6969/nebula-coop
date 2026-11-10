@@ -523,6 +523,60 @@ void DinoPackun::endDamageCamera() {
     }
 }
 
+void DinoPackun::coopStart() {
+    MR::invalidateClipping(this);
+    mTail->activate();
+}
+
+// As the opening's end, without moving the player (who isn't there).
+void DinoPackun::coopSkipOpening() {
+    mPoseQuat.set(mStartQuat);
+    mPoseQuat.getZDir(mFront);
+    MR::resetPosition(this, mStartPos);
+    MR::zeroVelocity(this);
+    mFootPrint->clear();
+    activateParts();
+    if (mShell != nullptr) {
+        MR::validateCollisionParts(mShell);
+    }
+}
+
+// As the egg's breaking ends (DinoPackunStateDamage::exeEggBroken), without its cracks, sounds and shaking.
+void DinoPackun::coopBreakEgg() {
+    MR::invalidateHitSensor(this, "egg");
+    if (mShell != nullptr && !MR::isDead(mShell)) {
+        mShell->kill();
+    }
+    if (mShellBreakModel != nullptr && !MR::isDead(mShellBreakModel)) {
+        mShellBreakModel->kill();
+    }
+    mTail->unlockEndNodePosition();
+    mTail->unlockNodePosition(1);
+}
+
+// As the beaten scene ends (DinoPackunDemo::exeAppearPowerStar): gone, its Power Star out where it is placed.
+void DinoPackun::coopDefeat() {
+    endDamageCamera();
+    MR::appearPowerStarWithoutDemo(this);
+    if (!MR::isDead(this)) {
+        kill();
+    }
+}
+
+// The phases are DinoPackunVs1's and DinoPackunVs2's: 1 opening, 2 egg, 3 cry, 4 first fight, 5 angry, 6 and 7 the
+// last fights, 8 beaten. The music is the last scene's before `phase` (DinoPackunDemo's ends).
+void DinoPackun::coopStartMusic(s32 phase) {
+    if (phase >= 8) {
+        MR::startAfterBossBGM();
+    } else if (phase >= 6) {
+        MR::startBossBGM(MR::BossBgmID_DinoPackunB);
+    } else if (phase >= 4) {
+        MR::startBossBGM(MR::BossBgmID_DinoPackunA);
+    } else if (phase >= 2) {
+        MR::startStageBGM("MBGM_GALAXY_INTER", false);
+    }
+}
+
 namespace MR {
     NameObj* createDinoPackunVs1(const char* pName) {
         DinoPackun* p = new DinoPackun(pName);

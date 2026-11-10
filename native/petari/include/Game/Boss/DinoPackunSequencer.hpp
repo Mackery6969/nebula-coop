@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Game/System/NebulaCoopBoss.hpp"
 #include "Game/System/NerveExecutor.hpp"
 
 class DinoPackun;
@@ -37,4 +38,5 @@ public:
 
     DinoPackun* mParent;
     DinoPackunAction* mCurrentAction;
+    NebulaCoopBossPhases mCoop;  // online co-op: the fight as the room's
 };

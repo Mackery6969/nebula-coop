@@ -440,6 +440,30 @@ reaches each one.
   story progress (`GameDataPlayerStatus`) is its own and isn't synced, so the lectures it gates (the dome, the star
   bits) still play for each player the first time they get there.
 
+## Boss fights
+
+As sm64coopdx's bosses: the fight is the room's, and its cutscenes are for the players who are there. A boss's fight
+is its phases in order (its sequence's nerves: the opening, each fight, each scene between, the beaten scene), and
+`NebulaCoopBossPhases` (native/petari, Game/System/NebulaCoopBoss) follows them for each boss that has one.
+
+| What | Galaxy |
+|---|---|
+| The opening (the boss meeting the player: the Dino Piranha egg hatching, Kamella appearing) | Plays once, for whoever's game began the fight. A player coming later lands as on any planet, the boss already fighting in the room's phase |
+| A scene between fights (the boss hurt, angry, powered up) | Plays for each player in the fight (within 6000 units of the boss) as their game reaches the phase. A player away misses it; only its outcome is applied (an egg broken, the Magikoopas called) |
+| The beaten scene | Plays for each player in the fight. For a player away the boss is gone and its Power Star is out where it is placed |
+| The music | The theme the scenes start for each phase plays for a player once they come to the fight |
+| Another player's hit that starts a scene only their game plays out (Dino Piranha's tail punched) | Isn't played again in other games: the phase it ends in comes instead |
+
+- **Messages.** Each game tells the instance the phases its own play reaches, as `NEBULA_COOP_WORLD_SWITCH` with a
+  switch id no stage has (a zone of 0x8000 or more, not 0xffff, from the boss's placement key and the phase): the
+  server keeps it in the instance's record like any switch, so a player entering later gets it before READY. No new
+  message or API.
+- **Following.** A game whose boss is behind the room's phase (and isn't in a cutscene) goes there: the scenes
+  between are skipped and their outcomes applied, the scene at that phase plays only if the local player is near.
+  Out of a room nothing changes.
+- **Bosses.** Dino Piranha and Fiery Dino Piranha (`DinoPackunVs1`, `DinoPackunVs2`), Kamella (`BossKameckVs1`,
+  `BossKameckVs2`), Bouldergeist (`PoltaActionSequencer`).
+
 ## Player collisions
 
 The same handler and options as sm64coopdx (`interact_player` / `interact_player_pvp` in its `src/game/interaction.c`).
@@ -692,7 +716,8 @@ Each phase ships on its own and leaves the game playable.
 ### Phase 4: bosses, demos, polish
 
 - [ ] Boss and story demos shared by everyone in the instance (the boss is the server's, Phase 3); until then each
-      player's are its own (see [Cutscenes and transitions](#cutscenes-and-transitions)).
+      player's are its own (see [Cutscenes and transitions](#cutscenes-and-transitions)). Bosses' phases and their
+      one-time scenes are the room's for the bosses [Boss fights](#boss-fights) lists.
 - [ ] Camera and HUD per player; spectate on death.
 - [ ] Discord presence for the lobby (`discord_presence.cpp` already exists), player colours.
 

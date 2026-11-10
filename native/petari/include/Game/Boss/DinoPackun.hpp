@@ -67,6 +67,15 @@ public:
     void startDamageCamera();
     void endDamageCamera();
 
+    // Online co-op (NebulaCoopBossPhases): the fight's scenes skipped here, their outcomes applied. The fight begun
+    // without its opening; the opening's end (the boss out of the ground, where it begins); the egg broken; beaten
+    // (gone, its Power Star out); and the music the scenes before `phase` started (the sequencers' phases).
+    void coopStart();
+    void coopSkipOpening();
+    void coopBreakEgg();
+    void coopDefeat();
+    static void coopStartMusic(s32 phase);
+
     DinoPackunTail* mTail;
     DinoPackunBall* mBall;
     FootPrint* mFootPrint;
