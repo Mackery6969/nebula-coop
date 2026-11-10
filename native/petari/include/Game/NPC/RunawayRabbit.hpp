@@ -46,6 +46,11 @@ public:
     void catchForOtherPlayer();
     // Co-op: hidden away, with its light (one of its group's other hiding places, another player's caught).
     void putAway();
+    // Co-op: another player's game has it in `pNerve` (NebulaCoopWorld, from its owner's state): once that is out of
+    // hiding, it is shown here as startRunnaway shows it.
+    void showForOtherPlayer(const Nerve* pNerve);
+    // Out of hiding (shown and running, or caught): its group's chase has begun.
+    bool isOutOfHiding() const;
     void startJumpSound();
     void setMsgCtrl(TalkMessageCtrl* pMsgCtrl);
     bool isCaught() const;

@@ -943,6 +943,13 @@ namespace {
         } else {
             rMotion.mCorrection.set(there - pActor->mPosition);
         }
+        if (rEntry.mKind == Kind_Rabbit) {
+            // A star bunny the owner's game shows (out of its hiding place): shown here too, as its appear switch
+            // would (that switch may be one only the owner's player turned).
+            sApplying = true;
+            static_cast< RunawayRabbit* >(pActor)->showForOtherPlayer(NebulaNerves::find(rState.nerve));
+            sApplying = false;
+        }
         // Its nerve when the owner's changed (or another player just took it over), so this copy makes the same move
         // once, its first step's animation and sound with it; not again each state, which would start that move over.
         // Not one a hit began (that comes as the hit, played again here), nor one of a class this game's code never
@@ -1215,13 +1222,18 @@ namespace NebulaCoopWorld {
         if (isName(pName, "RunawayRabbitCollect")) {
             // Its star bunnies run and are caught in every game alike: moved by the nearest player's game.
             const RunawayRabbitCollect* pCollect = static_cast< RunawayRabbitCollect* >(pObj);
+            s32 shared = 0;
             for (s32 i = 0; i < pCollect->getRabbitNum(); i++) {
                 const s32 index = findActor(pCollect->getRabbit(i));
                 if (index >= 0 && sEntries[index].mMotion < 0 && sEntries[index].mActor->mSpine != nullptr) {
                     sEntries[index].mKind = Kind_Rabbit;
                     addMotion(index);
                 }
+                if (index >= 0 && sEntries[index].mKind == Kind_Rabbit) {
+                    shared++;
+                }
             }
+            nebula_log("[coop] star bunnies: %d of %d shared\n", shared, pCollect->getRabbitNum());
         }
         sMadeNum = 0;
     }

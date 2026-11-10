@@ -191,8 +191,17 @@ void RunawayRabbitCollect::control() {
 }
 
 void RunawayRabbitCollect::exeWait() {
+    // Co-op: a bunny out of hiding here (shown or caught by another player's game) begins the chase too, for a player
+    // who didn't see the Luma's guide (it played in another game, or before they came).
+    bool outOfHiding = false;
+    for (s32 i = 0; i < mRabbitNum; i++) {
+        if (mRabbit[i]->isOutOfHiding()) {
+            outOfHiding = true;
+            break;
+        }
+    }
     for (s32 i = 0; i < mTicoNum; i++) {
-        if (mTico[i]->isStartRunaway()) {
+        if (outOfHiding || mTico[i]->isStartRunaway()) {
             for (s32 j = 0; j < mRabbitNum; j++) {
                 mRabbit[j]->activate();
             }
