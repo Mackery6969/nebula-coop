@@ -110,7 +110,8 @@ namespace NrvRunawayRabbit {
 RunawayRabbit::RunawayRabbit(const char* pName, RunawayRabbitCollect* pCollect)
     : LiveActor(pName), mStateRunaway(), mStateBlowDamage(), mCollect(pCollect), mFootPrint(), mSpotMarkLight(), mMsgCtrl(), mPoseQuat(0, 0, 0, 1),
       mFrontVec(0, 0, 1), mPlayerPoseQuat(0, 0, 0, 1), mPlayerBindPos(0, 0, 1), mGroupId(-1), mRunawayLevel(), mHideLocation(HideLocation_None),
-      mPressureTimer(), mNotCaughtableTimer(), mIsActive(true), mIsLinked(), mNearSoundRadius(-1.0f) {
+      mPressureTimer(), mNotCaughtableTimer(), mIsActive(true), mIsLinked(), mNearSoundRadius(-1.0f),
+      mCaughtByOtherPlayer(false) {
 }
 
 void RunawayRabbit::init(const TableIter& rIter) {
@@ -253,6 +254,7 @@ void RunawayRabbit::catchForOtherPlayer() {
     if (isCaught()) {
         return;
     }
+    mCaughtByOtherPlayer = true;
     mCollect->noticeCaughtRabbitByOtherPlayer(this);
     // As the catcher's ends (exeStop's first step): gone, its nerve saying it was caught (isCaught), which its
     // group counts.

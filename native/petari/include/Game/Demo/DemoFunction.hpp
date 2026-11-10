@@ -79,4 +79,13 @@ namespace DemoFunction {
     s32 createSheetParser(const DemoExecutor*, const char*, Table**);
 
     bool isDemoPartTalk(const char*);
+
+    // Online co-op: a scene another player's game played, its outcome here without playing it. Each of the demo's
+    // actions in the parts whose name begins with pPartPrefix happens as at its part's first step (actors appear, are
+    // killed, shown, hidden, placed, posed, their switches set, their functors and nerves run), but nothing is talked
+    // and no demo starts. Returns the number of actions applied (0 when the demo isn't in the scene).
+    s32 applyDemoPartsWithoutPlaying(const char* pDemoName, const char* pPartPrefix);
+    // True while applyDemoPartsWithoutPlaying runs its actions: a functor leaves out what only a playing scene needs
+    // (fades, hiding the player).
+    bool isApplyingDemoWithoutPlaying();
 };  // namespace DemoFunction

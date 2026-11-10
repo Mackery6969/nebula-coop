@@ -111,6 +111,30 @@ void RunawayTico::appearMamaComment(const Vec3f& rPos) {
     MR::requestStartDemoMarioPuppetable(this, "ぼやき", GET_NERVE(RunawayTico, RunawayTicoNrvAppear), GET_NERVE(RunawayTico, RunawayTicoNrvWait));
 }
 
+void RunawayTico::appearCommentForOtherPlayer(s32 comment, const Vec3f& rPos) {
+    switch (comment) {
+    case Comment_Bush:
+        MR::forwardNodeNextBranchLeft(mMsgCtrl);
+        break;
+    case Comment_Hole:
+        MR::forwardNodeNextBranchRight(mMsgCtrl);
+        MR::forwardNodeCurrentBranchLeft(mMsgCtrl);
+        break;
+    case Comment_Pipe:
+        MR::forwardNodeNextBranchRight(mMsgCtrl);
+        MR::forwardNodeCurrentBranchRight(mMsgCtrl);
+        break;
+    default:
+        // The mama Luma's: after it, the catcher's game whites out and the Luma leaves (exeWhiteIn).
+        mIsAllCaught = true;
+        MR::forwardNode(mMsgCtrl);
+        return;
+    }
+    appear();
+    setPosAfterCaught(rPos);
+    setNerveWait();
+}
+
 void RunawayTico::setPosAfterCaught(const Vec3f& rPos) {
     Vec3f front;
     MR::getPlayerFrontVec(&front);
