@@ -20,11 +20,23 @@ set(NEBULA_GAME_VERSION "RMGE01" CACHE STRING "Game release")
 set_property(CACHE NEBULA_GAME_VERSION PROPERTY STRINGS RMGE01)
 
 set(petari "${NEBULA_PETARI_DIR}")
-file(GLOB_RECURSE game_sources CONFIGURE_DEPENDS
-    "${petari}/src/Game/*.cpp" "${petari}/src/Game/*.c"
-    "${petari}/src/JSystem/*.cpp" "${petari}/src/JSystem/*.c"
-    "${petari}/src/nw4r/*.cpp" "${petari}/src/nw4r/*.c"
+
+# Split into object libraries for faster incremental builds: each Petari
+# subdirectory is its own OBJECT library, so only files in changed headers
+# (and their dependents) need recompilation.
+file(GLOB_RECURSE petari_game_sources CONFIGURE_DEPENDS
+    "${petari}/src/Game/*.cpp" "${petari}/src/Game/*.c")
+file(GLOB_RECURSE petari_jsystem_sources CONFIGURE_DEPENDS
+    "${petari}/src/JSystem/*.cpp" "${petari}/src/JSystem/*.c")
+file(GLOB_RECURSE petari_nw4r_sources CONFIGURE_DEPENDS
+    "${petari}/src/nw4r/*.cpp" "${petari}/src/nw4r/*.c")
+file(GLOB_RECURSE petari_miilib_sources CONFIGURE_DEPENDS
     "${petari}/src/MiiLib/*.c" "${petari}/src/MiiLib/*.cpp")
+set(petari_math_sources
+    math/src/nebula_math.c
+    math/src/nebula_libm.c
+    math/src/nebula_libc.c
+    $<$<PLATFORM_ID:Windows>:math/src/nebula_runtime_win.c>)
 
 # What a plugin built with the game's headers must match: any change to them may move a field or a virtual function.
 file(GLOB_RECURSE nebula_game_headers "${petari}/include/*" "${petari}/libs/*.h" "${petari}/libs/*.hpp"
@@ -41,14 +53,17 @@ string(SUBSTRING "${nebula_abi_hash}" 0 16 nebula_abi_hash)
 set(NEBULA_GAME_ABI "0x${nebula_abi_hash}ull")
 # For the plugin kit: what a plugin built with these headers says it is.
 file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/sdk/nebula_game_abi.h" CONTENT "#define NEBULA_GAME_ABI ${NEBULA_GAME_ABI}\n" @ONLY)
-set_source_files_properties("${petari}/src/Game/System/NebulaMods.cpp" PROPERTIES COMPILE_DEFINITIONS "NEBULA_GAME_ABI=${NEBULA_GAME_ABI}")
 
+add_library(petari_game OBJECT
+    ${petari_game_sources}
+    ${petari_jsystem_sources}
+    ${petari_nw4r_sources}
+    ${petari_miilib_sources}
+    ${petari_math_sources})
 add_library(smg_game SHARED
-    ${game_sources}
-    math/src/nebula_math.c
-    math/src/nebula_libm.c
-    math/src/nebula_libc.c
-    $<$<PLATFORM_ID:Windows>:math/src/nebula_runtime_win.c>)
+    $<TARGET_OBJECTS:petari_game>)
+set_source_files_properties(${petari_game_sources} PROPERTIES COMPILE_DEFINITIONS "NEBULA_GAME_ABI=${NEBULA_GAME_ABI}")
+set_source_files_properties(${petari_math_sources} PROPERTIES COMPILE_OPTIONS -fno-builtin)
 
 if(WIN32)
     enable_language(RC)
@@ -145,7 +160,6 @@ target_compile_options(smg_game PRIVATE
     $<$<AND:$<PLATFORM_ID:Windows>,$<COMPILE_LANGUAGE:CXX>>:-fcomplete-member-pointers>
     -Wno-register -Wno-c++11-narrowing)
 
-set_source_files_properties(math/src/nebula_libm.c math/src/nebula_libc.c math/src/nebula_runtime_win.c PROPERTIES COMPILE_OPTIONS -fno-builtin)
 target_compile_definitions(smg_game PRIVATE _USE_STD_VECTOR_ALGORITHMS=0 _ACRTIMP=)
 # No system library: everything the module uses it defines or asks the host for. A sanitizer's runtime and the profile counters' need the C runtime.
 if(WIN32 AND NOT NEBULA_SANITIZE AND NOT CMAKE_CXX_FLAGS MATCHES "fprofile-instr-generate")
