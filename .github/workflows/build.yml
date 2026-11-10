@@ -16,6 +16,7 @@ on:
       - "!LICENSE"
       - "!.github/**"
       - ".github/workflows/build.yml"
+      - "!nebulanet/**"
   # Every pull request, so that the Build result check always reports and can be required: a pull request that changes
   # nothing the build uses (the push paths above) skips the jobs, which counts as passing.
   pull_request:
@@ -59,7 +60,7 @@ jobs:
           fi
           files=$(git diff --name-only HEAD^1 HEAD)
           if printf '%s\n' "$files" | grep -qxF .github/workflows/build.yml ||
-             printf '%s\n' "$files" | grep -vE '\.md$|^docs/|^LICENSE$|^\.github/' | grep -q .; then
+             printf '%s\n' "$files" | grep -vE '\.md$|^docs/|^LICENSE$|^\.github/|^nebulanet/' | grep -q .; then
             echo build=true >> "$GITHUB_OUTPUT"
           else
             echo build=false >> "$GITHUB_OUTPUT"
@@ -220,7 +221,8 @@ jobs:
 
   linux:
     name: Linux
-    needs: changes
+    # Needs the game module job: if the game module doesn't build, the Linux binary is useless.
+    needs: [changes, game]
     if: needs.changes.outputs.build == 'true'
     runs-on: ubuntu-24.04
     steps:
@@ -284,7 +286,8 @@ jobs:
   android:
     name: Android
     # The Vulkan host build's shader tools compile the SPIR-V the APK carries.
-    needs: [changes, host]
+    # Also needs the game module: if it doesn't build, the APK is useless.
+    needs: [changes, host, game]
     if: needs.changes.outputs.build == 'true'
     runs-on: windows-2025
     steps:

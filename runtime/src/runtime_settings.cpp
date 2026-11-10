@@ -1,4 +1,4 @@
-#include "galaxy/portable.h"
+﻿#include "galaxy/portable.h"
 #include "galaxy/runtime_settings.h"
 #include "galaxy/run_options.h"
 #include "../../tools/test_driver/switches.h"
@@ -170,8 +170,10 @@ RuntimeSettings sanitize_settings(RuntimeSettings settings) {
         settings.coop.character = CoopCharacter::Mario;
     }
     settings.coop.join_address = sanitize_coop_text(settings.coop.join_address, kCoopAddressLimit);
-    settings.coop.nebulanet_server = sanitize_coop_text(settings.coop.nebulanet_server, kCoopNebulaNetServerLimit);
-    settings.coop.nebulanet_code = sanitize_coop_text(settings.coop.nebulanet_code, kCoopNebulaNetCodeLimit);
+    // Only a web address: it is only ever connected to, never shown.
+    std::string& server = settings.coop.nebulanet_server;
+    server = sanitize_coop_text(server, kCoopAddressLimit);
+    if (!server.starts_with("https://") && !server.starts_with("http://")) server.clear();
     settings.coop_bans = sanitize_coop_list(settings.coop_bans);
     settings.coop_moderators = sanitize_coop_list(settings.coop_moderators);
     return settings;
@@ -300,6 +302,11 @@ void apply_kv(RuntimeSettings& settings, const char* key, const char* value) {
         }
     } else if (std::strcmp(key, "coop_join_address") == 0) {
         settings.coop.join_address = value;
+    } else if (std::strcmp(key, "coop_network") == 0) {
+        if (::galaxy::text_iequal(value, "nebulanet")) settings.coop.nebulanet = true;
+        if (::galaxy::text_iequal(value, "direct")) settings.coop.nebulanet = false;
+    } else if (std::strcmp(key, "coop_nebulanet") == 0) {
+        settings.coop.nebulanet_server = value;
     } else if (std::strcmp(key, "coop_player_interaction") == 0) {
         for (const CoopPlayerInteraction interaction :
              {CoopPlayerInteraction::NonSolid, CoopPlayerInteraction::Solid, CoopPlayerInteraction::FriendlyFire}) {
@@ -323,10 +330,6 @@ void apply_kv(RuntimeSettings& settings, const char* key, const char* value) {
         for (const CoopPvpMode mode : {CoopPvpMode::Classic, CoopPvpMode::Revamped}) {
             if (::galaxy::text_iequal(value, coop_pvp_mode_key(mode))) settings.coop.pvp_mode = mode;
         }
-    } else if (std::strcmp(key, "coop_nebulanet") == 0) {
-        settings.coop.nebulanet = std::strcmp(value, "1") == 0;
-    } else if (std::strcmp(key, "coop_nebulanet_server") == 0) {
-        settings.coop.nebulanet_server = value;
     } else if (std::strncmp(key, "coop_popup_", 11) == 0) {
         for (const auto& [name, flag] : coop_popup_keys(settings.coop_popups)) {
             if (std::strcmp(key + 11, name) == 0) *flag = std::strcmp(value, "0") != 0;
@@ -693,6 +696,10 @@ bool save_runtime_settings_to_file() {
         if (!settings.coop.join_address.empty()) {
             contents << "coop_join_address=" << settings.coop.join_address << '\n';
         }
+        if (settings.coop.nebulanet != defaults.nebulanet) contents << "coop_network=direct\n";
+        if (!settings.coop.nebulanet_server.empty()) {
+            contents << "coop_nebulanet=" << settings.coop.nebulanet_server << '\n';
+        }
         if (settings.coop.player_interaction != defaults.player_interaction) {
             contents << "coop_player_interaction=" << coop_player_interaction_key(settings.coop.player_interaction)
                      << '\n';
@@ -709,13 +716,6 @@ bool save_runtime_settings_to_file() {
         if (settings.coop.cheats != defaults.cheats) contents << "coop_cheats=" << (settings.coop.cheats ? 1 : 0) << '\n';
         if (settings.coop.star_counter != defaults.star_counter) {
             contents << "coop_star_counter=" << (settings.coop.star_counter ? 1 : 0) << '\n';
-        }
-        if (settings.coop.nebulanet) contents << "coop_nebulanet=1\n";
-        if (!settings.coop.nebulanet_server.empty()) {
-            const std::string& default_server = coop_nebulanet_default_server();
-            if (settings.coop.nebulanet_server != default_server) {
-                contents << "coop_nebulanet_server=" << settings.coop.nebulanet_server << '\n';
-            }
         }
         // The pop-ups this player turned off (each is on by default).
         RuntimeCoopPopups popups = settings.coop_popups;
@@ -793,10 +793,6 @@ const char* coop_pvp_mode_key(CoopPvpMode mode) noexcept {
 
 const char* coop_character_key(CoopCharacter character) noexcept {
     return character == CoopCharacter::Luigi ? "luigi" : "mario";
-}
-
-const char* coop_nebulanet_default_server() noexcept {
-    return "https://nebulanet.mackery.com";
 }
 
 const char* runtime_input_mode_name(RuntimeInputMode mode) {

@@ -205,8 +205,10 @@ void NebulaRemotePlayer::tryCreate() {
         perCharacter = cMaxPerCharacter;
     }
     // Each character plays its own animations (Luigi's wait, run and jumps are his), whichever the local player is:
-    // the other character's from a table of their own, on the same archive.
-    sOtherTable = MarioAnimator::newCharacterResourceTable(MR::getPlayerXanimeResource()->mResourceHolder, !MR::isPlayerLuigi());
+    // the other character's from a table of their own, on the animation archive where Luigi's BCK files actually
+    // live (MarioAnime.arc). The model's own arc (Mario.arc / Luigi.arc) doesn't have them, so lookups silently fail
+    // and the model's joints stay in bind pose, which makes the head and arms disappear.
+    sOtherTable = MarioAnimator::newCharacterResourceTable(MR::createAndAddResourceHolder("MarioAnime"), !MR::isPlayerLuigi());
     for (s32 i = 0; i < perCharacter * 2; i++) {
         NebulaRemotePlayer* pCopy = new NebulaRemotePlayer(i >= perCharacter);
         pCopy->init(JMapInfoIter{});

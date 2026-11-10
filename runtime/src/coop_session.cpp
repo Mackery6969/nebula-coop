@@ -1,11 +1,12 @@
 #include "galaxy/coop_session.h"
 
 #include "galaxy/coop_menu.h"
+#include "galaxy/coop_nebulanet.h"
 #include "galaxy/net/bytes.h"
 #include "galaxy/net/direct_transport.h"
-#include "galaxy/net/netbulanet.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <fstream>
 #include <map>
@@ -43,6 +44,8 @@ enum Message : std::uint8_t {
 // A joiner that doesn't ask to be let in this soon is removed; a join that isn't let in this soon fails.
 constexpr auto kJoinRequestTimeout = std::chrono::seconds(15);
 constexpr auto kJoinTimeout = std::chrono::seconds(25);
+// How long a join by room code tries the host's addresses (punching through takes a few seconds on most routers).
+constexpr auto kNatJoinTimeout = std::chrono::milliseconds(18000);
 // A refused joiner stays this long so the refusal reaches it before the host removes it.
 constexpr auto kRefuseLinger = std::chrono::seconds(1);
 constexpr auto kTick = std::chrono::milliseconds(2);
@@ -184,6 +187,15 @@ struct Session::State {
     // Where this player plays (set_place), for its entry in a room opened or joined later.
     std::string stage;
     int scenario = 0;
+    // NebulaNet (galaxy/coop_nebulanet.h): how it is reached, the link while one is up, where the room's NAT
+    // traversal is, and a host's room code.
+    std::shared_ptr<net::Web> web;
+    bool web_set = false;
+    std::unique_ptr<NebulaNetLink> nebulanet;
+    enum class Nat : std::uint8_t { None, HostDiscovering, HostListed, JoinDiscovering, JoinAsking };
+    Nat nat = Nat::None;
+    std::string room_code;
+    std::size_t listed_players = 0u;
     // The name this player asked for (cleaned), which the room may have numbered: set_name only acts when it changes.
     std::string wanted_name;
 
@@ -223,6 +235,9 @@ struct Session::State {
 
     // The room ends for this player: back to idle, `kind` with `why`.
     void end(SessionEvent::Kind kind, std::string why) {
+        nebulanet.reset();
+        nat = Nat::None;
+        room_code.clear();
         if (transport->in_lobby() || state != SessionState::Idle) transport->lobby_leave();
         state = SessionState::Idle;
         host = false;
@@ -778,9 +793,126 @@ struct Session::State {
         }
     }
 
+    std::shared_ptr<net::Web> the_web() {
+        if (!web_set) {
+            web = net::platform_web();
+            web_set = true;
+        }
+        return web;
+    }
+
+    // This player's addresses for NebulaNet: the public one the STUN server saw, then its own network's.
+    std::vector<std::string> own_candidates() const {
+        std::vector<std::string> out;
+        const net::Address outside = transport->public_address();
+        if (outside.valid()) out.push_back(candidate_text(outside));
+        const net::Address inside = net::local_address();
+        std::array<std::uint8_t, 16> ip{};
+        const std::size_t size = inside.ip_bytes(ip);
+        if (size != 0u && transport->port() != 0u) {
+            const std::string text =
+                candidate_text(net::make_address(std::span<const std::uint8_t>(ip.data(), size), transport->port()));
+            if (std::find(out.begin(), out.end(), text) == out.end()) out.push_back(text);
+        }
+        return out;
+    }
+
+    // Asks the STUN server first: NebulaNet passes on what it answers.
+    void start_nat(Nat first, const std::string& stun, std::uint16_t stun_port) {
+        nebulanet = std::make_unique<NebulaNetLink>(the_web());
+        (void)transport->discover_public_address(stun, stun_port);
+        nat = first;
+    }
+
+    void tick_nat() {
+        if (nat == Nat::None || !nebulanet) return;
+        switch (nat) {
+        case Nat::HostDiscovering: {
+            if (transport->discovering()) return;
+            NebulaNetRoom listing;
+            listing.name = clean_name(host_config.name);
+            listing.version = host_config.game_version;
+            listing.players = static_cast<unsigned>(players.size());
+            listing.max = room.max_players;
+            listing.candidates = own_candidates();
+            listed_players = players.size();
+            if (listing.candidates.empty()) {
+                event(SessionEvent::Kind::NebulaNetLost, {}, "NEBULANET FOUND NO NETWORK: FRIENDS CAN JOIN BY ADDRESS");
+                nebulanet.reset();
+                nat = Nat::None;
+                return;
+            }
+            nebulanet->host(host_config.nebulanet, std::move(listing));
+            nat = Nat::HostListed;
+            return;
+        }
+        case Nat::HostListed:
+            for (NebulaNetEvent& news : nebulanet->take_events()) {
+                if (news.kind == NebulaNetEvent::Kind::RoomCode) {
+                    room_code = news.text;
+                    event(SessionEvent::Kind::RoomCode, {}, news.text);
+                } else if (news.kind == NebulaNetEvent::Kind::Joiner) {
+                    for (const std::string& text : news.candidates) {
+                        net::Address address;
+                        if (parse_candidate(text, address)) transport->punch(address);
+                    }
+                } else if (news.kind == NebulaNetEvent::Kind::Failed) {
+                    event(SessionEvent::Kind::NebulaNetLost, {}, news.text);
+                }
+            }
+            if (players.size() != listed_players) {
+                listed_players = players.size();
+                nebulanet->set_players(static_cast<unsigned>(listed_players));
+            }
+            return;
+        case Nat::JoinDiscovering: {
+            if (transport->discovering()) return;
+            std::vector<std::string> candidates = own_candidates();
+            if (candidates.empty()) {
+                end(SessionEvent::Kind::JoinFailed, "NO NETWORK TO REACH NEBULANET");
+                return;
+            }
+            nebulanet->join(join_config.nebulanet, join_config.code, std::move(candidates));
+            nat = Nat::JoinAsking;
+            return;
+        }
+        case Nat::JoinAsking:
+            for (NebulaNetEvent& news : nebulanet->take_events()) {
+                if (news.kind == NebulaNetEvent::Kind::Failed) {
+                    end(SessionEvent::Kind::JoinFailed, news.text);
+                    return;
+                }
+                if (news.kind != NebulaNetEvent::Kind::Answer) continue;
+                // The host's addresses, all tried at once; the host punches toward this player meanwhile.
+                net::JoinConfig lobby;
+                for (const std::string& text : news.room.candidates) {
+                    net::Address address;
+                    if (!parse_candidate(text, address)) continue;
+                    if (lobby.address.empty()) {
+                        lobby.address = address.host_text();
+                        lobby.port = address.port();
+                    } else {
+                        lobby.alternates.push_back({address.host_text(), address.port()});
+                    }
+                }
+                lobby.password = join_config.password;
+                lobby.timeout = kNatJoinTimeout;
+                nebulanet.reset();
+                nat = Nat::None;
+                join_started = Clock::now();
+                (void)transport->lobby_join(lobby);  // a failure ends the join through on_error
+                return;
+            }
+            return;
+        case Nat::None: return;
+        }
+    }
+
     void tick() {
         if (state == SessionState::Idle) return;
         transport->update();
+        if (state == SessionState::Idle) return;
+        tick_nat();
         if (state == SessionState::Idle) return;
         const Clock::time_point now = Clock::now();
         if (state == SessionState::Connecting && now - join_started > kJoinTimeout) {
@@ -892,6 +1024,9 @@ bool Session::host(HostConfig config) {
             state_->state = SessionState::Idle;
             return false;
         }
+        if (!state_->host_config.nebulanet.empty()) {
+            state_->start_nat(State::Nat::HostDiscovering, state_->host_config.stun, state_->host_config.stun_port);
+        }
     }
     start_thread();
     return true;
@@ -910,7 +1045,19 @@ bool Session::join(JoinConfig config) {
         state_->state = SessionState::Connecting;
         state_->join_started = Clock::now();
         state_->join_asked = false;
-        net::JoinConfig lobby{state_->join_config.address, state_->join_config.port, state_->join_config.password};
+        if (!state_->join_config.code.empty()) {
+            // By room code: the socket first, so the STUN server tells NebulaNet its public address.
+            if (!state_->transport->open_for_join()) {
+                state_->event(SessionEvent::Kind::JoinFailed, {}, "THIS GAME COULD NOT OPEN ITS NETWORK SOCKET");
+                state_->state = SessionState::Idle;
+                return false;
+            }
+            state_->start_nat(State::Nat::JoinDiscovering, state_->join_config.stun, state_->join_config.stun_port);
+            start_thread();
+            return true;
+        }
+        net::JoinConfig lobby{state_->join_config.address, state_->join_config.port, state_->join_config.password, {},
+                              {}};
         if (!state_->transport->lobby_join(lobby)) {
             // on_error already told why (JoinFailed).
             state_->state = SessionState::Idle;
@@ -924,28 +1071,12 @@ bool Session::join(JoinConfig config) {
 void Session::leave() {
     const std::lock_guard<std::recursive_mutex> lock(lock_);
     if (state_->state == SessionState::Idle) return;
-    // Close the NebulaNet room if we're the host using it (fires off in the background).
-    if (!state_->host_config.nebulanet_code.empty()) {
-        const std::string server = state_->host_config.nebulanet_server.empty()
-            ? coop_nebulanet_default_server()
-            : state_->host_config.nebulanet_server;
-        const std::string code = state_->host_config.nebulanet_code;
-        (void)netbulanet::close_room(server, code);
-    }
     state_->end(SessionEvent::Kind::Closed, {});
 }
 
 bool Session::leave_if_free() {
     const std::unique_lock<std::recursive_mutex> lock(lock_, std::try_to_lock);
     if (!lock.owns_lock()) return false;
-    // Close the NebulaNet room if we're the host using it (fires off in the background).
-    if (!state_->host_config.nebulanet_code.empty()) {
-        const std::string server = state_->host_config.nebulanet_server.empty()
-            ? coop_nebulanet_default_server()
-            : state_->host_config.nebulanet_server;
-        const std::string code = state_->host_config.nebulanet_code;
-        (void)netbulanet::close_room(server, code);
-    }
     if (state_->state != SessionState::Idle) state_->end(SessionEvent::Kind::Closed, {});
     return true;
 }
@@ -977,6 +1108,17 @@ RuntimeCoopSettings Session::room() const {
 std::uint16_t Session::port() const {
     const std::lock_guard<std::recursive_mutex> lock(lock_);
     return state_->transport->in_lobby() && state_->host ? state_->transport->port() : 0u;
+}
+
+std::string Session::room_code() const {
+    const std::lock_guard<std::recursive_mutex> lock(lock_);
+    return state_->room_code;
+}
+
+void Session::set_web(std::shared_ptr<net::Web> web) {
+    const std::lock_guard<std::recursive_mutex> lock(lock_);
+    state_->web = std::move(web);
+    state_->web_set = true;
 }
 
 void Session::set_room(const RuntimeCoopSettings& room) {
@@ -1128,6 +1270,9 @@ std::optional<RoomSave> Session::take_room_save() {
 JoinStep Session::join_step() const {
     const std::lock_guard<std::recursive_mutex> lock(lock_);
     if (state_->state != SessionState::Connecting) return JoinStep::None;
+    if (state_->nat == State::Nat::JoinDiscovering || state_->nat == State::Nat::JoinAsking) {
+        return JoinStep::FindingRoom;
+    }
     if (state_->download && !state_->download->needed.empty()) return JoinStep::DownloadingMods;
     return state_->join_asked ? JoinStep::Asking : JoinStep::Reaching;
 }
