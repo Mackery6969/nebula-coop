@@ -75,10 +75,15 @@ jobs:
     env:
       # The C runtime linked in, as Setup ships it: it runs on PCs without the Visual C++ runtime.
       CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: -C target-feature=+crt-static
+      SCCACHE_IGNORE_SERVER_IO_ERROR: "1"
+      SCCACHE_GHA_ENABLED: "true"
     steps:
       - uses: actions/Checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - uses: mozilla-actions/sccache-action@v0.0.11
+      - name: Start sccache
+        run: sccache --start-server
       - name: Build
         run: cargo build --release --locked -p nebula-import
       - name: Test
@@ -108,6 +113,7 @@ jobs:
     env:
       # Compile on this machine when the sccache server can't be reached mid-build, instead of failing.
       SCCACHE_IGNORE_SERVER_IO_ERROR: "1"
+      SCCACHE_GHA_ENABLED: "true"
     steps:
       - uses: actions/Checkout@v7
       - uses: ilammy/msvc-dev-cmd@v1
@@ -123,27 +129,9 @@ jobs:
             build/host/fidelityfx.built
             build/host/_deps
           key: host-deps-${{ matrix.vulkan }}-${{ hashFiles('cmake/**', 'third_party/archive/**') }}
-      - uses: mozilla-actions/sccache-action@v0.0.9
-      # sccache keeps compiled objects in the GitHub Actions cache. Its server reads that cache when it starts and
-      # gives up if it can't (a GitHub outage, or "Egress is over the account limit"), which failed every compile.
-      # Then it uses its local cache instead: the build is slower but doesn't fail. SCCACHE_GHA_ENABLED is set
-      # here rather than in the job's env, which would take precedence over GITHUB_ENV.
+      - uses: mozilla-actions/sccache-action@v0.0.11
       - name: Start sccache
-        run: |
-          $env:SCCACHE_GHA_ENABLED = "true"
-          for ($try = 1; $try -le 3; $try++) {
-            sccache --start-server
-            if ($LASTEXITCODE -eq 0) {
-              "SCCACHE_GHA_ENABLED=true" >> $env:GITHUB_ENV
-              exit 0
-            }
-            Start-Sleep -Seconds 10
-          }
-          Write-Output "::warning title=sccache::The GitHub Actions cache is unavailable: building without it."
-          $env:SCCACHE_GHA_ENABLED = "false"
-          "SCCACHE_GHA_ENABLED=false" >> $env:GITHUB_ENV
-          sccache --start-server
-          exit $LASTEXITCODE
+        run: sccache --start-server
       - name: Configure
         # Without cross-file optimization: the link of every test against the renderer library otherwise takes
         # minutes. Release builds keep it (NEBULA_HOST_IPO defaults to ON).
@@ -180,10 +168,23 @@ jobs:
     needs: changes
     if: needs.changes.outputs.build == 'true'
     runs-on: windows-2025
+    env:
+      SCCACHE_IGNORE_SERVER_IO_ERROR: "1"
+      SCCACHE_GHA_ENABLED: "true"
     steps:
       - uses: actions/Checkout@v7
       - name: Clang version
         run: '& "C:\Program Files\LLVM\bin\clang.exe" --version'
+      # Archive deps (zlib, xz, libarchive) built at configure time: skip when already built.
+      - name: Cache configure-time dependencies
+        uses: actions/cache@v6
+        with:
+          path: |
+            build/game/archive-deps
+          key: game-archive-deps-${{ hashFiles('cmake/**', 'third_party/archive/**') }}
+      - uses: mozilla-actions/sccache-action@v0.0.11
+      - name: Start sccache
+        run: sccache --start-server
       - name: Build
         run: .\native\build.ps1 -Petari native\petari -Build build\game
       - uses: actions/upload-artifact@v7
