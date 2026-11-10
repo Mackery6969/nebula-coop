@@ -5,7 +5,6 @@
 #include "Game/Map/RaceManager.hpp"
 #include "Game/Screen/ButtonPaneController.hpp"
 #include "Game/Screen/ReplaceTagProcessor.hpp"
-#include "Game/Screen/SysInfoWindow.hpp"
 #include "Game/System/GalaxyStatusAccessor.hpp"
 #include "Game/System/GameDataConst.hpp"
 #include "Game/System/GameDataFunction.hpp"
@@ -202,7 +201,7 @@ namespace NrvPowerStarList {
 };  // namespace NrvPowerStarList
 
 PowerStarList::PowerStarList()
-    : LayoutActor("全パワースターリスト", true), mArrowUpButtonCtrl(), mArrowDownButtonCtrl(), mSysInfoWindow(), mPageNo() {
+    : LayoutActor("全パワースターリスト", true), mArrowUpButtonCtrl(), mArrowDownButtonCtrl(), mPageNo() {
     mSeparatorArray = new Separator[4]();
 }
 
@@ -228,10 +227,8 @@ void PowerStarList::init(const TableIter& /*rIter*/) {
 
     mArrowUpButtonCtrl = createButtonController("ArrowUpButton", "BoxButton1_00");
     mArrowDownButtonCtrl = createButtonController("ArrowDownButton", "BoxButton1_01");
-    // No message board (B-31, Q5), no capture button.
+    // No message board (B-31, Q5): no capture button, and no window asking to send the page's photo to it.
     MR::hidePaneRecursive(this, "Capture");
-    mSysInfoWindow = MR::createSysInfoWindow();
-    MR::connectToSceneLayoutOnPause(mSysInfoWindow);
     MR::setTextBoxGameMessageRecursive(this, "Title", "AllStarList_Title");
 
     ListItem* const pItems = new ListItem[::listRoom()];
