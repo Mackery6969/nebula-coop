@@ -372,22 +372,6 @@ void NebulaRemotePlayer::init(const TableIter& rIter) {
     initActorLightCtrl();
     mActorLightCtrl->init(0 /* the area's player light */, true);
 
-    // Mario's effects for the animations it plays, from his effect list (MarioActor's "Mario"), on its own joints:
-    // those alone (and their children), not all of his for every copy. Those started with a bck of their own are
-    // MarioActor's model's, not this one's.
-    mEffectKeeper = new EffectKeeper(getName(), MR::getModelResourceHolder(this), 0, "Mario");
-    if (const AutoEffectGroup* pGroup = MR::getEffectSystem()->mGroupHolder->find("Mario")) {
-        for (s32 i = 0; i < pGroup->mCount; i++) {
-            const AutoEffectInfo* pInfo = pGroup->mEffects[i];
-            const bool wanted = pInfo->mParentName == nullptr ? isAnimationEffect(pInfo->getName())
-                                                              : mEffectKeeper->isRegisteredEmitter(pInfo->mParentName);
-            if (wanted && pInfo->mAnimName == nullptr && !mEffectKeeper->isRegisteredEmitter(pInfo->getName())) {
-                MR::Effect::addAutoEffect(mEffectKeeper, this, pInfo);
-            }
-        }
-    }
-    MR::connectToScene(this, MR::MovementType_Player, MR::CalcAnimType_Player, MR::DrawBufferType_None, MR::DrawType_Player);
-
     // Its character's animations, as GhostPlayer plays them on the cosmic ghost: the local player's when they play the
     // same one. A Luigi copy on Mario's screen played Mario's wait and run at Luigi's frames and speed (his feet slid,
     // and his idle jumped back where the two waits' lengths differ); a Mario copy on Luigi's screen played Luigi's.
@@ -402,6 +386,31 @@ void NebulaRemotePlayer::init(const TableIter& rIter) {
     mXanimePlayer->mReturnToDefault = false;
     mXanimePlayer->getCore()->enableJointTransform(MR::getModelData(this));
     mXanimePlayer->changeAnimation("基本");
+
+    // Mario's effects for the animations it plays, from his effect list (MarioActor's "Mario"), on its own joints:
+    // those alone (and their children), not all of his for every copy. Some his code starts (the spins'); the rest go
+    // with a bck of his (AnimName: the Zzz while he sleeps), started and stopped as this copy's animation plays it, so
+    // they're registered after its XanimePlayer (EffectKeeper::registerSyncBckEffect watches the model manager's).
+    // Not the floor's own variants of an effect ("...Attr..."): they need the floor this copy doesn't track.
+    mEffectKeeper = new EffectKeeper(getName(), MR::getModelResourceHolder(this), 0, "Mario");
+    if (const AutoEffectGroup* pGroup = MR::getEffectSystem()->mGroupHolder->find("Mario")) {
+        for (s32 i = 0; i < pGroup->mCount; i++) {
+            const AutoEffectInfo* pInfo = pGroup->mEffects[i];
+            if (strstr(pInfo->getName(), "Attr") != nullptr || mEffectKeeper->isRegisteredEmitter(pInfo->getName())) {
+                continue;
+            }
+            bool wanted;
+            if (pInfo->mParentName != nullptr) {
+                wanted = mEffectKeeper->isRegisteredEmitter(pInfo->mParentName);
+            } else {
+                wanted = pInfo->mAnimName != nullptr || isAnimationEffect(pInfo->getName());
+            }
+            if (wanted) {
+                MR::Effect::addAutoEffect(mEffectKeeper, this, pInfo);
+            }
+        }
+    }
+    MR::connectToScene(this, MR::MovementType_Player, MR::CalcAnimType_Player, MR::DrawBufferType_None, MR::DrawType_Player);
 
     // The body the local Mario bumps into, as the cosmic ghost's; off until the two may touch.
     initHitSensor(1);
