@@ -47,10 +47,14 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <chrono>
 #include <filesystem>
+#include <fstream>
+#include <future>
 #include <iostream>
 #include <iterator>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <thread>
@@ -92,6 +96,8 @@ bool frame_generation_offered();
 bool dlss_hold_back(RenderConfig& applied, const RenderConfig& live);
 bool dlss_prompt_key(std::uintptr_t key, bool was_down);
 bool restart_ask_key(std::uintptr_t key, bool was_down);
+bool mod_question_key(std::uintptr_t key, bool was_down);
+bool mod_question_up();
 bool mods_page_key(std::uintptr_t key, bool accept, bool was_down);
 void end_settings_text(bool keep);
 unsigned mods_draft_changes();
@@ -111,9 +117,10 @@ std::vector<SettingsRow> settings_page(unsigned tab, const RenderConfig& draft, 
                                        const RenderFeatureCaps& caps);
 bool settings_page_tab(unsigned tab) { return tab != 2u && tab != 3u; }
 
-// The temporal upscaler this configuration runs (2 FSR 3, 3 DLSS, 4 XeSS, 5 SGSR 2), 0 none.
+// The temporal upscaler this configuration runs (2 FSR 3, 3 DLSS, 4 XeSS, 5 SGSR 2, 6 MetalFX's temporal scaler), 0 none.
 unsigned temporal_upscaler(const RenderConfig& render) {
     if (render.upscaler == 5u && sgsr2_available()) return 5u;
+    if (render.upscaler == 6u && metalfx_temporal_available()) return 6u;
     if (render.upscaler == 2u && fsr3_available()) return 2u;
     if (render.upscaler == 3u && host_window::upscaler_caps().dlss) return 3u;
     if (render.upscaler == 4u && host_window::upscaler_caps().xess) return 4u;
@@ -123,6 +130,7 @@ unsigned temporal_upscaler(const RenderConfig& render) {
 // The upscaler choices this runtime and machine offer, in menu order.
 std::vector<unsigned> available_upscalers() {
     std::vector<unsigned> choices{0u, 1u};
+    if (metalfx_available()) choices.push_back(6u);
     if (sgsr2_available()) choices.push_back(5u);
     if (fsr3_available()) choices.push_back(2u);
     if (host_window::upscaler_caps().dlss || dlss_offered()) choices.push_back(3u);
@@ -1759,7 +1767,7 @@ bool handle_native_settings_key(std::uintptr_t key, bool was_down, bool from_pad
         return true;
     }
     if (key != VK_F1 && s_native_settings_visible.load(std::memory_order_relaxed) &&
-        (dlss_prompt_key(key, was_down) || restart_ask_key(key, was_down))) {
+        (mod_question_key(key, was_down) || dlss_prompt_key(key, was_down) || restart_ask_key(key, was_down))) {
         return true;
     }
     if (key != VK_F1 && s_native_settings_visible.load(std::memory_order_relaxed) &&
@@ -2001,7 +2009,73 @@ std::vector<galaxy::mods::ModInfo> s_mods_saved;  // as mods.ini has them
 bool s_mods_scanned = false;
 std::string s_mod_focus;    // the mod last selected in a list: the buttons' Options act on it
 std::string s_mod_held;     // a mod picked up to move with the arrows (empty: none)
-std::string s_mod_options;  // the mod whose options show instead of the lists (empty: none)
+std::string s_mod_options;  // the mod whose page shows instead of the lists (empty: none)
+
+// The mod page's ABOUT window: the mod's name and description in pages, then its pictures (its icon first), a page at a
+// time. A picture is read on its own thread when its page first shows (a large one takes a moment). Under s_mods_mutex.
+struct ModAbout {
+    std::string id;
+    std::vector<std::string> pages;
+    std::vector<std::filesystem::path> pictures;
+    unsigned page = 0u;
+    unsigned picture_page = ~0u;  // the page `picture` (or `reading`) is for
+    std::shared_ptr<const NativeSettingsPicture> picture;
+    std::future<std::shared_ptr<const NativeSettingsPicture>> reading;
+    bool unreadable = false;  // the page's picture can't be read
+    bool missing = false;     // ... because its file is not there
+};
+std::optional<ModAbout> s_mod_about;
+// The mod whose REMOVE the menu asks about (empty: none). Under s_mods_mutex.
+std::string s_mod_remove_ask;
+
+// A mod as the MODS page names it: its own name (a .luma's, a resource pack's), else its folder's.
+std::string mod_title(const galaxy::mods::ModInfo& mod) {
+    return mods_ui_text(mod.pack_title.empty() ? mod.id : mod.pack_title, 40u);
+}
+
+// The pictures a mod's page shows: at most kMenuPictureSide texels a side, a larger one shown by the first of its
+// halved levels that fits. Files over 64 MB, and pictures over 8192 a side, are not read at all.
+constexpr unsigned kMenuPictureSide = 1024u;
+
+// A PNG in a mod as the menu shows it; null when it can't be read.
+std::shared_ptr<const NativeSettingsPicture> read_menu_picture(const std::filesystem::path& file) {
+    std::error_code error;
+    const std::uintmax_t bytes = std::filesystem::file_size(file, error);
+    if (error || bytes < 24u || bytes > 64u * 1024u * 1024u) return nullptr;
+    {
+        // The PNG signature and its header's size, before anything is decoded.
+        std::ifstream in(file, std::ios::binary);
+        unsigned char head[24]{};
+        if (!in.read(reinterpret_cast<char*>(head), sizeof(head))) return nullptr;
+        static constexpr unsigned char kSignature[8] = {0x89u, 'P', 'N', 'G', '\r', '\n', 0x1Au, '\n'};
+        if (std::memcmp(head, kSignature, sizeof(kSignature)) != 0) return nullptr;
+        const auto big_endian = [&head](unsigned at) {
+            return std::uint32_t{head[at]} << 24u | std::uint32_t{head[at + 1u]} << 16u | std::uint32_t{head[at + 2u]} << 8u |
+                   std::uint32_t{head[at + 3u]};
+        };
+        const std::uint32_t width = big_endian(16u);
+        const std::uint32_t height = big_endian(20u);
+        if (width == 0u || height == 0u || width > 8192u || height > 8192u) return nullptr;
+    }
+    TexturePackPixels pixels;
+    if (!load_texture_pack_image(file, false, pixels, nullptr) || pixels.levels.empty()) return nullptr;
+    std::size_t level = 0u;
+    unsigned width = pixels.width;
+    unsigned height = pixels.height;
+    while ((width > kMenuPictureSide || height > kMenuPictureSide) && level + 1u < pixels.levels.size()) {
+        ++level;
+        width = std::max(1u, width / 2u);
+        height = std::max(1u, height / 2u);
+    }
+    if (width > kMenuPictureSide || height > kMenuPictureSide || pixels.levels[level].size() != std::size_t{width} * height * 4u) {
+        return nullptr;
+    }
+    auto picture = std::make_shared<NativeSettingsPicture>();
+    picture->width = width;
+    picture->height = height;
+    picture->rgba = std::move(pixels.levels[level]);
+    return picture;
+}
 
 // With s_mods_mutex held.
 std::vector<galaxy::mods::ModInfo>& mods_list() {
@@ -2157,18 +2231,10 @@ void revert_mods_draft() {
     s_mod_held.clear();
 }
 
-// With s_mods_mutex held: who wins each conflict by the draft's order (their sizes come from the last read).
+// With s_mods_mutex held: the draft's list settled again (copies, needs, conflicts, overlaps and who wins them) by the
+// draft's order and on/off state.
 void refresh_overlaps_locked() {
-    const auto place = [](const std::string& id) {
-        return std::find_if(s_mods.begin(), s_mods.end(), [&](const galaxy::mods::ModInfo& m) { return m.id == id; }) -
-               s_mods.begin();
-    };
-    for (galaxy::mods::ModInfo& mod : s_mods) {
-        const auto self = place(mod.id);
-        for (galaxy::mods::ModOverlap& overlap : mod.overlaps) {
-            overlap.other_above = place(overlap.other) < self;
-        }
-    }
+    galaxy::mods::settle_mods(s_mods);
 }
 
 // With s_mods_mutex held: mod `id` into the list of mods on at `index` (0 the top), or off (`on` false: among the
@@ -2318,11 +2384,7 @@ std::string mod_details(const galaxy::mods::ModInfo& mod) {
     if (!mod.problem.empty() && (mod.unreadable || mod.pack_textures != nullptr || mod.code_patches != 0u || (!mod.files && !mod.textures && !mod.movies && !mod.loose))) {
         return mods_ui_text(mod.problem, 120u);
     }
-    std::string kinds;
-    for (const auto& [on, name] : {std::pair{mod.riivolution, "RIIVOLUTION"}, std::pair{mod.files || mod.loose, "FILES"},
-                                   std::pair{mod.textures, "TEXTURES"}, std::pair{mod.movies, "MOVIES"}}) {
-        if (on) kinds += kinds.empty() ? name : std::string(", ") + name;
-    }
+    std::string kinds = galaxy::mods::change_kinds(mod);
     if (!mod.languages.empty()) {
         std::string languages;
         for (const std::string& folder : mod.languages) {
@@ -2338,6 +2400,10 @@ std::string mod_details(const galaxy::mods::ModInfo& mod) {
             what += (what.empty() ? "" : ", ") + std::to_string(overlap.textures) +
                     (overlap.textures == 1u ? " TEXTURE" : " TEXTURES");
         }
+        if (overlap.settings != 0u) {
+            what += (what.empty() ? "" : ", ") + std::to_string(overlap.settings) +
+                    (overlap.settings == 1u ? " SETTING" : " SETTINGS");
+        }
         // The other mod's name apart from the words, so that the menu can name both ("OVERRIDDEN BY: X (2 FILES)").
         kinds += std::string(overlap.other_above ? ". OVERRIDDEN BY: " : ". OVERRIDES: ") + mods_ui_text(overlap.other, 24u) +
                  " (" + what + ")";
@@ -2347,20 +2413,62 @@ std::string mod_details(const galaxy::mods::ModInfo& mod) {
 
 void close_mod_options(const RenderConfig& render);
 
-// Whether a mod has options to show: its Riivolution choices, or the text it shows in a language it lacks.
-bool mod_has_options(const galaxy::mods::ModInfo& mod, const std::string& playing) {
-    const bool covers = std::find(mod.languages.begin(), mod.languages.end(), playing) != mod.languages.end();
-    return !mod.options.empty() || mod.textures || (!mod.languages.empty() && !covers && !playing.empty());
+void open_mod_about();
+void ask_mod_remove();
+
+// Whether a mod's ABOUT has anything to show: its description, icon or pictures.
+bool mod_has_about(const galaxy::mods::ModInfo& mod) {
+    return !mod.pack_description.empty() || (mod.luma != nullptr && (!mod.luma->icon.empty() || !mod.luma->pictures.empty()));
 }
 
-// A mod's options instead of the lists: its Riivolution choices and the text it shows, part of the draft. Done,
-// Escape or B goes back to the lists. With s_mods_mutex held.
-std::vector<SettingsRow> mod_options_page(std::size_t i) {
+// With s_mods_mutex held: the draft's mod in that folder, or null (a rescan or an import that ended took it). A row's
+// change finds its mod by this, not by its place: an import ending while the page shows reorders the list.
+galaxy::mods::ModInfo* mod_by_id_locked(const std::string& id) {
+    const auto it = std::find_if(s_mods.begin(), s_mods.end(), [&](const galaxy::mods::ModInfo& m) { return m.id == id; });
+    return it != s_mods.end() ? &*it : nullptr;
+}
+
+// A mod's page instead of the lists: what it is (version, makers, license, website, folder), whether it is on (left and
+// right turn it on or off), what it changes, then its options (Riivolution choices, a .luma's options, the text it
+// shows, a pack's texture categories), all part of the draft; ABOUT shows its description and pictures, REMOVE removes
+// it, Done, Escape or B goes back to the lists. With s_mods_mutex held.
+std::vector<SettingsRow> mod_page(std::size_t i) {
     std::vector<SettingsRow> rows;
     const galaxy::mods::ModInfo& mod = s_mods[i];
-    SettingsRow title{mods_ui_text(mod.id, 26u), {}, nullptr, {}, true};
+    SettingsRow title{mod_title(mod), {}, nullptr, {}, true};
     title.names = 1u;
     rows.push_back(std::move(title));
+    // A line of what it is: its value its maker's words, as they are.
+    const auto fact = [&rows](const char* label, std::string value, std::string help) {
+        SettingsRow row{label, std::move(value), nullptr, std::move(help)};
+        row.names = 2u;
+        rows.push_back(std::move(row));
+    };
+    const std::string id = mod.id;
+    const std::size_t on = static_cast<std::size_t>(
+        std::count_if(s_mods.begin(), s_mods.end(), [](const galaxy::mods::ModInfo& m) { return m.enabled; }));
+    SettingsRow status{"STATUS", mod.enabled ? "ON (" + std::to_string(mod.order) + " OF " + std::to_string(on) + ")" : "OFF",
+                       [id](RenderConfig&, int delta) {
+                           const std::lock_guard<std::mutex> change_lock(s_mods_mutex);
+                           const galaxy::mods::ModInfo* const found = mod_by_id_locked(id);
+                           if (delta == 0 || found == nullptr) return;
+                           place_mod_locked(id, !found->enabled, 0u);
+                       },
+                       mod.problem.empty() ? std::string() : mods_ui_text(mod.problem, 120u)};
+    rows.push_back(std::move(status));
+    const std::string kinds = galaxy::mods::change_kinds(mod);
+    rows.push_back({"CHANGES", kinds.empty() ? std::string("NOTHING THIS GAME USES") : kinds, nullptr, mod_details(mod)});
+    if (mod.luma != nullptr && !mod.luma->version.empty()) fact("VERSION", mods_ui_text(mod.luma->version, 24u), {});
+    if (!mod.pack_author.empty()) fact("BY", mods_ui_text(mod.pack_author, 60u), {});
+    if (mod.luma != nullptr && !mod.luma->license.empty()) fact("LICENSE", mods_ui_text(mod.luma->license, 60u), {});
+    if (mod.luma != nullptr && (mod.luma->homepage.starts_with("https://") || mod.luma->homepage.starts_with("http://"))) {
+        fact("WEBSITE", mods_ui_text(mod.luma->homepage, 60u), {});
+    }
+    fact("FOLDER", mods_ui_text(mod.id, 60u), {});
+    if (!mod.options.empty()) {
+        SettingsRow heading{"OPTIONS", {}, nullptr, {}, true};
+        rows.push_back(std::move(heading));
+    }
     for (std::size_t o = 0; o < mod.options.size(); ++o) {
         const galaxy::mods::ModOption& option = mod.options[o];
         const std::string value = option.selected == 0u || option.selected > option.choices.size()
@@ -2372,10 +2480,11 @@ std::vector<SettingsRow> mod_options_page(std::size_t i) {
         std::string_view name = option.name;
         while (!name.empty() && (name.back() == ':' || name.back() == ' ')) name.remove_suffix(1);
         SettingsRow choice{mods_ui_text(name, 24u), value,
-                           [i, o](RenderConfig&, int delta) {
+                           [id, o](RenderConfig&, int delta) {
                                const std::lock_guard<std::mutex> change_lock(s_mods_mutex);
-                               if (i >= s_mods.size() || o >= s_mods[i].options.size()) return;
-                               galaxy::mods::ModOption& changed = s_mods[i].options[o];
+                               galaxy::mods::ModInfo* const found = mod_by_id_locked(id);
+                               if (found == nullptr || o >= found->options.size()) return;
+                               galaxy::mods::ModOption& changed = found->options[o];
                                if (changed.must_choose) {
                                    changed.selected = settings_step(std::max(changed.selected, 1u) - 1u, static_cast<unsigned>(changed.choices.size()), delta) + 1u;
                                } else {
@@ -2398,10 +2507,11 @@ std::vector<SettingsRow> mod_options_page(std::size_t i) {
             if (language_name(folder) == "ENGLISH") theirs = "ENGLISH";
         }
         rows.push_back({"TEXT", mod.own_text ? "THE MOD'S " + theirs : "THE GAME'S " + language_name(playing),
-                        [i](RenderConfig&, int delta) {
+                        [id](RenderConfig&, int delta) {
                             const std::lock_guard<std::mutex> change_lock(s_mods_mutex);
-                            if (i >= s_mods.size() || delta == 0) return;
-                            s_mods[i].own_text = !s_mods[i].own_text;
+                            galaxy::mods::ModInfo* const found = mod_by_id_locked(id);
+                            if (found == nullptr || delta == 0) return;
+                            found->own_text = !found->own_text;
                         },
                         "THIS MOD HAS NO " + language_name(playing) + " TEXT. ITS OWN TEXT MATCHES ITS CHANGES"});
     }
@@ -2419,29 +2529,47 @@ std::vector<SettingsRow> mod_options_page(std::size_t i) {
             const bool off = (mod.categories_off & galaxy::textures::category_bit(category)) != 0u;
             rows.push_back({galaxy::textures::category_name(category),
                             std::string(off ? "OFF" : "ON") + " (" + std::to_string(count) + ")",
-                            [i, category](RenderConfig&, int delta) {
+                            [id, category](RenderConfig&, int delta) {
                                 const std::lock_guard<std::mutex> change_lock(s_mods_mutex);
-                                if (i >= s_mods.size() || delta == 0) return;
-                                s_mods[i].categories_off ^= galaxy::textures::category_bit(category);
+                                galaxy::mods::ModInfo* const found = mod_by_id_locked(id);
+                                if (found == nullptr || delta == 0) return;
+                                found->categories_off ^= galaxy::textures::category_bit(category);
                             },
                             mods_ui_text(mod.pack_title.empty() ? mod.id : mod.pack_title, 40u)});
         }
         rows.push_back(button_row({}, {"ALL ON", "ALL OFF"},
-                                  [i](RenderConfig&, unsigned button) {
+                                  [id](RenderConfig&, unsigned button) {
                                       const std::lock_guard<std::mutex> change_lock(s_mods_mutex);
-                                      if (i < s_mods.size()) {
-                                          s_mods[i].categories_off = button == 0u ? 0u : 0xFFFFFFFFu;
+                                      if (galaxy::mods::ModInfo* const found = mod_by_id_locked(id)) {
+                                          found->categories_off = button == 0u ? 0u : 0xFFFFFFFFu;
                                       }
                                   },
                                   {}));
     }
-    rows.push_back(button_row({}, {"DONE"}, [](RenderConfig& draft, unsigned) { close_mod_options(draft); }, {}));
+    const bool about = mod_has_about(mod);
+    SettingsRow buttons = button_row({}, {about ? "ABOUT" : "-ABOUT", "REMOVE", "DONE"},
+                                     [](RenderConfig& draft, unsigned button) {
+                                         if (button == 0u) {
+                                             open_mod_about();
+                                         } else if (button == 1u) {
+                                             ask_mod_remove();
+                                         } else {
+                                             close_mod_options(draft);
+                                         }
+                                     },
+                                     {});
+    buttons.key = "mod-buttons";
+    rows.push_back(std::move(buttons));
     return rows;
 }
 
 // A mod in its list: its name, and what it changes as the line under the page. With s_mods_mutex held.
 SettingsRow mod_row(const galaxy::mods::ModInfo& mod) {
-    SettingsRow row{mods_ui_text(mod.id, 26u), {}, nullptr, mod_details(mod)};
+    const std::string title = mod_title(mod);
+    const bool twin = std::any_of(s_mods.begin(), s_mods.end(), [&](const galaxy::mods::ModInfo& other) {
+        return other.id != mod.id && mod_title(other) == title;
+    });
+    SettingsRow row{twin ? title + " (" + mods_ui_text(mod.id, 24u) + ")" : title, {}, nullptr, mod_details(mod)};
     row.key = "mod:" + mod.id;
     row.names = 1u;
     row.list = mod.enabled ? 2u : 1u;
@@ -2449,9 +2577,9 @@ SettingsRow mod_row(const galaxy::mods::ModInfo& mod) {
     return row;
 }
 
-// The buttons under the lists, as the launcher's: Import file, Import folder, Options (of the mod last selected in a
-// list; '-' before a word: unavailable), Open mods folder and Rescan. The line under the page says how an import goes.
-// With s_mods_mutex held.
+// The buttons under the lists, as the launcher's: Import file, Import folder, Details (the page of the mod last selected
+// in a list; '-' before a word: unavailable), Open mods folder and Rescan. The line under the page says how an import
+// goes. With s_mods_mutex held.
 SettingsRow mods_buttons_row() {
     std::string help;
     {
@@ -2460,17 +2588,17 @@ SettingsRow mods_buttons_row() {
     }
     if (s_mod_dialog_open.load(std::memory_order_acquire)) help = "CHOOSING";
     const auto focus = std::find_if(s_mods.begin(), s_mods.end(), [](const galaxy::mods::ModInfo& m) { return m.id == s_mod_focus; });
-    const bool options = focus != s_mods.end() && mod_has_options(*focus, next_start_language_folder());
+    const bool details = focus != s_mods.end();
 #if defined(__ANDROID__)
     // A phone picks files (its picker has no folders) and shows no folder of the app's own storage.
     SettingsRow row = button_row(
-        {}, {"IMPORT FILE", options ? "OPTIONS" : "-OPTIONS", "RESCAN"},
+        {}, {"IMPORT FILE", details ? "DETAILS" : "-DETAILS", "RESCAN"},
         [](RenderConfig&, unsigned shown) {
             static constexpr unsigned kButtons[] = {0u, 2u, 4u};
             const unsigned button = kButtons[std::min(shown, 2u)];
 #else
     SettingsRow row = button_row(
-        {}, {"IMPORT FILE", "IMPORT FOLDER", options ? "OPTIONS" : "-OPTIONS", "OPEN FOLDER", "RESCAN"},
+        {}, {"IMPORT FILE", "IMPORT FOLDER", details ? "DETAILS" : "-DETAILS", "OPEN FOLDER", "RESCAN"},
         [](RenderConfig&, unsigned button) {
 #endif
             switch (button) {
@@ -2482,9 +2610,11 @@ SettingsRow mods_buttons_row() {
                 const std::lock_guard<std::mutex> lock(s_mods_mutex);
                 const auto it = std::find_if(s_mods.begin(), s_mods.end(),
                                              [](const galaxy::mods::ModInfo& m) { return m.id == s_mod_focus; });
-                if (it != s_mods.end() && mod_has_options(*it, next_start_language_folder())) {
+                if (it != s_mods.end()) {
                     s_mod_options = s_mod_focus;
                     s_mod_held.clear();
+                    s_native_settings_row.store(1u, std::memory_order_relaxed);
+                    s_native_settings_button_row.store(~0u, std::memory_order_relaxed);
                 }
                 return;
             }
@@ -2506,18 +2636,31 @@ SettingsRow mods_buttons_row() {
 // The MODS page as the launcher's Mods tab: the mods off, then the mods on (the higher one wins a conflict), each list
 // under its title, then the buttons. A mod's options show instead while they are open.
 std::vector<SettingsRow> mods_page(const RenderConfig&) {
+#if defined(__APPLE__)
+    // Mods are not on Apple's systems yet (docs/APPLE.md): the page says so, and nothing on it is chosen.
+    return {SettingsRow{"THIS IS STILL A WORK IN PROGRESS. PLEASE COME BACK LATER!", {}, nullptr, {}, true}};
+#else
     std::vector<SettingsRow> rows;
     const std::lock_guard<std::mutex> lock(s_mods_mutex);
     std::vector<galaxy::mods::ModInfo>& mods = mods_list();
+    // A mod that is on with code the player hasn't been asked about (imported, or put in the folder: on from the
+    // start): the question comes as the page shows, before anything is drafted.
+    if (s_native_settings_visible.load(std::memory_order_relaxed) &&
+        s_native_settings_tab.load(std::memory_order_relaxed) % kNativeSettingsTabCount == kModsTab && !restart_asking() &&
+        mods_draft_changes_locked() == 0u && first_code_to_allow_locked() != nullptr) {
+        s_mods_code_ask.store(true, std::memory_order_release);
+    }
     // The packs' categories, once the game's textures are sorted.
     for (galaxy::mods::ModInfo& mod : mods) {
         (void)galaxy::mods::update_pack_categories(mod);
     }
     const auto open = std::find_if(mods.begin(), mods.end(), [](const galaxy::mods::ModInfo& m) { return m.id == s_mod_options; });
     if (open != mods.end()) {
-        return mod_options_page(static_cast<std::size_t>(open - mods.begin()));
+        return mod_page(static_cast<std::size_t>(open - mods.begin()));
     }
     s_mod_options.clear();
+    s_mod_about.reset();
+    s_mod_remove_ask.clear();
     SettingsRow off{"DISABLED", {}, nullptr, {}, true};
     off.list = 1u;
     rows.push_back(std::move(off));
@@ -2530,8 +2673,14 @@ std::vector<SettingsRow> mods_page(const RenderConfig&) {
     for (const galaxy::mods::ModInfo& mod : mods) {
         if (mod.enabled) rows.push_back(mod_row(mod));
     }
+    // The mod shown selected is the one the buttons act on, from the moment the page opens.
+    const unsigned selected = s_native_settings_row.load(std::memory_order_relaxed);
+    if (selected < rows.size() && rows[selected].list != 0u && !rows[selected].heading) {
+        s_mod_focus = rows[selected].key.substr(4u);
+    }
     rows.push_back(mods_buttons_row());
     return rows;
+#endif
 }
 
 // Back from a mod's options to the lists, on that mod.
@@ -2550,6 +2699,13 @@ void close_mod_options(const RenderConfig& render) {
 // A, Space, Enter or Escape puts it down. On a mod's options, Escape goes back to the lists.
 bool mods_page_key(std::uintptr_t key, bool accept, bool was_down) {
     if (s_native_settings_tab.load(std::memory_order_relaxed) % kNativeSettingsTabCount != kModsTab) return false;
+#if defined(__APPLE__)
+    // The page is one line there (mods_page): its keys are the menu's own.
+    (void)key;
+    (void)accept;
+    (void)was_down;
+    return false;
+#else
     const std::vector<SettingsRow> rows = mods_page(s_settings_draft);
     bool lists = false;
     for (const SettingsRow& row : rows) lists = lists || row.list != 0u;
@@ -2671,6 +2827,7 @@ bool mods_page_key(std::uintptr_t key, bool accept, bool was_down) {
         s_mod_focus = s_mod_held;
     }
     return true;
+#endif
 }
 
 class WindowGeneralPageHost final : public ui::GeneralPageHost {
@@ -3411,6 +3568,139 @@ void fill_vendor_view(NativeSettingsView& view) {
     }
 }
 
+// The open mod page's ABOUT: its name and description in pages, then its icon and pictures. Nothing to show: nothing.
+void open_mod_about() {
+    const std::lock_guard<std::mutex> lock(s_mods_mutex);
+    const auto it = std::find_if(s_mods.begin(), s_mods.end(), [](const galaxy::mods::ModInfo& m) { return m.id == s_mod_options; });
+    if (it == s_mods.end() || !mod_has_about(*it)) return;
+    ModAbout about;
+    about.id = it->id;
+    if (!it->pack_description.empty()) about.pages = license_pages(mod_title(*it) + "\n\n" + it->pack_description);
+    if (it->luma != nullptr) {
+        if (!it->luma->icon.empty()) about.pictures.push_back(it->path / galaxy::text_path(it->luma->icon));
+        for (const std::string& picture : it->luma->pictures) about.pictures.push_back(it->path / galaxy::text_path(picture));
+    }
+    s_mod_about = std::move(about);
+}
+
+// REMOVE on the open mod page: asked first. A mod this session started with stays until the game restarts without it
+// (its files are read while the game plays).
+void ask_mod_remove() {
+    const std::lock_guard<std::mutex> lock(s_mods_mutex);
+    if (s_mod_options.empty()) return;
+    // An import may be writing this mod's folder: removal waits for it to end.
+    if (s_mod_import_busy.load(std::memory_order_acquire)) {
+        show_controls_message("AN IMPORT IS RUNNING: TRY AGAIN WHEN IT ENDS");
+        return;
+    }
+    const galaxy::mods::SessionMods session = galaxy::mods::session_mods();
+    if (std::find(session.active.begin(), session.active.end(), s_mod_options) != session.active.end()) {
+        show_controls_message("IN USE UNTIL NEBULA RESTARTS: TURN IT OFF AND RESTART FIRST");
+        return;
+    }
+    s_mod_remove_ask = s_mod_options;
+}
+
+// Either is up on the MODS page. Left otherwise (the menu closed with F1 and opened on another page): both end.
+bool mod_question_up() {
+    const std::lock_guard<std::mutex> lock(s_mods_mutex);
+    if (s_native_settings_tab.load(std::memory_order_relaxed) % kNativeSettingsTabCount != kModsTab) {
+        s_mod_about.reset();
+        s_mod_remove_ask.clear();
+    }
+    return s_mod_about.has_value() || !s_mod_remove_ask.empty();
+}
+
+// The ABOUT window's keys: Enter, Space or Y the next page, Backspace or X the one before, Escape, B or F1 back to the
+// mod's page. REMOVE's: Enter, Space or Y removes it (to the recycle bin where there is one) and goes back to the lists,
+// Escape, Backspace, B or F1 keeps it. Every other key waits.
+bool mod_question_key(std::uintptr_t key, bool was_down) {
+    if (!mod_question_up()) return false;
+    std::unique_lock<std::mutex> lock(s_mods_mutex);
+    if (s_mod_about) {
+        if (was_down) return true;
+        ModAbout& about = *s_mod_about;
+        const unsigned count = static_cast<unsigned>(about.pages.size() + about.pictures.size());
+        if (key == VK_ESCAPE || key == VK_F1) {
+            s_mod_about.reset();
+        } else if (key == VK_BACK && about.page > 0u) {
+            --about.page;
+        } else if ((key == VK_RETURN || key == VK_SPACE) && about.page + 1u < count) {
+            ++about.page;
+        }
+        return true;
+    }
+    if (s_mod_remove_ask.empty()) return false;
+    if (was_down) return true;
+    if (key == VK_RETURN || key == VK_SPACE) {
+        const std::string id = s_mod_remove_ask;
+        s_mod_remove_ask.clear();
+        std::string message;
+        const bool removed = galaxy::mods::remove_mod(galaxy::mods::mods_folder(), id, &message);
+        std::cerr << "[settings] mod remove: " << message << '\n';
+        if (removed) {
+            s_mod_options.clear();
+            s_mod_held.clear();
+            reread_mods_locked();
+        }
+        lock.unlock();
+        {
+            const std::lock_guard<std::mutex> import_lock(s_mod_import_mutex);
+            s_mod_import_message = message;
+        }
+        if (removed) select_mods_row(s_settings_draft, "buttons");
+    } else if (key == VK_ESCAPE || key == VK_BACK || key == VK_F1) {
+        s_mod_remove_ask.clear();
+    }
+    return true;
+}
+
+// The ABOUT window or the REMOVE question as the menu's status; false when neither is up. A page's picture is read on
+// its own thread; until it is in, the page says it loads.
+bool fill_mod_question_view(NativeSettingsView& view) {
+    const std::lock_guard<std::mutex> lock(s_mods_mutex);
+    if (!s_mod_remove_ask.empty()) {
+        view.status = NativeSettingsStatus::ModRemoveAsk;
+#if defined(_WIN32)
+        view.status_number = 1;
+#endif
+        return true;
+    }
+    if (!s_mod_about) return false;
+    ModAbout& about = *s_mod_about;
+    view.status = NativeSettingsStatus::ModAbout;
+    view.status_number = static_cast<int>(about.page) + 1;
+    if (about.page < about.pages.size()) {
+        view.long_text = about.pages[about.page];
+        return true;
+    }
+    const std::size_t picture = about.page - about.pages.size();
+    if (picture >= about.pictures.size()) return true;
+    if (about.picture_page != about.page) {
+        // A page turned while one was read: that one is waited for (it is never more than a moment).
+        if (about.reading.valid()) about.reading.wait();
+        about.picture.reset();
+        about.unreadable = false;
+        about.missing = false;
+        about.picture_page = about.page;
+        about.reading = std::async(std::launch::async, read_menu_picture, about.pictures[picture]);
+    }
+    if (about.reading.valid() && about.reading.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        about.picture = about.reading.get();
+        about.unreadable = about.picture == nullptr;
+        std::error_code exists_error;
+        about.missing = about.unreadable && !std::filesystem::is_regular_file(about.pictures[picture], exists_error);
+    }
+    // No picture to show: the page's number with what keeps it away (nebula_game_api.h MOD_ABOUT).
+    const int page_number = static_cast<int>(about.page) + 1;
+    if (about.unreadable) {
+        view.status_number = -(page_number * 4 + (about.missing ? 3 : 2));
+    } else if (about.picture == nullptr) {
+        view.status_number = -(page_number * 4 + 1);
+    }
+    view.picture = about.picture;
+    return true;
+}
 
 }  // namespace
 
@@ -3725,11 +4015,16 @@ NativeSettingsView build_native_settings_view() {
         if (s_joycon_paired_ms != 0u && now_ms - s_joycon_paired_ms >= kJoyConPairedShowMs) {
             close_joycon_pairing();
         }
+    } else if (tab == kModsTab && fill_mod_question_view(view)) {
+        // The mod page's ABOUT or REMOVE.
     } else if (s_settings_leave_asking) {
         view.status = NativeSettingsStatus::Leave;
         view.status_number = static_cast<int>(pending_settings_changes());
     } else if (s_mods_code_ask.load(std::memory_order_acquire)) {
         view.status = NativeSettingsStatus::ModsCodeAsk;
+        // The mod it asks about by name: more than one can wait for an answer.
+        const std::lock_guard<std::mutex> lock(s_mods_mutex);
+        if (const galaxy::mods::ModInfo* mod = first_code_to_allow_locked()) view.status_text = mod_title(*mod);
     } else if (s_mods_restart_ask.load(std::memory_order_acquire)) {
         view.status = NativeSettingsStatus::ModsRestartAsk;
     } else if (s_rt_restart_ask.load(std::memory_order_acquire)) {
@@ -3962,7 +4257,7 @@ void native_settings_input(NativeSettingsInput input, int arg) {
     }
     // The page and its rows wait while a question is up (keep the display? leave without applying?).
     if (!visible || s_settings_leave_asking || s_joycon_pairing || galaxy::host::touch_arranging() || settings_display_confirming() ||
-        restart_asking() || vendor_prompting()) {
+        restart_asking() || vendor_prompting() || mod_question_up()) {
         return;
     }
     switch (input) {

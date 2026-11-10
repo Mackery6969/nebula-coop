@@ -1480,7 +1480,7 @@ void RenderCore::drop_device_state() {
 bool RenderCore::restart_renderer(const FrameMap& frame, bool same_card) {
     Renderer::Kept kept = renderer_.take_apart_lost_device();
     std::destroy_at(&renderer_);
-#if defined(NEBULA_DEV) && !defined(NEBULA_GPU_VULKAN)
+#if defined(NEBULA_DEV) && !defined(NEBULA_GPU_VULKAN) && !defined(NEBULA_GPU_METAL)
     Renderer::list_live_objects(kept);
 #endif
     std::construct_at(&renderer_);
@@ -2034,6 +2034,11 @@ void RenderCore::begin_walk_frame(ListEntry& entry) {
         matrix_bytes += std::size_t{core::light_set_rows(list.light_sets[s].count)} * 16u;
     }
     matrix_bytes += std::size_t{list.instance_row_count} * 16u;
+    if (rt_backend_.started()) {
+        // The scene's instances, and the ring draws' triangles as the tracer takes them.
+        matrix_bytes += std::size_t{list.item_count} * sizeof(rt::Instance) + 64u;
+        matrix_bytes += std::size_t{list.ring_index_count} * 12u + static_cast<std::size_t>(list.ring_vertex_bytes);
+    }
     std::size_t constant_bytes = std::size_t{list.view_count} * (sizeof(core::ViewRows) + 255u);
     for (std::uint32_t c = 0; c < list.constants_count; ++c) {
         const auto& constants = list.constants[c];
@@ -2042,6 +2047,9 @@ void RenderCore::begin_walk_frame(ListEntry& entry) {
     renderer_.matrix_ring().require_frame_bytes(matrix_bytes);
     renderer_.vertex_ring().require_frame_bytes(list.ring_vertex_bytes);
     renderer_.index_ring().require_frame_bytes(std::size_t{list.ring_index_count} * sizeof(std::uint32_t));
+    if (rt_backend_.started()) {
+        constant_bytes += 1024u + std::size_t{list.item_count} * 256u;  // the tracer's passes' constants (a skinned draw's)
+    }
     renderer_.constant_ring().require_frame_bytes(constant_bytes);
     renderer_.begin_frame();
     picture_made_in_chunk_ = false;
@@ -2125,7 +2133,7 @@ void RenderCore::begin_walk_frame(ListEntry& entry) {
         }
         retired_tables_.clear();
         registries_.forget_textures(freed_textures_, retired_tables_);
-#if defined(NEBULA_GPU_VULKAN)
+#if defined(NEBULA_GPU_VULKAN) || defined(NEBULA_GPU_METAL)
         // Draws with texture lists keep no tables: their lists are written each walk.
         if (!renderer_.bindless()) {
             for (const gpu::Table table : retired_tables_) {
@@ -2146,7 +2154,7 @@ void RenderCore::begin_walk_frame(ListEntry& entry) {
             table_sweep_at_ = frame_index_ + core::Registries::kTableSweepFrames * per_game_frame;
             retired_tables_.clear();
             registries_.retire_idle_tables(frame_index_, retired_tables_, core::Registries::kTableIdleFrames * per_game_frame);
-#if defined(NEBULA_GPU_VULKAN)
+#if defined(NEBULA_GPU_VULKAN) || defined(NEBULA_GPU_METAL)
             if (!renderer_.bindless()) {
                 for (const gpu::Table table : retired_tables_) {
                     renderer_.retire_texture_table(table);
@@ -2160,7 +2168,7 @@ void RenderCore::begin_walk_frame(ListEntry& entry) {
             const core::Registries::TableCounts tables = registries_.table_counts();
             std::fprintf(stderr, "[render] texture tables: %u live, %u retired (%llu released since the start)\n", tables.live,
                          tables.retired, static_cast<unsigned long long>(tables.retirements));
-#if !defined(NEBULA_GPU_VULKAN)
+#if !defined(NEBULA_GPU_VULKAN) && !defined(NEBULA_GPU_METAL)
             // The same 600 frames: where the process's video memory is (the renderer adds its own targets, rings and heaps).
             Renderer::VideoMemoryOutside outside;
             const PlacedTextureAllocator::Stats texture_heap = texture_store_.backend().heap_stats();

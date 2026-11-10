@@ -4,6 +4,7 @@
 
 #include "galaxy/cpu_count.h"
 #include "galaxy/frame_timeline.h"
+#include "galaxy/launch_args.h"
 #include "galaxy/loss_report.h"
 #include "galaxy/render/render_config.h"
 #include "galaxy/run_options.h"
@@ -706,7 +707,7 @@ void RenderCore::walk_tables(std::uint32_t id, gpu::Address& lists, std::uint32_
     first = table.list_first;
 }
 
-#if defined(NEBULA_GPU_VULKAN)
+#if defined(NEBULA_GPU_VULKAN) || defined(NEBULA_GPU_METAL)
 // A device without descriptor indexing: each draw binds its table, as many maps as a bound table holds on this device
 // (renderer_.table_slots(); program.hlsli NEBULA_BOUND_TABLES). A longer list draws with its first maps.
 void RenderCore::walk_bound_tables(std::uint32_t id, gpu::Table& textures, gpu::Table& samplers) {
@@ -853,7 +854,7 @@ public:
     void set_rows(gpu::Address rows, gpu::Address instances) noexcept { encoder_.set_rows(rows, instances); }
     void set_draw_aux(unsigned aux) { renderer_.set_draw_aux(aux); }
     void bind_textures(gpu::Address lists) { renderer_.bind_draw_textures(lists); }
-#if defined(NEBULA_GPU_VULKAN)
+#if defined(NEBULA_GPU_VULKAN) || defined(NEBULA_GPU_METAL)
     void set_tables(gpu::Table textures, gpu::Table samplers) noexcept {
         renderer_.bind_draw_tables(textures, samplers);
         encoder_.set_tables(textures, samplers);
@@ -887,7 +888,7 @@ public:
     void set_rows(gpu::Address rows, gpu::Address instances) noexcept { recorder_.set_rows(rows, instances); }
     void set_draw_aux(unsigned aux) { recorder_.set_draw_aux(aux); }
     void bind_textures(gpu::Address lists) { recorder_.set_texture_arrays(renderer_.draw_texture_arrays(lists)); }
-#if defined(NEBULA_GPU_VULKAN)
+#if defined(NEBULA_GPU_VULKAN) || defined(NEBULA_GPU_METAL)
     void set_tables(gpu::Table textures, gpu::Table samplers) { recorder_.set_tables(textures, samplers); }
 #endif
     void set_pipeline(gpu::Pipeline* pipeline) { recorder_.set_pipeline(pipeline); }
@@ -1055,7 +1056,7 @@ void RenderCore::walk_draw_items(const NebulaFramePass& pass, Draws& encoder) {
         const core::StaticSlot& material = walk_material(item.constants);
         encoder.set_material(material.vertex_rows, material.pixel_rows);
         gpu::DrawRoot root;
-#if defined(NEBULA_GPU_VULKAN)
+#if defined(NEBULA_GPU_VULKAN) || defined(NEBULA_GPU_METAL)
         if (!renderer_.bindless()) {
             gpu::Table textures{}, samplers{};
             walk_bound_tables(item.textures, textures, samplers);
@@ -1212,9 +1213,16 @@ void RenderCore::walk_scene_begin(const NebulaFramePass& pass) {
         display_pictures_.set_frame_map(renderer_.frame_map());
     }
     ++walk_view_stamp_;
+    if (rt_backend_.started()) {
+        rt_scene(pass);
+    }
 }
 
 void RenderCore::walk_opaque_end(const NebulaFramePass& pass) {
+    if (rt_backend_.started() && scene_phase_ && pass.scene_view != NEBULA_NONE32 &&
+        ::galaxy::diagnosing(::galaxy::kDiagnoseRtView | ::galaxy::kDiagnoseRtCheck)) {
+        rt_view(pass);
+    }
     if (!ambient_occlusion_ || !scene_phase_ || pass.scene_view == NEBULA_NONE32) {
         return;
     }

@@ -191,7 +191,9 @@ void CameraDirector::calcPose() {
     mOnlyCamera->calcPose(getCurrentCameraMan());
     mPoseParam1->copyFrom(*mOnlyCamera->mPoseParam);
 
-    // A plugin's camera (set_camera): where it says at once, through walls.
+    // The game's own pose, for game_camera; then a plugin's camera (set_camera): where it says at once, through walls.
+    NebulaMods::recordGameCamera(mPoseParam1->mPos.x, mPoseParam1->mPos.y, mPoseParam1->mPos.z, mPoseParam1->mWatchPos.x,
+                                 mPoseParam1->mWatchPos.y, mPoseParam1->mWatchPos.z);
     f32 position[3];
     f32 target[3];
     const u32 given = NebulaMods::cameraPose(position, target);
@@ -346,6 +348,13 @@ void CameraDirector::endEvent(s32 zoneID, const char* pName, bool resetView, s32
             }
 
             mViewInterpolator->mIsInterpolationOff = true;
+
+            // The area's camera has the view again: plugins hear it as one (value 0), by its name.
+            if (getCurrentCameraMan() == mCameraManGame) {
+                const CameraParamChunk* chunk = mCameraManGame->mChunk;
+                NebulaMods::fire(NEBULA_MOD_EVENT_CAMERA_CHANGE, 0, nullptr,
+                                 chunk != nullptr && chunk->mParamChunkID != nullptr ? chunk->mParamChunkID->mName : nullptr);
+            }
         }
     }
 }
