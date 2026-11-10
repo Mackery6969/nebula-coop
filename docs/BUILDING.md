@@ -105,10 +105,11 @@ installed copies don't update to it. To make a new key pair (keep `nebula-releas
 ```powershell
 $rsa = New-Object System.Security.Cryptography.RSACryptoServiceProvider 4096
 $rsa.PersistKeyInCsp = $false
+New-Item -ItemType Directory -Force "$env:USERPROFILE\.nebula-release-key" | Out-Null
 [IO.File]::WriteAllText("$env:USERPROFILE\.nebula-release-key\nebula-release-private.xml", $rsa.ToXmlString($true))
 [IO.File]::WriteAllText("$PWD\installer\release-public-key.xml", $rsa.ToXmlString($false))
 ```
 
-(Create the `.nebula-release-key` folder first.) A pull request that changes the Release workflow, the installer,
+Run it from the repository's root. A pull request that changes the Release workflow, the installer,
 `native/build.ps1` or `tools/release_check.ps1` builds Setup the same way without publishing it (the `nebula-setup`
 download), and so does **Actions** > **Release** > **Run workflow**.
