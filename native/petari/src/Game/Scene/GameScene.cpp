@@ -360,6 +360,9 @@ namespace {
         if (NebulaCoopBubble::isLocalBubbled()) {
             player.flags |= NEBULA_COOP_PLAYER_BUBBLED;
         }
+        if (NebulaRemotePlayer::isLocalRacing()) {
+            player.flags |= NEBULA_COOP_PLAYER_RACING;
+        }
         player.area = NebulaCoopBubble::getArea();
         NebulaHost::coopPlayer(&player);
     }

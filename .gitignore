@@ -19,11 +19,8 @@
 /.env.*
 /.claude/
 /.opencode/
-/.vs/
 **/__pycache__/
 *.log
 *.tmp
 *.gxdump
 
-# Co-op test instances (unique saves/ports per instance)
-/instances/

@@ -171,8 +171,9 @@ namespace {
         const u32 area = NebulaCoopBubble::getArea();
         for (s32 i = 0; i < NebulaRemotePlayer::getCopyNum(); i++) {
             const NebulaRemotePlayer* pCopy = NebulaRemotePlayer::getCopy(i);
+            // (Nor racing: a player in a race of their own runs on, as see-through to the others as they to them.)
             if (pCopy == nullptr || pCopy->mNumber == 0 || pCopy->mState.area != area ||
-                (pCopy->mState.flags & (NEBULA_COOP_PLAYER_DEAD | NEBULA_COOP_PLAYER_BUBBLED)) != 0) {
+                (pCopy->mState.flags & (NEBULA_COOP_PLAYER_DEAD | NEBULA_COOP_PLAYER_BUBBLED | NEBULA_COOP_PLAYER_RACING)) != 0) {
                 continue;
             }
             const f32 distance = (getCenter(pCopy) - rFrom).length();
@@ -306,6 +307,10 @@ bool startBubble(MarioActor* pActor) {
         return false;
     }
     if (pActor->_39D == 1 || pActor->_39D == 2 || pActor->_39D == 5 || MR::isGlobalTimerEnd() || MR::getPlayerLeft() <= 0) {
+        return false;
+    }
+    // A miss in a race of the player's own ends it as alone: it starts over.
+    if (NebulaRemotePlayer::isLocalRacing()) {
         return false;
     }
     if (findRescuer(getCenter(pActor)) == nullptr) {

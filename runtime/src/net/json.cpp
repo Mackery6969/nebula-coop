@@ -181,7 +181,7 @@ private:
             if (at_ >= text_.size() || text_[at_++] != ':') return false;
             Value item;
             if (!value(item, depth + 1)) return false;
-            out.object.emplace_back(std::move(key), std::move(item));
+            out.object.push_back({std::move(key), std::move(item)});
             space();
             if (at_ >= text_.size()) return false;
             if (text_[at_] == '}') {

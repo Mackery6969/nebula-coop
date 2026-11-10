@@ -31,6 +31,10 @@ public:
     virtual void control();
 
     void setTimeLimit(u32);
+    // Online co-op (docs/COOP_PLAN.md "Races and timers"): the clock moved on to `time` frames gone, where the
+    // instance's clock is ahead of it (never back, never past the limit, so the time up still comes).
+    void catchUpTo(u32 time);
+    u32 getTime() const { return mTime; }
     void setDisplayModeOnNormal(bool);
     bool isReadyToTimeUp() const;
     void resetFrame();
