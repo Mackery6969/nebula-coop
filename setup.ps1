@@ -7,6 +7,7 @@
 #   .\setup.ps1 -SkipTools               # Skip tool detection, assume everything is installed
 #   .\setup.ps1 -SkipBuild               # Just check tools and init submodules, don't build
 #   .\setup.ps1 -SkipTests               # Build everything but skip running tests
+#   .\setup.ps1 -UseSccache              # Enable sccache for host and game module builds
 #   .\setup.ps1 -BuildHostOnly           # Only build the host (CMake), skip game module and import tool
 #   .\setup.ps1 -BuildGameModuleOnly     # Only build the game module, skip host and import tool
 #   .\setup.ps1 -CreateInstances 2       # Create N instance directories after building (default: 2)
@@ -15,6 +16,7 @@ param(
     [switch]$SkipTools,
     [switch]$SkipBuild,
     [switch]$SkipTests,
+    [switch]$UseSccache,
     [switch]$BuildHostOnly,
     [switch]$BuildGameModuleOnly,
     [int]$CreateInstances = 2
@@ -133,6 +135,17 @@ if (-not $SkipTools) {
         rustup target add x86_64-pc-windows-msvc
     }
 
+    # sccache (optional, enabled with -UseSccache)
+    if ($UseSccache) {
+        if (-not (Test-Command sccache)) {
+            Write-Warn "sccache not found. Install from https://github.com/mozilla/sccache or skip with -UseSccache`n"
+            $UseSccache = $false
+        } else {
+            $SccacheVer = sccache --version | Select-String -Pattern 'sccache (\d+\.\d+\.\d+)'
+            Write-Ok "sccache $($SccacheVer.Matches[0].Groups[1].Value) found"
+        }
+    }
+
     # .NET 8 SDK (for Setup/launcher - optional for dev)
     if (Test-Command dotnet) {
         $DotNetVer = dotnet --version
@@ -172,6 +185,14 @@ if (Test-Path ".gitmodules") {
     }
 }
 
+# ── 3. Start sccache Server ─────────────────────────────────────────────────
+
+if ($UseSccache) {
+    Write-Step "Starting sccache"
+    sccache --start-server
+    Write-Ok "sccache server started"
+}
+
 # ── 3. Build nebula-import (Rust disc importer) ─────────────────────────────
 
 if (-not $BuildHostOnly) {
@@ -189,7 +210,10 @@ if (-not $BuildHostOnly) {
 
 if (-not $BuildGameModuleOnly) {
     Write-Step "Building host (NebulaNative - D3D12)"
-    cmake -S . -B build\host -G Ninja -DCMAKE_BUILD_TYPE=Release
+    $sccache_flags = if ($UseSccache) {
+        " -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache"
+    } else { "" }
+    cmake -S . -B build\host -G Ninja -DCMAKE_BUILD_TYPE=Release$sccache_flags
     cmake --build build\host --target NebulaNative --parallel
     if ($LASTEXITCODE -ne 0) {
         Write-ErrorCustom "Host build failed"
@@ -203,7 +227,8 @@ if (-not $BuildGameModuleOnly) {
 
 if (-not $BuildHostOnly) {
     Write-Step "Building game module (smg_game.dll)"
-    & "$PSScriptRoot\native\build.ps1" -Petari "$PSScriptRoot\native\petari" -Build "$PSScriptRoot\build\game"
+    $sccache_arg = if ($UseSccache) { "-UseSccache" } else { "" }
+    & "$PSScriptRoot\native\build.ps1" -Petari "$PSScriptRoot\native\petari" -Build "$PSScriptRoot\build\game" @sccache_arg
     if ($LASTEXITCODE -ne 0) {
         Write-ErrorCustom "Game module build failed"
     }
