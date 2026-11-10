@@ -20,23 +20,11 @@ set(NEBULA_GAME_VERSION "RMGE01" CACHE STRING "Game release")
 set_property(CACHE NEBULA_GAME_VERSION PROPERTY STRINGS RMGE01)
 
 set(petari "${NEBULA_PETARI_DIR}")
-
-# Split into object libraries for faster incremental builds: each Petari
-# subdirectory is its own OBJECT library, so only files in changed headers
-# (and their dependents) need recompilation.
-file(GLOB_RECURSE petari_game_sources CONFIGURE_DEPENDS
-    "${petari}/src/Game/*.cpp" "${petari}/src/Game/*.c")
-file(GLOB_RECURSE petari_jsystem_sources CONFIGURE_DEPENDS
-    "${petari}/src/JSystem/*.cpp" "${petari}/src/JSystem/*.c")
-file(GLOB_RECURSE petari_nw4r_sources CONFIGURE_DEPENDS
-    "${petari}/src/nw4r/*.cpp" "${petari}/src/nw4r/*.c")
-file(GLOB_RECURSE petari_miilib_sources CONFIGURE_DEPENDS
+file(GLOB_RECURSE game_sources CONFIGURE_DEPENDS
+    "${petari}/src/Game/*.cpp" "${petari}/src/Game/*.c"
+    "${petari}/src/JSystem/*.cpp" "${petari}/src/JSystem/*.c"
+    "${petari}/src/nw4r/*.cpp" "${petari}/src/nw4r/*.c"
     "${petari}/src/MiiLib/*.c" "${petari}/src/MiiLib/*.cpp")
-set(petari_math_sources
-    math/src/nebula_math.c
-    math/src/nebula_libm.c
-    math/src/nebula_libc.c
-    $<$<PLATFORM_ID:Windows>:math/src/nebula_runtime_win.c>)
 
 # What a plugin built with the game's headers must match: any change to them may move a field or a virtual function.
 file(GLOB_RECURSE nebula_game_headers "${petari}/include/*"
@@ -53,17 +41,14 @@ string(SUBSTRING "${nebula_abi_hash}" 0 16 nebula_abi_hash)
 set(NEBULA_GAME_ABI "0x${nebula_abi_hash}ull")
 # For the plugin kit: what a plugin built with these headers says it is.
 file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/sdk/nebula_game_abi.h" CONTENT "#define NEBULA_GAME_ABI ${NEBULA_GAME_ABI}\n" @ONLY)
+set_source_files_properties("${petari}/src/Game/System/NebulaMods.cpp" PROPERTIES COMPILE_DEFINITIONS "NEBULA_GAME_ABI=${NEBULA_GAME_ABI}")
 
-add_library(petari_game OBJECT
-    ${petari_game_sources}
-    ${petari_jsystem_sources}
-    ${petari_nw4r_sources}
-    ${petari_miilib_sources}
-    ${petari_math_sources})
 add_library(smg_game SHARED
-    $<TARGET_OBJECTS:petari_game>)
-set_source_files_properties(${petari_game_sources} PROPERTIES COMPILE_DEFINITIONS "NEBULA_GAME_ABI=${NEBULA_GAME_ABI}")
-set_source_files_properties(${petari_math_sources} PROPERTIES COMPILE_OPTIONS -fno-builtin)
+    ${game_sources}
+    math/src/nebula_math.c
+    math/src/nebula_libm.c
+    math/src/nebula_libc.c
+    $<$<PLATFORM_ID:Windows>:math/src/nebula_runtime_win.c>)
 
 if(WIN32)
     enable_language(RC)
@@ -75,7 +60,7 @@ endif()
 include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/nebula_fingerprint.cmake")
 nebula_fingerprint("${CMAKE_CURRENT_SOURCE_DIR}/.." "${petari}" "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
-target_include_directories(petari_game BEFORE PRIVATE
+target_include_directories(smg_game BEFORE PRIVATE
     "${CMAKE_CURRENT_BINARY_DIR}/generated"
     "${CMAKE_CURRENT_SOURCE_DIR}/math/include"
     "${petari}/include"
@@ -83,36 +68,8 @@ target_include_directories(petari_game BEFORE PRIVATE
 
 set(version_ids RMGJ01=0 RMGE01=1 RMGP01=2 RMGK01=3)
 string(REGEX MATCH "${NEBULA_GAME_VERSION}=([0-9])" _ "${version_ids}")
-target_compile_definitions(petari_game PRIVATE VERSION=${CMAKE_MATCH_1} ${version_ids} NEBULA_GAME_MODULE=1 _HAS_EXCEPTIONS=0)
-target_compile_definitions(petari_game PRIVATE $<$<PLATFORM_ID:Linux,Android>:_GNU_SOURCE>)
-target_compile_definitions(petari_game PRIVATE _USE_STD_VECTOR_ALGORITHMS=0 _ACRTIMP=)
+target_compile_definitions(smg_game PRIVATE VERSION=${CMAKE_MATCH_1} ${version_ids} NEBULA_GAME_MODULE=1 _HAS_EXCEPTIONS=0)
 
-target_compile_options(petari_game PRIVATE
-    -ffp-contract=off  # the same results on every CPU (A-10)
-    $<$<NOT:$<PLATFORM_ID:Windows>>:-fms-extensions>
-    -fno-strict-aliasing -fno-strict-float-cast-overflow -fno-math-errno -fno-stack-protector
-    $<$<NOT:$<PLATFORM_ID:Windows>>:-fno-plt>
-    -fno-ms-compatibility -fno-delayed-template-parsing
-    ${diagnostics}
-    -Werror=return-type -Werror=pointer-to-int-cast -Werror=void-pointer-to-int-cast -Werror=format
-    -Werror=int-to-pointer-cast -Werror=pointer-to-enum-cast
-    -Werror=implicit-function-declaration -Werror=implicit-int -Werror=int-conversion
-    -Werror=incompatible-function-pointer-types -Werror=return-stack-address -Werror=array-bounds
-    "SHELL:-include nebula_prelude.h"
-    # Source paths in the module (assertion messages) relative to the tree, not the build machine.
-    "-ffile-prefix-map=${petari}=petari" "-ffile-prefix-map=${CMAKE_CURRENT_SOURCE_DIR}=native"
-    $<$<COMPILE_LANGUAGE:CXX>:-fno-rtti -fno-exceptions -fno-c++-static-destructors -fno-sized-deallocation -fno-aligned-allocation>
-    # Every new-expression tests the allocation before constructing, as the console's compiler does: JKRHeap's
-    # operator new and the sound pools' (JASPoolAllocObject) return null when full, and the game checks
-    # (JAISeMgr::newSe_). Standard C++ lets the compiler drop those checks for an operator new that is not
-    # noexcept, which would run JAISe's constructor on null when a sound pool is full.
-    $<$<COMPILE_LANGUAGE:CXX>:-fcheck-new>
-    # The Microsoft C++ ABI sizes a member pointer by its class's inheritance, known only where the class is complete;
-    # a unit seeing just a declaration would use another size than its callers.
-    $<$<AND:$<PLATFORM_ID:Windows>,$<COMPILE_LANGUAGE:CXX>>:-fcomplete-member-pointers>
-    -Wno-register -Wno-c++11-narrowing)
-
-# Standard and visibility properties: apply to the SHARED library (link/output, not compile).
 set_target_properties(smg_game PROPERTIES
     C_STANDARD 11 C_EXTENSIONS ON
     CXX_STANDARD 17 CXX_EXTENSIONS ON
@@ -183,8 +140,10 @@ target_compile_options(smg_game PRIVATE
     # The Microsoft C++ ABI sizes a member pointer by its class's inheritance, known only where the class is complete;
     # a unit seeing just a declaration would use another size than its callers.
     $<$<AND:$<PLATFORM_ID:Windows>,$<COMPILE_LANGUAGE:CXX>>:-fcomplete-member-pointers>
-    -Wno-c++11-narrowing)
+    -Wno-register -Wno-c++11-narrowing)
 
+set_source_files_properties(math/src/nebula_libm.c math/src/nebula_libc.c math/src/nebula_runtime_win.c PROPERTIES COMPILE_OPTIONS -fno-builtin)
+target_compile_definitions(smg_game PRIVATE _USE_STD_VECTOR_ALGORITHMS=0 _ACRTIMP=)
 # No system library: everything the module uses it defines or asks the host for. A sanitizer's runtime and the profile counters' need the C runtime.
 if(WIN32 AND NOT NEBULA_SANITIZE AND NOT CMAKE_CXX_FLAGS MATCHES "fprofile-instr-generate")
     target_link_options(smg_game PRIVATE -nostdlib "LINKER:/NOENTRY" "LINKER:/NODEFAULTLIB")
