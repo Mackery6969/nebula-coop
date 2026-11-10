@@ -26,6 +26,8 @@ struct Value {
     std::unique_ptr<ValueMembers> members_;
 
     Value() = default;
+    Value(Value&&) noexcept = default;
+    Value& operator=(Value&&) noexcept = default;
     ~Value();
 
     // An object's member, or null when there's none (or this isn't an object).
