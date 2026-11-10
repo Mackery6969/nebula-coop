@@ -20,6 +20,9 @@ public:
     void noticeCaughtRabbit(RunawayRabbit* pRabbit);
     // Co-op: another player caught pRabbit: its group's other hiding places are left empty here too.
     void noticeCaughtRabbitByOtherPlayer(RunawayRabbit* pRabbit);
+    // Co-op: another player's cutscene started the chase (it plays once for the room): started here as it ends.
+    void startForOtherPlayer();
+    void startChase();
     s32 getRabbitNum() const {
         return mRabbitNum;
     }

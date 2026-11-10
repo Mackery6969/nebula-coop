@@ -56,6 +56,7 @@ namespace {
         Kind_Part,    // an actor a placed one made as it was placed (a boss's part, a group's member): hits shared
         Kind_Rabbit,  // a star bunny to catch (the Gateway's): moved by its owner's game as an enemy, caught once for all
         Kind_Guide,   // the Gateway's guide bunny (DemoRabbit): moved by its owner's game while it runs ahead, never gone
+        Kind_Chase,   // the Gateway's bunny chase (RunawayRabbitCollect): its "gone" is its start, once for the instance
     };
 
     struct Entry {
@@ -290,6 +291,8 @@ namespace {
     };
     Pending sPending[cMaxPending];
     s32 sPendingNext = 0;
+    // A bunny chase another player started, waiting for the local player's own cutscene to end (-1 for none).
+    s32 sChaseStartPending = -1;
 
     // The plain enemies whose defeat is the instance's (placed names). Not here: launchers and generators (what they
     // send out isn't placed), bosses, and enemies that come back by themselves (Bob-ombs, Dry Bones).
@@ -503,6 +506,23 @@ namespace {
         sApplying = false;
     }
 
+    // The bunny chase another player's cutscene started: the guide bunnies it ends with gone here too, and the chase
+    // begun as that cutscene's end begins it.
+    void startChaseForOtherPlayer(const Entry& rChase) {
+        if (rChase.mActor == nullptr) {
+            return;
+        }
+        sApplying = true;
+        for (s32 i = 0; i < sEntryNum; i++) {
+            if (sEntries[i].mKind == Kind_Guide && sEntries[i].mActor != nullptr) {
+                removeQuietly(sEntries[i]);
+                sEntries[i].mAlive = false;
+            }
+        }
+        static_cast< RunawayRabbitCollect* >(rChase.mActor)->startForOtherPlayer();
+        sApplying = false;
+    }
+
     void applyGone(u32 object, u32 how) {
         const s32 index = findIndex(object);
         if (index < 0 || sEntries[index].mActor == nullptr) {
@@ -524,6 +544,13 @@ namespace {
             static_cast< ChipBase* >(rEntry.mActor)->takeForOtherPlayer();
             sApplying = false;
             rEntry.mAlive = false;
+            return;
+        }
+        if (rEntry.mKind == Kind_Chase) {
+            // Another player's cutscene started the bunny chase (the guide bunnies run off, the Luma sends the
+            // player after the hiding ones): it plays once for the instance, so here the chase begins as it ends
+            // there, once the local player's own cutscene (waking up) is over.
+            sChaseStartPending = index;
             return;
         }
         if (rEntry.mKind == Kind_Rabbit) {
@@ -1163,6 +1190,7 @@ namespace NebulaCoopWorld {
         sLocalSwitches = 0;
         sFlipNum = 0;
         memset(sPending, 0, sizeof(sPending));
+        sChaseStartPending = -1;
         sChipNum = 0;
         sObjectsActive = false;
         sSelf = 0;
@@ -1243,6 +1271,10 @@ namespace NebulaCoopWorld {
         if (isName(pName, "RunawayRabbitCollect")) {
             // Its star bunnies run and are caught in every game alike: moved by the nearest player's game.
             const RunawayRabbitCollect* pCollect = static_cast< RunawayRabbitCollect* >(pObj);
+            const s32 chase = findActor(static_cast< LiveActor* >(pObj));
+            if (chase >= 0) {
+                sEntries[chase].mKind = Kind_Chase;
+            }
             s32 shared = 0;
             for (s32 i = 0; i < pCollect->getRabbitNum(); i++) {
                 const s32 index = findActor(pCollect->getRabbit(i));
@@ -1308,7 +1340,7 @@ namespace NebulaCoopWorld {
                 rEntry.mHitFrames++;
             }
             const bool alive = !MR::isDead(rEntry.mActor);
-            if (alive && rEntry.mGone && !rEntry.mCaughtHere) {
+            if (alive && rEntry.mGone && !rEntry.mCaughtHere && rEntry.mKind != Kind_Chase) {
                 if (rEntry.mGoneDelay > 0) {
                     // Its own death still plays (a hit played here): the server's record waits for it a while.
                     rEntry.mGoneDelay--;
@@ -1339,6 +1371,10 @@ namespace NebulaCoopWorld {
                 rEntry.mGot = false;
             }
             rEntry.mAlive = alive;
+        }
+        if (sChaseStartPending >= 0 && !MR::isDemoActive()) {
+            startChaseForOtherPlayer(sEntries[sChaseStartPending]);
+            sChaseStartPending = -1;
         }
         updateMotions();
         updateSwitches(sFrames == cSettleFrames && settling);
@@ -1557,6 +1593,20 @@ namespace NebulaCoopWorld {
 
     bool isSharedEnemy(const LiveActor* pActor) {
         return sObjectsActive && pActor != nullptr && findMotion(pActor) != nullptr;
+    }
+
+    void noteChaseStarted(LiveActor* pCollect) {
+        if (!sObjectsActive || sApplying) {
+            return;
+        }
+        const s32 index = findActor(pCollect);
+        if (index < 0 || sEntries[index].mKind != Kind_Chase || sEntries[index].mGone) {
+            return;
+        }
+        // Started here: for the others it is over too (the server's record keeps it for players coming later).
+        sEntries[index].mGone = true;
+        sChaseStartPending = -1;
+        report(NEBULA_COOP_WORLD_GONE, sEntries[index].mKey, 0, 0, nullptr);
     }
 
     void noteRabbitCaught(LiveActor* pRabbit) {
