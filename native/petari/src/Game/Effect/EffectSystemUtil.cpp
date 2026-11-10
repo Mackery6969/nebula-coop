@@ -161,6 +161,13 @@ namespace MR {
                         const FormattedName name("%.*s", static_cast< int >(i - start), pAnimNames + start);
                         const char* pAnimName = nullptr;
                         findBckNameStringInResource(&pAnimName, pModelManager->getResourceHolder(), name.c_str());
+                        if (pAnimName == nullptr) {
+                            // A bck the model's resources don't have (an online co-op player's copy registers Mario's
+                            // effects on a model holding fewer of his animations): nothing to follow, and naming none
+                            // would look up a null name.
+                            start = i + 1;
+                            continue;
+                        }
                         if (pEmitter->mSyncBck == nullptr) {
                             initEffectSyncBck(pKeeper, pModelManager, pInfo->getName(), pAnimName, ::countAnimNames(pAnimNames), 0.0f, -1.0f);
                         } else {
