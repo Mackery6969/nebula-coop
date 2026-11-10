@@ -46,21 +46,13 @@ GalaxyMap::GalaxyMap()
       mIsPointingNew(), mIsFocusEnabled(true) {
 }
 
-template <>
-inline MR::Vector< MR::AssignableArray< GalaxyMapIcon* > >::~Vector() {
-}
+template MR::Vector< MR::AssignableArray< GalaxyMapIcon* > >::~Vector();
 
-template <>
-inline MR::Vector< MR::AssignableArray< GalaxyMapCometIcon* > >::~Vector() {
-}
+template MR::Vector< MR::AssignableArray< GalaxyMapCometIcon* > >::~Vector();
 
-template <>
-inline MR::Vector< MR::AssignableArray< GalaxyMapDomeIcon* > >::~Vector() {
-}
+template MR::Vector< MR::AssignableArray< GalaxyMapDomeIcon* > >::~Vector();
 
-template <>
-inline MR::Vector< MR::AssignableArray< GalaxyMapTicoIcon* > >::~Vector() {
-}
+template MR::Vector< MR::AssignableArray< GalaxyMapTicoIcon* > >::~Vector();
 
 void GalaxyMap::init(const TableIter& /*rIter*/) {
     initLayoutManager("MapGrandGalaxy", 1);
