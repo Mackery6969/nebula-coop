@@ -1165,7 +1165,8 @@ public:
             const auto message = galaxy::net::json::parse(text);
             if (message && message->text("t") == "open") {
                 const std::lock_guard<std::mutex> lock(server_.lock_);
-                server_.rooms_["K7QX2M"] = {message->strings("candidates"), this};
+                server_.rooms_["K7QX2M"] = {message->strings("candidates"), this, message->text("password"),
+                                            message->text("name"), message->text("mode")};
                 ++server_.opened;
                 push(R"({"t":"room","code":"K7QX2M"})");
             }
@@ -1207,8 +1208,30 @@ public:
     galaxy::net::WebAnswer post(const std::string& url, std::string_view body) override {
         const auto request = galaxy::net::json::parse(body);
         const std::lock_guard<std::mutex> lock(lock_);
+        if (url.ends_with("/v1/list")) {
+            // The public rooms, or the private ones with the password asked.
+            std::string answer = R"({"rooms":[)";
+            bool first = true;
+            for (const auto& [code, room] : rooms_) {
+                if (!request || room.password != request->text("password")) continue;
+                answer += std::string(first ? "" : ",") + R"({"code":")" + code + R"(","name":)" +
+                          galaxy::net::json::quote(room.name) + R"(,"version":"test 1","mode":)" +
+                          galaxy::net::json::quote(room.mode) + R"(,"description":"","players":1,"max":3,"private":)" +
+                          (room.password.empty() ? "false" : "true") + "}";
+                first = false;
+            }
+            return {200, answer + "]}"};
+        }
+        if (url.ends_with("/v1/report")) {
+            if (request && request->text("code") == "K7QX2M") {
+                const galaxy::net::json::Value* ok = request->find("ok");
+                (ok != nullptr && ok->boolean ? reported_ok : reported_failed).fetch_add(1);
+            }
+            return {200, R"({"ok":true})"};
+        }
         const auto room = request ? rooms_.find(request->text("code")) : rooms_.end();
         if (!url.ends_with("/v1/join") || room == rooms_.end()) return {404, R"({"error":"not_found"})"};
+        if (request->text("password") != room->second.password) return {403, R"({"error":"wrong_password"})"};
         std::string joiner = R"({"t":"joiner","candidates":[)";
         const auto mine = request->strings("candidates");
         for (std::size_t i = 0; i < mine.size(); ++i) joiner += (i ? "," : "") + galaxy::net::json::quote(mine[i]);
@@ -1223,11 +1246,16 @@ public:
         return std::make_unique<Socket>(*this);
     }
     std::atomic<int> opened{0};
+    std::atomic<int> reported_ok{0};
+    std::atomic<int> reported_failed{0};
 
 private:
     struct Room {
         std::vector<std::string> candidates;
         Socket* host = nullptr;
+        std::string password;
+        std::string name;
+        std::string mode;
     };
     std::mutex lock_;
     std::map<std::string, Room> rooms_;
@@ -1260,6 +1288,8 @@ void test_session_nebulanet() {
         return save;
     };
     host.nebulanet = "https://nebulanet.test/";
+    host.room.password = "pw";
+    host.room.room_name = "STAR HUNT";
     host.stun = "127.0.0.1";
     host.stun_port = stun.socket.local_port();
     expect(host_session.host(host), "a room opens on NebulaNet");
@@ -1270,6 +1300,29 @@ void test_session_nebulanet() {
            }),
            "and gets a room code");
     expect(host_session.room_code() == "K7QX2M" && nebulanet->opened.load() == 1, "the one NebulaNet gave");
+
+    // The room on NebulaNet's list: private, so only with its password.
+    {
+        NebulaNetLink list(nebulanet);
+        std::vector<NebulaNetEvent> got;
+        list.list(host.nebulanet, "pw");
+        expect(wait_for([&] {
+                   for (auto& e : list.take_events()) got.push_back(e);
+                   return !got.empty();
+               }) &&
+                   got[0].kind == NebulaNetEvent::Kind::Rooms && got[0].rooms.size() == 1u &&
+                   got[0].rooms[0].code == "K7QX2M" && got[0].rooms[0].name == "STAR HUNT" &&
+                   got[0].rooms[0].mode == "CO-OP" && got[0].rooms[0].locked && got[0].rooms[0].max == 3u,
+               "the room is listed by its name and mode to those with its password");
+        got.clear();
+        list.list(host.nebulanet);
+        expect(wait_for([&] {
+                   for (auto& e : list.take_events()) got.push_back(e);
+                   return !got.empty();
+               }) &&
+                   got[0].rooms.empty() && got[0].text.empty(),
+               "and not among the public rooms");
+    }
 
     // A wrong code.
     Session lost;
@@ -1288,10 +1341,27 @@ void test_session_nebulanet() {
                lost_events.back().text == "NO ROOM HAS THAT CODE",
            "and fails for its code");
 
+    // The right code with a wrong password: NebulaNet says so before anyone punches.
+    Session locked_out;
+    locked_out.set_web(nebulanet);
+    JoinConfig no_password{"", 0u, "nope", "test 1", "LOCKED"};
+    no_password.code = "K7QX2M";
+    no_password.nebulanet = host.nebulanet;
+    no_password.stun = host.stun;
+    no_password.stun_port = host.stun_port;
+    expect(locked_out.join(no_password), "a join with a wrong password starts");
+    std::vector<SessionEvent> locked_events;
+    expect(wait_for([&] {
+               for (auto& e : locked_out.take_events()) locked_events.push_back(e);
+               return has_event(locked_events, Kind::JoinFailed);
+           }) &&
+               locked_events.back().text == "WRONG PASSWORD: TYPE THE ROOM'S ON THE JOIN PAGE",
+           "and fails for its password");
+
     // The right one: NebulaNet passes the addresses both ways, the host punches, and the joiner gets in.
     Session joiner;
     joiner.set_web(nebulanet);
-    JoinConfig join{"", 0u, "", "test 1", "FRIEND"};
+    JoinConfig join{"", 0u, "pw", "test 1", "FRIEND"};
     join.code = "k7q-x2m";
     if (const auto code = parse_room_code(join.code)) join.code = *code;
     join.nebulanet = host.nebulanet;
@@ -1308,6 +1378,8 @@ void test_session_nebulanet() {
                has_event(joiner_events, Kind::Joined),
            "and gets in through the addresses NebulaNet passed on");
     expect(found_room, "after asking NebulaNet where the room is");
+    expect(wait_for([&] { return nebulanet->reported_ok.load() == 1; }) && nebulanet->reported_failed.load() == 0,
+           "and tells NebulaNet it got through");
     expect(stun.asked >= 2, "both sides asked the STUN server for their public address");
     joiner.leave();
 

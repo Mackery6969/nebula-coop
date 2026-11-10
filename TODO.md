@@ -44,7 +44,9 @@ What's left to turn Nebula into an online co-op mod like sm64coopdx. The reasoni
       trying every address the host may have
 - [x] NebulaNet (its own repository, a Cloudflare Worker): room codes and the address swap
 - [x] Host page: NebulaNet or Direct, as sm64coopdx's CoopNet or direct connection; Join by room code or address
-- [ ] Relay fallback through Cloudflare TURN when punching fails
+- [x] NebulaNet as CoopNet: room name, mode, description and password (private rooms), the Join page's room list
+      (public, or private by password), password and version checks, failed joins reported, NebulaNet server row
+- [ ] Relay fallback through the TURN servers NebulaNet hands out, when punching fails
 - [ ] Discord Join button carrying the room code
 
 ## Same world (Phase 2)

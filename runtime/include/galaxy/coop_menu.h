@@ -3,10 +3,13 @@
 // what the player chose (play, quit, the settings) waits until the game takes it.
 //
 // The main page: Host, Join, Options, Quit. Host opens the Host page: the save to play (left and right through the
-// saves, then New save), Rename and Erase, the room's port and password, its settings (room(): the coop_* runtime
-// settings), the mods it plays with (a page of their own) and Host, which plays. Join opens the Join page (the address
-// and password, then Join, which connects; Cancel or B stops it). B or Back returns to the main page. While a join
-// connects, the joining screen takes the Join page's place: what the join waits for, a loading bar and Cancel. The
+// saves, then New save), Rename and Erase, the network (NebulaNet or Direct), the room's name and NebulaNet server,
+// its port and password, its settings (room(): the coop_* runtime settings), the mods it plays with (a page of their
+// own) and Host, which plays. Join opens the Join page (the code or address and password, then Join, which connects;
+// Cancel or B stops it; Rooms lists NebulaNet's rooms, as sm64coopdx's lobby list does: the public ones, or with a
+// password typed the private ones that have it, and pressing one joins it). B or Back returns to the main page. While
+// a join connects, the joining screen takes the Join page's place: what the join waits for, a loading bar and Cancel.
+// The
 // player's name and character are Options' (its PLAYER page): the menu plays with room()'s, which the host keeps up
 // with them.
 //
@@ -51,8 +54,21 @@ struct MenuView {
 };
 
 // What the player chose, for the game to act on (MainMenu::take_command). Join: connect to the Join page's address
-// (room().join_address, with room().password); CancelJoin: stop connecting (the Join page's Cancel, or B on it).
-enum class MenuCommand { None, Play, Quit, Settings, Join, CancelJoin };
+// (room().join_address, with room().password); CancelJoin: stop connecting (the Join page's Cancel, or B on it);
+// ListRooms: ask NebulaNet for its rooms (with room().password: the private ones that have it), for set_rooms().
+enum class MenuCommand { None, Play, Quit, Settings, Join, CancelJoin, ListRooms };
+
+// A room on NebulaNet's list, as the Rooms page shows it.
+struct ListedRoom {
+    std::string code;
+    std::string name;
+    std::string version;
+    std::string mode;
+    std::string description;
+    bool locked = false;  // private: it has a password
+    unsigned players = 0u;
+    unsigned max = 0u;
+};
 
 // A mod of the mods folder as the Host page picks it for the room: on or off, the ones on first, the top one winning.
 struct RoomMod {
@@ -81,7 +97,7 @@ enum TextKey : char32_t {
 inline constexpr std::size_t kPlayerNameLimit = 20u;
 
 // What a text row holds: the letters it takes, and how many.
-enum class TextKind { Name, PlayerName, Password, Address, Port };
+enum class TextKind { Name, PlayerName, Password, Address, Port, Server };
 
 // A text being edited in place, its cursor on a letter or past the last (where the next one goes). The keyboard types
 // into it (type()); a controller steps the letter at the cursor through the ones its kind takes (step_letter()).
@@ -159,6 +175,10 @@ public:
     void set_join_status(std::string step, std::string detail, unsigned percent);
     // The join is in (or done for a restart): the joining screen stays, full and saying `step`, until the menu closes.
     void finish_join(std::string step);
+    // NebulaNet's answer to ListRooms: its rooms, or none and why (`failed`, empty when there just are none).
+    // `version`: this game's, so a room of another shows it can't be joined.
+    void set_rooms(std::vector<ListedRoom> rooms, std::string failed, std::string version);
+    [[nodiscard]] bool listing_rooms() const noexcept { return screen_ == Screen::Rooms; }
 
     // The last choice, once: None after it was taken.
     [[nodiscard]] MenuCommand take_command() noexcept;
@@ -168,8 +188,8 @@ public:
     void play(std::string id);
 
 private:
-    enum class Screen { Main, Host, Mods, Join, Joining };
-    enum class Field { None, SaveName, Port, Password, Address };
+    enum class Screen { Main, Host, Mods, Join, Joining, Rooms };
+    enum class Field { None, SaveName, RoomName, Server, Port, Password, Address };
     struct Edit {
         Field field = Field::None;
         unsigned row = 0u;
@@ -185,6 +205,9 @@ private:
     void press_main(unsigned row);
     void press_host(unsigned row, unsigned button);
     void press_mods(unsigned row);
+    void press_rooms(unsigned row, unsigned button);
+    // The Rooms page, empty and searching, and ListRooms for the game.
+    void search_rooms();
     void start_edit(Field field, unsigned row);
     void finish_edit();
     void read_mods();
@@ -217,6 +240,11 @@ private:
     // The room's mods as read, and as picked.
     std::vector<RoomMod> mods_read_;
     std::vector<RoomMod> mods_;
+    // The Rooms page: what NebulaNet listed, and whether it's still searching or why it found nothing.
+    std::vector<ListedRoom> rooms_;
+    bool rooms_searching_ = false;
+    std::string rooms_failed_;
+    std::string version_;
     Edit edit_;
     std::string message_;
 };

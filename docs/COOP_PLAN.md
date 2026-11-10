@@ -56,9 +56,15 @@ introduces players, as sm64coopdx's CoopNet does, so nobody has to forward a por
   `galaxy/coop_nebulanet.h`. The Host page's NETWORK picks NebulaNet (the default) or Direct, as sm64coopdx's CoopNet or
   direct connection; the room's code shows in the host's chat and on the Online tab, and the Join page takes a code or
   an address. `coop_network=direct` and `coop_nebulanet=<url>` (another NebulaNet, to test one's own) are its settings.
+- **NebulaNet as CoopNet.** NebulaNet offers what CoopNet offers sm64coopdx, for Nebula's star of players: a room has
+  a name (the Host page's ROOM NAME, `coop_room_name`, else the host's name), a mode (CO-OP, or PVP with friendly
+  fire), a description (its mods) and the room's password, which makes it private. The Join page's ROOMS lists the
+  public rooms, or with a password typed the private ones that have it, as sm64coopdx's lobby list does; pressing one
+  joins it by its code. NebulaNet checks a join's password and protocol first, and a joiner tells it whether it got
+  through (CoopNet's PEER_FAILED, the host always staying). The Host page's NEBULANET SERVER picks another NebulaNet.
 - **Relay fallback (next).** Where both routers are too strict for punching (carrier NAT, some campus networks),
-  NebulaNet hands out Cloudflare TURN credentials and the joiner goes through the relay. Later still: a Discord Join
-  button carrying the room code, and a public room list.
+  the joiner goes through a TURN relay: NebulaNet already hands TURN servers out (`ice` in its answers, as CoopNet's
+  STUN_TURN); the game doesn't use them yet. Later still: a Discord Join button carrying the room code.
 - **Dedicated server (later).** The world simulation *is* the game, so a server with nobody playing on it needs a
   headless Nebula: the game module running with no window, renderer or audio output, and no local Mario (or a hidden
   one). That's a real but separate project after Phase 2. The protocol is designed so the authority doesn't have to be

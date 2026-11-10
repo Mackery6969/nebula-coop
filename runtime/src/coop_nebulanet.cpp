@@ -31,6 +31,21 @@ std::string candidates_json(const std::vector<std::string>& candidates) {
     return out + "]";
 }
 
+// A room as NebulaNet lists it or answers a join with it: the fields every answer has.
+NebulaNetRoom room_of(const net::json::Value& json) {
+    NebulaNetRoom room;
+    room.code = json.text("code");
+    room.name = json.text("name");
+    room.version = json.text("version");
+    room.mode = json.text("mode");
+    room.description = json.text("description");
+    room.players = static_cast<unsigned>(std::max(0LL, json.integer("players", 1)));
+    room.max = static_cast<unsigned>(std::max(0LL, json.integer("max", 8)));
+    const net::json::Value* locked = json.find("private");
+    room.locked = locked != nullptr && locked->kind == net::json::Value::Kind::Bool && locked->boolean;
+    return room;
+}
+
 std::vector<std::string> valid_candidates(const std::vector<std::string>& in) {
     std::vector<std::string> out;
     for (const std::string& text : in) {
@@ -158,8 +173,11 @@ void NebulaNetLink::host(std::string server, NebulaNetRoom room) {
                 if (shared->stopped.load()) socket->close();
                 unsigned players = shared->players.load();
                 const std::string open =
-                    "{\"t\":\"open\",\"game\":\"Nebula\",\"version\":" + net::json::quote(room.version) +
-                    ",\"name\":" + net::json::quote(room.name) + ",\"players\":" + std::to_string(players) +
+                    "{\"t\":\"open\",\"protocol\":" + std::to_string(kNebulaNetProtocol) +
+                    ",\"game\":\"Nebula\",\"version\":" + net::json::quote(room.version) +
+                    ",\"name\":" + net::json::quote(room.name) + ",\"mode\":" + net::json::quote(room.mode) +
+                    ",\"description\":" + net::json::quote(room.description) +
+                    ",\"password\":" + net::json::quote(room.password) + ",\"players\":" + std::to_string(players) +
                     ",\"max\":" + std::to_string(room.max) +
                     ",\"candidates\":" + candidates_json(room.candidates) + "}";
                 (void)socket->send(open);
@@ -186,8 +204,15 @@ void NebulaNetLink::host(std::string server, NebulaNetRoom room) {
                             event.kind = NebulaNetEvent::Kind::Joiner;
                             event.candidates = valid_candidates(message->strings("candidates"));
                             if (!event.candidates.empty()) shared->push(std::move(event));
+                        } else if (type == "joiner_failed") {
+                            NebulaNetEvent event;
+                            event.kind = NebulaNetEvent::Kind::JoinerFailed;
+                            event.candidates = valid_candidates(message->strings("candidates"));
+                            shared->push(std::move(event));
                         } else if (type == "error") {
-                            shared->fail("NEBULANET REFUSED THE ROOM (" + message->text("error") + ")");
+                            shared->fail(message->text("error") == "old_game"
+                                             ? "NEBULANET NO LONGER TAKES THIS VERSION OF NEBULA: UPDATE IT"
+                                             : "NEBULANET REFUSED THE ROOM (" + message->text("error") + ")");
                         }
                     }
                     const auto now = std::chrono::steady_clock::now();
@@ -221,27 +246,27 @@ void NebulaNetLink::host(std::string server, NebulaNetRoom room) {
     }).detach();
 }
 
-void NebulaNetLink::join(std::string server, std::string code, std::vector<std::string> candidates) {
+void NebulaNetLink::join(std::string server, std::string code, std::vector<std::string> candidates,
+                         std::string password) {
     stop();
     shared_ = std::make_shared<Shared>();
     std::thread([shared = shared_, web = web_, server = std::move(server), code = std::move(code),
-                 candidates = std::move(candidates)] {
+                 candidates = std::move(candidates), password = std::move(password)] {
         if (!web) {
             shared->fail("NEBULANET ISN'T AVAILABLE ON THIS SYSTEM");
             return;
         }
         const std::string body = "{\"code\":" + net::json::quote(code) + ",\"candidates\":" +
-                                 candidates_json(candidates) + "}";
+                                 candidates_json(candidates) + ",\"password\":" + net::json::quote(password) +
+                                 ",\"protocol\":" + std::to_string(kNebulaNetProtocol) + "}";
         const net::WebAnswer answer = web->post(server_url(server, "/v1/join"), body);
         if (shared->stopped.load()) return;
         const std::optional<net::json::Value> json = net::json::parse(answer.body);
         if (answer.status == 200 && json) {
             NebulaNetEvent event;
             event.kind = NebulaNetEvent::Kind::Answer;
-            event.room.name = json->text("name");
-            event.room.version = json->text("version");
-            event.room.players = static_cast<unsigned>(std::max(0LL, json->integer("players", 1)));
-            event.room.max = static_cast<unsigned>(std::max(0LL, json->integer("max", 8)));
+            event.room = room_of(*json);
+            event.room.code = code;
             event.room.candidates = valid_candidates(json->strings("candidates"));
             if (!event.room.candidates.empty()) {
                 shared->push(std::move(event));
@@ -253,11 +278,58 @@ void NebulaNetLink::join(std::string server, std::string code, std::vector<std::
         switch (answer.status) {
         case 0: shared->fail("NEBULANET COULD NOT BE REACHED"); return;
         case 404: shared->fail("NO ROOM HAS THAT CODE"); return;
+        case 403: shared->fail("WRONG PASSWORD: TYPE THE ROOM'S ON THE JOIN PAGE"); return;
         case 409: shared->fail("THE ROOM IS FULL"); return;
+        case 426: shared->fail("NEBULANET NO LONGER TAKES THIS VERSION OF NEBULA: UPDATE IT"); return;
         case 429:
         case 503: shared->fail("NEBULANET IS BUSY: TRY AGAIN IN A MINUTE"); return;
         default: shared->fail("NEBULANET ANSWERED " + std::to_string(answer.status)); return;
         }
+    }).detach();
+}
+
+void NebulaNetLink::list(std::string server, std::string password) {
+    stop();
+    shared_ = std::make_shared<Shared>();
+    std::thread([shared = shared_, web = web_, server = std::move(server), password = std::move(password)] {
+        NebulaNetEvent event;
+        event.kind = NebulaNetEvent::Kind::Rooms;
+        if (!web) {
+            event.text = "NEBULANET ISN'T AVAILABLE ON THIS SYSTEM";
+            shared->push(std::move(event));
+            return;
+        }
+        const std::string body = "{\"game\":\"Nebula\",\"password\":" + net::json::quote(password) + "}";
+        const net::WebAnswer answer = web->post(server_url(server, "/v1/list"), body);
+        if (shared->stopped.load()) return;
+        const std::optional<net::json::Value> json = net::json::parse(answer.body);
+        const net::json::Value* rooms = json ? json->find("rooms") : nullptr;
+        if (answer.status == 200 && rooms != nullptr && rooms->kind == net::json::Value::Kind::Array) {
+            for (const net::json::Value& item : rooms->array) {
+                if (item.kind != net::json::Value::Kind::Object) continue;
+                NebulaNetRoom room = room_of(item);
+                if (!parse_room_code(room.code) || room.name.empty()) continue;
+                event.rooms.push_back(std::move(room));
+            }
+        } else {
+            event.text = answer.status == 0     ? "NEBULANET COULD NOT BE REACHED"
+                         : answer.status == 429 ? "NEBULANET IS BUSY: TRY AGAIN IN A MINUTE"
+                         : answer.status == 404 ? "THIS NEBULANET HAS NO ROOM LIST"
+                                                : "NEBULANET ANSWERED " + std::to_string(answer.status);
+        }
+        shared->push(std::move(event));
+    }).detach();
+}
+
+void NebulaNetLink::report(std::shared_ptr<net::Web> web, std::string server, std::string code, bool ok,
+                           std::vector<std::string> candidates) {
+    if (!web || code.empty()) return;
+    std::thread([web = std::move(web), server = std::move(server), code = std::move(code), ok,
+                 candidates = std::move(candidates)] {
+        std::string body = "{\"code\":" + net::json::quote(code) + ",\"ok\":" + (ok ? "true" : "false");
+        if (!candidates.empty()) body += ",\"candidates\":" + candidates_json(candidates);
+        body += "}";
+        (void)web->post(server_url(server, "/v1/report"), body);
     }).detach();
 }
 
