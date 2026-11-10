@@ -95,6 +95,22 @@ namespace {
     bool sApplying = false;  // applying what the server said: not reported back
     s32 sFrames = 0;
     s32 sClock = 0;  // frames since the scene began
+    // The instance's mission clock: the frames it had run (-1 none known) at sClock sMissionClockAt.
+    s32 sMissionClock = -1;
+    s32 sMissionClockAt = 0;
+
+    s32 missionClockNow() {
+        return sMissionClock < 0 ? -1 : sMissionClock + (sClock - sMissionClockAt);
+    }
+
+    // How long the instance's clock has run, as the server says: the earliest start is everyone's.
+    void applyMissionClock(u32 ms) {
+        const s32 frames = static_cast< s32 >((static_cast< u64 >(ms) * NEBULA_STEPS_PER_SECOND) / 1000u);
+        if (frames > missionClockNow()) {
+            sMissionClock = frames;
+            sMissionClockAt = sClock;
+        }
+    }
 
     // A placed object being made, and the actors it has made so far (its parts, keyed in that order).
     bool sPlacing = false;
@@ -690,6 +706,8 @@ namespace {
                     applySwitch(events[i].object, events[i].value != 0);
                 } else if (events[i].kind == NEBULA_COOP_WORLD_TELEPORT) {
                     noticeTeleport(events[i]);
+                } else if (events[i].kind == NEBULA_COOP_WORLD_CLOCK) {
+                    applyMissionClock(events[i].value);
                 } else if (events[i].kind == NEBULA_COOP_WORLD_STAR_GOT) {
                     NebulaCoopDemos::applyStarGot(events[i].scenario, (events[i].value & NEBULA_COOP_STAR_GRAND) != 0);
                 } else if (events[i].kind != NEBULA_COOP_WORLD_READY) {
@@ -999,6 +1017,8 @@ namespace NebulaCoopWorld {
         sReady = false;
         sFrames = 0;
         sClock = 0;
+        sMissionClock = -1;
+        sMissionClockAt = 0;
         sPlacing = false;
         sMadeNum = 0;
         sTurnedNum = 0;
@@ -1173,6 +1193,24 @@ namespace NebulaCoopWorld {
 
     bool isInRoom() {
         return sInRoom;
+    }
+
+    s32 startMissionClock() {
+        if (!sInRoom || !sPlaced) {
+            return 0;
+        }
+        if (sMissionClock < 0) {
+            sMissionClock = 0;
+            sMissionClockAt = sClock;
+        }
+        const s32 frames = missionClockNow();
+        // As this game has it; the server answers only if the instance's began earlier (applyMissionClock).
+        report(NEBULA_COOP_WORLD_CLOCK, 0, static_cast< u32 >((static_cast< u64 >(frames) * 1000u) / NEBULA_STEPS_PER_SECOND), 0, nullptr);
+        return frames;
+    }
+
+    s32 getMissionClock() {
+        return sInRoom && sPlaced ? missionClockNow() : -1;
     }
 
     bool deliverMessage(u32 msg, HitSensor* pSender, HitSensor* pReceiver) {

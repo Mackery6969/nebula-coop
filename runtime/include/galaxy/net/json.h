@@ -10,6 +10,8 @@
 
 namespace galaxy::net::json {
 
+struct Member;
+
 struct Value {
     enum class Kind { Null, Bool, Number, String, Array, Object };
     Kind kind = Kind::Null;
@@ -17,7 +19,9 @@ struct Value {
     double number = 0.0;
     std::string string;
     std::vector<Value> array;
-    std::vector<std::pair<std::string, Value>> object;
+    // Member is declared after Value: a std::pair<std::string, Value> here would need Value complete already, which
+    // libstdc++ rejects under clang.
+    std::vector<Member> object;
 
     // An object's member, or null when there's none (or this isn't an object).
     [[nodiscard]] const Value* find(std::string_view key) const;
@@ -27,6 +31,12 @@ struct Value {
     [[nodiscard]] long long integer(std::string_view key, long long fallback = 0) const;
     // An object's member that is an array of strings (other items left out).
     [[nodiscard]] std::vector<std::string> strings(std::string_view key) const;
+};
+
+// An object's member.
+struct Member {
+    std::string key;
+    Value value;
 };
 
 // The value `text` holds, or nothing when it isn't JSON (or nests too deep).

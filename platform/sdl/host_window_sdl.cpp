@@ -1932,10 +1932,10 @@ std::optional<input::DeviceKey> last_input_device() noexcept {
     return std::nullopt;
 }
 
-void arm_controller_binding_capture(input::ControlScheme scheme, std::uint8_t slot) noexcept {
+void arm_controller_binding_capture(input::ControlScheme scheme, std::uint32_t slot) noexcept {
     const std::lock_guard<std::mutex> lock(galaxy::sdl::g_input_mutex);
     galaxy::sdl::g_capture_result.reset();
-    galaxy::sdl::g_capture_device = input::DeviceKey{scheme, slot};
+    galaxy::sdl::g_capture_device = input::DeviceKey{scheme, static_cast<std::uint8_t>(slot)};
 }
 
 void cancel_controller_binding_capture() noexcept {

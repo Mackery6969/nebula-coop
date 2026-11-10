@@ -2927,6 +2927,7 @@ void svc_coop_world_report(void*, const NebulaCoopWorldEvent* event) {
                                static_cast<std::uint8_t>(copy.scenario), 0u});
         return;
     case NEBULA_COOP_WORLD_SWITCH: gCoopWorld.report_switch({copy.object, copy.value != 0u}); return;
+    case NEBULA_COOP_WORLD_CLOCK: gCoopWorld.report_clock(copy.value); return;
     case NEBULA_COOP_WORLD_MISS:
         std::fprintf(stderr, "[coop] world: a miss, the instance goes on without this player until its scene starts over\n");
         gCoopWorld.report_miss();
@@ -2983,6 +2984,9 @@ uint32_t svc_coop_world_take(void*, NebulaCoopWorldEvent* events, uint32_t capac
             to.kind = NEBULA_COOP_WORLD_SWITCH;
             to.object = from.change.id;
             to.value = from.change.on ? 1u : 0u;
+        } else if (from.kind == Kind::Clock) {
+            to.kind = NEBULA_COOP_WORLD_CLOCK;
+            to.value = from.clock_ms;
         } else {
             using galaxy::coop::SaveKind;
             switch (from.save.kind) {

@@ -94,6 +94,12 @@ namespace NebulaCoopWorld {
     void noticeMiss();
     // Whether this scene is in a room.
     bool isInRoom();
+    // The mission's clock (docs/COOP_PLAN.md "Races and timers"): a speedy comet's time limit is the instance's, one
+    // for everyone in it, as the first player's started. startMissionClock, as the local clock starts: the server is
+    // told, and the frames the instance's has run come back (0 when this one is the first). getMissionClock: the
+    // frames it has run since, -1 when none is known (or the scene isn't in a room).
+    s32 startMissionClock();
+    s32 getMissionClock();
 
     // GameDataHolder: the current save got a Power Star, an event flag, an event value.
     void noticePowerStar(const GameDataHolder* pHolder, const char* pGalaxyName, s32 scenarioNo);

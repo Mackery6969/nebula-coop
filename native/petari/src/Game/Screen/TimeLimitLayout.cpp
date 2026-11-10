@@ -68,6 +68,22 @@ void TimeLimitLayout::setTimeLimit(u32 timeLimit) {
     mTimeLimit = timeLimit;
 }
 
+void TimeLimitLayout::catchUpTo(u32 time) {
+    if (time > mTimeLimit) {
+        time = mTimeLimit;
+    }
+    if (time <= mTime) {
+        return;
+    }
+    // Its last ten seconds' warning, which updateNormal starts on the exact frame, if the jump goes past it.
+    const bool warned = mTimeLimit - mTime <= NebulaFrameClock::stepsOfSeconds(10);
+    mTime = time;
+    updateTextBox();
+    if (!warned && mTimeLimit - mTime <= NebulaFrameClock::stepsOfSeconds(10)) {
+        MR::startAnim(this, "TimeLimit", 0);
+    }
+}
+
 void TimeLimitLayout::setDisplayModeOnNormal(bool param1) {
     mIsNormalDisplay = param1;
 }

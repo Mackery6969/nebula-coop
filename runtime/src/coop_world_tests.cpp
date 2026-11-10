@@ -254,6 +254,29 @@ void test_object_authority() {
     switches.leave(2u);
     (void)switches.enter(1u, kEgg1);
     expect(switches.switches_of(kEgg1).empty(), "an instance everyone left starts with the stage's own switches");
+
+    // Mission clocks: the first to start is the instance's.
+    WorldAuthority clocks;
+    (void)clocks.enter(1u, kEgg1);
+    (void)clocks.enter(2u, kEgg1);
+    (void)clocks.enter(3u, kEgg1);
+    expect(!clocks.clock_of(kEgg1, 1000u), "no clock before anyone's started");
+    WorldAuthority::Clocked clocked = clocks.clock(1u, 200u, 1000u);
+    expect(clocked.elapsed_ms == 200u && clocked.tell.size() == 2u, "the first clock reaches the others there");
+    expect(clocks.clock_of(kEgg1, 1500u) == 700u, "a player entering is told how long it ran");
+    clocked = clocks.clock(2u, 0u, 2000u);
+    expect(clocked.elapsed_ms == 1200u && clocked.tell.size() == 1u && clocked.tell[0] == 2u,
+           "a clock started later is told the instance's");
+    clocked = clocks.clock(3u, 5000u, 2000u);
+    expect(clocked.tell.empty(), "one that started earlier keeps its own");
+    clocks.miss(1u);
+    clocks.miss(2u);
+    clocks.miss(3u);
+    (void)clocks.enter(1u, kEgg1);
+    expect(!clocks.clock_of(kEgg1, 3000u), "everyone missed: the instance starts with no clock");
+    clocks.miss(1u);
+    expect(clocks.clock(1u, 0u, 3000u).tell.empty() && !clocks.clock_of(kEgg1, 3000u),
+           "a player whose miss goes on starts no clock");
 }
 
 bool wait_for(const std::function<bool()>& done, std::chrono::milliseconds limit = 10000ms) {
@@ -277,6 +300,7 @@ struct Game {
     std::vector<ObjectHit> hits;
     std::vector<SwitchChange> switches;
     std::vector<ObjectState> states;
+    std::vector<std::uint32_t> clocks;
 
     void pump() {
         for (const ObjectState& state : world.take_states()) states.push_back(state);
@@ -287,6 +311,7 @@ struct Game {
             if (event.kind == WorldEvent::Kind::StarGot) stars.push_back(event.star);
             if (event.kind == WorldEvent::Kind::Hit) hits.push_back(event.hit);
             if (event.kind == WorldEvent::Kind::Switch) switches.push_back(event.change);
+            if (event.kind == WorldEvent::Kind::Clock) clocks.push_back(event.clock_ms);
         }
         for (const SaveChange& change : world.take_achievements()) achievements.push_back(change);
     }
@@ -303,6 +328,7 @@ struct Game {
         hits.clear();
         switches.clear();
         states.clear();
+        clocks.clear();
         ready = false;
         world.enter(instance);
     }
@@ -579,6 +605,29 @@ void test_session_world() {
            }),
            "a scene starts over");
     expect(at_mario.achievements.empty(), "and isn't given the achievements again");
+
+    // Mission clocks: Mario's starts the instance's, the host's later one counts from it, and a scene starting over
+    // gets it with the record.
+    at_host.clocks.clear();
+    at_mario.world.report_clock(0u);
+    expect(wait_for([&] {
+               pump_all();
+               return !at_host.clocks.empty();
+           }),
+           "the host hears of Mario's clock");
+    std::this_thread::sleep_for(60ms);
+    at_host.clocks.clear();
+    at_host.world.report_clock(0u);
+    pump_all();
+    expect(at_host.clocks.size() == 1u && at_host.clocks[0] >= 50u, "the host's later clock counts from Mario's");
+    expect(at_mario.clocks.empty(), "Mario's own is the instance's: he isn't told");
+    at_mario.enter(kEgg1);
+    expect(wait_for([&] {
+               pump_all();
+               return at_mario.ready;
+           }),
+           "Mario's scene starts over");
+    expect(at_mario.clocks.size() == 1u && at_mario.clocks[0] >= 50u, "and gets the instance's clock before the end");
 
     // Misses (sm64coopdx's death warp out of the level): Mario's takes him out of the instance, and the host still in
     // it keeps its record for him; once everyone in it missed, the first back starts it fresh.

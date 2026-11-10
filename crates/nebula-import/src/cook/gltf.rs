@@ -291,10 +291,11 @@ pub fn decode_image(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>)> {
     if !bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
         bail!("images have to be PNG or JPEG");
     }
-    let mut decoder = png::Decoder::new(bytes);
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
     decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16 | png::Transformations::ALPHA);
     let mut reader = decoder.read_info().context("the PNG can't be read")?;
-    let mut pixels = vec![0u8; reader.output_buffer_size()];
+    let size = reader.output_buffer_size().context("the PNG is too big")?;
+    let mut pixels = vec![0u8; size];
     let info = reader.next_frame(&mut pixels).context("the PNG can't be read")?;
     let mut rgba = Vec::with_capacity(info.width as usize * info.height as usize * 4);
     match info.color_type {
