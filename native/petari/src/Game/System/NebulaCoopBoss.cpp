@@ -95,6 +95,14 @@ s32 NebulaCoopBossPhases::takeMusic() {
     return phase;
 }
 
+bool NebulaCoopBossPhases::isMusicHere(s32 phase) {
+    if (mBoss == nullptr || !NebulaCoopWorld::sObjectsActive || isWatching()) {
+        return true;
+    }
+    mMusicPhase = phase;
+    return false;
+}
+
 namespace NebulaCoopBoss {
     bool isActive() {
         return NebulaCoopWorld::sObjectsActive;

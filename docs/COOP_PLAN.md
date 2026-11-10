@@ -462,7 +462,10 @@ is its phases in order (its sequence's nerves: the opening, each fight, each sce
   between are skipped and their outcomes applied, the scene at that phase plays only if the local player is near.
   Out of a room nothing changes.
 - **Bosses.** Dino Piranha and Fiery Dino Piranha (`DinoPackunVs1`, `DinoPackunVs2`), Kamella (`BossKameckVs1`,
-  `BossKameckVs2`), Bouldergeist (`PoltaActionSequencer`).
+  `BossKameckVs2`), Bouldergeist (`PoltaActionSequencer`), Bugaboom (`BossStinkBugActionSequencer`: a skipped scene
+  leaves the boss posed as at its end). Not yet: Tarantox (`TombSpider`), King Kaliente (`OtaKing`), Major Burrows
+  (`Dodoryu`), Kingfin (`SkeletalFishBoss`), Topmaniac (`BossBegoman`), Megaleg (`TripodBoss`), Bowser Jr.'s ships
+  (`KoopaJrShip`), Baron Brrr (`IceMerameraKing`), Bowser (`Koopa`): their scenes are still each player's own.
 
 ## Player collisions
 

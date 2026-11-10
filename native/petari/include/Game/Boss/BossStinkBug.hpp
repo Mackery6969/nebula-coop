@@ -45,6 +45,9 @@ public:
     void updateAction();
     void updatePose();
     void setPose(MtxPtr);
+    // Online co-op (NebulaCoopBossPhases): a scene skipped, the boss posed as at its end (`pPosition` the scene's
+    // position controller, `pName` the scene's animation).
+    void coopEndPose(LiveActor* pPosition, const char* pName);
     void updateCamera();
     bool isValidFollowId(s32) const;
     void validateCollisionGround();

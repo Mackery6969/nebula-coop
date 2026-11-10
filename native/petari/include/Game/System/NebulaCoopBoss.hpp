@@ -41,6 +41,9 @@ public:
     // takeMusic gives that phase then (0 otherwise), once.
     void keepMusic(s32 phase);
     s32 takeMusic();
+    // For music a fight phase starts itself: whether it plays now (out of a room, or the local player in the fight);
+    // otherwise it is kept for when they come (takeMusic).
+    bool isMusicHere(s32 phase);
 
 private:
     LiveActor* mBoss;
