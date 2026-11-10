@@ -3,6 +3,7 @@
 #include "galaxy/coop_menu.h"
 #include "galaxy/net/bytes.h"
 #include "galaxy/net/direct_transport.h"
+#include "galaxy/net/netbulanet.h"
 
 #include <algorithm>
 #include <chrono>
@@ -923,12 +924,28 @@ bool Session::join(JoinConfig config) {
 void Session::leave() {
     const std::lock_guard<std::recursive_mutex> lock(lock_);
     if (state_->state == SessionState::Idle) return;
+    // Close the NebulaNet room if we're the host using it (fires off in the background).
+    if (!state_->host_config.nebulanet_code.empty()) {
+        const std::string server = state_->host_config.nebulanet_server.empty()
+            ? coop_nebulanet_default_server()
+            : state_->host_config.nebulanet_server;
+        const std::string code = state_->host_config.nebulanet_code;
+        (void)netbulanet::close_room(server, code);
+    }
     state_->end(SessionEvent::Kind::Closed, {});
 }
 
 bool Session::leave_if_free() {
     const std::unique_lock<std::recursive_mutex> lock(lock_, std::try_to_lock);
     if (!lock.owns_lock()) return false;
+    // Close the NebulaNet room if we're the host using it (fires off in the background).
+    if (!state_->host_config.nebulanet_code.empty()) {
+        const std::string server = state_->host_config.nebulanet_server.empty()
+            ? coop_nebulanet_default_server()
+            : state_->host_config.nebulanet_server;
+        const std::string code = state_->host_config.nebulanet_code;
+        (void)netbulanet::close_room(server, code);
+    }
     if (state_->state != SessionState::Idle) state_->end(SessionEvent::Kind::Closed, {});
     return true;
 }

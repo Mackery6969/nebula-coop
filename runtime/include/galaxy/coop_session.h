@@ -127,6 +127,10 @@ struct HostConfig {
     // player's settings).
     std::vector<std::string> bans;
     std::vector<std::string> moderators;
+    // NebulaNet: the signaling server URL (empty: the public deployment).
+    std::string nebulanet_server;
+    // NebulaNet: when set, the room code assigned by NebulaNet (6 uppercase chars).
+    std::string nebulanet_code;
 };
 
 struct JoinConfig {

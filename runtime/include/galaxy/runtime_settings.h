@@ -68,6 +68,10 @@ inline constexpr unsigned kCoopMaxPlayersLimit = 16u;
 inline constexpr std::size_t kCoopTextLimit = 32u;
 // The longest remembered join address ("host:port", "[ipv6]:port"), in bytes.
 inline constexpr std::size_t kCoopAddressLimit = 64u;
+// NebulaNet: a signaling service so friends join by a room code with no port forwarding. The room code is 6 characters.
+inline constexpr std::size_t kCoopNebulaNetCodeLimit = 12u;
+// The NebulaNet server URL, default is the public deployment.
+inline constexpr std::size_t kCoopNebulaNetServerLimit = 256u;
 
 // How players touch one another, sm64coopdx's options (docs/COOP_PLAN.md, "Player collisions"). Non-solid: they pass
 // through. Solid: they push apart, bounce off each other's heads and knock one another back with attacks, with no
@@ -100,6 +104,13 @@ struct RuntimeCoopSettings {
     // The room's built-in Personal Star Counter mod (the Host page's Mods, the Online tab): each player's stars on the
     // HUD and in the player list. Off by default.
     bool star_counter = false;
+    // NebulaNet: when true, the host uses NebulaNet's signaling service instead of sharing the port directly.
+    // Players join by a room code (6 characters, case-insensitive, no port forwarding needed).
+    bool nebulanet = false;
+    // The NebulaNet server URL (default: "https://nebulanet.mackery.com").
+    std::string nebulanet_server;
+    // The room code assigned by NebulaNet, shown to players so they can join (6 uppercase letters/digits).
+    std::string nebulanet_code;
 
     friend bool operator==(const RuntimeCoopSettings&, const RuntimeCoopSettings&) = default;
 };
@@ -124,6 +135,8 @@ struct RuntimeCoopPopups {
 [[nodiscard]] const char* coop_pvp_mode_key(CoopPvpMode mode) noexcept;
 // "mario" or "luigi" (runtime_settings.ini's coop_character).
 [[nodiscard]] const char* coop_character_key(CoopCharacter character) noexcept;
+// The NebulaNet server's default URL.
+[[nodiscard]] const char* coop_nebulanet_default_server() noexcept;
 
 struct RuntimeSettings {
     // Auto: whatever is attached and in use.

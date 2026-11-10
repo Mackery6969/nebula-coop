@@ -16,6 +16,9 @@ enum MainRow : unsigned { RowHost, RowJoin, RowOptions, RowQuit, MainRowCount };
 enum HostRow : unsigned {
     RowSave,
     RowSaveEdit,
+    RowNebulaNet,       // NebulaNet toggle: on/off
+    RowNebulaNetServer, // NebulaNet server URL (text editable)
+    RowNebulaNetCode,   // Room code (shown when hosting with NebulaNet)
     RowPort,
     RowPassword,
     RowPlayers,
@@ -29,7 +32,11 @@ enum HostRow : unsigned {
     RowBack,
     HostRowCount
 };
-enum JoinRow : unsigned { RowAddress, RowJoinPassword, RowJoinStart, RowJoinBack, JoinRowCount };
+enum JoinRow : unsigned {
+    RowNebulaNetCode,  // Room code when joining via NebulaNet
+    RowAddress,        // Host address when joining directly
+    RowJoinPassword, RowJoinStart, RowJoinBack, JoinRowCount
+};
 enum JoiningRow : unsigned { RowJoinStep, RowJoinBar, RowJoinCancel, JoiningRowCount };
 
 constexpr unsigned kKnockbacks[] = {kCoopKnockbackWeak, kCoopKnockbackNormal, kCoopKnockbackTooMuch};
@@ -40,12 +47,14 @@ constexpr std::string_view kPasswordLetters =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.!?#$%&*+=@";
 constexpr std::string_view kAddressLetters = "0123456789.:abcdefghijklmnopqrstuvwxyz-[]";
 constexpr std::string_view kPortLetters = "0123456789";
+constexpr std::string_view kNebulaNetCodeLetters = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 
 std::string_view kind_letters(TextKind kind) {
     switch (kind) {
     case TextKind::Port: return kPortLetters;
     case TextKind::Password: return kPasswordLetters;
     case TextKind::Address: return kAddressLetters;
+    case TextKind::NebulaNetCode: return kNebulaNetCodeLetters;
     default: return kNameLetters;
     }
 }
@@ -54,6 +63,7 @@ std::size_t kind_limit(TextKind kind) {
     switch (kind) {
     case TextKind::Port: return 5u;
     case TextKind::Address: return kCoopAddressLimit;
+    case TextKind::NebulaNetCode: return kCoopNebulaNetCodeLimit;
     case TextKind::PlayerName: return kPlayerNameLimit;
     default: return kCoopTextLimit;
     }
@@ -281,6 +291,7 @@ std::vector<MenuRow> MainMenu::rows() const {
     case Screen::Host: {
         const RuntimeCoopSettings& coop = room_;
         const bool fresh = save_ >= save_ids_.size();
+        const bool nebulanet_on = coop.nebulanet;
         std::vector<MenuRow> rows(HostRowCount);
         const bool renaming = edit_.field == Field::SaveName;
         rows[RowSave] = {"SAVE",
@@ -294,9 +305,35 @@ std::vector<MenuRow> MainMenu::rows() const {
                              std::string(fresh ? "-RENAME|-ERASE" : "RENAME|") +
                                  (fresh ? "" : erase_armed_ ? "PRESS AGAIN TO ERASE" : "ERASE"),
                              "RENAME: A NEW NAME FOR THE SAVE. ERASE: THE SAVE AND ITS ACHIEVEMENTS, FOR GOOD", true};
-        rows[RowPort] = {"PORT", text_value(Field::Port, RowPort, std::to_string(coop.port)),
-                         "THE UDP PORT PLAYERS JOIN ON. FORWARD IT ON YOUR ROUTER, OR PLAY OVER A VPN", false, false,
-                         true, true};
+        // NebulaNet: uses a room code instead of a port; no port forwarding needed.
+        rows[RowNebulaNet] = {"NEBULA NET", nebulanet_on ? "ON" : "OFF",
+                              "ON: PLAYERS JOIN BY A ROOM CODE, NO PORT FORWARDING. OFF: SHARE PORT LIKE NORMAL",
+                              false, true};
+        rows[RowNebulaNetServer] = {"NEBULA NET SERVER",
+                                    nebulanet_on
+                                        ? (coop.nebulanet_server.empty() ? "DEFAULT SERVER"
+                                                                         : coop.nebulanet_server)
+                                        : "-DEFAULT SERVER",
+                                    "THE NEBULA NET SERVER ADDRESS. DEFAULT: THE PUBLIC DEPLOYMENT",
+                                    false, false, nebulanet_on && !coop.nebulanet_server.empty(), true};
+        // Room code: shown when NebulaNet is on and the host is hosting (code is available).
+        rows[RowNebulaNetCode] = {"ROOM CODE",
+                                  nebulanet_on && !coop.nebulanet_code.empty()
+                                      ? coop.nebulanet_code
+                                      : nebulanet_on ? "-WAITING-" : "-",
+                                  nebulanet_on && coop.nebulanet_code.empty()
+                                      ? "WAITING FOR THE ROOM TO OPEN: PLAYERS WILL JOIN WITH THIS CODE"
+                                      : nebulanet_on && !coop.nebulanet_code.empty()
+                                          ? "PLAYERS TYPE THIS CODE TO JOIN: SHARE IT WITH YOUR FRIENDS"
+                                          : "TURN NEBULA NET ON TO USE ROOM CODES",
+                                  false, false, nebulanet_on, true};
+        // Port: hidden (unavailable) when NebulaNet is on.
+        rows[RowPort] = {"PORT", nebulanet_on ? "-" + text_value(Field::Port, RowPort, std::to_string(coop.port))
+                                              : text_value(Field::Port, RowPort, std::to_string(coop.port)),
+                         nebulanet_on
+                             ? "NEBULA NET IS ON: PLAYERS JOIN BY A ROOM CODE. TURN IT OFF TO USE A PORT"
+                             : "THE UDP PORT PLAYERS JOIN ON. FORWARD IT ON YOUR ROUTER, OR PLAY OVER A VPN",
+                         false, false, !nebulanet_on, true};
         rows[RowPassword] = {"PASSWORD",
                              edit_.field == Field::Password && edit_.row == RowPassword
                                  ? text_value(Field::Password, RowPassword, {})
@@ -323,9 +360,16 @@ std::vector<MenuRow> MainMenu::rows() const {
         const unsigned on = mods_on(mods_) + (coop.star_counter ? 1u : 0u);
         rows[RowMods] = {"MODS", on == 0u ? "NONE" : std::to_string(on) + " ON",
                          "THE MODS THE ROOM PLAYS WITH. PLAYERS WHO JOIN GET THEM FROM YOU", true};
-        rows[RowStart] = {"HOST", "HOST", "PLAYS THE SAVE AND OPENS THE ROOM: OTHERS JOIN YOUR ADDRESS AND PORT", true};
+        rows[RowStart] = nebulanet_on
+            ? MenuRow{"HOST", "HOST",
+                      "PLAYS THE SAVE AND OPENS THE ROOM: OTHERS JOIN WITH YOUR ROOM CODE", true}
+            : MenuRow{"HOST", "HOST",
+                      "PLAYS THE SAVE AND OPENS THE ROOM: OTHERS JOIN YOUR ADDRESS AND PORT", true};
         rows[RowBack] = {"BACK", "BACK", "BACK TO THE MAIN MENU", true};
-        if (edit_.field == Field::Port || edit_.field == Field::Password) rows[edit_.row].help = kEditHelp;
+        if (edit_.field == Field::Port || edit_.field == Field::Password ||
+            edit_.field == Field::NebulaNetServer) {
+            rows[edit_.row].help = kEditHelp;
+        }
         return rows;
     }
     case Screen::Mods: {
@@ -352,23 +396,48 @@ std::vector<MenuRow> MainMenu::rows() const {
     }
     case Screen::Join: {
         const RuntimeCoopSettings& coop = room_;
+        const bool nebulanet_on = coop.nebulanet;
         std::vector<MenuRow> rows(JoinRowCount);
+        // NebulaNet: join by room code; otherwise by address:port.
+        rows[RowNebulaNetCode] = {"ROOM CODE",
+                                  nebulanet_on
+                                      ? (edit_.field == Field::JoinNebulaNetCode
+                                             ? text_value(Field::JoinNebulaNetCode, RowNebulaNetCode, {})
+                                             : coop.join_address.empty()
+                                                 ? "-"
+                                                 : coop.join_address)
+                                      : "-",
+                                  nebulanet_on
+                                      ? "THE 6-CHAR CODE THE HOST SHARED: NO ADDRESS OR PORT NEEDED"
+                                      : "TURN NEBULA NET ON IN THE HOST PAGE TO JOIN BY CODE",
+                                  false, false, nebulanet_on, true};
         rows[RowAddress] = {"ADDRESS",
-                            edit_.field == Field::Address ? text_value(Field::Address, RowAddress, {})
-                            : coop.join_address.empty()   ? "NONE"
-                                                          : coop.join_address,
-                            "THE HOST'S ADDRESS: HOST, HOST:PORT OR [IPV6]:PORT. A HOST WITHOUT A PORT IS ON 7777",
-                            false, false, !coop.join_address.empty() || edit_.field == Field::Address, true};
+                            !nebulanet_on
+                                ? (edit_.field == Field::Address ? text_value(Field::Address, RowAddress, {})
+                                                                 : coop.join_address.empty()   ? "NONE"
+                                                                                               : coop.join_address)
+                                : "-",
+                            !nebulanet_on
+                                ? "THE HOST'S ADDRESS: HOST, HOST:PORT OR [IPV6]:PORT. A HOST WITHOUT A PORT IS ON 7777"
+                                : "NEBULA NET IS ON: PLAYERS JOIN BY ROOM CODE, NOT ADDRESS",
+                            false, false, !nebulanet_on && !coop.join_address.empty(), true};
         rows[RowJoinPassword] = {"PASSWORD",
                                  edit_.field == Field::Password ? text_value(Field::Password, RowJoinPassword, {})
                                  : coop.password.empty()        ? "NONE"
                                                                 : std::string(coop.password.size(), '*'),
                                  "THE ROOM'S PASSWORD, WHEN IT HAS ONE", false, false,
                                  !coop.password.empty() || edit_.field == Field::Password, true};
-        rows[RowJoinStart] = joining_                  ? MenuRow{"JOIN", "CANCEL", "CONNECTING TO THE HOST...", true}
-                             : coop.join_address.empty() ? MenuRow{"JOIN", "-JOIN", "TYPE THE HOST'S ADDRESS FIRST", true}
-                                                         : MenuRow{"JOIN", "JOIN",
-                                                                   "CONNECTS TO THE HOST AND PLAYS IN THEIR ROOM", true};
+        const std::string& join_label = nebulanet_on ? "JOIN" : "JOIN";
+        const std::string& join_help = nebulanet_on
+            ? "CONNECTS TO THE ROOM AND PLAYS IN THE HOST'S SAVE"
+            : coop.join_address.empty()
+                ? "TYPE THE HOST'S ADDRESS FIRST"
+                : "CONNECTS TO THE HOST AND PLAYS IN THEIR ROOM";
+        rows[RowJoinStart] = joining_
+            ? MenuRow{join_label, "CANCEL", "CONNECTING TO THE HOST...", true}
+            : coop.join_address.empty()
+                ? MenuRow{join_label, "-JOIN", join_help, true}
+                : MenuRow{join_label, join_label, join_help, true};
         rows[RowJoinBack] = {"BACK", "BACK", "BACK TO THE MAIN MENU", true};
         if (editing()) rows[edit_.row].help = kEditHelp;
         return rows;
@@ -465,6 +534,7 @@ void MainMenu::change(int delta) {
             break;
         case RowBubble: coop.bubble_death = step(coop.bubble_death ? 1u : 0u, delta, 2u) == 1u; break;
         case RowCheats: coop.cheats = step(coop.cheats ? 1u : 0u, delta, 2u) == 1u; break;
+        case RowNebulaNet: coop.nebulanet = step(coop.nebulanet ? 1u : 0u, delta, 2u) == 1u; break;
         default: break;
         }
     } else if (screen_ == Screen::Mods && selected_ < mods_.size()) {
@@ -511,8 +581,16 @@ void MainMenu::press(unsigned button) {
     const MenuRow& row = all[selected_];
     if (row.text) {
         switch (screen_) {
-        case Screen::Host: start_edit(selected_ == RowPort ? Field::Port : Field::Password, selected_); break;
-        case Screen::Join: start_edit(selected_ == RowAddress ? Field::Address : Field::Password, selected_); break;
+        case Screen::Host:
+            if (selected_ == RowPort) start_edit(Field::Port, selected_);
+            else if (selected_ == RowPassword) start_edit(Field::Password, selected_);
+            else if (selected_ == RowNebulaNetServer) start_edit(Field::NebulaNetServer, selected_);
+            break;
+        case Screen::Join:
+            if (selected_ == RowNebulaNetCode) start_edit(Field::JoinNebulaNetCode, selected_);
+            else if (selected_ == RowAddress) start_edit(Field::Address, selected_);
+            else if (selected_ == RowJoinPassword) start_edit(Field::Password, selected_);
+            break;
         default: break;
         }
         return;
@@ -599,6 +677,12 @@ void MainMenu::start_edit(Field field, unsigned row) {
     case Field::Port: edit_.text = TextEdit(TextKind::Port, std::to_string(room_.port)); break;
     case Field::Password: edit_.text = TextEdit(TextKind::Password, room_.password); break;
     case Field::Address: edit_.text = TextEdit(TextKind::Address, room_.join_address); break;
+    case Field::NebulaNetServer:
+        edit_.text = TextEdit(TextKind::NebulaNetCode, room_.nebulanet_server);
+        break;
+    case Field::JoinNebulaNetCode:
+        edit_.text = TextEdit(TextKind::NebulaNetCode, room_.join_address);
+        break;
     case Field::None: break;
     }
 }
@@ -636,6 +720,21 @@ void MainMenu::finish_edit() {
         room_.join_address = text;
         break;
     }
+    case Field::NebulaNetServer:
+        room_.nebulanet_server = text;
+        if (room_.nebulanet_server.empty()) room_.nebulanet_server = coop_nebulanet_default_server();
+        break;
+    case Field::JoinNebulaNetCode:
+        // Room codes are 6 uppercase alphanumeric characters.
+        if (!text.empty()) {
+            std::string upper;
+            upper.reserve(text.size());
+            for (char c : text) upper += static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+            room_.join_address = upper;
+        } else {
+            room_.join_address.clear();
+        }
+        break;
     case Field::None: return;
     }
     edit_ = {};

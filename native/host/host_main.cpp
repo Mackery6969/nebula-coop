@@ -72,6 +72,7 @@
 #include "galaxy/wiimote_hid.h"
 #endif
 #include "galaxy/runtime_settings.h"
+#include "galaxy/net/netbulanet.h"
 #include "galaxy/render/curved_surfaces.h"
 #include "galaxy/render/native_shapes.h"
 #include "galaxy/render/galaxy_select.h"
@@ -2085,6 +2086,16 @@ void pump_coop_chat() {
 }
 #endif
 
+// Returns true if `text` looks like a NebulaNet room code (6 uppercase letters/digits from NebulaNet's alphabet).
+static bool is_nebulanet_code(std::string_view text) {
+    if (text.size() != 6u) return false;
+    constexpr std::string_view alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+    for (char c : text) {
+        if (alphabet.find(c) == std::string_view::npos) return false;
+    }
+    return true;
+}
+
 // Host: the room opens on the Host page's port as the save starts. False (and why on the menu) when it can't.
 bool open_coop_room() {
     galaxy::coop::HostConfig config;
@@ -2098,6 +2109,43 @@ bool open_coop_room() {
     config.mods = coop_session_mods();
     config.bans = galaxy::get_runtime_settings().coop_bans;
     config.moderators = galaxy::get_runtime_settings().coop_moderators;
+
+    // NebulaNet: get a room code before opening the room.
+    if (config.room.nebulanet) {
+        config.nebulanet_server = config.room.nebulanet_server.empty()
+            ? galaxy::coop_nebulanet_default_server()
+            : config.room.nebulanet_server;
+
+        // Build local candidates (host addresses for NAT traversal).
+        std::vector<galaxy::netbulanet::Candidate> candidates;
+        // Add the local address with the port we're about to use.
+        galaxy::netbulanet::Candidate local;
+        local.type = "host";
+        local.address = "0.0.0.0:" + std::to_string(config.port);
+        candidates.push_back(local);
+
+        if (auto result = galaxy::netbulanet::create_room(
+                config.nebulanet_server, "Nebula", kCoopGameVersion, config.name,
+                1u, config.room.max_players, candidates,
+                [](std::string msg) { gCoopMenu.set_join_status(msg, {}, 0u); })) {
+            if (const auto* info = std::get_if<galaxy::netbulanet::RoomInfo>(&result)) {
+                config.nebulanet_code = info->code;
+                config.room.nebulanet_code = info->code;
+                gCoopMenu.set_room(config.room);
+                std::fprintf(stderr, "[coop] NebulaNet room code: %s\n", info->code.c_str());
+            } else {
+                galaxy::netbulanet::Error err = std::get<galaxy::netbulanet::Error>(result);
+                std::fprintf(stderr, "[coop] NebulaNet create failed: %d\n", static_cast<int>(err));
+                gCoopMenu.set_message("NEBULA NET: COULD NOT CREATE ROOM: " +
+                    std::to_string(static_cast<int>(err)));
+                return false;
+            }
+        } else {
+            gCoopMenu.set_message("NEBULA NET: CREATE ROOM TIMED OUT");
+            return false;
+        }
+    }
+
     listen_coop_snapshots();
     if (!gCoopSession.host(std::move(config))) {
         std::fprintf(stderr, "[coop] the room could not open on port %u\n", static_cast<unsigned>(gCoopMenu.room().port));
@@ -2118,6 +2166,71 @@ void start_coop_join() {
     keep_coop_settings();
     const galaxy::RuntimeCoopSettings& room = gCoopMenu.room();
     galaxy::coop::JoinConfig config;
+
+    // NebulaNet: join by room code instead of address:port.
+    if ((room.nebulanet || is_nebulanet_code(room.join_address)) && !room.join_address.empty()) {
+        config.nebulanet_server = room.nebulanet_server.empty()
+            ? galaxy::coop_nebulanet_default_server()
+            : room.nebulanet_server;
+
+        // Build local candidates for NAT traversal.
+        std::vector<galaxy::netbulanet::Candidate> candidates;
+        galaxy::netbulanet::Candidate local;
+        local.type = "host";
+        local.address = "0.0.0.0:0";
+        candidates.push_back(local);
+
+        if (auto result = galaxy::netbulanet::join_room(
+                config.nebulanet_server, room.join_address, candidates,
+                [](std::string msg) { gCoopMenu.set_join_status(msg, {}, 0u); })) {
+            if (const auto* info = std::get_if<galaxy::netbulanet::JoinInfo>(&result)) {
+                // Use the first candidate as the host address.
+                if (!info->candidates.empty()) {
+                    std::string& addr = info->candidates[0].address;
+                    auto colon = addr.rfind(':');
+                    if (colon != std::string::npos) {
+                        config.address = addr.substr(0, colon);
+                        try { config.port = static_cast<uint16_t>(std::stoul(addr.substr(colon + 1))); }
+                        catch (...) { config.port = kCoopDefaultPort; }
+                    } else {
+                        config.address = addr;
+                        config.port = kCoopDefaultPort;
+                    }
+                }
+                config.password = room.password;
+                config.game_version = kCoopGameVersion;
+                config.name = coop_player_name();
+                config.character = room.character;
+                config.disc = gCoopDisc;
+                config.mods = coop_session_mods();
+                config.mods_cache = coop_mods_cache();
+                config.find_mod = find_own_mod;
+                std::fprintf(stderr, "[coop] NebulaNet joined: %s port %u\n", config.address.c_str(),
+                             static_cast<unsigned>(config.port));
+                listen_coop_snapshots();
+                if (!gCoopSession.join(std::move(config))) {
+                    std::string why = "THE HOST COULD NOT BE REACHED";
+                    for (const galaxy::coop::SessionEvent& event : gCoopSession.take_events()) {
+                        if (event.kind == galaxy::coop::SessionEvent::Kind::JoinFailed) why = event.text;
+                    }
+                    gCoopMenu.set_message("COULD NOT JOIN: " + why);
+                    return;
+                }
+                gCoopMenu.set_joining(true);
+                return;
+            } else {
+                galaxy::netbulanet::Error err = std::get<galaxy::netbulanet::Error>(result);
+                gCoopMenu.set_message("NEBULA NET: COULD NOT JOIN ROOM: " +
+                    std::to_string(static_cast<int>(err)));
+                return;
+            }
+        } else {
+            gCoopMenu.set_message("NEBULA NET: JOIN TIMED OUT");
+            return;
+        }
+    }
+
+    // Regular UDP join by address:port.
     if (!galaxy::parse_coop_endpoint(room.join_address, config.address, config.port)) {
         gCoopMenu.set_message("THAT ISN'T AN ADDRESS: HOST, HOST:PORT OR [IPV6]:PORT");
         return;

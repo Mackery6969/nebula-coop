@@ -81,7 +81,7 @@ enum TextKey : char32_t {
 inline constexpr std::size_t kPlayerNameLimit = 20u;
 
 // What a text row holds: the letters it takes, and how many.
-enum class TextKind { Name, PlayerName, Password, Address, Port };
+enum class TextKind { Name, PlayerName, Password, Address, Port, NebulaNetCode };
 
 // A text being edited in place, its cursor on a letter or past the last (where the next one goes). The keyboard types
 // into it (type()); a controller steps the letter at the cursor through the ones its kind takes (step_letter()).
@@ -169,7 +169,7 @@ public:
 
 private:
     enum class Screen { Main, Host, Mods, Join, Joining };
-    enum class Field { None, SaveName, Port, Password, Address };
+    enum class Field { None, SaveName, Port, Password, Address, NebulaNetCode, JoinNebulaNetCode };
     struct Edit {
         Field field = Field::None;
         unsigned row = 0u;
