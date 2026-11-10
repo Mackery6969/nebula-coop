@@ -16,6 +16,7 @@ enum DatagramType : std::uint8_t {
     kHello = 0x01,    // joiner: nonce, password
     kWelcome = 0x02,  // host: nonce, lobby, the joiner's id, the host's, the other members
     kRefuse = 0x03,   // host: nonce, NetError
+    kPunch = 0x04,    // host: nothing; it only opens the host's router to a joiner (older versions ignore it)
     kLinkFrame = 0x10,  // the sender's id, a link frame (galaxy/net/link.h)
     kPing = 0x20,     // the sender's id, its clock
     kPong = 0x21,     // the sender's id, the ping's clock
@@ -27,6 +28,8 @@ enum RoutedKind : std::uint8_t { kRoutedApp = 0, kRoutedJoined = 1, kRoutedLeft 
 constexpr std::size_t kRoutedHeader = 17u;
 
 constexpr auto kHelloEvery = std::chrono::milliseconds(250);
+constexpr auto kPunchEvery = std::chrono::milliseconds(250);
+constexpr auto kAskStunEvery = std::chrono::milliseconds(500);
 constexpr auto kPingEvery = std::chrono::seconds(1);
 constexpr int kByeRepeats = 3;
 
@@ -56,6 +59,7 @@ struct DirectTransport::Remote {
     Address address;
     PeerId id = kNoPeer;
     Link link;
+    std::uint64_t join_nonce = 0u;  // the hello it joined with
     Clock::time_point last_heard{};
     Clock::time_point last_ping{};
     std::chrono::microseconds rtt{0};
@@ -153,15 +157,40 @@ bool DirectTransport::lobby_create(const LobbyConfig& config) {
     return true;
 }
 
-bool DirectTransport::lobby_join(const JoinConfig& config) {
+bool DirectTransport::open_for_join() {
     lobby_leave();
-    Address address;
-    if (!resolve(config.address, config.port, address) || !socket_.open(0u, address.ipv6())) {
+    if (!socket_.open(0u, true)) return false;
+    host_ = false;
+    state_ = State::Preparing;
+    return true;
+}
+
+bool DirectTransport::lobby_join(const JoinConfig& config) {
+    // A socket opened for this join (open_for_join) is kept: its public address is the one NebulaNet passed on.
+    const bool prepared = state_ == State::Preparing && socket_.is_open();
+    if (!prepared) lobby_leave();
+    // The addresses asked for, those that resolve, each once; the socket takes IPv6 when one of them is.
+    std::vector<Address> addresses;
+    bool ipv6 = false;
+    const auto add = [&](const std::string& host, std::uint16_t port) {
+        Address address;
+        if (host.empty() || !resolve(host, port, address)) return;
+        if (std::find(addresses.begin(), addresses.end(), address) != addresses.end()) return;
+        ipv6 = ipv6 || address.ipv6();
+        addresses.push_back(address);
+    };
+    add(config.address, config.port);
+    for (const Endpoint& alternate : config.alternates) add(alternate.address, alternate.port);
+    if (addresses.empty() || (!prepared && !socket_.open(0u, ipv6))) {
+        if (prepared) close_now();
         if (callbacks_.on_error) callbacks_.on_error(NetError::LobbyJoinFailed, kNoPeer);
         return false;
     }
     host_ = false;
-    join_address_ = address;
+    join_addresses_ = std::move(addresses);
+    join_timeout_ = config.timeout.count() > 0
+                        ? config.timeout
+                        : std::chrono::duration_cast<std::chrono::milliseconds>(kJoinTimeout);
     join_password_ = config.password;
     join_nonce_ = random_();
     join_started_ = Clock::now();
@@ -189,6 +218,10 @@ void DirectTransport::lobby_leave() {
 void DirectTransport::close_now() {
     remotes_.clear();
     others_.clear();
+    join_addresses_.clear();
+    punches_.clear();
+    discovery_ = Discovery::Idle;
+    public_address_ = Address{};
     socket_.close();
     state_ = State::Closed;
     host_ = false;
@@ -272,8 +305,10 @@ void DirectTransport::update(std::chrono::milliseconds wait) {
     }
     if (state_ == State::Closed) return;
     const Clock::time_point now = Clock::now();
+    update_discovery(now);
+    if (state_ == State::Preparing) return;
     if (state_ == State::Joining) {
-        if (now - join_started_ > kJoinTimeout) {
+        if (now - join_started_ > join_timeout_) {
             fail(NetError::LobbyNotFound);
             return;
         }
@@ -281,10 +316,11 @@ void DirectTransport::update(std::chrono::milliseconds wait) {
             join_last_hello_ = now;
             ByteWriter body;
             body.u64(join_nonce_).str(join_password_);
-            send_raw(join_address_, kHello, body.bytes());
+            for (const Address& address : join_addresses_) send_raw(address, kHello, body.bytes());
         }
         return;
     }
+    update_punches(now);
     std::vector<std::pair<PeerId, NetError>> gone;
     for (const auto& remote : remotes_) {
         remote->link.update(now);
@@ -305,8 +341,71 @@ void DirectTransport::update(std::chrono::milliseconds wait) {
     }
 }
 
+bool DirectTransport::is_join_address(const Address& address) const {
+    return std::find(join_addresses_.begin(), join_addresses_.end(), address) != join_addresses_.end();
+}
+
+bool DirectTransport::discover_public_address(std::string_view server, std::uint16_t port) {
+    if (state_ == State::Closed || !socket_.is_open()) return false;
+    Address address;
+    if (!resolve(server, port, address)) {
+        discovery_ = Discovery::Failed;
+        return false;
+    }
+    stun_server_ = address;
+    for (auto& byte : stun_id_) byte = static_cast<std::uint8_t>(random_());
+    public_address_ = Address{};
+    discovery_ = Discovery::Asking;
+    discovery_started_ = Clock::now();
+    discovery_last_ask_ = {};
+    update_discovery(discovery_started_);
+    return true;
+}
+
+void DirectTransport::update_discovery(Clock::time_point now) {
+    if (discovery_ != Discovery::Asking) return;
+    if (now - discovery_started_ > kDiscoveryTimeout) {
+        discovery_ = Discovery::Failed;
+        return;
+    }
+    if (now - discovery_last_ask_ < kAskStunEvery) return;
+    discovery_last_ask_ = now;
+    if (loss_ > 0.0 && std::uniform_real_distribution<double>(0.0, 1.0)(random_) < loss_) return;
+    (void)socket_.send_to(stun_server_, stun::binding_request(stun_id_));
+}
+
+void DirectTransport::punch(const Address& joiner) {
+    if (!host_ || state_ != State::Lobby || !joiner.valid() || find(joiner) != nullptr) return;
+    const Clock::time_point now = Clock::now();
+    for (Punch& punch : punches_) {
+        if (punch.to == joiner) {
+            punch.until = now + kPunchFor;
+            return;
+        }
+    }
+    punches_.push_back({joiner, now + kPunchFor, {}});
+    update_punches(now);
+}
+
+void DirectTransport::update_punches(Clock::time_point now) {
+    std::erase_if(punches_, [&](const Punch& punch) { return now > punch.until || find(punch.to) != nullptr; });
+    for (Punch& punch : punches_) {
+        if (now - punch.last < kPunchEvery) continue;
+        punch.last = now;
+        send_raw(punch.to, kPunch, {});
+    }
+}
+
 void DirectTransport::receive_datagram(std::span<const std::uint8_t> datagram, const Address& from,
                                        Clock::time_point now) {
+    if (discovery_ == Discovery::Asking && stun::is_stun(datagram)) {
+        Address mapped;
+        if (from == stun_server_ && stun::parse_binding_response(datagram, stun_id_, mapped)) {
+            public_address_ = mapped;
+            discovery_ = Discovery::Found;
+        }
+        return;
+    }
     if (datagram.size() < 4u || datagram[0] != kMagic0 || datagram[1] != kMagic1) return;
     const std::uint8_t type = datagram[3];
     const std::span<const std::uint8_t> body = datagram.subspan(4);
@@ -317,7 +416,7 @@ void DirectTransport::receive_datagram(std::span<const std::uint8_t> datagram, c
             ByteWriter refuse;
             refuse.u64(reader.u64()).u8(static_cast<std::uint8_t>(NetError::Version));
             send_raw(from, kRefuse, refuse.bytes());
-        } else if (state_ == State::Joining && from == join_address_) {
+        } else if (state_ == State::Joining && is_join_address(from)) {
             fail(NetError::Version);
         }
         return;
@@ -327,16 +426,17 @@ void DirectTransport::receive_datagram(std::span<const std::uint8_t> datagram, c
         if (host_) receive_hello(body, from, now);
         return;
     case kWelcome:
-        if (state_ == State::Joining && from == join_address_) receive_welcome(body, from, now);
+        if (state_ == State::Joining && is_join_address(from)) receive_welcome(body, from, now);
         return;
     case kRefuse: {
-        if (state_ != State::Joining || !(from == join_address_)) return;
+        if (state_ != State::Joining || !is_join_address(from)) return;
         ByteReader reader(body);
         const std::uint64_t nonce = reader.u64();
         const auto error = static_cast<NetError>(reader.u8());
         if (reader.ok() && nonce == join_nonce_) fail(error);
         return;
     }
+    case kPunch: return;  // it opened a router on its way; nothing to do
     default: break;
     }
     // The rest come from a member (the host, for a joiner) and carry its id, which must match its address.
@@ -385,6 +485,13 @@ void DirectTransport::receive_hello(std::span<const std::uint8_t> body, const Ad
     const std::string password = reader.str(256u);
     if (!reader.ok()) return;
     Remote* known = find(from);
+    if (known == nullptr) {
+        // The same joiner's hello along another way (a joiner tries every address the host may have): it's already
+        // a member by the first way, and the welcome went back along that one.
+        for (const auto& remote : remotes_) {
+            if (remote->join_nonce == nonce) return;
+        }
+    }
     NetError refused = NetError::None;
     if (known == nullptr) {
         if (!config_.password.empty() && password != config_.password) {
@@ -405,6 +512,7 @@ void DirectTransport::receive_hello(std::span<const std::uint8_t> body, const Ad
         for (const auto& remote : remotes_) send_routed(*remote, Channel::Ordered, kRoutedJoined, self_, id, {});
         remotes_.push_back(std::make_unique<Remote>(*this, from, id));
         known = remotes_.back().get();
+        known->join_nonce = nonce;
         known->last_heard = now;
         known->last_ping = now;
         if (callbacks_.on_peer_joined) callbacks_.on_peer_joined(id);

@@ -20,7 +20,9 @@
 #pragma once
 
 #include "galaxy/coop_mods.h"
+#include "galaxy/net/stun.h"
 #include "galaxy/net/transport.h"
+#include "galaxy/net/web.h"
 #include "galaxy/runtime_settings.h"
 
 #include <atomic>
@@ -107,6 +109,9 @@ struct SessionEvent {
         KeepModerator, // the host: `name` is made a moderator of every room it hosts; keep text likewise
                        // (HostConfig::moderators)
         Moderator,     // this player: the host made it a moderator
+        RoomCode,      // the host: NebulaNet listed the room; text: the code friends join with
+        NebulaNetLost, // the host: NebulaNet can't list the room now (text: why); it tries again, and friends can
+                       // still join by address
     };
     Kind kind = Kind::Hosting;
     std::string name;
@@ -127,6 +132,11 @@ struct HostConfig {
     // player's settings).
     std::vector<std::string> bans;
     std::vector<std::string> moderators;
+    // NebulaNet (galaxy/coop_nebulanet.h) to list the room on, so friends join by its code with no port forwarded;
+    // empty: by address only. The STUN server tells NebulaNet the room's public address.
+    std::string nebulanet;
+    std::string stun = net::stun::kDefaultServer;
+    std::uint16_t stun_port = net::stun::kDefaultPort;
 };
 
 struct JoinConfig {
@@ -141,6 +151,12 @@ struct JoinConfig {
     std::filesystem::path mods_cache;      // where the room's mods download (ModCache), and are looked for first
     // A copy of a room's mod this player has (its own mods folder's), checked against the mod's files and hash.
     std::function<std::optional<std::filesystem::path>(const SharedMod&)> find_mod;
+    // A room code instead of the address: NebulaNet (this server) gives the host's addresses and tells the host to
+    // punch through to this player.
+    std::string code;
+    std::string nebulanet;
+    std::string stun = net::stun::kDefaultServer;
+    std::uint16_t stun_port = net::stun::kDefaultPort;
 };
 
 // How far a join is (Session::join_step), for the joining screen.
@@ -149,6 +165,7 @@ enum class JoinStep : std::uint8_t {
     Reaching,         // reaching the host's lobby
     Asking,           // in its lobby, waiting for the host to let this player in
     DownloadingMods,  // getting the room's mods it lacks (download_progress())
+    FindingRoom,      // asking NebulaNet where the room of its code is
 };
 
 // A joiner's download of the room's mods.
@@ -189,6 +206,10 @@ public:
     [[nodiscard]] RuntimeCoopSettings room() const;
     // The port a host listens on.
     [[nodiscard]] std::uint16_t port() const;
+    // A host's room code on NebulaNet (HostConfig::nebulanet), once it has one; empty otherwise.
+    [[nodiscard]] std::string room_code() const;
+    // How NebulaNet is reached (tests give their own); the platform's (galaxy/net/web.h) when none is set.
+    void set_web(std::shared_ptr<net::Web> web);
     // The host changes the room's settings for everyone.
     void set_room(const RuntimeCoopSettings& room);
     // Where this player plays (the player list's galaxy and star), told to everyone as it changes. Kept while there

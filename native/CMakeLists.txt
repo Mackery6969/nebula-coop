@@ -228,9 +228,14 @@ add_executable(nebula_native_host host/host_main.cpp ../tools/test_driver/run_op
     ../runtime/src/coop_session.cpp ../runtime/src/coop_snapshot.cpp ../runtime/src/coop_chat.cpp
     ../runtime/src/coop_commands.cpp ../runtime/src/coop_teleport.cpp ../runtime/src/coop_popups.cpp ../runtime/src/coop_world.cpp ../runtime/src/runtime_settings.cpp
     ../runtime/src/input_bindings.cpp ../runtime/src/net/udp.cpp ../runtime/src/net/link.cpp
-    ../runtime/src/net/direct_transport.cpp)
+    ../runtime/src/net/direct_transport.cpp ../runtime/src/net/stun.cpp ../runtime/src/net/json.cpp
+    ../runtime/src/net/web.cpp ../runtime/src/net/web_win.cpp ../runtime/src/net/web_curl.cpp
+    ../runtime/src/coop_nebulanet.cpp)
+# NebulaNet's web calls: WinHTTP on Windows, the system's libcurl (loaded when first used) elsewhere.
 if(WIN32)
-    target_link_libraries(nebula_native_host PRIVATE ws2_32)
+    target_link_libraries(nebula_native_host PRIVATE ws2_32 winhttp)
+else()
+    target_link_libraries(nebula_native_host PRIVATE ${CMAKE_DL_LIBS})
 endif()
 target_include_directories(nebula_native_host PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/minhook/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/../runtime/include" "${CMAKE_CURRENT_BINARY_DIR}/generated")

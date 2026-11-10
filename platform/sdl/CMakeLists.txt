@@ -168,6 +168,12 @@ add_library(galaxy_render_vk STATIC
     ${rt}/net/udp.cpp
     ${rt}/net/link.cpp
     ${rt}/net/direct_transport.cpp
+    ${rt}/net/stun.cpp
+    ${rt}/net/json.cpp
+    ${rt}/net/web.cpp
+    ${rt}/net/web_win.cpp
+    ${rt}/net/web_curl.cpp
+    ${rt}/coop_nebulanet.cpp
     ${rt}/input_bindings.cpp
     ${rt}/host_pointer_events.cpp
     ${rt}/input/wiimote_motion.cpp
@@ -220,6 +226,12 @@ target_include_directories(galaxy_render_vk PRIVATE "${nebula_root}/third_party/
 # vk_mem_alloc.h leaves pointer nullability unannotated.
 target_compile_options(galaxy_render_vk PRIVATE -Wno-nullability-completeness)
 target_link_libraries(galaxy_render_vk PUBLIC nebula_vulkan_deps)
+# NebulaNet's web calls load the system's libcurl when first used (galaxy/net/web.h); Windows' use WinHTTP.
+if(WIN32)
+    target_link_libraries(galaxy_render_vk PUBLIC winhttp)
+else()
+    target_link_libraries(galaxy_render_vk PUBLIC ${CMAKE_DL_LIBS})
+endif()
 target_link_libraries(galaxy_render_vk PRIVATE nebula_shader_compiler)
 
 # AMD FSR 3 (cmake/fidelityfx_android.cmake).

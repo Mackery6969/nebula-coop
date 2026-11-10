@@ -16,6 +16,7 @@ enum MainRow : unsigned { RowHost, RowJoin, RowOptions, RowQuit, MainRowCount };
 enum HostRow : unsigned {
     RowSave,
     RowSaveEdit,
+    RowNetwork,
     RowPort,
     RowPassword,
     RowPlayers,
@@ -294,9 +295,16 @@ std::vector<MenuRow> MainMenu::rows() const {
                              std::string(fresh ? "-RENAME|-ERASE" : "RENAME|") +
                                  (fresh ? "" : erase_armed_ ? "PRESS AGAIN TO ERASE" : "ERASE"),
                              "RENAME: A NEW NAME FOR THE SAVE. ERASE: THE SAVE AND ITS ACHIEVEMENTS, FOR GOOD", true};
+        rows[RowNetwork] = {"NETWORK", coop.nebulanet ? "NEBULANET" : "DIRECT",
+                            coop.nebulanet ? "NEBULANET: FRIENDS JOIN BY THE ROOM'S CODE, WITH NO PORT TO FORWARD. THE "
+                                             "CODE SHOWS IN THE CHAT (AND /CODE) ONCE THE ROOM OPENS"
+                                           : "DIRECT: FRIENDS JOIN BY YOUR ADDRESS AND PORT. FORWARD THE PORT ON YOUR "
+                                             "ROUTER, OR PLAY OVER A VPN",
+                            false, true};
         rows[RowPort] = {"PORT", text_value(Field::Port, RowPort, std::to_string(coop.port)),
-                         "THE UDP PORT PLAYERS JOIN ON. FORWARD IT ON YOUR ROUTER, OR PLAY OVER A VPN", false, false,
-                         true, true};
+                         coop.nebulanet ? "THE UDP PORT THE ROOM PLAYS ON. WITH NEBULANET NOTHING NEEDS FORWARDING"
+                                        : "THE UDP PORT PLAYERS JOIN ON. FORWARD IT ON YOUR ROUTER, OR PLAY OVER A VPN",
+                         false, false, true, true};
         rows[RowPassword] = {"PASSWORD",
                              edit_.field == Field::Password && edit_.row == RowPassword
                                  ? text_value(Field::Password, RowPassword, {})
@@ -323,7 +331,10 @@ std::vector<MenuRow> MainMenu::rows() const {
         const unsigned on = mods_on(mods_) + (coop.star_counter ? 1u : 0u);
         rows[RowMods] = {"MODS", on == 0u ? "NONE" : std::to_string(on) + " ON",
                          "THE MODS THE ROOM PLAYS WITH. PLAYERS WHO JOIN GET THEM FROM YOU", true};
-        rows[RowStart] = {"HOST", "HOST", "PLAYS THE SAVE AND OPENS THE ROOM: OTHERS JOIN YOUR ADDRESS AND PORT", true};
+        rows[RowStart] = {"HOST", "HOST",
+                          coop.nebulanet ? "PLAYS THE SAVE AND OPENS THE ROOM: OTHERS JOIN BY ITS CODE"
+                                         : "PLAYS THE SAVE AND OPENS THE ROOM: OTHERS JOIN YOUR ADDRESS AND PORT",
+                          true};
         rows[RowBack] = {"BACK", "BACK", "BACK TO THE MAIN MENU", true};
         if (edit_.field == Field::Port || edit_.field == Field::Password) rows[edit_.row].help = kEditHelp;
         return rows;
@@ -353,11 +364,12 @@ std::vector<MenuRow> MainMenu::rows() const {
     case Screen::Join: {
         const RuntimeCoopSettings& coop = room_;
         std::vector<MenuRow> rows(JoinRowCount);
-        rows[RowAddress] = {"ADDRESS",
+        rows[RowAddress] = {"CODE OR ADDRESS",
                             edit_.field == Field::Address ? text_value(Field::Address, RowAddress, {})
                             : coop.join_address.empty()   ? "NONE"
                                                           : coop.join_address,
-                            "THE HOST'S ADDRESS: HOST, HOST:PORT OR [IPV6]:PORT. A HOST WITHOUT A PORT IS ON 7777",
+                            "THE ROOM'S CODE (6 LETTERS AND DIGITS), OR THE HOST'S ADDRESS: HOST, HOST:PORT OR "
+                            "[IPV6]:PORT. A HOST WITHOUT A PORT IS ON 7777",
                             false, false, !coop.join_address.empty() || edit_.field == Field::Address, true};
         rows[RowJoinPassword] = {"PASSWORD",
                                  edit_.field == Field::Password ? text_value(Field::Password, RowJoinPassword, {})
@@ -365,10 +377,13 @@ std::vector<MenuRow> MainMenu::rows() const {
                                                                 : std::string(coop.password.size(), '*'),
                                  "THE ROOM'S PASSWORD, WHEN IT HAS ONE", false, false,
                                  !coop.password.empty() || edit_.field == Field::Password, true};
-        rows[RowJoinStart] = joining_                  ? MenuRow{"JOIN", "CANCEL", "CONNECTING TO THE HOST...", true}
-                             : coop.join_address.empty() ? MenuRow{"JOIN", "-JOIN", "TYPE THE HOST'S ADDRESS FIRST", true}
-                                                         : MenuRow{"JOIN", "JOIN",
-                                                                   "CONNECTS TO THE HOST AND PLAYS IN THEIR ROOM", true};
+        if (joining_) {
+            rows[RowJoinStart] = MenuRow{"JOIN", "CANCEL", "CONNECTING TO THE HOST...", true};
+        } else if (coop.join_address.empty()) {
+            rows[RowJoinStart] = MenuRow{"JOIN", "-JOIN", "TYPE A ROOM CODE OR AN ADDRESS FIRST", true};
+        } else {
+            rows[RowJoinStart] = MenuRow{"JOIN", "JOIN", "CONNECTS TO THE HOST AND PLAYS IN THEIR ROOM", true};
+        }
         rows[RowJoinBack] = {"BACK", "BACK", "BACK TO THE MAIN MENU", true};
         if (editing()) rows[edit_.row].help = kEditHelp;
         return rows;
@@ -465,6 +480,7 @@ void MainMenu::change(int delta) {
             break;
         case RowBubble: coop.bubble_death = step(coop.bubble_death ? 1u : 0u, delta, 2u) == 1u; break;
         case RowCheats: coop.cheats = step(coop.cheats ? 1u : 0u, delta, 2u) == 1u; break;
+        case RowNetwork: coop.nebulanet = !coop.nebulanet; break;
         default: break;
         }
     } else if (screen_ == Screen::Mods && selected_ < mods_.size()) {
@@ -683,6 +699,7 @@ void MainMenu::reset() {
     case RowPvp: room_.pvp_mode = defaults.pvp_mode; break;
     case RowBubble: room_.bubble_death = defaults.bubble_death; break;
     case RowCheats: room_.cheats = defaults.cheats; break;
+    case RowNetwork: room_.nebulanet = defaults.nebulanet; break;
     default: break;  // the save, the mods and the buttons have no default
     }
 }

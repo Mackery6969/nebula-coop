@@ -2770,6 +2770,9 @@ std::vector<SettingsRow> online_page(const RuntimeSettings& runtime) {
     char players[32]{};
     std::snprintf(players, sizeof(players), "%u OF %u", std::max(status.players, 1u), coop.max_players);
     rows.push_back({"PLAYERS", players, nullptr, "THE PLAYERS IN THE ROOM NOW, YOU INCLUDED"});
+    if (!status.code.empty()) {
+        rows.push_back({"ROOM CODE", status.code, nullptr, "FRIENDS JOIN WITH THIS CODE ON THE JOIN PAGE"});
+    }
     const std::size_t first_room_row = rows.size();
     rows.push_back({"MAX PLAYERS", std::to_string(coop.max_players),
                     [](RenderConfig&, int delta) {

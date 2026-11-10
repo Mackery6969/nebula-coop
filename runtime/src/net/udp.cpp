@@ -118,6 +118,40 @@ std::string Address::host_text() const {
     return text;
 }
 
+std::size_t Address::ip_bytes(std::span<std::uint8_t, 16> out) const noexcept {
+    if (!valid()) return 0u;
+    const sockaddr_storage address = unmapped(*this);
+    if (address.ss_family == AF_INET) {
+        std::memcpy(out.data(), &reinterpret_cast<const sockaddr_in*>(&address)->sin_addr, 4);
+        return 4u;
+    }
+    if (address.ss_family == AF_INET6) {
+        std::memcpy(out.data(), &reinterpret_cast<const sockaddr_in6*>(&address)->sin6_addr, 16);
+        return 16u;
+    }
+    return 0u;
+}
+
+Address make_address(std::span<const std::uint8_t> ip, std::uint16_t port) noexcept {
+    Address out;
+    if (ip.size() == 4u) {
+        sockaddr_in four{};
+        four.sin_family = AF_INET;
+        four.sin_port = htons(port);
+        std::memcpy(&four.sin_addr, ip.data(), 4);
+        std::memcpy(out.data(), &four, sizeof(four));
+        out.set_length(static_cast<std::uint32_t>(sizeof(four)));
+    } else if (ip.size() == 16u) {
+        sockaddr_in6 six{};
+        six.sin6_family = AF_INET6;
+        six.sin6_port = htons(port);
+        std::memcpy(&six.sin6_addr, ip.data(), 16);
+        std::memcpy(out.data(), &six, sizeof(six));
+        out.set_length(static_cast<std::uint32_t>(sizeof(six)));
+    }
+    return out;
+}
+
 bool operator==(const Address& a, const Address& b) noexcept {
     const sockaddr_storage x = unmapped(a);
     const sockaddr_storage y = unmapped(b);
@@ -162,6 +196,29 @@ bool resolve(std::string_view host, std::uint16_t port, Address& address) {
     }
     freeaddrinfo(results);
     return found;
+}
+
+Address local_address() {
+    Address out;
+    if (!start_sockets()) return out;
+    const Native socket = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (socket == kNone) return out;
+    // Connecting a UDP socket only picks the route (and the address it leaves from); nothing is sent. 192.0.2.1 is
+    // a documentation address no one answers.
+    sockaddr_in away{};
+    away.sin_family = AF_INET;
+    away.sin_port = htons(9);
+    away.sin_addr.s_addr = htonl(0xC0000201u);
+    sockaddr_in here{};
+    socklen_t length = sizeof(here);
+    if (::connect(socket, reinterpret_cast<const sockaddr*>(&away), sizeof(away)) == 0 &&
+        getsockname(socket, reinterpret_cast<sockaddr*>(&here), &length) == 0 && here.sin_addr.s_addr != 0u) {
+        here.sin_port = 0;
+        std::memcpy(out.data(), &here, sizeof(here));
+        out.set_length(static_cast<std::uint32_t>(sizeof(here)));
+    }
+    close_native(socket);
+    return out;
 }
 
 UdpSocket::~UdpSocket() { close(); }
