@@ -19,3 +19,6 @@
 *.log
 *.tmp
 *.gxdump
+
+# Co-op test instances (unique saves/ports per instance)
+/instances/
