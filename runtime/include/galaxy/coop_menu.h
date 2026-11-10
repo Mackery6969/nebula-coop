@@ -3,15 +3,14 @@
 // what the player chose (play, quit, the settings) waits until the game takes it.
 //
 // The main page: Host, Join, Options, Quit. Host opens the Host page: the save to play (left and right through the
-// saves, then New save), Rename and Erase, the network (NebulaNet or Direct), the room's name and NebulaNet server,
-// its port and password, its settings (room(): the coop_* runtime settings), the mods it plays with (a page of their
-// own) and Host, which plays. Join opens the Join page (the code or address and password, then Join, which connects;
-// Cancel or B stops it; Rooms lists NebulaNet's rooms, as sm64coopdx's lobby list does: the public ones, or with a
-// password typed the private ones that have it, and pressing one joins it). B or Back returns to the main page. While
-// a join connects, the joining screen takes the Join page's place: what the join waits for, a loading bar and Cancel.
-// The
-// player's name and character are Options' (its PLAYER page): the menu plays with room()'s, which the host keeps up
-// with them.
+// saves, then New save), Rename and Erase, the network (NebulaNet or Direct), NebulaNet's room name and server or
+// Direct's port (only the picked network's rows show), the password, the room's settings (room(): the coop_* runtime
+// settings), the mods it plays with (a page of their own) and Host, which plays. Join opens the Join page (the code or
+// address and password, then Join, which connects; Cancel or B stops it; Rooms lists NebulaNet's private rooms that
+// have the password typed, as CoopNet's private lobbies are found, and pressing one joins it). B or Back returns to the
+// main page. While a join connects, the joining screen takes the Join page's place: what the join waits for, a loading
+// bar and Cancel. The player's name and character are Options' (its PLAYER page): the menu plays with room()'s, which
+// the host keeps up with them.
 //
 // Text rows (a name, a port, an address, a password) are edited in place (TextEdit): pressed, they take the keyboard's
 // typing (type()) or, letter by letter, a controller's: up and down pick the letter at the cursor, left and right move
@@ -55,7 +54,7 @@ struct MenuView {
 
 // What the player chose, for the game to act on (MainMenu::take_command). Join: connect to the Join page's address
 // (room().join_address, with room().password); CancelJoin: stop connecting (the Join page's Cancel, or B on it);
-// ListRooms: ask NebulaNet for its rooms (with room().password: the private ones that have it), for set_rooms().
+// ListRooms: ask NebulaNet for its private rooms that have room().password, for set_rooms().
 enum class MenuCommand { None, Play, Quit, Settings, Join, CancelJoin, ListRooms };
 
 // A room on NebulaNet's list, as the Rooms page shows it.
@@ -198,6 +197,10 @@ private:
 
     [[nodiscard]] std::vector<MenuRow> rows() const;
     [[nodiscard]] unsigned row_count() const;
+    // A row the page has but doesn't show now (the Host page's rows of the network not picked), and the ones it
+    // shows: the view's rows and select_row() count only those.
+    [[nodiscard]] bool hidden(unsigned row) const;
+    [[nodiscard]] std::vector<unsigned> shown_rows() const;
     [[nodiscard]] unsigned button_count(unsigned row) const;
     // The row's value: its text, or the text being edited with its cursor.
     [[nodiscard]] std::string text_value(Field field, unsigned row, std::string value) const;

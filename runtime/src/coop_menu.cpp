@@ -335,20 +335,18 @@ std::vector<MenuRow> MainMenu::rows() const {
         rows[RowServer] = {"NEBULANET SERVER",
                            text_value(Field::Server, RowServer,
                                       coop.nebulanet_server.empty() ? kCoopNebulaNetDefault : coop.nebulanet_server),
-                           coop.nebulanet ? "THE NEBULANET THAT LISTS THE ROOM, AND THAT JOIN USES TOO. TAB: NEBULA'S"
-                                          : "ONLY USED WITH NEBULANET: THE ONE THAT LISTS ROOMS AND JOIN USES",
-                           false, false, true, true};
+                           "THE NEBULANET THAT LISTS THE ROOM, AND THAT JOIN USES TOO. TAB: NEBULA'S", false, false,
+                           true, true};
         rows[RowPort] = {"PORT", text_value(Field::Port, RowPort, std::to_string(coop.port)),
-                         coop.nebulanet ? "THE UDP PORT THE ROOM PLAYS ON. WITH NEBULANET NOTHING NEEDS FORWARDING"
-                                        : "THE UDP PORT PLAYERS JOIN ON. FORWARD IT ON YOUR ROUTER, OR PLAY OVER A VPN",
-                         false, false, true, true};
+                         "THE UDP PORT PLAYERS JOIN ON. FORWARD IT ON YOUR ROUTER, OR PLAY OVER A VPN", false, false,
+                         true, true};
         rows[RowPassword] = {"PASSWORD",
                              edit_.field == Field::Password && edit_.row == RowPassword
                                  ? text_value(Field::Password, RowPassword, {})
                              : coop.password.empty() ? "NONE"
                                                      : std::string(coop.password.size(), '*'),
-                             coop.nebulanet ? "PLAYERS WHO JOIN MUST GIVE IT, AND THE ROOM IS PRIVATE: NEBULANET LISTS "
-                                              "IT ONLY TO THOSE WHO SEARCH WITH IT. NONE: A PUBLIC ROOM"
+                             coop.nebulanet ? "PLAYERS WHO JOIN MUST GIVE IT, AND FIND THE ROOM BY IT UNDER JOIN'S ROOMS. "
+                                              "NONE: FRIENDS JOIN BY THE ROOM'S CODE"
                                             : "PLAYERS WHO JOIN MUST GIVE IT. NONE: ANYONE WITH THE ADDRESS MAY JOIN",
                              false, false,
                              !coop.password.empty() || edit_.field == Field::Password, true};
@@ -428,9 +426,11 @@ std::vector<MenuRow> MainMenu::rows() const {
         } else {
             rows[RowJoinStart] = MenuRow{"JOIN", "JOIN", "CONNECTS TO THE HOST AND PLAYS IN THEIR ROOM", true};
         }
-        rows[RowRooms] = {"ROOMS", "BROWSE",
-                          coop.password.empty() ? "NEBULANET'S PUBLIC ROOMS: PICK ONE TO JOIN IT"
-                                                : "NEBULANET'S PRIVATE ROOMS THAT HAVE THE PASSWORD ABOVE",
+        rows[RowRooms] = {"ROOMS", coop.password.empty() || joining_ ? "-BROWSE" : "BROWSE",
+                          coop.password.empty()
+                              ? "TYPE A PASSWORD ABOVE FIRST: ROOMS LISTS NEBULANET'S PRIVATE ROOMS THAT HAVE IT. A ROOM "
+                                "WITHOUT ONE IS JOINED BY ITS CODE"
+                              : "NEBULANET'S PRIVATE ROOMS THAT HAVE THE PASSWORD ABOVE: PICK ONE TO JOIN IT",
                           true};
         rows[RowJoinBack] = {"BACK", "BACK", "BACK TO THE MAIN MENU", true};
         if (editing()) rows[edit_.row].help = kEditHelp;
@@ -449,7 +449,6 @@ std::vector<MenuRow> MainMenu::rows() const {
     }
     case Screen::Rooms: {
         std::vector<MenuRow> rows;
-        const bool locked = !room_.password.empty();
         for (const ListedRoom& room : rooms_) {
             const bool full = room.players >= room.max;
             const bool other = !version_.empty() && room.version != version_;
@@ -466,11 +465,10 @@ std::vector<MenuRow> MainMenu::rows() const {
         if (rooms_.empty()) {
             rows.push_back({rooms_searching_          ? "SEARCHING NEBULANET..."
                             : !rooms_failed_.empty() ? rooms_failed_
-                            : locked                 ? "NO PRIVATE ROOM HAS THAT PASSWORD"
-                                                     : "NO PUBLIC ROOMS RIGHT NOW",
+                                                     : "NO ROOM HAS THAT PASSWORD",
                             {},
-                            locked ? "PRIVATE ROOMS SHOW ONLY TO THOSE WHO SEARCH WITH THEIR PASSWORD"
-                                   : "HOST ONE, OR TYPE A FRIEND'S ROOM CODE ON THE JOIN PAGE"});
+                            "ROOMS SHOW ONLY TO THOSE WHO SEARCH WITH THEIR PASSWORD. A ROOM WITHOUT ONE IS JOINED BY "
+                            "ITS CODE"});
         }
         rows.push_back({"", rooms_searching_ ? "-REFRESH|BACK" : "REFRESH|BACK",
                         "REFRESH: ASK NEBULANET AGAIN. BACK: THE JOIN PAGE", true});
@@ -486,19 +484,37 @@ unsigned MainMenu::button_count(unsigned row) const {
     return static_cast<unsigned>(std::count(all[row].value.begin(), all[row].value.end(), '|')) + 1u;
 }
 
+bool MainMenu::hidden(unsigned row) const {
+    // The Host page shows only its network's rows: NebulaNet's room name and server, or Direct's port.
+    if (screen_ != Screen::Host) return false;
+    if (room_.nebulanet) return row == RowPort;
+    return row == RowRoomName || row == RowServer;
+}
+
+std::vector<unsigned> MainMenu::shown_rows() const {
+    std::vector<unsigned> shown;
+    for (unsigned row = 0u, count = row_count(); row < count; ++row) {
+        if (!hidden(row)) shown.push_back(row);
+    }
+    return shown;
+}
+
 MenuView MainMenu::view() const {
-    static const char* const titles[] = {"PLAY", "HOST", "MODS", "JOIN", "JOINING", "ROOMS"};
+    static const char* const titles[] = {"PLAY", "HOST", "MODS", "JOIN", "JOINING", "PRIVATE ROOMS"};
     MenuView view;
     view.open = open_;
     view.page = 0u;
-    view.pages = {screen_ == Screen::Rooms && !room_.password.empty() ? "PRIVATE ROOMS"
-                                                                      : titles[static_cast<unsigned>(screen_)]};
-    view.rows = rows();
-    view.selected = selected_;
+    view.pages = {titles[static_cast<unsigned>(screen_)]};
+    const std::vector<MenuRow> all = rows();
+    const std::vector<unsigned> shown = shown_rows();
+    for (const unsigned row : shown) {
+        if (row == selected_) view.selected = static_cast<unsigned>(view.rows.size());
+        if (row < all.size()) view.rows.push_back(all[row]);
+    }
     view.selected_button = selected_button_;
     view.back = screen_ != Screen::Main;
     view.editing = editing();
-    if (!message_.empty() && selected_ < view.rows.size()) view.rows[selected_].help = message_;
+    if (!message_.empty() && view.selected < view.rows.size()) view.rows[view.selected].help = message_;
     return view;
 }
 
@@ -508,9 +524,10 @@ void MainMenu::select_page(unsigned) {
 
 void MainMenu::select_row(unsigned row) {
     // The row being edited keeps the selection until its text is kept or dropped; the joining screen keeps it on
-    // Cancel.
-    if (editing() || row >= row_count() || row == selected_ || screen_ == Screen::Joining) return;
-    selected_ = row;
+    // Cancel. `row` counts the rows shown.
+    const std::vector<unsigned> shown = shown_rows();
+    if (editing() || row >= shown.size() || shown[row] == selected_ || screen_ == Screen::Joining) return;
+    selected_ = shown[row];
     selected_button_ = 0u;
     erase_armed_ = false;
     message_.clear();
@@ -523,9 +540,11 @@ void MainMenu::move(int delta) {
         edit_.text.step_letter(delta < 0 ? 1 : -1);
         return;
     }
-    const int count = static_cast<int>(row_count());
+    const std::vector<unsigned> shown = shown_rows();
+    const int count = static_cast<int>(shown.size());
     if (count <= 0 || screen_ == Screen::Joining) return;
-    const int next = ((static_cast<int>(selected_) + delta) % count + count) % count;
+    const int at = static_cast<int>(std::find(shown.begin(), shown.end(), selected_) - shown.begin());
+    const int next = ((at + delta) % count + count) % count;
     select_row(static_cast<unsigned>(next));
 }
 
@@ -641,7 +660,7 @@ void MainMenu::press(unsigned button) {
     case Screen::Mods: press_mods(selected_); return;
     case Screen::Join:
         if (selected_ == RowJoinStart) command_ = joining_ ? MenuCommand::CancelJoin : MenuCommand::Join;
-        if (selected_ == RowRooms && !joining_) search_rooms();
+        if (selected_ == RowRooms) search_rooms();
         if (selected_ == RowJoinBack) back();
         return;
     case Screen::Rooms: press_rooms(selected_, button); return;
