@@ -2,6 +2,7 @@
 // numbers, true, false and null, nested at most 16 deep. Nothing else in Nebula reads JSON.
 #pragma once
 
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -10,14 +11,24 @@
 
 namespace galaxy::net::json {
 
+// Members that hold nested Value instances live in a separate struct so Value is complete
+// when std::vector<std::pair<std::string, Value>> and std::vector<Value> are defined
+// (GCC 14's libstdc++ requires the type to be complete for the vector's destructor).
+struct ValueMembers {
+    std::vector<Value> array;
+    std::vector<std::pair<std::string, Value>> object;
+};
+
 struct Value {
     enum class Kind { Null, Bool, Number, String, Array, Object };
     Kind kind = Kind::Null;
     bool boolean = false;
     double number = 0.0;
     std::string string;
-    std::vector<Value> array;
-    std::vector<std::pair<std::string, Value>> object;
+    std::unique_ptr<ValueMembers> members_;
+
+    Value() = default;
+    ~Value();
 
     // An object's member, or null when there's none (or this isn't an object).
     [[nodiscard]] const Value* find(std::string_view key) const;

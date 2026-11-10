@@ -5,6 +5,8 @@
 
 namespace galaxy::net::json {
 
+Value::~Value() = default;
+
 namespace {
 
 constexpr int kMaxDepth = 16;
@@ -151,10 +153,11 @@ private:
             ++at_;
             return true;
         }
+        if (!out.members_) out.members_ = std::make_unique<ValueMembers>();
         for (;;) {
             Value item;
             if (!value(item, depth + 1)) return false;
-            out.array.push_back(std::move(item));
+            out.members_->array.push_back(std::move(item));
             space();
             if (at_ >= text_.size()) return false;
             if (text_[at_] == ']') {
@@ -173,6 +176,7 @@ private:
             ++at_;
             return true;
         }
+        if (!out.members_) out.members_ = std::make_unique<ValueMembers>();
         for (;;) {
             space();
             std::string key;
@@ -181,7 +185,7 @@ private:
             if (at_ >= text_.size() || text_[at_++] != ':') return false;
             Value item;
             if (!value(item, depth + 1)) return false;
-            out.object.emplace_back(std::move(key), std::move(item));
+            out.members_->object.emplace_back(std::move(key), std::move(item));
             space();
             if (at_ >= text_.size()) return false;
             if (text_[at_] == '}') {
@@ -199,8 +203,8 @@ private:
 }  // namespace
 
 const Value* Value::find(std::string_view key) const {
-    if (kind != Kind::Object) return nullptr;
-    for (const auto& [name, value] : object) {
+    if (kind != Kind::Object || !members_) return nullptr;
+    for (const auto& [name, value] : members_->object) {
         if (name == key) return &value;
     }
     return nullptr;
@@ -220,8 +224,8 @@ long long Value::integer(std::string_view key, long long fallback) const {
 std::vector<std::string> Value::strings(std::string_view key) const {
     std::vector<std::string> out;
     const Value* value = find(key);
-    if (value == nullptr || value->kind != Kind::Array) return out;
-    for (const Value& item : value->array) {
+    if (value == nullptr || value->kind != Kind::Array || !value->members_) return out;
+    for (const Value& item : value->members_->array) {
         if (item.kind == Kind::String) out.push_back(item.string);
     }
     return out;
