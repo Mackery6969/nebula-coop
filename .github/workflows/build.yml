@@ -1,6 +1,6 @@
 # Compiles every part of Nebula and runs its tests on each pull request and each push to main (docs/BUILDING.md), and
 # keeps what it built as test builds for Windows, Linux and Android: downloads for 14 days (docs/TEST_BUILDS.md).
-# Releases are made by hand (installer/build-native-setup.ps1, platform/android/build_apk.ps1).
+# Releases are built from a version tag by the Release workflow (release.yml, docs/BUILDING.md "Releases").
 name: Build
 
 on:
