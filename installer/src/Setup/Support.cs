@@ -327,7 +327,9 @@ namespace Nebula.Setup
                     command.SetValue("", "\"" + Path.Combine(app, "Nebula.exe") + "\"");
             }
             // Double-clicking a mod's file adds it. Per user, like everything else here.
+            // .lumacoop is co-op's own (LumaLink's co-op mods, which upstream Nebula refuses); .luma opens here too.
             using (var key = Registry.CurrentUser.CreateSubKey(@"Software\Classes\.luma")) key.SetValue("", LumaFileType);
+            using (var key = Registry.CurrentUser.CreateSubKey(@"Software\Classes\.lumacoop")) key.SetValue("", LumaFileType);
             using (var key = Registry.CurrentUser.CreateSubKey(@"Software\Classes\" + LumaFileType))
             {
                 key.SetValue("", Name + " mod");
@@ -447,6 +449,7 @@ namespace Nebula.Setup
             using (var key = Registry.CurrentUser.OpenSubKey(@"Software\Classes\.luma"))
                 ownsLuma = key != null && string.Equals(key.GetValue("") as string, LumaFileType, StringComparison.OrdinalIgnoreCase);
             if (ownsLuma) Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\.luma", false);
+            Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\.lumacoop", false);
             if (removeUserData && Directory.Exists(NebulaPaths.DataRoot)) FileUtil.DeleteTree(NebulaPaths.DataRoot);
             // The running setup copy deletes itself and the folder after exit.
             if (self.StartsWith(Path.GetFullPath(layout.Root), StringComparison.OrdinalIgnoreCase))

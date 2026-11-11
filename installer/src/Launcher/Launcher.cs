@@ -29,7 +29,7 @@ namespace Nebula.Launcher
             Application.SetCompatibleTextRenderingDefault(false);
             try
             {
-                // A .luma opened from Explorer: the Mods page, with it being imported.
+                // A .luma or .lumacoop opened from Explorer: the Mods page, with it being imported.
                 if (args.Length > 1 && string.Equals(args[0], "--open-mod", StringComparison.OrdinalIgnoreCase))
                 {
                     Application.Run(new SettingsForm(new LaunchSession(), args[1]));
