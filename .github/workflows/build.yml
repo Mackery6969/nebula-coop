@@ -8,24 +8,9 @@ on:
   # twice at once.
   push:
     branches: [main]
-    # Only changes that can affect the build: not documentation or the other workflows.
-    paths:
-      - "**"
-      - "**/.clang-tidy"
-      - "!**.md"
-      - "!**.txt"
-      - "**/.CMakeLists.txt"
-      - "!**.tsv"
-      - "!**.sh"
-      - "!**.ps1"
-      - "!docs/**"
-      - "!LICENSE"
-      - "!.github/**"
-      - ".github/workflows/build.yml"
-      - "!nebulanet/**"
-      - "!tools/**"
-  # Every pull request, so that the Build result check always reports and can be required: a pull request that changes
-  # nothing the build uses (the push paths above) skips the jobs, which counts as passing.
+  # Every pull request, so that the Build result check always reports and can be required. Which jobs run is decided by
+  # the Changes job below, for pushes to main and pull requests alike: a change that touches nothing they use skips
+  # them, which counts as passing.
   pull_request:
   workflow_dispatch:
 
@@ -47,36 +32,68 @@ env:
   SPIRV_HEADERS_COMMIT: 496543121ce6419f23d6fa5d7194ba66c36212d2
 
 jobs:
+  # Sorts the changed files into what they affect:
+  #   game:      the host, the game module, the disc import tool and the Windows, Linux and Android test builds;
+  #   installer: the launcher, Nebula Settings and Setup (installer/), and their tests.
+  # Documentation, the other workflows, NebulaNet and tools/ affect neither. A file both use (the icon the host and
+  # the launcher are both built with, the save format version the launcher reads) and this workflow itself run both.
+  # Run workflow builds everything.
   changes:
     name: Changes
     runs-on: ubuntu-24.04
     outputs:
-      build: ${{ steps.filter.outputs.build }}
+      game: ${{ steps.filter.outputs.game }}
+      installer: ${{ steps.filter.outputs.installer }}
     steps:
       - uses: actions/Checkout@v7
-        if: github.event_name == 'pull_request'
+        if: github.event_name != 'workflow_dispatch'
         with:
-          # The pull request's merge commit and the base branch it was merged onto (its first parent).
-          fetch-depth: 2
+          # A pull request: its merge commit and the base branch it was merged onto (the first parent).
+          # A push: the pushed commit (the commit before it is fetched below).
+          fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 1 }}
       - id: filter
-        # The same files as the push paths: anything but documentation and the other workflows.
+        env:
+          BEFORE: ${{ github.event.before }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
-            echo build=true >> "$GITHUB_OUTPUT"
+          all() {
+            echo "Building everything: $1"
+            { echo game=true; echo installer=true; } >> "$GITHUB_OUTPUT"
             exit 0
-          fi
-          files=$(git diff --name-only HEAD^1 HEAD)
-          if printf '%s\n' "$files" | grep -qxF .github/workflows/build.yml ||
-             printf '%s\n' "$files" | grep -vE '\.md$|^docs/|^LICENSE$|^\.github/|^nebulanet/|^tools/' | grep -q .; then
-            echo build=true >> "$GITHUB_OUTPUT"
-          else
-            echo build=false >> "$GITHUB_OUTPUT"
-          fi
+          }
+          case "$GITHUB_EVENT_NAME" in
+            pull_request)
+              files=$(git diff --name-only HEAD^1 HEAD) ;;
+            push)
+              # A new branch, or a commit no longer on GitHub (a force push): nothing to compare with.
+              if [ -z "$BEFORE" ] || [ "$BEFORE" = 0000000000000000000000000000000000000000 ] ||
+                 ! git fetch -q --depth=1 origin "$BEFORE"; then
+                all "no earlier commit to compare with"
+              fi
+              files=$(git diff --name-only "$BEFORE" HEAD) ;;
+            *)
+              all "$GITHUB_EVENT_NAME" ;;
+          esac
+          game=false
+          installer=false
+          while IFS= read -r file; do
+            case "$file" in
+              "") ;;
+              .github/workflows/build.yml) game=true; installer=true ;;
+              *.md | docs/* | LICENSE | .github/* | nebulanet/* | tools/*) ;;
+              installer/assets/* | runtime/include/galaxy/store_version.inc) game=true; installer=true ;;
+              installer/*) installer=true ;;
+              *) game=true ;;
+            esac
+          done <<< "$files"
+          echo "$(printf '%s\n' "$files" | grep -c .) changed files, the first 100:"
+          printf '%s\n' "$files" | head -n 100 | sed 's/^/  /'
+          echo "Game: $game. Installer: $installer."
+          { echo "game=$game"; echo "installer=$installer"; } >> "$GITHUB_OUTPUT"
 
   import:
     name: Disc import tool (Rust)
     needs: changes
-    if: needs.changes.outputs.build == 'true'
+    if: needs.changes.outputs.game == 'true'
     runs-on: windows-2025
     env:
       # The C runtime linked in, as Setup ships it: it runs on PCs without the Visual C++ runtime.
@@ -104,7 +121,7 @@ jobs:
   host:
     name: Host (${{ matrix.renderer }})
     needs: changes
-    if: needs.changes.outputs.build == 'true'
+    if: needs.changes.outputs.game == 'true'
     # Visual Studio 2022's MSVC: with 2026's (MSVC 19.51, windows-2025) the frame interpolation and interp GPU
     # tests fail every palette check, which no other compiler reproduces.
     runs-on: windows-2022
@@ -172,7 +189,7 @@ jobs:
   game:
     name: Game module
     needs: changes
-    if: needs.changes.outputs.build == 'true'
+    if: needs.changes.outputs.game == 'true'
     runs-on: windows-2025
     env:
       SCCACHE_IGNORE_SERVER_IO_ERROR: "1"
@@ -231,7 +248,7 @@ jobs:
     name: Linux
     # Needs the game module job: if the game module doesn't build, the Linux binary is useless.
     needs: [changes, game]
-    if: needs.changes.outputs.build == 'true'
+    if: needs.changes.outputs.game == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/Checkout@v7
@@ -296,7 +313,7 @@ jobs:
     # The Vulkan host build's shader tools compile the SPIR-V the APK carries.
     # Also needs the game module: if it doesn't build, the APK is useless.
     needs: [changes, host, game]
-    if: needs.changes.outputs.build == 'true'
+    if: needs.changes.outputs.game == 'true'
     runs-on: windows-2025
     steps:
       - uses: actions/Checkout@v7
@@ -349,12 +366,34 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
+  installer:
+    name: Installer tests
+    needs: changes
+    if: needs.changes.outputs.installer == 'true'
+    runs-on: windows-2025
+    # Windows PowerShell, as the scripts are run by hand: they compile with the in-box .NET Framework csc.exe and load
+    # its System.Drawing.
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/Checkout@v7
+      # The launcher's first start, settings form, launch arguments and folder moves, Setup's cases, and nebula.ico in
+      # every executable: against a stub game, with its own %LOCALAPPDATA%.
+      - name: Launcher and Setup
+        run: .\installer\tests\run-launcher-tests.ps1
+      - name: Update channels
+        run: .\installer\tests\run-beta-updater-tests.ps1
+      # The update path end to end on a local release server, with a signing key made for the run.
+      - name: Update flow
+        run: .\installer\tests\run-update-flow-tests.ps1
+
   # The one check to require before merging: it fails when any job above failed or was cancelled, and passes when they
   # passed or were skipped.
   result:
     name: Build result
     if: always()
-    needs: [changes, import, host, game, windows, linux, android]
+    needs: [changes, import, host, game, windows, linux, android, installer]
     runs-on: ubuntu-24.04
     steps:
       - name: Check

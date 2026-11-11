@@ -1,7 +1,8 @@
 # Test builds
 
-Every pull request and every push to `main` builds Nebula for Windows, Linux and Android, runs its tests, and keeps what
-it built as a download for 14 days (the Build workflow, `.github/workflows/build.yml`). These are test builds, not
+Every pull request and every push to `main` that changes the game builds Nebula for Windows, Linux and Android, runs its
+tests, and keeps what it built as a download for 14 days (the Build workflow, `.github/workflows/build.yml`). A change
+to only the installer, documentation or tools builds none of them (see BUILDING.md, "Tests"). These are test builds, not
 releases: they have no installer, no launcher, no update check and no ray-tracing material tables, the Windows programs
 are built without cross-file optimization (as the tests are), and the Android app is signed with a debug key. macOS and
 iOS have no build yet.
