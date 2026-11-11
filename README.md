@@ -11,6 +11,7 @@ You need your own copy of the game. Not affiliated with or endorsed by Nintendo.
 [Co-op design](docs/COOP_PLAN.md) ·
 [Controls](docs/KEYBOARD_CONTROLS.md) ·
 [Upstream Nebula](https://github.com/keepvaibin/nebula) ·
+[Security](SECURITY.md) ·
 [Discord](https://discord.gg/hNbgFtaRHv) ·
 [Discord (Nebula)](https://discord.gg/2fJEdhAw2f)
 
