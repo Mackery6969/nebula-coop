@@ -17,14 +17,8 @@ You need your own copy of the game. Not affiliated with or endorsed by Nintendo.
 
 ## Credits
 
-- **[Nebula](https://github.com/keepvaibin/nebula), by [keepvaibin](https://github.com/keepvaibin).** Everything that
-  makes the game run on a PC is Nebula's: the host, the renderers, Setup and the launcher, controller and Wii Remote
-  support, mods, achievements and the settings menu. Nebula Co-Op follows it closely and merges its changes in
-  regularly.
-- **[sm64coopdx](https://github.com/coop-deluxe/sm64coopdx)** and its
-  [CoopNet](https://github.com/coop-deluxe/coopnet) are the model for how co-op plays here: rooms, instances, player
-  interaction, the bubble on death, chat commands, pop-ups and the Personal Star Counter. Its code is not used; only
-  its design.
+- **[Nebula](https://github.com/keepvaibin/nebula), by [keepvaibin](https://github.com/keepvaibin).** Everything that makes the game run on a PC is Nebula's: the host, the renderers, Setup and the launcher, controller and Wii Remote support, mods, achievements and the settings menu. Nebula Co-Op follows it closely and merges its changes in regularly. ([Discord](https://discord.gg/2fJEdhAw2f))
+- **[sm64coopdx](https://github.com/coop-deluxe/sm64coopdx)** and its [CoopNet](https://github.com/coop-deluxe/coopnet) are the model for how co-op plays here: rooms, instances, player interaction, the bubble on death, chat commands, pop-ups and the Personal Star Counter. Its code is not used; only its design.
 - **[Petari](https://github.com/SMGCommunity/Petari)**, the Super Mario Galaxy decompilation by SMGCommunity, is the
   game code Nebula builds natively.
 - Other third-party code and its licenses are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) and
@@ -36,8 +30,7 @@ You need your own copy of the game. Not affiliated with or endorsed by Nintendo.
 
 - **Rooms of 2 to 16 players** (8 by default). One player hosts and the world runs on their PC; everyone else joins.
 - **Join by room code through [NebulaNet](https://github.com/NebulaCoop/NebulaNet)**, Nebula Co-Op's own
-  CoopNet-style matchmaker, so nobody has to forward a port. Rooms are private: a password lists them on the Join
-  page's ROOMS, and a room code joins one directly.
+  CoopNet-style matchmaker, so nobody has to forward a port. Rooms are private: a password lists them on the Join page's ROOMS, and a room code joins one directly.
 - **Or connect directly** to `address:port` (UDP 7777 by default), with a forwarded port or a VPN such as Tailscale,
   ZeroTier or Radmin VPN.
 - **Mario or Luigi**, picked per player and switchable live, each with their own animations.
@@ -67,8 +60,7 @@ You need your own copy of the game. Not affiliated with or endorsed by Nintendo.
 Set on the Host page, and changed by the host from the in-game ONLINE tab:
 
 - **Player Interaction**: non-solid, solid or friendly fire, with **Knockback Strength** and a **PvP mode**.
-- **Bubble on Death** (on by default): instead of missing, float in a bubble and fly to another player to get back
-  in.
+- **Bubble on Death** (on by default): instead of missing, float in a bubble and fly to another player to get back in.
 - **Cheats**, which allow the `/tp`, `/teleport` and `/pos` commands.
 - **Personal Star Counter**, sm64coopdx's mod built in: each player's stars this room and all time.
 
@@ -76,11 +68,9 @@ Set on the Host page, and changed by the host from the in-game ONLINE tab:
 
 - **Nametags** over each player's head, and a **player list** while Tab (keyboard) or Share (controller) is held.
 - **Chat**: T opens a line, Enter sends it.
-- **Chat commands**, as sm64coopdx's: `/help`, `/players`, `/kick`, `/ban`, `/permban`, `/moderator` and `/confirm`,
-  with Tab completion. See [Chat commands](docs/COOP_PLAN.md#chat-commands).
+- **Chat commands**, as sm64coopdx's: `/help`, `/players`, `/kick`, `/ban`, `/permban`, `/moderator` and `/confirm`, with Tab completion. See [Chat commands](docs/COOP_PLAN.md#chat-commands).
 - **Pop-ups** when players join, leave, change galaxy, die or get a star, each toggled on the PLAYER page.
-- **Any number of saves**, each with its own name, Power Stars and achievements. Joiners play the host's save; their
-  own saves are untouched.
+- **Any number of saves**, each with its own name, Power Stars and achievements. Joiners play the host's save; their own saves are untouched.
 
 ### Still to come
 
@@ -94,8 +84,7 @@ a real Wii Remote; Direct3D 12 and Vulkan; upscalers and anti-aliasing; `.luma` 
 
 ## Requirements
 
-- Your own copy of **Super Mario Galaxy**, revision 0, as an ISO, RVZ or extracted folder: North America (RMGE01),
-  Europe (RMGP01) or Japan (RMGJ01). Everyone in a room needs the same game build and a supported disc.
+- Your own copy of **Super Mario Galaxy**, revision 0, as an ISO, RVZ or extracted folder: North America (RMGE01), Europe (RMGP01) or Japan (RMGJ01). Everyone in a room needs the same game build and a supported disc.
 - Windows 10 (version 1803 or newer) or Windows 11, 64-bit
 - A GPU with Direct3D 12 support and a CPU with AVX2
 - 8 GB of RAM
@@ -103,26 +92,20 @@ a real Wii Remote; Direct3D 12 and Vulkan; upscalers and anti-aliasing; `.luma` 
 
 ## Install
 
-1. Download `Nebula-Setup.exe` from the
-   [latest release](https://github.com/NebulaCoop/nebula-coop/releases/latest). It isn't code-signed, so Windows
-   SmartScreen shows "Unknown publisher": choose **More info**, then **Run anyway**.
+1. Download `Nebula-Setup.exe` from the [latest release](https://github.com/NebulaCoop/nebula-coop/releases/latest). 
+It isn't code-signed, so Windows SmartScreen shows "Unknown publisher": choose **More info**, then **Run anyway**.
 2. Select your copy of the game and choose **Install**.
 3. Start **Nebula** from the Start menu.
 
-Run Setup again to update, repair or uninstall. Updates come from this repository's releases and are signed; Setup
-checks the signature before installing.
+Run Setup again to update, repair or uninstall. Updates come from this repository's releases and are signed; Setup checks the signature before installing.
 
 ## Playing online
 
 1. Set your name and character in **Options > PLAYER**.
-2. **To host:** choose **Host**, pick or create a save, and leave NETWORK on **NebulaNet** (or pick **Direct** to
-   share your address and port instead). Set a password to make the room findable by it, then choose **Host**. The
-   room code shows in your chat and on the ONLINE tab.
-3. **To join:** choose **Join**, then enter the room code, or the host's `address:port`, or type the room's password
-   to find it under ROOMS.
+2. **To host:** choose **Host**, pick or create a save, and leave NETWORK on **NebulaNet** (or pick **Direct** to share your address and port instead). Set a password to make the room findable by it, then choose **Host**. The room code shows in your chat and on the ONLINE tab.
+3. **To join:** choose **Join**, then enter the room code, or the host's `address:port`, or type the room's password to find it under ROOMS.
 
-To leave, use the pause menu's **Quit**. Only the host's Quit saves the room's game; if the host leaves, everyone
-goes back to the main menu.
+To leave, use the pause menu's **Quit**. Only the host's Quit saves the room's game; if the host leaves, everyone goes back to the main menu.
 
 ## Building from source
 

@@ -37,15 +37,12 @@ What's left to turn Nebula into an online co-op mod like sm64coopdx. The reasoni
 - [x] Chat (keyboard only; controllers read it): T opens a line, Enter sends it, Escape drops it
 - [x] Chat commands as sm64coopdx's: /help, /players, /kick, /ban, /permban, /moderator, /confirm, Tab completion
 - [x] Cheat commands, only with the room's cheats on: /tp and /teleport as Minecraft's (to a player or a place, ~ relative, others for the host and moderators), /pos
-- [x] Personal Star Counter (sm64coopdx's mod, built in): each player's stars this room and all time under the HUD's
-      star count, and each player's in the player list; a built-in mod the host turns on for the room (Host page's
+- [x] Personal Star Counter (sm64coopdx's mod, built in): each player's stars this room and all time under the HUD's star count, and each player's in the player list; a built-in mod the host turns on for the room (Host page's
       Mods, Online tab), off by default
-- [x] NAT traversal in the transport: public address from a STUN server, the host punching toward a joiner, a join
-      trying every address the host may have
+- [x] NAT traversal in the transport: public address from a STUN server, the host punching toward a joiner, a join trying every address the host may have
 - [x] NebulaNet (its own repository, a Cloudflare Worker): room codes and the address swap
 - [x] Host page: NebulaNet or Direct, as sm64coopdx's CoopNet or direct connection; Join by room code or address
-- [x] NebulaNet as CoopNet: room name, mode, description and password (private rooms), the Join page's room list
-      (public, or private by password), password and version checks, failed joins reported, NebulaNet server row
+- [x] NebulaNet as CoopNet: room name, mode, description and password (private rooms), the Join page's room list (public, or private by password), password and version checks, failed joins reported, NebulaNet server row
 - [ ] Relay fallback through the TURN servers NebulaNet hands out, when punching fails
 - [ ] Discord Join button carrying the room code
 
@@ -53,18 +50,27 @@ What's left to turn Nebula into an online co-op mod like sm64coopdx. The reasoni
 
 - [x] Instances per galaxy and mission: players only see others on the same mission
 - [x] The server decides everything except the visuals: save, collectibles, objects, enemies
-- [x] Cutscenes and transitions as sm64coopdx has them: each player's own, a Grand Star takes everyone in its
-      mission along, and a star the room gave returns as its first when the player takes it, so nobody gets stuck
+- [x] Cutscenes and transitions as sm64coopdx has them: each player's own, a Grand Star takes everyone in its mission along, and a star the room gave returns as its first when the player takes it, so nobody gets stuck
 - [x] An achievement unlocked in a save is every player's who plays in it
 - [x] Player collisions with sm64coopdx's options (non-solid, solid, friendly fire, knockback, PvP mode)
 
 ## Later (Phases 3 and 4)
 
 - [x] Shared enemies and objects: hits (squashes play everywhere), enemies' movement, switches, blocks, enemies' coins
-- [ ] Bosses' movement and hits from thrown things shared
-- [ ] Bosses and story demos with several players
-- [ ] Dedicated server (the game with no window)
+- [x] Bosses' movement and hits from thrown things shared
+- [x] Bosses and story demos with several players
+- [x] Dedicated server (the game with no window)
 
 ## Maybe later
 
-- [ ] A relay like sm64coopdx's CoopNet (join by code, no port forwarding), only if the project grows
+- [x] A relay like sm64coopdx's CoopNet (join by code, no port forwarding), only if the project grows
+- [ ] A Coop specific mod system, so that there can be coop only mods that cannot be used in Nebula and have more API access to multiplayer systems.
+
+## v2 👀
+
+- [ ] Wait until Nebula's v2 is out, then merge it and update the co-op mod to it. Current Coop mod uses an unfinished version of Nebula v2.
+- [ ] Enable Public Rooms on NebulaNet, so anyone can see and join them without a password.
+
+## Some time idk
+
+- [ ] Add Coop to Nebula. (keepvaibin's job lel)
