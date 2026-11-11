@@ -7,6 +7,7 @@
 #include "Game/Util/StringUtil.hpp"
 #include "Game/Util/SystemUtil.hpp"
 #include "Game/System/NebulaText.hpp"
+#include "Game/System/NebulaLuigiText.hpp"
 #include <cstring>
 #include "Game/System/AssetFolder.hpp"
 
@@ -48,8 +49,9 @@ bool MessageData::getMessageDirect(TalkMessageInfo* pMessageInfo, const char* pM
     }
     s32 messageIndex = findMessageIndex(pMessage);
 
-    if (messageIndex >= 0) {
-        return getMessage(pMessageInfo, messageIndex);
+    if (messageIndex >= 0 && getMessage(pMessageInfo, messageIndex)) {
+        pMessageInfo->mMessage = NebulaLuigiText::fit(*this, pMessage, pMessageInfo->mMessage);
+        return true;
     }
 
     return false;
