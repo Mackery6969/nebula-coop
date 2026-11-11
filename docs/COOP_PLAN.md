@@ -202,7 +202,7 @@ setting, not each player's own.
 - **Co-op mods are NebulaCoop's own.** A mod made for co-op (one using the multiplayer calls LumaLink's co-op fork
   adds) is a `.lumacoop` whose luma.json says `"requires": ["coop"]`. NebulaCoop imports `.luma` and `.lumacoop`
   alike and knows the `coop` feature; upstream Nebula refuses any feature it doesn't know, so it never runs one, even
-  renamed to `.luma`. Setup gives `.lumacoop` its own file type, which upstream Nebula doesn't claim.
+  renamed to `.luma`.
 - **Mods apply at the start.** Nebula applies mods when the game starts (the virtual disc), so a room's mods are
   set before the joiner's game loads the galaxy, and changing them means restarting the room.
 
