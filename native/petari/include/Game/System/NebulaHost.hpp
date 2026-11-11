@@ -24,8 +24,8 @@ namespace NebulaHost {
         return host->input_players != nullptr ? host->input_players(host->user) : 1;
     }
 
-    inline int testSceneFrame(NebulaTestAction* pAction) {
-        return nebula_host()->test_scene_frame(nebula_host()->user, pAction);
+    inline int galaxyTravel(char* pStage, u32 capacity, s32* pStar) {
+        return nebula_host()->galaxy_travel(nebula_host()->user, pStage, capacity, pStar);
     }
 
     // Nanoseconds on a steady clock: durations a person feels (a hold, a press), the same at any frame rate.
@@ -53,6 +53,23 @@ namespace NebulaHost {
 
     inline s32 achievementDate(const char* pId) {
         return nebula_host()->achievement_date(nebula_host()->user, pId);
+    }
+
+    inline s32 modAchievementCount() {
+        return nebula_host()->mod_achievement_count(nebula_host()->user);
+    }
+
+    inline bool modAchievement(s32 index, const char** ppKey, const char** ppName, const char** ppDescription, bool* pHidden) {
+        s32 hidden = 0;
+        const bool found = nebula_host()->mod_achievement(nebula_host()->user, index, ppKey, ppName, ppDescription, nullptr, &hidden) != 0;
+        if (pHidden != nullptr) {
+            *pHidden = hidden != 0;
+        }
+        return found;
+    }
+
+    inline s32 modAchievementUnlocked() {
+        return nebula_host()->mod_achievement_unlocked(nebula_host()->user);
     }
 
     inline void statAdd(const char* pName, u64 delta) {

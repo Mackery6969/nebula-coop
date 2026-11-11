@@ -11,6 +11,7 @@
 #include "Game/Render/GameTexture.hpp"
 #include <NebulaGpuTypes.h>
 #include "Game/Util/Tunable.hpp"
+#include "Game/System/LumaCore.hpp"
 
 namespace {
     NEBULA_TUNABLE(f32, sBeginThick, 10.0f);
@@ -24,6 +25,7 @@ StarPointerBlur::~StarPointerBlur() {
 StarPointerBlur::StarPointerBlur(GameTexture* pTexture)
     : NameObj("スターポインタ用ブラー"), mTexture(pTexture), mPadChannel(PLAYER_1), mMainColor(nullptr), mBlurPoints(nullptr),
       mBlurThicks(nullptr), mBlurTexCoords(nullptr), mNumHiddenPoints(0), mPointsScreenWidth(0.0f) {
+    lumacore::setClass(this, lumacore::kClassId< StarPointerBlur >);
     mBlurPoints = new BlurPoint[BLUR_POINT_NUM];
     mBlurThicks = new f32[BLUR_POINT_NUM];
     mBlurTexCoords = new f32[BLUR_POINT_NUM];

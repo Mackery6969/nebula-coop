@@ -3,6 +3,7 @@ extern "C" const NebulaHostServices* nebula_host(void);
 #include "Game/System/NebulaLoadTrace.hpp"
 #include "Game/System/NebulaMods.hpp"
 #include "Game/System/NebulaCoopWorld.hpp"
+#include "Game/System/LumaClass.hpp"
 #include "Game/Scene/PlacementInfoOrdered.hpp"
 #include "Game/LiveActor/AllLiveActorGroup.hpp"
 #include "Game/Map/PlanetMapCreator.hpp"
@@ -109,7 +110,18 @@ bool PlacementInfoOrdered::initPlacementStep(uint64_t deadline) {
                 NebulaLoadTrace::placed(set->mName, MR::getPlacedZoneId(iter));
                 // Online co-op: the actors it makes as it is placed are its parts.
                 NebulaCoopWorld::beginPlacement();
-                mInitializing = creator(MR::getJapaneseObjectName(set->mName));
+                // A mod's object (placed by its name, or what a change turns the placed one into) is made by its own
+                // name; the game's by their Japanese names, as the game's creators take them.
+                const char* const pModObject = set->mShapeId == -1 ? NebulaMods::modObjectName(set->mName) : nullptr;
+                mInitializing = creator(pModObject != nullptr ? pModObject : MR::getJapaneseObjectName(set->mName));
+                if (mInitializing == nullptr) {
+                    // Nothing made (a mod's object it could not make): this placement is left out.
+                    NebulaCoopWorld::notePlaced(set->mName, nullptr, iter);
+                    MR::clearCurrentPlacementZoneId();
+                    mPlacementLink = mPlacementLink->getNext();
+                    if (mPlacementLink == nullptr) ++mPlacementSet;
+                    continue;
+                }
             }
             MR::initLiveActorSystemInfo(iter);
             const bool ready = mInitializing->initStep(iter, deadline);
@@ -118,6 +130,10 @@ bool PlacementInfoOrdered::initPlacementStep(uint64_t deadline) {
             if (!ready) return false;
             // Online co-op: the placed things the instance's record follows.
             NebulaCoopWorld::notePlaced(set->mName, mInitializing, iter);
+            // The mods' classes on what this placement made (luma.json "object_classes" with a script, plugins' hooks).
+            if (lumacore::sClassRowCount != 0) [[unlikely]] {
+                lumacore::attachClass(mInitializing, set->mName);
+            }
             mInitializing = nullptr;
         }
         mPlacementLink = mPlacementLink->getNext();

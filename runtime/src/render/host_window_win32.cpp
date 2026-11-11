@@ -9,7 +9,6 @@
 #include "galaxy/render/xess_library.h"
 #include "galaxy/windows_paths.h"
 #include "galaxy/windows_power.h"
-#include "galaxy/run_options.h"
 #include "galaxy/path_text.h"
 #include "galaxy/controller_hid.h"
 #include "galaxy/coop_menu.h"
@@ -180,7 +179,7 @@ using host_window::wnd_proc;
 using host_window::kSettingsKeyMessage;
 using host_window::kWindowStyle;
 using host_window::kPlaceWindowMessage;
-using host_window::kTestResizeMessage;
+using host_window::kResizeClientMessage;
 using host_window::WindowPlacement;
 
 namespace {
@@ -710,7 +709,7 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             monitor_changed.store(true, std::memory_order_release);
         }
     }
-    if (msg == kTestResizeMessage) {
+    if (msg == kResizeClientMessage) {
         RECT rect{0, 0, static_cast<LONG>(wp), static_cast<LONG>(lp)};
         (void)AdjustWindowRectEx(&rect, static_cast<DWORD>(GetWindowLongPtrW(hwnd, GWL_STYLE)), FALSE,
                                  static_cast<DWORD>(GetWindowLongPtrW(hwnd, GWL_EXSTYLE)));
@@ -1435,10 +1434,10 @@ bool window_modal_active() noexcept {
     return s_system_menu_active.load(std::memory_order_acquire) || move_size_active.load(std::memory_order_acquire);
 }
 
-void test_resize_window(unsigned long width, unsigned long height) noexcept {
+void resize_window_client(unsigned width, unsigned height) noexcept {
     const HWND window = reinterpret_cast<HWND>(pointer_hwnd.load(std::memory_order_acquire));
     if (window != nullptr) {
-        (void)PostMessageW(window, kTestResizeMessage, width, static_cast<LPARAM>(height));
+        (void)PostMessageW(window, kResizeClientMessage, width, static_cast<LPARAM>(height));
     }
 }
 
