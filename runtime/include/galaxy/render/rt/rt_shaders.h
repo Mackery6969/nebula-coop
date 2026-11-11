@@ -9,7 +9,10 @@
 namespace galaxy::render {
 
 // In the order of runtime/src/render/rt/shaders.tsv.
-enum class RtShader : unsigned { Probe, View, Skin, Count };
+enum class RtShader : unsigned {
+    Probe, View, Skin, Light, LightTime, LightSpace, LightsTime, LightsSpace, Surface, Sun, Lights, NoiseFill, SunTiles, SunTime,
+    SunBlur, Reactive, Count
+};
 
 struct RtShaderBytes {
     const void* data = nullptr;

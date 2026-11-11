@@ -555,7 +555,7 @@ unsigned runtime_draft_changes(RuntimeSettings* live) {
 }
 
 unsigned pending_settings_changes() {
-    const RenderConfig live = get_render_config();
+    const RenderConfig live = get_render_config_chosen();
     const RenderConfig& d = s_settings_draft;
     unsigned changes = 0u;
     changes += d.display_mode != live.display_mode;
@@ -585,9 +585,7 @@ unsigned pending_settings_changes() {
     changes += d.hud_output_resolution != live.hud_output_resolution;
     changes += d.ray_tracing_enabled != live.ray_tracing_enabled;
     changes += d.rt_quality != live.rt_quality;
-    changes += d.rt_reflections != live.rt_reflections;
-    changes += d.rt_water != live.rt_water;
-    changes += d.rt_sun_rays != live.rt_sun_rays;
+    changes += d.rt_parts != live.rt_parts;
     changes += d.rt_lens_bloom != live.rt_lens_bloom;
     changes += d.texture_packs != live.texture_packs ||
         (d.texture_packs && d.texture_pack_preload != live.texture_pack_preload);
@@ -932,7 +930,7 @@ void revert_display_settings() {
         return;
     }
     s_display_confirm_deadline_ms = 0u;
-    RenderConfig render = get_render_config();
+    RenderConfig render = get_render_config_chosen();
     const RenderConfig& previous = s_display_confirm_previous;
     render.display_mode = previous.display_mode;
     render.monitor = previous.monitor;
@@ -977,7 +975,7 @@ void apply_native_settings_draft() {
     apply_controls_draft();
     RenderConfig next = s_settings_draft;
     sanitize_settings_draft(next);
-    const RenderConfig live = get_render_config();
+    const RenderConfig live = get_render_config_chosen();
     // Settings the menu does not edit keep their live values.
     RenderConfig applied = live;
     applied.display_mode = next.display_mode;
@@ -1010,9 +1008,8 @@ void apply_native_settings_draft() {
     applied.hud_output_resolution = next.hud_output_resolution;
     applied.ray_tracing_enabled = next.ray_tracing_enabled;
     applied.rt_quality = next.rt_quality;
-    applied.rt_reflections = next.rt_reflections;
-    applied.rt_water = next.rt_water;
-    applied.rt_sun_rays = next.rt_sun_rays;
+    applied.rt_parts = next.rt_parts;
+    applied.rt_chosen = next.rt_chosen;
     applied.rt_lens_bloom = next.rt_lens_bloom;
     applied.texture_packs = next.texture_packs;
     applied.texture_pack_preload = next.texture_pack_preload;
@@ -1026,7 +1023,7 @@ void apply_native_settings_draft() {
         set_runtime_settings(runtime);
     }
     set_render_config(applied);
-    s_settings_draft = get_render_config();
+    s_settings_draft = get_render_config_chosen();
     reset_runtime_draft();
     if (dlss_asked) {
         s_settings_draft.upscaler = vendor_upscaler();  // the row shows what the question is about
@@ -1045,7 +1042,7 @@ void apply_native_settings_draft() {
 }
 
 void revert_native_settings_draft() {
-    s_settings_draft = get_render_config();
+    s_settings_draft = get_render_config_chosen();
     reset_runtime_draft();
     reset_controls_draft();
     revert_mods_draft();
@@ -1364,7 +1361,7 @@ void set_native_settings_visible(bool visible) {
     if (visible && !s_native_settings_visible.load(std::memory_order_relaxed)) {
         // A fresh draft, monitor list and controller list each time the menu opens.
         s_settings_monitors = host_window::settings_monitors();
-        s_settings_draft = get_render_config();
+        s_settings_draft = get_render_config_chosen();
         reset_runtime_draft();
         reset_controls_draft();
         refresh_controls_devices(true);
@@ -1380,7 +1377,7 @@ void set_native_settings_visible(bool visible) {
         }
         dlss_dismiss_prompt();
         revert_display_settings();
-        s_settings_draft = get_render_config();
+        s_settings_draft = get_render_config_chosen();
         reset_runtime_draft();
         reset_controls_draft();
         flush_native_settings_if_dirty();
@@ -1919,6 +1916,7 @@ public:
         state.xess_supported = host_window::upscaler_caps().xess;
         state.xess_installed = xess_installed_now();
         state.ray_tracing_offered = host_window::ray_tracing_offered.load(std::memory_order_relaxed);
+        state.traced_temporal = fsr3_available();
         state.temporal_upscaling = temporal_upscaler(render) != 0u;
         state.spatial_upscaling = spatial_quality_mode(render);
         state.curved_surfaces_offered = curved_surfaces_offered();
@@ -3333,7 +3331,7 @@ void dlss_dismiss_prompt() {
 void vendor_revert_draft() {
     if (s_settings_draft.upscaler == s_vendor_upscaler &&
         !(s_vendor_upscaler == 3u ? s_dlss_installed_now : s_xess_installed_now)) {
-        s_settings_draft.upscaler = get_render_config().upscaler;
+        s_settings_draft.upscaler = get_render_config_chosen().upscaler;
     }
 }
 
@@ -3494,7 +3492,7 @@ void poll_dlss_download() {
         return;
     }
     (s_vendor_upscaler == 3u ? s_dlss_installed_now : s_xess_installed_now) = true;
-    RenderConfig render = get_render_config();
+    RenderConfig render = get_render_config_chosen();
     render.upscaler = s_vendor_upscaler;
     set_render_config(render);
     s_settings_draft.upscaler = s_vendor_upscaler;
@@ -3742,7 +3740,7 @@ void poll_render_config_file() {
     if (s_native_settings_visible.load(std::memory_order_relaxed)) {
         return;
     }
-    const RenderConfig before = get_render_config();
+    const RenderConfig before = get_render_config_chosen();
     const std::string gpu_before = next_start_gpu();
     if (!reload_render_config_if_changed()) {
         return;
@@ -3989,7 +3987,7 @@ NativeSettingsView build_native_settings_view() {
 }  // namespace host_window
 
 HostClientExtent aspect_latch_extent() noexcept {
-    const unsigned mode = std::min(get_render_config().aspect_mode, kAspectModeCount - 1u);
+    const unsigned mode = std::min(get_render_config_chosen().aspect_mode, kAspectModeCount - 1u);
     if (mode != 0u) {
         // Any extent with the chosen ratio; only the ratio is latched.
         return {static_cast<int>(kAspectRatios[mode][0] * 120u),
@@ -4107,7 +4105,7 @@ void native_settings_files_dropped(std::vector<std::filesystem::path> files) {
 // A size the player drags the window to becomes the windowed size. Saved now, not when the game closes: Nebula Settings
 // reads the file meanwhile.
 void native_settings_window_resized(unsigned width, unsigned height) {
-    RenderConfig render = get_render_config();
+    RenderConfig render = get_render_config_chosen();
     if (render.window_width != width || render.window_height != height) {
         render.window_width = width;
         render.window_height = height;
