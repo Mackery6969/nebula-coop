@@ -95,8 +95,9 @@ Defender), and publishes `Nebula-Setup.exe` and `Nebula-Setup.exe.sig` as the Gi
 install steps and the pull requests since the last release as its notes. A tag with `-beta.` in it (`v2.0.0-beta.1`)
 makes `Nebula-Beta-Setup.exe`, which only betas update to; any tag with a `-` part is a pre-release. When a release for
 the tag already exists (made by hand on GitHub), its notes are kept and only the files are added. Setup's update check
-reads this repository's releases. Its ray-tracing tables are empty: they describe the game's own data and are kept
-outside the repository. `NebulaNative.pdb` is kept as the run's `release-symbols` download for 90 days.
+reads this repository's releases. Its ray-tracing tables have a header and no rows (Setup refuses an empty file): they
+describe the game's own data and are kept outside the repository. `NebulaNative.pdb` is kept as the run's
+`release-symbols` download for 90 days.
 
 Updates run only a Setup signed with the release key, the private half of `installer/release-public-key.xml`. Put
 that private key (RSA XML) in the repository secret `NEBULA_RELEASE_KEY`; without it Setup is published unsigned and
