@@ -9,7 +9,7 @@ $base = $Work
 $source = $Source
 $root = Join-Path $base 'Nebula'
 $setupLocalAppData = Join-Path $base 'setup-localappdata'
-$data = Join-Path $setupLocalAppData 'Nebula'
+$data = Join-Path $setupLocalAppData 'NebulaCoop'
 $old = (Get-Content -Raw (Join-Path $source 'current.json') | ConvertFrom-Json).version
 $failures = 0
 function Check([bool]$ok, [string]$what) { if ($ok) { "PASS: $what" } else { "FAIL: $what"; $script:failures++ } }
