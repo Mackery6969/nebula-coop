@@ -25,7 +25,7 @@ without putting any details in the server.
 
 Nebula Co-Op is made by volunteers in their free time, so these are aims, not promises:
 
-- We say we've received your report within **7 days**.
+- We say we've received your report within **14 days**.
 - We tell you whether we think it's a vulnerability, and how serious, within **14 days**.
 - We aim to release a fix for a serious problem within **30 days**, and keep you told of progress until then.
 - Once a fix is released, we publish a GitHub security advisory crediting you (unless you'd rather not be named).
