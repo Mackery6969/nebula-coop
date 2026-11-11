@@ -271,11 +271,18 @@ namespace Nebula.Setup
     /// <summary>Start Menu shortcuts, the Add/Remove Programs entry and uninstall.</summary>
     internal static class Integration
     {
-        private const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\Nebula";
+        // NebulaCoop's own entries (NebulaPaths.ProductName): an installed upstream Nebula keeps its shortcuts, keys and entry.
+        private const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\" + NebulaPaths.ProductName;
+        private const string Name = NebulaPaths.ProductName;
+
+        private static string DesktopLink
+        {
+            get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), Name + ".lnk"); }
+        }
 
         public static string StartMenuFolder
         {
-            get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), "Nebula"); }
+            get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), Name); }
         }
 
         /// <summary>
@@ -283,7 +290,7 @@ namespace Nebula.Setup
         /// Mono has no late-bound COM for WScript.Shell) is returned as a failure, not thrown: Nebula runs without it,
         /// and the registry entries still follow.
         /// </summary>
-        private const string LumaFileType = "Nebula.LumaMod";
+        private const string LumaFileType = Name + ".LumaMod";
 
         public static IList<string> Register(InstallLayout layout, string version, bool desktop)
         {
@@ -298,29 +305,29 @@ namespace Nebula.Setup
                 catch (Exception error) { failures.Add(Path.GetFileName(path) + ": " + error.Message); }
             };
             Directory.CreateDirectory(StartMenuFolder);
-            link(Path.Combine(StartMenuFolder, "Nebula.lnk"), Path.Combine(app, "Nebula.exe"), "", app, "Play Nebula");
-            link(Path.Combine(StartMenuFolder, "Nebula Settings.lnk"), Path.Combine(app, "NebulaSettings.exe"), "", app, "Display, graphics, audio and game files");
-            link(Path.Combine(StartMenuFolder, "Update Nebula.lnk"), layout.SetupCopy, "--update", layout.Root, "Check for and install Nebula updates");
-            link(Path.Combine(StartMenuFolder, "Nebula Setup.lnk"), layout.SetupCopy, "", layout.Root, "Repair, restore or uninstall Nebula");
-            string desktopLink = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "Nebula.lnk");
+            link(Path.Combine(StartMenuFolder, Name + ".lnk"), Path.Combine(app, "Nebula.exe"), "", app, "Play " + Name);
+            link(Path.Combine(StartMenuFolder, Name + " Settings.lnk"), Path.Combine(app, "NebulaSettings.exe"), "", app, "Display, graphics, audio and game files");
+            link(Path.Combine(StartMenuFolder, "Update " + Name + ".lnk"), layout.SetupCopy, "--update", layout.Root, "Check for and install " + Name + " updates");
+            link(Path.Combine(StartMenuFolder, Name + " Setup.lnk"), layout.SetupCopy, "", layout.Root, "Repair, restore or uninstall " + Name);
+            string desktopLink = DesktopLink;
             if (desktop || File.Exists(desktopLink))
-                link(desktopLink, Path.Combine(app, "Nebula.exe"), "", app, "Play Nebula");
+                link(desktopLink, Path.Combine(app, "Nebula.exe"), "", app, "Play " + Name);
 
-            using (var key = Registry.CurrentUser.CreateSubKey(@"Software\Nebula")) key.SetValue("InstallRoot", layout.Root);
+            using (var key = Registry.CurrentUser.CreateSubKey(NebulaPaths.RegistryKey)) key.SetValue("InstallRoot", layout.Root);
             // Double-clicking a mod's file adds it. Per user, like everything else here.
             using (var key = Registry.CurrentUser.CreateSubKey(@"Software\Classes\.luma")) key.SetValue("", LumaFileType);
             using (var key = Registry.CurrentUser.CreateSubKey(@"Software\Classes\" + LumaFileType))
             {
-                key.SetValue("", "Nebula mod");
+                key.SetValue("", Name + " mod");
                 using (var icon = key.CreateSubKey("DefaultIcon")) icon.SetValue("", Path.Combine(app, "Nebula.exe") + ",0");
                 using (var open = key.CreateSubKey(@"shell\open\command"))
                     open.SetValue("", "\"" + Path.Combine(app, "Nebula.exe") + "\" --open-mod \"%1\"");
             }
             using (var key = Registry.CurrentUser.CreateSubKey(UninstallKey))
             {
-                key.SetValue("DisplayName", "Nebula");
+                key.SetValue("DisplayName", Name);
                 key.SetValue("DisplayVersion", version);
-                key.SetValue("Publisher", "keepvaibin");
+                key.SetValue("Publisher", Name);
                 key.SetValue("InstallLocation", layout.Root);
                 key.SetValue("DisplayIcon", Path.Combine(app, "Nebula.exe"));
                 key.SetValue("UninstallString", "\"" + layout.SetupCopy + "\" --uninstall");
@@ -418,12 +425,15 @@ namespace Nebula.Setup
                 }
             }
             if (Directory.Exists(StartMenuFolder)) FileUtil.DeleteTree(StartMenuFolder);
-            string desktopLink = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "Nebula.lnk");
-            if (File.Exists(desktopLink)) File.Delete(desktopLink);
+            if (File.Exists(DesktopLink)) File.Delete(DesktopLink);
             Registry.CurrentUser.DeleteSubKeyTree(UninstallKey, false);
-            Registry.CurrentUser.DeleteSubKeyTree(@"Software\Nebula", false);
+            Registry.CurrentUser.DeleteSubKeyTree(NebulaPaths.RegistryKey, false);
             Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\" + LumaFileType, false);
-            Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\.luma", false);
+            // .luma stays when it opens with another program (an installed upstream Nebula's): only this install's goes.
+            bool ownsLuma;
+            using (var key = Registry.CurrentUser.OpenSubKey(@"Software\Classes\.luma"))
+                ownsLuma = key != null && string.Equals(key.GetValue("") as string, LumaFileType, StringComparison.OrdinalIgnoreCase);
+            if (ownsLuma) Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\.luma", false);
             if (removeUserData && Directory.Exists(NebulaPaths.DataRoot)) FileUtil.DeleteTree(NebulaPaths.DataRoot);
             // The running setup copy deletes itself and the folder after exit.
             if (self.StartsWith(Path.GetFullPath(layout.Root), StringComparison.OrdinalIgnoreCase))

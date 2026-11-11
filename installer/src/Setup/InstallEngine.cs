@@ -31,6 +31,9 @@ namespace Nebula.Setup
         public bool DesktopShortcut;
         /// <summary>Download NVIDIA DLSS into the user data folder (the player accepted NVIDIA's license).</summary>
         public bool InstallDlss;
+        /// <summary>An installed upstream Nebula's install or data folder (<see cref="NebulaImport"/>): its saves and settings are
+        /// copied, and its packed game is used when no game was chosen. Null: nothing is imported.</summary>
+        public string ImportFrom;
     }
 
     /// <summary>Progress reporting from the engine to the UI.</summary>
@@ -98,6 +101,8 @@ namespace Nebula.Setup
 
         /// <summary>Why the requested DLSS download failed; null when it succeeded or was not requested.</summary>
         public string DlssFailure { get; private set; }
+        /// <summary>Why copying Nebula's saves and settings failed; null when it worked or was not asked for.</summary>
+        public string ImportFailure { get; private set; }
         public TimeSpan Elapsed { get { return clock.Elapsed; } }
 
         /// <summary>The packed game (3.2 GB) and its staging copy for a first install.</summary>
@@ -195,12 +200,30 @@ namespace Nebula.Setup
             // files, which an import never keeps): it is packed again from the image it was made from, when that is still where
             // it was, so an update needs no question. Otherwise the disc is asked for, as before.
             string remembered = request.GameInput == null && !reuseContent && keptContent == null && cookSource == null ? RememberedSource(layout) : null;
+            // Without a game of its own, an import from Nebula takes Nebula's: its packed game when it is this version's format
+            // (copied), else the same ways an update finds one (cooked from Nebula's format 1, or packed again from its disc).
+            NebulaImport nebula = request.ImportFrom != null ? NebulaImport.Locate(request.ImportFrom) : null;
+            InstallLayout nebulaLayout = nebula != null ? nebula.Layout : null;
+            string nebulaContent = null;
+            if (nebulaLayout != null && request.GameInput == null && !reuseContent && keptContent == null && cookSource == null && remembered == null)
+            {
+                if (ContentValid(nebulaLayout)) nebulaContent = nebulaLayout.Content;
+                else if ((cookSource = CookSource(nebulaLayout)) == null) remembered = RememberedSource(nebulaLayout);
+                Log("Nebula's install: " + nebulaLayout.Root + "; its packed game: " + (nebulaContent ?? "not this version's format"));
+            }
             string gameInput = request.GameInput ?? remembered;
-            if (!reuseContent && keptContent == null && cookSource == null && gameInput == null)
-                throw new InvalidOperationException(NebulaText.Of("Choose your Super Mario Galaxy ISO, RVZ or extracted folder."));
+            if (!reuseContent && keptContent == null && cookSource == null && nebulaContent == null && gameInput == null)
+                throw new InvalidOperationException(nebulaLayout != null
+                    ? NebulaText.Of("Nebula's packed game is from another version and cannot be used. Choose your Super Mario Galaxy ISO, RVZ or extracted folder.")
+                    : NebulaText.Of("Choose your Super Mario Galaxy ISO, RVZ or extracted folder."));
             Log("Reuse the packed game: " + reuseContent + "; kept for this version: " + keptContent + "; cook from: " + cookSource + "; pack again from: " + remembered);
             bool imported = false;
-            if (cookSource != null)
+            if (nebulaContent != null)
+            {
+                Stage(0.00, 0.70, NebulaText.Of("Copying the game files from Nebula"));
+                CopyContent(nebulaContent, Path.Combine(staging, "content"));
+            }
+            else if (cookSource != null)
             {
                 Stage(0.00, 0.70, NebulaText.Of("Converting the game files"));
                 Cook(cookSource, Path.Combine(staging, "content"));
@@ -257,6 +280,16 @@ namespace Nebula.Setup
             RemoveOtherVersions(Commit(app, current, keptContent));
             if (imported) RememberSource(gameInput);
             RemoveRecompiledGame();
+            if (nebula != null)
+            {
+                // NebulaCoop is installed by now: saves and settings that could not be copied are reported, not a failed install.
+                try { nebula.CopyUserData(Log); }
+                catch (Exception error)
+                {
+                    ImportFailure = error.Message;
+                    Log("Could not copy Nebula's saves and settings: " + error);
+                }
+            }
             var installed = InstalledInfo.Read(layout);
             PruneKeptContent(layout, installed != null ? installed.Previous : null, Log);
             Report(1.0, NebulaText.Of("Nebula {0} is installed.", BuildInfo.Version), 1);
@@ -337,6 +370,34 @@ namespace Nebula.Setup
             if (code != 0) throw new InvalidOperationException(NebulaText.Of("Reading the game failed (exit {0}). See the setup log.", code));
         }
 
+        /// <summary>Copies another install's packed game (Nebula's) into <paramref name="output"/>; the source is only read.</summary>
+        private void CopyContent(string content, string output)
+        {
+            string from = Path.GetFullPath(content).TrimEnd(Path.DirectorySeparatorChar);
+            var files = Directory.GetFiles(from, "*", SearchOption.AllDirectories);
+            long total = 0, done = 0, reported = 0;
+            foreach (var file in files) total += new FileInfo(file).Length;
+            var buffer = new byte[1 << 20];
+            foreach (var file in files)
+            {
+                string target = Path.Combine(output, file.Substring(from.Length + 1));
+                Directory.CreateDirectory(Path.GetDirectoryName(target));
+                using (var input = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read))
+                using (var copy = new FileStream(target, FileMode.CreateNew, FileAccess.Write))
+                {
+                    int read;
+                    while ((read = input.Read(buffer, 0, buffer.Length)) > 0)
+                    {
+                        cancel.ThrowIfCancellationRequested();
+                        copy.Write(buffer, 0, read);
+                        done += read;
+                        if (done - reported >= (32L << 20)) { reported = done; StepProgress(null, (double)done / total); }
+                    }
+                }
+            }
+            Log("Copied " + files.Length + " files (" + FileUtil.FormatBytes(total) + ") of Nebula's packed game from " + from + ".");
+        }
+
         /// <summary>A format-1 content folder cooked into this version's format (D-07): the same output lines as an import.</summary>
         private void Cook(string content, string output)
         {
@@ -358,6 +419,13 @@ namespace Nebula.Setup
         public static bool RetainedGameValid(InstallLayout layout)
         {
             return ContentValid(layout) || KeptCurrentContent(layout) != null || CookSource(layout) != null || RememberedSource(layout) != null;
+        }
+
+        /// <summary>Another install (Nebula's, <see cref="NebulaImport"/>) has a game this version can take without the disc: its
+        /// packed game in this format, a format-1 one to cook, or the disc image it was packed from, still in place.</summary>
+        public static bool GameTakenFrom(InstallLayout other)
+        {
+            return ContentValid(other) || CookSource(other) != null || RememberedSource(other) != null;
         }
 
         private static string GameSourcePath(InstallLayout layout) { return Path.Combine(layout.Root, "game-source.json"); }

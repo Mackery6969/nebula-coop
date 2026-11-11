@@ -31,7 +31,7 @@ namespace galaxy::host {
     return true;
 }
 
-// The player's data folder as the shell names it (Windows: Local AppData\Nebula), whatever the environment says;
+// The player's data folder as the shell names it (Windows: Local AppData\NebulaCoop), whatever the environment says;
 // empty when the shell gives none.
 [[nodiscard]] std::filesystem::path player_data_folder();
 

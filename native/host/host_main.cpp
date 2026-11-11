@@ -4778,7 +4778,8 @@ bool claim_game_instance(int argc, char** argv) {
 HANDLE gRuntimeLease = nullptr;
 
 void hold_runtime_lease() {
-    std::wstring name = L"Local\\Nebula.";
+    // Not upstream Nebula's "Local\\Nebula.": an installed Nebula's game is not this launcher's.
+    std::wstring name = L"Local\\NebulaCoop.";
     for (const char* c = gPak.id; *c != '\0'; ++c) {
         name += static_cast<wchar_t>(*c);
     }

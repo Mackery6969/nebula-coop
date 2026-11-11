@@ -968,7 +968,7 @@ namespace Nebula.Launcher
                 // The test's own lease names: a game open in this session holds the real ones.
                 LaunchSession.LeaseNamespace = @"Local\NebulaTest." + Guid.NewGuid().ToString("N") + ".";
                 string localAppData = Environment.GetEnvironmentVariable("LOCALAPPDATA");
-                Check(!string.IsNullOrEmpty(localAppData) && NebulaPaths.DataRoot == Path.Combine(localAppData, "Nebula") &&
+                Check(!string.IsNullOrEmpty(localAppData) && NebulaPaths.DataRoot == Path.Combine(localAppData, NebulaPaths.ProductName) &&
                       NebulaPaths.LocalAppDataRedirected, "a redirected %LOCALAPPDATA% holds the data root");
                 string dataRoot = NebulaPaths.DataRoot;
                 string outDir = args[0];

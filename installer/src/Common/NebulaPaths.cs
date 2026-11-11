@@ -10,7 +10,16 @@ namespace Nebula
     /// </summary>
     internal static class NebulaPaths
     {
-        public const string ProductName = "Nebula";
+        /// <summary>NebulaCoop, not upstream Nebula's "Nebula": the co-op fork installs, keeps its saves and settings, and
+        /// registers itself in its own folders and keys, beside an installed Nebula and never in place of it.
+        /// runtime/include/galaxy/platform_paths.h (kDataFolderName) names the same data folder.</summary>
+        public const string ProductName = "NebulaCoop";
+
+        /// <summary>Upstream Nebula's data folder, %LOCALAPPDATA%\Nebula: where Setup offers to import saves and settings from.</summary>
+        public static string UpstreamDataRoot
+        {
+            get { return Path.Combine(LocalAppData, "Nebula"); }
+        }
 
         /// <summary>%LOCALAPPDATA%: the variable, as the game reads it (a sandboxed or test run names its own
         /// folder), else the user's folder.</summary>
@@ -44,13 +53,13 @@ namespace Nebula
             }
         }
 
-        /// <summary>Default install root: %LOCALAPPDATA%\Programs\Nebula.</summary>
+        /// <summary>Default install root: %LOCALAPPDATA%\Programs\NebulaCoop.</summary>
         public static string DefaultInstallRoot
         {
             get { return Path.Combine(LocalAppData, "Programs", ProductName); }
         }
 
-        /// <summary>User data root: %LOCALAPPDATA%\Nebula. The runtime keeps its
+        /// <summary>User data root: %LOCALAPPDATA%\NebulaCoop. The runtime keeps its
         /// shader cache and config.ini here as well.</summary>
         public static string DataRoot
         {
@@ -63,12 +72,15 @@ namespace Nebula
         public static string SetupLogs { get { return Path.Combine(DataRoot, "setup-logs"); } }
         public static string ShaderCache { get { return Path.Combine(DataRoot, "shadercache"); } }
 
+        /// <summary>HKCU key that records the install root.</summary>
+        public const string RegistryKey = @"Software\" + ProductName;
+
         /// <summary>Install root recorded by the last successful install.</summary>
         public static string RegisteredInstallRoot
         {
             get
             {
-                using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Nebula"))
+                using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(RegistryKey))
                 {
                     var value = key == null ? null : key.GetValue("InstallRoot") as string;
                     return string.IsNullOrEmpty(value) ? null : value;
