@@ -220,7 +220,7 @@ std::string handshake_json(std::string_view client_id) {
 }
 
 std::string set_activity_json(std::uint32_t pid, const Activity& activity, std::int64_t start_seconds,
-                              std::uint32_t nonce, bool clear) {
+                              std::uint32_t nonce, bool clear, bool platforms) {
     std::string json = "{\"cmd\":\"SET_ACTIVITY\",\"args\":{\"pid\":" + std::to_string(pid) + ",\"activity\":";
     if (clear) {
         json += "null";
@@ -252,6 +252,9 @@ std::string set_activity_json(std::uint32_t pid, const Activity& activity, std::
         }
         if (!party.id.empty() && !party.join_secret.empty()) {
             json += ",\"secrets\":{\"join\":" + json_string(party.join_secret) + "}";
+            // Where a Join can start the game: without it Discord offers no "Invite to play" and no Join button
+            // (Discord's game invites guide: "check if Rich Presence has party, secret, and platforms set").
+            if (platforms) json += ",\"supported_platforms\":[\"desktop\"]";
         }
         json += ",\"instance\":false}";
     }
@@ -450,8 +453,16 @@ void register_launch(const std::string& client_id, const std::wstring& command) 
 void register_launch(const std::string&, const std::filesystem::path::string_type&) {}
 #endif
 
-// What Discord sent: a ping answered, a Join's secret kept for the game, an error logged. False when the pipe broke.
-bool handle_incoming(Pipe& pipe, std::string& buffer) {
+// What the worker keeps of Discord's answers.
+struct Replies {
+    bool platforms = true;      // supported_platforms is sent (false once this Discord refused it)
+    bool show_answer = false;   // log Discord's answer to the status just sent (one with a Join secret)
+    bool send_again = false;    // the status must go again (sent without what Discord refused)
+};
+
+// What Discord sent: a ping answered, a Join's secret kept for the game, its answers to the status and the
+// subscription logged. False when the pipe broke.
+bool handle_incoming(Pipe& pipe, std::string& buffer, Replies& replies) {
     std::uint32_t opcode = 0u;
     std::string json;
     while (take_frame(buffer, &opcode, &json)) {
@@ -462,7 +473,17 @@ bool handle_incoming(Pipe& pipe, std::string& buffer) {
         if (opcode == kOpClose) return false;
         if (opcode != kOpFrame) continue;
         const std::optional<std::string> event = json_field(json, "evt");
-        if (!event) continue;
+        const std::string command = json_field(json, "cmd").value_or("");
+        if (!event) {
+            // An answer: the subscription took, or the status as Discord keeps it (what it dropped is missing).
+            if (command == "SUBSCRIBE") {
+                std::fprintf(stderr, "[discord] Join subscribed\n");
+            } else if (command == "SET_ACTIVITY" && replies.show_answer) {
+                replies.show_answer = false;
+                std::fprintf(stderr, "[discord] status taken: %.600s\n", json.c_str());
+            }
+            continue;
+        }
         if (*event == "ACTIVITY_JOIN") {
             if (std::optional<std::string> secret = json_field(json, "secret")) {
                 std::fprintf(stderr, "[discord] Join pressed\n");
@@ -471,7 +492,13 @@ bool handle_incoming(Pipe& pipe, std::string& buffer) {
             }
         } else if (*event == "ERROR") {
             const std::optional<std::string> message = json_field(json, "message");
-            std::fprintf(stderr, "[discord] error: %s\n", message ? message->c_str() : json.c_str());
+            std::fprintf(stderr, "[discord] error (%s): %s\n", command.c_str(), message ? message->c_str() : json.c_str());
+            // An older Discord that doesn't know supported_platforms: the status goes again without it.
+            if (command == "SET_ACTIVITY" && replies.platforms && message &&
+                message->find("platform") != std::string::npos) {
+                replies.platforms = false;
+                replies.send_again = true;
+            }
         }
     }
     // A frame that says it is huge isn't Discord's: start again rather than keep it.
@@ -482,6 +509,7 @@ bool handle_incoming(Pipe& pipe, std::string& buffer) {
 void worker() {
     Pipe pipe;
     std::string incoming;
+    Replies replies;
     bool registered = false;
     std::uint32_t nonce = 1u;
     const std::int64_t start = std::chrono::duration_cast<std::chrono::seconds>(
@@ -543,19 +571,22 @@ void worker() {
             }
             dirty = true;
         }
+        if (std::exchange(replies.send_again, false)) dirty = true;
         if (dirty) {
-            if (!pipe.write(frame(kOpFrame, set_activity_json(process_id(), activity, start, nonce++, false)))) {
+            if (!pipe.write(frame(kOpFrame, set_activity_json(process_id(), activity, start, nonce++, false,
+                                                              replies.platforms)))) {
                 pipe.close();
                 shown = false;
                 continue;
             }
             shown = true;
+            replies.show_answer = !activity.party.join_secret.empty();
             std::fprintf(stderr, "[discord] status: %s | %s%s\n", activity.details.c_str(), activity.state.c_str(),
                          activity.party.size == 0u ? ""
                          : activity.party.join_secret.empty() ? " (in a room)"
                                                                : " (in a room, Join on)");
         }
-        if (!pipe.drain(&incoming) || !handle_incoming(pipe, incoming)) {
+        if (!pipe.drain(&incoming) || !handle_incoming(pipe, incoming, replies)) {
             pipe.close();
             shown = false;
             std::lock_guard<std::mutex> lock(s_mutex);
@@ -611,6 +642,11 @@ void set_party(const Party& party) {
 void set_launch_command(std::filesystem::path::string_type command) {
     std::lock_guard<std::mutex> lock(s_mutex);
     s_launch_command = std::move(command);
+}
+
+bool join_pending() {
+    std::lock_guard<std::mutex> lock(s_mutex);
+    return s_join_secret.has_value();
 }
 
 std::optional<std::string> take_join_secret() {

@@ -274,7 +274,7 @@ namespace Nebula.Setup
         // NebulaCoop's own entries (NebulaPaths.ProductName): an installed upstream Nebula keeps its shortcuts, keys and entry.
         private const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\" + NebulaPaths.ProductName;
         private const string Name = NebulaPaths.ProductName;
-        // How Discord starts NebulaCoop for a Join (the game writes it: discord_presence.cpp, host_main.cpp
+        // How Discord starts NebulaCoop for a Join (Register and the game write it: discord_presence.cpp, host_main.cpp
         // kDiscordClientId); NebulaCoop's own Discord application, so upstream Nebula's never shares it.
         private const string DiscordLaunchKey = @"Software\Classes\discord-1567615368938397866";
 
@@ -317,6 +317,15 @@ namespace Nebula.Setup
                 link(desktopLink, Path.Combine(app, "Nebula.exe"), "", app, "Play " + Name);
 
             using (var key = Registry.CurrentUser.CreateSubKey(NebulaPaths.RegistryKey)) key.SetValue("InstallRoot", layout.Root);
+            // A Join pressed in Discord starts NebulaCoop through this version's launcher (the game writes the same at
+            // each start), so an update never leaves Discord pointing at a removed version.
+            using (var key = Registry.CurrentUser.CreateSubKey(DiscordLaunchKey))
+            {
+                key.SetValue("", "URL:Run game " + DiscordLaunchKey.Substring(DiscordLaunchKey.LastIndexOf('-') + 1) + " protocol");
+                key.SetValue("URL Protocol", "");
+                using (var command = key.CreateSubKey(@"shell\open\command"))
+                    command.SetValue("", "\"" + Path.Combine(app, "Nebula.exe") + "\"");
+            }
             // Double-clicking a mod's file adds it. Per user, like everything else here.
             using (var key = Registry.CurrentUser.CreateSubKey(@"Software\Classes\.luma")) key.SetValue("", LumaFileType);
             using (var key = Registry.CurrentUser.CreateSubKey(@"Software\Classes\" + LumaFileType))

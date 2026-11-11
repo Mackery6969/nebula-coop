@@ -54,10 +54,14 @@ int main() {
     expect(in_room.find("\"party\":{\"id\":\"" + party_id("K7QX2M") + "\",\"size\":[2,8]}") != std::string::npos,
            "party");
     expect(in_room.find("\"secrets\":{\"join\":\"nebulanet:K7QX2M:\"}") != std::string::npos, "join secret");
+    expect(in_room.find("\"supported_platforms\":[\"desktop\"]") != std::string::npos, "platforms with a secret");
+    expect(set_activity_json(1u, room, 5, 3u, false, false).find("supported_platforms") == std::string::npos,
+           "platforms left out when Discord refused them");
     room.party = {"", 3u, 4u, ""};
     const std::string direct = set_activity_json(1u, room, 5, 4u, false);
     expect(direct.find("\"party\":{\"size\":[3,4]}") != std::string::npos, "party count alone");
     expect(direct.find("\"secrets\"") == std::string::npos, "no secret without a party id");
+    expect(direct.find("supported_platforms") == std::string::npos, "no platforms without a secret");
     room.party = {"x", 9u, 4u, "s"};
     expect(set_activity_json(1u, room, 5, 4u, false).find("\"size\"") == std::string::npos, "a count over the most");
 
