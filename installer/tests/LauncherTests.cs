@@ -301,7 +301,10 @@ namespace Nebula.Launcher
             Console.WriteLine("INFO: monitors: " + string.Join("; ", monitors.Select(m => m.Device + (m.Primary ? " (main)" : ""))));
             Check(monitors.All(m => all.Count(g => g.Drives(m.Device)) <= 1), "every monitor is an output of at most one GPU");
             var hardware = GpuAdapters.List();
-            Check(hardware != null && hardware.All(h => all.Exists(g => g.Id == h.Id)) && hardware.Count < all.Count,
+            // A machine without a GPU (a CI runner) lists only Microsoft's display driver, which has WARP's id and so is
+            // one entry with it: there is no software adapter left to leave out.
+            bool noGpu = all.TrueForAll(g => g.VendorId == 0x1414);
+            Check(hardware != null && hardware.All(h => all.Exists(g => g.Id == h.Id)) && (hardware.Count < all.Count || noGpu),
                   "the game's list leaves out software adapters");
             foreach (var m in monitors)
                 foreach (var g in hardware)
