@@ -45,7 +45,7 @@ foreach ($folder in @("native", "runtime", "platform")) {
         $text = [IO.File]::ReadAllText($source.FullName)
         $relative = $source.FullName.Substring($repo.Length + 1)
         foreach ($name in @("NEBULA_DEV", "NEBULA_RELEASE", "NEBULA_OPTION_TEST_", "tools/test_driver")) {
-            if ($text.Contains($name)) { $failures.Add("$relative names $name: a release and a test run use the same source") }
+            if ($text.Contains($name)) { $failures.Add("$relative names ${name}: a release and a test run use the same source") }
         }
     }
 }

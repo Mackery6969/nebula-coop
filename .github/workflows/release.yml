@@ -92,8 +92,9 @@ jobs:
             build/host/_deps
           key: host-deps-OFF-${{ hashFiles('cmake/**', 'third_party/archive/**') }}
       - name: Configure
-        # A release build: cross-file optimization on (NEBULA_HOST_IPO's default) and the test hooks left out.
-        run: cmake -S . -B build/host -G Ninja -DCMAKE_BUILD_TYPE=Release -DNEBULA_RELEASE=ON
+        # A release build: cross-file optimization on (NEBULA_HOST_IPO's default). There is one build kind: tests
+        # attach their hooks from outside (tools/release_check.ps1 checks no source names a build kind).
+        run: cmake -S . -B build/host -G Ninja -DCMAKE_BUILD_TYPE=Release
       - name: Build
         # The program Setup ships, not the tests.
         run: cmake --build build/host --target NebulaNative
@@ -123,7 +124,7 @@ jobs:
             build/game/archive-deps
           key: game-archive-deps-${{ hashFiles('cmake/**', 'third_party/archive/**') }}
       - name: Build
-        run: .\native\build.ps1 -Petari native\petari -Build build\game -Release
+        run: .\native\build.ps1 -Petari native\petari -Build build\game
       - uses: actions/upload-artifact@v7
         with:
           name: release-game

@@ -1,8 +1,6 @@
 # Builds the game module (native/CMakeLists.txt) on Windows with clang++ and Ninja, inside the MSVC environment
 # (for the C runtime and Windows SDK libraries the link needs).
 #   native\build.ps1 -Petari native\petari -Build build\game [-Config Release] [-Target smg_game] [-Pgo] [-UseSccache]
-#                     [-Release]
-# -Release leaves the test hooks out (NEBULA_RELEASE), as a published release is built (.github/workflows/release.yml).
 param(
     [Parameter(Mandatory = $true)][string]$Petari,
     [Parameter(Mandatory = $true)][string]$Build,
@@ -10,7 +8,6 @@ param(
     [string]$Target = "smg_game",
     [switch]$Pgo,
     [switch]$UseSccache,
-    [switch]$Release,
     [string]$ProfileFlags = ""
 )
 $ErrorActionPreference = "Stop"
@@ -28,10 +25,9 @@ $sccache_launcher = if ($UseSccache) {
 } else {
     ""
 }
-$release_flag = if ($Release) { " -DNEBULA_RELEASE=ON" } else { "" }
 $configure = "`"$cmake`" -S `"$src`" -B `"$Build`" -G Ninja -DCMAKE_MAKE_PROGRAM=`"$($ninja.Replace("\", "/"))`" " +
     "-DCMAKE_BUILD_TYPE=$Config -DCMAKE_C_COMPILER=`"$llvm/clang.exe`" -DCMAKE_CXX_COMPILER=`"$llvm/clang++.exe`" " +
-    "-DCMAKE_RC_COMPILER=`"$llvm/llvm-rc.exe`" -DNEBULA_PETARI_DIR=`"$Petari`" -DNEBULA_PGO=$(if ($Pgo) { 'ON' } else { 'OFF' })$sccache_launcher$release_flag -DCMAKE_C_FLAGS=$ProfileFlags -DCMAKE_CXX_FLAGS=$ProfileFlags -DCMAKE_SHARED_LINKER_FLAGS=$ProfileFlags"
+    "-DCMAKE_RC_COMPILER=`"$llvm/llvm-rc.exe`" -DNEBULA_PETARI_DIR=`"$Petari`" -DNEBULA_PGO=$(if ($Pgo) { 'ON' } else { 'OFF' })$sccache_launcher -DCMAKE_C_FLAGS=$ProfileFlags -DCMAKE_CXX_FLAGS=$ProfileFlags -DCMAKE_SHARED_LINKER_FLAGS=$ProfileFlags"
 $compile = "`"$cmake`" --build `"$Build`" --target $Target"
 # vcvars64.bat runs vswhere.exe from PATH.
 $env:PATH = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer;$env:PATH"
