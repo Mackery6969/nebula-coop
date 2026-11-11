@@ -26,7 +26,7 @@ extern "C" {
 
 /* Upstream Nebula's number for this interface. Co-op changes leave it as it is (docs/COOP_PLAN.md "Versions"): the
    host checks the module against the header's fingerprint (nebula_game_api_fingerprint), which the build works out. */
-#define NEBULA_GAME_API_VERSION 151u
+#define NEBULA_GAME_API_VERSION 152u
 
 /* The game's fixed step: nebula_game_run's loop runs this many steps a second (frame_wait paces them), whatever the
    display's rate; the host presents each or interpolates between them. */

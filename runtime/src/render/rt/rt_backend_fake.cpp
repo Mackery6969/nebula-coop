@@ -171,13 +171,15 @@ void Backend::compact(const Structure& from, const Structure& to) {
     state_->building.insert(to.name);
 }
 
-std::uint32_t Backend::make_image(ImageFormat, std::uint32_t width, std::uint32_t height, const char*) {
+std::uint32_t Backend::make_image(ImageFormat, std::uint32_t width, std::uint32_t height, const char*, std::uint32_t) {
     return width != 0u && height != 0u ? g_log.images++ : kNoImage;
 }
 
 void Backend::free_image(std::uint32_t) noexcept {}
 
 void* Backend::image_to_copy(std::uint32_t) { return nullptr; }
+
+void* Backend::image_to_sample(std::uint32_t) { return nullptr; }
 
 void Backend::dispatch(RtShader, const PassBinds&, std::uint32_t, std::uint32_t) { ++g_log.passes; }
 
@@ -188,6 +190,9 @@ void Backend::read_counters(unsigned, std::uint32_t out[kCounters]) const {
         out[i] = 0u;
     }
 }
+
+void Backend::time_mark(unsigned, bool) {}
+std::uint64_t Backend::timed_ticks(unsigned, unsigned) const { return 0u; }
 
 std::uint32_t Backend::make_buffer(std::uint64_t bytes, const char*) { return bytes != 0u ? g_log.buffers++ : kNoBuffer; }
 

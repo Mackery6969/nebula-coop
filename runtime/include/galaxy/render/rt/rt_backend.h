@@ -66,12 +66,18 @@ inline constexpr std::uint64_t kRangeAlign = 256u;
 inline constexpr std::uint32_t kSizeSlots = 1024u;
 // What was last named in a frame's commands may go this many frames later (begin_frame has waited for it by then).
 inline constexpr std::uint64_t kFramesToRelease = kFramesInFlight + 1u;
+// The stretches of a frame's commands the GPU times (Backend::time_mark): the sun pass (the measure of plan 19.2) and
+// the structures' builds (the build budget, 5.3 G-3).
+inline constexpr unsigned kTimedSun = 0u, kTimedBuilds = 1u, kTimedStretches = 2u;
 
 // A pass: one of the tracer's compute shaders (rt_shaders.h) and what it binds, by the registers of rt_bindings.hlsli.
-enum class ImageFormat : std::uint8_t { Rgba8, Rgba16f, Rg16f, R16f, R8, R32f, Rgb10a2 };
+enum class ImageFormat : std::uint8_t { Rgba8, Rgba16f, Rg16f, R16f, R8, R32f, Rgb10a2, Rgba32f, Rgba32ui, Rg16ui };
 inline constexpr std::uint32_t kNoImage = ~0u;
-inline constexpr unsigned kPassBuffers = 4u, kPassTextures = 4u, kPassReads = 4u, kPassWrites = 4u;
-// The counters a pass may add to (u4), read back a frame later: numbers for proofs and diagnostics.
+inline constexpr unsigned kPassBuffers = 4u, kPassTextures = 4u, kPassReads = 12u, kPassWrites = 8u;
+// Mesh memory a pass reads to know a surface where a ray or a pixel meets it (t21 up): the arenas the scene's meshes
+// lie in, then the frame's rows (their matrices).
+inline constexpr unsigned kPassMeshArenas = 8u, kPassMeshBuffers = kPassMeshArenas + 1u;
+// The counters a pass may add to (u8), read back a frame later: numbers for proofs and diagnostics.
 inline constexpr unsigned kCounters = 64u;
 
 // Bytes in a buffer of the renderer's (an upload ring's).
@@ -91,11 +97,17 @@ struct PassBinds {
     Structure scene{};                         // t0
     BufferView buffers[kPassBuffers]{};        // t1-t4
     TextureView textures[kPassTextures]{};     // t5-t8
-    std::uint32_t reads[kPassReads] = {kNoImage, kNoImage, kNoImage, kNoImage};    // t9-t12: images of the tracer's
-    std::uint32_t writes[kPassWrites] = {kNoImage, kNoImage, kNoImage, kNoImage};  // u0-u3
+    std::uint32_t reads[kPassReads] = {kNoImage, kNoImage, kNoImage, kNoImage, kNoImage, kNoImage,
+                                       kNoImage, kNoImage, kNoImage, kNoImage, kNoImage, kNoImage};  // t9-t20: images of the tracer's
+    BufferView mesh[kPassMeshBuffers]{};       // t21-t29: mesh arenas, then the rows
+    std::uint32_t writes[kPassWrites] = {kNoImage, kNoImage, kNoImage, kNoImage, kNoImage, kNoImage, kNoImage, kNoImage};  // u0-u7
     BufferView constants{};                    // b0: 256-byte aligned, in an upload ring
-    bool counters = false;                     // u4
-    std::uint32_t write_buffer = kNoBuffer;    // u5: a buffer of the tracer's, whole (make_buffer)
+    BufferView pass_constants{};               // b1: the same
+    bool counters = false;                     // u8
+    std::uint32_t write_buffer = kNoBuffer;    // u9: a buffer of the tracer's, whole (make_buffer)
+    TextureView write_texture{};               // u7 in writes[7]'s place: an image of the renderer's (the reactive mask),
+                                               // in the use the renderer gave it (Direct3D 12: its format; Vulkan: a
+                                               // storage view, general layout)
 };
 
 class Backend {
@@ -124,6 +136,12 @@ public:
     // Once a frame, before its first begin: frame slot `frame_slot` (the renderer's) comes round, and the GPU has
     // finished that slot's last frame (what a pass bound there may go).
     void frame(unsigned frame_slot) noexcept;
+    // Vulkan: what `descriptors` of begin points at, the renderer's textures as the draws' programs see them (its
+    // image array's set and that set's layout). The passes read them as set 1.
+    struct TextureTable {
+        void* set = nullptr;
+        void* layout = nullptr;
+    };
     // Recording, into the frame's commands (ID3D12GraphicsCommandList* or VkCommandBuffer, no pass open), in frame slot
     // `frame_slot`: each slot's size answers are kept apart. `descriptors`: where a pass's views go this frame on
     // Direct3D 12 (the renderer's DescriptorRing*; null when only builds follow); Vulkan keeps pools of its own.
@@ -149,9 +167,11 @@ public:
     // The compacted copy of `from` into `to` (a range of that size).
     void compact(const Structure& from, const Structure& to);
 
-    // An image of the tracer's: written by one pass, read by the next. kNoImage when the device has no memory. Freed
-    // only when nothing recorded can still read it (the caller waits kFramesToRelease frames).
-    [[nodiscard]] std::uint32_t make_image(ImageFormat format, std::uint32_t width, std::uint32_t height, const char* name);
+    // An image of the tracer's: written by one pass, read by the next; `depth` above 1 a volume of that many slices
+    // (Texture3D). kNoImage when the device has no memory. Freed only when nothing recorded can still read it (the
+    // caller waits kFramesToRelease frames).
+    [[nodiscard]] std::uint32_t make_image(ImageFormat format, std::uint32_t width, std::uint32_t height, const char* name,
+                                           std::uint32_t depth = 1u);
     void free_image(std::uint32_t image) noexcept;
     // The pass, `groups_x` by `groups_y` groups. Nothing when the shader is not in this build or the driver refused it
     // (told once).
@@ -167,10 +187,19 @@ public:
     // The image as the renderer's own texture (ID3D12Resource*; vk::Texture*), put in copy-source use: the renderer
     // copies from it in these commands. The next pass that binds it changes its use again.
     [[nodiscard]] void* image_to_copy(std::uint32_t image);
-    // The counters: zeroed before the frame's first pass that binds them; `end_counters` after its last makes them
-    // readable. `read_counters`: the values of the frame slot's last finished frame (zero before one).
+    // The image as a texture of the renderer's that the draws' programs sample (the traced light), put in that use.
+    [[nodiscard]] void* image_to_sample(std::uint32_t image);
+    // The counters: zeroed before the frame's first pass that binds them; `end_counters` makes what was added so far
+    // readable (after each pass that counts: the frame's last call holds them all). `read_counters`: the values of
+    // the frame slot's last finished frame (zero before one).
     void end_counters();
     void read_counters(unsigned frame_slot, std::uint32_t out[kCounters]) const;
+    // The GPU's time over stretches of this frame's commands (kTimedStretches): time_mark(stretch, false) before one,
+    // time_mark(stretch, true) after, each once a frame at most. timed_ticks: the stretch's time in the frame slot's
+    // last finished frame in the GPU's ticks (the renderer's gpu_ms_per_tick converts), 0 when that frame timed none
+    // or the device has no timestamps; reading clears it.
+    void time_mark(unsigned stretch, bool end);
+    [[nodiscard]] std::uint64_t timed_ticks(unsigned stretch, unsigned frame_slot) const;
 
 private:
     struct State;
