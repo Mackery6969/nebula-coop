@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## [1.0.2]
+
+### Fixed
+
+- Fixed Discord Invites from not appearing
+- Fixed it so joining via discord invite automatically joins the room instead of just opening the game.
+
 ## [1.0.1]
 
 ### Fixed
@@ -20,4 +27,6 @@
 - Coop Support via NebulaNet
 - __initial release__
 
+[1.0.2]: https://github.com/NebulaCoop/nebula-coop/releases/tag/v1.0.2
+[1.0.1]: https://github.com/NebulaCoop/nebula-coop/releases/tag/v1.0.1
 [1.0.0]: https://github.com/NebulaCoop/nebula-coop/releases/tag/v1.0.0
