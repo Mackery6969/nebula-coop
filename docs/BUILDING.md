@@ -78,7 +78,8 @@ The Build workflow runs only what a change can affect: a change under `installer
 three above) and not the game builds, and any other change to the code runs the game builds and their tests and not
 the installer's. `installer/assets/`, `runtime/include/galaxy/store_version.inc` and `build.yml` itself run both;
 documentation, `tools/`, `nebulanet/` and the other workflows run neither. The **Build result** check reports either
-way, so it is the one to require before merging.
+way, so it is the one to require before merging. It covers the Windows build (host, game module, disc import tool) and
+the installer tests; the Linux, Android and macOS builds run and show their own checks but don't block a merge.
 
 ## Setup
 

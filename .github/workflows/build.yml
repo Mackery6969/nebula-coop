@@ -1,5 +1,5 @@
 # Compiles every part of Nebula and runs its tests on each pull request and each push to main (docs/BUILDING.md), and
-# keeps what it built as test builds for Windows, Linux and Android: downloads for 14 days (docs/TEST_BUILDS.md).
+# keeps what it built as test builds for Windows, Linux, Android and macOS: downloads for 14 days (docs/TEST_BUILDS.md).
 # Releases are built from a version tag by the Release workflow (release.yml, docs/BUILDING.md "Releases").
 name: Build
 
@@ -366,6 +366,78 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
+  macos:
+    name: macOS
+    # Apple silicon only (the runner's own processor), as platform/apple/build_macos.sh builds it (docs/APPLE.md):
+    # the Metal renderer, Apple's host and the game module, packed as Nebula.app. Not in Build result's needs: the
+    # Mac port isn't finished, so it doesn't block a merge.
+    # Also needs the game module job: if it doesn't build, the app is useless.
+    needs: [changes, game]
+    if: needs.changes.outputs.game == 'true'
+    runs-on: macos-15
+    env:
+      # docs/APPLE.md, "Toolchain": LLVM 19 (LLVM's own macOS package), and libc++ built from the same release.
+      LLVM_VERSION: 19.1.7
+      MOLTENVK_TAG: v1.4.2
+    steps:
+      - uses: actions/Checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Ninja
+        run: brew install ninja
+      # LLVM and the libc++ build_libcxx.sh makes from its sources: the slow part, kept until either changes.
+      - name: Cache the toolchain
+        id: toolchain
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/apple/toolchain
+          key: macos-toolchain-arm64-${{ env.LLVM_VERSION }}-${{ hashFiles('platform/apple/build_libcxx.sh') }}
+      - name: Toolchain
+        if: steps.toolchain.outputs.cache-hit != 'true'
+        run: |
+          tools="$RUNNER_TEMP/apple"
+          release="https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION"
+          mkdir -p "$tools/toolchain/llvm" "$RUNNER_TEMP/llvm-src"
+          curl -fsSL "$release/LLVM-$LLVM_VERSION-macOS-ARM64.tar.xz" | tar -xJ --strip-components=1 -C "$tools/toolchain/llvm"
+          curl -fsSL "$release/llvm-project-$LLVM_VERSION.src.tar.xz" | tar -xJ --strip-components=1 -C "$RUNNER_TEMP/llvm-src"
+          "$tools/toolchain/llvm/bin/clang" --version
+          platform/apple/build_libcxx.sh "$RUNNER_TEMP/llvm-src" "$tools/toolchain/llvm" "$tools/toolchain/libcxx" macos arm64
+          rm -rf "$tools/toolchain/libcxx/build-macos-arm64"
+      - name: Dependencies
+        # What the Linux job checks out, and MoltenVK and SPIRV-Cross (platform/apple/CMakeLists.txt).
+        run: |
+          mkdir -p "$RUNNER_TEMP/apple/deps" && cd "$RUNNER_TEMP/apple/deps"
+          clone() { git -c advice.detachedHead=false clone -q --depth 1 --branch "$2" "https://github.com/$1" "$3"; }
+          pin() { mkdir -p "$3" && git -C "$3" init -q && git -C "$3" fetch -q --depth 1 "https://github.com/$1" "$2" &&
+                  git -C "$3" -c advice.detachedHead=false checkout -q FETCH_HEAD; }
+          clone libsdl-org/SDL "$SDL_TAG" SDL3-3.4.18
+          clone KhronosGroup/Vulkan-Headers "$VULKAN_SDK_TAG" Vulkan-Headers-vulkan-sdk-1.4.350.1
+          clone zeux/volk "$VULKAN_SDK_TAG" volk-vulkan-sdk-1.4.350.1
+          clone GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator "$VMA_TAG" VulkanMemoryAllocator-v3.4.0
+          clone KhronosGroup/glslang "$GLSLANG_TAG" glslang-src
+          pin KhronosGroup/SPIRV-Tools "$SPIRV_TOOLS_COMMIT" glslang-src/External/spirv-tools
+          pin KhronosGroup/SPIRV-Headers "$SPIRV_HEADERS_COMMIT" glslang-src/External/spirv-tools/external/spirv-headers
+          clone KhronosGroup/SPIRV-Cross "$VULKAN_SDK_TAG" SPIRV-Cross-vulkan-sdk-1.4.350.1
+          mkdir -p MoltenVK
+          curl -fsSL "https://github.com/KhronosGroup/MoltenVK/releases/download/$MOLTENVK_TAG/MoltenVK-all.tar" | tar -x -C MoltenVK
+          if [ ! -f MoltenVK/MoltenVK/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib ]; then
+            echo "::error::libMoltenVK.dylib is not where platform/apple/CMakeLists.txt looks for it:"
+            find MoltenVK -name libMoltenVK.dylib
+            exit 1
+          fi
+      - name: Build
+        run: platform/apple/build_macos.sh -t "$RUNNER_TEMP/apple" -w "$RUNNER_TEMP/apple-build" -a arm64
+      - name: Stage
+        run: |
+          mkdir -p dist
+          cp "$RUNNER_TEMP/apple-build/Nebula-macOS.zip" docs/TEST_BUILDS.md dist/
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nebula-macos-arm64
+          path: dist
+          retention-days: 14
+          if-no-files-found: error
+
   installer:
     name: Installer tests
     needs: changes
@@ -388,12 +460,14 @@ jobs:
       - name: Update flow
         run: .\installer\tests\run-update-flow-tests.ps1
 
-  # The one check to require before merging: it fails when any job above failed or was cancelled, and passes when they
-  # passed or were skipped.
+  # The one check to require before merging: it fails when the Windows build (host, game module, disc import tool and
+  # the test build put together from them) or the installer tests failed or were cancelled, and passes when they passed
+  # or were skipped. Linux, Android and macOS are still built and show their own checks, but don't block a merge: those
+  # ports aren't finished.
   result:
     name: Build result
     if: always()
-    needs: [changes, import, host, game, windows, linux, android, installer]
+    needs: [changes, import, host, game, windows, installer]
     runs-on: ubuntu-24.04
     steps:
       - name: Check
