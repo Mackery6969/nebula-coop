@@ -2963,7 +2963,9 @@ int32_t svc_coop_menu(void*, uint32_t what) {
         // The title once, as Nebula starts; not in front of a room the menu starts by itself as it opens.
         static bool shown = false;
         if (std::exchange(shown, true)) return 0;
-        const bool starting = gCoopAutoStart != CoopAutoStart::None || (gCoopSaves && gCoopSaves->has_next_start());
+        // Nor when Discord started Nebula for a Join: the main menu joins its room at once.
+        const bool starting = gCoopAutoStart != CoopAutoStart::None || (gCoopSaves && gCoopSaves->has_next_start()) ||
+                              galaxy::discord::join_pending();
         return starting ? 0 : 1;
     }
     case NEBULA_COOP_MENU_POLL:
@@ -5905,13 +5907,18 @@ int main(int argc, char** argv) {
     if (!::galaxy::launch_args().started_hidden) {
         galaxy::discord::set_enabled_provider([] { return galaxy::get_runtime_settings().discord_status; });
 #if defined(_WIN32)
-        // A Join pressed in Discord while Nebula is closed starts it as this start was: its program, disc and saves
-        // (the first game's; the others are started from it).
+        // A Join pressed in Discord while Nebula is closed starts it: through the launcher beside the game when there
+        // is one (an install: its checks, its update offer, and the same path Setup registers), else as this start
+        // was, with its program, disc and saves. The first game's only; the others are started from it.
         if (galaxy::game_instance() == 1u) {
             const auto quoted = [](const fs::path& path) { return L"\"" + path.wstring() + L"\""; };
-            galaxy::discord::set_launch_command(quoted(fs::path(::galaxy::windows::executable_path())) + L" --pak " +
-                                                quoted(fs::absolute(pak, error)) + L" --saves " +
-                                                quoted(fs::absolute(saves, error)));
+            const fs::path program(::galaxy::windows::executable_path());
+            const fs::path launcher = program.parent_path() / L"Nebula.exe";
+            galaxy::discord::set_launch_command(
+                fs::is_regular_file(launcher, error)
+                    ? quoted(launcher)
+                    : quoted(program) + L" --pak " + quoted(fs::absolute(pak, error)) + L" --saves " +
+                          quoted(fs::absolute(saves, error)));
         }
 #endif
         galaxy::discord::start(kDiscordClientId);

@@ -43,6 +43,8 @@ void set_party(const Party& party);
 void set_launch_command(std::filesystem::path::string_type command);
 // A Join pressed in Discord: the room's secret, once (the game's thread asks each frame).
 std::optional<std::string> take_join_secret();
+// A Join waits to be taken (the title is skipped for it).
+bool join_pending();
 
 // A NebulaNet room as a Join button carries it ("nebulanet:<code>:<password>", as sm64coopdx's
 // "coopnet:<lobby>:<password>"), and back; nullopt for anything else.

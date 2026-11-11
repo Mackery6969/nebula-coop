@@ -644,6 +644,11 @@ void set_launch_command(std::filesystem::path::string_type command) {
     s_launch_command = std::move(command);
 }
 
+bool join_pending() {
+    std::lock_guard<std::mutex> lock(s_mutex);
+    return s_join_secret.has_value();
+}
+
 std::optional<std::string> take_join_secret() {
     std::lock_guard<std::mutex> lock(s_mutex);
     return std::exchange(s_join_secret, std::nullopt);
