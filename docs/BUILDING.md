@@ -69,7 +69,16 @@ ctest --test-dir build\host --output-on-failure
 cargo test -p nebula-import
 sh native/tests/run_tests.sh
 .\tools\audit_repo.ps1
+.\installer\tests\run-launcher-tests.ps1
+.\installer\tests\run-beta-updater-tests.ps1
+.\installer\tests\run-update-flow-tests.ps1
 ```
+
+The Build workflow runs only what a change can affect: a change under `installer/` runs the installer tests (the last
+three above) and not the game builds, and any other change to the code runs the game builds and their tests and not
+the installer's. `installer/assets/`, `runtime/include/galaxy/store_version.inc` and `build.yml` itself run both;
+documentation, `tools/`, `nebulanet/` and the other workflows run neither. The **Build result** check reports either
+way, so it is the one to require before merging.
 
 ## Setup
 
