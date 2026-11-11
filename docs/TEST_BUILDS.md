@@ -1,11 +1,11 @@
 # Test builds
 
-Every pull request and every push to `main` that changes the game builds Nebula for Windows, Linux and Android, runs its
+Every pull request and every push to `main` that changes the game builds Nebula for Windows, Linux, Android and macOS, runs its
 tests, and keeps what it built as a download for 14 days (the Build workflow, `.github/workflows/build.yml`). A change
 to only the installer, documentation or tools builds none of them (see BUILDING.md, "Tests"). These are test builds, not
 releases: they have no installer, no launcher, no update check and no ray-tracing material tables, the Windows programs
-are built without cross-file optimization (as the tests are), and the Android app is signed with a debug key. macOS and
-iOS have no build yet.
+are built without cross-file optimization (as the tests are), and the Android app is signed with a debug key. The Mac app
+is built for Apple silicon only, and opens as `How to open Nebula.txt` in its zip says. iOS has no build yet.
 
 A branch without a pull request is not built on its own; run **Actions** > **Build** > **Run workflow** on it to get
 one. To download one, open the pull request's **Checks** tab (or the run under **Actions** > **Build**) and pick an
@@ -16,6 +16,7 @@ artifact under **Artifacts**. You need to be signed in to GitHub.
 | `nebula-windows-x64` | `NebulaNative.exe` (Direct3D 12), `NebulaNativeVk.exe` (Vulkan), `smg_game.dll`, `nebula-import.exe` |
 | `nebula-linux-x64` | `NebulaNative` (Vulkan, SDL3), `libsmg_game.so`, `libSDL3.so.0`, `nebula-import` |
 | `nebula-android` | `Nebula.apk` (arm64 and x86_64) |
+| `nebula-macos-arm64` | `Nebula-macOS.zip`: `Nebula.app` (Metal, Apple silicon only), ad-hoc signed (docs/APPLE.md) |
 
 ## Windows and Linux
 
