@@ -9,6 +9,8 @@
 ### Added
 
 - Added a way to import from Nebula via the setup wizard.
+- Added inviting friends to a room via Discord.
+- Added updated discord presence to show information about the room and the players in it.
 - Added Workflows to compile MacOS (DEV)
 
 ## [1.0.0]
