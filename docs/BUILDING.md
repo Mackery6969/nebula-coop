@@ -54,7 +54,7 @@ Put `NebulaNative.exe` and `smg_game.dll` in one folder with the `content` folde
 ```
 
 With no arguments it finds `content\game.pak` next to it (or in the current folder) and uses the launcher's saves,
-`%LOCALAPPDATA%\Nebula\saves`. `--pak <game.pak>` and `--nand <folder>` name others:
+`%LOCALAPPDATA%\NebulaCoop\saves`. `--pak <game.pak>` and `--nand <folder>` name others:
 
 ```powershell
 .\NebulaNative.exe --pak D:\nebula\content\game.pak --saves "$env:LOCALAPPDATA\Nebula\saves"
@@ -106,6 +106,13 @@ to; any tag with a `-` part is a pre-release. When a release for the tag already
 notes are kept and only the files are added. Setup's update check reads this repository's releases. Its ray-tracing
 tables have a header and no rows (Setup refuses an empty file): they describe the game's own data and are kept outside
 the repository. `NebulaNative.pdb` is kept as the run's `release-symbols` download for 90 days.
+
+Setup installs NebulaCoop beside an installed upstream Nebula, never over it: `%LOCALAPPDATA%\Programs\NebulaCoop`,
+data in `%LOCALAPPDATA%\NebulaCoop`, its own Start menu folder, `HKCU\Software\NebulaCoop` and Add/Remove Programs entry
+(`installer/src/Common/NebulaPaths.cs`, `ProductName`; the game's own `galaxy::kDataFolderName`). A first install asks
+whether to import from Nebula: the player picks Nebula's install folder (or its data folder), and Setup copies its saves
+and settings, and its packed game when this version can read it, so the disc is not asked for. Nebula's folders are only
+read. `--unattended --import-from <folder>` does the same without the questions. Updates never ask.
 
 Updates run only a Setup signed with the release key, the private half of `installer/release-public-key.xml`. Put
 that private key (RSA XML) in the repository secret `NEBULA_RELEASE_KEY`; without it Setup is published unsigned and

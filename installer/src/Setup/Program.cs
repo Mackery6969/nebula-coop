@@ -4,7 +4,7 @@ using System.IO;
 using System.Threading;
 using System.Windows.Forms;
 
-[assembly: System.Reflection.AssemblyTitle("Nebula Setup")]
+[assembly: System.Reflection.AssemblyTitle(Nebula.NebulaPaths.ProductName + " Setup")]
 
 namespace Nebula.Setup
 {
@@ -12,7 +12,9 @@ namespace Nebula.Setup
     {
         /// <summary>
         /// Nebula-Setup.exe [--update | --apply-update [--launch] | --uninstall | --rollback]
-        ///   [--input PATH] [--root PATH] [--desktop-shortcut] [--unattended] [--remove-user-data]
+        ///   [--input PATH] [--root PATH] [--import-from PATH] [--desktop-shortcut] [--unattended] [--remove-user-data]
+        /// --import-from names an installed Nebula's install or data folder: its saves and settings are copied, and its
+        /// packed game is used when there is no --input.
         /// --launch starts the game once the update is installed (the launcher's update offer).
         /// </summary>
         [STAThread]
@@ -24,7 +26,7 @@ namespace Nebula.Setup
                 string arg = args[i];
                 if (!arg.StartsWith("--")) continue;
                 bool hasValue = i + 1 < args.Length && !args[i + 1].StartsWith("--")
-                    && (arg == "--input" || arg == "--root");
+                    && (arg == "--input" || arg == "--root" || arg == "--import-from");
                 options[arg.Substring(2)] = hasValue ? args[++i] : "";
             }
             NativeMethods.SetProcessDpiAwarenessContext(new IntPtr(-4));
@@ -51,7 +53,8 @@ namespace Nebula.Setup
                         (options.ContainsKey("apply-update") ? InstallMode.Update : InstallIntent.ForPackage(current.Version, BuildInfo.Version)),
                     GameInput = options.ContainsKey("input") ? options["input"] : null,
                     InstallRoot = root,
-                    DesktopShortcut = options.ContainsKey("desktop-shortcut")
+                    DesktopShortcut = options.ContainsKey("desktop-shortcut"),
+                    ImportFrom = options.ContainsKey("import-from") && options["import-from"].Length != 0 ? options["import-from"] : null
                 };
                 var engine = new InstallEngine(request, new SilentProgress(), CancellationToken.None);
                 engine.Run();

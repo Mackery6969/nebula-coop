@@ -1,6 +1,6 @@
 # Error codes
 
-When Nebula stops, it shows a code and saves a report in `%LOCALAPPDATA%\Nebula\crashes` (a `.txt` with the code, the
+When Nebula stops, it shows a code and saves a report in `%LOCALAPPDATA%\NebulaCoop\crashes` (a `.txt` with the code, the
 mods that were on and the technical details, and a `.dmp` for the developers). The codes come from
 `runtime/src/crash_report.cpp`.
 

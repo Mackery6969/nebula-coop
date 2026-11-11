@@ -301,7 +301,10 @@ namespace Nebula.Launcher
             Console.WriteLine("INFO: monitors: " + string.Join("; ", monitors.Select(m => m.Device + (m.Primary ? " (main)" : ""))));
             Check(monitors.All(m => all.Count(g => g.Drives(m.Device)) <= 1), "every monitor is an output of at most one GPU");
             var hardware = GpuAdapters.List();
-            Check(hardware != null && hardware.All(h => all.Exists(g => g.Id == h.Id)) && hardware.Count < all.Count,
+            // A machine without a GPU (a CI runner) lists only Microsoft's display driver, which has WARP's id and so is
+            // one entry with it: there is no software adapter left to leave out.
+            bool noGpu = all.TrueForAll(g => g.VendorId == 0x1414);
+            Check(hardware != null && hardware.All(h => all.Exists(g => g.Id == h.Id)) && (hardware.Count < all.Count || noGpu),
                   "the game's list leaves out software adapters");
             foreach (var m in monitors)
                 foreach (var g in hardware)
@@ -968,7 +971,7 @@ namespace Nebula.Launcher
                 // The test's own lease names: a game open in this session holds the real ones.
                 LaunchSession.LeaseNamespace = @"Local\NebulaTest." + Guid.NewGuid().ToString("N") + ".";
                 string localAppData = Environment.GetEnvironmentVariable("LOCALAPPDATA");
-                Check(!string.IsNullOrEmpty(localAppData) && NebulaPaths.DataRoot == Path.Combine(localAppData, "Nebula") &&
+                Check(!string.IsNullOrEmpty(localAppData) && NebulaPaths.DataRoot == Path.Combine(localAppData, NebulaPaths.ProductName) &&
                       NebulaPaths.LocalAppDataRedirected, "a redirected %LOCALAPPDATA% holds the data root");
                 string dataRoot = NebulaPaths.DataRoot;
                 string outDir = args[0];
@@ -1022,7 +1025,9 @@ namespace Nebula.Launcher
                 string[] lines = File.ReadAllLines(marker);
                 Check(lines.Length == 4 && lines[0] == "--pak" && lines[1] == Path.Combine(later.Content, "game.pak"),
                       "the game receives game.pak: " + string.Join(" ", lines));
-                Check(lines[2] == "--saves" && lines[3].StartsWith(dataRoot, StringComparison.OrdinalIgnoreCase),
+                // The launcher passes the saves folder's final path (FileUtil.FinalPath): a short-name %TEMP% (a CI
+                // runner's C:\Users\RUNNER~1) comes out as its long name, so the data root is compared the same way.
+                Check(lines[2] == "--saves" && lines[3].StartsWith(FileUtil.FinalPath(dataRoot), StringComparison.OrdinalIgnoreCase),
                       "saves live under the data root: " + (lines.Length > 3 ? lines[3] : ""));
                 return 0;
             }

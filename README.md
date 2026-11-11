@@ -128,7 +128,7 @@ You still need your own copy of the game to run what you build. The co-op design
 ## Reporting problems
 
 Report co-op problems on this repository's [issue tracker](https://github.com/NebulaCoop/nebula-coop/issues). If the
-game closed unexpectedly, attach its crash report from `%LOCALAPPDATA%\Nebula\crashes`. Please don't report co-op
+game closed unexpectedly, attach its crash report from `%LOCALAPPDATA%\NebulaCoop\crashes`. Please don't report co-op
 problems to upstream Nebula.
 
 ## How it was made

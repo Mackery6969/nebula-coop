@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Nebula's data folder and file opening on every platform. The folder is the one --data names (launch_args.h; the
-// Android app passes its private files folder), else %LOCALAPPDATA%\Nebula on Windows (the variable, so a test's
-// private one holds everything; the shell's folder without it), ~/Library/Application Support/Nebula on Apple's
-// systems, else $XDG_DATA_HOME/Nebula, else ~/.local/share/Nebula.
+// Android app passes its private files folder), else %LOCALAPPDATA%\NebulaCoop on Windows (the variable, so a test's
+// private one holds everything; the shell's folder without it), ~/Library/Application Support/NebulaCoop on Apple's
+// systems, else $XDG_DATA_HOME/NebulaCoop, else ~/.local/share/NebulaCoop. NebulaCoop, not upstream Nebula's "Nebula":
+// the co-op fork keeps its own saves, settings and mods, and never touches an installed Nebula's.
 #pragma once
 
 #include "galaxy/launch_args.h"
@@ -27,6 +28,10 @@
 
 namespace galaxy {
 
+// The data folder's name (installer/src/Common/NebulaPaths.cs, ProductName, is the same).
+inline constexpr char kDataFolderName[] = "NebulaCoop";
+inline constexpr wchar_t kDataFolderNameWide[] = L"NebulaCoop";
+
 // Empty when the platform gives no folder.
 [[nodiscard]] inline std::filesystem::path nebula_data_directory() {
     if (!launch_args().data.empty()) {
@@ -35,25 +40,25 @@ namespace galaxy {
 #if defined(_WIN32)
     const std::wstring local = windows::environment_text(L"LOCALAPPDATA");
     if (!local.empty()) {
-        return std::filesystem::path(local) / L"Nebula";
+        return std::filesystem::path(local) / kDataFolderNameWide;
     }
     wchar_t app_data[MAX_PATH]{};
     if (FAILED(SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, 0, app_data))) {
         return {};
     }
-    return std::filesystem::path(app_data) / L"Nebula";
+    return std::filesystem::path(app_data) / kDataFolderNameWide;
 #elif defined(__APPLE__)
     // The user's Library on a Mac; the app's own container on an iPhone or iPad, where HOME is the container.
     if (const char* home = std::getenv("HOME"); home != nullptr && home[0] == '/') {
-        return std::filesystem::path(home) / "Library" / "Application Support" / "Nebula";
+        return std::filesystem::path(home) / "Library" / "Application Support" / kDataFolderName;
     }
     return {};
 #else
     if (const char* xdg = std::getenv("XDG_DATA_HOME"); xdg != nullptr && xdg[0] == '/') {
-        return std::filesystem::path(xdg) / "Nebula";
+        return std::filesystem::path(xdg) / kDataFolderName;
     }
     if (const char* home = std::getenv("HOME"); home != nullptr && home[0] == '/') {
-        return std::filesystem::path(home) / ".local" / "share" / "Nebula";
+        return std::filesystem::path(home) / ".local" / "share" / kDataFolderName;
     }
     return {};
 #endif

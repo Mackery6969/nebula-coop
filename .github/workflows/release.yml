@@ -247,7 +247,7 @@ jobs:
             echo '## Install or update'
             echo
             echo "1. Download \`$SETUP\` below and run it. It isn't code-signed, so Windows SmartScreen shows \"Unknown publisher\": choose **More info**, then **Run anyway**."
-            echo '2. A new install: choose your own copy of the game (a disc image or an extracted folder), then **Install**.'
+            echo '2. A new install: if you have Nebula installed, Setup offers to import its game files, saves and settings (Nebula itself is left as it is). Otherwise choose your own copy of the game (a disc image or an extracted folder), then **Install**.'
             echo '3. An update: choose **Update**. Saves and settings are kept.'
             echo
           } > notes.md

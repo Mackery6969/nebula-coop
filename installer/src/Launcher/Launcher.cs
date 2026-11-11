@@ -11,7 +11,7 @@ using System.Windows.Forms;
 #if NEBULA_SETTINGS_APP
 [assembly: System.Reflection.AssemblyTitle("Nebula settings")]
 #else
-[assembly: System.Reflection.AssemblyTitle("Nebula")]
+[assembly: System.Reflection.AssemblyTitle(Nebula.NebulaPaths.ProductName)]
 #endif
 
 namespace Nebula.Launcher
@@ -46,7 +46,7 @@ namespace Nebula.Launcher
                         restart.Recording = RecordingMode.Lightweight;
                     string restartError = restart.TryLaunch();
                     if (restartError == null) return 0;
-                    MessageBox.Show(restartError, "Nebula", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    MessageBox.Show(restartError, NebulaPaths.ProductName, MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return 1;
                 }
                 var session = new LaunchSession();
@@ -55,14 +55,14 @@ namespace Nebula.Launcher
                     if (UpdateCheck.OfferBeforeLaunch(session)) return 0;
                     string error = session.TryLaunch();
                     if (error == null) return 0;
-                    MessageBox.Show(error, "Nebula", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    MessageBox.Show(error, NebulaPaths.ProductName, MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
                 Application.Run(new SettingsForm(session));
                 return 0;
             }
             catch (Exception error)
             {
-                MessageBox.Show(error.Message, "Nebula", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(error.Message, NebulaPaths.ProductName, MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return 1;
             }
         }
@@ -168,9 +168,9 @@ namespace Nebula.Launcher
 
         private static readonly string[] Releases = { "RMGE01", "RMGP01", "RMGJ01" };
 
-        // The game's lease names (host_main.cpp hold_runtime_lease: Local\Nebula.<release>.NativeRuntime). Tests set their own
+        // The game's lease names (host_main.cpp hold_runtime_lease: Local\NebulaCoop.<release>.NativeRuntime). Tests set their own
         // namespace, so a game open in the same session is not the game the test starts or holds.
-        internal static string LeaseNamespace = @"Local\Nebula.";
+        internal static string LeaseNamespace = @"Local\" + NebulaPaths.ProductName + ".";
         internal static string LeaseName(string release) { return LeaseNamespace + release + ".NativeRuntime"; }
 
         // Waits up to `milliseconds` for the game of every release to end: its lease is free (or abandoned) once the
@@ -231,7 +231,7 @@ namespace Nebula.Launcher
             if (running.Count == 0) return false;
             try
             {
-                if (MessageBox.Show(NebulaText.Of("Nebula is already running. End it and start again?"), "Nebula",
+                if (MessageBox.Show(NebulaText.Of("Nebula is already running. End it and start again?"), NebulaPaths.ProductName,
                                     MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return false;
                 foreach (var process in running)
                 {
@@ -1303,7 +1303,7 @@ namespace Nebula.Launcher
             }
             catch (Exception error)
             {
-                MessageBox.Show(this, NebulaText.Of("Settings could not be saved: {0}", error.Message), "Nebula", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(this, NebulaText.Of("Settings could not be saved: {0}", error.Message), NebulaPaths.ProductName, MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return false;
             }
         }
@@ -1314,7 +1314,7 @@ namespace Nebula.Launcher
             string error = session.TryLaunch();
             if (error != null)
             {
-                MessageBox.Show(this, error, "Nebula", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(this, error, NebulaPaths.ProductName, MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
             // A recording keeps this process alive, through its capture thread, until the game exits.
@@ -1347,9 +1347,9 @@ namespace Nebula.Launcher
                 try
                 {
                     string archive = SaveArchive.Export(dialog.SelectedPath);
-                    MessageBox.Show(this, NebulaText.Of("Saves exported to {0}.", archive), "Nebula", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    MessageBox.Show(this, NebulaText.Of("Saves exported to {0}.", archive), NebulaPaths.ProductName, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
-                catch (Exception error) { MessageBox.Show(this, error.Message, "Nebula", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+                catch (Exception error) { MessageBox.Show(this, error.Message, NebulaPaths.ProductName, MessageBoxButtons.OK, MessageBoxIcon.Error); }
             }
         }
 
@@ -1372,12 +1372,12 @@ namespace Nebula.Launcher
             {
                 string message = SaveArchive.Import(source, delegate
                 {
-                    return MessageBox.Show(this, NebulaText.Of("Replace the current saves? They are moved to a backup folder."), "Nebula",
+                    return MessageBox.Show(this, NebulaText.Of("Replace the current saves? They are moved to a backup folder."), NebulaPaths.ProductName,
                                            MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes;
                 });
-                if (message != null) MessageBox.Show(this, message, "Nebula", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                if (message != null) MessageBox.Show(this, message, NebulaPaths.ProductName, MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
-            catch (Exception error) { MessageBox.Show(this, error.Message, "Nebula", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+            catch (Exception error) { MessageBox.Show(this, error.Message, NebulaPaths.ProductName, MessageBoxButtons.OK, MessageBoxIcon.Error); }
         }
     }
 
