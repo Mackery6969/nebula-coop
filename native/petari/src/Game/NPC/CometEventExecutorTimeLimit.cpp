@@ -7,6 +7,7 @@
 #include "Game/Util/LiveActorUtil.hpp"
 #include "Game/Util/ObjUtil.hpp"
 #include "Game/Util/PlayerUtil.hpp"
+#include "Game/System/LumaCore.hpp"
 
 namespace {
     const s32 sCometTimeLimitDefault = NebulaFrameClock::stepsOfSeconds(30);
@@ -21,6 +22,7 @@ namespace NrvCometEventExecutorTimeLimit {
 
 CometEventExecutorTimeLimit::CometEventExecutorTimeLimit(u32 timeLimit)
     : LiveActor("制限時間コメット実行者"), mTimeLimitLayout(nullptr), mTimeLimit(timeLimit) {
+    lumacore::setClass(this, lumacore::kClassId< CometEventExecutorTimeLimit >);
 }
 
 void CometEventExecutorTimeLimit::init(const TableIter&) {

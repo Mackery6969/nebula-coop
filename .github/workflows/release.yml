@@ -162,11 +162,14 @@ jobs:
           Expand-Archive -LiteralPath $zip -DestinationPath (Join-Path $env:RUNNER_TEMP 'dxc')
       - name: Ray tracing tables
         # The tables describe the game's own data, so they are kept outside the repository (docs/RAY_TRACING_STATUS.md)
-        # and nothing traces yet: Setup ships them empty, as the test builds run without them.
+        # and nothing traces yet: Setup ships them with a header and no rows, as the test builds run without them.
+        # Not empty: Setup refuses to install an empty file (InstallEngine.Install).
         run: |
           $tables = New-Item -ItemType Directory -Force (Join-Path $env:RUNNER_TEMP 'bin\tables')
-          foreach ($name in 'material-names.tsv', 'rt-materials.tsv', 'rt-suns.tsv') {
-              [IO.File]::WriteAllBytes((Join-Path $tables $name), [byte[]]@())
+          $headers = @{ 'material-names.tsv' = "model`tmaterial`ttexture"; 'rt-materials.tsv' = "hash`tclass"; 'rt-suns.tsv' = "stage`tsource" }
+          foreach ($name in $headers.Keys) {
+              $text = "# No rows: this release ships no ray-tracing tables.`n" + $headers[$name] + "`n"
+              [IO.File]::WriteAllText((Join-Path $tables $name), $text, (New-Object Text.UTF8Encoding $false))
           }
       - name: Private terms
         # release_check.ps1 expects .nebula-release-key\private-terms.txt (one term per line).

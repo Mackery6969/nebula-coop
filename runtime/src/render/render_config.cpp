@@ -1,9 +1,6 @@
-// The rendering settings: config.ini loading and saving, the GALAXY_<KEY> overrides, and the data folders beside
-// config.ini.
+// The rendering settings: config.ini loading and saving, and the data folders beside config.ini.
 #include "galaxy/portable.h"
 #include "galaxy/render/render_config.h"
-#include "galaxy/run_options.h"
-#include "../../../tools/test_driver/switches.h"
 #include "galaxy/atomic_file.h"
 #include "galaxy/launch_args.h"
 #include "galaxy/platform_paths.h"
@@ -165,7 +162,7 @@ static void apply_kv(RenderConfig& cfg, const char* key, const char* val) {
         static constexpr const char* kNames[] = {"low", "medium", "high", "ultra"};
         cfg.smaa_quality = parse_choice(val, kNames, cfg.smaa_quality);
     } else if (std::strcmp(key, "upscaler") == 0) {
-        static constexpr const char* kNames[] = {"bilinear", "fsr", "fsr3", "dlss", "xess", "sgsr2"};
+        static constexpr const char* kNames[] = {"bilinear", "fsr", "fsr3", "dlss", "xess", "sgsr2", "metalfx"};
         cfg.upscaler = parse_choice(val, kNames, cfg.upscaler);
     } else if (std::strcmp(key, "frame_generation") == 0) {
         cfg.frame_generation = std::min(parse_uint(val, cfg.frame_generation), 5u);
@@ -240,12 +237,6 @@ static void parse_ini(FILE* f, RenderConfig& cfg) {
     }
 }
 
-#if !defined(NEBULA_DEV)
-static void apply_env_overrides(RenderConfig&) {}
-#else
-#include "../../../tools/test_driver/render_config_env.inc"
-#endif
-
 static void clamp_unimplemented_features(RenderConfig& cfg) {
     // Clamps every value into its range; settings the renderer does not implement stay parseable but off.
     cfg.vsync_interval = std::clamp(cfg.vsync_interval, 0u, 2u);
@@ -256,7 +247,16 @@ static void clamp_unimplemented_features(RenderConfig& cfg) {
     cfg.anisotropic_filtering = std::clamp(cfg.anisotropic_filtering, 1u, 16u);
     cfg.aa_mode = std::min(cfg.aa_mode, 3u);
     cfg.smaa_quality = std::min(cfg.smaa_quality, 3u);
-    cfg.upscaler = std::min(cfg.upscaler, 5u);  // 5 SGSR 2, the last of the names above
+#if defined(NEBULA_GPU_METAL)
+    // 6 MetalFX, the last of the names above. The other systems' temporal upscalers (FSR 3, DLSS, XeSS) are not on
+    // Apple devices: a configuration that names one runs the system's own.
+    cfg.upscaler = std::min(cfg.upscaler, 6u);
+    if (cfg.upscaler >= 2u && cfg.upscaler <= 4u) {
+        cfg.upscaler = 6u;
+    }
+#else
+    cfg.upscaler = std::min(cfg.upscaler, 5u);  // 5 SGSR 2; MetalFX (6) is the Metal renderer's
+#endif
     cfg.frame_generation = std::min(cfg.frame_generation, 5u);
     cfg.temporal_quality = std::min(cfg.temporal_quality, 5u);  // 5 ultra quality, the last of the names above
     cfg.spatial_quality = std::min(cfg.spatial_quality, 5u);
@@ -277,10 +277,8 @@ static void clamp_unimplemented_features(RenderConfig& cfg) {
     cfg.rt_shadow_quality = 0;
     cfg.rt_quality = std::min(cfg.rt_quality, 2u);
     cfg.rt_ao_enabled = false;
-#if !defined(NEBULA_DEV)
-    // What is not built natively yet stays off whatever an older settings file says. Each line goes with its feature.
-    cfg.ray_tracing_enabled = false;
-#endif
+    // Ray tracing follows its setting in every build; Nebula Settings offers its row once it is finished
+    // (rt_caps.h kRayTracingRowOffered).
 }
 
 static void sanitize_feature_status(RenderFeatureStatus& status) {
@@ -480,7 +478,6 @@ void load_render_config_from_file() {
     std::array<char, 32> file_gpu = cfg.gpu;
     file_gpu.back() = '\0';
 
-    apply_env_overrides(cfg);
     // Frame-rate decoupling is not offered: its key is read but stays off.
     cfg.frame_rate_decouple = false;
     clamp_unimplemented_features(cfg);
@@ -513,7 +510,6 @@ bool reload_render_config_if_changed() {
     std::fclose(f);
     std::array<char, 32> file_gpu = cfg.gpu;
     file_gpu.back() = '\0';
-    apply_env_overrides(cfg);
     cfg.gpu = session_gpu;
     cfg.frame_rate_decouple = false;
     clamp_unimplemented_features(cfg);

@@ -88,10 +88,10 @@ void set_state_wake(void* event) noexcept;
 [[nodiscard]] bool present_grid(std::int64_t& slot_ns, std::int64_t& period_ns, std::int64_t& vsync_ns,
                                 std::int64_t& now_ns) noexcept;
 
-// Each present: the vendor upscaler download's progress, and GALAXY_TEST_WINDOW_SIZES (a live resize at a present).
+// Each present: the vendor upscaler download's progress.
 void native_settings_present();
-// The settings menu's test hooks taken at the game's frame `frame` (frame_begun's count, as the scripted input's).
-void native_settings_test_frame(std::uint32_t frame);
+// Opens the settings menu on that page (a tab's number), its first row chosen.
+void open_native_settings(unsigned page);
 
 // What the settings menu (runtime/src/ui/native_settings.cpp) asks of its platform.
 struct SettingsMonitor {
@@ -104,7 +104,8 @@ struct SettingsMonitor {
 [[nodiscard]] std::vector<SettingsMonitor> settings_monitors();
 // A window menu is open or the window is being moved or sized: the game takes no input.
 [[nodiscard]] bool window_modal_active() noexcept;
-void test_resize_window(unsigned long width, unsigned long height) noexcept;
+// The window's inside to that size in pixels, from any thread (an extension's resize_window).
+void resize_window_client(unsigned width, unsigned height) noexcept;
 enum class FilePick { Miis, ModArchives, ModFolders };
 // The platform's file picker; `done` runs off the window's thread with what was chosen. Android picks documents
 // (no folders: ModFolders is not offered there) and hands over copies the game can read by path.
@@ -140,6 +141,12 @@ extern std::atomic<bool> ray_tracing_offered;  // the RAY TRACING row is offered
 extern std::atomic<bool> rtx_adapter;          // the session's GPU is an NVIDIA RTX (DLSS)
 [[nodiscard]] float upscaler_render_fraction(const RenderConfig& render, unsigned output_width, unsigned output_height);
 void save_native_settings_now();
+
+#if defined(NEBULA_GPU_METAL)
+// The window's Metal layer (a CAMetalLayer*, the window's to keep), which the Metal renderer draws to; null when the
+// window has none. Its drawable size is the renderer's to set.
+[[nodiscard]] void* metal_layer(NativeWindow window);
+#endif
 
 #if defined(NEBULA_GPU_VULKAN)
 // The instance extensions the window's surface needs, and the surface (VK_NULL_HANDLE when it cannot be made).

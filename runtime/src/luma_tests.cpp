@@ -5,6 +5,7 @@
 #include "nebula_text_tags.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -79,6 +80,60 @@ int main() {
     check(m.save_path == "save" && m.save_mode == SaveMode::Copy && m.save_tag == "family" && m.save_player_can_change, "save");
     const std::optional<Manifest> plain = parse_manifest(R"({"format":1,"id":"a","name":"b","game":"RMG","layers":[]})");
     check(plain && plain->save_mode == SaveMode::Shared && plain->save_tag == "a" && !plain->save_player_can_change, "normal saves unless it says");
+    {
+        // Power-ups from data: the game's forms by name, whole numbers, a script name.
+        const auto forms = [](const char* row) {
+            return parse_manifest(std::string(R"({"format":1,"id":"f","name":"f","game":"RMG","layers":[{"path":"l","forms":[)") + row + "]}]}");
+        };
+        const std::optional<Manifest> gold =
+            forms(R"({"name":"gold","acts_like":"fire","looks_like":"fire","color_frame":2,"frames":600,"music":"BGM_FIRE_A","script":"gold"})");
+        check(gold && gold->layers[0].forms.size() == 1u && gold->layers[0].forms[0].acts_like == 2 && gold->layers[0].forms[0].color_frame == 2 &&
+                  gold->layers[0].forms[0].frames == 600 && gold->layers[0].forms[0].script == "gold",
+              "forms: a power-up from data");
+        check(forms(R"({"name":"plain"})") && forms(R"({"name":"plain"})")->layers[0].forms[0].acts_like == 0, "forms: normal unless it says");
+        check(!forms(R"({"acts_like":"fire"})"), "forms: a name");
+        check(!forms(R"({"name":"x","acts_like":"lava"})"), "forms: only the game's forms");
+        check(!forms(R"({"name":"x","frames":1.5})"), "forms: whole frames");
+        check(!forms(R"({"name":"x","script":"../up"})"), "forms: a script inside the mod");
+    }
+    {
+        // A player number past a float's range is held as infinite (the start names it and sets nothing), not cast.
+        const std::optional<Manifest> huge = parse_manifest(
+            R"({"format":1,"id":"a","name":"b","game":"RMG","layers":[{"player_constants":{"mario":{"mJumpHeight":1e300},"luigi":{"mJumpHeight":-1e300}}}]})");
+        check(huge && huge->layers.size() == 1u && huge->layers[0].player_constants.size() == 2u &&
+                  std::isinf(huge->layers[0].player_constants[0].value) && huge->layers[0].player_constants[0].value > 0.0f &&
+                  std::isinf(huge->layers[0].player_constants[1].value) && huge->layers[0].player_constants[1].value < 0.0f,
+              "a player number past a float's range is infinite");
+    }
+    {
+        // The page's metadata: the icon and pictures stay inside the mod, at most kMaxPictures of them.
+        std::string text = R"({"format":1,"id":"a","name":"b","game":"RMG","layers":[],"license":"MIT","homepage":"https://x.example",)"
+                           R"("icon":"../icon.png","pictures":["p/1.png","../2.png","/abs.png","C:/x.png","",3)";
+        for (int i = 0; i < 20; ++i) text += ",\"many/" + std::to_string(i) + ".png\"";
+        text += "]}";
+        const std::optional<Manifest> pictured = parse_manifest(text);
+        check(pictured && pictured->icon.empty(), "an icon outside the mod is dropped");
+        check(pictured && pictured->license == "MIT" && pictured->homepage == "https://x.example", "license and homepage");
+        check(pictured && pictured->pictures.size() == kMaxPictures && pictured->pictures[0] == "p/1.png" &&
+                  pictured->pictures[1] == "many/0.png",
+              "pictures: inside the mod only, the first kMaxPictures");
+    }
+    {
+        // Achievements: each id once, a name needed; an event with its name and value, or none (a plugin's).
+        const std::optional<Manifest> earned = parse_manifest(
+            R"({"format":1,"id":"a","name":"b","game":"RMG","layers":[],"achievements":[)"
+            R"({"id":"first","name":{"default":"First","fr":"Premier"},"description":"Win a star","when":{"event":"star_get","name":"EggStarGalaxy","value":1}},)"
+            R"({"id":"first","name":"Again"},{"id":"Bad Id","name":"x"},{"id":"nameless"},)"
+            R"({"id":"secret","name":"Secret","hidden":true}]})");
+        check(earned && earned->achievements.size() == 2u, "achievements: two of five kept");
+        if (earned && earned->achievements.size() == 2u) {
+            const Achievement& first = earned->achievements[0];
+            check(first.id == "first" && first.name.in("fr") == "Premier" && first.description.fallback == "Win a star" &&
+                      first.event == "star_get" && first.event_name == "EggStarGalaxy" && first.has_value && first.event_value == 1 && !first.hidden,
+                  "an achievement's name, description and event");
+            check(earned->achievements[1].hidden && earned->achievements[1].event.empty(), "a hidden one a plugin unlocks");
+        }
+    }
 
     Situation s;
     s.version = "E";
@@ -120,9 +175,57 @@ int main() {
     check(refusal(later, "RMGE01", "2.1.0", "windows").empty(), "a plugin with a build for this device");
     later.plugins[0].api = kPluginApi + 1u;
     check(refusal(later, "RMGE01", "2.1.0", "windows") == "THIS MOD NEEDS A NEWER NEBULA", "a plugin for a later game");
-    later.plugins[0].api = kPluginApi - 1u;
+    later.plugins[0].api = kOldestPluginApi;
+    check(refusal(later, "RMGE01", "2.1.0", "windows").empty(), "a plugin for the oldest API still running");
+    later.plugins[0].api = kOldestPluginApi - 1u;
     check(refusal(later, "RMGE01", "2.1.0", "windows") == "THIS MOD'S CODE IS FOR AN OLDER NEBULA: REBUILD IT WITH THIS NEBULA'S NEBULA_MOD_API.H",
           "a plugin for plugin API 1 names the replacement");
+
+    // Objects a script runs.
+    {
+        const std::optional<Manifest> scripted = parse_manifest(R"({"format":1,"id":"s","name":"S","version":"1","game":"RMGE01","layers":[{"objects":[{"name":"GlideBlock","script":"blocks/glide","archive":"Kinopio","kind":"map","radius":120,"collision":true,"clip_radius":2000}]}]})");
+        check(scripted && scripted->layers.size() == 1u && scripted->layers[0].objects.size() == 1u, "an object with a script");
+        if (scripted && !scripted->layers.empty() && !scripted->layers[0].objects.empty()) {
+            const ScriptObject& o = scripted->layers[0].objects[0];
+            check(o.name == "GlideBlock" && o.script == "blocks/glide" && o.archive == "Kinopio" && o.kind == 1 &&
+                      o.radius == 120.0 && o.collision && o.clip_radius == 2000.0 && o.shadow_radius == 0.0,
+                  "its fields");
+            check(layer_sets_game(scripted->layers[0]), "a layer with objects sets the game");
+        }
+        for (const char* bad : {R"("script":"../x")", R"("script":"/x")", R"("script":"a//b")", R"("script":"")",
+                                R"("script":"x","kind":"boss")", R"("script":"x","radius":-1)", R"("script":"x","collision":1)"}) {
+            const std::string text = std::string(R"({"format":1,"id":"s","name":"S","version":"1","game":"RMGE01","layers":[{"objects":[{"name":"A",)") + bad + "}]}]}";
+            check(!parse_manifest(text), (std::string("refused: ") + bad).c_str());
+        }
+    }
+
+    // Regions: "any", or the discs a mod is for; elsewhere it is refused, naming them.
+    {
+        const std::string head = R"({"format":1,"id":"r","name":"R","version":"1","game":"RMG","layers":[],)";
+        const std::optional<Manifest> any = parse_manifest(head + R"("regions":"any"})");
+        check(any && any->regions.empty() && refusal(*any, "RMGJ01", "2.1.0", "windows").empty(), "region-free");
+        const std::optional<Manifest> some = parse_manifest(head + R"("regions":["US","PAL"]})");
+        check(some && refusal(*some, "RMGE01", "2.1.0", "windows").empty() && refusal(*some, "RMGP01", "2.1.0", "windows").empty(),
+              "its regions");
+        check(some && refusal(*some, "RMGJ01", "2.1.0", "windows") == "THIS MOD IS ONLY FOR: US, PAL", "another region");
+        const std::optional<Manifest> kr = parse_manifest(head + R"("regions":["KR"]})");
+        check(kr && refusal(*kr, "RMGK01", "2.1.0", "windows").empty() && !refusal(*kr, "RMGE01", "2.1.0", "windows").empty(), "Korea");
+        for (const char* bad : {R"("regions":"US")", R"("regions":[])", R"("regions":["EU"])", R"("regions":[1])"}) {
+            check(!parse_manifest(head + bad + "}"), (std::string("refused: ") + bad).c_str());
+        }
+    }
+
+    // Mod-wide scripts.
+    {
+        const std::optional<Manifest> wide = parse_manifest(R"({"format":1,"id":"s","name":"S","version":"1","game":"RMGE01","layers":[{"scripts":["main","rules/coins"]}]})");
+        check(wide && wide->layers.size() == 1u && wide->layers[0].scripts.size() == 2u && wide->layers[0].scripts[1] == "rules/coins",
+              "mod-wide scripts");
+        check(wide && !wide->layers.empty() && layer_sets_game(wide->layers[0]), "a layer with scripts sets the game");
+        for (const char* bad : {R"("scripts":"main")", R"("scripts":[1])", R"("scripts":["../x"])", R"("scripts":[""])"}) {
+            const std::string text = std::string(R"({"format":1,"id":"s","name":"S","version":"1","game":"RMGE01","layers":[{)") + bad + "}]}";
+            check(!parse_manifest(text), (std::string("refused: ") + bad).c_str());
+        }
+    }
 
     const std::optional<Manifest> newer = parse_manifest(R"({"format":2,"everything":"different"})");
     check(newer && refusal(*newer, "RMGE01", "2.1.0", "windows") == "THIS MOD NEEDS A NEWER NEBULA", "a newer format is named, not damaged");
@@ -130,6 +233,10 @@ int main() {
     for (const char* bad : {"", "{", "[]", "not json", R"({"format":1})", R"({"format":0,"id":"a","name":"b","game":"RMG","layers":[]})",
                             R"({"format":1,"id":"a","name":"b","game":"RMG"})", R"({"format":1,"id":"a","name":"b","game":"RMG","layers":[{"path":"../up"}]})",
                             R"({"format":1,"id":"a","name":"b","game":"RMG","layers":[{"path":"C:/up"}]})", R"({"format":1,"id":"a","name":"b","game":"RMG","layers":[{"path":"/up"}]})",
+                            R"({"format":1,"id":"a","name":"b","game":"RMG","layers":[{"path":"a/.. /up"}]})",
+                            R"({"format":1,"id":"a","name":"b","game":"RMG","layers":[{"path":"..\u0000/up"}]})",
+                            R"({"format":1,"id":"a","name":"b","game":"RMG","layers":[{"path":"a/.../up"}]})",
+                            R"({"format":1,"id":"a","name":"b","game":"RMG","layers":[],"save":{"mode":"own","tag":"../../up"}})",
                             R"({"format":1,"id":"a","name":"b","game":"RMG","layers":[]} trailing)", R"({"a":"\ud800"})", R"({"a":"unterminated)"}) {
         check(!parse_manifest(bad).has_value(), bad);
     }

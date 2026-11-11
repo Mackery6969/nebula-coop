@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleExecutable</key>
+    <string>Nebula</string>
+    <key>CFBundleIconFile</key>
+    <string>Nebula</string>
+    <key>CFBundleIdentifier</key>
+    <string>dev.nebula.galaxy</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>Nebula</string>
+    <key>CFBundleDisplayName</key>
+    <string>Nebula</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>@NEBULA_VERSION@</string>
+    <key>CFBundleVersion</key>
+    <string>@NEBULA_VERSION@</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>12.0</string>
+    <!-- A game: macOS 14's Game Mode follows it while it is full screen. -->
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.action-games</string>
+    <key>LSSupportsGameMode</key>
+    <true/>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <!-- The renderer names its own graphics card (GRAPHICS CARD in the settings); macOS need not switch for it. -->
+    <key>NSSupportsAutomaticGraphicsSwitching</key>
+    <true/>
+    <!-- Controllers reach the game through Game Controller. -->
+    <key>GCSupportsControllerUserInteraction</key>
+    <true/>
+    <!-- .luma mods: "Open With" Nebula and a double-click import them (the game's Mods page shows the result). -->
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>dev.nebula.luma</string>
+            <key>UTTypeDescription</key>
+            <string>Nebula mod</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>luma</string>
+                </array>
+            </dict>
+        </dict>
+    </array>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Nebula mod</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Owner</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>dev.nebula.luma</string>
+            </array>
+        </dict>
+        <dict>
+            <!-- Archives and folders the importer converts (Riivolution packs, texture packs): offered, not owned. -->
+            <key>CFBundleTypeName</key>
+            <string>Mod archive</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>public.zip-archive</string>
+                <string>org.7-zip.7-zip-archive</string>
+                <string>com.rarlab.rar-archive</string>
+                <string>public.folder</string>
+            </array>
+        </dict>
+    </array>
+    <key>NSHumanReadableCopyright</key>
+    <string>Nebula is free software under the GNU General Public License, version 3. Not affiliated with Nintendo.</string>
+</dict>
+</plist>

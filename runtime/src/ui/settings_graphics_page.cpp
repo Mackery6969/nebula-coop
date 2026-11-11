@@ -24,8 +24,8 @@ std::vector<SettingsRow> graphics_page(const RenderConfig& render, const Graphic
     // (render_internal_height: the renderer reads the height only with upscaling off).
     const bool upscaling = !offered || render.upscaler != 0u;
     {
-        static constexpr const char* kUpscalers[] = {"OFF", "FSR 1", "FSR 3", "DLSS", "XESS", "SGSR 2"};
-        std::string value = kUpscalers[offered ? std::min(render.upscaler, 5u) : 1u];
+        static constexpr const char* kUpscalers[] = {"OFF", "FSR 1", "FSR 3", "DLSS", "XESS", "SGSR 2", "METALFX"};
+        std::string value = kUpscalers[offered ? std::min(render.upscaler, 6u) : 1u];
         if (offered && render.upscaler == 3u && !state.dlss_supported) {
             value += state.dlss_installed ? " (AFTER RESTART)" : " (DOWNLOAD)";
         }
@@ -65,19 +65,21 @@ std::vector<SettingsRow> graphics_page(const RenderConfig& render, const Graphic
         static constexpr const char* kSpatial[] = {"NATIVE", "QUALITY", "BALANCED", "PERFORMANCE", "ULTRA PERFORMANCE", "ULTRA QUALITY"};
         static constexpr unsigned kOrder[] = {0u, 5u, 1u, 2u, 3u, 4u};
         static constexpr unsigned kDlssOrder[] = {0u, 1u, 2u, 3u, 4u};  // DLSS has no ultra quality mode
-        const bool temporal = render.upscaler >= 2u;
-        const unsigned upscaler = std::min(render.upscaler, 5u);
+        // MetalFX (6) is temporal only where the device has its temporal scaler; elsewhere it enlarges the picture.
+        const bool temporal = render.upscaler >= 2u && (render.upscaler != 6u || state.temporal_upscaling);
+        const unsigned upscaler = std::min(render.upscaler, 6u);
         unsigned quality = temporal ? std::min(render.temporal_quality, 5u) : std::min(render.spatial_quality, 5u);
         if (upscaler == 3u && quality == 5u) quality = 1u;  // as DLSS runs it
         std::snprintf(text, sizeof(text), "%s (%u%%)",
                       upscaler == 3u && quality == 0u ? "DLAA" : temporal ? kTemporal[quality] : kSpatial[quality],
                       render_percent);
-        rows.push_back({upscaler == 5u ? "SGSR 2 MODE" : upscaler == 4u ? "XESS MODE" : upscaler == 3u ? "DLSS MODE" : upscaler == 2u ? "FSR 3 MODE" : "QUALITY MODE", text,
+        rows.push_back({upscaler == 6u ? "METALFX MODE" : upscaler == 5u ? "SGSR 2 MODE" : upscaler == 4u ? "XESS MODE" : upscaler == 3u ? "DLSS MODE" : upscaler == 2u ? "FSR 3 MODE" : "QUALITY MODE", text,
                         [&host](RenderConfig& draft, int delta) {
                             const bool dlss = draft.upscaler == 3u;
                             const unsigned* order = dlss ? kDlssOrder : kOrder;
                             const unsigned count = dlss ? 5u : 6u;
-                            unsigned& value = draft.upscaler >= 2u ? draft.temporal_quality : draft.spatial_quality;
+                            const bool temporal_mode = draft.upscaler >= 2u && (draft.upscaler != 6u || host.query(draft).temporal_upscaling);
+                            unsigned& value = temporal_mode ? draft.temporal_quality : draft.spatial_quality;
                             const unsigned current = dlss && value == 5u ? 1u : std::min(value, 5u);
                             unsigned at = 0u;
                             for (unsigned i = 0; i < count; ++i) {
@@ -330,13 +332,13 @@ std::vector<SettingsRow> graphics_page(const RenderConfig& render, const Graphic
         std::snprintf(value, sizeof(value), "%llu TEXTURES", static_cast<unsigned long long>(packs.textures));
         std::string help = "REPLACEMENT TEXTURES IN THE ENABLED MODS";
         if (packs.levels != 0u) help += ", WITH " + std::to_string(packs.levels) + " MIP LEVELS";
+        // Whole phrases with the counts after a colon: the menu translates each phrase (no plural pieces).
         if (!packs.dolphin.empty()) {
-            help += ". " + std::to_string(packs.dolphin.size()) + " FILE" + (packs.dolphin.size() == 1u ? " HAS A" : "S HAVE") +
-                    " DOLPHIN NAME: IMPORT THE PACK AS A MOD TO USE " + (packs.dolphin.size() == 1u ? "IT" : "THEM");
+            help += ". FILES WITH A DOLPHIN NAME: " + std::to_string(packs.dolphin.size()) + ". IMPORT THE PACK AS A MOD TO USE THEM";
         }
         if (!packs.unknown.empty()) {
-            help += ". " + std::to_string(packs.unknown.size()) + " FILE" + (packs.unknown.size() == 1u ? " NAMES" : "S NAME") +
-                    " NO TEXTURE OF THIS GAME: " + mods_ui_text(packs.unknown.front(), 48u);
+            help += ". FILES THAT NAME NO TEXTURE OF THIS GAME: " + std::to_string(packs.unknown.size()) + ". THE FIRST: " +
+                    mods_ui_text(packs.unknown.front(), 48u);
         }
         rows.push_back({"  REPLACEMENTS", packs.indexed ? std::string(value) : std::string("READING"), nullptr, help});
     }

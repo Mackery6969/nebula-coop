@@ -2,7 +2,7 @@
 
     python tools/nebula_text.py            writes native/petari/src/Game/System/NebulaTextTable.inc
     python tools/nebula_text.py --check    exits 1 when the .inc does not match the table, or a text has no row
-    python tools/nebula_text.py --fonts <LayoutData/Font.arc>
+    python tools/nebula_text.py --fonts <LayoutData/Font.arc, or the folder lumalink extract writes>
                                            exits 1 when a game row of a disc's language has a character the disc's
                                            message font lacks (it would draw as the font's alternate, '?')
 
@@ -20,13 +20,19 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TABLE = os.path.join(ROOT, 'localization', 'NebulaText.tsv')
 OUTPUT = os.path.join(ROOT, 'native', 'petari', 'src', 'Game', 'System', 'NebulaTextTable.inc')
 CRASH_OUTPUT = os.path.join(ROOT, 'runtime', 'src', 'crash_text_table.inc')
-HOST_TEXT = ['runtime/src/ui/settings_*_page.cpp', 'runtime/src/ui/settings_model.cpp', 'runtime/src/render/host_window_win32.cpp']
+HOST_TEXT = ['runtime/src/ui/settings_*_page.cpp', 'runtime/src/ui/settings_model.cpp', 'runtime/src/render/host_window_win32.cpp',
+             'runtime/src/ui/native_settings.cpp', 'runtime/src/mod_import.cpp', 'runtime/src/mods.cpp', 'runtime/src/luma.cpp',
+             'runtime/src/mod_plugins.cpp']
 INSTALLER_TEXT = 'installer/src/**/*.cs'
 # Capitals the menu does not show as text: pad names, a disc id, the home overlay and the DLSS footer the game replaces.
-HOST_NOT_SHOWN = {'SSAO', 'GTAO', '(BLUETOOTH)', '(BT)', '-OPTIONS', 'AIS', 'OL', 'LB/RB', 'RMGE01', 'S ARE', 'SHARE+OPTIONS',
+HOST_NOT_SHOWN = {'SSAO', 'GTAO', 'SB4', 'SB5', '(BLUETOOTH)', '(BT)', '-OPTIONS', 'AIS', 'OL', 'LB/RB', 'RMGE01', 'S ARE', 'SHARE+OPTIONS',
                   'VIEW+MENU OR MINUS+PLUS', 'DLSS READY', 'DLSS WAS NOT INSTALLED', 'DOWNLOAD NVIDIA DLSS (',
                   'INSTALLING NVIDIA DLSS...', 'RESTART NOW? ENTER/Y YES  ESC/B LATER', 'HOME MENU', 'NO', 'YES',
-                  'QUIT TO DESKTOP', 'QUIT TO DESKTOP?', 'RESET?', 'RETURN TO GAME'}
+                  'RESET?', 'RETURN TO GAME',
+                  # pieces joined at run time whose whole texts have rows: "INPUT: AUTO (<device>)", "THE GAME RUNS AT 60. INTERPOLATION ..."
+                  'INPUT: AUTO (', '. INTERPOLATION ADDS FRAMES BETWEEN',
+                  # the mods: unavailable buttons, hex digits, the game's id, the head of "ON (1 OF 2)"
+                  '-ABOUT', '-DETAILS', '0123456789ABCDEF', 'RMG', 'ON ('}
 
 
 def unescape(cell):
@@ -294,9 +300,14 @@ def font_codes(font):
 
 
 def font_gaps(font_arc):
-    """Each game row's characters, in the columns a disc carries, that the message font lacks."""
-    with open(font_arc, 'rb') as f:
-        codes = font_codes(archive_files(yaz0(f.read()))[MESSAGE_FONT]) | AS_SPACE
+    """Each game row's characters, in the columns a disc carries, that the message font lacks. `font_arc`: the archive,
+    or the folder `lumalink extract` writes it to."""
+    if os.path.isdir(font_arc):
+        with open(os.path.join(font_arc, MESSAGE_FONT), 'rb') as f:
+            codes = font_codes(f.read()) | AS_SPACE
+    else:
+        with open(font_arc, 'rb') as f:
+            codes = font_codes(archive_files(yaz0(f.read()))[MESSAGE_FONT]) | AS_SPACE
     with open(TABLE, encoding='utf-8') as f:
         header = f.readline().rstrip('\r\n').split('\t')
     gaps = []
