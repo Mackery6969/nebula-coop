@@ -1,6 +1,5 @@
 // RendererD3D12: device and swap chain, scene targets and copies, presentation.
 #include "galaxy/render/utility_shaders.h"
-#include "galaxy/run_options.h"
 #include "galaxy/launch_args.h"
 #include "galaxy/render/renderer_d3d12.h"
 #include <nebula_frame_list.h>
@@ -93,9 +92,7 @@ static ComPtr<ID3D12RootSignature> s_blit_root_sig;
 // scene target-copy conversion blit root signature.
 static ComPtr<ID3D12RootSignature> s_conv_root_sig;
 static ComPtr<ID3D12RootSignature> s_clear_root_sig;
-#if defined(NEBULA_DEV)
 static bool s_listing_live_objects = false;
-#endif
 
 #ifndef GALAXY_WITH_STREAMLINE_BRIDGE
 #define GALAXY_WITH_STREAMLINE_BRIDGE 0
@@ -580,6 +577,9 @@ void DescriptorRing::grow_frames(unsigned per_frame) {
     flush();
     bound_list_ = nullptr;
     bound_heap_ = nullptr;
+    if (replaced_fn_ != nullptr) {
+        replaced_fn_(replaced_owner_);
+    }
 }
 
 DescriptorRing::Table DescriptorRing::allocate(unsigned count) {
@@ -1737,10 +1737,9 @@ bool RendererD3D12::initialize(int window_width, int window_height, const FrameM
                 }
             }
         }
-#if defined(NEBULA_DEV)
-        // Test builds: the removal data dump_device_removal prints (auto-breadcrumbs, page-fault allocations, breadcrumb
-        // contexts), asked for before the device exists. Release builds leave the system's choice.
-        {
+        // --diagnostics device-faults: the removal data dump_device_removal prints (auto-breadcrumbs, page-fault
+        // allocations, breadcrumb contexts), asked for before the device exists. Otherwise the system's choice.
+        if (::galaxy::diagnosing(::galaxy::kDiagnoseDeviceFaults)) {
             ComPtr<ID3D12DeviceRemovedExtendedDataSettings1> dred;
             if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&dred)))) {
                 dred->SetAutoBreadcrumbsEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
@@ -1754,7 +1753,6 @@ bool RendererD3D12::initialize(int window_width, int window_height, const FrameM
                 }
             }
         }
-#endif
         boot_step("window and display");
         UINT flags = 0;
         if (d3d_debug_level >= 1) {
@@ -1948,12 +1946,10 @@ bool RendererD3D12::initialize(int window_width, int window_height, const FrameM
                 iq1->RegisterMessageCallback(
                     [](D3D12_MESSAGE_CATEGORY, D3D12_MESSAGE_SEVERITY severity,
                        D3D12_MESSAGE_ID id, LPCSTR description, void*) {
-#if defined(NEBULA_DEV)
                         if (s_listing_live_objects) {
                             std::cerr << "[D3D12-LIVE-OBJECT] " << description << '\n';
                             return;
                         }
-#endif
                         if (severity == D3D12_MESSAGE_SEVERITY_ERROR ||
                             severity == D3D12_MESSAGE_SEVERITY_CORRUPTION) {
                             // The callback runs inside the call the message is about: the executable's return addresses
@@ -2339,6 +2335,7 @@ bool RendererD3D12::initialize(int window_width, int window_height, const FrameM
             return false;
         }
         srv_ring_.set_sampler_heap(sampler_heap_.Get());
+        srv_ring_.on_frames_grown([](void* renderer) { static_cast<RendererD3D12*>(renderer)->texture_heap_replaced(); }, this);
         retired_heaps_.clear();
         null_texture_slot_ = 0u;
         mirrored_backend_ = nullptr;
@@ -2427,6 +2424,17 @@ DescriptorRing::Persistent RendererD3D12::allocate_persistent_descriptors(unsign
         invalidate_draw_bindings();
     }
     return table;
+}
+
+// A frame took more transient descriptors than its segment held (DescriptorRing::allocate): the ring's new heap has an
+// empty texture region, so the views made so far are copied into it and the texture backend writes its next views
+// there, as after the persistent region's growth. Commands already recorded keep the heap they were recorded with.
+void RendererD3D12::texture_heap_replaced() {
+    if (mirrored_store_ != nullptr) {
+        install_texture_heap(*mirrored_store_, srv_ring_.texture_slots());
+    }
+    ++sampler_generation_;
+    invalidate_draw_bindings();
 }
 
 // A view index reached the null slot (TextureBackend::publish_view): a heap twice as large, or as large as the views
@@ -2619,7 +2627,6 @@ void RendererD3D12::log_video_memory(const VideoMemoryOutside& outside) {
                  static_cast<unsigned long long>(outside.pipelines));
 }
 
-#if defined(NEBULA_DEV)
 void RendererD3D12::list_live_objects(Kept& kept) {
     if (kept.debug_device) {
         s_listing_live_objects = true;
@@ -2628,7 +2635,6 @@ void RendererD3D12::list_live_objects(Kept& kept) {
         kept.debug_device.Reset();
     }
 }
-#endif
 
 RendererD3D12::Kept RendererD3D12::take_apart_lost_device() {
     keep_window_ = true;
@@ -2640,9 +2646,7 @@ RendererD3D12::Kept RendererD3D12::take_apart_lost_device() {
         std::cerr << "[Renderer] the lost device's shutdown: " << error.what() << "\n";
     }
     Kept kept{window_, card_};
-#if defined(NEBULA_DEV)
     kept.debug_device = std::move(debug_device_);
-#endif
     return kept;
 }
 
@@ -2806,11 +2810,9 @@ void RendererD3D12::shutdown() {
     telemetry_pace_wait_ms_ = telemetry_pace_wait_max_ms_ = 0.0;
     telemetry_gpu_ms_ = 0.0;
     telemetry_gpu_samples_ = 0;
-#if defined(NEBULA_DEV)
-    if (device_) {
+    if (device_ && ::galaxy::launch_args().gpu_validation != 0u) {
         (void)device_.As(&debug_device_);
     }
-#endif
     BarrierPath::device = nullptr;
     barrier_device_.Reset();
     fence_.Reset(); queue_.Reset(); device_.Reset();
@@ -3270,7 +3272,7 @@ void RendererD3D12::gpu_pass(GpuPass pass) {
     pass_marks_[frame_slot_][marks++] = pass;
 }
 
-void RendererD3D12::test_lose_device() {
+void RendererD3D12::lose_device() {
     ComPtr<ID3D12Device5> device;
     if (SUCCEEDED(device_.As(&device))) {
         device->RemoveDevice();
@@ -5453,13 +5455,54 @@ void RendererD3D12::record_hdr_end() {
     bind_scene();
 }
 
-void* RendererD3D12::rt_commands_begin() {
+RendererD3D12::RtCommands RendererD3D12::rt_commands_begin() {
     rt_outer_pass_ = current_pass_;
     gpu_pass(GpuPass::RayTracing);
-    return command_list_.Get();
+    return {command_list_.Get(), &srv_ring_};
 }
 
-void RendererD3D12::rt_commands_end() { gpu_pass(rt_outer_pass_); }
+// A pass leaves its own pipeline bound: the next draw binds the scene's again.
+void RendererD3D12::rt_commands_end() {
+    gpu_pass(rt_outer_pass_);
+    invalidate_draw_bindings();
+}
+
+bool RendererD3D12::rt_depth_begin(rt::TextureView& depth, unsigned& width, unsigned& height, rt::ImageFormat& color) {
+    if (!scene_depth_ || !scene_color_ || scene_msaa_.samples > 1u) {
+        return false;
+    }
+    BarriersD3D12 uses{command_list_.Get()};
+    uses.texture(scene_depth_.Get(), gpu::Use::DepthWrite, gpu::Use::ShaderRead);
+    uses.issue();
+    const D3D12_RESOURCE_DESC desc = scene_depth_->GetDesc();
+    depth = {scene_depth_.Get(), static_cast<std::uint32_t>(kSceneDepthSrvFormat)};
+    width = static_cast<unsigned>(desc.Width);
+    height = desc.Height;
+    color = scene_color_->GetDesc().Format == kSceneHdrColorFormat ? rt::ImageFormat::Rgba16f : rt::ImageFormat::Rgb10a2;
+    return true;
+}
+
+void RendererD3D12::rt_depth_end() {
+    BarriersD3D12 uses{command_list_.Get()};
+    uses.texture(scene_depth_.Get(), gpu::Use::ShaderRead, gpu::Use::DepthWrite);
+    uses.issue();
+}
+
+void RendererD3D12::rt_copy_to_scene(void* image) {
+    auto* const source = static_cast<ID3D12Resource*>(image);
+    if (source == nullptr || !scene_color_) {
+        return;
+    }
+    const D3D12_RESOURCE_DESC from = source->GetDesc(), to = scene_color_->GetDesc();
+    if (from.Width != to.Width || from.Height != to.Height || from.Format != to.Format || to.SampleDesc.Count != 1u) {
+        return;
+    }
+    BarriersD3D12 uses{command_list_.Get()};
+    uses.texture(scene_color_.Get(), gpu::Use::ColorWrite, gpu::Use::CopyDest);
+    uses.issue();
+    command_list_->CopyResource(scene_color_.Get(), source);
+    uses.undo();
+}
 
 // The scene target's depth, single-sample (MSAA resolves it, sample 0), read by the occlusion; the product lands on the
 // scene target's own colour target, every sample of a multisampled one.

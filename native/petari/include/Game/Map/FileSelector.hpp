@@ -24,7 +24,7 @@ class InformationMessage;
 class Manual2P;
 class MiiConfirmIcon;
 class MiiSelect;
-class NebulaQuitButton;
+class NebulaFileSelectButton;
 class TitleSequenceProduct;
 class UserFile;
 class SysInfoWindow;
@@ -151,9 +151,10 @@ public:
     void exeCoopLoad();
     void exeCoopCreate();
     void exeCoopQuit();
-    void createQuitButton();
-    void updateQuitButton();
+    void createCornerButtons();
+    void updateCornerButtons();
     bool updateQuitQuestion();
+    bool updateSettings();
     void offerFilesToMenuFocus();
 
     FileSelectCameraController* mCameraController;
@@ -181,10 +182,12 @@ public:
     bool mIsMiiSelectStartFirst;
     s32 mBgmState;
     FileSelectEffect* mSelectEffect;
-    NebulaQuitButton* mQuitButton;
+    NebulaFileSelectButton* mQuitButton;      // top left
+    NebulaFileSelectButton* mSettingsButton;  // top right
     SysInfoWindow* mQuitWindow;  // its own: the file select's window keeps its messages' text positions
     bool mIsAskingQuit;
     s32 mQuitFrames;  // from Yes: the fade to black, then the game's own way out
-    bool mIsQuitFocusWanted;  // Up from the top files: the highlight goes to Quit to desktop once it shows
+    s32 mSettingsFrames;  // from Settings chosen, the file select's frames (none pass while the menu is open)
+    NebulaFileSelectButton* mFocusWanted;  // Up from the top files: the highlight goes to the nearer button once it shows
     bool mIsCoopPlayWanted;   // the main menu's Host: the save starts once the Mii data is ready
 };

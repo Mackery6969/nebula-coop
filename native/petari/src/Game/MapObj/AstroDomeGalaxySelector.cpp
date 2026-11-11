@@ -23,6 +23,7 @@
 #include "Game/LiveActor/LiveActorGroup.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/Screen/NebulaSelectPlayers.hpp"
+#include "Game/System/LumaCore.hpp"
 
 namespace {
     const char* const cDemoNameDomeLecture = "ドームレクチャー２";
@@ -51,6 +52,7 @@ namespace NrvAstroDomeGalaxySelector {
 AstroDomeGalaxySelector::AstroDomeGalaxySelector(const char* pName)
     : LiveActor(pName), mCameraController(), mBackButton(), mInfo(), mConfirmLayout(), mIsBackButtonPointed() {
     mCoopPlayers = nullptr;
+    lumacore::setClass(this, lumacore::kClassId< AstroDomeGalaxySelector >);
 }
 
 void AstroDomeGalaxySelector::init(const TableIter& rIter) {

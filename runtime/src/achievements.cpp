@@ -172,13 +172,8 @@ const Info* find(std::string_view id) noexcept {
     return nullptr;
 }
 
-bool unlock(std::string_view id) {
-    const std::time_t now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-    return unlock_at(id, static_cast<std::int64_t>(now));
-}
-
-bool unlock_at(std::string_view id, std::int64_t when) {
-    if (find(id) == nullptr) return false;
+namespace {
+bool unlock_key(std::string_view id, std::int64_t when) {
     State& s = state();
     {
         const std::lock_guard<std::mutex> lock(s.mutex);
@@ -193,6 +188,25 @@ bool unlock_at(std::string_view id, std::int64_t when) {
     }
     s.wake.notify_all();
     return true;
+}
+
+std::int64_t now_seconds() {
+    return static_cast<std::int64_t>(std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()));
+}
+}  // namespace
+
+bool unlock(std::string_view id) {
+    return unlock_at(id, now_seconds());
+}
+
+bool unlock_at(std::string_view id, std::int64_t when) {
+    return find(id) != nullptr && unlock_key(id, when);
+}
+
+bool unlock_mod(std::string_view key) {
+    // The file's lines are key=when: a key with '=' or a line break would read back as another.
+    if (!key.starts_with("mod:") || key.size() <= 4u || key.find_first_of("=\r\n") != std::string_view::npos) return false;
+    return unlock_key(key, now_seconds());
 }
 
 bool unlocked(std::string_view id) {

@@ -26,6 +26,8 @@ bool unlock(std::string_view id);
 // The same, unlocked at `when` (seconds since 1970, UTC) rather than now: another player's unlock in the co-op save,
 // on the day it was unlocked there.
 bool unlock_at(std::string_view id, std::int64_t when);
+// A mod's achievement ("mod:<mod id>/<id>"): as unlock, for any key of that form.
+bool unlock_mod(std::string_view key);
 [[nodiscard]] bool unlocked(std::string_view id);
 // When it was unlocked, in seconds since 1970 (UTC); 0 when locked or unlocked at a time that cannot be read.
 [[nodiscard]] std::int64_t unlocked_time(std::string_view id);
