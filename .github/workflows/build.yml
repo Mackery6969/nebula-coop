@@ -388,12 +388,14 @@ jobs:
       - name: Update flow
         run: .\installer\tests\run-update-flow-tests.ps1
 
-  # The one check to require before merging: it fails when any job above failed or was cancelled, and passes when they
-  # passed or were skipped.
+  # The one check to require before merging: it fails when the Windows build (host, game module, disc import tool and
+  # the test build put together from them) or the installer tests failed or were cancelled, and passes when they passed
+  # or were skipped. Linux and Android are still built and show their own checks, but don't block a merge: those ports
+  # aren't finished.
   result:
     name: Build result
     if: always()
-    needs: [changes, import, host, game, windows, linux, android, installer]
+    needs: [changes, import, host, game, windows, installer]
     runs-on: ubuntu-24.04
     steps:
       - name: Check
