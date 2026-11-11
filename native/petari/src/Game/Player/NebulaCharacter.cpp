@@ -167,8 +167,9 @@ namespace NebulaCharacter {
         sState = State_Reloading;
         nebula_log("[character] switching to %s: %s %d starts again\n", isWantedLuigi() ? "Luigi" : "Mario", sStage, sScenario);
         if (MR::isStageAstroLocation()) {
-            // The observatory has no retry: entered again as from its other domes, at the player's last start.
-            MR::requestChangeStageInGameMoving(sStage, sScenario, *MR::getPlayerRestartIdInfo());
+            // The observatory has no retry: entered again as from its other domes, at the start this visit began at.
+            // The restart point may still be the last galaxy's, a start the observatory does not have.
+            MR::requestChangeStageInGameMoving(sStage, sScenario, MR::getCurrentMarioStartIdInfo());
         } else {
             MR::requestChangeStageAfterMiss();
         }
