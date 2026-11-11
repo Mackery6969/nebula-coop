@@ -49,9 +49,8 @@ bool MessageData::getMessageDirect(TalkMessageInfo* pMessageInfo, const char* pM
     }
     s32 messageIndex = findMessageIndex(pMessage);
 
-    if (messageIndex >= 0 && getMessage(pMessageInfo, messageIndex)) {
-        pMessageInfo->mMessage = NebulaLuigiText::fit(*this, pMessage, pMessageInfo->mMessage);
-        return true;
+    if (messageIndex >= 0) {
+        return getMessage(pMessageInfo, messageIndex);
     }
 
     return false;
@@ -71,6 +70,7 @@ bool MessageData::getMessage(TalkMessageInfo* pMessageInfo, u32 index) const {
     pMessageInfo->mAreaId = rRecord.mAreaId;
     pMessageInfo->mAlreadyReadId = rRecord.mAlreadyReadId;
     pMessageInfo->mBalloonType = rRecord.mBalloonType;
+    pMessageInfo->mMessage = NebulaLuigiText::fit(*this, index, pMessageInfo->mMessage);
 
     return true;
 }
