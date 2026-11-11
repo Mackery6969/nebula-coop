@@ -2,6 +2,7 @@
 #include "galaxy/discord_presence.h"
 
 #include <cstdio>
+#include <optional>
 #include <string>
 
 namespace {
@@ -30,7 +31,7 @@ int main() {
     expect(json_string("\x01") == "\"\\u0001\"", "control escape");
     expect(json_string("Galaxie \xC3\xA9toil\xC3\xA9" "e") == "\"Galaxie \xC3\xA9toil\xC3\xA9" "e\"", "utf-8 kept");
 
-    const Activity activity{"Good Egg Galaxy", "Dino Piranha"};
+    const Activity activity{"Good Egg Galaxy", "Dino Piranha", {}};
     const std::string set = set_activity_json(42u, activity, 1000, 7u, false);
     expect(set.find("\"cmd\":\"SET_ACTIVITY\"") != std::string::npos, "cmd");
     expect(set.find("\"pid\":42") != std::string::npos, "pid");
@@ -40,9 +41,63 @@ int main() {
     expect(set.find("\"nonce\":\"7\"") != std::string::npos, "nonce");
 
     // An empty line is left out; clearing sends a null activity.
-    const std::string menu = set_activity_json(1u, Activity{"Choosing a file", ""}, 5, 1u, false);
+    const std::string menu = set_activity_json(1u, Activity{"Choosing a file", "", {}}, 5, 1u, false);
     expect(menu.find("\"state\"") == std::string::npos, "empty state omitted");
     expect(set_activity_json(1u, {}, 0, 2u, true).find("\"activity\":null") != std::string::npos, "clear");
+
+    expect(set.find("\"party\"") == std::string::npos && set.find("\"secrets\"") == std::string::npos,
+           "no party outside a room");
+
+    // A room: its party with the count, and the Join button's secret only with an id.
+    Activity room{"Good Egg Galaxy", "Dino Piranha", {party_id("K7QX2M"), 2u, 8u, join_secret("K7QX2M", "")}};
+    const std::string in_room = set_activity_json(1u, room, 5, 3u, false);
+    expect(in_room.find("\"party\":{\"id\":\"" + party_id("K7QX2M") + "\",\"size\":[2,8]}") != std::string::npos,
+           "party");
+    expect(in_room.find("\"secrets\":{\"join\":\"nebulanet:K7QX2M:\"}") != std::string::npos, "join secret");
+    room.party = {"", 3u, 4u, ""};
+    const std::string direct = set_activity_json(1u, room, 5, 4u, false);
+    expect(direct.find("\"party\":{\"size\":[3,4]}") != std::string::npos, "party count alone");
+    expect(direct.find("\"secrets\"") == std::string::npos, "no secret without a party id");
+    room.party = {"x", 9u, 4u, "s"};
+    expect(set_activity_json(1u, room, 5, 4u, false).find("\"size\"") == std::string::npos, "a count over the most");
+
+    // The party id is the room's for everyone, and not its code.
+    expect(party_id("K7QX2M") == party_id("K7QX2M") && party_id("K7QX2M") != party_id("K7QX2N"), "party id");
+    expect(party_id("K7QX2M").find("K7QX2M") == std::string::npos, "party id hides the code");
+
+    // Join secrets: the code and the password (which may hold a colon); anything else is not a room.
+    const auto joined = parse_join_secret(join_secret("K7QX2M", "pass:word"));
+    expect(joined && joined->code == "K7QX2M" && joined->password == "pass:word", "secret round trip");
+    const auto open_room = parse_join_secret("nebulanet:ABCDEF:");
+    expect(open_room && open_room->code == "ABCDEF" && open_room->password.empty(), "secret without a password");
+    expect(!parse_join_secret("coopnet:123:") && !parse_join_secret("nebulanet::x") && !parse_join_secret(""),
+           "not a room");
+
+    expect(subscribe_json("ACTIVITY_JOIN", 9u) ==
+               "{\"cmd\":\"SUBSCRIBE\",\"args\":{},\"evt\":\"ACTIVITY_JOIN\",\"nonce\":\"9\"}",
+           "subscribe");
+
+    // Frames Discord sends, whole or in pieces.
+    std::string buffer = frame(1u, "{\"a\":1}") + frame(3u, "{}").substr(0u, 5u);
+    std::uint32_t opcode = 0u;
+    std::string json;
+    expect(take_frame(buffer, &opcode, &json) && opcode == 1u && json == "{\"a\":1}", "first frame");
+    expect(!take_frame(buffer, &opcode, &json), "a part frame waits");
+    buffer += frame(3u, "{}").substr(5u);
+    expect(take_frame(buffer, &opcode, &json) && opcode == 3u && json == "{}" && buffer.empty(), "frame completed");
+
+    // A Join's dispatch, and the fields read from it.
+    const std::string dispatch =
+        "{\"cmd\":\"DISPATCH\",\"data\":{\"secret\":\"nebulanet:K7QX2M:p\\\"w\\u00e9\"},\"evt\":\"ACTIVITY_JOIN\","
+        "\"nonce\":null}";
+    expect(json_field(dispatch, "evt") == std::optional<std::string>("ACTIVITY_JOIN"), "evt");
+    expect(json_field(dispatch, "secret") == std::optional<std::string>("nebulanet:K7QX2M:p\"w\xC3\xA9"), "secret");
+    expect(!json_field(dispatch, "nonce"), "null is no string");
+    expect(!json_field(dispatch, "missing"), "missing field");
+    expect(json_field("{\"e\": \"\\ud83c\\udf1f\"}", "e") == std::optional<std::string>("\xF0\x9F\x8C\x9F"),
+           "surrogate pair");
+    expect(json_field("{\"k\":\"evt\",\"evt\":\"ERROR\"}", "evt") == std::optional<std::string>("ERROR"),
+           "a value with the key's text");
 
     if (s_failures == 0) std::printf("discord presence: all passed\n");
     return s_failures == 0 ? 0 : 1;

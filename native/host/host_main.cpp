@@ -1941,6 +1941,8 @@ enum class CoopAutoStart { None, Host, Join };
 CoopAutoStart gCoopAutoStart = CoopAutoStart::None;
 std::uint16_t gCoopAutoPort = 0u;
 std::string gCoopAutoAddress;
+// A Join pressed in Discord mid-game: the room's password, taken as the main menu opens and joins.
+std::optional<std::string> gCoopAutoPassword;
 
 // The other players' snapshots (galaxy/coop_snapshot.h), for their copies in this player's instance; and this
 // player's, sent up to 30 times a second (10 while it stands still).
@@ -2187,8 +2189,38 @@ std::string coop_player_name() {
     return name.empty() ? std::string("PLAYER") : name;
 }
 
+std::optional<std::string> coop_join_code(const std::string& text);
+
+// Discord's view of the room (galaxy/discord_presence.h): how many play of how many, and on NebulaNet a Join button
+// carrying the room's code, as sm64coopdx's activity has. sm64coopdx's rule for the button: the host always offers it
+// (with the room's password), a joiner only for a room without one; and only on the NebulaNet everyone uses, which a
+// friend's Nebula reaches.
+void note_discord_party() {
+    galaxy::discord::Party party;
+    const galaxy::coop::SessionState state = gCoopSession.state();
+    if (state == galaxy::coop::SessionState::Hosting || state == galaxy::coop::SessionState::Joined) {
+        const galaxy::RuntimeCoopSettings room = gCoopSession.room();
+        const bool host = state == galaxy::coop::SessionState::Hosting;
+        party.size = static_cast<unsigned>(std::max<std::size_t>(gCoopSession.players().size(), 1u));
+        party.max = std::max(room.max_players, party.size);
+        std::string code = gCoopSession.room_code();
+        if (code.empty() && !host) code = coop_join_code(gCoopMenu.room().join_address).value_or(std::string());
+        const std::string& server = gCoopMenu.room().nebulanet_server;
+        const bool everyones_server = server.empty() || server == galaxy::coop::kNebulaNetServer;
+        if (!code.empty()) {
+            party.id = galaxy::discord::party_id(code);
+            const std::string& password = host ? room.password : gCoopMenu.room().password;
+            if (everyones_server && (host || password.empty())) {
+                party.join_secret = galaxy::discord::join_secret(code, password);
+            }
+        }
+    }
+    galaxy::discord::set_party(party);
+}
+
 // The Online page's view of the room (how many play, the host's settings for a joiner).
 void note_coop_room() {
+    note_discord_party();
 #if defined(NEBULA_HOST_RENDERER)
     galaxy::render::CoopRoomStatus status;
     status.players = static_cast<unsigned>(std::max<std::size_t>(gCoopSession.players().size(), 1u));
@@ -2444,6 +2476,45 @@ void start_coop_join() {
         return;
     }
     gCoopMenu.set_joining(true);
+}
+
+// A Join pressed in Discord (galaxy/discord_presence.h), on the game's thread: on the main menu it joins the room at
+// once, as the Join page would with its code and password; in a game it waits for the main menu (the pause menu's
+// Quit), as sm64coopdx would leave the game for it but without dropping a room or a save under the player.
+void handle_discord_join(bool at_menu) {
+    const std::optional<std::string> secret = galaxy::discord::take_join_secret();
+    if (!secret) return;
+    const std::optional<galaxy::discord::JoinRoom> join = galaxy::discord::parse_join_secret(*secret);
+    const std::optional<std::string> code = join ? coop_join_code(join->code) : std::nullopt;
+    if (!code) {
+        std::fprintf(stderr, "[discord] Join: not a NebulaNet room\n");
+        return;
+    }
+    std::string here = gCoopSession.room_code();
+    if (here.empty() && gCoopSession.active()) here = coop_join_code(gCoopMenu.room().join_address).value_or("");
+    if (here == *code && gCoopSession.state() != galaxy::coop::SessionState::Idle) {
+        std::fprintf(stderr, "[discord] Join: already in room %s\n", code->c_str());
+        return;
+    }
+    std::fprintf(stderr, "[discord] Join: room %s\n", code->c_str());
+    if (!at_menu) {
+        gCoopAutoStart = CoopAutoStart::Join;
+        gCoopAutoAddress = *code;
+        gCoopAutoPassword = join->password;
+        gCoopChat.say("CoopDiscordJoin", *code);
+        return;
+    }
+    if (gCoopMenu.joining()) {
+        // Another join was under way: Discord's takes its place.
+        gCoopMenu.set_joining(false);
+        gCoopSession.leave();
+        (void)gCoopSession.take_events();
+    }
+    galaxy::RuntimeCoopSettings room = gCoopMenu.room();
+    room.join_address = *code;
+    room.password = join->password;
+    gCoopMenu.set_room(room);
+    start_coop_join();
 }
 
 // While a join connects: true once the host let this player in and its save is ready to play.
@@ -2844,6 +2915,9 @@ int32_t svc_coop_menu(void*, uint32_t what) {
             } else if (start == CoopAutoStart::Join) {
                 galaxy::RuntimeCoopSettings room = gCoopMenu.room();
                 room.join_address = gCoopAutoAddress;
+                if (std::optional<std::string> password = std::exchange(gCoopAutoPassword, std::nullopt)) {
+                    room.password = std::move(*password);
+                }
                 gCoopMenu.set_room(room);
                 start_coop_join();
             }
@@ -2869,6 +2943,7 @@ int32_t svc_coop_menu(void*, uint32_t what) {
     case NEBULA_COOP_MENU_LEAVE:
         // Each game scene frame: the room's news, the chat's line, and the room ending under the player.
         pump_coop_session();
+        handle_discord_join(false);
 #if defined(NEBULA_HOST_RENDERER)
         pump_coop_chat();
         if (galaxy::render::take_leave_game()) {
@@ -2894,6 +2969,7 @@ int32_t svc_coop_menu(void*, uint32_t what) {
     case NEBULA_COOP_MENU_POLL:
         // What the player changed is kept as they change it, a text once kept.
         if (!gCoopMenu.editing()) keep_coop_settings();
+        if (!gCoopMenu.editing()) handle_discord_join(true);
         if (poll_coop_join()) return NEBULA_COOP_MENU_PLAY;
         poll_coop_rooms();
         switch (gCoopMenu.take_command()) {
@@ -5828,6 +5904,16 @@ int main(int argc, char** argv) {
     // Discord: never from a hidden start (a test), which must leave the player's status alone.
     if (!::galaxy::launch_args().started_hidden) {
         galaxy::discord::set_enabled_provider([] { return galaxy::get_runtime_settings().discord_status; });
+#if defined(_WIN32)
+        // A Join pressed in Discord while Nebula is closed starts it as this start was: its program, disc and saves
+        // (the first game's; the others are started from it).
+        if (galaxy::game_instance() == 1u) {
+            const auto quoted = [](const fs::path& path) { return L"\"" + path.wstring() + L"\""; };
+            galaxy::discord::set_launch_command(quoted(fs::path(::galaxy::windows::executable_path())) + L" --pak " +
+                                                quoted(fs::absolute(pak, error)) + L" --saves " +
+                                                quoted(fs::absolute(saves, error)));
+        }
+#endif
         galaxy::discord::start(kDiscordClientId);
     }
     const galaxy::render::RenderConfig render_config = galaxy::render::get_render_config();

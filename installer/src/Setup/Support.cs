@@ -274,6 +274,9 @@ namespace Nebula.Setup
         // NebulaCoop's own entries (NebulaPaths.ProductName): an installed upstream Nebula keeps its shortcuts, keys and entry.
         private const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\" + NebulaPaths.ProductName;
         private const string Name = NebulaPaths.ProductName;
+        // How Discord starts NebulaCoop for a Join (the game writes it: discord_presence.cpp, host_main.cpp
+        // kDiscordClientId); NebulaCoop's own Discord application, so upstream Nebula's never shares it.
+        private const string DiscordLaunchKey = @"Software\Classes\discord-1567615368938397866";
 
         private static string DesktopLink
         {
@@ -429,6 +432,7 @@ namespace Nebula.Setup
             Registry.CurrentUser.DeleteSubKeyTree(UninstallKey, false);
             Registry.CurrentUser.DeleteSubKeyTree(NebulaPaths.RegistryKey, false);
             Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\" + LumaFileType, false);
+            Registry.CurrentUser.DeleteSubKeyTree(DiscordLaunchKey, false);
             // .luma stays when it opens with another program (an installed upstream Nebula's): only this install's goes.
             bool ownsLuma;
             using (var key = Registry.CurrentUser.OpenSubKey(@"Software\Classes\.luma"))

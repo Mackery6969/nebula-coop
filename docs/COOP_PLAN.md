@@ -64,7 +64,15 @@ introduces players, as sm64coopdx's CoopNet does, so nobody has to forward a por
   through (CoopNet's PEER_FAILED, the host always staying). The Host page's NEBULANET SERVER picks another NebulaNet.
 - **Relay fallback (next).** Where both routers are too strict for punching (carrier NAT, some campus networks),
   the joiner goes through a TURN relay: NebulaNet already hands TURN servers out (`ice` in its answers, as CoopNet's
-  STUN_TURN); the game doesn't use them yet. Later still: a Discord Join button carrying the room code.
+  STUN_TURN); the game doesn't use them yet.
+- **Discord.** As sm64coopdx's Discord activity: in a room the status shows the party ("2 of 8") and, on NebulaNet,
+  a Join button whose secret is `nebulanet:<code>:<password>` (sm64coopdx's `coopnet:<lobby>:<password>`). The host
+  always offers it, a joiner only for a room without a password, and only on the default NebulaNet server. The party's
+  id is a hash of the code, so the code itself only reaches whoever presses Join. Discord hands the secret to the game
+  over the same IPC pipe as the status (`ACTIVITY_JOIN`, `discord_presence.cpp`): on the main menu it joins at once;
+  in a game it waits for the main menu (in a room the chat says so) rather than dropping a room or a save. On Windows the game
+  registers `discord-<application id>` under the user's classes so Discord can start a closed Nebula for a Join; the
+  uninstaller removes it. Ask to Join (`ACTIVITY_JOIN_REQUEST`) isn't answered, as in sm64coopdx.
 - **Dedicated server (later).** The world simulation *is* the game, so a server with nobody playing on it needs a
   headless Nebula: the game module running with no window, renderer or audio output, and no local Mario (or a hidden
   one). That's a real but separate project after Phase 2. The protocol is designed so the authority doesn't have to be
@@ -723,7 +731,8 @@ Each phase ships on its own and leaves the game playable.
       player's are its own (see [Cutscenes and transitions](#cutscenes-and-transitions)). Bosses' phases and their
       one-time scenes are the room's for the bosses [Boss fights](#boss-fights) lists.
 - [ ] Camera and HUD per player; spectate on death.
-- [ ] Discord presence for the lobby (`discord_presence.cpp` already exists), player colours.
+- [x] Discord presence for the lobby: the party and a Join button ([Hosting](#hosting)).
+- [ ] Player colours.
 
 ## Versions
 

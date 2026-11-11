@@ -6,7 +6,9 @@
 #include <cstdio>
 #include <cstring>
 #include <mutex>
+#include <optional>
 #include <thread>
+#include <utility>
 
 #if defined(_WIN32)
 #include "galaxy/windows_api.h"
@@ -37,6 +39,8 @@ namespace {
 constexpr std::uint32_t kOpHandshake = 0u;
 constexpr std::uint32_t kOpFrame = 1u;
 constexpr std::uint32_t kOpClose = 2u;
+constexpr std::uint32_t kOpPing = 3u;
+constexpr std::uint32_t kOpPong = 4u;
 
 std::mutex s_mutex;
 std::condition_variable s_wake;
@@ -45,6 +49,43 @@ Activity s_activity;
 bool (*s_enabled_provider)() = nullptr;
 bool s_dirty = true;
 bool s_started = false;
+std::filesystem::path::string_type s_launch_command;
+std::optional<std::string> s_join_secret;
+
+void append_utf8(std::string& out, std::uint32_t c) {
+    if (c < 0x80u) {
+        out += static_cast<char>(c);
+    } else if (c < 0x800u) {
+        out += static_cast<char>(0xC0u | (c >> 6u));
+        out += static_cast<char>(0x80u | (c & 0x3Fu));
+    } else if (c < 0x10000u) {
+        out += static_cast<char>(0xE0u | (c >> 12u));
+        out += static_cast<char>(0x80u | ((c >> 6u) & 0x3Fu));
+        out += static_cast<char>(0x80u | (c & 0x3Fu));
+    } else {
+        out += static_cast<char>(0xF0u | (c >> 18u));
+        out += static_cast<char>(0x80u | ((c >> 12u) & 0x3Fu));
+        out += static_cast<char>(0x80u | ((c >> 6u) & 0x3Fu));
+        out += static_cast<char>(0x80u | (c & 0x3Fu));
+    }
+}
+
+// Four hex digits at `text[at]`; nullopt when they aren't.
+std::optional<std::uint32_t> hex4(std::string_view text, std::size_t at) {
+    if (at + 4u > text.size()) return std::nullopt;
+    std::uint32_t value = 0u;
+    for (std::size_t i = at; i < at + 4u; ++i) {
+        const char c = text[i];
+        value <<= 4u;
+        if (c >= '0' && c <= '9') value |= static_cast<std::uint32_t>(c - '0');
+        else if (c >= 'a' && c <= 'f') value |= static_cast<std::uint32_t>(c - 'a' + 10);
+        else if (c >= 'A' && c <= 'F') value |= static_cast<std::uint32_t>(c - 'A' + 10);
+        else return std::nullopt;
+    }
+    return value;
+}
+
+constexpr std::string_view kJoinPrefix = "nebulanet:";
 }  // namespace
 
 std::string json_string(std::string_view text) {
@@ -81,6 +122,99 @@ std::string frame(std::uint32_t opcode, std::string_view json) {
     return out;
 }
 
+bool take_frame(std::string& buffer, std::uint32_t* opcode, std::string* json) {
+    if (buffer.size() < 8u) return false;
+    std::uint32_t op = 0u, length = 0u;
+    for (unsigned i = 0; i < 4u; ++i) {
+        op |= static_cast<std::uint32_t>(static_cast<unsigned char>(buffer[i])) << (8u * i);
+        length |= static_cast<std::uint32_t>(static_cast<unsigned char>(buffer[4u + i])) << (8u * i);
+    }
+    if (buffer.size() - 8u < length) return false;
+    if (opcode != nullptr) *opcode = op;
+    if (json != nullptr) json->assign(buffer, 8u, length);
+    buffer.erase(0u, 8u + static_cast<std::size_t>(length));
+    return true;
+}
+
+std::optional<std::string> json_field(std::string_view json, std::string_view key) {
+    const std::string quoted = "\"" + std::string(key) + "\"";
+    for (std::size_t at = json.find(quoted); at != std::string_view::npos; at = json.find(quoted, at + 1u)) {
+        std::size_t i = at + quoted.size();
+        while (i < json.size() && (json[i] == ' ' || json[i] == '\t' || json[i] == '\n' || json[i] == '\r')) ++i;
+        if (i >= json.size() || json[i] != ':') continue;  // a value that happens to be the key's text
+        ++i;
+        while (i < json.size() && (json[i] == ' ' || json[i] == '\t' || json[i] == '\n' || json[i] == '\r')) ++i;
+        if (i >= json.size() || json[i] != '"') return std::nullopt;  // not a string
+        std::string out;
+        for (++i; i < json.size(); ++i) {
+            const char c = json[i];
+            if (c == '"') return out;
+            if (c != '\\') {
+                out += c;
+                continue;
+            }
+            if (++i >= json.size()) return std::nullopt;
+            switch (json[i]) {
+            case 'n': out += '\n'; break;
+            case 'r': out += '\r'; break;
+            case 't': out += '\t'; break;
+            case 'b': out += '\b'; break;
+            case 'f': out += '\f'; break;
+            case 'u': {
+                std::optional<std::uint32_t> unit = hex4(json, i + 1u);
+                if (!unit) return std::nullopt;
+                i += 4u;
+                std::uint32_t c32 = *unit;
+                if (c32 >= 0xD800u && c32 <= 0xDBFFu && i + 2u < json.size() && json[i + 1u] == '\\' &&
+                    json[i + 2u] == 'u') {
+                    if (const std::optional<std::uint32_t> low = hex4(json, i + 3u);
+                        low && *low >= 0xDC00u && *low <= 0xDFFFu) {
+                        c32 = 0x10000u + ((c32 - 0xD800u) << 10u) + (*low - 0xDC00u);
+                        i += 6u;
+                    }
+                }
+                append_utf8(out, c32);
+                break;
+            }
+            default: out += json[i]; break;  // \" \\ \/
+            }
+        }
+        return std::nullopt;  // cut off
+    }
+    return std::nullopt;
+}
+
+std::string join_secret(std::string_view code, std::string_view password) {
+    return std::string(kJoinPrefix) + std::string(code) + ":" + std::string(password);
+}
+
+std::optional<JoinRoom> parse_join_secret(std::string_view secret) {
+    if (secret.substr(0u, kJoinPrefix.size()) != kJoinPrefix) return std::nullopt;
+    secret.remove_prefix(kJoinPrefix.size());
+    const std::size_t colon = secret.find(':');
+    JoinRoom room;
+    room.code = std::string(secret.substr(0u, colon));
+    if (colon != std::string_view::npos) room.password = std::string(secret.substr(colon + 1u));  // may hold ':'
+    if (room.code.empty()) return std::nullopt;
+    return room;
+}
+
+std::string party_id(std::string_view code) {
+    std::uint64_t hash = 0xCBF29CE484222325ull;  // FNV-1a
+    for (const char c : code) {
+        hash ^= static_cast<unsigned char>(c);
+        hash *= 0x100000001B3ull;
+    }
+    char text[32];
+    std::snprintf(text, sizeof(text), "nebulanet-%016llx", static_cast<unsigned long long>(hash));
+    return text;
+}
+
+std::string subscribe_json(std::string_view event, std::uint32_t nonce) {
+    return "{\"cmd\":\"SUBSCRIBE\",\"args\":{},\"evt\":" + json_string(event) + ",\"nonce\":\"" +
+           std::to_string(nonce) + "\"}";
+}
+
 std::string handshake_json(std::string_view client_id) {
     return "{\"v\":1,\"client_id\":" + json_string(client_id) + "}";
 }
@@ -103,7 +237,23 @@ std::string set_activity_json(std::uint32_t pid, const Activity& activity, std::
         field("state", activity.state);
         json += first ? "" : ",";
         json += "\"timestamps\":{\"start\":" + std::to_string(start_seconds) + "}";
-        json += ",\"assets\":{\"large_image\":\"smg\",\"large_text\":\"Super Mario Galaxy (Nebula)\"}}";
+        json += ",\"assets\":{\"large_image\":\"smg\",\"large_text\":\"Super Mario Galaxy (Nebula)\"}";
+        // An online room: its party ("2 of 8" beside the status) and, with a secret, the Join button.
+        const Party& party = activity.party;
+        const bool counted = party.size > 0u && party.max >= party.size;
+        if (!party.id.empty() || counted) {
+            json += ",\"party\":{";
+            if (!party.id.empty()) json += "\"id\":" + json_string(party.id);
+            if (counted) {
+                json += party.id.empty() ? "" : ",";
+                json += "\"size\":[" + std::to_string(party.size) + "," + std::to_string(party.max) + "]";
+            }
+            json += "}";
+        }
+        if (!party.id.empty() && !party.join_secret.empty()) {
+            json += ",\"secrets\":{\"join\":" + json_string(party.join_secret) + "}";
+        }
+        json += ",\"instance\":false}";
     }
     json += "},\"nonce\":\"" + std::to_string(nonce) + "\"}";
     return json;
@@ -280,8 +430,59 @@ private:
 };
 #endif
 
+#if defined(_WIN32)
+// How Discord starts Nebula for a Join pressed while it is closed: the URL protocol discord-<client id> under the
+// user's own classes (no administrator), as Discord's libraries register it. Rewritten each start, so it follows the
+// install; the uninstaller removes it.
+void register_launch(const std::string& client_id, const std::wstring& command) {
+    if (command.empty()) return;
+    const std::wstring key = L"Software\\Classes\\discord-" + std::wstring(client_id.begin(), client_id.end());
+    const std::wstring description = L"URL:Run game " + std::wstring(client_id.begin(), client_id.end()) + L" protocol";
+    const auto set = [&](const wchar_t* subkey, const wchar_t* name, const std::wstring& value) {
+        return RegSetKeyValueW(HKEY_CURRENT_USER, (key + subkey).c_str(), name, REG_SZ, value.c_str(),
+                               static_cast<DWORD>((value.size() + 1u) * sizeof(wchar_t))) == ERROR_SUCCESS;
+    };
+    const bool ok = set(L"", nullptr, description) && set(L"", L"URL Protocol", L"") &&
+                    set(L"\\shell\\open\\command", nullptr, command);
+    std::fprintf(stderr, ok ? "[discord] Join starts Nebula\n" : "[discord] Join could not be set up to start Nebula\n");
+}
+#else
+void register_launch(const std::string&, const std::filesystem::path::string_type&) {}
+#endif
+
+// What Discord sent: a ping answered, a Join's secret kept for the game, an error logged. False when the pipe broke.
+bool handle_incoming(Pipe& pipe, std::string& buffer) {
+    std::uint32_t opcode = 0u;
+    std::string json;
+    while (take_frame(buffer, &opcode, &json)) {
+        if (opcode == kOpPing) {
+            if (!pipe.write(frame(kOpPong, json))) return false;
+            continue;
+        }
+        if (opcode == kOpClose) return false;
+        if (opcode != kOpFrame) continue;
+        const std::optional<std::string> event = json_field(json, "evt");
+        if (!event) continue;
+        if (*event == "ACTIVITY_JOIN") {
+            if (std::optional<std::string> secret = json_field(json, "secret")) {
+                std::fprintf(stderr, "[discord] Join pressed\n");
+                std::lock_guard<std::mutex> lock(s_mutex);
+                s_join_secret = std::move(secret);
+            }
+        } else if (*event == "ERROR") {
+            const std::optional<std::string> message = json_field(json, "message");
+            std::fprintf(stderr, "[discord] error: %s\n", message ? message->c_str() : json.c_str());
+        }
+    }
+    // A frame that says it is huge isn't Discord's: start again rather than keep it.
+    if (buffer.size() > (1u << 20u)) buffer.clear();
+    return true;
+}
+
 void worker() {
     Pipe pipe;
+    std::string incoming;
+    bool registered = false;
     std::uint32_t nonce = 1u;
     const std::int64_t start = std::chrono::duration_cast<std::chrono::seconds>(
                                    std::chrono::system_clock::now().time_since_epoch()).count();
@@ -290,12 +491,14 @@ void worker() {
     for (;;) {
         std::string client_id;
         Activity activity;
+        std::filesystem::path::string_type launch_command;
         bool enabled = false, dirty = false;
         {
             std::unique_lock<std::mutex> lock(s_mutex);
             s_wake.wait_for(lock, std::chrono::seconds(1), [] { return s_dirty; });
             client_id = s_client_id;
             activity = s_activity;
+            launch_command = s_launch_command;
             enabled = s_enabled_provider == nullptr || s_enabled_provider();
             dirty = s_dirty;
             s_dirty = false;
@@ -328,6 +531,16 @@ void worker() {
                 continue;
             }
             std::fprintf(stderr, "[discord] connected\n");
+            incoming.clear();
+            // A Join pressed in Discord (or an invite's) comes as ACTIVITY_JOIN.
+            if (!pipe.write(frame(kOpFrame, subscribe_json("ACTIVITY_JOIN", nonce++)))) {
+                pipe.close();
+                continue;
+            }
+            if (!registered) {
+                registered = true;
+                register_launch(client_id, launch_command);
+            }
             dirty = true;
         }
         if (dirty) {
@@ -337,9 +550,12 @@ void worker() {
                 continue;
             }
             shown = true;
-            std::fprintf(stderr, "[discord] status: %s | %s\n", activity.details.c_str(), activity.state.c_str());
+            std::fprintf(stderr, "[discord] status: %s | %s%s\n", activity.details.c_str(), activity.state.c_str(),
+                         activity.party.size == 0u ? ""
+                         : activity.party.join_secret.empty() ? " (in a room)"
+                                                               : " (in a room, Join on)");
         }
-        if (!pipe.drain(nullptr)) {
+        if (!pipe.drain(&incoming) || !handle_incoming(pipe, incoming)) {
             pipe.close();
             shown = false;
             std::lock_guard<std::mutex> lock(s_mutex);
@@ -378,9 +594,28 @@ void set_enabled_provider(bool (*provider)()) {
 void set_activity(const Activity& activity) {
     std::lock_guard<std::mutex> lock(s_mutex);
     if (s_activity.details == activity.details && s_activity.state == activity.state) return;
-    s_activity = activity;
+    s_activity.details = activity.details;
+    s_activity.state = activity.state;
     s_dirty = true;
     s_wake.notify_one();
+}
+
+void set_party(const Party& party) {
+    std::lock_guard<std::mutex> lock(s_mutex);
+    if (s_activity.party == party) return;
+    s_activity.party = party;
+    s_dirty = true;
+    s_wake.notify_one();
+}
+
+void set_launch_command(std::filesystem::path::string_type command) {
+    std::lock_guard<std::mutex> lock(s_mutex);
+    s_launch_command = std::move(command);
+}
+
+std::optional<std::string> take_join_secret() {
+    std::lock_guard<std::mutex> lock(s_mutex);
+    return std::exchange(s_join_secret, std::nullopt);
 }
 
 }  // namespace galaxy::discord
