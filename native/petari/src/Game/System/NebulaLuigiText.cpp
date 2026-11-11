@@ -3,10 +3,11 @@
 #include "Game/Util/EventUtil.hpp"
 
 namespace {
-    // The lines, each with room for its copy (the game's longest is under 400 units in any of its languages).
+    // The lines, each with room for its copy (the US lines are under 400 units; one that does not fit stays whole).
     const char* const cLines[] = {
-        // Captain Toad when you find him in the Honeyhive Galaxy: "...then we got lost with Luigi...". The Toad
-        // Brigade's lines about the lost Luigi elsewhere belong to his mission and stay as they are.
+        // Captain Toad when you find him in the Honeyhive Galaxy: its second page, "But then we thought Bowser would get
+        // us, and then we got lost with Luigi...". The Toad Brigade's lines about the lost Luigi elsewhere belong to his
+        // mission and stay as they are.
         "ForestHomeZone_Kinopio001",
         "ForestHomeZone_Kinopio002",
         "ForestHomeZone_Kinopio009",
@@ -48,8 +49,7 @@ namespace NebulaLuigiText {
                 return pText;
             }
             const char16_t* pLuigi = findText(rData, "System_PlayerName100");
-            const char16_t* pMario = findText(rData, "System_PlayerName000");
-            if (pMario == nullptr || pLuigi == nullptr || nameMario(sCopies[i], cLineRoom, pText, pLuigi, pMario) < 0) {
+            if (pLuigi == nullptr || dropPagesNaming(sCopies[i], cLineRoom, pText, pLuigi) < 0) {
                 return pText;
             }
             return sCopies[i];

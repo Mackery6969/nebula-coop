@@ -5,73 +5,80 @@
 class MessageData;
 
 // The game's lines that talk about Luigi as someone else, where the player playing Luigi would be told about himself:
-// Captain Toad in the Honeyhive Galaxy ("we got lost with Luigi..."). For a Luigi player those lines name Mario instead.
-// The game's other lines already fit Luigi (the player's name tag, the talks' Luigi branches); the lost-Luigi mission's
-// lines stay as the game has them. Only this game's player counts, so in co-op each player reads the lines for their own
-// character.
+// Captain Toad in the Honeyhive Galaxy ("...and then we got lost with Luigi..."). For a Luigi player that page of the
+// talk is left out. The game's other lines already fit Luigi (the player's name tag, the talks' Luigi branches); the
+// lost-Luigi mission's lines stay as the game has them. Only this game's player counts, so in co-op each player reads
+// the lines for their own character.
 namespace NebulaLuigiText {
-    // The picture tags of Mario's and Luigi's faces, and the text colors their names are in (red and green).
-    const char16_t cMarioPicture = 18;
-    const char16_t cLuigiPicture = 28;
-    const u8 cMarioColor = 1;
-    const u8 cLuigiColor = 2;
-
-    // pText (the game's text for its message `index` in rData), or for a Luigi player and a line above, a copy that names
-    // Mario: his name (System_PlayerName000) for Luigi's (System_PlayerName100) in the played language, his face and color.
+    // pText (the game's text for its message `index` in rData), or for a Luigi player and a line above, a copy without
+    // the pages that name Luigi (System_PlayerName100, in the played language).
     const char16_t* fit(const MessageData& rData, u32 index, const char16_t* pText);
 
-    // pSrc into pDst (`capacity` units with the terminator) with each pFrom outside a tag as pTo, Luigi's face as Mario's
-    // and the green text color as the red; its length, or -1 when it does not fit (or pFrom is empty).
-    inline s32 nameMario(char16_t* pDst, s32 capacity, const char16_t* pSrc, const char16_t* pFrom, const char16_t* pTo) {
-        if (pFrom == nullptr || pFrom[0] == 0) {
+    // Whether the `units` units at pText (no tag cut in two) name pName outside a tag.
+    inline bool names(const char16_t* pText, s32 units, const char16_t* pName) {
+        for (s32 at = 0; at < units;) {
+            if (pText[at] == cMessageTagEscape && at + 1 < units) {
+                const s32 tag = getMessageTagUnits(pText[at + 1]);
+                at += tag > 0 ? tag : 1;
+                continue;
+            }
+            s32 i = 0;
+            while (pName[i] != 0 && at + i < units && pText[at + i] == pName[i]) {
+                i++;
+            }
+            if (pName[i] == 0) {
+                return true;
+            }
+            at++;
+        }
+        return false;
+    }
+
+    // pSrc into pDst (`capacity` units with the terminator) without its pages (each up to and with its next-page tag,
+    // <1:1>) that name pName outside a tag; its length, or -1 when it does not fit, pName is empty or every page names it.
+    inline s32 dropPagesNaming(char16_t* pDst, s32 capacity, const char16_t* pSrc, const char16_t* pName) {
+        if (pName == nullptr || pName[0] == 0) {
             return -1;
         }
         s32 length = 0;
+        // Where the kept text's last next-page tag starts: a dropped last page takes it with it.
+        s32 lastPageTag = -1;
+        bool kept = false;
         while (*pSrc != 0) {
+            // The page: up to and with its next-page tag, or to the end.
             s32 units = 0;
-            const char16_t* pPut = pSrc;
-            const s32 tagStart = length;
-            bool tag = false;
-            if (pSrc[0] == cMessageTagEscape && pSrc[1] != 0) {
-                // A tag, whole: its data is not text.
-                units = getMessageTagUnits(pSrc[1]);
-                units = units > 0 ? units : 1;
-                tag = true;
-                pSrc += units;
-            } else {
-                s32 i = 0;
-                while (pFrom[i] != 0 && pSrc[i] == pFrom[i]) {
-                    i++;
-                }
-                if (pFrom[i] == 0) {
-                    pPut = pTo;
-                    while (pTo[units] != 0) {
-                        units++;
+            bool pageTag = false;
+            while (pSrc[units] != 0) {
+                if (pSrc[units] == cMessageTagEscape && pSrc[units + 1] != 0) {
+                    const s32 tag = getMessageTagUnits(pSrc[units + 1]);
+                    pageTag = pSrc[units + 1] == cMessageTagNextPageHead && pSrc[units + 2] == cMessageTagNextPage;
+                    units += tag > 0 ? tag : 1;
+                    if (pageTag) {
+                        break;
                     }
-                    pSrc += i;
                 } else {
-                    units = 1;
-                    pSrc++;
+                    units++;
                 }
             }
-            if (length + units >= capacity) {
-                return -1;
-            }
-            for (s32 i = 0; i < units; i++) {
-                pDst[length++] = pPut[i];
-            }
-            if (tag && units >= 3) {
-                // The tag's group is its head's high byte, its number the next unit; a color's index is the high byte
-                // of the unit after.
-                const u32 group = pDst[tagStart + 1] >> 8;
-                const char16_t number = pDst[tagStart + 2];
-                if (group == MessageTagGroup_Picture && number == cLuigiPicture) {
-                    pDst[tagStart + 2] = cMarioPicture;
-                } else if (group == MessageTagGroup_System && number == 0 && units >= 4 &&
-                           (pDst[tagStart + 3] >> 8) == cLuigiColor) {
-                    pDst[tagStart + 3] = static_cast< char16_t >((pDst[tagStart + 3] & 0xFF) | (cMarioColor << 8));
+            if (names(pSrc, units, pName)) {
+                if (!pageTag && lastPageTag >= 0) {
+                    length = lastPageTag;
+                    lastPageTag = -1;
                 }
+            } else {
+                if (length + units >= capacity) {
+                    return -1;
+                }
+                for (s32 i = 0; i < units; i++) {
+                    pDst[length++] = pSrc[i];
+                }
+                lastPageTag = pageTag ? length - 3 : -1;
+                kept = true;
             }
+            pSrc += units;
+        }
+        if (!kept) {
+            return -1;
         }
         pDst[length] = 0;
         return length;
