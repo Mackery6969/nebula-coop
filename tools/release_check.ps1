@@ -40,7 +40,10 @@ $repo = Split-Path -Parent $PSScriptRoot
 foreach ($folder in @("native", "runtime", "platform")) {
     $root = Join-Path $repo $folder
     if (-not (Test-Path -LiteralPath $root)) { $failures.Add("$folder is missing"); continue }
-    foreach ($source in Get-ChildItem -LiteralPath $root -Recurse -File -Include "*.cpp", "*.h", "*.hpp", "*.c", "*.inc", "*.mm", "*.kt", "*.java") {
+    # Filtered by extension, not -Include: Windows PowerShell (which runs this script) ignores -Include with -LiteralPath
+    # and would read every file (native\tools\*.py among them).
+    foreach ($source in Get-ChildItem -LiteralPath $root -Recurse -File |
+                        Where-Object { @(".cpp", ".h", ".hpp", ".c", ".inc", ".mm", ".kt", ".java") -contains $_.Extension.ToLowerInvariant() }) {
         if ($source.BaseName -like "*_tests" -or $source.FullName -like "*\third_party\*") { continue }
         $text = [IO.File]::ReadAllText($source.FullName)
         $relative = $source.FullName.Substring($repo.Length + 1)
@@ -49,8 +52,9 @@ foreach ($folder in @("native", "runtime", "platform")) {
         }
     }
 }
-foreach ($cmake in Get-ChildItem -LiteralPath $repo -Recurse -File -Include "CMakeLists.txt", "*.cmake" |
-                   Where-Object { $_.FullName -notlike "*\third_party\*" -and $_.FullName -notlike "*\build*" }) {
+foreach ($cmake in Get-ChildItem -LiteralPath $repo -Recurse -File |
+                   Where-Object { ($_.Name -eq "CMakeLists.txt" -or $_.Extension -eq ".cmake") -and
+                                  $_.FullName -notlike "*\third_party\*" -and $_.FullName -notlike "*\build*" }) {
     $text = [IO.File]::ReadAllText($cmake.FullName)
     if ($text -match 'NEBULA_DEV|NEBULA_RELEASE') {
         $failures.Add("$($cmake.FullName.Substring($repo.Length + 1)) defines a build kind: there is one build")
