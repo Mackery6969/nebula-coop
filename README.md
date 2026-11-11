@@ -1,19 +1,18 @@
 # Nebula Co-Op
 
 **Online co-op for Super Mario Galaxy on PC.** Nebula Co-Op is a fork of
-[**Nebula**](https://github.com/keepvaibin/nebula) by [**keepvaibin**](https://github.com/keepvaibin), the native PC
-port of Super Mario Galaxy, that adds online multiplayer in the spirit of
-[sm64coopdx](https://github.com/coop-deluxe/sm64coopdx): several players in the same galaxy, each with their own Mario
-or Luigi, over the internet.
+[**Nebula**](https://github.com/keepvaibin/nebula) by [**keepvaibin**](https://github.com/keepvaibin), the native PC port of Super Mario Galaxy, that adds online multiplayer in the spirit of [sm64coopdx](https://github.com/coop-deluxe/sm64coopdx): several players in the same galaxy, each with their own Mario or Luigi, over the internet.
 
-You need your own copy of the game. Not affiliated with or endorsed by Nintendo.
+You need your own copy of the game. Not affiliated with or endorsed by Nintendo. (Please don't hurt me Nintendo.)
 
 [Download](https://github.com/NebulaCoop/nebula-coop/releases/latest) ·
 [Playing online](#playing-online) ·
 [Building from source](docs/BUILDING.md) ·
 [Co-op design](docs/COOP_PLAN.md) ·
 [Controls](docs/KEYBOARD_CONTROLS.md) ·
-[Upstream Nebula](https://github.com/keepvaibin/nebula)
+[Upstream Nebula](https://github.com/keepvaibin/nebula) ·
+[Discord](https://discord.gg/hNbgFtaRHv) ·
+[Discord (Nebula)](https://discord.gg/2fJEdhAw2f)
 
 ## Credits
 
