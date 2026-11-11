@@ -41,6 +41,10 @@ jobs:
   changes:
     name: Changes
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      # Reads the earlier Build runs of main.
+      actions: read
     outputs:
       game: ${{ steps.filter.outputs.game }}
       installer: ${{ steps.filter.outputs.installer }}
@@ -49,27 +53,46 @@ jobs:
         if: github.event_name != 'workflow_dispatch'
         with:
           # A pull request: its merge commit and the base branch it was merged onto (the first parent).
-          # A push: the pushed commit (the commit before it is fetched below).
+          # A push: the pushed commit (the commit it is compared with is fetched below).
           fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 1 }}
       - id: filter
         env:
-          BEFORE: ${{ github.event.before }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           all() {
             echo "Building everything: $1"
             { echo game=true; echo installer=true; } >> "$GITHUB_OUTPUT"
             exit 0
           }
+          # The commit of the newest finished Build of main whose Build result passed. A push is compared with it, not
+          # with the commit before it: a push cancels the run still going for the one before (concurrency above), so
+          # a game change followed by a docs change would otherwise never be built. A failed build is not counted
+          # either, so its changes are built again by the next push until one passes.
+          last_good() {
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/build.yml/runs?branch=main&status=completed&per_page=30" \
+              --jq '.workflow_runs[] | select(.event == "push" or .event == "workflow_dispatch")
+                    | select(.conclusion == "success" or .conclusion == "failure") | "\(.id) \(.head_sha)"' |
+            while read -r id sha; do
+              result=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/jobs?per_page=100" \
+                --jq '.jobs[] | select(.name == "Build result") | .conclusion')
+              if [ "$result" = success ]; then
+                echo "$sha"
+                break
+              fi
+            done
+          }
           case "$GITHUB_EVENT_NAME" in
             pull_request)
+              # The whole pull request, so a cancelled run for an earlier push to it loses nothing.
               files=$(git diff --name-only HEAD^1 HEAD) ;;
             push)
-              # A new branch, or a commit no longer on GitHub (a force push): nothing to compare with.
-              if [ -z "$BEFORE" ] || [ "$BEFORE" = 0000000000000000000000000000000000000000 ] ||
-                 ! git fetch -q --depth=1 origin "$BEFORE"; then
-                all "no earlier commit to compare with"
+              base=$(last_good || true)
+              # None in the last 30 runs, or a commit no longer on GitHub (a force push): nothing to compare with.
+              if [ -z "$base" ] || ! git fetch -q --depth=1 origin "$base"; then
+                all "no passing build of main to compare with"
               fi
-              files=$(git diff --name-only "$BEFORE" HEAD) ;;
+              echo "Compared with $base, the last commit of main that built."
+              files=$(git diff --name-only "$base" HEAD) ;;
             *)
               all "$GITHUB_EVENT_NAME" ;;
           esac
