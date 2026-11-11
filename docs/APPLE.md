@@ -112,12 +112,12 @@ A command line builds `game.pak` as the window does:
 
 ```
 cargo build --release --locked -p nebula-import
-target/release/nebula-import import <disc image> --output "$HOME/Library/Application Support/Nebula/game"
+target/release/nebula-import import <disc image> --output "$HOME/Library/Application Support/NebulaCoop/game"
 ```
 
 ## On the Mac
 
-`~/Library/Application Support/Nebula` (`--data` names another):
+`~/Library/Application Support/NebulaCoop` (`--data` names another):
 
 | Path | |
 | --- | --- |

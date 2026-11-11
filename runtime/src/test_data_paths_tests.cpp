@@ -2,6 +2,7 @@
 // extension's work-folder policy (tools/test_driver/extension/data_guard.h).
 #include "data_guard.h"
 #include "galaxy/hidden_start.h"
+#include "galaxy/platform_paths.h"
 
 #include <filesystem>
 #include <iostream>
@@ -47,7 +48,7 @@ int main() {
 
         // The host: a hidden start names its own settings and crash folders, none in the player's data folder.
         const fs::path player = galaxy::host::player_data_folder();
-        check(!player.empty() && player.filename() == L"Nebula", "the player's data folder");
+        check(!player.empty() && player.filename() == galaxy::kDataFolderNameWide, "the player's data folder");
         const Args private_run({L"game", L"--saves", (root / "saves").wstring(), L"--settings", (root / "settings").wstring(),
                                 L"--crash-dumps", (root / "crashes").wstring(), L"--data", (root / "data").wstring()});
         check(hidden_start_error(true, private_run.count(), private_run.data()) == nullptr, "a private hidden start");

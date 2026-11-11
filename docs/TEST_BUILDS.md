@@ -58,7 +58,7 @@ NebulaNative --join 127.0.0.1
 
 On Windows up to four games run at once. The first plays as always; each one started while it runs is game 2, 3 or 4
 (its window says "Nebula (2)") and keeps its own settings, graphics settings, logs and saves in
-`%LOCALAPPDATA%\Nebula\instances\<n>\`. The first time, that folder starts as a copy of the first game's (windowed,
+`%LOCALAPPDATA%\NebulaCoop\instances\<n>\`. The first time, that folder starts as a copy of the first game's (windowed,
 so the two don't cover each other), and later starts keep what it has; delete the folder to copy again. All of them
 share the shader cache and the installed mods. The keyboard and Xbox controllers only reach the focused window.
 

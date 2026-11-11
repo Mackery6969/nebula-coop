@@ -8,7 +8,7 @@ and a value. The launcher passes `--pak` and `--saves`; the Android app also pas
 | `--pak <file>` | The game content (`game.pak`). Required. |
 | `--saves <folder>` | The saves folder. Required. |
 | `--module <file>` | The game module; default `smg_game.dll` (`libsmg_game.so`, `libsmg_game.dylib`) beside the executable. |
-| `--data <folder>` | Nebula's data folder (shader caches, crash dumps, downloaded libraries under `vendor`, settings unless `--settings` names others); default `%LOCALAPPDATA%\Nebula`, else `$XDG_DATA_HOME/Nebula`, else `~/.local/share/Nebula`. |
+| `--data <folder>` | Nebula's data folder (shader caches, crash dumps, downloaded libraries under `vendor`, settings unless `--settings` names others); default `%LOCALAPPDATA%\NebulaCoop`, else `~/Library/Application Support/NebulaCoop` on Apple systems, else `$XDG_DATA_HOME/NebulaCoop`, else `~/.local/share/NebulaCoop`. |
 | `--settings <folder>` | The folder of `config.ini` and `runtime_settings.ini` (and `Movies`, `TextureDumps` and `mods` beside them); default the data folder. |
 | `--crash-dumps <folder>` | Crash dumps and reports; default `crashes` in the data folder. |
 | `--gpu-validation 1\|2` | The graphics API's validation layer: 1 the Direct3D 12 debug layer or the Khronos validation layer (when installed), 2 also Direct3D 12's GPU-based validation; after a lost Direct3D 12 device, the objects still alive (`[D3D12-LIVE-OBJECT]`). Slow. |

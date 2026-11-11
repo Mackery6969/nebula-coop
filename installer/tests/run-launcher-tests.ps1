@@ -1,5 +1,5 @@
 param([string]$Setup = '')
-# Launcher and Setup checks without a visible window or the user's %LOCALAPPDATA%\Nebula: first-start decision,
+# Launcher and Setup checks without a visible window or the user's %LOCALAPPDATA%\NebulaCoop: first-start decision,
 # settings form rendered offscreen, launch arguments (stub game), folder moves, nebula.ico in every executable
 # (-Setup adds a built Setup). Writes PNGs to the scratch folder.
 $ErrorActionPreference = 'Stop'
@@ -7,7 +7,7 @@ $repo = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $scratch = Join-Path $env:TEMP ('nebula-launcher-tests-' + [guid]::NewGuid().ToString('N'))
 $app = Join-Path $scratch 'root\versions\test'
 $localAppData = Join-Path $scratch 'localappdata'
-$data = Join-Path $localAppData 'Nebula'
+$data = Join-Path $localAppData 'NebulaCoop'
 New-Item -ItemType Directory -Force $app, $data, (Join-Path $scratch 'root\content') | Out-Null
 Set-Content -LiteralPath (Join-Path $scratch 'root\content\game.pak') -Value 'stub'
 $stub = Join-Path $scratch 'BuildInfo.cs'

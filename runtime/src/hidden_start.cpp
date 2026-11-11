@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // A hidden start keeps off the player's data (hidden_start.h).
 #include "galaxy/hidden_start.h"
+#include "galaxy/platform_paths.h"
 
 #include "galaxy/windows_api.h"
 #include <Shlobj.h>
@@ -14,7 +15,7 @@ std::filesystem::path player_data_folder() {
     if (FAILED(SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, 0, local))) {
         return {};
     }
-    return std::filesystem::path(local) / L"Nebula";
+    return std::filesystem::path(local) / ::galaxy::kDataFolderNameWide;
 }
 
 const char* hidden_start_error(bool hidden, int argc, const wchar_t* const* argv) {
