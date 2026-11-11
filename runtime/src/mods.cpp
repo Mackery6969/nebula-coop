@@ -1417,6 +1417,8 @@ std::vector<ModInfo> scan_folders(const std::vector<std::pair<std::string, fs::p
     return mods;
 }
 
+}  // namespace
+
 void settle_mods(std::vector<ModInfo>& mods) {
     static const ModChanges kNone;
     const auto changes_of = [](const ModInfo& mod) -> const ModChanges& { return mod.changes ? *mod.changes : kNone; };
@@ -1534,8 +1536,6 @@ void settle_mods(std::vector<ModInfo>& mods) {
         }
     }
 }
-
-}  // namespace
 
 void set_mod_enabled(std::vector<ModInfo>& mods, std::size_t index, bool enabled) {
     if (index >= mods.size() || mods[index].enabled == enabled) return;

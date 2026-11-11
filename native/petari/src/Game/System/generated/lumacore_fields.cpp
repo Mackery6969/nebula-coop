@@ -4147,7 +4147,6 @@ namespace lumacore {
         LUMACORE_FIELD(::PowerStarHolder, 728, mNumInfos),
         LUMACORE_FIELD(::PowerStarList, 729, mPageNo),
         LUMACORE_FIELD(::PowerStarList, 729, mPageNum),
-        LUMACORE_FIELD(::PowerStarList, 729, mSysInfoWindow),
         LUMACORE_FIELD(::PressureMessenger, 730, mSharedGroup),
         LUMACORE_FIELD(::PressureMessenger, 730, mWaitSyncTime),
         LUMACORE_FIELD(::PriorDrawAirHolder, 732, mAirCount),

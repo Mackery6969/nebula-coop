@@ -527,7 +527,7 @@ bool FileSelector::updateSettings() {
         return true;
     }
     // The menu opens on the next frame; the file select runs again once it has closed (or was never opened).
-    if (++mSettingsFrames < 2 || NebulaSettingsMenu::isFreezingScene()) {
+    if (++mSettingsFrames < 2 || NebulaSettingsMenu::isHoldingInput()) {
         return true;
     }
     mSettingsFrames = -1;

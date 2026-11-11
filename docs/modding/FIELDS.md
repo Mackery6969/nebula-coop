@@ -4945,7 +4945,6 @@
 
 - `mPageNo`: int (s32)
 - `mPageNum`: int (s32)
-- `mSysInfoWindow`: SysInfoWindow (an object, read-only)
 
 ## PressureMessenger
 
