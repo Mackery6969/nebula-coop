@@ -1,162 +1,162 @@
 # Nebula Co-Op
 
-A co-op mod for Nebula, the native Windows port of Super Mario Galaxy. It allows two players to play together online, with many features and improvements to enhance the co-op experience.
+**Online co-op for Super Mario Galaxy on PC.** Nebula Co-Op is a fork of
+[**Nebula**](https://github.com/keepvaibin/nebula) by [**keepvaibin**](https://github.com/keepvaibin), the native PC
+port of Super Mario Galaxy, that adds online multiplayer in the spirit of
+[sm64coopdx](https://github.com/coop-deluxe/sm64coopdx): several players in the same galaxy, each with their own Mario
+or Luigi, over the internet.
 
-# Nebula
+You need your own copy of the game. Not affiliated with or endorsed by Nintendo.
 
-Nebula runs **Super Mario Galaxy** natively on Windows. You need your own copy of the game.
-
-> **The released version is 1.0.2.** This branch (`main`) is **Nebula 2, in development and not released**: much
-> of this page describes it. [What 1.0.2 has](#in-the-released-version-102) and
-> [what is coming in 2.0](#in-development-for-20-not-released) are listed separately below.
-
-[Download](https://github.com/keepvaibin/nebula/releases/latest) ·
-[Controls](docs/KEYBOARD_CONTROLS.md) ·
+[Download](https://github.com/NebulaCoop/nebula-coop/releases/latest) ·
+[Playing online](#playing-online) ·
 [Building from source](docs/BUILDING.md) ·
-[Architecture](docs/ARCHITECTURE.md)
+[Co-op design](docs/COOP_PLAN.md) ·
+[Controls](docs/KEYBOARD_CONTROLS.md) ·
+[Upstream Nebula](https://github.com/keepvaibin/nebula)
 
-Not affiliated with or endorsed by Nintendo.
+## Credits
 
-## Project status
-
-- **Released: [Nebula 1.0.2](https://github.com/keepvaibin/nebula/releases/latest).** Playable from start to finish
-  with the North American disc (RMGE01). Setup translates the game's PowerPC code to C++ and compiles it on your PC.
-- **In development: Nebula 2** (this branch). The game is built as native code from the
-  [Petari](https://github.com/SMGCommunity/Petari) decompilation, with more discs, controllers and features (below).
-  It is not released; you can build it from source. Bugs remain; see [Known issues](#known-issues).
-
-## How Nebula was made
-
-Nebula's host, renderer, installer, tests and documentation were written with AI coding agents (Anthropic's
-Claude), directed, reviewed and tested by the project's author. The game's own logic, Mario's physics included, is
-the Petari decompilation by SMGCommunity, compiled for the PC with the changes a 64-bit, little-endian host needs.
-
-## How it works
-
-Nebula 2 (this branch; 1.0.2 works differently, see [Project status](#project-status)):
-
-1. **Game module** (`native/`). Petari's game code and the engine code under it (layouts, sound, models, Miis), compiled with clang into
-   `smg_game.dll`.
-2. **Host** (`runtime/`, `native/host`). `NebulaNative.exe` loads the module and gives it its services:
-   typed records drawn with Direct3D 12 or Vulkan, voices mixed and played, controllers and a real Wii Remote, the
-   game's files from the store, saves, and the frame clock.
-3. **Setup and launcher** (`installer/`, C#; `crates/nebula-import`, Rust). `Nebula-Setup.exe` reads your disc
-   image, checks that it is the supported release and packs its files for Nebula; `Nebula.exe` starts the game.
+- **[Nebula](https://github.com/keepvaibin/nebula), by [keepvaibin](https://github.com/keepvaibin).** Everything that
+  makes the game run on a PC is Nebula's: the host, the renderers, Setup and the launcher, controller and Wii Remote
+  support, mods, achievements and the settings menu. Nebula Co-Op follows it closely and merges its changes in
+  regularly.
+- **[sm64coopdx](https://github.com/coop-deluxe/sm64coopdx)** and its
+  [CoopNet](https://github.com/coop-deluxe/coopnet) are the model for how co-op plays here: rooms, instances, player
+  interaction, the bubble on death, chat commands, pop-ups and the Personal Star Counter. Its code is not used; only
+  its design.
+- **[Petari](https://github.com/SMGCommunity/Petari)**, the Super Mario Galaxy decompilation by SMGCommunity, is the
+  game code Nebula builds natively.
+- Other third-party code and its licenses are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) and
+  [docs/PROVENANCE.md](docs/PROVENANCE.md).
 
 ## Features
 
-### In the released version (1.0.2)
+### Playing together
 
-- Keyboard and mouse, Xbox controllers, the Switch Pro and Switch 2 Pro Controllers (USB), remappable. Switch
-  controllers point with the gyro and tilt for the Star Ball and ray surfing; vibration follows the Wii Remote's
-  motor.
-- Aspect ratios from 4:3 to 32:9, internal resolution up to 16x, frame rates above 60.
-- Anti-aliasing (SMAA, FXAA), AMD FidelityFX FSR 1 and NVIDIA DLSS upscaling, anisotropic filtering, optional
-  per-pixel lighting.
-- In-game settings menu (F1, View + Menu on Xbox, Minus + Plus on Switch).
-- Text speed: dialogue and Rosalina's storybook at the original pace, 2x or 3x.
-- English, French or Spanish, the languages of the North American disc.
-- Saves in `%LOCALAPPDATA%\Nebula\saves`, with export, import and Dolphin saves (see [Saves](#saves)).
+- **Rooms of 2 to 16 players** (8 by default). One player hosts and the world runs on their PC; everyone else joins.
+- **Join by room code through [NebulaNet](https://github.com/NebulaCoop/NebulaNet)**, Nebula Co-Op's own
+  CoopNet-style matchmaker, so nobody has to forward a port. Rooms are private: a password lists them on the Join
+  page's ROOMS, and a room code joins one directly.
+- **Or connect directly** to `address:port` (UDP 7777 by default), with a forwarded port or a VPN such as Tailscale,
+  ZeroTier or Radmin VPN.
+- **Mario or Luigi**, picked per player and switchable live, each with their own animations.
+- **Per-mission instances**, as in sm64coopdx: you see and play with the players on the same galaxy *and* star. The
+  galaxy and star selects show who is where.
+- **Mods are the room's**: the host picks them, and joiners download any they don't have from the host. The game
+  version, disc and mods are checked as a player joins.
 
-### In development for 2.0 (not released)
+### A shared world
 
-None of these are in 1.0.2. They are in this branch and change until 2.0 is released.
+- The host's game decides the save, collectibles, enemies and objects; the pause and settings menus no longer pause
+  the game.
+- **Shared enemies and objects**: hits and squashes play for everyone, enemies follow the nearest player, and
+  switches and blocks are shared.
+- **Coins and star bits** are each player's own, but gone for everyone once taken. Star Chips, the Observatory's star
+  bit bank and high scores are shared.
+- **Cutscenes and stars**: each player's cutscenes are their own, and a Grand Star takes everyone in its mission along.
+- **Boss fights are the room's**: a boss's phases are shared, its opening plays once, and players arriving late join
+  the fight in progress.
+- **Races** are each player's own race against the rival, with the other players see-through.
+- **A mission resets** only once everyone in it has missed or left. A game over sends you back to the Observatory and
+  keeps you in the room.
+- **Achievements** unlocked in a save are every player's who plays in it.
 
-- The European (RMGP01) and Japanese (RMGJ01) discs and all their languages ([Languages](#languages)).
-- The game built natively from the Petari decompilation: no compiling during install; a Vulkan renderer beside
-  Direct3D 12.
-- More controllers: PlayStation (DualShock 4, DualSense, DualSense Edge), the Steam Controller and generic HID
-  controllers; gyro pointing and tilt on any controller with motion sensors.
-- MSAA, AMD FSR 3, ambient occlusion.
-- Skippable cutscenes (+ during a cutscene) and Quit on the file select.
-- 34 achievements, each with a pop-up when it is reached. From the Gateway's Grand Star on, a Luma near Mario's start
-  in the Comet Observatory shows them all: tabs, filters and play stats.
-- Instant text speed.
-- Mii import for the file icons from a Wii, DS, 3DS, Wii U, Switch, Mii Studio or Mii Creator. Settings > GENERAL
-  > IMPORT MIIS, or put the files in the `miis` folder next to the settings; imported files are kept there and read
-  at every start.
-- Mods: one `.luma` file for a mod, on every version of the game. [LumaLink](https://github.com/keepvaibin/lumalink) converts Riivolution mods and texture packs to it, and its guide shows how to make one: models, textures, levels, music, cutscenes, galaxies, and native plugins with hooks. Import from Settings > MODS or drop a file on the game window. Among enabled mods the higher one wins a file or texture. Raw mods, disc files and texture packs in the `mods` folder still work.
-- Nebula's own text (its buttons, questions and achievements) in all 14 of the game's languages, changeable or
-  translatable by a mod: [docs/MODDING_NEBULA_TEXT.md](docs/MODDING_NEBULA_TEXT.md).
-- When Nebula stops, an error code ([docs/ERROR_CODES.md](docs/ERROR_CODES.md)) naming the cause and a report in
-  `%LOCALAPPDATA%\Nebula\crashes`.
+### Room options
+
+Set on the Host page, and changed by the host from the in-game ONLINE tab:
+
+- **Player Interaction**: non-solid, solid or friendly fire, with **Knockback Strength** and a **PvP mode**.
+- **Bubble on Death** (on by default): instead of missing, float in a bubble and fly to another player to get back
+  in.
+- **Cheats**, which allow the `/tp`, `/teleport` and `/pos` commands.
+- **Personal Star Counter**, sm64coopdx's mod built in: each player's stars this room and all time.
+
+### In the room
+
+- **Nametags** over each player's head, and a **player list** while Tab (keyboard) or Share (controller) is held.
+- **Chat**: T opens a line, Enter sends it.
+- **Chat commands**, as sm64coopdx's: `/help`, `/players`, `/kick`, `/ban`, `/permban`, `/moderator` and `/confirm`,
+  with Tab completion. See [Chat commands](docs/COOP_PLAN.md#chat-commands).
+- **Pop-ups** when players join, leave, change galaxy, die or get a star, each toggled on the PLAYER page.
+- **Any number of saves**, each with its own name, Power Stars and achievements. Joiners play the host's save; their
+  own saves are untouched.
+
+### Still to come
+
+From [TODO.md](TODO.md): a relay fallback through TURN when a direct path can't be made, a Discord Join button
+carrying the room code, bosses' movement and thrown-object hits shared, story demos with several players, and a
+dedicated server.
+
+Everything Nebula itself offers is here too: keyboard and mouse, Xbox, PlayStation, Switch and Steam controllers and
+a real Wii Remote; Direct3D 12 and Vulkan; upscalers and anti-aliasing; `.luma` mods; and more. See
+[Nebula's README](https://github.com/keepvaibin/nebula#readme) for the full list.
 
 ## Requirements
 
-- Super Mario Galaxy, revision 0, as an ISO, RVZ or extracted folder: North America (RMGE01) for 1.0.2; Europe
-  (RMGP01) and Japan (RMGJ01) too in 2.0 (in development)
+- Your own copy of **Super Mario Galaxy**, revision 0, as an ISO, RVZ or extracted folder: North America (RMGE01),
+  Europe (RMGP01) or Japan (RMGJ01). Everyone in a room needs the same game build and a supported disc.
 - Windows 10 (version 1803 or newer) or Windows 11, 64-bit
-- A GPU with Direct3D 12 support
-- A CPU with AVX2 (2.0)
-- 8 GB of RAM; for 1.0.2, 16 GB of free disk space and an internet connection during installation, about 5.5 GB
-  afterwards
+- A GPU with Direct3D 12 support and a CPU with AVX2
+- 8 GB of RAM
+- An internet connection to play online
 
 ## Install
 
-1. Download `Nebula-Setup.exe` from the [latest release](https://github.com/keepvaibin/nebula/releases/latest).
-   The file is not code-signed, so Windows SmartScreen shows "Unknown publisher"; choose **More info**, then
-   **Run anyway**.
-2. Select your game and choose **Install**.
+1. Download `Nebula-Setup.exe` from the
+   [latest release](https://github.com/NebulaCoop/nebula-coop/releases/latest). It isn't code-signed, so Windows
+   SmartScreen shows "Unknown publisher": choose **More info**, then **Run anyway**.
+2. Select your copy of the game and choose **Install**.
 3. Start **Nebula** from the Start menu.
 
-Setup installs 1.0.2, the released version. Setup also updates, repairs and uninstalls. Updates are signed; Setup checks the signature against the public key
-built into it before installing. Each update keeps the version before it: **Nebula Setup > Restore the previous
-version** goes back to it (and forward again the same way).
+Run Setup again to update, repair or uninstall. Updates come from this repository's releases and are signed; Setup
+checks the signature before installing.
 
-## Languages
+## Playing online
 
-1.0.2 plays the North American disc in English, French or Spanish. Nebula 2 (in development) plays the North American (RMGE01), European (RMGP01) and Japanese (RMGJ01) discs, each in the languages on
-it. Setup names a disc's languages before importing it. The game starts in your system's language where the disc has
-it (else English; Japan's disc in Japanese), and the language setting offers the disc's languages (and those a mod
-adds). Nebula's own menus follow the game's language.
+1. Set your name and character in **Options > PLAYER**.
+2. **To host:** choose **Host**, pick or create a save, and leave NETWORK on **NebulaNet** (or pick **Direct** to
+   share your address and port instead). Set a password to make the room findable by it, then choose **Host**. The
+   room code shows in your chat and on the ONLINE tab.
+3. **To join:** choose **Join**, then enter the room code, or the host's `address:port`, or type the room's password
+   to find it under ROOMS.
 
-| Disc | Languages |
-|---|---|
-| North America, RMGE01 | English, French, Spanish |
-| Europe, RMGP01 | English, French, German, Spanish, Italian (GameTDB) |
-| Japan, RMGJ01 | Japanese |
-| Korea, RMGK01 | Korean (GameTDB); not supported yet |
-
-GameTDB lists no Wii disc in Chinese; Simplified Chinese came with the NVIDIA Shield TV release in China (RNVW01).
-The Korean release's code also names a Simplified Chinese folder (Language.cpp); no Korean disc has been read here to
-see whether it holds one.
-
-## Saves
-
-Saves are kept in `%LOCALAPPDATA%\Nebula\saves`, laid out like the Wii's internal memory: each release keeps its own
-save, as on the Wii, in `title\00010000\<title>\data\GameData.bin` (1.0.2 also writes the Wii Menu's `banner.bin` beside it;
-`524d4745` North America; in 2.0 also `524d4750` Europe and `524d474a` Japan). Move saves with the launcher's **Advanced**
-tab:
-
-- **Export saves…** writes `Nebula-Saves-<date>.zip` with everything the game reads.
-- **Import saves…** takes such a zip, another zip or folder of Nebula saves, or a save from Dolphin. Your current
-  saves are moved to `saves-backup-<date>` beside them first. Close the game before importing or exporting.
-
-To bring a save over from Dolphin, right-click Super Mario Galaxy in Dolphin, choose **Open Wii Save Folder**, then
-in Nebula choose **Advanced**, **Import saves…**, **From a folder…** and select that folder. A save goes to the
-installed disc's release; Nebula and Dolphin use the same save format.
+To leave, use the pause menu's **Quit**. Only the host's Quit saves the room's game; if the host leaves, everyone
+goes back to the main menu.
 
 ## Building from source
 
-[docs/BUILDING.md](docs/BUILDING.md) covers the tools, building the game module, the host and Setup, and running
-the tests.
+[docs/BUILDING.md](docs/BUILDING.md) covers the tools, the game module, the host, Setup and the tests. On Windows,
+[`setup.ps1`](setup.ps1) checks the tools and builds everything in one go:
 
-## Known issues
+```powershell
+.\setup.ps1
+```
 
-- 1.0.2: some players report the game closing when Mario enters or leaves water in some galaxies (Beach Bowl, Sea
-  Slide, Bonefin, Deep Dark, Freezeflame).
-- Heavy background CPU load can make the audio skip.
-- HD replacement movies at 4K need hardware video decoding.
+You still need your own copy of the game to run what you build. The co-op design and its progress are in
+[docs/COOP_PLAN.md](docs/COOP_PLAN.md) and [TODO.md](TODO.md).
 
-Report problems on the [issue tracker](https://github.com/keepvaibin/nebula/issues). If Nebula closed unexpectedly,
-attach its crash report from `%LOCALAPPDATA%\Nebula\crashes`.
+## Related repositories
+
+- [keepvaibin/nebula](https://github.com/keepvaibin/nebula): upstream Nebula, which this repository follows
+- [NebulaCoop/NebulaNet](https://github.com/NebulaCoop/NebulaNet): the room-code matchmaker (a Cloudflare Worker)
+- [NebulaCoop/lumalink-coop](https://github.com/NebulaCoop/lumalink-coop): LumaLink, which converts mods and texture
+  packs to `.luma` files
+
+## Reporting problems
+
+Report co-op problems on this repository's [issue tracker](https://github.com/NebulaCoop/nebula-coop/issues). If the
+game closed unexpectedly, attach its crash report from `%LOCALAPPDATA%\Nebula\crashes`. Please don't report co-op
+problems to upstream Nebula.
+
+## How it was made
+
+Nebula's host, renderer, installer, tests and documentation were written with AI coding agents (Anthropic's Claude),
+directed, reviewed and tested by its author. Much of Nebula Co-Op's co-op code was written the same way. The game's own
+logic is the Petari decompilation, compiled for the PC.
 
 ## License
 
-Nebula is licensed under the GNU General Public License v3.0 only ([LICENSE](LICENSE)). Third-party code and its
-licenses are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) and [docs/PROVENANCE.md](docs/PROVENANCE.md).
-
-Nebula builds on the Petari decompilation (SMGCommunity), Aurora, Dusklight, SMAA, AMD FidelityFX, NVIDIA
-Streamline and the `nod` disc library.
+Nebula Co-Op, like Nebula, is licensed under the GNU General Public License v3.0 only ([LICENSE](LICENSE)).
 
 "Super Mario Galaxy", "Wii" and "Nintendo" are trademarks of Nintendo.
