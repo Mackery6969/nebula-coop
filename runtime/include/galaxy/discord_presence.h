@@ -59,8 +59,9 @@ std::string party_id(std::string_view code);
 // SET_ACTIVITY command (an empty activity clears the status) and the SUBSCRIBE command.
 std::string frame(std::uint32_t opcode, std::string_view json);
 std::string handshake_json(std::string_view client_id);
+// `platforms`: a Join secret goes with supported_platforms ["desktop"], which Discord needs to offer the invite.
 std::string set_activity_json(std::uint32_t pid, const Activity& activity, std::int64_t start_seconds,
-                              std::uint32_t nonce, bool clear);
+                              std::uint32_t nonce, bool clear, bool platforms = true);
 std::string subscribe_json(std::string_view event, std::uint32_t nonce);
 std::string json_string(std::string_view text);
 // Takes the first whole frame off the front of `buffer` (what Discord sent); false while none has fully arrived.
