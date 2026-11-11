@@ -674,8 +674,7 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     }
     if (msg == WM_DROPFILES) {
-        // Dropped files: mod archives and folders into the mods folder (the MODS page opens on the import),
-        // anything else to the Mii import.
+        // Dropped files: mod archives and folders into the mods folder (the MODS page opens on the import).
         const auto drop = reinterpret_cast<HDROP>(wp);
         std::vector<std::filesystem::path> files;
         const UINT count = DragQueryFileW(drop, 0xFFFFFFFFu, nullptr, 0u);
