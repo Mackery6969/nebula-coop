@@ -7,6 +7,7 @@
 #include "Game/Util/StringUtil.hpp"
 #include "Game/Util/SystemUtil.hpp"
 #include "Game/System/NebulaText.hpp"
+#include "Game/System/NebulaLuigiText.hpp"
 #include <cstring>
 #include "Game/System/AssetFolder.hpp"
 
@@ -69,6 +70,7 @@ bool MessageData::getMessage(TalkMessageInfo* pMessageInfo, u32 index) const {
     pMessageInfo->mAreaId = rRecord.mAreaId;
     pMessageInfo->mAlreadyReadId = rRecord.mAlreadyReadId;
     pMessageInfo->mBalloonType = rRecord.mBalloonType;
+    pMessageInfo->mMessage = NebulaLuigiText::fit(*this, index, pMessageInfo->mMessage);
 
     return true;
 }
