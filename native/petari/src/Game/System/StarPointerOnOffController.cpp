@@ -62,7 +62,9 @@ namespace {
         {true, true, Pointer_Star, true, true, true, false, true},           // CommandStream
         {true, true, Pointer_Hand, true, true, true, true, false},           // BlueStar
         {true, true, Pointer_Hand, true, true, true, true, false},           // BlueStarReady
-        {false, false, Pointer_Finger, true, true, true, false, false},      // StarPieceTarget
+        // Nebula: the Wii hid the pointer while it aimed at a Hungry Luma; a mouse needs to see where it aims, so the
+        // star pointer stays.
+        {true, true, Pointer_Star, true, true, true, false, false},          // StarPieceTarget
         {true, true, Pointer_Nozzle, true, true, true, false, true},         // BigBubble
         {false, false, Pointer_Star, false, false, false, false, false},     // Base
         {true, true, Pointer_Star, true, true, true, true, false},           // Game

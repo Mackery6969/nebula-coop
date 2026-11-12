@@ -18,7 +18,6 @@
 #include "galaxy/render/renderer_common.h"
 #include "galaxy/render/texture_pack.h"
 #include "galaxy/render_api.h"
-#include "galaxy/mii_import.h"
 #include "galaxy/mod_import.h"
 #include "galaxy/mods.h"
 #include "galaxy/game_paths.h"
@@ -1944,12 +1943,6 @@ std::vector<SettingsRow> graphics_page(const RenderConfig& render) {
 // GAME > GALAXY SELECT: the galaxy and star the TRAVEL row goes to.
 ui::AdvancedPageModel s_advanced_page;
 
-// Mii import (GENERAL page): the last import's result and the Mii count (read again after an import).
-std::mutex s_mii_mutex;
-std::string s_mii_status;
-std::atomic<int> s_mii_count{-1};
-std::atomic<bool> s_mii_dialog_open{false};
-
 // A picker or Explorer may open on the player's desktop: never from a hidden test run (logged instead).
 bool opens_on_desktop(const char* what) {
     if (!hidden_window_mode_enabled()) {
@@ -1957,29 +1950,6 @@ bool opens_on_desktop(const char* what) {
     }
     std::cerr << "[settings] not opened in a hidden run: " << what << '\n';
     return false;
-}
-
-// The file picker (the game keeps running): the files chosen are imported into the Mii database and the running game's.
-void start_mii_import_dialog() {
-    if (!opens_on_desktop("the Mii picker")) {
-        return;
-    }
-    if (s_mii_dialog_open.exchange(true, std::memory_order_acq_rel)) {
-        return;
-    }
-    host_window::pick_files(host_window::FilePick::Miis, [](std::vector<std::filesystem::path> files) {
-        if (!files.empty()) {
-            std::string message;
-            (void)galaxy::host::import_mii_files(files, &message);
-            std::cerr << "[settings] mii import: " << message << '\n';
-            {
-                const std::lock_guard<std::mutex> lock(s_mii_mutex);
-                s_mii_status = message;
-            }
-            s_mii_count.store(-1, std::memory_order_release);
-        }
-        s_mii_dialog_open.store(false, std::memory_order_release);
-    });
 }
 
 // A folder shown on the desktop (made if missing).
@@ -1992,9 +1962,6 @@ void open_folder_in_explorer(const std::filesystem::path& folder) {
     }
     host_window::open_folder(folder);
 }
-
-// Explorer at the Mii import folder (its files join the database at every start).
-void open_mii_folder() { open_folder_in_explorer(galaxy::host::mii_import_folder()); }
 
 // The MODS page: the mods folder's mods (galaxy::mods), read when the page first shows and on a rescan (pages are
 // rebuilt for every draw). Which are on, their order and their choices are a draft until Apply saves them to mods.ini
@@ -2847,25 +2814,10 @@ public:
         }
         state.saved_language = get_runtime_settings().language;
         state.resolved_saved_language = game_language_resolved(state.saved_language);
-        {
-            const std::lock_guard<std::mutex> lock(s_mii_mutex);
-            state.mii_status = s_mii_status;
-        }
-        state.choosing_miis = s_mii_dialog_open.load(std::memory_order_acquire);
-        state.folders_open = host_window::folders_open();
 #if defined(_WIN32)
         state.focus_loss_offered = true;  // the Windows host pauses or mutes a game whose window is not in front (host_main.cpp)
 #endif
-        state.mii_count = s_mii_count.load(std::memory_order_acquire);
-        if (state.mii_count < 0) {
-            state.mii_count = static_cast<int>(galaxy::host::mii_library_count());
-            s_mii_count.store(state.mii_count, std::memory_order_release);
-        }
         return state;
-    }
-    void act(ui::GeneralPageAction action) const override {
-        if (action == ui::GeneralPageAction::ImportMiis) start_mii_import_dialog();
-        else if (action == ui::GeneralPageAction::OpenMiiFolder) open_mii_folder();
     }
 };
 
@@ -4067,17 +4019,14 @@ bool native_settings_wheel(int delta) {
     return true;
 }
 
-// Dropped files: mod archives and folders into the mods folder (the MODS page opens on the import), anything else to
-// the Mii import.
+// Dropped files: mod archives and folders into the mods folder (the MODS page opens on the import); anything else is
+// left alone (co-op has no Miis to import).
 void native_settings_files_dropped(std::vector<std::filesystem::path> files) {
     std::vector<std::filesystem::path> mods;
-    std::vector<std::filesystem::path> miis;
     for (std::filesystem::path& path : files) {
         std::error_code error;
         if (std::filesystem::is_directory(path, error) || galaxy::mods::is_mod_archive(path)) {
             mods.push_back(std::move(path));
-        } else {
-            miis.push_back(std::move(path));
         }
     }
     if (!mods.empty()) {
@@ -4087,18 +4036,6 @@ void native_settings_files_dropped(std::vector<std::filesystem::path> files) {
         s_native_settings_row.store(1u, std::memory_order_relaxed);
         s_native_settings_button_row.store(~0u, std::memory_order_relaxed);
         set_native_settings_visible(true);
-    }
-    if (!miis.empty()) {
-        std::thread([miis = std::move(miis)] {
-            std::string message;
-            (void)galaxy::host::import_mii_files(miis, &message);
-            std::cerr << "[settings] mii import (dropped): " << message << '\n';
-            {
-                const std::lock_guard<std::mutex> lock(s_mii_mutex);
-                s_mii_status = message;
-            }
-            s_mii_count.store(-1, std::memory_order_release);
-        }).detach();
     }
 }
 

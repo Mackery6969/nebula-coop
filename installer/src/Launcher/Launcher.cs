@@ -29,12 +29,6 @@ namespace Nebula.Launcher
             Application.SetCompatibleTextRenderingDefault(false);
             try
             {
-                // A .luma opened from Explorer: the Mods page, with it being imported.
-                if (args.Length > 1 && string.Equals(args[0], "--open-mod", StringComparison.OrdinalIgnoreCase))
-                {
-                    Application.Run(new SettingsForm(new LaunchSession(), args[1]));
-                    return 0;
-                }
                 // The in-game menu runs this: a restart once the game has exited (--record: a diagnostics run).
                 int restartAfter;
                 if (args.Length > 1 && string.Equals(args[0], "--restart-after", StringComparison.OrdinalIgnoreCase) &&
@@ -425,7 +419,7 @@ namespace Nebula.Launcher
             }
         }
 
-        public SettingsForm(LaunchSession session, string importMod = null)
+        public SettingsForm(LaunchSession session)
         {
             this.session = session;
             offeredLanguages = GeneralSettings.Offered(Path.Combine(session.Content, "game.pak"));
@@ -460,24 +454,8 @@ namespace Nebula.Launcher
             var input = new TabPage(NebulaText.Of("Controls"));
             var generalPage = new TabPage(NebulaText.Of("General"));
             var advanced = new TabPage(NebulaText.Of("Advanced"));
-            var pages = new List<TabPage> { display, image, input, sound, generalPage };
-            if (ModsPage.Available(session.App))
-            {
-                // The game's mods (ModsPage). Added with the others: TabPages.Insert is ignored before the control
-                // has a window.
-                var modsTab = new TabPage(NebulaText.Of("Mods"));
-                pages.Add(modsTab);
-                var mods = new ModsPage(modsTab, session.App, session.Content);
-                if (importMod != null)
-                {
-                    Shown += delegate
-                    {
-                        tabs.SelectedTab = modsTab;
-                        mods.Import(new[] { importMod });
-                    };
-                }
-            }
-            pages.Add(advanced);
+            // Mods are chosen in the game (the host's room mods), not here.
+            var pages = new List<TabPage> { display, image, input, sound, generalPage, advanced };
             tabs.TabPages.AddRange(pages.ToArray());
             Controls.Add(tabs);
 

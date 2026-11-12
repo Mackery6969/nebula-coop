@@ -1255,7 +1255,7 @@ void pump_events(int timeout_ms) noexcept {
             close_gamepad(event.gdevice.which);
             break;
 #if !defined(__ANDROID__)
-        // Files dropped on the window: mods to the importer, Mii files to the Mii import (native_settings_files_dropped,
+        // Files dropped on the window: mods to the importer (native_settings_files_dropped,
         // after the input lock). Android's launcher takes files there ("Open with", share, drag and drop).
         case SDL_EVENT_DROP_FILE:
             if (event.drop.data != nullptr) {

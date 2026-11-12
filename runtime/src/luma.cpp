@@ -927,9 +927,12 @@ std::string refusal(const Manifest& manifest, const std::string& game_id, std::s
     if (manifest.format > kFormat) return "THIS MOD NEEDS A NEWER NEBULA";
     if (!manifest.retired.empty()) return manifest.retired;
     // The features this Nebula has; any other is one it lacks. "tunables": the game's tuning numbers by "<file>.<name>";
-    // "player-animations": a layer's player_animations.
+    // "player-animations": a layer's player_animations. "coop": a co-op mod (a .lumacoop from LumaLink's co-op fork),
+    // which only NebulaCoop runs: upstream Nebula doesn't know the feature, so it refuses the mod.
     for (const std::string& feature : manifest.requires_features) {
-        if (feature != "custom-shaders" && feature != "tunables" && feature != "player-animations") return "THIS MOD NEEDS A NEWER NEBULA";
+        if (feature != "custom-shaders" && feature != "tunables" && feature != "player-animations" && feature != "coop") {
+            return "THIS MOD NEEDS A NEWER NEBULA";
+        }
     }
     if (!manifest.nebula.empty() && compare_versions(nebula_version, manifest.nebula) < 0) return "THIS MOD NEEDS A NEWER NEBULA";
     if (manifest.game.starts_with("SB4") || manifest.game.starts_with("SB5")) return "THIS MOD IS FOR SUPER MARIO GALAXY 2";
