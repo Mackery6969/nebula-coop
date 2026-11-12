@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## [1.0.3]
+
+### Added
+
+- Added public lobbies.
+
 ## [1.0.2]
 
 ### Fixed
