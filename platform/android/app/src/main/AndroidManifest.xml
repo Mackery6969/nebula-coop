@@ -54,7 +54,7 @@
             <meta-data
                 android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
                 android:resource="@xml/wiimote_usb" />
-            <!-- "Open with Nebula" on a mod (a .luma has no type of its own: by its name; archives by their type) and
+            <!-- "Open with Nebula" on a mod (a .luma or .lumacoop has no type of its own: by its name; archives by their type) and
                  Share to Nebula: the files go where a drop on the launcher would (LauncherModel.dropped). -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -67,6 +67,9 @@
                 <data android:pathPattern=".*\\.luma" />
                 <data android:pathPattern=".*\\..*\\.luma" />
                 <data android:pathPattern=".*\\..*\\..*\\.luma" />
+                <data android:pathPattern=".*\\.lumacoop" />
+                <data android:pathPattern=".*\\..*\\.lumacoop" />
+                <data android:pathPattern=".*\\..*\\..*\\.lumacoop" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />

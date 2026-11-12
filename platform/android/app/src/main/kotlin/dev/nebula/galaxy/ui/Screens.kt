@@ -619,7 +619,7 @@ private fun SettingsScreen(
                         Icons.Rounded.Add,
                         "Import a mod or texture pack",
                         if (progress != null) "Importing... ${(progress * 100).roundToInt()}%"
-                        else "A .luma, .zip, .7z or .rar file. It's on from the next start",
+                        else "A .luma, .lumacoop, .zip, .7z or .rar file. It's on from the next start",
                     ) { if (progress == null) onChooseMod() }
                     if (progress != null) {
                         LinearProgressIndicator(

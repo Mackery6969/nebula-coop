@@ -21,7 +21,7 @@ data class ModImportResult(
 )
 
 /**
- * A mod or texture pack from a file the player picked (.luma, .zip, .7z, .rar or .tar), into the mods folder the game
+ * A mod or texture pack from a file the player picked (.luma, .lumacoop, .zip, .7z, .rar or .tar), into the mods folder the game
  * reads, by the game's own importer (libnebula_mods.so, runtime/src/mod_import.cpp): copied beside the mods folder
  * first, as the file the picker gives may not be one that can be read twice or out of order, then unpacked there.
  */

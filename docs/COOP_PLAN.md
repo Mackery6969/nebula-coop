@@ -202,6 +202,10 @@ setting, not each player's own.
   nobody downloads gigabytes of textures to join. A mod with both is shared whole.
 - **No mods page outside a room.** The settings menu's MODS page and the launcher's Mods tab stop turning mods on
   for every game: importing and removing mods stays, choosing them moves to the Host page.
+- **Co-op mods are NebulaCoop's own.** A mod made for co-op (one using the multiplayer calls LumaLink's co-op fork
+  adds) is a `.lumacoop` whose luma.json says `"requires": ["coop"]`. NebulaCoop imports `.luma` and `.lumacoop`
+  alike and knows the `coop` feature; upstream Nebula refuses any feature it doesn't know, so it never runs one, even
+  renamed to `.luma`.
 - **Mods apply at the start.** Nebula applies mods when the game starts (the virtual disc), so a room's mods are
   set before the joiner's game loads the galaxy, and changing them means restarting the room.
 

@@ -37,7 +37,7 @@
     <!-- Controllers reach the game through Game Controller. -->
     <key>GCSupportsControllerUserInteraction</key>
     <true/>
-    <!-- .luma mods: "Open With" Nebula and a double-click import them (the game's Mods page shows the result). -->
+    <!-- .luma and .lumacoop (co-op) mods: "Open With" Nebula and a double-click import them (the game's Mods page shows the result). -->
     <key>UTExportedTypeDeclarations</key>
     <array>
         <dict>
@@ -54,6 +54,7 @@
                 <key>public.filename-extension</key>
                 <array>
                     <string>luma</string>
+                    <string>lumacoop</string>
                 </array>
             </dict>
         </dict>

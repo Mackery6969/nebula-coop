@@ -92,22 +92,7 @@ std::vector<SettingsRow> general_page(const RuntimeSettings& runtime, RuntimeSet
                         draft_runtime.discord_status = !draft_runtime.discord_status;
                     },
                     "SHOWS YOUR CURRENT GALAXY AND MISSION IN DISCORD"});
-    {
-        rows.push_back({"MIIS", {}, nullptr, {}, true});
-        std::string status = state.choosing_miis ? "CHOOSING FILES" : state.mii_status;
-        rows.push_back(button_row("IMPORT MIIS", {"IMPORT"}, [&draft_runtime, &host](RenderConfig&, unsigned) { host.act(GeneralPageAction::ImportMiis); },
-                                  status.empty() ? std::string("MIIS FROM A WII, DS, 3DS, WII U, SWITCH, MII STUDIO OR MII "
-                                                               "CREATOR, FOR THE MII ICONS")
-                                                 : status));
-        const int count = state.mii_count;
-        char mii_text[32]{};
-        std::snprintf(mii_text, sizeof(mii_text), "%d OF 100", count);
-        rows.push_back({"YOUR MIIS", mii_text, nullptr, "THE MII ICON PICKER ON THE FILE SELECT SHOWS THEM"});
-        if (state.folders_open) {
-            rows.push_back(button_row("MIIS FOLDER", {"OPEN"}, [&host](RenderConfig&, unsigned) { host.act(GeneralPageAction::OpenMiiFolder); },
-                                      "FILES PUT HERE ARE IMPORTED AT EVERY START"));
-        }
-    }
+    // No Mii rows: co-op has no file select, so nothing shows Miis.
     return rows;
 }
 
