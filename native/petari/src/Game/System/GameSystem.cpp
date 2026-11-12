@@ -2,6 +2,7 @@
 #include "Game/System/GameSystem.hpp"
 #include "Game/System/NebulaHost.hpp"
 #include "Game/System/NebulaMods.hpp"
+#include "Game/System/NebulaCoopMods.hpp"
 #include "Game/System/NebulaLoadTrace.hpp"
 #include "Game/System/NebulaArena.hpp"
 #include "Game/Render/FrameList.hpp"
@@ -230,6 +231,7 @@ void GameSystem::update() {
     NebulaMenuFocus::update();
     NebulaPrepare::update();
     lumascript::beginFrame();  // the scripts' step budgets; nothing when no mod has a script
+    NebulaCoopMods::update();  // the room's players for mods, and their co-op events; nothing while no mod runs
     NebulaMods::fire(NEBULA_MOD_EVENT_FRAME);
     NebulaSettingsMenu::update();
     NebulaIcons::update();

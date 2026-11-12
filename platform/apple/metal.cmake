@@ -68,13 +68,18 @@ set_source_files_properties("${nebula_root}/runtime/src/render/core/program_tabl
     COMPILE_DEFINITIONS "GALAXY_PROGRAM_BLOB=\"${nebula_apple_programs_blob}\"" OBJECT_DEPENDS "${nebula_apple_programs_blob}")
 add_dependencies(galaxy_render_mtl nebula_apple_programs_msl_file)
 
+# The game API's and online play's fingerprints (cmake/nebula_fingerprint.cmake) for both hosts' host_main.cpp, as
+# platform/sdl's own host has them.
+include("${nebula_root}/cmake/nebula_fingerprint.cmake")
+nebula_fingerprint("${nebula_root}" "${nebula_root}/native/petari" "${CMAKE_BINARY_DIR}/generated")
+
 # The game on the Metal renderer with the SDL host: a development build until Apple's own host (host/) carries it.
 get_target_property(nebula_apple_main_sources main SOURCES)
 add_executable(nebula_metal ${nebula_apple_main_sources})
 set_target_properties(nebula_metal PROPERTIES OUTPUT_NAME nebula-metal
     BUILD_RPATH "@executable_path;@executable_path/../Frameworks")
 target_include_directories(nebula_metal PRIVATE "${nebula_root}/native/include" "${nebula_root}/runtime/include"
-    "${nebula_root}/platform/sdl" "${CMAKE_CURRENT_SOURCE_DIR}")
+    "${nebula_root}/platform/sdl" "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/generated")
 target_compile_definitions(nebula_metal PRIVATE NEBULA_HOST_RENDERER=1 NEBULA_HOST_SDL=1 NEBULA_HOST_APPLE=1)
 set_source_files_properties(${nebula_apple_host_sources} PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
 target_link_libraries(nebula_metal PRIVATE galaxy_render_mtl SDL3::SDL3
@@ -92,7 +97,7 @@ add_executable(nebula_native
     "${CMAKE_CURRENT_SOURCE_DIR}/setup_apple.mm")
 set_target_properties(nebula_native PROPERTIES OUTPUT_NAME Nebula)
 target_include_directories(nebula_native PRIVATE "${nebula_root}/native/include" "${nebula_root}/runtime/include"
-    "${nebula_root}/platform/sdl" "${CMAKE_CURRENT_SOURCE_DIR}")
+    "${nebula_root}/platform/sdl" "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/generated")
 target_compile_definitions(nebula_native PRIVATE NEBULA_HOST_RENDERER=1 NEBULA_HOST_SDL=1 NEBULA_HOST_APPLE=1
     NEBULA_HOST_NATIVE_APPLE=1)
 set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/host_window_apple.mm" "${CMAKE_CURRENT_SOURCE_DIR}/audio_device_apple.mm"

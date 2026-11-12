@@ -74,7 +74,8 @@ constexpr const char* kEventNames[] = {
     "frame", "stage_frame", "stage_start", "player_damage", "player_miss", "power_up", "coin", "star_bit", "star_get",
     "cutscene_start", "cutscene_end", "actor_appear", "actor_kill", "player_spin", "player_jump", "player_land", "pause",
     "stage_end", "game_save", "power_star_appear", "talk_line", "talk_choice", "cutscene_part", "camera_change",
-    "sound_start", "effect_start", "screen", "actor_message", "player_action",
+    "sound_start", "effect_start", "screen", "actor_message", "player_action", "player_join", "player_leave",
+    "room_joined", "room_closed", "player_place",
 };
 static_assert(sizeof(kEventNames) / sizeof(kEventNames[0]) == NEBULA_MOD_EVENT_COUNT, "an event without its name");
 
