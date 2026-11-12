@@ -102,7 +102,7 @@ jobs:
             case "$file" in
               "") ;;
               .github/workflows/build.yml) game=true; installer=true ;;
-              *.md | docs/* | LICENSE | .github/* | nebulanet/* | tools/*) ;;
+              *.md | docs/* | LICENSE | .github/* | nebulanet/* | lumalink/* | tools/*) ;;
               installer/assets/* | runtime/include/galaxy/store_version.inc) game=true; installer=true ;;
               installer/*) installer=true ;;
               *) game=true ;;
