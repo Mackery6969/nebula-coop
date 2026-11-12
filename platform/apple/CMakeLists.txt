@@ -125,6 +125,7 @@ if(nebula_apple_builds_tools)
     add_executable(nebula_apple_msl_check "${CMAKE_CURRENT_SOURCE_DIR}/tools/msl_check.mm")
     set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/tools/msl_check.mm" PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
     target_compile_features(nebula_apple_msl_check PRIVATE cxx_std_20)
+    target_include_directories(nebula_apple_msl_check PRIVATE "${nebula_root}/runtime/include")
     target_link_libraries(nebula_apple_msl_check PRIVATE "-framework Foundation" "-framework Metal" "-framework CoreGraphics")
     set_target_properties(nebula_apple_msl_check PROPERTIES
         OUTPUT_NAME msl_check RUNTIME_OUTPUT_DIRECTORY "${NEBULA_HOST_TOOLS}")
@@ -196,6 +197,7 @@ else()
                 --sdk ${nebula_apple_metal_sdk} --min-os ${nebula_apple_metal_min_os}
                 ${nebula_apple_metal_developer_argument}
         DEPENDS "${nebula_apple_programs_msl}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/compile_metallib.py"
+                "${nebula_root}/runtime/include/galaxy/render/program_table.h"
         USES_TERMINAL VERBATIM)
 endif()
 add_custom_target(nebula_apple_programs_msl_file DEPENDS "${nebula_apple_programs_blob}")
