@@ -62,8 +62,9 @@ new release when they start, so updating is how a fix reaches you.
 - **Releases and CI** (`.github/workflows/`): anything that would let someone outside the project change what goes
   into a release, or get at the release signing key or other secrets.
 - **NebulaNet** (`nebulanet.mackery.com`, [its repository](https://github.com/NebulaCoop/NebulaNet)): joining a room
-  without its password or code, finding a private room without its password, seeing a room's addresses without
-  joining it, taking over or closing someone else's room, or getting at its secrets.
+  without its password or code, finding a room its host didn't make public without its password (or getting a
+  friends-only room into the public list), seeing a room's addresses without joining it, taking over or closing
+  someone else's room, or getting at its secrets.
 - **The Discord Join button**: a crafted invite or `discord-…` link doing more than joining a room.
 - **LumaLink**: a mod or archive that makes LumaLink write outside its output, or makes a `.luma` that does so in the
   game.
@@ -79,6 +80,9 @@ ordinary issues:
   writing outside the folders above, is.
 - **Players see each other's IP addresses.** Play goes straight between the host and each player, not through a
   server, so the host sees every player's address and each player sees the host's. Use a VPN if that matters to you.
+- **Public rooms are strangers' rooms.** Anyone can make a room public and name it, and anyone can join one. Joining
+  a public room trusts its host as joining any room does: it sees your address and sends you its mods. Hosting one
+  lets in whoever finds it, so keep a password on it, or use `/kick` and `/ban`, if that matters to you.
 - **Co-op traffic isn't encrypted.** Messages between players, including chat and a room's password, travel as plain
   UDP. Don't use a password you use anywhere else. (NebulaNet itself is HTTPS.)
 - **Antivirus warnings.** Nebula Co-Op's programs aren't code-signed yet, so Windows Defender sometimes flags a new

@@ -4,13 +4,13 @@
 //
 // The main page: Host, Join, Options, Quit. Host opens the Host page: the save to play (left and right through the
 // saves, then New save), Rename and Erase, the network (NebulaNet or Direct), NebulaNet's room name and server or
-// Direct's port (only the picked network's rows show), the password, the room's settings (room(): the coop_* runtime
-// settings), the mods it plays with (a page of their own) and Host, which plays. Join opens the Join page (the code or
-// address and password, then Join, which connects; Cancel or B stops it; Rooms lists NebulaNet's private rooms that
-// have the password typed, as CoopNet's private lobbies are found, and pressing one joins it). B or Back returns to the
-// main page. While a join connects, the joining screen takes the Join page's place: what the join waits for, a loading
-// bar and Cancel. The player's name and character are Options' (its PLAYER page): the menu plays with room()'s, which
-// the host keeps up with them.
+// Direct's port (only the picked network's rows show), the password, NebulaNet's lobby (public or friends only), the
+// room's settings (room(): the coop_* runtime settings), the mods it plays with (a page of their own) and Host, which
+// plays. Join opens the Join page (the code or address and password, then Join, which connects; Cancel or B stops it;
+// Rooms lists NebulaNet's public rooms, or its private ones that have the password typed, as CoopNet's public and
+// private lobbies, and pressing one joins it). B or Back returns to the main page. While a join connects, the joining
+// screen takes the Join page's place: what the join waits for, a loading bar and Cancel. The player's name and
+// character are Options' (its PLAYER page): the menu plays with room()'s, which the host keeps up with them.
 //
 // Text rows (a name, a port, an address, a password) are edited in place (TextEdit): pressed, they take the keyboard's
 // typing (type()) or, letter by letter, a controller's: up and down pick the letter at the cursor, left and right move
@@ -54,7 +54,8 @@ struct MenuView {
 
 // What the player chose, for the game to act on (MainMenu::take_command). Join: connect to the Join page's address
 // (room().join_address, with room().password); CancelJoin: stop connecting (the Join page's Cancel, or B on it);
-// ListRooms: ask NebulaNet for its private rooms that have room().password, for set_rooms().
+// ListRooms: ask NebulaNet for its public rooms, or with rooms_by_password() its rooms that have room().password, for
+// set_rooms().
 enum class MenuCommand { None, Play, Quit, Settings, Join, CancelJoin, ListRooms };
 
 // A room on NebulaNet's list, as the Rooms page shows it.
@@ -64,7 +65,7 @@ struct ListedRoom {
     std::string version;
     std::string mode;
     std::string description;
-    bool locked = false;  // private: it has a password
+    bool locked = false;  // it has a password (a public room's shows in the public list)
     unsigned players = 0u;
     unsigned max = 0u;
 };
@@ -178,6 +179,8 @@ public:
     // `version`: this game's, so a room of another shows it can't be joined.
     void set_rooms(std::vector<ListedRoom> rooms, std::string failed, std::string version);
     [[nodiscard]] bool listing_rooms() const noexcept { return screen_ == Screen::Rooms; }
+    // The Rooms page lists the rooms that have room().password (Private), not the public ones.
+    [[nodiscard]] bool rooms_by_password() const noexcept { return rooms_private_; }
 
     // The last choice, once: None after it was taken.
     [[nodiscard]] MenuCommand take_command() noexcept;
@@ -209,8 +212,9 @@ private:
     void press_host(unsigned row, unsigned button);
     void press_mods(unsigned row);
     void press_rooms(unsigned row, unsigned button);
-    // The Rooms page, empty and searching, and ListRooms for the game.
-    void search_rooms();
+    // The Rooms page, empty and searching, and ListRooms for the game: the public rooms, or `by_password` the ones
+    // that have room().password.
+    void search_rooms(bool by_password);
     void start_edit(Field field, unsigned row);
     void finish_edit();
     void read_mods();
@@ -246,6 +250,7 @@ private:
     // The Rooms page: what NebulaNet listed, and whether it's still searching or why it found nothing.
     std::vector<ListedRoom> rooms_;
     bool rooms_searching_ = false;
+    bool rooms_private_ = false;
     std::string rooms_failed_;
     std::string version_;
     Edit edit_;

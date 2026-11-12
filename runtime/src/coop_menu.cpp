@@ -21,6 +21,7 @@ enum HostRow : unsigned {
     RowServer,
     RowPort,
     RowPassword,
+    RowLobby,
     RowPlayers,
     RowInteraction,
     RowKnockback,
@@ -225,8 +226,9 @@ void MainMenu::set_rooms(std::vector<ListedRoom> rooms, std::string failed, std:
     if (screen_ == Screen::Rooms) selected_ = std::min(selected_, row_count() - 1u);
 }
 
-void MainMenu::search_rooms() {
+void MainMenu::search_rooms(bool by_password) {
     show(Screen::Rooms, 0u);
+    rooms_private_ = by_password;
     rooms_.clear();
     rooms_failed_.clear();
     rooms_searching_ = true;
@@ -345,11 +347,18 @@ std::vector<MenuRow> MainMenu::rows() const {
                                  ? text_value(Field::Password, RowPassword, {})
                              : coop.password.empty() ? "NONE"
                                                      : std::string(coop.password.size(), '*'),
-                             coop.nebulanet ? "PLAYERS WHO JOIN MUST GIVE IT, AND FIND THE ROOM BY IT UNDER JOIN'S ROOMS. "
-                                              "NONE: FRIENDS JOIN BY THE ROOM'S CODE"
+                             coop.nebulanet ? "PLAYERS WHO JOIN MUST GIVE IT, AND FIND THE ROOM BY IT UNDER JOIN'S "
+                                              "PRIVATE ROOMS. NONE: ANYONE WITH THE CODE MAY JOIN"
                                             : "PLAYERS WHO JOIN MUST GIVE IT. NONE: ANYONE WITH THE ADDRESS MAY JOIN",
                              false, false,
                              !coop.password.empty() || edit_.field == Field::Password, true};
+        rows[RowLobby] = {"LOBBY", coop.public_room ? "PUBLIC" : "FRIENDS ONLY",
+                          coop.public_room
+                              ? "PUBLIC: ANYONE CAN FIND THE ROOM UNDER JOIN'S PUBLIC ROOMS AND JOIN IT (WITH THE "
+                                "PASSWORD, WHEN IT HAS ONE)"
+                              : "FRIENDS ONLY: FRIENDS JOIN BY THE ROOM'S CODE, OR FIND IT BY ITS PASSWORD UNDER "
+                                "JOIN'S PRIVATE ROOMS",
+                          false, true};
         rows[RowPlayers] = {"MAX PLAYERS", std::to_string(coop.max_players),
                             "HOW MANY PLAYERS THE ROOM HOLDS, YOU INCLUDED", false, true};
         rows[RowInteraction] = {"PLAYER INTERACTION", interaction_word(coop.player_interaction),
@@ -426,11 +435,14 @@ std::vector<MenuRow> MainMenu::rows() const {
         } else {
             rows[RowJoinStart] = MenuRow{"JOIN", "JOIN", "CONNECTS TO THE HOST AND PLAYS IN THEIR ROOM", true};
         }
-        rows[RowRooms] = {"ROOMS", coop.password.empty() || joining_ ? "-BROWSE" : "BROWSE",
+        rows[RowRooms] = {"ROOMS",
+                          std::string(joining_ ? "-PUBLIC|" : "PUBLIC|") +
+                              (coop.password.empty() || joining_ ? "-PRIVATE" : "PRIVATE"),
                           coop.password.empty()
-                              ? "TYPE A PASSWORD ABOVE FIRST: ROOMS LISTS NEBULANET'S PRIVATE ROOMS THAT HAVE IT. A ROOM "
-                                "WITHOUT ONE IS JOINED BY ITS CODE"
-                              : "NEBULANET'S PRIVATE ROOMS THAT HAVE THE PASSWORD ABOVE: PICK ONE TO JOIN IT",
+                              ? "PUBLIC: NEBULANET'S ROOMS OPEN TO ANYONE. PRIVATE: TYPE A PASSWORD ABOVE FIRST, FOR "
+                                "THE ROOMS THAT HAVE IT"
+                              : "PUBLIC: NEBULANET'S ROOMS OPEN TO ANYONE. PRIVATE: ITS ROOMS THAT HAVE THE PASSWORD "
+                                "ABOVE",
                           true};
         rows[RowJoinBack] = {"BACK", "BACK", "BACK TO THE MAIN MENU", true};
         if (editing()) rows[edit_.row].help = kEditHelp;
@@ -454,8 +466,11 @@ std::vector<MenuRow> MainMenu::rows() const {
             const bool other = !version_.empty() && room.version != version_;
             std::string about = room.mode.empty() ? std::string("CO-OP") : room.mode;
             if (!room.description.empty()) about += ". " + room.description;
+            // A public room with a password: the list shows it, joining needs the password.
+            if (room.locked && !rooms_private_) about = "PASSWORD. " + about;
             MenuRow row{room.name,
-                        full ? "FULL" : std::to_string(room.players) + "/" + std::to_string(room.max),
+                        (full ? std::string("FULL") : std::to_string(room.players) + "/" + std::to_string(room.max)) +
+                            (room.locked && !rooms_private_ ? " (PASSWORD)" : ""),
                         other ? "ANOTHER VERSION OF NEBULA (" + room.version + "): IT CAN'T BE JOINED FROM THIS ONE"
                               : about + ". CODE " + room.code};
             row.label_name = true;
@@ -465,10 +480,13 @@ std::vector<MenuRow> MainMenu::rows() const {
         if (rooms_.empty()) {
             rows.push_back({rooms_searching_          ? "SEARCHING NEBULANET..."
                             : !rooms_failed_.empty() ? rooms_failed_
-                                                     : "NO ROOM HAS THAT PASSWORD",
+                            : rooms_private_         ? "NO ROOM HAS THAT PASSWORD"
+                                                     : "NO PUBLIC ROOMS RIGHT NOW",
                             {},
-                            "ROOMS SHOW ONLY TO THOSE WHO SEARCH WITH THEIR PASSWORD. A ROOM WITHOUT ONE IS JOINED BY "
-                            "ITS CODE"});
+                            rooms_private_ ? "PRIVATE ROOMS SHOW ONLY TO THOSE WHO SEARCH WITH THEIR PASSWORD. OTHERS "
+                                             "ARE JOINED BY THEIR CODE"
+                                           : "ROOMS SHOW HERE WHEN THEIR HOST SETS THE HOST PAGE'S LOBBY TO PUBLIC. "
+                                             "OTHERS ARE JOINED BY THEIR CODE"});
         }
         rows.push_back({"", rooms_searching_ ? "-REFRESH|BACK" : "REFRESH|BACK",
                         "REFRESH: ASK NEBULANET AGAIN. BACK: THE JOIN PAGE", true});
@@ -485,10 +503,10 @@ unsigned MainMenu::button_count(unsigned row) const {
 }
 
 bool MainMenu::hidden(unsigned row) const {
-    // The Host page shows only its network's rows: NebulaNet's room name and server, or Direct's port.
+    // The Host page shows only its network's rows: NebulaNet's room name, server and lobby, or Direct's port.
     if (screen_ != Screen::Host) return false;
     if (room_.nebulanet) return row == RowPort;
-    return row == RowRoomName || row == RowServer;
+    return row == RowRoomName || row == RowServer || row == RowLobby;
 }
 
 std::vector<unsigned> MainMenu::shown_rows() const {
@@ -500,11 +518,12 @@ std::vector<unsigned> MainMenu::shown_rows() const {
 }
 
 MenuView MainMenu::view() const {
-    static const char* const titles[] = {"PLAY", "HOST", "MODS", "JOIN", "JOINING", "PRIVATE ROOMS"};
+    static const char* const titles[] = {"PLAY", "HOST", "MODS", "JOIN", "JOINING", "PUBLIC ROOMS"};
     MenuView view;
     view.open = open_;
     view.page = 0u;
-    view.pages = {titles[static_cast<unsigned>(screen_)]};
+    view.pages = {screen_ == Screen::Rooms && rooms_private_ ? "PRIVATE ROOMS"
+                                                             : titles[static_cast<unsigned>(screen_)]};
     const std::vector<MenuRow> all = rows();
     const std::vector<unsigned> shown = shown_rows();
     for (const unsigned row : shown) {
@@ -578,6 +597,7 @@ void MainMenu::change(int delta) {
         case RowBubble: coop.bubble_death = step(coop.bubble_death ? 1u : 0u, delta, 2u) == 1u; break;
         case RowCheats: coop.cheats = step(coop.cheats ? 1u : 0u, delta, 2u) == 1u; break;
         case RowNetwork: coop.nebulanet = !coop.nebulanet; break;
+        case RowLobby: coop.public_room = !coop.public_room; break;
         default: break;
         }
     } else if (screen_ == Screen::Mods && selected_ < mods_.size()) {
@@ -660,7 +680,7 @@ void MainMenu::press(unsigned button) {
     case Screen::Mods: press_mods(selected_); return;
     case Screen::Join:
         if (selected_ == RowJoinStart) command_ = joining_ ? MenuCommand::CancelJoin : MenuCommand::Join;
-        if (selected_ == RowRooms) search_rooms();
+        if (selected_ == RowRooms) search_rooms(button == 1u);
         if (selected_ == RowJoinBack) back();
         return;
     case Screen::Rooms: press_rooms(selected_, button); return;
@@ -714,7 +734,7 @@ void MainMenu::press_rooms(unsigned row, unsigned button) {
     if (row + 1u == row_count()) {
         // REFRESH|BACK
         if (button == 0u) {
-            search_rooms();
+            search_rooms(rooms_private_);
         } else {
             back();
         }
@@ -730,7 +750,12 @@ void MainMenu::press_rooms(unsigned row, unsigned button) {
         message_ = "THAT ROOM IS FULL";
         return;
     }
-    // Joins it by its code, as the Join page would (with its password), the joining screen in this page's place.
+    if (room.locked && room_.password.empty()) {
+        message_ = "THAT ROOM HAS A PASSWORD: TYPE IT ON THE JOIN PAGE FIRST";
+        return;
+    }
+    // Joins it by its code, as the Join page would (with its password, which a room without one doesn't ask for),
+    // the joining screen in this page's place.
     room_.join_address = room.code;
     command_ = MenuCommand::Join;
 }
@@ -854,6 +879,7 @@ void MainMenu::reset() {
     case RowBubble: room_.bubble_death = defaults.bubble_death; break;
     case RowCheats: room_.cheats = defaults.cheats; break;
     case RowNetwork: room_.nebulanet = defaults.nebulanet; break;
+    case RowLobby: room_.public_room = defaults.public_room; break;
     default: break;  // the save, the mods and the buttons have no default
     }
 }

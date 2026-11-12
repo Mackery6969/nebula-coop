@@ -2,8 +2,8 @@
 // CoopNet made for Nebula): a host keeps a WebSocket open to it, gets a room code and hears of each joiner's
 // addresses; a joiner asks for a code (with the room's password) and gets the host's, and says afterwards whether it
 // got through. The session then punches through both routers with the direct transport. The Join page lists the
-// rooms: the public ones, or the private ones that have the password typed (CoopNet's lobby list). NebulaNet never
-// carries game traffic.
+// rooms: the public ones (a host asks for its room to be one), or the ones that have the password typed (CoopNet's
+// public and private lobbies). NebulaNet never carries game traffic.
 //
 // The web calls block, so each link runs on a thread of its own; the session takes what happened (take_events) on
 // its own thread. stop() returns at once: a call still running finishes on its own and is thrown away.
@@ -42,7 +42,8 @@ struct NebulaNetRoom {
     std::string version;      // the game's
     std::string mode;         // what the room plays, in a word or two ("CO-OP")
     std::string description;  // a line on it (its mods)
-    std::string password;     // a host's, sent as it opens; empty: a public room
+    std::string password;     // a host's, sent as it opens; empty: none
+    bool public_room = false; // a host's: in everyone's list of public rooms, not only found by code or password
     bool locked = false;      // a listed room's: it has a password
     unsigned players = 1u;
     unsigned max = 8u;
@@ -56,7 +57,8 @@ struct NebulaNetEvent {
         Answer,    // a joiner's: the room it asked for (room)
         Rooms,     // a list's: the rooms (rooms), the fullest first; text: why there are none, when it failed
         JoinerFailed,  // a host's: a joiner couldn't get through (candidates: its addresses)
-        Failed,    // text: why, in the menu's words. A host's link tries again by itself; a joiner's has ended
+        Failed,    // text: why, in the menu's words. A host's link tries again by itself (or, when NebulaNet kept
+                   // its public room off the public list, goes on as it is); a joiner's has ended
     };
     Kind kind = Kind::Failed;
     std::string text;
@@ -79,7 +81,7 @@ public:
     void set_players(unsigned players);
     // Asks `server` for the room `code`, telling it this joiner's addresses and the password it was given.
     void join(std::string server, std::string code, std::vector<std::string> candidates, std::string password = {});
-    // Asks `server` for its rooms of Nebula: the public ones, or with `password` the private ones that have it.
+    // Asks `server` for its rooms of Nebula: the public ones, or with `password` the ones that have it.
     void list(std::string server, std::string password = {});
     // Tells `server` how a join by `code` went (ok: the joiner got in); a call of its own, answered or not.
     static void report(std::shared_ptr<net::Web> web, std::string server, std::string code, bool ok,

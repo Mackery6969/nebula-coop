@@ -69,7 +69,7 @@ What's left to turn Nebula into an online co-op mod like sm64coopdx. The reasoni
 ## v2 👀
 
 - [ ] Wait until Nebula's v2 is out, then merge it and update the co-op mod to it. Current Coop mod uses an unfinished version of Nebula v2.
-- [ ] Enable Public Rooms on NebulaNet, so anyone can see and join them without a password.
+- [x] Enable Public Rooms on NebulaNet, so anyone can see and join them without a password.
 
 ## Some time idk
 

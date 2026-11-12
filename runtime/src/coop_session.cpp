@@ -854,6 +854,7 @@ struct Session::State {
             listing.description = host_config.mods.empty() ? std::string() : "MODS: " + mods_text(host_config.mods);
             if (listing.description.size() > 256u) listing.description = listing.description.substr(0u, 253u) + "...";
             listing.password = room.password;
+            listing.public_room = room.public_room;
             listing.players = static_cast<unsigned>(players.size());
             listing.max = room.max_players;
             listing.candidates = own_candidates();

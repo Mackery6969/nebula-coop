@@ -102,6 +102,9 @@ struct RuntimeCoopSettings {
     bool nebulanet = true;
     // Another NebulaNet than the game's (coop_nebulanet=https://...), for testing one's own; empty: the game's.
     std::string nebulanet_server;
+    // The Host page's LOBBY: public, in everyone's list of NebulaNet's public rooms (CoopNet's public lobbies), or
+    // friends only, joined by the room's code (or found by its password). Friends only by default.
+    bool public_room = false;
     // The host's are the session's: they reach every player as they join.
     CoopPlayerInteraction player_interaction = CoopPlayerInteraction::Solid;
     unsigned knockback_strength = kCoopKnockbackNormal;
