@@ -38,3 +38,8 @@ effect_start	game
 screen	game
 actor_message	game
 player_action	game
+player_join	game
+player_leave	game
+room_joined	game
+room_closed	game
+player_place	game

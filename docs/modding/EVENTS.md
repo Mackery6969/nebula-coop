@@ -37,6 +37,11 @@ returns. An event no plugin subscribes to costs the game one load and one branch
 | `NEBULA_MOD_EVENT_SCREEN` | A screen layout (a counter, a menu, a message box) is shown or goes away. value: 1 shown, 0 gone. name: its name in the game's code. |
 | `NEBULA_MOD_EVENT_ACTOR_MESSAGE` | An object gets a message from another: an attack, a stomp, a push, a grab (docs/modding/EVENTS.md lists the numbers). actor: who gets it. name: its name. value: the message. Return -1 to refuse it: the object acts as if it never came. Subscribing costs a call per message. |
 | `NEBULA_MOD_EVENT_PLAYER_ACTION` | The player starts an action of their own: a swim, a hang, a slide, a fall (docs/modding/EVENTS.md lists the numbers). value: the action. |
+| `NEBULA_MOD_EVENT_COOP_PLAYER_JOIN` | Online co-op (NebulaCoop; coop_* below). Another player came into the room. value: their index (coop_name). name: their name. Not sent for the players already there when this player joins: room_joined comes then. |
+| `NEBULA_MOD_EVENT_COOP_PLAYER_LEAVE` | Another player left the room. value: the index they had. name: their name. |
+| `NEBULA_MOD_EVENT_COOP_ROOM_JOINED` | This player is in a room: it opened one, or a host let it in. value: this player's index (coop_me). |
+| `NEBULA_MOD_EVENT_COOP_ROOM_CLOSED` | This player's room ended: it left, or the host closed it. |
+| `NEBULA_MOD_EVENT_COOP_PLAYER_PLACE` | A player (this one too) reached another galaxy or mission. value: their index. name: the stage (coop_stage). |
 
 ## Messages (NEBULA_MOD_EVENT_ACTOR_MESSAGE)
 

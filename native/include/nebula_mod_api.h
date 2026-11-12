@@ -109,6 +109,17 @@ typedef enum NebulaModEvent {
     /* The player started an action: swimming, hanging, sliding, falling (numbers in docs/modding/EVENTS.md).
        value: the action. */
     NEBULA_MOD_EVENT_PLAYER_ACTION,
+    /* Online co-op (NebulaCoop; coop_* below). Another player came into the room. value: their index (coop_name).
+       name: their name. Not sent for the players already there when this player joins: room_joined comes then. */
+    NEBULA_MOD_EVENT_COOP_PLAYER_JOIN,
+    /* Another player left the room. value: the index they had. name: their name. */
+    NEBULA_MOD_EVENT_COOP_PLAYER_LEAVE,
+    /* This player is in a room: it opened one, or a host let it in. value: this player's index (coop_me). */
+    NEBULA_MOD_EVENT_COOP_ROOM_JOINED,
+    /* This player's room ended: it left, or the host closed it. */
+    NEBULA_MOD_EVENT_COOP_ROOM_CLOSED,
+    /* A player (this one too) reached another galaxy or mission. value: their index. name: the stage (coop_stage). */
+    NEBULA_MOD_EVENT_COOP_PLAYER_PLACE,
     NEBULA_MOD_EVENT_COUNT
 } NebulaModEvent;
 
@@ -930,6 +941,39 @@ typedef struct NebulaModApi {
        a script (scripts/<script>.lumascript, or null) on the player while he is in it: start when he gets it, frame
        every frame, end when he leaves it. The power-up's number, or -1. */
     int32_t (*add_form)(const NebulaPlugin* mod, const NebulaPowerUpClass* form, const char* script);
+
+    /* Online co-op (NebulaCoop only; a mod using these says "requires": ["coop"] and is a .lumacoop). A room's players
+       by index: the host 0, then 1, 2... as they joined, an index kept while its player stays (a later joiner takes
+       the lowest free one), as sm64coopdx's global index. Scripts call these as coop.<name> (coop.count()...).
+       Outside a room the game is a room of one: this player is index 0 and the host, with no name.
+       Read once a frame, on the game's thread. */
+    /* 1 in a room, 0 outside one. */
+    int32_t (*coop_in_room)(void);
+    /* This player is the room's host (or outside a room): 1, else 0. */
+    int32_t (*coop_is_host)(void);
+    /* This player's index. */
+    int32_t (*coop_me)(void);
+    /* How many players the room has now (1 outside a room). */
+    int32_t (*coop_count)(void);
+    /* How many players the room takes (1 outside a room). */
+    int32_t (*coop_max_players)(void);
+    /* 1 when a player has `index` now, else 0. The calls below give "", -1 or 0 for an index nobody has. */
+    int32_t (*coop_connected)(int32_t index);
+    /* Their name, as the player list shows it ("" outside a room). Valid until the next frame. */
+    const char* (*coop_name)(int32_t index);
+    /* The character they play: 0 Mario, 1 Luigi; -1 nobody. */
+    int32_t (*coop_character)(int32_t index);
+    /* Where they play: the stage's name ("" until they reach one) and its mission (0 where none was chosen). Their
+       instance is the pair: coop_same_place says whether it is this player's. Valid until the next frame. */
+    const char* (*coop_stage)(int32_t index);
+    int32_t (*coop_mission)(int32_t index);
+    /* 1 when they play in this player's galaxy and mission (this player too), else 0. */
+    int32_t (*coop_same_place)(int32_t index);
+    /* The Power Stars they got in this room, new to its save (the Personal Star Counter's count); 0 outside a room. */
+    int32_t (*coop_stars)(int32_t index);
+    /* The round trip to them in milliseconds (to the host, for a joiner's view of the others); 0 for this player or
+       when unknown. */
+    int32_t (*coop_ping)(int32_t index);
 } NebulaModApi;
 
 /* True when this Nebula has `field` (fields are added at the end over time):
