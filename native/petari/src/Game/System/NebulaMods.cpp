@@ -1,4 +1,5 @@
 #include "Game/System/NebulaMods.hpp"
+#include "Game/System/NebulaCoopMods.hpp"
 #include "Game/System/LumaCore.hpp"
 #include "Game/System/LumaClass.hpp"
 #include "Game/System/LumaHost.hpp"
@@ -3023,6 +3024,19 @@ namespace {
         apiSetClassScript,
         apiSetClassHooks,
         apiAddForm,
+        NebulaCoopMods::inRoom,
+        NebulaCoopMods::isHost,
+        NebulaCoopMods::me,
+        NebulaCoopMods::count,
+        NebulaCoopMods::maxPlayers,
+        NebulaCoopMods::connected,
+        NebulaCoopMods::name,
+        NebulaCoopMods::character,
+        NebulaCoopMods::stage,
+        NebulaCoopMods::mission,
+        NebulaCoopMods::samePlace,
+        NebulaCoopMods::stars,
+        NebulaCoopMods::ping,
     };
 }  // namespace
 
