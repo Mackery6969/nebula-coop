@@ -1,6 +1,8 @@
 [submodule "nebulanet"]
 	path = nebulanet
 	url = https://github.com/NebulaCoop/NebulaNet.git
+	branch = main
 [submodule "lumalink"]
 	path = lumalink
 	url = https://github.com/NebulaCoop/lumalink-coop
+	branch = main
