@@ -325,6 +325,11 @@ int main() {
         }
         const std::optional<Manifest> animated = parse_manifest(R"({"format":1,"id":"a","name":"b","version":"1.0.0","game":"RMG","requires":["player-animations"],"layers":[]})");
         check(animated && refusal(*animated, "RMGE01", "2.1.0", "windows").empty(), "a mod needing player animations is usable");
+        // A co-op mod (a .lumacoop) says it needs co-op: NebulaCoop runs it, upstream Nebula refuses the feature.
+        const std::optional<Manifest> coop = parse_manifest(R"({"format":1,"id":"a","name":"b","version":"1.0.0","game":"RMG","requires":["coop"],"layers":[]})");
+        check(coop && refusal(*coop, "RMGE01", "2.1.0", "windows").empty(), "a co-op mod is usable");
+        const std::optional<Manifest> unknown = parse_manifest(R"({"format":1,"id":"a","name":"b","version":"1.0.0","game":"RMG","requires":["coop","teleporters"],"layers":[]})");
+        check(unknown && refusal(*unknown, "RMGE01", "2.1.0", "windows") == "THIS MOD NEEDS A NEWER NEBULA", "a feature nobody has is still refused");
     }
     {
         // A range of choices: counted, so numbers too large for the step cannot loop for ever.
