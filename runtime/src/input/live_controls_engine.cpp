@@ -440,10 +440,11 @@ LiveControlsResult LiveControlsEngine::sample(const LiveControlsFrame& frame, Li
     if (rest_hidden) {
         pointer_active = false;
     }
-    // In menus a key press acts on the pointer's position, so a resting mouse pointer stays.
+    // In menus a key press acts on the pointer's position, so a resting mouse pointer stays. In play, B held (Star Bits
+    // shot from a key, as into a Hungry Luma) uses the pointer too.
     if (s_mouse_rest_hide.update(owner == galaxy::input::PointerSource::Mouse && pointer_active && window_focused &&
                                      play_context == galaxy::input::PlayContext::Play,
-                                 mouse_moved || mouse_button_held, now_us)) {
+                                 mouse_moved || mouse_button_held || snapshot.buttons.b, now_us)) {
         pointer_active = false;
     }
     if (script.has_pointer &&

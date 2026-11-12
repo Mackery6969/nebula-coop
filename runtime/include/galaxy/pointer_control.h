@@ -91,7 +91,7 @@ struct PointerRestHide {
 };
 
 // Keyboard and mouse, in play: the mouse-owned pointer hides after kMouseHideSeconds without a
-// mouse move or a held mouse button, and shows again with either. Any other owner resets it.
+// mouse move, a held mouse button or a held B (Star Bits), and shows again with any. Any other owner resets it.
 inline constexpr float kMouseHideSeconds = kDefaultPointerHideSeconds;
 
 struct MouseRestHide {
