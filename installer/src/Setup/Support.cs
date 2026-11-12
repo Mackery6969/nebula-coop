@@ -295,6 +295,17 @@ namespace Nebula.Setup
         /// </summary>
         private const string LumaFileType = Name + ".LumaMod";
 
+        // The .luma file type earlier installs registered (it opened the launcher's old Mods tab). .luma itself stays
+        // when it opens with another program (an installed upstream Nebula's): only this install's goes.
+        private static void RemoveLumaAssociation()
+        {
+            Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\" + LumaFileType, false);
+            bool ownsLuma;
+            using (var key = Registry.CurrentUser.OpenSubKey(@"Software\Classes\.luma"))
+                ownsLuma = key != null && string.Equals(key.GetValue("") as string, LumaFileType, StringComparison.OrdinalIgnoreCase);
+            if (ownsLuma) Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\.luma", false);
+        }
+
         public static IList<string> Register(InstallLayout layout, string version, bool desktop)
         {
             string app = layout.VersionDir(version);
@@ -326,15 +337,9 @@ namespace Nebula.Setup
                 using (var command = key.CreateSubKey(@"shell\open\command"))
                     command.SetValue("", "\"" + Path.Combine(app, "Nebula.exe") + "\"");
             }
-            // Double-clicking a mod's file adds it. Per user, like everything else here.
-            using (var key = Registry.CurrentUser.CreateSubKey(@"Software\Classes\.luma")) key.SetValue("", LumaFileType);
-            using (var key = Registry.CurrentUser.CreateSubKey(@"Software\Classes\" + LumaFileType))
-            {
-                key.SetValue("", Name + " mod");
-                using (var icon = key.CreateSubKey("DefaultIcon")) icon.SetValue("", Path.Combine(app, "Nebula.exe") + ",0");
-                using (var open = key.CreateSubKey(@"shell\open\command"))
-                    open.SetValue("", "\"" + Path.Combine(app, "Nebula.exe") + "\" --open-mod \"%1\"");
-            }
+            // Mods are added in the game's Mods page now, so a .luma no longer opens the launcher: an earlier
+            // install's association goes.
+            RemoveLumaAssociation();
             using (var key = Registry.CurrentUser.CreateSubKey(UninstallKey))
             {
                 key.SetValue("DisplayName", Name);
@@ -440,13 +445,8 @@ namespace Nebula.Setup
             if (File.Exists(DesktopLink)) File.Delete(DesktopLink);
             Registry.CurrentUser.DeleteSubKeyTree(UninstallKey, false);
             Registry.CurrentUser.DeleteSubKeyTree(NebulaPaths.RegistryKey, false);
-            Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\" + LumaFileType, false);
             Registry.CurrentUser.DeleteSubKeyTree(DiscordLaunchKey, false);
-            // .luma stays when it opens with another program (an installed upstream Nebula's): only this install's goes.
-            bool ownsLuma;
-            using (var key = Registry.CurrentUser.OpenSubKey(@"Software\Classes\.luma"))
-                ownsLuma = key != null && string.Equals(key.GetValue("") as string, LumaFileType, StringComparison.OrdinalIgnoreCase);
-            if (ownsLuma) Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\.luma", false);
+            RemoveLumaAssociation();
             if (removeUserData && Directory.Exists(NebulaPaths.DataRoot)) FileUtil.DeleteTree(NebulaPaths.DataRoot);
             // The running setup copy deletes itself and the folder after exit.
             if (self.StartsWith(Path.GetFullPath(layout.Root), StringComparison.OrdinalIgnoreCase))
