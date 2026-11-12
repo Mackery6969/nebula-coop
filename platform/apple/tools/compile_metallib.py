@@ -32,10 +32,24 @@ import struct
 import subprocess
 import sys
 
-MAGIC = b"NBPROG02"
-ROW_BYTES = 96
-STORED = 10        # program_table.h kProgramStored
-BOUND_OFFSET = 5   # program_table.h kProgramBoundOffset: a pixel program's bound-table forms follow its variants
+MAGIC = b"NBPROG03"
+PROGRAM_TABLE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "runtime", "include", "galaxy",
+                             "render", "program_table.h")
+
+
+def program_table_value(name):
+    """A ProgramVariant value from program_table.h, so the row layout follows core/program_table.cpp's."""
+    with open(PROGRAM_TABLE, encoding="utf-8") as file:
+        found = re.search(r"\b" + name + r"\s*=\s*(\d+)u?\b", file.read())
+    if found is None:
+        sys.exit(f"{PROGRAM_TABLE} names no {name}")
+    return int(found.group(1))
+
+
+STORED = program_table_value("kProgramStored")
+BOUND_OFFSET = program_table_value("kProgramBoundOffset")  # a pixel program's bound-table forms follow its variants
+PREPASS = program_table_value("kProgramPrepass")            # the ray tracer's forms (array forms) from here on
+ROW_BYTES = 16 + 8 * STORED
 RECORD_MAGIC = b"NBMTLFN1"
 RECORD_BYTES = 40  # the magic, library u32 (0: 2.4, 1: 3.0), attributes u32 (a vertex program's inputs, a bit each), name[24]
 BATCH = 48
@@ -100,7 +114,7 @@ def main():
             if size == 0:
                 continue
             text = blob[offset:offset + size]
-            library = 1 if pixel and stored < BOUND_OFFSET else 0
+            library = 1 if pixel and (stored < BOUND_OFFSET or stored >= PREPASS) else 0
             key = hashlib.sha1(text).digest()
             number = functions[library].get(key)
             if number is None:
