@@ -370,6 +370,7 @@ def toolkit_rows(enums, class_names, defined):
 
 
 # The plugin API (nebula_mod_api.h NebulaModApi) as toolkit rows "nebula.<name>", called through the host's table.
+# The co-op calls (fields named coop_<name>) are rows "coop.<name>" instead: a script writes coop.count().
 API_SKIP = {
     'add_mod_script': 'starts a script (luma.json "scripts" does)',
     'add_script_object': 'adds a script object (luma.json "objects" does)',
@@ -434,7 +435,7 @@ def api_param(t, name, enums):
 def api_rows(enums):
     rows, left = [], []
     for name, ret, params, why in api_fields():
-        row = f'nebula.{name}'
+        row = f'coop.{name[5:]}' if name.startswith('coop_') else f'nebula.{name}'
         if why is not None:
             left.append((row, why))
             continue
