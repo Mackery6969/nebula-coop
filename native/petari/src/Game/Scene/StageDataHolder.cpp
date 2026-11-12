@@ -1,10 +1,13 @@
 #include <nebula_game_api.h>
+#include "nebula_module.h"
 extern "C" const NebulaHostServices* nebula_host(void);
 #include "Game/Scene/StageDataHolder.hpp"
 #include "Game/NameObj/NameObjFactory.hpp"
 #include "Game/Scene/PlacementInfoOrdered.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/System/GalaxyStatusAccessor.hpp"
+#include "Game/System/GameSystem.hpp"
+#include "Game/System/GameSystemSceneController.hpp"
 #include "Game/System/ScenarioDataParser.hpp"
 #include "Game/Util/FileUtil.hpp"
 #include "Game/Util/PlacementId.hpp"
@@ -12,6 +15,7 @@ extern "C" const NebulaHostServices* nebula_host(void);
 #include "Game/Util/MemoryUtil.hpp"
 #include "Game/Util/MtxUtil.hpp"
 #include "Game/Util/SceneUtil.hpp"
+#include "Game/Util/SingletonHolder.hpp"
 #include "Game/Util/StringUtil.hpp"
 #include "Game/System/AssetFolder.hpp"
 #include "Game/System/LumaCore.hpp"
@@ -365,6 +369,14 @@ s32 StageDataHolder::getStageArchiveResourceSize(void* pData) {
 
 void StageDataHolder::initPlacementMario() {
     TableIter iter = makeCurrentMarioTableIter();
+    if (!iter.isValid()) {
+        // A start the stage lacks (a restart point kept from the galaxy played before): the stage's first start, which
+        // everything that later asks for the player's start then names too.
+        const PlacementId& rStart = MR::getCurrentMarioStartIdInfo();
+        nebula_log("stage: %s has no start %d in zone %d, the player starts at start 0\n", mStageName, rStart.mId, rStart.mZoneID);
+        SingletonHolder< GameSystem >::get()->mSceneController->mCurrSceneControlInfo.setStartIdInfo(MR::getInitializeStartIdInfo());
+        iter = makeCurrentMarioTableIter();
+    }
     MR::setCurrentPlacementZoneId(MR::getPlacedZoneId(iter));
     const char* objName = "";
     MR::getObjectName(&objName, iter);
@@ -377,6 +389,10 @@ void StageDataHolder::initPlacementMario() {
 
 TableIter StageDataHolder::makeMarioTableIter(const PlacementId& rInfo) const {
     const StageDataHolder* pHolder = getStageDataHolderFromZoneId(rInfo.mZoneID);
+    // A zone the stage lacks has no start.
+    if (pHolder == nullptr) {
+        return TableIter();
+    }
 
     for (const Table* pTable = pHolder->mStartObjs.begin(); pTable != pHolder->mStartObjs.end(); pTable++) {
         TableIter iter = pTable->findElement< s32 >("MarioNo", rInfo.mId, 0);
