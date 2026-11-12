@@ -64,6 +64,7 @@ std::atomic<std::uint32_t> g_last_input{kLastNone};
 // The icon model (input::ButtonIconModel) of the pad that gave input last, and that pad's id.
 std::atomic<std::uint8_t> g_last_pad_icons{0};
 std::atomic<std::uint32_t> g_last_pad{0};
+std::atomic<unsigned> g_coop_keys_held{0u};  // galaxy::render::coop_keys_held: Tab (1) and Escape (2) down
 
 namespace {
 
@@ -778,6 +779,7 @@ void files_opened(NSArray<NSURL*>* urls) {
         galaxy::sdl::g_input.window_focused = false;
         galaxy::sdl::g_input.keys = {};
     }
+    galaxy::sdl::g_coop_keys_held.store(0u, std::memory_order_relaxed);
     galaxy::sdl::update_cursor();
 }
 - (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication*)sender {
@@ -884,6 +886,10 @@ bool key_event(NSEvent* event, std::vector<std::tuple<int, bool, bool, int>>& me
     // The table's letter is the key's place (a Mac's key codes are the hardware's).
     const int place = virtual_key(event.keyCode);
     const int position = place >= 'A' && place <= 'Z' ? place : 0;
+    // Tab (1) and Escape (2): coop_keys_held.
+    const unsigned coop = place == VK_TAB ? 1u : place == VK_ESCAPE ? 2u : 0u;
+    if (coop != 0u && event.type == NSEventTypeKeyDown) g_coop_keys_held.fetch_or(coop, std::memory_order_relaxed);
+    if (coop != 0u && event.type == NSEventTypeKeyUp) g_coop_keys_held.fetch_and(~coop, std::memory_order_relaxed);
     menu_keys.emplace_back(position != 0 ? layout_key(event, position) : place, event.type == NSEventTypeKeyDown,
                            event.type == NSEventTypeKeyDown && event.ARepeat, position);
     return true;
@@ -1421,6 +1427,11 @@ HostPointerState poll_host_pointer_state() noexcept {
 
 host::HostPointerTransitionPoll poll_host_pointer_transition(std::uint64_t) noexcept {
     return {};
+}
+
+unsigned coop_keys_held() noexcept {
+    return galaxy::render::native_settings_overlay_visible() ? 0u
+                                                             : galaxy::sdl::g_coop_keys_held.load(std::memory_order_relaxed);
 }
 
 void native_settings_post_key(std::uintptr_t virtual_key) noexcept {
