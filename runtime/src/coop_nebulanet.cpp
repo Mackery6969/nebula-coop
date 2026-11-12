@@ -177,7 +177,8 @@ void NebulaNetLink::host(std::string server, NebulaNetRoom room) {
                     ",\"game\":\"Nebula\",\"version\":" + net::json::quote(room.version) +
                     ",\"name\":" + net::json::quote(room.name) + ",\"mode\":" + net::json::quote(room.mode) +
                     ",\"description\":" + net::json::quote(room.description) +
-                    ",\"password\":" + net::json::quote(room.password) + ",\"players\":" + std::to_string(players) +
+                    ",\"password\":" + net::json::quote(room.password) +
+                    ",\"public\":" + (room.public_room ? "true" : "false") + ",\"players\":" + std::to_string(players) +
                     ",\"max\":" + std::to_string(room.max) +
                     ",\"candidates\":" + candidates_json(room.candidates) + "}";
                 (void)socket->send(open);
@@ -199,6 +200,14 @@ void NebulaNetLink::host(std::string server, NebulaNetRoom room) {
                             event.kind = NebulaNetEvent::Kind::RoomCode;
                             event.text = code;
                             shared->push(std::move(event));
+                            // A public room NebulaNet kept off its public list (too many from this network): friends
+                            // still join by the code. A NebulaNet from before public rooms never says.
+                            const net::json::Value* shown = message->find("public");
+                            if (room.public_room && shown != nullptr && shown->kind == net::json::Value::Kind::Bool &&
+                                !shown->boolean) {
+                                shared->fail("NEBULANET KEPT THE ROOM OFF THE PUBLIC LIST: YOUR NETWORK HAS TOO MANY "
+                                             "PUBLIC ROOMS. FRIENDS CAN JOIN BY ITS CODE");
+                            }
                         } else if (type == "joiner") {
                             NebulaNetEvent event;
                             event.kind = NebulaNetEvent::Kind::Joiner;

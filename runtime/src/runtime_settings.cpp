@@ -319,6 +319,8 @@ void apply_kv(RuntimeSettings& settings, const char* key, const char* value) {
         if (::galaxy::text_iequal(value, "direct")) settings.coop.nebulanet = false;
     } else if (std::strcmp(key, "coop_nebulanet") == 0) {
         settings.coop.nebulanet_server = value;
+    } else if (std::strcmp(key, "coop_public") == 0) {
+        settings.coop.public_room = std::strcmp(value, "1") == 0;
     } else if (std::strcmp(key, "coop_player_interaction") == 0) {
         for (const CoopPlayerInteraction interaction :
              {CoopPlayerInteraction::NonSolid, CoopPlayerInteraction::Solid, CoopPlayerInteraction::FriendlyFire}) {
@@ -732,6 +734,9 @@ bool save_runtime_settings_to_file() {
         if (settings.coop.nebulanet != defaults.nebulanet) contents << "coop_network=direct\n";
         if (!settings.coop.nebulanet_server.empty()) {
             contents << "coop_nebulanet=" << settings.coop.nebulanet_server << '\n';
+        }
+        if (settings.coop.public_room != defaults.public_room) {
+            contents << "coop_public=" << (settings.coop.public_room ? 1 : 0) << '\n';
         }
         if (settings.coop.player_interaction != defaults.player_interaction) {
             contents << "coop_player_interaction=" << coop_player_interaction_key(settings.coop.player_interaction)

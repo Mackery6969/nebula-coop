@@ -624,7 +624,7 @@ int main() {
                "coop_room_name=  Star Hunt\x02  \n"
                "coop_player_interaction=Friendly_Fire\ncoop_knockback_strength=60\ncoop_pvp_mode=revamped\ncoop_cheats=1\n"
                "coop_bubble_death=0\ncoop_character=Luigi\ncoop_join_address=192.168.1.20:7778\ncoop_star_counter=1\n"
-               "coop_network=Direct\ncoop_nebulanet=http://127.0.0.1:8787\n");
+               "coop_network=Direct\ncoop_nebulanet=http://127.0.0.1:8787\ncoop_public=1\n");
     galaxy::load_runtime_settings_from_file();
     const galaxy::RuntimeCoopSettings coop = galaxy::get_runtime_settings().coop;
     passed &= expect(static_cast<unsigned>(coop.port) == 9000u && coop.max_players == 8u &&
@@ -634,7 +634,8 @@ int main() {
                          coop.knockback_strength == galaxy::kCoopKnockbackTooMuch &&
                          coop.pvp_mode == galaxy::CoopPvpMode::Revamped && coop.cheats && !coop.bubble_death &&
                          coop.character == galaxy::CoopCharacter::Luigi && coop.join_address == "192.168.1.20:7778" &&
-                         coop.star_counter && !coop.nebulanet && coop.nebulanet_server == "http://127.0.0.1:8787",
+                         coop.star_counter && !coop.nebulanet && coop.nebulanet_server == "http://127.0.0.1:8787" &&
+                         coop.public_room,
                      "co-op keys load; an out-of-range count and control characters are dropped");
     passed &= expect(galaxy::save_runtime_settings_to_file(), "co-op settings save");
     galaxy::load_runtime_settings_from_file();

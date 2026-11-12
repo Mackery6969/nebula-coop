@@ -30,7 +30,9 @@ You need your own copy of the game. Not affiliated with or endorsed by Nintendo.
 
 - **Rooms of 2 to 16 players** (8 by default). One player hosts and the world runs on their PC; everyone else joins.
 - **Join by room code through [NebulaNet](https://github.com/NebulaCoop/NebulaNet)**, Nebula Co-Op's own
-  CoopNet-style matchmaker, so nobody has to forward a port. Rooms are private: a password lists them on the Join page's ROOMS, and a room code joins one directly.
+  CoopNet-style matchmaker, so nobody has to forward a port. A host picks the LOBBY: **Public** rooms show to everyone
+  under the Join page's ROOMS, **friends only** rooms are joined by their code (or found by their password), as
+  sm64coopdx's public and private lobbies.
 - **Or connect directly** to `address:port` (UDP 7777 by default), with a forwarded port or a VPN such as Tailscale,
   ZeroTier or Radmin VPN.
 - **Mario or Luigi**, picked per player and switchable live, each with their own animations.
@@ -102,8 +104,8 @@ Run Setup again to update, repair or uninstall. Updates come from this repositor
 ## Playing online
 
 1. Set your name and character in **Options > PLAYER**.
-2. **To host:** choose **Host**, pick or create a save, and leave NETWORK on **NebulaNet** (or pick **Direct** to share your address and port instead). Set a password to make the room findable by it, then choose **Host**. The room code shows in your chat and on the ONLINE tab.
-3. **To join:** choose **Join**, then enter the room code, or the host's `address:port`, or type the room's password to find it under ROOMS.
+2. **To host:** choose **Host**, pick or create a save, and leave NETWORK on **NebulaNet** (or pick **Direct** to share your address and port instead). Set LOBBY to **Public** to list the room for anyone, or keep it **Friends only**; a password makes joining need it (and finds the room by it). Then choose **Host**. The room code shows in your chat and on the ONLINE tab.
+3. **To join:** choose **Join**, then enter the room code or the host's `address:port`, or pick a room under ROOMS: **Public** for everyone's public rooms, **Private** for the rooms with the password you typed.
 
 To leave, use the pause menu's **Quit**. Only the host's Quit saves the room's game; if the host leaves, everyone goes back to the main menu.
 

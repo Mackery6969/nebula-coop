@@ -2423,7 +2423,8 @@ std::unique_ptr<galaxy::coop::NebulaNetLink> gCoopRoomList;
 void start_coop_rooms() {
     static const std::shared_ptr<galaxy::net::Web> web = galaxy::net::platform_web();
     if (!gCoopRoomList) gCoopRoomList = std::make_unique<galaxy::coop::NebulaNetLink>(web);
-    gCoopRoomList->list(coop_nebulanet_server(), gCoopMenu.room().password);
+    gCoopRoomList->list(coop_nebulanet_server(),
+                        gCoopMenu.rooms_by_password() ? gCoopMenu.room().password : std::string());
 }
 
 void poll_coop_rooms() {

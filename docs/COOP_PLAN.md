@@ -58,10 +58,13 @@ introduces players, as sm64coopdx's CoopNet does, so nobody has to forward a por
   an address. `coop_network=direct` and `coop_nebulanet=<url>` (another NebulaNet, to test one's own) are its settings.
 - **NebulaNet as CoopNet.** NebulaNet offers what CoopNet offers sm64coopdx, for Nebula's star of players: a room has
   a name (the Host page's ROOM NAME, `coop_room_name`, else the host's name), a mode (CO-OP, or PVP with friendly
-  fire), a description (its mods) and the room's password, which makes it private. The Join page's ROOMS lists the
-  public rooms, or with a password typed the private ones that have it, as sm64coopdx's lobby list does; pressing one
-  joins it by its code. NebulaNet checks a join's password and protocol first, and a joiner tells it whether it got
-  through (CoopNet's PEER_FAILED, the host always staying). The Host page's NEBULANET SERVER picks another NebulaNet.
+  fire), a description (its mods) and the room's password. The Host page's LOBBY (`coop_public`) makes the room public,
+  in everyone's list (locked when it has a password too), or keeps it friends only (the default): joined by its code,
+  or found by its password. The Join page's ROOMS lists the public rooms (PUBLIC) or, with a password typed, the ones
+  that have it (PRIVATE), as sm64coopdx's public and private lobbies; pressing one joins it by its code. NebulaNet
+  lists at most 4 public rooms per address; a room past that keeps its code and the host's chat says why. NebulaNet
+  checks a join's password and protocol first, and a joiner tells it whether it got through (CoopNet's PEER_FAILED,
+  the host always staying). The Host page's NEBULANET SERVER picks another NebulaNet.
 - **Relay fallback (next).** Where both routers are too strict for punching (carrier NAT, some campus networks),
   the joiner goes through a TURN relay: NebulaNet already hands TURN servers out (`ice` in its answers, as CoopNet's
   STUN_TURN); the game doesn't use them yet.
@@ -149,8 +152,8 @@ front of it, as its own screen.
   | Page | Rows |
   |---|---|
   | Main | Host, Join, Options, Quit; Nebula's version in a corner |
-  | Host | Save (any number, each with its name and Power Stars; New, Rename and Erase), port, password, max players, Player Interaction, Knockback Strength, PvP Mode, Bubble on Death, Cheats, then Host and Back |
-  | Join | Address (`host[:port]`), password, then Join; the last address is remembered. No public or private lobbies: there's no relay |
+  | Host | Save (any number, each with its name and Power Stars; New, Rename and Erase), network (NebulaNet or Direct), NebulaNet's room name and server or Direct's port, password, NebulaNet's lobby (public or friends only), max players, Player Interaction, Knockback Strength, PvP Mode, Bubble on Death, Cheats, Mods, then Host and Back |
+  | Join | Room code or address (`host[:port]`), password, then Join; the last one is remembered. Rooms: NebulaNet's public rooms, or its private ones by the password |
   | Options | Nebula's settings pages, with PLAYER in the MODS page's old place: name, character (Mario or Luigi, as sm64coopdx's player options pick a model). MODS is the last page |
   | Quit | "Quit to desktop?" yes or no |
 
