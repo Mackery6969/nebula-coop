@@ -168,6 +168,8 @@ RuntimeSettings sanitize_settings(RuntimeSettings settings) {
     if (settings.coop.character > CoopCharacter::Luigi) {
         settings.coop.character = CoopCharacter::Mario;
     }
+    settings.coop.character_id = clean_character_id(settings.coop.character_id);
+    if (settings.coop.character_id == "mario" || settings.coop.character_id == "luigi") settings.coop.character_id.clear();
     settings.coop.join_address = sanitize_coop_text(settings.coop.join_address, kCoopAddressLimit);
     // Only a web address: it is only ever connected to, never shown.
     std::string& server = settings.coop.nebulanet_server;
@@ -312,6 +314,8 @@ void apply_kv(RuntimeSettings& settings, const char* key, const char* value) {
         for (const CoopCharacter character : {CoopCharacter::Mario, CoopCharacter::Luigi}) {
             if (::galaxy::text_iequal(value, coop_character_key(character))) settings.coop.character = character;
         }
+    } else if (std::strcmp(key, "coop_character_id") == 0) {
+        settings.coop.character_id = value;
     } else if (std::strcmp(key, "coop_join_address") == 0) {
         settings.coop.join_address = value;
     } else if (std::strcmp(key, "coop_network") == 0) {
@@ -728,6 +732,7 @@ bool save_runtime_settings_to_file() {
         if (settings.coop.character != defaults.character) {
             contents << "coop_character=" << coop_character_key(settings.coop.character) << '\n';
         }
+        if (!settings.coop.character_id.empty()) contents << "coop_character_id=" << settings.coop.character_id << '\n';
         if (!settings.coop.join_address.empty()) {
             contents << "coop_join_address=" << settings.coop.join_address << '\n';
         }
@@ -831,6 +836,40 @@ const char* coop_pvp_mode_key(CoopPvpMode mode) noexcept {
 
 const char* coop_character_key(CoopCharacter character) noexcept {
     return character == CoopCharacter::Luigi ? "luigi" : "mario";
+}
+
+std::string clean_character_id(std::string_view id) {
+    if (id.empty() || id.size() > 31u) return {};
+    std::string out;
+    out.reserve(id.size());
+    for (const char c : id) {
+        const char lower = (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
+        if (!((lower >= 'a' && lower <= 'z') || (lower >= '0' && lower <= '9') || lower == '_' || lower == '-')) return {};
+        out.push_back(lower);
+    }
+    return out;
+}
+
+std::string coop_character_id(const RuntimeCoopSettings& coop) {
+    return coop.character_id.empty() ? std::string(coop_character_key(coop.character)) : coop.character_id;
+}
+
+namespace {
+std::mutex g_playable_lock;
+std::vector<PlayableCharacter> g_playable;
+}  // namespace
+
+std::vector<PlayableCharacter> playable_characters() {
+    {
+        const std::lock_guard<std::mutex> lock(g_playable_lock);
+        if (!g_playable.empty()) return g_playable;
+    }
+    return {{"mario", "MARIO", CoopCharacter::Mario}, {"luigi", "LUIGI", CoopCharacter::Luigi}};
+}
+
+void set_playable_characters(std::vector<PlayableCharacter> characters) {
+    const std::lock_guard<std::mutex> lock(g_playable_lock);
+    g_playable = std::move(characters);
 }
 
 const char* runtime_input_mode_name(RuntimeInputMode mode) {

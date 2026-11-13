@@ -64,6 +64,8 @@ struct SessionPlayer {
     unsigned ping_ms = 0u;
     // The host made them a moderator (make_moderator): they may kick and ban.
     bool moderator = false;
+    // Their character's id ("mario", "luigi", a mod's "wario": galaxy::clean_character_id), `character` its base.
+    std::string character_id;
 };
 
 // How the host removes a player (remove_player), as sm64coopdx's /kick, /ban and /permban.
@@ -124,6 +126,7 @@ struct HostConfig {
     std::string game_version;               // joiners with another are refused
     std::string name;
     CoopCharacter character = CoopCharacter::Mario;
+    std::string character_id;  // a mod's character on `character`; empty: `character`'s own
     // The save to send each joiner, read as they join (on the session's thread).
     std::function<RoomSave()> save;
     DiscInfo disc;                 // joiners with another are refused
@@ -146,6 +149,7 @@ struct JoinConfig {
     std::string game_version;
     std::string name;
     CoopCharacter character = CoopCharacter::Mario;
+    std::string character_id;  // a mod's character on `character`; empty: `character`'s own
     DiscInfo disc;
     std::vector<SharedMod> mods;           // the mods this game plays now (their files aren't needed)
     std::filesystem::path mods_cache;      // where the room's mods download (ModCache), and are looked for first
@@ -222,7 +226,8 @@ public:
     void set_name(const std::string& name);
     // The character this player plays now (sm64coopdx's live character change), told to everyone as it changes:
     // their player list, nametags and chat colours follow. Nothing outside a room.
-    void set_character(CoopCharacter character);
+    // `id`: the character's (a mod's on `character`), empty for `character`'s own.
+    void set_character(CoopCharacter character, const std::string& id = {});
     // The host: `player` got a Power Star new to the room's save (the shared world settled it): their count goes up
     // and everyone is told. Nothing for a joiner or outside a room; each room starts from 0.
     void credit_star(net::PeerId player);

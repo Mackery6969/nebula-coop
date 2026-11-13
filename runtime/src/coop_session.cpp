@@ -94,11 +94,19 @@ void read_room(ByteReader& in, RuntimeCoopSettings& room) {
     room.bubble_death = in.u8() != 0u;
 }
 
+// A player's character id as the room keeps it: a mod's (galaxy::clean_character_id), else its base's own ("mario",
+// "luigi"), so a bad or missing one reads as the base.
+std::string character_id_of(CoopCharacter base, std::string_view id) {
+    std::string cleaned = clean_character_id(id);
+    return cleaned.empty() ? std::string(coop_character_key(base)) : cleaned;
+}
+
 void write_player(ByteWriter& out, const SessionPlayer& player) {
     out.u64(player.id)
         .u8(static_cast<std::uint8_t>(player.index))
         .str(player.name)
         .u8(static_cast<std::uint8_t>(player.character))
+        .str(player.character_id)
         .u8((player.host ? 1u : 0u) | (player.moderator ? 2u : 0u))
         .str(player.stage)
         .u8(static_cast<std::uint8_t>(std::clamp(player.scenario, 0, 255)))
@@ -111,6 +119,7 @@ SessionPlayer read_player(ByteReader& in) {
     player.index = in.u8();
     player.name = in.str(kPlayerNameLimit);
     player.character = in.u8() == 1u ? CoopCharacter::Luigi : CoopCharacter::Mario;
+    player.character_id = character_id_of(player.character, in.str(64u));
     const unsigned flags = in.u8();
     player.host = (flags & 1u) != 0u;
     player.moderator = (flags & 2u) != 0u;
@@ -288,6 +297,7 @@ struct Session::State {
         const std::string version = in.str(128u);
         const std::string name = clean_name(in.str(256u));
         const auto character = in.u8() == 1u ? CoopCharacter::Luigi : CoopCharacter::Mario;
+        const std::string character_id = character_id_of(character, in.str(64u));
         if (!in.ok() || protocol != kSessionProtocol) {
             refuse(from, "THE HOST PLAYS ANOTHER VERSION OF ONLINE PLAY");
             return;
@@ -332,6 +342,7 @@ struct Session::State {
         }
         // A name someone in the room already has gets a number (sm64ex-coop's).
         SessionPlayer joined{from, index, unique_name(name, from), character, false, false, {}, 0, 0u};
+        joined.character_id = character_id;
         joined.moderator = listed(host_config.moderators, identity);
         waiting.erase(from);
 
@@ -704,9 +715,14 @@ struct Session::State {
     // A host's: a joiner switched character (sm64coopdx's live character change).
     void host_receive_character(PeerId from, ByteReader& in) {
         const auto got = in.u8() == 1u ? CoopCharacter::Luigi : CoopCharacter::Mario;
+        const std::string got_id = character_id_of(got, in.str(64u));
         SessionPlayer* switched = player(from);
-        if (!in.ok() || switched == nullptr || switched->local || switched->character == got) return;
+        if (!in.ok() || switched == nullptr || switched->local ||
+            (switched->character == got && switched->character_id == got_id)) {
+            return;
+        }
         switched->character = got;
+        switched->character_id = got_id;
         send_info(*switched);
     }
 
@@ -981,6 +997,7 @@ Session::Session(std::unique_ptr<net::Transport> transport) : state_(std::make_u
             s->state = SessionState::Hosting;
             s->players = {SessionPlayer{self, 0u, clean_name(s->host_config.name), s->host_config.character, true,
                                         true, s->stage, s->scenario, 0u}};
+            s->players.front().character_id = character_id_of(s->host_config.character, s->host_config.character_id);
             s->event(SessionEvent::Kind::Hosting, {}, std::to_string(s->transport->port()));
             return;
         }
@@ -991,6 +1008,7 @@ Session::Session(std::unique_ptr<net::Transport> transport) : state_(std::make_u
             .str(s->join_config.game_version)
             .str(s->wanted_name)
             .u8(static_cast<std::uint8_t>(s->join_config.character))
+            .str(character_id_of(s->join_config.character, s->join_config.character_id))
             .str(s->join_config.disc.game_id)
             .u8(static_cast<std::uint8_t>(s->join_config.disc.revision))
             .u64(s->join_config.disc.hash);
@@ -1217,19 +1235,21 @@ void Session::set_name(const std::string& name) {
     state_->send(state_->transport->owner(), kPlayerName, body);
 }
 
-void Session::set_character(CoopCharacter character) {
+void Session::set_character(CoopCharacter character, const std::string& id) {
     const std::lock_guard<std::recursive_mutex> lock(lock_);
     if (state_->state != SessionState::Hosting && state_->state != SessionState::Joined) return;
     auto& list = state_->players;
     const auto self = std::find_if(list.begin(), list.end(), [](const auto& p) { return p.local; });
-    if (self == list.end() || self->character == character) return;
+    const std::string cleaned = character_id_of(character, id);
+    if (self == list.end() || (self->character == character && self->character_id == cleaned)) return;
     self->character = character;
+    self->character_id = cleaned;
     if (state_->state == SessionState::Hosting) {
         state_->send_info(*self);
         return;
     }
     ByteWriter body;
-    body.u8(static_cast<std::uint8_t>(character));
+    body.u8(static_cast<std::uint8_t>(character)).str(cleaned);
     state_->send(state_->transport->owner(), kPlayerCharacter, body);
 }
 

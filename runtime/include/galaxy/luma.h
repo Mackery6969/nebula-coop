@@ -83,6 +83,7 @@ struct StageRule {
 // One value in the player's constants table.
 struct PlayerConstant {
     int character = 0;  // 0 Mario, 1 Luigi
+    std::string character_id;  // a mod's character ("wario": "characters"); when set, `character` is unused
     std::string name;
     int index = 0;
     float value = 0.0f;
@@ -142,6 +143,15 @@ struct PlayerAnimation {
     std::string file;
     double rate = 1.0;
     int blend_frames = 0;
+};
+
+// A playable character ("characters"), as sm64coopdx's character table has them: a model (ObjectData/<archive>.arc)
+// on Mario or Luigi (`like`: their animations, voice and code), its own player numbers (player_constants by its id).
+struct Character {
+    std::string id;       // "wario": 1-31 of a-z, 0-9, '_', '-'
+    std::string name;     // as the Options page shows it; empty: the id in capitals
+    std::string like = "mario";
+    std::string archive;  // empty: the id with a capital first letter
 };
 
 // A new galaxy, and the hungry Luma that opens it.
@@ -215,6 +225,7 @@ struct Layer {
     std::vector<std::string> scripts;  // mod-wide scripts ("scripts"): scripts/<name>.lumascript, one instance each
     std::vector<SoundEffect> sound_effects;
     std::vector<PlayerAnimation> player_animations;
+    std::vector<Character> characters;
     When when;
 };
 

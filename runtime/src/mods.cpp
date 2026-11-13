@@ -1872,6 +1872,9 @@ ModPlan plan_mod_changes(const galaxy::assets::AssetStore& store, const std::str
                 for (const luma::StageRule& rule : layer.stages) {
                     plan.rows.stage_rules.push_back({mod.id, rule.stage, rule.scenario, rule.acts_as, rule.own_rules});
                 }
+                for (const luma::Character& character : layer.characters) {
+                    plan.rows.characters.push_back({mod.id, mod.luma->version, character.id, character.name, character.like, character.archive});
+                }
                 for (const luma::PlayerConstant& constant : layer.player_constants) {
                     float value = constant.value;
                     if (!constant.option.empty()) {
@@ -1879,7 +1882,7 @@ ModPlan plan_mod_changes(const galaxy::assets::AssetStore& store, const std::str
                         if (choice == situation.options.end()) continue;
                         value = std::strtof(choice->second.c_str(), nullptr);
                     }
-                    plan.rows.player_constants.push_back({mod.id, constant.character, constant.name, constant.index, value});
+                    plan.rows.player_constants.push_back({mod.id, constant.character, constant.character_id, constant.name, constant.index, value});
                 }
                 for (const luma::Tunable& tunable : layer.tunables) {
                     double value = tunable.value;

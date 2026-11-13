@@ -92,6 +92,7 @@ struct StageRuleToSet {
 struct PlayerConstantToSet {
     std::string mod_id;
     int character = 0;
+    std::string character_id;  // a mod's character by id (CharacterToAdd), set when it is added; else `character`
     std::string name;
     int index = 0;
     float value = 0.0f;
@@ -119,6 +120,16 @@ struct ObjectClassToSet {
     std::string name;
     std::string like;    // empty: one of the game's classes
     std::string script;  // empty: none
+};
+
+// A playable character from data (luma::Character), for the mod that adds it.
+struct CharacterToAdd {
+    std::string mod_id;
+    std::string mod_version;
+    std::string id;
+    std::string name;
+    std::string like;
+    std::string archive;
 };
 
 // A power-up from data (luma::Form), for the mod that adds it.
@@ -185,6 +196,7 @@ struct ModRows {
     std::vector<ObjectChangeToSet> object_changes;
     std::vector<CometLimitToSet> comet_limits;
     std::vector<StageRuleToSet> stage_rules;
+    std::vector<CharacterToAdd> characters;
     std::vector<PlayerConstantToSet> player_constants;
     std::vector<TunableToSet> tunables;
     std::vector<ObjectClassToSet> object_classes;
@@ -196,7 +208,7 @@ struct ModRows {
     std::vector<AchievementToAdd> achievements;
     std::map<std::string, std::string> story;
 
-    [[nodiscard]] bool empty() const noexcept { return achievements.empty() && story.empty() && sound_effects.empty() && player_animations.empty() && stage_rules.empty() && player_constants.empty() && tunables.empty() && object_classes.empty() && forms.empty() && script_objects.empty() && mod_scripts.empty() && object_changes.empty() && comet_limits.empty() && galaxies.empty() && music.empty() && texts.empty() && event_flags.empty() && comets.empty(); }
+    [[nodiscard]] bool empty() const noexcept { return achievements.empty() && story.empty() && sound_effects.empty() && player_animations.empty() && stage_rules.empty() && characters.empty() && player_constants.empty() && tunables.empty() && object_classes.empty() && forms.empty() && script_objects.empty() && mod_scripts.empty() && object_changes.empty() && comet_limits.empty() && galaxies.empty() && music.empty() && texts.empty() && event_flags.empty() && comets.empty(); }
 };
 
 // Starts the plugins and returns how many started. `game_api` is the game module's nebula_game_mod_api(); `find_symbol`

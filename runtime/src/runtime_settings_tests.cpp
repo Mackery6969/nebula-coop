@@ -623,7 +623,7 @@ int main() {
                "coop_port=9000\ncoop_max_players=40\ncoop_player_name=  Mario\x01 Bros  \ncoop_password=pw\n"
                "coop_room_name=  Star Hunt\x02  \n"
                "coop_player_interaction=Friendly_Fire\ncoop_knockback_strength=60\ncoop_pvp_mode=revamped\ncoop_cheats=1\n"
-               "coop_bubble_death=0\ncoop_character=Luigi\ncoop_join_address=192.168.1.20:7778\ncoop_star_counter=1\n"
+               "coop_bubble_death=0\ncoop_character=Luigi\ncoop_character_id=Waluigi\ncoop_join_address=192.168.1.20:7778\ncoop_star_counter=1\n"
                "coop_network=Direct\ncoop_nebulanet=http://127.0.0.1:8787\ncoop_public=1\n");
     galaxy::load_runtime_settings_from_file();
     const galaxy::RuntimeCoopSettings coop = galaxy::get_runtime_settings().coop;
@@ -633,7 +633,8 @@ int main() {
                          coop.player_interaction == galaxy::CoopPlayerInteraction::FriendlyFire &&
                          coop.knockback_strength == galaxy::kCoopKnockbackTooMuch &&
                          coop.pvp_mode == galaxy::CoopPvpMode::Revamped && coop.cheats && !coop.bubble_death &&
-                         coop.character == galaxy::CoopCharacter::Luigi && coop.join_address == "192.168.1.20:7778" &&
+                         coop.character == galaxy::CoopCharacter::Luigi && coop.character_id == "waluigi" &&
+                         galaxy::coop_character_id(coop) == "waluigi" && coop.join_address == "192.168.1.20:7778" &&
                          coop.star_counter && !coop.nebulanet && coop.nebulanet_server == "http://127.0.0.1:8787" &&
                          coop.public_room,
                      "co-op keys load; an out-of-range count and control characters are dropped");
@@ -647,10 +648,10 @@ int main() {
                          read_text(settings_path).find("coop_") == std::string::npos,
                      "default co-op settings write no coop_ keys");
     write_text(settings_path, "coop_player_interaction=sticky\ncoop_knockback_strength=256\ncoop_pvp_mode=new\n"
-                              "coop_network=carrier pigeon\ncoop_nebulanet=ftp://example.com\n");
+                              "coop_network=carrier pigeon\ncoop_nebulanet=ftp://example.com\ncoop_character_id=../mario\n");
     galaxy::load_runtime_settings_from_file();
     passed &= expect(galaxy::get_runtime_settings().coop == galaxy::RuntimeCoopSettings{},
-                     "unknown player interaction, knockback, PvP, network and server values keep the defaults");
+                     "unknown player interaction, knockback, PvP, network, server and character values keep the defaults");
 
     // The kept ban and moderator lists: addresses, each once.
     write_text(settings_path, "coop_bans=192.168.1.9, ::1,not an address,192.168.1.9\ncoop_moderators=fe80::2\n");

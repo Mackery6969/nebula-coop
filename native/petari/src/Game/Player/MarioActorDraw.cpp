@@ -10,6 +10,7 @@
 #include "Game/Render/Model.hpp"
 #include "Game/Render/ModelData.hpp"
 #include "Game/Player/MarioActor.hpp"
+#include "Game/Player/NebulaCharacters.hpp"
 #include "Game/Player/MarioAnimator.hpp"
 #include "Game/Player/MarioParts.hpp"
 #include "Game/Player/MarioState.hpp"
@@ -74,15 +75,13 @@ void MarioActor::initDrawAndModel() {
 
     // MarioAnime's material animations are bound to this player's model, also when a ghost's model used the archive first
     // or the other player's did before a restart of the same stage.
-    ResourceHolder* const pPlayerHolder = MR::createAndAddResourceHolder(gIsLuigi ? "Luigi" : "Mario");
-    MR::createAndAddResourceHolder("MarioAnime")
-        ->bindMaterialAnimations(static_cast< ModelData* >(pPlayerHolder->mModelResTable->getRes(gIsLuigi ? "luigi" : "mario")));
+    // The character's model (NebulaCharacters): Mario.arc, Luigi.arc, or a mod character's archive, its model named as
+    // it (case doesn't matter).
+    const char* const pArchive = NebulaCharacters::modelName(gPlayerCharacter, gIsLuigi ? "Luigi" : "Mario");
+    ResourceHolder* const pPlayerHolder = MR::createAndAddResourceHolder(pArchive);
+    MR::createAndAddResourceHolder("MarioAnime")->bindMaterialAnimations(static_cast< ModelData* >(pPlayerHolder->mModelResTable->getRes(pArchive)));
 
-    if (gIsLuigi) {
-        initModelManagerWithAnm("Luigi", "MarioAnime", true);
-    } else {
-        initModelManagerWithAnm("Mario", "MarioAnime", true);
-    }
+    initModelManagerWithAnm(pArchive, "MarioAnime", true);
 
     PlayerModel* baseModel = static_cast< PlayerModel* >(MR::getModel(this));
     baseModel->initExtraPoses(8);
@@ -151,6 +150,8 @@ void MarioActor::initBeeMario() {
         modelName = "BeeMario";
         archiveName = "BeeMario";
     }
+    modelName = NebulaCharacters::modelName(gPlayerCharacter, modelName);
+    archiveName = modelName;
 
     MR::createAndAddResourceHolder(archiveName);
 
@@ -169,7 +170,7 @@ void MarioActor::initBeeMario() {
     mBeeFur = MR::initFurPlayer(mBeeModel);
     MR::hideJoint(mBeeModel, "Face0");
 
-    mBeeWing = new MarioParts(this, "B-WING", "BeeMarioWing", false, nullptr, nullptr);
+    mBeeWing = new MarioParts(this, "B-WING", NebulaCharacters::modelName(gPlayerCharacter, "BeeMarioWing"), false, nullptr, nullptr);
     mBeeWing->initWithoutIter();
 
     mBeeWing->initFixedPosition(mSpine2Mtx.toMtxPtr(), Vec3f(0.0f, 0.0f, 0.0f), Vec3f(0.0f, 0.0f, 0.0f));
@@ -189,6 +190,8 @@ void MarioActor::initHopperMario() {
         modelName = "HopperMario";
         archiveName = "HopperMario";
     }
+    modelName = NebulaCharacters::modelName(gPlayerCharacter, modelName);
+    archiveName = modelName;
 
     MR::createAndAddResourceHolder(archiveName);
 
@@ -218,6 +221,8 @@ void MarioActor::initIceMario() {
         modelName = "IceMario";
         archiveName = "IceMario";
     }
+    modelName = NebulaCharacters::modelName(gPlayerCharacter, modelName);
+    archiveName = modelName;
 
     MR::createAndAddResourceHolder(archiveName);
 
@@ -256,6 +261,8 @@ void MarioActor::initInvincibleMario() {
         modelName = "InvincibleMario";
         archiveName = "InvincibleMario";
     }
+    modelName = NebulaCharacters::modelName(gPlayerCharacter, modelName);
+    archiveName = modelName;
 
     MR::createAndAddResourceHolder(archiveName);
 
@@ -276,7 +283,7 @@ void MarioActor::initInvincibleMario() {
 }
 
 void MarioActor::initTeresaMario() {
-    const char* modelName = gIsLuigi ? "TeresaLuigi" : "TeresaMario";
+    const char* modelName = NebulaCharacters::modelName(gPlayerCharacter, gIsLuigi ? "TeresaLuigi" : "TeresaMario");
     mTeresaModel = new MarioParts(this, "テレサの皮", modelName, nullptr);
     if (gIsLuigi) {
         mTeresaModel->mEffectName = "TeresaMario";
@@ -296,14 +303,14 @@ void MarioActor::initTeresaMario() {
 }
 
 void MarioActor::initTornadoMario() {
-    const char* modelName = gIsLuigi ? "LuigiTornado" : "MarioTornado";
+    const char* modelName = NebulaCharacters::modelName(gPlayerCharacter, gIsLuigi ? "LuigiTornado" : "MarioTornado");
     mTornadoMario = new TornadoMario(modelName);
     mTornadoMario->initWithoutIter();
     mTornadoEnd = 0;
 }
 
 void MarioActor::initBoneMario() {
-    const char* modelName = gIsLuigi ? "BoneLuigi" : "BoneMario";
+    const char* modelName = NebulaCharacters::modelName(gPlayerCharacter, gIsLuigi ? "BoneLuigi" : "BoneMario");
 
     mBoneModel = new ModelHolder(modelName, true);
     mBoneModel->initWithoutIter();
@@ -648,11 +655,7 @@ void MarioActor::initFace() {
     MR::hideJoint(mModels[0], "Face0");
     mFacePose = 0;
 
-    if (gIsLuigi) {
-        mFaceModel = new ModelHolder("LuigiFace", true);
-    } else {
-        mFaceModel = new ModelHolder("MarioFace", true);
-    }
+    mFaceModel = new ModelHolder(NebulaCharacters::modelName(gPlayerCharacter, gIsLuigi ? "LuigiFace" : "MarioFace"), true);
 
     MR::initMaterialFog(mFaceModel, true);
     MR::prepareMaterials(mFaceModel);

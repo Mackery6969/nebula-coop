@@ -1905,6 +1905,15 @@ unsigned gCoopSaveFile = 1u;  // the user file the played save plays
 // then as the page changes in game (renderer builds). The game plays it from its next stage start, and a switch in
 // play reloads the player's spot as the other character (NebulaCharacter).
 std::atomic<bool> gCoopLuigi{false};
+// And its id (coop_character_wanted): a mod's character on that base, else the base's own ("mario", "luigi").
+std::mutex gCoopCharacterLock;
+std::string gCoopCharacterId = "mario";
+
+void set_coop_character_wanted(const galaxy::RuntimeCoopSettings& coop) {
+    gCoopLuigi.store(coop.character == galaxy::CoopCharacter::Luigi, std::memory_order_relaxed);
+    const std::lock_guard<std::mutex> lock(gCoopCharacterLock);
+    gCoopCharacterId = galaxy::coop_character_id(coop);
+}
 
 // The room's chat (galaxy/coop_chat.h), over the session below (which goes first, its thread giving the chat lines),
 // and its commands (galaxy/coop_commands.h).
@@ -2334,12 +2343,15 @@ void pump_coop_session() {
     // the one wanted: the others' nametags, list and chat follow the model they see.
     {
         bool valid = false, luigi = false;
+        char character[sizeof(gCoopLocal.character)] = {};
         {
             const std::lock_guard<std::mutex> lock(gCoopLock);
             valid = gCoopLocalValid;
             luigi = (gCoopLocal.flags & NEBULA_COOP_PLAYER_LUIGI) != 0u;
+            std::memcpy(character, gCoopLocal.character, sizeof(character));
         }
-        if (valid) gCoopSession.set_character(luigi ? galaxy::CoopCharacter::Luigi : galaxy::CoopCharacter::Mario);
+        character[sizeof(character) - 1] = '\0';
+        if (valid) gCoopSession.set_character(luigi ? galaxy::CoopCharacter::Luigi : galaxy::CoopCharacter::Mario, character);
     }
     handle_coop_session_events();
 }
@@ -2394,6 +2406,7 @@ bool open_coop_room() {
     config.game_version = kCoopGameVersion;
     config.name = coop_player_name();
     config.character = config.room.character;
+    config.character_id = config.room.character_id;
     config.save = coop_room_save;
     config.disc = gCoopDisc;
     config.mods = coop_session_mods();
@@ -2458,6 +2471,7 @@ void start_coop_join() {
     config.game_version = kCoopGameVersion;
     config.name = coop_player_name();
     config.character = room.character;
+    config.character_id = room.character_id;
     config.disc = gCoopDisc;
     config.mods = coop_session_mods();
     config.mods_cache = coop_mods_cache();
@@ -2559,7 +2573,7 @@ bool poll_coop_join() {
         galaxy::achievements::set_file(folder / "achievements.ini");
 #endif
         gCoopWorld.start();
-        gCoopLuigi.store(gCoopMenu.room().character == galaxy::CoopCharacter::Luigi, std::memory_order_relaxed);
+        set_coop_character_wanted(gCoopMenu.room());
 #if defined(NEBULA_HOST_RENDERER)
         galaxy::render::set_coop_in_game(true);
 #endif
@@ -2596,10 +2610,11 @@ void keep_coop_settings() {
     galaxy::RuntimeSettings settings = galaxy::get_runtime_settings();
     // The player's name and character are Options' (its PLAYER page): the menu takes them, never gives them back.
     if (gCoopMenu.room().player_name != settings.coop.player_name ||
-        gCoopMenu.room().character != settings.coop.character) {
+        gCoopMenu.room().character != settings.coop.character || gCoopMenu.room().character_id != settings.coop.character_id) {
         galaxy::RuntimeCoopSettings room = gCoopMenu.room();
         room.player_name = settings.coop.player_name;
         room.character = settings.coop.character;
+        room.character_id = settings.coop.character_id;
         gCoopMenu.set_room(room);
     }
     if (settings.coop == gCoopMenu.room()) return;
@@ -2693,7 +2708,7 @@ bool start_coop_save() {
         gCoopSaveFolder = folder;
     }
     gCoopSaveFile = save->file;
-    gCoopLuigi.store(gCoopMenu.room().character == galaxy::CoopCharacter::Luigi, std::memory_order_relaxed);
+    set_coop_character_wanted(gCoopMenu.room());
 #if defined(NEBULA_HOST_RENDERER)
     galaxy::achievements::set_file(folder / "achievements.ini");
     galaxy::render::set_coop_in_game(true);
@@ -2935,8 +2950,7 @@ int32_t svc_coop_menu(void*, uint32_t what) {
         // Live: Options' PLAYER page may switch it mid-game (sm64coopdx's live character change). Not in the main
         // menu, where Host and Join take the menu's own.
         if (!gCoopMenu.is_open()) {
-            gCoopLuigi.store(galaxy::get_runtime_settings().coop.character == galaxy::CoopCharacter::Luigi,
-                             std::memory_order_relaxed);
+            set_coop_character_wanted(galaxy::get_runtime_settings().coop);
         }
 #endif
         return gCoopLuigi.load(std::memory_order_relaxed) ? 1 : 0;
@@ -3110,6 +3124,7 @@ uint32_t svc_coop_list(void*, NebulaCoopListPlayer* players, uint32_t capacity, 
         to.flags = (from.character == galaxy::CoopCharacter::Luigi ? NEBULA_COOP_LIST_LUIGI : 0u) |
                    (from.host ? NEBULA_COOP_LIST_HOST : 0u) | (from.local ? NEBULA_COOP_LIST_YOU : 0u) |
                    (stars ? NEBULA_COOP_LIST_STARS : 0u);
+        std::snprintf(to.character, sizeof(to.character), "%s", from.character_id.c_str());
     }
     return static_cast<uint32_t>(list.size());
 }
@@ -3307,6 +3322,12 @@ int svc_coop_achievement_take(void*, char* id, uint32_t capacity) {
 
 // The oldest pop-up waiting, for the game's corner boxes: 1 with it, 0 when none waits. Only in a room's game, as the
 // chat.
+void svc_coop_character_wanted(void*, char* id, uint32_t capacity) {
+    if (id == nullptr || capacity == 0u) return;
+    const std::lock_guard<std::mutex> lock(gCoopCharacterLock);
+    std::snprintf(id, capacity, "%s", gCoopCharacterId.c_str());
+}
+
 int svc_coop_popup_take(void*, NebulaCoopPopup* popup) {
     if (popup == nullptr || !gCoopSession.active()) return 0;
 #if defined(NEBULA_HOST_RENDERER)
@@ -3392,8 +3413,12 @@ uint32_t svc_coop_remote(void*, NebulaCoopRemotePlayer* players, uint32_t capaci
         }
         player.health = snapshot.health;
         player.mode = snapshot.mode;
-        // The character is the one their game plays now (their snapshot's), so a live switch shows at once.
+        // The character is the one their game plays now (their snapshot's), so a live switch shows at once; a mod's
+        // character on it by the id the session last told (the game shows the base until the two agree).
         player.flags = snapshot.flags;
+        for (const galaxy::coop::SessionPlayer& in : room) {
+            if (in.id == from.id) std::snprintf(player.character, sizeof(player.character), "%s", in.character_id.c_str());
+        }
         player.area = snapshot.area;
         player.platform = snapshot.platform;
         for (std::size_t j = 0; j < 3u; ++j) {
@@ -4997,6 +5022,18 @@ void svc_mods_start(void*) {
 #endif
                                 },
                                 [](const char* text) { log_line("mods:", text); });
+    // The characters the mods added, for the Options page's CHARACTER row (the game's list, Mario and Luigi first).
+    if (const NebulaModApi* api = game_api(); api != nullptr && NEBULA_MOD_API_HAS(api, character_like)) {
+        std::vector<galaxy::PlayableCharacter> characters;
+        for (int32_t i = 0; i < api->character_count(); ++i) {
+            const char* id = api->character_id(i);
+            const char* name = api->character_name(i);
+            if (id == nullptr) continue;
+            characters.push_back({id, name != nullptr ? name : id,
+                                  api->character_like(i) == 1 ? galaxy::CoopCharacter::Luigi : galaxy::CoopCharacter::Mario});
+        }
+        galaxy::set_playable_characters(std::move(characters));
+    }
 }
 
 void svc_app_restart(void*) {
@@ -5894,6 +5931,7 @@ int main(int argc, char** argv) {
     services.coop_rules = svc_coop_rules;
     services.coop_achievement_take = svc_coop_achievement_take;
     services.coop_popup_take = svc_coop_popup_take;
+    services.coop_character_wanted = svc_coop_character_wanted;
     services.coop_objects_report = svc_coop_objects_report;
     services.coop_objects_take = svc_coop_objects_take;
 #if defined(NEBULA_HOST_RENDERER)

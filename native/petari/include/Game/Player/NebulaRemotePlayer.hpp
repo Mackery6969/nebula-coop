@@ -21,11 +21,16 @@ class Clip;
 // and knock him back or hurt him. Each game moves only its own Mario, so no message is sent for any of it.
 class NebulaRemotePlayer : public LiveActor {
 public:
-    explicit NebulaRemotePlayer(bool isLuigi);
+    // A copy of a player who plays `character` (NebulaCharacters): its model, and its base's animations.
+    explicit NebulaRemotePlayer(s32 character);
 
     // GameScene, after the stage's own actors are placed (Mario's animations are ready then): the copies for this
     // scene, as many of each character as the room may have others, when there is a room.
     static void tryCreate();
+    // A copy of a player playing `character`, for this scene.
+    static void addCopy(s32 character);
+    // The character of the copy that shows them: theirs when this scene has copies of it, else its base's.
+    static s32 copyKindOf(const NebulaCoopRemotePlayer& rRemote);
     // GameScene, as a scene starts: the last scene's copies are gone.
     static void forgetAll();
     // Each game scene frame: the others in this instance as the host has them, each onto a copy of their character
@@ -106,4 +111,6 @@ public:
     // "non-group"), looked up as the name changes, not each frame.
     char mWantedGroup[48];
     const XanimeGroupInfo* mWantedInfo;
+    // The character it shows (NebulaCharacters); mIsLuigi is its base.
+    s32 mCharacter;
 };

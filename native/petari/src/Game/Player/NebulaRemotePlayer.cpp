@@ -1,4 +1,5 @@
 #include "Game/Player/NebulaRemotePlayer.hpp"
+#include "Game/Player/NebulaCharacters.hpp"
 #include "Game/System/NebulaCoopWorld.hpp"
 #include "nebula_module.h"
 #include "Game/System/NebulaHost.hpp"
@@ -47,7 +48,10 @@
 namespace {
     // Copies of each character a scene keeps: one for each other player a room of 16 may have.
     const s32 cMaxPerCharacter = 15;
-    NebulaRemotePlayer* sCopies[cMaxPerCharacter * 2];
+    // Mario's and Luigi's copies, then those of the mods' characters played in the room as the scene starts (as many
+    // as play each, the others at most).
+    const s32 cMaxCopies = cMaxPerCharacter * 3;
+    NebulaRemotePlayer* sCopies[cMaxCopies];
     s32 sCopyNum = 0;
     // The animations of the character the local player isn't, for that character's copies (made with them, a scene's).
     XanimeResourceTable* sOtherTable = nullptr;
@@ -182,8 +186,11 @@ bool NebulaRemotePlayer::isLocalIntangible() {
            pMario->mPlayerMode == PlayerMode_Teresa || MR::isPlayerHidden() || MR::isOffPlayerControl();
 }
 
-NebulaRemotePlayer::NebulaRemotePlayer(bool isLuigi)
-    : LiveActor(isLuigi ? "NebulaRemoteLuigi" : "NebulaRemoteMario"), mIsLuigi(isLuigi), mNumber(0), mXanimePlayer(nullptr),
+NebulaRemotePlayer::NebulaRemotePlayer(s32 character)
+    : LiveActor(character == NebulaCharacters::cMario   ? "NebulaRemoteMario"
+                : character == NebulaCharacters::cLuigi ? "NebulaRemoteLuigi"
+                                                        : "NebulaRemoteCharacter"),
+      mIsLuigi(NebulaCharacters::isLuigi(character)), mNumber(0), mXanimePlayer(nullptr),
       mLastFrame(0.0f), mFront(0.0f, 0.0f, 1.0f), mUp(0.0f, 1.0f, 0.0f), mRewindMs(0), mShownFrames(0),
       mStompTimer(0), mSolid(false), mBubble(nullptr), mWantedInfo(nullptr) {
     mName[0] = '\0';
@@ -195,6 +202,7 @@ NebulaRemotePlayer::NebulaRemotePlayer(bool isLuigi)
     memset(&mState, 0, sizeof(mState));
     memset(mTrackName, 0, sizeof(mTrackName));
     memset(mTrackBck, 0, sizeof(mTrackBck));
+    mCharacter = character;
 }
 
 void NebulaRemotePlayer::forgetAll() {
@@ -204,6 +212,34 @@ void NebulaRemotePlayer::forgetAll() {
     sHistoryNum = 0;
     sRacingNoted = false;
     sLocalRacing = false;
+}
+
+void NebulaRemotePlayer::addCopy(s32 character) {
+    if (sCopyNum >= cMaxCopies) {
+        return;
+    }
+    NebulaRemotePlayer* pCopy = new NebulaRemotePlayer(character);
+    pCopy->init(TableIter{});
+    pCopy->mBubble = NebulaCoopBubble::createModel();
+    sCopies[sCopyNum++] = pCopy;
+}
+
+s32 NebulaRemotePlayer::copyKindOf(const NebulaCoopRemotePlayer& rRemote) {
+    const bool luigi = (rRemote.player.flags & NEBULA_COOP_PLAYER_LUIGI) != 0;
+    char id[sizeof(rRemote.player.character)];
+    memcpy(id, rRemote.player.character, sizeof(id));
+    id[sizeof(id) - 1] = '\0';
+    const s32 character = NebulaCharacters::find(id);
+    // Theirs while its base is the one their snapshot plays (a switch's name may come a moment before or after it),
+    // and this scene made copies of it.
+    if (character > NebulaCharacters::cLuigi && NebulaCharacters::isLuigi(character) == luigi) {
+        for (s32 i = 0; i < sCopyNum; i++) {
+            if (sCopies[i]->mCharacter == character) {
+                return character;
+            }
+        }
+    }
+    return luigi ? NebulaCharacters::cLuigi : NebulaCharacters::cMario;
 }
 
 void NebulaRemotePlayer::tryCreate() {
@@ -231,10 +267,19 @@ void NebulaRemotePlayer::tryCreate() {
     // it ("MarioAnime"), so both find the same holder.
     sOtherTable = MarioAnimator::newCharacterResourceTable(MR::createAndAddResourceHolder("MarioAnime"), !MR::isPlayerLuigi());
     for (s32 i = 0; i < perCharacter * 2; i++) {
-        NebulaRemotePlayer* pCopy = new NebulaRemotePlayer(i >= perCharacter);
-        pCopy->init(TableIter{});
-        pCopy->mBubble = NebulaCoopBubble::createModel();
-        sCopies[sCopyNum++] = pCopy;
+        addCopy(i >= perCharacter ? NebulaCharacters::cLuigi : NebulaCharacters::cMario);
+    }
+    // The mods' characters the others play now: a copy for each player (one who switches to another mid-scene shows as
+    // its base until the next start).
+    static NebulaCoopListPlayer list[cMaxPerCharacter + 1];
+    const u32 listNum = NebulaHost::coopList(list, cMaxPerCharacter + 1, nullptr);
+    for (u32 i = 0; i < listNum && i < static_cast< u32 >(cMaxPerCharacter + 1) && sCopyNum < cMaxCopies; i++) {
+        list[i].character[sizeof(list[i].character) - 1] = '\0';
+        const s32 character = NebulaCharacters::find(list[i].character);
+        if ((list[i].flags & NEBULA_COOP_LIST_YOU) == 0 && character > NebulaCharacters::cLuigi &&
+            NebulaCharacters::isLuigi(character) == ((list[i].flags & NEBULA_COOP_LIST_LUIGI) != 0)) {
+            addCopy(character);
+        }
     }
     nebula_log("[coop] %d copies for the other players\n", sCopyNum);
 }
@@ -294,14 +339,18 @@ void NebulaRemotePlayer::updateAll() {
     if (remoteNum > static_cast< u32 >(cMaxPerCharacter * 2)) {
         remoteNum = cMaxPerCharacter * 2;
     }
+    // Each one's character, as this scene has copies of it: their own, else its base's.
+    s32 kinds[cMaxPerCharacter * 2];
+    for (u32 j = 0; j < remoteNum; j++) {
+        kinds[j] = copyKindOf(remote[j]);
+    }
     bool placed[cMaxPerCharacter * 2] = {};
     // The copies showing someone still here keep them.
     for (s32 i = 0; i < sCopyNum; i++) {
         NebulaRemotePlayer* pCopy = sCopies[i];
         bool kept = false;
         for (u32 j = 0; j < remoteNum && pCopy->mNumber != 0; j++) {
-            const bool isLuigi = (remote[j].player.flags & NEBULA_COOP_PLAYER_LUIGI) != 0;
-            if (!placed[j] && remote[j].number == pCopy->mNumber && isLuigi == pCopy->mIsLuigi) {
+            if (!placed[j] && remote[j].number == pCopy->mNumber && kinds[j] == pCopy->mCharacter) {
                 pCopy->show(remote[j]);
                 placed[j] = true;
                 kept = true;
@@ -317,9 +366,8 @@ void NebulaRemotePlayer::updateAll() {
         if (placed[j]) {
             continue;
         }
-        const bool isLuigi = (remote[j].player.flags & NEBULA_COOP_PLAYER_LUIGI) != 0;
         for (s32 i = 0; i < sCopyNum; i++) {
-            if (sCopies[i]->mNumber == 0 && sCopies[i]->mIsLuigi == isLuigi) {
+            if (sCopies[i]->mNumber == 0 && sCopies[i]->mCharacter == kinds[j]) {
                 sCopies[i]->show(remote[j]);
                 break;
             }
@@ -363,7 +411,7 @@ void NebulaRemotePlayer::updateAll() {
 void NebulaRemotePlayer::init(const TableIter& rIter) {
     // The player's own model: the local player's is already here; the other character's loads into the scene. Its
     // materials take the stage's fog, as MarioActor::initDrawAndModel has the local Mario's.
-    initModelManagerWithAnm(mIsLuigi ? "Luigi" : "Mario", nullptr, true);
+    initModelManagerWithAnm(NebulaCharacters::modelName(mCharacter, mIsLuigi ? "Luigi" : "Mario"), nullptr, true);
     MR::initMaterialFog(this, true);
     MR::prepareMaterials(this);
 

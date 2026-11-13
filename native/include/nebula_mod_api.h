@@ -356,6 +356,21 @@ typedef struct NebulaGalaxy {
     float map_position[2];          /* right and up from the middle of the dome's page (or the grand map with no dome), on a 608 x 456 page */
 } NebulaGalaxy;
 
+/* A playable character (add_character), as sm64coopdx's character table has them: a model on one of the game's two
+   players, its base (`like`), which gives the animations, voice, effects and the game's own Luigi code. Its model is
+   ObjectData/<archive>.arc, the model in it named as the archive (case doesn't matter), with the base's skeleton. Its
+   other models follow the game's names with the base's name swapped for the archive's ("MarioFace" becomes
+   "WarioFace", "BeeMario" "BeeWario", "MarioHandL" "WarioHandL"); one the mod doesn't ship is the base's. The files
+   inside keep the game's names. It has its own player numbers (set_player_constant), first its base's as the game
+   has them. docs/modding/CHARACTERS.md says more. */
+typedef struct NebulaCharacterClass {
+    uint32_t size;       /* sizeof(NebulaCharacterClass) */
+    const char* id;      /* 1-31 of a-z, 0-9, '_', '-' ("wario"); how luma.json, saves and online co-op name it */
+    const char* name;    /* as menus show it ("WARIO"); null: the id in capitals */
+    const char* like;    /* "mario" or "luigi"; null: "mario" */
+    const char* archive; /* null: the id with a capital first letter ("Wario") */
+} NebulaCharacterClass;
+
 /* A new power-up. Give it to the player with set_value(NEBULA_SET_POWER_UP, its number). */
 typedef struct NebulaPowerUpClass {
     uint32_t size;
@@ -698,8 +713,9 @@ typedef struct NebulaModApi {
        Bowser arena's star, a hub's counters, ocean swimming) treat it as `acts_as`. own_rules 0: its own rules no longer
        apply. `scenario`: one mission, 0 for all. 0: done. */
     int32_t (*set_stage_rules)(const char* stage, int32_t scenario, const char* acts_as, int32_t own_rules);
-    /* Sets a value in the player's constants table by name (mJumpHeight, mFireModeTime). `character`: 0 Mario, 1 Luigi. `index`: position in a list, else 0.
-       Any time. 0: done; -1: no such value. */
+    /* Sets a value in the player's constants table by name (mJumpHeight, mFireModeTime). `character`: 0 Mario, 1 Luigi, or a
+       mod's character's index (character_find). `index`: position in a list, else 0. Any time. 0: done; -1: no such
+       value or character. */
     int32_t (*set_player_constant)(int32_t character, const char* name, int32_t index, float value);
     /* The current value; 0 when there is no such value. */
     float (*player_constant)(int32_t character, const char* name, int32_t index);
@@ -879,7 +895,8 @@ typedef struct NebulaModApi {
     /* The save holds Grand Stars 1 to `count` (1-7), and the stage played starts again, so the Observatory's domes are
        built with them. 0: refused; 1: done. */
     int32_t (*give_grand_stars)(int32_t count);
-    /* The file is played as Luigi (1) or Mario (0) from the next stage. 0: refused; 1: done. */
+    /* The player plays Luigi (1) or Mario (0) instead of Options' PLAYER page's character, as set_player_character_id
+       ("luigi" or "mario") does. 0: refused; 1: done. */
     int32_t (*set_player_character)(int32_t luigi);
     /* The materials of the first living actor whose model is `model` (any case), each given to `callback`: how many. */
     int32_t (*list_materials)(const char* model, NebulaMaterialCallback callback, void* user);
@@ -961,7 +978,7 @@ typedef struct NebulaModApi {
     int32_t (*coop_connected)(int32_t index);
     /* Their name, as the player list shows it ("" outside a room). Valid until the next frame. */
     const char* (*coop_name)(int32_t index);
-    /* The character they play: 0 Mario, 1 Luigi; -1 nobody. */
+    /* The character they play: 0 Mario, 1 Luigi (a mod character's base); -1 nobody. coop_character_id names it. */
     int32_t (*coop_character)(int32_t index);
     /* Where they play: the stage's name ("" until they reach one) and its mission (0 where none was chosen). Their
        instance is the pair: coop_same_place says whether it is this player's. Valid until the next frame. */
@@ -974,6 +991,29 @@ typedef struct NebulaModApi {
     /* The round trip to them in milliseconds (to the host, for a joiner's view of the others); 0 for this player or
        when unknown. */
     int32_t (*coop_ping)(int32_t index);
+
+    /* Characters (docs/modding/CHARACTERS.md), sm64coopdx's character table: Mario is 0, Luigi 1, and the mods'
+       follow in the order they were added. The registry "character" lists them too (its value: the index). */
+    /* Only in nebula_plugin_start. Adds a character: its index, or -1 (a bad or taken id, a `like` other than mario or
+       luigi, a bad archive name, or 30 mod characters already). */
+    int32_t (*add_character)(const NebulaPlugin* mod, const NebulaCharacterClass* character);
+    /* How many characters there are, and one by index: its id and its name (null past the last), its base (0 Mario,
+       1 Luigi; -1 past the last). */
+    int32_t (*character_count)(void);
+    const char* (*character_id)(int32_t index);
+    const char* (*character_name)(int32_t index);
+    int32_t (*character_like)(int32_t index);
+    /* A character's index by id (any case), or -1. */
+    int32_t (*character_find)(const char* id);
+    /* The character the player plays in this stage (a switch takes effect at a reload), or the one they will. */
+    int32_t (*player_character)(void);
+    /* Picks the player's character for them instead of Options' PLAYER page's, as sm64coopdx's overrideModelIndex:
+       null or "" gives the page's back. In a stage the player's spot reloads as it, as a switch on the page does; the
+       others in a room see it. 1: done; 0: no such character. */
+    int32_t (*set_player_character_id)(const char* id);
+    /* Online co-op: the character a player plays, by id ("mario", "luigi", a mod's); "" for an index nobody has.
+       coop_character gives its base. Valid until the next frame. */
+    const char* (*coop_character_id)(int32_t index);
 } NebulaModApi;
 
 /* True when this Nebula has `field` (fields are added at the end over time):

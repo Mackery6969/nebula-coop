@@ -765,6 +765,25 @@ void test_session() {
     third.set_character(galaxy::CoopCharacter::Mario);
     expect(wait_for([&] { return character_of(joiner, 2u) == kMario && character_of(host_session, 2u) == kMario; }),
            "and switches back");
+    // A mod's character (sm64coopdx's character table) travels by its id, on its base; a bad id reads as the base.
+    const auto character_id_of = [](const Session& session, unsigned index) {
+        for (const SessionPlayer& player : session.players()) {
+            if (player.index == index) return player.character_id;
+        }
+        return std::string();
+    };
+    expect(character_id_of(joiner, 2u) == "mario" && character_id_of(joiner, 0u) == "luigi", "the game's characters by id");
+    third.set_character(galaxy::CoopCharacter::Luigi, "Waluigi");
+    expect(wait_for([&] {
+               return character_id_of(joiner, 2u) == "waluigi" && character_id_of(host_session, 2u) == "waluigi" &&
+                      character_of(joiner, 2u) == kLuigi;
+           }),
+           "a joiner's mod character reaches everyone by id");
+    host_session.set_character(galaxy::CoopCharacter::Mario, "wario");
+    expect(wait_for([&] { return character_id_of(joiner, 0u) == "wario" && character_id_of(third, 0u) == "wario"; }),
+           "and the host's");
+    third.set_character(galaxy::CoopCharacter::Luigi, "no spaces allowed");
+    expect(wait_for([&] { return character_id_of(host_session, 2u) == "luigi"; }), "a bad id is its base's");
 
     // Each player's Power Stars this room (the Personal Star Counter): the host counts them and tells everyone.
     const auto stars_of = [](const Session& session, unsigned index) {

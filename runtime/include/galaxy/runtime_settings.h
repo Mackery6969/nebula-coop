@@ -95,6 +95,9 @@ struct RuntimeCoopSettings {
     std::string player_name;    // empty: PLAYER
     std::string room_name;      // the Host page's ROOM NAME, as NebulaNet lists the room; empty: the player's name
     CoopCharacter character = CoopCharacter::Mario;
+    // A mod's character played on `character` (its base), by id ("wario": the game's NebulaCharacters); empty for
+    // `character` itself. Kept while the mod is off, so the page shows it again when the mod is back.
+    std::string character_id;
     std::string password;       // a host's: joining needs it; a joiner's: sent to the host. Empty: none
     std::string join_address;   // the Join page's last room code or address, "host[:port]" (empty: none yet)
     // The Host page's NETWORK: NebulaNet, where friends join by the room's code with no port forwarded
@@ -141,6 +144,22 @@ struct RuntimeCoopPopups {
 [[nodiscard]] const char* coop_pvp_mode_key(CoopPvpMode mode) noexcept;
 // "mario" or "luigi" (runtime_settings.ini's coop_character).
 [[nodiscard]] const char* coop_character_key(CoopCharacter character) noexcept;
+// A character id as runtime_settings.ini, online co-op and the game take it: 1-31 of a-z (lower case), 0-9, '_' and
+// '-'; anything else is empty.
+[[nodiscard]] std::string clean_character_id(std::string_view id);
+// The character's id a player plays: a mod's, else "mario" or "luigi".
+[[nodiscard]] std::string coop_character_id(const RuntimeCoopSettings& coop);
+
+// A character the Options page's CHARACTER row offers (sm64coopdx's character list): the game's two, then the running
+// mods' (the game's NebulaCharacters, set as plugins start).
+struct PlayableCharacter {
+    std::string id;    // "mario", "luigi", "wario"
+    std::string name;  // as the row shows it ("WARIO")
+    CoopCharacter base = CoopCharacter::Mario;
+};
+// Mario and Luigi until set_playable_characters gives the game's list (which starts with them).
+[[nodiscard]] std::vector<PlayableCharacter> playable_characters();
+void set_playable_characters(std::vector<PlayableCharacter> characters);
 
 // What the game does while its window is not in front (another program is; Windows): goes on, pauses through its own pause menu
 // (the pause button's path, so its timers stop), or goes on with its sound silent. A minimised window holds the game in every

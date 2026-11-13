@@ -21,7 +21,8 @@ this player is index 0 and the host, with no name.
 | `coop_max_players()` | `coop.max_players()` | how many it takes |
 | `coop_connected(i)` | `coop.connected(i)` | 1 when someone has index `i` |
 | `coop_name(i)` | `coop.name(i)` | their name, as the player list shows it |
-| `coop_character(i)` | `coop.character(i)` | 0 Mario, 1 Luigi, -1 nobody |
+| `coop_character(i)` | `coop.character(i)` | 0 Mario, 1 Luigi (a mod character's base), -1 nobody |
+| `coop_character_id(i)` | `coop.character_id(i)` | their character's id: "mario", "luigi" or a mod's ([CHARACTERS.md](CHARACTERS.md)); "" for nobody |
 | `coop_stage(i)` | `coop.stage(i)` | their stage's name ("" before they reach one) |
 | `coop_mission(i)` | `coop.mission(i)` | their mission (0 where none was chosen) |
 | `coop_same_place(i)` | `coop.same_place(i)` | 1 when they play in this player's galaxy and mission |

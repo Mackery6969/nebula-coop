@@ -1,4 +1,6 @@
 #include "Game/System/NebulaMods.hpp"
+#include "Game/Player/NebulaCharacters.hpp"
+#include "Game/Player/NebulaCharacter.hpp"
 #include "Game/System/NebulaCoopMods.hpp"
 #include "Game/System/LumaCore.hpp"
 #include "Game/System/LumaClass.hpp"
@@ -2045,11 +2047,54 @@ namespace {
     }
 
     int32_t apiSetPlayerConstant(int32_t character, const char* pName, int32_t index, float value) {
-        return pName != nullptr && (character == 0 || character == 1) && setMarioConstant(character, pName, index, value) ? 0 : -1;
+        return pName != nullptr && setMarioConstant(character, pName, index, value) ? 0 : -1;
     }
 
     float apiPlayerConstant(int32_t character, const char* pName, int32_t index) {
         return pName != nullptr ? getMarioConstant(character, pName, index) : 0.0f;
+    }
+
+    // Characters (NebulaCharacters).
+    int32_t apiAddCharacter(const NebulaPlugin* pMod, const NebulaCharacterClass* pCharacter) {
+        if (pCharacter == nullptr || pCharacter->size < offsetof(NebulaCharacterClass, archive) + sizeof(pCharacter->archive)) {
+            return -1;
+        }
+        return NebulaCharacters::add(pMod != nullptr ? pMod : addingMod(), pCharacter->id, pCharacter->name, pCharacter->like, pCharacter->archive);
+    }
+
+    int32_t apiCharacterCount() {
+        return NebulaCharacters::count();
+    }
+
+    const char* apiCharacterId(int32_t index) {
+        const NebulaCharacters::Character* pCharacter = NebulaCharacters::at(index);
+        return pCharacter != nullptr ? pCharacter->mId : nullptr;
+    }
+
+    const char* apiCharacterName(int32_t index) {
+        const NebulaCharacters::Character* pCharacter = NebulaCharacters::at(index);
+        return pCharacter != nullptr ? pCharacter->mName : nullptr;
+    }
+
+    int32_t apiCharacterLike(int32_t index) {
+        const NebulaCharacters::Character* pCharacter = NebulaCharacters::at(index);
+        return pCharacter == nullptr ? -1 : (pCharacter->mLuigi ? 1 : 0);
+    }
+
+    int32_t apiCharacterFind(const char* pId) {
+        return NebulaCharacters::find(pId);
+    }
+
+    int32_t apiPlayerCharacter() {
+        return NebulaCharacter::index();
+    }
+
+    int32_t apiSetPlayerCharacterId(const char* pId) {
+        if (pId == nullptr || pId[0] == '\0') {
+            return NebulaCharacter::setOverride(-1) ? 1 : 0;
+        }
+        const s32 index = NebulaCharacters::find(pId);
+        return index >= 0 && NebulaCharacter::setOverride(index) ? 1 : 0;
     }
 
     struct ObjectClass {
@@ -3037,6 +3082,15 @@ namespace {
         NebulaCoopMods::samePlace,
         NebulaCoopMods::stars,
         NebulaCoopMods::ping,
+        apiAddCharacter,
+        apiCharacterCount,
+        apiCharacterId,
+        apiCharacterName,
+        apiCharacterLike,
+        apiCharacterFind,
+        apiPlayerCharacter,
+        apiSetPlayerCharacterId,
+        NebulaCoopMods::characterId,
     };
 }  // namespace
 

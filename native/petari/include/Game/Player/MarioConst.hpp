@@ -503,6 +503,12 @@ struct MarioConstTable {
     u16 mRushInBlendTimer;
 };
 
+// Mario's (0) or Luigi's (1) table, as the game and mods change it.
+MarioConstTable* getMarioConstGameTable(s32 character);
+// A new table holding the game's own numbers for Mario's or Luigi's, before any mod changed them: a mod character's
+// (NebulaCharacters).
+MarioConstTable* newMarioConstTable(bool luigi);
+
 bool setMarioConstant(s32 character, const char* pName, s32 index, f32 value);
 f32 getMarioConstant(s32 character, const char* pName, s32 index);
 

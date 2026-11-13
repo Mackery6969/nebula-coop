@@ -1611,7 +1611,7 @@ HUD parts (`show_hud`). Number: its bit. 7 rows.
 
 ## character
 
-Who the player plays. Number: 1 for Luigi. 2 rows.
+Who the player plays (docs/modding/CHARACTERS.md). Number: its index (character_id); a mod's luma.json "characters" and add_character add more, after these. 2 rows.
 
 | Name | Number |
 |---|---|

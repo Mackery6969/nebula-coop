@@ -168,6 +168,17 @@ namespace NebulaHost {
         return nebula_host()->coop_popup_take(nebula_host()->user, pPopup);
     }
 
+    // The id of the character the player wants (NEBULA_COOP_MENU_CHARACTER's, as a mod's character names it).
+    inline void coopCharacterWanted(char* pId, u32 capacity) {
+        if (capacity > 0) {
+            pId[0] = '\0';
+        }
+        nebula_host()->coop_character_wanted(nebula_host()->user, pId, capacity);
+        if (capacity > 0) {
+            pId[capacity - 1] = '\0';
+        }
+    }
+
     // Shared objects (docs/COOP_PLAN.md "Shared objects"): the states of the enemies this game moves, and the ones
     // the other players' games move.
     inline void coopObjectsReport(const NebulaCoopObjectState* pStates, u32 count) {

@@ -106,6 +106,35 @@ int main() {
               "a player number past a float's range is infinite");
     }
     {
+        // Characters (sm64coopdx's character table): a model on Mario or Luigi, its numbers by its id.
+        const auto with_layer = [](const std::string& layer) {
+            return std::string(R"({"format":1,"id":"a","name":"b","version":"1.0.0","game":"RMG","layers":[{)") + layer + "}]}";
+        };
+        const std::optional<Manifest> wario = parse_manifest(
+            R"({"format":1,"id":"a","name":"b","game":"RMG","requires":["characters"],"layers":[{"characters":[{"id":"wario","name":"WARIO","archive":"Wario"},)"
+            R"({"id":"waluigi","like":"luigi"}],"player_constants":{"wario":{"mJumpHeight":[20,null,30]},"luigi":{"mJumpHeight":25}}}]})");
+        check(wario && wario->layers.size() == 1u && wario->layers[0].characters.size() == 2u, "characters read");
+        if (wario && wario->layers.size() == 1u && wario->layers[0].characters.size() == 2u) {
+            const Layer& layer = wario->layers[0];
+            check(layer.characters[0].id == "wario" && layer.characters[0].like == "mario" && layer.characters[0].archive == "Wario" &&
+                      layer.characters[0].name == "WARIO",
+                  "a character's fields");
+            check(layer.characters[1].like == "luigi" && layer.characters[1].archive.empty(), "a character like Luigi, its archive by its id");
+            check(layer.player_constants.size() == 3u && layer.player_constants[0].character_id == "wario" &&
+                      layer.player_constants[1].character_id == "wario" && layer.player_constants[1].index == 2 &&
+                      layer.player_constants[2].character_id.empty() && layer.player_constants[2].character == 1,
+                  "player numbers by a character's id");
+            check(layer_sets_game(layer), "characters change the game");
+            check(refusal(*wario, "RMGE01", "2.1.0", "windows").empty(), "a mod needing characters is usable");
+        }
+        for (const char* bad : {R"("characters":[{"id":"Wario"}])", R"("characters":[{"id":""}])", R"("characters":[{"id":"mario"}])",
+                                R"("characters":[{"id":"w","like":"wario"}])", R"("characters":[{"id":"w","archive":"../Wario"}])",
+                                R"("characters":[{"id":"w","archive":"Wario.arc"}])", R"("characters":{"id":"w"})",
+                                R"("player_constants":{"Wario Bros":{"mJumpHeight":1}})"}) {
+            check(!parse_manifest(with_layer(bad)).has_value(), bad);
+        }
+    }
+    {
         // The page's metadata: the icon and pictures stay inside the mod, at most kMaxPictures of them.
         std::string text = R"({"format":1,"id":"a","name":"b","game":"RMG","layers":[],"license":"MIT","homepage":"https://x.example",)"
                            R"("icon":"../icon.png","pictures":["p/1.png","../2.png","/abs.png","C:/x.png","",3)";
