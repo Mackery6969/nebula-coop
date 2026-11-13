@@ -94,11 +94,24 @@ void read_room(ByteReader& in, RuntimeCoopSettings& room) {
     room.bubble_death = in.u8() != 0u;
 }
 
-// A player's character id as the room keeps it: a mod's (galaxy::clean_character_id), else its base's own ("mario",
-// "luigi"), so a bad or missing one reads as the base.
+// A player's character id as the room keeps it: a mod's (1 to 31 of a-z, 0-9, '_' and '-', in lower case, as
+// galaxy::clean_character_id, which galaxy_net doesn't link), else its base's own ("mario", "luigi"), so a bad or
+// missing one reads as the base.
 std::string character_id_of(CoopCharacter base, std::string_view id) {
-    std::string cleaned = clean_character_id(id);
-    return cleaned.empty() ? std::string(coop_character_key(base)) : cleaned;
+    std::string cleaned;
+    if (!id.empty() && id.size() <= 31u) {
+        cleaned.reserve(id.size());
+        for (const char c : id) {
+            const char lower = (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
+            if (!((lower >= 'a' && lower <= 'z') || (lower >= '0' && lower <= '9') || lower == '_' || lower == '-')) {
+                cleaned.clear();
+                break;
+            }
+            cleaned.push_back(lower);
+        }
+    }
+    if (!cleaned.empty()) return cleaned;
+    return base == CoopCharacter::Luigi ? "luigi" : "mario";
 }
 
 void write_player(ByteWriter& out, const SessionPlayer& player) {
