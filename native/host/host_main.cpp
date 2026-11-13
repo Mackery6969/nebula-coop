@@ -5279,6 +5279,7 @@ int run_mods_tool() {
     std::error_code error;
     fs::create_directories(settings_folder / "mods", error);
     galaxy::mods::set_mods_folder(settings_folder / "mods", settings_folder / "mods.ini", game_id);
+    (void)galaxy::mods::install_builtin_mods();
     if (remove) {
         std::string message;
         const bool ok = !sources.empty() &&
@@ -5704,6 +5705,8 @@ int main(int argc, char** argv) {
             // Updates imported while their mod's folder was in use take its place before anything reads the mods.
             galaxy::mods::apply_pending_updates(mods_home / "mods");
             galaxy::mods::set_mods_folder(mods_home / "mods", settings_folder / "mods.ini", game_id);
+            // NebulaCoop's built-in mods (Character Movesets): always there, as their latest, off until turned on.
+            (void)galaxy::mods::install_builtin_mods();
             // A join Nebula started again for: this start plays the room's mods (prepare_mod_files), then joins.
             if (std::optional<galaxy::coop::NextJoin> join = galaxy::coop::take_next_join(coop_next_join_file())) {
                 std::vector<galaxy::mods::RoomModChoice> room;

@@ -398,6 +398,22 @@ joining makes none. Deaths come from the snapshots of the players in this player
 galaxy and star names are the game's own. One the game doesn't take within six seconds (a star select is showing) is
 dropped. The chat keeps its own join and leave lines.
 
+## Character Movesets
+
+sm64coopdx's Character Movesets mod (`character-movesets.lua`): without it every character moves as Mario does, and
+with it each moves their own way. NebulaCoop's Luigi plays as Mario by default; the mod gives him Super Mario Galaxy's
+own numbers back (a higher, floatier jump, less grip and a long sliding brake, a stronger stomp bounce, his Boo form's
+handling, a swim spin that costs oxygen).
+
+It's made in LumaLink-coop (`builtin/character-movesets`), as a data-only `.lumacoop`: a layer's `player_constants`
+for `"luigi"`, so it's an ordinary mod. NebulaCoop carries a copy (`runtime/src/builtin_mods.inc`) and writes it into
+the mods folder at every start (`galaxy::mods::install_builtin_mods`), again when it's missing or changed. It's off
+until the player turns it on (a built-in mod with no saved choice is off), then it's in the Host page's Mods like any
+other, and joiners get it with the room's mods; it applies when Nebula starts again, as other mods do.
+
+SMG did part of Luigi's moves in code (`gIsLuigi`): those are numbers of the player's table now, NebulaCoop's own after
+the game's (`mBrakeSlide`, `mSwimSpinOxygen`, 0 for everyone first), so a moveset gives them to any character.
+
 ## Personal Star Counter
 
 sm64coopdx's Personal Star Counter mod (`personal-starcount-ex.lua`), built in. Galaxy's HUD shows the save's Power

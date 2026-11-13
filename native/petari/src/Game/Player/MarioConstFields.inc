@@ -492,3 +492,5 @@
     {"mLookMaxAngleVM", offsetof(MarioConstTable, mLookMaxAngleVM), 'f', 1},
     {"mLookShoulderMoveMax", offsetof(MarioConstTable, mLookShoulderMoveMax), 'f', 1},
     {"mRushInBlendTimer", offsetof(MarioConstTable, mRushInBlendTimer), 'H', 1},
+    {"mBrakeSlide", offsetof(MarioConstTable, mBrakeSlide), 'B', 1},
+    {"mSwimSpinOxygen", offsetof(MarioConstTable, mSwimSpinOxygen), 'B', 1},

@@ -505,7 +505,7 @@ void Mario::decideWalkAnimation() {
 
     f32 runSpeedMin = cNum_decideWalkAnimation_f29;
 
-    if (gIsLuigi) {
+    if (mActor->getConst().getTable()->mBrakeSlide != 0) {
         runSpeedMin = cNum_decideWalkAnimation_f30;
     }
 
@@ -540,7 +540,7 @@ void Mario::decideWalkAnimation() {
 void Mario::doBrakingAnimation() {
     changeAnimation("歩行制動ブレーキ", MarioIndexedAnime_WalkBrake);
     getAnimator()->getXanimePlayer()->mFrameCtrl->mAttribute = 1;
-    if (gIsLuigi) {
+    if (mActor->getConst().getTable()->mBrakeSlide != 0) {
         getAnimator()->getXanimePlayer()->changeSpeed(cNum_doBrakingAnimation_f1);
     }
 
@@ -603,7 +603,7 @@ void Mario::updateBrakeAnimation() {
         stopAnimation(nullptr);
     }
 
-    if (!gIsLuigi) {
+    if (mActor->getConst().getTable()->mBrakeSlide == 0) {
         return;
     }
 

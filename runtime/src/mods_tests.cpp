@@ -302,6 +302,50 @@ bool layer_only_mods() {
     return ok;
 }
 
+// NebulaCoop's built-in Character Movesets: written into the mods folder, off until turned on, a working .luma that
+// gives Luigi his numbers alone, written again when changed, and kept on once the player turns it on.
+bool builtin_mods() {
+    bool ok = true;
+    const fs::path root = galaxy::test_temp_path("nebula_mods_builtin");
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    const auto read_all = [](const fs::path& path) {
+        std::ifstream in(path, std::ios::binary);
+        return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    };
+    galaxy::mods::set_mods_folder(root / "mods", root / "mods.ini", "RMGE01");
+    ok &= expect(galaxy::mods::install_builtin_mods(), "the built-in mods written");
+    const fs::path manifest = root / "mods" / "character-movesets" / "luma.json";
+    const std::string first = read_all(manifest);
+    ok &= expect(first.starts_with("{") && first.ends_with("}\n") && galaxy::mods::is_builtin_mod("character-movesets") &&
+                     !galaxy::mods::is_builtin_mod("consts"),
+                 "Character Movesets is one, its luma.json as LumaLink-coop has it");
+    std::vector<galaxy::mods::ModInfo> mods = galaxy::mods::scan_mods();
+    const auto movesets = [&] {
+        return std::find_if(mods.begin(), mods.end(), [](const galaxy::mods::ModInfo& m) { return m.id == "character-movesets"; });
+    };
+    ok &= expect(movesets() != mods.end() && !movesets()->enabled && movesets()->package && movesets()->problem.empty() &&
+                     movesets()->pack_title == "Character Movesets",
+                 "it is listed, usable and off");
+    const galaxy::assets::AssetStore store;
+    galaxy::mods::set_mod_enabled(mods, static_cast<std::size_t>(movesets() - mods.begin()), true);
+    const galaxy::mods::ModPlan plan = galaxy::mods::plan_mod_changes(store, "RMGE01", "UsEnglish", mods);
+    bool luigi_only = !plan.rows.player_constants.empty();
+    bool brake = false;
+    for (const auto& constant : plan.rows.player_constants) {
+        luigi_only = luigi_only && constant.character == 1;
+        brake = brake || (constant.name == "mBrakeSlide" && constant.value == 1.0f);
+    }
+    ok &= expect(luigi_only && brake, "on, it sets Luigi's numbers alone, his long brake among them");
+    ok &= expect(galaxy::mods::save_mod_settings(mods), "the player's choice saved");
+    write(manifest, "{}");
+    ok &= expect(galaxy::mods::install_builtin_mods() && read_all(manifest) == first, "a changed copy written again");
+    mods = galaxy::mods::scan_mods();
+    ok &= expect(movesets() != mods.end() && movesets()->enabled, "turned on, it stays on");
+    fs::remove_all(root, ec);
+    return ok;
+}
+
 // Two folder mods that each add a galaxy: the saves are the higher one's, as for every other choice of saves.
 bool galaxy_saves() {
     bool ok = true;
@@ -669,7 +713,7 @@ bool texture_names() {
 int main() {
     test_texture_categories();
     // Every test runs, whichever fail.
-    const bool results[] = {texture_names(), xml(), importing(), code_patch_notes(), setting_overlaps(), layer_only_mods(), galaxy_saves(),
+    const bool results[] = {texture_names(), xml(), importing(), code_patch_notes(), setting_overlaps(), layer_only_mods(), builtin_mods(), galaxy_saves(),
                             luma_rules(), luma_import()};
     bool ok = true;
     for (const bool passed : results) ok = ok && passed;
