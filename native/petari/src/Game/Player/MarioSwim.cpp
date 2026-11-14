@@ -2362,7 +2362,7 @@ void MarioSwim::startSpinDash() {
 
     mActor->setPunchHitTimer(mSpinDashTimer);
 
-    if (gIsLuigi) {
+    if (mActor->getConst().getTable()->mSwimSpinOxygen != 0) {
         decOxygen(mActor->getConst().getTable()->mOxygenMax / 16);
     }
 }

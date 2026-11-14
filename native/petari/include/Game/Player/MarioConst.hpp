@@ -501,6 +501,12 @@ struct MarioConstTable {
     f32 mLookMaxAngleVM;
     f32 mLookShoulderMoveMax;
     u16 mRushInBlendTimer;
+
+    // NebulaCoop's own, after the game's numbers: what SMG did in code for Luigi alone, as numbers of each character's
+    // table, so a moveset (the built-in Character Movesets mod) gives them to whoever it wants. 0 for everyone first.
+    u8 mBrakeSlide;      // 1: braking starts from a slower run, its animation plays at half speed with a sliding
+                         // sound, and running into a wall stops it (Luigi's long brake, with mBrakeFirstTimer)
+    u8 mSwimSpinOxygen;  // 1: a spin while swimming costs a sixteenth of the oxygen (Luigi's)
 };
 
 // Mario's (0) or Luigi's (1) table, as the game and mods change it.
