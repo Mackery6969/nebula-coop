@@ -24,4 +24,6 @@ namespace NebulaCoopMods {
     s32 samePlace(s32 index);
     s32 stars(s32 index);
     s32 ping(s32 index);
+    // The id of the character they play ("" for nobody).
+    const char* characterId(s32 index);
 };  // namespace NebulaCoopMods

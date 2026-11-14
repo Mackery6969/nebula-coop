@@ -154,7 +154,7 @@ front of it, as its own screen.
   | Main | Host, Join, Options, Quit; Nebula's version in a corner |
   | Host | Save (any number, each with its name and Power Stars; New, Rename and Erase), network (NebulaNet or Direct), NebulaNet's room name and server or Direct's port, password, NebulaNet's lobby (public or friends only), max players, Player Interaction, Knockback Strength, PvP Mode, Bubble on Death, Cheats, Mods, then Host and Back |
   | Join | Room code or address (`host[:port]`), password, then Join; the last one is remembered. Rooms: NebulaNet's public rooms, or its private ones by the password |
-  | Options | Nebula's settings pages, with PLAYER in the MODS page's old place: name, character (Mario or Luigi, as sm64coopdx's player options pick a model). MODS is the last page |
+  | Options | Nebula's settings pages, with PLAYER in the MODS page's old place: name, character (Mario, Luigi or a mod's, as sm64coopdx's player options pick a model: docs/modding/CHARACTERS.md). MODS is the last page |
   | Quit | "Quit to desktop?" yes or no |
 
 - **Saves: any number, no characters.** The game's own format (`GameData.bin`: six user files, each with a Mario
@@ -170,7 +170,8 @@ front of it, as its own screen.
   copied into each converted save.
 - **Character: the player's, not the save's.** `MR::isPlayerLuigi()` (today `!isDataMario()`, the save's half)
   follows Options' PLAYER page's character (`coop_character`, `mario` or `luigi`) instead, so the same save plays as
-  either. Remote players show each player's own character (`NEBULA_COOP_PLAYER_LUIGI`).
+  either; a mod's character is `coop_character_id`. Remote players show each player's own character
+  (`NEBULA_COOP_PLAYER_LUIGI` its base, NebulaCoopRemotePlayer's `character` its id).
 - **Starting.** Host loads the chosen save through the file select's own path (`FileSelector::exeDemo`) and opens
   the session. With nobody joining it's single player, as in sm64coopdx. Join needs Phase 1: a joining player plays
   the host's save, sent at join (sm64coopdx's `packet_save_file`), so their own saves stay untouched.

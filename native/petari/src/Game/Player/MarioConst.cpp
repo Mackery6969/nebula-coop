@@ -1,4 +1,5 @@
 #include "Game/Player/MarioConst.hpp"
+#include "Game/Player/NebulaCharacters.hpp"
 #include "Game/Util/StringUtil.hpp"
 #include <cstddef>
 
@@ -992,6 +993,19 @@ static MarioConstTable gMarioConstDefault2 = {
     /* mLookShoulderMoveMax */ 8.0f,
     /* mRushInBlendTimer */ 4};
 
+// The two tables as the game has them, before any mod changes a number: what a mod character copies from its base
+// (NebulaCharacters). Made after the tables above in this file, so from their first values.
+static const MarioConstTable cMarioConstGame = gMarioConstDefault;
+static const MarioConstTable cMarioConstGame2 = gMarioConstDefault2;
+
+MarioConstTable* getMarioConstGameTable(s32 character) {
+    return character == 1 ? &gMarioConstDefault2 : &gMarioConstDefault;
+}
+
+MarioConstTable* newMarioConstTable(bool luigi) {
+    return new MarioConstTable(luigi ? cMarioConstGame2 : cMarioConstGame);
+}
+
 namespace {
     struct ConstField {
         const char* mName;
@@ -1013,8 +1027,9 @@ namespace {
         return nullptr;
     }
 
+    // The character's table (NebulaCharacters): Mario's, Luigi's or a mod character's; null for no character.
     MarioConstTable* constTable(s32 character) {
-        return character == 1 ? &gMarioConstDefault2 : &gMarioConstDefault;
+        return NebulaCharacters::constTable(character);
     }
 
     // A whole number of the field's kind: held at its ends (a cast past them is undefined), halves away from zero, as
@@ -1032,14 +1047,15 @@ namespace {
     }
 }  // namespace
 
-// `character`: 0 Mario, 1 Luigi. A number of the player's table by its name, as a mod names it. False: no such number.
+// `character`: 0 Mario, 1 Luigi, then the mods' characters (NebulaCharacters). A number of the player's table by its name, as a mod names it. False: no such number.
 bool setMarioConstant(s32 character, const char* pName, s32 index, f32 value) {
     const ConstField* pField = findConstField(pName);
     // No such number, or not a number (NaN or infinite: the player's motion would go with it).
-    if (pField == nullptr || index < 0 || index >= pField->mCount || !(value - value == 0.0f)) {
+    MarioConstTable* pTable = constTable(character);
+    if (pTable == nullptr || pField == nullptr || index < 0 || index >= pField->mCount || !(value - value == 0.0f)) {
         return false;
     }
-    u8* pPlace = reinterpret_cast< u8* >(constTable(character)) + pField->mOffset;
+    u8* pPlace = reinterpret_cast< u8* >(pTable) + pField->mOffset;
     switch (pField->mKind) {
     case 'f': reinterpret_cast< f32* >(pPlace)[index] = value; break;
     case 'H': reinterpret_cast< u16* >(pPlace)[index] = clampTo< u16 >(value, 0.0, 65535.0); break;
@@ -1052,10 +1068,11 @@ bool setMarioConstant(s32 character, const char* pName, s32 index, f32 value) {
 
 f32 getMarioConstant(s32 character, const char* pName, s32 index) {
     const ConstField* pField = findConstField(pName);
-    if (pField == nullptr || index < 0 || index >= pField->mCount) {
+    const MarioConstTable* pTable = constTable(character);
+    if (pTable == nullptr || pField == nullptr || index < 0 || index >= pField->mCount) {
         return 0.0f;
     }
-    const u8* pPlace = reinterpret_cast< const u8* >(constTable(character)) + pField->mOffset;
+    const u8* pPlace = reinterpret_cast< const u8* >(pTable) + pField->mOffset;
     switch (pField->mKind) {
     case 'f': return reinterpret_cast< const f32* >(pPlace)[index];
     case 'H': return static_cast< f32 >(reinterpret_cast< const u16* >(pPlace)[index]);

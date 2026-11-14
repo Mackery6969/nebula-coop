@@ -258,6 +258,13 @@ bool script_name_ok(std::string_view name) {
     return true;
 }
 
+// A character's id: 1-31 of a-z, 0-9, '_' and '-' (the game's NebulaCharacters, a co-op message).
+bool character_id_ok(std::string_view id) {
+    return !id.empty() && id.size() <= 31u && std::all_of(id.begin(), id.end(), [](char c) {
+        return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-';
+    });
+}
+
 std::string text_field(const Value& value, std::string_view key) {
     const Value* field = value.get(key);
     const std::string* text = field != nullptr ? field->string() : nullptr;
@@ -670,23 +677,35 @@ std::optional<Manifest> parse_manifest(std::string_view text) {
             }
         }
         if (const Value* constants = entry.get("player_constants"); constants != nullptr && constants->object() != nullptr) {
-            // { "mario": {...}, "luigi": {...}, "both": {...} }, each a name with a number or a list of numbers.
+            // { "mario": {...}, "luigi": {...}, "both": {...}, "wario": {...} }, each a name with a number or a list of
+            // numbers. Another key is a mod's character by id ("characters"); its numbers are set once it is added.
             for (const auto& [who, fields] : *constants->object()) {
-                if (fields.object() == nullptr || (who != "mario" && who != "luigi" && who != "both")) return std::nullopt;
+                if (fields.object() == nullptr || (who != "mario" && who != "luigi" && who != "both" && !character_id_ok(who))) {
+                    return std::nullopt;
+                }
+                const bool mod_character = who != "mario" && who != "luigi" && who != "both";
                 for (const auto& [name, value] : *fields.object()) {
                     const auto add = [&, name = name](int index, double number) {
                         // Past a float's range is infinite (a cast would be undefined): the start names it and sets nothing.
                         const float held = std::fabs(number) <= static_cast<double>(std::numeric_limits<float>::max())
                                                ? static_cast<float>(number)
                                                : (number > 0.0 ? 1.0f : -1.0f) * std::numeric_limits<float>::infinity();
-                        if (who != "luigi") layer.player_constants.push_back({0, name, index, held, {}});
-                        if (who != "mario") layer.player_constants.push_back({1, name, index, held, {}});
+                        if (mod_character) {
+                            layer.player_constants.push_back({0, who, name, index, held, {}});
+                            return;
+                        }
+                        if (who != "luigi") layer.player_constants.push_back({0, {}, name, index, held, {}});
+                        if (who != "mario") layer.player_constants.push_back({1, {}, name, index, held, {}});
                     };
                     if (const double* number = value.number()) {
                         add(0, *number);
                     } else if (const Value* option = value.get("option"); option != nullptr && option->string() != nullptr) {
-                        if (who != "luigi") layer.player_constants.push_back({0, name, 0, 0.0f, *option->string()});
-                        if (who != "mario") layer.player_constants.push_back({1, name, 0, 0.0f, *option->string()});
+                        if (mod_character) {
+                            layer.player_constants.push_back({0, who, name, 0, 0.0f, *option->string()});
+                        } else {
+                            if (who != "luigi") layer.player_constants.push_back({0, {}, name, 0, 0.0f, *option->string()});
+                            if (who != "mario") layer.player_constants.push_back({1, {}, name, 0, 0.0f, *option->string()});
+                        }
                     } else if (const Array* list = value.array()) {
                         for (std::size_t i = 0; i < list->size(); ++i) {
                             // A null keeps the game's number at that place.
@@ -757,6 +776,26 @@ std::optional<Manifest> parse_manifest(std::string_view text) {
                 if (object.name.empty() || (object.like.empty() && object.script.empty())) return std::nullopt;
                 if (!object.script.empty() && !script_name_ok(object.script)) return std::nullopt;
                 layer.object_classes.push_back(std::move(object));
+            }
+        }
+        if (const Value* characters = entry.get("characters"); characters != nullptr) {
+            // [{"id": "wario", "name": "WARIO", "like": "mario", "archive": "Wario"}]
+            if (characters->array() == nullptr) return std::nullopt;
+            for (const Value& row : *characters->array()) {
+                Character character;
+                character.id = text_field(row, "id");
+                character.name = text_field(row, "name");
+                character.archive = text_field(row, "archive");
+                if (const std::string like = text_field(row, "like"); !like.empty()) character.like = like;
+                const bool archive_ok = std::all_of(character.archive.begin(), character.archive.end(), [](char c) {
+                    return c > ' ' && c <= '~' && c != '/' && c != '\\' && c != '.';
+                });
+                if (!character_id_ok(character.id) || character.id == "mario" || character.id == "luigi" ||
+                    (character.like != "mario" && character.like != "luigi") || character.name.size() > 31u ||
+                    character.archive.size() > 31u || !archive_ok) {
+                    return std::nullopt;
+                }
+                layer.characters.push_back(std::move(character));
             }
         }
         if (const Value* forms = entry.get("forms"); forms != nullptr) {
@@ -927,10 +966,11 @@ std::string refusal(const Manifest& manifest, const std::string& game_id, std::s
     if (manifest.format > kFormat) return "THIS MOD NEEDS A NEWER NEBULA";
     if (!manifest.retired.empty()) return manifest.retired;
     // The features this Nebula has; any other is one it lacks. "tunables": the game's tuning numbers by "<file>.<name>";
-    // "player-animations": a layer's player_animations. "coop": a co-op mod (a .lumacoop from LumaLink's co-op fork),
+    // "player-animations": a layer's player_animations. "characters": a layer's characters. "coop": a co-op mod (a .lumacoop from LumaLink's co-op fork),
     // which only NebulaCoop runs: upstream Nebula doesn't know the feature, so it refuses the mod.
     for (const std::string& feature : manifest.requires_features) {
-        if (feature != "custom-shaders" && feature != "tunables" && feature != "player-animations" && feature != "coop") {
+        if (feature != "custom-shaders" && feature != "tunables" && feature != "player-animations" && feature != "coop" &&
+            feature != "characters") {
             return "THIS MOD NEEDS A NEWER NEBULA";
         }
     }
@@ -1128,7 +1168,8 @@ bool rows_set_game(const Rows& rows) noexcept {
 bool layer_sets_game(const Layer& layer) noexcept {
     return rows_set_game(layer.rows) || !layer.materials.empty() || !layer.object_changes.empty() || !layer.comet_time_limits.empty() ||
            !layer.stages.empty() || !layer.player_constants.empty() || !layer.tunables.empty() || !layer.object_classes.empty() || !layer.forms.empty() ||
-           !layer.objects.empty() || !layer.scripts.empty() || !layer.sound_effects.empty() || !layer.player_animations.empty();
+           !layer.objects.empty() || !layer.scripts.empty() || !layer.sound_effects.empty() || !layer.player_animations.empty() ||
+           !layer.characters.empty();
 }
 
 bool manifest_sets_game(const Manifest& manifest) noexcept {
@@ -1160,7 +1201,8 @@ std::vector<std::string> setting_keys(const Layer& layer) {
     }
     for (const StageRule& rule : layer.stages) keys.push_back(key_of({"stage", rule.stage, std::to_string(rule.scenario)}));
     for (const PlayerConstant& constant : layer.player_constants) {
-        keys.push_back(key_of({"constant", std::to_string(constant.character), constant.name, std::to_string(constant.index)}));
+        keys.push_back(key_of({"constant", constant.character_id.empty() ? std::to_string(constant.character) : constant.character_id,
+                               constant.name, std::to_string(constant.index)}));
     }
     for (const Tunable& tunable : layer.tunables) keys.push_back(key_of({"tunable", tunable.key}));
     for (const ObjectClass& object : layer.object_classes) keys.push_back(key_of({"class", object.name}));
@@ -1169,6 +1211,7 @@ std::vector<std::string> setting_keys(const Layer& layer) {
     for (const std::string& script : layer.scripts) keys.push_back(key_of({"script", script}));
     for (const SoundEffect& sound : layer.sound_effects) keys.push_back(key_of({"sound", sound.name}));
     for (const PlayerAnimation& animation : layer.player_animations) keys.push_back(key_of({"animation", animation.name}));
+    for (const Character& character : layer.characters) keys.push_back(key_of({"character", character.id}));
     return keys;
 }
 

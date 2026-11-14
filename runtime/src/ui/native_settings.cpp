@@ -2966,14 +2966,33 @@ std::vector<SettingsRow> player_page(const RuntimeSettings& runtime) {
     name.names = 2u;
     name.text = true;
     rows.push_back(std::move(name));
-    rows.push_back({"CHARACTER", coop.character == CoopCharacter::Luigi ? std::string("LUIGI") : std::string("MARIO"),
-                    [](RenderConfig&, int delta) {
-                        CoopCharacter& character = s_runtime_draft.coop.character;
-                        character =
-                            static_cast<CoopCharacter>(ui::settings_step(static_cast<unsigned>(character), 2u, delta));
-                    },
-                    "WHO YOU PLAY AS, IN ANY SAVE. CHANGED IN A GALAXY, YOUR SPOT RELOADS AS HIM AT ONCE (IN A COMET, AT "
-                    "THE NEXT START), AND OTHER PLAYERS SEE YOU AS HIM"});
+    // Every character the game has (sm64coopdx's character list): Mario, Luigi, then the running mods'. One of a mod
+    // that isn't running now shows by its id, and the next step leaves it.
+    {
+        const std::vector<PlayableCharacter> characters = playable_characters();
+        const std::string wanted = coop_character_id(coop);
+        std::size_t at = characters.size();
+        for (std::size_t i = 0; i < characters.size(); ++i) {
+            if (characters[i].id == wanted) at = i;
+        }
+        std::string shown = at < characters.size() ? characters[at].name : wanted;
+        for (char& c : shown) c = (c >= 'a' && c <= 'z') ? static_cast<char>(c - 'a' + 'A') : c;
+        rows.push_back({"CHARACTER", shown,
+                        [characters, at](RenderConfig&, int delta) {
+                            if (characters.empty()) return;
+                            // Not in the list (its mod is off): from where its base is.
+                            unsigned from = static_cast<unsigned>(at);
+                            if (at >= characters.size()) {
+                                from = s_runtime_draft.coop.character == CoopCharacter::Luigi && characters.size() > 1 ? 1u : 0u;
+                            }
+                            const PlayableCharacter& next =
+                                characters[ui::settings_step(from, static_cast<unsigned>(characters.size()), delta)];
+                            s_runtime_draft.coop.character = next.base;
+                            s_runtime_draft.coop.character_id = next.id == coop_character_key(next.base) ? std::string() : next.id;
+                        },
+                        "WHO YOU PLAY AS, IN ANY SAVE, MODS' CHARACTERS TOO. CHANGED IN A GALAXY, YOUR SPOT RELOADS AS THEM AT "
+                        "ONCE (IN A COMET, AT THE NEXT START), AND OTHER PLAYERS SEE YOU AS THEM"});
+    }
 
     // The pop-ups in the screen's top-right corner (galaxy/coop_popups.h), sm64coopdx's: each kind on or off.
     rows.push_back({"POP-UPS", {}, nullptr, {}, true});

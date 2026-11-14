@@ -1,5 +1,6 @@
 #include "Game/Util/Color.hpp"
 #include "Game/Util/ModelUtil.hpp"
+#include "Game/Player/NebulaCharacters.hpp"
 #include "Game/Animation/XanimePlayer.hpp"
 #include "Game/Animation/XanimeResource.hpp"
 #include "Game/LiveActor/LiveActor.hpp"
@@ -368,6 +369,21 @@ namespace MR {
         *pOut = max.length();
     }
 
+    // The game's player models, made as PlayerModels (their extra poses, the player's materials); a mod character's
+    // stand-ins for them too (NebulaCharacters: "WarioFace" for "MarioFace").
+    static bool isPlayerModelName(const char* pName) {
+        return MR::isEqualString(pName, "Mario") || MR::isEqualString(pName, "Luigi") || MR::isEqualString(pName, "MarioHandL") ||
+               MR::isEqualString(pName, "MarioHandR") || MR::isEqualString(pName, "MarioFace") || MR::isEqualString(pName, "LuigiFace") ||
+               MR::isEqualString(pName, "MarioShadow") || MR::isEqualString(pName, "LuigiShadow") || MR::isEqualString(pName, "IceMario") ||
+               MR::isEqualString(pName, "IceLuigi") || MR::isEqualString(pName, "IceMarioHandL") || MR::isEqualString(pName, "IceMarioHandR") ||
+               MR::isEqualString(pName, "InvincibleMarioHandL") || MR::isEqualString(pName, "InvincibleMarioHandR") ||
+               MR::isEqualString(pName, "InvincibleMario") || MR::isEqualString(pName, "InvincibleLuigi") || MR::isEqualString(pName, "BeeMario") ||
+               MR::isEqualString(pName, "BeeLuigi") || MR::isEqualString(pName, "HopperMario") || MR::isEqualString(pName, "HopperLuigi") ||
+               MR::isEqualString(pName, "BoneMario") || MR::isEqualString(pName, "BoneLuigi") || MR::isEqualString(pName, "SearchLightCone") ||
+               MR::isEqualSubString(pName, "FlexibleSphere") || MR::isEqualSubString(pName, "FlexibleSandPlanetParts") || MR::isEqualString(pName, "ScaleDownRelayPlanet") ||
+               MR::isEqualString(pName, "GhostMario") || MR::isEqualString(pName, "GhostLuigi") || MR::isEqualString(pName, "Koura");
+    }
+
     Model* createModel(const ResourceHolder* pResourceHolder, const char* pChar, ModelFlag mdlFlag) {
         ModelData* modelData = static_cast< ModelData* >(pResourceHolder->mModelResTable->getRes(pChar));
         Model* newModel;
@@ -378,16 +394,7 @@ namespace MR {
             modelData->getMeshAt(i)->mFlags &= ~0x1;
         }
 
-        if (MR::isEqualString(pChar, "Mario") || MR::isEqualString(pChar, "Luigi") || MR::isEqualString(pChar, "MarioHandL") ||
-            MR::isEqualString(pChar, "MarioHandR") || MR::isEqualString(pChar, "MarioFace") || MR::isEqualString(pChar, "LuigiFace") ||
-            MR::isEqualString(pChar, "MarioShadow") || MR::isEqualString(pChar, "LuigiShadow") || MR::isEqualString(pChar, "IceMario") ||
-            MR::isEqualString(pChar, "IceLuigi") || MR::isEqualString(pChar, "IceMarioHandL") || MR::isEqualString(pChar, "IceMarioHandR") ||
-            MR::isEqualString(pChar, "InvincibleMarioHandL") || MR::isEqualString(pChar, "InvincibleMarioHandR") ||
-            MR::isEqualString(pChar, "InvincibleMario") || MR::isEqualString(pChar, "InvincibleLuigi") || MR::isEqualString(pChar, "BeeMario") ||
-            MR::isEqualString(pChar, "BeeLuigi") || MR::isEqualString(pChar, "HopperMario") || MR::isEqualString(pChar, "HopperLuigi") ||
-            MR::isEqualString(pChar, "BoneMario") || MR::isEqualString(pChar, "BoneLuigi") || MR::isEqualString(pChar, "SearchLightCone") ||
-            MR::isEqualSubString(pChar, "FlexibleSphere") || MR::isEqualSubString(pChar, "FlexibleSandPlanetParts") || MR::isEqualString(pChar, "ScaleDownRelayPlanet") ||
-            MR::isEqualString(pChar, "GhostMario") || MR::isEqualString(pChar, "GhostLuigi") || MR::isEqualString(pChar, "Koura")) {
+        if (isPlayerModelName(pChar) || NebulaCharacters::isModelLike(pChar, isPlayerModelName)) {
             newModel = static_cast< Model* >(new PlayerModel(modelData, mdlFlag, 1));
         } else {
             newModel = new Model(modelData, mdlFlag, 1);

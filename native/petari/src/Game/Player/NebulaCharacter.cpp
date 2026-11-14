@@ -2,6 +2,7 @@
 #include "Game/Player/Mario.hpp"
 #include "Game/Player/MarioActor.hpp"
 #include "Game/Player/MarioHolder.hpp"
+#include "Game/Player/NebulaCharacters.hpp"
 #include "Game/Player/NebulaCoopBubble.hpp"
 #include "Game/Scene/SceneObjHolder.hpp"
 #include "Game/System/NebulaHost.hpp"
@@ -32,7 +33,9 @@ namespace {
     const s32 cRestoreWait = 600;
 
     bool sInScene = false;
-    bool sSceneLuigi = false;
+    s32 sSceneCharacter = NebulaCharacters::cMario;
+    // A mod's pick (set_player_character_id), -1 for none.
+    s32 sOverride = -1;
     State sState = State_Idle;
     bool sSwitchReload = false;
 
@@ -47,8 +50,20 @@ namespace {
     u32 sHealth = 0;
     u32 sMaxHealth = 0;
 
-    bool isWantedLuigi() {
-        return NebulaHost::coopMenu(NEBULA_COOP_MENU_CHARACTER) == 1;
+    // The Options page's character: by its id, as the host keeps it; its base (NEBULA_COOP_MENU_CHARACTER) when the
+    // id names no character here (a mod not running).
+    s32 getWantedCharacter() {
+        if (sOverride >= 0) {
+            return sOverride;
+        }
+        const bool luigi = NebulaHost::coopMenu(NEBULA_COOP_MENU_CHARACTER) == 1;
+        char wanted[NebulaCharacters::cIdSize];
+        NebulaHost::coopCharacterWanted(wanted, sizeof(wanted));
+        const s32 found = NebulaCharacters::find(wanted);
+        if (found >= 0 && NebulaCharacters::isLuigi(found) == luigi) {
+            return found;
+        }
+        return luigi ? NebulaCharacters::cLuigi : NebulaCharacters::cMario;
     }
 
     MarioActor* getLocalMario() {
@@ -95,7 +110,7 @@ namespace {
             pActor->mHealth = 1;
         }
         MR::resetCameraMan();
-        nebula_log("[character] back at the spot as %s\n", sSceneLuigi ? "Luigi" : "Mario");
+        nebula_log("[character] back at the spot as %s\n", NebulaCharacters::id(sSceneCharacter));
     }
 };  // namespace
 
@@ -103,7 +118,7 @@ namespace NebulaCharacter {
     void startScene() {
         // The main menu's stage plays no one: the character is still being picked there (Host and Join take it).
         sInScene = !MR::isStageFileSelect();
-        sSceneLuigi = isWantedLuigi();
+        sSceneCharacter = getWantedCharacter();
         sState = State_Idle;
         sSwitchReload = false;
         sRestore = sPending;
@@ -115,8 +130,28 @@ namespace NebulaCharacter {
         sInScene = false;
     }
 
+    s32 index() {
+        return sInScene ? sSceneCharacter : getWantedCharacter();
+    }
+
     bool isLuigi() {
-        return sInScene ? sSceneLuigi : isWantedLuigi();
+        return NebulaCharacters::isLuigi(index());
+    }
+
+    s32 wanted() {
+        return getWantedCharacter();
+    }
+
+    bool setOverride(s32 character) {
+        if (character >= 0 && NebulaCharacters::at(character) == nullptr) {
+            return false;
+        }
+        sOverride = character < 0 ? -1 : character;
+        return true;
+    }
+
+    s32 getOverride() {
+        return sOverride;
     }
 
     bool isSwitchReload() {
@@ -141,7 +176,7 @@ namespace NebulaCharacter {
         }
 
         if (sState == State_Idle) {
-            if (!inPlay || isWantedLuigi() == sSceneLuigi || !isStageSwitchable() || !isPlayerFree(pActor) || !MR::isWipeOpen() ||
+            if (!inPlay || getWantedCharacter() == sSceneCharacter || !isStageSwitchable() || !isPlayerFree(pActor) || !MR::isWipeOpen() ||
                 MR::isWipeActive()) {
                 return;
             }
@@ -165,7 +200,7 @@ namespace NebulaCharacter {
         sPending = true;
         sSwitchReload = true;
         sState = State_Reloading;
-        nebula_log("[character] switching to %s: %s %d starts again\n", isWantedLuigi() ? "Luigi" : "Mario", sStage, sScenario);
+        nebula_log("[character] switching to %s: %s %d starts again\n", NebulaCharacters::id(getWantedCharacter()), sStage, sScenario);
         if (MR::isStageAstroLocation()) {
             // The observatory has no retry: entered again as from its other domes, at the start this visit began at.
             // The restart point may still be the last galaxy's, a start the observatory does not have.

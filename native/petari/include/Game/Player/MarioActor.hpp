@@ -66,6 +66,7 @@ enum PlayerMode {
 };
 
 extern bool gIsLuigi;  // set by MarioActor::init2 from MR::isPlayerLuigi
+extern s32 gPlayerCharacter;  // set with it: the character played (NebulaCharacters), Mario's or Luigi's or a mod's
 
 class MarioActor : public LiveActor {
 public:

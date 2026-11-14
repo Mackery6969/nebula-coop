@@ -503,11 +503,38 @@ std::size_t start_plugins(const std::vector<PluginFile>& plugins, const ModRows&
         for (const std::string& name : rule.acts_as) g_api.set_stage_rules(rule.stage.c_str(), rule.scenario, name.c_str(), 1);
         if (!rule.own_rules) g_api.set_stage_rules(rule.stage.c_str(), rule.scenario, nullptr, 0);
     }
+    // Characters before their numbers (player_constants by their id).
+    for (const CharacterToAdd& row : rows.characters) {
+        auto loaded = std::make_unique<Loaded>();
+        loaded->mod_id = row.mod_id;
+        loaded->version = row.mod_version;
+        loaded->self.size = sizeof(NebulaPlugin);
+        loaded->self.id = loaded->mod_id.c_str();
+        loaded->self.version = loaded->version.c_str();
+        Loaded* const mod = data_mod(std::move(loaded));
+        NebulaCharacterClass character{};
+        character.size = sizeof(NebulaCharacterClass);
+        character.id = row.id.c_str();
+        character.name = row.name.empty() ? nullptr : row.name.c_str();
+        character.like = row.like.empty() ? nullptr : row.like.c_str();
+        character.archive = row.archive.empty() ? nullptr : row.archive.c_str();
+        if (g_api.add_character == nullptr || g_api.add_character(&mod->self, &character) < 0) {
+            say(row.mod_id + ": the character " + row.id + " can't be added (its id is taken, or there are too many)");
+        }
+    }
     // A number past what a number holds (1e999 in luma.json reads as infinite) changes nothing, and is named as such.
     for (const PlayerConstantToSet& constant : rows.player_constants) {
+        int character = constant.character;
+        if (!constant.character_id.empty()) {
+            character = g_api.character_find != nullptr ? g_api.character_find(constant.character_id.c_str()) : -1;
+            if (character < 0) {
+                say(constant.mod_id + ": no character " + constant.character_id + " for " + constant.name);
+                continue;
+            }
+        }
         if (!std::isfinite(constant.value)) {
             say(constant.mod_id + ": " + constant.name + " is set to a number too large to hold");
-        } else if (g_api.set_player_constant(constant.character, constant.name.c_str(), constant.index, constant.value) != 0) {
+        } else if (g_api.set_player_constant(character, constant.name.c_str(), constant.index, constant.value) != 0) {
             say(constant.mod_id + ": the player has no number " + constant.name);
         }
     }

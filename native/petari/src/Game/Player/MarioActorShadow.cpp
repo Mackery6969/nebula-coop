@@ -5,6 +5,7 @@
 #include "Game/Player/JetTurtleShadow.hpp"
 #include "Game/Player/Mario.hpp"
 #include "Game/Player/MarioActor.hpp"
+#include "Game/Player/NebulaCharacters.hpp"
 #include "Game/Player/MarioConst.hpp"
 #include "Game/Player/MarioShadow.hpp"
 #include "Game/Player/MarioSwim.hpp"
@@ -56,11 +57,7 @@ NEBULA_TUNABLE_NAMED(f32, cNum_calcViewFootPrint_f1, "calcViewFootPrint.f1", 0.1
 void MarioActor::initShadow() {
     mShadowMode = 1;
 
-    if (gIsLuigi) {
-        mSimpleModelHolder = new ModelHolder("LuigiShadow", true);
-    } else {
-        mSimpleModelHolder = new ModelHolder("MarioShadow", true);
-    }
+    mSimpleModelHolder = new ModelHolder(NebulaCharacters::modelName(gPlayerCharacter, gIsLuigi ? "LuigiShadow" : "MarioShadow"), true);
 
     mSimpleModelHolder->initWithoutIter();
 

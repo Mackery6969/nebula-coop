@@ -399,6 +399,9 @@ typedef struct NebulaCoopPlayer {
     float platform_position[3]; /* where, in the platform's own space (its collision's base matrix) */
     float platform_front[3];    /* their front and up there, as `front` and `up` */
     float platform_up[3];
+    char character[32];         /* the character played (NebulaCharacters' id: "mario", "luigi", a mod's "wario"), its
+                                   base NEBULA_COOP_PLAYER_LUIGI's. The host sends it when it changes (the session's
+                                   player record), not in the snapshot: the others read it in NebulaCoopRemotePlayer */
 } NebulaCoopPlayer;
 
 enum {
@@ -422,7 +425,9 @@ enum {
 typedef struct NebulaCoopRemotePlayer {
     char name[32];           /* printable ASCII */
     uint32_t number;         /* 1 the host, then 2, 3... as they joined: the same player keeps theirs */
-    NebulaCoopPlayer player; /* their NEBULA_COOP_PLAYER_LUIGI is their character */
+    NebulaCoopPlayer player; /* their NEBULA_COOP_PLAYER_LUIGI is their character's base; `character` its id, as the
+                                session last told it (a moment behind the flag as they switch: a character whose base
+                                isn't the flag's is shown as the flag's) */
     uint32_t rewind_ms;      /* how long ago the local player was where this player saw them as they did what
                                 `player` shows: the round trip between the two and both ways' drawing delay
                                 (sm64coopdx's lag compensation) */
@@ -457,6 +462,7 @@ typedef struct NebulaCoopListPlayer {
     uint32_t ping_ms;  /* the round trip to them, 0 for this player or when unknown */
     uint32_t flags;    /* NEBULA_COOP_LIST_* */
     uint32_t stars;    /* the Power Stars they got in this room, new to its save (coop_star_count) */
+    char character[32]; /* the character they play (NebulaCoopPlayer's `character`), its base NEBULA_COOP_LIST_LUIGI's */
 } NebulaCoopListPlayer;
 
 enum {
@@ -1261,6 +1267,10 @@ typedef struct NebulaHostServices {
     /* Online co-op's pop-ups (NebulaCoopPopup): 1 with the oldest one waiting, 0 when none waits (or no room). Called
        on the simulation thread, each game scene frame. */
     int (*coop_popup_take)(void* user, NebulaCoopPopup* popup);
+    /* The character the player wants, by id (Options' PLAYER page: "mario", "luigi", or a mod's), at most `capacity`
+       bytes into `id`; its base is NEBULA_COOP_MENU_CHARACTER's. The game plays a mod's only while it runs that mod's
+       character (NebulaCharacters), else the base. Called on the simulation thread. */
+    void (*coop_character_wanted)(void* user, char* id, uint32_t capacity);
 } NebulaHostServices;
 
 

@@ -1,4 +1,6 @@
 #include "Game/System/NebulaCoopMods.hpp"
+#include "Game/Player/NebulaCharacter.hpp"
+#include "Game/Player/NebulaCharacters.hpp"
 #include "Game/System/NebulaHost.hpp"
 #include "Game/System/NebulaMods.hpp"
 #include "Game/Util/EventUtil.hpp"
@@ -157,6 +159,22 @@ namespace NebulaCoopMods {
 
     s32 stars(s32 index) {
         return sNow.mIn && valid(index) ? static_cast< s32 >(sNow.mPlayers[index].stars) : 0;
+    }
+
+    const char* characterId(s32 index) {
+        if (!sNow.mIn) {
+            return index == 0 ? NebulaCharacters::id(NebulaCharacter::index()) : "";
+        }
+        if (!valid(index)) {
+            return "";
+        }
+        NebulaCoopListPlayer& rPlayer = sNow.mPlayers[index];
+        rPlayer.character[sizeof(rPlayer.character) - 1] = '\0';
+        // A host too old to say: its base.
+        if (rPlayer.character[0] == '\0') {
+            return (rPlayer.flags & NEBULA_COOP_LIST_LUIGI) != 0 ? "luigi" : "mario";
+        }
+        return rPlayer.character;
     }
 
     s32 ping(s32 index) {

@@ -1,5 +1,6 @@
 #include "Game/Player/PlayerModel.hpp"
 #include "Game/Player/MarioActor.hpp"
+#include "Game/Player/NebulaCharacters.hpp"
 #include "Game/Player/MarioAnimator.hpp"
 #include "Game/Player/MarioState.hpp"
 #include "Game/Player/ModelHolder.hpp"
@@ -44,20 +45,20 @@ void MarioActor::initHand() {
     mIceHandR = nullptr;
 
     if (mIceModel != nullptr) {
-        mIceHandL = new ModelHolder("IceMarioHandL", true);
+        mIceHandL = new ModelHolder(NebulaCharacters::modelName(gPlayerCharacter, "IceMarioHandL"), true);
         MR::initMaterialFog(mIceHandL, true);
         MR::prepareMaterials(mIceHandL);
 
-        mIceHandR = new ModelHolder("IceMarioHandR", true);
+        mIceHandR = new ModelHolder(NebulaCharacters::modelName(gPlayerCharacter, "IceMarioHandR"), true);
         MR::initMaterialFog(mIceHandR, true);
         MR::prepareMaterials(mIceHandR);
     }
 
-    mHandL = new ModelHolder("MarioHandL", true);
+    mHandL = new ModelHolder(NebulaCharacters::modelName(gPlayerCharacter, "MarioHandL"), true);
     MR::initMaterialFog(mHandL, true);
     MR::prepareMaterials(mHandL);
 
-    mHandR = new ModelHolder("MarioHandR", true);
+    mHandR = new ModelHolder(NebulaCharacters::modelName(gPlayerCharacter, "MarioHandR"), true);
     MR::initMaterialFog(mHandR, true);
     MR::prepareMaterials(mHandR);
 
@@ -65,11 +66,11 @@ void MarioActor::initHand() {
     mInvincibleHandR = nullptr;
 
     if (mInvincibleModel != nullptr) {
-        mInvincibleHandL = new ModelHolder("InvincibleMarioHandL", true);
+        mInvincibleHandL = new ModelHolder(NebulaCharacters::modelName(gPlayerCharacter, "InvincibleMarioHandL"), true);
         MR::initMaterialFog(mInvincibleHandL, true);
         MR::prepareMaterials(mInvincibleHandL);
 
-        mInvincibleHandR = new ModelHolder("InvincibleMarioHandR", true);
+        mInvincibleHandR = new ModelHolder(NebulaCharacters::modelName(gPlayerCharacter, "InvincibleMarioHandR"), true);
         MR::initMaterialFog(mInvincibleHandR, true);
         MR::prepareMaterials(mInvincibleHandR);
     }

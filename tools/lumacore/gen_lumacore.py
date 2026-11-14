@@ -825,7 +825,8 @@ def emit_registries(generated):
         ('floor', 'Floor codes of collision. Number: the code.', generated['floor']),
         ('comet', 'Comet kinds a galaxy\'s scenario names. Number: its id.', [(n, i) for i, n in enumerate(comets)]),
         ('hud', 'HUD parts (`show_hud`). Number: its bit.', generated['hud']),
-        ('character', 'Who the player plays. Number: 1 for Luigi.', [('mario', 0), ('luigi', 1)]),
+        ('character', 'Who the player plays (docs/modding/CHARACTERS.md). Number: its index (character_id); a mod\'s '
+                      'luma.json "characters" and add_character add more, after these.', [('mario', 0), ('luigi', 1)]),
     ]
     out = ['# Registries', '', 'Every kind of thing the game has is a registry: its own rows and the ones mods add, '
            'by name. Scripts read a row\'s number with `registry("kind/name")` (`registry("form/fire")`); plugins and '

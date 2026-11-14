@@ -20,6 +20,8 @@
 #include "Game/Player/MarioParts.hpp"
 #include "Game/Player/MarioShadow.hpp"
 #include "Game/Player/MarioSwim.hpp"
+#include "Game/Player/NebulaCharacter.hpp"
+#include "Game/Player/NebulaCharacters.hpp"
 #include "Game/Player/ModelHolder.hpp"
 #include "Game/Player/RushEndInfo.hpp"
 #include "Game/Scene/SceneFunction.hpp"
@@ -164,6 +166,7 @@ namespace {
 };  // namespace
 
 bool gIsLuigi;
+s32 gPlayerCharacter;
 
 MarioActor::MarioActor(const char* pName) : LiveActor(pName), mFlashFogColor(0xFFFFFFFF) {
     lumacore::setClass(this, lumacore::kClassId< MarioActor >);
@@ -358,6 +361,8 @@ void MarioActor::init(const TableIter& rInfo) {
 
 void MarioActor::init2(const Vec3f& rA, const Vec3f& rB, s32 initialAnimation) {
     mInitializing = 1;
+    // The character this scene plays (NebulaCharacter): its model, its base (gIsLuigi) and its numbers.
+    gPlayerCharacter = NebulaCharacter::index();
     gIsLuigi = false;
     if (MR::isPlayerLuigi()) {
         gIsLuigi = true;
@@ -380,7 +385,11 @@ void MarioActor::init2(const Vec3f& rA, const Vec3f& rB, s32 initialAnimation) {
     mMarioEffect = new MarioEffect(this);
     mCollisionShadow = new CollisionShadow(cNum_init2_f1, cNum_init2_f2);
     mConst = new MarioConst();
-    if (gIsLuigi) {
+    // The played character's own numbers (NebulaCharacters): Luigi's for Luigi, a mod character's its own.
+    if (MarioConstTable* pTable = NebulaCharacters::constTable(gPlayerCharacter)) {
+        mConst->mTable[1] = pTable;
+        mConst->changeTable(1);
+    } else if (gIsLuigi) {
         mConst->changeTable(1);
     }
 

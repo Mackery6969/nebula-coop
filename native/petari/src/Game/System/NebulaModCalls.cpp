@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Plugin calls into the game's save, story and scene (NebulaModCalls.hpp).
 #include "Game/System/NebulaModCalls.hpp"
+#include "Game/Player/NebulaCharacter.hpp"
+#include "Game/Player/NebulaCharacters.hpp"
 #include <nebula_module.h>
 #include "Game/AreaObj/AreaForm.hpp"
 #include "Game/AreaObj/AreaObj.hpp"
@@ -99,14 +101,9 @@ extern "C" int32_t nebula_mod_give_grand_stars(int32_t count) {
 }
 
 extern "C" int32_t nebula_mod_set_player_character(int32_t luigi) {
-    GameDataHolder* pHolder = GameDataFunction::getCurrentGameDataHolder();
-    if (pHolder == nullptr) {
-        return 0;
-    }
-    // The file played is user 1's Mario or Luigi file; the stage built next reads it.
-    pHolder->mIsMario = luigi == 0;
-    pHolder->mUser = 1;
-    return 1;
+    // The player's character, picked by the mod (NebulaCharacter's override): a reload in a stage, as a switch on the
+    // Options page. The file's own Mario/Luigi choice no longer picks it.
+    return NebulaCharacter::setOverride(luigi != 0 ? NebulaCharacters::cLuigi : NebulaCharacters::cMario) ? 1 : 0;
 }
 
 extern "C" int32_t nebula_mod_list_materials(const char* pModel, NebulaMaterialCallback callback, void* pUser) {
